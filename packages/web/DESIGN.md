@@ -1,6 +1,6 @@
 ---
 name: PACE
-description: 石青品牌亮色外观：浅石青侧栏、深石青主操作、纯白内容面，沿用 CDS 字体、圆角、发丝边与双环浮层。
+description: 石青品牌亮色外观：浅石青侧栏、白底中性主操作、纯白内容面，沿用 CDS 字体、圆角、发丝边与双环浮层。
 colors:
   canvas: "#FBFBFB"
   surface: "#FFFFFF"
@@ -22,17 +22,14 @@ colors:
   control-boundary: "rgba(0, 0, 0, 0.35)"
   input: "rgba(0, 0, 0, 0.10)"
   input-focus: "#BDBDBD"
-  link: "#2C5660"
+  link: "#202B2E"
   fg: "#202B2E"
   muted-foreground: "#505F63"
   subtle: "#898781"
   primary: "#0B0B0B"
   primary-hover: "#0B0B0B"
   primary-foreground: "#FFFFFF"
-  ring: "#4D7079"
-  button-primary: "#315D67"
-  button-primary-hover: "#284F58"
-  button-primary-active: "#204149"
+  ring: "#202B2E"
   success: "#187646"
   success-soft: "#E9F3EC"
   warning: "#8A5600"
@@ -124,22 +121,18 @@ spacing:
   xl: "20px"
   2xl: "24px"
 components:
-  button-primary:
-    backgroundColor: "{colors.button-primary}"
-    textColor: "{colors.primary-foreground}"
+  button-default:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.fg}"
+    borderColor: "{colors.line}"
     typography: "{typography.label-strong}"
     rounded: "{rounded.item}"
     padding: "0 10px"
     height: "32px"
-  button-primary-hover:
-    backgroundColor: "{colors.button-primary-hover}"
-    textColor: "{colors.primary-foreground}"
-  button-primary-active:
-    backgroundColor: "{colors.button-primary-active}"
-    textColor: "{colors.primary-foreground}"
   button-solid:
-    backgroundColor: "{colors.button-primary}"
-    textColor: "{colors.primary-foreground}"
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.fg}"
+    borderColor: "{colors.line}"
     typography: "{typography.label-strong}"
     rounded: "{rounded.item}"
     padding: "0 10px"
@@ -227,31 +220,33 @@ components:
 
 2026-11-07 用户决定撤回 #208 / #209 / #210 的全站 UI 重设计，视觉以 #207（`fbf3c332`）的既有 CDS 外观为恢复基线；石青配色、主侧栏导航与书签、Bun 与脚手架保留。同日进一步确认：所有业务卡片默认沿用找专家卡片的白底、常态深度与 hover 上浮反馈；主侧栏导航选中项共用纯白 `surface` 与共享投影，导航保留既有几何与功能。实现必须同步共享入口与现有调用方；规范本身不代表真实渲染验收通过，历史验证记录只覆盖其记录版本。
 
+2026-11-13 用户决定将内容区动作色由石青改为中性白：主操作按钮使用白底、细边与深色文字，链接、键盘焦点环与文本选区使用中性色；石青仅保留在左侧导航，品牌 Logo 与插画保留原配色。
+
 **Creative North Star: "The Quiet Workbench（静默工作台）"**
 
-PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。侧栏底面与非选中 hover 使用既有浅石青角色，导航当前项采用与卡片一致的纯白表面和共享投影，文字与图标仍为深色，石青实底主操作保持最强的动作信号。工具、标题与正文是深墨色，主操作与按钮键盘焦点用石青，状态只在需要时以小面积语义色或呼吸点出现。
+PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。侧栏底面与非选中 hover 使用既有浅石青角色，导航当前项采用与卡片一致的纯白表面和共享投影，文字与图标仍为深色。工具、标题、正文、链接与按钮键盘焦点使用中性色，主操作使用白底细边按钮，状态只在需要时以小面积语义色或呼吸点出现。
 
-这套系统用石青承担「可执行」与按钮键盘焦点，用中性灰、浅石青侧栏与白色阶梯承担层级：普通主操作、发送、登录共用 `#315D67` → `#284F58` → `#204149` 三态实底；正文链接用深石青 `#2C5660`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。运行图表首系列保留独立数据蓝；它与石青品牌角色分开使用。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。
+这套系统仅在左侧导航使用石青，品牌 Logo 与插画保留原配色，用中性灰、浅石青侧栏与白色阶梯承担层级：普通主操作、发送、登录共用白底、细 `line` 边线与 `fg` 深色文字，hover 用 `hover` 中性浅底；正文链接与按钮键盘焦点环使用 `fg #202B2E`，文本选区使用中性色；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。运行图表首系列保留独立数据蓝；它与石青品牌角色分开使用。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。
 
 本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。颜色采用用户选定的石青，字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，未覆盖项与规范差异见 Known Gaps 和对应任务记录。颜色角色以石青品牌系统为准；CDS 组件机制、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等既有适配保留，见 Do's 与 Known Gaps。
 
 **Key Characteristics:**
 - 平铺外壳：`canvas #FBFBFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、无外边距、无外层描边。
-- 石青动作三态：`#315D67` / `#284F58` / `#204149`，白字；hover/active 档对比度更高。
+- 中性动作按钮：`default` / `solid` 为白底、细 `line` 边线与 `fg` 深色文字，hover 用 `hover #F0F0F0`，保留轻阴影与按压反馈。
 - 中性灰状态层：hover `#F0F0F0`，selected / accent `#E6E6E6`，chip `#F2F2F2`；主侧栏底面与非选中 hover 使用浅石青 `sidebar`、`sidebar-hover`，当前项用映射到纯白 `surface` 的 `sidebar-selected` 与共享 `shadow-panel`，hover 换 `shadow-panel-hover`。
 - 输入默认发丝边 `rgba(0,0,0,.10)`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`.cds-focus-glow`：`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus #BDBDBD`，composer 聚焦用 `shadow-composer-focus`；checkbox/radio 强边界 `rgba(0,0,0,.35)`，见 Known Gaps。
-- 正文链接与 `link` 变体用深石青 `#2C5660`；卡片常态用 `--shadow-panel`，所有业务卡片默认在 hover 上浮 1.5px 并换 `--shadow-panel-hover`，过渡为 200ms `--ease-out-soft`。
-- 数据蓝 `#2A78D6` 只用于图表首系列，不参与任何 UI 动作；按钮键盘焦点环为石青 `#4D7079`，输入框聚焦为中性暖灰而非石青。
+- 正文链接与 `link` 变体用中性 `fg #202B2E`，保留下划线区分；卡片常态用 `--shadow-panel`，所有业务卡片默认在 hover 上浮 1.5px 并换 `--shadow-panel-hover`，过渡为 200ms `--ease-out-soft`。
+- 数据蓝 `#2A78D6` 只用于图表首系列，不参与任何 UI 动作；按钮键盘焦点环为中性 `fg #202B2E`，输入框聚焦为中性暖灰。
 - AnthropicSans → Inter → 中文回退的 13/20 界面档与 14/22 对话阅读档；CDS 弹簧、入场与呼吸动效按本页当前值。
 
 ## Colors
 
-浅石青导航、纯白工作面、深墨文字与石青动作；没有外壳渐变或页面自定强调色。
+浅石青导航、纯白工作面、深墨文字与白底中性动作按钮；没有外壳渐变或页面自定强调色。
 
 ### Primary
 
-- **石青动作（Petrol Action）** (#315D67 / #284F58 / #204149)：`default` 与显式 `solid` 主操作、发送、登录共用的实底三态；按钮键盘焦点环使用独立的石青 `ring #4D7079`。主操作与焦点分属不同令牌，不用于正文。
-- **链接深石青（Link Petrol）** (#2C5660)：正文链接与 `link` 变体；白底 8.05:1、`selected` 6.45:1，保留装饰线下划线。
+- **中性动作（Neutral Action）**：`default` 与显式 `solid` 主操作、发送、登录共用白底、细 `line` 边线与 `fg` 深色文字，hover 用中性 `hover`；按钮键盘焦点环使用 `ring`，映射到 `fg #202B2E`。
+- **中性链接（Neutral Link）** (#202B2E)：正文链接与 `link` 变体共用 `fg`；白底 14.52:1、`selected` 11.63:1，保留装饰线下划线。
 
 ### Secondary
 
@@ -278,17 +273,17 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 - **辅助石灰（Helper Gray）** (#505F63)：placeholder、描述、元信息、注释、表头次要信息；承载可读文字。
 - **装饰灰（Decorative Gray）** (#898781)：只用于装饰图标与禁用例外，不承载需要阅读的信息。
 - **代码块（Code Block）** (#0D0D0C / #E6E6E4)：围栏/块级代码的深色面与浅色正文；行内 `code` 仍是浅 chip `#F6F6F6`，两种代码形态不互换。
-- **状态色**：success `#187646`、warning `#8A5600`、danger `#B42318`；浅底分别是 `#E9F3EC`、`#FBF3E4`、`#FCEBE9`。只在小面积表达结果，不能把普通石青动作当作成功。
-- **运行中状态**：`StatusBadge` 的 `brand` tone 使用 `selected` 浅底与 `fg` 字，运行圆点用 `fg`。状态文字与既有动效保留，不借石青动作色。
+- **状态色**：success `#187646`、warning `#8A5600`、danger `#B42318`；浅底分别是 `#E9F3EC`、`#FBF3E4`、`#FCEBE9`。只在小面积表达结果，不能把普通动作当作成功。
+- **运行中状态**：`StatusBadge` 的 `brand` tone 使用 `selected` 浅底与 `fg` 字，运行圆点用 `fg`。状态文字与既有动效保留，不借品牌色。
 - **遮罩（Scrim）** (`rgb(0 0 0 / 0.4)`)：Dialog、Sheet 等模态遮罩。
 
 ### Named Rules
 
 **The Flat-Shell Rule.** 应用外壳平铺全幅：根容器铺 `canvas #FBFBFB`，侧栏铺不透明的 `sidebar` 浅石青底，主内容区贴边铺 `surface #FFFFFF`。外壳不得再加渐变、圆角、外边距或描边；收起与固定展开侧栏无阴影，只有临时预览侧栏复用 `shadow-overlay` 覆盖正文。分区靠底色差异与留白表达。
 
-**The Petrol-Action Rule.** 主操作用石青：`default` 与显式 `solid` 共用 `button-primary` 三态与白字，按钮键盘焦点使用独立的 `ring`，链接使用 `link`。通用 `primary` 保持墨色，供复选框、Slider 活跃轨道与 line 页签等控件使用；成功、警告与危险不借品牌色。
+**The Neutral-Action Rule.** 内容区主操作用白底中性按钮：`default` 与显式 `solid` 共用白底、细边、深色字与中性 hover，按钮键盘焦点 `ring` 与链接 `link` 均映射到 `fg`，文本选区使用中性色。石青仅用于左侧导航，品牌 Logo 与插画保留原配色。通用 `primary` 保持墨色，供复选框、Slider 活跃轨道与 line 页签等控件使用；成功、警告与危险不借品牌色。
 
-**The Data-Blue Exception Rule.** `chart-runs #2A78D6` 只允许出现在图表数据系列；失败用 `danger`。品牌石青用于动作、链接、焦点与导航底面，数据蓝不得蔓延到这些角色或状态。
+**The Data-Blue Exception Rule.** `chart-runs #2A78D6` 只允许出现在图表数据系列；失败用 `danger`。内容区动作、链接、焦点与文本选区使用中性色，数据蓝不得蔓延到这些角色或状态。
 
 ## Typography
 
@@ -385,7 +380,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 - **Overlay** (`0 0 0 1px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)`；实现经 `--hairline`，retina 下约 0.5px)：菜单、Select、Combobox、Popover、Dialog、AlertDialog、Sheet、Toast 与临时预览侧栏。`shadow-md` 与 `shadow-lg` 都映射到这一值。
 - **Composer**：默认 `0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 1px rgba(0, 0, 0, 0.10)`；hover `0 4px 24px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(0, 0, 0, 0.20)`；聚焦 `0 4px 24px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.20), 0 0 0 1px rgba(0, 0, 0, 0.20)`。
-- **Input Focus** (`border-color: #898781`)：输入族经 `.cds-focus-glow` 使用的 1px 中性暖灰聚焦边，无光晕；无边框按钮类仍用单层 2px 石青 `ring`。
+- **Input Focus** (`border-color: #898781`)：输入族经 `.cds-focus-glow` 使用的 1px 中性暖灰聚焦边，无光晕；无边框按钮类仍用单层 2px 中性 `ring`。
 - **Panel** (`0 0 0 1px rgba(0, 0, 0, 0.10), var(--shadow-sm)`（值 `0 1px 2px 0 rgba(0,0,0,0.05), 0 2px 8px 0 rgba(0,0,0,0.08)`）)：内容卡与导航选中项共用的常态边界与轻投影，取代单独 ring。
 - **Panel Hover** (`0 0 0 1px rgba(0, 0, 0, 0.20), 0 4px 16px -2px rgba(0, 0, 0, 0.09)`)：所有业务内容卡与导航选中项的 hover 投影；内容卡默认沿用 `translateY(-1.5px)`，导航不位移。
 - **Modal Scrim** (`rgb(0 0 0 / 0.4)`)：模态遮罩，不是阴影。
@@ -404,21 +399,21 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 ### Buttons
 
-深墨与石青工具，次要动作保持轻。
+白底中性按钮与深墨文字，次要动作保持轻。
 
 - **Shape:** 常规高 32px、8px 圆角、13/20 500；紧凑 28px / 8px；大号 36px。图标按钮用 `size="icon"` 32px / `icon-lg` 36px，与 `icon-sm`（28px）、`icon-xs`（24px）同为 8px；侧栏折叠按钮实例也显式 8px。保留 1px 透明边框占位，尺寸不因换色变化。所有共享按钮带 `.cds-btn-squish`：active 时 `scale(0.975)`，使用 15 阶 `--btn-spring` 弹簧。按钮是控件契约：hover 只按 variant 换底色或前景（150ms `--ease-out-soft`），active 保留 `scale(0.975)` 与 60ms 按压，不加卡片投影或上浮。
-- **Primary:** 同一工作面的主要任务与表单提交使用常规 32px `default`，用 `button-primary` 石青实底、白字，hover `#284F58`、active `#204149`；disabled 仅降透明度并禁止交互。角色新建只增加草稿，保存为主操作；评估新建用例为次操作，运行评估为主操作。按动作职责核对 variant，不机械批量替换。
-- **Solid:** 发送、登录等显式动作与 `default` 共用同一石青三态实底。
-- **Outline / Secondary / Ghost / Plain:** outline 白底、1px `line` 边线、`fg` 字，hover 与展开 `#F0F0F0`；secondary 用 `#F0F0F0` 底；ghost 透明，hover 与展开 `#F0F0F0`；plain 保持透明且不加 hover 底。取消、筛选与菜单触发器不因主操作改成石青实底；局部与行内操作使用 `sm` 28px。删除、撤销与放弃使用既有 `destructive`。
-- **Link:** `#2C5660` 深石青文字，保留下划线 hover 与可访问名，使用独立链接角色表明可点击。导航与下载入口用原生 `Link` / `<a>` 配 `buttonVariants`，保持链接语义与既有外观，不用 `Button` 强制 `role=button`。
-- **Focus:** 实底按钮用单层 2px 石青 `ring`，并在实底外留 2px 背景色间隔；invalid 时危险边框与焦点环共存，实底 offset 不消失。除输入类的中性暖灰聚焦边（`.cds-focus-glow`：Input / Textarea / Select / Combobox / InputGroup）与 SourceEditor / CodeMirror 搜索的 `input-focus` 换线算同一焦点信号外，不要同时出现边框与光环两层普通态焦点信号。
+- **Primary:** 同一工作面的主要任务与表单提交使用常规 32px `default`，用白底、细 `line` 边线与 `fg` 深色字，hover 与展开用 `hover #F0F0F0`，保留轻阴影；disabled 仅降透明度并禁止交互。角色新建只增加草稿，保存为主操作；评估新建用例为次操作，运行评估为主操作。按动作职责核对 variant，不机械批量替换。
+- **Solid:** 发送、登录等显式动作与 `default` 共用同一白底中性样式、轻阴影与焦点间隔。
+- **Outline / Secondary / Ghost / Plain:** outline 白底、1px `line` 边线、`fg` 字，hover 与展开 `#F0F0F0`；secondary 用 `#F0F0F0` 底；ghost 透明，hover 与展开 `#F0F0F0`；plain 保持透明且不加 hover 底。取消、筛选与菜单触发器保持各自中性变体；局部与行内操作使用 `sm` 28px。删除、撤销与放弃使用既有 `destructive`。
+- **Link:** `fg #202B2E` 中性文字，保留下划线 hover 与可访问名，使用独立链接角色表明可点击。导航与下载入口用原生 `Link` / `<a>` 配 `buttonVariants`，保持链接语义与既有外观，不用 `Button` 强制 `role=button`。
+- **Focus:** `default` / `solid` 按钮用单层 2px 中性 `ring`，并在按钮外留 2px 背景色间隔；invalid 时危险边框与焦点环共存，焦点 offset 不消失。除输入类的中性暖灰聚焦边（`.cds-focus-glow`：Input / Textarea / Select / Combobox / InputGroup）与 SourceEditor / CodeMirror 搜索的 `input-focus` 换线算同一焦点信号外，不要同时出现边框与光环两层普通态焦点信号。
 
 ### Tabs
 
 - **Segmented:** 容器 `#F0F0F0`、8px、3px 内边距、高 32px；项为 8px 圆角、13/20，未选中 `#505F63`、hover `fg`；当前项用 `#E6E6E6` 底 + `fg` + 1px `line` 边框，去掉小阴影。
 - **Resource segmented:** 资源页「内部 / 市场」用胶囊轨道：`sunken` 底、`rounded-pill`、`p-0.5`；当前项为 `surface` 白 thumb + `fg` + `shadow-sm`，非当前项 `muted-foreground`、hover `fg`。
 - **Line:** 列表透明、不铺底；当前项文字 `fg`，底部 2px `primary` 指示线保持原位置与宽度。
-- **Focus:** 页签项用单层 2px 石青 `ring`，不改变容器尺寸。
+- **Focus:** 页签项用单层 2px 中性 `ring`，不改变容器尺寸。
 
 ### Inputs / Fields
 
@@ -429,13 +424,13 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 ### Menus / Popovers / Overlays
 
 - **Menu / Select / Combobox / Popover:** 白浮层、1px `line` ring、双环 overlay 阴影；菜单与浮层 10px 圆角（`--radius-popover`），菜单项 8px 圆角、`4px 6px` 内边距。浮层经 `.cds-overlay-enter` 以 `opacity` + `scale(.96)` → `1` 弹入（200ms）。普通文字 `fg`、描述 `muted-foreground`；hover 与键盘高亮用 `accent` `#E6E6E6` + `accent-foreground` `#202B2E`；危险项用 `danger`，不被普通 hover 覆盖。菜单项键盘高亮即时，不强制 150ms 过渡。浮层与菜单容器不响应 hover 上浮，只使用各自表面深度。
-- **Dialog / AlertDialog / Sheet:** 基础 Dialog 白表面、16px 圆角（`--radius-dialog`）、1px `line` ring、overlay 阴影、16px 内边距；`DialogShell` 改为 `p-0`，头部 `px-5 py-3.5`、内容区 `px-5 py-4`。Modal 遮罩 `scrim`。基础 Dialog 标题 14/21 500（`leading-normal`），描述 13/20 `muted-foreground`。标准页脚按钮高 32px、间距 8px，取消 outline 在前，确认 default 石青实底在后，危险确认保持 destructive；不加多余分隔线，真正固定的长表单页脚可用 1px 线分隔正文。Sheet 贴边展示，不设圆角。
+- **Dialog / AlertDialog / Sheet:** 基础 Dialog 白表面、16px 圆角（`--radius-dialog`）、1px `line` ring、overlay 阴影、16px 内边距；`DialogShell` 改为 `p-0`，头部 `px-5 py-3.5`、内容区 `px-5 py-4`。Modal 遮罩 `scrim`。基础 Dialog 标题 14/21 500（`leading-normal`），描述 13/20 `muted-foreground`。标准页脚按钮高 32px、间距 8px，取消 outline 在前，确认 default 白底中性按钮在后，危险确认保持 destructive；不加多余分隔线，真正固定的长表单页脚可用 1px 线分隔正文。Sheet 贴边展示，不设圆角。
 - **Tooltip / Toast:** Tooltip 保留既有反色（`fg` 底、白字），不做成白浮层；Toast 白底、1px `line`、overlay 阴影，操作按钮用显式 outline，关闭按钮白底中性 hover。Toast、操作按钮与关闭按钮的焦点都用单层 2px `ring` outline、offset 2；操作按钮只用该 outline，不叠加按钮基类 ring 与焦点阴影，视觉上不出现第二圈光环。
 
 ### Cards / Tables / Lists
 
 - **Cards:** 纯白 `surface`、12px 圆角，必要边界由共享投影承担，不叠加独立 ring 或边框；按「共享卡片深度」与导航选中项共用 `--shadow-panel` / `--shadow-panel-hover`。所有业务卡片统一通过共享 `Card` 或 `.cds-card-surface` 常驻 `--shadow-panel`，默认在 hover 上浮 1.5px 并换 `--shadow-panel-hover`，阴影与 transform 均以 200ms `--ease-out-soft` 过渡；静态内容卡、指标卡与表单详情卡同样适用。Card 根是带 `py-4` 的纵向 flex，子块间距 16px（`size="sm"` 为 12px），根本身没有水平 padding；Header、Content、Footer 各自承担 16px 水平内边距，Footer 独立 `p-4`，存在 Footer 时根 `pb-0`。因此不能描述成「所有裸 Card 子节点统一 p16」。CardTitle 为 14/22（`text-base`），sm 卡为 13/20（`text-sm`）；描述 13/20 `muted-foreground`。真实浏览器已测量标题行高 22px。
-- **Expert card:** 已创建专家卡与两张创建入口卡采用 176px 最小高度（`min-h-44`），同一网格行等高，必要说明较多时自然增高；同列宽、16px 网格 gap 与内部 padding。网格按可用宽度使用 `repeat(auto-fill, minmax(min(100%, 256px), 1fr))` 自动分列，`p-2` 在四周保留 8px 绘制空间，供投影与 hover 上浮使用；1440px 桌面固定展开侧栏时目标四列，1200px 时三列。40px 头像（「创建数字分身」入口为 64px）。身份头部为头像加名称链接与角色两行，角色在名称下方用 12/16 `muted-foreground` 纯文本，单行截断并用 `title` 保留全文，空角色回退「通用助手」；停用状态仍用默认中性 `StatusBadge`，以 `shrink-0` 保持与角色同行，右上角只保留「更多」操作菜单。头部、正文与操作行之间各隔 12px，不固定头部或中部高度。正文占据剩余高度并垂直居中（`CardContent` 的 `flex-1 justify-center`），简介占全宽、最多两行，权限原因完整换行、不截断，空介绍不造占位文案；底部为独立 32px 操作行，同一行间距 8px（`gap-2`），随卡片高度贴底，「开始对话」用 secondary 次操作并保持自身内容宽度，与右侧带 `IdCard` 图标的 ghost「工牌」按钮同一行两端对齐，禁用时用 outline + disabled；列表页唯一石青实底主操作为顶部「新建专家」。无使用权限时权限原因可见并以 `aria-describedby` 关联「开始对话」，停用专家不提供可执行对话。可访问名为「查看 <名称> 工牌」的按钮打开工牌专用的插画式实体证件：沿用 Base UI Dialog 的焦点、Esc/外部点击关闭与关闭后返回原触发器，但作为明确例外使用透明 DialogContent，不套标准头部或白色弹框外壳，标题「<名称> 的工牌」仅 sr-only，关闭按钮可达，不改动全局 DialogShell 契约。视觉为居中的 96px 挂绳与扣环连接 360px 宽竖式卡套，内含 96px 原插画头像；卡套以真实 DOM 展示数字员工身份、姓名、岗位、启停、完整介绍、员工编号（真实 id）与上岗时间（真实 `createdAt`，含年与时区；缺失或无效显示「未记录」，空介绍显示「未填写介绍」）。短视口整体单层滚动，长姓名与介绍不截断；白底中性 token，现有插画配色例外沿用，不新增动效；只读不请求详情，不展示提示词、成员资料或二维码等虚构统计。不使用 CardFooter、底带或分隔线。**保留（受保护）**：找专家页的扇形「新建专家」入口卡与「创建数字分身」卡是用户刻意要求的创建入口，不得删除、合并或改为仅页头入口。
+- **Expert card:** 已创建专家卡与两张创建入口卡采用 176px 最小高度（`min-h-44`），同一网格行等高，必要说明较多时自然增高；同列宽、16px 网格 gap 与内部 padding。网格按可用宽度使用 `repeat(auto-fill, minmax(min(100%, 256px), 1fr))` 自动分列，`p-2` 在四周保留 8px 绘制空间，供投影与 hover 上浮使用；1440px 桌面固定展开侧栏时目标四列，1200px 时三列。40px 头像（「创建数字分身」入口为 64px）。身份头部为头像加名称链接与角色两行，角色在名称下方用 12/16 `muted-foreground` 纯文本，单行截断并用 `title` 保留全文，空角色回退「通用助手」；停用状态仍用默认中性 `StatusBadge`，以 `shrink-0` 保持与角色同行，右上角只保留「更多」操作菜单。头部、正文与操作行之间各隔 12px，不固定头部或中部高度。正文占据剩余高度并垂直居中（`CardContent` 的 `flex-1 justify-center`），简介占全宽、最多两行，权限原因完整换行、不截断，空介绍不造占位文案；底部为独立 32px 操作行，同一行间距 8px（`gap-2`），随卡片高度贴底，「开始对话」用 secondary 次操作并保持自身内容宽度，与右侧带 `IdCard` 图标的 ghost「工牌」按钮同一行两端对齐，禁用时用 outline + disabled；列表页顶部「新建专家」使用白底中性主操作按钮。无使用权限时权限原因可见并以 `aria-describedby` 关联「开始对话」，停用专家不提供可执行对话。可访问名为「查看 <名称> 工牌」的按钮打开工牌专用的插画式实体证件：沿用 Base UI Dialog 的焦点、Esc/外部点击关闭与关闭后返回原触发器，但作为明确例外使用透明 DialogContent，不套标准头部或白色弹框外壳，标题「<名称> 的工牌」仅 sr-only，关闭按钮可达，不改动全局 DialogShell 契约。视觉为居中的 96px 挂绳与扣环连接 360px 宽竖式卡套，内含 96px 原插画头像；卡套以真实 DOM 展示数字员工身份、姓名、岗位、启停、完整介绍、员工编号（真实 id）与上岗时间（真实 `createdAt`，含年与时区；缺失或无效显示「未记录」，空介绍显示「未填写介绍」）。短视口整体单层滚动，长姓名与介绍不截断；白底中性 token，现有插画配色例外沿用，不新增动效；只读不请求详情，不展示提示词、成员资料或二维码等虚构统计。不使用 CardFooter、底带或分隔线。**保留（受保护）**：找专家页的扇形「新建专家」入口卡与「创建数字分身」卡是用户刻意要求的创建入口，不得删除、合并或改为仅页头入口。
 - **Tables / Lists:** 纯白底、1px `line` 分隔；表头 12px `muted-foreground`，单元格 13/20；连续行保持平面，行 hover 与展开只换不透明 `hover` `#F0F0F0`，150ms `--ease-out-soft`，不位移、不加投影；表头行不响应；空态行、展开详情行与无行级操作的表（权限矩阵、趋势明细、检索评估结果等）显式关闭 hover，`DataTable` 数据行保留行 hover 作为扫读反馈；选中用 `selected` `#E6E6E6`。CardFooter 继承卡片白底、顶部细边与自身内边距，没有统一浅底。
 - **Skeleton / Separator:** Skeleton 用 `sunken`；Separator 用 `line`。当前没有共享 Progress 视觉原语，真实任务清单、状态与百分比沿用各自实现。
 
@@ -448,7 +443,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 - **User message:** 右对齐 12px 胶囊、`selected` `#E6E6E6` 底、`fg` 文字、14/22、内边距 12px 16px、最大宽 85%；附件用中性 outline 徽章。助手正文在纯白上无气泡。
 - **Message entrance:** 每轮消息以 `.message-fade-up` 入场（0.4s 上浮淡入）；减少动态效果时直接显示。
-- **Code / Shiki:** 围栏/块级代码为深色面 `code-block` `#0D0D0C`、12px 圆角、1px `white/10` 边线、12/20 等宽；Shiki 背景透明，浅色语法用 `code-block-fg` `#E6E6E4`，关键字/函数/链接用浅石青 `code-syntax-accent`，注释、参数与标点用暖灰层次，复制反馈 2.5s 后衰减回初始态。行内 `code` 仍是浅 chip `#F6F6F6` 配 `fg`。全局选区以 `button-primary #315D67` 的 22% 与透明色混合，配 `fg` 文字；深色代码块内选区以同一令牌的 38% 与透明色混合，配白字。
+- **Code / Shiki:** 围栏/块级代码为深色面 `code-block` `#0D0D0C`、12px 圆角、1px `white/10` 边线、12/20 等宽；Shiki 背景透明，浅色语法用 `code-block-fg` `#E6E6E4`，关键字/函数/链接用浅石青 `code-syntax-accent`，注释、参数与标点用暖灰层次，复制反馈 2.5s 后衰减回初始态。行内 `code` 仍是浅 chip `#F6F6F6` 配 `fg`。全局选区以 `fg` 的 16% 与透明色混合，配 `fg` 文字；深色代码块内选区以白色的 28% 与透明色混合，配 `code-block-fg` 文字。
 - **CodeMirror:** selection 与 searchMatch 用 `selected`，gutter `muted-foreground`，搜索面板白底 `fg`，真实可编辑搜索输入使用 `input` 默认边线与 `input-focus` 聚焦边线，按钮仍用 `line`。
 - **Charts:** 白底、网格 `line`、坐标与 tooltip 用 `muted-foreground` / `fg`；首系列 `chart-runs` `#2A78D6`，其余系列用中性灰阶并叠加虚线/纹理，失败系列 `chart-failed`（即 `danger`）。图表不播放动画。
 
@@ -463,17 +458,17 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 ### Do:
 
 - **Do** 保持外壳平铺全幅：`canvas #FBFBFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、外边距、外框圆角或描边。
-- **Do** 用 `button-primary` 石青三态（`#315D67` / `#284F58` / `#204149`）承载 `default` 与 `solid`，配白字。
+- **Do** 用白底、细 `line` 边线、`fg` 深色文字与中性 hover 承载 `default` 与 `solid`，保留轻阴影。
 - **Do** 用 `input` `rgba(0,0,0,.10)` 画输入默认发丝边，用 `line`（同值）只做分组与分隔；checkbox/radio 强边界用 `control-boundary` `rgba(0,0,0,.35)`。
 - **Do** 适合卡片的内容与主侧栏当前项共用纯白 `surface`、常态 `shadow-panel` 与 hover `shadow-panel-hover`；导航保留深色前景和原有几何，卡片绘制空间不得被滚动容器裁切。页内导航、选中页签、菜单高亮与用户消息继续用 `selected` / `accent` `#E6E6E6`。
-- **Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 石青 ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔，错误态可另用 2px outline 补焦点。
+- **Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 中性 ring（Toast 使用 outline）；`default` / `solid` 按钮外加 2px 背景色间隔，错误态可另用 2px outline 补焦点。
 - **Do** 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与 CDS 动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。
 - **Do** 把 `chart-runs` `#2A78D6` 只用于图表首系列；失败用 `danger`。
 - **Do** 把 12/16 留给徽章、时间戳与密集元信息，把 11px 留给只读的高密度数据。
 
 ### Don't:
 
-- **Don't** 把数据令牌 `chart-runs #2A78D6` 用于导航、按钮、焦点、徽章或状态；石青品牌角色按各自用途使用。
+- **Don't** 把数据令牌 `chart-runs #2A78D6` 用于导航、按钮、焦点、徽章或状态；石青仅用于左侧导航，品牌 Logo 与插画保留原配色。
 - **Don't** 给外壳加回渐变、外边距、圆角或描边，也不要把外壳白框铺到画布后面；收起与固定展开侧栏不得加阴影，仅临时预览可用既有 `shadow-overlay`。
 - **Don't** 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 `fg` 字。
 - **Don't** 用 `subtle` `#898781` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。
@@ -486,7 +481,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 ## Known Gaps
 
-- 输入默认发丝边 `rgba(0,0,0,.10)` 对白约 1.25:1、`input-focus #BDBDBD` 对白约 1.88:1、`control-boundary` 对白约 2.44:1，均低于 WCAG 2.2 非文字 3:1；中性暖灰聚焦边 `subtle #898781` 对白约 3.59:1，满足 3:1；石青主按钮白字三态约 7.26 / 8.94 / 10.97:1，均超过普通文字 4.5:1；`ring` 对白、画布、选中底和侧栏选中底均超过非文字 3:1。这不消除输入边界的既有缺口，不得宣称整页 WCAG AA 达标。
+- 输入默认发丝边 `rgba(0,0,0,.10)` 对白约 1.25:1、`input-focus #BDBDBD` 对白约 1.88:1、`control-boundary` 对白约 2.44:1，均低于 WCAG 2.2 非文字 3:1；中性暖灰聚焦边 `subtle #898781` 对白约 3.59:1，满足 3:1；白底中性主按钮 `fg` 字对白约 14.52:1，超过普通文字 4.5:1；`ring` 对白、画布、选中底和侧栏选中底均超过非文字 3:1。这不消除输入边界的既有缺口，不得宣称整页 WCAG AA 达标。
 - Input / Textarea、Select 触发器、Combobox、InputGroup 聚焦用中性暖灰边（`.cds-focus-glow`，无光晕）；仅 SourceEditor 与 CodeMirror 搜索用 `input-focus`；composer 实际焦点由 `shadow-composer-focus` 表达。Select 关闭键盘态未独立取证，采用同一中性聚焦边适配。
 - CDS 输入 hover、invalid、disabled 与 Select 关闭键盘焦点尚未逐项取得浏览器参考；本轮只修实际焦点缺陷，保留现有错误与禁用语义。
 - 个人模块基础实现已随 PR #146 合入 main（基线 624dc3b）。上一轮个人中心重设计的 ship 结论被用户在实际屏幕否定，随后按 1024px 单轴与 448/96 字段尺度重做；本轮独立终审提出 7 条 must-fix，均已修复并定点复核为 resolved，旧结论不再作为当前实现证据。最终实现已复核：六页各一个 h1、无 document 横向溢出，1492 与 1024 两宽均从 x248 开始、右缘分别为 1272 / 986；使用记录表头、数据行与展开详情同 x=288；分享四列首行对齐，1024 下表格 clientWidth 与 scrollWidth 一致；账号安全分组标题为 h2；提案「无需变更」不渲染对比网格，失败原因显示「记忆提案生成超时」。前端全量 142 文件 1712 条、定向 156 条通过，web `typecheck` / `build`、`lint:focus`、`lint:contract` 与 Impeccable detect（返回 `[]`）通过；worker memory-review 26/26 为已记录结果（本次文档复核复跑时 PostgreSQL 不可用，套件跳过，未重新执行）。仍未验证：真实 403/409 未触发；无 `overview.read` 但有 `runs.read` 的分支未用相应账号实测；改密、撤销会话 / 分享、采纳 / 回滚提案与个人记忆投影等真实模型写链未在真实数据执行，不能宣称这些链路或整页验收全部通过。上一轮曾发生一次非预期真实提案运行（成功、无需变更，costUsd 0.0152，未采纳、未写入个人记忆），该事实保留。实现与验证入口见 任务记录。

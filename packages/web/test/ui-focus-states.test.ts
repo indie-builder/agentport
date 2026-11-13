@@ -655,7 +655,6 @@ describe('error and focus states stay distinguishable', () => {
         'var(--color-ring)',
       );
     }
-    // 深色实底按钮的 2px 背景色间隔不因 invalid 消失。
     for (const name of ['button-default', 'button-solid']) {
       expect(winning(rules, probeClasses(name), invalid, true, '--tw-ring-offset-width')).toBe(
         '2px',
@@ -663,7 +662,7 @@ describe('error and focus states stay distinguishable', () => {
     }
   });
 
-  it('shows one visible focus ring on every button variant and keeps the default on a solid fill', () => {
+  it('shows one visible focus ring on every button variant and keeps the default neutral', () => {
     for (const name of ['button-default', 'button-outline', 'button-ghost', 'button-solid']) {
       const classNames = probeClasses(name);
       // 未聚焦不画环。
@@ -672,14 +671,13 @@ describe('error and focus states stay distinguishable', () => {
       expect(ringVisible(rules, classNames, {}, true)).toBe(true);
       expect(winning(rules, classNames, {}, true, '--tw-ring-color')).toBe('var(--color-ring)');
     }
-    // default 与 solid 都是深色实底：透明 1px 边框只占位，聚焦时用背景色间隔把环推到填充之外。
     for (const name of ['button-default', 'button-solid']) {
       const classNames = probeClasses(name);
       expect(winning(rules, classNames, {}, false, 'background-color')).toBe(
-        'var(--color-button-primary)',
+        'var(--color-background)',
       );
-      expect(winning(rules, classNames, {}, false, 'border-color')).toBe('transparent');
-      expect(winning(rules, classNames, {}, true, 'border-color')).toBe('transparent');
+      expect(winning(rules, classNames, {}, false, 'border-color')).toBe('var(--color-border)');
+      expect(winning(rules, classNames, {}, true, 'border-color')).toBe('var(--color-border)');
       expect(winning(rules, classNames, {}, true, '--tw-ring-offset-width')).toBe('2px');
       expect(winning(rules, classNames, {}, true, '--tw-ring-offset-color')).toBe(
         'var(--color-background)',
@@ -691,14 +689,14 @@ describe('error and focus states stay distinguishable', () => {
     );
   });
 
-  it('merges the shared helper so Links match the solid default', () => {
+  it('merges the shared helper so Links match the neutral default', () => {
     // helper 直接输出 cva 时，调用方追加的 className 仍要按 Tailwind 冲突规则覆盖。
     const primary = probeClasses('button-helper-default');
     expect(winning(rules, primary, {}, false, 'background-color')).toBe(
-      'var(--color-button-primary)',
+      'var(--color-background)',
     );
-    expect(winning(rules, primary, {}, false, 'border-color')).toBe('transparent');
-    expect(winning(rules, primary, {}, true, 'border-color')).toBe('transparent');
+    expect(winning(rules, primary, {}, false, 'border-color')).toBe('var(--color-border)');
+    expect(winning(rules, primary, {}, true, 'border-color')).toBe('var(--color-border)');
     expect(ringVisible(rules, primary, {}, true)).toBe(true);
     expect(winning(rules, primary, {}, true, '--tw-ring-offset-width')).toBe('2px');
     expect(winning(rules, primary, {}, true, '--tw-ring-offset-color')).toBe(
@@ -715,7 +713,7 @@ describe('error and focus states stay distinguishable', () => {
       'transparent',
     );
     expect(winning(rules, probeClasses('button-helper-solid'), {}, false, 'border-color')).toBe(
-      'transparent',
+      'var(--color-border)',
     );
   });
 

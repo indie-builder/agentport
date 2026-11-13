@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-07T11:19:49Z",
+  "generatedAt": "2026-11-13T00:00:00Z",
   "title": "Design System: PACE (石青 · Claude CDS)",
   "extensions": {
     "tonalRampNotice": "tonalRamp 是面板预览用合成色阶，不是产品 token，也不作为新主题 palette；实现只使用 DESIGN.md frontmatter 与 src/styles.css @theme 的规范值。",
@@ -246,17 +246,17 @@
         "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "link": {
-        "role": "primary",
-        "displayName": "链接深石青",
+        "role": "neutral",
+        "displayName": "中性链接",
         "tonalRamp": [
-          "oklch(15% 0.0149 215.05)",
-          "oklch(25% 0.0273 215.05)",
-          "oklch(40% 0.0397 215.05)",
-          "oklch(55% 0.0496 215.05)",
-          "oklch(70% 0.0471 215.05)",
-          "oklch(80% 0.0372 215.05)",
-          "oklch(90% 0.0223 215.05)",
-          "oklch(95% 0.0099 215.05)"
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
         ],
         "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
@@ -291,62 +291,17 @@
         "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
       "ring": {
-        "role": "primary",
-        "displayName": "石青焦点环",
+        "role": "neutral",
+        "displayName": "焦点环",
         "tonalRamp": [
-          "oklch(15% 0.0127 215.52)",
-          "oklch(25% 0.0233 215.52)",
-          "oklch(40% 0.0338 215.52)",
-          "oklch(55% 0.0423 215.52)",
-          "oklch(70% 0.0402 215.52)",
-          "oklch(80% 0.0317 215.52)",
-          "oklch(90% 0.0190 215.52)",
-          "oklch(95% 0.0085 215.52)"
-        ],
-        "tonalRampSource": "tool-preview-synthesized-not-product-token"
-      },
-      "button-primary": {
-        "role": "primary",
-        "displayName": "石青主操作",
-        "tonalRamp": [
-          "oklch(15% 0.0154 214.16)",
-          "oklch(25% 0.0282 214.16)",
-          "oklch(40% 0.0410 214.16)",
-          "oklch(55% 0.0512 214.16)",
-          "oklch(70% 0.0487 214.16)",
-          "oklch(80% 0.0384 214.16)",
-          "oklch(90% 0.0231 214.16)",
-          "oklch(95% 0.0102 214.16)"
-        ],
-        "tonalRampSource": "tool-preview-synthesized-not-product-token"
-      },
-      "button-primary-hover": {
-        "role": "primary",
-        "displayName": "石青悬停",
-        "tonalRamp": [
-          "oklch(15% 0.0140 214.48)",
-          "oklch(25% 0.0256 214.48)",
-          "oklch(40% 0.0373 214.48)",
-          "oklch(55% 0.0466 214.48)",
-          "oklch(70% 0.0443 214.48)",
-          "oklch(80% 0.0350 214.48)",
-          "oklch(90% 0.0210 214.48)",
-          "oklch(95% 0.0093 214.48)"
-        ],
-        "tonalRampSource": "tool-preview-synthesized-not-product-token"
-      },
-      "button-primary-active": {
-        "role": "primary",
-        "displayName": "石青按下",
-        "tonalRamp": [
-          "oklch(15% 0.0123 215.36)",
-          "oklch(25% 0.0225 215.36)",
-          "oklch(40% 0.0328 215.36)",
-          "oklch(55% 0.0410 215.36)",
-          "oklch(70% 0.0389 215.36)",
-          "oklch(80% 0.0307 215.36)",
-          "oklch(90% 0.0184 215.36)",
-          "oklch(95% 0.0082 215.36)"
+          "oklch(15% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(40% 0 0)",
+          "oklch(55% 0 0)",
+          "oklch(70% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(96% 0 0)"
         ],
         "tonalRampSource": "tool-preview-synthesized-not-product-token"
       },
@@ -845,29 +800,29 @@
       },
       {
         "name": "checked-control-outline",
-        "value": "outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px",
+        "value": "outline: 2px solid var(--color-ring, #202B2E); outline-offset: 2px",
         "purpose": "选中 checkbox / radio / switch 的填充已是墨色，选中态用单层 2px outline + 2px offset，不叠加 ring；卡片式字段标签由外层标签表达单层焦点。"
       },
       {
         "name": "button-ring",
-        "value": "0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #4D7079)",
-        "purpose": "按钮类单层 2px 石青 ring；实底按钮外留 2px 背景色间隔。"
+        "value": "0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #202B2E)",
+        "purpose": "按钮类单层 2px 中性 ring；白底主操作按钮外留 2px 背景色间隔。"
       },
       {
         "name": "global-fallback",
-        "value": "outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px",
+        "value": "outline: 2px solid var(--color-ring, #202B2E); outline-offset: 2px",
         "purpose": "全局 :focus-visible 兜底；组件应显式覆盖以避免叠层。"
       }
     ]
   },
   "components": [
     {
-      "name": "Primary / Solid Button",
+      "name": "Default / Solid Button",
       "kind": "button",
-      "refersTo": "button-primary",
-      "description": "普通主操作 default 与发送、登录等显式 solid 共用石青三态与白字；焦点环使用独立石青 ring。",
-      "html": "<button class=\"ds-btn-primary\" type=\"button\">新建专家</button>",
-      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-item, 8px); background: var(--color-button-primary, #315D67); color: var(--color-primary-foreground, #FFFFFF); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: background-color 150ms var(--ease-out-soft); } .ds-btn-primary:hover { background: var(--color-button-primary-hover, #284F58); } .ds-btn-primary:active { background: var(--color-button-primary-active, #204149); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #4D7079); } .ds-btn-primary:disabled { opacity: 0.5; pointer-events: none; }"
+      "refersTo": "button-default",
+      "description": "白底、细边、深色字的中性主操作按钮，焦点环用中性 ring",
+      "html": "<button class=\"ds-btn-default\" type=\"button\">新建专家</button>",
+      "css": ".ds-btn-default { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid var(--color-border, rgba(0,0,0,0.10)); border-radius: var(--radius-item, 8px); background: var(--color-background, #FFFFFF); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: background-color 150ms var(--ease-out-soft); } .ds-btn-default:hover { background: var(--color-hover, #F0F0F0); } .ds-btn-default:active { background: var(--color-hover, #F0F0F0); } .ds-btn-default:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background,#FFFFFF), 0 0 0 4px var(--color-ring,#202B2E); } .ds-btn-default:disabled { opacity: 0.5; pointer-events: none; }"
     },
     {
       "name": "Outline Button",
@@ -875,7 +830,7 @@
       "refersTo": "button-outline",
       "description": "取消、筛选与次级操作；白底 1px 发丝边，hover 用浅中性层，不变成石青实底。",
       "html": "<button class=\"ds-btn-outline\" type=\"button\">取消</button>",
-      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid var(--color-line, rgba(0, 0, 0, 0.10)); border-radius: var(--radius-item, 8px); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: background-color 150ms var(--ease-out-soft); } .ds-btn-outline:hover, .ds-btn-outline[aria-expanded=true] { background: var(--color-hover, #F0F0F0); } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #4D7079); }"
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid var(--color-line, rgba(0, 0, 0, 0.10)); border-radius: var(--radius-item, 8px); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: background-color 150ms var(--ease-out-soft); } .ds-btn-outline:hover, .ds-btn-outline[aria-expanded=true] { background: var(--color-hover, #F0F0F0); } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #202B2E); }"
     },
     {
       "name": "Ghost Icon Button",
@@ -883,7 +838,7 @@
       "refersTo": "button-ghost",
       "description": "默认共享 ghost 图标按钮与普通工具栏动作；32px size=icon 与 icon-lg 36px 均为 8px 圆角，透明底，hover 或展开才出现浅中性层。侧栏折叠按钮实例同为 8px 圆角。",
       "html": "<button class=\"ds-btn-ghost\" type=\"button\" aria-label=\"更多操作\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"19\" cy=\"12\" r=\"1\"></circle><circle cx=\"5\" cy=\"12\" r=\"1\"></circle></svg></button>",
-      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: var(--radius-icon, 8px); background: transparent; color: var(--color-fg, #202B2E); cursor: pointer; transition: background-color 150ms var(--ease-out-soft); } .ds-btn-ghost:hover, .ds-btn-ghost[aria-expanded=true] { background: var(--color-hover, #F0F0F0); } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-ring, #4D7079); }"
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: var(--radius-icon, 8px); background: transparent; color: var(--color-fg, #202B2E); cursor: pointer; transition: background-color 150ms var(--ease-out-soft); } .ds-btn-ghost:hover, .ds-btn-ghost[aria-expanded=true] { background: var(--color-hover, #F0F0F0); } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-ring, #202B2E); }"
     },
     {
       "name": "Text Input",
@@ -891,7 +846,7 @@
       "refersTo": "input",
       "description": "白底 1px 发丝边输入；普通聚焦沿用中性暖灰 subtle 边，无光晕；invalid 保留 danger 边框并用 2px ring outline 补焦点。真实禁用的 Input / Textarea 使用 sunken #F7F7F7 底并保留 opacity 0.35；InputGroup 由外框承载同一禁用底，内部输入保持透明并沿用各自禁用透明度；边线与阴影不变，可编辑空框不铺禁用底，空内容只禁用发送按钮。",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"搜索专家...\" aria-label=\"搜索专家\" />",
-      "css": ".ds-input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--color-input, rgba(0, 0, 0, 0.10)); border-radius: var(--radius-item, 8px); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; transition: border-color 150ms var(--ease-out-soft), box-shadow 150ms var(--ease-out-soft); } .ds-input::placeholder { color: var(--color-muted-foreground, #505F63); } .ds-input:focus-visible { outline: none; border-color: var(--color-subtle, #898781); } .ds-input[aria-invalid=true] { border-color: var(--color-destructive, #B42318); } .ds-input[aria-invalid=true]:focus-visible { border-color: var(--color-destructive, #B42318); outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px; } .ds-input:disabled { background: var(--color-sunken, #F7F7F7); opacity: 0.35; cursor: not-allowed; }"
+      "css": ".ds-input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--color-input, rgba(0, 0, 0, 0.10)); border-radius: var(--radius-item, 8px); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; transition: border-color 150ms var(--ease-out-soft), box-shadow 150ms var(--ease-out-soft); } .ds-input::placeholder { color: var(--color-muted-foreground, #505F63); } .ds-input:focus-visible { outline: none; border-color: var(--color-subtle, #898781); } .ds-input[aria-invalid=true] { border-color: var(--color-destructive, #B42318); } .ds-input[aria-invalid=true]:focus-visible { border-color: var(--color-destructive, #B42318); outline: 2px solid var(--color-ring, #202B2E); outline-offset: 2px; } .ds-input:disabled { background: var(--color-sunken, #F7F7F7); opacity: 0.35; cursor: not-allowed; }"
     },
     {
       "name": "Segmented Tabs",
@@ -899,7 +854,7 @@
       "refersTo": "tab-list",
       "description": "分段控件容器浅中性层；当前项选中中性灰 + 1px 发丝边，无小阴影；line 变体透明并保留 2px 墨色指示线。",
       "html": "<div class=\"ds-tabs\" role=\"tablist\" aria-label=\"记忆视图\"><button class=\"ds-tab\" type=\"button\" role=\"tab\" aria-selected=\"false\">个人偏好</button><button class=\"ds-tab\" type=\"button\" role=\"tab\" aria-selected=\"true\">历史回顾</button></div>",
-      "css": ".ds-tabs { display: inline-flex; align-items: center; height: 32px; padding: 3px; border-radius: var(--radius-item, 8px); background: var(--color-hover, #F0F0F0); } .ds-tab { display: inline-flex; align-items: center; justify-content: center; height: calc(100% - 1px); padding: 0 6px; border: 1px solid transparent; border-radius: var(--radius-icon, 8px); background: transparent; color: var(--color-muted-foreground, #505F63); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: color 150ms var(--ease-out-soft), background-color 150ms var(--ease-out-soft), border-color 150ms var(--ease-out-soft); } .ds-tab:hover { color: var(--color-fg, #202B2E); } .ds-tab[aria-selected=true] { background: var(--color-selected, #E6E6E6); border-color: var(--color-line, rgba(0, 0, 0, 0.10)); color: var(--color-fg, #202B2E); } .ds-tab:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-ring, #4D7079); }"
+      "css": ".ds-tabs { display: inline-flex; align-items: center; height: 32px; padding: 3px; border-radius: var(--radius-item, 8px); background: var(--color-hover, #F0F0F0); } .ds-tab { display: inline-flex; align-items: center; justify-content: center; height: calc(100% - 1px); padding: 0 6px; border: 1px solid transparent; border-radius: var(--radius-icon, 8px); background: transparent; color: var(--color-muted-foreground, #505F63); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; cursor: pointer; transition: color 150ms var(--ease-out-soft), background-color 150ms var(--ease-out-soft), border-color 150ms var(--ease-out-soft); } .ds-tab:hover { color: var(--color-fg, #202B2E); } .ds-tab[aria-selected=true] { background: var(--color-selected, #E6E6E6); border-color: var(--color-line, rgba(0, 0, 0, 0.10)); color: var(--color-fg, #202B2E); } .ds-tab:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-ring, #202B2E); }"
     },
     {
       "name": "Badge",
@@ -907,7 +862,7 @@
       "refersTo": "badge-default",
       "description": "默认与 secondary 徽章是下沉浅底配正文墨，不整枚深色填充；危险/成功/警告保留各自语义。",
       "html": "<span class=\"ds-badge\">通用助手</span>",
-      "css": ".ds-badge { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 20px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-tag, 6px); background: var(--color-sunken, #F7F7F7); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap; } .ds-badge:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #4D7079); }"
+      "css": ".ds-badge { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 20px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-tag, 6px); background: var(--color-sunken, #F7F7F7); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap; } .ds-badge:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-background, #FFFFFF), 0 0 0 4px var(--color-ring, #202B2E); }"
     },
     {
       "name": "Card",
@@ -921,17 +876,17 @@
       "name": "Code Block",
       "kind": "custom",
       "refersTo": "code-block",
-      "description": "围栏/块级代码为深色面 #0D0D0C、12px 圆角、1px white/10 边线、12/20 等宽；Shiki 背景透明，浅色语法用 code-block-fg #E6E6E4，关键字/函数/链接用浅石青 code-syntax-accent，注释、参数与标点用暖灰层次；复制反馈 2.5s 后衰减回初始态。全局选区以 button-primary #315D67 的 22% 与透明色混合，配 fg 文字；深色代码块内选区以同一令牌的 38% 与透明色混合，配白字。行内 code 仍是浅 chip #F6F6F6。",
+      "description": "围栏/块级代码为深色面 #0D0D0C、12px 圆角、1px white/10 边线、12/20 等宽；Shiki 背景透明，浅色语法用 code-block-fg #E6E6E4，关键字/函数/链接用浅石青 code-syntax-accent，注释、参数与标点用暖灰层次；复制反馈 2.5s 后衰减回初始态。全局选区以 --color-fg 的 16% 与透明色混合，配 fg 文字；深色代码块内选区以 #ffffff 的 28% 与透明色混合，配 --color-code-block-fg 文字。行内 code 仍是浅 chip #F6F6F6。",
       "html": "<div class=\"ds-code-block\"><pre><code>const answer = 42;</code></pre></div>",
-      "css": ".ds-code-block { padding: 12px; border: 1px solid rgba(255, 255, 255, 0.10); border-radius: var(--radius-card, 12px); background: var(--color-code-block, #0D0D0C); color: var(--color-code-block-fg, #E6E6E4); font-family: \"anthropic-mono\", \"JetBrains Mono Variable\", \"JetBrains Mono\", ui-monospace, \"SF Mono\", Menlo, monospace; font-size: 12px; line-height: 20px; } .ds-code-block ::selection { background: color-mix(in srgb, var(--color-button-primary, #315D67) 38%, transparent); color: #FFFFFF; }"
+      "css": ".ds-code-block { padding: 12px; border: 1px solid rgba(255, 255, 255, 0.10); border-radius: var(--radius-card, 12px); background: var(--color-code-block, #0D0D0C); color: var(--color-code-block-fg, #E6E6E4); font-family: \"anthropic-mono\", \"JetBrains Mono Variable\", \"JetBrains Mono\", ui-monospace, \"SF Mono\", Menlo, monospace; font-size: 12px; line-height: 20px; } ::selection { background: color-mix(in srgb, var(--color-fg) 16%, transparent); color: var(--color-fg); } .ds-code-block ::selection { background: color-mix(in srgb, #ffffff 28%, transparent); color: var(--color-code-block-fg); }"
     },
     {
       "name": "Dialog",
       "kind": "custom",
       "refersTo": "dialog",
-      "description": "模态白表面、16px 圆角、1px 发丝边 ring 与 CDS 双环 overlay 阴影、16px 内边距；遮罩用 scrim，确认主操作为石青实底；经 .cds-overlay-enter 以 opacity + scale(.96) 弹入。",
+      "description": "模态白表面、16px 圆角、1px 发丝边 ring 与 CDS 双环 overlay 阴影、16px 内边距；遮罩用 scrim，确认主操作为白底、细边、深色字的中性按钮；经 .cds-overlay-enter 以 opacity + scale(.96) 弹入。",
       "html": "<div class=\"ds-dialog\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"ds-dialog-title\"><div class=\"ds-dialog-title\" id=\"ds-dialog-title\">保存配置</div><div class=\"ds-dialog-description\">确认保存当前更改。</div><div class=\"ds-dialog-actions\"><button class=\"ds-dialog-cancel\" type=\"button\">取消</button><button class=\"ds-dialog-confirm\" type=\"button\">保存</button></div></div>",
-      "css": ".ds-dialog { width: min(384px, calc(100vw - 32px)); padding: 16px; border-radius: var(--radius-dialog, 16px); background: var(--color-popover, #FFFFFF); color: var(--color-popover-foreground, #202B2E); box-shadow: var(--shadow-overlay, 0 0 0 var(--hairline, 1px) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)); } .ds-dialog-title { font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 21px; } .ds-dialog-description { margin-top: 8px; color: var(--color-muted-foreground, #505F63); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; } .ds-dialog-cancel, .ds-dialog-confirm { height: 32px; padding: 0 10px; border-radius: var(--radius-item, 8px); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; } .ds-dialog-cancel { border: 1px solid var(--color-line, rgba(0, 0, 0, 0.10)); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); } .ds-dialog-confirm { border: 1px solid transparent; background: var(--color-button-primary, #315D67); color: var(--color-primary-foreground, #FFFFFF); }"
+      "css": ".ds-dialog { width: min(384px, calc(100vw - 32px)); padding: 16px; border-radius: var(--radius-dialog, 16px); background: var(--color-popover, #FFFFFF); color: var(--color-popover-foreground, #202B2E); box-shadow: var(--shadow-overlay, 0 0 0 var(--hairline, 1px) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)); } .ds-dialog-title { font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; line-height: 21px; } .ds-dialog-description { margin-top: 8px; color: var(--color-muted-foreground, #505F63); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; } .ds-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; } .ds-dialog-cancel, .ds-dialog-confirm { height: 32px; padding: 0 10px; border-radius: var(--radius-item, 8px); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; } .ds-dialog-cancel { border: 1px solid var(--color-line, rgba(0, 0, 0, 0.10)); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); } .ds-dialog-confirm { border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-fg); }"
     },
     {
       "name": "User Message",
@@ -947,19 +902,19 @@
       "refersTo": "sidebar-item",
       "description": "浅石青侧栏与非选中 hover 保留；当前项通过 sidebar-selected 映射到纯白 surface #FFFFFF，与内容卡共用常态 shadow-panel 和 hover shadow-panel-hover。展开、preview、收起与 Sheet 共用 SidebarLink；固定展开 224px，收起 48px、内边距 16px 8px，临时预览宽 224px 且正文只让出 48px。深色前景、焦点与 aria-current 保留，导航不位移、不叠加装饰边界。",
       "html": "<nav class=\"ds-sidebar\" aria-label=\"主导航\"><a class=\"ds-nav-item ds-nav-item-active\" href=\"#\" aria-current=\"page\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"></path><circle cx=\"9\" cy=\"7\" r=\"4\"></circle><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"></path></svg><span>找专家</span></a><a class=\"ds-nav-item\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"></path></svg><span>对话</span></a></nav>",
-      "css": ".ds-sidebar { display: flex; flex-direction: column; gap: 2px; width: 224px; padding: 16px 12px; background: var(--color-sidebar, #EAF0F0); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; } .ds-nav-item { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: var(--radius-item, 8px); color: var(--color-fg, #202B2E); font-size: 13px; line-height: 20px; text-decoration: none; transition: background-color 150ms var(--ease-out-soft), box-shadow 150ms var(--ease-out-soft); } .ds-nav-item:hover { background: var(--color-sidebar-hover, #DFE8E9); } .ds-nav-item-active { background: var(--color-sidebar-selected, var(--color-surface, #FFFFFF)); box-shadow: var(--shadow-panel, 0 0 0 var(--hairline, 1px) var(--color-line, rgba(0, 0, 0, 0.10)), 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 2px 8px 0 rgba(0, 0, 0, 0.08)); color: var(--color-selected-foreground, #202B2E); font-weight: 500; } .ds-nav-item-active:hover { background: var(--color-sidebar-selected, var(--color-surface, #FFFFFF)); box-shadow: var(--shadow-panel-hover, 0 0 0 var(--hairline, 1px) var(--color-line-strong, rgba(0, 0, 0, 0.20)), 0 4px 16px -2px rgba(0, 0, 0, 0.09)); } .ds-nav-item:focus-visible { outline: 2px solid var(--color-ring, #4D7079); outline-offset: 2px; }"
+      "css": ".ds-sidebar { display: flex; flex-direction: column; gap: 2px; width: 224px; padding: 16px 12px; background: var(--color-sidebar, #EAF0F0); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; } .ds-nav-item { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: var(--radius-item, 8px); color: var(--color-fg, #202B2E); font-size: 13px; line-height: 20px; text-decoration: none; transition: background-color 150ms var(--ease-out-soft), box-shadow 150ms var(--ease-out-soft); } .ds-nav-item:hover { background: var(--color-sidebar-hover, #DFE8E9); } .ds-nav-item-active { background: var(--color-sidebar-selected, var(--color-surface, #FFFFFF)); box-shadow: var(--shadow-panel, 0 0 0 var(--hairline, 1px) var(--color-line, rgba(0, 0, 0, 0.10)), 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 2px 8px 0 rgba(0, 0, 0, 0.08)); color: var(--color-selected-foreground, #202B2E); font-weight: 500; } .ds-nav-item-active:hover { background: var(--color-sidebar-selected, var(--color-surface, #FFFFFF)); box-shadow: var(--shadow-panel-hover, 0 0 0 var(--hairline, 1px) var(--color-line-strong, rgba(0, 0, 0, 0.20)), 0 4px 16px -2px rgba(0, 0, 0, 0.09)); } .ds-nav-item:focus-visible { outline: 2px solid var(--color-ring, #202B2E); outline-offset: 2px; }"
     }
   ],
   "narrative": {
     "northStar": "The Quiet Workbench（静默工作台）",
-    "overview": "2026-11-07 用户决定撤回 #208 / #209 / #210 的全站 UI 重设计，视觉以 #207（`fbf3c332`）的既有 CDS 外观为恢复基线；石青配色、主侧栏导航与书签、Bun 与脚手架保留。同日进一步确认：所有业务卡片默认沿用找专家卡片的白底、常态深度与 hover 上浮反馈；主侧栏导航选中项共用纯白 `surface` 与共享投影，导航保留既有几何与功能。实现必须同步共享入口与现有调用方；规范本身不代表真实渲染验收通过，历史验证记录只覆盖其记录版本。\n\n**Creative North Star: \"The Quiet Workbench（静默工作台）\"**\n\nPACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。侧栏底面与非选中 hover 使用既有浅石青角色，导航当前项采用与卡片一致的纯白表面和共享投影，文字与图标仍为深色，石青实底主操作保持最强的动作信号。工具、标题与正文是深墨色，主操作与按钮键盘焦点用石青，状态只在需要时以小面积语义色或呼吸点出现。\n\n这套系统用石青承担「可执行」与按钮键盘焦点，用中性灰、浅石青侧栏与白色阶梯承担层级：普通主操作、发送、登录共用 `#315D67` → `#284F58` → `#204149` 三态实底；正文链接用深石青 `#2C5660`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。运行图表首系列保留独立数据蓝；它与石青品牌角色分开使用。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。\n\n本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。颜色采用用户选定的石青，字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，未覆盖项与规范差异见 Known Gaps 和对应任务记录。颜色角色以石青品牌系统为准；CDS 组件机制、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等既有适配保留，见 Do's 与 Known Gaps。\n",
+    "overview": "2026-11-07 用户决定撤回 #208 / #209 / #210 的全站 UI 重设计，视觉以 #207（`fbf3c332`）的既有 CDS 外观为恢复基线；石青配色、主侧栏导航与书签、Bun 与脚手架保留。同日进一步确认：所有业务卡片默认沿用找专家卡片的白底、常态深度与 hover 上浮反馈；主侧栏导航选中项共用纯白 `surface` 与共享投影，导航保留既有几何与功能。实现必须同步共享入口与现有调用方；规范本身不代表真实渲染验收通过，历史验证记录只覆盖其记录版本。\n\n2026-11-13 用户决定将内容区动作色由石青改为中性白：主操作按钮使用白底、细边与深色文字，链接、键盘焦点环与文本选区使用中性色；石青仅保留在左侧导航，品牌 Logo 与插画保留原配色。\n\n**Creative North Star: \"The Quiet Workbench（静默工作台）\"**\n\nPACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。侧栏底面与非选中 hover 使用既有浅石青角色，导航当前项采用与卡片一致的纯白表面和共享投影，文字与图标仍为深色。工具、标题、正文、链接与按钮键盘焦点使用中性色，主操作使用白底细边按钮，状态只在需要时以小面积语义色或呼吸点出现。\n\n这套系统仅在左侧导航使用石青，品牌 Logo 与插画保留原配色，用中性灰、浅石青侧栏与白色阶梯承担层级：普通主操作、发送、登录共用白底、细 `line` 边线与 `fg` 深色文字，hover 用 `hover` 中性浅底；正文链接与按钮键盘焦点环使用 `fg #202B2E`，文本选区使用中性色；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。运行图表首系列保留独立数据蓝；它与石青品牌角色分开使用。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。\n\n本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。颜色采用用户选定的石青，字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，未覆盖项与规范差异见 Known Gaps 和对应任务记录。颜色角色以石青品牌系统为准；CDS 组件机制、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等既有适配保留，见 Do's 与 Known Gaps。\n",
     "keyCharacteristics": [
       "平铺外壳：`canvas #FBFBFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、无外边距、无外层描边。",
-      "石青动作三态：`#315D67` / `#284F58` / `#204149`，白字；hover/active 档对比度更高。",
+      "中性动作按钮：`default` / `solid` 为白底、细 `line` 边线与 `fg` 深色文字，hover 用 `hover #F0F0F0`，保留轻阴影与按压反馈。",
       "中性灰状态层：hover `#F0F0F0`，selected / accent `#E6E6E6`，chip `#F2F2F2`；主侧栏底面与非选中 hover 使用浅石青 `sidebar`、`sidebar-hover`，当前项用映射到纯白 `surface` 的 `sidebar-selected` 与共享 `shadow-panel`，hover 换 `shadow-panel-hover`。",
       "输入默认发丝边 `rgba(0,0,0,.10)`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`.cds-focus-glow`：`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus #BDBDBD`，composer 聚焦用 `shadow-composer-focus`；checkbox/radio 强边界 `rgba(0,0,0,.35)`，见 Known Gaps。",
-      "正文链接与 `link` 变体用深石青 `#2C5660`；卡片常态用 `--shadow-panel`，所有业务卡片默认在 hover 上浮 1.5px 并换 `--shadow-panel-hover`，过渡为 200ms `--ease-out-soft`。",
-      "数据蓝 `#2A78D6` 只用于图表首系列，不参与任何 UI 动作；按钮键盘焦点环为石青 `#4D7079`，输入框聚焦为中性暖灰而非石青。",
+      "正文链接与 `link` 变体用中性 `fg #202B2E`，保留下划线区分；卡片常态用 `--shadow-panel`，所有业务卡片默认在 hover 上浮 1.5px 并换 `--shadow-panel-hover`，过渡为 200ms `--ease-out-soft`。",
+      "数据蓝 `#2A78D6` 只用于图表首系列，不参与任何 UI 动作；按钮键盘焦点环为中性 `fg #202B2E`，输入框聚焦为中性暖灰。",
       "AnthropicSans → Inter → 中文回退的 13/20 界面档与 14/22 对话阅读档；CDS 弹簧、入场与呼吸动效按本页当前值。"
     ],
     "rules": [
@@ -969,13 +924,13 @@
         "section": "colors"
       },
       {
-        "name": "The Petrol-Action Rule",
-        "body": "主操作用石青：`default` 与显式 `solid` 共用 `button-primary` 三态与白字，按钮键盘焦点使用独立的 `ring`，链接使用 `link`。通用 `primary` 保持墨色，供复选框、Slider 活跃轨道与 line 页签等控件使用；成功、警告与危险不借品牌色。",
+        "name": "The Neutral-Action Rule",
+        "body": "内容区主操作用白底中性按钮：`default` 与显式 `solid` 共用白底、细边、深色字与中性 hover，按钮键盘焦点 `ring` 与链接 `link` 均映射到 `fg`，文本选区使用中性色。石青仅用于左侧导航，品牌 Logo 与插画保留原配色。通用 `primary` 保持墨色，供复选框、Slider 活跃轨道与 line 页签等控件使用；成功、警告与危险不借品牌色。",
         "section": "colors"
       },
       {
         "name": "The Data-Blue Exception Rule",
-        "body": "`chart-runs #2A78D6` 只允许出现在图表数据系列；失败用 `danger`。品牌石青用于动作、链接、焦点与导航底面，数据蓝不得蔓延到这些角色或状态。",
+        "body": "`chart-runs #2A78D6` 只允许出现在图表数据系列；失败用 `danger`。内容区动作、链接、焦点与文本选区使用中性色，数据蓝不得蔓延到这些角色或状态。",
         "section": "colors"
       },
       {
@@ -1001,16 +956,16 @@
     ],
     "dos": [
       "**Do** 保持外壳平铺全幅：`canvas #FBFBFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、外边距、外框圆角或描边。",
-      "**Do** 用 `button-primary` 石青三态（`#315D67` / `#284F58` / `#204149`）承载 `default` 与 `solid`，配白字。",
+      "**Do** 用白底、细边与深色字承载 `default` 与 `solid`，hover 用中性浅底；石青仅用于左侧导航，品牌 Logo 与插画保留原配色。",
       "**Do** 用 `input` `rgba(0,0,0,.10)` 画输入默认发丝边，用 `line`（同值）只做分组与分隔；checkbox/radio 强边界用 `control-boundary` `rgba(0,0,0,.35)`。",
       "**Do** 适合卡片的内容与主侧栏当前项共用纯白 `surface`、常态 `shadow-panel` 与 hover `shadow-panel-hover`；导航保留深色前景和原有几何，卡片绘制空间不得被滚动容器裁切。页内导航、选中页签、菜单高亮与用户消息继续用 `selected` / `accent` `#E6E6E6`。",
-      "**Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 石青 ring（Toast 使用 outline）；实底按钮外加 2px 背景色间隔，错误态可另用 2px outline 补焦点。",
+      "**Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 中性 ring（Toast 使用 outline）；白底主操作按钮外加 2px 背景色间隔，错误态可另用 2px outline 补焦点。",
       "**Do** 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与 CDS 动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。",
       "**Do** 把 `chart-runs` `#2A78D6` 只用于图表首系列；失败用 `danger`。",
       "**Do** 把 12/16 留给徽章、时间戳与密集元信息，把 11px 留给只读的高密度数据。"
     ],
     "donts": [
-      "**Don't** 把数据令牌 `chart-runs #2A78D6` 用于导航、按钮、焦点、徽章或状态；石青品牌角色按各自用途使用。",
+      "**Don't** 把数据令牌 `chart-runs #2A78D6` 用于导航、按钮、焦点、徽章或状态；内容区动作用白底中性按钮，石青仅用于左侧导航，品牌 Logo 与插画保留原配色。",
       "**Don't** 给外壳加回渐变、外边距、圆角或描边，也不要把外壳白框铺到画布后面；收起与固定展开侧栏不得加阴影，仅临时预览可用既有 `shadow-overlay`。",
       "**Don't** 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 `fg` 字。",
       "**Don't** 用 `subtle` `#898781` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。",
