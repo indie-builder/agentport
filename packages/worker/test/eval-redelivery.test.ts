@@ -17,7 +17,7 @@ import { createIsolatedDatabase } from './isolated-db.js';
 
 const { closeEvalRunQueue } = await import('../src/eval-runner.js');
 const { handleEvalJobFailed, runEvalJob } = await import('../src/eval-job.js');
-const { EVAL_LOST_ERROR, reconcileOrphanedEvalRuns } = await import('../src/reconcile.js');
+const { EVAL_LOST_ERROR, reconcileOrphanedEvalRuns } = await import('../src/scheduling/reconcile.js');
 
 type Child = ChildProcess & { stderr: NonNullable<ChildProcess['stderr']> };
 type CaseInput = { name: string; prompt: string; expectation: string };

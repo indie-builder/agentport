@@ -109,7 +109,7 @@ mock.module('../src/runtime-environments/reconcile.js', () => ({
   startRuntimeEnvironmentBuildReconciler: () => () => undefined,
 }));
 
-mock.module('../src/reconcile.js', () => ({
+mock.module('../src/scheduling/reconcile.js', () => ({
   startReconciler: () => () => undefined,
 }));
 
@@ -125,7 +125,7 @@ mock.module('../src/knowledge/scheduler.js', () => ({
   startKnowledgeScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 
-mock.module('../src/scheduler.js', () => ({
+mock.module('../src/scheduling/scheduler.js', () => ({
   startScheduleScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 

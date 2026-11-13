@@ -29,7 +29,7 @@ import { beginSse } from '../../http/sse.js';
 import { authorizeRun, RUN_MISSING } from '../runs/access.js';
 import { terminalRunEvent, writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
-import { deleteConversationWithSandboxes } from '../runtime-deletion.js';
+import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
 import {
   CONVERSATION_MISSING,
   loadReadableConversation,

@@ -18,8 +18,8 @@ import {
 } from '../src/components/knowledge/knowledge-settings.js';
 import { locatorLabel } from '../src/components/knowledge/knowledge-shared.js';
 import { toastError } from '../src/lib/toast.js';
-import { KnowledgePage } from '../src/pages/knowledge.js';
-import { KnowledgeDetailPage } from '../src/pages/knowledge-detail/index.js';
+import { KnowledgePage } from '../src/pages/knowledge/index.js';
+import { KnowledgeDetailPage } from '../src/pages/knowledge/detail/index.js';
 import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';
 

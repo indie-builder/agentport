@@ -22,7 +22,7 @@ import type { Logger } from 'pino';
 import type { Config } from '../../config.js';
 import { getQueue } from '../../queue/producer.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
-import { deleteConversationWithSandboxes } from '../runtime-deletion.js';
+import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
 import { CONVERSATION_MISSING } from './access.js';
 import {
   actionBytes,

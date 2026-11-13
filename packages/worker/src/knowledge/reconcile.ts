@@ -4,8 +4,8 @@ import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, eq, gte, inArray, isNull, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { startIntervalTicker } from '../interval-ticker.js';
-import { ACTIVE_STATES, queueState } from '../queue-state.js';
+import { startIntervalTicker } from '../scheduling/interval-ticker.js';
+import { ACTIVE_STATES, queueState } from '../runs/queue-state.js';
 import { KNOWLEDGE_TIMEOUT_MS } from './queue.js';
 
 const RECONCILE_MS = 5 * 60_000;

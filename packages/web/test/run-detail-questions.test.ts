@@ -13,7 +13,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type RunDetail } from '../src/lib/api.js';
 import { runQuestionsQueryKey } from '../src/lib/queries.js';
-import { RunDetailPage } from '../src/pages/run-detail.js';
+import { RunDetailPage } from '../src/pages/runs/run-detail.js';
 import { runDetailSearchSchema } from '../src/routes/-search.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));

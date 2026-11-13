@@ -15,7 +15,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
 import { memoryReviewQuery } from '../src/lib/queries.js';
-import { PersonalMemoryPage, PersonalReviewsPage } from '../src/pages/personal-memory.js';
+import { PersonalMemoryPage, PersonalReviewsPage } from '../src/pages/personal/memory.js';
 import { chatSearchSchema, personalReviewsSearchSchema } from '../src/routes/-search.js';
 import { allAccessMe } from './me-fixture.js';
 

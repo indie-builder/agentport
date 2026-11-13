@@ -22,7 +22,7 @@ PACE（仓库名 `agentport`）是一个可单机运行的智能体平台：MCP 
 | CI | `.github/workflows/ci.yml` | biome ci → typecheck → build → migrate → test；另含 e2e、docker 两个 job |
 | 发布 | `.github/workflows/release.yml` | 推送 `v*` tag 构建并推送 api / sandbox 镜像到 GHCR |
 
-真实链路（浏览器 → API → 队列 → 沙盒 → 模型 → MCP 工具 → 上游 API → SSE）与外部 MCP 客户端调用平台智能体均已实测；子智能体的委派链路见 [SUBAGENTS-VERIFICATION.md](SUBAGENTS-VERIFICATION.md)。压测数据见 [OPERATIONS.md §8](OPERATIONS.md#8-压力测试结果)。
+真实链路（浏览器 → API → 队列 → 沙盒 → 模型 → MCP 工具 → 上游 API → SSE）与外部 MCP 客户端调用平台智能体均已实测；子智能体的委派链路见 [SUBAGENTS-VERIFICATION.md](archive/SUBAGENTS-VERIFICATION.md)。压测数据见 [OPERATIONS.md §8](OPERATIONS.md#8-压力测试结果)。
 
 ## 循环 0–15 摘要
 

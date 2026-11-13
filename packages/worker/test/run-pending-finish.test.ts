@@ -60,8 +60,8 @@ mock.module('@agentport/db', () => ({
   },
 }));
 
-const runAccessActual = await import('../src/run-access.js');
-mock.module('../src/run-access.js', () => ({
+const runAccessActual = await import('../src/runs/run-access.js');
+mock.module('../src/runs/run-access.js', () => ({
   ...runAccessActual,
   checkUserAgentAccess: async () => null,
 }));
@@ -201,8 +201,8 @@ mock.module('../src/runtime-environments/reconcile.js', () => ({
 }));
 
 // index 不自己起后台 reconiler；下面的用例手动跑同一实现。
-const reconcileActual = await import('../src/reconcile.js');
-mock.module('../src/reconcile.js', () => ({
+const reconcileActual = await import('../src/scheduling/reconcile.js');
+mock.module('../src/scheduling/reconcile.js', () => ({
   ...reconcileActual,
   startReconciler: () => () => undefined,
 }));
@@ -219,7 +219,7 @@ mock.module('../src/knowledge/scheduler.js', () => ({
   startKnowledgeScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 
-mock.module('../src/scheduler.js', () => ({
+mock.module('../src/scheduling/scheduler.js', () => ({
   startScheduleScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 
@@ -248,7 +248,7 @@ mock.module('../src/model-proxy.js', () => ({
 
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
-const { reconcileOrphanedRuns } = await import('../src/reconcile.js');
+const { reconcileOrphanedRuns } = await import('../src/scheduling/reconcile.js');
 
 const redisUrl = process.env.REDIS_URL ?? '';
 const logger = {

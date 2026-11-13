@@ -3,7 +3,7 @@ import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/lib/api.js';
-import { PluginDetailPage } from '../src/pages/plugin-detail.js';
+import { PluginDetailPage } from '../src/pages/plugins/plugin-detail.js';
 
 type Mode = 'read' | 'source';
 type Tab = 'intro' | 'content';

@@ -68,14 +68,14 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
     ),
 }));
 
-const channelEventsActual = await import('../src/channel-events.js');
-mock.module('../src/channel-events.js', () => ({
+const channelEventsActual = await import('../src/channels/channel-events.js');
+mock.module('../src/channels/channel-events.js', () => ({
   ...channelEventsActual,
   publishChannelEventSafely: mocks.publishChannelEvent,
 }));
 
-const runAccessActual = await import('../src/run-access.js');
-mock.module('../src/run-access.js', () => ({
+const runAccessActual = await import('../src/runs/run-access.js');
+mock.module('../src/runs/run-access.js', () => ({
   ...runAccessActual,
   checkQueuedRunAccess: mocks.checkAccess,
 }));
@@ -164,8 +164,8 @@ mock.module('../src/runtime-environments/reconcile.js', () => ({
   startRuntimeEnvironmentBuildReconciler: () => () => undefined,
 }));
 
-const reconcileActual = await import('../src/reconcile.js');
-mock.module('../src/reconcile.js', () => ({
+const reconcileActual = await import('../src/scheduling/reconcile.js');
+mock.module('../src/scheduling/reconcile.js', () => ({
   ...reconcileActual,
   startReconciler: () => () => undefined,
 }));
@@ -182,7 +182,7 @@ mock.module('../src/knowledge/scheduler.js', () => ({
   startKnowledgeScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 
-mock.module('../src/scheduler.js', () => ({
+mock.module('../src/scheduling/scheduler.js', () => ({
   startScheduleScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
 }));
 

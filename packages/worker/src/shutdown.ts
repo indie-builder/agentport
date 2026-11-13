@@ -1,4 +1,4 @@
-import { waitClose } from './close-wait.js';
+import { waitClose } from './runs/close-wait.js';
 
 /** 关停排空等待：先等在跑任务，再在关 Redis/PG 前给其余关闭有界时间。 */
 const SHUTDOWN_WAIT_MS = 10_000;

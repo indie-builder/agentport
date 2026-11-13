@@ -21,8 +21,8 @@ const mocks = {
   })),
 };
 
-const runAccessActual = await import('../src/run-access.js');
-mock.module('../src/run-access.js', () => ({
+const runAccessActual = await import('../src/runs/run-access.js');
+mock.module('../src/runs/run-access.js', () => ({
   ...runAccessActual,
   loadUserAgentAccess: mocks.checkAccess,
 }));

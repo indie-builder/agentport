@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { promptWithOpenUiAction } from '../src/openui-action.js';
+import { promptWithOpenUiAction } from '../src/runs/openui-action.js';
 
 describe('promptWithOpenUiAction', () => {
   it('passes plain text messages through unchanged', () => {

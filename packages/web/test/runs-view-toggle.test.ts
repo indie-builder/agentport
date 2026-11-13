@@ -18,7 +18,7 @@ import {
   formatTokens,
   shortId,
 } from '../src/lib/format.js';
-import { RunsPage } from '../src/pages/runs.js';
+import { RunsPage } from '../src/pages/runs/index.js';
 
 const run: RunListItem = {
   id: 'run_01m5bv0faceh4v4jtw00eta1sn',

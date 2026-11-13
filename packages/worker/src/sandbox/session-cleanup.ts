@@ -10,7 +10,7 @@ import {
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
-import { waitClose } from '../close-wait.js';
+import { waitClose } from '../runs/close-wait.js';
 import type { SessionSandboxes } from './sessions.js';
 
 /**

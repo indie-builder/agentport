@@ -6,7 +6,7 @@ import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import { Cause, Effect, Result } from 'effect';
 import type { Logger } from 'pino';
-import { loadUserAgentAccess } from './run-access.js';
+import { loadUserAgentAccess } from './runs/run-access.js';
 
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;

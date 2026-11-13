@@ -304,7 +304,7 @@
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
-| 子智能体真实端到端验证 | ✅ | 真实模型 + 沙盒，`Agent` → 子智能体 MCP 调用 → `[Subagent hand-back]`；连续 3 次 run 成功。见 [SUBAGENTS-VERIFICATION.md](SUBAGENTS-VERIFICATION.md) |
+| 子智能体真实端到端验证 | ✅ | 真实模型 + 沙盒，`Agent` → 子智能体 MCP 调用 → `[Subagent hand-back]`；连续 3 次 run 成功。见 [SUBAGENTS-VERIFICATION.md](archive/SUBAGENTS-VERIFICATION.md) |
 | 子智能体零工具修复 | ✅ | 子智能体 md 不写 `tools`，继承父会话工具集；避免 SDK 派生时通配符解析为空 |
 | 父智能体自我递归修复 | ✅ | 主智能体 md 不写入 `.claude/agents/`，只保留预览 |
 | SSE 事件重复修复 | ✅ | 串行化 drain，事件数等于 `XLEN` |

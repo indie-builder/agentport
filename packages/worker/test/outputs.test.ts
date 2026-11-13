@@ -16,7 +16,7 @@ import {
   type RunOutputsIdentity,
   recordOutputSandboxSettlement,
   selectedOutput,
-} from '../src/outputs.js';
+} from '../src/runs/outputs.js';
 import { testAccess } from './fixtures/access.js';
 
 const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta.url);

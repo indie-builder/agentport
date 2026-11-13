@@ -5,7 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 
-const { EVAL_LOST_ERROR, reconcileOrphanedEvalRuns } = await import('../src/reconcile.js');
+const { EVAL_LOST_ERROR, reconcileOrphanedEvalRuns } = await import('../src/scheduling/reconcile.js');
 
 const STALE_MS = 2 * 60 * 60_000;
 const FRESH_MS = 30 * 60_000;

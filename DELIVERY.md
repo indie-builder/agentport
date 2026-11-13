@@ -39,7 +39,7 @@ pnpm run up          # 生成 .env、起 Postgres/Redis、迁移、构建镜像�
 | `pnpm smoke` | ✅ `SMOKE OK`（对运行中的 compose 栈实测） |
 | 真实链路 | ✅ 浏览器 → API → 队列 → 沙盒 → 模型 → MCP 工具 → 上游 API → SSE |
 | 平台即 MCP | ✅ 外部 MCP 客户端可发现并调用智能体 |
-| 子智能体 | ✅ 真实模型 + 沙盒跑通，事件与落库序列见 [docs/SUBAGENTS-VERIFICATION.md](docs/SUBAGENTS-VERIFICATION.md) |
+| 子智能体 | ✅ 真实模型 + 沙盒跑通，事件与落库序列见 [docs/archive/SUBAGENTS-VERIFICATION.md](docs/archive/SUBAGENTS-VERIFICATION.md) |
 | 响应式 | ✅ 1280/1024/768/390 无横向溢出 |
 | 压测 | ✅ 聚合读 1.7k rps、SSE 20 并发 +0.05 MB、健康检查 25k rps |
 | 备份恢复 | ✅ 真实演练：`pnpm backup` + `pnpm restore` + 迁移 + `pnpm smoke` 全部通过（OPERATIONS §3.3） |
@@ -122,7 +122,7 @@ pnpm run up          # 生成 .env、起 Postgres/Redis、迁移、构建镜像�
 | `README.md` | 入口：能力、快速开始、命令 |
 | `docs/HANDOFF.md` | 交接摘要（本文的详版，循环 0–15 + 最终基线） |
 | `docs/RUNBOOK.md` | 凌晨处置手册：症状 → 判断 → 处置 → 验证 |
-| `docs/SUBAGENTS-VERIFICATION.md` | 子智能体真实端到端验证记录 |
+| `docs/archive/SUBAGENTS-VERIFICATION.md` | 子智能体真实端到端验证记录 |
 | `docs/USER-STORIES.md` | 验收依据：4 个 EPIC、20 条故事 |
 | `docs/CAPABILITY-GAP.md` | 对标行业基线的能力差距与补齐记录 |
 | `docs/SECURITY.md` | 安全审查结果与修复状态（M12 拆分） |

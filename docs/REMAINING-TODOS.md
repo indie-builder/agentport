@@ -30,7 +30,7 @@
    - 结果：`bun run down --clean && bun run up` 从零建卷迁移启动，`bun run smoke` = SMOKE OK（当时入口）。修正了 smoke 对空库 `tools/list` 的错误断言（空库返回 -32601 属 MCP 协议正确行为）。
 3. ✅ **UI/UX 全页面独立审查（2026-10-24 完成 10/10）**
    - 原第 5–10 轮成果未留痕；本轮以当前代码重做：4 个 Opus 审查域并行覆盖 12 类页面与浮层，修 20 项（含 2 项 P0：收起态焦点隐形、技能支持文件草稿无保护），4 个 Sonnet 修复。
-   - 验证：typecheck 全过、web 254/254、全量 965/965、build 通过、biome 0 error、lint:focus 通过；浏览器 320px 六页无溢出且各 1 个 h1。详见 docs/UI-UX-REVIEW.md。
+   - 验证：typecheck 全过、web 254/254、全量 965/965、build 通过、biome 0 error、lint:focus 通过；浏览器 320px 六页无溢出且各 1 个 h1。详见 docs/archive/UI-UX-REVIEW.md。
    - 未覆盖：真实读屏/iOS/原生 200% 缩放；`index.html` favicon 仍为 brand.gif 待另换。
 ## P1
 
@@ -42,7 +42,7 @@
 5. ✅ **同步过时文档（2026-10-24 完成）**
    - README/DELIVERY 已按代码修正（600/min、D-17 已代理、4 种权限模式、/health 鉴权区分、规则/输出风格/记忆/技能资源/定时任务），并清理 DECISIONS/HANDOFF/CHANGELOG 残留 120/min。`rg '未代理|120/min|只有.*dontAsk|无鉴权'` 无命中。
 6. ✅ **子智能体子级资源与自有 server 绑定（2026-10-24 处理）**
-   - ✅ **子智能体自有 MCP（已接通，2026-10-28 按代码更正）**：`renderSubAgentMd` 写子定义 `mcpServers` 名称引用，worker 以父与启用子级绑定生成 `.mcp.json`（`packages/worker/src/server-bindings.ts`），runner 的 PreToolUse 边界 hook 按子级 server 与技能拒绝越权，`packages/core/test/workspace-input.test.ts` 有渲染断言。限制：子级实际加载仍以真实模型调试验收，真实模型下的子级工具调用尚未验证，不声称已端到端验收。`docs/SUBAGENTS-VERIFICATION.md` 仍是 2026-10-24 的验证快照，其中「平台尚未接通」已过时，本次未改该文。
+   - ✅ **子智能体自有 MCP（已接通，2026-10-28 按代码更正）**：`renderSubAgentMd` 写子定义 `mcpServers` 名称引用，worker 以父与启用子级绑定生成 `.mcp.json`（`packages/worker/src/server-bindings.ts`），runner 的 PreToolUse 边界 hook 按子级 server 与技能拒绝越权，`packages/core/test/workspace-input.test.ts` 有渲染断言。限制：子级实际加载仍以真实模型调试验收，真实模型下的子级工具调用尚未验证，不声称已端到端验收。`docs/archive/SUBAGENTS-VERIFICATION.md` 仍是 2026-10-24 的验证快照，其中「平台尚未接通」已过时，本次未改该文。
    - 技能参考文件：已放行主会话 `Read` 只读 `.claude/skills/<slug>/references/**/*.md`（写入仍仅限记忆目录）；此前 Read 只允许记忆目录导致 references 不可读。
 
 ## P2

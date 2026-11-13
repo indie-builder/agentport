@@ -27,11 +27,11 @@ import {
   formatTokens,
   shortId,
 } from '../src/lib/format.js';
-import { PersonalReviewsPage } from '../src/pages/personal-memory.js';
-import { PersonalProfilePage } from '../src/pages/personal-profile.js';
-import { PersonalSecurityPage } from '../src/pages/personal-security.js';
-import { PersonalSharesPage } from '../src/pages/personal-shares.js';
-import { PersonalUsagePage } from '../src/pages/personal-usage.js';
+import { PersonalReviewsPage } from '../src/pages/personal/memory.js';
+import { PersonalProfilePage } from '../src/pages/personal/profile.js';
+import { PersonalSecurityPage } from '../src/pages/personal/security.js';
+import { PersonalSharesPage } from '../src/pages/personal/shares.js';
+import { PersonalUsagePage } from '../src/pages/personal/usage.js';
 import {
   personalReviewsSearchSchema,
   personalSecuritySearchSchema,

@@ -1,7 +1,7 @@
 import { noop } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { pluginQuery, queryClient } from '../../lib/queries.js';
-import { PluginDetailPage } from '../../pages/plugin-detail.js';
+import { PluginDetailPage } from '../../pages/plugins/plugin-detail.js';
 import { pluginDetailSearchSchema } from '../-search.js';
 
 export const Route = createFileRoute('/_shell/plugins/$pluginId')({

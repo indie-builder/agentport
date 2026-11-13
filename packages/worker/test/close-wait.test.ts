@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from 'bun:test';
-import { waitClose } from '../src/close-wait.js';
+import { waitClose } from '../src/runs/close-wait.js';
 import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 
 describe('waitClose', () => {

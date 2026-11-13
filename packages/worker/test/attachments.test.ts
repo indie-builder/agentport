@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { MessageAttachment } from '@agentport/shared';
-import { promptWithAttachments } from '../src/attachments.js';
+import { promptWithAttachments } from '../src/runs/attachments.js';
 
 const attachment = (overrides: Partial<MessageAttachment> = {}): MessageAttachment => ({
   id: '11111111-1111-4111-8111-111111111111',

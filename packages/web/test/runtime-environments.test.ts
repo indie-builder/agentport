@@ -20,8 +20,8 @@ import { Button } from '../src/components/ui/button.js';
 import { ApiError } from '../src/lib/api.js';
 import { buildShouldPoll } from '../src/lib/queries.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
-import { RuntimeEnvironmentDetailPage } from '../src/pages/runtime-environment-detail.js';
-import { RuntimeEnvironmentsPage } from '../src/pages/runtime-environments.js';
+import { RuntimeEnvironmentDetailPage } from '../src/pages/runtime-environments/runtime-environment-detail.js';
+import { RuntimeEnvironmentsPage } from '../src/pages/runtime-environments/index.js';
 import { allAccessMe } from './me-fixture.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));

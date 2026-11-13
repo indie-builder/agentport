@@ -34,7 +34,7 @@ mock.module('bullmq', () => ({
   },
 }));
 
-const { startReconciler } = await import('../src/reconcile.js');
+const { startReconciler } = await import('../src/scheduling/reconcile.js');
 
 const logger = {
   info: () => undefined,

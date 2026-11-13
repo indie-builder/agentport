@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { ChannelPage } from '../../pages/channel.js';
+import { ChannelPage } from '../../pages/channels/channel.js';
 
 function ChannelRoute() {
   const { channelId } = Route.useParams();
