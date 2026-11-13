@@ -80,7 +80,7 @@ describe.skipIf(!dockerReady || !baseReady)('真实 Docker 构建', () => {
     const nonce = `cache${Date.now()}${Math.floor(Math.random() * 1_000_000)}`;
     const dockerfile = [
       'ARG RUNTIME_BASE_IMAGE',
-      'FROM ${RUNTIME_BASE_IMAGE}',
+      `FROM \${RUNTIME_BASE_IMAGE}`,
       `RUN echo ${nonce} > /tmp/runtime-env-cache`,
       '',
     ].join('\n');

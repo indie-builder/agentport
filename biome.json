@@ -15,7 +15,7 @@
       "!**/routeTree.gen.ts",
       "!**/migrations/meta",
       "!docs/**/*.json",
-      "!packages/core/src/generated/**"
+      "!packages/core/src/generated"
     ]
   },
   "formatter": {

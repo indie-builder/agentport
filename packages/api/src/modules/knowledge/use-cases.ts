@@ -982,13 +982,13 @@ export async function createBase(
       ? repo.knowledge.getModelProfileWithSecret(deps.db, input.asrProfileId)
       : null,
   ]);
-  if (!embedding || embedding.kind !== 'embedding' || !embedding.enabled) {
+  if (embedding?.kind !== 'embedding' || !embedding.enabled) {
     throw new AppError('INVALID_INPUT', 'embedding profile 不存在、类型不符或已禁用');
   }
-  if (input.rerankProfileId && (!rerank || rerank.kind !== 'rerank' || !rerank.enabled)) {
+  if (input.rerankProfileId && (rerank?.kind !== 'rerank' || !rerank.enabled)) {
     throw new AppError('INVALID_INPUT', 'rerank profile 不存在、类型不符或已禁用');
   }
-  if (input.asrProfileId && (!asr || asr.kind !== 'asr' || !asr.enabled)) {
+  if (input.asrProfileId && (asr?.kind !== 'asr' || !asr.enabled)) {
     throw new AppError('INVALID_INPUT', 'ASR profile 不存在、类型不符或已禁用');
   }
   const settingsProblem = await imageSettingsProblem(input.settings, embedding);
@@ -1122,19 +1122,19 @@ export async function updateBase(deps: KnowledgeDeps, id: string, body: UpdateBa
     nextAsrProfileId ? repo.knowledge.getModelProfileWithSecret(deps.db, nextAsrProfileId) : null,
   ]);
   if (nextEmbeddingProfileId !== current.embeddingProfileId) {
-    if (!embedding || embedding.kind !== 'embedding' || !embedding.enabled) {
+    if (embedding?.kind !== 'embedding' || !embedding.enabled) {
       throw new AppError('INVALID_INPUT', 'embedding profile 不存在、类型不符或已禁用');
     }
   } else if (!embedding) {
     throw new AppError('INVALID_INPUT', 'embedding profile 不存在，可能已被删除');
   }
   if (nextRerankProfileId !== current.rerankProfileId) {
-    if (nextRerankProfileId && (!rerank || rerank.kind !== 'rerank' || !rerank.enabled)) {
+    if (nextRerankProfileId && (rerank?.kind !== 'rerank' || !rerank.enabled)) {
       throw new AppError('INVALID_INPUT', 'rerank profile 不存在、类型不符或已禁用');
     }
   }
   if (nextAsrProfileId !== current.asrProfileId) {
-    if (nextAsrProfileId && (!asr || asr.kind !== 'asr' || !asr.enabled)) {
+    if (nextAsrProfileId && (asr?.kind !== 'asr' || !asr.enabled)) {
       throw new AppError('INVALID_INPUT', 'ASR profile 不存在、类型不符或已禁用');
     }
   } else if (nextAsrProfileId && !asr) {
@@ -1528,7 +1528,7 @@ export async function uploadDocument(
       throw new AppError('CONFLICT', '知识库未绑定音频转录模型，不能上传音频');
     }
     const asrProfile = await repo.knowledge.getModelProfileWithSecret(deps.db, base.asrProfileId);
-    if (!asrProfile || asrProfile.kind !== 'asr' || !asrProfile.enabled) {
+    if (asrProfile?.kind !== 'asr' || !asrProfile.enabled) {
       throw new AppError('CONFLICT', '知识库绑定的音频转录模型不存在或已禁用');
     }
   }
@@ -4228,7 +4228,7 @@ export async function cancelJob(deps: KnowledgeDeps, jobId: string) {
     });
     if (cancelled) return toJob(cancelled);
     const claimed = await repo.knowledge.getJob(deps.db, row.id);
-    if (!claimed || claimed.status !== 'running') {
+    if (claimed?.status !== 'running') {
       throw new AppError('CONFLICT', '任务已结束，无法取消');
     }
     await publishKnowledgeCancel(claimed.id);

@@ -56,9 +56,9 @@ interface DispatchDeps extends KnowledgeDeps {
 export async function dispatchKnowledgeJob(
   job: KnowledgeJobRow,
   deps: DispatchDeps,
-): Promise<KnowledgeJobResult | void> {
+): Promise<KnowledgeJobResult | undefined> {
   if (job.type === 'wiki_generate') {
-    return runWikiGenerate(job, {
+    await runWikiGenerate(job, {
       db: deps.db,
       config: {
         KNOWLEDGE_DIR: deps.knowledgeDir,
@@ -67,6 +67,7 @@ export async function dispatchKnowledgeJob(
       signal: deps.signal,
       ...(deps.queryFn === undefined ? {} : { queryFn: deps.queryFn }),
     });
+    return;
   }
   return runKnowledgeJob(deps, job, deps.signal);
 }

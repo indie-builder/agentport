@@ -838,7 +838,7 @@ describe('restore.sh', () => {
     await run('rm', ['-f', join(env.bin, 'mv')]);
     await stub(
       'mv',
-      'if [ -n "${FAIL_MV_RUN:-}" ]; then case "$1" in */.restore-holding-*/live-only-agent/run_*) exit 1;; esac; fi\nexec /bin/mv "$@"',
+      `if [ -n "\${FAIL_MV_RUN:-}" ]; then case "$1" in */.restore-holding-*/live-only-agent/run_*) exit 1;; esac; fi\nexec /bin/mv "$@"`,
     );
 
     const { stderr } = await restoreError([archive], {
@@ -870,7 +870,7 @@ describe('restore.sh', () => {
     await run('rm', ['-f', join(env.bin, 'mv')]);
     await stub(
       'mv',
-      'if [ -n "${FAIL_MV_SECOND_RUN:-}" ]; then case "$1" in */.restore-holding-*/live-only-agent/run_bbb) exit 1;; esac; fi\nexec /bin/mv "$@"',
+      `if [ -n "\${FAIL_MV_SECOND_RUN:-}" ]; then case "$1" in */.restore-holding-*/live-only-agent/run_bbb) exit 1;; esac; fi\nexec /bin/mv "$@"`,
     );
 
     const { stderr } = await restoreError([archive], {
@@ -1111,7 +1111,7 @@ describe('restore.sh', () => {
     await run('rm', ['-f', join(env.bin, 'mv')]);
     await stub(
       'mv',
-      'if [ -n "${FAIL_MV_STAGE:-}" ]; then case "$1" in */.restore-staging-*/docs) exit 1;; esac; fi\nexec /bin/mv "$@"',
+      `if [ -n "\${FAIL_MV_STAGE:-}" ]; then case "$1" in */.restore-staging-*/docs) exit 1;; esac; fi\nexec /bin/mv "$@"`,
     );
 
     const { stderr } = await restoreError([archive], {
@@ -1148,8 +1148,8 @@ describe('restore.sh', () => {
     await stub(
       'mv',
       [
-        'if [ -n "${FAIL_MV_STAGE:-}" ]; then case "$1" in */.restore-staging-*/docs) exit 1;; esac; fi',
-        'if [ -n "${FAIL_MV_ROLLBACK:-}" ]; then case "$1" in */.restore-holding-*/blobs) exit 1;; esac; fi',
+        `if [ -n "\${FAIL_MV_STAGE:-}" ]; then case "$1" in */.restore-staging-*/docs) exit 1;; esac; fi`,
+        `if [ -n "\${FAIL_MV_ROLLBACK:-}" ]; then case "$1" in */.restore-holding-*/blobs) exit 1;; esac; fi`,
         'exec /bin/mv "$@"',
         '',
       ].join('\n'),
