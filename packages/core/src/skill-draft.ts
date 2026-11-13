@@ -39,11 +39,11 @@ export function buildSkillDraft(input: {
   const userStep = input.steps.find((s) => s.kind === 'user' && s.text?.trim());
   const assistantText = input.steps
     .filter((s) => s.kind === 'assistant' && s.text?.trim())
-    .map((s) => s.text!.trim())
+    .map((s) => s.text?.trim() ?? '')
     .join('\n\n')
     .trim();
   const tools = [
-    ...new Set(input.steps.filter((s) => s.kind === 'tool' && s.name).map((s) => s.name!)),
+    ...new Set(input.steps.filter((s) => s.kind === 'tool' && s.name).map((s) => s.name ?? '')),
   ];
 
   const prompt = userStep?.text?.trim() ?? '';

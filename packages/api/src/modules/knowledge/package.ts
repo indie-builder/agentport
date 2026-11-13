@@ -317,10 +317,13 @@ function verifiedFiles(files: Map<string, Buffer>, manifest: Manifest): Map<stri
     if (entry.size !== data.length) invalid(`「${path}」大小与 manifest 不符`, path);
     if (entry.sha256 !== sha256Hex(data)) invalid(`「${path}」内容与 sha256 不符`, path);
   }
+  const verified = new Map<string, Buffer>();
   for (const path of listed.keys()) {
-    if (!files.has(path)) invalid(`知识包缺少文件「${path}」`, path);
+    const data = files.get(path);
+    if (data === undefined) invalid(`知识包缺少文件「${path}」`, path);
+    verified.set(path, data);
   }
-  return new Map([...listed.keys()].map((path) => [path, files.get(path)!] as const));
+  return verified;
 }
 
 /**
@@ -1104,7 +1107,7 @@ export async function importKnowledgePackage(
         await tx.insert(schema.knowledgeFolders).values({
           id: folderId.get(folder.id)!,
           baseId,
-          parentId: folder.parentId === null ? null : folderId.get(folder.parentId)!,
+          parentId: folder.parentId === null ? null : folderId.get(folder.parentId),
           name: folder.name,
           path: folderPath(folder, manifest),
         });
@@ -1118,7 +1121,7 @@ export async function importKnowledgePackage(
           })),
         );
       }
-      const tagByName = new Map(manifest.tags.map((tag) => [tag.name, tagId.get(tag.id)!]));
+      const tagByName = new Map(manifest.tags.map((tag) => [tag.name, tagId.get(tag.id)]));
 
       for (const document of manifest.documents) {
         const newDocumentId = documentId.get(document.id)!;
@@ -1134,7 +1137,7 @@ export async function importKnowledgePackage(
         await tx.insert(schema.knowledgeDocuments).values({
           id: newDocumentId,
           baseId,
-          folderId: document.folderId === null ? null : folderId.get(document.folderId)!,
+          folderId: document.folderId === null ? null : folderId.get(document.folderId),
           title: document.title,
           sourceType: document.sourceType,
           sourceId: document.sourceId,
@@ -1188,7 +1191,7 @@ export async function importKnowledgePackage(
                 baseId,
                 documentId: newDocumentId,
                 versionId: newVersionId,
-                folderId: document.folderId === null ? null : folderId.get(document.folderId)!,
+                folderId: document.folderId === null ? null : folderId.get(document.folderId),
                 ordinal: chunk.ordinal,
                 parentOrdinal: chunk.parentOrdinal,
                 indexRole: chunk.indexRole,
@@ -1214,7 +1217,7 @@ export async function importKnowledgePackage(
           if (version.parentVersionId === null) continue;
           await tx
             .update(schema.knowledgeDocumentVersions)
-            .set({ parentVersionId: versionId.get(version.parentVersionId)! })
+            .set({ parentVersionId: versionId.get(version.parentVersionId) })
             .where(eq(schema.knowledgeDocumentVersions.id, versionId.get(version.id)!));
         }
         if (currentPackage) {
@@ -1274,9 +1277,9 @@ export async function importKnowledgePackage(
           await tx.insert(schema.knowledgeWikiSources).values(
             page.sources.map((source) => ({
               pageId: newPageId,
-              documentId: source.documentId === null ? null : documentId.get(source.documentId)!,
-              versionId: source.versionId === null ? null : versionId.get(source.versionId)!,
-              chunkId: source.chunkId === null ? null : chunkId.get(source.chunkId)!,
+              documentId: source.documentId === null ? null : documentId.get(source.documentId),
+              versionId: source.versionId === null ? null : versionId.get(source.versionId),
+              chunkId: source.chunkId === null ? null : chunkId.get(source.chunkId),
               stale: source.stale,
             })),
           );
@@ -1287,7 +1290,7 @@ export async function importKnowledgePackage(
         if (page.parentId === null) continue;
         await tx
           .update(schema.knowledgeWikiPages)
-          .set({ parentId: wikiPageId.get(page.parentId)! })
+          .set({ parentId: wikiPageId.get(page.parentId) })
           .where(eq(schema.knowledgeWikiPages.id, wikiPageId.get(page.id)!));
       }
     });

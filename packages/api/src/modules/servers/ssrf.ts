@@ -69,7 +69,10 @@ function parseAllowlistEntry(raw: string): AllowlistEntry {
     }
   }
   const bracketed = /^\[([^\]]+)\](?::(\d+))?$/.exec(raw);
-  if (bracketed) return { host: bracketed[1]!.toLowerCase(), port: bracketed[2] ?? null };
+  if (bracketed) {
+    const host = bracketed[1];
+    if (host) return { host: host.toLowerCase(), port: bracketed[2] ?? null };
+  }
   const colon = raw.indexOf(':');
   if (colon >= 0 && colon === raw.lastIndexOf(':')) {
     return { host: raw.slice(0, colon).toLowerCase(), port: raw.slice(colon + 1) || null };

@@ -231,7 +231,9 @@ function bodyObjectSchema(
   ];
   let expanded = 0;
   while (pending.length > 0) {
-    const { node: next, depth, refs } = pending.shift()!;
+    const entry = pending.shift();
+    if (!entry) break;
+    const { node: next, depth, refs } = entry;
     const ref = isRecord(next) && typeof next.$ref === 'string' ? next.$ref : undefined;
     if (
       depth > MAX_SCHEMA_DEPTH ||

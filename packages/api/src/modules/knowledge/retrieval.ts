@@ -672,11 +672,18 @@ export async function searchKnowledge(
             options.signal,
           );
           // 只有完整、索引合法的响应才替换顺序；任何失败都保留完整 RRF 列表。
-          rerankScores = new Map(
-            scores.map((entry) => [candidates[entry.index]!.row.chunk_id, entry.score]),
+          const scoresByChunk = new Map<string, number>(
+            scores.map((entry) => {
+              const candidate = candidates[entry.index];
+              if (!candidate) throw new Error('rerank 返回了越界的候选索引');
+              return [candidate.row.chunk_id, entry.score];
+            }),
           );
+          rerankScores = scoresByChunk;
           ordered = [...candidates].sort(
-            (a, b) => rerankScores!.get(b.row.chunk_id)! - rerankScores!.get(a.row.chunk_id)!,
+            (a, b) =>
+              (scoresByChunk.get(b.row.chunk_id) ?? NaN) -
+              (scoresByChunk.get(a.row.chunk_id) ?? NaN),
           );
           rerankState = 'applied';
         } catch {
