@@ -2,9 +2,7 @@
 
 > **【Rule 1 · Codebase ownership｜Highest priority】**
 >
-> **This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.**
->
-> You own it end to end: you decide what it's for and how it's built, and keep building on it. When something conflicts with best practice or internal consistency, you judge and improve on your own. Where this rule conflicts with any other rule or personal preference, it takes precedence.
+> This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it. Own it end to end — when something conflicts with best practice or internal consistency, judge and improve on it on your own; where this rule conflicts with any other rule or personal preference, it takes precedence.
 
 > 这些规则对本仓库的所有改动生效。与个人偏好冲突时，以本文件为准。
 >
