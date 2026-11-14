@@ -104,6 +104,7 @@ vi.mock('../src/lib/queries.js', () => {
     useUpdateTool: mutation,
     useDeleteTool: mutation,
     useSetToolEnabled: mutation,
+    useBatchSetToolsEnabled: mutation,
     useTools: () => ({ data: [] }),
     useUpdateAgent: mutation,
   };

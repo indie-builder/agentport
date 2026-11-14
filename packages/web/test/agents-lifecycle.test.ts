@@ -286,6 +286,20 @@ beforeEach(() => {
   vi.spyOn(api, 'skills').mockResolvedValue([]);
   vi.spyOn(api, 'runtimeEnvironments').mockResolvedValue([defaultEnvironment, namedEnvironment]);
   vi.spyOn(api, 'agentVersions').mockResolvedValue(versions);
+  vi.spyOn(api, 'agentStats').mockResolvedValue({
+    agentId: agent.id,
+    runCount: 0,
+    running: 0,
+    failed: 0,
+    succeeded: 0,
+    totalCost: 0,
+    totalTokens: 0,
+    errorRate: 0,
+    latencyP50: null,
+    latencyP99: null,
+    lastRunStartTime: null,
+    daily: [],
+  });
   // 默认落在概览：这几项按权限发请求，统一给空数据，避免走真实 fetch 桩。
   vi.spyOn(api, 'agentMemoryOverview').mockResolvedValue({
     policy: {
