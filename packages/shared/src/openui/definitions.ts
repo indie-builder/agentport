@@ -10,7 +10,7 @@ import {
 
 /**
  * 官方 chat 库 84 个组件的真实 Zod 契约，逐字段照抄官方源码
- * （@openuidev/react-ui 0.18.1 `src/genui-lib/**`）。
+ * （@openuidev/react-ui 0.18.8 `src/genui-lib/**`）。
  *
  * 不写成生成的 JSON Schema 再反编译：反编译会丢 `default`、`min(2)`、
  * `z.record` 的值类型、`.refine` 语义约束，以及 `reactive()` 的绑定标记。
