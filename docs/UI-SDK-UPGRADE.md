@@ -33,6 +33,7 @@ rg -n "@ui-sdk/" packages/web/src
 | `packages/web/src/components/ui/*.tsx` | `@ui-sdk/react/<component>` | part 结构、`render` 签名、`data-slot`/状态属性名 |
 | `packages/web/src/components/chat/conversation-search.tsx` | `@ui-sdk/react/command` | Command 的 item/group 结构与键盘行为 |
 | `packages/web/src/components/ui/slider.tsx` | `@ui-sdk/core`、`@ui-sdk/core/slider`、`@ui-sdk/react/primitive`、`@ui-sdk/react/slider`、`@ui-sdk/react/field` | `createParts`/`usePart` 的 slot 映射、`useFieldControl` 的字段属性 |
+| `packages/web/src/components/ui/sortable-list.tsx` | `@ui-sdk/core`（`definePrimitive`/`createReorder`）、`@ui-sdk/react/primitive` | 草稿/`data-moving`、`preview`、`message` 播报签名、`reorder.bind` 与手柄按键 |
 | `packages/web/src/components/ui/{badge,attachment,bubble,marker}.tsx` | `@ui-sdk/react/primitive` | `renderElement`、`PartProps` 的形状 |
 | `packages/web/src/lib/toast.ts`、`App.tsx` | `@ui-sdk/react/toast` | `createToaster` 选项、`ToastRegion` 的位置/`maxVisible`、`Toast*` part 的渲染函数签名 |
 | `packages/web/src/components/ui/{calendar,carousel}.tsx` | `@ui-sdk/react/{calendar,carousel}` | 日期值形状（ISO 字符串）、`CalendarDay` 状态字段、`CarouselViewport` 结构与 `aria-disabled` |
@@ -64,3 +65,4 @@ rg -n "@ui-sdk/" packages/web/src
 |---|---|---|---|---|
 | 2026-11-14 | 未接入 → `0.1.0-beta.2` | 全量替换 Base UI 为 ui-sdk 原生 | `@layer ui-sdk` 须在 Tailwind 前声明；`exactOptionalPropertyTypes` 需 `Loose<T>` 包装；焦点契约检查改认 `data-dragging` | typecheck/build/lint 绿；`test:web` 1926 通过、12 条既有失败 |
 | 2026-11-14 | 移除 sonner / embla-carousel-react / react-day-picker / react-resizable-panels | `lib/toast` + `App.tsx`、`components/ui/{calendar,carousel}`、`openui/components/*`、`pages/chat`、`pages/plugins/plugin-detail` | resizable 的数字是百分比、像素要写 `"240px"`；jsdom 里它测不到布局，折叠/展开不能由 layout 反推状态；UI 断言不要绑定 `.rdp-*` / `data-day` / `embla` 调用 | typecheck/build/lint 绿；`test:web` 1933 通过、10 条既有失败 |
+| 2026-11-14 | 移除 `@dnd-kit/*` | `components/data-table.tsx`、新增 `components/ui/sortable-list.tsx` | TanStack Table 仍是顺序唯一来源，primitive 只存拖动草稿；Escape 先取消拖动并保留弹层，Tab 取消并继续；拖动预览用 `preview` | typecheck/build 通过；`test:web` 1933 通过、10 条既有失败；`/operations` 真实浏览器验证指针/键盘/持久化 |

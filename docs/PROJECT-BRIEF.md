@@ -130,7 +130,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 消息滚动容器 | `@shadcn/react`（`message-scroller`） | 0.3.1；仅 `components/ui/message-scroller.tsx` 使用 |
 | 路由 | TanStack Router（`@tanstack/router-plugin` 生成路由） | 1.170.46 / 1.168.48 |
 | 服务端状态 | TanStack Query | 5.105.1 |
-| 数据表格 | TanStack Table + dnd-kit（`@dnd-kit/core`/`sortable`/`utilities`） | 9.3.1 / 6.3.1 / 10.0.0 / 3.2.2 |
+| 数据表格 | TanStack Table（列顺序/显隐状态由 Table 持有，拖拽排序用 ui-sdk `createReorder`） | 9.3.1 |
 | 表单 | react-hook-form + `@hookform/resolvers` | 7.91.0 / 7.0.0 |
 | 校验 | zod（与后端共享） | 4.6.7 |
 | 客户端状态 | Zustand | 5.0.16 |

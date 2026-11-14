@@ -399,7 +399,7 @@
 | 动效 | Motion（`motion/react`）+ ui-sdk 状态过渡 | 局部交互与状态反馈用 CSS transition（常用 150ms，60–200ms 阶梯、`--ease-out-soft`；浮层用 `data-starting-style` / `data-ending-style`）。需要布局开合时用 Motion：`duration` 沿用 §11 与现有实现的固定值（折叠/浮层 0.15、侧栏 0.16、品牌切图 0.3），缓动 `--ease-out-soft` 或 `easeOut`，并读 `useReducedMotion`；消息入场 0.4s 只使用现成工具类，不扩散到布局开合 |
 | 可拖拽分栏 | ui-sdk `@ui-sdk/react/resizable` | `Resizable` / `ResizablePanel` / `ResizableHandle`；跨访问记忆用 `autoSaveId`，需要排除程序化收起时自存宽度；尺寸数字是百分比，像素写 `"240px"`；分隔条就是 1px `border-line`，不加把手 |
 | 提示 | ui-sdk `@ui-sdk/react/toast` | `ToastRegion` 在 `App.tsx` 挂载一次；业务统一从 `lib/toast` 导入（`toast` 的 `success/info/warning/error`、`toastError` / `toastSuccess`），不直接排队 |
-| 拖拽排序 | dnd-kit | 必须带 `KeyboardSensor`，拖拽手柄有可访问名称 |
+| 拖拽排序 | ui-sdk `createReorder` | 用 `definePrimitive` 自建 sortable 列表（`components/ui/sortable-list.tsx`）；拖拽手柄有可访问名称与中文播报，键盘 Space 拾取、方向键移动、Escape 取消并保留弹层 |
 | 客户端状态 | Zustand | 只放**跨组件、非服务端**的状态；服务端数据一律 TanStack Query |
 | 路由与 URL 状态 | TanStack Router | 筛选、分页、选中的 tab 走 `validateSearch`，不要塞进组件 state |
 | 类名合并 | `cn`（`lib/cn.ts`） | 唯一实现，不引入 clsx / tailwind-merge 的第二份 |
