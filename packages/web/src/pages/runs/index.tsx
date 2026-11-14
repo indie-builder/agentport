@@ -1,4 +1,4 @@
-import { runStatusSchema } from '@agentport/shared';
+import { runStatusSchema, runTriggerSchema, type RunTrigger } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, RefreshCw } from 'lucide-react';
@@ -43,6 +43,14 @@ import { meQuery, useAgents, useRuns } from '../../lib/queries.js';
 import { toastError } from '../../lib/toast.js';
 
 const statuses = runStatusSchema.options;
+const TRIGGER_LABEL: Record<RunTrigger, string> = {
+  chat: '对话',
+  mcp: '连接器',
+  schedule: '定时任务',
+  event: '事件',
+  review: '记忆提案',
+  channel: '频道',
+};
 
 function ExpandableError({ error }: { error: string }) {
   const [open, setOpen] = useState(false);
@@ -232,10 +240,12 @@ export function RunsPage() {
   const search = useSearch({ from: '/_shell/runs/' });
   const agentId = search.agent ?? '';
   const status = search.status ?? '';
+  const trigger = search.trigger ?? '';
   const view: ListView = search.view ?? 'cards';
   const setFilter = (patch: {
     agent?: string | undefined;
     status?: RunStatus | undefined;
+    trigger?: RunTrigger | undefined;
   }): void => {
     void navigate({ to: '/runs', search: { ...search, ...patch } });
   };
@@ -245,6 +255,7 @@ export function RunsPage() {
   const runs = useRuns({
     ...(agentId ? { agentId } : {}),
     ...(status ? { status } : {}),
+    ...(trigger ? { trigger } : {}),
     limit: 100,
   });
   const [exporting, setExporting] = useState(false);
@@ -255,6 +266,7 @@ export function RunsPage() {
       const data = await api.exportRuns({
         ...(agentId ? { agentId } : {}),
         ...(status ? { status } : {}),
+        ...(trigger ? { trigger } : {}),
       });
       downloadJson(data, 'runs.json');
     } catch (error) {
@@ -267,7 +279,7 @@ export function RunsPage() {
   const items = runs.data?.items ?? [];
   const firstLoadFailed = runs.isError && runs.data === undefined;
   const empty = !runs.isPending && !firstLoadFailed && items.length === 0;
-  const filtered = Boolean(agentId || status);
+  const filtered = Boolean(agentId || status || trigger);
 
   const agentOptions = [
     { value: '', label: '全部专家' },
@@ -276,6 +288,10 @@ export function RunsPage() {
   const statusOptions = [
     { value: '', label: '全部状态' },
     ...statuses.map((value) => ({ value, label: runStatusLabel[value] })),
+  ];
+  const triggerOptions = [
+    { value: '', label: '全部触发' },
+    ...runTriggerSchema.options.map((value) => ({ value, label: TRIGGER_LABEL[value] })),
   ];
 
   return (
@@ -325,6 +341,15 @@ export function RunsPage() {
             label="按状态筛选"
             className="w-full sm:w-36"
           />
+          <FilterSelect
+            value={trigger}
+            onValueChange={(next) =>
+              setFilter({ trigger: (next || undefined) as RunTrigger | undefined })
+            }
+            options={triggerOptions}
+            label="按触发筛选"
+            className="w-full sm:w-36"
+          />
           <div className="ml-auto">
             <ViewToggle value={view} onChange={setView} />
           </div>
@@ -361,7 +386,9 @@ export function RunsPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setFilter({ agent: undefined, status: undefined })}
+                      onClick={() =>
+                        setFilter({ agent: undefined, status: undefined, trigger: undefined })
+                      }
                     >
                       清除筛选
                     </Button>

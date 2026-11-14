@@ -1,3 +1,4 @@
+import type { RunTrigger } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createMemoryHistory,
@@ -80,6 +81,7 @@ function buildRouter(initialPath: string) {
     validateSearch: (search: Record<string, unknown>) => ({
       agent: typeof search.agent === 'string' ? search.agent : undefined,
       status: search.status as RunStatus | undefined,
+      trigger: typeof search.trigger === 'string' ? (search.trigger as RunTrigger) : undefined,
       view: search.view === 'cards' ? 'cards' : search.view === 'table' ? 'table' : undefined,
     }),
   });
@@ -109,6 +111,17 @@ function table(): Element | null {
 }
 
 describe('run list view toggle', () => {
+  it('passes the trigger from the URL to the runs query and shows filtered results', async () => {
+    await mount('/runs?trigger=schedule');
+
+    await vi.waitFor(() =>
+      expect(api.runs).toHaveBeenCalledWith(
+        expect.objectContaining({ trigger: 'schedule', limit: 100 }),
+      ),
+    );
+    expect(host.textContent).toContain('符合筛选条件');
+  });
+
   it('defaults to the cards and renders rows instead when the URL asks for the table', async () => {
     const router = await mount();
     expect(cards()).not.toBeNull();

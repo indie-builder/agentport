@@ -5,6 +5,7 @@ import type {
   RunList,
   RunListItem,
   RunStatus,
+  RunTrigger,
   Skill,
 } from '@agentport/shared';
 import type { ApiClient } from '../orpc.js';
@@ -21,6 +22,7 @@ export type ApprovalRequest = ApprovalRequestList['items'][number];
 export interface RunQuery {
   agentId?: string;
   status?: RunStatus;
+  trigger?: RunTrigger;
   limit?: number;
 }
 
@@ -35,10 +37,12 @@ export default {
   exportRuns: (query: {
     agentId?: string;
     status?: RunStatus;
+    trigger?: RunTrigger;
   }): Promise<{ format: string; exportedAt: string; items: RunListItem[] }> => {
     const params = new URLSearchParams();
     if (query.agentId) params.set('agentId', query.agentId);
     if (query.status) params.set('status', query.status);
+    if (query.trigger) params.set('trigger', query.trigger);
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return nativeRequest(`/runs/export${search}`);
   },

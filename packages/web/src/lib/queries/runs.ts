@@ -11,8 +11,15 @@ import {
 import { mergeRunQuestions, useRefetchWhenRunEnds, withRunQuestion } from './shared.js';
 
 export function useRuns(query: RunQuery = {}, enabled = true) {
+  const queryKey: (string | number | null)[] = [
+    'runs',
+    query.agentId ?? null,
+    query.status ?? null,
+    query.limit ?? 50,
+  ];
+  if (query.trigger) queryKey.push(query.trigger);
   return useQuery<RunList>({
-    queryKey: ['runs', query.agentId ?? null, query.status ?? null, query.limit ?? 50],
+    queryKey,
     queryFn: () => api.runs(query),
     enabled,
     staleTime: 5_000,
