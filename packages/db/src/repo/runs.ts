@@ -135,6 +135,7 @@ export async function listRuns(
     agentId?: string;
     status?: RunStatus;
     trigger?: RunTrigger;
+    since?: Date;
     limit?: number;
     access: AccessFilter;
   },
@@ -150,6 +151,7 @@ export async function listRuns(
   if (options.agentId !== undefined) filters.push(eq(agentRuns.agentId, options.agentId));
   if (options.status !== undefined) filters.push(eq(agentRuns.status, options.status));
   if (options.trigger !== undefined) filters.push(eq(agentRuns.trigger, options.trigger));
+  if (options.since !== undefined) filters.push(gte(agentRuns.startedAt, options.since));
 
   // drizzle 0.45 的 ORDER BY 没有 nullsLast 构造器（只有索引列有），保留原始 sql。
   return db

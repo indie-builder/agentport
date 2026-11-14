@@ -23,6 +23,7 @@ export interface RunQuery {
   agentId?: string;
   status?: RunStatus;
   trigger?: RunTrigger;
+  since?: string;
   limit?: number;
 }
 
@@ -38,11 +39,13 @@ export default {
     agentId?: string;
     status?: RunStatus;
     trigger?: RunTrigger;
+    since?: string;
   }): Promise<{ format: string; exportedAt: string; items: RunListItem[] }> => {
     const params = new URLSearchParams();
     if (query.agentId) params.set('agentId', query.agentId);
     if (query.status) params.set('status', query.status);
     if (query.trigger) params.set('trigger', query.trigger);
+    if (query.since) params.set('since', query.since);
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return nativeRequest(`/runs/export${search}`);
   },

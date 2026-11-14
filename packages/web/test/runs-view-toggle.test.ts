@@ -1,4 +1,4 @@
-import type { RunTrigger } from '@agentport/shared';
+import { type RunTrigger, utcWindowStart } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createMemoryHistory,
@@ -82,6 +82,7 @@ function buildRouter(initialPath: string) {
       agent: typeof search.agent === 'string' ? search.agent : undefined,
       status: search.status as RunStatus | undefined,
       trigger: typeof search.trigger === 'string' ? (search.trigger as RunTrigger) : undefined,
+      range: search.range === undefined ? undefined : String(search.range),
       view: search.view === 'cards' ? 'cards' : search.view === 'table' ? 'table' : undefined,
     }),
   });
@@ -111,6 +112,26 @@ function table(): Element | null {
 }
 
 describe('run list view toggle', () => {
+  it('maps the time range from the URL to since and clears it with the filters', async () => {
+    const router = await mount('/runs?range=7');
+
+    await vi.waitFor(() =>
+      expect(api.runs).toHaveBeenCalledWith(
+        expect.objectContaining({ since: utcWindowStart(7).toISOString() }),
+      ),
+    );
+    const clear = [...host.querySelectorAll('button')].find(
+      (element) => element.textContent?.trim() === '清除筛选',
+    );
+    if (!clear) throw new Error('Missing clear filters button');
+
+    await act(async () => clear.click());
+
+    expect(router.state.location.search.range).toBeUndefined();
+    expect(host.textContent).toContain('全部时间');
+    expect(cards()).not.toBeNull();
+  });
+
   it('passes the trigger from the URL to the runs query and shows filtered results', async () => {
     await mount('/runs?trigger=schedule');
 
@@ -183,13 +204,20 @@ describe('run list view toggle', () => {
     expect(router.state.location.pathname).toBe('/runs');
   });
 
-  it('shows the full run error in the card without truncating it', async () => {
+  it('expands the full run error in the card without truncating it', async () => {
     client.setQueryData(['runs', null, null, 100], { items: [{ ...run, error: longError }] });
     await mount('/runs?view=cards');
 
     const card = cards();
-    const error = card?.querySelector('p');
+    const expand = [...(card?.querySelectorAll('button') ?? [])].find(
+      (element) => element.textContent?.trim() === '展开全文',
+    );
+    if (!expand) throw new Error('Missing error expand button');
+    await act(async () => expand.click());
+
+    const error = expand.parentElement?.querySelector('span');
     expect(error?.textContent).toBe(longError);
+    expect(error?.className).toContain('whitespace-normal');
     expect(error?.className).not.toContain('line-clamp');
     expect(card?.textContent).toContain('错误');
     expect(card?.textContent).toContain('运行 ID');
