@@ -142,6 +142,8 @@
 
 **决定（按 A）**：不接 `@bull-board/*`；队列状态通过 `/health/metrics` 与 `/api/runs` 观察。
 
+> **2026-11-14 现状核对（本条已被后续实现取代）**：当前 API 已挂载**只读** Bull Board 面板于 `/api/ops/queues`（需登录 + `operations.read`，九个队列只读，详见 [OBSERVABILITY.md](OBSERVABILITY.md#队列面板-apiopqueues)，代码见 `packages/api/src/modules/ops/http.ts`）。原文「不接」与实际不符，保留作历史记录；如需移除该面板，应作为新的独立决定处理，不在本条基础上推断。
+
 ---
 
 ## D-16 ✅ worker 的 Docker socket 权限

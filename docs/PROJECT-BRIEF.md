@@ -740,7 +740,7 @@ interface SandboxProvider {
 - `GET /health/live`：进程存活。
 - `GET /health/ready`：DB 查询 + Redis ping；不校验迁移是否已应用。
 - 过载保护：未接入（无 under-pressure 依赖）；过载由容器内存上限与队列并发控制约束。
-- BullMQ 面板：不接（D-15）；队列状态看 `/health/metrics` 与 `/api/runs`。
+- BullMQ 面板：已接入**只读** Bull Board（`/api/ops/queues`，需 `operations.read`，见 [OBSERVABILITY.md](OBSERVABILITY.md#队列面板-apiopqueues)）；队列状态也可看 `/health/metrics` 与 `/api/runs`。（D-15 原文「不接」已被此实现取代。）
 
 ### 9.5 OpenTelemetry
 
