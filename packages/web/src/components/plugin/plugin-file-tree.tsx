@@ -1,10 +1,16 @@
 import type { PluginFileInput } from '@agentport/shared';
+import {
+  Tree,
+  TreeGroup,
+  TreeItem,
+  type TreeItemData,
+  TreeItemIndicator,
+  TreeItemLabel,
+} from '@ui-sdk/react/tree';
 import { ChevronRight, FileText, Folder, FolderOpen } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { cn } from '../../lib/cn.js';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../motion-collapsible.js';
 import { InlineEmpty } from '../states.js';
-import { Button } from '../ui/button.js';
 
 interface FolderNode {
   name: string;
@@ -20,7 +26,10 @@ const DEFAULT_OPEN = ['skills', 'agents'];
 const ENTRY_FILE = 'SKILL.md';
 
 const ROW_CLASS =
-  'h-auto w-full min-w-0 justify-start rounded-[var(--radius-icon)] px-2 py-1.5 text-left font-normal';
+  'flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-icon)] border border-transparent px-2 py-1.5 text-left text-sm font-normal whitespace-nowrap select-none outline-none transition-colors duration-150 ease-out-soft group-focus-visible/tree-row:ring-2 group-focus-visible/tree-row:ring-ring';
+
+const GROUP_CLASS =
+  'ms-4 border-s border-line overflow-hidden transition-[height,opacity] duration-150 ease-out-soft h-(--tree-group-height) data-starting-style:h-0 data-starting-style:opacity-0 data-ending-style:h-0 data-ending-style:opacity-0';
 
 function basename(path: string): string {
   return path.split('/').at(-1) ?? path;
@@ -53,135 +62,99 @@ function sortedFiles(folder: FolderNode): PluginFileInput[] {
   return [...folder.files].sort((a, b) => basename(a.path).localeCompare(basename(b.path)));
 }
 
-function ancestorsOf(path: string): string[] {
-  const segments = path.split('/');
-  return segments.slice(0, -1).map((_, index) => segments.slice(0, index + 1).join('/'));
-}
-
-function initialOpen(selectedPath: string | undefined): Record<string, boolean> {
-  const open: Record<string, boolean> = {};
-  for (const path of DEFAULT_OPEN) open[path] = true;
-  for (const path of selectedPath === undefined ? [] : ancestorsOf(selectedPath)) open[path] = true;
-  return open;
-}
-
-interface TreeProps {
-  open: Record<string, boolean>;
-  selectedPath?: string;
-  onSelect: (path: string) => void;
-  onToggle: (path: string, open: boolean) => void;
-}
-
-function FileRow({
-  file,
-  selectedPath,
-  onSelect,
-}: {
-  file: PluginFileInput;
-  selectedPath: string | undefined;
-  onSelect: (path: string) => void;
-}) {
-  const selected = selectedPath === file.path;
-  return (
-    <li className="min-w-0">
-      <Button
-        variant="ghost"
-        title={file.path}
-        aria-current={selected ? 'true' : undefined}
-        onClick={() => onSelect(file.path)}
-        className={cn(
-          ROW_CLASS,
-          selected
-            ? 'bg-selected font-medium text-selected-foreground hover:bg-selected hover:text-selected-foreground'
-            : 'text-muted-foreground hover:bg-hover hover:text-muted-foreground',
-        )}
-      >
-        <span aria-hidden="true" className="size-4 shrink-0" />
-        <FileText aria-hidden="true" />
-        <span className="min-w-0 truncate">{basename(file.path)}</span>
-      </Button>
-    </li>
-  );
-}
-
-function FolderRow({ folder, props }: { folder: FolderNode; props: TreeProps }) {
-  const { open, onToggle } = props;
-  const expanded = open[folder.path] === true;
-  return (
-    <li className="min-w-0">
-      <Collapsible open={expanded} onOpenChange={(next) => onToggle(folder.path, next)}>
-        <CollapsibleTrigger
-          render={
-            <Button
-              variant="ghost"
-              title={folder.path}
-              className={cn(
-                ROW_CLASS,
-                // ghost 的 aria-expanded 默认铺灰底；这里只用 hover 与选中文件表达状态。
-                'text-fg hover:bg-hover aria-expanded:bg-transparent aria-expanded:hover:bg-hover',
-              )}
-            />
-          }
-        >
-          <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center">
-            <ChevronRight
-              className={cn(
-                'transition-transform duration-150 ease-out-soft',
-                expanded && 'rotate-90',
-              )}
-            />
-          </span>
-          {expanded ? <FolderOpen aria-hidden="true" /> : <Folder aria-hidden="true" />}
-          <span className="min-w-0 truncate">{folder.name}</span>
-        </CollapsibleTrigger>
-        <CollapsibleContent animated>
-          <Children folder={folder} props={props} nested />
-        </CollapsibleContent>
-      </Collapsible>
-    </li>
-  );
-}
-
-function Children({
-  folder,
-  props,
-  nested = false,
-}: {
-  folder: FolderNode;
-  props: TreeProps;
-  nested?: boolean;
-}) {
+function toTreeItems(folder: FolderNode): TreeItemData[] {
   const files = sortedFiles(folder);
   const entry = files.find((file) => basename(file.path) === ENTRY_FILE);
   const rest = entry === undefined ? files : files.filter((file) => file !== entry);
-  return (
-    <ul
-      className={cn(
-        'flex min-w-0 flex-col',
-        // 缩进固定一个令牌 step，引导线落在父级 chevron 槽的中心。
-        nested && 'ms-4 border-s border-line',
-      )}
-    >
-      {entry === undefined ? null : (
-        <FileRow file={entry} selectedPath={props.selectedPath} onSelect={props.onSelect} />
-      )}
-      {sortedFolders(folder).map((child) => (
-        <FolderRow key={child.path} folder={child} props={props} />
-      ))}
-      {rest.map((file) => (
-        <FileRow
-          key={file.path}
-          file={file}
-          selectedPath={props.selectedPath}
-          onSelect={props.onSelect}
-        />
-      ))}
-    </ul>
-  );
+  return [
+    ...(entry === undefined ? [] : [{ value: entry.path, label: basename(entry.path) }]),
+    ...sortedFolders(folder).map((child) => ({
+      value: child.path,
+      label: child.name,
+      children: toTreeItems(child),
+    })),
+    ...rest.map((file) => ({ value: file.path, label: basename(file.path) })),
+  ];
+}
+
+function FileTreeRows({
+  items,
+  onSelect,
+}: {
+  items: TreeItemData[];
+  onSelect: (path: string) => void;
+}) {
+  return items.map((item) => {
+    const folder = item.children !== undefined;
+    return (
+      <TreeItem
+        key={item.value}
+        value={item.value}
+        className="group/tree-row min-w-0 outline-none"
+        onKeyDown={(event) => {
+          if (event.key !== ' ' || event.defaultPrevented) return;
+          event.preventDefault();
+          if (folder) {
+            event.currentTarget.click();
+          } else {
+            onSelect(item.value);
+          }
+        }}
+      >
+        <TreeItemLabel
+          title={item.value}
+          className={
+            folder
+              ? cn(ROW_CLASS, 'text-fg hover:bg-hover')
+              : (state) =>
+                  cn(
+                    ROW_CLASS,
+                    state.current
+                      ? 'bg-selected font-medium text-selected-foreground hover:bg-selected'
+                      : 'text-muted-foreground hover:bg-hover',
+                  )
+          }
+        >
+          {(state) => (
+            <>
+              {folder ? (
+                <TreeItemIndicator className="flex size-4 shrink-0 items-center justify-center">
+                  <ChevronRight
+                    aria-hidden="true"
+                    className={cn(
+                      'transition-transform duration-150 ease-out-soft',
+                      state.expanded && 'rotate-90',
+                    )}
+                  />
+                </TreeItemIndicator>
+              ) : (
+                <span aria-hidden="true" className="size-4 shrink-0" />
+              )}
+              {folder ? (
+                state.expanded ? (
+                  <FolderOpen aria-hidden="true" />
+                ) : (
+                  <Folder aria-hidden="true" />
+                )
+              ) : (
+                <FileText aria-hidden="true" />
+              )}
+              <span className="min-w-0 truncate">{item.label}</span>
+            </>
+          )}
+        </TreeItemLabel>
+        {item.children === undefined ? null : (
+          <TreeGroup className={GROUP_CLASS}>
+            <FileTreeRows items={item.children} onSelect={onSelect} />
+          </TreeGroup>
+        )}
+      </TreeItem>
+    );
+  });
 }
 
 /**
- * 真实插件路径的只读文件树。选中文件由调用方从 URL 传入；树只在本次会话里维护展开状态，
+ * 真实插件路径的只读文件树。选中文件由调用方从 URL 传入；展开状态由树维护，
  * 选中路径变化时自动展开全部祖先，避免深文件需要用户自己找。
  */
 export function PluginFileTree({
@@ -195,36 +168,33 @@ export function PluginFileTree({
   onSelect: (path: string) => void;
   idPrefix?: string;
 }) {
-  const tree = useMemo(() => buildTree(files), [files]);
-  const [open, setOpen] = useState<Record<string, boolean>>(() => initialOpen(selectedPath));
-
-  useEffect(() => {
-    if (selectedPath === undefined) return;
-    const ancestors = ancestorsOf(selectedPath);
-    setOpen((previous) => {
-      if (ancestors.every((path) => previous[path] === true)) return previous;
-      const next = { ...previous };
-      for (const path of ancestors) next[path] = true;
-      return next;
-    });
-  }, [selectedPath]);
+  const { items, filePaths } = useMemo(() => {
+    const root = buildTree(files);
+    return {
+      items: toTreeItems(root),
+      filePaths: new Set(files.map((file) => file.path)),
+    };
+  }, [files]);
 
   if (files.length === 0) return <InlineEmpty>没有可查看的文件。</InlineEmpty>;
 
-  const props: TreeProps = {
-    open,
-    ...(selectedPath === undefined ? {} : { selectedPath }),
-    onSelect,
-    onToggle: (path, next) => setOpen((previous) => ({ ...previous, [path]: next })),
-  };
-
   return (
-    <nav
+    <Tree
       aria-label="插件文件"
       {...(idPrefix === undefined ? {} : { id: `${idPrefix}-plugin-files` })}
       className="min-w-0"
+      items={items}
+      mode="none"
+      current={selectedPath ?? null}
+      defaultExpanded={DEFAULT_OPEN}
+      announcement={({ type }) =>
+        type === 'expanded' ? '已展开' : type === 'collapsed' ? '已收起' : null
+      }
+      onAction={(value) => {
+        if (filePaths.has(value)) onSelect(value);
+      }}
     >
-      <Children folder={tree} props={props} />
-    </nav>
+      <FileTreeRows items={items} onSelect={onSelect} />
+    </Tree>
   );
 }
