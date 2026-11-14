@@ -156,7 +156,8 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     }
 
     ctx.startedAt = startedAt;
-    const target = new URL(url.pathname + url.search, upstream);
+    const prefix = upstream.pathname.replace(/\/+$/, '');
+    const target = new URL(prefix + url.pathname + url.search, upstream.origin);
     const headers: Record<string, string> = {
       'content-type': req.headers['content-type'] ?? 'application/json',
       accept: req.headers.accept ?? 'application/json',
