@@ -192,7 +192,7 @@ describe.skipIf(!ready)('auth', () => {
       headers: { cookie },
       payload: { currentPassword: 'wrong-password', newPassword: '{{SECRET_qfao7tnn}}' },
     });
-    expect(wrong.statusCode).toBe(401);
+    expectProblem(wrong, 'INVALID_INPUT');
 
     const changed = await request(app, {
       method: 'POST',
