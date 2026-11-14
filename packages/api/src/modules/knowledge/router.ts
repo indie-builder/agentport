@@ -59,7 +59,7 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     folders: os.bases.folders.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
 
-      return useCases.listFolders(depsOf(context), input.params.id, input.query);
+      return useCases.listFolders(depsOf(context), input.params.id);
     }),
     createFolder: os.bases.createFolder.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
