@@ -888,6 +888,9 @@ export async function importKnowledgePackage(
 ): Promise<KnowledgePackageImportResult> {
   const files = readZip(archive);
   const manifest = parseManifest(files);
+  if (manifest.base.settings.chunkOverlap >= manifest.base.settings.chunkTokens) {
+    fail('INVALID_INPUT', '分块重叠必须小于分块长度');
+  }
   const contents = verifiedFiles(files, manifest);
   validateReferences(manifest, contents);
   await validateAudioPackage(manifest, contents, 'import');
