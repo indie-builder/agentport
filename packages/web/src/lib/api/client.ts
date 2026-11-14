@@ -213,6 +213,7 @@ export const api = {
   rejectMemoryReview: memory.rejectMemoryReview,
   audit: audit.audit,
   exportAudit: audit.exportAudit,
+  verifyAudit: audit.verifyAudit,
   evalCases: evalApi.evalCases,
   createEvalCase: evalApi.createEvalCase,
   createEvalCaseFromRun: evalApi.createEvalCaseFromRun,
