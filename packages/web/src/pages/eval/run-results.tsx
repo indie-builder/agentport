@@ -8,6 +8,7 @@ import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { ApiError, api } from '../../lib/api.js';
 import { downloadBlob, downloadJson } from '../../lib/browser-files.js';
+import { toCsv } from '../../lib/csv.js';
 import { evalStatusLabel, evalStatusVariant } from '../../lib/format.js';
 import { useEvalRun } from '../../lib/queries.js';
 import { toastError } from '../../lib/toast.js';
@@ -63,22 +64,15 @@ export function EvalRunResults({ id }: { id: string }) {
   const exportCsv = () => {
     setExportingCsv(true);
     try {
-      const rows = visibleResults.map((result) =>
-        [
-          result.name,
-          result.passed ? '通过' : '未通过',
-          result.prompt,
-          result.expectation || '',
-          result.output || '',
-          result.runId ?? '',
-        ]
-          .map((field) => {
-            const guarded = /^[=+\-@\t\r]/.test(field) ? `'${field}` : field;
-            return /[",\r\n]/.test(guarded) ? `"${guarded.replaceAll('"', '""')}"` : guarded;
-          })
-          .join(','),
-      );
-      const csv = `﻿${['用例名,结果,Prompt,期望,输出,运行ID', ...rows].join('\n')}`;
+      const rows = visibleResults.map((result) => [
+        result.name,
+        result.passed ? '通过' : '未通过',
+        result.prompt,
+        result.expectation || '',
+        result.output || '',
+        result.runId ?? '',
+      ]);
+      const csv = toCsv(['用例名', '结果', 'Prompt', '期望', '输出', '运行ID'], rows);
       downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `eval-result-${id}.csv`);
     } catch (error) {
       toastError(error);

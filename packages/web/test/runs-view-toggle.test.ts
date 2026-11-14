@@ -1,3 +1,4 @@
+import { Blob as NodeBlob } from 'node:buffer';
 import { type RunTrigger, utcWindowStart } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
@@ -12,6 +13,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type RunListItem, type RunStatus } from '../src/lib/api.js';
+import { downloadBlob } from '../src/lib/browser-files.js';
 import {
   formatCost,
   formatDuration,
@@ -20,12 +22,16 @@ import {
   shortId,
 } from '../src/lib/format.js';
 import { RunsPage } from '../src/pages/runs/index.js';
+import { allAccessMe } from './me-fixture.js';
+
+vi.mock('../src/lib/browser-files.js', () => ({ downloadJson: vi.fn(), downloadBlob: vi.fn() }));
 
 const run: RunListItem = {
   id: 'run_01m5bv0faceh4v4jtw00eta1sn',
   agentId: 'agent-1',
   agentName: '专家',
   status: 'succeeded',
+  trigger: 'schedule',
   startedAt: '2026-10-03T00:00:00.000Z',
   endedAt: '2026-10-03T00:00:01.000Z',
   latencyMs: 1000,
@@ -67,6 +73,7 @@ afterEach(async () => {
   host.remove();
   localStorage.clear();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 type TestRouter = ReturnType<typeof buildRouter>;
@@ -112,6 +119,44 @@ function table(): Element | null {
 }
 
 describe('run list view toggle', () => {
+  it('exports runs as CSV with the current filters', async () => {
+    vi.stubGlobal('Blob', NodeBlob);
+    vi.mocked(downloadBlob).mockClear();
+    client.setQueryData(['me'], allAccessMe);
+    vi.spyOn(api, 'exportRuns').mockResolvedValue({
+      format: 'agentport/runs@1',
+      exportedAt: '2026-10-03T00:00:00.000Z',
+      items: [run],
+    });
+    await mount('/runs?agent=agent-1&status=succeeded&trigger=schedule&range=7');
+    const exportButton = [...host.querySelectorAll('button')].find(
+      (element) => element.textContent?.trim() === '导出 CSV',
+    );
+    if (!exportButton) throw new Error('Missing CSV export button');
+
+    await act(async () => exportButton.click());
+
+    expect(api.exportRuns).toHaveBeenCalledExactlyOnceWith({
+      agentId: 'agent-1',
+      status: 'succeeded',
+      trigger: 'schedule',
+      since: utcWindowStart(7).toISOString(),
+    });
+    expect(downloadBlob).toHaveBeenCalledExactlyOnceWith(expect.any(Blob), 'runs.csv');
+    const blob = vi.mocked(downloadBlob).mock.calls[0]?.[0];
+    if (!blob) throw new Error('Missing runs export Blob');
+    expect(blob.type).toBe('text/csv;charset=utf-8');
+    const csv = await blob.text();
+    expect(csv).toContain('运行ID,专家,状态,来源,时间,耗时ms,成本USD,输入Token,输出Token');
+    expect(csv).toContain(`${run.id},专家,成功,定时任务,`);
+    expect(csv).toContain(',1000,0.01,10,20');
+    expect(new Uint8Array(await blob.arrayBuffer()).slice(0, 3)).toEqual(
+      new Uint8Array([0xef, 0xbb, 0xbf]),
+    );
+    expect(exportButton.disabled).toBe(false);
+    expect(exportButton.getAttribute('aria-busy')).toBe('false');
+  });
+
   it('maps the time range from the URL to since and clears it with the filters', async () => {
     const router = await mount('/runs?range=7');
 

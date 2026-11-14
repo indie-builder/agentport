@@ -30,6 +30,7 @@ import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { api, type RunStatus } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
+import { toCsv } from '../../lib/csv.js';
 import {
   formatCost,
   formatDateTime,
@@ -155,29 +156,21 @@ export function PersonalUsagePage() {
         ...(search.status ? { status: search.status } : {}),
         ...(search.trigger ? { trigger: search.trigger } : {}),
       });
-      const rows = result.items.map((run) =>
-        [
-          run.agentName || '已删除的专家',
-          triggerLabel[run.trigger],
-          runStatusLabel[run.status],
-          formatDateTime(run.startedAt || run.createdAt),
-          run.latencyMs ?? '',
-          run.costUsd ?? '',
-          run.inputTokens,
-          run.outputTokens,
-          run.id,
-        ]
-          .map((value) => {
-            const field = String(value ?? '');
-            const guarded = /^[=+\-@\t\r]/.test(field) ? `'${field}` : field;
-            return /[",\r\n]/.test(guarded) ? `"${guarded.replaceAll('"', '""')}"` : guarded;
-          })
-          .join(','),
+      const rows = result.items.map((run) => [
+        run.agentName || '已删除的专家',
+        triggerLabel[run.trigger],
+        runStatusLabel[run.status],
+        formatDateTime(run.startedAt || run.createdAt),
+        run.latencyMs ?? '',
+        run.costUsd ?? '',
+        run.inputTokens,
+        run.outputTokens,
+        run.id,
+      ]);
+      const csv = toCsv(
+        ['专家', '来源', '状态', '时间', '耗时ms', '成本USD', '输入Token', '输出Token', '运行ID'],
+        rows,
       );
-      const csv = `﻿${[
-        '专家,来源,状态,时间,耗时ms,成本USD,输入Token,输出Token,运行ID',
-        ...rows,
-      ].join('\n')}`;
       downloadBlob(
         new Blob([csv], { type: 'text/csv;charset=utf-8' }),
         `personal-usage-${days}d.csv`,
