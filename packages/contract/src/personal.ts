@@ -1,6 +1,8 @@
 import {
   conversationSummarySchema,
   personalOutputShareListSchema,
+  personalRunExportQuerySchema,
+  personalRunExportSchema,
   personalRunListQuerySchema,
   personalRunListSchema,
   personalShareListQuerySchema,
@@ -37,6 +39,11 @@ export const personalContract = {
     .route({ method: 'GET', path: '/me/runs' })
     .input(z.object({ query: personalRunListQuerySchema }))
     .output(personalRunListSchema)
+    .meta({ access: { kind: 'permission', permissionId: 'runs.read' } }),
+  exportRuns: contractProcedure
+    .route({ method: 'GET', path: '/me/runs/export' })
+    .input(z.object({ query: personalRunExportQuerySchema }))
+    .output(personalRunExportSchema)
     .meta({ access: { kind: 'permission', permissionId: 'runs.read' } }),
   conversations: contractProcedure
     .route({ method: 'GET', path: '/me/conversations' })

@@ -2,6 +2,8 @@ import type {
   ConversationSummary,
   PersonalOutputShareList,
   PersonalProfile,
+  PersonalRunExport,
+  PersonalRunExportQuery,
   PersonalRunList,
   PersonalRunListQuery,
   PersonalSessionList,
@@ -29,6 +31,8 @@ export default {
     query: PersonalRunListQuery = { days: 30, limit: 50 },
     signal?: AbortSignal,
   ): Promise<PersonalRunList> => rpc.personal.runs({ query }, clientOptions(signal)),
+  personalExportRuns: (query: PersonalRunExportQuery): Promise<PersonalRunExport> =>
+    rpc.personal.exportRuns({ query }),
   /** 回顾来源固定本人；只带专家筛选，不传全局会话列表。 */
   personalConversations: (
     query: { agentId?: string; limit?: number } = {},

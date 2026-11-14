@@ -91,6 +91,31 @@ export const personalRouter = os.router({
     };
   }),
 
+  exportRuns: os.exportRuns.handler(async ({ input, context }) => {
+    const now = new Date();
+    const { days, agentId, status, trigger } = input.query;
+    const { items, truncated } = await repo.runs.listPersonalRunsForExport(context.db, {
+      businessId: requireUser(context).businessId,
+      since: utcWindowStart(days, now),
+      until: now,
+      ...(agentId === undefined ? {} : { agentId }),
+      ...(status === undefined ? {} : { status }),
+      ...(trigger === undefined ? {} : { trigger }),
+    });
+    context.responseHeaders.set('cache-control', 'no-store');
+    return {
+      format: 'agentport/personal-usage@1',
+      exportedAt: now.toISOString(),
+      items: items.map((row) => ({
+        ...row,
+        startedAt: toIso(row.startedAt),
+        endedAt: toIso(row.endedAt),
+        createdAt: row.createdAt.toISOString(),
+      })),
+      truncated,
+    };
+  }),
+
   conversations: os.conversations.handler(async ({ input, context }) => {
     const rows = await repo.chat.listConversations(context.db, {
       ...(input.query.agentId === undefined ? {} : { agentId: input.query.agentId }),

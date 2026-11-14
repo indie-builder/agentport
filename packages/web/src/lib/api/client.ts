@@ -201,6 +201,7 @@ export const api = {
   revokePersonalOutputShare: personal.revokePersonalOutputShare,
   personalUsage: personal.personalUsage,
   personalRuns: personal.personalRuns,
+  personalExportRuns: personal.personalExportRuns,
   personalConversations: personal.personalConversations,
   writePersonalMemory: memory.writePersonalMemory,
   personalMemoryDownloadUrl: memory.personalMemoryDownloadUrl,
