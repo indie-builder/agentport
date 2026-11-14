@@ -74,7 +74,7 @@
     "@openuidev/react-ui": "0.18.8",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
-    "ai": "^7.0.172",
+    "ai": "^7.0.173",
     "e2e": "0.23.1",
     "jsdom": "31.0.1",
     "msw": "3.0.5",
