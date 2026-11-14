@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, Download, FileText } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import {
   formatBytes,
   formatCost,
@@ -47,12 +48,14 @@ export function ChannelRunSheet({
   canAnswer: boolean;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClose, runId !== null);
   return (
     <Sheet
-      open={runId !== null}
+      open={dialog.open}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) dialog.close();
       }}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
     >
       {runId === null ? null : (
         <ChannelRunSheetContent

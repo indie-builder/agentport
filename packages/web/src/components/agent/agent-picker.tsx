@@ -1,5 +1,5 @@
 import { Bot } from 'lucide-react';
-import type { FocusEventHandler, Ref } from 'react';
+import { type FocusEventHandler, type Ref, useRef, useState } from 'react';
 import { cn } from '../../lib/cn.js';
 import { Button } from '../ui/button.js';
 import {
@@ -13,7 +13,6 @@ import {
 } from '../ui/combobox.js';
 import { AgentAvatar, type AgentDisplay } from './agent-avatar.js';
 
-/** 专家选择：欢迎态与历史面板共用；触发器是头像+名称+箭头的按钮，弹层内搜索。 */
 export function AgentPicker({
   agent,
   agentId,
@@ -45,20 +44,33 @@ export function AgentPicker({
   ariaInvalid?: boolean | undefined;
   ariaDescribedby?: string | undefined;
 }) {
+  const [button, setButton] = useState<HTMLButtonElement | null>(null);
+  const [query, setQuery] = useState('');
+  const shouldRestoreFocus = useRef(false);
+  const items = agentOptions.map((option) => ({ value: option, label: option.label }));
   const selectedLabel = agentOptions.find((option) => option.value === agentId)?.label;
   return (
     <Combobox
-      items={agentOptions}
+      disabled={disabled ?? false}
+      items={items}
       value={agentOptions.find((option) => option.value === agentId) ?? null}
-      onValueChange={(next: (typeof agentOptions)[number] | null) => {
+      onValueChange={(next) => {
         if (next) onSwitchAgent(next.value);
       }}
-      itemToStringLabel={(option: (typeof agentOptions)[number]) => option.label}
-      itemToStringValue={(option: (typeof agentOptions)[number]) => option.value}
-      isItemEqualToValue={(a: (typeof agentOptions)[number], b: (typeof agentOptions)[number]) =>
-        a.value === b.value
-      }
-      filter={(option: (typeof agentOptions)[number], query: string) => {
+      query={query}
+      onQueryChange={setQuery}
+      onOpenChange={(open, details) => {
+        shouldRestoreFocus.current =
+          !open && (details.reason === 'item-press' || details.reason === 'escape-key');
+        if (open) setQuery('');
+      }}
+      onOpenChangeComplete={(open) => {
+        if (!open && shouldRestoreFocus.current) button?.focus();
+      }}
+      itemToLabel={(option) => option.label}
+      itemToValue={(option) => option.value}
+      isItemEqualToValue={(a, b) => a.value === b.value}
+      filter={({ value: option }, query) => {
         const needle = query.trim().toLowerCase();
         return `${option.label} ${option.agent?.role ?? ''} ${option.agent?.slug ?? ''}`
           .toLowerCase()
@@ -67,6 +79,7 @@ export function AgentPicker({
     >
       {triggerVariant === 'field' ? (
         <ComboboxTrigger
+          ref={setButton}
           render={
             <Button
               variant="plain"
@@ -95,6 +108,7 @@ export function AgentPicker({
         </ComboboxTrigger>
       ) : (
         <ComboboxTrigger
+          ref={setButton}
           render={
             <Button
               variant="ghost"
@@ -123,29 +137,32 @@ export function AgentPicker({
           </span>
         </ComboboxTrigger>
       )}
-      <ComboboxContent className="min-w-64">
+      <ComboboxContent anchor={button} className="min-w-64">
         <ComboboxInput
+          autoFocus
           aria-label="搜索专家"
           placeholder="搜索名称、角色或 Slug…"
-          showTrigger={false}
+          className="m-1 mb-0 w-[calc(100%---spacing(2))] bg-surface"
         />
         <ComboboxEmpty>没有匹配的专家</ComboboxEmpty>
         <ComboboxList>
-          {(option: (typeof agentOptions)[number]) => (
-            <ComboboxItem key={option.value} value={option} className="py-1.5">
-              {option.agent ? (
-                <AgentAvatar agent={option.agent} className="size-6" />
-              ) : (
-                <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
-              )}
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="min-w-0 break-words text-sm text-fg">{option.label}</span>
-                <span className="min-w-0 break-words text-xs text-muted-foreground">
-                  {option.agent?.role?.trim() || '通用助手'}
+          {(state) =>
+            (state.items as typeof items).map(({ value: option, label }) => (
+              <ComboboxItem key={option.value} value={option} label={label} className="py-1.5">
+                {option.agent ? (
+                  <AgentAvatar agent={option.agent} className="size-6" />
+                ) : (
+                  <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
+                )}
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="min-w-0 break-words text-sm text-fg">{label}</span>
+                  <span className="min-w-0 break-words text-xs text-muted-foreground">
+                    {option.agent?.role?.trim() || '通用助手'}
+                  </span>
                 </span>
-              </span>
-            </ComboboxItem>
-          )}
+              </ComboboxItem>
+            ))
+          }
         </ComboboxList>
       </ComboboxContent>
     </Combobox>

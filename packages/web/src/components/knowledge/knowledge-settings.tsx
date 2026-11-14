@@ -6,7 +6,7 @@ import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { can } from '../../lib/access.js';
 import { api, errorMessage, type KnowledgeModelProfile } from '../../lib/api.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import {
   meQuery,
   useCreateKnowledgeModelProfile,
@@ -100,13 +100,15 @@ function chunkSettingErrors(
 /** 库级设置：分块参数、Wiki 自动更新、重排 profile，以及整库重建入口。 */
 export function KnowledgeSettingsDialog({
   base,
-  onClose,
+  onClose: onClosed,
   finalFocus,
 }: {
   base: KnowledgeBase;
   onClose: () => void;
   finalFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const update = useUpdateKnowledgeBase();
   const profiles = useKnowledgeModelProfileSelections();
   const me = useQuery(meQuery);
@@ -258,7 +260,11 @@ export function KnowledgeSettingsDialog({
 
   return (
     <>
-      <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+      <Dialog
+        open={dialog.open}
+        onOpenChangeComplete={dialog.onOpenChangeComplete}
+        onOpenChange={guardedOpenChange(pending, guard.close)}
+      >
         <DialogShell title="知识库设置" closeDisabled={pending} finalFocus={finalFocus}>
           <form className="flex flex-col gap-4" noValidate onSubmit={save}>
             <FieldGroup className="grid gap-3 sm:grid-cols-2">
@@ -711,12 +717,14 @@ export function KnowledgeSettingsDialog({
 
 /** 列表 toolbar 入口：知识库依赖的 embedding/rerank profile 都在这里增改删测。 */
 export function KnowledgeProfilesDialog({
-  onClose,
+  onClose: onClosed,
   finalFocus,
 }: {
   onClose: () => void;
   finalFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const client = useQueryClient();
   const profiles = useKnowledgeModelProfiles();
   const [editing, setEditing] = useState<KnowledgeModelProfile | 'new' | null>(null);
@@ -758,7 +766,11 @@ export function KnowledgeProfilesDialog({
 
   return (
     <>
-      <Dialog open onOpenChange={guardedOpenChange(formPending, guard.close)}>
+      <Dialog
+        open={dialog.open}
+        onOpenChangeComplete={dialog.onOpenChangeComplete}
+        onOpenChange={guardedOpenChange(formPending, guard.close)}
+      >
         <DialogShell
           title="模型配置"
           description="知识库的 embedding、重排与音频转录 profile；凭证只写不回显。"

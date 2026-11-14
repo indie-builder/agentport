@@ -1,4 +1,3 @@
-import { Field as BaseField } from '@base-ui/react/field';
 import {
   ACTION_STEPS,
   FormNameContext,
@@ -396,20 +395,18 @@ export function SliderRenderer({
     : (props.defaultValue ?? [props.min]);
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      {/* Field.Root 的 invalid 是 Base UI 把 aria-invalid 送到 Thumb 内 range input 的官方通道。 */}
-      <BaseField.Root invalid={!!field.error}>
-        <Slider
-          aria-labelledby={wiring?.labelId}
-          aria-describedby={wiring?.describedBy}
-          min={props.min}
-          max={props.max}
-          step={props.step ?? (props.variant === 'discrete' ? 1 : undefined)}
-          value={values}
-          disabled={field.streaming}
-          onValueChange={(next) => field.setValue(Array.isArray(next) ? next : [next])}
-          onValueCommitted={(next) => field.validate(Array.isArray(next) ? next : [next])}
-        />
-      </BaseField.Root>
+      <Slider
+        aria-labelledby={wiring?.labelId}
+        aria-describedby={wiring?.describedBy}
+        aria-invalid={field.error ? true : undefined}
+        min={props.min}
+        max={props.max}
+        step={props.step ?? (props.variant === 'discrete' ? 1 : undefined)}
+        value={values}
+        disabled={field.streaming}
+        onValueChange={(next) => field.setValue(Array.isArray(next) ? next : [next])}
+        onValueCommitted={(next) => field.validate(Array.isArray(next) ? next : [next])}
+      />
       <div className="flex justify-between font-mono text-xs tabular-nums text-muted-foreground">
         <span>{props.min}</span>
         <span className="text-fg">{values.join(' – ')}</span>

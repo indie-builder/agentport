@@ -1619,12 +1619,16 @@ describe('expert review details', () => {
       },
       // hooks 授权被回滚掉，MCP 授权原样保留。
       restored: (): void => {
-        expect(document.querySelector<HTMLInputElement>('#plugin-plugin-1-hooks')?.checked).toBe(
-          false,
-        );
-        expect(document.querySelector<HTMLInputElement>('#plugin-plugin-1-mcp')?.checked).toBe(
-          true,
-        );
+        expect(
+          document
+            .querySelector('[role="checkbox"]#plugin-plugin-1-hooks')
+            ?.getAttribute('aria-checked'),
+        ).toBe('false');
+        expect(
+          document
+            .querySelector('[role="checkbox"]#plugin-plugin-1-mcp')
+            ?.getAttribute('aria-checked'),
+        ).toBe('true');
       },
     },
   ])('loads the rolled-back $name configuration and clears dirty', async (entry) => {

@@ -494,10 +494,9 @@ export function DataTable<T extends RowData>({
                 <Popover
                   open={pickerOpen}
                   onOpenChange={(open, eventDetails) => {
-                    // 保留弹层并放行 Escape，让 document 上的 dnd-kit 取消键盘拖动。
+                    // 保留弹层，让 document 上的 dnd-kit 取消键盘拖动。
                     if (!open && eventDetails.reason === 'escape-key' && dragging?.keyboard) {
                       eventDetails.cancel();
-                      eventDetails.allowPropagation();
                       return;
                     }
                     setPickerOpen(open);

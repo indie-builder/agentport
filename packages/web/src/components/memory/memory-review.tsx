@@ -18,6 +18,7 @@ import { CircleStop, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-rea
 import { useEffect, useRef, useState } from 'react';
 import { can } from '../../lib/access.js';
 import { type AgentSummary, ApiError, errorMessage } from '../../lib/api.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { useFormBlocker } from '../../lib/form.js';
 import { formatCost, runStatusLabel, runStatusVariant, shortId } from '../../lib/format.js';
 import {
@@ -219,6 +220,7 @@ export function MemoryReviews({
   const canUseAgentRuleTarget = canReadAgentRules && canWriteAgentRules;
   // 种子只在本次打开中有效，不参与渲染时序；URL 才是弹层生命周期的唯一来源。
   const createSeedRef = useRef<MemoryReview | null>(null);
+  const detailDialog = useDialogClose(() => onRunChange(null), runId !== null);
   const [detailPending, setDetailPending] = useState(false);
   const [detailErrors, setDetailErrors] = useState<Record<string, string | null>>({});
   // 详情操作在途时，浏览器后退/刷新不能把请求丢下；结算后取消被拦下的导航。
@@ -235,7 +237,7 @@ export function MemoryReviews({
     [],
   );
   const createTrigger = useRef<HTMLButtonElement>(null);
-  const detailTrigger = useRef<HTMLButtonElement | null>(null);
+  const detailTrigger = useRef<HTMLElement | null>(null);
   const items = reviews.data?.items ?? [];
   const listedDetail = items.find((item) => item.runId === runId) ?? null;
   // 链接里的提案不在当前页列表时，用既有详情接口按 run 取；未知 id 返回统一错误态。
@@ -296,7 +298,7 @@ export function MemoryReviews({
   };
   const createSeed = createSeedRef.current;
 
-  const openDetail = (review: MemoryReview, trigger: HTMLButtonElement): void => {
+  const openDetail = (review: MemoryReview, trigger: HTMLElement): void => {
     detailTrigger.current = trigger;
     onRunChange(review.runId);
   };
@@ -555,10 +557,11 @@ export function MemoryReviews({
 
       {detail || runId !== null ? (
         <Dialog
-          open
+          open={detailDialog.open}
           onOpenChange={(next) => {
-            if (!next && !detailPending) onRunChange(null);
+            if (!next && !detailPending) detailDialog.close();
           }}
+          onOpenChangeComplete={detailDialog.onOpenChangeComplete}
         >
           <DialogShell
             title="记忆提案"
@@ -583,11 +586,13 @@ export function MemoryReviews({
                 }
                 onPendingChange={setDetailPending}
                 onRegenerate={(review) => {
-                  onRunChange(null);
-                  openCreate(review);
+                  detailDialog.finish(() => {
+                    onRunChange(null);
+                    openCreate(review);
+                  });
                 }}
                 onClose={() => {
-                  if (!detailPending) onRunChange(null);
+                  if (!detailPending) detailDialog.close();
                 }}
               />
             ) : fetchedDetail.isError ? (
@@ -695,7 +700,7 @@ function CreateMemoryReviewDialog({
   canUseAgentRuleTarget,
   canReadAgentMemory,
   canReadAgentRules,
-  onClose,
+  onClose: onClosed,
   finalFocus,
 }: {
   agents: AgentSummary[];
@@ -709,6 +714,8 @@ function CreateMemoryReviewDialog({
   onClose: () => void;
   finalFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const [initial] = useState(() => createInitialState(agents, defaultAgentId, seed));
   const [modelAgentId, setModelAgentId] = useState(initial.modelAgentId);
   const [targetKind, setTargetKind] = useState<TargetKind>(initial.targetKind);
@@ -976,7 +983,11 @@ function CreateMemoryReviewDialog({
   };
 
   return (
-    <Dialog open onOpenChange={(next) => (!next ? requestClose() : undefined)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={(next) => (!next ? requestClose() : undefined)}
+    >
       <DialogShell title="新建记忆提案" finalFocus={finalFocus} closeDisabled={create.isPending}>
         <form
           className="flex flex-col gap-5"

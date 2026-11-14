@@ -22,7 +22,8 @@
 | [FIRST-RUN.md](FIRST-RUN.md) | 历史首次部署实测记录（pnpm 时代；现行步骤见 [README](../README.md) / [OPERATIONS](OPERATIONS.md)） |
 | [SKILLS.md](SKILLS.md) | 项目适配、技能与插件更新 SOP |
 | [OPENUI-UPGRADE.md](OPENUI-UPGRADE.md) | OpenUI 组件契约、官方 spec 生成与升级行为回归 |
-| [OPENUI-UI-ADAPTATION.md](OPENUI-UI-ADAPTATION.md) | 官方 shadcn UI 来源、Base UI 适配边界与项目令牌映射 |
+| [OPENUI-UI-ADAPTATION.md](OPENUI-UI-ADAPTATION.md) | 官方 shadcn UI 来源、ui-sdk 适配边界与项目令牌映射 |
+| [UI-SDK-UPGRADE.md](UI-SDK-UPGRADE.md) | ui-sdk 接入方式、版本基线与可执行的升级步骤（AI 升级手册） |
 
 ## 仓库根文档
 

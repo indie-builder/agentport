@@ -357,6 +357,14 @@ async function click(element: HTMLElement): Promise<void> {
   await flush();
 }
 
+async function press(element: HTMLElement): Promise<void> {
+  await act(async () => {
+    element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 0 }));
+    element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 0, clientY: 0 }));
+  });
+  await flush();
+}
+
 async function openDeleteMenuItem(scope: ParentNode = document) {
   const trigger = scope.querySelector<HTMLElement>('[aria-label="运行环境操作"]');
   if (!trigger) throw new Error('Missing 运行环境更多操作触发器');
@@ -532,7 +540,7 @@ describe('create environment dialog', () => {
 
     const overlay = document.querySelector<HTMLElement>('[data-slot="dialog-overlay"]');
     if (!overlay) throw new Error('Missing dialog overlay');
-    await click(overlay);
+    await press(overlay);
     expect(hasDialog('放弃未保存的更改？')).toBe(true);
     await click(button('取消', dialog('放弃未保存的更改？')));
     expect(hasDialog('新建运行环境')).toBe(true);

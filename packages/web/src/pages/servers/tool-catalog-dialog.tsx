@@ -6,6 +6,7 @@ import { InlineEmpty } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import { Field } from '../../components/ui/field.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { formatDateTime, formatDuration, shortId } from '../../lib/format.js';
 import type { LastTest } from './shared.js';
 
@@ -16,7 +17,7 @@ export function ToolCatalogDialog({
   pending,
   testing,
   onRetest,
-  onClose,
+  onClose: onClosed,
   getReturnFocus,
 }: {
   server: Server;
@@ -27,6 +28,8 @@ export function ToolCatalogDialog({
   onClose: () => void;
   getReturnFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const result = lastTest?.result ?? null;
   const tools = result?.ok ? result.tools : [];
   // 本次页面的结果优先；刷新后回退到后端持久化的上次试连身份。
@@ -37,7 +40,11 @@ export function ToolCatalogDialog({
   const ok = result ? result.ok : server.lastTestOk === true;
 
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={(next) => (next ? undefined : onClose())}
+    >
       <DialogShell
         title={`工具与试连「${server.name}」`}
         {...(testedAt || result ? { description: '最近一次试连结果，只代表这一个环境版本。' } : {})}

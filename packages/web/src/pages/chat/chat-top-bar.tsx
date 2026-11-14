@@ -66,7 +66,7 @@ export function ChatTopBar({
   onFork: () => void;
   onDelete: (trigger: HTMLElement) => void;
 }) {
-  const headerTriggerRef = useRef<HTMLElement | null>(null);
+  const headerTriggerRef = useRef<HTMLButtonElement>(null);
   const me = useQuery(meQuery);
   const canUpdate = can(me.data, 'conversations.update');
   const canDelete = can(me.data, 'conversations.delete');
@@ -132,18 +132,12 @@ export function ChatTopBar({
           <DropdownMenuTrigger
             render={
               <Button
+                ref={headerTriggerRef}
                 variant="ghost"
                 size="icon"
                 aria-label="会话操作"
                 title={conversationId ? '会话操作' : '先发送消息，保存会话后可操作'}
                 disabled={!conversationId || deleting}
-                // 菜单在 mousedown 打开；键盘打开时也要记下触发器以便对话框关闭后回焦。
-                onMouseDown={(event) => {
-                  headerTriggerRef.current = event.currentTarget;
-                }}
-                onKeyDown={(event) => {
-                  headerTriggerRef.current = event.currentTarget;
-                }}
                 className="shrink-0 text-muted-foreground hover:text-fg"
               >
                 <MoreHorizontal className="size-4" />
@@ -155,7 +149,7 @@ export function ChatTopBar({
               {canUpdate ? (
                 <DropdownMenuItem
                   disabled={deleting}
-                  onClick={() => {
+                  onSelect={() => {
                     const trigger = headerTriggerRef.current;
                     if (trigger) onRename(trigger);
                   }}
@@ -164,7 +158,7 @@ export function ChatTopBar({
                 </DropdownMenuItem>
               ) : null}
               {canCreate ? (
-                <DropdownMenuItem disabled={deleting} onClick={onFork}>
+                <DropdownMenuItem disabled={deleting} onSelect={onFork}>
                   <GitBranch /> Fork 会话
                 </DropdownMenuItem>
               ) : null}
@@ -172,7 +166,7 @@ export function ChatTopBar({
                 <DropdownMenuItem
                   variant="destructive"
                   disabled={deleting}
-                  onClick={() => {
+                  onSelect={() => {
                     const trigger = headerTriggerRef.current;
                     if (trigger) onDelete(trigger);
                   }}

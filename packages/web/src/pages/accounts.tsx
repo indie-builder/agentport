@@ -55,7 +55,7 @@ import { ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { type Account, ApiError, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { guardedOpenChange } from '../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
 import { formatDate } from '../lib/format.js';
 import {
   meQuery,
@@ -457,16 +457,16 @@ function AccountRowActions({
         <DropdownMenuContent align="end" sideOffset={4} className="w-40">
           <DropdownMenuGroup>
             {canManageRoles ? (
-              <DropdownMenuItem onClick={() => onAssignRoles(account)}>
+              <DropdownMenuItem onSelect={() => onAssignRoles(account)}>
                 <ShieldCheck /> 分配角色
               </DropdownMenuItem>
             ) : null}
             {canManage ? (
               <>
-                <DropdownMenuItem onClick={() => onResetPassword(account)}>
+                <DropdownMenuItem onSelect={() => onResetPassword(account)}>
                   <KeyRound /> 重置密码
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onToggleStatus(account)}>
+                <DropdownMenuItem onSelect={() => onToggleStatus(account)}>
                   {account.status === 'active' ? <CirclePause /> : <CirclePlay />}
                   {account.status === 'active' ? '停用' : '启用'}
                 </DropdownMenuItem>
@@ -476,7 +476,7 @@ function AccountRowActions({
           {canManage ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onClick={() => onDelete(account)}>
+              <DropdownMenuItem variant="destructive" onSelect={() => onDelete(account)}>
                 <Trash2 /> 删除认证
               </DropdownMenuItem>
             </>
@@ -553,12 +553,14 @@ type AccountFormValues = z.infer<typeof accountFormSchema>;
 function CreateAccountDialog({
   canAssignRoles,
   roleDirectory,
-  onClose,
+  onClose: onClosed,
 }: {
   canAssignRoles: boolean;
   roleDirectory: RoleDirectory;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const create = useCreateAccount();
   const { register, handleSubmit, watch, setValue, formState } = useZodForm(accountFormSchema, {
     defaultValues: { businessId: '', username: '', name: '', password: '', roleIds: [] },
@@ -611,7 +613,11 @@ function CreateAccountDialog({
   );
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell
         title="新建账户"
         description="业务 ID 创建后不可修改，也不会回收给其他人。"
@@ -764,7 +770,15 @@ const accountEditFormSchema = z.object({
 });
 type AccountEditFormValues = z.infer<typeof accountEditFormSchema>;
 
-function EditAccountDialog({ account, onClose }: { account: Account; onClose: () => void }) {
+function EditAccountDialog({
+  account,
+  onClose: onClosed,
+}: {
+  account: Account;
+  onClose: () => void;
+}) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const update = useUpdateAccount();
   const { register, handleSubmit, formState } = useZodForm(accountEditFormSchema, {
     defaultValues: { username: account.username, name: account.name },
@@ -801,7 +815,11 @@ function EditAccountDialog({ account, onClose }: { account: Account; onClose: ()
   );
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell
         title={`编辑账户「${account.name}」`}
         description={`业务 ID ${account.businessId} 创建后不可修改。`}
@@ -866,7 +884,15 @@ const resetPasswordFormSchema = z
   });
 type ResetPasswordFormValues = z.infer<typeof resetPasswordFormSchema>;
 
-function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: () => void }) {
+function ResetPasswordDialog({
+  account,
+  onClose: onClosed,
+}: {
+  account: Account;
+  onClose: () => void;
+}) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const reset = useResetAccountPassword();
   const { register, handleSubmit, formState } = useZodForm(resetPasswordFormSchema, {
     defaultValues: { password: '', confirm: '' },
@@ -897,7 +923,11 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
   );
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell
         title={`重置「${account.name}」的密码`}
         description="重置会立即撤销该账户的全部旧会话。"
@@ -954,12 +984,14 @@ function ResetPasswordDialog({ account, onClose }: { account: Account; onClose: 
 function AssignRolesDialog({
   account,
   roleDirectory,
-  onClose,
+  onClose: onClosed,
 }: {
   account: Account;
   roleDirectory: RoleDirectory;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const save = useSetAccountRoles();
   const initialRoleIds = account.roles.map((role) => role.id);
   const [selected, setSelected] = useState<string[]>(initialRoleIds);
@@ -989,7 +1021,11 @@ function AssignRolesDialog({
   };
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell
         title={`分配「${account.name}」的角色`}
         description="角色决定该账户的页面与操作权限。"

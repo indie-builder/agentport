@@ -40,7 +40,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '../../components/ui/f
 import { Input } from '../../components/ui/input.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { can } from '../../lib/access.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import {
   meQuery,
   useDeletePlugin,
@@ -293,6 +293,9 @@ export function PluginsPage() {
                         variant="ghost"
                         size="icon-sm"
                         aria-label={`操作 ${plugin.name}`}
+                        onFocus={(event) => {
+                          actionTriggerRef.current = event.currentTarget;
+                        }}
                         onClick={(event) => {
                           actionTriggerRef.current = event.currentTarget;
                         }}
@@ -304,20 +307,20 @@ export function PluginsPage() {
                   <DropdownMenuContent align="end" sideOffset={4} className="w-44">
                     <DropdownMenuGroup>
                       {canUpdate ? (
-                        <DropdownMenuItem onClick={() => setEditing(plugin)}>
+                        <DropdownMenuItem onSelect={() => setEditing(plugin)}>
                           <Pencil /> 编辑
                         </DropdownMenuItem>
                       ) : null}
                       {canExport ? (
-                        <DropdownMenuItem
-                          nativeButton={false}
-                          render={<a href={`/api/plugins/${plugin.id}/export`} />}
-                        >
+                        <DropdownMenuItem render={<a href={`/api/plugins/${plugin.id}/export`} />}>
                           <Download /> 导出 ZIP
                         </DropdownMenuItem>
                       ) : null}
                       {canDelete ? (
-                        <DropdownMenuItem variant="destructive" onClick={() => setDeleting(plugin)}>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => setDeleting(plugin)}
+                        >
                           <Trash2 /> 删除
                         </DropdownMenuItem>
                       ) : null}
@@ -348,12 +351,14 @@ export function PluginsPage() {
 }
 
 function InstallPluginDialog({
-  onClose,
+  onClose: onClosed,
   finalFocus,
 }: {
   onClose: () => void;
   finalFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const install = useInstallNativePlugin();
   const importNative = useImportNativePlugin();
   const [tab, setTab] = useState<'market' | 'installed'>('market');
@@ -409,7 +414,11 @@ function InstallPluginDialog({
   };
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, onClose)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, onClose)}
+    >
       <DialogShell title="安装插件" closeDisabled={pending} finalFocus={finalFocus}>
         {results.length > 0 ? (
           <div role="status" className="flex flex-col gap-1 border-y py-2 text-sm">
@@ -582,13 +591,15 @@ function InstallPluginDialog({
 
 export function PluginDialog({
   plugin,
-  onClose,
+  onClose: onClosed,
   finalFocus,
 }: {
   plugin: PluginWithAgentCount;
   onClose: () => void;
   finalFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const update = useUpdatePlugin();
   const pending = update.isPending;
   const form = useZodForm(pluginFormSchema, {
@@ -622,7 +633,11 @@ export function PluginDialog({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title="编辑插件" closeDisabled={pending} finalFocus={finalFocus}>
         <form
           onSubmit={(event) => {

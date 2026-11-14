@@ -1,10 +1,17 @@
 'use client';
 
 import type { ConversationSearchItem } from '@agentport/shared';
-import { Autocomplete } from '@base-ui/react/autocomplete';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@ui-sdk/react/command';
 import { Search, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { formatRelative } from '../../lib/format.js';
 import { searchConversationsOptions } from '../../lib/queries.js';
 import { useDebouncedValue } from '../../lib/use-debounced-value.js';
@@ -35,13 +42,11 @@ export function ConversationSearch({
   onSelect: (item: ConversationSearchItem) => void;
   finalFocus?: (() => HTMLElement | null) | undefined;
 }) {
+  const dialog = useDialogClose(() => onOpenChange(false), open);
   const [input, setInput] = useState('');
   const q = useDebouncedValue(input.trim(), 300);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Base UI 只维护列表内部索引；Enter 要选的是用户眼前真正高亮的那一项。
-  const highlighted = useRef<ConversationSearchItem | undefined>(undefined);
-  // Enter 与 Base UI 合成 click 可能同一次按键各触发一次，选择只认第一次。
-  const choosing = useRef(false);
+  const composing = useRef(false);
   const hintsId = useId();
   const client = useQueryClient();
 
@@ -75,17 +80,12 @@ export function ConversationSearch({
     inputRef.current?.focus();
   };
 
-  const choose = (item: ConversationSearchItem): void => {
-    if (choosing.current) return;
-    choosing.current = true;
-    onSelect(item);
-    queueMicrotask(() => {
-      choosing.current = false;
-    });
-  };
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={dialog.open}
+      onOpenChange={(next) => (next ? onOpenChange(true) : dialog.close())}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+    >
       <DialogContent
         showCloseButton={false}
         aria-describedby={undefined}
@@ -93,47 +93,42 @@ export function ConversationSearch({
         className="top-[14vh] flex max-h-[min(70vh,36rem)] w-full max-w-xl translate-y-0 flex-col gap-0 overflow-hidden p-0"
       >
         <DialogTitle className="sr-only">搜索会话</DialogTitle>
-        <Autocomplete.Root
-          inline
-          open
-          items={items}
-          filter={null}
-          autoHighlight="always"
-          keepHighlight
-          value={input}
-          onValueChange={(value) => {
-            if (choosing.current) return;
-            setInput(value);
-          }}
-          onItemHighlighted={(item) => {
-            highlighted.current = item;
-          }}
-          itemToStringValue={(item: ConversationSearchItem) => item.id}
+        <Command
+          filter={false}
+          query={input}
+          onQueryChange={setInput}
+          className="flex min-h-0 flex-1 flex-col"
         >
           <div className="shrink-0 p-2 pb-0">
             <InputGroup>
               <InputGroupAddon>
                 <Search aria-hidden="true" />
               </InputGroupAddon>
-              <Autocomplete.Input
+              <CommandInput
                 ref={inputRef}
                 aria-label="搜索会话"
                 aria-describedby={hintsId}
                 placeholder="搜索标题、正文或会话 ID…"
+                onCompositionStart={() => {
+                  composing.current = true;
+                }}
+                onCompositionEnd={() => {
+                  composing.current = false;
+                }}
                 onKeyDown={(event) => {
                   if (
-                    event.key !== 'Enter' ||
-                    event.nativeEvent.isComposing ||
-                    event.nativeEvent.keyCode === 229
+                    (event.key === 'Enter' || event.key === 'Escape') &&
+                    (composing.current ||
+                      event.nativeEvent.isComposing ||
+                      event.nativeEvent.keyCode === 229)
                   ) {
+                    event.preventDefault();
                     return;
                   }
-                  const item = highlighted.current;
-                  if (!item) return;
-                  // Base UI 的 Enter 会合成一次 item click；这里先走同一条选择路径，
-                  // choosing 保证两种来源只导航一次。
-                  event.preventDefault();
-                  choose(item);
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    dialog.close();
+                  }
                 }}
                 render={
                   <InputGroupInput
@@ -171,7 +166,7 @@ export function ConversationSearch({
                 <ErrorState error={search.error} onRetry={() => void search.refetch()} />
               </div>
             ) : null}
-            <Autocomplete.Empty>
+            <CommandEmpty>
               {!firstLoad && !search.isError ? (
                 <div className="flex flex-col items-center gap-2 py-8 text-center">
                   <p className="text-xs text-muted-foreground">
@@ -184,13 +179,13 @@ export function ConversationSearch({
                   ) : null}
                 </div>
               ) : null}
-            </Autocomplete.Empty>
-            <Autocomplete.List className="flex flex-col gap-0.5 p-0">
-              {(item: ConversationSearchItem) => (
-                <Autocomplete.Item
+            </CommandEmpty>
+            <CommandList className="flex flex-col gap-0.5 p-0">
+              {items.map((item) => (
+                <CommandItem
                   key={item.id}
-                  value={item}
-                  onClick={() => choose(item)}
+                  value={item.id}
+                  onSelect={() => dialog.finish(() => onSelect(item))}
                   className="flex min-w-0 cursor-default flex-col gap-0.5 rounded-item px-2.5 py-2 outline-none select-none data-highlighted:bg-hover"
                 >
                   <span className="flex min-w-0 items-baseline gap-2">
@@ -207,9 +202,9 @@ export function ConversationSearch({
                       {item.match.excerpt}
                     </span>
                   ) : null}
-                </Autocomplete.Item>
-              )}
-            </Autocomplete.List>
+                </CommandItem>
+              ))}
+            </CommandList>
           </div>
 
           {nextBefore && items.length > 0 ? (
@@ -230,7 +225,7 @@ export function ConversationSearch({
               </Button>
             </div>
           ) : null}
-        </Autocomplete.Root>
+        </Command>
       </DialogContent>
     </Dialog>
   );

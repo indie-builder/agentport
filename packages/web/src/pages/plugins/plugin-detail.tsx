@@ -257,7 +257,7 @@ function PluginDetailContent({
             </TabsList>
           </PageTopbar>
           <PageBody className="overflow-hidden gap-0">
-            {/* 两个面板都常驻：Base UI 用 hidden/inert 管非活动面板，阅读位置因此随 DOM 保留。 */}
+            {/* 两个面板都常驻：ui-sdk 用 hidden 管非活动面板，阅读位置因此随 DOM 保留。 */}
             <TabsContent value="intro" keepMounted className="min-h-0 flex-1 overflow-y-auto">
               {introVisited && description ? <div className="pb-4">{description}</div> : null}
               {introVisited ? (

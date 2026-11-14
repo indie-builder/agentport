@@ -38,7 +38,7 @@ import {
   type KnowledgeVersionImage,
 } from '../../../lib/api.js';
 import { cn } from '../../../lib/cn.js';
-import { guardedOpenChange } from '../../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../../lib/dialog-guard.js';
 import { formatRelative } from '../../../lib/format.js';
 import {
   useCreateKnowledgeChunk,
@@ -92,7 +92,7 @@ export function DocumentViewer({
   canManage,
   canPublish,
   onSelect,
-  onClose,
+  onClose: onClosed,
   onEdit,
 }: {
   document: KnowledgeDocument;
@@ -103,6 +103,8 @@ export function DocumentViewer({
   onClose: () => void;
   onEdit: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const versionQuery = useKnowledgeDocumentVersions(document.id);
   const versions = versionQuery.versions;
   const currentVersionId =
@@ -150,7 +152,11 @@ export function DocumentViewer({
 
   return (
     <>
-      <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <Dialog
+        open={dialog.open}
+        onOpenChangeComplete={dialog.onOpenChangeComplete}
+        onOpenChange={(next) => (next ? undefined : onClose())}
+      >
         <DialogShell
           title={document.title}
           className="max-h-[85dvh] max-w-275 sm:max-w-275"
@@ -478,8 +484,7 @@ export function DocumentViewer({
           chunk={editing}
           onClose={() => setEditing(null)}
           onReload={async () => {
-            await chunks.refetch();
-            setEditing(null);
+            await chunks.refetch({ throwOnError: true });
           }}
         />
       ) : null}
@@ -490,8 +495,7 @@ export function DocumentViewer({
           versionId={versionId}
           onClose={() => setAddingChunk(false)}
           onReload={async () => {
-            await chunks.refetch();
-            setAddingChunk(false);
+            await chunks.refetch({ throwOnError: true });
           }}
         />
       ) : null}
@@ -535,7 +539,6 @@ export function DocumentViewer({
           onConfirm={async () => {
             await remove.mutateAsync(deleting.id);
             toastSuccess('分块已删除');
-            setDeleting(null);
           }}
         />
       ) : null}
@@ -554,7 +557,7 @@ function ChunkDialog({
   documentId,
   versionId,
   chunk,
-  onClose,
+  onClose: onClosed,
   onReload,
 }: {
   baseId: string;
@@ -563,9 +566,10 @@ function ChunkDialog({
   /** 缺省为新增分块；只能操作当前版本。 */
   chunk?: KnowledgeChunk;
   onClose: () => void;
-  /** 冲突后由调用方重新拉取分块并关闭，草稿只在这里明确放弃。 */
   onReload: () => Promise<void>;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const update = useUpdateKnowledgeChunk(baseId, documentId, versionId);
   const create = useCreateKnowledgeChunk(baseId, documentId, versionId);
   const creating = chunk === undefined;
@@ -577,15 +581,32 @@ function ChunkDialog({
   const trimmed = watch('content').trim();
   const [error, setError] = useState<string | null>(null);
   const [confirmReload, setConfirmReload] = useState(false);
-  const pending = update.isPending || create.isPending;
+  const [reloading, setReloading] = useState(false);
+  const pending = update.isPending || create.isPending || reloading;
   const dirty = isDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
+  const reload = async () => {
+    setReloading(true);
+    try {
+      await onReload();
+      dialog.finish(() => {
+        guard.finish();
+        onClosed();
+      });
+    } finally {
+      setReloading(false);
+    }
+  };
   // 图片向量是真实图 embedding；改正文会让它和图片脱节，只允许在列表里启停。
   const vectorChunk = chunk?.metadata?.imageRole === 'vector';
 
   if (vectorChunk) {
     return (
-      <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <Dialog
+        open={dialog.open}
+        onOpenChangeComplete={dialog.onOpenChangeComplete}
+        onOpenChange={(next) => (next ? undefined : onClose())}
+      >
         <DialogShell title="编辑分块">
           <div className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground">
@@ -622,7 +643,11 @@ function ChunkDialog({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title={creating ? '新增分块' : '编辑分块'} closeDisabled={pending}>
         <form className="flex flex-col gap-4" onSubmit={submit}>
           <Field className="gap-1.5">
@@ -648,11 +673,7 @@ function ChunkDialog({
                 disabled={pending}
                 onClick={() => {
                   if (dirty) setConfirmReload(true);
-                  else {
-                    if (creating) create.reset();
-                    else update.reset();
-                    void onReload();
-                  }
+                  else void reload().catch((reason) => setError(errorMessage(reason)));
                 }}
               >
                 重新加载
@@ -676,9 +697,7 @@ function ChunkDialog({
           confirmDisabled={pending}
           onConfirm={async () => {
             if (pending) return;
-            if (creating) create.reset();
-            else await update.reset();
-            await onReload();
+            await reload();
           }}
         />
       </DialogShell>

@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../components/ui/select.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import type { LastTest } from './shared.js';
 
 /** 试连前选环境：默认预选该 server 上次实际用的环境，避免沿用别的连接器选择。 */
@@ -62,11 +63,16 @@ export function TestEnvironmentDialog({
       ? lastEnvironmentId
       : 'default';
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | null>(null);
+  const dialog = useDialogClose(onClose);
   const environmentId = selectedEnvironmentId ?? initialEnvironmentId;
   const environmentsAvailable = !environmentsLoading && environmentsError === null;
 
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open={dialog.open}
+      onOpenChange={(next) => (next ? undefined : dialog.close())}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+    >
       <DialogShell
         title={`测试 ${server.name}`}
         finalFocus={getReturnFocus}
@@ -121,10 +127,13 @@ export function TestEnvironmentDialog({
           </Field>
         </FieldGroup>
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={dialog.close}>
             取消
           </Button>
-          <Button disabled={!environmentsAvailable} onClick={() => onConfirm(environmentId)}>
+          <Button
+            disabled={!environmentsAvailable}
+            onClick={() => dialog.finish(() => onConfirm(environmentId))}
+          >
             开始测试
           </Button>
         </div>

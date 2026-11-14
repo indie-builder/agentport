@@ -492,8 +492,8 @@ describe('知识管理真实路由回归', () => {
     await act(async () => {
       const overlay = document.querySelector('[data-slot="dialog-overlay"]');
       expect(overlay).not.toBeNull();
-      overlay?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
-      overlay?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+      overlay?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+      overlay?.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0 }));
       overlay?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
     });
     expect(close).not.toHaveBeenCalled();

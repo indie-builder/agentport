@@ -35,7 +35,7 @@ import { Page, PageBody, PageHeader, PageNote, PageTopbar } from './page.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
 import { Skeleton } from './ui/skeleton.js';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip.js';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js';
 
 type NavItem = MenuItem & { navGroup?: 'resources' };
 
@@ -125,6 +125,7 @@ function SidebarLink({
   label,
   icon: Icon,
   collapsed,
+  tooltipDisabled,
   navGroup,
   onNavigate,
 }: {
@@ -132,6 +133,7 @@ function SidebarLink({
   label: string;
   icon: MenuItem['icon'];
   collapsed: boolean;
+  tooltipDisabled: boolean;
   navGroup?: 'resources' | undefined;
   onNavigate?: (() => void) | undefined;
 }) {
@@ -193,7 +195,7 @@ function SidebarLink({
     </Link>
   );
   return (
-    <Tooltip disabled={!collapsed}>
+    <Tooltip disabled={tooltipDisabled} delay={400}>
       <TooltipTrigger render={link} />
       <TooltipContent side="right" sideOffset={8}>
         {label}
@@ -443,6 +445,7 @@ export function AppShell() {
     : { width: 'var(--sidebar-width)', padding: 'var(--sidebar-pad)' };
   const sidebar = (drawer: boolean) => {
     const navCollapsed = !drawer && collapsed;
+    const tooltipDisabled = drawer || sidebarMode === 'expanded';
     const onNavigate = (): void => {
       if (drawer) setMobileOpen(false);
       else setSidebarMode((mode) => (mode === 'preview' ? 'collapsed' : mode));
@@ -550,6 +553,7 @@ export function AppShell() {
                     icon={item.icon}
                     navGroup={item.navGroup}
                     collapsed={navCollapsed}
+                    tooltipDisabled={tooltipDisabled}
                     onNavigate={onNavigate}
                   />
                 ))}
@@ -565,11 +569,12 @@ export function AppShell() {
               label={bottomEntry.label}
               icon={bottomEntry.icon}
               collapsed={navCollapsed}
+              tooltipDisabled={tooltipDisabled}
               onNavigate={onNavigate}
             />
           ) : null}
           {personalContext ? (
-            <Tooltip disabled={!navCollapsed}>
+            <Tooltip disabled={tooltipDisabled} delay={400}>
               <TooltipTrigger
                 render={
                   <Button
@@ -591,7 +596,7 @@ export function AppShell() {
               <TooltipContent side="right">退出登录</TooltipContent>
             </Tooltip>
           ) : null}
-          <Tooltip disabled={!navCollapsed}>
+          <Tooltip disabled={tooltipDisabled} delay={400}>
             <TooltipTrigger
               render={
                 <Link
@@ -639,81 +644,79 @@ export function AppShell() {
   );
 
   return (
-    <TooltipProvider delay={400}>
-      <div className="flex h-dvh bg-canvas text-fg">
-        <a href="#main-content" className="skip-link">
-          跳到主要内容
-        </a>
+    <div className="flex h-dvh bg-canvas text-fg">
+      <a href="#main-content" className="skip-link">
+        跳到主要内容
+      </a>
 
-        <motion.div
-          className="relative z-20 hidden shrink-0 lg:block"
-          initial={false}
-          animate={{
-            width: sidebarMode === 'expanded' ? 'var(--sidebar-width)' : 'var(--sidebar-collapsed)',
-          }}
-          transition={reduce ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+      <motion.div
+        className="relative z-20 hidden shrink-0 lg:block"
+        initial={false}
+        animate={{
+          width: sidebarMode === 'expanded' ? 'var(--sidebar-width)' : 'var(--sidebar-collapsed)',
+        }}
+        transition={reduce ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+      >
+        {sidebar(false)}
+      </motion.div>
+
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent
+          side="left"
+          finalFocus={() => navigationTrigger.current}
+          showCloseButton={false}
+          aria-describedby={undefined}
+          // Keep the project shadow.
+          className="w-73.5! max-w-none! gap-0 p-0 shadow-overlay sm:max-w-none! lg:hidden"
         >
-          {sidebar(false)}
-        </motion.div>
+          <SheetTitle className="sr-only">导航</SheetTitle>
+          <SheetClose
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="关闭导航"
+                // Keep the subdued close icon and translucent hover instead of the ghost defaults.
+                className="absolute right-3 top-6 z-10 text-muted-foreground hover:bg-sidebar-hover"
+              >
+                <X className="size-3" />
+              </Button>
+            }
+          />
+          {sidebar(true)}
+        </SheetContent>
+      </Sheet>
 
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent
-            side="left"
-            finalFocus={navigationTrigger}
-            showCloseButton={false}
-            aria-describedby={undefined}
-            // Keep the project shadow.
-            className="w-73.5! max-w-none! gap-0 p-0 shadow-overlay sm:max-w-none! lg:hidden"
+      <div className="isolate flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
+        {/*
+         * 桌面端没有外壳自己的顶栏：参考页白面板里就是页面内容的第一行。
+         * 移动端才需要这一行来放抽屉入口，页面标题由各页的 PageHeader 负责。
+         */}
+        <header className="flex h-11 shrink-0 items-center gap-3 px-3 lg:hidden">
+          <Button
+            variant="ghost"
+            ref={navigationTrigger}
+            aria-label="打开导航"
+            aria-expanded={mobileOpen}
+            onClick={() => setMobileOpen(true)}
+            // Keep the 7px icon corners and translucent hover instead of the regular ghost defaults.
+            className="-ml-1 rounded-[var(--radius-icon)] p-1.5 hover:bg-hover"
           >
-            <SheetTitle className="sr-only">导航</SheetTitle>
-            <SheetClose
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="关闭导航"
-                  // Keep the subdued close icon and translucent hover instead of the ghost defaults.
-                  className="absolute right-3 top-6 z-10 text-muted-foreground hover:bg-sidebar-hover"
-                >
-                  <X className="size-3" />
-                </Button>
-              }
-            />
-            {sidebar(true)}
-          </SheetContent>
-        </Sheet>
+            <Menu aria-hidden="true" />
+          </Button>
+        </header>
 
-        <div className="isolate flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
-          {/*
-           * 桌面端没有外壳自己的顶栏：参考页白面板里就是页面内容的第一行。
-           * 移动端才需要这一行来放抽屉入口，页面标题由各页的 PageHeader 负责。
-           */}
-          <header className="flex h-11 shrink-0 items-center gap-3 px-3 lg:hidden">
-            <Button
-              variant="ghost"
-              ref={navigationTrigger}
-              aria-label="打开导航"
-              aria-expanded={mobileOpen}
-              onClick={() => setMobileOpen(true)}
-              // Keep the 7px icon corners and translucent hover instead of the regular ghost defaults.
-              className="-ml-1 rounded-[var(--radius-icon)] p-1.5 hover:bg-hover"
-            >
-              <Menu aria-hidden="true" />
-            </Button>
-          </header>
-
-          <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-hidden">
-            {immersive ? (
-              <div className={cn('h-full', denied && 'p-6')}>{content}</div>
-            ) : (
-              // 内容区左右 24px、底部 24px；顶部内边距由 PageHeader 自己负责。
-              <div className="h-full min-h-0 w-full px-6 pb-6">
-                <div className="h-full min-h-0 w-full min-w-0">{content}</div>
-              </div>
-            )}
-          </main>
-        </div>
+        <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-hidden">
+          {immersive ? (
+            <div className={cn('h-full', denied && 'p-6')}>{content}</div>
+          ) : (
+            // 内容区左右 24px、底部 24px；顶部内边距由 PageHeader 自己负责。
+            <div className="h-full min-h-0 w-full px-6 pb-6">
+              <div className="h-full min-h-0 w-full min-w-0">{content}</div>
+            </div>
+          )}
+        </main>
       </div>
-    </TooltipProvider>
+    </div>
   );
 }

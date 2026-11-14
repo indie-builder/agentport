@@ -9,7 +9,7 @@ import type {
   KnowledgeManualDraft,
 } from '../../lib/api.js';
 import { errorMessage } from '../../lib/api.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { knowledgeJobErrorText } from '../../lib/knowledge-errors.js';
 import {
   isTerminalKnowledgeJob,
@@ -125,7 +125,7 @@ export function BatchActionDialog({
   documentIds,
   titles,
   folders,
-  onClose,
+  onClose: onClosed,
 }: {
   baseId: string;
   action: BatchAction;
@@ -134,6 +134,8 @@ export function BatchActionDialog({
   folders: KnowledgeFolder[];
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const batch = useBatchKnowledgeDocuments(baseId);
   const [selection] = useState(() => ({ ids: [...documentIds], titles: { ...titles } }));
   const guard = useDraftGuard(false, batch.isPending, onClose);
@@ -181,7 +183,8 @@ export function BatchActionDialog({
 
   return (
     <Dialog
-      open
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={(next, details) => {
         if (batch.isPending) details.cancel();
         else if (!next) guard.close();
@@ -366,13 +369,15 @@ export function ManualDraftDialog({
   baseId,
   documentId,
   title,
-  onClose,
+  onClose: onClosed,
 }: {
   baseId: string;
   documentId: string;
   title: string;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const manual = useKnowledgeDocumentManual(documentId);
   const save = useSaveKnowledgeDocumentManual(baseId);
   const [content, setContent] = useState('');
@@ -418,7 +423,11 @@ export function ManualDraftDialog({
   }, [jobId, job.data, guard.finish]);
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title={`编辑正文 · ${title}`} closeDisabled={pending}>
         {manual.isPending ? <LoadingState rows={4} /> : null}
         {manual.isError ? (

@@ -388,7 +388,7 @@
 - **原因**：按钮变体样式是一个类字符串，直接拼接时 Tailwind 冲突不会按预期解决；项目封装已用 `cn(buttonVariantStyles(props))` 合并。
 - **规避**：始终调用导出的 `buttonVariants`（已含 `cn`），不要直接调用内部样式函数或用模板字符串拼类名；需要覆盖时通过它的 `className` 参数传入。
 
-## UI：Base UI 的 `hidden="until-found"` 不能被作者 `content-visibility` 覆盖
+## UI：ui-sdk 折叠面板的 `hidden="until-found"` 不能被作者 `content-visibility` 覆盖
 
 - **现象**：关闭的 keepMounted 折叠面板仍占位、内容可被找到，或打开动画异常。
 - **原因**：`hidden="until-found"` 依赖 UA 的 `content-visibility: hidden` 规则；作者内联 `content-visibility: visible` 会覆盖它。
@@ -674,3 +674,15 @@
 - **现象**：真实队列收到 GitLab HTTP 401 后，文档停用触发器报错，来源仍是 active，两篇文档、两页 Wiki 和两个检索命中仍可读。把来源状态、文档停用和 Wiki stale 全放进 `replaceSourceScope` 事务，Wiki 触发器失败后也会完整回滚到可读状态。
 - **原因**：读取权限以来源状态为准。派生内容更新失败时，事务回滚同时撤销了 `auth_error`，真实失权被当成从未发生。
 - **规避**：先独立尝试持久化来源 `auth_error`，用 `finally` 保证状态写入失败后仍尝试文档停用与全部关联 Wiki stale 的事务，不能因前一步失败跳过既有撤权。派生事务失败不能回滚已写入的来源状态；状态写入失败而派生事务成功时仍上抛状态写入错误，两步都失败时上抛派生事务错误。故障注入分别覆盖来源状态、文档和 Wiki 更新失败，断言直接读取与检索结果。
+
+## UI：`@layer ui-sdk` 的声明顺序决定谁能覆盖谁
+
+- **现象**：迁移到 ui-sdk 后，用 Tailwind utility 覆盖部件样式不生效，组件默认样式反而压过项目 token。
+- **原因**：CSS 级联层的先后由首次声明顺序决定；`@layer ui-sdk;` 若写在 `@import "tailwindcss"` 之后，ui-sdk 层会排在 Tailwind 的 base/components/utilities 之后而取得更高优先级。
+- **规避**：在全局样式表顶部、`@import "tailwindcss"` 之前声明 `@layer ui-sdk;`（当前 `packages/web/src/styles.css`）；升级后用真实渲染核对覆盖效果，不能只看 class 是否存在。
+
+## 前端：ui-sdk 包装组件在 `exactOptionalPropertyTypes` 下要放宽可选属性
+
+- **现象**：迁移后 `ComponentProps<typeof X>` 直接作为包装组件的 props 时 typecheck 报 `undefined` 不能赋给可选属性，或既有调用方传 `foo={undefined}` 失败。
+- **原因**：项目 tsconfig 开启 `exactOptionalPropertyTypes: true`，可选属性 `foo?: T` 不接受显式 `undefined`；ui-sdk 的 d.ts 与既有调用习惯不总按该模式声明，包装层透传时出现类型缺口。
+- **规避**：在 `components/ui/*.tsx` 的包装层用 `type Loose<T> = { [K in keyof T]: T[K] | undefined }` 放宽可变属性，再 cast 回原组件 props；不关闭全局 `exactOptionalPropertyTypes`，也不逐个改调用方。升级后 typecheck 会重新暴露这类缺口。

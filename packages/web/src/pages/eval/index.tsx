@@ -175,8 +175,8 @@ export function EvalPage() {
   const [deleting, setDeleting] = useState<EvalCase | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const compareButtonRef = useRef<HTMLButtonElement>(null);
-  const dialogTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const finalFocus = (): HTMLButtonElement | null =>
+  const dialogTriggerRef = useRef<HTMLElement | null>(null);
+  const finalFocus = (): HTMLElement | null =>
     dialogTriggerRef.current?.isConnected ? dialogTriggerRef.current : createButtonRef.current;
   const compareFinalFocus = (): HTMLButtonElement | null =>
     compareButtonRef.current?.isConnected ? compareButtonRef.current : createButtonRef.current;

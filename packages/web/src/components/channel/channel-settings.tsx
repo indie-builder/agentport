@@ -11,7 +11,7 @@ import { Plus, Settings, Trash2 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Controller, type UseFormReturn } from 'react-hook-form';
 import type { z } from 'zod';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { shortId } from '../../lib/format.js';
 import {
   useAddChannelMember,
@@ -89,7 +89,7 @@ export function ChannelSettingsButton({
   agents: { id: string; name: string; description: string; enabled: boolean }[];
 }): ReactNode {
   const [open, setOpen] = useState(false);
-  if ((role !== 'owner' && role !== 'admin') || channel.archivedAt !== null) return null;
+  if ((role !== 'owner' && role !== 'admin') || (channel.archivedAt !== null && !open)) return null;
   return (
     <>
       <Button variant="outline" onClick={() => setOpen(true)}>
@@ -114,7 +114,7 @@ function ChannelSettingsDialog({
   businessId,
   role,
   agents,
-  onClose,
+  onClose: onClosed,
 }: {
   channel: ChannelDetail;
   businessId: string | null;
@@ -122,7 +122,10 @@ function ChannelSettingsDialog({
   agents: { id: string; name: string; description: string; enabled: boolean }[];
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const update = useUpdateChannel(channel.id);
+  const close = useCloseChannel(channel.id);
   const addMember = useAddChannelMember(channel.id);
   const basic = useZodForm(channelUpdateSchema, {
     defaultValues: { name: channel.name, description: channel.description ?? '' },
@@ -132,6 +135,7 @@ function ChannelSettingsDialog({
   });
   const dirty = basic.formState.isDirty || member.formState.isDirty;
   const pending =
+    close.isPending ||
     update.isPending ||
     basic.formState.isSubmitting ||
     addMember.isPending ||
@@ -139,7 +143,11 @@ function ChannelSettingsDialog({
   const guard = useDraftGuard(dirty, pending, onClose);
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title="频道设置" closeDisabled={pending}>
         <div className="flex flex-col gap-5">
           <BasicInfoSection form={basic} update={update} />
@@ -151,7 +159,18 @@ function ChannelSettingsDialog({
             addMember={addMember}
           />
           <AgentsSection channel={channel} agents={agents} />
-          {role === 'owner' ? <CloseChannelSection channel={channel} guard={guard} /> : null}
+          {role === 'owner' ? (
+            <CloseChannelSection
+              close={close}
+              onClosed={(action) =>
+                dialog.finish(() => {
+                  guard.finish();
+                  onClosed();
+                  action();
+                })
+              }
+            />
+          ) : null}
         </div>
         <DraftGuardDialogs guard={guard} draft="频道设置草稿会丢失。" pending={pending} />
       </DialogShell>
@@ -628,13 +647,12 @@ function AgentsSection({
 }
 
 function CloseChannelSection({
-  channel,
-  guard,
+  close,
+  onClosed,
 }: {
-  channel: ChannelDetail;
-  guard: ReturnType<typeof useDraftGuard>;
+  close: ReturnType<typeof useCloseChannel>;
+  onClosed: (action: () => void) => void;
 }) {
-  const close = useCloseChannel(channel.id);
   const navigate = useNavigate();
   const [confirming, setConfirming] = useState(false);
 
@@ -658,8 +676,7 @@ function CloseChannelSection({
         onConfirm={async () => {
           await close.mutateAsync();
           toastSuccess('频道已关闭');
-          guard.finish();
-          void navigate({ to: '/channels', ignoreBlocker: true });
+          onClosed(() => void navigate({ to: '/channels', ignoreBlocker: true }));
         }}
       />
     </section>

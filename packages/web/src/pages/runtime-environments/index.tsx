@@ -32,7 +32,7 @@ import {
 import { Textarea } from '../../components/ui/textarea.js';
 import { ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { useFormBlocker } from '../../lib/form.js';
 import { formatRelative, shortId } from '../../lib/format.js';
 import { meQuery, useCreateRuntimeEnvironment, useRuntimeEnvironments } from '../../lib/queries.js';
@@ -262,7 +262,7 @@ const environmentFormSchema = z.object({
 });
 
 function CreateEnvironmentDialog({
-  onClose,
+  onClose: onClosed,
   onCreated,
   getReturnFocus,
 }: {
@@ -270,6 +270,8 @@ function CreateEnvironmentDialog({
   onCreated: (environment: RuntimeEnvironment) => void;
   getReturnFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const create = useCreateRuntimeEnvironment();
   const pending = create.isPending;
   const { register, handleSubmit, watch, formState } = useZodForm(environmentFormSchema, {
@@ -305,14 +307,18 @@ function CreateEnvironmentDialog({
       setCreated(true);
       blockerRef.current.reset?.();
       toastSuccess(`已创建「${environment.name}」`);
-      onCreated(environment);
+      dialog.finish(() => onCreated(environment));
     } catch (error) {
       toastError(error);
     }
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, close)}
+    >
       <DialogShell title="新建运行环境" finalFocus={getReturnFocus} closeDisabled={pending}>
         <form
           className="flex flex-col gap-5"

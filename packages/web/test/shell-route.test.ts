@@ -781,7 +781,7 @@ describe('sidebar collapse', () => {
       const link = navLink(view.host);
       await act(async () => link.focus());
       await act(async () => vi.advanceTimersByTime(1_000));
-      expect(document.querySelector('[data-slot="tooltip-content"]')).toBeNull();
+      expect(document.querySelector('[data-slot="tooltip-content"]:not([hidden])')).toBeNull();
 
       const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
       if (!collapse) throw new Error('missing sidebar toggle');
@@ -795,7 +795,7 @@ describe('sidebar collapse', () => {
       expect(collapse.getAttribute('aria-expanded')).toBe('true');
       expect(collapse.getAttribute('aria-pressed')).toBe('false');
       expect(localStorage.getItem('agentport:nav-collapsed')).toBe('1');
-      expect(document.querySelector('[data-slot="tooltip-content"]')).toBeNull();
+      expect(document.querySelector('[data-slot="tooltip-content"]:not([hidden])')).toBeNull();
 
       await act(async () => {
         link.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import { Field, FieldError, FieldLabel } from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { fieldErrors } from '../../lib/form.js';
 
 /**
@@ -47,7 +48,7 @@ export function RenameDialog({
   pending,
   blocker,
   onTitleChange,
-  onClose,
+  onClose: onClosed,
   onRename,
   finalFocus,
 }: {
@@ -57,9 +58,11 @@ export function RenameDialog({
   blocker: ReturnType<typeof useRenameBlocker>;
   onTitleChange: (title: string) => void;
   onClose: () => void;
-  onRename: (title: string) => void;
+  onRename: (title: string) => Promise<unknown>;
   finalFocus: ComponentProps<typeof DialogShell>['finalFocus'];
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // 保存按钮在无效时禁用，所以错误要随输入即时给出，而不是只在提交后出现。
   const parsed = conversationRenameSchema.safeParse({ title });
@@ -80,7 +83,7 @@ export function RenameDialog({
   const submit = (event: FormEvent): void => {
     event.preventDefault();
     if (saveDisabled || !parsed.success) return;
-    onRename(parsed.data.title);
+    void onRename(parsed.data.title).then(() => dialog.finish(onClosed), () => {});
   };
 
   const leaving = blocker.status === 'blocked';
@@ -88,7 +91,8 @@ export function RenameDialog({
 
   return (
     <Dialog
-      open
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={(next) => {
         if (!next) close();
       }}
@@ -139,8 +143,10 @@ export function RenameDialog({
             if (pending) return;
             if (leaving) {
               // 同页换会话不会卸载工作区：放弃后先收起对话框，再放行导航。
-              blocker.proceed();
-              onClose();
+              dialog.finish(() => {
+                onClosed();
+                blocker.proceed();
+              });
             } else onClose();
           }}
         />

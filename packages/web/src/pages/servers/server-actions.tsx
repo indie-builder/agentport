@@ -54,27 +54,32 @@ export function ServerActions({
           </Button>
         }
       />
-      <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+      <DropdownMenuContent
+        align="end"
+        sideOffset={4}
+        className="w-40"
+        onClick={(event) => event.stopPropagation()}
+      >
         <DropdownMenuGroup>
           {canTest ? (
             <DropdownMenuItem
               disabled={testPending}
-              onClick={() => triggerRef.current && onTest(triggerRef.current)}
+              onSelect={() => triggerRef.current && onTest(triggerRef.current)}
             >
               <Plug /> {testing ? '测试中…' : '测试连接'}
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuItem onClick={() => triggerRef.current && onCatalog(triggerRef.current)}>
+          <DropdownMenuItem onSelect={() => triggerRef.current && onCatalog(triggerRef.current)}>
             <Wrench /> 工具与测试
           </DropdownMenuItem>
           {generated && canTools ? (
-            <DropdownMenuItem onClick={() => triggerRef.current && onTools(triggerRef.current)}>
+            <DropdownMenuItem onSelect={() => triggerRef.current && onTools(triggerRef.current)}>
               <Wrench /> 工具定义
             </DropdownMenuItem>
           ) : null}
           {generated && canTokens ? (
             <DropdownMenuItem
-              onClick={() => triggerRef.current && onConnection(triggerRef.current)}
+              onSelect={() => triggerRef.current && onConnection(triggerRef.current)}
             >
               <KeyRound /> 连接信息
             </DropdownMenuItem>
@@ -86,7 +91,7 @@ export function ServerActions({
             <DropdownMenuGroup>
               <DropdownMenuItem
                 variant="destructive"
-                onClick={() => triggerRef.current && onDelete(triggerRef.current)}
+                onSelect={() => triggerRef.current && onDelete(triggerRef.current)}
               >
                 <Trash2 /> 删除
               </DropdownMenuItem>

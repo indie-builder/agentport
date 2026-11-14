@@ -10,7 +10,7 @@ import type {
 } from '../../lib/api.js';
 import { errorMessage } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { formatDateTime, formatRelative } from '../../lib/format.js';
 import {
   knowledgeKeys,
@@ -232,6 +232,7 @@ function WikiPageEditor({
   const [publishTarget, setPublishTarget] = useState<KnowledgeWikiVersion | null>(null);
   const [rollbackTarget, setRollbackTarget] = useState<KnowledgeWikiVersion | null>(null);
   const [previewing, setPreviewing] = useState<KnowledgeWikiVersion | null>(null);
+  const previewDialog = useDialogClose(() => setPreviewing(null), previewing !== null);
   const [editing, setEditing] = useState<{
     versionId: string | null;
     markdown: string;
@@ -548,7 +549,11 @@ function WikiPageEditor({
         }}
       />
       {previewing ? (
-        <Dialog open onOpenChange={(next) => (next ? undefined : setPreviewing(null))}>
+        <Dialog
+          open={previewDialog.open}
+          onOpenChange={(next) => (next ? undefined : previewDialog.close())}
+          onOpenChangeComplete={previewDialog.onOpenChangeComplete}
+        >
           <DialogShell title={`预览 v${previewing.version}`} className="max-w-215 sm:max-w-215">
             <Markdown text={previewing.markdown} />
           </DialogShell>
@@ -562,8 +567,7 @@ function WikiPageEditor({
           markdown={editing.markdown}
           onClose={() => setEditing(null)}
           onReload={async () => {
-            await detail.refetch();
-            setEditing(null);
+            await detail.refetch({ throwOnError: true });
           }}
         />
       ) : null}
@@ -680,13 +684,15 @@ function WikiOrganizeDialog({
   baseId,
   page,
   pages,
-  onClose,
+  onClose: onClosed,
 }: {
   baseId: string;
   page: KnowledgeWikiPageDetail;
   pages: WikiPageSummary[];
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const save = useSaveKnowledgeWikiPage(baseId);
   const { register, control, handleSubmit, watch, formState } = useZodForm(wikiOrganizeFormSchema, {
     defaultValues: { parentId: page.parentId ?? 'null', position: String(page.position ?? 0) },
@@ -740,7 +746,11 @@ function WikiOrganizeDialog({
     );
   });
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title="组织 Wiki 页面" closeDisabled={pending}>
         <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup className="grid gap-3 sm:grid-cols-2">
@@ -811,16 +821,22 @@ function WikiDiffDialog({
   pageId,
   fromVersionId,
   toVersionId,
-  onClose,
+  onClose: onClosed,
 }: {
   pageId: string;
   fromVersionId: string;
   toVersionId: string;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const diff = useKnowledgeWikiDiff(pageId, fromVersionId, toVersionId);
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={(next) => (next ? undefined : onClose())}
+    >
       <DialogShell title="版本贡献差异" className="max-w-215 sm:max-w-215">
         {diff.isPending ? <LoadingState rows={3} /> : null}
         {diff.isError ? <ErrorText>差异没有加载出来。</ErrorText> : null}
@@ -896,7 +912,7 @@ function WikiMarkdownDialog({
   pageId,
   expectedVersion,
   markdown,
-  onClose,
+  onClose: onClosed,
   onReload,
 }: {
   baseId: string;
@@ -907,17 +923,24 @@ function WikiMarkdownDialog({
   onClose: () => void;
   onReload: () => Promise<void>;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const save = useSaveKnowledgeWikiPage(baseId);
   const client = useQueryClient();
   const [value, setValue] = useState(markdown);
   const [error, setError] = useState<string | null>(null);
   const [confirmReload, setConfirmReload] = useState(false);
-  const pending = save.isPending;
+  const [reloading, setReloading] = useState(false);
+  const pending = save.isPending || reloading;
   const guard = useDraftGuard(value !== markdown, pending, onClose);
 
   return (
     <>
-      <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+      <Dialog
+        open={dialog.open}
+        onOpenChangeComplete={dialog.onOpenChangeComplete}
+        onOpenChange={guardedOpenChange(pending, guard.close)}
+      >
         <DialogShell title="编辑 Wiki 正文" closeDisabled={pending}>
           <form
             className="flex flex-col gap-4"
@@ -985,10 +1008,19 @@ function WikiMarkdownDialog({
         title="重新加载 Wiki 正文"
         description="当前草稿会被放弃，编辑器改为显示最新已发布版本。"
         confirmLabel="重新加载"
+        confirmDisabled={pending}
         onClose={() => setConfirmReload(false)}
         onConfirm={async () => {
-          await onReload();
-          setConfirmReload(false);
+          setReloading(true);
+          try {
+            await onReload();
+            dialog.finish(() => {
+              guard.finish();
+              onClosed();
+            });
+          } finally {
+            setReloading(false);
+          }
         }}
       />
     </>
@@ -1007,7 +1039,7 @@ function CreateWikiPageDialog({
   baseId,
   pages,
   initialParentId,
-  onClose,
+  onClose: onClosed,
   onCreated,
 }: {
   baseId: string;
@@ -1016,6 +1048,8 @@ function CreateWikiPageDialog({
   onClose: () => void;
   onCreated: (page: { id: string }) => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const create = useCreateKnowledgeWikiPage(baseId);
   const { register, control, handleSubmit, watch, formState } = useZodForm(wikiPageFormSchema, {
     defaultValues: { title: '', slug: '', parentId: initialParentId ?? 'null', position: '0' },
@@ -1051,7 +1085,7 @@ function CreateWikiPageDialog({
         onSuccess: (page) => {
           toastSuccess('Wiki 页面已创建');
           guard.finish();
-          onCreated(page);
+          dialog.finish(() => onCreated(page));
         },
         onError: toastError,
       },
@@ -1059,7 +1093,11 @@ function CreateWikiPageDialog({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title="新建 Wiki 页面" closeDisabled={pending}>
         <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>

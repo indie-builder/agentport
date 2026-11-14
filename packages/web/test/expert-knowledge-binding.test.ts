@@ -1,9 +1,15 @@
 import { type Agent, agentInputSchema, PERMISSIONS, type Server } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
+import {
+  type ComponentProps,
+  createElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Combobox, ComboboxList } from '../src/components/ui/combobox.js';
+import { Combobox, ComboboxItem, ComboboxList } from '../src/components/ui/combobox.js';
 import { AgentEditor } from '../src/pages/agents/index.js';
 import { allAccessMe } from './me-fixture.js';
 
@@ -105,6 +111,8 @@ function agentWith(serverIds: string[]): Agent {
   };
 }
 
+type PickerProps = ComponentProps<typeof Combobox<string, true>>;
+type ChangePickerValue = (value: Parameters<NonNullable<PickerProps['onValueChange']>>[0]) => void;
 type Element = ReactElement<Record<string, unknown>>;
 function elements(node: ReactNode): Element[] {
   if (Array.isArray(node)) return node.flatMap(elements);
@@ -159,22 +167,23 @@ function selectSection(tree: Element[], label: string) {
   if (!item) throw new Error(`Missing section nav: ${label}`);
   (item.props.onClick as () => void)();
 }
+function pickerItems(picker: Element): Element[] {
+  const list = elements(picker).find((node) => node.type === ComboboxList);
+  return elements(list).filter((node) => node.type === ComboboxItem);
+}
+
 function knowledgePicker(tree: Element[], id: string) {
   const picker = tree.find(
-    (node) =>
-      node.type === Combobox &&
-      (node.props.items as Array<{ id: string }> | undefined)?.some((item) => item.id === id),
+    (node) => node.type === Combobox && pickerItems(node).some((item) => item.props.value === id),
   );
   if (!picker) throw new Error('Missing knowledge picker');
   return picker;
 }
 
-/** 渲染单个选项：ComboboxList 的 children 是 (option) => ReactNode 的渲染函数。 */
-function renderOption(picker: Element, option: { id: string }) {
-  const list = elements(picker.props.children).find((node) => node.type === ComboboxList);
-  const render = list?.props.children;
-  if (typeof render !== 'function') throw new Error('Missing ComboboxList render function');
-  return elements((render as (value: unknown) => ReactNode)(option))[0];
+function renderOption(picker: Element, value: string) {
+  const item = pickerItems(picker).find((node) => node.props.value === value);
+  if (!item) throw new Error(`Missing knowledge option: ${value}`);
+  return item;
 }
 
 afterEach(() => {
@@ -190,9 +199,12 @@ describe('expert knowledge binding', () => {
         return;
       }
       const picker = knowledgePicker(tree, 'server-kb-active');
-      const items = picker.props.items as Array<{ id: string; label: string }>;
-      expect(items.map((item) => item.id)).toEqual(['server-kb-active', 'server-kb-disabled']);
-      expect(items.map((item) => item.label)).toEqual(['产品手册', '归档库']);
+      const items = pickerItems(picker);
+      expect(items.map((item) => item.props.value)).toEqual([
+        'server-kb-active',
+        'server-kb-disabled',
+      ]);
+      expect(items.map((item) => item.props.label)).toEqual(['产品手册', '归档库']);
     });
   });
 
@@ -203,16 +215,12 @@ describe('expert knowledge binding', () => {
         return;
       }
       const picker = knowledgePicker(tree, 'server-kb-disabled');
-      expect((picker.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
-        'server-kb-disabled',
-      ]);
-      const items = picker.props.items as Array<{ id: string }>;
-      const bound = items.find((item) => item.id === 'server-kb-disabled');
-      const active = items.find((item) => item.id === 'server-kb-active');
-      if (!bound || !active) throw new Error('Missing knowledge options');
+      expect(picker.props.value as PickerProps['value']).toEqual(['server-kb-disabled']);
+      const bound = renderOption(picker, 'server-kb-disabled');
+      const active = renderOption(picker, 'server-kb-active');
       // 已绑定的停用库保留可解绑；未绑定的停用库不能再选。
-      expect(renderOption(picker, bound).props.disabled).toBe(false);
-      expect(renderOption(picker, active).props.disabled).toBe(false);
+      expect(bound.props.disabled).toBe(false);
+      expect(active.props.disabled).toBe(false);
     });
   });
 
@@ -223,10 +231,7 @@ describe('expert knowledge binding', () => {
         return;
       }
       const picker = knowledgePicker(tree, 'server-kb-active');
-      const items = picker.props.items as Array<{ id: string }>;
-      const disabled = items.find((item) => item.id === 'server-kb-disabled');
-      if (!disabled) throw new Error('Missing disabled knowledge option');
-      expect(renderOption(picker, disabled).props.disabled).toBe(true);
+      expect(renderOption(picker, 'server-kb-disabled').props.disabled).toBe(true);
     });
   });
 
@@ -238,28 +243,18 @@ describe('expert knowledge binding', () => {
       }
       if (pass === 1) {
         const picker = knowledgePicker(tree, 'server-kb-active');
-        const items = picker.props.items as Array<{ id: string }>;
-        (picker.props.onValueChange as (picked: unknown[]) => void)([
-          items.find((item) => item.id === 'server-kb-active'),
-        ]);
+        (picker.props.onValueChange as ChangePickerValue)(['server-kb-active']);
         return;
       }
       // 更新后：知识库被选中，普通连接器的绑定仍在。
       const picker = knowledgePicker(tree, 'server-kb-active');
-      expect((picker.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
-        'server-kb-active',
-      ]);
+      expect(picker.props.value as PickerProps['value']).toEqual(['server-kb-active']);
       const connector = tree.find(
         (node) =>
-          node.type === Combobox &&
-          (node.props.items as Array<{ id: string }> | undefined)?.some(
-            (item) => item.id === 'server',
-          ),
+          node.type === Combobox && pickerItems(node).some((item) => item.props.value === 'server'),
       );
       if (!connector) throw new Error('Missing connector picker');
-      expect((connector.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
-        'server',
-      ]);
+      expect(connector.props.value as PickerProps['value']).toEqual(['server']);
     });
   });
 });

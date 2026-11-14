@@ -70,7 +70,7 @@ import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { guardedOpenChange } from '../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
 import { fieldErrors } from '../lib/form.js';
 import { formatRelative, formatUtcDateTime } from '../lib/format.js';
 import { meQuery, useExperts, useSchedules } from '../lib/queries.js';
@@ -585,7 +585,7 @@ function ScheduleDialog({
   agents,
   agentsError,
   onRetryAgents,
-  onClose,
+  onClose: onClosed,
 }: {
   schedule?: Schedule;
   agents: AgentSummary[];
@@ -593,6 +593,8 @@ function ScheduleDialog({
   onRetryAgents: () => void;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const client = useQueryClient();
   const [confirmReload, setConfirmReload] = useState(false);
   const [conflict, setConflict] = useState(false);
@@ -761,7 +763,11 @@ function ScheduleDialog({
       : '创建任务';
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell
         title={schedule ? '编辑定时任务' : '新建定时任务'}
         closeDisabled={pending}

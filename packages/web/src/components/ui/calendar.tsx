@@ -2,7 +2,7 @@ import { cn } from 'cn';
 import { ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
 import * as React from 'react';
 import { type DayButton, DayPicker, getDefaultClassNames, type Locale } from 'react-day-picker';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { type Button, buttonVariants } from '@/components/ui/button';
 
 function Calendar({
   className,
@@ -155,9 +155,9 @@ function CalendarDayButton({
   }, [modifiers.focused]);
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
+    <button
+      type="button"
+      ref={ref}
       data-day={day.date.toLocaleDateString(locale?.code)}
       data-selected-single={
         modifiers.selected &&
@@ -169,6 +169,7 @@ function CalendarDayButton({
       data-range-end={modifiers.range_end}
       data-range-middle={modifiers.range_middle}
       className={cn(
+        buttonVariants({ variant: 'ghost', size: 'icon' }),
         'relative isolate z-10 flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-1 border-0 leading-none font-normal group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-2 group-data-[focused=true]/day:ring-ring data-[range-end=true]:rounded-(--cell-radius) data-[range-end=true]:rounded-r-(--cell-radius) data-[range-end=true]:bg-selected data-[range-end=true]:text-selected-foreground data-[range-middle=true]:rounded-none data-[range-middle=true]:bg-selected data-[range-middle=true]:text-foreground data-[range-start=true]:rounded-(--cell-radius) data-[range-start=true]:rounded-l-(--cell-radius) data-[range-start=true]:bg-selected data-[range-start=true]:text-selected-foreground data-[selected-single=true]:bg-selected data-[selected-single=true]:text-selected-foreground dark:hover:text-foreground [&>span]:text-xs [&>span]:opacity-70',
         defaultClassNames.day,
         className,

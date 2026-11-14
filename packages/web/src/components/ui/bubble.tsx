@@ -1,5 +1,4 @@
-import { mergeProps } from '@base-ui/react/merge-props';
-import { useRender } from '@base-ui/react/use-render';
+import { type PartProps, renderElement } from '@ui-sdk/react/primitive';
 import { cva, type VariantProps } from 'class-variance-authority';
 import type * as React from 'react';
 import { cn } from '@/lib/cn';
@@ -61,23 +60,26 @@ function Bubble({
   );
 }
 
-function BubbleContent({ className, render, ...props }: useRender.ComponentProps<'div'>) {
-  return useRender({
-    defaultTagName: 'div',
-    props: mergeProps<'div'>(
-      {
-        className: cn(
-          'w-fit max-w-full min-w-0 overflow-hidden rounded-xl border border-transparent px-3 py-2 text-sm leading-relaxed wrap-break-word group-data-[align=end]/bubble:self-end [button]:text-left [button,a]:transition-colors [button,a]:outline-none [button,a]:focus-visible:border-ring [button,a]:focus-visible:ring-3 [button,a]:focus-visible:ring-ring/50',
-          className,
-        ),
-      },
-      props,
-    ),
-    render,
-    state: {
-      slot: 'bubble-content',
+function BubbleContent({
+  className,
+  render,
+  ...props
+}: React.ComponentProps<'div'> & {
+  render?: PartProps<'div', { slot: 'bubble-content' }>['render'];
+}) {
+  return renderElement(
+    'div',
+    {
+      'data-slot': 'bubble-content',
+      ...props,
+      className: cn(
+        'w-fit max-w-full min-w-0 overflow-hidden rounded-xl border border-transparent px-3 py-2 text-sm leading-relaxed wrap-break-word group-data-[align=end]/bubble:self-end [button]:text-left [button,a]:transition-colors [button,a]:outline-none [button,a]:focus-visible:border-ring [button,a]:focus-visible:ring-3 [button,a]:focus-visible:ring-ring/50',
+        className,
+      ),
     },
-  });
+    render,
+    { slot: 'bubble-content' },
+  );
 }
 
 const bubbleReactionsVariants = cva(

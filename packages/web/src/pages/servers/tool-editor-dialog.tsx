@@ -25,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui/table.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import {
   useBatchSetToolsEnabled,
   useDeleteTool,
@@ -37,13 +38,15 @@ import { ToolForm } from './tool-form.js';
 
 export function ToolEditorDialog({
   server,
-  onClose,
+  onClose: onClosed,
   getReturnFocus,
 }: {
   server: Server;
   onClose: () => void;
   getReturnFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const tools = useTools(server.id);
   const remove = useDeleteTool(server.id);
   const setEnabled = useSetToolEnabled(server.id);
@@ -128,7 +131,8 @@ export function ToolEditorDialog({
 
   return (
     <Dialog
-      open
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={(next, details) => {
         if (next) return;
         // 未保存或请求中时由页面决定是否关闭，先撤销这次关闭请求。

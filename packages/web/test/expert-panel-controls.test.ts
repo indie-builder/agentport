@@ -157,7 +157,11 @@ describe('output style editor controls', () => {
     expect(document.getElementById('output-style-body')?.getAttribute('aria-disabled')).toBe(
       'true',
     );
-    expect(control('output-style-keep-coding').disabled).toBe(true);
+    expect(
+      document
+        .querySelector('[role="checkbox"]#output-style-keep-coding')
+        ?.getAttribute('aria-disabled'),
+    ).toBe('true');
 
     saved.resolve({ ...style, description: '更短的回答' });
     await flush();

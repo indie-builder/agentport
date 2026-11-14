@@ -1,5 +1,6 @@
 import type { ApiTool, Server } from '@agentport/shared';
 import { useState } from 'react';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { formatDuration } from '../../lib/format.js';
 import { errorMessage } from '../../lib/orpc.js';
 import { useTestInvokeTool } from '../../lib/queries.js';
@@ -26,7 +27,7 @@ function parseArgs(text: string): { args?: Record<string, unknown>; error?: stri
 export function TestInvokeDialog({
   server,
   tool,
-  onClose,
+  onClose: onClosed,
   getReturnFocus,
 }: {
   server: Server;
@@ -34,6 +35,8 @@ export function TestInvokeDialog({
   onClose: () => void;
   getReturnFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const run = useTestInvokeTool(server.id);
   const [argsText, setArgsText] = useState('{}');
   const parsed = parseArgs(argsText);
@@ -49,7 +52,8 @@ export function TestInvokeDialog({
 
   return (
     <Dialog
-      open
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={(next, details) => {
         if (next) return;
         if (pending) details.cancel();

@@ -12,6 +12,8 @@
       "@modelcontextprotocol/client": "2.4.0",
       "@types/bun": "1.4.4",
       "@types/node": "24.19.2",
+      "@ui-sdk/core": "0.1.0-beta.2",
+      "@ui-sdk/react": "0.1.0-beta.2",
       "bullmq": "6.7.6",
       "drizzle-orm": "0.45.4",
       "effect": "4.1.4",

@@ -89,7 +89,10 @@ export function HistoryPanel({
                       size="icon-sm"
                       aria-label={`操作「${conversation.title}」`}
                       disabled={branching !== null}
-                      className="absolute right-1 top-2.5 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100"
+                      className="absolute right-1 top-2.5 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-open:opacity-100"
+                      onFocus={(event) => {
+                        menuTriggerRef.current = event.currentTarget;
+                      }}
                       onClick={(event) => {
                         menuTriggerRef.current = event.currentTarget;
                       }}
@@ -105,7 +108,7 @@ export function HistoryPanel({
                 <DropdownMenuContent align="end" sideOffset={4} className="w-40">
                   <DropdownMenuGroup>
                     <DropdownMenuItem
-                      onClick={() => {
+                      onSelect={() => {
                         if (menuTriggerRef.current) {
                           onRename(conversation, menuTriggerRef.current);
                         }
@@ -116,7 +119,7 @@ export function HistoryPanel({
                     <DropdownMenuItem
                       aria-label={`从「${conversation.title}」分支`}
                       disabled={branching !== null}
-                      onClick={() => onBranch(conversation.id)}
+                      onSelect={() => onBranch(conversation.id)}
                     >
                       {branching === conversation.id ? (
                         <LoaderCircle className="animate-spin" />

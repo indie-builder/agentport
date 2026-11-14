@@ -48,7 +48,7 @@
 `openui` 只对 `SKILL.md` 做两处适配，`references/` 与其余文件保持上游原样；`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。
 
 - `description` 收窄：仅用于明确涉及 OpenUI、OpenUI Lang、`@openuidev/*` 包、OpenUI Gateway、Autofix、`@openuidev/cli` 的任务；不用于普通 chat / agent / dashboard 需求，也不用于只借 openui.com 做视觉参考的场景。
-- 正文 Project convention：UI 一律 shadcn/Base UI、Tailwind 4 现有 `@theme` token 与 `packages/web/DESIGN.md`（视觉）及 `docs/DESIGN-SYSTEM.md`（工程规约），不新建 app；运行底座只有 Claude Agent SDK，不默认切换 Gateway / OpenAI / LangGraph，也不引入外部存储或部署。
+- 正文 Project convention：UI 一律 shadcn/ui-sdk、Tailwind 4 现有 `@theme` token 与 `packages/web/DESIGN.md`（视觉）及 `docs/DESIGN-SYSTEM.md`（工程规约），不新建 app；运行底座只有 Claude Agent SDK，不默认切换 Gateway / OpenAI / LangGraph，也不引入外部存储或部署。
 - 更新（`add`/`update`）后同样要补回这两处；以本地版与上游 `SKILL.md` 的差异为准，适配差异留在当前对话或技能内 Project convention，不强制另存副本。
 
 ### 技术栈最佳实践技能
@@ -57,7 +57,7 @@
 
 - **Fastify（已退役）**：后端已迁移到 Hono + oRPC，不再给新代码套用 Fastify 入口约定。`fastify-best-practices` 技能只作历史参考；当前入口、校验与授权以 [packages/api/AGENTS.md](../packages/api/AGENTS.md) 和 [ARCHITECTURE](ARCHITECTURE.md) §1.3 为准。原生 HTTP 边界（auth、MCP、SSE、文件）直接使用 Hono 的 `Request`/`Response`。
 - **Better Auth / Drizzle**：认证实现以 `packages/api/src/modules/auth` 为准；Drizzle 按本地 lock 锁定版本与 `packages/db/src/schema.ts` 现行写法。常规业务实体主键用应用层 `newId(entity)` TypeID；认证、关联表、幂等派生标识、外部资源等按 `docs/PROJECT-BRIEF.md` §「ID 约定」的例外处理；不采用上游 `serial`/数据库生成 ID 示例。迁移只走 `bun run db:generate` + `bun run db:migrate`。
-- **React Hook Form**：沿用现有 `useZodForm` 与 `components/ui/` 的 Base UI/shadcn 控件，不引入 Radix 或 MUI；示例按本地 lock 版本核对。
+- **React Hook Form**：沿用现有 `useZodForm` 与 `components/ui/` 的 ui-sdk/shadcn 控件，不引入 Radix 或 MUI；示例按本地 lock 版本核对。
 - **Router / Query**：对准现有 React + Vite SPA 入口（`packages/web/src/router.tsx`、`routes/`、`lib/queries.ts`），示例中的包标识与跨技能链接用本地路径修正，不引入 TanStack Start/SSR 或额外依赖；版本差异按 lock。
 - **Bun test / Vitest**：技能文本可能来自高于 lock 的版本，使用前核对已安装版本，不为示例升级依赖；后端用 Bun 内置 `bun:test`（`bun run test` → `scripts/test-backend.ts`，`--isolate --parallel=2`，默认排除 web），前端用 Vitest 5.0.5（`bun run test:web` → `packages/web/vitest.config.ts`，jsdom，`packages/web/test/**/*.test.ts`，不加载 `.env`；根 `vitest.config.ts` 只注册 web project）。按路径过滤用 `bun run test -- <paths>` / `bun run test:web -- <paths>`，不使用 pnpm 或 Vitest 的 backend project。
 
@@ -85,14 +85,14 @@
 
 - **Zustand**：`SKILL.md` 顶部加一段 `Project convention`；因技能只作只读指导，移除上游 frontmatter 的 `allowed-tools` 预授权行，避免激活时预授权写文件、执行命令与派子代理，其余 frontmatter、正文与其余文件保持上游原样。约定：只用于跨组件、非服务端的共享客户端交互状态，按业务域复用 `packages/web/src/lib/chat-store.ts`（流式展示投影、未发送草稿生命周期），不按页面并排新建 store；原子 selector、组合对象/数组用 `useShallow` 保持引用稳定、不整 store 订阅、更新保持不可变；服务端状态用 Query，可导航状态用 Router，平台资源编辑表单用 RHF/`useZodForm`，生成式表单走 OpenUI 官方运行时，组件私有临时状态留本地。上游直连 `fetch` 示例只作 store 写法参考，不另造服务端 cache；不引入 Immer、SSR 或新持久化层。版本以 lock 与已安装 `zustand@5.0.16` 为准。
 - **Effect**：同样只加 `Project convention` 与上游根 `LICENSE`。约定：已锁 `effect@4.1.1`，`packages/api`、`packages/core`、`packages/worker` 已有依赖，跳过上游 Step 1，不安装 latest、不加根开发依赖；写 Effect 前完整读 `packages/core/node_modules/effect/AGENTS.md`（root `node_modules/effect` 不存在），按需查同目录 `src`；Effect 只负责任务内取消、超时、资源释放、并发与类型化错误，共用 Promise 边界与错误分类走 `packages/core/src/effect-runtime.ts`；Hono/oRPC 管 HTTP、BullMQ 管分发重试、SessionSandboxes 管沙盒，Claude Agent SDK 是唯一 AI 底座；不新增服务层适配器或第二套编排。
-- **TanStack Table**：`description` 收窄为 TanStack Table v9 React（创建、状态、feature 排障、v8→v9 迁移），避免泛化触发；`SKILL.md` 加 `Project convention` 并补上游根 `LICENSE`。只安装 React 入口 `getting-started`，其余官方技能直接读已安装 npm 包，不安装 `intent`、不新增依赖。包内映射：React 技能根 `packages/web/node_modules/@tanstack/react-table/skills/`（`getting-started`、`table-state`、`migrate-v8-to-v9`）；core 技能为解析该路径真实目录后同层 `../table-core`（不假定 web `node_modules` 直接可达，不硬编码安装器缓存目录），含 `core`、`table-state`、`table-features`、`custom-features`、`migrate-v8-to-v9`。路径适配仅限：所有 `intent load` 改为直接读包内文件；`SKILL.md` 的 `../table-state`、`../migrate-v8-to-v9` 与 `references/{create-table-hook,with-tanstack-query,with-tanstack-virtual}.md` 的 `../../table-state` 改为 React 包内真实路径；其余正文与 references 保持上游原样。约定还要求复用现有 `data-table.tsx`、shadcn/Base UI 与设计系统，Query/Router/Table own state/Zustand 按单一 owner 分工，`@tanstack/react-store` 是 Table 内部订阅机制，不引入 Virtual 或其他依赖。
+- **TanStack Table**：`description` 收窄为 TanStack Table v9 React（创建、状态、feature 排障、v8→v9 迁移），避免泛化触发；`SKILL.md` 加 `Project convention` 并补上游根 `LICENSE`。只安装 React 入口 `getting-started`，其余官方技能直接读已安装 npm 包，不安装 `intent`、不新增依赖。包内映射：React 技能根 `packages/web/node_modules/@tanstack/react-table/skills/`（`getting-started`、`table-state`、`migrate-v8-to-v9`）；core 技能为解析该路径真实目录后同层 `../table-core`（不假定 web `node_modules` 直接可达，不硬编码安装器缓存目录），含 `core`、`table-state`、`table-features`、`custom-features`、`migrate-v8-to-v9`。路径适配仅限：所有 `intent load` 改为直接读包内文件；`SKILL.md` 的 `../table-state`、`../migrate-v8-to-v9` 与 `references/{create-table-hook,with-tanstack-query,with-tanstack-virtual}.md` 的 `../../table-state` 改为 React 包内真实路径；其余正文与 references 保持上游原样。约定还要求复用现有 `data-table.tsx`、shadcn/ui-sdk 与设计系统，Query/Router/Table own state/Zustand 按单一 owner 分工，`@tanstack/react-store` 是 Table 内部订阅机制，不引入 Virtual 或其他依赖。
 - 升级或重装后按上述范围补回；`computedHash` 不改。
 
 ### emilkowalski/skills（桌面 Web 动效与设计工程）
 
 上游 `emilkowalski/skills`（MIT，Copyright (c) 2026 Emil Kowalski）本次安装其中的桌面 Web 技能，排除 `animate-expo`、`write-swift`、`mobile-native`（与本项目栈不符）。上游根目录有 `LICENSE`，但 CLI 安装只复制技能目录内容，因此每个新技能目录补了一份上游 `LICENSE`；`SKILL.md` 其余内容与关联引用文件保持上游原样，`skills-lock.json` 的 `computedHash` 保留上游 CLI 值。
 
-每个 `SKILL.md` 只在 frontmatter 后加一段中文 `Project convention`（原 `name`/`description` 不变），共同约定：仅桌面 Web；复用 shadcn/ui、Base UI、Tailwind 4 `@theme` token 与 Motion；视觉和动效数值以 `packages/web/DESIGN.md` 与 `packages/web/src/styles.css` 令牌为准；工程规约见 `docs/DESIGN-SYSTEM.md`；不换栈、不新增重复依赖。技能特有约定：
+每个 `SKILL.md` 只在 frontmatter 后加一段中文 `Project convention`（原 `name`/`description` 不变），共同约定：仅桌面 Web；复用 shadcn/ui、ui-sdk、Tailwind 4 `@theme` token 与 Motion；视觉和动效数值以 `packages/web/DESIGN.md` 与 `packages/web/src/styles.css` 令牌为准；工程规约见 `docs/DESIGN-SYSTEM.md`；不换栈、不新增重复依赖。技能特有约定：
 
 - `animate`：键盘、高频交互与既定动效按项目规范处理，保留 hover/focus 同等反馈，不套用上游一律禁止的规则。
 - `improve-animations`：计划与报告默认在当前对话交付，只有用户明确要求保存时才按指定路径保存，不建 `plans/`；审计与计划的范围、属性、数值及 reduced-motion 以 `packages/web/DESIGN.md` 与 `styles.css` 令牌为准，上游硬性要求与已定项目动效冲突时以项目为准。
@@ -112,8 +112,12 @@
 
 ### unslop（2026-11-01）
 
-上游 `heydamir/unslop` 许可 CC-BY-4.0，`SKILL.md` 顶部原有署名段落保留。本地只在 `SKILL.md` frontmatter 之后补一段中文 `Project convention`（桌面浅色、shadcn/Base UI + Tailwind 4 `@theme`、视觉/动效数值以 `packages/web/DESIGN.md` 为准；只诊断与打磨，不换栈、不改布局契约），`references/`、`scripts/` 保持上游原样；CLI 不带上游根 `LICENSE`，已从上游补入技能目录。
+上游 `heydamir/unslop` 许可 CC-BY-4.0，`SKILL.md` 顶部原有署名段落保留。本地只在 `SKILL.md` frontmatter 之后补一段中文 `Project convention`（桌面浅色、shadcn/ui-sdk + Tailwind 4 `@theme`、视觉/动效数值以 `packages/web/DESIGN.md` 为准；只诊断与打磨，不换栈、不改布局契约），`references/`、`scripts/` 保持上游原样；CLI 不带上游根 `LICENSE`，已从上游补入技能目录。
 `skills-lock.json` 的 `computedHash` 保留上游 CLI 值。升级或重装后需补回 Project convention 与 `LICENSE`，再跑「完成核验」。
+
+### ui-sdk（2026-11-14）
+
+上游 `vercel-labs/ui`，已登记在 `skills-lock.json`（`skillPath: packages/core/skills/ui-sdk/SKILL.md`），canonical 目录 `.agents/skills/ui-sdk/`，`.claude/skills/ui-sdk` 为同相对链接。用途：用 ui-sdk 原生组件与 `@ui-sdk/core` 行为定义构建、迁移和测试前端组件；读取 API 时优先看已安装的 `node_modules/@ui-sdk/*/docs/`（与当前版本一致），不以记忆或线上最新文档代替。`SKILL.md` 与 `references/` 保持上游原样，升级或重装后按上游恢复，不做本地改写。
 
 ## pstack 项目适配
 

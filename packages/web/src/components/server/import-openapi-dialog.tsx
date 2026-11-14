@@ -1,6 +1,7 @@
 import type { Server } from '@agentport/shared';
 import { CircleAlert, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { errorMessage } from '../../lib/orpc.js';
 import { useImportOpenApi, usePreviewOpenApi } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
@@ -16,13 +17,15 @@ import { Textarea } from '../ui/textarea.js';
 /** 粘贴或上传 OpenAPI/Swagger 文档，预览后按名称挑选要创建的 MCP 工具。 */
 export function ImportOpenApiDialog({
   server,
-  onClose,
+  onClose: onClosed,
   getReturnFocus,
 }: {
   server: Server;
   onClose: () => void;
   getReturnFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const preview = usePreviewOpenApi(server.id);
   const importTools = useImportOpenApi(server.id);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -73,7 +76,8 @@ export function ImportOpenApiDialog({
 
   return (
     <Dialog
-      open
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={(next, details) => {
         if (next) return;
         if (pending) details.cancel();

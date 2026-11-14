@@ -1,6 +1,6 @@
 # OpenUI UI 适配的事实基线
 
-视觉基线是 OpenUI 官方 shadcn 示例（`examples/design-systems/shadcn`）的本地源码适配，不是独立 adapter 包；示例未覆盖的组件按已安装 `@openuidev/react-ui@0.18.8` 的 genui-lib 补全，组件集合对齐官方 chat 库的 84 个。交互原语仍是 Base UI，视觉仍是本项目令牌；不引入 Radix、OpenUI 自有主题，也不改 84 个组件的字段契约。Thesys MIT 通知保留在 `packages/shared/src/openui/LICENSE`；上游 main 可能早于或晚于发布包，字段语义以已装版本为准。
+视觉基线是 OpenUI 官方 shadcn 示例（`examples/design-systems/shadcn`）的本地源码适配，不是独立 adapter 包；示例未覆盖的组件按已安装 `@openuidev/react-ui@0.18.8` 的 genui-lib 补全，组件集合对齐官方 chat 库的 84 个。交互原语是 ui-sdk，视觉仍是本项目令牌；不引入 Radix、OpenUI 自有主题，也不改 84 个组件的字段契约。Thesys MIT 通知保留在 `packages/shared/src/openui/LICENSE`；上游 main 可能早于或晚于发布包，字段语义以已装版本为准。
 
 上游：
 
@@ -17,7 +17,7 @@
 | 卡片图高 | 复合卡内图表未显式给 height 时补 192，显式 height 优先；无容器约束的根图默认 256 |
 | Carousel | 复用 `components/ui/carousel`（shadcn）。`responsive=false` 时按官方固定卡宽：small 280、medium 320、Overview 240，容器 ≤30rem 时 Overview 200；已上屏实测 |
 | 媒体 | Image 按 3:2 预留并用 `object-contain` 完整容纳；ImageBlock 按原图比例渲染，不设固定终态高度；加载失败和长 alt 可完整读取。ImageText 的40px缩略图默认值是项目适配决定；官方横向有40px默认，竖排没有对应的TypeScript默认值，不能把项目行为归为「官方统一默认40」 |
-| 表单 | 用官方 shadcn Field/FieldGroup 组合；range 由 Base UI `Field.Root` 的 `invalid` 把 `aria-invalid` 传到滑块内部 input。多段同名表单的 label/hint/error 关联与真实键盘已实测 |
+| 表单 | 用官方 shadcn Field/FieldGroup 组合；range 的 `aria-invalid` 由表单转发到滑块内部 input。多段同名表单的 label/hint/error 关联与真实键盘已实测 |
 | 图表 | 9 类图表用 Recharts 3；主图默认 256、卡内默认 192、显式 height 优先。系列从第二项起叠加虚线/纹理，图例显示相同编码；完整数据视图与 body portal 提示保留，提示按可用空间约束并允许长名称换行。中间缺值断线有真实路径回归，最终 Opus 限定复核通过，实屏与验证结果见任务记录 |
 
 本项目只提供亮色主题（见 `styles.css`），本轮对比度与实屏结果仅覆盖这一主题。Streamdown 的内部节点重挂与浏览器采样限制见下文。

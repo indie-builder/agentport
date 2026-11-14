@@ -2,7 +2,10 @@ import type { KnowledgeSourceInput } from '@agentport/shared';
 import { useState } from 'react';
 import { ConfirmDialog } from '../../../components/confirm-dialog.js';
 import { DialogShell } from '../../../components/dialog-shell.js';
-import { DraftGuardDialogs, useDraftGuard } from '../../../components/knowledge/knowledge-shared.js';
+import {
+  DraftGuardDialogs,
+  useDraftGuard,
+} from '../../../components/knowledge/knowledge-shared.js';
 import { RequiredMark } from '../../../components/required-mark.js';
 import { Button } from '../../../components/ui/button.js';
 import { Dialog } from '../../../components/ui/dialog.js';
@@ -25,7 +28,7 @@ import {
 import { Switch } from '../../../components/ui/switch.js';
 import type { KnowledgeSource } from '../../../lib/api.js';
 import { cn } from '../../../lib/cn.js';
-import { guardedOpenChange } from '../../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../../lib/dialog-guard.js';
 import { useCreateKnowledgeSource, useUpdateKnowledgeSource } from '../../../lib/queries.js';
 import { toastError, toastSuccess } from '../../../lib/toast.js';
 import {
@@ -58,12 +61,14 @@ import { RangeRows } from './source-ranges.js';
 export function SourceDialog({
   baseId,
   source,
-  onClose,
+  onClose: onClosed,
 }: {
   baseId: string;
   source?: KnowledgeSource;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const editing = source !== undefined;
   const create = useCreateKnowledgeSource(baseId);
   const update = useUpdateKnowledgeSource(baseId);
@@ -310,7 +315,11 @@ export function SourceDialog({
     );
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell
         title={editing ? '编辑来源' : '新建来源'}
         closeDisabled={pending}
