@@ -24,6 +24,7 @@ import {
   type PageOptions,
   type SourceReadSnapshot,
   lockWikiSourceScope,
+  markWikiStaleByDocumentsTx,
   pageLimit,
   sourceScopeAllowsDocument,
   sourceSnapshotMatchesTx,
@@ -417,6 +418,9 @@ export async function activateDocumentVersion(
       .where(eq(knowledgeDocuments.id, input.documentId))
       .returning();
     if (!row) throw new Error('knowledge document update returned no row');
+    if (document.currentVersionId !== input.versionId) {
+      await markWikiStaleByDocumentsTx(tx, [input.documentId]);
+    }
     return row;
   });
 }
