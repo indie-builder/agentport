@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
-import { Activity, Bot, Plus, Server, Sparkles } from 'lucide-react';
+import { Activity, Bot, Download, Plus, Server, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { AttentionPanel } from '../components/attention-panel.js';
@@ -46,6 +46,7 @@ import {
   TableRow,
 } from '../components/ui/table.js';
 import { errorMessage, type OverviewAgentRow, type RecentRun } from '../lib/api.js';
+import { downloadBlob } from '../lib/browser-files.js';
 import { cn } from '../lib/cn.js';
 import {
   formatCost,
@@ -63,6 +64,32 @@ import {
   useOverview,
   useOverviewTimeseries,
 } from '../lib/queries.js';
+
+function toUsageCsv(agents: OverviewAgentRow[]) {
+  const rows = agents.map((agent) =>
+    [
+      agent.name,
+      agent.slug,
+      agent.runCount,
+      `${(agent.errorRate * 100).toFixed(1)}%`,
+      agent.totalCost,
+      agent.totalTokens,
+      agent.latencyP50 ?? '',
+      agent.latencyP99 ?? '',
+      agent.lastRunStartTime ?? '',
+      agent.enabled ? '是' : '否',
+    ]
+      .map((value) => {
+        const field = String(value);
+        return /[",\r\n]/.test(field) ? `"${field.replaceAll('"', '""')}"` : field;
+      })
+      .join(','),
+  );
+  return `﻿${[
+    '专家,标识,运行数,错误率,成本(USD),Token,P50延迟(ms),P99延迟(ms),最近运行,启用',
+    ...rows,
+  ].join('\n')}`;
+}
 
 const agentColumns: DataColumn<OverviewAgentRow>[] = [
   {
@@ -498,6 +525,14 @@ export function OverviewPage() {
   const windowLabel = data ? `最近 ${days} 天` : '';
   const failedCount = data?.counts.failed ?? 0;
 
+  const exportUsageCsv = (): void => {
+    if (!data || data.agents.length === 0) return;
+    downloadBlob(
+      new Blob([toUsageCsv(data.agents)], { type: 'text/csv;charset=utf-8' }),
+      `overview-usage-${days}d.csv`,
+    );
+  };
+
   const attentionSection = <AttentionPanel />;
 
   return (
@@ -632,9 +667,16 @@ export function OverviewPage() {
             <PageSection
               title="专家运行"
               actions={
-                <Link to="/agents" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                  管理专家
-                </Link>
+                <div className="flex items-center gap-2">
+                  {data.agents.length > 0 ? (
+                    <Button variant="outline" size="sm" onClick={exportUsageCsv}>
+                      <Download data-icon="inline-start" aria-hidden="true" /> 导出 CSV
+                    </Button>
+                  ) : null}
+                  <Link to="/agents" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                    管理专家
+                  </Link>
+                </div>
               }
             >
               {data.agents.length > 0 ? (
