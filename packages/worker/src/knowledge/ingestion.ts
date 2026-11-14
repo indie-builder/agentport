@@ -1753,7 +1753,7 @@ export async function runSourceProbe(
 }
 
 // ---------------------------------------------------------------------------
-// runCleanup：只删无版本引用且超过 24h 的 blob 与解析目录。
+// runCleanup：只删无版本引用（含待处理文档的 contentHash 原件）且超过 24h 的 blob 与解析目录。
 
 export async function runCleanup(
   deps: KnowledgeDeps,
@@ -1767,6 +1767,12 @@ export async function runCleanup(
     })
     .from(schema.knowledgeDocumentVersions);
   const referencedBlobs = new Set(versions.map((row) => row.blob));
+  const pendingOriginals = await deps.db
+    .selectDistinct({ blob: schema.knowledgeDocuments.contentHash })
+    .from(schema.knowledgeDocuments);
+  for (const row of pendingOriginals) {
+    if (row.blob) referencedBlobs.add(row.blob);
+  }
   const liveVersionIds = new Set(versions.map((row) => row.id));
   const cutoff = Date.now() - BLOB_RETENTION_MS;
 
