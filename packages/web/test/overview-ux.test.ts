@@ -256,12 +256,15 @@ describe('overview trend accessibility', () => {
 });
 
 describe('overview usage export', () => {
-  it('导出用量 CSV', async () => {
+  it.each([
+    ['趋势,"专家"\n日报', '"趋势,""专家""\n日报"'],
+    ['=1+1', "'=1+1"],
+  ])('导出用量 CSV：%s', async (name, csvName) => {
     const queryClient = client();
     const data = overview(3);
     data.agents = data.agents.map((agent) => ({
       ...agent,
-      name: '趋势,"专家"\n日报',
+      name,
       latencyP50: 250,
     }));
     queryClient.setQueryData(overviewQuery.queryKey, data);
@@ -293,15 +296,14 @@ describe('overview usage export', () => {
       reader.onerror = () => reject(reader.error);
       reader.readAsText(blob);
     });
-    const expected =
-      '专家,标识,运行数,错误率,成本(USD),Token,P50延迟(ms),P99延迟(ms),最近运行,启用\n"趋势,""专家""\n日报",trend,5,20.0%,0.6234,1500,250,,,是';
+    const expected = `专家,标识,运行数,错误率,成本(USD),Token,P50延迟(ms),P99延迟(ms),最近运行,启用\n${csvName},trend,5,20.0%,0.6234,1500,250,,,是\n合计,,5,,0.6234,1500,,,,`;
     expect(csv).toBe(expected);
     expect(blob.size).toBe(new TextEncoder().encode(`﻿${expected}`).length);
   });
 });
 
 describe('overview attention placement', () => {
-  it('moves the attention section back after the trend when a background refresh fails', async () => {
+  it('keeps the attention section after the trend when a background refresh fails', async () => {
     // 首次数据来自缓存，刷新时 fetch 失败即模拟后台刷新失败。
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Offline')));
     vi.spyOn(api, 'healthMetrics').mockResolvedValue(metrics);
@@ -327,7 +329,7 @@ describe('overview attention placement', () => {
     });
 
     await render(createElement(OverviewPage), queryClient);
-    expect(attentionPrecedesTrend()).toBe(true);
+    expect(attentionPrecedesTrend()).toBe(false);
 
     await act(async () => {
       await queryClient.refetchQueries({ queryKey: attentionQuery.queryKey });
