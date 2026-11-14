@@ -530,13 +530,13 @@ export function AgentsPage() {
               ? badgeTriggerRef.current
               : document.getElementById('agents-search')
           }
-          className="flex max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[392px] flex-col gap-0 overflow-hidden rounded-none bg-transparent p-0 text-fg shadow-none! ring-0 sm:max-w-[392px]"
+          className="flex max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[460px] flex-col gap-0 overflow-hidden rounded-none bg-transparent p-0 text-fg shadow-none! ring-0 sm:max-w-[460px]"
         >
           <DialogTitle className="sr-only">
             {badgeAgent ? `${badgeAgent.name} 的工牌` : '数字员工工牌'}
           </DialogTitle>
           {/* 关闭固定在滚动区外，长介绍也不会把它带出视口。 */}
-          <div className="flex shrink-0 justify-end px-3 pt-3">
+          <div className="mx-auto flex w-full max-w-[360px] shrink-0 items-center justify-end pt-3">
             <DialogClose render={<Button variant="outline" size="sm" />}>关闭</DialogClose>
           </div>
           {/* 滚动区可聚焦，键盘用户才能滚动超出一屏的工牌。 */}
@@ -694,7 +694,7 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
   const role = agent.role?.trim() || '通用助手';
   const createdAt = badgeCreatedAt(agent.createdAt);
   return (
-    <div className="mx-auto flex w-full max-w-[360px] flex-col items-center">
+    <div className="badge-swing mx-auto flex w-full max-w-[360px] flex-col items-center">
       {/* 挂绳与扣环是纯装饰插画，信息全部由下方 DOM 文本承担。 */}
       <svg
         aria-hidden="true"
