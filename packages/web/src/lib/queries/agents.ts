@@ -165,10 +165,12 @@ export function useRollbackAgent() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; version: number }) => api.rollbackAgent(vars.id, vars.version),
-    onSuccess: (_agent, { id }) => {
+    onSuccess: (agent, { id }) => {
+      client.setQueryData(['agent-detail', id], agent);
       void client.invalidateQueries({ queryKey: ['agents'] });
       void client.invalidateQueries({ queryKey: ['agent-versions', id] });
       void client.invalidateQueries({ queryKey: ['agent-files'] });
+      void client.invalidateQueries({ queryKey: ['agent-detail', id] });
     },
   });
 }
@@ -223,9 +225,10 @@ export function useUpdateAgent() {
     onError: (_error, _vars, context) => {
       if (context?.previous) client.setQueryData(['agents'], context.previous);
     },
-    onSettled: () => {
+    onSettled: (_data, _error, vars) => {
       void client.invalidateQueries({ queryKey: ['agents'] });
       void client.invalidateQueries({ queryKey: ['agent-files'] });
+      void client.invalidateQueries({ queryKey: ['agent-detail', vars.id] });
     },
   });
 }
