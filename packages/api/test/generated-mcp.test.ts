@@ -31,7 +31,8 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   let upstreamCalls = 0;
   const upstream = createServer((request, response) => {
     upstreamCalls += 1;
-    if (request.url?.split('?')[0] !== '/users/1') {
+    const path = request.url?.split('?')[0];
+    if (path !== '/users/1' && path !== '/users/v1.2') {
       response.writeHead(404).end();
       return;
     }
@@ -75,6 +76,35 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
         paramsIn: 'query',
       },
     });
+    const stringUser = await request(app, {
+      method: 'POST',
+      url: `/api/servers/${server.id}/tools`,
+      headers: { cookie },
+      payload: {
+        name: 'string-user',
+        method: 'GET',
+        pathTemplate: '/users/{id}',
+        inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
+        paramsIn: 'query',
+      },
+    });
+    expect(stringUser.statusCode).toBe(201);
+    const nestedUser = await request(app, {
+      method: 'POST',
+      url: `/api/servers/${server.id}/tools`,
+      headers: { cookie },
+      payload: {
+        name: 'nested-user',
+        method: 'GET',
+        pathTemplate: '/a/{x}/b/{y}',
+        inputSchema: {
+          type: 'object',
+          properties: { x: { type: 'string' }, y: { type: 'string' } },
+        },
+        paramsIn: 'query',
+      },
+    });
+    expect(nestedUser.statusCode).toBe(201);
 
     // mcpToken 是给沙盒/外部 host 的凭据，刻意不出现在 API 响应里。
     const row = await app.client.unsafe<{ token: string }[]>(
@@ -272,6 +302,50 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       [server.id],
     );
     expect(rows[0]?.count).toBeGreaterThan(0);
+  });
+
+  const callRegisteredTool = async (
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<{ isError?: boolean; content: Array<{ text?: string }> }> => {
+    const client = new Client({ name: 'agentport-test', version: '0.0.0' });
+    const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp/${server.id}`), {
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+    });
+    try {
+      await client.connect(transport);
+      return await client.callTool({ name, arguments: args });
+    } finally {
+      await client.close();
+    }
+  };
+
+  it('rejects "." and ".." path parameters without calling upstream', async () => {
+    const before = upstreamCalls;
+    const dotdot = await callRegisteredTool('string-user', { id: '..' });
+    expect(dotdot.isError).toBe(true);
+    expect(dotdot.content[0]?.text).toContain('不能是 "." 或 ".."');
+
+    const dot = await callRegisteredTool('string-user', { id: '.' });
+    expect(dot.isError).toBe(true);
+    expect(dot.content[0]?.text).toContain('不能是 "." 或 ".."');
+    expect(upstreamCalls).toBe(before);
+  });
+
+  it('allows dotted path parameter values', async () => {
+    const before = upstreamCalls;
+    const result = await callRegisteredTool('string-user', { id: 'v1.2' });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.stringify(result.content)).toContain('Fixture user');
+    expect(upstreamCalls).toBe(before + 1);
+  });
+
+  it('rejects ".." in any path segment', async () => {
+    const before = upstreamCalls;
+    const result = await callRegisteredTool('nested-user', { x: '..', y: 'ok' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('不能是 "." 或 ".."');
+    expect(upstreamCalls).toBe(before);
   });
 
   it('reports the tool catalog from a real self test connection', async () => {
