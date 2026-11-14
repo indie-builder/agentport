@@ -25,6 +25,8 @@
   --color-sidebar: #eaf0f0;
   --color-sidebar-hover: #dfe8e9;
   --color-sidebar-selected: var(--color-surface);
+  --color-badge-accent: #3a7578;
+  --color-badge-accent-soft: #edf4f4;
 
   /*
    * 线与文本：分隔线只做分组，边线取 CDS alpha 阶梯。

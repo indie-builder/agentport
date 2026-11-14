@@ -12,6 +12,8 @@ colors:
   sidebar: "#EAF0F0"
   sidebar-hover: "#DFE8E9"
   sidebar-selected: "#FFFFFF"
+  badge-accent: "#3A7578"
+  badge-accent-soft: "#EDF4F4"
   accent: "#E6E6E6"
   accent-foreground: "#202B2E"
   selected-foreground: "#202B2E"
@@ -222,11 +224,13 @@ components:
 
 2026-11-13 用户决定将内容区动作色由石青改为中性白：主操作按钮使用白底、细边与深色文字，链接、键盘焦点环与文本选区使用中性色；石青仅保留在左侧导航，品牌 Logo 与插画保留原配色。
 
+2026-11-14 工牌（实体证件）作为例外启用石青强调色：`badge-accent #3A7578` 与 `badge-accent-soft #EDF4F4` 仅用于工牌装饰（状态点、短横线、职责简介标签与浅底、入职日期图标、点阵），内容区其他控件维持中性。
+
 **Creative North Star: "The Quiet Workbench（静默工作台）"**
 
 PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。侧栏底面与非选中 hover 使用既有浅石青角色，导航当前项采用与卡片一致的纯白表面和共享投影，文字与图标仍为深色。工具、标题、正文、链接与按钮键盘焦点使用中性色，主操作使用白底细边按钮，状态只在需要时以小面积语义色或呼吸点出现。
 
-这套系统仅在左侧导航使用石青，品牌 Logo 与插画保留原配色，用中性灰、浅石青侧栏与白色阶梯承担层级：普通主操作、发送、登录共用白底、细 `line` 边线与 `fg` 深色文字，hover 用 `hover` 中性浅底；正文链接与按钮键盘焦点环使用 `fg #202B2E`，文本选区使用中性色；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。运行图表首系列保留独立数据蓝；它与石青品牌角色分开使用。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。
+这套系统仅在左侧导航与工牌装饰使用石青，品牌 Logo 与插画保留原配色，用中性灰、浅石青侧栏与白色阶梯承担层级：普通主操作、发送、登录共用白底、细 `line` 边线与 `fg` 深色文字，hover 用 `hover` 中性浅底；正文链接与按钮键盘焦点环使用 `fg #202B2E`，文本选区使用中性色；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。运行图表首系列保留独立数据蓝；它与石青品牌角色分开使用。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。
 
 本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。颜色采用用户选定的石青，字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，未覆盖项与规范差异见 Known Gaps 和对应任务记录。颜色角色以石青品牌系统为准；CDS 组件机制、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等既有适配保留，见 Do's 与 Known Gaps。
 
@@ -281,7 +285,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 **The Flat-Shell Rule.** 应用外壳平铺全幅：根容器铺 `canvas #FBFBFB`，侧栏铺不透明的 `sidebar` 浅石青底，主内容区贴边铺 `surface #FFFFFF`。外壳不得再加渐变、圆角、外边距或描边；收起与固定展开侧栏无阴影，只有临时预览侧栏复用 `shadow-overlay` 覆盖正文。分区靠底色差异与留白表达。
 
-**The Neutral-Action Rule.** 内容区主操作用白底中性按钮：`default` 与显式 `solid` 共用白底、细边、深色字与中性 hover，按钮键盘焦点 `ring` 与链接 `link` 均映射到 `fg`，文本选区使用中性色。石青仅用于左侧导航，品牌 Logo 与插画保留原配色。通用 `primary` 保持墨色，供复选框、Slider 活跃轨道与 line 页签等控件使用；成功、警告与危险不借品牌色。
+**The Neutral-Action Rule.** 内容区主操作用白底中性按钮：`default` 与显式 `solid` 共用白底、细边、深色字与中性 hover，按钮键盘焦点 `ring` 与链接 `link` 均映射到 `fg`，文本选区使用中性色。石青仅用于左侧导航（工牌实体证件装饰为已记录例外），品牌 Logo 与插画保留原配色。通用 `primary` 保持墨色，供复选框、Slider 活跃轨道与 line 页签等控件使用；成功、警告与危险不借品牌色。
 
 **The Data-Blue Exception Rule.** `chart-runs #2A78D6` 只允许出现在图表数据系列；失败用 `danger`。内容区动作、链接、焦点与文本选区使用中性色，数据蓝不得蔓延到这些角色或状态。
 
@@ -430,7 +434,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 ### Cards / Tables / Lists
 
 - **Cards:** 纯白 `surface`、12px 圆角，必要边界由共享投影承担，不叠加独立 ring 或边框；按「共享卡片深度」与导航选中项共用 `--shadow-panel` / `--shadow-panel-hover`。所有业务卡片统一通过共享 `Card` 或 `.cds-card-surface` 常驻 `--shadow-panel`，默认在 hover 上浮 1.5px 并换 `--shadow-panel-hover`，阴影与 transform 均以 200ms `--ease-out-soft` 过渡；静态内容卡、指标卡与表单详情卡同样适用。Card 根是带 `py-4` 的纵向 flex，子块间距 16px（`size="sm"` 为 12px），根本身没有水平 padding；Header、Content、Footer 各自承担 16px 水平内边距，Footer 独立 `p-4`，存在 Footer 时根 `pb-0`。因此不能描述成「所有裸 Card 子节点统一 p16」。CardTitle 为 14/22（`text-base`），sm 卡为 13/20（`text-sm`）；描述 13/20 `muted-foreground`。真实浏览器已测量标题行高 22px。
-- **Expert card:** 已创建专家卡与两张创建入口卡采用 176px 最小高度（`min-h-44`），同一网格行等高，必要说明较多时自然增高；同列宽、16px 网格 gap 与内部 padding。网格按可用宽度使用 `repeat(auto-fill, minmax(min(100%, 256px), 1fr))` 自动分列，`p-2` 在四周保留 8px 绘制空间，供投影与 hover 上浮使用；1440px 桌面固定展开侧栏时目标四列，1200px 时三列。40px 头像（「创建数字分身」入口为 64px）。身份头部为头像加名称链接与角色两行，角色在名称下方用 12/16 `muted-foreground` 纯文本，单行截断并用 `title` 保留全文，空角色回退「通用助手」；停用状态仍用默认中性 `StatusBadge`，以 `shrink-0` 保持与角色同行，右上角只保留「更多」操作菜单。头部、正文与操作行之间各隔 12px，不固定头部或中部高度。正文占据剩余高度并垂直居中（`CardContent` 的 `flex-1 justify-center`），简介占全宽、最多两行，权限原因完整换行、不截断，空介绍不造占位文案；底部为独立 32px 操作行，同一行间距 8px（`gap-2`），随卡片高度贴底，「开始对话」用 secondary 次操作并保持自身内容宽度，与右侧带 `IdCard` 图标的 ghost「工牌」按钮同一行两端对齐，禁用时用 outline + disabled；列表页顶部「新建专家」使用白底中性主操作按钮。无使用权限时权限原因可见并以 `aria-describedby` 关联「开始对话」，停用专家不提供可执行对话。可访问名为「查看 <名称> 工牌」的按钮打开工牌专用的插画式实体证件：沿用 ui-sdk Dialog 的焦点、Esc/外部点击关闭与关闭后返回原触发器，但作为明确例外使用透明 DialogContent，不套标准头部或白色弹框外壳，标题「<名称> 的工牌」仅 sr-only，关闭按钮可达，不改动全局 DialogShell 契约。视觉为居中的 96px 挂绳与扣环连接 360px 宽竖式卡套，内含 96px 原插画头像；卡套以真实 DOM 展示数字员工身份、姓名、岗位、启停、完整介绍、员工编号（真实 id）与上岗时间（真实 `createdAt`，含年与时区；缺失或无效显示「未记录」，空介绍显示「未填写介绍」）。短视口整体单层滚动，长姓名与介绍不截断；白底中性 token，现有插画配色例外沿用，不新增动效；只读不请求详情，不展示提示词、成员资料或二维码等虚构统计。不使用 CardFooter、底带或分隔线。**保留（受保护）**：找专家页的扇形「新建专家」入口卡与「创建数字分身」卡是用户刻意要求的创建入口，不得删除、合并或改为仅页头入口。
+- **Expert card:** 已创建专家卡与两张创建入口卡采用 176px 最小高度（`min-h-44`），同一网格行等高，必要说明较多时自然增高；同列宽、16px 网格 gap 与内部 padding。网格按可用宽度使用 `repeat(auto-fill, minmax(min(100%, 256px), 1fr))` 自动分列，`p-2` 在四周保留 8px 绘制空间，供投影与 hover 上浮使用；1440px 桌面固定展开侧栏时目标四列，1200px 时三列。40px 头像（「创建数字分身」入口为 64px）。身份头部为头像加名称链接与角色两行，角色在名称下方用 12/16 `muted-foreground` 纯文本，单行截断并用 `title` 保留全文，空角色回退「通用助手」；停用状态仍用默认中性 `StatusBadge`，以 `shrink-0` 保持与角色同行，右上角只保留「更多」操作菜单。头部、正文与操作行之间各隔 12px，不固定头部或中部高度。正文占据剩余高度并垂直居中（`CardContent` 的 `flex-1 justify-center`），简介占全宽、最多两行，权限原因完整换行、不截断，空介绍不造占位文案；底部为独立 32px 操作行，同一行间距 8px（`gap-2`），随卡片高度贴底，「开始对话」用 secondary 次操作并保持自身内容宽度，与右侧带 `IdCard` 图标的 ghost「工牌」按钮同一行两端对齐，禁用时用 outline + disabled；列表页顶部「新建专家」使用白底中性主操作按钮。无使用权限时权限原因可见并以 `aria-describedby` 关联「开始对话」，停用专家不提供可执行对话。可访问名为「查看 <名称> 工牌」的按钮打开工牌专用的插画式实体证件：沿用 ui-sdk Dialog 的焦点、Esc/外部点击关闭与关闭后返回原触发器，但作为明确例外使用透明 DialogContent，不套标准头部或白色弹框外壳，标题「<名称> 的工牌」仅 sr-only，关闭按钮可达，不改动全局 DialogShell 契约。视觉为居中的 96px 中性挂绳与圆形夹扣连接 360px 宽竖式卡套：卡套纯白 `surface`、`rounded-[24px]`、`border-line`、`shadow-sm`、`p-6`，顶部左侧 PACE 品牌字标，右侧为「数字员工」次要标签与 3×3 石青点阵装饰；身份区先列「工号」与真实 id（等宽、`break-all`）及「在职」/「已停用」，下接石青短横线，再以左文右像两栏展示大号姓名、岗位与 96px 原插画头像（`rounded-[18px]`、浅石青底）；「职责简介」为浅石青圆角块，正文完整换行；资料行只保留「入职日期」，用真实 `createdAt`（含年与时区；缺失或无效显示「未记录」，空介绍显示「未填写介绍」）；底部以 `border-line` 分隔，左侧为同步说明、右侧再列真实 id。短视口整体单层滚动，长姓名、介绍与 id 都不截断；插画配色例外沿用，工牌是唯一启用石青强调色的内容区场景且仅限装饰，见决策记录；不新增动效；只读不请求详情，不展示提示词、成员资料、页签、服务能力、可用受众、负责人或二维码等无数据支撑的字段。列表专家卡不使用 CardFooter、底带或分隔线。**保留（受保护）**：找专家页的扇形「新建专家」入口卡与「创建数字分身」卡是用户刻意要求的创建入口，不得删除、合并或改为仅页头入口。
 - **Tables / Lists:** 纯白底、1px `line` 分隔；表头 12px `muted-foreground`，单元格 13/20；连续行保持平面，行 hover 与展开只换不透明 `hover` `#F0F0F0`，150ms `--ease-out-soft`，不位移、不加投影；表头行不响应；空态行、展开详情行与无行级操作的表（权限矩阵、趋势明细、检索评估结果等）显式关闭 hover，`DataTable` 数据行保留行 hover 作为扫读反馈；选中用 `selected` `#E6E6E6`。CardFooter 继承卡片白底、顶部细边与自身内边距，没有统一浅底。
 - **Skeleton / Separator:** Skeleton 用 `sunken`；Separator 用 `line`。当前没有共享 Progress 视觉原语，真实任务清单、状态与百分比沿用各自实现。
 
@@ -468,7 +472,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 ### Don't:
 
-- **Don't** 把数据令牌 `chart-runs #2A78D6` 用于导航、按钮、焦点、徽章或状态；石青仅用于左侧导航，品牌 Logo 与插画保留原配色。
+- **Don't** 把数据令牌 `chart-runs #2A78D6` 用于导航、按钮、焦点、徽章或状态；石青仅用于左侧导航（工牌实体证件装饰为已记录例外），品牌 Logo 与插画保留原配色。
 - **Don't** 给外壳加回渐变、外边距、圆角或描边，也不要把外壳白框铺到画布后面；收起与固定展开侧栏不得加阴影，仅临时预览可用既有 `shadow-overlay`。
 - **Don't** 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 `fg` 字。
 - **Don't** 用 `subtle` `#898781` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。

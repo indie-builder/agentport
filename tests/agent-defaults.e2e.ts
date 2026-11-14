@@ -305,7 +305,7 @@ test('expert cards and employee badge', { session: 'admin' }, async ({ app, scre
   expect(detail).toContain('数据分析师');
   expect(detail).toContain(full.description);
   expect(detail).toContain(full.id);
-  expect(detail).toContain('上岗时间');
+  expect(detail).toContain('入职日期');
   expect(detail).toContain('2024');
   expect(detail).toMatch(/\d{1,2}:\d{2}/);
   expect(detail).toMatch(/UTC|GMT|时区|[+-]\d{2}:?\d{2}/);
