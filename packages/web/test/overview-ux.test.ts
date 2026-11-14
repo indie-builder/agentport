@@ -3,6 +3,7 @@ import { act, createElement, type ReactElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Attention, api, type HealthMetrics, type Overview } from '../src/lib/api.js';
+import { downloadBlob } from '../src/lib/browser-files.js';
 import {
   attentionQuery,
   healthMetricsQuery,
@@ -11,6 +12,8 @@ import {
   useOverviewTimeseries,
 } from '../src/lib/queries.js';
 import { OverviewPage, RunTrendCard } from '../src/pages/overview.js';
+
+vi.mock('../src/lib/browser-files.js', () => ({ downloadBlob: vi.fn() }));
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
@@ -249,6 +252,51 @@ describe('overview trend accessibility', () => {
 
     await click(trigger());
     expect(host.querySelector('table caption')?.textContent).toBe('最近 3 天运行趋势明细');
+  });
+});
+
+describe('overview usage export', () => {
+  it('导出用量 CSV', async () => {
+    const queryClient = client();
+    const data = overview(3);
+    data.agents = data.agents.map((agent) => ({
+      ...agent,
+      name: '趋势,"专家"\n日报',
+      latencyP50: 250,
+    }));
+    queryClient.setQueryData(overviewQuery.queryKey, data);
+    queryClient.setQueryData(overviewTimeseriesQuery(3).queryKey, points);
+    queryClient.setQueryData(attentionQuery.queryKey, {
+      approvals: [],
+      failedRuns: [],
+      total: 0,
+    });
+    queryClient.setQueryData(healthMetricsQuery.queryKey, metrics);
+
+    await render(createElement(OverviewPage), queryClient);
+
+    const button = [...host.querySelectorAll('button')].find((item) =>
+      item.textContent?.includes('导出 CSV'),
+    );
+    expect(button).toBeTruthy();
+    if (!button) throw new Error('Missing usage export button');
+    await click(button);
+
+    expect(downloadBlob).toHaveBeenCalledExactlyOnceWith(expect.any(Blob), 'overview-usage-3d.csv');
+    const blob = vi.mocked(downloadBlob).mock.calls[0]?.[0];
+    expect(blob).toBeInstanceOf(Blob);
+    if (!blob) throw new Error('Missing usage export Blob');
+    expect(blob.type).toBe('text/csv;charset=utf-8');
+    const csv = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(blob);
+    });
+    const expected =
+      '专家,标识,运行数,错误率,成本(USD),Token,P50延迟(ms),P99延迟(ms),最近运行,启用\n"趋势,""专家""\n日报",trend,5,20.0%,0.6234,1500,250,,,是';
+    expect(csv).toBe(expected);
+    expect(blob.size).toBe(new TextEncoder().encode(`﻿${expected}`).length);
   });
 });
 
