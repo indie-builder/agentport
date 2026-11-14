@@ -1,9 +1,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
+import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { animateBrand, Brand } from '../components/brand.js';
-import { Page, PageHeader } from '../components/page.js';
 import { Button } from '../components/ui/button.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
@@ -43,6 +43,8 @@ export function LoginPage() {
     document.title = 'PACE';
   }, []);
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
   const describedBy =
     [expired ? 'login-expired' : null, error ? 'login-error' : null].filter(Boolean).join(' ') ||
     undefined;
@@ -83,80 +85,119 @@ export function LoginPage() {
   });
 
   return (
-    <main className="flex min-h-dvh min-w-0 items-center justify-center bg-surface px-6 py-10">
-      <Page className="w-full max-w-xs gap-8">
-        <PageHeader title="进入 PACE" className="sr-only" />
-        <Button
-          type="button"
-          variant="plain"
-          aria-label="切换 PACE Logo"
-          className="h-auto self-center p-0"
-          onClick={animateBrand}
-        >
-          <Brand className="h-24 self-center" />
-        </Button>
-        <form
-          aria-label="登录"
-          aria-busy={login.isPending}
-          aria-describedby={describedBy}
-          noValidate
-          onSubmit={handleSubmit((values) => {
-            if (login.isPending) return;
-            setError(null);
-            login.mutate(values);
-          })}
-        >
-          <FieldGroup className="gap-5">
-            {expired ? (
-              <p id="login-expired" role="status" className="text-sm text-muted-foreground">
-                登录已过期，请重新登录。
-              </p>
-            ) : null}
-            <Field data-disabled={login.isPending} data-invalid={Boolean(errors.username)}>
-              <FieldLabel htmlFor="username">用户名</FieldLabel>
-              <Input
-                id="username"
-                className="h-11"
-                required
-                autoComplete="username"
-                autoFocus
-                disabled={login.isPending}
-                aria-invalid={Boolean(errors.username)}
-                aria-describedby={errors.username ? 'username-error' : undefined}
-                {...register('username')}
+    <main className="min-h-dvh min-w-0 bg-surface">
+      <div className="grid min-h-dvh grid-cols-2">
+        <aside className="relative flex flex-col justify-between overflow-hidden border-r border-line bg-sidebar p-12">
+          <Button
+            type="button"
+            variant="plain"
+            aria-label="切换 PACE Logo"
+            className="h-auto self-start p-0"
+            onClick={animateBrand}
+          >
+            <Brand className="h-9" />
+          </Button>
+          <div className="flex flex-1 items-center justify-center py-8">
+            <div className="w-[86%] overflow-hidden rounded-xl border border-line bg-surface shadow-panel">
+              <img
+                src="/brand/product-showcase.png"
+                alt="PACE 工作台界面预览"
+                className="block w-full"
               />
-              <FieldError id="username-error">{errors.username?.message}</FieldError>
-            </Field>
-            <Field data-disabled={login.isPending} data-invalid={Boolean(errors.password)}>
-              <FieldLabel htmlFor="password">密码</FieldLabel>
-              <Input
-                id="password"
-                className="h-11"
-                required
-                type="password"
-                autoComplete="current-password"
-                disabled={login.isPending}
-                aria-invalid={Boolean(errors.password)}
-                aria-describedby={errors.password ? 'password-error' : undefined}
-                {...register('password')}
-              />
-              <FieldError id="password-error">{errors.password?.message}</FieldError>
-            </Field>
-            <FieldError id="login-error" className="break-words">
-              {error ?? undefined}
-            </FieldError>
-            <Button
-              type="submit"
-              variant="solid"
-              className="h-11 w-full"
-              disabled={login.isPending}
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">PACE · 内部智能体工作台</p>
+        </aside>
+        <section className="flex min-h-dvh min-w-0 items-center justify-center px-6 py-12">
+          <div className="w-full min-w-0 max-w-sm">
+            <h1 className="text-2xl font-semibold tracking-tight text-fg">登录 PACE</h1>
+            <p className="mt-2 text-sm text-muted-foreground">使用账号登录，继续你的智能体工作。</p>
+            <form
+              className="mt-8"
+              aria-label="登录"
               aria-busy={login.isPending}
+              aria-describedby={describedBy}
+              noValidate
+              onSubmit={handleSubmit((values) => {
+                if (login.isPending) return;
+                setError(null);
+                login.mutate(values);
+              })}
             >
-              {login.isPending ? '正在登录…' : error ? '重试' : '登录'}
-            </Button>
-          </FieldGroup>
-        </form>
-      </Page>
+              <FieldGroup className="gap-5">
+                {expired ? (
+                  <p id="login-expired" role="status" className="text-sm text-muted-foreground">
+                    登录已过期，请重新登录。
+                  </p>
+                ) : null}
+                <Field data-disabled={login.isPending} data-invalid={Boolean(errors.username)}>
+                  <FieldLabel htmlFor="username">用户名</FieldLabel>
+                  <Input
+                    id="username"
+                    className="h-11"
+                    required
+                    autoComplete="username"
+                    autoFocus
+                    disabled={login.isPending}
+                    aria-invalid={Boolean(errors.username)}
+                    aria-describedby={errors.username ? 'username-error' : undefined}
+                    {...register('username')}
+                  />
+                  <FieldError id="username-error">{errors.username?.message}</FieldError>
+                </Field>
+                <Field data-disabled={login.isPending} data-invalid={Boolean(errors.password)}>
+                  <FieldLabel htmlFor="password">密码</FieldLabel>
+                  <div>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        className="h-11 pr-10"
+                        required
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="current-password"
+                        disabled={login.isPending}
+                        aria-invalid={Boolean(errors.password)}
+                        aria-describedby={errors.password ? 'password-error' : undefined}
+                        onKeyDown={(event) => setCapsLock(event.getModifierState('CapsLock'))}
+                        onKeyUp={(event) => setCapsLock(event.getModifierState('CapsLock'))}
+                        {...register('password')}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-0 text-muted-foreground"
+                        aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                        aria-pressed={showPassword}
+                        disabled={login.isPending}
+                        onClick={() => setShowPassword((visible) => !visible)}
+                      >
+                        {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </Button>
+                    </div>
+                    {capsLock ? (
+                      <p className="mt-1.5 text-xs text-muted-foreground">大写锁定已开启</p>
+                    ) : null}
+                  </div>
+                  <FieldError id="password-error">{errors.password?.message}</FieldError>
+                </Field>
+                <FieldError id="login-error" className="break-words">
+                  {error ?? undefined}
+                </FieldError>
+                <Button
+                  type="submit"
+                  variant="solid"
+                  className="h-11 w-full"
+                  disabled={login.isPending}
+                  aria-busy={login.isPending}
+                >
+                  {login.isPending ? '正在登录…' : error ? '重试' : '登录'}
+                </Button>
+              </FieldGroup>
+            </form>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
