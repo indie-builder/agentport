@@ -1,5 +1,5 @@
 import { authNativeContract, loginBodySchema } from '@agentport/contract/auth';
-import { AppError } from '@agentport/core';
+import { AppError, sha256Hex } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -75,13 +75,16 @@ export function registerAuthRoutes(app: Hono<HttpEnv>, runtime: AppContext): voi
         ? await sessionFromCookie(context.auth, issuedCookie(result.headers))
         : null;
       if (result.ok && session === null) {
-        context.log.warn({ username }, 'login session missing after sign-in, retrying once');
+        context.log.warn(
+          { usernameHash: sha256Hex(username) },
+          'login session missing after sign-in, retrying once',
+        );
         result = await signIn();
         if (result.ok)
           session = await sessionFromCookie(context.auth, issuedCookie(result.headers));
       }
       if (!result.ok) {
-        context.log.warn({ username }, 'login failed');
+        context.log.warn({ usernameHash: sha256Hex(username) }, 'login failed');
         await repo.audit.writeAudit(context.db, context.log, {
           actor: 'anonymous',
           actorKind: 'anonymous',

@@ -44,14 +44,12 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     '/api/knowledge/versions/:versionId/images/:name',
     native(async (context, c) => {
       await requirePermission(context, 'knowledge.read');
-      const image = await useCases.getVersionImage(
-        depsOf(context),
-        param(c, 'versionId'),
-        param(c, 'name'),
-      );
+      const name = param(c, 'name');
+      const image = await useCases.getVersionImage(depsOf(context), param(c, 'versionId'), name);
       return new Response(new Uint8Array(image.data), {
         headers: {
           'content-type': image.mimeType,
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
           'x-content-type-options': 'nosniff',
           'cache-control': 'private',
         },
