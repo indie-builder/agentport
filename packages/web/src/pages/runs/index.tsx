@@ -33,8 +33,9 @@ import {
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { api, errorMessage, type RunListItem, type RunStatus } from '../../lib/api.js';
-import { downloadJson } from '../../lib/browser-files.js';
+import { downloadBlob, downloadJson } from '../../lib/browser-files.js';
 import { cn } from '../../lib/cn.js';
+import { toCsv } from '../../lib/csv.js';
 import {
   formatCost,
   formatDateTime,
@@ -284,6 +285,7 @@ export function RunsPage() {
     limit: 100,
   });
   const [exporting, setExporting] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
 
   const exportRuns = async (): Promise<void> => {
     setExporting(true);
@@ -299,6 +301,37 @@ export function RunsPage() {
       toastError(error);
     } finally {
       setExporting(false);
+    }
+  };
+
+  const exportRunsCsv = async () => {
+    setExportingCsv(true);
+    try {
+      const data = await api.exportRuns({
+        ...(agentId ? { agentId } : {}),
+        ...(status ? { status } : {}),
+        ...(trigger ? { trigger } : {}),
+        ...(since ? { since } : {}),
+      });
+      const csv = toCsv(
+        ['运行ID', '专家', '状态', '来源', '时间', '耗时ms', '成本USD', '输入Token', '输出Token'],
+        data.items.map((run) => [
+          run.id,
+          run.agentName ?? '已删除的专家',
+          runStatusLabel[run.status],
+          run.trigger ? TRIGGER_LABEL[run.trigger] : '',
+          formatDateTime(run.startedAt),
+          run.latencyMs ?? '',
+          run.costUsd ?? '',
+          run.inputTokens,
+          run.outputTokens,
+        ]),
+      );
+      downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), 'runs.csv');
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setExportingCsv(false);
     }
   };
 
@@ -338,6 +371,17 @@ export function RunsPage() {
                 <Button variant="outline" onClick={() => void exportRuns()} disabled={exporting}>
                   <Download data-icon="inline-start" aria-hidden="true" />
                   {exporting ? '导出中…' : '导出运行'}
+                </Button>
+              ) : null}
+              {canExport ? (
+                <Button
+                  variant="outline"
+                  onClick={() => void exportRunsCsv()}
+                  disabled={exportingCsv}
+                  aria-busy={exportingCsv}
+                >
+                  <Download data-icon="inline-start" aria-hidden="true" />
+                  {exportingCsv ? '导出中…' : '导出 CSV'}
                 </Button>
               ) : null}
               <Button
