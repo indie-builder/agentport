@@ -698,3 +698,9 @@
 - **现象**：轮播到边界时按钮视觉是禁用态，但 `button.disabled` 仍是 `false`，旧断言失败。
 - **原因**：ui-sdk 的上一张/下一张在边界用 `aria-disabled` + `data-disabled` 表达，保持可聚焦符合 APG。
 - **规避**：样式写 `aria-disabled:`/`data-disabled:`，测试断言这两个属性；不要用原生 `disabled` 判断或强制加 `tabindex="-1"`。
+
+## 前端：ui-sdk `createReorder` 的 Escape 会与弹层关闭抢同一个键
+
+- **现象**：列设置弹层里键盘拖动排序时按 Escape，弹层和拖动一起被取消，用户失去列表。
+- **原因**：`createReorder` 在列表内于原生事件上 `preventDefault` + `stopPropagation` 消费 Escape，弹层的 document 关闭逻辑收不到；焦点已离开列表时（例如点了弹层空白）Escape 只到 document，primitive 的 document 捕获监听取消草稿并 `stopPropagation`。弹层自己的 Escape 关闭逻辑仍在 document 层，需要兜底避免抢键。
+- **规避**：分两层——列表内由 `createReorder` 在原生事件上 `stopPropagation`；焦点离开列表时由 primitive 的 document 捕获 `keydown` 取消草稿并 `stopPropagation`。弹层仍保留 `data-moving` 守卫：`onOpenChange` 检测到拖动中且 `reason === 'escape-key'` 时 `eventDetails.cancel()`，作为监听注册顺序变化时的兜底；第二次 Escape 才关闭。升级后核对 `createReorder.keydown` 的返回约定（消费键后返回 `true`、Escape 内部已 `stopPropagation`）与弹层 reason 名称。
