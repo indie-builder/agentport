@@ -52,7 +52,18 @@ export function pruneMentions(
   text: string,
   selected: readonly { agentId: string; name: string }[],
 ): string[] {
-  return selected.filter((item) => text.includes(`@${item.name}`)).map((item) => item.agentId);
+  const mentioned = (name: string) => {
+    const token = `@${name}`;
+    let idx = text.indexOf(token);
+    while (idx >= 0) {
+      const before = idx === 0 || /\s/.test(text[idx - 1] ?? '');
+      const after = text[idx + token.length] ?? '';
+      if (before && (after === '' || !/[A-Za-z0-9_]/.test(after))) return true;
+      idx = text.indexOf(token, idx + 1);
+    }
+    return false;
+  };
+  return selected.filter((item) => mentioned(item.name)).map((item) => item.agentId);
 }
 
 /**
