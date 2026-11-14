@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterSelect } from '../../components/filter-select.js';
@@ -384,6 +385,7 @@ export function KnowledgePage() {
   // 四种状态互斥：首屏加载、首屏失败、真空库、筛选无结果；刷新失败只加提示，不替换已有数据。
   const initialPending = bases.isPending && baseItems.length === 0;
   const initialError = bases.isError && baseItems.length === 0;
+  const emptyNoFilter = !bases.isPending && !bases.isError && baseItems.length === 0;
   const refreshError = (bases.isError || isFetchNextPageError) && baseItems.length > 0;
   const filtering = query.trim() !== '' || status !== undefined;
   const filteredEmpty = baseItems.length > 0 && visible.length === 0 && filtering;
@@ -391,6 +393,7 @@ export function KnowledgePage() {
   return (
     <ResourcePage
       section="knowledge"
+      hideToolbar={emptyNoFilter}
       query={query}
       onQueryChange={(next) => setSearch({ q: next }, true)}
       sort={sort}
@@ -517,8 +520,9 @@ export function KnowledgePage() {
           }
         />
       ) : null}
-      {!bases.isPending && !bases.isError && baseItems.length === 0 ? (
+      {emptyNoFilter ? (
         <PageNote
+          icon={<BusinessIllustration name="knowledge" size="compact" />}
           title="未创建知识库"
           action={
             canCreate ? (

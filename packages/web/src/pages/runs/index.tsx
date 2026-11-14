@@ -1,4 +1,4 @@
-import { runStatusSchema, runTriggerSchema, type RunTrigger } from '@agentport/shared';
+import { type RunTrigger, runStatusSchema, runTriggerSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, RefreshCw } from 'lucide-react';
@@ -200,21 +200,37 @@ function RunCard({ run }: { run: RunListItem }) {
           <dd className="text-right text-muted-foreground" title={formatDateTime(run.startedAt)}>
             {formatRelative(run.startedAt)}
           </dd>
-          <dt className="text-muted-foreground">耗时</dt>
-          <dd className="text-right">{formatDuration(run.latencyMs)}</dd>
-          <dt className="text-muted-foreground">轮次</dt>
-          <dd className="text-right">{run.turns ?? '—'}</dd>
-          <dt className="text-muted-foreground">成本</dt>
-          <dd className="text-right">{formatCost(run.costUsd)}</dd>
-          <dt className="text-muted-foreground">输入 Tokens</dt>
-          <dd className="text-right">{formatTokens(run.inputTokens)}</dd>
-          <dt className="text-muted-foreground">输出 Tokens</dt>
-          <dd className="text-right">{formatTokens(run.outputTokens)}</dd>
+          {run.latencyMs != null ? (
+            <>
+              <dt className="text-muted-foreground">耗时</dt>
+              <dd className="text-right">{formatDuration(run.latencyMs)}</dd>
+            </>
+          ) : null}
+          {run.turns != null ? (
+            <>
+              <dt className="text-muted-foreground">轮次</dt>
+              <dd className="text-right">{run.turns}</dd>
+            </>
+          ) : null}
+          {run.costUsd != null ? (
+            <>
+              <dt className="text-muted-foreground">成本</dt>
+              <dd className="text-right">{formatCost(run.costUsd)}</dd>
+            </>
+          ) : null}
+          {run.inputTokens != null || run.outputTokens != null ? (
+            <>
+              <dt className="text-muted-foreground">输入 Tokens</dt>
+              <dd className="text-right">{formatTokens(run.inputTokens)}</dd>
+              <dt className="text-muted-foreground">输出 Tokens</dt>
+              <dd className="text-right">{formatTokens(run.outputTokens)}</dd>
+            </>
+          ) : null}
         </dl>
         {run.error ? (
-          <div className="flex flex-col gap-0.5">
+          <div className="flex min-w-0 flex-col gap-0.5 text-xs">
             <span className="text-xs text-muted-foreground">错误</span>
-            <p className="break-words whitespace-pre-wrap text-xs text-danger">{run.error}</p>
+            <ExpandableError error={run.error} />
           </div>
         ) : null}
       </CardContent>

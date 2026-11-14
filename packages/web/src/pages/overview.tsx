@@ -58,12 +58,7 @@ import {
   shortId,
 } from '../lib/format.js';
 import { judgeQueue } from '../lib/health.js';
-import {
-  healthMetricsQuery,
-  useAttention,
-  useOverview,
-  useOverviewTimeseries,
-} from '../lib/queries.js';
+import { healthMetricsQuery, useOverview, useOverviewTimeseries } from '../lib/queries.js';
 
 function toUsageCsv(agents: OverviewAgentRow[]) {
   const rows = agents.map((agent) =>
@@ -504,9 +499,6 @@ export function OverviewPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const overview = useOverview();
-  const attention = useAttention();
-  // 后台刷新失败时旧 data 仍在，只有本次请求成功才前置，避免失败后区块跳位。
-  const hasAttention = attention.isSuccess && (attention.data?.total ?? 0) > 0;
   const data = overview.data ?? null;
 
   const error = overview.isError ? overview.error : null;
@@ -626,11 +618,9 @@ export function OverviewPage() {
               </div>
             </PageSection>
 
-            {hasAttention ? attentionSection : null}
-
             <RunTrendCard days={days} />
 
-            {hasAttention ? null : attentionSection}
+            {attentionSection}
 
             <PageSection
               title="最近运行"
