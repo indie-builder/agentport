@@ -125,18 +125,26 @@ async function waitForApproval(
   return 'timeout';
 }
 
+type FilledPath =
+  | { ok: true; path: string; rest: Record<string, unknown> }
+  | { ok: false; param: string };
+
 /** 路径模板里的 {param} 已用掉后，剩余参数才进 query/body。 */
-function fillPath(
-  template: string,
-  args: Record<string, unknown>,
-): { path: string; rest: Record<string, unknown> } {
+function fillPath(template: string, args: Record<string, unknown>): FilledPath {
   const rest: Record<string, unknown> = { ...args };
+  let invalid: string | undefined;
   const path = template.replace(/\{([^{}]+)\}/g, (_match, key: string) => {
     const value = rest[key];
     delete rest[key];
-    return encodeURIComponent(value === undefined ? '' : String(value));
+    const text = value === undefined ? '' : String(value);
+    // encodeURIComponent 不转义点号，`..` 会被 URL 归一化后跳出工具声明的路径段。
+    if (text === '.' || text === '..') {
+      invalid ??= key;
+      return '';
+    }
+    return encodeURIComponent(text);
   });
-  return { path, rest };
+  return invalid === undefined ? { ok: true, path, rest } : { ok: false, param: invalid };
 }
 
 /**
@@ -187,7 +195,19 @@ async function callUpstream(
       ],
     };
   }
-  const { path, rest } = fillPath(tool.pathTemplate, args);
+  const filled = fillPath(tool.pathTemplate, args);
+  if (!filled.ok) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: `${tool.method} 工具「${tool.name}」的参数 ${filled.param} 不能是 "." 或 ".."`,
+        },
+      ],
+    };
+  }
+  const { path, rest } = filled;
   const url = new URL(baseUrl.replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`));
   // 与 test-connection 一致：nodeEnv 决定是否放行 localhost，避免「测得通但跑不通」。
   await assertServerEndpoint(url.toString(), {
