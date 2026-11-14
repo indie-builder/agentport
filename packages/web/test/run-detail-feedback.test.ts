@@ -12,11 +12,13 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type RunDetail, type RunStatus } from '../src/lib/api.js';
+import { downloadJson } from '../src/lib/browser-files.js';
 import { toastError } from '../src/lib/toast.js';
 import { RunDetailPage } from '../src/pages/runs/run-detail.js';
 import { runDetailSearchSchema } from '../src/routes/-search.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
+vi.mock('../src/lib/browser-files.js', () => ({ downloadJson: vi.fn() }));
 
 const at = '2026-10-28T00:00:00Z';
 const LARGE = 'x'.repeat(64 * 1024 + 1);
@@ -230,6 +232,36 @@ describe('run detail runtime environment identity', () => {
     expect(host.textContent).toContain('运行环境');
     expect(host.textContent).toContain('环境版本');
     expect(button('复制环境版本')).toBeUndefined();
+  });
+});
+
+describe('run trajectory export', () => {
+  it('导出轨迹按钮导出单次运行轨迹', async () => {
+    vi.spyOn(api, 'run').mockResolvedValue(detail('succeeded', [userStep]));
+    vi.spyOn(api, 'exportRun').mockResolvedValue({ format: 'agentport/run-trajectory@1' });
+    await mount();
+    await vi.waitFor(() => expect(button('导出轨迹')).not.toBeUndefined());
+
+    await act(async () => button('导出轨迹')?.click());
+    await flush();
+
+    expect(api.exportRun).toHaveBeenCalledWith('run-1');
+    expect(downloadJson).toHaveBeenCalledWith(
+      { format: 'agentport/run-trajectory@1' },
+      'run-run-1.json',
+    );
+  });
+
+  it('缺少 runs.export 权限时不显示导出轨迹', async () => {
+    client.setQueryData(['me'], {
+      ...adminMe,
+      grants: adminMe.grants.filter((grant) => grant.permissionId !== 'runs.export'),
+    });
+    vi.spyOn(api, 'run').mockResolvedValue(detail('succeeded', [userStep]));
+    await mount();
+    await vi.waitFor(() => expect(host.textContent).toContain('原问题'));
+
+    expect(button('导出轨迹')).toBeUndefined();
   });
 });
 

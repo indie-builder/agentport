@@ -42,6 +42,7 @@ export default {
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return nativeRequest(`/runs/export${search}`);
   },
+  exportRun: (id: string): Promise<Record<string, unknown>> => nativeRequest(`/runs/${id}/export`),
   run: (id: string, signal?: AbortSignal): Promise<RunDetail> =>
     rpc.runs.detail({ params: { id } }, clientOptions(signal)),
   runQuestions: (id: string): Promise<{ items: PublicRunQuestion[] }> =>

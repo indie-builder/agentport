@@ -5,10 +5,11 @@ import {
   CircleAlert,
   CircleStop,
   ClipboardList,
+  Download,
   RotateCcw,
   Sparkles,
 } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { CopyButton } from '../../components/copy-button.js';
 import { Metric } from '../../components/metric-label.js';
 import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
@@ -23,7 +24,8 @@ import {
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { can } from '../../lib/access.js';
-import type { ApprovalRequest } from '../../lib/api.js';
+import { api, type ApprovalRequest } from '../../lib/api.js';
+import { downloadJson } from '../../lib/browser-files.js';
 import { questionFromContent } from '../../lib/chat-state.js';
 import { cn } from '../../lib/cn.js';
 import {
@@ -65,6 +67,8 @@ export function RunDetailPage() {
   const canAnswer = can(me.data, 'runs.questions.answer');
   const canRerun = can(me.data, 'conversations.create');
   const canEval = can(me.data, 'eval.manage');
+  const canExport = can(me.data, 'runs.export');
+  const [exporting, setExporting] = useState(false);
   const navigate = useNavigate();
   // 状态尚未读取或仍在排队时也轮询，终态转换负责最后刷新。
   const status = run.data?.run.status;
@@ -180,6 +184,20 @@ export function RunDetailPage() {
     });
   };
 
+  const exportTrajectory = async (): Promise<void> => {
+    if (!run.data || exporting) return;
+    setExporting(true);
+    try {
+      const data = await api.exportRun(run.data.run.id);
+      downloadJson(data, `run-${run.data.run.id}.json`);
+      toastSuccess('已导出运行轨迹');
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const cancel = (): void => {
     if (!run.data) return;
     cancelMutation.mutate(run.data.run.id, {
@@ -260,6 +278,17 @@ export function RunDetailPage() {
               >
                 <ClipboardList data-icon="inline-start" aria-hidden="true" />
                 {evalCaseMutation.isPending ? '生成中…' : '存为评估用例'}
+              </Button>
+            ) : null}
+            {canExport ? (
+              <Button
+                variant="outline"
+                disabled={exporting}
+                aria-busy={exporting}
+                onClick={() => void exportTrajectory()}
+              >
+                <Download data-icon="inline-start" aria-hidden="true" />
+                {exporting ? '导出中…' : '导出轨迹'}
               </Button>
             ) : null}
           </>
