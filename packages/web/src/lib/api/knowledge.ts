@@ -831,7 +831,11 @@ export default {
     rpc.knowledge.modelProfiles.test({ params: { profileId: id } }),
   rebuildKnowledgeBase: (
     id: string,
-    input: { documentIds?: string[]; chunksOnly?: boolean } = {},
+    input: {
+      documentIds?: string[];
+      chunksOnly?: boolean;
+      confirmOverwriteManualChunks?: boolean;
+    } = {},
   ): Promise<{ jobId: string }> => rpc.knowledge.bases.rebuild({ params: { id }, body: input }),
   createKnowledgeModelProfile: (input: {
     kind: 'embedding' | 'rerank' | 'asr';

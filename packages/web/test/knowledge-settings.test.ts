@@ -551,7 +551,7 @@ describe('knowledge base settings', () => {
       calls.find(
         (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/rebuild',
       )?.body,
-    ).toEqual({ chunksOnly: false });
+    ).toEqual({ chunksOnly: false, confirmOverwriteManualChunks: true });
     expect(toastSuccess).toHaveBeenCalled();
   });
 
