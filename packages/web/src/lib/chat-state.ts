@@ -374,6 +374,7 @@ function historyAttachments(
 /** DB 里存的是 SDK 原始内容块；历史渲染只挑可读部分，工具调用按 tool_use_id 合并结果。 */
 export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
   const items: ChatItem[] = [];
+  const toolIndex = new Map<string, number>();
   // 历史按消息与块顺序重放：tool_result 出现的次序就是确认次序，与工具行位置无关。
   let todoSeq = 0;
   for (const message of messages) {
@@ -445,15 +446,17 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
       const record = block as Record<string, unknown>;
       if (record.type === 'tool_use' && (typeof record.name === 'string' || record.id)) {
         const question = questionFromContent(record);
+        const toolUseId =
+          typeof record.id === 'string'
+            ? record.id
+            : typeof record.toolUseId === 'string'
+              ? record.toolUseId
+              : crypto.randomUUID();
+        if (!toolIndex.has(toolUseId)) toolIndex.set(toolUseId, items.length);
         items.push({
           id,
           kind: 'tool',
-          toolUseId:
-            typeof record.id === 'string'
-              ? record.id
-              : typeof record.toolUseId === 'string'
-                ? record.toolUseId
-                : crypto.randomUUID(),
+          toolUseId,
           name: typeof record.name === 'string' ? record.name : '未知工具',
           input: JSON.stringify(record.input ?? {}, null, 2),
           ...(question === undefined ? {} : { question }),
@@ -484,11 +487,9 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
             : {};
         const question = questionFromContent(record);
         const snapshot = question === undefined ? {} : { question };
-        const index = items.findIndex(
-          (item) => item.kind === 'tool' && item.toolUseId === toolUseId,
-        );
-        const existing = items[index];
-        if (existing?.kind === 'tool') {
+        const index = toolIndex.get(toolUseId);
+        const existing = index === undefined ? undefined : items[index];
+        if (index !== undefined && existing?.kind === 'tool') {
           items[index] = {
             ...existing,
             result,
@@ -512,6 +513,7 @@ export function historyToItems(messages: ConversationMessage[]): ChatItem[] {
             ...parent,
             ...snapshot,
           });
+          if (!toolIndex.has(toolUseId)) toolIndex.set(toolUseId, items.length - 1);
         }
       }
     }
