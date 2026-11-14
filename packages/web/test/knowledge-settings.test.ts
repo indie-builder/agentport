@@ -544,6 +544,7 @@ describe('knowledge base settings', () => {
     const confirm = dialog('重建全部索引');
     expect(confirm.textContent).toContain('逐文档从原件生成并切换新版本');
     expect(confirm.textContent).toContain('人工分块修改不会带入');
+    expect(confirm.textContent).toContain('未发布的草稿会一并发布');
     expect(confirm.textContent).toContain('失败文档保留原版本');
     expect(confirm.textContent).toContain('已成功的文档不会回滚');
     await click(button('确认重建'));
