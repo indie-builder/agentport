@@ -13,6 +13,7 @@ export interface AuditQuery {
   target?: string;
   actor?: string;
   actorKind?: AuditEntry['actorKind'];
+  since?: string;
   limit?: number;
   /** ISO 时间戳；与 beforeId 相互独立，由调用方自行选择。 */
   before?: string;
@@ -36,6 +37,7 @@ export default {
     if (query.target) params.set('target', query.target);
     if (query.actor) params.set('actor', query.actor);
     if (query.actorKind) params.set('actorKind', query.actorKind);
+    if (query.since) params.set('since', query.since);
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return nativeRequest(`/audit/export${search}`);
   },
