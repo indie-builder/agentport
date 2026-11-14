@@ -1,9 +1,9 @@
 import { readPluginMarkdown } from '@agentport/core/plugin-display';
 import type { Plugin, PluginFileInput } from '@agentport/shared';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Resizable, ResizableHandle, ResizablePanel } from '@ui-sdk/react/resizable';
 import { ArrowLeft, Download, FolderOpen, PanelLeftDashed } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { CodeBlockCopyAllowed } from '../../components/code-block.js';
 import {
@@ -315,7 +315,6 @@ function PluginContent({
   onSelectMode: (mode: Mode) => void;
 }) {
   const wide = useMediaQuery(WIDE);
-  const layout = useDefaultLayout({ id: 'plugin-detail-content' });
   const [filesOpen, setFilesOpen] = useState(false);
   const [filesOpenWide, setFilesOpenWide] = useState(true);
   const filesButton = useRef<HTMLButtonElement>(null);
@@ -428,13 +427,18 @@ function PluginContent({
             </Button>
           </div>
           {filesOpenWide ? (
-            <Group
+            <Resizable
               orientation="horizontal"
-              defaultLayout={layout.defaultLayout}
-              onLayoutChanged={layout.onLayoutChanged}
+              autoSaveId="plugin-detail-content"
               className="min-h-0 flex-1"
             >
-              <Panel id="files" defaultSize={240} minSize={180} maxSize={360} className="min-h-0">
+              <ResizablePanel
+                id="files"
+                defaultSize="240px"
+                minSize="180px"
+                maxSize="360px"
+                className="min-h-0"
+              >
                 <div
                   id="plugin-detail-files-panel"
                   className="h-full min-h-0 overflow-y-auto pb-4 pe-4"
@@ -446,12 +450,12 @@ function PluginContent({
                     idPrefix="plugin-detail-files"
                   />
                 </div>
-              </Panel>
-              <Separator className="w-px border-r" aria-label="调整文件树宽度" />
-              <Panel id="document" minSize={320} className="min-h-0">
+              </ResizablePanel>
+              <ResizableHandle className="w-px border-r" aria-label="调整文件树宽度" />
+              <ResizablePanel id="document" minSize="320px" className="min-h-0">
                 {documentPane}
-              </Panel>
-            </Group>
+              </ResizablePanel>
+            </Resizable>
           ) : (
             <div className="min-h-0 flex-1">{documentPane}</div>
           )}

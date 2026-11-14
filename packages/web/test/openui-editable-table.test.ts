@@ -183,9 +183,11 @@ describe('EditableTable cell types', () => {
     await click(option);
 
     await click(host.querySelector<HTMLElement>('[aria-label="日期 第 1 行"]') as HTMLElement);
-    const day = [...document.querySelectorAll<HTMLElement>('[role="gridcell"] button')].find(
-      (item) => item.textContent?.trim() === '15',
-    );
+    const day = [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-slot="calendar-day"]:not([data-outside])',
+      ),
+    ].find((item) => item.textContent?.trim() === '15');
     if (!day) throw new Error('missing calendar day');
     await click(day);
 
@@ -212,7 +214,10 @@ describe('EditableTable cell types', () => {
     );
 
     await click(host.querySelector<HTMLElement>('[aria-label="日期 第 1 行"]') as HTMLElement);
-    const selected = document.querySelector<HTMLElement>('[data-selected-single="true"]');
+    const selected = document.querySelector<HTMLElement>(
+      '[data-slot="calendar-day"][data-value="2030-06-15"]',
+    );
+    expect(selected?.getAttribute('aria-selected')).toBe('true');
     expect(selected?.textContent?.trim()).toBe('15');
     if (!selected) throw new Error('missing selected calendar day');
     await click(selected);
@@ -236,9 +241,13 @@ describe('EditableTable cell types', () => {
     );
 
     await click(host.querySelector<HTMLElement>('[aria-label="日期 第 1 行"]') as HTMLElement);
-    const caption = document.querySelector<HTMLElement>('.rdp-caption_label');
+    const caption = document.querySelector<HTMLElement>('[data-slot="calendar-heading"]');
     expect(caption?.textContent).toContain('2030');
-    expect(document.querySelector('[data-selected-single="true"]')?.textContent?.trim()).toBe('15');
+    const selectedDay = document.querySelector<HTMLElement>(
+      '[data-slot="calendar-day"][data-value="2030-06-15"]',
+    );
+    expect(selectedDay?.getAttribute('aria-selected')).toBe('true');
+    expect(selectedDay?.textContent?.trim()).toBe('15');
   });
 
   it('discards a draft when the same node switches to another table name', async () => {

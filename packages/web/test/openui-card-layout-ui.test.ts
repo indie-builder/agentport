@@ -190,7 +190,7 @@ describe('CardBlock grid layout', () => {
 describe('CardBlock carousel', () => {
   /** 轨道本身：间距来自 gap，不用 item 内距，否则 basis 会把 12px 内距算进卡宽。 */
   function track(): HTMLElement | null {
-    return host.querySelector<HTMLElement>('[data-slot="carousel-content"] > div');
+    return host.querySelector<HTMLElement>('[data-slot="carousel-content"]');
   }
 
   it('keeps container-relative card widths only when responsive is true', async () => {
@@ -311,6 +311,18 @@ describe('CardBlock carousel', () => {
   });
 
   it('uses the shadcn carousel with focusable, labelled controls and keyboard nav', async () => {
+    const measureCallbacks: Array<() => void> = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          measureCallbacks.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
     await render(
       [
         'root = Card([block])',
@@ -326,22 +338,47 @@ describe('CardBlock carousel', () => {
     const next = byText<HTMLButtonElement>('[data-slot="carousel-next"]', '下一张');
     expect(previous.querySelector('.sr-only')?.textContent).toBe('上一张');
     expect(next.querySelector('.sr-only')?.textContent).toBe('下一张');
-    expect(host.querySelectorAll('[data-slot="carousel-item"]').length).toBe(2);
+    const items = [...host.querySelectorAll<HTMLElement>('[data-slot="carousel-item"]')];
+    expect(items.length).toBe(2);
 
-    // jsdom 没有轨道几何，两个按钮都会是禁用态；真实可滚动性由主会话上屏核对。
-    expect(previous.disabled).toBe(true);
-    expect(next.disabled).toBe(true);
-    // 键盘方向键由 carousel 原语接管；jsdom 量不到轨道尺寸，这里只验证事件被消费。
+    // jsdom 没有真实轨道几何，这里按 ui-sdk 的读取方式补最小几何得到两页；真实滚动由主会话上屏核对。
+    const viewport = host.querySelector<HTMLElement>('[data-slot="carousel-viewport"]');
+    for (const [index, item] of items.entries()) {
+      Object.defineProperty(item, 'offsetLeft', { configurable: true, value: index * 200 });
+      item.style.width = '200px';
+    }
+    if (viewport) {
+      Object.defineProperty(viewport, 'clientWidth', { configurable: true, value: 400 });
+      Object.defineProperty(viewport, 'scrollWidth', { configurable: true, value: 600 });
+    }
+    await act(async () => {
+      for (const measure of measureCallbacks) measure();
+    });
+    await settle();
+
+    expect(previous.getAttribute('aria-disabled')).toBe('true');
+    expect(previous.hasAttribute('data-disabled')).toBe(true);
+    expect(next.hasAttribute('aria-disabled')).toBe(false);
+    expect(next.hasAttribute('data-disabled')).toBe(false);
+    expect(previous.disabled).toBe(false);
+    expect(next.disabled).toBe(false);
+
     const keyEvent = new KeyboardEvent('keydown', {
       key: 'ArrowRight',
       bubbles: true,
       cancelable: true,
     });
     await act(async () => {
-      region?.dispatchEvent(keyEvent);
+      viewport?.dispatchEvent(keyEvent);
     });
     await settle();
     expect(keyEvent.defaultPrevented).toBe(true);
+    expect(previous.hasAttribute('aria-disabled')).toBe(false);
+    expect(previous.hasAttribute('data-disabled')).toBe(false);
+    expect(next.getAttribute('aria-disabled')).toBe('true');
+    expect(next.hasAttribute('data-disabled')).toBe(true);
+    expect(previous.disabled).toBe(false);
+    expect(next.disabled).toBe(false);
     expect(previous.tabIndex).toBeGreaterThanOrEqual(0);
     expect(next.tabIndex).toBeGreaterThanOrEqual(0);
   });

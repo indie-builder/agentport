@@ -29,7 +29,6 @@ import {
 } from 'lucide-react';
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { type Control, type Path, type PathValue, useController, useWatch } from 'react-hook-form';
-import { toast } from 'sonner';
 import { AgentOverview } from '../../components/agent/agent-overview.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { MemoryPanel } from '../../components/memory/memory-panel.js';
@@ -110,7 +109,7 @@ import {
   useSkills,
   useUpdateAgent,
 } from '../../lib/queries.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
+import { toast, toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 import { AgentInstructions } from './agent-instructions.js';
 import { DuplicateAgentDialog } from './create-agent-dialog.js';

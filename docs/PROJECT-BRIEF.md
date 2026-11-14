@@ -139,7 +139,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 源码编辑 | CodeMirror 6（按需加载） | 6.43.15（`@codemirror/view`）等子包 |
 | 智能体输出渲染 | Streamdown（含 `@streamdown/code`） | 2.7.1 / 2.0.0 |
 | 生成式 UI | OpenUI：`@openuidev/lang-core`（后端）、`@openuidev/react-lang`（前端）、`@openuidev/cli`（生成 spec） | 1.1.1 / 1.1.1 / 0.6.3；`@openuidev/react-ui` 0.18.8 仅作开发期契约对照（测试用） |
-| 提示 | sonner | 2.0.8 |
+| 提示 | ui-sdk toast（`@ui-sdk/react/toast`） | 0.1.0-beta.2 |
 | 图标 | lucide-react | 1.66.0 |
 | 流式 | 原生 `EventSource` | 无需额外库 |
 | 本地访问 | Portless（开发期 `bun run dev` 分配域名） | 0.15.12 |

@@ -275,27 +275,10 @@ export function SelectItemRenderer() {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** 纯日期按本地年月日往返，不走 UTC：东八区上午选 28 不能存成 27。 */
-function toDate(value: unknown): Date | undefined {
-  if (value instanceof Date) return value;
-  if (typeof value !== 'string') return undefined;
-  const [year, month, day] = value.slice(0, 10).split('-');
-  if (
-    !ISO_DATE.test(value.slice(0, 10)) ||
-    year === undefined ||
-    month === undefined ||
-    day === undefined
-  ) {
-    return undefined;
-  }
-  return new Date(Number(year), Number(month) - 1, Number(day));
-}
-
-function toIso(date: Date | undefined): string | undefined {
-  if (!date) return undefined;
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
+function isoDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const date = value.slice(0, 10);
+  return ISO_DATE.test(date) ? date : null;
 }
 
 export function DatePickerRenderer({
@@ -309,10 +292,11 @@ export function DatePickerRenderer({
   const field = useField(props.name, props.value, props.rules);
   const wiring = useFieldWiring();
   const mode = props.mode ?? 'single';
-  const selected = mode === 'range' ? undefined : toDate(field.value);
+  const selected = mode === 'range' ? null : isoDate(field.value);
   const rangeValue = field.value as { from?: string; to?: string } | undefined;
-  const from = mode === 'range' ? toDate(rangeValue?.from) : undefined;
-  const to = mode === 'range' ? toDate(rangeValue?.to) : undefined;
+  const from = mode === 'range' ? isoDate(rangeValue?.from) : null;
+  const to = mode === 'range' ? isoDate(rangeValue?.to) : null;
+  const range = from && to ? ([from, to] as [string, string]) : null;
   const label =
     mode === 'range'
       ? [rangeValue?.from, rangeValue?.to].filter(Boolean).join(' → ')
@@ -344,24 +328,26 @@ export function DatePickerRenderer({
         {mode === 'range' ? (
           <Calendar
             mode="range"
-            selected={{ from, to }}
-            {...(from ? { defaultMonth: from } : {})}
-            onSelect={(range) => {
-              const next = { from: toIso(range?.from), to: toIso(range?.to) };
-              field.setValue(next);
-              field.validate(next);
+            value={range}
+            {...(from ? { defaultMonth: from.slice(0, 7) } : {})}
+            onValueChange={(next) => {
+              const [start, end] = Array.isArray(next) ? next : [];
+              const value = { from: start, to: end };
+              field.setValue(value);
+              field.validate(value);
             }}
           />
         ) : (
           <Calendar
             mode="single"
-            selected={selected}
-            {...(selected ? { defaultMonth: selected } : {})}
-            onSelect={(date) => {
+            deselectable
+            value={selected}
+            {...(selected ? { defaultMonth: selected.slice(0, 7) } : {})}
+            onValueChange={(next) => {
               // 空字符串而非 undefined：官方 fieldGetter 回退会把 undefined 还原成 props 字面量初值。
-              const next = toIso(date) ?? '';
-              field.setValue(next);
-              field.validate(next);
+              const value = typeof next === 'string' ? next : '';
+              field.setValue(value);
+              field.validate(value);
             }}
           />
         )}

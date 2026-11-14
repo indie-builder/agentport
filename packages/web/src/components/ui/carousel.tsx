@@ -1,170 +1,55 @@
+'use client';
+
+import {
+  CarouselContent,
+  CarouselItem as CarouselItemPrimitive,
+  CarouselNext as CarouselNextPrimitive,
+  CarouselPrevious as CarouselPreviousPrimitive,
+  Carousel as CarouselPrimitive,
+  CarouselViewport as CarouselViewportPrimitive,
+} from '@ui-sdk/react/carousel';
 import { cn } from 'cn';
-import useEmblaCarousel, { type UseEmblaCarouselType } from 'embla-carousel-react';
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
-import { useReducedMotion } from 'motion/react';
-import * as React from 'react';
-import { Button } from '@/components/ui/button';
+import type { ComponentProps } from 'react';
+import { buttonVariants } from '@/components/ui/button';
 
-type CarouselApi = UseEmblaCarouselType[1];
-type UseCarouselParameters = Parameters<typeof useEmblaCarousel>;
-type CarouselOptions = UseCarouselParameters[0];
-type CarouselPlugin = UseCarouselParameters[1];
-
-type CarouselProps = {
-  opts?: CarouselOptions;
-  plugins?: CarouselPlugin;
-  orientation?: 'horizontal' | 'vertical';
-  setApi?: (api: CarouselApi) => void;
-};
-
-type CarouselContextProps = {
-  carouselRef: ReturnType<typeof useEmblaCarousel>[0];
-  api: ReturnType<typeof useEmblaCarousel>[1];
-  scrollPrev: () => void;
-  scrollNext: () => void;
-  canScrollPrev: boolean;
-  canScrollNext: boolean;
-} & CarouselProps;
-
-const CarouselContext = React.createContext<CarouselContextProps | null>(null);
-
-function useCarousel() {
-  const context = React.useContext(CarouselContext);
-
-  if (!context) {
-    throw new Error('useCarousel must be used within a <Carousel />');
-  }
-
-  return context;
-}
-
-function Carousel({
-  orientation = 'horizontal',
-  opts,
-  setApi,
-  plugins,
-  className,
-  children,
-  ...props
-}: React.ComponentProps<'div'> & CarouselProps) {
-  const [carouselRef, api] = useEmblaCarousel(
-    {
-      ...opts,
-      axis: orientation === 'horizontal' ? 'x' : 'y',
-    },
-    plugins,
-  );
-  const [canScrollPrev, setCanScrollPrev] = React.useState(false);
-  const [canScrollNext, setCanScrollNext] = React.useState(false);
-  const reduceMotion = useReducedMotion() === true;
-
-  const onSelect = React.useCallback((api: CarouselApi) => {
-    if (!api) return;
-    setCanScrollPrev(api.canScrollPrev());
-    setCanScrollNext(api.canScrollNext());
-  }, []);
-
-  const scrollPrev = React.useCallback(() => {
-    api?.scrollPrev(reduceMotion);
-  }, [api, reduceMotion]);
-
-  const scrollNext = React.useCallback(() => {
-    api?.scrollNext(reduceMotion);
-  }, [api, reduceMotion]);
-
-  // Embla v8 的 jump 参数跳过 JS 动画（duration 是速度系数，不是毫秒）；键盘要即时反馈。
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        api?.scrollPrev(true);
-      } else if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        api?.scrollNext(true);
+function Carousel({ className, ...props }: ComponentProps<typeof CarouselPrimitive>) {
+  return (
+    <CarouselPrimitive
+      className={(state) =>
+        cn('relative', typeof className === 'function' ? className(state) : className)
       }
-    },
-    [api],
-  );
-
-  React.useEffect(() => {
-    if (!api || !setApi) return;
-    setApi(api);
-  }, [api, setApi]);
-
-  React.useEffect(() => {
-    if (!api) return;
-    onSelect(api);
-    api.on('reInit', onSelect);
-    api.on('select', onSelect);
-
-    return () => {
-      api?.off('select', onSelect);
-    };
-  }, [api, onSelect]);
-
-  // Embla 松手后总会跑惯性动画；pointerUp 时它已算好吸附点，reduceMotion 下直接跳过去。
-  React.useEffect(() => {
-    if (!api || !reduceMotion) return;
-    const handlePointerUp = () => api.scrollTo(api.selectedScrollSnap(), true);
-    api.on('pointerUp', handlePointerUp);
-    return () => {
-      api.off('pointerUp', handlePointerUp);
-    };
-  }, [api, reduceMotion]);
-
-  return (
-    <CarouselContext.Provider
-      value={{
-        carouselRef,
-        api: api,
-        opts,
-        orientation: orientation || (opts?.axis === 'y' ? 'vertical' : 'horizontal'),
-        scrollPrev,
-        scrollNext,
-        canScrollPrev,
-        canScrollNext,
-      }}
-    >
-      <div
-        onKeyDownCapture={handleKeyDown}
-        className={cn('relative', className)}
-        role="region"
-        aria-roledescription="carousel"
-        data-slot="carousel"
-        {...props}
-      >
-        {children}
-      </div>
-    </CarouselContext.Provider>
+      {...props}
+    />
   );
 }
 
-function CarouselContent({ className, ...props }: React.ComponentProps<'div'>) {
-  const { carouselRef, orientation } = useCarousel();
-
+function CarouselViewport({
+  className,
+  ...props
+}: ComponentProps<typeof CarouselViewportPrimitive>) {
   return (
-    <div ref={carouselRef} className="overflow-hidden" data-slot="carousel-content">
-      <div
-        className={cn('flex', orientation === 'horizontal' ? '-ml-4' : '-mt-4 flex-col', className)}
-        {...props}
-      />
-    </div>
+    <CarouselViewportPrimitive
+      className={(state) =>
+        cn(
+          'scrollbar-none outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2',
+          typeof className === 'function' ? className(state) : className,
+        )
+      }
+      {...props}
+    />
   );
 }
 
-function CarouselItem({ className, ...props }: React.ComponentProps<'div'>) {
-  const { orientation } = useCarousel();
-
+function CarouselItem({ className, ...props }: ComponentProps<typeof CarouselItemPrimitive>) {
   return (
-    <div
-      role="group"
-      aria-roledescription="slide"
-      data-slot="carousel-item"
-      className={cn(
-        'min-w-0 shrink-0 grow-0 basis-full',
-        orientation === 'horizontal' ? 'pl-4' : 'pt-4',
-        className,
-      )}
+    <CarouselItemPrimitive
+      className={(state) =>
+        cn(
+          'min-w-0 shrink-0 grow-0 basis-full',
+          typeof className === 'function' ? className(state) : className,
+        )
+      }
       {...props}
     />
   );
@@ -172,70 +57,61 @@ function CarouselItem({ className, ...props }: React.ComponentProps<'div'>) {
 
 function CarouselPrevious({
   className,
-  variant = 'outline',
-  size = 'icon-sm',
+  children,
   ...props
-}: React.ComponentProps<typeof Button>) {
-  const { orientation, scrollPrev, canScrollPrev } = useCarousel();
-
+}: ComponentProps<typeof CarouselPreviousPrimitive>) {
   return (
-    <Button
-      data-slot="carousel-previous"
-      variant={variant}
-      size={size}
-      className={cn(
-        'absolute touch-manipulation rounded-icon',
-        orientation === 'horizontal'
-          ? 'inset-y-0 -left-12 my-auto'
-          : '-top-12 left-1/2 -translate-x-1/2 rotate-90',
-        className,
-      )}
-      disabled={!canScrollPrev}
-      onClick={scrollPrev}
+    <CarouselPreviousPrimitive
+      className={(state) =>
+        cn(
+          buttonVariants({ variant: 'outline', size: 'icon-sm' }),
+          'absolute inset-y-0 -left-12 my-auto touch-manipulation rounded-icon',
+          typeof className === 'function' ? className(state) : className,
+        )
+      }
       {...props}
     >
-      <ChevronLeftIcon />
-      <span className="sr-only">上一张</span>
-    </Button>
+      {children ?? (
+        <>
+          <ChevronLeftIcon />
+          <span className="sr-only">上一张</span>
+        </>
+      )}
+    </CarouselPreviousPrimitive>
   );
 }
 
 function CarouselNext({
   className,
-  variant = 'outline',
-  size = 'icon-sm',
+  children,
   ...props
-}: React.ComponentProps<typeof Button>) {
-  const { orientation, scrollNext, canScrollNext } = useCarousel();
-
+}: ComponentProps<typeof CarouselNextPrimitive>) {
   return (
-    <Button
-      data-slot="carousel-next"
-      variant={variant}
-      size={size}
-      className={cn(
-        'absolute touch-manipulation rounded-icon',
-        orientation === 'horizontal'
-          ? 'inset-y-0 -right-12 my-auto'
-          : '-bottom-12 left-1/2 -translate-x-1/2 rotate-90',
-        className,
-      )}
-      disabled={!canScrollNext}
-      onClick={scrollNext}
+    <CarouselNextPrimitive
+      className={(state) =>
+        cn(
+          buttonVariants({ variant: 'outline', size: 'icon-sm' }),
+          'absolute inset-y-0 -right-12 my-auto touch-manipulation rounded-icon',
+          typeof className === 'function' ? className(state) : className,
+        )
+      }
       {...props}
     >
-      <ChevronRightIcon />
-      <span className="sr-only">下一张</span>
-    </Button>
+      {children ?? (
+        <>
+          <ChevronRightIcon />
+          <span className="sr-only">下一张</span>
+        </>
+      )}
+    </CarouselNextPrimitive>
   );
 }
 
 export {
   Carousel,
-  type CarouselApi,
   CarouselContent,
   CarouselItem,
   CarouselNext,
   CarouselPrevious,
-  useCarousel,
+  CarouselViewport,
 };

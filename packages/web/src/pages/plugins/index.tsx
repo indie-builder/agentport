@@ -16,7 +16,6 @@ import {
   Upload,
 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
 import { z } from 'zod';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
@@ -53,7 +52,7 @@ import {
 } from '../../lib/queries.js';
 import { matchesQuery } from '../../lib/search.js';
 import { compareBySort } from '../../lib/sort.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
+import { toast, toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 
 const maxPluginBytes = 4_194_304;

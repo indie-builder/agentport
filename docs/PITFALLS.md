@@ -686,3 +686,15 @@
 - **现象**：迁移后 `ComponentProps<typeof X>` 直接作为包装组件的 props 时 typecheck 报 `undefined` 不能赋给可选属性，或既有调用方传 `foo={undefined}` 失败。
 - **原因**：项目 tsconfig 开启 `exactOptionalPropertyTypes: true`，可选属性 `foo?: T` 不接受显式 `undefined`；ui-sdk 的 d.ts 与既有调用习惯不总按该模式声明，包装层透传时出现类型缺口。
 - **规避**：在 `components/ui/*.tsx` 的包装层用 `type Loose<T> = { [K in keyof T]: T[K] | undefined }` 放宽可变属性，再 cast 回原组件 props；不关闭全局 `exactOptionalPropertyTypes`，也不逐个改调用方。升级后 typecheck 会重新暴露这类缺口。
+
+## 前端：ui-sdk `resizable` 量不到布局时不生效，状态不能由 layout 反推
+
+- **现象**：把面板开合状态完全由 `onLayoutChange` 的宽度推出后，jsdom 测试里历史栏永不渲染；浏览器窗口为 0 宽或尚未挂载时同样可能卡住。
+- **原因**：`@ui-sdk/core/resizable` 用实测的可用空间换算尺寸（内部 `space` 初值 0，`<= 0` 时不再更新），量不到布局时 `controller.resize()` 返回 `false` 且不触发 `onLayoutChange`。
+- **规避**：渲染状态由组件自己的 state 驱动，点击路径直接翻转 state 再调 `controller.resize/collapse`；`onLayoutChange` 只用于记住宽度并把用户拖到 0 的结果同步回 state。测试里不要依赖 jsdom 的布局测量。面板 id 在挂载后的微任务里才注册，重新挂载后立刻 `resize()` 会返回 `false`；要在同一个微任务里恢复宽度（`queueMicrotask`），升级 ui-sdk 时先核对这个初始化时序。
+
+## 前端：ui-sdk 的禁用态是 `aria-disabled`，按钮仍可聚焦
+
+- **现象**：轮播到边界时按钮视觉是禁用态，但 `button.disabled` 仍是 `false`，旧断言失败。
+- **原因**：ui-sdk 的上一张/下一张在边界用 `aria-disabled` + `data-disabled` 表达，保持可聚焦符合 APG。
+- **规避**：样式写 `aria-disabled:`/`data-disabled:`，测试断言这两个属性；不要用原生 `disabled` 判断或强制加 `tabindex="-1"`。

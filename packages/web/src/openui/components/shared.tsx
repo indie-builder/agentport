@@ -6,6 +6,7 @@ import {
   CarouselItem,
   CarouselNext,
   CarouselPrevious,
+  CarouselViewport,
 } from '../../components/ui/carousel.js';
 import { cn } from '../../lib/cn.js';
 
@@ -162,8 +163,7 @@ export function CardBlockGrid({
   const gapStyle =
     gap === undefined ? undefined : { gap: typeof gap === 'number' ? `${gap}px` : gap };
   if (layout === 'carousel') {
-    // 间距只放在轨道 gap 上：item 带内距会把 12px 算进 basis，可见卡宽短一截；
-    // shadcn 默认的 -ml-4/pl-4 成对抵消，换成 gap 后必须都归零，避免双间距。
+    // 间距只放在轨道 gap 上：item 带内距会把 12px 算进 basis，可见卡宽短一截。
     // 两列时各让出半个 gap，两张加一个 gap 正好铺满轨道，不裁第二张；gap 走自定义属性，由轨道与卡宽共用。
     const gapValue =
       gap === undefined ? 'calc(var(--spacing) * 3)' : typeof gap === 'number' ? `${gap}px` : gap;
@@ -179,15 +179,17 @@ export function CardBlockGrid({
             : 'basis-70',
     );
     return (
-      <Carousel opts={{ align: 'start' }} className="@container min-w-0">
-        <CarouselContent style={trackStyle} className="ml-0">
-          {Children.toArray(children).map((child, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: 幻灯片由模型按顺序生成
-            <CarouselItem key={index} className={itemClass}>
-              {child}
-            </CarouselItem>
-          ))}
-        </CarouselContent>
+      <Carousel aria-label="卡片轮播" align="start" className="@container min-w-0">
+        <CarouselViewport>
+          <CarouselContent style={trackStyle} className="ml-0">
+            {Children.toArray(children).map((child, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 幻灯片由模型按顺序生成
+              <CarouselItem key={index} className={itemClass}>
+                {child}
+              </CarouselItem>
+            ))}
+          </CarouselContent>
+        </CarouselViewport>
         {/* 官方把按钮放在轨道两侧，728px 轴线里会溢出；这里留在下方操作行。 */}
         <div className="mt-2 flex items-center justify-end gap-1">
           <CarouselPrevious className="static inset-auto translate-y-0 rounded-icon" />

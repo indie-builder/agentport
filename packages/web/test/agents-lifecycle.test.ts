@@ -11,10 +11,10 @@ import {
 } from '@tanstack/react-router';
 import { act, createElement, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../src/lib/api.js';
 import { useAgentSummary } from '../src/lib/queries.js';
+import { toast } from '../src/lib/toast.js';
 import { AgentDetailPage, AgentsPage } from '../src/pages/agents/index.js';
 import { allAccessMe } from './me-fixture.js';
 

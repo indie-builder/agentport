@@ -45,7 +45,7 @@ describe('every contract component renders content', () => {
         disconnect() {}
       },
     );
-    // Carousel 用 embla：它需要 matchMedia 与 IntersectionObserver，jsdom 默认都没有。
+    // Carousel 依赖 ResizeObserver、IntersectionObserver 与 matchMedia 测量可见页，jsdom 默认都没有。
     vi.stubGlobal(
       'IntersectionObserver',
       class {
@@ -76,7 +76,7 @@ describe('every contract component renders content', () => {
   });
 
   afterEach(async () => {
-    // Carousel 的 embla 在 jsdom 里可能抛错，别让一次失败污染后续用例。
+    // Carousel 依赖布局测量与观察器，jsdom 下可能抛错，别让一次失败污染后续用例。
     try {
       await act(async () => root.unmount());
     } catch {
@@ -107,7 +107,7 @@ describe('every contract component renders content', () => {
   it.each(Object.entries(SAMPLES).map(([name, sample]) => [name, sample] as const))(
     '%s renders readable output',
     async (name, sample) => {
-      // 每个用例独立根：Carousel 的 embla 在 jsdom 会抛错，
+      // 每个用例独立根：Carousel 依赖布局测量与观察器，jsdom 下渲染或卸载可能抛错，
       // 复用同一个 root 会让后续用例全部连带失败（Should not already be working）。
       const localHost = document.createElement('div');
       document.body.append(localHost);

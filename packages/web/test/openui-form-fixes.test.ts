@@ -83,8 +83,15 @@ describe('DatePicker', () => {
     );
 
     await click(byText('Select date'));
-    const cell = document.querySelector(`td[data-day="${targetIso}"]`);
-    await click(cell?.querySelector('button'));
+    const cell = document.querySelector(
+      `[data-slot="calendar-day"][data-value="${targetIso}"]`,
+    );
+    await click(cell);
+    expect(
+      document
+        .querySelector(`[data-slot="calendar-day"][data-value="${targetIso}"]`)
+        ?.getAttribute('aria-selected'),
+    ).toBe('true');
     await click(byText('提交'));
 
     expect(onAction.mock.calls.at(-1)?.[0]?.formState?.booking?.when?.value).toBe(targetIso);
@@ -103,7 +110,9 @@ describe('DatePicker', () => {
     expect(byText(targetIso)).toBeTruthy();
     await click(byText(targetIso));
     expect(
-      document.querySelector(`td[data-day="${targetIso}"]`)?.getAttribute('aria-selected'),
+      document
+        .querySelector(`[data-slot="calendar-day"][data-value="${targetIso}"]`)
+        ?.getAttribute('aria-selected'),
     ).toBe('true');
   });
 
@@ -115,9 +124,11 @@ describe('DatePicker', () => {
 
     await click(byText('2030-06-15'));
     expect(document.body.textContent).toContain('June 2030');
-    expect(document.querySelector('td[data-day="2030-06-15"]')?.getAttribute('aria-selected')).toBe(
-      'true',
-    );
+    expect(
+      document
+        .querySelector('[data-slot="calendar-day"][data-value="2030-06-15"]')
+        ?.getAttribute('aria-selected'),
+    ).toBe('true');
   });
 
   it('clears a literal initial date instead of restoring it', async () => {
@@ -132,8 +143,13 @@ describe('DatePicker', () => {
     );
 
     await click(byText('2030-06-15'));
-    await click(document.querySelector('td[data-day="2030-06-15"] button'));
-    expect(byText('Select date')).toBeTruthy();
+    await click(document.querySelector('[data-slot="calendar-day"][data-value="2030-06-15"]'));
+    expect(byText('Select date').textContent).toContain('Select date');
+    expect(
+      document
+        .querySelector('[data-slot="calendar-day"][data-value="2030-06-15"]')
+        ?.getAttribute('aria-selected'),
+    ).toBe('false');
 
     await click(byText('提交'));
     expect(onAction.mock.calls.at(-1)?.[0]?.formState?.booking?.when?.value).toBe('');
@@ -163,14 +179,30 @@ describe('DatePicker range', () => {
     await click(byText('2030-06-10 → 2030-06-12'));
     expect(document.body.textContent).toContain('June 2030');
     expect(
-      document.querySelector('td[data-day="2030-06-10"] button')?.getAttribute('data-range-start'),
-    ).toBe('true');
+      document
+        .querySelector('[data-slot="calendar-day"][data-value="2030-06-10"]')
+        ?.hasAttribute('data-range-start'),
+    ).toBe(true);
     expect(
-      document.querySelector('td[data-day="2030-06-12"] button')?.getAttribute('data-range-end'),
-    ).toBe('true');
+      document
+        .querySelector('[data-slot="calendar-day"][data-value="2030-06-11"]')
+        ?.hasAttribute('data-range-middle'),
+    ).toBe(true);
+    expect(
+      document
+        .querySelector('[data-slot="calendar-day"][data-value="2030-06-12"]')
+        ?.hasAttribute('data-range-end'),
+    ).toBe(true);
+    for (const day of ['2030-06-10', '2030-06-11', '2030-06-12']) {
+      expect(
+        document
+          .querySelector(`[data-slot="calendar-day"][data-value="${day}"]`)
+          ?.getAttribute('aria-selected'),
+      ).toBe('true');
+    }
 
-    await click(document.querySelector('td[data-day="2030-06-10"] button'));
-    await click(document.querySelector('td[data-day="2030-06-12"] button'));
+    await click(document.querySelector('[data-slot="calendar-day"][data-value="2030-06-10"]'));
+    await click(document.querySelector('[data-slot="calendar-day"][data-value="2030-06-12"]'));
     await click(byText('提交'));
     expect(onAction.mock.calls.at(-1)?.[0]?.formState?.booking?.stay?.value).toEqual({
       from: '2030-06-10',

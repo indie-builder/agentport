@@ -13,17 +13,20 @@ import {
 import { delay, HttpResponse, http } from 'msw';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { toast } from 'sonner';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { useKnowledgeSearch } from '../src/lib/queries.js';
-import { toastError, toastSuccess } from '../src/lib/toast.js';
+import { toast, toastError, toastSuccess } from '../src/lib/toast.js';
 import { KnowledgePage } from '../src/pages/knowledge/index.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge/detail/index.js';
 import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';
 
-vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
+vi.mock('../src/lib/toast.js', () => ({
+  toast: { success: vi.fn(), info: vi.fn(), warning: vi.fn(), error: vi.fn() },
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+}));
 
 const base = {
   id: 'kb_1',
