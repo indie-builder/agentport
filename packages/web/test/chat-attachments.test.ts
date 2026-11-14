@@ -650,7 +650,9 @@ describe('history attachments', () => {
     expect(link?.getAttribute('href')).toBe(
       `/api/conversations/conversation-a/attachments/${attachmentId}/download`,
     );
-    expect(link?.textContent).toContain('readme.md');
-    expect(link?.textContent).toContain('12 B');
+    expect(link?.getAttribute('aria-label')).toContain('readme.md');
+    const attachmentText = link?.closest('[data-slot="attachment"]')?.textContent ?? '';
+    expect(attachmentText).toContain('readme.md');
+    expect(attachmentText).toContain('12 B');
   });
 });

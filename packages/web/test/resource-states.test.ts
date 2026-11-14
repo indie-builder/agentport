@@ -415,7 +415,10 @@ describe('resource async state regressions', () => {
           expect(queryClient.getQueryState(['agents'])?.status).toBe('success'),
         );
         inspect(queryClient, ServersPage, (tree) => {
-          expect(serverCell(tree, 'agents')(server)).toBe(1);
+          const markup = renderToStaticMarkup(
+            createElement('div', null, serverCell(tree, 'agents')(server)),
+          );
+          expect(markup).toContain('查看使用该连接器的 1 个专家');
         });
       }
     },
