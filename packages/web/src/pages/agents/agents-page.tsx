@@ -183,14 +183,14 @@ export function AgentsPage() {
                   editorTriggerRef.current = event.currentTarget;
                   fileInput.current?.click();
                 }}
-                className={canCreate ? undefined : 'hidden'}
+                {...(canCreate ? {} : { className: 'hidden' })}
               >
                 <Upload data-icon="inline-start" /> {importing ? '导入中…' : '导入'}
               </Button>
               <Button
                 ref={createButtonRef}
                 disabled={importing}
-                className={canCreate ? undefined : 'hidden'}
+                {...(canCreate ? {} : { className: 'hidden' })}
                 onClick={(event) => {
                   editorTriggerRef.current = event.currentTarget;
                   setCreateRole(role || '通用助手');

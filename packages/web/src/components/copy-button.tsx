@@ -48,7 +48,7 @@ export function CopyButton({
       onClick={() => void copy()}
       aria-label={text}
       title={text}
-      className={className}
+      {...(className === undefined ? {} : { className })}
     >
       <span key={`icons-${nonce}`} className="grid">
         <Copy

@@ -30,20 +30,20 @@ function CollapsibleContent({
   return (
     <BaseCollapsibleContent
       data-slot="collapsible-content"
-      keepMounted={keepMounted}
-      hiddenUntilFound={keepMounted}
-      className={
-        animated
-          ? (state: CollapsiblePanelState) =>
-              cn(ANIMATED_PANEL, typeof className === 'function' ? className(state) : className)
-          : className
-      }
-      render={
-        render ??
-        (keepMounted || animated
-          ? (panelProps, state) => <div {...panelProps} inert={!state.open} />
-          : undefined)
-      }
+      {...(keepMounted === undefined ? {} : { keepMounted, hiddenUntilFound: keepMounted })}
+      {...(animated
+        ? {
+            className: (state: CollapsiblePanelState) =>
+              cn(ANIMATED_PANEL, typeof className === 'function' ? className(state) : className),
+          }
+        : className === undefined
+          ? {}
+          : { className })}
+      {...(render === undefined && !keepMounted && !animated
+        ? {}
+        : {
+            render: render ?? ((panelProps, state) => <div {...panelProps} inert={!state.open} />),
+          })}
       {...props}
     />
   );

@@ -1,4 +1,5 @@
 import type { KnowledgeDocument } from '@agentport/shared';
+import { Toolbar, ToolbarButton } from '@ui-sdk/react/toolbar';
 import {
   ChevronDown,
   FileText,
@@ -30,7 +31,7 @@ import { PageNote, PageToolbar } from '../../../components/page.js';
 import { SearchInput } from '../../../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../../../components/states.js';
 import { StatusBadge } from '../../../components/status-badge.js';
-import { Button } from '../../../components/ui/button.js';
+import { Button, buttonVariants } from '../../../components/ui/button.js';
 import { Checkbox } from '../../../components/ui/checkbox.js';
 import {
   DropdownMenu,
@@ -457,44 +458,56 @@ export function DocumentsTab({
         ) : null}
 
         {(caps.content || caps.execute) && selectedDocuments.length > 0 ? (
-          <div
-            role="toolbar"
+          <Toolbar
             aria-label="批量操作"
             className="flex min-w-0 flex-wrap items-center gap-2 rounded-item bg-sunken px-3 py-2"
           >
             <span className="text-xs text-fg">已选 {selectedDocuments.length} 个</span>
             {caps.content ? (
               <>
-                <Button variant="outline" size="sm" onClick={() => setBatchAction('move')}>
+                <ToolbarButton
+                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                  onClick={() => setBatchAction('move')}
+                >
                   移动
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setBatchAction('copy')}>
+                </ToolbarButton>
+                <ToolbarButton
+                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                  onClick={() => setBatchAction('copy')}
+                >
                   复制
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setBatchAction('tag')}>
+                </ToolbarButton>
+                <ToolbarButton
+                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                  onClick={() => setBatchAction('tag')}
+                >
                   标签
-                </Button>
+                </ToolbarButton>
               </>
             ) : null}
             {caps.execute ? (
-              <Button variant="outline" size="sm" onClick={() => setBatchAction('reprocess')}>
+              <ToolbarButton
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                onClick={() => setBatchAction('reprocess')}
+              >
                 重新解析
-              </Button>
+              </ToolbarButton>
             ) : null}
             {caps.content ? (
-              <Button variant="destructive" size="sm" onClick={() => setBatchAction('delete')}>
+              <ToolbarButton
+                className={buttonVariants({ variant: 'destructive', size: 'sm' })}
+                onClick={() => setBatchAction('delete')}
+              >
                 删除
-              </Button>
+              </ToolbarButton>
             ) : null}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto"
+            <ToolbarButton
+              className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'ml-auto')}
               onClick={() => setSelectedIds(new Set())}
             >
               取消选择
-            </Button>
-          </div>
+            </ToolbarButton>
+          </Toolbar>
         ) : null}
 
         {documentItems.some((doc) => doc.status === 'pending' || doc.status === 'processing') &&

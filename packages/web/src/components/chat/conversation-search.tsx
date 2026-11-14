@@ -89,7 +89,7 @@ export function ConversationSearch({
       <DialogContent
         showCloseButton={false}
         aria-describedby={undefined}
-        finalFocus={finalFocus}
+        {...(finalFocus === undefined ? {} : { finalFocus })}
         className="top-[14vh] flex max-h-[min(70vh,36rem)] w-full max-w-xl translate-y-0 flex-col gap-0 overflow-hidden p-0"
       >
         <DialogTitle className="sr-only">搜索会话</DialogTitle>

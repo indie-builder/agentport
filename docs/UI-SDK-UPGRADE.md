@@ -34,6 +34,9 @@ rg -n "@ui-sdk/" packages/web/src
 | `packages/web/src/components/chat/conversation-search.tsx` | `@ui-sdk/react/command` | Command 的 item/group 结构与键盘行为 |
 | `packages/web/src/components/ui/slider.tsx` | `@ui-sdk/core`、`@ui-sdk/core/slider`、`@ui-sdk/react/primitive`、`@ui-sdk/react/slider`、`@ui-sdk/react/field` | `createParts`/`usePart` 的 slot 映射、`useFieldControl` 的字段属性 |
 | `packages/web/src/components/ui/sortable-list.tsx` | `@ui-sdk/core`（`definePrimitive`/`createReorder`）、`@ui-sdk/react/primitive` | 草稿/`data-moving`、`preview`、`message` 播报签名、`reorder.bind` 与手柄按键 |
+| `packages/web/src/components/ui/mention-list.tsx` | `@ui-sdk/core`（`definePrimitive`/`createListbox`/`selects`）、`@ui-sdk/react/primitive` | `focus: 'virtual'` 与 `bindInput` 的 `aria-activedescendant`/`aria-autocomplete`/`aria-haspopup`/`aria-controls` 契约（textarea 保持 `textbox`，不写 `role`/`aria-expanded`）；方向键与 Enter/Tab/Escape 由 primitive 接管 |
+| `packages/web/src/pages/servers/tool-editor-dialog.tsx`、`packages/web/src/pages/knowledge/detail/documents-tab.tsx`、`packages/web/src/components/knowledge/knowledge-faq.tsx` | `@ui-sdk/react/toolbar` | `Toolbar`/`ToolbarButton` 的 roving focus 与默认循环；禁用走 `aria-disabled`/`data-disabled`，外观用 `buttonVariants` 叠 class |
+| `packages/web/src/components/ui/{label,textarea}.tsx` | `@ui-sdk/react/{label,textarea}` | 包装层只叠 `data-slot` 与 class；核对根元素与字段属性 |
 | `packages/web/src/components/ui/{badge,attachment,bubble,marker}.tsx` | `@ui-sdk/react/primitive` | `renderElement`、`PartProps` 的形状 |
 | `packages/web/src/lib/toast.ts`、`App.tsx` | `@ui-sdk/react/toast` | `createToaster` 选项、`ToastRegion` 的位置/`maxVisible`、`Toast*` part 的渲染函数签名 |
 | `packages/web/src/components/ui/{calendar,carousel}.tsx` | `@ui-sdk/react/{calendar,carousel}` | 日期值形状（ISO 字符串）、`CalendarDay` 状态字段、`CarouselViewport` 结构与 `aria-disabled` |
@@ -42,6 +45,8 @@ rg -n "@ui-sdk/" packages/web/src
 | `packages/web/src/components/**` | 经 ui 组件间接使用 | 是否绕过 ui 组件直接 import |
 
 > 纪律：任何 `@ui-sdk/*` 的 import 都保持规范 specifier（`@ui-sdk/react/<component>`）。升级时用 `rg -n "@ui-sdk/"` 列全引用；本地变量或组件名可以另起，不影响按包路径检索。
+
+**为何不用 `@ui-sdk/react/trigger-menu`**：ui-sdk 另有 trigger-menu，可用 `editor` + `textFieldAdapter` 接现有 textarea 专门做 @ 触发，本项目未采用。`TriggerMenuContent` 是光标锚定浮层，而本产品提及面板是 composer 上方整宽内联列表、每项带「运行中」徽标，textarea 生命周期归 Composer（附件、取消运行、尺寸等），迁移会改动已批准的视觉与布局基线。因此用官方组合 `createListbox({ focus: 'virtual' })` 实现，属于官方能力组合而非兼容层；若将来提及面板改为浮层形态，可迁到 trigger-menu。
 
 ## 升级步骤
 
@@ -63,6 +68,21 @@ rg -n "@ui-sdk/" packages/web/src
 
 | 日期 | from → to | 改动（组件/文件） | 踩坑 | 验证 |
 |---|---|---|---|---|
-| 2026-11-14 | 未接入 → `0.1.0-beta.2` | 全量替换 Base UI 为 ui-sdk 原生 | `@layer ui-sdk` 须在 Tailwind 前声明；`exactOptionalPropertyTypes` 需 `Loose<T>` 包装；焦点契约检查改认 `data-dragging` | typecheck/build/lint 绿；`test:web` 1926 通过、12 条既有失败 |
+| 2026-11-14 | 未接入 → `0.1.0-beta.2` | 全量替换 Base UI 为 ui-sdk 原生 | `@layer ui-sdk` 须在 Tailwind 前声明；`exactOptionalPropertyTypes` 的可选属性一律由调用方条件展开传入；焦点契约检查改认 `data-dragging` | typecheck/build/lint 绿；`test:web` 1926 通过、12 条既有失败 |
 | 2026-11-14 | 移除 sonner / embla-carousel-react / react-day-picker / react-resizable-panels | `lib/toast` + `App.tsx`、`components/ui/{calendar,carousel}`、`openui/components/*`、`pages/chat`、`pages/plugins/plugin-detail` | resizable 的数字是百分比、像素要写 `"240px"`；jsdom 里它测不到布局，折叠/展开不能由 layout 反推状态；UI 断言不要绑定 `.rdp-*` / `data-day` / `embla` 调用 | typecheck/build/lint 绿；`test:web` 1933 通过、10 条既有失败 |
 | 2026-11-14 | 移除 `@dnd-kit/*` | `components/data-table.tsx`、新增 `components/ui/sortable-list.tsx` | TanStack Table 仍是顺序唯一来源，primitive 只存拖动草稿；Escape 先取消拖动并保留弹层，Tab 取消并继续；拖动预览用 `preview` | typecheck/build 通过；`test:web` 1933 通过、10 条既有失败；`/operations` 真实浏览器验证指针/键盘/持久化 |
+| 2026-11-14 | `0.1.0-beta.2`（版本不变） | 手写交互原生化：`pages/channels/channel.tsx` 提及列表改用 `components/ui/mention-list.tsx`（`createListbox` virtual focus）；`pages/servers/tool-editor-dialog.tsx`、`pages/knowledge/detail/documents-tab.tsx`、`components/knowledge/knowledge-faq.tsx` 的 `role="toolbar"` 改用 `Toolbar`/`ToolbarButton`；`components/ui/{label,textarea}.tsx` 改用 ui-sdk 原生；删除 `components/ui/*` 里全部 `Loose<T>` 垫片 | 提及列表焦点留在共享 textarea，靠 `aria-activedescendant` 关联；可选属性改在调用方条件展开 `{...(cond ? { foo } : {})}`，不再放宽类型 | typecheck 通过；`test:web` 1933 通过、10 条既有失败 |
+
+### 视觉验收（真实渲染）· 2026-11-14
+
+官方 `visual:shots` 固定端口 3000/5173 当时被开发栈占用，故改用隔离端口起栈 + 真实登录，做多视口整页长图验收；下列截图路径为本次留存。
+
+| 项目 | 路由 / 视口 | 截图 | 结论 |
+|---|---|---|---|
+| 频道 @ 提及（菜单打开态） | `/channels/<id>`，1440x900 与 1200x900 整页长图 | `/tmp/visual-finish/channel-mention-1440x900-full.png`、`/tmp/visual-finish/channel-mention-1200x900-full.png` | textarea 无 `role`/`aria-expanded`，具备 `aria-autocomplete="list"`/`aria-haspopup="listbox"`/`aria-controls`/`aria-activedescendant`；方向键首尾环绕、Enter/Tab 插入、Escape 关闭后 aria-* 清除，焦点始终在 textarea；无横向溢出、单一 h1、无 console error |
+| 知识库文档批量工具栏 | 1440x900 | `/tmp/toolbar-documents-1440.png` | 与 FAQ 工具栏同源表现一致；roving focus（Tab 进出一次、方向键移动、Enter 触发）、`aria-disabled`/`data-disabled` 生效、`ml-auto` 布局不变 |
+| 知识库 FAQ 批量工具栏 | 1440x900 与 1200x900 | `/tmp/toolbar-faq-1440.png`、`/tmp/toolbar-faq-1200.png` | 同上；禁用态见 `/tmp/toolbar-disabled.png` |
+| 新建连接器表单（label + textarea） | 1440x900 与 1200x900 | `/tmp/agentport-visual/server-dialog-1440.png`、`/tmp/agentport-visual/server-dialog-1200.png` | textarea 尺寸/`field-sizing-content`/边框/圆角/焦点环与禁用态与设计一致，点击 label 正确聚焦控件 |
+| 专家行为表单 | 1440x900 与 1200x900 | `/tmp/agentport-visual/agent-behavior-1440.png`、`/tmp/agentport-visual/agent-behavior-1200.png` | 同上 |
+
+限制：工具编辑弹层的批量工具栏未单独在浏览器实测（结构与其它两处 toolbar 同源，类型检查与代码审查通过）。

@@ -681,11 +681,11 @@
 - **原因**：CSS 级联层的先后由首次声明顺序决定；`@layer ui-sdk;` 若写在 `@import "tailwindcss"` 之后，ui-sdk 层会排在 Tailwind 的 base/components/utilities 之后而取得更高优先级。
 - **规避**：在全局样式表顶部、`@import "tailwindcss"` 之前声明 `@layer ui-sdk;`（当前 `packages/web/src/styles.css`）；升级后用真实渲染核对覆盖效果，不能只看 class 是否存在。
 
-## 前端：ui-sdk 包装组件在 `exactOptionalPropertyTypes` 下要放宽可选属性
+## 前端：`exactOptionalPropertyTypes` 的可选属性在调用方条件展开，不放宽类型
 
-- **现象**：迁移后 `ComponentProps<typeof X>` 直接作为包装组件的 props 时 typecheck 报 `undefined` 不能赋给可选属性，或既有调用方传 `foo={undefined}` 失败。
-- **原因**：项目 tsconfig 开启 `exactOptionalPropertyTypes: true`，可选属性 `foo?: T` 不接受显式 `undefined`；ui-sdk 的 d.ts 与既有调用习惯不总按该模式声明，包装层透传时出现类型缺口。
-- **规避**：在 `components/ui/*.tsx` 的包装层用 `type Loose<T> = { [K in keyof T]: T[K] | undefined }` 放宽可变属性，再 cast 回原组件 props；不关闭全局 `exactOptionalPropertyTypes`，也不逐个改调用方。升级后 typecheck 会重新暴露这类缺口。
+- **现象**：调用方写 `foo={cond ? value : undefined}` 时 typecheck 报 `undefined` 不能赋给可选属性；在 `components/ui/*.tsx` 包装层用 `Loose<T>` 放宽能过，但把缺口藏进共享类型，删垫片时会成批暴露。
+- **原因**：项目 tsconfig 开启 `exactOptionalPropertyTypes: true`，可选属性 `foo?: T` 不接受显式 `undefined`；ui-sdk 的 d.ts 与部分既有调用习惯按「显式 undefined 等于缺席」写。
+- **规避**：在调用方条件展开 `{...(cond ? { foo: value } : {})}`，让键真正缺席；不加 `Loose<T>` 一类放宽垫片，也不关闭全局 `exactOptionalPropertyTypes`。升级 ui-sdk 后 typecheck 重新暴露的同类报错一律按调用方修正。
 
 ## 前端：ui-sdk `resizable` 量不到布局时不生效，状态不能由 layout 反推
 
@@ -704,3 +704,9 @@
 - **现象**：列设置弹层里键盘拖动排序时按 Escape，弹层和拖动一起被取消，用户失去列表。
 - **原因**：`createReorder` 在列表内于原生事件上 `preventDefault` + `stopPropagation` 消费 Escape，弹层的 document 关闭逻辑收不到；焦点已离开列表时（例如点了弹层空白）Escape 只到 document，primitive 的 document 捕获监听取消草稿并 `stopPropagation`。弹层自己的 Escape 关闭逻辑仍在 document 层，需要兜底避免抢键。
 - **规避**：分两层——列表内由 `createReorder` 在原生事件上 `stopPropagation`；焦点离开列表时由 primitive 的 document 捕获 `keydown` 取消草稿并 `stopPropagation`。弹层仍保留 `data-moving` 守卫：`onOpenChange` 检测到拖动中且 `reason === 'escape-key'` 时 `eventDetails.cancel()`，作为监听注册顺序变化时的兜底；第二次 Escape 才关闭。升级后核对 `createReorder.keydown` 的返回约定（消费键后返回 `true`、Escape 内部已 `stopPropagation`）与弹层 reason 名称。
+
+## 前端：提及列表用 `createListbox` 的虚拟焦点，焦点必须留在共享 textarea
+
+- **现象**：手写 `role="listbox"/"option"` 换成 listbox 后方向键不移动高亮、读屏读不到当前项，或点选项时输入框失焦、光标丢失。
+- **原因**：提及列表与输入框共享一个焦点，列表不能自行聚焦；`focus: 'virtual'` 由输入框的 `aria-activedescendant` 指向高亮项，选项上不阻止 `pointerdown` 会先让 textarea 失焦。textarea 只能保持 `textbox`，写 `role="combobox"` 违反 ARIA in HTML，它也不支持 `aria-expanded`。
+- **规避**：`components/ui/mention-list.tsx` 用 `createListbox(context, { focus: 'virtual' })`，`bindInput` 只写 `aria-autocomplete="list"`、`aria-haspopup="listbox"`、`aria-controls`、`aria-activedescendant`，关闭时清除这些 aria-*（不写 `role` 与 `aria-expanded`）；选项 `pointerdown` 阻止默认、`pointermove` 高亮，Escape/Enter/Tab 由 primitive 接管。升级时核对 `listbox.activeId` 与 `attrs` 签名。

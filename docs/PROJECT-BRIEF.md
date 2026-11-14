@@ -131,6 +131,8 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 路由 | TanStack Router（`@tanstack/router-plugin` 生成路由） | 1.170.46 / 1.168.48 |
 | 服务端状态 | TanStack Query | 5.105.1 |
 | 数据表格 | TanStack Table（列顺序/显隐状态由 Table 持有，拖拽排序用 ui-sdk `createReorder`） | 9.3.1 |
+| 提及列表 | ui-sdk `createListbox`（`focus: 'virtual'`） | 0.1.0-beta.2 |
+| 工具栏 | ui-sdk `@ui-sdk/react/toolbar` | 0.1.0-beta.2 |
 | 表单 | react-hook-form + `@hookform/resolvers` | 7.91.0 / 7.0.0 |
 | 校验 | zod（与后端共享） | 4.6.7 |
 | 客户端状态 | Zustand | 5.0.16 |

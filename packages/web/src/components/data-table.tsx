@@ -175,7 +175,7 @@ function ColumnRow({
         aria-label={`上移「${column.header}」`}
         data-reorder-control=""
         disabled={!onMoveUp}
-        onClick={onMoveUp}
+        {...(onMoveUp === undefined ? {} : { onClick: onMoveUp })}
       >
         <ArrowUp aria-hidden="true" />
       </Button>
@@ -186,7 +186,7 @@ function ColumnRow({
         aria-label={`下移「${column.header}」`}
         data-reorder-control=""
         disabled={!onMoveDown}
-        onClick={onMoveDown}
+        {...(onMoveDown === undefined ? {} : { onClick: onMoveDown })}
       >
         <ArrowDown aria-hidden="true" />
       </Button>

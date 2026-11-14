@@ -394,12 +394,14 @@
 
 | 需求 | 唯一实现 | 约束 |
 |---|---|---|
-| 控件、表单、浮层 | shadcn/ui（`base-nova`）+ ui-sdk（`@ui-sdk/react`） | 先复用或安装官方组件，共享视觉由 `@theme` 语义令牌控制 |
+| 控件、表单、浮层 | shadcn/ui（`base-nova`）+ ui-sdk（`@ui-sdk/react`） | 先复用或安装官方组件，共享视觉由 `@theme` 语义令牌控制；表单基础控件 label/textarea 直接用 `@ui-sdk/react/label`、`@ui-sdk/react/textarea` |
 | 图标 | lucide | `LucideProvider` 在 `App.tsx` 统一设 `strokeWidth={1.75}`、`size={16}`，组件里不要再逐个传 |
 | 动效 | Motion（`motion/react`）+ ui-sdk 状态过渡 | 局部交互与状态反馈用 CSS transition（常用 150ms，60–200ms 阶梯、`--ease-out-soft`；浮层用 `data-starting-style` / `data-ending-style`）。需要布局开合时用 Motion：`duration` 沿用 §11 与现有实现的固定值（折叠/浮层 0.15、侧栏 0.16、品牌切图 0.3），缓动 `--ease-out-soft` 或 `easeOut`，并读 `useReducedMotion`；消息入场 0.4s 只使用现成工具类，不扩散到布局开合 |
 | 可拖拽分栏 | ui-sdk `@ui-sdk/react/resizable` | `Resizable` / `ResizablePanel` / `ResizableHandle`；跨访问记忆用 `autoSaveId`，需要排除程序化收起时自存宽度；尺寸数字是百分比，像素写 `"240px"`；分隔条就是 1px `border-line`，不加把手 |
 | 提示 | ui-sdk `@ui-sdk/react/toast` | `ToastRegion` 在 `App.tsx` 挂载一次；业务统一从 `lib/toast` 导入（`toast` 的 `success/info/warning/error`、`toastError` / `toastSuccess`），不直接排队 |
 | 拖拽排序 | ui-sdk `createReorder` | 用 `definePrimitive` 自建 sortable 列表（`components/ui/sortable-list.tsx`）；拖拽手柄有可访问名称与中文播报，键盘 Space 拾取、方向键移动、Escape 取消并保留弹层 |
+| 提及列表 / 自动完成 | ui-sdk `createListbox` | 用 `definePrimitive` 自建列表（`components/ui/mention-list.tsx`），`focus: 'virtual'`：焦点留在共享输入框，textarea 保持 `textbox`，由 `aria-autocomplete="list"`、`aria-haspopup="listbox"`、`aria-controls`、`aria-activedescendant` 关联（不写 `role`/`aria-expanded`）；方向键与 Enter/Tab/Escape 由 primitive 处理，不手写 `role="listbox"/"option"` |
+| 工具栏 | ui-sdk `@ui-sdk/react/toolbar` | `Toolbar` / `ToolbarButton`；按钮用 `buttonVariants` 套类，禁用走 `aria-disabled`/`data-disabled`，方向键 roving focus 默认循环，不手写 `role="toolbar"` |
 | 客户端状态 | Zustand | 只放**跨组件、非服务端**的状态；服务端数据一律 TanStack Query |
 | 路由与 URL 状态 | TanStack Router | 筛选、分页、选中的 tab 走 `validateSearch`，不要塞进组件 state |
 | 类名合并 | `cn`（`lib/cn.ts`） | 唯一实现，不引入 clsx / tailwind-merge 的第二份 |
