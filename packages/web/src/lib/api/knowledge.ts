@@ -402,7 +402,7 @@ export default {
     await rpc.knowledge.bases.remove({ params: { id } });
   },
   knowledgeFolders: (baseId: string): Promise<KnowledgeFolder[]> =>
-    rpc.knowledge.bases.folders({ params: { id: baseId }, query: {} }),
+    rpc.knowledge.bases.folders({ params: { id: baseId } }),
   createKnowledgeFolder: (
     baseId: string,
     input: { parentId: string | null; name: string },

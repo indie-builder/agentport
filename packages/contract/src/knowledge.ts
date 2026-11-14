@@ -677,7 +677,7 @@ const basesContract = {
   folders: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases/{id}/folders' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
-    .input(z.object({ params: idParams, query: pageQuery }))
+    .input(z.object({ params: idParams }))
     .output(z.array(knowledgeFolderSchema)),
   createFolder: contractProcedure
     .route({ method: 'POST', path: '/knowledge/bases/{id}/folders', successStatus: 201 })

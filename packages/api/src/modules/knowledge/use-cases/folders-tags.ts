@@ -2,7 +2,7 @@ import { AppError } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
-import { type KnowledgeDeps, type PageQuery, notFound, pageOptions } from './shared.js';
+import { type KnowledgeDeps, notFound } from './shared.js';
 
 type FolderRow = Awaited<ReturnType<typeof repo.knowledge.listFolders>>['items'][number];
 
@@ -25,10 +25,20 @@ function toTag(row: TagRow) {
 
 // ---- folders / tags -------------------------------------------------------
 
-export async function listFolders(deps: KnowledgeDeps, id: string, query: PageQuery) {
+export async function listFolders(deps: KnowledgeDeps, id: string) {
   if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
-  const page = await repo.knowledge.listFolders(deps.db, id, pageOptions(query));
-  return page.items.map(toFolder);
+  const folders: FolderRow[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await repo.knowledge.listFolders(deps.db, id, {
+      limit: 200,
+      ...(cursor === undefined ? {} : { cursor }),
+    });
+    folders.push(...page.items);
+    if (page.nextCursor === null || page.nextCursor === cursor) break;
+    cursor = page.nextCursor;
+  }
+  return folders.map(toFolder);
 }
 
 export async function createFolder(
