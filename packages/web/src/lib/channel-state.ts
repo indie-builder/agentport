@@ -52,18 +52,24 @@ export function pruneMentions(
   text: string,
   selected: readonly { agentId: string; name: string }[],
 ): string[] {
-  const mentioned = (name: string) => {
-    const token = `@${name}`;
-    let idx = text.indexOf(token);
-    while (idx >= 0) {
-      const before = idx === 0 || /\s/.test(text[idx - 1] ?? '');
-      const after = text[idx + token.length] ?? '';
-      if (before && (after === '' || !/[A-Za-z0-9_]/.test(after))) return true;
-      idx = text.indexOf(token, idx + 1);
+  const mentioned = new Set<string>();
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '@') continue;
+    if (i > 0 && !/\s/.test(text[i - 1] ?? '')) continue;
+    const rest = text.slice(i + 1);
+    let longest = 0;
+    for (const item of selected) {
+      if (item.name.length > longest && rest.startsWith(item.name)) {
+        const after = rest[item.name.length] ?? '';
+        if (after === '' || !/[\p{L}\p{N}_]/u.test(after)) longest = item.name.length;
+      }
     }
-    return false;
-  };
-  return selected.filter((item) => mentioned(item.name)).map((item) => item.agentId);
+    if (longest === 0) continue;
+    for (const item of selected) {
+      if (item.name.length === longest && rest.startsWith(item.name)) mentioned.add(item.agentId);
+    }
+  }
+  return selected.filter((item) => mentioned.has(item.agentId)).map((item) => item.agentId);
 }
 
 /**
