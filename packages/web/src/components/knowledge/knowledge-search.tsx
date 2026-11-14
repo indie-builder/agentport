@@ -1,4 +1,4 @@
-import { Filter, Search } from 'lucide-react';
+import { ChevronRight, Filter, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type {
   KnowledgeContentKind,
@@ -12,6 +12,7 @@ import { SearchInput } from '../search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../states.js';
 import { Button } from '../ui/button.js';
 import { Checkbox } from '../ui/checkbox.js';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible.js';
 import { Field, FieldLabel } from '../ui/field.js';
 import { Input } from '../ui/input.js';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover.js';
@@ -270,10 +271,18 @@ function HitRow({
         </div>
       ) : null}
       {hit.parentContent ? (
-        <details className="text-sm text-muted-foreground">
-          <summary className="cursor-pointer">父块上下文</summary>
-          <p className="mt-1">{hit.parentContent}</p>
-        </details>
+        <Collapsible className="text-sm text-muted-foreground">
+          <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1 text-left">
+            <ChevronRight
+              className="size-3.5 shrink-0 transition-transform group-aria-expanded:rotate-90"
+              aria-hidden="true"
+            />
+            父块上下文
+          </CollapsibleTrigger>
+          <CollapsibleContent keepMounted hiddenUntilFound>
+            <p className="mt-1">{hit.parentContent}</p>
+          </CollapsibleContent>
+        </Collapsible>
       ) : null}
       <ScoreBreakdown scores={hit.scores} scoreKind={hit.scoreKind} score={hit.score} />
       <div className="flex flex-wrap items-center gap-3">
@@ -310,65 +319,71 @@ function Diagnostics({ result }: { result: KnowledgeSearchResponse }) {
         ? '不可用'
         : '关闭';
   return (
-    <details className="rounded-item border border-line px-3 py-2">
-      <summary className="cursor-pointer text-xs text-muted-foreground">
+    <Collapsible className="rounded-item border border-line px-3 py-2">
+      <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1 text-left text-xs text-muted-foreground">
+        <ChevronRight
+          className="size-3.5 shrink-0 transition-transform group-aria-expanded:rotate-90"
+          aria-hidden="true"
+        />
         诊断 · {diagnostics.elapsedMs} ms · 返回 {diagnostics.returned} / 融合 {diagnostics.fused}
-      </summary>
-      <div className="mt-2 flex flex-col gap-2">
-        <dl className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-muted-foreground">
-          <div className="flex gap-1">
-            <dt>关键词路径</dt>
-            <dd className="font-mono">{diagnostics.paths.keyword}</dd>
-          </div>
-          <div className="flex gap-1">
-            <dt>向量路径</dt>
-            <dd className="font-mono">{diagnostics.paths.vector}</dd>
-          </div>
-          <div className="flex gap-1">
-            <dt>图片向量路径</dt>
-            <dd className="font-mono">{diagnostics.paths.imageVector}</dd>
-          </div>
-          <div className="flex gap-1">
-            <dt>重排</dt>
-            <dd>{rerankLabel}</dd>
-          </div>
-        </dl>
-        {diagnostics.candidates.length === 0 ? null : (
-          <div className="max-h-64 overflow-auto">
-            <table className="w-full text-2xs">
-              <thead>
-                <tr className="text-left text-muted-foreground">
-                  <th className="py-1 pr-2 font-normal">候选</th>
-                  <th className="py-1 pr-2 text-right font-normal">关键词</th>
-                  <th className="py-1 pr-2 text-right font-normal">向量</th>
-                  <th className="py-1 pr-2 text-right font-normal">RRF</th>
-                  <th className="py-1 text-right font-normal">重排</th>
-                </tr>
-              </thead>
-              <tbody>
-                {diagnostics.candidates.map((candidate) => (
-                  <tr key={candidate.chunkId} className="border-t border-line">
-                    <td className="max-w-0 truncate py-1 pr-2 font-mono">{candidate.chunkId}</td>
-                    <td className="py-1 pr-2 text-right font-mono tabular-nums">
-                      {candidate.scores.keyword?.toFixed(3) ?? '—'}
-                    </td>
-                    <td className="py-1 pr-2 text-right font-mono tabular-nums">
-                      {candidate.scores.vector?.toFixed(3) ?? '—'}
-                    </td>
-                    <td className="py-1 pr-2 text-right font-mono tabular-nums">
-                      {candidate.scores.rrf.toFixed(4)}
-                    </td>
-                    <td className="py-1 text-right font-mono tabular-nums">
-                      {candidate.scores.rerank?.toFixed(3) ?? '—'}
-                    </td>
+      </CollapsibleTrigger>
+      <CollapsibleContent keepMounted hiddenUntilFound>
+        <div className="mt-2 flex flex-col gap-2">
+          <dl className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-muted-foreground">
+            <div className="flex gap-1">
+              <dt>关键词路径</dt>
+              <dd className="font-mono">{diagnostics.paths.keyword}</dd>
+            </div>
+            <div className="flex gap-1">
+              <dt>向量路径</dt>
+              <dd className="font-mono">{diagnostics.paths.vector}</dd>
+            </div>
+            <div className="flex gap-1">
+              <dt>图片向量路径</dt>
+              <dd className="font-mono">{diagnostics.paths.imageVector}</dd>
+            </div>
+            <div className="flex gap-1">
+              <dt>重排</dt>
+              <dd>{rerankLabel}</dd>
+            </div>
+          </dl>
+          {diagnostics.candidates.length === 0 ? null : (
+            <div className="max-h-64 overflow-auto">
+              <table className="w-full text-2xs">
+                <thead>
+                  <tr className="text-left text-muted-foreground">
+                    <th className="py-1 pr-2 font-normal">候选</th>
+                    <th className="py-1 pr-2 text-right font-normal">关键词</th>
+                    <th className="py-1 pr-2 text-right font-normal">向量</th>
+                    <th className="py-1 pr-2 text-right font-normal">RRF</th>
+                    <th className="py-1 text-right font-normal">重排</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </details>
+                </thead>
+                <tbody>
+                  {diagnostics.candidates.map((candidate) => (
+                    <tr key={candidate.chunkId} className="border-t border-line">
+                      <td className="max-w-0 truncate py-1 pr-2 font-mono">{candidate.chunkId}</td>
+                      <td className="py-1 pr-2 text-right font-mono tabular-nums">
+                        {candidate.scores.keyword?.toFixed(3) ?? '—'}
+                      </td>
+                      <td className="py-1 pr-2 text-right font-mono tabular-nums">
+                        {candidate.scores.vector?.toFixed(3) ?? '—'}
+                      </td>
+                      <td className="py-1 pr-2 text-right font-mono tabular-nums">
+                        {candidate.scores.rrf.toFixed(4)}
+                      </td>
+                      <td className="py-1 text-right font-mono tabular-nums">
+                        {candidate.scores.rerank?.toFixed(3) ?? '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

@@ -1,6 +1,6 @@
 import { knowledgeSearchHitSchema, knowledgeSearchResultSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   ApiError,
@@ -24,6 +24,7 @@ import { Markdown } from '../markdown.js';
 import { BlobPdf } from '../media/blob-pdf.js';
 import { LoadingState } from '../states.js';
 import { Button } from '../ui/button.js';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible.js';
 import { Dialog } from '../ui/dialog.js';
 import { contentKindLabel, locatorLabel, scoreKindLabel } from './knowledge-shared.js';
 
@@ -704,12 +705,18 @@ export function KnowledgeHitDialog({
             </p>
           ) : null}
           {citation.parentContent ? (
-            <details className="rounded-item border border-line px-3 py-2">
-              <summary className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground">
-                <ChevronDown className="size-3.5" aria-hidden="true" /> 父块上下文
-              </summary>
-              <p className="mt-2 text-sm text-muted-foreground">{citation.parentContent}</p>
-            </details>
+            <Collapsible className="rounded-item border border-line px-3 py-2">
+              <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1 text-left text-xs text-muted-foreground">
+                <ChevronRight
+                  className="size-3.5 shrink-0 transition-transform group-aria-expanded:rotate-90"
+                  aria-hidden="true"
+                />
+                父块上下文
+              </CollapsibleTrigger>
+              <CollapsibleContent keepMounted hiddenUntilFound>
+                <p className="mt-2 text-sm text-muted-foreground">{citation.parentContent}</p>
+              </CollapsibleContent>
+            </Collapsible>
           ) : null}
           {citation.target.kind === 'faq' ? (
             <FaqCitationBody documentId={citation.target.id} versionId={citation.targetVersionId} />

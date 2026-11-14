@@ -1,7 +1,13 @@
+import { ChevronRight } from 'lucide-react';
 import { jobStatusLabel, jobStatusTone } from '../../../components/knowledge/knowledge-shared.js';
 import { ErrorState } from '../../../components/states.js';
 import { StatusBadge } from '../../../components/status-badge.js';
 import { Button } from '../../../components/ui/button.js';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../../../components/ui/collapsible.js';
 import { formatDateTime } from '../../../lib/format.js';
 import { knowledgeJobErrorText } from '../../../lib/knowledge-errors.js';
 import {
@@ -144,19 +150,25 @@ export function SourceRuns({
                 {run.error ? <span className="text-danger">{run.error}</span> : null}
               </div>
               {/* 统计没有 skipped 字段，也始终给出逐项入口：仅有跳过项时同样能展开。 */}
-              <details className="pl-2">
-                <summary className="cursor-pointer text-muted-foreground">
+              <Collapsible className="pl-2">
+                <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1 text-left text-muted-foreground">
+                  <ChevronRight
+                    className="size-3.5 shrink-0 transition-transform group-aria-expanded:rotate-90"
+                    aria-hidden="true"
+                  />
                   逐项结果
                   {run.stats.failed > 0 ? ` · 失败 ${run.stats.failed}` : ''}
-                </summary>
-                <div className="mt-1">
-                  <SyncRunItems
-                    sourceId={sourceId}
-                    syncRunId={run.id}
-                    onOpenDocument={onOpenDocument}
-                  />
-                </div>
-              </details>
+                </CollapsibleTrigger>
+                <CollapsibleContent keepMounted hiddenUntilFound>
+                  <div className="mt-1">
+                    <SyncRunItems
+                      sourceId={sourceId}
+                      syncRunId={run.id}
+                      onOpenDocument={onOpenDocument}
+                    />
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             </li>
           ))}
         </ul>
