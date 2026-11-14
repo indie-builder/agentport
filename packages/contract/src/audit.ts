@@ -21,6 +21,7 @@ export const auditItemSchema = z.object({
   id: z.string(),
   actor: z.string(),
   actorKind: auditActorKindSchema,
+  subjectBusinessId: z.string().nullable(),
   action: z.string(),
   target: z.string().nullable(),
   status: z.string().pipe(auditStatusSchema),

@@ -13,6 +13,7 @@ export function toItem(row: AuditRow) {
     id: row.id,
     actor: row.actor,
     actorKind: row.actorKind,
+    subjectBusinessId: row.subjectBusinessId,
     action: row.action,
     target: row.target,
     status: row.status,

@@ -173,6 +173,7 @@ describe.skipIf(!ready)('audit export', () => {
         id,
         actor: 'admin',
         actorKind: 'service',
+        subjectBusinessId: null,
         action: 'agent.run',
         target,
         status: 'error',
