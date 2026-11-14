@@ -1,3 +1,4 @@
+import { isSafeOpenUrl } from '@agentport/shared';
 import { useIsStreaming, useTriggerAction } from '@openuidev/react-lang';
 import type { LucideIcon } from 'lucide-react';
 import { icons } from 'lucide-react';
@@ -172,7 +173,7 @@ function SourceStrip({
         // biome-ignore lint/suspicious/noArrayIndexKey: 来源由模型按顺序生成，标题可能重复
         <div key={`${source.title}-${index}`} className="flex min-w-0 items-baseline gap-2 text-sm">
           <span className="shrink-0 tabular-nums text-muted-foreground">{index + 1}</span>
-          {source.url ? (
+          {source.url && isSafeOpenUrl(source.url) ? (
             <a
               href={source.url}
               target="_blank"
