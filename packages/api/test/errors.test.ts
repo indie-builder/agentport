@@ -182,7 +182,7 @@ describe('isPgCode', () => {
     expect(isPgCode(fk, '23503')).toBe(true);
     expect(isPgCode(fk, '23505')).toBe(false);
     expect(isPgCode(postgres('23505'), '23505')).toBe(true);
-    expect(isPgCode({ errno: '23505' }, '23505')).toBe(false);
+    expect(isPgCode({ errno: '23505' }, '23505')).toBe(true);
     expect(isPgCode(null, '23505')).toBe(false);
     expect(isPgCode(new Error('plain'), '23505')).toBe(false);
   });

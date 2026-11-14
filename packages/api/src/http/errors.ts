@@ -2,7 +2,6 @@ import { errorCodeForStatus } from '@agentport/contract/errors';
 import { AppError, isAppError } from '@agentport/core';
 import { type ErrorCode, errorCode, type Problem } from '@agentport/shared';
 import { ORPCError, ValidationError } from '@orpc/contract';
-import { SQL } from 'bun';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 
@@ -105,11 +104,4 @@ export function errorProblem(requestId: string, error: unknown): Problem {
   );
 }
 
-export function isPgCode(error: unknown, code: string): boolean {
-  let cause: unknown = error;
-  for (let depth = 0; depth < 5 && typeof cause === 'object' && cause !== null; depth += 1) {
-    if (cause instanceof SQL.PostgresError && cause.errno === code) return true;
-    cause = 'cause' in cause ? cause.cause : undefined;
-  }
-  return false;
-}
+export { isPgCode } from '@agentport/db';
