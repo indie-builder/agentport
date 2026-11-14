@@ -776,9 +776,13 @@ export function parseAgentPackage(
     ...(sidecar.agent.effort === undefined ? {} : { effort: sidecar.agent.effort }),
     enabled: sidecar.agent.enabled,
   };
-  const rules = listMarkdown(files, AGENT_PACKAGE_PATHS.rulesDir).map((file) =>
-    parseRuleMd(file.content, file.slug, file.path),
-  );
+  const ruleFiles = listMarkdown(files, AGENT_PACKAGE_PATHS.rulesDir);
+  for (const file of ruleFiles) {
+    if (!slugSchema.safeParse(file.slug).success) {
+      fail('INVALID_INPUT', `规则文件名「${file.slug}」必须是合法 slug`, { path: file.path });
+    }
+  }
+  const rules = ruleFiles.map((file) => parseRuleMd(file.content, file.slug, file.path));
   duplicateSlugs(rules, '规则', AGENT_PACKAGE_PATHS.rulesDir);
   checkLimit(
     rules.length,
@@ -807,7 +811,15 @@ export function parseAgentPackage(
     AGENT_PACKAGE_LIMITS.hookFiles,
     `hook 脚本超过 ${AGENT_PACKAGE_LIMITS.hookFiles} 个，请减少后重试`,
   );
-  const styleBodies = listMarkdown(files, AGENT_PACKAGE_PATHS.outputStylesDir).map((file) =>
+  const styleFiles = listMarkdown(files, AGENT_PACKAGE_PATHS.outputStylesDir);
+  for (const file of styleFiles) {
+    if (!slugSchema.safeParse(file.slug).success) {
+      fail('INVALID_INPUT', `输出风格文件名「${file.slug}」必须是合法 slug`, {
+        path: file.path,
+      });
+    }
+  }
+  const styleBodies = styleFiles.map((file) =>
     parseOutputStyleMd(file.content, file.slug, file.path),
   );
   duplicateSlugs(styleBodies, '输出风格', AGENT_PACKAGE_PATHS.outputStylesDir);
