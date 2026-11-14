@@ -1,14 +1,12 @@
 import {
-  Tabs as TabsPrimitive,
   TabsList as TabsListPrimitive,
   TabsPanel,
+  Tabs as TabsPrimitive,
   TabsTab,
 } from '@ui-sdk/react/tabs';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from 'cn';
 import type { ComponentProps, ReactNode } from 'react';
-
-type Loose<T> = { [K in keyof T]: T[K] | undefined };
 
 type TabsProps<T extends string = string> = {
   value?: T | null | undefined;
@@ -28,10 +26,7 @@ function Tabs<T extends string = string>({
   return (
     <TabsPrimitive<T>
       orientation={orientation}
-      className={cn(
-        'group/tabs flex gap-2 data-[orientation=horizontal]:flex-col',
-        className,
-      )}
+      className={cn('group/tabs flex gap-2 data-[orientation=horizontal]:flex-col', className)}
       {...props}
       onValueChange={
         onValueChange === undefined
@@ -59,9 +54,7 @@ const tabsListVariants = cva(
   },
 );
 
-type TabsListProps = Loose<
-  Omit<ComponentProps<typeof TabsListPrimitive>, 'className'>
-> &
+type TabsListProps = Omit<ComponentProps<typeof TabsListPrimitive>, 'className'> &
   VariantProps<typeof tabsListVariants> & {
     className?: string | undefined;
   };
@@ -71,14 +64,12 @@ function TabsList({ className, variant = 'default', ...props }: TabsListProps) {
     <TabsListPrimitive
       data-variant={variant}
       className={cn(tabsListVariants({ variant }), className)}
-      {...(props as ComponentProps<typeof TabsListPrimitive>)}
+      {...props}
     />
   );
 }
 
-type TabsTriggerProps = Loose<
-  Omit<ComponentProps<typeof TabsTab>, 'className'>
-> & {
+type TabsTriggerProps = Omit<ComponentProps<typeof TabsTab>, 'className'> & {
   className?: string | undefined;
 };
 
@@ -92,14 +83,12 @@ function TabsTrigger({ className, ...props }: TabsTriggerProps) {
         'after:absolute after:bg-primary after:opacity-0 after:transition-opacity group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:bottom-[-5px] group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-selected:after:opacity-100',
         className,
       )}
-      {...(props as ComponentProps<typeof TabsTab>)}
+      {...props}
     />
   );
 }
 
-type TabsContentProps = Loose<
-  Omit<ComponentProps<typeof TabsPanel>, 'className'>
-> & {
+type TabsContentProps = Omit<ComponentProps<typeof TabsPanel>, 'className'> & {
   className?: string | undefined;
 };
 
@@ -111,7 +100,7 @@ function TabsContent({ className, ...props }: TabsContentProps) {
         'flex-1 p-0 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
         className,
       )}
-      {...(props as ComponentProps<typeof TabsPanel>)}
+      {...props}
     />
   );
 }

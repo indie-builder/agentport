@@ -10,10 +10,8 @@ import {
   DialogTitle,
 } from './ui/dialog.js';
 
-type DialogShellProps = Pick<
-  ComponentProps<typeof DialogContent>,
-  'children' | 'className' | 'finalFocus'
-> & {
+type DialogShellProps = Pick<ComponentProps<typeof DialogContent>, 'children' | 'className'> & {
+  finalFocus?: ComponentProps<typeof DialogContent>['finalFocus'];
   title: string;
   description?: string;
   closeDisabled?: boolean;
@@ -34,7 +32,7 @@ export function DialogShell({
         className,
       )}
       showCloseButton={false}
-      finalFocus={finalFocus}
+      {...(finalFocus === undefined ? {} : { finalFocus })}
     >
       <DialogHeader className="shrink-0 flex-row items-start justify-between gap-4 border-b px-5 py-3.5">
         <div className="min-w-0">

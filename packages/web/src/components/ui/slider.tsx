@@ -38,9 +38,7 @@ function SliderThumbInput({
   );
 }
 
-type Loose<T> = { [K in keyof T]: T[K] | undefined };
-
-type SliderProps = Loose<ComponentProps<typeof SliderPrimitive>> & {
+type SliderProps = ComponentProps<typeof SliderPrimitive> & {
   onValueCommitted?: ((value: number | number[]) => void) | undefined;
 };
 
@@ -63,6 +61,10 @@ function Slider({
     'aria-invalid': props['aria-invalid'],
     'aria-errormessage': props['aria-errormessage'],
   };
+  const commit =
+    onValueCommitted === undefined
+      ? onValueCommit
+      : (next: number | number[]) => onValueCommitted(next);
 
   return (
     <SliderPrimitive
@@ -70,21 +72,12 @@ function Slider({
         'data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full',
         className,
       )}
-      {...({
-        defaultValue,
-        value,
-        min,
-        max,
-        ...(onValueCommit === undefined && onValueCommitted === undefined
-          ? {}
-          : {
-              onValueCommit:
-                onValueCommitted === undefined
-                  ? onValueCommit
-                  : (next: number | number[]) => onValueCommitted(next),
-            }),
-        ...props,
-      } as ComponentProps<typeof SliderPrimitive>)}
+      min={min}
+      max={max}
+      {...(defaultValue === undefined ? {} : { defaultValue })}
+      {...(value === undefined ? {} : { value })}
+      {...(commit === undefined ? {} : { onValueCommit: commit })}
+      {...props}
     >
       <SliderControl className="relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-40 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col">
         <SliderTrack className="relative grow overflow-hidden rounded-full bg-muted select-none data-[orientation=horizontal]:h-1 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-1">

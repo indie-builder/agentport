@@ -102,7 +102,7 @@ function PolicyForm({
             render={({ field }) => (
               <Switch
                 id="memory-policy-enabled"
-                checked={field.value}
+                {...(field.value === undefined ? {} : { checked: field.value })}
                 disabled={disabled}
                 aria-label="启用专家记忆"
                 aria-describedby="memory-policy-enabled-hint"
@@ -120,7 +120,7 @@ function PolicyForm({
             render={({ field }) => (
               <RadioGroup
                 aria-labelledby="memory-policy-write-mode"
-                value={field.value}
+                {...(field.value === undefined ? {} : { value: field.value })}
                 disabled={disabled}
                 className="grid gap-2 sm:grid-cols-2"
                 onValueChange={(next) => field.onChange(next)}
@@ -165,7 +165,7 @@ function PolicyForm({
             render={({ field }) => (
               <Switch
                 id="memory-policy-personal"
-                checked={field.value}
+                {...(field.value === undefined ? {} : { checked: field.value })}
                 disabled={disabled}
                 aria-label="注入个人记忆"
                 aria-describedby="memory-policy-personal-hint"
@@ -188,7 +188,7 @@ function PolicyForm({
             render={({ field }) => (
               <Switch
                 id="memory-policy-rules"
-                checked={field.value}
+                {...(field.value === undefined ? {} : { checked: field.value })}
                 disabled={disabled}
                 aria-label="加载项目规则"
                 aria-describedby="memory-policy-rules-hint"

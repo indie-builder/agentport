@@ -16,14 +16,7 @@ import {
   ShieldAlert,
   SquareArrowOutUpRight,
 } from 'lucide-react';
-import {
-  type KeyboardEvent as ReactKeyboardEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentAvatar, type AgentDisplay } from '../../components/agent/agent-avatar.js';
 import { ChannelRunSheet } from '../../components/channel/channel-run-sheet.js';
 import { ChannelSettingsButton } from '../../components/channel/channel-settings.js';
@@ -34,6 +27,7 @@ import { RunQuestionCard } from '../../components/run/run-question.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
+import { MentionList, useMentionList } from '../../components/ui/mention-list.js';
 import { authenticated, can } from '../../lib/access.js';
 import { api, type ChannelApproval } from '../../lib/api.js';
 import {
@@ -163,7 +157,6 @@ function ChannelWorkspace({
   const [notifyAll, setNotifyAll] = useState(false);
   const [confirmingNotifyAll, setConfirmingNotifyAll] = useState(false);
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
-  const [mentionIndex, setMentionIndex] = useState(0);
   const [olderExhausted, setOlderExhausted] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [runSheetId, setRunSheetId] = useState<string | null>(null);
@@ -460,7 +453,6 @@ function ChannelWorkspace({
     setInput(next);
     setCaret(at);
     setMention(mentionQueryAt(next, at));
-    setMentionIndex(0);
     const kept = pruneMentions(next, mentions);
     if (kept.length !== mentions.length) {
       setMentions((previous) => previous.filter((item) => kept.includes(item.agentId)));
@@ -484,27 +476,17 @@ function ChannelWorkspace({
     });
   };
 
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>): boolean => {
-    if (mention === null || mentionOptions.length === 0) return false;
-    if (event.key === 'ArrowDown') {
-      setMentionIndex((index) => (index + 1) % mentionOptions.length);
-      return true;
-    }
-    if (event.key === 'ArrowUp') {
-      setMentionIndex((index) => (index - 1 + mentionOptions.length) % mentionOptions.length);
-      return true;
-    }
-    if (event.key === 'Enter' || event.key === 'Tab') {
-      const target = mentionOptions[mentionIndex] ?? mentionOptions[0];
-      if (target) pickMention(target);
-      return true;
-    }
-    if (event.key === 'Escape') {
-      setMention(null);
-      return true;
-    }
-    return false;
-  };
+  const mentionMenu = useMentionList(
+    {
+      open: mention !== null && mentionOptions.length > 0,
+      onSelect: (agentId) => {
+        const target = mentionOptions.find((option) => option.agentId === agentId);
+        if (target !== undefined) pickMention(target);
+      },
+      onClose: () => setMention(null),
+    },
+    textareaRef,
+  );
 
   const renderItemHeader = useCallback(
     (item: ChatItem) => {
@@ -670,11 +652,10 @@ function ChannelWorkspace({
           scrollPreviousItemPeek={0}
         />
         {mention !== null && mentionOptions.length > 0 ? (
-          <MentionMenu
+          <MentionList
+            handle={mentionMenu}
             options={mentionOptions}
-            selected={mentionIndex}
             activeAgentIds={activeAgentIds}
-            onPick={pickMention}
           />
         ) : null}
         {channel.archivedAt ? (
@@ -729,7 +710,7 @@ function ChannelWorkspace({
           }
           value={input}
           onValueChange={changeInput}
-          onKeyDown={handleKeyDown}
+          onKeyDown={(event) => mentionMenu.api.keydown(event.nativeEvent)}
           placeholder={canPost ? '输入消息，@ 智能体…' : '频道只读'}
         />
         <ConfirmDialog
@@ -1107,48 +1088,6 @@ function ActiveChannelRunQuestions({
           readOnlyNote="由运行发起者或频道管理员回答。"
         />
       ))}
-    </div>
-  );
-}
-
-function MentionMenu({
-  options,
-  selected,
-  activeAgentIds,
-  onPick,
-}: {
-  options: readonly MentionTarget[];
-  selected: number;
-  activeAgentIds: ReadonlySet<string>;
-  onPick: (target: MentionTarget) => void;
-}) {
-  return (
-    <div className="mx-auto w-full max-w-220 shrink-0 px-6">
-      <div
-        role="listbox"
-        aria-label="提及智能体"
-        className="mb-2 max-h-56 overflow-y-auto rounded-[var(--radius-popover)] border border-line bg-surface py-1 shadow-md"
-      >
-        {options.map((option, index) => (
-          <button
-            key={option.agentId}
-            type="button"
-            role="option"
-            aria-selected={index === selected}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => onPick(option)}
-            className={cn(
-              'flex w-full min-w-0 items-center gap-2 rounded-item px-3 py-1.5 text-left text-sm',
-              index === selected ? 'bg-accent text-accent-foreground' : 'text-fg hover:bg-hover',
-            )}
-          >
-            <span className="min-w-0 flex-1 truncate">{option.name}</span>
-            {activeAgentIds.has(option.agentId) ? (
-              <span className="shrink-0 text-xs text-muted-foreground">运行中</span>
-            ) : null}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }

@@ -49,9 +49,7 @@ const buttonVariantStyles = cva(
 const buttonVariants = (props?: Parameters<typeof buttonVariantStyles>[0]) =>
   cn(buttonVariantStyles(props));
 
-type Loose<T> = { [K in keyof T]: T[K] | undefined };
-
-type ButtonProps = Loose<ComponentProps<typeof ButtonPrimitive>> &
+type ButtonProps = ComponentProps<typeof ButtonPrimitive> &
   VariantProps<typeof buttonVariantStyles> & {
     'data-slot'?: string | undefined;
   };
@@ -72,7 +70,7 @@ function Button({
           ? {}
           : { render: <button type={props.type ?? 'button'} data-slot={dataSlot} /> })}
       className={buttonVariants({ variant, size, className })}
-      {...(props as ComponentProps<typeof ButtonPrimitive>)}
+      {...props}
     />
   );
 }

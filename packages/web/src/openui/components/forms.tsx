@@ -379,6 +379,7 @@ export function SliderRenderer({
   const values = Array.isArray(field.value)
     ? field.value.filter((item): item is number => typeof item === 'number')
     : (props.defaultValue ?? [props.min]);
+  const step = props.step ?? (props.variant === 'discrete' ? 1 : undefined);
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <Slider
@@ -387,7 +388,7 @@ export function SliderRenderer({
         aria-invalid={field.error ? true : undefined}
         min={props.min}
         max={props.max}
-        step={props.step ?? (props.variant === 'discrete' ? 1 : undefined)}
+        {...(step === undefined ? {} : { step })}
         value={values}
         disabled={field.streaming}
         onValueChange={(next) => field.setValue(Array.isArray(next) ? next : [next])}
@@ -580,7 +581,7 @@ export function SwitchGroupRenderer({
             </div>
             <Switch
               id={id}
-              checked={aggregate[item.name]}
+              {...(aggregate[item.name] === undefined ? {} : { checked: aggregate[item.name] })}
               disabled={field.streaming}
               onCheckedChange={(checked) =>
                 field.setValue({ ...aggregate, [item.name]: checked === true })
@@ -1000,7 +1001,7 @@ export function IconButtonRenderer({
               ? 'icon-lg'
               : 'icon'
       }
-      className={props.shape === 'circle' ? 'rounded-full' : undefined}
+      {...(props.shape === 'circle' ? { className: 'rounded-full' } : {})}
       disabled={streaming}
       onClick={() =>
         void trigger(props.name, formName, props.action as Parameters<typeof trigger>[2])

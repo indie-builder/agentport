@@ -83,9 +83,9 @@ export function AgentPicker({
           render={
             <Button
               variant="plain"
-              ref={triggerRef}
-              onBlur={onBlur}
-              disabled={disabled}
+              {...(triggerRef === undefined ? {} : { ref: triggerRef })}
+              {...(onBlur === undefined ? {} : { onBlur })}
+              {...(disabled === undefined ? {} : { disabled })}
               id={triggerId}
               aria-label={triggerAriaLabel ?? placeholder}
               aria-invalid={ariaInvalid}
@@ -112,9 +112,9 @@ export function AgentPicker({
           render={
             <Button
               variant="ghost"
-              ref={triggerRef}
-              onBlur={onBlur}
-              disabled={disabled}
+              {...(triggerRef === undefined ? {} : { ref: triggerRef })}
+              {...(onBlur === undefined ? {} : { onBlur })}
+              {...(disabled === undefined ? {} : { disabled })}
               id={triggerId}
               aria-label={triggerAriaLabel ?? (agent ? `选择专家：${agent.name}` : placeholder)}
               aria-invalid={ariaInvalid}

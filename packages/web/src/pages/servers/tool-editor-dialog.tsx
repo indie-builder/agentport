@@ -1,4 +1,5 @@
 import type { ApiTool, Server } from '@agentport/shared';
+import { Toolbar, ToolbarButton } from '@ui-sdk/react/toolbar';
 import { Pencil, Play, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
@@ -6,7 +7,7 @@ import { DialogShell } from '../../components/dialog-shell.js';
 import { ImportOpenApiDialog } from '../../components/server/import-openapi-dialog.js';
 import { TestInvokeDialog } from '../../components/server/test-invoke-dialog.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
-import { Button } from '../../components/ui/button.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Checkbox } from '../../components/ui/checkbox.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import {
@@ -170,37 +171,34 @@ export function ToolEditorDialog({
           {tools.data && tools.data.length > 0 ? (
             <div className="flex flex-col gap-2">
               {selectedIds.length > 0 ? (
-                <div role="toolbar" aria-label="批量操作" className="flex items-center gap-2">
+                <Toolbar aria-label="批量操作" className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">
                     已选 {selectedIds.length} 个
                   </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
+                  <ToolbarButton
+                    className={buttonVariants({ variant: 'outline', size: 'sm' })}
                     disabled={busy}
                     aria-busy={batchRunning}
                     onClick={() => void runBatch(true)}
                   >
                     启用选中
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
+                  </ToolbarButton>
+                  <ToolbarButton
+                    className={buttonVariants({ variant: 'outline', size: 'sm' })}
                     disabled={busy}
                     aria-busy={batchRunning}
                     onClick={() => void runBatch(false)}
                   >
                     停用选中
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  </ToolbarButton>
+                  <ToolbarButton
+                    className={buttonVariants({ variant: 'ghost', size: 'sm' })}
                     disabled={busy}
                     onClick={() => setSelected(new Set())}
                   >
                     清除选择
-                  </Button>
-                </div>
+                  </ToolbarButton>
+                </Toolbar>
               ) : null}
               <Table>
                 <caption className="sr-only">生成的工具定义</caption>

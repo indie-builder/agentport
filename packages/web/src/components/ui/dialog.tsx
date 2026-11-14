@@ -14,9 +14,7 @@ import { XIcon } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 import { Button } from './button.js';
 
-type Loose<T> = { [K in keyof T]: T[K] | undefined };
-
-type DialogOverlayProps = Loose<Omit<ComponentProps<typeof DialogBackdrop>, 'className'>> & {
+type DialogOverlayProps = Omit<ComponentProps<typeof DialogBackdrop>, 'className'> & {
   className?: string | undefined;
 };
 
@@ -28,13 +26,14 @@ function DialogOverlay({ className, ...props }: DialogOverlayProps) {
         'fixed inset-0 isolate z-50 bg-scrim backdrop-blur-[2px] transition-opacity duration-150 ease-out-soft data-ending-style:opacity-0 data-starting-style:opacity-0',
         className,
       )}
-      {...(props as ComponentProps<typeof DialogBackdrop>)}
+      {...props}
     />
   );
 }
 
-type DialogContentProps = Loose<
-  Omit<ComponentProps<typeof DialogContentPrimitive>, 'className' | 'children'>
+type DialogContentProps = Omit<
+  ComponentProps<typeof DialogContentPrimitive>,
+  'className' | 'children'
 > & {
   className?: string | undefined;
   children?: ReactNode;
@@ -55,7 +54,7 @@ function DialogContent({
           'fixed inset-auto top-1/2 left-1/2 z-50 m-0 grid max-h-none w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-visible rounded-[var(--radius-dialog)] border-0 bg-popover p-4 text-sm text-popover-foreground shadow-overlay ring-1 ring-line cds-overlay-enter outline-none sm:max-w-sm',
           className,
         )}
-        {...(props as ComponentProps<typeof DialogContentPrimitive>)}
+        {...props}
       >
         {children}
         {showCloseButton && (
@@ -77,7 +76,7 @@ function DialogHeader({ className, ...props }: ComponentProps<'div'>) {
   );
 }
 
-type DialogTitleProps = Loose<Omit<ComponentProps<typeof DialogTitlePrimitive>, 'className'>> & {
+type DialogTitleProps = Omit<ComponentProps<typeof DialogTitlePrimitive>, 'className'> & {
   className?: string | undefined;
 };
 
@@ -85,13 +84,14 @@ function DialogTitle({ className, ...props }: DialogTitleProps) {
   return (
     <DialogTitlePrimitive
       className={cn('break-words text-base leading-normal font-medium', className)}
-      {...(props as ComponentProps<typeof DialogTitlePrimitive>)}
+      {...props}
     />
   );
 }
 
-type DialogDescriptionProps = Loose<
-  Omit<ComponentProps<typeof DialogDescriptionPrimitive>, 'className'>
+type DialogDescriptionProps = Omit<
+  ComponentProps<typeof DialogDescriptionPrimitive>,
+  'className'
 > & {
   className?: string | undefined;
 };
@@ -103,7 +103,7 @@ function DialogDescription({ className, ...props }: DialogDescriptionProps) {
         'text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
         className,
       )}
-      {...(props as ComponentProps<typeof DialogDescriptionPrimitive>)}
+      {...props}
     />
   );
 }

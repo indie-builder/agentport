@@ -1,5 +1,6 @@
 import { knowledgeFaqImportMetadataSchema } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Toolbar, ToolbarButton } from '@ui-sdk/react/toolbar';
 import { Download, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
@@ -14,6 +15,7 @@ import type {
 } from '../../lib/api.js';
 import { api, errorMessage } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
+import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import {
   isTerminalKnowledgeJob,
@@ -48,7 +50,7 @@ import { RequiredMark } from '../required-mark.js';
 import { SearchInput } from '../search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../states.js';
 import { StatusBadge } from '../status-badge.js';
-import { Button } from '../ui/button.js';
+import { Button, buttonVariants } from '../ui/button.js';
 import { Checkbox } from '../ui/checkbox.js';
 import { Dialog } from '../ui/dialog.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../ui/field.js';
@@ -1641,45 +1643,39 @@ export function FaqTab({
       </PageToolbar>
 
       {caps.content && selectedItems.length > 0 ? (
-        <div
-          role="toolbar"
+        <Toolbar
           aria-label="FAQ 批量操作"
           className="flex min-w-0 flex-wrap items-center gap-2 rounded-item bg-sunken px-3 py-2"
         >
           <span className="text-xs text-fg">已选 {selectedItems.length} 个</span>
-          <Button
-            variant="outline"
-            size="sm"
+          <ToolbarButton
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
             disabled={batch.isPending}
             onClick={() => void runBatch('enable', 'FAQ 已批量启用')}
           >
             启用
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
+          </ToolbarButton>
+          <ToolbarButton
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
             disabled={batch.isPending}
             onClick={() => void runBatch('disable', 'FAQ 已批量停用')}
           >
             停用
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
+          </ToolbarButton>
+          <ToolbarButton
+            className={buttonVariants({ variant: 'destructive', size: 'sm' })}
             disabled={batch.isPending}
             onClick={() => setBatchDeleting(true)}
           >
             删除
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto"
+          </ToolbarButton>
+          <ToolbarButton
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'ml-auto')}
             onClick={() => setSelectedIds(new Set())}
           >
             取消选择
-          </Button>
-        </div>
+          </ToolbarButton>
+        </Toolbar>
       ) : null}
 
       {faqs.isPending ? <LoadingState rows={4} /> : null}
