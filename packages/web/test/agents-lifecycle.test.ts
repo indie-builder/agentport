@@ -748,7 +748,7 @@ describe('expert employee badges', () => {
     const panel = dialog('工牌专家 的工牌');
     expect(panel.textContent).toContain('数字员工');
     expect(panel.textContent).toContain('测试工程师');
-    expect(panel.textContent).toContain('已启用');
+    expect(panel.textContent).toContain('在职');
     expect(panel.textContent).toContain('负责接口测试。');
     expect(panel.textContent).toContain('覆盖完整回归与发布检查。');
     expect(panel.textContent).toContain('badge');

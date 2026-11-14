@@ -25,6 +25,8 @@
   --color-sidebar: #eaf0f0;
   --color-sidebar-hover: #dfe8e9;
   --color-sidebar-selected: var(--color-surface);
+  --color-badge-accent: #3a7578;
+  --color-badge-accent-soft: #edf4f4;
 
   /*
    * 线与文本：分隔线只做分组，边线取 CDS alpha 阶梯。
@@ -188,6 +190,25 @@
    */
   --shadow-md: var(--shadow-overlay);
   --shadow-lg: var(--shadow-overlay);
+}
+
+@keyframes badge-swing {
+  0% { transform: rotate(0deg); }
+  10% { transform: rotate(-3deg); }
+  26% { transform: rotate(2.6deg); }
+  44% { transform: rotate(-2deg); }
+  62% { transform: rotate(1.4deg); }
+  80% { transform: rotate(-0.8deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.badge-swing {
+  transform-origin: top center;
+  animation: badge-swing 1.8s var(--ease-out-soft) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge-swing { animation: none; }
 }
 
 :root {

@@ -6,7 +6,7 @@ import {
 } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { Ellipsis, IdCard, Plus, Upload } from 'lucide-react';
+import { Calendar, Ellipsis, IdCard, Plus, Upload } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import digitalTwinPortrait from '../../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../../components/agent/agent-avatar.js';
@@ -530,21 +530,27 @@ export function AgentsPage() {
               ? badgeTriggerRef.current
               : document.getElementById('agents-search')
           }
-          className="flex max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[392px] flex-col gap-0 overflow-hidden rounded-none bg-transparent p-0 text-fg shadow-none! ring-0 sm:max-w-[392px]"
+          className="pointer-events-none top-0 left-1/2 flex h-[100dvh] max-h-none w-[calc(100vw-32px)] max-w-[520px] origin-top -translate-x-1/2 translate-y-0 flex-col gap-0 overflow-hidden rounded-none bg-transparent p-0 text-fg shadow-none! ring-0 sm:max-w-[520px]"
         >
           <DialogTitle className="sr-only">
             {badgeAgent ? `${badgeAgent.name} 的工牌` : '数字员工工牌'}
           </DialogTitle>
-          {/* 关闭固定在滚动区外，长介绍也不会把它带出视口。 */}
-          <div className="flex shrink-0 justify-end px-3 pt-3">
-            <DialogClose render={<Button variant="outline" size="sm" />}>关闭</DialogClose>
-          </div>
-          {/* 滚动区可聚焦，键盘用户才能滚动超出一屏的工牌。 */}
+          <DialogClose
+            render={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="pointer-events-auto absolute right-4 top-4 z-20"
+              />
+            }
+          >
+            关闭
+          </DialogClose>
           <section
             // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
             tabIndex={0}
             aria-label="工牌内容"
-            className="min-h-0 overflow-y-auto overscroll-contain pb-4"
+            className="pointer-events-none flex min-h-0 w-full flex-1 flex-col items-center overscroll-contain"
           >
             {badgeAgent ? <AgentEmployeeBadge agent={badgeAgent} /> : null}
           </section>
@@ -694,103 +700,132 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
   const role = agent.role?.trim() || '通用助手';
   const createdAt = badgeCreatedAt(agent.createdAt);
   return (
-    <div className="mx-auto flex w-full max-w-[360px] flex-col items-center">
-      {/* 挂绳与扣环是纯装饰插画，信息全部由下方 DOM 文本承担。 */}
-      <svg
-        aria-hidden="true"
-        focusable="false"
-        viewBox="0 0 360 96"
-        fill="none"
-        className="pointer-events-none relative z-10 block h-24 w-full text-line-strong"
-      >
-        <path d="M104 -8 L170 62" stroke="currentColor" strokeWidth="10" strokeLinecap="round" />
-        <path d="M256 -8 L190 62" stroke="currentColor" strokeWidth="10" strokeLinecap="round" />
-        <path
-          d="M104 -8 L170 62"
-          stroke="var(--color-line)"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-        <path
-          d="M256 -8 L190 62"
-          stroke="var(--color-line)"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-        <circle cx="180" cy="68" r="10" stroke="currentColor" strokeWidth="5" />
-        <rect
-          x="164"
-          y="76"
-          width="32"
-          height="20"
-          rx="6"
-          fill="var(--color-surface)"
-          stroke="currentColor"
-          strokeWidth="3"
-        />
-        <path d="M172 84 H188" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-      </svg>
-      <div className="relative z-0 -mt-1 flex min-h-[480px] w-full flex-col gap-5 rounded-card border border-line bg-surface p-6">
-        {/* 卡套插槽，与上方金属夹相接。 */}
-        <div
+    <div className="badge-swing pointer-events-none flex h-full w-full flex-col items-center">
+      <div aria-hidden="true" className="flex shrink-0 flex-col items-center">
+        <div className="flex h-[22vh] min-h-24 w-24 flex-col items-center rounded-b-xl bg-badge-accent pt-4">
+          <span className="text-[11px] font-semibold tracking-[0.22em] text-white/95 [writing-mode:vertical-rl]">
+            PACE
+          </span>
+        </div>
+        <svg
+          viewBox="0 0 64 44"
+          className="relative z-10 -mt-1 h-11 w-16 text-line-strong"
+          fill="none"
           aria-hidden="true"
-          className="absolute -top-1.5 left-1/2 h-3 w-24 -translate-x-1/2 rounded-full border border-line bg-sunken"
-        />
-        <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
-          <span className="font-mono text-xs font-semibold tracking-[0.18em] text-fg">PACE</span>
-          <span className="text-xs text-muted-foreground">数字员工</span>
-        </div>
-        <AgentAvatar
-          agent={agent}
-          className="size-24 self-center rounded-xl bg-sunken object-cover ring-1 ring-line"
-        />
-        <div className="flex flex-col items-center gap-1.5 text-center">
-          <div className="text-2xl font-medium break-words text-fg [overflow-wrap:anywhere]">
-            {agent.name}
+        >
+          <circle cx="32" cy="12" r="9" stroke="currentColor" strokeWidth="5" />
+          <rect
+            x="18"
+            y="20"
+            width="28"
+            height="16"
+            rx="5"
+            fill="var(--color-surface)"
+            stroke="currentColor"
+            strokeWidth="3"
+          />
+          <path d="M25 28 H39" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+        </svg>
+      </div>
+      <div className="pointer-events-auto flex min-h-0 w-full flex-1 items-start justify-center overflow-y-auto overscroll-contain px-6 pt-1.5 pb-8">
+        <div className="relative z-0 flex min-h-[480px] w-full max-w-[360px] flex-col gap-5 rounded-[24px] border border-line bg-surface p-6 shadow-sm">
+          {/* 卡套插槽，与上方金属夹相接。 */}
+          <div
+            aria-hidden="true"
+            className="absolute -top-1.5 left-1/2 h-3 w-24 -translate-x-1/2 rounded-full border border-line bg-sunken"
+          />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-fg">
+              <img src="/brand/pace-mark.svg" alt="" aria-hidden="true" className="size-6" />
+              <span className="text-sm font-semibold tracking-[0.16em]">PACE</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div aria-hidden="true" className="grid grid-cols-3 gap-1.5">
+                <span className="size-1 rounded-full bg-badge-accent/35" />
+                <span className="size-1 rounded-full bg-badge-accent/35" />
+                <span className="size-1 rounded-full bg-badge-accent/35" />
+                <span className="size-1 rounded-full bg-badge-accent/35" />
+                <span className="size-1 rounded-full bg-badge-accent/35" />
+                <span className="size-1 rounded-full bg-badge-accent/35" />
+                <span className="size-1 rounded-full bg-badge-accent/35" />
+                <span className="size-1 rounded-full bg-badge-accent/35" />
+                <span className="size-1 rounded-full bg-badge-accent/35" />
+              </div>
+              <span className="text-xs text-muted-foreground">数字员工</span>
+            </div>
           </div>
-          <p className="text-sm">
-            <span className="sr-only">角色：</span>
-            <span className="text-muted-foreground">{role}</span>
-            <span aria-hidden="true" className="mx-2 text-line-strong">
-              /
-            </span>
-            <span className="sr-only">状态：</span>
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5',
-                agent.enabled ? 'text-success' : 'text-muted-foreground',
-              )}
-            >
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span>工号</span>
+              <span className="min-w-0 font-mono break-all text-fg">{agent.id}</span>
+              <span aria-hidden="true" className="text-line-strong">
+                ·
+              </span>
+              <span className="sr-only">状态：</span>
               <span
-                aria-hidden="true"
-                className={cn('size-1.5 rounded-full', agent.enabled ? 'bg-success' : 'bg-subtle')}
-              />
-              {agent.enabled ? '已启用' : '已停用'}
-            </span>
-          </p>
+                className={cn(
+                  'inline-flex items-center gap-1.5',
+                  agent.enabled ? 'text-badge-accent' : 'text-muted-foreground',
+                )}
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    'size-1.5 rounded-full',
+                    agent.enabled ? 'bg-badge-accent' : 'bg-subtle',
+                  )}
+                />
+                {agent.enabled ? '在职' : '已停用'}
+              </span>
+            </div>
+            <div aria-hidden="true" className="h-0.5 w-8 rounded-full bg-badge-accent" />
+          </div>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div className="text-3xl font-semibold tracking-tight break-words text-fg [overflow-wrap:anywhere]">
+                {agent.name}
+              </div>
+              <p className="text-base break-words text-muted-foreground [overflow-wrap:anywhere]">
+                <span className="sr-only">角色：</span>
+                {role}
+              </p>
+            </div>
+            <AgentAvatar
+              agent={agent}
+              className="size-24 rounded-[18px] bg-badge-accent-soft object-cover"
+            />
+          </div>
+          <div className="rounded-dialog bg-badge-accent-soft p-4">
+            <div className="text-sm font-medium text-badge-accent">职责简介</div>
+            <p className="mt-1.5 text-base break-words whitespace-pre-wrap text-fg [overflow-wrap:anywhere]">
+              <span className="sr-only">介绍：</span>
+              {agent.description.trim() || '未填写介绍'}
+            </p>
+          </div>
+          <dl className="flex flex-col text-base">
+            <div className="flex items-center justify-between gap-4 border-t border-line py-3">
+              <dt className="inline-flex items-center gap-2 text-muted-foreground">
+                <Calendar aria-hidden="true" className="text-badge-accent" />
+                入职日期
+              </dt>
+              <dd className="min-w-0 text-right break-words text-fg">
+                {createdAt.iso ? (
+                  <time dateTime={createdAt.iso} title={createdAt.iso}>
+                    {createdAt.label}
+                  </time>
+                ) : (
+                  createdAt.label
+                )}
+              </dd>
+            </div>
+          </dl>
+          <div className="mt-auto flex flex-col gap-1 border-t border-line pt-4">
+            <p className="text-xs text-muted-foreground">
+              本工牌信息同步自智能体定义，随身份信息更新。
+            </p>
+            <span className="font-mono text-2xs break-all text-muted-foreground">{agent.id}</span>
+          </div>
         </div>
-        <p className="text-sm break-words whitespace-pre-wrap text-fg [overflow-wrap:anywhere]">
-          <span className="sr-only">介绍：</span>
-          {agent.description.trim() ? agent.description : '未填写介绍'}
-        </p>
-        <dl className="mt-auto flex flex-col gap-3 rounded-lg bg-sunken p-4 text-xs">
-          <div className="flex flex-col gap-1">
-            <dt className="text-muted-foreground">员工编号</dt>
-            <dd className="font-mono break-all text-fg">{agent.id}</dd>
-          </div>
-          <div className="flex flex-col gap-1">
-            <dt className="text-muted-foreground">上岗时间（创建时间）</dt>
-            <dd className="text-fg">
-              {createdAt.iso ? (
-                <time dateTime={createdAt.iso} title={createdAt.iso}>
-                  {createdAt.label}
-                </time>
-              ) : (
-                createdAt.label
-              )}
-            </dd>
-          </div>
-        </dl>
       </div>
     </div>
   );
