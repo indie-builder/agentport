@@ -17,8 +17,8 @@ import { Switch } from '../src/components/ui/switch.js';
 import { Textarea } from '../src/components/ui/textarea.js';
 import { Toggle } from '../src/components/ui/toggle.js';
 
-// 输入类默认走浅边线、普通聚焦换输入焦点色、composer 由页面覆盖；错误态保留危险边线，
-// 并用真实 :focus-visible 的 2px outline 补焦点。按钮/开关类错误态必须保留键盘焦点环。
+// 输入类默认走浅边线、普通聚焦换输入焦点色、composer 由页面覆盖；错误态只保留一条危险边线，
+// 不再叠第二层 outline/ring。按钮/开关类错误态必须保留键盘焦点环。
 // 这里用 Tailwind 4 实际编译组件真实 class，再按选择器优先级取最终声明，
 // 避免只检查 class 名或源码顺序；:has() 组合由 PACE 实页 computed style 验证。
 
@@ -426,21 +426,18 @@ describe('error and focus states stay distinguishable', () => {
     }
   });
 
-  it('keeps the destructive border and adds a focus outline on invalid inputs', () => {
+  it('keeps a single destructive border and no second focus frame on invalid inputs', () => {
     for (const name of ['input', 'textarea', 'select']) {
       const classNames = probeClasses(name);
+      // 静止与聚焦都只有这一条危险边框，聚焦不再叠 outline 或 ring。
       expect(winning(rules, classNames, invalid, false, 'border-color')).toBe(
         'var(--color-destructive)',
       );
-      // 错误边框不等于焦点：真实 :focus-visible 另画 2px ring 色轮廓并留 2px 间隔。
       expect(winning(rules, classNames, invalid, true, 'border-color')).toBe(
         'var(--color-destructive)',
       );
-      expect(outlineVisible(rules, classNames, invalid, true)).toBe(true);
-      expect(outlineStyle(rules, classNames, invalid, true)).toBe('solid');
-      expect(winning(rules, classNames, invalid, true, 'outline-width')).toBe('2px');
-      expect(winning(rules, classNames, invalid, true, 'outline-color')).toBe('var(--color-ring)');
-      expect(winning(rules, classNames, invalid, true, 'outline-offset')).toBe('2px');
+      expect(outlineVisible(rules, classNames, invalid, true)).toBe(false);
+      expect(ringVisible(rules, classNames, invalid, true)).toBe(false);
     }
   });
 

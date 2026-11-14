@@ -168,7 +168,7 @@
   /*
    * 输入家族：默认边线等同 line；普通输入族聚焦改用中性暖灰 subtle #898781（无光晕，对白 3.59:1），
    * SourceEditor / CodeMirror 沿用中性 input-focus（line / input-focus 对白仅 1.25 / 1.88:1，不达 3:1）；
-   * 不新增 input hover，错误态保留 danger 边线并用 2px ring 色 outline 补焦点。
+   * 不新增 input hover；Input / Textarea / Select 错误态静止与聚焦都只保留单条 danger 边线。
    */
   --color-input: var(--color-line);
   --color-input-focus: #bdbdbd;

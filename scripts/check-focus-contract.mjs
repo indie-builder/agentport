@@ -35,7 +35,7 @@ for (const file of walk(WEB_SRC)) {
   text.split('\n').forEach((line, i) => {
     const at = `${rel}:${i + 1}`;
     // 规则 A 只适用于 INPUT_PRIMITIVES：这些原语以边线表达焦点，
-    // 错误态改用 outline 补焦点；任何状态都不得叠 ring（含 aria-invalid 错误环）。
+    // 错误态保留危险边框；任何状态都不得叠 ring（含 aria-invalid 错误环）。
     if (INPUT_PRIMITIVES.has(rel) && /\bring-[23]\b/.test(line)) {
       violations.push(
         `${at}  输入类原语用边框表达焦点，不得叠 ring-2/ring-3（规则 A）`,
