@@ -7,7 +7,7 @@ import { ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { ApiError, api } from '../../lib/api.js';
-import { downloadJson } from '../../lib/browser-files.js';
+import { downloadBlob, downloadJson } from '../../lib/browser-files.js';
 import { evalStatusLabel, evalStatusVariant } from '../../lib/format.js';
 import { useEvalRun } from '../../lib/queries.js';
 import { toastError } from '../../lib/toast.js';
@@ -18,6 +18,7 @@ export function EvalRunResults({ id }: { id: string }) {
   const search = useSearch({ from: '/_shell/eval' });
   const navigate = useNavigate();
   const [exporting, setExporting] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const onlyFailed = search.failedOnly === '1';
 
   // 只有从没拿到过详情时才整块报错；后台轮询/手动刷新失败要保留已有结果树。
@@ -56,6 +57,33 @@ export function EvalRunResults({ id }: { id: string }) {
       toastError(error);
     } finally {
       setExporting(false);
+    }
+  };
+
+  const exportCsv = () => {
+    setExportingCsv(true);
+    try {
+      const rows = visibleResults.map((result) =>
+        [
+          result.name,
+          result.passed ? '通过' : '未通过',
+          result.prompt,
+          result.expectation || '',
+          result.output || '',
+          result.runId ?? '',
+        ]
+          .map((field) => {
+            const guarded = /^[=+\-@\t\r]/.test(field) ? `'${field}` : field;
+            return /[",\r\n]/.test(guarded) ? `"${guarded.replaceAll('"', '""')}"` : guarded;
+          })
+          .join(','),
+      );
+      const csv = `﻿${['用例名,结果,Prompt,期望,输出,运行ID', ...rows].join('\n')}`;
+      downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `eval-result-${id}.csv`);
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setExportingCsv(false);
     }
   };
 
@@ -106,6 +134,18 @@ export function EvalRunResults({ id }: { id: string }) {
               onClick={toggleFailed}
             >
               {onlyFailed ? '显示全部' : `只看未通过（${failedCount}）`}
+            </Button>
+          ) : null}
+          {results.length > 0 ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exportingCsv || results.length === 0}
+              aria-busy={exportingCsv}
+              onClick={exportCsv}
+            >
+              <Download data-icon="inline-start" aria-hidden="true" />
+              {exportingCsv ? '导出中…' : '导出 CSV'}
             </Button>
           ) : null}
           <Button

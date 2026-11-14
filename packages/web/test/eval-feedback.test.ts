@@ -1,3 +1,4 @@
+import { Blob as NodeBlob } from 'node:buffer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
@@ -18,10 +19,12 @@ import {
   type EvalRunDetail,
   type EvalRunPage,
 } from '../src/lib/api.js';
+import { downloadBlob } from '../src/lib/browser-files.js';
 import { shortId } from '../src/lib/format.js';
 import { EvalPage } from '../src/pages/eval/index.js';
 import { evalSearchSchema } from '../src/routes/-search.js';
 
+vi.mock('../src/lib/browser-files.js', () => ({ downloadJson: vi.fn(), downloadBlob: vi.fn() }));
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
 let root: Root;
@@ -159,9 +162,45 @@ afterEach(async () => {
   history?.destroy();
   container.remove();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('evaluation run detail refresh feedback', () => {
+  it('exports only visible failed results as CSV', async () => {
+    vi.stubGlobal('Blob', NodeBlob);
+    vi.mocked(downloadBlob).mockClear();
+    vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [finishedRun], nextCursor: null });
+    vi.spyOn(api, 'evalRun').mockResolvedValue(
+      detail('succeeded', [
+        result('Passing First', 'first output'),
+        { ...result('=Failing Case', '@output,"quoted"\nnext line'), passed: false },
+        result('Passing Last', 'last output'),
+      ]),
+    );
+
+    await mount();
+    await openRun(finishedRun.id);
+    await actWaitFor(() => expect(container.textContent).toContain('Passing Last'));
+    await click('只看未通过（1）');
+    await click('导出 CSV');
+
+    expect(downloadBlob).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Blob),
+      `eval-result-${finishedRun.id}.csv`,
+    );
+    const blob = vi.mocked(downloadBlob).mock.calls[0]?.[0];
+    if (!blob) throw new Error('Missing evaluation export Blob');
+    expect(blob.type).toBe('text/csv;charset=utf-8');
+    const csv = await blob.text();
+    expect(csv).toContain('用例名,结果,Prompt,期望,输出,运行ID');
+    expect(csv).toContain('\'=Failing Case,未通过,Prompt,,"\'@output,""quoted""\nnext line",');
+    expect(csv).not.toContain('Passing First');
+    expect(csv).not.toContain('Passing Last');
+    expect(new Uint8Array(await blob.arrayBuffer()).slice(0, 3)).toEqual(
+      new Uint8Array([0xef, 0xbb, 0xbf]),
+    );
+  });
+
   it('filters failed results and restores all results', async () => {
     vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [finishedRun], nextCursor: null });
     vi.spyOn(api, 'evalRun').mockResolvedValue(
