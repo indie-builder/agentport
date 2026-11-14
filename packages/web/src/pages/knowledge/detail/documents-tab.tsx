@@ -299,7 +299,8 @@ export function DocumentsTab({
                           variant="ghost"
                           size="icon-xs"
                           aria-label={`文件夹操作 ${entry.name}`}
-                          className="transition-opacity duration-150 ease-out-soft [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/folder:opacity-100 group-focus-within/folder:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100"
+                          className="transition-opacity duration-150 ease-out-soft [@media(hover:hover)_and_(pointer:fine)]:opacity-0 group-hover/folder:opacity-100 group-focus-within/folder:opacity-100 focus-visible:opacity-100 data-open:opacity-100"
+                          onFocus={(event) => setFolderTrigger(event.currentTarget)}
                           onClick={(event) => setFolderTrigger(event.currentTarget)}
                         >
                           <MoreHorizontal />
@@ -309,18 +310,18 @@ export function DocumentsTab({
                     <DropdownMenuContent align="end" sideOffset={4} className="w-40">
                       <DropdownMenuGroup>
                         <DropdownMenuItem
-                          onClick={() => setFolderDialog({ mode: 'rename', folder: entry })}
+                          onSelect={() => setFolderDialog({ mode: 'rename', folder: entry })}
                         >
                           <Pencil /> 重命名
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          onClick={() => setFolderDialog({ mode: 'create', parentId: entry.id })}
+                          onSelect={() => setFolderDialog({ mode: 'create', parentId: entry.id })}
                         >
                           <Plus /> 新建子文件夹
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           variant="destructive"
-                          onClick={() => setDeletingFolder(entry)}
+                          onSelect={() => setDeletingFolder(entry)}
                         >
                           <Trash2 /> 删除
                         </DropdownMenuItem>
@@ -393,13 +394,13 @@ export function DocumentsTab({
                   />
                   <DropdownMenuContent align="end" sideOffset={4} className="w-44">
                     <DropdownMenuGroup>
-                      <DropdownMenuItem onClick={() => folderInput.current?.click()}>
+                      <DropdownMenuItem onSelect={() => folderInput.current?.click()}>
                         <FolderOpen /> 上传文件夹
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setManualOpen(true)}>
+                      <DropdownMenuItem onSelect={() => setManualOpen(true)}>
                         <FileText /> 手写文档
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setUrlOpen(true)}>
+                      <DropdownMenuItem onSelect={() => setUrlOpen(true)}>
                         <Search /> 导入网址
                       </DropdownMenuItem>
                     </DropdownMenuGroup>
@@ -609,6 +610,7 @@ export function DocumentsTab({
                               variant="ghost"
                               size="icon-sm"
                               aria-label={`操作 ${document.title}`}
+                              onFocus={(event) => setActionTrigger(event.currentTarget)}
                               onClick={(event) => setActionTrigger(event.currentTarget)}
                             >
                               <MoreHorizontal />
@@ -618,24 +620,24 @@ export function DocumentsTab({
                         <DropdownMenuContent align="end" sideOffset={4} className="w-44">
                           <DropdownMenuGroup>
                             {caps.content ? (
-                              <DropdownMenuItem onClick={() => setEditing(document)}>
+                              <DropdownMenuItem onSelect={() => setEditing(document)}>
                                 <FolderOpen /> 移动 / 标注
                               </DropdownMenuItem>
                             ) : null}
                             {caps.execute && document.currentVersionId !== null ? (
-                              <DropdownMenuItem onClick={() => setConfirmReprocess(document)}>
+                              <DropdownMenuItem onSelect={() => setConfirmReprocess(document)}>
                                 <RefreshCw /> 重新解析
                               </DropdownMenuItem>
                             ) : null}
                             {document.status === 'failed' && document.currentVersionId === null ? (
-                              <DropdownMenuItem onClick={() => onViewJobs(document.id)}>
+                              <DropdownMenuItem onSelect={() => onViewJobs(document.id)}>
                                 <FileText /> 查看处理记录
                               </DropdownMenuItem>
                             ) : null}
                             {caps.content ? (
                               <DropdownMenuItem
                                 variant="destructive"
-                                onClick={() => setDeleting(document)}
+                                onSelect={() => setDeleting(document)}
                               >
                                 <Trash2 /> 删除
                               </DropdownMenuItem>
@@ -681,7 +683,6 @@ export function DocumentsTab({
             onConfirm={async () => {
               await reprocessDocument.mutateAsync(confirmReprocess.id);
               toastSuccess('已提交重新解析任务');
-              setConfirmReprocess(null);
             }}
           />
         ) : null}
@@ -695,7 +696,6 @@ export function DocumentsTab({
             onConfirm={async () => {
               await removeDocument.mutateAsync(deleting.id);
               toastSuccess('文档已删除');
-              setDeleting(null);
             }}
           />
         ) : null}

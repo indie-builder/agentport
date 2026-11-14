@@ -259,7 +259,7 @@ export function ConversationOutputs({
                                 <DropdownMenuRadioItem
                                   key={file.runId}
                                   value={file.runId}
-                                  closeOnClick
+                                  closeOnSelect
                                 >
                                   {versionLabel(index, file.createdAt)}
                                 </DropdownMenuRadioItem>

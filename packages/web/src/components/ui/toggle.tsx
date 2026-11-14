@@ -1,9 +1,12 @@
-import { Toggle as TogglePrimitive } from '@base-ui/react/toggle';
+import { Toggle as TogglePrimitive } from '@ui-sdk/react/toggle';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from 'cn';
+import type { ComponentProps } from 'react';
+
+type Loose<T> = { [K in keyof T]: T[K] | undefined };
 
 const toggleVariants = cva(
-  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft outline-none hover:bg-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-[0.35] aria-invalid:border aria-invalid:border-destructive aria-pressed:bg-selected aria-pressed:text-selected-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,opacity] duration-150 ease-out-soft outline-none hover:bg-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-[0.35] aria-invalid:border aria-invalid:border-destructive data-pressed:bg-selected data-pressed:text-selected-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -29,12 +32,11 @@ function Toggle({
   variant = 'default',
   size = 'default',
   ...props
-}: TogglePrimitive.Props & VariantProps<typeof toggleVariants>) {
+}: Loose<ComponentProps<typeof TogglePrimitive>> & VariantProps<typeof toggleVariants>) {
   return (
     <TogglePrimitive
-      data-slot="toggle"
       className={cn(toggleVariants({ variant, size, className }))}
-      {...props}
+      {...(props as ComponentProps<typeof TogglePrimitive>)}
     />
   );
 }

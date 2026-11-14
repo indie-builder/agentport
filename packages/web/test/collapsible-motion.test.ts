@@ -19,8 +19,11 @@ function keepOpenDuringClose(): () => void {
       ({
         transitionDuration: '0.15s',
         transitionProperty: 'height, opacity',
+        transitionDelay: '0s',
         animationDuration: '0s',
         animationName: 'none',
+        animationDelay: '0s',
+        animationIterationCount: '1',
       }) as CSSStyleDeclaration,
   );
   const scrollHeight = vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(100);
@@ -28,7 +31,10 @@ function keepOpenDuringClose(): () => void {
     configurable: true,
     value: () => [
       {
-        effect: { getTiming: () => ({ duration: 150, iterations: 1 }) },
+        effect: {
+          getTiming: () => ({ duration: 150, iterations: 1 }),
+          getComputedTiming: () => ({ endTime: Number.POSITIVE_INFINITY, localTime: 0 }),
+        },
         finished: new Promise(() => {}),
         pending: false,
         playState: 'running',

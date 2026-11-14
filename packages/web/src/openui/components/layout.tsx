@@ -529,7 +529,7 @@ export function FollowUpBlockRenderer({ props }: RenderProps<{ items: unknown[] 
 export function SeparatorRenderer({
   props,
 }: RenderProps<{ orientation?: 'horizontal' | 'vertical'; decorative?: boolean }>) {
-  // Base UI 的 Separator 没有 `decorative`；默认就是装饰性 role="none"。
+  // ui-sdk 的 Separator 支持 `decorative`；默认 role="separator"，decorative=true 时为 role="none"。
   return <Separator orientation={props.orientation ?? 'horizontal'} />;
 }
 

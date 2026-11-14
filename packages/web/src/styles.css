@@ -1,5 +1,7 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
+
+@layer ui-sdk;
 @import "tailwindcss";
 
 /* Streamdown 渲染 Markdown 时用到的 Tailwind 类需要被扫描到。 */

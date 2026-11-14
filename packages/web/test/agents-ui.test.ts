@@ -1,6 +1,7 @@
 import { type Agent, PERMISSIONS } from '@agentport/shared';
 import {
   act,
+  type ComponentProps,
   createElement,
   isValidElement,
   type ReactElement,
@@ -13,7 +14,7 @@ import { ConfirmDialog } from '../src/components/confirm-dialog.js';
 import { Collapsible } from '../src/components/motion-collapsible.js';
 import { PageHeader } from '../src/components/page.js';
 import { ErrorState, LoadingState } from '../src/components/states.js';
-import { Combobox } from '../src/components/ui/combobox.js';
+import { Combobox, ComboboxItem, ComboboxList } from '../src/components/ui/combobox.js';
 import { DropdownMenuTrigger } from '../src/components/ui/dropdown-menu.js';
 import { Field } from '../src/components/ui/field.js';
 import { Input } from '../src/components/ui/input.js';
@@ -203,11 +204,24 @@ const parent = {
   updatedAt: '2026-01-01',
 } as Agent;
 
+type PickerProps = ComponentProps<typeof Combobox<string, true>>;
+type ChangePickerValue = (value: Parameters<NonNullable<PickerProps['onValueChange']>>[0]) => void;
 type Element = ReactElement<Record<string, unknown>>;
 function elements(node: ReactNode): Element[] {
   if (Array.isArray(node)) return node.flatMap(elements);
   if (!isValidElement<Record<string, unknown>>(node)) return [];
   return [node, ...elements(node.props.children as ReactNode)];
+}
+function pickerValues(picker: Element): string[] {
+  const list = elements(picker).find((node) => node.type === ComboboxList);
+  return elements(list).flatMap((node) => {
+    if (node.type !== ComboboxItem) return [];
+    if (typeof node.props.value !== 'string') throw new Error('Missing picker option value');
+    return [node.props.value];
+  });
+}
+function findPicker(tree: Element[], value: string): Element | undefined {
+  return tree.find((node) => node.type === Combobox && pickerValues(node).includes(value));
 }
 
 /**
@@ -886,16 +900,10 @@ describe('expert editor regressions', () => {
           return true;
         }
         if (pass === 2) {
-          const picker = tree.find(
-            (node) =>
-              node.type === Combobox &&
-              (node.props.items as Array<{ id: string }>).some((item) => item.id === 'free'),
-          );
+          const picker = findPicker(tree, 'free');
           if (!picker) throw new Error('Missing delegate picker');
-          expect((picker.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
-            'child',
-          ]);
-          (picker.props.onValueChange as (items: unknown[]) => void)([]);
+          expect(picker.props.value as PickerProps['value']).toEqual(['child']);
+          (picker.props.onValueChange as ChangePickerValue)([]);
           return true;
         }
         if (pass === 3) {
@@ -962,15 +970,9 @@ describe('expert editor regressions', () => {
         return true;
       }
       expect(saved?.subAgentIds).toEqual(['child']);
-      const picker = tree.find(
-        (node) =>
-          node.type === Combobox &&
-          (node.props.items as Array<{ id: string }>).some((item) => item.id === 'free'),
-      );
+      const picker = findPicker(tree, 'free');
       if (!picker) throw new Error('Missing delegate picker');
-      expect((picker.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
-        'child',
-      ]);
+      expect(picker.props.value as PickerProps['value']).toEqual(['child']);
     });
   });
 
@@ -1083,21 +1085,20 @@ describe('expert editor regressions', () => {
     await inspect(editor, (tree, pass) => {
       if (pass === 0) {
         selectSection(tree, '能力');
-        return;
+        return true;
       }
-      const picker = tree.find(
-        (node) =>
-          node.type === Combobox &&
-          (node.props.items as Array<{ id: string }>).some((item) => item.id === 'free'),
-      );
+      const picker = findPicker(tree, 'free');
       expect(picker).toBeDefined();
       if (!picker) throw new Error('Missing child picker');
-      const items = picker.props.items as Array<{ id: string }>;
-      expect(items.map((item) => item.id)).toEqual(['child', 'free']);
-      expect((picker.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual(
+      const values = pickerValues(picker);
+      expect(values).toEqual(['child', 'free']);
+      expect(picker.props.value as PickerProps['value']).toEqual(
         pass === 1 ? ['child'] : ['child', 'free'],
       );
-      if (pass === 1) (picker.props.onValueChange as (items: unknown[]) => void)(items);
+      if (pass === 1) {
+        (picker.props.onValueChange as ChangePickerValue)(values);
+        return true;
+      }
     });
   });
 
@@ -1148,15 +1149,9 @@ describe('expert editor regressions', () => {
           return true;
         }
         if (pass === 1) {
-          const picker = tree.find(
-            (node) =>
-              node.type === Combobox &&
-              (node.props.items as Array<{ id: string }>).some((item) => item.id === 'connector'),
-          );
+          const picker = findPicker(tree, 'connector');
           if (!picker) throw new Error('Missing connector picker');
-          (picker.props.onValueChange as (items: unknown[]) => void)(
-            picker.props.items as unknown[],
-          );
+          (picker.props.onValueChange as ChangePickerValue)(['connector']);
           return true;
         }
         if (pass === 2) {
@@ -1172,26 +1167,12 @@ describe('expert editor regressions', () => {
           return true;
         }
         expect(saved?.pluginBindings).toEqual(configured.pluginBindings);
-        const knowledge = tree.find(
-          (node) =>
-            node.type === Combobox &&
-            (node.props.items as Array<{ id: string }>).some(
-              (item) => item.id === 'knowledge-server',
-            ),
-        );
+        const knowledge = findPicker(tree, 'knowledge-server');
         if (!knowledge) throw new Error('Missing knowledge picker');
-        expect((knowledge.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
-          'knowledge-server',
-        ]);
-        const connector = tree.find(
-          (node) =>
-            node.type === Combobox &&
-            (node.props.items as Array<{ id: string }>).some((item) => item.id === 'connector'),
-        );
+        expect(knowledge.props.value as PickerProps['value']).toEqual(['knowledge-server']);
+        const connector = findPicker(tree, 'connector');
         if (!connector) throw new Error('Missing connector picker');
-        expect((connector.props.value as Array<{ id: string }>).map((item) => item.id)).toEqual([
-          'connector',
-        ]);
+        expect(connector.props.value as PickerProps['value']).toEqual(['connector']);
       },
     );
   });

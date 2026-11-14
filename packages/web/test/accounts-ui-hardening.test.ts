@@ -178,12 +178,7 @@ function menuItem(text: string): HTMLElement {
   return element;
 }
 async function openMenu(label: string): Promise<void> {
-  const trigger = button(label);
-  // Base UI 用 mousedown 打开菜单，jsdom 的 click() 不会触发。
-  await act(async () => {
-    trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  });
-  await flush();
+  await click(button(label));
 }
 async function pressEscape(): Promise<void> {
   await act(async () => {
@@ -197,7 +192,10 @@ async function clickBackdrop(): Promise<void> {
   const overlays = document.querySelectorAll<HTMLElement>('[data-slot="dialog-overlay"]');
   const overlay = overlays[overlays.length - 1];
   if (!overlay) throw new Error('Missing dialog backdrop');
-  await act(async () => overlay.click());
+  await act(async () => {
+    overlay.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 0 }));
+    overlay.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 0, clientY: 0 }));
+  });
   await flush();
 }
 

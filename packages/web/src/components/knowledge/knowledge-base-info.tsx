@@ -1,6 +1,6 @@
 import type { KnowledgeBase } from '@agentport/shared';
 import { z } from 'zod';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { useUpdateKnowledgeBase } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
@@ -25,13 +25,15 @@ type BaseInfoForm = z.infer<typeof baseInfoSchema>;
 /** 只编辑用户可见的名称与描述；模型、分块等设置留在设置弹层。 */
 export function BaseInfoDialog({
   base,
-  onClose,
+  onClose: onClosed,
   finalFocus,
 }: {
   base: KnowledgeBase;
   onClose: () => void;
   finalFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const update = useUpdateKnowledgeBase();
   const form = useZodForm(baseInfoSchema, {
     defaultValues: { name: base.name, description: base.description } satisfies BaseInfoForm,
@@ -55,7 +57,11 @@ export function BaseInfoDialog({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title="编辑信息" closeDisabled={pending} finalFocus={finalFocus}>
         <form
           className="flex flex-col gap-4"

@@ -42,14 +42,13 @@ import { Checkbox } from '../../components/ui/checkbox.js';
 import {
   Combobox,
   ComboboxChip,
+  ComboboxChipRemove,
   ComboboxChips,
-  ComboboxChipsInput,
   ComboboxContent,
   ComboboxEmpty,
+  ComboboxInput,
   ComboboxItem,
   ComboboxList,
-  ComboboxValue,
-  useComboboxAnchor,
 } from '../../components/ui/combobox.js';
 import {
   DropdownMenu,
@@ -71,8 +70,8 @@ import {
   Select,
   SelectContent,
   SelectGroup,
+  SelectGroupLabel,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '../../components/ui/select.js';
@@ -260,11 +259,11 @@ export function AgentEditor({
   // 绑定来源路由后，navigate 的 current 只含本路由 search，不会被其他路由的联合类型污染。
   const navigate = useNavigate({ from: '/agents/$agentId' });
   const search = useSearch({ from: '/_shell/agents/$agentId' });
-  const serverAnchor = useComboboxAnchor();
-  const knowledgeAnchor = useComboboxAnchor();
-  const skillAnchor = useComboboxAnchor();
-  const pluginAnchor = useComboboxAnchor();
-  const subAgentAnchor = useComboboxAnchor();
+  const [serverAnchor, setServerAnchor] = useState<HTMLDivElement | null>(null);
+  const [knowledgeAnchor, setKnowledgeAnchor] = useState<HTMLDivElement | null>(null);
+  const [skillAnchor, setSkillAnchor] = useState<HTMLDivElement | null>(null);
+  const [pluginAnchor, setPluginAnchor] = useState<HTMLDivElement | null>(null);
+  const [subAgentAnchor, setSubAgentAnchor] = useState<HTMLDivElement | null>(null);
   const [baseline, setBaseline] = useState(agent);
   const [conflict, setConflict] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
@@ -981,13 +980,13 @@ export function AgentEditor({
                       {canClone ? (
                         <DropdownMenuItem
                           disabled={pending || dirty}
-                          onClick={() => setDuplicateOpen(true)}
+                          onSelect={() => setDuplicateOpen(true)}
                         >
                           <Copy className="size-4" /> 克隆专家
                         </DropdownMenuItem>
                       ) : null}
                       {canExport ? (
-                        <DropdownMenuItem disabled={exporting} onClick={() => void download()}>
+                        <DropdownMenuItem disabled={exporting} onSelect={() => void download()}>
                           <Download className="size-4" /> {exporting ? '导出中…' : '导出 ZIP'}
                         </DropdownMenuItem>
                       ) : null}
@@ -996,7 +995,7 @@ export function AgentEditor({
                       <DropdownMenuItem
                         variant="destructive"
                         disabled={pending}
-                        onClick={onDeleteRequest}
+                        onSelect={onDeleteRequest}
                       >
                         <Trash2 className="size-4" /> 删除专家
                       </DropdownMenuItem>
@@ -1279,42 +1278,37 @@ export function AgentEditor({
                             <Combobox
                               disabled={pending || !canBindings}
                               multiple
-                              items={serverOptions}
-                              value={serverOptions.filter((option) =>
-                                serverIdsField.value.includes(option.id),
+                              value={serverIdsField.value.filter((id) =>
+                                serverOptions.some((option) => option.id === id),
                               )}
                               onValueChange={(picked) => {
                                 serverIdsField.onChange([
                                   ...serverIdsField.value.filter(
                                     (id) => !serverOptions.some((option) => option.id === id),
                                   ),
-                                  ...picked.map((option) => option.id),
+                                  ...picked,
                                 ]);
                               }}
-                              itemToStringLabel={(option) => option.label}
-                              itemToStringValue={(option) => option.id}
-                              isItemEqualToValue={(a, b) => a.id === b.id}
-                              filter={(option, query) =>
-                                `${option.label} ${option.hint}`
-                                  .toLowerCase()
-                                  .includes(query.trim().toLowerCase())
-                              }
                             >
                               <ComboboxChips
                                 aria-label="已选连接器"
                                 data-disabled={bindingsDisabled}
-                                ref={serverAnchor}
+                                ref={setServerAnchor}
                               >
-                                <ComboboxValue>
-                                  {(selected: typeof serverOptions) =>
-                                    selected.map((option) => (
-                                      <ComboboxChip key={option.id} aria-label={option.label}>
-                                        {option.label}
-                                      </ComboboxChip>
-                                    ))
-                                  }
-                                </ComboboxValue>
-                                <ComboboxChipsInput
+                                {serverIdsField.value
+                                  .map((id) => serverOptions.find((option) => option.id === id))
+                                  .filter((option) => option !== undefined)
+                                  .map((option) => (
+                                    <ComboboxChip
+                                      key={option.id}
+                                      value={option.id}
+                                      aria-label={option.label}
+                                    >
+                                      {option.label}
+                                      <ComboboxChipRemove aria-label={`移除 ${option.label}`} />
+                                    </ComboboxChip>
+                                  ))}
+                                <ComboboxInput
                                   aria-label="MCP Server"
                                   placeholder="搜索并选择 server…"
                                 />
@@ -1322,14 +1316,19 @@ export function AgentEditor({
                               <ComboboxContent anchor={serverAnchor}>
                                 <ComboboxEmpty>没有匹配的 server</ComboboxEmpty>
                                 <ComboboxList>
-                                  {(option: (typeof serverOptions)[number]) => (
-                                    <ComboboxItem key={option.id} value={option}>
+                                  {serverOptions.map((option) => (
+                                    <ComboboxItem
+                                      key={option.id}
+                                      value={option.id}
+                                      label={option.label}
+                                      keywords={[option.hint]}
+                                    >
                                       <span className="min-w-0 flex-1 truncate">
                                         {option.label}
                                       </span>
                                       <StatusBadge tone="mono">{option.tag}</StatusBadge>
                                     </ComboboxItem>
-                                  )}
+                                  ))}
                                 </ComboboxList>
                               </ComboboxContent>
                             </Combobox>
@@ -1372,37 +1371,28 @@ export function AgentEditor({
                             <Combobox
                               disabled={pending || !canBindings}
                               multiple
-                              items={knowledgeOptions}
-                              value={knowledgeOptions.filter((option) =>
-                                serverIdsField.value.includes(option.id),
-                              )}
-                              onValueChange={(picked) => {
-                                setKnowledgeIds(picked.map((option) => option.id));
-                              }}
-                              itemToStringLabel={(option) => option.label}
-                              itemToStringValue={(option) => option.id}
-                              isItemEqualToValue={(a, b) => a.id === b.id}
-                              filter={(option, query) =>
-                                `${option.label} ${option.slug}`
-                                  .toLowerCase()
-                                  .includes(query.trim().toLowerCase())
-                              }
+                              value={serverIdsField.value.filter((id) => knowledgeIds.has(id))}
+                              onValueChange={setKnowledgeIds}
                             >
                               <ComboboxChips
                                 aria-label="已选知识库"
                                 data-disabled={bindingsDisabled}
-                                ref={knowledgeAnchor}
+                                ref={setKnowledgeAnchor}
                               >
-                                <ComboboxValue>
-                                  {(selected: typeof knowledgeOptions) =>
-                                    selected.map((option) => (
-                                      <ComboboxChip key={option.id} aria-label={option.label}>
-                                        {option.label}
-                                      </ComboboxChip>
-                                    ))
-                                  }
-                                </ComboboxValue>
-                                <ComboboxChipsInput
+                                {serverIdsField.value
+                                  .map((id) => knowledgeOptions.find((option) => option.id === id))
+                                  .filter((option) => option !== undefined)
+                                  .map((option) => (
+                                    <ComboboxChip
+                                      key={option.id}
+                                      value={option.id}
+                                      aria-label={option.label}
+                                    >
+                                      {option.label}
+                                      <ComboboxChipRemove aria-label={`移除 ${option.label}`} />
+                                    </ComboboxChip>
+                                  ))}
+                                <ComboboxInput
                                   aria-label="知识库"
                                   placeholder="搜索并选择知识库…"
                                 />
@@ -1410,11 +1400,12 @@ export function AgentEditor({
                               <ComboboxContent anchor={knowledgeAnchor}>
                                 <ComboboxEmpty>没有匹配的知识库</ComboboxEmpty>
                                 <ComboboxList>
-                                  {(option: (typeof knowledgeOptions)[number]) => (
+                                  {knowledgeOptions.map((option) => (
                                     <ComboboxItem
                                       key={option.id}
-                                      value={option}
-                                      // 已停用的库不能再新绑；已绑定的仍可保留或解绑。
+                                      value={option.id}
+                                      label={option.label}
+                                      keywords={[option.slug]}
                                       disabled={
                                         option.disabled && !serverIdsField.value.includes(option.id)
                                       }
@@ -1424,7 +1415,7 @@ export function AgentEditor({
                                       </span>
                                       {option.disabled ? <StatusBadge>已停用</StatusBadge> : null}
                                     </ComboboxItem>
-                                  )}
+                                  ))}
                                 </ComboboxList>
                               </ComboboxContent>
                             </Combobox>
@@ -1466,46 +1457,39 @@ export function AgentEditor({
                             <Combobox
                               disabled={pending || !canBindings}
                               multiple
-                              items={skillOptions}
-                              value={skillOptions.filter((option) =>
-                                skillIdsField.value.includes(option.id),
-                              )}
-                              onValueChange={(picked) => {
-                                skillIdsField.onChange(picked.map((option) => option.id));
-                              }}
-                              itemToStringLabel={(option) => option.label}
-                              itemToStringValue={(option) => option.id}
-                              isItemEqualToValue={(a, b) => a.id === b.id}
-                              filter={(option, query) =>
-                                `${option.label} ${option.hint}`
-                                  .toLowerCase()
-                                  .includes(query.trim().toLowerCase())
-                              }
+                              value={skillIdsField.value}
+                              onValueChange={skillIdsField.onChange}
                             >
                               <ComboboxChips
                                 aria-label="已选技能"
                                 data-disabled={bindingsDisabled}
-                                ref={skillAnchor}
+                                ref={setSkillAnchor}
                               >
-                                <ComboboxValue>
-                                  {(selected: typeof skillOptions) =>
-                                    selected.map((option) => (
-                                      <ComboboxChip key={option.id} aria-label={option.label}>
-                                        {option.label}
-                                      </ComboboxChip>
-                                    ))
-                                  }
-                                </ComboboxValue>
-                                <ComboboxChipsInput
-                                  aria-label="技能"
-                                  placeholder="搜索并选择技能…"
-                                />
+                                {skillIdsField.value
+                                  .map((id) => skillOptions.find((option) => option.id === id))
+                                  .filter((option) => option !== undefined)
+                                  .map((option) => (
+                                    <ComboboxChip
+                                      key={option.id}
+                                      value={option.id}
+                                      aria-label={option.label}
+                                    >
+                                      {option.label}
+                                      <ComboboxChipRemove aria-label={`移除 ${option.label}`} />
+                                    </ComboboxChip>
+                                  ))}
+                                <ComboboxInput aria-label="技能" placeholder="搜索并选择技能…" />
                               </ComboboxChips>
                               <ComboboxContent anchor={skillAnchor}>
                                 <ComboboxEmpty>没有匹配的技能</ComboboxEmpty>
                                 <ComboboxList>
-                                  {(option: (typeof skillOptions)[number]) => (
-                                    <ComboboxItem key={option.id} value={option}>
+                                  {skillOptions.map((option) => (
+                                    <ComboboxItem
+                                      key={option.id}
+                                      value={option.id}
+                                      label={option.label}
+                                      keywords={[option.hint]}
+                                    >
                                       <span className="min-w-0 flex-1">
                                         <span className="block truncate">{option.label}</span>
                                         {option.hint ? (
@@ -1515,7 +1499,7 @@ export function AgentEditor({
                                         ) : null}
                                       </span>
                                     </ComboboxItem>
-                                  )}
+                                  ))}
                                 </ComboboxList>
                               </ComboboxContent>
                             </Combobox>
@@ -1557,46 +1541,43 @@ export function AgentEditor({
                               <Combobox
                                 disabled={pending || !canBindings}
                                 multiple
-                                items={pluginOptions}
-                                value={pluginOptions.filter((option) =>
-                                  pluginBindingsField.value.some((b) => b.pluginId === option.id),
-                                )}
-                                onValueChange={(picked) =>
-                                  setPluginSelection(picked.map((option) => option.id))
-                                }
-                                itemToStringLabel={(option) => option.label}
-                                itemToStringValue={(option) => option.id}
-                                isItemEqualToValue={(a, b) => a.id === b.id}
-                                filter={(option, query) =>
-                                  `${option.label} ${option.hint}`
-                                    .toLowerCase()
-                                    .includes(query.trim().toLowerCase())
-                                }
+                                value={pluginBindingsField.value.map((binding) => binding.pluginId)}
+                                onValueChange={setPluginSelection}
                               >
                                 <ComboboxChips
                                   aria-label="已启用插件"
                                   data-disabled={bindingsDisabled}
-                                  ref={pluginAnchor}
+                                  ref={setPluginAnchor}
                                 >
-                                  <ComboboxValue>
-                                    {(selected: typeof pluginOptions) =>
-                                      selected.map((option) => (
-                                        <ComboboxChip key={option.id} aria-label={option.label}>
-                                          {option.label}
-                                        </ComboboxChip>
-                                      ))
-                                    }
-                                  </ComboboxValue>
-                                  <ComboboxChipsInput
-                                    aria-label="插件"
-                                    placeholder="搜索并选择插件…"
-                                  />
+                                  {pluginBindingsField.value
+                                    .map((binding) =>
+                                      pluginOptions.find(
+                                        (option) => option.id === binding.pluginId,
+                                      ),
+                                    )
+                                    .filter((option) => option !== undefined)
+                                    .map((option) => (
+                                      <ComboboxChip
+                                        key={option.id}
+                                        value={option.id}
+                                        aria-label={option.label}
+                                      >
+                                        {option.label}
+                                        <ComboboxChipRemove aria-label={`移除 ${option.label}`} />
+                                      </ComboboxChip>
+                                    ))}
+                                  <ComboboxInput aria-label="插件" placeholder="搜索并选择插件…" />
                                 </ComboboxChips>
                                 <ComboboxContent anchor={pluginAnchor}>
                                   <ComboboxEmpty>没有匹配的插件</ComboboxEmpty>
                                   <ComboboxList>
-                                    {(option: (typeof pluginOptions)[number]) => (
-                                      <ComboboxItem key={option.id} value={option}>
+                                    {pluginOptions.map((option) => (
+                                      <ComboboxItem
+                                        key={option.id}
+                                        value={option.id}
+                                        label={option.label}
+                                        keywords={[option.hint]}
+                                      >
                                         <span className="min-w-0 flex-1">
                                           <span className="block truncate">{option.label}</span>
                                           <span className="block truncate text-xs text-muted-foreground">
@@ -1604,7 +1585,7 @@ export function AgentEditor({
                                           </span>
                                         </span>
                                       </ComboboxItem>
-                                    )}
+                                    ))}
                                   </ComboboxList>
                                 </ComboboxContent>
                               </Combobox>
@@ -1716,37 +1697,28 @@ export function AgentEditor({
                             <Combobox
                               disabled={bindingsDisabled}
                               multiple
-                              items={subAgentOptions}
-                              value={subAgentOptions.filter((option) =>
-                                subAgentIdsField.value.includes(option.id),
-                              )}
-                              onValueChange={(picked) => {
-                                subAgentIdsField.onChange(picked.map((option) => option.id));
-                              }}
-                              itemToStringLabel={(option) => option.label}
-                              itemToStringValue={(option) => option.id}
-                              isItemEqualToValue={(a, b) => a.id === b.id}
-                              filter={(option, query) =>
-                                `${option.label} ${option.hint}`
-                                  .toLowerCase()
-                                  .includes(query.trim().toLowerCase())
-                              }
+                              value={subAgentIdsField.value}
+                              onValueChange={subAgentIdsField.onChange}
                             >
                               <ComboboxChips
                                 aria-label="已选子智能体"
                                 data-disabled={bindingsDisabled}
-                                ref={subAgentAnchor}
+                                ref={setSubAgentAnchor}
                               >
-                                <ComboboxValue>
-                                  {(selected: typeof subAgentOptions) =>
-                                    selected.map((option) => (
-                                      <ComboboxChip key={option.id} aria-label={option.label}>
-                                        {option.label}
-                                      </ComboboxChip>
-                                    ))
-                                  }
-                                </ComboboxValue>
-                                <ComboboxChipsInput
+                                {subAgentIdsField.value
+                                  .map((id) => subAgentOptions.find((option) => option.id === id))
+                                  .filter((option) => option !== undefined)
+                                  .map((option) => (
+                                    <ComboboxChip
+                                      key={option.id}
+                                      value={option.id}
+                                      aria-label={option.label}
+                                    >
+                                      {option.label}
+                                      <ComboboxChipRemove aria-label={`移除 ${option.label}`} />
+                                    </ComboboxChip>
+                                  ))}
+                                <ComboboxInput
                                   aria-label="子智能体"
                                   placeholder="搜索并选择子智能体…"
                                 />
@@ -1754,8 +1726,13 @@ export function AgentEditor({
                               <ComboboxContent anchor={subAgentAnchor}>
                                 <ComboboxEmpty>没有匹配的智能体</ComboboxEmpty>
                                 <ComboboxList>
-                                  {(option: (typeof subAgentOptions)[number]) => (
-                                    <ComboboxItem key={option.id} value={option}>
+                                  {subAgentOptions.map((option) => (
+                                    <ComboboxItem
+                                      key={option.id}
+                                      value={option.id}
+                                      label={option.label}
+                                      keywords={option.hint ? [option.hint] : []}
+                                    >
                                       <span className="min-w-0 flex-1">
                                         <span className="block truncate">{option.label}</span>
                                         <span className="block truncate text-xs text-muted-foreground">
@@ -1763,7 +1740,7 @@ export function AgentEditor({
                                         </span>
                                       </span>
                                     </ComboboxItem>
-                                  )}
+                                  ))}
                                 </ComboboxList>
                               </ComboboxContent>
                             </Combobox>
@@ -2198,7 +2175,7 @@ export function AgentEditor({
               </nav>
               <div className="flex min-w-0 flex-col gap-3 md:hidden">
                 <Select
-                  value={resolvedId}
+                  value={resolvedId ?? null}
                   items={fileEntries.map((entry) => ({ value: entry.id, label: entry.path }))}
                   onValueChange={(next) => {
                     if (next !== null) setActiveFile(next);
@@ -2210,7 +2187,7 @@ export function AgentEditor({
                   <SelectContent>
                     {fileGroups.map((group) => (
                       <SelectGroup key={group}>
-                        <SelectLabel>{group}</SelectLabel>
+                        <SelectGroupLabel>{group}</SelectGroupLabel>
                         {fileEntries
                           .filter((entry) => entry.group === group)
                           .map((entry) => (

@@ -27,7 +27,7 @@ import {
   SelectValue,
 } from '../../../components/ui/select.js';
 import type { KnowledgeFolder } from '../../../lib/api.js';
-import { guardedOpenChange } from '../../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../../lib/dialog-guard.js';
 import { useCreateKnowledgeManualDocument, useImportKnowledgeUrl } from '../../../lib/queries.js';
 import { toastError, toastSuccess } from '../../../lib/toast.js';
 import { useZodForm } from '../../../lib/use-zod-form.js';
@@ -87,13 +87,15 @@ export function ManualDocumentDialog({
   baseId,
   folderId,
   folders,
-  onClose,
+  onClose: onClosed,
 }: {
   baseId: string;
   folderId: string | null;
   folders: KnowledgeFolder[];
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const create = useCreateKnowledgeManualDocument(baseId);
   const initialTarget = folderId ?? 'null';
   const pending = create.isPending;
@@ -129,7 +131,11 @@ export function ManualDocumentDialog({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title="手写文档" closeDisabled={pending}>
         <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>
@@ -212,13 +218,15 @@ export function UrlImportDialog({
   baseId,
   folderId,
   folders,
-  onClose,
+  onClose: onClosed,
 }: {
   baseId: string;
   folderId: string | null;
   folders: KnowledgeFolder[];
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const create = useImportKnowledgeUrl(baseId);
   const initialTarget = folderId ?? 'null';
   const pending = create.isPending;
@@ -249,7 +257,11 @@ export function UrlImportDialog({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title="导入网址" closeDisabled={pending}>
         <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>

@@ -57,15 +57,15 @@ for (const file of walk(WEB_SRC)) {
 //    has-[:focus-visible]，并压掉内部 input 的全局 outline；写成 focus-visible:* 会永远不命中。
 //    aria-invalid:/dark: 等错误态可另加，不参与这三态的检查。
 const sliderText = readFileSync(join(WEB_SRC, SLIDER), 'utf8');
-const thumbAt = sliderText.indexOf('data-slot="slider-thumb"');
+const thumbAt = sliderText.indexOf('<SliderThumb');
 const thumbJsx =
-  thumbAt < 0 ? '' : sliderText.slice(thumbAt, sliderText.indexOf('/>', thumbAt));
+  thumbAt < 0 ? '' : sliderText.slice(thumbAt, sliderText.indexOf('>', thumbAt));
 const thumbClassName = thumbJsx.match(/className="([^"]+)"/)?.[1];
 if (!thumbClassName) {
   violations.push(`${SLIDER}  slider 手柄缺少可检查的 className（规则 C）`);
 } else {
   const tokens = new Set(thumbClassName.split(/\s+/));
-  for (const state of ['hover', 'active']) {
+  for (const state of ['hover', 'data-dragging']) {
     const ringTokens = [...tokens].filter(
       (t) => t.startsWith(`${state}:ring-`) && /:ring-\d+$/.test(t),
     );

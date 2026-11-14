@@ -15,7 +15,7 @@ import {
 import { Input } from '../../components/ui/input.js';
 import { Textarea } from '../../components/ui/textarea.js';
 import type { EvalCase, EvalCaseInput } from '../../lib/api.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { useCreateEvalCase, useUpdateEvalCase } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
@@ -29,7 +29,7 @@ const evalCaseFormSchema = z.object({
 export function CaseDialog({
   agentId,
   testCase,
-  onClose,
+  onClose: onClosed,
   finalFocus,
 }: {
   agentId?: string;
@@ -37,6 +37,8 @@ export function CaseDialog({
   onClose: () => void;
   finalFocus: ComponentProps<typeof DialogShell>['finalFocus'];
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const create = useCreateEvalCase();
   const update = useUpdateEvalCase();
   const { register, handleSubmit, watch, formState } = useZodForm(evalCaseFormSchema, {
@@ -75,7 +77,11 @@ export function CaseDialog({
   const guard = useDraftGuard(dirty, pending, onClose);
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell
         title={testCase ? '编辑用例' : '新建用例'}
         description="运行评估时，每个用例都会发起一次真实运行。"

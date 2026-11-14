@@ -1,4 +1,4 @@
-import type { Server, ServerInput, ServerTestResult } from '@agentport/shared';
+import type { ApiTool, Server, ServerInput, ServerTestResult } from '@agentport/shared';
 
 export type Kind = ServerInput['kind'];
 
@@ -6,7 +6,7 @@ export const approvalOptions = [
   { value: 'allow', label: '允许' },
   { value: 'ask', label: '需要审批' },
   { value: 'deny', label: '禁止' },
-];
+] satisfies { value: ApiTool['approvalMode']; label: string }[];
 
 export const kindMeta: Record<Server['kind'], { label: string; newHint: string }> = {
   stdio: {

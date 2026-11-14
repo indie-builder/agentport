@@ -1,7 +1,7 @@
 import type { KnowledgeBase } from '@agentport/shared';
 import { slugSchema } from '@agentport/shared';
 import { z } from 'zod';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { useDuplicateKnowledgeBase } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
@@ -43,7 +43,7 @@ type DuplicateForm = z.infer<typeof duplicateSchema>;
 /** 复制知识库：只重建库与配置，不带原库的文档、Wiki 与索引。 */
 export function DuplicateBaseDialog({
   base,
-  onClose,
+  onClose: onClosed,
   finalFocus,
   onDuplicated,
 }: {
@@ -52,6 +52,8 @@ export function DuplicateBaseDialog({
   finalFocus: () => HTMLElement | null;
   onDuplicated: (baseId: string) => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const duplicate = useDuplicateKnowledgeBase();
   const form = useZodForm(duplicateSchema, {
     defaultValues: {
@@ -82,7 +84,7 @@ export function DuplicateBaseDialog({
         onSuccess: (created) => {
           toastSuccess(`已复制为「${created.name}」`);
           guard.finish();
-          onDuplicated(created.id);
+          dialog.finish(() => onDuplicated(created.id));
         },
         onError: toastError,
       },
@@ -90,7 +92,11 @@ export function DuplicateBaseDialog({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title="复制知识库" closeDisabled={pending} finalFocus={finalFocus}>
         <form
           className="flex flex-col gap-4"

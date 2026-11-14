@@ -46,7 +46,7 @@ import { SegmentedToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { ApiError, api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
-import { guardedOpenChange } from '../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
 import { formatTokens } from '../lib/format.js';
 import {
   meQuery,
@@ -342,6 +342,9 @@ export function SkillsPage() {
                       variant="ghost"
                       size="icon"
                       aria-label={`操作 ${skill.name}`}
+                      onFocus={(event) => {
+                        actionTriggerRef.current = event.currentTarget;
+                      }}
                       onClick={(event) => {
                         actionTriggerRef.current = event.currentTarget;
                       }}
@@ -353,20 +356,17 @@ export function SkillsPage() {
                 <DropdownMenuContent align="end" sideOffset={4} className="w-44">
                   <DropdownMenuGroup>
                     {canUpdateSkill ? (
-                      <DropdownMenuItem onClick={() => setEditing(skill)}>
+                      <DropdownMenuItem onSelect={() => setEditing(skill)}>
                         <Pencil /> 编辑
                       </DropdownMenuItem>
                     ) : null}
                     {canReadSkillFiles ? (
-                      <DropdownMenuItem
-                        nativeButton={false}
-                        render={<a href={`/api/skills/${skill.id}/file`} />}
-                      >
+                      <DropdownMenuItem render={<a href={`/api/skills/${skill.id}/file`} />}>
                         <Download /> 导出 SKILL.md
                       </DropdownMenuItem>
                     ) : null}
                     {canDeleteSkill ? (
-                      <DropdownMenuItem variant="destructive" onClick={() => setDeleting(skill)}>
+                      <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(skill)}>
                         <Trash2 /> 删除
                       </DropdownMenuItem>
                     ) : null}
@@ -587,7 +587,7 @@ export function SkillDialog({
   readOnly = false,
   canReadFiles = true,
   canWriteFiles = true,
-  onClose,
+  onClose: onClosed,
   finalFocus,
 }: {
   skill?: Skill;
@@ -597,6 +597,8 @@ export function SkillDialog({
   onClose: () => void;
   finalFocus?: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const create = useCreateSkill();
   const update = useUpdateSkill();
   const [initial] = useState<SkillInput>(() =>
@@ -656,7 +658,11 @@ export function SkillDialog({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell
         title={skill ? (readOnly ? `查看「${skill.name}」` : '编辑技能') : '新建技能'}
         closeDisabled={pending}

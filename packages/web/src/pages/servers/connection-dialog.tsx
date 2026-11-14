@@ -6,17 +6,20 @@ import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { useRotateServerToken, useServerToken } from '../../lib/queries.js';
 
 export function ConnectionDialog({
   server,
-  onClose,
+  onClose: onClosed,
   getReturnFocus,
 }: {
   server: Server;
   onClose: () => void;
   getReturnFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const token = useServerToken(server.id);
   const rotate = useRotateServerToken(server.id);
   // 轮换后只在这里保留明文；关闭对话框即丢弃。
@@ -29,7 +32,8 @@ export function ConnectionDialog({
 
   return (
     <Dialog
-      open
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={(next, details) => {
         if (next) return;
         // 轮换进行中关闭会丢掉新 token；请求完成前不允许关闭。

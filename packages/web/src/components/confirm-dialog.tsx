@@ -2,7 +2,7 @@ import { AlertTriangle } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { type ReactNode, useState } from 'react';
 import { cn } from '../lib/cn.js';
-import { guardedOpenChange } from '../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
 import { toastError } from '../lib/toast.js';
 import { DialogShell } from './dialog-shell.js';
 import { Button } from './ui/button.js';
@@ -34,13 +34,14 @@ export function ConfirmDialog({
   onConfirm,
   finalFocus,
 }: ConfirmDialogProps) {
+  const dialog = useDialogClose(onClose, open);
   const [pending, setPending] = useState(false);
 
   const confirm = async (): Promise<void> => {
     setPending(true);
     try {
       await onConfirm();
-      onClose();
+      dialog.close();
     } catch (error) {
       toastError(error);
     } finally {
@@ -49,7 +50,11 @@ export function ConfirmDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={guardedOpenChange(pending, onClose)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChange={guardedOpenChange(pending, dialog.close)}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+    >
       <DialogShell
         title={title}
         className="max-w-md sm:max-w-md"
@@ -71,7 +76,7 @@ export function ConfirmDialog({
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} disabled={pending}>
+          <Button variant="outline" onClick={dialog.close} disabled={pending}>
             取消
           </Button>
           <Button

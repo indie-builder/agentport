@@ -419,7 +419,9 @@ describe('schedule dialog fields and payload', () => {
     expect(timeValue()).toBe('09:00');
     expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe('');
     expect((document.getElementById('schedule-prompt') as HTMLTextAreaElement).value).toBe('');
-    expect((document.getElementById('schedule-enabled') as HTMLInputElement).checked).toBe(true);
+    expect(
+      document.querySelector('[role="switch"]#schedule-enabled')?.getAttribute('aria-checked'),
+    ).toBe('true');
     expect(unloadPrevented()).toBe(false);
   });
 
@@ -754,9 +756,12 @@ describe('schedule dialog fields and payload', () => {
     );
     expect((document.getElementById('schedule-time') as HTMLInputElement).disabled).toBe(true);
     for (const day of ['周一', '周二', '周三', '周四', '周五']) {
-      expect(weekdayButton(day).disabled).toBe(true);
+      expect(weekdayButton(day).getAttribute('aria-disabled')).toBe('true');
+      expect(weekdayButton(day).hasAttribute('data-disabled')).toBe(true);
     }
-    expect((document.getElementById('schedule-enabled') as HTMLInputElement).disabled).toBe(true);
+    expect(
+      document.querySelector('[role="switch"]#schedule-enabled')?.getAttribute('aria-disabled'),
+    ).toBe('true');
     expect(
       document.querySelector('[role="dialog"] [role="switch"]')?.hasAttribute('data-disabled'),
     ).toBe(true);
@@ -1016,7 +1021,9 @@ describe('schedule stale conflict recovery', () => {
     expect((document.getElementById('schedule-prompt') as HTMLTextAreaElement).value).toBe(
       'Remote prompt',
     );
-    expect((document.getElementById('schedule-enabled') as HTMLInputElement).checked).toBe(false);
+    expect(
+      document.querySelector('[role="switch"]#schedule-enabled')?.getAttribute('aria-checked'),
+    ).toBe('false');
     expect(document.body.textContent).not.toContain('当前草稿已保留');
     expect(unloadPrevented()).toBe(false);
 

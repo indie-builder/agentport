@@ -63,6 +63,7 @@ import {
   SCOPE_ORDER,
 } from '../lib/access.js';
 import { ApiError, errorMessage, type Role, type RoleMatrix } from '../lib/api.js';
+import { useDialogClose } from '../lib/dialog-guard.js';
 import { useFormBlocker } from '../lib/form.js';
 import {
   meQuery,
@@ -255,6 +256,7 @@ export function RolesPage() {
   const [reloadOpen, setReloadOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [closingRole, setClosingRole] = useState<string>();
   const [addingRole, setAddingRole] = useState(false);
   const settingsTrigger = useRef<HTMLElement | null>(null);
   const newRoleButton = useRef<HTMLButtonElement | null>(null);
@@ -298,13 +300,16 @@ export function RolesPage() {
     resetMatrix(data);
   }, [matrix.data, dirty, resetMatrix]);
 
-  const closeSettings = useCallback((): void => {
-    void navigate({
-      to: '/roles',
-      search: (previous) => ({ ...previous, role: undefined }),
-      replace: true,
-    });
-  }, [navigate]);
+  const closeSettings = useCallback(
+    (key: string | null | undefined): void => {
+      void navigate({
+        to: '/roles',
+        search: (previous) => (previous.role === key ? { ...previous, role: undefined } : previous),
+        replace: true,
+      });
+    },
+    [navigate],
+  );
 
   const openSettings = useCallback(
     (key: string, source: HTMLElement | null): void => {
@@ -326,6 +331,16 @@ export function RolesPage() {
   const blocker = useFormBlocker(dirty, pending, { ignoreSamePath: true });
   const settingsIndex = fields.findIndex((role) => roleKey(role) === search.role);
   const settingsRole = fields[settingsIndex];
+  const roleChangedWhileClosing = closingRole !== undefined && closingRole !== search.role;
+  if (roleChangedWhileClosing) setClosingRole(undefined);
+  const settingsDialog = useDialogClose(
+    () => closeSettings(closingRole),
+    settingsRole !== undefined && deleteTarget === null && !roleChangedWhileClosing,
+  );
+  const closeSettingsDialog = (): void => {
+    setClosingRole(search.role);
+    settingsDialog.close();
+  };
   const roleSettingsFinalFocus = (): HTMLElement | null =>
     settingsTrigger.current?.isConnected ? settingsTrigger.current : newRoleButton.current;
 
@@ -605,15 +620,16 @@ export function RolesPage() {
         )}
       </PageBody>
       <Dialog
-        open={settingsRole !== undefined && deleteTarget === null}
+        open={settingsDialog.open}
         onOpenChange={(next, details) => {
           if (next) return;
           if (pending) {
             details.cancel();
             return;
           }
-          closeSettings();
+          closeSettingsDialog();
         }}
+        onOpenChangeComplete={settingsDialog.onOpenChangeComplete}
       >
         {settingsRole === undefined ? null : (
           <RoleSettings
@@ -626,7 +642,7 @@ export function RolesPage() {
             canManage={canManage}
             pending={pending}
             finalFocus={roleSettingsFinalFocus}
-            onClose={closeSettings}
+            onClose={closeSettingsDialog}
             onDelete={setDeleteTarget}
             onChangeName={changeName}
             onChangeScopes={changeScopes}
@@ -660,7 +676,7 @@ export function RolesPage() {
           void trigger('roles');
           setDeleteTarget(null);
           setConflict(null);
-          closeSettings();
+          closeSettings(deleteTarget);
         }}
       />
     </Page>

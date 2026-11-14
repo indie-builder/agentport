@@ -70,7 +70,7 @@ import { can } from '../../lib/access.js';
 import { errorMessage } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
 import { cn } from '../../lib/cn.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { formatDateTime, formatRelative } from '../../lib/format.js';
 import {
   meQuery,
@@ -153,6 +153,7 @@ function KnowledgeRow({
   onExport: (trigger: HTMLElement) => void;
   onDelete: (trigger: HTMLElement) => void;
 }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
   return (
     <li className="relative min-w-0 transition-colors duration-150 ease-out-soft hover:bg-hover">
       {/* 覆盖整行的可点击入口；操作菜单用 z-10 保持在它之上。 */}
@@ -195,7 +196,12 @@ function KnowledgeRow({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <Button variant="ghost" size="icon" aria-label={`操作 ${base.name}`}>
+                <Button
+                  ref={triggerRef}
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`操作 ${base.name}`}
+                >
                   <MoreHorizontal />
                 </Button>
               }
@@ -203,40 +209,50 @@ function KnowledgeRow({
             <DropdownMenuContent align="end" sideOffset={4} className="w-40">
               <DropdownMenuGroup>
                 {/* 置顶是个人偏好：所有能读知识库的人都能切换，不看 update 权限。 */}
-                <DropdownMenuItem disabled={pinPending} onClick={onTogglePin}>
+                <DropdownMenuItem disabled={pinPending} onSelect={onTogglePin}>
                   {pinned ? <PinOff /> : <Pin />}
                   {pinned ? '取消置顶' : '置顶'}
                 </DropdownMenuItem>
                 {canUpdate ? (
-                  <DropdownMenuItem onClick={(event) => onEdit(event.currentTarget)}>
+                  <DropdownMenuItem
+                    onSelect={() => triggerRef.current && onEdit(triggerRef.current)}
+                  >
                     <Pencil /> 编辑信息
                   </DropdownMenuItem>
                 ) : null}
                 {canCreate ? (
-                  <DropdownMenuItem onClick={(event) => onDuplicate(event.currentTarget)}>
+                  <DropdownMenuItem
+                    onSelect={() => triggerRef.current && onDuplicate(triggerRef.current)}
+                  >
                     <Copy /> 复制知识库
                   </DropdownMenuItem>
                 ) : null}
                 {canUpdate ? (
-                  <DropdownMenuItem onClick={(event) => onSettings(event.currentTarget)}>
+                  <DropdownMenuItem
+                    onSelect={() => triggerRef.current && onSettings(triggerRef.current)}
+                  >
                     <Settings /> 设置
                   </DropdownMenuItem>
                 ) : null}
                 {canUpdate ? (
-                  <DropdownMenuItem onClick={(event) => onToggleStatus(event.currentTarget)}>
+                  <DropdownMenuItem
+                    onSelect={() => triggerRef.current && onToggleStatus(triggerRef.current)}
+                  >
                     {base.status === 'active' ? <CirclePause /> : <CirclePlay />}
                     {base.status === 'active' ? '停用' : '启用'}
                   </DropdownMenuItem>
                 ) : null}
                 {canExport ? (
-                  <DropdownMenuItem onClick={(event) => onExport(event.currentTarget)}>
+                  <DropdownMenuItem
+                    onSelect={() => triggerRef.current && onExport(triggerRef.current)}
+                  >
                     <Download /> 导出知识包
                   </DropdownMenuItem>
                 ) : null}
                 {canDelete ? (
                   <DropdownMenuItem
                     variant="destructive"
-                    onClick={(event) => onDelete(event.currentTarget)}
+                    onSelect={() => triggerRef.current && onDelete(triggerRef.current)}
                   >
                     <Trash2 /> 删除
                   </DropdownMenuItem>
@@ -685,7 +701,7 @@ export function KnowledgePage() {
 
 function CreateBaseDialog({
   canManageModels,
-  onClose,
+  onClose: onClosed,
   finalFocus,
   onCreated,
 }: {
@@ -694,6 +710,8 @@ function CreateBaseDialog({
   finalFocus: () => HTMLElement | null;
   onCreated: (base: { id: string; name: string }) => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const create = useCreateKnowledgeBase();
   const profiles = useKnowledgeModelProfileSelections();
   const embedding = (profiles.data ?? []).filter(
@@ -793,7 +811,7 @@ function CreateBaseDialog({
         onSuccess: (base) => {
           toastSuccess(`已创建「${base.name}」`);
           guard.finish();
-          onCreated({ id: base.id, name: base.name });
+          dialog.finish(() => onCreated({ id: base.id, name: base.name }));
         },
         onError: toastError,
       },
@@ -801,7 +819,11 @@ function CreateBaseDialog({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title="新建知识库" closeDisabled={pending} finalFocus={finalFocus}>
         <form
           onSubmit={(event) => {

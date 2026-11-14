@@ -5,11 +5,12 @@ import { ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { connectorCatalogQuery } from '../../lib/queries.js';
 
 /** 只读策划目录；选中只预填创建表单，不创建、不执行任何命令。 */
 export function ConnectorCatalogDialog({
-  onClose,
+  onClose: onClosed,
   onPick,
   getReturnFocus,
 }: {
@@ -17,10 +18,16 @@ export function ConnectorCatalogDialog({
   onPick: (item: ConnectorCatalogItem) => void;
   getReturnFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const catalog = useQuery(connectorCatalogQuery);
 
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={(next) => (next ? undefined : onClose())}
+    >
       <DialogShell
         title="连接器目录"
         description="策划清单，仅用于预填创建表单；不会自动执行任何命令。"
@@ -42,7 +49,7 @@ export function ConnectorCatalogDialog({
                     variant="outline"
                     size="sm"
                     className="ml-auto"
-                    onClick={() => onPick(item)}
+                    onClick={() => dialog.finish(() => onPick(item))}
                   >
                     使用
                   </Button>

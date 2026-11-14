@@ -1,5 +1,4 @@
-import { mergeProps } from '@base-ui/react/merge-props';
-import { useRender } from '@base-ui/react/use-render';
+import { type PartProps, renderElement } from '@ui-sdk/react/primitive';
 import { cva, type VariantProps } from 'class-variance-authority';
 import type * as React from 'react';
 import { Button } from '@/components/ui/button';
@@ -151,21 +150,20 @@ function AttachmentTrigger({
   render,
   type,
   ...props
-}: useRender.ComponentProps<'button'>) {
-  return useRender({
-    defaultTagName: 'button',
-    props: mergeProps<'button'>(
-      {
-        type: render ? type : (type ?? 'button'),
-        className: cn('absolute inset-0 z-10 outline-none', className),
-      },
-      props,
-    ),
-    render,
-    state: {
-      slot: 'attachment-trigger',
+}: React.ComponentProps<'button'> & {
+  render?: PartProps<'button', { slot: 'attachment-trigger' }>['render'];
+}) {
+  return renderElement(
+    'button',
+    {
+      'data-slot': 'attachment-trigger',
+      ...props,
+      type: render ? type : (type ?? 'button'),
+      className: cn('absolute inset-0 z-10 outline-none', className),
     },
-  });
+    render,
+    { slot: 'attachment-trigger' },
+  );
 }
 
 function AttachmentGroup({ className, ...props }: React.ComponentProps<'div'>) {

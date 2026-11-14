@@ -345,12 +345,7 @@ function sourceChoice(label: string, scope: ParentNode = document): HTMLButtonEl
 }
 
 async function openMenu(label: string) {
-  const trigger = button(label);
-  // Base UI 用 mousedown 打开菜单，jsdom 的 click() 不会触发。
-  await act(async () => {
-    trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  });
-  await flush();
+  await click(button(label));
 }
 
 async function chooseMenuItem(label: string) {

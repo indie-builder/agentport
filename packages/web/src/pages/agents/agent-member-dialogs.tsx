@@ -5,6 +5,7 @@ import { ErrorState, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
 import { Checkbox } from '../../components/ui/checkbox.js';
 import { Dialog } from '../../components/ui/dialog.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import {
   useAgentMembers,
   useDeleteAgentMember,
@@ -18,12 +19,14 @@ import { useDebouncedValue } from '../../lib/use-debounced-value.js';
 export function AgentMembersDialog({
   agentId,
   agentName,
-  onClose,
+  onClose: onClosed,
 }: {
   agentId: string;
   agentName: string;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const members = useAgentMembers(agentId);
   const [query, setQuery] = useState('');
   const settled = useDebouncedValue(query.trim(), 300);
@@ -33,7 +36,11 @@ export function AgentMembersDialog({
   const existing = new Set((members.data?.members ?? []).map((member) => member.businessId));
 
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={(next) => (next ? undefined : onClose())}
+    >
       <DialogShell
         title={`管理「${agentName}」的成员`}
         description="成员可使用或维护该专家；范围仍由成员所属角色的授权决定。"
@@ -185,13 +192,15 @@ export function TransferAgentDialog({
   agentId,
   agentName,
   currentOwner,
-  onClose,
+  onClose: onClosed,
 }: {
   agentId: string;
   agentName: string;
   currentOwner: string;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const transfer = useTransferAgent();
   const [query, setQuery] = useState('');
   const settled = useDebouncedValue(query.trim(), 300);
@@ -199,7 +208,11 @@ export function TransferAgentDialog({
   const [target, setTarget] = useState<string | null>(null);
 
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={(next) => (next ? undefined : onClose())}
+    >
       <DialogShell
         title={`转交「${agentName}」`}
         description="新负责人必须是活跃账户并具备创建专家的权限；原负责人不会自动保留成员权限。"

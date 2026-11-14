@@ -1,24 +1,48 @@
-import { Checkbox as CheckboxPrimitive } from '@base-ui/react/checkbox';
+import { CheckboxIndicator, Checkbox as CheckboxPrimitive } from '@ui-sdk/react/checkbox';
 import { cn } from 'cn';
 import { CheckIcon } from 'lucide-react';
+import type { ComponentProps } from 'react';
 
-function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
+type Loose<T> = { [K in keyof T]: T[K] | undefined };
+
+type CheckboxProps = Loose<
+  Omit<ComponentProps<typeof CheckboxPrimitive>, 'checked' | 'defaultChecked' | 'onCheckedChange'>
+> & {
+  checked?: boolean | undefined;
+  defaultChecked?: boolean | undefined;
+  indeterminate?: boolean | undefined;
+  onCheckedChange?: ((checked: boolean) => void) | undefined;
+};
+
+function Checkbox({
+  className,
+  checked,
+  defaultChecked,
+  indeterminate,
+  onCheckedChange,
+  ...props
+}: CheckboxProps) {
   return (
-    <CheckboxPrimitive.Root
-      data-slot="checkbox"
+    <CheckboxPrimitive
+      {...(indeterminate
+        ? { checked: 'indeterminate' as const }
+        : checked === undefined
+          ? {}
+          : { checked })}
+      {...(defaultChecked === undefined ? {} : { defaultChecked })}
+      {...(onCheckedChange === undefined
+        ? {}
+        : { onCheckedChange: (next: boolean | 'indeterminate') => onCheckedChange(next === true) })}
       className={cn(
-        'peer relative flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-control-boundary transition-colors outline-none group-has-disabled/field:opacity-[0.35] group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:ring-0 group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:focus-visible:outline-none group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:not-aria-invalid:not-data-checked:border-control-boundary after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-checked:focus-visible:ring-0 data-checked:focus-visible:outline-2 data-checked:focus-visible:outline-solid data-checked:outline-ring data-checked:focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-[0.35] aria-invalid:border-destructive aria-invalid:aria-checked:border-destructive dark:bg-input/30 dark:aria-invalid:border-destructive/50 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:not-aria-invalid:data-checked:border-primary dark:data-checked:bg-primary',
+        'peer relative flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-control-boundary transition-colors outline-none group-has-disabled/field:opacity-[0.35] group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:ring-0 group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:focus-visible:outline-none group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:not-aria-invalid:not-data-invalid:not-data-checked:border-control-boundary after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-checked:focus-visible:ring-0 data-checked:focus-visible:outline-2 data-checked:focus-visible:outline-solid data-checked:outline-ring data-checked:focus-visible:outline-offset-2 data-disabled:cursor-not-allowed data-disabled:opacity-[0.35] aria-invalid:border-destructive aria-invalid:data-checked:border-destructive data-invalid:border-destructive data-invalid:data-checked:border-destructive dark:bg-input/30 dark:data-invalid:border-destructive/50 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground group-[:has(>[data-slot=field]):has(:focus-visible)]/field-label:not-aria-invalid:not-data-invalid:data-checked:border-primary dark:data-checked:bg-primary',
         className,
       )}
-      {...props}
+      {...(props as ComponentProps<typeof CheckboxPrimitive>)}
     >
-      <CheckboxPrimitive.Indicator
-        data-slot="checkbox-indicator"
-        className="grid place-content-center text-current transition-none [&>svg]:size-3.5"
-      >
+      <CheckboxIndicator className="grid place-content-center text-current transition-none [&>svg]:size-3.5">
         <CheckIcon />
-      </CheckboxPrimitive.Indicator>
-    </CheckboxPrimitive.Root>
+      </CheckboxIndicator>
+    </CheckboxPrimitive>
   );
 }
 

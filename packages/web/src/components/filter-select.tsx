@@ -29,9 +29,9 @@ export function FilterSelect({
       onValueChange={(next) => {
         if (next !== null) onValueChange(next);
       }}
-      items={options}
+      items={[...options]}
     >
-      <SelectTrigger aria-label={label} className={className}>
+      <SelectTrigger aria-label={label} className={className ?? ''}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

@@ -126,7 +126,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 框架 | React | 19.3.1 |
 | 样式 | Tailwind CSS | 4.3.3（`@tailwindcss/vite`，无需 config 文件） |
 | 组件 | shadcn/ui（`components.json` 已配，`style: base-nova`；源码在 `components/ui`） | — |
-| 交互原语 | Base UI（`@base-ui/react`） | 1.9.0；项目不再直接依赖 Radix |
+| 交互原语 | ui-sdk（`@ui-sdk/react`） | 0.1.0-beta.2；项目不直接依赖 Base UI / Radix |
 | 消息滚动容器 | `@shadcn/react`（`message-scroller`） | 0.3.1；仅 `components/ui/message-scroller.tsx` 使用 |
 | 路由 | TanStack Router（`@tanstack/router-plugin` 生成路由） | 1.170.46 / 1.168.48 |
 | 服务端状态 | TanStack Query | 5.105.1 |

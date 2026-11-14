@@ -251,9 +251,12 @@ describe('FormControl field wiring', () => {
     // 键盘可聚焦的控件都能就地读到标签、提示与错误。
     for (const control of [radio, checkbox, chip, card, range]) {
       const labelledBy = control?.getAttribute('aria-labelledby');
+      const labels = all<HTMLLabelElement>('label').filter((label) => label.control === control);
       const name = labelledBy
         ? host.querySelector(`[id="${labelledBy}"]`)?.textContent
-        : control?.textContent;
+        : labels.length > 0
+          ? labels.map((label) => label.textContent).join(' ')
+          : control?.textContent;
       expect(name?.length).toBeGreaterThan(0);
       const texts = describedBy(control as HTMLElement).map((element) => element.textContent);
       expect(texts.join(' ')).toContain('选择');

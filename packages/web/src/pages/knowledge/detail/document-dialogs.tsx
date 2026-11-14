@@ -26,7 +26,7 @@ import {
   SelectValue,
 } from '../../../components/ui/select.js';
 import type { KnowledgeFolder, KnowledgeTag } from '../../../lib/api.js';
-import { guardedOpenChange } from '../../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../../lib/dialog-guard.js';
 import {
   useCreateKnowledgeFolder,
   useCreateKnowledgeTag,
@@ -42,7 +42,7 @@ import { useZodForm } from '../../../lib/use-zod-form.js';
 export function FolderDialog({
   baseId,
   state,
-  onClose,
+  onClose: onClosed,
   onCreated,
   finalFocus,
 }: {
@@ -52,6 +52,8 @@ export function FolderDialog({
   onCreated: (folder: KnowledgeFolder) => void;
   finalFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const create = useCreateKnowledgeFolder(baseId);
   const update = useUpdateKnowledgeFolder(baseId);
   const initialName = state.mode === 'rename' ? state.folder.name : '';
@@ -83,7 +85,10 @@ export function FolderDialog({
           toastSuccess('文件夹已创建');
           // 先解除本弹层的离开拦截，再让父级切到新文件夹。
           guard.finish();
-          onCreated(folder);
+          dialog.finish(() => {
+            onClosed();
+            onCreated(folder);
+          });
         },
         onError: toastError,
       },
@@ -91,7 +96,11 @@ export function FolderDialog({
   };
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title={title} closeDisabled={pending} finalFocus={finalFocus}>
         <form
           className="flex flex-col gap-4"
@@ -131,7 +140,9 @@ export function FolderDialog({
   );
 }
 
-export function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => void }) {
+export function TagDialog({ baseId, onClose: onClosed }: { baseId: string; onClose: () => void }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const tags = useKnowledgeTags(baseId);
   const create = useCreateKnowledgeTag(baseId);
   const rename = useRenameKnowledgeTag(baseId);
@@ -162,7 +173,11 @@ export function TagDialog({ baseId, onClose }: { baseId: string; onClose: () => 
 
   return (
     <>
-      <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+      <Dialog
+        open={dialog.open}
+        onOpenChangeComplete={dialog.onOpenChangeComplete}
+        onOpenChange={guardedOpenChange(pending, guard.close)}
+      >
         <DialogShell title="管理标签" closeDisabled={pending}>
           <form
             className="flex items-end gap-2"
@@ -303,13 +318,15 @@ export function DocumentDialog({
   baseId,
   document,
   folders,
-  onClose,
+  onClose: onClosed,
 }: {
   baseId: string;
   document: KnowledgeDocument;
   folders: KnowledgeFolder[];
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const update = useUpdateKnowledgeDocument(baseId);
   // 基线取打开时的值，列表轮询刷新文档对象不重置用户草稿。
   const [initial] = useState(() => ({
@@ -354,7 +371,11 @@ export function DocumentDialog({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title="编辑文档" closeDisabled={pending}>
         <form className="flex flex-col gap-4" onSubmit={submit}>
           <FieldGroup>

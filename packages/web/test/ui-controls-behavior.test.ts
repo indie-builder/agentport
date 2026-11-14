@@ -33,12 +33,25 @@ async function render(element: ReactElement) {
 
 async function pressSpace(element: HTMLElement) {
   await act(async () => {
-    element.dispatchEvent(
+    element.focus();
+    if (!element.matches(':disabled, [aria-disabled="true"]')) {
+      expect(document.activeElement).toBe(element);
+    }
+    const proceeds = element.dispatchEvent(
       new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
     );
     element.dispatchEvent(
       new KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true }),
     );
+    if (
+      proceeds &&
+      document.activeElement === element &&
+      (element instanceof HTMLButtonElement ||
+        (element instanceof HTMLInputElement &&
+          (element.type === 'checkbox' || element.type === 'radio')))
+    ) {
+      element.click();
+    }
   });
 }
 
@@ -65,7 +78,7 @@ describe('shared choice controls keep real keyboard and label behaviour', () => 
 
     await pressSpace(checkbox);
 
-    expect(onCheckedChange).toHaveBeenCalledWith(true, expect.anything());
+    expect(onCheckedChange).toHaveBeenCalledWith(true);
     expect(checkbox.getAttribute('aria-checked')).toBe('true');
     expect(checkbox.hasAttribute('data-checked')).toBe(true);
     expect(checkbox.hasAttribute('data-unchecked')).toBe(false);

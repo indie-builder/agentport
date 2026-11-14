@@ -1527,10 +1527,7 @@ describe('conversation header menu', () => {
   async function openMenu() {
     const trigger = menuButton();
     if (!trigger) throw new Error('Missing conversation menu');
-    // Base UI 用 mousedown 打开菜单，jsdom 的 click() 不会触发它。
-    await act(async () => {
-      trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    });
+    await act(async () => trigger.click());
     await flush();
   }
   function menuItem(label: string) {

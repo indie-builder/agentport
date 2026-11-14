@@ -12,6 +12,7 @@ import {
   type KnowledgeSearchHit,
   type KnowledgeSearchScores,
 } from '../../lib/api.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { fetchResponse, responseApiError } from '../../lib/orpc.js';
 import {
   useKnowledgeFaq,
@@ -680,13 +681,19 @@ function WikiCitationBody({ pageId, versionId }: { pageId: string; versionId: st
 /** 管理检索、聊天引用与 FAQ 命中测试共用的引用查看器。 */
 export function KnowledgeHitDialog({
   citation,
-  onClose,
+  onClose: onClosed,
 }: {
   citation: KnowledgeCitation;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={(next) => (next ? undefined : onClose())}
+    >
       <DialogShell title="引用原文" className="max-w-215 sm:max-w-215">
         <div className="flex min-w-0 flex-col gap-4">
           <p className="text-sm font-medium text-fg">{citation.title}</p>

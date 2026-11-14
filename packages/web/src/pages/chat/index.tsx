@@ -336,7 +336,6 @@ function ChatWorkspace({
     onSuccess: (_conversation, input) => {
       void client.invalidateQueries({ queryKey: chatKeys.conversations() });
       void client.invalidateQueries({ queryKey: chatKeys.conversation(input.id) });
-      setRenaming(null);
     },
     onError: (error) => toastError(error),
   });
@@ -610,8 +609,8 @@ function ChatWorkspace({
       blocker={renameBlocker}
       onTitleChange={(draft) => setRenaming({ ...renaming, draft })}
       onClose={() => setRenaming(null)}
-      onRename={(title) => renameMutation.mutate({ id: renaming.entry.id, title })}
-      // 菜单项随菜单卸载；触发器还在就回到它，否则交给 Base UI 的默认落点。
+      onRename={(title) => renameMutation.mutateAsync({ id: renaming.entry.id, title })}
+      // 菜单项随菜单卸载；触发器还在就回到它，否则交给 ui-sdk 的默认落点。
       finalFocus={() => (renaming.trigger.isConnected ? renaming.trigger : null)}
     />
   ) : null;
@@ -680,7 +679,7 @@ function ChatWorkspace({
 
   return (
     <div className="flex h-full min-h-0 min-w-0">
-      {/* 窄屏抽屉由 Base UI 管理焦点、Escape 与滚动锁。 */}
+      {/* 窄屏抽屉由 ui-sdk 管理焦点、Escape 与滚动锁。 */}
       <Sheet open={historyOpen && !desktop} onOpenChange={setHistoryOpen}>
         <SheetContent
           side="left"

@@ -219,7 +219,13 @@ function controlPanelClose() {
   vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
     const result = computed(element, pseudo);
     if (element.getAttribute('data-slot') === 'collapsible-content') {
-      Object.defineProperty(result, 'transitionDuration', { value: '0.15s' });
+      Object.defineProperties(result, {
+        transitionDuration: { value: '0.15s' },
+        transitionDelay: { value: '0s' },
+        animationDuration: { value: '0s' },
+        animationDelay: { value: '0s' },
+        animationIterationCount: { value: '1' },
+      });
     }
     return result;
   });
@@ -261,7 +267,10 @@ function controlPanelClose() {
         ? []
         : [
             {
-              effect: { getTiming: () => ({ duration: 150, iterations: 1 }) },
+              effect: {
+                getTiming: () => ({ duration: 150, iterations: 1 }),
+                getComputedTiming: () => ({ endTime: 10_000_000, localTime: 0 }),
+              },
               finished: animation.finished,
               pending: false,
               playState: 'running',

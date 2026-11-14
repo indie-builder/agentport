@@ -247,17 +247,17 @@ export function AgentDetailPage() {
                   <DropdownMenuContent align="end">
                     <DropdownMenuGroup>
                       {canManageMembers ? (
-                        <DropdownMenuItem onClick={() => setMembersOpen(true)}>
+                        <DropdownMenuItem onSelect={() => setMembersOpen(true)}>
                           管理成员
                         </DropdownMenuItem>
                       ) : null}
                       {canTransfer ? (
-                        <DropdownMenuItem onClick={() => setTransferOpen(true)}>
+                        <DropdownMenuItem onSelect={() => setTransferOpen(true)}>
                           转交负责人
                         </DropdownMenuItem>
                       ) : null}
                       {deleteInHeader ? (
-                        <DropdownMenuItem variant="destructive" onClick={() => setDeleting(true)}>
+                        <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(true)}>
                           <Trash2 className="size-4" /> 删除专家
                         </DropdownMenuItem>
                       ) : null}

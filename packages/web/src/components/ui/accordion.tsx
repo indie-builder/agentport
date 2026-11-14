@@ -1,34 +1,32 @@
-import { Accordion as AccordionPrimitive } from '@base-ui/react/accordion';
+import {
+  AccordionHeader,
+  AccordionItem as AccordionItemPrimitive,
+  AccordionPanel,
+  Accordion as AccordionPrimitive,
+  AccordionTrigger as AccordionTriggerPrimitive,
+} from '@ui-sdk/react/accordion';
 import { cn } from 'cn';
 import { ChevronDownIcon } from 'lucide-react';
+import type { ComponentProps, ReactNode } from 'react';
 
-function Accordion({ className, ...props }: AccordionPrimitive.Root.Props) {
-  return (
-    <AccordionPrimitive.Root
-      data-slot="accordion"
-      className={cn('flex w-full flex-col', className)}
-      {...props}
-    />
-  );
+function Accordion({ className, ...props }: ComponentProps<typeof AccordionPrimitive>) {
+  return <AccordionPrimitive className={cn('flex w-full flex-col', className)} {...props} />;
 }
 
-function AccordionItem({ className, ...props }: AccordionPrimitive.Item.Props) {
-  return (
-    <AccordionPrimitive.Item
-      data-slot="accordion-item"
-      className={cn('not-last:border-b', className)}
-      {...props}
-    />
-  );
+function AccordionItem({ className, ...props }: ComponentProps<typeof AccordionItemPrimitive>) {
+  return <AccordionItemPrimitive className={cn('not-last:border-b', className)} {...props} />;
 }
 
-function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.Trigger.Props) {
+function AccordionTrigger({
+  className,
+  children,
+  ...props
+}: Omit<ComponentProps<typeof AccordionTriggerPrimitive>, 'children'> & { children?: ReactNode }) {
   return (
-    <AccordionPrimitive.Header className="flex">
-      <AccordionPrimitive.Trigger
-        data-slot="accordion-trigger"
+    <AccordionHeader className="flex">
+      <AccordionTriggerPrimitive
         className={cn(
-          'group/accordion-trigger relative flex flex-1 items-start justify-between rounded-lg border border-transparent py-2.5 text-left text-sm font-medium transition-colors duration-150 ease-out-soft outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring aria-disabled:pointer-events-none aria-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground',
+          'group/accordion-trigger relative flex flex-1 items-start justify-between rounded-lg border border-transparent py-2.5 text-left text-sm font-medium transition-colors duration-150 ease-out-soft outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground',
           className,
         )}
         {...props}
@@ -36,17 +34,20 @@ function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.
         {children}
         <ChevronDownIcon
           data-slot="accordion-trigger-icon"
-          className="pointer-events-none shrink-0 transition-transform duration-150 ease-out-soft group-aria-expanded/accordion-trigger:rotate-180"
+          className="pointer-events-none shrink-0 transition-transform duration-150 ease-out-soft group-data-open/accordion-trigger:rotate-180"
         />
-      </AccordionPrimitive.Trigger>
-    </AccordionPrimitive.Header>
+      </AccordionTriggerPrimitive>
+    </AccordionHeader>
   );
 }
 
-function AccordionContent({ className, children, ...props }: AccordionPrimitive.Panel.Props) {
+function AccordionContent({
+  className,
+  children,
+  ...props
+}: Omit<ComponentProps<typeof AccordionPanel>, 'children'> & { children?: ReactNode }) {
   return (
-    <AccordionPrimitive.Panel
-      data-slot="accordion-content"
+    <AccordionPanel
       className="h-(--accordion-panel-height) overflow-hidden text-sm transition-[height] duration-150 ease-out-soft data-starting-style:h-0 data-ending-style:h-0"
       {...props}
     >
@@ -58,7 +59,7 @@ function AccordionContent({ className, children, ...props }: AccordionPrimitive.
       >
         {children}
       </div>
-    </AccordionPrimitive.Panel>
+    </AccordionPanel>
   );
 }
 

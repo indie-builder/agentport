@@ -378,8 +378,11 @@ describe('官方 vs 本地差分渲染', () => {
   it('Slider initialState 数值序列一致', async () => {
     const state = { booking: { qty: { value: [42], componentType: 'Slider' } } };
     await pair(sliderProgram, state, (a, b) => {
-      expect(attrs(b, 'aria-valuenow')).toEqual(['42']);
-      expect(attrs(a, 'aria-valuenow')).toEqual(attrs(b, 'aria-valuenow'));
+      const values = [...b.querySelectorAll<HTMLInputElement>('input[type="range"]')].map(
+        (input) => input.value,
+      );
+      expect(values).toEqual(['42']);
+      expect(attrs(a, 'aria-valuenow')).toEqual(values);
     });
   });
 

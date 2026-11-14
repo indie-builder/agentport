@@ -220,11 +220,10 @@ async function pressOutside() {
   if (!overlay) throw new Error('Missing dialog overlay');
   await act(async () => {
     overlay.dispatchEvent(
-      new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 0, clientY: 0 }),
+      new PointerEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 0 }),
     );
-    overlay.dispatchEvent(
-      new MouseEvent('click', { bubbles: true, button: 0, clientX: 0, clientY: 0 }),
-    );
+    overlay.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 0, clientY: 0 }));
+    overlay.click();
   });
   await flush();
 }

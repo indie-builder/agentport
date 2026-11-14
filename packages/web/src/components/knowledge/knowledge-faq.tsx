@@ -14,7 +14,7 @@ import type {
 } from '../../lib/api.js';
 import { api, errorMessage } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import {
   isTerminalKnowledgeJob,
   knowledgeKeys,
@@ -163,7 +163,7 @@ function FaqDialog({
   documentId,
   folders,
   initialFolderId,
-  onClose,
+  onClose: onClosed,
 }: {
   baseId: string;
   documentId?: string;
@@ -171,6 +171,8 @@ function FaqDialog({
   initialFolderId: string | null;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const detail = useKnowledgeFaq(documentId ?? null);
   if (documentId === undefined) {
     return (
@@ -178,7 +180,7 @@ function FaqDialog({
         baseId={baseId}
         folders={folders}
         initialFolderId={initialFolderId}
-        onClose={onClose}
+        dialog={dialog}
       />
     );
   }
@@ -186,7 +188,11 @@ function FaqDialog({
   if (detail.data === undefined) {
     if (detail.isPending) {
       return (
-        <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+        <Dialog
+          open={dialog.open}
+          onOpenChangeComplete={dialog.onOpenChangeComplete}
+          onOpenChange={(next) => (next ? undefined : onClose())}
+        >
           <DialogShell title="编辑 FAQ">
             <LoadingState rows={4} />
           </DialogShell>
@@ -194,7 +200,11 @@ function FaqDialog({
       );
     }
     return (
-      <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <Dialog
+        open={dialog.open}
+        onOpenChangeComplete={dialog.onOpenChangeComplete}
+        onOpenChange={(next) => (next ? undefined : onClose())}
+      >
         <DialogShell title="编辑 FAQ">
           <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
         </DialogShell>
@@ -209,7 +219,7 @@ function FaqDialog({
       onRetryDetail={() => void detail.refetch()}
       folders={folders}
       initialFolderId={initialFolderId}
-      onClose={onClose}
+      dialog={dialog}
     />
   );
 }
@@ -221,7 +231,7 @@ function FaqEditorForm({
   onRetryDetail,
   folders,
   initialFolderId,
-  onClose,
+  dialog,
 }: {
   baseId: string;
   detail?: KnowledgeFaqDetail;
@@ -229,8 +239,9 @@ function FaqEditorForm({
   onRetryDetail?: () => void;
   folders: KnowledgeFolder[];
   initialFolderId: string | null;
-  onClose: () => void;
+  dialog: ReturnType<typeof useDialogClose>;
 }) {
+  const onClose = dialog.close;
   const create = useCreateKnowledgeFaq(baseId);
   const update = useUpdateKnowledgeFaq(baseId);
   const pending = create.isPending || update.isPending;
@@ -304,7 +315,11 @@ function FaqEditorForm({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell
         title={initialDetail ? '编辑 FAQ' : '新建 FAQ'}
         closeDisabled={pending}
@@ -656,7 +671,7 @@ function FaqImportDialog({
   canImport,
   canPublish: hasPublishPermission,
   canExecute,
-  onClose,
+  onClose: onClosed,
 }: {
   baseId: string;
   canImport: boolean;
@@ -664,6 +679,8 @@ function FaqImportDialog({
   canExecute: boolean;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const importer = useImportKnowledgeFaqs(baseId);
   const publisher = usePublishKnowledgeFaqBatch(baseId);
   const existing = useKnowledgeFaqs(baseId, {});
@@ -908,7 +925,11 @@ function FaqImportDialog({
       : 'text-xs text-danger';
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell
         title={canImport ? '导入 FAQ' : '批次发布 FAQ'}
         closeDisabled={pending}
@@ -1865,7 +1886,6 @@ export function FaqTab({
           confirmDisabled={batch.isPending}
           onClose={() => setBatchDeleting(false)}
           onConfirm={async () => {
-            setBatchDeleting(false);
             await runBatch('delete', 'FAQ 已批量删除');
           }}
         />
@@ -1892,13 +1912,15 @@ function FaqHistoryDialog({
   baseId,
   canPublish,
   item,
-  onClose,
+  onClose: onClosed,
 }: {
   baseId: string;
   canPublish: boolean;
   item: KnowledgeFaqSummary;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const versions = useKnowledgeDocumentVersions(item.id);
   const rollback = useRollbackKnowledgeDocument(baseId);
   const client = useQueryClient();
@@ -1909,7 +1931,11 @@ function FaqHistoryDialog({
     selected.metadata.faqImport !== undefined &&
     selected.metadata.publication !== 'published';
   return (
-    <Dialog open onOpenChange={guardedOpenChange(rollback.isPending, onClose)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(rollback.isPending, onClose)}
+    >
       <DialogShell
         title="FAQ 版本历史"
         closeDisabled={rollback.isPending}
@@ -2018,13 +2044,15 @@ function FaqPublishDialog({
   baseId,
   documentId,
   canExecute,
-  onClose,
+  onClose: onClosed,
 }: {
   baseId: string;
   documentId: string;
   canExecute: boolean;
   onClose: () => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const detail = useKnowledgeFaq(documentId);
   const publish = usePublishKnowledgeFaq(baseId);
   const retry = useRetryKnowledgeJob(baseId);
@@ -2047,7 +2075,11 @@ function FaqPublishDialog({
   const indexSucceeded = draftJobId === null || jobStatus === 'succeeded';
   const indexFailed = jobStatus === 'failed' || jobStatus === 'cancelled';
   return (
-    <Dialog open onOpenChange={guardedOpenChange(publish.isPending, onClose)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(publish.isPending, onClose)}
+    >
       <DialogShell title="发布 FAQ" closeDisabled={publish.isPending}>
         {cached === undefined && detail.isPending ? <LoadingState rows={2} /> : null}
         {cached === undefined && detail.isError ? (

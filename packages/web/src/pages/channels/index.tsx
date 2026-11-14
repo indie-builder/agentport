@@ -38,7 +38,7 @@ import { Textarea } from '../../components/ui/textarea.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { cn } from '../../lib/cn.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { formatRelative } from '../../lib/format.js';
 import { meQuery, useChannels, useCreateChannel } from '../../lib/queries.js';
 import { toastError } from '../../lib/toast.js';
@@ -258,7 +258,9 @@ function ChannelCard({ channel }: { channel: ChannelListItem }) {
   );
 }
 
-function CreateChannelDialog({ onClose }: { onClose: () => void }) {
+function CreateChannelDialog({ onClose: onClosed }: { onClose: () => void }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const navigate = useNavigate();
   const create = useCreateChannel();
   const form = useZodForm(channelCreateSchema, {
@@ -279,10 +281,13 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
       {
         onSuccess: (channel) => {
           guard.finish();
-          void navigate({
-            to: '/channels/$channelId',
-            params: { channelId: channel.id },
-            ignoreBlocker: true,
+          dialog.finish(() => {
+            onClosed();
+            void navigate({
+              to: '/channels/$channelId',
+              params: { channelId: channel.id },
+              ignoreBlocker: true,
+            });
           });
         },
         onError: (error) => toastError(error),
@@ -291,7 +296,11 @@ function CreateChannelDialog({ onClose }: { onClose: () => void }) {
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(pending, guard.close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, guard.close)}
+    >
       <DialogShell title="新建频道" closeDisabled={pending}>
         <form className="flex flex-col gap-4" noValidate onSubmit={submit}>
           <Field className="gap-1.5" data-invalid={Boolean(errors.name)}>

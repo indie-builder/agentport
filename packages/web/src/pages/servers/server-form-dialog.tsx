@@ -23,6 +23,7 @@ import { Input } from '../../components/ui/input.js';
 import { Textarea } from '../../components/ui/textarea.js';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group.js';
 import { ApiError, api } from '../../lib/api.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { fieldErrors, useFormBlocker } from '../../lib/form.js';
 import { useCreateServer, useUpdateServer } from '../../lib/queries.js';
 import { parsePairs } from '../../lib/resource-form.js';
@@ -170,7 +171,7 @@ function catalogToForm(item: ConnectorCatalogItem): ServerFormValues {
 export function ServerFormDialog({
   server,
   initial = null,
-  onClose,
+  onClose: onClosed,
   onSaved,
   getReturnFocus,
   readOnly = false,
@@ -182,6 +183,8 @@ export function ServerFormDialog({
   getReturnFocus: () => HTMLElement | null;
   readOnly?: boolean | undefined;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const creating = server === null;
   // 只读只限制既有定义的修改；新建仍由 servers.create 放行。
   const viewOnly = readOnly && !creating;
@@ -254,7 +257,7 @@ export function ServerFormDialog({
           onSuccess: (saved) => {
             settle();
             toastSuccess('Server 已更新');
-            onSaved(saved, false);
+            dialog.finish(() => onSaved(saved, false));
           },
           onError: (error) => {
             if (error instanceof ApiError && error.status === 409) {
@@ -271,7 +274,7 @@ export function ServerFormDialog({
         onSuccess: (saved) => {
           settle();
           toastSuccess('Server 已创建');
-          onSaved(saved, true);
+          dialog.finish(() => onSaved(saved, true));
         },
         onError: (error) => toastError(error),
       });
@@ -283,7 +286,8 @@ export function ServerFormDialog({
 
   return (
     <Dialog
-      open
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={(next, details) => {
         if (next) return;
         if (pending || dirty) details.cancel();

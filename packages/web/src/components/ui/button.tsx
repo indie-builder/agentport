@@ -1,12 +1,13 @@
-import { Button as ButtonPrimitive } from '@base-ui/react/button';
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from 'cn';
+import type { ComponentProps } from 'react';
 
 const neutralButtonStyles =
   'border-border bg-background text-foreground hover:bg-hover hover:text-foreground aria-expanded:bg-hover aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50';
 
 const buttonVariantStyles = cva(
-  "group/button cds-btn-squish inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-[0.35] aria-disabled:pointer-events-none aria-disabled:opacity-[0.35] aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button cds-btn-squish inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:pointer-events-none data-disabled:opacity-[0.35] aria-disabled:pointer-events-none aria-disabled:opacity-[0.35] aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -48,17 +49,30 @@ const buttonVariantStyles = cva(
 const buttonVariants = (props?: Parameters<typeof buttonVariantStyles>[0]) =>
   cn(buttonVariantStyles(props));
 
+type Loose<T> = { [K in keyof T]: T[K] | undefined };
+
+type ButtonProps = Loose<ComponentProps<typeof ButtonPrimitive>> &
+  VariantProps<typeof buttonVariantStyles> & {
+    'data-slot'?: string | undefined;
+  };
+
 function Button({
   className,
   variant = 'default',
   size = 'default',
+  render,
+  'data-slot': dataSlot,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariantStyles>) {
+}: ButtonProps) {
   return (
     <ButtonPrimitive
-      data-slot="button"
+      {...(render !== undefined
+        ? { render }
+        : dataSlot === undefined || dataSlot === 'button'
+          ? {}
+          : { render: <button type={props.type ?? 'button'} data-slot={dataSlot} /> })}
       className={buttonVariants({ variant, size, className })}
-      {...props}
+      {...(props as ComponentProps<typeof ButtonPrimitive>)}
     />
   );
 }

@@ -6,6 +6,7 @@ import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import type { EvalRun } from '../../lib/api.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import {
   evalComparisonStatusLabel,
   evalComparisonStatusVariant,
@@ -22,7 +23,7 @@ export function CompareDialog({
   headId,
   runs,
   onChange,
-  onClose,
+  onClose: onClosed,
   finalFocus,
 }: {
   baseId: string;
@@ -32,6 +33,8 @@ export function CompareDialog({
   onClose: () => void;
   finalFocus: ComponentProps<typeof DialogShell>['finalFocus'];
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const comparison = useEvalComparison(baseId, headId);
 
   const runLabel = (run: EvalRun): string =>
@@ -55,7 +58,8 @@ export function CompareDialog({
 
   return (
     <Dialog
-      open
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={(next) => {
         if (!next) onClose();
       }}

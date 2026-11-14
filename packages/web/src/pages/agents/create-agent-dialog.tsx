@@ -33,7 +33,7 @@ import {
 import { Textarea } from '../../components/ui/textarea.js';
 import { ApiError } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
-import { guardedOpenChange } from '../../lib/dialog-guard.js';
+import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { useFormBlocker } from '../../lib/form.js';
 import { useCreateAgent, useDuplicateAgent } from '../../lib/queries.js';
 import { slugFromName } from '../../lib/slug.js';
@@ -61,6 +61,7 @@ export function CreateAgentDialog({
   finalFocus: ComponentProps<typeof DialogShell>['finalFocus'];
   initialRole?: AgentInput['role'];
 }) {
+  const dialog = useDialogClose(onClose);
   const create = useCreateAgent();
   const rhf = useZodForm(agentCreateFormSchema, {
     defaultValues: draftFromInput({
@@ -80,12 +81,12 @@ export function CreateAgentDialog({
   const dirty = rhf.formState.isDirty;
   const blocker = useFormBlocker(!created && dirty, !created && create.isPending);
   useEffect(() => {
-    if (created) onCreated(created);
-  }, [created, onCreated]);
+    if (created) dialog.finish(() => onCreated(created));
+  }, [created, onCreated, dialog.finish]);
   const close = (): void => {
     if (create.isPending) return;
     if (dirty) setConfirmDiscard(true);
-    else onClose();
+    else dialog.close();
   };
 
   const submit = rhf.handleSubmit(
@@ -111,7 +112,11 @@ export function CreateAgentDialog({
   );
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(create.isPending, close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChange={guardedOpenChange(create.isPending, close)}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+    >
       <DialogShell
         title={isTwin ? '创建数字分身' : '新建专家'}
         description="连接器与运行限制可在创建后配置。"
@@ -291,7 +296,7 @@ export function CreateAgentDialog({
           confirmLabel="放弃并关闭"
           confirmDisabled={create.isPending}
           onConfirm={async () => {
-            if (!create.isPending) onClose();
+            if (!create.isPending) dialog.close();
           }}
         />
         <ConfirmDialog
@@ -319,6 +324,7 @@ export function DuplicateAgentDialog({
   onClose: () => void;
   getReturnFocus: () => HTMLElement | null;
 }) {
+  const dialog = useDialogClose(onClose);
   const navigate = useNavigate();
   const duplicate = useDuplicateAgent();
   const [initial] = useState(() => ({
@@ -334,13 +340,15 @@ export function DuplicateAgentDialog({
   // 先落成功状态再离开：blocker 下一次渲染才释放，直接 navigate 会被拦下。
   useEffect(() => {
     if (!created) return;
-    onClose();
-    void navigate({ to: '/agents/$agentId', params: { agentId: created.id } });
-  }, [created, navigate, onClose]);
+    dialog.finish(() => {
+      onClose();
+      void navigate({ to: '/agents/$agentId', params: { agentId: created.id } });
+    });
+  }, [created, navigate, onClose, dialog.finish]);
   const close = (): void => {
     if (duplicate.isPending) return;
     if (dirty) setConfirmDiscard(true);
-    else onClose();
+    else dialog.close();
   };
 
   const submit = rhf.handleSubmit((values) => {
@@ -369,7 +377,11 @@ export function DuplicateAgentDialog({
   });
 
   return (
-    <Dialog open onOpenChange={guardedOpenChange(duplicate.isPending, close)}>
+    <Dialog
+      open={dialog.open}
+      onOpenChange={guardedOpenChange(duplicate.isPending, close)}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+    >
       <DialogShell
         title="克隆专家"
         description="不包含子专家、记忆与历史记录。"
@@ -442,7 +454,7 @@ export function DuplicateAgentDialog({
           confirmLabel="放弃并关闭"
           confirmDisabled={duplicate.isPending}
           onConfirm={async () => {
-            if (!duplicate.isPending) onClose();
+            if (!duplicate.isPending) dialog.close();
           }}
         />
         <ConfirmDialog

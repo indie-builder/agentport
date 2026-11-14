@@ -38,7 +38,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
-import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
+import {
+  Field,
+  FieldContent,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
 import {
   Table,
@@ -49,6 +55,7 @@ import {
   TableRow,
 } from '../../components/ui/table.js';
 import { Textarea } from '../../components/ui/textarea.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { useFormBlocker } from '../../lib/form.js';
 import { formatRelative, shortId } from '../../lib/format.js';
 import {
@@ -152,6 +159,10 @@ export function RuntimeEnvironmentDetailPage() {
     });
   };
 
+  const versionDialog = useDialogClose(
+    () => updateSearch({ version: undefined }),
+    search.version !== undefined,
+  );
   const dirty = !leaving && formState.isDirty;
   const pending = update.isPending || remove.isPending;
   const blocker = useFormBlocker(dirty, pending, { ignoreSamePath: true });
@@ -280,7 +291,7 @@ export function RuntimeEnvironmentDetailPage() {
                       variant="destructive"
                       disabled={current.isDefault}
                       title={current.isDefault ? '默认运行环境不能删除' : undefined}
-                      onClick={() => setConfirmingDelete(true)}
+                      onSelect={() => setConfirmingDelete(true)}
                     >
                       <Trash2 className="size-4" /> 删除
                     </DropdownMenuItem>
@@ -466,10 +477,11 @@ export function RuntimeEnvironmentDetailPage() {
 
       {search.version ? (
         <Dialog
-          open
+          open={versionDialog.open}
           onOpenChange={(next) => {
-            if (!next) updateSearch({ version: undefined });
+            if (!next) versionDialog.close();
           }}
+          onOpenChangeComplete={versionDialog.onOpenChangeComplete}
         >
           <DialogShell
             title={`版本详情 · ${shortId(search.version)}`}

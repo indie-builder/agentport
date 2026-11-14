@@ -1,15 +1,20 @@
 'use client';
 
-import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-import { cn } from '../../lib/cn.js';
+import {
+  Popover,
+  PopoverContent as PopoverContentPrimitive,
+  PopoverTrigger,
+} from '@ui-sdk/react/popover';
+import { cn } from 'cn';
+import type { ComponentProps } from 'react';
 
-function Popover({ ...props }: PopoverPrimitive.Root.Props) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />;
-}
+type Loose<T> = { [K in keyof T]: T[K] | undefined };
 
-function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
-  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />;
-}
+type PopoverContentProps = Loose<
+  Omit<ComponentProps<typeof PopoverContentPrimitive>, 'className'>
+> & {
+  className?: string | undefined;
+};
 
 function PopoverContent({
   className,
@@ -18,27 +23,19 @@ function PopoverContent({
   side = 'bottom',
   sideOffset = 4,
   ...props
-}: PopoverPrimitive.Popup.Props &
-  Pick<PopoverPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>) {
+}: PopoverContentProps) {
   return (
-    <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Positioner
-        align={align}
-        alignOffset={alignOffset}
-        side={side}
-        sideOffset={sideOffset}
-        className="isolate z-50"
-      >
-        <PopoverPrimitive.Popup
-          data-slot="popover-content"
-          className={cn(
-            'z-50 flex max-h-(--available-height) w-72 max-w-(--available-width) overflow-y-auto overscroll-contain flex-col gap-2.5 rounded-[var(--radius-popover)] bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-line outline-hidden cds-overlay-enter',
-            className,
-          )}
-          {...props}
-        />
-      </PopoverPrimitive.Positioner>
-    </PopoverPrimitive.Portal>
+    <PopoverContentPrimitive
+      align={align}
+      alignOffset={alignOffset}
+      side={side}
+      sideOffset={sideOffset}
+      className={cn(
+        'z-50 flex max-h-(--available-height) w-72 max-w-(--available-width) overflow-y-auto overscroll-contain flex-col gap-2.5 rounded-[var(--radius-popover)] bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-line outline-hidden cds-overlay-enter',
+        className,
+      )}
+      {...(props as ComponentProps<typeof PopoverContentPrimitive>)}
+    />
   );
 }
 

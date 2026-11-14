@@ -54,6 +54,7 @@ import {
 import { can } from '../../lib/access.js';
 import { api } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
+import { useDialogClose } from '../../lib/dialog-guard.js';
 import { meQuery, useDeleteAgent, useExperts, useRuntimeEnvironments } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { CreateAgentDialog } from './create-agent-dialog.js';
@@ -80,10 +81,10 @@ export function AgentsPage() {
   const [importing, setImporting] = useState(false);
   const [pendingImport, setPendingImport] = useState<File | null>(null);
   const [badgeId, setBadgeId] = useState<string | null>(null);
-  const badgeTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const badgeTriggerRef = useRef<HTMLElement | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
-  const editorTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const editorTriggerRef = useRef<HTMLElement | null>(null);
   const remove = useDeleteAgent();
   const runtimeEnvironments = useRuntimeEnvironments();
   const hasRoleData = (agents.data ?? []).some((agent) => agent.role !== undefined);
@@ -331,7 +332,7 @@ export function AgentsPage() {
                     aria-label="新建专家"
                     disabled={importing}
                     onClick={(event) => {
-                      editorTriggerRef.current = event.currentTarget as HTMLButtonElement;
+                      editorTriggerRef.current = event.currentTarget;
                       setCreateRole('通用助手');
                       setCreating(true);
                     }}
@@ -415,6 +416,9 @@ export function AgentsPage() {
                                 variant="ghost"
                                 size="icon-sm"
                                 aria-label={`操作 ${agent.name}`}
+                                onFocus={(event) => {
+                                  editorTriggerRef.current = event.currentTarget;
+                                }}
                                 onClick={(event) => {
                                   editorTriggerRef.current = event.currentTarget;
                                 }}
@@ -427,7 +431,7 @@ export function AgentsPage() {
                             <DropdownMenuGroup>
                               <DropdownMenuItem
                                 disabled={importing}
-                                onClick={() =>
+                                onSelect={() =>
                                   void navigate({
                                     to: '/agents/$agentId',
                                     params: { agentId: agent.id },
@@ -440,7 +444,7 @@ export function AgentsPage() {
                               {canDelete ? (
                                 <DropdownMenuItem
                                   variant="destructive"
-                                  onClick={() => setDeleting(agent)}
+                                  onSelect={() => setDeleting(agent)}
                                 >
                                   删除
                                 </DropdownMenuItem>
@@ -608,7 +612,7 @@ function ImportAgentDialog({
   environments,
   environmentsError,
   finalFocus,
-  onClose,
+  onClose: onClosed,
   onImport,
 }: {
   file: File;
@@ -618,9 +622,15 @@ function ImportAgentDialog({
   onClose: () => void;
   onImport: (runtimeEnvironmentId: string | undefined) => void;
 }) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
   const [environmentId, setEnvironmentId] = useState('match');
   return (
-    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={(next) => (next ? undefined : onClose())}
+    >
       <DialogShell
         title="导入专家包"
         description={file.name}
@@ -666,7 +676,11 @@ function ImportAgentDialog({
           <Button variant="outline" onClick={onClose}>
             取消
           </Button>
-          <Button onClick={() => onImport(environmentId === 'match' ? undefined : environmentId)}>
+          <Button
+            onClick={() =>
+              dialog.finish(() => onImport(environmentId === 'match' ? undefined : environmentId))
+            }
+          >
             导入
           </Button>
         </div>
