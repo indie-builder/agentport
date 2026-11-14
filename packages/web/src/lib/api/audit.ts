@@ -39,4 +39,5 @@ export default {
     const search = params.size > 0 ? `?${params.toString()}` : '';
     return nativeRequest(`/audit/export${search}`);
   },
+  verifyAudit: (query: { afterSeq?: number; limit?: number } = {}) => rpc.audit.verify({ query }),
 };

@@ -1,5 +1,5 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Download, RefreshCw } from 'lucide-react';
+import { Download, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterSelect } from '../components/filter-select.js';
@@ -24,7 +24,7 @@ import {
   formatDuration,
 } from '../lib/format.js';
 import { useAudit } from '../lib/queries.js';
-import { toastError } from '../lib/toast.js';
+import { toastError, toastSuccess } from '../lib/toast.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
 
 const actorKindLabel: Record<AuditEntry['actorKind'], string> = {
@@ -142,6 +142,7 @@ export function AuditPage() {
   const actor = search.actor ?? '';
   const actorKind = search.actorKind ?? 'all';
   const [exporting, setExporting] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const settledAction = useDebouncedValue(action.trim(), 300);
   const settledTarget = useDebouncedValue(target.trim(), 300);
   const settledActor = useDebouncedValue(actor.trim(), 300);
@@ -184,6 +185,42 @@ export function AuditPage() {
     }
   };
 
+  const verifyChain = async (): Promise<void> => {
+    if (verifying) return;
+    setVerifying(true);
+    try {
+      let afterSeq: number | undefined;
+      let checked = 0;
+      let complete = false;
+      for (let i = 0; i < 200; i += 1) {
+        const result = await api.verifyAudit({
+          limit: 5000,
+          ...(afterSeq === undefined ? {} : { afterSeq }),
+        });
+        checked += result.checked;
+        if (!result.ok) {
+          toastError(
+            new Error(
+              `审计链校验失败：seq ${result.brokenSeq ?? '未知'} 处断链（已校验 ${checked} 条）`,
+            ),
+          );
+          return;
+        }
+        if (result.complete || result.nextAfterSeq === null) {
+          complete = true;
+          break;
+        }
+        afterSeq = result.nextAfterSeq;
+      }
+      if (complete) toastSuccess(`审计链完整，已校验 ${checked} 条记录`);
+      else toastError(new Error(`校验未完成，已校验 ${checked} 条，请重试`));
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   return (
     <Page>
       <PageTopbar>
@@ -192,6 +229,10 @@ export function AuditPage() {
           description="输入只保存摘要，不落原文。"
           actions={
             <>
+              <Button variant="outline" onClick={() => void verifyChain()} disabled={verifying}>
+                <ShieldCheck data-icon="inline-start" aria-hidden="true" />
+                {verifying ? '校验中…' : '校验完整性'}
+              </Button>
               <Button
                 variant="outline"
                 onClick={() => void exportAudit()}

@@ -12,6 +12,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type AuditEntry, type AuditList, api } from '../src/lib/api.js';
 import { formatDateTime } from '../src/lib/format.js';
+import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { AuditPage } from '../src/pages/audit.js';
 import { auditSearchSchema } from '../src/routes/-search.js';
 
@@ -131,7 +132,17 @@ function loadMore(): HTMLButtonElement {
   return found;
 }
 
+function button(text: string): HTMLButtonElement {
+  const found = [...container.querySelectorAll('button')].find(
+    (node) => node.textContent?.trim() === text,
+  );
+  if (!found) throw new Error(`missing button ${text}`);
+  return found;
+}
+
 beforeEach(() => {
+  vi.mocked(toastError).mockClear();
+  vi.mocked(toastSuccess).mockClear();
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   container = document.createElement('div');
   document.body.append(container);
@@ -147,6 +158,73 @@ afterEach(async () => {
   history?.destroy();
   container.remove();
   vi.restoreAllMocks();
+});
+
+describe('audit integrity verification', () => {
+  it('reports a complete chain and starts without a cursor', async () => {
+    vi.spyOn(api, 'verifyAudit').mockResolvedValue({
+      ok: true,
+      checked: 12,
+      brokenSeq: null,
+      nextAfterSeq: null,
+      complete: true,
+    });
+    vi.spyOn(api, 'audit').mockResolvedValue(page([entry('a')]));
+    await mount();
+
+    await act(async () => button('校验完整性').click());
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('审计链完整，已校验 12 条记录'));
+    expect(api.verifyAudit).toHaveBeenCalledWith({ limit: 5000 });
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('reports the broken sequence without a success notification', async () => {
+    vi.spyOn(api, 'verifyAudit').mockResolvedValue({
+      ok: false,
+      checked: 5,
+      brokenSeq: '42',
+      nextAfterSeq: null,
+      complete: false,
+    });
+    vi.spyOn(api, 'audit').mockResolvedValue(page([entry('a')]));
+    await mount();
+
+    await act(async () => button('校验完整性').click());
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: '审计链校验失败：seq 42 处断链（已校验 5 条）' }),
+      ),
+    );
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it('follows the returned cursor and totals the checked records across pages', async () => {
+    vi.spyOn(api, 'verifyAudit')
+      .mockResolvedValueOnce({
+        ok: true,
+        checked: 5000,
+        brokenSeq: null,
+        nextAfterSeq: 100,
+        complete: false,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        checked: 10,
+        brokenSeq: null,
+        nextAfterSeq: null,
+        complete: true,
+      });
+    vi.spyOn(api, 'audit').mockResolvedValue(page([entry('a')]));
+    await mount();
+
+    await act(async () => button('校验完整性').click());
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith('审计链完整，已校验 5010 条记录'),
+    );
+    expect(api.verifyAudit).toHaveBeenCalledTimes(2);
+    expect(api.verifyAudit).toHaveBeenNthCalledWith(2, { limit: 5000, afterSeq: 100 });
+    expect(toastError).not.toHaveBeenCalled();
+  });
 });
 
 describe('audit row details', () => {
