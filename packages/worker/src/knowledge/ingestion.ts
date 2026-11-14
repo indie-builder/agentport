@@ -1410,6 +1410,24 @@ async function upsertSourceItem(
     );
     return false;
   }
+  if (existing && authorized.disabledReason === 'manual') {
+    deps.logger.warn(
+      { sourceId: source.id, itemId: item.sourceId, documentId: existing.id },
+      'manual_disabled: external update skipped, disabled state kept',
+    );
+    await repo.knowledge.recordSyncItem(deps.db, {
+      syncRunId,
+      sourceId: source.id,
+      rangeId: item.rangeId ?? null,
+      externalId: item.sourceId,
+      documentId: existing.id,
+      status: 'skipped',
+      code: 'manual_disabled',
+      message: '文档已人工停用，已忽略外部内容更新',
+      retryable: false,
+    });
+    return false;
+  }
   // 后台同步绝不覆盖人工编辑：保留旧版本，逐项冲突交给来源运行明细呈现。
   if (existing && (await hasManualEdits(deps, authorized))) {
     deps.logger.warn(
