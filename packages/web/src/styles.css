@@ -104,7 +104,7 @@
   /* 侧栏：224 展开 / 48 收起，过渡 160ms */
   --sidebar-width: 224px;
   --sidebar-collapsed: 48px;
-  --sidebar-pad: 16px 12px;
+  --sidebar-pad: 16px 8px;
   --sidebar-pad-collapsed: 16px 8px;
 
   /* CDS 动效曲线与时长；--ease-out-soft 对齐参考 ease-swift，是交互/悬停主曲线；--btn-spring 是 15 阶物理弹簧。 */

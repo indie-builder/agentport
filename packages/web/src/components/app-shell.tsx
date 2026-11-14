@@ -153,7 +153,7 @@ function SidebarLink({
       activeOptions={{ exact: true, includeSearch: false }}
       className={cn(
         'relative flex h-8 items-center text-sm transition-colors duration-150 ease-out-soft',
-        collapsed ? 'w-8 justify-center' : 'gap-2.5 rounded-item px-2.5',
+        collapsed ? 'w-8 justify-center' : 'gap-2.5 rounded-item px-2',
         collapsed
           ? ''
           : active
@@ -535,7 +535,7 @@ export function AppShell() {
             <div key={group.label} className="mt-0.5">
               <div
                 className={cn(
-                  'whitespace-nowrap px-2.5 pb-1.5 pt-4 text-xs text-muted-foreground',
+                  'whitespace-nowrap px-2 pb-1.5 pt-4 text-xs text-muted-foreground',
                   navCollapsed && 'invisible',
                 )}
               >
@@ -580,7 +580,7 @@ export function AppShell() {
                       'h-8 text-sm text-fg hover:bg-sidebar-hover',
                       navCollapsed
                         ? 'size-8 rounded-tag p-0'
-                        : 'justify-start gap-2.5 rounded-item px-2.5',
+                        : 'justify-start gap-2.5 rounded-item px-2',
                     )}
                   >
                     <LogOut aria-hidden="true" />

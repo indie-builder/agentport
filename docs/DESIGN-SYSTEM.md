@@ -218,7 +218,7 @@
 - 临时预览点击固定按钮进入 `expanded`；固定展开点击收起按钮进入 `collapsed`。临时预览不加 scrim、不锁焦点；窄桌面沿用现有 Sheet 行为。
 - 工作、个人与运维上下文共用上述三态，保留现有分组、路由与权限过滤。
 
-- **展开 224px**，内边距 `16px 12px`，分组间距 18px；过渡 `160ms cubic-bezier(.22,1,.36,1)`，同时过渡 width / height / transform / background-color / box-shadow。
+- **展开 224px**，内边距 `16px 8px`，分组间距 18px；过渡 `160ms cubic-bezier(.22,1,.36,1)`，同时过渡 width / height / transform / background-color / box-shadow。
 - **收起 48px**，内边距 `16px 8px`；条目变成 32×32 图标块并居中，文字标签 `opacity 0 / width 0`（90ms 过渡），悬停/选中态落在图标块本身而不是整行。
 - 顶部：预览与固定展开的品牌区高 32px，显示完整艺术字组合，与右侧固定或收起按钮同高同中心线；收起为 32×32 木工矢量标记。固定与收起按钮均为 32×32、radius 8，不触发 Logo 切图；Logo 切图沿用 §5。
 - 「新建会话」位于对话历史头部，为常规 32px ghost 图标按钮；侧栏不设新建会话入口。
