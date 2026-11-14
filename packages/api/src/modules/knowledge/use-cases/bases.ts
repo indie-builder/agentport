@@ -5,7 +5,7 @@ import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
 import { ensureKnowledgeServer, supportsImageVectors } from '../service.js';
-import { type KnowledgeDeps, type PageQuery, pageOptions, notFound } from './shared.js';
+import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
 
 function toBase(row: Awaited<ReturnType<typeof repo.knowledge.createBase>>) {
   return {
@@ -100,6 +100,9 @@ export async function createBase(
   }
   if (input.asrProfileId && (asr?.kind !== 'asr' || !asr.enabled)) {
     throw new AppError('INVALID_INPUT', 'ASR profile 不存在、类型不符或已禁用');
+  }
+  if (input.settings.chunkOverlap >= input.settings.chunkTokens) {
+    throw new AppError('INVALID_INPUT', '分块重叠必须小于分块长度');
   }
   const settingsProblem = await imageSettingsProblem(input.settings, embedding);
   if (settingsProblem !== null) throw new AppError('CONFLICT', settingsProblem);
@@ -219,6 +222,9 @@ export async function updateBase(deps: KnowledgeDeps, id: string, body: UpdateBa
     throw new AppError('INVALID_INPUT', merged.error.issues[0]?.message ?? '知识库设置不合法');
   }
   const settings: KnowledgeBaseSettings = merged.data;
+  if (settings.chunkOverlap >= settings.chunkTokens) {
+    throw new AppError('INVALID_INPUT', '分块重叠必须小于分块长度');
+  }
   const nextEmbeddingProfileId = body.embeddingProfileId ?? current.embeddingProfileId;
   const nextRerankProfileId =
     body.rerankProfileId === undefined ? current.rerankProfileId : body.rerankProfileId;
