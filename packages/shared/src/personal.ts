@@ -115,3 +115,23 @@ export const personalRunListQuerySchema = z
   .strict();
 
 export type PersonalRunListQuery = z.infer<typeof personalRunListQuerySchema>;
+
+export const personalRunExportQuerySchema = z
+  .object({
+    days: z.coerce.number().int().min(1).max(90).default(30),
+    agentId: z.string().min(1).optional(),
+    status: runStatusSchema.optional(),
+    trigger: runTriggerSchema.optional(),
+  })
+  .strict();
+
+export type PersonalRunExportQuery = z.infer<typeof personalRunExportQuerySchema>;
+
+export const personalRunExportSchema = z.object({
+  format: z.literal('agentport/personal-usage@1'),
+  exportedAt: z.iso.datetime(),
+  items: z.array(personalRunSchema),
+  truncated: z.boolean(),
+});
+
+export type PersonalRunExport = z.infer<typeof personalRunExportSchema>;

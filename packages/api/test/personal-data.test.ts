@@ -8,6 +8,7 @@ import {
   type AccessScope,
   type PermissionId,
   personalOutputShareListSchema,
+  personalRunExportSchema,
   personalRunListSchema,
   personalUsageSummarySchema,
   utcWindowStart,
@@ -689,6 +690,84 @@ describe.skipIf(!ready)('personal data', () => {
     );
     expect(filtered.items).toHaveLength(1);
     expect(filtered.items[0]).toMatchObject({ status: 'failed', trigger: 'review' });
+  });
+
+  it('exports own runs using the creation window and all filters', async () => {
+    const user = await createTestAccount(app, admin, { systemKeys: ['user'] });
+    const other = await createTestAccount(app, admin, { systemKeys: ['user'] });
+    accountIds.push(user.businessId, other.businessId);
+    const agentId = await seedAgent(user.businessId);
+    const otherAgentId = await seedAgent(other.businessId);
+    const now = new Date();
+    const old = new Date(0);
+    const mine = await seedRun({ agentId, businessId: user.businessId, createdAt: now });
+    const outside = await seedRun({ agentId, businessId: user.businessId, createdAt: old });
+    await seedRun({ agentId, businessId: other.businessId, createdAt: now });
+    await app.client.unsafe('update agent_runs set started_at = $2, ended_at = $3 where id = $1', [
+      mine.runId,
+      old.toISOString(),
+      now.toISOString(),
+    ]);
+    await app.client.unsafe('update agent_runs set started_at = $2 where id = $1', [
+      outside.runId,
+      now.toISOString(),
+    ]);
+
+    const res = await request(app, {
+      method: 'GET',
+      url: '/api/me/runs/export?days=30',
+      headers: auth(user.cookie),
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const result = personalRunExportSchema.parse(res.json());
+    expect(result.format).toBe('agentport/personal-usage@1');
+    expect(result.truncated).toBe(false);
+    expect(new Date(result.exportedAt).toISOString()).toBe(result.exportedAt);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      id: mine.runId,
+      createdAt: now.toISOString(),
+      startedAt: old.toISOString(),
+      endedAt: now.toISOString(),
+    });
+
+    const failed = await seedRun({
+      agentId: otherAgentId,
+      businessId: user.businessId,
+      status: 'failed',
+      trigger: 'review',
+    });
+    const filters: Array<[string, string[]]> = [
+      ['status=failed', [failed.runId]],
+      ['trigger=chat', [mine.runId]],
+      [`agentId=${agentId}`, [mine.runId]],
+      [`agentId=${otherAgentId}&status=failed&trigger=review`, [failed.runId]],
+      [`agentId=${agentId}&status=failed`, []],
+    ];
+    for (const [query, ids] of filters) {
+      const filtered = await request(app, {
+        method: 'GET',
+        url: `/api/me/runs/export?days=30&${query}`,
+        headers: auth(user.cookie),
+      });
+      expect(filtered.statusCode, filtered.body).toBe(200);
+      expect(personalRunExportSchema.parse(filtered.json()).items.map((item) => item.id)).toEqual(
+        ids,
+      );
+    }
+  });
+
+  it('requires runs.read permission to export personal runs', async () => {
+    const role = await createRole([['personal_memory.read', 'own_data']]);
+    const restricted = await createAccountWithRoles([role]);
+    const res = await request(app, {
+      method: 'GET',
+      url: '/api/me/runs/export?days=30',
+      headers: auth(restricted.cookie),
+    });
+    expect(res.statusCode).toBe(403);
+    expectProblem(res, 'FORBIDDEN');
   });
 
   it('lists only own conversation shares and revokes idempotently', async () => {
