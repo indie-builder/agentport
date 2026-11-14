@@ -412,6 +412,11 @@ function RestrictedAgentTabs({
   const [childDirty, setChildDirty] = useState(false);
   const [childPending, setChildPending] = useState(false);
   const pending = childPending || externalPending;
+  // 子面板已确认放弃草稿的切换，路由 blocker 不再重复确认。
+  const confirmedChildSwitch = useRef<{
+    instruction: AgentInstruction | undefined;
+    view: MemoryView | undefined;
+  } | null>(null);
   // 只把子面板的真实在途状态回报给页头；父级操作锁不会回传，避免自锁。
   useEffect(() => {
     onPendingChange(childPending);
@@ -448,8 +453,18 @@ function RestrictedAgentTabs({
       if (current.pathname === next.pathname) {
         const currentTab = permittedTab('tab' in current.search ? current.search.tab : undefined);
         const nextTab = permittedTab('tab' in next.search ? next.search.tab : undefined);
-        // 文件选择不卸载子面板；任务切换与跨页才可能丢草稿或打断请求。
-        if (currentTab === nextTab) return false;
+        // 文件、usageDays 等不卸载面板的变化直接放行。
+        if (currentTab === nextTab) {
+          const ci = 'instruction' in current.search ? current.search.instruction : undefined;
+          const ni = 'instruction' in next.search ? next.search.instruction : undefined;
+          const cv = 'view' in current.search ? current.search.view : undefined;
+          const nv = 'view' in next.search ? next.search.view : undefined;
+          // instruction/view 变化会卸载子面板，草稿随之丢失。
+          if (ci === ni && cv === nv) return false;
+          const confirmed = confirmedChildSwitch.current;
+          if (confirmed && confirmed.instruction === ni && confirmed.view === nv) return false;
+          return childDirty || pending;
+        }
         return childDirty || pending;
       }
       return childDirty || pending;
@@ -457,6 +472,9 @@ function RestrictedAgentTabs({
     withResolver: true,
     enableBeforeUnload: childDirty || pending,
   });
+  useEffect(() => {
+    confirmedChildSwitch.current = null;
+  }, [instruction, search.view]);
   // 父层拥有卸载权：登记最新 reset，卸载后仍能结算被拦下的导航，不依赖卸载清理。
   useEffect(() => {
     settleNavigationRef.current = () => blocker.reset?.();
@@ -519,7 +537,10 @@ function RestrictedAgentTabs({
               agentId={agentId}
               canWrite={hasAnyGrant(permissions, 'agents.memory.write')}
               view={search.view ?? 'overview'}
-              onViewChange={(view) => navigateSearch({ view })}
+              onViewChange={(view) => {
+                confirmedChildSwitch.current = { instruction: search.instruction, view };
+                navigateSearch({ view });
+              }}
               onDirtyChange={setChildDirty}
               onPendingChange={setChildPending}
             />
@@ -531,7 +552,10 @@ function RestrictedAgentTabs({
             permissions={permissions}
             instruction={instruction}
             isSubAgent={isSubAgent}
-            onInstructionChange={(next) => navigateSearch({ instruction: next })}
+            onInstructionChange={(next) => {
+              confirmedChildSwitch.current = { instruction: next, view: search.view };
+              navigateSearch({ instruction: next });
+            }}
             onDirtyChange={setChildDirty}
             onPendingChange={setChildPending}
           />
