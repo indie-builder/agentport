@@ -702,7 +702,10 @@ export function KnowledgeSettingsDialog({
           onConfirm={async () => {
             setRebuilding(true);
             try {
-              await api.rebuildKnowledgeBase(base.id, { chunksOnly: false });
+              await api.rebuildKnowledgeBase(base.id, {
+                chunksOnly: false,
+                confirmOverwriteManualChunks: true,
+              });
               void client.invalidateQueries({ queryKey: ['knowledge'] });
               toastSuccess('已开始重建全部索引');
             } finally {
