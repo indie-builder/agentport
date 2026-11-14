@@ -296,6 +296,19 @@ export async function listRanges(
     .orderBy(asc(knowledgeSourceRanges.id));
 }
 
+export async function listRangesBySourceIds(
+  db: Database,
+  sourceIds: string[],
+): Promise<Map<string, KnowledgeSourceRangeRow[]>> {
+  if (sourceIds.length === 0) return new Map();
+  const rows = await db
+    .select()
+    .from(knowledgeSourceRanges)
+    .where(inArray(knowledgeSourceRanges.sourceId, sourceIds))
+    .orderBy(asc(knowledgeSourceRanges.sourceId), asc(knowledgeSourceRanges.id));
+  return Map.groupBy(rows, (row) => row.sourceId);
+}
+
 export interface SourceScopePatch {
   name?: string | undefined;
   config?: Record<string, unknown> | undefined;

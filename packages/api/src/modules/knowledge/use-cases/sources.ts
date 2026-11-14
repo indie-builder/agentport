@@ -344,9 +344,11 @@ function configIssues(
 export async function listSources(deps: KnowledgeDeps, id: string, query: PageQuery) {
   if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
   const page = await repo.knowledge.listSources(deps.db, id, pageOptions(query));
-  const items = await Promise.all(
-    page.items.map(async (row) => toSource(row, await repo.knowledge.listRanges(deps.db, row.id))),
+  const rangesBySource = await repo.knowledge.listRangesBySourceIds(
+    deps.db,
+    page.items.map((row) => row.id),
   );
+  const items = page.items.map((row) => toSource(row, rangesBySource.get(row.id) ?? []));
   return { items, nextCursor: page.nextCursor };
 }
 
