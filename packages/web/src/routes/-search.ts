@@ -99,6 +99,11 @@ export const auditSearchSchema = z.object({
   target: z.string().optional().catch(undefined),
   actor: z.string().optional().catch(undefined),
   actorKind: z.enum(['user', 'service', 'anonymous', 'agent']).optional().catch(undefined),
+  range: z.coerce
+    .string()
+    .pipe(z.enum(['7', '30', '90']))
+    .optional()
+    .catch(undefined),
 });
 
 /** 个人记忆提案：专家筛选、选中提案、阶段筛选、列表布局与创建入口都进 URL，链接可复现同一视图。 */

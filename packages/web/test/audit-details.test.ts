@@ -1,3 +1,4 @@
+import { utcWindowStart } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   createBrowserHistory,
@@ -158,6 +159,20 @@ afterEach(async () => {
   history?.destroy();
   container.remove();
   vi.restoreAllMocks();
+});
+
+describe('audit time range', () => {
+  it('queries the seven-day UTC window from the URL', async () => {
+    vi.spyOn(api, 'audit').mockResolvedValue(page([entry('a')]));
+    await mount('?range=7');
+
+    await waitFor(() =>
+      expect(api.audit).toHaveBeenLastCalledWith(
+        expect.objectContaining({ since: utcWindowStart(7).toISOString() }),
+        expect.anything(),
+      ),
+    );
+  });
 });
 
 describe('audit integrity verification', () => {

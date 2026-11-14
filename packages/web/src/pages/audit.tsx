@@ -1,3 +1,4 @@
+import { utcWindowStart } from '@agentport/shared';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
@@ -39,6 +40,13 @@ const statusOptions: Array<{ value: AuditStatus | 'all'; label: string }> = [
   { value: 'ok', label: '成功' },
   { value: 'error', label: '错误' },
   { value: 'denied', label: '拒绝' },
+];
+
+const rangeOptions = [
+  { value: 'all', label: '全部时间' },
+  { value: '7', label: '近 7 天' },
+  { value: '30', label: '近 30 天' },
+  { value: '90', label: '近 90 天' },
 ];
 
 const actorKindOptions: Array<{ value: AuditEntry['actorKind'] | 'all'; label: string }> = [
@@ -141,6 +149,8 @@ export function AuditPage() {
   const target = search.target ?? '';
   const actor = search.actor ?? '';
   const actorKind = search.actorKind ?? 'all';
+  const range = search.range ?? 'all';
+  const since = range === 'all' ? undefined : utcWindowStart(Number(range)).toISOString();
   const [exporting, setExporting] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const settledAction = useDebouncedValue(action.trim(), 300);
@@ -152,6 +162,7 @@ export function AuditPage() {
     ...(settledTarget ? { target: settledTarget } : {}),
     ...(settledActor ? { actor: settledActor } : {}),
     ...(actorKind === 'all' ? {} : { actorKind }),
+    ...(since ? { since } : {}),
   });
 
   const rows = audit.data?.pages.flatMap((page) => page.items) ?? [];
@@ -160,7 +171,8 @@ export function AuditPage() {
     status !== 'all' ||
     Boolean(settledTarget) ||
     Boolean(settledActor) ||
-    actorKind !== 'all';
+    actorKind !== 'all' ||
+    range !== 'all';
   const searchPending =
     action.trim() !== settledAction ||
     target.trim() !== settledTarget ||
@@ -176,6 +188,7 @@ export function AuditPage() {
         ...(settledTarget ? { target: settledTarget } : {}),
         ...(settledActor ? { actor: settledActor } : {}),
         ...(actorKind === 'all' ? {} : { actorKind }),
+        ...(since ? { since } : {}),
       });
       downloadJson(data, 'audit.json');
     } catch (error) {
@@ -322,6 +335,21 @@ export function AuditPage() {
             }
             options={statusOptions}
             label="按状态过滤"
+            className="w-full sm:w-36"
+          />
+          <FilterSelect
+            value={range}
+            onValueChange={(next) =>
+              void navigate({
+                to: '/audit',
+                search: {
+                  ...search,
+                  range: next === 'all' ? undefined : (next as '7' | '30' | '90'),
+                },
+              })
+            }
+            options={rangeOptions}
+            label="按时间范围过滤"
             className="w-full sm:w-36"
           />
         </PageToolbar>
