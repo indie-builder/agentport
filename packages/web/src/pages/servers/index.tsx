@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleAlert, CircleCheck, LibraryBig, LoaderCircle, Plus, Upload } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { FilterSelect } from '../../components/filter-select.js';
@@ -25,7 +24,7 @@ import {
   useServers,
   useTestServer,
 } from '../../lib/queries.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
+import { toast, toastError, toastSuccess } from '../../lib/toast.js';
 import { ConnectionDialog } from './connection-dialog.js';
 import { ConnectorCatalogDialog } from './connector-catalog-dialog.js';
 import { DeleteServerDialog } from './delete-server-dialog.js';

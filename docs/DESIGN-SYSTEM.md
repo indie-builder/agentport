@@ -192,7 +192,7 @@
 - 会话头部参考用户截图：标题用剩余宽度、不足时省略（`truncate`），完整标题保留在 `title` 与可访问文本中，紧随一个常规 32px「会话操作」更多菜单；不把标题拉满整行、不把菜单推到右边。菜单复用重命名、Fork，删除需确认且排队/运行中的会话不可删；未保存的新会话禁用菜单。消息区与会话历史头部都不画底部横线，靠一致的对齐与留白形成整体。历史头部不再显示「对话」等重复标签；桌面历史展开或窄桌面 Sheet 打开时，无论是否已选专家，左侧均为唯一专家选择、右侧为新建会话等历史动作，窄桌面抽屉另有关闭按钮，搜索与列表紧随其下；此时消息列头部只保留历史开关、会话标题与操作、成果开关。聊天没有横跨三栏的外顶栏。
 - 历史搜索使用居中浮层，跨全部专家检索会话标题、会话 ID 与消息正文；每条结果同时给出专家、标题、时间与命中的正文摘要，定位信息不另起一行重复。上下方向键移动选中项、Enter 打开，输入法组合期间的 Enter 不触发；Esc、关闭按钮与外部点击走同一关闭路径并把焦点还给触发器。关闭浮层或发起新查询时取消上一轮未完成请求；结果分页使用游标。打开结果后进入目标专家的目标会话并保留当前未发送草稿；只定位到会话，不承诺跳转或高亮正文中的具体命中消息。
 - 专家选择在欢迎态与已有消息/历史会话中仍可用，同一时刻唯一：桌面历史收起（`historyCollapsed`）或窄桌面 Sheet 关闭时，无论是否已选专家，唯一 `AgentPicker` 均位于消息列原有的 56px 头部（`ChatTopBar`）；桌面历史展开或窄桌面 Sheet 打开时，唯一 `AgentPicker` 位于 `HistoryHeader` 左侧、与「新建会话」同排；历史开合只切换归属，不复制控件。未发送输入按会话隔离保存到当前标签页的 sessionStorage，刷新可恢复；切换会话不串草稿，新建会话不继承旧会话；切换到另一位专家表示进入该专家的新对话：历史列表按新专家刷新，清空当前视图的旧消息、运行与审批上下文，URL 去掉旧 conversation，回到欢迎态；原会话保留在原专家历史中，未发送输入带过去并继续保留。再次选择同一位专家不清空会话。切换只解除旧事件流订阅，不自动取消后台运行。选择器可访问名随状态变化：裸聊或默认会话为「召唤专家」，已选专家为「切换专家：名称」；专家会话另提供「移除专家，回到通用助手」，与召唤一样进入新会话并保留旧会话及其后台运行，移除后回到不带 agent 的裸 `/chat`。
-- 桌面会话列表默认收起 0；首次展开 240px，之后可在 200–360px 间调整；使用 react-resizable-panels 的 `collapsible`、`panelRef.collapse/expand` 和现有 `useDefaultLayout` 记住布局，收起为 0px，不另建宽度存储。历史与内容使用同一 `bg-surface`，只有 1px 竖向分隔；隐藏时分隔不再占位、历史控件不可聚焦，展开与收起按钮正确交接焦点。标题只在当前可见位置出现，始终一个 h1。
+- 桌面会话列表默认收起 0；首次展开 240px，之后可在 200–360px 间调整；使用 ui-sdk `Resizable` 的 `collapsible` 与 `createResizableController()` 的 `collapse`/`resize`；宽度只在用户拖拽或键盘调整后由 `onLayoutCommit` 写入本地存储，程序化收起不落盘，收起为 0px；桌面断点重新挂载时按保留的展开状态恢复上次宽度。历史与内容使用同一 `bg-surface`，只有 1px 竖向分隔；隐藏时分隔不再占位、历史控件不可聚焦，展开与收起按钮正确交接焦点。标题只在当前可见位置出现，始终一个 h1。
 
 ## 7. 侧栏
 
@@ -397,7 +397,8 @@
 | 控件、表单、浮层 | shadcn/ui（`base-nova`）+ ui-sdk（`@ui-sdk/react`） | 先复用或安装官方组件，共享视觉由 `@theme` 语义令牌控制 |
 | 图标 | lucide | `LucideProvider` 在 `App.tsx` 统一设 `strokeWidth={1.75}`、`size={16}`，组件里不要再逐个传 |
 | 动效 | Motion（`motion/react`）+ ui-sdk 状态过渡 | 局部交互与状态反馈用 CSS transition（常用 150ms，60–200ms 阶梯、`--ease-out-soft`；浮层用 `data-starting-style` / `data-ending-style`）。需要布局开合时用 Motion：`duration` 沿用 §11 与现有实现的固定值（折叠/浮层 0.15、侧栏 0.16、品牌切图 0.3），缓动 `--ease-out-soft` 或 `easeOut`，并读 `useReducedMotion`；消息入场 0.4s 只使用现成工具类，不扩散到布局开合 |
-| 可拖拽分栏 | react-resizable-panels v4 | `Group` / `Panel` / `Separator`；用 `useDefaultLayout` 持久化；分隔条就是 1px `border-line`，不加把手 |
+| 可拖拽分栏 | ui-sdk `@ui-sdk/react/resizable` | `Resizable` / `ResizablePanel` / `ResizableHandle`；跨访问记忆用 `autoSaveId`，需要排除程序化收起时自存宽度；尺寸数字是百分比，像素写 `"240px"`；分隔条就是 1px `border-line`，不加把手 |
+| 提示 | ui-sdk `@ui-sdk/react/toast` | `ToastRegion` 在 `App.tsx` 挂载一次；业务统一从 `lib/toast` 导入（`toast` 的 `success/info/warning/error`、`toastError` / `toastSuccess`），不直接排队 |
 | 拖拽排序 | dnd-kit | 必须带 `KeyboardSensor`，拖拽手柄有可访问名称 |
 | 客户端状态 | Zustand | 只放**跨组件、非服务端**的状态；服务端数据一律 TanStack Query |
 | 路由与 URL 状态 | TanStack Router | 筛选、分页、选中的 tab 走 `validateSearch`，不要塞进组件 state |

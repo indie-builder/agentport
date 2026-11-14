@@ -100,7 +100,6 @@
 - `prototype`：picker 交互照 PICKER.md，视觉控件用项目组件与 token；原型过程与选择结论默认在当前对话交付，只有明确要求保存时才按指定路径保存。
 - `break-ui`：只验证桌面容器宽度、200% 缩放、键盘与长内容/极值，不强制移动端、未支持主题或 RTL。
 - `pick-ui-library`：遵守现有 → 原生/已装 → 开源 → 自研，不因清单换栈。
-- `ask-sonner`：复用 `packages/web/src/App.tsx` 已挂载的唯一 Toaster。
 
 升级或重装（`add`/`update`）后需补回上述 Project convention 与各目录 `LICENSE`（CLI 不会带上这两项），再跑「完成核验」。
 

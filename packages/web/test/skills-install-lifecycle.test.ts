@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** 安装请求在途时页面被卸载，结果仍由 mutation 自己落到 toast 与缓存。 */
@@ -14,6 +13,7 @@ vi.mock('../src/lib/api.js', async (original) => {
 });
 
 import { useInstallMarketSkill } from '../src/lib/queries.js';
+import { toast } from '../src/lib/toast.js';
 
 const installed = {
   id: 'skill_1',

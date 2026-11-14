@@ -5,9 +5,8 @@ import type {
   SkillWithAgentCount,
 } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { ApiError, api } from '../api.js';
-import { toastError, toastSuccess } from '../toast.js';
+import { toast, toastError, toastSuccess } from '../toast.js';
 import { useDebouncedValue } from '../use-debounced-value.js';
 
 export const skillsQuery = queryOptions<SkillWithAgentCount[]>({

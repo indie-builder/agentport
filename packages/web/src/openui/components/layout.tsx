@@ -14,6 +14,7 @@ import {
   CarouselItem,
   CarouselNext,
   CarouselPrevious,
+  CarouselViewport,
 } from '../../components/ui/carousel.js';
 import { Separator } from '../../components/ui/separator.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
@@ -397,24 +398,26 @@ export function CarouselRenderer({
   if (slides.length === 0) return null;
   return (
     // 官方把翻页按钮放在轨道两侧，聊天 728px 轴线里会溢出；这里移到下方操作行。
-    <Carousel opts={{ align: 'start' }} className="@container min-w-0">
-      <CarouselContent className="ml-0 py-2">
-        {slides.map((slide, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: 幻灯片由模型按顺序生成
-          <CarouselItem key={index} className="basis-4/5 px-2 @min-[481px]:basis-1/2">
-            <div
-              className={cn(
-                'flex h-full flex-col gap-3 rounded-card p-3',
-                props.variant === 'sunk'
-                  ? 'bg-sunken'
-                  : 'cds-card-surface bg-surface has-[.cds-card-surface]:transform-none has-[.cds-card-surface]:bg-transparent has-[.cds-card-surface]:p-0 has-[.cds-card-surface]:shadow-none',
-              )}
-            >
-              {renderNode(slide)}
-            </div>
-          </CarouselItem>
-        ))}
-      </CarouselContent>
+    <Carousel aria-label="内容轮播" align="start" className="@container min-w-0">
+      <CarouselViewport>
+        <CarouselContent className="ml-0 py-2">
+          {slides.map((slide, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 幻灯片由模型按顺序生成
+            <CarouselItem key={index} className="basis-4/5 px-2 @min-[481px]:basis-1/2">
+              <div
+                className={cn(
+                  'flex h-full flex-col gap-3 rounded-card p-3',
+                  props.variant === 'sunk'
+                    ? 'bg-sunken'
+                    : 'cds-card-surface bg-surface has-[.cds-card-surface]:transform-none has-[.cds-card-surface]:bg-transparent has-[.cds-card-surface]:p-0 has-[.cds-card-surface]:shadow-none',
+                )}
+              >
+                {renderNode(slide)}
+              </div>
+            </CarouselItem>
+          ))}
+        </CarouselContent>
+      </CarouselViewport>
       <div className="mt-2 flex items-center justify-end gap-1">
         <CarouselPrevious className="static inset-auto translate-y-0 rounded-icon" />
         <CarouselNext className="static inset-auto translate-y-0 rounded-icon" />

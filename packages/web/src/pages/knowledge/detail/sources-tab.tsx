@@ -2,7 +2,6 @@ import type { KnowledgeJob } from '@agentport/shared';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { toast } from 'sonner';
 import { BusinessIllustration } from '../../../components/business-illustration.js';
 import { ConfirmDialog } from '../../../components/confirm-dialog.js';
 import { jobStatusLabel, sourceStatusLabel } from '../../../components/knowledge/knowledge-shared.js';
@@ -28,7 +27,7 @@ import {
   useSyncKnowledgeSource,
   useTestKnowledgeSource,
 } from '../../../lib/queries.js';
-import { toastError, toastSuccess } from '../../../lib/toast.js';
+import { toast, toastError, toastSuccess } from '../../../lib/toast.js';
 import { type KnowledgeCaps, sourceProvider, sourceTargetSummary } from './shared.js';
 import { SourceDialog } from './source-dialog.js';
 import { SourceProbeStatus, SourceRuns } from './source-runs.js';

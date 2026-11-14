@@ -1,10 +1,16 @@
 import type { AgentSummary, ConversationSearchItem, OutputRef } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
+import {
+  createResizableController,
+  Resizable,
+  ResizableHandle,
+  ResizablePanel,
+  type ResizableSize,
+} from '@ui-sdk/react/resizable';
 import { Bot } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels';
 import {
   ConversationOutputs,
   type OutputSelection,
@@ -161,6 +167,24 @@ const WORKSPACE = {
 const DESKTOP = '(min-width: 64rem)';
 /** 与 Tailwind 的 xl 断点一致：更窄时右侧工作区改走抽屉，不挤压对话。 */
 const WIDE = '(min-width: 80rem)';
+const HISTORY_WIDTH_KEY = 'agentport:chat-history-width';
+
+function storedHistorySize(): ResizableSize {
+  try {
+    const stored = Number(localStorage.getItem(HISTORY_WIDTH_KEY));
+    return Number.isFinite(stored) && stored > 0 && stored <= 100 ? `${stored}%` : '240px';
+  } catch {
+    return '240px';
+  }
+}
+
+function saveHistorySize(width: number): void {
+  try {
+    localStorage.setItem(HISTORY_WIDTH_KEY, String(width));
+  } catch {
+    return;
+  }
+}
 
 function ChatWorkspace({
   agents,
@@ -232,16 +256,18 @@ function ChatWorkspace({
     () => new Map((runQuestions.data?.items ?? []).map((item) => [item.toolUseId, item])),
     [runQuestions.data],
   );
-  const historyLayout = useDefaultLayout({ id: 'chat-history-v2' });
-  const historyPanelRef = usePanelRef();
+  const [historyPanels] = useState(createResizableController);
   // 历史默认隐藏：每次进入都从折叠态开始。
   const [historyCollapsed, setHistoryCollapsed] = useState(true);
   // 零宽面板没有「上次宽度」可恢复，自己记住最后一个正宽度。
   // 存储里是百分比（随分组宽度自适应），首次进入没有存储时按设计规范的 240px。
-  const storedHistoryPct = historyLayout.defaultLayout?.history ?? 0;
-  const lastHistorySize = useRef(
-    storedHistoryPct > 0 ? (`${storedHistoryPct}%` as const) : ('240px' as const),
-  );
+  const [initialHistorySize] = useState(storedHistorySize);
+  const lastHistorySize = useRef<ResizableSize>(initialHistorySize);
+  useEffect(() => {
+    if (!desktop || historyCollapsed) return;
+    // Resizable 重新挂载后的首轮布局在微任务里初始化，等它完成再恢复宽度。
+    queueMicrotask(() => historyPanels.resize('history', lastHistorySize.current));
+  }, [desktop, historyCollapsed, historyPanels]);
   // 右侧工作区展示会话成果，与历史列表互相独立。深链带选中成果时直接展开。
   const [workspaceOpen, setWorkspaceOpen] = useState(output !== null);
   // 两个入口共用同一个搜索浮层；记下来源，以便关闭后焦点回到触发按钮。
@@ -519,8 +545,8 @@ function ChatWorkspace({
       historyPanelId="chat-history"
       onToggleHistory={() => {
         if (desktop) {
-          if (historyCollapsed) historyPanelRef.current?.resize(lastHistorySize.current);
-          else historyPanelRef.current?.collapse();
+          if (historyCollapsed) historyPanels.resize('history', lastHistorySize.current);
+          else historyPanels.collapse('history');
           setHistoryCollapsed(!historyCollapsed);
         } else {
           setHistoryOpen(!historyOpen);
@@ -737,28 +763,29 @@ function ChatWorkspace({
 
       {desktop ? (
         <div className="flex min-h-0 w-full">
-          <Group
+          <Resizable
             orientation="horizontal"
-            defaultLayout={{ ...historyLayout.defaultLayout, history: 0, chat: 100 }}
-            // 折叠/展开是程序化改尺寸，写回存储只会把宽度记成 0；只持久化用户拖拽的结果。
-            onLayoutChanged={(layout, meta) => {
-              if (meta.isUserInteraction) historyLayout.onLayoutChanged(layout, meta);
+            defaultLayout={[0, 100]}
+            controller={historyPanels}
+            className="min-h-0 w-full"
+            // 折叠/展开是程序化改尺寸，写回存储只会把宽度记成 0；只持久化用户拖拽/键盘调整。
+            onLayoutCommit={(next, details) => {
+              if (details.reason !== 'drag' && details.reason !== 'step-key') return;
+              const width = next[0];
+              if (width !== undefined && width > 0) saveHistorySize(width);
+            }}
+            onLayoutChange={(next) => {
+              const width = next[0];
+              if (width !== undefined && width > 0) lastHistorySize.current = `${width}%`;
+              setHistoryCollapsed(width === 0);
             }}
           >
-            <Panel
+            <ResizablePanel
               id="history"
               defaultSize={0}
-              minSize={200}
-              maxSize={360}
+              minSize="200px"
+              maxSize="360px"
               collapsible
-              collapsedSize={0}
-              panelRef={historyPanelRef}
-              onResize={(size) => {
-                if (size.asPercentage > 0 && !historyCollapsed) {
-                  lastHistorySize.current = `${size.asPercentage}%`;
-                }
-                setHistoryCollapsed(size.inPixels === 0);
-              }}
             >
               {/* 隐藏时整块不渲染：零宽面板不该留下可聚焦内容，也避免出现第二个 h1。 */}
               {historyCollapsed ? null : (
@@ -778,14 +805,14 @@ function ChatWorkspace({
                   {renderHistoryPanel(false)}
                 </aside>
               )}
-            </Panel>
-            <Separator
+            </ResizablePanel>
+            <ResizableHandle
               disabled={historyCollapsed}
               className={historyCollapsed ? 'hidden' : 'w-px border-r'}
               aria-label="调整会话列表宽度"
             />
             {/* 成果打开时消息列至少 400，给内联成果留出 400：历史再拖也不能挤掉正文。 */}
-            <Panel id="chat" minSize={wide && workspaceOpen ? 800 : 400}>
+            <ResizablePanel id="chat" minSize={wide && workspaceOpen ? '800px' : '400px'}>
               <div className="flex h-full min-h-0">
                 <div className="relative min-w-0 flex-1">{column}</div>
                 {wide ? (
@@ -808,8 +835,8 @@ function ChatWorkspace({
                   </motion.div>
                 ) : null}
               </div>
-            </Panel>
-          </Group>
+            </ResizablePanel>
+          </Resizable>
           {renameDialog}
           {deleteDialog}
           {deleteLeaveDialog}

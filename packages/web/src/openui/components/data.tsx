@@ -124,20 +124,6 @@ type EditableDraft = {
   baseline: string[][];
 };
 
-function pad(value: number): string {
-  return String(value).padStart(2, '0');
-}
-
-/** 日期按本地年月日读写，避免 toISOString 的 UTC 偏移把日子挪一天。 */
-function toDateString(date: Date): string {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-function parseDateString(value: string): Date | undefined {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-  return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : undefined;
-}
-
 function EditableCell({
   column,
   rowIndex,
@@ -179,7 +165,7 @@ function EditableCell({
   }
 
   if (column.type === 'date-single') {
-    const date = parseDateString(value);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(value.slice(0, 10)) ? value.slice(0, 10) : null;
     return (
       <Popover>
         <PopoverTrigger
@@ -199,9 +185,10 @@ function EditableCell({
         <PopoverContent align="start" className="w-auto p-0">
           <Calendar
             mode="single"
-            {...(date ? { defaultMonth: date } : {})}
-            selected={date}
-            onSelect={(date) => onChange(date ? toDateString(date) : '')}
+            deselectable
+            value={date}
+            {...(date ? { defaultMonth: date.slice(0, 7) } : {})}
+            onValueChange={(next) => onChange(typeof next === 'string' ? next : '')}
           />
         </PopoverContent>
       </Popover>
