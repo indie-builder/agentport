@@ -858,10 +858,7 @@ async function ensureFolders(
   browser: Browser,
   baseId: string,
 ): Promise<Record<FolderKey, string>> {
-  const folders = await api<Folder[]>(
-    browser,
-    `/api/knowledge/bases/${enc(baseId)}/folders?limit=200`,
-  );
+  const folders = await api<Folder[]>(browser, `/api/knowledge/bases/${enc(baseId)}/folders`);
   const ids = {} as Record<FolderKey, string>;
   const records: FolderRecord[] = [];
   for (const [key, name] of Object.entries(FOLDER_NAMES) as Array<[FolderKey, string]>) {
@@ -1599,10 +1596,7 @@ async function assertDataset(
     verification(`知识库绑定的 embedding profile ${base.embeddingProfileId} 不可用`);
   }
 
-  const folders = await api<Folder[]>(
-    browser,
-    `/api/knowledge/bases/${enc(base.id)}/folders?limit=200`,
-  );
+  const folders = await api<Folder[]>(browser, `/api/knowledge/bases/${enc(base.id)}/folders`);
   const folderIds: Record<FolderKey, string> = {} as Record<FolderKey, string>;
   for (const [key, name] of Object.entries(FOLDER_NAMES) as Array<[FolderKey, string]>) {
     const folder = exactlyOne(
