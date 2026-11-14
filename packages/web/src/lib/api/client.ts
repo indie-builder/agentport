@@ -182,6 +182,7 @@ export const api = {
   cancelRun: chat.cancelRun,
   runs: runs.runs,
   exportRuns: runs.exportRuns,
+  exportRun: runs.exportRun,
   run: runs.run,
   runQuestions: runs.runQuestions,
   respondToQuestion: runs.respondToQuestion,
