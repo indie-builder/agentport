@@ -40,7 +40,7 @@ export const authRouter = os.router({
       });
     } catch (error) {
       if (error instanceof APIError) {
-        if (error.statusCode === 400) throw new AppError('UNAUTHORIZED', 'invalid credentials');
+        if (error.statusCode === 400) throw new AppError('INVALID_INPUT', '当前密码不正确');
         if (error.statusCode === 401) throw new AppError('UNAUTHORIZED', 'not logged in');
       }
       throw error;
