@@ -404,6 +404,11 @@ export function AgentEditor({
   const [childPending, setChildPending] = useState(false);
   const guarded = dirty || childDirty;
   const locked = pending || childPending;
+  // 子面板已确认放弃草稿的切换，路由 blocker 不再重复确认。
+  const confirmedChildSwitch = useRef<{
+    instruction: AgentInstruction | undefined;
+    view: MemoryView | undefined;
+  } | null>(null);
   // 配置字段按 config.update 锁定；绑定与启停各自按叶锁定，互不连坐。
   const configDisabled = pending || !canUpdateConfig;
   const bindingsDisabled = pending || !canBindings;
@@ -413,8 +418,18 @@ export function AgentEditor({
       if (current.pathname === next.pathname) {
         const currentTab = 'tab' in current.search ? (current.search.tab ?? 'config') : 'config';
         const nextTab = 'tab' in next.search ? (next.search.tab ?? 'config') : 'config';
-        // 分区与文件变化不卸载任务，直接放行。
-        if (currentTab === nextTab) return false;
+        // 分区、文件等不卸载面板的变化直接放行。
+        if (currentTab === nextTab) {
+          const ci = 'instruction' in current.search ? current.search.instruction : undefined;
+          const ni = 'instruction' in next.search ? next.search.instruction : undefined;
+          const cv = 'view' in current.search ? current.search.view : undefined;
+          const nv = 'view' in next.search ? next.search.view : undefined;
+          // instruction/view 变化会卸载子面板，草稿随之丢失。
+          if (ci === ni && cv === nv) return false;
+          const confirmed = confirmedChildSwitch.current;
+          if (confirmed && confirmed.instruction === ni && confirmed.view === nv) return false;
+          return childDirty || locked;
+        }
         // 主配置草稿随编辑器常驻；只有子面板草稿或在途请求会因切任务丢失。
         return childDirty || locked;
       }
@@ -423,6 +438,9 @@ export function AgentEditor({
     withResolver: true,
     enableBeforeUnload: guarded || locked,
   });
+  useEffect(() => {
+    confirmedChildSwitch.current = null;
+  }, [instruction, search.view]);
   // 保存、删除或子面板请求在途时，已打开的离开确认也不能继续。
   const proceedLeave = (): void => {
     if (!locked) blocker.proceed?.();
@@ -2215,7 +2233,10 @@ export function AgentEditor({
               agentId={agent.id}
               canWrite={canMemoryWrite}
               view={search.view ?? 'overview'}
-              onViewChange={(view) => navigateSearch({ view })}
+              onViewChange={(view) => {
+                confirmedChildSwitch.current = { instruction: search.instruction, view };
+                navigateSearch({ view });
+              }}
               onDirtyChange={setChildDirty}
               onPendingChange={setChildPending}
             />
@@ -2228,7 +2249,10 @@ export function AgentEditor({
             permissions={permissions}
             instruction={instruction}
             isSubAgent={agent.parentId !== null}
-            onInstructionChange={(next) => navigateSearch({ instruction: next })}
+            onInstructionChange={(next) => {
+              confirmedChildSwitch.current = { instruction: next, view: search.view };
+              navigateSearch({ instruction: next });
+            }}
             onDirtyChange={setChildDirty}
             onPendingChange={setChildPending}
           />
