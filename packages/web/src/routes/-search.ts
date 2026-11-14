@@ -156,6 +156,7 @@ export const personalSecuritySearchSchema = z.object({ view: listViewSchema });
 export const accountsSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
   view: listViewSchema,
+  page: z.coerce.number().int().min(1).default(1).catch(1),
 });
 
 /** 运行详情：返回来源用进入前的相对 URL，刷新后能回到同一列表视图。 */
@@ -188,7 +189,11 @@ export const evalSearchSchema = z.object({
   run: z.string().min(1).optional().catch(undefined),
   base: z.string().min(1).optional().catch(undefined),
   head: z.string().min(1).optional().catch(undefined),
-  failedOnly: z.coerce.string().pipe(z.enum(['1'])).optional().catch(undefined),
+  failedOnly: z.coerce
+    .string()
+    .pipe(z.enum(['1']))
+    .optional()
+    .catch(undefined),
 });
 
 export const knowledgeSearchSchema = resourceSearchSchema.extend({

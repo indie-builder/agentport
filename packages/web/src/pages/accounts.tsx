@@ -12,7 +12,7 @@ import {
   Trash2,
   UsersRound,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { DialogShell } from '../components/dialog-shell.js';
@@ -88,7 +88,8 @@ export function AccountsPage() {
   const search = useSearch({ from: '/_shell/accounts' });
   const navigate = useNavigate({ from: '/accounts' });
   const query = search.q ?? '';
-  const [offset, setOffset] = useState(0);
+  const page = search.page;
+  const offset = (page - 1) * PAGE_SIZE;
   const settled = useDebouncedValue(query.trim(), 300);
   const accounts = useAccounts({ q: settled, limit: PAGE_SIZE, offset });
   const canManage = can(me.data, 'accounts.manage');
@@ -120,8 +121,17 @@ export function AccountsPage() {
 
   const total = accounts.data?.total ?? 0;
   const items = accounts.data?.items ?? [];
-  const page = Math.floor(offset / PAGE_SIZE) + 1;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  useEffect(() => {
+    if (!accounts.data) return;
+    if (page > pages) {
+      void navigate({
+        to: '/accounts',
+        search: (current) => ({ ...current, page: pages }),
+        replace: true,
+      });
+    }
+  }, [accounts.data, page, pages, navigate]);
   const toggleStatus = (account: Account): void => {
     if (account.status === 'active') {
       setStatusTarget(account);
@@ -155,10 +165,9 @@ export function AccountsPage() {
             placeholder="搜索业务 ID、用户名或姓名…"
             value={query}
             onChange={(next) => {
-              setOffset(0);
               void navigate({
                 to: '/accounts',
-                search: { ...search, q: next || undefined },
+                search: { ...search, q: next || undefined, page: 1 },
                 replace: true,
               });
             }}
@@ -195,10 +204,9 @@ export function AccountsPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    setOffset(0);
                     void navigate({
                       to: '/accounts',
-                      search: { ...search, q: undefined },
+                      search: { ...search, q: undefined, page: 1 },
                       replace: true,
                     });
                   }}
@@ -327,8 +335,14 @@ export function AccountsPage() {
             <Button
               variant="outline"
               size="sm"
-              disabled={offset === 0 || accounts.isFetching}
-              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              disabled={page <= 1 || accounts.isFetching}
+              onClick={() =>
+                void navigate({
+                  to: '/accounts',
+                  search: (current) => ({ ...current, page: page - 1 }),
+                  replace: true,
+                })
+              }
             >
               上一页
             </Button>
@@ -338,8 +352,14 @@ export function AccountsPage() {
             <Button
               variant="outline"
               size="sm"
-              disabled={offset + PAGE_SIZE >= total || accounts.isFetching}
-              onClick={() => setOffset(offset + PAGE_SIZE)}
+              disabled={page >= pages || accounts.isFetching}
+              onClick={() =>
+                void navigate({
+                  to: '/accounts',
+                  search: (current) => ({ ...current, page: page + 1 }),
+                  replace: true,
+                })
+              }
             >
               下一页
             </Button>
