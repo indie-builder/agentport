@@ -200,14 +200,14 @@ function scroller(scope: Element = panel('content')): HTMLElement {
 
 /** 目录树与正文同属内容面板，但在不同滚动容器里。 */
 function tree(): HTMLElement {
-  const found = panel('content').querySelector<HTMLElement>('nav[aria-label="插件文件"]');
+  const found = panel('content').querySelector<HTMLElement>('[role="tree"][aria-label="插件文件"]');
   if (!found) throw new Error('Missing file tree');
   return found;
 }
 
 /** 真实目录树里的文件行，按完整路径定位，不依赖展开状态。 */
-function fileRow(path: string, scope: Element = body()): HTMLButtonElement {
-  const row = buttons(scope).find((item) => item.getAttribute('title') === path);
+function fileRow(path: string, scope: Element = body()): HTMLElement {
+  const row = scope.querySelector<HTMLElement>(`[data-slot="tree-label"][title="${path}"]`);
   if (!row) throw new Error(`Missing file row: ${path}`);
   return row;
 }
@@ -216,7 +216,7 @@ function fileRow(path: string, scope: Element = body()): HTMLButtonElement {
 async function expandAll(scope: ParentNode): Promise<void> {
   for (let guard = 0; guard < 20; guard += 1) {
     const collapsed = [
-      ...scope.querySelectorAll<HTMLButtonElement>('button[aria-expanded="false"]'),
+      ...scope.querySelectorAll<HTMLElement>('[role="treeitem"][aria-expanded="false"]'),
     ];
     if (collapsed.length === 0) return;
     for (const item of collapsed) {
@@ -227,8 +227,8 @@ async function expandAll(scope: ParentNode): Promise<void> {
 }
 
 function current(): string {
-  const found = body().querySelector('[aria-current="true"]');
-  return found?.getAttribute('title') ?? '';
+  const found = tree().querySelector('[aria-current="page"]');
+  return found?.querySelector('[data-slot="tree-label"]')?.getAttribute('title') ?? '';
 }
 
 beforeEach(() => {
@@ -438,7 +438,11 @@ describe('plugin detail', () => {
     await flush();
     expect(current()).toBe('skills/alpha/references/guide.md');
     expect(scroller().textContent).toContain('RESOURCE-TOKEN-GUIDE');
-    expect(fileRow('skills/alpha/references', tree()).getAttribute('aria-expanded')).toBe('true');
+    expect(
+      fileRow('skills/alpha/references', tree())
+        .closest('[role="treeitem"]')
+        ?.getAttribute('aria-expanded'),
+    ).toBe('true');
   });
 
   it('shows every real file in the content tree', async () => {
@@ -446,7 +450,7 @@ describe('plugin detail', () => {
     mount();
     await expandAll(tree());
     for (const file of plugin.files) {
-      expect(buttons(tree()).some((item) => item.getAttribute('title') === file.path)).toBe(true);
+      expect(tree().querySelector(`[data-slot="tree-label"][title="${file.path}"]`)).not.toBeNull();
     }
   });
 
@@ -552,9 +556,7 @@ describe('plugin detail', () => {
     mount();
     const content = panel('content');
     // 窄屏默认只给阅读正文，目录收在「文件」按钮后。
-    expect(buttons(content).some((item) => item.getAttribute('title') === 'scripts/run.sh')).toBe(
-      false,
-    );
+    expect(content.querySelector('[data-slot="tree-label"][title="scripts/run.sh"]')).toBeNull();
     await click(button('文件', content));
     await expandAll(content);
     await click(fileRow('scripts/run.sh', content));
@@ -562,9 +564,7 @@ describe('plugin detail', () => {
     expect(state.search).toEqual({ tab: 'content', file: 'scripts/run.sh' });
     expect(scroller().textContent).toContain('SCRIPT-TOKEN');
     // 收起后隐藏的文件行不能拿走焦点。
-    expect(buttons(content).some((item) => item.getAttribute('title') === 'scripts/run.sh')).toBe(
-      false,
-    );
+    expect(content.querySelector('[data-slot="tree-label"][title="scripts/run.sh"]')).toBeNull();
     expect(document.activeElement).toBe(button('文件', content));
     expect(content.querySelector('h1')).toBeNull();
   });
@@ -604,15 +604,15 @@ describe('plugin detail', () => {
     const controls = toggle.getAttribute('aria-controls');
     if (!controls) throw new Error('Missing aria-controls target');
     expect(document.getElementById(controls)).not.toBeNull();
-    expect(tree().querySelector('[aria-current="true"]')?.getAttribute('title')).toBe(
-      'skills/alpha/SKILL.md',
-    );
+    expect(
+      tree().querySelector('[aria-current="page"] [data-slot="tree-label"]')?.getAttribute('title'),
+    ).toBe('skills/alpha/SKILL.md');
 
     toggle.focus();
     await click(toggle);
     expect(document.activeElement).toBe(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(panel('content').querySelector('nav[aria-label="插件文件"]')).toBeNull();
+    expect(panel('content').querySelector('[role="tree"][aria-label="插件文件"]')).toBeNull();
     expect(scroller().textContent).toContain('SKILL-TOKEN-ALPHA');
 
     await click(toggle);

@@ -38,10 +38,31 @@ function body(): HTMLElement {
   return host;
 }
 
-function row(title: string): HTMLButtonElement {
-  const found = body().querySelector<HTMLButtonElement>(`button[title="${title}"]`);
+function tree(): HTMLElement {
+  const found = body().querySelector<HTMLElement>('[role="tree"]');
+  if (!found) throw new Error('Missing tree');
+  return found;
+}
+
+function row(title: string): HTMLElement {
+  const found = body().querySelector<HTMLElement>(`[data-slot="tree-label"][title="${title}"]`);
   if (!found) throw new Error(`Missing row: ${title}`);
   return found;
+}
+
+function item(title: string): HTMLElement {
+  const found = row(title).closest<HTMLElement>('[role="treeitem"]');
+  if (!found) throw new Error(`Missing item: ${title}`);
+  return found;
+}
+
+function titles(scope: ParentNode): (string | null)[] {
+  return [...scope.querySelectorAll<HTMLElement>(':scope > [role="treeitem"]')].map(
+    (entry) =>
+      entry
+        .querySelector<HTMLElement>(':scope > [data-slot="tree-label"]')
+        ?.getAttribute('title') ?? null,
+  );
 }
 
 async function click(element: HTMLElement): Promise<void> {
@@ -62,37 +83,40 @@ describe('PluginFileTree', () => {
   it('nests files under their real path instead of flattening them', () => {
     mount({ files, onSelect: vi.fn() });
 
-    const skillsList = row('skills')
-      .closest('li')
-      ?.querySelector(':scope > div > [data-slot="collapsible-content"] > ul');
-    expect(skillsList?.textContent).toContain('alpha');
-    expect(skillsList?.querySelector('button[title="skills/alpha"]')).not.toBeNull();
+    expect(tree().getAttribute('aria-label')).toBe('插件文件');
+    const skillsGroup = item('skills').querySelector(':scope > [role="group"]');
+    expect(skillsGroup?.textContent).toContain('alpha');
+    expect(
+      skillsGroup?.querySelector('[data-slot="tree-label"][title="skills/alpha"]'),
+    ).not.toBeNull();
 
-    const alphaList = row('skills/alpha')
-      .closest('li')
-      ?.querySelector(':scope > div > [data-slot="collapsible-content"] > ul');
-    expect(alphaList?.querySelector('button[title="skills/alpha/SKILL.md"]')).not.toBeNull();
-    expect(alphaList?.querySelector('button[title="skills/alpha/references"]')).not.toBeNull();
+    const alphaGroup = item('skills/alpha').querySelector(':scope > [role="group"]');
+    expect(
+      alphaGroup?.querySelector('[data-slot="tree-label"][title="skills/alpha/SKILL.md"]'),
+    ).not.toBeNull();
+    expect(
+      alphaGroup?.querySelector('[data-slot="tree-label"][title="skills/alpha/references"]'),
+    ).not.toBeNull();
 
     // 行上只显示 basename，完整路径留给 title 与选择结果。
-    expect(body().querySelector('nav')?.textContent).not.toContain('skills/alpha/SKILL.md');
+    expect(tree().textContent).not.toContain('skills/alpha/SKILL.md');
   });
 
   it('expands and collapses a folder without selecting it', async () => {
     const onSelect = vi.fn();
     mount({ files, onSelect });
 
-    const folder = row('.claude-plugin');
+    const folder = item('.claude-plugin');
     expect(folder.getAttribute('aria-expanded')).toBe('false');
     expect(body().textContent).not.toContain('plugin.json');
 
-    await click(folder);
-    expect(row('.claude-plugin').getAttribute('aria-expanded')).toBe('true');
+    await click(row('.claude-plugin'));
+    expect(item('.claude-plugin').getAttribute('aria-expanded')).toBe('true');
     expect(body().textContent).toContain('plugin.json');
     expect(onSelect).not.toHaveBeenCalled();
 
     await click(row('.claude-plugin'));
-    expect(row('.claude-plugin').getAttribute('aria-expanded')).toBe('false');
+    expect(item('.claude-plugin').getAttribute('aria-expanded')).toBe('false');
     expect(body().textContent).not.toContain('plugin.json');
   });
 
@@ -101,14 +125,14 @@ describe('PluginFileTree', () => {
     const deep = 'skills/alpha/references/guide.md';
     mount({ files, onSelect, selectedPath: 'README.md' });
 
-    expect(row('README.md').getAttribute('aria-current')).toBe('true');
+    expect(item('README.md').getAttribute('aria-current')).toBe('page');
 
     await click(row('zeta.md'));
     expect(onSelect).toHaveBeenCalledWith('zeta.md');
 
     rerender({ files, onSelect, selectedPath: deep });
-    expect(row(deep).getAttribute('aria-current')).toBe('true');
-    expect(row('README.md').getAttribute('aria-current')).toBeNull();
+    expect(item(deep).getAttribute('aria-current')).toBe('page');
+    expect(item('README.md').getAttribute('aria-current')).toBeNull();
   });
 
   it('lists folders before files, each group sorted by name', async () => {
@@ -124,35 +148,25 @@ describe('PluginFileTree', () => {
     mount({ files: flat, onSelect: vi.fn() });
     await click(row('scripts'));
 
-    const nav = body().querySelector('nav');
-    const rowsOf = (list: Element | null | undefined) =>
-      [...(list?.querySelectorAll(':scope > li') ?? [])].map((item) =>
-        item.querySelector(':scope > button[title], :scope > div > button[title]'),
-      );
-    expect(
-      rowsOf(nav?.querySelector(':scope > ul')).map((item) => item?.getAttribute('title')),
-    ).toEqual(['.claude-plugin', 'falsey', 'scripts', 'a.b.d', 'README.md', 'zeta.md']);
-
-    const scriptsList = row('scripts')
-      .closest('li')
-      ?.querySelector('[data-slot="collapsible-content"] > ul');
-    expect(rowsOf(scriptsList).map((item) => item?.getAttribute('title'))).toEqual([
-      'scripts/a.sh',
-      'scripts/run.sh',
+    expect(titles(tree())).toEqual([
+      '.claude-plugin',
+      'falsey',
+      'scripts',
+      'a.b.d',
+      'README.md',
+      'zeta.md',
     ]);
+
+    const scriptsGroup = item('scripts').querySelector(':scope > [role="group"]');
+    expect(scriptsGroup && titles(scriptsGroup)).toEqual(['scripts/a.sh', 'scripts/run.sh']);
   });
 
   it('puts the SKILL.md entry file before support folders', async () => {
     mount({ files, onSelect: vi.fn() });
     await click(row('skills/alpha'));
 
-    const alphaList = row('skills/alpha')
-      .closest('li')
-      ?.querySelector('[data-slot="collapsible-content"] > ul');
-    const alphaRows = [...(alphaList?.querySelectorAll(':scope > li') ?? [])].map((item) =>
-      item.querySelector(':scope > button[title], :scope > div > button[title]'),
-    );
-    expect(alphaRows.map((item) => item?.getAttribute('title'))).toEqual([
+    const alphaGroup = item('skills/alpha').querySelector(':scope > [role="group"]');
+    expect(alphaGroup && titles(alphaGroup)).toEqual([
       'skills/alpha/SKILL.md',
       'skills/alpha/references',
     ]);
@@ -174,11 +188,14 @@ describe('PluginFileTree', () => {
     expect(row('README.md').className).toContain('bg-selected');
     expect(row('zeta.md').className).not.toContain('bg-selected');
 
-    // skills 默认展开，不应为了表示展开而铺灰底。
-    expect(row('skills').getAttribute('aria-expanded')).toBe('true');
-    expect(row('skills').className).toContain('aria-expanded:bg-transparent');
-    expect(row('skills').className).not.toContain('aria-expanded:bg-muted');
-    expect(row('skills/alpha').className).not.toContain('bg-selected');
+    // skills 默认展开，不应为了表示展开而铺任何底色（hover: 变体不算常态底色）。
+    expect(item('skills').getAttribute('aria-expanded')).toBe('true');
+    for (const title of ['skills', 'skills/alpha']) {
+      const backgrounds = row(title)
+        .className.split(/\s+/)
+        .filter((name) => name.startsWith('bg-'));
+      expect(backgrounds).toEqual([]);
+    }
   });
 
   it('reaches every file through all levels of the tree', async () => {
@@ -193,8 +210,8 @@ describe('PluginFileTree', () => {
       await click(row(title));
     }
 
-    const visible = [...body().querySelectorAll('button[title]')].filter(
-      (item) => item.getAttribute('aria-expanded') === null,
+    const visible = [...body().querySelectorAll('[role="treeitem"]')].filter(
+      (entry) => entry.getAttribute('aria-expanded') === null,
     );
     expect(visible).toHaveLength(files.length);
     for (const file of files) expect(row(file.path)).not.toBeNull();
@@ -204,11 +221,10 @@ describe('PluginFileTree', () => {
     mount({ files, onSelect: vi.fn(), selectedPath: DEEP });
 
     // 每层只加一个 ms-4 缩进与 1px 引导线，长名由 truncate 收敛，不撑开文档。
-    const references = row('skills/alpha/references')
-      .closest('li')
-      ?.querySelector('[data-slot="collapsible-content"] > ul');
-    expect(references?.className).toContain('ms-4');
-    expect(references?.className).toContain('border-s border-line');
+    const referencesGroup =
+      item('skills/alpha/references').querySelector(':scope > [role="group"]');
+    expect(referencesGroup?.className).toContain('ms-4');
+    expect(referencesGroup?.className).toContain('border-s border-line');
     expect(row(DEEP).className).toContain('min-w-0');
     expect(row(DEEP).querySelector('span.truncate')?.textContent).toBe(LONG_NAME);
   });
@@ -216,16 +232,16 @@ describe('PluginFileTree', () => {
   it('reveals every ancestor when the selected path changes', () => {
     mount({ files, onSelect: vi.fn() });
 
-    expect(row('output-styles').getAttribute('aria-expanded')).toBe('false');
+    expect(item('output-styles').getAttribute('aria-expanded')).toBe('false');
     rerender({ files, onSelect: vi.fn(), selectedPath: 'output-styles/compact.md' });
-    expect(row('output-styles').getAttribute('aria-expanded')).toBe('true');
-    expect(row('output-styles/compact.md').getAttribute('aria-current')).toBe('true');
+    expect(item('output-styles').getAttribute('aria-expanded')).toBe('true');
+    expect(item('output-styles/compact.md').getAttribute('aria-current')).toBe('page');
 
     // skills 默认展开，但更深的 alpha / references 仍按选中路径自动展开。
     rerender({ files, onSelect: vi.fn(), selectedPath: DEEP });
-    expect(row('skills/alpha').getAttribute('aria-expanded')).toBe('true');
-    expect(row('skills/alpha/references').getAttribute('aria-expanded')).toBe('true');
-    expect(row(DEEP).getAttribute('aria-current')).toBe('true');
+    expect(item('skills/alpha').getAttribute('aria-expanded')).toBe('true');
+    expect(item('skills/alpha/references').getAttribute('aria-expanded')).toBe('true');
+    expect(item(DEEP).getAttribute('aria-current')).toBe('page');
   });
 
   it('shows the base name while keeping the full path for selection and hover', async () => {
@@ -243,7 +259,7 @@ describe('PluginFileTree', () => {
   it('renders an empty state when the plugin has no files', () => {
     mount({ files: [], onSelect: vi.fn() });
 
-    expect(body().querySelector('nav')).toBeNull();
+    expect(body().querySelector('[role="tree"]')).toBeNull();
     expect(body().textContent).toContain('没有可查看的文件');
   });
 });
