@@ -21,11 +21,12 @@ function toItem(run: Awaited<ReturnType<typeof runsRepo.listRuns>>[number]) {
 const os = implement(runsContract).$context<RequestContext>();
 const runsMainRouter = {
   list: os.list.handler(async ({ input, context }) => {
-    const { agentId, status, trigger, limit } = input.query;
+    const { agentId, status, trigger, since, limit } = input.query;
     const items = await runsRepo.listRuns(context.db, {
       ...(agentId === undefined ? {} : { agentId }),
       ...(status === undefined ? {} : { status }),
       ...(trigger === undefined ? {} : { trigger }),
+      ...(since === undefined ? {} : { since: new Date(since) }),
       limit,
       access: accessFilter(context, 'runs.read'),
     });
@@ -165,6 +166,7 @@ export const runExportQuerySchema = z.object({
   agentId: z.string().min(1).optional(),
   status: runStatusSchema.optional(),
   trigger: runTriggerSchema.optional(),
+  since: z.iso.datetime().optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(1000),
 });
 
@@ -180,11 +182,12 @@ export function registerRunExportHttp(app: Hono<HttpEnv>): void {
           query: runExportQuerySchema,
         }),
       );
-      const { agentId, status, trigger, limit } = input.query;
+      const { agentId, status, trigger, since, limit } = input.query;
       const items = await runsRepo.listRuns(context.db, {
         ...(agentId === undefined ? {} : { agentId }),
         ...(status === undefined ? {} : { status }),
         ...(trigger === undefined ? {} : { trigger }),
+        ...(since === undefined ? {} : { since: new Date(since) }),
         limit: limit + 1,
         access: accessFilter(context, 'runs.export'),
       });

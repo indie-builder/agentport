@@ -3,4 +3,5 @@ export type EvalSearchPatch = {
   run?: string | undefined;
   base?: string | undefined;
   head?: string | undefined;
+  failedOnly?: string | undefined;
 };

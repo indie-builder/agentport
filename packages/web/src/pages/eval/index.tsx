@@ -155,10 +155,16 @@ export function EvalPage() {
   };
   const setAgentId = (next: string): void => {
     // 切专家时丢掉旧的运行/比较上下文，避免把别的专家的批次带过来。
-    setSearch({ agent: next || undefined, run: undefined, base: undefined, head: undefined });
+    setSearch({
+      agent: next || undefined,
+      run: undefined,
+      base: undefined,
+      head: undefined,
+      failedOnly: undefined,
+    });
   };
-  const selectRun = (runId: string): void => setSearch({ run: runId });
-  const closeRun = (): void => setSearch({ run: undefined });
+  const selectRun = (runId: string): void => setSearch({ run: runId, failedOnly: undefined });
+  const closeRun = (): void => setSearch({ run: undefined, failedOnly: undefined });
 
   const cases = useEvalCases(effectiveAgentId);
   const casesEmpty = cases.isSuccess && cases.data.length === 0;

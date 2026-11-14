@@ -135,6 +135,7 @@ export async function listRuns(
     agentId?: string;
     status?: RunStatus;
     trigger?: RunTrigger;
+    since?: Date;
     limit?: number;
     access: AccessFilter;
   },
@@ -150,6 +151,7 @@ export async function listRuns(
   if (options.agentId !== undefined) filters.push(eq(agentRuns.agentId, options.agentId));
   if (options.status !== undefined) filters.push(eq(agentRuns.status, options.status));
   if (options.trigger !== undefined) filters.push(eq(agentRuns.trigger, options.trigger));
+  if (options.since !== undefined) filters.push(gte(agentRuns.startedAt, options.since));
 
   // drizzle 0.45 的 ORDER BY 没有 nullsLast 构造器（只有索引列有），保留原始 sql。
   return db
@@ -246,6 +248,43 @@ export async function listPersonalRuns(
     .limit(options.limit + 1);
 
   return paginate(rows, options.limit);
+}
+
+export async function listPersonalRunsForExport(
+  db: Database,
+  options: {
+    businessId: string;
+    since: Date;
+    until: Date;
+    agentId?: string;
+    status?: RunStatus;
+    trigger?: RunTrigger;
+  },
+): Promise<{ items: PersonalRunRow[]; truncated: boolean }> {
+  const EXPORT_LIMIT = 5000;
+  const filters = personalRunWhere(options.businessId, options.since, options.until);
+  filters.push(isNull(agentRuns.channelId));
+  if (options.agentId !== undefined) filters.push(eq(agentRuns.agentId, options.agentId));
+  if (options.status !== undefined) filters.push(eq(agentRuns.status, options.status));
+  if (options.trigger !== undefined) filters.push(eq(agentRuns.trigger, options.trigger));
+
+  const rows = await db
+    .select({
+      ...runColumns,
+      createdAt: agentRuns.createdAt,
+      conversationId: sql<string | null>`case
+        when ${conversations.createdBy} = ${options.businessId} then ${agentRuns.conversationId}
+        else null
+      end`,
+    })
+    .from(agentRuns)
+    .leftJoin(agents, eq(agents.id, agentRuns.agentId))
+    .leftJoin(conversations, eq(conversations.id, agentRuns.conversationId))
+    .where(and(...filters))
+    .orderBy(desc(agentRuns.createdAt), desc(agentRuns.id))
+    .limit(EXPORT_LIMIT + 1);
+
+  return { items: rows.slice(0, EXPORT_LIMIT), truncated: rows.length > EXPORT_LIMIT };
 }
 
 /** 个人使用汇总：窗口按 run.createdAt，tokens/cost 只统计已记录值。 */

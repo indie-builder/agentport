@@ -48,6 +48,7 @@ import {
 import { errorMessage, type OverviewAgentRow, type RecentRun } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
 import { cn } from '../lib/cn.js';
+import { toCsv } from '../lib/csv.js';
 import {
   formatCost,
   formatDateTime,
@@ -61,29 +62,39 @@ import { judgeQueue } from '../lib/health.js';
 import { healthMetricsQuery, useOverview, useOverviewTimeseries } from '../lib/queries.js';
 
 function toUsageCsv(agents: OverviewAgentRow[]) {
-  const rows = agents.map((agent) =>
+  const rows = agents.map((agent) => [
+    agent.name,
+    agent.slug,
+    agent.runCount,
+    `${(agent.errorRate * 100).toFixed(1)}%`,
+    agent.totalCost,
+    agent.totalTokens,
+    agent.latencyP50 ?? '',
+    agent.latencyP99 ?? '',
+    agent.lastRunStartTime ?? '',
+    agent.enabled ? '是' : '否',
+  ]);
+  if (agents.length > 0) {
+    const totalRuns = agents.reduce((sum, agent) => sum + agent.runCount, 0);
+    const totalCost = Number(agents.reduce((sum, agent) => sum + agent.totalCost, 0).toFixed(4));
+    const totalTokens = agents.reduce((sum, agent) => sum + agent.totalTokens, 0);
+    rows.push(['合计', '', totalRuns, '', totalCost, totalTokens, '', '', '', '']);
+  }
+  return toCsv(
     [
-      agent.name,
-      agent.slug,
-      agent.runCount,
-      `${(agent.errorRate * 100).toFixed(1)}%`,
-      agent.totalCost,
-      agent.totalTokens,
-      agent.latencyP50 ?? '',
-      agent.latencyP99 ?? '',
-      agent.lastRunStartTime ?? '',
-      agent.enabled ? '是' : '否',
-    ]
-      .map((value) => {
-        const field = String(value);
-        return /[",\r\n]/.test(field) ? `"${field.replaceAll('"', '""')}"` : field;
-      })
-      .join(','),
+      '专家',
+      '标识',
+      '运行数',
+      '错误率',
+      '成本(USD)',
+      'Token',
+      'P50延迟(ms)',
+      'P99延迟(ms)',
+      '最近运行',
+      '启用',
+    ],
+    rows,
   );
-  return `﻿${[
-    '专家,标识,运行数,错误率,成本(USD),Token,P50延迟(ms),P99延迟(ms),最近运行,启用',
-    ...rows,
-  ].join('\n')}`;
 }
 
 const agentColumns: DataColumn<OverviewAgentRow>[] = [

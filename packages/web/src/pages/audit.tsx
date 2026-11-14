@@ -17,7 +17,8 @@ import { ErrorState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { type AuditEntry, type AuditStatus, api } from '../lib/api.js';
-import { downloadJson } from '../lib/browser-files.js';
+import { downloadBlob, downloadJson } from '../lib/browser-files.js';
+import { toCsv } from '../lib/csv.js';
 import {
   auditStatusLabel,
   auditStatusVariant,
@@ -152,6 +153,7 @@ export function AuditPage() {
   const range = search.range ?? 'all';
   const since = range === 'all' ? undefined : utcWindowStart(Number(range)).toISOString();
   const [exporting, setExporting] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const settledAction = useDebouncedValue(action.trim(), 300);
   const settledTarget = useDebouncedValue(target.trim(), 300);
@@ -195,6 +197,38 @@ export function AuditPage() {
       toastError(error);
     } finally {
       setExporting(false);
+    }
+  };
+
+  const exportAuditCsv = async (): Promise<void> => {
+    setExportingCsv(true);
+    try {
+      const data = await api.exportAudit({
+        ...(settledAction ? { action: settledAction } : {}),
+        ...(status === 'all' ? {} : { status }),
+        ...(settledTarget ? { target: settledTarget } : {}),
+        ...(settledActor ? { actor: settledActor } : {}),
+        ...(actorKind === 'all' ? {} : { actorKind }),
+        ...(since ? { since } : {}),
+      });
+      const csv = toCsv(
+        ['时间', '动作', '目标', '状态', '操作者', '主体类型', '耗时ms', '请求ID'],
+        data.items.map((row) => [
+          formatDateTime(row.createdAt),
+          row.action,
+          row.target ?? '',
+          auditStatusLabel[row.status],
+          row.actor,
+          actorKindLabel[row.actorKind],
+          row.durationMs ?? '',
+          row.requestId ?? '',
+        ]),
+      );
+      downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), 'audit.csv');
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setExportingCsv(false);
     }
   };
 
@@ -253,6 +287,14 @@ export function AuditPage() {
               >
                 <Download data-icon="inline-start" aria-hidden="true" />
                 {exporting ? '导出中…' : searchPending ? '等待筛选…' : '导出审计'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void exportAuditCsv()}
+                disabled={exportingCsv || searchPending}
+              >
+                <Download data-icon="inline-start" aria-hidden="true" />
+                {exportingCsv ? '导出中…' : searchPending ? '等待筛选…' : '导出 CSV'}
               </Button>
               <Button
                 variant="outline"

@@ -3,7 +3,7 @@ import { runStatusSchema, runTriggerSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Activity } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { FilterSelect } from '../../components/filter-select.js';
 import {
@@ -28,7 +28,9 @@ import {
 } from '../../components/ui/card.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
-import type { RunStatus } from '../../lib/api.js';
+import { api, type RunStatus } from '../../lib/api.js';
+import { downloadBlob } from '../../lib/browser-files.js';
+import { toCsv } from '../../lib/csv.js';
 import {
   formatCost,
   formatDateTime,
@@ -39,6 +41,7 @@ import {
   shortId,
 } from '../../lib/format.js';
 import { agentsQuery, meQuery, usePersonalRuns, usePersonalUsage } from '../../lib/queries.js';
+import { toastError, toastSuccess } from '../../lib/toast.js';
 
 const triggers = runTriggerSchema.options;
 type Trigger = (typeof triggers)[number];
@@ -142,6 +145,43 @@ export function PersonalUsagePage() {
     ...(cursor ? { cursor } : {}),
   };
   const runs = usePersonalRuns(query, canRuns);
+  const [exporting, setExporting] = useState(false);
+
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const result = await api.personalExportRuns({
+        days,
+        ...(search.agent ? { agentId: search.agent } : {}),
+        ...(search.status ? { status: search.status } : {}),
+        ...(search.trigger ? { trigger: search.trigger } : {}),
+      });
+      const rows = result.items.map((run) => [
+        run.agentName || '已删除的专家',
+        triggerLabel[run.trigger],
+        runStatusLabel[run.status],
+        formatDateTime(run.startedAt || run.createdAt),
+        run.latencyMs ?? '',
+        run.costUsd ?? '',
+        run.inputTokens,
+        run.outputTokens,
+        run.id,
+      ]);
+      const csv = toCsv(
+        ['专家', '来源', '状态', '时间', '耗时ms', '成本USD', '输入Token', '输出Token', '运行ID'],
+        rows,
+      );
+      downloadBlob(
+        new Blob([csv], { type: 'text/csv;charset=utf-8' }),
+        `personal-usage-${days}d.csv`,
+      );
+      if (result.truncated) toastSuccess('已导出前 5000 条，请缩小时间范围或加筛选');
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const patchSearch = (patch: {
     days?: number;
@@ -422,6 +462,15 @@ export function PersonalUsagePage() {
                 }
               >
                 {search.status === 'failed' ? '清除失败筛选' : '只看失败'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={exporting}
+                aria-busy={exporting}
+                onClick={() => void exportCsv()}
+              >
+                导出 CSV
               </Button>
               <div className="ml-auto">
                 <ViewToggle value={view} onChange={(next) => patchSearch({ view: next })} />

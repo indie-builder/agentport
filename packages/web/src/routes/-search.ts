@@ -139,6 +139,11 @@ export const runsSearchSchema = z.object({
   agent: z.string().optional().catch(undefined),
   status: runStatusSchema.optional().catch(undefined),
   trigger: runTriggerSchema.optional().catch(undefined),
+  range: z.coerce
+    .string()
+    .pipe(z.enum(['7', '30', '90']))
+    .optional()
+    .catch(undefined),
   view: listViewSchema,
 });
 
@@ -183,6 +188,7 @@ export const evalSearchSchema = z.object({
   run: z.string().min(1).optional().catch(undefined),
   base: z.string().min(1).optional().catch(undefined),
   head: z.string().min(1).optional().catch(undefined),
+  failedOnly: z.coerce.string().pipe(z.enum(['1'])).optional().catch(undefined),
 });
 
 export const knowledgeSearchSchema = resourceSearchSchema.extend({
