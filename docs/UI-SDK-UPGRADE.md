@@ -48,6 +48,8 @@ rg -n "@ui-sdk/" packages/web/src
 
 **为何不用 `@ui-sdk/react/trigger-menu`**：ui-sdk 另有 trigger-menu，可用 `editor` + `textFieldAdapter` 接现有 textarea 专门做 @ 触发，本项目未采用。`TriggerMenuContent` 是光标锚定浮层，而本产品提及面板是 composer 上方整宽内联列表、每项带「运行中」徽标，textarea 生命周期归 Composer（附件、取消运行、尺寸等），迁移会改动已批准的视觉与布局基线。因此用官方组合 `createListbox({ focus: 'virtual' })` 实现，属于官方能力组合而非兼容层；若将来提及面板改为浮层形态，可迁到 trigger-menu。
 
+**为何 `message-scroller` 保留官方 `@shadcn/react`**：`packages/web/src/components/ui/message-scroller.tsx`（聊天消息滚动容器）继续使用官方 `@shadcn/react/message-scroller`，属允许栈（packages/web 规则「只用 shadcn/ui」）。ui-sdk 无消息级等价物：`@ui-sdk/react/scroll-area` 只有 `stickToEnd`（跟随末尾）、`ScrollAreaScrollToEnd`（回到底部按钮）与 edge fades，缺聊天所需的可见消息追踪（`useMessageScrollerVisibility` 喂已读游标）、prepend 锚点保持（加载更早消息不跳）与 `scrollPreviousItemPeek`。整体替换等于把这些聊天特有语义手写进核心滚动路径，风险高、收益低，故保留。若将来聊天面板去掉已读游标与 prepend 需求，迁移路径是 ui-sdk `scroll-area`（`stickToEnd` + `ScrollAreaScrollToEnd`）。
+
 ## 升级步骤
 
 0. **留证据**：记下当前 `@ui-sdk/core`/`@ui-sdk/react` 版本，并备份随包文档 `node_modules/@ui-sdk/*/docs/`（该目录随版本发布；`skills/SKILL.md` 明确「读安装副本，它匹配当前版本」）。重装会覆盖它，升级前先留一份用于 diff。
@@ -72,6 +74,7 @@ rg -n "@ui-sdk/" packages/web/src
 | 2026-11-14 | 移除 sonner / embla-carousel-react / react-day-picker / react-resizable-panels | `lib/toast` + `App.tsx`、`components/ui/{calendar,carousel}`、`openui/components/*`、`pages/chat`、`pages/plugins/plugin-detail` | resizable 的数字是百分比、像素要写 `"240px"`；jsdom 里它测不到布局，折叠/展开不能由 layout 反推状态；UI 断言不要绑定 `.rdp-*` / `data-day` / `embla` 调用 | typecheck/build/lint 绿；`test:web` 1933 通过、10 条既有失败 |
 | 2026-11-14 | 移除 `@dnd-kit/*` | `components/data-table.tsx`、新增 `components/ui/sortable-list.tsx` | TanStack Table 仍是顺序唯一来源，primitive 只存拖动草稿；Escape 先取消拖动并保留弹层，Tab 取消并继续；拖动预览用 `preview` | typecheck/build 通过；`test:web` 1933 通过、10 条既有失败；`/operations` 真实浏览器验证指针/键盘/持久化 |
 | 2026-11-14 | `0.1.0-beta.2`（版本不变） | 手写交互原生化：`pages/channels/channel.tsx` 提及列表改用 `components/ui/mention-list.tsx`（`createListbox` virtual focus）；`pages/servers/tool-editor-dialog.tsx`、`pages/knowledge/detail/documents-tab.tsx`、`components/knowledge/knowledge-faq.tsx` 的 `role="toolbar"` 改用 `Toolbar`/`ToolbarButton`；`components/ui/{label,textarea}.tsx` 改用 ui-sdk 原生；删除 `components/ui/*` 里全部 `Loose<T>` 垫片 | 提及列表焦点留在共享 textarea，靠 `aria-activedescendant` 关联；可选属性改在调用方条件展开 `{...(cond ? { foo } : {})}`，不再放宽类型 | typecheck 通过；`test:web` 1933 通过、10 条既有失败 |
+| 2026-11-14 | `0.1.0-beta.2`（版本不变） | 手写 `<details>/<summary>` 改用 ui-sdk `Collapsible`：`pages/knowledge/detail/source-runs.tsx`、`components/knowledge/knowledge-citations.tsx`、`components/knowledge/knowledge-search.tsx`（两处） | 旧 `<details>` 正文常挂载：SyncRunItems 立即取数、折叠态文本断言依赖 DOM 保留，迁移必须 keepMounted + hiddenUntilFound；无 animated 为即时显隐；展开指示用 ChevronRight + group-aria-expanded:rotate-90（Tailwind v4 输出 rotate 属性） | build 通过；test:web 1933 通过、10 条既有失败（与基线一致）；隔离栈真实渲染验证 4 处：aria-expanded 切换、面板显隐、ChevronRight 展开旋转 90°、无 console error；截图 /tmp/visual-detail-chevron/expanded.png |
 
 ### 视觉验收（真实渲染）· 2026-11-14
 
