@@ -1,4 +1,9 @@
-import { type RunTrigger, runStatusSchema, runTriggerSchema } from '@agentport/shared';
+import {
+  type RunTrigger,
+  runStatusSchema,
+  runTriggerSchema,
+  utcWindowStart,
+} from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, RefreshCw } from 'lucide-react';
@@ -257,11 +262,14 @@ export function RunsPage() {
   const agentId = search.agent ?? '';
   const status = search.status ?? '';
   const trigger = search.trigger ?? '';
+  const range = search.range ?? 'all';
+  const since = range === 'all' ? undefined : utcWindowStart(Number(range)).toISOString();
   const view: ListView = search.view ?? 'cards';
   const setFilter = (patch: {
     agent?: string | undefined;
     status?: RunStatus | undefined;
     trigger?: RunTrigger | undefined;
+    range?: '7' | '30' | '90' | undefined;
   }): void => {
     void navigate({ to: '/runs', search: { ...search, ...patch } });
   };
@@ -272,6 +280,7 @@ export function RunsPage() {
     ...(agentId ? { agentId } : {}),
     ...(status ? { status } : {}),
     ...(trigger ? { trigger } : {}),
+    ...(since ? { since } : {}),
     limit: 100,
   });
   const [exporting, setExporting] = useState(false);
@@ -283,6 +292,7 @@ export function RunsPage() {
         ...(agentId ? { agentId } : {}),
         ...(status ? { status } : {}),
         ...(trigger ? { trigger } : {}),
+        ...(since ? { since } : {}),
       });
       downloadJson(data, 'runs.json');
     } catch (error) {
@@ -295,7 +305,7 @@ export function RunsPage() {
   const items = runs.data?.items ?? [];
   const firstLoadFailed = runs.isError && runs.data === undefined;
   const empty = !runs.isPending && !firstLoadFailed && items.length === 0;
-  const filtered = Boolean(agentId || status || trigger);
+  const filtered = Boolean(agentId || status || trigger || range !== 'all');
 
   const agentOptions = [
     { value: '', label: '全部专家' },
@@ -304,6 +314,12 @@ export function RunsPage() {
   const statusOptions = [
     { value: '', label: '全部状态' },
     ...statuses.map((value) => ({ value, label: runStatusLabel[value] })),
+  ];
+  const rangeOptions = [
+    { value: 'all', label: '全部时间' },
+    { value: '7', label: '近 7 天' },
+    { value: '30', label: '近 30 天' },
+    { value: '90', label: '近 90 天' },
   ];
   const triggerOptions = [
     { value: '', label: '全部触发' },
@@ -366,6 +382,15 @@ export function RunsPage() {
             label="按触发筛选"
             className="w-full sm:w-36"
           />
+          <FilterSelect
+            value={range}
+            onValueChange={(next) =>
+              setFilter({ range: next === 'all' ? undefined : (next as '7' | '30' | '90') })
+            }
+            options={rangeOptions}
+            label="按时间范围过滤"
+            className="w-full sm:w-36"
+          />
           <div className="ml-auto">
             <ViewToggle value={view} onChange={setView} />
           </div>
@@ -403,7 +428,12 @@ export function RunsPage() {
                       variant="outline"
                       size="sm"
                       onClick={() =>
-                        setFilter({ agent: undefined, status: undefined, trigger: undefined })
+                        setFilter({
+                          agent: undefined,
+                          status: undefined,
+                          trigger: undefined,
+                          range: undefined,
+                        })
                       }
                     >
                       清除筛选

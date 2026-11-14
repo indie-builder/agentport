@@ -20,6 +20,7 @@ export const runsContract = {
           agentId: z.string().min(1).optional(),
           status: runStatusSchema.optional(),
           trigger: runTriggerSchema.optional(),
+          since: z.iso.datetime().optional(),
           limit: z.coerce.number().int().min(1).max(200).default(50),
         }),
       }),

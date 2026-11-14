@@ -205,6 +205,42 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
     expect(ids).not.toContain(chat);
   });
 
+  it.each(['/api/runs', '/api/runs/export'])(
+    'filters %s by startedAt since inclusively',
+    async (url) => {
+      const agent = await seedAgent();
+      await seedRun({
+        agentId: agent.id,
+        status: 'succeeded',
+        startedAt: new Date('2026-10-01T00:00:00.000Z'),
+      });
+      await seedRun({ agentId: agent.id, status: 'queued' });
+      const since = '2026-10-15T00:00:00.000Z';
+      const recent = await seedRun({
+        agentId: agent.id,
+        status: 'succeeded',
+        startedAt: new Date('2026-10-20T00:00:00.000Z'),
+      });
+      const boundary = await seedRun({
+        agentId: agent.id,
+        status: 'succeeded',
+        startedAt: new Date(since),
+      });
+
+      const res = await request(app, {
+        method: 'GET',
+        url: `${url}?${new URLSearchParams({ agentId: agent.id, since })}`,
+        headers: { cookie },
+      });
+
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json<{ items: ExportedItem[] }>().items.map((item) => item.id)).toEqual([
+        recent,
+        boundary,
+      ]);
+    },
+  );
+
   it('returns RunListItem fields with ISO dates and no steps or messages', async () => {
     const agent = await seedAgent();
     const startedAt = new Date('2026-10-22T01:02:03.000Z');

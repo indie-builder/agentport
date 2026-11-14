@@ -18,6 +18,7 @@ export function useRuns(query: RunQuery = {}, enabled = true) {
     query.limit ?? 50,
   ];
   if (query.trigger) queryKey.push(query.trigger);
+  if (query.since) queryKey.push(query.since);
   return useQuery<RunList>({
     queryKey,
     queryFn: () => api.runs(query),
