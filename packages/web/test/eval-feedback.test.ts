@@ -162,6 +162,90 @@ afterEach(async () => {
 });
 
 describe('evaluation run detail refresh feedback', () => {
+  it('filters failed results and restores all results', async () => {
+    vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [finishedRun], nextCursor: null });
+    vi.spyOn(api, 'evalRun').mockResolvedValue(
+      detail('succeeded', [
+        result('Passing First', 'first output'),
+        { ...result('Failing Case', 'failed output'), passed: false },
+        result('Passing Last', 'last output'),
+      ]),
+    );
+
+    await mount();
+    await openRun(finishedRun.id);
+    await actWaitFor(() => expect(container.textContent).toContain('Passing Last'));
+    expect(container.textContent).toContain('Passing First');
+    expect(container.textContent).toContain('Failing Case');
+    expect(container.querySelector('[data-slot="eval-run-summary"]')?.textContent).toContain(
+      '未通过 1',
+    );
+    expect(button('只看未通过（1）').getAttribute('aria-pressed')).toBe('false');
+
+    await click('只看未通过（1）');
+    await actWaitFor(() => {
+      expect(container.textContent).toContain('Failing Case');
+      expect(container.textContent).not.toContain('Passing First');
+      expect(container.textContent).not.toContain('Passing Last');
+    });
+    expect(button('显示全部').getAttribute('aria-pressed')).toBe('true');
+    expect(new URLSearchParams(window.location.search).has('failedOnly')).toBe(true);
+
+    await click('显示全部');
+    await actWaitFor(() => {
+      expect(container.textContent).toContain('Passing First');
+      expect(container.textContent).toContain('Failing Case');
+      expect(container.textContent).toContain('Passing Last');
+    });
+    expect(button('只看未通过（1）').getAttribute('aria-pressed')).toBe('false');
+    expect(new URLSearchParams(window.location.search).has('failedOnly')).toBe(false);
+  });
+
+  it('clears the failed-only filter when selecting another batch', async () => {
+    const runB = { ...finishedRun, id: 'evalRun_allpassed', passed: 2 };
+    vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [finishedRun, runB], nextCursor: null });
+    vi.spyOn(api, 'evalRun').mockImplementation(async (id) =>
+      id === runB.id
+        ? {
+            evalRun: runB,
+            results: [result('Batch B First', 'first output'), result('Batch B Last', 'last output')],
+          }
+        : {
+            evalRun: finishedRun,
+            results: [
+              result('Batch A Passing', 'passed output'),
+              { ...result('Batch A Failing', 'failed output'), passed: false },
+            ],
+          },
+    );
+
+    await mount();
+    await openRun(finishedRun.id);
+    await actWaitFor(() => expect(container.textContent).toContain('Batch A Passing'));
+    await click('只看未通过（1）');
+    await actWaitFor(() => {
+      expect(container.textContent).toContain('Batch A Failing');
+      expect(container.textContent).not.toContain('Batch A Passing');
+    });
+    expect(button('显示全部').getAttribute('aria-pressed')).toBe('true');
+
+    await openRun(runB.id);
+    await actWaitFor(() => {
+      expect(container.textContent).toContain('Batch B First');
+      expect(container.textContent).toContain('Batch B Last');
+      expect(container.textContent).not.toContain('本次评估没有未通过的用例。');
+    });
+    expect(new URLSearchParams(window.location.search).has('failedOnly')).toBe(false);
+    expect(container.querySelector('[aria-pressed="true"]')).toBeNull();
+
+    await openRun(finishedRun.id);
+    await actWaitFor(() => {
+      expect(container.textContent).toContain('Batch A Passing');
+      expect(container.textContent).toContain('Batch A Failing');
+    });
+    expect(button('只看未通过（1）').getAttribute('aria-pressed')).toBe('false');
+  });
+
   it('keeps already loaded results and expanded output across a failed refresh, then retries into the terminal state', async () => {
     vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [runningRun], nextCursor: null });
     let resolveInitial!: (value: EvalRunDetail) => void;

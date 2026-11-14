@@ -188,6 +188,7 @@ export const evalSearchSchema = z.object({
   run: z.string().min(1).optional().catch(undefined),
   base: z.string().min(1).optional().catch(undefined),
   head: z.string().min(1).optional().catch(undefined),
+  failedOnly: z.coerce.string().pipe(z.enum(['1'])).optional().catch(undefined),
 });
 
 export const knowledgeSearchSchema = resourceSearchSchema.extend({
