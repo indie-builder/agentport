@@ -419,7 +419,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 - **Style:** 白底、1px `input` `rgba(0,0,0,.10)` 发丝边、8px 圆角、高 32px、13/20；placeholder `#505F63`。Input、Textarea、SourceEditor、Select 可编辑触发器、Combobox、InputGroup 与 CodeMirror 搜索输入共用同一默认边线与尺寸；不新增 hover 加深。共享 Input / Textarea 保持 13/20；对话 composer 文本区例外使用 14/22（`base`）。桌面窗口收窄（含 767px）时仍固定 13/20，不再切换 16px 移动端字号。Input、Textarea、Select、Combobox 与 InputGroup 不响应 hover 抬升，聚焦沿用既有边界与焦点契约。
 - **Focus:** Input / Textarea / Select 触发器 / Combobox / InputGroup 把既有 1px 发丝边换成中性暖灰 `subtle` `#898781`（`.cds-focus-glow`，无光晕，对白约 3.59:1）；仅 SourceEditor 与 CodeMirror 搜索把边线换成 `input-focus` `#BDBDBD`；composer 文本控制器聚焦时外框保持 `input` 边线并换 `shadow-composer-focus`（1px 内环 + 外阴影），均不叠加 2px 光环；InputGroup 由外框承担焦点，内部输入不再画第二层。
-- **Invalid / Disabled:** invalid 用 `danger` 边框优先，并用真实 `:focus-visible` 的 2px `ring` outline + 2px offset 补焦点；错误边框不能代替焦点。只有真实禁用的 Input / Textarea / InputGroup 才使用 `sunken #F7F7F7` 禁用底：Input / Textarea 保留既有 `opacity 0.35`，InputGroup 由外框承载禁用底、内部输入保持透明并沿用各自禁用透明度；既有边线、阴影与错误态不变。可编辑的空输入框不使用禁用底，空内容只禁用发送按钮。未选中 checkbox/radio 用 `control-boundary`，checked/on 用 `primary` + 白色勾/点/thumb；off 开关轨道用 `control-boundary` 与白 thumb；Toggle 选中态是 `selected` + `fg`，不是深色实底。选中的 checkbox / radio / switch 聚焦时用单层 2px `outline` + 2px offset，不叠加 ring；未选中沿用各原语既有的单层焦点信号；普通字段标签由控件自身表达焦点，卡片式字段标签统一用外圈。真实浏览器已实测选中 Checkbox/Switch/Radio（`outline solid 2px`、`offset 2px`，无可见 ring）、普通标签、卡片标签、独立 invalid 控件，以及卡片 invalid 组合（3 个控件 border `rgb(180,35,24)`，内部 outline none / ring 0，外层 label 单层 2px ring）；forced-colors 系统轮廓保留。
+- **Invalid / Disabled:** invalid 用 `danger` 单条边框；Input / Textarea / Select 聚焦时不再叠加 outline/ring 第二层边界，错误边框本身同时表达错误与焦点。只有真实禁用的 Input / Textarea / InputGroup 才使用 `sunken #F7F7F7` 禁用底：Input / Textarea 保留既有 `opacity 0.35`，InputGroup 由外框承载禁用底、内部输入保持透明并沿用各自禁用透明度；既有边线、阴影与错误态不变。可编辑的空输入框不使用禁用底，空内容只禁用发送按钮。未选中 checkbox/radio 用 `control-boundary`，checked/on 用 `primary` + 白色勾/点/thumb；off 开关轨道用 `control-boundary` 与白 thumb；Toggle 选中态是 `selected` + `fg`，不是深色实底。选中的 checkbox / radio / switch 聚焦时用单层 2px `outline` + 2px offset，不叠加 ring；未选中沿用各原语既有的单层焦点信号；普通字段标签由控件自身表达焦点，卡片式字段标签统一用外圈。真实浏览器已实测选中 Checkbox/Switch/Radio（`outline solid 2px`、`offset 2px`，无可见 ring）、普通标签、卡片标签、独立 invalid 控件，以及卡片 invalid 组合（3 个控件 border `rgb(180,35,24)`，内部 outline none / ring 0，外层 label 单层 2px ring）；forced-colors 系统轮廓保留。
 
 ### Menus / Popovers / Overlays
 
@@ -461,7 +461,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 - **Do** 用白底、细 `line` 边线、`fg` 深色文字与中性 hover 承载 `default` 与 `solid`，保留轻阴影。
 - **Do** 用 `input` `rgba(0,0,0,.10)` 画输入默认发丝边，用 `line`（同值）只做分组与分隔；checkbox/radio 强边界用 `control-boundary` `rgba(0,0,0,.35)`。
 - **Do** 适合卡片的内容与主侧栏当前项共用纯白 `surface`、常态 `shadow-panel` 与 hover `shadow-panel-hover`；导航保留深色前景和原有几何，卡片绘制空间不得被滚动容器裁切。页内导航、选中页签、菜单高亮与用户消息继续用 `selected` / `accent` `#E6E6E6`。
-- **Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 中性 ring（Toast 使用 outline）；`default` / `solid` 按钮外加 2px 背景色间隔，错误态可另用 2px outline 补焦点。
+- **Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 中性 ring（Toast 使用 outline）；`default` / `solid` 按钮外加 2px 背景色间隔；Input / Textarea / Select 错误态只保留单条危险边框，按钮与选中控件错误态可另用既有 2px ring/outline 补焦点。
 - **Do** 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与 CDS 动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。
 - **Do** 把 `chart-runs` `#2A78D6` 只用于图表首系列；失败用 `danger`。
 - **Do** 把 12/16 留给徽章、时间戳与密集元信息，把 11px 留给只读的高密度数据。
@@ -472,7 +472,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 - **Don't** 给外壳加回渐变、外边距、圆角或描边，也不要把外壳白框铺到画布后面；收起与固定展开侧栏不得加阴影，仅临时预览可用既有 `shadow-overlay`。
 - **Don't** 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 `fg` 字。
 - **Don't** 用 `subtle` `#898781` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。
-- **Don't** 给已经使用中性暖灰聚焦边或 `input-focus` 的输入再叠 2px ring；唯一例外是错误态用 2px outline 补焦点（边框表达错误，outline 表达焦点）。
+- **Don't** 给已经使用中性暖灰聚焦边或 `input-focus` 的输入再叠 2px ring 或 outline；Input / Textarea / Select 错误态也只保留单条危险边框，不出现第二层边界。
 - **Don't** 在 CDS 双环 overlay、Composer 三态阴影、卡片 `--shadow-panel` 之外再引入第二套阴影，或给表格加投影、给卡片叠加其它阴影。
 - **Don't** 把卡片 hover 的上浮与投影套到按钮、输入、表格行、导航项或浮层；这些表面按「共享交互状态契约」只换底色/前景或使用自身深度。
 - **Don't** 重新引入深色主题、第二套主题提供器、重复品牌别名或页面级硬编码色值。
