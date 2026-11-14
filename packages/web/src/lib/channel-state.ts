@@ -52,7 +52,24 @@ export function pruneMentions(
   text: string,
   selected: readonly { agentId: string; name: string }[],
 ): string[] {
-  return selected.filter((item) => text.includes(`@${item.name}`)).map((item) => item.agentId);
+  const mentioned = new Set<string>();
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '@') continue;
+    if (i > 0 && !/\s/.test(text[i - 1] ?? '')) continue;
+    const rest = text.slice(i + 1);
+    let longest = 0;
+    for (const item of selected) {
+      if (item.name.length > longest && rest.startsWith(item.name)) {
+        const after = rest[item.name.length] ?? '';
+        if (after === '' || !/[\p{L}\p{N}_]/u.test(after)) longest = item.name.length;
+      }
+    }
+    if (longest === 0) continue;
+    for (const item of selected) {
+      if (item.name.length === longest && rest.startsWith(item.name)) mentioned.add(item.agentId);
+    }
+  }
+  return selected.filter((item) => mentioned.has(item.agentId)).map((item) => item.agentId);
 }
 
 /**
