@@ -23,6 +23,7 @@ export function ResourcePage({
   status,
   filters,
   leadingFilters,
+  hideToolbar,
   actions,
   children,
 }: {
@@ -34,6 +35,7 @@ export function ResourcePage({
   status: 'pending' | 'error' | 'success';
   filters?: ReactNode;
   leadingFilters?: ReactNode;
+  hideToolbar?: boolean;
   actions?: ReactNode;
   children: ReactNode;
 } & (
@@ -77,41 +79,43 @@ export function ResourcePage({
             </div>
           ) : null}
         </div>
-        <PageToolbar>
-          {leadingFilters ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-2">{leadingFilters}</div>
-          ) : null}
-          <SearchInput
-            label={`搜索${label}`}
-            placeholder={`搜索${label}…`}
-            value={query}
-            onChange={onQueryChange}
-            className="w-56 min-w-0"
-          />
-          {filters ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-2">{filters}</div>
-          ) : null}
-          {onSortChange ? (
-            <FilterSelect
-              label="资源排序"
-              value={sort}
-              onValueChange={(next) => {
-                if (next === 'newest' || next === 'name') onSortChange(next);
-              }}
-              options={sortOptions}
-              className="w-32"
+        {hideToolbar ? null : (
+          <PageToolbar>
+            {leadingFilters ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">{leadingFilters}</div>
+            ) : null}
+            <SearchInput
+              label={`搜索${label}`}
+              placeholder={`搜索${label}…`}
+              value={query}
+              onChange={onQueryChange}
+              className="w-56 min-w-0"
             />
-          ) : null}
-          {status === 'success' && count === undefined ? null : (
-            <span role="status" className="ml-auto text-xs text-muted-foreground">
-              {status === 'pending'
-                ? '加载中…'
-                : status === 'error'
-                  ? '数量不可用'
-                  : `共 ${count} 个${label}`}
-            </span>
-          )}
-        </PageToolbar>
+            {filters ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">{filters}</div>
+            ) : null}
+            {onSortChange ? (
+              <FilterSelect
+                label="资源排序"
+                value={sort}
+                onValueChange={(next) => {
+                  if (next === 'newest' || next === 'name') onSortChange(next);
+                }}
+                options={sortOptions}
+                className="w-32"
+              />
+            ) : null}
+            {status === 'success' && count === undefined ? null : (
+              <span role="status" className="ml-auto text-xs text-muted-foreground">
+                {status === 'pending'
+                  ? '加载中…'
+                  : status === 'error'
+                    ? '数量不可用'
+                    : `共 ${count} 个${label}`}
+              </span>
+            )}
+          </PageToolbar>
+        )}
       </PageTopbar>
       <PageBody>{children}</PageBody>
     </Page>
