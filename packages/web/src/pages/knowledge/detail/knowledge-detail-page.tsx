@@ -66,6 +66,7 @@ export function KnowledgeDetailPage() {
 
   return (
     <Tabs
+      key={baseId}
       value={tab}
       onValueChange={(next) =>
         go(
