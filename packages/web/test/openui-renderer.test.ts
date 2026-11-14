@@ -142,6 +142,25 @@ describe('OpenUiBlock', () => {
     expect(onAction).not.toHaveBeenCalled();
   });
 
+  it('renders only http(s) card sources as links', async () => {
+    await render(
+      [
+        'root = Card([t], [{title: "危险链接", sourceName: "来源甲", url: "javascript:alert(1)"}, {title: "数据链接", sourceName: "来源乙", url: "data:text/html,<script>alert(1)</script>"}, {title: "正常链接", sourceName: "来源丙", url: "https://example.com/a"}])',
+        't = TextContent("正文")',
+      ].join('\n'),
+    );
+    expect(host.textContent).toContain('危险链接');
+    expect(host.textContent).toContain('数据链接');
+    const anchors = [...host.querySelectorAll('a')];
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]?.getAttribute('href')).toBe('https://example.com/a');
+    expect(anchors[0]?.textContent).toBe('正常链接');
+    const dangerous = [...host.querySelectorAll('span')].find(
+      (span) => span.textContent === '危险链接',
+    );
+    expect(dangerous?.closest('a')).toBeNull();
+  });
+
   it('opens http(s) links in a new tab', async () => {
     const open = vi.fn();
     vi.stubGlobal('open', open);
