@@ -1,6 +1,6 @@
 # OpenUI UI 适配的事实基线
 
-视觉基线是 OpenUI 官方 shadcn 示例（`examples/design-systems/shadcn`）的本地源码适配，不是独立 adapter 包；示例未覆盖的组件按已安装 `@openuidev/react-ui@0.18.1` 的 genui-lib 补全，组件集合对齐官方 chat 库的 84 个。交互原语仍是 Base UI，视觉仍是本项目令牌；不引入 Radix、OpenUI 自有主题，也不改 84 个组件的字段契约。Thesys MIT 通知保留在 `packages/shared/src/openui/LICENSE`；上游 main 可能早于或晚于发布包，字段语义以已装版本为准。
+视觉基线是 OpenUI 官方 shadcn 示例（`examples/design-systems/shadcn`）的本地源码适配，不是独立 adapter 包；示例未覆盖的组件按已安装 `@openuidev/react-ui@0.18.8` 的 genui-lib 补全，组件集合对齐官方 chat 库的 84 个。交互原语仍是 Base UI，视觉仍是本项目令牌；不引入 Radix、OpenUI 自有主题，也不改 84 个组件的字段契约。Thesys MIT 通知保留在 `packages/shared/src/openui/LICENSE`；上游 main 可能早于或晚于发布包，字段语义以已装版本为准。
 
 上游：
 
