@@ -537,13 +537,14 @@ describe('knowledge base settings', () => {
     // 常态说明与确认框描述同一后果：逐文档切换新版本，手改内容不进新版本，失败文档保留原版本、已成功的不回滚。
     const rebuildDialog = dialog('知识库设置');
     expect(rebuildDialog.textContent).toContain('逐文档从原件生成并切换新版本');
-    expect(rebuildDialog.textContent).toContain('人工分块修改不会带入');
+    expect(rebuildDialog.textContent).toContain('人工分块修改与未发布的草稿都不会带入');
     expect(rebuildDialog.textContent).toContain('失败文档保留原版本');
     expect(rebuildDialog.textContent).toContain('已成功的文档不会回滚');
     await click(button('重建全部索引'));
     const confirm = dialog('重建全部索引');
     expect(confirm.textContent).toContain('逐文档从原件生成并切换新版本');
-    expect(confirm.textContent).toContain('人工分块修改不会带入');
+    expect(confirm.textContent).toContain('人工分块修改与未发布的草稿都不会带入');
+    expect(confirm.textContent).toContain('未发布的草稿都不会带入');
     expect(confirm.textContent).toContain('失败文档保留原版本');
     expect(confirm.textContent).toContain('已成功的文档不会回滚');
     await click(button('确认重建'));

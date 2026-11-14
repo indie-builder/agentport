@@ -684,7 +684,7 @@ export function KnowledgeSettingsDialog({
                 </Button>
               </div>
               <FieldDescription>
-                逐文档从原件生成并切换新版本，人工分块修改不会带入；失败文档保留原版本，已成功的文档不会回滚。
+                逐文档从原件生成并切换新版本，人工分块修改与未发布的草稿都不会带入；失败文档保留原版本，已成功的文档不会回滚。
                 {dirty ? '有未保存的设置，保存后才能重建。' : null}
               </FieldDescription>
             </div>
@@ -696,7 +696,7 @@ export function KnowledgeSettingsDialog({
         <ConfirmDialog
           open
           title="重建全部索引"
-          description="逐文档从原件生成并切换新版本，人工分块修改不会带入；失败文档保留原版本，已成功的文档不会回滚。"
+          description="逐文档从原件生成并切换新版本，人工分块修改与未发布的草稿都不会带入；失败文档保留原版本，已成功的文档不会回滚。"
           confirmLabel="确认重建"
           onClose={() => setConfirming(false)}
           onConfirm={async () => {
