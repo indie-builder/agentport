@@ -1,3 +1,4 @@
+import { Blob as NodeBlob } from 'node:buffer';
 import { utcWindowStart } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
@@ -12,11 +13,13 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type AuditEntry, type AuditList, api } from '../src/lib/api.js';
+import { downloadBlob, downloadJson } from '../src/lib/browser-files.js';
 import { formatDateTime } from '../src/lib/format.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
 import { AuditPage } from '../src/pages/audit.js';
 import { auditSearchSchema } from '../src/routes/-search.js';
 
+vi.mock('../src/lib/browser-files.js', () => ({ downloadJson: vi.fn(), downloadBlob: vi.fn() }));
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
 const DIGEST = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
@@ -142,6 +145,8 @@ function button(text: string): HTMLButtonElement {
 }
 
 beforeEach(() => {
+  vi.mocked(downloadBlob).mockClear();
+  vi.mocked(downloadJson).mockClear();
   vi.mocked(toastError).mockClear();
   vi.mocked(toastSuccess).mockClear();
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
@@ -159,6 +164,84 @@ afterEach(async () => {
   history?.destroy();
   container.remove();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe('audit CSV export', () => {
+  it('downloads a BOM-prefixed CSV using the same data and filters as JSON export', async () => {
+    vi.stubGlobal('Blob', NodeBlob);
+    const row = entry('exported', {
+      action: 'agent.update',
+      target: 'agent:123',
+      status: 'denied',
+      actor: 'alice',
+      actorKind: 'service',
+      durationMs: 42,
+      requestId: 'req-123',
+    });
+    const data = {
+      format: 'agentport/audit@1' as const,
+      exportedAt: '2026-01-02T00:00:00.000Z',
+      items: [row],
+    };
+    vi.spyOn(api, 'audit').mockResolvedValue(page([]));
+    vi.spyOn(api, 'exportAudit').mockResolvedValue(data);
+    await mount(
+      '?action=agent.&target=agent:123&actor=alice&status=denied&actorKind=service&range=7',
+    );
+
+    await act(async () => button('导出 CSV').click());
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+    expect(api.exportAudit).toHaveBeenLastCalledWith({
+      action: 'agent.',
+      target: 'agent:123',
+      actor: 'alice',
+      status: 'denied',
+      actorKind: 'service',
+      since: utcWindowStart(7).toISOString(),
+    });
+    const download = vi.mocked(downloadBlob).mock.calls[0];
+    if (!download) throw new Error('missing CSV download');
+    const [blob, filename] = download;
+    expect(filename).toBe('audit.csv');
+    expect(blob.type).toBe('text/csv;charset=utf-8');
+    expect(await blob.text()).toContain(
+      `时间,动作,目标,状态,操作者,主体类型,耗时ms,请求ID\n${formatDateTime(row.createdAt)},agent.update,agent:123,拒绝,alice,服务,42,req-123`,
+    );
+    expect(new Uint8Array(await blob.arrayBuffer()).slice(0, 3)).toEqual(
+      new Uint8Array([0xef, 0xbb, 0xbf]),
+    );
+    await act(async () => button('导出审计').click());
+    expect(api.exportAudit).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.exportAudit).mock.calls[1]).toEqual(
+      vi.mocked(api.exportAudit).mock.calls[0],
+    );
+    expect(downloadJson).toHaveBeenCalledWith(data, 'audit.json');
+  });
+
+  it('disables CSV export until the edited filter has settled', async () => {
+    vi.spyOn(api, 'audit').mockResolvedValue(page([]));
+    vi.spyOn(api, 'exportAudit').mockResolvedValue({
+      format: 'agentport/audit@1',
+      exportedAt: '2026-01-02T00:00:00.000Z',
+      items: [],
+    });
+    await mount();
+    const csvButton = button('导出 CSV');
+    await typeAction('auth.');
+    expect(csvButton.disabled).toBe(true);
+    expect(csvButton.textContent).toBe('等待筛选…');
+    await act(async () => csvButton.click());
+    expect(api.exportAudit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 400));
+    });
+    expect(csvButton.disabled).toBe(false);
+    expect(csvButton.textContent).toBe('导出 CSV');
+    await act(async () => csvButton.click());
+    expect(api.exportAudit).toHaveBeenCalledWith({ action: 'auth.' });
+  });
 });
 
 describe('audit time range', () => {
