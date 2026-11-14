@@ -133,6 +133,7 @@ export const personalUsageSearchSchema = z.object({
 export const runsSearchSchema = z.object({
   agent: z.string().optional().catch(undefined),
   status: runStatusSchema.optional().catch(undefined),
+  trigger: runTriggerSchema.optional().catch(undefined),
   view: listViewSchema,
 });
 
