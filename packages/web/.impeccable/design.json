@@ -786,7 +786,7 @@
       {
         "name": "input-focus-boundary",
         "value": "border-color: var(--color-subtle, #898781)",
-        "purpose": "Input / Textarea / Select / Combobox / InputGroup 普通聚焦沿用中性暖灰 1px 边，无光晕；错误态保留危险边框并用 2px ring outline 补焦点。"
+        "purpose": "Input / Textarea / Select / Combobox / InputGroup 普通聚焦沿用中性暖灰 1px 边，无光晕；Input / Textarea / Select 错误态静止与聚焦都只保留单条危险边框，不叠 outline/ring。"
       },
       {
         "name": "input-focus-line",
@@ -844,7 +844,7 @@
       "name": "Text Input",
       "kind": "input",
       "refersTo": "input",
-      "description": "白底 1px 发丝边输入；普通聚焦沿用中性暖灰 subtle 边，无光晕；invalid 保留 danger 边框并用 2px ring outline 补焦点。真实禁用的 Input / Textarea 使用 sunken #F7F7F7 底并保留 opacity 0.35；InputGroup 由外框承载同一禁用底，内部输入保持透明并沿用各自禁用透明度；边线与阴影不变，可编辑空框不铺禁用底，空内容只禁用发送按钮。",
+      "description": "白底 1px 发丝边输入；普通聚焦沿用中性暖灰 subtle 边，无光晕；invalid 静止与聚焦都只保留单条 danger 边框。真实禁用的 Input / Textarea 使用 sunken #F7F7F7 底并保留 opacity 0.35；InputGroup 由外框承载同一禁用底，内部输入保持透明并沿用各自禁用透明度；边线与阴影不变，可编辑空框不铺禁用底，空内容只禁用发送按钮。",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"搜索专家...\" aria-label=\"搜索专家\" />",
       "css": ".ds-input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--color-input, rgba(0, 0, 0, 0.10)); border-radius: var(--radius-item, 8px); background: var(--color-surface, #FFFFFF); color: var(--color-fg, #202B2E); font-family: \"anthropic-sans\", \"AnthropicSans\", \"Inter Variable\", Inter, system-ui, sans-serif; font-size: 13px; line-height: 20px; transition: border-color 150ms var(--ease-out-soft), box-shadow 150ms var(--ease-out-soft); } .ds-input::placeholder { color: var(--color-muted-foreground, #505F63); } .ds-input:focus-visible { outline: none; border-color: var(--color-subtle, #898781); } .ds-input[aria-invalid=true] { border-color: var(--color-destructive, #B42318); } .ds-input[aria-invalid=true]:focus-visible { border-color: var(--color-destructive, #B42318); outline: 2px solid var(--color-ring, #202B2E); outline-offset: 2px; } .ds-input:disabled { background: var(--color-sunken, #F7F7F7); opacity: 0.35; cursor: not-allowed; }"
     },
@@ -959,7 +959,7 @@
       "**Do** 用白底、细边与深色字承载 `default` 与 `solid`，hover 用中性浅底；石青仅用于左侧导航，品牌 Logo 与插画保留原配色。",
       "**Do** 用 `input` `rgba(0,0,0,.10)` 画输入默认发丝边，用 `line`（同值）只做分组与分隔；checkbox/radio 强边界用 `control-boundary` `rgba(0,0,0,.35)`。",
       "**Do** 适合卡片的内容与主侧栏当前项共用纯白 `surface`、常态 `shadow-panel` 与 hover `shadow-panel-hover`；导航保留深色前景和原有几何，卡片绘制空间不得被滚动容器裁切。页内导航、选中页签、菜单高亮与用户消息继续用 `selected` / `accent` `#E6E6E6`。",
-      "**Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 中性 ring（Toast 使用 outline）；白底主操作按钮外加 2px 背景色间隔，错误态可另用 2px outline 补焦点。",
+      "**Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 中性 ring（Toast 使用 outline）；白底主操作按钮外加 2px 背景色间隔，Input / Textarea / Select 错误态只保留单条危险边框，按钮与选中控件错误态可另用既有 2px ring/outline 补焦点。",
       "**Do** 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与 CDS 动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。",
       "**Do** 把 `chart-runs` `#2A78D6` 只用于图表首系列；失败用 `danger`。",
       "**Do** 把 12/16 留给徽章、时间戳与密集元信息，把 11px 留给只读的高密度数据。"
@@ -969,7 +969,7 @@
       "**Don't** 给外壳加回渐变、外边距、圆角或描边，也不要把外壳白框铺到画布后面；收起与固定展开侧栏不得加阴影，仅临时预览可用既有 `shadow-overlay`。",
       "**Don't** 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 `fg` 字。",
       "**Don't** 用 `subtle` `#898781` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。",
-      "**Don't** 给已经使用中性暖灰聚焦边或 `input-focus` 的输入再叠 2px ring；唯一例外是错误态用 2px outline 补焦点（边框表达错误，outline 表达焦点）。",
+      "**Don't** 给已经使用中性暖灰聚焦边或 `input-focus` 的输入再叠 2px ring 或 outline；Input / Textarea / Select 错误态也只保留单条危险边框，不出现第二层边界。",
       "**Don't** 在 CDS 双环 overlay、Composer 三态阴影、卡片 `--shadow-panel` 之外再引入第二套阴影，或给表格加投影、给卡片叠加其它阴影。",
       "**Don't** 重新引入深色主题、第二套主题提供器、重复品牌别名或页面级硬编码色值。",
       "**Don't** 让 Markdown 标题小于正文，或新增第二个阅读正文字号。",
