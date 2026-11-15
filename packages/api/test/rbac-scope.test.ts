@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { newId } from '@agentport/db';
 import {
   createAgent,
   createTestAccount,
@@ -153,7 +152,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     expectProblem(
       await request(app, {
         method: 'GET',
-        url: `/api/conversations/${conversationA}/attachments/${newId('attachment')}/download`,
+        url: `/api/conversations/${conversationA}/attachments/att_unknown/download`,
         headers: { cookie: userB.cookie },
       }),
       'NOT_FOUND',

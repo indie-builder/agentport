@@ -177,7 +177,7 @@ const redisReady = await probeRedis();
 const ready = dbReady && redisReady;
 const redisUrl = process.env.REDIS_URL ?? '';
 
-const userId = newId('user');
+const userId = 'auth-user-memory-review';
 const businessId = 'memory-review-user';
 const roleId = newId('role');
 const agentId = newId('agent');
