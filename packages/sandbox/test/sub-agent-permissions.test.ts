@@ -63,6 +63,14 @@ describe('sub-agent tool boundary', () => {
     expect(await decide(boundary(), 'mcp__unknown__tool')).toBeUndefined();
   });
 
+  it('leaves unregistered sub-agents to the SDK permission rules (no explicit decision)', async () => {
+    const unknown = { id: 'agent-2', type: 'general-purpose' };
+    expect(await decide(boundary(), 'mcp__root-mcp__search', {}, unknown)).toBeUndefined();
+    expect(await decide(boundary(), 'mcp__child-mcp__search', {}, unknown)).toBeUndefined();
+    expect(await decide(boundary(), 'Skill', { skill: 'root-skill' }, unknown)).toBeUndefined();
+    expect(await decide(boundary(), 'Skill', { skill: 'child-skill' }, unknown)).toBeUndefined();
+  });
+
   it('lets the main session use loaded plugin skills and keeps them off sub-agents', async () => {
     const withPlugin: SubAgentBoundary = {
       ...boundary(),
