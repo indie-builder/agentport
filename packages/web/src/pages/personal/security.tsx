@@ -368,21 +368,18 @@ function SessionSection({
         confirmDisabled={revoke.isPending}
         onConfirm={async () => {
           if (!target) return;
-          try {
-            await revoke.mutateAsync(target.id);
-            setTarget(null);
-            setModalError(null);
-            toastSuccess('会话已撤销');
-          } catch (error) {
-            setModalError(
-              isFreshnessError(error)
-                ? '当前登录状态已过期，请重新登录后再撤销这次会话。'
-                : errorMessage(error),
-            );
-            // 继续抛出让 ConfirmDialog 保持弹层，错误已在本弹层内展示。
-            throw error;
-          }
+          await revoke.mutateAsync(target.id);
+          setTarget(null);
+          setModalError(null);
+          toastSuccess('会话已撤销');
         }}
+        onError={(error) =>
+          setModalError(
+            isFreshnessError(error)
+              ? '当前登录状态已过期，请重新登录后再撤销这次会话。'
+              : errorMessage(error),
+          )
+        }
       >
         {modalError ? <FieldError>{modalError}</FieldError> : null}
         {freshness ? (

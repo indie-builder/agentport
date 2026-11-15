@@ -18,6 +18,7 @@ interface ConfirmDialogProps {
   confirmDisabled?: boolean;
   tone?: 'danger' | 'default';
   onConfirm: () => Promise<unknown>;
+  onError?: (error: unknown) => void;
   finalFocus?: ComponentProps<typeof DialogShell>['finalFocus'];
 }
 
@@ -32,6 +33,7 @@ export function ConfirmDialog({
   confirmDisabled = false,
   tone = 'danger',
   onConfirm,
+  onError,
   finalFocus,
 }: ConfirmDialogProps) {
   const dialog = useDialogClose(onClose, open);
@@ -43,7 +45,8 @@ export function ConfirmDialog({
       await onConfirm();
       dialog.close();
     } catch (error) {
-      toastError(error);
+      if (onError) onError(error);
+      else toastError(error);
     } finally {
       setPending(false);
     }
