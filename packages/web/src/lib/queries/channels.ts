@@ -224,6 +224,31 @@ export function useUpdateChannelAgent(id: string) {
   return useMutation({
     mutationFn: (vars: { agentId: string; autoWakeOnAll: boolean }) =>
       api.updateChannelAgent(id, vars.agentId, { autoWakeOnAll: vars.autoWakeOnAll }),
+    onMutate: async (vars) => {
+      await client.cancelQueries({ queryKey: ['channel', id] });
+      const prev = client.getQueryData<ChannelDetail>(['channel', id]);
+      if (prev) {
+        client.setQueryData<ChannelDetail>(['channel', id], (old) =>
+          old
+            ? {
+                ...old,
+                agentBindings: old.agentBindings.map((b) =>
+                  b.agentId === vars.agentId
+                    ? { ...b, autoWakeOnAll: vars.autoWakeOnAll }
+                    : b,
+                ),
+              }
+            : old,
+        );
+      }
+      return { prev };
+    },
+    onError: (_error, _vars, ctx) => {
+      if (ctx?.prev !== undefined) {
+        client.setQueryData<ChannelDetail>(['channel', id], ctx.prev);
+      }
+      void client.invalidateQueries({ queryKey: ['channel', id] });
+    },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['channel', id] });
       void client.invalidateQueries({ queryKey: ['channels'] });
