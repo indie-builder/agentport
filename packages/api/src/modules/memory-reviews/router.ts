@@ -1,5 +1,5 @@
 import { memoryReviewsContract } from '@agentport/contract/memory-reviews';
-import { fail, isAppError, sha256Hex } from '@agentport/core';
+import { fail, isAppError, notFound, sha256Hex } from '@agentport/core';
 import { type Database, repo, schema } from '@agentport/db';
 import {
   DEFAULT_MEMORY_POLICY,
@@ -142,7 +142,7 @@ async function assertModelAgent(db: Database, agentId: string): Promise<void> {
     .from(schema.agents)
     .where(eq(schema.agents.id, agentId))
     .limit(1);
-  if (!agent) fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
+  if (!agent) notFound('agent');
   if (!agent.enabled) fail('AGENT_DISABLED', '该智能体已停用，无法执行记忆审核');
 }
 
@@ -331,7 +331,7 @@ export const memoryReviewsRouter = os.router({
     const loaded: Array<{ source: MemoryReviewSource; messages: SnapshotMessage[] }> = [];
     for (const source of input.body.sources) {
       const conversation = await repo.chat.getConversation(context.db, source.conversationId);
-      if (!conversation) fail('CONVERSATION_NOT_FOUND', '会话不存在，可能已被删除');
+      if (!conversation) notFound('conversation');
       await authorizeObject(
         context,
         'conversations.read',

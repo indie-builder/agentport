@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { notFound } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { grantDependencies, type PermissionId } from '@agentport/shared';
 import { authorize } from '../../http/access.js';
@@ -28,7 +28,7 @@ export async function authorizedAgent(
   permissionIds: PermissionId | PermissionId[],
 ): Promise<repo.agents.AgentRow> {
   const row = await repo.agents.getAgent(context.db, id);
-  if (!row) return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
+  if (!row) notFound('agent');
   await authorizeAgent(context, row, permissionIds);
   return row;
 }

@@ -78,7 +78,7 @@ describe.skipIf(!ready)('conversations', () => {
   });
 
   it('returns 404 for an unknown conversation', async () => {
-    expectProblem(await rename('conv_missing', { title: 'x' }), 'CONVERSATION_NOT_FOUND');
+    expectProblem(await rename('conv_missing', { title: 'x' }), 'NOT_FOUND', 'conversation');
   });
 
   it.each([
@@ -398,7 +398,7 @@ describe.skipIf(!ready)('conversations', () => {
   });
 
   it('returns 404 when deleting an unknown conversation', async () => {
-    expectProblem(await remove('conv_missing'), 'CONVERSATION_NOT_FOUND');
+    expectProblem(await remove('conv_missing'), 'NOT_FOUND', 'conversation');
   });
 
   it('deletes the conversation with its messages and runs', async () => {

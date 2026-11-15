@@ -513,7 +513,10 @@ describe.skipIf(!ready)('channel mentions', () => {
 
     const detail = await call('GET', `/api/conversations/${laneId}`, owner.cookie);
     expect(detail.statusCode, detail.body).toBe(404);
-    expect(detail.json<{ code: string }>().code).toBe('CONVERSATION_NOT_FOUND');
+    expect(detail.json<{ code: string; resource: string }>()).toMatchObject({
+      code: 'NOT_FOUND',
+      resource: 'conversation',
+    });
 
     const chat = await call('POST', '/api/chat', owner.cookie, {
       agentId: agent.id,
@@ -521,11 +524,17 @@ describe.skipIf(!ready)('channel mentions', () => {
       conversationId: laneId,
     });
     expect(chat.statusCode, chat.body).toBe(404);
-    expect(chat.json<{ code: string }>().code).toBe('CONVERSATION_NOT_FOUND');
+    expect(chat.json<{ code: string; resource: string }>()).toMatchObject({
+      code: 'NOT_FOUND',
+      resource: 'conversation',
+    });
 
     const cancel = await call('POST', `/api/chat/${run.id}/cancel`, owner.cookie);
     expect(cancel.statusCode, cancel.body).toBe(404);
-    expect(cancel.json<{ code: string }>().code).toBe('RUN_NOT_FOUND');
+    expect(cancel.json<{ code: string; resource: string }>()).toMatchObject({
+      code: 'NOT_FOUND',
+      resource: 'run',
+    });
   });
 
   it('retries the wake when the enqueue fails and keeps the channel message', async () => {

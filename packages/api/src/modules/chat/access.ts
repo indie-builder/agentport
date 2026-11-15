@@ -1,4 +1,4 @@
-import { AppError } from '@agentport/core';
+import { notFound } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { PermissionId } from '@agentport/shared';
 import { authorizeObject } from '../../http/access.js';
@@ -13,12 +13,13 @@ async function loadConversationFor(
   message: string = CONVERSATION_MISSING,
 ) {
   const conversation = await repo.chat.getConversation(context.db, id);
-  if (!conversation) throw new AppError('CONVERSATION_NOT_FOUND', message);
+  if (!conversation) notFound('conversation', message);
   await authorizeObject(
     context,
     permissionId,
     { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
     message,
+    'conversation',
   );
   return conversation;
 }

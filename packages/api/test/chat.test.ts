@@ -150,7 +150,7 @@ describe.skipIf(!ready)('chat', () => {
       headers: auth(),
       payload: { agentId: 'agt_missing', message: 'hi' },
     });
-    expectProblem(res, 'AGENT_NOT_FOUND');
+    expectProblem(res, 'NOT_FOUND', 'agent');
   });
 
   it('GET /api/chat/:runId/events returns 404 for an unknown run', async () => {
@@ -159,7 +159,7 @@ describe.skipIf(!ready)('chat', () => {
       url: '/api/chat/run_missing/events',
       headers: auth(),
     });
-    expectProblem(res, 'RUN_NOT_FOUND');
+    expectProblem(res, 'NOT_FOUND', 'run');
   });
 
   it('does not put conversation history in the queue job', async () => {
@@ -202,6 +202,7 @@ describe.skipIf(!ready)('chat', () => {
       agentId: agent.id,
       conversationId: firstBody.conversationId,
       prompt: 'and now?',
+      requestId: expect.any(String),
     });
   });
 

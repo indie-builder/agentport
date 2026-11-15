@@ -601,23 +601,27 @@ test('records agent audits and hides channel runs from non-members', { session: 
     `审计接口应返回智能体主体：${JSON.stringify(auditList.json.items)}`,
   );
 
-  const conversation = await apiJson<{ code: string }>(
+  const conversation = await apiJson<{ code: string; resource?: string }>(
     browser,
     'GET',
     `/api/conversations/${run.conversation_id}`,
   );
   assert(
-    conversation.status === 404 && conversation.json?.code === 'CONVERSATION_NOT_FOUND',
-    `频道会话不应从私有会话入口读取（实际 ${conversation.status} ${conversation.json?.code}）`,
+    conversation.status === 404 &&
+      conversation.json?.code === 'NOT_FOUND' &&
+      conversation.json?.resource === 'conversation',
+    `频道会话不应从私有会话入口读取（实际 ${conversation.status} ${conversation.json?.code} ${conversation.json?.resource}）`,
   );
-  const chat = await apiJson<{ code: string }>(browser, 'POST', '/api/chat', {
+  const chat = await apiJson<{ code: string; resource?: string }>(browser, 'POST', '/api/chat', {
     agentId: agent.id,
     conversationId: run.conversation_id,
     message: '管理员尝试从私有聊天入口进入频道会话',
   });
   assert(
-    chat.status === 404 && chat.json?.code === 'CONVERSATION_NOT_FOUND',
-    `频道会话不应从私有聊天入口进入（实际 ${chat.status} ${chat.json?.code}）`,
+    chat.status === 404 &&
+      chat.json?.code === 'NOT_FOUND' &&
+      chat.json?.resource === 'conversation',
+    `频道会话不应从私有聊天入口进入（实际 ${chat.status} ${chat.json?.code} ${chat.json?.resource}）`,
   );
 
   const outsider = await createAccount(browser, 'outsider');
@@ -627,13 +631,14 @@ test('records agent audits and hides channel runs from non-members', { session: 
     path: string;
     body?: unknown;
     code?: string;
+    resource?: string;
     message?: string;
   }> = [
     { method: 'GET', path: `/api/channels/${channel.id}` },
     { method: 'GET', path: `/api/channels/${channel.id}/messages` },
     { method: 'GET', path: `/api/channels/${channel.id}/runs` },
     { method: 'GET', path: `/api/channels/${channel.id}/runs/${run.id}` },
-    { method: 'GET', path: `/api/runs/${run.id}`, code: 'RUN_NOT_FOUND' },
+    { method: 'GET', path: `/api/runs/${run.id}`, code: 'NOT_FOUND', resource: 'run' },
     { method: 'GET', path: `/api/channels/${channel.id}/runs/${run.id}/outputs` },
     { method: 'GET', path: `/api/channels/${channel.id}/runs/${run.id}/questions` },
     {
@@ -654,7 +659,7 @@ test('records agent audits and hides channel runs from non-members', { session: 
     },
   ];
   for (const request of deniedRequests) {
-    const result = await apiJson<{ code: string; message: string }>(
+    const result = await apiJson<{ code: string; resource?: string; message: string }>(
       browser,
       request.method,
       request.path,
@@ -668,6 +673,12 @@ test('records agent audits and hides channel runs from non-members', { session: 
       result.json?.code === (request.code ?? 'NOT_FOUND'),
       `${request.method} ${request.path} 错误码应为 ${request.code ?? 'NOT_FOUND'}（实际 ${result.json?.code}）`,
     );
+    if (request.resource !== undefined) {
+      assert(
+        result.json?.resource === request.resource,
+        `${request.method} ${request.path} 资源应为 ${request.resource}（实际 ${result.json?.resource}）`,
+      );
+    }
     assert(
       !(result.json?.message ?? '').startsWith('Route '),
       `${request.method} ${request.path} 不应落到全局 404（实际 ${result.json?.message}）`,

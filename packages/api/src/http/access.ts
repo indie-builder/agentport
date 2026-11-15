@@ -1,4 +1,4 @@
-import { AppError, isAppError } from '@agentport/core';
+import { AppError, isAppError, type NotFoundResource } from '@agentport/core';
 import { repo } from '@agentport/db';
 import {
   type AccessFilter,
@@ -169,12 +169,17 @@ export async function authorizeObject(
   permissionId: PermissionId,
   resource: AccessResource,
   notFoundMessage: string,
+  notFoundResource?: NotFoundResource,
 ): Promise<void> {
   try {
     await authorize(context, permissionId, resource);
   } catch (error) {
     if (isAppError(error) && error.code === 'FORBIDDEN')
-      throw new AppError('NOT_FOUND', notFoundMessage);
+      throw new AppError(
+        'NOT_FOUND',
+        notFoundMessage,
+        notFoundResource === undefined ? {} : { resource: notFoundResource },
+      );
     throw error;
   }
 }

@@ -140,17 +140,17 @@ describe.skipIf(!ready)('subagent file download', () => {
 
   it('returns 404 for missing, foreign, root and unrendered child ids', async () => {
     // 子智能体不存在
-    expectProblem(await download(parent.id, 'agt_missing'), 'AGENT_NOT_FOUND');
+    expectProblem(await download(parent.id, 'agt_missing'), 'NOT_FOUND', 'agent');
     // 子智能体属于其他父智能体
-    expectProblem(await download(parent.id, foreignChild.id), 'AGENT_NOT_FOUND');
+    expectProblem(await download(parent.id, foreignChild.id), 'NOT_FOUND', 'agent');
     // childId 是父智能体自己
-    expectProblem(await download(parent.id, parent.id), 'AGENT_NOT_FOUND');
+    expectProblem(await download(parent.id, parent.id), 'NOT_FOUND', 'agent');
     // 存在但没有被这个父智能体绑定
-    expectProblem(await download(parent.id, standalone.id), 'AGENT_NOT_FOUND');
+    expectProblem(await download(parent.id, standalone.id), 'NOT_FOUND', 'agent');
     // 绑定了，但工作区渲染里没有该文件（已停用的子智能体）
-    expectProblem(await download(disabledParent.id, disabledChild.id), 'AGENT_NOT_FOUND');
+    expectProblem(await download(disabledParent.id, disabledChild.id), 'NOT_FOUND', 'agent');
     // 父智能体本身不存在
-    expectProblem(await download('agt_missing', child.id), 'AGENT_NOT_FOUND');
+    expectProblem(await download('agt_missing', child.id), 'NOT_FOUND', 'agent');
   });
 
   it('imports a single official child file with project memory and renders it back', async () => {

@@ -171,7 +171,7 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
 
   it('rejects unauthenticated and unknown runs', async () => {
     expectProblem(await exportRunTrajectory(unique('runs-export-run'), false), 'UNAUTHORIZED');
-    expectProblem(await exportRunTrajectory('run-does-not-exist'), 'RUN_NOT_FOUND');
+    expectProblem(await exportRunTrajectory('run-does-not-exist'), 'NOT_FOUND', 'run');
   });
 
   it('filters by agent and status exactly', async () => {

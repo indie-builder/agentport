@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { fail, notFound } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import {
   AGENT_PACKAGE_MAX_BYTES,
@@ -110,7 +110,7 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
       const context = requestContext(c);
       const { id } = idParams.parse(c.req.param());
       const row = await repo.agents.getAgent(context.db, id);
-      if (!row) fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重试');
+      if (!row) notFound('agent');
       for (const permissionId of [
         'agents.export',
         'agents.files.read',
@@ -161,11 +161,11 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
         repo.agents.getAgent(context.db, params.childId),
       ]);
       if (!parent || !child || child.parentId !== parent.id || child.id === parent.id)
-        fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
+        notFound('agent');
       await authorizeAgent(context, parent, ['agents.files.read', 'agents.config.read']);
       const files = await renderAgentWorkspace(context, parent.id);
       const rendered = files?.subAgents.find((subAgent) => subAgent.slug === child.slug);
-      if (!rendered) fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
+      if (!rendered) notFound('agent');
       return c.body(rendered.content, 200, {
         'content-type': 'text/markdown; charset=utf-8',
         'content-disposition': `attachment; filename="${child.slug}.md"`,

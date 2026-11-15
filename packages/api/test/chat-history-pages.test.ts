@@ -224,7 +224,8 @@ describe.skipIf(!ready)('chat history pagination', () => {
 
     expectProblem(
       await getPage('conv_missing', 'before=msg_missing_cursor'),
-      'CONVERSATION_NOT_FOUND',
+      'NOT_FOUND',
+      'conversation',
     );
   });
 

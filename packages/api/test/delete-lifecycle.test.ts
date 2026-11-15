@@ -405,7 +405,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     release();
     const deleted = await deletion;
     expect(deleted.statusCode, deleted.body).toBe(204);
-    expectProblem(await admission, 'CONVERSATION_NOT_FOUND');
+    expectProblem(await admission, 'NOT_FOUND', 'conversation');
     expect(await repo.chat.getConversation(app.db, conversationId)).toBeNull();
     expect(await exists(targetDir)).toBeNull();
   });
@@ -566,7 +566,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     ]);
     release();
 
-    expectProblem(await deletion, 'CONVERSATION_NOT_FOUND');
+    expectProblem(await deletion, 'NOT_FOUND', 'conversation');
     expect(await repo.chat.getConversation(app.db, conversationId)).not.toBeNull();
     expect(await exists(targetDir)).not.toBeNull();
   });

@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { fail, notFound } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
   ACTIVE_RUN_STATUSES,
@@ -41,7 +41,7 @@ import {
 
 export async function agentSlug(db: Database, agentId: string): Promise<string> {
   const slug = await repo.agents.findAgentSlug(db, agentId);
-  if (slug === null) fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
+  if (slug === null) notFound('agent');
   return slug;
 }
 

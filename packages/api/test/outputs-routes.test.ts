@@ -145,14 +145,20 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
       await get(`/api/conversations/${id}/outputs/run_x/download?path=a.md`, {}),
       'UNAUTHORIZED',
     );
-    expectProblem(await get('/api/conversations/conv_missing/outputs'), 'CONVERSATION_NOT_FOUND');
+    expectProblem(
+      await get('/api/conversations/conv_missing/outputs'),
+      'NOT_FOUND',
+      'conversation',
+    );
     expectProblem(
       await get('/api/conversations/conv_missing/outputs/run_x?path=a.md'),
-      'CONVERSATION_NOT_FOUND',
+      'NOT_FOUND',
+      'conversation',
     );
     expectProblem(
       await get('/api/conversations/conv_missing/outputs/run_x/content?path=a.md'),
-      'CONVERSATION_NOT_FOUND',
+      'NOT_FOUND',
+      'conversation',
     );
   });
 
@@ -267,7 +273,8 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     );
     expectProblem(
       await get('/api/conversations/conv_missing/outputs/run_scope?path=report.md'),
-      'CONVERSATION_NOT_FOUND',
+      'NOT_FOUND',
+      'conversation',
     );
   });
 
@@ -497,7 +504,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
         output: { runId: 'run_other', path: 'report.md' },
       },
     });
-    expectProblem(foreignConversation, 'CONVERSATION_NOT_FOUND');
+    expectProblem(foreignConversation, 'NOT_FOUND', 'conversation');
 
     const unknownFile = await request(app, {
       method: 'POST',

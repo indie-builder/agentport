@@ -168,7 +168,7 @@ describe.skipIf(!ready)('run question routes', () => {
       { requestId: 'req-1', runId, status: 'pending', answers: null },
     ]);
 
-    expectProblem(await list(unique('missing-run')), 'RUN_NOT_FOUND');
+    expectProblem(await list(unique('missing-run')), 'NOT_FOUND', 'run');
   });
 
   it('records an answer, is idempotent for the same answer, and rejects a different one', async () => {

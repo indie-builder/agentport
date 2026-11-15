@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { fail } from '@agentport/core';
+import { fail, notFound } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import {
   isActiveRunStatus,
@@ -43,7 +43,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
           .where(eq(schema.agents.slug, slug))
           .limit(1);
         const agent = rows[0];
-        if (!agent) fail('AGENT_NOT_FOUND', `agent ${slug} not found`);
+        if (!agent) notFound('agent', `agent ${slug} not found`);
         if (!agent.enabled) fail('AGENT_DISABLED', `agent ${slug} is disabled`);
         if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
           fail('SERVICE_UNAVAILABLE', 'run queue is full');
@@ -131,7 +131,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
           if (signal?.aborted) await cancelled();
           // 读状态失败时不猜：cancelAgentRun 可能在 DB 不可用时造出错误的终态。
           const current = await repo.chat.getRun(app.db, run.id);
-          if (!current) fail('RUN_NOT_FOUND', 'run disappeared');
+          if (!current) notFound('run', 'run disappeared');
           status = current.status;
           if (isTerminalRunStatus(status)) {
             if (status !== 'succeeded') {

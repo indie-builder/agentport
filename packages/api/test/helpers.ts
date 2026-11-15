@@ -435,10 +435,14 @@ export async function seedRun(
 }
 
 /** 断言响应体是完整 Problem，且 code 与 HTTP 状态一致。 */
-export function expectProblem(res: TestResponse, code: ErrorCode): Problem {
+export function expectProblem(res: TestResponse, code: ErrorCode, resource?: string): Problem {
   const body = problemSchema.parse(res.json());
   expect(res.statusCode).toBe(errorCode[code]);
-  expect(body).toMatchObject({ code, status: res.statusCode });
+  expect(body).toMatchObject({
+    code,
+    status: res.statusCode,
+    ...(resource === undefined ? {} : { resource }),
+  });
   return body;
 }
 

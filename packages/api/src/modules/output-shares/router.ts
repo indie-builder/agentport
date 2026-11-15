@@ -5,6 +5,7 @@ import {
   encryptSecrets,
   fail,
   isAppError,
+  notFound,
   readOutputFile,
   sha256Hex,
 } from '@agentport/core';
@@ -99,7 +100,7 @@ export async function resolveSharedFile(
 export const outputSharesRouter = os.router({
   create: os.create.handler(async ({ input, context }) => {
     const conversation = await repo.chat.getConversation(context.db, input.params.id);
-    if (!conversation) fail('CONVERSATION_NOT_FOUND', CONVERSATION_MISSING);
+    if (!conversation) notFound('conversation');
     await authorizeObject(
       context,
       'conversations.share',
@@ -166,7 +167,7 @@ export const outputSharesRouter = os.router({
 
   list: os.list.handler(async ({ input, context }) => {
     const conversation = await repo.chat.getConversation(context.db, input.params.id);
-    if (!conversation) fail('CONVERSATION_NOT_FOUND', CONVERSATION_MISSING);
+    if (!conversation) notFound('conversation');
     await authorizeObject(
       context,
       'conversations.share',

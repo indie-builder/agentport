@@ -203,11 +203,12 @@ describe.skipIf(!ready)('openui tools', () => {
     expectProblem(res, 'UNAUTHORIZED');
   });
 
-  it('returns CONVERSATION_NOT_FOUND for an unknown conversation', async () => {
+  it('returns NOT_FOUND for an unknown conversation', async () => {
     const { messageId } = await seedAgent();
     expectProblem(
       await callTool('conv_missing', 'mcp__x__y', { messageId }),
-      'CONVERSATION_NOT_FOUND',
+      'NOT_FOUND',
+      'conversation',
     );
   });
 
@@ -518,7 +519,8 @@ describe.skipIf(!ready)('openui tools', () => {
           url: `/api/chat/${conversationId}/openui/approvals/${approvalId}/approve`,
           headers: auth(),
         }),
-        'APPROVAL_NOT_FOUND',
+        'NOT_FOUND',
+        'approval',
       );
     }
   });

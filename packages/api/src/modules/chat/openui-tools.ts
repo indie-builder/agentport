@@ -1,5 +1,5 @@
 import { chatContract } from '@agentport/contract/chat';
-import { AppError, fail } from '@agentport/core';
+import { AppError, fail, notFound } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { OpenUiToolResult } from '@agentport/shared';
 import { openUiToolResultSchema } from '@agentport/shared';
@@ -247,10 +247,7 @@ export const chatToolsRouter = {
       approvalId,
     );
     if (!approved) {
-      return fail(
-        'APPROVAL_NOT_FOUND',
-        '没有这条待批准记录；它可能已批准或不属于该会话，请刷新后重试',
-      );
+      notFound('approval', '没有这条待批准记录；它可能已批准或不属于该会话，请刷新后重试');
     }
     await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),

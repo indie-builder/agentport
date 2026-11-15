@@ -195,7 +195,7 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
     });
     expect(res.status).toBe(404);
     expect(res.headers.get('content-type')).toContain('application/json');
-    expect(await res.json()).toMatchObject({ code: 'RUN_NOT_FOUND' });
+    expect(await res.json()).toMatchObject({ code: 'NOT_FOUND', resource: 'run' });
   });
 
   it('does not add a recovery marker when the terminal event was published', async () => {

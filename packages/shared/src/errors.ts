@@ -7,7 +7,7 @@ import { z } from 'zod';
  * 决定是否重试、按 `requestId` 关联日志。HTTP 状态码只表达类别，不表达原因。
  *
  * 哪些字段进 wire、哪些只进日志：
- * - 进 wire：code / message / status / requestId / retryable / path / errors
+ * - 进 wire：code / message / status / requestId / retryable / path / resource / resourceId / hint / errors
  * - 不进 wire：堆栈、SQL、上游响应体、内部标识。500 一律换成固定文案。
  */
 
@@ -39,12 +39,8 @@ export const errorCode = {
   UNSUPPORTED_MEDIA_TYPE: 415,
   RATE_LIMITED: 429,
   // 资源
-  AGENT_NOT_FOUND: 404,
   AGENT_DISABLED: 409,
-  CONVERSATION_NOT_FOUND: 404,
-  RUN_NOT_FOUND: 404,
   EVAL_RUN_IN_PROGRESS: 409,
-  APPROVAL_NOT_FOUND: 404,
   // 知识库 MCP：固定库与当前可读版本是读取边界
   BASE_MISMATCH: 400,
   BASE_DISABLED: 409,
@@ -72,6 +68,12 @@ export const problemSchema = z.object({
   retryable: z.boolean(),
   /** 出错字段的 JSON Pointer，例如 `/name`。只有校验类错误才有。 */
   path: z.string().optional(),
+  /** `NOT_FOUND` 的具体资源类别，例如 `agent`、`conversation`。 */
+  resource: z.string().optional(),
+  /** 出错资源的标识；仅在调用方持有且适合外发时带上。 */
+  resourceId: z.string().optional(),
+  /** 面向智能体/运维的排查建议（不面向终端用户）；按 code 若能给出默认值则填充。 */
+  hint: z.string().optional(),
   /** 字段级明细；批量导入等场景一次返回多条。 */
   errors: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
 });

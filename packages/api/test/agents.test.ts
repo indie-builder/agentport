@@ -529,7 +529,7 @@ describe.skipIf(!ready)('agents', () => {
       headers: auth(),
       payload: { name: 'x', expectedUpdatedAt: '2020-01-01T00:00:00.000Z' },
     });
-    expectProblem(res, 'AGENT_NOT_FOUND');
+    expectProblem(res, 'NOT_FOUND', 'agent');
   });
 
   it('PATCH validates slug and binding fields, including empty arrays', async () => {
@@ -572,7 +572,7 @@ describe.skipIf(!ready)('agents', () => {
         headers: auth(),
         payload,
       });
-      expectProblem(missing, 'AGENT_NOT_FOUND');
+      expectProblem(missing, 'NOT_FOUND', 'agent');
     }
   });
 
@@ -994,7 +994,7 @@ describe.skipIf(!ready)('agents', () => {
       payload: { slug: unique('dup-missing'), name: 'Missing source' },
     });
     expect(res.statusCode).toBe(404);
-    expectProblem(res, 'AGENT_NOT_FOUND');
+    expectProblem(res, 'NOT_FOUND', 'agent');
   });
 
   it('validates rule slugs at the route boundary and keeps database failures as 500s', async () => {

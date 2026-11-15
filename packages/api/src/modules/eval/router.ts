@@ -1,5 +1,5 @@
 import { evalContract } from '@agentport/contract/eval';
-import { fail } from '@agentport/core';
+import { fail, notFound } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
@@ -64,7 +64,7 @@ export const evalRouter = os.router({
       const businessId = requireUser(context).businessId;
       await authorizeRun(context, input.body.runId, 'runs.read');
       const detail = await repo.runs.getRunDetail(context.db, input.body.runId);
-      if (!detail) fail('RUN_NOT_FOUND', RUN_MISSING);
+      if (!detail) notFound('run', RUN_MISSING);
       const prompt = detail.steps.find((step) => step.kind === 'user')?.text;
       if (!prompt || !prompt.trim()) {
         fail('INVALID_INPUT', '该运行没有可用的用户输入，无法生成评估用例');

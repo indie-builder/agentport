@@ -196,14 +196,14 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       url: '/api/chat/run_missing/events',
       headers: auth(),
     });
-    expectProblem(events, 'RUN_NOT_FOUND');
+    expectProblem(events, 'NOT_FOUND', 'run');
 
     const cancel = await request(app, {
       method: 'POST',
       url: '/api/chat/run_missing/cancel',
       headers: auth(),
     });
-    expectProblem(cancel, 'RUN_NOT_FOUND');
+    expectProblem(cancel, 'NOT_FOUND', 'run');
 
     const approve = await request(app, {
       method: 'POST',
@@ -211,7 +211,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       headers: auth(),
       payload: { serverId: 'srv_missing', toolName: 'anything' },
     });
-    expectProblem(approve, 'RUN_NOT_FOUND');
+    expectProblem(approve, 'NOT_FOUND', 'run');
   });
 
   it('enqueueing the same jobId twice does not create a second run', async () => {
@@ -328,7 +328,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       headers: auth(),
       payload: { serverId: server.id, toolName: 'not-a-real-tool' },
     });
-    expectProblem(unknown, 'APPROVAL_NOT_FOUND');
+    expectProblem(unknown, 'NOT_FOUND', 'approval');
 
     const unchanged = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from approval_requests where run_id = $1',

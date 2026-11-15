@@ -158,9 +158,13 @@ export function grants(...values: [PermissionId, AccessScope][]): PermissionGran
   return values.map(([permissionId, scope]) => ({ permissionId, scope }));
 }
 
-export function expectProblem(res: TestResponse, code: ErrorCode): Problem {
+export function expectProblem(res: TestResponse, code: ErrorCode, resource?: string): Problem {
   const body = problemSchema.parse(res.json());
   expect(res.statusCode).toBe(errorCode[code]);
-  expect(body).toMatchObject({ code, status: res.statusCode });
+  expect(body).toMatchObject({
+    code,
+    status: res.statusCode,
+    ...(resource === undefined ? {} : { resource }),
+  });
   return body;
 }

@@ -1,5 +1,5 @@
 import { runsContract } from '@agentport/contract/runs';
-import { buildSkillDraft, fail } from '@agentport/core';
+import { buildSkillDraft, fail, notFound } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { runStatusSchema, runTriggerSchema } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -35,7 +35,7 @@ const runsMainRouter = {
   detail: os.detail.handler(async ({ input, context }) => {
     await authorizeRun(context, input.params.id, 'runs.read');
     const detail = await runsRepo.getRunDetail(context.db, input.params.id);
-    if (!detail) return fail('RUN_NOT_FOUND', RUN_MISSING);
+    if (!detail) notFound('run', RUN_MISSING);
     return {
       run: {
         ...detail.run,
@@ -73,10 +73,7 @@ const runsMainRouter = {
     await authorizeRun(context, input.params.id, 'runs.approve');
     const approved = await runsRepo.approveTool(context.db, input.params.id, serverId, toolName);
     if (!approved) {
-      return fail(
-        'APPROVAL_NOT_FOUND',
-        '这次工具调用没有待批准记录；它可能已批准或已失效，请刷新后重试',
-      );
+      notFound('approval', '这次工具调用没有待批准记录；它可能已批准或已失效，请刷新后重试');
     }
     await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
@@ -104,8 +101,8 @@ const runsMainRouter = {
       actorOf(context),
     );
     if (!denied) {
-      return fail(
-        'APPROVAL_NOT_FOUND',
+      notFound(
+        'approval',
         '这次工具调用没有待处理记录；它可能已批准、已拒绝或已失效，请刷新后重试',
       );
     }
@@ -215,7 +212,7 @@ export function registerRunExportHttp(app: Hono<HttpEnv>): void {
       const id = c.req.param('id');
       await authorizeRun(context, id, 'runs.export');
       const detail = await runsRepo.getRunDetail(context.db, id);
-      if (!detail) return fail('RUN_NOT_FOUND', RUN_MISSING);
+      if (!detail) notFound('run', RUN_MISSING);
       const body = JSON.stringify({
         format: 'agentport/run-trajectory@1',
         exportedAt: new Date().toISOString(),
