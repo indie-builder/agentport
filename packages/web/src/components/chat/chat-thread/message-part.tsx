@@ -180,7 +180,9 @@ export const MessagePart = memo(function MessagePart({
               ? 'text-success'
               : item.tone === 'error'
                 ? 'text-danger'
-                : 'text-muted-foreground'
+                : item.tone === 'warning'
+                  ? 'text-warning'
+                  : 'text-muted-foreground'
           }
         >
           <MarkerIcon className="flex items-center justify-center">
@@ -191,7 +193,9 @@ export const MessagePart = memo(function MessagePart({
                   ? 'bg-success'
                   : item.tone === 'error'
                     ? 'bg-danger'
-                    : 'bg-subtle',
+                    : item.tone === 'warning'
+                      ? 'bg-warning'
+                      : 'bg-subtle',
               )}
               aria-hidden="true"
             />

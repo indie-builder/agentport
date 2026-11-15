@@ -720,7 +720,7 @@ describe('runner task wiring', () => {
 
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: 'error',
+        type: 'run_warning',
         message: expect.stringContaining('Path not found: /x'),
       }),
     );

@@ -85,7 +85,7 @@ export type ChatItem =
        */
       todoSeq?: number;
     }
-  | { id?: string; kind: 'notice'; text: string; tone: 'ok' | 'error' | 'muted' };
+  | { id?: string; kind: 'notice'; text: string; tone: 'ok' | 'error' | 'warning' | 'muted' };
 
 /**
  * 事件流没有 isError 字段，沙盒只丢了文本。已知错误文案只能按前缀识别。
@@ -302,6 +302,8 @@ export function applyEvent(items: ChatItem[], event: ChatEvent): ChatItem[] {
           ? { ...item, endedAt: Date.now() }
           : item,
       );
+    case 'run_warning':
+      return [...items, { kind: 'notice', tone: 'warning', text: event.message }];
     case 'error':
       // 流可能仍然活着：只记录，不当作终态。
       return [...items, { kind: 'notice', tone: 'error', text: event.message }];
