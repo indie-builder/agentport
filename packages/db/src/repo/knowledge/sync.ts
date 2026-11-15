@@ -7,7 +7,7 @@ import {
   knowledgeSyncItems,
   knowledgeSyncRuns,
 } from '../../schema.js';
-import { paginate } from '../keyset.js';
+import { keysetBefore, paginate } from '../keyset.js';
 import {
   type KnowledgeJobRow,
   type KnowledgeSyncItemRow,
@@ -85,9 +85,7 @@ export async function listSyncRuns(
   const limit = pageLimit(options);
   const filters: SQL[] = [eq(knowledgeSyncRuns.sourceId, sourceId)];
   if (options.cursor) {
-    filters.push(sql`(${knowledgeSyncRuns.createdAt}, ${knowledgeSyncRuns.id}) < (
-      select b.created_at, b.id from ${knowledgeSyncRuns} b where b.id = ${options.cursor}
-    )`);
+    filters.push(keysetBefore(knowledgeSyncRuns, options.cursor));
   }
   const rows = await db
     .select()
@@ -135,9 +133,7 @@ export async function listSyncItems(
   const filters: SQL[] = [eq(knowledgeSyncItems.syncRunId, syncRunId)];
   if (filter.status) filters.push(eq(knowledgeSyncItems.status, filter.status));
   if (filter.cursor) {
-    filters.push(sql`(${knowledgeSyncItems.createdAt}, ${knowledgeSyncItems.id}) < (
-      select b.created_at, b.id from ${knowledgeSyncItems} b where b.id = ${filter.cursor}
-    )`);
+    filters.push(keysetBefore(knowledgeSyncItems, filter.cursor));
   }
   const rows = await db
     .select()

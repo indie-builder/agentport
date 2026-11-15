@@ -8,7 +8,7 @@ import {
   knowledgeSourceRanges,
   knowledgeSources,
 } from '../../schema.js';
-import { paginate } from '../keyset.js';
+import { keysetBefore, paginate } from '../keyset.js';
 import {
   type KnowledgeDocumentRow,
   type KnowledgeSourceRangeRow,
@@ -113,9 +113,7 @@ export async function listSources(
   const limit = pageLimit(options);
   const filters: SQL[] = [eq(knowledgeSources.baseId, baseId)];
   if (options.cursor) {
-    filters.push(sql`(${knowledgeSources.createdAt}, ${knowledgeSources.id}) < (
-      select b.created_at, b.id from ${knowledgeSources} b where b.id = ${options.cursor}
-    )`);
+    filters.push(keysetBefore(knowledgeSources, options.cursor));
   }
   const rows = await db
     .select()

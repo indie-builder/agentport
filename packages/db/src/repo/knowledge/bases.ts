@@ -4,7 +4,7 @@ import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
 import type { Database } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeBasePins, knowledgeBases, knowledgeModelProfiles } from '../../schema.js';
-import { paginate } from '../keyset.js';
+import { keysetBefore, paginate } from '../keyset.js';
 import {
   type KnowledgeBaseRow,
   type KnowledgeJobRow,
@@ -70,9 +70,7 @@ export async function listBases(
   const limit = pageLimit(options);
   const filters: SQL[] = [];
   if (options.cursor) {
-    filters.push(sql`(${knowledgeBases.createdAt}, ${knowledgeBases.id}) < (
-      select b.created_at, b.id from ${knowledgeBases} b where b.id = ${options.cursor}
-    )`);
+    filters.push(keysetBefore(knowledgeBases, options.cursor));
   }
   const rows = await db
     .select()

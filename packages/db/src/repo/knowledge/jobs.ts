@@ -8,7 +8,7 @@ import {
   knowledgeSources,
   knowledgeSyncRuns,
 } from '../../schema.js';
-import { paginate } from '../keyset.js';
+import { keysetBefore, paginate } from '../keyset.js';
 import {
   type KnowledgeJobRow,
   type KnowledgeSyncRunRow,
@@ -72,9 +72,7 @@ export async function listJobs(db: Database, filter: ListJobsFilter = {}) {
   if (filter.documentId) filters.push(eq(knowledgeJobs.documentId, filter.documentId));
   if (filter.status) filters.push(eq(knowledgeJobs.status, filter.status));
   if (filter.cursor) {
-    filters.push(sql`(${knowledgeJobs.createdAt}, ${knowledgeJobs.id}) < (
-      select b.created_at, b.id from ${knowledgeJobs} b where b.id = ${filter.cursor}
-    )`);
+    filters.push(keysetBefore(knowledgeJobs, filter.cursor));
   }
   const rows = await db
     .select({
