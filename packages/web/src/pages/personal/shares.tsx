@@ -1,7 +1,7 @@
 import type { PersonalOutputShare } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { RefreshCw } from 'lucide-react';
+import { FileText, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
@@ -17,14 +17,18 @@ import {
 } from '../../components/page.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card.js';
+import { Card, CardContent } from '../../components/ui/card.js';
 import { FieldError } from '../../components/ui/field.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { errorMessage } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { formatDateTime } from '../../lib/format.js';
-import { meQuery, usePersonalOutputShares, useRevokePersonalOutputShare } from '../../lib/queries.js';
+import {
+  meQuery,
+  usePersonalOutputShares,
+  useRevokePersonalOutputShare,
+} from '../../lib/queries.js';
 import { toastSuccess } from '../../lib/toast.js';
 
 function shareLink(share: PersonalOutputShare): string {
@@ -137,26 +141,25 @@ function ShareCard({
 }) {
   return (
     <Card size="sm" className="h-full">
-      <CardHeader>
-        <CardTitle className="min-w-0">
+      <CardContent className="flex flex-1 flex-col gap-3">
+        <div className="flex items-start gap-2">
+          <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <ShareFile share={share} />
-        </CardTitle>
+        </div>
         <span className="text-xs text-muted-foreground" title={share.createdAt}>
           分享于 {formatDateTime(share.createdAt)}
         </span>
-      </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-1">
-        <span className="text-xs text-muted-foreground">来源会话</span>
-        <ShareSourceCell share={share} canOpenConversation={canOpenConversation} />
-      </CardContent>
-      <CardFooter className="justify-end">
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-xs text-muted-foreground">来源会话</span>
+          <ShareSourceCell share={share} canOpenConversation={canOpenConversation} />
+        </div>
         <ShareActions
           share={share}
           revokePending={revokePending}
           onRevoke={onRevoke}
-          className="flex-wrap justify-end gap-y-1"
+          className="mt-auto flex-wrap justify-end gap-y-1"
         />
-      </CardFooter>
+      </CardContent>
     </Card>
   );
 }

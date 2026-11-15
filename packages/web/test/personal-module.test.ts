@@ -544,9 +544,12 @@ describe('使用记录', () => {
       me: meWith(['overview.read']),
     });
     await vi.waitFor(() => expect(host.textContent).toContain('已记录成本'));
-    expect(host.textContent).toContain('$0.0500 · 3 次中 2 次已记录');
-    expect(host.textContent).toContain('1 次运行未记录成本');
-    expect(host.textContent).toContain('1,200 输入 / 300 输出');
+    expect(host.textContent).toContain('成功率');
+    expect(host.textContent).toContain('33%');
+    expect(host.textContent).toContain('$0.0500');
+    expect(host.textContent).toContain('2 次已记录 · 1 次未记录');
+    expect(host.textContent).toContain('1,200');
+    expect(host.textContent).toContain('300');
     expect(runs).not.toHaveBeenCalled();
     expect(host.textContent).not.toContain('运行 ID');
   });

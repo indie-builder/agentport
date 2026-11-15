@@ -16,6 +16,7 @@ import { useEditStateNotify } from '../../lib/use-edit-state-notify.js';
 import { ConfirmDialog } from '../confirm-dialog.js';
 import { Markdown } from '../markdown.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../motion-collapsible.js';
+import { PageSection } from '../page.js';
 import { SourceEditor } from '../source-editor.js';
 import { ErrorState, LoadingState } from '../states.js';
 import { Button, buttonVariants } from '../ui/button.js';
@@ -164,7 +165,7 @@ export function PersonalMemoryPanel({
   const versionCount = versions.data?.items.length ?? 0;
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-6">
       {memory.isError ? (
         <ErrorState error={memory.error} onRetry={() => void memory.refetch()} />
       ) : null}
@@ -337,90 +338,94 @@ export function PersonalMemoryPanel({
         )}
       </section>
 
-      <Collapsible open={versionsOpen} onOpenChange={setVersionsOpen}>
-        <CollapsibleTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="sm"
-              className="justify-start px-0"
-              aria-label="版本历史"
+      <PageSection>
+        <Collapsible open={versionsOpen} onOpenChange={setVersionsOpen}>
+          <CollapsibleTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="justify-start px-0"
+                aria-label="版本历史"
+              />
+            }
+          >
+            <ChevronRight
+              className={cn(
+                'transition-transform duration-150 ease-out-soft',
+                versionsOpen && 'rotate-90',
+              )}
+              aria-hidden="true"
             />
-          }
-        >
-          <ChevronRight
-            className={cn(
-              'transition-transform duration-150 ease-out-soft',
-              versionsOpen && 'rotate-90',
-            )}
-            aria-hidden="true"
-          />
-          版本历史{versionCount > 0 ? `（${versionCount}）` : ''}
-        </CollapsibleTrigger>
-        <CollapsibleContent animated>
-          <aside aria-label="个人记忆版本" className="flex min-w-0 flex-col gap-2 pt-2">
-            {versions.isPending ? <LoadingState rows={3} /> : null}
-            {versions.isError ? (
-              <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
-            ) : null}
-            {versions.data ? (
-              versions.data.items.length === 0 ? (
-                <p className="text-sm text-muted-foreground">保存后会记录版本。</p>
-              ) : (
-                <ul className="divide-y border-y">
-                  {versions.data.items.map((change) => {
-                    const preview = change.after.content?.trim().split('\n')[0] ?? '';
-                    return (
-                      <li key={change.id} className="flex items-start gap-2 py-2.5">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm text-fg">{formatDateTime(change.createdAt)}</div>
-                          <div
-                            className="truncate text-xs text-muted-foreground"
-                            title={change.after.content ?? ''}
-                          >
-                            {preview || '空内容'}
+            版本历史{versionCount > 0 ? `（${versionCount}）` : ''}
+          </CollapsibleTrigger>
+          <CollapsibleContent animated>
+            <aside aria-label="个人记忆版本" className="flex min-w-0 flex-col gap-2 pt-2">
+              {versions.isPending ? <LoadingState rows={3} /> : null}
+              {versions.isError ? (
+                <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
+              ) : null}
+              {versions.data ? (
+                versions.data.items.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">保存后会记录版本。</p>
+                ) : (
+                  <ul className="divide-y border-y">
+                    {versions.data.items.map((change) => {
+                      const preview = change.after.content?.trim().split('\n')[0] ?? '';
+                      return (
+                        <li key={change.id} className="flex items-start gap-2 py-2.5">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm text-fg">
+                              {formatDateTime(change.createdAt)}
+                            </div>
+                            <div
+                              className="truncate text-xs text-muted-foreground"
+                              title={change.after.content ?? ''}
+                            >
+                              {preview || '空内容'}
+                            </div>
+                            {change.reversesChangeId ? (
+                              <div className="text-xs text-muted-foreground">回滚记录</div>
+                            ) : null}
                           </div>
-                          {change.reversesChangeId ? (
-                            <div className="text-xs text-muted-foreground">回滚记录</div>
-                          ) : null}
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={pending || dirty || !canWrite}
-                          title={
-                            !canWrite
-                              ? '没有修改个人记忆的权限'
-                              : dirty
-                                ? '先保存或放弃当前草稿再回滚'
-                                : undefined
-                          }
-                          aria-label={`回滚 ${formatDateTime(change.createdAt)} 的保存`}
-                          onClick={() => {
-                            setRollbackError(null);
-                            setRollbackTarget(change);
-                          }}
-                        >
-                          <RotateCcw data-icon="inline-start" aria-hidden="true" />
-                          回滚
-                        </Button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )
-            ) : null}
-            {rollbackError ? (
-              <div role="alert" className="text-sm text-danger">
-                {rollbackError}
-                <Button variant="link" size="sm" onClick={requestReload}>
-                  重新加载
-                </Button>
-              </div>
-            ) : null}
-          </aside>
-        </CollapsibleContent>
-      </Collapsible>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={pending || dirty || !canWrite}
+                            title={
+                              !canWrite
+                                ? '没有修改个人记忆的权限'
+                                : dirty
+                                  ? '先保存或放弃当前草稿再回滚'
+                                  : undefined
+                            }
+                            aria-label={`回滚 ${formatDateTime(change.createdAt)} 的保存`}
+                            onClick={() => {
+                              setRollbackError(null);
+                              setRollbackTarget(change);
+                            }}
+                          >
+                            <RotateCcw data-icon="inline-start" aria-hidden="true" />
+                            回滚
+                          </Button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )
+              ) : null}
+              {rollbackError ? (
+                <div role="alert" className="text-sm text-danger">
+                  {rollbackError}
+                  <Button variant="link" size="sm" onClick={requestReload}>
+                    重新加载
+                  </Button>
+                </div>
+              ) : null}
+            </aside>
+          </CollapsibleContent>
+        </Collapsible>
+      </PageSection>
 
       <ConfirmDialog
         open={reloadOpen}

@@ -34,6 +34,7 @@ export function DialogShell({
     if (!el) return;
     const update = () => setBodyScrolls(el.scrollHeight > el.clientHeight + 1);
     update();
+    if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(update);
     observer.observe(el);
     if (el.firstElementChild) observer.observe(el.firstElementChild);

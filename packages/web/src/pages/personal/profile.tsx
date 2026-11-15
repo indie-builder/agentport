@@ -10,7 +10,13 @@ import {
 } from '../../components/motion-collapsible.js';
 import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
 import { Button } from '../../components/ui/button.js';
-import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
+import {
+  Field,
+  FieldContent,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
 import { authenticated } from '../../lib/access.js';
 import { errorMessage } from '../../lib/api.js';
@@ -41,6 +47,12 @@ export function PersonalProfilePage() {
 
   if (!user) return null;
 
+  const initial = (
+    Array.from(user.user.name.trim())[0] ??
+    Array.from(user.user.username)[0] ??
+    ''
+  ).toUpperCase();
+
   const submit = handleSubmit(async (values) => {
     setFormError(null);
     try {
@@ -59,7 +71,24 @@ export function PersonalProfilePage() {
       </PageTopbar>
 
       <PageBody>
-        <PageSection title="身份" divided={false} className="w-full gap-3">
+        <PageSection divided={false} className="w-full">
+          <div className="flex min-w-0 items-center gap-4">
+            <div
+              aria-hidden="true"
+              className="flex size-12 shrink-0 items-center justify-center rounded-full bg-sunken text-lg font-medium text-fg"
+            >
+              {initial}
+            </div>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <p className="min-w-0 truncate text-base font-medium text-fg">{user.user.name}</p>
+              <p className="min-w-0 break-words text-sm text-muted-foreground">
+                @{user.user.username} · {user.roles.map((role) => role.name).join('、') || '无角色'}
+              </p>
+            </div>
+          </div>
+        </PageSection>
+
+        <PageSection title="基本资料" className="w-full gap-3">
           <form
             aria-label="个人资料"
             noValidate
@@ -95,14 +124,6 @@ export function PersonalProfilePage() {
                 </div>
               </Field>
             </FieldGroup>
-            <dl className={`${IDENTITY_GRID} gap-y-2 text-sm`}>
-              <dt className="text-muted-foreground">用户名</dt>
-              <dd className="min-w-0 break-words text-fg">{user.user.username}</dd>
-              <dt className="text-muted-foreground">角色</dt>
-              <dd className="min-w-0 break-words text-fg">
-                {user.roles.map((role) => role.name).join('、') || '无角色'}
-              </dd>
-            </dl>
             <div className="ml-28 flex max-w-112 justify-end gap-2">
               <Button
                 type="button"
