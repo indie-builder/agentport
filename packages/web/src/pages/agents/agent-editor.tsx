@@ -86,7 +86,7 @@ import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { Textarea } from '../../components/ui/textarea.js';
 import { Toggle } from '../../components/ui/toggle.js';
 import { can, hasAnyGrant } from '../../lib/access.js';
-import { ApiError, api } from '../../lib/api.js';
+import { ApiError, api, errorMessage } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
 import { cn } from '../../lib/cn.js';
 import {
@@ -266,6 +266,7 @@ export function AgentEditor({
   const [baseline, setBaseline] = useState(agent);
   const [conflict, setConflict] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
+  const [reloadError, setReloadError] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
@@ -392,8 +393,7 @@ export function AgentEditor({
       const latest = await api.agent(baseline.id);
       loadDraft(latest);
       setConfirmReload(false);
-    } catch (error) {
-      toastError(error);
+      setReloadError(null);
     } finally {
       setReloading(false);
     }
@@ -862,7 +862,10 @@ export function AgentEditor({
             variant="outline"
             size="sm"
             disabled={pending}
-            onClick={() => setConfirmReload(true)}
+            onClick={() => {
+              setConfirmReload(true);
+              setReloadError(null);
+            }}
           >
             加载最新配置
           </Button>
@@ -871,7 +874,10 @@ export function AgentEditor({
       <ConfirmDialog
         open={confirmReload}
         onClose={() => {
-          if (!pending) setConfirmReload(false);
+          if (!pending) {
+            setConfirmReload(false);
+            setReloadError(null);
+          }
         }}
         title="放弃草稿并加载最新配置？"
         description="当前未保存的更改会丢失。加载失败时会保留当前草稿。"
@@ -880,7 +886,10 @@ export function AgentEditor({
         onConfirm={async () => {
           if (!pending) await reload();
         }}
-      />
+        onError={(error) => setReloadError(errorMessage(error))}
+      >
+        {reloadError ? <FieldError>{reloadError}</FieldError> : null}
+      </ConfirmDialog>
       <ConfirmDialog
         open={confirmCancel}
         onClose={() => {
