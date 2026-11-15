@@ -48,6 +48,7 @@ export function PersonalMemoryPanel({
   const [savedNotice, setSavedNotice] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [reloadOpen, setReloadOpen] = useState(false);
+  const [reloadError, setReloadError] = useState<string | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [rollbackTarget, setRollbackTarget] = useState<MemoryChange | null>(null);
   const [rollbackError, setRollbackError] = useState<string | null>(null);
@@ -112,18 +113,26 @@ export function PersonalMemoryPanel({
   };
 
   const reload = async (): Promise<void> => {
+    const [memoryResult, versionsResult] = await Promise.all([
+      memory.refetch(),
+      versions.refetch(),
+    ]);
+    if (memoryResult.isError || versionsResult.isError) {
+      throw memoryResult.error ?? versionsResult.error ?? new Error('重新加载失败');
+    }
     setDraft(null);
     setDraftBaseline(null);
     setConflict(false);
-    setReloadOpen(false);
     setRollbackError(null);
-    await memory.refetch();
-    await versions.refetch();
+    setReloadOpen(false);
+    setReloadError(null);
   };
 
   const requestReload = (): void => {
-    if (dirty) setReloadOpen(true);
-    else void reload();
+    if (dirty) {
+      setReloadOpen(true);
+      setReloadError(null);
+    } else void reload().catch((error) => toastError(error));
   };
 
   const rollbackTo = async (change: MemoryChange): Promise<void> => {
@@ -415,12 +424,18 @@ export function PersonalMemoryPanel({
 
       <ConfirmDialog
         open={reloadOpen}
-        onClose={() => setReloadOpen(false)}
+        onClose={() => {
+          setReloadOpen(false);
+          setReloadError(null);
+        }}
         title="重新加载并放弃草稿？"
-        description="服务器上的个人记忆已在别处更新。重新加载会放弃当前草稿。"
+        description="服务器上的个人记忆已在别处更新。重新加载会放弃当前草稿。加载失败时会保留当前草稿。"
         confirmLabel="放弃并重新加载"
         onConfirm={reload}
-      />
+        onError={(error) => setReloadError(errorMessage(error))}
+      >
+        {reloadError ? <FieldError>{reloadError}</FieldError> : null}
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={cancelOpen}
