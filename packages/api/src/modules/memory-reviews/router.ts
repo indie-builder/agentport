@@ -446,24 +446,28 @@ export const memoryReviewsRouter = os.router({
   }),
 
   list: os.list.handler(async ({ input, context }) => {
-    const details = await repo.memoryReviews.listForUser(
-      context.db,
-      requireUser(context).businessId,
-      {
-        limit: input.query.limit,
-        ...(input.query.conversationId === undefined
-          ? {}
-          : { conversationId: input.query.conversationId }),
-        ...(input.query.agentId === undefined ? {} : { agentId: input.query.agentId }),
-        ...(input.query.before === undefined ? {} : { before: new Date(input.query.before) }),
-      },
-    );
+    const limit = input.query.limit;
+    const before = input.query.cursor === undefined ? undefined : new Date(input.query.cursor);
+    if (before !== undefined && Number.isNaN(before.getTime())) {
+      fail('INVALID_INPUT', '游标无效，请刷新后重试');
+    }
+    const rows = await repo.memoryReviews.listForUser(context.db, requireUser(context).businessId, {
+      limit: limit + 1,
+      ...(input.query.conversationId === undefined
+        ? {}
+        : { conversationId: input.query.conversationId }),
+      ...(input.query.agentId === undefined ? {} : { agentId: input.query.agentId }),
+      ...(before === undefined ? {} : { before }),
+    });
     const items = await Promise.all(
-      details.map(async (detail) =>
-        toReview(detail, await sourceSummaries(context.db, detail.sources)),
-      ),
+      rows
+        .slice(0, limit)
+        .map(async (detail) => toReview(detail, await sourceSummaries(context.db, detail.sources))),
     );
-    return { items };
+    return {
+      items,
+      nextCursor: rows.length > limit ? (items.at(-1)?.createdAt ?? null) : null,
+    };
   }),
 
   detail: os.detail.handler(async ({ input, context }) => {

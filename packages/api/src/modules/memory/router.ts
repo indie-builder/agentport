@@ -14,14 +14,24 @@ const os = implement(memoryContract).$context<RequestContext>();
 
 const MISSING_AGENT = '智能体不存在，可能已被删除；请刷新后重新选择';
 
+function cursorDate(cursor: string | undefined): Date | undefined {
+  if (cursor === undefined) return undefined;
+  const at = new Date(cursor);
+  if (Number.isNaN(at.getTime())) fail('INVALID_INPUT', '游标无效，请刷新后重试');
+  return at;
+}
+
 function listVersions(
   context: RequestContext,
-  options: Omit<repo.memoryChanges.ListMemoryChangesOptions, 'before'> & { before?: string },
+  options: Omit<repo.memoryChanges.ListMemoryChangesOptions, 'before'> & {
+    cursor?: string | undefined;
+  },
 ) {
-  const { before, ...rest } = options;
+  const { cursor, ...rest } = options;
+  const before = cursorDate(cursor);
   return repo.memoryChanges.listFiltered(context.db, {
     ...rest,
-    ...(before === undefined ? {} : { before: new Date(before) }),
+    ...(before === undefined ? {} : { before }),
   });
 }
 
@@ -43,11 +53,17 @@ export const memoryRouter = os.router({
     return saved;
   }),
   personalVersions: os.personalVersions.handler(async ({ input, context }) => {
-    const items = await listPersonalMemoryVersions(context.db, requireUser(context).businessId, {
-      ...(input.query.before === undefined ? {} : { before: input.query.before }),
-      limit: input.query.limit,
+    const limit = input.query.limit;
+    const before = cursorDate(input.query.cursor);
+    const rows = await listPersonalMemoryVersions(context.db, requireUser(context).businessId, {
+      ...(before === undefined ? {} : { before }),
+      limit: limit + 1,
     });
-    return { items };
+    const items = rows.slice(0, limit);
+    return {
+      items,
+      nextCursor: rows.length > limit ? (items.at(-1)?.createdAt ?? null) : null,
+    };
   }),
   agentFileVersions: os.agentFileVersions.handler(async ({ input, context }) => {
     await authorizeObject(
@@ -57,15 +73,20 @@ export const memoryRouter = os.router({
       '智能体不存在，可能已被删除；请刷新后重新选择',
     );
     await agentSlug(context.db, input.params.id);
+    const limit = input.query.limit;
     const rows = await listVersions(context, {
       agentId: input.params.id,
       kind: 'agent_memory',
       name: input.params.name,
       includeIndexChanges: input.params.name === INDEX_FILE_NAME,
-      limit: input.query.limit,
-      ...(input.query.before === undefined ? {} : { before: input.query.before }),
+      limit: limit + 1,
+      ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
     });
-    return { items: rows.map((row) => repo.memoryChanges.toMemoryChange(row)) };
+    const items = rows.slice(0, limit).map((row) => repo.memoryChanges.toMemoryChange(row));
+    return {
+      items,
+      nextCursor: rows.length > limit ? (items.at(-1)?.createdAt ?? null) : null,
+    };
   }),
   agentRuleVersions: os.agentRuleVersions.handler(async ({ input, context }) => {
     await authorizeObject(
@@ -75,14 +96,19 @@ export const memoryRouter = os.router({
       '智能体不存在，可能已被删除；请刷新后重新选择',
     );
     await agentSlug(context.db, input.params.id);
+    const limit = input.query.limit;
     const rows = await listVersions(context, {
       agentId: input.params.id,
       kind: 'agent_rule',
       slug: input.params.slug,
-      limit: input.query.limit,
-      ...(input.query.before === undefined ? {} : { before: input.query.before }),
+      limit: limit + 1,
+      ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
     });
-    return { items: rows.map((row) => repo.memoryChanges.toMemoryChange(row)) };
+    const items = rows.slice(0, limit).map((row) => repo.memoryChanges.toMemoryChange(row));
+    return {
+      items,
+      nextCursor: rows.length > limit ? (items.at(-1)?.createdAt ?? null) : null,
+    };
   }),
   agentMemoryOverview: os.agentMemoryOverview.handler(async ({ input, context }) => {
     await authorizeObject(

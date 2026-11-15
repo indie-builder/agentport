@@ -293,7 +293,7 @@ beforeEach(() => {
     revision: 0,
     updatedAt: null,
   });
-  vi.spyOn(api, 'personalMemoryVersions').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'personalMemoryVersions').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'personalConversations').mockResolvedValue([
     {
       id: 'conv-1',
@@ -312,9 +312,9 @@ beforeEach(() => {
     ],
     initialized: true,
   });
-  vi.spyOn(api, 'agentMemoryVersions').mockResolvedValue({ items: [] });
-  vi.spyOn(api, 'agentRuleVersions').mockResolvedValue({ items: [] });
-  vi.spyOn(api, 'memoryReviews').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'agentMemoryVersions').mockResolvedValue({ items: [], nextCursor: null });
+  vi.spyOn(api, 'agentRuleVersions').mockResolvedValue({ items: [], nextCursor: null });
+  vi.spyOn(api, 'memoryReviews').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'createMemoryReview').mockResolvedValue({ runId: 'run-new' });
   vi.spyOn(api, 'applyMemoryReview').mockResolvedValue(change);
   vi.spyOn(api, 'rejectMemoryReview').mockImplementation(async (runId) => ({
@@ -364,6 +364,7 @@ describe('记忆提案', () => {
         makeReview({ runId: 'run-c', status: 'cancelled', proposal: null }),
         makeReview({ runId: 'run-t', status: 'timeout', proposal: null }),
       ],
+      nextCursor: null,
     });
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('专家甲 / no-console'));
@@ -396,6 +397,7 @@ describe('记忆提案', () => {
           proposal: { summary: '记录部署约定', proposedContent: 'y', evidence: [] },
         }),
       ],
+      nextCursor: null,
     });
     const router = await mount('/personal/reviews?stage=pending');
     await vi.waitFor(() => expect(host.textContent).toContain('补充长期偏好'));
@@ -450,6 +452,7 @@ describe('记忆提案', () => {
           before: { content: '同内容', globs: null, index: null },
         }),
       ],
+      nextCursor: null,
     });
     const router = await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('当前已加载 4 条'));
@@ -669,6 +672,7 @@ describe('记忆提案', () => {
           },
         }),
       ],
+      nextCursor: null,
     });
     await mount();
     const dialog = await openFirstDetail();
@@ -690,6 +694,7 @@ describe('记忆提案', () => {
           appliedChangeId: 'chg_1',
         }),
       ],
+      nextCursor: null,
     });
     await mount();
     const dialog = await openFirstDetail();
@@ -711,6 +716,7 @@ describe('记忆提案', () => {
             })
           : makeReview({ runId: 'run-apply' }),
       ],
+      nextCursor: null,
     }));
     vi.mocked(api.applyMemoryReview).mockImplementation(async () => {
       applied = true;
@@ -736,6 +742,7 @@ describe('记忆提案', () => {
   it('采用冲突显示目标已被修改并保留重新生成', async () => {
     vi.mocked(api.memoryReviews).mockResolvedValue({
       items: [makeReview({ runId: 'run-conflict' })],
+      nextCursor: null,
     });
     vi.mocked(api.applyMemoryReview).mockRejectedValue(
       new ApiError(409, '审核目标的版本已过期', { code: 'CONFLICT_STALE' }),
@@ -755,6 +762,7 @@ describe('记忆提案', () => {
           ? makeReview({ runId: 'run-reject', decision: 'rejected' })
           : makeReview({ runId: 'run-reject' }),
       ],
+      nextCursor: null,
     }));
     vi.mocked(api.rejectMemoryReview).mockImplementation(async (runId) => {
       rejected = true;
@@ -779,6 +787,7 @@ describe('记忆提案', () => {
           proposal: { summary: '没有需要改的内容', proposedContent: null, evidence: [] },
         }),
       ],
+      nextCursor: null,
     });
     await mount();
     const dialog = await openFirstDetail();
@@ -813,6 +822,7 @@ describe('记忆提案', () => {
   it('同一输入重试复用同一幂等键，修改输入后才换键', async () => {
     vi.mocked(api.memoryReviews).mockResolvedValue({
       items: [makeReview({ runId: 'run-key' })],
+      nextCursor: null,
     });
     vi.mocked(api.createMemoryReview)
       .mockRejectedValueOnce(new Error('连不上 API 服务'))
@@ -1032,6 +1042,7 @@ describe('记忆提案', () => {
   it('详情操作提交中禁用关闭、Esc 与外部点击', async () => {
     vi.mocked(api.memoryReviews).mockResolvedValue({
       items: [makeReview({ runId: 'run-pending' })],
+      nextCursor: null,
     });
     let resolve!: (value: MemoryChange) => void;
     vi.mocked(api.applyMemoryReview).mockReturnValue(
@@ -1057,6 +1068,7 @@ describe('记忆提案', () => {
   it('在途操作时来源会话链接不离开，结算后正常导航到结构化会话地址', async () => {
     vi.mocked(api.memoryReviews).mockResolvedValue({
       items: [makeReview({ runId: 'run-pending' })],
+      nextCursor: null,
     });
     let resolve!: (value: MemoryChange) => void;
     vi.mocked(api.applyMemoryReview).mockReturnValue(
@@ -1087,6 +1099,7 @@ describe('记忆提案', () => {
   it('详情操作失败原因在关闭并重新打开后仍保留', async () => {
     vi.mocked(api.memoryReviews).mockResolvedValue({
       items: [makeReview({ runId: 'run-error' })],
+      nextCursor: null,
     });
     vi.mocked(api.applyMemoryReview).mockRejectedValue(new Error('网络中断，请重试'));
     await mount();
@@ -1112,6 +1125,7 @@ describe('记忆提案', () => {
           appliedChangeId: 'chg_1',
         }),
       ],
+      nextCursor: null,
     });
     vi.mocked(api.personalMemoryVersions).mockImplementation(async () => ({
       items: rolledBack
@@ -1125,6 +1139,7 @@ describe('记忆提案', () => {
             },
           ]
         : [],
+      nextCursor: null,
     }));
     vi.mocked(api.rollbackMemoryChange).mockImplementation(async () => {
       rolledBack = true;
@@ -1169,6 +1184,7 @@ describe('记忆提案', () => {
         makeReview({ runId: 'run-rejected', decision: 'rejected' }),
         makeReview({ runId: 'run-rolled', decision: 'applied', appliedChangeId: 'chg-rolled' }),
       ],
+      nextCursor: null,
     });
     vi.mocked(api.personalMemoryVersions).mockResolvedValue({
       items: [
@@ -1180,6 +1196,7 @@ describe('记忆提案', () => {
           after: { content: 'y', globs: null, index: null },
         },
       ],
+      nextCursor: null,
     });
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('已回滚'));
@@ -1237,6 +1254,7 @@ describe('记忆提案', () => {
   it('生成中可以取消运行', async () => {
     vi.mocked(api.memoryReviews).mockResolvedValue({
       items: [makeReview({ runId: 'run-cancel', status: 'running', proposal: null })],
+      nextCursor: null,
     });
     await mount();
     await openFirstDetail();
@@ -1247,6 +1265,7 @@ describe('记忆提案', () => {
   it('关闭详情后焦点回到触发按钮', async () => {
     vi.mocked(api.memoryReviews).mockResolvedValue({
       items: [makeReview({ runId: 'run-focus' })],
+      nextCursor: null,
     });
     await mount();
     const trigger = button('查看');
@@ -1339,6 +1358,7 @@ describe('记忆提案', () => {
           target: { kind: 'agent_memory', agentId: 'agent-b', name: 'topic.md' },
         }),
       ],
+      nextCursor: null,
     });
     await mount();
     const detail = await openFirstDetail();
@@ -1382,6 +1402,7 @@ describe('记忆提案', () => {
           },
         }),
       ],
+      nextCursor: null,
     });
     await mount();
     const dialog = await openFirstDetail();
@@ -1408,6 +1429,7 @@ describe('记忆提案', () => {
           proposal: { summary: '无需修改', proposedContent: '同正文', evidence: [] },
         }),
       ],
+      nextCursor: null,
     });
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('无需变更'));
@@ -1432,6 +1454,7 @@ describe('记忆提案', () => {
           target: { kind: 'agent_memory', agentId: 'agent-a', name: 'topic.md' },
         }),
       ],
+      nextCursor: null,
     });
     await mount();
     client.setQueryData(['agent-memory-file', 'agent-a', 'topic.md'], {
@@ -1460,6 +1483,7 @@ describe('记忆提案', () => {
   it('采纳在途时阻止来源链接与浏览器后退，结算后恢复导航', async () => {
     vi.mocked(api.memoryReviews).mockResolvedValue({
       items: [makeReview({ runId: 'run-hang' })],
+      nextCursor: null,
     });
     let resolve!: (value: MemoryChange) => void;
     vi.mocked(api.applyMemoryReview).mockReturnValue(
@@ -1539,6 +1563,7 @@ describe('记忆提案', () => {
           appliedChangeId: 'chg_1',
         }),
       ],
+      nextCursor: null,
     });
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('专家甲 / no-console'));

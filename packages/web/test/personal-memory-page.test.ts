@@ -255,7 +255,7 @@ beforeEach(() => {
   client.setQueryData(['agents'], []);
   vi.spyOn(api, 'me').mockResolvedValue(allAccessMe);
   vi.spyOn(api, 'personalMemory').mockResolvedValue(memory);
-  vi.spyOn(api, 'personalMemoryVersions').mockResolvedValue({ items: [change] });
+  vi.spyOn(api, 'personalMemoryVersions').mockResolvedValue({ items: [change], nextCursor: null });
   vi.spyOn(api, 'writePersonalMemory').mockResolvedValue({
     content: '新偏好',
     revision: 3,
@@ -269,7 +269,7 @@ beforeEach(() => {
     before: change.after,
     reversesChangeId: change.id,
   });
-  vi.spyOn(api, 'memoryReviews').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'memoryReviews').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'agents').mockResolvedValue([]);
   vi.spyOn(api, 'conversations').mockResolvedValue([]);
   vi.spyOn(api, 'agentRules').mockResolvedValue([]);
@@ -451,6 +451,7 @@ describe('个人记忆页', () => {
     let saved = false;
     vi.mocked(api.personalMemoryVersions).mockImplementation(async () => ({
       items: saved ? [savedChange] : [],
+      nextCursor: null,
     }));
     vi.mocked(api.writePersonalMemory).mockImplementation(async () => {
       saved = true;
@@ -574,6 +575,7 @@ describe('个人记忆页', () => {
     );
     vi.mocked(api.personalMemoryVersions).mockImplementation(async () => ({
       items: rolledBack ? [rollbackChange, change] : [change],
+      nextCursor: null,
     }));
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('旧偏好'));

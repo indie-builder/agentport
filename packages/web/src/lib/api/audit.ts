@@ -15,14 +15,15 @@ export interface AuditQuery {
   actorKind?: AuditEntry['actorKind'];
   since?: string;
   limit?: number;
-  /** ISO 时间戳；与 beforeId 相互独立，由调用方自行选择。 */
+  /** ISO 时间戳；与 cursor 相互独立，由调用方自行选择。 */
   before?: string;
   /** 上一页最后一条的 id；同毫秒并列时用 id 继续翻页。 */
-  beforeId?: string;
+  cursor?: string;
 }
 
 export interface AuditList {
   items: AuditEntry[];
+  nextCursor: string | null;
 }
 
 export default {

@@ -145,11 +145,8 @@ export async function writePersonalMemory(input: {
 export async function listPersonalMemoryVersions(
   db: Database,
   businessId: string,
-  options: { before?: string; limit: number },
+  options: { before?: Date; limit: number },
 ): Promise<MemoryChange[]> {
-  const rows = await repo.memoryChanges.listPersonalByUser(db, businessId, {
-    ...(options.before === undefined ? {} : { before: new Date(options.before) }),
-    limit: options.limit,
-  });
+  const rows = await repo.memoryChanges.listPersonalByUser(db, businessId, options);
   return rows.map((row) => repo.memoryChanges.toMemoryChange(row));
 }

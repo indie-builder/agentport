@@ -40,8 +40,8 @@ function entry(id: string, patch: Partial<AuditEntry> = {}): AuditEntry {
   };
 }
 
-function page(items: AuditEntry[]): AuditList {
-  return { items };
+function page(items: AuditEntry[], nextCursor: string | null = null): AuditList {
+  return { items, nextCursor };
 }
 
 let root: Root;
@@ -410,9 +410,9 @@ describe('audit row details', () => {
       entry(`e${index}`, index === 0 ? { actor: 'first-page', inputDigest: DIGEST } : {}),
     );
     vi.spyOn(api, 'audit').mockImplementation(async (query) =>
-      query.beforeId === 'e99'
+      query.cursor === 'e99'
         ? page([entry('new_row', { actor: 'new-user', inputDigest: 'feed'.repeat(8) })])
-        : page(first),
+        : page(first, 'e99'),
     );
     await mount();
     await waitFor(() => expect(toggle('e0')).not.toBeUndefined());
@@ -421,10 +421,7 @@ describe('audit row details', () => {
 
     await act(async () => loadMore().click());
     await waitFor(() =>
-      expect(api.audit).toHaveBeenLastCalledWith(
-        { limit: 100, beforeId: 'e99' },
-        expect.anything(),
-      ),
+      expect(api.audit).toHaveBeenLastCalledWith({ limit: 100, cursor: 'e99' }, expect.anything()),
     );
     await waitFor(() => expect(toggle('new_row')).not.toBeUndefined());
 

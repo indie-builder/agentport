@@ -247,7 +247,10 @@ beforeEach(() => {
   useChatStore.getState().reset();
   vi.spyOn(api, 'agentMemory').mockResolvedValue(memoryList);
   vi.spyOn(api, 'agentMemoryFile').mockResolvedValue(memoryFile);
-  vi.spyOn(api, 'agentMemoryVersions').mockResolvedValue({ items: [memoryChange] });
+  vi.spyOn(api, 'agentMemoryVersions').mockResolvedValue({
+    items: [memoryChange],
+    nextCursor: null,
+  });
   vi.spyOn(api, 'agentMemoryOverview').mockResolvedValue({
     policy: {
       enabled: true,

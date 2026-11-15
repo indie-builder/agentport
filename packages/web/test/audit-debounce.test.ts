@@ -91,7 +91,7 @@ function exportButton(): HTMLButtonElement {
 beforeEach(() => {
   vi.useFakeTimers();
   router.search = {};
-  mocks.audit.mockReset().mockResolvedValue({ items: [entry('e1')] });
+  mocks.audit.mockReset().mockResolvedValue({ items: [entry('e1')], nextCursor: null });
   mocks.exportAudit.mockReset().mockResolvedValue({ items: [] });
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 0 } },
@@ -168,10 +168,13 @@ describe('audit filter debounce', () => {
   });
 
   it('resets pagination when the settled filter changes', async () => {
-    mocks.audit.mockImplementation(async (query: { beforeId?: string; action?: string }) => {
-      if (query.beforeId) return { items: [entry('older')] };
-      if (query.action) return { items: [entry('filtered')] };
-      return { items: Array.from({ length: 100 }, (_, index) => entry(`e${index}`)) };
+    mocks.audit.mockImplementation(async (query: { cursor?: string; action?: string }) => {
+      if (query.cursor) return { items: [entry('older')], nextCursor: null };
+      if (query.action) return { items: [entry('filtered')], nextCursor: null };
+      return {
+        items: Array.from({ length: 100 }, (_, index) => entry(`e${index}`)),
+        nextCursor: 'e99',
+      };
     });
     await act(async () => {
       root.render(createElement(QueryClientProvider, { client }, createElement(Harness)));
@@ -185,10 +188,7 @@ describe('audit filter debounce', () => {
     if (!loadMore) throw new Error('missing load more button');
     await act(async () => loadMore.click());
     await flush();
-    expect(mocks.audit).toHaveBeenLastCalledWith(
-      { limit: 100, beforeId: 'e99' },
-      expect.anything(),
-    );
+    expect(mocks.audit).toHaveBeenLastCalledWith({ limit: 100, cursor: 'e99' }, expect.anything());
 
     await type('按动作前缀过滤', 'agent.');
     await act(async () => {

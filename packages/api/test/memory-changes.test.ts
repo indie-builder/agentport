@@ -214,7 +214,7 @@ describe.skipIf(!ready)('memory changes', () => {
       url: `/api/agents/${agent.id}/memory/NOTES.md/versions`,
       headers: auth(),
     });
-    expect(otherFile.json()).toEqual({ items: [] });
+    expect(otherFile.json()).toEqual({ items: [], nextCursor: null });
 
     const reversed = await rollback(changeId);
     expect(reversed.statusCode, reversed.body).toBe(200);
@@ -515,9 +515,12 @@ describe.skipIf(!ready)('memory changes', () => {
       headers: auth(),
     });
     expect(memoryVersions.statusCode, memoryVersions.body).toBe(200);
-    const memoryItems = memoryVersions.json<{
+    const memoryBody = memoryVersions.json<{
       items: Array<{ id: string; before: unknown; after: unknown; state: string }>;
-    }>().items;
+      nextCursor: string | null;
+    }>();
+    expect(memoryBody.nextCursor).toBeNull();
+    const memoryItems = memoryBody.items;
     expect(memoryItems).toMatchObject([
       {
         before: { content: null, globs: null, index: null },
@@ -594,11 +597,27 @@ describe.skipIf(!ready)('memory changes', () => {
       headers: auth(),
     });
     expect(themeVersions.statusCode, themeVersions.body).toBe(200);
-    expect(themeVersions.json<{ items: Array<{ target: unknown }> }>().items).toEqual([
-      expect.objectContaining({
-        target: { kind: 'agent_memory', agentId: agent.id, name: 'deploy.md' },
+    expect(
+      themeVersions.json<{
+        items: Array<{ target: unknown }>;
+        nextCursor: string | null;
+      }>(),
+    ).toEqual({
+      items: [
+        expect.objectContaining({
+          target: { kind: 'agent_memory', agentId: agent.id, name: 'deploy.md' },
+        }),
+      ],
+      nextCursor: null,
+    });
+    expectProblem(
+      await request(app, {
+        method: 'GET',
+        url: `/api/agents/${agent.id}/memory/deploy.md/versions?cursor=not-a-date`,
+        headers: auth(),
       }),
-    ]);
+      'INVALID_INPUT',
+    );
     const indexVersions = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/memory/MEMORY.md/versions`,
@@ -610,6 +629,35 @@ describe.skipIf(!ready)('memory changes', () => {
         .items.map((item) => item.target.name)
         .sort(),
     ).toEqual(['deploy.md', 'ops.md']);
+
+    await app.client.unsafe(
+      `update memory_changes set created_at = case target->>'name'
+         when 'ops.md' then '2026-01-01T00:00:02Z'::timestamptz
+         else '2026-01-01T00:00:01Z'::timestamptz end
+       where agent_id = $1 and target->>'name' in ('ops.md', 'deploy.md')`,
+      [agent.id],
+    );
+    const firstIndexPage = await request(app, {
+      method: 'GET',
+      url: `/api/agents/${agent.id}/memory/MEMORY.md/versions?limit=1`,
+      headers: auth(),
+    });
+    const firstIndexBody = firstIndexPage.json<{
+      items: Array<{ target: { name: string } }>;
+      nextCursor: string | null;
+    }>();
+    expect(firstIndexBody.items.map((item) => item.target.name)).toEqual(['ops.md']);
+    expect(firstIndexBody.nextCursor).toBe('2026-01-01T00:00:02.000Z');
+
+    const secondIndexPage = await request(app, {
+      method: 'GET',
+      url: `/api/agents/${agent.id}/memory/MEMORY.md/versions?limit=1&cursor=${encodeURIComponent(firstIndexBody.nextCursor ?? '')}`,
+      headers: auth(),
+    });
+    expect(secondIndexPage.json()).toMatchObject({
+      items: [{ target: { kind: 'agent_memory', agentId: agent.id, name: 'deploy.md' } }],
+      nextCursor: null,
+    });
   });
 
   it('keeps the index unchanged when deleting a theme and records both snapshots', async () => {

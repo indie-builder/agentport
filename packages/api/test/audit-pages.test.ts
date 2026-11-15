@@ -21,9 +21,11 @@ interface AuditItem {
 
 interface ItemBody {
   items: AuditItem[];
+  nextCursor: string | null;
 }
 
-interface ExportBody extends ItemBody {
+interface ExportBody {
+  items: AuditItem[];
   format: string;
   exportedAt: string;
 }
@@ -58,10 +60,10 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
   const exportAudit = (query = '') =>
     request(app, { method: 'GET', url: `/api/audit/export${query}`, headers: { cookie } });
 
-  async function page(query: string): Promise<AuditItem[]> {
+  async function page(query: string): Promise<ItemBody> {
     const res = await list(query);
     expect(res.statusCode, res.body).toBe(200);
-    return res.json<ItemBody>().items;
+    return res.json<ItemBody>();
   }
 
   /** 真实连接直通 spy：只统计发往 audit_log 的 SELECT，不改变数据库行为。 */
@@ -115,7 +117,7 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     );
   }
 
-  const cursor = (id: string) => `&beforeId=${encodeURIComponent(id)}`;
+  const cursor = (id: string) => `&cursor=${encodeURIComponent(id)}`;
   const targetQuery = (target: string) => `?target=${encodeURIComponent(target)}`;
 
   it('pages 125 rows that share one timestamp without overlap', async () => {
@@ -131,18 +133,22 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     );
 
     const first = await page(`${targetQuery(target)}&limit=100`);
-    expect(first).toHaveLength(100);
-    expect(first[0]?.id).toBe(ids[124]);
-    expect(first.at(-1)?.id).toBe(ids[25]);
+    expect(first.items).toHaveLength(100);
+    expect(first.items[0]?.id).toBe(ids[124]);
+    expect(first.items.at(-1)?.id).toBe(ids[25]);
+    expect(first.nextCursor).toBe(ids[25]);
 
-    const second = await page(`${targetQuery(target)}&limit=100${cursor(first.at(-1)?.id ?? '')}`);
-    expect(second).toHaveLength(25);
-    expect(second.map((row) => row.id)).toEqual(ids.slice(0, 25).reverse());
+    const second = await page(`${targetQuery(target)}&limit=100${cursor(first.nextCursor ?? '')}`);
+    expect(second.items).toHaveLength(25);
+    expect(second.nextCursor).toBeNull();
+    expect(second.items.map((row) => row.id)).toEqual(ids.slice(0, 25).reverse());
 
-    const third = await page(`${targetQuery(target)}&limit=100${cursor(second.at(-1)?.id ?? '')}`);
-    expect(third).toEqual([]);
+    const third = await page(
+      `${targetQuery(target)}&limit=100${cursor(second.items.at(-1)?.id ?? '')}`,
+    );
+    expect(third).toEqual({ items: [], nextCursor: null });
 
-    const all = [...first, ...second];
+    const all = [...first.items, ...second.items];
     expect(all.map((row) => row.id)).toEqual([...ids].reverse());
     expect(new Set(all.map((row) => row.id)).size).toBe(125);
   });
@@ -159,8 +165,9 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     );
 
     const first = await page(`${targetQuery(target)}&limit=2`);
-    const before = first.at(-1)?.id ?? '';
+    const before = first.items.at(-1)?.id ?? '';
     expect(before).toBe(`${prefix}-2`);
+    expect(first.nextCursor).toBe(before);
 
     const listSelects = await countAuditSelects(async () => {
       const res = await list(`${targetQuery(target)}&limit=2${cursor(before)}`);
@@ -195,12 +202,12 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
 
     const unknown = `audit-missing-${unique('cursor')}`;
     const unknownListSelects = await countAuditSelects(async () => {
-      expectProblem(await list(`?beforeId=${encodeURIComponent(unknown)}`), 'INVALID_INPUT');
+      expectProblem(await list(`?cursor=${encodeURIComponent(unknown)}`), 'INVALID_INPUT');
     });
     expect(unknownListSelects).toBe(2);
 
     const unknownExportSelects = await countAuditSelects(async () => {
-      expectProblem(await exportAudit(`?beforeId=${encodeURIComponent(unknown)}`), 'INVALID_INPUT');
+      expectProblem(await exportAudit(`?cursor=${encodeURIComponent(unknown)}`), 'INVALID_INPUT');
     });
     expect(unknownExportSelects).toBe(2);
 
@@ -233,17 +240,21 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     expect(new Set(expected.map((row) => row.ts)).size).toBe(125);
 
     const first = await page(`${targetQuery(target)}&limit=100`);
-    expect(first).toHaveLength(100);
-    expect(first.map((row) => row.id)).toEqual(expected.slice(0, 100).map((row) => row.id));
+    expect(first.items).toHaveLength(100);
+    expect(first.items.map((row) => row.id)).toEqual(expected.slice(0, 100).map((row) => row.id));
+    expect(first.nextCursor).toBe(expected[99]?.id);
 
-    const second = await page(`${targetQuery(target)}&limit=100${cursor(first.at(-1)?.id ?? '')}`);
-    expect(second).toHaveLength(25);
-    expect(second.map((row) => row.id)).toEqual(expected.slice(100).map((row) => row.id));
+    const second = await page(`${targetQuery(target)}&limit=100${cursor(first.nextCursor ?? '')}`);
+    expect(second.items).toHaveLength(25);
+    expect(second.items.map((row) => row.id)).toEqual(expected.slice(100).map((row) => row.id));
+    expect(second.nextCursor).toBeNull();
 
-    const third = await page(`${targetQuery(target)}&limit=100${cursor(second.at(-1)?.id ?? '')}`);
-    expect(third).toEqual([]);
+    const third = await page(
+      `${targetQuery(target)}&limit=100${cursor(second.items.at(-1)?.id ?? '')}`,
+    );
+    expect(third).toEqual({ items: [], nextCursor: null });
 
-    const all = [...first, ...second];
+    const all = [...first.items, ...second.items];
     expect(all.map((row) => row.id)).toEqual(expected.map((row) => row.id));
     expect(new Set(all.map((row) => row.id)).size).toBe(125);
     // wire 上仍是毫秒 ISO：时间戳游标无法区分这些行，记录游标必须读库内真实值。
@@ -273,36 +284,44 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     );
 
     const targetRows = await page(`${targetQuery(target)}&limit=4`);
-    expect(targetRows.map((row) => row.id)).toEqual(
+    expect(targetRows.items.map((row) => row.id)).toEqual(
       ['012', '011', '010', '009'].map((n) => `${prefix}-${n}`),
     );
+    expect(targetRows.nextCursor).toBe(`${prefix}-009`);
     const targetNext = await page(
-      `${targetQuery(target)}&limit=4${cursor(targetRows.at(-1)?.id ?? '')}`,
+      `${targetQuery(target)}&limit=4${cursor(targetRows.nextCursor ?? '')}`,
     );
-    expect(targetNext).toHaveLength(4);
-    expect(targetNext.every((row) => row.target === target)).toBe(true);
+    expect(targetNext.items).toHaveLength(4);
+    expect(targetNext.items.every((row) => row.target === target)).toBe(true);
+
+    expect((await page(`${targetQuery(target)}&limit=12`)).nextCursor).toBeNull();
+    expect((await page(`${targetQuery(target)}&limit=11`)).nextCursor).toBe(`${prefix}-002`);
 
     const actionFirst = await page(`${targetQuery(target)}&action=audit.page.alpha&limit=3`);
-    expect(actionFirst.map((row) => row.action)).toEqual(Array(3).fill('audit.page.alpha'));
+    expect(actionFirst.items.map((row) => row.action)).toEqual(Array(3).fill('audit.page.alpha'));
     const actionNext = await page(
-      `${targetQuery(target)}&action=audit.page.alpha&limit=10${cursor(actionFirst.at(-1)?.id ?? '')}`,
+      `${targetQuery(target)}&action=audit.page.alpha&limit=10${cursor(actionFirst.nextCursor ?? '')}`,
     );
-    expect(actionNext.map((row) => row.id)).toEqual(
+    expect(actionNext.items.map((row) => row.id)).toEqual(
       ['005', '003', '001'].map((n) => `${prefix}-${n}`),
     );
 
     const statusFirst = await page(`${targetQuery(target)}&status=error&limit=2`);
-    expect(statusFirst.map((row) => row.id)).toEqual(['012', '009'].map((n) => `${prefix}-${n}`));
-    const statusNext = await page(
-      `${targetQuery(target)}&status=error&limit=10${cursor(statusFirst.at(-1)?.id ?? '')}`,
+    expect(statusFirst.items.map((row) => row.id)).toEqual(
+      ['012', '009'].map((n) => `${prefix}-${n}`),
     );
-    expect(statusNext.map((row) => row.id)).toEqual(['006', '003'].map((n) => `${prefix}-${n}`));
+    const statusNext = await page(
+      `${targetQuery(target)}&status=error&limit=10${cursor(statusFirst.nextCursor ?? '')}`,
+    );
+    expect(statusNext.items.map((row) => row.id)).toEqual(
+      ['006', '003'].map((n) => `${prefix}-${n}`),
+    );
 
-    // before（时间范围）与 beforeId（位置）同时生效，取交集。
+    // before（时间范围）与 cursor（位置）同时生效，取交集。
     const both = await page(
       `${targetQuery(target)}&before=2026-02-01T00:00:08.000Z${cursor(`${prefix}-010`)}`,
     );
-    expect(both.map((row) => row.id)).toEqual(
+    expect(both.items.map((row) => row.id)).toEqual(
       ['007', '006', '005', '004', '003', '002', '001'].map((n) => `${prefix}-${n}`),
     );
 
@@ -310,7 +329,7 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     const outside = await page(
       `${targetQuery(target)}&action=audit.page.beta&limit=10${cursor(`${prefix}-012`)}`,
     );
-    expect(outside.map((row) => row.id)).toEqual(
+    expect(outside.items.map((row) => row.id)).toEqual(
       ['010', '008', '006', '004', '002'].map((n) => `${prefix}-${n}`),
     );
   });
@@ -318,17 +337,17 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
   it('rejects unknown, blank and oversized cursors without echoing them', async () => {
     const unknown = `audit-missing-${unique('cursor')}`;
     for (const res of [
-      await list(`?beforeId=${encodeURIComponent(unknown)}`),
-      await exportAudit(`?beforeId=${encodeURIComponent(unknown)}`),
+      await list(`?cursor=${encodeURIComponent(unknown)}`),
+      await exportAudit(`?cursor=${encodeURIComponent(unknown)}`),
     ]) {
       const body = expectProblem(res, 'INVALID_INPUT');
       expect(body.message).toBe('分页游标无效');
       expect(body.message).not.toContain(unknown);
     }
 
-    expectProblem(await list('?beforeId='), 'INVALID_INPUT');
-    expectProblem(await list('?beforeId=%20'), 'INVALID_INPUT');
-    expectProblem(await list(`?beforeId=${'a'.repeat(201)}`), 'INVALID_INPUT');
+    expectProblem(await list('?cursor='), 'INVALID_INPUT');
+    expectProblem(await list('?cursor=%20'), 'INVALID_INPUT');
+    expectProblem(await list(`?cursor=${'a'.repeat(201)}`), 'INVALID_INPUT');
   });
 
   it('keeps the list and export limits unchanged', async () => {
@@ -336,7 +355,7 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     expectProblem(await exportAudit('?limit=1001'), 'INVALID_INPUT');
   });
 
-  it('applies beforeId to export without changing its envelope or oversize guard', async () => {
+  it('applies cursor to export without changing its envelope or oversize guard', async () => {
     const target = unique('target');
     const prefix = unique('audit-export-page');
     await seed(
@@ -351,8 +370,10 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     );
 
     const first = await page(`${targetQuery(target)}&limit=3`);
-    expect(first.map((row) => row.id)).toEqual(['008', '007', '006'].map((n) => `${prefix}-${n}`));
-    const before = first.at(-1)?.id ?? '';
+    expect(first.items.map((row) => row.id)).toEqual(
+      ['008', '007', '006'].map((n) => `${prefix}-${n}`),
+    );
+    const before = first.nextCursor ?? '';
 
     const res = await exportAudit(`${targetQuery(target)}${cursor(before)}`);
     expect(res.statusCode, res.body).toBe(200);
