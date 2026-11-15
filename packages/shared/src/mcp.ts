@@ -79,7 +79,7 @@ export function generatedMcpEntry(
 ) {
   return {
     type: 'http' as const,
-    url: `${input.apiUrl}/mcp/${input.serverId}`,
+    url: `${input.apiUrl.replace(/\/$/, '')}/mcp/${input.serverId}`,
     headers: {
       ...headers,
       Authorization: `Bearer ${input.runToken}`,
