@@ -134,6 +134,7 @@ const review: MemoryReview = {
   target: { kind: 'personal' },
   status: 'succeeded',
   decision: 'pending',
+  createdAt: '2026-09-01T00:00:00.000Z',
   sources: [{ conversationId: 'conv-1', title: '季度总结', messageCount: 4 }],
   before: { content: '旧内容', globs: null, index: null },
   proposal: {

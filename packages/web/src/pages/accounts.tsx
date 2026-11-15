@@ -224,13 +224,15 @@ export function AccountsPage() {
           <Table aria-label="账户列表">
             <TableHeader>
               <TableRow>
-                <TableHead>业务 ID</TableHead>
-                <TableHead>姓名</TableHead>
-                <TableHead>用户名</TableHead>
-                <TableHead>角色</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>创建时间</TableHead>
-                <TableHead className="text-right">操作</TableHead>
+                <TableHead scope="col">业务 ID</TableHead>
+                <TableHead scope="col">姓名</TableHead>
+                <TableHead scope="col">用户名</TableHead>
+                <TableHead scope="col">角色</TableHead>
+                <TableHead scope="col">状态</TableHead>
+                <TableHead scope="col">创建时间</TableHead>
+                <TableHead scope="col" className="text-right">
+                  操作
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -462,7 +464,12 @@ function AccountRowActions({
   return (
     <div className={cn('flex flex-wrap items-center gap-1', className)}>
       {canManage ? (
-        <Button variant="ghost" size="sm" onClick={() => onEdit(account)}>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`编辑 ${account.name}`}
+          onClick={() => onEdit(account)}
+        >
           编辑
         </Button>
       ) : null}

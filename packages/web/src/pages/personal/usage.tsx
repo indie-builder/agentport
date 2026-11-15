@@ -477,6 +477,32 @@ export function PersonalUsagePage() {
               </div>
             </PageToolbar>
 
+            {canAgents && agents.isError && agents.data !== undefined ? (
+              <PageNote
+                tone="danger"
+                title="专家筛选项刷新失败"
+                description="已保留上次加载的专家选项。"
+                action={
+                  <Button variant="outline" size="sm" onClick={() => void agents.refetch()}>
+                    重试
+                  </Button>
+                }
+              />
+            ) : null}
+
+            {canAgents && agents.isError && agents.data === undefined ? (
+              <PageNote
+                tone="danger"
+                title="专家筛选项加载失败"
+                description="无法加载可筛选的专家，下拉仅显示「全部专家」。"
+                action={
+                  <Button variant="outline" size="sm" onClick={() => void agents.refetch()}>
+                    重试
+                  </Button>
+                }
+              />
+            ) : null}
+
             {runs.isError && runs.data !== undefined ? (
               <PageNote
                 tone="danger"

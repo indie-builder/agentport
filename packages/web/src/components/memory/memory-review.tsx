@@ -238,7 +238,7 @@ export function MemoryReviews({
   );
   const createTrigger = useRef<HTMLButtonElement>(null);
   const detailTrigger = useRef<HTMLElement | null>(null);
-  const items = reviews.data?.items ?? [];
+  const items = reviews.data?.pages.flatMap((page) => page.items) ?? [];
   const listedDetail = items.find((item) => item.runId === runId) ?? null;
   // 链接里的提案不在当前页列表时，用既有详情接口按 run 取；未知 id 返回统一错误态。
   const fetchedDetail = useMemoryReview(runId !== null && listedDetail === null ? runId : null);
@@ -537,6 +537,17 @@ export function MemoryReviews({
               })}
             </ul>
           )
+        ) : null}
+        {reviews.hasNextPage ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => void reviews.fetchNextPage()}
+            disabled={reviews.isFetchingNextPage}
+          >
+            {reviews.isFetchingNextPage ? '加载中…' : '加载更多'}
+          </Button>
         ) : null}
       </PageBody>
 
