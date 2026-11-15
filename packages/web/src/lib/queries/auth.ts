@@ -68,7 +68,10 @@ export function useUpdateAccount() {
   return useMutation({
     mutationFn: (vars: { businessId: string; input: { username?: string; name?: string } }) =>
       api.updateAccount(vars.businessId, vars.input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['accounts'] });
+      void client.invalidateQueries({ queryKey: ['me'] });
+    },
   });
 }
 
@@ -101,7 +104,10 @@ export function useSetAccountRoles() {
   return useMutation({
     mutationFn: (vars: { businessId: string; roleIds: string[] }) =>
       api.setAccountRoles(vars.businessId, vars.roleIds),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['accounts'] }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['accounts'] });
+      void client.invalidateQueries({ queryKey: ['me'] });
+    },
   });
 }
 
