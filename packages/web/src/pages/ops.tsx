@@ -396,7 +396,7 @@ export function SchedulesPage() {
                     下次触发（UTC）
                   </TableHead>
                   <TableHead scope="col" className="hidden w-[16%] sm:table-cell">
-                    上次运行
+                    上次触发
                   </TableHead>
                   <TableHead scope="col" className="w-[16%] text-right">
                     <span className="sr-only">操作</span>
@@ -420,7 +420,7 @@ export function SchedulesPage() {
                         </span>
                         {/* 窄屏收起列，用可见标签保留每项数据。 */}
                         <span className="block text-xs text-muted-foreground sm:hidden">
-                          {formatScheduleCron(schedule.cron)} · 下次 UTC {nextDue} · 上次{' '}
+                          {formatScheduleCron(schedule.cron)} · 下次 UTC {nextDue} · 上次触发{' '}
                           {formatRelative(schedule.lastRunAt)}
                         </span>
                       </TableHead>
@@ -560,7 +560,7 @@ function ScheduleCard({
           <dd className="text-right text-muted-foreground">{formatScheduleCron(schedule.cron)}</dd>
           <dt className="text-muted-foreground">下次触发（UTC）</dt>
           <dd className="text-right tabular-nums text-muted-foreground">{nextDue}</dd>
-          <dt className="text-muted-foreground">上次运行</dt>
+          <dt className="text-muted-foreground">上次触发</dt>
           <dd className="text-right text-muted-foreground">{formatRelative(schedule.lastRunAt)}</dd>
         </dl>
       </CardContent>

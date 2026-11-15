@@ -512,6 +512,13 @@
       "when": 1794725706770,
       "tag": "0072_rare_boomerang",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1794743938509,
+      "tag": "0073_yummy_eddie_brock",
+      "breakpoints": true
     }
   ]
 }

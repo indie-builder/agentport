@@ -124,16 +124,25 @@ export async function agentDetail(db: Database, row: allRepo.agents.AgentRow): P
 }
 function snapshotToWrite(
   snapshot: Agent,
-  slug: string,
-  currentRole: string,
+  current: allRepo.agents.AgentRow,
 ): Partial<allRepo.agents.AgentWrite> {
   return {
-    slug,
+    slug: current.slug,
     ...toAgentConfigValues({
       ...snapshot,
-      role: AGENT_ROLES.some((role) => role === snapshot.role) ? snapshot.role : currentRole,
+      role: AGENT_ROLES.some((role) => role === snapshot.role) ? snapshot.role : current.role,
       uiFormat: snapshot.uiFormat ?? 'markdown',
       runtimeEnvironmentId: snapshot.runtimeEnvironmentId ?? null,
+      monthlyBudgetUsd:
+        'monthlyBudgetUsd' in snapshot
+          ? snapshot.monthlyBudgetUsd
+          : current.monthlyBudgetUsd === null
+            ? null
+            : Number(current.monthlyBudgetUsd),
+      budgetAlertRatio:
+        'budgetAlertRatio' in snapshot
+          ? snapshot.budgetAlertRatio
+          : Number(current.budgetAlertRatio),
     }),
   };
 }
@@ -209,7 +218,7 @@ export async function restoreAgentVersion(
     const row = await repo.updateAgent(
       deps.db,
       current.id,
-      snapshotToWrite(snapshot, current.slug, current.role),
+      snapshotToWrite(snapshot, current),
       snapshot.serverIds,
       snapshot.skillIds,
       `rollback to v${target.version}`,

@@ -43,6 +43,10 @@ export const agents = pgTable(
     enabled: boolean('enabled').notNull().default(true),
     maxTurns: integer('max_turns').notNull().default(20),
     maxBudgetUsd: numeric('max_budget_usd', { precision: 10, scale: 4 }).notNull().default('2'),
+    monthlyBudgetUsd: numeric('monthly_budget_usd', { precision: 10, scale: 4 }),
+    budgetAlertRatio: numeric('budget_alert_ratio', { precision: 4, scale: 3 })
+      .notNull()
+      .default('0.800'),
     timeoutMs: integer('timeout_ms').notNull().default(600_000),
     /** 业务身份；创建后不变，不引用可删除的 authUsers。 */
     createdBy: text('created_by').notNull(),

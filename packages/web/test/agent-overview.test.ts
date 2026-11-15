@@ -258,6 +258,14 @@ beforeEach(() => {
     nextCursor: null,
   });
   vi.spyOn(api, 'agentStats').mockResolvedValue(agentStats);
+  vi.spyOn(api, 'agentBudget').mockResolvedValue({
+    monthlyBudgetUsd: 20,
+    budgetAlertRatio: 0.8,
+    periodStart: '2026-03-01T00:00:00.000Z',
+    spentUsd: 5,
+    ratio: 0.25,
+    state: 'ok',
+  });
   vi.spyOn(api, 'runs').mockResolvedValue({ items: [] } satisfies RunList);
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, retryOnMount: false }, mutations: { retry: false } },

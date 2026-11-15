@@ -72,6 +72,7 @@ export const api = {
   denyRun: runs.denyRun,
   agents: agents.agents,
   agent: agents.agent,
+  agentBudget: agents.agentBudget,
   createAgent: agents.createAgent,
   agentAccess: agents.agentAccess,
   agentOptions: agents.agentOptions,

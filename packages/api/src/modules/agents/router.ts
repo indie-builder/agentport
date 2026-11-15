@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { agentsContract } from '@agentport/contract/agents';
 import { fail, notFound, parseAgentMd } from '@agentport/core';
 import { repo as allRepo, plugins as pluginsTable, schema } from '@agentport/db';
-import { AGENT_HOOK_FILE_LIMIT } from '@agentport/shared';
+import { AGENT_HOOK_FILE_LIMIT, utcMonthStart } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { and, eq } from 'drizzle-orm';
 import {
@@ -256,6 +256,32 @@ export const agentsRouter = os.router({
     await authorizeAgent(context, row, 'agents.config.read');
     return agentDetail(context.db, row);
   }),
+  budget: os.budget.handler(async ({ context, input: routeInput }) => {
+    const row = await repo.getAgent(context.db, routeInput.params.id);
+    if (!row) return notFound('agent');
+    await authorizeAgent(context, row, 'agents.config.read');
+    const periodStart = utcMonthStart();
+    const spentUsd = await repo.sumAgentSpendSince(context.db, row.id, periodStart);
+    const monthlyBudgetUsd = row.monthlyBudgetUsd === null ? null : Number(row.monthlyBudgetUsd);
+    const budgetAlertRatio = Number(row.budgetAlertRatio);
+    const ratio = monthlyBudgetUsd === null ? null : spentUsd / monthlyBudgetUsd;
+    const state =
+      monthlyBudgetUsd === null
+        ? 'unlimited'
+        : spentUsd >= monthlyBudgetUsd
+          ? 'exceeded'
+          : spentUsd >= monthlyBudgetUsd * budgetAlertRatio
+            ? 'alert'
+            : 'ok';
+    return {
+      monthlyBudgetUsd,
+      budgetAlertRatio,
+      periodStart: periodStart.toISOString(),
+      spentUsd,
+      ratio,
+      state,
+    };
+  }),
   access: os.access.handler(async ({ context, input: routeInput }) => {
     const row = await repo.getAgent(context.db, routeInput.params.id);
     if (!row) return notFound('agent');
@@ -291,6 +317,8 @@ export const agentsRouter = os.router({
       input.effort,
       input.maxTurns,
       input.maxBudgetUsd,
+      input.monthlyBudgetUsd,
+      input.budgetAlertRatio,
       input.timeoutMs,
       input.runtimeEnvironmentId,
     ];

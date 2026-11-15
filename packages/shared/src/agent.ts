@@ -116,6 +116,8 @@ export const agentInputSchema = z.object({
   uiFormat: uiFormatSchema.default('markdown'),
   maxTurns: z.number().int().positive().default(20),
   maxBudgetUsd: z.number().positive().default(2),
+  monthlyBudgetUsd: z.number().min(0.01).nullable().default(null),
+  budgetAlertRatio: z.number().min(0.001).lte(1).default(0.8),
   timeoutMs: z.number().int().positive().default(600_000),
   /** 推理强度；不填则用 SDK 默认。 */
   effort: effortSchema.optional(),
@@ -143,6 +145,19 @@ export const agentSchema = agentInputSchema.extend({ role: z.string().default('�
 );
 
 export type Agent = z.infer<typeof agentSchema>;
+
+export const agentBudgetStateSchema = z.enum(['unlimited', 'ok', 'alert', 'exceeded']);
+
+export const agentBudgetStatusSchema = z.object({
+  monthlyBudgetUsd: z.number().nullable(),
+  budgetAlertRatio: z.number(),
+  periodStart: z.string(),
+  spentUsd: z.number(),
+  ratio: z.number().nullable(),
+  state: agentBudgetStateSchema,
+});
+
+export type AgentBudgetStatus = z.infer<typeof agentBudgetStatusSchema>;
 
 /** 列表摘要：只含成员可见的业务字段；其余为服务端附带的可选元数据，不作为授权依据。 */
 export const agentSummarySchema = z.object({

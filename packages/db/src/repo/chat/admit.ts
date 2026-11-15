@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { fail, notFound } from '@agentport/core';
 import type { ExecutionSubject, RunTrigger } from '@agentport/shared';
-import { ACTIVE_RUN_STATUSES } from '@agentport/shared';
+import { ACTIVE_RUN_STATUSES, utcMonthStart } from '@agentport/shared';
 import { and, desc, eq, gt, inArray, lt } from 'drizzle-orm';
 import type { Database } from '../../client.js';
 import { newId } from '../../id.js';
@@ -12,6 +12,7 @@ import {
   channelMessages,
   conversations,
 } from '../../schema.js';
+import { sumAgentSpendSince } from '../agents.js';
 import { channelMemberRole, lockChannelRow } from '../channels.js';
 import { lockRunResources } from '../locks.js';
 import { inheritApprovals } from '../runs.js';
@@ -74,6 +75,7 @@ export async function admitChatRun(
     subject: ExecutionSubject;
     /** 频道触发：准入自行取建该 agent 的 lane，并从 DB 复核频道成员与绑定。 */
     channel?: { channelId: string; channelMessageId: string };
+    budgetExempt?: boolean;
   },
 ): Promise<{
   run: AgentRun;
@@ -88,7 +90,11 @@ export async function admitChatRun(
     await lockRunResources(tx, input.agentId);
     // 锁序：先 agents 再 conversations；反向会和 agent_runs 的外键检查形成删除死锁。
     const [owner] = await tx
-      .select({ id: agents.id, enabled: agents.enabled })
+      .select({
+        id: agents.id,
+        enabled: agents.enabled,
+        monthlyBudgetUsd: agents.monthlyBudgetUsd,
+      })
       .from(agents)
       .where(eq(agents.id, input.agentId))
       .limit(1)
@@ -100,6 +106,16 @@ export async function admitChatRun(
     }
     if (input.channel === undefined && input.trigger === 'channel') {
       fail('INVALID_INPUT', '频道触发必须带频道与来源消息');
+    }
+    if (!input.budgetExempt && owner.monthlyBudgetUsd !== null) {
+      const limit = Number(owner.monthlyBudgetUsd);
+      const spent = await sumAgentSpendSince(tx, input.agentId, utcMonthStart());
+      if (spent >= limit) {
+        fail(
+          'AGENT_BUDGET_EXCEEDED',
+          `该智能体本月花费已达预算上限（已用 $${spent.toFixed(2)} / 上限 $${limit.toFixed(2)}），无法发起新运行；请在智能体设置中调整预算或等待下月重置`,
+        );
+      }
     }
 
     let conversationId: string;

@@ -96,8 +96,9 @@ export const approvalRequests = pgTable(
 );
 
 /**
- * 自主工作的定时任务。每行是一个 cron 触发：到点由 worker 用 admitChatRun 起一条
- * trigger='schedule' 的运行。多 worker 部署时靠 nextDueAt 条件更新抢占，避免重复触发。
+ * 自主工作的定时任务。每行是一个 cron 触发：到点由 worker 经 claimScheduleTrigger
+ * 条件推进 lastRunAt 并在同一事务内置会话与 trigger='schedule' 的运行；
+ * 多 worker 部署时靠 lastRunAt 的条件更新抢占，避免重复触发。
  */
 export const agentSchedules = pgTable(
   'agent_schedules',

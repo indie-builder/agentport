@@ -22,6 +22,7 @@ const WAKE_FAILED_NOTICE = '智能体启动失败，请重新 @ 该智能体。'
 const AGENT_GONE_NOTICE = '该智能体已不在频道内，本条消息未执行。';
 const BINDING_INACTIVE_NOTICE = '该智能体在频道内已断开，本条消息未执行。';
 const AGENT_DISABLED_NOTICE = '该智能体已停用，本条消息未执行。';
+const AGENT_BUDGET_EXCEEDED_NOTICE = '该智能体本月预算已用尽，本条消息未执行。';
 
 type WakeContext = {
   db: Database;
@@ -197,9 +198,11 @@ async function dispatchWake(
           ? LANE_BUSY_NOTICE
           : err.code === 'AGENT_DISABLED'
             ? AGENT_DISABLED_NOTICE
-            : err.code === 'NOT_FOUND'
-              ? AGENT_GONE_NOTICE
-              : WAKE_FAILED_NOTICE;
+            : err.code === 'AGENT_BUDGET_EXCEEDED'
+              ? AGENT_BUDGET_EXCEEDED_NOTICE
+              : err.code === 'NOT_FOUND'
+                ? AGENT_GONE_NOTICE
+                : WAKE_FAILED_NOTICE;
       return skipWake(context, wake, notice);
     }
     await channelWakeRepo.markChannelWakeRetry(context.db, {

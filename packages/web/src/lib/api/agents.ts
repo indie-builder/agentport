@@ -1,6 +1,7 @@
 import type {
   Agent,
   AgentAccess,
+  AgentBudgetStatus,
   AgentHookFile,
   AgentHooks,
   AgentInput,
@@ -55,6 +56,7 @@ export default {
   agents: (): Promise<AgentSummary[]> => rpc.agents.list({}),
   agent: (id: string, signal?: AbortSignal): Promise<Agent> =>
     rpc.agents.get({ params: { id } }, clientOptions(signal)),
+  agentBudget: (id: string): Promise<AgentBudgetStatus> => rpc.agents.budget({ params: { id } }),
   createAgent: (input: AgentInput): Promise<Agent> => rpc.agents.create({ body: input }),
   agentAccess: (id: string): Promise<AgentAccess> => rpc.agents.access({ params: { id } }),
   agentOptions: (): Promise<AgentOptions> => rpc.agents.options({}),

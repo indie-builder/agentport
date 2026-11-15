@@ -339,6 +339,15 @@ export function AgentEditor({
   const pluginBindingsField = useController({ control, name: 'pluginBindings' }).field;
   const permissionModeField = useController({ control, name: 'permissionMode' }).field;
   const uiFormatField = useController({ control, name: 'uiFormat' }).field;
+  const budgetAlertRatioField = useController({ control, name: 'budgetAlertRatio' }).field;
+  const [budgetAlertPercent, setBudgetAlertPercent] = useState(() =>
+    String(Math.round(budgetAlertRatioField.value * 1000) / 10),
+  );
+  useEffect(() => {
+    if (Number.isNaN(budgetAlertRatioField.value)) return;
+    if (Number(budgetAlertPercent) / 100 === budgetAlertRatioField.value) return;
+    setBudgetAlertPercent(String(Math.round(budgetAlertRatioField.value * 1000) / 10));
+  }, [budgetAlertPercent, budgetAlertRatioField.value]);
   const enabledField = useController({ control, name: 'enabled' }).field;
   const runtimeEnvironmentField = useController({ control, name: 'runtimeEnvironmentId' }).field;
   const defaultEnvironment = runtimeCatalog.find((environment) => environment.isDefault);
@@ -747,6 +756,8 @@ export function AgentEditor({
     'effort',
     'maxTurns',
     'maxBudgetUsd',
+    'monthlyBudgetUsd',
+    'budgetAlertRatio',
     'timeoutMs',
     'runtimeEnvironmentId',
   ];
@@ -2071,7 +2082,7 @@ export function AgentEditor({
                           data-invalid={Boolean(errors.maxBudgetUsd)}
                         >
                           <FieldContent>
-                            <FieldLabel htmlFor="agent-budget">预算上限 (USD)</FieldLabel>
+                            <FieldLabel htmlFor="agent-budget">单次运行预算上限 (USD)</FieldLabel>
                             <FieldError id="agent-budget-error">
                               {errors.maxBudgetUsd?.message}
                             </FieldError>
@@ -2091,6 +2102,96 @@ export function AgentEditor({
                             className="w-40"
                           />
                         </Field>
+                        {agent.parentId === null ? (
+                          <>
+                            <Field
+                              data-disabled={configDisabled}
+                              orientation="horizontal"
+                              className="gap-3"
+                              data-invalid={Boolean(errors.monthlyBudgetUsd)}
+                            >
+                              <FieldContent>
+                                <FieldLabel htmlFor="agent-monthly-budget">
+                                  月度预算上限 (USD)
+                                </FieldLabel>
+                                <FieldDescription id="agent-monthly-budget-hint">
+                                  留空表示不限。
+                                </FieldDescription>
+                                <FieldError id="agent-monthly-budget-error">
+                                  {errors.monthlyBudgetUsd?.message}
+                                </FieldError>
+                              </FieldContent>
+                              <Input
+                                {...rhf.register('monthlyBudgetUsd', {
+                                  setValueAs: (value) => (value === '' ? null : Number(value)),
+                                })}
+                                disabled={configDisabled}
+                                id="agent-monthly-budget"
+                                type="number"
+                                min={0.01}
+                                step={0.01}
+                                inputMode="decimal"
+                                aria-invalid={Boolean(errors.monthlyBudgetUsd)}
+                                aria-describedby={
+                                  [
+                                    errors.monthlyBudgetUsd ? 'agent-monthly-budget-error' : null,
+                                    'agent-monthly-budget-hint',
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' ') || undefined
+                                }
+                                className="w-40"
+                              />
+                            </Field>
+                            <Field
+                              data-disabled={configDisabled}
+                              orientation="horizontal"
+                              className="gap-3"
+                              data-invalid={Boolean(errors.budgetAlertRatio)}
+                            >
+                              <FieldContent>
+                                <FieldLabel htmlFor="agent-budget-alert">
+                                  预算告警阈值 (%)
+                                </FieldLabel>
+                                <FieldDescription id="agent-budget-alert-hint">
+                                  达到上限的该百分比时提醒（0.1–100）。
+                                </FieldDescription>
+                                <FieldError id="agent-budget-alert-error">
+                                  {errors.budgetAlertRatio?.message}
+                                </FieldError>
+                              </FieldContent>
+                              <Input
+                                disabled={configDisabled}
+                                id="agent-budget-alert"
+                                type="number"
+                                min={0.1}
+                                max={100}
+                                step="any"
+                                inputMode="decimal"
+                                value={budgetAlertPercent}
+                                onChange={(event) => {
+                                  if (event.target.validity.badInput) return;
+                                  const text = event.target.value;
+                                  setBudgetAlertPercent(text);
+                                  budgetAlertRatioField.onChange(
+                                    text === '' ? Number.NaN : Number(text) / 100,
+                                  );
+                                }}
+                                onBlur={budgetAlertRatioField.onBlur}
+                                aria-invalid={Boolean(errors.budgetAlertRatio)}
+                                aria-describedby={
+                                  [
+                                    errors.budgetAlertRatio ? 'agent-budget-alert-error' : null,
+                                    'agent-budget-alert-hint',
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' ') || undefined
+                                }
+                                className="w-40"
+                              />
+                            </Field>
+                          </>
+                        ) : null}
                         <Field
                           data-disabled={configDisabled}
                           orientation="horizontal"

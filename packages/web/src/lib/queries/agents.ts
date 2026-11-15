@@ -1,4 +1,10 @@
-import type { Agent, AgentInput, AgentOptions, AgentPatch } from '@agentport/shared';
+import type {
+  Agent,
+  AgentBudgetStatus,
+  AgentInput,
+  AgentOptions,
+  AgentPatch,
+} from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   type AgentAccess,
@@ -29,6 +35,14 @@ export const agentStatsQuery = (agentId: string, days: number) =>
     queryKey: ['agent-stats', agentId, days],
     queryFn: () => api.agentStats(agentId, days),
     staleTime: 60_000,
+  });
+
+export const agentBudgetQuery = (agentId: string, enabled = true) =>
+  queryOptions<AgentBudgetStatus>({
+    queryKey: ['agent-budget', agentId],
+    queryFn: () => api.agentBudget(agentId),
+    enabled,
+    staleTime: 30_000,
   });
 
 export const agentAccessQuery = (id: string | null) =>
@@ -80,6 +94,10 @@ export function useAgentSummary(id: string | null) {
 /** 完整配置：调用前必须已有 agents.config.read；禁用的查询不会发请求。 */
 export function useAgentDetail(id: string | null, enabled = true) {
   return useQuery({ ...agentDetailQuery(id ?? '', enabled && id !== null) });
+}
+
+export function useAgentBudget(id: string | null, enabled = true) {
+  return useQuery(agentBudgetQuery(id ?? '', enabled && id !== null));
 }
 
 export function useAgentAccess(id: string | null) {
@@ -196,6 +214,7 @@ export function useRollbackAgent() {
       void client.invalidateQueries({ queryKey: ['agent-versions', id] });
       void client.invalidateQueries({ queryKey: ['agent-files'] });
       void client.invalidateQueries({ queryKey: ['agent-detail', id] });
+      void client.invalidateQueries({ queryKey: ['agent-budget', id] });
     },
   });
 }
@@ -254,6 +273,7 @@ export function useUpdateAgent() {
       void client.invalidateQueries({ queryKey: ['agents'] });
       void client.invalidateQueries({ queryKey: ['agent-files'] });
       void client.invalidateQueries({ queryKey: ['agent-detail', vars.id] });
+      void client.invalidateQueries({ queryKey: ['agent-budget', vars.id] });
     },
   });
 }
