@@ -239,6 +239,30 @@ describe.skipIf(!ready)('knowledge content routes', () => {
     expect(remaining[0]?.n).toBe(0);
   });
 
+  it('PATCH 重复标签去重后落库而非 500', async () => {
+    const baseId = await createBase();
+    const created = await createManual(baseId, { tags: ['initial'] });
+    expect(created.statusCode, created.body).toBe(202);
+    const documentId = created.json<{ documentId: string }>().documentId;
+
+    const patched = await request(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/documents/${documentId}`,
+      headers: { cookie },
+      payload: { tags: ['alpha', 'alpha', 'beta', 'beta'] },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(patched.json<{ tags: string[] }>().tags).toEqual(['alpha', 'beta']);
+
+    const links = await app.client.unsafe<{ name: string }[]>(
+      `select t.name from knowledge_document_tags l
+       join knowledge_tags t on t.id = l.tag_id
+       where l.document_id = $1 order by t.name`,
+      [documentId],
+    );
+    expect(links.map((row) => row.name)).toEqual(['alpha', 'beta']);
+  });
+
   it('手写校验：空正文 400，其他库的文件夹 400', async () => {
     const baseId = await createBase();
     const otherBaseId = await createBase();
