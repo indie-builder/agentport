@@ -32,6 +32,7 @@ import { cn } from '../lib/cn.js';
 import { logoutAccount, meQuery } from '../lib/queries.js';
 import { animateBrand, Brand, BrandMark } from './brand.js';
 import { CommandPalette, CommandPaletteTrigger } from './command-palette.js';
+import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from './page.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
@@ -733,6 +734,7 @@ export function AppShell() {
       </div>
 
       <CommandPalette me={me.data} />
+      <KeyboardShortcutsDialog />
     </div>
   );
 }
