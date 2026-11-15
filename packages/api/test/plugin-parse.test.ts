@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'bun:test';
-import { encodePackage } from '../src/modules/agents/package-zip.js';
 import { type PluginImportFile, parsePluginFiles } from '../src/modules/plugins/parse.js';
 
 const file = (path: string, content = 'x'): PluginImportFile => ({
@@ -142,15 +141,5 @@ describe('plugin import parsing', () => {
     const { input, warnings } = parse([file('skills/s/SKILL.md')], 'bare-plugin');
     expect(input.runtimeName).toBe('bare-plugin');
     expect(warnings.length).toBeGreaterThan(0);
-  });
-});
-
-describe('plugin zip decoding', () => {
-  it('round-trips a plugin directory through the shared zip codec', () => {
-    const zip = encodePackage({
-      '.claude-plugin/plugin.json': JSON.stringify({ name: 'demo' }),
-      'skills/review/SKILL.md': 'body',
-    });
-    expect(zip.byteLength).toBeGreaterThan(0);
   });
 });

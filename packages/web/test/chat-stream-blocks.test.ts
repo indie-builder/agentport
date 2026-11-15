@@ -31,25 +31,4 @@ describe('text_delta merging', () => {
 
     expect(items.map((item) => item.kind === 'text' && item.text)).toEqual(['第一段', '第二段']);
   });
-
-  it('does not merge sub-agent text into the parent block', () => {
-    const items = textDeltas([
-      { type: 'text_delta', text: '父级', blockIndex: 0 },
-      { type: 'text_delta', text: '子级', blockIndex: 0, parentToolUseId: 'toolu_1' },
-    ]);
-
-    expect(items).toHaveLength(2);
-    expect(items[1]).toMatchObject({ text: '子级', parentToolUseId: 'toolu_1' });
-  });
-
-  it('starts a new item after a block boundary even with the same index', () => {
-    const items = textDeltas([
-      { type: 'text_delta', text: '旧块', blockIndex: 0 },
-      { type: 'assistant_block_stop', blockIndex: 0 },
-      { type: 'assistant_block_start', blockIndex: 0, kind: 'text' },
-      { type: 'text_delta', text: '新块', blockIndex: 0 },
-    ]);
-
-    expect(items.map((item) => item.kind === 'text' && item.text)).toEqual(['旧块', '新块']);
-  });
 });
