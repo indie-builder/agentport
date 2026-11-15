@@ -63,6 +63,7 @@ function makeReview(overrides: Partial<MemoryReview> & Pick<MemoryReview, 'runId
     target: { kind: 'personal' },
     status: 'succeeded',
     decision: 'pending',
+    createdAt: '2026-09-01T00:00:00.000Z',
     sources: [{ conversationId: 'conv-1', title: '会话一', messageCount: 4 }],
     before: { content: '旧内容', globs: null, index: null },
     proposal: {
@@ -418,7 +419,7 @@ describe('记忆提案', () => {
     await mount('/personal/reviews?agent=agent-b');
     await vi.waitFor(() =>
       expect(api.memoryReviews).toHaveBeenCalledWith(
-        { agentId: 'agent-b' },
+        { agentId: 'agent-b', limit: 50 },
         expect.any(AbortSignal),
       ),
     );
@@ -504,13 +505,17 @@ describe('记忆提案', () => {
     expect(typeof interval).toBe('function');
     if (typeof interval !== 'function') return;
     const evaluate = interval as (input: {
-      state: { data: { items: MemoryReview[] } };
+      state: { data: { pages: { items: MemoryReview[] }[] } };
     }) => number | false;
     expect(
-      evaluate({ state: { data: { items: [makeReview({ runId: 'q', status: 'queued' })] } } }),
+      evaluate({
+        state: { data: { pages: [{ items: [makeReview({ runId: 'q', status: 'queued' })] }] } },
+      }),
     ).toBe(3_000);
     expect(
-      evaluate({ state: { data: { items: [makeReview({ runId: 's', status: 'succeeded' })] } } }),
+      evaluate({
+        state: { data: { pages: [{ items: [makeReview({ runId: 's', status: 'succeeded' })] }] } },
+      }),
     ).toBe(false);
   });
 

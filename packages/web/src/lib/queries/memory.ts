@@ -10,7 +10,13 @@ import type {
   MemoryReviewTarget,
   PersonalMemory,
 } from '@agentport/shared';
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  queryOptions,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { api } from '../api.js';
 
 export const agentMemoryKeys = {
@@ -140,13 +146,29 @@ function memoryReviewActive(review: MemoryReview): boolean {
   return review.status === 'queued' || review.status === 'running';
 }
 
+const MEMORY_REVIEWS_PAGE_SIZE = 50;
+
 /** 审核在后台排队/运行：3 秒刷新；全部进入终态后停止，卸载自动清理。 */
 export function useMemoryReviews(agentId: string | null) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: memoryReviewKey(agentId),
-    queryFn: ({ signal }) => api.memoryReviews(agentId === null ? {} : { agentId }, signal),
+    queryFn: ({ pageParam, signal }) =>
+      api.memoryReviews(
+        {
+          ...(agentId ? { agentId } : {}),
+          ...(pageParam ? { before: pageParam } : {}),
+          limit: MEMORY_REVIEWS_PAGE_SIZE,
+        },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) =>
+      last.items.length < MEMORY_REVIEWS_PAGE_SIZE
+        ? null
+        : (last.items.at(-1)?.createdAt ?? null),
     staleTime: 0,
-    refetchInterval: (query) => (query.state.data?.items.some(memoryReviewActive) ? 3_000 : false),
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) => page.items.some(memoryReviewActive)) ? 3_000 : false,
   });
 }
 

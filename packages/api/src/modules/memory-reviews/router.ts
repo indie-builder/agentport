@@ -120,6 +120,7 @@ function toReview(
     target: detail.target,
     status: detail.status,
     decision: detail.decision,
+    createdAt: detail.createdAt.toISOString(),
     sources,
     before: detail.before,
     proposal: detail.proposal ?? null,

@@ -278,6 +278,7 @@ export const memoryReviewSchema = z.object({
   target: memoryReviewTargetSchema,
   status: runStatusSchema,
   decision: memoryReviewDecisionValueSchema,
+  createdAt: z.string(),
   sources: z.array(
     z.object({
       conversationId: z.string(),
