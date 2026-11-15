@@ -52,7 +52,7 @@ function conversationDetail(
   return {
     conversation: { id, agentId: 'agent-a', title: id, createdAt: '' },
     runMetrics: [],
-    nextBefore: null,
+    nextCursor: null,
     messages,
   };
 }
@@ -189,7 +189,7 @@ beforeEach(() => {
   vi.spyOn(api, 'conversations').mockResolvedValue([]);
   vi.spyOn(api, 'conversation').mockImplementation(async (id: string) => conversationDetail(id));
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
-  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextBefore: null });
+  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextCursor: null });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);

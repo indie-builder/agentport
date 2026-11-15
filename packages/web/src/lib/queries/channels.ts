@@ -310,16 +310,16 @@ export function useChannelRunOutputs(channelId: string, runId: string | null) {
       api.channelRunOutputs(
         channelId,
         runId ?? '',
-        { limit: 50, ...(pageParam === null ? {} : { before: pageParam }) },
+        { limit: 50, ...(pageParam === null ? {} : { cursor: pageParam }) },
         signal,
       ),
     initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextBefore ?? undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: runId !== null,
     staleTime: 0,
     select: (data) => ({
       items: data.pages.flatMap((page) => page.items),
-      nextBefore: data.pages.at(-1)?.nextBefore ?? null,
+      nextCursor: data.pages.at(-1)?.nextCursor ?? null,
     }),
   });
 }

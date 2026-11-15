@@ -88,10 +88,10 @@ export const outputFileSchema = z.object({
 
 export type OutputFile = z.infer<typeof outputFileSchema>;
 
-/** `nextBefore` 是下一页游标；null 表示没有更多。 */
+/** `nextCursor` 是下一页游标；null 表示没有更多。 */
 export const outputListSchema = z.object({
   items: z.array(outputFileSchema),
-  nextBefore: z.string().nullable(),
+  nextCursor: z.string().nullable(),
 });
 
 export type OutputList = z.infer<typeof outputListSchema>;

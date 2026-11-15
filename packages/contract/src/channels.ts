@@ -190,7 +190,7 @@ export const channelsContract = {
         params: channelRunParams,
         query: z.object({
           limit: z.coerce.number().int().min(1).max(100).default(50),
-          before: z.string().min(1).optional(),
+          cursor: z.string().min(1).optional(),
         }),
       }),
     )

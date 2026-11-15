@@ -443,13 +443,13 @@ async function findConversationByMarker(
     `/api/conversations/search?q=${encodeURIComponent(marker)}&agentId=${encodeURIComponent(agentId)}&limit=50`,
   );
   for (const item of search.items) {
-    // 历史默认只取最近 50 条；标记是首条用户消息，长会话必须按 before 回溯。
-    let before: string | undefined;
+    // 历史默认只取最近 50 条；标记是首条用户消息，长会话必须按 cursor 回溯。
+    let cursor: string | undefined;
     for (;;) {
       const detail = await api<ConversationDetail>(
         browser,
         `/api/conversations/${item.id}?limit=100${
-          before === undefined ? '' : `&before=${encodeURIComponent(before)}`
+          cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`
         }`,
       );
       const message = detail.messages.find(
@@ -463,8 +463,8 @@ async function findConversationByMarker(
         };
       }
       if (detail.messages.length < 100) break;
-      before = detail.messages[0]?.id;
-      if (!before) break;
+      cursor = detail.messages[0]?.id;
+      if (!cursor) break;
     }
   }
   return null;

@@ -119,7 +119,7 @@ export default {
   channelRunOutputs: (
     id: string,
     runId: string,
-    options: { limit?: number; before?: string } = {},
+    options: { limit?: number; cursor?: string } = {},
     signal?: AbortSignal,
   ): Promise<ChannelRunOutputs> =>
     rpc.channels.runOutputs({ params: { id, runId }, query: options }, clientOptions(signal)),

@@ -617,7 +617,7 @@ interface ListOutputFilesInput {
   slug: string;
   conversationId: string;
   limit: number;
-  /** 上一页返回的 `nextBefore`。 */
+  /** 上一页返回的 `nextCursor`。 */
   before?: string;
   runId?: string;
 }
@@ -680,8 +680,8 @@ export async function listOutputFiles(input: ListOutputFilesInput): Promise<Outp
 
   const page = items.slice(0, input.limit);
   const last = page.at(-1);
-  const nextBefore = last !== undefined && items.length > page.length ? encodeCursor(last) : null;
-  return { items: page, nextBefore };
+  const nextCursor = last !== undefined && items.length > page.length ? encodeCursor(last) : null;
+  return { items: page, nextCursor };
 }
 
 interface ReadOutputFileInput {

@@ -21,7 +21,7 @@ const response = {
       match: { kind: 'message' as const, excerpt: '正文' },
     },
   ],
-  nextBefore: 'cursor-1',
+  nextCursor: 'cursor-1',
 };
 
 describe('conversation search client', () => {
@@ -30,7 +30,7 @@ describe('conversation search client', () => {
     const controller = new AbortController();
     await expect(
       api.searchConversations(
-        { q: '项目 进度', agentId: 'agt_1', limit: 5, before: 'cursor-0' },
+        { q: '项目 进度', agentId: 'agt_1', limit: 5, cursor: 'cursor-0' },
         controller.signal,
       ),
     ).resolves.toEqual(response);
@@ -38,7 +38,7 @@ describe('conversation search client', () => {
     const [request] = fetch.mock.calls[0] ?? [];
     const url = new URL((request as Request).url);
     expect(url.pathname + url.search).toBe(
-      '/api/conversations/search?q=%E9%A1%B9%E7%9B%AE+%E8%BF%9B%E5%BA%A6&agentId=agt_1&limit=5&before=cursor-0',
+      '/api/conversations/search?q=%E9%A1%B9%E7%9B%AE+%E8%BF%9B%E5%BA%A6&agentId=agt_1&limit=5&cursor=cursor-0',
     );
     expect((request as Request).signal.aborted).toBe(false);
     controller.abort();
@@ -46,7 +46,7 @@ describe('conversation search client', () => {
   });
 
   it('omits undefined options', async () => {
-    const fetch = mockFetch(Response.json({ items: [], nextBefore: null }));
+    const fetch = mockFetch(Response.json({ items: [], nextCursor: null }));
     await api.searchConversations({});
     expect(new URL((fetch.mock.calls[0][0] as Request).url).pathname).toBe(
       '/api/conversations/search',

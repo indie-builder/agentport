@@ -172,7 +172,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     expect(first.statusCode, first.body).toBe(200);
     const page = first.json<{
       items: Array<{ runId: string; path: string; mediaType: string; status: string }>;
-      nextBefore: string | null;
+      nextCursor: string | null;
     }>();
     expect(outputListSchema.parse(page)).toEqual(page);
     expect(page.items.map((item) => `${item.runId}:${item.path}`)).toEqual([
@@ -181,10 +181,10 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     ]);
     expect(page.items[0]?.mediaType).toBe('text/markdown');
     expect(page.items.every((item) => item.status === 'succeeded')).toBe(true);
-    expect(page.nextBefore).not.toBeNull();
+    expect(page.nextCursor).not.toBeNull();
 
     const second = await get(
-      `/api/conversations/${id}/outputs?limit=2&before=${encodeURIComponent(page.nextBefore ?? '')}`,
+      `/api/conversations/${id}/outputs?limit=2&cursor=${encodeURIComponent(page.nextCursor ?? '')}`,
     );
     expect(second.statusCode, second.body).toBe(200);
     expect(
@@ -196,7 +196,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     expectProblem(await get(`/api/conversations/${id}/outputs?limit=0`), 'INVALID_INPUT');
     expectProblem(await get(`/api/conversations/${id}/outputs?limit=101`), 'INVALID_INPUT');
     expectProblem(
-      await get(`/api/conversations/${id}/outputs?before=${encodeURIComponent('not-a-cursor')}`),
+      await get(`/api/conversations/${id}/outputs?cursor=${encodeURIComponent('not-a-cursor')}`),
       'INVALID_INPUT',
     );
   });

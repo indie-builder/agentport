@@ -18,8 +18,8 @@ const item = (id: string, title: string, overrides: Partial<ConversationSearchIt
 
 const response = (
   items: ConversationSearchItem[],
-  nextBefore: string | null = null,
-): ConversationSearchResponse => ({ items, nextBefore });
+  nextCursor: string | null = null,
+): ConversationSearchResponse => ({ items, nextCursor });
 
 let client: QueryClient;
 let host: HTMLDivElement;
@@ -242,7 +242,7 @@ describe('conversation search overlay', () => {
     await act(async () => more.click());
     await flush();
 
-    expect(search).toHaveBeenLastCalledWith({ limit: 20, before: 'cursor-1' }, expect.anything());
+    expect(search).toHaveBeenLastCalledWith({ limit: 20, cursor: 'cursor-1' }, expect.anything());
     expect(document.body.textContent).toContain('第一页');
     expect(document.body.textContent).toContain('第二页');
   });

@@ -205,7 +205,7 @@ beforeEach(() => {
   vi.spyOn(api, 'conversation').mockResolvedValue({
     conversation: { ...terminal.conversation, createdAt: '' },
     runMetrics: [],
-    nextBefore: null,
+    nextCursor: null,
     messages: [
       {
         id: 'message-a',
@@ -220,7 +220,7 @@ beforeEach(() => {
   vi.spyOn(api, 'run').mockResolvedValue(terminal);
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'runQuestions').mockResolvedValue({ items: [] });
-  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextBefore: null });
+  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextCursor: null });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -410,7 +410,7 @@ describe('confirmed chat UX defects', () => {
     async (status, label, errorText) => {
       vi.mocked(api.conversation).mockResolvedValue({
         conversation: { ...terminal.conversation, createdAt: '' },
-        nextBefore: null,
+        nextCursor: null,
         messages: [
           {
             id: 'message-a',
@@ -554,7 +554,7 @@ describe('confirmed chat UX defects', () => {
       .mockResolvedValueOnce({
         conversation: { ...terminal.conversation, createdAt: '' },
         runMetrics: [],
-        nextBefore: 'cursor-older',
+        nextCursor: 'cursor-older',
         messages: [
           {
             id: 'message-a',
@@ -659,7 +659,7 @@ describe('confirmed chat UX defects', () => {
 describe('live terminal outcomes across a follow-up send', () => {
   const conversation: ConversationDetail = {
     conversation: { id: 'conversation-a', agentId: 'agent-a', title: 'History' },
-    nextBefore: null,
+    nextCursor: null,
     runMetrics: [],
     messages: [
       {
@@ -841,7 +841,7 @@ describe('chat shell layout', () => {
     vi.mocked(api.conversation).mockResolvedValue({
       conversation: { id: 'conversation-default', agentId: assistant.id, title: '', createdAt: '' },
       runMetrics: [],
-      nextBefore: null,
+      nextCursor: null,
       messages: [],
     });
     vi.mocked(api.run).mockResolvedValue({
@@ -1395,7 +1395,7 @@ describe('chat focus handoff and history detail reachability', () => {
     const turns = ['run-1', 'run-2', 'run-3'];
     return {
       conversation: { ...terminal.conversation, createdAt: '' },
-      nextBefore: null,
+      nextCursor: null,
       messages: turns.flatMap((runId, index) => [
         {
           id: `user-${runId}`,
@@ -1734,7 +1734,7 @@ describe('conversation header menu', () => {
     vi.mocked(api.conversation).mockImplementation(async (id) => ({
       conversation: { id, agentId: 'agent-a', title: `History ${id}`, createdAt: '' },
       runMetrics: [],
-      nextBefore: null,
+      nextCursor: null,
       messages: [
         {
           id: `message-${id}`,

@@ -535,7 +535,7 @@ function message(event: unknown): { data: string } {
 /** 会话分页：恢复只读真实会话消息，不再从运行详情伪造步骤。 */
 function conversationPage(
   messages: unknown[],
-  options: { id?: string; nextBefore?: string | null } = {},
+  options: { id?: string; nextCursor?: string | null } = {},
 ) {
   return {
     conversation: {
@@ -546,7 +546,7 @@ function conversationPage(
     },
     messages,
     runMetrics: [],
-    nextBefore: options.nextBefore ?? null,
+    nextCursor: options.nextCursor ?? null,
   };
 }
 
@@ -758,10 +758,10 @@ test('截断恢复按 runId 翻页直到本 run 完整，不无限拉更早历�
   apiMock.sendChat.mockResolvedValue({ runId: 'r1', conversationId: 'c1' });
   apiMock.conversation
     .mockResolvedValueOnce(
-      conversationPage([assistantMessage('m3', '后半段')], { nextBefore: 'm3' }),
+      conversationPage([assistantMessage('m3', '后半段')], { nextCursor: 'm3' }),
     )
     .mockResolvedValueOnce(
-      conversationPage([userMessage, assistantMessage('m2', '前半段')], { nextBefore: 'u1' }),
+      conversationPage([userMessage, assistantMessage('m2', '前半段')], { nextCursor: 'u1' }),
     );
   const hook = render('a1');
   await startRun(hook);
@@ -772,7 +772,7 @@ test('截断恢复按 runId 翻页直到本 run 完整，不无限拉更早历�
   await settle();
 
   expect(apiMock.conversation).toHaveBeenCalledTimes(2);
-  expect(apiMock.conversation).toHaveBeenLastCalledWith('c1', { limit: 100, before: 'm3' });
+  expect(apiMock.conversation).toHaveBeenLastCalledWith('c1', { limit: 100, cursor: 'm3' });
   expect(useChatStore.getState().items.map((item) => ('text' in item ? item.text : ''))).toEqual([
     'hi',
     '前半段',

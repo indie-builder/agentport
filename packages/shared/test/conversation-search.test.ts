@@ -29,12 +29,12 @@ describe('conversation search query', () => {
     }
   });
 
-  it('keeps agentId and the opaque before cursor optional', () => {
+  it('keeps agentId and the opaque cursor optional', () => {
     expect(
-      conversationSearchQuerySchema.parse({ agentId: 'agt_1', before: 'cursor' }),
-    ).toMatchObject({ agentId: 'agt_1', before: 'cursor' });
+      conversationSearchQuerySchema.parse({ agentId: 'agt_1', cursor: 'cursor' }),
+    ).toMatchObject({ agentId: 'agt_1', cursor: 'cursor' });
     expect(conversationSearchQuerySchema.safeParse({ agentId: '' }).success).toBe(false);
-    expect(conversationSearchQuerySchema.safeParse({ before: '' }).success).toBe(false);
+    expect(conversationSearchQuerySchema.safeParse({ cursor: '' }).success).toBe(false);
   });
 });
 
@@ -56,8 +56,8 @@ describe('conversation search response', () => {
     }
     expect(conversationSearchItemSchema.parse({ ...item, match: null }).match).toBeNull();
     expect(
-      conversationSearchResponseSchema.parse({ items: [item], nextBefore: null }),
-    ).toMatchObject({ nextBefore: null });
+      conversationSearchResponseSchema.parse({ items: [item], nextCursor: null }),
+    ).toMatchObject({ nextCursor: null });
   });
 
   it('rejects an unknown match kind', () => {

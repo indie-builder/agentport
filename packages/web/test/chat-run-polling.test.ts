@@ -56,7 +56,7 @@ const running: RunDetail = {
 const history: ConversationDetail = {
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: 'History', createdAt: '' },
   runMetrics: [],
-  nextBefore: null,
+  nextCursor: null,
   messages: [
     {
       id: 'message-a',
@@ -163,7 +163,7 @@ beforeEach(() => {
   vi.spyOn(api, 'run').mockResolvedValue(running);
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'runQuestions').mockResolvedValue({ items: [] });
-  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextBefore: null });
+  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextCursor: null });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);

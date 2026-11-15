@@ -46,7 +46,7 @@ function conversationDetail(id: string, agentId = 'agent-a'): ConversationDetail
   return {
     conversation: { id, agentId, title: id, createdAt: '' },
     runMetrics: [],
-    nextBefore: null,
+    nextCursor: null,
     messages: [
       {
         id: `user-${id}`,
@@ -192,7 +192,7 @@ beforeEach(() => {
   vi.spyOn(api, 'conversations').mockResolvedValue([]);
   vi.spyOn(api, 'conversation').mockImplementation(async (id: string) => conversationDetail(id));
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
-  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextBefore: null });
+  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextCursor: null });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
