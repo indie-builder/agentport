@@ -265,6 +265,34 @@ describe('run trajectory export', () => {
   });
 });
 
+describe('save-as-skill visibility', () => {
+  it('hides 存为技能 without skills.create while keeping 重跑', async () => {
+    client.setQueryData(['me'], {
+      ...adminMe,
+      grants: adminMe.grants.filter((grant) => grant.permissionId !== 'skills.create'),
+    });
+    vi.spyOn(api, 'run').mockResolvedValue(detail('succeeded', [userStep]));
+    await mount();
+    await vi.waitFor(() => expect(host.textContent).toContain('原问题'));
+
+    expect(button('存为技能')).toBeUndefined();
+    expect(button('重跑')).not.toBeUndefined();
+  });
+
+  it('keeps 存为技能 with skills.create while hiding 重跑 without conversations.create', async () => {
+    client.setQueryData(['me'], {
+      ...adminMe,
+      grants: adminMe.grants.filter((grant) => grant.permissionId !== 'conversations.create'),
+    });
+    vi.spyOn(api, 'run').mockResolvedValue(detail('succeeded', [userStep]));
+    await mount();
+    await vi.waitFor(() => expect(host.textContent).toContain('原问题'));
+
+    expect(button('重跑')).toBeUndefined();
+    expect(button('存为技能')).not.toBeUndefined();
+  });
+});
+
 describe('rerun visibility and delivery', () => {
   it.each(['queued', 'running'] as const)(
     'does not offer rerun while %s even with a user prompt',
