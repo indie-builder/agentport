@@ -92,6 +92,7 @@
 - **运行源**：旧 worktree 或遗留镜像不是默认运行源。已合并的验收跑最新 `origin/main`；未合并功能只能显式在该功能树预览，并在结果里标注代码根目录与分支。
 - **每次启动只记四件事**：代码根目录、commit、配置路径（`.env` 绝对路径）、访问 URL；不为此新增 preflight 脚本、框架或门禁（§5）。
 - 权限不允许修改主配置时，明确说明「未同步」，不声称已修好，也不反复请求批准；任务内可用用户已确认的临时配置恢复服务。
+- **本地 web 启动只走 portless**：整栈用 `bun run dev`，只前端用 `bun run --filter @agentport/web dev`；访问地址取 portless 输出（`https://<name>.localhost`，worktree 下为 `<branch>.<name>.localhost`），不用 `vite --port <n>` 或写死 5173，api 仍固定 3000。仅三类刻意例外：`scripts/visual-shots.mjs`（visual-check 隔离验收栈，固定 3000/5173）、E2E（`e2e.config.ts` 用 `localhost:5173`，CI 非 TTY 起不了 portless 代理）、显式 `PORTLESS=0` 的持久数据集栈。除此之外不得绕过 portless。
 
 ### 撤销与恢复
 
