@@ -357,17 +357,12 @@ export function PersonalSharesPage() {
         confirmDisabled={revoke.isPending}
         onConfirm={async () => {
           if (!target) return;
-          try {
-            await revoke.mutateAsync(target.id);
-            setTarget(null);
-            setModalError(null);
-            toastSuccess('分享已撤销');
-          } catch (error) {
-            setModalError(errorMessage(error));
-            // 继续抛出让 ConfirmDialog 保持弹层，错误已在本弹层内展示。
-            throw error;
-          }
+          await revoke.mutateAsync(target.id);
+          setTarget(null);
+          setModalError(null);
+          toastSuccess('分享已撤销');
         }}
+        onError={(error) => setModalError(errorMessage(error))}
       >
         {modalError ? <FieldError>{modalError}</FieldError> : null}
       </ConfirmDialog>
