@@ -382,32 +382,43 @@ function withoutTextRange(block: ParsedBlock): ParsedBlock {
   return { ...block, locator };
 }
 
-/**
- * 表格按行拆分时保留列语义，按 maxChars 预算切块并重复表头。
- * shortcut: 单行超过预算时不拆行，那个 chunk 会超预算；模型窗口真的卡住时再按单元格拆。
- */
+// shortcut: 单行超过预算时不拆行，那个 chunk 会超预算；模型窗口真的卡住时再按单元格拆。
+function splitFramedLines(
+  block: ParsedBlock,
+  maxChars: number,
+  frame: { head: string[]; tail: string[]; body: string[] },
+): ParsedBlock[] {
+  const parts: ParsedBlock[] = [];
+  let current: string[] = [];
+  let size = [...frame.head, ...frame.tail].join('\n').length;
+  const flush = () => {
+    if (current.length === 0) return;
+    parts.push(
+      withoutTextRange({
+        ...block,
+        content: [...frame.head, ...current, ...frame.tail].join('\n'),
+      }),
+    );
+    current = [];
+    size = [...frame.head, ...frame.tail].join('\n').length;
+  };
+  for (const line of frame.body) {
+    if (current.length > 0 && size + line.length + 1 > maxChars) flush();
+    current.push(line);
+    size += line.length + 1;
+  }
+  flush();
+  return parts;
+}
+
+/** 表格按行拆分时保留列语义，按 maxChars 预算切块并重复表头。 */
 function splitTable(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   const lines = block.content.split('\n');
   const separator = lines[1] !== undefined && isTableDelimiterLine(lines[1]) ? lines[1] : null;
   const header = separator ? [lines[0] ?? '', separator] : [];
   const head = header.length > 0 ? lines.slice(0, 2) : [lines[0] ?? ''];
   const rows = lines.slice(head.length);
-  const parts: ParsedBlock[] = [];
-  let current: string[] = [];
-  let size = head.join('\n').length;
-  const flush = () => {
-    if (current.length === 0) return;
-    parts.push(withoutTextRange({ ...block, content: [...head, ...current].join('\n') }));
-    current = [];
-    size = head.join('\n').length;
-  };
-  for (const row of rows) {
-    if (current.length > 0 && size + row.length + 1 > maxChars) flush();
-    current.push(row);
-    size += row.length + 1;
-  }
-  flush();
-  return parts;
+  return splitFramedLines(block, maxChars, { head, tail: [], body: rows });
 }
 
 /** 代码块按行拆分时每段都自带完整 fence，保证切块后仍是有效 Markdown。 */
@@ -416,23 +427,7 @@ function splitFence(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   const opener = lines[0] ?? '';
   const closer = lines.at(-1) ?? '';
   const body = lines.slice(1, -1);
-  const overhead = opener.length + closer.length + 1;
-  const parts: ParsedBlock[] = [];
-  let current: string[] = [];
-  let size = overhead;
-  const flush = () => {
-    if (current.length === 0) return;
-    parts.push(withoutTextRange({ ...block, content: [opener, ...current, closer].join('\n') }));
-    current = [];
-    size = overhead;
-  };
-  for (const line of body) {
-    if (current.length > 0 && size + line.length + 1 > maxChars) flush();
-    current.push(line);
-    size += line.length + 1;
-  }
-  flush();
-  return parts;
+  return splitFramedLines(block, maxChars, { head: [opener], tail: [closer], body });
 }
 
 /** 超长块先按语义二次切分：表格按行（重复表头）、代码按行（补全 fence）。 */
