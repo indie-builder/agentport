@@ -71,4 +71,9 @@ describe('标题无正文时的 content 承接', () => {
     const chunks = chunk(markdown);
     expect(chunks.map((entry) => entry.content).join('\n\n')).toContain('孤立标题');
   });
+
+  it('标题文字内紧跟的 # 不被当作结尾 # 吞掉', () => {
+    const chunks = chunk('# C#\n\n正文');
+    expect(chunks[0]?.heading).toContain('C#');
+  });
 });
