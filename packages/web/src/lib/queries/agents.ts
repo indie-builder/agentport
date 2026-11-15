@@ -103,6 +103,31 @@ export function useSetAgentMember() {
         canUse: vars.canUse,
         canMaintain: vars.canMaintain,
       }),
+    onMutate: async (vars) => {
+      await client.cancelQueries({ queryKey: ['agent-members', vars.agentId] });
+      const prev = client.getQueryData<AgentMemberList>(['agent-members', vars.agentId]);
+      if (prev) {
+        client.setQueryData<AgentMemberList>(['agent-members', vars.agentId], (old) =>
+          old
+            ? {
+                ...old,
+                members: old.members.map((m) =>
+                  m.businessId === vars.businessId
+                    ? { ...m, canUse: vars.canUse, canMaintain: vars.canMaintain }
+                    : m,
+                ),
+              }
+            : old,
+        );
+      }
+      return { prev };
+    },
+    onError: (_error, vars, ctx) => {
+      if (ctx?.prev !== undefined) {
+        client.setQueryData<AgentMemberList>(['agent-members', vars.agentId], ctx.prev);
+      }
+      void client.invalidateQueries({ queryKey: ['agent-members', vars.agentId] });
+    },
     onSuccess: (_member, vars) => {
       void client.invalidateQueries({ queryKey: ['agent-members', vars.agentId] });
       void client.invalidateQueries({ queryKey: ['agents'] });
