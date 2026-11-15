@@ -887,6 +887,8 @@ export async function runAgentJob(
       ...(persistedMessages.length === 0 ? {} : { messageIds: persistedMessages }),
       ...(outcome.costUsd === undefined ? {} : { costUsd: outcome.costUsd }),
       ...(outcome.turns === undefined ? {} : { turns: outcome.turns }),
+      ...(outcome.inputTokens == null ? {} : { inputTokens: outcome.inputTokens }),
+      ...(outcome.outputTokens == null ? {} : { outputTokens: outcome.outputTokens }),
       ...(outcome.error === undefined ? {} : { error: outcome.error }),
       ...(outcome.failure ? { failureKind: wireFailureKind(outcome.failure.reason) } : {}),
     });
