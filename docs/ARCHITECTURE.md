@@ -271,7 +271,7 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
-前两个方向共用 MCP 协议与同一个 MCP handler，但目的不同；`/mcp/:serverId` 还承载平台为知识库自动生成的内置连接（第三种用途）。
+前两个方向共用 MCP 协议、都由 `createMcpHandler()` 构建 handler，但 handler 实现不同（generated 走 `mcp-endpoint.ts`，平台走 `agent-tools.ts`），目的不同；`/mcp/:serverId` 还承载平台为知识库自动生成的内置连接（第三种用途）。
 
 | 维度 | HTTP → MCP（`/mcp/:serverId`，generated） | 平台 → MCP（`/mcp`） | 内置知识 MCP（`/mcp/:serverId`，knowledge） |
 |---|---|---|---|
@@ -282,7 +282,7 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 | 执行位置 | api 进程内 `fetch` | worker + 沙盒（与浏览器发起的对话同一条链路） | api 进程内 `retrieval.ts` + 文件读取 |
 | 工具定义变更 | 下一次请求重建 handler，立即生效 | 下一次请求重建 handler，立即生效 | 由代码固定，不随用户配置变化 |
 | 超时 | 上游 HTTP 超时由 fetch/运行环境决定 | 默认取 agent `timeoutMs`，上限 30 分钟 | 同一次 MCP 请求 |
-| 主要代码 | `modules/servers/mcp-endpoint.ts`、`generated.ts` | `modules/servers/agent-tools-endpoint.ts`、`agent-tools.ts`、`agent-invoker.ts` | `modules/servers/mcp-endpoint.ts`（kind 分支）、`modules/knowledge/mcp.ts`、`retrieval.ts` |
+| 主要代码 | `modules/servers/mcp-endpoint.ts`、`generated.ts` | `modules/servers/agent-tools.ts`、`http.ts`、`agent-invoker.ts` | `modules/servers/mcp-endpoint.ts`（kind 分支）、`modules/knowledge/mcp.ts`、`retrieval.ts` |
 
 共同点：
 
