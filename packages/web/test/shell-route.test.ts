@@ -709,8 +709,8 @@ describe('personal entry', () => {
   it('keeps the expanded account entry independent and left-aligned', async () => {
     const view = await inspectRoute('/agents/', 'success');
     try {
-      const entry = view.host.querySelector<HTMLAnchorElement>('a[aria-label="个人资料"]');
-      if (!entry) throw new Error('missing expanded personal entry');
+      const entry = view.host.querySelector<HTMLButtonElement>('button[aria-label="账户菜单"]');
+      if (!entry) throw new Error('missing expanded account entry');
       // 账号入口不是导航条目：头像与姓名靠左，保持 200×32 与紧凑样式。
       expect(entry.closest('nav')).toBeNull();
       expect(entry.classList.contains('justify-start')).toBe(true);
@@ -723,7 +723,7 @@ describe('personal entry', () => {
 
       const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
       await act(async () => collapse?.click());
-      const collapsed = view.host.querySelector<HTMLAnchorElement>('a[aria-label="个人资料"]');
+      const collapsed = view.host.querySelector<HTMLButtonElement>('button[aria-label="账户菜单"]');
       expect(collapsed?.classList.contains('size-8')).toBe(true);
       expect(collapsed?.classList.contains('rounded-full')).toBe(true);
       expect(collapsed?.classList.contains('bg-selected')).toBe(false);
@@ -732,16 +732,32 @@ describe('personal entry', () => {
     }
   });
 
-  it('sends the bottom user info to the profile in both sidebar states', async () => {
+  it('opens the account menu with a profile link in both sidebar states', async () => {
     const view = await inspectRoute('/agents/', 'success');
     try {
-      expect(view.host.querySelector('a[aria-label="个人资料"]')?.getAttribute('href')).toBe(
-        '/personal/profile',
+      const trigger = view.host.querySelector<HTMLButtonElement>('button[aria-label="账户菜单"]');
+      if (!trigger) throw new Error('missing account menu trigger');
+      await act(async () => trigger.click());
+      await vi.waitFor(() =>
+        expect(document.querySelector('a[href="/personal/profile"]')).not.toBeNull(),
       );
+      expect(document.body.textContent).toContain('退出登录');
+
+      await act(async () => trigger.click());
+      await vi.waitFor(() =>
+        expect(document.querySelector('a[href="/personal/profile"]')).toBeNull(),
+      );
+
       const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
       await act(async () => collapse?.click());
-      const collapsed = view.host.querySelector('a[aria-label="个人资料"]');
-      expect(collapsed?.getAttribute('href')).toBe('/personal/profile');
+      const collapsedTrigger = view.host.querySelector<HTMLButtonElement>(
+        'button[aria-label="账户菜单"]',
+      );
+      if (!collapsedTrigger) throw new Error('missing collapsed account menu trigger');
+      await act(async () => collapsedTrigger.click());
+      await vi.waitFor(() =>
+        expect(document.querySelector('a[href="/personal/profile"]')).not.toBeNull(),
+      );
     } finally {
       await view.close();
     }

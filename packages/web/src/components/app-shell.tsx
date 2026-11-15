@@ -35,6 +35,7 @@ import { CommandPalette, CommandPaletteTrigger } from './command-palette.js';
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from './page.js';
 import { Button, buttonVariants } from './ui/button.js';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
 import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
 import { Skeleton } from './ui/skeleton.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js';
@@ -330,6 +331,7 @@ export function AppShell() {
   });
   const collapsed = sidebarMode === 'collapsed';
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const pointerInSidebar = useRef(false);
   const navigationTrigger = useRef<HTMLButtonElement>(null);
   const sidebarLogo = useRef<HTMLButtonElement>(null);
@@ -452,6 +454,13 @@ export function AppShell() {
   const sidebar = (drawer: boolean) => {
     const navCollapsed = !drawer && collapsed;
     const tooltipDisabled = drawer || sidebarMode === 'expanded';
+    const accountInitial = (
+      Array.from(user.user.name.trim())[0] ??
+      Array.from(user.user.username)[0] ??
+      ''
+    ).toUpperCase();
+    const accountCurrent =
+      pathname === '/personal/profile' || pathname === '/personal' ? 'page' : undefined;
     const onNavigate = (): void => {
       if (drawer) setMobileOpen(false);
       else setSidebarMode((mode) => (mode === 'preview' ? 'collapsed' : mode));
@@ -607,44 +616,138 @@ export function AppShell() {
               <TooltipContent side="right">退出登录</TooltipContent>
             </Tooltip>
           ) : null}
-          <Tooltip disabled={tooltipDisabled} delay={400}>
-            <TooltipTrigger
-              render={
-                <Link
-                  to="/personal/profile"
-                  aria-label="个人资料"
-                  aria-current={
-                    pathname === '/personal/profile' || pathname === '/personal'
-                      ? 'page'
-                      : undefined
-                  }
-                  onClick={onNavigate}
-                  className={
-                    navCollapsed
-                      ? 'flex size-8 items-center justify-center rounded-full bg-sidebar p-0 text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-sidebar-hover'
-                      : buttonVariants({
-                          variant: 'ghost',
-                          className:
-                            'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground hover:bg-sidebar-hover',
-                        })
-                  }
-                >
-                  <span
-                    className={cn(
-                      'flex shrink-0 items-center justify-center text-muted-foreground',
-                      navCollapsed ? 'size-4' : 'size-5 rounded-full bg-sidebar',
-                    )}
+          {personalContext ? (
+            <Tooltip disabled={tooltipDisabled} delay={400}>
+              <TooltipTrigger
+                render={
+                  <Link
+                    to="/personal/profile"
+                    aria-label="个人资料"
+                    aria-current={accountCurrent}
+                    onClick={onNavigate}
+                    className={
+                      navCollapsed
+                        ? 'flex size-8 items-center justify-center rounded-full bg-sidebar p-0 text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-sidebar-hover'
+                        : buttonVariants({
+                            variant: 'ghost',
+                            className:
+                              'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground hover:bg-sidebar-hover',
+                          })
+                    }
                   >
-                    <User className={navCollapsed ? 'size-4' : 'size-3'} />
+                    <span
+                      className={cn(
+                        'flex shrink-0 items-center justify-center text-muted-foreground',
+                        navCollapsed ? 'size-4' : 'size-5 rounded-full bg-sidebar',
+                      )}
+                    >
+                      <User className={navCollapsed ? 'size-4' : 'size-3'} />
+                    </span>
+                    <span className={navCollapsed ? 'sr-only' : 'max-w-32 truncate'}>
+                      {user.user.name || user.user.username}
+                    </span>
+                  </Link>
+                }
+              />
+              <TooltipContent side="right">{user.user.name || user.user.username}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Popover open={accountOpen} onOpenChange={setAccountOpen}>
+              <PopoverTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    aria-label="账户菜单"
+                    aria-current={accountCurrent}
+                    className={
+                      navCollapsed
+                        ? 'flex size-8 items-center justify-center rounded-full bg-sidebar p-0 text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-sidebar-hover'
+                        : 'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground hover:bg-sidebar-hover'
+                    }
+                  >
+                    <span
+                      className={cn(
+                        'flex shrink-0 items-center justify-center rounded-full text-muted-foreground',
+                        navCollapsed ? 'size-4' : 'size-5 bg-sidebar',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'font-medium leading-none',
+                          navCollapsed ? 'text-[10px]' : 'text-[11px]',
+                        )}
+                      >
+                        {accountInitial}
+                      </span>
+                    </span>
+                    <span className={navCollapsed ? 'sr-only' : 'max-w-32 truncate'}>
+                      {user.user.name || user.user.username}
+                    </span>
+                  </Button>
+                }
+              />
+              <PopoverContent side="right" align="end" sideOffset={8} className="w-72 gap-0 p-0">
+                <div className="flex min-w-0 items-center gap-3 p-3">
+                  <span
+                    aria-hidden="true"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-full bg-sunken text-sm font-medium text-fg"
+                  >
+                    {accountInitial}
                   </span>
-                  <span className={navCollapsed ? 'sr-only' : 'max-w-32 truncate'}>
-                    {user.user.name || user.user.username}
-                  </span>
-                </Link>
-              }
-            />
-            <TooltipContent side="right">{user.user.name || user.user.username}</TooltipContent>
-          </Tooltip>
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <p className="min-w-0 truncate text-sm font-medium text-fg">
+                      {user.user.name || user.user.username}
+                    </p>
+                    <p className="min-w-0 truncate text-xs text-muted-foreground">
+                      @{user.user.username} ·{' '}
+                      {user.roles.map((role) => role.name).join('、') || '无角色'}
+                    </p>
+                  </div>
+                </div>
+                <div className="h-px bg-line" />
+                <div className="flex flex-col gap-0.5 p-2">
+                  {visiblePersonalGroups.map((group) => (
+                    <div key={group.label} className="flex flex-col gap-0.5">
+                      <div className="px-3 pb-1 pt-1.5 text-xs text-muted-foreground">
+                        {group.label}
+                      </div>
+                      {group.items.map((item) => (
+                        <Link
+                          key={item.to}
+                          to={item.to}
+                          onClick={() => {
+                            setAccountOpen(false);
+                            onNavigate();
+                          }}
+                          className="flex h-9 items-center gap-2.5 rounded-item px-3 text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-hover"
+                        >
+                          <item.icon
+                            aria-hidden="true"
+                            className="shrink-0 text-muted-foreground"
+                          />
+                          <span className="min-w-0 truncate">{item.label}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                <div className="h-px bg-line" />
+                <div className="p-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setAccountOpen(false);
+                      void logout();
+                    }}
+                    className="h-9 w-full justify-start gap-2.5 rounded-item px-3 text-sm text-danger hover:bg-hover hover:text-danger"
+                  >
+                    <LogOut aria-hidden="true" className="shrink-0" />
+                    退出登录
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
       </motion.aside>
     );

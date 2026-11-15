@@ -1,15 +1,12 @@
 import { updatePersonalProfileInputSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '../../components/motion-collapsible.js';
-import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
-import { Button } from '../../components/ui/button.js';
+import { Page, PageBody, PageHeader, PageTopbar } from '../../components/page.js';
+import { StatusBadge } from '../../components/status-badge.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
+import { Card, CardContent } from '../../components/ui/card.js';
 import {
   Field,
   FieldContent,
@@ -21,18 +18,19 @@ import { Input } from '../../components/ui/input.js';
 import { authenticated } from '../../lib/access.js';
 import { errorMessage } from '../../lib/api.js';
 import { useFormBlocker } from '../../lib/form.js';
-import { meQuery, useUpdatePersonalProfile } from '../../lib/queries.js';
+import { formatDateTime } from '../../lib/format.js';
+import { meQuery, usePersonalSessions, useUpdatePersonalProfile } from '../../lib/queries.js';
 import { toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 
 // 短字段统一 448px；横向标签列 96px，值列与表单、提交按钮共用同一轴线。
 const FIELD_VALUE = 'flex w-full min-w-0 max-w-112 flex-1 flex-col gap-1.5';
-const IDENTITY_GRID = 'grid grid-cols-[96px_minmax(0,1fr)] gap-x-4';
 
 export function PersonalProfilePage() {
   const me = useQuery(meQuery);
   const user = authenticated(me.data);
   const update = useUpdatePersonalProfile();
+  const sessions = usePersonalSessions();
   const [formError, setFormError] = useState<string | null>(null);
   const form = useZodForm(updatePersonalProfileInputSchema, {
     defaultValues: { name: user?.user.name ?? '' },
@@ -52,6 +50,11 @@ export function PersonalProfilePage() {
     Array.from(user.user.username)[0] ??
     ''
   ).toUpperCase();
+  const roleLabel = user.roles.map((role) => role.name).join('、') || '无角色';
+  const currentSession =
+    sessions.isError || sessions.isRefetchError
+      ? undefined
+      : sessions.data?.items.find((session) => session.current);
 
   const submit = handleSubmit(async (values) => {
     setFormError(null);
@@ -71,106 +74,134 @@ export function PersonalProfilePage() {
       </PageTopbar>
 
       <PageBody>
-        <PageSection divided={false} className="w-full">
-          <div className="flex min-w-0 items-center gap-4">
-            <div
-              aria-hidden="true"
-              className="flex size-12 shrink-0 items-center justify-center rounded-full bg-sunken text-lg font-medium text-fg"
-            >
-              {initial}
-            </div>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <p className="min-w-0 truncate text-base font-medium text-fg">{user.user.name}</p>
-              <p className="min-w-0 break-words text-sm text-muted-foreground">
-                @{user.user.username} · {user.roles.map((role) => role.name).join('、') || '无角色'}
-              </p>
-            </div>
-          </div>
-        </PageSection>
-
-        <PageSection title="基本资料" className="w-full gap-3">
-          <form
-            aria-label="个人资料"
-            noValidate
-            className="flex w-full min-w-0 flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submit();
-            }}
-          >
-            <FieldGroup>
-              <Field
-                orientation="horizontal"
-                className="items-start gap-x-4"
-                data-disabled={update.isPending}
-                data-invalid={formState.errors.name ? true : undefined}
-              >
-                <FieldContent className="w-24 flex-none pt-2">
-                  <FieldLabel htmlFor="personal-name">显示姓名</FieldLabel>
-                </FieldContent>
-                <div className={FIELD_VALUE}>
-                  <Input
-                    id="personal-name"
-                    autoComplete="name"
-                    disabled={update.isPending}
-                    aria-invalid={Boolean(formState.errors.name || formError)}
-                    aria-describedby={nameErrorIds.length > 0 ? nameErrorIds.join(' ') : undefined}
-                    {...register('name')}
-                  />
-                  <FieldError id="personal-name-field-error">
-                    {formState.errors.name?.message}
-                  </FieldError>
-                  {formError ? <FieldError id="personal-name-error">{formError}</FieldError> : null}
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_320px] items-start gap-6">
+          <Card className="min-w-0">
+            <CardContent className="flex flex-col gap-4">
+              <div className="flex min-w-0 items-center gap-4">
+                <div
+                  aria-hidden="true"
+                  className="flex size-12 shrink-0 items-center justify-center rounded-full bg-sunken text-lg font-medium text-fg"
+                >
+                  {initial}
                 </div>
-              </Field>
-            </FieldGroup>
-            <div className="ml-28 flex max-w-112 justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={update.isPending}
-                onClick={() => {
-                  setFormError(null);
-                  reset({ name: user.user.name });
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <p className="min-w-0 truncate text-base font-medium text-fg">{user.user.name}</p>
+                  <p className="min-w-0 break-words text-sm text-muted-foreground">
+                    @{user.user.username} · {roleLabel}
+                  </p>
+                </div>
+              </div>
+
+              <div className="h-px bg-line" />
+
+              <h2 className="text-base font-medium text-fg">基本资料</h2>
+
+              <form
+                aria-label="个人资料"
+                noValidate
+                className="flex w-full min-w-0 flex-col gap-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submit();
                 }}
               >
-                取消
-              </Button>
-              <Button
-                type="submit"
-                disabled={!dirty || update.isPending}
-                aria-busy={update.isPending}
-              >
-                {update.isPending ? '保存中…' : '保存'}
-              </Button>
-            </div>
-          </form>
-        </PageSection>
+                <FieldGroup>
+                  <Field
+                    orientation="horizontal"
+                    className="items-start gap-x-4"
+                    data-disabled={update.isPending}
+                    data-invalid={formState.errors.name ? true : undefined}
+                  >
+                    <FieldContent className="w-24 flex-none pt-2">
+                      <FieldLabel htmlFor="personal-name">显示姓名</FieldLabel>
+                    </FieldContent>
+                    <div className={FIELD_VALUE}>
+                      <Input
+                        id="personal-name"
+                        autoComplete="name"
+                        disabled={update.isPending}
+                        aria-invalid={Boolean(formState.errors.name || formError)}
+                        aria-describedby={
+                          nameErrorIds.length > 0 ? nameErrorIds.join(' ') : undefined
+                        }
+                        {...register('name')}
+                      />
+                      <FieldError id="personal-name-field-error">
+                        {formState.errors.name?.message}
+                      </FieldError>
+                      {formError ? (
+                        <FieldError id="personal-name-error">{formError}</FieldError>
+                      ) : null}
+                    </div>
+                  </Field>
+                </FieldGroup>
+                <div className="ml-28 flex max-w-112 justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={update.isPending}
+                    onClick={() => {
+                      setFormError(null);
+                      reset({ name: user.user.name });
+                    }}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={!dirty || update.isPending}
+                    aria-busy={update.isPending}
+                  >
+                    {update.isPending ? '保存中…' : '保存'}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
 
-        <PageSection divided className="w-full gap-3">
-          <Collapsible>
-            <CollapsibleTrigger
-              render={
-                <Button variant="ghost" size="sm" className="group -ml-2.5 text-muted-foreground" />
-              }
-            >
-              <ChevronDown
-                aria-hidden="true"
-                data-icon="inline-start"
-                className="transition-transform duration-150 ease-out-soft group-data-[panel-open]:rotate-180"
-              />
-              账号详情
-            </CollapsibleTrigger>
-            <CollapsibleContent animated>
-              <dl className={`${IDENTITY_GRID} mt-2 text-sm`}>
-                <dt className="text-muted-foreground">业务 ID</dt>
-                <dd className="min-w-0 break-words font-mono text-xs text-fg">
-                  {user.user.businessId}
-                </dd>
-              </dl>
-            </CollapsibleContent>
-          </Collapsible>
-        </PageSection>
+          <div className="flex min-w-0 flex-col gap-4">
+            <Card className="min-w-0">
+              <CardContent className="flex flex-col gap-3">
+                <h2 className="text-base font-medium text-fg">账号</h2>
+                <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+                  <dt className="text-muted-foreground">角色</dt>
+                  <dd className="min-w-0 break-words text-fg">{roleLabel}</dd>
+                  <dt className="text-muted-foreground">业务 ID</dt>
+                  <dd className="min-w-0 break-all font-mono text-xs text-fg">
+                    {user.user.businessId}
+                  </dd>
+                </dl>
+                <p className="text-xs text-muted-foreground">业务 ID 由管理员分配，不可修改。</p>
+              </CardContent>
+            </Card>
+
+            <Card className="min-w-0">
+              <CardContent className="flex flex-col gap-3">
+                <h2 className="text-base font-medium text-fg">登录安全</h2>
+                {currentSession ? (
+                  <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg">
+                    <StatusBadge tone="brand">当前设备</StatusBadge>
+                    <span className="min-w-0 break-words">
+                      最近活动 {formatDateTime(currentSession.updatedAt)}
+                    </span>
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">暂时无法获取当前登录会话。</p>
+                )}
+                <Link
+                  to="/personal/security"
+                  className={buttonVariants({
+                    variant: 'link',
+                    size: 'sm',
+                    className: 'self-start',
+                  })}
+                >
+                  前往账号安全
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </PageBody>
 
       <ConfirmDialog
