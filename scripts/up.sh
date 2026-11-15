@@ -33,7 +33,7 @@ docker compose version >/dev/null 2>&1 || fail "未找到 docker compose"
 if [ ! -f .env ]; then
   umask 077
   cp .env.example .env
-  ENV_FILE=.env node --input-type=commonjs <<'NODE'
+  ENV_FILE=.env bun run - <<'NODE'
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // 开发完成后的多视口 UI 截图：默认起隔离临时库 + API/Web，登录、可选种子、截图、打开、清理。
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -13,7 +13,7 @@ const WEB_PORT = Number(process.env.VISUAL_WEB_PORT) || 5173;
 const REDIS_IMAGE =
   'redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537';
 
-const USAGE = `用法: node scripts/visual-shots.mjs --route <path> [options]
+const USAGE = `用法: bun scripts/visual-shots.mjs --route <path> [options]
 
 把开发完成的路由在多个视口下截图并打开。默认起隔离临时 PG 库、独享 Redis 容器与 API/Web。
 Redis 使用已缓存镜像与 loopback 随机端口，API 忽略外部 REDIS_URL；结束仅删除本次容器 ID。
@@ -37,7 +37,7 @@ Redis 使用已缓存镜像与 loopback 随机端口，API 忽略外部 REDIS_UR
 
 示例:
   bun run visual:shots --route /agents --route /channels
-  node scripts/visual-shots.mjs --route /agents?q=x --viewports 1440x900,1200x900 --no-open
+  bun scripts/visual-shots.mjs --route /agents?q=x --viewports 1440x900,1200x900 --no-open
 `;
 
 function fail(message) {

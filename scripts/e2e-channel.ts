@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * 频道模式真实链路验证：HTTP → BullMQ → worker → Docker 沙盒 → Claude Agent SDK
  * → 事件回流 → 频道时间线。只有 Anthropic 模型端点是本地假 SSE，其余全部是真实进程与容器。

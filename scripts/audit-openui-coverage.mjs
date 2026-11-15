@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * OpenUI 覆盖缺口报告。只读，不跑测试、不改文件。
  *
