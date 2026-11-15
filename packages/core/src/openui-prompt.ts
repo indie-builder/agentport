@@ -9,7 +9,7 @@ import spec from './generated/openui.spec.json' with { type: 'json' };
 
 /**
  * 服务端提示词只读官方 CLI 生成的 LibrarySpec（`packages/core/src/generated/openui.spec.json`）。
- * spec 由 `pnpm openui:spec` 从**真实的浏览器库**（`packages/web/src/openui/library.tsx`）导出，
+ * spec 由 `bun run openui:spec` 从**真实的浏览器库**（`packages/web/src/openui/library.tsx`）导出，
  * 因此提示词里的签名、默认值与分组和前端实际渲染的是同一份契约，不存在第二套定义。
  *
  * 主构建不调用 web → core：生成物是提交进仓库的静态文件，构建只读。

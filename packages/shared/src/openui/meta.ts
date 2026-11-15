@@ -1,5 +1,5 @@
 // 由官方 @openuidev/react-ui 的 chat 库生成，请勿手改。
-// 重新生成：pnpm openui:meta（openui:spec 会先跑它）
+// 重新生成：bun run openui:meta（openui:spec 会先跑它）
 // 组件契约的权威定义在 definitions.ts（真实 Zod）；这里只存官方文案与分组。
 import type { OpenUiPromptOptions } from './protocol.js';
 
