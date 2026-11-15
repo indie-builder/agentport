@@ -118,9 +118,12 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
     }
   }
 
-  // 取消/超时没有原生 tool_result：提问卡片仍要保留，否则刷新后问题凭空消失。
-  for (const [toolUseId, question] of questions) {
+  // 取消/超时/崩溃没有原生 tool_result：已开始的工具（含提问卡片）仍要保留，
+  // 否则实时界面看到的工具调用刷新后凭空消失。
+  const startedToolIds = new Set<string>([...toolNames.keys(), ...questions.keys()]);
+  for (const toolUseId of startedToolIds) {
     if (answeredToolIds.has(toolUseId)) continue;
+    const question = questions.get(toolUseId);
     const parentToolUseId = toolParents.get(toolUseId);
     const sdkMessageUuid = toolUuids.get(toolUseId);
     rows.push({
@@ -128,10 +131,10 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
       content: {
         type: 'tool_use',
         id: toolUseId,
-        name: toolNames.get(toolUseId) ?? 'AskUserQuestion',
+        name: toolNames.get(toolUseId) ?? (question === undefined ? null : 'AskUserQuestion'),
         input: parseToolInput(toolInputs.get(toolUseId)),
         ...(parentToolUseId === undefined ? {} : { parentToolUseId }),
-        question,
+        ...(question === undefined ? {} : { question }),
       },
       ...(sdkMessageUuid === undefined ? {} : { sdkMessageUuid }),
     });
