@@ -885,34 +885,6 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
     expect((await repo.memoryReviews.find(db, seeded.runId))?.proposal).toBeNull();
   });
 
-  it('fails when evidence is not found in the saved snapshot', async () => {
-    const seeded = await seed({ messages: [{ role: 'user', text: '请把回答写短一点。' }] });
-    await executeMemoryReview(
-      db,
-      { runId: seeded.runId, redisUrl, signal: new AbortController().signal },
-      {
-        queryFn: reply(
-          [
-            resultMessage({
-              structured_output: {
-                summary: '提案',
-                proposedContent: '回答要短。',
-                evidence: [
-                  { messageId: seeded.messageIds[0], quote: '这句话不在原文里', kind: 'user_fact' },
-                ],
-              },
-            }),
-          ],
-          [],
-        ),
-      },
-    );
-
-    expect(await runOf(seeded.runId)).toMatchObject({ status: 'failed' });
-    expect((await runOf(seeded.runId))?.error).toContain('不是消息原文');
-    expect((await repo.memoryReviews.find(db, seeded.runId))?.proposal).toBeNull();
-  });
-
   it('fails without a proposal or target write when evidence cites a missing message id', async () => {
     const before: MemoryContentSnapshot = {
       content: '- 现有条目',

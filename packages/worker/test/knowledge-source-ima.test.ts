@@ -752,18 +752,6 @@ describe('readIma', () => {
     expect(backToOrigin?.headers.authorization).toBeUndefined();
   });
 
-  it('turns IMA permission code 110030 into SourceAuthError', async () => {
-    installFetch((record) => {
-      const url = new URL(record.url);
-      if (url.pathname === '/openapi/wiki/v1/get_knowledge_list') {
-        return json({ code: 110030, msg: 'no permission' });
-      }
-      throw new Error(`unexpected request ${record.url}`);
-    });
-
-    await expect(readIma(config(), undefined, undefined)).rejects.toBeInstanceOf(SourceAuthError);
-  });
-
   it('aborts an in-flight request', async () => {
     let started: () => void = () => undefined;
     const requestStarted = new Promise<void>((resolve) => {

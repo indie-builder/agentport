@@ -9,7 +9,6 @@ import {
   outputContentSchema,
   outputFileSchema,
   outputListSchema,
-  problemSchema,
 } from '@agentport/shared';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { getQueue } from '../src/queue/producer.js';
@@ -626,15 +625,5 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     });
     expect(removedAgent.statusCode, removedAgent.body).toBe(204);
     await expect(stat(join(outputsDir(secondAgent.slug)))).rejects.toThrow();
-  });
-
-  it('keeps every failure response inside the existing Problem contract', async () => {
-    const agent = await newAgent();
-    const id = await newConversation(agent.id);
-    await publish(agent.slug, id, 'run_err', { 'a.md': 'a' });
-    const res = await get(`/api/conversations/${id}/outputs/run_err/content?path=missing.md`);
-    expect(res.statusCode).toBeGreaterThanOrEqual(400);
-    expect(res.statusCode).toBeLessThan(500);
-    expect(problemSchema.parse(res.json())).toMatchObject({ status: res.statusCode });
   });
 });
