@@ -212,6 +212,7 @@ describe.skipIf(!ready)('chat admission', () => {
       agentId: agent.id,
       conversationId,
       prompt: 'latest question',
+      requestId: expect.any(String),
     });
     // 续聊身份在准入时就固定：平台生成的 uuid 与用户消息一一对应。
     const [stored] = await app.client
@@ -391,8 +392,9 @@ describe.skipIf(!ready)('chat admission', () => {
       await locker.unsafe('commit');
 
       expect(await pending).toMatchObject({
-        code: 'AGENT_NOT_FOUND',
-        message: '智能体不存在，可能已被删除；请刷新后重新选择',
+        code: 'NOT_FOUND',
+        message: '智能体不存在，可能已被删除；请刷新后重试',
+        resource: 'agent',
       });
     } finally {
       await locker.unsafe('rollback').catch(() => undefined);

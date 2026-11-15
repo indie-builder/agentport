@@ -310,6 +310,6 @@ describe.skipIf(!ready)('agent update concurrency', () => {
       name: 'x',
       expectedUpdatedAt: new Date().toISOString(),
     });
-    expectProblem(missing, 'AGENT_NOT_FOUND');
+    expectProblem(missing, 'NOT_FOUND', 'agent');
   });
 });

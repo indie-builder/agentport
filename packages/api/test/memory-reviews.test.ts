@@ -534,7 +534,7 @@ describe.skipIf(!ready)('memory reviews', () => {
         sources: [{ conversationId: otherConversation }],
       }),
     );
-    expectProblem(missingModel, 'AGENT_NOT_FOUND');
+    expectProblem(missingModel, 'NOT_FOUND', 'agent');
 
     await app.client.unsafe('update agents set enabled = false where id = $1', [owner.id]);
     const disabledModel = await postReview(

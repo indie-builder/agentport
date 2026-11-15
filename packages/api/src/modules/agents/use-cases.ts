@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { fail, notFound } from '@agentport/core';
 import { repo as allRepo, type Database } from '@agentport/db';
 import type { Agent, AgentInput } from '@agentport/shared';
 import { AGENT_ROLES } from '@agentport/shared';
@@ -183,8 +183,7 @@ export async function transferAgent(
     return fail('INVALID_INPUT', '新负责人需要具备「创建专家」权限');
   }
   const transferred = await allRepo.access.transferAgent(deps.db, row.id, ownerBusinessId);
-  if (!transferred)
-    return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
+  if (!transferred) return notFound('agent');
   await allRepo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'agent.transferred',
@@ -194,7 +193,7 @@ export async function transferAgent(
     requestId: deps.requestId,
   });
   const updated = await repo.getAgent(deps.db, row.id);
-  if (!updated) return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
+  if (!updated) return notFound('agent');
   return agentDetail(deps.db, updated);
 }
 export async function restoreAgentVersion(
@@ -222,7 +221,7 @@ export async function restoreAgentVersion(
         }
       ).pluginBindings,
     );
-    if (!row) return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
+    if (!row) return notFound('agent');
     await allRepo.audit.writeAudit(deps.db, deps.log, {
       actor: deps.actor,
       action: 'agent.rolled_back',

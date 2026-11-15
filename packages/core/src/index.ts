@@ -8,7 +8,14 @@ export {
   writeConversationAttachments,
 } from './attachments.js';
 export { DbError, isRetryableFailure, RunFailure, runProgram } from './effect-runtime.js';
-export { AppError, fail, isAppError } from './errors.js';
+export {
+  AppError,
+  fail,
+  isAppError,
+  NOT_FOUND_MESSAGES,
+  type NotFoundResource,
+  notFound,
+} from './errors.js';
 export { inspectKnowledgeAudio } from './knowledge-audio.js';
 export {
   chunkBlocks,

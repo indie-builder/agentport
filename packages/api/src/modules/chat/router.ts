@@ -5,6 +5,7 @@ import {
   copyConversationInputs,
   copyConversationOutputs,
   fail,
+  notFound,
   removeConversationInputs,
   removeConversationOutputs,
 } from '@agentport/core';
@@ -26,15 +27,11 @@ import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { beginSse } from '../../http/sse.js';
-import { authorizeRun, RUN_MISSING } from '../runs/access.js';
+import { authorizeRun } from '../runs/access.js';
 import { terminalRunEvent, writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
 import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
-import {
-  CONVERSATION_MISSING,
-  loadReadableConversation,
-  loadWritableConversation,
-} from './access.js';
+import { loadReadableConversation, loadWritableConversation } from './access.js';
 import { cancelAgentRun } from './cancel-run.js';
 import type { NativeHttpDependencies } from './http.js';
 import { chatStateRouter } from './openui-state.js';
@@ -146,9 +143,7 @@ const chatMainRouter = {
       title: input.body.title,
       access: accessFilter(context, 'conversations.update'),
     });
-    if (!conversation) {
-      return fail('CONVERSATION_NOT_FOUND', CONVERSATION_MISSING);
-    }
+    if (!conversation) notFound('conversation');
     await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'conversation.renamed',
@@ -174,9 +169,7 @@ const chatMainRouter = {
         access: accessFilter(context, 'conversations.delete'),
       },
     });
-    if (deleted === null) {
-      return fail('CONVERSATION_NOT_FOUND', CONVERSATION_MISSING);
-    }
+    if (deleted === null) notFound('conversation');
     const agent = { slug: deleted.agentSlug };
     await Promise.all([
       rm(join(context.config.WORKSPACES_DIR, agent.slug, 'sdk-sessions', deleted.id), {
@@ -218,19 +211,7 @@ const chatMainRouter = {
   }),
   cancelRun: os.cancelRun.handler(async ({ input, context }) => {
     const { runId } = input.params;
-    const run = await chatRepo.getRun(context.db, runId);
-    if (!run) {
-      return fail('RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新后重试');
-    }
-    if (run.channelId !== null) {
-      return fail('RUN_NOT_FOUND', '运行记录不存在，可能已被清理；请刷新后重试');
-    }
-    await authorizeObject(
-      context,
-      'runs.cancel',
-      { objectId: run.id, createdBy: run.initiatedBy, privateContent: true },
-      RUN_MISSING,
-    );
+    const run = await authorizeRun(context, runId, 'runs.cancel');
     if (terminalRunEvent(run) === null && (await cancelAgentRun(context, runId)) !== null) {
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
@@ -256,9 +237,7 @@ const chatMainRouter = {
         ? {}
         : { fromMessageId: input.body.fromMessageId }),
     });
-    if (!result) {
-      return fail('CONVERSATION_NOT_FOUND', '会话或分支点不存在，可能已被删除；请刷新后重试');
-    }
+    if (!result) notFound('conversation', '会话或分支点不存在，可能已被删除；请刷新后重试');
     const [agent] = await context.db
       .select({ slug: schema.agents.slug })
       .from(schema.agents)

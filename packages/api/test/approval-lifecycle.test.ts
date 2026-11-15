@@ -120,18 +120,20 @@ describe.skipIf(!ready)('approval lifecycle', () => {
     },
   );
 
-  it('returns APPROVAL_NOT_FOUND for a request that was never recorded', async () => {
+  it('returns NOT_FOUND for a request that was never recorded', async () => {
     const { runId } = await seed('running');
     expectProblem(
       await approve(runId, { serverId: server.id, toolName: unique('absent') }),
-      'APPROVAL_NOT_FOUND',
+      'NOT_FOUND',
+      'approval',
     );
   });
 
-  it('returns RUN_NOT_FOUND for an unknown run', async () => {
+  it('returns NOT_FOUND for an unknown run', async () => {
     expectProblem(
       await approve(unique('missing-run'), { serverId: server.id, toolName: unique('tool') }),
-      'RUN_NOT_FOUND',
+      'NOT_FOUND',
+      'run',
     );
   });
 

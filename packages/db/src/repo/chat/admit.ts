@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { fail } from '@agentport/core';
+import { fail, notFound } from '@agentport/core';
 import type { ExecutionSubject, RunTrigger } from '@agentport/shared';
 import { ACTIVE_RUN_STATUSES } from '@agentport/shared';
 import { and, desc, eq, gt, inArray, lt } from 'drizzle-orm';
@@ -93,7 +93,7 @@ export async function admitChatRun(
       .where(eq(agents.id, input.agentId))
       .limit(1)
       .for('key share');
-    if (!owner) fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
+    if (!owner) notFound('agent');
     // 入口的 enabled 预检在锁外；停用若在等锁期间提交，只有锁内重读才能拦住这次入队。
     if (!owner.enabled) {
       fail('AGENT_DISABLED', '该智能体已停用，无法发起新对话；请到智能体页面启用后再试');
@@ -146,7 +146,7 @@ export async function admitChatRun(
         )
         .limit(1)
         .for('update');
-      if (!binding) fail('AGENT_NOT_FOUND', '该智能体未加入频道，无法触发');
+      if (!binding) notFound('agent', '该智能体未加入频道，无法触发');
       if (binding.status !== 'active') {
         fail('CONFLICT', '该智能体在频道内已断开，无法触发');
       }
@@ -232,7 +232,7 @@ export async function admitChatRun(
         .limit(1)
         .for('update');
       if (!conversation || conversation.agentId !== input.agentId) {
-        fail('CONVERSATION_NOT_FOUND', '会话不存在或不属于该智能体；请从会话列表重新打开');
+        notFound('conversation', '会话不存在或不属于该智能体；请从会话列表重新打开');
       }
     }
 

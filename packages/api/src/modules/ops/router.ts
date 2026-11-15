@@ -1,5 +1,5 @@
 import { opsContract } from '@agentport/contract/ops';
-import { fail } from '@agentport/core';
+import { fail, notFound } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import { utcWindowStart } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -109,7 +109,7 @@ export const opsRouter = os.router({
         .from(schema.agents)
         .where(eq(schema.agents.id, input.body.agentId))
         .limit(1);
-      if (!agent) fail('AGENT_NOT_FOUND', '智能体不存在，无法创建定时任务');
+      if (!agent) notFound('agent', '智能体不存在，无法创建定时任务');
       await authorizeObject(
         context,
         'schedules.read',

@@ -43,6 +43,21 @@
 }
 ```
 
+资源不存在时，具体对象类别放在 `resource`，标识按需放在 `resourceId`：
+
+```json
+{
+  "code": "NOT_FOUND",
+  "message": "智能体不存在，可能已被删除；请刷新后重试",
+  "status": 404,
+  "requestId": "req-7",
+  "retryable": false,
+  "resource": "agent",
+  "resourceId": "agent_01j...",
+  "hint": "确认 resource/resourceId 指向的对象存在且属于当前主体；必要时刷新列表，或用 requestId 查服务日志。"
+}
+```
+
 | 字段 | 为什么存在 |
 |---|---|
 | `code` | 唯一稳定契约。新增是兼容变更，改语义/删除是破坏性变更 |
@@ -51,9 +66,69 @@
 | `requestId` | 关联日志。用户报错时可直接贴这一串 |
 | `retryable` | 决定「自动重试」还是「提示用户」。429/5xx 为 true |
 | `path` / `errors` | 字段级校验失败；批量导入一次返回多条 |
+| `resource` | `NOT_FOUND` 的资源类别（`agent` / `conversation` / `run` / `approval` 等），不靠新增 `*_NOT_FOUND` 码表达 |
+| `resourceId` | 出错资源的标识；仅在调用方持有且适合外发时带上 |
+| `hint` | 面向智能体/运维的排查建议，不是给终端用户的文案；边界按 `code` 给默认值 |
 
 `errorCode` 常量表把 code 与 HTTP 状态写在一起（`errorCode.CONFLICT === 409`），所以业务代码只写
 `fail('CONFLICT', '...')`，不再出现 `statusCode: 409` 这种散落魔法数。
+
+## 错误码粒度
+
+`code` 表达**可操作的错误类别**——调用方据此决定下一步（改输入、登录、申请权限、刷新、重试、报障）：
+
+`INVALID_INPUT` / `UNAUTHORIZED` / `FORBIDDEN` / `NOT_FOUND` / `CONFLICT` / `RATE_LIMITED` / `INTERNAL_ERROR` …
+
+**不按实体拆码**：不为 agent / conversation / run / approval 各造一个 `*_NOT_FOUND`。具体是哪个对象，用
+`resource`（类别）与 `resourceId`（标识）表达：
+
+```json
+{ "code": "NOT_FOUND", "resource": "agent", "resourceId": "agent_01j..." }
+```
+
+这与主流做法一致：Google AIP-193 把机器可读的 `reason`（错误类别）与 `ResourceInfo`（资源维度）分开；
+gRPC 只有单一的 canonical `NOT_FOUND`；Stripe 用 `code: "resource_missing"` 加 `param` 指出对象，
+而不是给每种资源一个码。
+
+不这么做会怎样：同一个资源（例如 run）在导出、取消、审批等不同调用点可能各产出一个码，
+前端按 code 分支越写越多，文案也开始漂移——「运行不存在」和「找不到该运行」说的其实是同一件事。
+
+## AX / UX 双友好契约
+
+同一个 Problem 同时服务两类消费者，字段分工固定：
+
+- **UX（终端用户）**：`message` 是「现象 + 下一步」，中文、可执行，例如「配置已被修改，请刷新」。
+  5xx 固定为 `Internal server error`，不泄漏堆栈、SQL 或上游响应体。
+- **AX（智能体 / 客户端）**：按固定顺序消费字段排查，不解析文案：
+  1. `code` —— 错误类别，决定后续动作以及是否需要重试；
+  2. `resource` / `resourceId` —— 出错的是哪个对象；
+  3. `retryable` —— 这个请求重试是否可能成功；
+  4. `requestId` —— 关联服务日志；
+  5. `hint` —— 面向智能体/运维的排查建议与下一步。
+
+`message` 面向人、`hint` 面向机器与运维；排查细节放 `hint`，不要塞进 `message`。`hint` 由边界按 `code`
+给默认值（如 `NOT_FOUND` → 确认 `resource`/`resourceId` 是否存在且属当前主体、必要时刷新或用 `requestId`
+查日志；`SERVICE_UNAVAILABLE` → 稍后重试并检查依赖/队列；`INTERNAL_ERROR` → 用 `requestId` 查服务日志），
+业务可在抛错时覆盖。
+
+一次 agent 404 的完整 Problem：
+
+```json
+{
+  "code": "NOT_FOUND",
+  "message": "智能体不存在，可能已被删除；请刷新后重试",
+  "status": 404,
+  "requestId": "req-7",
+  "retryable": false,
+  "resource": "agent",
+  "resourceId": "agent_01j...",
+  "hint": "确认 resource/resourceId 指向的对象存在且属于当前主体；必要时刷新列表，或用 requestId 查服务日志。"
+}
+```
+
+智能体据此排查：`code=NOT_FOUND` 说明不是请求格式问题，且 `retryable=false` 不做自动重试；
+`resource=agent` + `resourceId` 定位到具体对象；需要人工介入时把 `requestId` 交给日志检索；
+按 `hint` 先刷新列表或确认归属，仍失败再报障。
 
 ## 分层规则
 
@@ -69,6 +144,8 @@ fail('CONFLICT', 'agent version conflict, retry later', { retryable: true });
 - **不出现 `statusCode`**：code 自带状态。
 - **不出现英文技术细节**：message 是给人看的下一步。
 - **可重试要显式声明**：默认只由状态码推断（5xx 可重试），并发冲突这类需要显式 `retryable: true`。
+- **资源不存在用 `notFound(resource, message?, resourceId?)`**：统一产出 `NOT_FOUND` + `resource`，
+  各资源的用户文案集中在一处，调用点不再各写一套。
 
 ### 系统异常
 
@@ -129,5 +206,6 @@ fail('CONFLICT', 'agent version conflict, retry later', { retryable: true });
 ## 已知边界
 
 - MCP 端点（`/mcp/:id`）的错误仍由 MCP 协议自己的 JSON-RPC error 表达，不走 Problem；
-  它是给 agent 客户端用的，不是浏览器。
+  它是给 agent 客户端用的，不是浏览器。知识库 MCP 的 `DOCUMENT_NOT_FOUND` / `WIKI_NOT_FOUND`
+  属于 MCP 工具错误通道（`code: message` 文本），不是 HTTP Problem 码，不受「错误码粒度」约束。
 - `SERVICE_UNAVAILABLE` 目前只有显式抛出的路径；没有接入 under-pressure 自动熔断。

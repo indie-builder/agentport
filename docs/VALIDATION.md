@@ -62,6 +62,8 @@ zod、oRPC 与 Hono 的校验错误由 `packages/api/src/http/errors.ts` 统一�
 }
 ```
 
+`NOT_FOUND` 统一表示资源不存在，具体资源类别放在可选字段 `resource`（如 `agent`、`conversation`、`run`、`approval`），需要时再带 `resourceId`；不为每种资源新增错误码。
+
 这条规则是**唯一**的校验失败出口。业务规则冲突仍用 4xx，但那是业务错误，不是格式错误。
 
 ## 共享文案与通配参数

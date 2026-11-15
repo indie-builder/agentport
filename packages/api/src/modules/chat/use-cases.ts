@@ -4,6 +4,7 @@ import {
   conversationInputsDir,
   displayAttachmentFilename,
   fail,
+  notFound,
   writeConversationAttachments,
 } from '@agentport/core';
 import { type Database, newId, repo } from '@agentport/db';
@@ -115,16 +116,18 @@ export async function startRun(
       output,
     });
     if (outputProblem !== null) {
-      return fail(outputProblem.code, outputProblem.message);
+      return fail(
+        outputProblem.code,
+        outputProblem.message,
+        outputProblem.resource === undefined ? {} : { resource: outputProblem.resource },
+      );
     }
   }
   const agentId = chatInput.agentId ?? (await repo.agents.getDefaultAgent(deps.db))?.id;
   if (agentId === undefined) {
     return fail('SERVICE_UNAVAILABLE', '通用助手尚未初始化，请稍后重试');
   }
-  if (!(await chatRepo.agentExists(deps.db, agentId))) {
-    return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
-  }
+  if (!(await chatRepo.agentExists(deps.db, agentId))) notFound('agent');
   if (!(await chatRepo.agentEnabled(deps.db, agentId))) {
     return fail('AGENT_DISABLED', '该智能体已停用，无法发起新对话；请到智能体页面启用后再试');
   }
@@ -135,9 +138,8 @@ export async function startRun(
     });
   } else {
     const conversation = await chatRepo.getConversation(deps.db, body.conversationId);
-    if (!conversation || conversation.agentId !== agentId) {
-      return fail('CONVERSATION_NOT_FOUND', '会话不存在或不属于该智能体；请从会话列表重新打开');
-    }
+    if (!conversation || conversation.agentId !== agentId)
+      notFound('conversation', '会话不存在或不属于该智能体；请从会话列表重新打开');
     await deps.authorize(
       'conversations.update',
       { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
@@ -164,9 +166,8 @@ export async function startRun(
       requestedConversationId = createdConversationId;
     } else {
       const conversation = await chatRepo.getConversation(deps.db, requestedConversationId);
-      if (!conversation || conversation.agentId !== agentId) {
-        return fail('CONVERSATION_NOT_FOUND', '会话不存在或不属于该智能体；请从会话列表重新打开');
-      }
+      if (!conversation || conversation.agentId !== agentId)
+        notFound('conversation', '会话不存在或不属于该智能体；请从会话列表重新打开');
     }
     const agentSlug = await repo.agents.findAgentSlug(deps.db, agentId);
     if (agentSlug === null) {
@@ -175,7 +176,7 @@ export async function startRun(
           () => undefined,
         );
       }
-      return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请刷新后重新选择');
+      notFound('agent');
     }
     attachmentSlug = agentSlug;
     try {

@@ -197,7 +197,7 @@ async function dispatchWake(
           ? LANE_BUSY_NOTICE
           : err.code === 'AGENT_DISABLED'
             ? AGENT_DISABLED_NOTICE
-            : err.code === 'AGENT_NOT_FOUND' || err.code === 'NOT_FOUND'
+            : err.code === 'NOT_FOUND'
               ? AGENT_GONE_NOTICE
               : WAKE_FAILED_NOTICE;
       return skipWake(context, wake, notice);

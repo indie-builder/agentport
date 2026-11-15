@@ -1,4 +1,4 @@
-import { AppError, isAppError } from '@agentport/core';
+import { isAppError, notFound } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
@@ -16,7 +16,7 @@ export async function authorizeRun(
     | 'runs.questions.answer',
 ) {
   const run = await repo.chat.getRun(context.db, runId);
-  if (!run || run.channelId !== null) throw new AppError('RUN_NOT_FOUND', RUN_MISSING);
+  if (!run || run.channelId !== null) notFound('run');
   try {
     await authorizeObject(
       context,
@@ -25,8 +25,7 @@ export async function authorizeRun(
       RUN_MISSING,
     );
   } catch (error) {
-    if (isAppError(error) && error.code === 'NOT_FOUND')
-      throw new AppError('RUN_NOT_FOUND', RUN_MISSING);
+    if (isAppError(error) && error.code === 'NOT_FOUND') notFound('run');
     throw error;
   }
   return run;

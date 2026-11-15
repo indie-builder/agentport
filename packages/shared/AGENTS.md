@@ -12,7 +12,7 @@
 
 - 跨端共享的请求/响应 schema、`ChatEvent`、`AgentRunJob` / `EvalRunJob` / `ScheduleTriggerJob`、`SandboxTask`、supervisor 的 NDJSON 输入输出都在这里定义；api/worker/sandbox/web 只 import，不各自重写。仅单端使用的路由 schema 留在 api。
 - 类型用 `z.infer` 从 schema 推导，不手写同名 interface；判别联合统一用 `z.discriminatedUnion`。
-- HTTP 错误唯一形状是 `src/errors.ts` 的 `Problem`：wire 字段为 `code` / `message` / `status` / `requestId` / `retryable`，校验类可带 `path` / `errors`。不要新增 `{ error: string }` 等平行信封。
+- HTTP 错误唯一形状是 `src/errors.ts` 的 `Problem`：wire 字段为 `code` / `message` / `status` / `requestId` / `retryable` / `hint`，校验类可带 `path` / `errors`，`NOT_FOUND` 用 `resource` / `resourceId` 表达资源类别与标识。不要新增 `{ error: string }` 等平行信封。
 - `src/run-stream.ts` 的队列名、Redis key、入队选项与取消载荷是 api/worker 的唯一来源。
 - 错误码新增属兼容变更；改语义或删除属破坏性变更，先核对前端与 MCP 客户端。
 - 入口统一中文校验文案（`z.config(z.locales.zhCN())`）；schema 描述可能进入错误或提示词，保持可读。

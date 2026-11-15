@@ -151,13 +151,14 @@ describe.skipIf(!ready)('openui state', () => {
     expectProblem(res, 'UNAUTHORIZED');
   });
 
-  it('returns CONVERSATION_NOT_FOUND for an unknown conversation', async () => {
+  it('returns NOT_FOUND for an unknown conversation', async () => {
     const { messageId } = await seed();
     const spy = spyPoolQueries(app);
     try {
       expectProblem(
         await put('conv_missing', messageId, { blockKey: 's0', state: { a: 1 } }),
-        'CONVERSATION_NOT_FOUND',
+        'NOT_FOUND',
+        'conversation',
       );
       // 错误路径最多两次归属读取：消息未命中后再查会话。
       expect(countOwnershipReads(spy.sql)).toBeGreaterThan(0);

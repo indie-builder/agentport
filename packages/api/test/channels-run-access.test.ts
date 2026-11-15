@@ -189,13 +189,19 @@ describe.skipIf(!ready)('channel run private entry points', () => {
   it('rejects run detail after the triggering member leaves', async () => {
     const res = await call('GET', `/api/runs/${runId}`, member.cookie);
     expect(res.statusCode, res.body).toBe(404);
-    expect(res.json<{ code: string }>().code).toBe('RUN_NOT_FOUND');
+    expect(res.json<{ code: string; resource: string }>()).toMatchObject({
+      code: 'NOT_FOUND',
+      resource: 'run',
+    });
   });
 
   it('rejects reading questions and answering them after the triggering member leaves', async () => {
     const listed = await call('GET', `/api/runs/${runId}/questions`, member.cookie);
     expect(listed.statusCode, listed.body).toBe(404);
-    expect(listed.json<{ code: string }>().code).toBe('RUN_NOT_FOUND');
+    expect(listed.json<{ code: string; resource: string }>()).toMatchObject({
+      code: 'NOT_FOUND',
+      resource: 'run',
+    });
 
     const answered = await call(
       'POST',
@@ -204,7 +210,10 @@ describe.skipIf(!ready)('channel run private entry points', () => {
       { answers: { '0': '继续' } },
     );
     expect(answered.statusCode, answered.body).toBe(404);
-    expect(answered.json<{ code: string }>().code).toBe('RUN_NOT_FOUND');
+    expect(answered.json<{ code: string; resource: string }>()).toMatchObject({
+      code: 'NOT_FOUND',
+      resource: 'run',
+    });
 
     const stored = await app.client.unsafe<{ status: string; answers: unknown }[]>(
       'select status, answers from run_questions where run_id = $1',
@@ -216,14 +225,20 @@ describe.skipIf(!ready)('channel run private entry points', () => {
   it('rejects reading approvals and approving them after the triggering member leaves', async () => {
     const listed = await call('GET', `/api/runs/${runId}/approvals`, member.cookie);
     expect(listed.statusCode, listed.body).toBe(404);
-    expect(listed.json<{ code: string }>().code).toBe('RUN_NOT_FOUND');
+    expect(listed.json<{ code: string; resource: string }>()).toMatchObject({
+      code: 'NOT_FOUND',
+      resource: 'run',
+    });
 
     const approved = await call('POST', `/api/runs/${runId}/approve`, member.cookie, {
       serverId,
       toolName,
     });
     expect(approved.statusCode, approved.body).toBe(404);
-    expect(approved.json<{ code: string }>().code).toBe('RUN_NOT_FOUND');
+    expect(approved.json<{ code: string; resource: string }>()).toMatchObject({
+      code: 'NOT_FOUND',
+      resource: 'run',
+    });
 
     const stored = await app.client.unsafe<{ approved_at: Date | null }[]>(
       'select approved_at from approval_requests where run_id = $1',

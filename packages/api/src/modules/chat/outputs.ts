@@ -83,24 +83,17 @@ export async function checkOutputSelection(
 ): Promise<{
   code: ErrorCode;
   message: string;
+  resource?: string;
 } | null> {
   if (input.conversationId === undefined) {
     return { code: 'INVALID_INPUT', message: '选择已发布成果前，需要先在对应会话里继续' };
   }
   const conversation = await repo.chat.getConversation(context.db, input.conversationId);
-  if (!conversation) {
-    return {
-      code: 'CONVERSATION_NOT_FOUND',
-      message: CONVERSATION_MISSING,
-    };
-  }
+  if (!conversation)
+    return { code: 'NOT_FOUND', message: CONVERSATION_MISSING, resource: 'conversation' };
   const slug = await agentSlug(context, conversation.agentId);
-  if (slug === null) {
-    return {
-      code: 'CONVERSATION_NOT_FOUND',
-      message: CONVERSATION_MISSING,
-    };
-  }
+  if (slug === null)
+    return { code: 'NOT_FOUND', message: CONVERSATION_MISSING, resource: 'conversation' };
   try {
     await readOutputFile({
       root: context.config.WORKSPACES_DIR,

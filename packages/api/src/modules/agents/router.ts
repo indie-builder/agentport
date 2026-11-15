@@ -1,7 +1,7 @@
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { agentsContract } from '@agentport/contract/agents';
-import { fail, parseAgentMd } from '@agentport/core';
+import { fail, notFound, parseAgentMd } from '@agentport/core';
 import { repo as allRepo, plugins as pluginsTable, schema } from '@agentport/db';
 import { AGENT_HOOK_FILE_LIMIT } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -77,9 +77,6 @@ async function authorizeSubAgentBindings(
 function invalid(message: string) {
   return fail('INVALID_INPUT', message);
 }
-function notFound() {
-  return fail('AGENT_NOT_FOUND', '智能体不存在，可能已被删除；请返回列表刷新后重试');
-}
 function toSummary(row: allRepo.agents.AgentRow, serverIds?: string[]) {
   return {
     id: row.id,
@@ -151,7 +148,7 @@ export const agentsRouter = os.router({
   duplicate: os.duplicate.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const source = await repo.getAgent(context.db, routeInput.params.id);
-    if (!source) return notFound();
+    if (!source) return notFound('agent');
     await authorizeAgent(context, source, 'agents.clone');
     await authorize(context, 'agents.create');
     try {
@@ -161,7 +158,7 @@ export const agentsRouter = os.router({
         routeInput.body,
         principal.businessId,
       );
-      if (!row) return notFound();
+      if (!row) return notFound('agent');
       await allRepo.audit.writeAudit(context.db, context.log, {
         actor: principal.businessId,
         action: 'agent.duplicated',
@@ -255,15 +252,15 @@ export const agentsRouter = os.router({
   }),
   get: os.get.handler(async ({ context, input: routeInput }) => {
     const row = await repo.getAgent(context.db, routeInput.params.id);
-    if (!row) return notFound();
+    if (!row) return notFound('agent');
     await authorizeAgent(context, row, 'agents.config.read');
     return agentDetail(context.db, row);
   }),
   access: os.access.handler(async ({ context, input: routeInput }) => {
     const row = await repo.getAgent(context.db, routeInput.params.id);
-    if (!row) return notFound();
+    if (!row) return notFound('agent');
     const result = await agentAccess(context, row.id);
-    if (!result.permissionIds.includes('agents.read')) return notFound();
+    if (!result.permissionIds.includes('agents.read')) return notFound('agent');
     return result;
   }),
   update: os.update.handler(async ({ context, input: routeInput }) => {
@@ -277,9 +274,9 @@ export const agentsRouter = os.router({
         : await validateRuntimeEnvironment(context.db, input.runtimeEnvironmentId);
     if (envError) return invalid(envError);
     const current = await repo.getAgent(context.db, routeInput.params.id);
-    if (!current) return notFound();
+    if (!current) return notFound('agent');
     const access = await agentAccess(context, current.id);
-    if (!access.permissionIds.includes('agents.read')) return notFound();
+    if (!access.permissionIds.includes('agents.read')) return notFound('agent');
     const canReadConfig = access.permissionIds.includes('agents.config.read');
     const configFields = [
       input.name,
@@ -343,7 +340,7 @@ export const agentsRouter = os.router({
         input.expectedUpdatedAt,
         input.pluginBindings,
       );
-      if (!row) return notFound();
+      if (!row) return notFound('agent');
       await allRepo.audit.writeAudit(context.db, context.log, {
         actor: principal.businessId,
         action: 'agent.updated',
@@ -360,7 +357,7 @@ export const agentsRouter = os.router({
   delete: os.delete.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const current = await repo.getAgent(context.db, routeInput.params.id);
-    if (!current) return notFound();
+    if (!current) return notFound('agent');
     await authorizeAgent(context, current, 'agents.delete');
     const deleted = await deleteAgentWithSandboxes({
       client: context.client,
@@ -371,7 +368,7 @@ export const agentsRouter = os.router({
         readAccess: accessFilter(context, 'agents.read'),
       },
     });
-    if (deleted === null) return notFound();
+    if (deleted === null) return notFound('agent');
     const slug = deleted.slug;
     await rm(join(context.config.WORKSPACES_DIR, slug, 'sdk-sessions'), {
       recursive: true,
@@ -408,7 +405,7 @@ export const agentsRouter = os.router({
   }),
   files: os.files.handler(async ({ context, input: routeInput }) => {
     const current = await repo.getAgent(context.db, routeInput.params.id);
-    if (!current) return notFound();
+    if (!current) return notFound('agent');
     await authorizeAgent(context, current, 'agents.files.read');
     if (
       current.hooksEnabled ||
@@ -422,19 +419,19 @@ export const agentsRouter = os.router({
       );
     }
     const files = await renderAgentWorkspace(context, current.id);
-    if (!files) return notFound();
+    if (!files) return notFound('agent');
     if (routeInput.query.reveal === '1') context.responseHeaders.set('Cache-Control', 'no-store');
     return files;
   }),
   versions: os.versions.handler(async ({ context, input: routeInput }) => {
     const current = await repo.getAgent(context.db, routeInput.params.id);
-    if (!current) return notFound();
+    if (!current) return notFound('agent');
     await authorizeAgent(context, current, 'agents.versions.read');
     return allRepo.agentVersions.listAgentVersions(context.db, current.id);
   }),
   version: os.version.handler(async ({ context, input: routeInput }) => {
     const current = await repo.getAgent(context.db, routeInput.params.id);
-    if (!current) return notFound();
+    if (!current) return notFound('agent');
     await authorizeAgent(context, current, 'agents.versions.read');
     const row = await allRepo.agentVersions.getAgentVersion(
       context.db,
@@ -453,7 +450,7 @@ export const agentsRouter = os.router({
   rollback: os.rollback.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const current = await repo.getAgent(context.db, routeInput.params.id);
-    if (!current) return notFound();
+    if (!current) return notFound('agent');
     await authorizeAgent(context, current, 'agents.versions.restore');
     const target = await allRepo.agentVersions.getAgentVersion(
       context.db,
@@ -502,7 +499,7 @@ export const agentsRouter = os.router({
       row.slug,
       routeInput.params.name,
     );
-    if (!file) return notFound();
+    if (!file) return notFound('agent');
     return file;
   }),
   writeMemory: os.writeMemory.handler(async ({ context, input: routeInput }) => {
@@ -575,7 +572,7 @@ export const agentsRouter = os.router({
         return true;
       },
     );
-    if (!removed) return notFound();
+    if (!removed) return notFound('agent');
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.memory.delete',
@@ -685,7 +682,7 @@ export const agentsRouter = os.router({
         return true;
       },
     );
-    if (!removed) return notFound();
+    if (!removed) return notFound('agent');
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.rule.deleted',
@@ -772,7 +769,7 @@ export const agentsRouter = os.router({
       enabled: routeInput.body.enabled,
       config: routeInput.body.config,
     });
-    if (!updated) return notFound();
+    if (!updated) return notFound('agent');
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.hooks.settings.updated',
@@ -890,7 +887,7 @@ export const agentsRouter = os.router({
   }),
   identities: os.identities.handler(async ({ context, input: routeInput }) => {
     const row = await repo.getAgent(context.db, routeInput.query.agentId);
-    if (!row) return notFound();
+    if (!row) return notFound('agent');
     await authorizeAgent(context, row, 'agents.members.manage');
     return allRepo.accounts.listIdentities(context.db, {
       limit: routeInput.query.limit,
