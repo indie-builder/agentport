@@ -25,7 +25,7 @@ PG/Redis/应用服务、不把业务栈作为默认验收对象。
 - 本机已有脚本钉住的 `redis:8.10.3-alpine` 镜像：脚本用 `--pull=never`，不会自动拉取。
 - 首次或依赖改动后先构建 api 所需包：
   `bun run --filter @agentport/shared --filter @agentport/db --filter @agentport/core build`
-- 隔离模式固定使用 3000 / 5173 端口，要求空闲；被占用时不得停其他会话或用户的服务，可复用已获授权的测试栈（`--base-url`）或另行隔离启动；本脚本固定端口、不支持随机 API 端口，也不会杀别人的进程。
+- 隔离模式默认占用 3000 / 5173 端口，要求空闲；可用环境变量 `VISUAL_API_PORT` / `VISUAL_WEB_PORT` 覆盖这两个端口（脚本不支持随机端口）。被占用时不得停其他会话或用户的服务，可复用已获授权的测试栈（`--base-url`）、换端口或另行隔离启动；脚本不会杀别人的进程。
 
 ## 用法
 
@@ -54,9 +54,9 @@ bun scripts/visual-shots.mjs --route /agents --base-url http://localhost:5173
 ## 流程
 
 1. 在**任务 worktree 根**执行命令（不要在主 checkout）。
-2. 隔离模式下脚本：检查 3000 / 5173 → 建临时库 `pace_visual_<ts>_<hex>` → 迁移 →
+2. 隔离模式下脚本：检查 3000 / 5173（或 `VISUAL_API_PORT` / `VISUAL_WEB_PORT` 指定的端口）→ 建临时库 `pace_visual_<ts>_<hex>` → 迁移 →
    创建本次独享 Redis 容器（随机名、已缓存镜像、loopback 随机端口、关闭持久化）→
-   起 API（3000，显式注入本次临时库与 Redis）与 Web（5173）→ 健康检查 →
+   起 API（默认 3000，显式注入本次临时库与 Redis）与 Web（默认 5173）→ 健康检查 →
    `ego-browser` 独立登录 → 可选种子 → 每个视口截图 → 打开。
 3. 用图片查看工具实际查看生成的 PNG，再给视觉结论；只报路径不算完成。
 4. 结束、中断或异常退出时，脚本只终止自己启动的进程组，只删除本次成功创建的 Redis 容器 ID
@@ -77,7 +77,7 @@ bun scripts/visual-shots.mjs --route /agents --base-url http://localhost:5173
 
 - 仅桌面视口；项目不做移动端适配。
 - 登录依赖 `.env` 管理员凭据；登录页变更时需同步脚本里的选择器。
-- 隔离模式依赖 Docker 与本机已缓存的 Redis 镜像；固定占用 3000 / 5173。
+- 隔离模式依赖 Docker 与本机已缓存的 Redis 镜像；默认占用 3000 / 5173（可用 `VISUAL_API_PORT` / `VISUAL_WEB_PORT` 覆盖）。
 - `--seed dev-data` 较重且依赖沙箱/模型，失败只提示，不阻塞截图。
 - 自动打开仅 macOS（其他平台打印路径）。
 - 截图产物在 `.visual/`（已 gitignore），不要提交。
