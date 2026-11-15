@@ -7,6 +7,7 @@ import { ConfirmDialog } from '../../../components/confirm-dialog.js';
 import { DialogShell } from '../../../components/dialog-shell.js';
 import {
   DraftGuardDialogs,
+  documentStatusLabel,
   folderOptions,
   treeFolders,
   useDraftGuard,
@@ -343,6 +344,7 @@ export function DocumentDialog({
   );
   const { isDirty } = formState;
   const pending = update.isPending;
+  const statusEditable = document.status === 'ready' || document.status === 'disabled';
   const guard = useDraftGuard(isDirty, pending, onClose);
   const submit = handleSubmit((values: DocumentPropertiesValues) => {
     update.mutate(
@@ -355,9 +357,7 @@ export function DocumentDialog({
             .split(',')
             .map((item) => item.trim())
             .filter(Boolean),
-          ...(document.status === 'failed' || document.status === 'pending'
-            ? {}
-            : { status: values.status }),
+          ...(statusEditable ? { status: values.status } : {}),
         },
       },
       {
@@ -419,35 +419,41 @@ export function DocumentDialog({
               </Field>
               <Field className="gap-1.5">
                 <FieldLabel htmlFor="document-status">状态</FieldLabel>
-                <Controller
-                  control={control}
-                  name="status"
-                  render={({ field }) => (
-                    <Select
-                      value={field.value}
-                      disabled={
-                        pending || document.status === 'failed' || document.status === 'pending'
-                      }
-                      onValueChange={(next) => {
-                        if (next === 'ready' || next === 'disabled') field.onChange(next);
-                      }}
-                      items={[
-                        { value: 'ready', label: '可检索' },
-                        { value: 'disabled', label: '已停用' },
-                      ]}
-                    >
-                      <SelectTrigger id="document-status" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value="ready">可检索</SelectItem>
-                          <SelectItem value="disabled">已停用</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
+                {statusEditable ? (
+                  <Controller
+                    control={control}
+                    name="status"
+                    render={({ field }) => (
+                      <Select
+                        value={field.value}
+                        disabled={pending}
+                        onValueChange={(next) => {
+                          if (next === 'ready' || next === 'disabled') field.onChange(next);
+                        }}
+                        items={[
+                          { value: 'ready', label: '可检索' },
+                          { value: 'disabled', label: '已停用' },
+                        ]}
+                      >
+                        <SelectTrigger id="document-status" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="ready">可检索</SelectItem>
+                            <SelectItem value="disabled">已停用</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                ) : (
+                  <Input
+                    id="document-status"
+                    value={documentStatusLabel[document.status]}
+                    disabled
+                  />
+                )}
               </Field>
             </FieldGroup>
             <Field className="gap-1.5">
