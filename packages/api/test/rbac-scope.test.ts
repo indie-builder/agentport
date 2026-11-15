@@ -172,7 +172,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     ]) {
       expectProblem(
         await request(app, { method: 'GET', url: path, headers: { cookie: userB.cookie } }),
-        'NOT_FOUND',
+        'RUN_NOT_FOUND',
       );
     }
     expectProblem(
@@ -190,7 +190,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
         headers: { cookie: userB.cookie },
         payload: { serverId: 'x', toolName: 'y' },
       }),
-      'NOT_FOUND',
+      'RUN_NOT_FOUND',
     );
 
     // 维护人员能维护该专家，但不能借此读别人的私有正文。
@@ -208,7 +208,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
         url: `/api/runs/${runA}`,
         headers: { cookie: maintainer.cookie },
       }),
-      'NOT_FOUND',
+      'RUN_NOT_FOUND',
     );
   });
 
@@ -219,7 +219,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
         url: `/api/runs/${serviceRun}`,
         headers: { cookie: userA.cookie },
       }),
-      'NOT_FOUND',
+      'RUN_NOT_FOUND',
     );
     const adminRead = await request(app, {
       method: 'GET',
