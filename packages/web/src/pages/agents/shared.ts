@@ -61,6 +61,8 @@ export const emptyInput: AgentInput = {
   uiFormat: 'markdown',
   maxTurns: 20,
   maxBudgetUsd: 2,
+  monthlyBudgetUsd: null,
+  budgetAlertRatio: 0.8,
   timeoutMs: 600_000,
   enabled: true,
   runtimeEnvironmentId: null,
@@ -84,6 +86,8 @@ export function toInput(agent: Agent): AgentInput {
     uiFormat: agent.uiFormat,
     maxTurns: agent.maxTurns,
     maxBudgetUsd: agent.maxBudgetUsd,
+    monthlyBudgetUsd: agent.monthlyBudgetUsd,
+    budgetAlertRatio: agent.budgetAlertRatio,
     timeoutMs: agent.timeoutMs,
     enabled: agent.enabled,
     runtimeEnvironmentId: agent.runtimeEnvironmentId,
@@ -149,6 +153,16 @@ export const agentFormSchema = agentInputSchema
       .positive(positiveIntMessage)
       .default(20),
     maxBudgetUsd: z.number({ error: invalidNumberMessage }).positive(positiveIntMessage).default(2),
+    monthlyBudgetUsd: z
+      .number({ error: invalidNumberMessage })
+      .min(0.01, '至少 0.01 美元，留空表示不限')
+      .nullable()
+      .default(null),
+    budgetAlertRatio: z
+      .number({ error: invalidNumberMessage })
+      .min(0.001, '至少 0.1%')
+      .max(1, '最多 100%')
+      .default(0.8),
     timeoutMs: z
       .number({ error: invalidNumberMessage })
       .int(invalidNumberMessage)
@@ -292,6 +306,8 @@ export const errorSections: Record<string, SectionId> = {
   uiFormat: 'limits',
   maxTurns: 'limits',
   maxBudgetUsd: 'limits',
+  monthlyBudgetUsd: 'limits',
+  budgetAlertRatio: 'limits',
   timeoutMs: 'limits',
 };
 

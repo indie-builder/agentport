@@ -360,6 +360,8 @@ agents(
   disallowed_tools jsonb,    -- 显式拒绝的工具名，默认空；平台默认在代码中
   max_turns int,
   max_budget_usd numeric,
+  monthly_budget_usd numeric,  -- 可空；null 表示不限，当月花费达上限拦截 chat/频道/平台 MCP/定时/记忆审核（eval 不拦截但花费计入）
+  budget_alert_ratio numeric not null default 0.800,  -- 当月花费达上限的该比例时告警
   timeout_ms int,
   created_at timestamptz,
   updated_at timestamptz

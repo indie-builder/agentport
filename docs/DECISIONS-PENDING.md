@@ -714,6 +714,14 @@
 
 ---
 
+## D-84 ✅ 智能体月度预算治理（2026-11-15，本 PR 交付）
+
+**决定**：`agents` 新增 `monthly_budget_usd`（可空，null = 不限）与 `budget_alert_ratio`（默认 0.800 的告警阈值）；`admitChatRun` 在创建会话/run 前按 UTC 当月 `SUM(agent_runs.cost_usd)` 校验，达到或超过上限返回 `AGENT_BUDGET_EXCEEDED`（409），eval 批量评估经 `budgetExempt` 不拦截；新增 `GET /agents/{id}/budget` 返回上限、当月已花费、比例与 unlimited/ok/alert/exceeded 状态；智能体编辑器「运行限制」增加两个字段，详情概览显示本月预算区块。
+
+**边界**：默认 null = 不限，完全不改变现有行为；预算拦截覆盖 chat、频道、平台 MCP、定时任务与记忆审核；eval 批量评估不被拦截（管理测试），但其 `costUsd` 仍计入当月花费。不新增测试（按全局规则），以 typecheck/build、隔离库行为探针与迁移 SQL 人工检查验收。
+
+---
+
 ## 决策记录格式
 
 决策后请在此处标注：

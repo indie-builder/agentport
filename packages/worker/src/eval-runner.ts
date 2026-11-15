@@ -123,6 +123,7 @@ function runOneCase(
         title: input.title,
         // 用例运行在 DB 标记为 event：worker 排队复核据此从 evalRuns 重查 eval.execute。
         trigger: 'event',
+        budgetExempt: true,
         subject: { kind: 'user', businessId: input.businessId },
         ...(agentVersion === null ? {} : { agentVersion }),
       }),

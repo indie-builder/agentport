@@ -15,6 +15,7 @@ import {
   memoryReviewHasChanges,
   memoryReviewProposalSchema,
   memoryReviewTargetSchema,
+  utcMonthStart,
   validateMemoryContent,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -138,12 +139,22 @@ async function readReview(db: Database, businessId: string, runId: string): Prom
 
 async function assertModelAgent(db: Database, agentId: string): Promise<void> {
   const [agent] = await db
-    .select({ enabled: schema.agents.enabled })
+    .select({ enabled: schema.agents.enabled, monthlyBudgetUsd: schema.agents.monthlyBudgetUsd })
     .from(schema.agents)
     .where(eq(schema.agents.id, agentId))
     .limit(1);
   if (!agent) notFound('agent');
   if (!agent.enabled) fail('AGENT_DISABLED', '该智能体已停用，无法执行记忆审核');
+  if (
+    agent.monthlyBudgetUsd !== null &&
+    (await repo.agents.sumAgentSpendSince(db, agentId, utcMonthStart())) >=
+      Number(agent.monthlyBudgetUsd)
+  ) {
+    fail(
+      'AGENT_BUDGET_EXCEEDED',
+      '该智能体本月花费已达预算上限，无法执行记忆审核；请调整预算或等待下月重置',
+    );
+  }
 }
 
 async function beforeSnapshot(

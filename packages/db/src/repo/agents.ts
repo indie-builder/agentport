@@ -14,6 +14,7 @@ import {
   asc,
   eq,
   getTableColumns,
+  gte,
   inArray,
   isNotNull,
   ne,
@@ -75,6 +76,8 @@ export interface AgentWrite {
   maxTurns: number;
   /** numeric 列以字符串写入，避免浮点误差。 */
   maxBudgetUsd: string;
+  monthlyBudgetUsd: string | null;
+  budgetAlertRatio: string;
   timeoutMs: number;
   /** 当前业务身份；创建后不随转交改变。 */
   createdBy: string;
@@ -115,6 +118,8 @@ export function toAgent(
     uiFormat: row.uiFormat,
     maxTurns: row.maxTurns,
     maxBudgetUsd: Number(row.maxBudgetUsd),
+    monthlyBudgetUsd: row.monthlyBudgetUsd === null ? null : Number(row.monthlyBudgetUsd),
+    budgetAlertRatio: Number(row.budgetAlertRatio),
     timeoutMs: row.timeoutMs,
     ...(row.effort === null ? {} : { effort: row.effort }),
     enabled: row.enabled,
@@ -198,6 +203,18 @@ export async function listAgents(
 export async function getAgent(db: DbHandle, id: string): Promise<AgentRow | null> {
   const [row] = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
   return row ?? null;
+}
+
+export async function sumAgentSpendSince(
+  db: DbHandle,
+  agentId: string,
+  since: Date,
+): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`coalesce(sum(${agentRuns.costUsd}), 0)::float` })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.agentId, agentId), gte(agentRuns.startedAt, since)));
+  return Number(row?.total ?? 0);
 }
 
 export async function findAgentSlug(db: DbHandle, agentId: string): Promise<string | null> {
@@ -505,6 +522,8 @@ export async function duplicateAgent(
               enabled: source.enabled,
               maxTurns: source.maxTurns,
               maxBudgetUsd: source.maxBudgetUsd,
+              monthlyBudgetUsd: source.monthlyBudgetUsd,
+              budgetAlertRatio: source.budgetAlertRatio,
               timeoutMs: source.timeoutMs,
               createdBy: ownerBusinessId,
               ownerBusinessId,

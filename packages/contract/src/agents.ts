@@ -1,4 +1,5 @@
 import {
+  agentBudgetStatusSchema,
   agentDuplicateInputSchema,
   agentHookFileInputSchema,
   agentHookFilePathSchema,
@@ -83,6 +84,8 @@ const patchSchema = z
     uiFormat: agentFields.uiFormat.removeDefault().optional(),
     maxTurns: agentFields.maxTurns.removeDefault().optional(),
     maxBudgetUsd: agentFields.maxBudgetUsd.removeDefault().optional(),
+    monthlyBudgetUsd: agentFields.monthlyBudgetUsd.removeDefault().optional(),
+    budgetAlertRatio: agentFields.budgetAlertRatio.removeDefault().optional(),
     timeoutMs: agentFields.timeoutMs.removeDefault().optional(),
     effort: agentFields.effort.nullable().optional(),
     enabled: agentFields.enabled.removeDefault().optional(),
@@ -130,6 +133,11 @@ export const agentsContract = {
     .route({ method: 'GET', path: '/agents/{id}', successStatus: 200 })
     .input(z.object({ params: idParams }))
     .output(agentSchema),
+  budget: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'agents.config.read' } })
+    .route({ method: 'GET', path: '/agents/{id}/budget', successStatus: 200 })
+    .input(z.object({ params: idParams }))
+    .output(agentBudgetStatusSchema),
   access: contractProcedure
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'GET', path: '/agents/{id}/access', successStatus: 200 })

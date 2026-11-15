@@ -22,6 +22,7 @@ import {
   agentOutputStylesQuery,
   agentRulesQuery,
   agentStatsQuery,
+  useAgentBudget,
   useKnowledgeBases,
   useRuns,
 } from '../../lib/queries.js';
@@ -57,6 +58,13 @@ const TRIGGER_LABEL: Record<string, string> = {
   review: '记忆提案',
   channel: '频道',
 };
+
+const BUDGET_STATE_LABEL = {
+  unlimited: { label: '不限', tone: 'default' },
+  ok: { label: '正常', tone: 'success' },
+  alert: { label: '接近上限', tone: 'warn' },
+  exceeded: { label: '已超上限', tone: 'danger' },
+} as const;
 
 const RECENT_RUN_LIMIT = 5;
 
@@ -186,6 +194,8 @@ export function AgentOverview({
     if (usageDays === 7 || usageDays === 30 || usageDays === 90) setDays(usageDays);
   }, [usageDays]);
   const stats = useQuery({ ...agentStatsQuery(agentId, days), enabled: canViewRuns });
+  const budget = useAgentBudget(canReadConfig ? agentId : null);
+  const budgetState = budget.data ? BUDGET_STATE_LABEL[budget.data.state] : null;
   const daily = fillDailyGaps(stats.data?.daily ?? []);
   const maxDailyRuns = Math.max(1, ...daily.map((day) => day.runs));
   const runs = useRuns({ agentId, limit: RECENT_RUN_LIMIT }, canViewRuns);
@@ -333,6 +343,52 @@ export function AgentOverview({
           )}
         </div>
       </PageSection>
+
+      {canReadConfig ? (
+        <PageSection title="本月预算">
+          {budget.isPending ? <PendingRow label="本月预算" /> : null}
+          {budget.isError ? (
+            <FailedRow
+              label="本月预算"
+              error={budget.error}
+              onRetry={() => void budget.refetch()}
+            />
+          ) : null}
+          {budget.data ? (
+            budget.data.monthlyBudgetUsd === null ? (
+              <p className="text-sm text-muted-foreground">未设置预算，本月不限。</p>
+            ) : (
+              <div className="flex min-w-0 flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                  {budgetState ? (
+                    <StatusBadge tone={budgetState.tone}>{budgetState.label}</StatusBadge>
+                  ) : null}
+                  <span className="text-fg">本月已花费 {formatCost(budget.data.spentUsd)}</span>
+                  <span className="text-muted-foreground">
+                    / 上限 {formatCost(budget.data.monthlyBudgetUsd)}
+                  </span>
+                  <span className="text-muted-foreground">
+                    告警阈值 {Math.round(budget.data.budgetAlertRatio * 100)}%
+                  </span>
+                </div>
+                <div
+                  role="progressbar"
+                  aria-label="本月预算使用比例"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.min(100, Math.round((budget.data.ratio ?? 0) * 100))}
+                  className="h-1.5 w-full overflow-hidden rounded-full bg-sunken"
+                >
+                  <div
+                    className={`h-full rounded-full ${budget.data.state === 'exceeded' ? 'bg-danger' : 'bg-fg'}`}
+                    style={{ width: `${Math.min(100, (budget.data.ratio ?? 0) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )
+          ) : null}
+        </PageSection>
+      ) : null}
 
       {capabilityRows.length > 0 ? (
         <PageSection title="能力">

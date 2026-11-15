@@ -116,6 +116,10 @@ export function utcWindowStart(days: number, now = new Date()): Date {
   return new Date(today - (days - 1) * DAY_MS);
 }
 
+export function utcMonthStart(now = new Date()): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
 /** 窗口内每个 UTC 自然日（YYYY-MM-DD），升序。 */
 export function recentUtcDays(days: number, now = new Date()): string[] {
   const start = utcWindowStart(days, now).getTime();

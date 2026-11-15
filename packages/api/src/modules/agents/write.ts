@@ -21,6 +21,8 @@ export function toAgentConfigValues(input: AgentConfig) {
     enabled: input.enabled,
     maxTurns: input.maxTurns,
     maxBudgetUsd: String(input.maxBudgetUsd),
+    monthlyBudgetUsd: input.monthlyBudgetUsd === null ? null : String(input.monthlyBudgetUsd),
+    budgetAlertRatio: String(input.budgetAlertRatio),
     timeoutMs: input.timeoutMs,
     runtimeEnvironmentId: input.runtimeEnvironmentId,
   };
@@ -43,6 +45,10 @@ export function toAgentPatch(
   if (input.enabled !== undefined) patch.enabled = input.enabled;
   if (input.maxTurns !== undefined) patch.maxTurns = input.maxTurns;
   if (input.maxBudgetUsd !== undefined) patch.maxBudgetUsd = String(input.maxBudgetUsd);
+  if (input.monthlyBudgetUsd !== undefined)
+    patch.monthlyBudgetUsd =
+      input.monthlyBudgetUsd === null ? null : String(input.monthlyBudgetUsd);
+  if (input.budgetAlertRatio !== undefined) patch.budgetAlertRatio = String(input.budgetAlertRatio);
   if (input.timeoutMs !== undefined) patch.timeoutMs = input.timeoutMs;
   if (input.runtimeEnvironmentId !== undefined)
     patch.runtimeEnvironmentId = input.runtimeEnvironmentId;

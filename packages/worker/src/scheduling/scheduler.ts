@@ -227,6 +227,13 @@ export async function processScheduleTrigger(
     });
     return 'skipped';
   }
+  if (claim === 'budget_exceeded') {
+    await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
+      reason: 'budget_exceeded',
+      agentId: schedule.agentId,
+    });
+    return 'skipped';
+  }
 
   const enqueued = await enqueueRun(input.db, input.logger, input.runsQueue, {
     runId,

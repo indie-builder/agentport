@@ -1,4 +1,4 @@
-import { ACTIVE_RUN_STATUSES, type AccessFilter } from '@agentport/shared';
+import { ACTIVE_RUN_STATUSES, type AccessFilter, utcMonthStart } from '@agentport/shared';
 import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
@@ -12,6 +12,7 @@ import {
 } from '../schema.js';
 import { maintainedAgentScopeWhere } from './access.js';
 import { latestAgentVersion } from './agent-versions.js';
+import { sumAgentSpendSince } from './agents.js';
 import { notStale } from './freshness.js';
 import { lockRunResources } from './locks.js';
 
@@ -105,7 +106,7 @@ export interface ScheduleTriggerWrite {
 export async function claimScheduleTrigger(
   db: Database,
   input: ScheduleTriggerWrite,
-): Promise<'claimed' | 'duplicate' | 'agent_disabled'> {
+): Promise<'claimed' | 'duplicate' | 'agent_disabled' | 'budget_exceeded'> {
   return db.transaction(async (tx) => {
     // 先读归属（不加行锁），再按 绑定锁 → 记忆锁 → 行锁 的顺序准入。
     const [owner] = await tx
@@ -118,7 +119,7 @@ export async function claimScheduleTrigger(
 
     // 提交前再读一次：触发可能是几分钟前投递的，期间 agent 可能被停用。
     const [agent] = await tx
-      .select({ enabled: agents.enabled })
+      .select({ enabled: agents.enabled, monthlyBudgetUsd: agents.monthlyBudgetUsd })
       .from(agents)
       .where(eq(agents.id, owner.agentId))
       .limit(1);
@@ -139,6 +140,12 @@ export async function claimScheduleTrigger(
       .returning();
     const schedule = claimed[0];
     if (!schedule) return 'duplicate';
+
+    if (agent.monthlyBudgetUsd !== null) {
+      const limit = Number(agent.monthlyBudgetUsd);
+      const spent = await sumAgentSpendSince(tx, schedule.agentId, utcMonthStart());
+      if (spent >= limit) return 'budget_exceeded';
+    }
 
     const agentVersion = await latestAgentVersion(tx, schedule.agentId);
     await tx.insert(conversations).values({
