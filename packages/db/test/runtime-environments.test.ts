@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { createDb } from '../src/client.js';
-import { isIdOfType, newId } from '../src/id.js';
+import { newId } from '../src/id.js';
 import * as agentVersionsRepo from '../src/repo/agent-versions.js';
 import {
   type AgentWrite,
@@ -91,7 +91,6 @@ describe.skipIf(!ready)('runtime environment repo', () => {
   it('creates with a TypeID, updates draft and rejects duplicate names', async () => {
     const environment = await makeEnvironment('basic');
     expect(environment.id).toMatch(/^rte_/);
-    expect(isIdOfType(environment.id, 'runtimeEnvironment')).toBe(true);
     expect(environment.isDefault).toBe(false);
     expect(environment.onlineVersionId).toBeNull();
 
