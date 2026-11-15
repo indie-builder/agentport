@@ -136,7 +136,11 @@ export function inputFromDraft(draft: AgentDraft): AgentInput {
 export const agentFormSchema = agentInputSchema
   .omit({ allowedTools: true })
   .extend({
-    name: z.string().min(1, '不能为空，请填写后再保存').max(128, '最多 128 个字符，请精简后再保存'),
+    name: z
+      .string()
+      .trim()
+      .min(1, '不能为空，请填写后再保存')
+      .max(128, '最多 128 个字符，请精简后再保存'),
     description: z.string().max(300, '最多 300 个字符，请精简后再保存').default(''),
     allowedTools: z.string().default(''),
     maxTurns: z
