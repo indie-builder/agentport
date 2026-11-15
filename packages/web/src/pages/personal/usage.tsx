@@ -2,7 +2,7 @@ import type { PersonalRun, PersonalRunListQuery } from '@agentport/shared';
 import { runStatusSchema, runTriggerSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { Activity } from 'lucide-react';
+import { Activity, CircleCheck, CircleDollarSign, Cpu } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { FilterSelect } from '../../components/filter-select.js';
@@ -22,6 +22,7 @@ import {
   Card,
   CardAction,
   CardContent,
+  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
@@ -30,6 +31,7 @@ import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { api, type RunStatus } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
+import { cn } from '../../lib/cn.js';
 import { toCsv } from '../../lib/csv.js';
 import {
   formatCost,
@@ -64,12 +66,34 @@ function formatTokenCount(value: number): string {
   return tokenCountFormatter.format(value);
 }
 
-function SummaryStat({ label, value }: { label: string; value: string }) {
+function MetricCard({
+  label,
+  icon,
+  value,
+  hint,
+  compact = false,
+}: {
+  label: string;
+  icon: ReactNode;
+  value: ReactNode;
+  hint?: string | undefined;
+  compact?: boolean;
+}) {
   return (
-    <span className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-mono tabular-nums text-fg">{value}</span>
-    </span>
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between gap-2 text-xs font-normal text-muted-foreground">
+          {label}
+          {icon}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1">
+        <span className={cn('font-medium tabular-nums text-fg', compact ? 'text-2xl' : 'text-3xl')}>
+          {value}
+        </span>
+        {hint ? <CardDescription className="text-xs">{hint}</CardDescription> : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -311,66 +335,79 @@ export function PersonalUsagePage() {
 
       <PageBody>
         {canOverview ? (
-          <PageSection className="gap-3" divided={false}>
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                <h2 className="text-base font-medium text-fg">使用汇总</h2>
-                <p className="text-sm text-muted-foreground">
-                  {summary
-                    ? `${formatUtcDateTime(summary.since)} – ${formatUtcDateTime(summary.until)}（UTC，按运行创建时间）`
-                    : `最近 ${days} 天（UTC，按运行创建时间）`}
-                </p>
-              </div>
-              {daysControl}
-            </div>
+          <PageSection
+            title="使用汇总"
+            description={
+              summary
+                ? `${formatUtcDateTime(summary.since)} – ${formatUtcDateTime(summary.until)}（UTC，按运行创建时间）`
+                : `最近 ${days} 天（UTC，按运行创建时间）`
+            }
+            actions={daysControl}
+            className="gap-3"
+            divided={false}
+          >
             {usage.isPending ? <LoadingState rows={2} /> : null}
             {usage.isError ? (
               <ErrorState error={usage.error} onRetry={() => void usage.refetch()} />
             ) : null}
             {summary ? (
-              <dl className="grid grid-cols-[96px_minmax(0,1fr)] items-baseline gap-y-2 text-sm">
-                <dt className="text-muted-foreground">运行</dt>
-                <dd className="min-w-0">
-                  <div className="grid min-w-0 grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4 lg:grid-cols-7">
-                    <SummaryStat label="总计" value={String(summary.runCount)} />
-                    {statuses.map((status) => (
-                      <SummaryStat
-                        key={status}
-                        label={runStatusLabel[status]}
-                        value={String(summary[status])}
+              <>
+                <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+                  <MetricCard
+                    label="运行总数"
+                    icon={<Activity className="size-4 text-muted-foreground" aria-hidden="true" />}
+                    value={summary.runCount}
+                  />
+                  <MetricCard
+                    label="成功率"
+                    icon={
+                      <CircleCheck className="size-4 text-muted-foreground" aria-hidden="true" />
+                    }
+                    value={
+                      summary.runCount === 0
+                        ? '—'
+                        : `${Math.round((summary.succeeded / summary.runCount) * 100)}%`
+                    }
+                  />
+                  <MetricCard
+                    label="已记录成本"
+                    icon={
+                      <CircleDollarSign
+                        className="size-4 text-muted-foreground"
+                        aria-hidden="true"
                       />
-                    ))}
-                  </div>
-                </dd>
-                <dt className="text-muted-foreground">Token</dt>
-                <dd className="min-w-0 text-fg">
-                  <span className="font-mono tabular-nums">
-                    {formatTokenCount(summary.inputTokens)}
-                  </span>
-                  {' 输入 / '}
-                  <span className="font-mono tabular-nums">
-                    {formatTokenCount(summary.outputTokens)}
-                  </span>
-                  {' 输出'}
-                </dd>
-                <dt className="text-muted-foreground">已记录成本</dt>
-                <dd className="flex min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1 text-fg">
-                  {summary.costUsd === null ? (
-                    <span>未记录</span>
-                  ) : (
-                    <>
-                      <span className="font-mono tabular-nums">
-                        {`${formatCost(summary.costUsd)} · ${summary.runCount} 次中 ${summary.costRecordedRuns} 次已记录`}
+                    }
+                    value={summary.costUsd === null ? '未记录' : formatCost(summary.costUsd)}
+                    hint={
+                      summary.runCount > 0 && summary.costMissingRuns > 0
+                        ? `${summary.costRecordedRuns} 次已记录 · ${summary.costMissingRuns} 次未记录`
+                        : undefined
+                    }
+                  />
+                  <MetricCard
+                    label="Token"
+                    icon={<Cpu className="size-4 text-muted-foreground" aria-hidden="true" />}
+                    compact
+                    value={
+                      <span className="flex flex-col">
+                        <span>{`输入 ${formatTokenCount(summary.inputTokens)}`}</span>
+                        <span>{`输出 ${formatTokenCount(summary.outputTokens)}`}</span>
                       </span>
-                      {summary.costMissingRuns > 0 ? (
-                        <span className="text-muted-foreground">
-                          {`${summary.costMissingRuns} 次运行未记录成本`}
-                        </span>
-                      ) : null}
-                    </>
-                  )}
-                </dd>
-              </dl>
+                    }
+                  />
+                </div>
+                <dl
+                  aria-label="运行状态分布"
+                  className="grid grid-cols-3 gap-x-6 gap-y-2 xl:grid-cols-6"
+                >
+                  {statuses.map((status) => (
+                    <div key={status} className="flex items-baseline justify-between gap-3">
+                      <dt className="text-xs text-muted-foreground">{runStatusLabel[status]}</dt>
+                      <dd className="font-mono text-sm tabular-nums text-fg">{summary[status]}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
             ) : null}
           </PageSection>
         ) : null}
