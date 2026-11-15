@@ -64,6 +64,7 @@ export function AgentsPage() {
   const agents = useExperts();
   const me = useQuery(meQuery);
   const canCreate = can(me.data, 'agents.create');
+  const canImport = can(me.data, 'agents.import');
   const canUse = can(me.data, 'agents.use');
   const canDeleteAny = can(me.data, 'agents.delete');
   const currentBusinessId = me.data?.authenticated ? me.data.user.businessId : '';
@@ -189,7 +190,7 @@ export function AgentsPage() {
                   editorTriggerRef.current = event.currentTarget;
                   fileInput.current?.click();
                 }}
-                {...(canCreate ? {} : { className: 'hidden' })}
+                {...(canCreate && canImport ? {} : { className: 'hidden' })}
               >
                 <Upload data-icon="inline-start" /> {importing ? '导入中…' : '导入'}
               </Button>

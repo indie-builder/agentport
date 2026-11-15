@@ -81,6 +81,7 @@ const state = vi.hoisted(() => ({
   reset: vi.fn(),
   remove: vi.fn(),
   search: {} as Record<string, string | undefined>,
+  me: undefined as unknown,
 }));
 vi.mock('../src/lib/queries.js', () => ({
   meQuery: {
@@ -160,7 +161,7 @@ vi.mock('@tanstack/react-query', async () => {
   return {
     useQueries: () => [],
     useQueryClient: () => ({}),
-    useQuery: () => ({ data: allAccessMe, isPending: false, isError: false, refetch: vi.fn() }),
+    useQuery: () => ({ data: state.me ?? allAccessMe, isPending: false, isError: false, refetch: vi.fn() }),
   };
 });
 vi.mock('@tanstack/react-router', () => ({
@@ -312,7 +313,35 @@ beforeEach(() => {
   state.blockerStatus = 'idle';
   // 编辑器用例针对配置任务；概览的默认落点由页面级用例覆盖。
   state.search = { tab: 'config' };
+  state.me = undefined;
   vi.clearAllMocks();
+});
+
+describe('agents import permission gate', () => {
+  it('hides the import button without agents.import', async () => {
+    const { allAccessMe } = await import('./me-fixture.js');
+    state.me = {
+      ...allAccessMe,
+      grants: allAccessMe.grants.filter((grant) => grant.permissionId !== 'agents.import'),
+    };
+    await inspect(AgentsPage, (tree) => {
+      const header = tree.find((node) => node.type === PageHeader);
+      const importBtn = elements(header?.props.actions as ReactNode).find(
+        (node) => node.props.title === '导入专家 ZIP 或 agent.md',
+      );
+      expect(importBtn).toBeDefined();
+      expect(importBtn?.props.className).toBe('hidden');
+    });
+    state.me = undefined;
+    await inspect(AgentsPage, (tree) => {
+      const header = tree.find((node) => node.type === PageHeader);
+      const importBtn = elements(header?.props.actions as ReactNode).find(
+        (node) => node.props.title === '导入专家 ZIP 或 agent.md',
+      );
+      expect(importBtn).toBeDefined();
+      expect(importBtn?.props.className).not.toBe('hidden');
+    });
+  });
 });
 
 describe('expert editor regressions', () => {
