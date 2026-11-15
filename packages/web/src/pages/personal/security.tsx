@@ -21,7 +21,13 @@ import { ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card.js';
-import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
+import {
+  Field,
+  FieldContent,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { ApiError, errorMessage } from '../../lib/api.js';
@@ -436,6 +442,7 @@ function SessionGroup({
                     <span className="text-sm text-muted-foreground">
                       {session.ipAddress || '未记录 IP'}
                     </span>
+                    {session.current ? <StatusBadge tone="brand">当前设备</StatusBadge> : null}
                   </div>
                   <CollapsibleTrigger
                     render={
@@ -497,7 +504,7 @@ function SessionCard({
             <span className="min-w-0 truncate" title={session.updatedAt}>
               {formatDateTime(session.updatedAt)}
             </span>
-            {session.current ? <StatusBadge>当前</StatusBadge> : null}
+            {session.current ? <StatusBadge tone="brand">当前设备</StatusBadge> : null}
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-1 flex-col gap-2">
