@@ -1,21 +1,21 @@
-import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../../client.js';
 import {
-  knowledgeBases,
+  type knowledgeBases,
   knowledgeChunks,
   knowledgeDocuments,
-  knowledgeDocumentVersions,
-  knowledgeFolders,
-  knowledgeJobs,
-  knowledgeModelProfiles,
+  type knowledgeDocumentVersions,
+  type knowledgeFolders,
+  type knowledgeJobs,
+  type knowledgeModelProfiles,
   knowledgeSourceRanges,
   knowledgeSources,
-  knowledgeSyncItems,
-  knowledgeSyncRuns,
-  knowledgeTags,
+  type knowledgeSyncItems,
+  type knowledgeSyncRuns,
+  type knowledgeTags,
   knowledgeWikiPages,
   knowledgeWikiSources,
-  knowledgeWikiVersions,
+  type knowledgeWikiVersions,
 } from '../../schema.js';
 
 export type KnowledgeBaseRow = typeof knowledgeBases.$inferSelect;
@@ -58,6 +58,11 @@ export interface Page<T> {
 export interface PageOptions {
   cursor?: string | null;
   limit?: number;
+}
+
+/** LIKE 默认转义符是反斜杠；路径里的 % _ \ 必须转义后才能当字面前缀匹配。 */
+export function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
 }
 
 /** 列表统一按 (created_at, id) 倒序，游标是上一页最后一行 id。 */
@@ -272,7 +277,10 @@ export async function lockWikiSourceScope(
       .for('share');
   }
 }
-export async function markWikiStaleByDocumentsTx(tx: Transaction, documentIds: string[]): Promise<number> {
+export async function markWikiStaleByDocumentsTx(
+  tx: Transaction,
+  documentIds: string[],
+): Promise<number> {
   if (documentIds.length === 0) return 0;
   const linked = await tx
     .select({ pageId: knowledgeWikiSources.pageId })

@@ -1,14 +1,15 @@
-import { and, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeDocuments, knowledgeDocumentTags, knowledgeTags } from '../../schema.js';
 import { keysetBefore, paginate } from '../keyset.js';
 import {
+  disableDocumentsBySourceTx,
+  escapeLike,
   type KnowledgeDocumentRow,
+  markWikiStaleByDocumentsTx,
   type Page,
   type PageOptions,
-  disableDocumentsBySourceTx,
-  markWikiStaleByDocumentsTx,
   pageLimit,
   readableDocumentSql,
 } from './shared.js';
@@ -87,7 +88,7 @@ export async function listDocuments(
     filters.push(eq(knowledgeDocuments.contentKind, filter.contentKind));
   }
   if (filter.q) {
-    filters.push(sql`${knowledgeDocuments.title} ilike ${`%${filter.q}%`}`);
+    filters.push(sql`${knowledgeDocuments.title} ilike ${`%${escapeLike(filter.q)}%`}`);
   }
   if (filter.tag) {
     filters.push(sql`exists (

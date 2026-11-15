@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { AppError, fail, isAppError, sha256Hex } from '@agentport/core';
-import { newId, repo, schema } from '@agentport/db';
+import { escapeLike, newId, repo, schema } from '@agentport/db';
 import type {
   KnowledgeFaq,
   KnowledgeFaqImportIssue,
@@ -25,20 +25,15 @@ import {
   serializeFaqExport,
 } from '../faq.js';
 import { searchKnowledge } from '../retrieval.js';
+import { createJob, enqueueKnowledgeJob, enqueueKnowledgeJobs, storeBlob } from '../service.js';
 import {
-  createJob,
-  enqueueKnowledgeJob,
-  enqueueKnowledgeJobs,
-  storeBlob,
-} from '../service.js';
-import {
+  assertBodyBytes,
   type DocumentRow,
-  type VersionRow,
+  folderIssue,
   type KnowledgeDeps,
   notFound,
   type PageQuery,
-  folderIssue,
-  assertBodyBytes,
+  type VersionRow,
 } from './shared.js';
 
 const FAQ_IMPORT_BODY_LIMIT = 3 * 1024 * 1024;
@@ -483,7 +478,7 @@ export async function listFaqs(
   }
   if (query.status) filters.push(eq(schema.knowledgeDocuments.status, query.status));
   if (query.q) {
-    filters.push(sql`${schema.knowledgeDocuments.title} ilike ${`%${query.q}%`}`);
+    filters.push(sql`${schema.knowledgeDocuments.title} ilike ${`%${escapeLike(query.q)}%`}`);
   }
   if (query.isRecommended !== undefined) {
     filters.push(sql`coalesce((
