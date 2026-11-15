@@ -70,8 +70,10 @@ const chatMainRouter = {
       : { status: 202 as const, body: result };
   }),
   searchConversations: os.searchConversations.handler(async ({ input, context }) => {
+    const { cursor, ...query } = input.query;
     const result = await chatRepo.searchConversations(context.db, {
-      ...input.query,
+      ...query,
+      ...(cursor === undefined ? {} : { before: cursor }),
       access: accessFilter(context, 'conversations.read'),
     });
     return {
@@ -79,21 +81,21 @@ const chatMainRouter = {
         ...item,
         updatedAt: updatedAt.toISOString(),
       })),
-      nextBefore: result.nextBefore,
+      nextCursor: result.nextBefore,
     };
   }),
   conversation: os.conversation.handler(async ({ input, context }) => {
     const conversation = await loadReadableConversation(context, input.params.id);
-    const { limit, before } = input.query;
+    const { limit, cursor } = input.query;
     if (
-      before !== undefined &&
-      !(await chatRepo.messageInConversation(context.db, conversation.id, before))
+      cursor !== undefined &&
+      !(await chatRepo.messageInConversation(context.db, conversation.id, cursor))
     ) {
-      return fail('INVALID_INPUT', 'before 游标不属于该会话，请刷新后重试');
+      return fail('INVALID_INPUT', '游标不属于该会话，请刷新后重试');
     }
     const rows = await chatRepo.listMessages(context.db, conversation.id, {
       limit: limit + 1,
-      ...(before === undefined ? {} : { before }),
+      ...(cursor === undefined ? {} : { before: cursor }),
     });
     const hasMore = rows.length > limit;
     const messages = hasMore ? rows.slice(1) : rows;
@@ -133,7 +135,7 @@ const chatMainRouter = {
         uiState: message.uiState,
       })),
       runMetrics,
-      nextBefore: hasMore ? (messages[0]?.id ?? null) : null,
+      nextCursor: hasMore ? (messages[0]?.id ?? null) : null,
     };
   }),
   renameConversation: os.renameConversation.handler(async ({ input, context }) => {

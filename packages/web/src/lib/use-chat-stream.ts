@@ -61,12 +61,12 @@ async function loadRunMessages(
   conversationId: string,
   runId: string,
 ): Promise<{ messages: ConversationMessage[]; prefix: ConversationMessage[] }> {
-  let before: string | undefined;
+  let cursor: string | undefined;
   let all: ConversationMessage[] = [];
   for (let page = 0; page < RECOVERY_MAX_PAGES; page += 1) {
     const detail = await api.conversation(conversationId, {
       limit: RECOVERY_PAGE_SIZE,
-      ...(before === undefined ? {} : { before }),
+      ...(cursor === undefined ? {} : { cursor }),
     });
     if (detail.conversation.id !== conversationId) {
       throw new Error('会话历史不匹配，请重新打开会话');
@@ -75,8 +75,8 @@ async function loadRunMessages(
     const oldest = detail.messages[0];
     // 本 run 从它自己的用户消息开始；遇到别的 run 或用户消息即已完整。
     const complete = oldest === undefined || oldest.runId !== runId || oldest.role === 'user';
-    if (!complete && detail.nextBefore != null) {
-      before = detail.nextBefore;
+    if (!complete && detail.nextCursor != null) {
+      cursor = detail.nextCursor;
       continue;
     }
     const start = all.findIndex((message) => message.runId === runId);

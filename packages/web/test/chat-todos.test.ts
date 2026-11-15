@@ -150,7 +150,7 @@ describe('history todo snapshots', () => {
         ]),
       ],
       runMetrics: [],
-      nextBefore: null,
+      nextCursor: null,
     };
     const loaded = historyToItems(firstPage.messages);
     const merged = mergeOlderHistory(
@@ -229,7 +229,7 @@ describe('snapshot confirmation order', () => {
       conversation: { id: 'c1', agentId: 'a1', title: '', createdAt: '' },
       messages: [results],
       runMetrics: [],
-      nextBefore: null,
+      nextCursor: null,
     };
     const loaded = historyToItems(page.messages);
     expect(latestTopLevelTodos(loaded)).toEqual([todo('A')]);

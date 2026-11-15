@@ -65,7 +65,7 @@ const terminal: RunDetail = {
 const history: ConversationDetail = {
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: 'Outputs', createdAt: '' },
   runMetrics: [],
-  nextBefore: null,
+  nextCursor: null,
   messages: [
     {
       id: 'message-a',
@@ -115,7 +115,7 @@ const htmlFile = output({
 });
 const list: OutputList = {
   items: [reportLatest, dataFile, htmlFile, reportOlder],
-  nextBefore: null,
+  nextCursor: null,
 };
 const contents: Record<string, string> = {
   'run-2:report.md': '# Latest report\n\nbody',
@@ -348,7 +348,7 @@ describe('conversation outputs list', () => {
   });
 
   it('shows a real empty state and a retryable failure', async () => {
-    vi.mocked(api.outputs).mockResolvedValueOnce({ items: [], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValueOnce({ items: [], nextCursor: null });
     await mount();
     await openWorkspace();
     expect(workspace().textContent).toContain('当前会话没有成果文件');
@@ -482,8 +482,8 @@ describe('output preview and versions', () => {
       createdAt: '2026-10-27T10:00:00.000Z',
     });
     vi.mocked(api.outputs)
-      .mockResolvedValueOnce({ items: list.items, nextBefore: 'cursor-1' })
-      .mockResolvedValueOnce({ items: [archived], nextBefore: null });
+      .mockResolvedValueOnce({ items: list.items, nextCursor: 'cursor-1' })
+      .mockResolvedValueOnce({ items: [archived], nextCursor: null });
     await mount();
     await openWorkspace();
     await selectFile('report.md');
@@ -495,7 +495,7 @@ describe('output preview and versions', () => {
     await flush();
     expect(vi.mocked(api.outputs)).toHaveBeenLastCalledWith(
       'conversation-a',
-      { limit: 50, before: 'cursor-1' },
+      { limit: 50, cursor: 'cursor-1' },
       expect.any(AbortSignal),
     );
     expect(workspace().textContent).toContain('archived.md');
@@ -509,8 +509,8 @@ describe('output preview and versions', () => {
       createdAt: '2026-10-27T10:00:00.000Z',
     });
     vi.mocked(api.outputs)
-      .mockResolvedValueOnce({ items: list.items, nextBefore: 'cursor-1' })
-      .mockResolvedValueOnce({ items: [oldest], nextBefore: null });
+      .mockResolvedValueOnce({ items: list.items, nextCursor: 'cursor-1' })
+      .mockResolvedValueOnce({ items: [oldest], nextCursor: null });
     await mount();
     await openWorkspace();
     await selectFile('report.md');
@@ -578,7 +578,7 @@ describe('output preview and versions', () => {
     contents['run-3:report.md'] = '# Newest report\n\nbody';
     vi.mocked(api.outputs).mockResolvedValue({
       items: [newer, ...list.items],
-      nextBefore: null,
+      nextCursor: null,
     });
     await act(async () => {
       await client.invalidateQueries({ queryKey: ['conversation-outputs', 'conversation-a'] });
@@ -604,7 +604,7 @@ describe('output preview and versions', () => {
   it('shows SVG as literal source without creating executable elements', async () => {
     const file = output({ runId: 'run-svg', path: 'diagram.svg', mediaType: 'image/svg+xml' });
     const code = '<svg onload="alert(1)"><script>alert(1)</script></svg>';
-    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextCursor: null });
     vi.mocked(api.outputContent).mockResolvedValue({ file, content: code });
     await mount();
     await openWorkspace();
@@ -633,7 +633,7 @@ describe('output preview and versions', () => {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ])('offers download without requesting unsupported %s content', async (mediaType) => {
     const file = output({ runId: 'run-download', path: 'files/original file', mediaType });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextCursor: null });
     await mount();
     await openWorkspace();
     await selectFile(file.path);
@@ -653,7 +653,7 @@ describe('output preview and versions', () => {
     'previews API-supported %s content and keeps its original download',
     async (mediaType) => {
       const file = output({ runId: 'run-text', path: 'notes/example', mediaType });
-      vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+      vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextCursor: null });
       vi.mocked(api.outputContent).mockResolvedValue({ file, content: 'original content' });
       await mount();
       await openWorkspace();
@@ -697,7 +697,7 @@ describe('image outputs', () => {
 
   it('previews a private image only after the blob decodes, without requesting text content', async () => {
     const file = photo({ runId: 'run-photo', path: 'photo.png' });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextCursor: null });
     const blob = new Blob(['png'], { type: 'image/png' });
     vi.mocked(api.outputBlob).mockResolvedValue(blob);
     const { urls } = stubObjectUrls();
@@ -739,7 +739,7 @@ describe('image outputs', () => {
       path: 'photo.png',
       createdAt: '2026-10-28T10:00:00.000Z',
     });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [latest, older], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [latest, older], nextCursor: null });
     const latestBlob = new Blob(['latest'], { type: 'image/png' });
     const olderBlob = new Blob(['older'], { type: 'image/png' });
     let resolveOlder!: (blob: Blob) => void;
@@ -791,7 +791,7 @@ describe('image outputs', () => {
       path: 'photo.png',
       createdAt: '2026-10-28T10:00:00.000Z',
     });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [latest, older], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [latest, older], nextCursor: null });
     const latestBlob = new Blob(['latest'], { type: 'image/png' });
     const olderBlob = new Blob(['older'], { type: 'image/png' });
     vi.mocked(api.outputBlob).mockImplementation((_conversationId, runId) =>
@@ -887,7 +887,7 @@ describe('image outputs', () => {
   it('fetches metadata before the blob when an older version is not in the list page', async () => {
     const unrelated = output({ runId: 'run-other', path: 'other.md' });
     const archived = photo({ runId: 'run-archived', path: 'photo.png' });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextCursor: null });
     vi.mocked(api.outputFile).mockResolvedValue({ file: archived });
     const blob = new Blob(['archived'], { type: 'image/png' });
     vi.mocked(api.outputBlob).mockResolvedValue(blob);
@@ -917,7 +917,7 @@ describe('image outputs', () => {
   it('loads text content only after metadata resolves for an older version', async () => {
     const unrelated = output({ runId: 'run-other', path: 'other.md' });
     const archived = output({ runId: 'run-archived', path: 'notes.txt', mediaType: 'text/plain' });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextCursor: null });
     vi.mocked(api.outputFile).mockResolvedValue({ file: archived });
     vi.mocked(api.outputContent).mockResolvedValue({ file: archived, content: 'archived notes' });
 
@@ -942,7 +942,7 @@ describe('image outputs', () => {
   it('retries metadata before showing an older image', async () => {
     const unrelated = output({ runId: 'run-other', path: 'other.md' });
     const archived = photo({ runId: 'run-archived', path: 'photo.png' });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextCursor: null });
     vi.mocked(api.outputFile)
       .mockRejectedValueOnce(new Error('元信息没有加载出来'))
       .mockResolvedValue({ file: archived });
@@ -970,7 +970,7 @@ describe('image outputs', () => {
 
   it('retries a failed image download and keeps the file actions', async () => {
     const file = photo({ runId: 'run-photo', path: 'photo.png' });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextCursor: null });
     vi.mocked(api.outputBlob)
       .mockRejectedValueOnce(new Error('图片下载失败'))
       .mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
@@ -994,7 +994,7 @@ describe('image outputs', () => {
 
   it('reports a decode failure as real text and keeps the original download', async () => {
     const file = photo({ runId: 'run-photo', path: 'photo.png' });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextCursor: null });
     vi.mocked(api.outputBlob).mockResolvedValue(new Blob(['broken'], { type: 'image/png' }));
     stubObjectUrls();
 
@@ -1023,7 +1023,7 @@ describe('image outputs', () => {
       path: 'b.png',
       createdAt: '2026-10-28T10:00:00.000Z',
     });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [first, second], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [first, second], nextCursor: null });
     const firstBlob = new Blob(['a'], { type: 'image/png' });
     const secondBlob = new Blob(['b'], { type: 'image/png' });
     let resolveFirst!: (blob: Blob) => void;
@@ -1056,7 +1056,7 @@ describe('image outputs', () => {
 
   it('revokes the object URL when the image unmounts', async () => {
     const file = photo({ runId: 'run-photo', path: 'photo.png' });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextCursor: null });
     const blob = new Blob(['png'], { type: 'image/png' });
     vi.mocked(api.outputBlob).mockResolvedValue(blob);
     const { revoke, urls } = stubObjectUrls();
@@ -1102,7 +1102,7 @@ describe('pdf outputs', () => {
 
   it('previews a private PDF through the exact authenticated download entry', async () => {
     const file = pdfFile({ runId: 'run-pdf', path: 'report.pdf' });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextCursor: null });
     const blob = new Blob(['%PDF-1.7\nbody'], { type: 'application/pdf' });
     vi.mocked(api.outputBlob).mockResolvedValue(blob);
     const { create } = stubPdfUrls();
@@ -1134,7 +1134,7 @@ describe('pdf outputs', () => {
   it('keeps the download and skips the iframe when the browser has no PDF viewer', async () => {
     Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: false });
     const file = pdfFile({ runId: 'run-pdf', path: 'report.pdf' });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextCursor: null });
     vi.mocked(api.outputBlob).mockResolvedValue(
       new Blob(['%PDF-1.7\nbody'], { type: 'application/pdf' }),
     );
@@ -1154,7 +1154,7 @@ describe('pdf outputs', () => {
 
   it('refuses bytes without the PDF header and keeps the download', async () => {
     const file = pdfFile({ runId: 'run-pdf', path: 'report.pdf' });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [file], nextCursor: null });
     vi.mocked(api.outputBlob).mockResolvedValue(
       new Blob(['not really a pdf'], { type: 'application/pdf' }),
     );
@@ -1183,7 +1183,7 @@ describe('pdf outputs', () => {
       path: 'report.pdf',
       createdAt: '2026-10-28T10:00:00.000Z',
     });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [latest, older], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [latest, older], nextCursor: null });
     const latestBlob = new Blob(['%PDF-1.4 latest'], { type: 'application/pdf' });
     const olderBlob = new Blob(['%PDF-1.4 older'], { type: 'application/pdf' });
     let resolveOlder!: (blob: Blob) => void;
@@ -1229,7 +1229,7 @@ describe('pdf outputs', () => {
   it('resolves metadata before fetching bytes for an older PDF outside the list page', async () => {
     const unrelated = output({ runId: 'run-other', path: 'other.md' });
     const archived = pdfFile({ runId: 'run-archived', path: 'report.pdf' });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [unrelated], nextCursor: null });
     vi.mocked(api.outputFile).mockResolvedValue({ file: archived });
     vi.mocked(api.outputBlob).mockResolvedValue(
       new Blob(['%PDF-1.4 archived'], { type: 'application/pdf' }),
@@ -1457,7 +1457,7 @@ describe('feedback with an output version', () => {
       path: 'report.md',
       createdAt: '2026-10-28T11:00:00.000Z',
     });
-    vi.mocked(api.outputs).mockResolvedValue({ items: [newer, ...list.items], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [newer, ...list.items], nextCursor: null });
     const stream = Source.instances.at(-1);
     if (!stream) throw new Error('Missing accepted event stream');
     await act(async () => stream.emit({ type: 'run_finished', status: 'succeeded' }));
@@ -1510,7 +1510,7 @@ function runOutputButton(turn: HTMLElement, path: string) {
 function multiTurnHistory(): ConversationDetail {
   return {
     conversation: { ...history.conversation, createdAt: '' },
-    nextBefore: null,
+    nextCursor: null,
     runMetrics: ['run-1', 'run-2'].map((runId) => ({
       runId,
       status: 'succeeded' as const,
@@ -1605,7 +1605,7 @@ describe('published outputs on message turns', () => {
         output({ runId: 'run-2', path: 'cancelled.md', status: 'cancelled' }),
         output({ runId: 'run-2', path: 'timeout.md', status: 'timeout' }),
       ],
-      nextBefore: null,
+      nextCursor: null,
     });
     await mount();
     const group = turnWithText('second reply').querySelector('[aria-label="本轮成果"]');
@@ -1621,7 +1621,7 @@ describe('published outputs on message turns', () => {
 
   it('does not invent output entries for runs without published files', async () => {
     vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
-    vi.mocked(api.outputs).mockResolvedValue({ items: [reportLatest], nextBefore: null });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [reportLatest], nextCursor: null });
     await mount();
     expect(turnWithText('first reply').querySelector('[aria-label="本轮成果"]')).toBeNull();
     expect(
@@ -1652,7 +1652,7 @@ describe('published outputs on message turns', () => {
           createdAt: '2026-10-28T09:00:00.000Z',
         }),
       ],
-      nextBefore: null,
+      nextCursor: null,
     });
     await mount();
 
@@ -1710,7 +1710,7 @@ describe('published outputs on message turns', () => {
           afterMessageId: 'user-run-1',
         }),
       ],
-      nextBefore: null,
+      nextCursor: null,
     });
     await mount();
 
@@ -1727,7 +1727,7 @@ describe('published outputs on message turns', () => {
   it('maps branch message ids through manifest anchors after fork', async () => {
     vi.mocked(api.conversation).mockResolvedValue({
       conversation: { ...history.conversation, createdAt: '' },
-      nextBefore: null,
+      nextCursor: null,
       runMetrics: [],
       messages: [
         {
@@ -1757,7 +1757,7 @@ describe('published outputs on message turns', () => {
           afterMessageId: 'branch-reply-1',
         }),
       ],
-      nextBefore: null,
+      nextCursor: null,
     });
     await mount();
 
@@ -1775,7 +1775,7 @@ describe('published outputs on message turns', () => {
   it('keeps a result-anchored output reachable on a tool turn after fork', async () => {
     vi.mocked(api.conversation).mockResolvedValue({
       conversation: { ...history.conversation, createdAt: '' },
-      nextBefore: null,
+      nextCursor: null,
       runMetrics: [],
       messages: [
         {
@@ -1813,7 +1813,7 @@ describe('published outputs on message turns', () => {
           afterMessageId: 'branch-result',
         }),
       ],
-      nextBefore: null,
+      nextCursor: null,
     });
     await mount();
 
@@ -1860,7 +1860,7 @@ describe('published outputs on message turns', () => {
     ];
     vi.mocked(api.conversation).mockResolvedValue({
       conversation: { ...history.conversation, createdAt: '' },
-      nextBefore: null,
+      nextCursor: null,
       runMetrics: [],
       messages: [
         {
@@ -1883,7 +1883,7 @@ describe('published outputs on message turns', () => {
           afterMessageId: 'result-run-1',
         }),
       ],
-      nextBefore: null,
+      nextCursor: null,
     });
     await mount();
 
@@ -1921,7 +1921,7 @@ describe('published outputs on message turns', () => {
           afterMessageId: 'reply-run-1',
         }),
       ],
-      nextBefore: null,
+      nextCursor: null,
     });
     await mount();
 
@@ -1935,8 +1935,8 @@ describe('published outputs on message turns', () => {
   it('pages older published outputs only through the explicit load-more action', async () => {
     vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
     vi.mocked(api.outputs)
-      .mockResolvedValueOnce({ items: [reportLatest], nextBefore: 'cursor-1' })
-      .mockResolvedValueOnce({ items: [reportOlder], nextBefore: null });
+      .mockResolvedValueOnce({ items: [reportLatest], nextCursor: 'cursor-1' })
+      .mockResolvedValueOnce({ items: [reportOlder], nextCursor: null });
     await mount();
     expect(api.outputs).toHaveBeenCalledTimes(1);
     expect(turnWithText('first reply').querySelector('[aria-label="本轮成果"]')).toBeNull();
@@ -1950,7 +1950,7 @@ describe('published outputs on message turns', () => {
 
     expect(vi.mocked(api.outputs)).toHaveBeenLastCalledWith(
       'conversation-a',
-      { limit: 50, before: 'cursor-1' },
+      { limit: 50, cursor: 'cursor-1' },
       expect.any(AbortSignal),
     );
     expect(api.outputs).toHaveBeenCalledTimes(2);
@@ -2026,7 +2026,7 @@ describe('published outputs on message turns', () => {
     });
     vi.mocked(api.outputs).mockResolvedValue({
       items: [output({ runId: 'run-1', path: 'failed.md', status: 'failed' }), reportLatest],
-      nextBefore: null,
+      nextCursor: null,
     });
     await mount();
 
@@ -2043,7 +2043,7 @@ describe('published outputs on message turns', () => {
 
   it('does not show an orphan load-more action when the latest turn has no outputs', async () => {
     vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
-    vi.mocked(api.outputs).mockResolvedValue({ items: [], nextBefore: 'cursor-1' });
+    vi.mocked(api.outputs).mockResolvedValue({ items: [], nextCursor: 'cursor-1' });
     await mount();
     expect(host.querySelector('[aria-label="本轮成果"]')).toBeNull();
     expect(
@@ -2069,7 +2069,7 @@ describe('published outputs on message turns', () => {
     if (!stream) throw new Error('Missing event stream');
     vi.mocked(api.outputs).mockResolvedValue({
       items: [output({ runId: 'run-3', path: 'final.md', createdAt: '2026-10-28T12:00:00.000Z' })],
-      nextBefore: null,
+      nextCursor: null,
     });
     await act(async () => {
       stream.emit({ type: 'text_delta', text: 'finished reply' });
@@ -2299,7 +2299,7 @@ describe('output refresh and conversation isolation', () => {
           })
         : Promise.resolve({
             items: [output({ runId: 'run-b', path: 'other.md' })],
-            nextBefore: null,
+            nextCursor: null,
           }),
     );
     vi.mocked(api.conversation).mockImplementation(async (conversationId: string) =>

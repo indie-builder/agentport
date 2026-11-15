@@ -409,7 +409,7 @@ export const conversationDetailSchema = z.object({
   messages: z.array(conversationMessageSchema),
   /** 本页消息涉及的 run 读数，按 runId 索引；前端用它给每条历史回复补上读数行。 */
   runMetrics: z.array(conversationRunMetricsSchema).default([]),
-  nextBefore: z.string().nullable(),
+  nextCursor: z.string().nullable(),
 });
 
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
@@ -419,7 +419,7 @@ export const conversationSearchQuerySchema = z.object({
   q: z.string().trim().max(200).default(''),
   agentId: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
-  before: z.string().min(1).optional(),
+  cursor: z.string().min(1).optional(),
 });
 
 export const conversationSearchMatchSchema = z.object({
@@ -442,7 +442,7 @@ export type ConversationSearchItem = z.infer<typeof conversationSearchItemSchema
 
 export const conversationSearchResponseSchema = z.object({
   items: z.array(conversationSearchItemSchema),
-  nextBefore: z.string().nullable(),
+  nextCursor: z.string().nullable(),
 });
 
 export type ConversationSearchResponse = z.infer<typeof conversationSearchResponseSchema>;

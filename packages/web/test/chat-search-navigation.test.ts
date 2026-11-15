@@ -111,7 +111,7 @@ beforeEach(() => {
   vi.spyOn(api, 'conversation').mockImplementation(async (conversationId) => ({
     conversation: { id: conversationId, agentId: 'agent-b', title: '目标会话' },
     runMetrics: [],
-    nextBefore: null,
+    nextCursor: null,
     messages: [
       {
         id: 'message-b',
@@ -134,7 +134,7 @@ beforeEach(() => {
         match: { kind: 'title' as const, excerpt: '跨专家' },
       },
     ],
-    nextBefore: null,
+    nextCursor: null,
   });
   host = document.createElement('div');
   document.body.append(host);

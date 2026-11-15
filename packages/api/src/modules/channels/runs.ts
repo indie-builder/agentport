@@ -111,20 +111,20 @@ export const channelsRunsRouter = {
     await memberRun(context, id, runId);
     const detail = await runConversation(context, runId);
     const slug = await agentSlug(context, detail.conversation.agentId);
-    if (slug === null) return { items: [], nextBefore: null };
-    const { limit, before } = input.query;
+    if (slug === null) return { items: [], nextCursor: null };
+    const { limit, cursor } = input.query;
     try {
       return await listOutputFiles({
         root: context.config.WORKSPACES_DIR,
         slug,
         conversationId: detail.conversation.id,
         limit,
-        ...(before === undefined ? {} : { before }),
+        ...(cursor === undefined ? {} : { before: cursor }),
         runId,
       });
     } catch (err) {
-      if (before !== undefined && isAppError(err) && err.code === 'INVALID_INPUT') {
-        return fail('INVALID_INPUT', 'before 游标无效，请刷新成果列表后重试');
+      if (cursor !== undefined && isAppError(err) && err.code === 'INVALID_INPUT') {
+        return fail('INVALID_INPUT', '游标无效，请刷新成果列表后重试');
       }
       throw err;
     }

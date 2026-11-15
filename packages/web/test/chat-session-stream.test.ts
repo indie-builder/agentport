@@ -37,7 +37,7 @@ const savedRecovery: ConversationDetail = {
     },
   ],
   runMetrics: [],
-  nextBefore: null,
+  nextCursor: null,
 };
 
 class Source {

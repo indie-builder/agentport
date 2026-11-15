@@ -26,7 +26,7 @@ class Source {
 const history: ConversationDetail = {
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: 'History', createdAt: '' },
   runMetrics: [],
-  nextBefore: null,
+  nextCursor: null,
   messages: [
     {
       id: '1',

@@ -42,7 +42,7 @@ const terminal: RunDetail['run'] = {
 const history: ConversationDetail = {
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: '', createdAt: '' },
   runMetrics: [],
-  nextBefore: null,
+  nextCursor: null,
   messages: [
     {
       id: '1',
@@ -70,13 +70,13 @@ beforeEach(() => {
 
 function detail(
   messages: ConversationDetail['messages'],
-  options: { nextBefore?: string | null } = {},
+  options: { nextCursor?: string | null } = {},
 ): ConversationDetail {
   return {
     conversation: { id: 'conversation-a', agentId: 'agent-a', title: '', createdAt: '' },
     messages,
     runMetrics: [],
-    nextBefore: options.nextBefore ?? null,
+    nextCursor: options.nextCursor ?? null,
   };
 }
 
@@ -239,9 +239,9 @@ describe('authoritative disconnected recovery', () => {
     stream.hydratedRef.current = 'conversation-a';
     // 最新页只剩本轮助手消息；本 run 的第一条用户消息在前一页。
     vi.spyOn(api, 'conversation')
-      .mockResolvedValueOnce(detail([assistantMessage('m3', 'later')], { nextBefore: 'm3' }))
+      .mockResolvedValueOnce(detail([assistantMessage('m3', 'later')], { nextCursor: 'm3' }))
       .mockResolvedValueOnce(
-        detail([userMessage('u1'), assistantMessage('m2', 'earlier')], { nextBefore: 'u1' }),
+        detail([userMessage('u1'), assistantMessage('m2', 'earlier')], { nextCursor: 'u1' }),
       );
 
     await stream.reconcileRun({ ...terminal, status: 'succeeded' });

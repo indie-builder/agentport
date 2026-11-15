@@ -30,7 +30,7 @@ export const chatKeys = {
       options.q ?? '',
       options.agentId ?? null,
       options.limit ?? 20,
-      options.before ?? null,
+      options.cursor ?? null,
     ] as const,
 };
 
@@ -43,17 +43,17 @@ export function useConversations(agentId: string | null) {
   });
 }
 
-/** 全局历史搜索的 Query options；空 q 返回最近会话，nextBefore 作为下一页游标。 */
+/** 全局历史搜索的 Query options；空 q 返回最近会话，nextCursor 作为下一页游标。 */
 export const searchConversationsOptions = (options: ConversationSearchOptions) =>
   infiniteQueryOptions({
     queryKey: chatKeys.search(options),
     queryFn: ({ pageParam, signal }) =>
       api.searchConversations(
-        { ...options, ...(pageParam === null ? {} : { before: pageParam }) },
+        { ...options, ...(pageParam === null ? {} : { cursor: pageParam }) },
         signal,
       ),
     initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextBefore ?? undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 0,
   });
 
@@ -68,12 +68,12 @@ export function useConversation(conversationId: string | null) {
         conversationId ?? '',
         {
           limit: CONVERSATION_PAGE_SIZE,
-          ...(pageParam === null ? {} : { before: pageParam }),
+          ...(pageParam === null ? {} : { cursor: pageParam }),
         },
         signal,
       ),
     initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextBefore ?? undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: conversationId !== null,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -84,7 +84,7 @@ export function useConversation(conversationId: string | null) {
         conversation: first.conversation,
         messages: data.pages.toReversed().flatMap((page) => page.messages),
         runMetrics: data.pages.flatMap((page) => page.runMetrics),
-        nextBefore: data.pages.at(-1)?.nextBefore ?? null,
+        nextCursor: data.pages.at(-1)?.nextCursor ?? null,
       };
     },
   });
@@ -92,7 +92,7 @@ export function useConversation(conversationId: string | null) {
 
 /**
  * 会话成果按发布版本倒序；同一路径由页面分组。
- * 旧版可能落在后续页，按 `nextBefore` 继续翻页，不静默丢弃。
+ * 旧版可能落在后续页，按 `nextCursor` 继续翻页，不静默丢弃。
  */
 export function useConversationOutputs(conversationId: string | null) {
   return useInfiniteQuery({
@@ -100,16 +100,16 @@ export function useConversationOutputs(conversationId: string | null) {
     queryFn: ({ pageParam, signal }) =>
       api.outputs(
         conversationId ?? '',
-        { limit: 50, ...(pageParam === null ? {} : { before: pageParam }) },
+        { limit: 50, ...(pageParam === null ? {} : { cursor: pageParam }) },
         signal,
       ),
     initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextBefore ?? undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: conversationId !== null,
     staleTime: 0,
     select: (data) => ({
       items: data.pages.flatMap((page) => page.items),
-      nextBefore: data.pages.at(-1)?.nextBefore ?? null,
+      nextCursor: data.pages.at(-1)?.nextCursor ?? null,
     }),
   });
 }

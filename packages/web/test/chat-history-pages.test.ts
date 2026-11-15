@@ -8,7 +8,7 @@ function detail(messages: ConversationMessage[]): ConversationDetail {
     conversation: { id: 'c1', agentId: 'a1', title: 't', createdAt: '2026-01-01T00:00:00Z' },
     messages,
     runMetrics: [],
-    nextBefore: null,
+    nextCursor: null,
   };
 }
 

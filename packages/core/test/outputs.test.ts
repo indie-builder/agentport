@@ -159,13 +159,13 @@ describe('publish, list and read', () => {
       noext: 'x',
     });
 
-    const { items, nextBefore } = await listOutputFiles({
+    const { items, nextCursor } = await listOutputFiles({
       root,
       slug,
       conversationId,
       limit: 50,
     });
-    expect(nextBefore).toBeNull();
+    expect(nextCursor).toBeNull();
     expect(items.map((item) => item.path)).toEqual([
       'chart.png',
       'data/table.csv',
@@ -826,8 +826,8 @@ describe('pagination', () => {
       const [item] = page.items;
       if (!item) throw new Error('expected item');
       seen.push(`${item.runId}:${item.path}`);
-      if (page.nextBefore === null) break;
-      before = page.nextBefore;
+      if (page.nextCursor === null) break;
+      before = page.nextCursor;
     }
     expect(seen).toEqual(all.items.map((item) => `${item.runId}:${item.path}`));
 
@@ -854,8 +854,8 @@ describe('pagination', () => {
         ...(before === undefined ? {} : { before }),
       });
       for (const item of page.items) seen.push(item.path);
-      if (page.nextBefore === null) break;
-      before = page.nextBefore;
+      if (page.nextCursor === null) break;
+      before = page.nextCursor;
     }
     expect(seen).toEqual(expected);
   });

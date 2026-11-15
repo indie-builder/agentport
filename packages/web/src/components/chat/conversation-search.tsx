@@ -70,7 +70,7 @@ export function ConversationSearch({
     () => search.data?.pages.flatMap((page) => page.items) ?? [],
     [search.data],
   );
-  const nextBefore = search.data?.pages.at(-1)?.nextBefore ?? null;
+  const nextCursor = search.data?.pages.at(-1)?.nextCursor ?? null;
   const firstLoad = search.isPending && items.length === 0;
   // 已有缓存时重取失败也要报错并提供重试，但保留旧列表；下页失败交给按钮自己提示。
   const showError = search.isError && !search.isFetchNextPageError && !firstLoad;
@@ -207,7 +207,7 @@ export function ConversationSearch({
             </CommandList>
           </div>
 
-          {nextBefore && items.length > 0 ? (
+          {nextCursor && items.length > 0 ? (
             <div className="shrink-0 border-t p-2">
               <Button
                 variant="ghost"

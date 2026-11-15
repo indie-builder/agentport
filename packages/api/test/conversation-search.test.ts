@@ -92,7 +92,7 @@ describe.skipIf(!ready)('conversation search', () => {
     for (const limit of ['0', '51', '2.5', 'nope']) {
       expectProblem(await search({ limit }), 'INVALID_INPUT');
     }
-    expectProblem(await search({ before: 'not-a-cursor' }), 'INVALID_INPUT');
+    expectProblem(await search({ cursor: 'not-a-cursor' }), 'INVALID_INPUT');
   });
 
   it('accepts the parameter boundaries', async () => {
@@ -120,7 +120,7 @@ describe.skipIf(!ready)('conversation search', () => {
       updatedAt: '2026-01-01T00:00:02.000Z',
       match: null,
     });
-    expect(body.nextBefore).toBeNull();
+    expect(body.nextCursor).toBeNull();
   });
 
   it('matches id, title and message in that priority order', async () => {
@@ -276,18 +276,18 @@ describe.skipIf(!ready)('conversation search', () => {
       await search({ agentId: agent.id, q: token, limit: 2 })
     ).json<ConversationSearchResponse>();
     expect(first.items.map((entry) => entry.id)).toEqual(ids.slice(0, 2));
-    expect(first.nextBefore).toEqual(expect.any(String));
+    expect(first.nextCursor).toEqual(expect.any(String));
 
     const second = (
       await search({
         agentId: agent.id,
         q: token,
         limit: 2,
-        before: first.nextBefore ?? undefined,
+        cursor: first.nextCursor ?? undefined,
       })
     ).json<ConversationSearchResponse>();
     expect(second.items.map((entry) => entry.id)).toEqual(ids.slice(2));
-    expect(second.nextBefore).toBeNull();
+    expect(second.nextCursor).toBeNull();
   });
 
   it('centers the excerpt on the newest match past the first 240 characters', async () => {
@@ -402,7 +402,7 @@ describe.skipIf(!ready)('conversation search', () => {
     expect(first.items).toHaveLength(50);
     expect(first.items.map((entry) => entry.id)).toEqual(ids.slice(0, 50));
     expect(first.items.every((entry) => entry.match?.kind === 'message')).toBe(true);
-    expect(first.nextBefore).toEqual(expect.any(String));
+    expect(first.nextCursor).toEqual(expect.any(String));
     // 小型代表性数据：只约束上限，真实耗时写进测试输出供报告引用。
     expect(elapsedMs).toBeLessThan(2_000);
     console.log(`conversation search first page over 55 matches: ${elapsedMs.toFixed(1)}ms`);
@@ -412,11 +412,11 @@ describe.skipIf(!ready)('conversation search', () => {
         agentId: agent.id,
         q: token,
         limit: 50,
-        before: first.nextBefore ?? undefined,
+        cursor: first.nextCursor ?? undefined,
       })
     ).json<ConversationSearchResponse>();
     expect(second.items.map((entry) => entry.id)).toEqual(ids.slice(50));
-    expect(second.nextBefore).toBeNull();
+    expect(second.nextCursor).toBeNull();
 
     const seen = new Set([...first.items, ...second.items].map((entry) => entry.id));
     expect(seen.size).toBe(55);

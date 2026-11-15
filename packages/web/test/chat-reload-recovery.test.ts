@@ -16,7 +16,7 @@ type Message = ConversationDetail['messages'][number];
 const conversation = { id: 'conversation-a', agentId: 'agent-a', title: '', createdAt: '' };
 
 function detail(messages: Message[]): ConversationDetail {
-  return { conversation, messages, runMetrics: [], nextBefore: null };
+  return { conversation, messages, runMetrics: [], nextCursor: null };
 }
 
 function message(
@@ -154,7 +154,7 @@ describe('merging older pages after recovery', () => {
         message('message-4', 'assistant', '旧的半截回答一', 'run-a'),
         message('message-5', 'assistant', '旧的半截回答二', 'run-a'),
       ]),
-      nextBefore: 'message-4',
+      nextCursor: 'message-4',
     };
     const olderPage = detail([
       message('message-1', 'user', '旧问题', 'run-old'),
@@ -162,8 +162,8 @@ describe('merging older pages after recovery', () => {
       message('message-3', 'user', '本轮问题', 'run-a'),
     ]);
     readConversation.mockImplementation(async (_id, options) => {
-      if (options?.before === undefined) return latestPage;
-      if (options.before === 'message-4') return olderPage;
+      if (options?.cursor === undefined) return latestPage;
+      if (options.cursor === 'message-4') return olderPage;
       return detail([]);
     });
     readRun.mockResolvedValue(run('running'));
@@ -218,15 +218,15 @@ describe('merging older pages after recovery', () => {
     ]);
     const secondRunPage = {
       ...detail([message('message-6', 'assistant', '第二轮回答', 'run-2')]),
-      nextBefore: 'message-6',
+      nextCursor: 'message-6',
     };
     // 历史查询（含缓存失效后的重取）读旧历史；断线补全读本轮消息。
     let reconciling = false;
     readConversation.mockImplementation(async (_id, options) => {
-      if (options?.before === 'message-6') {
+      if (options?.cursor === 'message-6') {
         return detail([message('message-5', 'user', '第二轮问题', 'run-2')]);
       }
-      if (options?.before === undefined) return reconciling ? secondRunPage : initial;
+      if (options?.cursor === undefined) return reconciling ? secondRunPage : initial;
       return detail([]);
     });
     const sendChat = vi.spyOn(api, 'sendChat');
@@ -340,7 +340,7 @@ describe('reopening a conversation while its run state is ambiguous', () => {
         message('message-4', 'assistant', '已保存的前半段', 'run-a'),
         message('message-5', 'assistant', '已保存的后半段', 'run-a'),
       ]),
-      nextBefore: 'message-4',
+      nextCursor: 'message-4',
     };
     const olderPage = detail([
       message('message-1', 'user', '旧问题', 'run-old'),
@@ -348,8 +348,8 @@ describe('reopening a conversation while its run state is ambiguous', () => {
       message('message-3', 'user', '本轮问题', 'run-a'),
     ]);
     readConversation.mockImplementation(async (_id, options) => {
-      if (options?.before === undefined) return latestPage;
-      if (options.before === 'message-4') return olderPage;
+      if (options?.cursor === undefined) return latestPage;
+      if (options.cursor === 'message-4') return olderPage;
       return detail([]);
     });
     readRun.mockResolvedValue(run('running'));

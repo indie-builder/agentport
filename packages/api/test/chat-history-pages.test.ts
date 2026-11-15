@@ -30,7 +30,7 @@ function sessionUuid(index: number): string {
 interface HistoryBody {
   conversation: { id: string; createdAt: string };
   messages: Array<{ id: string; role: string; content: unknown; createdAt: string }>;
-  nextBefore: string | null;
+  nextCursor: string | null;
 }
 
 describe.skipIf(!ready)('chat history pagination', () => {
@@ -119,16 +119,16 @@ describe.skipIf(!ready)('chat history pagination', () => {
     expect(first.statusCode, first.body).toBe(200);
     const firstBody = first.json<HistoryBody>();
     expect(firstBody.messages.map((message) => message.id)).toEqual(ids.slice(2));
-    expect(firstBody.nextBefore).toBe(ids[2]);
+    expect(firstBody.nextCursor).toBe(ids[2]);
     expect(firstBody.conversation.id).toBe(id);
     expect(typeof firstBody.conversation.createdAt).toBe('string');
     expect(firstBody.messages.every((message) => typeof message.createdAt === 'string')).toBe(true);
 
-    const second = await getPage(id, `before=${encodeURIComponent(firstBody.nextBefore ?? '')}`);
+    const second = await getPage(id, `cursor=${encodeURIComponent(firstBody.nextCursor ?? '')}`);
     expect(second.statusCode, second.body).toBe(200);
     const secondBody = second.json<HistoryBody>();
     expect(secondBody.messages.map((message) => message.id)).toEqual(ids.slice(0, 2));
-    expect(secondBody.nextBefore).toBeNull();
+    expect(secondBody.nextCursor).toBeNull();
 
     expect([...secondBody.messages, ...firstBody.messages].map((message) => message.id)).toEqual(
       ids,
@@ -139,21 +139,21 @@ describe.skipIf(!ready)('chat history pagination', () => {
     const { id, ids } = await newConversation(125);
 
     const collected: string[] = [];
-    let before: string | null = null;
+    let cursor: string | null = null;
     let pages = 0;
     do {
       const res = await getPage(
         id,
-        `limit=50${before === null ? '' : `&before=${encodeURIComponent(before)}`}`,
+        `limit=50${cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`}`,
       );
       expect(res.statusCode, res.body).toBe(200);
       const body = res.json<HistoryBody>();
       expect(body.messages.length).toBeLessThanOrEqual(50);
       // 每页按正序返回；更早的页要拼在前面。
       collected.unshift(...body.messages.map((message) => message.id));
-      before = body.nextBefore;
+      cursor = body.nextCursor;
       pages += 1;
-    } while (before !== null);
+    } while (cursor !== null);
 
     expect(pages).toBe(3);
     expect(collected).toEqual(ids);
@@ -165,13 +165,13 @@ describe.skipIf(!ready)('chat history pagination', () => {
 
     const first = (await getPage(id, 'limit=100')).json<HistoryBody>();
     expect(first.messages.map((message) => message.id)).toEqual(ids.slice(25));
-    expect(first.nextBefore).toBe(ids[25]);
+    expect(first.nextCursor).toBe(ids[25]);
 
     const second = (
-      await getPage(id, `limit=100&before=${encodeURIComponent(first.nextBefore ?? '')}`)
+      await getPage(id, `limit=100&cursor=${encodeURIComponent(first.nextCursor ?? '')}`)
     ).json<HistoryBody>();
     expect(second.messages.map((message) => message.id)).toEqual(ids.slice(0, 25));
-    expect(second.nextBefore).toBeNull();
+    expect(second.nextCursor).toBeNull();
   });
 
   it.each(['0', '101', 'abc', '1.5'])('rejects limit=%s', async (limit) => {
@@ -185,30 +185,30 @@ describe.skipIf(!ready)('chat history pagination', () => {
     const { id } = await newConversation(0);
     const body = (await getPage(id)).json<HistoryBody>();
     expect(body.messages).toEqual([]);
-    expect(body.nextBefore).toBeNull();
+    expect(body.nextCursor).toBeNull();
   });
 
   it('treats the oldest message as a terminal cursor', async () => {
     const { id, ids } = await newConversation(3);
     const body = (
-      await getPage(id, `before=${encodeURIComponent(ids[0] ?? '')}`)
+      await getPage(id, `cursor=${encodeURIComponent(ids[0] ?? '')}`)
     ).json<HistoryBody>();
     expect(body.messages).toEqual([]);
-    expect(body.nextBefore).toBeNull();
+    expect(body.nextCursor).toBeNull();
   });
 
   it('rejects a foreign or unknown cursor without leaking messages', async () => {
     const mine = await newConversation(3);
     const other = await newConversation(2);
 
-    for (const before of [other.ids[1] ?? '', 'msg_missing_cursor']) {
-      const res = await getPage(mine.id, `before=${encodeURIComponent(before)}`);
+    for (const cursor of [other.ids[1] ?? '', 'msg_missing_cursor']) {
+      const res = await getPage(mine.id, `cursor=${encodeURIComponent(cursor)}`);
       expectProblem(res, 'INVALID_INPUT');
       expect(res.json()).not.toHaveProperty('messages');
     }
 
     // 两条消息属于不同会话：用另一会话的 id 不能当游标。
-    const swapped = await getPage(other.id, `before=${encodeURIComponent(mine.ids[0] ?? '')}`);
+    const swapped = await getPage(other.id, `cursor=${encodeURIComponent(mine.ids[0] ?? '')}`);
     expectProblem(swapped, 'INVALID_INPUT');
   });
 
@@ -223,7 +223,7 @@ describe.skipIf(!ready)('chat history pagination', () => {
     expectProblem(anonymous, 'UNAUTHORIZED');
 
     expectProblem(
-      await getPage('conv_missing', 'before=msg_missing_cursor'),
+      await getPage('conv_missing', 'cursor=msg_missing_cursor'),
       'NOT_FOUND',
       'conversation',
     );
@@ -270,6 +270,6 @@ describe.skipIf(!ready)('chat history pagination', () => {
 
     const firstPage = (await getPage(id)).json<HistoryBody>();
     expect(firstPage.messages).toHaveLength(50);
-    expect(firstPage.nextBefore).toBe(ids[75]);
+    expect(firstPage.nextCursor).toBe(ids[75]);
   });
 });

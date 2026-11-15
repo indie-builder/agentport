@@ -311,7 +311,7 @@ describe.skipIf(!ready)('conversations', () => {
       conversation: Record<string, unknown>;
       messages: Array<Record<string, unknown>>;
       runMetrics: unknown[];
-      nextBefore: string | null;
+      nextCursor: string | null;
     }>();
 
     expect(Object.keys(firstBody.conversation).sort()).toEqual(
@@ -328,7 +328,7 @@ describe.skipIf(!ready)('conversations', () => {
     expect(firstBody.conversation).not.toHaveProperty('createdBy');
     expect(firstBody.conversation).not.toHaveProperty('serviceId');
     expect(firstBody.messages.map((message) => message.id)).toEqual([messageIds[1], messageIds[2]]);
-    expect(firstBody.nextBefore).toBe(messageIds[1]);
+    expect(firstBody.nextCursor).toBe(messageIds[1]);
 
     const assistant = firstBody.messages[0];
     expect(assistant).toBeDefined();
@@ -362,13 +362,13 @@ describe.skipIf(!ready)('conversations', () => {
 
     const second = await request(app, {
       method: 'GET',
-      url: `/api/conversations/${id}?limit=2&before=${messageIds[1] ?? ''}`,
+      url: `/api/conversations/${id}?limit=2&cursor=${messageIds[1] ?? ''}`,
       headers: auth(),
     });
     expect(second.statusCode, second.body).toBe(200);
     const secondBody = second.json<{
       messages: Array<Record<string, unknown>>;
-      nextBefore: string | null;
+      nextCursor: string | null;
     }>();
     expect(secondBody.messages.map((message) => message.id)).toEqual([messageIds[0]]);
     expect(secondBody.messages[0]).toMatchObject({
@@ -378,7 +378,7 @@ describe.skipIf(!ready)('conversations', () => {
       uiProgram: null,
       uiState: null,
     });
-    expect(secondBody.nextBefore).toBeNull();
+    expect(secondBody.nextCursor).toBeNull();
   });
 
   it('overwrites the title on repeat rename and repo returns null for unknown ids', async () => {

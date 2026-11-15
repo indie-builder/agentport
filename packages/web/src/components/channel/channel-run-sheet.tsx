@@ -288,7 +288,7 @@ function ChannelRunSheetContent({
                       </li>
                     ))}
                   </ul>
-                  {outputs.data?.nextBefore ? (
+                  {outputs.data?.nextCursor ? (
                     <Button
                       variant="ghost"
                       size="sm"

@@ -48,7 +48,7 @@ export const chatContract = {
         params: idParams,
         query: z.object({
           limit: z.coerce.number().int().min(1).max(100).default(50),
-          before: z.string().min(1).optional(),
+          cursor: z.string().min(1).optional(),
         }),
       }),
     )
@@ -167,7 +167,7 @@ export const chatContract = {
         params: z.object({ id: outputOwnerIdSchema }),
         query: z.object({
           limit: z.coerce.number().int().min(1).max(100).default(50),
-          before: z.string().min(1).optional(),
+          cursor: z.string().min(1).optional(),
         }),
       }),
     )

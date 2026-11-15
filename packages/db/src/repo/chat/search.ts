@@ -44,16 +44,16 @@ function decodeSearchCursor(raw: string): { at: string; id: string } {
   try {
     parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
   } catch {
-    fail('INVALID_INPUT', 'before 游标无效，请刷新后重试');
+    fail('INVALID_INPUT', '游标无效，请刷新后重试');
   }
   if (typeof parsed !== 'object' || parsed === null) {
-    fail('INVALID_INPUT', 'before 游标无效，请刷新后重试');
+    fail('INVALID_INPUT', '游标无效，请刷新后重试');
   }
   const { at, id } = parsed as { at?: unknown; id?: unknown };
   if (typeof at !== 'string' || typeof id !== 'string' || at === '' || id === '') {
-    fail('INVALID_INPUT', 'before 游标无效，请刷新后重试');
+    fail('INVALID_INPUT', '游标无效，请刷新后重试');
   }
-  if (Number.isNaN(new Date(at).getTime())) fail('INVALID_INPUT', 'before 游标无效，请刷新后重试');
+  if (Number.isNaN(new Date(at).getTime())) fail('INVALID_INPUT', '游标无效，请刷新后重试');
   return { at, id };
 }
 

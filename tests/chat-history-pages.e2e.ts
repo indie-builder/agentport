@@ -226,20 +226,20 @@ test('chat history pages older messages without losing the visible position', {
     expect(anchorBefore.id).not.toBeNull();
     expect(anchorBefore.visible).toBe(true);
     const firstResponse = browser.waitForResponse(
-      new RegExp(`/api/conversations/${conversation}\\?limit=50&before=`),
+      new RegExp(`/api/conversations/${conversation}\\?limit=50&cursor=`),
     );
     await older.tap();
     const first = await firstResponse;
     expect(first.status).toBe(200);
     const firstBody = await first.json<{
       messages: { id: string }[];
-      nextBefore: string | null;
+      nextCursor: string | null;
     }>();
-    // 游标是已加载历史里最老的一条（075）；第二页返回 025–074，nextBefore 指向 025。
+    // 游标是已加载历史里最老的一条（075）；第二页返回 025–074，nextCursor 指向 025。
     expect(firstBody.messages.at(-1)?.id).toBe(messageIds[74]);
     const pageTwoCursor = messageIds[25];
     if (pageTwoCursor === undefined) throw new Error('fixture 缺少第二页游标');
-    expect(firstBody.nextBefore).toBe(pageTwoCursor);
+    expect(firstBody.nextCursor).toBe(pageTwoCursor);
 
     // 第二页 025–074 拼在已加载历史之前，000 仍未加载。
     await expect(screen.getByText('history-message-025', { exact: true })).toHaveCount(1);
@@ -284,18 +284,18 @@ test('chat history pages older messages without losing the visible position', {
     expect(lastAnchorBefore.id).not.toBeNull();
     expect(lastAnchorBefore.visible).toBe(true);
     const lastResponse = browser.waitForResponse(
-      new RegExp(`/api/conversations/${conversation}\\?limit=50&before=${messageIds[25]}`),
+      new RegExp(`/api/conversations/${conversation}\\?limit=50&cursor=${messageIds[25]}`),
     );
     await last.tap();
     const lastPage = await lastResponse;
     expect(lastPage.status).toBe(200);
     const lastBody = await lastPage.json<{
       messages: { id: string }[];
-      nextBefore: string | null;
+      nextCursor: string | null;
     }>();
     expect(lastBody.messages).toHaveLength(25);
     expect(lastBody.messages[0]?.id).toBe(messageIds[0]);
-    expect(lastBody.nextBefore).toBeNull();
+    expect(lastBody.nextCursor).toBeNull();
 
     // 三页拼完：000–124 各出现一次，入口消失；025 的相对位置仍保持不变。
     await expect(screen.getByText('history-message-000', { exact: true })).toHaveCount(1);
@@ -430,7 +430,7 @@ test('renaming the open conversation keeps the loaded history and pages older on
     // 更早的 000–009 仍可补，总数正好是原来的 60 条，没有重复。
     await wheelChatToTop(browser);
     const olderResponse = browser.waitForResponse(
-      new RegExp(`/api/conversations/${conversation}\\?limit=50&before=`),
+      new RegExp(`/api/conversations/${conversation}\\?limit=50&cursor=`),
     );
     await screen.getByRole('button', '加载更早消息').tap();
     expect((await olderResponse).status).toBe(200);

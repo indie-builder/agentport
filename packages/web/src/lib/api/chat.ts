@@ -59,18 +59,18 @@ export type Conversation = ConversationSummary;
 
 export type ConversationDetail = SharedConversationDetail;
 
-/** 会话消息分页：默认 50 条、上限 100；before 为上一页最早消息的 id。 */
+/** 会话消息分页：默认 50 条、上限 100；cursor 为上一页最早消息的 id。 */
 export interface ConversationPageOptions {
   limit?: number;
-  before?: string;
+  cursor?: string;
 }
 
-/** 全局历史搜索：空 q 按最近活动返回；before 是服务端下发的下一页游标。 */
+/** 全局历史搜索：空 q 按最近活动返回；cursor 是服务端下发的下一页游标。 */
 export interface ConversationSearchOptions {
   q?: string;
   agentId?: string;
   limit?: number;
-  before?: string;
+  cursor?: string;
 }
 
 export interface OutputShareList {
@@ -106,7 +106,7 @@ export default {
   /** 会话成果按版本倒序分页；同一路径的多版由调用方分组，后端不做合并。 */
   outputs: (
     conversationId: string,
-    options: { limit?: number; before?: string } = {},
+    options: { limit?: number; cursor?: string } = {},
     signal?: AbortSignal,
   ): Promise<OutputList> =>
     rpc.chat.listOutputs({ params: { id: conversationId }, query: options }, clientOptions(signal)),

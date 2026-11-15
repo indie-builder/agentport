@@ -79,13 +79,13 @@ describe('output schemas', () => {
   });
 
   it('parses list and content envelopes', () => {
-    expect(outputListSchema.parse({ items: [file], nextBefore: 'cursor' })).toEqual({
+    expect(outputListSchema.parse({ items: [file], nextCursor: 'cursor' })).toEqual({
       items: [file],
-      nextBefore: 'cursor',
+      nextCursor: 'cursor',
     });
-    expect(outputListSchema.parse({ items: [], nextBefore: null })).toEqual({
+    expect(outputListSchema.parse({ items: [], nextCursor: null })).toEqual({
       items: [],
-      nextBefore: null,
+      nextCursor: null,
     });
     expect(outputContentSchema.parse({ file, content: '# 报告\n' })).toEqual({
       file,
