@@ -615,7 +615,6 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
             kinds: {
               type: 'array',
               items: { type: 'string', enum: ['document', 'faq', 'wiki'] },
-              minItems: 1,
               description: 'Source kinds to list; omit to include document, FAQ and wiki.',
             },
             cursor: {
