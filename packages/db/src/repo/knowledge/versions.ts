@@ -16,7 +16,7 @@ import {
   knowledgeWikiPages,
   knowledgeWikiVersions,
 } from '../../schema.js';
-import { paginate } from '../keyset.js';
+import { keysetBefore, paginate } from '../keyset.js';
 import {
   type KnowledgeDocumentRow,
   type KnowledgeVersionRow,
@@ -433,9 +433,7 @@ export async function listVersions(
   const limit = pageLimit(options);
   const filters: SQL[] = [eq(knowledgeDocumentVersions.documentId, documentId)];
   if (options.cursor) {
-    filters.push(sql`(${knowledgeDocumentVersions.createdAt}, ${knowledgeDocumentVersions.id}) < (
-      select b.created_at, b.id from ${knowledgeDocumentVersions} b where b.id = ${options.cursor}
-    )`);
+    filters.push(keysetBefore(knowledgeDocumentVersions, options.cursor));
   }
   const rows = await db
     .select()

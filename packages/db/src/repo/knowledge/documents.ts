@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzl
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeDocuments, knowledgeDocumentTags, knowledgeTags } from '../../schema.js';
-import { paginate } from '../keyset.js';
+import { keysetBefore, paginate } from '../keyset.js';
 import {
   type KnowledgeDocumentRow,
   type Page,
@@ -97,9 +97,7 @@ export async function listDocuments(
     )`);
   }
   if (filter.cursor) {
-    filters.push(sql`(${knowledgeDocuments.createdAt}, ${knowledgeDocuments.id}) < (
-      select b.created_at, b.id from ${knowledgeDocuments} b where b.id = ${filter.cursor}
-    )`);
+    filters.push(keysetBefore(knowledgeDocuments, filter.cursor));
   }
   const rows = await db
     .select()
