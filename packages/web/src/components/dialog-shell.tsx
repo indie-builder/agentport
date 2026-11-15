@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import type { ComponentProps } from 'react';
+import { type ComponentProps, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { cn } from '../lib/cn.js';
 import { Button } from './ui/button.js';
 import {
@@ -15,6 +15,7 @@ type DialogShellProps = Pick<ComponentProps<typeof DialogContent>, 'children' | 
   title: string;
   description?: string;
   closeDisabled?: boolean;
+  footer?: ReactNode;
 };
 
 export function DialogShell({
@@ -24,7 +25,21 @@ export function DialogShell({
   className,
   finalFocus,
   closeDisabled = false,
+  footer,
 }: DialogShellProps) {
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const [bodyScrolls, setBodyScrolls] = useState(false);
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const update = () => setBodyScrolls(el.scrollHeight > el.clientHeight + 1);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <DialogContent
       className={cn(
@@ -47,7 +62,8 @@ export function DialogShell({
         </DialogClose>
       </DialogHeader>
       <div
-        className="min-h-0 overflow-y-auto overscroll-contain px-5 py-4"
+        ref={bodyRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4"
         onSubmitCapture={({ currentTarget }) => {
           requestAnimationFrame(() => {
             currentTarget.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
@@ -56,6 +72,14 @@ export function DialogShell({
       >
         {children}
       </div>
+      {footer ? (
+        <div
+          data-slot="dialog-footer"
+          className={cn('shrink-0 px-5 py-3.5', bodyScrolls && 'border-t')}
+        >
+          {footer}
+        </div>
+      ) : null}
     </DialogContent>
   );
 }

@@ -62,8 +62,28 @@ export function BaseInfoDialog({
       onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={guardedOpenChange(pending, guard.close)}
     >
-      <DialogShell title="编辑信息" closeDisabled={pending} finalFocus={finalFocus}>
+      <DialogShell
+        title="编辑信息"
+        closeDisabled={pending}
+        finalFocus={finalFocus}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
+              取消
+            </Button>
+            <Button
+              type="submit"
+              form="knowledge-base-info-form"
+              disabled={pending || !form.formState.isDirty}
+              aria-busy={pending}
+            >
+              {pending ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        }
+      >
         <form
+          id="knowledge-base-info-form"
           className="flex flex-col gap-4"
           noValidate
           onSubmit={(event) => {
@@ -113,14 +133,6 @@ export function BaseInfoDialog({
               </FieldError>
             </Field>
           </FieldGroup>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={guard.close} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={pending || !form.formState.isDirty} aria-busy={pending}>
-              {pending ? '保存中…' : '保存'}
-            </Button>
-          </div>
         </form>
         <DraftGuardDialogs guard={guard} draft="知识库信息草稿会丢失。" pending={pending} />
       </DialogShell>

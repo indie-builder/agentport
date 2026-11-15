@@ -418,7 +418,28 @@ function InstallPluginDialog({
       onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={guardedOpenChange(pending, onClose)}
     >
-      <DialogShell title="安装插件" closeDisabled={pending} finalFocus={finalFocus}>
+      <DialogShell
+        title="安装插件"
+        closeDisabled={pending}
+        finalFocus={finalFocus}
+        footer={
+          tab === 'market' ? (
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
+                取消
+              </Button>
+              <Button
+                type="submit"
+                form="plugin-install-form"
+                disabled={pending}
+                aria-busy={pending}
+              >
+                {pending ? '安装中…' : '安装'}
+              </Button>
+            </div>
+          ) : null
+        }
+      >
         {results.length > 0 ? (
           <div role="status" className="flex flex-col gap-1 border-y py-2 text-sm">
             <span className="text-xs text-muted-foreground">已加入插件库，可继续打开详情：</span>
@@ -445,6 +466,7 @@ function InstallPluginDialog({
           </TabsList>
           <TabsContent value="market">
             <form
+              id="plugin-install-form"
               noValidate
               className="flex flex-col gap-4"
               onSubmit={(event) => {
@@ -500,14 +522,6 @@ function InstallPluginDialog({
                   <FieldError id="plugin-slug-input-error">{errors.slug?.message}</FieldError>
                 </Field>
               </FieldGroup>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
-                  取消
-                </Button>
-                <Button type="submit" disabled={pending} aria-busy={pending}>
-                  {pending ? '安装中…' : '安装'}
-                </Button>
-              </div>
             </form>
           </TabsContent>
           <TabsContent value="installed">
@@ -637,8 +651,23 @@ export function PluginDialog({
       onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={guardedOpenChange(pending, guard.close)}
     >
-      <DialogShell title="编辑插件" closeDisabled={pending} finalFocus={finalFocus}>
+      <DialogShell
+        title="编辑插件"
+        closeDisabled={pending}
+        finalFocus={finalFocus}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={guard.close} disabled={pending}>
+              取消
+            </Button>
+            <Button type="submit" form="plugin-edit-form" aria-busy={pending} disabled={pending}>
+              {pending ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        }
+      >
         <form
+          id="plugin-edit-form"
           onSubmit={(event) => {
             event.preventDefault();
             void submit();
@@ -672,14 +701,6 @@ export function PluginDialog({
               <FieldError id="plugin-description-error">{errors.description?.message}</FieldError>
             </Field>
           </FieldGroup>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={guard.close} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" aria-busy={pending} disabled={pending}>
-              {pending ? '保存中…' : '保存'}
-            </Button>
-          </div>
         </form>
         <DraftGuardDialogs guard={guard} draft="插件名称与描述的修改会丢失。" pending={pending} />
       </DialogShell>
