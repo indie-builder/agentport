@@ -7,6 +7,7 @@
 - 入口只起 BullMQ consumer、reconciler 与 scheduler（`agent-runs`、`eval-runs`、`knowledge-jobs`、`knowledge-sync-triggers`、`schedule-triggers`、`runtime-environment-builds`、`sandbox-probes`、`native-plugins`、`maintenance`），不暴露业务 HTTP API。队列连接统一用官方 `createBunRedisClient(new RedisClient(...))`，业务 Redis 用 Bun `RedisClient`。唯一监听是模型代理（固定端口、Bearer run token），不把它扩成业务路由面。
 - 能直接调用官方 SDK 的地方（知识 Wiki/图片处理、记忆审核）直接 `query()`；聊天执行走 sandbox。不要引入第二套执行循环或编排底座。
 - 队列 payload 用 shared 的 `agentRunJobSchema` / `evalRunJobSchema` / `scheduleTriggerJobSchema`；事件用 `ChatEvent` 与 `run-stream.ts` 的 key/选项，不另写形状。
+- 日志用 `@agentport/core/logger` 的 `createServiceLogger` 创建，传给沙盒的运行日志用 `runScopedLogger`；业务代码不直接构造 pino。字段与脱敏契约见 [OBSERVABILITY](../../docs/OBSERVABILITY.md#日志契约规范)。
 
 ## 运行与状态
 

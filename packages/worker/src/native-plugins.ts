@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WORKSPACE_DIR_MODE } from '@agentport/core';
+import { createServiceLogger } from '@agentport/core/logger';
 import {
   errorText,
   NATIVE_PLUGIN_TIMEOUT_MS,
@@ -15,7 +16,7 @@ import {
 } from '@agentport/shared';
 import { createBunRedisClient, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
-import pino, { type Logger } from 'pino';
+import type { Logger } from 'pino';
 import type { Config } from './config.js';
 import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
@@ -277,9 +278,11 @@ export async function registerNativePlugins(
     resolveRuntimeEnvironment,
     workspacesDir: config.WORKSPACES_DIR,
     hostWorkspacesDir: config.HOST_WORKSPACES_DIR ?? config.WORKSPACES_DIR,
-    logger: pino({
+    logger: createServiceLogger({
+      service: 'worker',
+      env: config.NODE_ENV,
+      version,
       level: config.LOG_LEVEL,
-      base: { service: 'worker', env: config.NODE_ENV, version },
     }),
     closing: closing.signal,
   };

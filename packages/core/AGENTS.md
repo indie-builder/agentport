@@ -7,6 +7,7 @@
 - core 是 api/worker/web 共用的纯机制层：官方文件渲染与解析、路径/名称校验、MCP 条目、密钥加解密、知识模型 HTTP 客户端。不碰数据库，不放 HTTP 路由、队列、沙盒编排或业务状态机。
 - 纯函数模块不读写宿主文件、不启动进程。显式 I/O 入口集中在 `outputs.ts`（会话产出草稿/快照）、`attachments.ts`（会话输入附件）、`personal-memory.ts`（个人偏好投影）与 `run-stream.ts`（run/频道事件流写入）；前三个按调用方传入的根工作，不读环境变量或 CWD 猜目录。`run-stream.ts` 是注入 `send` / `expire` 的事件写入机制：`appendStreamEvent()` 写事件并续 TTL，key 与 TTL 规则来自 `@agentport/shared`，不建立或持有连接、不设超时、不碰业务队列。`path-segments.ts` 仅供 outputs/attachments 内部检查已有路径段，不从包入口公开；根目录、错误映射与写入权限仍归各入口。
 - `knowledge-models.ts` 只发 HTTP；失败分类是 worker 重试策略的依据，不在这里写队列或 DB。
+- `logger.ts` 是允许的基础设施入口：只为 api/worker 构造 pino logger（基字段、脱敏、作用域 child），不读写宿主文件、不建立连接。
 
 ## 唯一实现
 
@@ -14,6 +15,7 @@
 - 产出统一用 `prepareOutputDraft` / `captureOutputDraft` / `publishOutputSnapshot` / `listOutputFiles` / `readOutputFile`；不得在 core 外新增平行存储布局或发布规则。
 - 个人偏好投影统一用 `personalMemoryDir` / `personalMemoryPath` / `writePersonalMemoryProjection`；API 保存与 worker 每轮重建共用同一份目录规则。个人偏好上限与文件名从 `@agentport/shared` 取。
 - 密钥统一用 `encryptSecrets()` / `decryptSecrets()`（`APP_SECRET_KEY` 派生）；明文不写日志、不落盘，存储与轮换由调用方负责。
+- 服务日志唯一实现是 `src/logger.ts`（`@agentport/core/logger` 子路径）：`createServiceLogger` 注入 `service/env/version` 并应用 `LOG_REDACT_PATHS` 脱敏，`requestScopedLogger` / `runScopedLogger` 生成作用域 child；api/worker 业务代码不得直接构造 pino。该子路径不进根入口，避免 web 引入 pino。
 
 ## 文件安全
 

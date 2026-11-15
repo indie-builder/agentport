@@ -253,6 +253,7 @@ export async function startRun(
         agentId,
         conversationId,
         prompt: messageText,
+        requestId: deps.requestId,
       },
       runEnqueueOptions(run.id),
     );

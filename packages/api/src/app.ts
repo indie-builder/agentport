@@ -1,9 +1,9 @@
 import { createRequire } from 'node:module';
+import { createServiceLogger, requestScopedLogger } from '@agentport/core/logger';
 import { createDb } from '@agentport/db';
 import { Hono } from 'hono';
 import { requestId } from 'hono/request-id';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import pino from 'pino';
 import type { Config } from './config.js';
 import type { HttpEnv, RequestContext } from './http/context.js';
 import { AppError, errorProblem } from './http/errors.js';
@@ -21,23 +21,12 @@ export async function buildApp(
   config: Config,
   options: { timeout?: (request: Request, seconds: number) => void } = {},
 ): Promise<AppRuntime> {
-  const log = pino({
+  const log = createServiceLogger({
+    service: 'api',
+    env: config.NODE_ENV,
+    version,
     level: config.LOG_LEVEL,
-    base: { service: 'api', env: config.NODE_ENV, version },
-    redact: {
-      paths: [
-        'req.headers.authorization',
-        'req.headers.cookie',
-        '*.apiKey',
-        '*.token',
-        '*.secret',
-        '*.headers.authorization',
-      ],
-      censor: '[REDACTED]',
-    },
-    ...(config.NODE_ENV === 'development'
-      ? { transport: { target: 'pino-pretty', options: { translateTime: 'SYS:HH:MM:ss' } } }
-      : {}),
+    pretty: config.NODE_ENV === 'development',
   });
   const { db, client } = createDb(config.DATABASE_URL);
   const app = new Hono<HttpEnv>();
@@ -75,7 +64,7 @@ export async function buildApp(
         : (c.env?.remoteAddress ?? 'unknown');
     const request: RequestContext = {
       ...context,
-      log: log.child({ requestId: id }),
+      log: requestScopedLogger(log, id),
       principal: null,
       requestId: id,
       request: c.req.raw,
