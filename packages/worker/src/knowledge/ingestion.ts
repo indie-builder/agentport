@@ -1447,19 +1447,24 @@ async function upsertSourceItem(
     });
     return false;
   }
-  await ingestContent(deps, authorized, {
-    filename: item.title,
-    mimeType: item.mimeType,
-    data,
-    markdown: Buffer.isBuffer(item.content) ? undefined : item.content.markdown,
-    sourceRevision: item.revision,
-    origin: 'source',
-    versionMetadata: item.completeness ? { contentCompleteness: item.completeness } : {},
-    expectedCurrentVersionId: authorized.currentVersionId,
-    sourceSnapshot: snapshot,
-    signal,
-    jobId,
-  });
+  try {
+    await ingestContent(deps, authorized, {
+      filename: item.title,
+      mimeType: item.mimeType,
+      data,
+      markdown: Buffer.isBuffer(item.content) ? undefined : item.content.markdown,
+      sourceRevision: item.revision,
+      origin: 'source',
+      versionMetadata: item.completeness ? { contentCompleteness: item.completeness } : {},
+      expectedCurrentVersionId: authorized.currentVersionId,
+      sourceSnapshot: snapshot,
+      signal,
+      jobId,
+    });
+  } catch (err) {
+    await settleDocumentStatus(deps, authorized, authorized.currentVersionId ? 'ready' : 'failed');
+    throw err;
+  }
   return existing === null || existing.status === 'disabled';
 }
 
