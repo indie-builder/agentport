@@ -790,6 +790,12 @@ export async function deleteAgent(
     if (isParentAgentRestriction(err)) {
       throw new AppError('CONFLICT', '该专家下仍有子专家，请先删除或迁移子专家后再删除');
     }
+    if (isPgConstraint(err, ['23001', '23503'], 'memory_reviews_model_agent_id_agents_id_fk')) {
+      throw new AppError(
+        'CONFLICT',
+        '该专家曾被用作记忆审核的执行模型，无法删除；请先清理相关记忆审核记录后再试',
+      );
+    }
     throw err;
   }
 }
