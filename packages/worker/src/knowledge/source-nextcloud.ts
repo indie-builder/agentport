@@ -161,12 +161,14 @@ function propfindOptions(
   auth: Auth,
   depth: '0' | '1',
   signal: AbortSignal | undefined,
+  itemFailure = false,
 ): FetchOptions {
   return {
     method: 'PROPFIND',
     body: PROPFIND_BODY,
     headers: authHeaders(auth, depth),
     authOrigin: auth.origin,
+    authFailure: itemFailure ? 'item' : 'source',
     ...auth.network,
     ...(signal === undefined ? {} : { signal }),
   };
@@ -374,8 +376,12 @@ async function propfind(
   relative: string,
   depth: '0' | '1',
   signal: AbortSignal | undefined,
+  itemFailure = false,
 ): Promise<DavResult[]> {
-  const response = await fetchChecked(davUrl(auth, relative), propfindOptions(auth, depth, signal));
+  const response = await fetchChecked(
+    davUrl(auth, relative),
+    propfindOptions(auth, depth, signal, itemFailure),
+  );
   const text = (await readBytesCapped(response, 'nextcloud propfind')).toString('utf8');
   return parseMultistatus(text);
 }
@@ -469,7 +475,7 @@ async function revalidate(
   listed: DavEntry,
   signal: AbortSignal | undefined,
 ): Promise<void> {
-  const entries = await propfind(auth, relative, '0', signal);
+  const entries = await propfind(auth, relative, '0', signal, true);
   const self = requireSelf(entries, auth, relative);
   if (self.id !== listed.id) {
     throw new ItemError('nextcloud file changed identity during download', 'fetch_failed', true);
@@ -587,7 +593,16 @@ async function walk(
   visited.add(relative);
   signal?.throwIfAborted();
 
-  const results = await propfind(auth, relative, '1', signal);
+  const isRoot = relative === auth.relative;
+  let results: DavResult[];
+  try {
+    results = await propfind(auth, relative, '1', signal, !isRoot);
+  } catch (error) {
+    if (isRoot) throw error;
+    signal?.throwIfAborted();
+    failures.push(failureOf(`nextcloud:dir:${createPathDigest(relative)}`, relative, error));
+    return;
+  }
   if (!requireSelf(results, auth, relative).collection) {
     throw new Error('nextcloud directory stopped being a collection');
   }
