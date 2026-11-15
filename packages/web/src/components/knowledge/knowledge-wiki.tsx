@@ -930,6 +930,7 @@ function WikiMarkdownDialog({
   const [value, setValue] = useState(markdown);
   const [error, setError] = useState<string | null>(null);
   const [confirmReload, setConfirmReload] = useState(false);
+  const [reloadError, setReloadError] = useState<string | null>(null);
   const [reloading, setReloading] = useState(false);
   const pending = save.isPending || reloading;
   const guard = useDraftGuard(value !== markdown, pending, onClose);
@@ -983,7 +984,10 @@ function WikiMarkdownDialog({
                   type="button"
                   variant="outline"
                   disabled={pending}
-                  onClick={() => setConfirmReload(true)}
+                  onClick={() => {
+                    setConfirmReload(true);
+                    setReloadError(null);
+                  }}
                 >
                   重新加载
                 </Button>
@@ -1009,8 +1013,12 @@ function WikiMarkdownDialog({
         description="当前草稿会被放弃，编辑器改为显示最新已发布版本。"
         confirmLabel="重新加载"
         confirmDisabled={pending}
-        onClose={() => setConfirmReload(false)}
+        onClose={() => {
+          setConfirmReload(false);
+          setReloadError(null);
+        }}
         onConfirm={async () => {
+          setReloadError(null);
           setReloading(true);
           try {
             await onReload();
@@ -1022,7 +1030,10 @@ function WikiMarkdownDialog({
             setReloading(false);
           }
         }}
-      />
+        onError={(error) => setReloadError(errorMessage(error))}
+      >
+        {reloadError ? <FieldError>{reloadError}</FieldError> : null}
+      </ConfirmDialog>
     </>
   );
 }

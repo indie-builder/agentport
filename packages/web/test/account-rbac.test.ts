@@ -1072,9 +1072,7 @@ describe('角色权限矩阵', () => {
     expect(document.querySelector('[role="status"]')?.textContent).toBe(feedback);
     expect(document.querySelector('[aria-label="未保存权限变更"]')?.textContent).toBe(count);
     expect(dialog('放弃当前草稿并重新加载？')).toBeTruthy();
-    expect(toastError).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 503, message: '角色矩阵暂时不可用' }),
-    );
+    expect(dialog('放弃当前草稿并重新加载？').textContent).toContain('服务端暂时无法完成请求');
     await click(button('取消', dialog('放弃当前草稿并重新加载？')));
     await act(async () => {
       await history.push('/away');
