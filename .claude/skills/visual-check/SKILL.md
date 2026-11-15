@@ -32,12 +32,12 @@ PG/Redis/应用服务、不把业务栈作为默认验收对象。
 ```bash
 bun run visual:shots --route /agents
 bun run visual:shots --route /agents --route /channels --viewports 1440x900,1200x900
-node scripts/visual-shots.mjs --route '/agents?q=x' --no-open
-node scripts/visual-shots.mjs --route /agents --base-url http://localhost:5173
+bun scripts/visual-shots.mjs --route '/agents?q=x' --no-open
+bun scripts/visual-shots.mjs --route /agents --base-url http://localhost:5173
 ```
 
-`bun run visual:shots` 等价于 `node scripts/visual-shots.mjs`。关键参数（完整见
-`node scripts/visual-shots.mjs --help`）：
+`bun run visual:shots` 等价于 `bun scripts/visual-shots.mjs`。关键参数（完整见
+`bun scripts/visual-shots.mjs --help`）：
 
 | 参数 | 说明 |
 |---|---|

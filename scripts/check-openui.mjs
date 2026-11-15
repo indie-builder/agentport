@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * OpenUI 升级自检。只读 + 临时目录，不改仓库文件。
  *
@@ -70,7 +70,7 @@ const tsc = resolve(root, 'node_modules/typescript/bin/tsc');
 let dry = '';
 try {
   dry = execFileSync(
-    process.execPath,
+    'node',
     [tsc, '-b', 'packages/shared', 'packages/core', '--dry'],
     { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
   );
@@ -97,7 +97,7 @@ let regenerated = null;
 const scratch = mkdtempSync(join(tmpdir(), 'openui-check-'));
 try {
   execFileSync(
-    process.execPath,
+    'node',
     [cli, 'generate', entry, '--spec', '--out', join(scratch, 'spec.json'), '--no-telemetry'],
     { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] },
   );
