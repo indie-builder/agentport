@@ -68,7 +68,7 @@ import { Textarea } from '../components/ui/textarea.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
-import { ApiError, api } from '../lib/api.js';
+import { ApiError, api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
 import { fieldErrors } from '../lib/form.js';
@@ -608,6 +608,7 @@ function ScheduleDialog({
   const [conflict, setConflict] = useState(false);
   const [deleted, setDeleted] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [reloadError, setReloadError] = useState<string | null>(null);
   // 版本基线独立于打开弹层时的快照：冲突后重新加载才推进基线。
   const [baseline, setBaseline] = useState(schedule?.updatedAt);
   const {
@@ -685,8 +686,7 @@ function ScheduleDialog({
       setConflict(false);
       setDeleted(false);
       setConfirmReload(false);
-    } catch (error) {
-      toastError(error);
+      setReloadError(null);
     } finally {
       setReloading(false);
     }
@@ -797,7 +797,10 @@ function ScheduleDialog({
                 variant="outline"
                 size="sm"
                 disabled={pending}
-                onClick={() => setConfirmReload(true)}
+                onClick={() => {
+                  setConfirmReload(true);
+                  setReloadError(null);
+                }}
               >
                 重新加载
               </Button>
@@ -1093,14 +1096,20 @@ function ScheduleDialog({
         <ConfirmDialog
           open={confirmReload}
           onClose={() => {
-            if (!pending) setConfirmReload(false);
+            if (!pending) {
+              setConfirmReload(false);
+              setReloadError(null);
+            }
           }}
           title="放弃草稿并加载最新版本？"
           description="当前未保存的更改会丢失。加载失败时会保留当前草稿。"
           confirmLabel="放弃并加载"
           confirmDisabled={pending}
           onConfirm={reload}
-        />
+          onError={(error) => setReloadError(errorMessage(error))}
+        >
+          {reloadError ? <FieldError>{reloadError}</FieldError> : null}
+        </ConfirmDialog>
         <DraftGuardDialogs guard={guard} draft="这次填写的定时任务内容会丢失。" pending={pending} />
       </DialogShell>
     </Dialog>

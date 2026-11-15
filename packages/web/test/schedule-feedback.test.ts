@@ -1072,11 +1072,14 @@ describe('schedule stale conflict recovery', () => {
         HttpResponse.json({ message: 'Reload failed' }, { status: 500 }),
       ),
     );
-    vi.mocked(toastError).mockClear();
     await vi.waitFor(() => expect(button('重新加载').disabled).toBe(false));
     await click('重新加载');
     await click('放弃并加载');
-    await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(dialogByTitle('放弃草稿并加载最新版本？')?.textContent).toContain(
+        '服务端暂时无法完成请求',
+      ),
+    );
     expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
       'Local draft',
     );
@@ -1092,14 +1095,13 @@ describe('schedule stale conflict recovery', () => {
     await vi.waitFor(() => expect(button('重新加载')).toBeTruthy());
 
     msw.server.use(http.get('/api/schedules', () => HttpResponse.json([])));
-    vi.mocked(toastError).mockClear();
     await click('重新加载');
     await click('放弃并加载');
-    await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
-    const lastCall = vi.mocked(toastError).mock.calls.at(-1);
-    if (!lastCall) throw new Error('Missing toast');
-    const message = (lastCall[0] as Error).message;
-    expect(message).toContain('已被删除');
+    await vi.waitFor(() =>
+      expect(dialogByTitle('放弃草稿并加载最新版本？')?.textContent).toContain('已被删除'),
+    );
+    await click('取消');
+    await vi.waitFor(() => expect(dialogByTitle('放弃草稿并加载最新版本？')).toBeNull());
     expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
       'Local draft',
     );
