@@ -1,5 +1,6 @@
 import { readPluginMarkdown } from '@agentport/core/plugin-display';
 import type { Plugin, PluginFileInput } from '@agentport/shared';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { Resizable, ResizableHandle, ResizablePanel } from '@ui-sdk/react/resizable';
 import { ArrowLeft, Download, FolderOpen, PanelLeftDashed } from 'lucide-react';
@@ -30,8 +31,9 @@ import {
 } from '../../components/ui/breadcrumb.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
+import { can } from '../../lib/access.js';
 import { ApiError } from '../../lib/api.js';
-import { usePlugin } from '../../lib/queries.js';
+import { meQuery, usePlugin } from '../../lib/queries.js';
 import { useMediaQuery } from '../../lib/use-media-query.js';
 
 type Mode = 'read' | 'source';
@@ -172,6 +174,8 @@ function PluginDetailContent({
   refetchError: unknown;
   onRetry: () => void;
 }) {
+  const me = useQuery(meQuery);
+  const canExport = can(me.data, 'plugins.export');
   const readme = rootReadme(plugin.files);
   const description = plugin.description ? (
     <p className="min-w-0 max-w-[75ch] whitespace-pre-wrap break-words text-sm text-muted-foreground">
@@ -215,13 +219,15 @@ function PluginDetailContent({
           title={plugin.name}
           eyebrow={plugin.version ? <Badge variant="outline">{plugin.version}</Badge> : null}
           actions={
-            <a
-              href={`/api/plugins/${plugin.id}/export`}
-              className={buttonVariants({ variant: 'outline' })}
-            >
-              <Download data-icon="inline-start" aria-hidden="true" />
-              导出 ZIP
-            </a>
+            canExport ? (
+              <a
+                href={`/api/plugins/${plugin.id}/export`}
+                className={buttonVariants({ variant: 'outline' })}
+              >
+                <Download data-icon="inline-start" aria-hidden="true" />
+                导出 ZIP
+              </a>
+            ) : undefined
           }
         />
       </PageTopbar>

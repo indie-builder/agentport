@@ -75,6 +75,7 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   const realSearch = actual.useSearch;
   const realParams = actual.useParams;
   const realBlocker = actual.useBlocker;
+  const realLocation = actual.useLocation;
   return {
     ...actual,
     Link: (props: { to: string; children?: ReactNode }) =>
@@ -82,6 +83,13 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
         ? createElement(actual.Link, props as never)
         : createElement('a', { href: props.to }, props.children),
     useNavigate: () => (state.realRouter ? realNavigate() : state.navigate),
+    useLocation: () => {
+      if (state.realRouter) return realLocation();
+      const query = Object.entries(state.search)
+        .flatMap(([key, value]) => (value === undefined ? [] : [`${key}=${encodeURIComponent(value)}`]))
+        .join('&');
+      return { href: `/runtime-environments${query ? `?${query}` : ''}` };
+    },
     useSearch: (options?: never) => (state.realRouter ? realSearch(options) : state.search),
     useParams: (options?: never) =>
       state.realRouter ? realParams(options) : { environmentId: 'rte_1' },
@@ -694,7 +702,7 @@ describe('runtime environment detail page', () => {
     expect(state.remove).toHaveBeenCalledWith('rte_1');
     expect(toastSuccess).toHaveBeenCalledWith('已删除运行环境');
     expect(state.navigate).toHaveBeenCalledWith({
-      to: '/runtime-environments',
+      href: '/runtime-environments',
       ignoreBlocker: true,
     });
     await page.unmount();
@@ -743,7 +751,7 @@ describe('runtime environment detail page', () => {
     await click(button('删除', dialog('删除运行环境')));
     expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(false);
     expect(state.navigate).toHaveBeenCalledWith({
-      to: '/runtime-environments',
+      href: '/runtime-environments',
       ignoreBlocker: true,
     });
     await page.unmount();

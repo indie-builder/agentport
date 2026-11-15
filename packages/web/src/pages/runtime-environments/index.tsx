@@ -5,7 +5,7 @@ import {
   type RuntimeEnvironmentInput,
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Box, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
@@ -42,6 +42,7 @@ import { useZodForm } from '../../lib/use-zod-form.js';
 export function RuntimeEnvironmentsPage() {
   const environments = useRuntimeEnvironments();
   const navigate = useNavigate({ from: '/runtime-environments/' });
+  const location = useLocation();
   const search = useSearch({ from: '/_shell/runtime-environments/' });
   const [creating, setCreating] = useState(false);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
@@ -159,6 +160,7 @@ export function RuntimeEnvironmentsPage() {
                       <Link
                         to="/runtime-environments/$environmentId"
                         params={{ environmentId: environment.id }}
+                        search={{ backTo: location.href }}
                         className="min-w-0 truncate font-medium text-fg hover:underline"
                       >
                         {environment.name}
@@ -200,6 +202,7 @@ export function RuntimeEnvironmentsPage() {
                       <Link
                         to="/runtime-environments/$environmentId"
                         params={{ environmentId: environment.id }}
+                        search={{ backTo: location.href }}
                         className="min-w-0 truncate font-medium text-fg hover:underline"
                         title={environment.name}
                       >
@@ -247,6 +250,7 @@ export function RuntimeEnvironmentsPage() {
             void navigate({
               to: '/runtime-environments/$environmentId',
               params: { environmentId: environment.id },
+              search: { backTo: location.href },
               ignoreBlocker: true,
             });
           }}

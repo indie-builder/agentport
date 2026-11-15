@@ -88,8 +88,10 @@ export function AgentDetailPage() {
     return state?.importWarnings ?? [];
   });
 
+  const backTo = search.backTo ?? '/agents';
+
   const backToList = (): void => {
-    void navigate({ to: '/agents' });
+    void navigate({ href: backTo });
   };
 
   // 列表只给摘要；配置正文只能来自单独的详情请求，不能把摘要当完整 Agent 用。
@@ -103,8 +105,8 @@ export function AgentDetailPage() {
   useEffect(() => {
     if (!remove.isSuccess) return;
     settleBlockedNavigation.current?.();
-    void navigate({ to: '/agents' });
-  }, [remove.isSuccess, navigate]);
+    void navigate({ href: backTo });
+  }, [remove.isSuccess, navigate, backTo]);
 
   if (remove.isSuccess) {
     return (

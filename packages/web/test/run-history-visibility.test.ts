@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type Overview, type RunListItem, type RunStatus } from '../src/lib/api.js';
 import { OverviewPage } from '../src/pages/overview.js';
 import { RunsPage } from '../src/pages/runs/index.js';
+import { allAccessMe } from './me-fixture.js';
 
 const retainedRun: RunListItem = {
   id: 'run_retained',
@@ -53,9 +54,16 @@ beforeEach(() => {
   vi.spyOn(api, 'runs').mockImplementation(() => new Promise(() => {}));
   client = new QueryClient({
     defaultOptions: {
-      queries: { retry: false, retryOnMount: false, refetchOnMount: false, gcTime: Infinity },
+      queries: {
+        retry: false,
+        retryOnMount: false,
+        refetchOnMount: false,
+        staleTime: Infinity,
+        gcTime: Infinity,
+      },
     },
   });
+  client.setQueryData(['me'], allAccessMe);
   client.setQueryData(['agents'], []);
   client.setQueryData(['servers'], []);
   client.setQueryData(['health-metrics'], null);
