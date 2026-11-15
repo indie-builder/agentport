@@ -129,12 +129,14 @@ describe('evaluation batch failure details', () => {
     expect(html).not.toContain('未生成结果');
   });
 
-  it('retains the failure and fallback reason when no cases completed', () => {
+  it('retains the failure reason when no cases completed', () => {
     state.detail.evalRun.status = 'failed';
+    state.detail.evalRun.error = 'Worker stopped before any case completed';
     state.detail.results = [];
     const html = renderToStaticMarkup(createElement(EvalPage));
     expect(html).toContain('评估失败，未生成结果');
-    expect(html).toContain('未提供失败原因');
+    expect(html).toContain('Worker stopped before any case completed');
+    expect(html).toContain('重新运行评估');
     expect(html).not.toContain('正在逐个执行');
     expect(html).not.toContain('评估已完成');
   });
