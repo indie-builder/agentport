@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleStop, Download, GitCompare, Pencil, Play, Plus, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { BusinessIllustration } from '../../components/business-illustration.js';
+import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { FilterSelect } from '../../components/filter-select.js';
 import {
@@ -16,7 +17,12 @@ import {
 } from '../../components/page.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
-import { Button } from '../../components/ui/button.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../../components/ui/collapsible.js';
 import { hasAnyGrant } from '../../lib/access.js';
 import { api, type EvalCase, type EvalRun } from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
@@ -123,6 +129,73 @@ const runColumns: DataColumn<EvalRun>[] = [
   },
 ];
 
+function EvalCaseRow({
+  testCase,
+  canManage,
+  onEdit,
+  onDelete,
+}: {
+  testCase: EvalCase;
+  canManage: boolean;
+  onEdit: (trigger: HTMLElement) => void;
+  onDelete: (trigger: HTMLElement) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const expectation = testCase.expectation
+    ? `期望包含：${testCase.expectation}`
+    : '期望为空：只要求有文本输出';
+  return (
+    <Collapsible
+      render={<li />}
+      open={open}
+      onOpenChange={setOpen}
+      className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 ease-out-soft last:border-b-0 hover:bg-hover"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-md font-medium text-fg [overflow-wrap:anywhere]">{testCase.name}</div>
+        {open ? null : (
+          <>
+            <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm text-muted-foreground">
+              {testCase.prompt}
+            </p>
+            <p className="mt-1 truncate text-xs text-muted-foreground">{expectation}</p>
+          </>
+        )}
+        <CollapsibleContent>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground [overflow-wrap:anywhere]">
+            {testCase.prompt}
+          </p>
+          <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground [overflow-wrap:anywhere]">
+            {expectation}
+          </p>
+        </CollapsibleContent>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <CollapsibleTrigger className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+          {open ? '收起' : '查看完整'}
+          <span className="sr-only">用例 {testCase.name}</span>
+        </CollapsibleTrigger>
+        {canManage ? (
+          <div className="flex shrink-0 gap-1 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft group-hover:opacity-100 group-focus-within:opacity-100">
+            <Button variant="ghost" size="icon-sm" onClick={(event) => onEdit(event.currentTarget)}>
+              <span className="sr-only">编辑 {testCase.name}</span>
+              <Pencil aria-hidden="true" />
+            </Button>
+            <Button
+              variant="destructive"
+              size="icon-sm"
+              onClick={(event) => onDelete(event.currentTarget)}
+            >
+              <span className="sr-only">删除 {testCase.name}</span>
+              <Trash2 aria-hidden="true" />
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </Collapsible>
+  );
+}
+
 export function EvalPage() {
   const agents = useExperts();
   const navigate = useNavigate();
@@ -161,6 +234,15 @@ export function EvalPage() {
       head: undefined,
       failedOnly: undefined,
     });
+  };
+  const [pendingAgent, setPendingAgent] = useState<string | null>(null);
+  const requestAgentChange = (next: string): void => {
+    if (next === (effectiveAgentId ?? '')) return;
+    if (selectedRunId !== null || baseId !== null || headId !== null) {
+      setPendingAgent(next);
+      return;
+    }
+    setAgentId(next);
   };
   const selectRun = (runId: string): void => setSearch({ run: runId, failedOnly: undefined });
   const closeRun = (): void => setSearch({ run: undefined, failedOnly: undefined });
@@ -348,7 +430,7 @@ export function EvalPage() {
         <PageToolbar>
           <FilterSelect
             value={effectiveAgentId ?? ''}
-            onValueChange={setAgentId}
+            onValueChange={requestAgentChange}
             options={agentOptions}
             label="按专家筛选"
             className="w-full sm:w-36"
@@ -468,50 +550,19 @@ export function EvalPage() {
             {effectiveAgentId && cases.data && cases.data.length > 0 ? (
               <ul>
                 {cases.data.map((testCase) => (
-                  <li
+                  <EvalCaseRow
                     key={testCase.id}
-                    className="group flex min-h-14 items-start gap-3 border-b px-2.5 py-3.5 transition-colors duration-150 ease-out-soft last:border-b-0 hover:bg-hover"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="text-md font-medium text-fg [overflow-wrap:anywhere]">
-                        {testCase.name}
-                      </div>
-                      <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-sm text-muted-foreground">
-                        {testCase.prompt}
-                      </p>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {testCase.expectation
-                          ? `期望包含：${testCase.expectation}`
-                          : '期望为空：只要求有文本输出'}
-                      </p>
-                    </div>
-                    {canManageEval ? (
-                      <div className="flex shrink-0 gap-1 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:duration-150 ease-out-soft group-hover:opacity-100 group-focus-within:opacity-100">
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={(event) => {
-                            dialogTriggerRef.current = event.currentTarget;
-                            setEditing(testCase);
-                          }}
-                        >
-                          <span className="sr-only">编辑 {testCase.name}</span>
-                          <Pencil aria-hidden="true" />
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="icon-sm"
-                          onClick={(event) => {
-                            dialogTriggerRef.current = event.currentTarget;
-                            setDeleting(testCase);
-                          }}
-                        >
-                          <span className="sr-only">删除 {testCase.name}</span>
-                          <Trash2 aria-hidden="true" />
-                        </Button>
-                      </div>
-                    ) : null}
-                  </li>
+                    testCase={testCase}
+                    canManage={canManageEval}
+                    onEdit={(trigger) => {
+                      dialogTriggerRef.current = trigger;
+                      setEditing(testCase);
+                    }}
+                    onDelete={(trigger) => {
+                      dialogTriggerRef.current = trigger;
+                      setDeleting(testCase);
+                    }}
+                  />
                 ))}
               </ul>
             ) : null}
@@ -614,6 +665,18 @@ export function EvalPage() {
         ) : null}
       </PageBody>
 
+      {pendingAgent !== null ? (
+        <ConfirmDialog
+          open
+          title="切换专家？"
+          description="切换专家会清空当前选中的运行与比较。"
+          confirmLabel="切换专家"
+          tone="default"
+          finalFocus={() => document.querySelector<HTMLElement>('[aria-label="按专家筛选"]')}
+          onClose={() => setPendingAgent(null)}
+          onConfirm={async () => setAgentId(pendingAgent)}
+        />
+      ) : null}
       {creatingAgentId ? (
         <CaseDialog
           agentId={creatingAgentId}

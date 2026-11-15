@@ -287,7 +287,7 @@ afterEach(async () => {
 });
 
 describe('个人记忆页', () => {
-  it('渲染唯一 h1，并把个人导航与底部账号入口标为当前', async () => {
+  it('渲染唯一 h1，只把个人导航标为当前', async () => {
     await mount();
     expect(host.querySelectorAll('h1')).toHaveLength(1);
     expect(host.querySelector('h1')?.textContent).toBe('个人记忆');
@@ -296,9 +296,9 @@ describe('个人记忆页', () => {
       false,
     );
     expect(host.textContent?.split('每轮对话会带入这些长期信息。')).toHaveLength(2);
-    // 个人资料导航与底部账号入口同名，必须按 nav 范围区分。
+    // 底部账号入口指向个人资料，不在本页标为当前，避免与侧栏当前项重复播报。
     expect(mainNavLink('个人记忆').getAttribute('aria-current')).toBe('page');
-    expect(accountEntry().getAttribute('aria-current')).toBe('page');
+    expect(accountEntry().getAttribute('aria-current')).toBeNull();
     // 导航分组与顺序由导航单元维护；这里只确认六个个人目的地都可达。
     expect(new Set(mainNavHrefs())).toEqual(new Set(PERSONAL_HREFS));
     for (const href of [
@@ -324,7 +324,7 @@ describe('个人记忆页', () => {
     expect(host.textContent).not.toContain('个人记忆内容（Markdown）');
     expect(host.querySelector('h1')?.textContent).toBe('记忆提案');
     expect(mainNavLink('记忆提案').getAttribute('aria-current')).toBe('page');
-    expect(accountEntry().getAttribute('aria-current')).toBe('page');
+    expect(accountEntry().getAttribute('aria-current')).toBeNull();
     expect(host.querySelector('nav[aria-label="个人导航"]')).toBeNull();
   });
 

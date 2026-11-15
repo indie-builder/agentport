@@ -266,6 +266,7 @@ export function AgentEditor({
   const [baseline, setBaseline] = useState(agent);
   const [conflict, setConflict] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
   const pending = update.isPending || reloading || rollingBack || deletePending;
@@ -880,6 +881,19 @@ export function AgentEditor({
           if (!pending) await reload();
         }}
       />
+      <ConfirmDialog
+        open={confirmCancel}
+        onClose={() => {
+          if (!pending) setConfirmCancel(false);
+        }}
+        title="放弃未保存的修改？"
+        description="当前未保存的更改会丢失，配置将恢复到上次保存的状态。"
+        confirmLabel="放弃修改"
+        confirmDisabled={pending}
+        onConfirm={async () => {
+          if (!pending) loadDraft(baseline);
+        }}
+      />
       <PageTopbar>
         <div className="flex min-w-0 flex-wrap items-center gap-3 border-b pb-3">
           <Tabs
@@ -949,6 +963,15 @@ export function AgentEditor({
                       去修正
                     </Button>
                   </span>
+                ) : null}
+                {dirty ? (
+                  <Button
+                    variant="outline"
+                    disabled={pending}
+                    onClick={() => setConfirmCancel(true)}
+                  >
+                    取消
+                  </Button>
                 ) : null}
                 <Button
                   disabled={!dirty || pending || invalidField !== null || !canSave}
