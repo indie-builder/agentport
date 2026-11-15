@@ -42,6 +42,19 @@ describe('toStep', () => {
     ).toEqual({ kind: 'assistant', at: at.toISOString(), text: 'done' });
   });
 
+  it('maps an openui action user message to its text', () => {
+    const step = toStep({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Plan a trip' },
+        { type: 'openui_action', params: { city: 'Paris' } },
+      ],
+      createdAt: at,
+    });
+    expect(step).toEqual({ kind: 'user', at: at.toISOString(), text: 'Plan a trip' });
+    expect(step?.kind === 'user' ? step.text : null).not.toContain('Paris');
+  });
+
   it('maps a tool result message', () => {
     expect(
       toStep({
