@@ -163,7 +163,7 @@ const AGENT_DEFS: Record<
     slug: `${DATASET_ID}-supplier-analyst`,
     name: '【青禾演示】供应商分析子专家',
     role: '数据分析师',
-    model: 'group/flash',
+    model: 'group/sonnet',
     prompt:
       '你是供应商分析子专家。比较云杉包装的报价、交期与质量约定，输出简短、可核对的结论。不要编造真实公司信息。',
     enabled: true,
@@ -181,7 +181,7 @@ const AGENT_DEFS: Record<
     slug: `${DATASET_ID}-legacy-service`,
     name: '【青禾演示】旧客服（已停用）',
     role: '群聊答疑专员',
-    model: 'group/flash',
+    model: 'group/sonnet',
     prompt: '这是已停用的旧客服专家，只作为停用状态演示。',
     enabled: false,
   },
@@ -692,7 +692,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   );
   const generatedServers = datasetServers.filter((item) => item.kind === 'generated');
   const knowledgeBases = (
-    await api<{ items: Array<{ id: string; slug: string; name: string }> }>(
+    await api<{ items: Array<{ id: string; slug: string; name: string; serverId: string }> }>(
       browser,
       '/api/knowledge/bases?limit=200',
     )
@@ -708,12 +708,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     )
   ).filter((item) => item.name.includes(DATASET_ID) || item.name.includes('【青禾演示】'));
   const knowledgeBase = knowledgeBases[0] ?? null;
-  const knowledgeServer =
-    knowledgeBase === null
-      ? null
-      : (servers.find(
-          (item) => item.kind === 'knowledge' && item.config?.knowledgeBaseId === knowledgeBase.id,
-        ) ?? null);
+  const knowledgeServer = knowledgeBase === null ? null : { id: knowledgeBase.serverId };
 
   if (skills.length < 2) gaps.add(`缺少 2 个 ${DATASET_ID} 技能，实际 ${skills.length}`);
   if (plugins.length < 1) gaps.add(`缺少 ${DATASET_ID} 插件`);
@@ -1236,7 +1231,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
 
   // 完整文件预览走 UI。
   await app.open(`/agents/${main.id}`);
-  await screen.getByRole('tab', '完整文件', { exact: true }).tap();
+  await screen.getByRole('tab', '文件与版本', { exact: true }).tap();
   const files = await api<{
     mcpJson: string;
     claudeMd: string;
