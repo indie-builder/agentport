@@ -38,6 +38,7 @@
     "typecheck": "bun run --filter './packages/*' typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "audit": "bun audit --registry https://registry.npmjs.org",
     "lint:focus": "bun scripts/check-focus-contract.mjs",
     "lint:contract": "bun scripts/check-project-contract.mjs",
     "openui:meta": "bun scripts/generate-openui-meta.mjs",
