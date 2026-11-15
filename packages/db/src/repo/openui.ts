@@ -277,8 +277,25 @@ export async function requestOpenUiApproval(
       approvedAt: approvalRequests.approvedAt,
       authorizationExpiresAt: approvalRequests.authorizationExpiresAt,
     });
-  if (!row) throw new Error('approval insert returned no row');
-  return row;
+  if (row) return row;
+  const [existing] = await db
+    .select({
+      id: approvalRequests.id,
+      approvedAt: approvalRequests.approvedAt,
+      authorizationExpiresAt: approvalRequests.authorizationExpiresAt,
+    })
+    .from(approvalRequests)
+    .where(
+      and(
+        eq(approvalRequests.conversationId, input.conversationId),
+        isNull(approvalRequests.runId),
+        eq(approvalRequests.serverId, input.serverId),
+        eq(approvalRequests.toolName, input.toolName),
+      ),
+    )
+    .limit(1);
+  if (!existing) throw new Error('approval insert returned no row');
+  return existing;
 }
 
 /**
