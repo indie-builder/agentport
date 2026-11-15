@@ -116,6 +116,7 @@ export function AccountsPage() {
   const [assigningRoles, setAssigningRoles] = useState<Account | null>(null);
   const [deleting, setDeleting] = useState<Account | null>(null);
   const [statusTarget, setStatusTarget] = useState<Account | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const remove = useDeleteAccount();
   const setStatus = useSetAccountStatus();
 
@@ -393,41 +394,47 @@ export function AccountsPage() {
 
       <ConfirmDialog
         open={statusTarget !== null}
-        onClose={() => setStatusTarget(null)}
+        onClose={() => {
+          setStatusTarget(null);
+          setConfirmError(null);
+        }}
         title={`停用账户「${statusTarget?.name ?? ''}」`}
         description="停用会立即撤销全部会话；业务数据、角色与授权保留。重新启用后需要重新登录。"
         confirmLabel={statusTarget?.status === 'active' ? '停用' : '启用'}
         onConfirm={async () => {
           if (!statusTarget) return;
-          try {
-            await setStatus.mutateAsync({
-              businessId: statusTarget.businessId,
-              status: 'disabled',
-            });
-            toastSuccess(`已停用 ${statusTarget.name}`);
-            setStatusTarget(null);
-          } catch (error) {
-            toastError(error);
-          }
+          await setStatus.mutateAsync({
+            businessId: statusTarget.businessId,
+            status: 'disabled',
+          });
+          toastSuccess(`已停用 ${statusTarget.name}`);
+          setStatusTarget(null);
+          setConfirmError(null);
         }}
-      />
+        onError={(error) => setConfirmError(errorMessage(error))}
+      >
+        {confirmError ? <FieldError>{confirmError}</FieldError> : null}
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={deleting !== null}
-        onClose={() => setDeleting(null)}
+        onClose={() => {
+          setDeleting(null);
+          setConfirmError(null);
+        }}
         title={`删除「${deleting?.name ?? ''}」的登录认证`}
         description="只删除登录资料，业务内容、角色、专家归属与个人记忆都会保留；之后可用同一业务 ID 恢复原身份和授权。"
         onConfirm={async () => {
           if (!deleting) return;
-          try {
-            await remove.mutateAsync(deleting.businessId);
-            toastSuccess('已删除登录认证，业务授权仍保留');
-            setDeleting(null);
-          } catch (error) {
-            toastError(error);
-          }
+          await remove.mutateAsync(deleting.businessId);
+          toastSuccess('已删除登录认证，业务授权仍保留');
+          setDeleting(null);
+          setConfirmError(null);
         }}
-      />
+        onError={(error) => setConfirmError(errorMessage(error))}
+      >
+        {confirmError ? <FieldError>{confirmError}</FieldError> : null}
+      </ConfirmDialog>
     </Page>
   );
 }
