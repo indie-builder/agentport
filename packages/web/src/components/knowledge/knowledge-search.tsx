@@ -85,7 +85,12 @@ export function FaqRetrievalControls({
           step={0.05}
           value={value.faqDirectAnswerThreshold ?? 0.9}
           onChange={(event) => {
-            const next = Number(event.target.value);
+            const raw = event.target.value;
+            if (raw === '') {
+              onChange({ faqDirectAnswerThreshold: undefined });
+              return;
+            }
+            const next = Number(raw);
             onChange({
               faqDirectAnswerThreshold:
                 Number.isFinite(next) && next >= -1 && next <= 1 ? next : undefined,
@@ -561,7 +566,12 @@ export function SearchTab({
             step={0.05}
             value={state.minVectorScore ?? 0.3}
             onChange={(event) => {
-              const next = Number(event.target.value);
+              const raw = event.target.value;
+              if (raw === '') {
+                onChange({ minVectorScore: undefined });
+                return;
+              }
+              const next = Number(raw);
               onChange({
                 minVectorScore: Number.isFinite(next) && next >= -1 && next <= 1 ? next : undefined,
               });

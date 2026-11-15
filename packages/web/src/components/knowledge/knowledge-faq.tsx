@@ -1386,7 +1386,12 @@ function FaqTest({ baseId }: { baseId: string }) {
             step={0.05}
             value={minVectorScore}
             onChange={(event) => {
-              const next = Number(event.target.value);
+              const raw = event.target.value;
+              if (raw === '') {
+                setMinVectorScore(0.3);
+                return;
+              }
+              const next = Number(raw);
               if (Number.isFinite(next) && next >= -1 && next <= 1) setMinVectorScore(next);
             }}
             className="h-8"
