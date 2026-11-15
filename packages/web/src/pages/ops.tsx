@@ -272,10 +272,23 @@ export function SchedulesPage() {
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       api.updateSchedule(id, { enabled }),
+    onMutate: async (vars) => {
+      await client.cancelQueries({ queryKey: ['schedules'] });
+      const prev = client.getQueryData<Schedule[]>(['schedules']);
+      if (prev) {
+        client.setQueryData<Schedule[]>(['schedules'], (old) =>
+          old ? old.map((s) => (s.id === vars.id ? { ...s, enabled: vars.enabled } : s)) : old,
+        );
+      }
+      return { prev };
+    },
+    onError: (error, _vars, ctx) => {
+      if (ctx?.prev !== undefined) client.setQueryData<Schedule[]>(['schedules'], ctx.prev);
+      toastError(error);
+    },
     onSuccess: (_schedule, vars) => {
       toastSuccess(vars.enabled ? '定时任务已启用' : '定时任务已暂停');
     },
-    onError: toastError,
     onSettled: invalidate,
   });
   const remove = useMutation({

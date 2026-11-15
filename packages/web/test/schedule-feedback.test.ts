@@ -876,7 +876,7 @@ describe('schedule row mutation locking', () => {
 
     // 共用一个 mutation 时不能只锁最新 variables 那一行：其余行也必须停用。
     await vi.waitFor(() => expect(switchDisabled('暂停 Evening digest')).toBe(true));
-    expect(switchDisabled('暂停 Morning report')).toBe(true);
+    expect(switchDisabled('启用 Morning report')).toBe(true);
     expect(button('编辑 Evening digest').disabled).toBe(true);
     expect(button('删除 Evening digest').disabled).toBe(true);
 
@@ -894,9 +894,11 @@ describe('schedule row mutation locking', () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     });
     await vi.waitFor(() => expect(rowSwitch('启用 Morning report')).toBeTruthy());
-    expect(switchDisabled('暂停 Evening digest')).toBe(false);
-    expect(button('编辑 Evening digest').disabled).toBe(false);
-    expect(button('删除 Evening digest').disabled).toBe(false);
+    await vi.waitFor(() => {
+      expect(switchDisabled('暂停 Evening digest')).toBe(false);
+      expect(button('编辑 Evening digest').disabled).toBe(false);
+      expect(button('删除 Evening digest').disabled).toBe(false);
+    });
   });
 
   it('re-enables every row after a failed toggle and keeps the server state', async () => {
