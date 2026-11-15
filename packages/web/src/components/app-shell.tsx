@@ -319,9 +319,13 @@ export function AppShell() {
         : null;
   const required = requiredPermissions(matchedRoute);
   const allowed = required === null || canAny(me.data, required);
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() =>
-    localStorage.getItem(COLLAPSE_KEY) === '0' ? 'expanded' : 'collapsed',
-  );
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() => {
+    try {
+      return localStorage.getItem(COLLAPSE_KEY) === '0' ? 'expanded' : 'collapsed';
+    } catch {
+      return 'collapsed';
+    }
+  });
   const collapsed = sidebarMode === 'collapsed';
   const [mobileOpen, setMobileOpen] = useState(false);
   const pointerInSidebar = useRef(false);
@@ -522,7 +526,9 @@ export function AppShell() {
             onToggle={() => {
               const next = sidebarMode === 'expanded' ? 'collapsed' : 'expanded';
               setSidebarMode(next);
-              localStorage.setItem(COLLAPSE_KEY, next === 'expanded' ? '0' : '1');
+              try {
+                localStorage.setItem(COLLAPSE_KEY, next === 'expanded' ? '0' : '1');
+              } catch {}
             }}
           />
         )}
