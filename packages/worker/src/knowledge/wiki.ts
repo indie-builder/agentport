@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { segmentForSearch } from '@agentport/core';
 import { type Database, repo, schema } from '@agentport/db';
@@ -13,6 +13,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { runOneShotSdkQuery } from '../one-shot-sdk.js';
 import { sdkEnv } from '../upstream.js';
 import { KnowledgeCancelled } from './ingestion.js';
 
@@ -283,12 +284,8 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
   const page = await resolvePage(db, payload);
   const knowledgeDir = deps.config.KNOWLEDGE_DIR;
   const allowedDocumentIds = payload.sourceDocumentIds ?? [];
-  const controller = new AbortController();
-  const onAbort = () => controller.abort();
-  signal.addEventListener('abort', onAbort, { once: true });
   // 每次生成一个独立 cwd（同时是 HOME/CLAUDE_CONFIG_DIR）；任务结束即删除，不留会话文件。
   const cwd = join(knowledgeDir, 'wiki-sdk', job.id);
-  let messages: AsyncGenerator<SDKMessage, void> | undefined;
 
   try {
     const savedVersions: string[] = [];
@@ -373,43 +370,29 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
 
     await mkdir(cwd, { recursive: true, mode: 0o700 });
     const queryFn = deps.queryFn ?? query;
-    messages = queryFn({
-      prompt: buildPrompt({
-        baseName: base.name,
-        pageTitle: page.title,
-        instruction: payload.instruction,
-        sourceDocumentIds: payload.sourceDocumentIds,
-      }),
-      options: sdkOptions({ model, server, cwd, controller }),
+    const outcome = await runOneShotSdkQuery({
+      signal,
+      cwd,
+      create: (controller) =>
+        queryFn({
+          prompt: buildPrompt({
+            baseName: base.name,
+            pageTitle: page.title,
+            instruction: payload.instruction,
+            sourceDocumentIds: payload.sourceDocumentIds,
+          }),
+          options: sdkOptions({ model, server, cwd, controller }),
+        }),
     });
-
-    let failure: string | null = null;
-    let sawResult = false;
-    for await (const message of messages) {
-      if (message.type !== 'result') continue;
-      sawResult = true;
-      if (message.subtype !== 'success') {
-        failure = [message.subtype, ...message.errors].filter(Boolean).join(': ');
-      } else if (message.is_error) {
-        failure = `success: ${message.result}`;
-      }
-    }
-    if (signal.aborted || controller.signal.aborted) throw new KnowledgeCancelled();
-    if (!sawResult) throw new Error('SDK 没有返回结果');
-    if (failure !== null) throw new Error(failure);
+    if (outcome.status === 'aborted') throw new KnowledgeCancelled();
+    if (outcome.status === 'no_result') throw new Error('SDK 没有返回结果');
+    if (outcome.status === 'failure') throw new Error(outcome.message);
     // SDK 成功但没有草稿不能算成功：否则页面状态与用户预期不符。
     if (savedVersions.length === 0) throw new Error('模型没有保存任何草稿');
   } catch (err) {
-    if (signal.aborted || controller.signal.aborted || err instanceof KnowledgeCancelled) {
+    if (signal.aborted || err instanceof KnowledgeCancelled) {
       throw new KnowledgeCancelled();
     }
     throw err;
-  } finally {
-    signal.removeEventListener('abort', onAbort);
-    // 先停 CLI 再删目录：只 abort 时 CLI 退出较慢，会在删除后重建 projects/*.jsonl。
-    // 官方 Query.return() 才会 await cleanup（关 transport、等子进程退出）；close() 是同步不等。
-    controller.abort();
-    await messages?.return(undefined).catch(() => undefined);
-    await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
   }
 }
