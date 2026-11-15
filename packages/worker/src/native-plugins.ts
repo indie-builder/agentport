@@ -20,11 +20,10 @@ import type { Logger } from 'pino';
 import type { Config } from './config.js';
 import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
-import type { Sandbox, SandboxCreateOptions, SandboxProvider } from './sandbox/provider.js';
+import { runSandboxTask, SANDBOX_TASK_OUTPUT_MAX_BYTES } from './sandbox/one-shot.js';
+import type { SandboxCreateOptions, SandboxProvider } from './sandbox/provider.js';
 import { version } from './version.js';
 
-/** 结果行上限：快照本身另有 4MiB 业务限制，这里兜住异常输出。 */
-const OUTPUT_MAX_BYTES = 8 * 1024 * 1024;
 const STDERR_TAIL_BYTES = 2 * 1024;
 
 /** 安装动作不写工作区：固定挂载一个空的只读目录即可。 */
@@ -113,148 +112,78 @@ export async function runNativePluginAction(
     ],
   };
 
-  let sandbox: Sandbox | undefined;
-  let abandoned = false;
-  let destroyed = false;
+  return runSandboxTask<NativePluginOutput, NativePluginOutput>(
+    {
+      provider: deps.provider,
+      logger: deps.logger,
+      closing: deps.closing,
+      create: createOptions,
+      payload: action,
+      parseLine: parseResultLine,
+      totalMs: timeoutMs,
+      stderrMaxBytes: STDERR_TAIL_BYTES,
+      stderrKeep: 'tail',
+      killChildOnDestroy: true,
+      logContext: { action: action.action },
+      cleanupLog: 'native plugin sandbox cleanup failed',
+      lateCleanupLog: 'native plugin sandbox cleanup failed after timeout',
+    },
+    {
+      complete: (outcome) => {
+        if (!outcome.started) {
+          return {
+            ok: false,
+            error:
+              outcome.exited === '__closing__'
+                ? 'worker 正在关停，安装已取消'
+                : `沙盒启动超时（${timeoutMs}ms），请检查 Docker 服务与镜像后重试`,
+          };
+        }
+        const tail = redactSecrets(outcome.stderr.trim()).split('\n').at(-1)?.slice(0, 300) ?? '';
+        if (outcome.result) {
+          if (!outcome.result.ok) {
+            deps.logger.warn(
+              {
+                action: action.action,
+                duration: elapsed(),
+                stderr: redactSecrets(outcome.stderr),
+              },
+              'native plugin action reported failure',
+            );
+            return { ok: false, error: redactSecrets(outcome.result.error) };
+          }
+          return outcome.result;
+        }
 
-  // 每次动作独立的取消信号：超时或关停时停掉冷拉取，不能等它跑完再销毁容器。
-  const createAbort = new AbortController();
-
-  const destroy = async (): Promise<void> => {
-    if (!sandbox || destroyed) return;
-    destroyed = true;
-    sandbox.child.kill('SIGKILL');
-    await deps.provider.destroy(sandbox).catch((err: unknown) => {
-      deps.logger.warn({ err, action: action.action }, 'native plugin sandbox cleanup failed');
-    });
-  };
-
-  let resolveDone: (value: { result?: NativePluginOutput; exited?: string }) => void = () => {};
-  const done = new Promise<{ result?: NativePluginOutput; exited?: string }>((resolve) => {
-    resolveDone = resolve;
-  });
-  let stdout = '';
-  let stderr = '';
-  // 记录提前结束的原因，容器还没起来时也要给出准确文案。
-  let exitReason: string | undefined;
-  const finish = (outcome: { result?: NativePluginOutput; exited?: string }): void => {
-    exitReason = outcome.exited;
-    resolveDone(outcome);
-  };
-
-  // close 期间不再等安装跑完；已创建的容器走 finally 销毁，创建还没完成的交给迟到分支。
-  // 先 abort 再 finish：provider 的 closing 监听可能让 create 先 reject，
-  // catch 要靠 exitReason 把它归类为关停，而不是启动失败。
-  const onClosing = (): void => {
-    exitReason = '__closing__';
-    createAbort.abort();
-    finish({ exited: '__closing__' });
-  };
-  if (deps.closing?.aborted) onClosing();
-  deps.closing?.addEventListener('abort', onClosing, { once: true });
-
-  // 启动与动作共用一个总预算：超时即销毁容器，不让安装任务无界占用队列。
-  const timer = setTimeout(() => finish({ exited: '__timeout__' }), timeoutMs);
-  try {
-    const creating = deps.provider.create({ ...createOptions, signal: createAbort.signal });
-    // 超时先返回时容器可能随后才创建完成；交给 provider 销毁，避免遗留。
-    void creating.then(
-      (late) => {
-        if (!abandoned) return;
-        void deps.provider.destroy(late).catch((err: unknown) => {
-          deps.logger.warn(
-            { err, action: action.action, sandboxId: late.id },
-            'native plugin sandbox cleanup failed after timeout',
-          );
-        });
-      },
-      () => undefined,
-    );
-
-    const created = await Promise.race([creating, done.then(() => undefined)]);
-    if (!created) {
-      abandoned = true;
-      // 预算或关停先到：取消仍在进行的拉取/创建，迟到的容器由迟到分支销毁。
-      createAbort.abort();
-      return {
-        ok: false,
-        error:
-          exitReason === '__closing__'
+        const reason =
+          outcome.exited === '__closing__'
             ? 'worker 正在关停，安装已取消'
-            : `沙盒启动超时（${timeoutMs}ms），请检查 Docker 服务与镜像后重试`,
-      };
-    }
-    sandbox = created;
-
-    const { child } = created;
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      if (Buffer.byteLength(stdout) + Buffer.byteLength(chunk) > OUTPUT_MAX_BYTES) {
-        resolveDone({ exited: '__output_too_large__' });
-        return;
-      }
-      stdout += chunk;
-      for (;;) {
-        const newline = stdout.indexOf('\n');
-        if (newline === -1) return;
-        const result = parseResultLine(stdout.slice(0, newline));
-        stdout = stdout.slice(newline + 1);
-        if (result) resolveDone({ result });
-      }
-    });
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => {
-      stderr = (stderr + chunk).slice(-STDERR_TAIL_BYTES);
-    });
-    child.stdin.on('error', () => undefined);
-    child.once('error', (err) => resolveDone({ exited: errorText(err) }));
-    child.once('close', (code, signal) => {
-      resolveDone({ exited: `退出码 ${String(code)}${signal ? ` (${signal})` : ''}` });
-    });
-    child.stdin.write(`${JSON.stringify(action)}\n`);
-
-    const outcome = await done;
-    if (outcome.exited === '__timeout__' || outcome.exited === '__closing__') {
-      createAbort.abort();
-    }
-    const tail = redactSecrets(stderr.trim()).split('\n').at(-1)?.slice(0, 300) ?? '';
-    if (outcome.result) {
-      if (!outcome.result.ok) {
+            : outcome.exited === '__timeout__'
+              ? `沙盒动作超时（${timeoutMs}ms）`
+              : outcome.exited === '__output_too_large__'
+                ? `沙盒输出超过 ${SANDBOX_TASK_OUTPUT_MAX_BYTES} 字节上限`
+                : `沙盒没有返回结果（${outcome.exited ?? 'unknown'}）`;
         deps.logger.warn(
-          { action: action.action, duration: elapsed(), stderr: redactSecrets(stderr) },
-          'native plugin action reported failure',
+          {
+            action: action.action,
+            duration: elapsed(),
+            stderr: redactSecrets(outcome.stderr),
+          },
+          'native plugin sandbox failed',
         );
-        return { ok: false, error: redactSecrets(outcome.result.error) };
-      }
-      return outcome.result;
-    }
-
-    const reason =
-      outcome.exited === '__closing__'
-        ? 'worker 正在关停，安装已取消'
-        : outcome.exited === '__timeout__'
-          ? `沙盒动作超时（${timeoutMs}ms）`
-          : outcome.exited === '__output_too_large__'
-            ? `沙盒输出超过 ${OUTPUT_MAX_BYTES} 字节上限`
-            : `沙盒没有返回结果（${outcome.exited ?? 'unknown'}）`;
-    deps.logger.warn(
-      { action: action.action, duration: elapsed(), stderr: redactSecrets(stderr) },
-      'native plugin sandbox failed',
-    );
-    return { ok: false, error: tail ? `${reason}: ${tail}` : reason };
-  } catch (err) {
-    // create 可能在关停竞速里先 reject；此时仍要给关停文案，不能报成启动失败。
-    if (exitReason === '__closing__' || deps.closing?.aborted === true) {
-      deps.logger.warn({ action: action.action }, 'native plugin action cancelled by shutdown');
-      return { ok: false, error: 'worker 正在关停，安装已取消' };
-    }
-    deps.logger.warn({ err, action: action.action }, 'native plugin sandbox crashed');
-    return { ok: false, error: `无法启动沙盒：${redactSecrets(errorText(err))}` };
-  } finally {
-    clearTimeout(timer);
-    deps.closing?.removeEventListener('abort', onClosing);
-    await destroy();
-  }
+        return { ok: false, error: tail ? `${reason}: ${tail}` : reason };
+      },
+      fail: (err, closing) => {
+        // create 可能在关停竞速里先 reject；此时仍要给关停文案，不能报成启动失败。
+        if (closing) {
+          deps.logger.warn({ action: action.action }, 'native plugin action cancelled by shutdown');
+          return { ok: false, error: 'worker 正在关停，安装已取消' };
+        }
+        deps.logger.warn({ err, action: action.action }, 'native plugin sandbox crashed');
+        return { ok: false, error: `无法启动沙盒：${redactSecrets(errorText(err))}` };
+      },
+    },
+  );
 }
 
 /**
