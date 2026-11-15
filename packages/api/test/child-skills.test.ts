@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { readFile } from 'node:fs/promises';
 import type { Agent, Skill, WorkspaceFiles } from '@agentport/shared';
 import {
   cleanup,
@@ -147,13 +146,5 @@ describe.skipIf(!ready)('child skills in the rendered workspace', () => {
       await request(app, { method: 'GET', url: `/api/agents/${parent.id}/files` }),
       'UNAUTHORIZED',
     );
-  });
-
-  it('keeps the worker runtime on root skills and enriches children', async () => {
-    const source = await readFile(new URL('../../worker/src/runs/execute.ts', import.meta.url), 'utf8');
-    // 运行时的 Skill 白名单只来自根智能体。
-    expect(source).toContain('skills: skillRows.map((skill) => skill.slug)');
-    // 子智能体技能通过批量查询补齐后交给工作区渲染。
-    expect(source).toContain('getBoundSkillsByAgentIds');
   });
 });

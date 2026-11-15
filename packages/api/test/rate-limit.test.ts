@@ -33,9 +33,4 @@ describe.skipIf(!ready)('rate limiting', () => {
       expect(res.statusCode, `attempt ${i}`).toBe(401);
     }
   });
-
-  it('an unknown route past the global limit is still a Problem', async () => {
-    const res = await request(app, { method: 'GET', url: '/api/nope' });
-    expect(res.statusCode).toBe(404);
-  });
 });

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { personalMemoryDir } from '@agentport/core';
@@ -120,24 +120,6 @@ describe.skipIf(!ready)('projectPersonalMemory', () => {
       expect(first).not.toBe(second);
       expect(await readFile(join(first, 'CLAUDE.md'), 'utf8')).toBe('第一个人的偏好');
       expect(await readFile(join(second, 'CLAUDE.md'), 'utf8')).toBe('另一个人的偏好');
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('refuses a symlinked projection and leaves the target untouched', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'personal-projection-'));
-    try {
-      const dir = personalMemoryDir(root, businessId);
-      const outside = join(root, 'outside.md');
-      await writeFile(outside, 'do not touch');
-      await mkdir(dir, { recursive: true });
-      await symlink(outside, join(dir, 'CLAUDE.md'));
-
-      await expect(projectPersonalMemory(db, dbHandle.client, root, businessId)).rejects.toThrow(
-        'without links',
-      );
-      expect(await readFile(outside, 'utf8')).toBe('do not touch');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

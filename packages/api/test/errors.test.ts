@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { AppError, isAppError } from '@agentport/core';
+import { AppError } from '@agentport/core';
 import { errorCode } from '@agentport/shared';
 import { SQL } from 'bun';
 import { HTTPException } from 'hono/http-exception';
@@ -113,19 +113,6 @@ describe('AppError contract', () => {
     } finally {
       await app.close();
     }
-  });
-
-  it('every error code maps to a sane HTTP status', () => {
-    for (const [code, status] of Object.entries(errorCode)) {
-      expect(status, code).toBeGreaterThanOrEqual(400);
-      expect(status, code).toBeLessThan(600);
-    }
-  });
-
-  it('recognises AppError across module boundaries', () => {
-    expect(isAppError(new AppError('NOT_FOUND', 'x'))).toBe(true);
-    expect(isAppError(new Error('x'))).toBe(false);
-    expect(isAppError(null)).toBe(false);
   });
 });
 

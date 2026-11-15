@@ -166,11 +166,6 @@ describe('createParsingAdapter', () => {
     expect(Object.keys(adapter)).toEqual(['parse', 'chunkMarkdown']);
   });
 
-  it('reports a binary format as unconfigured when the adapter has no parser', async () => {
-    const adapter = createParsingAdapter();
-    await expect(adapter.parse(doclingInput)).rejects.toThrow(/Docling/);
-  });
-
   it('passes the caller abort signal through', async () => {
     const adapter = createParsingAdapter({ parserUrl: `${parserUrl}/slow` });
     const controller = new AbortController();

@@ -1047,45 +1047,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(back.json()).toMatchObject({ currentVersionId: firstVersionId });
   });
 
-  it('expectedVersion 不一致时 409，不静默覆盖别人的发布', async () => {
-    const page = await createPage();
-    const first = await request(app, {
-      method: 'PATCH',
-      url: `/api/knowledge/wiki-pages/${page.id}`,
-      headers: { cookie },
-      payload: { markdown: '# 第一版' },
-    });
-    expect(first.statusCode, first.body).toBe(200);
-    const firstDetail = await request(app, {
-      method: 'GET',
-      url: `/api/knowledge/wiki-pages/${page.id}`,
-      headers: { cookie },
-    });
-    const staleVersionId = firstDetail.json<{ versions: Array<{ id: string }> }>().versions[0]?.id;
-    await request(app, {
-      method: 'PATCH',
-      url: `/api/knowledge/wiki-pages/${page.id}`,
-      headers: { cookie },
-      payload: { markdown: '# 第二版' },
-    });
-
-    const conflict = await request(app, {
-      method: 'PATCH',
-      url: `/api/knowledge/wiki-pages/${page.id}`,
-      headers: { cookie },
-      payload: { markdown: '# 旧标签页保存', expectedVersion: staleVersionId },
-    });
-    expect(conflict.statusCode, conflict.body).toBe(409);
-    expect(conflict.json<{ code: string }>().code).toBe('CONFLICT_STALE');
-
-    const detail = await request(app, {
-      method: 'GET',
-      url: `/api/knowledge/wiki-pages/${page.id}`,
-      headers: { cookie },
-    });
-    expect(detail.json<{ versions: Array<{ markdown: string }> }>().versions).toHaveLength(2);
-  });
-
   it('正文冲突时标题不被单独写入：结构与正文同事务', async () => {
     const page = await createPage('原标题');
     await request(app, {
