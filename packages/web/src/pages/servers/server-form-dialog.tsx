@@ -303,6 +303,23 @@ export function ServerFormDialog({
           : {})}
         finalFocus={getReturnFocus}
         closeDisabled={pending}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={close} disabled={pending}>
+              {viewOnly ? '关闭' : '取消'}
+            </Button>
+            {viewOnly ? null : (
+              <Button
+                type="submit"
+                form="server-form"
+                disabled={pending || kind === null || (!creating && !isDirty)}
+                aria-busy={pending}
+              >
+                {pending ? '保存中…' : creating ? '创建' : '保存更改'}
+              </Button>
+            )}
+          </div>
+        }
       >
         {conflict ? (
           <div role="alert" className="flex flex-wrap items-center gap-2 text-sm">
@@ -338,6 +355,7 @@ export function ServerFormDialog({
           {reloadError ? <FieldError>{reloadError}</FieldError> : null}
         </ConfirmDialog>
         <form
+          id="server-form"
           className="flex flex-col gap-4"
           noValidate
           onSubmit={(event) => {
@@ -568,21 +586,6 @@ export function ServerFormDialog({
               )}
             </>
           )}
-
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={close} disabled={pending}>
-              {viewOnly ? '关闭' : '取消'}
-            </Button>
-            {viewOnly ? null : (
-              <Button
-                type="submit"
-                disabled={pending || kind === null || (!creating && !isDirty)}
-                aria-busy={pending}
-              >
-                {pending ? '保存中…' : creating ? '创建' : '保存更改'}
-              </Button>
-            )}
-          </div>
         </form>
         <ConfirmDialog
           open={confirmDiscard}

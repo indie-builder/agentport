@@ -793,6 +793,16 @@ function ScheduleDialog({
         title={schedule ? '编辑定时任务' : '新建定时任务'}
         closeDisabled={pending}
         className="max-w-256 sm:max-w-256"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
+              取消
+            </Button>
+            <Button type="submit" form="schedule-form" aria-busy={pending} disabled={pending}>
+              {primaryLabel}
+            </Button>
+          </div>
+        }
       >
         {conflict ? (
           <div role="alert" className="flex flex-wrap items-center gap-2 pb-4 text-sm">
@@ -825,7 +835,7 @@ function ScheduleDialog({
             <ErrorState error={agentsError} onRetry={onRetryAgents} title="专家列表没有加载出来" />
           </div>
         ) : null}
-        <form onSubmit={submit} className="@container flex flex-col" noValidate>
+        <form id="schedule-form" onSubmit={submit} className="@container flex flex-col" noValidate>
           <div className="grid grid-cols-1 gap-6 @min-[800px]:grid-cols-[minmax(0,1fr)_320px]">
             <FieldGroup className="gap-4">
               <Field
@@ -1095,15 +1105,6 @@ function ScheduleDialog({
                 </Field>
               </FieldGroup>
             </FieldSet>
-          </div>
-
-          <div className="sticky -bottom-4 z-10 -mx-5 -mb-4 mt-4 flex justify-end gap-2 rounded-b-[var(--radius-dialog)] border-t border-line bg-surface px-5 py-4">
-            <Button variant="outline" onClick={guard.close} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" aria-busy={pending} disabled={pending}>
-              {primaryLabel}
-            </Button>
           </div>
         </form>
         <ConfirmDialog

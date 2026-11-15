@@ -87,8 +87,18 @@ export function CaseDialog({
         description="运行评估时，每个用例都会发起一次真实运行。"
         closeDisabled={pending}
         finalFocus={finalFocus}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
+              取消
+            </Button>
+            <Button type="submit" form="eval-case-form" disabled={pending} aria-busy={pending}>
+              {pending ? '保存中…' : '保存'}
+            </Button>
+          </div>
+        }
       >
-        <form noValidate onSubmit={submit} className="flex flex-col gap-4">
+        <form id="eval-case-form" noValidate onSubmit={submit} className="flex flex-col gap-4">
           <FieldGroup className="gap-4">
             <Field className="gap-1.5" data-invalid={Boolean(errors.name)} data-disabled={pending}>
               <FieldLabel htmlFor="eval-name">
@@ -155,14 +165,6 @@ export function CaseDialog({
               <FieldError id="eval-expectation-error">{errors.expectation?.message}</FieldError>
             </Field>
           </FieldGroup>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={guard.close} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={pending} aria-busy={pending}>
-              {pending ? '保存中…' : '保存'}
-            </Button>
-          </div>
         </form>
         <DraftGuardDialogs guard={guard} draft="这条用例的修改会丢失。" pending={pending} />
       </DialogShell>

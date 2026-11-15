@@ -97,8 +97,28 @@ export function DuplicateBaseDialog({
       onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={guardedOpenChange(pending, guard.close)}
     >
-      <DialogShell title="复制知识库" closeDisabled={pending} finalFocus={finalFocus}>
+      <DialogShell
+        title="复制知识库"
+        closeDisabled={pending}
+        finalFocus={finalFocus}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
+              取消
+            </Button>
+            <Button
+              type="submit"
+              form="knowledge-duplicate-form"
+              disabled={pending}
+              aria-busy={pending}
+            >
+              {pending ? '复制中…' : '复制'}
+            </Button>
+          </div>
+        }
+      >
         <form
+          id="knowledge-duplicate-form"
           className="flex flex-col gap-4"
           noValidate
           onSubmit={(event) => {
@@ -169,14 +189,6 @@ export function DuplicateBaseDialog({
               </FieldError>
             </Field>
           </FieldGroup>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={guard.close} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={pending} aria-busy={pending}>
-              {pending ? '复制中…' : '复制'}
-            </Button>
-          </div>
         </form>
         <DraftGuardDialogs guard={guard} draft="复制草稿会丢失。" pending={pending} />
       </DialogShell>

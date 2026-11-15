@@ -617,6 +617,7 @@ export function SkillDialog({
   const [filesSaving, setFilesSaving] = useState(false);
   // 保存成功后只前进版本基线，弹层可继续编辑支持文件而不带旧版本号。
   const [baseline, setBaseline] = useState(skill?.updatedAt);
+  const formId = skill ? 'skill-edit-form' : 'skill-create-form';
   const dirty = rhf.formState.isDirty || filesDirty;
   const pending = create.isPending || update.isPending || filesSaving;
   const guard = useDraftGuard(dirty, pending, onClose);
@@ -666,8 +667,27 @@ export function SkillDialog({
         title={skill ? (readOnly ? `查看「${skill.name}」` : '编辑技能') : '新建技能'}
         closeDisabled={pending}
         finalFocus={finalFocus}
+        footer={
+          <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
+            {readOnly ? (
+              <Button variant="outline" onClick={guard.close} disabled={pending}>
+                关闭
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={guard.close} disabled={pending}>
+                  取消
+                </Button>
+                <Button type="submit" form={formId} aria-busy={pending} disabled={pending}>
+                  {pending ? '保存中…' : '保存'}
+                </Button>
+              </>
+            )}
+          </div>
+        }
       >
         <form
+          id={formId}
           onSubmit={(event) => {
             event.preventDefault();
             if (readOnly) return;
@@ -769,22 +789,6 @@ export function SkillDialog({
               onSavingChange={setFilesSaving}
             />
           ) : null}
-          <div className={cn('flex justify-end gap-2', pending && 'opacity-80')}>
-            {readOnly ? (
-              <Button variant="outline" onClick={guard.close} disabled={pending}>
-                关闭
-              </Button>
-            ) : (
-              <>
-                <Button variant="outline" onClick={guard.close} disabled={pending}>
-                  取消
-                </Button>
-                <Button type="submit" aria-busy={pending} disabled={pending}>
-                  {pending ? '保存中…' : '保存'}
-                </Button>
-              </>
-            )}
-          </div>
         </form>
         <DraftGuardDialogs
           guard={guard}

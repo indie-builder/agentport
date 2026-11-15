@@ -824,8 +824,28 @@ function CreateBaseDialog({
       onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={guardedOpenChange(pending, guard.close)}
     >
-      <DialogShell title="新建知识库" closeDisabled={pending} finalFocus={finalFocus}>
+      <DialogShell
+        title="新建知识库"
+        closeDisabled={pending}
+        finalFocus={finalFocus}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={guard.close} disabled={pending}>
+              取消
+            </Button>
+            <Button
+              type="submit"
+              form="knowledge-create-form"
+              disabled={pending || missingProfiles}
+              aria-busy={pending}
+            >
+              {pending ? '创建中…' : '创建'}
+            </Button>
+          </div>
+        }
+      >
         <form
+          id="knowledge-create-form"
           onSubmit={(event) => {
             event.preventDefault();
             return submit();
@@ -1090,14 +1110,6 @@ function CreateBaseDialog({
               </div>
             </CollapsibleContent>
           </Collapsible>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={guard.close} disabled={pending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={pending || missingProfiles} aria-busy={pending}>
-              {pending ? '创建中…' : '创建'}
-            </Button>
-          </div>
         </form>
         <DraftGuardDialogs guard={guard} draft="新建知识库草稿会丢失。" pending={pending} />
       </DialogShell>

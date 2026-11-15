@@ -122,8 +122,24 @@ export function CreateAgentDialog({
         description="连接器与运行限制可在创建后配置。"
         closeDisabled={create.isPending}
         finalFocus={finalFocus}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={close} disabled={create.isPending}>
+              取消
+            </Button>
+            <Button
+              type="submit"
+              form="create-agent-form"
+              disabled={create.isPending}
+              aria-busy={create.isPending}
+            >
+              {create.isPending ? '创建中…' : '创建'}
+            </Button>
+          </div>
+        }
       >
         <form
+          id="create-agent-form"
           className="flex flex-col gap-3"
           noValidate
           onSubmit={(event) => {
@@ -279,14 +295,6 @@ export function CreateAgentDialog({
               </div>
             </CollapsibleContent>
           </Collapsible>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={close} disabled={create.isPending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={create.isPending} aria-busy={create.isPending}>
-              {create.isPending ? '创建中…' : '创建'}
-            </Button>
-          </div>
         </form>
         <ConfirmDialog
           open={confirmDiscard}
@@ -387,8 +395,24 @@ export function DuplicateAgentDialog({
         description="不包含子专家、记忆与历史记录。"
         closeDisabled={duplicate.isPending}
         finalFocus={getReturnFocus}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={close} disabled={duplicate.isPending}>
+              取消
+            </Button>
+            <Button
+              type="submit"
+              form="duplicate-agent-form"
+              disabled={duplicate.isPending}
+              aria-busy={duplicate.isPending}
+            >
+              {duplicate.isPending ? '克隆中…' : '克隆'}
+            </Button>
+          </div>
+        }
       >
         <form
+          id="duplicate-agent-form"
           className="flex flex-col gap-3"
           noValidate
           onSubmit={(event) => {
@@ -437,14 +461,6 @@ export function DuplicateAgentDialog({
               <FieldError id="duplicate-agent-slug-error">{errors.slug?.message}</FieldError>
             </Field>
           </FieldGroup>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={close} disabled={duplicate.isPending}>
-              取消
-            </Button>
-            <Button type="submit" disabled={duplicate.isPending} aria-busy={duplicate.isPending}>
-              {duplicate.isPending ? '克隆中…' : '克隆'}
-            </Button>
-          </div>
         </form>
         <ConfirmDialog
           open={confirmDiscard}

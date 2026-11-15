@@ -324,8 +324,27 @@ export function SourceDialog({
         title={editing ? '编辑来源' : '新建来源'}
         closeDisabled={pending}
         className="max-w-190 sm:max-w-190"
+        footer={
+          step === 'choose' ? (
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={guard.close} disabled={pending}>
+                取消
+              </Button>
+            </div>
+          ) : (
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={guard.close} disabled={pending}>
+                取消
+              </Button>
+              <Button type="submit" form="source-form" disabled={pending} aria-busy={pending}>
+                {pending ? (editing ? '保存中…' : '创建中…') : editing ? '保存' : '创建'}
+              </Button>
+            </div>
+          )
+        }
       >
         <form
+          id="source-form"
           className="flex flex-col gap-4"
           noValidate
           onSubmit={(event) => {
@@ -690,23 +709,8 @@ export function SourceDialog({
                   </Field>
                 )}
               </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={guard.close} disabled={pending}>
-                  取消
-                </Button>
-                <Button type="submit" disabled={pending} aria-busy={pending}>
-                  {pending ? (editing ? '保存中…' : '创建中…') : editing ? '保存' : '创建'}
-                </Button>
-              </div>
             </>
           )}
-          {step === 'choose' ? (
-            <div className="flex justify-end">
-              <Button variant="outline" onClick={guard.close} disabled={pending}>
-                取消
-              </Button>
-            </div>
-          ) : null}
         </form>
         <DraftGuardDialogs guard={guard} draft="来源配置草稿会丢失。" pending={pending} />
         <ConfirmDialog
