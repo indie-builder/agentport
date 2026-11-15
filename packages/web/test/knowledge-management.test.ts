@@ -17,8 +17,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { z } from 'zod';
 import { useKnowledgeSearch } from '../src/lib/queries.js';
 import { toast, toastError, toastSuccess } from '../src/lib/toast.js';
-import { KnowledgePage } from '../src/pages/knowledge/index.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge/detail/index.js';
+import { KnowledgePage } from '../src/pages/knowledge/index.js';
 import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';
 
@@ -5137,6 +5137,30 @@ describe('knowledge search URL state and diagnostics', () => {
     expect(document.body.textContent).toContain('RRF 分数');
     expect(document.body.textContent).toContain('诊断 · 12 ms');
     expect(document.body.textContent).toContain('kchk_faq');
+  });
+
+  it('restores the default vector threshold when the field is cleared', async () => {
+    baseHandlers();
+    let searchUrl = '';
+    server.use(
+      http.get('/api/knowledge/bases/kb_1/search', ({ request }) => {
+        searchUrl = request.url;
+        return HttpResponse.json({ hits: [], degraded: false });
+      }),
+    );
+    await mount('/knowledge/kb_1', {
+      panel: 'search',
+      q: '备份',
+      minVectorScore: '0.5',
+    });
+    await flush();
+    expect(new URL(searchUrl, 'http://localhost').searchParams.get('minVectorScore')).toBe('0.5');
+
+    await fill('knowledge-min-vector', '');
+    await flush();
+
+    expect(new URL(searchUrl, 'http://localhost').searchParams.has('minVectorScore')).toBe(false);
+    expect(document.querySelector<HTMLInputElement>('#knowledge-min-vector')?.value).toBe('0.3');
   });
 });
 
