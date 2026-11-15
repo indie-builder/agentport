@@ -31,6 +31,8 @@ const diffFields: ReadonlyArray<readonly [keyof Agent, string]> = [
   ['permissionMode', '权限模式'],
   ['maxTurns', '最大轮次'],
   ['maxBudgetUsd', '预算上限'],
+  ['monthlyBudgetUsd', '月度预算上限'],
+  ['budgetAlertRatio', '预算告警阈值'],
   ['timeoutMs', '独立运行超时'],
   ['runtimeEnvironmentId', '运行环境'],
   ['effort', '推理强度'],
