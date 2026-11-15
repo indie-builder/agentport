@@ -35,6 +35,7 @@ const SUPPLIER = '云杉包装';
 const PRODUCT = '竹纤维随行杯';
 const FEED_URL = 'https://hnrss.org/newest?count=3';
 const BUILD_COMMAND = 'bun run dev:data';
+const LOCAL_EMBEDDING_PROFILE_NAME = 'e2e-local-embeddings';
 
 const DOC_POLL_TIMEOUT_MS = 12 * 60_000;
 const JOB_POLL_TIMEOUT_MS = 15 * 60_000;
@@ -183,6 +184,12 @@ interface Chunk {
   kind: 'text' | 'table' | 'image';
   content: string;
   enabled: boolean;
+}
+
+interface DocumentVersion {
+  id: string;
+  metadata: Record<string, unknown>;
+  isCurrent: boolean;
 }
 
 interface WikiPage {
@@ -709,6 +716,33 @@ async function pickEmbeddingProfile(browser: Browser): Promise<ModelProfile | nu
   return profiles.find((profile) => profile.kind === 'embedding' && profile.enabled) ?? null;
 }
 
+async function ensureLocalEmbeddingProfile(browser: Browser): Promise<ModelProfile | null> {
+  const endpointUrl = process.env.E2E_EMBEDDING_URL?.trim();
+  if (!endpointUrl) return null;
+  const model = process.env.E2E_EMBEDDING_MODEL?.trim() || 'local-deterministic';
+  const target = {
+    endpointUrl,
+    model,
+    embeddingProtocol: 'openai',
+    imageInputEnabled: false,
+    enabled: true,
+  } as const;
+  const profiles = await api<ModelProfile[]>(browser, '/api/knowledge/model-profiles');
+  const existing = profiles.find(
+    (profile) => profile.kind === 'embedding' && profile.name === LOCAL_EMBEDDING_PROFILE_NAME,
+  );
+  if (existing !== undefined) {
+    return api<ModelProfile>(browser, `/api/knowledge/model-profiles/${enc(existing.id)}`, {
+      method: 'PATCH',
+      body: target,
+    });
+  }
+  return api<ModelProfile>(browser, '/api/knowledge/model-profiles', {
+    method: 'POST',
+    body: { kind: 'embedding', name: LOCAL_EMBEDDING_PROFILE_NAME, ...target },
+  });
+}
+
 function documentRecord(spec: DocSpec, document: KnowledgeDocument): DocumentRecord {
   return {
     id: document.id,
@@ -787,6 +821,7 @@ async function createManualDocumentViaUi(input: {
   }
   await browser.locator('[contenteditable="true"][aria-label="正文（Markdown）"]').fill(content);
   await screen.getByRole('dialog').getByRole('button', { name: '导入', exact: true }).tap();
+  await screen.getByRole('dialog').waitFor({ state: 'hidden' });
 }
 
 async function uploadDocumentsViaUi(input: {
@@ -798,7 +833,7 @@ async function uploadDocumentsViaUi(input: {
   const { app, browser, baseId, specs } = input;
   await app.open(`/knowledge/${baseId}`);
   const inputElement = browser.locator('input[aria-label="选择要上传的文件"]');
-  await inputElement.waitFor();
+  await inputElement.waitFor({ state: 'attached' });
   const temp = await mkdtemp(join(tmpdir(), `${DATASET_ID}-knowledge-upload-`));
   try {
     const paths: string[] = [];
@@ -835,6 +870,7 @@ async function createWikiPageViaUi(input: {
   await browser.locator('#wiki-title').fill(page.title);
   await browser.locator('#wiki-slug').fill(page.slug);
   await screen.getByRole('dialog').getByRole('button', { name: '创建', exact: true }).tap();
+  await screen.getByRole('dialog').waitFor({ state: 'hidden' });
 }
 
 async function publishWikiViaUi(input: {
@@ -850,7 +886,12 @@ async function publishWikiViaUi(input: {
   await screen.getByRole('button', { name: '编辑正文', exact: true }).waitFor();
   await screen.getByRole('button', { name: '编辑正文', exact: true }).tap();
   await browser.locator('#knowledge-wiki-markdown').fill(markdown);
-  await screen.getByRole('dialog').getByRole('button', { name: '保存', exact: true }).tap();
+  await screen.getByRole('dialog').getByRole('button', { name: '保存草稿', exact: true }).tap();
+  await screen.getByRole('dialog').waitFor({ state: 'hidden' });
+  await screen.getByRole('button', { name: '发布此版本' }).first().waitFor();
+  await screen.getByRole('button', { name: '发布此版本' }).first().tap();
+  await screen.getByRole('dialog').getByRole('button', { name: '发布', exact: true }).tap();
+  await screen.getByRole('dialog').waitFor({ state: 'hidden' });
 }
 
 async function ensureFolders(
@@ -968,6 +1009,7 @@ async function waitIngestOutcome(
   browser: Browser,
   baseId: string,
   documentId: string,
+  publishDraft = false,
 ): Promise<{ job: Job; document: KnowledgeDocument }> {
   const job = await poll<Job | null>(
     `文档 ${documentId} 摄取任务`,
@@ -976,12 +1018,30 @@ async function waitIngestOutcome(
     DOC_POLL_TIMEOUT_MS,
   );
   if (job === null) throw new Error(`[${DATASET_ID}] 文档 ${documentId} 没有摄取任务`);
-  const document = await poll(
-    `文档 ${documentId} 摄取状态`,
-    () => fetchDocument(browser, documentId),
-    (value) => TERMINAL_DOC_STATUSES.has(value.status),
-    STATE_POLL_TIMEOUT_MS,
-  );
+  let current = await fetchDocument(browser, documentId);
+  if (publishDraft && job.status === 'succeeded' && current.status === 'pending') {
+    const versions = await listAll<DocumentVersion>(
+      browser,
+      `/api/knowledge/documents/${enc(documentId)}/versions`,
+    );
+    const draft = versions.find(
+      (version) => version.metadata.publication === 'draft' && !version.isCurrent,
+    );
+    if (draft === undefined) gapFailure(`手写文档 ${documentId} 摄取完成但没有可发布的草稿`);
+    current = await api<KnowledgeDocument>(
+      browser,
+      `/api/knowledge/documents/${enc(documentId)}/publish`,
+      { method: 'POST', body: { versionId: draft.id, expectedVersionId: null } },
+    );
+  }
+  const document = TERMINAL_DOC_STATUSES.has(current.status)
+    ? current
+    : await poll(
+        `文档 ${documentId} 摄取状态`,
+        () => fetchDocument(browser, documentId),
+        (value) => TERMINAL_DOC_STATUSES.has(value.status),
+        STATE_POLL_TIMEOUT_MS,
+      );
   return { job, document };
 }
 
@@ -1050,7 +1110,12 @@ async function ensureDocuments(input: {
         DOC_POLL_TIMEOUT_MS,
       );
       if (document === null) conflict(`文档「${spec.title}」没有创建成功`);
-      const outcome = await waitIngestOutcome(browser, baseId, document.id);
+      const outcome = await waitIngestOutcome(
+        browser,
+        baseId,
+        document.id,
+        spec.uploadName === null,
+      );
       let terminal = outcome.document;
 
       if (spec.expectedStatus === 'failed') {
@@ -1838,6 +1903,14 @@ test('dev data: 青禾知识库（摄取、失败样本、Wiki 发布/生成、R
 }, async ({ app, screen, browser }) => {
   test.skip(process.env.E2E_DEV_DATA !== '1', BUILD_FLAG_REASON);
 
+  await browser.onDialog(async (dialog) => {
+    if (dialog.type === 'beforeunload') {
+      await dialog.accept();
+      return;
+    }
+    throw new Error(`unexpected ${dialog.type} dialog: ${dialog.message}`);
+  });
+
   // api() 通过 browser.evaluate 同源请求，必须先打开页面。
   await app.open('/knowledge');
   const origin = new URL(app.baseUrl ?? (await browser.url())).origin;
@@ -1859,8 +1932,10 @@ test('dev data: 青禾知识库（摄取、失败样本、Wiki 发布/生成、R
   manifest.status = 'in_progress';
   await saveManifest(manifest);
 
-  const profile = await pickEmbeddingProfile(browser);
+  let profile = await pickEmbeddingProfile(browser);
   let base = await findBase(browser);
+
+  if (profile === null && base === null) profile = await ensureLocalEmbeddingProfile(browser);
 
   if (profile === null && base === null) {
     recordGap(

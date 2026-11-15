@@ -1,9 +1,9 @@
 /**
  * 青禾采购与售后协作演示数据集（业务分片）。
  *
- * - 只由本文件负责：5 个专家、专家绑定/规则/风格/记忆、聊天/审批/停止/成果/分享、
- *   评估、定时任务、记忆审核。资产、知识库、运行环境由其他分片构建，这里按固定
- *   dataset 身份从 API 定位，不依赖未定的分片键。
+ * - 只由本文件负责：5 个专家、专家绑定/规则/风格/记忆/工作流/hooks/成员、个人记忆、
+ *   聊天/审批/停止/成果/分享、评估、定时任务、记忆审核。资产、知识库、运行环境由其他
+ *   分片构建，这里按固定 dataset 身份从 API 定位，不依赖未定的分片键。
  * - build：E2E_DEV_DATA=1 且 E2E_DEV_DATA_VERIFY!=1，真实 UI/业务 API 产生数据；固定 slug 与
  *   场景标记保证重跑复用，已发起的有成本运行不重发。
  * - verify：E2E_DEV_DATA=1 且 E2E_DEV_DATA_VERIFY=1，严格只读，不调模型、不启动评估、不同步调度、
@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { isDeepStrictEqual } from 'node:util';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { api, DATASET_ID, datasetPath, writeManifest } from '../support/business-dataset.js';
@@ -88,6 +89,9 @@ interface BusinessManifest {
     approvalConnector: ConnectorRef | null;
     knowledge: { baseId: string; slug: string; serverId: string | null } | null;
     runtimeEnvironment: { id: string; name: string; onlineVersionId: string | null } | null;
+    workflow: { id: string; slug: string; agentId: string } | null;
+    hookFile: { id: string; path: string; agentId: string } | null;
+    member: { businessId: string; agentId: string; canUse: boolean; canMaintain: boolean } | null;
   };
   relations: {
     mainSubAgentIds: string[];
@@ -118,6 +122,11 @@ interface BusinessManifest {
     runId: string | null;
     appliedChangeId: string | null;
     appliedContent?: string;
+  } | null;
+  personalMemory: {
+    changeId: string | null;
+    reviewKey: string;
+    reviewRunId: string | null;
   } | null;
   shares: { conversationId: string | null; runId: string | null; path: string | null };
   gaps: string[];
@@ -198,6 +207,37 @@ const MEMORY_THEME = `# 采购策略\n\n- 供应商：云杉包装（虚构）�
 const RULE_CONTENT = `# 采购评审规则\n\n- 所有金额、数量与交期必须能追溯到采购单 QH-PO-2026-001 或附件。\n- 不得引入真实公司、真实联系人或真实报价。\n- 交付结论必须给出下一步责任人和时间点。\n`;
 const STYLE_BODY = `采购简报输出风格：\n\n- 先给一句结论，再列风险与下一步。\n- 数字保留两位小数，金额使用人民币。\n- 不写客套话，不复述附件全文。\n`;
 
+const WORKFLOW_SLUG = `${DATASET_ID}-procurement-review`;
+const WORKFLOW_NAME = '【青禾演示】采购评审工作流';
+const WORKFLOW_CONTENT = `export const meta = {
+  name: '${WORKFLOW_NAME}',
+  description: '对虚构采购单 QH-PO-2026-001 做评审、交期跟踪与售后追溯。',
+  phases: [
+    { title: '收集证据', detail: '读取采购单与附件，核对金额、交期与验收条款。' },
+    { title: '输出简报', detail: '把结论写入简报并列出下一步。' },
+  ],
+}
+
+phase('收集证据')
+const evidence = await agent('阅读虚构采购单 QH-PO-2026-001 与附件，列出金额、交期、验收与售后要点。只返回要点列表。')
+phase('输出简报')
+return evidence
+`;
+
+const HOOK_FILE_PATH = 'devdata-dataset-notice.sh';
+const HOOK_FILE_CONTENT = '#!/bin/sh\nexit 0\n';
+const HOOKS_CONFIG = {
+  PreToolUse: [
+    {
+      matcher: 'Bash',
+      hooks: [{ type: 'command', command: `bash .claude/hooks/${HOOK_FILE_PATH}` }],
+    },
+  ],
+};
+
+const MEMBER_BUSINESS_ID = `${DATASET_ID}-buyer`;
+const PERSONAL_MEMORY_CONTENT = `# 青禾演示个人偏好\n\n- 采购金额统一用人民币，保留两位小数。\n- 汇报先给结论，再列风险、责任人和下一步时间点。\n- 只处理虚构演示数据，不引入真实公司、联系人或报价。\n`;
+
 function emptyManifest(origin: string | null): BusinessManifest {
   return {
     datasetId: DATASET_ID,
@@ -219,6 +259,9 @@ function emptyManifest(origin: string | null): BusinessManifest {
       approvalConnector: null,
       knowledge: null,
       runtimeEnvironment: null,
+      workflow: null,
+      hookFile: null,
+      member: null,
     },
     relations: {
       mainSubAgentIds: [],
@@ -243,6 +286,7 @@ function emptyManifest(origin: string | null): BusinessManifest {
       expectedTotal: 2,
     },
     memoryReview: null,
+    personalMemory: null,
     shares: { conversationId: null, runId: null, path: null },
     gaps: [],
     status: 'partial',
@@ -380,6 +424,8 @@ interface MemoryReviewDetail {
   proposal: unknown;
   appliedChangeId: string | null;
   error: string | null;
+  before: { content: string | null };
+  sources: Array<{ conversationId: string }>;
 }
 
 async function waitFor<T>(
@@ -1040,6 +1086,119 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
         : content;
     if (current.content !== expectedContent) gaps.add(`专家记忆 ${name} 已被修改，未覆盖`);
   }
+
+  const listWorkflows = (): Promise<
+    Array<{ id: string; agentId: string; slug: string; name: string; content: string }>
+  > => api(browser, `/api/agents/${main.id}/workflows`);
+  const existingWorkflow = (await listWorkflows()).find((item) => item.slug === WORKFLOW_SLUG);
+  if (existingWorkflow && existingWorkflow.content !== WORKFLOW_CONTENT)
+    gaps.add(`工作流 ${WORKFLOW_SLUG} 已被修改，未覆盖`);
+  const workflow =
+    existingWorkflow ??
+    (await api<{ id: string; agentId: string; slug: string; name: string; content: string }>(
+      browser,
+      `/api/agents/${main.id}/workflows`,
+      { method: 'POST', body: { slug: WORKFLOW_SLUG, content: WORKFLOW_CONTENT } },
+    ));
+  if (
+    (await listWorkflows()).filter(
+      (item) => item.slug === WORKFLOW_SLUG && item.agentId === main.id,
+    ).length !== 1
+  )
+    conflict(`工作流 ${WORKFLOW_SLUG} 数量不是 1`);
+  manifest.entities.workflow = {
+    id: workflow.id,
+    slug: workflow.slug,
+    agentId: workflow.agentId,
+  };
+  save();
+
+  const readHooks = (): Promise<{
+    enabled: boolean;
+    config: Record<string, unknown> | null;
+    files: Array<{
+      id: string;
+      agentId: string;
+      path: string;
+      content: string;
+      executable: boolean;
+    }>;
+  }> => api(browser, `/api/agents/${main.id}/hooks`);
+  const hooks = await readHooks();
+  if (!(hooks.enabled && isDeepStrictEqual(hooks.config, HOOKS_CONFIG))) {
+    if (hooks.enabled || hooks.config !== null || hooks.files.length > 0)
+      conflict('主专家 hooks 设置已被修改');
+    await api(browser, `/api/agents/${main.id}/hooks/settings`, {
+      method: 'PUT',
+      body: { enabled: true, config: HOOKS_CONFIG },
+    });
+  }
+  const existingHookFile = (await readHooks()).files.find((item) => item.path === HOOK_FILE_PATH);
+  if (
+    existingHookFile &&
+    (existingHookFile.content !== HOOK_FILE_CONTENT || !existingHookFile.executable)
+  )
+    conflict('主专家 hooks 脚本已被修改');
+  const hookFile =
+    existingHookFile ??
+    (await api<{
+      id: string;
+      agentId: string;
+      path: string;
+      content: string;
+      executable: boolean;
+    }>(browser, `/api/agents/${main.id}/hooks/files`, {
+      method: 'PUT',
+      body: { path: HOOK_FILE_PATH, content: HOOK_FILE_CONTENT, executable: true },
+    }));
+  if (
+    (await readHooks()).files.filter(
+      (item) => item.path === HOOK_FILE_PATH && item.agentId === main.id,
+    ).length !== 1
+  )
+    conflict('主专家 hooks 脚本数量不是 1');
+  manifest.entities.hookFile = {
+    id: hookFile.id,
+    path: hookFile.path,
+    agentId: hookFile.agentId,
+  };
+  save();
+
+  const datasetAccount = (
+    await api<{ items: Array<{ businessId: string }>; total: number }>(
+      browser,
+      `/api/accounts?q=${encodeURIComponent(MEMBER_BUSINESS_ID)}&limit=100&offset=0`,
+    )
+  ).items.find((item) => item.businessId === MEMBER_BUSINESS_ID);
+  if (!datasetAccount) conflict(`缺少数据集账户 ${MEMBER_BUSINESS_ID}`);
+  const readMembers = (): Promise<{
+    ownerBusinessId: string;
+    members: Array<{ businessId: string; canUse: boolean; canMaintain: boolean }>;
+  }> => api(browser, `/api/agents/${main.id}/members`);
+  const currentMembers = await readMembers();
+  if (currentMembers.ownerBusinessId !== me.user.businessId) conflict('主专家负责人已变化');
+  let member = currentMembers.members.find((item) => item.businessId === MEMBER_BUSINESS_ID);
+  if (!member) {
+    member = await api(
+      browser,
+      `/api/agents/${main.id}/members/${encodeURIComponent(MEMBER_BUSINESS_ID)}`,
+      { method: 'PUT', body: { canUse: true, canMaintain: false } },
+    );
+  } else if (!member.canUse || member.canMaintain) {
+    conflict('主专家成员权限已被修改');
+  }
+  if (
+    (await readMembers()).members.filter((item) => item.businessId === MEMBER_BUSINESS_ID)
+      .length !== 1
+  )
+    conflict('主专家成员数量不是 1');
+  manifest.entities.member = {
+    businessId: MEMBER_BUSINESS_ID,
+    agentId: main.id,
+    canUse: true,
+    canMaintain: false,
+  };
+  save();
 
   const mainDetail = await api<{
     serverIds: string[];
@@ -1824,6 +1983,94 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     ).content;
     save();
   }
+
+  const personal = await api<{ content: string; revision: number }>(browser, '/api/me/memory');
+  if (personal.content !== '' && personal.content !== PERSONAL_MEMORY_CONTENT)
+    conflict('个人记忆已被修改，未覆盖');
+  let personalChangeId: string | null = null;
+  if (personal.content === PERSONAL_MEMORY_CONTENT) {
+    let cursor: string | null = null;
+    for (;;) {
+      const page: {
+        items: Array<{ id: string; target: { kind: string }; after: { content: string | null } }>;
+        nextCursor: string | null;
+      } = await api(
+        browser,
+        `/api/me/memory/versions?limit=200${
+          cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`
+        }`,
+      );
+      personalChangeId =
+        page.items.find(
+          (item) =>
+            item.target.kind === 'personal' && item.after.content === PERSONAL_MEMORY_CONTENT,
+        )?.id ?? null;
+      if (personalChangeId !== null || page.nextCursor === null) break;
+      cursor = page.nextCursor;
+    }
+    if (personalChangeId === null) gaps.add('个人记忆正文存在但缺少变更账本');
+  } else {
+    const saved = await api<{ changeId: string }>(browser, '/api/me/memory', {
+      method: 'PUT',
+      body: { content: PERSONAL_MEMORY_CONTENT, expectedRevision: personal.revision },
+    });
+    personalChangeId = saved.changeId;
+  }
+  manifest.personalMemory ??= {
+    changeId: null,
+    reviewKey: randomUUID(),
+    reviewRunId: null,
+  };
+  manifest.personalMemory.changeId = personalChangeId;
+  const personalState = manifest.personalMemory;
+  save();
+  let personalReviewRunId = personalState.reviewRunId;
+  if (!personalReviewRunId) {
+    const created = await evaluateFetch<{ runId: string }>(browser, '/api/memory-reviews', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'idempotency-key': personalState.reviewKey,
+      },
+      body: {
+        modelAgentId: sub.id,
+        target: { kind: 'personal' },
+        sources: [{ conversationId: purchaseConversationId }],
+        instruction:
+          '整理一条可复用的个人偏好：采购金额口径、结论优先与只使用虚构演示数据；与现有内容合并，保持简短。',
+      },
+    });
+    personalReviewRunId = created.runId;
+  }
+  const personalReviewDetail = await api<MemoryReviewDetail>(
+    browser,
+    `/api/memory-reviews/${personalReviewRunId}`,
+  );
+  if (
+    personalReviewDetail.modelAgentId !== sub.id ||
+    personalReviewDetail.target.kind !== 'personal' ||
+    personalReviewDetail.before.content !== PERSONAL_MEMORY_CONTENT ||
+    !personalReviewDetail.sources.some((source) => source.conversationId === purchaseConversationId)
+  )
+    conflict('个人记忆审核与数据集标识不一致');
+  manifest.personalMemory = {
+    changeId: personalChangeId,
+    reviewKey: personalState.reviewKey,
+    reviewRunId: personalReviewRunId,
+  };
+  save();
+  const personalReviewDone = await waitFor(
+    () => api<MemoryReviewDetail>(browser, `/api/memory-reviews/${personalReviewRunId}`),
+    (detail) => detail.status !== 'queued' && detail.status !== 'running',
+    '个人记忆审核运行结束',
+    15 * 60_000,
+    3_000,
+  );
+  if (personalReviewDone.status !== 'succeeded') {
+    gaps.add(`个人记忆审核未成功：${personalReviewDone.status} ${personalReviewDone.error ?? ''}`);
+  } else if (personalReviewDone.decision !== 'pending') {
+    gaps.add(`个人记忆审核决定不是待处理：${personalReviewDone.decision}`);
+  }
   manifest.gaps = [...gaps];
   manifest.status = gaps.size === 0 ? 'complete' : 'partial';
   save();
@@ -2005,10 +2252,75 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
     '主专家缺少记忆主题',
   );
 
+  const workflows = await api<
+    Array<{ id: string; agentId: string; slug: string; name: string; content: string }>
+  >(browser, `/api/agents/${main.id}/workflows`);
+  const workflow = workflows.filter((item) => item.slug === WORKFLOW_SLUG);
+  check(
+    workflow.length === 1 &&
+      workflow[0]?.id === manifest.entities.workflow?.id &&
+      workflow[0]?.agentId === main.id &&
+      workflow[0]?.name === WORKFLOW_NAME &&
+      workflow[0]?.content === WORKFLOW_CONTENT,
+    '主专家工作流缺失或身份不一致',
+  );
+  const hooks = await api<{
+    enabled: boolean;
+    config: Record<string, unknown> | null;
+    files: Array<{
+      id: string;
+      agentId: string;
+      path: string;
+      content: string;
+      executable: boolean;
+    }>;
+  }>(browser, `/api/agents/${main.id}/hooks`);
+  check(
+    hooks.enabled && isDeepStrictEqual(hooks.config, HOOKS_CONFIG),
+    '主专家 hooks 未启用或配置不一致',
+  );
+  const hookFile = hooks.files.filter((item) => item.path === HOOK_FILE_PATH);
+  check(
+    hookFile.length === 1 &&
+      hookFile[0]?.id === manifest.entities.hookFile?.id &&
+      hookFile[0]?.agentId === main.id &&
+      hookFile[0]?.content === HOOK_FILE_CONTENT &&
+      hookFile[0]?.executable,
+    '主专家 hooks 脚本缺失或身份不一致',
+  );
+  const members = await api<{
+    ownerBusinessId: string;
+    members: Array<{
+      businessId: string;
+      name: string;
+      accountActive: boolean;
+      canUse: boolean;
+      canMaintain: boolean;
+    }>;
+  }>(browser, `/api/agents/${main.id}/members`);
+  const member = members.members.filter((item) => item.businessId === MEMBER_BUSINESS_ID);
+  const memberAccount = (
+    await api<{
+      items: Array<{ businessId: string; name: string; status: 'active' | 'disabled' }>;
+    }>(browser, `/api/accounts?q=${encodeURIComponent(MEMBER_BUSINESS_ID)}&limit=100&offset=0`)
+  ).items.find((item) => item.businessId === MEMBER_BUSINESS_ID);
+  check(
+    members.ownerBusinessId === manifest.actor.businessId &&
+      member.length === 1 &&
+      member[0]?.businessId === manifest.entities.member?.businessId &&
+      member[0]?.name === memberAccount?.name &&
+      member[0]?.accountActive === (memberAccount?.status === 'active') &&
+      member[0]?.canUse === true &&
+      member[0]?.canMaintain === false,
+    '主专家成员缺失或身份不一致',
+  );
+
   // 完整文件真实可渲染，且包含绑定与新增文件。
   const files = await api<{
     mcpJson: string;
     subAgents: Array<{ slug: string }>;
+    workflows: Array<{ slug: string; content: string }>;
+    hookFiles: Array<{ path: string; content: string; executable: boolean }>;
     skills: Array<{ slug: string; files: Array<{ path: string }> }>;
     rules: Array<{ slug: string }>;
     outputStyles: Array<{ slug: string }>;
@@ -2033,6 +2345,19 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
   );
   check(files.selectedOutputStyle === 'procurement-brief', '输出风格未被选中');
   check(files.plugins.length >= 1, '完整文件缺少插件目录');
+  check(
+    files.workflows.some(
+      (item) => item.slug === WORKFLOW_SLUG && item.content === WORKFLOW_CONTENT,
+    ),
+    '完整文件缺少工作流',
+  );
+  check(
+    files.hookFiles.some(
+      (item) =>
+        item.path === HOOK_FILE_PATH && item.content === HOOK_FILE_CONTENT && item.executable,
+    ),
+    '完整文件缺少 hooks 脚本',
+  );
 
   // 场景运行与业务边界交叉核对。
   const runOf = async (key: ScenarioKey): Promise<RunDetail | null> => {
@@ -2237,6 +2562,45 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
   check(reviewDetail.decision === 'applied', `记忆审核决定是 ${reviewDetail.decision}`);
   check(Boolean(reviewDetail.proposal), '记忆审核没有提案');
   check(Boolean(reviewDetail.appliedChangeId), '记忆审核没有采纳变更记录');
+
+  const personal = must(manifest.personalMemory, '缺少个人记忆记录');
+  const myMemory = await api<{ content: string; revision: number }>(browser, '/api/me/memory');
+  check(myMemory.content === PERSONAL_MEMORY_CONTENT, '个人记忆正文与数据集不一致');
+  check(myMemory.revision >= 1, '个人记忆没有版本');
+  const personalVersions = await api<{
+    items: Array<{ id: string; target: { kind: string }; after: { content: string | null } }>;
+  }>(browser, '/api/me/memory/versions?limit=50');
+  check(
+    personalVersions.items.some(
+      (item) =>
+        item.id === personal.changeId &&
+        item.target.kind === 'personal' &&
+        item.after.content === PERSONAL_MEMORY_CONTENT,
+    ),
+    '个人记忆缺少变更账本记录',
+  );
+  const personalReview = await api<MemoryReviewDetail>(
+    browser,
+    `/api/memory-reviews/${must(personal.reviewRunId, '缺少个人记忆审核运行')}`,
+  );
+  check(
+    personalReview.target.kind === 'personal' &&
+      personalReview.modelAgentId === sub.id &&
+      personalReview.status === 'succeeded' &&
+      personalReview.decision === 'pending',
+    `个人记忆审核状态不符：${personalReview.status}/${personalReview.decision}`,
+  );
+  check(Boolean(personalReview.proposal), '个人记忆审核没有提案');
+  check(
+    personalReview.before.content === PERSONAL_MEMORY_CONTENT,
+    '个人记忆审核基线不是数据集个人记忆',
+  );
+  check(
+    personalReview.sources.some(
+      (source) => source.conversationId === manifest.scenarios['purchase-success']?.conversationId,
+    ),
+    '个人记忆审核来源不是采购会话',
+  );
 
   if (problems.length > 0) {
     throw new Error(`业务数据验收失败：\n- ${[...new Set(problems)].join('\n- ')}`);
