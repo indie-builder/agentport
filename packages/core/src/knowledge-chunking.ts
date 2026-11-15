@@ -408,6 +408,7 @@ function splitFramedLines(
     size += line.length + 1;
   }
   flush();
+  if (parts.length === 0) return [block];
   return parts;
 }
 
@@ -425,9 +426,11 @@ function splitTable(block: ParsedBlock, maxChars: number): ParsedBlock[] {
 function splitFence(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   const lines = block.content.split('\n');
   const opener = lines[0] ?? '';
-  const closer = lines.at(-1) ?? '';
-  const body = lines.slice(1, -1);
-  return splitFramedLines(block, maxChars, { head: [opener], tail: [closer], body });
+  const marker = fenceStartMarker(opener) ?? '```';
+  const isClosed = lines.length > 1 && fenceCloser(marker).test(lines.at(-1) ?? '');
+  const body = isClosed ? lines.slice(1, -1) : lines.slice(1);
+  const tail = [isClosed ? (lines.at(-1) ?? '') : marker];
+  return splitFramedLines(block, maxChars, { head: [opener], tail, body });
 }
 
 /** 超长块先按语义二次切分：表格按行（重复表头）、代码按行（补全 fence）。 */
