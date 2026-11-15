@@ -110,10 +110,11 @@ export async function setDocumentTags(
   documentId: string,
   tagIds: string[],
 ): Promise<void> {
+  const unique = [...new Set(tagIds)];
   await db.transaction(async (tx) => {
     await tx.delete(knowledgeDocumentTags).where(eq(knowledgeDocumentTags.documentId, documentId));
-    if (tagIds.length > 0) {
-      await tx.insert(knowledgeDocumentTags).values(tagIds.map((tagId) => ({ documentId, tagId })));
+    if (unique.length > 0) {
+      await tx.insert(knowledgeDocumentTags).values(unique.map((tagId) => ({ documentId, tagId })));
     }
   });
 }
