@@ -1,10 +1,16 @@
 import { AppError } from '@agentport/core';
-import { and, asc, eq, gt, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeFolders } from '../../schema.js';
 import { paginate } from '../keyset.js';
-import { type KnowledgeFolderRow, type Page, type PageOptions, pageLimit } from './shared.js';
+import {
+  escapeLike,
+  type KnowledgeFolderRow,
+  type Page,
+  type PageOptions,
+  pageLimit,
+} from './shared.js';
 
 // ---------------------------------------------------------------------------
 // 文件夹 / 标签
@@ -45,11 +51,6 @@ export async function getFolder(db: DbHandle, id: string): Promise<KnowledgeFold
     .where(eq(knowledgeFolders.id, id))
     .limit(1);
   return row ?? null;
-}
-
-/** LIKE 默认转义符是反斜杠；路径里的 % _ \ 必须转义后才能当字面前缀匹配。 */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&');
 }
 
 /** 改名或移动后整棵子树的物化路径一起重写；路径唯一冲突交给 409。 */

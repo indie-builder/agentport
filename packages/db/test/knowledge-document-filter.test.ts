@@ -84,6 +84,7 @@ let documentSeq = 0;
 async function seedDocument(
   baseId: string,
   input: {
+    title?: string;
     sourceType?: 'gitlab' | 'manual' | 'upload';
     sourceId?: string | null;
     sourceConnectionId?: string | null;
@@ -94,7 +95,7 @@ async function seedDocument(
   const document = await knowledge.createDocument(db, {
     baseId,
     folderId: null,
-    title: `doc-${documentSeq}`,
+    title: input.title ?? `doc-${documentSeq}`,
     sourceType: input.sourceType ?? 'gitlab',
     sourceId: input.sourceId ?? null,
     sourceUrl: null,
@@ -253,5 +254,23 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
       expect(query.text).toContain('source_connection_id');
       expect(query.values).toContain(source);
     }
+  });
+
+  it('搜索词里的 % 与 _ 按字面匹配', async () => {
+    const baseId = await seedBase();
+    const plain = await seedDocument(baseId, { title: 'plain' });
+    const percent = await seedDocument(baseId, { title: '100% done' });
+    const underscore = await seedDocument(baseId, { title: 'a_b' });
+
+    const quotedPercent = await knowledge.listDocuments(db, { baseId, q: '%' });
+    expect(quotedPercent.items.map((document) => document.id)).toEqual([percent]);
+
+    const quotedUnderscore = await knowledge.listDocuments(db, { baseId, q: '_' });
+    expect(quotedUnderscore.items.map((document) => document.id)).toEqual([underscore]);
+
+    const all = await knowledge.listDocuments(db, { baseId });
+    expect(all.items.map((document) => document.id).sort()).toEqual(
+      [plain, percent, underscore].sort(),
+    );
   });
 });
