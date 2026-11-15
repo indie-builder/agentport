@@ -1,6 +1,13 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
-import { Toast, ToastClose, ToastDescription, ToastRegion, ToastTitle } from '@ui-sdk/react/toast';
+import {
+  Toast,
+  ToastAction,
+  ToastClose,
+  ToastDescription,
+  ToastRegion,
+  ToastTitle,
+} from '@ui-sdk/react/toast';
 import { CircleAlert, CircleCheck, Info, LucideProvider, TriangleAlert, X } from 'lucide-react';
 import { queryClient } from './lib/queries.js';
 import { toaster } from './lib/toast.js';
@@ -44,6 +51,7 @@ export function App() {
                     <ToastTitle className="text-sm font-medium" />
                     <ToastDescription className="text-sm text-muted-foreground" />
                   </div>
+                  <ToastAction className="inline-flex shrink-0 items-center border border-line bg-surface rounded-[var(--radius-tag)] px-2 py-1 text-sm font-medium text-fg outline-none hover:bg-hover focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2 disabled:opacity-50" />
                   <ToastClose
                     aria-label="关闭"
                     className="inline-flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-tag)] text-muted-foreground outline-none hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-ring focus-visible:outline-offset-2"
