@@ -336,7 +336,11 @@ export function PluginsPage() {
         <PluginDialog plugin={editing} finalFocus={panelFocus} onClose={() => setEditing(null)} />
       ) : null}
       {installing ? (
-        <InstallPluginDialog finalFocus={panelFocus} onClose={() => setInstalling(false)} />
+        <InstallPluginDialog
+          canImport={canImport}
+          finalFocus={panelFocus}
+          onClose={() => setInstalling(false)}
+        />
       ) : null}
       {deleting ? (
         <DeletePluginDialog
@@ -352,9 +356,11 @@ export function PluginsPage() {
 function InstallPluginDialog({
   onClose: onClosed,
   finalFocus,
+  canImport,
 }: {
   onClose: () => void;
   finalFocus: () => HTMLElement | null;
+  canImport: boolean;
 }) {
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
@@ -577,7 +583,7 @@ function InstallPluginDialog({
                         <div className="ml-auto">
                           {item.imported ? (
                             <Badge variant="secondary">已加入</Badge>
-                          ) : (
+                          ) : canImport ? (
                             <Button
                               variant="outline"
                               size="sm"
@@ -587,7 +593,7 @@ function InstallPluginDialog({
                             >
                               {importing ? '加入中…' : '加入插件库'}
                             </Button>
-                          )}
+                          ) : null}
                         </div>
                       </li>
                     );

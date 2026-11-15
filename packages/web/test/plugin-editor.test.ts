@@ -406,4 +406,21 @@ describe('native plugin install dialog', () => {
     await click(button('加入插件库'));
     expect(state.importNative).toHaveBeenCalledWith({ pluginId: 'other@acme' }, expect.anything());
   });
+
+  it('hides 加入插件库 without plugins.import', async () => {
+    state.native.data = { installed: [{ pluginId: 'other@acme', version: '', imported: false }] };
+    mount();
+    client!.setQueryData(['me'], {
+      ...allAccessMe,
+      grants: allAccessMe.grants.filter((grant) => grant.permissionId !== 'plugins.import'),
+    });
+    await flush();
+    await click(button('安装插件'));
+    await click(button('已安装'));
+    expect(document.body.textContent).toContain('other@acme');
+    const addButtons = [...document.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (el) => el.textContent?.trim() === '加入插件库',
+    );
+    expect(addButtons).toHaveLength(0);
+  });
 });
