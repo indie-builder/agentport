@@ -20,6 +20,8 @@ const defaults = {
   uiFormat: 'markdown',
   maxTurns: 20,
   maxBudgetUsd: 2,
+  monthlyBudgetUsd: null,
+  budgetAlertRatio: 0.8,
   timeoutMs: 600_000,
   enabled: true,
   // agentInputSchema 对可选 effort 不做默认值，解析结果是显式 undefined。
