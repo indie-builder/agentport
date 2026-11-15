@@ -586,6 +586,7 @@ export function ServersPage() {
           lastTest={catalogTest ?? null}
           pending={test.isPending}
           testing={test.isPending && test.variables?.id === catalogServer.id}
+          canTest={canTest}
           onRetest={(trigger) => startTest(catalogServer, trigger)}
           getReturnFocus={focusTrigger}
           onClose={() => setCatalogServer(null)}
