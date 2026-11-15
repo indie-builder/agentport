@@ -28,8 +28,8 @@ export function registerAuditHttp(app: Hono<HttpEnv>): void {
       const query = parsed.data;
 
       if (query.format === 'ndjson') {
-        if (query.beforeId !== undefined)
-          fail('INVALID_INPUT', 'NDJSON 导出不支持 beforeId 游标，请改用 afterSeq');
+        if (query.cursor !== undefined)
+          fail('INVALID_INPUT', 'NDJSON 导出不支持 cursor 游标，请改用 afterSeq');
         const chain = await repo.audit.listAudit(context.db, {
           ...auditOptions({
             action: query.action,
@@ -72,9 +72,9 @@ export function registerAuditHttp(app: Hono<HttpEnv>): void {
         limit: query.limit + 1,
       });
       if (
-        query.beforeId !== undefined &&
+        query.cursor !== undefined &&
         rows.length === 0 &&
-        !(await repo.audit.auditEntryExists(context.db, query.beforeId))
+        !(await repo.audit.auditEntryExists(context.db, query.cursor))
       ) {
         fail('INVALID_INPUT', '分页游标无效');
       }

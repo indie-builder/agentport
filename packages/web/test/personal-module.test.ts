@@ -849,7 +849,7 @@ describe('记忆提案只读', () => {
     vi.spyOn(api, 'me').mockResolvedValue(me);
     const agents = vi.spyOn(api, 'agents').mockResolvedValue([]);
     const conversations = vi.spyOn(api, 'personalConversations');
-    vi.spyOn(api, 'memoryReviews').mockResolvedValue({ items: [review] });
+    vi.spyOn(api, 'memoryReviews').mockResolvedValue({ items: [review], nextCursor: null });
     await mount({
       path: '/personal/reviews',
       component: PersonalReviewsPage,

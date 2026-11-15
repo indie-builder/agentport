@@ -406,7 +406,7 @@ docker compose start api worker
 - 连接器页「导入 .mcp.json」接受≤1MiB、1–100条HTTP/stdio配置；env/headers加密保存，响应只给密钥键名。任一重名整批409不覆盖；未知字段、未支持transport、`${VAR}`占位符及URL内嵌凭证明确拒绝。HTTP仍校验SSRF；导入不测试连接或执行命令，详见D-32。
 - 专家页「导入」同时接受专家JSON与≤128KiB的agent.md。Markdown只导入name/description/model/maxTurns/effort及完整正文（含H1），创建独立专家与初始版本；重名409不覆盖，不自动运行。权限和绑定使用平台默认值并提示，inherit及未支持的权限/Hook字段明确拒绝，详见D-30。
 - 技能页「导入 SKILL.md」接受≤128KiB文件，解析官方YAML frontmatter的name/description与Markdown正文；首个H1用作显示名。重名返回409且不覆盖；license/compatibility/metadata会提示未保存，尚未接入的Hooks/工具权限/model等行为字段会明确拒绝。保留当前项目500字符描述及命名规则，超限不截断。
-- 审计加载更多使用beforeId记录游标，数据库按原始(created_at,id)比较，同一时间超过一页也不漏记录；before继续表示独立时间范围。游标记录被清理后需刷新；审计导出共用过滤，仍以1000条为上限，超限拒绝。
+- 审计列表 wire 使用`cursor`（上一页末条记录ID）与`nextCursor`：服务端按`limit+1`探测，`nextCursor`为null表示没有下一页；数据库仍按原始(created_at,id)比较，同一时间超过一页也不漏记录；`before`继续表示独立时间范围。游标记录被清理后需刷新；审计导出共用过滤，仍以1000条为上限，超限拒绝，NDJSON导出不支持`cursor`。
 - 概览窗口与专家Token总量在加法前转bigint、汇总后转JSON数字，避免int32溢出；单条25亿和累计30亿已验证，超过JavaScript安全整数上限2^53-1的累计不保证精度。
 - 运行历史展开后可「导出结果」，仅终态开放，包含已记录的用例文本、输出与通过情况；最多500条且≤1MiB，超限明确拒绝。agentport/eval-run@1标记configurationPinned=false，专家配置未冻结，文件不构成完整复现包；提示词可能包含敏感内容，分享前自行检查，详见D-38。
 - 会话详情接口支持limit（默认50、最大100）与cursor游标，返回按时间正序的最近一页和nextCursor；nextCursor为null表示没有更早消息。未知/其他会话游标返回400，历史被清理后应刷新重新加载；分支复制、评估与平台调用的内部历史读取仍完整，详见D-40。

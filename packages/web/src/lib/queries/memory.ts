@@ -74,7 +74,10 @@ export const personalMemoryQuery = queryOptions<PersonalMemory>({
   staleTime: 0,
 });
 
-export const personalMemoryVersionsQuery = queryOptions<{ items: MemoryChange[] }>({
+export const personalMemoryVersionsQuery = queryOptions<{
+  items: MemoryChange[];
+  nextCursor: string | null;
+}>({
   queryKey: ['personal-memory-versions'],
   queryFn: ({ signal }) => api.personalMemoryVersions({}, signal),
   staleTime: 0,
@@ -82,7 +85,7 @@ export const personalMemoryVersionsQuery = queryOptions<{ items: MemoryChange[] 
 
 /** 三类记忆目标各自的变更账本；审核详情与列表据此识别已回滚的采用。 */
 export const memoryVersionsQuery = (target: MemoryReviewTarget, enabled = true) =>
-  queryOptions<{ items: MemoryChange[] }>({
+  queryOptions<{ items: MemoryChange[]; nextCursor: string | null }>({
     queryKey: ['memory-versions', target],
     queryFn: ({ signal }) => {
       if (target.kind === 'personal') return api.personalMemoryVersions({}, signal);
@@ -156,16 +159,13 @@ export function useMemoryReviews(agentId: string | null) {
       api.memoryReviews(
         {
           ...(agentId ? { agentId } : {}),
-          ...(pageParam ? { before: pageParam } : {}),
+          ...(pageParam ? { cursor: pageParam } : {}),
           limit: MEMORY_REVIEWS_PAGE_SIZE,
         },
         signal,
       ),
     initialPageParam: null as string | null,
-    getNextPageParam: (last) =>
-      last.items.length < MEMORY_REVIEWS_PAGE_SIZE
-        ? null
-        : (last.items.at(-1)?.createdAt ?? null),
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 0,
     refetchInterval: (query) =>
       query.state.data?.pages.some((page) => page.items.some(memoryReviewActive)) ? 3_000 : false,

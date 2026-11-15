@@ -212,7 +212,7 @@ async function mountFiles(
 beforeEach(() => {
   vi.spyOn(api, 'agentMemory').mockResolvedValue(memoryList);
   vi.spyOn(api, 'agentMemoryFile').mockResolvedValue(memoryFile);
-  vi.spyOn(api, 'agentMemoryVersions').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'agentMemoryVersions').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'agentMemoryOverview').mockResolvedValue(memoryOverview);
   vi.spyOn(api, 'agentMemoryAssembly').mockResolvedValue(memoryAssembly);
   vi.spyOn(api, 'agentRules').mockResolvedValue([rule]);
@@ -287,7 +287,10 @@ describe('memory file editor', () => {
   });
 
   it('按所选文件加载版本，可查看内容并回滚', async () => {
-    vi.mocked(api.agentMemoryVersions).mockResolvedValue({ items: [memoryChange] });
+    vi.mocked(api.agentMemoryVersions).mockResolvedValue({
+      items: [memoryChange],
+      nextCursor: null,
+    });
     const rollback = vi
       .spyOn(api, 'rollbackMemoryChange')
       .mockResolvedValue({ ...memoryChange, id: 'chg_2', reversesChangeId: 'chg_1' });
@@ -380,7 +383,10 @@ describe('memory file editor', () => {
       ],
       initialized: true,
     });
-    vi.mocked(api.agentMemoryVersions).mockResolvedValue({ items: [topicCreation] });
+    vi.mocked(api.agentMemoryVersions).mockResolvedValue({
+      items: [topicCreation],
+      nextCursor: null,
+    });
     await mountFiles();
 
     await waitFor(() => buttonOrNull('查看'));

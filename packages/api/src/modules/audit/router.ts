@@ -33,11 +33,11 @@ type AuditQueryParams = {
   since?: string | undefined;
   limit?: number | undefined;
   before?: string | undefined;
-  beforeId?: string | undefined;
+  cursor?: string | undefined;
 };
 
 export function auditOptions(query: AuditQueryParams): repo.audit.AuditQuery {
-  const { action, status, target, actor, actorKind, since, limit, before, beforeId } = query;
+  const { action, status, target, actor, actorKind, since, limit, before, cursor } = query;
   return {
     ...(action ? { action } : {}),
     ...(status ? { status } : {}),
@@ -47,22 +47,27 @@ export function auditOptions(query: AuditQueryParams): repo.audit.AuditQuery {
     ...(since === undefined ? {} : { since: new Date(since) }),
     ...(limit === undefined ? {} : { limit }),
     ...(before === undefined ? {} : { before: new Date(before) }),
-    ...(beforeId === undefined ? {} : { beforeId }),
+    ...(cursor === undefined ? {} : { beforeId: cursor }),
   };
 }
 
 export const auditRouter = os.router({
   list: os.list.handler(async ({ input, context }) => {
-    const options = auditOptions(input.query);
+    const limit = input.query.limit ?? 100;
+    const options = auditOptions({ ...input.query, limit: limit + 1 });
     const rows = await repo.audit.listAudit(context.db, options);
     if (
-      input.query.beforeId !== undefined &&
+      input.query.cursor !== undefined &&
       rows.length === 0 &&
-      !(await repo.audit.auditEntryExists(context.db, input.query.beforeId))
+      !(await repo.audit.auditEntryExists(context.db, input.query.cursor))
     ) {
       fail('INVALID_INPUT', '分页游标无效');
     }
-    return { items: rows.map(toItem) };
+    const items = rows.slice(0, limit).map(toItem);
+    return {
+      items,
+      nextCursor: rows.length > limit ? (items.at(-1)?.id ?? null) : null,
+    };
   }),
   verify: os.verify.handler(async ({ input, context }) =>
     repo.audit.verifyAuditChain(context.db, {

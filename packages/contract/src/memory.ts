@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { contractProcedure } from './base.js';
 
 export const memoryVersionsQuerySchema = z.object({
-  before: z.iso.datetime().optional(),
+  cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
@@ -21,7 +21,10 @@ export const personalMemoryWriteResponseSchema = personalMemorySchema.extend({
   changeId: z.string(),
 });
 
-export const memoryVersionListSchema = z.object({ items: z.array(memoryChangeSchema) });
+export const memoryVersionListSchema = z.object({
+  items: z.array(memoryChangeSchema),
+  nextCursor: z.string().nullable(),
+});
 
 export const agentMemoryVersionParams = idParams.extend({
   name: z.string().regex(memoryFileNamePattern, '记忆文件名非法：只允许 <name>.md'),

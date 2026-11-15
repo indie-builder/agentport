@@ -147,12 +147,12 @@ test('round38 same-time audit pagination', { session: 'admin' }, async ({
     expect(firstBody.items.at(-1)?.action).toBe('audit.page.026');
     expect(await auditActionTexts(browser)).toEqual({ total: 100, unique: 100 });
 
-    const nextPage = browser.waitForResponse(/\/api\/audit\?.*beforeId=/);
+    const nextPage = browser.waitForResponse(/\/api\/audit\?.*cursor=/);
     await screen.getByRole('button', '加载更多', { exact: true }).tap();
     const second = await nextPage;
     expect(second.status).toBe(200);
     // 游标是记录 id，不是 ISO 时间戳。
-    expect(second.url).toContain('beforeId=');
+    expect(second.url).toContain('cursor=');
     expect(second.url).not.toMatch(/[?&]before=/);
     const secondBody = await second.json<{ items: { id: string; action: string }[] }>();
     expect(secondBody.items).toHaveLength(25);

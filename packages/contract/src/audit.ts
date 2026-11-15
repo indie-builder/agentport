@@ -14,7 +14,7 @@ export const auditQuerySchema = z.object({
   since: z.iso.datetime().optional(),
   limit: z.coerce.number().int().positive().max(200).optional(),
   before: z.iso.datetime().optional(),
-  beforeId: z.string().trim().min(1).max(200).optional(),
+  cursor: z.string().trim().min(1).max(200).optional(),
 });
 
 export const auditItemSchema = z.object({
@@ -35,7 +35,12 @@ export const auditContract = {
   list: contractProcedure
     .route({ method: 'GET', path: '/audit' })
     .input(z.object({ query: auditQuerySchema }))
-    .output(z.object({ items: z.array(auditItemSchema) }))
+    .output(
+      z.object({
+        items: z.array(auditItemSchema),
+        nextCursor: z.string().nullable(),
+      }),
+    )
     .meta({ access: { kind: 'permission', permissionId: 'audit.read' } }),
   verify: contractProcedure
     .route({ method: 'GET', path: '/audit/verify' })

@@ -715,8 +715,14 @@ describe.skipIf(!ready)('memory reviews', () => {
     });
     expect(list.statusCode, list.body).toBe(200);
     expect(
-      list.json<{ items: Array<{ runId: string; sources: unknown[] }> }>().items,
-    ).toMatchObject([{ runId, sources: [{ conversationId }] }]);
+      list.json<{
+        items: Array<{ runId: string; sources: unknown[] }>;
+        nextCursor: string | null;
+      }>(),
+    ).toMatchObject({
+      items: [{ runId, sources: [{ conversationId }] }],
+      nextCursor: null,
+    });
 
     const byAgent = await request(app, {
       method: 'GET',
@@ -731,10 +737,19 @@ describe.skipIf(!ready)('memory reviews', () => {
     const old = new Date(0).toISOString();
     const empty = await request(app, {
       method: 'GET',
-      url: `/api/memory-reviews?conversationId=${encodeURIComponent(conversationId)}&before=${encodeURIComponent(old)}`,
+      url: `/api/memory-reviews?conversationId=${encodeURIComponent(conversationId)}&cursor=${encodeURIComponent(old)}`,
       headers: auth(),
     });
-    expect(empty.json()).toEqual({ items: [] });
+    expect(empty.json()).toEqual({ items: [], nextCursor: null });
+
+    expectProblem(
+      await request(app, {
+        method: 'GET',
+        url: '/api/memory-reviews?cursor=not-a-date',
+        headers: auth(),
+      }),
+      'INVALID_INPUT',
+    );
   });
 
   it('applies a proposal to personal memory, agent memory, and an agent rule', async () => {

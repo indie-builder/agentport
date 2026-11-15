@@ -194,7 +194,7 @@ describe.skipIf(!ready)('personal memory', () => {
     expect(response.body).toBe(content);
   });
 
-  it('lists versions newest first with before and limit', async () => {
+  it('lists versions newest first with cursor and limit', async () => {
     await put({ content: 'one', expectedRevision: 0 });
     await put({ content: 'two', expectedRevision: 1 });
 
@@ -204,37 +204,59 @@ describe.skipIf(!ready)('personal memory', () => {
       headers: auth(),
     });
     expect(all.statusCode, all.body).toBe(200);
-    const { items } = all.json<{
-      items: Array<{ id: string; target: { kind: string }; after: { content: string } }>;
+    const body = all.json<{
+      items: Array<{
+        id: string;
+        createdAt: string;
+        target: { kind: string };
+        after: { content: string };
+      }>;
+      nextCursor: string | null;
     }>();
-    expect(items).toHaveLength(2);
-    expect(items.map((item) => item.after.content)).toEqual(['two', 'one']);
-    expect(items[0]?.target).toEqual({ kind: 'personal' });
+    expect(body.items).toHaveLength(2);
+    expect(body.items.map((item) => item.after.content)).toEqual(['two', 'one']);
+    expect(body.items[0]?.target).toEqual({ kind: 'personal' });
+    expect(body.nextCursor).toBeNull();
 
     const limited = await request(app, {
       method: 'GET',
       url: '/api/me/memory/versions?limit=1',
       headers: auth(),
     });
-    expect(limited.json()).toMatchObject({ items: [{ after: { content: 'two' } }] });
+    const limitedBody = limited.json<{
+      items: Array<{ createdAt: string; after: { content: string } }>;
+      nextCursor: string | null;
+    }>();
+    expect(limitedBody.items).toMatchObject([{ after: { content: 'two' } }]);
+    expect(limitedBody.nextCursor).toBe(limitedBody.items[0]?.createdAt);
 
     const future = new Date(Date.now() + 60_000).toISOString();
     const after = await request(app, {
       method: 'GET',
-      url: `/api/me/memory/versions?before=${encodeURIComponent(future)}`,
+      url: `/api/me/memory/versions?cursor=${encodeURIComponent(future)}`,
       headers: auth(),
     });
     expect(after.json()).toMatchObject({
       items: [{ after: { content: 'two' } }, { after: { content: 'one' } }],
+      nextCursor: null,
     });
 
     const old = new Date(0).toISOString();
     const none = await request(app, {
       method: 'GET',
-      url: `/api/me/memory/versions?before=${encodeURIComponent(old)}`,
+      url: `/api/me/memory/versions?cursor=${encodeURIComponent(old)}`,
       headers: auth(),
     });
-    expect(none.json()).toEqual({ items: [] });
+    expect(none.json()).toEqual({ items: [], nextCursor: null });
+
+    expectProblem(
+      await request(app, {
+        method: 'GET',
+        url: '/api/me/memory/versions?cursor=not-a-date',
+        headers: auth(),
+      }),
+      'INVALID_INPUT',
+    );
   });
 
   it('lists only personal versions and never lets agent changes occupy a page', async () => {
@@ -263,16 +285,18 @@ describe.skipIf(!ready)('personal memory', () => {
     expect(page.statusCode, page.body).toBe(200);
     expect(page.json()).toMatchObject({
       items: [{ target: { kind: 'personal' }, after: { content: 'one' } }],
+      nextCursor: null,
     });
 
     await put({ content: 'two', expectedRevision: 1 });
     const recent = await request(app, {
       method: 'GET',
-      url: `/api/me/memory/versions?before=${encodeURIComponent(new Date(Date.now() + 60_000).toISOString())}&limit=1`,
+      url: `/api/me/memory/versions?cursor=${encodeURIComponent(new Date(Date.now() + 60_000).toISOString())}&limit=1`,
       headers: auth(),
     });
     expect(recent.json()).toMatchObject({
       items: [{ target: { kind: 'personal' }, after: { content: 'two' } }],
+      nextCursor: expect.any(String),
     });
 
     const all = await request(app, {
@@ -284,7 +308,7 @@ describe.skipIf(!ready)('personal memory', () => {
     expect(items.map((item) => item.target.kind)).toEqual(['personal', 'personal']);
   });
 
-  it('pages through every personal version with before and skips agent changes', async () => {
+  it('pages through every personal version with cursor and skips agent changes', async () => {
     const base = Date.parse('2026-01-01T00:00:00.000Z');
     const at = (seconds: number) => new Date(base + seconds * 1000);
     const insertAt = async (
@@ -316,28 +340,37 @@ describe.skipIf(!ready)('personal memory', () => {
     });
     const three = await insertAt('three', at(4), { kind: 'personal' });
 
-    const page = (before?: Date) =>
+    const page = (cursor?: string) =>
       request(app, {
         method: 'GET',
         url: `/api/me/memory/versions?limit=1${
-          before === undefined ? '' : `&before=${encodeURIComponent(before.toISOString())}`
+          cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`
         }`,
         headers: auth(),
       });
 
     const first = await page();
     expect(first.statusCode, first.body).toBe(200);
-    expect(first.json()).toMatchObject({ items: [{ id: three, after: { content: 'three' } }] });
+    expect(first.json()).toMatchObject({
+      items: [{ id: three, after: { content: 'three' } }],
+      nextCursor: at(4).toISOString(),
+    });
 
     // 旧实现先取最新一页再内存过滤，第二页会永远为空；专家记忆也不能占用这一页。
-    const second = await page(at(4));
-    expect(second.json()).toMatchObject({ items: [{ id: two, after: { content: 'two' } }] });
+    const second = await page(at(4).toISOString());
+    expect(second.json()).toMatchObject({
+      items: [{ id: two, after: { content: 'two' } }],
+      nextCursor: at(2).toISOString(),
+    });
 
-    const third = await page(at(2));
-    expect(third.json()).toMatchObject({ items: [{ id: one, after: { content: 'one' } }] });
+    const third = await page(at(2).toISOString());
+    expect(third.json()).toMatchObject({
+      items: [{ id: one, after: { content: 'one' } }],
+      nextCursor: null,
+    });
 
-    const end = await page(at(1));
-    expect(end.json()).toEqual({ items: [] });
+    const end = await page(at(1).toISOString());
+    expect(end.json()).toEqual({ items: [], nextCursor: null });
   });
 
   it('refuses a symlinked projection without touching the link target and still saves the database', async () => {

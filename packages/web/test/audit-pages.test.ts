@@ -63,8 +63,8 @@ function entry(id: string, createdAt = '2026-01-01T00:00:00.000Z'): AuditEntry {
   };
 }
 
-function page(entries: AuditEntry[]): AuditList {
-  return { items: entries };
+function page(entries: AuditEntry[], nextCursor: string | null = null): AuditList {
+  return { items: entries, nextCursor };
 }
 
 beforeEach(() => {
@@ -94,30 +94,21 @@ test('把查询的取消信号交给请求，离开页面时能中止在途分�
   expect(mocks.audit).toHaveBeenCalledWith({ limit: 100 }, signal);
 });
 
-test('后续页用 id 游标，不再用时间戳', async () => {
+test('后续页用服务端 nextCursor，不再用时间戳', async () => {
   mocks.audit.mockResolvedValue(page([entry('e2')]));
   await useQueryOptions().queryFn({ pageParam: 'e1', signal: new AbortController().signal });
-  expect(mocks.audit).toHaveBeenCalledWith({ limit: 100, beforeId: 'e1' }, expect.any(AbortSignal));
+  expect(mocks.audit).toHaveBeenCalledWith({ limit: 100, cursor: 'e1' }, expect.any(AbortSignal));
 });
 
-test('满页时即使时间戳相同也继续按 id 翻页', () => {
+test('按服务端 nextCursor 翻页，null 表示结束', () => {
   const options = useQueryOptions();
-  const full = page(Array.from({ length: 100 }, (_, index) => entry(`e${index}`)));
+  const full = page(
+    Array.from({ length: 100 }, (_, index) => entry(`e${index}`)),
+    'e99',
+  );
   expect(options.getNextPageParam(full, [full], null)).toBe('e99');
-  // 上一页与下一页的边界时间戳相同，旧的时间戳游标会在这里停住。
-  const next = page(Array.from({ length: 100 }, (_, index) => entry(`n${index}`)));
-  expect(options.getNextPageParam(next, [full, next], 'e99')).toBe('n99');
-});
 
-test('不满一页视为结束', () => {
-  const options = useQueryOptions();
-  const short = page(Array.from({ length: 99 }, (_, index) => entry(`e${index}`)));
-  expect(options.getNextPageParam(short, [short], null)).toBeUndefined();
+  const last = page(Array.from({ length: 100 }, (_, index) => entry(`n${index}`)));
+  expect(options.getNextPageParam(last, [full, last], 'e99')).toBeUndefined();
   expect(options.getNextPageParam(page([]), [page([])], null)).toBeUndefined();
-});
-
-test('游标重复时停止，避免重复页死循环', () => {
-  const options = useQueryOptions();
-  const full = page(Array.from({ length: 100 }, (_, index) => entry(`e${index}`)));
-  expect(options.getNextPageParam(full, [full], 'e99')).toBeUndefined();
 });

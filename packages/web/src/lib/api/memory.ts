@@ -20,17 +20,19 @@ export interface PersonalMemoryWriteResult extends PersonalMemory {
 
 export interface MemoryChangeList {
   items: MemoryChange[];
+  nextCursor: string | null;
 }
 
 export interface MemoryReviewQuery {
   agentId?: string;
   conversationId?: string;
-  before?: string;
+  cursor?: string;
   limit?: number;
 }
 
 export interface MemoryReviewList {
   items: MemoryReview[];
+  nextCursor: string | null;
 }
 
 export default {
@@ -63,7 +65,7 @@ export default {
     rpc.memory.writePersonal({ body: input }),
   personalMemoryDownloadUrl: '/api/me/memory/download',
   personalMemoryVersions: (
-    query: { before?: string; limit?: number } = {},
+    query: { cursor?: string; limit?: number } = {},
     signal?: AbortSignal,
   ): Promise<MemoryChangeList> => rpc.memory.personalVersions({ query }, clientOptions(signal)),
   rollbackMemoryChange: (id: string): Promise<MemoryChange> =>

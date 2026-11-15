@@ -11,11 +11,14 @@ const runParams = z.object({ runId: z.string().min(1) });
 export const memoryReviewListQuerySchema = z.object({
   conversationId: z.string().min(1).optional(),
   agentId: z.string().min(1).optional(),
-  before: z.iso.datetime().optional(),
+  cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
-export const memoryReviewListSchema = z.object({ items: z.array(memoryReviewSchema) });
+export const memoryReviewListSchema = z.object({
+  items: z.array(memoryReviewSchema),
+  nextCursor: z.string().nullable(),
+});
 
 export const memoryReviewCreateQuerySchema = z.object({ scope: z.literal('own').optional() });
 
