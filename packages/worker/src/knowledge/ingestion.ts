@@ -1791,6 +1791,17 @@ export async function runCleanup(
   for (const row of pendingOriginals) {
     if (row.blob) referencedBlobs.add(row.blob);
   }
+  const pendingJobBlobs = await deps.db
+    .select({ payload: schema.knowledgeJobs.payload })
+    .from(schema.knowledgeJobs)
+    .where(inArray(schema.knowledgeJobs.status, ['queued', 'running']));
+  for (const { payload } of pendingJobBlobs) {
+    const input = payload.input;
+    if (input && typeof input === 'object') {
+      const blob = (input as Record<string, unknown>).blobSha256;
+      if (typeof blob === 'string') referencedBlobs.add(blob);
+    }
+  }
   const liveVersionIds = new Set(versions.map((row) => row.id));
   const cutoff = Date.now() - BLOB_RETENTION_MS;
 
