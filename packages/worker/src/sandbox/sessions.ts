@@ -89,6 +89,9 @@ interface SessionSandboxesOptions {
 /** 取消 ACK 等待上限；超时返回 unconfirmed，由调用方 release(false) 销毁容器。 */
 const CANCEL_GRACE_MS = 5_000;
 
+/** 空闲销毁失败后的重试退避；容器仍存活时定期重试，直到成功或关停。 */
+const IDLE_DESTROY_RETRY_MS = 30_000;
+
 function abortError(): Error {
   const error = new Error('session sandbox acquire aborted');
   error.name = 'AbortError';
@@ -714,10 +717,20 @@ export class SessionSandboxes {
     const timer = setTimeout(() => {
       entry.idleTimer = null;
       if (entry.leaseHeld || this.closed.signal.aborted) return;
-      void this.destroyEntry(entry).catch(() => {
-        // performDestroy 已记录并保留 broken 跟踪，close 会重试并聚合报告。
-      });
+      void this.destroyEntry(entry).catch(() => this.scheduleDestroyRetry(entry));
     }, this.idleTimeoutMs);
+    timer.unref();
+    entry.idleTimer = timer;
+  }
+
+  private scheduleDestroyRetry(entry: SessionEntry): void {
+    if (this.closed.signal.aborted) return;
+    if (this.entries.get(entry.conversationId) !== entry || !entry.alive) return;
+    const timer = setTimeout(() => {
+      entry.idleTimer = null;
+      if (this.closed.signal.aborted || this.entries.get(entry.conversationId) !== entry) return;
+      void this.destroyEntry(entry).catch(() => this.scheduleDestroyRetry(entry));
+    }, IDLE_DESTROY_RETRY_MS);
     timer.unref();
     entry.idleTimer = timer;
   }
