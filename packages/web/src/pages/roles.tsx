@@ -190,6 +190,27 @@ function baselineScopes(baseline: Baseline, roleId: string | null, index: number
   return (roleId === null ? undefined : baseline.get(roleId)?.scopes?.[index]) ?? EMPTY_SCOPES;
 }
 
+function countChangedLeaves(
+  roles: readonly FormRole[],
+  baseline: Baseline,
+  permissions: readonly PermissionDefinition[],
+): number {
+  let count = 0;
+  for (const role of roles) {
+    for (const leaf of permissions) {
+      const permission = indexOfPermission(leaf.id);
+      if (
+        changeKind(
+          baselineScopes(baseline, role.roleId, permission),
+          role.scopes[permission] ?? EMPTY_SCOPES,
+        ) !== null
+      )
+        count += 1;
+    }
+  }
+  return count;
+}
+
 function savedRoleName(roleId: string | null, baseline: Baseline): string | undefined {
   return roleId === null ? undefined : baseline.get(roleId)?.name;
 }
@@ -256,6 +277,8 @@ export function RolesPage() {
   const [reloadOpen, setReloadOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
+  const [saveChangeCount, setSaveChangeCount] = useState(0);
   const [closingRole, setClosingRole] = useState<string>();
   const [addingRole, setAddingRole] = useState(false);
   const settingsTrigger = useRef<HTMLElement | null>(null);
@@ -486,6 +509,11 @@ export function RolesPage() {
     }
   });
 
+  const requestSave = (): void => {
+    setSaveChangeCount(countChangedLeaves(getValues('roles'), baseline, permissions));
+    setSaveConfirmOpen(true);
+  };
+
   if (matrix.isPending || catalog.isPending) {
     return (
       <Page>
@@ -529,7 +557,12 @@ export function RolesPage() {
                 <Button ref={newRoleButton} variant="outline" onClick={addRole} disabled={pending}>
                   <Plus data-icon="inline-start" /> 新建角色
                 </Button>
-                <SaveButton control={control} dirty={dirty} pending={pending} onSubmit={submit} />
+                <SaveButton
+                  control={control}
+                  dirty={dirty}
+                  pending={pending}
+                  onSubmit={requestSave}
+                />
               </>
             ) : null
           }
@@ -679,6 +712,19 @@ export function RolesPage() {
           closeSettings(deleteTarget);
         }}
       />
+      <ConfirmDialog
+        open={saveConfirmOpen}
+        onClose={() => setSaveConfirmOpen(false)}
+        title="保存角色权限变更？"
+        description={
+          saveChangeCount > 0
+            ? `保存后立即对拥有这些角色的所有成员生效；本次共 ${saveChangeCount} 项权限变更。`
+            : '保存后立即对拥有这些角色的所有成员生效。'
+        }
+        confirmLabel="保存并生效"
+        tone="default"
+        onConfirm={submit}
+      />
     </Page>
   );
 }
@@ -692,14 +738,14 @@ function SaveButton({
   control: Control<FormValues>;
   dirty: boolean;
   pending: boolean;
-  onSubmit: () => Promise<void>;
+  onSubmit: () => void;
 }) {
   const { errors } = useFormState({ control });
   return (
     <Button
       disabled={!dirty || pending || Boolean(errors.roles)}
       aria-busy={pending}
-      onClick={() => void onSubmit()}
+      onClick={onSubmit}
     >
       <Save data-icon="inline-start" /> {pending ? '正在保存…' : '保存更改'}
     </Button>
@@ -719,19 +765,7 @@ function MatrixFeedback({
 }) {
   const roles = useWatch({ control, name: 'roles' });
   const { isDirty } = useFormState({ control });
-  let changedLeafCount = 0;
-  for (const role of roles) {
-    for (const leaf of permissions) {
-      const permission = indexOfPermission(leaf.id);
-      if (
-        changeKind(
-          baselineScopes(baseline, role.roleId, permission),
-          role.scopes[permission] ?? EMPTY_SCOPES,
-        ) !== null
-      )
-        changedLeafCount += 1;
-    }
-  }
+  const changedLeafCount = countChangedLeaves(roles, baseline, permissions);
   const recent = changedLeafCount > 0 ? recentAction.current : null;
   return (
     <span className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">

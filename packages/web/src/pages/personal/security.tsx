@@ -25,6 +25,7 @@ import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from '../../c
 import { Input } from '../../components/ui/input.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { ApiError, errorMessage } from '../../lib/api.js';
+import { useFormBlocker } from '../../lib/form.js';
 import { formatDateTime } from '../../lib/format.js';
 import {
   clearSessionQueries,
@@ -76,11 +77,16 @@ export function PersonalSecurityPage() {
     defaultValues: { currentPassword: '', newPassword: '', confirmPassword: '' },
   });
   const { register, handleSubmit, reset, formState } = form;
+  const blocker = useFormBlocker(formState.isDirty, change.isPending, { ignoreSamePath: true });
 
   const relogin = async (): Promise<void> => {
     // 这是用户主动选择重新登录，不是 403 自动踢出；先结束当前会话再进登录页。
     await logoutAccount();
-    await navigate({ to: '/login', search: { returnTo: '/personal/security' } });
+    await navigate({
+      to: '/login',
+      search: { returnTo: '/personal/security' },
+      ignoreBlocker: true,
+    });
   };
 
   const submit = handleSubmit(async (values) => {
@@ -92,10 +98,15 @@ export function PersonalSecurityPage() {
       });
       toastSuccess('密码已修改，请重新登录。');
       clearSessionQueries();
-      await navigate({ to: '/login', search: { returnTo: '/personal/security' } });
+      reset();
+      await navigate({
+        to: '/login',
+        search: { returnTo: '/personal/security' },
+        ignoreBlocker: true,
+      });
     } catch (error) {
       setFormError(errorMessage(error));
-      reset(values);
+      reset(values, { keepDirty: true, keepDefaultValues: true });
     }
   });
 
@@ -251,6 +262,16 @@ export function PersonalSecurityPage() {
           <SessionSection view={view} onRelogin={relogin} divided={passwordOpen} />
         </PageBody>
       </Collapsible>
+
+      <ConfirmDialog
+        open={blocker.status === 'blocked'}
+        onClose={() => blocker.reset?.()}
+        title="放弃未保存的密码修改？"
+        description="离开后，本次输入不会保留。"
+        confirmLabel="放弃并离开"
+        confirmDisabled={change.isPending}
+        onConfirm={async () => blocker.proceed()}
+      />
     </Page>
   );
 }

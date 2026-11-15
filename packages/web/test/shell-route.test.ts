@@ -549,12 +549,12 @@ describe('personal navigation context', () => {
       }
       // 内容区旧横导航删除后，个人导航只保留在 AppShell 侧栏。
       expect(view.host.querySelector('nav[aria-label="个人导航"]')).toBeNull();
-      // 底部账号入口仍是独立入口，不属于导航条目，并保持个人上下文当前态。
+      // 底部账号入口仍是独立入口，不属于导航条目；只有在它指向的个人资料页才标记当前。
       const account = [
         ...view.host.querySelectorAll<HTMLAnchorElement>('a[aria-label="个人资料"]'),
       ].find((link) => link.closest('nav') === null);
       expect(account?.getAttribute('href')).toBe('/personal/profile');
-      expect(account?.getAttribute('aria-current')).toBe('page');
+      expect(account?.getAttribute('aria-current')).toBeNull();
     } finally {
       await view.close();
     }
@@ -565,6 +565,12 @@ describe('personal navigation context', () => {
     try {
       expect(navHrefs(view.host)).toEqual(PERSONAL_HREFS);
       expect(activeNavLinks(view.host)).toEqual([path]);
+      const account = [
+        ...view.host.querySelectorAll<HTMLAnchorElement>('a[aria-label="个人资料"]'),
+      ].find((link) => link.closest('nav') === null);
+      expect(account?.getAttribute('aria-current')).toBe(
+        path === '/personal/profile' ? 'page' : null,
+      );
     } finally {
       await view.close();
     }

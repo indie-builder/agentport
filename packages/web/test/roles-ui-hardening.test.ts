@@ -138,6 +138,11 @@ function dialog(titlePrefix: string): HTMLElement {
   if (!element) throw new Error(`Missing dialog: ${titlePrefix}`);
   return element;
 }
+async function saveAndConfirm(): Promise<void> {
+  await click(button('保存更改'));
+  const confirmation = (await waitFor(() => maybeDialog('保存角色权限变更？'))) as HTMLElement;
+  await click(button('保存并生效', confirmation));
+}
 function permissionMatrix(): HTMLTableElement {
   const element = document.querySelector<HTMLTableElement>('table[aria-label="角色权限矩阵"]');
   if (!element) throw new Error('Missing role permission matrix');
@@ -665,7 +670,7 @@ describe('角色权限矩阵：工具栏反馈与保存清除', () => {
     expect(statusRegion().textContent).toMatch(/撤销/);
     expect(unsavedCount().textContent).toContain('2');
 
-    await click(button('保存更改'));
+    await saveAndConfirm();
     await waitFor(() => bodyOf('/api/roles'));
     expect(dataCells().every((cell) => cell.getAttribute('data-changed') === 'false')).toBe(true);
     expect(
@@ -698,7 +703,7 @@ describe('角色设置：名称校验就地反馈', () => {
 
     await click(button('完成', settings));
     expect(maybeDialog('角色设置：成员')).toBeNull();
-    await click(button('保存更改'));
+    await saveAndConfirm();
     const body = (await waitFor(() => bodyOf('/api/roles'))) as RoleMatrixInput;
     expect(body.roles.find((role) => role.id === 'role_member')?.name).toBe('审计员');
   });
@@ -734,7 +739,7 @@ describe('角色设置：名称校验就地反馈', () => {
     expect(roleNameInput(reopenAdmin).getAttribute('aria-describedby')).toBeNull();
     await click(button('完成', reopenAdmin));
 
-    await click(button('保存更改'));
+    await saveAndConfirm();
     const body = (await waitFor(() => bodyOf('/api/roles'))) as RoleMatrixInput;
     expect(body.roles.map((role) => role.name)).toEqual(['管理员', '审计员']);
   });
@@ -831,7 +836,7 @@ describe('角色权限矩阵：系统管理员', () => {
 
     await click(matrixCheckbox('成员', '使用专家'));
     expect(button('保存更改').disabled).toBe(false);
-    await click(button('保存更改'));
+    await saveAndConfirm();
     const body = (await waitFor(() => bodyOf('/api/roles'))) as RoleMatrixInput;
     expect(body.expectedRevision).toBe(3);
     expect(body.roles).toEqual([

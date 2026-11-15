@@ -446,6 +446,10 @@ describe('evaluation run URL state', () => {
     await actWaitFor(() => expect(container.textContent).toContain('Selected result'));
 
     await chooseOption('按专家筛选', 'Expert B');
+    await actWaitFor(() =>
+      expect(document.body.textContent).toContain('切换专家会清空当前选中的运行与比较。'),
+    );
+    await click('切换专家');
     await actWaitFor(() => expect(router.state.location.search.agent).toBe('agent-b'));
     const search = router.state.location.search as Record<string, unknown>;
     expect(search.run).toBeUndefined();

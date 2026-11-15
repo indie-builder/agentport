@@ -602,7 +602,11 @@ export function AppShell() {
                 <Link
                   to="/personal/profile"
                   aria-label="个人资料"
-                  aria-current={personalContext ? 'page' : undefined}
+                  aria-current={
+                    pathname === '/personal/profile' || pathname === '/personal'
+                      ? 'page'
+                      : undefined
+                  }
                   onClick={onNavigate}
                   className={
                     navCollapsed

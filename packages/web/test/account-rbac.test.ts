@@ -665,6 +665,11 @@ describe('角色权限矩阵', () => {
     await mount('/roles', RolesPage, rolesSearchSchema);
     await waitFor(() => matrixTable());
   }
+  async function saveAndConfirm(): Promise<void> {
+    await click(button('保存更改'));
+    const confirmation = (await waitFor(() => maybeDialog('保存角色权限变更？'))) as HTMLElement;
+    await click(button('保存并生效', confirmation));
+  }
 
   it('顶部按角色分列、行头为功能，数据单元格只含勾选框', async () => {
     await openRoles();
@@ -761,7 +766,7 @@ describe('角色权限矩阵', () => {
     expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
     expect(button('保存更改').disabled).toBe(false);
 
-    await click(button('保存更改'));
+    await saveAndConfirm();
     const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
     expect(body.roles.find((role) => role.id === 'role_member')?.grants).toEqual([
       { permissionId: 'agents.config.read', scope: 'maintained_agents' },
@@ -814,7 +819,7 @@ describe('角色权限矩阵', () => {
     route('PUT', /^\/api\/roles$/, persistSave);
     await openRoles();
     await click(cell('成员', '查看专家'));
-    await click(button('保存更改'));
+    await saveAndConfirm();
 
     const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
     expect(body.expectedRevision).toBe(3);
@@ -865,7 +870,7 @@ describe('角色权限矩阵', () => {
     expect(roleNameInput(auditor).value).toBe('审计员');
     await click(button('完成', auditor));
 
-    await click(button('保存更改'));
+    await saveAndConfirm();
     const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
     expect(body.roles.map((role) => role.name)).toEqual(['管理员', '审计员']);
     expect(body.roles[0]?.grants).toEqual([{ permissionId: 'agents.read', scope: 'platform' }]);
@@ -903,7 +908,7 @@ describe('角色权限矩阵', () => {
     const changed = () => cell('成员', '查看配置').closest('td')?.getAttribute('data-changed');
     expect(changed()).toBe('true');
 
-    await click(button('保存更改'));
+    await saveAndConfirm();
     await waitFor(() => button('保存更改').disabled);
     expect(changed()).toBe('false');
     expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
@@ -916,7 +921,7 @@ describe('角色权限矩阵', () => {
     expect(changed()).toBe('true');
     expect(button('保存更改').disabled).toBe(false);
 
-    await click(button('保存更改'));
+    await saveAndConfirm();
     const saved = calls.filter((call) => call.method === 'PUT' && call.path === '/api/roles').at(-1)
       ?.body as RoleMatrixInput;
     expect(saved.roles.find((role) => role.id === 'role_member')?.grants).toEqual([
@@ -931,7 +936,7 @@ describe('角色权限矩阵', () => {
     await click(cell('成员', '修改配置'));
     expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('false');
 
-    await click(button('保存更改'));
+    await saveAndConfirm();
 
     expect(document.body.textContent).toContain(
       'agents.config.update 需要同时授权 agents.config.read',
@@ -940,7 +945,7 @@ describe('角色权限矩阵', () => {
 
     // 补齐依赖后同一份草稿可以保存。
     await click(cell('成员', '查看配置'));
-    await click(button('保存更改'));
+    await saveAndConfirm();
     const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
     expect(body.roles.find((role) => role.id === 'role_member')?.grants).toEqual([
       { permissionId: 'agents.config.read', scope: 'maintained_agents' },
@@ -952,7 +957,7 @@ describe('角色权限矩阵', () => {
     route('PUT', /^\/api\/roles$/, () => problem(409, '矩阵已被其他操作修改', 'CONFLICT'));
     await openRoles();
     await click(cell('成员', '查看专家'));
-    await click(button('保存更改'));
+    await saveAndConfirm();
 
     expect(document.body.textContent).toContain('矩阵已被其他操作修改');
     expect(maybeButton('重新加载')).toBeTruthy();
@@ -1015,7 +1020,7 @@ describe('角色权限矩阵', () => {
     await openRoles();
 
     await click(cell('成员', '专家'));
-    await click(button('保存更改'));
+    await saveAndConfirm();
 
     const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
     expect(body.roles.find((role) => role.id === 'role_member')?.grants).toContainEqual({
@@ -1028,7 +1033,7 @@ describe('角色权限矩阵', () => {
     route('PUT', /^\/api\/roles$/, () => problem(409, '矩阵已被其他操作修改', 'CONFLICT'));
     await openRoles();
     await click(cell('成员', '查看专家'));
-    await click(button('保存更改'));
+    await saveAndConfirm();
     expect(document.body.textContent).toContain('矩阵已被其他操作修改');
 
     current = { ...structuredClone(matrix), revision: 4 };
@@ -1044,7 +1049,7 @@ describe('角色权限矩阵', () => {
     route('PUT', /^\/api\/roles$/, () => problem(409, '矩阵已被其他操作修改', 'CONFLICT'));
     await openRoles();
     await click(cell('成员', '查看专家'));
-    await click(button('保存更改'));
+    await saveAndConfirm();
     const feedback = document.querySelector('[role="status"]')?.textContent;
     const count = document.querySelector('[aria-label="未保存权限变更"]')?.textContent;
     const cached = client.getQueryData(['role-matrix']);
