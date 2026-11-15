@@ -13,7 +13,7 @@ import {
   useSetAgentMember,
   useTransferAgent,
 } from '../../lib/queries.js';
-import { toastError, toastSuccess } from '../../lib/toast.js';
+import { toast, toastError, toastSuccess } from '../../lib/toast.js';
 import { useDebouncedValue } from '../../lib/use-debounced-value.js';
 
 export function AgentMembersDialog({
@@ -125,7 +125,30 @@ export function AgentMembersDialog({
                   onClick={() =>
                     removeMember.mutate(
                       { agentId, businessId: member.businessId },
-                      { onError: toastError },
+                      {
+                        onSuccess: () => {
+                          toast.success(`已移除成员 ${member.name || member.businessId}`, {
+                            duration: 6000,
+                            action: {
+                              label: '撤销',
+                              onAction: async () => {
+                                try {
+                                  await setMember.mutateAsync({
+                                    agentId,
+                                    businessId: member.businessId,
+                                    canUse: member.canUse,
+                                    canMaintain: member.canMaintain,
+                                  });
+                                } catch (error) {
+                                  toastError(error);
+                                  throw error;
+                                }
+                              },
+                            },
+                          });
+                        },
+                        onError: toastError,
+                      },
                     )
                   }
                 >
