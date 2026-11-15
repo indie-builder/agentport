@@ -174,6 +174,10 @@ export default {
       params: { id },
       body: { ...(fromMessageId === undefined ? {} : { fromMessageId }) },
     }),
+  regenerate: async (conversationId: string): Promise<ChatAccepted> => {
+    const result = await rpc.chat.regenerate({ params: { conversationId } });
+    return result.body;
+  },
   /** 生成式 UI 的 Query/Mutation：工具目录由服务端授权，未授权会 403。 */
   callOpenUiTool: async (
     conversationId: string,

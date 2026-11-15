@@ -154,7 +154,7 @@ export async function runAgentJob(
   if (!parsed.success) {
     throw new Error(`invalid job payload: ${parsed.error.message}`);
   }
-  const { runId, prompt } = parsed.data;
+  const { runId, prompt, replacesRunId, forkFromMessageUuid: jobForkFrom } = parsed.data;
   const jobRequestId = parsed.data.requestId;
 
   const [run] = await db
@@ -410,6 +410,7 @@ export async function runAgentJob(
       const sdkState = await repo.chat.getConversationSdkState(db, conversationId);
       if (!sdkState) throw new Error(`conversation ${conversationId} not found`);
       // 本轮用户消息在准入时已落库；runner 用它（或这里补生成的 uuid）发首条消息。
+      const userMessageRunId = replacesRunId ?? runId;
       const [userMessage] = await db
         .select({
           id: schema.messages.id,
@@ -419,7 +420,7 @@ export async function runAgentJob(
         .from(schema.messages)
         .where(
           and(
-            eq(schema.messages.runId, runId),
+            eq(schema.messages.runId, userMessageRunId),
             eq(schema.messages.role, 'user'),
             eq(schema.messages.conversationId, conversationId),
           ),
@@ -571,6 +572,14 @@ export async function runAgentJob(
 
       stableOutputsPrepared = true;
       runStartedAt = Date.now();
+      const resumeSessionId =
+        replacesRunId !== undefined
+          ? jobForkFrom === undefined
+            ? null
+            : sdkState.sdkSessionId
+          : sdkState.sdkSessionId;
+      const forkFromMessageUuid =
+        replacesRunId !== undefined ? jobForkFrom : (sdkState.forkFromSdkMessageUuid ?? undefined);
       const task: SandboxTaskInput = {
         prompt: taskPrompt,
         model: agent.model,
@@ -600,10 +609,8 @@ export async function runAgentJob(
         userMessageUuid,
         memoryPolicy: runMemoryPolicy,
         // 首次空会话不 resume：没有 transcript 时传了只会让 CLI 找不到会话。
-        ...(sdkState.sdkSessionId === null ? {} : { resumeSessionId: sdkState.sdkSessionId }),
-        ...(sdkState.forkFromSdkMessageUuid === null
-          ? {}
-          : { forkFromMessageUuid: sdkState.forkFromSdkMessageUuid }),
+        ...(resumeSessionId === null ? {} : { resumeSessionId }),
+        ...(forkFromMessageUuid === undefined ? {} : { forkFromMessageUuid }),
       };
       outcome = await runInSandbox({
         runId,
@@ -744,38 +751,44 @@ export async function runAgentJob(
     let projectedChannelMessage: PersistedChannelMessage | undefined;
     let messagesWritten = false;
     let messageSaveError: string | undefined;
-    try {
-      // 分支首轮：从宿主 transcript 的 forkedFrom 算新旧 uuid 映射，再与消息同事务写入。
-      const uuidMap =
-        !willRetry &&
-        (run.channelId === null || modelExecuted) &&
-        forked?.type === 'session_forked' &&
-        sessionsDirForRun !== null
-          ? await readForkUuidMap(
-              sessionsDirForRun,
-              forked.sessionId,
-              new Set(await repo.chat.listConversationMessageUuids(db, conversationId)),
-            )
-          : undefined;
-      const persisted = await persistRunMessages(db, {
-        agentId,
-        conversationId,
-        runId,
-        events: outcome.events,
-        ...(sdkSessionId === undefined ? {} : { sdkSessionId }),
-        ...(uuidMap === undefined ? {} : { uuidMap }),
-        uiFormat: runUiFormat,
-        // 中间轮投影会占用频道 seq，已订阅者按 seq > cursor 永远读不到最终正文。
-        projectChannelReply: !willRetry,
-        ...(run.channelId !== null && modelExecuted ? { modelExecuted: true } : {}),
-      });
-      messagesWritten = persisted.written;
-      persistedMessages = persisted.messages;
-      projectedChannelMessage = persisted.channelMessage;
-      if (!persisted.written) messageSaveError = '消息保存被拒绝，运行或会话已由外部终止';
-    } catch (err) {
-      messageSaveError = errorText(err);
-      runLog.error({ err }, 'failed to persist run messages');
+    const regenerateReplaced =
+      replacesRunId !== undefined && !willRetry && outcome.status === 'succeeded';
+    const skippedRegeneratePersist = replacesRunId !== undefined && !regenerateReplaced;
+    if (!skippedRegeneratePersist) {
+      try {
+        // 分支首轮：从宿主 transcript 的 forkedFrom 算新旧 uuid 映射，再与消息同事务写入。
+        const uuidMap =
+          !willRetry &&
+          (run.channelId === null || modelExecuted) &&
+          forked?.type === 'session_forked' &&
+          sessionsDirForRun !== null
+            ? await readForkUuidMap(
+                sessionsDirForRun,
+                forked.sessionId,
+                new Set(await repo.chat.listConversationMessageUuids(db, conversationId)),
+              )
+            : undefined;
+        const persisted = await persistRunMessages(db, {
+          agentId,
+          conversationId,
+          runId,
+          events: outcome.events,
+          ...(sdkSessionId === undefined ? {} : { sdkSessionId }),
+          ...(uuidMap === undefined ? {} : { uuidMap }),
+          ...(replacesRunId === undefined ? {} : { replacesRunId }),
+          uiFormat: runUiFormat,
+          // 中间轮投影会占用频道 seq，已订阅者按 seq > cursor 永远读不到最终正文。
+          projectChannelReply: !willRetry,
+          ...(run.channelId !== null && modelExecuted ? { modelExecuted: true } : {}),
+        });
+        messagesWritten = persisted.written;
+        persistedMessages = persisted.messages;
+        projectedChannelMessage = persisted.channelMessage;
+        if (!persisted.written) messageSaveError = '消息保存被拒绝，运行或会话已由外部终止';
+      } catch (err) {
+        messageSaveError = errorText(err);
+        runLog.error({ err }, 'failed to persist run messages');
+      }
     }
 
     // DB 已提交的投影才是权威；Redis 只负责唤醒，失败不改变运行结果。
@@ -806,7 +819,7 @@ export async function runAgentJob(
       );
     }
 
-    if (!messagesWritten && !willRetry) {
+    if (!messagesWritten && !willRetry && !skippedRegeneratePersist) {
       outcome = {
         ...outcome,
         error: `${outcome.error ?? outcome.status}；消息未保存，产出未发布：${messageSaveError ?? '消息保存被拒绝'}`,

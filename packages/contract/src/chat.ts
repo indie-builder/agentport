@@ -35,6 +35,21 @@ export const chatContract = {
         z.object({ status: z.literal(204), body: z.undefined() }),
       ]),
     ),
+  regenerate: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'conversations.update' }, rateLimit: 20 })
+    .route({
+      method: 'POST',
+      path: '/chat/{conversationId}/regenerate',
+      successStatus: 202,
+      outputStructure: 'detailed',
+    })
+    .input(z.object({ params: z.object({ conversationId: z.string().min(1) }) }))
+    .output(
+      z.object({
+        status: z.literal(202),
+        body: z.object({ runId: z.string(), conversationId: z.string() }),
+      }),
+    ),
   searchConversations: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'conversations.read' } })
     .route({ method: 'GET', path: '/conversations/search', successStatus: 200 })

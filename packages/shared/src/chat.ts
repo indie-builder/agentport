@@ -239,6 +239,8 @@ export const agentRunJobSchema = z.object({
   conversationId: z.string(),
   prompt: z.string(),
   requestId: z.string().optional(),
+  replacesRunId: z.string().optional(),
+  forkFromMessageUuid: z.uuid().optional(),
 });
 
 export type AgentRunJob = z.infer<typeof agentRunJobSchema>;

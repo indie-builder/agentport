@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { fail, notFound } from '@agentport/core';
 import type { ExecutionSubject, RunTrigger } from '@agentport/shared';
 import { ACTIVE_RUN_STATUSES, utcMonthStart } from '@agentport/shared';
-import { and, desc, eq, gt, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Database } from '../../client.js';
 import { newId } from '../../id.js';
 import {
@@ -11,6 +11,7 @@ import {
   channelAgentBindings,
   channelMessages,
   conversations,
+  messages,
 } from '../../schema.js';
 import { sumAgentSpendSince } from '../agents.js';
 import { channelMemberRole, lockChannelRow } from '../channels.js';
@@ -18,7 +19,7 @@ import { lockRunResources } from '../locks.js';
 import { inheritApprovals } from '../runs.js';
 import { CHANNEL_CONTEXT_CHAR_LIMIT, CHANNEL_CONTEXT_MESSAGE_LIMIT } from './channel-context.js';
 import { createConversation } from './conversations.js';
-import { appendMessage } from './messages.js';
+import { appendMessage, messageText } from './messages.js';
 import { type AgentRun, createRun } from './run-context.js';
 
 const CHANNEL_CONTEXT_HEADER = '【频道上下文】\n';
@@ -76,6 +77,7 @@ export async function admitChatRun(
     /** 频道触发：准入自行取建该 agent 的 lane，并从 DB 复核频道成员与绑定。 */
     channel?: { channelId: string; channelMessageId: string };
     budgetExempt?: boolean;
+    regenerate?: true;
   },
 ): Promise<{
   run: AgentRun;
@@ -83,6 +85,7 @@ export async function admitChatRun(
   inherited: string[];
   /** 本轮用户消息的 SDK uuid；runner 用它发送首条用户消息。 */
   userMessageUuid: string;
+  regenerate?: { replacesRunId: string; forkFromMessageUuid?: string; prompt: string };
 }> {
   return db.transaction(async (tx) => {
     // 与记忆写入共用「发起专家 + enabled 子级」的记忆锁：集合在运行期间固定，
@@ -119,6 +122,7 @@ export async function admitChatRun(
     }
 
     let conversationId: string;
+    let conversationSdkSessionId: string | null = null;
     let channelContext: string | null = null;
     if (input.channel !== undefined) {
       const { channelId, channelMessageId } = input.channel;
@@ -242,7 +246,7 @@ export async function admitChatRun(
     } else {
       conversationId = input.conversationId;
       const [conversation] = await tx
-        .select({ agentId: conversations.agentId })
+        .select({ agentId: conversations.agentId, sdkSessionId: conversations.sdkSessionId })
         .from(conversations)
         .where(eq(conversations.id, conversationId))
         .limit(1)
@@ -250,6 +254,7 @@ export async function admitChatRun(
       if (!conversation || conversation.agentId !== input.agentId) {
         notFound('conversation', '会话不存在或不属于该智能体；请从会话列表重新打开');
       }
+      conversationSdkSessionId = conversation.sdkSessionId;
     }
 
     const [active] = await tx
@@ -263,6 +268,84 @@ export async function admitChatRun(
       )
       .limit(1);
     if (active) fail('CONFLICT', '该会话仍有运行未结束，请等待完成或取消后再发送');
+
+    let regenerated:
+      | { replacesRunId: string; forkFromMessageUuid?: string; prompt: string }
+      | undefined;
+    let regeneratedUserMessageUuid = '';
+    if (input.regenerate === true) {
+      if (input.conversationId === undefined) {
+        fail('INVALID_INPUT', '重新生成需要指定会话');
+      }
+      const [u] = await tx
+        .select({
+          id: messages.id,
+          content: messages.content,
+          runId: messages.runId,
+          sdkMessageUuid: messages.sdkMessageUuid,
+        })
+        .from(messages)
+        .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
+        .orderBy(desc(messages.createdAt), desc(messages.id))
+        .limit(1);
+      if (!u || u.runId === null) fail('CONFLICT', '该会话没有可重新生成的回复');
+      const beforeU = sql`(
+        select b.created_at, b.id from ${messages} b
+        where b.id = ${u.id} and b.conversation_id = ${conversationId}
+      )`;
+      const [after] = await tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, conversationId),
+            sql`(${messages.createdAt}, ${messages.id}) > ${beforeU}`,
+            sql`${messages.runId} is distinct from ${u.runId}`,
+          ),
+        )
+        .limit(1);
+      if (after) fail('CONFLICT', '只能重新生成最后一轮回复');
+      const [previous] = await tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, conversationId),
+            sql`(${messages.createdAt}, ${messages.id}) < ${beforeU}`,
+          ),
+        )
+        .limit(1);
+      let forkFromMessageUuid: string | undefined;
+      if (previous !== undefined) {
+        const [p] = await tx
+          .select({ sdkMessageUuid: messages.sdkMessageUuid })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.conversationId, conversationId),
+              eq(messages.role, 'assistant'),
+              isNotNull(messages.sdkMessageUuid),
+              sql`${messages.content}->>'parentToolUseId' is null`,
+              sql`(${messages.createdAt}, ${messages.id}) < ${beforeU}`,
+            ),
+          )
+          .orderBy(desc(messages.createdAt), desc(messages.id))
+          .limit(1);
+        if (conversationSdkSessionId === null || p === undefined || p.sdkMessageUuid === null) {
+          fail(
+            'CONFLICT',
+            '该会话的历史缺少可用的 SDK 会话记录，无法重新生成；请重新对话后再试',
+          );
+        }
+        forkFromMessageUuid = p.sdkMessageUuid;
+      }
+      regeneratedUserMessageUuid = u.sdkMessageUuid ?? '';
+      regenerated = {
+        replacesRunId: u.runId,
+        ...(forkFromMessageUuid === undefined ? {} : { forkFromMessageUuid }),
+        prompt: messageText(u.content) ?? '',
+      };
+    }
 
     const run = await createRun(tx, {
       id: newId('run'),
@@ -285,22 +368,35 @@ export async function admitChatRun(
       input.channel === undefined
         ? await inheritApprovals(tx, { conversationId, runId: run.id })
         : [];
-    // 页面消息的 SDK 身份由平台生成：runner 用它发首条用户消息，后续按点 fork 依赖它。
-    const userMessageUuid = randomUUID();
-    await appendMessage(tx, {
-      id: newId('message'),
-      conversationId,
-      role: 'user',
-      senderBusinessId: input.subject.kind === 'user' ? input.subject.businessId : null,
-      content:
-        channelContext === null
-          ? (input.userContent ?? { type: 'text', text: input.message })
-          : { type: 'text', text: `${channelContext}${input.message}` },
-      runId: run.id,
-      sdkMessageUuid: userMessageUuid,
-      ...(input.channel === undefined ? {} : { channelMessageId: input.channel.channelMessageId }),
-    });
+    let userMessageUuid: string;
+    if (regenerated !== undefined) {
+      userMessageUuid = regeneratedUserMessageUuid;
+    } else {
+      // 页面消息的 SDK 身份由平台生成：runner 用它发首条用户消息，后续按点 fork 依赖它。
+      userMessageUuid = randomUUID();
+      await appendMessage(tx, {
+        id: newId('message'),
+        conversationId,
+        role: 'user',
+        senderBusinessId: input.subject.kind === 'user' ? input.subject.businessId : null,
+        content:
+          channelContext === null
+            ? (input.userContent ?? { type: 'text', text: input.message })
+            : { type: 'text', text: `${channelContext}${input.message}` },
+        runId: run.id,
+        sdkMessageUuid: userMessageUuid,
+        ...(input.channel === undefined
+          ? {}
+          : { channelMessageId: input.channel.channelMessageId }),
+      });
+    }
 
-    return { run, conversationId, inherited, userMessageUuid };
+    return {
+      run,
+      conversationId,
+      inherited,
+      userMessageUuid,
+      ...(regenerated === undefined ? {} : { regenerate: regenerated }),
+    };
   });
 }

@@ -176,7 +176,7 @@ function channelReplyOf(
 async function previousUiProgram(
   tx: Parameters<Parameters<Database['transaction']>[0]>[0],
   conversationId: string,
-  runId: string,
+  excludedRunIds: string[],
 ): Promise<string> {
   const [row] = await tx
     .select({ uiProgram: schema.messages.uiProgram })
@@ -187,7 +187,7 @@ async function previousUiProgram(
         eq(schema.messages.role, 'assistant'),
         isNotNull(schema.messages.uiProgram),
         // 重试重放时本 run 的旧输出不是上一轮，不能拿它当基线。
-        sql`${schema.messages.runId} is distinct from ${runId}`,
+        ...excludedRunIds.map((id) => sql`${schema.messages.runId} is distinct from ${id}`),
         sql`${schema.messages.content}->>'parentToolUseId' is null`,
       ),
     )
@@ -251,6 +251,7 @@ export async function persistRunMessages(
     uiFormat?: 'markdown' | 'openui';
     /** 重试中间轮不投影频道：同一 run 覆盖同一 seq 行会让已订阅者漏掉最终正文。 */
     projectChannelReply?: boolean;
+    replacesRunId?: string;
   },
 ): Promise<{
   written: boolean;
@@ -329,12 +330,29 @@ export async function persistRunMessages(
     if (!run) return { written: false, messages: [] };
 
     // 基线必须在本 run 的输出删除之前读：先删会把上一轮也删掉，跨轮补丁就丢了。
-    const baseline = await previousUiProgram(tx, input.conversationId, input.runId);
+    const baseline = await previousUiProgram(
+      tx,
+      input.conversationId,
+      input.replacesRunId === undefined ? [input.runId] : [input.runId, input.replacesRunId],
+    );
     // BullMQ 重试会重放同一 run：先删本 run 已落库的输出再写，避免重复消息。
     // 用户消息也带 run_id，但由 API 写入，重试时不能删。
     await tx
       .delete(schema.messages)
       .where(and(eq(schema.messages.runId, input.runId), ne(schema.messages.role, 'user')));
+    if (input.replacesRunId !== undefined) {
+      await tx
+        .delete(schema.messages)
+        .where(
+          and(eq(schema.messages.runId, input.replacesRunId), ne(schema.messages.role, 'user')),
+        );
+      await tx
+        .update(schema.messages)
+        .set({ runId: input.runId })
+        .where(
+          and(eq(schema.messages.runId, input.replacesRunId), eq(schema.messages.role, 'user')),
+        );
+    }
     const programs = canonicalPrograms(rows, baseline, uiFormat);
     // 先分配 id 并回传给宿主：前端要用它把流式消息与落库消息对应起来。
     const withIds = rows.map((row, index) => ({
@@ -430,6 +448,9 @@ export async function persistRunMessages(
         conversationId: input.conversationId,
         channelMessageId: run.channelTriggerMessageId,
       });
+    }
+    if (input.replacesRunId !== undefined) {
+      await tx.delete(schema.agentRuns).where(eq(schema.agentRuns.id, input.replacesRunId));
     }
     // 只回传可渲染的助手文本块，前端据此回填 messageId。
     return {

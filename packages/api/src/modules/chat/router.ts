@@ -37,7 +37,7 @@ import type { NativeHttpDependencies } from './http.js';
 import { chatStateRouter } from './openui-state.js';
 import { chatToolsRouter } from './openui-tools.js';
 import { chatOutputsRouter } from './outputs.js';
-import { deleteCreatedConversation, startRun } from './use-cases.js';
+import { deleteCreatedConversation, regenerateLastRun, startRun } from './use-cases.js';
 
 const chatRepo = repo.chat;
 
@@ -68,6 +68,20 @@ const chatMainRouter = {
     return result === null
       ? { status: 204 as const, body: undefined }
       : { status: 202 as const, body: result };
+  }),
+  regenerate: os.regenerate.handler(async ({ input, context }) => {
+    const result = await regenerateLastRun(requireUser(context), input.params.conversationId, {
+      db: context.db,
+      client: context.client,
+      config: context.config,
+      log: context.log,
+      requestId: context.requestId,
+      authorize: (permissionId, resource, message) =>
+        message === undefined
+          ? authorize(context, permissionId, resource)
+          : authorizeObject(context, permissionId, resource, message),
+    });
+    return { status: 202 as const, body: result };
   }),
   searchConversations: os.searchConversations.handler(async ({ input, context }) => {
     const { cursor, ...query } = input.query;
