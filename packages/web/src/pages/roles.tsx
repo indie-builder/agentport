@@ -275,6 +275,7 @@ export function RolesPage() {
   const [expanded, setExpanded] = useState<ExpandedState>(true);
   const [conflict, setConflict] = useState<string | null>(null);
   const [reloadOpen, setReloadOpen] = useState(false);
+  const [reloadError, setReloadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
@@ -464,6 +465,7 @@ export function RolesPage() {
 
   const reload = async (): Promise<void> => {
     setError(null);
+    setReloadError(null);
     const result = await matrix.refetch({ throwOnError: true });
     if (!result.data) return;
     resetMatrix(result.data);
@@ -614,7 +616,10 @@ export function RolesPage() {
                 variant="outline"
                 size="sm"
                 disabled={pending}
-                onClick={() => setReloadOpen(true)}
+                onClick={() => {
+                  setReloadOpen(true);
+                  setReloadError(null);
+                }}
               >
                 <RotateCcw data-icon="inline-start" /> 重新加载
               </Button>
@@ -684,12 +689,18 @@ export function RolesPage() {
       </Dialog>
       <ConfirmDialog
         open={reloadOpen}
-        onClose={() => setReloadOpen(false)}
+        onClose={() => {
+          setReloadOpen(false);
+          setReloadError(null);
+        }}
         title="放弃当前草稿并重新加载？"
         description="重新加载会丢弃本次未保存的修改，并采用服务端最新的角色矩阵。"
         confirmLabel="重新加载"
         onConfirm={reload}
-      />
+        onError={(error) => setReloadError(errorMessage(error))}
+      >
+        {reloadError ? <FieldError>{reloadError}</FieldError> : null}
+      </ConfirmDialog>
       <ConfirmDialog
         open={blocker.status === 'blocked'}
         onClose={() => blocker.reset?.()}

@@ -581,11 +581,13 @@ function ChunkDialog({
   const trimmed = watch('content').trim();
   const [error, setError] = useState<string | null>(null);
   const [confirmReload, setConfirmReload] = useState(false);
+  const [reloadError, setReloadError] = useState<string | null>(null);
   const [reloading, setReloading] = useState(false);
   const pending = update.isPending || create.isPending || reloading;
   const dirty = isDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
   const reload = async () => {
+    setReloadError(null);
     setReloading(true);
     try {
       await onReload();
@@ -672,8 +674,10 @@ function ChunkDialog({
                 variant="outline"
                 disabled={pending}
                 onClick={() => {
-                  if (dirty) setConfirmReload(true);
-                  else void reload().catch((reason) => setError(errorMessage(reason)));
+                  if (dirty) {
+                    setConfirmReload(true);
+                    setReloadError(null);
+                  } else void reload().catch((reason) => setError(errorMessage(reason)));
                 }}
               >
                 重新加载
@@ -690,7 +694,10 @@ function ChunkDialog({
         <DraftGuardDialogs guard={guard} draft="分块正文草稿会丢失。" pending={pending} />
         <ConfirmDialog
           open={confirmReload}
-          onClose={() => setConfirmReload(false)}
+          onClose={() => {
+            setConfirmReload(false);
+            setReloadError(null);
+          }}
           title="放弃未保存的更改？"
           description="重新加载会用服务端版本覆盖当前草稿。"
           confirmLabel="放弃并重新加载"
@@ -699,7 +706,10 @@ function ChunkDialog({
             if (pending) return;
             await reload();
           }}
-        />
+          onError={(error) => setReloadError(errorMessage(error))}
+        >
+          {reloadError ? <FieldError>{reloadError}</FieldError> : null}
+        </ConfirmDialog>
       </DialogShell>
     </Dialog>
   );
