@@ -1,6 +1,6 @@
 # Agentport · 智能体平台 · 项目简报
 
-> 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [HANDOFF.md](HANDOFF.md) 与 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
+> 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
 > 最后更新：2026-11-13 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本（Bun 1.4.4、Hono 4.13、oRPC 1.16、Drizzle 0.45 bun-sql 等）；原始诉求与历史决策保持原样。
 > 项目名：**Agentport**（仓库与包名保持 `agentport`；对外展示名 **PACE**，见 [USER-STORIES.md](USER-STORIES.md)）
 > 包前缀：`@agentport/*`

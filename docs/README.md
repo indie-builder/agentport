@@ -19,7 +19,6 @@
 | [OPERATIONS.md](OPERATIONS.md) | 部署、备份恢复、维护任务、故障排查、观测入口、压测 |
 | [OBSERVABILITY.md](OBSERVABILITY.md) | 日志基字段、requestId/runId 关联、PostgreSQL 慢查询与锁日志、`/health/metrics` 队列字段与排障配方 |
 | [RUNBOOK.md](RUNBOOK.md) | 故障处置手册 |
-| [FIRST-RUN.md](FIRST-RUN.md) | 历史首次部署实测记录（pnpm 时代；现行步骤见 [README](../README.md) / [OPERATIONS](OPERATIONS.md)） |
 | [SKILLS.md](SKILLS.md) | 项目适配、技能与插件更新 SOP |
 | [OPENUI-UPGRADE.md](OPENUI-UPGRADE.md) | OpenUI 组件契约、官方 spec 生成与升级行为回归 |
 | [OPENUI-UI-ADAPTATION.md](OPENUI-UI-ADAPTATION.md) | 官方 shadcn UI 来源、ui-sdk 适配边界与项目令牌映射 |
@@ -32,8 +31,6 @@
 | [`../README.md`](../README.md) | 项目说明与快速开始 |
 | [`../PRODUCT.md`](../PRODUCT.md) | 产品定义 |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | 版本与变更记录 |
-| [`../DELIVERY.md`](../DELIVERY.md) | 交付说明 |
-| [`../MIGRATION.md`](../MIGRATION.md) | 迁移说明 |
 
 ## 规划与历史
 
@@ -44,8 +41,6 @@
 | [REMAINING-TODOS.md](REMAINING-TODOS.md) | 当前项目级待办（唯一待办来源） |
 | [CAPABILITY-GAP.md](CAPABILITY-GAP.md) | 能力差距分析 |
 | [research/channel-architecture-review-2026-11-08.md](research/channel-architecture-review-2026-11-08.md) | 频道实现、Claude Agent SDK 基座与多智能体协作模式的只读调研与交接清单 |
-| [HANDOFF.md](HANDOFF.md) | 某时间点的状态快照 |
-| [CHANGELOG.md](CHANGELOG.md) | 转指仓库根 `../CHANGELOG.md` |
 
 ## 历史评审（只读参考，非当前契约）
 
