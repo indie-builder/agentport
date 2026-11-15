@@ -18,20 +18,41 @@ import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { CONVERSATION_MISSING, loadReadableConversation } from './access.js';
 import { openUiActionContent } from './openui-actions.js';
-export const PREVIEW_MAX_BYTES = 1024 * 1024;
-export function isTextPreview(mediaType: string): boolean {
+
+const PREVIEW_MAX_BYTES = 1024 * 1024;
+function isTextPreview(mediaType: string): boolean {
   return (
     mediaType.startsWith('text/') ||
     mediaType === 'application/json' ||
     mediaType === 'image/svg+xml'
   );
 }
-export function decodeUtf8(data: Buffer): string | null {
+function decodeUtf8(data: Buffer): string | null {
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(data);
   } catch {
     return null;
   }
+}
+export type PreviewResult =
+  | { ok: true; content: string }
+  | { ok: false; code: 'PAYLOAD_TOO_LARGE' | 'UNSUPPORTED_MEDIA_TYPE'; message: string };
+export function previewText(data: Buffer, mediaType: string): PreviewResult {
+  if (data.length > PREVIEW_MAX_BYTES) {
+    return { ok: false, code: 'PAYLOAD_TOO_LARGE', message: '文件超过 1MiB，请下载原件查看' };
+  }
+  if (!isTextPreview(mediaType)) {
+    return { ok: false, code: 'UNSUPPORTED_MEDIA_TYPE', message: '该文件不能直接预览，请下载原件' };
+  }
+  const content = decodeUtf8(data);
+  if (content === null) {
+    return {
+      ok: false,
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      message: '该文件不是有效的 UTF-8 文本，请下载原件',
+    };
+  }
+  return { ok: true, content };
 }
 export async function agentSlug(
   context: Pick<AppContext, 'db'>,
@@ -190,17 +211,9 @@ export function registerChatOutputsHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'conversations.read' }),
     async (c) => {
       const { file, data } = await readRequestedOutput(c);
-      if (data.length > PREVIEW_MAX_BYTES) {
-        return fail('PAYLOAD_TOO_LARGE', '文件超过 1MiB，请下载原件查看');
-      }
-      if (!isTextPreview(file.mediaType)) {
-        return fail('UNSUPPORTED_MEDIA_TYPE', '该文件不能直接预览，请下载原件');
-      }
-      const content = decodeUtf8(data);
-      if (content === null) {
-        return fail('UNSUPPORTED_MEDIA_TYPE', '该文件不是有效的 UTF-8 文本，请下载原件');
-      }
-      return c.json(outputContentSchema.parse({ file, content }));
+      const preview = previewText(data, file.mediaType);
+      if (!preview.ok) fail(preview.code, preview.message);
+      return c.json(outputContentSchema.parse({ file, content: preview.content }));
     },
   );
   app.get(

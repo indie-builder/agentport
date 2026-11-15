@@ -14,7 +14,7 @@ import { implement } from '@orpc/server';
 import { actorOf, authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { CONVERSATION_MISSING } from '../chat/access.js';
-import { agentSlug, decodeUtf8, isTextPreview, PREVIEW_MAX_BYTES } from '../chat/outputs.js';
+import { agentSlug, previewText } from '../chat/outputs.js';
 import { bearerToken, tokenMatches } from '../servers/bearer.js';
 
 const os = implement(outputSharesContract).$context<RequestContext>();
@@ -220,16 +220,8 @@ export const outputSharesRouter = os.router({
     context.responseHeaders.set('cache-control', 'no-store');
     const shared = await resolveSharedFile(context, input.params.id);
     if (shared === null) fail('NOT_FOUND', SHARE_MISSING);
-    if (shared.data.length > PREVIEW_MAX_BYTES) {
-      fail('PAYLOAD_TOO_LARGE', '文件超过 1MiB，请下载原件查看');
-    }
-    if (!isTextPreview(shared.file.mediaType)) {
-      fail('UNSUPPORTED_MEDIA_TYPE', '该文件不能直接预览，请下载原件');
-    }
-    const content = decodeUtf8(shared.data);
-    if (content === null) {
-      fail('UNSUPPORTED_MEDIA_TYPE', '该文件不是有效的 UTF-8 文本，请下载原件');
-    }
-    return { file: publicFile(shared.file, shared.row.sha256), content };
+    const preview = previewText(shared.data, shared.file.mediaType);
+    if (!preview.ok) fail(preview.code, preview.message);
+    return { file: publicFile(shared.file, shared.row.sha256), content: preview.content };
   }),
 });

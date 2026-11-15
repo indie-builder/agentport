@@ -7,7 +7,7 @@ import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { toIso } from '../../lib/iso.js';
-import { agentSlug, decodeUtf8, isTextPreview, PREVIEW_MAX_BYTES } from '../chat/outputs.js';
+import { agentSlug, previewText } from '../chat/outputs.js';
 import { answerRunQuestion } from '../runs/questions.js';
 
 const runsRepo = repo.runs;
@@ -132,16 +132,8 @@ export const channelsRunsRouter = {
   runOutputContent: os.runOutputContent.handler(async ({ input, context }) => {
     const { id, runId } = input.params;
     const { file, data } = await readChannelRunOutput(context, id, runId, input.query.path);
-    if (data.length > PREVIEW_MAX_BYTES) {
-      return fail('PAYLOAD_TOO_LARGE', '文件超过 1MiB，请下载原件查看');
-    }
-    if (!isTextPreview(file.mediaType)) {
-      return fail('UNSUPPORTED_MEDIA_TYPE', '该文件不能直接预览，请下载原件');
-    }
-    const content = decodeUtf8(data);
-    if (content === null) {
-      return fail('UNSUPPORTED_MEDIA_TYPE', '该文件不能直接预览，请下载原件');
-    }
-    return outputContentSchema.parse({ file, content });
+    const preview = previewText(data, file.mediaType);
+    if (!preview.ok) fail(preview.code, preview.message);
+    return outputContentSchema.parse({ file, content: preview.content });
   }),
 };
