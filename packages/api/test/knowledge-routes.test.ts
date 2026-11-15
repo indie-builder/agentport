@@ -4,7 +4,14 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RedisClient } from 'bun';
-import { loginCookie, request, startApp, type TestApp, testConfig } from './helpers.js';
+import {
+  expectProblem,
+  loginCookie,
+  request,
+  startApp,
+  type TestApp,
+  testConfig,
+} from './helpers.js';
 
 let app: TestApp;
 let cookie = '';
@@ -882,6 +889,31 @@ describe('knowledge routes', () => {
     const paths = await folderPaths(base.id);
     expect(paths.get(root.id)).toBe('/rocket');
     expect(paths.get(child.id)).toBe('/rocket/子');
+  });
+
+  it('文件夹名称不允许包含 /', async () => {
+    const embedding = await createProfile('embedding');
+    const base = await createBase(embedding);
+
+    const createRes = await request(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${base.id}/folders`,
+      headers: { cookie },
+      payload: { name: 'a/b', parentId: null },
+    });
+    expectProblem(createRes, 'INVALID_INPUT');
+
+    const folder = await createFolder(base.id, 'ok');
+    const renameRes = await request(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/folders/${folder.id}`,
+      headers: { cookie },
+      payload: { name: 'x/y' },
+    });
+    expectProblem(renameRes, 'INVALID_INPUT');
+
+    const paths = await folderPaths(base.id);
+    expect([...paths.values()]).toEqual(['/ok']);
   });
 
   it('同时改名和移动冲突时整体回滚，不留下中间位置', async () => {
