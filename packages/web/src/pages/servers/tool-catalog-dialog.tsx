@@ -16,6 +16,7 @@ export function ToolCatalogDialog({
   lastTest,
   pending,
   testing,
+  canTest,
   onRetest,
   onClose: onClosed,
   getReturnFocus,
@@ -24,6 +25,7 @@ export function ToolCatalogDialog({
   lastTest: LastTest | null;
   pending: boolean;
   testing: boolean;
+  canTest: boolean;
   onRetest: (trigger: HTMLElement) => void;
   onClose: () => void;
   getReturnFocus: () => HTMLElement | null;
@@ -72,17 +74,19 @@ export function ToolCatalogDialog({
                 {result ? ` · ${formatDuration(result.durationMs)}` : ''}
               </span>
             ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto"
-              disabled={pending}
-              aria-busy={testing}
-              onClick={(event) => onRetest(event.currentTarget)}
-            >
-              <RefreshCw data-icon="inline-start" />
-              {testing ? '测试中…' : testedAt || result ? '重新测试' : '测试连接'}
-            </Button>
+            {canTest ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                disabled={pending}
+                aria-busy={testing}
+                onClick={(event) => onRetest(event.currentTarget)}
+              >
+                <RefreshCw data-icon="inline-start" />
+                {testing ? '测试中…' : testedAt || result ? '重新测试' : '测试连接'}
+              </Button>
+            ) : null}
           </div>
 
           {result && !result.ok ? (

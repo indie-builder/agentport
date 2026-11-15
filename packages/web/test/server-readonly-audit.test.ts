@@ -3,6 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ServersPage } from '../src/pages/servers/index.js';
+import { ToolCatalogDialog } from '../src/pages/servers/tool-catalog-dialog.js';
 import { allAccessMe } from './me-fixture.js';
 
 const state = vi.hoisted(() => ({
@@ -226,5 +227,47 @@ describe('server definition readonly audit', () => {
     expect(button('保存更改')).toBeUndefined();
     expect(state.mutate).not.toHaveBeenCalled();
     expect(state.blocker?.shouldBlockFn()).toBe(true);
+  });
+});
+
+describe('tool catalog dialog test action', () => {
+  async function mountCatalog(canTest: boolean, onRetest: () => void) {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(
+        createElement(ToolCatalogDialog, {
+          server,
+          lastTest: null,
+          pending: false,
+          testing: false,
+          canTest,
+          onRetest,
+          onClose: () => {},
+          getReturnFocus: () => null,
+        }),
+      );
+    });
+    await flush();
+  }
+
+  async function unmountCatalog() {
+    await act(async () => root?.unmount());
+    root = undefined;
+    container?.remove();
+    container = undefined;
+  }
+
+  it('only offers the test action with servers.test and never fires it during render', async () => {
+    const onRetest = vi.fn();
+    await mountCatalog(false, onRetest);
+    expect(button('测试连接')).toBeUndefined();
+    expect(button('重新测试')).toBeUndefined();
+
+    await unmountCatalog();
+    await mountCatalog(true, onRetest);
+    expect(button('测试连接')).toBeDefined();
+    expect(onRetest).not.toHaveBeenCalled();
   });
 });
