@@ -1584,6 +1584,20 @@ describe('expert review details', () => {
       from: '空',
       to: 'rte_default',
     },
+    {
+      label: '月度预算上限',
+      current: { ...agent, monthlyBudgetUsd: 20 },
+      target: { ...agent, monthlyBudgetUsd: 50 },
+      from: '20',
+      to: '50',
+    },
+    {
+      label: '预算告警阈值',
+      current: { ...agent, budgetAlertRatio: 0.8 },
+      target: { ...agent, budgetAlertRatio: 0.5 },
+      from: '0.8',
+      to: '0.5',
+    },
   ];
 
   it.each(fieldOnlyCases)(
