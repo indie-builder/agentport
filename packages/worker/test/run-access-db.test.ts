@@ -14,7 +14,7 @@ const ownerBusinessId = 'run-access-owner';
 const secondBusinessId = 'run-access-second';
 const roleId = newId('role');
 const agentId = newId('agent');
-const userId = newId('user');
+const userId = 'auth-user-run-access';
 const conversationId = newId('conversation');
 
 beforeAll(async () => {
