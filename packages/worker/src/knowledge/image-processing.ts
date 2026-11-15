@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -14,6 +14,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import sharp from 'sharp';
 import { z } from 'zod';
+import { runOneShotSdkQuery } from '../one-shot-sdk.js';
 import { sdkEnv } from '../upstream.js';
 
 type ImageDescription = {
@@ -81,39 +82,7 @@ async function runAction(input: {
   queryFn: ImageQueryFn;
 }): Promise<{ text: string | null; warning: string | null }> {
   if (input.signal.aborted) throw new Error('图片描述已取消');
-  const controller = new AbortController();
-  const onAbort = () => controller.abort();
-  input.signal.addEventListener('abort', onAbort, { once: true });
-  if (input.signal.aborted) controller.abort();
   const cwd = await mkdtemp(join(tmpdir(), 'pace-knowledge-image-'));
-  let messages: AsyncGenerator<SDKMessage, void> | undefined;
-
-  const env = sdkEnv(cwd);
-
-  const options: Options = {
-    model: input.model,
-    cwd,
-    env,
-    mcpServers: {},
-    strictMcpConfig: true,
-    tools: [],
-    settingSources: [],
-    settings: { autoMemoryEnabled: false },
-    permissionMode: 'dontAsk',
-    maxTurns: 2,
-    maxBudgetUsd: 0.5,
-    abortController: controller,
-    persistSession: false,
-    outputFormat: {
-      type: 'json_schema',
-      schema: {
-        type: 'object',
-        properties: { text: { type: 'string' } },
-        required: ['text'],
-        additionalProperties: false,
-      },
-    },
-  };
 
   const prompt = async function* (): AsyncGenerator<SDKUserMessage, void> {
     yield {
@@ -136,45 +105,57 @@ async function runAction(input: {
     };
   };
 
+  let value: string | null = null;
   try {
-    messages = input.queryFn({ prompt: prompt(), options });
-    let failure: string | null = null;
-    let sawResult = false;
-    let value: string | null = null;
-    for await (const message of messages) {
-      if (message.type !== 'result') continue;
-      sawResult = true;
-      if (message.subtype !== 'success') {
-        failure = [message.subtype, ...message.errors].filter(Boolean).join(': ');
-        continue;
-      }
-      if (message.is_error) {
-        failure = `success: ${message.result}`;
-        continue;
-      }
-      const parsed = outputSchema.safeParse(message.structured_output);
-      const text = parsed.success ? parsed.data.text.trim() : '';
-      if (text !== '') value = text;
+    const outcome = await runOneShotSdkQuery({
+      signal: input.signal,
+      cwd,
+      create: (controller) => {
+        const options: Options = {
+          model: input.model,
+          cwd,
+          env: sdkEnv(cwd),
+          mcpServers: {},
+          strictMcpConfig: true,
+          tools: [],
+          settingSources: [],
+          settings: { autoMemoryEnabled: false },
+          permissionMode: 'dontAsk',
+          maxTurns: 2,
+          maxBudgetUsd: 0.5,
+          abortController: controller,
+          persistSession: false,
+          outputFormat: {
+            type: 'json_schema',
+            schema: {
+              type: 'object',
+              properties: { text: { type: 'string' } },
+              required: ['text'],
+              additionalProperties: false,
+            },
+          },
+        };
+        return input.queryFn({ prompt: prompt(), options });
+      },
+      onSuccessFrame: (message) => {
+        const parsed = outputSchema.safeParse(message.structured_output);
+        const text = parsed.success ? parsed.data.text.trim() : '';
+        if (text !== '') value = text;
+      },
+    });
+    if (outcome.status === 'aborted') throw new Error('图片描述已取消');
+    if (outcome.status === 'no_result') {
+      return { text: null, warning: `${input.action}: SDK 没有返回结果` };
     }
-    if (input.signal.aborted || controller.signal.aborted) {
-      throw new Error('图片描述已取消');
+    if (outcome.status === 'failure') {
+      return { text: null, warning: `${input.action}: ${outcome.message}` };
     }
-    if (!sawResult) return { text: null, warning: `${input.action}: SDK 没有返回结果` };
-    if (failure !== null) return { text: null, warning: `${input.action}: ${failure}` };
     if (value === null) return { text: null, warning: `${input.action}: 输出为空` };
     return { text: value, warning: null };
   } catch (err) {
-    if (input.signal.aborted || controller.signal.aborted) {
-      throw new Error('图片描述已取消');
-    }
+    if (input.signal.aborted) throw new Error('图片描述已取消');
     const message = errorText(err);
     return { text: null, warning: `${input.action}: ${message}`.slice(0, 300) };
-  } finally {
-    input.signal.removeEventListener('abort', onAbort);
-    // 与 Wiki 相同：return() 才等 CLI cleanup 完成，先停进程再删临时目录。
-    controller.abort();
-    await messages?.return(undefined).catch(() => undefined);
-    await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
