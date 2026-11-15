@@ -31,6 +31,7 @@ import {
   type MemoryJournalEntry,
   writeMemoryJournal,
 } from './journal.js';
+import { recordMemoryChange } from './ledger.js';
 import { countMemoryTopics } from './overview.js';
 import {
   type MemoryWriteLogger,
@@ -227,7 +228,7 @@ async function insertChange(
   before: MemoryContentSnapshot,
   changeId?: string,
 ): Promise<repo.memoryChanges.MemoryChangeRow> {
-  const change = await repo.memoryChanges.insert(db, {
+  return recordMemoryChange(db, {
     ...(changeId === undefined ? {} : { id: changeId }),
     businessId: input.businessId,
     agentId,
@@ -237,17 +238,6 @@ async function insertChange(
     sourceReviewRunId: input.sourceReviewRunId ?? null,
     reversesChangeId: input.reversesChangeId ?? null,
   });
-  if (input.sourceReviewRunId) {
-    const decided = await repo.memoryReviews.updateDecisionIfPending(
-      db,
-      input.sourceReviewRunId,
-      'applied',
-      change.id,
-    );
-    // 锁内不应再有人改决定；走到这里说明数据被外部改写，回滚事务。
-    if (!decided) throw new Error('review decision changed under memory lock');
-  }
-  return change;
 }
 
 async function discardJournalQuietly(

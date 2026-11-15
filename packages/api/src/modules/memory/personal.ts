@@ -6,6 +6,7 @@ import {
   PERSONAL_MEMORY_MAX_CHARS,
 } from '@agentport/shared';
 import type { SQL } from 'bun';
+import { recordMemoryChange } from './ledger.js';
 
 /**
  * 个人偏好正文上限由 shared 统一维护：9000 个 Unicode 字符（按码点计，不是 UTF-8 字节）。
@@ -89,7 +90,7 @@ export async function writePersonalMemoryLocked(input: {
       input.expectedRevision,
     );
     if (row === null) return null;
-    const change = await repo.memoryChanges.insert(db, {
+    const change = await recordMemoryChange(db, {
       businessId: input.businessId,
       target: { kind: 'personal' },
       before: { content: before?.content ?? '', globs: null, index: null },
@@ -97,16 +98,6 @@ export async function writePersonalMemoryLocked(input: {
       sourceReviewRunId: input.sourceReviewRunId ?? null,
       reversesChangeId: input.reversesChangeId ?? null,
     });
-    if (input.sourceReviewRunId) {
-      const decided = await repo.memoryReviews.updateDecisionIfPending(
-        db,
-        input.sourceReviewRunId,
-        'applied',
-        change.id,
-      );
-      // 锁内不应再有人改决定；走到这里说明数据被外部改写，回滚整个事务。
-      if (!decided) throw new Error('review decision changed under memory lock');
-    }
     return {
       content: row.content,
       revision: row.revision,
