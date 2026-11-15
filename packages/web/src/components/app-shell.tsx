@@ -31,6 +31,7 @@ import {
 import { cn } from '../lib/cn.js';
 import { logoutAccount, meQuery } from '../lib/queries.js';
 import { animateBrand, Brand, BrandMark } from './brand.js';
+import { CommandPalette, CommandPaletteTrigger } from './command-palette.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from './page.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Sheet, SheetClose, SheetContent, SheetTitle } from './ui/sheet.js';
@@ -532,6 +533,9 @@ export function AppShell() {
             }}
           />
         )}
+        <div className="mt-3">
+          <CommandPaletteTrigger collapsed={navCollapsed} tooltipDisabled={tooltipDisabled} />
+        </div>
         {/* 收起态标签会横向溢出链接，导航不提供横向滚动。 */}
         <nav
           aria-label="主导航"
@@ -727,6 +731,8 @@ export function AppShell() {
           )}
         </main>
       </div>
+
+      <CommandPalette me={me.data} />
     </div>
   );
 }
