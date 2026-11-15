@@ -197,10 +197,11 @@ export const evalRouter = os.router({
       if (id === head) fail('INVALID_INPUT', '不能把评估运行与自身对比');
       const comparison = await evalRepo.getComparison(context.db, id, head);
       if (!comparison) fail('NOT_FOUND', '评估运行不存在，可能已被清理；请刷新列表');
+      await authorizeEvalAgent(context, comparison.baseRun.agentId, ['eval.read']);
+      await authorizeEvalAgent(context, comparison.headRun.agentId, ['eval.read']);
       if (comparison.baseRun.agentId !== comparison.headRun.agentId) {
         fail('INVALID_INPUT', '只能对比同一智能体的评估运行');
       }
-      await authorizeEvalAgent(context, comparison.baseRun.agentId, ['eval.read']);
       const running = [comparison.baseRun, comparison.headRun].find(
         (run) => run.status === 'running',
       );
