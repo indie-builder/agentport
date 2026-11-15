@@ -228,7 +228,7 @@ export const channelWakes = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('channel_wakes_message_agent_idx').on(t.channelMessageId, t.agentId),
+    index('channel_wakes_message_agent_idx').on(t.channelMessageId, t.agentId),
     index('channel_wakes_status_next_idx').on(t.status, t.nextAttemptAt),
     check(
       'channel_wakes_status_check',

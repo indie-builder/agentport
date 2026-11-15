@@ -505,6 +505,13 @@
       "when": 1794593421377,
       "tag": "0071_bright_green_goblin",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1794725706770,
+      "tag": "0072_rare_boomerang",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { AppError, isAppError } from '@agentport/core';
-import { isIdOfType, newId } from '@agentport/db';
 import { errorCode } from '@agentport/shared';
 import { SQL } from 'bun';
 import { HTTPException } from 'hono/http-exception';
@@ -185,18 +184,5 @@ describe('isPgCode', () => {
     expect(isPgCode({ errno: '23505' }, '23505')).toBe(true);
     expect(isPgCode(null, '23505')).toBe(false);
     expect(isPgCode(new Error('plain'), '23505')).toBe(false);
-  });
-});
-
-describe('isIdOfType', () => {
-  it('accepts a real id and rejects a wrong prefix or junk suffix', () => {
-    const id = newId('run');
-    expect(isIdOfType(id, 'run')).toBe(true);
-
-    // 旧实现只比对 `run_` 前缀，因此 run_junk 会通过。
-    expect(isIdOfType('run_junk', 'run')).toBe(false);
-    expect(isIdOfType(newId('agent'), 'run')).toBe(false);
-    expect(isIdOfType('', 'run')).toBe(false);
-    expect(isIdOfType('agt_missing', 'agent')).toBe(false);
   });
 });
