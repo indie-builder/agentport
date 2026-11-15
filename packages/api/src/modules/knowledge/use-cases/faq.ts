@@ -826,7 +826,7 @@ export async function importFaqs(
   const jobs = new Map(saved.items.map((item) => [item.documentId, item]));
   await enqueueKnowledgeJobs(saved.items.map((item) => ({ id: item.jobId }))).catch(
     (err: unknown) => {
-      deps.log.warn({ err }, 'FAQ 导入任务入队失败，等待对账补投');
+      deps.log.warn({ err }, 'faq import job enqueue failed; awaiting reconcile');
     },
   );
   const results = plan.results.map((result) => {

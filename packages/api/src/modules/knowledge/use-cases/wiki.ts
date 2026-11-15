@@ -223,7 +223,7 @@ async function publishWithWikiIndex(
   });
   if (!committed) return null;
   await enqueueKnowledgeJob({ id: committed.jobId }).catch((err: unknown) => {
-    deps.log.warn({ err, jobId: committed.jobId }, 'Wiki 索引任务入队失败，等待对账补投');
+    deps.log.warn({ err, jobId: committed.jobId }, 'wiki index job enqueue failed; awaiting reconcile');
   });
   return committed.page;
 }

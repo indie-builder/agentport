@@ -237,6 +237,7 @@ export const agentRunJobSchema = z.object({
   agentId: z.string(),
   conversationId: z.string(),
   prompt: z.string(),
+  requestId: z.string().optional(),
 });
 
 export type AgentRunJob = z.infer<typeof agentRunJobSchema>;

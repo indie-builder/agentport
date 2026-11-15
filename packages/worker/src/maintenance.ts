@@ -1,11 +1,12 @@
 import { pathToFileURL } from 'node:url';
 import { outputMessageAnchors } from '@agentport/core';
+import { createServiceLogger } from '@agentport/core/logger';
 import { createDb, repo, schema } from '@agentport/db';
 import { MAINTENANCE_QUEUE } from '@agentport/shared';
 import { createBunRedisClient, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
-import pino, { type Logger } from 'pino';
+import type { Logger } from 'pino';
 import { loadConfig } from './config.js';
 import { version } from './version.js';
 
@@ -111,9 +112,11 @@ export async function startMaintenanceWorker(input: {
 // 手动触发：bun run --filter @agentport/worker maintenance
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const config = loadConfig();
-  const logger = pino({
+  const logger = createServiceLogger({
+    service: 'worker',
+    env: config.NODE_ENV,
+    version,
     level: config.LOG_LEVEL,
-    base: { service: 'worker', env: config.NODE_ENV, version },
   });
   const { db, client } = createDb(config.DATABASE_URL);
   try {

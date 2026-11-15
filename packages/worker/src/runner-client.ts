@@ -377,10 +377,12 @@ function stderrExcerpt(tap: StderrTap, max: number): string {
 }
 
 let redisUrl = 'redis://localhost:6379';
+let serviceLogger: Logger | undefined;
 
 /** 由 worker 入口在启动时注入校验过的 REDIS_URL。 */
-export function configureRunnerClient(url: string): void {
+export function configureRunnerClient(url: string, logger?: Logger): void {
   redisUrl = url;
+  if (logger !== undefined) serviceLogger = logger;
 }
 
 let publisher: RedisClient | undefined;
@@ -390,7 +392,7 @@ const cancelHandlers = new Map<string, Set<(message: string, channel: string) =>
 function getPublisher(logger: Logger): RedisClient {
   if (!publisher) {
     publisher = new RedisClient(redisUrl);
-    publisher.onclose = (err) => logger.warn({ err }, 'redis error');
+    publisher.onclose = (err) => (serviceLogger ?? logger).warn({ err }, 'redis error');
   }
   return publisher;
 }
@@ -399,7 +401,7 @@ function getPublisher(logger: Logger): RedisClient {
 function getCancelSubscriber(logger: Logger): RedisClient {
   if (!cancelSubscriber) {
     cancelSubscriber = new RedisClient(redisUrl);
-    cancelSubscriber.onclose = (err) => logger.warn({ err }, 'redis error');
+    cancelSubscriber.onclose = (err) => (serviceLogger ?? logger).warn({ err }, 'redis error');
     let connected = false;
     cancelSubscriber.onconnect = () => {
       if (!connected) {
@@ -415,7 +417,9 @@ function getCancelSubscriber(logger: Logger): RedisClient {
             .then(async () => {
               if (await getPublisher(logger).exists(channel)) handler(RUN_CANCEL_PAYLOAD, channel);
             })
-            .catch((err: unknown) => logger.warn({ err }, 'cancel resubscribe failed'));
+            .catch((err: unknown) =>
+              (serviceLogger ?? logger).warn({ err }, 'cancel resubscribe failed'),
+            );
         }
       }
     };

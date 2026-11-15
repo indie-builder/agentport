@@ -27,6 +27,10 @@
     "./net-guard": {
       "types": "./dist/net-guard.d.ts",
       "default": "./dist/net-guard.js"
+    },
+    "./logger": {
+      "types": "./dist/logger.d.ts",
+      "default": "./dist/logger.js"
     }
   },
   "scripts": {
@@ -39,6 +43,7 @@
     "@openuidev/lang-core": "1.1.1",
     "effect": "catalog:",
     "file-type": "22.3.0",
+    "pino": "catalog:",
     "yaml": "2.9.1",
     "zod": "catalog:"
   },

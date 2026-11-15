@@ -10,6 +10,7 @@ import {
   toRuleEntries,
   toWorkflowEntries,
 } from '@agentport/core';
+import { runScopedLogger } from '@agentport/core/logger';
 import { resolveWorkspaceMemoryPolicy } from '@agentport/core/workspace-input';
 import { type createDb, repo, schema } from '@agentport/db';
 import {
@@ -154,6 +155,7 @@ export async function runAgentJob(
     throw new Error(`invalid job payload: ${parsed.error.message}`);
   }
   const { runId, prompt } = parsed.data;
+  const jobRequestId = parsed.data.requestId;
 
   const [run] = await db
     .select({
@@ -206,6 +208,12 @@ export async function runAgentJob(
   // 后续会话/专家归属以 run 行为准，不能用 job 里的 ID 改写挂载来源。
   const agentId = run.agentId;
   const conversationId = run.conversationId;
+  const runLog = runScopedLogger(logger, {
+    runId,
+    requestId: jobRequestId,
+    agentId,
+    conversationId,
+  });
   // 只认领 queued：BullMQ 在 Redis 抖动后会重投递仍在 running 的任务，
   // 若这里也接受 running，同一 run 会被两个 worker 各跑一遍（重复计费、消息互相覆盖）。
   const claimed = await db
@@ -214,7 +222,7 @@ export async function runAgentJob(
     .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'queued')))
     .returning({ id: schema.agentRuns.id });
   if (claimed.length === 0) {
-    logger.info({ runId }, 'run externally terminated before claim, skipping');
+    runLog.info('run externally terminated before claim, skipping');
     return;
   }
   // 记忆审核不是聊天：不建沙盒、不追加消息、不准备成果，直接读快照产出提案。
@@ -227,7 +235,7 @@ export async function runAgentJob(
     return;
   }
   try {
-    await publishRun(runId, { type: 'run_started', runId, conversationId }, logger);
+    await publishRun(runId, { type: 'run_started', runId, conversationId }, runLog);
   } catch (err) {
     // 认领只接受 queued；发布失败若不回退，BullMQ 重试会被 running 守卫跳过。
     try {
@@ -236,11 +244,11 @@ export async function runAgentJob(
         .set({ status: 'queued', startedAt: null })
         .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')));
     } catch (revertError) {
-      logger.error({ err: revertError, runId }, 'failed to requeue after publish failure');
+      runLog.error({ err: revertError }, 'failed to requeue after publish failure');
     }
     throw err;
   }
-  await repo.audit.writeAudit(db, logger, {
+  await repo.audit.writeAudit(db, runLog, {
     actor: 'worker',
     actorKind: 'service',
     action: 'agent.run.started',
@@ -253,7 +261,7 @@ export async function runAgentJob(
     await publishChannelEventSafely(
       run.channelId,
       { type: 'run.started', channelId: run.channelId, runId, agentId },
-      logger,
+      runLog,
       { runId },
     );
   }
@@ -316,7 +324,7 @@ export async function runAgentJob(
       lease = await acquireSessionSandbox({
         runId,
         manager: sessionSandboxes,
-        logger,
+        logger: runLog,
         signal: sandboxClosing.signal,
         spec: {
           agentId,
@@ -388,13 +396,13 @@ export async function runAgentJob(
           currentVersion !== null &&
           pinnedVersion !== currentVersion
         ) {
-          logger.warn(
-            { runId, pinnedVersion, currentVersion },
+          runLog.warn(
+            { pinnedVersion, currentVersion },
             'agent config changed since enqueue; executing current config',
           );
         }
       } catch (err) {
-        logger.warn({ err, runId }, 'agent version drift check failed');
+        runLog.warn({ err }, 'agent version drift check failed');
       }
 
       const timeoutMs = agent.timeoutMs;
@@ -542,7 +550,7 @@ export async function runAgentJob(
       await refreshSessionDirectory(workspaceDir, stableWorkspaceDir, {
         preserveMemoryMount: true,
       });
-      logger.info({ runId, agentId, workspaceDir }, 'agent run started');
+      runLog.info({ workspaceDir }, 'agent run started');
 
       sessionsDirForRun = sessionPaths.sessionsDir;
 
@@ -608,7 +616,7 @@ export async function runAgentJob(
           run.channelId === null
             ? sandboxEnv(sandboxApiUrl, runId)
             : { ...sandboxEnv(sandboxApiUrl, runId), PACE_RUN_TRIGGER: 'channel' },
-        logger: logger.child({ runId }),
+        logger: runLog,
         // 问题先落库再推界面；轮询答案也只读这条 run 的记录。
         questions: {
           // 期限由 runner 在容器实际开始时给出，创建耗时不计入。
@@ -635,7 +643,7 @@ export async function runAgentJob(
         !leaseReleased;
     } catch (err) {
       const error = err instanceof RunFailure || err instanceof Error ? err.message : String(err);
-      logger.error({ err, runId }, 'agent run crashed');
+      runLog.error({ err }, 'agent run crashed');
       // 只有确认容器仍可能存活时才记 unconfirmed：准备阶段和普通 acquire 失败没有遗留，
       // 误判会禁掉 infra 重试与延迟取消。typed 清理失败由 cause 携带 sandbox id。
       const cleanupSandboxId = cleanupSandboxIdOf(err);
@@ -670,7 +678,7 @@ export async function runAgentJob(
           await rm(join(stableWorkspaceDir, '.mcp.json'), { force: true });
         } catch (err) {
           reuseSession = false;
-          logger.error({ err, runId }, 'failed to remove idle workspace mcp credentials');
+          runLog.error({ err }, 'failed to remove idle workspace mcp credentials');
           if (lease && !leaseReleased) {
             leaseReleased = true;
             try {
@@ -678,14 +686,14 @@ export async function runAgentJob(
             } catch (cleanupError) {
               outcome.cleanupError = errorText(cleanupError);
               outcome.settlement = { state: 'unconfirmed', error: outcome.cleanupError };
-              logger.error({ err: cleanupError, runId }, 'sandbox cleanup failed');
+              runLog.error({ err: cleanupError }, 'sandbox cleanup failed');
             }
           }
         }
       }
     }
     await repo.runs.clearRunTokens(db, runId).catch((err: unknown) => {
-      logger.warn({ err, runId }, 'failed to clear run tokens');
+      runLog.warn({ err }, 'failed to clear run tokens');
     });
     modelProxy?.revokeToken(runId);
 
@@ -711,7 +719,7 @@ export async function runAgentJob(
         );
       } catch (err) {
         outputSettlementError = errorText(err);
-        logger.error({ err, runId }, 'failed to record output sandbox settlement');
+        runLog.error({ err }, 'failed to record output sandbox settlement');
       }
     }
 
@@ -767,12 +775,12 @@ export async function runAgentJob(
       if (!persisted.written) messageSaveError = '消息保存被拒绝，运行或会话已由外部终止';
     } catch (err) {
       messageSaveError = errorText(err);
-      logger.error({ err, runId }, 'failed to persist run messages');
+      runLog.error({ err }, 'failed to persist run messages');
     }
 
     // DB 已提交的投影才是权威；Redis 只负责唤醒，失败不改变运行结果。
     if (projectedChannelMessage !== undefined) {
-      await repo.audit.writeAudit(db, logger, {
+      await repo.audit.writeAudit(db, runLog, {
         actor: agentId,
         actorKind: 'agent',
         action: 'channel.message.posted',
@@ -793,7 +801,7 @@ export async function runAgentJob(
           seq: projectedChannelMessage.seq,
           message: repo.channels.toChannelMessage(projectedChannelMessage),
         },
-        logger,
+        runLog,
         { runId },
       );
     }
@@ -837,7 +845,7 @@ export async function runAgentJob(
           },
         );
         if (published.problem !== undefined) {
-          logger.warn({ runId, problem: published.problem }, 'run outputs not published');
+          runLog.warn({ problem: published.problem }, 'run outputs not published');
           // 重试会把这一轮整个重跑；不要把「暂未发布」写进运行错误里干扰重试原因。
           if (!willRetry) {
             outcome = {
@@ -849,7 +857,7 @@ export async function runAgentJob(
       } catch (err) {
         // 发布失败不掩盖运行本身的结果；草稿仍在，页面据此明确提示没有发布快照。
         const message = errorText(err);
-        logger.error({ err, runId }, 'failed to publish run outputs');
+        runLog.error({ err }, 'failed to publish run outputs');
         if (!willRetry) {
           outcome = {
             ...outcome,
@@ -868,7 +876,7 @@ export async function runAgentJob(
         .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')))
         .returning({ id: schema.agentRuns.id });
       if (requeued.length > 0) {
-        logger.warn({ runId, attempt: job.attemptsMade + 1 }, 'retrying sandbox failure');
+        runLog.warn({ attempt: job.attemptsMade + 1 }, 'retrying sandbox failure');
         throw new Error(`retryable sandbox failure: ${outcome.error ?? 'unknown'}`);
       }
     }
@@ -898,13 +906,13 @@ export async function runAgentJob(
     if (outcome.settlement.state === 'unconfirmed') {
       await handOffPendingFinish({
         db,
-        logger,
+        logger: runLog,
         runId,
         event: finishedEvent(),
         values: finishValues,
       });
-      logger.warn(
-        { runId, sandboxId: outcome.sandboxId },
+      runLog.warn(
+        { sandboxId: outcome.sandboxId },
         'run stop unconfirmed; terminal state deferred to reconcile',
       );
       return;
@@ -912,7 +920,7 @@ export async function runAgentJob(
 
     const won = await finalizeRun({
       db,
-      logger,
+      logger: runLog,
       runId,
       event: finishedEvent(),
       values: finishValues,
@@ -926,10 +934,7 @@ export async function runAgentJob(
     if (!won) {
       const current = await repo.chat.getRun(db, runId);
       if (!current || isActiveRunStatus(current.status)) {
-        logger.warn(
-          { runId, status: current?.status },
-          'run disappeared or is no longer terminal',
-        );
+        runLog.warn({ status: current?.status }, 'run disappeared or is no longer terminal');
         return;
       }
       outcome = {
@@ -946,7 +951,7 @@ export async function runAgentJob(
       };
       await publishRunFinished({
         db,
-        logger,
+        logger: runLog,
         runId,
         event: finishedEvent(),
         audit: {
@@ -958,8 +963,12 @@ export async function runAgentJob(
       });
     }
 
-    logger.info(
-      { runId, status: outcome.status, costUsd: outcome.costUsd, latencyMs: runLatencyMs },
+    runLog.info(
+      {
+        status: outcome.status,
+        costUsd: outcome.costUsd,
+        latencyMs: runLatencyMs,
+      },
       'agent run finished',
     );
 
@@ -969,11 +978,11 @@ export async function runAgentJob(
   } finally {
     // run 临时渲染可删；稳定挂载与持久 transcript、附件、记忆留给下一轮。
     await rm(join(workspacesDir, agentSlugForRun, runId), { recursive: true, force: true }).catch(
-      (err: unknown) => logger.warn({ err, runId }, 'workspace cleanup failed'),
+      (err: unknown) => runLog.warn({ err }, 'workspace cleanup failed'),
     );
     if (lease && !leaseReleased) {
       await lease.release({ reuse: reuseSession }).catch((err: unknown) => {
-        logger.error({ err, runId }, 'session lease release failed');
+        runLog.error({ err }, 'session lease release failed');
       });
     }
   }

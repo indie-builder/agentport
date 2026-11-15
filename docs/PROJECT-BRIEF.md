@@ -697,24 +697,11 @@ interface SandboxProvider {
 
 ### 9.1 pino 配置要点
 
-```ts
-{
-  level: config.LOG_LEVEL,
-  redact: {
-    paths: [
-      'req.headers.authorization', 'req.headers.cookie',
-      '*.apiKey', '*.token', '*.secret',
-      '*.env.*', '*.headers.authorization',
-    ],
-    censor: '[REDACTED]',
-  },
-  serializers: { err: pino.stdSerializers.err },
-}
-```
+服务日志的配置只有一处：`@agentport/core/logger` 的 `createServiceLogger` 注入基字段 `service/env/version` 并应用 `LOG_REDACT_PATHS` 脱敏，api/worker 业务代码不直接构造 pino。契约见 [OBSERVABILITY.md](OBSERVABILITY.md#日志契约规范)，不要另写第二份 pino 配置或脱敏清单。
 
 - 生产：纯 JSON 到 stdout（容器标准）。
-- 开发：`pino-pretty` transport。
-- 需要落文件时用 `pino-roll` 按大小/时间滚动。
+- 开发：api 用 `pino-pretty` transport（`createServiceLogger({ pretty: true })`）。
+- 需要落文件时用 `pino-roll` 按大小/时间滚动（部署侧）。
 
 ### 9.2 关联字段
 

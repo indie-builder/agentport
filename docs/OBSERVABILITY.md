@@ -2,6 +2,13 @@
 
 面向排障的最小基础：结构化日志基字段、一次请求与后台运行的关联、PostgreSQL 慢查询/锁日志、`/health/metrics` 的队列字段。部署与其它观测入口见 [OPERATIONS.md](OPERATIONS.md#6-观测入口)。
 
+## 日志契约（规范）
+
+服务日志只经 `@agentport/core/logger` 创建，api 与 worker 的业务代码不直接构造 pino（测试可用 `pino({ level: 'silent' })`）。
+
+- 唯一实现：`createServiceLogger` 注入基字段并应用 `LOG_REDACT_PATHS` 脱敏；`requestScopedLogger` 生成带 `requestId` 的请求作用域 child，`runScopedLogger` 生成带 `runId`（及可选 `requestId` / `agentId` / `conversationId`）的运行作用域 child，用于该 run 的执行日志（含传给沙盒的 logger）。
+- 基字段、事件命名与脱敏的细节分别见下文「日志基字段」「事件命名」「脱敏」三节，此处不重复。
+
 ## 日志基字段
 
 api 与 worker 的 pino 日志都带三个基字段，由初始化处统一注入，业务函数不再重复传：
@@ -14,7 +21,7 @@ api 与 worker 的 pino 日志都带三个基字段，由初始化处统一注�
 
 `base` 会替换 pino 默认的 `pid` 与 `hostname`，当前日志不再包含这两个字段；进程区分靠 `service` 与容器来源。
 
-请求内日志是 Hono 生成的 child logger，额外带 `requestId`。与运行相关的日志带 `runId`，它同时用于 API 与 worker 两侧。
+请求内日志是 Hono 生成的 child logger，额外带 `requestId`。与运行相关的日志带 `runId`（worker 的 run 作用域 child 还带 `requestId`、`agentId`、`conversationId`），`runId` 同时用于 API 与 worker 两侧。
 
 ## 事件命名
 
@@ -24,17 +31,30 @@ API 请求日志只记录路由模板、状态码与耗时；不记录请求/响
 
 ## 关联请求与后台运行
 
-聊天入队成功后，API 写一条 `run enqueued`，同一行同时带 `requestId` 与 `runId`。这是把 HTTP 请求和后台运行串起来的唯一点：
+聊天入队成功后，API 写一条 `run enqueued`，同一行同时带 `requestId` 与 `runId`。聊天 run 的 job payload 也带 `requestId`，worker 认领该 run 后使用 run 作用域 child logger，该 run 的执行日志（含传给沙盒的 logger）都带同一 `requestId`：一次 `requestId` 检索可横跨 api 与 worker。频道唤醒、MCP invoker 与定时触发的 run，其 job 不携带 `requestId`，即使由 HTTP 请求发起也一样；这些 run 只能用 `runId` 关联。
 
 ```bash
-# 一次 HTTP 请求的全部日志（含它触发的 runId）
-docker compose logs api | grep '"requestId":"<id>"'
+# 一次 HTTP 请求在 API 与 worker 两侧的关联日志
+docker compose logs api worker | grep '"requestId":"<id>"'
 
 # 该运行在 API 与 worker 两侧的日志
 docker compose logs api worker | grep '"runId":"<id>"'
 ```
 
 反过来，先拿到 `requestId` 找到 `runId`，再用 `runId` 看 worker 的认领、执行与终态。生产日志是 pino JSON；用 `jq` 过滤时加 `--no-log-prefix`，否则 compose 的服务名前缀会破坏 JSON。
+
+## 脱敏
+
+脱敏路径的唯一清单是 `@agentport/core/logger` 的 `LOG_REDACT_PATHS`，由 `createServiceLogger` 应用到 api、worker 的 logger 及其 child，命中值替换为 `[REDACTED]`。新增凭证类日志字段只改这一处。
+
+## 待改进（已知缺口）
+
+- 没有按 `requestId` / `runId` 的只读日志查询 API 或 MCP，排障仍依赖 `docker logs` 加 `grep`。
+- 缺阶段耗时：排队、沙盒获取、首 token、模型轮次、工具调用、持久化、事件发布。
+- 事件名依赖 pino 的 `msg`，键名尚未统一。
+- eval、knowledge 等其它 job payload 未带 `requestId`。
+- 生产 `LOG_LEVEL=info` 会丢弃 runner / sandbox 的 stderr，仅失败时保留尾部。
+- compose 未声明日志轮转，需按实际部署核对。
 
 ## PostgreSQL 慢查询与锁等待
 
@@ -84,7 +104,7 @@ Bull Board 只读面板，覆盖 `agent-runs`、`eval-runs`、`knowledge-jobs`�
 
 ## 排障配方
 
-1. 有 `requestId`：在 API 日志中检索该 id，看路由、状态码、耗时与错误，并取到它触发的 `runId`。
+1. 有 `requestId`：在 api 与 worker 日志中检索该 id，看路由、状态码、耗时与错误，并取到它触发的 `runId`。
 2. 有 `runId`：同时检索 api 与 worker，按时间排序看入队、认领、执行、失败与终态。
 3. 没有 id：先看 `/health/metrics` 的 `queue.waiting/active/failed`、`oldestWaitingMs`、`db.pingMs`，再按时间窗检索日志。
 4. 慢请求：API 日志的 `slow request` 是超过 2s 的请求；数据库侧用 `duration:` 查慢语句，结合 `log_temp_files` 判断是否落盘。

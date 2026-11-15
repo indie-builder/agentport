@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { decryptSecrets } from '@agentport/core';
+import { createServiceLogger } from '@agentport/core/logger';
 import { createDb, repo } from '@agentport/db';
 import {
   errorText,
@@ -21,7 +22,7 @@ import {
 } from '@agentport/shared';
 import { createBunRedisClient, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
-import pino, { type Logger } from 'pino';
+import type { Logger } from 'pino';
 import type { Config } from './config.js';
 import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
@@ -312,9 +313,11 @@ export async function registerSandboxProbe(
   });
   const deps: SandboxProbeDeps = {
     db: handle.db,
-    logger: pino({
+    logger: createServiceLogger({
+      service: 'worker',
+      env: config.NODE_ENV,
+      version,
       level: config.LOG_LEVEL,
-      base: { service: 'worker', env: config.NODE_ENV, version },
     }),
     provider,
     resolveRuntimeEnvironment,

@@ -40,6 +40,7 @@
 - 每轮工作区渲染与沙盒执行属于 worker；API 预览复用 core 的 `renderWorkspace`，不另写渲染。
 - 宿主文件读写沿用现有 core 与模块内的存储入口（inputs、outputs、记忆文件），不新增平行目录布局。
 - DB 访问走 `@agentport/db` 的 repo 与 schema；数据库 schema 变更按 [db 规则](../db/AGENTS.md) 执行。repo 的 SQL、事务、CAS 与 `AccessFilter` 继续由 db 共享，不搬回 API。
+- 日志用 `@agentport/core/logger` 的 `createServiceLogger` 创建，请求日志用 `requestScopedLogger`；业务代码不直接构造 pino。字段与脱敏契约见 [OBSERVABILITY](../../docs/OBSERVABILITY.md#日志契约规范)。
 
 ## Effect 边界
 

@@ -11,6 +11,7 @@ import {
   WORKSPACE_DIR_MODE,
   WORKSPACE_FILE_MODE,
 } from '@agentport/core';
+import { createServiceLogger } from '@agentport/core/logger';
 import { toWorkspaceInput } from '@agentport/core/workspace-input';
 import { createDb, repo, schema } from '@agentport/db';
 import {
@@ -32,7 +33,7 @@ import {
 import { createBunRedisClient, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { inArray } from 'drizzle-orm';
-import pino, { type Logger } from 'pino';
+import type { Logger } from 'pino';
 import { loadConfig } from './config.js';
 import { runAgentJob } from './runs/execute.js';
 import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
@@ -73,13 +74,15 @@ import { modelProxyUpstream } from './upstream.js';
 import { version } from './version.js';
 
 const config = loadConfig();
-const logger = pino({
+const logger = createServiceLogger({
+  service: 'worker',
+  env: config.NODE_ENV,
+  version,
   level: config.LOG_LEVEL,
-  base: { service: 'worker', env: config.NODE_ENV, version },
 });
 
 // 缺关键配置时 loadConfig 已抛错，进程直接退出。
-configureRunnerClient(config.REDIS_URL);
+configureRunnerClient(config.REDIS_URL, logger);
 
 const workspacesDir = resolve(config.WORKSPACES_DIR);
 // 沙盒挂载的源路径按宿主 daemon 解析；容器里写文件仍用 workspacesDir。
@@ -569,11 +572,20 @@ const worker = new Worker(
 );
 
 worker.on('failed', async (job, err) => {
-  logger.error({ jobId: job?.id, err }, 'job failed');
+  const parsed = job ? agentRunJobSchema.safeParse(job.data) : null;
   // BullMQ increments attemptsMade before emitting failed.
+  logger.error(
+    parsed?.success
+      ? {
+          runId: parsed.data.runId,
+          ...(parsed.data.requestId === undefined ? {} : { requestId: parsed.data.requestId }),
+          err,
+        }
+      : { jobId: job?.id, err },
+    'job failed',
+  );
   if (!job || job.attemptsMade < (job.opts.attempts ?? 1)) return;
-  const parsed = agentRunJobSchema.safeParse(job.data);
-  if (!parsed.success) return;
+  if (!parsed || !parsed.success) return;
   const { runId, agentId } = parsed.data;
   try {
     const slug = await repo.agents.findAgentSlug(db, agentId);
