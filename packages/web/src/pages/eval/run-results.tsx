@@ -155,13 +155,13 @@ export function EvalRunResults({ id }: { id: string }) {
           </Button>
         </div>
       </div>
-      {evalRun.status === 'failed' ? (
+      {evalRun.status === 'failed' && evalRun.error !== null ? (
         <PageNote
           tone="danger"
           title={results.length === 0 ? '评估失败，未生成结果' : '评估失败'}
           description={
             <span className="[overflow-wrap:anywhere]">
-              {evalRun.error ?? '未提供失败原因。'} 请检查后重新运行评估。
+              {evalRun.error} 请检查后重新运行评估。
             </span>
           }
         />
