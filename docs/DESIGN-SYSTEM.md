@@ -383,8 +383,8 @@
 - `@theme` 时长令牌为 `--dur-fast` 60ms 与 `--dur-slow` 0.45s；CDS 参考阶梯 `--dur-snap` 120ms / `--dur-base` 200ms / `--dur-sheet` 300ms 按场景在 utility 内联。只过渡实际变化的属性，禁止 `transition-all`。
 - 按钮按压走 15 阶物理弹簧 `--btn-spring`（`linear(0, 0.2459, … 1)`），active 时 `scale(0.975)`；`.cds-btn-squish` 把 `transform` 绑定到 `--dur-slow` + `--btn-spring`，颜色、背景与边框走 150ms `--ease-out-soft`，`:active` 的 transform 仍走 60ms `ease-out`。弹簧按压允许出现在所有共享 `Button`。
 - 侧栏宽度过渡 160ms；标签淡出 90ms；预览与固定展开状态 Logo 切图为 300ms 轻推接力；品牌标记与固定/收起控件切换沿用 140ms 过渡。
-- 允许的动效：局部交互与状态反馈（悬停背景、展开折叠、浮层显隐、流式光标、复制/安装结果）、消息入场 `message-fade-up`（0.4s、`--ease-overshoot`）、卡片 hover 上浮 1.5px（200ms、`--ease-out-soft`）、执行过程展开 `timeline-expand`（200ms、`--ease-expand`）、滚动遮罩 `scroll-fade-y`（上下 28px 渐隐）、等待点 `quiet-dots`（1.9s、`--ease-pulse`）与状态呼吸点（`dot-pulse` 1.2s）、普通输入聚焦换中性暖灰 1px 边。
-- 浮层（Dialog / Sheet / Popover / 菜单 / 选择器 / Combobox / Tooltip）统一由 `.cds-overlay-enter` 驱动 `opacity` + `scale(.96)` → `1` 的过渡（200ms、`--ease-out`），ui-sdk 的 `data-starting-style` / `data-ending-style` 在动画结束后卸载；Positioner、Portal、焦点与关闭保护保持不变。
+- 允许的动效：局部交互与状态反馈（悬停背景、展开折叠、浮层显隐、流式光标、复制/安装结果）、消息入场 `message-fade-up`（0.4s、`--ease-overshoot`）、卡片 hover 上浮 1.5px（200ms、`--ease-out-soft`，仅 `hover:hover` 且 `pointer:fine` 设备）、执行过程展开 `timeline-expand`（200ms、`--ease-expand`）、滚动遮罩 `scroll-fade-y`（上下 28px 渐隐）、等待点 `quiet-dots`（1.9s、`--ease-pulse`）与状态呼吸点（`dot-pulse` 1.2s）、普通输入聚焦换中性暖灰 1px 边。
+- 浮层（Dialog / Sheet / Popover / 菜单 / 选择器 / Combobox / Tooltip）统一由 `.cds-overlay-enter` 驱动 `opacity` + `scale(.96)` → `1` 的过渡（200ms、`--ease-out`；锚定浮层按 ui-sdk 的 `--transform-origin` 从触发方向缩放，Dialog/Sheet 无该变量回落居中），ui-sdk 的 `data-starting-style` / `data-ending-style` 在动画结束后卸载；Positioner、Portal、焦点与关闭保护保持不变。
 - Sheet 保留各 side 的定位与尺寸，仅淡入淡出，不做位移；Switch、加载/运行状态等控件必要状态保留其原有位移或颜色过渡。
 - 骨架屏允许 `cds-skeleton-sweep` 扫光；消息滚动按钮只做可见性淡入淡出，不位移、不缩放。
 - 减少动态效果（`prefers-reduced-motion: reduce`）下全局把动画/过渡时长设为 `0.01ms`、延迟 `0ms`、迭代 1 次，`scroll-behavior: auto`；JS Motion 仍由各调用方读取 `useReducedMotion` 自行收敛。

@@ -643,13 +643,16 @@
     transition: box-shadow .2s var(--ease-out-soft), transform .2s var(--ease-out-soft);
   }
 
-  .cds-card-surface:hover {
-    box-shadow: var(--shadow-panel-hover);
-    transform: translateY(-1.5px);
+  @media (hover: hover) and (pointer: fine) {
+    .cds-card-surface:hover {
+      box-shadow: var(--shadow-panel-hover);
+      transform: translateY(-1.5px);
+    }
   }
 
   .cds-overlay-enter {
     transition: opacity .2s var(--ease-out), transform .2s var(--ease-out);
+    transform-origin: var(--transform-origin);
   }
 
   .cds-overlay-enter[data-starting-style],
