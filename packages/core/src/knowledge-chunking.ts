@@ -230,7 +230,7 @@ export function markdownBlocks(
       });
       continue;
     }
-    const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    const heading = /^(#{1,6})\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
     if (heading) {
       flush();
       const title = (heading[2] ?? '').trim();
