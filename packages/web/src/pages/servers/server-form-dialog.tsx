@@ -22,7 +22,7 @@ import {
 import { Input } from '../../components/ui/input.js';
 import { Textarea } from '../../components/ui/textarea.js';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group.js';
-import { ApiError, api } from '../../lib/api.js';
+import { ApiError, api, errorMessage } from '../../lib/api.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { fieldErrors, useFormBlocker } from '../../lib/form.js';
 import { useCreateServer, useUpdateServer } from '../../lib/queries.js';
@@ -203,6 +203,7 @@ export function ServerFormDialog({
   const [conflict, setConflict] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [reloadError, setReloadError] = useState<string | null>(null);
   const dirty = isDirty;
 
   const pending = create.isPending || update.isPending || reloading;
@@ -229,8 +230,7 @@ export function ServerFormDialog({
       reset(serverToForm(latest));
       setConflict(false);
       setConfirmReload(false);
-    } catch (error) {
-      toastError(error);
+      setReloadError(null);
     } finally {
       setReloading(false);
     }
@@ -311,7 +311,10 @@ export function ServerFormDialog({
               variant="outline"
               size="sm"
               disabled={pending}
-              onClick={() => setConfirmReload(true)}
+              onClick={() => {
+                setConfirmReload(true);
+                setReloadError(null);
+              }}
             >
               加载最新配置
             </Button>
@@ -320,14 +323,20 @@ export function ServerFormDialog({
         <ConfirmDialog
           open={confirmReload}
           onClose={() => {
-            if (!pending) setConfirmReload(false);
+            if (!pending) {
+              setConfirmReload(false);
+              setReloadError(null);
+            }
           }}
           title="放弃草稿并加载最新配置？"
           description="当前未保存的更改会丢失。加载失败时会保留当前草稿。"
           confirmLabel="放弃并加载"
           confirmDisabled={pending}
           onConfirm={reload}
-        />
+          onError={(error) => setReloadError(errorMessage(error))}
+        >
+          {reloadError ? <FieldError>{reloadError}</FieldError> : null}
+        </ConfirmDialog>
         <form
           className="flex flex-col gap-4"
           noValidate
