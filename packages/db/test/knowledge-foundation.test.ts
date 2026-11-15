@@ -937,6 +937,35 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(firstVersionChunks.items).toHaveLength(3);
   });
 
+  it('editDocumentChunks 新增分块尊重 enabled=false', async () => {
+    const baseId = await seedBase();
+    const seeded = await seedDocument(baseId, { chunks: [{ content: 'existing' }] });
+    const edited = await knowledge.editDocumentChunks(db, {
+      documentId: seeded.document.id,
+      expectedVersionId: seeded.version.id,
+      mutation: {
+        type: 'add',
+        chunk: {
+          kind: 'text',
+          heading: null,
+          content: 'off',
+          searchText: 'off',
+          embedding: null,
+          tokenCount: 1,
+          metadata: {},
+          enabled: false,
+        },
+      },
+      preparedVersion: preparedVersion(),
+    });
+
+    expect(edited.chunk?.enabled).toBe(false);
+    const newVersionId = edited.document.currentVersionId;
+    if (!newVersionId) throw new Error('new version missing');
+    const chunks = await knowledge.listChunkSummaries(db, newVersionId);
+    expect(chunks.items.find((chunk) => chunk.content === 'off')?.enabled).toBe(false);
+  });
+
   it('Wiki 草稿不发布、发布核来源、diff/结构与已发布可读', async () => {
     const baseId = await seedBase();
     const sourceDoc = await seedDocument(baseId, {
