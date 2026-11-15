@@ -1,6 +1,6 @@
 import { AppError } from '@agentport/core';
 import type { KnowledgeLocator } from '@agentport/shared';
-import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import {
@@ -432,7 +432,7 @@ export async function editDocumentChunks(
           editedByUser: true,
           tokenCount: add.tokenCount,
           metadata: add.metadata ?? {},
-          enabled: true,
+          enabled: add.enabled ?? true,
         },
       ];
       editedOrdinal = seeds.length - 1;
