@@ -81,6 +81,7 @@ export function redactChatEvent(event: ChatEvent): ChatEvent {
             }),
       };
     case 'error':
+    case 'run_warning':
     case 'run_unavailable':
       return { ...event, message: redactSecrets(event.message) };
     case 'run_finished':

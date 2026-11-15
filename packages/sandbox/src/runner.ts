@@ -46,10 +46,11 @@ interface RunnerEvent {
     | 'session_forked'
     | 'question_requested'
     | 'question_closed'
+    | 'run_warning'
     | 'error'
     | 'run_finished';
   text?: string;
-  /** error 事件的文本。 */
+  /** error / run_warning 事件的文本。 */
   message?: string;
   toolUseId?: string;
   /** question_requested：宿主据此落库；回答只经 stdin 回到这个工具。 */
@@ -542,7 +543,7 @@ if (session.error !== undefined) {
         if (failed.length > 0) {
           log(`mcp not connected: ${failed.map((s) => `${s.name}=${s.status}`).join(', ')}`);
           emit({
-            type: 'error',
+            type: 'run_warning',
             message: `这些 MCP Server 没有连上，本次运行缺少它们的工具：${failed
               .map((s) => s.name)
               .join('、')}`,
@@ -553,7 +554,7 @@ if (session.error !== undefined) {
         if (pluginErrors.length > 0) {
           log(`plugin errors: ${pluginErrors.map((e) => `${e.plugin}:${e.type}`).join(', ')}`);
           emit({
-            type: 'error',
+            type: 'run_warning',
             message: `这些插件没有完全加载：${pluginErrors
               .map((e) => `${e.plugin}（${e.message}）`)
               .join('、')}`,

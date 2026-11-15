@@ -210,6 +210,7 @@ export const chatEventSchema = z.discriminatedUnion('type', [
     failureKind: wireFailureKindSchema.optional(),
   }),
   z.object({ type: z.literal('run_unavailable'), message: z.string() }),
+  z.object({ type: z.literal('run_warning'), message: z.string() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 
