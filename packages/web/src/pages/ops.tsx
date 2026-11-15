@@ -331,8 +331,16 @@ export function SchedulesPage() {
         {schedules.data && items.length === 0 ? (
           <PageNote
             icon={<BusinessIllustration name="schedule" size="compact" />}
-            title="定时任务为空"
-            description={canManage ? undefined : '当前账户没有创建权限，请联系管理员。'}
+            title="还没有定时任务"
+            description={canManage ? '创建后按执行计划自动运行专家。' : '当前账户没有创建权限，请联系管理员。'}
+            action={
+              canManage ? (
+                <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+                  <Plus data-icon="inline-start" aria-hidden="true" />
+                  新建定时任务
+                </Button>
+              ) : undefined
+            }
           />
         ) : null}
 
@@ -452,7 +460,7 @@ export function SchedulesPage() {
                             <Pencil />
                           </Button>
                           <Button
-                            variant="destructive"
+                            variant="ghost"
                             size="icon-sm"
                             aria-label={`删除 ${schedule.name}`}
                             disabled={rowBusy}
