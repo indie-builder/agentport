@@ -89,7 +89,6 @@ interface SessionSandboxesOptions {
 /** 取消 ACK 等待上限；超时返回 unconfirmed，由调用方 release(false) 销毁容器。 */
 const CANCEL_GRACE_MS = 5_000;
 
-/** 空闲销毁失败后的重试退避；容器仍存活时定期重试，直到成功或关停。 */
 const IDLE_DESTROY_RETRY_MS = 30_000;
 
 function abortError(): Error {
