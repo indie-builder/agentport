@@ -980,7 +980,7 @@ export const knowledgeReadResultSchema = z.object({
 });
 
 export const knowledgeListInputSchema = z.object({
-  kinds: z.array(knowledgeTargetKindSchema).default(['document', 'faq', 'wiki']),
+  kinds: z.array(knowledgeTargetKindSchema).min(1).default(['document', 'faq', 'wiki']),
   cursor: z.string().optional(),
   limit: z.number().int().min(1).max(50).default(20),
 });
