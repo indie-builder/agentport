@@ -263,6 +263,7 @@ describe('个人资料', () => {
       name = input.name;
       return { businessId: 'user-1', username: 'tester', name: input.name };
     });
+    vi.spyOn(api, 'meSessions').mockResolvedValue({ items: [sessionCurrent] });
     await mount({ path: '/personal/profile', component: PersonalProfilePage, me: identity() });
     await vi.waitFor(() => {
       const nameInput = document.getElementById('personal-name');
@@ -272,10 +273,9 @@ describe('个人资料', () => {
     expect(host.querySelector('h1')?.textContent).toBe('个人资料');
     expect(host.textContent).toContain('tester');
     expect(host.textContent).toContain('无角色');
-    expect(host.textContent).not.toContain('user-1');
-
-    await click(button('账号详情'));
-    await vi.waitFor(() => expect(host.textContent).toContain('user-1'));
+    await vi.waitFor(() => expect(host.textContent).toContain('当前设备'));
+    expect(host.textContent).toContain('user-1');
+    expect(host.textContent).toContain(formatDateTime(sessionCurrent.updatedAt));
 
     await setInput('personal-name', '新姓名');
     await click(button('保存'));
