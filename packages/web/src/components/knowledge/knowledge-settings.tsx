@@ -125,6 +125,9 @@ export function KnowledgeSettingsDialog({
   const [asrProfileId, setAsrProfileId] = useState(base.asrProfileId ?? 'none');
   const [chunkTokens, setChunkTokens] = useState(String(base.settings.chunkTokens));
   const [chunkOverlap, setChunkOverlap] = useState(String(base.settings.chunkOverlap));
+  const [imageVectorMinScore, setImageVectorMinScore] = useState(
+    String(settings.imageProcessing.imageVectorMinScore),
+  );
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewSample, setPreviewSample] = useState(PREVIEW_SAMPLE);
   const preview = usePreviewKnowledgeChunks(base.id);
@@ -147,6 +150,7 @@ export function KnowledgeSettingsDialog({
       asrProfileId,
       chunkTokens,
       chunkOverlap,
+      imageVectorMinScore,
     }),
   );
   const dirty =
@@ -157,6 +161,7 @@ export function KnowledgeSettingsDialog({
       asrProfileId,
       chunkTokens,
       chunkOverlap,
+      imageVectorMinScore,
     }) !== initialSignature.current;
   const guard = useDraftGuard(dirty, pending, onClose);
   const embedding = (profiles.data ?? []).filter(
@@ -217,12 +222,8 @@ export function KnowledgeSettingsDialog({
           ? '所选 embedding profile 不支持图片向量，请关闭「图片向量」后再保存'
           : '图片向量需要 Cohere embed-v4.0，并在 profile 里开启图片输入';
     }
-    if (
-      image.imageVectorEnabled &&
-      (!Number.isFinite(image.imageVectorMinScore) ||
-        image.imageVectorMinScore < -1 ||
-        image.imageVectorMinScore > 1)
-    ) {
+    const minScore = Number(imageVectorMinScore);
+    if (image.imageVectorEnabled && (!Number.isFinite(minScore) || minScore < -1 || minScore > 1)) {
       nextErrors.imageVectorMinScore = '向量最低分需为 -1 到 1 之间的数字';
     }
     setErrors(nextErrors);
@@ -244,6 +245,7 @@ export function KnowledgeSettingsDialog({
               enabled: image.enabled,
               model: image.enabled ? model : null,
               imageVectorEnabled: image.enabled && image.imageVectorEnabled,
+              imageVectorMinScore: Number(imageVectorMinScore),
             },
           },
         },
@@ -625,7 +627,7 @@ export function KnowledgeSettingsDialog({
                       <Input
                         id="knowledge-settings-image-min-score"
                         inputMode="decimal"
-                        value={String(image.imageVectorMinScore)}
+                        value={imageVectorMinScore}
                         disabled={pending || (imageVectorsBlocked && !image.imageVectorEnabled)}
                         aria-invalid={Boolean(errors.imageVectorMinScore)}
                         aria-describedby={
@@ -633,9 +635,7 @@ export function KnowledgeSettingsDialog({
                             ? 'knowledge-settings-image-min-score-error'
                             : undefined
                         }
-                        onChange={(event) =>
-                          patchImage({ imageVectorMinScore: Number(event.target.value) })
-                        }
+                        onChange={(event) => setImageVectorMinScore(event.target.value)}
                       />
                       <FieldError id="knowledge-settings-image-min-score-error">
                         {errors.imageVectorMinScore}
