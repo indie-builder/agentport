@@ -66,6 +66,7 @@ export function RunDetailPage() {
   const canApprove = can(me.data, 'runs.approve');
   const canAnswer = can(me.data, 'runs.questions.answer');
   const canRerun = can(me.data, 'conversations.create');
+  const canSaveAsSkill = can(me.data, 'skills.create');
   const canEval = can(me.data, 'eval.manage');
   const canExport = can(me.data, 'runs.export');
   const [exporting, setExporting] = useState(false);
@@ -258,7 +259,7 @@ export function RunDetailPage() {
                 {rerunMutation.isPending ? '提交中…' : '重跑'}
               </Button>
             ) : null}
-            {terminal && hasPrompt && canRerun ? (
+            {terminal && hasPrompt && canSaveAsSkill ? (
               <Button
                 variant="outline"
                 disabled={draftMutation.isPending}
