@@ -925,7 +925,9 @@ describe('expert discovery', () => {
     const router = await mount();
     await act(async () => router.navigate({ to: '/agents', search: { status: 'all' } }));
     await flush();
-    expect(link('Expert').getAttribute('href')).toBe('/agents/expert');
+    const expertHref = link('Expert').getAttribute('href') ?? '';
+    expect(expertHref.startsWith('/agents/expert')).toBe(true);
+    expect(expertHref).toContain('backTo=');
     expect(link('与 Expert 开始对话').getAttribute('aria-label')).toBe('与 Expert 开始对话');
     expect(host.querySelector('a[href="/chat?agent=expert"]')).not.toBeNull();
     expect(host.querySelector('a[href="/chat?agent=disabled"]')).toBeNull();

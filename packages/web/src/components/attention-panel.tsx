@@ -7,7 +7,10 @@ import { ErrorState, LoadingState } from './states.js';
 import { StatusBadge } from './status-badge.js';
 import { Button } from './ui/button.js';
 
-export function AttentionPanel() {
+const rowClassName = '-mx-2 flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5';
+const interactiveRowClassName = `${rowClassName} transition-colors duration-150 ease-out-soft hover:bg-hover`;
+
+export function AttentionPanel({ canOpenRuns = true }: { canOpenRuns?: boolean }) {
   const location = useLocation();
   const attention = useAttention();
   const data = attention.data;
@@ -63,40 +66,41 @@ export function AttentionPanel() {
       ) : null}
       {data ? (
         <ul className="flex flex-col">
-          {data.approvals.map((item) =>
-            item.kind !== 'approval' ? null : (
-              <li key={`approval-${item.runId}-${item.serverId}-${item.toolName}`}>
-                <Link
-                  to="/runs/$runId"
-                  params={{ runId: item.runId }}
-                  search={{ backTo: location.href }}
-                  className="-mx-2 flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5 transition-colors duration-150 ease-out-soft hover:bg-hover"
-                >
-                  <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-fg">
-                      {item.agentName ?? '已删除的专家'} · 等待批准 {item.toolName}
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      {formatRelative(item.createdAt)}
-                    </span>
+          {data.approvals.map((item) => {
+            if (item.kind !== 'approval') return null;
+            const content = (
+              <>
+                <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-fg">
+                    {item.agentName ?? '已删除的专家'} · 等待批准 {item.toolName}
                   </span>
-                </Link>
+                  <span className="block text-xs text-muted-foreground">
+                    {formatRelative(item.createdAt)}
+                  </span>
+                </span>
+              </>
+            );
+            return (
+              <li key={`approval-${item.runId}-${item.serverId}-${item.toolName}`}>
+                {canOpenRuns ? (
+                  <Link
+                    to="/runs/$runId"
+                    params={{ runId: item.runId }}
+                    search={{ backTo: location.href }}
+                    className={interactiveRowClassName}
+                  >
+                    {content}
+                  </Link>
+                ) : (
+                  <div className={rowClassName}>{content}</div>
+                )}
               </li>
-            ),
-          )}
-          {groupedFailures.map(({ sample, count, latestEndedAt }) => (
-            <li key={`failed-${sample.error ?? ''}`}>
-              <Link
-                {...(count === 1
-                  ? {
-                      to: '/runs/$runId',
-                      params: { runId: sample.runId },
-                      search: { backTo: location.href },
-                    }
-                  : { to: '/runs', search: { status: 'failed' } })}
-                className="-mx-2 flex min-w-0 items-start gap-3 rounded-item px-2 py-2.5 transition-colors duration-150 ease-out-soft hover:bg-hover"
-              >
+            );
+          })}
+          {groupedFailures.map(({ sample, count, latestEndedAt }) => {
+            const content = (
+              <>
                 <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-fg">
@@ -113,9 +117,29 @@ export function AttentionPanel() {
                       : formatRelative(latestEndedAt)}
                   </span>
                 </span>
-              </Link>
-            </li>
-          ))}
+              </>
+            );
+            return (
+              <li key={`failed-${sample.error ?? ''}`}>
+                {canOpenRuns ? (
+                  <Link
+                    {...(count === 1
+                      ? {
+                          to: '/runs/$runId',
+                          params: { runId: sample.runId },
+                          search: { backTo: location.href },
+                        }
+                      : { to: '/runs', search: { status: 'failed' } })}
+                    className={interactiveRowClassName}
+                  >
+                    {content}
+                  </Link>
+                ) : (
+                  <div className={rowClassName}>{content}</div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </PageSection>

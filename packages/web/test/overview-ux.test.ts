@@ -12,6 +12,7 @@ import {
   useOverviewTimeseries,
 } from '../src/lib/queries.js';
 import { OverviewPage, RunTrendCard } from '../src/pages/overview.js';
+import { allAccessMe } from './me-fixture.js';
 
 vi.mock('../src/lib/browser-files.js', () => ({ downloadBlob: vi.fn() }));
 
@@ -236,6 +237,7 @@ describe('overview trend accessibility', () => {
     vi.spyOn(api, 'attention').mockResolvedValue({ approvals: [], failedRuns: [], total: 0 });
 
     const queryClient = client();
+    queryClient.setQueryData(['me'], allAccessMe);
     queryClient.setQueryData(overviewQuery.queryKey, overview(3));
     queryClient.setQueryData(overviewTimeseriesQuery(3).queryKey, points);
     queryClient.setQueryData(attentionQuery.queryKey, {

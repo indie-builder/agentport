@@ -1,10 +1,12 @@
 import type { Plugin } from '@agentport/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReaderToolbar } from '../src/components/reader-toolbar.js';
 import { NotFoundPage } from '../src/pages/not-found.js';
 import { PluginDetailPage } from '../src/pages/plugins/plugin-detail.js';
+import { allAccessMe } from './me-fixture.js';
 
 const state = vi.hoisted(() => ({
   search: {} as Record<string, string | undefined>,
@@ -61,12 +63,13 @@ const plugin: Plugin = {
 
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
+let client: QueryClient;
 
 function mount(node: ReactNode): void {
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
-  act(() => root?.render(node));
+  act(() => root?.render(createElement(QueryClientProvider, { client }, node)));
 }
 
 function body(): HTMLElement {
@@ -97,6 +100,10 @@ beforeEach(() => {
     error: null,
     refetch: vi.fn(),
   };
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+  });
+  client.setQueryData(['me'], allAccessMe);
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -120,6 +127,7 @@ afterEach(async () => {
   host?.remove();
   root = undefined;
   host = undefined;
+  client.clear();
   vi.unstubAllGlobals();
 });
 

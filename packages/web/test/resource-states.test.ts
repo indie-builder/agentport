@@ -34,6 +34,7 @@ vi.mock('@/components/ui/label', () => import('../src/components/ui/label.js'));
 vi.mock('@/components/ui/separator', () => import('../src/components/ui/separator.js'));
 vi.mock('@tanstack/react-router', () => ({
   useBlocker: () => ({ status: 'idle' }),
+  useLocation: () => ({ href: '/agents' }),
   useNavigate: () => (options: { search?: (current: Record<string, unknown>) => object }) => {
     Object.assign(state.search, options.search?.(state.search) ?? {});
   },

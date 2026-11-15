@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { Activity, Bot, Download, Plus, Server, Sparkles } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { AttentionPanel } from '../components/attention-panel.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
@@ -45,6 +45,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table.js';
+import { can } from '../lib/access.js';
 import { errorMessage, type OverviewAgentRow, type RecentRun } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
 import { cn } from '../lib/cn.js';
@@ -59,7 +60,7 @@ import {
   shortId,
 } from '../lib/format.js';
 import { judgeQueue } from '../lib/health.js';
-import { healthMetricsQuery, useOverview, useOverviewTimeseries } from '../lib/queries.js';
+import { healthMetricsQuery, meQuery, useOverview, useOverviewTimeseries } from '../lib/queries.js';
 
 function toUsageCsv(agents: OverviewAgentRow[]) {
   const rows = agents.map((agent) => [
@@ -97,26 +98,37 @@ function toUsageCsv(agents: OverviewAgentRow[]) {
   );
 }
 
-const agentColumns: DataColumn<OverviewAgentRow>[] = [
+const buildAgentColumns = (canReadAgents: boolean): DataColumn<OverviewAgentRow>[] => [
   {
     id: 'name',
     header: '专家',
     locked: true,
     width: 'minmax(160px,1.4fr)',
     sortValue: (row) => row.name,
-    cell: (row) => (
-      <Link
-        to="/agents/$agentId"
-        params={{ agentId: row.agentId }}
-        className="flex min-w-0 flex-wrap items-center gap-2 font-medium text-fg hover:underline hover:underline-offset-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <span className="min-w-0 [overflow-wrap:anywhere]">{row.name}</span>
-        <StatusBadge tone={row.enabled ? 'success' : 'default'}>
-          {row.enabled ? '已启用' : '已停用'}
-        </StatusBadge>
-      </Link>
-    ),
+    cell: (row) => {
+      const content = (
+        <>
+          <span className="min-w-0 [overflow-wrap:anywhere]">{row.name}</span>
+          <StatusBadge tone={row.enabled ? 'success' : 'default'}>
+            {row.enabled ? '已启用' : '已停用'}
+          </StatusBadge>
+        </>
+      );
+      return canReadAgents ? (
+        <Link
+          to="/agents/$agentId"
+          params={{ agentId: row.agentId }}
+          className="flex min-w-0 flex-wrap items-center gap-2 font-medium text-fg hover:underline hover:underline-offset-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {content}
+        </Link>
+      ) : (
+        <span className="flex min-w-0 flex-wrap items-center gap-2 font-medium text-fg">
+          {content}
+        </span>
+      );
+    },
   },
   {
     id: 'lastRunStartTime',
@@ -509,6 +521,13 @@ export function RunTrendCard({ days }: { days: number }) {
 export function OverviewPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const me = useQuery(meQuery);
+  const canStartConversation =
+    can(me.data, 'conversations.create') && can(me.data, 'conversations.read');
+  const canReadServers = can(me.data, 'servers.read');
+  const canReadRuns = can(me.data, 'runs.read');
+  const canReadAgents = can(me.data, 'agents.read');
+  const agentColumns = useMemo(() => buildAgentColumns(canReadAgents), [canReadAgents]);
   const overview = useOverview();
   const data = overview.data ?? null;
 
@@ -536,7 +555,7 @@ export function OverviewPage() {
     );
   };
 
-  const attentionSection = <AttentionPanel />;
+  const attentionSection = <AttentionPanel canOpenRuns={canReadRuns} />;
 
   return (
     <Page>
@@ -544,12 +563,14 @@ export function OverviewPage() {
         <PageHeader
           title="概况"
           actions={
-            <Link
-              to="/chat"
-              className={buttonVariants({ variant: empty ? 'default' : 'secondary' })}
-            >
-              <Plus data-icon="inline-start" aria-hidden="true" /> 新建对话
-            </Link>
+            canStartConversation ? (
+              <Link
+                to="/chat"
+                className={buttonVariants({ variant: empty ? 'default' : 'secondary' })}
+              >
+                <Plus data-icon="inline-start" aria-hidden="true" /> 新建对话
+              </Link>
+            ) : undefined
           }
         />
       </PageTopbar>
@@ -580,9 +601,11 @@ export function OverviewPage() {
             title="开始配置"
             description="三步开始：接入一个 MCP Server → 创建专家并绑定它 → 在对话里使用。"
             action={
-              <Link to="/servers" className={cn(buttonVariants({ size: 'sm' }))}>
-                <Plus className="size-3.5" /> 接入 MCP Server
-              </Link>
+              canReadServers ? (
+                <Link to="/servers" className={cn(buttonVariants({ size: 'sm' }))}>
+                  <Plus className="size-3.5" /> 接入 MCP Server
+                </Link>
+              ) : undefined
             }
           />
         ) : null}
@@ -637,9 +660,11 @@ export function OverviewPage() {
               title="最近运行"
               {...(data.counts.running ? { description: `${data.counts.running} 个正在运行` } : {})}
               actions={
-                <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                  查看运行
-                </Link>
+                canReadRuns ? (
+                  <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                    查看运行
+                  </Link>
+                ) : undefined
               }
             >
               {data.recent.length > 0 ? (
@@ -652,13 +677,16 @@ export function OverviewPage() {
                   }
                   label="最近运行"
                   storageKey="pace.overview.run-columns"
-                  onRowClick={(run) =>
-                    void navigate({
-                      to: '/runs/$runId',
-                      params: { runId: run.id },
-                      search: { backTo: location.href },
-                    })
-                  }
+                  {...(canReadRuns
+                    ? {
+                        onRowClick: (run: RecentRun) =>
+                          void navigate({
+                            to: '/runs/$runId',
+                            params: { runId: run.id },
+                            search: { backTo: location.href },
+                          }),
+                      }
+                    : {})}
                 />
               ) : (
                 <PageNote title="发起对话后在这里查看运行" />
@@ -668,16 +696,23 @@ export function OverviewPage() {
             <PageSection
               title="专家运行"
               actions={
-                <div className="flex items-center gap-2">
-                  {data.agents.length > 0 ? (
-                    <Button variant="outline" size="sm" onClick={exportUsageCsv}>
-                      <Download data-icon="inline-start" aria-hidden="true" /> 导出 CSV
-                    </Button>
-                  ) : null}
-                  <Link to="/agents" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                    管理专家
-                  </Link>
-                </div>
+                data.agents.length > 0 || canReadAgents ? (
+                  <div className="flex items-center gap-2">
+                    {data.agents.length > 0 ? (
+                      <Button variant="outline" size="sm" onClick={exportUsageCsv}>
+                        <Download data-icon="inline-start" aria-hidden="true" /> 导出 CSV
+                      </Button>
+                    ) : null}
+                    {canReadAgents ? (
+                      <Link
+                        to="/agents"
+                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                      >
+                        管理专家
+                      </Link>
+                    ) : null}
+                  </div>
+                ) : undefined
               }
             >
               {data.agents.length > 0 ? (

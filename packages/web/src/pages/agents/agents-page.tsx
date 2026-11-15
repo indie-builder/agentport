@@ -5,7 +5,7 @@ import {
   type AgentSummary,
 } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Calendar, Ellipsis, IdCard, Plus, Upload } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import digitalTwinPortrait from '../../assets/agents/digital-twin.png';
@@ -69,6 +69,7 @@ export function AgentsPage() {
   const currentBusinessId = me.data?.authenticated ? me.data.user.businessId : '';
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
   const search = useSearch({ from: '/_shell/agents/' });
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
@@ -115,6 +116,7 @@ export function AgentsPage() {
       void navigate({
         to: '/agents/$agentId',
         params: { agentId: result.agent.id },
+        search: { backTo: location.href },
         state: { importWarnings: [...new Set(result.warnings)] } as unknown as true,
       });
     } catch (error) {
@@ -145,7 +147,11 @@ export function AgentsPage() {
   }, [agents.data, query, sort, status, role]);
 
   const openAgent = (id: string): void => {
-    void navigate({ to: '/agents/$agentId', params: { agentId: id } });
+    void navigate({
+      to: '/agents/$agentId',
+      params: { agentId: id },
+      search: { backTo: location.href },
+    });
   };
 
   // 工牌从当前列表缓存派生，切换专家后不会停留在旧资料上。
@@ -391,6 +397,7 @@ export function AgentsPage() {
                             <Link
                               to="/agents/$agentId"
                               params={{ agentId: agent.id }}
+                              search={{ backTo: location.href }}
                               title={agent.name}
                               disabled={importing}
                               className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -435,7 +442,7 @@ export function AgentsPage() {
                                   void navigate({
                                     to: '/agents/$agentId',
                                     params: { agentId: agent.id },
-                                    search: { tab: 'config' },
+                                    search: { tab: 'config', backTo: location.href },
                                   })
                                 }
                               >

@@ -33,6 +33,24 @@ export const agentsSearchSchema = resourceSearchSchema.extend({
   role: z.enum(AGENT_ROLES).optional().catch(undefined),
 });
 
+// 只接受站内相对地址，三层校验：必须以 / 开头（相对地址）；不能以 // 开头（协议相对地址会离站）；
+// 不能含反斜杠或空白（URL 解析器会把 \ 归一化成 /、裁剪空白，再拼成离站地址）。
+// 最后解析一次作兜底：origin 必须仍是占位站。
+const backToSearchSchema = z
+  .string()
+  .min(1)
+  .max(2048)
+  .refine((value) => {
+    if (!value.startsWith('/') || value.startsWith('//') || /[\\\s]/.test(value)) return false;
+    try {
+      return new URL(value, 'https://placeholder.invalid').origin === 'https://placeholder.invalid';
+    } catch {
+      return false;
+    }
+  })
+  .optional()
+  .catch(undefined);
+
 /**
  * 专家详情：任务、配置分区、专家记忆子视图、指令分段与选中文件都进 URL，
  * 刷新和分享后回到同一视图。旧书签的 `tab=rules|styles` 仍可解析，进入后由页面规范化。
@@ -61,6 +79,7 @@ export const agentDetailSearchSchema = z.object({
     .pipe(z.union([z.literal(7), z.literal(30), z.literal(90)]))
     .optional()
     .catch(undefined),
+  backTo: backToSearchSchema,
 });
 
 export const skillsSearchSchema = resourceSearchSchema.extend({
@@ -162,25 +181,7 @@ export const accountsSearchSchema = z.object({
 /** 运行详情：返回来源用进入前的相对 URL，刷新后能回到同一列表视图。 */
 export const runDetailSearchSchema = z.object({
   step: z.coerce.number().int().nonnegative().optional().catch(undefined),
-  // 只接受站内相对地址，三层校验：必须以 / 开头（相对地址）；不能以 // 开头（协议相对地址会离站）；
-  // 不能含反斜杠或空白（URL 解析器会把 \ 归一化成 /、裁剪空白，再拼成离站地址）。
-  // 最后解析一次作兜底：origin 必须仍是占位站。
-  backTo: z
-    .string()
-    .min(1)
-    .max(2048)
-    .refine((value) => {
-      if (!value.startsWith('/') || value.startsWith('//') || /[\\\s]/.test(value)) return false;
-      try {
-        return (
-          new URL(value, 'https://placeholder.invalid').origin === 'https://placeholder.invalid'
-        );
-      } catch {
-        return false;
-      }
-    })
-    .optional()
-    .catch(undefined),
+  backTo: backToSearchSchema,
 });
 
 /** 评估：选中运行与比较两侧都进 URL，深链可打开不在当前分页里的批次。 */
@@ -210,6 +211,7 @@ export const runtimeEnvironmentsSearchSchema = z.object({
 export const runtimeEnvironmentDetailSearchSchema = z.object({
   status: runtimeEnvironmentVersionStatusSchema.optional().catch(undefined),
   version: z.string().min(1).optional().catch(undefined),
+  backTo: backToSearchSchema,
 });
 
 /**

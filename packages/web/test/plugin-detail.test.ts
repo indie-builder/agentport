@@ -1,9 +1,11 @@
 import type { Plugin } from '@agentport/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/lib/api.js';
 import { PluginDetailPage } from '../src/pages/plugins/plugin-detail.js';
+import { allAccessMe } from './me-fixture.js';
 
 type Mode = 'read' | 'source';
 type Tab = 'intro' | 'content';
@@ -118,6 +120,11 @@ let wide = true;
 
 let root: Root | undefined;
 let host: HTMLDivElement | undefined;
+let client: QueryClient;
+
+function page(): ReactNode {
+  return createElement(QueryClientProvider, { client }, createElement(PluginDetailPage));
+}
 
 function setQuery(patch: Partial<Query>): void {
   state.query = {
@@ -135,12 +142,12 @@ function mount(): void {
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
-  act(() => root?.render(createElement(PluginDetailPage)));
+  act(() => root?.render(page()));
 }
 
 /** 模拟路由器在 navigate 后重新渲染同一页面。 */
 function rerender(): void {
-  act(() => root?.render(createElement(PluginDetailPage)));
+  act(() => root?.render(page()));
 }
 
 function body(): HTMLElement {
@@ -238,6 +245,10 @@ beforeEach(() => {
   state.navCalls = [];
   state.retry = vi.fn();
   setQuery({ data: plugin });
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+  });
+  client.setQueryData(['me'], allAccessMe);
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -261,6 +272,7 @@ afterEach(async () => {
   host?.remove();
   root = undefined;
   host = undefined;
+  client.clear();
   vi.unstubAllGlobals();
 });
 

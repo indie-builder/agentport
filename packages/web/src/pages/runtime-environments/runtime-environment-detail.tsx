@@ -2,7 +2,8 @@ import type {
   RuntimeEnvironmentVersionStatus,
   RuntimeEnvironmentVersionSummary,
 } from '@agentport/shared';
-import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
   CircleAlert,
@@ -55,10 +56,12 @@ import {
   TableRow,
 } from '../../components/ui/table.js';
 import { Textarea } from '../../components/ui/textarea.js';
+import { can } from '../../lib/access.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { useFormBlocker } from '../../lib/form.js';
 import { formatRelative, shortId } from '../../lib/format.js';
 import {
+  meQuery,
   useBuildRuntimeEnvironment,
   useDeleteRuntimeEnvironment,
   usePublishRuntimeEnvironment,
@@ -117,7 +120,13 @@ export function RuntimeEnvironmentDetailPage() {
     from: '/_shell/runtime-environments/$environmentId',
   });
   const search = useSearch({ from: '/_shell/runtime-environments/$environmentId' });
-  const navigate = useNavigate({ from: '/runtime-environments/$environmentId' });
+  const navigate = useNavigate();
+  const me = useQuery(meQuery);
+  const canUpdate = can(me.data, 'runtime_environments.update');
+  const canBuild = can(me.data, 'runtime_environments.build');
+  const canPublish = can(me.data, 'runtime_environments.publish');
+  const canDelete = can(me.data, 'runtime_environments.delete');
+  const backTo = search.backTo ?? '/runtime-environments';
   const environment = useRuntimeEnvironment(environmentId);
   const versions = useRuntimeEnvironmentVersions(environmentId);
   const selectedVersion = useRuntimeEnvironmentVersion(environmentId, search.version ?? '');
@@ -154,7 +163,7 @@ export function RuntimeEnvironmentDetailPage() {
     void navigate({
       to: '/runtime-environments/$environmentId',
       params: { environmentId },
-      search: (current) => ({ ...current, ...patch }),
+      search: { ...search, ...patch },
       replace: true,
     });
   };
@@ -207,6 +216,7 @@ export function RuntimeEnvironmentDetailPage() {
   const current = environment.data;
 
   const save = handleSubmit(async (values: RuntimeEnvironmentFormValues) => {
+    if (!canUpdate) return;
     try {
       const saved = await update.mutateAsync({
         id: current.id,
@@ -248,7 +258,7 @@ export function RuntimeEnvironmentDetailPage() {
     setLeaving(true);
     toastSuccess('已删除运行环境');
     // 忽略 blocker 的旧快照，避免刚解除的草稿拦截抢先拦住这次返回。
-    void navigate({ to: '/runtime-environments', ignoreBlocker: true });
+    void navigate({ href: backTo, ignoreBlocker: true });
   };
 
   return (
@@ -258,47 +268,67 @@ export function RuntimeEnvironmentDetailPage() {
           title={current.name}
           eyebrow={current.isDefault ? <Badge variant="secondary">默认</Badge> : null}
           leading={
-            <Link
-              to="/runtime-environments"
-              aria-label="返回运行环境列表"
+            <a
+              href={backTo}
+              onClick={(event) => {
+                if (
+                  event.defaultPrevented ||
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                void navigate({ href: backTo });
+              }}
+              aria-label={search.backTo ? '返回来源' : '返回运行环境列表'}
               className={buttonVariants({ variant: 'outline', size: 'icon' })}
             >
               <ArrowLeft aria-hidden="true" />
-            </Link>
+            </a>
           }
           actions={
-            <>
-              <Button onClick={startBuild} disabled={build.isPending}>
-                <Hammer data-icon="inline-start" />
-                {build.isPending ? '提交中…' : '构建新版本'}
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      ref={deleteTriggerRef}
-                      variant="ghost"
-                      size="icon"
-                      aria-label="运行环境操作"
-                    >
-                      <Ellipsis />
-                    </Button>
-                  }
-                />
-                <DropdownMenuContent align="end">
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      disabled={current.isDefault}
-                      title={current.isDefault ? '默认运行环境不能删除' : undefined}
-                      onSelect={() => setConfirmingDelete(true)}
-                    >
-                      <Trash2 className="size-4" /> 删除
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
+            canBuild || canDelete ? (
+              <>
+                {canBuild ? (
+                  <Button onClick={startBuild} disabled={build.isPending}>
+                    <Hammer data-icon="inline-start" />
+                    {build.isPending ? '提交中…' : '构建新版本'}
+                  </Button>
+                ) : null}
+                {canDelete ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          ref={deleteTriggerRef}
+                          variant="ghost"
+                          size="icon"
+                          aria-label="运行环境操作"
+                        >
+                          <Ellipsis />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          disabled={current.isDefault}
+                          title={current.isDefault ? '默认运行环境不能删除' : undefined}
+                          onSelect={() => setConfirmingDelete(true)}
+                        >
+                          <Trash2 className="size-4" /> 删除
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+              </>
+            ) : undefined
           }
         />
       </PageTopbar>
@@ -326,6 +356,7 @@ export function RuntimeEnvironmentDetailPage() {
                   id="runtime-environment-name"
                   maxLength={64}
                   autoComplete="off"
+                  readOnly={!canUpdate}
                   disabled={update.isPending}
                   aria-required="true"
                   aria-invalid={Boolean(nameError)}
@@ -340,16 +371,19 @@ export function RuntimeEnvironmentDetailPage() {
                   id="runtime-environment-dockerfile"
                   rows={18}
                   spellCheck={false}
+                  readOnly={!canUpdate}
                   disabled={update.isPending}
                   className="font-mono text-xs leading-5"
                 />
               </Field>
             </FieldGroup>
-            <div className="flex justify-end">
-              <Button type="submit" disabled={!dirty || update.isPending}>
-                {update.isPending ? '保存中…' : '保存更改'}
-              </Button>
-            </div>
+            {canUpdate ? (
+              <div className="flex justify-end">
+                <Button type="submit" disabled={!dirty || update.isPending}>
+                  {update.isPending ? '保存中…' : '保存更改'}
+                </Button>
+              </div>
+            ) : null}
           </form>
         </PageSection>
 
@@ -378,9 +412,16 @@ export function RuntimeEnvironmentDetailPage() {
               icon={<Hammer className="size-4" aria-hidden="true" />}
               title="还没有构建版本"
               action={
-                <Button variant="outline" size="sm" onClick={startBuild} disabled={build.isPending}>
-                  构建新版本
-                </Button>
+                canBuild ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={startBuild}
+                    disabled={build.isPending}
+                  >
+                    构建新版本
+                  </Button>
+                ) : undefined
               }
             />
           ) : null}
@@ -454,7 +495,7 @@ export function RuntimeEnvironmentDetailPage() {
                           >
                             日志
                           </Button>
-                          {version.status === 'ready' && !online ? (
+                          {canPublish && version.status === 'ready' && !online ? (
                             <Button
                               variant="outline"
                               size="sm"
