@@ -25,12 +25,15 @@ export function SourceProbeStatus({ jobId }: { jobId: string }) {
   if (job.isError) {
     return <span className="text-sm text-danger">连接测试结果没有加载出来。</span>;
   }
+  const status = job.data?.status;
   const result = job.data?.result;
   if (!result) {
     return (
       <span className="text-xs text-muted-foreground">
-        连接测试{job.data?.status === 'failed' ? '失败' : '进行中'}
-        {job.data?.error ? ` · ${knowledgeJobErrorText(job.data.error)}` : ''}
+        连接测试{status === 'failed' ? '失败' : status === 'cancelled' ? '已取消' : '进行中'}
+        {status !== 'cancelled' && job.data?.error
+          ? ` · ${knowledgeJobErrorText(job.data.error)}`
+          : ''}
       </span>
     );
   }
