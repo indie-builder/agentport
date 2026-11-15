@@ -1408,6 +1408,7 @@ async function upsertSourceItem(
       { sourceId: source.id, itemId: item.sourceId, documentId: existing.id },
       'feed summary skipped: existing full text kept',
     );
+    await settleDocumentStatus(deps, authorized, authorized.currentVersionId ? 'ready' : 'failed');
     return false;
   }
   if (existing && authorized.disabledReason === 'manual') {
