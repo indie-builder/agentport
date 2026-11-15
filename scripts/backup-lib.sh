@@ -154,7 +154,7 @@ _compose_running_service() {
 _compose_volume_name() {
   local key="$1" json
   json="$(compose config --format json 2>/dev/null)" || return 1
-  printf '%s' "$json" | KEY="$key" node -e '
+  printf '%s' "$json" | KEY="$key" bun -e '
 let s = "";
 process.stdin.on("data", (d) => (s += d)).on("end", () => {
   const config = JSON.parse(s);
@@ -535,7 +535,7 @@ manifest_extract() {
 }
 
 manifest_fields() {
-  node -e '
+  bun -e '
 const fs = require("node:fs");
 const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 const str = (v) => (typeof v === "string" ? v : "");
@@ -557,7 +557,7 @@ process.stdout.write(
 # knowledge 传空串表示本次没有知识库内容，清单写 null。
 write_manifest() {
   local file="$1" db="$2" envfile="$3" ws="$4" safety="${5:-}" kn="${6:-}"
-  SAFETY_OF="$safety" node -e '
+  SAFETY_OF="$safety" bun -e '
 const fs = require("node:fs");
 const [file, format, version, dbSha, dbBytes, envSha, envBytes, wsSha, wsFiles, wsBytes, safetyOf, knSha, knFiles, knBytes, knPresent] = process.argv.slice(1);
 const manifest = {

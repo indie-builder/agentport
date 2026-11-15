@@ -22,16 +22,16 @@
 ## 开始前
 
 1. 读 `docs/DEV-WORKFLOW.md`、`docs/PITFALLS.md`，进入 worktree 并记录基线；把目标与步骤放进原生待办或当前对话，不强制写任务文件。
-2. 核对当次 CLI 版本与帮助：`npx --yes skills@latest --version`/`--help`、`claude --version`、`claude plugin update --help`、`claude plugin marketplace update --help`；插件行为以 <https://code.claude.com/docs/en/discover-plugins>、<https://code.claude.com/docs/en/plugins/loading.md> 为准。
+2. 核对当次 CLI 版本与帮助：`bunx skills@latest --version`/`--help`、`claude --version`、`claude plugin update --help`、`claude plugin marketplace update --help`；插件行为以 <https://code.claude.com/docs/en/discover-plugins>、<https://code.claude.com/docs/en/plugins/loading.md> 为准。
 3. 记录现状：lock 中的来源、上游 hash、技能目录与链接、本地已有差异；插件 id、scope、版本与发布 pin。
 4. 保存差异证据与可恢复的项目适配补丁（含 shadcn / openui 规则），路径留在当前对话或原生待办；Git HEAD 已足够恢复的内容不额外备份。完成后才能执行 `update`/`add`/`remove`。`git diff` 不够——适配已在 HEAD，须比本地与旧上游；旧上游不可得时保存完整适配文件及规则。三方比对确认差异是适配还是漂移后再动，不得直接覆盖。
 
 ## 技能更新
 
-- 先跑原生 `npx --yes skills@latest update --project --yes`（CLI 1.7.4 实测，后续按当次核对）：只比较上游 hash 与 lock，非交互不删技能；输出 up to date 不代表本地与上游一致，必须再核验完整目录。
+- 先跑原生 `bunx skills@latest update --project --yes`（CLI 1.7.4 实测，后续按当次核对）：只比较上游 hash 与 lock，非交互不删技能；输出 up to date 不代表本地与上游一致，必须再核验完整目录。
 - 无新版且本地无文件变化时不重装。
-- 需与上游对齐时定向重装：`npx --yes skills@latest add <repo> --skill <name> --agent claude-code --agent universal -y`。两个 agent 缺一不可（只给 `claude-code` 会退化成 copy 模式，canonical 不更新、入口变成真实目录）。整目录替换；`.git`、`__pycache__`、`__pypackages__` 不复制，`metadata.json` 是否复制按当次 CLI 实物核对（CLI 1.7.4 本次 `vercel-composition-patterns` 已实际复制）；重装前保留差异证据，装后逐项补回项目适配。
-- 上游确凿删除整技能，或用户明确要求删除时，执行 `npx --yes skills@latest remove <name> -y`，并清理 lock、链接与文档；网络或鉴权失败不等于删除。用户要求的删除以 Git HEAD 为原始证据，不另存备份或归档。上游只删单文件时，同步删除本地对应文件。
+- 需与上游对齐时定向重装：`bunx skills@latest add <repo> --skill <name> --agent claude-code --agent universal -y`。两个 agent 缺一不可（只给 `claude-code` 会退化成 copy 模式，canonical 不更新、入口变成真实目录）。整目录替换；`.git`、`__pycache__`、`__pypackages__` 不复制，`metadata.json` 是否复制按当次 CLI 实物核对（CLI 1.7.4 本次 `vercel-composition-patterns` 已实际复制）；重装前保留差异证据，装后逐项补回项目适配。
+- 上游确凿删除整技能，或用户明确要求删除时，执行 `bunx skills@latest remove <name> -y`，并清理 lock、链接与文档；网络或鉴权失败不等于删除。用户要求的删除以 Git HEAD 为原始证据，不另存备份或归档。上游只删单文件时，同步删除本地对应文件。
 - lock 存的是上游 hash，不是带项目适配的本地内容 hash；不要为了“匹配”改 lock。CLI 1.7.4 实测：上游目录 hash 包含 `metadata.json`，安装时是否复制该文件按当次实物（本次 `vercel-composition-patterns` 已复制，docker 两项与 `mcp-builder` 未复制），因此核验以当次安装出的目录为准：有该文件时连同比对，没有时排除后比对，不按固定假设判断。
 
 ## 项目适配（必须保留）

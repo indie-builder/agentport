@@ -11,7 +11,7 @@ import spec from '../src/generated/openui.spec.json' with { type: 'json' };
  * 而不是让 manifest 自比。
  *
  * 失败时按 docs/OPENUI-UPGRADE.md：
- * 1. `pnpm openui:spec` 重新生成；
+ * 1. `bun run openui:spec` 重新生成；
  * 2. 按报告补齐/修正 shared/definitions.ts；
  * 3. web 渲染器缺失会由 web 的覆盖测试指出。
  */
