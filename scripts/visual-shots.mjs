@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const LOG_DIR = join(ROOT, '.visual', 'logs');
-const API_PORT = 3000;
-const WEB_PORT = 5173;
+const API_PORT = Number(process.env.VISUAL_API_PORT) || 3000;
+const WEB_PORT = Number(process.env.VISUAL_WEB_PORT) || 5173;
 const REDIS_IMAGE =
   'redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537';
 
@@ -28,6 +28,7 @@ Redis 使用已缓存镜像与 loopback 随机端口，API 忽略外部 REDIS_UR
                           minimal：库里没有数据时造 2 个 agent + 1 个频道
                           dev-data：调用 bun run dev:data（重，失败只提示不阻塞）
   --base-url <url>        复用已有栈，不创建或销毁 PG/Redis/应用服务；仍按 --seed 执行，默认 minimal 会在空库写入 agent/频道
+  VISUAL_API_PORT/VISUAL_WEB_PORT  隔离模式端口覆盖（环境变量，默认 3000/5173）
   --wait-ms <n>           每页稳定等待毫秒，默认 1200
   --open / --no-open      截图后是否用系统默认程序打开，默认打开
   --full                  截整页长图（按文档实际高度，不被视口截断）
@@ -659,10 +660,13 @@ async function main() {
 
 async function run(opts, env, state) {
   if (!opts.baseUrl) {
+    if (API_PORT === WEB_PORT) {
+      fail(`VISUAL_API_PORT 与 VISUAL_WEB_PORT 不能相同（都是 ${API_PORT}）。`);
+    }
     for (const port of [API_PORT, WEB_PORT]) {
       if (isPortListening(port)) {
         fail(
-          `端口 ${port} 已被占用；先停掉现有栈，或改用 --base-url http://localhost:5173 复用。` +
+          `端口 ${port} 已被占用；先停掉现有栈，或用 VISUAL_API_PORT/VISUAL_WEB_PORT 换端口，或改用 --base-url <url> 复用已有栈。` +
             '（不会杀别人的进程）',
         );
       }
@@ -708,14 +712,21 @@ async function run(opts, env, state) {
       ['run', '--filter', '@agentport/api', 'dev'],
       ROOT,
       apiLog,
-      { ...process.env, DATABASE_URL: tempUrl.toString(), REDIS_URL: state.redisUrl },
+      {
+        ...process.env,
+        DATABASE_URL: tempUrl.toString(),
+        REDIS_URL: state.redisUrl,
+        PORT: String(API_PORT),
+        SELF_URL: `http://127.0.0.1:${API_PORT}`,
+        CORS_ORIGINS: `http://localhost:${WEB_PORT}`,
+      },
     );
     const webChild = spawnDetached(
       'bun',
       ['run', 'vite', '--port', String(WEB_PORT), '--host', '127.0.0.1'],
       join(ROOT, 'packages/web'),
       webLog,
-      process.env,
+      { ...process.env, VITE_API_TARGET: `http://localhost:${API_PORT}` },
     );
     state.services = [
       { label: 'api', child: apiChild, log: apiLog, port: API_PORT },
