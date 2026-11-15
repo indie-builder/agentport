@@ -14,6 +14,7 @@ import { RedisClient } from 'bun';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { checkUserAgentAccess } from '../runs/run-access.js';
+import { startIntervalTicker } from './interval-ticker.js';
 
 /** 每 5 分钟与库对账一次：补缺失的 scheduler、删孤儿，不动已存在且未变的。 */
 const RECONCILE_MS = 5 * 60_000;
@@ -268,9 +269,7 @@ export function startScheduleScheduler(input: {
   });
   queue.on('error', (err) => input.logger.error({ err }, 'schedule queue error'));
 
-  let timer: NodeJS.Timeout | null = null;
-
-  async function sync(): Promise<void> {
+  async function syncOnce(): Promise<void> {
     const rows = await input.db
       .select({
         id: schema.agentSchedules.id,
@@ -291,16 +290,25 @@ export function startScheduleScheduler(input: {
     }
   }
 
-  timer = setInterval(() => {
-    void sync().catch((err: unknown) => input.logger.error({ err }, 'schedule reconcile failed'));
-  }, RECONCILE_MS);
-  timer.unref();
+  let inFlight: Promise<void> | null = null;
+  const sync = (): Promise<void> => {
+    if (inFlight) return inFlight;
+    inFlight = syncOnce()
+      .catch((err: unknown) => {
+        input.logger.error({ err }, 'schedule reconcile failed');
+      })
+      .finally(() => {
+        inFlight = null;
+      });
+    return inFlight;
+  };
+
+  const stopTicker = startIntervalTicker(() => sync(), RECONCILE_MS);
 
   return {
     sync,
     close: async () => {
-      if (timer) clearInterval(timer);
-      timer = null;
+      await stopTicker();
       // 等 inflight 的触发跑完；scheduler 本身保留，下次启动按库对账。
       await worker.close();
       await runsQueue.close();
