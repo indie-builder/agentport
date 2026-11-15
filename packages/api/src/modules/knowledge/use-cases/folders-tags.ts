@@ -52,6 +52,7 @@ export async function createFolder(
   if (body.parentId && (!parent || parent.baseId !== base.id)) {
     throw new AppError('INVALID_INPUT', '父文件夹不存在或属于其他知识库');
   }
+  if (body.name.includes('/')) throw new AppError('INVALID_INPUT', '文件夹名称不能包含 "/"');
   try {
     const row = await repo.knowledge.createFolder(deps.db, {
       baseId: base.id,
@@ -73,6 +74,9 @@ export async function updateFolder(
 ) {
   const current = await repo.knowledge.getFolder(deps.db, folderId);
   if (!current) notFound('文件夹');
+  if (body.name?.includes('/')) {
+    throw new AppError('INVALID_INPUT', '文件夹名称不能包含 "/"');
+  }
   try {
     const row = (await repo.knowledge.updateFolder(deps.db, current.id, body)) ?? current;
     return toFolder(row);
