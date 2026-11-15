@@ -1,5 +1,5 @@
 import type { OpenUiAction, OutputFile, PublicRunQuestion } from '@agentport/shared';
-import { ArrowDown, GitBranch, LoaderCircle } from 'lucide-react';
+import { ArrowDown, GitBranch, LoaderCircle, RotateCcw } from 'lucide-react';
 import { useReducedMotion } from 'motion/react';
 import { type ReactNode, useEffect, useMemo, useRef } from 'react';
 import type { ApprovalRequest } from '../../../lib/api.js';
@@ -70,6 +70,8 @@ export function MessagePane({
   onSelectOutput,
   onBranchMessage,
   branchingMessageId,
+  onRegenerate,
+  regenerating,
   running,
   openUi,
   streaming,
@@ -111,6 +113,8 @@ export function MessagePane({
   onSelectOutput?: (selection: OutputSelection) => void;
   onBranchMessage?: (messageId: string) => void;
   branchingMessageId: string | null;
+  onRegenerate?: () => void;
+  regenerating?: boolean;
   running: boolean;
   /** 当前智能体的回复格式；旧消息自身带格式时以消息为准。 */
   openUi: boolean;
@@ -220,6 +224,23 @@ export function MessagePane({
                       className="shrink-0 opacity-0 transition-opacity duration-150 ease-out-soft group-hover/turn:opacity-100 group-focus-within/turn:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
                     />
                   ) : null;
+                  const regenerateAction =
+                    onRegenerate && latest ? (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="重新生成回复"
+                        disabled={running || Boolean(regenerating)}
+                        onClick={() => onRegenerate()}
+                        className="shrink-0"
+                      >
+                        {regenerating ? (
+                          <LoaderCircle className="animate-spin" aria-hidden="true" />
+                        ) : (
+                          <RotateCcw aria-hidden="true" />
+                        )}
+                      </Button>
+                    ) : null;
                   // 历史轮次按消息上的 run_id 取读数；读数默认藏起来，指到这一轮才浮出。
                   // 没有助手输出的轮次（下一条仍是用户消息）由用户消息自己的 run_id 承载。
                   const turnRunId = turn.items
@@ -345,7 +366,7 @@ export function MessagePane({
                             {turnTodos ? <TodoProgress todos={turnTodos} /> : null}
                             {!turn.user && latest ? (
                               <>
-                                {runFooter || lastRun || copyReply ? (
+                                {runFooter || lastRun || copyReply || regenerateAction ? (
                                   <div className="flex min-w-0 items-start gap-1.5">
                                     <div className="min-w-0 flex-1">
                                       {runFooter}
@@ -361,6 +382,7 @@ export function MessagePane({
                                       ) : null}
                                     </div>
                                     {copyReply}
+                                    {regenerateAction}
                                   </div>
                                 ) : null}
                                 {approvals

@@ -57,6 +57,8 @@ export function ChatColumn({
   onBranchMessage,
   onSelectOutput,
   branchingMessageId,
+  onRegenerate,
+  regenerating,
   onLoadOlder,
   hasOlder,
   loadingOlder,
@@ -93,6 +95,8 @@ export function ChatColumn({
   onBranchMessage: (conversationId: string, messageId: string) => void;
   onSelectOutput: (selection: OutputSelection) => void;
   branchingMessageId: string | null;
+  onRegenerate: () => void;
+  regenerating: boolean;
   onLoadOlder: () => void;
   hasOlder: boolean;
   loadingOlder: boolean;
@@ -245,6 +249,8 @@ export function ChatColumn({
             if (conversationId) onBranchMessage(conversationId, messageId);
           }}
           branchingMessageId={branchingMessageId}
+          onRegenerate={onRegenerate}
+          regenerating={regenerating}
           running={phase.kind !== 'idle'}
           openUi={agent?.uiFormat === 'openui'}
           streaming={phase.kind !== 'idle'}

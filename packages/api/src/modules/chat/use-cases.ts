@@ -313,3 +313,74 @@ export async function startRun(
       : { attachments: writtenAttachments }),
   };
 }
+export async function regenerateLastRun(
+  principal: Extract<Principal, { kind: 'user' }>,
+  conversationId: string,
+  deps: StartRunDependencies,
+) {
+  const conversation = await chatRepo.getConversation(deps.db, conversationId);
+  if (!conversation) notFound('conversation', '会话不存在或已被删除；请刷新后重试');
+  const agentId = conversation.agentId;
+  if (!(await chatRepo.agentExists(deps.db, agentId))) notFound('agent');
+  if (!(await chatRepo.agentEnabled(deps.db, agentId))) {
+    return fail('AGENT_DISABLED', '该智能体已停用，无法重新生成；请到智能体页面启用后再试');
+  }
+  await deps.authorize('agents.use', { agentId }, '智能体不存在，可能已被删除；请刷新后重新选择');
+  await deps.authorize(
+    'conversations.update',
+    { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
+    CONVERSATION_MISSING,
+  );
+  if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
+    return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
+  }
+  const agentVersion = await repo.agentVersions.latestAgentVersion(deps.db, agentId);
+  const admitted = await chatRepo.admitChatRun(deps.db, {
+    agentId,
+    message: '',
+    subject: { kind: 'user', businessId: principal.businessId },
+    ...(agentVersion === null ? {} : { agentVersion }),
+    trigger: 'chat',
+    conversationId,
+    regenerate: true,
+  });
+  const { run, regenerate } = admitted;
+  if (regenerate === undefined) return fail('CONFLICT', '该会话没有可重新生成的回复');
+  try {
+    await getQueue().add(
+      'run',
+      {
+        runId: run.id,
+        agentId,
+        conversationId,
+        prompt: regenerate.prompt,
+        requestId: deps.requestId,
+        replacesRunId: regenerate.replacesRunId,
+        ...(regenerate.forkFromMessageUuid === undefined
+          ? {}
+          : { forkFromMessageUuid: regenerate.forkFromMessageUuid }),
+      },
+      runEnqueueOptions(run.id),
+    );
+  } catch {
+    try {
+      await failQueuedRunEnqueue(deps.db, run.id);
+    } catch {
+      deps.log.warn({ runId: run.id }, 'regenerate enqueue failure cleanup failed');
+    }
+    fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+  }
+  deps.log.info(
+    { runId: run.id, replacesRunId: regenerate.replacesRunId },
+    'regenerate run enqueued',
+  );
+  await repo.audit.writeAudit(deps.db, deps.log, {
+    actor: principal.businessId,
+    action: 'agent.run.requested',
+    target: run.id,
+    input: { agentId, regenerateOf: regenerate.replacesRunId },
+    status: 'ok',
+    requestId: deps.requestId,
+  });
+  return { runId: run.id, conversationId };
+}

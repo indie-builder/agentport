@@ -176,6 +176,7 @@ export const api = {
   publicOutputShareContent: chat.publicOutputShareContent,
   publicOutputShareDownload: chat.publicOutputShareDownload,
   branchConversation: chat.branchConversation,
+  regenerate: chat.regenerate,
   callOpenUiTool: chat.callOpenUiTool,
   approveOpenUiTool: chat.approveOpenUiTool,
   sendChat: chat.sendChat,

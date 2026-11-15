@@ -610,6 +610,8 @@ function ChatWorkspace({
         composerRef.current?.focus();
       }}
       onBranchMessage={branch}
+      onRegenerate={() => void stream.regenerate()}
+      regenerating={stream.regenerating}
       // 从某一轮点开成果时直接展开工作区；宽屏是旁栏，窄屏是抽屉，选择本身仍交给外层。
       onSelectOutput={(selection) => {
         setWorkspaceOpen(true);

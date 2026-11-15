@@ -28,7 +28,13 @@ import {
   historyToItems,
   snapshotHistory,
 } from './chat-state.js';
-import { advancePhase, type ChatPhaseEvent, isActivePhase, useChatStore } from './chat-store.js';
+import {
+  advancePhase,
+  type ChatPhaseEvent,
+  isActivePhase,
+  type RunMetrics,
+  useChatStore,
+} from './chat-store.js';
 import {
   chatKeys,
   type RunQuestionList,
@@ -42,6 +48,15 @@ import { toastError } from './toast.js';
 type PersistedBlock = NonNullable<
   Extract<ChatEvent, { type: 'run_finished' }>['messageIds']
 >[number];
+
+type RegenerateSnapshot = {
+  generation: number;
+  runId?: string;
+  items: ChatItem[];
+  lastRun: RunMetrics | null;
+  lastRunId: string | null;
+  historyPrefix: HistorySnapshot | null;
+};
 
 /** 已保存消息的分页上限；一个 run 的输出再多也不无限拉历史。 */
 const RECOVERY_PAGE_SIZE = 100;
@@ -96,6 +111,24 @@ function uniqueMessages(messages: ConversationMessage[]): ConversationMessage[] 
     seen.add(message.id);
     return true;
   });
+}
+
+function replaceLastUser(items: ChatItem[], prompt: ChatItem): ChatItem[] {
+  const index = items.findLastIndex((item) => item.kind === 'user');
+  return index < 0 ? items : items.with(index, prompt);
+}
+
+function trimHistoryPrefix(snapshot: HistorySnapshot): HistorySnapshot | null {
+  const promptIndex = snapshot.messages.findLastIndex((message) => message.role === 'user');
+  if (promptIndex < 0) return null;
+  const kept = snapshot.messages.slice(0, promptIndex);
+  if (kept.length === 0) return null;
+  return {
+    conversationId: snapshot.conversationId,
+    boundaryId: kept.at(-1)?.id ?? null,
+    messages: kept,
+    count: historyToItems(kept).length,
+  };
 }
 
 /**
@@ -214,6 +247,8 @@ export function useChatStream({
   // 回放被截断后重连可能不再收到该事件，只能在本轮内记住；下一次发送才重置。
   const replayTruncatedRef = useRef(false);
   const [historyPrefix, setHistoryPrefix] = useState<HistorySnapshot | null>(null);
+  const regenerateSnapshotRef = useRef<RegenerateSnapshot | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
 
   const generationRef = useRef(0);
   const mountedRef = useRef(true);
@@ -238,8 +273,20 @@ export function useChatStream({
     generationRef.current += 1;
     recoveryRef.current = null;
     historyRequestRef.current = null;
+    regenerateSnapshotRef.current = null;
+    setRegenerating(false);
     closeSource();
   }, [closeSource]);
+
+  const restoreRegenerate = useCallback((snapshot: RegenerateSnapshot): void => {
+    const store = useChatStore.getState();
+    store.setItems(snapshot.items);
+    store.setLastRun(snapshot.lastRun);
+    store.setLastRunId(snapshot.lastRunId);
+    baseItemsRef.current = snapshot.items;
+    setHistoryPrefix(snapshot.historyPrefix);
+    dispatchPhase({ type: 'finish' });
+  }, []);
 
   // 账户级 reset 发生时聊天页可能还挂着：同步关流并作废旧 generation，
   // 晚到的发送/恢复/事件回调就不能再写回新账户的状态。
@@ -394,7 +441,21 @@ export function useChatStream({
         }
         if (event.type === 'run_finished') {
           finished = true;
+          const regenerate = regenerateSnapshotRef.current;
           closeStream();
+          if (
+            regenerate !== null &&
+            regenerate.generation === generation &&
+            regenerate.runId === accepted.runId &&
+            event.status !== 'succeeded' &&
+            (event.messageIds ?? []).length === 0
+          ) {
+            restoreRegenerate(regenerate);
+            void client.invalidateQueries({
+              queryKey: chatKeys.conversation(accepted.conversationId),
+            });
+            return;
+          }
           const recoveryGeneration = generationRef.current;
           const needsRecovery = replayTruncatedRef.current;
           if (needsRecovery) {
@@ -519,7 +580,7 @@ export function useChatStream({
         ]);
       };
     },
-    [closeSource, closeStream, client, recoverPersisted],
+    [closeSource, closeStream, client, recoverPersisted, restoreRegenerate],
   );
 
   useEffect(() => {
@@ -698,6 +759,8 @@ export function useChatStream({
     if (!mountedRef.current || (!body && attachments.length === 0) || phase.kind !== 'idle') return;
     if (conversationId !== null && (hydratedRef.current !== conversationId || agentId === null))
       return;
+    regenerateSnapshotRef.current = null;
+    setRegenerating(false);
     const generation = ++generationRef.current;
     const ownsRequest = () => mountedRef.current && generationRef.current === generation;
     replayTruncatedRef.current = false;
@@ -766,14 +829,8 @@ export function useChatStream({
           runId: accepted.runId,
           ...(serverAttachments === undefined ? {} : { attachments: serverAttachments }),
         };
-        const replacePrompt = (list: ChatItem[]): ChatItem[] => {
-          const index = list.findLastIndex((item) => item.kind === 'user');
-          return index < 0
-            ? list
-            : list.map((item, position) => (position === index ? prompt : item));
-        };
-        baseItemsRef.current = replacePrompt(baseItemsRef.current);
-        useChatStore.getState().setItems(replacePrompt);
+        baseItemsRef.current = replaceLastUser(baseItemsRef.current, prompt);
+        useChatStore.getState().setItems((previous) => replaceLastUser(previous, prompt));
       }
       store.setLastRunId(accepted.runId);
       // 只消费本次发送的引用；等待期间重新挂的引用留给下一次，失败时也保留。
@@ -805,6 +862,73 @@ export function useChatStream({
     }
   };
 
+  const regenerate = async (): Promise<void> => {
+    const store = useChatStore.getState();
+    const { items, phase, conversationId } = store;
+    if (
+      !mountedRef.current ||
+      conversationId === null ||
+      phase.kind !== 'idle' ||
+      hydratedRef.current !== conversationId ||
+      agentId === null
+    )
+      return;
+    const lastUserIndex = items.findLastIndex((item) => item.kind === 'user');
+    if (lastUserIndex < 0) return;
+    const generation = ++generationRef.current;
+    const ownsRequest = () => mountedRef.current && generationRef.current === generation;
+    replayTruncatedRef.current = false;
+    const previousLastRun = store.lastRun;
+    const previousLastRunId = store.lastRunId;
+    const snapshot: RegenerateSnapshot = {
+      generation,
+      items,
+      lastRun: previousLastRun,
+      lastRunId: previousLastRunId,
+      historyPrefix,
+    };
+    regenerateSnapshotRef.current = snapshot;
+    setRegenerating(true);
+    store.setLastRun(null);
+    store.setLastRunId(null);
+    const trimmed = items.slice(0, lastUserIndex + 1);
+    baseItemsRef.current = trimmed;
+    store.setItems(trimmed);
+    if (
+      historyPrefix !== null &&
+      historyPrefix.conversationId === conversationId &&
+      historyPrefix.count > lastUserIndex
+    ) {
+      setHistoryPrefix(trimHistoryPrefix(historyPrefix));
+    }
+    startedAtRef.current = Date.now();
+    dispatchPhase({ type: 'submit', startedAt: startedAtRef.current });
+    try {
+      const accepted = await api.regenerate(conversationId);
+      if (!ownsRequest()) return;
+      regenerateSnapshotRef.current = { ...snapshot, runId: accepted.runId };
+      const promptIndex = baseItemsRef.current.findLastIndex((item) => item.kind === 'user');
+      const basePrompt = promptIndex < 0 ? undefined : baseItemsRef.current[promptIndex];
+      if (basePrompt?.kind === 'user') {
+        const prompt: ChatItem = { ...basePrompt, runId: accepted.runId };
+        baseItemsRef.current = replaceLastUser(baseItemsRef.current, prompt);
+        useChatStore.getState().setItems((previous) => replaceLastUser(previous, prompt));
+      }
+      store.setLastRunId(accepted.runId);
+      hydratedRef.current = accepted.conversationId;
+      dispatchPhase({ type: 'accept', runId: accepted.runId, startedAt: startedAtRef.current });
+      void client.invalidateQueries({ queryKey: chatKeys.conversations() });
+      openStream(accepted, generation);
+    } catch (error) {
+      if (!ownsRequest()) return;
+      regenerateSnapshotRef.current = null;
+      setRegenerating(false);
+      restoreRegenerate(snapshot);
+      void client.invalidateQueries({ queryKey: chatKeys.conversation(conversationId) });
+      toastError(error);
+    }
+  };
+
   const reconcileRun = useCallback(
     async (detail: RunDetail['run']) => {
       const store = useChatStore.getState();
@@ -814,6 +938,7 @@ export function useChatStream({
       // A healthy stream can still have buffered text when the database becomes terminal.
       if (current.kind === 'streaming' && detail.status !== 'cancelled') return;
       if (recoveryRef.current !== null) return;
+      const regenerateSnapshot = regenerateSnapshotRef.current;
       closeStream();
       const generation = generationRef.current;
       recoveryRef.current = generation;
@@ -831,6 +956,19 @@ export function useChatStream({
         // 完整读取本轮，不能拿最新一页覆盖已经加载的更早历史。
         const { messages } = await loadRunMessages(detail.conversationId, current.runId);
         if (!ownsRecovery()) return;
+        if (
+          regenerateSnapshot !== null &&
+          regenerateSnapshot.runId === current.runId &&
+          messages.length === 0
+        ) {
+          restoreRegenerate(regenerateSnapshot);
+          recoveryRef.current = null;
+          hydratedRef.current = detail.conversationId;
+          void client.invalidateQueries({
+            queryKey: chatKeys.conversation(detail.conversationId),
+          });
+          return;
+        }
         const loaded = useChatStore.getState().items;
         const promptIndex = loaded.findLastIndex(
           (item) => item.kind === 'user' && item.runId === current.runId,
@@ -901,7 +1039,7 @@ export function useChatStream({
         queryKey: chatKeys.outputs(detail.conversationId),
       });
     },
-    [closeStream, client],
+    [closeStream, client, restoreRegenerate],
   );
 
   const retryStream = () => {
@@ -927,6 +1065,8 @@ export function useChatStream({
 
   return {
     send,
+    regenerate,
+    regenerating,
     closeStream,
     captureRequest,
     hydratedRef,
