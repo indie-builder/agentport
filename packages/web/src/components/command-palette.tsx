@@ -74,7 +74,7 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
       <DialogContent
         showCloseButton={false}
         aria-describedby={undefined}
-        className="top-[16%] flex max-h-[min(70vh,32rem)] w-full max-w-lg translate-y-0 flex-col gap-0 overflow-hidden p-0 transition-none sm:max-w-lg"
+        className="top-[12%] flex max-h-[min(72vh,36rem)] w-full max-w-[calc(100%-2rem)] translate-y-0 flex-col gap-0 overflow-hidden p-0 transition-none sm:max-w-[36rem]"
       >
         <DialogTitle className="sr-only">命令面板</DialogTitle>
         <Command
@@ -85,38 +85,49 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
           }}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <CommandInput
-            autoFocus
-            aria-label="搜索页面或操作"
-            placeholder="搜索页面或操作…"
-            onCompositionStart={() => {
-              composing.current = true;
-            }}
-            onCompositionEnd={() => {
-              composing.current = false;
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'Escape') return;
-              if (
-                composing.current ||
-                event.nativeEvent.isComposing ||
-                event.nativeEvent.keyCode === 229
-              ) {
+          <div className="flex shrink-0 items-center gap-2.5 border-b border-line px-4 transition-colors focus-within:border-[var(--color-subtle)]">
+            <Search aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+            <CommandInput
+              autoFocus
+              aria-label="搜索页面或操作"
+              placeholder="搜索页面或操作…"
+              onCompositionStart={() => {
+                composing.current = true;
+              }}
+              onCompositionEnd={() => {
+                composing.current = false;
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return;
+                if (
+                  composing.current ||
+                  event.nativeEvent.isComposing ||
+                  event.nativeEvent.keyCode === 229
+                ) {
+                  event.preventDefault();
+                  return;
+                }
                 event.preventDefault();
-                return;
+                setOpen(false);
+              }}
+              render={
+                <Input className="h-11 flex-1 rounded-none border-0 bg-transparent px-0 shadow-none focus-visible:border-0" />
               }
-              event.preventDefault();
-              setOpen(false);
-            }}
-            render={<Input className="h-9 rounded-none border-0 border-b px-3" />}
-          />
+            />
+            <span
+              aria-hidden="true"
+              className="hidden h-[22px] min-w-[22px] items-center justify-center rounded-tag border border-line bg-sunken px-1.5 font-mono text-2xs leading-none text-muted-foreground sm:inline-flex"
+            >
+              esc
+            </span>
+          </div>
           <CommandEmpty>
-            <div className="py-8 text-center text-xs text-muted-foreground">没有匹配的结果</div>
+            <div className="py-12 text-center text-sm text-muted-foreground">没有匹配的结果</div>
           </CommandEmpty>
-          <CommandList className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1">
+          <CommandList className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
             {groups.map((group) => (
               <CommandGroup key={group.label}>
-                <CommandGroupLabel className="px-2 pb-1 pt-2 text-xs text-muted-foreground">
+                <CommandGroupLabel className="px-2 pb-1 pt-3 text-xs font-medium text-muted-foreground">
                   {group.label}
                 </CommandGroupLabel>
                 {group.items.map((item) => (
@@ -124,7 +135,7 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
                     key={item.to}
                     value={item.to}
                     label={item.label}
-                    className="flex cursor-default items-center gap-2.5 rounded-item px-2 py-1.5 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
+                    className="flex cursor-default items-center gap-2.5 rounded-item px-2.5 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
                   >
                     <CommandItemIcon className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                       <item.icon aria-hidden="true" />
@@ -135,6 +146,29 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
               </CommandGroup>
             ))}
           </CommandList>
+          <div
+            aria-hidden="true"
+            className="flex shrink-0 items-center gap-3 border-t border-line px-4 py-2 text-xs text-muted-foreground"
+          >
+            <span className="flex items-center gap-1.5">
+              <kbd className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-tag border border-line bg-sunken px-1.5 font-mono text-2xs leading-none text-fg">
+                ↑↓
+              </kbd>
+              选择
+            </span>
+            <span className="flex items-center gap-1.5">
+              <kbd className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-tag border border-line bg-sunken px-1.5 font-mono text-2xs leading-none text-fg">
+                ↵
+              </kbd>
+              打开
+            </span>
+            <span className="flex items-center gap-1.5">
+              <kbd className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-tag border border-line bg-sunken px-1.5 font-mono text-2xs leading-none text-fg">
+                esc
+              </kbd>
+              关闭
+            </span>
+          </div>
         </Command>
       </DialogContent>
     </Dialog>
