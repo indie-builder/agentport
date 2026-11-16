@@ -103,3 +103,4 @@ export {
   toWorkspaceAgent,
   toWorkspaceInput,
 } from './workspace-input.js';
+export { validateWrenProjectFiles } from './wren-project.js';

@@ -1,5 +1,5 @@
 import { dataDomainsContract } from '@agentport/contract/data-domains';
-import { decryptSecrets, encryptSecrets, fail } from '@agentport/core';
+import { decryptSecrets, encryptSecrets, fail, validateWrenProjectFiles } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -267,6 +267,8 @@ export const dataDomainsRouter = os.router({
   createVersion: os.createVersion.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
     await authorizeDomain(context, 'data_domains.build', row);
+    const project = validateWrenProjectFiles(input.body.projectFiles);
+    if (!project.ok) fail('INVALID_INPUT', project.error);
     const version = await domains.createDataDomainVersion(
       context.db,
       input.params.id,
