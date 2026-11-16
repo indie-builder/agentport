@@ -80,10 +80,11 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 
 ### 3.4.1 数据域表结构
 
-- `data_domains`：数据域本体。`id`、`name`、`slug`(唯一)、`description`、`datasource`、`connection_encrypted`(AES 密文)、`online_version_id`(线上版本指针, 与 `id` 组成复合外键指向 `data_domain_versions`)、`created_by`、`created_at`、`updated_at`。
+- `data_domains`：数据域本体。`id`、`name`、`slug`(唯一)、`description`、`datasource`、`connection_encrypted`(AES 密文)、`online_version_id`(线上版本指针, 与 `id` 组成复合外键指向 `data_domain_versions`)、`query_approval_mode`(`off`/`all`，默认 `off`)、`created_by`、`created_at`、`updated_at`。
 - `data_domain_versions`：一次构建一行、不可覆盖。`id`、`data_domain_id`(FK→`data_domains`, ON DELETE cascade)、`status`(`queued`/`building`/`ready`/`failed`)、`project_files`(jsonb 文件快照)、`mdl_manifest`(`ready` 时非空)、`log_tail`、`log_truncated`、`created_at`、`updated_at`；唯一 `(id, data_domain_id)`。
 - `data_domain_query_logs`：明文查询明细，用于核查版本、SQL 摘要、行数与耗时。`id`、`data_domain_id`(FK→`data_domains`, ON DELETE cascade)、`version_id`(可空)、`server_id`、`run_id`、`actor_business_id`、`sql_summary`、`row_count`、`status`(`ok`/`error`)、`duration_ms`、`created_at`；索引 `(data_domain_id, created_at, id)` 与 `(run_id)`。与 append-only 的 `audit_log` 分开：审计保留链式摘要，本表保留可核查明细。
 - `data_domain_identities`：按登录用户配置的 Wren session properties（RLAC/CLAC 的 `required_properties` 取值来源）。`id`、`data_domain_id`(FK→`data_domains`, ON DELETE cascade)、`business_id`(平台用户业务身份, 非空)、`properties`(jsonb `Record<string,string>`, 键值皆字符串)、`created_at`、`updated_at`；唯一 `(data_domain_id, business_id)`。查询时由 api 依 run token→`business_id` 解析本表 properties 注入 `/query`，绝不接受客户端或模型自报。
+- `data_domain_query_approvals`：按数据域可选开启的查询审批记录。`id`、`data_domain_id`(FK→`data_domains`, ON DELETE cascade)、`server_id`、`run_id`、`actor_business_id`(可空)、`sql_text`、`sql_hash`(去除首尾空白后的 SHA-256)、`status`(`pending`/`approved`/`rejected`)、`decision_note`、`requested_at`、`decided_at`(可空)、`decided_by_business_id`(可空)；索引 `(data_domain_id, requested_at, id)`，部分唯一索引 `(data_domain_id, run_id, sql_hash) WHERE status = 'pending'` 保证同一 run 的同一 SQL 只有一个待审批项；约束保证 `pending` 与 `decided_at is null` 同真同假。
 
 ### 3.5 建模工作流
 
@@ -102,7 +103,7 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 
 **决策**：
 
-- 默认只读 + strict mode；`run_sql` 可按数据域策略要求逐次审批。
+- 默认只读 + strict mode；`run_sql` 可按数据域策略要求逐次审批。`data_domains.query_approval_mode` 默认为 `off`，只读查询直接放行；设为 `all` 时 `run_sql` 在无已批准记录时先落一条 `pending` 审批并返回待审批结果（已批准则直接执行，已有 pending/rejected 则回传其状态），由平台授权用户经 `POST /data-domains/{id}/approvals/{approvalId}/decision` 批准或拒绝，代理重试相同 SQL（按去除首尾空白后的 SHA-256 匹配）后才真正执行或被拒绝；审批按 `dataDomainId + runId + sqlHash` 复用，批准后同一 run 再次执行相同 SQL 不再新建审批。审批列表由 `GET /data-domains/{id}/approvals` 提供，请求与决策均写审计。审批只控制执行时机，执行仍按服务端注入的身份 session properties 与 RLAC 过滤，只读/strict/fallback 语义不变。
 - 每次查询记录审计：用户、run、数据域、版本、SQL 摘要、行数与结果状态。明细落 `data_domain_query_logs`（可核查），`audit_log` 仍有该事件的链式摘要。
 - 查询明细通过 `GET /data-domains/{id}/query-logs`（权限 `data_domains.read`）以 keyset 游标分页暴露，支持 `status` 与 `runId` 过滤，便于审计与排查查询历史。
 - 服务端强制行数上限，不依赖模型自报。

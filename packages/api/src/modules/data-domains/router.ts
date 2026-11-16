@@ -28,6 +28,7 @@ function toDataDomain(row: DataDomainRow) {
     description: row.description,
     datasource: row.datasource,
     onlineVersionId: row.onlineVersionId,
+    queryApprovalMode: row.queryApprovalMode,
     createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -83,6 +84,36 @@ function toQueryLog(row: {
     status: row.status,
     durationMs: row.durationMs,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function toApproval(row: {
+  id: string;
+  dataDomainId: string;
+  serverId: string;
+  runId: string;
+  actorBusinessId: string | null;
+  sqlText: string;
+  sqlHash: string;
+  status: 'pending' | 'approved' | 'rejected';
+  decisionNote: string;
+  requestedAt: Date;
+  decidedAt: Date | null;
+  decidedByBusinessId: string | null;
+}) {
+  return {
+    id: row.id,
+    dataDomainId: row.dataDomainId,
+    serverId: row.serverId,
+    runId: row.runId,
+    actorBusinessId: row.actorBusinessId,
+    sqlText: row.sqlText,
+    sqlHash: row.sqlHash,
+    status: row.status,
+    decisionNote: row.decisionNote,
+    requestedAt: row.requestedAt.toISOString(),
+    decidedAt: row.decidedAt === null ? null : row.decidedAt.toISOString(),
+    decidedByBusinessId: row.decidedByBusinessId,
   };
 }
 
@@ -173,13 +204,14 @@ export const dataDomainsRouter = os.router({
   update: os.update.handler(async ({ input, context }) => {
     const existing = await loadDomain(context, input.params.id);
     await authorizeDomain(context, 'data_domains.update', existing);
-    const { connection, name, slug, description, datasource } = input.body;
+    const { connection, name, slug, description, datasource, queryApprovalMode } = input.body;
     const row = await context.db.transaction(async (tx) => {
       const updated = await domains.updateDataDomain(tx, input.params.id, {
         ...(name === undefined ? {} : { name }),
         ...(slug === undefined ? {} : { slug }),
         ...(description === undefined ? {} : { description }),
         ...(datasource === undefined ? {} : { datasource }),
+        ...(queryApprovalMode === undefined ? {} : { queryApprovalMode }),
         ...(connection === undefined
           ? {}
           : { connectionEncrypted: encryptSecrets(connection, context.config.APP_SECRET_KEY) }),
@@ -255,6 +287,53 @@ export const dataDomainsRouter = os.router({
       ...(runId === undefined ? {} : { runId }),
     });
     return { items: page.items.map(toQueryLog), nextCursor: page.nextCursor };
+  }),
+
+  approvals: os.approvals.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.read', row);
+    const { cursor, limit, status } = input.query;
+    const page = await domains.listDataDomainQueryApprovals(context.db, {
+      dataDomainId: input.params.id,
+      limit,
+      ...(cursor === undefined ? {} : { cursor }),
+      ...(status === undefined ? {} : { status }),
+    });
+    return { items: page.items.map(toApproval), nextCursor: page.nextCursor };
+  }),
+
+  decideApproval: os.decideApproval.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.update', row);
+    const status = input.body.decision === 'approve' ? 'approved' : 'rejected';
+    const updated = await domains.decideDataDomainQueryApproval(context.db, {
+      dataDomainId: input.params.id,
+      approvalId: input.params.approvalId,
+      status,
+      decidedByBusinessId: actorOf(context),
+      note: input.body.note,
+    });
+    if (!updated) fail('CONFLICT', '审批不存在或已处理');
+    await repo.audit.writeAudit(
+      context.db,
+      {
+        warn: () =>
+          context.log.warn(
+            { approvalId: input.params.approvalId },
+            'data domain approval audit write failed',
+          ),
+      },
+      {
+        actor: actorOf(context),
+        actorKind: 'user',
+        action: 'data_domain.query.approval_decided',
+        target: updated.id,
+        status: 'ok',
+        durationMs: 0,
+        input: { dataDomainId: input.params.id, status, note: input.body.note.slice(0, 200) },
+      },
+    );
+    return toApproval(updated);
   }),
 
   upsertIdentity: os.upsertIdentity.handler(async ({ input, context }) => {

@@ -4,6 +4,7 @@ import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import {
   dataDomainIdentities,
+  dataDomainQueryApprovals,
   dataDomainQueryLogs,
   dataDomains,
   dataDomainVersions,
@@ -15,6 +16,7 @@ export type DataDomainRow = typeof dataDomains.$inferSelect;
 export type DataDomainVersionRow = typeof dataDomainVersions.$inferSelect;
 export type DataDomainIdentityRow = typeof dataDomainIdentities.$inferSelect;
 export type DataDomainQueryLogRow = typeof dataDomainQueryLogs.$inferSelect;
+export type DataDomainQueryApprovalRow = typeof dataDomainQueryApprovals.$inferSelect;
 
 export const DATA_DOMAIN_VERSION_LOG_LIMIT = 64 * 1024;
 
@@ -40,11 +42,20 @@ function logTailFields(
 
 export type DataDomainInput = Pick<
   typeof dataDomains.$inferInsert,
-  'name' | 'slug' | 'description' | 'datasource' | 'connectionEncrypted' | 'createdBy'
+  | 'name'
+  | 'slug'
+  | 'description'
+  | 'datasource'
+  | 'connectionEncrypted'
+  | 'queryApprovalMode'
+  | 'createdBy'
 >;
 
 export type DataDomainPatch = Partial<
-  Pick<DataDomainInput, 'name' | 'slug' | 'description' | 'datasource' | 'connectionEncrypted'>
+  Pick<
+    DataDomainInput,
+    'name' | 'slug' | 'description' | 'datasource' | 'connectionEncrypted' | 'queryApprovalMode'
+  >
 >;
 
 function rethrowSlugConflict(err: unknown): never {
@@ -396,6 +407,106 @@ export async function listDataDomainQueryLogs(
     .from(dataDomainQueryLogs)
     .where(and(...filters))
     .orderBy(desc(dataDomainQueryLogs.createdAt), desc(dataDomainQueryLogs.id))
+    .limit(options.limit + 1);
+  return paginate(rows, options.limit);
+}
+
+export async function getLatestDataDomainQueryApproval(
+  db: DbHandle,
+  options: { dataDomainId: string; runId: string; sqlHash: string },
+): Promise<DataDomainQueryApprovalRow | null> {
+  const [row] = await db
+    .select()
+    .from(dataDomainQueryApprovals)
+    .where(
+      and(
+        eq(dataDomainQueryApprovals.dataDomainId, options.dataDomainId),
+        eq(dataDomainQueryApprovals.runId, options.runId),
+        eq(dataDomainQueryApprovals.sqlHash, options.sqlHash),
+      ),
+    )
+    .orderBy(desc(dataDomainQueryApprovals.requestedAt), desc(dataDomainQueryApprovals.id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function requestDataDomainQueryApproval(
+  db: DbHandle,
+  entry: {
+    dataDomainId: string;
+    serverId: string;
+    runId: string;
+    actorBusinessId: string | null;
+    sqlText: string;
+    sqlHash: string;
+  },
+): Promise<DataDomainQueryApprovalRow> {
+  const [inserted] = await db
+    .insert(dataDomainQueryApprovals)
+    .values({ id: newId('dataDomainQueryApproval'), ...entry })
+    .onConflictDoNothing()
+    .returning();
+  if (inserted) return inserted;
+  const existing = await getLatestDataDomainQueryApproval(db, {
+    dataDomainId: entry.dataDomainId,
+    runId: entry.runId,
+    sqlHash: entry.sqlHash,
+  });
+  if (existing) return existing;
+  throw new Error('data domain query approval insert returned no row');
+}
+
+export async function decideDataDomainQueryApproval(
+  db: DbHandle,
+  options: {
+    dataDomainId: string;
+    approvalId: string;
+    status: 'approved' | 'rejected';
+    decidedByBusinessId: string;
+    note: string;
+  },
+): Promise<DataDomainQueryApprovalRow | null> {
+  const [row] = await db
+    .update(dataDomainQueryApprovals)
+    .set({
+      status: options.status,
+      decidedAt: new Date(),
+      decidedByBusinessId: options.decidedByBusinessId,
+      decisionNote: options.note,
+    })
+    .where(
+      and(
+        eq(dataDomainQueryApprovals.id, options.approvalId),
+        eq(dataDomainQueryApprovals.dataDomainId, options.dataDomainId),
+        eq(dataDomainQueryApprovals.status, 'pending'),
+      ),
+    )
+    .returning();
+  return row ?? null;
+}
+
+export async function listDataDomainQueryApprovals(
+  db: DbHandle,
+  options: {
+    dataDomainId: string;
+    limit: number;
+    cursor?: string;
+    status?: 'pending' | 'approved' | 'rejected';
+  },
+): Promise<{ items: DataDomainQueryApprovalRow[]; nextCursor: string | null }> {
+  const filters = [eq(dataDomainQueryApprovals.dataDomainId, options.dataDomainId)];
+  if (options.status !== undefined)
+    filters.push(eq(dataDomainQueryApprovals.status, options.status));
+  if (options.cursor !== undefined) {
+    filters.push(
+      sql`(${dataDomainQueryApprovals.requestedAt}, ${dataDomainQueryApprovals.id}) < (select cursor.requested_at, cursor.id from ${dataDomainQueryApprovals} cursor where cursor.id = ${options.cursor})`,
+    );
+  }
+  const rows = await db
+    .select()
+    .from(dataDomainQueryApprovals)
+    .where(and(...filters))
+    .orderBy(desc(dataDomainQueryApprovals.requestedAt), desc(dataDomainQueryApprovals.id))
     .limit(options.limit + 1);
   return paginate(rows, options.limit);
 }

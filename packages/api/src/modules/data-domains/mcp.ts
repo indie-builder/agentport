@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { decryptSecrets } from '@agentport/core';
 import { type Database, repo } from '@agentport/db';
 import type {
@@ -168,6 +169,80 @@ export function buildDataDomainServer(input: DataDomainServerInput): McpHttpHand
         const actorBusinessId = await repo.runs
           .getRunInitiator(input.db, input.runId)
           .catch(() => null);
+        const domainForApproval = await repo.dataDomains.getDataDomain(
+          input.db,
+          input.dataDomainId,
+        );
+        if (domainForApproval?.queryApprovalMode === 'all') {
+          const sqlHash = createHash('sha256').update(args.sql.trim()).digest('hex');
+          const latest = await repo.dataDomains.getLatestDataDomainQueryApproval(input.db, {
+            dataDomainId: input.dataDomainId,
+            runId: input.runId,
+            sqlHash,
+          });
+          const pendingResult = (approvalId: string, message: string): CallToolResult => ({
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({ status: 'pending_approval', approvalId, message }),
+              },
+            ],
+          });
+          if (latest?.status !== 'approved') {
+            let result: CallToolResult;
+            if (latest?.status === 'pending') {
+              result = pendingResult(latest.id, '查询待审批，请审批通过后重试相同 SQL');
+            } else if (latest?.status === 'rejected') {
+              result = toolError(
+                'QUERY_REJECTED',
+                `查询已被审批拒绝${latest.decisionNote ? `：${latest.decisionNote}` : ''}`,
+              );
+            } else {
+              const created = await repo.dataDomains.requestDataDomainQueryApproval(input.db, {
+                dataDomainId: input.dataDomainId,
+                serverId: input.serverId,
+                runId: input.runId,
+                actorBusinessId,
+                sqlText: args.sql,
+                sqlHash,
+              });
+              await repo.audit.writeAudit(
+                input.db,
+                {
+                  warn: () =>
+                    input.log.warn(
+                      { dataDomainId: input.dataDomainId, runId: input.runId },
+                      'data domain approval audit write failed',
+                    ),
+                },
+                {
+                  actor: input.runId,
+                  actorKind: 'agent',
+                  action: 'data_domain.query.approval_requested',
+                  target: created.id,
+                  status: 'ok',
+                  durationMs: 0,
+                  input: {
+                    dataDomainId: input.dataDomainId,
+                    serverId: input.serverId,
+                    sqlHash,
+                    sqlSummary: args.sql.slice(0, 500),
+                  },
+                },
+              );
+              result = pendingResult(created.id, '查询已提交审批，请审批通过后重试相同 SQL');
+            }
+            await recordQuery({
+              sql: args.sql,
+              versionId: null,
+              rowCount: null,
+              succeeded: false,
+              durationMs: Date.now() - startedAt,
+              actorBusinessId,
+            });
+            return result;
+          }
+        }
         const exit = await Effect.runPromiseExit(
           Effect.tryPromise({
             try: async (signal) => {

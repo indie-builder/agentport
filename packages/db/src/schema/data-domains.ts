@@ -55,6 +55,9 @@ export const dataDomains = pgTable(
     datasource: text('datasource').notNull(),
     connectionEncrypted: text('connection_encrypted').notNull(),
     onlineVersionId: text('online_version_id'),
+    queryApprovalMode: text('query_approval_mode', { enum: ['off', 'all'] })
+      .notNull()
+      .default('off'),
     createdBy: text('created_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -62,6 +65,7 @@ export const dataDomains = pgTable(
   (t) => [
     uniqueIndex('data_domains_slug_idx').on(t.slug),
     check('data_domains_datasource_check', sql`length(${t.datasource}) > 0`),
+    check('data_domains_query_approval_mode_check', sql`${t.queryApprovalMode} in ('off','all')`),
     foreignKey({
       columns: [t.onlineVersionId, t.id],
       foreignColumns: [dataDomainVersions.id, dataDomainVersions.dataDomainId],
@@ -110,5 +114,41 @@ export const dataDomainQueryLogs = pgTable(
     index('data_domain_query_logs_domain_created_idx').on(t.dataDomainId, t.createdAt, t.id),
     index('data_domain_query_logs_run_idx').on(t.runId),
     check('data_domain_query_logs_status_check', sql`${t.status} in ('ok','error')`),
+  ],
+);
+
+export const dataDomainQueryApprovals = pgTable(
+  'data_domain_query_approvals',
+  {
+    id: text('id').primaryKey(),
+    dataDomainId: text('data_domain_id')
+      .notNull()
+      .references((): AnyPgColumn => dataDomains.id, { onDelete: 'cascade' }),
+    serverId: text('server_id').notNull(),
+    runId: text('run_id').notNull(),
+    actorBusinessId: text('actor_business_id'),
+    sqlText: text('sql_text').notNull(),
+    sqlHash: text('sql_hash').notNull(),
+    status: text('status', { enum: ['pending', 'approved', 'rejected'] })
+      .notNull()
+      .default('pending'),
+    decisionNote: text('decision_note').notNull().default(''),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decidedByBusinessId: text('decided_by_business_id'),
+  },
+  (t) => [
+    index('data_domain_query_approvals_domain_created_idx').on(t.dataDomainId, t.requestedAt, t.id),
+    uniqueIndex('data_domain_query_approvals_pending_uniq')
+      .on(t.dataDomainId, t.runId, t.sqlHash)
+      .where(sql`${t.status} = 'pending'`),
+    check(
+      'data_domain_query_approvals_status_check',
+      sql`${t.status} in ('pending','approved','rejected')`,
+    ),
+    check(
+      'data_domain_query_approvals_decision_check',
+      sql`(${t.status} = 'pending') = (${t.decidedAt} is null)`,
+    ),
   ],
 );
