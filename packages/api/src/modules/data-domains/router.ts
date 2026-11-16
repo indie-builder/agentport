@@ -45,6 +45,18 @@ function toVersion(row: DataDomainVersionRow) {
   };
 }
 
+function toVersionDetail(row: DataDomainVersionRow) {
+  return {
+    id: row.id,
+    dataDomainId: row.dataDomainId,
+    status: row.status,
+    logTail: row.logTail,
+    logTruncated: row.logTruncated,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 function toIdentity(row: {
   businessId: string;
   properties: Record<string, string>;
@@ -241,6 +253,14 @@ export const dataDomainsRouter = os.router({
     await authorizeDomain(context, 'data_domains.read', row);
     const rows = await domains.listDataDomainVersions(context.db, input.params.id);
     return rows.map(toVersion);
+  }),
+
+  versionDetail: os.versionDetail.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.read', row);
+    const version = await domains.getDataDomainVersion(context.db, input.params.versionId);
+    if (!version || version.dataDomainId !== input.params.id) fail('NOT_FOUND', '版本不存在');
+    return toVersionDetail(version);
   }),
 
   createVersion: os.createVersion.handler(async ({ input, context }) => {
