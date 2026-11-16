@@ -21,6 +21,7 @@ import {
   messages,
   outputShares,
 } from './schema/chat.js';
+import { dataDomains, dataDomainVersions } from './schema/data-domains.js';
 import { evalCases, evalResults, evalRuns } from './schema/eval.js';
 import {
   knowledgeBasePins,
@@ -59,6 +60,7 @@ export * from './schema/accounts.js';
 export * from './schema/agents.js';
 export * from './schema/auth.js';
 export * from './schema/chat.js';
+export * from './schema/data-domains.js';
 export * from './schema/eval.js';
 export * from './schema/knowledge-bases.js';
 export * from './schema/knowledge-documents.js';
@@ -87,6 +89,8 @@ export const schema = {
   agentVersions,
   runtimeEnvironmentVersions,
   runtimeEnvironments,
+  dataDomainVersions,
+  dataDomains,
   conversations,
   messages,
   channels,

@@ -526,6 +526,13 @@
       "when": 1794840577221,
       "tag": "0074_stale_power_man",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1794844550330,
+      "tag": "0075_elite_nemesis",
+      "breakpoints": true
     }
   ]
 }
