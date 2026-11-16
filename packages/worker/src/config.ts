@@ -95,6 +95,7 @@ const envSchema = z
     /** 原件与解析产物卷；api/worker 共用同一挂载点。 */
     KNOWLEDGE_DIR: z.string().min(1).default('./data/knowledge'),
     KNOWLEDGE_WIKI_MODEL: z.string().optional(),
+    DATA_DOMAIN_ENRICH_MODEL: z.string().optional(),
     /** 逗号分隔的私网主机名（可含端口）；知识出站只在这些主机上放行内网地址。 */
     KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
   })

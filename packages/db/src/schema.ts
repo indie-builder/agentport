@@ -22,6 +22,7 @@ import {
   outputShares,
 } from './schema/chat.js';
 import {
+  dataDomainEnrichmentProposals,
   dataDomainIdentities,
   dataDomainQueryApprovals,
   dataDomainQueryLogs,
@@ -100,6 +101,7 @@ export const schema = {
   dataDomainIdentities,
   dataDomainQueryApprovals,
   dataDomainQueryLogs,
+  dataDomainEnrichmentProposals,
   conversations,
   messages,
   channels,

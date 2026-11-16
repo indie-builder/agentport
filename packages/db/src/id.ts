@@ -16,6 +16,7 @@ export const idPrefixes = {
   dataDomainIdentity: 'ddi',
   dataDomainQueryLog: 'ddq',
   dataDomainQueryApproval: 'dqa',
+  dataDomainEnrichmentProposal: 'dxp',
   skill: 'skl',
   skillFile: 'skf',
   agentWorkflow: 'awf',

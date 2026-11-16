@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import {
+  dataDomainEnrichmentProposals,
   dataDomainIdentities,
   dataDomainQueryApprovals,
   dataDomainQueryLogs,
@@ -17,6 +18,7 @@ export type DataDomainVersionRow = typeof dataDomainVersions.$inferSelect;
 export type DataDomainIdentityRow = typeof dataDomainIdentities.$inferSelect;
 export type DataDomainQueryLogRow = typeof dataDomainQueryLogs.$inferSelect;
 export type DataDomainQueryApprovalRow = typeof dataDomainQueryApprovals.$inferSelect;
+export type DataDomainEnrichmentProposalRow = typeof dataDomainEnrichmentProposals.$inferSelect;
 
 export const DATA_DOMAIN_VERSION_LOG_LIMIT = 64 * 1024;
 
@@ -141,6 +143,19 @@ export async function deleteDataDomain(db: DbHandle, id: string): Promise<boolea
   return true;
 }
 
+export async function insertDataDomainVersion(
+  db: DbHandle,
+  dataDomainId: string,
+  projectFiles: Record<string, string>,
+): Promise<DataDomainVersionRow> {
+  const [row] = await db
+    .insert(dataDomainVersions)
+    .values({ id: newId('dataDomainVersion'), dataDomainId, projectFiles })
+    .returning();
+  if (!row) throw new Error('data domain version insert returned no row');
+  return row;
+}
+
 export async function createDataDomainVersion(
   db: Database,
   dataDomainId: string,
@@ -154,12 +169,7 @@ export async function createDataDomainVersion(
       .limit(1)
       .for('share');
     if (!domain) return null;
-    const [row] = await tx
-      .insert(dataDomainVersions)
-      .values({ id: newId('dataDomainVersion'), dataDomainId, projectFiles })
-      .returning();
-    if (!row) throw new Error('data domain version insert returned no row');
-    return row;
+    return insertDataDomainVersion(tx, dataDomainId, projectFiles);
   });
 }
 
@@ -509,4 +519,122 @@ export async function listDataDomainQueryApprovals(
     .orderBy(desc(dataDomainQueryApprovals.requestedAt), desc(dataDomainQueryApprovals.id))
     .limit(options.limit + 1);
   return paginate(rows, options.limit);
+}
+
+export async function createDataDomainEnrichmentProposal(
+  db: Database,
+  input: {
+    dataDomainId: string;
+    sourceVersionId: string;
+    instruction: string;
+    createdBy: string;
+  },
+): Promise<DataDomainEnrichmentProposalRow | null> {
+  return db.transaction(async (tx) => {
+    const [domain] = await tx
+      .select({ id: dataDomains.id })
+      .from(dataDomains)
+      .where(eq(dataDomains.id, input.dataDomainId))
+      .limit(1)
+      .for('share');
+    if (!domain) return null;
+    const [row] = await tx
+      .insert(dataDomainEnrichmentProposals)
+      .values({ id: newId('dataDomainEnrichmentProposal'), ...input })
+      .returning();
+    if (!row) throw new Error('data domain enrichment proposal insert returned no row');
+    return row;
+  });
+}
+
+export async function getDataDomainEnrichmentProposal(
+  db: DbHandle,
+  id: string,
+): Promise<DataDomainEnrichmentProposalRow | null> {
+  const [row] = await db
+    .select()
+    .from(dataDomainEnrichmentProposals)
+    .where(eq(dataDomainEnrichmentProposals.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function listDataDomainEnrichmentProposals(
+  db: DbHandle,
+  dataDomainId: string,
+): Promise<DataDomainEnrichmentProposalRow[]> {
+  return db
+    .select()
+    .from(dataDomainEnrichmentProposals)
+    .where(eq(dataDomainEnrichmentProposals.dataDomainId, dataDomainId))
+    .orderBy(desc(dataDomainEnrichmentProposals.createdAt), desc(dataDomainEnrichmentProposals.id));
+}
+
+export async function completeDataDomainEnrichmentProposal(
+  db: DbHandle,
+  id: string,
+  input: { summary: string; projectFiles: Record<string, string> },
+): Promise<DataDomainEnrichmentProposalRow | null> {
+  const [row] = await db
+    .update(dataDomainEnrichmentProposals)
+    .set({
+      status: 'ready',
+      summary: input.summary,
+      projectFiles: input.projectFiles,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(dataDomainEnrichmentProposals.id, id),
+        eq(dataDomainEnrichmentProposals.status, 'generating'),
+      ),
+    )
+    .returning();
+  return row ?? null;
+}
+
+export async function failDataDomainEnrichmentProposal(
+  db: DbHandle,
+  id: string,
+  error: string,
+): Promise<DataDomainEnrichmentProposalRow | null> {
+  const [row] = await db
+    .update(dataDomainEnrichmentProposals)
+    .set({ status: 'failed', error, updatedAt: new Date() })
+    .where(
+      and(
+        eq(dataDomainEnrichmentProposals.id, id),
+        eq(dataDomainEnrichmentProposals.status, 'generating'),
+      ),
+    )
+    .returning();
+  return row ?? null;
+}
+
+export async function decideDataDomainEnrichmentProposal(
+  db: DbHandle,
+  input: {
+    id: string;
+    dataDomainId: string;
+    status: 'approved' | 'rejected';
+    decidedBy: string;
+  },
+): Promise<DataDomainEnrichmentProposalRow | null> {
+  const [row] = await db
+    .update(dataDomainEnrichmentProposals)
+    .set({
+      status: input.status,
+      decidedAt: new Date(),
+      decidedByBusinessId: input.decidedBy,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(dataDomainEnrichmentProposals.id, input.id),
+        eq(dataDomainEnrichmentProposals.dataDomainId, input.dataDomainId),
+        eq(dataDomainEnrichmentProposals.status, 'ready'),
+      ),
+    )
+    .returning();
+  return row ?? null;
 }

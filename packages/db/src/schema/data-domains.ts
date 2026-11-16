@@ -152,3 +152,39 @@ export const dataDomainQueryApprovals = pgTable(
     ),
   ],
 );
+
+export const dataDomainEnrichmentProposals = pgTable(
+  'data_domain_enrichment_proposals',
+  {
+    id: text('id').primaryKey(),
+    dataDomainId: text('data_domain_id')
+      .notNull()
+      .references((): AnyPgColumn => dataDomains.id, { onDelete: 'cascade' }),
+    sourceVersionId: text('source_version_id').notNull(),
+    status: text('status', {
+      enum: ['generating', 'ready', 'approved', 'rejected', 'failed'],
+    })
+      .notNull()
+      .default('generating'),
+    instruction: text('instruction').notNull(),
+    summary: text('summary').notNull().default(''),
+    projectFiles: jsonb('project_files').$type<Record<string, string>>(),
+    error: text('error').notNull().default(''),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decidedByBusinessId: text('decided_by_business_id'),
+  },
+  (t) => [
+    index('data_domain_enrichment_proposals_domain_created_idx').on(
+      t.dataDomainId,
+      t.createdAt,
+      t.id,
+    ),
+    check(
+      'data_domain_enrichment_proposals_status_check',
+      sql`${t.status} in ('generating','ready','approved','rejected','failed')`,
+    ),
+  ],
+);

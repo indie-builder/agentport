@@ -85,6 +85,7 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 - `data_domain_query_logs`：明文查询明细，用于核查版本、SQL 摘要、行数与耗时。`id`、`data_domain_id`(FK→`data_domains`, ON DELETE cascade)、`version_id`(可空)、`server_id`、`run_id`、`actor_business_id`、`sql_summary`、`row_count`、`status`(`ok`/`error`)、`duration_ms`、`created_at`；索引 `(data_domain_id, created_at, id)` 与 `(run_id)`。与 append-only 的 `audit_log` 分开：审计保留链式摘要，本表保留可核查明细。
 - `data_domain_identities`：按登录用户配置的 Wren session properties（RLAC/CLAC 的 `required_properties` 取值来源）。`id`、`data_domain_id`(FK→`data_domains`, ON DELETE cascade)、`business_id`(平台用户业务身份, 非空)、`properties`(jsonb `Record<string,string>`, 键值皆字符串)、`created_at`、`updated_at`；唯一 `(data_domain_id, business_id)`。查询时由 api 依 run token→`business_id` 解析本表 properties 注入 `/query`，绝不接受客户端或模型自报。
 - `data_domain_query_approvals`：按数据域可选开启的查询审批记录。`id`、`data_domain_id`(FK→`data_domains`, ON DELETE cascade)、`server_id`、`run_id`、`actor_business_id`(可空)、`sql_text`、`sql_hash`(去除首尾空白后的 SHA-256)、`status`(`pending`/`approved`/`rejected`)、`decision_note`、`requested_at`、`decided_at`(可空)、`decided_by_business_id`(可空)；索引 `(data_domain_id, requested_at, id)`，部分唯一索引 `(data_domain_id, run_id, sql_hash) WHERE status = 'pending'` 保证同一 run 的同一 SQL 只有一个待审批项；约束保证 `pending` 与 `decided_at is null` 同真同假。
+- `data_domain_enrichment_proposals`：enrich-context 提案。`id`、`data_domain_id`(FK→`data_domains`, ON DELETE cascade)、`source_version_id`(源版本，归属由 handler 校验)、`status`(`generating`/`ready`/`approved`/`rejected`/`failed`)、`instruction`、`summary`、`project_files`(jsonb 文件快照，生成前可空)、`error`、`created_by`、`created_at`、`updated_at`、`decided_at`(可空)、`decided_by_business_id`(可空)；索引 `(data_domain_id, created_at, id)`。
 
 ### 3.5 建模工作流
 
@@ -92,6 +93,8 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 
 - `generate-mdl`：反射数据库结构，生成初始模型。
 - `enrich-context`：补充业务语义、枚举、示例与 join 说明；可在 auto-pilot 或审批队列中运行。
+
+当前 enrich-context 采用审批队列模式：后台生成的候选项目文件先保存为提案，人工查看差异并批准后才创建新版本，发布仍需另行执行；高影响项因此天然经过人工确认。
 
 高影响项（行级 / 列级访问控制、主键、金额与 PII 字段）必须人工确认后发布。建模与凭据操作在受控容器内完成；对话沙盒不挂载凭据、不接数据库网络。
 
