@@ -1,4 +1,4 @@
-import { idParams, slugSchema } from '@agentport/shared';
+import { businessIdSchema, idParams, slugSchema } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
 
@@ -71,6 +71,19 @@ export const dataDomainOnlineVersionInputSchema = z.object({
   versionId: z.string().min(1),
 });
 
+export const dataDomainIdentitySchema = z.object({
+  businessId: z.string(),
+  properties: connectionSchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const dataDomainIdentityInputSchema = z.object({
+  properties: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写属性'),
+});
+
+const identityParams = idParams.extend({ businessId: businessIdSchema });
+
 const read = contractProcedure.meta({
   access: { kind: 'permission', permissionId: 'data_domains.read' },
 });
@@ -118,4 +131,22 @@ export const dataDomainsContract = {
     .input(z.object({ params: idParams, body: dataDomainOnlineVersionInputSchema }))
     .output(dataDomainSchema)
     .meta({ access: { kind: 'permission', permissionId: 'data_domains.publish' } }),
+  identities: read
+    .route({ method: 'GET', path: '/data-domains/{id}/identities' })
+    .input(z.object({ params: idParams }))
+    .output(z.array(dataDomainIdentitySchema)),
+  upsertIdentity: contractProcedure
+    .route({ method: 'PUT', path: '/data-domains/{id}/identities/{businessId}' })
+    .input(z.object({ params: identityParams, body: dataDomainIdentityInputSchema }))
+    .output(dataDomainIdentitySchema)
+    .meta({ access: { kind: 'permission', permissionId: 'data_domains.update' } }),
+  removeIdentity: contractProcedure
+    .route({
+      method: 'DELETE',
+      path: '/data-domains/{id}/identities/{businessId}',
+      successStatus: 204,
+    })
+    .input(z.object({ params: identityParams }))
+    .output(z.void())
+    .meta({ access: { kind: 'permission', permissionId: 'data_domains.update' } }),
 };

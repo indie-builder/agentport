@@ -39,6 +39,20 @@ function toVersion(row: DataDomainVersionRow) {
   };
 }
 
+function toIdentity(row: {
+  businessId: string;
+  properties: Record<string, string>;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    businessId: row.businessId,
+    properties: row.properties,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 function encodeCursor(row: DataDomainRow): string {
   return Buffer.from(`${row.createdAt.toISOString()}|${row.id}`).toString('base64url');
 }
@@ -174,5 +188,36 @@ export const dataDomainsRouter = os.router({
     );
     if (!published) fail('NOT_FOUND', notFoundMessage);
     return toDataDomain(published);
+  }),
+
+  identities: os.identities.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.read', row);
+    const rows = await domains.listDataDomainIdentities(context.db, input.params.id);
+    return rows.map(toIdentity);
+  }),
+
+  upsertIdentity: os.upsertIdentity.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.update', row);
+    const identity = await domains.upsertDataDomainIdentity(
+      context.db,
+      input.params.id,
+      input.params.businessId,
+      input.body.properties,
+    );
+    return toIdentity(identity);
+  }),
+
+  removeIdentity: os.removeIdentity.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.update', row);
+    const ok = await domains.deleteDataDomainIdentity(
+      context.db,
+      input.params.id,
+      input.params.businessId,
+    );
+    if (!ok) fail('NOT_FOUND', '身份策略不存在');
+    return undefined;
   }),
 });
