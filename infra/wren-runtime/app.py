@@ -1,5 +1,9 @@
 # Trusted single-machine/container-internal service: no request authentication, credentials travel over plaintext internal HTTP, never expose publicly.
+import base64
+import datetime
+import decimal
 import json
+import math
 import os
 import re
 import shutil
@@ -15,6 +19,9 @@ from urllib.parse import unquote, urlsplit
 MAX_BODY_BYTES = 20 * 1024 * 1024
 LOG_TAIL_CHARS = 8000
 BUILD_TIMEOUT_SECONDS = 180
+DEFAULT_MAX_ROWS = 500
+MAX_ROWS = 10_000
+MAX_COLUMNS = 200
 SECRET_KEY_HINTS = (
     "password",
     "secret",
@@ -269,6 +276,105 @@ def _build(payload):
         }
 
 
+def _json_value(value):
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    if isinstance(value, decimal.Decimal):
+        return str(value)
+    if isinstance(value, (datetime.date, datetime.datetime, datetime.time)):
+        return value.isoformat()
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return base64.b64encode(value).decode("ascii")
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError):
+        return str(value)
+    return value
+
+
+def _query(payload):
+    mdl = payload.get("mdlManifest")
+    datasource = payload.get("datasource")
+    connection = payload.get("connection")
+    sql = payload.get("sql")
+    properties = payload.get("properties")
+    max_rows = payload.get("maxRows")
+    if not isinstance(mdl, str) or not mdl:
+        return {"ok": False, "error": "mdlManifest must be a non-empty string"}
+    if not isinstance(datasource, str) or not datasource:
+        return {"ok": False, "error": "datasource must be a non-empty string"}
+    if not isinstance(connection, dict):
+        return {"ok": False, "error": "connection must be an object"}
+    if not isinstance(sql, str) or not sql:
+        return {"ok": False, "error": "sql must be a non-empty string"}
+    if properties is not None and (
+        not isinstance(properties, dict)
+        or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in properties.items()
+        )
+    ):
+        return {"ok": False, "error": "properties must map strings to strings"}
+    if max_rows is not None and (
+        isinstance(max_rows, bool) or not isinstance(max_rows, int) or max_rows < 0
+    ):
+        return {"ok": False, "error": "maxRows must be a non-negative integer"}
+    if max_rows is None:
+        max_rows = DEFAULT_MAX_ROWS
+    max_rows = min(max_rows, MAX_ROWS)
+
+    engine = None
+    try:
+        from wren.config import WrenConfig
+        from wren.engine import WrenEngine
+
+        engine = WrenEngine(
+            base64.b64encode(mdl.encode("utf-8")).decode("ascii"),
+            datasource,
+            connection,
+            fallback=False,
+            config=WrenConfig(strict_mode=True),
+        )
+        table = engine.query(sql, limit=max_rows + 1, properties=properties, read_only=True)
+        columns = list(table.schema.names)
+        if len(columns) > MAX_COLUMNS:
+            return {"ok": False, "error": "结果列过多"}
+        rows = [
+            [_json_value(row.get(column)) for column in columns]
+            for row in table.to_pylist()
+        ]
+        truncated = len(rows) > max_rows
+        if truncated:
+            rows = rows[:max_rows]
+        return {
+            "ok": True,
+            "columns": columns,
+            "rows": rows,
+            "rowCount": len(rows),
+            "truncated": truncated,
+        }
+    except Exception as exc:
+        code = getattr(exc, "error_code", None)
+        if code is not None:
+            message = getattr(exc, "message", None) or str(exc)
+            phase = getattr(exc, "phase", None)
+            return {
+                "ok": False,
+                "error": _scrub(message, connection)[:2000],
+                "code": getattr(code, "name", str(code)),
+                "phase": getattr(phase, "name", None),
+            }
+        _log_exception(exc, connection)
+        return {"ok": False, "error": "query failed"}
+    finally:
+        if engine is not None:
+            with suppress(Exception):
+                engine.close()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "wren-runtime"
     sys_version = ""
@@ -307,7 +413,11 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
-        routes = {"/test-connection": _test_connection, "/build": _build}
+        routes = {
+            "/test-connection": _test_connection,
+            "/build": _build,
+            "/query": _query,
+        }
         route = routes.get(self.path.split("?", 1)[0])
         if route is None:
             return self._send(404, {"ok": False, "error": "not found"})
