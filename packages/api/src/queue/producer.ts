@@ -4,6 +4,7 @@ import type {
   ChannelEvent,
   ChannelMessage,
   ChatEvent,
+  DataDomainBuildJob,
   EvalRunJob,
   RuntimeEnvironmentBuildJob,
 } from '@agentport/shared';
@@ -12,6 +13,7 @@ import {
   channelEventsConnectionName,
   channelStreamKey,
   chatEventSchema,
+  DATA_DOMAIN_BUILDS_QUEUE,
   EVAL_RUNS_QUEUE,
   KNOWLEDGE_CANCEL_PAYLOAD,
   KNOWLEDGE_JOBS_QUEUE,
@@ -62,6 +64,7 @@ let queue: Queue<AgentRunJob> | undefined;
 let evalQueue: Queue<EvalRunJob> | undefined;
 let knowledgeQueue: Queue<{ jobId: string }> | undefined;
 let runtimeEnvironmentBuildQueue: Queue<RuntimeEnvironmentBuildJob> | undefined;
+let dataDomainBuildQueue: Queue<DataDomainBuildJob> | undefined;
 let monitoringQueues: Queue[] | undefined;
 let client: RedisClient | undefined;
 let channelClient: RedisClient | undefined;
@@ -109,6 +112,16 @@ export function getRuntimeEnvironmentBuildQueue(): Queue<RuntimeEnvironmentBuild
     runtimeEnvironmentBuildQueue.on('error', logRedisError);
   }
   return runtimeEnvironmentBuildQueue;
+}
+
+export function getDataDomainBuildQueue(): Queue<DataDomainBuildJob> {
+  if (!dataDomainBuildQueue) {
+    dataDomainBuildQueue = new Queue<DataDomainBuildJob>(DATA_DOMAIN_BUILDS_QUEUE, {
+      connection: getQueueConnection(),
+    });
+    dataDomainBuildQueue.on('error', logRedisError);
+  }
+  return dataDomainBuildQueue;
 }
 
 export function getMonitoringQueues(): Queue[] {
@@ -383,6 +396,7 @@ export async function closeProducer(): Promise<void> {
     evalQueue,
     knowledgeQueue,
     runtimeEnvironmentBuildQueue,
+    dataDomainBuildQueue,
     monitoringQueues,
     client,
   ] as const;
@@ -390,6 +404,7 @@ export async function closeProducer(): Promise<void> {
   evalQueue = undefined;
   knowledgeQueue = undefined;
   runtimeEnvironmentBuildQueue = undefined;
+  dataDomainBuildQueue = undefined;
   monitoringQueues = undefined;
   client = undefined;
   await Promise.allSettled([
@@ -397,11 +412,12 @@ export async function closeProducer(): Promise<void> {
     closing[1]?.close(),
     closing[2]?.close(),
     closing[3]?.close(),
-    ...(closing[4] ?? []).map((monitored) => monitored.close()),
+    closing[4]?.close(),
+    ...(closing[5] ?? []).map((monitored) => monitored.close()),
     ...[...subscriptions.values()].map((close) => close()),
   ]);
-  if (closing[5]) closing[5].onclose = () => undefined;
-  closing[5]?.close();
+  if (closing[6]) closing[6].onclose = () => undefined;
+  closing[6]?.close();
   await queueConnection?.quit();
   queueConnection = undefined;
   subscriptions.clear();

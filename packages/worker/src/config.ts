@@ -88,6 +88,10 @@ const envSchema = z
       z.string().url().optional(),
     ),
     DOCLING_TOKEN: z.string().optional(),
+    WREN_RUNTIME_URL: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().url().default(''),
+    ),
     /** 原件与解析产物卷；api/worker 共用同一挂载点。 */
     KNOWLEDGE_DIR: z.string().min(1).default('./data/knowledge'),
     KNOWLEDGE_WIKI_MODEL: z.string().optional(),

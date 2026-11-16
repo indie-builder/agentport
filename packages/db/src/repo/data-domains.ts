@@ -1,5 +1,5 @@
 import { AppError } from '@agentport/core';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { dataDomains, dataDomainVersions } from '../schema.js';
@@ -9,6 +9,26 @@ export type DataDomainRow = typeof dataDomains.$inferSelect;
 export type DataDomainVersionRow = typeof dataDomainVersions.$inferSelect;
 
 export const DATA_DOMAIN_VERSION_LOG_LIMIT = 64 * 1024;
+
+function logTailFields(
+  chunk: string,
+  sourceTruncated: boolean,
+): { logTail: SQL; logTruncated: SQL } {
+  const joined = sql`${dataDomainVersions.logTail} || ${chunk}`;
+  const slice = sql`substring(convert_to(${joined}, 'UTF8') from greatest(1, octet_length(convert_to(${joined}, 'UTF8')) - ${DATA_DOMAIN_VERSION_LOG_LIMIT} + 1))`;
+  return {
+    logTail: sql`(select convert_from(substring(tail.bytes from case
+      when octet_length(tail.bytes) = 0 then 1
+      when get_byte(tail.bytes, 0) < 128 or get_byte(tail.bytes, 0) >= 192 then 1
+      when octet_length(tail.bytes) <= 1 then 2
+      when get_byte(tail.bytes, 1) < 128 or get_byte(tail.bytes, 1) >= 192 then 2
+      when octet_length(tail.bytes) <= 2 then 3
+      when get_byte(tail.bytes, 2) < 128 or get_byte(tail.bytes, 2) >= 192 then 3
+      else 4
+    end), 'UTF8') from (select ${slice} as bytes) tail)`,
+    logTruncated: sql`${dataDomainVersions.logTruncated} or ${sourceTruncated} or octet_length(${joined}) > ${DATA_DOMAIN_VERSION_LOG_LIMIT}`,
+  };
+}
 
 export type DataDomainInput = Pick<
   typeof dataDomains.$inferInsert,
@@ -177,14 +197,42 @@ export async function completeDataDomainVersionBuild(
 export async function failDataDomainVersionBuild(
   db: DbHandle,
   versionId: string,
+  expectedStatus: 'queued' | 'building',
 ): Promise<DataDomainVersionRow | null> {
   const [row] = await db
     .update(dataDomainVersions)
     .set({ status: 'failed', updatedAt: new Date() })
+    .where(and(eq(dataDomainVersions.id, versionId), eq(dataDomainVersions.status, expectedStatus)))
+    .returning();
+  return row ?? null;
+}
+
+export async function listStaleBuildingDataDomainVersions(
+  db: DbHandle,
+  olderThan: Date,
+): Promise<DataDomainVersionRow[]> {
+  return db
+    .select()
+    .from(dataDomainVersions)
+    .where(
+      and(eq(dataDomainVersions.status, 'building'), lt(dataDomainVersions.updatedAt, olderThan)),
+    );
+}
+
+export async function failStaleDataDomainVersionBuild(
+  db: DbHandle,
+  versionId: string,
+  olderThan: Date,
+  text: string,
+): Promise<DataDomainVersionRow | null> {
+  const [row] = await db
+    .update(dataDomainVersions)
+    .set({ status: 'failed', ...logTailFields(text, false), updatedAt: new Date() })
     .where(
       and(
         eq(dataDomainVersions.id, versionId),
-        inArray(dataDomainVersions.status, ['queued', 'building']),
+        eq(dataDomainVersions.status, 'building'),
+        lt(dataDomainVersions.updatedAt, olderThan),
       ),
     )
     .returning();
@@ -195,15 +243,12 @@ export async function appendDataDomainVersionLog(
   db: DbHandle,
   versionId: string,
   chunk: string,
+  sourceTruncated = false,
 ): Promise<void> {
-  if (chunk === '') return;
+  if (chunk === '' && !sourceTruncated) return;
   await db
     .update(dataDomainVersions)
-    .set({
-      logTail: sql`right(${dataDomainVersions.logTail} || ${chunk}, ${DATA_DOMAIN_VERSION_LOG_LIMIT})`,
-      logTruncated: sql`${dataDomainVersions.logTruncated} or length(${dataDomainVersions.logTail} || ${chunk}) > ${DATA_DOMAIN_VERSION_LOG_LIMIT}`,
-      updatedAt: new Date(),
-    })
+    .set({ ...logTailFields(chunk, sourceTruncated), updatedAt: new Date() })
     .where(and(eq(dataDomainVersions.id, versionId), eq(dataDomainVersions.status, 'building')));
 }
 

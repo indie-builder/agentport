@@ -1,6 +1,7 @@
 # Trusted single-machine/container-internal service: no request authentication, credentials travel over plaintext internal HTTP, never expose publicly.
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -41,7 +42,7 @@ def _collect_secrets(value, key=""):
         return [s for v in value for s in _collect_secrets(v, key)]
     if isinstance(value, str) and any(hint in key.lower() for hint in SECRET_KEY_HINTS):
         secrets = [value]
-        if key.lower() in ("connection_url", "connectionurl"):
+        if key.lower() in ("connection_url", "connectionurl", "dsn"):
             with suppress(ValueError):
                 parsed_password = urlsplit(value).password
                 if parsed_password:
@@ -53,15 +54,41 @@ def _collect_secrets(value, key=""):
     return []
 
 
-def _scrub(text, value):
-    secrets = {
-        variant
-        for secret in _collect_secrets(value)
-        for variant in (secret, json.dumps(secret)[1:-1], repr(secret)[1:-1])
-        if variant
+def _hex_ci(byte):
+    return "".join(
+        digit if digit.isdigit() else f"[{digit.lower()}{digit}]"
+        for digit in f"{byte:02X}"
+    )
+
+
+def _percent_pattern(secret):
+    parts = []
+    for char in secret:
+        percent = "".join(f"%{_hex_ci(byte)}" for byte in char.encode("utf-8"))
+        parts.append(f"(?:{percent}|{re.escape(char)})")
+    return re.compile("".join(parts))
+
+
+def _escaped_variants(secret):
+    bases = {
+        secret,
+        json.dumps(secret)[1:-1],
+        json.dumps(secret, ensure_ascii=False)[1:-1],
+        repr(secret)[1:-1],
     }
+    variants = set()
+    for base in bases:
+        variants.add(base)
+        variants.add(base.replace("/", "\\/"))
+    return sorted((variant for variant in variants if variant), key=len, reverse=True)
+
+
+def _scrub(text, value):
+    secrets = [secret for secret in set(_collect_secrets(value)) if secret]
     for secret in sorted(secrets, key=len, reverse=True):
-        text = text.replace(secret, "******")
+        for variant in _escaped_variants(secret):
+            text = text.replace(variant, "******")
+        text = _percent_pattern(secret).sub("******", text)
     return text
 
 
@@ -74,7 +101,7 @@ def _validation_error_text(exc, connection):
         f"{'.'.join(str(part) for part in err.get('loc', ())) or '<root>'}: {err.get('type', 'invalid')}"
         for err in errors
     ]
-    return _scrub("; ".join(parts)[:2000] or "connection validation failed", connection)
+    return _scrub("; ".join(parts), connection)[:2000] or "connection validation failed"
 
 
 def _log_exception(exc, value):
@@ -154,11 +181,17 @@ def _build(payload):
         return {
             "ok": False,
             "log": "",
+            "logTruncated": False,
             "error": "datasource must be a string and connection must be an object",
         }
     project_files = payload.get("projectFiles")
     if not isinstance(project_files, dict) or not project_files:
-        return {"ok": False, "log": "", "error": "projectFiles must be a non-empty object"}
+        return {
+            "ok": False,
+            "log": "",
+            "logTruncated": False,
+            "error": "projectFiles must be a non-empty object",
+        }
 
     with tempfile.TemporaryDirectory(prefix="wren-build-") as tmp:
         root = Path(tmp).resolve()
@@ -166,7 +199,12 @@ def _build(payload):
             for rel, content in project_files.items():
                 _write_file(root, rel, content)
         except (ValueError, OSError) as exc:
-            return {"ok": False, "log": "", "error": str(exc)}
+            return {
+                "ok": False,
+                "log": "",
+                "logTruncated": False,
+                "error": _scrub(str(exc), connection),
+            }
 
         try:
             proc = subprocess.run(
@@ -180,35 +218,55 @@ def _build(payload):
             return {
                 "ok": False,
                 "log": "",
+                "logTruncated": False,
                 "error": f"build timed out after {BUILD_TIMEOUT_SECONDS}s",
             }
 
-        log = (proc.stdout + proc.stderr)[-LOG_TAIL_CHARS:]
+        scrubbed = _scrub(proc.stdout + proc.stderr, connection)
+        log_truncated = len(scrubbed) > LOG_TAIL_CHARS
+        log = scrubbed[-LOG_TAIL_CHARS:]
         if proc.returncode != 0:
             return {
                 "ok": False,
                 "log": log,
+                "logTruncated": log_truncated,
                 "error": _last_error(log) or f"build exited with code {proc.returncode}",
             }
 
         manifest_path = root / "target" / "mdl.json"
         if not manifest_path.is_file():
-            return {"ok": False, "log": log, "error": "build produced no target/mdl.json"}
+            return {
+                "ok": False,
+                "log": log,
+                "logTruncated": log_truncated,
+                "error": "build produced no target/mdl.json",
+            }
 
         manifest = manifest_path.read_text(encoding="utf-8")
         try:
             manifest_data = json.loads(manifest)
         except json.JSONDecodeError:
-            return {"ok": False, "log": log, "error": "generated mdl.json is not valid JSON"}
+            return {
+                "ok": False,
+                "log": log,
+                "logTruncated": log_truncated,
+                "error": "generated mdl.json is not valid JSON",
+            }
 
         if manifest_data.get("dataSource") != datasource:
             return {
                 "ok": False,
                 "log": log,
+                "logTruncated": log_truncated,
                 "error": "built MDL dataSource does not match requested datasource",
             }
 
-        return {"ok": True, "mdlManifest": manifest, "log": log}
+        return {
+            "ok": True,
+            "mdlManifest": manifest,
+            "log": log,
+            "logTruncated": log_truncated,
+        }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -260,11 +318,13 @@ class Handler(BaseHTTPRequestHandler):
             result = {"ok": False, "error": error}
             if is_build:
                 result["log"] = ""
+                result["logTruncated"] = False
             return self._send(400, result)
         if not isinstance(payload, dict):
             result = {"ok": False, "error": "body must be a JSON object"}
             if is_build:
                 result["log"] = ""
+                result["logTruncated"] = False
             return self._send(400, result)
 
         try:
@@ -274,6 +334,7 @@ class Handler(BaseHTTPRequestHandler):
             result = {"ok": False, "error": "internal error"}
             if is_build:
                 result["log"] = ""
+                result["logTruncated"] = False
         self._send(200, result)
 
 
