@@ -66,6 +66,28 @@ export async function renameConversation(
   return row ?? null;
 }
 
+export async function markConversationDataDomainRestricted(
+  db: DbHandle,
+  conversationId: string,
+): Promise<void> {
+  await db
+    .update(conversations)
+    .set({ dataDomainRestricted: true })
+    .where(eq(conversations.id, conversationId));
+}
+
+export async function isConversationDataDomainRestricted(
+  db: DbHandle,
+  conversationId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ restricted: conversations.dataDomainRestricted })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  return row?.restricted ?? false;
+}
+
 /** 私有入口：频道 lane 不在这里暴露，访问统一走频道成员校验。 */
 export async function getConversation(
   db: DbHandle,

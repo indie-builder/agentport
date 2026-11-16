@@ -371,7 +371,7 @@ agents(
 
 agent_servers(agent_id text, server_id text, primary key (agent_id, server_id))
 
-conversations(id text pk                 -- TypeID，如 srv_/agt_/run_, agent_id text fk           -- TypeID, title text, created_at timestamptz)
+conversations(id text pk                 -- TypeID，如 srv_/agt_/run_, agent_id text fk           -- TypeID, title text, created_at timestamptz, data_domain_restricted boolean not null default false)
 
 messages(
   id text pk                 -- TypeID，如 srv_/agt_/run_,

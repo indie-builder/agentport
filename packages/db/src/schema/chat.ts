@@ -52,6 +52,7 @@ export const conversations = pgTable(
      * 冗余一列是为了让会话列表能按它索引排序，否则要先全表算 max 再排序。
      */
     lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
+    dataDomainRestricted: boolean('data_domain_restricted').notNull().default(false),
   },
   (t) => [
     index('conversations_agent_idx').on(t.agentId),

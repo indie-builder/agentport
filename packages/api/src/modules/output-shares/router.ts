@@ -77,6 +77,7 @@ export async function resolveSharedFile(
 
   const conversation = await repo.chat.getConversation(context.db, row.conversationId);
   if (!conversation) return null;
+  if (await repo.chat.isConversationDataDomainRestricted(context.db, conversation.id)) return null;
   const slug = await agentSlug(context, conversation.agentId);
   if (slug === null) return null;
 
@@ -111,6 +112,9 @@ export const outputSharesRouter = os.router({
       },
       CONVERSATION_MISSING,
     );
+    if (await repo.chat.isConversationDataDomainRestricted(context.db, conversation.id)) {
+      fail('FORBIDDEN', '该会话读取过数据域治理数据，其成果不支持公开分享');
+    }
     const slug = await agentSlug(context, conversation.agentId);
     if (slug === null) fail('NOT_FOUND', '成果文件不存在，可能已被清理');
 

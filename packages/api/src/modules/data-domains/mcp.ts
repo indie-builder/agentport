@@ -322,6 +322,15 @@ export function buildDataDomainServer(input: DataDomainServerInput): McpHttpHand
           durationMs,
           actorBusinessId,
         });
+        if (succeeded) {
+          try {
+            const conversationId = await repo.runs.getRunConversationId(input.db, input.runId);
+            if (conversationId === null) throw new Error('run conversation missing');
+            await repo.chat.markConversationDataDomainRestricted(input.db, conversationId);
+          } catch {
+            return toolError('QUERY_FAILED', '查询结果无法记录，请稍后重试');
+          }
+        }
         return result;
       },
     );
