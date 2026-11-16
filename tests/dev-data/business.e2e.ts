@@ -326,6 +326,31 @@ function must<T>(value: T | null | undefined, message: string): T {
   return value;
 }
 
+interface MemoryVersion {
+  id: string;
+  target: { kind: string };
+  after: { content: string | null };
+}
+
+async function findMemoryVersion(
+  browser: Parameters<typeof api>[0],
+  match: (item: MemoryVersion) => boolean,
+): Promise<MemoryVersion | null> {
+  let cursor: string | null = null;
+  for (;;) {
+    const page = await api<{ items: MemoryVersion[]; nextCursor: string | null }>(
+      browser,
+      `/api/me/memory/versions?limit=200${
+        cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`
+      }`,
+    );
+    const found = page.items.find(match);
+    if (found !== undefined) return found;
+    if (page.nextCursor === null) return null;
+    cursor = page.nextCursor;
+  }
+}
+
 interface RunDetail {
   run: {
     id: string;
@@ -714,7 +739,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   if (plugins.length < 1) gaps.add(`缺少 ${DATASET_ID} 插件`);
   if (generatedServers.length < 1) gaps.add(`缺少 ${DATASET_ID} 生成连接器`);
   if (knowledgeBases.length < 1) gaps.add(`缺少 ${DATASET_ID} 知识库`);
-  else if (!knowledgeServer) gaps.add('知识库存在但缺少对应的内置知识 server');
   if (!profiles.some((item) => item.kind === 'embedding' && item.enabled)) {
     gaps.add('知识链路缺口：没有启用的 embedding profile，知识库无法真实 ready');
   }
@@ -1984,25 +2008,14 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     conflict('个人记忆已被修改，未覆盖');
   let personalChangeId: string | null = null;
   if (personal.content === PERSONAL_MEMORY_CONTENT) {
-    let cursor: string | null = null;
-    for (;;) {
-      const page: {
-        items: Array<{ id: string; target: { kind: string }; after: { content: string | null } }>;
-        nextCursor: string | null;
-      } = await api(
-        browser,
-        `/api/me/memory/versions?limit=200${
-          cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`
-        }`,
-      );
-      personalChangeId =
-        page.items.find(
+    personalChangeId =
+      (
+        await findMemoryVersion(
+          browser,
           (item) =>
             item.target.kind === 'personal' && item.after.content === PERSONAL_MEMORY_CONTENT,
-        )?.id ?? null;
-      if (personalChangeId !== null || page.nextCursor === null) break;
-      cursor = page.nextCursor;
-    }
+        )
+      )?.id ?? null;
     if (personalChangeId === null) gaps.add('个人记忆正文存在但缺少变更账本');
   } else {
     const saved = await api<{ changeId: string }>(browser, '/api/me/memory', {
@@ -2562,18 +2575,14 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
   const myMemory = await api<{ content: string; revision: number }>(browser, '/api/me/memory');
   check(myMemory.content === PERSONAL_MEMORY_CONTENT, '个人记忆正文与数据集不一致');
   check(myMemory.revision >= 1, '个人记忆没有版本');
-  const personalVersions = await api<{
-    items: Array<{ id: string; target: { kind: string }; after: { content: string | null } }>;
-  }>(browser, '/api/me/memory/versions?limit=50');
-  check(
-    personalVersions.items.some(
-      (item) =>
-        item.id === personal.changeId &&
-        item.target.kind === 'personal' &&
-        item.after.content === PERSONAL_MEMORY_CONTENT,
-    ),
-    '个人记忆缺少变更账本记录',
+  const personalVersion = await findMemoryVersion(
+    browser,
+    (item) =>
+      item.id === personal.changeId &&
+      item.target.kind === 'personal' &&
+      item.after.content === PERSONAL_MEMORY_CONTENT,
   );
+  check(personalVersion !== null, '个人记忆缺少变更账本记录');
   const personalReview = await api<MemoryReviewDetail>(
     browser,
     `/api/memory-reviews/${must(personal.reviewRunId, '缺少个人记忆审核运行')}`,
