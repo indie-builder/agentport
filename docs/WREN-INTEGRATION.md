@@ -99,6 +99,12 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 
 **证据**：Wren CLI 的 `context build` 与建模流程；PACE 沙盒边界。
 
+#### generate-mdl 结构反射
+
+- 运行时读取 `information_schema.tables`（排除 `information_schema`、`pg_catalog`）与 `information_schema.columns`（一次查询全部列后按 catalog/schema/table 分组），合成 `models/<table>/metadata.yml`（全列、`primary_key` 留空，真实主键与关系留待后续补全）、`wren_project.yml`（`schema_version: 5`）与空的 `relationships.yml`，再执行 `wren context build` 得到 `target/mdl.json`；单次反射最多 200 张表，表名不能用作模型路径时直接报错。
+- 入口：运行时 `POST /generate-mdl` 返回 `projectFiles` 与 `mdlManifest`；平台 `POST /data-domains/{id}/generate-mdl`（权限 `data_domains.build`）用反射结果创建一个 `queued` 版本并交给现有构建队列，构建成功后即可发布。
+- 局限：已对 duckdb 验证（catalog 为文件主名，连接形如 `{url:<dir>,format:"duckdb"}`）；其他数据源尽力而为，DB 原生类型直接透传，错误由构建日志暴露。反射只产出草稿模型，需要人工补全业务语义；不生成关系、指标或访问控制，`enrich-context` 与高影响项人工确认属于后续 M3 切片。
+
 ### 3.6 治理
 
 **决策**：

@@ -204,6 +204,11 @@ export const dataDomainsContract = {
     .input(z.object({ params: idParams, body: dataDomainVersionInputSchema }))
     .output(dataDomainVersionSchema)
     .meta({ access: { kind: 'permission', permissionId: 'data_domains.build' } }),
+  generateMdl: contractProcedure
+    .route({ method: 'POST', path: '/data-domains/{id}/generate-mdl', successStatus: 202 })
+    .input(z.object({ params: idParams }))
+    .output(dataDomainVersionSchema)
+    .meta({ access: { kind: 'permission', permissionId: 'data_domains.build' } }),
   publish: contractProcedure
     .route({ method: 'PUT', path: '/data-domains/{id}/online-version' })
     .input(z.object({ params: idParams, body: dataDomainOnlineVersionInputSchema }))
