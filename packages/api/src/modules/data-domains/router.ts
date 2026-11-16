@@ -1,5 +1,5 @@
 import { dataDomainsContract } from '@agentport/contract/data-domains';
-import { encryptSecrets, fail } from '@agentport/core';
+import { decryptSecrets, encryptSecrets, fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -9,6 +9,7 @@ import {
   deleteDataDomainServer,
   enqueueDataDomainBuild,
   ensureDataDomainServer,
+  generateDataDomainMdl,
   testDataDomainConnection,
 } from './use-cases.js';
 
@@ -270,6 +271,26 @@ export const dataDomainsRouter = os.router({
       context.db,
       input.params.id,
       input.body.projectFiles,
+    );
+    if (!version) fail('NOT_FOUND', notFoundMessage);
+    await enqueueDataDomainBuild(context.db, context.log, version.dataDomainId, version.id);
+    return toVersion(version);
+  }),
+
+  generateMdl: os.generateMdl.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.build', row);
+    const connection = decryptSecrets(row.connectionEncrypted, context.config.APP_SECRET_KEY);
+    const result = await generateDataDomainMdl(
+      context.config.WREN_RUNTIME_URL,
+      row.datasource,
+      connection,
+    );
+    if (!result.ok) fail('INVALID_INPUT', result.error);
+    const version = await domains.createDataDomainVersion(
+      context.db,
+      input.params.id,
+      result.projectFiles,
     );
     if (!version) fail('NOT_FOUND', notFoundMessage);
     await enqueueDataDomainBuild(context.db, context.log, version.dataDomainId, version.id);
