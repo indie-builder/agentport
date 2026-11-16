@@ -16,6 +16,7 @@ export default {
     '!tests/dev-data/**',
     '!tests/eval-execution.e2e.ts',
     '!tests/runtime-build.e2e.ts',
+    '!tests/data-domain-execution.e2e.ts',
     '!tests/channels.e2e.ts',
     '!tests/channels-business.e2e.ts',
   ],

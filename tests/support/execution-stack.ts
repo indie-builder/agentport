@@ -16,8 +16,23 @@ function pidField(input: unknown, key: string): number {
   return value;
 }
 
+function optionalStringField(input: unknown, key: string): string | undefined {
+  if (typeof input !== 'object' || input === null) return undefined;
+  const value: unknown = Reflect.get(input, key);
+  if (value === undefined) return undefined;
+  assert(typeof value === 'string' && value.length > 0, `隔离契约缺少合法的 ${key}`);
+  return value;
+}
+
+/** 假模型在整段对话含此标记且有 run_sql 工具时，发起一次真实工具调用。 */
+export const DATA_DOMAIN_TOOL_MARKER = 'E2E-DD-TOOL';
+/** 两个用户使用同一条 SQL，行与列由真实 WrenEngine 按身份过滤。 */
+export const DATA_DOMAIN_SQL = 'select * from employees order by id';
+
 export function parseExecutionContract(input: unknown) {
   assert.equal(stringField(input, 'kind'), 'e2e-channel-execution');
+  const wrenRuntimeUrl = optionalStringField(input, 'wrenRuntimeUrl');
+  const duckdbDir = optionalStringField(input, 'duckdbDir');
   const contract = {
     kind: 'e2e-channel-execution',
     appUrl: stringField(input, 'appUrl'),
@@ -30,6 +45,8 @@ export function parseExecutionContract(input: unknown) {
     ownerPid: pidField(input, 'ownerPid'),
     workerPid: pidField(input, 'workerPid'),
     token: stringField(input, 'token'),
+    ...(wrenRuntimeUrl === undefined ? {} : { wrenRuntimeUrl }),
+    ...(duckdbDir === undefined ? {} : { duckdbDir }),
   };
   assert.match(contract.databaseName, /^e2e_channel_[a-f0-9]{16}$/);
   assert.match(contract.redisContainerId, /^[a-f0-9]{64}$/);
