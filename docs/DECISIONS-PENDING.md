@@ -722,6 +722,14 @@
 
 ---
 
+## D-85 ✅ 数据保留策略配置（2026-11-16，本 PR 交付）
+
+**决定**：新增 `platform_settings` 单行表（`id='singleton'`）作为运行记录 / 消息 / 专家版本保留期的唯一权威：worker 启动按 `RETAIN_RUN_DAYS` / `RETAIN_MESSAGE_DAYS` / `RETAIN_AGENT_VERSIONS` 幂等播种，每日维护读取该行并以共享默认 90/30/50 兜底；新增 `GET /api/retention`（`operations.read`）与 `PUT /api/retention`（`operations.manage`，写审计 `ops.retention.updated`）；契约在 oRPC `ops` 命名空间下，HTTP 路径沿用契约绝对路径（与现有 `/api/attention`、`/api/schedules` 一致）；运维「概况」页新增「数据保留」区块，可查看并按权限修改三项数值。
+
+**边界**：默认行为不变（无 row 时回退 env / 共享默认）；不新增删除路径，不改变现有清理机制，不清理审计表；修改在下次每日维护时生效。worker 通常先于运维操作完成首启播种；若在首次播种前通过 UI 保存，会用共享默认值落库（此后 env 播种不覆盖）。
+
+---
+
 ## 决策记录格式
 
 决策后请在此处标注：

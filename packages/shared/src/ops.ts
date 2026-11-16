@@ -128,6 +128,25 @@ export function recentUtcDays(days: number, now = new Date()): string[] {
   );
 }
 
+export const RETENTION_DEFAULTS = { runDays: 90, messageDays: 30, agentVersions: 50 } as const;
+
+export const retentionSettingsSchema = z.object({
+  runDays: z.number().int().positive(),
+  messageDays: z.number().int().positive(),
+  agentVersions: z.number().int().positive(),
+  updatedAt: z.string().nullable(),
+  updatedBy: z.string().nullable(),
+});
+
+export const retentionUpdateSchema = z.object({
+  runDays: z.number().int().positive().max(3650).optional(),
+  messageDays: z.number().int().positive().max(3650).optional(),
+  agentVersions: z.number().int().positive().max(1000).optional(),
+});
+
+export type RetentionSettings = z.infer<typeof retentionSettingsSchema>;
+export type RetentionUpdate = z.infer<typeof retentionUpdateSchema>;
+
 /** 单个智能体的运行统计（/api/agents/:id/stats 与概览页共用形状）。 */
 export const agentStatsSchema = z.object({
   agentId: z.string(),

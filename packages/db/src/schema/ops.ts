@@ -48,3 +48,12 @@ export const platformBootstrap = pgTable(
   },
   (t) => [check('platform_bootstrap_revision_check', sql`${t.rolesRevision} >= 0`)],
 );
+
+export const platformSettings = pgTable('platform_settings', {
+  id: text('id').primaryKey(),
+  retentionRunDays: integer('retention_run_days').notNull().default(90),
+  retentionMessageDays: integer('retention_message_days').notNull().default(30),
+  retentionAgentVersions: integer('retention_agent_versions').notNull().default(50),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: text('updated_by'),
+});

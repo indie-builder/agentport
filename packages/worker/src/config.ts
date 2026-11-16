@@ -1,4 +1,4 @@
-import { commonEnvSchema, parseEnv } from '@agentport/shared';
+import { commonEnvSchema, parseEnv, RETENTION_DEFAULTS } from '@agentport/shared';
 import { z } from 'zod';
 
 const { NODE_ENV, LOG_LEVEL, REDIS_URL } = commonEnvSchema.shape;
@@ -45,10 +45,17 @@ const envSchema = z
     /** 同时存活的会话沙盒容器上限；达到上限时回收最久未用的空闲容器。 */
     SANDBOX_MAX_ACTIVE: z.coerce.number().int().positive().default(6),
     AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(2),
-    /** 维护任务的保留天数；0 不合法，要保留更久就调大。 */
-    RETAIN_RUN_DAYS: z.coerce.number().int().positive().default(90),
-    RETAIN_MESSAGE_DAYS: z.coerce.number().int().positive().default(30),
-    RETAIN_AGENT_VERSIONS: z.coerce.number().int().positive().default(50),
+    /**
+     * 数据保留首启种子：仅当 platform_settings 无行时写入一次；之后改这里不再生效，
+     * 请在运维「概况」页「数据保留」调整，缺行时作为维护兜底。0 不合法。
+     */
+    RETAIN_RUN_DAYS: z.coerce.number().int().positive().default(RETENTION_DEFAULTS.runDays),
+    RETAIN_MESSAGE_DAYS: z.coerce.number().int().positive().default(RETENTION_DEFAULTS.messageDays),
+    RETAIN_AGENT_VERSIONS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(RETENTION_DEFAULTS.agentVersions),
     AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
     /**
      * 沙盒单块文本/工具负载上限（字节）。超限只截断该块并标记 truncated，默认 1MiB。

@@ -120,11 +120,13 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 
 ### 1.4 数据保留
 
+保留期的唯一权威是 `platform_settings` 行；日常请在运维「概况」页的「数据保留」查看和调整。下表变量只在 worker 首次启动且该行不存在时作为种子写入一次（`onConflictDoNothing`，重复启动不覆盖）；之后修改环境变量不再生效。仅当该行缺失时，维护任务才回退到这里的值，`GET /api/retention` 回退共享默认 `90/30/50`。
+
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
-| `RETAIN_RUN_DAYS` | 否 | `90` | worker | 已终态 run 及其消息的保留天数 |
-| `RETAIN_MESSAGE_DAYS` | 否 | `30` | worker | 无 `run_id` 的孤立消息，以及全部频道消息的保留天数 |
-| `RETAIN_AGENT_VERSIONS` | 否 | `50` | worker | 每个智能体保留的版本数 |
+| `RETAIN_RUN_DAYS` | 否 | `90` | worker | 首次启动播种的终态 run 及其消息保留天数；无设置行时兜底 |
+| `RETAIN_MESSAGE_DAYS` | 否 | `30` | worker | 首次启动播种的无 `run_id` 孤立消息及全部频道消息保留天数；无设置行时兜底 |
+| `RETAIN_AGENT_VERSIONS` | 否 | `50` | worker | 首次启动播种的每个智能体版本保留数；无设置行时兜底 |
 
 ### 1.5 知识库（api/worker 共享目录与可信端点配置）
 
@@ -445,10 +447,10 @@ worker 启动时注册 BullMQ 的 `maintenance` 每日重复任务（`upsertJobS
 
 | 动作 | 范围 | 依据 |
 |---|---|---|
-| 清理智能体版本 | 每个 agent 只保留最近 `RETAIN_AGENT_VERSIONS` 个 | `agent_versions` |
-| 清理运行 | 已终态且结束超过 `RETAIN_RUN_DAYS` 的 run，连同其消息 | `agent_runs`、`messages.run_id` |
-| 清理孤立消息 | 无 `run_id` 且超过 `RETAIN_MESSAGE_DAYS` 的消息 | `messages` |
-| 清理频道消息 | 超过 `RETAIN_MESSAGE_DAYS` 的频道时间线消息，`channel_wakes` 随消息级联删除；`messages.channel_message_id` 与 `agent_runs.channel_trigger_message_id` 被置空，30–90 天窗口内的 run 会失去触发消息归因 | `channel_messages`、`channel_wakes` |
+| 清理智能体版本 | 每个 agent 只保留平台设置「数据保留」的版本保留数（无设置行时回退 `RETAIN_AGENT_VERSIONS`） | `agent_versions` |
+| 清理运行 | 已终态且结束超过平台设置「数据保留」的运行保留天数的 run，连同其消息（无设置行时回退 `RETAIN_RUN_DAYS`） | `agent_runs`、`messages.run_id` |
+| 清理孤立消息 | 无 `run_id` 且超过平台设置「数据保留」的消息保留天数的消息（无设置行时回退 `RETAIN_MESSAGE_DAYS`） | `messages` |
+| 清理频道消息 | 超过平台设置「数据保留」的消息保留天数的频道时间线消息（无设置行时回退 `RETAIN_MESSAGE_DAYS`），`channel_wakes` 随消息级联删除；`messages.channel_message_id` 与 `agent_runs.channel_trigger_message_id` 被置空，30–90 天窗口内的 run 会失去触发消息归因 | `channel_messages`、`channel_wakes` |
 
 频道消息按 `created_at` 删除会全表扫描；按 30 天保留量设计，单机规模可接受，消息量到十万级前评估加索引。
 
@@ -462,7 +464,7 @@ bun run --filter @agentport/worker maintenance
 
 它会读取 `.env`、连接数据库、执行一次并打印摘要（`runsDeleted`、`runMessagesDeleted`、`orphanMessagesDeleted`、`channelMessagesDeleted`、`agentVersionsDeleted`、`durationMs`）。
 
-注意：api 进程不读取这些保留变量，配置只需对 worker 生效。
+注意：保留期以运维「概况」页「数据保留」（`platform_settings` 行）为准；`RETAIN_*` 只是首次启动的种子和无设置行时的兜底，手动触发同样优先读取设置行，改 env 不会覆盖已有设置。
 
 ### 4.3 会话与运行
 
@@ -479,7 +481,7 @@ bun run --filter @agentport/worker maintenance
 - 已订阅运行每2秒非重叠检查数据库终态：结束事件缺失时发terminal_missing标记后补终态，页面读取已保存步骤；若确认运行行已消失，则发run_unavailable并关闭，页面保留已接收文本、释放忙碌、不伪造结果。初次请求不存在仍404，数据库查询失败继续固定警告重试，详见D-58/D-60。
 - 普通聊天入队失败只将仍queued的运行收口为failed/infra，用户消息保留，可重提；固定503及统一安全日志不附原始队列cause，认领/终态保留。数据库收尾失败可能等待既有协调清理，详见D-59。
 - 连接器编辑与token轮换共用行锁内合并，避免并发覆盖或旧token复活；提交expectedUpdatedAt过期返回409且保留最新配置，版本时间至少前进一毫秒。省略版本仍是同字段后写优先，详见D-51。
-- 终态 run 及其消息会被每日维护任务按 `RETAIN_RUN_DAYS` 清理；`/api/runs` 只展示仍保留的数据。
+- 终态 run 及其消息会被每日维护任务按平台设置「数据保留」的运行保留天数清理（无设置行时回退 `RETAIN_RUN_DAYS`）；`/api/runs` 只展示仍保留的数据。
 - 取消queued运行会写入终态并尽力移除等待job；worker若先认领则转入running取消路径，停止本轮执行。正常停稳时保留会话容器，无法确认停稳时才销毁；已发出的上游请求不保证撤回。
 - 平台MCP的timeoutMs必须是正有限数，等待时间最长30分钟；截止会取消对应运行，不只断开等待。入队失败返回固定错误并仅将仍queued的运行收口为failed/infra，已认领或终态不被覆盖；数据库或Redis故障可能推迟清理，详见D-47。
 - 评估入队失败返回固定503，仅收口尚未认领的running批次并尽力移除job；已认领或终态保留。数据库收尾失败时可取消或等待既有一小时清理；Redis命令故障可能推迟响应，错误日志不携带原始队列cause，详见D-56。

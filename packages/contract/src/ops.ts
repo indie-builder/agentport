@@ -2,6 +2,8 @@ import {
   agentStatsSchema,
   attentionSchema,
   idParams,
+  retentionSettingsSchema,
+  retentionUpdateSchema,
   scheduleInputSchema,
   schedulePatchSchema,
   scheduleSchema,
@@ -18,6 +20,15 @@ export const opsContract = {
     .route({ method: 'GET', path: '/attention' })
     .output(attentionSchema)
     .meta({ access: { kind: 'permission', permissionId: 'operations.read' } }),
+  retention: contractProcedure
+    .route({ method: 'GET', path: '/retention' })
+    .output(retentionSettingsSchema)
+    .meta({ access: { kind: 'permission', permissionId: 'operations.read' } }),
+  updateRetention: contractProcedure
+    .route({ method: 'PUT', path: '/retention' })
+    .input(z.object({ body: retentionUpdateSchema }))
+    .output(retentionSettingsSchema)
+    .meta({ access: { kind: 'permission', permissionId: 'operations.manage' } }),
   schedules: {
     list: contractProcedure
       .route({ method: 'GET', path: '/schedules' })

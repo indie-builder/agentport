@@ -1,8 +1,18 @@
-import type { Attention, Schedule, ScheduleInput, SchedulePatch } from '@agentport/shared';
+import type {
+  Attention,
+  RetentionSettings,
+  RetentionUpdate,
+  Schedule,
+  ScheduleInput,
+  SchedulePatch,
+} from '@agentport/shared';
 import { rpc } from '../orpc.js';
 
 export default {
   attention: (): Promise<Attention> => rpc.ops.attention(),
+  retention: (): Promise<RetentionSettings> => rpc.ops.retention(),
+  updateRetention: (input: RetentionUpdate): Promise<RetentionSettings> =>
+    rpc.ops.updateRetention({ body: input }),
   agentStats: (id: string, days: number) => rpc.ops.agentStats({ params: { id }, query: { days } }),
   schedules: (): Promise<Schedule[]> => rpc.ops.schedules.list(),
   createSchedule: (input: ScheduleInput): Promise<Schedule> =>

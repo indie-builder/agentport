@@ -35,7 +35,16 @@ export async function runMaintenance(
   workspacesDir: string,
 ): Promise<MaintenanceSummary> {
   const startedAt = Date.now();
-  const agentVersionsDeleted = await repo.maintenance.pruneAgentVersions(db, retain.agentVersions);
+  const settings = await repo.ops.getRetentionSettings(db);
+  const effective: Retention = {
+    runDays: settings?.runDays ?? retain.runDays,
+    messageDays: settings?.messageDays ?? retain.messageDays,
+    agentVersions: settings?.agentVersions ?? retain.agentVersions,
+  };
+  const agentVersionsDeleted = await repo.maintenance.pruneAgentVersions(
+    db,
+    effective.agentVersions,
+  );
   // 已发布成果的锚点先完整读齐再删消息；任一 manifest 读取失败都中止本轮，不留不可 fork 的成果。
   const conversations = await db
     .select({ slug: schema.agents.slug, conversationId: schema.conversations.id })
@@ -52,18 +61,18 @@ export async function runMaintenance(
     }
   }
   const pruneOptions = { retainedMessageIds: [...retainedMessageIds] };
-  const runs = await repo.maintenance.pruneRuns(db, retain.runDays, pruneOptions);
+  const runs = await repo.maintenance.pruneRuns(db, effective.runDays, pruneOptions);
   const orphanMessagesDeleted = await repo.maintenance.pruneOrphanMessages(
     db,
-    retain.messageDays,
+    effective.messageDays,
     pruneOptions,
   );
   const channelMessagesDeleted = await repo.maintenance.pruneChannelMessages(
     db,
-    retain.messageDays,
+    effective.messageDays,
   );
   const summary: MaintenanceSummary = {
-    ...retain,
+    ...effective,
     agentVersionsDeleted,
     runsDeleted: runs.runs,
     runMessagesDeleted: runs.messages,

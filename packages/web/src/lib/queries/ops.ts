@@ -1,4 +1,5 @@
-import { queryOptions } from '@tanstack/react-query';
+import type { RetentionSettings, RetentionUpdate } from '@agentport/shared';
+import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
   type HealthLive,
@@ -32,3 +33,22 @@ export const healthReadyQuery = queryOptions<HealthProbe<HealthReady>>({
   refetchInterval: 10_000,
   staleTime: 0,
 });
+
+export const retentionQuery = queryOptions<RetentionSettings>({
+  queryKey: ['retention'],
+  queryFn: api.retention,
+});
+
+export function useRetention() {
+  return useQuery(retentionQuery);
+}
+
+export function useUpdateRetention() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RetentionUpdate) => api.updateRetention(input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: retentionQuery.queryKey });
+    },
+  });
+}
