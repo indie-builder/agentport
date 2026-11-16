@@ -17,6 +17,16 @@ export const dataDomainInputSchema = z.object({
   connection: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写连接配置'),
 });
 
+export const dataDomainConnectionTestInputSchema = z.object({
+  datasource: z.string().trim().min(1).max(64),
+  connection: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写连接配置'),
+});
+
+export const dataDomainConnectionTestResultSchema = z.object({
+  ok: z.boolean(),
+  error: z.string().optional(),
+});
+
 export const dataDomainPatchSchema = z
   .object({
     name: z.string().trim().min(1).max(64),
@@ -74,6 +84,11 @@ export const dataDomainsContract = {
     .route({ method: 'POST', path: '/data-domains', successStatus: 201 })
     .input(z.object({ body: dataDomainInputSchema }))
     .output(dataDomainSchema)
+    .meta({ access: { kind: 'permission', permissionId: 'data_domains.create' } }),
+  testConnection: contractProcedure
+    .route({ method: 'POST', path: '/data-domains/test-connection' })
+    .input(z.object({ body: dataDomainConnectionTestInputSchema }))
+    .output(dataDomainConnectionTestResultSchema)
     .meta({ access: { kind: 'permission', permissionId: 'data_domains.create' } }),
   detail: read
     .route({ method: 'GET', path: '/data-domains/{id}' })
