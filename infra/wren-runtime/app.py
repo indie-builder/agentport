@@ -614,7 +614,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     port = int(os.environ.get("PORT", "8080"))
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    host = os.environ.get("WREN_RUNTIME_HOST", "0.0.0.0")
+    server = ThreadingHTTPServer((host, port), Handler)
     server.serve_forever()
 
 

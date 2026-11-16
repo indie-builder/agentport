@@ -30,6 +30,8 @@ import {
 } from '../packages/worker/test/isolated-db.js';
 
 import {
+  DATA_DOMAIN_SQL,
+  DATA_DOMAIN_TOOL_MARKER,
   parseExecutionContract,
   parseRuntimeResource,
   runtimeBuildTag,
@@ -209,6 +211,66 @@ async function ensureWebBuild(): Promise<void> {
   if (!existsSync(index)) fail(`web 构建完成但缺少 ${index}`);
 }
 
+/**
+ * execution 模式可选的真实 Wren 语义层：用调用方提供的 Python（已装 wrenai）起查询服务，
+ * 并在本轮临时目录里建 DuckDB 样例库。未提供 Python 时契约里没有这两个字段。
+ */
+async function startWrenRuntime(python: string): Promise<string> {
+  const wrenDir = join(runRoot, 'wren');
+  const dbDir = join(wrenDir, 'db');
+  await mkdir(dbDir, { recursive: true });
+  const seedScript = join(wrenDir, 'seed.py');
+  await writeFile(
+    seedScript,
+    [
+      'import duckdb, sys',
+      'conn = duckdb.connect(sys.argv[1])',
+      'conn.execute("create table employees (id integer, name varchar, department varchar, salary integer, region varchar)")',
+      "conn.execute(\"insert into employees values (1, 'Alice', 'HR', 90000, 'north'), (2, 'Bob', 'HR', 80000, 'south'), (3, 'Carol', 'Sales', 70000, 'north'), (4, 'Dave', 'Sales', 60000, 'south'), (5, 'Eve', 'Sales', 95000, 'north')\")",
+      'conn.close()',
+    ].join('\n'),
+  );
+  const seeded = await run(python, [seedScript, join(dbDir, 'warehouse.duckdb')], {
+    timeoutMs: 60_000,
+  });
+  if (seeded.code !== 0) fail(`DuckDB 样例库初始化失败：${seeded.stderr.trim().slice(-2000)}`);
+  duckdbDir = dbDir;
+
+  const port = await freePort();
+  const url = `http://127.0.0.1:${port}`;
+  const child = spawn(python, [join(REPO, 'infra/wren-runtime/app.py')], {
+    cwd: REPO,
+    env: {
+      PATH: process.env.PATH ?? '',
+      HOME: process.env.HOME ?? '',
+      TMPDIR: process.env.TMPDIR ?? tmpdir(),
+      PORT: String(port),
+      WREN_RUNTIME_HOST: '127.0.0.1',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  wrenRuntimeProcess = child;
+  const capture = captureOutput(child);
+  wrenTail = () => capture.tail(80);
+  await Promise.race([
+    pollUntil('Wren 运行时 /health', 60_000, async () => {
+      if (child.exitCode !== null) {
+        throw new Error(`wren runtime 已退出 (${child.exitCode})：\n${capture.tail()}`);
+      }
+      try {
+        return (await fetch(`${url}/health`)).status === 200;
+      } catch {
+        return false;
+      }
+    }),
+    childExit(child).then(() => {
+      throw new Error(`wren runtime 在就绪前退出：\n${capture.tail()}`);
+    }),
+  ]);
+  info(`Wren 运行时：${url}；DuckDB：${dbDir}`);
+  return url;
+}
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -382,6 +444,149 @@ function channelCurrentBody(prompt: string): string {
   return (index < 0 ? prompt : prompt.slice(index + CHANNEL_CURRENT_MARKER.length)).trim();
 }
 
+function toolsOf(body: unknown): Array<{ name?: unknown }> {
+  if (typeof body !== 'object' || body === null) return [];
+  const tools = (body as { tools?: unknown }).tools;
+  return Array.isArray(tools)
+    ? tools.filter((tool): tool is { name?: unknown } => typeof tool === 'object' && tool !== null)
+    : [];
+}
+
+function historyMessages(body: unknown): unknown[] {
+  if (typeof body !== 'object' || body === null) return [];
+  const messages = (body as { messages?: unknown }).messages;
+  return Array.isArray(messages) ? messages : [];
+}
+
+/** ToolSearch 的后续轮把「Tool loaded.」当最后一条 user 文本；触发标记只能在整段历史里找。 */
+function conversationText(body: unknown): string {
+  return historyMessages(body)
+    .flatMap((message) => {
+      if (typeof message !== 'object' || message === null) return [];
+      const content = (message as { content?: unknown }).content;
+      if (typeof content === 'string') return [content];
+      return Array.isArray(content) ? [contentText(content)] : [];
+    })
+    .join('\n');
+}
+
+function contentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((block) =>
+      typeof block === 'object' &&
+      block !== null &&
+      (block as { type?: unknown }).type === 'text' &&
+      typeof (block as { text?: unknown }).text === 'string'
+        ? (block as { text: string }).text
+        : '',
+    )
+    .filter((text) => text.length > 0)
+    .join('\n');
+}
+
+interface HistoryToolUse {
+  id: string;
+  name: string;
+  input: unknown;
+}
+
+function historyToolUses(body: unknown): HistoryToolUse[] {
+  const uses: HistoryToolUse[] = [];
+  for (const message of historyMessages(body)) {
+    if (typeof message !== 'object' || message === null) continue;
+    if ((message as { role?: unknown }).role !== 'assistant') continue;
+    const content = (message as { content?: unknown }).content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (
+        typeof block === 'object' &&
+        block !== null &&
+        (block as { type?: unknown }).type === 'tool_use' &&
+        typeof (block as { id?: unknown }).id === 'string' &&
+        typeof (block as { name?: unknown }).name === 'string'
+      ) {
+        uses.push({
+          id: (block as { id: string }).id,
+          name: (block as { name: string }).name,
+          input: (block as { input?: unknown }).input,
+        });
+      }
+    }
+  }
+  return uses;
+}
+
+function historyToolResults(body: unknown): Map<string, string> {
+  const results = new Map<string, string>();
+  for (const message of historyMessages(body)) {
+    if (typeof message !== 'object' || message === null) continue;
+    const content = (message as { content?: unknown }).content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (
+        typeof block === 'object' &&
+        block !== null &&
+        (block as { type?: unknown }).type === 'tool_result' &&
+        typeof (block as { tool_use_id?: unknown }).tool_use_id === 'string'
+      ) {
+        results.set(
+          (block as { tool_use_id: string }).tool_use_id,
+          contentText((block as { content?: unknown }).content),
+        );
+      }
+    }
+  }
+  return results;
+}
+
+/**
+ * SDK 默认把 MCP 工具延迟到 ToolSearch 之后加载：先按 prompt 里的工具名做精确 select，
+ * 加载后再发 run_sql；已有 run_sql 结果时返回 null，由调用方收尾成普通文本。
+ */
+function nextDataDomainToolCall(
+  body: unknown,
+  conversation: string,
+): { name: string; input: Record<string, unknown> } | null {
+  const tools = toolsOf(body);
+  const uses = historyToolUses(body);
+  const results = historyToolResults(body);
+  const runSqlUses = uses.filter((use) => use.name.endsWith('__run_sql'));
+  if (runSqlUses.some((use) => results.has(use.id))) return null;
+
+  const runSqlTool = tools.find(
+    (candidate) => typeof candidate.name === 'string' && candidate.name.endsWith('__run_sql'),
+  );
+  if (typeof runSqlTool?.name === 'string') {
+    return { name: runSqlTool.name, input: { sql: DATA_DOMAIN_SQL } };
+  }
+
+  const searches = uses.filter((use) => use.name === 'ToolSearch');
+  if (!tools.some((candidate) => candidate.name === 'ToolSearch')) return null;
+  const promptToolName = conversation.match(/mcp__[A-Za-z0-9_.-]+__run_sql/)?.[0];
+  if (searches.length === 0) {
+    return {
+      name: 'ToolSearch',
+      input:
+        promptToolName === undefined ? { query: 'run_sql' } : { query: `select:${promptToolName}` },
+    };
+  }
+  const lastSearch = searches.at(-1);
+  const lastResult = lastSearch === undefined ? '' : (results.get(lastSearch.id) ?? '');
+  const searchedName = lastResult.match(/mcp__[A-Za-z0-9_.-]+__run_sql/)?.[0];
+  const priorQuery =
+    typeof lastSearch?.input === 'object' &&
+    lastSearch.input !== null &&
+    typeof (lastSearch.input as { query?: unknown }).query === 'string'
+      ? (lastSearch.input as { query: string }).query
+      : '';
+  if (searchedName !== undefined && priorQuery !== `select:${searchedName}`) {
+    return { name: 'ToolSearch', input: { query: `select:${searchedName}` } };
+  }
+  return null;
+}
+
 async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
   const requests: Array<{ path: string; at: number }> = [];
   const messageRequests: FakeMessageRequest[] = [];
@@ -432,13 +637,22 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
         body = null;
       }
       const prompt = lastUserText(body);
+      const conversation = conversationText(body);
       const model =
         typeof (body as { model?: unknown } | null)?.model === 'string'
           ? (body as { model: string }).model
           : 'claude-sonnet-5-5';
       nextId += 1;
       const slow = prompt.includes(SLOW_MARKER);
-      const reply = `${REPLY_PREFIX} ${prompt}`;
+      const marked = conversation.includes(DATA_DOMAIN_TOOL_MARKER);
+      const toolCall = marked ? nextDataDomainToolCall(body, conversation) : null;
+      // 模型确实拿到了工具列表却推进不了 run_sql：显式给出可诊断的文本，而不是静默退回普通回复。
+      const missingTool = marked && toolCall === null && toolsOf(body).length > 0;
+      const reply = missingTool
+        ? `E2E-DD-TOOL-MISSING ${toolsOf(body)
+            .map((tool) => String(tool.name))
+            .join(',')}`
+        : `${REPLY_PREFIX} ${prompt}`;
       messageRequests.push({ at: Date.now(), path: pathname, prompt, reply });
 
       res.writeHead(200, {
@@ -459,6 +673,36 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
           usage: { input_tokens: 10, output_tokens: 1 },
         },
       });
+      if (toolCall !== null) {
+        // Anthropic Messages 的 tool_use 流：start + input_json_delta + stop，再以 stop_reason=tool_use 收尾。
+        writeSse(res, 'content_block_start', {
+          type: 'content_block_start',
+          index: 0,
+          content_block: {
+            type: 'tool_use',
+            id: `toolu_e2e_${nextId}`,
+            name: toolCall.name,
+            input: {},
+          },
+        });
+        writeSse(res, 'content_block_delta', {
+          type: 'content_block_delta',
+          index: 0,
+          delta: {
+            type: 'input_json_delta',
+            partial_json: JSON.stringify(toolCall.input),
+          },
+        });
+        writeSse(res, 'content_block_stop', { type: 'content_block_stop', index: 0 });
+        writeSse(res, 'message_delta', {
+          type: 'message_delta',
+          delta: { stop_reason: 'tool_use', stop_sequence: null },
+          usage: { output_tokens: 12 },
+        });
+        writeSse(res, 'message_stop', { type: 'message_stop' });
+        res.end();
+        return;
+      }
       writeSse(res, 'content_block_start', {
         type: 'content_block_start',
         index: 0,
@@ -670,8 +914,12 @@ let fake: FakeAnthropic | null = null;
 let apiProcess: ChildProcess | undefined;
 let workerProcess: ChildProcess | undefined;
 let browserProcess: ChildProcess | undefined;
+let wrenRuntimeProcess: ChildProcess | undefined;
+let wrenRuntimeUrl: string | undefined;
+let duckdbDir: string | undefined;
 let apiTail = (): string => '';
 let workerTail = (): string => '';
+let wrenTail = (): string => '';
 let runRoot = '';
 let sseAbort: AbortController | undefined;
 let client: ReturnType<typeof createDb>['client'] | undefined;
@@ -761,6 +1009,7 @@ async function cleanup(): Promise<void> {
     await stopExecutionProcess(workerProcess, '本轮 worker/构建');
   } else await stopChild(workerProcess, 'worker');
   await stopChild(apiProcess, 'api');
+  await stopChild(wrenRuntimeProcess, 'wren runtime');
   if (workerProcess?.pid !== undefined) {
     // 正常关停会自己停容器；这里只兜底清理本轮 worker 可能遗留的容器。
     const listed = await run('docker', [
@@ -956,6 +1205,10 @@ async function printFailureDiagnostics(): Promise<void> {
   console.log(redact(apiTail()));
   console.log('--- worker 日志（尾部）---');
   console.log(redact(workerTail()));
+  if (wrenRuntimeUrl !== undefined) {
+    console.log('--- wren 日志（尾部）---');
+    console.log(redact(wrenTail()));
+  }
   console.log('========== 诊断结束 ==========');
 }
 
@@ -1049,6 +1302,13 @@ async function main(): Promise<void> {
   await mkdir(workspacesDir, { recursive: true });
   await mkdir(knowledgeDir, { recursive: true });
   info(`临时工作区：${workspacesDir}`);
+  const wrenPython = EXECUTION_MODE
+    ? (process.env.E2E_WREN_RUNTIME_PYTHON ?? process.env.WREN_RUNTIME_TEST_PYTHON)
+    : undefined;
+  if (wrenPython !== undefined) {
+    logStep('启动真实 Wren 语义层运行时（DuckDB 样例库）');
+    wrenRuntimeUrl = await startWrenRuntime(wrenPython);
+  }
 
   if (MODE !== 'assert') await ensureWebBuild();
   const apiPort = MODE === 'assert' || EXECUTION_MODE ? await freePort() : UI_PORT;
@@ -1087,6 +1347,7 @@ async function main(): Promise<void> {
     KNOWLEDGE_DIR: knowledgeDir,
     SANDBOX_IMAGE: IMAGE,
     WEB_DIST,
+    ...(wrenRuntimeUrl === undefined ? {} : { WREN_RUNTIME_URL: wrenRuntimeUrl }),
   };
   apiProcess = spawn('bun', [join(REPO, 'packages/api/src/index.ts')], {
     cwd: join(REPO, 'packages/api'),
@@ -1141,6 +1402,7 @@ async function main(): Promise<void> {
       HOST_WORKSPACES_DIR: workspacesDir,
       KNOWLEDGE_DIR: knowledgeDir,
       SANDBOX_IMAGE: IMAGE,
+      ...(wrenRuntimeUrl === undefined ? {} : { WREN_RUNTIME_URL: wrenRuntimeUrl }),
       SANDBOX_API_URL: `http://host.docker.internal:${apiPort}`,
       SANDBOX_EGRESS: 'open',
       SANDBOX_MAX_ACTIVE: '2',
@@ -1205,6 +1467,8 @@ async function main(): Promise<void> {
       ownerPid: process.pid,
       workerPid,
       token: executionToken,
+      ...(wrenRuntimeUrl === undefined ? {} : { wrenRuntimeUrl }),
+      ...(duckdbDir === undefined ? {} : { duckdbDir }),
     });
     await writeFile(join(runRoot, 'execution-contract.json'), JSON.stringify(executionContract), {
       flag: 'wx',
