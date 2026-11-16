@@ -12,6 +12,7 @@
 | [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) | 工程规约：布局契约、组件交互与无障碍、异步状态、信息表达、动效、技术栈、禁止项（视觉数值以 `packages/web/DESIGN.md` 为准） |
 | [`../packages/web/DESIGN.md`](../packages/web/DESIGN.md) | 视觉与组件外观权威（impeccable，frontmatter tokens）；sidecar 为 [`../packages/web/.impeccable/design.json`](../packages/web/.impeccable/design.json) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 技术栈、目录结构、数据流、官方文件能力与接入状态 |
+| [WREN-INTEGRATION.md](WREN-INTEGRATION.md) | Wren 数据语义层（MDL）集成契约：服务边界、安全调用约束、M0 验证与里程碑 |
 | [VALIDATION.md](VALIDATION.md) | oRPC 契约与原生 HTTP 边界的校验约定、错误返回形状 |
 | [ERRORS.md](ERRORS.md) | 异常分层设计：业务异常 / Problem JSON / RunFailure / 进程守卫 |
 | [SECURITY.md](SECURITY.md) | 安全模型与已知风险（含 Docker socket、M- 编号事项） |

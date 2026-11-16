@@ -710,3 +710,9 @@
 - **现象**：手写 `role="listbox"/"option"` 换成 listbox 后方向键不移动高亮、读屏读不到当前项，或点选项时输入框失焦、光标丢失。
 - **原因**：提及列表与输入框共享一个焦点，列表不能自行聚焦；`focus: 'virtual'` 由输入框的 `aria-activedescendant` 指向高亮项，选项上不阻止 `pointerdown` 会先让 textarea 失焦。textarea 只能保持 `textbox`，写 `role="combobox"` 违反 ARIA in HTML，它也不支持 `aria-expanded`。
 - **规避**：`components/ui/mention-list.tsx` 用 `createListbox(context, { focus: 'virtual' })`，`bindInput` 只写 `aria-autocomplete="list"`、`aria-haspopup="listbox"`、`aria-controls`、`aria-activedescendant`，关闭时清除这些 aria-*（不写 `role` 与 `aria-expanded`）；选项 `pointerdown` 阻止默认、`pointermove` 高亮，Escape/Enter/Tab 由 primitive 接管。升级时核对 `listbox.activeId` 与 `attrs` 签名。
+
+## Wren：默认 `read_only=False` 时物理表全限定名可绕过行级访问控制
+
+- **现象**：同一 `WrenEngine` 逐请求传 session properties，普通模型查询按 RLAC 过滤；改用 `warehouse.main.employees` 这类物理表全限定名查询却返回全部行。
+- **原因**：`WrenEngine.query` 的 `read_only` 默认 `False`，非只读路径不校验限定名，限定名被当作物理表直接下发，绕过 MDL 模型上的 RLAC；`strict_mode` 单独不够，模型名与物理表名相同时仍放行。
+- **规避**：平台调用统一 `query(read_only=True)`，构造 `WrenEngine(..., config=WrenConfig(strict_mode=True), fallback=False)`；session properties 只能由服务端按登录身份生成，不接受客户端或模型自报。
