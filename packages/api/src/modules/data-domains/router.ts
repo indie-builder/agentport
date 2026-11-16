@@ -5,7 +5,7 @@ import type { PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, authorize, authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { enqueueDataDomainBuild } from './use-cases.js';
+import { enqueueDataDomainBuild, testDataDomainConnection } from './use-cases.js';
 
 const os = implement(dataDomainsContract).$context<RequestContext>();
 const domains = repo.dataDomains;
@@ -102,6 +102,15 @@ export const dataDomainsRouter = os.router({
       createdBy: actorOf(context),
     });
     return toDataDomain(row);
+  }),
+
+  testConnection: os.testConnection.handler(async ({ input, context }) => {
+    await authorize(context, 'data_domains.create');
+    return testDataDomainConnection(
+      context.config.WREN_RUNTIME_URL,
+      input.body.datasource,
+      input.body.connection,
+    );
   }),
 
   detail: os.detail.handler(async ({ input, context }) => {
