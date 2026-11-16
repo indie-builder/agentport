@@ -2,11 +2,12 @@ import { AppError } from '@agentport/core';
 import { and, asc, desc, eq, inArray, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
-import { dataDomains, dataDomainVersions } from '../schema.js';
+import { dataDomainIdentities, dataDomains, dataDomainVersions } from '../schema.js';
 import { isPgCode } from './pg-errors.js';
 
 export type DataDomainRow = typeof dataDomains.$inferSelect;
 export type DataDomainVersionRow = typeof dataDomainVersions.$inferSelect;
+export type DataDomainIdentityRow = typeof dataDomainIdentities.$inferSelect;
 
 export const DATA_DOMAIN_VERSION_LOG_LIMIT = 64 * 1024;
 
@@ -288,4 +289,68 @@ export async function publishDataDomainVersion(
       .returning();
     return row ?? null;
   });
+}
+
+export async function listDataDomainIdentities(
+  db: DbHandle,
+  dataDomainId: string,
+): Promise<DataDomainIdentityRow[]> {
+  return db
+    .select()
+    .from(dataDomainIdentities)
+    .where(eq(dataDomainIdentities.dataDomainId, dataDomainId))
+    .orderBy(asc(dataDomainIdentities.businessId));
+}
+
+export async function upsertDataDomainIdentity(
+  db: DbHandle,
+  dataDomainId: string,
+  businessId: string,
+  properties: Record<string, string>,
+): Promise<DataDomainIdentityRow> {
+  const [row] = await db
+    .insert(dataDomainIdentities)
+    .values({ id: newId('dataDomainIdentity'), dataDomainId, businessId, properties })
+    .onConflictDoUpdate({
+      target: [dataDomainIdentities.dataDomainId, dataDomainIdentities.businessId],
+      set: { properties, updatedAt: new Date() },
+    })
+    .returning();
+  if (!row) throw new Error('data domain identity upsert returned no row');
+  return row;
+}
+
+export async function deleteDataDomainIdentity(
+  db: DbHandle,
+  dataDomainId: string,
+  businessId: string,
+): Promise<boolean> {
+  const rows = await db
+    .delete(dataDomainIdentities)
+    .where(
+      and(
+        eq(dataDomainIdentities.dataDomainId, dataDomainId),
+        eq(dataDomainIdentities.businessId, businessId),
+      ),
+    )
+    .returning({ id: dataDomainIdentities.id });
+  return rows.length > 0;
+}
+
+export async function resolveDataDomainSessionProperties(
+  db: DbHandle,
+  dataDomainId: string,
+  businessId: string,
+): Promise<Record<string, string> | null> {
+  const [row] = await db
+    .select({ properties: dataDomainIdentities.properties })
+    .from(dataDomainIdentities)
+    .where(
+      and(
+        eq(dataDomainIdentities.dataDomainId, dataDomainId),
+        eq(dataDomainIdentities.businessId, businessId),
+      ),
+    )
+    .limit(1);
+  return row?.properties ?? null;
 }

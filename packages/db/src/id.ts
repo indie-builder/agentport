@@ -13,6 +13,7 @@ export const idPrefixes = {
   runtimeEnvironmentVersion: 'rtev',
   dataDomain: 'dd',
   dataDomainVersion: 'ddv',
+  dataDomainIdentity: 'ddi',
   skill: 'skl',
   skillFile: 'skf',
   agentWorkflow: 'awf',

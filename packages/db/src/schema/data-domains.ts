@@ -68,3 +68,22 @@ export const dataDomains = pgTable(
     }),
   ],
 );
+
+export const dataDomainIdentities = pgTable(
+  'data_domain_identities',
+  {
+    id: text('id').primaryKey(),
+    dataDomainId: text('data_domain_id')
+      .notNull()
+      .references((): AnyPgColumn => dataDomains.id, { onDelete: 'cascade' }),
+    businessId: text('business_id').notNull(),
+    properties: jsonb('properties').$type<Record<string, string>>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('data_domain_identities_domain_business_idx').on(t.dataDomainId, t.businessId),
+    index('data_domain_identities_domain_idx').on(t.dataDomainId),
+    check('data_domain_identities_business_check', sql`length(${t.businessId}) > 0`),
+  ],
+);

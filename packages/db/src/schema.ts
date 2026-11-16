@@ -21,7 +21,11 @@ import {
   messages,
   outputShares,
 } from './schema/chat.js';
-import { dataDomains, dataDomainVersions } from './schema/data-domains.js';
+import {
+  dataDomainIdentities,
+  dataDomains,
+  dataDomainVersions,
+} from './schema/data-domains.js';
 import { evalCases, evalResults, evalRuns } from './schema/eval.js';
 import {
   knowledgeBasePins,
@@ -91,6 +95,7 @@ export const schema = {
   runtimeEnvironments,
   dataDomainVersions,
   dataDomains,
+  dataDomainIdentities,
   conversations,
   messages,
   channels,
