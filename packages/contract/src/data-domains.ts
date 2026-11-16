@@ -17,6 +17,7 @@ export const dataDomainInputSchema = z.object({
   description: z.string().trim().max(2000).default(''),
   datasource: z.string().trim().min(1).max(64),
   connection: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写连接配置'),
+  queryApprovalMode: z.enum(['off', 'all']).default('off'),
 });
 
 export const dataDomainConnectionTestInputSchema = z.object({
@@ -36,6 +37,7 @@ export const dataDomainPatchSchema = z
     description: z.string().trim().max(2000),
     datasource: z.string().trim().min(1).max(64),
     connection: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写连接配置'),
+    queryApprovalMode: z.enum(['off', 'all']),
   })
   .partial()
   .refine((value) => Object.keys(value).length > 0, { message: '至少需要修改一项' });
@@ -47,6 +49,7 @@ export const dataDomainSchema = z.object({
   description: z.string(),
   datasource: z.string(),
   onlineVersionId: z.string().nullable(),
+  queryApprovalMode: z.enum(['off', 'all']),
   createdBy: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -110,7 +113,39 @@ export const dataDomainQueryLogListSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
+export const dataDomainQueryApprovalSchema = z.object({
+  id: z.string(),
+  dataDomainId: z.string(),
+  serverId: z.string(),
+  runId: z.string(),
+  actorBusinessId: z.string().nullable(),
+  sqlText: z.string(),
+  sqlHash: z.string(),
+  status: z.enum(['pending', 'approved', 'rejected']),
+  decisionNote: z.string(),
+  requestedAt: z.string(),
+  decidedAt: z.string().nullable(),
+  decidedByBusinessId: z.string().nullable(),
+});
+
+export const dataDomainQueryApprovalListQuerySchema = z.object({
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  status: z.enum(['pending', 'approved', 'rejected']).optional(),
+});
+
+export const dataDomainQueryApprovalListSchema = z.object({
+  items: z.array(dataDomainQueryApprovalSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export const dataDomainApprovalDecisionSchema = z.object({
+  decision: z.enum(['approve', 'reject']),
+  note: z.string().trim().max(2000).default(''),
+});
+
 const identityParams = idParams.extend({ businessId: businessIdSchema });
+const approvalParams = idParams.extend({ approvalId: z.string().min(1) });
 
 const read = contractProcedure.meta({
   access: { kind: 'permission', permissionId: 'data_domains.read' },
@@ -167,6 +202,15 @@ export const dataDomainsContract = {
     .route({ method: 'GET', path: '/data-domains/{id}/query-logs' })
     .input(z.object({ params: idParams, query: dataDomainQueryLogListQuerySchema }))
     .output(dataDomainQueryLogListSchema),
+  approvals: read
+    .route({ method: 'GET', path: '/data-domains/{id}/approvals' })
+    .input(z.object({ params: idParams, query: dataDomainQueryApprovalListQuerySchema }))
+    .output(dataDomainQueryApprovalListSchema),
+  decideApproval: contractProcedure
+    .route({ method: 'POST', path: '/data-domains/{id}/approvals/{approvalId}/decision' })
+    .input(z.object({ params: approvalParams, body: dataDomainApprovalDecisionSchema }))
+    .output(dataDomainQueryApprovalSchema)
+    .meta({ access: { kind: 'permission', permissionId: 'data_domains.update' } }),
   upsertIdentity: contractProcedure
     .route({ method: 'PUT', path: '/data-domains/{id}/identities/{businessId}' })
     .input(z.object({ params: identityParams, body: dataDomainIdentityInputSchema }))
