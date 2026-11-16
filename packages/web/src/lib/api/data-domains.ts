@@ -1,8 +1,12 @@
 import type {
   dataDomainConnectionTestResultSchema,
+  dataDomainEnrichInputSchema,
+  dataDomainEnrichmentProposalDetailSchema,
+  dataDomainEnrichmentProposalSchema,
   dataDomainInputSchema,
   dataDomainListSchema,
   dataDomainPatchSchema,
+  dataDomainProposalDecisionResultSchema,
   dataDomainSchema,
   dataDomainVersionDetailSchema,
   dataDomainVersionSchema,
@@ -17,6 +21,14 @@ export type DataDomainVersion = z.infer<typeof dataDomainVersionSchema>;
 export type DataDomainVersionDetail = z.infer<typeof dataDomainVersionDetailSchema>;
 export type DataDomainConnectionTestResult = z.infer<typeof dataDomainConnectionTestResultSchema>;
 export type DataDomainPage = z.infer<typeof dataDomainListSchema>;
+export type DataDomainEnrichInput = z.infer<typeof dataDomainEnrichInputSchema>;
+export type DataDomainEnrichmentProposal = z.infer<typeof dataDomainEnrichmentProposalSchema>;
+export type DataDomainEnrichmentProposalDetail = z.infer<
+  typeof dataDomainEnrichmentProposalDetailSchema
+>;
+export type DataDomainProposalDecisionResult = z.infer<
+  typeof dataDomainProposalDecisionResultSchema
+>;
 
 export default {
   dataDomainPage: (cursor?: string | null): Promise<DataDomainPage> =>
@@ -47,4 +59,22 @@ export default {
     connection: Record<string, string>,
   ): Promise<DataDomainConnectionTestResult> =>
     rpc.dataDomains.testConnection({ body: { datasource, connection } }),
+  enrichDataDomain: (
+    id: string,
+    input: { sourceVersionId: string; instruction: string },
+  ): Promise<DataDomainEnrichmentProposal> =>
+    rpc.dataDomains.enrich({ params: { id }, body: input }),
+  dataDomainEnrichmentProposals: (id: string): Promise<DataDomainEnrichmentProposal[]> =>
+    rpc.dataDomains.proposals({ params: { id } }),
+  dataDomainEnrichmentProposal: (
+    id: string,
+    proposalId: string,
+  ): Promise<DataDomainEnrichmentProposalDetail> =>
+    rpc.dataDomains.proposalDetail({ params: { id, proposalId } }),
+  decideDataDomainEnrichmentProposal: (
+    id: string,
+    proposalId: string,
+    decision: 'approve' | 'reject',
+  ): Promise<DataDomainProposalDecisionResult> =>
+    rpc.dataDomains.decideProposal({ params: { id, proposalId }, body: { decision } }),
 };

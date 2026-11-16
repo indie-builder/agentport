@@ -55,6 +55,7 @@ import {
   usePublishDataDomain,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
+import { DataDomainEnrichment } from './data-domain-enrichment.js';
 import { DataDomainFormDialog } from './data-domain-form-dialog.js';
 
 type BuildStatus = DataDomainVersion['status'];
@@ -155,6 +156,10 @@ export function DataDomainDetailPage() {
         (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
       ),
     [versions.data],
+  );
+  const readyVersions = useMemo(
+    () => shownVersions.filter((version) => version.status === 'ready'),
+    [shownVersions],
   );
 
   if (domain.isPending) {
@@ -567,6 +572,15 @@ export function DataDomainDetailPage() {
             <FieldError>{importError}</FieldError>
           </PageSection>
         ) : null}
+
+        <PageSection title="语义补全">
+          <DataDomainEnrichment
+            key={current.id}
+            dataDomainId={current.id}
+            readyVersions={readyVersions}
+            canBuild={canBuild}
+          />
+        </PageSection>
       </PageBody>
 
       {editing ? (

@@ -5,7 +5,14 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import type { DataDomain, DataDomainVersion, DataDomainVersionDetail } from '../api.js';
+import type {
+  DataDomain,
+  DataDomainEnrichInput,
+  DataDomainEnrichmentProposal,
+  DataDomainEnrichmentProposalDetail,
+  DataDomainVersion,
+  DataDomainVersionDetail,
+} from '../api.js';
 import { api } from '../api.js';
 
 const dataDomainKeys = ['data-domains'] as const;
@@ -51,6 +58,23 @@ export function dataDomainVersionQuery(id: string, versionId: string) {
     enabled: Boolean(versionId),
     refetchInterval: (query) =>
       dataDomainBuildShouldPoll(query.state.data ? [query.state.data] : undefined) ? 2_000 : false,
+  });
+}
+
+export function dataDomainEnrichmentProposalsQuery(id: string) {
+  return queryOptions<DataDomainEnrichmentProposal[]>({
+    queryKey: [...dataDomainKeys, id, 'enrichment-proposals'],
+    queryFn: () => api.dataDomainEnrichmentProposals(id),
+    refetchInterval: (query) =>
+      query.state.data?.some((proposal) => proposal.status === 'generating') ? 2_000 : false,
+  });
+}
+
+export function dataDomainEnrichmentProposalQuery(id: string, proposalId: string, enabled = true) {
+  return queryOptions<DataDomainEnrichmentProposalDetail>({
+    queryKey: [...dataDomainKeys, id, 'enrichment-proposals', proposalId],
+    queryFn: () => api.dataDomainEnrichmentProposal(id, proposalId),
+    enabled: Boolean(proposalId) && enabled,
   });
 }
 
@@ -121,5 +145,31 @@ export function useTestDataDomainConnection() {
   return useMutation({
     mutationFn: (vars: { datasource: string; connection: Record<string, string> }) =>
       api.testDataDomainConnection(vars.datasource, vars.connection),
+  });
+}
+
+export function useDataDomainEnrichmentProposals(id: string) {
+  return useQuery(dataDomainEnrichmentProposalsQuery(id));
+}
+
+export function useDataDomainEnrichmentProposal(id: string, proposalId: string, enabled: boolean) {
+  return useQuery(dataDomainEnrichmentProposalQuery(id, proposalId, enabled));
+}
+
+export function useEnrichDataDomain() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; input: DataDomainEnrichInput }) =>
+      api.enrichDataDomain(vars.id, vars.input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
+  });
+}
+
+export function useDecideDataDomainEnrichmentProposal() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; proposalId: string; decision: 'approve' | 'reject' }) =>
+      api.decideDataDomainEnrichmentProposal(vars.id, vars.proposalId, vars.decision),
+    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
   });
 }
