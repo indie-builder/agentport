@@ -4,6 +4,7 @@ import { memo, useEffect, useState } from 'react';
 import type { ApprovalRequest } from '../../../lib/api.js';
 import { type ChatItem, toolFailed } from '../../../lib/chat-state.js';
 import { cn } from '../../../lib/cn.js';
+import { dataDomainResultFromTool } from '../../../lib/data-domain-result.js';
 import { formatDuration } from '../../../lib/format.js';
 import { JsonBlock } from '../../code-block.js';
 import { KnowledgeCitations, knowledgeHitsFromTool } from '../../knowledge/knowledge-citations.js';
@@ -19,6 +20,7 @@ import {
   TraceTitle,
 } from '../../ui/trace.js';
 import { ApprovalCard } from './approval.js';
+import { DataDomainResultView } from './data-domain-result.js';
 
 function toolRunning(item: ToolItem): boolean {
   return item.result === undefined && item.startedAt !== undefined && item.endedAt === undefined;
@@ -285,6 +287,7 @@ const ToolRow = memo(function ToolRow({
   const failed = toolFailed(item.result);
   // 有结构化引用时在收起状态也提示来源数量，否则用户不会知道要展开 trace。
   const cited = knowledgeHitsFromTool(item.name, item.result)?.length ?? 0;
+  const dataDomainResult = dataDomainResultFromTool(item.name, item.result);
   const status = running ? '运行中' : missing ? '未收到结果' : failed ? '失败' : '完成';
   const lineStatus = running ? 'running' : missing ? 'pending' : failed ? 'error' : undefined;
   const [open, setOpen] = useState(running);
@@ -320,6 +323,7 @@ const ToolRow = memo(function ToolRow({
           <TraceDescription>
             {status}
             {duration === undefined ? '' : ` · ${formatDuration(duration)}`}
+            {dataDomainResult === null ? '' : ` · ${dataDomainResult.rowCount} 行`}
             {cited > 0 ? ` · ${cited} 来源` : ''}
           </TraceDescription>
         </TraceLine>
@@ -343,13 +347,17 @@ const ToolRow = memo(function ToolRow({
             结果
           </div>
           {item.result !== undefined ? (
-            <>
-              <JsonBlock value={item.result} maxHeight="20rem" />
-              {/* 知识库检索结果另给可点开的来源；原文在查看器里读，不执行来源页脚本。 */}
-              <div className="mt-2">
-                <KnowledgeCitations name={item.name} result={item.result} />
-              </div>
-            </>
+            dataDomainResult === null ? (
+              <>
+                <JsonBlock value={item.result} maxHeight="20rem" />
+                {/* 知识库检索结果另给可点开的来源；原文在查看器里读，不执行来源页脚本。 */}
+                <div className="mt-2">
+                  <KnowledgeCitations name={item.name} result={item.result} />
+                </div>
+              </>
+            ) : (
+              <DataDomainResultView result={dataDomainResult} />
+            )
           ) : (
             <p className="text-2xs text-muted-foreground">{running ? '等待结果…' : '未收到结果'}</p>
           )}
