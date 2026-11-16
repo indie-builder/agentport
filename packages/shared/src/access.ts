@@ -240,6 +240,43 @@ const catalog = [
     scopes: P,
   },
 
+  {
+    id: 'data_domains.read',
+    label: '查看数据域',
+    treePath: ['资源', '数据域', '定义'],
+    scopes: P,
+  },
+  {
+    id: 'data_domains.create',
+    label: '新建数据域',
+    treePath: ['资源', '数据域', '定义'],
+    scopes: P,
+  },
+  {
+    id: 'data_domains.update',
+    label: '修改数据域',
+    treePath: ['资源', '数据域', '定义'],
+    scopes: P,
+  },
+  {
+    id: 'data_domains.delete',
+    label: '删除数据域',
+    treePath: ['资源', '数据域', '定义'],
+    scopes: P,
+  },
+  {
+    id: 'data_domains.build',
+    label: '构建数据域',
+    treePath: ['资源', '数据域', '版本'],
+    scopes: P,
+  },
+  {
+    id: 'data_domains.publish',
+    label: '发布数据域',
+    treePath: ['资源', '数据域', '版本'],
+    scopes: P,
+  },
+
   { id: 'market.read', label: '查看市场', treePath: ['资源', '市场'], scopes: P },
   { id: 'market.install', label: '安装市场资源', treePath: ['资源', '市场'], scopes: P },
 
@@ -399,6 +436,11 @@ const READ_DEPENDENCIES: Partial<Record<PermissionId, PermissionId>> = {
   'runtime_environments.delete': 'runtime_environments.read',
   'runtime_environments.build': 'runtime_environments.read',
   'runtime_environments.publish': 'runtime_environments.read',
+  'data_domains.create': 'data_domains.read',
+  'data_domains.update': 'data_domains.read',
+  'data_domains.delete': 'data_domains.read',
+  'data_domains.build': 'data_domains.read',
+  'data_domains.publish': 'data_domains.read',
   'market.install': 'market.read',
   'operations.manage': 'operations.read',
   'accounts.manage': 'accounts.read',
