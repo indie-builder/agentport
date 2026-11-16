@@ -38,6 +38,8 @@ export default {
     projectFiles: Record<string, string>,
   ): Promise<DataDomainVersion> =>
     rpc.dataDomains.createVersion({ params: { id }, body: { projectFiles } }),
+  generateDataDomainMdl: (id: string): Promise<DataDomainVersion> =>
+    rpc.dataDomains.generateMdl({ params: { id } }),
   publishDataDomain: (id: string, versionId: string): Promise<DataDomain> =>
     rpc.dataDomains.publish({ params: { id }, body: { versionId } }),
   testDataDomainConnection: (
