@@ -5,6 +5,7 @@ import type {
   ChannelMessage,
   ChatEvent,
   DataDomainBuildJob,
+  DataDomainEnrichmentJob,
   EvalRunJob,
   RuntimeEnvironmentBuildJob,
 } from '@agentport/shared';
@@ -14,6 +15,7 @@ import {
   channelStreamKey,
   chatEventSchema,
   DATA_DOMAIN_BUILDS_QUEUE,
+  DATA_DOMAIN_ENRICHMENTS_QUEUE,
   EVAL_RUNS_QUEUE,
   KNOWLEDGE_CANCEL_PAYLOAD,
   KNOWLEDGE_JOBS_QUEUE,
@@ -65,6 +67,7 @@ let evalQueue: Queue<EvalRunJob> | undefined;
 let knowledgeQueue: Queue<{ jobId: string }> | undefined;
 let runtimeEnvironmentBuildQueue: Queue<RuntimeEnvironmentBuildJob> | undefined;
 let dataDomainBuildQueue: Queue<DataDomainBuildJob> | undefined;
+let dataDomainEnrichmentQueue: Queue<DataDomainEnrichmentJob> | undefined;
 let monitoringQueues: Queue[] | undefined;
 let client: RedisClient | undefined;
 let channelClient: RedisClient | undefined;
@@ -122,6 +125,16 @@ export function getDataDomainBuildQueue(): Queue<DataDomainBuildJob> {
     dataDomainBuildQueue.on('error', logRedisError);
   }
   return dataDomainBuildQueue;
+}
+
+export function getDataDomainEnrichmentQueue(): Queue<DataDomainEnrichmentJob> {
+  if (!dataDomainEnrichmentQueue) {
+    dataDomainEnrichmentQueue = new Queue<DataDomainEnrichmentJob>(DATA_DOMAIN_ENRICHMENTS_QUEUE, {
+      connection: getQueueConnection(),
+    });
+    dataDomainEnrichmentQueue.on('error', logRedisError);
+  }
+  return dataDomainEnrichmentQueue;
 }
 
 export function getMonitoringQueues(): Queue[] {
@@ -397,6 +410,7 @@ export async function closeProducer(): Promise<void> {
     knowledgeQueue,
     runtimeEnvironmentBuildQueue,
     dataDomainBuildQueue,
+    dataDomainEnrichmentQueue,
     monitoringQueues,
     client,
   ] as const;
@@ -405,6 +419,7 @@ export async function closeProducer(): Promise<void> {
   knowledgeQueue = undefined;
   runtimeEnvironmentBuildQueue = undefined;
   dataDomainBuildQueue = undefined;
+  dataDomainEnrichmentQueue = undefined;
   monitoringQueues = undefined;
   client = undefined;
   await Promise.allSettled([
@@ -413,11 +428,12 @@ export async function closeProducer(): Promise<void> {
     closing[2]?.close(),
     closing[3]?.close(),
     closing[4]?.close(),
-    ...(closing[5] ?? []).map((monitored) => monitored.close()),
+    closing[5]?.close(),
+    ...(closing[6] ?? []).map((monitored) => monitored.close()),
     ...[...subscriptions.values()].map((close) => close()),
   ]);
-  if (closing[6]) closing[6].onclose = () => undefined;
-  closing[6]?.close();
+  if (closing[7]) closing[7].onclose = () => undefined;
+  closing[7]?.close();
   await queueConnection?.quit();
   queueConnection = undefined;
   subscriptions.clear();

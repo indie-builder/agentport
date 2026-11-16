@@ -561,6 +561,13 @@
       "when": 1794855438215,
       "tag": "0079_magenta_blur",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1794860629690,
+      "tag": "0080_striped_jazinda",
+      "breakpoints": true
     }
   ]
 }

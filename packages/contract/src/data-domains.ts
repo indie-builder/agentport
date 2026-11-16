@@ -154,9 +154,48 @@ export const dataDomainApprovalDecisionSchema = z.object({
   note: z.string().trim().max(2000).default(''),
 });
 
+export const dataDomainEnrichmentProposalSchema = z.object({
+  id: z.string(),
+  dataDomainId: z.string(),
+  sourceVersionId: z.string(),
+  status: z.enum(['generating', 'ready', 'approved', 'rejected', 'failed']),
+  instruction: z.string(),
+  summary: z.string(),
+  error: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  decidedAt: z.string().nullable(),
+  decidedByBusinessId: z.string().nullable(),
+});
+
+export const dataDomainProposalChangeSchema = z.object({
+  path: z.string(),
+  status: z.enum(['added', 'modified', 'removed']),
+});
+
+export const dataDomainEnrichmentProposalDetailSchema = dataDomainEnrichmentProposalSchema.extend({
+  projectFiles: z.record(z.string(), z.string()),
+  changedFiles: z.array(dataDomainProposalChangeSchema),
+});
+
+export const dataDomainEnrichInputSchema = z.object({
+  sourceVersionId: z.string().min(1),
+  instruction: z.string().trim().min(1).max(4000),
+});
+
+export const dataDomainProposalDecisionSchema = z.object({
+  decision: z.enum(['approve', 'reject']),
+});
+
+export const dataDomainProposalDecisionResultSchema = z.object({
+  proposal: dataDomainEnrichmentProposalSchema,
+  version: dataDomainVersionSchema.nullable(),
+});
+
 const identityParams = idParams.extend({ businessId: businessIdSchema });
 const approvalParams = idParams.extend({ approvalId: z.string().min(1) });
 const versionParams = idParams.extend({ versionId: z.string().min(1) });
+const proposalParams = idParams.extend({ proposalId: z.string().min(1) });
 
 const read = contractProcedure.meta({
   access: { kind: 'permission', permissionId: 'data_domains.read' },
@@ -245,4 +284,25 @@ export const dataDomainsContract = {
     .input(z.object({ params: identityParams }))
     .output(z.void())
     .meta({ access: { kind: 'permission', permissionId: 'data_domains.update' } }),
+  enrich: contractProcedure
+    .route({ method: 'POST', path: '/data-domains/{id}/enrich', successStatus: 202 })
+    .input(z.object({ params: idParams, body: dataDomainEnrichInputSchema }))
+    .output(dataDomainEnrichmentProposalSchema)
+    .meta({ access: { kind: 'permission', permissionId: 'data_domains.build' } }),
+  proposals: read
+    .route({ method: 'GET', path: '/data-domains/{id}/proposals' })
+    .input(z.object({ params: idParams }))
+    .output(z.array(dataDomainEnrichmentProposalSchema)),
+  proposalDetail: read
+    .route({ method: 'GET', path: '/data-domains/{id}/proposals/{proposalId}' })
+    .input(z.object({ params: proposalParams }))
+    .output(dataDomainEnrichmentProposalDetailSchema),
+  decideProposal: contractProcedure
+    .route({
+      method: 'POST',
+      path: '/data-domains/{id}/proposals/{proposalId}/decision',
+    })
+    .input(z.object({ params: proposalParams, body: dataDomainProposalDecisionSchema }))
+    .output(dataDomainProposalDecisionResultSchema)
+    .meta({ access: { kind: 'permission', permissionId: 'data_domains.build' } }),
 };

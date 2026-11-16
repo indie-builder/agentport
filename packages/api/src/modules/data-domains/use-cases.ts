@@ -2,12 +2,17 @@ import { dataDomainConnectionTestResultSchema } from '@agentport/contract/data-d
 import { fail } from '@agentport/core';
 import type { Database, DbHandle } from '@agentport/db';
 import { newId, repo, schema } from '@agentport/db';
-import { DATA_DOMAIN_BUILDS_QUEUE, dataDomainBuildEnqueueOptions } from '@agentport/shared';
+import {
+  DATA_DOMAIN_BUILDS_QUEUE,
+  DATA_DOMAIN_ENRICHMENTS_QUEUE,
+  dataDomainBuildEnqueueOptions,
+  dataDomainEnrichmentEnqueueOptions,
+} from '@agentport/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { Effect } from 'effect';
 import type { Logger } from 'pino';
 import { z } from 'zod';
-import { getDataDomainBuildQueue } from '../../queue/producer.js';
+import { getDataDomainBuildQueue, getDataDomainEnrichmentQueue } from '../../queue/producer.js';
 
 function managedServerWhere(dataDomainId: string) {
   return and(
@@ -87,6 +92,36 @@ export async function enqueueDataDomainBuild(
       `data domain build enqueue failed (queue ${DATA_DOMAIN_BUILDS_QUEUE})`,
     );
     fail('SERVICE_UNAVAILABLE', '构建任务入队失败，请稍后重试');
+  }
+}
+
+export async function enqueueDataDomainEnrichment(
+  db: Database,
+  log: Logger,
+  dataDomainId: string,
+  proposalId: string,
+): Promise<boolean> {
+  try {
+    await getDataDomainEnrichmentQueue().add(
+      'enrich',
+      { dataDomainId, proposalId },
+      dataDomainEnrichmentEnqueueOptions(proposalId),
+    );
+    return true;
+  } catch {
+    try {
+      await repo.dataDomains.failDataDomainEnrichmentProposal(db, proposalId, '生成任务入队失败');
+    } catch {
+      log.warn(
+        { dataDomainId, proposalId },
+        'data domain enrichment proposal failed-state compensation failed',
+      );
+    }
+    log.warn(
+      { dataDomainId, proposalId },
+      `data domain enrichment enqueue failed (queue ${DATA_DOMAIN_ENRICHMENTS_QUEUE})`,
+    );
+    return false;
   }
 }
 

@@ -38,6 +38,7 @@ import {
   startDataDomainBuildReconciler,
   startDataDomainBuildWorker,
 } from './data-domains/build.js';
+import { startDataDomainEnrichmentWorker } from './data-domains/enrich.js';
 import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
 import { closeEvalRunQueue, evalFailureDiagnostics } from './eval-runner.js';
 import { startKnowledgeWorker } from './knowledge/queue.js';
@@ -567,6 +568,12 @@ const dataDomainBuilds = await startDataDomainBuildWorker({
   wrenRuntimeUrl: config.WREN_RUNTIME_URL,
   secretKey: config.APP_SECRET_KEY,
 });
+const dataDomainEnrichments = await startDataDomainEnrichmentWorker({
+  db,
+  logger,
+  redisUrl: config.REDIS_URL,
+  enrichModel: config.DATA_DOMAIN_ENRICH_MODEL,
+});
 const stopDataDomainBuildReconciler = startDataDomainBuildReconciler({ db, logger });
 // 崩溃恢复：终态收回卡在 queued/building 的版本，不留下假的构建中。
 const stopRuntimeEnvironmentBuildReconciler = startRuntimeEnvironmentBuildReconciler({
@@ -674,6 +681,7 @@ const shutdown = async (): Promise<void> => {
       },
       { label: 'runtime environment builds', close: () => runtimeEnvironmentBuilds.close() },
       { label: 'data domain builds', close: () => dataDomainBuilds.close() },
+      { label: 'data domain enrichments', close: () => dataDomainEnrichments.close() },
       {
         label: 'data domain build reconciler',
         close: () => stopDataDomainBuildReconciler(),

@@ -8,6 +8,7 @@ import type { RequestContext } from '../../http/context.js';
 import {
   deleteDataDomainServer,
   enqueueDataDomainBuild,
+  enqueueDataDomainEnrichment,
   ensureDataDomainServer,
   generateDataDomainMdl,
   testDataDomainConnection,
@@ -18,6 +19,9 @@ const domains = repo.dataDomains;
 
 type DataDomainRow = NonNullable<Awaited<ReturnType<typeof domains.getDataDomain>>>;
 type DataDomainVersionRow = NonNullable<Awaited<ReturnType<typeof domains.getDataDomainVersion>>>;
+type EnrichmentProposalRow = NonNullable<
+  Awaited<ReturnType<typeof domains.getDataDomainEnrichmentProposal>>
+>;
 
 const notFoundMessage = '数据域不存在，可能已被删除；请刷新后重试';
 
@@ -126,6 +130,22 @@ function toApproval(row: {
     decisionNote: row.decisionNote,
     requestedAt: row.requestedAt.toISOString(),
     decidedAt: row.decidedAt === null ? null : row.decidedAt.toISOString(),
+    decidedByBusinessId: row.decidedByBusinessId,
+  };
+}
+
+function toEnrichmentProposal(row: EnrichmentProposalRow) {
+  return {
+    id: row.id,
+    dataDomainId: row.dataDomainId,
+    sourceVersionId: row.sourceVersionId,
+    status: row.status,
+    instruction: row.instruction,
+    summary: row.summary,
+    error: row.error,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    decidedAt: row.decidedAt?.toISOString() ?? null,
     decidedByBusinessId: row.decidedByBusinessId,
   };
 }
@@ -401,5 +421,113 @@ export const dataDomainsRouter = os.router({
     );
     if (!ok) fail('NOT_FOUND', '身份策略不存在');
     return undefined;
+  }),
+
+  enrich: os.enrich.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.build', row);
+    const source = await domains.getDataDomainVersion(context.db, input.body.sourceVersionId);
+    if (!source || source.dataDomainId !== input.params.id) fail('NOT_FOUND', '源版本不存在');
+    if (source.status !== 'ready') {
+      fail('INVALID_INPUT', '只能基于已就绪的版本生成 enrich 提案');
+    }
+    const proposal = await domains.createDataDomainEnrichmentProposal(context.db, {
+      dataDomainId: input.params.id,
+      sourceVersionId: source.id,
+      instruction: input.body.instruction,
+      createdBy: actorOf(context),
+    });
+    if (!proposal) fail('NOT_FOUND', notFoundMessage);
+    const queued = await enqueueDataDomainEnrichment(
+      context.db,
+      context.log,
+      input.params.id,
+      proposal.id,
+    );
+    if (!queued) fail('SERVICE_UNAVAILABLE', '生成任务入队失败，请稍后重试');
+    return toEnrichmentProposal(proposal);
+  }),
+
+  proposals: os.proposals.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.read', row);
+    const rows = await domains.listDataDomainEnrichmentProposals(context.db, input.params.id);
+    return rows.map(toEnrichmentProposal);
+  }),
+
+  proposalDetail: os.proposalDetail.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.read', row);
+    const proposal = await domains.getDataDomainEnrichmentProposal(
+      context.db,
+      input.params.proposalId,
+    );
+    if (!proposal || proposal.dataDomainId !== input.params.id) fail('NOT_FOUND', '提案不存在');
+    const source = await domains.getDataDomainVersion(context.db, proposal.sourceVersionId);
+    const sourceFiles = source?.projectFiles ?? {};
+    const candidateFiles = proposal.projectFiles;
+    const changedFiles =
+      candidateFiles === null
+        ? []
+        : [
+            ...Object.keys(candidateFiles)
+              .filter((path) => !(path in sourceFiles))
+              .map((path) => ({ path, status: 'added' as const })),
+            ...Object.keys(sourceFiles)
+              .filter((path) => !(path in candidateFiles))
+              .map((path) => ({ path, status: 'removed' as const })),
+            ...Object.keys(candidateFiles)
+              .filter((path) => path in sourceFiles && candidateFiles[path] !== sourceFiles[path])
+              .map((path) => ({ path, status: 'modified' as const })),
+          ];
+    return {
+      ...toEnrichmentProposal(proposal),
+      projectFiles: candidateFiles ?? {},
+      changedFiles,
+    };
+  }),
+
+  decideProposal: os.decideProposal.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.build', row);
+    const proposal = await domains.getDataDomainEnrichmentProposal(
+      context.db,
+      input.params.proposalId,
+    );
+    if (!proposal || proposal.dataDomainId !== input.params.id) fail('NOT_FOUND', '提案不存在');
+    if (proposal.status !== 'ready') fail('CONFLICT', '提案当前状态不可决策');
+    const decidedBy = actorOf(context);
+
+    if (input.body.decision === 'reject') {
+      const updated = await domains.decideDataDomainEnrichmentProposal(context.db, {
+        id: proposal.id,
+        dataDomainId: input.params.id,
+        status: 'rejected',
+        decidedBy,
+      });
+      if (!updated) fail('CONFLICT', '提案状态已变化，请刷新重试');
+      return { proposal: toEnrichmentProposal(updated), version: null };
+    }
+
+    const files = proposal.projectFiles ?? {};
+    const valid = validateWrenProjectFiles(files);
+    if (!valid.ok) fail('INVALID_INPUT', valid.error);
+    const applied = await context.db.transaction(async (tx) => {
+      const decided = await domains.decideDataDomainEnrichmentProposal(tx, {
+        id: proposal.id,
+        dataDomainId: input.params.id,
+        status: 'approved',
+        decidedBy,
+      });
+      if (!decided) return null;
+      const version = await domains.insertDataDomainVersion(tx, input.params.id, files);
+      return { decided, version };
+    });
+    if (applied === null) fail('CONFLICT', '提案状态已变化，请刷新重试');
+    await enqueueDataDomainBuild(context.db, context.log, input.params.id, applied.version.id);
+    return {
+      proposal: toEnrichmentProposal(applied.decided),
+      version: toVersion(applied.version),
+    };
   }),
 });
