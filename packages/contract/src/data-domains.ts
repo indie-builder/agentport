@@ -4,6 +4,8 @@ import { contractProcedure } from './base.js';
 
 const connectionSchema = z.record(z.string().min(1).max(128), z.string().max(4096));
 
+const dataDomainSlugSchema = slugSchema.max(61);
+
 const dataDomainListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -11,7 +13,7 @@ const dataDomainListQuerySchema = z.object({
 
 export const dataDomainInputSchema = z.object({
   name: z.string().trim().min(1).max(64),
-  slug: slugSchema,
+  slug: dataDomainSlugSchema,
   description: z.string().trim().max(2000).default(''),
   datasource: z.string().trim().min(1).max(64),
   connection: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写连接配置'),
@@ -30,7 +32,7 @@ export const dataDomainConnectionTestResultSchema = z.object({
 export const dataDomainPatchSchema = z
   .object({
     name: z.string().trim().min(1).max(64),
-    slug: slugSchema,
+    slug: dataDomainSlugSchema,
     description: z.string().trim().max(2000),
     datasource: z.string().trim().min(1).max(64),
     connection: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写连接配置'),

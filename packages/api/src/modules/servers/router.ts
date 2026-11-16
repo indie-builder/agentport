@@ -141,8 +141,11 @@ export const serversRouter = os.router({
     try {
       const row = await repo.getServerRow(context.db, id);
       if (!row) return notFound('server');
-      if (row.kind === 'knowledge') {
-        return fail('FORBIDDEN', '知识库连接由知识库设置管理');
+      if (row.kind === 'knowledge' || row.kind === 'data_domain') {
+        return fail(
+          'FORBIDDEN',
+          row.kind === 'knowledge' ? '知识库连接由知识库设置管理' : '数据域连接由数据域设置管理',
+        );
       }
       if (row.kind === 'http' && body.url !== undefined) {
         await assertSafeUrl(body.url, context.config.NODE_ENV);
@@ -175,8 +178,11 @@ export const serversRouter = os.router({
   }),
   delete: os.delete.handler(async ({ input, context }) => {
     const row = await repo.getServerRow(context.db, input.params.id);
-    if (row?.kind === 'knowledge') {
-      return fail('FORBIDDEN', '知识库连接由知识库设置管理');
+    if (row?.kind === 'knowledge' || row?.kind === 'data_domain') {
+      return fail(
+        'FORBIDDEN',
+        row.kind === 'knowledge' ? '知识库连接由知识库设置管理' : '数据域连接由数据域设置管理',
+      );
     }
     const ok = await repo.deleteServer(context.db, input.params.id);
     if (!ok) return notFound('server');
@@ -196,6 +202,9 @@ export const serversRouter = os.router({
       context.config.APP_SECRET_KEY,
     );
     if (!server) return notFound('server');
+    if (server.kind === 'data_domain') {
+      return fail('FORBIDDEN', '数据域连接由数据域设置管理，不能直接测试连接');
+    }
     const runtimeEnvironmentId = input.body?.runtimeEnvironmentId;
     if (runtimeEnvironmentId != null && server.kind !== 'stdio') {
       return fail(
@@ -417,6 +426,11 @@ export const serversRouter = os.router({
     }),
     update: os.tools.update.handler(async ({ input, context }) => {
       const { id, toolId } = input.params;
+      const row = await repo.getServerRow(context.db, id);
+      if (!row) return notFound('server');
+      if (row.kind === 'data_domain') {
+        return fail('FORBIDDEN', '数据域连接不支持工具管理');
+      }
       const body = input.body;
       const patch: dbRepo.servers.ApiToolPatch = {};
       if (body.name !== undefined) patch.name = body.name;
@@ -449,6 +463,11 @@ export const serversRouter = os.router({
     }),
     delete: os.tools.delete.handler(async ({ input, context }) => {
       const { id, toolId } = input.params;
+      const row = await repo.getServerRow(context.db, id);
+      if (!row) return notFound('server');
+      if (row.kind === 'data_domain') {
+        return fail('FORBIDDEN', '数据域连接不支持工具管理');
+      }
       const ok = await repo.deleteTool(context.db, id, toolId);
       if (!ok) return notFound('tool');
       await writeAudit(context.db, context.log, {

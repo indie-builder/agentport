@@ -16,7 +16,9 @@ export const servers = pgTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    kind: text('kind', { enum: ['stdio', 'http', 'generated', 'knowledge'] }).notNull(),
+    kind: text('kind', {
+      enum: ['stdio', 'http', 'generated', 'knowledge', 'data_domain'],
+    }).notNull(),
     description: text('description').notNull().default(''),
     // command / args / url / headers 等非敏感字段
     config: jsonb('config').$type<Record<string, unknown>>().notNull(),
@@ -35,7 +37,10 @@ export const servers = pgTable(
   },
   (t) => [
     uniqueIndex('servers_name_idx').on(t.name),
-    check('servers_kind_check', sql`${t.kind} in ('stdio', 'http', 'generated', 'knowledge')`),
+    check(
+      'servers_kind_check',
+      sql`${t.kind} in ('stdio', 'http', 'generated', 'knowledge', 'data_domain')`,
+    ),
   ],
 );
 

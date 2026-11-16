@@ -25,6 +25,10 @@ export const kindMeta: Record<Server['kind'], { label: string; newHint: string }
     label: '知识库',
     newHint: '',
   },
+  data_domain: {
+    label: '数据域',
+    newHint: '',
+  },
 };
 
 /** 本次页面会话的最近一次试连结果；刷新后只剩 server.lastTest* 持久化字段。 */

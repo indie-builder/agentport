@@ -4,7 +4,7 @@ import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
 import { parseUrl } from './url.js';
 
 /** 用户配置的 MCP Server；密钥字段在 API 层加密，返回时脱敏。 */
-export const serverKindSchema = z.enum(['stdio', 'http', 'generated', 'knowledge']);
+export const serverKindSchema = z.enum(['stdio', 'http', 'generated', 'knowledge', 'data_domain']);
 export type ServerKind = z.infer<typeof serverKindSchema>;
 
 export const SECRET_MASK = '••••';
@@ -39,6 +39,9 @@ export function previewMcpEntry(
         : [],
       env: values,
     };
+  }
+  if (server.kind === 'data_domain' || server.kind === 'knowledge') {
+    return { type: 'http' as const, url: '', headers: values };
   }
   const url = server.kind === 'generated' ? config.baseUrl : config.url;
   return {
@@ -133,6 +136,13 @@ export const knowledgeServerSchema = z.object({
   config: z.object({ knowledgeBaseId: z.string() }),
 });
 
+export const dataDomainServerSchema = z.object({
+  kind: z.literal('data_domain'),
+  name: slugSchema,
+  description: z.string().default(''),
+  config: z.object({ dataDomainId: z.string() }),
+});
+
 export const serverInputSchema = z.discriminatedUnion('kind', [
   stdioServerSchema,
   httpServerSchema,
@@ -166,6 +176,7 @@ export const serverSchema = z.discriminatedUnion('kind', [
   httpServerSchema.extend({ ...serverIdFields, url: maskedHttpUrlSchema }),
   generatedServerSchema.extend({ ...serverIdFields, baseUrl: maskedHttpUrlSchema }),
   knowledgeServerSchema.extend(serverIdFields),
+  dataDomainServerSchema.extend(serverIdFields),
 ]);
 
 export type Server = z.infer<typeof serverSchema>;

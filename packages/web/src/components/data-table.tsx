@@ -76,6 +76,7 @@ interface DataTableProps<T> {
   /** 首屏排序方向；只在挂载时生效，之后仍由用户点击调整。 */
   initialSorting?: SortingState;
   onRowClick?: (row: T, trigger: HTMLElement) => void;
+  rowInteractive?: (row: T) => boolean;
   hideRowCount?: boolean;
   className?: string;
 }
@@ -264,6 +265,7 @@ export function DataTable<T extends RowData>({
   storageKey,
   initialSorting = [],
   onRowClick,
+  rowInteractive,
   hideRowCount = false,
   className,
 }: DataTableProps<T>) {
@@ -517,7 +519,9 @@ export function DataTable<T extends RowData>({
               const rowName = rowLabel?.(row.original) ?? key;
               const expandedContent = renderExpanded?.(row.original) ?? null;
               const isOpen = expanded === key && expandedContent !== null;
-              const interactive = expandedContent !== null || Boolean(onRowClick);
+              const interactive =
+                (rowInteractive?.(row.original) ?? true) &&
+                (expandedContent !== null || Boolean(onRowClick));
               const panelId = `${tableId}-row-panel-${key}`;
               const activate = (trigger: HTMLElement) => {
                 if (expandedContent !== null) setExpanded(isOpen ? null : key);

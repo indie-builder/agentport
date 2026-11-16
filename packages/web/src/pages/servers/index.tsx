@@ -30,10 +30,12 @@ import { ConnectorCatalogDialog } from './connector-catalog-dialog.js';
 import { DeleteServerDialog } from './delete-server-dialog.js';
 import { ServerActions } from './server-actions.js';
 import { ServerFormDialog } from './server-form-dialog.js';
-import { type Kind, kindMeta, type LastTest } from './shared.js';
+import { kindMeta, type LastTest } from './shared.js';
 import { TestEnvironmentDialog } from './test-environment-dialog.js';
 import { ToolCatalogDialog } from './tool-catalog-dialog.js';
 import { ToolEditorDialog } from './tool-editor-dialog.js';
+
+type ListedKind = Exclude<Server['kind'], 'knowledge'>;
 
 function detailOf(server: Server): string {
   switch (server.kind) {
@@ -45,6 +47,8 @@ function detailOf(server: Server): string {
       return server.baseUrl;
     case 'knowledge':
       return server.config.knowledgeBaseId;
+    case 'data_domain':
+      return server.config.dataDomainId;
   }
 }
 
@@ -76,7 +80,7 @@ export function ServersPage() {
   const setFilter = (
     patch: {
       q?: string | undefined;
-      kind?: Kind | undefined;
+      kind?: ListedKind | undefined;
       sort?: 'newest' | 'name' | undefined;
     },
     replace = false,
@@ -230,6 +234,7 @@ export function ServersPage() {
     { value: 'stdio', label: kindMeta.stdio.label },
     { value: 'http', label: kindMeta.http.label },
     { value: 'generated', label: kindMeta.generated.label },
+    { value: 'data_domain', label: kindMeta.data_domain.label },
   ];
 
   const columns: DataColumn<Server>[] = [
@@ -242,15 +247,21 @@ export function ServersPage() {
         const displayName = catalogNames.get(server.name) ?? server.name;
         return (
           <div className="flex min-w-0 flex-col gap-0.5">
-            <Button
-              variant="ghost"
-              className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium whitespace-normal text-fg"
-              onClick={(event) => openEdit(server, event.currentTarget)}
-            >
-              <span className="break-words" title={displayName}>
+            {server.kind === 'data_domain' ? (
+              <span className="text-base font-medium break-words text-fg" title={displayName}>
                 {displayName}
               </span>
-            </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                className="h-auto w-full min-w-0 justify-start p-0 text-left text-base font-medium whitespace-normal text-fg"
+                onClick={(event) => openEdit(server, event.currentTarget)}
+              >
+                <span className="break-words" title={displayName}>
+                  {displayName}
+                </span>
+              </Button>
+            )}
             {displayName === server.name ? null : (
               <code className="break-all font-mono text-xs text-muted-foreground">
                 {server.name}
@@ -289,6 +300,9 @@ export function ServersPage() {
       header: '连通状态',
       width: '150px',
       cell: (server) => {
+        if (server.kind === 'data_domain') {
+          return <span className="text-sm text-muted-foreground">平台托管</span>;
+        }
         const lastTest = tested.get(server.id) ?? null;
         const testing = test.isPending && test.variables?.id === server.id;
         if (testing) {
@@ -390,35 +404,36 @@ export function ServersPage() {
       header: '操作',
       align: 'end',
       width: '32px',
-      cell: (server) => (
-        <ServerActions
-          displayName={catalogNames.get(server.name) ?? server.name}
-          generated={server.kind === 'generated'}
-          testing={test.isPending && test.variables?.id === server.id}
-          testPending={test.isPending}
-          canTest={canTest}
-          canTools={canTools}
-          canTokens={canTokens}
-          canDelete={canDelete}
-          onTest={(trigger) => startTest(server, trigger)}
-          onCatalog={(trigger) => {
-            triggerRef.current = trigger;
-            setCatalogServer(server);
-          }}
-          onTools={(trigger) => {
-            triggerRef.current = trigger;
-            setToolServer(server);
-          }}
-          onConnection={(trigger) => {
-            triggerRef.current = trigger;
-            setConnection(server);
-          }}
-          onDelete={(trigger) => {
-            triggerRef.current = trigger;
-            setDeleting(server);
-          }}
-        />
-      ),
+      cell: (server) =>
+        server.kind === 'data_domain' ? null : (
+          <ServerActions
+            displayName={catalogNames.get(server.name) ?? server.name}
+            generated={server.kind === 'generated'}
+            testing={test.isPending && test.variables?.id === server.id}
+            testPending={test.isPending}
+            canTest={canTest}
+            canTools={canTools}
+            canTokens={canTokens}
+            canDelete={canDelete}
+            onTest={(trigger) => startTest(server, trigger)}
+            onCatalog={(trigger) => {
+              triggerRef.current = trigger;
+              setCatalogServer(server);
+            }}
+            onTools={(trigger) => {
+              triggerRef.current = trigger;
+              setToolServer(server);
+            }}
+            onConnection={(trigger) => {
+              triggerRef.current = trigger;
+              setConnection(server);
+            }}
+            onDelete={(trigger) => {
+              triggerRef.current = trigger;
+              setDeleting(server);
+            }}
+          />
+        ),
     },
   ];
 
@@ -434,7 +449,9 @@ export function ServersPage() {
       filters={
         <FilterSelect
           value={kind}
-          onValueChange={(next) => setFilter({ kind: next === 'all' ? undefined : (next as Kind) })}
+          onValueChange={(next) =>
+            setFilter({ kind: next === 'all' ? undefined : (next as ListedKind) })
+          }
           options={kindOptions}
           label="按来源筛选"
           className="w-36"
@@ -533,6 +550,7 @@ export function ServersPage() {
           label="连接器列表"
           loading={servers.isPending}
           hideRowCount
+          rowInteractive={(server) => server.kind !== 'data_domain'}
           onRowClick={(server, trigger) => {
             triggerRef.current = trigger;
             setCatalogServer(server);
