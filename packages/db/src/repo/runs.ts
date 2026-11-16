@@ -408,6 +408,15 @@ function runMayUseServer(): SQL {
   )`;
 }
 
+export async function getRunConversationId(db: Database, runId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ conversationId: agentRuns.conversationId })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  return row?.conversationId ?? null;
+}
+
 export async function getRunInitiator(db: Database, runId: string): Promise<string | null> {
   const [row] = await db
     .select({ initiatedBy: agentRuns.initiatedBy })

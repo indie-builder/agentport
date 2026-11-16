@@ -147,6 +147,12 @@ export async function branchConversation(
       );
     }
 
+    const [restriction] = await tx
+      .select({ restricted: conversations.dataDomainRestricted })
+      .from(conversations)
+      .where(eq(conversations.id, source.id))
+      .limit(1);
+
     const [conversation] = await tx
       .insert(conversations)
       .values({
@@ -158,6 +164,7 @@ export async function branchConversation(
         // 分叉前仍指向来源会话；首轮运行 fork 成功后改写为新 session。
         sdkSessionId: source.sdkSessionId,
         forkFromSdkMessageUuid: forkPoint,
+        dataDomainRestricted: source.dataDomainRestricted || (restriction?.restricted ?? false),
         ...conversationSubject(input.subject),
       })
       .returning();

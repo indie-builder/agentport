@@ -32,6 +32,7 @@ import {
 import {
   DATA_DOMAIN_SQL,
   DATA_DOMAIN_TOOL_MARKER,
+  OUTPUT_WRITE_MARKER,
   parseExecutionContract,
   parseRuntimeResource,
   runtimeBuildTag,
@@ -492,9 +493,9 @@ interface HistoryToolUse {
   input: unknown;
 }
 
-function historyToolUses(body: unknown): HistoryToolUse[] {
+function toolUsesOf(messages: unknown[]): HistoryToolUse[] {
   const uses: HistoryToolUse[] = [];
-  for (const message of historyMessages(body)) {
+  for (const message of messages) {
     if (typeof message !== 'object' || message === null) continue;
     if ((message as { role?: unknown }).role !== 'assistant') continue;
     const content = (message as { content?: unknown }).content;
@@ -516,6 +517,10 @@ function historyToolUses(body: unknown): HistoryToolUse[] {
     }
   }
   return uses;
+}
+
+function historyToolUses(body: unknown): HistoryToolUse[] {
+  return toolUsesOf(historyMessages(body));
 }
 
 function historyToolResults(body: unknown): Map<string, string> {
@@ -587,6 +592,40 @@ function nextDataDomainToolCall(
   return null;
 }
 
+function nextOutputWriteCall(
+  body: unknown,
+): { name: string; input: Record<string, unknown> } | null {
+  const messages = historyMessages(body);
+  const promptIndex = messages.findLastIndex((message) => {
+    if (typeof message !== 'object' || message === null) return false;
+    if ((message as { role?: unknown }).role !== 'user') return false;
+    return contentText((message as { content?: unknown }).content).includes(OUTPUT_WRITE_MARKER);
+  });
+  if (promptIndex < 0) return null;
+  const prompt = contentText((messages[promptIndex] as { content?: unknown }).content);
+  const runUses = toolUsesOf(messages.slice(promptIndex));
+  if (runUses.some((use) => use.name === 'Write')) return null;
+  if (!prompt.includes(DATA_DOMAIN_TOOL_MARKER)) {
+    return {
+      name: 'Write',
+      input: {
+        file_path: '/mnt/outputs/normal-report.md',
+        content: '# 普通成果\n\nE2E normal output\n',
+      },
+    };
+  }
+  const results = historyToolResults(body);
+  const runSql = runUses.find((use) => use.name.endsWith('__run_sql') && results.has(use.id));
+  if (runSql === undefined) return null;
+  return {
+    name: 'Write',
+    input: {
+      file_path: '/mnt/outputs/dd-report.md',
+      content: `# 数据域查询结果\n\n${results.get(runSql.id) ?? ''}\n`,
+    },
+  };
+}
+
 async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
   const requests: Array<{ path: string; at: number }> = [];
   const messageRequests: FakeMessageRequest[] = [];
@@ -645,9 +684,14 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
       nextId += 1;
       const slow = prompt.includes(SLOW_MARKER);
       const marked = conversation.includes(DATA_DOMAIN_TOOL_MARKER);
-      const toolCall = marked ? nextDataDomainToolCall(body, conversation) : null;
+      const dataDomainCall = marked ? nextDataDomainToolCall(body, conversation) : null;
+      const toolCall = dataDomainCall ?? nextOutputWriteCall(body);
+      const completedResults = historyToolResults(body);
+      const runSqlDone = historyToolUses(body).some(
+        (use) => use.name.endsWith('__run_sql') && completedResults.has(use.id),
+      );
       // 模型确实拿到了工具列表却推进不了 run_sql：显式给出可诊断的文本，而不是静默退回普通回复。
-      const missingTool = marked && toolCall === null && toolsOf(body).length > 0;
+      const missingTool = marked && !runSqlDone && toolCall === null && toolsOf(body).length > 0;
       const reply = missingTool
         ? `E2E-DD-TOOL-MISSING ${toolsOf(body)
             .map((tool) => String(tool.name))

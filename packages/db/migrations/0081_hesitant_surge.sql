@@ -1,0 +1,1 @@
+ALTER TABLE "conversations" ADD COLUMN "data_domain_restricted" boolean DEFAULT false NOT NULL;

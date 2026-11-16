@@ -7,6 +7,7 @@ import { browserFetch } from './support/browser-api.js';
 import {
   DATA_DOMAIN_SQL,
   DATA_DOMAIN_TOOL_MARKER,
+  OUTPUT_WRITE_MARKER,
   requireExecutionStack,
 } from './support/execution-stack.js';
 
@@ -192,6 +193,7 @@ async function runOnce(
   cookie: string,
   agentId: string,
   message: string,
+  conversationId?: string,
 ): Promise<{ runId: string; conversationId: string; events: RunEvent[]; detail: RunDetail }> {
   // 202 的 HTTP 响应体就是 oRPC detailed 输出里的 body。
   const started = await api<{ runId: string; conversationId: string }>(
@@ -201,6 +203,7 @@ async function runOnce(
     {
       agentId,
       message,
+      ...(conversationId === undefined ? {} : { conversationId }),
     },
   );
   const runId = started.runId;
@@ -383,7 +386,7 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
 
   const cookieA = await login(userA.username, userA.password);
   const cookieB = await login(userB.username, userB.password);
-  const message = `${DATA_DOMAIN_TOOL_MARKER} ${toolName} 请查询员工名单`;
+  const message = `${DATA_DOMAIN_TOOL_MARKER} ${OUTPUT_WRITE_MARKER} ${toolName} 请查询员工名单`;
   const outcomeA = await runOnce(cookieA, agent.id, message);
   const a = assertRunWithTool(outcomeA);
   const outcomeB = await runOnce(cookieB, agent.id, message);
@@ -452,10 +455,158 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
     throw new Error(`查询日志状态不是 ok：${JSON.stringify([logsA.items, logsB.items])}`);
   }
 
+  const artifactPath = 'dd-report.md';
+  const outputsUrl = `/api/conversations/${outcomeA.conversationId}/outputs`;
+  const outputsA = await api<{ items: Array<{ runId: string; path: string }> }>(
+    cookieA,
+    'GET',
+    outputsUrl,
+  );
+  if (!outputsA.items.some((item) => item.runId === runIdA && item.path === artifactPath)) {
+    throw new Error(`A 的成果列表里没有 ${artifactPath}：${JSON.stringify(outputsA.items)}`);
+  }
+  const downloadUrl = `${outputsUrl}/${runIdA}/download?path=${encodeURIComponent(artifactPath)}`;
+  const ownDownload = await fetch(`${contract.appUrl}${downloadUrl}`, {
+    headers: { cookie: cookieA },
+  });
+  const ownText = await ownDownload.text();
+  if (ownDownload.status !== 200 || !ownText.includes('Alice') || ownText.includes('Carol')) {
+    throw new Error(
+      `A 读取自身数据域成果不符：HTTP ${ownDownload.status} ${ownText.slice(0, 500)}`,
+    );
+  }
+  const foreignDownload = await fetch(`${contract.appUrl}${downloadUrl}`, {
+    headers: { cookie: cookieB },
+  });
+  if (foreignDownload.status !== 404) {
+    throw new Error(`B 读取 A 的数据域成果应 404，实际 ${foreignDownload.status}`);
+  }
+  const foreignList = await fetch(`${contract.appUrl}${outputsUrl}`, {
+    headers: { cookie: cookieB },
+  });
+  if (foreignList.status !== 404) {
+    throw new Error(`B 列出 A 的成果应 404，实际 ${foreignList.status}`);
+  }
+
+  const shareUrl = `/api/conversations/${outcomeA.conversationId}/output-shares`;
+  const deniedShare = await fetch(`${contract.appUrl}${shareUrl}`, {
+    method: 'POST',
+    headers: { cookie: cookieA, 'content-type': 'application/json' },
+    body: JSON.stringify({ runId: runIdA, path: artifactPath }),
+  });
+  const deniedBody = (await deniedShare.json()) as { code?: string };
+  if (deniedShare.status !== 403 || deniedBody.code !== 'FORBIDDEN') {
+    throw new Error(
+      `数据域成果公开分享应被拒绝，实际 HTTP ${deniedShare.status}：${JSON.stringify(deniedBody)}`,
+    );
+  }
+
+  const followup = await runOnce(
+    cookieA,
+    agent.id,
+    `${OUTPUT_WRITE_MARKER} 在同一个会话里再写一份后续报告`,
+    outcomeA.conversationId,
+  );
+  if (followup.detail.run.status !== 'succeeded') {
+    throw new Error(`同一会话的后续 run 未成功：${JSON.stringify(followup.detail.run)}`);
+  }
+  const followupRunSql = followup.detail.steps.filter(
+    (step) =>
+      step.kind === 'tool' && typeof step.name === 'string' && step.name.endsWith('__run_sql'),
+  );
+  if (followupRunSql.length > 0) {
+    throw new Error(`后续 run 不应再调用 run_sql，实际 ${followupRunSql.length} 次`);
+  }
+  const inheritedDownload = await fetch(
+    `${contract.appUrl}${outputsUrl}/${followup.runId}/download?path=${encodeURIComponent(artifactPath)}`,
+    { headers: { cookie: cookieA } },
+  );
+  const inheritedText = await inheritedDownload.text();
+  if (
+    inheritedDownload.status !== 200 ||
+    !inheritedText.includes('Alice') ||
+    inheritedText.includes('Carol')
+  ) {
+    throw new Error(
+      `后续 run 继承的数据域成果读取不符：HTTP ${inheritedDownload.status} ${inheritedText.slice(0, 500)}`,
+    );
+  }
+  const inheritedShare = await fetch(`${contract.appUrl}${shareUrl}`, {
+    method: 'POST',
+    headers: { cookie: cookieA, 'content-type': 'application/json' },
+    body: JSON.stringify({ runId: followup.runId, path: artifactPath }),
+  });
+  const inheritedBody = (await inheritedShare.json()) as { code?: string };
+  if (inheritedShare.status !== 403 || inheritedBody.code !== 'FORBIDDEN') {
+    throw new Error(
+      `后续 run 继承成果的公开分享应被拒绝，实际 HTTP ${inheritedShare.status}：${JSON.stringify(inheritedBody)}`,
+    );
+  }
+
+  const plainAgent = await apiJson<{ id: string }>(browser, 'POST', '/api/agents', {
+    slug: `e2e-plain-agent-${suffix}`,
+    name: `E2E 普通专家 ${suffix}`,
+  });
+  await apiJson(browser, 'PUT', `/api/agents/${plainAgent.id}/members/${userA.businessId}`, {
+    canUse: true,
+    canMaintain: false,
+  });
+  const plainOutcome = await runOnce(
+    cookieA,
+    plainAgent.id,
+    `${OUTPUT_WRITE_MARKER} 写一份普通报告`,
+  );
+  if (plainOutcome.detail.run.status !== 'succeeded') {
+    throw new Error(`普通 run 未成功：${JSON.stringify(plainOutcome.detail.run)}`);
+  }
+  const plainOutputsUrl = `/api/conversations/${plainOutcome.conversationId}/outputs`;
+  const plainOutputs = await api<{ items: Array<{ runId: string; path: string }> }>(
+    cookieA,
+    'GET',
+    plainOutputsUrl,
+  );
+  const plainArtifact = plainOutputs.items.find(
+    (item) => item.runId === plainOutcome.runId && item.path === 'normal-report.md',
+  );
+  if (plainArtifact === undefined) {
+    throw new Error(
+      `普通 run 的成果列表里没有 normal-report.md：${JSON.stringify(plainOutputs.items)}`,
+    );
+  }
+  const plainShareUrl = `/api/conversations/${plainOutcome.conversationId}/output-shares`;
+  const plainShare = await fetch(`${contract.appUrl}${plainShareUrl}`, {
+    method: 'POST',
+    headers: { cookie: cookieA, 'content-type': 'application/json' },
+    body: JSON.stringify({ runId: plainOutcome.runId, path: plainArtifact.path }),
+  });
+  const created = (await plainShare.json()) as { id?: string; urlPath?: string };
+  if (plainShare.status !== 201 || created.id === undefined || created.urlPath === undefined) {
+    throw new Error(
+      `普通成果分享应创建成功，实际 HTTP ${plainShare.status}：${JSON.stringify(created)}`,
+    );
+  }
+  const publicToken = created.urlPath.split('#')[1] ?? '';
+  const publicMeta = await fetch(`${contract.appUrl}/api/public/output-shares/${created.id}`, {
+    headers: { authorization: `Bearer ${publicToken}` },
+  });
+  if (publicMeta.status !== 200) {
+    throw new Error(`普通成果公开页应可读，实际 HTTP ${publicMeta.status}`);
+  }
+  const publicContent = await fetch(
+    `${contract.appUrl}/api/public/output-shares/${created.id}/content`,
+    { headers: { authorization: `Bearer ${publicToken}` } },
+  );
+  const publicContentBody = (await publicContent.json()) as { content?: string };
+  if (publicContent.status !== 200 || !publicContentBody.content?.includes('E2E normal output')) {
+    throw new Error(
+      `普通成果公开正文应可读，实际 HTTP ${publicContent.status}：${JSON.stringify(publicContentBody)}`,
+    );
+  }
+
   // 历史重载直接读取真实 run 的持久化工具结果，用 M2c 表格/图表呈现。
   await app.open(`/chat?conversation=${outcomeA.conversationId}`);
-  await expect(screen.getByText('执行过程')).toBeVisible({ timeout: 60_000 });
-  await screen.getByText('执行过程').tap();
+  await expect(screen.getByText('执行过程').first()).toBeVisible({ timeout: 60_000 });
+  await screen.getByText('执行过程').first().tap();
   await expect(screen.getByText(toolName)).toBeVisible({ timeout: 60_000 });
   await screen.getByText(toolName).tap();
   await expect(screen.getByText('Alice')).toBeVisible({ timeout: 60_000 });

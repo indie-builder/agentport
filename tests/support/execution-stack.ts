@@ -28,6 +28,7 @@ function optionalStringField(input: unknown, key: string): string | undefined {
 export const DATA_DOMAIN_TOOL_MARKER = 'E2E-DD-TOOL';
 /** 两个用户使用同一条 SQL，行与列由真实 WrenEngine 按身份过滤。 */
 export const DATA_DOMAIN_SQL = 'select * from employees order by id';
+export const OUTPUT_WRITE_MARKER = 'E2E-OUTPUT-WRITE';
 
 export function parseExecutionContract(input: unknown) {
   assert.equal(stringField(input, 'kind'), 'e2e-channel-execution');
