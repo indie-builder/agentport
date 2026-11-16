@@ -18,6 +18,7 @@ import { registerChannelsHttp } from '../modules/channels/http.js';
 import { channelsRouter } from '../modules/channels/router.js';
 import { type NativeHttpDependencies, registerChatHttp } from '../modules/chat/http.js';
 import { chatRouter } from '../modules/chat/router.js';
+import { dataDomainsRouter } from '../modules/data-domains/router.js';
 import { registerEvalHttp } from '../modules/eval/http.js';
 import { evalRouter } from '../modules/eval/router.js';
 import { FAQ_MAX_BYTES } from '../modules/knowledge/faq.js';
@@ -56,6 +57,7 @@ const apiRouter: Router<RpcContract, RequestContext> = {
   auth: authRouter,
   channels: channelsRouter,
   chat: chatRouter,
+  dataDomains: dataDomainsRouter,
   eval: evalRouter,
   knowledge: knowledgeRouter,
   market: marketRouter,

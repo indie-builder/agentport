@@ -3,6 +3,7 @@ import { auditContract } from './audit.js';
 import { authContract, authNativeContract } from './auth.js';
 import { channelsContract } from './channels.js';
 import { chatContract } from './chat.js';
+import { dataDomainsContract } from './data-domains.js';
 import { evalContract } from './eval.js';
 import { knowledgeContract } from './knowledge.js';
 import { marketContract } from './market.js';
@@ -26,6 +27,7 @@ export * from './auth.js';
 export * from './base.js';
 export * from './channels.js';
 export * from './chat.js';
+export * from './data-domains.js';
 export * from './errors.js';
 export * from './eval.js';
 export * from './knowledge.js';
@@ -49,6 +51,7 @@ export const apiContract: {
   auth: typeof authContract & typeof authNativeContract;
   channels: typeof channelsContract;
   chat: typeof chatContract;
+  dataDomains: typeof dataDomainsContract;
   eval: typeof evalContract;
   knowledge: typeof knowledgeContract;
   market: typeof marketContract;
@@ -70,6 +73,7 @@ export const apiContract: {
   auth: { ...authContract, ...authNativeContract },
   channels: channelsContract,
   chat: chatContract,
+  dataDomains: dataDomainsContract,
   eval: evalContract,
   knowledge: knowledgeContract,
   market: marketContract,

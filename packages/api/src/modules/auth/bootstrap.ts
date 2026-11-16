@@ -11,7 +11,7 @@ import {
   type Transaction,
   userRoles,
 } from '@agentport/db';
-import { DEFAULT_ROLES } from '@agentport/shared';
+import { DEFAULT_ROLES, PERMISSIONS } from '@agentport/shared';
 import { hashPassword } from 'better-auth/crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Config } from '../../config.js';
@@ -56,10 +56,32 @@ async function seedDefaultRoles(tx: Transaction): Promise<string> {
   return admin.id;
 }
 
+/** 系统管理员固定拥有全部权限；仅补缺失授予，不删不改其它角色。 */
+async function ensureAdminRolePermissions(tx: Transaction): Promise<void> {
+  const [admin] = await tx
+    .select({ id: roles.id })
+    .from(roles)
+    .where(eq(roles.systemKey, 'admin'))
+    .limit(1);
+  if (!admin) return;
+
+  await tx
+    .insert(rolePermissions)
+    .values(
+      PERMISSIONS.map((permission) => ({
+        roleId: admin.id,
+        permissionId: permission.id,
+        scope: 'platform' as const,
+      })),
+    )
+    .onConflictDoNothing();
+}
+
 export async function ensureDefaultAssistant(db: Database): Promise<void> {
   await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agentport:bootstrap'))`);
     await repo.agents.ensureDefaultAgent(tx, BOOTSTRAP_ADMIN_BUSINESS_ID);
+    await ensureAdminRolePermissions(tx);
   });
 }
 
@@ -73,6 +95,7 @@ export async function ensureBootstrap(db: Database, config: Config): Promise<voi
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agentport:bootstrap'))`);
 
     await repo.agents.ensureDefaultAgent(tx, BOOTSTRAP_ADMIN_BUSINESS_ID);
+    await ensureAdminRolePermissions(tx);
 
     const [initialized] = await tx
       .select({
