@@ -84,6 +84,15 @@ services:
     ports:
       - '127.0.0.1:5001:5001'
 
+  wren-runtime:
+    profiles: ['wren']
+    build:
+      context: ./infra/wren-runtime
+    image: agentport/wren-runtime:dev
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:5010:8080'
+
   api:
     build:
       context: .
