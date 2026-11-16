@@ -104,6 +104,7 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 
 - 默认只读 + strict mode；`run_sql` 可按数据域策略要求逐次审批。
 - 每次查询记录审计：用户、run、数据域、版本、SQL 摘要、行数与结果状态。明细落 `data_domain_query_logs`（可核查），`audit_log` 仍有该事件的链式摘要。
+- 查询明细通过 `GET /data-domains/{id}/query-logs`（权限 `data_domains.read`）以 keyset 游标分页暴露，支持 `status` 与 `runId` 过滤，便于审计与排查查询历史。
 - 服务端强制行数上限，不依赖模型自报。
 - 数据库侧使用最小权限账号；PACE 当前为单租户，PRODUCT 已明确组织多租户不在本期范围。
 

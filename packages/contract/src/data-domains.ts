@@ -84,6 +84,32 @@ export const dataDomainIdentityInputSchema = z.object({
   properties: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写属性'),
 });
 
+export const dataDomainQueryLogSchema = z.object({
+  id: z.string(),
+  dataDomainId: z.string(),
+  versionId: z.string().nullable(),
+  serverId: z.string(),
+  runId: z.string(),
+  actorBusinessId: z.string().nullable(),
+  sqlSummary: z.string(),
+  rowCount: z.number().int().nullable(),
+  status: z.enum(['ok', 'error']),
+  durationMs: z.number().int(),
+  createdAt: z.string(),
+});
+
+export const dataDomainQueryLogListQuerySchema = z.object({
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  status: z.enum(['ok', 'error']).optional(),
+  runId: z.string().min(1).max(128).optional(),
+});
+
+export const dataDomainQueryLogListSchema = z.object({
+  items: z.array(dataDomainQueryLogSchema),
+  nextCursor: z.string().nullable(),
+});
+
 const identityParams = idParams.extend({ businessId: businessIdSchema });
 
 const read = contractProcedure.meta({
@@ -137,6 +163,10 @@ export const dataDomainsContract = {
     .route({ method: 'GET', path: '/data-domains/{id}/identities' })
     .input(z.object({ params: idParams }))
     .output(z.array(dataDomainIdentitySchema)),
+  queryLogs: read
+    .route({ method: 'GET', path: '/data-domains/{id}/query-logs' })
+    .input(z.object({ params: idParams, query: dataDomainQueryLogListQuerySchema }))
+    .output(dataDomainQueryLogListSchema),
   upsertIdentity: contractProcedure
     .route({ method: 'PUT', path: '/data-domains/{id}/identities/{businessId}' })
     .input(z.object({ params: identityParams, body: dataDomainIdentityInputSchema }))
