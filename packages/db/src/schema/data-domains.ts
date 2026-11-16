@@ -5,6 +5,7 @@ import {
   check,
   foreignKey,
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -85,5 +86,29 @@ export const dataDomainIdentities = pgTable(
     uniqueIndex('data_domain_identities_domain_business_idx').on(t.dataDomainId, t.businessId),
     index('data_domain_identities_domain_idx').on(t.dataDomainId),
     check('data_domain_identities_business_check', sql`length(${t.businessId}) > 0`),
+  ],
+);
+
+export const dataDomainQueryLogs = pgTable(
+  'data_domain_query_logs',
+  {
+    id: text('id').primaryKey(),
+    dataDomainId: text('data_domain_id')
+      .notNull()
+      .references((): AnyPgColumn => dataDomains.id, { onDelete: 'cascade' }),
+    versionId: text('version_id'),
+    serverId: text('server_id').notNull(),
+    runId: text('run_id').notNull(),
+    actorBusinessId: text('actor_business_id'),
+    sqlSummary: text('sql_summary').notNull().default(''),
+    rowCount: integer('row_count'),
+    status: text('status', { enum: ['ok', 'error'] }).notNull(),
+    durationMs: integer('duration_ms').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('data_domain_query_logs_domain_created_idx').on(t.dataDomainId, t.createdAt, t.id),
+    index('data_domain_query_logs_run_idx').on(t.runId),
+    check('data_domain_query_logs_status_check', sql`${t.status} in ('ok','error')`),
   ],
 );

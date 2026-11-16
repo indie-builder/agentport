@@ -120,8 +120,8 @@ const serverFormSchema = z
   });
 
 function serverToForm(server: Server): ServerFormValues {
-  // 知识库连接不在连接器列表中出现，也没有对应表单。
-  if (server.kind === 'knowledge') return emptyForm;
+  // 平台托管连接没有对应表单。
+  if (server.kind === 'knowledge' || server.kind === 'data_domain') return emptyForm;
   const common = { kind: server.kind, name: server.name, description: server.description };
   switch (server.kind) {
     case 'stdio':

@@ -32,7 +32,7 @@ function maskValues(keys: string[], omitAuthorization = false): Record<string, s
 }
 function toEntry(row: ServerRow, secretKeys: string[]): McpJsonEntry {
   const config = row.config;
-  if (row.kind === 'knowledge') {
+  if (row.kind === 'knowledge' || row.kind === 'data_domain') {
     return {
       ...knowledgeMcpEntry({
         apiUrl: sandboxApiUrl(),

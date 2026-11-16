@@ -55,6 +55,13 @@ export function toApiServer(row: repo.servers.ServerRow, keyB64url: string): Ser
       config: { knowledgeBaseId: str(config.knowledgeBaseId) },
     };
   }
+  if (row.kind === 'data_domain') {
+    return {
+      ...base,
+      kind: 'data_domain',
+      config: { dataDomainId: str(config.dataDomainId) },
+    };
+  }
   if (row.kind === 'stdio') {
     return {
       ...base,
@@ -277,8 +284,8 @@ export async function updateServer(
         headers: mergedSecrets(patch.headers, current.headers),
       };
     } else {
-      // 知识库连接由知识库生命周期管理；路由层已拒绝，这里兜住其他调用方。
-      fail('FORBIDDEN', '知识库连接由知识库设置管理');
+      // 平台托管连接由各自的生命周期管理；路由层已拒绝，这里兜住其他调用方。
+      fail('FORBIDDEN', '平台托管连接由所属设置管理');
     }
 
     const split = splitInput(

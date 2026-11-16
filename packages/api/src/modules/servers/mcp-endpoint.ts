@@ -4,6 +4,7 @@ import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { AppContext, RequestContext } from '../../http/context.js';
 import { isRunCancelRequested, publishChannelEvent } from '../../queue/producer.js';
+import { buildDataDomainServer } from '../data-domains/mcp.js';
 import { buildKnowledgeServer } from '../knowledge/mcp.js';
 import { bearerToken, tokenMatches } from './bearer.js';
 import { buildGeneratedServer } from './generated.js';
@@ -140,6 +141,23 @@ export async function serverMcpResponse(
       runId,
       secretKey: context.config.APP_SECRET_KEY,
       knowledgeDir: context.config.KNOWLEDGE_DIR,
+    }).fetch(request);
+  }
+  if (row?.kind === 'data_domain') {
+    if (runId === null || !(await validRunToken(context, runId, serverId, token))) {
+      context.responseHeaders.set('WWW-Authenticate', 'Bearer realm="agentport-mcp"');
+      fail('UNAUTHORIZED', 'invalid bearer token');
+    }
+    const dataDomainId = row.config.dataDomainId;
+    if (typeof dataDomainId !== 'string') fail('NOT_FOUND', 'data domain server unbound');
+    return buildDataDomainServer({
+      db: context.db,
+      serverId,
+      dataDomainId,
+      runId,
+      secretKey: context.config.APP_SECRET_KEY,
+      wrenRuntimeUrl: context.config.WREN_RUNTIME_URL,
+      log: context.log,
     }).fetch(request);
   }
   if (row?.kind !== 'generated') fail('NOT_FOUND', 'generated server not found');

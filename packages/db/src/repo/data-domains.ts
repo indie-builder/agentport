@@ -2,12 +2,18 @@ import { AppError } from '@agentport/core';
 import { and, asc, desc, eq, inArray, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
-import { dataDomainIdentities, dataDomains, dataDomainVersions } from '../schema.js';
+import {
+  dataDomainIdentities,
+  dataDomainQueryLogs,
+  dataDomains,
+  dataDomainVersions,
+} from '../schema.js';
 import { isPgCode } from './pg-errors.js';
 
 export type DataDomainRow = typeof dataDomains.$inferSelect;
 export type DataDomainVersionRow = typeof dataDomainVersions.$inferSelect;
 export type DataDomainIdentityRow = typeof dataDomainIdentities.$inferSelect;
+export type DataDomainQueryLogRow = typeof dataDomainQueryLogs.$inferSelect;
 
 export const DATA_DOMAIN_VERSION_LOG_LIMIT = 64 * 1024;
 
@@ -97,32 +103,30 @@ export async function updateDataDomain(
   }
 }
 
-export async function deleteDataDomain(db: Database, id: string): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .select({ id: dataDomains.id })
-      .from(dataDomains)
-      .where(eq(dataDomains.id, id))
-      .limit(1)
-      .for('update');
-    if (!row) return false;
-    const [busy] = await tx
-      .select({ id: dataDomainVersions.id })
-      .from(dataDomainVersions)
-      .where(
-        and(
-          eq(dataDomainVersions.dataDomainId, id),
-          inArray(dataDomainVersions.status, ['queued', 'building']),
-        ),
-      )
-      .limit(1);
-    if (busy) {
-      throw new AppError('CONFLICT', '数据域仍有排队或构建中的版本，请等待构建结束');
-    }
-    await tx.update(dataDomains).set({ onlineVersionId: null }).where(eq(dataDomains.id, id));
-    await tx.delete(dataDomains).where(eq(dataDomains.id, id));
-    return true;
-  });
+export async function deleteDataDomain(db: DbHandle, id: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: dataDomains.id })
+    .from(dataDomains)
+    .where(eq(dataDomains.id, id))
+    .limit(1)
+    .for('update');
+  if (!row) return false;
+  const [busy] = await db
+    .select({ id: dataDomainVersions.id })
+    .from(dataDomainVersions)
+    .where(
+      and(
+        eq(dataDomainVersions.dataDomainId, id),
+        inArray(dataDomainVersions.status, ['queued', 'building']),
+      ),
+    )
+    .limit(1);
+  if (busy) {
+    throw new AppError('CONFLICT', '数据域仍有排队或构建中的版本，请等待构建结束');
+  }
+  await db.update(dataDomains).set({ onlineVersionId: null }).where(eq(dataDomains.id, id));
+  await db.delete(dataDomains).where(eq(dataDomains.id, id));
+  return true;
 }
 
 export async function createDataDomainVersion(
@@ -353,4 +357,21 @@ export async function resolveDataDomainSessionProperties(
     )
     .limit(1);
   return row?.properties ?? null;
+}
+
+export async function writeDataDomainQueryLog(
+  db: DbHandle,
+  entry: {
+    dataDomainId: string;
+    versionId: string | null;
+    serverId: string;
+    runId: string;
+    actorBusinessId: string | null;
+    sqlSummary: string;
+    rowCount: number | null;
+    status: 'ok' | 'error';
+    durationMs: number;
+  },
+): Promise<void> {
+  await db.insert(dataDomainQueryLogs).values({ id: newId('dataDomainQueryLog'), ...entry });
 }

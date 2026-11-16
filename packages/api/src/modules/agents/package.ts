@@ -92,12 +92,16 @@ function exportUrl(value: string): string {
     return value;
   }
 }
-function knowledgePackageEntries(
-  row: Pick<ServerRow, 'id' | 'name' | 'description'>,
+function dataDomainTokenEnv(serverName: string): string {
+  return `DATA_DOMAIN_${serverName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_TOKEN`;
+}
+function managedPackageEntries(
+  row: Pick<ServerRow, 'id' | 'name' | 'description' | 'kind'>,
   selfUrl: string,
 ) {
   const url = `${selfUrl.replace(/\/$/, '')}/mcp/${row.id}`;
-  const tokenEnv = knowledgeTokenEnv(row.name);
+  const tokenEnv =
+    row.kind === 'knowledge' ? knowledgeTokenEnv(row.name) : dataDomainTokenEnv(row.name);
   return {
     server: {
       name: row.name,
@@ -119,7 +123,8 @@ function toExportedServer(
   tools: ToolRow[] | undefined,
   selfUrl: string,
 ): PackageServer {
-  if (row.kind === 'knowledge') return knowledgePackageEntries(row, selfUrl).server;
+  if (row.kind === 'knowledge' || row.kind === 'data_domain')
+    return managedPackageEntries(row, selfUrl).server;
   const base = {
     name: row.name,
     description: row.description,
@@ -168,7 +173,8 @@ function toExportedServer(
   };
 }
 function toPreviewEntry(row: ServerRow, selfUrl: string): McpJsonEntry {
-  if (row.kind === 'knowledge') return knowledgePackageEntries(row, selfUrl).mcpEntry;
+  if (row.kind === 'knowledge' || row.kind === 'data_domain')
+    return managedPackageEntries(row, selfUrl).mcpEntry;
   if (row.kind === 'stdio') {
     const args = row.config.args;
     return {
@@ -1170,20 +1176,35 @@ export async function importAgentPackage(
     tools: entry.kind === 'generated' ? entry.tools : undefined,
     secretKeys: entry.secretKeys,
     knowledge: entry.kind === 'http' && entry.secretKeys.includes(knowledgeTokenEnv(entry.name)),
+    dataDomain: entry.kind === 'http' && entry.secretKeys.includes(dataDomainTokenEnv(entry.name)),
   }));
-  const knownKnowledge = new Map<string, string>();
-  const knowledgeNames = serverEntries.filter((entry) => entry.knowledge).map((e) => e.input.name);
-  if (knowledgeNames.length > 0) {
+  const knownManaged = new Map<string, string>();
+  const managedNames = serverEntries
+    .filter((entry) => entry.knowledge || entry.dataDomain)
+    .map((entry) => entry.input.name);
+  if (managedNames.length > 0) {
     const rows = await db
-      .select({ id: servers.id, name: servers.name })
+      .select({ id: servers.id, name: servers.name, kind: servers.kind })
       .from(servers)
-      .where(and(inArray(servers.name, knowledgeNames), eq(servers.kind, 'knowledge')));
+      .where(
+        and(
+          inArray(servers.name, managedNames),
+          inArray(servers.kind, ['knowledge', 'data_domain']),
+        ),
+      );
     for (const row of rows) {
-      knownKnowledge.set(row.name, `${options.selfUrl.replace(/\/$/, '')}/mcp/${row.id}`);
+      knownManaged.set(
+        `${row.kind}:${row.name}`,
+        `${options.selfUrl.replace(/\/$/, '')}/mcp/${row.id}`,
+      );
     }
   }
-  for (const { input, knowledge } of serverEntries) {
-    if (knowledge && input.kind === 'http' && knownKnowledge.get(input.name) === input.url)
+  for (const { input, knowledge, dataDomain } of serverEntries) {
+    if (
+      input.kind === 'http' &&
+      ((knowledge && knownManaged.get(`knowledge:${input.name}`) === input.url) ||
+        (dataDomain && knownManaged.get(`data_domain:${input.name}`) === input.url))
+    )
       continue;
     if (input.kind === 'http') await assertSafeUrl(input.url, options.nodeEnv);
     else if (input.kind === 'generated')
@@ -1212,13 +1233,20 @@ export async function importAgentPackage(
               );
       const existingByName = new Map(existingServers.map((row) => [row.name, row]));
       const serverIdsByName = new Map(existingServers.map((row) => [row.name, row.id]));
-      for (const { input, tools, secretKeys, knowledge } of serverEntries) {
+      for (const { input, tools, secretKeys, knowledge, dataDomain } of serverEntries) {
         const existing = existingByName.get(input.name);
         if (existing !== undefined) {
           if (existing.kind === 'knowledge' && input.kind === 'http') {
             reusedServers.push(input.name);
             warnings.push(
               `「${input.name}」是知识库连接，已复用对应的知识库；凭据由运行时注入，不需要重新填写`,
+            );
+            continue;
+          }
+          if (existing.kind === 'data_domain' && input.kind === 'http') {
+            reusedServers.push(input.name);
+            warnings.push(
+              `「${input.name}」是数据域连接，已复用对应的数据域；凭据由运行时注入，不需要重新填写`,
             );
             continue;
           }
@@ -1255,7 +1283,9 @@ export async function importAgentPackage(
           warnings.push(
             knowledge
               ? `「${input.name}」是知识库连接：请在本实例的专家配置里绑定对应知识库，导出的地址与凭据不会生效`
-              : `「${input.name}」的密钥需要重新填写：${secretKeys.join(', ')}`,
+              : dataDomain
+                ? `「${input.name}」是数据域连接：请在本实例的专家配置里绑定对应数据域，导出的地址与凭据不会生效`
+                : `「${input.name}」的密钥需要重新填写：${secretKeys.join(', ')}`,
           );
         }
         serverIdsByName.set(row.name, row.id);

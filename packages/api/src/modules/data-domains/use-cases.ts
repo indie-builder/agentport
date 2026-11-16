@@ -1,11 +1,67 @@
 import { dataDomainConnectionTestResultSchema } from '@agentport/contract/data-domains';
 import { fail } from '@agentport/core';
-import type { Database } from '@agentport/db';
-import { repo } from '@agentport/db';
+import type { Database, DbHandle } from '@agentport/db';
+import { newId, repo, schema } from '@agentport/db';
 import { DATA_DOMAIN_BUILDS_QUEUE, dataDomainBuildEnqueueOptions } from '@agentport/shared';
+import { and, eq, sql } from 'drizzle-orm';
 import { Effect } from 'effect';
 import type { Logger } from 'pino';
 import { getDataDomainBuildQueue } from '../../queue/producer.js';
+
+function managedServerWhere(dataDomainId: string) {
+  return and(
+    eq(schema.servers.kind, 'data_domain'),
+    sql`${schema.servers.config}->>'dataDomainId' = ${dataDomainId}`,
+  );
+}
+
+export async function ensureDataDomainServer(
+  db: DbHandle,
+  domain: { id: string; slug: string },
+): Promise<repo.servers.ServerRow> {
+  const name = `dd-${domain.slug}`;
+  const [existing] = await db
+    .select()
+    .from(schema.servers)
+    .where(managedServerWhere(domain.id))
+    .limit(1);
+  if (existing) {
+    if (existing.name === name) return existing;
+    const [clash] = await db
+      .select({ id: schema.servers.id })
+      .from(schema.servers)
+      .where(eq(schema.servers.name, name))
+      .limit(1);
+    if (clash && clash.id !== existing.id) {
+      fail('CONFLICT', `连接器名称 ${name} 已被占用，请更换数据域标识`);
+    }
+    return (await repo.servers.updateServer(db, existing.id, { name })) ?? existing;
+  }
+  const [clash] = await db
+    .select({ id: schema.servers.id })
+    .from(schema.servers)
+    .where(eq(schema.servers.name, name))
+    .limit(1);
+  if (clash) {
+    fail('CONFLICT', `连接器名称 ${name} 已被占用，请更换数据域标识`);
+  }
+  const [row] = await db
+    .insert(schema.servers)
+    .values({
+      id: newId('server'),
+      name,
+      kind: 'data_domain',
+      config: { dataDomainId: domain.id },
+      secretsEncrypted: null,
+    })
+    .returning();
+  if (!row) throw new Error('data domain server insert returned no row');
+  return row;
+}
+
+export async function deleteDataDomainServer(db: DbHandle, dataDomainId: string): Promise<void> {
+  await db.delete(schema.servers).where(managedServerWhere(dataDomainId));
+}
 
 export async function enqueueDataDomainBuild(
   db: Database,

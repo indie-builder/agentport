@@ -5,7 +5,12 @@ import type { PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, authorize, authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { enqueueDataDomainBuild, testDataDomainConnection } from './use-cases.js';
+import {
+  deleteDataDomainServer,
+  enqueueDataDomainBuild,
+  ensureDataDomainServer,
+  testDataDomainConnection,
+} from './use-cases.js';
 
 const os = implement(dataDomainsContract).$context<RequestContext>();
 const domains = repo.dataDomains;
@@ -110,10 +115,14 @@ export const dataDomainsRouter = os.router({
   create: os.create.handler(async ({ input, context }) => {
     await authorize(context, 'data_domains.create');
     const { connection, ...rest } = input.body;
-    const row = await domains.createDataDomain(context.db, {
-      ...rest,
-      connectionEncrypted: encryptSecrets(connection, context.config.APP_SECRET_KEY),
-      createdBy: actorOf(context),
+    const row = await context.db.transaction(async (tx) => {
+      const created = await domains.createDataDomain(tx, {
+        ...rest,
+        connectionEncrypted: encryptSecrets(connection, context.config.APP_SECRET_KEY),
+        createdBy: actorOf(context),
+      });
+      await ensureDataDomainServer(tx, { id: created.id, slug: created.slug });
+      return created;
     });
     return toDataDomain(row);
   }),
@@ -137,14 +146,19 @@ export const dataDomainsRouter = os.router({
     const existing = await loadDomain(context, input.params.id);
     await authorizeDomain(context, 'data_domains.update', existing);
     const { connection, name, slug, description, datasource } = input.body;
-    const row = await domains.updateDataDomain(context.db, input.params.id, {
-      ...(name === undefined ? {} : { name }),
-      ...(slug === undefined ? {} : { slug }),
-      ...(description === undefined ? {} : { description }),
-      ...(datasource === undefined ? {} : { datasource }),
-      ...(connection === undefined
-        ? {}
-        : { connectionEncrypted: encryptSecrets(connection, context.config.APP_SECRET_KEY) }),
+    const row = await context.db.transaction(async (tx) => {
+      const updated = await domains.updateDataDomain(tx, input.params.id, {
+        ...(name === undefined ? {} : { name }),
+        ...(slug === undefined ? {} : { slug }),
+        ...(description === undefined ? {} : { description }),
+        ...(datasource === undefined ? {} : { datasource }),
+        ...(connection === undefined
+          ? {}
+          : { connectionEncrypted: encryptSecrets(connection, context.config.APP_SECRET_KEY) }),
+      });
+      if (!updated) return null;
+      await ensureDataDomainServer(tx, { id: updated.id, slug: updated.slug });
+      return updated;
     });
     if (!row) fail('NOT_FOUND', notFoundMessage);
     return toDataDomain(row);
@@ -153,7 +167,11 @@ export const dataDomainsRouter = os.router({
   remove: os.remove.handler(async ({ input, context }) => {
     const existing = await loadDomain(context, input.params.id);
     await authorizeDomain(context, 'data_domains.delete', existing);
-    const ok = await domains.deleteDataDomain(context.db, input.params.id);
+    const ok = await context.db.transaction(async (tx) => {
+      if (!(await domains.deleteDataDomain(tx, input.params.id))) return false;
+      await deleteDataDomainServer(tx, existing.id);
+      return true;
+    });
     if (!ok) fail('NOT_FOUND', notFoundMessage);
     return undefined;
   }),

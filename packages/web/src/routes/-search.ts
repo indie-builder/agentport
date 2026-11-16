@@ -24,7 +24,7 @@ export const resourceSearchSchema = z.object({
 export const listViewSchema = z.enum(['table', 'cards']).optional().catch(undefined);
 
 export const serversSearchSchema = resourceSearchSchema.extend({
-  kind: z.enum(['stdio', 'http', 'generated']).optional().catch(undefined),
+  kind: z.enum(['stdio', 'http', 'generated', 'data_domain']).optional().catch(undefined),
 });
 
 export const agentsSearchSchema = resourceSearchSchema.extend({

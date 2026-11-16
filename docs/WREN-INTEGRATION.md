@@ -82,6 +82,7 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 
 - `data_domains`：数据域本体。`id`、`name`、`slug`(唯一)、`description`、`datasource`、`connection_encrypted`(AES 密文)、`online_version_id`(线上版本指针, 与 `id` 组成复合外键指向 `data_domain_versions`)、`created_by`、`created_at`、`updated_at`。
 - `data_domain_versions`：一次构建一行、不可覆盖。`id`、`data_domain_id`(FK→`data_domains`, ON DELETE cascade)、`status`(`queued`/`building`/`ready`/`failed`)、`project_files`(jsonb 文件快照)、`mdl_manifest`(`ready` 时非空)、`log_tail`、`log_truncated`、`created_at`、`updated_at`；唯一 `(id, data_domain_id)`。
+- `data_domain_query_logs`：明文查询明细，用于核查版本、SQL 摘要、行数与耗时。`id`、`data_domain_id`(FK→`data_domains`, ON DELETE cascade)、`version_id`(可空)、`server_id`、`run_id`、`actor_business_id`、`sql_summary`、`row_count`、`status`(`ok`/`error`)、`duration_ms`、`created_at`；索引 `(data_domain_id, created_at, id)` 与 `(run_id)`。与 append-only 的 `audit_log` 分开：审计保留链式摘要，本表保留可核查明细。
 - `data_domain_identities`：按登录用户配置的 Wren session properties（RLAC/CLAC 的 `required_properties` 取值来源）。`id`、`data_domain_id`(FK→`data_domains`, ON DELETE cascade)、`business_id`(平台用户业务身份, 非空)、`properties`(jsonb `Record<string,string>`, 键值皆字符串)、`created_at`、`updated_at`；唯一 `(data_domain_id, business_id)`。查询时由 api 依 run token→`business_id` 解析本表 properties 注入 `/query`，绝不接受客户端或模型自报。
 
 ### 3.5 建模工作流
@@ -102,7 +103,7 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 **决策**：
 
 - 默认只读 + strict mode；`run_sql` 可按数据域策略要求逐次审批。
-- 每次查询记录审计：用户、run、数据域、版本、SQL 摘要、行数与结果状态。
+- 每次查询记录审计：用户、run、数据域、版本、SQL 摘要、行数与结果状态。明细落 `data_domain_query_logs`（可核查），`audit_log` 仍有该事件的链式摘要。
 - 服务端强制行数上限，不依赖模型自报。
 - 数据库侧使用最小权限账号；PACE 当前为单租户，PRODUCT 已明确组织多租户不在本期范围。
 

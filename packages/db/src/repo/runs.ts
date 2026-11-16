@@ -408,6 +408,15 @@ function runMayUseServer(): SQL {
   )`;
 }
 
+export async function getRunInitiator(db: Database, runId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ initiatedBy: agentRuns.initiatedBy })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  return row?.initiatedBy ?? null;
+}
+
 export async function isRunBoundToServer(
   db: Database,
   runId: string,

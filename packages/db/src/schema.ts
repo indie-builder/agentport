@@ -23,6 +23,7 @@ import {
 } from './schema/chat.js';
 import {
   dataDomainIdentities,
+  dataDomainQueryLogs,
   dataDomains,
   dataDomainVersions,
 } from './schema/data-domains.js';
@@ -96,6 +97,7 @@ export const schema = {
   dataDomainVersions,
   dataDomains,
   dataDomainIdentities,
+  dataDomainQueryLogs,
   conversations,
   messages,
   channels,

@@ -150,6 +150,9 @@ function toEntry(
   if (server.kind === 'knowledge') {
     return knowledgeMcpEntry({ apiUrl, serverId: server.id, runId, runToken });
   }
+  if (server.kind === 'data_domain') {
+    return knowledgeMcpEntry({ apiUrl, serverId: server.id, runId, runToken });
+  }
   const secrets = server.secretsEncrypted ? decryptSecrets(server.secretsEncrypted, secretKey) : {};
   const input = serverInputSchema.parse({
     ...server.config,
@@ -483,7 +486,7 @@ worker.on('failed', async (job, err) => {
     'job failed',
   );
   if (!job || job.attemptsMade < (job.opts.attempts ?? 1)) return;
-  if (!parsed || !parsed.success) return;
+  if (!parsed?.success) return;
   const { runId, agentId } = parsed.data;
   try {
     const slug = await repo.agents.findAgentSlug(db, agentId);

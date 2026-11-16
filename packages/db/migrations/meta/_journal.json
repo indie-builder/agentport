@@ -540,6 +540,20 @@
       "when": 1794851325056,
       "tag": "0076_yummy_blue_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1794852110432,
+      "tag": "0077_dapper_colonel_america",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1794854156844,
+      "tag": "0078_rainy_johnny_storm",
+      "breakpoints": true
     }
   ]
 }

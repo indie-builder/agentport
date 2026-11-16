@@ -223,7 +223,7 @@ function draftFiles(
 
 /** `.mcp.json` 预览条目：密钥替换为占位符。 */
 function previewEntry(server: Server): McpJsonEntry {
-  if (server.kind === 'knowledge') {
+  if (server.kind === 'knowledge' || server.kind === 'data_domain') {
     // 与运行时同一构造器：地址由平台拼，凭证按 run 注入，草稿里只留占位。
     return knowledgeMcpEntry({
       apiUrl: '<平台>',
