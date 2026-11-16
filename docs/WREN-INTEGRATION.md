@@ -105,6 +105,10 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 - 入口：运行时 `POST /generate-mdl` 返回 `projectFiles` 与 `mdlManifest`；平台 `POST /data-domains/{id}/generate-mdl`（权限 `data_domains.build`）用反射结果创建一个 `queued` 版本并交给现有构建队列，构建成功后即可发布。
 - 局限：已对 duckdb 验证（catalog 为文件主名，连接形如 `{url:<dir>,format:"duckdb"}`）；其他数据源尽力而为，DB 原生类型直接透传，错误由构建日志暴露。反射只产出草稿模型，需要人工补全业务语义；不生成关系、指标或访问控制，`enrich-context` 与高影响项人工确认属于后续 M3 切片。
 
+#### 导入校验
+
+导入 `projectFiles` 时在 API 边界先做结构校验：必须包含 `wren_project.yml` 和至少一个 `models/<表>/metadata.yml`，YAML/JSON 能按语法解析且关键文件为映射，路径必须是相对路径且不越出项目根（与构建进程的路径规则一致）。非法输入直接返回 `INVALID_INPUT`，不创建版本、不入构建队列。
+
 ### 3.6 治理
 
 **决策**：
