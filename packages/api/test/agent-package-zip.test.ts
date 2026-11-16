@@ -382,6 +382,21 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect((await listAgents()).some((agent) => agent.id === body.agent.id)).toBe(true);
   });
 
+  it('接受大小写不同的 zip Content-Type（如 Application/Zip）', async () => {
+    const slug = unique('imp-media-type');
+    createdAgents.push(slug);
+
+    const res = await request(app, {
+      method: 'POST',
+      url: '/api/import/agents',
+      headers: { cookie, 'content-type': 'Application/Zip' },
+      payload: packageZip({ agent: { slug, name: slug } }),
+    });
+
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json<AgentImportResult>().agent.slug).toBe(slug);
+  });
+
   it('keeps a supported role and rejects an unsupported one', async () => {
     const slug = unique('imp-role');
     const badSlug = unique('imp-bad-role');

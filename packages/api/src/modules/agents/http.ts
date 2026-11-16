@@ -45,7 +45,7 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
     async (c) => {
       const context = requestContext(c);
       requireTrustedOrigin(context);
-      if (c.req.header('content-type')?.split(';')[0]?.trim() !== 'application/zip')
+      if (c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/zip')
         fail('UNSUPPORTED_MEDIA_TYPE', '不支持的 Content-Type，请使用 application/zip');
       const query = agentImportQuerySchema.parse(c.req.query());
       let entries: Map<string, PackageEntry>;
