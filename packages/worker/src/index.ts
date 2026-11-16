@@ -34,7 +34,10 @@ import { RedisClient } from 'bun';
 import { inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { loadConfig } from './config.js';
-import { runAgentJob } from './runs/execute.js';
+import {
+  startDataDomainBuildReconciler,
+  startDataDomainBuildWorker,
+} from './data-domains/build.js';
 import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
 import { closeEvalRunQueue, evalFailureDiagnostics } from './eval-runner.js';
 import { startKnowledgeWorker } from './knowledge/queue.js';
@@ -43,15 +46,10 @@ import { startKnowledgeScheduler } from './knowledge/scheduler.js';
 import { startMaintenanceWorker } from './maintenance.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
 import { registerNativePlugins } from './native-plugins.js';
-import { startReconciler } from './scheduling/reconcile.js';
-import { type RunAccessDenial } from './runs/run-access.js';
-import {
-  finalizeRun,
-} from './runs/run-finish.js';
-import {
-  closeRunnerClient,
-  configureRunnerClient,
-} from './runner-client.js';
+import { closeRunnerClient, configureRunnerClient } from './runner-client.js';
+import { runAgentJob } from './runs/execute.js';
+import type { RunAccessDenial } from './runs/run-access.js';
+import { finalizeRun } from './runs/run-finish.js';
 import { startRuntimeEnvironmentBuildWorker } from './runtime-environments/build.js';
 import {
   ensureDefaultEnvironment,
@@ -64,6 +62,7 @@ import { SandboxCleanupError } from './sandbox/provider.js';
 import { closeSessionRuntime, startSessionCleanupChannel } from './sandbox/session-cleanup.js';
 import { SessionSandboxes } from './sandbox/sessions.js';
 import { registerSandboxProbe } from './sandbox-probe.js';
+import { startReconciler } from './scheduling/reconcile.js';
 import { startScheduleScheduler } from './scheduling/scheduler.js';
 import { runShutdown } from './shutdown.js';
 import { modelProxyUpstream } from './upstream.js';
@@ -558,6 +557,14 @@ const runtimeEnvironmentBuilds = await startRuntimeEnvironmentBuildWorker({
   logger,
   redisUrl: config.REDIS_URL,
 });
+const dataDomainBuilds = await startDataDomainBuildWorker({
+  db,
+  logger,
+  redisUrl: config.REDIS_URL,
+  wrenRuntimeUrl: config.WREN_RUNTIME_URL,
+  secretKey: config.APP_SECRET_KEY,
+});
+const stopDataDomainBuildReconciler = startDataDomainBuildReconciler({ db, logger });
 // 崩溃恢复：终态收回卡在 queued/building 的版本，不留下假的构建中。
 const stopRuntimeEnvironmentBuildReconciler = startRuntimeEnvironmentBuildReconciler({
   store: {
@@ -663,6 +670,11 @@ const shutdown = async (): Promise<void> => {
         close: async () => stopDefaultEnvironmentRetry?.(),
       },
       { label: 'runtime environment builds', close: () => runtimeEnvironmentBuilds.close() },
+      { label: 'data domain builds', close: () => dataDomainBuilds.close() },
+      {
+        label: 'data domain build reconciler',
+        close: () => stopDataDomainBuildReconciler(),
+      },
       {
         label: 'runtime environment build reconciler',
         close: () => stopRuntimeEnvironmentBuildReconciler(),

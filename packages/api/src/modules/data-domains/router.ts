@@ -5,6 +5,7 @@ import type { PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, authorize, authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { enqueueDataDomainBuild } from './use-cases.js';
 
 const os = implement(dataDomainsContract).$context<RequestContext>();
 const domains = repo.dataDomains;
@@ -150,6 +151,7 @@ export const dataDomainsRouter = os.router({
       input.body.projectFiles,
     );
     if (!version) fail('NOT_FOUND', notFoundMessage);
+    await enqueueDataDomainBuild(context.db, context.log, version.dataDomainId, version.id);
     return toVersion(version);
   }),
 
