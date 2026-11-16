@@ -58,6 +58,34 @@ function toIdentity(row: {
   };
 }
 
+function toQueryLog(row: {
+  id: string;
+  dataDomainId: string;
+  versionId: string | null;
+  serverId: string;
+  runId: string;
+  actorBusinessId: string | null;
+  sqlSummary: string;
+  rowCount: number | null;
+  status: 'ok' | 'error';
+  durationMs: number;
+  createdAt: Date;
+}) {
+  return {
+    id: row.id,
+    dataDomainId: row.dataDomainId,
+    versionId: row.versionId,
+    serverId: row.serverId,
+    runId: row.runId,
+    actorBusinessId: row.actorBusinessId,
+    sqlSummary: row.sqlSummary,
+    rowCount: row.rowCount,
+    status: row.status,
+    durationMs: row.durationMs,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 function encodeCursor(row: DataDomainRow): string {
   return Buffer.from(`${row.createdAt.toISOString()}|${row.id}`).toString('base64url');
 }
@@ -213,6 +241,20 @@ export const dataDomainsRouter = os.router({
     await authorizeDomain(context, 'data_domains.read', row);
     const rows = await domains.listDataDomainIdentities(context.db, input.params.id);
     return rows.map(toIdentity);
+  }),
+
+  queryLogs: os.queryLogs.handler(async ({ input, context }) => {
+    const row = await loadDomain(context, input.params.id);
+    await authorizeDomain(context, 'data_domains.read', row);
+    const { cursor, limit, status, runId } = input.query;
+    const page = await domains.listDataDomainQueryLogs(context.db, {
+      dataDomainId: input.params.id,
+      limit,
+      ...(cursor === undefined ? {} : { cursor }),
+      ...(status === undefined ? {} : { status }),
+      ...(runId === undefined ? {} : { runId }),
+    });
+    return { items: page.items.map(toQueryLog), nextCursor: page.nextCursor };
   }),
 
   upsertIdentity: os.upsertIdentity.handler(async ({ input, context }) => {

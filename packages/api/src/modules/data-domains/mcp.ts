@@ -23,7 +23,7 @@ export interface DataDomainServerInput {
 
 const runSqlInputSchema = z.strictObject({
   sql: z.string().trim().min(1).describe('Read-only SQL against the bound data domain models.'),
-  maxRows: z.number().int().min(0).max(10_000).default(500),
+  maxRows: z.number().int().min(1).max(10_000).default(500),
 });
 
 const queryResponseSchema = z.discriminatedUnion('ok', [

@@ -8,6 +8,7 @@ import {
   dataDomains,
   dataDomainVersions,
 } from '../schema.js';
+import { keysetBefore, paginate } from './keyset.js';
 import { isPgCode } from './pg-errors.js';
 
 export type DataDomainRow = typeof dataDomains.$inferSelect;
@@ -374,4 +375,27 @@ export async function writeDataDomainQueryLog(
   },
 ): Promise<void> {
   await db.insert(dataDomainQueryLogs).values({ id: newId('dataDomainQueryLog'), ...entry });
+}
+
+export async function listDataDomainQueryLogs(
+  db: DbHandle,
+  options: {
+    dataDomainId: string;
+    limit: number;
+    cursor?: string;
+    status?: 'ok' | 'error';
+    runId?: string;
+  },
+): Promise<{ items: DataDomainQueryLogRow[]; nextCursor: string | null }> {
+  const filters = [eq(dataDomainQueryLogs.dataDomainId, options.dataDomainId)];
+  if (options.status !== undefined) filters.push(eq(dataDomainQueryLogs.status, options.status));
+  if (options.runId !== undefined) filters.push(eq(dataDomainQueryLogs.runId, options.runId));
+  if (options.cursor !== undefined) filters.push(keysetBefore(dataDomainQueryLogs, options.cursor));
+  const rows = await db
+    .select()
+    .from(dataDomainQueryLogs)
+    .where(and(...filters))
+    .orderBy(desc(dataDomainQueryLogs.createdAt), desc(dataDomainQueryLogs.id))
+    .limit(options.limit + 1);
+  return paginate(rows, options.limit);
 }
