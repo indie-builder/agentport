@@ -11,6 +11,7 @@ import {
   Cable,
   CalendarClock,
   Container,
+  Database,
   FlaskConical,
   Hash,
   HeartPulse,
@@ -107,6 +108,12 @@ const pages = {
     permissionIds: ['operations.read'],
   },
   runs: { to: '/runs', label: '运行', icon: Activity, permissionIds: ['runs.read'] },
+  dataDomains: {
+    to: '/data-domains',
+    label: '数据域',
+    icon: Database,
+    permissionIds: ['data_domains.read'],
+  },
   runtimeEnvironments: {
     to: '/runtime-environments',
     label: '运行环境',
@@ -184,6 +191,7 @@ export const RESOURCE_SECTIONS = {
   servers: pages.servers,
   plugins: pages.plugins,
   knowledge: pages.knowledge,
+  dataDomains: pages.dataDomains,
 };
 
 export const RESOURCE_MENU = Object.values(RESOURCE_SECTIONS);
@@ -241,6 +249,8 @@ export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
   '/_shell/plugins/$pluginId': pages.plugins,
   '/_shell/knowledge/': pages.knowledge,
   '/_shell/knowledge/$baseId': pages.knowledge,
+  '/_shell/data-domains/': pages.dataDomains,
+  '/_shell/data-domains/$dataDomainId': pages.dataDomains,
   '/_shell/eval': pages.eval,
   '/_shell/operations': pages.operations,
   '/_shell/runs/': pages.runs,

@@ -68,6 +68,16 @@ export const dataDomainVersionSchema = z.object({
   updatedAt: z.string(),
 });
 
+export const dataDomainVersionDetailSchema = z.object({
+  id: z.string(),
+  dataDomainId: z.string(),
+  status: z.enum(['queued', 'building', 'ready', 'failed']),
+  logTail: z.string(),
+  logTruncated: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 export const dataDomainVersionInputSchema = z.object({
   projectFiles: z.record(z.string().min(1).max(512), z.string()),
 });
@@ -146,6 +156,7 @@ export const dataDomainApprovalDecisionSchema = z.object({
 
 const identityParams = idParams.extend({ businessId: businessIdSchema });
 const approvalParams = idParams.extend({ approvalId: z.string().min(1) });
+const versionParams = idParams.extend({ versionId: z.string().min(1) });
 
 const read = contractProcedure.meta({
   access: { kind: 'permission', permissionId: 'data_domains.read' },
@@ -184,6 +195,10 @@ export const dataDomainsContract = {
     .route({ method: 'GET', path: '/data-domains/{id}/versions' })
     .input(z.object({ params: idParams }))
     .output(z.array(dataDomainVersionSchema)),
+  versionDetail: read
+    .route({ method: 'GET', path: '/data-domains/{id}/versions/{versionId}' })
+    .input(z.object({ params: versionParams }))
+    .output(dataDomainVersionDetailSchema),
   createVersion: contractProcedure
     .route({ method: 'POST', path: '/data-domains/{id}/versions', successStatus: 202 })
     .input(z.object({ params: idParams, body: dataDomainVersionInputSchema }))

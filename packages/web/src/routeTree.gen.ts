@@ -29,6 +29,8 @@ import { Route as ShellAgentsIndexRouteImport } from './routes/_shell/agents.ind
 import { Route as ShellAgentsAgentIdRouteImport } from './routes/_shell/agents.$agentId'
 import { Route as ShellChannelsIndexRouteImport } from './routes/_shell/channels.index'
 import { Route as ShellChannelsChannelIdRouteImport } from './routes/_shell/channels.$channelId'
+import { Route as ShellDataDomainsIndexRouteImport } from './routes/_shell/data-domains.index'
+import { Route as ShellDataDomainsDataDomainIdRouteImport } from './routes/_shell/data-domains.$dataDomainId'
 import { Route as ShellKnowledgeIndexRouteImport } from './routes/_shell/knowledge.index'
 import { Route as ShellKnowledgeBaseIdRouteImport } from './routes/_shell/knowledge.$baseId'
 import { Route as ShellPersonalIndexRouteImport } from './routes/_shell/personal.index'
@@ -144,6 +146,17 @@ const ShellChannelsChannelIdRoute = ShellChannelsChannelIdRouteImport.update({
   path: '/channels/$channelId',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellDataDomainsIndexRoute = ShellDataDomainsIndexRouteImport.update({
+  id: '/data-domains/',
+  path: '/data-domains/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellDataDomainsDataDomainIdRoute =
+  ShellDataDomainsDataDomainIdRouteImport.update({
+    id: '/data-domains/$dataDomainId',
+    path: '/data-domains/$dataDomainId',
+    getParentRoute: () => ShellRoute,
+  } as any)
 const ShellKnowledgeIndexRoute = ShellKnowledgeIndexRouteImport.update({
   id: '/knowledge/',
   path: '/knowledge/',
@@ -240,6 +253,7 @@ export interface FileRoutesByFullPath {
   '/s/$shareId': typeof SShareIdRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/channels/$channelId': typeof ShellChannelsChannelIdRoute
+  '/data-domains/$dataDomainId': typeof ShellDataDomainsDataDomainIdRoute
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/personal/memory': typeof ShellPersonalMemoryRoute
   '/personal/profile': typeof ShellPersonalProfileRoute
@@ -252,6 +266,7 @@ export interface FileRoutesByFullPath {
   '/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/agents/': typeof ShellAgentsIndexRoute
   '/channels/': typeof ShellChannelsIndexRoute
+  '/data-domains/': typeof ShellDataDomainsIndexRoute
   '/knowledge/': typeof ShellKnowledgeIndexRoute
   '/personal/': typeof ShellPersonalIndexRoute
   '/plugins/': typeof ShellPluginsIndexRoute
@@ -275,6 +290,7 @@ export interface FileRoutesByTo {
   '/': typeof ShellIndexRoute
   '/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/channels/$channelId': typeof ShellChannelsChannelIdRoute
+  '/data-domains/$dataDomainId': typeof ShellDataDomainsDataDomainIdRoute
   '/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/personal/memory': typeof ShellPersonalMemoryRoute
   '/personal/profile': typeof ShellPersonalProfileRoute
@@ -287,6 +303,7 @@ export interface FileRoutesByTo {
   '/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/agents': typeof ShellAgentsIndexRoute
   '/channels': typeof ShellChannelsIndexRoute
+  '/data-domains': typeof ShellDataDomainsIndexRoute
   '/knowledge': typeof ShellKnowledgeIndexRoute
   '/personal': typeof ShellPersonalIndexRoute
   '/plugins': typeof ShellPluginsIndexRoute
@@ -313,6 +330,7 @@ export interface FileRoutesById {
   '/_shell/': typeof ShellIndexRoute
   '/_shell/agents/$agentId': typeof ShellAgentsAgentIdRoute
   '/_shell/channels/$channelId': typeof ShellChannelsChannelIdRoute
+  '/_shell/data-domains/$dataDomainId': typeof ShellDataDomainsDataDomainIdRoute
   '/_shell/knowledge/$baseId': typeof ShellKnowledgeBaseIdRoute
   '/_shell/personal/memory': typeof ShellPersonalMemoryRoute
   '/_shell/personal/profile': typeof ShellPersonalProfileRoute
@@ -325,6 +343,7 @@ export interface FileRoutesById {
   '/_shell/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   '/_shell/agents/': typeof ShellAgentsIndexRoute
   '/_shell/channels/': typeof ShellChannelsIndexRoute
+  '/_shell/data-domains/': typeof ShellDataDomainsIndexRoute
   '/_shell/knowledge/': typeof ShellKnowledgeIndexRoute
   '/_shell/personal/': typeof ShellPersonalIndexRoute
   '/_shell/plugins/': typeof ShellPluginsIndexRoute
@@ -351,6 +370,7 @@ export interface FileRouteTypes {
     | '/s/$shareId'
     | '/agents/$agentId'
     | '/channels/$channelId'
+    | '/data-domains/$dataDomainId'
     | '/knowledge/$baseId'
     | '/personal/memory'
     | '/personal/profile'
@@ -363,6 +383,7 @@ export interface FileRouteTypes {
     | '/runtime-environments/$environmentId'
     | '/agents/'
     | '/channels/'
+    | '/data-domains/'
     | '/knowledge/'
     | '/personal/'
     | '/plugins/'
@@ -386,6 +407,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agents/$agentId'
     | '/channels/$channelId'
+    | '/data-domains/$dataDomainId'
     | '/knowledge/$baseId'
     | '/personal/memory'
     | '/personal/profile'
@@ -398,6 +420,7 @@ export interface FileRouteTypes {
     | '/runtime-environments/$environmentId'
     | '/agents'
     | '/channels'
+    | '/data-domains'
     | '/knowledge'
     | '/personal'
     | '/plugins'
@@ -423,6 +446,7 @@ export interface FileRouteTypes {
     | '/_shell/'
     | '/_shell/agents/$agentId'
     | '/_shell/channels/$channelId'
+    | '/_shell/data-domains/$dataDomainId'
     | '/_shell/knowledge/$baseId'
     | '/_shell/personal/memory'
     | '/_shell/personal/profile'
@@ -435,6 +459,7 @@ export interface FileRouteTypes {
     | '/_shell/runtime-environments/$environmentId'
     | '/_shell/agents/'
     | '/_shell/channels/'
+    | '/_shell/data-domains/'
     | '/_shell/knowledge/'
     | '/_shell/personal/'
     | '/_shell/plugins/'
@@ -590,6 +615,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellChannelsChannelIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/data-domains/': {
+      id: '/_shell/data-domains/'
+      path: '/data-domains'
+      fullPath: '/data-domains/'
+      preLoaderRoute: typeof ShellDataDomainsIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/data-domains/$dataDomainId': {
+      id: '/_shell/data-domains/$dataDomainId'
+      path: '/data-domains/$dataDomainId'
+      fullPath: '/data-domains/$dataDomainId'
+      preLoaderRoute: typeof ShellDataDomainsDataDomainIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/knowledge/': {
       id: '/_shell/knowledge/'
       path: '/knowledge'
@@ -738,12 +777,14 @@ interface ShellRouteChildren {
   ShellIndexRoute: typeof ShellIndexRoute
   ShellAgentsAgentIdRoute: typeof ShellAgentsAgentIdRoute
   ShellChannelsChannelIdRoute: typeof ShellChannelsChannelIdRoute
+  ShellDataDomainsDataDomainIdRoute: typeof ShellDataDomainsDataDomainIdRoute
   ShellKnowledgeBaseIdRoute: typeof ShellKnowledgeBaseIdRoute
   ShellPluginsPluginIdRoute: typeof ShellPluginsPluginIdRoute
   ShellRunsRunIdRoute: typeof ShellRunsRunIdRoute
   ShellRuntimeEnvironmentsEnvironmentIdRoute: typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
   ShellAgentsIndexRoute: typeof ShellAgentsIndexRoute
   ShellChannelsIndexRoute: typeof ShellChannelsIndexRoute
+  ShellDataDomainsIndexRoute: typeof ShellDataDomainsIndexRoute
   ShellKnowledgeIndexRoute: typeof ShellKnowledgeIndexRoute
   ShellPluginsIndexRoute: typeof ShellPluginsIndexRoute
   ShellRunsIndexRoute: typeof ShellRunsIndexRoute
@@ -766,6 +807,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellIndexRoute: ShellIndexRoute,
   ShellAgentsAgentIdRoute: ShellAgentsAgentIdRoute,
   ShellChannelsChannelIdRoute: ShellChannelsChannelIdRoute,
+  ShellDataDomainsDataDomainIdRoute: ShellDataDomainsDataDomainIdRoute,
   ShellKnowledgeBaseIdRoute: ShellKnowledgeBaseIdRoute,
   ShellPluginsPluginIdRoute: ShellPluginsPluginIdRoute,
   ShellRunsRunIdRoute: ShellRunsRunIdRoute,
@@ -773,6 +815,7 @@ const ShellRouteChildren: ShellRouteChildren = {
     ShellRuntimeEnvironmentsEnvironmentIdRoute,
   ShellAgentsIndexRoute: ShellAgentsIndexRoute,
   ShellChannelsIndexRoute: ShellChannelsIndexRoute,
+  ShellDataDomainsIndexRoute: ShellDataDomainsIndexRoute,
   ShellKnowledgeIndexRoute: ShellKnowledgeIndexRoute,
   ShellPluginsIndexRoute: ShellPluginsIndexRoute,
   ShellRunsIndexRoute: ShellRunsIndexRoute,

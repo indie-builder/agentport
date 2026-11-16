@@ -4,6 +4,7 @@ export * from './api/auth.js';
 export * from './api/channels.js';
 export * from './api/chat.js';
 export * from './api/client.js';
+export * from './api/data-domains.js';
 export * from './api/eval.js';
 export * from './api/health.js';
 export * from './api/knowledge.js';

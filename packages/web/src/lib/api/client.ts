@@ -5,6 +5,7 @@ import audit from './audit.js';
 import auth from './auth.js';
 import channels from './channels.js';
 import chat from './chat.js';
+import dataDomains from './data-domains.js';
 import evalApi from './eval.js';
 import health from './health.js';
 import knowledge from './knowledge.js';
@@ -56,6 +57,17 @@ export const api = {
   runtimeEnvironmentVersion: runtimeEnvironments.runtimeEnvironmentVersion,
   buildRuntimeEnvironment: runtimeEnvironments.buildRuntimeEnvironment,
   publishRuntimeEnvironment: runtimeEnvironments.publishRuntimeEnvironment,
+  dataDomainPage: dataDomains.dataDomainPage,
+  dataDomains: dataDomains.dataDomains,
+  dataDomain: dataDomains.dataDomain,
+  createDataDomain: dataDomains.createDataDomain,
+  updateDataDomain: dataDomains.updateDataDomain,
+  deleteDataDomain: dataDomains.deleteDataDomain,
+  dataDomainVersions: dataDomains.dataDomainVersions,
+  dataDomainVersion: dataDomains.dataDomainVersion,
+  createDataDomainVersion: dataDomains.createDataDomainVersion,
+  publishDataDomain: dataDomains.publishDataDomain,
+  testDataDomainConnection: dataDomains.testDataDomainConnection,
   importMcpFile: servers.importMcpFile,
   serverToken: servers.serverToken,
   rotateServerToken: servers.rotateServerToken,

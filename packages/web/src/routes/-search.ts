@@ -214,6 +214,15 @@ export const runtimeEnvironmentDetailSearchSchema = z.object({
   backTo: backToSearchSchema,
 });
 
+export const dataDomainsSearchSchema = z.object({
+  q: z.string().optional().catch(undefined),
+});
+
+export const dataDomainDetailSearchSchema = z.object({
+  version: z.string().min(1).optional().catch(undefined),
+  backTo: backToSearchSchema,
+});
+
 /**
  * 知识库详情：分区、Wiki 页面、文档与来源选中、检索条件都进 URL。
  * 数组经 Router 默认 JSON 序列化，刷新与分享后回到同一筛选。

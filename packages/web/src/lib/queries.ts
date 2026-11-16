@@ -3,6 +3,7 @@ export * from './queries/audit.js';
 export * from './queries/auth.js';
 export * from './queries/channels.js';
 export * from './queries/chat.js';
+export * from './queries/data-domains.js';
 export * from './queries/eval.js';
 export * from './queries/knowledge-documents.js';
 export * from './queries/knowledge-faq.js';
