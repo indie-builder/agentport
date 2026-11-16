@@ -541,7 +541,7 @@ bun run --filter @agentport/worker maintenance
 sudo truncate -s 0 "$(docker inspect --format '{{.LogPath}}' agentport-api-1)"
 ```
 
-不要把 `agent_runs` 全表 `DELETE` 当作常规清理：外键与审计都依赖它，用保留策略或调小 `RETAIN_RUN_DAYS` 后跑 maintenance。
+不要把 `agent_runs` 全表 `DELETE` 当作常规清理：外键与审计都依赖它，用保留策略（运维「概况」页「数据保留」调整，或播种前设小 `RETAIN_RUN_DAYS`）后跑 maintenance。
 
 **验证**
 

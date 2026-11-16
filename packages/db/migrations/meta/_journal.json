@@ -519,6 +519,13 @@
       "when": 1794743938509,
       "tag": "0073_yummy_eddie_brock",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1794840577221,
+      "tag": "0074_stale_power_man",
+      "breakpoints": true
     }
   ]
 }

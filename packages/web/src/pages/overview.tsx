@@ -1,9 +1,11 @@
+import { type RetentionSettings, retentionSettingsSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { Activity, Bot, Download, Plus, Server, Sparkles } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { AttentionPanel } from '../components/attention-panel.js';
+import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import {
   Collapsible,
@@ -38,6 +40,15 @@ import {
   ChartTooltipContent,
 } from '../components/ui/chart.js';
 import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '../components/ui/field.js';
+import { Input } from '../components/ui/input.js';
+import {
   Table,
   TableBody,
   TableCell,
@@ -50,6 +61,7 @@ import { errorMessage, type OverviewAgentRow, type RecentRun } from '../lib/api.
 import { downloadBlob } from '../lib/browser-files.js';
 import { cn } from '../lib/cn.js';
 import { toCsv } from '../lib/csv.js';
+import { useFormBlocker } from '../lib/form.js';
 import {
   formatCost,
   formatDateTime,
@@ -60,7 +72,16 @@ import {
   shortId,
 } from '../lib/format.js';
 import { judgeQueue } from '../lib/health.js';
-import { healthMetricsQuery, meQuery, useOverview, useOverviewTimeseries } from '../lib/queries.js';
+import {
+  healthMetricsQuery,
+  meQuery,
+  useOverview,
+  useOverviewTimeseries,
+  useRetention,
+  useUpdateRetention,
+} from '../lib/queries.js';
+import { toastError, toastSuccess } from '../lib/toast.js';
+import { useZodForm } from '../lib/use-zod-form.js';
 
 function toUsageCsv(agents: OverviewAgentRow[]) {
   const rows = agents.map((agent) => [
@@ -518,6 +539,174 @@ export function RunTrendCard({ days }: { days: number }) {
   );
 }
 
+const retentionFormSchema = retentionSettingsSchema.pick({
+  runDays: true,
+  messageDays: true,
+  agentVersions: true,
+});
+
+type RetentionFormValues = Pick<RetentionSettings, 'runDays' | 'messageDays' | 'agentVersions'>;
+
+const RETENTION_FIELDS = [
+  {
+    name: 'runDays',
+    id: 'retention-run-days',
+    label: '运行记录保留天数',
+    hint: '超过该天数的运行记录及其消息会被清理。',
+    max: 3650,
+  },
+  {
+    name: 'messageDays',
+    id: 'retention-message-days',
+    label: '消息保留天数',
+    hint: '无运行归属的会话消息与频道消息超过该天数后清理（随运行的对话消息按运行记录保留天数清理）。',
+    max: 3650,
+  },
+  {
+    name: 'agentVersions',
+    id: 'retention-agent-versions',
+    label: '版本保留个数',
+    hint: '每个专家保留最近的历史版本数量。',
+    max: 1000,
+  },
+] as const satisfies ReadonlyArray<{
+  name: keyof RetentionFormValues;
+  id: string;
+  label: string;
+  hint: string;
+  max: number;
+}>;
+
+function RetentionForm({
+  settings,
+  canManage,
+}: {
+  settings: RetentionSettings;
+  canManage: boolean;
+}) {
+  const save = useUpdateRetention();
+  const { register, handleSubmit, reset, formState } = useZodForm(retentionFormSchema, {
+    defaultValues: {
+      runDays: settings.runDays,
+      messageDays: settings.messageDays,
+      agentVersions: settings.agentVersions,
+    },
+  });
+  const { errors, isDirty: dirty } = formState;
+  const pending = save.isPending;
+  const disabled = pending || !canManage;
+  const blocker = useFormBlocker(dirty, pending);
+
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    if (settingsRef.current === settings) return;
+    settingsRef.current = settings;
+    if (!dirty) {
+      reset({
+        runDays: settings.runDays,
+        messageDays: settings.messageDays,
+        agentVersions: settings.agentVersions,
+      });
+    }
+  }, [settings, dirty, reset]);
+
+  const submit = handleSubmit((values) => {
+    if (disabled) return;
+    save.mutate(values, {
+      onSuccess: (saved) => {
+        reset({
+          runDays: saved.runDays,
+          messageDays: saved.messageDays,
+          agentVersions: saved.agentVersions,
+        });
+        toastSuccess('数据保留策略已保存');
+      },
+      onError: toastError,
+    });
+  });
+
+  return (
+    <>
+      <form className="flex flex-col gap-5" noValidate onSubmit={submit}>
+        <FieldGroup className="gap-4">
+          {RETENTION_FIELDS.map((field) => {
+            const error = errors[field.name]?.message;
+            return (
+              <Field
+                key={field.name}
+                orientation="horizontal"
+                className="items-start gap-3"
+                data-disabled={disabled}
+                data-invalid={Boolean(error)}
+              >
+                <FieldContent>
+                  <FieldLabel htmlFor={field.id}>{field.label}</FieldLabel>
+                  <FieldDescription id={`${field.id}-hint`}>{field.hint}</FieldDescription>
+                  <FieldError id={`${field.id}-error`}>{error}</FieldError>
+                </FieldContent>
+                <Input
+                  {...register(field.name, { valueAsNumber: true })}
+                  id={field.id}
+                  type="number"
+                  min={1}
+                  max={field.max}
+                  step={1}
+                  inputMode="numeric"
+                  className="w-24"
+                  disabled={disabled}
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={
+                    error ? `${field.id}-hint ${field.id}-error` : `${field.id}-hint`
+                  }
+                />
+              </Field>
+            );
+          })}
+        </FieldGroup>
+
+        <div className="flex items-center justify-end gap-3">
+          {settings.updatedAt && settings.updatedBy ? (
+            <span className="mr-auto text-xs text-muted-foreground">
+              上次修改：{formatDateTime(settings.updatedAt)} · {settings.updatedBy}
+            </span>
+          ) : null}
+          {canManage ? (
+            <Button type="submit" disabled={disabled || !dirty} aria-busy={pending}>
+              {pending ? '保存中…' : '保存'}
+            </Button>
+          ) : null}
+        </div>
+      </form>
+      <ConfirmDialog
+        open={blocker.status === 'blocked'}
+        onClose={() => blocker.reset?.()}
+        title="放弃未保存的数据保留策略？"
+        description="离开后本次修改不会保存。可以先保存再继续。"
+        confirmLabel="放弃并离开"
+        confirmDisabled={pending}
+        onConfirm={async () => blocker.proceed()}
+      />
+    </>
+  );
+}
+
+function RetentionSection() {
+  const me = useQuery(meQuery);
+  const canManage = can(me.data, 'operations.manage');
+  const retention = useRetention();
+  return (
+    <PageSection title="数据保留" description="每日维护任务据此清理；修改后下次维护生效。">
+      {retention.isPending ? (
+        <LoadingState rows={3} />
+      ) : retention.data ? (
+        <RetentionForm settings={retention.data} canManage={canManage} />
+      ) : (
+        <ErrorState error={retention.error} onRetry={() => void retention.refetch()} />
+      )}
+    </PageSection>
+  );
+}
+
 export function OverviewPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -730,6 +919,8 @@ export function OverviewPage() {
             </PageSection>
           </>
         ) : null}
+
+        <RetentionSection />
       </PageBody>
     </Page>
   );

@@ -1,7 +1,7 @@
 import { opsContract } from '@agentport/contract/ops';
 import { fail, notFound } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
-import { utcWindowStart } from '@agentport/shared';
+import { RETENTION_DEFAULTS, utcWindowStart } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
@@ -91,6 +91,39 @@ export const opsRouter = os.router({
       approvals: approvalItems,
       failedRuns: failedItems,
       total: approvalItems.length + failedItems.length,
+    };
+  }),
+
+  retention: os.retention.handler(async ({ context }) => {
+    const row = await opsRepo.getRetentionSettings(context.db);
+    return row
+      ? {
+          runDays: row.runDays,
+          messageDays: row.messageDays,
+          agentVersions: row.agentVersions,
+          updatedAt: iso(row.updatedAt),
+          updatedBy: row.updatedBy,
+        }
+      : { ...RETENTION_DEFAULTS, updatedAt: null, updatedBy: null };
+  }),
+
+  updateRetention: os.updateRetention.handler(async ({ input, context }) => {
+    const principal = requireUser(context);
+    const row = await opsRepo.upsertRetentionSettings(context.db, input.body, principal.businessId);
+    await repo.audit.writeAudit(context.db, context.log, {
+      actor: actorOf(context),
+      action: 'ops.retention.updated',
+      target: 'retention',
+      input: input.body,
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return {
+      runDays: row.runDays,
+      messageDays: row.messageDays,
+      agentVersions: row.agentVersions,
+      updatedAt: iso(row.updatedAt),
+      updatedBy: row.updatedBy,
     };
   }),
 

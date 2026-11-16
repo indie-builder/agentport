@@ -95,6 +95,11 @@ if (config.SANDBOX_EGRESS === 'none') {
 }
 
 const { db, client } = createDb(config.DATABASE_URL);
+await repo.ops.ensureRetentionDefaults(db, {
+  runDays: config.RETAIN_RUN_DAYS,
+  messageDays: config.RETAIN_MESSAGE_DAYS,
+  agentVersions: config.RETAIN_AGENT_VERSIONS,
+});
 const runConnection = createBunRedisClient(new RedisClient(config.REDIS_URL));
 const evalConnection = createBunRedisClient(new RedisClient(config.REDIS_URL));
 type Db = typeof db;

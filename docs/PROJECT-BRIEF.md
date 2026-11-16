@@ -942,6 +942,7 @@ TypeID 由 uuidv7 编码而来，按时间排序，便于按创建顺序扫描�
 - `user_preferences`：个人偏好表用用户维度的自然键 `business_id` 作主键，不生成独立 TypeID。
 - `memory_reviews`：一次审核对应一条运行，主键复用该运行的 `run_id`（本身是 run 的 TypeID），不另外生成 ID。
 - `platform_bootstrap`：单行初始化标记表，主键为固定常量 `'initial'`。
+- `platform_settings`：平台级参数单行表，主键为固定常量 `'singleton'`；保存数据保留策略（运行天数、消息天数、专家版本个数）。
 - `channel_wakes`：主键是 `${channel_message_id}:${agent_id}` 形式的幂等派生标识，用于去重插入；唯一性由主键承担，`channel_wakes_message_agent_idx` 为普通索引仅辅助查询。
 - Better Auth 的用户与账号技术 ID 随机生成（bootstrap 也是随机 ID）；`session` / `verification` 默认随机 ID。
 - 认证账户的技术 ID 只作登录载体，可删除并重建；业务记录不引用它，统一直接保存稳定 `businessId`（创建人、负责人、会话创建人、用户消息发送人、运行发起人、角色/成员授权、个人记忆）。`session` 属于认证载体，账户重建时不恢复旧会话。字段与接口见 §18 及配套契约文件；实现只在本工作树，未合入 main、已通过最终 review、准备发布。
