@@ -5,6 +5,7 @@ import {
   CircleAlert,
   CircleCheck,
   Clock,
+  Database,
   LoaderCircle,
   Pencil,
   RotateCcw,
@@ -50,6 +51,7 @@ import {
   useDataDomainVersion,
   useDataDomainVersions,
   useDeleteDataDomain,
+  useGenerateDataDomainMdl,
   usePublishDataDomain,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
@@ -97,6 +99,7 @@ export function DataDomainDetailPage() {
   const publish = usePublishDataDomain();
   const remove = useDeleteDataDomain();
   const createVersion = useCreateDataDomainVersion();
+  const generateMdl = useGenerateDataDomainMdl();
   const canUpdate = can(me.data, 'data_domains.update');
   const canDelete = can(me.data, 'data_domains.delete');
   const canBuild = can(me.data, 'data_domains.build');
@@ -266,6 +269,13 @@ export function DataDomainDetailPage() {
     }
   };
 
+  const generateDraft = (): void => {
+    generateMdl.mutate(current.id, {
+      onSuccess: () => toastSuccess('已提交结构反射，正在生成草稿版本'),
+      onError: (error) => toastError(error),
+    });
+  };
+
   const publishVersion = (version: DataDomainVersion): void => {
     publish.mutate(
       { id: current.id, versionId: version.id },
@@ -284,7 +294,7 @@ export function DataDomainDetailPage() {
   };
 
   const building = reading || createVersion.isPending;
-  const interacting = building || publish.isPending || remove.isPending;
+  const interacting = building || generateMdl.isPending || publish.isPending || remove.isPending;
 
   return (
     <Page>
@@ -509,6 +519,16 @@ export function DataDomainDetailPage() {
                   onClick={() => void submitBuild()}
                 >
                   {createVersion.isPending ? '提交中…' : '构建新版本'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={interacting}
+                  aria-busy={generateMdl.isPending}
+                  onClick={generateDraft}
+                >
+                  <Database data-icon="inline-start" />{' '}
+                  {generateMdl.isPending ? '提交中…' : '从数据库生成 MDL 草稿'}
                 </Button>
               </div>
               <FieldDescription>

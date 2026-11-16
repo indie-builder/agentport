@@ -66,6 +66,7 @@ export const api = {
   dataDomainVersions: dataDomains.dataDomainVersions,
   dataDomainVersion: dataDomains.dataDomainVersion,
   createDataDomainVersion: dataDomains.createDataDomainVersion,
+  generateDataDomainMdl: dataDomains.generateDataDomainMdl,
   publishDataDomain: dataDomains.publishDataDomain,
   testDataDomainConnection: dataDomains.testDataDomainConnection,
   importMcpFile: servers.importMcpFile,

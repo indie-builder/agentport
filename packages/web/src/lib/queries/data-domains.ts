@@ -100,6 +100,14 @@ export function useCreateDataDomainVersion() {
   });
 }
 
+export function useGenerateDataDomainMdl() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: api.generateDataDomainMdl,
+    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
+  });
+}
+
 export function usePublishDataDomain() {
   const client = useQueryClient();
   return useMutation({
