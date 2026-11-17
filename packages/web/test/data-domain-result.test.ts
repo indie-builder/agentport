@@ -249,7 +249,7 @@ describe('DataDomainResultView chart', () => {
     await click((button) => button.textContent?.trim() === '图表');
     expect(host.querySelector('.recharts-wrapper')).toBeTruthy();
     expect(host.querySelectorAll('.recharts-bar-rectangle path')).toHaveLength(2);
-    expect(host.textContent).toContain('聚合请在查询 SQL 中完成');
+    expect(host.textContent).toContain('不聚合：每行一个数据点');
   });
 
   it('keeps one bar per row when dimension values repeat', async () => {
