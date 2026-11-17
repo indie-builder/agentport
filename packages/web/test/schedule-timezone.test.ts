@@ -34,6 +34,9 @@ const schedule: Schedule = {
   agentName: 'Expert A',
   name: 'Morning report',
   cron: '0 9 * * *',
+  timezone: 'UTC',
+  missedPolicy: 'skip',
+  description: '每天 09:00',
   prompt: 'Summarize the inbox',
   enabled: true,
   lastRunAt: null,
@@ -143,7 +146,7 @@ afterEach(async () => {
 });
 
 describe('schedule next due display', () => {
-  it('reads the next trigger in UTC even when the browser timezone is not UTC', async () => {
+  it('reads the next trigger in the schedule timezone even when the browser timezone differs', async () => {
     const localDisplay = new Intl.DateTimeFormat('zh-CN', {
       month: '2-digit',
       day: '2-digit',
@@ -157,14 +160,16 @@ describe('schedule next due display', () => {
     schedules = [{ ...schedule, lastRunAt: new Date(Date.now() - 5 * 60_000).toISOString() }];
     await mount();
 
-    expect(header('下次触发（UTC）')).toBeTruthy();
+    expect(header('下次触发')).toBeTruthy();
+    expect(header('下次触发（UTC）')).toBeUndefined();
     expect(nextDueCell().textContent?.trim()).toBe(utcDisplay);
     expect(utcDisplay).toContain('09:00');
     expect(nextDueCell().textContent).not.toContain('17:00');
-    expect(narrowSummary()).toContain(`下次 UTC ${utcDisplay}`);
+    expect(narrowSummary()).toContain('每天 09:00（UTC）');
+    expect(narrowSummary()).toContain(`下次 ${utcDisplay}`);
     expect(narrowSummary()).not.toContain('17:00');
     expect(lastRunCell().textContent).toContain('分钟前');
-    expect(row().querySelectorAll('td')[0]?.textContent).toBe('每天 09:00 UTC');
+    expect(row().querySelectorAll('td')[0]?.textContent).toBe('每天 09:00（UTC）');
   });
 
   it('shows an em dash for missing or invalid next trigger times', async () => {
@@ -176,7 +181,7 @@ describe('schedule next due display', () => {
 
     for (const index of [0, 1]) {
       expect(nextDueCell(index).textContent?.trim()).toBe('—');
-      expect(narrowSummary(index)).toContain('下次 UTC —');
+      expect(narrowSummary(index)).toContain('下次 —');
     }
     expect(container.textContent).not.toContain('Invalid Date');
   });

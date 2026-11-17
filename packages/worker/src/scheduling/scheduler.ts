@@ -9,16 +9,22 @@ import {
   scheduleTriggerArgs,
   scheduleTriggerJobSchema,
 } from '@agentport/shared';
-import { createBunRedisClient, Queue, Worker } from 'bullmq';
+import { createBunRedisClient, getNextMillis, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Logger } from 'pino';
+import { z } from 'zod';
 import { checkUserAgentAccess } from '../runs/run-access.js';
 import { startIntervalTicker } from './interval-ticker.js';
 
-/** 每 5 分钟与库对账一次：补缺失的 scheduler、删孤儿，不动已存在且未变的。 */
-const RECONCILE_MS = 5 * 60_000;
+const RECONCILE_MS = z.coerce
+  .number()
+  .int()
+  .positive()
+  .default(5 * 60_000)
+  .parse(process.env.SCHEDULE_RECONCILE_MS);
 const ENQUEUE_ATTEMPTS = 3;
+const TRIGGER_MISSED_GRACE_MS = 60_000;
 
 type Db = ReturnType<typeof createDb>['db'];
 
@@ -132,7 +138,7 @@ export async function processScheduleTrigger(
     return 'skipped';
   }
   const data = parsed.data;
-  const triggerAt = job.opts.prevMillis;
+  const triggerAt = data.triggerAt ?? job.opts.prevMillis;
   if (triggerAt === undefined) {
     input.logger.warn({ data }, 'skip schedule trigger: missing planned time');
     return 'skipped';
@@ -163,15 +169,6 @@ export async function processScheduleTrigger(
       reason: denial.reason,
       agentId: schedule.agentId,
       businessId: schedule.executeAsBusinessId,
-    });
-    return 'skipped';
-  }
-
-  const backlog = await input.runsQueue.getWaitingCount();
-  if (backlog > AGENT_RUNS_BACKLOG_LIMIT) {
-    await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
-      reason: 'backlog',
-      waiting: backlog,
     });
     return 'skipped';
   }
@@ -237,11 +234,29 @@ export async function processScheduleTrigger(
     if (existing) return 'duplicate';
   }
 
+  if (schedule.lastRunAt !== null && triggerAt < schedule.lastRunAt.getTime()) return 'duplicate';
+  const missed = Date.now() - triggerAt > TRIGGER_MISSED_GRACE_MS;
+  if (schedule.missedPolicy === 'skip' && missed) {
+    await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
+      reason: 'missed',
+    });
+    return 'skipped';
+  }
+
+  const backlog = await input.runsQueue.getWaitingCount();
+  if (backlog > AGENT_RUNS_BACKLOG_LIMIT) {
+    await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
+      reason: 'backlog',
+      waiting: backlog,
+    });
+    return 'skipped';
+  }
+
   runId ??= newId('run');
   conversationId ??= newId('conversation');
   messageId ??= newId('message');
   // 先落盘再建运行：崩溃后重投能靠 runId 识别已创建的运行。
-  await job.updateData({ scheduleId: data.scheduleId, runId, conversationId, messageId });
+  await job.updateData({ ...data, runId, conversationId, messageId });
 
   const claim = await repo.ops.claimScheduleTrigger(input.db, {
     scheduleId: data.scheduleId,
@@ -249,6 +264,7 @@ export async function processScheduleTrigger(
     conversationId,
     messageId,
     triggerAt,
+    ...(data.triggerAt !== undefined || missed ? { recordedAt: Date.now() } : {}),
   });
   if (claim === 'duplicate') return 'duplicate';
   if (claim === 'agent_disabled') {
@@ -287,10 +303,6 @@ export async function processScheduleTrigger(
   return 'fired';
 }
 
-/**
- * 定时任务的权威来源是 API/DB，worker 负责把 Redis 里的 scheduler 对齐到库：
- * 启动同步一次，之后每 5 分钟对账；已存在且 cron/tz 未变的不重置（保留 next）。
- */
 export function startScheduleScheduler(input: {
   db: Db;
   logger: Logger;
@@ -314,20 +326,29 @@ export function startScheduleScheduler(input: {
   queue.on('error', (err) => input.logger.error({ err }, 'schedule queue error'));
 
   async function syncOnce(): Promise<void> {
-    const rows = await input.db
-      .select({
-        id: schema.agentSchedules.id,
-        cron: schema.agentSchedules.cron,
-        enabled: schema.agentSchedules.enabled,
-      })
-      .from(schema.agentSchedules);
-    const desired = new Map(rows.filter((row) => row.enabled).map((row) => [row.id, row.cron]));
-    const existing = new Map(
-      (await queue.getJobSchedulers()).map((entry) => [entry.key, entry.pattern]),
-    );
-    for (const [id, cron] of desired) {
-      if (existing.get(id) === cron) continue;
-      await queue.upsertJobScheduler(...scheduleTriggerArgs(id, cron));
+    const rows = await repo.ops.listSchedulesForSync(input.db);
+    const desired = new Map(rows.filter((row) => row.enabled).map((row) => [row.id, row]));
+    const existing = new Map((await queue.getJobSchedulers()).map((entry) => [entry.key, entry]));
+    for (const [id, row] of desired) {
+      const args = scheduleTriggerArgs(id, row.cron, row.timezone);
+      const entry = existing.get(id);
+      if (entry?.pattern !== row.cron || entry.tz !== row.timezone) {
+        await queue.upsertJobScheduler(...args);
+      }
+      if (row.missedPolicy !== 'run_once') continue;
+      try {
+        const anchor = row.lastRunAt ?? row.createdAt;
+        const next = getNextMillis(anchor.getTime(), { pattern: row.cron, tz: row.timezone });
+        if (next !== undefined && next <= Date.now()) {
+          await queue.add(
+            args[2].name,
+            { scheduleId: id, triggerAt: next },
+            { ...args[2].opts, jobId: `catch-up:${id}:${anchor.getTime()}` },
+          );
+        }
+      } catch (err) {
+        input.logger.warn({ err, scheduleId: id }, 'schedule catch-up failed');
+      }
     }
     for (const id of existing.keys()) {
       if (!desired.has(id)) await queue.removeJobScheduler(id);

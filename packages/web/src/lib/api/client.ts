@@ -231,6 +231,8 @@ export const api = {
   createSchedule: ops.createSchedule,
   updateSchedule: ops.updateSchedule,
   deleteSchedule: ops.deleteSchedule,
+  scheduleRuns: ops.scheduleRuns,
+  retryScheduleRun: ops.retryScheduleRun,
   personalMemory: memory.personalMemory,
   updatePersonalProfile: personal.updatePersonalProfile,
   meSessions: personal.meSessions,

@@ -1,10 +1,11 @@
-import type {
-  Attention,
-  RetentionSettings,
-  RetentionUpdate,
-  Schedule,
-  ScheduleInput,
-  SchedulePatch,
+import {
+  type Attention,
+  type RetentionSettings,
+  type RetentionUpdate,
+  type Schedule,
+  type ScheduleInput,
+  type SchedulePatch,
+  type ScheduleRun,
 } from '@agentport/shared';
 import { rpc } from '../orpc.js';
 
@@ -20,4 +21,8 @@ export default {
   updateSchedule: (id: string, input: SchedulePatch): Promise<Schedule> =>
     rpc.ops.schedules.update({ params: { id }, body: input }),
   deleteSchedule: (id: string): Promise<void> => rpc.ops.schedules.remove({ params: { id } }),
+  scheduleRuns: (id: string, limit?: number): Promise<ScheduleRun[]> =>
+    rpc.ops.schedules.runs({ params: { id }, query: limit === undefined ? {} : { limit } }),
+  retryScheduleRun: (id: string, runId: string): Promise<ScheduleRun> =>
+    rpc.ops.schedules.retry({ params: { id, runId } }),
 };

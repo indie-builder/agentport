@@ -295,7 +295,7 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 | `schedule_failed` | 定时 run 失败/超时，或触发入队失败 | 定时任务创建人 | `/schedules` |
 | `budget_alert` | run 结算成本后达到月度预算告警比例或超支 | 专家负责人 | `/agents/{agentId}` |
 
-定时触发的 run 在 `agent_runs.schedule_id` 记录来源 `agent_schedules.id`，仅用于失败通知定位任务创建人；普通与频道运行为 null。定时 run 失败时若创建人与 run 发起人不是同一人，发起人另收一条 `run_failed`。
+定时触发的 run 在 `agent_runs.schedule_id` 记录来源 `agent_schedules.id`，用于按任务查询执行历史、校验重试归属及失败通知定位任务创建人；普通与频道运行为 null。定时 run 失败时若创建人与 run 发起人不是同一人，发起人另收一条 `run_failed`。
 
 已读语义：用户批准或拒绝私有 run / 频道审批后，服务端按来源键把对应 `approval` 通知标为已读；回答澄清提问后把对应 `question` 通知标为已读。标记失败只记日志，不回滚已完成的审批或回答。其余通知保留未读，直到用户单条或全部标为已读。页面 `/notifications` 提供全部/待办筛选、单条与全部已读、游标分页，侧栏入口显示未读数并按 30 秒轮询更新。
 
@@ -313,6 +313,14 @@ API 重启只中断当前短请求，runner 对网络错误和 5xx 按 2–5 秒
 - **版本与回滚**：版本详情返回完整 `definition`；回滚按 `definition` 恢复 `agents` 子表全部配置。旧快照没有 `definition` 时走既有兼容路径，并把最新版本设为线上。
 - **评测固定**：评测 run 固定 `agent_version` 与 `resource_versions`（从该版本 `definition.resources` 提取的绑定资源 id/name/updatedAt 指纹），新增 `target: 'published' | 'draft'`；`draft` 用当前编辑态完整快照跑回归，批次内每条 case 使用同一份定义。
 - **保留**：版本清理永远保留 `published_version` 指向的版本，避免线上快照被 retention 删除。
+
+### 3.8 定时任务闭环（2026-11-18）
+
+`agent_schedules` 保存五段 cron、IANA `timezone`（默认 `Asia/Shanghai`）与 `missed_policy`（`skip` / `run_once`，默认 `skip`）。API 以任务时区调用 BullMQ 解析 cron，创建、启用或修改 cron/时区后同步原生 Job Scheduler；仅修改名称、提示词或补跑策略保留原 pending job。响应直接包含 `description`，支持每天、每周、每月、每小时与分钟间隔，其他显示「自定义计划」。PATCH 省略时区、补跑策略或启用状态时不注入默认值。
+
+`GET /api/schedules/{id}/runs` 要求 `schedules.read`，按任务对象范围授权后返回该任务最近运行（默认 20，最多 50），包含状态、创建/开始/结束时间、耗时、失败原因与分类、费用。`POST /api/schedules/{id}/runs/{runId}/retry` 要求 `schedules.manage` 并校验读/管理对象范围；只允许同一任务的 failed/timeout 运行，且任务仍启用。重试复用与计划触发一致的智能体启用与预算准入，创建新会话/消息/运行，入队失败把 queued run 收为 failed 并返回 503；成功返回 201 并写 `schedule.retried` 审计。重试按 `retry_of_run_id` 部分唯一索引独立认领，不推进任务 `last_run_at`，因此不会吞掉正常计划触发。
+
+补跑契约：`skip` 跳过停机错过的计划，`run_once` 由 worker 同步时识别错过计划并至多补一次；触发载荷可带 `triggerAt`。DB 认领仍以 `last_run_at < triggerAt` 去重，但补跑将 `recordedAt`（当前时间）写入 `last_run_at`，避免下轮同步再次补跑。`listSchedulesForSync` 提供时区、策略与上次执行/创建时间；worker 启动与每轮对账会同步 Job Scheduler、按 `run_once` 扫描错过计划并至多补一次，消费端在 `skip` 策略下跳过迟到触发。界面 `/schedules` 展示可读计划、任务时区与执行历史，失败或超时运行可直接重试。
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 

@@ -218,7 +218,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
         const entry = await schedulerQueue.getJobScheduler(scheduleId);
         expect(entry?.next).toEqual(expect.any(Number));
         expect(entry?.pattern).toBe('*/5 * * * *');
-        expect(entry?.tz).toBe('UTC');
+        expect(entry?.tz).toBe('Asia/Shanghai');
       } finally {
         await scheduler.close();
       }
@@ -226,7 +226,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
 
     it('removes orphan schedulers that no longer exist in the database', async () => {
       await schedulerQueue.upsertJobScheduler(
-        ...scheduleTriggerArgs('ghost-schedule', '* * * * *'),
+        ...scheduleTriggerArgs('ghost-schedule', '* * * * *', 'Asia/Shanghai'),
       );
       const scheduler = startScheduleScheduler({ db, logger, redisUrl, prefix });
       try {
@@ -240,7 +240,9 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
 
     it('keeps a disabled schedule out of redis', async () => {
       const scheduleId = await insertSchedule({ enabled: false });
-      await schedulerQueue.upsertJobScheduler(...scheduleTriggerArgs(scheduleId, '* * * * *'));
+      await schedulerQueue.upsertJobScheduler(
+        ...scheduleTriggerArgs(scheduleId, '* * * * *', 'Asia/Shanghai'),
+      );
       const scheduler = startScheduleScheduler({ db, logger, redisUrl, prefix });
       try {
         await scheduler.sync();
@@ -287,7 +289,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       // 先在任何 worker 消费前注册计划 job 并固定本轮预期：worker 一取到 job 就会把
       // scheduler.next 推进到下一轮，之后再读可能已换成下一轮。
       const plannedJob = await schedulerQueue.upsertJobScheduler(
-        ...scheduleTriggerArgs(scheduleId, '*/5 * * * *'),
+        ...scheduleTriggerArgs(scheduleId, '*/5 * * * *', 'Asia/Shanghai'),
       );
       const plannedAt = plannedJob.opts.prevMillis;
       if (plannedAt === undefined) throw new Error('planned job is missing prevMillis');

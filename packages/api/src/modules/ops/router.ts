@@ -1,12 +1,19 @@
 import { opsContract } from '@agentport/contract/ops';
 import { fail, notFound } from '@agentport/core';
-import { repo, schema } from '@agentport/db';
-import { RETENTION_DEFAULTS, utcWindowStart } from '@agentport/shared';
+import { newId, repo, schema } from '@agentport/db';
+import {
+  describeScheduleCron,
+  RETENTION_DEFAULTS,
+  runEnqueueOptions,
+  utcWindowStart,
+} from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
+import { getQueue } from '../../queue/producer.js';
+import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import {
   getScheduleQueue,
   removeScheduler,
@@ -33,6 +40,9 @@ function toSchedule(row: ScheduleLike, nextDueAt: string | null = null) {
     agentName: row.agentName ?? null,
     name: row.name,
     cron: row.cron,
+    timezone: row.timezone,
+    missedPolicy: row.missedPolicy,
+    description: describeScheduleCron(row.cron),
     prompt: row.prompt,
     enabled: row.enabled,
     lastRunAt: iso(row.lastRunAt),
@@ -42,8 +52,17 @@ function toSchedule(row: ScheduleLike, nextDueAt: string | null = null) {
   };
 }
 
-function assertSchedulableCron(cron: string | undefined): void {
-  if (cron !== undefined && !isSchedulableCron(cron)) {
+function toScheduleRun(row: NonNullable<Awaited<ReturnType<typeof opsRepo.getScheduleRun>>>) {
+  return {
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    startedAt: iso(row.startedAt),
+    endedAt: iso(row.endedAt),
+  };
+}
+
+function assertSchedulableCron(cron: string, timezone: string): void {
+  if (!isSchedulableCron(cron, timezone)) {
     fail('INVALID_INPUT', INVALID_CRON_MESSAGE, { path: '/cron' });
   }
 }
@@ -136,7 +155,7 @@ export const opsRouter = os.router({
       );
     }),
     create: os.schedules.create.handler(async ({ input, context }) => {
-      assertSchedulableCron(input.body.cron);
+      assertSchedulableCron(input.body.cron, input.body.timezone);
       const [agent] = await context.db
         .select({ id: schema.agents.id, name: schema.agents.name })
         .from(schema.agents)
@@ -182,7 +201,6 @@ export const opsRouter = os.router({
       return toSchedule({ ...row, agentName: agent.name }, nextDueAt);
     }),
     update: os.schedules.update.handler(async ({ input, context }) => {
-      assertSchedulableCron(input.body.cron);
       const existing = await opsRepo.getSchedule(context.db, input.params.id);
       if (!existing) fail('NOT_FOUND', '定时任务不存在');
       await authorizeObject(
@@ -197,8 +215,14 @@ export const opsRouter = os.router({
         { agentId: existing.agentId },
         '定时任务不存在',
       );
+      assertSchedulableCron(
+        input.body.cron ?? existing.cron,
+        input.body.timezone ?? existing.timezone,
+      );
       const patch = {
         ...(input.body.name === undefined ? {} : { name: input.body.name }),
+        ...(input.body.timezone === undefined ? {} : { timezone: input.body.timezone }),
+        ...(input.body.missedPolicy === undefined ? {} : { missedPolicy: input.body.missedPolicy }),
         ...(input.body.cron === undefined ? {} : { cron: input.body.cron }),
         ...(input.body.prompt === undefined ? {} : { prompt: input.body.prompt }),
         ...(input.body.enabled === undefined ? {} : { enabled: input.body.enabled }),
@@ -224,7 +248,11 @@ export const opsRouter = os.router({
         if (!row.enabled) {
           await removeScheduler(queue, row.id);
         } else {
-          if (existing.enabled === false || existing.cron !== row.cron) {
+          if (
+            existing.enabled === false ||
+            existing.cron !== row.cron ||
+            existing.timezone !== row.timezone
+          ) {
             await upsertScheduler(queue, row);
           }
           nextDueAt = await schedulerNextRun(queue, row.id);
@@ -233,6 +261,104 @@ export const opsRouter = os.router({
         await reportScheduleSyncFailure(context, row.id, err);
       }
       return toSchedule(row, nextDueAt);
+    }),
+    runs: os.schedules.runs.handler(async ({ input, context }) => {
+      const schedule = await opsRepo.getSchedule(context.db, input.params.id);
+      if (!schedule) fail('NOT_FOUND', '定时任务不存在');
+      await authorizeObject(
+        context,
+        'schedules.read',
+        { agentId: schedule.agentId },
+        '定时任务不存在',
+      );
+      const runs = await opsRepo.listScheduleRuns(context.db, schedule.id, input.query.limit);
+      return runs.map(toScheduleRun);
+    }),
+    retry: os.schedules.retry.handler(async ({ input, context }) => {
+      const schedule = await opsRepo.getSchedule(context.db, input.params.id);
+      if (!schedule) fail('NOT_FOUND', '定时任务不存在');
+      await authorizeObject(
+        context,
+        'schedules.read',
+        { agentId: schedule.agentId },
+        '定时任务不存在',
+      );
+      await authorizeObject(
+        context,
+        'schedules.manage',
+        { agentId: schedule.agentId },
+        '定时任务不存在',
+      );
+      const previous = await opsRepo.getScheduleRun(context.db, schedule.id, input.params.runId);
+      if (!previous) fail('NOT_FOUND', '运行记录不存在');
+      if (previous.status !== 'failed' && previous.status !== 'timeout') {
+        fail('CONFLICT', '仅失败或超时的运行可以重试');
+      }
+      if (!schedule.enabled) fail('CONFLICT', '定时任务已停用，无法重试');
+      const runId = newId('run');
+      const conversationId = newId('conversation');
+      const claimed = await opsRepo.claimScheduleRetry(context.db, {
+        scheduleId: schedule.id,
+        previousRunId: previous.id,
+        runId,
+        conversationId,
+        messageId: newId('message'),
+      });
+      if (claimed === 'agent_disabled') fail('CONFLICT', '智能体已停用，无法重试');
+      if (claimed === 'budget_exceeded') fail('CONFLICT', '智能体本月预算已用尽，无法重试');
+      if (claimed === 'duplicate') fail('CONFLICT', '任务已触发或已停用，请刷新后重试');
+      try {
+        await getQueue().add(
+          'run',
+          {
+            runId,
+            agentId: schedule.agentId,
+            conversationId,
+            prompt: schedule.prompt,
+          },
+          runEnqueueOptions(runId),
+        );
+      } catch (err) {
+        context.log.warn({ err, runId, scheduleId: schedule.id }, 'schedule retry enqueue failed');
+        const failed = await failQueuedRunEnqueue(context.db, runId);
+        if (failed) {
+          await repo.notifications
+            .createNotification(context.db, {
+              businessId: schedule.createdBy,
+              kind: 'schedule_failed',
+              title: '定时任务重试失败',
+              body: `定时任务「${schedule.name}」重试入队失败，请稍后重试`,
+              link: '/schedules',
+              sourceId: `schedule-failed:${schedule.id}:${runId}`,
+            })
+            .catch((notifyErr: unknown) => {
+              context.log.warn(
+                { err: notifyErr, scheduleId: schedule.id, runId },
+                'schedule notification failed',
+              );
+            });
+          await repo.audit.writeAudit(context.db, context.log, {
+            actor: actorOf(context),
+            action: 'schedule.retry_failed',
+            target: schedule.id,
+            input: { runId, previousRunId: previous.id },
+            status: 'error',
+            requestId: context.requestId,
+          });
+        }
+        fail('SERVICE_UNAVAILABLE', '重试入队失败，请稍后重试');
+      }
+      await repo.audit.writeAudit(context.db, context.log, {
+        actor: actorOf(context),
+        action: 'schedule.retried',
+        target: schedule.id,
+        input: { runId, previousRunId: previous.id },
+        status: 'ok',
+        requestId: context.requestId,
+      });
+      const run = await opsRepo.getScheduleRun(context.db, schedule.id, runId);
+      if (!run) fail('NOT_FOUND', '运行记录不存在');
+      return toScheduleRun(run);
     }),
     remove: os.schedules.remove.handler(async ({ input, context }) => {
       const existing = await opsRepo.getSchedule(context.db, input.params.id);

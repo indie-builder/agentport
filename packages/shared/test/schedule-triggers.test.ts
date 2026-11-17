@@ -11,9 +11,13 @@ describe('schedule trigger queue contract', () => {
   });
 
   it('builds the approved upsert arguments', () => {
-    const [id, repeat, template] = scheduleTriggerArgs('schedule_abc', '*/5 * * * *');
+    const [id, repeat, template] = scheduleTriggerArgs(
+      'schedule_abc',
+      '*/5 * * * *',
+      'Asia/Shanghai',
+    );
     expect(id).toBe('schedule_abc');
-    expect(repeat).toEqual({ pattern: '*/5 * * * *', tz: 'UTC' });
+    expect(repeat).toEqual({ pattern: '*/5 * * * *', tz: 'Asia/Shanghai' });
     expect(template.name).toBe('trigger');
     expect(template.data).toEqual({ scheduleId: 'schedule_abc' });
     expect(template.opts).toEqual({

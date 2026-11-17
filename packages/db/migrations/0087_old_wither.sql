@@ -1,0 +1,2 @@
+ALTER TABLE "agent_runs" ADD COLUMN "retry_of_run_id" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "agent_runs_retry_of_idx" ON "agent_runs" USING btree ("retry_of_run_id") WHERE "agent_runs"."retry_of_run_id" is not null;

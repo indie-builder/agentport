@@ -404,6 +404,7 @@ agent_runs(
   session_id text,           -- Agent SDK session id
   sandbox_id text,
   schedule_id text,          -- 定时触发的来源 agent_schedules.id；普通与频道运行为 null
+  retry_of_run_id text,      -- 手工重试来源 run id；非重试为 null（唯一）
   agent_version int,         -- 准入时固定的线上版本；null 表示按 live 表执行的历史行或夹具
   definition_snapshot jsonb, -- 该次 run 使用的完整 AgentDefinition
   server_ids jsonb,          -- 准入时固定本轮可访问的 MCP server id 集合；null 为旧行回退 live 绑定；worker 按实际渲染并集覆盖
@@ -412,6 +413,23 @@ agent_runs(
   error text,
   cost_usd numeric,
   turns int
+)
+
+agent_schedules(
+  id text pk,
+  agent_id text not null fk cascade,
+  name text not null,
+  created_by text not null,
+  execute_as_business_id text not null,
+  cron text not null,
+  timezone text not null default 'Asia/Shanghai',
+  missed_policy text not null default 'skip',
+  prompt text not null,
+  enabled boolean not null default true,
+  last_run_at timestamptz,
+  next_due_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 )
 
 run_feedback(
@@ -470,6 +488,8 @@ notifications(
 -- unique (business_id, kind, source_id)：同一接收人的同一事件只投递一次
 -- index (business_id, created_at, id)；partial index (business_id, created_at) where read_at is null
 ```
+
+`agent_schedules.timezone` 为有效 IANA 时区，cron 按任务时区解析；`missed_policy` 取 `skip`（跳过错过计划）或 `run_once`（恢复时至多补一次）。API 返回可读 `description` 与 BullMQ 的真实下一次计划时间；库中 `next_due_at` 不参与调度计算。`agent_runs.schedule_id` 同时用于任务执行历史、重试归属与失败通知。历史默认最近 20 条、最多 50 条，包含状态、时间、耗时、错误分类与费用；仅 failed/timeout 可重试，重试重新经过启用、预算与去重准入，并写 `schedule.retried` 审计。补跑认领比较原计划时间，记录当前时间，防止周期同步重复补跑；停机扫描与补跑由 worker 对账执行，同一错过计划至多补一次。
 
 专家区分编辑态与发布态：`agents` 及子表保存当前编辑态，保存仍生成 `agent_versions` 快照；`agents.published_version` / `published_at` 是线上指针，为空表示历史行或夹具按 live 表执行。所有 run（聊天、频道、定时、平台 MCP、记忆审核）在准入时固定发布版本，worker 按该版本的 `definition` 渲染与执行；版本详情返回完整定义，回滚据此恢复子表。评测 run 固定 `agent_version` 与 `resource_versions`，`target` 为 `published` 或 `draft`，草稿目标使用当次编辑态快照做发布前回归。
 
@@ -716,7 +736,7 @@ interface SandboxProvider {
 - **运行隔离**：agent run 可能持续数分钟，不能占着 HTTP 请求。
 - **并发控制**：限制同时运行的沙盒数量（`AGENT_MAX_CONCURRENT`）。
 - **重试与可观测**：失败重试、进度查询、取消。
-- **定时任务**：将来的定时触发、清理过期沙盒。
+- **定时任务**：按业务时区触发专家运行，支持执行历史与失败重试；停机错过计划按 `skip` / `run_once` 策略由 worker 对账时处理，过期沙盒清理由维护任务承担。
 
 ### 7.2 队列设计
 

@@ -28,6 +28,9 @@ const schedule: Schedule = {
   agentName: 'Expert A',
   name: 'Morning report',
   cron: '0 9 * * *',
+  timezone: 'Asia/Shanghai',
+  missedPolicy: 'skip',
+  description: '每天 09:00',
   prompt: 'Summarize the inbox',
   enabled: true,
   lastRunAt: null,
@@ -41,6 +44,7 @@ const other: Schedule = {
   id: 'sch_2',
   name: 'Evening digest',
   cron: '0 18 * * *',
+  description: '每天 18:00',
   prompt: 'Summarize the evening',
 };
 
@@ -357,8 +361,12 @@ describe('schedule dialog fields and payload', () => {
     const agentField = document.getElementById('schedule-agent');
     const frequency = document.getElementById('schedule-frequency');
     const time = document.getElementById('schedule-time');
+    const timezone = document.getElementById('schedule-timezone');
+    const missedPolicy = document.getElementById('schedule-missed-policy');
     const enabled = document.getElementById('schedule-enabled');
-    expect(name && prompt && agentField && frequency && time && enabled).toBeTruthy();
+    expect(
+      name && prompt && agentField && frequency && time && timezone && missedPolicy && enabled,
+    ).toBeTruthy();
 
     const groupOf = (element: Element | null) =>
       element?.closest('[data-slot="field-group"]') ?? null;
@@ -367,6 +375,8 @@ describe('schedule dialog fields and payload', () => {
     expect(groupOf(agentField)).toBe(groupOf(name));
     expect(groupOf(frequency)).not.toBe(groupOf(name));
     expect(groupOf(time)).toBe(groupOf(frequency));
+    expect(groupOf(timezone)).toBe(groupOf(frequency));
+    expect(groupOf(missedPolicy)).toBe(groupOf(frequency));
     expect(groupOf(enabled)).toBe(groupOf(frequency));
 
     // 主编辑区先于执行条件，键盘与读屏顺序和视觉左右一致。
@@ -379,6 +389,8 @@ describe('schedule dialog fields and payload', () => {
       'schedule-agent',
       'schedule-frequency',
       'schedule-time',
+      'schedule-timezone',
+      'schedule-missed-policy',
       'schedule-enabled',
     ]);
 
@@ -387,11 +399,14 @@ describe('schedule dialog fields and payload', () => {
       ['schedule-name', '名称'],
       ['schedule-prompt', '任务内容'],
       ['schedule-agent', '专家'],
-      ['schedule-time', '时间（UTC）'],
+      ['schedule-time', '时间'],
     ]) {
       expect(labelOf(id)).toContain(text);
       expect(labelOf(id)).toContain('必填');
     }
+    expect(labelOf('schedule-timezone')).toContain('时区');
+    expect(labelOf('schedule-missed-policy')).toContain('错过触发');
+    expect(labelOf('schedule-time')).not.toContain('UTC');
     expect(labelOf('schedule-enabled')).toContain('启用');
     expect(labelOf('schedule-enabled')).not.toContain('必填');
     expect(document.getElementById('schedule-prompt')?.getAttribute('placeholder')).toBe(
@@ -407,7 +422,7 @@ describe('schedule dialog fields and payload', () => {
     );
     const hint = document.getElementById('schedule-cron-hint')?.textContent ?? '';
     expect(hint).toContain('五段：分 时 日 月 周');
-    expect(hint).toContain('UTC');
+    expect(hint).toContain('按任务时区解析');
     expect(hint).toContain('切换频率会替换此表达式');
   });
 
@@ -417,6 +432,8 @@ describe('schedule dialog fields and payload', () => {
 
     expect(frequencyText()).toBe('每天');
     expect(timeValue()).toBe('09:00');
+    expect(document.getElementById('schedule-timezone')?.textContent).toContain('Asia/Shanghai');
+    expect(document.getElementById('schedule-missed-policy')?.textContent).toContain('跳过');
     expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe('');
     expect((document.getElementById('schedule-prompt') as HTMLTextAreaElement).value).toBe('');
     expect(
@@ -473,6 +490,8 @@ describe('schedule dialog fields and payload', () => {
       agentId: 'agent-1',
       name: 'Nightly digest',
       cron: '30 1 * * *',
+      timezone: 'Asia/Shanghai',
+      missedPolicy: 'skip',
       prompt: 'Summarize the day',
       enabled: true,
     });
@@ -495,13 +514,15 @@ describe('schedule dialog fields and payload', () => {
     expect(call?.body).toEqual({
       name: 'Evening report',
       cron: '0 18 * * *',
+      timezone: 'Asia/Shanghai',
+      missedPolicy: 'skip',
       prompt: 'Summarize the evening',
       enabled: false,
       expectedUpdatedAt: schedule.updatedAt,
     });
   });
 
-  it('serializes a daily schedule as minute and hour in UTC', async () => {
+  it('serializes a daily schedule as minute and hour in the task timezone', async () => {
     await mount();
     await click('新建定时任务');
     await selectOption('schedule-agent', 'Expert A');
@@ -518,6 +539,8 @@ describe('schedule dialog fields and payload', () => {
       agentId: 'agent-1',
       name: 'Nightly digest',
       cron: '30 18 * * *',
+      timezone: 'Asia/Shanghai',
+      missedPolicy: 'skip',
       prompt: 'Summarize the day',
       enabled: true,
     });
@@ -755,6 +778,10 @@ describe('schedule dialog fields and payload', () => {
       true,
     );
     expect((document.getElementById('schedule-time') as HTMLInputElement).disabled).toBe(true);
+    expect((document.getElementById('schedule-timezone') as HTMLButtonElement).disabled).toBe(true);
+    expect((document.getElementById('schedule-missed-policy') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
     for (const day of ['周一', '周二', '周三', '周四', '周五']) {
       expect(weekdayButton(day).getAttribute('aria-disabled')).toBe('true');
       expect(weekdayButton(day).hasAttribute('data-disabled')).toBe(true);
@@ -1002,6 +1029,7 @@ describe('schedule stale conflict recovery', () => {
       ...schedule,
       name: 'Remote name',
       cron: '30 18 * * 1,3,5',
+      description: '每周一、周三、周五 18:30',
       prompt: 'Remote prompt',
       enabled: false,
       updatedAt: '2026-10-05T00:00:00.000Z',

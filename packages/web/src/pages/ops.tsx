@@ -5,8 +5,8 @@ import {
   scheduleInputSchema,
 } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
+import { History, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -24,6 +24,7 @@ import {
   PageTopbar,
 } from '../components/page.js';
 import { RequiredMark } from '../components/required-mark.js';
+import { RunStatusBadge } from '../components/run/run-status-badge.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 
 import { Button } from '../components/ui/button.js';
@@ -72,8 +73,8 @@ import { ApiError, api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
 import { fieldErrors } from '../lib/form.js';
-import { formatRelative, formatUtcDateTime } from '../lib/format.js';
-import { meQuery, useExperts, useSchedules } from '../lib/queries.js';
+import { formatCost, formatDuration, formatRelative, formatZonedDateTime } from '../lib/format.js';
+import { meQuery, useExperts, useScheduleRuns, useSchedules } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
 import { useZodForm } from '../lib/use-zod-form.js';
 
@@ -96,6 +97,16 @@ const weekdayOptions = [
 ] as const;
 
 const defaultWeekdays = ['1', '2', '3', '4', '5'];
+
+const timeZoneOptions = [...Intl.supportedValuesOf('timeZone')]
+  .sort()
+  .map((value) => ({ value, label: value }));
+const knownTimeZones = new Set(timeZoneOptions.map((option) => option.value));
+
+const missedPolicyOptions = [
+  { value: 'skip', label: '跳过' },
+  { value: 'run_once', label: '补跑一次' },
+] as const;
 
 function parseTime(value: string): { hours: number; minutes: number } | null {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
@@ -147,23 +158,12 @@ function decodeCron(
   return { frequency: 'weekly', time, weekdays: rawDays };
 }
 
-function formatScheduleCron(cron: string): string {
-  const decoded = decodeCron(cron);
-  if (!decoded) return cron;
-  const frequency =
-    decoded.frequency === 'daily'
-      ? '每天'
-      : weekdayOptions
-          .filter((day) => decoded.weekdays.includes(day.value))
-          .map((day) => day.name)
-          .join('、');
-  return `${frequency} ${decoded.time} UTC`;
-}
-
 const emptyScheduleForm: ScheduleFormValues = {
   agentId: '',
   name: '',
   cron: '',
+  timezone: 'Asia/Shanghai',
+  missedPolicy: 'skip',
   prompt: '',
   enabled: true,
   frequency: 'daily',
@@ -178,6 +178,8 @@ function draftFromSchedule(schedule: Schedule): ScheduleFormValues {
     name: schedule.name,
     // 非简单表达式保留原文；简单表达式由 time/weekdays 重新投影，避免保存时改写 cron。
     cron: decoded ? '' : schedule.cron,
+    timezone: schedule.timezone,
+    missedPolicy: schedule.missedPolicy,
     prompt: schedule.prompt,
     enabled: schedule.enabled,
     frequency: decoded?.frequency ?? 'custom',
@@ -195,6 +197,8 @@ function projectScheduleInput(values: ScheduleFormValues): ScheduleInput {
     agentId: values.agentId,
     name: values.name,
     cron,
+    timezone: values.timezone,
+    missedPolicy: values.missedPolicy,
     prompt: values.prompt,
     enabled: values.enabled,
   };
@@ -205,6 +209,8 @@ const scheduleFormSchema = z
     agentId: z.string(),
     name: z.string(),
     cron: z.string(),
+    timezone: z.string(),
+    missedPolicy: z.enum(['skip', 'run_once']),
     prompt: z.string(),
     enabled: z.boolean(),
     frequency: z.enum(['daily', 'weekly', 'custom']),
@@ -221,6 +227,8 @@ const scheduleFormSchema = z
       agentId: values.agentId,
       name: values.name,
       cron: generated,
+      timezone: values.timezone,
+      missedPolicy: values.missedPolicy,
       prompt: values.prompt,
       enabled: values.enabled,
     });
@@ -263,6 +271,7 @@ export function SchedulesPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [deleting, setDeleting] = useState<Schedule | null>(null);
+  const [historyOf, setHistoryOf] = useState<Schedule | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
   // 删除成功标记：finalFocus 在弹层卸载时才读取，用 ref 保证读到的是本次结果。
   const deletedRef = useRef(false);
@@ -365,7 +374,7 @@ export function SchedulesPage() {
             {items.map((schedule) => {
               const nextDue =
                 schedule.enabled || schedule.nextDueAt
-                  ? formatUtcDateTime(schedule.nextDueAt)
+                  ? formatZonedDateTime(schedule.nextDueAt, schedule.timezone)
                   : '未安排';
               return (
                 <li key={schedule.id} className="min-w-0">
@@ -373,6 +382,7 @@ export function SchedulesPage() {
                     schedule={schedule}
                     nextDue={nextDue}
                     busy={rowBusy}
+                    onHistory={() => setHistoryOf(schedule)}
                     onToggle={(enabled) => {
                       if (rowBusy) return;
                       toggle.mutate({ id: schedule.id, enabled });
@@ -406,7 +416,7 @@ export function SchedulesPage() {
                     执行计划
                   </TableHead>
                   <TableHead scope="col" className="hidden w-[18%] sm:table-cell">
-                    下次触发（UTC）
+                    下次触发
                   </TableHead>
                   <TableHead scope="col" className="hidden w-[16%] sm:table-cell">
                     上次触发
@@ -420,7 +430,7 @@ export function SchedulesPage() {
                 {items.map((schedule) => {
                   const nextDue =
                     schedule.enabled || schedule.nextDueAt
-                      ? formatUtcDateTime(schedule.nextDueAt)
+                      ? formatZonedDateTime(schedule.nextDueAt, schedule.timezone)
                       : '未安排';
                   return (
                     <TableRow key={schedule.id}>
@@ -433,13 +443,13 @@ export function SchedulesPage() {
                         </span>
                         {/* 窄屏收起列，用可见标签保留每项数据。 */}
                         <span className="block text-xs text-muted-foreground sm:hidden">
-                          {formatScheduleCron(schedule.cron)} · 下次 UTC {nextDue} · 上次触发{' '}
+                          {schedule.description}（{schedule.timezone}） · 下次 {nextDue} · 上次触发{' '}
                           {formatRelative(schedule.lastRunAt)}
                         </span>
                       </TableHead>
                       <TableCell className="hidden sm:table-cell">
                         <span className="text-xs text-muted-foreground">
-                          {formatScheduleCron(schedule.cron)}
+                          {schedule.description}（{schedule.timezone}）
                         </span>
                       </TableCell>
                       <TableCell className="hidden text-xs tabular-nums text-muted-foreground sm:table-cell">
@@ -450,6 +460,14 @@ export function SchedulesPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`执行历史 ${schedule.name}`}
+                            onClick={() => setHistoryOf(schedule)}
+                          >
+                            <History />
+                          </Button>
                           <Switch
                             size="sm"
                             checked={schedule.enabled}
@@ -513,6 +531,13 @@ export function SchedulesPage() {
           onClose={() => setEditing(null)}
         />
       ) : null}
+      {historyOf ? (
+        <ScheduleRunsDialog
+          schedule={historyOf}
+          canManage={canManage}
+          onClose={() => setHistoryOf(null)}
+        />
+      ) : null}
       {deleting ? (
         <ConfirmDialog
           open
@@ -536,6 +561,7 @@ function ScheduleCard({
   nextDue,
   busy,
   onToggle,
+  onHistory,
   onEdit,
   onDelete,
 }: {
@@ -543,6 +569,7 @@ function ScheduleCard({
   nextDue: string;
   busy: boolean;
   onToggle: (enabled: boolean) => void;
+  onHistory: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -570,14 +597,24 @@ function ScheduleCard({
       <CardContent>
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
           <dt className="text-muted-foreground">执行计划</dt>
-          <dd className="text-right text-muted-foreground">{formatScheduleCron(schedule.cron)}</dd>
-          <dt className="text-muted-foreground">下次触发（UTC）</dt>
+          <dd className="break-words text-right text-muted-foreground">
+            {schedule.description}（{schedule.timezone}）
+          </dd>
+          <dt className="text-muted-foreground">下次触发</dt>
           <dd className="text-right tabular-nums text-muted-foreground">{nextDue}</dd>
           <dt className="text-muted-foreground">上次触发</dt>
           <dd className="text-right text-muted-foreground">{formatRelative(schedule.lastRunAt)}</dd>
         </dl>
       </CardContent>
       <CardFooter className="justify-end gap-1.5">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`执行历史 ${schedule.name}`}
+          onClick={onHistory}
+        >
+          <History />
+        </Button>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -598,6 +635,131 @@ function ScheduleCard({
         </Button>
       </CardFooter>
     </Card>
+  );
+}
+
+function ScheduleRunsDialog({
+  schedule,
+  canManage,
+  onClose: onClosed,
+}: {
+  schedule: Schedule;
+  canManage: boolean;
+  onClose: () => void;
+}) {
+  const dialog = useDialogClose(onClosed);
+  const location = useLocation();
+  const client = useQueryClient();
+  const runs = useScheduleRuns(schedule.id);
+  const retry = useMutation({
+    mutationFn: (runId: string) => api.retryScheduleRun(schedule.id, runId),
+    onSuccess: () => toastSuccess('已重新排队执行'),
+    onError: toastError,
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['schedules', schedule.id, 'runs'] });
+      void client.invalidateQueries({ queryKey: ['schedules'] });
+    },
+  });
+  return (
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(false, dialog.close)}
+    >
+      <DialogShell
+        title="执行历史"
+        description={`${schedule.name} · ${schedule.description}（${schedule.timezone}）`}
+        className="max-w-215 sm:max-w-215"
+      >
+        {runs.isPending ? <LoadingState rows={3} /> : null}
+        {runs.isError ? (
+          <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />
+        ) : null}
+        {runs.data && runs.data.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">还没有执行记录</p>
+        ) : null}
+        {runs.data && runs.data.length > 0 ? (
+          <div className="overflow-x-auto">
+            <Table>
+              <caption className="sr-only">{schedule.name} 的执行历史</caption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">状态</TableHead>
+                  <TableHead scope="col">开始时间</TableHead>
+                  <TableHead scope="col">结束时间</TableHead>
+                  <TableHead scope="col">耗时</TableHead>
+                  <TableHead scope="col" className="w-[32%]">
+                    失败原因
+                  </TableHead>
+                  <TableHead scope="col" className="text-right">
+                    <span className="sr-only">操作</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {runs.data.map((run) => {
+                  const retryable =
+                    canManage &&
+                    schedule.enabled &&
+                    (run.status === 'failed' || run.status === 'timeout');
+                  return (
+                    <TableRow key={run.id}>
+                      <TableCell>
+                        <RunStatusBadge status={run.status} />
+                      </TableCell>
+                      <TableCell className="text-xs tabular-nums text-muted-foreground">
+                        {formatZonedDateTime(run.startedAt ?? run.createdAt, schedule.timezone)}
+                        {run.startedAt ? null : <span className="ml-1 text-2xs">创建</span>}
+                      </TableCell>
+                      <TableCell className="text-xs tabular-nums text-muted-foreground">
+                        {formatZonedDateTime(run.endedAt, schedule.timezone)}
+                      </TableCell>
+                      <TableCell className="text-xs tabular-nums text-muted-foreground">
+                        {formatDuration(run.latencyMs)}
+                        {run.costUsd !== null ? (
+                          <span className="block text-2xs">{formatCost(run.costUsd)}</span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        <span className="block max-w-64 truncate" title={run.error ?? undefined}>
+                          {run.error ?? '—'}
+                        </span>
+                        {run.errorKind !== null ? (
+                          <span className="block text-2xs">{run.errorKind}</span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-2">
+                          {retryable ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={retry.isPending}
+                              aria-label={`重试 ${run.id}`}
+                              onClick={() => retry.mutate(run.id)}
+                            >
+                              重试
+                            </Button>
+                          ) : null}
+                          <Link
+                            to="/runs/$runId"
+                            params={{ runId: run.id }}
+                            search={{ backTo: location.href }}
+                            className="text-xs text-[var(--color-link)] underline underline-offset-2"
+                          >
+                            查看
+                          </Link>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        ) : null}
+      </DialogShell>
+    </Dialog>
   );
 }
 
@@ -707,6 +869,10 @@ function ScheduleDialog({
   const guard = useDraftGuard(dirty, pending, onClose);
 
   const selectedAgent = agents.find((agent) => agent.id === watched.agentId);
+  const timeZoneChoices =
+    watched.timezone && !knownTimeZones.has(watched.timezone)
+      ? [{ value: watched.timezone, label: watched.timezone }, ...timeZoneOptions]
+      : timeZoneOptions;
   const agentOptions = [
     ...(schedule && !agents.some((agent) => agent.id === schedule.agentId)
       ? [{ value: schedule.agentId, label: schedule.agentName ?? '已删除的专家' }]
@@ -760,6 +926,8 @@ function ScheduleDialog({
       update.mutate({
         name: input.name,
         cron: input.cron,
+        timezone: input.timezone,
+        missedPolicy: input.missedPolicy,
         prompt: input.prompt,
         enabled: input.enabled,
         expectedUpdatedAt: baseline,
@@ -987,7 +1155,7 @@ function ScheduleDialog({
                       data-invalid={Boolean(errors.time)}
                     >
                       <FieldLabel htmlFor="schedule-time">
-                        时间（UTC） <RequiredMark />
+                        时间 <RequiredMark />
                       </FieldLabel>
                       <Input
                         {...register('time')}
@@ -1002,6 +1170,87 @@ function ScheduleDialog({
                       <FieldError id="schedule-time-error">{errors.time?.message}</FieldError>
                     </Field>
                   ) : null}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field
+                    className="min-w-0 gap-1.5"
+                    data-disabled={pending}
+                    data-invalid={Boolean(errors.timezone)}
+                  >
+                    <FieldLabel htmlFor="schedule-timezone">时区</FieldLabel>
+                    <Controller
+                      control={control}
+                      name="timezone"
+                      render={({ field }) => (
+                        <Select
+                          disabled={pending}
+                          value={field.value}
+                          items={timeZoneChoices}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger
+                            id="schedule-timezone"
+                            className="w-full min-w-0"
+                            ref={field.ref}
+                            onBlur={field.onBlur}
+                            aria-invalid={Boolean(errors.timezone)}
+                            aria-describedby={
+                              errors.timezone ? 'schedule-timezone-error' : undefined
+                            }
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {timeZoneChoices.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    <FieldError id="schedule-timezone-error">{errors.timezone?.message}</FieldError>
+                  </Field>
+
+                  <Field className="min-w-0 gap-1.5" data-disabled={pending}>
+                    <FieldLabel htmlFor="schedule-missed-policy">错过触发</FieldLabel>
+                    <Controller
+                      control={control}
+                      name="missedPolicy"
+                      render={({ field }) => (
+                        <Select
+                          disabled={pending}
+                          value={field.value}
+                          items={[...missedPolicyOptions]}
+                          onValueChange={(next) => {
+                            if (next === 'skip' || next === 'run_once') field.onChange(next);
+                          }}
+                        >
+                          <SelectTrigger
+                            id="schedule-missed-policy"
+                            className="w-full min-w-0"
+                            ref={field.ref}
+                            onBlur={field.onBlur}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {missedPolicyOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </Field>
                 </div>
 
                 {watched.frequency === 'weekly' ? (
@@ -1076,7 +1325,7 @@ function ScheduleDialog({
                       }
                     />
                     <FieldDescription id="schedule-cron-hint">
-                      五段：分 时 日 月 周，按 UTC 解析；切换频率会替换此表达式。
+                      五段：分 时 日 月 周，按任务时区解析；切换频率会替换此表达式。
                     </FieldDescription>
                     <FieldError id="schedule-cron-error">{errors.cron?.message}</FieldError>
                   </Field>
