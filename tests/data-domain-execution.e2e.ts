@@ -793,6 +793,33 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
     throw new Error(`HR 组平均应为 85000，实际：${JSON.stringify(avgTable.rows)}`);
   }
 
+  const resultTabs = screen.getByRole('tablist', { name: '结果视图' });
+  const tableTab = resultTabs.getByRole('tab', { name: '表格' });
+  const chartTab = resultTabs.getByRole('tab', { name: '图表' });
+  await expect(resultTabs).toBeVisible();
+  await expect(tableTab).toHaveCount(1);
+  await expect(chartTab).toHaveCount(1);
+  await expect(chartTab).toHaveAttribute('aria-selected', 'true');
+  await expect(tableTab).toHaveAttribute('aria-selected', 'false');
+  await chartTab.focus();
+  await expect(chartTab).toBeFocused();
+  await browser.keyboard.press('ArrowLeft');
+  await expect(tableTab).toBeFocused();
+  await expect(tableTab).toHaveAttribute('aria-selected', 'true');
+  await expect(chartTab).toHaveAttribute('aria-selected', 'false');
+  await expect(screen.getByRole('table', { name: '查询结果' })).toBeVisible({ timeout: 30_000 });
+  await expect(screen.getByText('Alice')).toBeVisible();
+  await browser.keyboard.press('ArrowRight');
+  await expect(chartTab).toBeFocused();
+  await expect(chartTab).toHaveAttribute('aria-selected', 'true');
+  await expect(tableTab).toHaveAttribute('aria-selected', 'false');
+  await expect(screen.getByRole('combobox', { name: '图表维度' })).toBeVisible({ timeout: 30_000 });
+  const keyboardTable = await chartTable();
+  if (keyboardTable === null || keyboardTable.caption.trim() === '') {
+    throw new Error(`图表视图缺少带 caption 的 sr-only 数据表：${JSON.stringify(keyboardTable)}`);
+  }
+  await expect(screen.getByRole('table', { name: keyboardTable.caption })).toBeVisible();
+
   console.log(
     JSON.stringify({
       chartEvidence: {
