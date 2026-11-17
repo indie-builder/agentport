@@ -212,11 +212,18 @@ export function AgentDetailPage() {
           leading={<AgentAvatar agent={current} className="size-11" />}
           title={current.name}
           eyebrow={
-            roleLabel ? (
+            full?.hasDraft ? (
+              <span className="flex flex-wrap items-center gap-1.5">
+                <StatusBadge className="max-w-full whitespace-normal break-words bg-chip">
+                  {roleLabel}
+                </StatusBadge>
+                <StatusBadge tone="warn">有未发布改动</StatusBadge>
+              </span>
+            ) : (
               <StatusBadge className="max-w-full whitespace-normal break-words bg-chip">
                 {roleLabel}
               </StatusBadge>
-            ) : undefined
+            )
           }
           actions={
             <>

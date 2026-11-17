@@ -1,7 +1,7 @@
 import { fail } from '@agentport/core';
 import { findSkillResourcePathConflict } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { skillFiles } from '../schema.js';
 
@@ -17,7 +17,7 @@ export async function listSkillFiles(db: Database, skillId: string): Promise<Ski
 
 /** 批量取多个技能的资源文件（worker 一次运行要给所有已绑定技能铺文件）。 */
 export async function getSkillFilesBySkillIds(
-  db: Database,
+  db: DbHandle,
   skillIds: string[],
 ): Promise<Map<string, SkillFileRow[]>> {
   if (skillIds.length === 0) return new Map();

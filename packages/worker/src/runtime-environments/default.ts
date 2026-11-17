@@ -8,6 +8,7 @@ interface DefaultEnvironmentStore {
 
 export interface DefaultEnvironmentDeps {
   store: DefaultEnvironmentStore;
+  ensureDefaultAgentPublished: () => Promise<void>;
   /** 复用 DockerSandboxProvider.ensureImage：缺失时拉取，不另造一套。 */
   ensureImage: (image: string, signal: AbortSignal) => Promise<void>;
   resolveImageId: (image: string) => Promise<string | null>;
@@ -25,7 +26,10 @@ const DEFAULT_ENVIRONMENT_RETRY_MS = 60_000;
 export async function ensureDefaultEnvironment(
   deps: DefaultEnvironmentDeps,
 ): Promise<'exists' | 'registered'> {
-  if ((await deps.store.getDefault()) !== null) return 'exists';
+  if ((await deps.store.getDefault()) !== null) {
+    await deps.ensureDefaultAgentPublished();
+    return 'exists';
+  }
   // 首次部署远程基座本地没有时，必须先拉取，否则登记出的环境无法创建容器。
   await deps.ensureImage(deps.sandboxImage, deps.signal);
   const imageId = await deps.resolveImageId(deps.sandboxImage);
@@ -33,6 +37,7 @@ export async function ensureDefaultEnvironment(
     throw new Error(`sandbox image ${deps.sandboxImage} is not present locally after pull`);
   }
   await deps.store.register({ imageTag: deps.sandboxImage, imageId });
+  await deps.ensureDefaultAgentPublished();
   deps.logger.info({ image: deps.sandboxImage, imageId }, 'default runtime environment registered');
   return 'registered';
 }

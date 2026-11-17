@@ -589,6 +589,20 @@
       "when": 1794936298404,
       "tag": "0083_sturdy_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1794941061076,
+      "tag": "0084_illegal_black_panther",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1794944105188,
+      "tag": "0085_broad_meltdown",
+      "breakpoints": true
     }
   ]
 }

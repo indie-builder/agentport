@@ -790,6 +790,16 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
       );
       // 模型确实拿到了工具列表却推进不了 run_sql：显式给出可诊断的文本，而不是静默退回普通回复。
       const missingTool = marked && !runSqlDone && toolCall === null && toolsOf(body).length > 0;
+      const echoToken =
+        slow || toolCall !== null
+          ? undefined
+          : [
+              ...`${contentText(
+                typeof body === 'object' && body !== null
+                  ? (body as { system?: unknown }).system
+                  : undefined,
+              )}\n${conversationText(body)}`.matchAll(/E2E-SYSTEM-ECHO:([A-Za-z0-9_-]+)/g),
+            ].at(-1)?.[1];
       const reply =
         feedback !== null
           ? feedback.text
@@ -797,7 +807,7 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
             ? `E2E-DD-TOOL-MISSING ${toolsOf(body)
                 .map((tool) => String(tool.name))
                 .join(',')}`
-            : `${REPLY_PREFIX} ${prompt}`;
+            : `${REPLY_PREFIX} ${prompt}${echoToken === undefined ? '' : ` [SYSTEM:${echoToken}]`}`;
       messageRequests.push({ at: Date.now(), path: pathname, prompt, reply });
 
       res.writeHead(200, {

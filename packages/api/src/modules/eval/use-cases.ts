@@ -1,5 +1,5 @@
 import { fail } from '@agentport/core';
-import { type Database, newId, type repo, schema } from '@agentport/db';
+import { type Database, newId, repo, schema } from '@agentport/db';
 import {
   type EvalDatasetImportResult,
   type evalDatasetSchema,
@@ -16,6 +16,8 @@ export function toEvalRun(row: repo.evalRepo.EvalRunSummary) {
   return {
     id: row.id,
     agentId: row.agentId,
+    agentVersion: row.agentVersion,
+    resourceVersions: row.resourceVersions,
     status: row.status,
     total: row.total,
     passed: row.passed,
@@ -76,6 +78,7 @@ export async function startEvalRun(
   db: Database,
   agentId: string,
   createdBy: string,
+  target: 'published' | 'draft' = 'published',
 ): Promise<{ evalRunId: string }> {
   const [waitingRuns, waitingEvals] = await Promise.all([
     getQueue().getWaitingCount(),
@@ -89,7 +92,7 @@ export async function startEvalRun(
   try {
     evalRun = await db.transaction(async (tx) => {
       const [lockedAgent] = await tx
-        .select({ id: schema.agents.id })
+        .select({ id: schema.agents.id, publishedVersion: schema.agents.publishedVersion })
         .from(schema.agents)
         .where(eq(schema.agents.id, agentId))
         .for('update');
@@ -111,6 +114,19 @@ export async function startEvalRun(
         .where(and(eq(schema.evalRuns.agentId, agentId), eq(schema.evalRuns.status, 'running')))
         .limit(1);
       if (running) return undefined;
+      const definition =
+        target === 'draft'
+          ? await repo.agentDefinitions.loadLiveDefinition(tx, agentId)
+          : lockedAgent.publishedVersion === null
+            ? null
+            : ((await repo.agentVersions.getAgentVersion(tx, agentId, lockedAgent.publishedVersion))
+                ?.definition ?? null);
+      if (target === 'draft' && definition)
+        await repo.agentDefinitions.assertDefinitionResources(tx, definition);
+      const agentVersion =
+        target === 'draft'
+          ? await repo.agentVersions.latestAgentVersion(tx, agentId)
+          : lockedAgent.publishedVersion;
       const [created] = await tx
         .insert(schema.evalRuns)
         .values({
@@ -119,6 +135,34 @@ export async function startEvalRun(
           createdBy,
           total: cases.length,
           caseSnapshot: cases,
+          agentVersion,
+          definitionSnapshot: definition,
+          resourceVersions:
+            definition === null
+              ? null
+              : {
+                  servers: definition.resources.servers.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  skills: definition.resources.skills.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  plugins: definition.resources.plugins.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  subAgents: definition.resources.subAgents.map(({ id, name, updatedAt }) => ({
+                    id,
+                    name,
+                    updatedAt,
+                  })),
+                  runtimeEnvironment: definition.resources.runtimeEnvironment,
+                },
         })
         .returning();
       return created;

@@ -143,7 +143,12 @@ vi.mock('../src/lib/queries.js', () => ({
     error: new Error('Version unavailable'),
     refetch: state.retry,
   }),
+  isAgentDetail: (agent: Record<string, unknown>) => 'systemPrompt' in agent,
   useRollbackAgent: () => ({ mutateAsync: state.rollback }),
+  usePublishAgent: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useOfflineAgent: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useTrialAgent: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useStartEvalRun: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useAgentFiles: () => ({
     data: undefined,
     isPending: true,
@@ -161,7 +166,12 @@ vi.mock('@tanstack/react-query', async () => {
   return {
     useQueries: () => [],
     useQueryClient: () => ({}),
-    useQuery: () => ({ data: state.me ?? allAccessMe, isPending: false, isError: false, refetch: vi.fn() }),
+    useQuery: () => ({
+      data: state.me ?? allAccessMe,
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    }),
   };
 });
 vi.mock('@tanstack/react-router', () => ({
@@ -1343,7 +1353,7 @@ describe('expert editor regressions', () => {
     { isPending: true, isError: false },
     { isPending: false, isError: true },
     { isPending: false, isError: false },
-    { isPending: false, isError: true, data: { snapshot: parent } },
+    { isPending: false, isError: true, data: { snapshot: parent, definition: null, definitionState: 'legacy' } },
   ])('blocks rollback without a successfully loaded version: %j', async (detail) => {
     state.detail = detail;
     await inspect(
@@ -1402,7 +1412,11 @@ describe('expert editor regressions', () => {
     state.detail = {
       isPending: false,
       isError: false,
-      data: { snapshot: { ...parent, name: 'Previous name' } },
+      data: {
+        snapshot: { ...parent, name: 'Previous name' },
+        definition: null,
+        definitionState: 'legacy',
+      },
     };
     state.rollback.mockResolvedValue(parent);
     const restored = vi.fn();

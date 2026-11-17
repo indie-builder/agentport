@@ -157,10 +157,17 @@ export const memoryRouter = os.router({
         `现有 ${topics} 个主题超过上限 ${input.body.policy.topicLimit}，请先合并或删除`,
       );
     }
-    const updated = await repo.agents.updateAgentMemoryPolicy(
-      context.db,
-      input.params.id,
-      input.body.policy,
+    const updated = await repo.agentVersions.retryOnVersionConflict(() =>
+      context.db.transaction(async (tx) => {
+        const ok = await repo.agents.updateAgentMemoryPolicy(
+          tx,
+          input.params.id,
+          input.body.policy,
+        );
+        if (!ok) return false;
+        await repo.agentDefinitions.recordDraftVersionTx(tx, input.params.id, null);
+        return true;
+      }),
     );
     if (!updated) fail('NOT_FOUND', MISSING_AGENT);
     await repo.audit.writeAudit(context.db, context.log, {

@@ -9,7 +9,7 @@ import {
   type RuntimeEnvironmentVersion,
   type RuntimeEnvironmentVersionSummary,
 } from '@agentport/shared';
-import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agents, runtimeEnvironments, runtimeEnvironmentVersions } from '../schema.js';
@@ -165,8 +165,35 @@ export async function updateRuntimeEnvironment(
   }
 }
 
+async function hasFixedEnvironmentReferences(db: DbHandle, id: string): Promise<boolean> {
+  const result = await db.execute<{ blocked: boolean }>(sql`
+    select exists (
+      select 1
+      from agents p
+      join agent_versions v on v.agent_id = p.id and v.version = p.published_version
+      where v.definition->'resources'->'runtimeEnvironment'->>'id' = ${id}
+      union all
+      select 1
+      from agent_runs r
+      left join agent_versions av
+        on av.agent_id = r.agent_id and av.version = r.agent_version
+      where r.status in ('queued', 'running')
+        and (
+          r.runtime_environment_id = ${id}
+          or coalesce(r.definition_snapshot, av.definition)->'resources'->'runtimeEnvironment'->>'id' = ${id}
+        )
+      union all
+      select 1
+      from eval_runs e
+      where e.status = 'running'
+        and e.definition_snapshot->'resources'->'runtimeEnvironment'->>'id' = ${id}
+    ) as "blocked"
+  `);
+  return result[0]?.blocked === true;
+}
+
 /**
- * 删除环境连同其全部版本。默认环境、仍被智能体绑定、仍在构建时拒绝；
+ * 删除环境连同其全部版本。默认环境、仍被智能体绑定、仍被已发布定义或活动任务引用、仍在构建时拒绝；
  * 并在同一事务里先清空线上指针再删版本，避免复合外键互相阻塞。
  * 并发绑定的窗口由 agents 上的 RESTRICT 外键兜底。
  */
@@ -190,6 +217,12 @@ export async function deleteRuntimeEnvironment(db: Database, id: string): Promis
         .limit(1);
       if (bound) {
         throw new AppError('CONFLICT', '运行环境仍被智能体绑定，请先解除绑定');
+      }
+      if (await hasFixedEnvironmentReferences(tx, id)) {
+        throw new AppError(
+          'CONFLICT',
+          '运行环境仍被已发布定义或运行中的任务引用，请先切换并重新发布相关专家',
+        );
       }
       const [busy] = await tx
         .select({ id: runtimeEnvironmentVersions.id })
@@ -497,7 +530,9 @@ export async function publishRuntimeEnvironmentVersion(
 export async function resolveOnlineRuntimeEnvironment(
   db: Database,
   environmentId: string | null,
+  versionId?: string | null,
 ): Promise<ResolvedRuntimeEnvironment | null> {
+  if (versionId === null) return null;
   const [row] = await db
     .select({
       environmentId: runtimeEnvironments.id,
@@ -509,7 +544,9 @@ export async function resolveOnlineRuntimeEnvironment(
     .innerJoin(
       runtimeEnvironmentVersions,
       and(
-        eq(runtimeEnvironmentVersions.id, runtimeEnvironments.onlineVersionId),
+        versionId === undefined
+          ? eq(runtimeEnvironmentVersions.id, runtimeEnvironments.onlineVersionId)
+          : eq(runtimeEnvironmentVersions.id, versionId),
         eq(runtimeEnvironmentVersions.environmentId, runtimeEnvironments.id),
       ),
     )
@@ -520,6 +557,7 @@ export async function resolveOnlineRuntimeEnvironment(
           : eq(runtimeEnvironments.id, environmentId),
         eq(runtimeEnvironmentVersions.status, 'ready'),
         isNotNull(runtimeEnvironmentVersions.imageId),
+        ne(runtimeEnvironmentVersions.imageId, ''),
       ),
     )
     .limit(1);

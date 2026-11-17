@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
+import { publishCurrent } from '../src/repo/agent-definitions.js';
 import * as agentVersionsRepo from '../src/repo/agent-versions.js';
 import {
   type AgentWrite,
@@ -287,6 +288,10 @@ describe.skipIf(!ready)('runtime environment repo', () => {
     });
 
     await updateAgent(db, agent.id, { runtimeEnvironmentId: null });
+    await expect(repo.deleteRuntimeEnvironment(db, bound.id)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    await publishCurrent(db, agent.id);
     expect(await repo.deleteRuntimeEnvironment(db, bound.id)).toBe(true);
     expect(await repo.getRuntimeEnvironment(db, bound.id)).toBeNull();
 

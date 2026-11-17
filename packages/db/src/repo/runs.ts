@@ -1,6 +1,8 @@
 import { fail } from '@agentport/core';
 import type {
   AccessFilter,
+  AgentDefinition,
+  AgentDefinitionServer,
   PublicRunQuestion,
   ResolvedRuntimeEnvironment,
   RunStatus,
@@ -32,6 +34,7 @@ import {
   messages,
   servers,
 } from '../schema.js';
+import { getAgentVersion } from './agent-versions.js';
 import { messageText } from './chat.js';
 import { keysetBefore, paginate } from './keyset.js';
 
@@ -411,6 +414,72 @@ function runMayUseServer(): SQL {
   )`;
 }
 
+function runServerScope(serverId: string): SQL {
+  return sql`((${agentRuns.serverIds} is not null and ${agentRuns.serverIds} @> ${JSON.stringify([serverId])}::jsonb) or (
+    ${agentRuns.serverIds} is null and exists (
+      select 1 from ${agentServers}
+      where ${agentServers.serverId} = ${serverId}
+        and (${runMayUseServer()})
+    )
+  ))`;
+}
+
+export async function getRunDefinition(
+  db: Database,
+  runId: string,
+): Promise<AgentDefinition | null> {
+  const [run] = await db
+    .select({
+      agentId: agentRuns.agentId,
+      agentVersion: agentRuns.agentVersion,
+      definitionSnapshot: agentRuns.definitionSnapshot,
+    })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  if (!run) return null;
+  if (run.definitionSnapshot !== null) return run.definitionSnapshot;
+  if (run.agentVersion === null) return null;
+  return (await getAgentVersion(db, run.agentId, run.agentVersion))?.definition ?? null;
+}
+
+export async function getRunServerSnapshot(
+  db: Database,
+  runId: string,
+  serverId: string,
+): Promise<AgentDefinitionServer | null> {
+  const [run] = await db
+    .select({
+      agentId: agentRuns.agentId,
+      agentVersion: agentRuns.agentVersion,
+      definitionSnapshot: agentRuns.definitionSnapshot,
+    })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  if (!run) return null;
+  const definition =
+    run.definitionSnapshot ??
+    (run.agentVersion !== null
+      ? (await getAgentVersion(db, run.agentId, run.agentVersion))?.definition
+      : null);
+  if (!definition) return null;
+  const snapshot = definition.resources.servers.find((server) => server.id === serverId);
+  if (snapshot) return snapshot;
+  const children = await Promise.all(
+    definition.resources.subAgents.map(async ({ id, publishedVersion }) =>
+      publishedVersion !== null
+        ? (await getAgentVersion(db, id, publishedVersion))?.definition
+        : null,
+    ),
+  );
+  return (
+    children
+      .flatMap((child) => child?.resources.servers ?? [])
+      .find((server) => server.id === serverId) ?? null
+  );
+}
+
 export async function getRunConversationId(db: Database, runId: string): Promise<string | null> {
   const [row] = await db
     .select({ conversationId: agentRuns.conversationId })
@@ -437,8 +506,7 @@ export async function isRunBoundToServer(
   const [row] = await db
     .select({ runId: agentRuns.id })
     .from(agentRuns)
-    .innerJoin(agentServers, runMayUseServer())
-    .where(and(eq(agentRuns.id, runId), eq(agentServers.serverId, serverId)))
+    .where(and(eq(agentRuns.id, runId), runServerScope(serverId)))
     .limit(1);
   return row !== undefined;
 }
@@ -450,6 +518,7 @@ export async function setRunMcpToken(
   tokenHash: string,
   expiresAt: Date,
   modelTokenHash?: string | null,
+  serverIds?: string[],
 ): Promise<void> {
   await db
     .update(agentRuns)
@@ -457,6 +526,7 @@ export async function setRunMcpToken(
       mcpTokenHash: tokenHash,
       mcpTokenExpiresAt: expiresAt,
       ...(modelTokenHash === undefined ? {} : { modelTokenHash }),
+      ...(serverIds === undefined ? {} : { serverIds }),
     })
     .where(eq(agentRuns.id, runId));
 }
@@ -493,8 +563,7 @@ export async function getRunToken(
   const [row] = await db
     .select({ hash: agentRuns.mcpTokenHash, expiresAt: agentRuns.mcpTokenExpiresAt })
     .from(agentRuns)
-    .innerJoin(agentServers, runMayUseServer())
-    .where(and(eq(agentRuns.id, runId), eq(agentServers.serverId, serverId)))
+    .where(and(eq(agentRuns.id, runId), runServerScope(serverId)))
     .limit(1);
   return row ?? null;
 }

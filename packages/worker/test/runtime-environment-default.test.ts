@@ -41,6 +41,7 @@ function fakeDeps(
         registered.push(image);
       },
     },
+    ensureDefaultAgentPublished: async () => undefined,
     ensureImage: async (image, signal) => {
       calls.push(`ensureImage:${image}:${signal.aborted}`);
       const error = options.ensureError?.();

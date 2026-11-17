@@ -1,5 +1,5 @@
 import { AppError } from '@agentport/core';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/bun-sql';
 import type { Database, DatabaseClient } from '../client.js';
 import { agents, schema } from '../schema.js';
@@ -33,18 +33,31 @@ async function lockMemoryKey(db: LockDb, key: string): Promise<void> {
 }
 
 /**
- * 一次运行占用的资源集合 = 发起专家 + 其 enabled 直接子智能体。
+ * 一次运行占用的资源集合 = 发起专家 + 发布快照的子智能体（缺省为 live enabled 直接子智能体）。
  * 集合在运行期间固定：先拿绑定锁再读子级，然后按 agentId 排序取记忆锁。
  * 调用方必须在插入 queued 运行的同一事务里调用。
  */
-export async function lockRunResources(db: LockDb, agentId: string): Promise<void> {
+export async function lockRunResources(
+  db: LockDb,
+  agentId: string,
+  subAgentIds?: string[],
+): Promise<void> {
   await lockAgentBindings(db);
-  const children = await db
-    .select({ id: agents.id })
-    .from(agents)
-    .where(and(eq(agents.parentId, agentId), eq(agents.enabled, true)))
-    .orderBy(asc(agents.id));
-  const ids = [...new Set([agentId, ...children.map((row) => row.id)])].sort();
+  const children = (
+    await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(
+        and(
+          subAgentIds === undefined
+            ? eq(agents.parentId, agentId)
+            : inArray(agents.id, subAgentIds),
+          eq(agents.enabled, true),
+        ),
+      )
+      .orderBy(asc(agents.id))
+  ).map((row) => row.id);
+  const ids = [...new Set([agentId, ...children])].sort();
   for (const id of ids) await lockMemoryKey(db, agentMemoryLockKey(id));
 }
 

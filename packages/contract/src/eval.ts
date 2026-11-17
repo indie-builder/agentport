@@ -93,7 +93,14 @@ export const evalContract = {
       .meta({ access: { kind: 'permission', permissionId: 'eval.read' } }),
     create: contractProcedure
       .route({ method: 'POST', path: '/eval/runs', successStatus: 202 })
-      .input(z.object({ body: z.object({ agentId: z.string().min(1) }) }))
+      .input(
+        z.object({
+          body: z.object({
+            agentId: z.string().min(1),
+            target: z.enum(['published', 'draft']).default('published'),
+          }),
+        }),
+      )
       .output(z.object({ evalRunId: z.string() }))
       .meta({
         access: { kind: 'permission', permissionId: 'eval.execute' },

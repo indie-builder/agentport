@@ -1,6 +1,12 @@
 import { DbError, runProgram } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
-import { type AgentRunJob, judge, RUNS_QUEUE, runEnqueueOptions } from '@agentport/shared';
+import {
+  type AgentDefinition,
+  type AgentRunJob,
+  judge,
+  RUNS_QUEUE,
+  runEnqueueOptions,
+} from '@agentport/shared';
 import { createBunRedisClient, Queue, QueueEvents, UnrecoverableError } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
@@ -107,13 +113,12 @@ function runOneCase(
     prompt: string;
     timeoutMs: number;
     title: string;
+    agentVersion: number | null;
+    definitionSnapshot: AgentDefinition | null;
   },
   context: { runId: string | null },
 ) {
   return Effect.gen(function* () {
-    const agentVersion = yield* dbQuery(() =>
-      repo.agentVersions.latestAgentVersion(db, input.agentId),
-    );
     // 评估用例与聊天共用准入：同一事务取绑定锁、锁「发起专家 + enabled 子级」的记忆。
     // 执行主体显式取 evalRuns.createdBy，不接受 job/client 用户字段。
     const admitted = yield* dbQuery(() =>
@@ -125,7 +130,8 @@ function runOneCase(
         trigger: 'event',
         budgetExempt: true,
         subject: { kind: 'user', businessId: input.businessId },
-        ...(agentVersion === null ? {} : { agentVersion }),
+        ...(input.agentVersion === null ? {} : { agentVersion: input.agentVersion }),
+        definitionSnapshot: input.definitionSnapshot,
       }),
     );
     const run = admitted.run;
@@ -217,6 +223,14 @@ export async function executeEvalRun(input: {
         .limit(1),
     );
     if (!agent) return yield* Effect.fail(new Error(`agent ${evalRun.agentId} not found`));
+    const pinnedVersion = evalRun.agentVersion;
+    const definition =
+      evalRun.definitionSnapshot ??
+      (pinnedVersion === null
+        ? null
+        : ((yield* dbQuery(() =>
+            repo.agentVersions.getAgentVersion(db, evalRun.agentId, pinnedVersion),
+          ))?.definition ?? null));
     if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
 
     // 执行主体是 evalRuns.createdBy：每次开跑前用 DB 实时账户与授权重查，不降级。
@@ -282,8 +296,10 @@ export async function executeEvalRun(input: {
                 agentId: evalRun.agentId,
                 businessId: evalRun.createdBy,
                 prompt: testCase.prompt,
-                timeoutMs: agent.timeoutMs,
+                timeoutMs: definition?.agent.timeoutMs ?? agent.timeoutMs,
                 title: `eval: ${testCase.name}`.slice(0, 80),
+                agentVersion: pinnedVersion,
+                definitionSnapshot: definition,
               },
               runContext,
             ).pipe(

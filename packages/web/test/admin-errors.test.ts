@@ -55,6 +55,7 @@ vi.mock('../src/lib/queries.js', () => ({
     fetchNextPage: vi.fn(),
   }),
   useEvalRun: () => ({ data: state.detail }),
+  useAgentDetail: () => ({ data: undefined, isPending: false, isError: false }),
   useStartEvalRun: () => ({}),
   useCancelEvalRun: () => ({}),
   useImportEvalDataset: () => ({}),

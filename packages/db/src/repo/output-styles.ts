@@ -1,5 +1,5 @@
 import { and, asc, eq } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agentOutputStyles, agents } from '../schema.js';
 
@@ -22,7 +22,7 @@ export async function listOutputStyles(db: Database, agentId: string): Promise<O
 
 /** 写入并选中指定风格；同一事务里先把该 agent 的其它风格取消选中。 */
 export async function upsertOutputStyle(
-  db: Database,
+  db: DbHandle,
   agentId: string,
   input: OutputStyleWrite,
 ): Promise<OutputStyleRow> {
@@ -59,7 +59,7 @@ export async function upsertOutputStyle(
 
 /** 取消某个风格的选中（回到默认输出）。 */
 export async function unselectOutputStyle(
-  db: Database,
+  db: DbHandle,
   agentId: string,
   slug: string,
 ): Promise<boolean> {
@@ -72,7 +72,7 @@ export async function unselectOutputStyle(
 }
 
 export async function deleteOutputStyle(
-  db: Database,
+  db: DbHandle,
   agentId: string,
   slug: string,
 ): Promise<boolean> {

@@ -89,6 +89,13 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
       payload: { subAgentIds },
     });
     expect(res.statusCode, res.body).toBe(200);
+    const published = await request(app, {
+      method: 'POST',
+      url: `/api/agents/${parentId}/publish`,
+      headers: { cookie },
+      payload: {},
+    });
+    expect(published.statusCode, published.body).toBe(200);
   };
 
   const patch = (id: string, payload: Record<string, unknown>) =>

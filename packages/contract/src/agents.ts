@@ -1,5 +1,6 @@
 import {
   agentBudgetStatusSchema,
+  agentDefinitionSchema,
   agentDuplicateInputSchema,
   agentHookFileInputSchema,
   agentHookFilePathSchema,
@@ -148,6 +149,29 @@ export const agentsContract = {
     .route({ method: 'PATCH', path: '/agents/{id}', successStatus: 200 })
     .input(z.object({ params: idParams, body: patchSchema }))
     .output(z.union([agentSchema, agentSummarySchema])),
+  publish: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'agents.publish' } })
+    .route({ method: 'POST', path: '/agents/{id}/publish', successStatus: 200 })
+    .input(z.object({ params: idParams, body: z.object({ note: z.string().max(200).optional() }) }))
+    .output(z.union([agentSchema, agentSummarySchema])),
+  offline: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'agents.enable' } })
+    .route({ method: 'POST', path: '/agents/{id}/offline', successStatus: 200 })
+    .input(z.object({ params: idParams }))
+    .output(z.union([agentSchema, agentSummarySchema])),
+  trial: contractProcedure
+    .meta({
+      access: { kind: 'permission', permissionId: 'agents.config.update' },
+      rateLimit: 10,
+    })
+    .route({ method: 'POST', path: '/agents/{id}/trial', successStatus: 200 })
+    .input(
+      z.object({
+        params: idParams,
+        body: z.object({ prompt: z.string().min(1).max(20_000) }),
+      }),
+    )
+    .output(z.object({ runId: z.string(), conversationId: z.string() })),
   delete: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.delete' } })
     .route({ method: 'DELETE', path: '/agents/{id}', successStatus: 204 })
@@ -178,12 +202,20 @@ export const agentsContract = {
     .meta({ access: { kind: 'permission', permissionId: 'agents.versions.read' } })
     .route({ method: 'GET', path: '/agents/{id}/versions/{version}', successStatus: 200 })
     .input(z.object({ params: versionParams }))
-    .output(z.object({ version: z.number(), snapshot: agentSchema, createdAt: z.string() })),
+    .output(
+      z.object({
+        version: z.number(),
+        snapshot: agentSchema,
+        definition: agentDefinitionSchema.nullable(),
+        definitionState: z.enum(['available', 'forbidden', 'legacy']),
+        createdAt: z.string(),
+      }),
+    ),
   rollback: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.versions.restore' } })
     .route({ method: 'POST', path: '/agents/{id}/rollback', successStatus: 200 })
     .input(z.object({ params: idParams, body: rollbackBody }))
-    .output(agentSchema),
+    .output(z.union([agentSchema, agentSummarySchema])),
   memory: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.read' } })
     .route({ method: 'GET', path: '/agents/{id}/memory', successStatus: 200 })

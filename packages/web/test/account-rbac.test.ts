@@ -356,7 +356,7 @@ describe('专家详情只认完整配置', () => {
     );
 
     expect(document.querySelector('#agent-name')).toBeNull();
-    expect(maybeButton('保存更改')).toBeNull();
+    expect(maybeButton('保存草稿')).toBeNull();
     expect(calls.some((call) => call.path === '/api/agents/agt_1')).toBe(false);
   });
 
@@ -492,7 +492,7 @@ describe('专家配置权限拆分', () => {
     );
     expect(bash?.disabled).toBe(true);
     if (bash) await click(bash);
-    expect(maybeButton('保存更改')).toBeNull();
+    expect(maybeButton('保存草稿')).toBeNull();
   });
 
   it('只有启停权时开关可保存，提交体只含 enabled', async () => {
@@ -506,8 +506,8 @@ describe('专家配置权限拆分', () => {
     const toggle = document.querySelector<HTMLElement>('[role="switch"]');
     if (!toggle) throw new Error('Missing enable switch');
     await click(toggle);
-    await waitFor(() => maybeButton('保存更改'));
-    await click(button('保存更改'));
+    await waitFor(() => maybeButton('保存草稿'));
+    await click(button('保存草稿'));
     const body = await waitFor(() => bodyOf('/api/agents/agt_1', 'PATCH') as object);
     expect(body).toEqual({
       enabled: false,
@@ -522,7 +522,7 @@ describe('专家配置权限拆分', () => {
     await mount('/agents/$agentId', AgentDetailPage);
     await openAgentConfig();
     await type(field('agent-name'), '新名字');
-    await click(button('保存更改'));
+    await click(button('保存草稿'));
 
     const body = (await waitFor(() => bodyOf('/api/agents/agt_1', 'PATCH'))) as Record<
       string,
@@ -548,7 +548,7 @@ describe('专家配置权限拆分', () => {
     await mount('/agents/$agentId', AgentDetailPage);
     await openAgentConfig();
     await type(field('agent-name'), '新名字');
-    await click(button('保存更改'));
+    await click(button('保存草稿'));
 
     expect(bodyOf('/api/agents/agt_1', 'PATCH')).toEqual({
       name: '新名字',

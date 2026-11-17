@@ -137,24 +137,27 @@ async function readReview(db: Database, businessId: string, runId: string): Prom
   return toReview(detail, await sourceSummaries(db, detail.sources));
 }
 
-async function assertModelAgent(db: Database, agentId: string): Promise<void> {
-  const [agent] = await db
-    .select({ enabled: schema.agents.enabled, monthlyBudgetUsd: schema.agents.monthlyBudgetUsd })
-    .from(schema.agents)
-    .where(eq(schema.agents.id, agentId))
-    .limit(1);
+async function resolveModelAgent(db: Database, agentId: string) {
+  const agent = await repo.agents.getAgent(db, agentId);
   if (!agent) notFound('agent');
   if (!agent.enabled) fail('AGENT_DISABLED', '该智能体已停用，无法执行记忆审核');
+  const version =
+    agent.publishedVersion === null
+      ? null
+      : await repo.agentVersions.getAgentVersion(db, agentId, agent.publishedVersion);
+  const monthlyBudgetUsd = version?.definition
+    ? version.definition.agent.monthlyBudgetUsd
+    : agent.monthlyBudgetUsd;
   if (
-    agent.monthlyBudgetUsd !== null &&
-    (await repo.agents.sumAgentSpendSince(db, agentId, utcMonthStart())) >=
-      Number(agent.monthlyBudgetUsd)
+    monthlyBudgetUsd !== null &&
+    (await repo.agents.sumAgentSpendSince(db, agentId, utcMonthStart())) >= Number(monthlyBudgetUsd)
   ) {
     fail(
       'AGENT_BUDGET_EXCEEDED',
       '该智能体本月花费已达预算上限，无法执行记忆审核；请调整预算或等待下月重置',
     );
   }
+  return agent;
 }
 
 async function beforeSnapshot(
@@ -329,7 +332,7 @@ export const memoryReviewsRouter = os.router({
       return { runId: existing.runId };
     }
 
-    await assertModelAgent(context.db, input.body.modelAgentId);
+    const modelAgent = await resolveModelAgent(context.db, input.body.modelAgentId);
     await authorizeObject(
       context,
       'agents.use',
@@ -407,10 +410,7 @@ export const memoryReviewsRouter = os.router({
         sources,
         instruction: input.body.instruction,
         before,
-        agentVersion: await repo.agentVersions.latestAgentVersion(
-          context.db,
-          input.body.modelAgentId,
-        ),
+        agentVersion: modelAgent.publishedVersion,
       });
     } catch (error) {
       if (!isPgCode(error, '23505')) throw error;

@@ -35,7 +35,7 @@ export async function listAgentIdsWithWorkflows(
 }
 
 export async function getWorkflow(
-  db: Database,
+  db: DbHandle,
   agentId: string,
   id: string,
 ): Promise<AgentWorkflowRow | null> {
@@ -48,7 +48,7 @@ export async function getWorkflow(
 }
 
 export async function createWorkflow(
-  db: Database,
+  db: DbHandle,
   agentId: string,
   input: WorkflowWrite,
 ): Promise<AgentWorkflowRow> {
@@ -61,7 +61,7 @@ export async function createWorkflow(
 }
 
 export async function updateWorkflow(
-  db: Database,
+  db: DbHandle,
   agentId: string,
   id: string,
   patch: Partial<WorkflowWrite>,
@@ -86,7 +86,7 @@ export async function updateWorkflow(
   return row ?? null;
 }
 
-export async function deleteWorkflow(db: Database, agentId: string, id: string): Promise<boolean> {
+export async function deleteWorkflow(db: DbHandle, agentId: string, id: string): Promise<boolean> {
   const rows = await db
     .delete(agentWorkflows)
     .where(and(eq(agentWorkflows.agentId, agentId), eq(agentWorkflows.id, id)))

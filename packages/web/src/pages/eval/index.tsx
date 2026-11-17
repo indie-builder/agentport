@@ -24,7 +24,7 @@ import {
   CollapsibleTrigger,
 } from '../../components/ui/collapsible.js';
 import { hasAnyGrant } from '../../lib/access.js';
-import { api, type EvalCase, type EvalRun } from '../../lib/api.js';
+import { api, type EvalCase, type EvalRun, type EvalTarget } from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
 import {
   evalStatusLabel,
@@ -35,6 +35,7 @@ import {
 } from '../../lib/format.js';
 import {
   useAgentAccess,
+  useAgentDetail,
   useCancelEvalRun,
   useEvalCases,
   useEvalRuns,
@@ -213,6 +214,12 @@ export function EvalPage() {
   const canReadEval = hasAnyGrant(permissions, 'eval.read');
   const canManageEval = hasAnyGrant(permissions, 'eval.manage');
   const canExecuteEval = hasAnyGrant(permissions, 'eval.execute');
+  const canReadConfig = hasAnyGrant(permissions, 'agents.config.read');
+  const agentDetail = useAgentDetail(effectiveAgentId, canReadConfig);
+  const hasDraft = agentDetail.data?.hasDraft === true;
+  const missingPublished =
+    agentDetail.data !== undefined && agentDetail.data.publishedVersion == null;
+  const [target, setTarget] = useState<EvalTarget>('published');
   const missingAgent = agents.isSuccess && Boolean(agentId) && !selectedAgent;
   const selectedRunId = search.run ?? null;
   const baseId = search.base ?? null;
@@ -270,10 +277,13 @@ export function EvalPage() {
 
   const startRun = (): void => {
     if (!effectiveAgentId || startDisabledReason !== null) return;
-    start.mutate(effectiveAgentId, {
-      onSuccess: () => toastSuccess('评估已开始，结果会自动刷新'),
-      onError: toastError,
-    });
+    start.mutate(
+      { agentId: effectiveAgentId, target },
+      {
+        onSuccess: () => toastSuccess('评估已开始，结果会自动刷新'),
+        onError: toastError,
+      },
+    );
   };
 
   /** 只停止后续用例：不撤销已在执行的 run，也不打断模型调用。 */
@@ -364,21 +374,27 @@ export function EvalPage() {
             ? '所选专家不存在，请清除筛选或重新选择'
             : !effectiveAgentId
               ? '先创建一个专家'
-              : accessPending
-                ? '正在检查评估权限，稍后再试'
-                : accessFailed
-                  ? '评估权限加载失败，请重试'
-                  : !canExecuteEval
-                    ? '当前账户没有执行该专家评估的权限'
-                    : cases.isPending
-                      ? '用例加载中，稍后再试'
-                      : cases.isError
-                        ? '用例加载失败，请重试'
-                        : casesEmpty
-                          ? '先新建至少一个用例'
-                          : null;
+              : target === 'published' && missingPublished
+                ? '该专家尚未发布，请先发布或选择当前草稿'
+                : accessPending
+                  ? '正在检查评估权限，稍后再试'
+                  : accessFailed
+                    ? '评估权限加载失败，请重试'
+                    : !canExecuteEval
+                      ? '当前账户没有执行该专家评估的权限'
+                      : cases.isPending
+                        ? '用例加载中，稍后再试'
+                        : cases.isError
+                          ? '用例加载失败，请重试'
+                          : casesEmpty
+                            ? '先新建至少一个用例'
+                            : null;
 
   const agentOptions = (agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name }));
+  const targetOptions = [
+    { value: 'published', label: '线上版本' },
+    { value: 'draft', label: '当前草稿' },
+  ];
   const createCaseButton = canManageEval ? (
     <Button
       variant="outline"
@@ -435,6 +451,24 @@ export function EvalPage() {
             label="按专家筛选"
             className="w-full sm:w-36"
           />
+          <FilterSelect
+            value={target}
+            onValueChange={(next) => {
+              if (next === 'published' || next === 'draft') setTarget(next);
+            }}
+            options={targetOptions}
+            label="评估目标"
+            className="w-full sm:w-32"
+          />
+          {hasDraft || target === 'draft' ? (
+            <span className="text-sm text-muted-foreground">
+              {hasDraft && target === 'draft'
+                ? '当前草稿含未发布改动，本次评估使用草稿'
+                : hasDraft
+                  ? '当前草稿含未发布改动'
+                  : '本次评估使用当前草稿'}
+            </span>
+          ) : null}
           {startDisabledReason ? (
             <span id="eval-start-reason" className="text-sm text-muted-foreground">
               {startDisabledReason}

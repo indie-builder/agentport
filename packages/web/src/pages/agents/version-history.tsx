@@ -1,5 +1,5 @@
-import type { Agent } from '@agentport/shared';
-import { ChevronRight, RotateCcw } from 'lucide-react';
+import type { Agent, AgentDefinition } from '@agentport/shared';
+import { ChevronRight, Play, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import {
@@ -8,12 +8,19 @@ import {
   CollapsibleTrigger,
 } from '../../components/motion-collapsible.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
+import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
 import type { AgentVersionSummary } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { formatDateTime } from '../../lib/format.js';
-import { useAgentVersion, useAgentVersions, useRollbackAgent } from '../../lib/queries.js';
-import { toastSuccess } from '../../lib/toast.js';
+import {
+  isAgentDetail,
+  useAgentVersion,
+  useAgentVersions,
+  useRollbackAgent,
+  useStartEvalRun,
+} from '../../lib/queries.js';
+import { toastError, toastSuccess } from '../../lib/toast.js';
 
 const diffFields: ReadonlyArray<readonly [keyof Agent, string]> = [
   ['name', '名称'],
@@ -59,6 +66,37 @@ function diffAgent(
     }));
 }
 
+function definitionRows(definition: AgentDefinition): Array<[string, string]> {
+  const names = (items: ReadonlyArray<{ name: string }>): string =>
+    items.length === 0 ? '空' : items.map((item) => item.name).join('、');
+  const { hooks, memoryPolicy, resources } = definition;
+  const bindings = [
+    resources.servers.length > 0 ? `Servers：${names(resources.servers)}` : null,
+    resources.skills.length > 0 ? `技能：${names(resources.skills)}` : null,
+    resources.plugins.length > 0 ? `插件：${names(resources.plugins)}` : null,
+    resources.subAgents.length > 0 ? `子智能体：${names(resources.subAgents)}` : null,
+    resources.runtimeEnvironment ? `运行环境：${resources.runtimeEnvironment.name}` : null,
+  ].filter((item): item is string => item !== null);
+  return [
+    ['规则', `${definition.rules.length} 条`],
+    [
+      '输出风格',
+      `${definition.outputStyles.length} 个${
+        definition.outputStyles.some((style) => style.isSelected) ? '（已选中）' : ''
+      }`,
+    ],
+    ['工作流', `${definition.workflows.length} 个`],
+    ['Hooks', `${hooks.enabled ? '已启用' : '未启用'} · ${hooks.files.length} 个文件`],
+    [
+      '记忆策略',
+      `${memoryPolicy.enabled ? '启用' : '停用'} · ${
+        memoryPolicy.writeMode === 'proposal_only' ? '仅提案' : '模型自动写入'
+      } · 主题上限 ${memoryPolicy.topicLimit}`,
+    ],
+    ['资源绑定', bindings.length === 0 ? '未绑定资源' : bindings.join('；')],
+  ];
+}
+
 export function VersionHistory({
   agentId,
   current,
@@ -66,6 +104,7 @@ export function VersionHistory({
   saving,
   dirty = false,
   canRestore = true,
+  canEvaluate = false,
   onPendingChange,
   onRolledBack,
 }: {
@@ -75,20 +114,50 @@ export function VersionHistory({
   saving: boolean;
   dirty?: boolean;
   canRestore?: boolean;
+  canEvaluate?: boolean;
   onPendingChange?: (pending: boolean) => void;
   onRolledBack: (agent: Agent) => void;
 }) {
   const versions = useAgentVersions(agentId, active);
   const rollback = useRollbackAgent();
+  const regression = useStartEvalRun();
   const [pending, setPending] = useState<AgentVersionSummary | null>(null);
   const pendingDetail = useAgentVersion(agentId, pending?.version ?? 0, pending !== null);
   const rollbackDisabled =
     saving || pendingDetail.isPending || pendingDetail.isError || !pendingDetail.data;
   const pendingDiff =
     pending !== null && pendingDetail.data ? diffAgent(current, pendingDetail.data.snapshot) : null;
+  const restoreScope =
+    pendingDetail.data?.definitionState === 'legacy'
+      ? '该版本没有完整定义，回滚只恢复基本字段与绑定'
+      : '回滚仍会按完整定义恢复规则、输出风格、工作流、Hooks、记忆策略与资源绑定';
 
   return (
     <div className="flex flex-col gap-3">
+      {canEvaluate ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+          <p className="max-w-[42ch] text-sm text-muted-foreground">
+            用已保存的当前草稿跑一遍评估用例，确认结果后再发布。
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={regression.isPending || saving}
+            aria-busy={regression.isPending}
+            onClick={() =>
+              regression.mutate(
+                { agentId, target: 'draft' },
+                {
+                  onSuccess: () => toastSuccess('已用当前草稿发起回归评估，可在「评估」页查看'),
+                  onError: toastError,
+                },
+              )
+            }
+          >
+            <Play /> {regression.isPending ? '启动中…' : '发布前回归'}
+          </Button>
+        </div>
+      ) : null}
       {versions.isPending ? <LoadingState rows={4} /> : null}
       {versions.isError ? (
         <ErrorState error={versions.error} onRetry={() => void versions.refetch()} />
@@ -123,10 +192,10 @@ export function VersionHistory({
             : pendingDiff === null
               ? '正在读取该版本的差异…'
               : pendingDiff.length === 0
-                ? '该版本与当前配置一致，回滚不会改变字段。仍会生成一个新版本。'
+                ? `该版本与当前配置的基本字段一致；${restoreScope}，并生成一个新版本设为线上。`
                 : `将把 ${pendingDiff.length} 个字段改为该版本的值：${pendingDiff
                     .map((entry) => entry.label)
-                    .join('、')}。当前配置会被覆盖，并生成一个新版本。`)
+                    .join('、')}。当前配置会被覆盖；${restoreScope}，并生成一个新版本设为线上。`)
         }
         confirmLabel="回滚"
         confirmDisabled={rollbackDisabled}
@@ -135,8 +204,9 @@ export function VersionHistory({
           onPendingChange?.(true);
           try {
             const agent = await rollback.mutateAsync({ id: agentId, version: pending.version });
-            onRolledBack(agent);
-            toastSuccess(`已回滚到 v${pending.version}`);
+            if (isAgentDetail(agent)) onRolledBack(agent);
+            const publishedVersion = 'publishedVersion' in agent ? agent.publishedVersion : null;
+            toastSuccess(`已恢复并发布 v${publishedVersion ?? pending.version}`);
           } finally {
             onPendingChange?.(false);
           }
@@ -178,6 +248,9 @@ function VersionRow({
               <span className="font-mono text-sm font-medium tabular-nums text-fg">
                 v{item.version}
               </span>
+              {item.version === current.publishedVersion ? (
+                <StatusBadge tone="success">线上</StatusBadge>
+              ) : null}
               {item.note ? (
                 <span className="truncate rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground">
                   {item.note}
@@ -234,6 +307,30 @@ function VersionRow({
                   </li>
                 ))}
               </ul>
+            ) : null}
+            {detail.data?.definition ? (
+              <div className="mt-2 border-t pt-2">
+                <p className="text-2xs font-medium text-muted-foreground">完整定义</p>
+                <ul className="mt-1 flex flex-col gap-1 text-2xs">
+                  {definitionRows(detail.data.definition).map(([label, value]) => (
+                    <li key={label} className="flex gap-2">
+                      <span className="w-[6.5rem] shrink-0 text-muted-foreground">{label}</span>
+                      <span className="min-w-0 flex-1 break-all text-fg">{value}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {detail.data?.definitionState === 'legacy' ? (
+              <p className="mt-2 text-2xs text-muted-foreground">
+                该版本记录于完整定义上线之前，回滚只能恢复基本字段与绑定；规则、输出风格、工作流、Hooks
+                与记忆策略不会随该版本恢复。
+              </p>
+            ) : null}
+            {detail.data?.definitionState === 'forbidden' ? (
+              <p className="mt-2 text-2xs text-muted-foreground">
+                没有查看该版本完整定义的权限，只能按字段差异查看；回滚仍会按该版本的完整定义恢复。
+              </p>
             ) : null}
           </div>
         </CollapsibleContent>

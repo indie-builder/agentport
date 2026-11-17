@@ -1,4 +1,4 @@
-import type { ExecutionSubject, RunTrigger } from '@agentport/shared';
+import type { AgentDefinition, ExecutionSubject, RunTrigger } from '@agentport/shared';
 import { ACTIVE_RUN_STATUSES } from '@agentport/shared';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
@@ -95,6 +95,8 @@ export async function createRun(
     agentId: string;
     trigger?: RunTrigger;
     agentVersion?: number | null;
+    definitionSnapshot?: AgentDefinition | null;
+    serverIds?: string[];
     subject: ExecutionSubject;
     channelId?: string;
     channelTriggerMessageId?: string;
@@ -110,6 +112,10 @@ export async function createRun(
       ...runSubject(input.subject),
       ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
       ...(input.agentVersion === undefined ? {} : { agentVersion: input.agentVersion }),
+      ...(input.definitionSnapshot === undefined
+        ? {}
+        : { definitionSnapshot: input.definitionSnapshot }),
+      ...(input.serverIds === undefined ? {} : { serverIds: input.serverIds }),
       ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
       ...(input.channelTriggerMessageId === undefined
         ? {}

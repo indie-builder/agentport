@@ -2,6 +2,7 @@ import type {
   Agent,
   AgentAccess,
   AgentBudgetStatus,
+  AgentDefinition,
   AgentHookFile,
   AgentHooks,
   AgentInput,
@@ -49,6 +50,8 @@ export interface AgentVersionSummary {
 export interface AgentVersionDetail {
   version: number;
   snapshot: Agent;
+  definition: AgentDefinition | null;
+  definitionState: 'available' | 'forbidden' | 'legacy';
   createdAt: string;
 }
 
@@ -120,8 +123,17 @@ export default {
     rpc.agents.deleteHookFile({ params: { id }, body: { path } }),
   agentVersion: (id: string, version: number): Promise<AgentVersionDetail> =>
     rpc.agents.version({ params: { id, version } }),
-  rollbackAgent: (id: string, version: number): Promise<Agent> =>
+  rollbackAgent: (id: string, version: number): Promise<Agent | AgentSummary> =>
     rpc.agents.rollback({ params: { id }, body: { version } }),
+  publishAgent: (id: string, note?: string): Promise<Agent | AgentSummary> =>
+    rpc.agents.publish({
+      params: { id },
+      body: note === undefined || note === '' ? {} : { note },
+    }),
+  offlineAgent: (id: string): Promise<Agent | AgentSummary> =>
+    rpc.agents.offline({ params: { id } }),
+  trialAgent: (id: string, prompt: string): Promise<{ runId: string; conversationId: string }> =>
+    rpc.agents.trial({ params: { id }, body: { prompt } }),
   /** 官方目录包的 ZIP；错误仍是 Problem JSON。 */
   exportAgent: (
     id: string,

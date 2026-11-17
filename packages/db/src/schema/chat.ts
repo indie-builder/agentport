@@ -1,4 +1,10 @@
-import type { ChatEvent, RunErrorKind, RunStatus, RunTrigger } from '@agentport/shared';
+import type {
+  AgentDefinition,
+  ChatEvent,
+  RunErrorKind,
+  RunStatus,
+  RunTrigger,
+} from '@agentport/shared';
 import { runErrorKindSchema, runStatusSchema, runTriggerSchema } from '@agentport/shared';
 import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
@@ -271,6 +277,8 @@ export const agentRuns = pgTable(
     serviceId: text('service_id', { enum: ['system', 'mcp'] }),
     /** 入队时锁定的智能体版本号，让「用什么配置跑的」可追溯。 */
     agentVersion: integer('agent_version'),
+    definitionSnapshot: jsonb('definition_snapshot').$type<AgentDefinition>(),
+    serverIds: jsonb('server_ids').$type<string[]>(),
     sessionId: text('session_id'),
     sandboxId: text('sandbox_id'),
     /**

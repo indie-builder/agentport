@@ -1,7 +1,6 @@
 import { fail, notFound } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
-  ACTIVE_RUN_STATUSES,
   DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
@@ -14,7 +13,7 @@ import {
   validateMemoryContent,
 } from '@agentport/shared';
 import type { SQL } from 'bun';
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   deleteMemoryFile,
   readMemoryFile,
@@ -57,18 +56,7 @@ export async function assertNoActiveRun(db: Database, agentId: string): Promise<
     .limit(1);
   const occupied = [agentId];
   if (target?.enabled && target.parentId !== null) occupied.push(target.parentId);
-  const [active] = await db
-    .select({ id: schema.agentRuns.id })
-    .from(schema.agentRuns)
-    .where(
-      and(
-        inArray(schema.agentRuns.agentId, occupied),
-        inArray(schema.agentRuns.status, [...ACTIVE_RUN_STATUSES]),
-        ne(schema.agentRuns.trigger, 'review'),
-      ),
-    )
-    .limit(1);
-  if (active) {
+  if (await repo.agents.hasActiveRunUsingAgents(db, occupied)) {
     fail('CONFLICT', '该专家或其发起中的父专家仍有运行未结束，请等待完成或取消后再修改记忆');
   }
 }
@@ -845,11 +833,14 @@ export async function writeMemoryTargetLocked(
       insertChange(tx as unknown as Database, { ...input, after }, target.agentId, before),
     );
   }
-  return db.transaction(async (tx) => {
-    const txdb = tx as unknown as Database;
-    await writeProjection(txdb, target, after);
-    return insertChange(txdb, { ...input, after }, target.agentId, current);
-  });
+  return repo.agentVersions.retryOnVersionConflict(() =>
+    db.transaction(async (tx) => {
+      const txdb = tx as unknown as Database;
+      await writeProjection(txdb, target, after);
+      await repo.agentDefinitions.recordDraftVersionTx(tx, target.agentId, null);
+      return insertChange(txdb, { ...input, after }, target.agentId, current);
+    }),
+  );
 }
 
 /** 回滚入口：自己取锁；审核采纳需要先检查决定，所以直接使用 withMemoryTargetLock。 */

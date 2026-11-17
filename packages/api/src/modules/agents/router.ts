@@ -3,8 +3,14 @@ import { join } from 'node:path';
 import { agentsContract } from '@agentport/contract/agents';
 import { fail, notFound, parseAgentMd } from '@agentport/core';
 import { repo as allRepo, plugins as pluginsTable, schema } from '@agentport/db';
-import { AGENT_HOOK_FILE_LIMIT, utcMonthStart } from '@agentport/shared';
-import { implement } from '@orpc/server';
+import {
+  AGENT_HOOK_FILE_LIMIT,
+  type AgentDefinition,
+  RUN_QUEUE_MAX_WAITING,
+  runEnqueueOptions,
+  utcMonthStart,
+} from '@agentport/shared';
+import { implement, type Router } from '@orpc/server';
 import { and, eq } from 'drizzle-orm';
 import {
   accessFilter,
@@ -15,11 +21,13 @@ import {
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
+import { getQueue } from '../../queue/producer.js';
 import {
   readMemoryTarget,
   withMemoryTargetLock,
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
+import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { deleteAgentWithSandboxes } from '../runtime/runtime-deletion.js';
 import { authorizeAgent, authorizedAgent } from './access.js';
 import { listMemoryFiles, readMemoryFile } from './memory-files.js';
@@ -28,6 +36,7 @@ import {
   createAgent,
   restoreAgentVersion,
   rethrowConflict,
+  toVersionDefinition,
   toWrite,
   transferAgent,
   validateRuntimeEnvironment,
@@ -74,6 +83,25 @@ async function authorizeSubAgentBindings(
   }
 }
 
+async function validateDefinition(
+  context: RequestContext,
+  current: allRepo.agents.AgentRow,
+  definition: AgentDefinition,
+): Promise<void> {
+  const { agent } = definition;
+  const envError = await validateRuntimeEnvironment(context.db, agent.runtimeEnvironmentId);
+  if (envError) invalid(envError);
+  const toolError = unsupportedAllowedTool(agent.allowedTools);
+  if (toolError) invalid(toolError);
+  if (current.parentId !== null && agent.subAgentIds.length > 0) {
+    invalid('a sub-agent cannot have its own sub-agents');
+  }
+  const subAgentError = await validateSubAgents(context.db, current.id, agent.subAgentIds);
+  if (subAgentError) invalid(subAgentError);
+  await authorizeSubAgentBindings(context, agent.subAgentIds);
+  await allRepo.agentDefinitions.assertDefinitionResources(context.db, definition);
+}
+
 function invalid(message: string) {
   return fail('INVALID_INPUT', message);
 }
@@ -103,7 +131,7 @@ function assertSlugUnchanged(current: string, next: string | undefined): string 
 const repo = allRepo.agents;
 
 const os = implement(agentsContract).$context<RequestContext>();
-export const agentsRouter = os.router({
+export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.router({
   list: os.list.handler(async ({ context }) => {
     const principal = requireUser(context);
     const rows = await repo.listAgents(
@@ -357,17 +385,20 @@ export const agentsRouter = os.router({
     }
     const patch = toAgentPatch(input);
     try {
-      const row = await repo.updateAgent(
-        context.db,
-        routeInput.params.id,
-        patch,
-        input.serverIds,
-        input.skillIds,
-        null,
-        input.subAgentIds,
-        input.expectedUpdatedAt,
-        input.pluginBindings,
-      );
+      const row =
+        !updatesConfig && !updatesBindings && input.enabled !== undefined
+          ? await allRepo.agentDefinitions.setAgentEnabled(context.db, current.id, input.enabled)
+          : await repo.updateAgent(
+              context.db,
+              routeInput.params.id,
+              patch,
+              input.serverIds,
+              input.skillIds,
+              null,
+              input.subAgentIds,
+              input.expectedUpdatedAt,
+              input.pluginBindings,
+            );
       if (!row) return notFound('agent');
       await allRepo.audit.writeAudit(context.db, context.log, {
         actor: principal.businessId,
@@ -381,6 +412,98 @@ export const agentsRouter = os.router({
     } catch (err) {
       rethrowConflict(err);
     }
+  }),
+  publish: os.publish.handler(async ({ context, input: routeInput }) => {
+    const principal = requireUser(context);
+    const current = await authorizedAgent(context, routeInput.params.id, 'agents.publish');
+    const definition = await allRepo.agentDefinitions.loadLiveDefinition(context.db, current.id);
+    if (!definition) return notFound('agent');
+    await validateDefinition(context, current, definition);
+    const canReadConfig = (await agentAccess(context, current.id)).permissionIds.includes(
+      'agents.config.read',
+    );
+    const row = await allRepo.agentDefinitions.publishCurrent(
+      context.db,
+      current.id,
+      routeInput.body.note ?? null,
+    );
+    if (!row) return notFound('agent');
+    await allRepo.audit.writeAudit(context.db, context.log, {
+      actor: principal.businessId,
+      action: 'agent.published',
+      target: row.id,
+      input: { note: routeInput.body.note ?? null },
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return canReadConfig ? agentDetail(context.db, row) : toSummary(row);
+  }),
+  offline: os.offline.handler(async ({ context, input: routeInput }) => {
+    const principal = requireUser(context);
+    const current = await authorizedAgent(context, routeInput.params.id, 'agents.enable');
+    const canReadConfig = (await agentAccess(context, current.id)).permissionIds.includes(
+      'agents.config.read',
+    );
+    const row = await allRepo.agentDefinitions.setAgentEnabled(context.db, current.id, false);
+    if (!row) return notFound('agent');
+    await allRepo.audit.writeAudit(context.db, context.log, {
+      actor: principal.businessId,
+      action: 'agent.offline',
+      target: row.id,
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return canReadConfig ? agentDetail(context.db, row) : toSummary(row);
+  }),
+  trial: os.trial.handler(async ({ context, input: routeInput }) => {
+    const principal = requireUser(context);
+    const current = await authorizedAgent(context, routeInput.params.id, 'agents.config.update');
+    await authorizeAgent(context, current, 'agents.read');
+    await authorizeAgent(context, current, 'agents.use');
+    const definition = await allRepo.agentDefinitions.loadLiveDefinition(context.db, current.id);
+    if (!definition) return notFound('agent');
+    await validateDefinition(context, current, definition);
+    if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
+      return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
+    }
+    const { prompt } = routeInput.body;
+    const { run, conversationId } = await allRepo.chat.admitChatRun(context.db, {
+      agentId: current.id,
+      message: prompt,
+      title: `试跑: ${prompt.slice(0, 60)}`,
+      trigger: 'chat',
+      subject: { kind: 'user', businessId: principal.businessId },
+      ...(current.publishedVersion === null ? {} : { agentVersion: current.publishedVersion }),
+      definitionSnapshot: definition,
+      allowDisabled: true,
+    });
+    try {
+      await getQueue().add(
+        'run',
+        {
+          runId: run.id,
+          agentId: current.id,
+          conversationId,
+          prompt,
+          requestId: context.requestId,
+        },
+        runEnqueueOptions(run.id),
+      );
+    } catch {
+      await failQueuedRunEnqueue(context.db, run.id).catch((err: unknown) => {
+        context.log.warn({ err, runId: run.id }, 'trial enqueue failure cleanup failed');
+      });
+      return fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+    }
+    await allRepo.audit.writeAudit(context.db, context.log, {
+      actor: principal.businessId,
+      action: 'agent.trial.started',
+      target: current.id,
+      input: { runId: run.id, conversationId },
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return { runId: run.id, conversationId };
   }),
   delete: os.delete.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
@@ -469,9 +592,30 @@ export const agentsRouter = os.router({
     if (!row) {
       return fail('NOT_FOUND', '该版本不存在，可能已被清理；请刷新版本列表');
     }
+    const definitionPermissions = [
+      'agents.config.read',
+      'agents.rules.read',
+      'agents.styles.read',
+      'agents.workflows.read',
+      'agents.hooks.read',
+      'agents.memory.read',
+    ] as const;
+    const allowed =
+      row.definition === null
+        ? null
+        : new Set((await agentAccess(context, current.id)).permissionIds);
+    const canReadDefinition =
+      allowed !== null && definitionPermissions.every((id) => allowed.has(id));
+    const definitionState =
+      row.definition === null ? 'legacy' : canReadDefinition ? 'available' : 'forbidden';
     return {
       version: row.version,
       snapshot: { ...row.snapshot, isDefault: current.isDefault },
+      definition:
+        definitionState === 'available' && row.definition
+          ? toVersionDefinition(row.definition)
+          : null,
+      definitionState,
       createdAt: row.createdAt.toISOString(),
     };
   }),
@@ -480,6 +624,10 @@ export const agentsRouter = os.router({
     const current = await repo.getAgent(context.db, routeInput.params.id);
     if (!current) return notFound('agent');
     await authorizeAgent(context, current, 'agents.versions.restore');
+    await authorizeAgent(context, current, 'agents.publish');
+    const canReadConfig = (await agentAccess(context, current.id)).permissionIds.includes(
+      'agents.config.read',
+    );
     const target = await allRepo.agentVersions.getAgentVersion(
       context.db,
       current.id,
@@ -487,6 +635,27 @@ export const agentsRouter = os.router({
     );
     if (!target) {
       return fail('NOT_FOUND', '该版本不存在，可能已被清理；请刷新版本列表');
+    }
+    if (target.definition) {
+      await validateDefinition(context, current, target.definition);
+      const row = await allRepo.agentDefinitions
+        .publishDefinition(
+          context.db,
+          current.id,
+          target.definition,
+          `rollback to v${target.version}`,
+        )
+        .catch(rethrowConflict);
+      if (!row) return notFound('agent');
+      await allRepo.audit.writeAudit(context.db, context.log, {
+        actor: principal.businessId,
+        action: 'agent.rolled_back',
+        target: row.id,
+        input: { version: target.version },
+        status: 'ok',
+        requestId: context.requestId,
+      });
+      return canReadConfig ? agentDetail(context.db, row) : toSummary(row);
     }
     const snapshot = target.snapshot;
     const envError = await validateRuntimeEnvironment(
@@ -505,7 +674,7 @@ export const agentsRouter = os.router({
       if (subAgentError) return invalid(subAgentError);
       await authorizeSubAgentBindings(context, snapshotSubAgentIds);
     }
-    return restoreAgentVersion(
+    const row = await restoreAgentVersion(
       {
         db: context.db,
         log: context.log,
@@ -515,6 +684,7 @@ export const agentsRouter = os.router({
       current,
       target,
     );
+    return canReadConfig ? agentDetail(context.db, row) : toSummary(row);
   }),
   memory: os.memory.handler(async ({ context, input: routeInput }) => {
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.memory.read');
@@ -729,10 +899,16 @@ export const agentsRouter = os.router({
   writeOutputStyle: os.writeOutputStyle.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.styles.write');
-    const row = await allRepo.outputStyles.upsertOutputStyle(context.db, agent.id, {
-      slug: routeInput.params.slug,
-      ...routeInput.body,
-    });
+    const row = await allRepo.agentVersions.retryOnVersionConflict(() =>
+      context.db.transaction(async (tx) => {
+        const written = await allRepo.outputStyles.upsertOutputStyle(tx, agent.id, {
+          slug: routeInput.params.slug,
+          ...routeInput.body,
+        });
+        await allRepo.agentDefinitions.recordDraftVersionTx(tx, agent.id, null);
+        return written;
+      }),
+    );
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.output_style.written',
@@ -746,10 +922,17 @@ export const agentsRouter = os.router({
   unselectOutputStyle: os.unselectOutputStyle.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.styles.write');
-    const ok = await allRepo.outputStyles.unselectOutputStyle(
-      context.db,
-      agent.id,
-      routeInput.params.slug,
+    const ok = await allRepo.agentVersions.retryOnVersionConflict(() =>
+      context.db.transaction(async (tx) => {
+        const unselected = await allRepo.outputStyles.unselectOutputStyle(
+          tx,
+          agent.id,
+          routeInput.params.slug,
+        );
+        if (!unselected) return false;
+        await allRepo.agentDefinitions.recordDraftVersionTx(tx, agent.id, null);
+        return true;
+      }),
     );
     if (!ok) return fail('NOT_FOUND', '该输出风格不存在，可能已被删除');
     await allRepo.audit.writeAudit(context.db, context.log, {
@@ -765,10 +948,17 @@ export const agentsRouter = os.router({
   deleteOutputStyle: os.deleteOutputStyle.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.styles.write');
-    const removed = await allRepo.outputStyles.deleteOutputStyle(
-      context.db,
-      agent.id,
-      routeInput.params.slug,
+    const removed = await allRepo.agentVersions.retryOnVersionConflict(() =>
+      context.db.transaction(async (tx) => {
+        const deleted = await allRepo.outputStyles.deleteOutputStyle(
+          tx,
+          agent.id,
+          routeInput.params.slug,
+        );
+        if (!deleted) return false;
+        await allRepo.agentDefinitions.recordDraftVersionTx(tx, agent.id, null);
+        return true;
+      }),
     );
     if (!removed) return fail('NOT_FOUND', '该输出风格不存在，可能已被删除');
     await allRepo.audit.writeAudit(context.db, context.log, {
@@ -793,10 +983,17 @@ export const agentsRouter = os.router({
   writeHooksSettings: os.writeHooksSettings.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.hooks.write');
-    const updated = await allRepo.hooks.updateHooksSettings(context.db, agent.id, {
-      enabled: routeInput.body.enabled,
-      config: routeInput.body.config,
-    });
+    const updated = await allRepo.agentVersions.retryOnVersionConflict(() =>
+      context.db.transaction(async (tx) => {
+        const ok = await allRepo.hooks.updateHooksSettings(tx, agent.id, {
+          enabled: routeInput.body.enabled,
+          config: routeInput.body.config,
+        });
+        if (!ok) return false;
+        await allRepo.agentDefinitions.recordDraftVersionTx(tx, agent.id, null);
+        return true;
+      }),
+    );
     if (!updated) return notFound('agent');
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
@@ -823,7 +1020,13 @@ export const agentsRouter = os.router({
     ) {
       fail('INVALID_INPUT', `hook 脚本最多 ${AGENT_HOOK_FILE_LIMIT} 个，请先删除不用的脚本`);
     }
-    const row = await allRepo.hooks.upsertHookFile(context.db, agent.id, routeInput.body);
+    const row = await allRepo.agentVersions.retryOnVersionConflict(() =>
+      context.db.transaction(async (tx) => {
+        const written = await allRepo.hooks.upsertHookFile(tx, agent.id, routeInput.body);
+        await allRepo.agentDefinitions.recordDraftVersionTx(tx, agent.id, null);
+        return written;
+      }),
+    );
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.hook.file.updated',
@@ -837,7 +1040,14 @@ export const agentsRouter = os.router({
   deleteHookFile: os.deleteHookFile.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.hooks.write');
-    const removed = await allRepo.hooks.deleteHookFile(context.db, agent.id, routeInput.body.path);
+    const removed = await allRepo.agentVersions.retryOnVersionConflict(() =>
+      context.db.transaction(async (tx) => {
+        const deleted = await allRepo.hooks.deleteHookFile(tx, agent.id, routeInput.body.path);
+        if (!deleted) return false;
+        await allRepo.agentDefinitions.recordDraftVersionTx(tx, agent.id, null);
+        return true;
+      }),
+    );
     if (!removed) {
       fail('NOT_FOUND', 'hook 脚本不存在，可能已被删除；请刷新后重试');
     }

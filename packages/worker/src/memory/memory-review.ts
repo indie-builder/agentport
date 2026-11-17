@@ -340,7 +340,12 @@ export async function executeMemoryReview(
   deps: { queryFn?: MemoryReviewQueryFn; logger?: Logger } = {},
 ): Promise<void> {
   const [run] = await db
-    .select({ trigger: schema.agentRuns.trigger, agentId: schema.agentRuns.agentId })
+    .select({
+      trigger: schema.agentRuns.trigger,
+      agentId: schema.agentRuns.agentId,
+      agentVersion: schema.agentRuns.agentVersion,
+      definitionSnapshot: schema.agentRuns.definitionSnapshot,
+    })
     .from(schema.agentRuns)
     .where(eq(schema.agentRuns.id, input.runId))
     .limit(1);
@@ -371,17 +376,38 @@ export async function executeMemoryReview(
 
     const review = await repo.memoryReviews.find(db, input.runId);
     if (!review) throw new Error('记忆审核记录不存在');
-    const [agent] = await db
-      .select({
-        model: schema.agents.model,
-        maxTurns: schema.agents.maxTurns,
-        maxBudgetUsd: schema.agents.maxBudgetUsd,
-        timeoutMs: schema.agents.timeoutMs,
-      })
-      .from(schema.agents)
-      .where(eq(schema.agents.id, run.agentId))
-      .limit(1);
-    if (!agent) throw new Error(`agent ${run.agentId} not found`);
+    const definition =
+      run.definitionSnapshot ??
+      (run.agentVersion === null
+        ? null
+        : ((await repo.agentVersions.getAgentVersion(db, run.agentId, run.agentVersion))
+            ?.definition ?? null));
+    let model: string;
+    let maxTurns: number;
+    let maxBudgetUsd: number;
+    let timeoutMs: number;
+    if (definition === null) {
+      const [agent] = await db
+        .select({
+          model: schema.agents.model,
+          maxTurns: schema.agents.maxTurns,
+          maxBudgetUsd: schema.agents.maxBudgetUsd,
+          timeoutMs: schema.agents.timeoutMs,
+        })
+        .from(schema.agents)
+        .where(eq(schema.agents.id, run.agentId))
+        .limit(1);
+      if (!agent) throw new Error(`agent ${run.agentId} not found`);
+      model = agent.model;
+      maxTurns = agent.maxTurns;
+      maxBudgetUsd = Number(agent.maxBudgetUsd);
+      timeoutMs = agent.timeoutMs;
+    } else {
+      model = definition.agent.model;
+      maxTurns = definition.agent.maxTurns;
+      maxBudgetUsd = definition.agent.maxBudgetUsd;
+      timeoutMs = definition.agent.timeoutMs;
+    }
 
     const snapshot = await loadSnapshot(db, review.sources);
     const messagesById = new Map(snapshot.map((message) => [message.id, message]));
@@ -391,7 +417,7 @@ export async function executeMemoryReview(
     if (controller.signal.aborted) throw new MemoryReviewCancelled();
 
     // 与普通 run 共用智能体 timeoutMs；超时 abort 后仍走 finally 等 SDK 退出并清临时目录。
-    timeout = setTimeout(() => terminate('timeout'), agent.timeoutMs);
+    timeout = setTimeout(() => terminate('timeout'), timeoutMs);
     timeout.unref();
 
     messages = (deps.queryFn ?? query)({
@@ -402,9 +428,9 @@ export async function executeMemoryReview(
         snapshot,
       }),
       options: sdkOptions({
-        model: agent.model,
-        maxTurns: agent.maxTurns,
-        maxBudgetUsd: Number(agent.maxBudgetUsd),
+        model,
+        maxTurns,
+        maxBudgetUsd,
         cwd,
         controller,
       }),

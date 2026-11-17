@@ -325,6 +325,8 @@ beforeEach(() => {
   vi.spyOn(api, 'agentVersion').mockResolvedValue({
     version: 1,
     snapshot: restored,
+    definition: null,
+    definitionState: 'legacy',
     createdAt: agent.createdAt,
   });
   client = new QueryClient({
@@ -1181,7 +1183,7 @@ describe('expert file tool permissions', () => {
 
       await click(toolToggle(tool));
       expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('false');
-      await click(button('保存更改'));
+      await click(button('保存草稿'));
       await waitFor(() => update.mock.calls.length === 1, 10);
       // 关闭只删裸 allow，文件路径 allow 原样保留，不替用户改配置。
       expect(update.mock.calls[0]?.[1].allowedTools).toEqual(['Bash', ...allowPathRules]);
@@ -1196,7 +1198,7 @@ describe('expert file tool permissions', () => {
 
       await click(toolToggle(tool));
       expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('true');
-      await click(button('保存更改'));
+      await click(button('保存草稿'));
       await waitFor(() => update.mock.calls.length === 2, 10);
       // 恢复不写回裸 allow：未变的 allowedTools 不进入 PATCH，服务端合并不重写路径 allow；
       // 只删裸 deny，路径 deny、未知语义规则或其它工具规则都保留。
@@ -1252,7 +1254,7 @@ describe('expert rollback lifecycle', () => {
     await click(button('取消', confirmation));
     await click(button('关闭', dialog('版本历史')));
     expect(field().value).toBe('Unsaved draft');
-    expect(button('保存更改').disabled).toBe(false);
+    expect(button('保存草稿').disabled).toBe(false);
     await click(button('返回列表'));
     await flush();
   });
@@ -1316,7 +1318,7 @@ describe('expert rollback lifecycle', () => {
     await click(button('关闭', dialog('版本历史')));
     expect(field().value).toBe('Unsaved draft');
     expect(field().disabled).toBe(false);
-    await click(button('保存更改'));
+    await click(button('保存草稿'));
     expect(update).toHaveBeenCalledWith(
       'expert',
       expect.objectContaining({ name: 'Unsaved draft' }),
@@ -1335,7 +1337,7 @@ describe('expert rollback lifecycle', () => {
     await confirmRollback();
     expect(field().value).toBe('Restored expert');
     await editName('Next draft');
-    await click(button('保存更改'));
+    await click(button('保存草稿'));
     expect(update).toHaveBeenCalledWith(
       'expert',
       expect.objectContaining({ name: 'Next draft' }),
@@ -1542,6 +1544,8 @@ describe('expert review details', () => {
     vi.spyOn(api, 'agentVersion').mockResolvedValue({
       version: 1,
       snapshot: target,
+      definition: null,
+      definitionState: 'legacy',
       createdAt: agent.createdAt,
     });
     await mount();
@@ -1682,6 +1686,8 @@ describe('expert review details', () => {
     vi.spyOn(api, 'agentVersion').mockResolvedValue({
       version: 1,
       snapshot: entry.target,
+      definition: null,
+      definitionState: 'legacy',
       createdAt: agent.createdAt,
     });
     vi.spyOn(api, 'rollbackAgent').mockResolvedValue(entry.target);
@@ -1888,7 +1894,7 @@ describe('expert draft previews', () => {
     await click(button('身份'));
     await waitFor(() => document.querySelector('#agent-name'));
 
-    await click(button('保存更改'));
+    await click(button('保存草稿'));
     await waitFor(() => document.querySelector('h1')?.textContent === '配置验收草稿');
 
     expect(update).toHaveBeenCalledOnce();

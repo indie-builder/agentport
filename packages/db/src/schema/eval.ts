@@ -1,3 +1,4 @@
+import type { AgentDefinition, AgentResourceVersions } from '@agentport/shared';
 import { eq, sql } from 'drizzle-orm';
 import {
   boolean,
@@ -51,6 +52,9 @@ export const evalRuns = pgTable(
     passed: integer('passed').notNull().default(0),
     error: text('error'),
     caseSnapshot: jsonb('case_snapshot').$type<EvalCaseSnapshot[]>(),
+    agentVersion: integer('agent_version'),
+    definitionSnapshot: jsonb('definition_snapshot').$type<AgentDefinition>(),
+    resourceVersions: jsonb('resource_versions').$type<AgentResourceVersions>(),
     /** 评估执行主体就是创建人；worker 触发时重新校验其权限。 */
     createdBy: text('created_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

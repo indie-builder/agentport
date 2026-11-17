@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createDb, newId, schema } from '@agentport/db';
+import { createDb, newId, repo, schema } from '@agentport/db';
 import { inArray } from 'drizzle-orm';
 import { loadRunServerBindings } from '../src/server-bindings.js';
 import { testAccess } from './fixtures/access.js';
@@ -23,11 +23,6 @@ describe.skipIf(!ready)('run server bindings', () => {
   const childBId = newId('agent');
   const disabledChildId = newId('agent');
   const serverNames = new Map<string, string>();
-  const subAgentRows = [
-    { id: childAId, enabled: true },
-    { id: childBId, enabled: true },
-    { id: disabledChildId, enabled: false },
-  ];
 
   async function agent(id: string, parent: string | null, enabled = true) {
     agentIds.push(id);
@@ -94,8 +89,18 @@ describe.skipIf(!ready)('run server bindings', () => {
     await client.close();
   });
 
+  async function serverBindings() {
+    const rows = await repo.agents.getBoundServersByAgentIds(db, [parentId, childAId, childBId]);
+    return new Map(
+      [...rows].map(([id, servers]) => [
+        id,
+        servers.map((server) => ({ ...server, updatedAt: server.updatedAt.toISOString() })),
+      ]),
+    );
+  }
+
   it('keeps parent and each child server names strictly to their own bindings', async () => {
-    const { serverNamesByAgent } = await loadRunServerBindings(db, parentId, subAgentRows);
+    const { serverNamesByAgent } = await loadRunServerBindings(await serverBindings());
     const names = (ids: string[]) => ids.sort(byId).map((id) => serverNames.get(id));
 
     expect(serverNamesByAgent.get(parentId)).toEqual(names([parentServer, sharedServer]));
@@ -105,7 +110,7 @@ describe.skipIf(!ready)('run server bindings', () => {
   });
 
   it('dedupes shared servers and orders the workspace union by server id', async () => {
-    const { serverRows } = await loadRunServerBindings(db, parentId, subAgentRows);
+    const { serverRows } = await loadRunServerBindings(await serverBindings());
     const expected = [childServer, parentServer, sharedServer, bServer].sort(byId);
 
     expect(serverRows.map((row) => row.id)).toEqual(expected);

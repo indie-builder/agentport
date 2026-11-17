@@ -1,4 +1,4 @@
-import type { AccessFilter } from '@agentport/shared';
+import type { AccessFilter, AgentDefinition, AgentResourceVersions } from '@agentport/shared';
 import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { type EvalCaseSnapshot, evalCases, evalResults, evalRuns } from '../schema.js';
@@ -11,7 +11,16 @@ export type EvalRun = typeof evalRuns.$inferSelect;
 /** 列表投影：不读 caseSnapshot / claimedAt，避免把大字段带进分页查询。 */
 export type EvalRunSummary = Pick<
   EvalRun,
-  'id' | 'agentId' | 'status' | 'total' | 'passed' | 'error' | 'createdAt' | 'finishedAt'
+  | 'id'
+  | 'agentId'
+  | 'agentVersion'
+  | 'resourceVersions'
+  | 'status'
+  | 'total'
+  | 'passed'
+  | 'error'
+  | 'createdAt'
+  | 'finishedAt'
 >;
 
 export interface EvalRunPage {
@@ -93,6 +102,9 @@ export async function createEvalRun(
     total: number;
     createdBy: string;
     caseSnapshot?: EvalCaseSnapshot[];
+    agentVersion?: number | null;
+    definitionSnapshot?: AgentDefinition | null;
+    resourceVersions?: AgentResourceVersions | null;
   },
 ): Promise<EvalRun> {
   const [row] = await db.insert(evalRuns).values(input).returning();
@@ -184,6 +196,8 @@ export async function listRuns(
     .select({
       id: evalRuns.id,
       agentId: evalRuns.agentId,
+      agentVersion: evalRuns.agentVersion,
+      resourceVersions: evalRuns.resourceVersions,
       status: evalRuns.status,
       total: evalRuns.total,
       passed: evalRuns.passed,

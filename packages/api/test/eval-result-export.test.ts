@@ -172,11 +172,13 @@ describe.skipIf(!ready)('eval result export', () => {
     expect(Number.isNaN(Date.parse(body.exportedAt))).toBe(false);
     expect(Object.keys(body.evalRun).sort()).toEqual([
       'agentId',
+      'agentVersion',
       'createdAt',
       'error',
       'finishedAt',
       'id',
       'passed',
+      'resourceVersions',
       'status',
       'total',
     ]);

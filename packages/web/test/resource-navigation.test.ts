@@ -107,6 +107,9 @@ vi.mock('../src/lib/queries.js', () => {
     useBatchSetToolsEnabled: mutation,
     useTools: () => ({ data: [] }),
     useUpdateAgent: mutation,
+    usePublishAgent: mutation,
+    useOfflineAgent: mutation,
+    useTrialAgent: mutation,
   };
 });
 
@@ -271,6 +274,7 @@ describe('resource navigation', () => {
             ['/servers', section === 'servers' ? 'page' : undefined],
             ['/plugins', section === 'plugins' ? 'page' : undefined],
             ['/knowledge', section === 'knowledge' ? 'page' : undefined],
+            ['/data-domains', undefined],
           ]);
           expect(
             tree.some(

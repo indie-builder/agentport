@@ -364,11 +364,24 @@ agents(
   monthly_budget_usd numeric,  -- 可空；null 表示不限，当月花费达上限拦截 chat/频道/平台 MCP/定时/记忆审核（eval 不拦截但花费计入）
   budget_alert_ratio numeric not null default 0.800,  -- 当月花费达上限的该比例时向负责人投递站内预算通知
   timeout_ms int,
+  published_version int,     -- 线上指针：run 准入时固定的 agent_versions.version；null 表示按 live 表执行
+  published_at timestamptz,
   created_at timestamptz,
   updated_at timestamptz
 )
 -- partial unique index agents_single_default_idx on (is_default) where is_default = true
 -- 只保证至多一个默认；恰好一个由 bootstrap 与 buildApp 启动时的幂等播种 ensureDefaultAssistant 保证
+
+agent_versions(
+  id text pk,                -- TypeID（av_）
+  agent_id text fk cascade,
+  version int,
+  snapshot jsonb,            -- Agent 配置（含 serverIds / skillIds）
+  definition jsonb,          -- 完整 AgentDefinition：配置、规则、输出风格、工作流、Hooks、记忆策略，及服务器配置/技能正文与文件/插件文件/子智能体 publishedVersion/运行环境 versionId 的完整快照；旧快照可空
+  note text,
+  created_at timestamptz,
+  unique (agent_id, version)
+)
 
 agent_servers(agent_id text, server_id text, primary key (agent_id, server_id))
 
@@ -391,6 +404,9 @@ agent_runs(
   session_id text,           -- Agent SDK session id
   sandbox_id text,
   schedule_id text,          -- 定时触发的来源 agent_schedules.id；普通与频道运行为 null
+  agent_version int,         -- 准入时固定的线上版本；null 表示按 live 表执行的历史行或夹具
+  definition_snapshot jsonb, -- 该次 run 使用的完整 AgentDefinition
+  server_ids jsonb,          -- 准入时固定本轮可访问的 MCP server id 集合；null 为旧行回退 live 绑定；worker 按实际渲染并集覆盖
   started_at timestamptz,
   ended_at timestamptz,
   error text,
@@ -410,6 +426,17 @@ run_feedback(
   comment text not null default '',
   reason text not null default '', -- 退回原因
   eval_case_id text,         -- 转评测用例后回写，可空；用例删除时置 null
+  created_by text not null,
+  created_at timestamptz not null default now()
+)
+
+eval_runs(
+  id text pk,
+  agent_id text fk cascade,
+  status text,                  -- running|succeeded|failed|cancelled
+  agent_version int,            -- 评测固定使用的版本
+  definition_snapshot jsonb,    -- 批次内每条 case 共用的完整定义
+  resource_versions jsonb,      -- 绑定资源的 id/name/updatedAt 指纹
   created_by text not null,
   created_at timestamptz not null default now()
 )
@@ -443,6 +470,8 @@ notifications(
 -- unique (business_id, kind, source_id)：同一接收人的同一事件只投递一次
 -- index (business_id, created_at, id)；partial index (business_id, created_at) where read_at is null
 ```
+
+专家区分编辑态与发布态：`agents` 及子表保存当前编辑态，保存仍生成 `agent_versions` 快照；`agents.published_version` / `published_at` 是线上指针，为空表示历史行或夹具按 live 表执行。所有 run（聊天、频道、定时、平台 MCP、记忆审核）在准入时固定发布版本，worker 按该版本的 `definition` 渲染与执行；版本详情返回完整定义，回滚据此恢复子表。评测 run 固定 `agent_version` 与 `resource_versions`，`target` 为 `published` 或 `draft`，草稿目标使用当次编辑态快照做发布前回归。
 
 频道模式 M1 的四张表与 M2 的可空来源关联（已有私有对话行不改写）：
 
@@ -632,7 +661,7 @@ query({
 >
 > 单机意味着 workspace 目录与 worker 必须同机。这是当前明确的取舍：少一层存储抽象，代码更少。将来要多机时，把 `SandboxProvider.create()` 的 `workspaceDir` 参数换成「准备一个工作区」的异步函数即可，改动集中在一个方法内。
 
-**按命名运行环境定制，不把镜像写进智能体。** `SANDBOX_IMAGE` 是平台基座：worker 首次启动时若本地缺失会先拉取，再用真实本地 image ID 登记「默认环境」的首个线上版本（`base_image_id` 也是该 image ID），并作为之后所有环境构建的基座；默认环境已存在时不再 inspect/pull，也不会随环境变量变化自动发布。需要额外依赖时新建命名运行环境、编辑 Dockerfile、构建并发布版本；智能体绑定环境、不绑定版本，只有新建容器时才解析该环境当时的线上版本，存活容器继续用创建时的旧镜像。环境是平台基础设施，不写入官方 `.claude/` 定义；专家包只在 sidecar 记录环境名称。
+**按命名运行环境定制，不把镜像写进智能体。** `SANDBOX_IMAGE` 是平台基座：worker 首次启动时若本地缺失会先拉取，再用真实本地 image ID 登记「默认环境」的首个线上版本（`base_image_id` 也是该 image ID），并作为之后所有环境构建的基座；默认环境已存在时不再 inspect/pull，也不会随环境变量变化自动发布。需要额外依赖时新建命名运行环境、编辑 Dockerfile、构建并发布版本；编辑态绑定环境；已发布定义固定运行环境 `versionId`，新建容器按该固定版本解析镜像（历史行才用当时的线上版本），存活容器继续用创建时版本，运行环境发布/回退不替换它。环境是平台基础设施，不写入官方 `.claude/` 定义；专家包只在 sidecar 记录环境名称。
 
 ### 6.4 沙盒选型评估
 

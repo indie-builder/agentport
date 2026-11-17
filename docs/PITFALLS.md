@@ -722,3 +722,9 @@
 - **现象**：同一 `WrenEngine` 逐请求传 session properties，普通模型查询按 RLAC 过滤；改用 `warehouse.main.employees` 这类物理表全限定名查询却返回全部行。
 - **原因**：`WrenEngine.query` 的 `read_only` 默认 `False`，非只读路径不校验限定名，限定名被当作物理表直接下发，绕过 MDL 模型上的 RLAC；`strict_mode` 单独不够，模型名与物理表名相同时仍放行。
 - **规避**：平台调用统一 `query(read_only=True)`，构造 `WrenEngine(..., config=WrenConfig(strict_mode=True), fallback=False)`；session properties 只能由服务端按登录身份生成，不接受客户端或模型自报。
+
+## 运行：渲染回退 live 表会让已发布运行漂移
+
+- **现象**：run 准入时已记录发布版本，worker 却按 `agents` 当前编辑态渲染，编辑中的配置提前影响线上运行。
+- **原因**：把 `agents` 子表当成运行来源，忽略 `published_version` 指向的 `agent_versions.definition` 才是该 run 的固定快照。
+- **规避**：worker 渲染与执行只读 run 准入时固定的版本 `definition`；仅 `published_version` 为空的历史行或夹具回退 live 表；发布、试跑与回滚分别走各自入口，不改写已有 run。

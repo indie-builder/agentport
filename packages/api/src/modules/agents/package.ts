@@ -1416,7 +1416,6 @@ export async function importAgentPackage(
       }
       const createdSubAgents: string[] = [];
       const childIds: string[] = [];
-      const childSnapshots: ReturnType<typeof repo.agents.toAgent>[] = [];
       for (const child of parsed.children) {
         const childSlug = await uniqueSlug(tx, child.input.slug);
         if (childSlug !== child.input.slug) {
@@ -1447,17 +1446,28 @@ export async function importAgentPackage(
             .values(childSkillIds.map((skillId) => ({ agentId: childRow.id, skillId })));
         }
         await insertAgentFiles(tx, childRow.id, child.rules, child.outputStyles, []);
-        childSnapshots.push(repo.agents.toAgent(childRow, childServerIds, childSkillIds));
         childIds.push(childRow.id);
         createdSubAgents.push(childRow.slug);
       }
-      await repo.agentVersions.insertAgentVersion(
-        tx,
-        row.id,
-        repo.agents.toAgent(row, serverIds, skillIds, childIds),
-      );
-      for (const snapshot of childSnapshots) {
-        await repo.agentVersions.insertAgentVersion(tx, snapshot.id, snapshot);
+      for (const id of [...childIds, row.id]) {
+        const definition = await repo.agentDefinitions.loadLiveDefinition(tx, id);
+        if (!definition) throw new Error('imported agent disappeared before versioning');
+        if (id === row.id) await repo.agentDefinitions.assertDefinitionResources(tx, definition);
+        const version = await repo.agentVersions.insertAgentVersion(
+          tx,
+          id,
+          definition.agent,
+          definition,
+        );
+        const publishedAt = new Date();
+        await tx
+          .update(agents)
+          .set({ publishedVersion: version, publishedAt })
+          .where(eq(agents.id, id));
+        if (id === row.id) {
+          row.publishedVersion = version;
+          row.publishedAt = publishedAt;
+        }
       }
       return {
         agent: repo.agents.toAgent(row, serverIds, skillIds, childIds),

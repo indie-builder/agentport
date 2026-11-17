@@ -186,12 +186,17 @@ export const evalRouter = os.router({
         'eval.execute',
         'agents.use',
       ]);
-      const created = await startEvalRun(context.db, input.body.agentId, businessId);
+      const created = await startEvalRun(
+        context.db,
+        input.body.agentId,
+        businessId,
+        input.body.target,
+      );
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'eval.run.requested',
         target: created.evalRunId,
-        input: { agentId: input.body.agentId },
+        input: { agentId: input.body.agentId, target: input.body.target },
         status: 'ok',
         requestId: context.requestId,
       });

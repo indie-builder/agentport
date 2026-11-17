@@ -8,5 +8,6 @@ export default {
     'tests/eval-execution.e2e.ts',
     'tests/runtime-build.e2e.ts',
     'tests/data-domain-execution.e2e.ts',
+    'tests/agent-publish.e2e.ts',
   ],
 } satisfies E2EConfig;

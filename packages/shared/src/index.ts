@@ -5,6 +5,7 @@ z.config(z.locales.zhCN());
 
 export * from './access.js';
 export * from './agent.js';
+export * from './agent-definition.js';
 export * from './agent-package.js';
 export * from './attachments.js';
 export * from './channels.js';

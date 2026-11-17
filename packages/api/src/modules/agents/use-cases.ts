@@ -1,7 +1,7 @@
 import { fail, notFound } from '@agentport/core';
 import { repo as allRepo, type Database } from '@agentport/db';
-import type { Agent, AgentInput } from '@agentport/shared';
-import { AGENT_ROLES } from '@agentport/shared';
+import type { Agent, AgentDefinition, AgentInput } from '@agentport/shared';
+import { AGENT_ROLES, maskUrlCredentials } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { isPgCode } from '../../http/errors.js';
 import { importAgentPackage, type parseAgentPackage } from './package.js';
@@ -114,13 +114,42 @@ export async function createAgent(deps: AgentWriteDependencies, input: AgentInpu
   }
 }
 export async function agentDetail(db: Database, row: allRepo.agents.AgentRow): Promise<Agent> {
-  const [serverIds, skillIds, subAgentIds, pluginBindings] = await Promise.all([
+  const [serverIds, skillIds, subAgentIds, pluginBindings, latest] = await Promise.all([
     repo.getAgentServerIds(db, row.id),
     repo.getAgentSkillIds(db, row.id),
     repo.getAgentSubAgentIds(db, row.id),
     allRepo.plugins.listAgentPluginBindingInputs(db, [row.id]),
+    allRepo.agentVersions.latestAgentVersion(db, row.id),
   ]);
-  return repo.toAgent(row, serverIds, skillIds, subAgentIds, pluginBindings.get(row.id) ?? []);
+  return {
+    ...repo.toAgent(row, serverIds, skillIds, subAgentIds, pluginBindings.get(row.id) ?? []),
+    hasDraft: latest !== null && (row.publishedVersion === null || latest > row.publishedVersion),
+  };
+}
+export function toVersionDefinition(definition: AgentDefinition): AgentDefinition {
+  const mask = (value: unknown) => (typeof value === 'string' ? maskUrlCredentials(value) : '');
+  return {
+    ...definition,
+    resources: {
+      ...definition.resources,
+      servers: definition.resources.servers.map((server) => {
+        const { secretsEncrypted: _secretsEncrypted, config, ...rest } = server;
+        const publicConfig =
+          server.kind === 'stdio'
+            ? { command: config.command ?? '', args: config.args ?? [] }
+            : server.kind === 'http'
+              ? { url: mask(config.url) }
+              : server.kind === 'generated'
+                ? { baseUrl: mask(config.baseUrl) }
+                : server.kind === 'knowledge'
+                  ? { knowledgeBaseId: config.knowledgeBaseId ?? '' }
+                  : server.kind === 'data_domain'
+                    ? { dataDomainId: config.dataDomainId ?? '' }
+                    : {};
+        return { ...rest, config: publicConfig };
+      }),
+    },
+  };
 }
 function snapshotToWrite(
   snapshot: Agent,
@@ -215,20 +244,26 @@ export async function restoreAgentVersion(
 ) {
   const snapshot = target.snapshot;
   try {
-    const row = await repo.updateAgent(
-      deps.db,
-      current.id,
-      snapshotToWrite(snapshot, current),
-      snapshot.serverIds,
-      snapshot.skillIds,
-      `rollback to v${target.version}`,
-      snapshot.subAgentIds,
-      undefined,
-      (
-        snapshot as {
-          pluginBindings?: Agent['pluginBindings'];
-        }
-      ).pluginBindings,
+    const row = await allRepo.agentVersions.retryOnVersionConflict(() =>
+      deps.db.transaction(async (tx) => {
+        const updated = await allRepo.agents.updateAgentTx(
+          tx,
+          current.id,
+          { ...snapshotToWrite(snapshot, current), enabled: true },
+          snapshot.serverIds,
+          snapshot.skillIds,
+          `rollback to v${target.version}`,
+          snapshot.subAgentIds,
+          undefined,
+          (
+            snapshot as {
+              pluginBindings?: Agent['pluginBindings'];
+            }
+          ).pluginBindings,
+        );
+        if (!updated) return null;
+        return allRepo.agentDefinitions.markLatestPublishedTx(tx, current.id);
+      }),
     );
     if (!row) return notFound('agent');
     await allRepo.audit.writeAudit(deps.db, deps.log, {
@@ -239,16 +274,7 @@ export async function restoreAgentVersion(
       status: 'ok',
       requestId: deps.requestId,
     });
-    const restoredPlugins = await allRepo.plugins.listAgentPluginBindingInputs(deps.db, [
-      current.id,
-    ]);
-    return repo.toAgent(
-      row,
-      snapshot.serverIds,
-      snapshot.skillIds,
-      snapshot.subAgentIds ?? [],
-      restoredPlugins.get(current.id) ?? [],
-    );
+    return row;
   } catch (err) {
     rethrowConflict(err);
   }

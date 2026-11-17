@@ -7,6 +7,7 @@ import {
   type EvalCaseInput,
   type EvalComparison,
   type EvalRunDetail,
+  type EvalTarget,
 } from '../api.js';
 
 export function useEvalCases(agentId: string | null) {
@@ -92,7 +93,8 @@ export function useEvalRuns(agentId: string | null) {
 export function useStartEvalRun() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (agentId: string) => api.startEvalRun(agentId),
+    mutationFn: (vars: { agentId: string; target?: EvalTarget }) =>
+      api.startEvalRun(vars.agentId, vars.target),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-runs'] }),
   });
 }

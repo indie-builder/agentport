@@ -1,7 +1,14 @@
 import { fail } from '@agentport/core';
 import { sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
-import { agentRuns, agentVersions, channelMessages, messages } from '../schema.js';
+import {
+  agentRuns,
+  agents,
+  agentVersions,
+  channelMessages,
+  evalRuns,
+  messages,
+} from '../schema.js';
 
 export interface PruneRunsResult {
   runs: number;
@@ -22,7 +29,6 @@ function positive(value: number, name: string): number {
   return value;
 }
 
-/** 每个 agent 只保留最近 N 个版本；latest 恒在保留范围内。 */
 export async function pruneAgentVersions(db: Database, keepPerAgent: number): Promise<number> {
   const keep = positive(keepPerAgent, 'keepPerAgent');
   const result = await db.execute(sql`
@@ -39,6 +45,61 @@ export async function pruneAgentVersions(db: Database, keepPerAgent: number): Pr
       ) ranked
       where rn > ${keep}
     )
+      and not exists (
+        select 1 from agents a
+        where a.id = ${agentVersions.agentId}
+          and a.published_version = ${agentVersions.version}
+      )
+      and not exists (
+        select 1 from ${agentRuns} r
+        where r.agent_id = ${agentVersions.agentId}
+          and r.agent_version = ${agentVersions.version}
+          and r.status in ('queued', 'running')
+      )
+      and not exists (
+        select 1
+        from ${agentVersions} parent
+        join ${agents} a on a.id = parent.agent_id and a.published_version = parent.version
+        where parent.definition->'resources'->'subAgents' @> jsonb_build_array(
+          jsonb_build_object(
+            'id', ${agentVersions.agentId},
+            'publishedVersion', ${agentVersions.version}
+          )
+        )
+      )
+      and not exists (
+        select 1 from ${agentRuns} r
+        where r.status in ('queued', 'running')
+          and r.definition_snapshot->'resources'->'subAgents' @> jsonb_build_array(
+            jsonb_build_object(
+              'id', ${agentVersions.agentId},
+              'publishedVersion', ${agentVersions.version}
+            )
+          )
+      )
+      and not exists (
+        select 1
+        from ${agentRuns} r
+        join ${agentVersions} parent
+          on parent.agent_id = r.agent_id and parent.version = r.agent_version
+        where r.status in ('queued', 'running')
+          and parent.definition->'resources'->'subAgents' @> jsonb_build_array(
+            jsonb_build_object(
+              'id', ${agentVersions.agentId},
+              'publishedVersion', ${agentVersions.version}
+            )
+          )
+      )
+      and not exists (
+        select 1 from ${evalRuns} e
+        where e.status = 'running'
+          and e.definition_snapshot->'resources'->'subAgents' @> jsonb_build_array(
+            jsonb_build_object(
+              'id', ${agentVersions.agentId},
+              'publishedVersion', ${agentVersions.version}
+            )
+          )
+      )
   `);
   return (result as typeof result & { count: number }).count;
 }
