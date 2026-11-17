@@ -47,6 +47,7 @@ const terminal: RunDetail = {
   run: {
     id: 'run-old',
     conversationId: 'conversation-a',
+    initiatedBy: null,
     agentId: 'agent-a',
     agentName: 'Expert',
     status: 'failed',
@@ -474,6 +475,7 @@ describe('confirmed chat UX defects', () => {
         run: {
           id: 'run-b',
           conversationId: 'conversation-a',
+          initiatedBy: null,
           agentId: 'agent-a',
           agentName: 'Expert',
           status: 'succeeded',

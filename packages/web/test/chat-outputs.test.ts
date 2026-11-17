@@ -45,6 +45,7 @@ const terminal: RunDetail = {
   run: {
     id: 'run-2',
     conversationId: 'conversation-a',
+    initiatedBy: null,
     agentId: 'agent-a',
     agentName: 'Expert',
     status: 'succeeded',

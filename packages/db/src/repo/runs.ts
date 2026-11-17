@@ -53,6 +53,7 @@ export interface RunListItem {
 
 export interface RunDetailRow extends RunListItem {
   conversationId: string;
+  initiatedBy: string | null;
   sessionId: string | null;
   sandboxId: string | null;
   /** 容器实际使用的身份；queued 尚未创建容器时为 null。 */
@@ -779,6 +780,7 @@ export async function getRunDetail(db: Database, runId: string): Promise<RunDeta
     .select({
       ...runColumns,
       conversationId: agentRuns.conversationId,
+      initiatedBy: agentRuns.initiatedBy,
       sessionId: agentRuns.sessionId,
       sandboxId: agentRuns.sandboxId,
       runtimeEnvironmentId: agentRuns.runtimeEnvironmentId,

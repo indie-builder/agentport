@@ -440,6 +440,7 @@ describe('disconnected runs', () => {
       const detail: RunDetail['run'] = {
         id: 'run-a',
         conversationId: 'conversation-a',
+        initiatedBy: null,
         agentId: 'agent-a',
         agentName: 'A',
         status,

@@ -45,6 +45,7 @@ function detail(status: RunStatus, steps: RunDetail['steps']): RunDetail {
       inputTokens: null,
       outputTokens: null,
       conversationId: 'conv-1',
+      initiatedBy: null,
       sessionId: null,
       sandboxId: null,
       runtimeEnvironment: null,

@@ -53,6 +53,7 @@ const detail: RunDetail = {
     costUsd: null,
     error: null,
     conversationId: 'conv-1',
+    initiatedBy: null,
     sessionId: null,
     sandboxId: null,
     runtimeEnvironment: null,
