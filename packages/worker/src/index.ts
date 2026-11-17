@@ -38,7 +38,10 @@ import {
   startDataDomainBuildReconciler,
   startDataDomainBuildWorker,
 } from './data-domains/build.js';
-import { startDataDomainEnrichmentWorker } from './data-domains/enrich.js';
+import {
+  startDataDomainEnrichmentReconciler,
+  startDataDomainEnrichmentWorker,
+} from './data-domains/enrich.js';
 import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
 import { closeEvalRunQueue, evalFailureDiagnostics } from './eval-runner.js';
 import { startKnowledgeWorker } from './knowledge/queue.js';
@@ -575,6 +578,7 @@ const dataDomainEnrichments = await startDataDomainEnrichmentWorker({
   enrichModel: config.DATA_DOMAIN_ENRICH_MODEL,
 });
 const stopDataDomainBuildReconciler = startDataDomainBuildReconciler({ db, logger });
+const stopDataDomainEnrichmentReconciler = startDataDomainEnrichmentReconciler({ db, logger });
 // 崩溃恢复：终态收回卡在 queued/building 的版本，不留下假的构建中。
 const stopRuntimeEnvironmentBuildReconciler = startRuntimeEnvironmentBuildReconciler({
   store: {
@@ -685,6 +689,10 @@ const shutdown = async (): Promise<void> => {
       {
         label: 'data domain build reconciler',
         close: () => stopDataDomainBuildReconciler(),
+      },
+      {
+        label: 'data domain enrichment reconciler',
+        close: () => stopDataDomainEnrichmentReconciler(),
       },
       {
         label: 'runtime environment build reconciler',

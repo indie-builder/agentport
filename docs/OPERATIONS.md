@@ -745,7 +745,7 @@ E2E 截图按 e2e 0.22 的安全语义处理：secret fill 不再关闭截图，
 
 ### 10.3 构建与 enrich worker
 
-- worker 启动时消费 `data-domain-builds` 与 `data-domain-enrichments` 两个队列（`attempts: 1`，不自动重试），并注册构建对账：每 5 分钟扫描一次，`building` 超过 15 分钟未完成视为失败。
+- worker 启动时消费 `data-domain-builds` 与 `data-domain-enrichments` 两个队列（`attempts: 1`，不自动重试），并注册构建与 enrich 对账：每 5 分钟扫描一次，`building` 版本与 `generating` 提案超过 15 分钟未更新视为失败。
 - 构建：`POST /data-domains/{id}/versions` 创建 `queued` 版本并入队；worker 在自身进程内解密连接，`POST /build` 给运行时，worker 侧超时 5 分钟；运行时执行 `wren context build`，子进程超时 180 秒，返回 `target/mdl.json` 与构建日志尾（最多 8000 字符）。worker 对日志与错误做凭据脱敏，成功/失败均按版本行 CAS 落库；版本行 `log_tail` 按 UTF-8 只保留最后 64 KiB，超出时置 `log_truncated`。
 - generate-mdl：api 解密连接后 `POST /generate-mdl`（api 侧超时 60 秒），反射结果创建 `queued` 版本并进入同一构建队列。单次最多 200 张表；不适合模型路径的表名直接报错。
 - enrich：`POST /data-domains/{id}/enrich` 基于一个 `ready` 版本创建 `generating` 提案入队；worker 直接调用 `@anthropic-ai/claude-agent-sdk`（不走沙盒），模型由 `DATA_DOMAIN_ENRICH_MODEL` 指定，单次超时 5 分钟、最多 6 轮、`maxBudgetUsd` 估算停止阈值约 0.5 美元（可能超出），工具列表为空。SDK 子进程环境只带 `PATH`、`HOME`、配置目录等固定运行变量与 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL`，不携带数据库连接、`DATABASE_URL` 或 `APP_SECRET_KEY`；模型输入的数据只有源版本 `projectFiles` 与本次指令（另有固定提示词）。
@@ -764,7 +764,7 @@ GRANT SELECT (id, name, department) ON TABLE warehouse.employees TO wren_reader;
 
 ### 10.5 已知限制与运维注意
 
-- **enrich 陈旧提案**：`data-domain-enrichments` 没有应用级 stale reconciler，任务 `attempts: 1` 不提供业务重试；BullMQ 的 stalled 重投是队列机制，不能替代 stale 回收。worker 崩溃或任务丢失后，提案可能长期停在 `generating` 且不能直接决策；当前没有应用级恢复入口，需重新发起提案并人工排查旧提案。
+- **enrich 陈旧提案**：worker 每 5 分钟对账一次，`generating` 提案超过 15 分钟未更新会被置为 `failed`（`生成中断或超时`）；任务 `attempts: 1` 不提供自动重试，回收后需重新发起提案。
 - **超时**：查询 30 秒、连接测试 15 秒、generate-mdl 60 秒、构建 worker 5 分钟、运行时 `wren context build` 180 秒、enrich 5 分钟。超时按失败处理，不自动重试。
 - **审计留存**：`data_domain_query_logs` 不在每日维护清理范围内，随数据域删除级联删除；`audit_log` 不参与清理。查询日志固定保留明文 SQL 前 500 字符，当前没有可调截断配置。审计链可用 `GET /api/audit/verify`（权限 `audit.read`）校验；审计导出 `GET /api/audit/export` 只含审计条目元数据与 `inputDigest`，不含原始输入。
 - **凭据暴露面**：连接测试由调用方直接提交明文 `connection`，api 不做解密、原样转给运行时；查询、结构反射与版本构建则解密已存储的加密凭据（api 或构建 worker 内）。两种路径下凭据都明文经过内部 HTTP；运行时无鉴权，网络边界就是安全边界。
@@ -780,7 +780,7 @@ GRANT SELECT (id, name, department) ON TABLE warehouse.employees TO wren_reader;
 | `run_sql` 返回 `QUERY_FAILED` 且运行时不可达 | URL 错、服务未启动或网络不通；客户端统一看到通用失败 | `docker compose --profile wren ps`；`curl -s http://127.0.0.1:5010/health`（按实际端口）；查 api 日志 |
 | `run_sql` 返回 `no_online_version` | 数据域没有就绪的线上版本 | 确认版本已构建为 `ready` 并发布 |
 | `run_sql` 返回 `QUERY_FAILED` | 运行时拒绝（缺 requiredProperty、RLAC/CLAC 拒绝）、超时或响应异常；客户端只看到通用失败 | 检查 `data_domain_identities` 的 properties 与 MDL 的 RLAC/CLAC，确认属性值是 SQL 字面量；查看运行时日志区分权限与执行错误 |
-| enrich 提案一直 `generating` | worker 未运行、任务丢失或模型失败后未回收 | `docker compose logs worker`；确认 `DATA_DOMAIN_ENRICH_MODEL` 与 `ANTHROPIC_*`；重新发起提案 |
+| enrich 提案一直 `generating` | worker 未运行或对账未生效；超过 15 分钟的陈旧提案会被对账置为 `failed` | `docker compose logs worker`；确认 `DATA_DOMAIN_ENRICH_MODEL` 与 `ANTHROPIC_*`；重新发起提案 |
 | 构建失败但日志被截断 | 运行时只返回构建日志尾 8000 字符；版本行 `log_tail` 上限 64 KiB | 查看版本 `log_tail` 与 `log_truncated`；必要时用更小的项目文件复现 |
 
 ## 本地模型网关
