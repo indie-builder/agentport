@@ -14,8 +14,8 @@
 
 | 包 | 锁定版本 | 用途 |
 |---|---|---|
-| `@ui-sdk/core` | `0.1.0-beta.2` | 行为/primitive 层 |
-| `@ui-sdk/react` | `0.1.0-beta.2` | React 适配器 |
+| `@ui-sdk/core` | `0.1.0-beta.6` | 行为/primitive 层 |
+| `@ui-sdk/react` | `0.1.0-beta.6` | React 适配器 |
 
 - 两者必须同版本：上游 changesets 配置为 `fixed: [["@ui-sdk/*"]]`，所有包强制一起发版。
 - 版本只在根 `package.json` 的 `catalog` 精确 pin（不用 `^`），`packages/web/package.json` 用 `"catalog:"` 引用；升级只改这一处再 `bun install`。
@@ -75,6 +75,7 @@ rg -n "@ui-sdk/" packages/web/src
 | 2026-11-14 | 移除 `@dnd-kit/*` | `components/data-table.tsx`、新增 `components/ui/sortable-list.tsx` | TanStack Table 仍是顺序唯一来源，primitive 只存拖动草稿；Escape 先取消拖动并保留弹层，Tab 取消并继续；拖动预览用 `preview` | typecheck/build 通过；`test:web` 1933 通过、10 条既有失败；`/operations` 真实浏览器验证指针/键盘/持久化 |
 | 2026-11-14 | `0.1.0-beta.2`（版本不变） | 手写交互原生化：`pages/channels/channel.tsx` 提及列表改用 `components/ui/mention-list.tsx`（`createListbox` virtual focus）；`pages/servers/tool-editor-dialog.tsx`、`pages/knowledge/detail/documents-tab.tsx`、`components/knowledge/knowledge-faq.tsx` 的 `role="toolbar"` 改用 `Toolbar`/`ToolbarButton`；`components/ui/{label,textarea}.tsx` 改用 ui-sdk 原生；删除 `components/ui/*` 里全部 `Loose<T>` 垫片 | 提及列表焦点留在共享 textarea，靠 `aria-activedescendant` 关联；可选属性改在调用方条件展开 `{...(cond ? { foo } : {})}`，不再放宽类型 | typecheck 通过；`test:web` 1933 通过、10 条既有失败 |
 | 2026-11-14 | `0.1.0-beta.2`（版本不变） | 手写 `<details>/<summary>` 改用 ui-sdk `Collapsible`：`pages/knowledge/detail/source-runs.tsx`、`components/knowledge/knowledge-citations.tsx`、`components/knowledge/knowledge-search.tsx`（两处） | 旧 `<details>` 正文常挂载：SyncRunItems 立即取数、折叠态文本断言依赖 DOM 保留，迁移必须 keepMounted + hiddenUntilFound；无 animated 为即时显隐；展开指示用 ChevronRight + group-aria-expanded:rotate-90（Tailwind v4 输出 rotate 属性） | build 通过；test:web 1933 通过、10 条既有失败（与基线一致）；隔离栈真实渲染验证 4 处：aria-expanded 切换、面板显隐、ChevronRight 展开旋转 90°、无 console error；截图 /tmp/visual-detail-chevron/expanded.png |
+| 2026-11-18 | `0.1.0-beta.2` → `0.1.0-beta.6` | 仅根 `catalog` 改版本；`components/markdown.tsx` 静态正文链路的 sanitize 覆盖为 `clobberPrefix: ''` 并排除 `undoubleClobberPrefix`（随 streamdown 2.8.0 一同暴露） | 上游 docs 与 d.ts 以新增导出和类型放宽为主，slider 泛型、menu triggerElements、calendar isPickable 等签名有变化，本项目 typecheck 未暴露破点；实际破点是 rehype-sanitize 不再关闭 clobberPrefix，`#plugin-file=`、页内锚点与脚注 id 被改写，只剥 href 前缀会破坏脚注/回链匹配 | typecheck/build 绿；test:web 1959 通过、9 失败（其中 1 条单独重跑通过，8 条既有失败：admin-pages 缺 useRetention mock、resource-navigation 未含 /data-domains，均与依赖无关）；隔离栈真实渲染 /、/agents、/knowledge、/operations：每页 1 个 h1、无横向溢出、无 console error，专家/知识库弹层焦点在弹层内且 Escape 关闭；截图 /tmp/visual-deps-update-2026-11 |
 
 ### 视觉验收（真实渲染）· 2026-11-14
 
