@@ -57,7 +57,7 @@ import {
   knowledgeWikiVersions,
 } from './schema/knowledge-wiki.js';
 import { memoryChanges, memoryReviews, userPreferences } from './schema/memory.js';
-import { auditLog, platformBootstrap, platformSettings } from './schema/ops.js';
+import { auditLog, notifications, platformBootstrap, platformSettings } from './schema/ops.js';
 import { agentSchedules, approvalRequests } from './schema/runs.js';
 import { runtimeEnvironments, runtimeEnvironmentVersions } from './schema/runtime-environments.js';
 import { apiTools, servers } from './schema/servers.js';
@@ -116,6 +116,7 @@ export const schema = {
   evalRuns,
   evalResults,
   auditLog,
+  notifications,
   platformBootstrap,
   platformSettings,
   roles,

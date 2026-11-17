@@ -59,9 +59,9 @@
 | `knowledge-detail/`（`index.tsx` 桶导出 `KnowledgeDetailPage`；`knowledge-detail-page`、`documents-tab`、`sources-tab`、`jobs-tab`、`document-*`/`source-*` 等组件、`shared` 等） | 单个知识库：文档、来源、Wiki、检索调试 | `knowledge/knowledge-citations.tsx`、`source-editor.tsx`、`markdown.tsx`、`filter-select.tsx`；目录内 `shared.ts` |
 | `servers.tsx` | 连接器：MCP/stdio/生成式 server、工具目录、测试连接 | `resource-page.tsx`、`dialog-shell.tsx`、`filter-select.tsx`、`source-editor.tsx` |
 | `eval.tsx` | 评估：数据集、跑批、结果对比 | `data-table.tsx`、`dialog-shell.tsx` |
-| 其余（`skills`、`plugins`、`runtime-environments`、`ops`、`overview`、`audit`、`runs`、`status`、`memory-panel`、`knowledge`、`personal-profile`、`personal-memory`、`personal-security`、`personal-shares`、`personal-usage`） | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`，`knowledge` 用 `knowledge/knowledge-settings.tsx`，个人模块五页沿用标准 Page/表格/Dialog 并共用 `personal-profile.tsx` 的个人导航外壳 | 同上，优先复用而不是新写 |
+| 其余（`skills`、`plugins`、`runtime-environments`、`ops`、`overview`、`audit`、`runs`、`status`、`memory-panel`、`knowledge`、`notifications`、`personal-profile`、`personal-memory`、`personal-security`、`personal-shares`、`personal-usage`） | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`，`knowledge` 用 `knowledge/knowledge-settings.tsx`，个人模块五页沿用标准 Page/表格/Dialog 并共用 `personal-profile.tsx` 的个人导航外壳 | 同上，优先复用而不是新写 |
 
-页面骨架统一走 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`）；每个渲染状态恰好一个 `h1`。共享状态在 `lib/`（`api.ts`、`queries.ts`），路由表由 `routes/` 生成到 `routeTree.gen.ts`。业务组件按域收进 `components/<域>/`（`knowledge`、`memory`、`run`、`channel`、`plugin`、`agent`、`chat`、`media`），泛用组件留在 `components/` 根，`components/ui/` 为无样式原语。
+`notifications` 是全局「通知与待办」页：侧栏入口带未读徽标，页内提供全部/待办（未读）筛选、单条与全部标为已读、游标分页；服务端只按当前 `businessId` 返回本人通知。页面骨架统一走 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`）；每个渲染状态恰好一个 `h1`。共享状态在 `lib/`（`api.ts`、`queries.ts`），路由表由 `routes/` 生成到 `routeTree.gen.ts`。业务组件按域收进 `components/<域>/`（`knowledge`、`memory`、`run`、`channel`、`plugin`、`agent`、`chat`、`media`），泛用组件留在 `components/` 根，`components/ui/` 为无样式原语。
 
 ### 1.2 状态与副作用库的职责边界
 
@@ -249,7 +249,7 @@ worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也�
 
 ### 3.5 频道模式 M1 / M2 / M3 数据模型
 
-频道是一等对象；M1 落四张频道表，M2 给现有 `conversations` / `messages` / `agent_runs` 增加可空来源列，M3 给 `approval_requests` 增加可空频道与批准人列，不回填或改变已有私有对话行。
+频道是一等对象；M1 落四张频道表，M2 给现有 `conversations` / `messages` / `agent_runs` 增加可空来源列，M3 给 `approval_requests` 增加可空频道、决策人与拒绝时间列，不回填或改变已有私有对话行。
 
 | 表 | 关键列与约束 | 说明 |
 |---|---|---|
@@ -265,9 +265,39 @@ worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也�
 
 频道准入在同一事务内用绑定的 `context_seq` 做增量上下文注入：只取 `context_seq < seq < 触发消息 seq` 的 human/agent/system 消息，最多最新 20 条（`CHANNEL_CONTEXT_MESSAGE_LIMIT`），再反转成升序拼到本轮用户消息前。前缀总长（含分隔与省略提示、不含当前消息）不超过 8000 字符（`CHANNEL_CONTEXT_CHAR_LIMIT`），超限从最早整条丢弃并标注「更早的消息已省略」，单条超长时只保留省略提示；没有新消息时保持原 content 不变。游标**不在准入时推进**：只有该 run 被确认执行（消息持久化事务内）才把 `context_seq` 推进到触发消息 seq，因此 queued 取消、入队失败、开跑前拒绝都不会吞掉未注入的上下文；旧消息重放用 `Math.max` 不回退。注入只改该 run 原有的一条 lane 用户消息，不新增频道消息。
 
-M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade）、`approved_by_business_id`（可空 text）与 `arguments_summary`（可空 jsonb；写入前脱敏敏感键、截断长字符串与总长度），不新增审批状态列或独立计划审批表，也不回填旧行。频道写操作（创建、更新、成员与绑定变更、发消息）写 `audit_log`；worker 投影的 agent 频道消息以 `actor_kind='agent'` 记录，重放按消息 ID 的 dedupeKey 去重。审计列表与导出返回 `actorKind`，web 审计详情展示主体类型。关闭复用 `channels.archived_at`：`postMessage`、`admitChatRun` 频道分支在同一行锁内检查并拒绝新内容；`postSystemMessage` 已关闭时返回 `null`，不写忙碌误提示。`approval.requested` 是频道 SSE 的实时提示事件，审批状态仍以 `approval_requests` 行为准。频道 UI 已随 M4 提供列表页与频道详情页，并补齐成员增删与角色调整、频道设置、关闭、断开/移除智能体；频道附件仍属后续切片。消息列表首屏取最新一页，向上按 `before` 游标加载更早消息；成员显示名来自 `authUsers.name`，他人消息左对齐且不强制滚到底部。单条消息最多唤醒 5 个智能体（`CHANNEL_MAX_WAKE_AGENTS`），`mentions` 与 `mentionAll` 解析后超限整条消息拒绝且不落库；频道设置中每个智能体绑定可开启/关闭「响应 @all」，频道输入区提供「通知全部（N）」入口，发送前确认并显示影响人数，未开启的绑定不会被 @all 唤醒。频道 SSE 的 `message.created` 写 `id: <seq>` 并支持 `Last-Event-ID` 续传；Redis 订阅正常时保留 30 秒低频兜底轮询，订阅失败切回 3 秒。
+M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade）、`approved_by_business_id` / `denied_by_business_id`（可空 text）、`denied_at`（可空 timestamptz）与 `arguments_summary`（可空 jsonb；写入前脱敏敏感键、截断长字符串与总长度），不新增审批状态列或独立计划审批表，也不回填旧行。频道写操作（创建、更新、成员与绑定变更、发消息）写 `audit_log`；worker 投影的 agent 频道消息以 `actor_kind='agent'` 记录，重放按消息 ID 的 dedupeKey 去重。审计列表与导出返回 `actorKind`，web 审计详情展示主体类型。关闭复用 `channels.archived_at`：`postMessage`、`admitChatRun` 频道分支在同一行锁内检查并拒绝新内容；`postSystemMessage` 已关闭时返回 `null`，不写忙碌误提示。`approval.requested` 是频道 SSE 的实时提示事件，审批状态仍以 `approval_requests` 行为准。频道审批支持批准与拒绝（`POST /channels/{id}/approvals/{approvalId}/approve|deny`）：owner/admin，或触发该 run 的 member 可以决策，viewer 与其余成员拒绝；先锁 run 行再 CAS 审批行，并发决策只有一个赢家。频道 UI 已随 M4 提供列表页与频道详情页，并补齐成员增删与角色调整、频道设置、关闭、断开/移除智能体；频道附件仍属后续切片。消息列表首屏取最新一页，向上按 `before` 游标加载更早消息；成员显示名来自 `authUsers.name`，他人消息左对齐且不强制滚到底部。单条消息最多唤醒 5 个智能体（`CHANNEL_MAX_WAKE_AGENTS`），`mentions` 与 `mentionAll` 解析后超限整条消息拒绝且不落库；频道设置中每个智能体绑定可开启/关闭「响应 @all」，频道输入区提供「通知全部（N）」入口，发送前确认并显示影响人数，未开启的绑定不会被 @all 唤醒。频道 SSE 的 `message.created` 写 `id: <seq>` 并支持 `Last-Event-ID` 续传；Redis 订阅正常时保留 30 秒低频兜底轮询，订阅失败切回 3 秒。
 
 频道 run 工作现场已按频道作用域补齐：成员可读取 run 详情、提问与成果，入口为 `GET /channels/{id}/runs/{runId}`、`/questions`、`/outputs` 与 `/outputs/content|download`。授权先经 `getChannelRunForMember` 同时匹配 run 的 `channel_id` 与成员关系，非成员、跨频道与私有 run 一律按不存在处理；回答提问限 owner/admin 或触发该 run 的 member，viewer 拒绝。频道 run 以 failed/timeout/cancelled 结束时，`finalizeRun` 在终态 CAS 胜出后写一条 `kind='system'` 频道消息，按 `(channelId, runId, kind='system')` 幂等并发布 `message.created`；API 显式停止 queued run 复用同一 repo 与幂等键，批量 disconnect/close 不为每个 run 写 notice。成果读取复用 `listOutputFiles` 的 `runId` 过滤与 `readOutputFile` 的路径与普通文件校验；预览沿用 1MiB 与文本类型限制，不新增文件布局。
+
+### 3.6 通知与待办（2026-11-18）
+
+站内通知是一张独立表 `notifications`（主键 `ntf_`）：`business_id`、`kind`、`title`、`body`、`link`、`source_id`、`read_at`、`created_at`；`kind` 为 `approval` / `question` / `run_failed` / `schedule_failed` / `budget_alert`。唯一索引 `(business_id, kind, source_id)` 让生产者可安全重试而不重复投递；`(business_id, created_at, id)` 支撑游标分页，`(business_id, created_at) where read_at is null` 支撑未读计数与「待办」筛选。`read_at is null` 即未读，也就是页面上的「待办」。
+
+| 入口 | 行为 |
+|---|---|
+| `GET /api/notifications` | 本人通知列表；`cursor`、`limit`（默认 30，最大 100）与 `unreadOnly`；返回 `items`、`nextCursor` 与当前未读数 |
+| `GET /api/notifications/unread-count` | 侧栏未读徽标使用 |
+| `POST /api/notifications/{id}/read` | 标单条已读；不属于本人按 404 |
+| `POST /api/notifications/read-all` | 标记本人全部未读 |
+
+所有入口只需登录（`authenticated`），不额外要求功能权限；SQL 一律带当前 `businessId`，没有跨用户读取入口。单条标记用 `coalesce(read_at, now())` 幂等，重复标记不改变首次已读时间。
+
+生产者按业务来源投递，且均为尽力而为（失败只记 warn，不影响运行或审批本身）：
+
+| kind | 触发 | 接收人 | link |
+|---|---|---|---|
+| `approval` | 私有 run 工具等待审批 | run 发起人 | `/runs/{runId}` |
+| `approval` | 频道 run 工具等待审批 | 频道 owner/admin | `/channels/{channelId}` |
+| `question` | 原生澄清提问落库 | run 发起人 | 私有 `/runs/{runId}`，频道 `/channels/{channelId}` |
+| `run_failed` | 私有或频道 run 失败/超时 | run 发起人 | 私有 `/runs/{runId}`，频道 `/channels/{channelId}` |
+| `schedule_failed` | 定时 run 失败/超时，或触发入队失败 | 定时任务创建人 | `/schedules` |
+| `budget_alert` | run 结算成本后达到月度预算告警比例或超支 | 专家负责人 | `/agents/{agentId}` |
+
+定时触发的 run 在 `agent_runs.schedule_id` 记录来源 `agent_schedules.id`，仅用于失败通知定位任务创建人；普通与频道运行为 null。定时 run 失败时若创建人与 run 发起人不是同一人，发起人另收一条 `run_failed`。
+
+已读语义：用户批准或拒绝私有 run / 频道审批后，服务端按来源键把对应 `approval` 通知标为已读；回答澄清提问后把对应 `question` 通知标为已读。标记失败只记日志，不回滚已完成的审批或回答。其余通知保留未读，直到用户单条或全部标为已读。页面 `/notifications` 提供全部/待办筛选、单条与全部已读、游标分页，侧栏入口显示未读数并按 30 秒轮询更新。
+
+边界：当前只有站内投递与页面/侧栏徽标，没有外部邮件、IM、webhook、通知偏好或免打扰；通知只读 DB，API 重启不丢已落库记录，但跨 API 重启的审批恢复仍未实现，通知不代偿该能力。
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 

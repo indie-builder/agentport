@@ -22,6 +22,10 @@ export interface ApprovedChannelApproval extends ChannelApprovalItem {
   approvedByBusinessId: string;
 }
 
+export interface DeniedChannelApproval extends ChannelApprovalItem {
+  deniedByBusinessId: string;
+}
+
 type NotFound = { kind: 'not_found' };
 
 /** 未决审批：活动 run、尚未批准、未过期的频道行。 */
@@ -80,14 +84,23 @@ type Decision =
   | { kind: 'forbidden'; reason: 'channel_role' }
   | { kind: 'conflict'; reason: 'decided' | 'expired' | 'run_inactive' };
 
-/**
- * 频道工具审批：owner/admin，或触发该 run 的 member 可以批准；viewer 与其余成员拒绝。
- * 先锁 run 行再 CAS 审批行：并发批准只有一个赢家，输家明确返回 conflict。
- */
-export async function approveChannelApproval(
+type DenyDecision =
+  | { kind: 'ok'; approval: DeniedChannelApproval }
+  | NotFound
+  | { kind: 'forbidden'; reason: 'channel_role' }
+  | { kind: 'conflict'; reason: 'decided' | 'expired' | 'run_inactive' };
+
+type ChannelDecision =
+  | { kind: 'ok'; approval: ChannelApprovalItem; decidedByBusinessId: string }
+  | NotFound
+  | { kind: 'forbidden'; reason: 'channel_role' }
+  | { kind: 'conflict'; reason: 'decided' | 'expired' | 'run_inactive' };
+
+async function decideChannelApproval(
   db: Database,
   input: { channelId: string; approvalId: string; businessId: string },
-): Promise<Decision> {
+  decision: 'approve' | 'deny',
+): Promise<ChannelDecision> {
   return db.transaction(async (tx) => {
     const role = await channelMemberRole(tx, input.channelId, input.businessId);
     if (role === null) return { kind: 'not_found' };
@@ -141,9 +154,13 @@ export async function approveChannelApproval(
       return { kind: 'conflict', reason: 'expired' };
     }
 
-    const [approved] = await tx
+    const [decided] = await tx
       .update(approvalRequests)
-      .set({ approvedAt: sql`now()`, approvedByBusinessId: input.businessId })
+      .set(
+        decision === 'approve'
+          ? { approvedAt: sql`now()`, approvedByBusinessId: input.businessId }
+          : { deniedAt: sql`now()`, deniedByBusinessId: input.businessId },
+      )
       .where(
         and(
           eq(approvalRequests.id, input.approvalId),
@@ -161,23 +178,50 @@ export async function approveChannelApproval(
         argumentsSummary: approvalRequests.argumentsSummary,
         createdAt: approvalRequests.createdAt,
         approvedAt: approvalRequests.approvedAt,
-        approvedByBusinessId: approvalRequests.approvedByBusinessId,
         deniedAt: approvalRequests.deniedAt,
+        approvedByBusinessId: approvalRequests.approvedByBusinessId,
+        deniedByBusinessId: approvalRequests.deniedByBusinessId,
         expiresAt: approvalRequests.expiresAt,
       });
+    const decidedByBusinessId =
+      decision === 'approve' ? decided?.approvedByBusinessId : decided?.deniedByBusinessId;
     // 锁 run 后仍可能读到旧快照：CAS 落空说明另一事务已决定，按输家处理。
-    if (!approved || approved.runId === null || approved.approvedByBusinessId === null) {
+    if (!decided || decided.runId === null || decidedByBusinessId == null) {
       return { kind: 'conflict', reason: 'decided' };
     }
     return {
       kind: 'ok',
       approval: {
-        ...approved,
-        runId: approved.runId,
-        channelId: approved.channelId ?? input.channelId,
+        ...decided,
+        runId: decided.runId,
+        channelId: decided.channelId ?? input.channelId,
         serverName: approval.serverName,
-        approvedByBusinessId: approved.approvedByBusinessId,
       },
+      decidedByBusinessId,
     };
   });
+}
+
+export async function approveChannelApproval(
+  db: Database,
+  input: { channelId: string; approvalId: string; businessId: string },
+): Promise<Decision> {
+  const result = await decideChannelApproval(db, input, 'approve');
+  if (result.kind !== 'ok') return result;
+  return {
+    kind: 'ok',
+    approval: { ...result.approval, approvedByBusinessId: result.decidedByBusinessId },
+  };
+}
+
+export async function denyChannelApproval(
+  db: Database,
+  input: { channelId: string; approvalId: string; businessId: string },
+): Promise<DenyDecision> {
+  const result = await decideChannelApproval(db, input, 'deny');
+  if (result.kind !== 'ok') return result;
+  return {
+    kind: 'ok',
+    approval: { ...result.approval, deniedByBusinessId: result.decidedByBusinessId },
+  };
 }

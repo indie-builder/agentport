@@ -12,6 +12,7 @@ export * from './queries/knowledge-search.js';
 export * from './queries/knowledge-sources.js';
 export * from './queries/knowledge-wiki.js';
 export * from './queries/memory.js';
+export * from './queries/notifications.js';
 export * from './queries/ops.js';
 export * from './queries/overview.js';
 export * from './queries/personal.js';

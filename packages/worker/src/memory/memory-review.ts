@@ -26,7 +26,9 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { RedisClient } from 'bun';
 import { and, eq } from 'drizzle-orm';
+import type { Logger } from 'pino';
 import { z } from 'zod';
+import { notifyRunOutcome } from '../runs/run-finish.js';
 import { sdkEnv } from '../upstream.js';
 
 /** 测试可替换 query；真实运行时直接用官方实现。 */
@@ -239,8 +241,9 @@ async function finishRun(
   status: 'succeeded' | 'failed' | 'cancelled',
   spend: Spend | null,
   error: string | null,
+  logger?: Logger,
 ): Promise<void> {
-  await db
+  const finished = await db
     .update(schema.agentRuns)
     .set({
       status,
@@ -251,7 +254,10 @@ async function finishRun(
       outputTokens: spend?.outputTokens ?? null,
       error,
     })
-    .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')));
+    .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')))
+    .returning({ id: schema.agentRuns.id });
+  if (finished.length === 0 || logger === undefined) return;
+  await notifyRunOutcome({ db, logger, runId, status, error });
 }
 
 /**
@@ -331,7 +337,7 @@ function sdkOptions(input: {
 export async function executeMemoryReview(
   db: Database,
   input: { runId: string; redisUrl: string; signal: AbortSignal },
-  deps: { queryFn?: MemoryReviewQueryFn } = {},
+  deps: { queryFn?: MemoryReviewQueryFn; logger?: Logger } = {},
 ): Promise<void> {
   const [run] = await db
     .select({ trigger: schema.agentRuns.trigger, agentId: schema.agentRuns.agentId })
@@ -435,7 +441,7 @@ export async function executeMemoryReview(
 
     const stored = await repo.memoryReviews.updateProposal(db, input.runId, parsed.data);
     if (!stored) throw new Error('记忆审核记录不存在，提案未保存');
-    await finishRun(db, input.runId, 'succeeded', spend, null);
+    await finishRun(db, input.runId, 'succeeded', spend, null, deps.logger);
   } catch (err) {
     // 超时、用户取消与 worker 关停都通过 abort 到达这里，按第一次终止原因收尾。
     const message = errorText(err);
@@ -451,7 +457,7 @@ export async function executeMemoryReview(
           : termination === 'cancel' || cancelled
             ? 'cancelled'
             : redactSecrets(message);
-    await finishRun(db, input.runId, cancelled ? 'cancelled' : 'failed', spend, error);
+    await finishRun(db, input.runId, cancelled ? 'cancelled' : 'failed', spend, error, deps.logger);
   } finally {
     input.signal.removeEventListener('abort', onShutdown);
     if (timeout !== undefined) clearTimeout(timeout);

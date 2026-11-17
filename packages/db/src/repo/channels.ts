@@ -96,6 +96,22 @@ export async function channelMemberRole(
   return row?.role ?? null;
 }
 
+export async function listChannelApproverBusinessIds(
+  db: DbHandle,
+  channelId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ businessId: channelMembers.businessId })
+    .from(channelMembers)
+    .where(
+      and(
+        eq(channelMembers.channelId, channelId),
+        inArray(channelMembers.role, ['owner', 'admin']),
+      ),
+    );
+  return rows.map((row) => row.businessId);
+}
+
 type ManageRoleAccess =
   | { kind: 'not_found'; target: 'channel' }
   | { kind: 'forbidden'; reason: 'channel_role' }

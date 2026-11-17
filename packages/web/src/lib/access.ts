@@ -7,6 +7,7 @@ import {
 } from '@agentport/shared';
 import {
   Activity,
+  Bell,
   Brain,
   Cable,
   CalendarClock,
@@ -124,6 +125,7 @@ const pages = {
   audit: { to: '/audit', label: '审计', icon: ScrollText, permissionIds: ['audit.read'] },
   accounts: { to: '/accounts', label: '账户', icon: KeyRound, permissionIds: ['accounts.read'] },
   roles: { to: '/roles', label: '角色', icon: Users, permissionIds: ['roles.read'] },
+  notifications: { to: '/notifications', label: '通知与待办', icon: Bell, permissionIds: [] },
   profile: { to: '/personal/profile', label: '个人资料', icon: User, permissionIds: [] },
   memory: {
     to: '/personal/memory',
@@ -233,6 +235,7 @@ export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
   '/_shell/agents/': pages.agents,
   '/_shell/agents/$agentId': pages.agents,
   '/_shell/chat': pages.chat,
+  '/_shell/notifications': pages.notifications,
   '/_shell/channels/': pages.channels,
   '/_shell/channels/$channelId': pages.channels,
   '/_shell/personal/': pages.profile,

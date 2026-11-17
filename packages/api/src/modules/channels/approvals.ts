@@ -26,6 +26,10 @@ const CONFLICT_MESSAGE = {
   expired: '该审批请求已过期，请让智能体重新发起',
   run_inactive: '运行已结束或尚未开始，无法批准；请刷新运行状态',
 } as const;
+const DENY_CONFLICT_MESSAGE = {
+  ...CONFLICT_MESSAGE,
+  run_inactive: '运行已结束或尚未开始，无法拒绝；请刷新运行状态',
+} as const;
 const os = implement(channelsContract).$context<RequestContext>();
 export const channelsApprovalsRouter = {
   approvals: os.approvals.handler(async ({ input, context }) => {
@@ -52,9 +56,55 @@ export const channelsApprovalsRouter = {
       case 'conflict':
         return fail('CONFLICT', CONFLICT_MESSAGE[result.reason]);
       case 'ok': {
+        await repo.notifications
+          .markBySource(context.db, 'approval', `channel-approval:${result.approval.id}`)
+          .catch((err: unknown) => {
+            context.log.warn(
+              { err, approvalId: result.approval.id },
+              'approval notification mark-read failed',
+            );
+          });
         await repo.audit.writeAudit(context.db, context.log, {
           actor: actorOf(context),
           action: 'agent.run.approved',
+          target: result.approval.runId,
+          input: {
+            approvalId: result.approval.id,
+            serverId: result.approval.serverId,
+            toolName: result.approval.toolName,
+          },
+          status: 'ok',
+          requestId: context.requestId,
+        });
+        return toItem(result.approval);
+      }
+    }
+  }),
+  deny: os.deny.handler(async ({ input, context }) => {
+    const result = await approvalsRepo.denyChannelApproval(context.db, {
+      channelId: input.params.id,
+      approvalId: input.params.approvalId,
+      businessId: requireUser(context).businessId,
+    });
+    switch (result.kind) {
+      case 'not_found':
+        return fail('NOT_FOUND', '审批请求不存在或不属于该频道');
+      case 'forbidden':
+        return fail('FORBIDDEN', '当前频道角色无权拒绝该请求');
+      case 'conflict':
+        return fail('CONFLICT', DENY_CONFLICT_MESSAGE[result.reason]);
+      case 'ok': {
+        await repo.notifications
+          .markBySource(context.db, 'approval', `channel-approval:${result.approval.id}`)
+          .catch((err: unknown) => {
+            context.log.warn(
+              { err, approvalId: result.approval.id },
+              'deny notification mark-read failed',
+            );
+          });
+        await repo.audit.writeAudit(context.db, context.log, {
+          actor: actorOf(context),
+          action: 'agent.run.denied',
           target: result.approval.runId,
           input: {
             approvalId: result.approval.id,

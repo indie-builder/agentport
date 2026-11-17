@@ -32,6 +32,7 @@ export const idPrefixes = {
   run: 'run',
   question: 'q',
   approval: 'apr',
+  notification: 'ntf',
   schedule: 'sch',
   audit: 'aud',
   evalCase: 'ec',

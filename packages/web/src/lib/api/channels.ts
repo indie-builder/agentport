@@ -96,6 +96,8 @@ export default {
     rpc.channels.approvals({ params: { id } }, clientOptions(signal)),
   approveChannelApproval: (id: string, approvalId: string): Promise<ChannelApproval> =>
     rpc.channels.approve({ params: { id, approvalId } }),
+  denyChannelApproval: (id: string, approvalId: string): Promise<ChannelApproval> =>
+    rpc.channels.deny({ params: { id, approvalId } }),
   stopChannelRun: (id: string, runId: string): Promise<{ ok: boolean }> =>
     rpc.channels.stopRun({ params: { id, runId } }),
   channelRunDetail: (id: string, runId: string, signal?: AbortSignal): Promise<ChannelRunDetail> =>

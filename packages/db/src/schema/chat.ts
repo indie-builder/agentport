@@ -255,6 +255,7 @@ export const agentRuns = pgTable(
       (): AnyPgColumn => channelMessages.id,
       { onDelete: 'set null' },
     ),
+    scheduleId: text('schedule_id'),
     status: text('status', {
       enum: runStatusSchema.options as [RunStatus, ...RunStatus[]],
     })
