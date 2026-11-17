@@ -220,6 +220,9 @@ export const dataDomainsSearchSchema = z.object({
 
 export const dataDomainDetailSearchSchema = z.object({
   version: z.string().min(1).optional().catch(undefined),
+  approvalStatus: z.enum(['all', 'pending', 'approved', 'rejected']).optional().catch(undefined),
+  queryStatus: z.enum(['ok', 'error']).optional().catch(undefined),
+  run: z.string().min(1).max(128).optional().catch(undefined),
   backTo: backToSearchSchema,
 });
 
