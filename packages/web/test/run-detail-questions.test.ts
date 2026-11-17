@@ -64,6 +64,7 @@ const detail: RunDetail = {
     inputTokens: null,
     outputTokens: null,
     conversationId: 'conv-1',
+    initiatedBy: null,
     sessionId: null,
     sandboxId: null,
   },

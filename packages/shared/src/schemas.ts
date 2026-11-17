@@ -57,6 +57,7 @@ export type RunStep = z.infer<typeof runStepSchema>;
 export const runDetailSchema = z.object({
   run: runListItemSchema.extend({
     conversationId: z.string(),
+    initiatedBy: z.string().nullable(),
     sessionId: z.string().nullable(),
     sandboxId: z.string().nullable(),
     /** 容器实际使用的身份；尚未创建容器（queued）时为 null。 */

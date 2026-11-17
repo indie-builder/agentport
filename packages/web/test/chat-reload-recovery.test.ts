@@ -40,6 +40,7 @@ function run(status: RunDetail['run']['status'], id = 'run-a'): RunDetail {
     run: {
       id,
       conversationId: conversation.id,
+      initiatedBy: null,
       agentId: 'agent-a',
       agentName: 'A',
       status,

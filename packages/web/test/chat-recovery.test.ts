@@ -25,6 +25,7 @@ function mountStream() {
 const terminal: RunDetail['run'] = {
   id: 'run-a',
   conversationId: 'conversation-a',
+  initiatedBy: null,
   agentId: 'agent-a',
   agentName: 'A',
   status: 'failed',

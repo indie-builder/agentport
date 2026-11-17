@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -86,6 +86,7 @@ interface RunDetail {
     id: string;
     status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
     error: string | null;
+    initiatedBy: string | null;
   };
   steps: Array<{
     kind: 'user' | 'assistant' | 'tool';
@@ -98,6 +99,79 @@ interface RunDetail {
 interface QueryResult {
   columns: string[];
   rows: unknown[][];
+}
+
+interface QueryLogItem {
+  id: string;
+  dataDomainId: string;
+  versionId: string | null;
+  serverId: string;
+  runId: string;
+  actorBusinessId: string | null;
+  sqlSummary: string;
+  rowCount: number | null;
+  status: 'ok' | 'error';
+  durationMs: number;
+  createdAt: string;
+}
+
+interface AuditItem {
+  id: string;
+  actor: string;
+  actorKind: string;
+  subjectBusinessId: string | null;
+  action: string;
+  target: string | null;
+  status: string;
+  durationMs: number | null;
+  requestId: string | null;
+  inputDigest: string | null;
+  createdAt: string;
+}
+
+const CREDENTIAL_SENTINELS = [
+  'password',
+  'connectionEncrypted',
+  'connection_encrypted',
+  'APP_SECRET',
+  'postgres://',
+  'postgresql://',
+  'duckdb://',
+  'profiles.yml',
+  'warehouse.duckdb',
+];
+
+const A_SIDE_NAMES = ['Alice', 'Bob'];
+const B_SIDE_NAMES = ['Carol', 'Dave', 'Eve'];
+const A_SIDE_SALARIES = [90000, 80000];
+const B_SIDE_SALARIES = [70000, 60000, 95000];
+
+function assertNoSentinels(label: string, text: string, sentinels: string[]): string[] {
+  const checked = sentinels.filter((value) => value.length > 0);
+  const hits = checked.filter((value) => text.includes(value));
+  if (hits.length > 0) throw new Error(`${label} 出现禁用哨兵：${JSON.stringify(hits)}`);
+  return checked;
+}
+
+function assertNoSecretLeak(label: string, text: string, secrets: string[]): number {
+  const hits = secrets.filter((value) => value.length > 0 && text.includes(value));
+  if (hits.length > 0) throw new Error(`${label} 命中账户口令 ${hits.length} 处`);
+  return secrets.length;
+}
+
+function assertNoNumbers(label: string, text: string, numbers: number[]): number[] {
+  const hits = numbers.filter((value) =>
+    new RegExp(`(?<![0-9A-Za-z])${value}(?![0-9A-Za-z])`).test(text),
+  );
+  if (hits.length > 0) throw new Error(`${label} 出现跨身份数值：${JSON.stringify(hits)}`);
+  return numbers;
+}
+
+function resultJsonOf(text: string): QueryResult {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error(`下载内容里没有 JSON 结果：${text.slice(0, 300)}`);
+  return parseQueryResult(text.slice(start, end + 1));
 }
 
 async function login(username: string, password: string): Promise<string> {
@@ -439,57 +513,111 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
     throw new Error('两个用户得到了相同行，身份隔离未生效');
   }
 
-  const logsA = await apiJson<{
-    items: Array<{ runId: string; actorBusinessId: string | null; status: string }>;
-  }>(
+  const logsA = await apiJson<{ items: QueryLogItem[] }>(
     browser,
     'GET',
     `/api/data-domains/${domain.id}/query-logs?runId=${encodeURIComponent(runIdA)}`,
   );
-  const logsB = await apiJson<{
-    items: Array<{ runId: string; actorBusinessId: string | null; status: string }>;
-  }>(
+  const logsB = await apiJson<{ items: QueryLogItem[] }>(
     browser,
     'GET',
     `/api/data-domains/${domain.id}/query-logs?runId=${encodeURIComponent(runIdB)}`,
   );
-  if (
-    logsA.items.length === 0 ||
-    logsA.items.some((item) => item.actorBusinessId !== userA.businessId)
-  ) {
-    throw new Error(`HR 用户的查询日志身份不符：${JSON.stringify(logsA.items)}`);
-  }
-  if (
-    logsB.items.length === 0 ||
-    logsB.items.some((item) => item.actorBusinessId !== userB.businessId)
-  ) {
-    throw new Error(`Sales 用户的查询日志身份不符：${JSON.stringify(logsB.items)}`);
-  }
-  if (
-    logsA.items.some((item) => item.status !== 'ok') ||
-    logsB.items.some((item) => item.status !== 'ok')
-  ) {
-    throw new Error(`查询日志状态不是 ok：${JSON.stringify([logsA.items, logsB.items])}`);
-  }
+  const verifyLog = (
+    label: string,
+    items: QueryLogItem[],
+    businessId: string,
+    runId: string,
+    expectedRows: number,
+  ): QueryLogItem => {
+    if (items.length !== 1) {
+      throw new Error(`${label} 用户的查询日志应恰好 1 条：${JSON.stringify(items)}`);
+    }
+    const item = items[0];
+    if (item === undefined) throw new Error(`${label} 用户的查询日志缺失`);
+    if (
+      item.dataDomainId !== domain.id ||
+      item.serverId !== server.id ||
+      item.runId !== runId ||
+      item.actorBusinessId !== businessId
+    ) {
+      throw new Error(`${label} 用户的查询日志归属不符：${JSON.stringify(item)}`);
+    }
+    if (item.versionId !== version.id) {
+      throw new Error(
+        `${label} 用户的查询日志版本不是在线版本 ${version.id}：${JSON.stringify(item)}`,
+      );
+    }
+    if (item.rowCount !== expectedRows || item.status !== 'ok') {
+      throw new Error(`${label} 用户的查询日志行数或状态不符：${JSON.stringify(item)}`);
+    }
+    if (item.sqlSummary !== DATA_DOMAIN_SQL) {
+      throw new Error(`${label} 用户的查询日志 SQL 摘要不符：${JSON.stringify(item.sqlSummary)}`);
+    }
+    return item;
+  };
+  const logA = verifyLog('HR', logsA.items, userA.businessId, runIdA, expectedA.length);
+  const logB = verifyLog('Sales', logsB.items, userB.businessId, runIdB, expectedB.length);
 
   const artifactPath = 'dd-report.md';
   const outputsUrl = `/api/conversations/${outcomeA.conversationId}/outputs`;
-  const outputsA = await api<{ items: Array<{ runId: string; path: string }> }>(
-    cookieA,
-    'GET',
-    outputsUrl,
+  const outputsA = await api<{
+    items: Array<{ runId: string; path: string; size: number; sha256: string }>;
+  }>(cookieA, 'GET', outputsUrl);
+  const artifactA = outputsA.items.find(
+    (item) => item.runId === runIdA && item.path === artifactPath,
   );
-  if (!outputsA.items.some((item) => item.runId === runIdA && item.path === artifactPath)) {
+  if (artifactA === undefined) {
     throw new Error(`A 的成果列表里没有 ${artifactPath}：${JSON.stringify(outputsA.items)}`);
   }
+  const verifyDownload = (
+    label: string,
+    item: { size: number; sha256: string },
+    bytes: Buffer,
+    expectedColumns: string[],
+    expectedRows: unknown[][],
+  ) => {
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    if (digest !== item.sha256 || bytes.length !== item.size) {
+      throw new Error(
+        `${label} 下载字节与成果清单元数据不符：sha=${digest}/${item.sha256} size=${bytes.length}/${item.size}`,
+      );
+    }
+    const text = bytes.toString('utf8');
+    const result = resultJsonOf(text);
+    if (
+      JSON.stringify(result.columns) !== JSON.stringify(expectedColumns) ||
+      JSON.stringify(result.rows) !== JSON.stringify(expectedRows)
+    ) {
+      throw new Error(`${label} 下载正文不是被授权过滤后的结果：${text.slice(0, 500)}`);
+    }
+    return { digest, size: bytes.length, text, result };
+  };
   const downloadUrl = `${outputsUrl}/${runIdA}/download?path=${encodeURIComponent(artifactPath)}`;
   const ownDownload = await fetch(`${contract.appUrl}${downloadUrl}`, {
     headers: { cookie: cookieA },
   });
-  const ownText = await ownDownload.text();
-  if (ownDownload.status !== 200 || !ownText.includes('Alice') || ownText.includes('Carol')) {
+  const ownBytes = Buffer.from(await ownDownload.arrayBuffer());
+  if (ownDownload.status !== 200) {
+    throw new Error(`A 下载自身数据域成果失败：HTTP ${ownDownload.status}`);
+  }
+  const ownArtifact = verifyDownload('A', artifactA, ownBytes, a.persisted.columns, expectedA);
+  const ownText = ownArtifact.text;
+  if (!ownText.includes('Alice') || ownText.includes('Carol')) {
+    throw new Error(`A 的下载正文身份过滤不符：${ownText.slice(0, 500)}`);
+  }
+  const preview = await api<{ file: { sha256: string; size: number }; content: string }>(
+    cookieA,
+    'GET',
+    `${outputsUrl}/${runIdA}/content?path=${encodeURIComponent(artifactPath)}`,
+  );
+  if (
+    preview.file.sha256 !== artifactA.sha256 ||
+    preview.file.size !== artifactA.size ||
+    preview.content !== ownText
+  ) {
     throw new Error(
-      `A 读取自身数据域成果不符：HTTP ${ownDownload.status} ${ownText.slice(0, 500)}`,
+      `A 的内容预览与下载不同源：preview=${JSON.stringify({ sha: preview.file.sha256, size: preview.file.size, length: preview.content.length })} download=${JSON.stringify({ sha: artifactA.sha256, size: artifactA.size, length: ownText.length })}`,
     );
   }
   const foreignDownload = await fetch(`${contract.appUrl}${downloadUrl}`, {
@@ -504,6 +632,245 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
   if (foreignList.status !== 404) {
     throw new Error(`B 列出 A 的成果应 404，实际 ${foreignList.status}`);
   }
+
+  const outputsBUrl = `/api/conversations/${outcomeB.conversationId}/outputs`;
+  const outputsB = await api<{
+    items: Array<{ runId: string; path: string; size: number; sha256: string }>;
+  }>(cookieB, 'GET', outputsBUrl);
+  const artifactB = outputsB.items.find(
+    (item) => item.runId === runIdB && item.path === artifactPath,
+  );
+  if (artifactB === undefined) {
+    throw new Error(`B 的成果列表里没有 ${artifactPath}：${JSON.stringify(outputsB.items)}`);
+  }
+  const downloadB = await fetch(
+    `${contract.appUrl}${outputsBUrl}/${runIdB}/download?path=${encodeURIComponent(artifactPath)}`,
+    { headers: { cookie: cookieB } },
+  );
+  const bytesB = Buffer.from(await downloadB.arrayBuffer());
+  if (downloadB.status !== 200) {
+    throw new Error(`B 下载自身数据域成果失败：HTTP ${downloadB.status}`);
+  }
+  const ownArtifactB = verifyDownload('B', artifactB, bytesB, b.persisted.columns, expectedB);
+  if (!ownArtifactB.text.includes('Carol') || ownArtifactB.text.includes('Alice')) {
+    throw new Error(`B 的下载正文身份过滤不符：${ownArtifactB.text.slice(0, 500)}`);
+  }
+
+  const runDetailA = await api<RunDetail>(cookieA, 'GET', `/api/runs/${runIdA}`);
+  const runDetailB = await api<RunDetail>(cookieB, 'GET', `/api/runs/${runIdB}`);
+  if (runDetailA.run.initiatedBy !== userA.businessId) {
+    throw new Error(`A 的 run 发起人不符：${JSON.stringify(runDetailA.run)}`);
+  }
+  if (runDetailB.run.initiatedBy !== userB.businessId) {
+    throw new Error(`B 的 run 发起人不符：${JSON.stringify(runDetailB.run)}`);
+  }
+  if (
+    runDetailA.run.initiatedBy !== logA.actorBusinessId ||
+    runDetailB.run.initiatedBy !== logB.actorBusinessId
+  ) {
+    throw new Error('run 发起人与 query-log 身份不一致');
+  }
+
+  const auditFilter = `action=${encodeURIComponent('data_domain.query')}&target=${encodeURIComponent(server.id)}`;
+  const audit = await apiJson<{ items: AuditItem[]; nextCursor: string | null }>(
+    browser,
+    'GET',
+    `/api/audit?${auditFilter}&limit=200`,
+  );
+  const auditA = audit.items.find((item) => item.actor === runIdA);
+  const auditB = audit.items.find((item) => item.actor === runIdB);
+  if (audit.items.length !== 2 || audit.nextCursor !== null) {
+    throw new Error(`审计列表应恰好两条且无后续页：${JSON.stringify(audit)}`);
+  }
+  if (auditA === undefined || auditB === undefined) {
+    throw new Error(`审计列表缺少两个 run 的 data_domain.query：${JSON.stringify(audit.items)}`);
+  }
+  const expectedDigest = (rowCount: number) =>
+    createHash('sha256')
+      .update(
+        JSON.stringify({
+          dataDomainId: domain.id,
+          versionId: version.id,
+          sql: DATA_DOMAIN_SQL,
+          rowCount,
+          status: 'success',
+        }),
+      )
+      .digest('hex')
+      .slice(0, 32);
+  for (const [label, item, rowCount, runId] of [
+    ['A', auditA, expectedA.length, runIdA],
+    ['B', auditB, expectedB.length, runIdB],
+  ] as const) {
+    if (
+      item.action !== 'data_domain.query' ||
+      item.actorKind !== 'agent' ||
+      item.target !== server.id ||
+      item.status !== 'ok' ||
+      item.inputDigest !== expectedDigest(rowCount)
+    ) {
+      throw new Error(
+        `${label} 的审计摘要与 query-log 不一致：${JSON.stringify(item)} expectedDigest=${expectedDigest(rowCount)}`,
+      );
+    }
+    if (item.actor !== runId) throw new Error(`${label} 的审计 actor 不是 runId：${item.actor}`);
+  }
+
+  const verified = await apiJson<{
+    ok: boolean;
+    checked: number;
+    brokenSeq: string | null;
+    nextAfterSeq: number | null;
+    complete: boolean;
+  }>(browser, 'GET', '/api/audit/verify?limit=5000');
+  if (
+    !verified.ok ||
+    verified.brokenSeq !== null ||
+    verified.checked === 0 ||
+    !verified.complete ||
+    verified.nextAfterSeq !== null
+  ) {
+    throw new Error(`审计哈希链校验未通过：${JSON.stringify(verified)}`);
+  }
+
+  const exportResponse = await browserFetch(
+    browser,
+    'GET',
+    `/api/audit/export?${auditFilter}&limit=200`,
+  );
+  if (exportResponse.status !== 200) {
+    throw new Error(`审计导出失败：HTTP ${exportResponse.status} ${exportResponse.text}`);
+  }
+  const exportBody = JSON.parse(exportResponse.text) as {
+    format: string;
+    exportedAt: string;
+    items: AuditItem[];
+  };
+  if (
+    exportBody.format !== 'agentport/audit@1' ||
+    !/^\d{4}-\d{2}-\d{2}T/.test(exportBody.exportedAt)
+  ) {
+    throw new Error(`审计导出格式不符：${JSON.stringify(exportBody).slice(0, 300)}`);
+  }
+  const listIds = audit.items.map((item) => item.id).sort();
+  const exportIds = exportBody.items.map((item) => item.id).sort();
+  if (
+    new Set(exportIds).size !== exportIds.length ||
+    JSON.stringify(exportIds) !== JSON.stringify(listIds)
+  ) {
+    throw new Error(
+      `审计导出与列表不一一对应：list=${JSON.stringify(listIds)} export=${JSON.stringify(exportIds)}`,
+    );
+  }
+  const allowedExportKeys = [
+    'action',
+    'actor',
+    'actorKind',
+    'createdAt',
+    'durationMs',
+    'id',
+    'inputDigest',
+    'requestId',
+    'status',
+    'subjectBusinessId',
+    'target',
+  ];
+  const listById = new Map(audit.items.map((item) => [item.id, item]));
+  for (const item of exportBody.items) {
+    const keys = Object.keys(item).sort();
+    if (JSON.stringify(keys) !== JSON.stringify(allowedExportKeys)) {
+      throw new Error(`审计导出条目字段超出清单：${JSON.stringify(keys)}`);
+    }
+    if (![runIdA, runIdB].includes(item.actor)) {
+      throw new Error(`审计导出出现无关 actor：${item.actor}`);
+    }
+    const listed = listById.get(item.id);
+    if (listed === undefined || JSON.stringify(item) !== JSON.stringify(listed)) {
+      throw new Error(`审计导出条目与列表不一致：${JSON.stringify({ exported: item, listed })}`);
+    }
+  }
+
+  const credentialSentinels = CREDENTIAL_SENTINELS;
+  const accountSecrets = [userA.password, userB.password];
+  const logsAJson = JSON.stringify(logsA);
+  const logsBJson = JSON.stringify(logsB);
+  const sentinelEvidence = {
+    downloadA: {
+      credentials: assertNoSentinels('A 下载字节', ownText, credentialSentinels),
+      accountPasswords: assertNoSecretLeak('A 下载字节', ownText, accountSecrets),
+      foreignNames: assertNoSentinels('A 下载字节', ownText, B_SIDE_NAMES),
+      foreignSalaries: assertNoNumbers('A 下载字节', ownText, B_SIDE_SALARIES),
+    },
+    downloadB: {
+      credentials: assertNoSentinels('B 下载字节', ownArtifactB.text, credentialSentinels),
+      accountPasswords: assertNoSecretLeak('B 下载字节', ownArtifactB.text, accountSecrets),
+      foreignNames: assertNoSentinels('B 下载字节', ownArtifactB.text, A_SIDE_NAMES),
+      foreignSalaries: assertNoNumbers('B 下载字节', ownArtifactB.text, A_SIDE_SALARIES),
+      ownSalaries: assertNoNumbers('B 下载字节', ownArtifactB.text, B_SIDE_SALARIES),
+      restrictedColumns: assertNoSentinels('B 下载字节', ownArtifactB.text, ['salary']),
+    },
+    queryLogsA: {
+      credentials: assertNoSentinels('A query-logs', logsAJson, credentialSentinels),
+      accountPasswords: assertNoSecretLeak('A query-logs', logsAJson, accountSecrets),
+      foreignNames: assertNoSentinels('A query-logs', logsAJson, B_SIDE_NAMES),
+      foreignSalaries: assertNoNumbers('A query-logs', logsAJson, B_SIDE_SALARIES),
+    },
+    queryLogsB: {
+      credentials: assertNoSentinels('B query-logs', logsBJson, credentialSentinels),
+      accountPasswords: assertNoSecretLeak('B query-logs', logsBJson, accountSecrets),
+      foreignNames: assertNoSentinels('B query-logs', logsBJson, A_SIDE_NAMES),
+      foreignSalaries: assertNoNumbers('B query-logs', logsBJson, A_SIDE_SALARIES),
+      restrictedColumns: assertNoSentinels('B query-logs', logsBJson, ['salary']),
+    },
+    auditExport: {
+      credentials: assertNoSentinels('审计导出', exportResponse.text, credentialSentinels),
+      accountPasswords: assertNoSecretLeak('审计导出', exportResponse.text, accountSecrets),
+      names: assertNoSentinels('审计导出', exportResponse.text, [...A_SIDE_NAMES, ...B_SIDE_NAMES]),
+      salaries: assertNoNumbers('审计导出', exportResponse.text, [
+        ...A_SIDE_SALARIES,
+        ...B_SIDE_SALARIES,
+      ]),
+      restrictedColumns: assertNoSentinels('审计导出', exportResponse.text, ['salary']),
+      rawSql: assertNoSentinels('审计导出', exportResponse.text, [DATA_DOMAIN_SQL]),
+    },
+  };
+
+  console.log(
+    JSON.stringify({
+      m5Evidence: {
+        download: {
+          sha256A: { artifact: artifactA.sha256, actual: ownArtifact.digest },
+          sizeA: { artifact: artifactA.size, actual: ownArtifact.size },
+          previewMatchesDownload: preview.content === ownText,
+          rowsA: ownArtifact.result.rows,
+          sha256B: { artifact: artifactB.sha256, actual: ownArtifactB.digest },
+          sizeB: { artifact: artifactB.size, actual: ownArtifactB.size },
+          rowsB: ownArtifactB.result.rows,
+        },
+        trace: {
+          runA: { runId: runIdA, initiatedBy: runDetailA.run.initiatedBy },
+          runB: { runId: runIdB, initiatedBy: runDetailB.run.initiatedBy },
+          queryLogA: {
+            actorBusinessId: logA.actorBusinessId,
+            versionId: logA.versionId,
+            rowCount: logA.rowCount,
+            status: logA.status,
+          },
+          queryLogB: {
+            actorBusinessId: logB.actorBusinessId,
+            versionId: logB.versionId,
+            rowCount: logB.rowCount,
+            status: logB.status,
+          },
+          auditA: { id: auditA.id, inputDigest: auditA.inputDigest, status: auditA.status },
+          auditB: { id: auditB.id, inputDigest: auditB.inputDigest, status: auditB.status },
+          chain: verified,
+        },
+        export: { format: exportBody.format, ids: exportIds, listIds },
+        sentinels: sentinelEvidence,
+      },
+    }),
+  );
 
   const shareUrl = `/api/conversations/${outcomeA.conversationId}/output-shares`;
   const deniedShare = await fetch(`${contract.appUrl}${shareUrl}`, {
