@@ -5,8 +5,10 @@ import {
   type ApprovalRequestList,
   api,
   type RunDetail,
+  type RunFeedbackList,
   type RunList,
   type RunQuery,
+  type SubmitRunFeedback,
 } from '../api.js';
 import { mergeRunQuestions, useRefetchWhenRunEnds, withRunQuestion } from './shared.js';
 
@@ -96,6 +98,24 @@ export function useCancelRun() {
       void client.invalidateQueries({ queryKey: ['run', runId] });
       void client.invalidateQueries({ queryKey: ['runs'] });
     },
+  });
+}
+
+export function useRunFeedback(runId: string) {
+  return useQuery<RunFeedbackList>({
+    queryKey: ['run-feedback', runId],
+    queryFn: () => api.runFeedback(runId),
+    staleTime: 5_000,
+  });
+}
+
+export function useSubmitRunFeedback() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ runId, ...body }: { runId: string } & SubmitRunFeedback) =>
+      api.submitRunFeedback(runId, body),
+    onSuccess: (_feedback, input) =>
+      void client.invalidateQueries({ queryKey: ['run-feedback', input.runId] }),
   });
 }
 

@@ -6,12 +6,14 @@ import {
   index,
   jsonb,
   pgTable,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { agents } from './agents.js';
-import { agentRuns, channels, conversations } from './chat.js';
+import { agentRuns, channels, conversations, messages } from './chat.js';
+import { evalCases } from './eval.js';
 import { servers } from './servers.js';
 
 /**
@@ -125,5 +127,41 @@ export const agentSchedules = pgTable(
   (t) => [
     index('agent_schedules_due_idx').on(t.nextDueAt).where(eq(t.enabled, true)),
     index('agent_schedules_agent_idx').on(t.agentId),
+  ],
+);
+
+export const runFeedback = pgTable(
+  'run_feedback',
+  {
+    id: text('id').primaryKey(),
+    conversationId: text('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    runId: text('run_id')
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: 'cascade' }),
+    messageId: text('message_id').references(() => messages.id, { onDelete: 'set null' }),
+    outputPath: text('output_path'),
+    outputSha256: text('output_sha256'),
+    decision: text('decision', { enum: ['accepted', 'rejected'] }).notNull(),
+    rating: smallint('rating'),
+    comment: text('comment').notNull().default(''),
+    reason: text('reason').notNull().default(''),
+    evalCaseId: text('eval_case_id').references(() => evalCases.id, { onDelete: 'set null' }),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('run_feedback_run_created_idx').on(t.runId, t.createdAt, t.id),
+    index('run_feedback_eval_case_idx').on(t.evalCaseId).where(sql`${t.evalCaseId} is not null`),
+    check('run_feedback_decision_check', sql`${t.decision} in ('accepted', 'rejected')`),
+    check(
+      'run_feedback_rating_check',
+      sql`${t.rating} is null or (${t.rating} >= 1 and ${t.rating} <= 5)`,
+    ),
+    check(
+      'run_feedback_output_version_check',
+      sql`(${t.outputPath} is null) = (${t.outputSha256} is null)`,
+    ),
   ],
 );

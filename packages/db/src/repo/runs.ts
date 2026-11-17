@@ -61,8 +61,8 @@ export interface RunDetailRow extends RunListItem {
 }
 
 export type RunStep =
-  | { kind: 'user'; at: string; text: string }
-  | { kind: 'assistant'; at: string; text: string }
+  | { kind: 'user'; at: string; text: string; messageId?: string }
+  | { kind: 'assistant'; at: string; text: string; messageId?: string }
   | {
       kind: 'tool';
       at: string;
@@ -343,6 +343,7 @@ function questionOf(content: Record<string, unknown>): PublicRunQuestion | undef
 
 /** messages 行 → trace 步骤。无法识别的行直接跳过，避免脏数据打断回放。 */
 export function toStep(message: {
+  id?: string;
   role: string;
   content: unknown;
   createdAt: Date;
@@ -350,12 +351,13 @@ export function toStep(message: {
   const content = asRecord(message.content);
   const at = message.createdAt.toISOString();
   const text = messageText(message.content);
+  const messageId = message.id === undefined ? {} : { messageId: message.id };
 
   if (message.role === 'user' && text !== null) {
-    return { kind: 'user', at, text };
+    return { kind: 'user', at, text, ...messageId };
   }
   if (message.role === 'assistant' && content?.type === 'text' && text !== null) {
-    return { kind: 'assistant', at, text };
+    return { kind: 'assistant', at, text, ...messageId };
   }
   if (message.role === 'tool' && content?.type === 'tool_use') {
     const question = questionOf(content);
@@ -838,6 +840,7 @@ export async function getRunDetail(db: Database, runId: string): Promise<RunDeta
         };
   const rows = await db
     .select({
+      id: messages.id,
       role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,

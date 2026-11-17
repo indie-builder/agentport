@@ -1,22 +1,26 @@
 import { runsContract } from '@agentport/contract/runs';
-import { buildSkillDraft, fail, notFound } from '@agentport/core';
+import { buildSkillDraft, fail, isAppError, notFound, readOutputFile } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { runStatusSchema, runTriggerSchema } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
 import { z } from 'zod';
-import { accessFilter, actorOf } from '../../http/access.js';
+import { accessFilter, actorOf, requireUser } from '../../http/access.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { toIso } from '../../lib/iso.js';
-import { authorizeRun, RUN_MISSING } from './access.js';
+import { agentSlug } from '../chat/outputs.js';
+import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from './access.js';
 import { runsQuestionsRouter } from './questions.js';
 
 const runsRepo = repo.runs;
 function toItem(run: Awaited<ReturnType<typeof runsRepo.listRuns>>[number]) {
   return { ...run, startedAt: toIso(run.startedAt), endedAt: toIso(run.endedAt) };
+}
+function toFeedback(row: repo.runFeedback.RunFeedbackRow) {
+  return { ...row, createdAt: row.createdAt.toISOString() };
 }
 const os = implement(runsContract).$context<RequestContext>();
 const runsMainRouter = {
@@ -45,6 +49,70 @@ const runsMainRouter = {
       steps: detail.steps,
       conversation: detail.conversation,
     };
+  }),
+  feedback: os.feedback.handler(async ({ input, context }) => {
+    await authorizeRunFeedback(context, input.params.id, 'runs.read');
+    const rows = await repo.runFeedback.listRunFeedback(context.db, input.params.id);
+    return { items: rows.map(toFeedback) };
+  }),
+  submitFeedback: os.submitFeedback.handler(async ({ input, context }) => {
+    const { run } = await authorizeRunFeedback(context, input.params.id, 'runs.feedback');
+    if (run.status === 'queued' || run.status === 'running') {
+      return fail('CONFLICT', '运行尚未结束，暂不能验收');
+    }
+    const messageId = input.body.messageId ?? null;
+    if (messageId !== null) {
+      const message = await repo.runFeedback.getRunMessage(context.db, run.id, messageId);
+      if (!message) return fail('INVALID_INPUT', '验收消息不属于该运行');
+    }
+    const outputPath = input.body.outputPath ?? null;
+    let outputSha256: string | null = null;
+    if (outputPath !== null) {
+      const slug = await agentSlug(context, run.agentId);
+      if (slug === null) return fail('INVALID_INPUT', '验收成果不存在或不属于该运行');
+      try {
+        const { file } = await readOutputFile({
+          root: context.config.WORKSPACES_DIR,
+          slug,
+          conversationId: run.conversationId,
+          runId: run.id,
+          path: outputPath,
+        });
+        outputSha256 = file.sha256;
+      } catch (error) {
+        if (isAppError(error) && (error.code === 'NOT_FOUND' || error.code === 'INVALID_INPUT')) {
+          return fail('INVALID_INPUT', '验收成果不存在或不属于该运行');
+        }
+        throw error;
+      }
+    }
+    const row = await repo.runFeedback.createRunFeedback(context.db, {
+      conversationId: run.conversationId,
+      runId: run.id,
+      messageId,
+      outputPath,
+      outputSha256,
+      decision: input.body.decision,
+      rating: input.body.rating ?? null,
+      comment: input.body.comment,
+      reason: input.body.reason,
+      createdBy: requireUser(context).businessId,
+    });
+    await repo.audit.writeAudit(context.db, context.log, {
+      actor: actorOf(context),
+      action: 'agent.run.feedback',
+      target: run.id,
+      input: {
+        feedbackId: row.id,
+        decision: row.decision,
+        rating: row.rating,
+        hasMessage: messageId !== null,
+        outputPath,
+      },
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return toFeedback(row);
   }),
   approvals: os.approvals.handler(async ({ input, context }) => {
     await authorizeRun(context, input.params.id, 'runs.read');

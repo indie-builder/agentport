@@ -2,18 +2,30 @@ import type {
   PublicQuestionResponse,
   PublicRunQuestion,
   RunDetail,
+  RunFeedback,
+  RunFeedbackList,
   RunList,
   RunListItem,
   RunStatus,
   RunTrigger,
   Skill,
+  SubmitRunFeedback,
 } from '@agentport/shared';
 import type { ApiClient } from '../orpc.js';
 import { rpc } from '../orpc.js';
 import type { ApiOutput } from './shared.js';
 import { clientOptions, nativeRequest } from './shared.js';
 
-export type { RunDetail, RunList, RunListItem, RunStatus, RunStep } from '@agentport/shared';
+export type {
+  RunDetail,
+  RunFeedback,
+  RunFeedbackList,
+  RunList,
+  RunListItem,
+  RunStatus,
+  RunStep,
+  SubmitRunFeedback,
+} from '@agentport/shared';
 
 export type ApprovalRequestList = ApiOutput<ApiClient['runs']['approvals']>;
 
@@ -54,6 +66,10 @@ export default {
     rpc.runs.detail({ params: { id } }, clientOptions(signal)),
   runQuestions: (id: string): Promise<{ items: PublicRunQuestion[] }> =>
     rpc.runs.questions({ params: { id } }),
+  runFeedback: (runId: string): Promise<RunFeedbackList> =>
+    rpc.runs.feedback({ params: { id: runId } }),
+  submitRunFeedback: (runId: string, input: SubmitRunFeedback): Promise<RunFeedback> =>
+    rpc.runs.submitFeedback({ params: { id: runId }, body: input }),
   respondToQuestion: (
     runId: string,
     requestId: string,

@@ -99,6 +99,12 @@ const catalog = [
   { id: 'runs.cancel', label: '停止运行', treePath: ['执行', '运行'], scopes: OP },
   { id: 'runs.export', label: '导出运行', treePath: ['执行', '运行'], scopes: OP },
   {
+    id: 'runs.feedback',
+    label: '验收与反馈',
+    treePath: ['执行', '运行', '验收'],
+    scopes: OP,
+  },
+  {
     id: 'runs.questions.answer',
     label: '回答问题',
     treePath: ['执行', '运行', '交互'],
@@ -399,6 +405,7 @@ const READ_DEPENDENCIES: Partial<Record<PermissionId, PermissionId>> = {
   'agents.delete': 'agents.read',
   'agents.members.manage': 'agents.read',
   'agents.transfer': 'agents.read',
+  'runs.feedback': 'runs.read',
   'eval.manage': 'eval.read',
   'eval.execute': 'eval.read',
   'schedules.manage': 'schedules.read',
@@ -690,6 +697,7 @@ const U_GRANTS: PermissionGrant[] = [
   { permissionId: 'runs.cancel', scope: 'own_data' },
   { permissionId: 'runs.questions.answer', scope: 'own_data' },
   { permissionId: 'runs.export', scope: 'own_data' },
+  { permissionId: 'runs.feedback', scope: 'own_data' },
   { permissionId: 'personal_memory.read', scope: 'own_data' },
   { permissionId: 'personal_memory.write', scope: 'own_data' },
   { permissionId: 'personal_memory.review', scope: 'own_data' },

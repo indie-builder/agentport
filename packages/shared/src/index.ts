@@ -27,6 +27,7 @@ export * from './personal.js';
 export * from './plugin.js';
 export * from './questions.js';
 export * from './redact.js';
+export * from './run-feedback.js';
 export * from './run-state.js';
 export * from './run-stream.js';
 export * from './runtime-environment.js';

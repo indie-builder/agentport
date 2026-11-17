@@ -29,6 +29,8 @@ export const DATA_DOMAIN_TOOL_MARKER = 'E2E-DD-TOOL';
 /** 两个用户使用同一条 SQL，行与列由真实 WrenEngine 按身份过滤。 */
 export const DATA_DOMAIN_SQL = 'select * from employees order by id';
 export const OUTPUT_WRITE_MARKER = 'E2E-OUTPUT-WRITE';
+export const FEEDBACK_BAD_MARKER = 'E2E-FEEDBACK-BAD';
+export const FEEDBACK_GOOD_MARKER = 'E2E-FEEDBACK-GOOD';
 
 export function parseExecutionContract(input: unknown) {
   assert.equal(stringField(input, 'kind'), 'e2e-channel-execution');

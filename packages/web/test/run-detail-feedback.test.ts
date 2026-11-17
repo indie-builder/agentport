@@ -124,6 +124,8 @@ async function mount(path = '/runs/run-1') {
 beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'runFeedback').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextCursor: null });
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },
   });

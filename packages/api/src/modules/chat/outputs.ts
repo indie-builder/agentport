@@ -141,7 +141,7 @@ export const chatOutputsRouter = {
     const conversation = await loadReadableConversation(context, input.params.id);
     const slug = await agentSlug(context, conversation.agentId);
     if (slug === null) return { items: [], nextCursor: null };
-    const { limit, cursor } = input.query;
+    const { limit, cursor, runId } = input.query;
     try {
       return await listOutputFiles({
         root: context.config.WORKSPACES_DIR,
@@ -149,6 +149,7 @@ export const chatOutputsRouter = {
         conversationId: conversation.id,
         limit,
         ...(cursor === undefined ? {} : { before: cursor }),
+        ...(runId === undefined ? {} : { runId }),
       });
     } catch (err) {
       if (cursor !== undefined && isAppError(err) && err.code === 'INVALID_INPUT') {

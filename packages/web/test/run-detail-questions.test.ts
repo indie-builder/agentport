@@ -133,6 +133,8 @@ beforeEach(() => {
   vi.spyOn(api, 'run').mockResolvedValue(detail);
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'runQuestions').mockResolvedValue({ items: [question] });
+  vi.spyOn(api, 'runFeedback').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'respondToQuestion').mockResolvedValue({
     ...question,
     status: 'answered',

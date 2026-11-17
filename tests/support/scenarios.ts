@@ -14,5 +14,6 @@ export const scenarios = {
   notifications: () => import('./fixtures/notifications.js'),
   'notifications-producers': () => import('./fixtures/notifications-producers.js'),
   'notifications-worker': () => import('./fixtures/notifications-worker.js'),
+  'deliverable-feedback': () => import('./fixtures/deliverable-feedback.js'),
   'chat-replay': () => import('./fixtures/chat-replay.js'),
 };

@@ -5,7 +5,7 @@ import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { authorizeRun, RUN_MISSING } from '../runs/access.js';
+import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from '../runs/access.js';
 import { agentNotFound, importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
 
 const os = implement(evalContract).$context<RequestContext>();
@@ -62,31 +62,56 @@ export const evalRouter = os.router({
     }),
     fromRun: os.cases.fromRun.handler(async ({ input, context }) => {
       const businessId = requireUser(context).businessId;
-      await authorizeRun(context, input.body.runId, 'runs.read');
-      const detail = await repo.runs.getRunDetail(context.db, input.body.runId);
+      const run = await repo.chat.getRun(context.db, input.body.runId);
+      if (!run) notFound('run', RUN_MISSING);
+      if (run.channelId === null) {
+        await authorizeRun(context, run.id, 'runs.read');
+      } else {
+        const { channelRole } = await authorizeRunFeedback(context, run.id, 'runs.read');
+        if (channelRole === 'viewer') fail('FORBIDDEN', '当前频道角色无权转评测用例');
+      }
+      const detail = await repo.runs.getRunDetail(context.db, run.id);
       if (!detail) notFound('run', RUN_MISSING);
       const prompt = detail.steps.find((step) => step.kind === 'user')?.text;
       if (!prompt || !prompt.trim()) {
         fail('INVALID_INPUT', '该运行没有可用的用户输入，无法生成评估用例');
       }
-      const expectation =
-        [...detail.steps].reverse().find((step) => step.kind === 'assistant')?.text ?? '';
+      const lastAnswer = [...detail.steps]
+        .reverse()
+        .find((step) => step.kind === 'assistant')?.text;
+      if (lastAnswer !== undefined && input.body.expectation.trim() === lastAnswer.trim()) {
+        fail('INVALID_INPUT', '期望答案不能直接使用原回答，请人工填写正确答案');
+      }
+      const feedbackId = input.body.feedbackId;
+      if (feedbackId !== undefined) {
+        const feedback = await repo.runFeedback.getRunFeedback(context.db, feedbackId);
+        if (!feedback || feedback.runId !== run.id) fail('INVALID_INPUT', '反馈不属于该运行');
+        if (feedback.decision !== 'rejected') fail('INVALID_INPUT', '只有退回的样本可以转评测用例');
+        if (feedback.evalCaseId !== null) fail('CONFLICT', '该反馈已转为评测用例');
+      }
       const agentId = detail.run.agentId;
       await authorizeEvalAgent(context, agentId, ['eval.read', 'eval.manage']);
       const rawName = input.body.name ?? detail.conversation.title;
       const name = (rawName.trim() ? rawName.trim() : `运行 ${detail.run.id}`).slice(0, 128);
-      const row = await evalRepo.createCase(context.db, newId('evalCase'), {
-        agentId,
-        name,
-        prompt: prompt.slice(0, 20_000),
-        expectation: expectation.slice(0, 5_000),
-        createdBy: businessId,
+      const row = await context.db.transaction(async (tx) => {
+        const created = await evalRepo.createCase(tx, newId('evalCase'), {
+          agentId,
+          name,
+          prompt: prompt.slice(0, 20_000),
+          expectation: input.body.expectation,
+          createdBy: businessId,
+        });
+        if (feedbackId !== undefined) {
+          const linked = await repo.runFeedback.setRunFeedbackEvalCase(tx, feedbackId, created.id);
+          if (linked === null) fail('CONFLICT', '该反馈已转为评测用例');
+        }
+        return created;
       });
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'eval.case.created',
         target: row.id,
-        input: { agentId, name, fromRun: detail.run.id },
+        input: { agentId, name, fromRun: detail.run.id, fromFeedback: feedbackId ?? null },
         status: 'ok',
         requestId: context.requestId,
       });

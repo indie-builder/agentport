@@ -1,10 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 
-const isolated = await createIsolatedDatabase(
-  'api_eval_from_run',
-  process.env.DATABASE_URL ?? '',
-);
+const isolated = await createIsolatedDatabase('api_eval_from_run', process.env.DATABASE_URL ?? '');
 if (isolated) process.env.DATABASE_URL = isolated.url;
 
 const helpers = await import('./helpers.js');
@@ -69,7 +66,14 @@ describe.skipIf(!(ready && isolated))('eval case from run', () => {
       await app.client.unsafe(
         `insert into messages (id, conversation_id, role, content, run_id, created_at)
          values ($1, $2, $3, $4::jsonb, $5, now() + ($6 || ' seconds')::interval)`,
-        [unique('from-run-msg'), conversationId, message.role, JSON.stringify(message.content), id, index],
+        [
+          unique('from-run-msg'),
+          conversationId,
+          message.role,
+          JSON.stringify(message.content),
+          id,
+          index,
+        ],
       );
     }
     return id;
@@ -83,7 +87,7 @@ describe.skipIf(!(ready && isolated))('eval case from run', () => {
       payload,
     });
 
-  it('creates a case from the first user and last assistant messages', async () => {
+  it('creates a case from the first user message and the provided expectation', async () => {
     const agentId = await seedAgent();
     const runId = await seedRun({
       agentId,
@@ -93,12 +97,12 @@ describe.skipIf(!(ready && isolated))('eval case from run', () => {
       ],
     });
 
-    const res = await fromRun({ runId });
+    const res = await fromRun({ runId, expectation: '应给出季度报告要点。', confirmed: true });
     expect(res.statusCode, res.body).toBe(201);
     const body = res.json<EvalCase>();
     expect(body.agentId).toBe(agentId);
     expect(body.prompt).toContain('请总结报告');
-    expect(body.expectation).toContain('总结如下。');
+    expect(body.expectation).toBe('应给出季度报告要点。');
     expect(body.name).toBe('季度报告总结');
 
     const stored = await app.client.unsafe<{ n: number }[]>(
@@ -109,7 +113,10 @@ describe.skipIf(!(ready && isolated))('eval case from run', () => {
   });
 
   it('requires authentication', async () => {
-    expectProblem(await fromRun({ runId: unique('from-run') }, false), 'UNAUTHORIZED');
+    expectProblem(
+      await fromRun({ runId: unique('from-run'), expectation: '期望答案', confirmed: true }, false),
+      'UNAUTHORIZED',
+    );
   });
 
   it('rejects a run without user input', async () => {
@@ -119,6 +126,9 @@ describe.skipIf(!(ready && isolated))('eval case from run', () => {
       messages: [{ role: 'assistant', content: { type: 'text', text: '只有回复。' } }],
     });
 
-    expectProblem(await fromRun({ runId }), 'INVALID_INPUT');
+    expectProblem(
+      await fromRun({ runId, expectation: '期望答案', confirmed: true }),
+      'INVALID_INPUT',
+    );
   });
 });

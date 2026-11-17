@@ -18,6 +18,7 @@ export const chatKeys = {
   conversations: (...ids: [] | [string | null]) => ['conversations', ...ids] as const,
   conversation: (id: string | null) => ['conversation', id] as const,
   outputs: (id: string | null) => ['conversation-outputs', id] as const,
+  runOutputs: (id: string | null, runId: string) => ['run-outputs', id, runId] as const,
   outputContent: (id: string | null, runId: string | null, path: string | null) =>
     ['conversation-output-content', id, runId, path] as const,
   outputFile: (id: string | null, runId: string | null, path: string | null) =>
@@ -94,13 +95,20 @@ export function useConversation(conversationId: string | null) {
  * 会话成果按发布版本倒序；同一路径由页面分组。
  * 旧版可能落在后续页，按 `nextCursor` 继续翻页，不静默丢弃。
  */
-export function useConversationOutputs(conversationId: string | null) {
+export function useConversationOutputs(conversationId: string | null, runId: string | null = null) {
   return useInfiniteQuery({
-    queryKey: chatKeys.outputs(conversationId),
+    queryKey:
+      runId === null
+        ? chatKeys.outputs(conversationId)
+        : chatKeys.runOutputs(conversationId, runId),
     queryFn: ({ pageParam, signal }) =>
       api.outputs(
         conversationId ?? '',
-        { limit: 50, ...(pageParam === null ? {} : { cursor: pageParam }) },
+        {
+          limit: 50,
+          ...(runId === null ? {} : { runId }),
+          ...(pageParam === null ? {} : { cursor: pageParam }),
+        },
         signal,
       ),
     initialPageParam: null as string | null,

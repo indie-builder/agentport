@@ -76,6 +76,9 @@ export const evalContract = {
           body: z.object({
             runId: z.string().min(1),
             name: z.string().trim().min(1).max(128).optional(),
+            expectation: z.string().trim().min(1).max(5000),
+            confirmed: z.literal(true),
+            feedbackId: z.string().min(1).max(200).optional(),
           }),
         }),
       )

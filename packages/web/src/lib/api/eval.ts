@@ -26,6 +26,14 @@ export interface EvalCaseInput {
   expectation: string;
 }
 
+export interface EvalCaseFromRunInput {
+  runId: string;
+  name?: string;
+  expectation: string;
+  confirmed: true;
+  feedbackId?: string;
+}
+
 export interface EvalRun {
   id: string;
   agentId: string;
@@ -63,8 +71,8 @@ export default {
     rpc.eval.cases.list({ query: agentId === undefined ? {} : { agentId } }),
   createEvalCase: (input: EvalCaseInput): Promise<EvalCase> =>
     rpc.eval.cases.create({ body: input }),
-  createEvalCaseFromRun: (runId: string, name?: string): Promise<EvalCase> =>
-    rpc.eval.cases.fromRun({ body: name === undefined ? { runId } : { runId, name } }),
+  createEvalCaseFromRun: (input: EvalCaseFromRunInput): Promise<EvalCase> =>
+    rpc.eval.cases.fromRun({ body: input }),
   updateEvalCase: (id: string, input: Partial<Omit<EvalCaseInput, 'agentId'>>): Promise<EvalCase> =>
     rpc.eval.cases.update({ params: { id }, body: input }),
   deleteEvalCase: (id: string): Promise<void> => rpc.eval.cases.remove({ params: { id } }),

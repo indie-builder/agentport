@@ -11,8 +11,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type RunDetail, type RunListItem } from '../src/lib/api.js';
-import { RunDetailPage } from '../src/pages/runs/run-detail.js';
 import { RunsPage } from '../src/pages/runs/index.js';
+import { RunDetailPage } from '../src/pages/runs/run-detail.js';
 import {
   personalUsageSearchSchema,
   runDetailSearchSchema,
@@ -122,6 +122,8 @@ beforeEach(() => {
   vi.spyOn(api, 'run').mockResolvedValue(detail);
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'runQuestions').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'runFeedback').mockResolvedValue({ items: [] });
+  vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'runs').mockResolvedValue({ items: [listItem] });
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },

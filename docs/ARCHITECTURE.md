@@ -227,6 +227,8 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 
 后续更新（2026-10-30，PDF）：私有成果精确命中 `application/pdf` 后经鉴权下载取 Blob，公开分享页移除旧对象 URL/iframe 分支，两处共用 `BlobPdf`；先判断 `navigator.pdfViewerEnabled === true`，只把前 5 字节为 `%PDF-` 的文件交给原生查看器（仅 header 门槛），以固定 `application/pdf` 建 Blob URL；不支持、header 不符、读取失败分别提示并保留下载，iframe 的 load/error 不作为解码成功判据，对象 URL 随换版与卸载释放；CSP 仅新增 `frame-src 'self' blob:`，`object-src 'none'` 与 `script-src 'self'` 保持，无新依赖/API/DB/模型费用。API 一审 26 用例、Web 一审补修 97 用例、二审无 mustfix、第三轮 `a18c436ffd11f7505` 无 mustfix（4 文件 110 用例）；生产隔离浏览器验收通过（Chromium 原生查看器，私有/公开旧新版、切版刷新、下载 sha、公开无管理 cookie、伪 PDF 无 iframe、引用不发模型、临时资源清理 0）。该更新覆盖上一条 2026-10-28 的「Office/PDF 不预览」：PDF 已可原生预览，Office 仍只下载。限制：加密/坏结构 PDF 由原生 viewer 兜底未逐一实测，大 PDF 未压测，非 Chromium 未测；实现 `ca5cb28` 与文档 `9caf2fa` 已由 PR #123 合入 `main` `b683903`。详见任务记录。
 
+成果验收与反馈（2026-11-18）：新增追加式 `run_feedback` 表（`rfb_`），反馈锚定 assistant `messageId` 或成果固定版本 `outputPath`（也可两者都不提供，作 run 级反馈，用于失败或无消息样本）；指定成果时服务端实际读取该版并记录 `outputSha256`，历史反馈不覆盖。`GET/POST /api/runs/{id}/feedback` 支持采纳/退回、1–5 评分、评论与退回原因，仅终态运行可提交；私有 run 走 `runs.feedback` 的 own_data；频道 run 还要求平台 `runs.feedback` 权限叶（契约层），并按频道成员角色，owner/admin/member 可提交，viewer 只读。退回样本可经 `POST /api/eval/cases/from-run` 转评测用例，须人工填写 `expectation` 并确认（拒绝与最后一条 assistant 回答相同），创建后回写 `run_feedback.eval_case_id`，复用既有 `eval_cases`/`eval_runs` 链路。
+
 ### 3.3 原生澄清提问（已接通）
 
 US-6.2以官方 `AskUserQuestion → canUseTool → updatedInput` 接回用户答案，继续同一次工具调用。问题与答案属于运行数据，智能体定义仍由官方文件表达；不新增自定义提问工具或第二执行循环。

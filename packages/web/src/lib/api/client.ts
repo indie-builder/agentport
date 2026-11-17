@@ -212,6 +212,8 @@ export const api = {
   exportRun: runs.exportRun,
   run: runs.run,
   runQuestions: runs.runQuestions,
+  runFeedback: runs.runFeedback,
+  submitRunFeedback: runs.submitRunFeedback,
   respondToQuestion: runs.respondToQuestion,
   skillDraftFromRun: runs.skillDraftFromRun,
   notifications: notifications.notifications,

@@ -32,6 +32,7 @@ export {
   mergeRunQuestions,
   queryClient,
   useDrainPages,
+  useRefetchWhenRunEnds,
   withRunQuestion,
 } from './queries/shared.js';
 export * from './queries/skills.js';
