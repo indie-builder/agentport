@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { copyFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
-import { expect } from 'e2e';
+import { expect, type Locator } from 'e2e';
 import { browserFetch } from './support/browser-api.js';
 import {
   DATA_DOMAIN_SQL,
@@ -20,6 +22,14 @@ import {
  */
 const contract = await requireExecutionStack();
 const appReady = contract.wrenRuntimeUrl !== undefined && contract.duckdbDir !== undefined;
+const SHOT_DIR = '/tmp/agentport-e2e-data-domain-charts';
+
+function keepShot(directory: string, source: string, name: string): string {
+  mkdirSync(directory, { recursive: true });
+  const target = join(directory, name);
+  copyFileSync(source, target);
+  return target;
+}
 
 const WREN_PROJECT_FILES: Record<string, string> = {
   'wren_project.yml': `schema_version: 2
@@ -53,6 +63,8 @@ columns:
       threshold: "3"
   - name: region
     type: VARCHAR
+  - name: bonus
+    type: INTEGER
 row_level_access_controls:
   - name: dept_filter
     required_properties:
@@ -398,13 +410,13 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
     throw new Error(`工具名不符：${a.toolName} / ${b.toolName}`);
   }
   const expectedA = [
-    [1, 'Alice', 'HR', 90000, 'north'],
-    [2, 'Bob', 'HR', 80000, 'south'],
+    [1, 'Alice', 'HR', 90000, 'north', 5000],
+    [2, 'Bob', 'HR', 80000, 'south', 4000],
   ];
   const expectedB = [
-    [3, 'Carol', 'Sales', 'north'],
-    [4, 'Dave', 'Sales', 'south'],
-    [5, 'Eve', 'Sales', 'north'],
+    [3, 'Carol', 'Sales', 'north', 3000],
+    [4, 'Dave', 'Sales', 'south', 2000],
+    [5, 'Eve', 'Sales', 'north', 1000],
   ];
   if (JSON.stringify(a.persisted.rows) !== JSON.stringify(expectedA)) {
     throw new Error(`HR 用户返回的行不符：${JSON.stringify(a.persisted.rows)}`);
@@ -417,6 +429,11 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
   }
   if (b.persisted.columns.includes('salary')) {
     throw new Error(`低 clearance 用户不应看到 salary 列：${JSON.stringify(b.persisted.columns)}`);
+  }
+  if (!a.persisted.columns.includes('bonus') || !b.persisted.columns.includes('bonus')) {
+    throw new Error(
+      `公开数值列 bonus 应对两个用户都可见：A=${JSON.stringify(a.persisted.columns)} B=${JSON.stringify(b.persisted.columns)}`,
+    );
   }
   if (JSON.stringify(a.persisted.rows) === JSON.stringify(b.persisted.rows)) {
     throw new Error('两个用户得到了相同行，身份隔离未生效');
@@ -611,8 +628,187 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
   await screen.getByText(toolName).tap();
   await expect(screen.getByText('Alice')).toBeVisible({ timeout: 60_000 });
   await expect(screen.getByText('salary')).toBeVisible();
+  await expect(screen.getByText('bonus')).toBeVisible();
   await screen.getByRole('tab', { name: '图表' }).tap();
-  await expect(screen.getByText('聚合请在查询 SQL 中完成')).toBeVisible({ timeout: 30_000 });
+  await expect(screen.getByText('不聚合：每行一个数据点。')).toBeVisible({ timeout: 30_000 });
+
+  const dimensionSelect = screen.getByRole('combobox', { name: '图表维度' });
+  const aggregationSelect = screen.getByRole('combobox', { name: '图表聚合方式' });
+  const typeSelect = screen.getByRole('combobox', { name: '图表类型' });
+  const chooseOption = async (control: Locator, option: string) => {
+    await control.tap();
+    await screen.getByRole('option', { name: option }).tap();
+    await screen.getByRole('option', { name: option }).waitFor({ state: 'hidden' });
+  };
+  const countOf = async (selector: string) =>
+    (await browser.evaluate(
+      `document.querySelectorAll(${JSON.stringify(selector)}).length`,
+    )) as number;
+  const focusedLabel = async () =>
+    (await browser.evaluate("document.activeElement?.getAttribute('aria-label') ?? ''")) as string;
+  const chartTable = async () =>
+    (await browser.evaluate(
+      `(() => {
+        const table = document.querySelector('table.sr-only');
+        if (table === null) return null;
+        return {
+          caption: table.querySelector('caption')?.textContent ?? '',
+          rows: Array.from(table.querySelectorAll('tbody tr')).map((row) => ({
+            label: row.querySelector('th')?.textContent ?? '',
+            value: row.querySelector('td')?.textContent ?? '',
+          })),
+        };
+      })()`,
+    )) as { caption: string; rows: Array<{ label: string; value: string }> } | null;
+
+  // 默认建议：文本维度 department 不是有序时间序列，建议柱状。
+  await chooseOption(dimensionSelect, 'department');
+  await expect(typeSelect).toHaveText('柱状图', { timeout: 30_000 });
+  await browser.locator('.recharts-bar-rectangle path').first().waitFor();
+  const rawBars = await countOf('.recharts-bar-rectangle path');
+  if (rawBars !== expectedA.length) {
+    throw new Error(`不聚合时应为每行一个柱（${expectedA.length} 个），实际 ${rawBars} 个`);
+  }
+
+  // 聚合可访问性：sr-only 表格精确表示当前绘制数据，HR 组为 Alice+Bob 的 salary 之和。
+  await chooseOption(aggregationSelect, '求和');
+  await expect(screen.getByText('按 department 求和。')).toBeVisible({ timeout: 30_000 });
+  const aggregatedBars = await countOf('.recharts-bar-rectangle path');
+  if (aggregatedBars !== 1) {
+    throw new Error(`按 department 求和后应只剩 1 根柱，实际 ${aggregatedBars} 根`);
+  }
+  const sumTable = await chartTable();
+  if (sumTable === null) throw new Error('求和后缺少 sr-only 数据表');
+  if (!sumTable.caption.includes('salary') || !sumTable.caption.includes('求和')) {
+    throw new Error(`sr-only 表格 caption 未说明度量与聚合：${sumTable.caption}`);
+  }
+  const hrSum = sumTable.rows.find((row) => row.label === 'HR');
+  if (hrSum?.value !== '170000') {
+    throw new Error(`HR 组求和应为 170000，实际：${JSON.stringify(sumTable.rows)}`);
+  }
+
+  // 两个不同的数值列建议散点；聚合在此模式下不可用。
+  await chooseOption(dimensionSelect, 'bonus');
+  await expect(typeSelect).toHaveText('散点图', { timeout: 30_000 });
+  await expect(screen.getByText('X：bonus，Y：salary。')).toBeVisible();
+  await expect(aggregationSelect).toBeDisabled();
+  await expect(screen.getByText('散点不聚合')).toBeVisible();
+  await browser.locator('.recharts-scatter-symbol').first().waitFor();
+  const scatterSymbols = await countOf('.recharts-scatter-symbol');
+  if (scatterSymbols !== expectedA.length) {
+    throw new Error(
+      `散点应每个数值行一个符号（${expectedA.length} 个），实际 ${scatterSymbols} 个`,
+    );
+  }
+  const scatterTable = await chartTable();
+  if (
+    scatterTable === null ||
+    !scatterTable.caption.includes('散点图') ||
+    !scatterTable.caption.includes('bonus') ||
+    !scatterTable.caption.includes('salary') ||
+    !scatterTable.caption.includes('散点不聚合')
+  ) {
+    throw new Error(`散点图的 sr-only 表格说明不符：${JSON.stringify(scatterTable)}`);
+  }
+  if (
+    scatterTable.rows[0]?.label !== '5000' ||
+    scatterTable.rows[0]?.value !== '90000' ||
+    scatterTable.rows[1]?.label !== '4000' ||
+    scatterTable.rows[1]?.value !== '80000'
+  ) {
+    throw new Error(`散点 X/Y 数据不符：${JSON.stringify(scatterTable.rows)}`);
+  }
+
+  // 切回文本维度，建议恢复柱状；不聚合时每行一个点，折线才有两点可连。
+  await chooseOption(dimensionSelect, 'department');
+  await expect(typeSelect).toHaveText('柱状图', { timeout: 30_000 });
+  await chooseOption(aggregationSelect, '不聚合');
+  await expect(screen.getByText('不聚合：每行一个数据点。')).toBeVisible({ timeout: 30_000 });
+
+  // 键盘链：从聚合控件 Tab 到图表类型，方向键切换、Enter 确认、Escape 关闭。
+  await aggregationSelect.focus();
+  await browser.keyboard.press('Tab');
+  if ((await focusedLabel()) !== '图表类型') {
+    throw new Error(`Tab 后焦点应在图表类型上，实际 ${await focusedLabel()}`);
+  }
+  await browser.keyboard.press('ArrowDown');
+  await expect(typeSelect).toHaveAttribute('aria-expanded', 'true');
+  await expect(screen.getByRole('option', { name: '折线图' })).toBeVisible();
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('Enter');
+  await expect(typeSelect).toHaveText('折线图', { timeout: 30_000 });
+  await expect(typeSelect).toHaveAttribute('aria-expanded', 'false');
+  if ((await focusedLabel()) !== '图表类型') {
+    throw new Error(`选择后焦点应回到图表类型，实际 ${await focusedLabel()}`);
+  }
+  await browser.locator('.recharts-line-curve').first().waitFor();
+  const lineCount = await countOf('.recharts-line-curve');
+  if (lineCount !== 1) throw new Error(`折线图应渲染 1 条折线，实际 ${lineCount} 条`);
+  await browser.keyboard.press('ArrowDown');
+  await expect(typeSelect).toHaveAttribute('aria-expanded', 'true');
+  await browser.keyboard.press('Escape');
+  await expect(typeSelect).toHaveAttribute('aria-expanded', 'false');
+  await expect(typeSelect).toHaveText('折线图');
+
+  const shotDir = join(SHOT_DIR, randomUUID().slice(0, 8));
+  const fullPageShot = async (width: number, label: string) => {
+    await browser.setViewport({ width, height: 900 });
+    await delay(200);
+    const documentHeight = (await browser.evaluate(
+      'Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)',
+    )) as number;
+    const height = Math.min(Math.max(documentHeight, 1600), 2400);
+    await browser.setViewport({ width, height });
+    await delay(200);
+    await browser.evaluate(
+      "document.querySelector('.recharts-wrapper')?.scrollIntoView({ block: 'center' })",
+    );
+    await delay(200);
+    const overflow = (await browser.evaluate(
+      'document.documentElement.scrollWidth - document.documentElement.clientWidth',
+    )) as number;
+    if (overflow > 0) throw new Error(`${width}px 视口出现 ${overflow}px 横向溢出`);
+    return keepShot(shotDir, await app.screenshot(label), `${label}.png`);
+  };
+  const wideShot = await fullPageShot(1280, 'data-domain-chart-full-1280');
+  const narrowShot = await fullPageShot(1024, 'data-domain-chart-full-1024');
+
+  // 聚合 Select 也走一次键盘选择：不聚合 → 求和 → 平均。
+  await aggregationSelect.focus();
+  await browser.keyboard.press('ArrowDown');
+  await expect(aggregationSelect).toHaveAttribute('aria-expanded', 'true');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('ArrowDown');
+  await browser.keyboard.press('Enter');
+  await expect(screen.getByText('按 department 平均。')).toBeVisible({ timeout: 30_000 });
+  if ((await focusedLabel()) !== '图表聚合方式') {
+    throw new Error(`键盘选择后焦点应回到聚合方式，实际 ${await focusedLabel()}`);
+  }
+  const avgTable = await chartTable();
+  if (avgTable === null || !avgTable.caption.includes('平均')) {
+    throw new Error(`平均聚合的 sr-only 表格 caption 不符：${JSON.stringify(avgTable)}`);
+  }
+  const hrAvg = avgTable.rows.find((row) => row.label === 'HR');
+  if (hrAvg?.value !== '85000') {
+    throw new Error(`HR 组平均应为 85000，实际：${JSON.stringify(avgTable.rows)}`);
+  }
+
+  console.log(
+    JSON.stringify({
+      chartEvidence: {
+        rawBars,
+        aggregatedBars,
+        scatterSymbols,
+        lineCount,
+        sumTable: { caption: sumTable.caption, rows: sumTable.rows },
+        scatterTable: { caption: scatterTable.caption, rows: scatterTable.rows },
+        avgTable: { caption: avgTable.caption, rows: avgTable.rows },
+        keyboard: { tabFocus: '图表类型', typeAfterEnter: '折线图', aggregationAfterEnter: '平均' },
+        viewports: [1280, 1024],
+        shots: { wideShot, narrowShot },
+      },
+    }),
+  );
 
   console.log(
     JSON.stringify({

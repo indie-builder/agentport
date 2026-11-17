@@ -226,8 +226,8 @@ async function startWrenRuntime(python: string): Promise<string> {
     [
       'import duckdb, sys',
       'conn = duckdb.connect(sys.argv[1])',
-      'conn.execute("create table employees (id integer, name varchar, department varchar, salary integer, region varchar)")',
-      "conn.execute(\"insert into employees values (1, 'Alice', 'HR', 90000, 'north'), (2, 'Bob', 'HR', 80000, 'south'), (3, 'Carol', 'Sales', 70000, 'north'), (4, 'Dave', 'Sales', 60000, 'south'), (5, 'Eve', 'Sales', 95000, 'north')\")",
+      'conn.execute("create table employees (id integer, name varchar, department varchar, salary integer, region varchar, bonus integer)")',
+      "conn.execute(\"insert into employees values (1, 'Alice', 'HR', 90000, 'north', 5000), (2, 'Bob', 'HR', 80000, 'south', 4000), (3, 'Carol', 'Sales', 70000, 'north', 3000), (4, 'Dave', 'Sales', 60000, 'south', 2000), (5, 'Eve', 'Sales', 95000, 'north', 1000)\")",
       'conn.close()',
     ].join('\n'),
   );
