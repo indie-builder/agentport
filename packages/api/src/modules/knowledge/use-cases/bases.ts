@@ -1,6 +1,6 @@
 import { AppError, chunkBlocks, markdownBlocks } from '@agentport/core';
 import { repo } from '@agentport/db';
-import type { KnowledgeBaseSettings } from '@agentport/shared';
+import type { KnowledgeBaseSettings, ResourceAccessFilter } from '@agentport/shared';
 import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
@@ -48,8 +48,12 @@ async function imageSettingsProblem(
 
 // ---- bases ----------------------------------------------------------------
 
-export async function listBases(deps: KnowledgeDeps, query: PageQuery) {
-  const page = await repo.knowledge.listBases(deps.db, pageOptions(query));
+export async function listBases(
+  deps: KnowledgeDeps,
+  query: PageQuery,
+  access?: ResourceAccessFilter,
+) {
+  const page = await repo.knowledge.listBases(deps.db, pageOptions(query), access);
   return { items: page.items.map(toBase), nextCursor: page.nextCursor };
 }
 
@@ -107,7 +111,10 @@ export async function createBase(
   const settingsProblem = await imageSettingsProblem(input.settings, embedding);
   if (settingsProblem !== null) throw new AppError('CONFLICT', settingsProblem);
   try {
-    const server = await ensureKnowledgeServer(deps.db, { slug: input.slug });
+    const server = await ensureKnowledgeServer(deps.db, {
+      slug: input.slug,
+      ownerBusinessId: deps.businessId,
+    });
     const row = await repo.knowledge.createBase(deps.db, {
       slug: input.slug,
       name: input.name,
@@ -118,8 +125,14 @@ export async function createBase(
       asrProfileId: input.asrProfileId,
       status: input.status,
       settings: input.settings,
+      ownerBusinessId: deps.businessId,
     });
-    await ensureKnowledgeServer(deps.db, { slug: row.slug, id: row.id, serverId: server.id });
+    await ensureKnowledgeServer(deps.db, {
+      slug: row.slug,
+      id: row.id,
+      serverId: server.id,
+      ownerBusinessId: deps.businessId,
+    });
     await repo.audit.writeAudit(deps.db, deps.log, {
       actor: deps.actor,
       action: 'knowledge.base.created',

@@ -76,6 +76,11 @@ export async function upsertTags(
   });
 }
 
+export async function getTag(db: Database, id: string): Promise<KnowledgeTagRow | null> {
+  const [row] = await db.select().from(knowledgeTags).where(eq(knowledgeTags.id, id)).limit(1);
+  return row ?? null;
+}
+
 export async function listTags(db: Database, baseId: string): Promise<KnowledgeTagRow[]> {
   return db
     .select()

@@ -10,5 +10,6 @@ export default {
     'tests/data-domain-execution.e2e.ts',
     'tests/agent-publish.e2e.ts',
     'tests/schedule-lifecycle.e2e.ts',
+    'tests/governance.e2e.ts',
   ],
 } satisfies E2EConfig;

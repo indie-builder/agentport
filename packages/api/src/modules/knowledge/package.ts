@@ -885,6 +885,7 @@ export async function importKnowledgePackage(
   db: Db,
   knowledgeDir: string,
   archive: Buffer,
+  ownerBusinessId?: string,
 ): Promise<KnowledgePackageImportResult> {
   const files = readZip(archive);
   const manifest = parseManifest(files);
@@ -1086,6 +1087,7 @@ export async function importKnowledgePackage(
         kind: 'knowledge',
         config: {},
         secretsEncrypted: null,
+        ownerBusinessId: ownerBusinessId ?? null,
       });
       await tx.insert(schema.knowledgeBases).values({
         id: baseId,
@@ -1098,11 +1100,13 @@ export async function importKnowledgePackage(
         rerankProfileId: rerankId,
         asrProfileId: asrId,
         settings: manifest.base.settings,
+        ownerBusinessId: ownerBusinessId ?? null,
       });
       await tx
         .update(schema.servers)
         .set({ config: { knowledgeBaseId: baseId } })
         .where(eq(schema.servers.id, serverId));
+      await repo.governance.assertKnowledgeDocumentQuota(tx, baseId, manifest.documents.length);
 
       for (const folder of [...manifest.folders].sort(
         (a, b) => folderPath(a, manifest).length - folderPath(b, manifest).length,

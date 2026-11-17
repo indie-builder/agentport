@@ -5,6 +5,9 @@ import {
   type AgentMember,
   type PermissionGrant,
   type PermissionId,
+  type ResourceAccessFilter,
+  type ResourceAccessLevel,
+  type ResourceKind,
   type Role,
   type RoleMatrix,
   type RoleMatrixInput,
@@ -19,11 +22,67 @@ import {
   agents,
   authUsers,
   platformBootstrap,
+  resourceGrants,
   rolePermissions,
   roles,
   userRoles,
 } from '../schema.js';
 import { hasBusinessHistory } from './identities.js';
+
+export type ResourceGrantFlags = { canUse: boolean; canManage: boolean };
+
+export async function getResourceGrant(
+  db: DbHandle,
+  kind: ResourceKind,
+  resourceId: string,
+  businessId: string,
+): Promise<ResourceGrantFlags | null> {
+  const [row] = await db
+    .select({ canUse: resourceGrants.canUse, canManage: resourceGrants.canManage })
+    .from(resourceGrants)
+    .where(
+      and(
+        eq(resourceGrants.resourceKind, kind),
+        eq(resourceGrants.resourceId, resourceId),
+        eq(resourceGrants.businessId, businessId),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function listResourceGrantIds(
+  db: DbHandle,
+  kind: ResourceKind,
+  businessId: string,
+  level: ResourceAccessLevel,
+): Promise<string[]> {
+  const rows = await db
+    .select({ id: resourceGrants.resourceId })
+    .from(resourceGrants)
+    .where(
+      and(
+        eq(resourceGrants.resourceKind, kind),
+        eq(resourceGrants.businessId, businessId),
+        level === 'manage'
+          ? eq(resourceGrants.canManage, true)
+          : sql`(${resourceGrants.canUse} or ${resourceGrants.canManage})`,
+      ),
+    );
+  return rows.map((row) => row.id);
+}
+
+export function resourceScopeWhere(
+  access: ResourceAccessFilter,
+  idColumn: SQLWrapper,
+  ownerColumn: SQLWrapper,
+): SQL | undefined {
+  if (access.platform) return undefined;
+  const visible: SQL[] = [];
+  if (access.own) visible.push(sql`${ownerColumn} = ${access.businessId}`);
+  if (access.grantedIds.length > 0) visible.push(inArray(idColumn, [...access.grantedIds]));
+  return visible.length === 0 ? sql`false` : sql`(${sql.join(visible, sql` or `)})`;
+}
 
 export const BOOTSTRAP_ID = 'initial';
 

@@ -4,7 +4,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { z } from 'zod';
 import { createJob, enqueueKnowledgeJob, storeBlob } from '../service.js';
-import { type KnowledgeDeps, type PageQuery, notFound, pageOptions } from './shared.js';
+import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
 
 type WikiPageRow = typeof schema.knowledgeWikiPages.$inferSelect;
 
@@ -187,24 +187,29 @@ async function publishWithWikiIndex(
       wikiVersionId: prepared.versionId,
       originalFilename: prepared.input.filename,
     };
-    const document = existing
-      ? ((await repo.knowledge.updateDocument(tx, existing.id, {
+    let document: Awaited<ReturnType<typeof repo.knowledge.createDocument>>;
+    if (existing) {
+      document =
+        (await repo.knowledge.updateDocument(tx, existing.id, {
           title: updated.title,
           metadata,
-        })) ?? existing)
-      : await repo.knowledge.createDocument(tx, {
-          baseId: page.baseId,
-          folderId: null,
-          title: updated.title,
-          sourceType: 'manual',
-          sourceId: null,
-          sourceUrl: null,
-          sourcePath: null,
-          mimeType: 'text/markdown',
-          sizeBytes: prepared.sizeBytes,
-          contentKind: 'wiki',
-          metadata,
-        });
+        })) ?? existing;
+    } else {
+      await repo.governance.assertKnowledgeDocumentQuota(tx, page.baseId);
+      document = await repo.knowledge.createDocument(tx, {
+        baseId: page.baseId,
+        folderId: null,
+        title: updated.title,
+        sourceType: 'manual',
+        sourceId: null,
+        sourceUrl: null,
+        sourcePath: null,
+        mimeType: 'text/markdown',
+        sizeBytes: prepared.sizeBytes,
+        contentKind: 'wiki',
+        metadata,
+      });
+    }
     const job = await createJob(tx, {
       baseId: page.baseId,
       documentId: document.id,
@@ -223,8 +228,12 @@ async function publishWithWikiIndex(
   });
   if (!committed) return null;
   await enqueueKnowledgeJob({ id: committed.jobId }).catch((err: unknown) => {
-    deps.log.warn({ err, jobId: committed.jobId }, 'wiki index job enqueue failed; awaiting reconcile');
+    deps.log.warn(
+      { err, jobId: committed.jobId },
+      'wiki index job enqueue failed; awaiting reconcile',
+    );
   });
+  await repo.governance.notifyKnowledgeDocumentQuota(deps.db, page.baseId);
   return committed.page;
 }
 

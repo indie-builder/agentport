@@ -31,6 +31,12 @@ import {
 } from './schema/data-domains.js';
 import { evalCases, evalResults, evalRuns } from './schema/eval.js';
 import {
+  budgetLimits,
+  departmentMembers,
+  departments,
+  resourceGrants,
+} from './schema/governance.js';
+import {
   knowledgeBasePins,
   knowledgeBases,
   knowledgeFolders,
@@ -69,6 +75,7 @@ export * from './schema/auth.js';
 export * from './schema/chat.js';
 export * from './schema/data-domains.js';
 export * from './schema/eval.js';
+export * from './schema/governance.js';
 export * from './schema/knowledge-bases.js';
 export * from './schema/knowledge-documents.js';
 export * from './schema/knowledge-sources.js';
@@ -82,6 +89,10 @@ export * from './schema/servers.js';
 export * from './schema/skills.js';
 
 export const schema = {
+  departments,
+  departmentMembers,
+  resourceGrants,
+  budgetLimits,
   servers,
   apiTools,
   agents,

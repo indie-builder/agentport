@@ -41,6 +41,7 @@ export const errorCode = {
   // 资源
   AGENT_DISABLED: 409,
   AGENT_BUDGET_EXCEEDED: 409,
+  BUDGET_EXCEEDED: 409,
   EVAL_RUN_IN_PROGRESS: 409,
   // 知识库 MCP：固定库与当前可读版本是读取边界
   BASE_MISMATCH: 400,

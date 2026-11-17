@@ -1,13 +1,19 @@
-import type { KnowledgeJobPayload, KnowledgeSourceProbeResult } from '@agentport/shared';
-import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import type {
+  KnowledgeJobPayload,
+  KnowledgeSourceProbeResult,
+  ResourceAccessFilter,
+} from '@agentport/shared';
+import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import {
+  knowledgeBases,
   knowledgeDocuments,
   knowledgeJobs,
   knowledgeSources,
   knowledgeSyncRuns,
 } from '../../schema.js';
+import { resourceScopeWhere } from '../access.js';
 import { keysetBefore, paginate } from '../keyset.js';
 import {
   type KnowledgeJobRow,
@@ -46,6 +52,7 @@ export interface ListJobsFilter extends PageOptions {
   baseId?: string;
   documentId?: string;
   status?: KnowledgeJobRow['status'];
+  access?: ResourceAccessFilter;
 }
 
 /** 列表只需展示字段：payload 与来源 config 留给 getJob/worker，避免读出整块任务载荷。 */
@@ -71,6 +78,21 @@ export async function listJobs(db: Database, filter: ListJobsFilter = {}) {
   if (filter.baseId) filters.push(eq(knowledgeJobs.baseId, filter.baseId));
   if (filter.documentId) filters.push(eq(knowledgeJobs.documentId, filter.documentId));
   if (filter.status) filters.push(eq(knowledgeJobs.status, filter.status));
+  if (filter.access) {
+    const scope = resourceScopeWhere(
+      filter.access,
+      knowledgeBases.id,
+      knowledgeBases.ownerBusinessId,
+    );
+    if (scope) {
+      filters.push(
+        inArray(
+          knowledgeJobs.baseId,
+          db.select({ id: knowledgeBases.id }).from(knowledgeBases).where(scope),
+        ),
+      );
+    }
+  }
   if (filter.cursor) {
     filters.push(keysetBefore(knowledgeJobs, filter.cursor));
   }

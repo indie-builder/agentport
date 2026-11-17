@@ -21,6 +21,7 @@ import { chatRouter } from '../modules/chat/router.js';
 import { dataDomainsRouter } from '../modules/data-domains/router.js';
 import { registerEvalHttp } from '../modules/eval/http.js';
 import { evalRouter } from '../modules/eval/router.js';
+import { governanceRouter } from '../modules/governance/router.js';
 import { FAQ_MAX_BYTES } from '../modules/knowledge/faq.js';
 import { registerKnowledgeHttp } from '../modules/knowledge/http.js';
 import { KNOWLEDGE_PACKAGE_MAX_BYTES } from '../modules/knowledge/package.js';
@@ -60,6 +61,7 @@ const apiRouter: Router<RpcContract, RequestContext> = {
   chat: chatRouter,
   dataDomains: dataDomainsRouter,
   eval: evalRouter,
+  governance: governanceRouter,
   knowledge: knowledgeRouter,
   market: marketRouter,
   memory: memoryRouter,

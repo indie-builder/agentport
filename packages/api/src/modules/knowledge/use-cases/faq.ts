@@ -311,6 +311,7 @@ interface CreateFaqInput extends Omit<WriteFaqVersionInput, 'document'> {
 }
 
 async function createFaqDraft(deps: KnowledgeDeps, input: CreateFaqInput) {
+  await repo.governance.assertKnowledgeDocumentQuota(deps.db, input.base.id);
   const document = await repo.knowledge.createDocument(deps.db, {
     baseId: input.base.id,
     folderId: input.folderId,
@@ -324,13 +325,15 @@ async function createFaqDraft(deps: KnowledgeDeps, input: CreateFaqInput) {
     contentKind: 'faq',
     metadata: { originalFilename: `${input.title}.faq.json` },
   });
+  let result: Awaited<ReturnType<typeof writeFaqVersion>>;
   try {
-    const result = await writeFaqVersion(deps, { ...input, document });
-    return { document, ...result };
+    result = await writeFaqVersion(deps, { ...input, document });
   } catch (err) {
     await repo.knowledge.deleteDocument(deps.db, document.id).catch(() => undefined);
     throw err;
   }
+  await repo.governance.notifyKnowledgeDocumentQuota(deps.db, input.base.id);
+  return { document, ...result };
 }
 
 async function publishFaqVersion(
@@ -786,6 +789,11 @@ export async function importFaqs(
     }
     return response;
   }
+  await repo.governance.assertKnowledgeDocumentQuota(
+    deps.db,
+    base.id,
+    plan.drafts.filter((draft) => draft.operation === 'add').length,
+  );
   const importBatchId = newFaqImportBatchId();
   const existingById = new Map(existing.map((entry) => [entry.documentId, entry]));
   const targets =
@@ -824,6 +832,7 @@ export async function importFaqs(
       deps.log.warn({ err }, 'faq import job enqueue failed; awaiting reconcile');
     },
   );
+  await repo.governance.notifyKnowledgeDocumentQuota(deps.db, base.id);
   const results = plan.results.map((result) => {
     const item = result.documentId ? jobs.get(result.documentId) : undefined;
     return item

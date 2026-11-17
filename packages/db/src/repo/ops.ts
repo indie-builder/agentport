@@ -1,9 +1,9 @@
+import { isAppError } from '@agentport/core';
 import {
   ACTIVE_RUN_STATUSES,
   type AccessFilter,
   RETENTION_DEFAULTS,
   type RetentionUpdate,
-  utcMonthStart,
 } from '@agentport/shared';
 import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
@@ -19,8 +19,9 @@ import {
 } from '../schema.js';
 import { maintainedAgentScopeWhere } from './access.js';
 import { getAgentVersion } from './agent-versions.js';
-import { getAgentServerIds, sumAgentSpendSince } from './agents.js';
+import { getAgentServerIds } from './agents.js';
 import { notStale } from './freshness.js';
+import { assertRunBudget, getDepartmentIdForBusinessId } from './governance.js';
 import { lockRunResources } from './locks.js';
 
 export type ScheduleRow = typeof agentSchedules.$inferSelect;
@@ -186,7 +187,7 @@ export async function claimScheduleTrigger(
     const [agent] = await tx
       .select({
         enabled: agents.enabled,
-        monthlyBudgetUsd: agents.monthlyBudgetUsd,
+        model: agents.model,
       })
       .from(agents)
       .where(eq(agents.id, owner.agentId))
@@ -209,15 +210,15 @@ export async function claimScheduleTrigger(
     const schedule = claimed[0];
     if (!schedule) return 'duplicate';
 
-    const monthlyBudgetUsd =
-      preDefinition === null
-        ? agent.monthlyBudgetUsd === null
-          ? null
-          : Number(agent.monthlyBudgetUsd)
-        : preDefinition.agent.monthlyBudgetUsd;
-    if (monthlyBudgetUsd !== null) {
-      const spent = await sumAgentSpendSince(tx, schedule.agentId, utcMonthStart());
-      if (spent >= monthlyBudgetUsd) return 'budget_exceeded';
+    try {
+      await assertRunBudget(tx, {
+        agentId: schedule.agentId,
+        initiatedBy: schedule.executeAsBusinessId,
+        definition: preDefinition,
+      });
+    } catch (error) {
+      if (isAppError(error) && error.code === 'BUDGET_EXCEEDED') return 'budget_exceeded';
+      throw error;
     }
 
     await tx.insert(conversations).values({
@@ -236,6 +237,8 @@ export async function claimScheduleTrigger(
       subjectKind: 'user',
       initiatedBy: schedule.executeAsBusinessId,
       agentVersion: pre?.publishedVersion ?? null,
+      model: preDefinition?.agent.model ?? agent.model,
+      departmentId: await getDepartmentIdForBusinessId(tx, schedule.executeAsBusinessId),
       serverIds:
         preDefinition === null
           ? await getAgentServerIds(tx, schedule.agentId)
@@ -305,22 +308,22 @@ export async function claimScheduleRetry(
     const [agent] = await tx
       .select({
         enabled: agents.enabled,
-        monthlyBudgetUsd: agents.monthlyBudgetUsd,
+        model: agents.model,
       })
       .from(agents)
       .where(eq(agents.id, lockedSchedule.agentId))
       .limit(1);
     if (!agent?.enabled) return 'agent_disabled';
 
-    const monthlyBudgetUsd =
-      preDefinition === null
-        ? agent.monthlyBudgetUsd === null
-          ? null
-          : Number(agent.monthlyBudgetUsd)
-        : preDefinition.agent.monthlyBudgetUsd;
-    if (monthlyBudgetUsd !== null) {
-      const spent = await sumAgentSpendSince(tx, lockedSchedule.agentId, utcMonthStart());
-      if (spent >= monthlyBudgetUsd) return 'budget_exceeded';
+    try {
+      await assertRunBudget(tx, {
+        agentId: lockedSchedule.agentId,
+        initiatedBy: lockedSchedule.executeAsBusinessId,
+        definition: preDefinition,
+      });
+    } catch (error) {
+      if (isAppError(error) && error.code === 'BUDGET_EXCEEDED') return 'budget_exceeded';
+      throw error;
     }
 
     await tx.insert(conversations).values({
@@ -341,6 +344,8 @@ export async function claimScheduleRetry(
         subjectKind: 'user',
         initiatedBy: lockedSchedule.executeAsBusinessId,
         agentVersion: pre?.publishedVersion ?? null,
+        model: preDefinition?.agent.model ?? agent.model,
+        departmentId: await getDepartmentIdForBusinessId(tx, lockedSchedule.executeAsBusinessId),
         serverIds:
           preDefinition === null
             ? await getAgentServerIds(tx, lockedSchedule.agentId)

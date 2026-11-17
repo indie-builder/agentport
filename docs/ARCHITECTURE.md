@@ -100,6 +100,14 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 - 原生边界直接读写 `Request`/`Response`，不为了统一而塞进 oRPC；反过来，业务 CRUD 也不绕过契约手写 REST 路由。
 - 原生 auth 的 login/logout 复用 `@agentport/contract/auth` 的 `authNativeContract` 元数据（`access`、`rateLimit`），不手抄第二份；logout 清 Cookie 使用 Better Auth 实际下发的 cookie 名与属性（`authCookies.sessionToken`），不自造序列化。
 
+### 1.4 治理与资源对象权限
+
+治理数据由 `departments`、`department_members`、`resource_grants`、`budget_limits` 四表承载：部门名称唯一，一个业务身份最多属于一个部门；资源授权按资源类别、资源 ID、业务身份唯一，`can_manage` 同时允许读与执行。知识库、数据域、技能、连接器、插件、运行环境用可空 `owner_business_id` 表示当前负责人，null 表示平台所有；`created_by` 保留历史。对象权限范围为本人资源、`authorized_resources` 明细授权及全平台，专家成员关系不授予资源权限。
+
+预算按 user/department/agent 的 UTC 自然月成本、knowledge_base 文档数、data_domain 月查询数分别计量。运行准入只检查已结算成本，不预占在途费用，因此不是严格硬上限。`agent_runs.model` 与 `department_id` 在准入时快照，成本汇总只读历史快照，不跟随当前模型或部门变动。预算阈值沿用 `budget_alert` 通知，`platform_settings` 保存运行失败及队列 failed/waiting 的七项告警配置，运维通知使用 `ops_alert`。
+
+交接清单覆盖专家、六类资源和定时任务，单事务转交当前负责人及定时任务执行身份，保留创建历史；伴生连接器随所属知识库或数据域一并转交。接收人须为启用账户且具备相应管理权限，反向转交可恢复原负责人访问。资源绑定在配置时检查使用权限，运行按已固定的专家版本快照执行。
+
 ## 2. 运行时拓扑
 
 ```
@@ -273,7 +281,7 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 ### 3.6 通知与待办（2026-11-18）
 
-站内通知是一张独立表 `notifications`（主键 `ntf_`）：`business_id`、`kind`、`title`、`body`、`link`、`source_id`、`read_at`、`created_at`；`kind` 为 `approval` / `question` / `run_failed` / `schedule_failed` / `budget_alert`。唯一索引 `(business_id, kind, source_id)` 让生产者可安全重试而不重复投递；`(business_id, created_at, id)` 支撑游标分页，`(business_id, created_at) where read_at is null` 支撑未读计数与「待办」筛选。`read_at is null` 即未读，也就是页面上的「待办」。
+站内通知是一张独立表 `notifications`（主键 `ntf_`）：`business_id`、`kind`、`title`、`body`、`link`、`source_id`、`read_at`、`created_at`；`kind` 为 `approval` / `question` / `run_failed` / `schedule_failed` / `budget_alert` / `ops_alert`。唯一索引 `(business_id, kind, source_id)` 让生产者可安全重试而不重复投递；`(business_id, created_at, id)` 支撑游标分页，`(business_id, created_at) where read_at is null` 支撑未读计数与「待办」筛选。`read_at is null` 即未读，也就是页面上的「待办」。
 
 | 入口 | 行为 |
 |---|---|

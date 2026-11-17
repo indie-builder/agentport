@@ -1,9 +1,14 @@
 import { AppError } from '@agentport/core';
-import type { ApiToolInput, ResolvedRuntimeEnvironment } from '@agentport/shared';
+import type {
+  ApiToolInput,
+  ResolvedRuntimeEnvironment,
+  ResourceAccessFilter,
+} from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { apiTools, servers } from '../schema.js';
+import { resourceScopeWhere } from './access.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
 
 export type ServerRow = typeof servers.$inferSelect;
@@ -45,8 +50,19 @@ export interface ApiToolPatch {
   approvalMode?: 'allow' | 'ask' | 'deny';
 }
 
-export async function listServers(db: Database): Promise<ServerRow[]> {
-  return db.select().from(servers).orderBy(asc(servers.createdAt), asc(servers.id));
+export async function listServers(
+  db: Database,
+  access?: ResourceAccessFilter,
+): Promise<ServerRow[]> {
+  return db
+    .select()
+    .from(servers)
+    .where(
+      access === undefined
+        ? undefined
+        : resourceScopeWhere(access, servers.id, servers.ownerBusinessId),
+    )
+    .orderBy(asc(servers.createdAt), asc(servers.id));
 }
 
 /**
@@ -77,14 +93,16 @@ export async function getServer(db: DbHandle, id: string): Promise<ServerRow | n
   return row ?? null;
 }
 
-/** 只确认存在性，避免为一次判断传输并解码 config/secretsEncrypted。 */
-export async function serverExists(db: DbHandle, id: string): Promise<boolean> {
+export async function getServerAccessRow(
+  db: DbHandle,
+  id: string,
+): Promise<{ id: string; ownerBusinessId: string | null } | null> {
   const [row] = await db
-    .select({ id: servers.id })
+    .select({ id: servers.id, ownerBusinessId: servers.ownerBusinessId })
     .from(servers)
     .where(eq(servers.id, id))
     .limit(1);
-  return row !== undefined;
+  return row ?? null;
 }
 
 /**
@@ -96,10 +114,14 @@ export async function lockServer(tx: Transaction, id: string): Promise<ServerRow
   return row ?? null;
 }
 
-export async function createServer(db: Database, input: ServerWrite): Promise<ServerRow> {
+export async function createServer(
+  db: Database,
+  input: ServerWrite,
+  ownerBusinessId: string | null,
+): Promise<ServerRow> {
   const [row] = await db
     .insert(servers)
-    .values({ id: newId('server'), ...input })
+    .values({ id: newId('server'), ...input, ownerBusinessId })
     .returning();
   if (!row) throw new Error('server insert returned no row');
   return row;

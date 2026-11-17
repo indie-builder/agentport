@@ -6,6 +6,7 @@ import { requestContext } from '../../http/context.js';
 import { problem, toAppError } from '../../http/errors.js';
 import { requireTrustedOrigin } from '../auth/origin.js';
 import { authenticate } from '../auth/session.js';
+import { authorizeBase, authorizeVersion } from './access.js';
 import * as useCases from './use-cases.js';
 import { depsOf } from './use-cases.js';
 
@@ -44,8 +45,10 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     '/api/knowledge/versions/:versionId/images/:name',
     native(async (context, c) => {
       await requirePermission(context, 'knowledge.read');
+      const versionId = param(c, 'versionId');
+      await authorizeVersion(context, versionId, 'knowledge.read', 'read');
       const name = param(c, 'name');
-      const image = await useCases.getVersionImage(depsOf(context), param(c, 'versionId'), name);
+      const image = await useCases.getVersionImage(depsOf(context), versionId, name);
       return new Response(new Uint8Array(image.data), {
         headers: {
           'content-type': image.mimeType,
@@ -61,7 +64,9 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     '/api/knowledge/versions/:versionId/content',
     native(async (context, c) => {
       await requirePermission(context, 'knowledge.read');
-      const content = await useCases.getVersionContent(depsOf(context), param(c, 'versionId'));
+      const versionId = param(c, 'versionId');
+      await authorizeVersion(context, versionId, 'knowledge.read', 'read');
+      const content = await useCases.getVersionContent(depsOf(context), versionId);
       return new Response(new Uint8Array(content.data), {
         headers: {
           'content-type': content.mimeType,
@@ -76,7 +81,9 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     '/api/knowledge/versions/:versionId/markdown',
     native(async (context, c) => {
       await requirePermission(context, 'knowledge.read');
-      const markdown = await useCases.getVersionMarkdown(depsOf(context), param(c, 'versionId'));
+      const versionId = param(c, 'versionId');
+      await authorizeVersion(context, versionId, 'knowledge.read', 'read');
+      const markdown = await useCases.getVersionMarkdown(depsOf(context), versionId);
       return new Response(markdown.markdown, {
         headers: {
           'content-type': 'text/markdown; charset=utf-8',
@@ -90,8 +97,10 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     '/api/knowledge/bases/:id/export',
     native(async (context, c) => {
       await requirePermission(context, 'knowledge.export');
+      const id = param(c, 'id');
+      await authorizeBase(context, id, 'knowledge.export', 'read');
 
-      const pkg = await useCases.exportPackage(depsOf(context), param(c, 'id'));
+      const pkg = await useCases.exportPackage(depsOf(context), id);
       return new Response(new Uint8Array(pkg.body), {
         headers: {
           'content-disposition': `attachment; filename="${pkg.filename}"`,
@@ -120,10 +129,12 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
     '/api/knowledge/bases/:id/faqs/export',
     native(async (context, c) => {
       await requirePermission(context, 'knowledge.export');
+      const id = param(c, 'id');
+      await authorizeBase(context, id, 'knowledge.export', 'read');
 
       const format = c.req.query('format') === 'csv' ? 'csv' : 'json';
       const version = c.req.query('version') === 'draft' ? 'draft' : 'published';
-      const exported = await useCases.exportFaqs(depsOf(context), param(c, 'id'), {
+      const exported = await useCases.exportFaqs(depsOf(context), id, {
         format,
         version,
       });

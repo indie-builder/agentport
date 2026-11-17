@@ -1,9 +1,10 @@
 import { AppError } from '@agentport/core';
-import type { KnowledgeBaseSettings } from '@agentport/shared';
-import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
+import type { KnowledgeBaseSettings, ResourceAccessFilter } from '@agentport/shared';
+import { and, desc, eq, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeBasePins, knowledgeBases, knowledgeModelProfiles } from '../../schema.js';
+import { resourceScopeWhere } from '../access.js';
 import { keysetBefore, paginate } from '../keyset.js';
 import {
   type KnowledgeBaseRow,
@@ -29,6 +30,7 @@ export interface CreateBaseInput {
   /** 省略时按表默认 active；复制已有库时沿用源库状态。 */
   status?: 'active' | 'disabled' | undefined;
   settings: KnowledgeBaseSettings;
+  ownerBusinessId?: string | undefined;
 }
 
 /** ASR 绑定与 embedding/rerank 同一条规则：换绑只能指向存在、类型正确且启用的 profile。 */
@@ -66,9 +68,14 @@ export async function getBase(db: Database, id: string): Promise<KnowledgeBaseRo
 export async function listBases(
   db: Database,
   options: PageOptions = {},
+  access?: ResourceAccessFilter,
 ): Promise<Page<KnowledgeBaseRow>> {
   const limit = pageLimit(options);
   const filters: SQL[] = [];
+  if (access) {
+    const scope = resourceScopeWhere(access, knowledgeBases.id, knowledgeBases.ownerBusinessId);
+    if (scope) filters.push(scope);
+  }
   if (options.cursor) {
     filters.push(keysetBefore(knowledgeBases, options.cursor));
   }

@@ -4,7 +4,7 @@ import { idParams, slugSchema } from '@agentport/shared';
 import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
-import { actorOf } from '../../http/access.js';
+import { actorOf, authorizeResourceAccess, requireUser } from '../../http/access.js';
 import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
@@ -54,7 +54,7 @@ export function registerPluginsHttp(app: Hono<HttpEnv>): void {
       try {
         const row = await repo.plugins.createPluginWithFiles(
           context.db,
-          toPluginWrite(input),
+          toPluginWrite(input, undefined, requireUser(context).businessId),
           files,
         );
         await repo.audit.writeAudit(context.db, context.log, {
@@ -82,6 +82,12 @@ export function registerPluginsHttp(app: Hono<HttpEnv>): void {
       const { id } = idParams.parse(c.req.param());
       const row = await repo.plugins.getPlugin(context.db, id);
       if (!row) fail('NOT_FOUND', '插件不存在，可能已被删除；请刷新后重试');
+      await authorizeResourceAccess(
+        context,
+        'plugins.export',
+        { kind: 'plugin', resourceId: row.id, ownerBusinessId: row.ownerBusinessId, level: 'read' },
+        '插件不存在，可能已被删除；请刷新后重试',
+      );
       const files = await repo.plugins.listPluginFiles(context.db, row.id);
       return c.body(new Uint8Array(encodePackageEntries(files)), 200, {
         'content-disposition': `attachment; filename="${row.slug}.zip"`,

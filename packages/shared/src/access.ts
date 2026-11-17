@@ -24,6 +24,7 @@ export const businessIdSchema = z
 
 export const ACCESS_SCOPES = [
   { id: 'own_data', label: '本人数据' },
+  { id: 'authorized_resources', label: '被授权资源' },
   { id: 'authorized_agents', label: '被授权专家' },
   { id: 'maintained_agents', label: '维护专家' },
   { id: 'owned_agents', label: '负责专家' },
@@ -34,6 +35,7 @@ export type AccessScope = (typeof ACCESS_SCOPES)[number]['id'];
 
 export const accessScopeSchema = z.enum([
   'own_data',
+  'authorized_resources',
   'authorized_agents',
   'maintained_agents',
   'owned_agents',
@@ -41,6 +43,7 @@ export const accessScopeSchema = z.enum([
 ]);
 
 const OP = ['own_data', 'platform'] as const;
+const OAP = ['own_data', 'authorized_resources', 'platform'] as const;
 const AMWP = ['authorized_agents', 'maintained_agents', 'owned_agents', 'platform'] as const;
 const MWP = ['maintained_agents', 'owned_agents', 'platform'] as const;
 const WP = ['owned_agents', 'platform'] as const;
@@ -123,170 +126,177 @@ const catalog = [
   { id: 'schedules.read', label: '查看定时任务', treePath: ['定时', '任务'], scopes: MWP },
   { id: 'schedules.manage', label: '管理定时任务', treePath: ['定时', '任务'], scopes: MWP },
 
-  { id: 'servers.read', label: '查看连接器', treePath: ['资源', '连接器', '定义'], scopes: P },
+  { id: 'servers.read', label: '查看连接器', treePath: ['资源', '连接器', '定义'], scopes: OAP },
   {
     id: 'servers.create',
     label: '新建连接器',
     treePath: ['资源', '连接器', '定义'],
-    scopes: P,
+    scopes: OP,
   },
   {
     id: 'servers.update',
     label: '修改连接器',
     treePath: ['资源', '连接器', '定义'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'servers.delete',
     label: '删除连接器',
     treePath: ['资源', '连接器', '定义'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'servers.import',
     label: '导入连接器',
     treePath: ['资源', '连接器', '定义'],
-    scopes: P,
+    scopes: OP,
   },
-  { id: 'servers.test', label: '测试连接器', treePath: ['资源', '连接器', '定义'], scopes: P },
+  { id: 'servers.test', label: '测试连接器', treePath: ['资源', '连接器', '定义'], scopes: OAP },
   {
     id: 'servers.tokens.read',
     label: '查看服务令牌',
     treePath: ['资源', '连接器', '令牌'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'servers.tokens.rotate',
     label: '轮换服务令牌',
     treePath: ['资源', '连接器', '令牌'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'servers.tools.manage',
     label: '管理服务工具',
     treePath: ['资源', '连接器', '工具'],
-    scopes: P,
+    scopes: OAP,
   },
 
-  { id: 'skills.read', label: '查看技能', treePath: ['资源', '技能', '定义'], scopes: P },
-  { id: 'skills.create', label: '新建技能', treePath: ['资源', '技能', '定义'], scopes: P },
-  { id: 'skills.update', label: '修改技能', treePath: ['资源', '技能', '定义'], scopes: P },
-  { id: 'skills.delete', label: '删除技能', treePath: ['资源', '技能', '定义'], scopes: P },
-  { id: 'skills.import', label: '导入技能', treePath: ['资源', '技能', '定义'], scopes: P },
-  { id: 'skills.files.read', label: '读取技能文件', treePath: ['资源', '技能', '文件'], scopes: P },
+  { id: 'skills.read', label: '查看技能', treePath: ['资源', '技能', '定义'], scopes: OAP },
+  { id: 'skills.create', label: '新建技能', treePath: ['资源', '技能', '定义'], scopes: OP },
+  { id: 'skills.update', label: '修改技能', treePath: ['资源', '技能', '定义'], scopes: OAP },
+  { id: 'skills.delete', label: '删除技能', treePath: ['资源', '技能', '定义'], scopes: OAP },
+  { id: 'skills.import', label: '导入技能', treePath: ['资源', '技能', '定义'], scopes: OP },
+  {
+    id: 'skills.files.read',
+    label: '读取技能文件',
+    treePath: ['资源', '技能', '文件'],
+    scopes: OAP,
+  },
   {
     id: 'skills.files.write',
     label: '修改技能文件',
     treePath: ['资源', '技能', '文件'],
-    scopes: P,
+    scopes: OAP,
   },
 
-  { id: 'plugins.read', label: '查看插件', treePath: ['资源', '插件', '包'], scopes: P },
-  { id: 'plugins.import', label: '导入插件', treePath: ['资源', '插件', '包'], scopes: P },
-  { id: 'plugins.install', label: '安装插件', treePath: ['资源', '插件', '包'], scopes: P },
-  { id: 'plugins.update', label: '修改插件', treePath: ['资源', '插件', '包'], scopes: P },
-  { id: 'plugins.delete', label: '删除插件', treePath: ['资源', '插件', '包'], scopes: P },
-  { id: 'plugins.export', label: '导出插件', treePath: ['资源', '插件', '包'], scopes: P },
+  { id: 'plugins.read', label: '查看插件', treePath: ['资源', '插件', '包'], scopes: OAP },
+  { id: 'plugins.import', label: '导入插件', treePath: ['资源', '插件', '包'], scopes: OP },
+  { id: 'plugins.install', label: '安装插件', treePath: ['资源', '插件', '包'], scopes: OP },
+  { id: 'plugins.update', label: '修改插件', treePath: ['资源', '插件', '包'], scopes: OAP },
+  { id: 'plugins.delete', label: '删除插件', treePath: ['资源', '插件', '包'], scopes: OAP },
+  { id: 'plugins.export', label: '导出插件', treePath: ['资源', '插件', '包'], scopes: OAP },
 
-  { id: 'knowledge.read', label: '查看知识库', treePath: ['知识库', '库与内容'], scopes: P },
-  { id: 'knowledge.create', label: '新建知识库', treePath: ['知识库', '库与内容'], scopes: P },
-  { id: 'knowledge.update', label: '修改知识库', treePath: ['知识库', '库与内容'], scopes: P },
-  { id: 'knowledge.delete', label: '删除知识库', treePath: ['知识库', '库与内容'], scopes: P },
+  { id: 'knowledge.read', label: '查看知识库', treePath: ['知识库', '库与内容'], scopes: OAP },
+  { id: 'knowledge.create', label: '新建知识库', treePath: ['知识库', '库与内容'], scopes: OP },
+  { id: 'knowledge.update', label: '修改知识库', treePath: ['知识库', '库与内容'], scopes: OAP },
+  { id: 'knowledge.delete', label: '删除知识库', treePath: ['知识库', '库与内容'], scopes: OAP },
   {
     id: 'knowledge.content.manage',
     label: '管理知识内容',
     treePath: ['知识库', '库与内容'],
-    scopes: P,
+    scopes: OAP,
   },
-  { id: 'knowledge.execute', label: '执行检索与处理', treePath: ['知识库', '执行'], scopes: P },
-  { id: 'knowledge.publish', label: '发布知识 Wiki', treePath: ['知识库', '执行'], scopes: P },
+  { id: 'knowledge.execute', label: '执行检索与处理', treePath: ['知识库', '执行'], scopes: OAP },
+  { id: 'knowledge.publish', label: '发布知识 Wiki', treePath: ['知识库', '执行'], scopes: OAP },
   {
     id: 'knowledge.sources.manage',
     label: '管理知识来源',
     treePath: ['知识库', '来源'],
-    scopes: P,
+    scopes: OAP,
   },
   { id: 'knowledge.models.manage', label: '管理模型端点', treePath: ['知识库', '模型'], scopes: P },
-  { id: 'knowledge.import', label: '导入知识库', treePath: ['知识库', '包'], scopes: P },
-  { id: 'knowledge.export', label: '导出知识库', treePath: ['知识库', '包'], scopes: P },
+  { id: 'knowledge.import', label: '导入知识库', treePath: ['知识库', '包'], scopes: OP },
+  { id: 'knowledge.export', label: '导出知识库', treePath: ['知识库', '包'], scopes: OAP },
 
   {
     id: 'runtime_environments.read',
     label: '查看运行环境',
     treePath: ['资源', '运行环境', '定义'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'runtime_environments.create',
     label: '新建运行环境',
     treePath: ['资源', '运行环境', '定义'],
-    scopes: P,
+    scopes: OP,
   },
   {
     id: 'runtime_environments.update',
     label: '修改运行环境',
     treePath: ['资源', '运行环境', '定义'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'runtime_environments.delete',
     label: '删除运行环境',
     treePath: ['资源', '运行环境', '定义'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'runtime_environments.build',
     label: '构建运行环境',
     treePath: ['资源', '运行环境', '版本'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'runtime_environments.publish',
     label: '发布运行环境',
     treePath: ['资源', '运行环境', '版本'],
-    scopes: P,
+    scopes: OAP,
   },
 
   {
     id: 'data_domains.read',
     label: '查看数据域',
     treePath: ['资源', '数据域', '定义'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'data_domains.create',
     label: '新建数据域',
     treePath: ['资源', '数据域', '定义'],
-    scopes: P,
+    scopes: OP,
   },
   {
     id: 'data_domains.update',
     label: '修改数据域',
     treePath: ['资源', '数据域', '定义'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'data_domains.delete',
     label: '删除数据域',
     treePath: ['资源', '数据域', '定义'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'data_domains.build',
     label: '构建数据域',
     treePath: ['资源', '数据域', '版本'],
-    scopes: P,
+    scopes: OAP,
   },
   {
     id: 'data_domains.publish',
     label: '发布数据域',
     treePath: ['资源', '数据域', '版本'],
-    scopes: P,
+    scopes: OAP,
   },
 
   { id: 'market.read', label: '查看市场', treePath: ['资源', '市场'], scopes: P },
   { id: 'market.install', label: '安装市场资源', treePath: ['资源', '市场'], scopes: P },
 
+  { id: 'governance.read', label: '查看治理', treePath: ['平台', '治理'], scopes: P },
+  { id: 'governance.manage', label: '管理治理', treePath: ['平台', '治理'], scopes: P },
   { id: 'operations.read', label: '查看运维', treePath: ['平台', '运维'], scopes: P },
   { id: 'operations.manage', label: '运维控制', treePath: ['平台', '运维'], scopes: P },
   { id: 'audit.read', label: '查看审计', treePath: ['平台', '审计'], scopes: P },
@@ -349,12 +359,34 @@ export type Principal =
     }
   | { kind: 'service'; serviceId: 'system' | 'mcp' };
 
+export const resourceKindSchema = z.enum([
+  'knowledge_base',
+  'data_domain',
+  'skill',
+  'server',
+  'plugin',
+  'runtime_environment',
+]);
+export type ResourceKind = z.infer<typeof resourceKindSchema>;
+export type ResourceAccessLevel = 'read' | 'manage';
+export type ResourceAccessFilter = {
+  businessId: BusinessId;
+  platform: boolean;
+  own: boolean;
+  grantedIds: readonly string[];
+};
+
 export type AccessResource = {
   /** 已加载对象的实际主键（run、conversation 等）；跨用户审计优先用它做 target。 */
   objectId?: string;
   agentId?: string;
   createdBy?: BusinessId | null;
   privateContent?: boolean;
+  resource?: {
+    kind: ResourceKind;
+    ownerBusinessId: BusinessId | null;
+    level: ResourceAccessLevel;
+  };
 };
 
 export type RoleMatrix = { revision: number; roles: Role[] };
@@ -451,6 +483,7 @@ const READ_DEPENDENCIES: Partial<Record<PermissionId, PermissionId>> = {
   'data_domains.build': 'data_domains.read',
   'data_domains.publish': 'data_domains.read',
   'market.install': 'market.read',
+  'governance.manage': 'governance.read',
   'operations.manage': 'operations.read',
   'accounts.manage': 'accounts.read',
   'roles.manage': 'roles.read',
@@ -481,10 +514,18 @@ export function grantDependencies(permissionId: PermissionId): readonly Permissi
  */
 const SCOPE_COVERAGE: Record<AccessScope, readonly AccessScope[]> = {
   own_data: ['own_data'],
+  authorized_resources: ['authorized_resources'],
   authorized_agents: ['authorized_agents', 'owned_agents'],
   maintained_agents: ['maintained_agents', 'owned_agents'],
   owned_agents: ['owned_agents'],
-  platform: ['own_data', 'authorized_agents', 'maintained_agents', 'owned_agents', 'platform'],
+  platform: [
+    'own_data',
+    'authorized_resources',
+    'authorized_agents',
+    'maintained_agents',
+    'owned_agents',
+    'platform',
+  ],
 };
 
 export function scopeCovers(candidate: AccessScope, required: AccessScope): boolean {
@@ -535,6 +576,7 @@ export function agentScopeAllows(
       return owner || relation.canMaintain;
     case 'owned_agents':
       return owner;
+    case 'authorized_resources':
     case 'own_data':
       return false;
   }

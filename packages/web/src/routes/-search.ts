@@ -1,6 +1,7 @@
 import {
   AGENT_ROLES,
   knowledgeContentKindSchema,
+  resourceKindSchema,
   runStatusSchema,
   runTriggerSchema,
   runtimeEnvironmentVersionStatusSchema,
@@ -180,6 +181,29 @@ export const accountsSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
   view: listViewSchema,
   page: z.coerce.number().int().min(1).default(1).catch(1),
+});
+
+export const governanceTabSchema = z.enum([
+  'cost',
+  'budgets',
+  'departments',
+  'grants',
+  'handover',
+  'alerts',
+]);
+
+export const governanceSearchSchema = z.object({
+  tab: governanceTabSchema.optional().catch(undefined),
+  businessId: z.string().min(1).max(160).optional().catch(undefined),
+  days: z.coerce
+    .number()
+    .pipe(z.union([z.literal(7), z.literal(30), z.literal(90)]))
+    .optional()
+    .catch(undefined),
+  groupBy: z.enum(['user', 'department', 'model']).optional().catch(undefined),
+  resourceKind: resourceKindSchema.optional().catch(undefined),
+  resourceId: z.string().min(1).max(160).optional().catch(undefined),
+  resourceQ: z.string().optional().catch(undefined),
 });
 
 /** 运行详情：返回来源用进入前的相对 URL，刷新后能回到同一列表视图。 */

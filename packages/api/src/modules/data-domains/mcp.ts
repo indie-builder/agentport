@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { decryptSecrets } from '@agentport/core';
+import { decryptSecrets, isAppError } from '@agentport/core';
 import { type Database, repo } from '@agentport/db';
 import type {
   CallToolResult,
@@ -103,7 +103,7 @@ export function buildDataDomainServer(input: DataDomainServerInput): McpHttpHand
     actorBusinessId: string | null;
   }) => {
     await auditQuery(entry.sql, entry.versionId, entry.rowCount, entry.succeeded, entry.durationMs);
-    await repo.dataDomains
+    const written = await repo.dataDomains
       .writeDataDomainQueryLog(input.db, {
         dataDomainId: input.dataDomainId,
         versionId: entry.versionId,
@@ -115,10 +115,21 @@ export function buildDataDomainServer(input: DataDomainServerInput): McpHttpHand
         status: entry.succeeded ? 'ok' : 'error',
         durationMs: entry.durationMs,
       })
-      .catch(() =>
+      .then(() => true)
+      .catch(() => {
         input.log.warn(
           { dataDomainId: input.dataDomainId, runId: input.runId },
           'data domain query log write failed',
+        );
+        return false;
+      });
+    if (!written) return;
+    await repo.governance
+      .notifyDataDomainQueryQuota(input.db, input.dataDomainId)
+      .catch(() =>
+        input.log.warn(
+          { dataDomainId: input.dataDomainId, runId: input.runId },
+          'data domain query quota notification failed',
         ),
       );
   };
@@ -163,6 +174,14 @@ export function buildDataDomainServer(input: DataDomainServerInput): McpHttpHand
         annotations: { readOnlyHint: true, destructiveHint: false },
       },
       async (args, ctx) => {
+        try {
+          await repo.governance.assertDataDomainQueryQuota(input.db, input.dataDomainId);
+        } catch (error) {
+          if (isAppError(error) && error.code === 'BUDGET_EXCEEDED') {
+            return toolError('BUDGET_EXCEEDED', error.message);
+          }
+          throw error;
+        }
         const startedAt = Date.now();
         let versionId: string | null = null;
         let rowCount: number | null = null;

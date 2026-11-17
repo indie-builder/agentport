@@ -5,6 +5,7 @@ import { channelsContract } from './channels.js';
 import { chatContract } from './chat.js';
 import { dataDomainsContract } from './data-domains.js';
 import { evalContract } from './eval.js';
+import { governanceContract } from './governance.js';
 import { knowledgeContract } from './knowledge.js';
 import { marketContract } from './market.js';
 import { memoryContract } from './memory.js';
@@ -31,6 +32,7 @@ export * from './chat.js';
 export * from './data-domains.js';
 export * from './errors.js';
 export * from './eval.js';
+export * from './governance.js';
 export * from './knowledge.js';
 export * from './market.js';
 export * from './memory.js';
@@ -55,6 +57,7 @@ export const apiContract: {
   chat: typeof chatContract;
   dataDomains: typeof dataDomainsContract;
   eval: typeof evalContract;
+  governance: typeof governanceContract;
   knowledge: typeof knowledgeContract;
   market: typeof marketContract;
   memory: typeof memoryContract;
@@ -78,6 +81,7 @@ export const apiContract: {
   chat: chatContract,
   dataDomains: dataDomainsContract,
   eval: evalContract,
+  governance: governanceContract,
   knowledge: knowledgeContract,
   market: marketContract,
   memory: memoryContract,

@@ -13,15 +13,25 @@ import { inArray } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
-import { authorize, authorizeObject, requireUser } from '../../http/access.js';
-import type { HttpEnv } from '../../http/context.js';
+import {
+  authorize,
+  authorizeObject,
+  authorizeResourceAccess,
+  requireUser,
+} from '../../http/access.js';
+import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { requireTrustedOrigin } from '../auth/origin.js';
 import { withMemoryTargetLock } from '../memory/changes.js';
 import { authorizeAgent, authorizedAgent } from './access.js';
 import { listMemoryFiles, readMemoryFile } from './memory-files.js';
-import { buildAgentPackage, packAgentPackage, parseAgentPackage } from './package.js';
+import {
+  buildAgentPackage,
+  type PackageResourceAuthorization,
+  packAgentPackage,
+  parseAgentPackage,
+} from './package.js';
 import { decodePackageEntries, encodePackage, type PackageEntry } from './package-zip.js';
 import { importAgent } from './use-cases.js';
 import { renderAgentWorkspace } from './workspace.js';
@@ -34,6 +44,24 @@ export const agentImportQuerySchema = z
   })
   .strict();
 const subAgentFileParams = z.object({ id: z.string().min(1), childId: z.string().min(1) });
+const packageResourcePermissions = {
+  server: 'servers.read',
+  skill: 'skills.read',
+  plugin: 'plugins.read',
+  runtime_environment: 'runtime_environments.read',
+} as const;
+async function authorizePackageResource(
+  context: RequestContext,
+  resource: PackageResourceAuthorization,
+): Promise<void> {
+  const permissionId = packageResourcePermissions[resource.kind];
+  await authorizeResourceAccess(
+    context,
+    permissionId,
+    { ...resource, level: 'read' },
+    '专家包引用的资源不存在或无权访问',
+  );
+}
 export function registerAgentsHttp(app: Hono<HttpEnv>): void {
   app.post(
     '/api/import/agents',
@@ -99,6 +127,9 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
             ? {}
             : { runtimeEnvironmentId: query.runtimeEnvironmentId }),
         },
+        {
+          authorizeResource: (resource) => authorizePackageResource(context, resource),
+        },
       );
       return c.json(response, 201);
     },
@@ -140,6 +171,9 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
         context.config.APP_SECRET_KEY,
         context.config.SELF_URL,
         row,
+        {
+          authorizeResource: (resource) => authorizePackageResource(context, resource),
+        },
       );
       return c.body(new Uint8Array(packAgentPackage(pkg)), 200, {
         'content-disposition': `attachment; filename="${pkg.slug}.zip"`,

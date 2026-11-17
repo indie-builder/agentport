@@ -1,9 +1,14 @@
 import { skillsContract } from '@agentport/contract/skills';
 import { fail, parseSkillMd } from '@agentport/core';
 import { repo as skillRepo } from '@agentport/db';
-import type { SkillWithAgentCount } from '@agentport/shared';
+import type { PermissionId, ResourceAccessLevel, SkillWithAgentCount } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { actorOf } from '../../http/access.js';
+import {
+  actorOf,
+  authorizeResourceAccess,
+  requireUser,
+  resourceAccessFilter,
+} from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { rethrowConflict, toApi } from './api.js';
 
@@ -13,15 +18,35 @@ type SkillWrite = Parameters<typeof repo.createSkill>[1];
 function notFound() {
   return fail('NOT_FOUND', '技能不存在，可能已被删除；请刷新后重试');
 }
+async function requireSkill(
+  context: RequestContext,
+  id: string,
+  permissionId: PermissionId,
+  level: ResourceAccessLevel,
+) {
+  const row = await repo.getSkill(context.db, id);
+  if (!row) return notFound();
+  await authorizeResourceAccess(
+    context,
+    permissionId,
+    { kind: 'skill', resourceId: row.id, ownerBusinessId: row.ownerBusinessId, level },
+    '技能不存在，可能已被删除；请刷新后重试',
+  );
+  return row;
+}
 const os = implement(skillsContract).$context<RequestContext>();
 export const skillsRouter = os.router({
   list: os.list.handler(async ({ context }) => {
-    const rows = await repo.listSkills(context.db);
+    const access = await resourceAccessFilter(context, 'skills.read', 'skill', 'read');
+    const rows = await repo.listSkills(context.db, access);
     return rows.map((row): SkillWithAgentCount => ({ ...toApi(row), agentCount: row.agentCount }));
   }),
   create: os.create.handler(async ({ context, input: routeInput }) => {
     try {
-      const row = await repo.createSkill(context.db, routeInput.body);
+      const row = await repo.createSkill(context.db, {
+        ...routeInput.body,
+        ownerBusinessId: requireUser(context).businessId,
+      });
       await skillRepo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'skill.created',
@@ -38,7 +63,10 @@ export const skillsRouter = os.router({
   importFile: os.importFile.handler(async ({ context, input: routeInput }) => {
     const { skill, warnings } = parseSkillMd(routeInput.body.skillMd);
     try {
-      const row = await repo.createSkill(context.db, skill);
+      const row = await repo.createSkill(context.db, {
+        ...skill,
+        ownerBusinessId: requireUser(context).businessId,
+      });
       await skillRepo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'skill.imported',
@@ -53,10 +81,11 @@ export const skillsRouter = os.router({
     }
   }),
   get: os.get.handler(async ({ context, input: routeInput }) => {
-    const row = await repo.getSkill(context.db, routeInput.params.id);
-    return row ? toApi(row) : notFound();
+    const row = await requireSkill(context, routeInput.params.id, 'skills.read', 'read');
+    return toApi(row);
   }),
   update: os.update.handler(async ({ context, input: routeInput }) => {
+    await requireSkill(context, routeInput.params.id, 'skills.update', 'manage');
     const input = routeInput.body;
     const patch: Partial<SkillWrite> = {
       ...(input.name === undefined ? {} : { name: input.name }),
@@ -88,6 +117,7 @@ export const skillsRouter = os.router({
     }
   }),
   delete: os.delete.handler(async ({ context, input: routeInput }) => {
+    await requireSkill(context, routeInput.params.id, 'skills.delete', 'manage');
     const ok = await repo.deleteSkill(context.db, routeInput.params.id);
     if (!ok) return notFound();
     await skillRepo.audit.writeAudit(context.db, context.log, {
@@ -100,8 +130,7 @@ export const skillsRouter = os.router({
     return undefined;
   }),
   files: os.files.handler(async ({ context, input: routeInput }) => {
-    const skill = await repo.getSkill(context.db, routeInput.params.id);
-    if (!skill) return notFound();
+    const skill = await requireSkill(context, routeInput.params.id, 'skills.files.read', 'read');
     const rows = await filesRepo.listSkillFiles(context.db, skill.id);
     return rows.map((r) => ({
       id: r.id,
@@ -111,8 +140,7 @@ export const skillsRouter = os.router({
     }));
   }),
   writeFile: os.writeFile.handler(async ({ context, input: routeInput }) => {
-    const skill = await repo.getSkill(context.db, routeInput.params.id);
-    if (!skill) return notFound();
+    const skill = await requireSkill(context, routeInput.params.id, 'skills.files.write', 'manage');
     const path = routeInput.params.path;
     const row = await filesRepo.upsertSkillFile(
       context.db,
@@ -136,8 +164,7 @@ export const skillsRouter = os.router({
     };
   }),
   deleteFile: os.deleteFile.handler(async ({ context, input: routeInput }) => {
-    const skill = await repo.getSkill(context.db, routeInput.params.id);
-    if (!skill) return notFound();
+    const skill = await requireSkill(context, routeInput.params.id, 'skills.files.write', 'manage');
     const ok = await filesRepo.deleteSkillFile(context.db, skill.id, routeInput.params.path);
     if (!ok) return notFound();
     await skillRepo.audit.writeAudit(context.db, context.log, {

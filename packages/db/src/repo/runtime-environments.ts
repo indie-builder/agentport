@@ -3,6 +3,7 @@ import {
   DEFAULT_RUNTIME_DOCKERFILE,
   DEFAULT_RUNTIME_ENVIRONMENT_NAME,
   type ResolvedRuntimeEnvironment,
+  type ResourceAccessFilter,
   type RuntimeEnvironment,
   type RuntimeEnvironmentInput,
   type RuntimeEnvironmentPatch,
@@ -13,6 +14,7 @@ import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agents, runtimeEnvironments, runtimeEnvironmentVersions } from '../schema.js';
+import { resourceScopeWhere } from './access.js';
 import { isPgCode } from './pg-errors.js';
 
 export type RuntimeEnvironmentRow = typeof runtimeEnvironments.$inferSelect;
@@ -23,7 +25,7 @@ export const RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT = 64 * 1024;
 
 const DEFAULT_ENVIRONMENT_LOCK = 'agentport.runtime-environment-default';
 
-function toRuntimeEnvironment(row: RuntimeEnvironmentRow): RuntimeEnvironment {
+export function toRuntimeEnvironment(row: RuntimeEnvironmentRow): RuntimeEnvironment {
   return {
     id: row.id,
     name: row.name,
@@ -80,10 +82,18 @@ function rethrowNameConflict(err: unknown): never {
   throw err;
 }
 
-export async function listRuntimeEnvironments(db: Database): Promise<RuntimeEnvironment[]> {
+export async function listRuntimeEnvironments(
+  db: Database,
+  access?: ResourceAccessFilter,
+): Promise<RuntimeEnvironment[]> {
   const rows = await db
     .select()
     .from(runtimeEnvironments)
+    .where(
+      access === undefined
+        ? undefined
+        : resourceScopeWhere(access, runtimeEnvironments.id, runtimeEnvironments.ownerBusinessId),
+    )
     .orderBy(
       desc(runtimeEnvironments.isDefault),
       asc(runtimeEnvironments.createdAt),
@@ -92,7 +102,10 @@ export async function listRuntimeEnvironments(db: Database): Promise<RuntimeEnvi
   return rows.map(toRuntimeEnvironment);
 }
 
-async function getRow(db: DbHandle, id: string): Promise<RuntimeEnvironmentRow | null> {
+export async function getRuntimeEnvironmentRow(
+  db: DbHandle,
+  id: string,
+): Promise<RuntimeEnvironmentRow | null> {
   const [row] = await db
     .select()
     .from(runtimeEnvironments)
@@ -105,7 +118,7 @@ export async function getRuntimeEnvironment(
   db: Database,
   id: string,
 ): Promise<RuntimeEnvironment | null> {
-  const row = await getRow(db, id);
+  const row = await getRuntimeEnvironmentRow(db, id);
   return row === null ? null : toRuntimeEnvironment(row);
 }
 
@@ -135,11 +148,17 @@ export async function getDefaultRuntimeEnvironment(
 export async function createRuntimeEnvironment(
   db: Database,
   input: RuntimeEnvironmentInput,
+  ownerBusinessId: string,
 ): Promise<RuntimeEnvironment> {
   try {
     const [row] = await db
       .insert(runtimeEnvironments)
-      .values({ id: newId('runtimeEnvironment'), name: input.name, dockerfile: input.dockerfile })
+      .values({
+        id: newId('runtimeEnvironment'),
+        name: input.name,
+        dockerfile: input.dockerfile,
+        ownerBusinessId,
+      })
       .returning();
     if (!row) throw new Error('runtime environment insert returned no row');
     return toRuntimeEnvironment(row);

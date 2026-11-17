@@ -15,7 +15,6 @@ import {
   memoryReviewHasChanges,
   memoryReviewProposalSchema,
   memoryReviewTargetSchema,
-  utcMonthStart,
   validateMemoryContent,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -137,7 +136,7 @@ async function readReview(db: Database, businessId: string, runId: string): Prom
   return toReview(detail, await sourceSummaries(db, detail.sources));
 }
 
-async function resolveModelAgent(db: Database, agentId: string) {
+async function resolveModelAgent(db: Database, agentId: string, businessId: string) {
   const agent = await repo.agents.getAgent(db, agentId);
   if (!agent) notFound('agent');
   if (!agent.enabled) fail('AGENT_DISABLED', '该智能体已停用，无法执行记忆审核');
@@ -145,18 +144,13 @@ async function resolveModelAgent(db: Database, agentId: string) {
     agent.publishedVersion === null
       ? null
       : await repo.agentVersions.getAgentVersion(db, agentId, agent.publishedVersion);
-  const monthlyBudgetUsd = version?.definition
-    ? version.definition.agent.monthlyBudgetUsd
-    : agent.monthlyBudgetUsd;
-  if (
-    monthlyBudgetUsd !== null &&
-    (await repo.agents.sumAgentSpendSince(db, agentId, utcMonthStart())) >= Number(monthlyBudgetUsd)
-  ) {
-    fail(
-      'AGENT_BUDGET_EXCEEDED',
-      '该智能体本月花费已达预算上限，无法执行记忆审核；请调整预算或等待下月重置',
-    );
-  }
+  await db.transaction((tx) =>
+    repo.governance.assertRunBudget(tx, {
+      agentId,
+      initiatedBy: businessId,
+      definition: version?.definition ?? null,
+    }),
+  );
   return agent;
 }
 
@@ -332,7 +326,7 @@ export const memoryReviewsRouter = os.router({
       return { runId: existing.runId };
     }
 
-    const modelAgent = await resolveModelAgent(context.db, input.body.modelAgentId);
+    const modelAgent = await resolveModelAgent(context.db, input.body.modelAgentId, businessId);
     await authorizeObject(
       context,
       'agents.use',

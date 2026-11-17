@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { fail, notFound } from '@agentport/core';
 import type { AgentDefinition, ExecutionSubject, RunTrigger } from '@agentport/shared';
-import { ACTIVE_RUN_STATUSES, utcMonthStart } from '@agentport/shared';
+import { ACTIVE_RUN_STATUSES } from '@agentport/shared';
 import { and, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Database } from '../../client.js';
 import { newId } from '../../id.js';
@@ -14,8 +14,9 @@ import {
   messages,
 } from '../../schema.js';
 import { getAgentVersion } from '../agent-versions.js';
-import { getAgentServerIds, sumAgentSpendSince } from '../agents.js';
+import { getAgentServerIds } from '../agents.js';
 import { channelMemberRole, lockChannelRow } from '../channels.js';
+import { assertRunBudget, getDepartmentIdForBusinessId } from '../governance.js';
 import { lockRunResources } from '../locks.js';
 import { inheritApprovals } from '../runs.js';
 import { CHANNEL_CONTEXT_CHAR_LIMIT, CHANNEL_CONTEXT_MESSAGE_LIMIT } from './channel-context.js';
@@ -104,7 +105,7 @@ export async function admitChatRun(
       .select({
         id: agents.id,
         enabled: agents.enabled,
-        monthlyBudgetUsd: agents.monthlyBudgetUsd,
+        model: agents.model,
       })
       .from(agents)
       .where(eq(agents.id, input.agentId))
@@ -118,21 +119,12 @@ export async function admitChatRun(
     if (input.channel === undefined && input.trigger === 'channel') {
       fail('INVALID_INPUT', '频道触发必须带频道与来源消息');
     }
-    const monthlyBudgetUsd =
-      definition === null
-        ? owner.monthlyBudgetUsd === null
-          ? null
-          : Number(owner.monthlyBudgetUsd)
-        : definition.agent.monthlyBudgetUsd;
-    if (!input.budgetExempt && monthlyBudgetUsd !== null) {
-      const limit = monthlyBudgetUsd;
-      const spent = await sumAgentSpendSince(tx, input.agentId, utcMonthStart());
-      if (spent >= limit) {
-        fail(
-          'AGENT_BUDGET_EXCEEDED',
-          `该智能体本月花费已达预算上限（已用 $${spent.toFixed(2)} / 上限 $${limit.toFixed(2)}），无法发起新运行；请在智能体设置中调整预算或等待下月重置`,
-        );
-      }
+    if (!input.budgetExempt) {
+      await assertRunBudget(tx, {
+        agentId: input.agentId,
+        initiatedBy: input.subject.kind === 'user' ? input.subject.businessId : null,
+        definition,
+      });
     }
 
     let conversationId: string;
@@ -362,6 +354,11 @@ export async function admitChatRun(
       id: newId('run'),
       conversationId,
       agentId: input.agentId,
+      model: definition?.agent.model ?? owner.model,
+      departmentId:
+        input.subject.kind === 'user'
+          ? await getDepartmentIdForBusinessId(tx, input.subject.businessId)
+          : null,
       serverIds:
         definition === null
           ? await getAgentServerIds(tx, input.agentId)

@@ -1,11 +1,11 @@
 import { copyFile, mkdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { AppError } from '@agentport/core';
-import { type Database, repo, schema } from '@agentport/db';
+import { type Database, repo, type schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import type { Logger } from 'pino';
 import type { Config } from '../../../config.js';
-import { actorOf } from '../../../http/access.js';
+import { actorOf, requireUser } from '../../../http/access.js';
 import type { RequestContext } from '../../../http/context.js';
 import { createJob, enqueueKnowledgeJob, type KnowledgeDocumentRow } from '../service.js';
 
@@ -15,6 +15,7 @@ export type KnowledgeDeps = {
   log: Logger;
   requestId: string;
   actor: string;
+  businessId: string;
 };
 
 export function depsOf(context: RequestContext): KnowledgeDeps {
@@ -24,6 +25,7 @@ export function depsOf(context: RequestContext): KnowledgeDeps {
     log: context.log,
     requestId: context.requestId,
     actor: actorOf(context),
+    businessId: requireUser(context).businessId,
   };
 }
 
@@ -48,8 +50,12 @@ export function pageOptions(query: PageQuery): { cursor?: string; limit?: number
   };
 }
 
+export function notFoundMessage(what: string): string {
+  return `${what}不存在，可能已被删除；请刷新后重试`;
+}
+
 export function notFound(what: string): never {
-  throw new AppError('NOT_FOUND', `${what}不存在，可能已被删除；请刷新后重试`);
+  throw new AppError('NOT_FOUND', notFoundMessage(what));
 }
 
 export function fileTitle(filename: string): string {

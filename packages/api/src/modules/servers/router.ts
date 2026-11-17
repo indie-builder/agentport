@@ -6,33 +6,64 @@ import {
   apiToolInputSchema,
   connectorCatalogSchema,
   maskSecret,
+  type PermissionId,
+  type ResourceAccessLevel,
   type ServerTestResult,
   serverTestResultSchema,
 } from '@agentport/shared';
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { implement } from '@orpc/server';
 import { z } from 'zod';
-import { actorOf } from '../../http/access.js';
+import {
+  actorOf,
+  authorizeResourceAccess,
+  requirePermission,
+  requireUser,
+  resourceAccessFilter,
+} from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { connectorCatalog } from './connector-catalog-data.js';
 import { buildGeneratedServer } from './generated.js';
 import * as repo from './repo.js';
-import { getMcpToken, getServerWithSecrets } from './repo.js';
+import { getMcpToken, toApiServer } from './repo.js';
 import { testStdioInSandbox } from './sandbox-probe.js';
+import { maskServer } from './secrets.js';
 import { assertSafeUrl, assertServerEndpoint } from './ssrf.js';
 import { testConnection } from './test-connection.js';
 
 const writeAudit = dbRepo.audit.writeAudit;
 const IMPORT_WARNINGS = ['仅导入连接配置；未测试连接或执行命令，请检查后再使用。'];
 
+const serverNotFoundMessage = 'MCP Server 不存在，可能已被删除；请刷新后重试';
+
 function notFound(what: 'server' | 'tool'): never {
   fail(
     'NOT_FOUND',
-    what === 'server'
-      ? 'MCP Server 不存在，可能已被删除；请刷新后重试'
-      : '该工具不存在，可能已被删除；请刷新后重试',
+    what === 'server' ? serverNotFoundMessage : '该工具不存在，可能已被删除；请刷新后重试',
   );
+}
+
+async function authorizedServer(
+  context: RequestContext,
+  id: string,
+  permissionId: PermissionId,
+  level: ResourceAccessLevel,
+): Promise<dbRepo.servers.ServerRow> {
+  const row = await repo.getServerRow(context.db, id);
+  if (!row) return notFound('server');
+  await authorizeResourceAccess(
+    context,
+    permissionId,
+    {
+      kind: 'server',
+      resourceId: row.id,
+      ownerBusinessId: row.ownerBusinessId,
+      level,
+    },
+    serverNotFoundMessage,
+  );
+  return row;
 }
 
 function rethrowConflict(err: unknown): never {
@@ -43,12 +74,14 @@ function rethrowConflict(err: unknown): never {
 const os = implement(serversContract).$context<RequestContext>();
 
 export const serversRouter = os.router({
-  list: os.list.handler(({ context }) =>
-    repo.listServers(context.db, context.config.APP_SECRET_KEY),
-  ),
+  list: os.list.handler(async ({ context }) => {
+    const access = await resourceAccessFilter(context, 'servers.read', 'server', 'read');
+    return repo.listServers(context.db, context.config.APP_SECRET_KEY, access);
+  }),
   catalog: os.catalog.handler(() => connectorCatalogSchema.parse(connectorCatalog)),
   create: os.create.handler(async ({ input: { body: input }, context }) => {
     try {
+      requirePermission(context, 'servers.create');
       if (input.kind === 'http') {
         await assertSafeUrl(input.url, context.config.NODE_ENV);
       } else if (input.kind === 'generated') {
@@ -57,7 +90,12 @@ export const serversRouter = os.router({
           allowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
         });
       }
-      const created = await repo.createServer(context.db, input, context.config.APP_SECRET_KEY);
+      const created = await repo.createServer(
+        context.db,
+        input,
+        context.config.APP_SECRET_KEY,
+        requireUser(context).businessId,
+      );
       await writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'server.created',
@@ -83,7 +121,13 @@ export const serversRouter = os.router({
       if (input.kind === 'http') await assertSafeUrl(input.url, context.config.NODE_ENV);
     }
     try {
-      const servers = await repo.createServers(context.db, inputs, context.config.APP_SECRET_KEY);
+      requirePermission(context, 'servers.import');
+      const servers = await repo.createServers(
+        context.db,
+        inputs,
+        context.config.APP_SECRET_KEY,
+        requireUser(context).businessId,
+      );
       await writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'server.imported',
@@ -97,12 +141,11 @@ export const serversRouter = os.router({
     }
   }),
   get: os.get.handler(async ({ input, context }) => {
-    const server = await repo.getServer(context.db, input.params.id, context.config.APP_SECRET_KEY);
-    return server ?? notFound('server');
+    const row = await authorizedServer(context, input.params.id, 'servers.read', 'read');
+    return maskServer(toApiServer(row, context.config.APP_SECRET_KEY));
   }),
   token: os.token.handler(async ({ input, context }) => {
-    const row = await repo.getServerRow(context.db, input.params.id);
-    if (!row) return notFound('server');
+    const row = await authorizedServer(context, input.params.id, 'servers.tokens.read', 'manage');
     if (row.kind !== 'generated') {
       return fail(
         'INVALID_INPUT',
@@ -116,8 +159,7 @@ export const serversRouter = os.router({
     };
   }),
   rotateToken: os.rotateToken.handler(async ({ input, context }) => {
-    const row = await repo.getServerRow(context.db, input.params.id);
-    if (!row) return notFound('server');
+    const row = await authorizedServer(context, input.params.id, 'servers.tokens.rotate', 'manage');
     if (row.kind !== 'generated') {
       return fail(
         'INVALID_INPUT',
@@ -139,8 +181,7 @@ export const serversRouter = os.router({
     const { id } = input.params;
     const body = input.body;
     try {
-      const row = await repo.getServerRow(context.db, id);
-      if (!row) return notFound('server');
+      const row = await authorizedServer(context, id, 'servers.update', 'manage');
       if (row.kind === 'knowledge' || row.kind === 'data_domain') {
         return fail(
           'FORBIDDEN',
@@ -177,8 +218,8 @@ export const serversRouter = os.router({
     }
   }),
   delete: os.delete.handler(async ({ input, context }) => {
-    const row = await repo.getServerRow(context.db, input.params.id);
-    if (row?.kind === 'knowledge' || row?.kind === 'data_domain') {
+    const row = await authorizedServer(context, input.params.id, 'servers.delete', 'manage');
+    if (row.kind === 'knowledge' || row.kind === 'data_domain') {
       return fail(
         'FORBIDDEN',
         row.kind === 'knowledge' ? '知识库连接由知识库设置管理' : '数据域连接由数据域设置管理',
@@ -196,12 +237,8 @@ export const serversRouter = os.router({
     return;
   }),
   test: os.test.handler(async ({ input, context }) => {
-    const server = await getServerWithSecrets(
-      context.db,
-      input.params.id,
-      context.config.APP_SECRET_KEY,
-    );
-    if (!server) return notFound('server');
+    const row = await authorizedServer(context, input.params.id, 'servers.test', 'read');
+    const server = toApiServer(row, context.config.APP_SECRET_KEY);
     if (server.kind === 'data_domain') {
       return fail('FORBIDDEN', '数据域连接由数据域设置管理，不能直接测试连接');
     }
@@ -210,6 +247,24 @@ export const serversRouter = os.router({
       return fail(
         'INVALID_INPUT',
         '从平台侧发起的连接不使用运行环境；运行环境仅用于 stdio 连接测试',
+      );
+    }
+    if (runtimeEnvironmentId != null && server.kind === 'stdio') {
+      const env = await dbRepo.runtimeEnvironments.getRuntimeEnvironmentRow(
+        context.db,
+        runtimeEnvironmentId,
+      );
+      if (!env) return fail('NOT_FOUND', '运行环境不存在，可能已被删除；请刷新后重试');
+      await authorizeResourceAccess(
+        context,
+        'runtime_environments.read',
+        {
+          kind: 'runtime_environment',
+          resourceId: env.id,
+          ownerBusinessId: env.ownerBusinessId,
+          level: 'read',
+        },
+        '运行环境不存在，可能已被删除；请刷新后重试',
       );
     }
     const result: ServerTestResult & { stderr?: string } =
@@ -261,14 +316,28 @@ export const serversRouter = os.router({
   }),
   tools: {
     list: os.tools.list.handler(async ({ input, context }) => {
-      if (!(await dbRepo.servers.serverExists(context.db, input.params.id))) {
-        return notFound('server');
-      }
+      const row = await dbRepo.servers.getServerAccessRow(context.db, input.params.id);
+      if (!row) return notFound('server');
+      await authorizeResourceAccess(
+        context,
+        'servers.read',
+        {
+          kind: 'server',
+          resourceId: row.id,
+          ownerBusinessId: row.ownerBusinessId,
+          level: 'read',
+        },
+        serverNotFoundMessage,
+      );
       return repo.listTools(context.db, input.params.id);
     }),
     create: os.tools.create.handler(async ({ input, context }) => {
-      const row = await repo.getServerRow(context.db, input.params.id);
-      if (!row) return notFound('server');
+      const row = await authorizedServer(
+        context,
+        input.params.id,
+        'servers.tools.manage',
+        'manage',
+      );
       if (row.kind !== 'generated') {
         return fail(
           'INVALID_INPUT',
@@ -291,8 +360,12 @@ export const serversRouter = os.router({
       }
     }),
     previewOpenApi: os.tools.previewOpenApi.handler(async ({ input, context }) => {
-      const row = await repo.getServerRow(context.db, input.params.id);
-      if (!row) return notFound('server');
+      const row = await authorizedServer(
+        context,
+        input.params.id,
+        'servers.tools.manage',
+        'manage',
+      );
       if (row.kind !== 'generated') {
         return fail('INVALID_INPUT', '仅 generated 连接器支持 OpenAPI 导入');
       }
@@ -301,8 +374,7 @@ export const serversRouter = os.router({
     }),
     importOpenApi: os.tools.importOpenApi.handler(async ({ input, context }) => {
       const { id } = input.params;
-      const row = await repo.getServerRow(context.db, id);
-      if (!row) return notFound('server');
+      const row = await authorizedServer(context, id, 'servers.tools.manage', 'manage');
       if (row.kind !== 'generated') {
         return fail('INVALID_INPUT', '仅 generated 连接器支持 OpenAPI 导入');
       }
@@ -343,8 +415,7 @@ export const serversRouter = os.router({
     batchSetEnabled: os.tools.batchSetEnabled.handler(async ({ input, context }) => {
       const { id } = input.params;
       const { toolIds, enabled } = input.body;
-      const row = await repo.getServerRow(context.db, id);
-      if (!row) return notFound('server');
+      const row = await authorizedServer(context, id, 'servers.tools.manage', 'manage');
       if (row.kind !== 'generated') {
         return fail('INVALID_INPUT', '仅 generated 连接器支持工具管理');
       }
@@ -365,8 +436,8 @@ export const serversRouter = os.router({
     }),
     testInvoke: os.tools.testInvoke.handler(async ({ input, context }) => {
       const { id, toolId } = input.params;
-      const server = await getServerWithSecrets(context.db, id, context.config.APP_SECRET_KEY);
-      if (!server) return notFound('server');
+      const row = await authorizedServer(context, id, 'servers.tools.manage', 'manage');
+      const server = toApiServer(row, context.config.APP_SECRET_KEY);
       if (server.kind !== 'generated') {
         return fail('INVALID_INPUT', '仅 generated 连接器支持工具测试');
       }
@@ -426,8 +497,7 @@ export const serversRouter = os.router({
     }),
     update: os.tools.update.handler(async ({ input, context }) => {
       const { id, toolId } = input.params;
-      const row = await repo.getServerRow(context.db, id);
-      if (!row) return notFound('server');
+      const row = await authorizedServer(context, id, 'servers.tools.manage', 'manage');
       if (row.kind === 'data_domain') {
         return fail('FORBIDDEN', '数据域连接不支持工具管理');
       }
@@ -463,8 +533,7 @@ export const serversRouter = os.router({
     }),
     delete: os.tools.delete.handler(async ({ input, context }) => {
       const { id, toolId } = input.params;
-      const row = await repo.getServerRow(context.db, id);
-      if (!row) return notFound('server');
+      const row = await authorizedServer(context, id, 'servers.tools.manage', 'manage');
       if (row.kind === 'data_domain') {
         return fail('FORBIDDEN', '数据域连接不支持工具管理');
       }

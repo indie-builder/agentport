@@ -11,6 +11,7 @@ export * as channels from './channels.js';
 export * as chat from './chat.js';
 export * as dataDomains from './data-domains.js';
 export * as evalRepo from './eval.js';
+export * as governance from './governance.js';
 export * as hooks from './hooks.js';
 export * as knowledge from './knowledge.js';
 export * as locks from './locks.js';

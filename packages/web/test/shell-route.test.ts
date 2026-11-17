@@ -447,6 +447,7 @@ describe('business and operations navigation contexts', () => {
         '/audit',
         '/accounts',
         '/roles',
+        '/governance',
       ]);
       expect(view.host.querySelector('a[aria-label="返回工作区"]')?.getAttribute('href')).toBe(
         '/agents',
@@ -544,6 +545,7 @@ describe('personal navigation context', () => {
         '/audit',
         '/accounts',
         '/roles',
+        '/governance',
       ]) {
         expect(navHrefs(view.host)).not.toContain(href);
       }

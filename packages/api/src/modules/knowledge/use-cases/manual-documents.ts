@@ -6,13 +6,13 @@ import { eq } from 'drizzle-orm';
 import { assertSafeUrl } from '../../servers/ssrf.js';
 import { createJob, documentWire, enqueueKnowledgeJob, storeBlob } from '../service.js';
 import {
+  assertBodyBytes,
+  type DocumentRow,
+  enqueue,
+  fileTitle,
+  folderIssue,
   type KnowledgeDeps,
   notFound,
-  type DocumentRow,
-  assertBodyBytes,
-  enqueue,
-  folderIssue,
-  fileTitle,
 } from './shared.js';
 
 const URL_FETCH_TIMEOUT_MS = 20_000;
@@ -258,6 +258,7 @@ async function importDocument(
     publish?: 'draft' | 'automatic' | undefined;
   },
 ) {
+  await repo.governance.assertKnowledgeDocumentQuota(deps.db, input.baseId);
   const sha = await storeBlob(deps.config.KNOWLEDGE_DIR, input.data);
   const document = await repo.knowledge.createDocument(deps.db, {
     baseId: input.baseId,
@@ -271,6 +272,7 @@ async function importDocument(
     sizeBytes: input.data.length,
     metadata: { originalFilename: input.originalFilename },
   });
+  let jobId: string;
   try {
     await repo.knowledge.updateDocument(deps.db, document.id, { contentHash: sha });
     if (input.tags.length > 0) {
@@ -296,6 +298,7 @@ async function importDocument(
       },
       { baseId: input.baseId, documentId: document.id },
     );
+    jobId = job.id;
     await repo.audit.writeAudit(deps.db, deps.log, {
       actor: deps.actor,
       action: `knowledge.document.${input.sourceType}_imported`,
@@ -308,12 +311,13 @@ async function importDocument(
       status: 'ok',
       requestId: deps.requestId,
     });
-    return { documentId: document.id, jobId: job.id };
   } catch (err) {
     await repo.knowledge.deleteDocument(deps.db, document.id).catch(() => undefined);
     if (isAppError(err)) throw err;
     fail('SERVICE_UNAVAILABLE', '导入任务未能提交，请稍后重试', { cause: err, retryable: true });
   }
+  await repo.governance.notifyKnowledgeDocumentQuota(deps.db, input.baseId);
+  return { documentId: document.id, jobId };
 }
 
 async function loadActiveBase(deps: KnowledgeDeps, id: string) {

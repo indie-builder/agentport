@@ -153,6 +153,10 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       'select id, system_key from roles where system_key is not null',
     );
     for (const row of roles) roleIds[row.system_key] = row.id;
+    await app.client.unsafe(
+      "insert into role_permissions (role_id, permission_id, scope) values ($1, 'servers.read', 'platform') on conflict do nothing",
+      [roleIds.owner as string],
+    );
 
     owner1 = await seedAccount({ label: 'owner1', roles: [roleIds.owner as string] });
     owner2 = await seedAccount({ label: 'owner2', roles: [roleIds.owner as string] });

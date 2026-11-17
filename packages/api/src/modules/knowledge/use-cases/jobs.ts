@@ -3,17 +3,12 @@ import { repo, schema } from '@agentport/db';
 import {
   knowledgeFaqImportMetadataSchema,
   knowledgeJobPayloadSchema,
+  type ResourceAccessFilter,
 } from '@agentport/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { publishKnowledgeCancel } from '../../../queue/producer.js';
 import { createJob, enqueueKnowledgeJob } from '../service.js';
-import {
-  type KnowledgeDeps,
-  type PageQuery,
-  pageOptions,
-  notFound,
-  enqueue,
-} from './shared.js';
+import { enqueue, type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
 
 function toJob(
   row:
@@ -48,6 +43,7 @@ export async function listJobs(
     documentId?: string | undefined;
     status?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | undefined;
   },
+  access?: ResourceAccessFilter,
 ) {
   const { baseId, documentId, status, ...rest } = query;
   const page = await repo.knowledge.listJobs(deps.db, {
@@ -55,19 +51,18 @@ export async function listJobs(
     ...(baseId === undefined ? {} : { baseId }),
     ...(documentId === undefined ? {} : { documentId }),
     ...(status === undefined ? {} : { status }),
+    ...(access === undefined ? {} : { access }),
   });
   return { items: page.items.map(toJob), nextCursor: page.nextCursor };
 }
 
-export async function getJob(deps: KnowledgeDeps, jobId: string) {
-  const row = await repo.knowledge.getJob(deps.db, jobId);
-  if (!row) notFound('任务');
+type JobRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getJob>>>;
+
+export function getJob(row: JobRow) {
   return toJob(row);
 }
 
-export async function retryJob(deps: KnowledgeDeps, jobId: string) {
-  const row = await repo.knowledge.getJob(deps.db, jobId);
-  if (!row) notFound('任务');
+export async function retryJob(deps: KnowledgeDeps, row: JobRow) {
   if (row.status !== 'failed' && row.status !== 'cancelled') {
     throw new AppError('CONFLICT', '只有失败或已取消的任务可以重试');
   }
@@ -143,9 +138,7 @@ export async function retryJob(deps: KnowledgeDeps, jobId: string) {
   return { jobId: job.id };
 }
 
-export async function cancelJob(deps: KnowledgeDeps, jobId: string) {
-  const row = await repo.knowledge.getJob(deps.db, jobId);
-  if (!row) notFound('任务');
+export async function cancelJob(deps: KnowledgeDeps, row: JobRow) {
   if (row.status === 'queued') {
     const cancelled = await repo.knowledge.finishJob(deps.db, row.id, {
       fromStatus: 'queued',

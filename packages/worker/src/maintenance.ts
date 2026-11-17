@@ -2,7 +2,19 @@ import { pathToFileURL } from 'node:url';
 import { outputMessageAnchors } from '@agentport/core';
 import { createServiceLogger } from '@agentport/core/logger';
 import { createDb, repo, schema } from '@agentport/db';
-import { MAINTENANCE_QUEUE } from '@agentport/shared';
+import {
+  DATA_DOMAIN_BUILDS_QUEUE,
+  DATA_DOMAIN_ENRICHMENTS_QUEUE,
+  EVAL_RUNS_QUEUE,
+  KNOWLEDGE_JOBS_QUEUE,
+  KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
+  MAINTENANCE_QUEUE,
+  NATIVE_PLUGINS_QUEUE,
+  RUNS_QUEUE,
+  RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
+  SANDBOX_PROBES_QUEUE,
+  SCHEDULE_TRIGGERS_QUEUE,
+} from '@agentport/shared';
 import { createBunRedisClient, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
@@ -11,6 +23,110 @@ import { loadConfig } from './config.js';
 import { version } from './version.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const OPS_ALERT_INTERVAL_MS = 5 * 60 * 1000;
+
+export async function runOpsAlerts(input: {
+  db: ReturnType<typeof createDb>['db'];
+  logger: Logger;
+  redisUrl: string;
+}): Promise<void> {
+  const now = new Date();
+  const settings = await repo.governance.getAlertSettings(input.db);
+  const failedRuns = settings.runFailures.enabled
+    ? await repo.governance.countRecentFailedRuns(
+        input.db,
+        new Date(now.getTime() - settings.runFailures.windowMinutes * 60_000),
+      )
+    : 0;
+  let queueCounts: Array<{ name: string; failed: number; waiting: number }> = [];
+  if (settings.queueFailed.enabled || settings.queueWaiting.enabled) {
+    const connection = createBunRedisClient(new RedisClient(input.redisUrl));
+    const queues = [
+      RUNS_QUEUE,
+      EVAL_RUNS_QUEUE,
+      KNOWLEDGE_JOBS_QUEUE,
+      KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
+      SCHEDULE_TRIGGERS_QUEUE,
+      RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
+      SANDBOX_PROBES_QUEUE,
+      NATIVE_PLUGINS_QUEUE,
+      DATA_DOMAIN_BUILDS_QUEUE,
+      DATA_DOMAIN_ENRICHMENTS_QUEUE,
+    ].map((name) => new Queue(name, { connection }));
+    try {
+      queueCounts = await Promise.all(
+        queues.map(async (queue) => {
+          const counts = await queue.getJobCounts('failed', 'waiting');
+          return { name: queue.name, failed: counts.failed ?? 0, waiting: counts.waiting ?? 0 };
+        }),
+      );
+    } catch (err) {
+      input.logger.error({ err }, 'ops alert queue counts failed');
+      queueCounts = [];
+    } finally {
+      await Promise.all(queues.map((queue) => queue.close())).finally(() =>
+        connection.disconnect(),
+      );
+    }
+  }
+  const failed = queueCounts.reduce((total, queue) => total + queue.failed, 0);
+  const waiting = queueCounts.reduce((total, queue) => total + queue.waiting, 0);
+  const alerts = [
+    ...(settings.runFailures.enabled && failedRuns >= settings.runFailures.threshold
+      ? [
+          {
+            kind: 'run_failures',
+            title: '运行失败告警',
+            body: `最近 ${settings.runFailures.windowMinutes} 分钟有 ${failedRuns} 次运行失败，达到 ${settings.runFailures.threshold} 次阈值`,
+          },
+        ]
+      : []),
+    ...(settings.queueFailed.enabled && failed >= settings.queueFailed.threshold
+      ? [
+          {
+            kind: 'queue_failed',
+            title: '队列失败告警',
+            body: `队列共有 ${failed} 个失败任务，达到 ${settings.queueFailed.threshold} 个阈值。${queueCounts
+              .filter((queue) => queue.failed > 0)
+              .map((queue) => `${queue.name}: ${queue.failed}`)
+              .join('；')}`,
+          },
+        ]
+      : []),
+    ...(settings.queueWaiting.enabled && waiting >= settings.queueWaiting.threshold
+      ? [
+          {
+            kind: 'queue_waiting',
+            title: '队列积压告警',
+            body: `队列共有 ${waiting} 个等待任务，达到 ${settings.queueWaiting.threshold} 个阈值。${queueCounts
+              .filter((queue) => queue.waiting > 0)
+              .map((queue) => `${queue.name}: ${queue.waiting}`)
+              .join('；')}`,
+          },
+        ]
+      : []),
+  ];
+  if (alerts.length === 0) return;
+  const recipients = await repo.governance.listAlertRecipientBusinessIds(input.db);
+  await Promise.all(
+    alerts.flatMap((alert) =>
+      recipients.map((businessId) =>
+        repo.notifications.createNotification(input.db, {
+          businessId,
+          kind: 'ops_alert',
+          title: alert.title,
+          body: alert.body,
+          link: '/operations',
+          sourceId: `ops-alert:${alert.kind}:${Math.floor(now.getTime() / OPS_ALERT_INTERVAL_MS)}`,
+        }),
+      ),
+    ),
+  );
+  input.logger.info(
+    { failedRuns, failed, waiting, alerts: alerts.length },
+    'operations alerts checked',
+  );
+}
 
 interface Retention {
   runDays: number;
@@ -103,12 +219,25 @@ export async function startMaintenanceWorker(input: {
 }): Promise<Worker> {
   const connection = createBunRedisClient(new RedisClient(input.redisUrl));
   const queue = new Queue(MAINTENANCE_QUEUE, { connection });
-  await queue.upsertJobScheduler('daily', { every: DAY_MS });
+  await Promise.all([
+    queue.upsertJobScheduler('daily', { every: DAY_MS }, { name: 'daily' }),
+    queue.upsertJobScheduler(
+      'ops-alerts',
+      { every: OPS_ALERT_INTERVAL_MS },
+      {
+        name: 'ops-alerts',
+        opts: { removeOnComplete: 100, removeOnFail: 200 },
+      },
+    ),
+  ]);
   await queue.close();
 
   const worker = new Worker(
     MAINTENANCE_QUEUE,
-    () => runMaintenance(input.db, input.logger, input.retain, input.workspacesDir),
+    (job) =>
+      job.name === 'ops-alerts'
+        ? runOpsAlerts(input)
+        : runMaintenance(input.db, input.logger, input.retain, input.workspacesDir),
     { connection },
   );
   worker.on('closed', () => connection.disconnect());

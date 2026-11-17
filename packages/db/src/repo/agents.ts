@@ -1063,6 +1063,41 @@ export async function getAgentsByIds(db: Database, ids: string[]): Promise<Agent
   return db.select().from(agents).where(inArray(agents.id, ids));
 }
 
+export type BoundResourceKind = 'skill' | 'server' | 'plugin' | 'runtime_environment';
+
+export async function getResourceOwners(
+  db: DbHandle,
+  kind: BoundResourceKind,
+  ids: string[],
+): Promise<Array<{ id: string; ownerBusinessId: string | null }>> {
+  if (ids.length === 0) return [];
+  switch (kind) {
+    case 'skill':
+      return db
+        .select({ id: skills.id, ownerBusinessId: skills.ownerBusinessId })
+        .from(skills)
+        .where(inArray(skills.id, ids));
+    case 'server':
+      return db
+        .select({ id: servers.id, ownerBusinessId: servers.ownerBusinessId })
+        .from(servers)
+        .where(inArray(servers.id, ids));
+    case 'plugin':
+      return db
+        .select({ id: plugins.id, ownerBusinessId: plugins.ownerBusinessId })
+        .from(plugins)
+        .where(inArray(plugins.id, ids));
+    case 'runtime_environment':
+      return db
+        .select({
+          id: runtimeEnvironments.id,
+          ownerBusinessId: runtimeEnvironments.ownerBusinessId,
+        })
+        .from(runtimeEnvironments)
+        .where(inArray(runtimeEnvironments.id, ids));
+  }
+}
+
 /** 批量取多个 agent 绑定的 servers：预览、导出与详情避免按行发 SQL。 */
 export async function getBoundServersByAgentIds(
   db: Database,

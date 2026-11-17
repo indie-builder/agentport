@@ -1,4 +1,5 @@
 import { AppError } from '@agentport/core';
+import type { ResourceAccessFilter } from '@agentport/shared';
 import { and, asc, desc, eq, inArray, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
@@ -10,6 +11,7 @@ import {
   dataDomains,
   dataDomainVersions,
 } from '../schema.js';
+import { resourceScopeWhere } from './access.js';
 import { keysetBefore, paginate } from './keyset.js';
 import { isPgCode } from './pg-errors.js';
 
@@ -51,12 +53,19 @@ export type DataDomainInput = Pick<
   | 'connectionEncrypted'
   | 'queryApprovalMode'
   | 'createdBy'
+  | 'ownerBusinessId'
 >;
 
 export type DataDomainPatch = Partial<
   Pick<
     DataDomainInput,
-    'name' | 'slug' | 'description' | 'datasource' | 'connectionEncrypted' | 'queryApprovalMode'
+    | 'name'
+    | 'slug'
+    | 'description'
+    | 'datasource'
+    | 'connectionEncrypted'
+    | 'queryApprovalMode'
+    | 'ownerBusinessId'
   >
 >;
 
@@ -67,8 +76,19 @@ function rethrowSlugConflict(err: unknown): never {
   throw err;
 }
 
-export async function listDataDomains(db: DbHandle): Promise<DataDomainRow[]> {
-  return db.select().from(dataDomains).orderBy(asc(dataDomains.createdAt), asc(dataDomains.id));
+export async function listDataDomains(
+  db: DbHandle,
+  access?: ResourceAccessFilter,
+): Promise<DataDomainRow[]> {
+  const scope =
+    access === undefined
+      ? undefined
+      : resourceScopeWhere(access, dataDomains.id, dataDomains.ownerBusinessId);
+  return db
+    .select()
+    .from(dataDomains)
+    .where(scope)
+    .orderBy(asc(dataDomains.createdAt), asc(dataDomains.id));
 }
 
 export async function getDataDomain(db: DbHandle, id: string): Promise<DataDomainRow | null> {

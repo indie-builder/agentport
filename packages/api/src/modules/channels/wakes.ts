@@ -200,11 +200,13 @@ async function dispatchWake(
           ? LANE_BUSY_NOTICE
           : err.code === 'AGENT_DISABLED'
             ? AGENT_DISABLED_NOTICE
-            : err.code === 'AGENT_BUDGET_EXCEEDED'
-              ? AGENT_BUDGET_EXCEEDED_NOTICE
-              : err.code === 'NOT_FOUND'
-                ? AGENT_GONE_NOTICE
-                : WAKE_FAILED_NOTICE;
+            : err.code === 'BUDGET_EXCEEDED'
+              ? err.message
+              : err.code === 'AGENT_BUDGET_EXCEEDED'
+                ? AGENT_BUDGET_EXCEEDED_NOTICE
+                : err.code === 'NOT_FOUND'
+                  ? AGENT_GONE_NOTICE
+                  : WAKE_FAILED_NOTICE;
       return skipWake(context, wake, notice);
     }
     await channelWakeRepo.markChannelWakeRetry(context.db, {

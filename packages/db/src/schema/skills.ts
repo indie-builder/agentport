@@ -14,6 +14,7 @@ export const skills = pgTable(
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
     /** skills.sh 来源 `owner/repo/skill`；内部自建为 null。 */
     sourceId: text('source_id'),
+    ownerBusinessId: text('owner_business_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

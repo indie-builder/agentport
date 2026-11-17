@@ -3,11 +3,62 @@ import { repo as allRepo, type Database } from '@agentport/db';
 import type { Agent, AgentDefinition, AgentInput } from '@agentport/shared';
 import { AGENT_ROLES, maskUrlCredentials } from '@agentport/shared';
 import type { Logger } from 'pino';
+import { authorizeResourceAccess } from '../../http/access.js';
+import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { importAgentPackage, type parseAgentPackage } from './package.js';
 import { toAgentConfigValues } from './write.js';
 
 const repo = allRepo.agents;
+
+const BINDING_RESOURCES = {
+  server: { permissionId: 'servers.read', message: '连接器不存在，可能已被删除；请刷新后重新选择' },
+  skill: { permissionId: 'skills.read', message: '技能不存在，可能已被删除；请刷新后重新选择' },
+  plugin: { permissionId: 'plugins.read', message: '插件不存在，可能已被删除；请刷新后重新选择' },
+  runtime_environment: {
+    permissionId: 'runtime_environments.read',
+    message: '运行环境不存在，可能已被删除；请刷新后重新选择',
+  },
+} as const;
+
+export async function authorizeBoundResources(
+  context: RequestContext,
+  bindings: {
+    serverIds?: readonly string[] | undefined;
+    skillIds?: readonly string[] | undefined;
+    pluginIds?: readonly string[] | undefined;
+    runtimeEnvironmentId?: string | null | undefined;
+  },
+): Promise<void> {
+  const resources = [
+    ['server', bindings.serverIds ?? []],
+    ['skill', bindings.skillIds ?? []],
+    ['plugin', bindings.pluginIds ?? []],
+    [
+      'runtime_environment',
+      bindings.runtimeEnvironmentId === undefined || bindings.runtimeEnvironmentId === null
+        ? []
+        : [bindings.runtimeEnvironmentId],
+    ],
+  ] as const;
+  for (const [kind, ids] of resources) {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) continue;
+    const { permissionId, message } = BINDING_RESOURCES[kind];
+    const rows = await repo.getResourceOwners(context.db, kind, unique);
+    if (rows.length !== unique.length) {
+      fail(kind === 'runtime_environment' ? 'INVALID_INPUT' : 'INVALID_REFERENCE', message);
+    }
+    for (const row of rows) {
+      await authorizeResourceAccess(
+        context,
+        permissionId,
+        { kind, resourceId: row.id, ownerBusinessId: row.ownerBusinessId, level: 'read' },
+        message,
+      );
+    }
+  }
+}
 
 export function rethrowConflict(err: unknown): never {
   if (isPgCode(err, '23505')) fail('CONFLICT', '该 slug 已被其他智能体占用，请换一个');
@@ -179,8 +230,9 @@ export async function importAgent(
   deps: AgentWriteDependencies,
   parsed: ReturnType<typeof parseAgentPackage>,
   options: Parameters<typeof importAgentPackage>[2],
+  authorization?: Parameters<typeof importAgentPackage>[3],
 ) {
-  const result = await importAgentPackage(deps.db, parsed, options);
+  const result = await importAgentPackage(deps.db, parsed, options, authorization);
   await allRepo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'agent.imported',

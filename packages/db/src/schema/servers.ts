@@ -24,6 +24,7 @@ export const servers = pgTable(
     config: jsonb('config').$type<Record<string, unknown>>().notNull(),
     // AES-256-GCM 加密后的 env / headers
     secretsEncrypted: text('secrets_encrypted'),
+    ownerBusinessId: text('owner_business_id'),
     /** 最近一次「测试连接」的结果快照；刷新后仍能显示连接健康度。 */
     lastTestedAt: timestamp('last_tested_at', { withTimezone: true }),
     lastTestOk: boolean('last_test_ok'),

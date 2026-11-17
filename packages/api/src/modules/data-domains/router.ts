@@ -3,7 +3,12 @@ import { decryptSecrets, encryptSecrets, fail, validateWrenProjectFiles } from '
 import { repo } from '@agentport/db';
 import type { PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { actorOf, authorize, authorizeObject } from '../../http/access.js';
+import {
+  actorOf,
+  authorize,
+  authorizeResourceAccess,
+  resourceAccessFilter,
+} from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import {
   deleteDataDomainServer,
@@ -172,21 +177,27 @@ async function authorizeDomain(
   context: RequestContext,
   permissionId: PermissionId,
   row: DataDomainRow,
+  level: 'read' | 'manage',
 ): Promise<void> {
-  await authorizeObject(
+  await authorizeResourceAccess(
     context,
     permissionId,
-    { objectId: row.id, createdBy: row.createdBy },
+    {
+      kind: 'data_domain',
+      resourceId: row.id,
+      ownerBusinessId: row.ownerBusinessId,
+      level,
+    },
     notFoundMessage,
   );
 }
 
 export const dataDomainsRouter = os.router({
   list: os.list.handler(async ({ input, context }) => {
-    await authorize(context, 'data_domains.read');
+    const access = await resourceAccessFilter(context, 'data_domains.read', 'data_domain', 'read');
     const { cursor, limit } = input.query;
     const after = cursor === undefined ? null : decodeCursor(cursor);
-    const rows = await domains.listDataDomains(context.db);
+    const rows = await domains.listDataDomains(context.db, access);
     const remaining =
       after === null
         ? rows
@@ -207,13 +218,19 @@ export const dataDomainsRouter = os.router({
   create: os.create.handler(async ({ input, context }) => {
     await authorize(context, 'data_domains.create');
     const { connection, ...rest } = input.body;
+    const ownerBusinessId = actorOf(context);
     const row = await context.db.transaction(async (tx) => {
       const created = await domains.createDataDomain(tx, {
         ...rest,
         connectionEncrypted: encryptSecrets(connection, context.config.APP_SECRET_KEY),
-        createdBy: actorOf(context),
+        createdBy: ownerBusinessId,
+        ownerBusinessId,
       });
-      await ensureDataDomainServer(tx, { id: created.id, slug: created.slug });
+      await ensureDataDomainServer(tx, {
+        id: created.id,
+        slug: created.slug,
+        ownerBusinessId: created.ownerBusinessId,
+      });
       return created;
     });
     return toDataDomain(row);
@@ -230,13 +247,13 @@ export const dataDomainsRouter = os.router({
 
   detail: os.detail.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.read', row);
+    await authorizeDomain(context, 'data_domains.read', row, 'read');
     return toDataDomain(row);
   }),
 
   update: os.update.handler(async ({ input, context }) => {
     const existing = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.update', existing);
+    await authorizeDomain(context, 'data_domains.update', existing, 'manage');
     const { connection, name, slug, description, datasource, queryApprovalMode } = input.body;
     const row = await context.db.transaction(async (tx) => {
       const updated = await domains.updateDataDomain(tx, input.params.id, {
@@ -250,7 +267,11 @@ export const dataDomainsRouter = os.router({
           : { connectionEncrypted: encryptSecrets(connection, context.config.APP_SECRET_KEY) }),
       });
       if (!updated) return null;
-      await ensureDataDomainServer(tx, { id: updated.id, slug: updated.slug });
+      await ensureDataDomainServer(tx, {
+        id: updated.id,
+        slug: updated.slug,
+        ownerBusinessId: updated.ownerBusinessId,
+      });
       return updated;
     });
     if (!row) fail('NOT_FOUND', notFoundMessage);
@@ -259,7 +280,7 @@ export const dataDomainsRouter = os.router({
 
   remove: os.remove.handler(async ({ input, context }) => {
     const existing = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.delete', existing);
+    await authorizeDomain(context, 'data_domains.delete', existing, 'manage');
     const ok = await context.db.transaction(async (tx) => {
       if (!(await domains.deleteDataDomain(tx, input.params.id))) return false;
       await deleteDataDomainServer(tx, existing.id);
@@ -271,14 +292,14 @@ export const dataDomainsRouter = os.router({
 
   versions: os.versions.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.read', row);
+    await authorizeDomain(context, 'data_domains.read', row, 'read');
     const rows = await domains.listDataDomainVersions(context.db, input.params.id);
     return rows.map(toVersion);
   }),
 
   versionDetail: os.versionDetail.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.read', row);
+    await authorizeDomain(context, 'data_domains.read', row, 'read');
     const version = await domains.getDataDomainVersion(context.db, input.params.versionId);
     if (!version || version.dataDomainId !== input.params.id) fail('NOT_FOUND', '版本不存在');
     return toVersionDetail(version);
@@ -286,7 +307,7 @@ export const dataDomainsRouter = os.router({
 
   createVersion: os.createVersion.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.build', row);
+    await authorizeDomain(context, 'data_domains.build', row, 'manage');
     const project = validateWrenProjectFiles(input.body.projectFiles);
     if (!project.ok) fail('INVALID_INPUT', project.error);
     const version = await domains.createDataDomainVersion(
@@ -301,7 +322,7 @@ export const dataDomainsRouter = os.router({
 
   generateMdl: os.generateMdl.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.build', row);
+    await authorizeDomain(context, 'data_domains.build', row, 'manage');
     const connection = decryptSecrets(row.connectionEncrypted, context.config.APP_SECRET_KEY);
     const result = await generateDataDomainMdl(
       context.config.WREN_RUNTIME_URL,
@@ -321,7 +342,7 @@ export const dataDomainsRouter = os.router({
 
   publish: os.publish.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.publish', row);
+    await authorizeDomain(context, 'data_domains.publish', row, 'manage');
     const published = await domains.publishDataDomainVersion(
       context.db,
       input.params.id,
@@ -333,14 +354,14 @@ export const dataDomainsRouter = os.router({
 
   identities: os.identities.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.read', row);
+    await authorizeDomain(context, 'data_domains.read', row, 'read');
     const rows = await domains.listDataDomainIdentities(context.db, input.params.id);
     return rows.map(toIdentity);
   }),
 
   queryLogs: os.queryLogs.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.read', row);
+    await authorizeDomain(context, 'data_domains.read', row, 'read');
     const { cursor, limit, status, runId } = input.query;
     const page = await domains.listDataDomainQueryLogs(context.db, {
       dataDomainId: input.params.id,
@@ -354,7 +375,7 @@ export const dataDomainsRouter = os.router({
 
   approvals: os.approvals.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.read', row);
+    await authorizeDomain(context, 'data_domains.read', row, 'read');
     const { cursor, limit, status } = input.query;
     const page = await domains.listDataDomainQueryApprovals(context.db, {
       dataDomainId: input.params.id,
@@ -367,7 +388,7 @@ export const dataDomainsRouter = os.router({
 
   decideApproval: os.decideApproval.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.update', row);
+    await authorizeDomain(context, 'data_domains.update', row, 'manage');
     const status = input.body.decision === 'approve' ? 'approved' : 'rejected';
     const updated = await domains.decideDataDomainQueryApproval(context.db, {
       dataDomainId: input.params.id,
@@ -401,7 +422,7 @@ export const dataDomainsRouter = os.router({
 
   upsertIdentity: os.upsertIdentity.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.update', row);
+    await authorizeDomain(context, 'data_domains.update', row, 'manage');
     const identity = await domains.upsertDataDomainIdentity(
       context.db,
       input.params.id,
@@ -413,7 +434,7 @@ export const dataDomainsRouter = os.router({
 
   removeIdentity: os.removeIdentity.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.update', row);
+    await authorizeDomain(context, 'data_domains.update', row, 'manage');
     const ok = await domains.deleteDataDomainIdentity(
       context.db,
       input.params.id,
@@ -425,7 +446,7 @@ export const dataDomainsRouter = os.router({
 
   enrich: os.enrich.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.build', row);
+    await authorizeDomain(context, 'data_domains.build', row, 'manage');
     const source = await domains.getDataDomainVersion(context.db, input.body.sourceVersionId);
     if (!source || source.dataDomainId !== input.params.id) fail('NOT_FOUND', '源版本不存在');
     if (source.status !== 'ready') {
@@ -450,14 +471,14 @@ export const dataDomainsRouter = os.router({
 
   proposals: os.proposals.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.read', row);
+    await authorizeDomain(context, 'data_domains.read', row, 'read');
     const rows = await domains.listDataDomainEnrichmentProposals(context.db, input.params.id);
     return rows.map(toEnrichmentProposal);
   }),
 
   proposalDetail: os.proposalDetail.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.read', row);
+    await authorizeDomain(context, 'data_domains.read', row, 'read');
     const proposal = await domains.getDataDomainEnrichmentProposal(
       context.db,
       input.params.proposalId,
@@ -489,7 +510,7 @@ export const dataDomainsRouter = os.router({
 
   decideProposal: os.decideProposal.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
-    await authorizeDomain(context, 'data_domains.build', row);
+    await authorizeDomain(context, 'data_domains.build', row, 'manage');
     const proposal = await domains.getDataDomainEnrichmentProposal(
       context.db,
       input.params.proposalId,

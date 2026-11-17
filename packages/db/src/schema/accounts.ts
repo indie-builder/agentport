@@ -30,7 +30,14 @@ export const rolePermissions = pgTable(
       .references(() => roles.id, { onDelete: 'cascade' }),
     permissionId: text('permission_id').notNull(),
     scope: text('scope', {
-      enum: ['own_data', 'authorized_agents', 'maintained_agents', 'owned_agents', 'platform'],
+      enum: [
+        'own_data',
+        'authorized_resources',
+        'authorized_agents',
+        'maintained_agents',
+        'owned_agents',
+        'platform',
+      ],
     }).notNull(),
   },
   (t) => [
@@ -38,7 +45,7 @@ export const rolePermissions = pgTable(
     index('role_permissions_permission_idx').on(t.permissionId),
     check(
       'role_permissions_scope_check',
-      sql`${t.scope} in ('own_data', 'authorized_agents', 'maintained_agents', 'owned_agents', 'platform')`,
+      sql`${t.scope} in ('own_data', 'authorized_resources', 'authorized_agents', 'maintained_agents', 'owned_agents', 'platform')`,
     ),
   ],
 );
