@@ -398,6 +398,22 @@ agent_runs(
   turns int
 )
 
+run_feedback(
+  id text pk,                -- TypeID（rfb_）
+  conversation_id text not null, -- 外键 conversations，级联删除
+  run_id text not null,      -- 外键 agent_runs，级联删除
+  message_id text,           -- assistant 消息锚点，可空；消息删除时置 null
+  output_path text,          -- 成果固定版本锚点；与 output_sha256 同时为空或同时有值
+  output_sha256 text,        -- 提交时实际读取该版成果的 sha256
+  decision text not null check (decision in ('accepted','rejected')),
+  rating smallint check (rating is null or (rating >= 1 and rating <= 5)),
+  comment text not null default '',
+  reason text not null default '', -- 退回原因
+  eval_case_id text,         -- 转评测用例后回写，可空；用例删除时置 null
+  created_by text not null,
+  created_at timestamptz not null default now()
+)
+
 audit_log(
   id text pk                 -- TypeID，如 srv_/agt_/run_,
   actor text,
@@ -931,6 +947,7 @@ bun run dev
 | channel message | `chm` | — |
 | run | `run` | `run_01m5ag7sq6eh7bw81dxdrhkvec` |
 | notification | `ntf` | — |
+| run feedback | `rfb` | — |
 | runtime environment | `rte` | — |
 | runtime environment version | `rtev` | — |
 | agent workflow | `awf` | — |

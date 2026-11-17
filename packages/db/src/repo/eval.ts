@@ -1,6 +1,6 @@
 import type { AccessFilter } from '@agentport/shared';
 import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { type EvalCaseSnapshot, evalCases, evalResults, evalRuns } from '../schema.js';
 import { maintainedAgentScopeWhere } from './access.js';
 import { keysetBefore, paginate } from './keyset.js';
@@ -55,7 +55,7 @@ export async function getCase(db: Database, id: string): Promise<EvalCase | null
 }
 
 export async function createCase(
-  db: Database,
+  db: DbHandle,
   id: string,
   input: EvalCaseInput,
 ): Promise<EvalCase> {

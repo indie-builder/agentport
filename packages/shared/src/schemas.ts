@@ -36,8 +36,18 @@ export const runListSchema = z.object({ items: z.array(runListItemSchema) });
 export type RunList = z.infer<typeof runListSchema>;
 
 export const runStepSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('user'), at: z.string(), text: z.string() }),
-  z.object({ kind: z.literal('assistant'), at: z.string(), text: z.string() }),
+  z.object({
+    kind: z.literal('user'),
+    at: z.string(),
+    text: z.string(),
+    messageId: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal('assistant'),
+    at: z.string(),
+    text: z.string(),
+    messageId: z.string().optional(),
+  }),
   z.object({
     kind: z.literal('tool'),
     at: z.string(),

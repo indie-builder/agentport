@@ -32,6 +32,8 @@ import {
 import {
   DATA_DOMAIN_SQL,
   DATA_DOMAIN_TOOL_MARKER,
+  FEEDBACK_BAD_MARKER,
+  FEEDBACK_GOOD_MARKER,
   OUTPUT_WRITE_MARKER,
   parseExecutionContract,
   parseRuntimeResource,
@@ -43,6 +45,9 @@ let IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 let FAKE_PORT = Number(process.env.E2E_CHANNEL_FAKE_PORT ?? 4318);
 const REPLY_PREFIX = 'E2E-CHANNEL-REPLY';
 const APPROVAL_TOOL_MARKER = 'E2E-APPROVAL-TOOL';
+const FEEDBACK_INITIAL_TEXT = '初版结果：39';
+const FEEDBACK_CORRECTED_TEXT = '修正结果：42';
+const FEEDBACK_OUTPUT_PATH = '/mnt/outputs/feedback-report.md';
 /** 慢响应标记：正文含它时假模型先吐半句、延迟后再收尾，供停止/刷新恢复用例观察。 */
 const SLOW_MARKER = 'E2E-CHANNEL-SLOW';
 const SLOW_PARTIAL = 'E2E-CHANNEL-SLOW-PARTIAL';
@@ -614,8 +619,31 @@ function nextApprovalToolCall(
   return { name: 'ToolSearch', input: { query: `select:${promptToolName}` } };
 }
 
+interface FeedbackReply {
+  text: string;
+  content: string;
+}
+
+function isFeedbackMainPrompt(body: unknown, prompt: string): boolean {
+  const trimmed = prompt.trimStart();
+  const marked =
+    trimmed.startsWith(FEEDBACK_BAD_MARKER) || trimmed.startsWith(FEEDBACK_GOOD_MARKER);
+  if (!marked) return false;
+  const hasAssistant = historyMessages(body).some(
+    (message) =>
+      typeof message === 'object' &&
+      message !== null &&
+      (message as { role?: unknown }).role === 'assistant',
+  );
+  const hasWriteTool = toolsOf(body).some(
+    (tool) => typeof tool.name === 'string' && tool.name === 'Write',
+  );
+  return hasAssistant || hasWriteTool;
+}
+
 function nextOutputWriteCall(
   body: unknown,
+  feedback: FeedbackReply | null,
 ): { name: string; input: Record<string, unknown> } | null {
   const messages = historyMessages(body);
   const promptIndex = messages.findLastIndex((message) => {
@@ -627,6 +655,12 @@ function nextOutputWriteCall(
   const prompt = contentText((messages[promptIndex] as { content?: unknown }).content);
   const runUses = toolUsesOf(messages.slice(promptIndex));
   if (runUses.some((use) => use.name === 'Write')) return null;
+  if (feedback !== null) {
+    return {
+      name: 'Write',
+      input: { file_path: FEEDBACK_OUTPUT_PATH, content: feedback.content },
+    };
+  }
   if (!prompt.includes(DATA_DOMAIN_TOOL_MARKER)) {
     return {
       name: 'Write',
@@ -653,6 +687,32 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
   const messageRequests: FakeMessageRequest[] = [];
   let nextId = 0;
   let approvalEchoHits = 0;
+  const feedbackCounts = new Map<string, number>();
+  const feedbackVersions = new Map<string, FeedbackReply>();
+  const initialFeedback: FeedbackReply = {
+    text: FEEDBACK_INITIAL_TEXT,
+    content: `# 交付报告\n\n${FEEDBACK_INITIAL_TEXT}\n`,
+  };
+  const correctedFeedback: FeedbackReply = {
+    text: FEEDBACK_CORRECTED_TEXT,
+    content: FEEDBACK_CORRECTED_TEXT,
+  };
+  const feedbackReplyFor = (body: unknown, prompt: string): FeedbackReply | null => {
+    if (!isFeedbackMainPrompt(body, prompt)) return null;
+    if (prompt.includes(FEEDBACK_GOOD_MARKER)) return correctedFeedback;
+    const fresh = !historyMessages(body).some(
+      (message) =>
+        typeof message === 'object' &&
+        message !== null &&
+        (message as { role?: unknown }).role === 'assistant',
+    );
+    if (fresh) {
+      const count = (feedbackCounts.get(prompt) ?? 0) + 1;
+      feedbackCounts.set(prompt, count);
+      feedbackVersions.set(prompt, count === 1 ? initialFeedback : correctedFeedback);
+    }
+    return feedbackVersions.get(prompt) ?? initialFeedback;
+  };
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -711,6 +771,7 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
       }
       const prompt = lastUserText(body);
       const conversation = conversationText(body);
+      const feedback = feedbackReplyFor(body, prompt);
       const model =
         typeof (body as { model?: unknown } | null)?.model === 'string'
           ? (body as { model: string }).model
@@ -722,18 +783,21 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
       const approvalCall = conversation.includes(APPROVAL_TOOL_MARKER)
         ? nextApprovalToolCall(body)
         : null;
-      const toolCall = dataDomainCall ?? approvalCall ?? nextOutputWriteCall(body);
+      const toolCall = dataDomainCall ?? approvalCall ?? nextOutputWriteCall(body, feedback);
       const completedResults = historyToolResults(body);
       const runSqlDone = historyToolUses(body).some(
         (use) => use.name.endsWith('__run_sql') && completedResults.has(use.id),
       );
       // 模型确实拿到了工具列表却推进不了 run_sql：显式给出可诊断的文本，而不是静默退回普通回复。
       const missingTool = marked && !runSqlDone && toolCall === null && toolsOf(body).length > 0;
-      const reply = missingTool
-        ? `E2E-DD-TOOL-MISSING ${toolsOf(body)
-            .map((tool) => String(tool.name))
-            .join(',')}`
-        : `${REPLY_PREFIX} ${prompt}`;
+      const reply =
+        feedback !== null
+          ? feedback.text
+          : missingTool
+            ? `E2E-DD-TOOL-MISSING ${toolsOf(body)
+                .map((tool) => String(tool.name))
+                .join(',')}`
+            : `${REPLY_PREFIX} ${prompt}`;
       messageRequests.push({ at: Date.now(), path: pathname, prompt, reply });
 
       res.writeHead(200, {

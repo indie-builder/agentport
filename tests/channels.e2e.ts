@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect, type Screen } from 'e2e';
 import { browserFetch } from './support/browser-api.js';
+import { OUTPUT_WRITE_MARKER } from './support/execution-stack.js';
 import { fixture as runFixture } from './support/fixture.js';
 
 /**
@@ -690,4 +693,96 @@ test('records agent audits and hides channel runs from non-members', { session: 
       );
     }
   }
+});
+
+test('shows run feedback in the channel run sheet with member write and viewer read-only', {
+  session: 'admin',
+  timeout: 600_000,
+}, async ({ app, screen, browser }) => {
+  const suffix = uniqueSuffix();
+  const shots = join('/tmp/channel-run-feedback-shots', suffix);
+  const shot = async (label: string): Promise<string> => {
+    mkdirSync(shots, { recursive: true });
+    const source = await app.screenshot(label);
+    const target = join(shots, `${label}.png`);
+    copyFileSync(source, target);
+    return target;
+  };
+
+  await app.open('/channels');
+  const agent = await createAgent(browser, 'feedback');
+  const channel = await createChannel(browser, 'feedback');
+  await bindAgent(browser, channel.id, agent.id);
+  const member = await createAccount(browser, 'feedback-member');
+  const viewer = await createAccount(browser, 'feedback-viewer');
+  await addMember(browser, channel.id, member.businessId, 'member');
+  await addMember(browser, channel.id, viewer.businessId, 'viewer');
+
+  await app.open(`/channels/${channel.id}`);
+  const text = `${OUTPUT_WRITE_MARKER} 交付验收 ${suffix}`;
+  await sendMention(screen, agent.name, text);
+  await waitForReply(screen, browser, `@${agent.name} ${text}`);
+
+  await expect
+    .poll(async () => (await runFixture('channels', 'runs', channel.id)).at(-1)?.status, {
+      timeout: 60_000,
+    })
+    .toBe('succeeded');
+  const runs = await runFixture('channels', 'runs', channel.id);
+  const runId = runs.at(-1)?.id;
+  assert(runId !== undefined, '频道应当产生运行');
+
+  const openRunSheet = async () => {
+    await screen
+      .getByRole('button', { name: /查看运行/ })
+      .first()
+      .tap();
+    const sheet = screen.getByRole('dialog', '运行详情');
+    await expect(sheet).toBeVisible({ timeout: 30_000 });
+    return sheet;
+  };
+
+  const sheet = await openRunSheet();
+  await expect(sheet.getByText('交付验收', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(sheet.getByRole('button', { name: '退回', exact: true })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: '采纳', exact: true })).toBeVisible();
+
+  const output = sheet.getByRole('button', { name: 'normal-report.md', exact: true });
+  await expect(output).toBeVisible({ timeout: 30_000 });
+  await output.tap();
+  await sheet.getByRole('button', { name: '退回', exact: true }).tap();
+  const rejectDialog = screen.getByRole('dialog', '退回本次成果');
+  await expect(rejectDialog).toBeVisible({ timeout: 15_000 });
+  await expect(rejectDialog.getByLabel('验收对象')).toContainText('normal-report.md');
+  await rejectDialog.getByRole('button', { name: '取消', exact: true }).tap();
+  await expect(rejectDialog).toHaveCount(0);
+  await expect(sheet.getByText('E2E normal output')).toBeVisible({ timeout: 30_000 });
+
+  await browser.setViewport({ width: 1440, height: 900 });
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const wideShot = await shot('channel-run-feedback-1440');
+  assert(existsSync(wideShot), '1440 截图未生成');
+
+  await browser.setViewport({ width: 1200, height: 900 });
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const narrowShot = await shot('channel-run-feedback-1200');
+  assert(existsSync(narrowShot), '1200 截图未生成');
+
+  await loginAs(browser, member);
+  await app.open(`/channels/${channel.id}`);
+  const memberSheet = await openRunSheet();
+  await expect(memberSheet.getByText('交付验收', { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(memberSheet.getByRole('button', { name: '退回', exact: true })).toBeVisible();
+  await expect(memberSheet.getByRole('button', { name: '采纳', exact: true })).toBeVisible();
+
+  await loginAs(browser, viewer);
+  await app.open(`/channels/${channel.id}`);
+  const viewerSheet = await openRunSheet();
+  await expect(viewerSheet.getByText('交付验收', { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(viewerSheet.getByRole('button', { name: '退回', exact: true })).toHaveCount(0);
+  await expect(viewerSheet.getByRole('button', { name: '采纳', exact: true })).toHaveCount(0);
 });

@@ -13,6 +13,8 @@ import { useRef, useState } from 'react';
 import { CopyButton } from '../../components/copy-button.js';
 import { Metric } from '../../components/metric-label.js';
 import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
+import { EvalFromRunDialog } from '../../components/run/eval-from-run-dialog.js';
+import { RunFeedbackPanel } from '../../components/run/run-feedback.js';
 import { RunQuestionCard } from '../../components/run/run-question.js';
 import { RunStatusBadge } from '../../components/run/run-status-badge.js';
 import {
@@ -24,7 +26,7 @@ import {
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { can } from '../../lib/access.js';
-import { api, type ApprovalRequest } from '../../lib/api.js';
+import { type ApprovalRequest, api } from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
 import { questionFromContent } from '../../lib/chat-state.js';
 import { cn } from '../../lib/cn.js';
@@ -37,11 +39,14 @@ import {
   shortId,
 } from '../../lib/format.js';
 import {
+  chatKeys,
   meQuery,
   useApproveRun,
   useCancelRun,
-  useCreateEvalCaseFromRun,
+  useConversationOutputs,
   useDenyRun,
+  useDrainPages,
+  useRefetchWhenRunEnds,
   useRerun,
   useRun,
   useRunApprovals,
@@ -69,7 +74,9 @@ export function RunDetailPage() {
   const canSaveAsSkill = can(me.data, 'skills.create');
   const canEval = can(me.data, 'eval.manage');
   const canExport = can(me.data, 'runs.export');
+  const canFeedback = can(me.data, 'runs.feedback');
   const [exporting, setExporting] = useState(false);
+  const [evalOpen, setEvalOpen] = useState(false);
   const navigate = useNavigate();
   // 状态尚未读取或仍在排队时也轮询，终态转换负责最后刷新。
   const status = run.data?.run.status;
@@ -80,6 +87,13 @@ export function RunDetailPage() {
   const questions = useRunQuestions(
     params.runId,
     !status || status === 'queued' || status === 'running',
+  );
+  const outputs = useConversationOutputs(run.data?.conversation.id ?? null, params.runId);
+  useDrainPages(outputs);
+  useRefetchWhenRunEnds(
+    params.runId,
+    status === 'queued' || status === 'running',
+    chatKeys.runOutputs(run.data?.conversation.id ?? null, params.runId),
   );
   const rerunMutation = useRerun();
   const cancelMutation = useCancelRun();
@@ -176,15 +190,6 @@ export function RunDetailPage() {
     });
   };
 
-  const evalCaseMutation = useCreateEvalCaseFromRun();
-  const saveAsEvalCase = (): void => {
-    if (!run.data) return;
-    evalCaseMutation.mutate(run.data.run.id, {
-      onSuccess: (evalCase) => toastSuccess(`已生成评估用例「${evalCase.name}」`),
-      onError: (error) => toastError(error),
-    });
-  };
-
   const exportTrajectory = async (): Promise<void> => {
     if (!run.data || exporting) return;
     setExporting(true);
@@ -271,14 +276,9 @@ export function RunDetailPage() {
               </Button>
             ) : null}
             {terminal && hasPrompt && canEval ? (
-              <Button
-                variant="outline"
-                disabled={evalCaseMutation.isPending}
-                aria-busy={evalCaseMutation.isPending}
-                onClick={saveAsEvalCase}
-              >
+              <Button variant="outline" onClick={() => setEvalOpen(true)}>
                 <ClipboardList data-icon="inline-start" aria-hidden="true" />
-                {evalCaseMutation.isPending ? '生成中…' : '存为评估用例'}
+                存为评估用例
               </Button>
             ) : null}
             {canExport ? (
@@ -346,6 +346,11 @@ export function RunDetailPage() {
   const denied = approvalItems.filter((item) => item.deniedAt !== null);
   const activeIndex = selected !== null && selected < steps.length ? selected : steps.length - 1;
   const activeStep = steps[activeIndex];
+  const userPrompt = steps.find((step) => step.kind === 'user')?.text ?? '';
+  const lastAssistantMessageId =
+    steps.flatMap((step) => (step.kind === 'assistant' ? [step.messageId ?? null] : [])).at(-1) ??
+    null;
+  const runFiles = (outputs.data?.items ?? []).filter((file) => file.runId === detail.id);
 
   return (
     <Page>
@@ -579,6 +584,31 @@ export function RunDetailPage() {
           </section>
         </div>
 
+        <PageSection title="交付验收">
+          {outputs.isFetchNextPageError ? (
+            <ErrorState
+              title="后续成果没有加载完整"
+              error={outputs.error}
+              onRetry={() => void outputs.fetchNextPage()}
+            />
+          ) : outputs.isError ? (
+            <ErrorState
+              title="成果没有加载出来"
+              error={outputs.error}
+              onRetry={() => void outputs.refetch()}
+            />
+          ) : null}
+          <RunFeedbackPanel
+            runId={detail.id}
+            conversationTitle={conversation.title}
+            prompt={userPrompt}
+            messageId={lastAssistantMessageId}
+            files={runFiles}
+            canEvaluate={canEval}
+            canWrite={canFeedback && terminal}
+          />
+        </PageSection>
+
         <PageSection title="运行上下文">
           <div className="grid min-w-0 grid-cols-1 gap-x-4 sm:grid-cols-2">
             <ContextRow label="运行 ID" value={detail.id} mono copy />
@@ -604,6 +634,15 @@ export function RunDetailPage() {
             <ContextRow label="Session" value={detail.sessionId ?? '—'} mono copy />
           </div>
         </PageSection>
+
+        {evalOpen ? (
+          <EvalFromRunDialog
+            runId={detail.id}
+            conversationTitle={conversation.title}
+            prompt={userPrompt}
+            onClose={() => setEvalOpen(false)}
+          />
+        ) : null}
       </PageBody>
     </Page>
   );

@@ -3,6 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   api,
   type EvalCase,
+  type EvalCaseFromRunInput,
   type EvalCaseInput,
   type EvalComparison,
   type EvalRunDetail,
@@ -28,8 +29,11 @@ export function useCreateEvalCase() {
 export function useCreateEvalCaseFromRun() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (runId: string) => api.createEvalCaseFromRun(runId),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-cases'] }),
+    mutationFn: (input: EvalCaseFromRunInput) => api.createEvalCaseFromRun(input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['eval-cases'] });
+      void client.invalidateQueries({ queryKey: ['run-feedback'] });
+    },
   });
 }
 

@@ -3,10 +3,13 @@ import {
   publicQuestionResponseSchema,
   publicRunQuestionSchema,
   runDetailSchema,
+  runFeedbackListSchema,
+  runFeedbackSchema,
   runListSchema,
   runStatusSchema,
   runTriggerSchema,
   skillSchema,
+  submitRunFeedbackSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
@@ -31,6 +34,16 @@ export const runsContract = {
     .route({ method: 'GET', path: '/runs/{id}', successStatus: 200 })
     .input(z.object({ params: idParams }))
     .output(runDetailSchema),
+  feedback: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'runs.read' } })
+    .route({ method: 'GET', path: '/runs/{id}/feedback', successStatus: 200 })
+    .input(z.object({ params: idParams }))
+    .output(runFeedbackListSchema),
+  submitFeedback: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'runs.feedback' } })
+    .route({ method: 'POST', path: '/runs/{id}/feedback', successStatus: 201 })
+    .input(z.object({ params: idParams, body: submitRunFeedbackSchema }))
+    .output(runFeedbackSchema),
   approvals: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'runs.read' } })
     .route({ method: 'GET', path: '/runs/{id}/approvals', successStatus: 200 })

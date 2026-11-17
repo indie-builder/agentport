@@ -1,6 +1,7 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, Download, FileText } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { can } from '../../lib/access.js';
 import { api } from '../../lib/api.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import {
@@ -15,6 +16,7 @@ import {
 import { outputPreviewKind } from '../../lib/output-preview.js';
 import {
   channelRunOutputsQueryKey,
+  meQuery,
   useChannelRunDetail,
   useChannelRunOutputBlob,
   useChannelRunOutputContent,
@@ -29,6 +31,7 @@ import { BlobImage } from '../media/blob-image.js';
 import { BlobPdf } from '../media/blob-pdf.js';
 import { Metric } from '../metric-label.js';
 import { PageNote } from '../page.js';
+import { RunFeedbackPanel } from '../run/run-feedback.js';
 import { RunQuestionCard } from '../run/run-question.js';
 import { RunStatusBadge } from '../run/run-status-badge.js';
 import { StepInspector, stepName } from '../run/run-steps.js';
@@ -41,11 +44,13 @@ export function ChannelRunSheet({
   channelId,
   runId,
   canAnswer,
+  canWrite,
   onClose,
 }: {
   channelId: string;
   runId: string | null;
   canAnswer: boolean;
+  canWrite: boolean;
   onClose: () => void;
 }) {
   const dialog = useDialogClose(onClose, runId !== null);
@@ -63,6 +68,7 @@ export function ChannelRunSheet({
           channelId={channelId}
           runId={runId}
           canAnswer={canAnswer}
+          canWrite={canWrite}
         />
       )}
     </Sheet>
@@ -73,12 +79,15 @@ function ChannelRunSheetContent({
   channelId,
   runId,
   canAnswer,
+  canWrite,
 }: {
   channelId: string;
   runId: string;
   canAnswer: boolean;
+  canWrite: boolean;
 }) {
   const detail = useChannelRunDetail(channelId, runId);
+  const me = useQuery(meQuery);
   const status = detail.data?.run.status;
   const active = status === 'queued' || status === 'running';
   const questions = useChannelRunQuestions(channelId, runId, active);
@@ -101,6 +110,12 @@ function ChannelRunSheetContent({
   const run = detail.data?.run;
   const steps = detail.data?.steps ?? [];
   const files = outputs.data?.items ?? [];
+  const canEvaluate = can(me.data, 'eval.manage');
+  const canWriteFeedback = canWrite && !active && can(me.data, 'runs.feedback');
+  const channelPrompt = steps.find((step) => step.kind === 'user')?.text ?? '';
+  const lastAssistantMessageId =
+    steps.flatMap((step) => (step.kind === 'assistant' ? [step.messageId ?? null] : [])).at(-1) ??
+    null;
   const selectedFile = selected === null ? undefined : files.find((file) => file.path === selected);
   const kind = selectedFile === undefined ? null : outputPreviewKind(selectedFile.mediaType);
   const contentPath = kind === 'markdown' || kind === 'text' ? (selectedFile?.path ?? null) : null;
@@ -356,6 +371,20 @@ function ChannelRunSheetContent({
                   )}
                 </>
               )}
+            </section>
+
+            <section className="flex min-w-0 flex-col gap-3" aria-label="交付验收">
+              <h2 className="text-sm font-medium text-fg">交付验收</h2>
+              <RunFeedbackPanel
+                runId={runId}
+                conversationTitle={detail.data.conversation.title}
+                prompt={channelPrompt}
+                messageId={lastAssistantMessageId}
+                files={files}
+                defaultOutputPath={selectedFile?.path ?? null}
+                canEvaluate={canEvaluate}
+                canWrite={canWriteFeedback}
+              />
             </section>
           </div>
         )}

@@ -58,7 +58,7 @@ import {
 } from './schema/knowledge-wiki.js';
 import { memoryChanges, memoryReviews, userPreferences } from './schema/memory.js';
 import { auditLog, notifications, platformBootstrap, platformSettings } from './schema/ops.js';
-import { agentSchedules, approvalRequests } from './schema/runs.js';
+import { agentSchedules, approvalRequests, runFeedback } from './schema/runs.js';
 import { runtimeEnvironments, runtimeEnvironmentVersions } from './schema/runtime-environments.js';
 import { apiTools, servers } from './schema/servers.js';
 import { skillFiles, skills } from './schema/skills.js';
@@ -112,6 +112,7 @@ export const schema = {
   agentRuns,
   approvalRequests,
   agentSchedules,
+  runFeedback,
   evalCases,
   evalRuns,
   evalResults,

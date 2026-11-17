@@ -106,7 +106,7 @@ export default {
   /** 会话成果按版本倒序分页；同一路径的多版由调用方分组，后端不做合并。 */
   outputs: (
     conversationId: string,
-    options: { limit?: number; cursor?: string } = {},
+    options: { limit?: number; cursor?: string; runId?: string } = {},
     signal?: AbortSignal,
   ): Promise<OutputList> =>
     rpc.chat.listOutputs({ params: { id: conversationId }, query: options }, clientOptions(signal)),

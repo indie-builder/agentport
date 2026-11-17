@@ -737,6 +737,7 @@ function ChannelWorkspace({
         channelId={channel.id}
         runId={runSheetId}
         canAnswer={runSheetId !== null && canAnswerFor(runSheetId)}
+        canWrite={channelRole !== 'viewer'}
         onClose={() => setRunSheetId(null)}
       />
     </div>
