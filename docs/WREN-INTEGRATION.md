@@ -1,6 +1,6 @@
 # Wren 数据语义层集成
 
-> 状态：M0 已完成（gate 通过），M1–M6 未实现。本文定义 PACE 集成 WrenAI 的设计契约与 M0 验证结论。M0 的 GO 只表示执行期按 session properties 强制生效，不代表生产安全或业务验收已经完成。
+> 状态：M0–M6 全部交付；M6 为文档同步与验收记录收尾。本文定义 PACE 集成 WrenAI 的设计契约、交付状态与验收证据。M0 的 GO 只表示执行期按 session properties 强制生效，不代表生产安全或业务验收已经完成；各里程碑的实际验收范围见第 6 节。
 
 ## 1. 定位与范围
 
@@ -23,7 +23,7 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 
 边界规则：
 
-- 连接凭据只存在于受控的数据域查询服务进程内，由 `WrenEngine(connection_info=...)` 持有；对话沙盒没有 `.env`、连接 profile 或数据库网络。
+- 连接测试由调用方直接提供明文 `connection`，api 不做解密、原样转给运行时；查询、结构反射与版本构建则使用已存储的加密凭据，在 api 或受控构建 worker 内解密后随内部请求交给运行时，由运行时进程内的 `WrenEngine(connection_info=...)` 持有；对话 worker 与沙盒不接收数据库凭据。对话沙盒不挂载 `.env`、连接 profile 或数据库网络属于部署要求，默认 `SANDBOX_EGRESS=open` 本身不提供该隔离。
 - PACE 不重写语义层、SQL 生成或执行逻辑；引擎返回的结果由 PACE 负责鉴权、审计与呈现。
 - 身份与范围由 PACE 决定，Wren 只执行 PACE 传入的已授权查询与 properties。
 
@@ -49,7 +49,7 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 - `query(read_only=True)`。
 - 构造 `WrenEngine(..., config=WrenConfig(strict_mode=True), fallback=False)`。
 - session properties 由服务端依据登录身份生成：run token → businessId → 可见数据范围；绝不接受客户端或模型自报的属性值。
-- 连接凭据只经 `WrenEngine(connection_info=...)` 持有；`query()` 只接收 properties。
+- 在运行时进程内，连接凭据只经 `WrenEngine(connection_info=...)` 持有；`query()` 只接收 properties。
 
 注意接口归属：`read_only` 是 `query()` 的参数；`strict_mode` 属于 `WrenConfig`，在构造器传入；`fallback` 也是构造器参数。
 
@@ -74,7 +74,7 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 - 版本：一次构建一行，不可覆盖。
 - 发布 / 回退：只改线上版本指针。
 
-**理由**：语义层定义需要审阅、复现与回退；直接查「最新文件」无法保证同一 run 内的定义稳定，也无法审计当时使用的版本。文件作为投影满足 PACE「文件系统即智能体定义」的约束，DB 只保存编辑状态与版本指针。
+**理由**：语义层定义需要审阅、复现与回退；直接查「最新文件」无法审计当时使用的版本。实现上 `run_sql` 每次调用都重新读取 `data_domains.online_version_id` 指向的就绪版本，不在 run 级冻结；查询日志记录该次查询的 `versionId`，`audit_log` 只保留输入摘要，发布或回退后的查询可经查询明细追溯，但「同一 run 始终使用同一版本」不是保证。文件作为投影满足 PACE「文件系统即智能体定义」的约束，DB 只保存编辑状态与版本指针。
 
 **证据**：`packages/db/src/schema/runtime-environments.ts` 的版本表与线上指针设计。
 
@@ -92,13 +92,13 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 **决策**：优先导入已有 Wren 项目（`wren_project.yml`、models、knowledge）。没有现成项目时提供两步辅助：
 
 - `generate-mdl`：反射数据库结构，生成初始模型。
-- `enrich-context`：补充业务语义、枚举、示例与 join 说明；可在 auto-pilot 或审批队列中运行。
+- `enrich-context`：补充业务语义、枚举、示例与 join 说明；只生成待审提案。
 
-当前 enrich-context 采用审批队列模式：后台生成的候选项目文件先保存为提案，人工查看差异并批准后才创建新版本，发布仍需另行执行；高影响项因此天然经过人工确认。
+enrich-context 已交付（M3，PR #522 / #523）：`POST /data-domains/{id}/enrich`（权限 `data_domains.build`）基于一个 `ready` 版本创建 `generating` 提案并入队，worker 经 `@anthropic-ai/claude-agent-sdk` 调用 `DATA_DOMAIN_ENRICH_MODEL`，只把源版本 `projectFiles` 与本次指令作为模型输入（另有固定提示词），返回结构化 `updatedFiles` / `removedPaths` / `summary`，合并后重新做项目文件结构校验，成功则提案转 `ready`。人工在详情页查看文件差异后，`POST /data-domains/{id}/proposals/{proposalId}/decision` 批准时在同一事务内标记 `approved` 并创建新版本，再交给既有构建队列；拒绝只标记提案。发布仍需单独执行，批准前不会修改线上版本，也不会自动发布；高影响项因此天然经过人工确认。
 
-高影响项（行级 / 列级访问控制、主键、金额与 PII 字段）必须人工确认后发布。建模与凭据操作在受控容器内完成；对话沙盒不挂载凭据、不接数据库网络。
+高影响项（行级 / 列级访问控制、主键、金额与 PII 字段）必须人工确认后发布。模型子进程环境只带 `PATH`、`HOME`、配置目录等固定运行变量与 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` 三个模型上游变量，不携带数据库连接凭据、`DATABASE_URL` 或 `APP_SECRET_KEY`；连接测试接收调用方明文 `connection`、没有解密步骤，查询、结构反射与版本构建才使用已存储的加密凭据并在 api 或受控构建 worker 内解密。部署要求对话沙盒不挂载凭据且不可达数据库网络，具体见 `docs/OPERATIONS.md` 的 Wren 章节。
 
-**理由**：结构反射只能得到表与列，业务含义和权限规则必须由人确认；把凭据留在受控环境，避免模型或对话进程直接接触数据库账号。
+**理由**：结构反射只能得到表与列，业务含义和权限规则必须由人确认；把凭据留在受控进程，避免模型或对话进程直接接触数据库账号。
 
 **证据**：Wren CLI 的 `context build` 与建模流程；PACE 沙盒边界。
 
@@ -106,7 +106,7 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 
 - 运行时读取 `information_schema.tables`（排除 `information_schema`、`pg_catalog`）与 `information_schema.columns`（一次查询全部列后按 catalog/schema/table 分组），合成 `models/<table>/metadata.yml`（全列、`primary_key` 留空，真实主键与关系留待后续补全）、`wren_project.yml`（`schema_version: 5`）与空的 `relationships.yml`，再执行 `wren context build` 得到 `target/mdl.json`；单次反射最多 200 张表，表名不能用作模型路径时直接报错。
 - 入口：运行时 `POST /generate-mdl` 返回 `projectFiles` 与 `mdlManifest`；平台 `POST /data-domains/{id}/generate-mdl`（权限 `data_domains.build`）用反射结果创建一个 `queued` 版本并交给现有构建队列，构建成功后即可发布。
-- 局限：已对 duckdb 验证（catalog 为文件主名，连接形如 `{url:<dir>,format:"duckdb"}`）；其他数据源尽力而为，DB 原生类型直接透传，错误由构建日志暴露。反射只产出草稿模型，需要人工补全业务语义；不生成关系、指标或访问控制，`enrich-context` 与高影响项人工确认属于后续 M3 切片。
+- 局限：已对 duckdb 验证（catalog 为文件主名，连接形如 `{url:<dir>,format:"duckdb"}`）；其他数据源尽力而为，DB 原生类型直接透传，错误由构建日志暴露。反射只产出草稿模型，需要人工补全业务语义；不生成关系、指标或访问控制。`enrich-context`（已交付，见本节前文）可基于就绪版本生成补全提案，仍需人工确认。
 
 #### 导入校验
 
@@ -138,15 +138,15 @@ PACE 现有 `knowledge` 是文档 RAG：上传、解析、分块、检索与引�
 
 完整交付 = M0–M6 全部完成。M0 是 gate，未通过不进入 M1。
 
-| 里程碑 | 内容 | 完成判据 |
+| 里程碑 | 交付物 | 状态与依据 |
 |---|---|---|
-| M0 地基验证（已完成） | 验证 Wren SDK 的 MDL、RLAC / CLAC、properties 与安全调用边界 | 第 5 节证据齐全，结论 GO |
-| M1 数据域资源骨架 | db / contract / api / UI：连接、导入、构建、版本、发布、查询服务编排 | 可创建数据域并发布一个可查询版本 |
-| M2 绑定与查询 | `data_domain` 托管 MCP、专家绑定、端到端问答、审批与审计、原生图表 | 同一专家按不同用户身份得到不同结果 |
-| M3 建模工作流 | `generate-mdl`、`enrich-context`、人工确认、版本化 | 从空连接生成可发布 MDL，并保留审批记录 |
-| M4 治理与权限 | strict 默认、数据库最小权限、PII 处理、审计、两用户越权实测 | 越权用例全部被拒且有审计 |
-| M5 结果呈现强化 | 表格、图表、导出与引用；公开分享路径复核 | 非管理员只能看到授权结果 |
-| M6 收尾 | 文档、E2E、死代码与临时资源清理、PR | 文档与实现一致，验证命令可复现 |
+| M0 地基验证 | Wren SDK 的 MDL、RLAC / CLAC、properties 与安全调用边界实测 | 已交付；PR #506，证据见第 5 节，结论 GO |
+| M1 数据域资源骨架 | db / contract / api / UI：连接、导入、构建、版本、发布、连接测试与查询服务编排 | 已交付；PR #507–#511、#518 |
+| M2 绑定与查询 | `data_domain` 托管 MCP、身份映射、审批、查询日志、原生表格/图表与聚合建议 | 已交付；PR #513–#517、#525、#528、#529 |
+| M3 建模工作流 | `generate-mdl`、`enrich-context` 提案与人工审核、版本化、导入结构校验 | 已交付；PR #519–#523；真实模型与受控构建记录见 6.1 |
+| M4 治理与权限 | strict 默认、最小权限、两用户真实执行栈越权实测 | 已交付；PR #526；M4b 分享隔离 PR #527 |
+| M5 结果呈现与审计 | 导出内容一致、查询日志与审计哈希链可追溯、结果/日志/导出哨兵不泄漏 | 已交付；PR #530 |
+| M6 收尾 | 文档与实现对齐、验收记录汇总、已知限制与部署要求 | 本次文档收尾；最终全链路验收与 PR 关闭按交付流程执行 |
 
 ## 5. M0 实测证据
 
@@ -227,13 +227,36 @@ columns:
 - 查询、缓存、报告、下载与分享均不得越权。
 - 不能靠「数据库共享只读账号」解决隔离；只读账号仍会看到该账号权限内的全部数据，必须由引擎按登录用户的 session properties 过滤。
 - 建模阶段同样隔离凭据：普通用户不能借助数据域构建、预览或导入导出拿到连接账号。
-- 公开分享是待验收风险：固定文件分享与导出可能把按用户过滤后的结果变成匿名可读；上线前必须确认分享路径不放行未授权数据，或限制数据域结果参与公开分享。
+- 公开分享路径已隔离（M4b，PR #527）：读取过数据域治理数据的会话在 `conversations.data_domain_restricted` 持久标记（成功的 `run_sql` 返回前写入，写入失败则查询报错；分支会话继承），其成果创建分享返回 403，已有 token 的公开读取与下载按 404 失效；本人授权下载不受影响，未读取数据域的普通会话分享保持可用。
 
-## 7. 未决与风险
+### 6.1 验收记录
 
-- CLAC 表达力有限：复杂列权限可能需数据库侧列授权，语义层与数据库两处规则需保持一致。
+以下只写已实际执行过的验收范围；未在 M6 重跑的项目注明证据来源。真实运行时用例需要 Docker/OrbStack 与安装了 `wrenai` 的 Python 环境（`WREN_RUNTIME_TEST_PYTHON` / `E2E_WREN_RUNTIME_PYTHON`），未配置时相关套件跳过，不回落假引擎。
+
+**M0（PR #506）**：安全调用边界按第 5 节的 DuckDB 实测；`read_only=True` + `strict_mode=True` + `fallback=False` 下，RLAC/CLAC 按 properties 生效，物理全限定名绕过被拒。结论 GO，范围限于单机样例。
+
+**M1（PR #507–#511、#518）**：数据域 CRUD、连接测试、版本创建、构建队列→worker→`/build`、CAS 发布/回退与 UI 已交付。验证：`bun run test -- packages/api/test/data-domains-routes.test.ts`。
+
+**M2（PR #513–#517、#525、#528、#529）**：`data_domain` 托管 MCP 只接受绑定 server 的 run 短期 token；`run_sql` / `get_mdl` 只读，api 从 `run.initiatedBy` 解析身份并注入该次查询的 session properties。同一 SQL 在两个真实用户身份下得到不同行与列（真实引擎 E2E，PR #524）；审批 `off` / `all`、查询日志与 `maxRows` 边界、失败输入审计、表格/图表、数值聚合与图表类型建议已交付。验证：`WREN_RUNTIME_TEST_PYTHON=<venv python> bun run test -- packages/api/test/data-domain-query-isolation.test.ts`；`bun run test:web -- packages/web/test/data-domain-result.test.ts`。
+
+**M3（PR #519–#523）**：generate-mdl 反射、导入校验、enrich 提案后端与前端、批准建版本与构建已交付。真实模型 enrich + 受控构建交接记录（2026-11，M3 关闭）：`report.mdlBytes=1645`、`mdlParsed=true`、`modelCount=1`、datasource `duckdb`；批准后制品 `new-version-mdl.json` 为 1829 字节。模型输入经 prompt-capture（脱敏前）扫描未出现连接凭据；错误脱敏只证明脱敏后的形态（保留前四位），不宣称任意错误零泄漏。该次验证使用 Hono `app.request` 而非 TCP，只覆盖同源 consumer，未启动完整 worker 入口、其余 consumer 或 Web UI；不是完整生产端到端验收，也未固化为可重跑脚本。可复跑：`bun run test -- packages/api/test/data-domain-enrichment.test.ts`、`bun run test -- packages/worker/test/data-domain-enrichment.test.ts`。
+
+**M4（PR #526）**：同一专家、同一数据域、同一条 SQL，两个真实登录用户的 run 在 Docker 沙盒内真实调用 `run_sql`；RLAC/CLAC 返回不同行与列，非成员读取/下载对方成果返回 404。验证：`E2E_WREN_RUNTIME_PYTHON=<venv python> bun run e2e:channel:execution`（同一用例同时覆盖 M2c 呈现与 M4b/M5 断言）。
+
+**M4b（PR #527）**：受限会话分享 403、既有 token 公开读取/下载 404、分支会话继承、普通会话分享可用。验证：`bun run test -- packages/api/test/output-shares-data-domain.test.ts`。
+
+**M5（PR #530）**：成果下载字节与清单 sha256/大小一致；查询日志、`audit_log` 与审计导出按 run 可追溯；`GET /api/audit/verify` 哈希链校验通过；导出与列表条目一一对应且字段受清单限制。A/B 下载均不含对方行值；B 的下载与 query-logs 不含受限列 `salary`（A 在授权范围内可见 salary）；凭据与账号口令哨兵未出现在下载、query-logs 与审计导出；原始 SQL 未出现在审计导出（导出使用 `inputDigest`）。验证：同一 `bun run e2e:channel:execution`；范围限于该 E2E 的样例与哨兵，不代表任意内容都经过通用 PII 脱敏。
+
+**M6**：本次同步 `WREN-INTEGRATION.md` 与 `OPERATIONS.md`，把 M3 后的交付状态、真实证据、已知限制与部署要求写入文档；未重跑产品测试，最终全链路验收与 PR 关闭按交付流程执行。
+
+## 7. 已知限制与风险
+
+- CLAC 仅支持 1 个 requiredProperty 与 6 种比较器；复杂列权限需用数据库侧列授权兜底（最小权限 GRANT），语义层与数据库两处规则需保持一致。见 `docs/OPERATIONS.md` 的 Wren 章节。
 - RLAC 依赖服务端正确生成 properties；任何客户端或模型可影响的属性都视为漏洞。
 - 并发与扣压未压测：当前只验证单实例、单请求属性隔离，未覆盖并发、连接池与长查询。
 - Python 运行时体积与冷启动成本需在镜像与资源配额中核算。
 - 属性值必须是 SQL 字面量，字符串、数字、日期与 NULL 的类型处理需要统一封装，避免调用方各自拼接。
-- 公开分享与导出的越权风险见第 6 节，属于 M4 / M5 的必测项。
+- enrich 缺少陈旧 `generating` 提案的自动回收：`data-domain-builds` 有 5 分钟对账、超过 15 分钟视为失败的兜底，`data-domain-enrichments` 没有对应 reconciler；任务 `attempts: 1` 不提供业务重试，BullMQ 的 stalled 重投不能替代 stale 回收。worker 崩溃或任务丢失后提案可能长期停在 `generating`，需重新发起提案并人工排查。
+- Wren 运行时无请求鉴权，且凭据在内部 HTTP 明文中传输；只能部署在可信内网/本机，不得暴露公网。默认宿主直跑会监听 `0.0.0.0`。
+- `mdl.schema.json` 把 threshold 定义为 `{value, dataType}` 对象，但运行时与 `wren context build` 实际接受字符串 `"3"`；文档与实现不一致，接入时按运行时实际行为处理（另见 5.6）。
+- `data_domain_query_logs.sql_summary` 为明文 SQL 前 500 字符，`audit_log` 只存摘要且不参与每日清理；查询明细与审计的留存边界见 `docs/OPERATIONS.md`。
