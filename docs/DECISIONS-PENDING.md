@@ -32,9 +32,9 @@
 
 **当时的决定（循环 6 已落地，按最小闭环 B′）**：工具上可标 `requiresApproval`；调用时若未批准，MCP 端点写入 `approval_requests(run_id, server_id, tool_name)` 并返回带说明的错误；`POST /api/runs/:id/approve` 后，同一 run 内的后续调用放行。**当时不是进程内暂停**：批准后需要模型/用户再次发起同一调用。
 
-**被取代的原因**：D-18 已改为挂起式暂停。`packages/api/src/features/servers/generated.ts` 的 `waitForApproval()` 在 MCP 工具调用内部轮询 DB（500ms，上限 `APPROVAL_WAIT_MS`），批准后**同一次调用直接继续并返回结果**，不再要求模型重发；超时按拒绝处理。
+**被取代的原因**：D-18 已改为审批等待；2026-11-18 起由 sandbox `PreToolUse` 登记并短轮询，批准后才执行原始 MCP 调用，API 重启后可以继续等待，详见 ARCHITECTURE §3.6。
 
-**未做**：持久化暂停与自动恢复（LangGraph `interrupt` 式）。若需要，按原备选 B 实现。
+**边界**：不恢复已经发出的工具调用，也不恢复已经退出的 runner；不引入第二套执行底座。
 
 **影响面**：`packages/api/src/features/servers/generated.ts`、`mcp-endpoint.ts`、`packages/api/src/features/runs/routes.ts`、`approval_requests` 表。
 
@@ -197,17 +197,17 @@
 
 **问题**：现在是「拒绝 → 人工批准 → 模型重新发起」，不是暂停；批准后模型可能不再调用，或在别的时机调用。
 
-**决定**：挂起发生在 MCP 工具调用内部（轮询 DB），批准后**同一次调用直接继续**，不再要求模型重试。此路径不依赖 SDK `canUseTool`；原生澄清提问是另一条交互链路。
+**决定（2026-11-18 更新）**：sandbox `PreToolUse` 对本轮 generated ask 工具通过短 PUT 登记审批、短 GET 轮询状态，批准后不返回 `allow`（避免绕过 `disallowedTools`），继续走既有 `allowedTools` / 权限规则，通过后执行原始 MCP 调用。登记与通知共用 API 生产者，首次 expiresAt 固定；API 不再挂起 tools/call。此路径不依赖 SDK `canUseTool`；原生澄清提问是另一条交互链路。
 
 **边界**：
 - 等待有上限（`APPROVAL_WAIT_MS`，默认 300s）；超时按拒绝处理并说明原因。
 - 没有 run 上下文的外部客户端不挂起，立即拒绝（没有页面可以批准）。
-- 进程重启会丢失等待中的调用；`approval_requests` 记录仍在，但那次 run 需要重跑。
-- 不需要 SDK 的 `canUseTool`：挂起发生在 MCP 工具调用内部，模型看到的是"一次较慢的调用"。
+- API 重启仅中断短请求，runner 按退避重试恢复等待；runner/run 结束、hook 超时或 token 失效后拒绝，不重放已经发出的副作用。
+- hook 使用 360 秒 timeout 与 onFailure=block，回调最多等待 355 秒，并受既有 run 取消/超时约束。
 
-**验证**：真实 run 中工具调用挂起 16 秒，批准后同一次调用返回 jsonplaceholder 数据，模型没有重发；单测 `suspends the call and resumes it after approval` 覆盖同一路径。
+**验证**：`generated-mcp.test.ts` 通过真实 HTTP 验证短请求登记、幂等截止、状态读取与批准后执行；sandbox hook 的 API 断连恢复经独立 HTTP 探针验证：PUT 登记后 API 关闭并在同一端口重建，GET 恢复 approved，审批行持久化且通知恰一条；真实 worker E2E 见 `tests/notifications-worker.e2e.ts`。
 
-**影响面**：`packages/api/src/features/servers/generated.ts`、`mcp-endpoint.ts`、`packages/api/src/config.ts`。
+**影响面**：`packages/api/src/modules/servers/`、`packages/sandbox/src/approval-hook.ts`、`packages/worker/src/runs/execute.ts`、shared 任务契约与 db 审批 repo。
 
 ---
 
@@ -331,9 +331,9 @@
 
 ## D-34 ✅ 审批等待与后续许可分开（2026-10-22）
 
-**采用**：approval_requests.expires_at记录调用等待期限；立即拒绝或旧记录为空。未批准重复请求只延长期限，不修改已批准记录。服务端计算waiting，批准响应说明批准时是否仍有等待；过期仍可批准运行中的工具供后续调用/既有继承使用，但不声称恢复已结束调用。终态run仍拒绝批准。
+**采用**：approval_requests.expires_at记录调用等待期限；立即拒绝或旧记录为空。未批准重复请求固定首次期限，不再延长；已批准记录不修改。等待轮询在sandbox `PreToolUse` hook中按2秒GET读取状态，API只处理短请求，API重启后runner按退避重试即可恢复。过期仍可批准运行中的工具供后续调用/既有继承使用，但不声称恢复已结束调用。终态run仍拒绝批准。
 
-**边界**：不使用浏览器时钟猜期限；等待轮询在睡眠后再次检查截止时间，防止截止后的批准恢复当前调用。没有跨重启检查点，也不保证沙盒失联情况下期限尚未来到就一定有活跃调用。0024只新增可空期限列，旧记录不回填。
+**边界**：不使用浏览器时钟猜期限；sandbox hook在睡眠后再次检查截止时间，防止截止后的批准恢复当前调用。审批恢复要求sandbox runner与run保持存活，没有sandbox重启后的检查点，也不保证沙盒失联情况下期限尚未来到就一定有活跃调用。0024只新增可空期限列，旧记录不回填。
 
 ## D-35 ✅ 取消中的MCP等待（2026-10-22）
 
@@ -343,7 +343,7 @@
 
 ## D-36 ✅ MCP容量按执行阶段划分（2026-10-22）
 
-**采用**：上游fetch和有界响应读取共用每进程4槽执行池，最多排队8项，超额明确返回可重试的容量错误；协议握手、SSE、审批等待和平台智能体invoke不持有该执行槽，避免占满后阻塞沙盒回调。invoke仍走既有独立4并发入场；审批等待另有4个不排队名额，满额立即返回需批准并记录无等待期限，不隐式放行工具。
+**采用**：上游fetch和有界响应读取共用每进程4槽执行池，最多排队8项，超额明确返回可重试的容量错误；协议握手、SSE、审批登记/轮询和平台智能体invoke不持有该执行槽，避免占满后阻塞沙盒回调。invoke仍走既有独立4并发入场；API不再持有审批等待，审批由sandbox hook短请求登记与轮询。
 
 **界限**：请求鉴权和限流保留，槽位按工具执行计数而非HTTP请求；多进程不承诺共享全局限额。执行队列中的取消请求在取到名额时复查，不发上游，但可能等待前面请求结束；取消不保证撤销已发送请求。
 

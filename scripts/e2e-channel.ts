@@ -42,6 +42,7 @@ const REPO = fileURLToPath(new URL('..', import.meta.url));
 let IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 let FAKE_PORT = Number(process.env.E2E_CHANNEL_FAKE_PORT ?? 4318);
 const REPLY_PREFIX = 'E2E-CHANNEL-REPLY';
+const APPROVAL_TOOL_MARKER = 'E2E-APPROVAL-TOOL';
 /** 慢响应标记：正文含它时假模型先吐半句、延迟后再收尾，供停止/刷新恢复用例观察。 */
 const SLOW_MARKER = 'E2E-CHANNEL-SLOW';
 const SLOW_PARTIAL = 'E2E-CHANNEL-SLOW-PARTIAL';
@@ -344,12 +345,8 @@ async function runStackMode(databaseUrl: string, redisUrl: string, baseUrl: stri
     E2E_REDIS_URL: redisUrl,
     E2E_ADMIN_USER: ADMIN_USER,
     E2E_ADMIN_PASSWORD: ADMIN_PASSWORD,
-    ...(EXECUTION_MODE
-      ? {
-          E2E_EXECUTION_CONTRACT: join(runRoot, 'execution-contract.json'),
-          E2E_FAKE_MODEL_URL: `http://127.0.0.1:${FAKE_PORT}`,
-        }
-      : {}),
+    ...(EXECUTION_MODE ? { E2E_EXECUTION_CONTRACT: join(runRoot, 'execution-contract.json') } : {}),
+    ...(NEED_FAKE_MODEL ? { E2E_FAKE_MODEL_URL: `http://127.0.0.1:${FAKE_PORT}` } : {}),
     ...(SUITE_MODE && !WITH_WORKER ? { E2E_WORKER_PAUSED: '1' } : {}),
   };
   console.log('\n========== 浏览器 E2E 栈已就绪 ==========');
@@ -592,6 +589,31 @@ function nextDataDomainToolCall(
   return null;
 }
 
+function nextApprovalToolCall(
+  body: unknown,
+): { name: string; input: Record<string, unknown> } | null {
+  const messages = historyMessages(body);
+  const promptIndex = messages.findLastIndex((message) => {
+    if (typeof message !== 'object' || message === null) return false;
+    if ((message as { role?: unknown }).role !== 'user') return false;
+    return contentText((message as { content?: unknown }).content).includes(APPROVAL_TOOL_MARKER);
+  });
+  if (promptIndex < 0) return null;
+  const prompt = contentText((messages[promptIndex] as { content?: unknown }).content);
+  const promptToolName = prompt.match(/mcp__[A-Za-z0-9_.-]+__approval-echo/)?.[0];
+  if (promptToolName === undefined) return null;
+  const results = historyToolResults(body);
+  const uses = toolUsesOf(messages.slice(promptIndex));
+  if (uses.some((use) => use.name.endsWith('__approval-echo') && results.has(use.id))) return null;
+  const tool = toolsOf(body).find(
+    (candidate) => typeof candidate.name === 'string' && candidate.name.endsWith('__approval-echo'),
+  );
+  if (typeof tool?.name === 'string') return { name: tool.name, input: {} };
+  const searched = uses.some((use) => use.name === 'ToolSearch');
+  if (searched || !toolsOf(body).some((candidate) => candidate.name === 'ToolSearch')) return null;
+  return { name: 'ToolSearch', input: { query: `select:${promptToolName}` } };
+}
+
 function nextOutputWriteCall(
   body: unknown,
 ): { name: string; input: Record<string, unknown> } | null {
@@ -630,11 +652,23 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
   const requests: Array<{ path: string; at: number }> = [];
   const messageRequests: FakeMessageRequest[] = [];
   let nextId = 0;
+  let approvalEchoHits = 0;
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', async () => {
       const pathname = new URL(req.url ?? '/', 'http://fake').pathname;
+      if (pathname === '/__e2e_upstream/approval-echo') {
+        approvalEchoHits += 1;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, echo: 'approval' }));
+        return;
+      }
+      if (pathname === '/__e2e_upstream/hits') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ approvalEcho: approvalEchoHits }));
+        return;
+      }
       if (EXECUTION_MODE && pathname === '/__e2e_execution') {
         res.writeHead(
           req.headers.authorization === `Bearer ${executionToken}` &&
@@ -685,7 +719,10 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
       const slow = prompt.includes(SLOW_MARKER);
       const marked = conversation.includes(DATA_DOMAIN_TOOL_MARKER);
       const dataDomainCall = marked ? nextDataDomainToolCall(body, conversation) : null;
-      const toolCall = dataDomainCall ?? nextOutputWriteCall(body);
+      const approvalCall = conversation.includes(APPROVAL_TOOL_MARKER)
+        ? nextApprovalToolCall(body)
+        : null;
+      const toolCall = dataDomainCall ?? approvalCall ?? nextOutputWriteCall(body);
       const completedResults = historyToolResults(body);
       const runSqlDone = historyToolUses(body).some(
         (use) => use.name.endsWith('__run_sql') && completedResults.has(use.id),

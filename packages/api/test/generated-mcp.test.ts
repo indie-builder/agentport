@@ -15,7 +15,6 @@ import {
   startApp,
   type TestApp,
   unique,
-  waitFor,
 } from './helpers.js';
 import { listen, type TestServer } from './server.js';
 
@@ -235,7 +234,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
         serverId: server.id,
         toolName: 'approved-user',
         approvedAt: null,
-        expiresAt: null,
+        expiresAt: expect.any(String),
         waiting: false,
       },
     ]);
@@ -385,13 +384,10 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     }
   });
 
-  it('suspends the call and resumes it after approval when a wait is configured', async () => {
-    // 配置在 startApp 时读取；这一步需要新实例。
+  it('registers approval over short requests and executes only after approval', async () => {
     const waiting = await startApp({ APPROVAL_WAIT_MS: '5000' });
     const waitingServer = await listen(waiting);
     try {
-      const url = waitingServer.url;
-
       const toolRes = await request(waiting, {
         method: 'POST',
         url: `/api/servers/${server.id}/tools`,
@@ -406,7 +402,6 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
         },
       });
       expect(toolRes.statusCode).toBe(201);
-
       const agent = (
         await createAgent(waiting, cookie, {
           slug: unique('suspend-agent'),
@@ -414,40 +409,44 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
           track: createdAgents,
         })
       ).json<{ id: string }>();
-
-      const { runId } = await seedRun(waiting, agent.id, { runId: unique('run') });
+      const runToken = randomBytes(32).toString('base64url');
+      const { runId } = await seedRun(waiting, agent.id, { mcpTokenHash: hashMcpToken(runToken) });
       runIds.push(runId);
-
-      const client = new Client({ name: 'agentport-test', version: '0.0.0' });
-      const transport = new StreamableHTTPClientTransport(new URL(`${url}/mcp/${server.id}`), {
-        requestInit: {
-          headers: { authorization: `Bearer ${token}`, 'x-agentport-run-id': runId },
-        },
+      const approvalUrl = `${waitingServer.url}/tool-approvals/${runId}/${server.id}/suspended-user`;
+      const headers = {
+        authorization: `Bearer ${runToken}`,
+        'x-agentport-run-id': runId,
+        'content-type': 'application/json',
+      };
+      const firstResponse = await fetch(approvalUrl, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ id: 1 }),
       });
-      await client.connect(transport);
+      expect(firstResponse.status).toBe(200);
+      const first = (await firstResponse.json()) as {
+        status: string;
+        approvalId: string;
+        expiresAt: string;
+      };
+      expect(first.status).toBe('pending');
+      const retried = await fetch(approvalUrl, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ id: 1 }),
+      });
+      expect(await retried.json()).toEqual(first);
+      const client = new Client({ name: 'agentport-test', version: '0.0.0' });
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(`${waitingServer.url}/mcp/${server.id}`), {
+          requestInit: { headers },
+        }),
+      );
       try {
-        const pendingCall = client.callTool({ name: 'suspended-user', arguments: { id: 1 } });
-
-        // 调用应挂起：等请求落库，确认它带未来截止时间并可等待，再批准同一次调用。
-        const seeded = await waitFor(async () => {
-          const res = await request(waiting, {
-            method: 'GET',
-            url: `/api/runs/${runId}/approvals`,
-            headers: { cookie },
-          });
-          return res.statusCode === 200 && res.json<{ items: unknown[] }>().items.length > 0;
-        });
-        expect(seeded).toBe(true);
-        const pendingApproval = (
-          await request(waiting, {
-            method: 'GET',
-            url: `/api/runs/${runId}/approvals`,
-            headers: { cookie },
-          })
-        ).json<{ items: Array<{ expiresAt: string | null; waiting: boolean }> }>().items[0];
-        expect(pendingApproval?.waiting).toBe(true);
-        expect(new Date(pendingApproval?.expiresAt ?? 0).getTime()).toBeGreaterThan(Date.now());
-
+        const before = upstreamCalls;
+        const refused = await client.callTool({ name: 'suspended-user', arguments: { id: 1 } });
+        expect(refused.isError).toBe(true);
+        expect(upstreamCalls).toBe(before);
         const approve = await request(waiting, {
           method: 'POST',
           url: `/api/runs/${runId}/approve`,
@@ -455,9 +454,13 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
           payload: { serverId: server.id, toolName: 'suspended-user' },
         });
         expect(approve.statusCode).toBe(200);
-        expect(approve.json<{ waiting: boolean }>().waiting).toBe(true);
-
-        const result = await pendingCall;
+        const state = await fetch(approvalUrl, { headers });
+        expect(await state.json()).toMatchObject({
+          status: 'approved',
+          approvalId: first.approvalId,
+          expiresAt: first.expiresAt,
+        });
+        const result = await client.callTool({ name: 'suspended-user', arguments: { id: 1 } });
         expect(result.isError).toBeFalsy();
         expect(JSON.stringify(result.content)).toContain('Fixture user');
       } finally {
@@ -469,13 +472,10 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     }
   });
 
-  it('times out before the upstream call and records an expired request', async () => {
-    // 100ms < 轮询间隔：调用在第一次轮询前就到截止，不会碰上游。
-    const waiting = await startApp({ APPROVAL_WAIT_MS: '100' });
+  it('derives an expired request over HTTP without executing upstream', async () => {
+    const waiting = await startApp({ APPROVAL_WAIT_MS: '0' });
     const waitingServer = await listen(waiting);
     try {
-      const url = waitingServer.url;
-
       const toolRes = await request(waiting, {
         method: 'POST',
         url: `/api/servers/${server.id}/tools`,
@@ -484,13 +484,10 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
           name: 'timeout-user',
           method: 'GET',
           pathTemplate: '/users/{id}',
-          inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
-          paramsIn: 'query',
           approvalMode: 'ask',
         },
       });
       expect(toolRes.statusCode).toBe(201);
-
       const agent = (
         await createAgent(waiting, cookie, {
           slug: unique('timeout-agent'),
@@ -498,34 +495,21 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
           track: createdAgents,
         })
       ).json<{ id: string }>();
-      const { runId } = await seedRun(waiting, agent.id, { runId: unique('run') });
+      const runToken = randomBytes(32).toString('base64url');
+      const { runId } = await seedRun(waiting, agent.id, { mcpTokenHash: hashMcpToken(runToken) });
       runIds.push(runId);
-
-      const client = new Client({ name: 'agentport-test', version: '0.0.0' });
-      const transport = new StreamableHTTPClientTransport(new URL(`${url}/mcp/${server.id}`), {
-        requestInit: {
-          headers: { authorization: `Bearer ${token}`, 'x-agentport-run-id': runId },
-        },
-      });
-      await client.connect(transport);
-      try {
-        const result = await client.callTool({ name: 'timeout-user', arguments: { id: 1 } });
-        expect(result.isError).toBe(true);
-        expect(result.content[0]).toMatchObject({ text: expect.stringContaining('本次调用取消') });
-      } finally {
-        await client.close();
-      }
-
-      const items = (
-        await request(waiting, {
-          method: 'GET',
-          url: `/api/runs/${runId}/approvals`,
-          headers: { cookie },
-        })
-      ).json<{ items: Array<{ expiresAt: string | null; waiting: boolean }> }>().items;
-      expect(items).toHaveLength(1);
-      expect(new Date(items[0]?.expiresAt ?? 0).getTime()).toBeLessThanOrEqual(Date.now());
-      expect(items[0]?.waiting).toBe(false);
+      const url = `${waitingServer.url}/tool-approvals/${runId}/${server.id}/timeout-user`;
+      const headers = {
+        authorization: `Bearer ${runToken}`,
+        'x-agentport-run-id': runId,
+        'content-type': 'application/json',
+      };
+      const before = upstreamCalls;
+      const registered = await fetch(url, { method: 'PUT', headers, body: '{}' });
+      expect(registered.status).toBe(200);
+      expect(await registered.json()).toMatchObject({ status: 'expired' });
+      expect(await (await fetch(url, { headers })).json()).toMatchObject({ status: 'expired' });
+      expect(upstreamCalls).toBe(before);
     } finally {
       await waitingServer.close();
       await waiting.close();

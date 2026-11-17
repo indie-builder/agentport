@@ -3,15 +3,16 @@ import { repo } from '@agentport/db';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { AppContext, RequestContext } from '../../http/context.js';
-import { isRunCancelRequested, publishChannelEvent } from '../../queue/producer.js';
+import { isRunCancelRequested } from '../../queue/producer.js';
 import { buildDataDomainServer } from '../data-domains/mcp.js';
 import { buildKnowledgeServer } from '../knowledge/mcp.js';
+import { requestToolApproval } from './approvals.js';
 import { bearerToken, tokenMatches } from './bearer.js';
 import { buildGeneratedServer } from './generated.js';
 import { getServerRow, listTools, toApiServer } from './repo.js';
 import { summarizeToolArguments } from './tool-arguments.js';
 
-async function validRunToken(
+export async function validRunToken(
   context: RequestContext,
   runId: string | null,
   serverId: string,
@@ -66,8 +67,6 @@ function handlerFor(app: AppContext, serverId: string, runId: string | null): Mc
             status: 'denied',
           });
         },
-        // 只有真实 run 才挂起等待：外部客户端没有页面可批准，立即拒绝更诚实。
-        ...(trustedRunId === null ? {} : { approvalWaitMs: app.config.APPROVAL_WAIT_MS }),
         ...(trustedRunId === null
           ? {}
           : {
@@ -79,91 +78,8 @@ function handlerFor(app: AppContext, serverId: string, runId: string | null): Mc
               isRunActive: async () =>
                 (await repo.runs.isRunActive(app.db, trustedRunId)) &&
                 !(await isRunCancelRequested(trustedRunId)),
-              onApprovalRequired: async (toolName, args, expiresAt) => {
-                const approval = await repo.runs.requestApproval(app.db, {
-                  runId: trustedRunId,
-                  serverId,
-                  toolName,
-                  expiresAt,
-                  argumentsSummary: summarizeToolArguments(args),
-                });
-                if (approval.channelId === null) {
-                  const recipient = await repo.runs
-                    .getRunInitiator(app.db, trustedRunId)
-                    .catch((err: unknown) => {
-                      app.log.warn(
-                        { err, runId: trustedRunId, approvalId: approval.id },
-                        'approval recipient lookup failed',
-                      );
-                      return null;
-                    });
-                  if (recipient !== null) {
-                    await repo.notifications
-                      .createNotification(app.db, {
-                        businessId: recipient,
-                        kind: 'approval',
-                        title: '工具调用等待审批',
-                        body: `工具 ${approval.toolName} 正在等待你的批准`,
-                        link: `/runs/${trustedRunId}`,
-                        sourceId: `approval:${trustedRunId}:${serverId}:${approval.toolName}`,
-                      })
-                      .catch((err: unknown) => {
-                        app.log.warn(
-                          { err, runId: trustedRunId, approvalId: approval.id },
-                          'approval notification failed',
-                        );
-                      });
-                  }
-                  return;
-                }
-                const approvers = await repo.channels
-                  .listChannelApproverBusinessIds(app.db, approval.channelId)
-                  .catch((err: unknown) => {
-                    app.log.warn(
-                      { err, channelId: approval.channelId, approvalId: approval.id },
-                      'channel approver lookup failed',
-                    );
-                    return [];
-                  });
-                await Promise.all(
-                  approvers.map((businessId) =>
-                    repo.notifications
-                      .createNotification(app.db, {
-                        businessId,
-                        kind: 'approval',
-                        title: '频道工具调用等待审批',
-                        body: `工具 ${approval.toolName} 正在等待你批准`,
-                        link: `/channels/${approval.channelId}`,
-                        sourceId: `channel-approval:${approval.id}`,
-                      })
-                      .catch((err: unknown) => {
-                        app.log.warn(
-                          { err, businessId, approvalId: approval.id },
-                          'channel approval notification failed',
-                        );
-                      }),
-                  ),
-                );
-                try {
-                  await publishChannelEvent(approval.channelId, {
-                    type: 'approval.requested',
-                    channelId: approval.channelId,
-                    runId: trustedRunId,
-                    approvalId: approval.id,
-                    toolName: approval.toolName,
-                  });
-                } catch (err) {
-                  // 事件只是唤醒提示：发布失败不能把工具调用或 run 报失败。
-                  app.log.warn(
-                    {
-                      err,
-                      channelId: approval.channelId,
-                      runId: trustedRunId,
-                      approvalId: approval.id,
-                    },
-                    'channel approval event publish failed',
-                  );
-                }
+              onApprovalRequired: async (toolName, args) => {
+                await requestToolApproval(app, trustedRunId, serverId, toolName, args);
               },
             }),
       });

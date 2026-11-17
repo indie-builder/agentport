@@ -95,7 +95,7 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
     await app.close();
   });
 
-  it('ends the suspended call when the run is cancelled, and never calls the upstream', async () => {
+  it('refuses an unapproved call and a subsequent call after cancellation without upstream execution', async () => {
     const agent = (
       await createAgent(app, cookie, {
         slug: unique('cancel-agent'),
@@ -114,7 +114,8 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
     });
     await client.connect(transport);
     try {
-      const pendingCall = client.callTool({ name: 'blocked-user', arguments: {} });
+      const refused = await client.callTool({ name: 'blocked-user', arguments: {} });
+      expect(refused.isError).toBe(true);
 
       // 等挂起请求落库并带未来截止时间，再取消；顺序固定，不靠 sleep 猜时序。
       const seeded = await waitFor(async () => {
@@ -134,7 +135,7 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
       });
       expect(cancel.statusCode, cancel.body).toBe(202);
 
-      const result = await pendingCall;
+      const result = await client.callTool({ name: 'blocked-user', arguments: {} });
       const text = JSON.stringify(result.content);
       expect(result.isError).toBe(true);
       // 取消在 1000ms 截止之前发生，文案不能是「已等待 N 秒」的超时。

@@ -12,5 +12,7 @@ export const scenarios = {
   channels: () => import('./fixtures/channels.js'),
   'channels-business': () => import('./fixtures/channels-business.js'),
   notifications: () => import('./fixtures/notifications.js'),
+  'notifications-producers': () => import('./fixtures/notifications-producers.js'),
+  'notifications-worker': () => import('./fixtures/notifications-worker.js'),
   'chat-replay': () => import('./fixtures/chat-replay.js'),
 };

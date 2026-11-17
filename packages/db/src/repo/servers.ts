@@ -1,6 +1,6 @@
 import { AppError } from '@agentport/core';
 import type { ApiToolInput, ResolvedRuntimeEnvironment } from '@agentport/shared';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { apiTools, servers } from '../schema.js';
@@ -141,6 +141,33 @@ export async function listApiTools(db: Database, serverId: string): Promise<ApiT
     .from(apiTools)
     .where(eq(apiTools.serverId, serverId))
     .orderBy(asc(apiTools.createdAt), asc(apiTools.id));
+}
+
+export async function listToolApprovalModes(db: Database, serverIds: string[]) {
+  return db
+    .select({
+      serverId: apiTools.serverId,
+      toolName: apiTools.name,
+      approvalMode: apiTools.approvalMode,
+    })
+    .from(apiTools)
+    .innerJoin(servers, eq(servers.id, apiTools.serverId))
+    .where(
+      and(
+        inArray(apiTools.serverId, serverIds),
+        eq(servers.kind, 'generated'),
+        eq(apiTools.enabled, true),
+      ),
+    );
+}
+
+export async function getApiToolByName(db: Database, serverId: string, toolName: string) {
+  const [row] = await db
+    .select()
+    .from(apiTools)
+    .where(and(eq(apiTools.serverId, serverId), eq(apiTools.name, toolName)))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function createApiTool(db: Database, input: ApiToolWrite): Promise<ApiToolRow> {

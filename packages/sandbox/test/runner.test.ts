@@ -304,7 +304,8 @@ describe('runner task wiring', () => {
       expect(options.disallowedTools).not.toContain(tool);
     }
     const matchers = options.hooks?.PreToolUse;
-    expect(matchers).toHaveLength(1);
+    expect(matchers).toHaveLength(2);
+    expect(matchers?.[1]).toMatchObject({ matcher: 'mcp__.*', timeout: 360, onFailure: 'block' });
     expect(matchers?.[0]?.matcher).toBeUndefined();
     expect(matchers?.[0]?.hooks).toHaveLength(2);
     const hook = matchers?.[0]?.hooks[0];

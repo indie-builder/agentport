@@ -51,7 +51,6 @@ const baseInput = {
   headers: {},
   tools: [approvalTool, plainTool],
   approvals: [],
-  approvalWaitMs: 1000,
 };
 
 function handler(name: string): ToolHandler {
@@ -73,7 +72,7 @@ afterEach(() => {
   mcp.handlers.clear();
 });
 
-it('keeps the execution pool free while calls wait for approval', async () => {
+it('keeps the execution pool free when unapproved calls are refused', async () => {
   const fetchSpy = mock(async () => new Response('ok'));
   stubGlobal('fetch', fetchSpy);
 
@@ -86,64 +85,24 @@ it('keeps the execution pool free while calls wait for approval', async () => {
   });
 
   const signal = new AbortController().signal;
-  // 四次挂起已经占满等待名额，但仍不能占执行池。
   const waiting = Array.from({ length: 4 }, () =>
     handler('approve-tool')({}, { mcpReq: { signal } }),
   );
   await waitForAssertion(() => expect(onApprovalRequired).toHaveBeenCalledTimes(4));
 
-  // 已批准的工具在四次等待期间照样能打上游。
   const plain = await handler('plain-tool')({}, { mcpReq: { signal } });
   expect(plain.isError).toBeFalsy();
   expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-  // 第五次请求没有等待名额：立即拒绝，不挂起、不重试。
   const fifth = await handler('approve-tool')({}, { mcpReq: { signal } });
   expect(fifth.isError).toBe(true);
   expect(JSON.stringify(fifth.content)).toContain('需要批准');
   expect(onApprovalRequired).toHaveBeenCalledTimes(5);
-  expect(onApprovalRequired).toHaveBeenLastCalledWith('approve-tool', expect.any(Object), null);
+  expect(onApprovalRequired).toHaveBeenLastCalledWith('approve-tool', expect.any(Object));
 
   const results = await Promise.all(waiting);
   for (const result of results) expect(result.isError).toBe(true);
   expect(fetchSpy).toHaveBeenCalledTimes(1);
-});
-
-it('releases the wait slot when a suspended call ends', async () => {
-  stubGlobal(
-    'fetch',
-    mock(async () => new Response('ok')),
-  );
-
-  const onApprovalRequired = mock(async () => undefined);
-  buildGeneratedServer({
-    ...baseInput,
-    isRunActive: async () => true,
-    refreshApprovals: async () => [],
-    onApprovalRequired,
-  });
-
-  const signal = new AbortController().signal;
-  const waiting = Array.from({ length: 4 }, () =>
-    handler('approve-tool')({}, { mcpReq: { signal } }),
-  );
-  await waitForAssertion(() => expect(onApprovalRequired).toHaveBeenCalledTimes(4));
-
-  const rejected = await handler('approve-tool')({}, { mcpReq: { signal } });
-  expect(rejected.isError).toBe(true);
-
-  await Promise.all(waiting);
-
-  // 名额已归还：下一次调用重新进入挂起，而不是继续走立即拒绝。
-  const call = handler('approve-tool')({}, { mcpReq: { signal } });
-  await waitForAssertion(() =>
-    expect(onApprovalRequired).toHaveBeenLastCalledWith(
-      'approve-tool',
-      expect.any(Object),
-      expect.any(Date),
-    ),
-  );
-  await call;
 });
 
 it('never calls upstream for a call cancelled while queued for the execution pool', async () => {

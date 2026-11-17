@@ -265,7 +265,7 @@ worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也�
 
 频道准入在同一事务内用绑定的 `context_seq` 做增量上下文注入：只取 `context_seq < seq < 触发消息 seq` 的 human/agent/system 消息，最多最新 20 条（`CHANNEL_CONTEXT_MESSAGE_LIMIT`），再反转成升序拼到本轮用户消息前。前缀总长（含分隔与省略提示、不含当前消息）不超过 8000 字符（`CHANNEL_CONTEXT_CHAR_LIMIT`），超限从最早整条丢弃并标注「更早的消息已省略」，单条超长时只保留省略提示；没有新消息时保持原 content 不变。游标**不在准入时推进**：只有该 run 被确认执行（消息持久化事务内）才把 `context_seq` 推进到触发消息 seq，因此 queued 取消、入队失败、开跑前拒绝都不会吞掉未注入的上下文；旧消息重放用 `Math.max` 不回退。注入只改该 run 原有的一条 lane 用户消息，不新增频道消息。
 
-M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade）、`approved_by_business_id` / `denied_by_business_id`（可空 text）、`denied_at`（可空 timestamptz）与 `arguments_summary`（可空 jsonb；写入前脱敏敏感键、截断长字符串与总长度），不新增审批状态列或独立计划审批表，也不回填旧行。频道写操作（创建、更新、成员与绑定变更、发消息）写 `audit_log`；worker 投影的 agent 频道消息以 `actor_kind='agent'` 记录，重放按消息 ID 的 dedupeKey 去重。审计列表与导出返回 `actorKind`，web 审计详情展示主体类型。关闭复用 `channels.archived_at`：`postMessage`、`admitChatRun` 频道分支在同一行锁内检查并拒绝新内容；`postSystemMessage` 已关闭时返回 `null`，不写忙碌误提示。`approval.requested` 是频道 SSE 的实时提示事件，审批状态仍以 `approval_requests` 行为准。频道审批支持批准与拒绝（`POST /channels/{id}/approvals/{approvalId}/approve|deny`）：owner/admin，或触发该 run 的 member 可以决策，viewer 与其余成员拒绝；先锁 run 行再 CAS 审批行，并发决策只有一个赢家。频道 UI 已随 M4 提供列表页与频道详情页，并补齐成员增删与角色调整、频道设置、关闭、断开/移除智能体；频道附件仍属后续切片。消息列表首屏取最新一页，向上按 `before` 游标加载更早消息；成员显示名来自 `authUsers.name`，他人消息左对齐且不强制滚到底部。单条消息最多唤醒 5 个智能体（`CHANNEL_MAX_WAKE_AGENTS`），`mentions` 与 `mentionAll` 解析后超限整条消息拒绝且不落库；频道设置中每个智能体绑定可开启/关闭「响应 @all」，频道输入区提供「通知全部（N）」入口，发送前确认并显示影响人数，未开启的绑定不会被 @all 唤醒。频道 SSE 的 `message.created` 写 `id: <seq>` 并支持 `Last-Event-ID` 续传；Redis 订阅正常时保留 30 秒低频兜底轮询，订阅失败切回 3 秒。
+M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade）、`approved_by_business_id` / `denied_by_business_id`（可空 text）、`denied_at`（可空 timestamptz）与 `arguments_summary`（可空 jsonb；写入前脱敏敏感键、截断长字符串与总长度），不新增审批状态列或独立计划审批表，也不回填旧行。频道写操作（创建、更新、成员与绑定变更、发消息）写 `audit_log`；worker 投影的 agent 频道消息以 `actor_kind='agent'` 记录，重放按消息 ID 的 dedupeKey 去重。审计列表与导出返回 `actorKind`，web 审计详情展示主体类型。关闭复用 `channels.archived_at`：`postMessage`、`admitChatRun` 频道分支在同一行锁内检查并拒绝新内容；`postSystemMessage` 已关闭时返回 `null`，不写忙碌误提示。`approval.requested` 是频道 SSE 的实时提示事件，审批状态仍以 `approval_requests` 行为准。平台 generated MCP 的 ask 工具在 sandbox `PreToolUse` 中先登记审批，再短轮询等待，批准后才发出原始 MCP 调用；私有与频道审批共用登记及通知生产者。频道审批支持批准与拒绝（`POST /channels/{id}/approvals/{approvalId}/approve|deny`）：owner/admin，或触发该 run 的 member 可以决策，viewer 与其余成员拒绝；先锁 run 行再 CAS 审批行，并发决策只有一个赢家。频道 UI 已随 M4 提供列表页与频道详情页，并补齐成员增删与角色调整、频道设置、关闭、断开/移除智能体；频道附件仍属后续切片。消息列表首屏取最新一页，向上按 `before` 游标加载更早消息；成员显示名来自 `authUsers.name`，他人消息左对齐且不强制滚到底部。单条消息最多唤醒 5 个智能体（`CHANNEL_MAX_WAKE_AGENTS`），`mentions` 与 `mentionAll` 解析后超限整条消息拒绝且不落库；频道设置中每个智能体绑定可开启/关闭「响应 @all」，频道输入区提供「通知全部（N）」入口，发送前确认并显示影响人数，未开启的绑定不会被 @all 唤醒。频道 SSE 的 `message.created` 写 `id: <seq>` 并支持 `Last-Event-ID` 续传；Redis 订阅正常时保留 30 秒低频兜底轮询，订阅失败切回 3 秒。
 
 频道 run 工作现场已按频道作用域补齐：成员可读取 run 详情、提问与成果，入口为 `GET /channels/{id}/runs/{runId}`、`/questions`、`/outputs` 与 `/outputs/content|download`。授权先经 `getChannelRunForMember` 同时匹配 run 的 `channel_id` 与成员关系，非成员、跨频道与私有 run 一律按不存在处理；回答提问限 owner/admin 或触发该 run 的 member，viewer 拒绝。频道 run 以 failed/timeout/cancelled 结束时，`finalizeRun` 在终态 CAS 胜出后写一条 `kind='system'` 频道消息，按 `(channelId, runId, kind='system')` 幂等并发布 `message.created`；API 显式停止 queued run 复用同一 repo 与幂等键，批量 disconnect/close 不为每个 run 写 notice。成果读取复用 `listOutputFiles` 的 `runId` 过滤与 `readOutputFile` 的路径与普通文件校验；预览沿用 1MiB 与文本类型限制，不新增文件布局。
 
@@ -297,7 +297,11 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 已读语义：用户批准或拒绝私有 run / 频道审批后，服务端按来源键把对应 `approval` 通知标为已读；回答澄清提问后把对应 `question` 通知标为已读。标记失败只记日志，不回滚已完成的审批或回答。其余通知保留未读，直到用户单条或全部标为已读。页面 `/notifications` 提供全部/待办筛选、单条与全部已读、游标分页，侧栏入口显示未读数并按 30 秒轮询更新。
 
-边界：当前只有站内投递与页面/侧栏徽标，没有外部邮件、IM、webhook、通知偏好或免打扰；通知只读 DB，API 重启不丢已落库记录，但跨 API 重启的审批恢复仍未实现，通知不代偿该能力。
+工具审批恢复：worker 通过 shared `SandboxTask` 传递父级与启用子级的 server 名到 ID 映射及本轮 ask 工具快照。sandbox `PreToolUse` 从官方 `.mcp.json` 读取既有 run Bearer token 与 `x-agentport-run-id`，调用 `PUT /tool-approvals/{runId}/{serverId}/{toolName}` 幂等登记，再每 2 秒 GET 同一路径。接口复用 MCP service 边界与限流，只接受绑定该 generated server 的 run token、启用且仍为 ask 的工具；返回 pending/approved/denied/expired/cancelled、approvalId 与 expiresAt。审批按 `(runId, serverId, toolName)` 持久化，首次截止由 `APPROVAL_WAIT_MS`（默认 300 秒）固定，重试不延期。过期由尚未决策行的截止派生，不新增状态列；已有 approved/denied 行语义保持不变，批准记录不因等待截止而撤销。
+
+API 重启只中断当前短请求，runner 对网络错误和 5xx 按 2–5 秒退避，429 遵守 Retry-After，恢复后继续读取同一审批。批准后 hook 不给权限决策，沿用既有 `allowedTools` / 权限规则；显式禁用仍生效，原 MCP 调用在权限通过后执行；拒绝、过期、取消或 401/403/404 返回 deny。hook 设置 360 秒超时和 `onFailure: 'block'`，回调最多等待 355 秒，并受 run 取消/超时的既有 SIGTERM 约束。服务端不再长等待，执行前仍刷新批准/拒绝与 run 活动状态；绕过 hook 的未批准调用只登记并立即拒绝。
+
+边界：当前只有站内投递与页面/侧栏徽标，没有外部邮件、IM、webhook、通知偏好或免打扰。审批恢复要求 sandbox runner 与 run 保持存活；不恢复已经发出的 MCP/upstream 调用，也不重放副作用。超过 hook/run 截止或 API 持续不可用时拒绝执行；`APPROVAL_WAIT_MS` 超过 355 秒也不会延长 hook 等待。
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
@@ -648,7 +652,7 @@ SDK 生成与管理端手工保存都只追加草稿版本，不移动已发布�
 | 审计写入支持 `dedupeKey` | BullMQ 基础设施重试会重放同一件事；没有幂等键时每次重试都多写一行审计 | 有键时用 `onConflictDoNothing` 而不是覆盖，重复上报被丢弃 |
 | 内置工具默认禁用（Bash 与受路径规则约束的文件工具例外） | 用户可配置任意 stdio server，必须收紧默认权限；Bash 在容器内运行，文件边界由只读挂载约束 | 无需 MCP 即可执行命令；Bash 可访问容器可写挂载，网络按出站配置 |
 | SSE 走 Redis Stream + 阻塞读取 | 订阅前的事件可回放；TTL 自动清理 | 事件保留 1 小时，不落库；每个观众一条独立订阅连接（`XREAD BLOCK`）；流不按条数裁剪，写入量由 worker 的展示/落库预算约束；无新事件 1 小时后过期，之后只能靠落库消息恢复 |
-| MCP容量按执行计数 | 握手、SSE、平台invoke与审批等待不占上游执行槽，避免自等待 | 每进程执行4槽、排队8项；审批等待独立4槽且满时立即需批准，invoke既有4并发入场；非全局多进程限额 |
+| MCP容量按执行计数 | 握手、SSE、平台invoke与审批等待不占上游执行槽，避免自等待 | 每进程执行4槽、排队8项；审批由sandbox hook短轮询等待，不占API执行槽；invoke既有4并发入场；非全局多进程限额 |
 | 会话历史使用独占游标页 | 网页默认50条、最多100条，按(created_at,id)倒取后正序展示；cursor须属于当前会话 | nextCursor为空则结束；消息内容字节未单独限制，内部完整复制调用保持原语义 |
 | api / worker 分进程 | 长任务不占 HTTP；队列消费可独立扩容 | 多一层队列与状态同步 |
 | 单机优先，不抽象多机 | 少一层存储与服务发现 | 不能横向扩容 worker |

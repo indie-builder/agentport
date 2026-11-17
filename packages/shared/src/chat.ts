@@ -255,6 +255,8 @@ export const sandboxTaskSchema = z
     permissionMode: permissionModeSchema.optional(),
     /** 本会话可用的 MCP server 名（父级自己绑定的）。 */
     mcpServers: z.array(z.string()).default([]),
+    mcpServerIds: z.record(z.string(), z.string()).default({}),
+    mcpApprovalTools: z.array(z.object({ server: z.string(), tool: z.string() })).default([]),
     /** 主会话可用的技能 slug；子智能体技能由它自己的 frontmatter 声明。 */
     skills: z.array(z.string()).default([]),
     /** 工作区带 `.claude/workflows/*.js` 时为真：runner 预批准 Workflow 工具。 */

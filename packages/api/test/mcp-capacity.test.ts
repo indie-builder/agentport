@@ -69,7 +69,7 @@ function boundedInvoker(): { invoker: AgentInvoker; release: () => void; calls: 
   };
 }
 
-describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execution', () => {
+describe.skipIf(!ready)('MCP capacity: approval requests must not block execution', () => {
   let app: AppRuntime;
   let listener: TestServer;
   let cookie: string;
@@ -144,7 +144,7 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
     await app.close();
   });
 
-  it('runs a free call while 4 approval waits are parked, and refuses the 5th wait immediately', async () => {
+  it('runs a free call alongside unapproved calls and refuses each unapproved call immediately', async () => {
     const agent = (
       await createAgent(app, cookie, {
         slug: unique('capacity-agent'),
@@ -179,7 +179,6 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
     };
 
     try {
-      // 前 4 个真实 run 各挂起一次审批等待。
       for (const runId of runIdsForAgent.slice(0, 4)) {
         const client = await withTimeout(connect(runId), 5_000, 'connect');
         pending.push(
@@ -191,7 +190,6 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
         );
       }
 
-      // 4 条审批记录都已落库，说明前 4 个调用真的进了挂起路径（waiting 见 generated-mcp 用例）。
       for (const runId of runIdsForAgent.slice(0, 4)) {
         const parked = await waitFor(async () => {
           const res = await request(app, {
@@ -222,7 +220,6 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
       expect(JSON.stringify(free.content)).toContain('upstream-ok');
       expect(upstreamCalls.count).toBe(1);
 
-      // 第 5 个等待名额已满：立即拒绝（同一路径的原有立即拒绝语义），不排队等 10s。
       const started = Date.now();
       const refused = await withTimeout(
         fifth.callTool({ name: 'waiting-tool', arguments: {} }) as Promise<CallResult>,
@@ -233,7 +230,6 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
       expect(refused.isError).toBe(true);
       expect(JSON.stringify(refused.content)).toContain('需要批准：waiting-tool');
 
-      // 拒绝也要落审批记录，但没有等待窗口：expiresAt 为 null，页面不显示倒计时。
       const rows = await waitFor(async () => {
         const res = await request(app, {
           method: 'GET',
@@ -250,7 +246,7 @@ describe.skipIf(!ready)('MCP capacity: suspended approvals must not block execut
           headers: { cookie },
         })
       ).json<{ items: Array<{ expiresAt: string | null; waiting: boolean }> }>().items[0];
-      expect(refusedRow).toMatchObject({ expiresAt: null, waiting: false });
+      expect(refusedRow).toMatchObject({ expiresAt: expect.any(String), waiting: true });
     } finally {
       // 结束本用例自己的 run，让挂起的调用立刻以取消结束，再收客户端。
       for (const runId of runIdsForAgent) {

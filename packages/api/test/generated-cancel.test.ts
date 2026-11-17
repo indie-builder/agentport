@@ -47,7 +47,6 @@ const baseInput = {
   headers: {},
   tools: [tool],
   approvals: [],
-  approvalWaitMs: 1000,
 };
 
 /** 取消类结果：不能再落到旧的超时文案，模型要能区分「人取消了」与「等超时了」。 */
@@ -80,55 +79,6 @@ beforeEach(() => {
 afterEach(() => {
   unstubAllGlobals();
   mcp.handlers.clear();
-});
-
-it('cancels the suspended call when the run ends before approval, without touching upstream', async () => {
-  const fetchSpy = mock(async () => new Response('ok'));
-  stubGlobal('fetch', fetchSpy);
-
-  let active = true;
-  let approvals: string[] = [];
-  const onApprovalRequired = mock(async () => undefined);
-
-  buildGeneratedServer({
-    ...baseInput,
-    approvals,
-    isRunActive: async () => active,
-    refreshApprovals: async () => approvals,
-    onApprovalRequired,
-  });
-
-  const call = callTool(new AbortController().signal);
-  await waitForAssertion(() => expect(onApprovalRequired).toHaveBeenCalledTimes(1));
-
-  // 取消发生在等待窗口内：run 结束，随后即使出现批准记录也不再执行。
-  active = false;
-  approvals = ['approve-tool'];
-
-  expectCancelled(await call);
-  expect(fetchSpy).not.toHaveBeenCalled();
-});
-
-it('cancels immediately when the request signal aborts during the wait', async () => {
-  const fetchSpy = mock(async () => new Response('ok'));
-  stubGlobal('fetch', fetchSpy);
-
-  const controller = new AbortController();
-  const onApprovalRequired = mock(async () => undefined);
-  buildGeneratedServer({
-    ...baseInput,
-    isRunActive: async () => true,
-    refreshApprovals: async () => [],
-    onApprovalRequired,
-  });
-
-  const call = callTool(controller.signal);
-  await waitForAssertion(() => expect(onApprovalRequired).toHaveBeenCalledTimes(1));
-  controller.abort();
-
-  // 截止时刻是 1000ms：提前返回说明是取消，不是超时。
-  expectCancelled(await call);
-  expect(fetchSpy).not.toHaveBeenCalled();
 });
 
 it('refuses an already approved tool when the run is no longer active', async () => {
@@ -169,18 +119,17 @@ it('checks cancellation after the DNS gate and before fetch', async () => {
   expect(fetchSpy).not.toHaveBeenCalled();
 });
 
-it.each([0, 1000])(
-  'does not create an approval after cancellation during a status read (%i ms)',
-  async (approvalWaitMs) => {
+it.each([1, 2])(
+  'does not create an approval after cancellation during status read %i',
+  async (cancelAt) => {
     const controller = new AbortController();
     const onApprovalRequired = mock(async () => undefined);
     let reads = 0;
     buildGeneratedServer({
       ...baseInput,
-      approvalWaitMs,
       isRunActive: async () => {
         reads += 1;
-        if (reads === (approvalWaitMs === 0 ? 1 : 2)) controller.abort();
+        if (reads === cancelAt) controller.abort();
         return true;
       },
       onApprovalRequired,

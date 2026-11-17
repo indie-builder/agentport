@@ -20,6 +20,7 @@ import {
   type WireFailureKind,
 } from '@agentport/shared';
 import { forkSession, query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { createApprovalHook } from './approval-hook.js';
 import {
   createFileBoundaryHook,
   createPersonalMemoryHook,
@@ -502,6 +503,12 @@ if (session.error !== undefined) {
                   ),
                 }),
               ],
+            },
+            {
+              matcher: 'mcp__.*',
+              timeout: 360,
+              onFailure: 'block',
+              hooks: [createApprovalHook(task, workspaceDir, abortController.signal)],
             },
           ],
           // 个人记忆每轮重新读取：恢复会话也拿到宿主最新保存的内容，不依赖会话恢复缓存。

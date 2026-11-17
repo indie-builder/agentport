@@ -15,23 +15,3 @@ export function runMcpExecution<T>(task: () => Promise<T>): Promise<T> {
   }
   return execution(task);
 }
-
-const MAX_APPROVAL_WAITS = 4;
-let approvalWaits = 0;
-
-/**
- * 挂起等待批准的名额：满了立即返回 accepted:false，由调用方走立即拒绝路径，
- * 不排队、不占执行池，否则等待中的调用会把整条链路堵死。
- */
-export async function tryApprovalWait<T>(
-  task: () => Promise<T>,
-): Promise<{ accepted: true; value: T } | { accepted: false }> {
-  // 同步检查并占用名额，避免 await 前被其他调用插队。
-  if (approvalWaits >= MAX_APPROVAL_WAITS) return { accepted: false };
-  approvalWaits++;
-  try {
-    return { accepted: true, value: await task() };
-  } finally {
-    approvalWaits--;
-  }
-}
