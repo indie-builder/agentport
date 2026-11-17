@@ -1,15 +1,12 @@
 import { AppError, decryptSecrets, encryptSecrets, isAppError } from '@agentport/core';
 import { type Database, repo, schema } from '@agentport/db';
 import type { KnowledgeSourceInput } from '@agentport/shared';
-import {
-  knowledgeSourceInputSchema,
-  knowledgeSourceRangeExternalIdMax,
-} from '@agentport/shared';
+import { knowledgeSourceInputSchema, knowledgeSourceRangeExternalIdMax } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../../lib/cron.js';
 import { createJob, enqueueKnowledgeJob } from '../service.js';
-import { type KnowledgeDeps, type PageQuery, notFound, pageOptions } from './shared.js';
+import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
 
 type RangeInput = KnowledgeSourceInput['ranges'][number];
 
@@ -376,7 +373,7 @@ export async function createSource(
 ) {
   const base = await repo.knowledge.getBase(deps.db, id);
   if (!base) notFound('知识库');
-  if (input.syncCron !== null && !isSchedulableCron(input.syncCron)) {
+  if (input.syncCron !== null && !isSchedulableCron(input.syncCron, 'UTC')) {
     throw new AppError('INVALID_INPUT', INVALID_CRON_MESSAGE, { path: '/syncCron' });
   }
   const issues = configIssues(input.type, input.config, input.secrets, input.ranges);
@@ -432,7 +429,11 @@ function parsePatchInput(
 export async function updateSource(deps: KnowledgeDeps, sourceId: string, body: SourcePatch) {
   const found = await sourceRow(deps.db, sourceId);
   if (!found) notFound('来源');
-  if (body.syncCron !== undefined && body.syncCron !== null && !isSchedulableCron(body.syncCron)) {
+  if (
+    body.syncCron !== undefined &&
+    body.syncCron !== null &&
+    !isSchedulableCron(body.syncCron, 'UTC')
+  ) {
     throw new AppError('INVALID_INPUT', INVALID_CRON_MESSAGE, { path: '/syncCron' });
   }
   const { source, ranges } = found;

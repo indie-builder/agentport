@@ -213,7 +213,7 @@ describe.skipIf(!ready)('schedule routes', () => {
     const created = await createSchedule();
     const entry = await queue.getJobScheduler(created.id);
     expect(entry?.pattern).toBe('*/5 * * * *');
-    expect(entry?.tz).toBe('UTC');
+    expect(entry?.tz).toBe('Asia/Shanghai');
     expect(created.nextDueAt).toBe(new Date(entry?.next ?? 0).toISOString());
   });
 

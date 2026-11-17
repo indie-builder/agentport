@@ -262,6 +262,7 @@ export const agentRuns = pgTable(
       { onDelete: 'set null' },
     ),
     scheduleId: text('schedule_id'),
+    retryOfRunId: text('retry_of_run_id'),
     status: text('status', {
       enum: runStatusSchema.options as [RunStatus, ...RunStatus[]],
     })
@@ -353,6 +354,9 @@ export const agentRuns = pgTable(
     uniqueIndex('agent_runs_channel_trigger_idx')
       .on(t.channelId, t.channelTriggerMessageId, t.agentId)
       .where(isNotNull(t.channelId)),
+    uniqueIndex('agent_runs_retry_of_idx')
+      .on(t.retryOfRunId)
+      .where(sql`${t.retryOfRunId} is not null`),
   ],
 );
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { runErrorKindSchema, runStatusSchema } from './run-state.js';
 
 export const MAINTENANCE_QUEUE = 'maintenance';
 
@@ -6,16 +7,26 @@ export const MAINTENANCE_QUEUE = 'maintenance';
 export const runTriggerSchema = z.enum(['chat', 'mcp', 'schedule', 'event', 'review', 'channel']);
 export type RunTrigger = z.infer<typeof runTriggerSchema>;
 
-/** 5 段 cron 结构校验（分 时 日 月 周，UTC）；实际可调度性由 API schema 用 BullMQ 解析。 */
+/** 5 段 cron 结构校验（分 时 日 月 周，按任务时区解析）；实际可调度性由 API schema 用 BullMQ 解析。 */
 export const cronSchema = z
   .string()
   .trim()
   .refine((v) => v.split(/\s+/).length === 5, 'cron 需要 5 段：分 时 日 月 周');
 
+const ianaTimeZones = new Set(Intl.supportedValuesOf('timeZone'));
+
+export const scheduleTimezoneSchema = z
+  .string()
+  .trim()
+  .min(1, '无效的时区')
+  .refine((timeZone) => timeZone === 'UTC' || ianaTimeZones.has(timeZone), '无效的时区');
+
 export const scheduleInputSchema = z.object({
   agentId: z.string().min(1),
   name: z.string().min(1).max(120),
   cron: cronSchema,
+  timezone: scheduleTimezoneSchema.default('Asia/Shanghai'),
+  missedPolicy: z.enum(['skip', 'run_once']).default('skip'),
   prompt: z.string().min(1).max(8000),
   enabled: z.boolean().default(true),
 });
@@ -28,6 +39,9 @@ export const scheduleSchema = z.object({
   agentName: z.string().nullable(),
   name: z.string(),
   cron: z.string(),
+  timezone: z.string(),
+  missedPolicy: z.enum(['skip', 'run_once']),
+  description: z.string(),
   prompt: z.string(),
   enabled: z.boolean(),
   lastRunAt: z.string().nullable(),
@@ -40,12 +54,31 @@ export type Schedule = z.infer<typeof scheduleSchema>;
 
 // `.partial()` 只把字段设为可选，不会移除 `default()`；直接 partial 会在省略
 // enabled 时仍注入 true，把停用的任务重新启用。这里显式覆盖成纯可选。
-export const schedulePatchSchema = scheduleInputSchema.omit({ agentId: true }).partial().extend({
-  enabled: z.boolean().optional(),
-  expectedUpdatedAt: z.string().optional(),
-});
+export const schedulePatchSchema = scheduleInputSchema
+  .omit({ agentId: true })
+  .partial()
+  .extend({
+    enabled: z.boolean().optional(),
+    timezone: scheduleTimezoneSchema.optional(),
+    missedPolicy: z.enum(['skip', 'run_once']).optional(),
+    expectedUpdatedAt: z.string().optional(),
+  });
 
 export type SchedulePatch = z.infer<typeof schedulePatchSchema>;
+
+export const scheduleRunSchema = z.object({
+  id: z.string(),
+  status: runStatusSchema,
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  endedAt: z.string().nullable(),
+  latencyMs: z.number().nullable(),
+  error: z.string().nullable(),
+  errorKind: runErrorKindSchema.nullable(),
+  costUsd: z.string().nullable(),
+});
+
+export type ScheduleRun = z.infer<typeof scheduleRunSchema>;
 
 /**
  * 长期记忆用 Claude Code 原生 auto-memory：目录是 MEMORY.md + 主题文件。

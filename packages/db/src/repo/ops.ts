@@ -29,6 +29,8 @@ export interface ScheduleWrite {
   agentId: string;
   name: string;
   cron: string;
+  timezone: ScheduleRow['timezone'];
+  missedPolicy: ScheduleRow['missedPolicy'];
   prompt: string;
   enabled: boolean;
   createdBy: string;
@@ -74,6 +76,8 @@ export async function updateSchedule(
     .set({
       ...(patch.name === undefined ? {} : { name: patch.name }),
       ...(patch.cron === undefined ? {} : { cron: patch.cron }),
+      ...(patch.timezone === undefined ? {} : { timezone: patch.timezone }),
+      ...(patch.missedPolicy === undefined ? {} : { missedPolicy: patch.missedPolicy }),
       ...(patch.prompt === undefined ? {} : { prompt: patch.prompt }),
       ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
       updatedAt: new Date(),
@@ -87,6 +91,50 @@ export async function updateSchedule(
       ),
     )
     .returning();
+  return row ?? null;
+}
+
+export async function listSchedulesForSync(db: Database) {
+  return db
+    .select({
+      id: agentSchedules.id,
+      cron: agentSchedules.cron,
+      enabled: agentSchedules.enabled,
+      timezone: agentSchedules.timezone,
+      missedPolicy: agentSchedules.missedPolicy,
+      lastRunAt: agentSchedules.lastRunAt,
+      createdAt: agentSchedules.createdAt,
+    })
+    .from(agentSchedules);
+}
+
+const scheduleRunColumns = {
+  id: agentRuns.id,
+  status: agentRuns.status,
+  createdAt: agentRuns.createdAt,
+  startedAt: agentRuns.startedAt,
+  endedAt: agentRuns.endedAt,
+  latencyMs: agentRuns.latencyMs,
+  error: agentRuns.error,
+  errorKind: agentRuns.errorKind,
+  costUsd: agentRuns.costUsd,
+};
+
+export async function listScheduleRuns(db: Database, scheduleId: string, limit: number) {
+  return db
+    .select(scheduleRunColumns)
+    .from(agentRuns)
+    .where(eq(agentRuns.scheduleId, scheduleId))
+    .orderBy(desc(agentRuns.createdAt), desc(agentRuns.id))
+    .limit(limit);
+}
+
+export async function getScheduleRun(db: Database, scheduleId: string, runId: string) {
+  const [row] = await db
+    .select(scheduleRunColumns)
+    .from(agentRuns)
+    .where(and(eq(agentRuns.scheduleId, scheduleId), eq(agentRuns.id, runId)))
+    .limit(1);
   return row ?? null;
 }
 
@@ -104,6 +152,7 @@ export interface ScheduleTriggerWrite {
   messageId: string;
   /** 本轮计划时刻 prevMillis：只允许比上次更新更晚的触发落库，重复投递自然被挡掉。 */
   triggerAt: number;
+  recordedAt?: number;
 }
 
 /**
@@ -148,7 +197,7 @@ export async function claimScheduleTrigger(
     const claimedAtIso = claimedAt.toISOString();
     const claimed = await tx
       .update(agentSchedules)
-      .set({ lastRunAt: claimedAt })
+      .set({ lastRunAt: new Date(input.recordedAt ?? input.triggerAt) })
       .where(
         and(
           eq(agentSchedules.id, input.scheduleId),
@@ -198,6 +247,118 @@ export async function claimScheduleTrigger(
       role: 'user',
       senderBusinessId: schedule.executeAsBusinessId,
       content: { type: 'text', text: schedule.prompt },
+      runId: input.runId,
+    });
+    return 'claimed';
+  });
+}
+
+export interface ScheduleRetryWrite {
+  scheduleId: string;
+  previousRunId: string;
+  runId: string;
+  conversationId: string;
+  messageId: string;
+}
+
+export async function claimScheduleRetry(
+  db: Database,
+  input: ScheduleRetryWrite,
+): Promise<'claimed' | 'duplicate' | 'agent_disabled' | 'budget_exceeded'> {
+  return db.transaction(async (tx) => {
+    const [schedule] = await tx
+      .select({
+        agentId: agentSchedules.agentId,
+        name: agentSchedules.name,
+        prompt: agentSchedules.prompt,
+        executeAsBusinessId: agentSchedules.executeAsBusinessId,
+      })
+      .from(agentSchedules)
+      .where(and(eq(agentSchedules.id, input.scheduleId), eq(agentSchedules.enabled, true)))
+      .limit(1);
+    if (!schedule) return 'duplicate';
+
+    const [pre] = await tx
+      .select({ publishedVersion: agents.publishedVersion })
+      .from(agents)
+      .where(eq(agents.id, schedule.agentId))
+      .limit(1);
+    const preDefinition =
+      pre?.publishedVersion === null || pre?.publishedVersion === undefined
+        ? null
+        : ((await getAgentVersion(tx, schedule.agentId, pre.publishedVersion))?.definition ?? null);
+    await lockRunResources(tx, schedule.agentId, preDefinition?.agent.subAgentIds);
+
+    const [lockedSchedule] = await tx
+      .select({
+        agentId: agentSchedules.agentId,
+        name: agentSchedules.name,
+        prompt: agentSchedules.prompt,
+        executeAsBusinessId: agentSchedules.executeAsBusinessId,
+      })
+      .from(agentSchedules)
+      .where(and(eq(agentSchedules.id, input.scheduleId), eq(agentSchedules.enabled, true)))
+      .limit(1)
+      .for('share');
+    if (!lockedSchedule) return 'duplicate';
+
+    const [agent] = await tx
+      .select({
+        enabled: agents.enabled,
+        monthlyBudgetUsd: agents.monthlyBudgetUsd,
+      })
+      .from(agents)
+      .where(eq(agents.id, lockedSchedule.agentId))
+      .limit(1);
+    if (!agent?.enabled) return 'agent_disabled';
+
+    const monthlyBudgetUsd =
+      preDefinition === null
+        ? agent.monthlyBudgetUsd === null
+          ? null
+          : Number(agent.monthlyBudgetUsd)
+        : preDefinition.agent.monthlyBudgetUsd;
+    if (monthlyBudgetUsd !== null) {
+      const spent = await sumAgentSpendSince(tx, lockedSchedule.agentId, utcMonthStart());
+      if (spent >= monthlyBudgetUsd) return 'budget_exceeded';
+    }
+
+    await tx.insert(conversations).values({
+      id: input.conversationId,
+      agentId: lockedSchedule.agentId,
+      title: `定时: ${lockedSchedule.name}`.slice(0, 80),
+      createdBy: lockedSchedule.executeAsBusinessId,
+    });
+    const inserted = await tx
+      .insert(agentRuns)
+      .values({
+        id: input.runId,
+        conversationId: input.conversationId,
+        agentId: lockedSchedule.agentId,
+        scheduleId: input.scheduleId,
+        status: 'queued',
+        trigger: 'schedule',
+        subjectKind: 'user',
+        initiatedBy: lockedSchedule.executeAsBusinessId,
+        agentVersion: pre?.publishedVersion ?? null,
+        serverIds:
+          preDefinition === null
+            ? await getAgentServerIds(tx, lockedSchedule.agentId)
+            : preDefinition.agent.serverIds,
+        retryOfRunId: input.previousRunId,
+      })
+      .onConflictDoNothing()
+      .returning({ id: agentRuns.id });
+    if (inserted.length === 0) {
+      await tx.delete(conversations).where(eq(conversations.id, input.conversationId));
+      return 'duplicate';
+    }
+    await tx.insert(messages).values({
+      id: input.messageId,
+      conversationId: input.conversationId,
+      role: 'user',
+      senderBusinessId: lockedSchedule.executeAsBusinessId,
+      content: { type: 'text', text: lockedSchedule.prompt },
       runId: input.runId,
     });
     return 'claimed';

@@ -1,0 +1,2 @@
+ALTER TABLE "agent_schedules" ADD COLUMN "timezone" text DEFAULT 'Asia/Shanghai' NOT NULL;--> statement-breakpoint
+ALTER TABLE "agent_schedules" ADD COLUMN "missed_policy" text DEFAULT 'skip' NOT NULL;

@@ -40,6 +40,7 @@ import { keysetBefore, paginate } from './keyset.js';
 
 export interface RunListItem {
   id: string;
+  scheduleId: string | null;
   agentId: string;
   agentName: string | null;
   status: RunStatus;
@@ -121,6 +122,7 @@ const runColumns = {
   agentName: agents.name,
   status: agentRuns.status,
   trigger: agentRuns.trigger,
+  scheduleId: agentRuns.scheduleId,
   startedAt: agentRuns.startedAt,
   endedAt: agentRuns.endedAt,
   latencyMs: agentRuns.latencyMs,

@@ -25,9 +25,11 @@ export function getScheduleQueue(redisUrl: string): Queue<ScheduleTriggerJob> {
 
 export async function upsertScheduler(
   queueLike: Pick<Queue<ScheduleTriggerJob>, 'upsertJobScheduler'>,
-  schedule: { id: string; cron: string },
+  schedule: { id: string; cron: string; timezone: string },
 ): Promise<void> {
-  await queueLike.upsertJobScheduler(...scheduleTriggerArgs(schedule.id, schedule.cron));
+  await queueLike.upsertJobScheduler(
+    ...scheduleTriggerArgs(schedule.id, schedule.cron, schedule.timezone),
+  );
 }
 
 export async function removeScheduler(

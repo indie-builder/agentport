@@ -52,6 +52,8 @@ const FEEDBACK_OUTPUT_PATH = '/mnt/outputs/feedback-report.md';
 const SLOW_MARKER = 'E2E-CHANNEL-SLOW';
 const SLOW_PARTIAL = 'E2E-CHANNEL-SLOW-PARTIAL';
 const SLOW_DELAY_MS = Number(process.env.E2E_CHANNEL_FAKE_SLOW_MS ?? 15_000);
+/** 失败标记：正文含它时假模型返回 500，供真实失败运行与重试用例。 */
+const FAIL_MARKER = 'E2E-CHANNEL-FAIL';
 /** assert = 原有 HTTP 全链路；stack = 起栈常驻；ui = 起栈后跑浏览器 E2E 再清理。 */
 const MODE = process.env.E2E_CHANNEL_MODE ?? 'assert';
 /** `bun run e2e:channel:ui -- --grep "second @"` 里 `--` 之后的参数原样转给 `e2e run`。 */
@@ -770,6 +772,22 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
         body = null;
       }
       const prompt = lastUserText(body);
+      if (prompt.includes(FAIL_MARKER)) {
+        messageRequests.push({
+          at: Date.now(),
+          path: pathname,
+          prompt,
+          reply: `${FAIL_MARKER} injected 500`,
+        });
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            type: 'error',
+            error: { type: 'api_error', message: 'E2E-CHANNEL-FAIL injected upstream failure' },
+          }),
+        );
+        return;
+      }
       const conversation = conversationText(body);
       const feedback = feedbackReplyFor(body, prompt);
       const model =
@@ -1562,6 +1580,7 @@ async function main(): Promise<void> {
       SANDBOX_EGRESS: 'open',
       SANDBOX_MAX_ACTIVE: '2',
       SANDBOX_IDLE_TIMEOUT_MS: '30000',
+      SCHEDULE_RECONCILE_MS: '1000',
       AGENT_MAX_CONCURRENT: '1',
       AGENT_TIMEOUT_MS: '120000',
     };

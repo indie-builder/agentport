@@ -114,8 +114,11 @@ export const agentSchedules = pgTable(
     createdBy: text('created_by').notNull(),
     /** 触发时的执行主体；创建时等于 createdBy。 */
     executeAsBusinessId: text('execute_as_business_id').notNull(),
-    /** 5 段 cron（分 时 日 月 周），UTC。 */
     cron: text('cron').notNull(),
+    timezone: text('timezone').notNull().default('Asia/Shanghai'),
+    missedPolicy: text('missed_policy', { enum: ['skip', 'run_once'] })
+      .notNull()
+      .default('skip'),
     /** 每次触发时作为用户消息发给智能体的提示词。 */
     prompt: text('prompt').notNull(),
     enabled: boolean('enabled').notNull().default(true),

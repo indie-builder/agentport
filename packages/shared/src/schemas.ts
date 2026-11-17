@@ -26,6 +26,7 @@ export const runListItemSchema = z.object({
   outputTokens: z.number().nullable(),
   error: z.string().nullable(),
   trigger: runTriggerSchema.optional(),
+  scheduleId: z.string().nullable().optional(),
   /** 入队时的智能体配置版本（provenance；执行使用当前配置，不做快照回放）。 */
   agentVersion: z.number().nullable().optional(),
 });
