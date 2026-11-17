@@ -148,6 +148,17 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 
 九种新增来源（Lark wiki/drive、Notion、Confluence、语雀、钉钉、IMA、Seafile、Nextcloud）同样不新增环境变量，凭证走既有加密列。Lark/Notion/钉钉/IMA/语雀使用固定 SaaS origin，用户不能改 baseUrl 或任意 headers；自建 Confluence/Seafile/Nextcloud 站点仍需用 `KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 精确放行 host:port，来源表单不能自行开启私网。新增来源按完整快照重读、内容哈希增量入库，不是远端 changed-only；真实账号与配额未提供前只验证本地 fixture。
 
+### 1.6 Wren 数据域（api、worker、wren-runtime）
+
+| 变量 | 必填 | 默认 | 读取方 | 说明 |
+|---|---|---|---|---|
+| `WREN_RUNTIME_URL` | 否 | 空 | api、worker | Wren 运行时 base URL。未配置时连接测试、结构反射与构建明确失败，`run_sql` 返回 `QUERY_UNAVAILABLE`。compose 内填 `http://wren-runtime:8080`；宿主直跑按实际监听端口填，示例见 10.1 |
+| `WREN_RUNTIME_HOST` | 否 | `0.0.0.0` | wren-runtime | 运行时监听地址，只影响 `infra/wren-runtime/app.py`；服务无请求鉴权，只能部署在可信内网 |
+| `PORT` | 否 | `8080` | wren-runtime | 运行时监听端口，与 api 的同名变量彼此独立；镜像内默认 `8080`，compose 映射到宿主 `127.0.0.1:5010` |
+| `DATA_DOMAIN_ENRICH_MODEL` | enrich 时必填 | — | worker | enrich-context 使用的模型名，未配置时提案直接失败并写入 `DATA_DOMAIN_ENRICH_MODEL 未配置`；模型凭据沿用 worker 配置的 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` |
+
+`WREN_RUNTIME_TEST_PYTHON` / `E2E_WREN_RUNTIME_PYTHON` 只用于测试拉起真实运行时（指向安装了 `wrenai` 的 Python），不是产品配置。
+
 ## 2. 部署
 
 ### 2.1 前置
@@ -712,6 +723,65 @@ E2E 截图按 e2e 0.22 的安全语义处理：secret fill 不再关闭截图，
 
 日常开发在最新 `origin/main` 对应的工作树启动：`bun --env-file=/Users/xbjt/.local/share/agentport/business-e2e-dataset/.env run dev`。父进程已注入的变量优先，子包同名的 `--env-file=../../.env` 不会覆盖，因此无需替换主 `.env`。这是配置加载方式，不是运行能力证明：`D/.env` 仍保留旧 `SANDBOX_IMAGE`，按上面限制，旧镜像无法在当前 worker 下执行新的会话运行。数据集命令也必须显式带上该参数才能读到 `D/.env` 的 manifest 等设置：`bun --env-file=/Users/xbjt/.local/share/agentport/business-e2e-dataset/.env run dev:data:verify` 做只读验收；现有数据不重建，只有缺项首次生成或需要恢复时才运行 `bun --env-file=/Users/xbjt/.local/share/agentport/business-e2e-dataset/.env run dev:data`，日常复用不运行 `dev:data`。
 
+
+## 10. Wren 数据域运行时与运维
+
+### 10.1 组件与边界
+
+- `infra/wren-runtime/app.py` 是单进程 Python HTTP 服务（`wrenai[duckdb,postgres]==0.18.0`），暴露 `GET /health` 与 `POST /test-connection`、`/build`、`/query`、`/generate-mdl`。它没有请求鉴权，连接凭据在内部 HTTP 明文中传输；只能部署在可信内网或本机，不要暴露公网。
+- compose 用 `--profile wren` 启动 `wren-runtime`，镜像 `agentport/wren-runtime:dev`，宿主映射 `127.0.0.1:5010:8080`；api/worker 在 compose 内的 `WREN_RUNTIME_URL` 填 `http://wren-runtime:8080`。宿主直跑示例：`WREN_RUNTIME_HOST=127.0.0.1 PORT=5010 python infra/wren-runtime/app.py`，客户端填 `http://127.0.0.1:5010`；不设 `PORT` 时默认 8080，客户端也要改用 8080。
+- 运行时监听地址由 `WREN_RUNTIME_HOST` 控制，默认 `0.0.0.0`；端口由 `PORT` 控制，镜像默认 `8080`。需要更严格绑定时显式设为 `127.0.0.1` 或 compose 网络内地址。
+
+### 10.2 查询链路
+
+1. 专家绑定 `data_domain` 托管 MCP（`dd-<slug>`），工具只有只读的 `run_sql` / `get_mdl`；`/mcp/:serverId` 只接受绑定该 server 的 run 短期 token，没有长期 token。
+2. api 用 `run.initiatedBy` 解析登录用户，再读 `data_domain_identities.properties` 作为该次查询的 session properties；没有身份行时传空对象，缺 requiredProperty 由运行时拒绝。客户端与模型不能自报 properties。
+3. api 读取数据域 `online_version_id` 指向的 `ready` 版本，并在 api 内解密连接；`POST /query` 携带 `mdlManifest`、`datasource`、`connection`、`sql`、`maxRows`、`properties`。运行时以 `WrenEngine(..., fallback=False, config=WrenConfig(strict_mode=True))` 构造，调用 `query(read_only=True)`；结果最多 200 列，`maxRows` 默认 500、上限 10,000，运行时多取一行判断 `truncated`。
+4. MCP 调用有 30 秒超时；超时、取消或响应异常都回落为工具错误。每次查询写 `data_domain_query_logs`（`sql_summary` 明文前 500 字符、版本、行数、状态、耗时）和 `audit_log`（`data_domain.query`，输入摘要哈希）。查询日志写入失败只记 warning，不阻断查询。
+5. 查询成功返回前把会话标记为 `data_domain_restricted`；标记失败则本次工具调用返回 `QUERY_FAILED`。该标记使会话成果不能公开分享（创建返回 403，既有 token 公开读取/下载按 404 失效），分支会话继承。
+6. `query_approval_mode=all` 时，未批准的相同 SQL 先落 `pending` 审批并返回待审批结果；批准后重试相同 SQL（按 `trim` 后的 SHA-256 匹配）才执行，拒绝返回 `QUERY_REJECTED`。审批请求与决策都写 `audit_log`。
+
+对话 worker 与沙盒不接收数据库连接凭据。`SANDBOX_EGRESS=open` 是默认值，不隔离出站；`proxy` 同样使用 bridge 网络，只是在容器内注入 `HTTPS_PROXY`/`HTTP_PROXY`，不强制流量走代理，容器仍可直连数据库；`none` 虽断网，但同时切断平台 MCP 与模型 API。因此沙盒对数据库网络的隔离不能只靠 `SANDBOX_EGRESS`，需要在网络策略/防火墙上限制数据库可达范围，同时保留平台 MCP 与模型 API 所需的连通。
+
+### 10.3 构建与 enrich worker
+
+- worker 启动时消费 `data-domain-builds` 与 `data-domain-enrichments` 两个队列（`attempts: 1`，不自动重试），并注册构建对账：每 5 分钟扫描一次，`building` 超过 15 分钟未完成视为失败。
+- 构建：`POST /data-domains/{id}/versions` 创建 `queued` 版本并入队；worker 在自身进程内解密连接，`POST /build` 给运行时，worker 侧超时 5 分钟；运行时执行 `wren context build`，子进程超时 180 秒，返回 `target/mdl.json` 与构建日志尾（最多 8000 字符）。worker 对日志与错误做凭据脱敏，成功/失败均按版本行 CAS 落库；版本行 `log_tail` 按 UTF-8 只保留最后 64 KiB，超出时置 `log_truncated`。
+- generate-mdl：api 解密连接后 `POST /generate-mdl`（api 侧超时 60 秒），反射结果创建 `queued` 版本并进入同一构建队列。单次最多 200 张表；不适合模型路径的表名直接报错。
+- enrich：`POST /data-domains/{id}/enrich` 基于一个 `ready` 版本创建 `generating` 提案入队；worker 直接调用 `@anthropic-ai/claude-agent-sdk`（不走沙盒），模型由 `DATA_DOMAIN_ENRICH_MODEL` 指定，单次超时 5 分钟、最多 6 轮、`maxBudgetUsd` 估算停止阈值约 0.5 美元（可能超出），工具列表为空。SDK 子进程环境只带 `PATH`、`HOME`、配置目录等固定运行变量与 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL`，不携带数据库连接、`DATABASE_URL` 或 `APP_SECRET_KEY`；模型输入的数据只有源版本 `projectFiles` 与本次指令（另有固定提示词）。
+- enrich 提案成功转为 `ready`，人工批准时在同一事务内标记 `approved` 并插入新版本，再进入构建队列；拒绝只标记提案，不创建版本。发布仍需单独调用发布接口，没有任何自动发布路径。
+
+### 10.4 最小权限兜底
+
+CLAC 只有 1 个 requiredProperty 与 6 种比较器，复杂列权限应同时在数据库侧收敛。使用专用最小权限账号，并避免先授予整表 `SELECT` 再指望列权限收窄；PostgreSQL 中已授予的表级权限必须显式回收：
+
+```sql
+REVOKE SELECT ON TABLE warehouse.employees FROM wren_reader;
+GRANT SELECT (id, name, department) ON TABLE warehouse.employees TO wren_reader;
+```
+
+列授权只对显式列生效，`SELECT *` 会因缺少其余列权限而失败，这是期望的 fail-closed 行为；该示例与结论的前提是账号没有从 `PUBLIC` 或其它继承角色获得表/列权限，也没有既有额外列授权。若语义层把 `SELECT *` 展开为显式列，数据库收到的就不是 `SELECT *`，该结论不适用。语义层的列级规则仍需保持一致，避免两处漂移。不要把数据域账号设成表 owner 或超级用户。
+
+### 10.5 已知限制与运维注意
+
+- **enrich 陈旧提案**：`data-domain-enrichments` 没有应用级 stale reconciler，任务 `attempts: 1` 不提供业务重试；BullMQ 的 stalled 重投是队列机制，不能替代 stale 回收。worker 崩溃或任务丢失后，提案可能长期停在 `generating` 且不能直接决策；当前没有应用级恢复入口，需重新发起提案并人工排查旧提案。
+- **超时**：查询 30 秒、连接测试 15 秒、generate-mdl 60 秒、构建 worker 5 分钟、运行时 `wren context build` 180 秒、enrich 5 分钟。超时按失败处理，不自动重试。
+- **审计留存**：`data_domain_query_logs` 不在每日维护清理范围内，随数据域删除级联删除；`audit_log` 不参与清理。查询日志固定保留明文 SQL 前 500 字符，当前没有可调截断配置。审计链可用 `GET /api/audit/verify`（权限 `audit.read`）校验；审计导出 `GET /api/audit/export` 只含审计条目元数据与 `inputDigest`，不含原始输入。
+- **凭据暴露面**：连接测试由调用方直接提交明文 `connection`，api 不做解密、原样转给运行时；查询、结构反射与版本构建则解密已存储的加密凭据（api 或构建 worker 内）。两种路径下凭据都明文经过内部 HTTP；运行时无鉴权，网络边界就是安全边界。
+- **CLAC / MDL schema**：CLAC 表达力有限，必要时用 10.4 的列授权；`mdl.schema.json` 的 threshold 定义与运行时实际行为不一致，按运行时字符串形式处理。
+- **模型费用**：enrich 的 `maxBudgetUsd` 是估算停止阈值（约 0.5 美元），达到估算即停止，实际费用可能超出该值；重试与新提案会重复计费。模型凭据沿用 worker 配置的 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL`。
+
+### 10.6 故障排查
+
+| 症状 | 可能原因 | 检查命令 / 处理 |
+|---|---|---|
+| 连接测试、生成 MDL 或构建报「服务未配置」 | `WREN_RUNTIME_URL` 为空 | `.env` 设置 URL（compose 填 `http://wren-runtime:8080`，宿主按 10.1 的实际端口）；`docker compose --profile wren up -d wren-runtime` |
+| `run_sql` 返回 `QUERY_UNAVAILABLE` | `WREN_RUNTIME_URL` 为空 | 在 api 与 worker 的 `.env` 设置 URL；`curl -s http://127.0.0.1:5010/health`（按实际端口）确认服务可先访问 |
+| `run_sql` 返回 `QUERY_FAILED` 且运行时不可达 | URL 错、服务未启动或网络不通；客户端统一看到通用失败 | `docker compose --profile wren ps`；`curl -s http://127.0.0.1:5010/health`（按实际端口）；查 api 日志 |
+| `run_sql` 返回 `no_online_version` | 数据域没有就绪的线上版本 | 确认版本已构建为 `ready` 并发布 |
+| `run_sql` 返回 `QUERY_FAILED` | 运行时拒绝（缺 requiredProperty、RLAC/CLAC 拒绝）、超时或响应异常；客户端只看到通用失败 | 检查 `data_domain_identities` 的 properties 与 MDL 的 RLAC/CLAC，确认属性值是 SQL 字面量；查看运行时日志区分权限与执行错误 |
+| enrich 提案一直 `generating` | worker 未运行、任务丢失或模型失败后未回收 | `docker compose logs worker`；确认 `DATA_DOMAIN_ENRICH_MODEL` 与 `ANTHROPIC_*`；重新发起提案 |
+| 构建失败但日志被截断 | 运行时只返回构建日志尾 8000 字符；版本行 `log_tail` 上限 64 KiB | 查看版本 `log_tail` 与 `log_truncated`；必要时用更小的项目文件复现 |
 
 ## 本地模型网关
 

@@ -293,7 +293,7 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 `servers.kind` 因此有五种取值：`stdio`、`http`、`generated` 属于用户可创建/导入的连接；`knowledge` 是平台内部的第四种，只能由知识库生命周期写入（name `kb-<slug>`，config 只有 `{ knowledgeBaseId }`），不出现在 `/api/servers` 列表，也不能经该接口 PATCH/DELETE；`data_domain` 是平台内部的第五种，只能由数据域生命周期写入（name `dd-<slug>`，config 只有 `{ dataDomainId }`），只读，出现在 `GET /api/servers` 并可由智能体绑定，但不能经该接口创建、PATCH 或 DELETE。读写类型分离：`serverKindSchema` 与读联合包含 `knowledge` / `data_domain`，`serverInputSchema` 只含前三种。URL 永远由运行时拼 `/mcp/:serverId`。共享的 `knowledgeMcpEntry()` 是预览与运行时的唯一构造点，数据域连接同样由单一构造点生成，避免两处漂移。
 
-内置数据域连接与知识连接一样只接受绑定该 server 的 run 短期 token，没有长期 token。工具固定为只读的 `run_sql` / `get_mdl`：api 从 run 的 `initiatedBy` 解析数据域身份并写入该 run 的 session properties，只在 api 内解密 connection，查询数据域 ready 的线上版本；worker 与沙盒不接触连接凭据。
+内置数据域连接与知识连接一样只接受绑定该 server 的 run 短期 token，没有长期 token。工具固定为只读的 `run_sql` / `get_mdl`：api 从 run 的 `initiatedBy` 解析数据域身份并生成该次查询的 session properties，查询链路的 connection 只在 api 内解密；受控构建 worker 在把连接发给运行时前解密，对话 worker 与沙盒不接触连接凭据。每次 `run_sql` 重新读取就绪的线上版本并记录 `versionId`，不在 run 级冻结。数据域的构建与 enrich 由 worker 分别消费 `data-domain-builds` / `data-domain-enrichments` 队列：构建结果按版本行 CAS 落库，enrich 只产出提案，人工批准后才创建版本并进入构建队列。
 
 内置知识连接的工具是只读的：`knowledge_search` 返回带 `target`/`chunkId`/标题/页码/`score`/`scoreKind`/分路 `scores` 的命中，并完整保留 `degraded`/`warnings`/`directAnswer`；`knowledge_read` 只读当前有效发布版正文，用 `offset`（Unicode code point）与 `nextOffset` 分页读完并返回 `totalCharacters`，不再固定 20,000 字符截断；`knowledge_list` 按 `(updatedAt,id,kind)` 游标只列出当前可读对象；`knowledge_read_image` 仅在该库启用图片处理时注册，读取版本图片（详见 §6.2.1）。参数里带别的 `baseId` 返回 `BASE_MISMATCH` 工具错误而不是静默换库；库被禁用时已注册工具都返回 `BASE_DISABLED`。没有写入、上传、删除或重建工具。
 
