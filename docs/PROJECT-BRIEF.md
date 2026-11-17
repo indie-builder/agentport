@@ -1,7 +1,7 @@
 # Agentport · 智能体平台 · 项目简报
 
 > 状态：需求、选型与 M0–M6 落地记录。当前实现状态以 [ARCHITECTURE.md](ARCHITECTURE.md) 为准；本文保留历史结论与选型理由，早期「下一轮」项多数已在循环 1–9 完成。
-> 最后更新：2026-11-13 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本（Bun 1.4.4、Hono 4.13、oRPC 1.16、Drizzle 0.45 bun-sql 等）；原始诉求与历史决策保持原样。
+> 最后更新：2026-11-18 按实际 manifest / lockfile 核对 §3、§10 的技术栈与运行版本（Bun 1.4.4、Hono 4.13.19、oRPC 1.16、Drizzle 0.45 bun-sql 等）；原始诉求与历史决策保持原样。
 > 项目名：**Agentport**（仓库与包名保持 `agentport`；对外展示名 **PACE**，见 [USER-STORIES.md](USER-STORIES.md)）
 > 包前缀：`@agentport/*`
 > 本文是该项目的唯一需求基线。项目改名后，本文继续有效；改名只影响仓库名与包名，不影响任何结论。
@@ -104,7 +104,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 ## 3. 技术栈
 
-包版本于 2026-11-06 按根 `package.json`、各包 `package.json`、workspace catalog 与 `bun.lock` 的实际解析结果核对，只取 stable / LTS 标签；镜像 tag/digest 以 `Dockerfile`、`docker-compose.yml` 与 CI 的实际引用为准。
+包版本于 2026-11-18 按根 `package.json`、各包 `package.json`、workspace catalog 与 `bun.lock` 的实际解析结果核对，只取 stable / LTS 标签；镜像 tag/digest 以 `Dockerfile`、`docker-compose.yml` 与 CI 的实际引用为准。
 
 ### 3.1 语言与工程
 
@@ -112,9 +112,9 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 |---|---|---|---|
 | 语言 | TypeScript | 7.0.2 | 当前 stable |
 | 运行时 | Bun | 1.4.4 | `packageManager` 与 `engines.bun` 固定；api/worker/sandbox 都用 `bun` 启动 |
-| 运行时基座 | Node.js | 24 LTS | 要求 24 的最新补丁版本（当前 24.22.2）；`engines` 为 `>=24.22.2 <25`，容器镜像 `node:24-alpine` 只作基座并复制 Bun 二进制 |
+| 运行时基座 | Node.js | 24 LTS | 要求 24 的最新补丁版本（当前 24.22.3）；`engines` 为 `>=24.22.2 <25`，容器镜像 `node:24-alpine` 只作基座并复制 Bun 二进制 |
 | 包管理 | Bun workspaces | 1.4.4 | 锁文件 `bun.lock`；脚本用 `bun run <script>` |
-| Lint + 格式化 | Biome | 2.6.4 | 替代 ESLint + Prettier |
+| Lint + 格式化 | Biome | 2.6.8 | 替代 ESLint + Prettier |
 | 开发运行 | nodemon 3.1.14，由 Bun 执行 | 3.1.14 | api/worker 的 watch 包装；Bun 原生 watch 不等待 async 清理，故保留 nodemon，仅开发依赖 |
 | 生产构建 | tsc | 7.0.2 | Bun 直接运行 `dist`，不引入打包器 |
 
@@ -122,36 +122,36 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 | 用途 | 选型 | 版本 |
 |---|---|---|
-| 构建 | Vite | 8.3.5 |
+| 构建 | Vite | 8.3.8 |
 | 框架 | React | 19.3.1 |
-| 样式 | Tailwind CSS | 4.3.3（`@tailwindcss/vite`，无需 config 文件） |
+| 样式 | Tailwind CSS | 4.3.5（`@tailwindcss/vite`，无需 config 文件） |
 | 组件 | shadcn/ui（`components.json` 已配，`style: base-nova`；源码在 `components/ui`） | — |
-| 交互原语 | ui-sdk（`@ui-sdk/react`） | 0.1.0-beta.2；项目不直接依赖 Base UI / Radix |
+| 交互原语 | ui-sdk（`@ui-sdk/react`） | 0.1.0-beta.6；项目不直接依赖 Base UI / Radix |
 | 消息滚动容器 | `@shadcn/react`（`message-scroller`） | 0.3.1；仅 `components/ui/message-scroller.tsx` 使用 |
-| 路由 | TanStack Router（`@tanstack/router-plugin` 生成路由） | 1.170.46 / 1.168.48 |
-| 服务端状态 | TanStack Query | 5.105.1 |
+| 路由 | TanStack Router（`@tanstack/router-plugin` 生成路由） | 1.170.46 / 1.169.0 |
+| 服务端状态 | TanStack Query | 5.108.0 |
 | 数据表格 | TanStack Table（列顺序/显隐状态由 Table 持有，拖拽排序用 ui-sdk `createReorder`） | 9.3.1 |
-| 提及列表 | ui-sdk `createListbox`（`focus: 'virtual'`） | 0.1.0-beta.2 |
-| 工具栏 | ui-sdk `@ui-sdk/react/toolbar` | 0.1.0-beta.2 |
-| 表单 | react-hook-form + `@hookform/resolvers` | 7.91.0 / 7.0.0 |
+| 提及列表 | ui-sdk `createListbox`（`focus: 'virtual'`） | 0.1.0-beta.6 |
+| 工具栏 | ui-sdk `@ui-sdk/react/toolbar` | 0.1.0-beta.6 |
+| 表单 | react-hook-form + `@hookform/resolvers` | 7.92.0 / 7.0.7 |
 | 校验 | zod（与后端共享） | 4.6.7 |
-| 客户端状态 | Zustand | 5.0.16 |
-| 动效 | Motion | 14.9.0 |
+| 客户端状态 | Zustand | 5.1.0 |
+| 动效 | Motion | 14.14.0 |
 | 图表 | Recharts | 3.10.1 |
 | 源码编辑 | CodeMirror 6（按需加载） | 6.43.15（`@codemirror/view`）等子包 |
-| 智能体输出渲染 | Streamdown（含 `@streamdown/code`） | 2.7.1 / 2.0.0 |
+| 智能体输出渲染 | Streamdown（含 `@streamdown/code`） | 2.8.0 / 2.0.1 |
 | 生成式 UI | OpenUI：`@openuidev/lang-core`（后端）、`@openuidev/react-lang`（前端）、`@openuidev/cli`（生成 spec） | 1.1.1 / 1.1.1 / 0.6.3；`@openuidev/react-ui` 0.18.8 仅作开发期契约对照（测试用） |
-| 提示 | ui-sdk toast（`@ui-sdk/react/toast`） | 0.1.0-beta.2 |
-| 图标 | lucide-react | 1.66.0 |
+| 提示 | ui-sdk toast（`@ui-sdk/react/toast`） | 0.1.0-beta.6 |
+| 图标 | lucide-react | 1.74.0 |
 | 流式 | 原生 `EventSource` | 无需额外库 |
-| 本地访问 | Portless（开发期 `bun run dev` 分配域名） | 0.15.12 |
+| 本地访问 | Portless（开发期 `bun run dev` 分配域名） | 0.18.0 |
 
 ### 3.3 后端
 
 | 用途 | 选型 | 版本 |
 |---|---|---|
-| HTTP 框架 | Hono（入口 `Bun.serve`） | 4.13.16 |
-| RPC 契约 | oRPC contract-first | @orpc/contract / server / openapi / zod 1.16.1 |
+| HTTP 框架 | Hono（入口 `Bun.serve`） | 4.13.19 |
+| RPC 契约 | oRPC contract-first | @orpc/contract / server / openapi / zod 1.16.2 |
 | Schema 校验 + 类型推导 | zod 4 + oRPC contract input | 4.6.7 |
 | ORM | Drizzle ORM（`drizzle-orm/bun-sql`） | 0.45.4 |
 | 迁移工具 | drizzle-kit | 0.31.11 |
@@ -161,21 +161,21 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 日志 | pino | 10.4.0 |
 | 日志美化（dev） | pino-pretty | 13.2.0 |
 | 日志落文件 | 未引入（stdout + 容器日志） | — |
-| 安全头 | `hono/secure-headers` | 4.13.16 |
-| CORS | `hono/cors` | 4.13.16 |
+| 安全头 | `hono/secure-headers` | 4.13.19 |
+| CORS | `hono/cors` | 4.13.19 |
 | 限流 | `hono-rate-limiter` + RedisStore | 0.5.4 |
-| 压缩 | `hono/compress` | 4.13.16 |
-| 静态托管 | `hono/bun` 的 `serveStatic` | 4.13.16 |
-| 鉴权 | Better Auth（`better-auth` + Drizzle adapter，会话存库，httpOnly cookie） | 1.7.23 |
-| API 文档 | oRPC OpenAPI 3.1.1 + `@scalar/hono-api-reference`（`/api/openapi.json`、`/api/docs`，需登录） | 0.12.20 |
+| 压缩 | `hono/compress` | 4.13.19 |
+| 静态托管 | `hono/bun` 的 `serveStatic` | 4.13.19 |
+| 鉴权 | Better Auth（`better-auth` + Drizzle adapter，会话存库，httpOnly cookie） | 1.7.25 |
+| API 文档 | oRPC OpenAPI 3.1.1 + `@scalar/hono-api-reference`（`/api/openapi.json`、`/api/docs`，需登录） | 0.12.22 |
 | 过载保护 | 未接入；`/health/live`、`/health/ready` 由 `http/health.ts` 自行实现 | — |
 | Redis 客户端 | Bun 原生 `RedisClient`；BullMQ 用官方 `createBunRedisClient` | Bun 1.4.4 内置 |
-| 队列 | BullMQ | 6.7.6 |
-| 队列面板 | 不接（见 D-15） | — |
+| 队列 | BullMQ | 6.7.7 |
+| 队列面板 | Bull Board（只读；`/api/ops/queues`，需 `operations.read`） | 9.13.2 |
 | 队列遥测 | 不接 | — |
 | 并发控制 | p-limit | 7.3.3 |
 | ID | typeid-js | 1.2.0 |
-| 副作用运行时 | effect | 4.1.1 |
+| 副作用运行时 | effect | 4.1.4 |
 
 **为什么从 SQLite 改为 PostgreSQL**：上一轮建议 SQLite 是按「单机学习项目」判断的。引入 BullMQ worker 后，API 进程与 worker 进程会并发写同一份数据，SQLite 的单写者限制会成为真实瓶颈，而且队列本身又要求 Redis，基础设施复杂度已经上去了。PostgreSQL 18 与 Redis 8 都通过 compose 起，运维成本相当。Drizzle 的 schema 写法在两者间基本一致，但迁移文件不通用，越早切换成本越低。
 
@@ -185,7 +185,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 | 用途 | 选型 | 版本 |
 |---|---|---|
-| Agent SDK | @anthropic-ai/claude-agent-sdk | 0.3.316 |
+| Agent SDK | @anthropic-ai/claude-agent-sdk | 0.3.326 |
 | MCP Server 实现 | @modelcontextprotocol/server | 2.4.0 |
 | MCP Node 适配 | @modelcontextprotocol/node | 2.1.2 |
 | MCP Client | @modelcontextprotocol/client | 2.4.0 |
@@ -206,9 +206,10 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 用途 | 选型 | 版本 |
 |---|---|---|
 | 后端单元/集成测试 | `bun:test`（`bun run test` → `scripts/test-backend.ts`，`--isolate`） | Bun 1.4.4 |
-| 前端单元测试 | Vitest（`bun run test:web`，jsdom） | 5.0.5 |
+| 前端单元测试 | Vitest（`bun run test:web`，jsdom） | 5.1.0 |
+| 前端请求模拟 | msw | 3.0.6 |
 | 覆盖率 | 未配置 | — |
-| E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.22.0 / 0.15.4 |
+| E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.23.1 / 0.16.0 |
 | 集成测试 | 本地/CI service containers（未用 testcontainers）；每轮随机 PostgreSQL 库 + 临时 Redis 容器 | — |
 | 容器化 | Dockerfile（多阶段）+ docker-compose.yml | — |
 | CI | GitHub Actions（`workflow_dispatch`，手动触发） | — |
@@ -865,7 +866,7 @@ cd ~/Documents/myself/agentport
 | BullMQ 6 在 ESM 下 | 当时不自动加载 ioredis，报 "could not load the optional 'ioredis' package" | 迁移后队列连接用官方 `createBunRedisClient`，生产不再依赖 ioredis |
 | TypeScript `-b --noEmit` | 与 project references 冲突（TS6310） | 各包 typecheck 统一为 `tsc -b`，无 `--noEmit` |
 | 开发运行与 env | 当时 `--env-file-if-exists` 在 tsx 下不生效 | 现由 nodemon 调用 Bun 并透传 `--env-file`；migrate 脚本用 Bun `--env-file` |
-| Biome 2.5（历史记录） | `linter.rules.recommended` 已废弃 | 改用 `preset: "recommended"`（已 `biome migrate`），当前版本 2.6.4 |
+| Biome 2.5（历史记录） | `linter.rules.recommended` 已废弃 | 改用 `preset: "recommended"`（已 `biome migrate`），当前版本 2.6.8 |
 
 ### 15.3 现行起步命令
 

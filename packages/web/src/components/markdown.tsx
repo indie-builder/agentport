@@ -193,10 +193,16 @@ const htmlAsText = () => (tree: MarkdownNode) => {
   walk(tree.children ?? []);
 };
 
-/** 静态正文：明确移除 raw，保留 sanitize / harden；本地链接先改写成本项目可识别的 fragment。 */
-const STATIC_REHYPE_PLUGINS = Object.entries(defaultRehypePlugins)
-  .filter(([name]) => name !== 'raw')
-  .map(([, plugin]) => plugin);
+type RehypePlugins = NonNullable<Parameters<typeof Streamdown>[0]['rehypePlugins']>;
+type RehypeTuple = Extract<RehypePlugins[number], readonly unknown[]>;
+/** 静态正文：移除 raw 与 undoubleClobberPrefix，sanitize 关闭 clobberPrefix，保留 harden。 */
+const STATIC_REHYPE_PLUGINS: RehypePlugins = Object.entries(defaultRehypePlugins)
+  .filter(([name]) => name !== 'raw' && name !== 'undoubleClobberPrefix')
+  .map(([name, plugin]) => {
+    if (name !== 'sanitize') return plugin;
+    const [sanitize, schema] = plugin as RehypeTuple;
+    return [sanitize, { ...schema, clobberPrefix: '' }];
+  });
 const STATIC_REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), htmlAsText];
 type RemarkPlugins = NonNullable<Parameters<typeof Streamdown>[0]['remarkPlugins']>;
 

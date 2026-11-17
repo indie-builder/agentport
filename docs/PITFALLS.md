@@ -711,6 +711,12 @@
 - **原因**：提及列表与输入框共享一个焦点，列表不能自行聚焦；`focus: 'virtual'` 由输入框的 `aria-activedescendant` 指向高亮项，选项上不阻止 `pointerdown` 会先让 textarea 失焦。textarea 只能保持 `textbox`，写 `role="combobox"` 违反 ARIA in HTML，它也不支持 `aria-expanded`。
 - **规避**：`components/ui/mention-list.tsx` 用 `createListbox(context, { focus: 'virtual' })`，`bindInput` 只写 `aria-autocomplete="list"`、`aria-haspopup="listbox"`、`aria-controls`、`aria-activedescendant`，关闭时清除这些 aria-*（不写 `role` 与 `aria-expanded`）；选项 `pointerdown` 阻止默认、`pointermove` 高亮，Escape/Enter/Tab 由 primitive 接管。升级时核对 `listbox.activeId` 与 `attrs` 签名。
 
+## 前端：streamdown 2.8 的 sanitize 会给 id 与 fragment 加 `user-content-` 前缀
+
+- **现象**：静态 Markdown 的 `#plugin-file=` token、页内锚点与脚注/回链被改写成 `#user-content-...`；只剥离 href 前缀后 `href="#fn-1"` 与目标 `id="user-content-fn-1"` 不再匹配，脚注、回链、插件内文件链接与分享页锚点全部失效；2.7.1 正常。
+- **原因**：2.8.0 移除了 sanitize schema 的 `clobberPrefix: ""`，改用默认前缀，并新增 `undoubleClobberPrefix` 只处理重复前缀；项目自己的 token、页内目标与脚注 id 按原样匹配，因此失效。
+- **规避**：静态 rehype 管线把 sanitize options 覆盖为 `clobberPrefix: ''` 并排除 `undoubleClobberPrefix`（`packages/web/src/components/markdown.tsx`），id、href 与 ARIA 保持原文一致；不要只剥 href 前缀。升级 streamdown 时用 `plugin-document`、`public-share` 测试和真实分享页锚点复核，不改写上游 sanitize 期望或删除断言。
+
 ## Wren：默认 `read_only=False` 时物理表全限定名可绕过行级访问控制
 
 - **现象**：同一 `WrenEngine` 逐请求传 session properties，普通模型查询按 RLAC 过滤；改用 `warehouse.main.employees` 这类物理表全限定名查询却返回全部行。
