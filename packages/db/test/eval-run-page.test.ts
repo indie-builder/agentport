@@ -95,11 +95,13 @@ describe.skipIf(!ready)('eval run list pagination', () => {
     expect(page?.nextCursor).toBe(`${base}-same-z`);
     expect(Object.keys(page?.items[0] ?? {}).sort()).toEqual([
       'agentId',
+      'agentVersion',
       'createdAt',
       'error',
       'finishedAt',
       'id',
       'passed',
+      'resourceVersions',
       'status',
       'total',
     ]);

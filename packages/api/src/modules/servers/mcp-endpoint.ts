@@ -9,7 +9,8 @@ import { buildKnowledgeServer } from '../knowledge/mcp.js';
 import { requestToolApproval } from './approvals.js';
 import { bearerToken, tokenMatches } from './bearer.js';
 import { buildGeneratedServer } from './generated.js';
-import { getServerRow, listTools, toApiServer } from './repo.js';
+import { getServerRow, listTools, str, toApiServer } from './repo.js';
+import { decryptSecrets } from './secrets.js';
 import { summarizeToolArguments } from './tool-arguments.js';
 
 export async function validRunToken(
@@ -29,15 +30,32 @@ export async function validRunToken(
   );
 }
 
-function handlerFor(app: AppContext, serverId: string, runId: string | null): McpHttpHandler {
+function handlerFor(
+  app: AppContext,
+  serverId: string,
+  runId: string | null,
+  snapshotRunId: string | null,
+): McpHttpHandler {
   return createMcpHandler(
     async () => {
       const row = await getServerRow(app.db, serverId);
-      // 鉴权已在路由层完成；这里再查一次是为了拿到最新工具定义。
-      if (!row) throw new Error('server disappeared');
-      const server = toApiServer(row, app.config.APP_SECRET_KEY);
-      if (server.kind !== 'generated') throw new Error('not a generated server');
-      const tools = await listTools(app.db, serverId);
+      if (!row) throw new Error('连接器已不存在');
+      const snapshot =
+        snapshotRunId === null
+          ? null
+          : await repo.runs.getRunServerSnapshot(app.db, snapshotRunId, serverId);
+      const server = snapshot
+        ? {
+            kind: snapshot.kind,
+            name: snapshot.name,
+            baseUrl: str(snapshot.config.baseUrl),
+            headers: snapshot.secretsEncrypted
+              ? decryptSecrets(snapshot.secretsEncrypted, app.config.APP_SECRET_KEY)
+              : {},
+          }
+        : toApiServer(row, app.config.APP_SECRET_KEY);
+      if (server.kind !== 'generated') throw new Error('连接器不是生成式 MCP');
+      const tools = snapshot?.tools ?? (await listTools(app.db, serverId));
       // runId 由路由层从当前 HTTP 请求头读入；外部客户端没有 run，审批工具一律拒绝。
       // run header 来自沙盒，外部客户端也能伪造：只有 run 存在且该智能体绑定了本 server 才采信。
       const trustedRunId =
@@ -132,12 +150,10 @@ export async function serverMcpResponse(
     }).fetch(request);
   }
   if (row?.kind !== 'generated') fail('NOT_FOUND', 'generated server not found');
-  if (
-    !(await validRunToken(context, runId, serverId, token)) &&
-    !tokenMatches(row.config.mcpToken, token)
-  ) {
+  const hasRunToken = await validRunToken(context, runId, serverId, token);
+  if (!hasRunToken && !tokenMatches(row.config.mcpToken, token)) {
     context.responseHeaders.set('WWW-Authenticate', 'Bearer realm="agentport-mcp"');
     fail('UNAUTHORIZED', 'invalid bearer token');
   }
-  return handlerFor(context, serverId, runId).fetch(request);
+  return handlerFor(context, serverId, runId, hasRunToken ? runId : null).fetch(request);
 }

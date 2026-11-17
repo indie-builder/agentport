@@ -1,11 +1,11 @@
 import { and, asc, eq } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agentHookFiles, agents } from '../schema.js';
 
 export type AgentHookFileRow = typeof agentHookFiles.$inferSelect;
 
-export async function listHookFiles(db: Database, agentId: string): Promise<AgentHookFileRow[]> {
+export async function listHookFiles(db: DbHandle, agentId: string): Promise<AgentHookFileRow[]> {
   return db
     .select()
     .from(agentHookFiles)
@@ -15,7 +15,7 @@ export async function listHookFiles(db: Database, agentId: string): Promise<Agen
 
 /** 写入或覆盖同路径 hook 脚本（唯一键 agent_id+path）。 */
 export async function upsertHookFile(
-  db: Database,
+  db: DbHandle,
   agentId: string,
   input: { path: string; content: string; executable: boolean },
 ): Promise<AgentHookFileRow> {
@@ -32,7 +32,7 @@ export async function upsertHookFile(
 }
 
 export async function deleteHookFile(
-  db: Database,
+  db: DbHandle,
   agentId: string,
   path: string,
 ): Promise<boolean> {
@@ -45,7 +45,7 @@ export async function deleteHookFile(
 
 /** hooks 开关与配置写在 agents 行；null 表示未配置。 */
 export async function updateHooksSettings(
-  db: Database,
+  db: DbHandle,
   agentId: string,
   settings: { enabled: boolean; config: Record<string, unknown> | null },
 ): Promise<boolean> {

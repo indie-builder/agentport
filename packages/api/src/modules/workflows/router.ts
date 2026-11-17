@@ -29,7 +29,13 @@ export const workflowsRouter = os.router({
     assertRootAgent(agent);
     const input = toWorkflowWrite(routeInput.body.slug, routeInput.body.content);
     try {
-      const row = await repo.createWorkflow(context.db, agent.id, input);
+      const row = await allRepo.agentVersions.retryOnVersionConflict(() =>
+        context.db.transaction(async (tx) => {
+          const created = await repo.createWorkflow(tx, agent.id, input);
+          await allRepo.agentDefinitions.recordDraftVersionTx(tx, agent.id, null);
+          return created;
+        }),
+      );
       await allRepo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'agent.workflow.created',
@@ -47,14 +53,21 @@ export const workflowsRouter = os.router({
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.workflows.write');
     assertRootAgent(agent);
     const meta = parseWorkflowMeta(routeInput.body.content);
-    const row = await repo.updateWorkflow(
-      context.db,
-      agent.id,
-      routeInput.params.workflowId,
-      { ...meta, content: routeInput.body.content },
-      routeInput.body.expectedUpdatedAt === undefined
-        ? undefined
-        : new Date(routeInput.body.expectedUpdatedAt),
+    const row = await allRepo.agentVersions.retryOnVersionConflict(() =>
+      context.db.transaction(async (tx) => {
+        const updated = await repo.updateWorkflow(
+          tx,
+          agent.id,
+          routeInput.params.workflowId,
+          { ...meta, content: routeInput.body.content },
+          routeInput.body.expectedUpdatedAt === undefined
+            ? undefined
+            : new Date(routeInput.body.expectedUpdatedAt),
+        );
+        if (!updated) return null;
+        await allRepo.agentDefinitions.recordDraftVersionTx(tx, agent.id, null);
+        return updated;
+      }),
     );
     if (!row) return notFound();
     await allRepo.audit.writeAudit(context.db, context.log, {
@@ -70,7 +83,14 @@ export const workflowsRouter = os.router({
   delete: os.delete.handler(async ({ context, input: routeInput }) => {
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.workflows.write');
     assertRootAgent(agent);
-    const ok = await repo.deleteWorkflow(context.db, agent.id, routeInput.params.workflowId);
+    const ok = await allRepo.agentVersions.retryOnVersionConflict(() =>
+      context.db.transaction(async (tx) => {
+        const deleted = await repo.deleteWorkflow(tx, agent.id, routeInput.params.workflowId);
+        if (!deleted) return false;
+        await allRepo.agentDefinitions.recordDraftVersionTx(tx, agent.id, null);
+        return true;
+      }),
+    );
     if (!ok) return notFound();
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),

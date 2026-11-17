@@ -3,10 +3,13 @@ import {
   ACTIVE_RUN_STATUSES,
   type AccessFilter,
   type Agent,
+  type AgentDefinition,
   type AgentDuplicateInput,
   agentInputSchema,
+  apiToolSchema,
   DEFAULT_MEMORY_POLICY,
   type MemoryPolicy,
+  pluginInputSchema,
   resolveMemoryPolicy,
 } from '@agentport/shared';
 import {
@@ -25,6 +28,7 @@ import {
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
+  agentHookFiles,
   agentMembers,
   agentOutputStyles,
   agentPlugins,
@@ -33,17 +37,24 @@ import {
   agentServers,
   agentSkills,
   agents,
+  agentVersions,
   agentWorkflows,
+  apiTools,
   conversations,
+  plugins,
+  runtimeEnvironments,
   servers,
   skills,
 } from '../schema.js';
-import { insertAgentVersion, retryOnVersionConflict } from './agent-versions.js';
+import { assertDefinitionResources } from './agent-definitions.js';
+import { getAgentVersion, insertAgentVersion, retryOnVersionConflict } from './agent-versions.js';
 import { type ConversationSandboxTarget, sameTargets } from './chat.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
 import { isPgCode, isPgConstraint } from './pg-errors.js';
-import { listAgentPluginBindingInputs } from './plugins.js';
+import { getPluginFilesByPluginIds, listAgentPluginBindingInputs } from './plugins.js';
+import { getSkillFilesBySkillIds } from './skill-files.js';
+import { toSkillDefinition } from './skills.js';
 import { listAgentIdsWithWorkflows } from './workflows.js';
 
 export type AgentRow = typeof agents.$inferSelect;
@@ -124,6 +135,8 @@ export function toAgent(
     ...(row.effort === null ? {} : { effort: row.effort }),
     enabled: row.enabled,
     isDefault: row.isDefault,
+    publishedVersion: row.publishedVersion,
+    publishedAt: row.publishedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -269,8 +282,43 @@ export async function ensureDefaultAgent(
     })
     .returning();
   if (!row) throw new Error('default agent insert returned no row');
-  await insertAgentVersion(tx, id, toAgent(row, [], []));
-  return row;
+  const definition = await loadLiveDefinition(tx, id);
+  if (!definition) throw new Error('default agent definition not found');
+  if (definition.resources.runtimeEnvironment === null) return row;
+  const version = await insertAgentVersion(tx, id, definition.agent, definition);
+  const [published] = await tx
+    .update(agents)
+    .set({ publishedVersion: version, publishedAt: new Date() })
+    .where(eq(agents.id, id))
+    .returning();
+  if (!published) throw new Error('default agent publish returned no row');
+  return published;
+}
+
+export async function publishDefaultAgentIfNeeded(db: Database): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agentport:bootstrap'))`);
+    const agent = await getDefaultAgent(tx);
+    if (agent === null) return;
+    const live = await loadLiveDefinition(tx, agent.id);
+    if (live === null || live.resources.runtimeEnvironment === null) return;
+    const published =
+      agent.publishedVersion === null
+        ? null
+        : await getAgentVersion(tx, agent.id, agent.publishedVersion);
+    if (published?.definition?.resources.runtimeEnvironment != null) return;
+    const version = await insertAgentVersion(
+      tx,
+      agent.id,
+      live.agent,
+      live,
+      'default environment ready',
+    );
+    await tx
+      .update(agents)
+      .set({ publishedVersion: version, publishedAt: new Date() })
+      .where(eq(agents.id, agent.id));
+  });
 }
 
 /** 只读记忆策略：行不存在返回 null；已落库 JSON 非法时按默认策略运行。 */
@@ -308,7 +356,7 @@ export async function updateAgentMemoryPolicy(
  * 所以写事务再拿同一把 advisory 锁并复查。只保护绑定，不阻塞普通字段更新。
  * 调用方若会顺带拿行锁，必须先调 lockAgentBindings。
  */
-async function lockSubAgentBindings(
+export async function lockSubAgentBindings(
   tx: Transaction,
   selfId: string | null,
   subAgentIds: string[],
@@ -377,24 +425,47 @@ async function lockSubAgentBindings(
   }
 }
 
+export async function hasActiveRunUsingAgents(db: DbHandle, agentIds: string[]): Promise<boolean> {
+  if (agentIds.length === 0) return false;
+  const liveIds = (
+    await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(and(inArray(agents.id, agentIds), eq(agents.enabled, true)))
+  ).map(({ id }) => id);
+  const [active] = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .leftJoin(
+      agentVersions,
+      and(
+        eq(agentVersions.agentId, agentRuns.agentId),
+        eq(agentVersions.version, agentRuns.agentVersion),
+      ),
+    )
+    .where(
+      and(
+        inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
+        ne(agentRuns.trigger, 'review'),
+        or(
+          inArray(agentRuns.agentId, agentIds),
+          ...liveIds.map(
+            (id) => sql`coalesce(${agentRuns.definitionSnapshot}, ${agentVersions.definition})
+              ->'resources'->'subAgents' @> jsonb_build_array(jsonb_build_object('id', ${id}::text))`,
+          ),
+        ),
+      ),
+    )
+    .limit(1);
+  return active !== undefined;
+}
+
 /**
  * 改变委派活动集合前，确认真实活动 run 已结束。审核 run 不挂可写目录、也不占委派资源，
  * 因此不算活动运行；queued 取消会直接进入终态，running 取消等 worker 收尾后才解除保护。
  */
-async function assertAgentsIdle(db: DbHandle, agentIds: string[]): Promise<void> {
-  if (agentIds.length === 0) return;
-  const [active] = await db
-    .select({ id: agentRuns.id })
-    .from(agentRuns)
-    .where(
-      and(
-        inArray(agentRuns.agentId, agentIds),
-        inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
-        ne(agentRuns.trigger, 'review'),
-      ),
-    )
-    .limit(1);
-  if (active) {
+export async function assertAgentsIdle(db: DbHandle, agentIds: string[]): Promise<void> {
+  if (await hasActiveRunUsingAgents(db, agentIds)) {
     throw new AppError('CONFLICT', '智能体或其委派关系中仍有运行未结束，请等待完成或取消后再修改');
   }
 }
@@ -448,12 +519,15 @@ export async function createAgent(
       const created = inserted[0];
       if (!created) throw new Error('agent insert returned no row');
       await writeAgentPluginBindings(tx, id, pluginBindings);
-      await insertAgentVersion(
-        tx,
-        id,
-        toAgent(created, serverIds, skillIds, subAgentIds, pluginBindings),
-      );
-      return inserted;
+      const definition = await loadLiveDefinition(tx, id);
+      if (!definition) throw new Error('created agent definition not found');
+      await assertDefinitionResources(tx, definition);
+      const version = await insertAgentVersion(tx, id, definition.agent, definition);
+      return tx
+        .update(agents)
+        .set({ publishedVersion: version, publishedAt: new Date() })
+        .where(eq(agents.id, id))
+        .returning();
     }),
   );
   if (!row) throw new Error('agent insert returned no row');
@@ -503,6 +577,11 @@ export async function duplicateAgent(
             .from(agentWorkflows)
             .where(eq(agentWorkflows.agentId, sourceId));
 
+          const hookRows = await tx
+            .select()
+            .from(agentHookFiles)
+            .where(eq(agentHookFiles.agentId, sourceId));
+
           const id = newId('agent');
           const [created] = await tx
             .insert(agents)
@@ -530,6 +609,9 @@ export async function duplicateAgent(
               parentId: null,
               // 复制的是环境绑定（不是构建版本）；源环境的版本历史不跟着复制。
               runtimeEnvironmentId: source.runtimeEnvironmentId,
+              hooksEnabled: source.hooksEnabled,
+              hooksConfig: source.hooksConfig,
+              memoryPolicy: source.memoryPolicy,
             })
             .returning();
           if (!created) throw new Error('agent insert returned no row');
@@ -583,9 +665,25 @@ export async function duplicateAgent(
             );
           }
 
-          const snapshot = toAgent(created, serverIds, skillIds, [], pluginBindings);
-          await insertAgentVersion(tx, id, snapshot);
-          return snapshot;
+          if (hookRows.length > 0) {
+            await tx.insert(agentHookFiles).values(
+              hookRows.map((row) => ({
+                ...row,
+                id: newId('agentHookFile'),
+                agentId: id,
+              })),
+            );
+          }
+          const definition = await loadLiveDefinition(tx, id);
+          if (!definition) throw new Error('duplicated agent definition not found');
+          const version = await insertAgentVersion(tx, id, definition.agent, definition);
+          const [published] = await tx
+            .update(agents)
+            .set({ publishedVersion: version, publishedAt: new Date() })
+            .where(eq(agents.id, id))
+            .returning();
+          if (!published) throw new Error('duplicated agent not found');
+          return toAgent(published, serverIds, skillIds, [], pluginBindings);
         },
         { isolationLevel: 'repeatable read' },
       ),
@@ -615,95 +713,109 @@ export async function updateAgent(
   pluginBindings?: Agent['pluginBindings'],
 ): Promise<AgentRow | null> {
   return retryOnVersionConflict(() =>
-    db.transaction(async (tx) => {
-      // 锁和复查必须在 UPDATE 之前：拿到锁后再读，读到的才是最终状态。
-      // 会拿行锁的写事务一律先拿 advisory，否则与委派事务交叉持锁（二者都改 agents 行）。
-      const changesSet = subAgentIds !== undefined || patch.enabled !== undefined;
-      if (changesSet || (pluginBindings?.length ?? 0) > 0) {
-        await lockAgentBindings(tx);
-      }
-      if (subAgentIds !== undefined) await lockSubAgentBindings(tx, id, subAgentIds);
-      if (changesSet) {
-        const current = await getAgent(tx, id);
-        if (current) {
-          if (subAgentIds !== undefined) {
-            const previousChildren = await getAgentSubAgentIds(tx, id);
-            if (!sameIdSet(previousChildren, subAgentIds)) {
-              await assertAgentsIdle(tx, [id, ...previousChildren, ...subAgentIds]);
-            }
-          }
-          // 启停会改变父专家运行时的活动集合：只查目标与它当前的父专家。
-          if (patch.enabled !== undefined && patch.enabled !== current.enabled) {
-            await assertAgentsIdle(tx, current.parentId === null ? [id] : [id, current.parentId]);
-          }
-        }
-      }
-      const where =
-        expectedUpdatedAt === undefined
-          ? eq(agents.id, id)
-          : and(eq(agents.id, id), notStale(agents.updatedAt, expectedUpdatedAt));
-      const [row] = await tx
-        .update(agents)
-        .set({
-          ...patch,
-          updatedAt: touchUpdatedAt(agents.updatedAt),
-        })
-        .where(where)
-        .returning();
-      if (!row) {
-        // 条件更新落空：行还在就是并发修改，行没了交给路由返回 404。
-        if (expectedUpdatedAt !== undefined && (await getAgent(tx, id))) {
-          throw new AppError('CONFLICT_STALE', '配置已被修改，请刷新');
-        }
-        return null;
-      }
-      if (subAgentIds !== undefined) {
-        await tx
-          .update(agents)
-          .set({ parentId: null })
-          .where(and(eq(agents.parentId, id), ne(agents.id, id)));
-        if (subAgentIds.length > 0) {
-          const claimed = await tx
-            .update(agents)
-            .set({ parentId: id })
-            .where(inArray(agents.id, subAgentIds))
-            .returning({ id: agents.id });
-          if (claimed.length !== subAgentIds.length) {
-            throw new AppError('INVALID_INPUT', '选中的子智能体已被删除，请刷新后重新选择');
-          }
-        }
-      }
-      if (serverIds !== undefined) {
-        await tx.delete(agentServers).where(eq(agentServers.agentId, id));
-        if (serverIds.length > 0) {
-          await tx
-            .insert(agentServers)
-            .values(serverIds.map((serverId) => ({ agentId: id, serverId })));
-        }
-      }
-      if (skillIds !== undefined) {
-        await tx.delete(agentSkills).where(eq(agentSkills.agentId, id));
-        if (skillIds.length > 0) {
-          await tx
-            .insert(agentSkills)
-            .values(skillIds.map((skillId) => ({ agentId: id, skillId })));
-        }
-      }
-      const nextServerIds = serverIds ?? (await getAgentServerIds(tx, id));
-      const nextSkillIds = skillIds ?? (await getAgentSkillIds(tx, id));
-      const nextSubAgentIds = subAgentIds ?? (await getAgentSubAgentIds(tx, id));
-      if (pluginBindings !== undefined) await writeAgentPluginBindings(tx, id, pluginBindings);
-      const nextPluginBindings =
-        pluginBindings ?? (await listAgentPluginBindingInputs(tx, [id])).get(id) ?? [];
-      await insertAgentVersion(
+    db.transaction((tx) =>
+      updateAgentTx(
         tx,
         id,
-        toAgent(row, nextServerIds, nextSkillIds, nextSubAgentIds, nextPluginBindings),
+        patch,
+        serverIds,
+        skillIds,
         note,
-      );
-      return row;
-    }),
+        subAgentIds,
+        expectedUpdatedAt,
+        pluginBindings,
+      ),
+    ),
   );
+}
+
+export async function updateAgentTx(
+  tx: Transaction,
+  id: string,
+  patch: AgentPatch,
+  serverIds?: string[],
+  skillIds?: string[],
+  note: string | null = null,
+  subAgentIds?: string[],
+  expectedUpdatedAt?: Date,
+  pluginBindings?: Agent['pluginBindings'],
+): Promise<AgentRow | null> {
+  // 锁和复查必须在 UPDATE 之前：拿到锁后再读，读到的才是最终状态。
+  // 会拿行锁的写事务一律先拿 advisory，否则与委派事务交叉持锁（二者都改 agents 行）。
+  const changesSet = subAgentIds !== undefined || patch.enabled !== undefined;
+  if (changesSet || (pluginBindings?.length ?? 0) > 0) {
+    await lockAgentBindings(tx);
+  }
+  if (subAgentIds !== undefined) await lockSubAgentBindings(tx, id, subAgentIds);
+  if (changesSet) {
+    const current = await getAgent(tx, id);
+    if (current) {
+      if (subAgentIds !== undefined) {
+        const previousChildren = await getAgentSubAgentIds(tx, id);
+        if (!sameIdSet(previousChildren, subAgentIds)) {
+          await assertAgentsIdle(tx, [id, ...previousChildren, ...subAgentIds]);
+        }
+      }
+      // 启停会改变父专家运行时的活动集合：只查目标与它当前的父专家。
+      if (patch.enabled !== undefined && patch.enabled !== current.enabled) {
+        await assertAgentsIdle(tx, current.parentId === null ? [id] : [id, current.parentId]);
+      }
+    }
+  }
+  const where =
+    expectedUpdatedAt === undefined
+      ? eq(agents.id, id)
+      : and(eq(agents.id, id), notStale(agents.updatedAt, expectedUpdatedAt));
+  const [row] = await tx
+    .update(agents)
+    .set({
+      ...patch,
+      updatedAt: touchUpdatedAt(agents.updatedAt),
+    })
+    .where(where)
+    .returning();
+  if (!row) {
+    // 条件更新落空：行还在就是并发修改，行没了交给路由返回 404。
+    if (expectedUpdatedAt !== undefined && (await getAgent(tx, id))) {
+      throw new AppError('CONFLICT_STALE', '配置已被修改，请刷新');
+    }
+    return null;
+  }
+  if (subAgentIds !== undefined) {
+    await tx
+      .update(agents)
+      .set({ parentId: null })
+      .where(and(eq(agents.parentId, id), ne(agents.id, id)));
+    if (subAgentIds.length > 0) {
+      const claimed = await tx
+        .update(agents)
+        .set({ parentId: id })
+        .where(inArray(agents.id, subAgentIds))
+        .returning({ id: agents.id });
+      if (claimed.length !== subAgentIds.length) {
+        throw new AppError('INVALID_INPUT', '选中的子智能体已被删除，请刷新后重新选择');
+      }
+    }
+  }
+  if (serverIds !== undefined) {
+    await tx.delete(agentServers).where(eq(agentServers.agentId, id));
+    if (serverIds.length > 0) {
+      await tx
+        .insert(agentServers)
+        .values(serverIds.map((serverId) => ({ agentId: id, serverId })));
+    }
+  }
+  if (skillIds !== undefined) {
+    await tx.delete(agentSkills).where(eq(agentSkills.agentId, id));
+    if (skillIds.length > 0) {
+      await tx.insert(agentSkills).values(skillIds.map((skillId) => ({ agentId: id, skillId })));
+    }
+  }
+  if (pluginBindings !== undefined) await writeAgentPluginBindings(tx, id, pluginBindings);
+  const definition = await loadLiveDefinition(tx, id);
+  if (!definition) return null;
+  await insertAgentVersion(tx, id, definition.agent, definition, note);
+  return row;
 }
 
 /**
@@ -815,6 +927,24 @@ async function readAgentDeletionSnapshot(
   if (self.enabled && self.parentId !== null) affected.push(self.parentId);
   affected.sort();
   await assertAgentsIdle(tx, affected);
+  const [publishedParent] = await tx
+    .select({ id: agents.id })
+    .from(agents)
+    .innerJoin(
+      agentVersions,
+      and(eq(agentVersions.agentId, agents.id), eq(agentVersions.version, agents.publishedVersion)),
+    )
+    .where(
+      sql`${agentVersions.definition}->'resources'->'subAgents'
+        @> jsonb_build_array(jsonb_build_object('id', ${self.id}::text))`,
+    )
+    .limit(1);
+  if (publishedParent) {
+    throw new AppError(
+      'CONFLICT',
+      '该专家仍被其他已发布专家的定义引用，请先重新发布相关父专家后再删除',
+    );
+  }
   const targets = await sandboxTargetsForAgent(tx, self.id);
   return {
     id: self.id,
@@ -980,4 +1110,196 @@ export async function getBoundSkillsByAgentIds(
     else out.set(row.agentId, [row.skill]);
   }
   return out;
+}
+
+export async function loadLiveDefinition(
+  db: DbHandle,
+  agentId: string,
+): Promise<AgentDefinition | null> {
+  const row = await getAgent(db, agentId);
+  if (!row) return null;
+  const [
+    serverRows,
+    skillRows,
+    pluginRows,
+    subAgentRows,
+    rules,
+    outputStyles,
+    workflows,
+    hookFiles,
+    environments,
+  ] = await Promise.all([
+    db
+      .select({
+        id: servers.id,
+        name: servers.name,
+        kind: servers.kind,
+        config: servers.config,
+        secretsEncrypted: servers.secretsEncrypted,
+        updatedAt: servers.updatedAt,
+      })
+      .from(agentServers)
+      .innerJoin(servers, eq(agentServers.serverId, servers.id))
+      .where(eq(agentServers.agentId, agentId))
+      .orderBy(asc(servers.id)),
+    db
+      .select(getTableColumns(skills))
+      .from(agentSkills)
+      .innerJoin(skills, eq(agentSkills.skillId, skills.id))
+      .where(eq(agentSkills.agentId, agentId))
+      .orderBy(asc(skills.id)),
+    db
+      .select({
+        ...getTableColumns(plugins),
+        allowHooks: agentPlugins.allowHooks,
+        allowMcp: agentPlugins.allowMcp,
+      })
+      .from(agentPlugins)
+      .innerJoin(plugins, eq(agentPlugins.pluginId, plugins.id))
+      .where(eq(agentPlugins.agentId, agentId))
+      .orderBy(asc(plugins.id)),
+    db
+      .select({
+        id: agents.id,
+        name: agents.name,
+        updatedAt: agents.updatedAt,
+        publishedVersion: agents.publishedVersion,
+      })
+      .from(agents)
+      .where(eq(agents.parentId, agentId))
+      .orderBy(asc(agents.id)),
+    db
+      .select()
+      .from(agentRules)
+      .where(eq(agentRules.agentId, agentId))
+      .orderBy(asc(agentRules.slug)),
+    db
+      .select()
+      .from(agentOutputStyles)
+      .where(eq(agentOutputStyles.agentId, agentId))
+      .orderBy(asc(agentOutputStyles.slug)),
+    db
+      .select()
+      .from(agentWorkflows)
+      .where(eq(agentWorkflows.agentId, agentId))
+      .orderBy(asc(agentWorkflows.slug)),
+    db
+      .select()
+      .from(agentHookFiles)
+      .where(eq(agentHookFiles.agentId, agentId))
+      .orderBy(asc(agentHookFiles.path)),
+    db
+      .select({
+        id: runtimeEnvironments.id,
+        name: runtimeEnvironments.name,
+        versionId: runtimeEnvironments.onlineVersionId,
+      })
+      .from(runtimeEnvironments)
+      .where(
+        row.runtimeEnvironmentId === null
+          ? eq(runtimeEnvironments.isDefault, true)
+          : eq(runtimeEnvironments.id, row.runtimeEnvironmentId),
+      ),
+  ]);
+  const generatedServerIds = serverRows
+    .filter((item) => item.kind === 'generated')
+    .map((item) => item.id);
+  const [skillFileMap, pluginFileMap, toolRows] = await Promise.all([
+    getSkillFilesBySkillIds(
+      db,
+      skillRows.map((item) => item.id),
+    ),
+    getPluginFilesByPluginIds(
+      db,
+      pluginRows.map((item) => item.id),
+    ),
+    generatedServerIds.length === 0
+      ? []
+      : db
+          .select()
+          .from(apiTools)
+          .where(inArray(apiTools.serverId, generatedServerIds))
+          .orderBy(asc(apiTools.createdAt), asc(apiTools.id)),
+  ]);
+  const toolsByServer = Object.groupBy(
+    toolRows.map((item) =>
+      apiToolSchema.parse({ ...item, createdAt: item.createdAt.toISOString() }),
+    ),
+    (item) => item.serverId,
+  );
+  return {
+    agent: {
+      ...toAgent(
+        row,
+        serverRows.map((item) => item.id),
+        skillRows.map((item) => item.id),
+        subAgentRows.map((item) => item.id),
+        pluginRows.map((item) => ({
+          pluginId: item.id,
+          allowHooks: item.allowHooks,
+          allowMcp: item.allowMcp,
+        })),
+      ),
+      hasDraft: false,
+    },
+    rules: rules.map((item) => ({
+      ...item,
+      createdAt: item.createdAt.toISOString(),
+      updatedAt: item.updatedAt.toISOString(),
+    })),
+    outputStyles: outputStyles.map((item) => ({
+      ...item,
+      createdAt: item.createdAt.toISOString(),
+      updatedAt: item.updatedAt.toISOString(),
+    })),
+    workflows: workflows.map((item) => ({
+      ...item,
+      createdAt: item.createdAt.toISOString(),
+      updatedAt: item.updatedAt.toISOString(),
+    })),
+    hooks: {
+      enabled: row.hooksEnabled,
+      config: row.hooksConfig,
+      files: hookFiles.map((item) => ({
+        ...item,
+        createdAt: item.createdAt.toISOString(),
+        updatedAt: item.updatedAt.toISOString(),
+      })),
+    },
+    memoryPolicy: resolveMemoryPolicy(row.memoryPolicy),
+    resources: {
+      servers: serverRows.map((item) => ({
+        ...item,
+        updatedAt: item.updatedAt.toISOString(),
+        ...(item.kind === 'generated' ? { tools: toolsByServer[item.id] ?? [] } : {}),
+      })),
+      skills: skillRows.map((item) => ({
+        ...toSkillDefinition(item),
+        id: item.id,
+        sourceId: item.sourceId,
+        createdAt: item.createdAt.toISOString(),
+        updatedAt: item.updatedAt.toISOString(),
+        files: (skillFileMap.get(item.id) ?? []).map(({ path, content }) => ({ path, content })),
+      })),
+      plugins: pluginRows.map((item) => ({
+        id: item.id,
+        slug: item.slug,
+        runtimeName: item.runtimeName,
+        name: item.name,
+        description: item.description,
+        version: item.version,
+        capabilities: pluginInputSchema.shape.capabilities.parse(item.manifest),
+        sourceId: item.sourceId,
+        createdAt: item.createdAt.toISOString(),
+        updatedAt: item.updatedAt.toISOString(),
+        files: (pluginFileMap.get(item.id) ?? []).map(({ path, content, executable }) => ({
+          path,
+          content,
+          executable,
+        })),
+      })),
+      subAgents: subAgentRows.map((item) => ({ ...item, updatedAt: item.updatedAt.toISOString() })),
+      runtimeEnvironment: environments[0] ?? null,
+    },
+  };
 }

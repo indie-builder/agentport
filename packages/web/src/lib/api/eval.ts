@@ -10,6 +10,8 @@ import { clientOptions, nativeRequest } from './shared.js';
 
 export type EvalRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
+export type EvalTarget = 'published' | 'draft';
+
 export interface EvalCase {
   id: string;
   agentId: string;
@@ -84,8 +86,10 @@ export default {
     query: { agentId?: string; cursor?: string; limit?: number } = {},
     signal?: AbortSignal,
   ): Promise<EvalRunPage> => rpc.eval.runs.list({ query }, clientOptions(signal)),
-  startEvalRun: (agentId: string): Promise<{ evalRunId: string }> =>
-    rpc.eval.runs.create({ body: { agentId } }),
+  startEvalRun: (
+    agentId: string,
+    target: EvalTarget = 'published',
+  ): Promise<{ evalRunId: string }> => rpc.eval.runs.create({ body: { agentId, target } }),
   cancelEvalRun: (id: string): Promise<{ ok: true }> => rpc.eval.runs.cancel({ params: { id } }),
   evalRun: (id: string): Promise<EvalRunDetail> => rpc.eval.runs.detail({ params: { id } }),
   exportEvalRun: (id: string): Promise<EvalRunExport> =>

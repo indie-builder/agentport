@@ -139,6 +139,9 @@ export const agentSchema = agentInputSchema.extend({ role: z.string().default('�
     /** 单层委派：非空表示自己是某个主智能体的子智能体。 */
     parentId: z.string().nullable(),
     isDefault: z.boolean(),
+    publishedVersion: z.number().nullable().optional(),
+    publishedAt: z.string().nullable().optional(),
+    hasDraft: z.boolean().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
   }),

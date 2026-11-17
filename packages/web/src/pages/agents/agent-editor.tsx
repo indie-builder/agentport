@@ -21,8 +21,11 @@ import {
   FileText,
   History,
   LibraryBig,
+  Play,
   Plug,
+  PowerOff,
   Puzzle,
+  Rocket,
   Sparkles,
   Trash2,
   X,
@@ -31,6 +34,7 @@ import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from '
 import { type Control, type Path, type PathValue, useController, useWatch } from 'react-hook-form';
 import { AgentOverview } from '../../components/agent/agent-overview.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
+import { DialogShell } from '../../components/dialog-shell.js';
 import { MemoryPanel } from '../../components/memory/memory-panel.js';
 import { PageBody, PageTopbar } from '../../components/page.js';
 import { RequiredMark } from '../../components/required-mark.js';
@@ -49,6 +53,7 @@ import {
   ComboboxItem,
   ComboboxList,
 } from '../../components/ui/combobox.js';
+import { Dialog } from '../../components/ui/dialog.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -103,10 +108,13 @@ import {
   useAgentOptions,
   useExperts,
   useKnowledgeBases,
+  useOfflineAgent,
   usePlugins,
+  usePublishAgent,
   useRuntimeEnvironments,
   useServers,
   useSkills,
+  useTrialAgent,
   useUpdateAgent,
 } from '../../lib/queries.js';
 import { toast, toastError, toastSuccess } from '../../lib/toast.js';
@@ -158,16 +166,22 @@ export function AgentEditor({
   const allow = (id: PermissionId): boolean => hasAnyGrant(permissions, id);
   const canUpdateConfig = allow('agents.config.update');
   const canEnable = allow('agents.enable');
+  const canPublish = allow('agents.publish');
   const canBindings = allow('agents.bindings.manage');
   const canMemoryWrite = allow('agents.memory.write');
   const canVersionsRead = allow('agents.versions.read');
   const canVersionsRestore = allow('agents.versions.restore');
+  const canUse = allow('agents.use');
+  const canEvaluate = allow('eval.execute');
   const canClone = allow('agents.clone');
   const canExport = allow('agents.export');
   const canDelete = allow('agents.delete');
   const availableTabs = tabItems.filter((item) => canOpenTab(item.id, permissions));
   const availableTabOptions = availableTabs.map((item) => ({ value: item.id, label: item.label }));
   const update = useUpdateAgent();
+  const publish = usePublishAgent();
+  const offline = useOfflineAgent();
+  const trial = useTrialAgent();
   const me = useQuery(meQuery);
   // 资源目录是全局能力：没有对应读取叶的人不发这些请求，改用 /agents/options 摘要。
   const canServers = can(me.data, 'servers.read');
@@ -270,9 +284,23 @@ export function AgentEditor({
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
-  const pending = update.isPending || reloading || rollingBack || deletePending;
+  const pending =
+    update.isPending ||
+    reloading ||
+    rollingBack ||
+    deletePending ||
+    publish.isPending ||
+    offline.isPending;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishNote, setPublishNote] = useState('');
+  const [offlineOpen, setOfflineOpen] = useState(false);
+  const [trialOpen, setTrialOpen] = useState(false);
+  const [trialPrompt, setTrialPrompt] = useState('');
+  const [trialResult, setTrialResult] = useState<{ runId: string; conversationId: string } | null>(
+    null,
+  );
   const duplicateTriggerRef = useRef<HTMLButtonElement>(null);
   const sectionFromUrl = search.section ?? 'identity';
   // 任务只认 URL：确认放行后才换 URL，子面板才会卸载，草稿不会提前丢。
@@ -803,7 +831,7 @@ export function AgentEditor({
         {
           onSuccess: (saved) => {
             if ('systemPrompt' in saved) loadDraft(saved);
-            toastSuccess('智能体已保存');
+            toastSuccess('草稿已保存');
           },
           onError: (error) => {
             if (error instanceof ApiError && error.status === 409) {
@@ -1002,13 +1030,37 @@ export function AgentEditor({
                   {pending ? (
                     '保存中…'
                   ) : dirty ? (
-                    '保存更改'
+                    '保存草稿'
                   ) : (
                     <>
                       <Check data-icon="inline-start" /> 已保存
                     </>
                   )}
                 </Button>
+                {canUpdateConfig && canUse ? (
+                  <Button
+                    variant="outline"
+                    disabled={pending}
+                    onClick={() => {
+                      setTrialResult(null);
+                      setTrialOpen(true);
+                    }}
+                  >
+                    <Play /> 试跑
+                  </Button>
+                ) : null}
+                {canPublish ? (
+                  <Button
+                    disabled={pending || guarded}
+                    title={guarded ? '先保存草稿再发布' : undefined}
+                    onClick={() => {
+                      setPublishNote('');
+                      setPublishOpen(true);
+                    }}
+                  >
+                    <Rocket /> 发布
+                  </Button>
+                ) : null}
                 {canVersionsRead ? (
                   <Button
                     variant="ghost"
@@ -1048,6 +1100,14 @@ export function AgentEditor({
                       {canExport ? (
                         <DropdownMenuItem disabled={exporting} onSelect={() => void download()}>
                           <Download className="size-4" /> {exporting ? '导出中…' : '导出 ZIP'}
+                        </DropdownMenuItem>
+                      ) : null}
+                      {canEnable && agent.enabled ? (
+                        <DropdownMenuItem
+                          disabled={pending || guarded}
+                          onSelect={() => setOfflineOpen(true)}
+                        >
+                          <PowerOff className="size-4" /> 下线专家
                         </DropdownMenuItem>
                       ) : null}
                     </DropdownMenuGroup>
@@ -2415,6 +2475,155 @@ export function AgentEditor({
         }}
       />
 
+      <ConfirmDialog
+        open={publishOpen}
+        onClose={() => {
+          if (!publish.isPending) setPublishOpen(false);
+        }}
+        title={`发布专家「${agent.name}」`}
+        description={
+          agent.hasDraft
+            ? '当前草稿会生成新的线上版本并启用该专家；已保存的配置会原样发布。'
+            : '当前配置会生成新的线上版本并启用该专家。'
+        }
+        confirmLabel="发布"
+        tone="default"
+        confirmDisabled={publish.isPending}
+        onConfirm={async () => {
+          if (publish.isPending) return;
+          const saved = await publish.mutateAsync({
+            id: agent.id,
+            ...(publishNote.trim() === '' ? {} : { note: publishNote.trim() }),
+          });
+          if ('systemPrompt' in saved) loadDraft(saved);
+          const publishedVersion = 'publishedVersion' in saved ? saved.publishedVersion : null;
+          toastSuccess(publishedVersion ? `已发布 v${publishedVersion}` : '已发布');
+        }}
+      >
+        <Field className="gap-1.5" data-disabled={pending || publish.isPending}>
+          <FieldLabel htmlFor="agent-publish-note">发布说明（可选）</FieldLabel>
+          <Input
+            id="agent-publish-note"
+            disabled={pending || publish.isPending}
+            value={publishNote}
+            maxLength={200}
+            onChange={(event) => setPublishNote(event.target.value)}
+            placeholder="例如：调整系统提示词、绑定新技能"
+          />
+        </Field>
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={offlineOpen}
+        onClose={() => {
+          if (!offline.isPending) setOfflineOpen(false);
+        }}
+        title={`下线专家「${agent.name}」`}
+        description="下线后线上不再接受新的对话、频道与定时任务；已发布版本会保留，再次发布即可恢复。"
+        confirmLabel="下线"
+        tone="default"
+        confirmDisabled={offline.isPending}
+        onConfirm={async () => {
+          if (offline.isPending) return;
+          const saved = await offline.mutateAsync(agent.id);
+          if ('systemPrompt' in saved) loadDraft(saved);
+          toastSuccess('专家已下线，再次发布即可恢复');
+        }}
+      />
+
+      <Dialog
+        open={trialOpen}
+        onOpenChange={(open) => {
+          if (open || trial.isPending) return;
+          setTrialOpen(false);
+          setTrialPrompt('');
+          setTrialResult(null);
+        }}
+      >
+        <DialogShell
+          title="试跑当前草稿"
+          description="试跑使用当前草稿（不含未保存的表单修改），不影响线上；记忆改动只以提案记录。"
+          closeDisabled={trial.isPending}
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                disabled={trial.isPending}
+                onClick={() => {
+                  setTrialOpen(false);
+                  setTrialPrompt('');
+                  setTrialResult(null);
+                }}
+              >
+                关闭
+              </Button>
+              <Button
+                type="submit"
+                form="agent-trial-form"
+                disabled={trial.isPending || trialPrompt.trim() === ''}
+                aria-busy={trial.isPending}
+              >
+                {trial.isPending ? '启动中…' : '开始试跑'}
+              </Button>
+            </div>
+          }
+        >
+          <form
+            id="agent-trial-form"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const prompt = trialPrompt.trim();
+              if (prompt === '' || trial.isPending) return;
+              trial.mutate(
+                { id: agent.id, prompt },
+                {
+                  onSuccess: (result) => {
+                    setTrialResult(result);
+                    toastSuccess('试跑已开始');
+                  },
+                  onError: toastError,
+                },
+              );
+            }}
+          >
+            <Field className="gap-1.5" data-disabled={pending || trial.isPending}>
+              <FieldLabel htmlFor="agent-trial-prompt">输入</FieldLabel>
+              <Textarea
+                id="agent-trial-prompt"
+                rows={5}
+                value={trialPrompt}
+                maxLength={20_000}
+                disabled={pending || trial.isPending}
+                onChange={(event) => setTrialPrompt(event.target.value)}
+                placeholder="例如：用一段话介绍你能帮团队完成什么"
+              />
+            </Field>
+            {trialResult ? (
+              <div className="flex flex-col gap-2 rounded-item bg-sunken px-3 py-2.5 text-sm">
+                <p>试跑已开始，运行完成后可查看详细过程与产出。</p>
+                <div className="flex flex-wrap gap-3">
+                  <Link
+                    to="/runs/$runId"
+                    params={{ runId: trialResult.runId }}
+                    className="text-fg underline underline-offset-4"
+                  >
+                    查看运行
+                  </Link>
+                  <Link
+                    to="/chat"
+                    search={{ conversation: trialResult.conversationId }}
+                    className="text-fg underline underline-offset-4"
+                  >
+                    打开会话
+                  </Link>
+                </div>
+              </div>
+            ) : null}
+          </form>
+        </DialogShell>
+      </Dialog>
+
       <Sheet
         open={historyOpen}
         onOpenChange={(open, details) => {
@@ -2437,7 +2646,7 @@ export function AgentEditor({
               {/* Keep the larger, heavier history title instead of the base title typography. */}
               <SheetTitle className="text-md font-semibold">版本历史</SheetTitle>
               <SheetDescription className="mt-1 text-sm">
-                每次保存生成一份快照。回滚会覆盖当前配置并生成新版本。
+                每次保存生成一份快照。回滚会恢复完整定义、生成新版本并设为线上。
               </SheetDescription>
             </div>
             <SheetClose
@@ -2454,7 +2663,8 @@ export function AgentEditor({
               active={historyOpen}
               saving={pending}
               dirty={dirty}
-              canRestore={canVersionsRestore}
+              canRestore={canVersionsRestore && canPublish}
+              canEvaluate={canEvaluate}
               onPendingChange={setRollingBack}
               onRolledBack={(next) => {
                 loadDraft(next);

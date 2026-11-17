@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { fail, notFound } from '@agentport/core';
-import type { ExecutionSubject, RunTrigger } from '@agentport/shared';
+import type { AgentDefinition, ExecutionSubject, RunTrigger } from '@agentport/shared';
 import { ACTIVE_RUN_STATUSES, utcMonthStart } from '@agentport/shared';
 import { and, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Database } from '../../client.js';
@@ -13,7 +13,8 @@ import {
   conversations,
   messages,
 } from '../../schema.js';
-import { sumAgentSpendSince } from '../agents.js';
+import { getAgentVersion } from '../agent-versions.js';
+import { getAgentServerIds, sumAgentSpendSince } from '../agents.js';
 import { channelMemberRole, lockChannelRow } from '../channels.js';
 import { lockRunResources } from '../locks.js';
 import { inheritApprovals } from '../runs.js';
@@ -69,6 +70,7 @@ export async function admitChatRun(
     conversationId?: string;
     trigger?: RunTrigger;
     agentVersion?: number;
+    definitionSnapshot?: AgentDefinition | null;
     /** 新会话标题；缺省取消息前 80 字。非浏览器入口用它标明来源。 */
     title?: string;
     /** 用户消息的完整 content；缺省等价于 `{ type: 'text', text: input.message }`。 */
@@ -77,6 +79,7 @@ export async function admitChatRun(
     /** 频道触发：准入自行取建该 agent 的 lane，并从 DB 复核频道成员与绑定。 */
     channel?: { channelId: string; channelMessageId: string };
     budgetExempt?: boolean;
+    allowDisabled?: boolean;
     regenerate?: true;
   },
 ): Promise<{
@@ -88,9 +91,14 @@ export async function admitChatRun(
   regenerate?: { replacesRunId: string; forkFromMessageUuid?: string; prompt: string };
 }> {
   return db.transaction(async (tx) => {
-    // 与记忆写入共用「发起专家 + enabled 子级」的记忆锁：集合在运行期间固定，
+    // 与记忆写入共用「发起专家 + 子智能体」的记忆锁：集合在运行期间固定，
     // 入队前先锁住整个集合，新 run 不会在写入中途落地。
-    await lockRunResources(tx, input.agentId);
+    const definition =
+      input.definitionSnapshot ??
+      (input.agentVersion === undefined
+        ? null
+        : ((await getAgentVersion(tx, input.agentId, input.agentVersion))?.definition ?? null));
+    await lockRunResources(tx, input.agentId, definition?.agent.subAgentIds);
     // 锁序：先 agents 再 conversations；反向会和 agent_runs 的外键检查形成删除死锁。
     const [owner] = await tx
       .select({
@@ -104,14 +112,20 @@ export async function admitChatRun(
       .for('key share');
     if (!owner) notFound('agent');
     // 入口的 enabled 预检在锁外；停用若在等锁期间提交，只有锁内重读才能拦住这次入队。
-    if (!owner.enabled) {
+    if (!owner.enabled && input.allowDisabled !== true) {
       fail('AGENT_DISABLED', '该智能体已停用，无法发起新对话；请到智能体页面启用后再试');
     }
     if (input.channel === undefined && input.trigger === 'channel') {
       fail('INVALID_INPUT', '频道触发必须带频道与来源消息');
     }
-    if (!input.budgetExempt && owner.monthlyBudgetUsd !== null) {
-      const limit = Number(owner.monthlyBudgetUsd);
+    const monthlyBudgetUsd =
+      definition === null
+        ? owner.monthlyBudgetUsd === null
+          ? null
+          : Number(owner.monthlyBudgetUsd)
+        : definition.agent.monthlyBudgetUsd;
+    if (!input.budgetExempt && monthlyBudgetUsd !== null) {
+      const limit = monthlyBudgetUsd;
       const spent = await sumAgentSpendSince(tx, input.agentId, utcMonthStart());
       if (spent >= limit) {
         fail(
@@ -332,10 +346,7 @@ export async function admitChatRun(
           .orderBy(desc(messages.createdAt), desc(messages.id))
           .limit(1);
         if (conversationSdkSessionId === null || p === undefined || p.sdkMessageUuid === null) {
-          fail(
-            'CONFLICT',
-            '该会话的历史缺少可用的 SDK 会话记录，无法重新生成；请重新对话后再试',
-          );
+          fail('CONFLICT', '该会话的历史缺少可用的 SDK 会话记录，无法重新生成；请重新对话后再试');
         }
         forkFromMessageUuid = p.sdkMessageUuid;
       }
@@ -351,6 +362,10 @@ export async function admitChatRun(
       id: newId('run'),
       conversationId,
       agentId: input.agentId,
+      serverIds:
+        definition === null
+          ? await getAgentServerIds(tx, input.agentId)
+          : definition.agent.serverIds,
       subject: input.subject,
       ...(input.channel !== undefined
         ? {
@@ -362,6 +377,9 @@ export async function admitChatRun(
           ? {}
           : { trigger: input.trigger }),
       ...(input.agentVersion === undefined ? {} : { agentVersion: input.agentVersion }),
+      ...(input.definitionSnapshot === undefined
+        ? {}
+        : { definitionSnapshot: input.definitionSnapshot }),
     });
     // 频道 lane 由多位成员共享，单次运行批准不能跨触发者继承。
     const inherited =

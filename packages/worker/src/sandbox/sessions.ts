@@ -34,6 +34,7 @@ export interface SessionSandboxSpec {
   conversationId: string;
   /** null 表示平台默认环境；只在新建容器时解析线上版本。 */
   runtimeEnvironmentId: string | null;
+  runtimeEnvironmentVersionId?: string | null;
   /** 以下目录都是宿主 daemon 视角的绝对路径。 */
   workspaceDir: string;
   outputsDir: string;
@@ -240,6 +241,7 @@ function specMatches(current: SessionSandboxSpec, next: SessionSandboxSpec): boo
   const nextMounts = mountsFor(next);
   return (
     current.runtimeEnvironmentId === next.runtimeEnvironmentId &&
+    current.runtimeEnvironmentVersionId === next.runtimeEnvironmentVersionId &&
     current.workspaceDir === next.workspaceDir &&
     currentMounts.length === nextMounts.length &&
     currentMounts.every((mount, index) => {
@@ -506,7 +508,10 @@ export class SessionSandboxes {
     let runtimeEnvironment: ResolvedRuntimeEnvironment;
     try {
       // 只有真正新建容器才读线上版本；复用路径不经过这里。
-      runtimeEnvironment = await this.resolveRuntimeEnvironment(spec.runtimeEnvironmentId);
+      runtimeEnvironment = await this.resolveRuntimeEnvironment(
+        spec.runtimeEnvironmentId,
+        spec.runtimeEnvironmentVersionId,
+      );
       if (createSignal.aborted) throw abortError();
     } catch (err) {
       this.removeEntry(entry);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { agentResourceVersionsSchema } from './agent-definition.js';
 import { runTriggerSchema } from './ops.js';
 import { publicRunQuestionSchema } from './questions.js';
 import { runErrorKindSchema, runStatusSchema } from './run-state.js';
@@ -169,6 +170,8 @@ export const evalRunSchema = z.object({
   id: z.string(),
   agentId: z.string(),
   status: z.enum(['running', 'succeeded', 'failed', 'cancelled']),
+  agentVersion: z.number().nullable().optional(),
+  resourceVersions: agentResourceVersionsSchema.nullable().optional(),
   total: z.number(),
   passed: z.number(),
   error: z.string().nullable(),

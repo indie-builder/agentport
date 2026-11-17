@@ -1,4 +1,4 @@
-import type { Agent, AgentInput, MemoryPolicy } from '@agentport/shared';
+import type { Agent, AgentDefinition, AgentInput, MemoryPolicy } from '@agentport/shared';
 import { DEFAULT_MEMORY_POLICY } from '@agentport/shared';
 import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
@@ -41,6 +41,8 @@ export const agents = pgTable(
     uiFormat: text('ui_format').$type<AgentInput['uiFormat']>().notNull().default('markdown'),
     effort: text('effort').$type<NonNullable<AgentInput['effort']>>(),
     enabled: boolean('enabled').notNull().default(true),
+    publishedVersion: integer('published_version'),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
     maxTurns: integer('max_turns').notNull().default(20),
     maxBudgetUsd: numeric('max_budget_usd', { precision: 10, scale: 4 }).notNull().default('2'),
     monthlyBudgetUsd: numeric('monthly_budget_usd', { precision: 10, scale: 4 }),
@@ -62,7 +64,6 @@ export const agents = pgTable(
       (): AnyPgColumn => runtimeEnvironments.id,
       { onDelete: 'restrict' },
     ),
-    /** 专家记忆策略：运行期挂载/注入方式与主题数量上限；不进专家版本快照。 */
     memoryPolicy: jsonb('memory_policy')
       .$type<MemoryPolicy>()
       .notNull()
@@ -252,6 +253,7 @@ export const agentVersions = pgTable(
     version: integer('version').notNull(),
     /** 写入时的完整 Agent 配置，含 serverIds / skillIds。 */
     snapshot: jsonb('snapshot').$type<Agent>().notNull(),
+    definition: jsonb('definition').$type<AgentDefinition>(),
     note: text('note'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -182,7 +182,9 @@ async function dispatchWake(
   if (binding.status !== 'active') return skipWake(context, wake, BINDING_INACTIVE_NOTICE);
   let admitted: Awaited<ReturnType<typeof repo.chat.admitChatRun>>;
   try {
-    const agentVersion = await repo.agentVersions.latestAgentVersion(context.db, wake.agentId);
+    const agent = await repo.agents.getAgent(context.db, wake.agentId);
+    if (!agent) return skipWake(context, wake, AGENT_GONE_NOTICE);
+    const agentVersion = agent.publishedVersion;
     admitted = await repo.chat.admitChatRun(context.db, {
       agentId: wake.agentId,
       message: message.body,

@@ -388,7 +388,7 @@ try {
       const headers = { 'content-type': 'application/json' };
       const list = await page.fetch('/api/agents', { method: 'GET' });
       const existing = list.ok ? JSON.parse(list.body) : [];
-      if (!Array.isArray(existing) || existing.length === 0) {
+      if (!Array.isArray(existing) || existing.filter((agent) => !agent.isDefault).length === 0) {
         const createAgent = (body) =>
           page.fetch('/api/agents', { method: 'POST', headers, body: JSON.stringify(body) });
         const created = [];

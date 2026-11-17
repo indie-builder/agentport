@@ -12,9 +12,12 @@ import {
 } from '@agentport/core';
 import { createServiceLogger } from '@agentport/core/logger';
 import { toWorkspaceInput } from '@agentport/core/workspace-input';
-import { createDb, repo, schema } from '@agentport/db';
+import { createDb, plugins as pluginsTable, repo, schema } from '@agentport/db';
 import {
   ACTIVE_RUN_STATUSES,
+  type Agent,
+  type AgentDefinition,
+  type AgentDefinitionServer,
   agentRunJobSchema,
   CONFIG_CONTAINER_DIR,
   EVAL_RUNS_QUEUE,
@@ -110,8 +113,8 @@ type Db = typeof db;
  * 惰性解析：只在真实创建容器时读线上版本。
  * 存活容器不因发布/回退替换，也不会为它重新解析。
  */
-const resolveRuntimeEnvironment = createRuntimeEnvironmentResolver((environmentId) =>
-  repo.runtimeEnvironments.resolveOnlineRuntimeEnvironment(db, environmentId),
+const resolveRuntimeEnvironment = createRuntimeEnvironmentResolver((environmentId, versionId) =>
+  repo.runtimeEnvironments.resolveOnlineRuntimeEnvironment(db, environmentId, versionId),
 );
 /** 关停信号：abort 后 run 线不再新建容器，进行中的拉取/创建按取消语义收尾。 */
 const sandboxClosing = new AbortController();
@@ -138,7 +141,7 @@ const sessionCleanup = await startSessionCleanupChannel({
   sessions: sessionSandboxes,
 });
 
-type ServerRow = typeof schema.servers.$inferSelect;
+type ServerRow = AgentDefinitionServer;
 type AgentRow = typeof schema.agents.$inferSelect;
 /** 子智能体行带上自己的技能；根智能体的技能单独传，避免混进根配置。 */
 type SubAgentRow = AgentRow & { skills?: WorkspaceSkill[] };
@@ -161,7 +164,6 @@ function toEntry(
   const input = serverInputSchema.parse({
     ...server.config,
     name: server.name,
-    description: server.description,
     kind: server.kind,
   });
   // stdio 命令有意由容器内的 SDK 启动，须在沙盒镜像中可用；不在 worker 宿主执行。
@@ -178,30 +180,49 @@ function toEntry(
  * 插件是会话级能力，子智能体不绑定：SDK 的 `plugins` 没有按子智能体隔离的入口。
  * 上游已拒绝，这里只防御性忽略并留日志。
  */
-async function loadAgentPlugins(agent: AgentRow): Promise<WorkspacePlugin[]> {
+async function loadAgentPlugins(
+  agent: AgentRow,
+  bindings: Agent['pluginBindings'],
+  snapshotPlugins: AgentDefinition['resources']['plugins'] | null,
+): Promise<WorkspacePlugin[]> {
   if (agent.parentId !== null) {
     logger.warn({ agentId: agent.id }, 'sub-agent cannot bind plugins; ignoring bindings');
     return [];
   }
-  const bindings = await repo.plugins.listAgentPluginBindings(db, agent.id);
   if (bindings.length === 0) return [];
-  const filesByPlugin = await repo.plugins.getPluginFilesByPluginIds(
-    db,
-    bindings.map(({ plugin }) => plugin.id),
-  );
-  const plugins = bindings.map(({ plugin, allowHooks, allowMcp }) =>
-    renderPlugin({
-      slug: plugin.slug,
-      runtimeName: plugin.runtimeName,
-      allowHooks,
-      allowMcp,
-      files: (filesByPlugin.get(plugin.id) ?? []).map((file) => ({
-        path: file.path,
-        content: file.content,
-        executable: file.executable,
-      })),
-    }),
-  );
+  const pluginIds = bindings.map((binding) => binding.pluginId);
+  const [pluginRows, filesByPlugin] =
+    snapshotPlugins === null
+      ? await Promise.all([
+          db
+            .select({
+              id: pluginsTable.id,
+              slug: pluginsTable.slug,
+              runtimeName: pluginsTable.runtimeName,
+            })
+            .from(pluginsTable)
+            .where(inArray(pluginsTable.id, pluginIds)),
+          repo.plugins.getPluginFilesByPluginIds(db, pluginIds),
+        ])
+      : [snapshotPlugins, new Map(snapshotPlugins.map((plugin) => [plugin.id, plugin.files]))];
+  const pluginsById = new Map(pluginRows.map((plugin) => [plugin.id, plugin]));
+  const plugins = bindings.flatMap(({ pluginId, allowHooks, allowMcp }) => {
+    const plugin = pluginsById.get(pluginId);
+    if (plugin === undefined) return [];
+    return [
+      renderPlugin({
+        slug: plugin.slug,
+        runtimeName: plugin.runtimeName,
+        allowHooks,
+        allowMcp,
+        files: (filesByPlugin.get(plugin.id) ?? []).map((file) => ({
+          path: file.path,
+          content: file.content,
+          executable: file.executable,
+        })),
+      }),
+    ];
+  });
   // 只剩未授权组件时目录为空，交给 SDK 只会变成一次加载失败。
   return plugins.filter((plugin) => {
     if (plugin.files.length > 0) return true;
@@ -397,6 +418,7 @@ const defaultEnvironmentDeps = {
       await repo.runtimeEnvironments.ensureDefaultRuntimeEnvironment(db, image);
     },
   },
+  ensureDefaultAgentPublished: () => repo.agents.publishDefaultAgentIfNeeded(db),
   ensureImage: (image: string, signal: AbortSignal) => provider.ensureImage(image, signal),
   resolveImageId: resolveLocalImageId,
   sandboxImage: config.SANDBOX_IMAGE,

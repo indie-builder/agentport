@@ -149,7 +149,9 @@ export async function startRun(
   if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
     return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
   }
-  const agentVersion = await repo.agentVersions.latestAgentVersion(deps.db, agentId);
+  const agent = await repo.agents.getAgent(deps.db, agentId);
+  if (!agent) return notFound('agent');
+  const agentVersion = agent.publishedVersion;
   let createdConversationId: string | undefined;
   let attachmentSlug: string | undefined;
   let requestedConversationId = body.conversationId;
@@ -334,7 +336,9 @@ export async function regenerateLastRun(
   if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
     return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
   }
-  const agentVersion = await repo.agentVersions.latestAgentVersion(deps.db, agentId);
+  const agent = await repo.agents.getAgent(deps.db, agentId);
+  if (!agent) return notFound('agent');
+  const agentVersion = agent.publishedVersion;
   const admitted = await chatRepo.admitChatRun(deps.db, {
     agentId,
     message: '',

@@ -51,7 +51,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
         // 已取消的调用不落任何 run/会话，避免为没人等的结果排队。
         if (signal?.aborted) fail('UPSTREAM_FAILED', 'agent run cancelled');
 
-        const agentVersion = await repo.agentVersions.latestAgentVersion(app.db, agent.id);
+        const agentVersion = agent.publishedVersion;
         // 与浏览器入口共用同一准入事务：会话、run、用户消息一起提交或回滚。
         const { run, conversationId } = await repo.chat.admitChatRun(app.db, {
           agentId: agent.id,

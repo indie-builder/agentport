@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { AppError, fail } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type {
@@ -293,6 +294,11 @@ export async function updateServer(
       key,
       typeof row.config.mcpToken === 'string' ? row.config.mcpToken : undefined,
     );
+    const secretsUnchanged =
+      next.kind === 'stdio'
+        ? current.kind === 'stdio' && isDeepStrictEqual(next.env, current.env)
+        : (current.kind === 'http' || current.kind === 'generated') &&
+          isDeepStrictEqual(next.headers, current.headers);
     const updated = await repo.servers.updateServer(
       tx,
       id,
@@ -300,7 +306,7 @@ export async function updateServer(
         name: next.name,
         description: next.description,
         config: { ...row.config, ...split.config },
-        secretsEncrypted: split.secretsEncrypted,
+        secretsEncrypted: secretsUnchanged ? row.secretsEncrypted : split.secretsEncrypted,
       },
       expectedUpdatedAt,
     );

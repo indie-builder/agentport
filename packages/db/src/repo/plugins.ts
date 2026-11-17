@@ -172,7 +172,7 @@ export async function listPluginFiles(db: Database, pluginId: string): Promise<P
 
 /** 一次取回多个插件的文件（worker 一次运行要把所有已绑定插件铺进工作区）。 */
 export async function getPluginFilesByPluginIds(
-  db: Database,
+  db: DbHandle,
   pluginIds: string[],
 ): Promise<Map<string, PluginFileRow[]>> {
   if (pluginIds.length === 0) return new Map();

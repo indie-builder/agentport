@@ -1,5 +1,5 @@
 import { AppError } from '@agentport/core';
-import type { Agent } from '@agentport/shared';
+import type { Agent, AgentDefinition } from '@agentport/shared';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
@@ -20,16 +20,22 @@ export async function insertAgentVersion(
   tx: Transaction,
   agentId: string,
   snapshot: Agent,
+  definition: AgentDefinition | null = null,
   note: string | null = null,
-): Promise<void> {
-  await tx.insert(agentVersions).values({
-    id: newId('agentVersion'),
-    agentId,
-    // 版本号在 INSERT 内计算，少一次往返；并发仍由唯一约束兜底。
-    version: sql`(select coalesce(max(${agentVersions.version}), 0) + 1 from ${agentVersions} where ${agentVersions.agentId} = ${agentId})`,
-    snapshot,
-    note,
-  });
+): Promise<number> {
+  const [row] = await tx
+    .insert(agentVersions)
+    .values({
+      id: newId('agentVersion'),
+      agentId,
+      version: sql`(select coalesce(max(${agentVersions.version}), 0) + 1 from ${agentVersions} where ${agentVersions.agentId} = ${agentId})`,
+      snapshot,
+      definition,
+      note,
+    })
+    .returning({ version: agentVersions.version });
+  if (!row) throw new Error('agent version insert returned no row');
+  return row.version;
 }
 
 function isVersionConflict(err: unknown): boolean {
@@ -79,7 +85,7 @@ export async function latestAgentVersion(db: DbHandle, agentId: string): Promise
 }
 
 export async function getAgentVersion(
-  db: Database,
+  db: DbHandle,
   agentId: string,
   version: number,
 ): Promise<AgentVersionRow | null> {

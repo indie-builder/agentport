@@ -1,0 +1,1 @@
+ALTER TABLE "agent_runs" ADD COLUMN "server_ids" jsonb;

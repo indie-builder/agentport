@@ -80,12 +80,23 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
         !(await validRunToken(context, runId, serverId, bearerToken(c.req.header('authorization'))))
       )
         fail('UNAUTHORIZED', 'invalid bearer token');
-      const [server, tool] = await Promise.all([
-        repo.servers.getServer(context.db, serverId),
-        repo.servers.getApiToolByName(context.db, serverId, toolName),
-      ]);
-      if (server?.kind !== 'generated' || !tool?.enabled || tool.approvalMode !== 'ask') {
-        fail('NOT_FOUND', 'approval tool not found');
+      const snapshot = await repo.runs.getRunServerSnapshot(context.db, runId, serverId);
+      if (snapshot?.tools !== undefined) {
+        const tool =
+          snapshot.kind === 'generated'
+            ? snapshot.tools.find((candidate) => candidate.name === toolName)
+            : undefined;
+        if (!tool?.enabled || tool.approvalMode !== 'ask') {
+          fail('NOT_FOUND', 'approval tool not found');
+        }
+      } else {
+        const [server, tool] = await Promise.all([
+          repo.servers.getServer(context.db, serverId),
+          repo.servers.getApiToolByName(context.db, serverId, toolName),
+        ]);
+        if (server?.kind !== 'generated' || !tool?.enabled || tool.approvalMode !== 'ask') {
+          fail('NOT_FOUND', 'approval tool not found');
+        }
       }
       const active =
         (await repo.runs.isRunActive(context.db, runId)) && !(await isRunCancelRequested(runId));

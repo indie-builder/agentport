@@ -211,7 +211,7 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(changed.statusCode, changed.body).toBe(200);
     const updated = await app.client.unsafe(
-      "update agent_versions set snapshot = (snapshot - 'role') || $2::jsonb where agent_id = $1 and version = 1",
+      "update agent_versions set definition = null, snapshot = (snapshot - 'role') || $2::jsonb where agent_id = $1 and version = 1",
       [agent.id, JSON.stringify(role === undefined ? {} : { role })],
     );
     expect(updated.count).toBe(1);

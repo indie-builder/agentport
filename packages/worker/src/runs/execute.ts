@@ -14,6 +14,9 @@ import { runScopedLogger } from '@agentport/core/logger';
 import { resolveWorkspaceMemoryPolicy } from '@agentport/core/workspace-input';
 import { type createDb, repo, schema } from '@agentport/db';
 import {
+  type Agent,
+  type AgentDefinition,
+  type AgentDefinitionServer,
   agentRunJobSchema,
   effortSchema,
   errorText,
@@ -30,7 +33,10 @@ import type { Logger } from 'pino';
 import { publishChannelEventSafely } from '../channels/channel-events.js';
 import type { Config } from '../config.js';
 import { executeMemoryReview } from '../memory/memory-review.js';
-import { personalMemoryBusinessIdForRun, projectPersonalMemory } from '../memory/personal-memory.js';
+import {
+  personalMemoryBusinessIdForRun,
+  projectPersonalMemory,
+} from '../memory/personal-memory.js';
 import {
   type PersistedChannelMessage,
   type PersistedMessage,
@@ -72,9 +78,45 @@ import {
 } from './run-finish.js';
 
 type Db = ReturnType<typeof createDb>['db'];
-type ServerRow = typeof schema.servers.$inferSelect;
+type ServerRow = AgentDefinitionServer;
 type AgentRow = typeof schema.agents.$inferSelect;
 type SubAgentRow = AgentRow & { skills?: WorkspaceSkill[] };
+
+function applyAgentDefinition(definition: AgentDefinition): AgentRow {
+  const { agent } = definition;
+  return {
+    id: agent.id,
+    slug: agent.slug,
+    parentId: agent.parentId,
+    enabled: agent.enabled,
+    createdBy: agent.createdBy,
+    ownerBusinessId: agent.ownerBusinessId,
+    isDefault: agent.isDefault,
+    publishedVersion: agent.publishedVersion ?? null,
+    publishedAt: agent.publishedAt == null ? null : new Date(agent.publishedAt),
+    createdAt: new Date(agent.createdAt),
+    updatedAt: new Date(agent.updatedAt),
+    name: agent.name,
+    role: agent.role,
+    description: agent.description,
+    model: agent.model,
+    systemPromptMd: agent.systemPrompt,
+    allowedTools: agent.allowedTools,
+    disallowedTools: agent.disallowedTools,
+    permissionMode: agent.permissionMode,
+    uiFormat: agent.uiFormat,
+    effort: agent.effort ?? null,
+    maxTurns: agent.maxTurns,
+    maxBudgetUsd: String(agent.maxBudgetUsd),
+    monthlyBudgetUsd: agent.monthlyBudgetUsd === null ? null : String(agent.monthlyBudgetUsd),
+    budgetAlertRatio: String(agent.budgetAlertRatio),
+    timeoutMs: agent.timeoutMs,
+    runtimeEnvironmentId: agent.runtimeEnvironmentId,
+    memoryPolicy: definition.memoryPolicy,
+    hooksEnabled: definition.hooks.enabled,
+    hooksConfig: definition.hooks.config,
+  };
+}
 
 export async function runAgentJob(
   job: Job,
@@ -106,7 +148,11 @@ export async function runAgentJob(
     sandboxClosing: AbortController;
     sessionSandboxes: SessionSandboxes;
     modelProxy: ModelProxy | null;
-    loadAgentPlugins: (agent: AgentRow) => Promise<WorkspacePlugin[]>;
+    loadAgentPlugins: (
+      agent: AgentRow,
+      bindings: Agent['pluginBindings'],
+      plugins: AgentDefinition['resources']['plugins'] | null,
+    ) => Promise<WorkspacePlugin[]>;
     sandboxEnv: (apiUrl: string, runId: string) => Record<string, string>;
     cleanupSandboxIdOf: (err: unknown) => string | undefined;
     denyQueuedRun: (
@@ -161,6 +207,7 @@ export async function runAgentJob(
     .select({
       status: schema.agentRuns.status,
       agentVersion: schema.agentRuns.agentVersion,
+      definitionSnapshot: schema.agentRuns.definitionSnapshot,
       trigger: schema.agentRuns.trigger,
       agentId: schema.agentRuns.agentId,
       conversationId: schema.agentRuns.conversationId,
@@ -294,20 +341,89 @@ export async function runAgentJob(
         .where(eq(schema.agents.id, agentId))
         .limit(1);
       if (!agent) throw new Error(`agent ${agentId} not found`);
-      agentSlugForRun = agent.slug;
+      const definitionSnapshot = run.definitionSnapshot ?? null;
+      const pinnedVersion = run.agentVersion ?? null;
+      let definition: AgentDefinition | null = definitionSnapshot;
+      if (definitionSnapshot === null && pinnedVersion !== null) {
+        const version = await repo.agentVersions.getAgentVersion(db, agentId, pinnedVersion);
+        if (!version) {
+          throw new Error(`agent ${agentId} version ${pinnedVersion} not found`);
+        }
+        definition = version.definition;
+        if (definition === null) {
+          runLog.warn(
+            { agentVersion: pinnedVersion },
+            'legacy agent version has no definition snapshot',
+          );
+        }
+      }
+      const effectiveAgent = definition === null ? agent : applyAgentDefinition(definition);
+      agentSlugForRun = effectiveAgent.slug;
       // 同一行已带 memoryPolicy 列：直接解析，避免为本轮再查一次 agent。
-      const runMemoryPolicy = resolveWorkspaceMemoryPolicy(agent.memoryPolicy, {
-        mode: 'run',
-        channelId: run.channelId,
-      });
+      const resolvedMemoryPolicy = resolveWorkspaceMemoryPolicy(
+        definition?.memoryPolicy ?? agent.memoryPolicy,
+        {
+          mode: 'run',
+          channelId: run.channelId,
+        },
+      );
+      const runMemoryPolicy: MemoryPolicy =
+        definitionSnapshot === null
+          ? resolvedMemoryPolicy
+          : { ...resolvedMemoryPolicy, writeMode: 'proposal_only' };
       // 单层委派：只取直接子智能体。容器取得前查一次并沿用到结束；A 保证准入到结束集合稳定。
-      const subAgentRows: SubAgentRow[] = await db
-        .select()
-        .from(schema.agents)
-        .where(eq(schema.agents.parentId, agentId))
-        .orderBy(asc(schema.agents.id));
-      const enabledChildren = subAgentRows.filter((row) => row.enabled);
-      const subAgentSlugs = enabledChildren.map((row) => row.slug).sort();
+      const childReferences =
+        definition === null
+          ? await db
+              .select({
+                id: schema.agents.id,
+                publishedVersion: schema.agents.publishedVersion,
+              })
+              .from(schema.agents)
+              .where(eq(schema.agents.parentId, agentId))
+              .orderBy(asc(schema.agents.id))
+          : definition.resources.subAgents;
+      const liveChildById =
+        definition === null
+          ? null
+          : new Map(
+              (
+                await repo.agents.getAgentsByIds(
+                  db,
+                  childReferences.map(({ id }) => id),
+                )
+              ).map((row) => [row.id, row] as const),
+            );
+      const children = await Promise.all(
+        childReferences
+          .filter(({ id }) => liveChildById === null || liveChildById.get(id)?.enabled === true)
+          .map(async ({ id, publishedVersion }) => {
+            const version =
+              publishedVersion === null
+                ? null
+                : await repo.agentVersions.getAgentVersion(db, id, publishedVersion);
+            if (publishedVersion !== null && version === null) {
+              throw new Error(`agent ${id} version ${publishedVersion} not found`);
+            }
+            const childDefinition = version?.definition ?? null;
+            if (childDefinition !== null) {
+              return {
+                row: { ...applyAgentDefinition(childDefinition), enabled: true },
+                definition: childDefinition,
+              };
+            }
+            const row = liveChildById?.get(id) ?? (await repo.agents.getAgent(db, id));
+            if (!row) throw new Error(`agent ${id} not found`);
+            return { row, definition: null };
+          }),
+      );
+      const enabledChildren =
+        liveChildById === null ? children.filter(({ row }) => row.enabled) : children;
+      const childDefinitions = new Map(
+        enabledChildren.map(({ row, definition }) => [row.id, definition]),
+      );
+      const effectiveChildren = enabledChildren.map(({ row }) => row);
+      const subAgentSlugs = effectiveChildren.map((row) => row.slug).sort();
       // 频道 run 共享 lane，不投影也不挂载任何参与者偏好；用户 run 先按 DB 重写，崩溃后不带旧投影。
       // 专家策略关闭个人记忆注入时，投影与 /mnt/user 挂载一起跳过（身份边界仍由 helper 保证）。
       const personalBusinessId = personalMemoryBusinessIdForRun({
@@ -320,11 +436,14 @@ export async function runAgentJob(
       }
       const sessionPaths = await ensureSessionWorkspace({
         workspacesDir,
-        slug: agent.slug,
+        slug: effectiveAgent.slug,
         conversationId,
         ...(personalBusinessId === undefined ? {} : { businessId: personalBusinessId }),
         subAgentSlugs,
       });
+      if (definition !== null && definition.resources.runtimeEnvironment === null) {
+        throw new Error('运行定义缺少固定的运行环境');
+      }
       lease = await acquireSessionSandbox({
         runId,
         manager: sessionSandboxes,
@@ -333,7 +452,14 @@ export async function runAgentJob(
         spec: {
           agentId,
           conversationId,
-          runtimeEnvironmentId: agent.runtimeEnvironmentId,
+          runtimeEnvironmentId:
+            definition?.resources.runtimeEnvironment?.id ?? effectiveAgent.runtimeEnvironmentId,
+          ...(definition === null
+            ? {}
+            : {
+                runtimeEnvironmentVersionId:
+                  definition.resources.runtimeEnvironment?.versionId ?? null,
+              }),
           workspaceDir: toHostWorkspacePath(
             { workspacesDir, hostWorkspacesDir },
             sessionPaths.workspaceDir,
@@ -389,27 +515,9 @@ export async function runAgentJob(
         .where(eq(schema.agentRuns.id, runId));
 
       // 消息级快照：历史渲染按这一轮落库的格式，切换开关不影响已存消息。
-      runUiFormat = agent.uiFormat === 'openui' ? 'openui' : 'markdown';
+      runUiFormat = effectiveAgent.uiFormat === 'openui' ? 'openui' : 'markdown';
 
-      // 版本只做 provenance：执行始终用当前配置，不一致仅告警。
-      try {
-        const pinnedVersion = run?.agentVersion ?? null;
-        const currentVersion = await repo.agentVersions.latestAgentVersion(db, agentId);
-        if (
-          pinnedVersion !== null &&
-          currentVersion !== null &&
-          pinnedVersion !== currentVersion
-        ) {
-          runLog.warn(
-            { pinnedVersion, currentVersion },
-            'agent config changed since enqueue; executing current config',
-          );
-        }
-      } catch (err) {
-        runLog.warn({ err }, 'agent version drift check failed');
-      }
-
-      const timeoutMs = agent.timeoutMs;
+      const timeoutMs = effectiveAgent.timeoutMs;
       // 续聊状态只从 DB 取：队列消息不带历史，重试时也不会用陈旧上下文覆盖会话。
       const sdkState = await repo.chat.getConversationSdkState(db, conversationId);
       if (!sdkState) throw new Error(`conversation ${conversationId} not found`);
@@ -436,10 +544,7 @@ export async function runAgentJob(
       const chosenOutput = selectedOutput(userMessage.content);
       // 动作回传要把上下文与表单值一起交给模型；纯文本消息仍是原文。
       const taskPrompt = promptWithAttachments(
-        promptWithSelectedOutput(
-          promptWithOpenUiAction(userMessage.content, prompt),
-          chosenOutput,
-        ),
+        promptWithSelectedOutput(promptWithOpenUiAction(userMessage.content, prompt), chosenOutput),
         messageAttachments(userMessage.content),
       );
       // 非浏览器入口（定时、评估、外部调用）不经过准入；uuid 由平台生成后显式发给 SDK，
@@ -451,6 +556,29 @@ export async function runAgentJob(
           .set({ sdkMessageUuid: userMessageUuid })
           .where(eq(schema.messages.id, userMessage.id));
       }
+      const definitionsByAgent: Array<[string, AgentDefinition | null]> = [
+        [agentId, definition],
+        ...effectiveChildren.map(
+          (row) =>
+            [row.id, childDefinitions.get(row.id) ?? null] as [string, AgentDefinition | null],
+        ),
+      ];
+      const liveAgents = definitionsByAgent.filter(([, def]) => def === null).map(([id]) => id);
+      const liveServerRowsByAgent = await repo.agents.getBoundServersByAgentIds(db, liveAgents);
+      const bindingsByAgent = new Map<string, ServerRow[]>(
+        definitionsByAgent.map(([id, def]) => [
+          id,
+          def === null
+            ? (liveServerRowsByAgent.get(id) ?? []).map((server) => ({
+                ...server,
+                updatedAt: server.updatedAt.toISOString(),
+              }))
+            : def.resources.servers,
+        ]),
+      );
+      // 工作区 .mcp.json 是父 + 启用子级的并集：子级按名字引用根条目，
+      // 在非交互会话里无需信任目录即可加载；父级看不到子级工具由渲染与 hook 共同限制。
+      const { serverNamesByAgent, serverRows } = loadRunServerBindings(bindingsByAgent);
       // 按 run 签发短期 token：DB 只存 hash，明文只在本工作区的 .mcp.json 里。
       // 过期时间比 run 超时多 5 分钟，避免收尾阶段请求被截断。
       const runToken = randomBytes(32).toString('base64url');
@@ -460,86 +588,111 @@ export async function runAgentJob(
         hashMcpToken(runToken),
         new Date(Date.now() + timeoutMs + 5 * 60_000),
         modelProxy ? hashMcpToken(runId) : null,
-      );
-
-      // 工作区 .mcp.json 是父 + 启用子级的并集：子级按名字引用根条目，
-      // 在非交互会话里无需信任目录即可加载；父级看不到子级工具由渲染与 hook 共同限制。
-      const { serverNamesByAgent, serverRows } = await loadRunServerBindings(
-        db,
-        agentId,
-        subAgentRows,
+        serverRows.map((server) => server.id),
       );
       const parentServerNames = serverNamesByAgent.get(agentId) ?? [];
       const mcpServerIds = Object.fromEntries(serverRows.map((server) => [server.name, server.id]));
       const serverNamesById = new Map(serverRows.map((server) => [server.id, server.name]));
-      const approvalModes = await repo.servers.listToolApprovalModes(
-        db,
-        serverRows.map((server) => server.id),
-      );
-      const mcpApprovalTools = approvalModes.flatMap((tool) => {
-        const server = serverNamesById.get(tool.serverId);
-        return tool.approvalMode === 'ask' && server !== undefined
-          ? [{ server, tool: tool.toolName }]
-          : [];
-      });
+      const liveApprovalServerIds = serverRows
+        .filter((server) => server.tools === undefined)
+        .map((server) => server.id);
+      const approvalModes =
+        liveApprovalServerIds.length === 0
+          ? []
+          : await repo.servers.listToolApprovalModes(db, liveApprovalServerIds);
+      const mcpApprovalTools = [
+        ...serverRows.flatMap((server) =>
+          (server.tools ?? [])
+            .filter((tool) => tool.enabled && tool.approvalMode === 'ask')
+            .map((tool) => ({ server: server.name, tool: tool.name })),
+        ),
+        ...approvalModes.flatMap((tool) => {
+          const server = serverNamesById.get(tool.serverId);
+          return tool.approvalMode === 'ask' && server !== undefined
+            ? [{ server, tool: tool.toolName }]
+            : [];
+        }),
+      ];
 
-      const skillRows = await db
-        .select({
-          id: schema.skills.id,
-          slug: schema.skills.slug,
-          name: schema.skills.name,
-          description: schema.skills.description,
-          body: schema.skills.body,
-          license: schema.skills.license,
-          compatibility: schema.skills.compatibility,
-          metadata: schema.skills.metadata,
-        })
-        .from(schema.agentSkills)
-        .innerJoin(schema.skills, eq(schema.agentSkills.skillId, schema.skills.id))
-        .where(eq(schema.agentSkills.agentId, agentId));
-
-      // 子智能体的技能也要落盘，否则它们的 md 里声明的 skills 无从加载。
-      const childSkills = await repo.agents.getBoundSkillsByAgentIds(
-        db,
-        enabledChildren.map((row) => row.id),
-      );
-      // 根技能和启用子智能体的技能共用一次资源查询，根白名单仍只来自 skillRows。
+      const liveSkillRowsByAgent: Map<
+        string,
+        Array<typeof schema.skills.$inferSelect>
+      > = liveAgents.length === 0
+        ? new Map()
+        : await repo.agents.getBoundSkillsByAgentIds(db, liveAgents);
       const skillFileMap = await repo.skillFiles.getSkillFilesBySkillIds(db, [
-        ...new Set([...skillRows, ...[...childSkills.values()].flat()].map((row) => row.id)),
+        ...new Set([...liveSkillRowsByAgent.values()].flat().map((row) => row.id)),
       ]);
-      const withFiles = (row: (typeof skillRows)[number]) => ({
-        ...repo.skills.toSkillDefinition(row),
-        files: (skillFileMap.get(row.id) ?? []).map((f) => ({
-          path: f.path,
-          content: f.content,
-        })),
-      });
-      const skillsWithFiles = skillRows.map(withFiles);
-      const subAgents = subAgentRows.map((row) => ({
+      const skillsByAgent = new Map<string, WorkspaceSkill[]>(
+        definitionsByAgent.map(([id, def]) => [
+          id,
+          def === null
+            ? (liveSkillRowsByAgent.get(id) ?? []).map((row) => ({
+                ...repo.skills.toSkillDefinition(row),
+                files: (skillFileMap.get(row.id) ?? []).map(({ path, content }) => ({
+                  path,
+                  content,
+                })),
+              }))
+            : def.resources.skills.map(({ license, compatibility, metadata, ...skill }) => ({
+                ...skill,
+                ...(license === undefined ? {} : { license }),
+                ...(compatibility === undefined ? {} : { compatibility }),
+                ...(metadata === undefined ? {} : { metadata }),
+              })),
+        ]),
+      );
+      const skillsWithFiles = skillsByAgent.get(agentId) ?? [];
+      const childSkills = new Map(
+        effectiveChildren.map((row) => [row.id, skillsByAgent.get(row.id) ?? []]),
+      );
+      const subAgents = effectiveChildren.map((row) => ({
         ...row,
-        skills: (childSkills.get(row.id) ?? []).map(withFiles),
-        // 子级 MCP 归属：渲染只列表自己绑定的，运行时 hook 也按这份校验。
+        skills: childSkills.get(row.id) ?? [],
         serverNames: serverNamesByAgent.get(row.id) ?? [],
       }));
 
       // injectRules=false 时不渲染也不查询规则；writeWorkspace 仍会先清理旧 .claude/rules。
       const rules = runMemoryPolicy.injectRules
-        ? toRuleEntries(await repo.rules.listRules(db, agentId))
+        ? toRuleEntries(definition ? definition.rules : await repo.rules.listRules(db, agentId))
         : [];
 
-      const styleRows = await repo.outputStyles.listOutputStyles(db, agentId);
+      const styleRows = definition
+        ? definition.outputStyles
+        : await repo.outputStyles.listOutputStyles(db, agentId);
       const { outputStyles, selectedOutputStyle } = toOutputStyleSelection(styleRows);
       const workflows =
-        agent.parentId === null
-          ? toWorkflowEntries(await repo.workflows.listWorkflows(db, agentId))
+        effectiveAgent.parentId === null
+          ? toWorkflowEntries(
+              definition ? definition.workflows : await repo.workflows.listWorkflows(db, agentId),
+            )
           : [];
-      const runPlugins = await loadAgentPlugins(agent);
-      const hookFiles = agent.hooksEnabled
-        ? (await repo.hooks.listHookFiles(db, agentId)).map((row) => ({
-            path: row.path,
-            content: row.content,
-            executable: row.executable,
-          }))
+      const pluginBindings: Agent['pluginBindings'] = definition
+        ? definition.agent.pluginBindings
+        : (await repo.plugins.listAgentPluginBindings(db, agentId)).map(
+            ({ plugin, allowHooks, allowMcp }) => ({
+              pluginId: plugin.id,
+              allowHooks,
+              allowMcp,
+            }),
+          );
+      const runPlugins = await loadAgentPlugins(
+        effectiveAgent,
+        pluginBindings,
+        definition?.resources.plugins ?? null,
+      );
+      const hookFiles = effectiveAgent.hooksEnabled
+        ? definition
+          ? definition.hooks.files.map((row) => ({
+              path: row.path,
+              content: row.content,
+              executable: row.executable,
+            }))
+          : (await repo.hooks.listHookFiles(db, agentId)).map((row) => ({
+              path: row.path,
+              content: row.content,
+              executable: row.executable,
+            }))
         : [];
 
       const {
@@ -547,7 +700,7 @@ export async function runAgentJob(
         hasSubAgents,
         hasWorkflows,
       } = await writeWorkspace(
-        { ...agent, serverNames: parentServerNames },
+        { ...effectiveAgent, serverNames: parentServerNames },
         runId,
         serverRows.map((server) => ({
           name: server.name,
@@ -559,7 +712,7 @@ export async function runAgentJob(
         outputStyles,
         selectedOutputStyle,
         workflows,
-        agent.hooksEnabled ? agent.hooksConfig : null,
+        effectiveAgent.hooksEnabled ? effectiveAgent.hooksConfig : null,
         hookFiles,
         runPlugins,
         runMemoryPolicy,
@@ -576,7 +729,7 @@ export async function runAgentJob(
       const preparedOutputs = await prepareRunOutputs({
         workspacesDir,
         hostWorkspacesDir,
-        slug: agent.slug,
+        slug: effectiveAgent.slug,
         conversationId,
         runId,
         ...(chosenOutput === null
@@ -598,18 +751,20 @@ export async function runAgentJob(
         replacesRunId !== undefined ? jobForkFrom : (sdkState.forkFromSdkMessageUuid ?? undefined);
       const task: SandboxTaskInput = {
         prompt: taskPrompt,
-        model: agent.model,
-        maxTurns: agent.maxTurns,
-        maxBudgetUsd: Number(agent.maxBudgetUsd),
-        permissionMode: permissionModeSchema.parse(agent.permissionMode),
+        model: effectiveAgent.model,
+        maxTurns: effectiveAgent.maxTurns,
+        maxBudgetUsd: Number(effectiveAgent.maxBudgetUsd),
+        permissionMode: permissionModeSchema.parse(effectiveAgent.permissionMode),
         mcpServers: parentServerNames,
         mcpServerIds,
         mcpApprovalTools,
-        skills: skillRows.map((skill) => skill.slug),
+        skills: skillsWithFiles.map((skill) => skill.slug),
         hasWorkflows,
-        extraAllowedTools: agent.allowedTools,
-        extraDisallowedTools: agent.disallowedTools,
-        ...(agent.effort === null ? {} : { effort: effortSchema.parse(agent.effort) }),
+        extraAllowedTools: effectiveAgent.allowedTools,
+        extraDisallowedTools: effectiveAgent.disallowedTools,
+        ...(effectiveAgent.effort === null
+          ? {}
+          : { effort: effortSchema.parse(effectiveAgent.effort) }),
         allowSubAgents: hasSubAgents,
         maxFieldBytes: config.SANDBOX_MAX_FIELD_BYTES,
         plugins: runPlugins.map((plugin) => ({
@@ -619,7 +774,7 @@ export async function runAgentJob(
           mcpServers: plugin.mcpServerNames,
           hasAgents: plugin.hasAgents,
         })),
-        subAgents: enabledChildren.map((row) => ({
+        subAgents: effectiveChildren.map((row) => ({
           slug: row.slug,
           servers: serverNamesByAgent.get(row.id) ?? [],
           skills: (childSkills.get(row.id) ?? []).map((skill) => skill.slug),
@@ -673,8 +828,7 @@ export async function runAgentJob(
             return question;
           },
           list: () => repo.questions.listQuestions(db, runId),
-          close: (reason, requestId) =>
-            repo.questions.closeQuestions(db, runId, reason, requestId),
+          close: (reason, requestId) => repo.questions.closeQuestions(db, runId, reason, requestId),
           expireStale: () =>
             repo.questions.expireStaleQuestions(db, { runId }).then(() => undefined),
         },

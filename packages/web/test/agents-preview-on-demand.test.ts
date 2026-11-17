@@ -77,6 +77,9 @@ vi.mock('../src/lib/queries.js', () => ({
   useAgentVersions: () => ({ data: [] }),
   useAgentVersion: () => ({ data: undefined, isPending: false, isError: false }),
   useRollbackAgent: () => ({ mutateAsync: vi.fn() }),
+  usePublishAgent: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useOfflineAgent: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useTrialAgent: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useAgentFiles: () => ({
     data: undefined,
     isPending: true,
@@ -306,6 +309,7 @@ describe('expert draft preview on demand', () => {
     await mount();
     await openPreview('CLAUDE.md 草稿');
     await click(button('CLAUDE.md 草稿'));
+    await waitFor(() => previewCode() === undefined);
     expect(previewCode()).toBeUndefined();
     const callsAfterClose = renderSpy.mock.calls.length;
 

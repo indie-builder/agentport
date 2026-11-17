@@ -18,8 +18,8 @@ import {
   platformSettings,
 } from '../schema.js';
 import { maintainedAgentScopeWhere } from './access.js';
-import { latestAgentVersion } from './agent-versions.js';
-import { sumAgentSpendSince } from './agents.js';
+import { getAgentVersion } from './agent-versions.js';
+import { getAgentServerIds, sumAgentSpendSince } from './agents.js';
 import { notStale } from './freshness.js';
 import { lockRunResources } from './locks.js';
 
@@ -122,11 +122,23 @@ export async function claimScheduleTrigger(
       .where(eq(agentSchedules.id, input.scheduleId))
       .limit(1);
     if (!owner) return 'duplicate';
-    await lockRunResources(tx, owner.agentId);
+    const [pre] = await tx
+      .select({ publishedVersion: agents.publishedVersion })
+      .from(agents)
+      .where(eq(agents.id, owner.agentId))
+      .limit(1);
+    const preDefinition =
+      pre?.publishedVersion === null || pre?.publishedVersion === undefined
+        ? null
+        : ((await getAgentVersion(tx, owner.agentId, pre.publishedVersion))?.definition ?? null);
+    await lockRunResources(tx, owner.agentId, preDefinition?.agent.subAgentIds);
 
     // 提交前再读一次：触发可能是几分钟前投递的，期间 agent 可能被停用。
     const [agent] = await tx
-      .select({ enabled: agents.enabled, monthlyBudgetUsd: agents.monthlyBudgetUsd })
+      .select({
+        enabled: agents.enabled,
+        monthlyBudgetUsd: agents.monthlyBudgetUsd,
+      })
       .from(agents)
       .where(eq(agents.id, owner.agentId))
       .limit(1);
@@ -148,13 +160,17 @@ export async function claimScheduleTrigger(
     const schedule = claimed[0];
     if (!schedule) return 'duplicate';
 
-    if (agent.monthlyBudgetUsd !== null) {
-      const limit = Number(agent.monthlyBudgetUsd);
+    const monthlyBudgetUsd =
+      preDefinition === null
+        ? agent.monthlyBudgetUsd === null
+          ? null
+          : Number(agent.monthlyBudgetUsd)
+        : preDefinition.agent.monthlyBudgetUsd;
+    if (monthlyBudgetUsd !== null) {
       const spent = await sumAgentSpendSince(tx, schedule.agentId, utcMonthStart());
-      if (spent >= limit) return 'budget_exceeded';
+      if (spent >= monthlyBudgetUsd) return 'budget_exceeded';
     }
 
-    const agentVersion = await latestAgentVersion(tx, schedule.agentId);
     await tx.insert(conversations).values({
       id: input.conversationId,
       agentId: schedule.agentId,
@@ -170,7 +186,11 @@ export async function claimScheduleTrigger(
       trigger: 'schedule',
       subjectKind: 'user',
       initiatedBy: schedule.executeAsBusinessId,
-      agentVersion,
+      agentVersion: pre?.publishedVersion ?? null,
+      serverIds:
+        preDefinition === null
+          ? await getAgentServerIds(tx, schedule.agentId)
+          : preDefinition.agent.serverIds,
     });
     await tx.insert(messages).values({
       id: input.messageId,
