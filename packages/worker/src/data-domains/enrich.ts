@@ -18,9 +18,12 @@ import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import { runOneShotSdkQuery } from '../one-shot-sdk.js';
+import { startIntervalTicker } from '../scheduling/interval-ticker.js';
 import { sdkEnv } from '../upstream.js';
 
 const ENRICH_TIMEOUT_MS = 5 * 60_000;
+const STALE_GENERATING_MS = 15 * 60_000;
+const RECONCILE_MS = 5 * 60_000;
 
 export type EnrichQueryFn = (params: {
   prompt: string;
@@ -83,8 +86,8 @@ export async function runDataDomainEnrichment(
   job: DataDomainEnrichmentJob,
 ): Promise<void> {
   const { dataDomainId, proposalId } = job;
-  const proposal = await repo.dataDomains.getDataDomainEnrichmentProposal(deps.db, proposalId);
-  if (!proposal || proposal.dataDomainId !== dataDomainId || proposal.status !== 'generating') {
+  const proposal = await repo.dataDomains.claimDataDomainEnrichmentProposal(deps.db, proposalId);
+  if (!proposal || proposal.dataDomainId !== dataDomainId) {
     return;
   }
   const failProposal = async (error: string): Promise<void> => {
@@ -172,6 +175,44 @@ export async function runDataDomainEnrichment(
     });
   } catch (err) {
     await failProposal(redactSecrets(errorText(err)));
+  }
+}
+
+export function startDataDomainEnrichmentReconciler(input: {
+  db: Database;
+  logger: Logger;
+}): () => Promise<void> {
+  return startIntervalTicker(
+    () =>
+      reconcileStaleDataDomainEnrichmentProposals(input.db, input.logger).catch(() => {
+        input.logger.error('data domain enrichment reconcile failed');
+      }),
+    RECONCILE_MS,
+  );
+}
+
+async function reconcileStaleDataDomainEnrichmentProposals(
+  db: Database,
+  logger: Logger,
+): Promise<void> {
+  const olderThan = new Date(Date.now() - STALE_GENERATING_MS);
+  const stale = await repo.dataDomains.listStaleGeneratingDataDomainEnrichmentProposals(
+    db,
+    olderThan,
+  );
+  for (const proposal of stale) {
+    const failed = await repo.dataDomains.failStaleDataDomainEnrichmentProposal(
+      db,
+      proposal.id,
+      olderThan,
+      '生成中断或超时',
+    );
+    if (failed !== null) {
+      logger.warn(
+        { dataDomainId: failed.dataDomainId, proposalId: failed.id },
+        'stale data domain enrichment reconciled as failed',
+      );
+    }
   }
 }
 

@@ -256,7 +256,7 @@ columns:
 - 并发与扣压未压测：当前只验证单实例、单请求属性隔离，未覆盖并发、连接池与长查询。
 - Python 运行时体积与冷启动成本需在镜像与资源配额中核算。
 - 属性值必须是 SQL 字面量，字符串、数字、日期与 NULL 的类型处理需要统一封装，避免调用方各自拼接。
-- enrich 缺少陈旧 `generating` 提案的自动回收：`data-domain-builds` 有 5 分钟对账、超过 15 分钟视为失败的兜底，`data-domain-enrichments` 没有对应 reconciler；任务 `attempts: 1` 不提供业务重试，BullMQ 的 stalled 重投不能替代 stale 回收。worker 崩溃或任务丢失后提案可能长期停在 `generating`，需重新发起提案并人工排查。
+- enrich 任务 `attempts: 1` 不提供业务重试；worker 每 5 分钟对账一次，`generating` 提案超过 15 分钟未更新会被置为 `failed`（`生成中断或超时`），之后需重新发起提案。
 - Wren 运行时无请求鉴权，且凭据在内部 HTTP 明文中传输；只能部署在可信内网/本机，不得暴露公网。默认宿主直跑会监听 `0.0.0.0`。
 - `mdl.schema.json` 把 threshold 定义为 `{value, dataType}` 对象，但运行时与 `wren context build` 实际接受字符串 `"3"`；文档与实现不一致，接入时按运行时实际行为处理（另见 5.6）。
 - `data_domain_query_logs.sql_summary` 为明文 SQL 前 500 字符，`audit_log` 只存摘要且不参与每日清理；查询明细与审计的留存边界见 `docs/OPERATIONS.md`。

@@ -611,6 +611,58 @@ export async function failDataDomainEnrichmentProposal(
   return row ?? null;
 }
 
+export async function listStaleGeneratingDataDomainEnrichmentProposals(
+  db: DbHandle,
+  olderThan: Date,
+): Promise<DataDomainEnrichmentProposalRow[]> {
+  return db
+    .select()
+    .from(dataDomainEnrichmentProposals)
+    .where(
+      and(
+        eq(dataDomainEnrichmentProposals.status, 'generating'),
+        lt(dataDomainEnrichmentProposals.updatedAt, olderThan),
+      ),
+    );
+}
+
+export async function failStaleDataDomainEnrichmentProposal(
+  db: DbHandle,
+  id: string,
+  olderThan: Date,
+  error: string,
+): Promise<DataDomainEnrichmentProposalRow | null> {
+  const [row] = await db
+    .update(dataDomainEnrichmentProposals)
+    .set({ status: 'failed', error, updatedAt: new Date() })
+    .where(
+      and(
+        eq(dataDomainEnrichmentProposals.id, id),
+        eq(dataDomainEnrichmentProposals.status, 'generating'),
+        lt(dataDomainEnrichmentProposals.updatedAt, olderThan),
+      ),
+    )
+    .returning();
+  return row ?? null;
+}
+
+export async function claimDataDomainEnrichmentProposal(
+  db: DbHandle,
+  id: string,
+): Promise<DataDomainEnrichmentProposalRow | null> {
+  const [row] = await db
+    .update(dataDomainEnrichmentProposals)
+    .set({ updatedAt: new Date() })
+    .where(
+      and(
+        eq(dataDomainEnrichmentProposals.id, id),
+        eq(dataDomainEnrichmentProposals.status, 'generating'),
+      ),
+    )
+    .returning();
+  return row ?? null;
+}
+
 export async function decideDataDomainEnrichmentProposal(
   db: DbHandle,
   input: {
