@@ -9,6 +9,7 @@ import { knowledgeContract } from './knowledge.js';
 import { marketContract } from './market.js';
 import { memoryContract } from './memory.js';
 import { memoryReviewsContract } from './memory-reviews.js';
+import { notificationsContract } from './notifications.js';
 import { opsContract } from './ops.js';
 import { outputSharesContract } from './output-shares.js';
 import { overviewContract } from './overview.js';
@@ -34,6 +35,7 @@ export * from './knowledge.js';
 export * from './market.js';
 export * from './memory.js';
 export * from './memory-reviews.js';
+export * from './notifications.js';
 export * from './ops.js';
 export * from './output-shares.js';
 export * from './overview.js';
@@ -57,6 +59,7 @@ export const apiContract: {
   market: typeof marketContract;
   memory: typeof memoryContract;
   memoryReviews: typeof memoryReviewsContract;
+  notifications: typeof notificationsContract;
   ops: typeof opsContract;
   outputShares: typeof outputSharesContract;
   overview: typeof overviewContract;
@@ -79,6 +82,7 @@ export const apiContract: {
   market: marketContract,
   memory: memoryContract,
   memoryReviews: memoryReviewsContract,
+  notifications: notificationsContract,
   ops: opsContract,
   outputShares: outputSharesContract,
   overview: overviewContract,

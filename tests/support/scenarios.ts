@@ -11,5 +11,6 @@ export const scenarios = {
   regression: () => import('./fixtures/regression.js'),
   channels: () => import('./fixtures/channels.js'),
   'channels-business': () => import('./fixtures/channels-business.js'),
+  notifications: () => import('./fixtures/notifications.js'),
   'chat-replay': () => import('./fixtures/chat-replay.js'),
 };

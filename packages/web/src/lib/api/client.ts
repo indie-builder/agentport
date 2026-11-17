@@ -11,6 +11,7 @@ import health from './health.js';
 import knowledge from './knowledge.js';
 import market from './market.js';
 import memory from './memory.js';
+import notifications from './notifications.js';
 import ops from './ops.js';
 import overview from './overview.js';
 import personal from './personal.js';
@@ -176,6 +177,7 @@ export const api = {
   channelRuns: channels.channelRuns,
   channelApprovals: channels.channelApprovals,
   approveChannelApproval: channels.approveChannelApproval,
+  denyChannelApproval: channels.denyChannelApproval,
   stopChannelRun: channels.stopChannelRun,
   channelRunDetail: channels.channelRunDetail,
   channelRunQuestions: channels.channelRunQuestions,
@@ -212,6 +214,10 @@ export const api = {
   runQuestions: runs.runQuestions,
   respondToQuestion: runs.respondToQuestion,
   skillDraftFromRun: runs.skillDraftFromRun,
+  notifications: notifications.notifications,
+  unreadNotificationCount: notifications.unreadNotificationCount,
+  markNotificationRead: notifications.markNotificationRead,
+  markAllNotificationsRead: notifications.markAllNotificationsRead,
   attention: ops.attention,
   retention: ops.retention,
   updateRetention: ops.updateRetention,

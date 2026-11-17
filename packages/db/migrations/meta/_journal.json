@@ -575,6 +575,13 @@
       "when": 1794869901233,
       "tag": "0081_hesitant_surge",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1794931616097,
+      "tag": "0082_bumpy_siren",
+      "breakpoints": true
     }
   ]
 }

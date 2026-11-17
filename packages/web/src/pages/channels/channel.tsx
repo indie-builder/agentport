@@ -51,6 +51,7 @@ import {
   useChannelApprovals,
   useChannelRunQuestions,
   useChannels,
+  useDenyChannelApproval,
   useMarkChannelRead,
   useRespondToChannelQuestion,
   useStopChannelRun,
@@ -129,6 +130,7 @@ function ChannelWorkspace({
   const approvals = useChannelApprovals(channel.id);
   const stop = useStopChannelRun(channel.id);
   const approve = useApproveChannelApproval(channel.id);
+  const deny = useDenyChannelApproval(channel.id);
   const { mutate: markRead } = useMarkChannelRead(channel.id);
   const client = useQueryClient();
   const user = authenticated(me.data);
@@ -522,11 +524,12 @@ function ChannelWorkspace({
           approvals={entry.control === undefined ? [] : pendingApprovals}
           stop={stop}
           approve={approve}
+          deny={deny}
           onOpenRun={setRunSheetId}
         />
       );
     },
-    [approve, canAnswerFor, channel.id, pendingApprovals, stop, timeline],
+    [approve, canAnswerFor, channel.id, deny, pendingApprovals, stop, timeline],
   );
 
   return (
@@ -925,6 +928,7 @@ function RunControls({
   approvals,
   stop,
   approve,
+  deny,
   onOpenRun,
 }: {
   channelId: string;
@@ -936,6 +940,7 @@ function RunControls({
   approvals: readonly ChannelApproval[];
   stop: ReturnType<typeof useStopChannelRun>;
   approve: ReturnType<typeof useApproveChannelApproval>;
+  deny: ReturnType<typeof useDenyChannelApproval>;
   onOpenRun: (runId: string) => void;
 }) {
   const pendingApprovals = approvals.filter((approval) => approval.runId === runId);
@@ -966,6 +971,9 @@ function RunControls({
         ) : null}
         {pendingApprovals.map((approval) => {
           const isPending = active && approval.approvedAt === null;
+          const deciding =
+            (approve.isPending && approve.variables === approval.id) ||
+            (deny.isPending && deny.variables === approval.id);
           const argumentEntries = approval.argumentsSummary
             ? Object.entries(approval.argumentsSummary)
             : [];
@@ -983,21 +991,37 @@ function RunControls({
               <span className="min-w-0 break-words text-fg">
                 需要批准：{approval.serverName ?? approval.serverId} · {approval.toolName}
               </span>
-              {canApprove ? (
-                <Button
-                  size="sm"
-                  variant="default"
-                  disabled={approve.isPending && approve.variables === approval.id}
-                  aria-busy={approve.isPending && approve.variables === approval.id}
-                  onClick={() =>
-                    approve.mutate(approval.id, {
-                      onSuccess: () => toastSuccess('已批准'),
-                      onError: (error) => toastError(error),
-                    })
-                  }
-                >
-                  批准
-                </Button>
+              {canApprove && approval.approvedAt === null ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={deciding}
+                    aria-busy={deny.isPending && deny.variables === approval.id}
+                    onClick={() =>
+                      deny.mutate(approval.id, {
+                        onSuccess: () => toastSuccess('已拒绝'),
+                        onError: (error) => toastError(error),
+                      })
+                    }
+                  >
+                    拒绝
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    disabled={deciding}
+                    aria-busy={approve.isPending && approve.variables === approval.id}
+                    onClick={() =>
+                      approve.mutate(approval.id, {
+                        onSuccess: () => toastSuccess('已批准'),
+                        onError: (error) => toastError(error),
+                      })
+                    }
+                  >
+                    批准
+                  </Button>
+                </>
               ) : null}
               {argumentEntries.length > 0 ? (
                 <>

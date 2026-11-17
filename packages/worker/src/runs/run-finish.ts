@@ -1,5 +1,10 @@
 import { type createDb, repo, schema } from '@agentport/db';
-import type { ChatEvent, RunErrorKind } from '@agentport/shared';
+import {
+  type ChatEvent,
+  type RunErrorKind,
+  type TerminalRunStatus,
+  utcMonthStart,
+} from '@agentport/shared';
 import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { publishChannelEventSafely } from '../channels/channel-events.js';
@@ -27,6 +32,105 @@ interface RunFinishValues {
   error?: string | null;
   errorKind?: RunErrorKind | null;
 }
+
+interface RunTerminalRow {
+  id: string;
+  agentId: string;
+  channelId: string | null;
+  scheduleId: string | null;
+  initiatedBy: string | null;
+  trigger: typeof schema.agentRuns.$inferSelect.trigger;
+  costUsd: string | null;
+}
+
+async function notifyRunTerminal(
+  input: { db: Db; status: TerminalRunStatus; error?: string | null | undefined },
+  row: RunTerminalRow,
+): Promise<void> {
+  if (input.status === 'failed' || input.status === 'timeout') {
+    const body =
+      input.status === 'timeout'
+        ? '运行超时，请打开运行详情查看原因'
+        : input.error
+          ? `运行失败：${input.error}`
+          : '运行失败，请打开运行详情查看原因';
+    const scheduleId = row.trigger === 'schedule' ? row.scheduleId : null;
+    let scheduleRecipient: string | null = null;
+    if (scheduleId !== null) {
+      const schedule = await repo.ops.getSchedule(input.db, scheduleId);
+      scheduleRecipient = schedule?.createdBy ?? row.initiatedBy;
+      if (scheduleRecipient !== null) {
+        await repo.notifications.createNotification(input.db, {
+          businessId: scheduleRecipient,
+          kind: 'schedule_failed',
+          title: '定时任务运行失败',
+          body,
+          link: '/schedules',
+          sourceId: `schedule-failed:${scheduleId}:${row.id}`,
+        });
+      }
+    }
+    if (row.initiatedBy !== null && row.initiatedBy !== scheduleRecipient) {
+      await repo.notifications.createNotification(input.db, {
+        businessId: row.initiatedBy,
+        kind: 'run_failed',
+        title: input.status === 'timeout' ? '运行超时' : '运行失败',
+        body,
+        link: row.channelId === null ? `/runs/${row.id}` : `/channels/${row.channelId}`,
+        sourceId: `run-failed:${row.id}`,
+      });
+    }
+  }
+  if (row.costUsd === null) return;
+  const agent = await repo.agents.getAgent(input.db, row.agentId);
+  if (agent === null || agent.monthlyBudgetUsd === null) return;
+  const now = new Date();
+  const limit = Number(agent.monthlyBudgetUsd);
+  const ratio = Number(agent.budgetAlertRatio);
+  const spent = await repo.agents.sumAgentSpendSince(input.db, row.agentId, utcMonthStart(now));
+  const tier = spent >= limit ? 'exceeded' : spent >= limit * ratio ? 'alert' : null;
+  if (tier === null) return;
+  await repo.notifications.createNotification(input.db, {
+    businessId: agent.ownerBusinessId,
+    kind: 'budget_alert',
+    title: tier === 'exceeded' ? '智能体预算已超支' : '智能体预算告警',
+    body:
+      tier === 'exceeded'
+        ? `本月已使用 $${spent.toFixed(2)}，超过 $${limit.toFixed(2)} 月度预算`
+        : `本月已使用 $${spent.toFixed(2)}，达到 $${limit.toFixed(2)} 月度预算的 ${Math.round(ratio * 100)}%`,
+    link: `/agents/${row.agentId}`,
+    sourceId: `budget:${row.agentId}:${now.toISOString().slice(0, 7)}:${tier}`,
+  });
+}
+
+export async function notifyRunOutcome(input: {
+  db: Db;
+  logger: Logger;
+  runId: string;
+  status: TerminalRunStatus;
+  error?: string | null | undefined;
+}): Promise<void> {
+  const [row] = await input.db
+    .select({
+      id: schema.agentRuns.id,
+      channelId: schema.agentRuns.channelId,
+      agentId: schema.agentRuns.agentId,
+      initiatedBy: schema.agentRuns.initiatedBy,
+      scheduleId: schema.agentRuns.scheduleId,
+      trigger: schema.agentRuns.trigger,
+      costUsd: schema.agentRuns.costUsd,
+    })
+    .from(schema.agentRuns)
+    .where(eq(schema.agentRuns.id, input.runId))
+    .limit(1);
+  if (row === undefined) return;
+  await notifyRunTerminal({ db: input.db, status: input.status, error: input.error }, row).catch(
+    (err: unknown) => {
+      input.logger.warn({ err, runId: input.runId }, 'run terminal notification failed');
+    },
+  );
+}
+
 export async function finalizeRun(input: {
   db: Db;
   logger: Logger;
@@ -72,8 +176,17 @@ export async function finalizeRun(input: {
       id: schema.agentRuns.id,
       channelId: schema.agentRuns.channelId,
       agentId: schema.agentRuns.agentId,
+      initiatedBy: schema.agentRuns.initiatedBy,
+      scheduleId: schema.agentRuns.scheduleId,
+      trigger: schema.agentRuns.trigger,
+      costUsd: schema.agentRuns.costUsd,
     });
   if (row === undefined) return false;
+  await notifyRunTerminal({ db: input.db, status: input.event.status }, row).catch(
+    (err: unknown) => {
+      input.logger.warn({ err, runId: row.id }, 'run terminal notification failed');
+    },
+  );
   await clearRunCancel(input.runId, input.logger).catch((err: unknown) => {
     input.logger.warn({ err, runId: input.runId }, 'clear run cancel failed');
   });

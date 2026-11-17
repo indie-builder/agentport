@@ -16,6 +16,7 @@ export * as locks from './locks.js';
 export * as maintenance from './maintenance.js';
 export * as memoryChanges from './memory-changes.js';
 export * as memoryReviews from './memory-reviews.js';
+export * as notifications from './notifications.js';
 export * as openui from './openui.js';
 export * as ops from './ops.js';
 export * as outputShares from './output-shares.js';

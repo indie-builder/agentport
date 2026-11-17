@@ -232,4 +232,13 @@ export const channelsContract = {
     })
     .input(z.object({ params: z.object({ id: z.string().min(1), approvalId: z.string().min(1) }) }))
     .output(channelApprovalSchema),
+  deny: contractProcedure
+    .meta({ access: { kind: 'authenticated' } })
+    .route({
+      method: 'POST',
+      path: '/channels/{id}/approvals/{approvalId}/deny',
+      successStatus: 200,
+    })
+    .input(z.object({ params: z.object({ id: z.string().min(1), approvalId: z.string().min(1) }) }))
+    .output(channelApprovalSchema),
 };

@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm';
-import { bigserial, check, index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import {
+  bigserial,
+  check,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 export const auditLog = pgTable(
   'audit_log',
@@ -47,6 +56,32 @@ export const platformBootstrap = pgTable(
     initializedAt: timestamp('initialized_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [check('platform_bootstrap_revision_check', sql`${t.rolesRevision} >= 0`)],
+);
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: text('id').primaryKey(),
+    businessId: text('business_id').notNull(),
+    kind: text('kind', {
+      enum: ['approval', 'question', 'run_failed', 'schedule_failed', 'budget_alert'],
+    }).notNull(),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    link: text('link').notNull(),
+    sourceId: text('source_id').notNull(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('notifications_dedupe_idx').on(t.businessId, t.kind, t.sourceId),
+    index('notifications_list_idx').on(t.businessId, t.createdAt, t.id),
+    index('notifications_unread_idx').on(t.businessId, t.createdAt).where(sql`${t.readAt} is null`),
+    check(
+      'notifications_kind_check',
+      sql`${t.kind} in ('approval', 'question', 'run_failed', 'schedule_failed', 'budget_alert')`,
+    ),
+  ],
 );
 
 export const platformSettings = pgTable('platform_settings', {

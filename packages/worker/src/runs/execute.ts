@@ -227,11 +227,15 @@ export async function runAgentJob(
   }
   // 记忆审核不是聊天：不建沙盒、不追加消息、不准备成果，直接读快照产出提案。
   if (run.trigger === 'review') {
-    await executeMemoryReview(db, {
-      runId,
-      redisUrl: config.REDIS_URL,
-      signal: sandboxClosing.signal,
-    });
+    await executeMemoryReview(
+      db,
+      {
+        runId,
+        redisUrl: config.REDIS_URL,
+        signal: sandboxClosing.signal,
+      },
+      { logger: runLog },
+    );
     return;
   }
   try {
@@ -627,14 +631,33 @@ export async function runAgentJob(
         // 问题先落库再推界面；轮询答案也只读这条 run 的记录。
         questions: {
           // 期限由 runner 在容器实际开始时给出，创建耗时不计入。
-          request: (event, expiresAt) =>
-            repo.questions.createQuestion(db, {
+          request: async (event, expiresAt) => {
+            const question = await repo.questions.createQuestion(db, {
               runId,
               requestId: event.requestId,
               toolUseId: event.toolUseId,
               questions: event.questions,
               expiresAt,
-            }),
+            });
+            if (run.initiatedBy !== null) {
+              await repo.notifications
+                .createNotification(db, {
+                  businessId: run.initiatedBy,
+                  kind: 'question',
+                  title: '运行需要你的回答',
+                  body: event.questions[0]?.question ?? '运行正在等待你的回答',
+                  link: run.channelId === null ? `/runs/${runId}` : `/channels/${run.channelId}`,
+                  sourceId: `question:${runId}:${event.requestId}`,
+                })
+                .catch((err: unknown) => {
+                  runLog.warn(
+                    { err, runId, requestId: event.requestId },
+                    'question notification failed',
+                  );
+                });
+            }
+            return question;
+          },
           list: () => repo.questions.listQuestions(db, runId),
           close: (reason, requestId) =>
             repo.questions.closeQuestions(db, runId, reason, requestId),

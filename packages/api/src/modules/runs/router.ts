@@ -75,6 +75,18 @@ const runsMainRouter = {
     if (!approved) {
       notFound('approval', '这次工具调用没有待批准记录；它可能已批准或已失效，请刷新后重试');
     }
+    await repo.notifications
+      .markBySource(
+        context.db,
+        'approval',
+        `approval:${input.params.id}:${approved.serverId}:${approved.toolName}`,
+      )
+      .catch((err: unknown) => {
+        context.log.warn(
+          { err, runId: input.params.id, serverId: approved.serverId, toolName: approved.toolName },
+          'approval notification mark-read failed',
+        );
+      });
     await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'agent.run.approved',
@@ -106,6 +118,18 @@ const runsMainRouter = {
         '这次工具调用没有待处理记录；它可能已批准、已拒绝或已失效，请刷新后重试',
       );
     }
+    await repo.notifications
+      .markBySource(
+        context.db,
+        'approval',
+        `approval:${input.params.id}:${denied.serverId}:${denied.toolName}`,
+      )
+      .catch((err: unknown) => {
+        context.log.warn(
+          { err, runId: input.params.id, serverId: denied.serverId, toolName: denied.toolName },
+          'deny notification mark-read failed',
+        );
+      });
     await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'agent.run.denied',

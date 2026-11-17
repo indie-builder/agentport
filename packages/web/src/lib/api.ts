@@ -10,6 +10,7 @@ export * from './api/health.js';
 export * from './api/knowledge.js';
 export * from './api/market.js';
 export * from './api/memory.js';
+export * from './api/notifications.js';
 export * from './api/ops.js';
 export * from './api/overview.js';
 export * from './api/personal.js';

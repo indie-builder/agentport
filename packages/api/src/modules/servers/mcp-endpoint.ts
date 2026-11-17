@@ -87,8 +87,63 @@ function handlerFor(app: AppContext, serverId: string, runId: string | null): Mc
                   expiresAt,
                   argumentsSummary: summarizeToolArguments(args),
                 });
-                // 只有频道 run 需要实时提示；私有 run 仍走运行详情轮询，行为不变。
-                if (approval.channelId === null) return;
+                if (approval.channelId === null) {
+                  const recipient = await repo.runs
+                    .getRunInitiator(app.db, trustedRunId)
+                    .catch((err: unknown) => {
+                      app.log.warn(
+                        { err, runId: trustedRunId, approvalId: approval.id },
+                        'approval recipient lookup failed',
+                      );
+                      return null;
+                    });
+                  if (recipient !== null) {
+                    await repo.notifications
+                      .createNotification(app.db, {
+                        businessId: recipient,
+                        kind: 'approval',
+                        title: '工具调用等待审批',
+                        body: `工具 ${approval.toolName} 正在等待你的批准`,
+                        link: `/runs/${trustedRunId}`,
+                        sourceId: `approval:${trustedRunId}:${serverId}:${approval.toolName}`,
+                      })
+                      .catch((err: unknown) => {
+                        app.log.warn(
+                          { err, runId: trustedRunId, approvalId: approval.id },
+                          'approval notification failed',
+                        );
+                      });
+                  }
+                  return;
+                }
+                const approvers = await repo.channels
+                  .listChannelApproverBusinessIds(app.db, approval.channelId)
+                  .catch((err: unknown) => {
+                    app.log.warn(
+                      { err, channelId: approval.channelId, approvalId: approval.id },
+                      'channel approver lookup failed',
+                    );
+                    return [];
+                  });
+                await Promise.all(
+                  approvers.map((businessId) =>
+                    repo.notifications
+                      .createNotification(app.db, {
+                        businessId,
+                        kind: 'approval',
+                        title: '频道工具调用等待审批',
+                        body: `工具 ${approval.toolName} 正在等待你批准`,
+                        link: `/channels/${approval.channelId}`,
+                        sourceId: `channel-approval:${approval.id}`,
+                      })
+                      .catch((err: unknown) => {
+                        app.log.warn(
+                          { err, businessId, approvalId: approval.id },
+                          'channel approval notification failed',
+                        );
+                      }),
+                  ),
+                );
                 try {
                   await publishChannelEvent(approval.channelId, {
                     type: 'approval.requested',

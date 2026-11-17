@@ -23,6 +23,11 @@ export async function answerRunQuestion(
   if (!question) {
     fail('NOT_FOUND', '这次提问不存在，可能已失效；请刷新后重试');
   }
+  await repo.notifications
+    .markBySource(context.db, 'question', `question:${runId}:${requestId}`)
+    .catch((err: unknown) => {
+      context.log.warn({ err, runId, requestId }, 'question notification mark-read failed');
+    });
   await repo.audit.writeAudit(context.db, context.log, {
     actor: actorOf(context),
     action: 'agent.run.question.responded',

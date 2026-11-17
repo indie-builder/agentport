@@ -165,6 +165,7 @@ export async function claimScheduleTrigger(
       id: input.runId,
       conversationId: input.conversationId,
       agentId: schedule.agentId,
+      scheduleId: input.scheduleId,
       status: 'queued',
       trigger: 'schedule',
       subjectKind: 'user',

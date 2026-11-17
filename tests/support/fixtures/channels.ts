@@ -93,6 +93,6 @@ export async function laneCount(channelId: string, agentId: string) {
 
 export async function approval(approvalId: string) {
   return sql<
-    { approved_at: Date | null }[]
-  >`select approved_at from approval_requests where id = ${approvalId}`;
+    { approved_at: Date | null; denied_at: Date | null }[]
+  >`select approved_at, denied_at from approval_requests where id = ${approvalId}`;
 }

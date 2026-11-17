@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import {
   ArrowLeft,
+  Bell,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -29,7 +30,7 @@ import {
   WORK_MENU,
 } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
-import { logoutAccount, meQuery } from '../lib/queries.js';
+import { logoutAccount, meQuery, useUnreadNotificationCount } from '../lib/queries.js';
 import { animateBrand, Brand, BrandMark } from './brand.js';
 import { CommandPalette, CommandPaletteTrigger } from './command-palette.js';
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog.js';
@@ -130,6 +131,7 @@ function SidebarLink({
   collapsed,
   tooltipDisabled,
   navGroup,
+  badge,
   onNavigate,
 }: {
   to: string;
@@ -138,6 +140,7 @@ function SidebarLink({
   collapsed: boolean;
   tooltipDisabled: boolean;
   navGroup?: 'resources' | undefined;
+  badge?: number | undefined;
   onNavigate?: (() => void) | undefined;
 }) {
   const activeRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
@@ -152,7 +155,7 @@ function SidebarLink({
     <Link
       to={to}
       onClick={onNavigate}
-      aria-label={label}
+      aria-label={badge !== undefined && badge > 0 ? `${label}，${badge} 条未读` : label}
       aria-current={active ? 'page' : undefined}
       // 归属由 ROUTE_META 判定；Link 自带的路径前缀匹配会把未知路由误判为 active。
       activeOptions={{ exact: true, includeSearch: false }}
@@ -195,6 +198,17 @@ function SidebarLink({
       >
         {label}
       </span>
+      {badge !== undefined && badge > 0 ? (
+        <span
+          aria-hidden="true"
+          className={cn(
+            'flex h-4 min-w-4 items-center justify-center rounded-full bg-fg px-1 text-[10px] font-medium leading-none text-surface tabular-nums',
+            collapsed ? 'absolute right-0 top-0' : 'ml-auto',
+          )}
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      ) : null}
     </Link>
   );
   return (
@@ -262,6 +276,7 @@ export function AccessDenied({
 
 export function AppShell() {
   const me = useQuery(meQuery);
+  const unreadNotifications = useUnreadNotificationCount(me.data?.authenticated === true);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const matchedRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
@@ -583,6 +598,15 @@ export function AppShell() {
         </nav>
         {/* 底部：次级运维入口（或返回工作区）与用户信息。 */}
         <div className={cn('flex flex-col gap-1 pt-4', navCollapsed && 'items-center')}>
+          <SidebarLink
+            to="/notifications"
+            label="通知"
+            icon={Bell}
+            badge={unreadNotifications.data?.unreadCount ?? 0}
+            collapsed={navCollapsed}
+            tooltipDisabled={tooltipDisabled}
+            onNavigate={onNavigate}
+          />
           {bottomEntry ? (
             <SidebarLink
               to={bottomEntry.to}
@@ -754,7 +778,8 @@ export function AppShell() {
   };
 
   // 个人资料与安全对所有已登录用户开放，即使没有任何业务权限也不该被挡。
-  const denied = (!personalContext && home === null) || !allowed;
+  const selfService = personalContext || /^\/notifications(?:\/|$)/.test(pathname);
+  const denied = (!selfService && home === null) || !allowed;
   const content = denied ? (
     <AccessDenied home={home} noPermissions={home === null} onLogout={() => void logout()} />
   ) : (

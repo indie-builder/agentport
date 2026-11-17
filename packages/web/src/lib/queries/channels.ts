@@ -272,6 +272,14 @@ export function useApproveChannelApproval(id: string) {
   });
 }
 
+export function useDenyChannelApproval(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (approvalId: string) => api.denyChannelApproval(id, approvalId),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['channel-approvals', id] }),
+  });
+}
+
 export function useMarkChannelRead(id: string) {
   const client = useQueryClient();
   return useMutation({

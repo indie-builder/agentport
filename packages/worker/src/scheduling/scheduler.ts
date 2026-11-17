@@ -73,6 +73,7 @@ async function enqueueRun(
     conversationId: string;
     prompt: string;
   },
+  schedule: repo.ops.ScheduleRow,
 ): Promise<boolean> {
   for (let attempt = 1; attempt <= ENQUEUE_ATTEMPTS; attempt += 1) {
     try {
@@ -92,10 +93,28 @@ async function enqueueRun(
     }
   }
   // 只改 queued：run 可能已被 worker 接手，running/succeeded 绝不能覆盖。
-  await db
+  const failed = await db
     .update(schema.agentRuns)
     .set({ status: 'failed', endedAt: new Date(), error: '定时任务入队失败', errorKind: 'infra' })
-    .where(and(eq(schema.agentRuns.id, job.runId), eq(schema.agentRuns.status, 'queued')));
+    .where(and(eq(schema.agentRuns.id, job.runId), eq(schema.agentRuns.status, 'queued')))
+    .returning({ id: schema.agentRuns.id });
+  if (failed.length > 0) {
+    await repo.notifications
+      .createNotification(db, {
+        businessId: schedule.createdBy,
+        kind: 'schedule_failed',
+        title: '定时任务触发失败',
+        body: `定时任务「${schedule.name}」未能启动运行，请打开定时任务查看`,
+        link: '/schedules',
+        sourceId: `schedule-failed:${schedule.id}:${job.runId}`,
+      })
+      .catch((err: unknown) => {
+        logger.warn(
+          { err, scheduleId: schedule.id, runId: job.runId },
+          'schedule notification failed',
+        );
+      });
+  }
   return false;
 }
 
@@ -165,12 +184,18 @@ export async function processScheduleTrigger(
     const existing = await repo.chat.getRun(input.db, runId);
     // 上次已建好运行但没入队：补投即可，不再新建。
     if (existing?.status === 'queued') {
-      const enqueued = await enqueueRun(input.db, input.logger, input.runsQueue, {
-        runId,
-        agentId: existing.agentId,
-        conversationId: existing.conversationId,
-        prompt: schedule.prompt,
-      });
+      const enqueued = await enqueueRun(
+        input.db,
+        input.logger,
+        input.runsQueue,
+        {
+          runId,
+          agentId: existing.agentId,
+          conversationId: existing.conversationId,
+          prompt: schedule.prompt,
+        },
+        schedule,
+      );
       return enqueued ? 'fired' : 'failed';
     }
     // 入队耗尽把运行标成 failed(infra)：重投时重新排队补投，避免触发永久丢失。
@@ -192,12 +217,18 @@ export async function processScheduleTrigger(
         )
         .returning({ id: schema.agentRuns.id });
       if (requeued.length === 1) {
-        const enqueued = await enqueueRun(input.db, input.logger, input.runsQueue, {
-          runId,
-          agentId: existing.agentId,
-          conversationId: existing.conversationId,
-          prompt: schedule.prompt,
-        });
+        const enqueued = await enqueueRun(
+          input.db,
+          input.logger,
+          input.runsQueue,
+          {
+            runId,
+            agentId: existing.agentId,
+            conversationId: existing.conversationId,
+            prompt: schedule.prompt,
+          },
+          schedule,
+        );
         return enqueued ? 'fired' : 'failed';
       }
       return 'duplicate';
@@ -235,12 +266,18 @@ export async function processScheduleTrigger(
     return 'skipped';
   }
 
-  const enqueued = await enqueueRun(input.db, input.logger, input.runsQueue, {
-    runId,
-    agentId: schedule.agentId,
-    conversationId,
-    prompt: schedule.prompt,
-  });
+  const enqueued = await enqueueRun(
+    input.db,
+    input.logger,
+    input.runsQueue,
+    {
+      runId,
+      agentId: schedule.agentId,
+      conversationId,
+      prompt: schedule.prompt,
+    },
+    schedule,
+  );
   if (!enqueued) return 'failed';
   await audit(input.db, input.logger, 'schedule.fired', data.scheduleId, 'ok', {
     runId,

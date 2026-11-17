@@ -168,6 +168,10 @@ export const runsSearchSchema = z.object({
 
 export const channelsSearchSchema = z.object({ view: listViewSchema });
 
+export const notificationsSearchSchema = z.object({
+  filter: z.enum(['all', 'unread']).optional().catch(undefined),
+});
+
 export const schedulesSearchSchema = z.object({ view: listViewSchema });
 
 export const personalSecuritySearchSchema = z.object({ view: listViewSchema });
