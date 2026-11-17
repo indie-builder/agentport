@@ -585,6 +585,19 @@ export function RunDetailPage() {
         </div>
 
         <PageSection title="交付验收">
+          {outputs.isFetchNextPageError ? (
+            <ErrorState
+              title="后续成果没有加载完整"
+              error={outputs.error}
+              onRetry={() => void outputs.fetchNextPage()}
+            />
+          ) : outputs.isError ? (
+            <ErrorState
+              title="成果没有加载出来"
+              error={outputs.error}
+              onRetry={() => void outputs.refetch()}
+            />
+          ) : null}
           <RunFeedbackPanel
             runId={detail.id}
             conversationTitle={conversation.title}
