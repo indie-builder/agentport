@@ -1,8 +1,7 @@
-import { setTimeout as sleep } from 'node:timers/promises';
 import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
-import { runMcpExecution, tryApprovalWait } from '../../plugins/concurrency.js';
+import { runMcpExecution } from '../../plugins/concurrency.js';
 import { assertServerEndpoint } from './ssrf.js';
 
 export interface GeneratedServerInput {
@@ -28,32 +27,13 @@ export interface GeneratedServerInput {
    * 也不应在执行前把请求发到上游；无 run 上下文时不传。
    */
   isRunActive?: () => Promise<boolean>;
-  /**
-   * 拒绝时持久化结构化审批请求，供 UI 读取；无 run 上下文时不传。
-   * expiresAt 是这次调用的等待截止时刻，立即拒绝时为 null。
-   */
-  onApprovalRequired?: (
-    toolName: string,
-    args: Record<string, unknown>,
-    expiresAt: Date | null,
-  ) => Promise<void>;
+  onApprovalRequired?: (toolName: string, args: Record<string, unknown>) => Promise<void>;
   onDenied?: (toolName: string, args: Record<string, unknown>) => Promise<void>;
-  /**
-   * 等待人类批准的时长（D-18）。设置后，未批准的工具调用会挂起而不是立即失败：
-   * 模型看到的是"这次工具调用比较慢"，批准后同一次调用直接拿到结果，
-   * 不需要它重新发起。0 或未设置时保持旧的立即拒绝行为。
-   */
-  approvalWaitMs?: number;
 }
 
 /** 未批准时的固定文案：前端靠这段文本识别审批请求。 */
 function approvalRequiredMessage(toolName: string): string {
   return `需要批准：${toolName}。请在运行详情页批准后重试。`;
-}
-
-/** 挂起等待期间给模型的说明；批准后不会返回它。 */
-function approvalTimeoutMessage(toolName: string, waitMs: number): string {
-  return `需要批准：${toolName}。已等待 ${Math.round(waitMs / 1000)} 秒仍未批准，本次调用取消。`;
 }
 
 /** 调用方已取消（连接断开）或 run 已结束时给模型的说明；与超时区分开。 */
@@ -79,50 +59,6 @@ function policyDeniedMessage(toolName: string): string {
 
 function policyDeniedResult(toolName: string): CallToolResult {
   return { isError: true, content: [{ type: 'text', text: policyDeniedMessage(toolName) }] };
-}
-
-const APPROVAL_POLL_MS = 500;
-
-type ApprovalOutcome = 'approved' | 'denied' | 'timeout' | 'cancelled';
-
-/**
- * 挂起等待批准：轮询 DB，批准返回 approved，超时返回 timeout；
- * 请求被取消或 run 结束时立即返回 cancelled，不再等剩余时间。
- */
-async function waitForApproval(
-  toolName: string,
-  args: Record<string, unknown>,
-  input: GeneratedServerInput,
-  waitMs: number,
-  signal: AbortSignal,
-): Promise<ApprovalOutcome> {
-  const deadline = Date.now() + waitMs;
-  if (signal.aborted) return 'cancelled';
-  if (input.isRunActive && !(await input.isRunActive())) return 'cancelled';
-  if (signal.aborted) return 'cancelled';
-  const deniedBeforeWait = input.refreshDenied ? await input.refreshDenied() : (input.denied ?? []);
-  if (deniedBeforeWait.includes(toolName)) return 'denied';
-  await input.onApprovalRequired?.(toolName, args, new Date(deadline));
-  while (Date.now() < deadline) {
-    try {
-      await sleep(APPROVAL_POLL_MS, undefined, { signal });
-    } catch {
-      return 'cancelled';
-    }
-    // 睡醒时可能已过截止：此时再批准的请求已不属于这次调用，不能再恢复它。
-    if (Date.now() >= deadline) break;
-    const approvals = input.refreshApprovals
-      ? await input.refreshApprovals()
-      : (input.approvals ?? []);
-    // 刷新期间连接可能已断开，或 run 已结束：优先报取消，不再从结果里恢复调用。
-    if (signal.aborted) return 'cancelled';
-    if (input.isRunActive && !(await input.isRunActive())) return 'cancelled';
-    if (Date.now() >= deadline) return 'timeout';
-    if (approvals.includes(toolName)) return 'approved';
-    const denied = input.refreshDenied ? await input.refreshDenied() : (input.denied ?? []);
-    if (denied.includes(toolName)) return 'denied';
-  }
-  return 'timeout';
 }
 
 type FilledPath =
@@ -293,43 +229,17 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
             ? await input.refreshApprovals()
             : input.approvals;
           if (!approvals.includes(tool.name)) {
-            const waitMs = input.approvalWaitMs ?? 0;
-            if (waitMs <= 0) {
-              if (signal.aborted) return cancelledResult(tool.name);
-              if (input.isRunActive && !(await input.isRunActive()))
-                return cancelledResult(tool.name);
-              if (signal.aborted) return cancelledResult(tool.name);
-              await input.onApprovalRequired?.(tool.name, args, null);
-              return {
-                isError: true,
-                content: [{ type: 'text', text: approvalRequiredMessage(tool.name) }],
-              };
-            }
-            // 真暂停：这次调用挂起，批准后继续执行，模型无需重试。
-            // 等待名额是独立的；满了就走立即拒绝，不能让挂起把执行链路堵死。
-            const outcome = await tryApprovalWait(() =>
-              waitForApproval(tool.name, args, input, waitMs, signal),
-            );
-            if (outcome.accepted) {
-              if (outcome.value === 'cancelled') return cancelledResult(tool.name);
-              if (outcome.value === 'denied') return deniedResult(tool.name);
-              if (outcome.value === 'timeout') {
-                return {
-                  isError: true,
-                  content: [{ type: 'text', text: approvalTimeoutMessage(tool.name, waitMs) }],
-                };
-              }
-            } else {
-              if (signal.aborted) return cancelledResult(tool.name);
-              if (input.isRunActive && !(await input.isRunActive()))
-                return cancelledResult(tool.name);
-              if (signal.aborted) return cancelledResult(tool.name);
-              await input.onApprovalRequired?.(tool.name, args, null);
-              return {
-                isError: true,
-                content: [{ type: 'text', text: approvalRequiredMessage(tool.name) }],
-              };
-            }
+            const denied = input.refreshDenied ? await input.refreshDenied() : (input.denied ?? []);
+            if (signal.aborted) return cancelledResult(tool.name);
+            if (input.isRunActive && !(await input.isRunActive()))
+              return cancelledResult(tool.name);
+            if (signal.aborted) return cancelledResult(tool.name);
+            if (denied.includes(tool.name)) return deniedResult(tool.name);
+            await input.onApprovalRequired?.(tool.name, args);
+            return {
+              isError: true,
+              content: [{ type: 'text', text: approvalRequiredMessage(tool.name) }],
+            };
           }
         }
         const result = await callUpstream(

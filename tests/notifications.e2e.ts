@@ -5,6 +5,10 @@ import { expect } from 'e2e';
 import { browserFetch } from './support/browser-api.js';
 import { fixture } from './support/fixture.js';
 import type { SeededNotification } from './support/fixtures/notifications.js';
+import type {
+  ApprovalProducer,
+  ApprovalProducerSeed,
+} from './support/fixtures/notifications-producers.js';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -58,7 +62,16 @@ const created: Created = {
   servers: [],
 };
 
+const producers: ApprovalProducer[] = [];
+
 test.afterEach(async () => {
+  await fixture('notifications-producers', 'cleanup', {
+    serverIds: producers.map((producer) => producer.serverId),
+    agentIds: producers.map((producer) => producer.agentId),
+    runIds: producers.map((producer) => producer.runId),
+    businessIds: created.accounts,
+  });
+  producers.length = 0;
   await fixture('notifications', 'cleanup', { ids: created.notificationIds });
   await fixture('channels', 'cleanup', {
     channels: created.channels,
@@ -143,6 +156,82 @@ async function createAgent(browser: Browser, tag: string): Promise<{ id: string;
 async function bindAgent(browser: Browser, channelId: string, agentId: string): Promise<void> {
   const result = await apiJson(browser, 'POST', `/api/channels/${channelId}/agents`, { agentId });
   assert(result.status === 201, `绑定智能体失败：${result.status}`);
+}
+
+async function addMember(
+  browser: Browser,
+  channelId: string,
+  businessId: string,
+  role: 'admin' | 'member',
+): Promise<void> {
+  const result = await apiJson(browser, 'POST', `/api/channels/${channelId}/members`, {
+    businessId,
+    role,
+  });
+  assert(result.status === 201, `添加频道成员失败：${result.status}`);
+}
+
+async function seedProducer(input: ApprovalProducerSeed): Promise<ApprovalProducer> {
+  const producer = await fixture('notifications-producers', 'seed', input);
+  producers.push(producer);
+  return producer;
+}
+
+function readProducerState(runId: string, businessIds: readonly string[]) {
+  return fixture('notifications-producers', 'approvalState', runId, [...businessIds]);
+}
+
+async function callApprovalTool(
+  browser: Browser,
+  producer: ApprovalProducer,
+): Promise<{ status: number; body: string }> {
+  return browser.evaluate(
+    async (input: { serverId: string; runToken: string; runId: string; toolName: string }) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2_000);
+      try {
+        const response = await fetch(`/mcp/${input.serverId}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            authorization: `Bearer ${input.runToken}`,
+            'x-agentport-run-id': input.runId,
+            'mcp-protocol-version': '2025-11-25',
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: input.toolName, arguments: { id: 1 } },
+          }),
+          signal: controller.signal,
+        });
+        const body = await response.text().catch(() => '');
+        return { status: response.status, body };
+      } catch (error) {
+        return { status: 0, body: String(error) };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    {
+      serverId: producer.serverId,
+      runToken: producer.runToken,
+      runId: producer.runId,
+      toolName: producer.toolName,
+    },
+  );
+}
+
+async function notificationLinks(browser: Browser): Promise<string[]> {
+  const result = await apiJson<{ items: { link: string }[] }>(
+    browser,
+    'GET',
+    '/api/notifications?limit=50',
+  );
+  assert(result.status === 200 && result.json !== null, '读取通知列表失败');
+  return result.json.items.map((item) => item.link);
 }
 
 test('shows the signed-in account its own notifications only', { session: 'admin' }, async ({
@@ -259,6 +348,125 @@ test('keeps paging after the cursor anchor is marked read', { session: 'admin' }
   );
   await expect(screen.getByText('更多通知没有加载出来')).toHaveCount(0);
   await expect(screen.getByText('内容没有加载出来')).toHaveCount(0);
+});
+
+test('creates a private run approval notification through the MCP endpoint', {
+  session: 'admin',
+}, async ({ app, browser }) => {
+  await app.open('/notifications');
+  const initiator = await createAccount(browser, 'notify-private');
+  await loginAs(browser, initiator);
+  const suffix = uniqueSuffix();
+  const producer = await seedProducer({
+    serverName: `E2E 私有通知服务 ${suffix}`,
+    toolName: `e2e-private-tool-${suffix}`,
+    initiatedBy: initiator.businessId,
+    trigger: 'chat',
+  });
+  const before = await readProducerState(producer.runId, [initiator.businessId]);
+  assert(before.approval === null && before.notifications.length === 0, '触发前不应有审批或通知');
+
+  const called = await callApprovalTool(browser, producer);
+
+  await expect
+    .poll(
+      async () =>
+        (await readProducerState(producer.runId, [initiator.businessId])).notifications.length,
+      { timeout: 15_000 },
+    )
+    .toBe(1);
+
+  const state = await readProducerState(producer.runId, [initiator.businessId]);
+  const notification = state.notifications[0];
+  assert(
+    state.approval !== null && notification !== undefined,
+    `审批或通知没有落库（调用 ${called.status}：${called.body}）`,
+  );
+  expect(state.approval).toMatchObject({
+    channel_id: null,
+    tool_name: producer.toolName,
+    run_id: producer.runId,
+  });
+  expect(notification).toMatchObject({
+    business_id: initiator.businessId,
+    kind: 'approval',
+    link: `/runs/${producer.runId}`,
+    source_id: `approval:${producer.runId}:${producer.serverId}:${producer.toolName}`,
+  });
+
+  const list = await apiJson<{ items: { id: string; kind: string; link: string }[] }>(
+    browser,
+    'GET',
+    '/api/notifications?limit=50',
+  );
+  assert(list.status === 200 && list.json !== null, '读取通知列表失败');
+  expect(list.json.items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: notification.id,
+        kind: 'approval',
+        link: `/runs/${producer.runId}`,
+      }),
+    ]),
+  );
+});
+
+test('notifies channel owners and admins for a channel run approval', {
+  session: 'admin',
+}, async ({ app, browser }) => {
+  await app.open('/channels');
+  const owner = await createAccount(browser, 'notify-channel-owner');
+  const channelAdmin = await createAccount(browser, 'notify-channel-admin');
+  const member = await createAccount(browser, 'notify-channel-member');
+  await loginAs(browser, owner);
+  const channel = await createChannel(browser, 'approval');
+  await addMember(browser, channel.id, channelAdmin.businessId, 'admin');
+  await addMember(browser, channel.id, member.businessId, 'member');
+  const suffix = uniqueSuffix();
+  const producer = await seedProducer({
+    serverName: `E2E 频道通知服务 ${suffix}`,
+    toolName: `e2e-channel-tool-${suffix}`,
+    initiatedBy: member.businessId,
+    channelId: channel.id,
+    trigger: 'channel',
+  });
+  const recipients = [owner.businessId, channelAdmin.businessId, member.businessId];
+  const before = await readProducerState(producer.runId, recipients);
+  assert(before.approval === null && before.notifications.length === 0, '触发前不应有审批或通知');
+
+  const called = await callApprovalTool(browser, producer);
+
+  await expect
+    .poll(async () => (await readProducerState(producer.runId, recipients)).notifications.length, {
+      timeout: 15_000,
+    })
+    .toBe(2);
+
+  const state = await readProducerState(producer.runId, recipients);
+  const approval = state.approval;
+  assert(approval !== null, `频道审批没有落库（调用 ${called.status}：${called.body}）`);
+  expect(approval).toMatchObject({
+    channel_id: channel.id,
+    tool_name: producer.toolName,
+    run_id: producer.runId,
+  });
+  expect(state.notifications.map((item) => item.business_id).sort()).toEqual(
+    [owner.businessId, channelAdmin.businessId].sort(),
+  );
+  for (const notification of state.notifications) {
+    expect(notification).toMatchObject({
+      kind: 'approval',
+      link: `/channels/${channel.id}`,
+      source_id: `channel-approval:${approval.id}`,
+    });
+  }
+
+  await loginAs(browser, owner);
+  expect(await notificationLinks(browser)).toContain(`/channels/${channel.id}`);
+  await loginAs(browser, channelAdmin);
+  expect(await notificationLinks(browser)).toContain(`/channels/${channel.id}`);
+  await loginAs(browser, member);
+  expect(await notificationLinks(browser)).not.toContain(`/channels/${channel.id}`);
 });
 
 test('denies a pending channel approval', { session: 'admin' }, async ({

@@ -113,7 +113,7 @@ describe.skipIf(!ready)('approval wait state', () => {
     expect((await approve(runId, none)).json<{ waiting: boolean }>().waiting).toBe(false);
   });
 
-  it('extends but never shortens an unapproved deadline, and keeps approvals immutable', async () => {
+  it('fixes the first deadline across retries, and keeps approvals immutable', async () => {
     const { runId, toolName } = await seed();
     const deadline = new Date(Date.now() + 60_000);
     await repo.runs.requestApproval(app.db, {
@@ -132,7 +132,6 @@ describe.skipIf(!ready)('approval wait state', () => {
     });
     expect((await list(runId))[0]?.expiresAt).toBe(deadline.toISOString());
 
-    // 更晚的重复请求延长等待。
     const later = new Date(deadline.getTime() + 60_000);
     await repo.runs.requestApproval(app.db, {
       runId,
@@ -140,7 +139,7 @@ describe.skipIf(!ready)('approval wait state', () => {
       toolName,
       expiresAt: later,
     });
-    expect((await list(runId))[0]?.expiresAt).toBe(later.toISOString());
+    expect((await list(runId))[0]?.expiresAt).toBe(deadline.toISOString());
 
     // 已批准的行不再被重复请求改动。
     expect((await approve(runId, toolName)).statusCode).toBe(200);
@@ -156,7 +155,7 @@ describe.skipIf(!ready)('approval wait state', () => {
         [runId],
       )
       .then((res) => res);
-    expect(row?.expires_at).toEqual(later);
+    expect(row?.expires_at).toEqual(deadline);
     expect(row?.approved_at).not.toBeNull();
   });
 });

@@ -470,6 +470,18 @@ export async function runAgentJob(
         subAgentRows,
       );
       const parentServerNames = serverNamesByAgent.get(agentId) ?? [];
+      const mcpServerIds = Object.fromEntries(serverRows.map((server) => [server.name, server.id]));
+      const serverNamesById = new Map(serverRows.map((server) => [server.id, server.name]));
+      const approvalModes = await repo.servers.listToolApprovalModes(
+        db,
+        serverRows.map((server) => server.id),
+      );
+      const mcpApprovalTools = approvalModes.flatMap((tool) => {
+        const server = serverNamesById.get(tool.serverId);
+        return tool.approvalMode === 'ask' && server !== undefined
+          ? [{ server, tool: tool.toolName }]
+          : [];
+      });
 
       const skillRows = await db
         .select({
@@ -591,6 +603,8 @@ export async function runAgentJob(
         maxBudgetUsd: Number(agent.maxBudgetUsd),
         permissionMode: permissionModeSchema.parse(agent.permissionMode),
         mcpServers: parentServerNames,
+        mcpServerIds,
+        mcpApprovalTools,
         skills: skillRows.map((skill) => skill.slug),
         hasWorkflows,
         extraAllowedTools: agent.allowedTools,

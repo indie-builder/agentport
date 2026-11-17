@@ -523,10 +523,6 @@ export interface RequestedApproval {
   expiresAt: Date | null;
 }
 
-/**
- * 被拒绝的工具调用落一条 pending 记录；重复调用只延后到期，不覆盖已有批准。
- * 返回持久化后的行：频道 run 的调用方要拿 approvalId 发审批事件。
- */
 export async function requestApproval(
   db: Database,
   input: {
@@ -565,7 +561,7 @@ export async function requestApproval(
     .onConflictDoUpdate({
       target: [approvalRequests.runId, approvalRequests.serverId, approvalRequests.toolName],
       set: {
-        expiresAt: sql`greatest(${approvalRequests.expiresAt}, excluded.expires_at)`,
+        expiresAt: sql`coalesce(${approvalRequests.expiresAt}, excluded.expires_at)`,
         argumentsSummary: sql`coalesce(${approvalRequests.argumentsSummary}, excluded.arguments_summary)`,
       },
       setWhere: isNull(approvalRequests.approvedAt),
@@ -587,6 +583,26 @@ export async function requestApproval(
     .limit(1);
   if (!existing) throw new Error('approval request conflict without existing row');
   return { ...existing, runId: input.runId };
+}
+
+export async function getApprovalRequest(
+  db: Database,
+  runId: string,
+  serverId: string,
+  toolName: string,
+) {
+  const [row] = await db
+    .select()
+    .from(approvalRequests)
+    .where(
+      and(
+        eq(approvalRequests.runId, runId),
+        eq(approvalRequests.serverId, serverId),
+        eq(approvalRequests.toolName, toolName),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
 }
 
 /** MCP handler 每次调用前读取：只认该 run 在该 server 上已批准的工具。 */

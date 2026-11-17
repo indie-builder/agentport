@@ -2,7 +2,7 @@ import { afterEach, expect, it, mock } from 'bun:test';
 import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { buildGeneratedServer } from '../src/modules/servers/generated.js';
-import { stubGlobal, unstubAllGlobals, waitForAssertion } from './native.js';
+import { stubGlobal, unstubAllGlobals } from './native.js';
 
 type ToolHandler = (
   args: Record<string, unknown>,
@@ -49,16 +49,7 @@ const baseInput = {
   headers: {},
   tools: [tool],
   approvals: [],
-  approvalWaitMs: 1000,
 };
-
-function deferred(): { promise: Promise<string[]>; resolve: (value: string[]) => void } {
-  let resolve!: (value: string[]) => void;
-  const promise = new Promise<string[]>((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
-}
 
 afterEach(() => {
   unstubAllGlobals();
@@ -66,50 +57,28 @@ afterEach(() => {
   mcp.handlers.clear();
 });
 
-it('times out instead of calling upstream when approval lands after the deadline', async () => {
-  const fetchSpy = mock(async () => {
-    throw new Error('upstream must not be called after the deadline');
-  });
+it('refuses an unapproved call immediately without polling or touching upstream', async () => {
+  const fetchSpy = mock(async () => new Response('ok'));
   stubGlobal('fetch', fetchSpy);
-
-  const later = deferred();
-  let calls = 0;
-  const refreshApprovals = mock(async () => {
-    calls += 1;
-    return calls === 1 ? [] : later.promise;
-  });
-
-  buildGeneratedServer({ ...baseInput, refreshApprovals });
+  const refreshApprovals = mock(async () => [] as string[]);
+  const onApprovalRequired = mock(async () => undefined);
+  buildGeneratedServer({ ...baseInput, refreshApprovals, onApprovalRequired });
   const handler = mcp.handlers.get('approve-tool');
   if (!handler) throw new Error('tool was not registered');
-
-  const call = handler({}, ctx);
-  await waitForAssertion(() => expect(calls).toBe(2));
-  await Bun.sleep(600);
-  later.resolve(['approve-tool']);
-
-  const result = await call;
+  const result = await handler({}, ctx);
   expect(result.isError).toBe(true);
+  expect(refreshApprovals).toHaveBeenCalledTimes(1);
+  expect(onApprovalRequired).toHaveBeenCalledTimes(1);
   expect(fetchSpy).not.toHaveBeenCalled();
 });
 
-it('calls upstream when approval arrives before the deadline', async () => {
+it('calls upstream when the refreshed approval is already present', async () => {
   const fetchSpy = mock(async () => new Response('ok'));
   stubGlobal('fetch', fetchSpy);
-
-  let calls = 0;
-  const refreshApprovals = mock(async () => {
-    calls += 1;
-    return calls === 1 ? [] : ['approve-tool'];
-  });
-
-  buildGeneratedServer({ ...baseInput, refreshApprovals });
+  buildGeneratedServer({ ...baseInput, refreshApprovals: async () => ['approve-tool'] });
   const handler = mcp.handlers.get('approve-tool');
   if (!handler) throw new Error('tool was not registered');
-
-  const call = handler({}, ctx);
-  const result = await call;
+  const result = await handler({}, ctx);
   expect(result.isError).toBeFalsy();
-  expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
   expect(fetchSpy).toHaveBeenCalledTimes(1);
 });

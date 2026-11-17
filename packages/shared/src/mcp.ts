@@ -211,6 +211,12 @@ export const apiToolSchema = apiToolInputSchema.and(
 
 export type ApiTool = z.infer<typeof apiToolSchema>;
 
+export const toolApprovalResponseSchema = z.object({
+  status: z.enum(['pending', 'approved', 'denied', 'expired', 'cancelled']),
+  approvalId: z.string().nullable(),
+  expiresAt: z.iso.datetime().nullable(),
+});
+
 export const mcpToolSummarySchema = z.object({
   name: z.string(),
   title: z.string().optional(),
