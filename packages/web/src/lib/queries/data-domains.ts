@@ -10,6 +10,12 @@ import type {
   DataDomainEnrichInput,
   DataDomainEnrichmentProposal,
   DataDomainEnrichmentProposalDetail,
+  DataDomainIdentity,
+  DataDomainQueryApproval,
+  DataDomainQueryApprovalPage,
+  DataDomainQueryApprovalQuery,
+  DataDomainQueryLogPage,
+  DataDomainQueryLogQuery,
   DataDomainVersion,
   DataDomainVersionDetail,
 } from '../api.js';
@@ -171,5 +177,85 @@ export function useDecideDataDomainEnrichmentProposal() {
     mutationFn: (vars: { id: string; proposalId: string; decision: 'approve' | 'reject' }) =>
       api.decideDataDomainEnrichmentProposal(vars.id, vars.proposalId, vars.decision),
     onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
+  });
+}
+
+export function useDataDomainIdentities(id: string) {
+  return useQuery<DataDomainIdentity[]>({
+    queryKey: [...dataDomainKeys, id, 'identities'],
+    queryFn: () => api.dataDomainIdentities(id),
+  });
+}
+
+export function useUpsertDataDomainIdentity() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; businessId: string; properties: Record<string, string> }) =>
+      api.upsertDataDomainIdentity(vars.id, vars.businessId, vars.properties),
+    onSuccess: (_, vars) =>
+      void client.invalidateQueries({ queryKey: [...dataDomainKeys, vars.id, 'identities'] }),
+  });
+}
+
+export function useRemoveDataDomainIdentity() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; businessId: string }) =>
+      api.removeDataDomainIdentity(vars.id, vars.businessId),
+    onSuccess: (_, vars) =>
+      void client.invalidateQueries({ queryKey: [...dataDomainKeys, vars.id, 'identities'] }),
+  });
+}
+
+export function useDataDomainQueryLogs(id: string, query: DataDomainQueryLogQuery) {
+  return useInfiniteQuery<DataDomainQueryLogPage>({
+    queryKey: [...dataDomainKeys, id, 'query-logs', query],
+    queryFn: ({ pageParam }) =>
+      api.dataDomainQueryLogs(id, {
+        ...query,
+        ...(typeof pageParam === 'string' ? { cursor: pageParam } : {}),
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+export function dataDomainApprovalsShouldPoll(
+  query: DataDomainQueryApprovalQuery,
+  pages: DataDomainQueryApprovalPage[] | undefined,
+): boolean {
+  return (
+    query.status === 'pending' ||
+    (pages?.some((page) => page.items.some((item) => item.status === 'pending')) ?? false)
+  );
+}
+
+export function useDataDomainQueryApprovals(id: string, query: DataDomainQueryApprovalQuery) {
+  return useInfiniteQuery<DataDomainQueryApprovalPage>({
+    queryKey: [...dataDomainKeys, id, 'approvals', query],
+    queryFn: ({ pageParam }) =>
+      api.dataDomainQueryApprovals(id, {
+        ...query,
+        ...(typeof pageParam === 'string' ? { cursor: pageParam } : {}),
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    refetchInterval: ({ state }) =>
+      dataDomainApprovalsShouldPoll(query, state.data?.pages) ? 8_000 : false,
+  });
+}
+
+export function useDecideDataDomainApproval() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      id: string;
+      approvalId: string;
+      decision: 'approve' | 'reject';
+      note: string;
+    }): Promise<DataDomainQueryApproval> =>
+      api.decideDataDomainApproval(vars.id, vars.approvalId, vars.decision, vars.note),
+    onSuccess: (_, vars) =>
+      void client.invalidateQueries({ queryKey: [...dataDomainKeys, vars.id, 'approvals'] }),
   });
 }

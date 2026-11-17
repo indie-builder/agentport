@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   ArrowLeft,
   CircleAlert,
@@ -53,10 +53,14 @@ import {
   useDeleteDataDomain,
   useGenerateDataDomainMdl,
   usePublishDataDomain,
+  useServers,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
+import { DataDomainApprovals } from './data-domain-approvals.js';
 import { DataDomainEnrichment } from './data-domain-enrichment.js';
 import { DataDomainFormDialog } from './data-domain-form-dialog.js';
+import { DataDomainIdentities } from './data-domain-identities.js';
+import { DataDomainQueryLogs } from './data-domain-query-logs.js';
 
 type BuildStatus = DataDomainVersion['status'];
 
@@ -106,9 +110,12 @@ export function DataDomainDetailPage() {
   const canBuild = can(me.data, 'data_domains.build');
   const canPublish = can(me.data, 'data_domains.publish');
   const canTest = can(me.data, 'data_domains.create');
+  const canReadServers = can(me.data, 'servers.read');
+  const servers = useServers(canReadServers);
   const backTo = search.backTo ?? '/data-domains';
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [publishing, setPublishing] = useState<DataDomainVersion | null>(null);
   const [projectFiles, setProjectFiles] = useState<Record<string, string>>({});
   const [importError, setImportError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
@@ -125,6 +132,7 @@ export function DataDomainDetailPage() {
   const editTriggerRef = useRef<HTMLButtonElement>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
   const logTriggerRef = useRef<HTMLElement | null>(null);
+  const publishTriggerRef = useRef<HTMLElement | null>(null);
   const importDirty = Object.keys(projectFiles).length > 0;
   const importPending = reading || createVersion.isPending;
   const importBlocker = useFormBlocker(importDirty, importPending, { ignoreSamePath: true });
@@ -189,6 +197,10 @@ export function DataDomainDetailPage() {
   }
 
   const current = domain.data;
+  const connector = servers.data?.find(
+    (server) => server.kind === 'data_domain' && server.config.dataDomainId === current.id,
+  );
+  const connectorName = connector?.name ?? `dd-${current.slug}`;
 
   const addFiles = async (files: File[]): Promise<void> => {
     if (files.length === 0) return;
@@ -279,16 +291,6 @@ export function DataDomainDetailPage() {
       onSuccess: () => toastSuccess('已提交结构反射，正在生成草稿版本'),
       onError: (error) => toastError(error),
     });
-  };
-
-  const publishVersion = (version: DataDomainVersion): void => {
-    publish.mutate(
-      { id: current.id, versionId: version.id },
-      {
-        onSuccess: () => toastSuccess('已发布为在线版本'),
-        onError: (error) => toastError(error),
-      },
-    );
   };
 
   const deleteDomain = async (): Promise<void> => {
@@ -386,6 +388,17 @@ export function DataDomainDetailPage() {
             <dd className="text-fg">
               {current.queryApprovalMode === 'all' ? '每次查询需审批' : '关闭'}
             </dd>
+            <dt className="text-muted-foreground">连接器</dt>
+            <dd className="flex min-w-0 flex-wrap items-center gap-2">
+              <code className="font-mono text-xs text-fg">{connectorName}</code>
+              <Link
+                to="/servers"
+                search={{ q: connectorName, kind: 'data_domain' }}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                去连接器查看
+              </Link>
+            </dd>
             {current.description ? (
               <>
                 <dt className="text-muted-foreground">描述</dt>
@@ -395,7 +408,16 @@ export function DataDomainDetailPage() {
               </>
             ) : null}
           </dl>
+          <p className="text-sm text-muted-foreground">
+            在「专家编辑 → 连接器」中勾选 {connectorName}，专家即可通过该数据域查询。
+          </p>
         </PageSection>
+
+        <DataDomainIdentities dataDomainId={current.id} canUpdate={canUpdate} />
+
+        <DataDomainApprovals dataDomainId={current.id} canUpdate={canUpdate} />
+
+        <DataDomainQueryLogs dataDomainId={current.id} />
 
         <PageSection title="版本">
           {versions.isPending ? <LoadingState rows={3} /> : null}
@@ -455,9 +477,14 @@ export function DataDomainDetailPage() {
                               variant="outline"
                               size="sm"
                               disabled={interacting}
-                              onClick={() => publishVersion(version)}
+                              title="切换为在线版本（用于发布/回退）"
+                              aria-label="切换为在线版本（用于发布/回退）"
+                              onClick={(event) => {
+                                publishTriggerRef.current = event.currentTarget;
+                                setPublishing(version);
+                              }}
                             >
-                              <RotateCcw data-icon="inline-start" /> 发布为在线版本
+                              <RotateCcw data-icon="inline-start" /> 切换为在线版本
                             </Button>
                           ) : null}
                         </div>
@@ -666,6 +693,23 @@ export function DataDomainDetailPage() {
           onConfirm={deleteDomain}
           finalFocus={() =>
             deleteTriggerRef.current?.isConnected ? deleteTriggerRef.current : null
+          }
+        />
+      ) : null}
+      {publishing ? (
+        <ConfirmDialog
+          open
+          title="切换在线版本"
+          description={`将在线版本切换为 ${shortId(publishing.id)}。可用于发布新版本或回退到旧版本，切换后新查询立即使用该版本。`}
+          confirmLabel="切换"
+          tone="default"
+          onClose={() => setPublishing(null)}
+          onConfirm={async () => {
+            await publish.mutateAsync({ id: current.id, versionId: publishing.id });
+            toastSuccess('已切换在线版本');
+          }}
+          finalFocus={() =>
+            publishTriggerRef.current?.isConnected ? publishTriggerRef.current : null
           }
         />
       ) : null}

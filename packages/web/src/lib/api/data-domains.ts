@@ -3,10 +3,15 @@ import type {
   dataDomainEnrichInputSchema,
   dataDomainEnrichmentProposalDetailSchema,
   dataDomainEnrichmentProposalSchema,
+  dataDomainIdentitySchema,
   dataDomainInputSchema,
   dataDomainListSchema,
   dataDomainPatchSchema,
   dataDomainProposalDecisionResultSchema,
+  dataDomainQueryApprovalListSchema,
+  dataDomainQueryApprovalSchema,
+  dataDomainQueryLogListSchema,
+  dataDomainQueryLogSchema,
   dataDomainSchema,
   dataDomainVersionDetailSchema,
   dataDomainVersionSchema,
@@ -29,6 +34,22 @@ export type DataDomainEnrichmentProposalDetail = z.infer<
 export type DataDomainProposalDecisionResult = z.infer<
   typeof dataDomainProposalDecisionResultSchema
 >;
+export type DataDomainIdentity = z.infer<typeof dataDomainIdentitySchema>;
+export type DataDomainQueryLog = z.infer<typeof dataDomainQueryLogSchema>;
+export type DataDomainQueryLogPage = z.infer<typeof dataDomainQueryLogListSchema>;
+export interface DataDomainQueryLogQuery {
+  cursor?: string;
+  limit?: number;
+  status?: 'ok' | 'error';
+  runId?: string;
+}
+export type DataDomainQueryApproval = z.infer<typeof dataDomainQueryApprovalSchema>;
+export type DataDomainQueryApprovalPage = z.infer<typeof dataDomainQueryApprovalListSchema>;
+export interface DataDomainQueryApprovalQuery {
+  cursor?: string;
+  limit?: number;
+  status?: 'pending' | 'approved' | 'rejected';
+}
 
 export default {
   dataDomainPage: (cursor?: string | null): Promise<DataDomainPage> =>
@@ -59,6 +80,34 @@ export default {
     connection: Record<string, string>,
   ): Promise<DataDomainConnectionTestResult> =>
     rpc.dataDomains.testConnection({ body: { datasource, connection } }),
+  dataDomainIdentities: (id: string): Promise<DataDomainIdentity[]> =>
+    rpc.dataDomains.identities({ params: { id } }),
+  upsertDataDomainIdentity: (
+    id: string,
+    businessId: string,
+    properties: Record<string, string>,
+  ): Promise<DataDomainIdentity> =>
+    rpc.dataDomains.upsertIdentity({ params: { id, businessId }, body: { properties } }),
+  removeDataDomainIdentity: (id: string, businessId: string): Promise<void> =>
+    rpc.dataDomains.removeIdentity({ params: { id, businessId } }),
+  dataDomainQueryLogs: (
+    id: string,
+    query: DataDomainQueryLogQuery,
+  ): Promise<DataDomainQueryLogPage> => rpc.dataDomains.queryLogs({ params: { id }, query }),
+  dataDomainQueryApprovals: (
+    id: string,
+    query: DataDomainQueryApprovalQuery,
+  ): Promise<DataDomainQueryApprovalPage> => rpc.dataDomains.approvals({ params: { id }, query }),
+  decideDataDomainApproval: (
+    id: string,
+    approvalId: string,
+    decision: 'approve' | 'reject',
+    note: string,
+  ): Promise<DataDomainQueryApproval> =>
+    rpc.dataDomains.decideApproval({
+      params: { id, approvalId },
+      body: { decision, note },
+    }),
   enrichDataDomain: (
     id: string,
     input: { sourceVersionId: string; instruction: string },
