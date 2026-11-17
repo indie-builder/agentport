@@ -6,6 +6,7 @@ export const notificationKindSchema = z.enum([
   'run_failed',
   'schedule_failed',
   'budget_alert',
+  'ops_alert',
 ]);
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
 

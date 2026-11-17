@@ -1,9 +1,10 @@
 import { AppError } from '@agentport/core';
-import type { Agent } from '@agentport/shared';
+import type { Agent, ResourceAccessFilter } from '@agentport/shared';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agentPlugins, pluginFiles, plugins } from '../schema.js';
+import { resourceScopeWhere } from './access.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
 
 export type PluginRow = typeof plugins.$inferSelect;
@@ -19,7 +20,7 @@ export interface PluginFileWrite {
 }
 
 export type PluginWrite = Pick<PluginRow, 'slug' | 'runtimeName' | 'name'> &
-  Partial<Pick<PluginRow, 'description' | 'version' | 'manifest' | 'sourceId'>>;
+  Partial<Pick<PluginRow, 'description' | 'version' | 'manifest' | 'sourceId' | 'ownerBusinessId'>>;
 
 export interface AgentPluginBinding {
   plugin: PluginRow;
@@ -36,16 +37,25 @@ const pluginColumns = {
   version: plugins.version,
   manifest: plugins.manifest,
   sourceId: plugins.sourceId,
+  ownerBusinessId: plugins.ownerBusinessId,
   createdAt: plugins.createdAt,
   updatedAt: plugins.updatedAt,
 };
 
 /** 列表附带绑定的智能体数量；分组依据是主键，其余列在 PG 中函数依赖于它。 */
-export async function listPlugins(db: Database): Promise<PluginWithAgentCount[]> {
+export async function listPlugins(
+  db: Database,
+  access?: ResourceAccessFilter,
+): Promise<PluginWithAgentCount[]> {
   return db
     .select({ ...pluginColumns, agentCount: count(agentPlugins.agentId) })
     .from(plugins)
     .leftJoin(agentPlugins, eq(agentPlugins.pluginId, plugins.id))
+    .where(
+      access === undefined
+        ? undefined
+        : resourceScopeWhere(access, plugins.id, plugins.ownerBusinessId),
+    )
     .groupBy(plugins.id)
     .orderBy(asc(plugins.createdAt), asc(plugins.id));
 }

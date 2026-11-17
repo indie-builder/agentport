@@ -226,7 +226,10 @@ const runsMainRouter = {
       steps,
     });
     try {
-      const row = await repo.skills.createSkill(context.db, draft);
+      const row = await repo.skills.createSkill(context.db, {
+        ...draft,
+        ownerBusinessId: requireUser(context).businessId,
+      });
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'skill.created',

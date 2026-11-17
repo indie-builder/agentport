@@ -2,6 +2,7 @@ import { fail, renderSkillMd } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { idParams } from '@agentport/shared';
 import type { Hono } from 'hono';
+import { authorizeResourceAccess } from '../../http/access.js';
 import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
@@ -15,6 +16,12 @@ export function registerSkillsHttp(app: Hono<HttpEnv>): void {
       const { id } = idParams.parse(c.req.param());
       const row = await repo.skills.getSkill(context.db, id);
       if (!row) fail('NOT_FOUND', '技能不存在，可能已被删除；请刷新后重试');
+      await authorizeResourceAccess(
+        context,
+        'skills.read',
+        { kind: 'skill', resourceId: row.id, ownerBusinessId: row.ownerBusinessId, level: 'read' },
+        '技能不存在，可能已被删除；请刷新后重试',
+      );
       return c.body(renderSkillMd(repo.skills.toSkillDefinition(row)), 200, {
         'content-type': 'text/markdown; charset=utf-8',
         'content-disposition': 'attachment; filename="SKILL.md"',

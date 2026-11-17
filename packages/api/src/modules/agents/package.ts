@@ -316,11 +316,20 @@ export interface AgentPackageFiles {
   warnings: string[];
   executablePaths?: readonly string[];
 }
+export interface PackageResourceAuthorization {
+  kind: 'server' | 'skill' | 'plugin' | 'runtime_environment';
+  resourceId: string;
+  ownerBusinessId: string | null;
+}
+export interface PackageAuthorization {
+  authorizeResource?: (resource: PackageResourceAuthorization) => Promise<void>;
+}
 export async function buildAgentPackage(
   db: Database,
   key: string,
   selfUrl: string,
   row: repo.agents.AgentRow,
+  authorization?: PackageAuthorization,
 ): Promise<AgentPackageFiles> {
   const children = await repo.agents.listSubAgents(db, row.id);
   checkExportLimit(
@@ -356,6 +365,20 @@ export async function buildAgentPackage(
     AGENT_PACKAGE_LIMITS.resources,
     `导出包含 ${allSkills.length} 个技能，超过上限 ${AGENT_PACKAGE_LIMITS.resources}；请先减少绑定`,
   );
+  for (const server of allServers) {
+    await authorization?.authorizeResource?.({
+      kind: 'server',
+      resourceId: server.id,
+      ownerBusinessId: server.ownerBusinessId,
+    });
+  }
+  for (const skill of allSkills) {
+    await authorization?.authorizeResource?.({
+      kind: 'skill',
+      resourceId: skill.id,
+      ownerBusinessId: skill.ownerBusinessId,
+    });
+  }
   const skillFiles = await repo.skillFiles.getSkillFilesBySkillIds(
     db,
     allSkills.map((skill) => skill.id),
@@ -471,9 +494,16 @@ export async function buildAgentPackage(
   const runtimeEnvironment =
     row.runtimeEnvironmentId === null
       ? null
-      : await repo.runtimeEnvironments.getRuntimeEnvironment(db, row.runtimeEnvironmentId);
+      : await repo.runtimeEnvironments.getRuntimeEnvironmentRow(db, row.runtimeEnvironmentId);
   if (row.runtimeEnvironmentId !== null && runtimeEnvironment === null) {
     fail('CONFLICT', '该专家绑定的运行环境已不存在，无法导出；请重新选择运行环境');
+  }
+  if (runtimeEnvironment !== null) {
+    await authorization?.authorizeResource?.({
+      kind: 'runtime_environment',
+      resourceId: runtimeEnvironment.id,
+      ownerBusinessId: runtimeEnvironment.ownerBusinessId,
+    });
   }
   const sidecar = {
     version: AGENT_PACKAGE_SIDECAR_VERSION,
@@ -528,6 +558,18 @@ export async function buildAgentPackage(
   files[AGENT_PACKAGE_SIDECAR] = `${JSON.stringify(parsed.data, null, 2)}\n`;
   const pluginBindings = await repo.plugins.listAgentPluginBindingInputs(db, [row.id]);
   const boundPlugins = pluginBindings.get(row.id) ?? [];
+  if (authorization?.authorizeResource !== undefined) {
+    for (const binding of boundPlugins) {
+      const plugin = await repo.plugins.getPlugin(db, binding.pluginId);
+      if (plugin !== null) {
+        await authorization.authorizeResource({
+          kind: 'plugin',
+          resourceId: plugin.id,
+          ownerBusinessId: plugin.ownerBusinessId,
+        });
+      }
+    }
+  }
   const warnings =
     boundPlugins.length === 0
       ? []
@@ -1161,6 +1203,7 @@ export async function importAgentPackage(
     privateHostAllowlist?: string | undefined;
     runtimeEnvironmentId?: string | undefined;
   },
+  authorization?: PackageAuthorization,
 ): Promise<
   AgentPackageImportResult & {
     counts: ImportCounts;
@@ -1171,6 +1214,19 @@ export async function importAgentPackage(
     options.runtimeEnvironmentId,
     parsed.runtimeEnvironmentName,
   );
+  if (runtimeEnvironmentId !== null && authorization?.authorizeResource !== undefined) {
+    const environment = await repo.runtimeEnvironments.getRuntimeEnvironmentRow(
+      db,
+      runtimeEnvironmentId,
+    );
+    if (environment !== null) {
+      await authorization.authorizeResource({
+        kind: 'runtime_environment',
+        resourceId: environment.id,
+        ownerBusinessId: environment.ownerBusinessId,
+      });
+    }
+  }
   const serverEntries = parsed.servers.map((entry) => ({
     input: toServerInput(entry),
     tools: entry.kind === 'generated' ? entry.tools : undefined,
@@ -1236,6 +1292,11 @@ export async function importAgentPackage(
       for (const { input, tools, secretKeys, knowledge, dataDomain } of serverEntries) {
         const existing = existingByName.get(input.name);
         if (existing !== undefined) {
+          await authorization?.authorizeResource?.({
+            kind: 'server',
+            resourceId: existing.id,
+            ownerBusinessId: existing.ownerBusinessId,
+          });
           if (existing.kind === 'knowledge' && input.kind === 'http') {
             reusedServers.push(input.name);
             warnings.push(
@@ -1276,6 +1337,7 @@ export async function importAgentPackage(
             description: input.description,
             config: serverConfig(input),
             secretsEncrypted: null,
+            ownerBusinessId: options.businessId,
           })
           .returning();
         if (!row) throw new Error('server insert returned no row');
@@ -1331,6 +1393,11 @@ export async function importAgentPackage(
       for (const skillInput of parsed.skills) {
         const existing = existingSkillBySlug.get(skillInput.slug);
         if (existing) {
+          await authorization?.authorizeResource?.({
+            kind: 'skill',
+            resourceId: existing.id,
+            ownerBusinessId: existing.ownerBusinessId,
+          });
           if (
             existing.name !== skillInput.name ||
             existing.description !== skillInput.description ||
@@ -1362,7 +1429,7 @@ export async function importAgentPackage(
         const { files, ...skillValues } = skillInput;
         const [row] = await tx
           .insert(skills)
-          .values({ id: newId('skill'), ...skillValues })
+          .values({ id: newId('skill'), ...skillValues, ownerBusinessId: options.businessId })
           .returning();
         if (!row) throw new Error('skill insert returned no row');
         if (files.length > 0) {

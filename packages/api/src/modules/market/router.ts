@@ -1,6 +1,6 @@
 import { marketContract } from '@agentport/contract/market';
 import { implement } from '@orpc/server';
-import { actorOf } from '../../http/access.js';
+import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { fetchLeaderboard } from './leaderboard.js';
 import { searchMarket } from './search.js';
@@ -16,7 +16,13 @@ export const marketRouter = os.router({
   }),
   install: os.install.handler(async ({ context, input: routeInput }) => {
     return installMarketSkill(
-      { db: context.db, log: context.log, actor: actorOf(context), requestId: context.requestId },
+      {
+        db: context.db,
+        log: context.log,
+        actor: actorOf(context),
+        ownerBusinessId: requireUser(context).businessId,
+        requestId: context.requestId,
+      },
       routeInput.body,
     );
   }),

@@ -446,7 +446,10 @@ async function linkWikiAfterIngest(
     await deps.onWikiUpdate({ baseId: base.id, jobIds });
   } catch (err) {
     // 行已落库为 queued；对账会把它重新投递，不因此让已成功的摄取整体失败或重建版本。
-    deps.logger.warn({ err, baseId: base.id, jobIds }, 'wiki job enqueue failed; awaiting reconcile');
+    deps.logger.warn(
+      { err, baseId: base.id, jobIds },
+      'wiki job enqueue failed; awaiting reconcile',
+    );
   }
 }
 
@@ -1376,6 +1379,8 @@ async function upsertSourceItem(
     sizeBytes: data.length,
     metadata,
   };
+  const creating = existing === null;
+  if (creating) await repo.governance.assertKnowledgeDocumentQuota(deps.db, source.baseId);
   const document =
     existing ??
     (await repo.knowledge.createDocument(deps.db, {
@@ -1391,6 +1396,7 @@ async function upsertSourceItem(
       sizeBytes: data.length,
       metadata,
     }));
+  if (creating) await repo.governance.notifyKnowledgeDocumentQuota(deps.db, source.baseId);
   // 授权恢复、实际范围归属与 patch 同事务；快照失效时零写返回，本轮不得继续发布。
   const authorized = await repo.knowledge.setDocumentSourceRanges(
     deps.db,

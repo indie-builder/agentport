@@ -23,7 +23,7 @@ function managedServerWhere(dataDomainId: string) {
 
 export async function ensureDataDomainServer(
   db: DbHandle,
-  domain: { id: string; slug: string },
+  domain: { id: string; slug: string; ownerBusinessId: string | null },
 ): Promise<repo.servers.ServerRow> {
   const name = `dd-${domain.slug}`;
   const [existing] = await db
@@ -32,16 +32,27 @@ export async function ensureDataDomainServer(
     .where(managedServerWhere(domain.id))
     .limit(1);
   if (existing) {
-    if (existing.name === name) return existing;
-    const [clash] = await db
-      .select({ id: schema.servers.id })
-      .from(schema.servers)
-      .where(eq(schema.servers.name, name))
-      .limit(1);
-    if (clash && clash.id !== existing.id) {
-      fail('CONFLICT', `连接器名称 ${name} 已被占用，请更换数据域标识`);
+    let row = existing;
+    if (row.name !== name) {
+      const [clash] = await db
+        .select({ id: schema.servers.id })
+        .from(schema.servers)
+        .where(eq(schema.servers.name, name))
+        .limit(1);
+      if (clash && clash.id !== row.id) {
+        fail('CONFLICT', `连接器名称 ${name} 已被占用，请更换数据域标识`);
+      }
+      row = (await repo.servers.updateServer(db, row.id, { name })) ?? row;
     }
-    return (await repo.servers.updateServer(db, existing.id, { name })) ?? existing;
+    if (row.ownerBusinessId !== domain.ownerBusinessId) {
+      const [synced] = await db
+        .update(schema.servers)
+        .set({ ownerBusinessId: domain.ownerBusinessId })
+        .where(eq(schema.servers.id, row.id))
+        .returning();
+      if (synced) row = synced;
+    }
+    return row;
   }
   const [clash] = await db
     .select({ id: schema.servers.id })
@@ -59,6 +70,7 @@ export async function ensureDataDomainServer(
       kind: 'data_domain',
       config: { dataDomainId: domain.id },
       secretsEncrypted: null,
+      ownerBusinessId: domain.ownerBusinessId,
     })
     .returning();
   if (!row) throw new Error('data domain server insert returned no row');

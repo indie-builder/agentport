@@ -35,7 +35,8 @@ function capturePoolQueries(app: TestApp): { queries: string[]; restore: () => v
 const isServerQuery = (sql: string) => /\bfrom\s+"?servers\b/i.test(sql);
 const isToolQuery = (sql: string) => /\bfrom\s+"?api_tools\b/i.test(sql);
 const readsServerSecrets = (sql: string) => /"(?:config|secrets_encrypted)"/i.test(sql);
-const isIdOnlyServerQuery = (sql: string) => /select\s+"id"\s+from\s+"servers"/i.test(sql);
+const isIdOnlyServerQuery = (sql: string) =>
+  /select\s+"id"(?:\s*,\s*"owner_business_id")?\s+from\s+"servers"/i.test(sql);
 
 describe.skipIf(!ready)('servers', () => {
   let app: TestApp;
@@ -395,7 +396,7 @@ describe.skipIf(!ready)('servers', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual([]);
 
-      // 存在性判断只投影 id；config/secretsEncrypted 不参与传输和解码。
+      // 存在性/授权判断只投影 id 与 owner；config/secretsEncrypted 不参与传输和解码。
       const serverQueries = probe.queries.filter(isServerQuery);
       expect(serverQueries).toHaveLength(1);
       const existence = serverQueries[0] ?? '';

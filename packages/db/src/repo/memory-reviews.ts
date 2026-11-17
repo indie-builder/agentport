@@ -8,7 +8,9 @@ import type {
 import { and, desc, eq, lt, or, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
-import { agentRuns, memoryReviews } from '../schema.js';
+import { agentRuns, agents, memoryReviews } from '../schema.js';
+import { getAgentVersion } from './agent-versions.js';
+import { getDepartmentIdForBusinessId } from './governance.js';
 
 export type MemoryReviewRow = typeof memoryReviews.$inferSelect;
 
@@ -74,6 +76,16 @@ export async function createWithRun(
   const first = input.sources[0];
   if (!first) throw new Error('memory review needs at least one source');
   return db.transaction(async (tx) => {
+    const [agent] = await tx
+      .select({ model: agents.model })
+      .from(agents)
+      .where(eq(agents.id, input.modelAgentId))
+      .limit(1);
+    if (!agent) throw new Error('memory review model agent not found');
+    const definition =
+      input.agentVersion === null
+        ? null
+        : ((await getAgentVersion(tx, input.modelAgentId, input.agentVersion))?.definition ?? null);
     const runId = newId('run');
     await tx.insert(agentRuns).values({
       id: runId,
@@ -84,6 +96,8 @@ export async function createWithRun(
       subjectKind: 'user',
       initiatedBy: input.businessId,
       agentVersion: input.agentVersion,
+      model: definition?.agent.model ?? agent.model,
+      departmentId: await getDepartmentIdForBusinessId(tx, input.businessId),
     });
     return insert(tx, { ...input, runId });
   });

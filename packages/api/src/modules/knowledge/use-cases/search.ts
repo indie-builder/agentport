@@ -6,13 +6,13 @@ import type { KnowledgeSearchQuery, KnowledgeSearchResult } from '@agentport/sha
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { searchKnowledge } from '../retrieval.js';
 import {
+  collectChunks,
+  copyVersionImages,
+  type DocumentRow,
+  enqueue,
   type FullChunkRow,
   type KnowledgeDeps,
   notFound,
-  enqueue,
-  type DocumentRow,
-  collectChunks,
-  copyVersionImages,
 } from './shared.js';
 
 function cloneChunk(chunk: FullChunkRow): repo.knowledge.NewChunk {
@@ -139,6 +139,7 @@ async function copyDocument(deps: KnowledgeDeps, document: DocumentRow): Promise
     ? await repo.knowledge.getVersion(deps.db, document.currentVersionId)
     : null;
   if (!version) throw new AppError('CONFLICT', '文档还没有成功解析的版本，无法复制');
+  await repo.governance.assertKnowledgeDocumentQuota(deps.db, document.baseId);
   const chunks = await collectChunks(deps.db, version.id);
   const newDocumentId = newId('knowledgeDocument');
   const newVersionId = newId('knowledgeVersion');
@@ -212,7 +213,6 @@ async function copyDocument(deps: KnowledgeDeps, document: DocumentRow): Promise
           .values(rows.map((tag) => ({ documentId: newDocumentId, tagId: tag.id })));
       }
     });
-    return newDocumentId;
   } catch (err) {
     await rm(join(deps.config.KNOWLEDGE_DIR, 'docs', newDocumentId), {
       recursive: true,
@@ -220,6 +220,8 @@ async function copyDocument(deps: KnowledgeDeps, document: DocumentRow): Promise
     }).catch(() => undefined);
     throw err;
   }
+  await repo.governance.notifyKnowledgeDocumentQuota(deps.db, document.baseId);
+  return newDocumentId;
 }
 
 export async function batchDocuments(

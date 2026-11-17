@@ -12,6 +12,7 @@ export async function installMarketSkill(
     db: Database;
     log: Logger;
     actor: string;
+    ownerBusinessId: string;
     requestId: string;
   },
   input: MarketInstallInput,
@@ -23,7 +24,7 @@ export async function installMarketSkill(
   try {
     const row = await skills.createSkillWithFiles(
       deps.db,
-      { ...installed.skill, sourceId: input.id },
+      { ...installed.skill, sourceId: input.id, ownerBusinessId: deps.ownerBusinessId },
       installed.files,
     );
     await repo.audit.writeAudit(deps.db, deps.log, {

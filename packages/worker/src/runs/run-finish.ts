@@ -5,7 +5,7 @@ import {
   type TerminalRunStatus,
   utcMonthStart,
 } from '@agentport/shared';
-import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { publishChannelEventSafely } from '../channels/channel-events.js';
 import { clearRunCancel, publishRun } from '../runner-client.js';
@@ -39,6 +39,7 @@ interface RunTerminalRow {
   channelId: string | null;
   scheduleId: string | null;
   initiatedBy: string | null;
+  departmentId: string | null;
   trigger: typeof schema.agentRuns.$inferSelect.trigger;
   costUsd: string | null;
 }
@@ -82,24 +83,71 @@ async function notifyRunTerminal(
     }
   }
   if (row.costUsd === null) return;
-  const agent = await repo.agents.getAgent(input.db, row.agentId);
-  if (agent === null || agent.monthlyBudgetUsd === null) return;
   const now = new Date();
-  const limit = Number(agent.monthlyBudgetUsd);
-  const ratio = Number(agent.budgetAlertRatio);
-  const spent = await repo.agents.sumAgentSpendSince(input.db, row.agentId, utcMonthStart(now));
-  const tier = spent >= limit ? 'exceeded' : spent >= limit * ratio ? 'alert' : null;
-  if (tier === null) return;
-  await repo.notifications.createNotification(input.db, {
-    businessId: agent.ownerBusinessId,
-    kind: 'budget_alert',
-    title: tier === 'exceeded' ? '智能体预算已超支' : '智能体预算告警',
-    body:
-      tier === 'exceeded'
-        ? `本月已使用 $${spent.toFixed(2)}，超过 $${limit.toFixed(2)} 月度预算`
-        : `本月已使用 $${spent.toFixed(2)}，达到 $${limit.toFixed(2)} 月度预算的 ${Math.round(ratio * 100)}%`,
-    link: `/agents/${row.agentId}`,
-    sourceId: `budget:${row.agentId}:${now.toISOString().slice(0, 7)}:${tier}`,
+  const since = utcMonthStart(now);
+  const until = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const [agent, agentBudgets] = await Promise.all([
+    repo.agents.getAgent(input.db, row.agentId),
+    input.db
+      .select()
+      .from(schema.budgetLimits)
+      .where(
+        and(
+          eq(schema.budgetLimits.metric, 'cost_usd_month'),
+          eq(schema.budgetLimits.scopeKind, 'agent'),
+          eq(schema.budgetLimits.scopeId, row.agentId),
+        ),
+      ),
+  ]);
+  const budgets = [
+    ...agentBudgets
+      .filter((budget) => budget.enabled)
+      .map((budget) => ({
+        limit: Number(budget.limitValue),
+        ratio: Number(budget.alertRatio),
+      })),
+    ...(agent !== null && agent.monthlyBudgetUsd !== null && agentBudgets.length === 0
+      ? [{ limit: Number(agent.monthlyBudgetUsd), ratio: Number(agent.budgetAlertRatio) }]
+      : []),
+  ];
+  if (budgets.length > 0) {
+    const [total] = await input.db
+      .select({ spent: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}), 0)::float` })
+      .from(schema.agentRuns)
+      .where(
+        and(
+          eq(schema.agentRuns.agentId, row.agentId),
+          gte(schema.agentRuns.startedAt, since),
+          lt(schema.agentRuns.startedAt, until),
+        ),
+      );
+    const spent = total?.spent ?? 0;
+    await Promise.all(
+      budgets.map(async (budget) => {
+        const tier =
+          spent >= budget.limit
+            ? 'exceeded'
+            : spent >= budget.limit * budget.ratio
+              ? 'alert'
+              : null;
+        if (tier === null || agent === null) return;
+        await repo.notifications.createNotification(input.db, {
+          businessId: agent.ownerBusinessId,
+          kind: 'budget_alert',
+          title: `智能体${tier === 'exceeded' ? '预算已超支' : '预算告警'}`,
+          body:
+            tier === 'exceeded'
+              ? `本月已使用 $${spent.toFixed(2)}，达到 $${budget.limit.toFixed(2)} 月度预算上限`
+              : `本月已使用 $${spent.toFixed(2)}，达到 $${budget.limit.toFixed(2)} 月度预算的 ${Math.round(budget.ratio * 100)}%`,
+          link: `/agents/${row.agentId}`,
+          sourceId: `budget:${row.agentId}:${now.toISOString().slice(0, 7)}:${tier}`,
+        });
+      }),
+    );
+  }
+  await repo.governance.notifyRunBudgets(input.db, {
+    initiatedBy: row.initiatedBy,
+    departmentId: row.departmentId,
   });
 }
 
@@ -116,6 +164,7 @@ export async function notifyRunOutcome(input: {
       channelId: schema.agentRuns.channelId,
       agentId: schema.agentRuns.agentId,
       initiatedBy: schema.agentRuns.initiatedBy,
+      departmentId: schema.agentRuns.departmentId,
       scheduleId: schema.agentRuns.scheduleId,
       trigger: schema.agentRuns.trigger,
       costUsd: schema.agentRuns.costUsd,
@@ -177,6 +226,7 @@ export async function finalizeRun(input: {
       channelId: schema.agentRuns.channelId,
       agentId: schema.agentRuns.agentId,
       initiatedBy: schema.agentRuns.initiatedBy,
+      departmentId: schema.agentRuns.departmentId,
       scheduleId: schema.agentRuns.scheduleId,
       trigger: schema.agentRuns.trigger,
       costUsd: schema.agentRuns.costUsd,

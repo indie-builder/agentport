@@ -1,9 +1,19 @@
 import { pluginsContract } from '@agentport/contract/plugins';
 import { fail } from '@agentport/core';
 import { repo as pluginRepo } from '@agentport/db';
-import type { NativeInstalledPlugin, PluginWithAgentCount } from '@agentport/shared';
+import type {
+  NativeInstalledPlugin,
+  PermissionId,
+  PluginWithAgentCount,
+  ResourceAccessLevel,
+} from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { actorOf } from '../../http/access.js';
+import {
+  actorOf,
+  authorizeResourceAccess,
+  requireUser,
+  resourceAccessFilter,
+} from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { toApi } from './api.js';
@@ -13,6 +23,22 @@ import { adoptNativePlugin, reusedPlugin } from './use-cases.js';
 const repo = pluginRepo.plugins;
 function notFound() {
   return fail('NOT_FOUND', '插件不存在，可能已被删除；请刷新后重试');
+}
+async function requirePlugin(
+  context: RequestContext,
+  id: string,
+  permissionId: PermissionId,
+  level: ResourceAccessLevel,
+) {
+  const row = await repo.getPlugin(context.db, id);
+  if (!row) return notFound();
+  await authorizeResourceAccess(
+    context,
+    permissionId,
+    { kind: 'plugin', resourceId: row.id, ownerBusinessId: row.ownerBusinessId, level },
+    '插件不存在，可能已被删除；请刷新后重试',
+  );
+  return row;
 }
 function nativeFailure(error: string) {
   const unavailable = /无法启动|沙盒|安装缓存|docker|Docker|镜像|worker/i.test(error);
@@ -24,7 +50,8 @@ function nameOfPluginId(pluginId: string): string {
 const os = implement(pluginsContract).$context<RequestContext>();
 export const pluginsRouter = os.router({
   list: os.list.handler(async ({ context }) => {
-    const rows = await repo.listPlugins(context.db);
+    const access = await resourceAccessFilter(context, 'plugins.read', 'plugin', 'read');
+    const rows = await repo.listPlugins(context.db, access);
     return rows.map(
       (row): PluginWithAgentCount => ({
         ...toApi(row, []),
@@ -66,7 +93,14 @@ export const pluginsRouter = os.router({
       return fail('UPSTREAM_FAILED', '安装器没有返回插件文件，请稍后重试');
     }
     const body = await adoptNativePlugin(
-      { db: context.db, log: context.log, actor: actorOf(context), requestId: context.requestId },
+      {
+        context,
+        db: context.db,
+        log: context.log,
+        actor: actorOf(context),
+        ownerBusinessId: requireUser(context).businessId,
+        requestId: context.requestId,
+      },
       {
         slug: slug ?? nameOfPluginId(output.plugin.pluginId),
         pluginId: output.plugin.pluginId,
@@ -79,7 +113,20 @@ export const pluginsRouter = os.router({
   importNative: os.importNative.handler(async ({ context, input: routeInput }) => {
     const { pluginId, slug } = routeInput.body;
     const existing = await repo.getPluginBySourceId(context.db, pluginId);
-    if (existing) return { status: 200, body: await reusedPlugin(context.db, existing) };
+    if (existing) {
+      await authorizeResourceAccess(
+        context,
+        'plugins.read',
+        {
+          kind: 'plugin',
+          resourceId: existing.id,
+          ownerBusinessId: existing.ownerBusinessId,
+          level: 'read',
+        },
+        '插件不存在，可能已被删除；请刷新后重试',
+      );
+      return { status: 200, body: await reusedPlugin(context.db, existing) };
+    }
     const output = await runNativePluginAction(context.config.REDIS_URL, context.log, {
       action: 'read',
       pluginId,
@@ -89,7 +136,14 @@ export const pluginsRouter = os.router({
       return fail('UPSTREAM_FAILED', '读取器没有返回插件文件，请稍后重试');
     }
     const body = await adoptNativePlugin(
-      { db: context.db, log: context.log, actor: actorOf(context), requestId: context.requestId },
+      {
+        context,
+        db: context.db,
+        log: context.log,
+        actor: actorOf(context),
+        ownerBusinessId: requireUser(context).businessId,
+        requestId: context.requestId,
+      },
       {
         slug: slug ?? nameOfPluginId(output.plugin.pluginId),
         pluginId: output.plugin.pluginId,
@@ -100,8 +154,7 @@ export const pluginsRouter = os.router({
     return { status: body.reused ? 200 : 201, body };
   }),
   get: os.get.handler(async ({ context, input: routeInput }) => {
-    const row = await repo.getPlugin(context.db, routeInput.params.id);
-    if (!row) return notFound();
+    const row = await requirePlugin(context, routeInput.params.id, 'plugins.read', 'read');
     const files = await repo.listPluginFiles(context.db, row.id);
     return toApi(
       row,
@@ -113,6 +166,7 @@ export const pluginsRouter = os.router({
     );
   }),
   update: os.update.handler(async ({ context, input: routeInput }) => {
+    await requirePlugin(context, routeInput.params.id, 'plugins.update', 'manage');
     const { expectedUpdatedAt, ...patch } = routeInput.body;
     try {
       const row = await repo.updatePluginMeta(
@@ -151,6 +205,7 @@ export const pluginsRouter = os.router({
     }
   }),
   delete: os.delete.handler(async ({ context, input: routeInput }) => {
+    await requirePlugin(context, routeInput.params.id, 'plugins.delete', 'manage');
     const deleted = await repo.deletePlugin(context.db, routeInput.params.id);
     if (!deleted) return notFound();
     await pluginRepo.audit.writeAudit(context.db, context.log, {

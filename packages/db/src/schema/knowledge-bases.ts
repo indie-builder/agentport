@@ -85,6 +85,7 @@ export const knowledgeBases = pgTable(
       onDelete: 'restrict',
     }),
     settings: jsonb('settings').$type<KnowledgeBaseSettings>().notNull(),
+    ownerBusinessId: text('owner_business_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

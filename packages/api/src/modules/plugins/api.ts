@@ -10,6 +10,7 @@ const repo = pluginRepo.plugins;
 export function toPluginWrite(
   input: Omit<PluginInput, 'files'>,
   sourceId?: string,
+  ownerBusinessId?: string,
 ): Parameters<typeof repo.createPluginWithFiles>[1] {
   return {
     slug: input.slug,
@@ -19,6 +20,7 @@ export function toPluginWrite(
     version: input.version,
     manifest: input.capabilities,
     ...(sourceId === undefined ? {} : { sourceId }),
+    ...(ownerBusinessId === undefined ? {} : { ownerBusinessId }),
   };
 }
 export function toApi(

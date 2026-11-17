@@ -2,15 +2,20 @@ import { fail } from '@agentport/core';
 import { repo as pluginRepo } from '@agentport/db';
 import type { PluginFileInput } from '@agentport/shared';
 import type { Logger } from 'pino';
+import { authorizeResourceAccess } from '../../http/access.js';
+import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { type Db, type PluginRow, pluginFiles, toApi, toPluginWrite } from './api.js';
 import { parsePluginFiles } from './parse.js';
 
 const repo = pluginRepo.plugins;
+const pluginMissing = '插件不存在，可能已被删除；请刷新后重试';
 type PluginWriteDependencies = {
+  context: RequestContext;
   db: Db;
   log: Logger;
   actor: string;
+  ownerBusinessId: string;
   requestId: string;
 };
 export async function reusedPlugin(db: Db, row: PluginRow, warnings: string[] = []) {
@@ -41,10 +46,32 @@ export async function adoptNativePlugin(
   const parsed = parsePluginFiles({ files: params.files, slug: params.slug });
   const { files: parsedFiles, ...input } = parsed.input;
   if (existing) {
+    await authorizeResourceAccess(
+      deps.context,
+      'plugins.read',
+      {
+        kind: 'plugin',
+        resourceId: existing.id,
+        ownerBusinessId: existing.ownerBusinessId,
+        level: 'read',
+      },
+      pluginMissing,
+    );
     const current = await pluginFiles(deps.db, existing.id);
     if (existing.version === parsed.input.version && sameFiles(current, parsedFiles)) {
       return reusedPlugin(deps.db, existing);
     }
+    await authorizeResourceAccess(
+      deps.context,
+      'plugins.update',
+      {
+        kind: 'plugin',
+        resourceId: existing.id,
+        ownerBusinessId: existing.ownerBusinessId,
+        level: 'manage',
+      },
+      pluginMissing,
+    );
     const updated = await repo.replacePluginWithFiles(
       deps.db,
       existing.id,
@@ -65,7 +92,7 @@ export async function adoptNativePlugin(
   try {
     const row = await repo.createPluginWithFiles(
       deps.db,
-      toPluginWrite(input, params.pluginId),
+      toPluginWrite(input, params.pluginId, deps.ownerBusinessId),
       parsedFiles,
     );
     await pluginRepo.audit.writeAudit(deps.db, deps.log, {
@@ -80,7 +107,20 @@ export async function adoptNativePlugin(
   } catch (err) {
     if (!isPgCode(err, '23505')) throw err;
     const raced = await repo.getPluginBySourceId(deps.db, params.pluginId);
-    if (raced) return reusedPlugin(deps.db, raced);
+    if (raced) {
+      await authorizeResourceAccess(
+        deps.context,
+        'plugins.read',
+        {
+          kind: 'plugin',
+          resourceId: raced.id,
+          ownerBusinessId: raced.ownerBusinessId,
+          level: 'read',
+        },
+        pluginMissing,
+      );
+      return reusedPlugin(deps.db, raced);
+    }
     return fail('CONFLICT', '已有同名插件占用该 slug 或名称，请先删除或换一个 slug');
   }
 }

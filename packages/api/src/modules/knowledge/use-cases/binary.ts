@@ -96,7 +96,13 @@ export async function importPackage(deps: KnowledgeDeps, archive: Buffer) {
   if (archive.length > KNOWLEDGE_PACKAGE_MAX_BYTES) {
     throw new AppError('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试');
   }
-  const result = await importKnowledgePackage(deps.db, deps.config.KNOWLEDGE_DIR, archive);
+  const result = await importKnowledgePackage(
+    deps.db,
+    deps.config.KNOWLEDGE_DIR,
+    archive,
+    deps.businessId,
+  );
+  await repo.governance.notifyKnowledgeDocumentQuota(deps.db, result.baseId);
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.base.imported',

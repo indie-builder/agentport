@@ -6,6 +6,7 @@ import type {
   ApiTool,
   ApiToolInput,
   ResolvedRuntimeEnvironment,
+  ResourceAccessFilter,
   Server,
   ServerInput,
 } from '@agentport/shared';
@@ -116,8 +117,12 @@ function randomToken(): string {
   return randomBytes(32).toString('base64url');
 }
 
-export async function listServers(db: Db, key: string): Promise<Server[]> {
-  const rows = await repo.servers.listServers(db);
+export async function listServers(
+  db: Db,
+  key: string,
+  access?: ResourceAccessFilter,
+): Promise<Server[]> {
+  const rows = await repo.servers.listServers(db, access);
   // 知识库连接器由知识库生命周期管理，不出现在用户可编辑的连接器列表里。
   return rows
     .filter((row) => row.kind !== 'knowledge')
@@ -143,15 +148,24 @@ export async function getServerWithSecrets(
   return row ? toApiServer(row, key) : null;
 }
 
-export async function createServer(db: Db, input: ServerInput, key: string): Promise<Server> {
+export async function createServer(
+  db: Db,
+  input: ServerInput,
+  key: string,
+  ownerBusinessId: string,
+): Promise<Server> {
   const split = splitInput(input, key);
-  const row = await repo.servers.createServer(db, {
-    name: input.name,
-    kind: input.kind,
-    description: input.description,
-    config: split.config,
-    secretsEncrypted: split.secretsEncrypted,
-  });
+  const row = await repo.servers.createServer(
+    db,
+    {
+      name: input.name,
+      kind: input.kind,
+      description: input.description,
+      config: split.config,
+      secretsEncrypted: split.secretsEncrypted,
+    },
+    ownerBusinessId,
+  );
   return maskServer(toApiServer(row, key));
 }
 
@@ -171,6 +185,7 @@ export async function createServers(
   db: Db,
   inputs: ServerInput[],
   key: string,
+  ownerBusinessId: string,
 ): Promise<ImportedServerSummary[]> {
   const names = inputs.map((input) => input.name);
   return db.transaction(async (tx) => {
@@ -192,6 +207,7 @@ export async function createServers(
           description: input.description,
           config: split.config,
           secretsEncrypted: split.secretsEncrypted,
+          ownerBusinessId,
         },
         summary: {
           id,

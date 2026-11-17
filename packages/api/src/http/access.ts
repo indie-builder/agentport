@@ -11,6 +11,9 @@ import {
   type PermissionGrant,
   type PermissionId,
   type Principal,
+  type ResourceAccessFilter,
+  type ResourceAccessLevel,
+  type ResourceKind,
 } from '@agentport/shared';
 import { writeCrossUserAudit } from '../plugins/audit.js';
 import type { RequestContext } from './context.js';
@@ -69,6 +72,44 @@ export async function authorize(
       return;
     }
     throw new AppError('FORBIDDEN', '没有该操作的权限');
+  }
+
+  if (resource.resource !== undefined) {
+    const object = resource.resource;
+    const platform = grants.some((grant) => grant.scope === 'platform');
+    let allowed =
+      platform ||
+      (object.ownerBusinessId === principal.businessId &&
+        grants.some((grant) => grant.scope === 'own_data'));
+    if (!allowed && grants.some((grant) => grant.scope === 'authorized_resources')) {
+      const grant =
+        resource.objectId === undefined
+          ? null
+          : await repo.access.getResourceGrant(
+              context.db,
+              object.kind,
+              resource.objectId,
+              principal.businessId,
+            );
+      allowed =
+        grant !== null &&
+        (object.level === 'manage' ? grant.canManage : grant.canUse || grant.canManage);
+    }
+    if (!allowed) throw new AppError('NOT_FOUND', '对象不存在');
+    if (
+      platform &&
+      object.ownerBusinessId !== null &&
+      object.ownerBusinessId !== principal.businessId
+    ) {
+      await writeCrossUserAudit(context.db, context.log, {
+        actor: principal.businessId,
+        permissionId,
+        subjectBusinessId: object.ownerBusinessId,
+        ...(resource.objectId === undefined ? {} : { target: resource.objectId }),
+        requestId: context.requestId,
+      });
+    }
+    return;
   }
 
   let matched: PermissionGrant | undefined;
@@ -182,6 +223,55 @@ export async function authorizeObject(
       );
     throw error;
   }
+}
+
+export async function authorizeResourceAccess(
+  context: RequestContext,
+  permissionId: PermissionId,
+  resource: {
+    kind: ResourceKind;
+    resourceId: string;
+    ownerBusinessId: string | null;
+    level: ResourceAccessLevel;
+  },
+  notFoundMessage: string,
+  notFoundResource?: NotFoundResource,
+): Promise<void> {
+  await requirePermission(context, permissionId);
+  await authorizeObject(
+    context,
+    permissionId,
+    {
+      objectId: resource.resourceId,
+      resource: {
+        kind: resource.kind,
+        ownerBusinessId: resource.ownerBusinessId,
+        level: resource.level,
+      },
+    },
+    notFoundMessage,
+    notFoundResource,
+  );
+}
+
+export async function resourceAccessFilter(
+  context: RequestContext,
+  permissionId: PermissionId,
+  kind: ResourceKind,
+  level: ResourceAccessLevel,
+): Promise<ResourceAccessFilter> {
+  const scopes = grantedScopes(context, permissionId);
+  const businessId = requireUser(context).businessId;
+  const platform = scopes.includes('platform');
+  return {
+    businessId,
+    platform,
+    own: scopes.includes('own_data'),
+    grantedIds:
+      !platform && scopes.includes('authorized_resources')
+        ? await repo.access.listResourceGrantIds(context.db, kind, businessId, level)
+        : [],
+  };
 }
 
 export function actorOf(context: RequestContext): string {

@@ -1,9 +1,10 @@
 import { AppError, fail, type SkillProvenance } from '@agentport/core';
-import { findSkillResourcePathConflict } from '@agentport/shared';
+import { findSkillResourcePathConflict, type ResourceAccessFilter } from '@agentport/shared';
 import { and, asc, count, eq } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentSkills, skillFiles, skills } from '../schema.js';
+import { resourceScopeWhere } from './access.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
 
 export type SkillRow = typeof skills.$inferSelect;
@@ -37,10 +38,14 @@ export interface SkillWrite {
   compatibility?: string | null | undefined;
   metadata?: Record<string, unknown> | undefined;
   sourceId?: string | null;
+  ownerBusinessId?: string | null;
 }
 
 /** 列表附带绑定的智能体数量；分组依据是主键，其余列在 PG 中函数依赖于它。 */
-export async function listSkills(db: Database): Promise<SkillWithAgentCount[]> {
+export async function listSkills(
+  db: Database,
+  access?: ResourceAccessFilter,
+): Promise<SkillWithAgentCount[]> {
   return db
     .select({
       id: skills.id,
@@ -52,12 +57,18 @@ export async function listSkills(db: Database): Promise<SkillWithAgentCount[]> {
       compatibility: skills.compatibility,
       metadata: skills.metadata,
       sourceId: skills.sourceId,
+      ownerBusinessId: skills.ownerBusinessId,
       createdAt: skills.createdAt,
       updatedAt: skills.updatedAt,
       agentCount: count(agentSkills.agentId),
     })
     .from(skills)
     .leftJoin(agentSkills, eq(agentSkills.skillId, skills.id))
+    .where(
+      access === undefined
+        ? undefined
+        : resourceScopeWhere(access, skills.id, skills.ownerBusinessId),
+    )
     .groupBy(skills.id)
     .orderBy(asc(skills.createdAt), asc(skills.id));
 }

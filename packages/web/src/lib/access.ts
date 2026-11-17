@@ -22,6 +22,7 @@ import {
   LibraryBig,
   MessagesSquare,
   Puzzle,
+  Scale,
   ScrollText,
   Share2,
   Sparkles,
@@ -125,6 +126,12 @@ const pages = {
   audit: { to: '/audit', label: '审计', icon: ScrollText, permissionIds: ['audit.read'] },
   accounts: { to: '/accounts', label: '账户', icon: KeyRound, permissionIds: ['accounts.read'] },
   roles: { to: '/roles', label: '角色', icon: Users, permissionIds: ['roles.read'] },
+  governance: {
+    to: '/governance',
+    label: '治理',
+    icon: Scale,
+    permissionIds: ['governance.read'],
+  },
   notifications: { to: '/notifications', label: '通知与待办', icon: Bell, permissionIds: [] },
   profile: { to: '/personal/profile', label: '个人资料', icon: User, permissionIds: [] },
   memory: {
@@ -216,7 +223,7 @@ export const OPERATIONS_MENU: readonly MenuItem[] = [
   pages.audit,
 ];
 
-export const PLATFORM_MENU: readonly MenuItem[] = [pages.accounts, pages.roles];
+export const PLATFORM_MENU: readonly MenuItem[] = [pages.accounts, pages.roles, pages.governance];
 
 const HOME_ORDER: readonly MenuItem[] = [
   ...WORK_MENU,
@@ -264,6 +271,7 @@ export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
   '/_shell/audit': pages.audit,
   '/_shell/accounts': pages.accounts,
   '/_shell/roles': pages.roles,
+  '/_shell/governance': pages.governance,
 };
 
 export function requiredPermissions(routeId: string | undefined): readonly PermissionId[] | null {

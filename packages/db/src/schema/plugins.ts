@@ -20,6 +20,7 @@ export const plugins = pgTable(
     manifest: jsonb('manifest').$type<Record<string, unknown>>().notNull().default({}),
     /** 原生市场来源 `name@marketplace`；ZIP 导入为 null。 */
     sourceId: text('source_id'),
+    ownerBusinessId: text('owner_business_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

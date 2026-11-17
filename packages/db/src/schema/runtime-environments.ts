@@ -75,6 +75,7 @@ export const runtimeEnvironments = pgTable(
     isDefault: boolean('is_default').notNull().default(false),
     /** 线上版本指针；发布与回退都只改这里。 */
     onlineVersionId: text('online_version_id'),
+    ownerBusinessId: text('owner_business_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

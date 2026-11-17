@@ -55,6 +55,9 @@ export const idPrefixes = {
   knowledgeModelProfile: 'kmp',
   outputShare: 'osh',
   memoryChange: 'mch',
+  department: 'dep',
+  budgetLimit: 'bl',
+  resourceGrant: 'rgr',
   role: 'role',
 } as const;
 

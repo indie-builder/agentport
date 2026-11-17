@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bigserial,
+  boolean,
   check,
   index,
   integer,
@@ -64,7 +65,7 @@ export const notifications = pgTable(
     id: text('id').primaryKey(),
     businessId: text('business_id').notNull(),
     kind: text('kind', {
-      enum: ['approval', 'question', 'run_failed', 'schedule_failed', 'budget_alert'],
+      enum: ['approval', 'question', 'run_failed', 'schedule_failed', 'budget_alert', 'ops_alert'],
     }).notNull(),
     title: text('title').notNull(),
     body: text('body').notNull(),
@@ -79,16 +80,46 @@ export const notifications = pgTable(
     index('notifications_unread_idx').on(t.businessId, t.createdAt).where(sql`${t.readAt} is null`),
     check(
       'notifications_kind_check',
-      sql`${t.kind} in ('approval', 'question', 'run_failed', 'schedule_failed', 'budget_alert')`,
+      sql`${t.kind} in ('approval', 'question', 'run_failed', 'schedule_failed', 'budget_alert', 'ops_alert')`,
     ),
   ],
 );
 
-export const platformSettings = pgTable('platform_settings', {
-  id: text('id').primaryKey(),
-  retentionRunDays: integer('retention_run_days').notNull().default(90),
-  retentionMessageDays: integer('retention_message_days').notNull().default(30),
-  retentionAgentVersions: integer('retention_agent_versions').notNull().default(50),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedBy: text('updated_by'),
-});
+export const platformSettings = pgTable(
+  'platform_settings',
+  {
+    id: text('id').primaryKey(),
+    retentionRunDays: integer('retention_run_days').notNull().default(90),
+    retentionMessageDays: integer('retention_message_days').notNull().default(30),
+    retentionAgentVersions: integer('retention_agent_versions').notNull().default(50),
+    alertRunFailuresEnabled: boolean('alert_run_failures_enabled').notNull().default(true),
+    alertRunFailuresThreshold: integer('alert_run_failures_threshold').notNull().default(5),
+    alertRunFailuresWindowMinutes: integer('alert_run_failures_window_minutes')
+      .notNull()
+      .default(30),
+    alertQueueFailedEnabled: boolean('alert_queue_failed_enabled').notNull().default(true),
+    alertQueueFailedThreshold: integer('alert_queue_failed_threshold').notNull().default(1),
+    alertQueueWaitingEnabled: boolean('alert_queue_waiting_enabled').notNull().default(true),
+    alertQueueWaitingThreshold: integer('alert_queue_waiting_threshold').notNull().default(100),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: text('updated_by'),
+  },
+  (t) => [
+    check(
+      'platform_settings_run_failures_threshold_check',
+      sql`${t.alertRunFailuresThreshold} > 0`,
+    ),
+    check(
+      'platform_settings_run_failures_window_check',
+      sql`${t.alertRunFailuresWindowMinutes} > 0`,
+    ),
+    check(
+      'platform_settings_queue_failed_threshold_check',
+      sql`${t.alertQueueFailedThreshold} > 0`,
+    ),
+    check(
+      'platform_settings_queue_waiting_threshold_check',
+      sql`${t.alertQueueWaitingThreshold} > 0`,
+    ),
+  ],
+);

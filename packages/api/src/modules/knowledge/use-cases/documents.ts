@@ -8,17 +8,17 @@ import type { Config } from '../../../config.js';
 import { isPgCode } from '../../../http/errors.js';
 import { createJob, documentWire, enqueueKnowledgeJob, storeBlob } from '../service.js';
 import {
-  type VersionRow,
+  assertBodyBytes,
+  collectChunks,
   copyVersionImages,
+  type DocumentRow,
+  enqueue,
+  fileTitle,
   type KnowledgeDeps,
+  notFound,
   type PageQuery,
   pageOptions,
-  type DocumentRow,
-  notFound,
-  assertBodyBytes,
-  fileTitle,
-  enqueue,
-  collectChunks,
+  type VersionRow,
 } from './shared.js';
 
 type ChunkRow = Awaited<ReturnType<typeof repo.knowledge.listChunkSummaries>>['items'][number];
@@ -321,6 +321,7 @@ export async function uploadDocument(
     if (filename === undefined) throw new AppError('INVALID_INPUT', 'relativePath 缺少文件名');
     title = body.title ?? fileTitle(filename);
   }
+  await repo.governance.assertKnowledgeDocumentQuota(deps.db, base.id);
   const sha = await storeBlob(deps.config.KNOWLEDGE_DIR, data);
   const document = await repo.knowledge.createDocument(deps.db, {
     baseId: base.id,
@@ -343,6 +344,7 @@ export async function uploadDocument(
     { type: 'ingest', documentId: document.id, publish: 'automatic' },
     { baseId: base.id, documentId: document.id },
   );
+  await repo.governance.notifyKnowledgeDocumentQuota(deps.db, base.id);
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.document.uploaded',

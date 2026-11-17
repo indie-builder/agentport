@@ -275,6 +275,8 @@ export const agentRuns = pgTable(
     /** 执行主体：自然人（initiatedBy）或服务（serviceId）。 */
     subjectKind: text('subject_kind', { enum: ['user', 'service'] }).notNull(),
     initiatedBy: text('initiated_by'),
+    model: text('model'),
+    departmentId: text('department_id'),
     serviceId: text('service_id', { enum: ['system', 'mcp'] }),
     /** 入队时锁定的智能体版本号，让「用什么配置跑的」可追溯。 */
     agentVersion: integer('agent_version'),

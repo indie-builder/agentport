@@ -18,6 +18,7 @@ import {
   authorize,
   authorizeObject,
   requireUser,
+  resourceAccessFilter,
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
@@ -33,6 +34,7 @@ import { authorizeAgent, authorizedAgent } from './access.js';
 import { listMemoryFiles, readMemoryFile } from './memory-files.js';
 import {
   agentDetail,
+  authorizeBoundResources,
   createAgent,
   restoreAgentVersion,
   rethrowConflict,
@@ -161,6 +163,12 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
     const subAgentError = await validateSubAgents(context.db, null, subAgentIds);
     if (subAgentError) return invalid(subAgentError);
     await authorizeSubAgentBindings(context, subAgentIds);
+    await authorizeBoundResources(context, {
+      serverIds: input.serverIds,
+      skillIds: input.skillIds,
+      pluginIds: input.pluginBindings.map((binding) => binding.pluginId),
+      runtimeEnvironmentId: input.runtimeEnvironmentId,
+    });
     const envError = await validateRuntimeEnvironment(context.db, input.runtimeEnvironmentId);
     if (envError) return invalid(envError);
     return createAgent(
@@ -179,6 +187,17 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
     if (!source) return notFound('agent');
     await authorizeAgent(context, source, 'agents.clone');
     await authorize(context, 'agents.create');
+    const [serverIds, skillIds, pluginBindings] = await Promise.all([
+      repo.getAgentServerIds(context.db, source.id),
+      repo.getAgentSkillIds(context.db, source.id),
+      allRepo.plugins.listAgentPluginBindingInputs(context.db, [source.id]),
+    ]);
+    await authorizeBoundResources(context, {
+      serverIds,
+      skillIds,
+      pluginIds: (pluginBindings.get(source.id) ?? []).map((binding) => binding.pluginId),
+      runtimeEnvironmentId: source.runtimeEnvironmentId,
+    });
     try {
       const row = await repo.duplicateAgent(
         context.db,
@@ -206,6 +225,11 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
     const { agent: imported, warnings } = parseAgentMd(routeInput.body.agentMd);
     const { serverIds, skillIds, subAgentIds, pluginBindings, ...rest } = imported;
     await authorizeSubAgentBindings(context, subAgentIds);
+    await authorizeBoundResources(context, {
+      serverIds,
+      skillIds,
+      pluginIds: pluginBindings.map((binding) => binding.pluginId),
+    });
     try {
       const row = await repo.createAgent(
         context.db,
@@ -236,10 +260,23 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
     if (!principal.grants.some((grant) => grant.permissionId === 'agents.bindings.manage')) {
       throw new AppError('FORBIDDEN', '没有管理专家资源绑定的权限');
     }
+    const [serverAccess, skillAccess, pluginAccess, environmentAccess] = await Promise.all([
+      resourceAccessFilter(context, 'servers.read', 'server', 'read'),
+      resourceAccessFilter(context, 'skills.read', 'skill', 'read'),
+      resourceAccessFilter(context, 'plugins.read', 'plugin', 'read'),
+      resourceAccessFilter(context, 'runtime_environments.read', 'runtime_environment', 'read'),
+    ]);
     const [servers, skills, plugins, environments] = await Promise.all([
       context.db
         .select({ id: schema.servers.id, name: schema.servers.name, kind: schema.servers.kind })
         .from(schema.servers)
+        .where(
+          allRepo.access.resourceScopeWhere(
+            serverAccess,
+            schema.servers.id,
+            schema.servers.ownerBusinessId,
+          ),
+        )
         .orderBy(schema.servers.name),
       context.db
         .select({
@@ -249,6 +286,13 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
           description: schema.skills.description,
         })
         .from(schema.skills)
+        .where(
+          allRepo.access.resourceScopeWhere(
+            skillAccess,
+            schema.skills.id,
+            schema.skills.ownerBusinessId,
+          ),
+        )
         .orderBy(schema.skills.name),
       context.db
         .select({
@@ -257,6 +301,13 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
           name: pluginsTable.name,
         })
         .from(pluginsTable)
+        .where(
+          allRepo.access.resourceScopeWhere(
+            pluginAccess,
+            pluginsTable.id,
+            pluginsTable.ownerBusinessId,
+          ),
+        )
         .orderBy(pluginsTable.name),
       context.db
         .select({
@@ -265,6 +316,13 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
           onlineVersionId: schema.runtimeEnvironments.onlineVersionId,
         })
         .from(schema.runtimeEnvironments)
+        .where(
+          allRepo.access.resourceScopeWhere(
+            environmentAccess,
+            schema.runtimeEnvironments.id,
+            schema.runtimeEnvironments.ownerBusinessId,
+          ),
+        )
         .orderBy(schema.runtimeEnvironments.name),
     ]);
     return {
@@ -322,11 +380,6 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
     const input = routeInput.body;
     const toolError = unsupportedAllowedTool(routeInput.body.allowedTools ?? []);
     if (toolError) return invalid(toolError);
-    const envError =
-      input.runtimeEnvironmentId === undefined
-        ? undefined
-        : await validateRuntimeEnvironment(context.db, input.runtimeEnvironmentId);
-    if (envError) return invalid(envError);
     const current = await repo.getAgent(context.db, routeInput.params.id);
     if (!current) return notFound('agent');
     const access = await agentAccess(context, current.id);
@@ -369,6 +422,23 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
     }
     if (input.enabled !== undefined) {
       await authorizeAgent(context, current, 'agents.enable');
+    }
+    if (
+      input.serverIds !== undefined ||
+      input.skillIds !== undefined ||
+      input.pluginBindings !== undefined ||
+      input.runtimeEnvironmentId !== undefined
+    ) {
+      await authorizeBoundResources(context, {
+        serverIds: input.serverIds,
+        skillIds: input.skillIds,
+        pluginIds: input.pluginBindings?.map((binding) => binding.pluginId),
+        runtimeEnvironmentId: input.runtimeEnvironmentId,
+      });
+    }
+    if (input.runtimeEnvironmentId !== undefined) {
+      const envError = await validateRuntimeEnvironment(context.db, input.runtimeEnvironmentId);
+      if (envError) return invalid(envError);
     }
     const slugError = assertSlugUnchanged(current.slug, input.slug);
     if (slugError) return invalid(slugError);
@@ -569,6 +639,21 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
         '对象不存在',
       );
     }
+    const childIds = (await repo.listSubAgents(context.db, current.id))
+      .filter((row) => row.enabled)
+      .map((row) => row.id);
+    const agentIds = [current.id, ...childIds];
+    const [serversByAgent, skillsByAgent, pluginBindings] = await Promise.all([
+      repo.getBoundServersByAgentIds(context.db, agentIds),
+      repo.getBoundSkillsByAgentIds(context.db, agentIds),
+      allRepo.plugins.listAgentPluginBindings(context.db, current.id),
+    ]);
+    await authorizeBoundResources(context, {
+      serverIds: [...new Set([...serversByAgent.values()].flat().map((row) => row.id))],
+      skillIds: [...new Set([...skillsByAgent.values()].flat().map((row) => row.id))],
+      pluginIds: pluginBindings.map(({ plugin }) => plugin.id),
+      runtimeEnvironmentId: current.runtimeEnvironmentId ?? undefined,
+    });
     const files = await renderAgentWorkspace(context, current.id);
     if (!files) return notFound('agent');
     if (routeInput.query.reveal === '1') context.responseHeaders.set('Cache-Control', 'no-store');
@@ -606,8 +691,21 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
         : new Set((await agentAccess(context, current.id)).permissionIds);
     const canReadDefinition =
       allowed !== null && definitionPermissions.every((id) => allowed.has(id));
-    const definitionState =
+    let definitionState: 'available' | 'forbidden' | 'legacy' =
       row.definition === null ? 'legacy' : canReadDefinition ? 'available' : 'forbidden';
+    if (definitionState === 'available' && row.definition) {
+      try {
+        await authorizeBoundResources(context, {
+          serverIds: row.definition.resources.servers.map((server) => server.id),
+          skillIds: row.definition.resources.skills.map((skill) => skill.id),
+          pluginIds: row.definition.resources.plugins.map((plugin) => plugin.id),
+          runtimeEnvironmentId: row.definition.resources.runtimeEnvironment?.id,
+        });
+      } catch (err) {
+        if (!(err instanceof AppError)) throw err;
+        definitionState = 'forbidden';
+      }
+    }
     return {
       version: row.version,
       snapshot: { ...row.snapshot, isDefault: current.isDefault },
@@ -637,6 +735,12 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       return fail('NOT_FOUND', '该版本不存在，可能已被清理；请刷新版本列表');
     }
     if (target.definition) {
+      await authorizeBoundResources(context, {
+        serverIds: target.definition.resources.servers.map((server) => server.id),
+        skillIds: target.definition.resources.skills.map((skill) => skill.id),
+        pluginIds: target.definition.resources.plugins.map((plugin) => plugin.id),
+        runtimeEnvironmentId: target.definition.resources.runtimeEnvironment?.id,
+      });
       await validateDefinition(context, current, target.definition);
       const row = await allRepo.agentDefinitions
         .publishDefinition(
@@ -658,6 +762,12 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       return canReadConfig ? agentDetail(context.db, row) : toSummary(row);
     }
     const snapshot = target.snapshot;
+    await authorizeBoundResources(context, {
+      serverIds: snapshot.serverIds ?? [],
+      skillIds: snapshot.skillIds ?? [],
+      pluginIds: (snapshot.pluginBindings ?? []).map((binding) => binding.pluginId),
+      runtimeEnvironmentId: snapshot.runtimeEnvironmentId,
+    });
     const envError = await validateRuntimeEnvironment(
       context.db,
       snapshot.runtimeEnvironmentId ?? null,

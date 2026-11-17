@@ -7,11 +7,19 @@ import {
   agents,
   authUsers,
   conversations,
+  dataDomains,
+  departmentMembers,
   evalCases,
   evalRuns,
+  knowledgeBases,
   memoryChanges,
   memoryReviews,
   messages,
+  plugins,
+  resourceGrants,
+  runtimeEnvironments,
+  servers,
+  skills,
   userPreferences,
   userRoles,
 } from '../schema.js';
@@ -39,6 +47,22 @@ const identityIds = sql`
   union select ${userPreferences.businessId} from ${userPreferences}
   union select ${memoryReviews.businessId} from ${memoryReviews}
   union select ${memoryChanges.businessId} from ${memoryChanges}
+  union select ${knowledgeBases.ownerBusinessId} from ${knowledgeBases}
+    where ${knowledgeBases.ownerBusinessId} is not null
+  union select ${dataDomains.ownerBusinessId} from ${dataDomains}
+    where ${dataDomains.ownerBusinessId} is not null
+  union select ${skills.ownerBusinessId} from ${skills}
+    where ${skills.ownerBusinessId} is not null
+  union select ${servers.ownerBusinessId} from ${servers}
+    where ${servers.ownerBusinessId} is not null
+  union select ${plugins.ownerBusinessId} from ${plugins}
+    where ${plugins.ownerBusinessId} is not null
+  union select ${runtimeEnvironments.ownerBusinessId} from ${runtimeEnvironments}
+    where ${runtimeEnvironments.ownerBusinessId} is not null
+  union select ${resourceGrants.businessId} from ${resourceGrants}
+    where ${resourceGrants.businessId} is not null
+  union select ${departmentMembers.businessId} from ${departmentMembers}
+    where ${departmentMembers.businessId} is not null
 `;
 
 function searchFilter(q: string | undefined) {
