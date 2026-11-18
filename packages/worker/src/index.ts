@@ -47,6 +47,7 @@ import {
 } from './data-domains/enrich.js';
 import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
 import { closeEvalRunQueue, evalFailureDiagnostics } from './eval-runner.js';
+import { startWebhookDeliveryReconciler } from './integrations/deliver.js';
 import { startKnowledgeWorker } from './knowledge/queue.js';
 import { startKnowledgeReconciler } from './knowledge/reconcile.js';
 import { startKnowledgeScheduler } from './knowledge/scheduler.js';
@@ -622,6 +623,14 @@ const stopReconciler = startReconciler({
     sessionSandboxes.cleanup(conversationId, sandboxId, runId),
 });
 
+const stopWebhookDeliveryReconciler = startWebhookDeliveryReconciler({
+  db,
+  logger,
+  secretKey: config.APP_SECRET_KEY,
+  nodeEnv: config.NODE_ENV,
+  allowlist: config.WEBHOOK_PRIVATE_HOST_ALLOWLIST,
+});
+
 installProcessGuards(logger);
 
 // 知识任务走独立队列，不占聊天 run 的并发额度。
@@ -721,6 +730,10 @@ const shutdown = async (): Promise<void> => {
         close: () => stopRuntimeEnvironmentBuildReconciler(),
       },
       { label: 'schedule scheduler', close: () => scheduleScheduler.close() },
+      {
+        label: 'webhook delivery reconciler',
+        close: () => stopWebhookDeliveryReconciler(),
+      },
       { label: 'reconciler', close: () => stopReconciler() },
     ],
     finalSteps: [

@@ -28,7 +28,7 @@ import { RedisClient } from 'bun';
 import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { z } from 'zod';
-import { notifyRunOutcome } from '../runs/run-finish.js';
+import { enqueueRunWebhook, notifyRunOutcome } from '../runs/run-finish.js';
 import { sdkEnv } from '../upstream.js';
 
 /** 测试可替换 query；真实运行时直接用官方实现。 */
@@ -243,20 +243,30 @@ async function finishRun(
   error: string | null,
   logger?: Logger,
 ): Promise<void> {
-  const finished = await db
-    .update(schema.agentRuns)
-    .set({
-      status,
-      endedAt: new Date(),
-      costUsd: spend?.costUsd ?? null,
-      turns: spend?.turns ?? null,
-      inputTokens: spend?.inputTokens ?? null,
-      outputTokens: spend?.outputTokens ?? null,
-      error,
-    })
-    .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')))
-    .returning({ id: schema.agentRuns.id });
-  if (finished.length === 0 || logger === undefined) return;
+  const finished = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(schema.agentRuns)
+      .set({
+        status,
+        endedAt: new Date(),
+        costUsd: spend?.costUsd ?? null,
+        turns: spend?.turns ?? null,
+        inputTokens: spend?.inputTokens ?? null,
+        outputTokens: spend?.outputTokens ?? null,
+        error,
+      })
+      .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')))
+      .returning({
+        id: schema.agentRuns.id,
+        agentId: schema.agentRuns.agentId,
+        conversationId: schema.agentRuns.conversationId,
+        initiatedBy: schema.agentRuns.initiatedBy,
+      });
+    if (row === undefined) return false;
+    await enqueueRunWebhook({ db: tx, status, error }, row);
+    return true;
+  });
+  if (!finished || logger === undefined) return;
   await notifyRunOutcome({ db, logger, runId, status, error });
 }
 
@@ -370,120 +380,125 @@ export async function executeMemoryReview(
   let messages: AsyncGenerator<SDKMessage, void> | undefined;
   let unwatch: (() => Promise<void>) | undefined;
   let spend: Spend | null = null;
+  let status: 'succeeded' | 'failed' | 'cancelled' = 'succeeded';
+  let error: string | null = null;
 
   try {
-    if (controller.signal.aborted) throw new MemoryReviewCancelled();
+    try {
+      if (controller.signal.aborted) throw new MemoryReviewCancelled();
 
-    const review = await repo.memoryReviews.find(db, input.runId);
-    if (!review) throw new Error('记忆审核记录不存在');
-    const definition =
-      run.definitionSnapshot ??
-      (run.agentVersion === null
-        ? null
-        : ((await repo.agentVersions.getAgentVersion(db, run.agentId, run.agentVersion))
-            ?.definition ?? null));
-    let model: string;
-    let maxTurns: number;
-    let maxBudgetUsd: number;
-    let timeoutMs: number;
-    if (definition === null) {
-      const [agent] = await db
-        .select({
-          model: schema.agents.model,
-          maxTurns: schema.agents.maxTurns,
-          maxBudgetUsd: schema.agents.maxBudgetUsd,
-          timeoutMs: schema.agents.timeoutMs,
-        })
-        .from(schema.agents)
-        .where(eq(schema.agents.id, run.agentId))
-        .limit(1);
-      if (!agent) throw new Error(`agent ${run.agentId} not found`);
-      model = agent.model;
-      maxTurns = agent.maxTurns;
-      maxBudgetUsd = Number(agent.maxBudgetUsd);
-      timeoutMs = agent.timeoutMs;
-    } else {
-      model = definition.agent.model;
-      maxTurns = definition.agent.maxTurns;
-      maxBudgetUsd = definition.agent.maxBudgetUsd;
-      timeoutMs = definition.agent.timeoutMs;
-    }
-
-    const snapshot = await loadSnapshot(db, review.sources);
-    const messagesById = new Map(snapshot.map((message) => [message.id, message]));
-
-    cwd = await mkdtemp(join(tmpdir(), 'pace-memory-review-'));
-    unwatch = await watchCancel(input.redisUrl, input.runId, () => terminate('cancel'));
-    if (controller.signal.aborted) throw new MemoryReviewCancelled();
-
-    // 与普通 run 共用智能体 timeoutMs；超时 abort 后仍走 finally 等 SDK 退出并清临时目录。
-    timeout = setTimeout(() => terminate('timeout'), timeoutMs);
-    timeout.unref();
-
-    messages = (deps.queryFn ?? query)({
-      prompt: buildPrompt({
-        target: review.target,
-        before: review.before,
-        instruction: review.instruction,
-        snapshot,
-      }),
-      options: sdkOptions({
-        model,
-        maxTurns,
-        maxBudgetUsd,
-        cwd,
-        controller,
-      }),
-    });
-
-    let success: SDKResultSuccess | undefined;
-    let failure: string | null = null;
-    let sawResult = false;
-    for await (const message of messages) {
-      if (message.type !== 'result') continue;
-      sawResult = true;
-      spend = spendOf(message);
-      if (message.subtype !== 'success') {
-        failure = [message.subtype, ...message.errors].filter(Boolean).join(': ');
-      } else if (message.is_error) {
-        failure = `success: ${message.result}`;
+      const review = await repo.memoryReviews.find(db, input.runId);
+      if (!review) throw new Error('记忆审核记录不存在');
+      const definition =
+        run.definitionSnapshot ??
+        (run.agentVersion === null
+          ? null
+          : ((await repo.agentVersions.getAgentVersion(db, run.agentId, run.agentVersion))
+              ?.definition ?? null));
+      let model: string;
+      let maxTurns: number;
+      let maxBudgetUsd: number;
+      let timeoutMs: number;
+      if (definition === null) {
+        const [agent] = await db
+          .select({
+            model: schema.agents.model,
+            maxTurns: schema.agents.maxTurns,
+            maxBudgetUsd: schema.agents.maxBudgetUsd,
+            timeoutMs: schema.agents.timeoutMs,
+          })
+          .from(schema.agents)
+          .where(eq(schema.agents.id, run.agentId))
+          .limit(1);
+        if (!agent) throw new Error(`agent ${run.agentId} not found`);
+        model = agent.model;
+        maxTurns = agent.maxTurns;
+        maxBudgetUsd = Number(agent.maxBudgetUsd);
+        timeoutMs = agent.timeoutMs;
       } else {
-        success = message;
+        model = definition.agent.model;
+        maxTurns = definition.agent.maxTurns;
+        maxBudgetUsd = definition.agent.maxBudgetUsd;
+        timeoutMs = definition.agent.timeoutMs;
       }
-    }
-    if (controller.signal.aborted) throw new MemoryReviewCancelled();
-    if (!sawResult) throw new Error('SDK 没有返回结果');
-    if (failure !== null) throw new Error(failure);
-    if (success === undefined) throw new Error('SDK 没有返回成功结果');
-    if (success.structured_output === undefined || success.structured_output === null) {
-      throw new Error('模型没有返回结构化结果');
-    }
-    const parsed = memoryReviewProposalSchema.safeParse(success.structured_output);
-    if (!parsed.success) {
-      throw new Error(`模型返回的提案不符合结构: ${parsed.error.message}`);
-    }
-    validateEvidence(parsed.data, messagesById);
-    validateProposalSize(review.target, review.before, parsed.data);
 
-    const stored = await repo.memoryReviews.updateProposal(db, input.runId, parsed.data);
-    if (!stored) throw new Error('记忆审核记录不存在，提案未保存');
-    await finishRun(db, input.runId, 'succeeded', spend, null, deps.logger);
-  } catch (err) {
-    // 超时、用户取消与 worker 关停都通过 abort 到达这里，按第一次终止原因收尾。
-    const message = errorText(err);
-    const cancelled =
-      termination === 'cancel' ||
-      termination === 'shutdown' ||
-      (termination === null && (controller.signal.aborted || err instanceof MemoryReviewCancelled));
-    const error =
-      termination === 'timeout'
-        ? '记忆提案生成超时'
-        : termination === 'shutdown'
-          ? 'worker 关停'
-          : termination === 'cancel' || cancelled
-            ? 'cancelled'
-            : redactSecrets(message);
-    await finishRun(db, input.runId, cancelled ? 'cancelled' : 'failed', spend, error, deps.logger);
+      const snapshot = await loadSnapshot(db, review.sources);
+      const messagesById = new Map(snapshot.map((message) => [message.id, message]));
+
+      cwd = await mkdtemp(join(tmpdir(), 'pace-memory-review-'));
+      unwatch = await watchCancel(input.redisUrl, input.runId, () => terminate('cancel'));
+      if (controller.signal.aborted) throw new MemoryReviewCancelled();
+
+      // 与普通 run 共用智能体 timeoutMs；超时 abort 后仍走 finally 等 SDK 退出并清临时目录。
+      timeout = setTimeout(() => terminate('timeout'), timeoutMs);
+      timeout.unref();
+
+      messages = (deps.queryFn ?? query)({
+        prompt: buildPrompt({
+          target: review.target,
+          before: review.before,
+          instruction: review.instruction,
+          snapshot,
+        }),
+        options: sdkOptions({
+          model,
+          maxTurns,
+          maxBudgetUsd,
+          cwd,
+          controller,
+        }),
+      });
+
+      let success: SDKResultSuccess | undefined;
+      let failure: string | null = null;
+      let sawResult = false;
+      for await (const message of messages) {
+        if (message.type !== 'result') continue;
+        sawResult = true;
+        spend = spendOf(message);
+        if (message.subtype !== 'success') {
+          failure = [message.subtype, ...message.errors].filter(Boolean).join(': ');
+        } else if (message.is_error) {
+          failure = `success: ${message.result}`;
+        } else {
+          success = message;
+        }
+      }
+      if (controller.signal.aborted) throw new MemoryReviewCancelled();
+      if (!sawResult) throw new Error('SDK 没有返回结果');
+      if (failure !== null) throw new Error(failure);
+      if (success === undefined) throw new Error('SDK 没有返回成功结果');
+      if (success.structured_output === undefined || success.structured_output === null) {
+        throw new Error('模型没有返回结构化结果');
+      }
+      const parsed = memoryReviewProposalSchema.safeParse(success.structured_output);
+      if (!parsed.success) {
+        throw new Error(`模型返回的提案不符合结构: ${parsed.error.message}`);
+      }
+      validateEvidence(parsed.data, messagesById);
+      validateProposalSize(review.target, review.before, parsed.data);
+
+      const stored = await repo.memoryReviews.updateProposal(db, input.runId, parsed.data);
+      if (!stored) throw new Error('记忆审核记录不存在，提案未保存');
+    } catch (err) {
+      // 超时、用户取消与 worker 关停都通过 abort 到达这里，按第一次终止原因收尾。
+      const message = errorText(err);
+      const cancelled =
+        termination === 'cancel' ||
+        termination === 'shutdown' ||
+        (termination === null &&
+          (controller.signal.aborted || err instanceof MemoryReviewCancelled));
+      status = cancelled ? 'cancelled' : 'failed';
+      error =
+        termination === 'timeout'
+          ? '记忆提案生成超时'
+          : termination === 'shutdown'
+            ? 'worker 关停'
+            : termination === 'cancel' || cancelled
+              ? 'cancelled'
+              : redactSecrets(message);
+    }
+    await finishRun(db, input.runId, status, spend, error, deps.logger);
   } finally {
     input.signal.removeEventListener('abort', onShutdown);
     if (timeout !== undefined) clearTimeout(timeout);

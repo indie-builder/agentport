@@ -11,6 +11,7 @@ import {
   channelAgentBindings,
   channelMessages,
   conversations,
+  externalRequestKeys,
   messages,
 } from '../../schema.js';
 import { getAgentVersion } from '../agent-versions.js';
@@ -70,6 +71,7 @@ export async function admitChatRun(
     message: string;
     conversationId?: string;
     trigger?: RunTrigger;
+    evalRunId?: string;
     agentVersion?: number;
     definitionSnapshot?: AgentDefinition | null;
     /** 新会话标题；缺省取消息前 80 字。非浏览器入口用它标明来源。 */
@@ -82,6 +84,12 @@ export async function admitChatRun(
     budgetExempt?: boolean;
     allowDisabled?: boolean;
     regenerate?: true;
+    externalRequest?: {
+      sourceKind: 'api_token' | 'webhook';
+      sourceId: string;
+      idempotencyKey: string;
+      requestHash: string;
+    };
   },
 ): Promise<{
   run: AgentRun;
@@ -90,8 +98,53 @@ export async function admitChatRun(
   /** 本轮用户消息的 SDK uuid；runner 用它发送首条用户消息。 */
   userMessageUuid: string;
   regenerate?: { replacesRunId: string; forkFromMessageUuid?: string; prompt: string };
+  replayed?: true;
 }> {
   return db.transaction(async (tx) => {
+    let externalRequestId: string | undefined;
+    if (input.externalRequest !== undefined) {
+      const { sourceKind, sourceId, idempotencyKey, requestHash } = input.externalRequest;
+      const [inserted] = await tx
+        .insert(externalRequestKeys)
+        .values({ id: newId('externalRequest'), sourceKind, sourceId, idempotencyKey, requestHash })
+        .onConflictDoNothing()
+        .returning({ id: externalRequestKeys.id });
+      if (inserted !== undefined) {
+        externalRequestId = inserted.id;
+      } else {
+        const [existing] = await tx
+          .select()
+          .from(externalRequestKeys)
+          .where(
+            and(
+              eq(externalRequestKeys.sourceKind, sourceKind),
+              eq(externalRequestKeys.sourceId, sourceId),
+              eq(externalRequestKeys.idempotencyKey, idempotencyKey),
+            ),
+          )
+          .limit(1);
+        if (existing === undefined || existing.requestHash !== requestHash) {
+          fail('CONFLICT', '同一幂等键已用于不同的请求');
+        }
+        if (existing.runId === null) {
+          fail('CONFLICT', '同一幂等键的请求仍在处理中，请稍后重试');
+        }
+        const [existingRun] = await tx
+          .select()
+          .from(agentRuns)
+          .where(eq(agentRuns.id, existing.runId))
+          .limit(1);
+        if (existingRun === undefined) fail('CONFLICT', '原始运行记录已不可用');
+        return {
+          run: existingRun,
+          conversationId: existingRun.conversationId,
+          inherited: [],
+          userMessageUuid: '',
+          replayed: true,
+        };
+      }
+    }
+
     // 与记忆写入共用「发起专家 + 子智能体」的记忆锁：集合在运行期间固定，
     // 入队前先锁住整个集合，新 run 不会在写入中途落地。
     const definition =
@@ -354,6 +407,7 @@ export async function admitChatRun(
       id: newId('run'),
       conversationId,
       agentId: input.agentId,
+      ...(input.evalRunId === undefined ? {} : { evalRunId: input.evalRunId }),
       model: definition?.agent.model ?? owner.model,
       departmentId:
         input.subject.kind === 'user'
@@ -404,6 +458,13 @@ export async function admitChatRun(
           ? {}
           : { channelMessageId: input.channel.channelMessageId }),
       });
+    }
+
+    if (externalRequestId !== undefined) {
+      await tx
+        .update(externalRequestKeys)
+        .set({ runId: run.id })
+        .where(eq(externalRequestKeys.id, externalRequestId));
     }
 
     return {

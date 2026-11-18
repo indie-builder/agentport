@@ -11,5 +11,6 @@ export default {
     'tests/agent-publish.e2e.ts',
     'tests/schedule-lifecycle.e2e.ts',
     'tests/governance.e2e.ts',
+    'tests/integrations.e2e.ts',
   ],
 } satisfies E2EConfig;

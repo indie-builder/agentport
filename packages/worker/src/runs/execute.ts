@@ -209,6 +209,7 @@ export async function runAgentJob(
       agentVersion: schema.agentRuns.agentVersion,
       definitionSnapshot: schema.agentRuns.definitionSnapshot,
       trigger: schema.agentRuns.trigger,
+      evalRunId: schema.agentRuns.evalRunId,
       agentId: schema.agentRuns.agentId,
       conversationId: schema.agentRuns.conversationId,
       channelId: schema.agentRuns.channelId,
@@ -238,6 +239,7 @@ export async function runAgentJob(
       const denial = await checkQueuedRunAccess(db, {
         runId,
         trigger: run.trigger,
+        evalRunId: run.evalRunId,
         agentId: run.agentId,
         conversationId: run.conversationId,
         businessId: subject.businessId,

@@ -13,6 +13,7 @@ export * as dataDomains from './data-domains.js';
 export * as evalRepo from './eval.js';
 export * as governance from './governance.js';
 export * as hooks from './hooks.js';
+export * as integrations from './integrations.js';
 export * as knowledge from './knowledge.js';
 export * as locks from './locks.js';
 export * as maintenance from './maintenance.js';

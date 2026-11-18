@@ -86,6 +86,16 @@ export async function startRun(
   principal: Extract<Principal, { kind: 'user' }>,
   body: ChatRequest,
   deps: StartRunDependencies,
+  options?: {
+    trigger?: 'chat' | 'event';
+    auditInput?: Record<string, unknown>;
+    externalRequest?: {
+      sourceKind: 'api_token' | 'webhook';
+      sourceId: string;
+      idempotencyKey: string;
+      requestHash: string;
+    };
+  },
 ) {
   const { openuiAction, attachments, ...chatInput } = body;
   const { message, output } = chatInput;
@@ -136,6 +146,13 @@ export async function startRun(
     await deps.authorize('conversations.create', {
       createdBy: principal.businessId,
     });
+    if (options?.trigger === 'event') {
+      await deps.authorize(
+        'conversations.update',
+        { createdBy: principal.businessId },
+        CONVERSATION_MISSING,
+      );
+    }
   } else {
     const conversation = await chatRepo.getConversation(deps.db, body.conversationId);
     if (!conversation || conversation.agentId !== agentId)
@@ -221,9 +238,12 @@ export async function startRun(
       message: messageText,
       subject: { kind: 'user', businessId: principal.businessId },
       ...(agentVersion === null ? {} : { agentVersion }),
-      trigger: 'chat',
+      trigger: options?.trigger ?? 'chat',
       ...(requestedConversationId === undefined ? {} : { conversationId: requestedConversationId }),
       ...(userContent === undefined ? {} : { userContent }),
+      ...(options?.externalRequest === undefined
+        ? {}
+        : { externalRequest: options.externalRequest }),
     });
   } catch (err) {
     if (
@@ -248,23 +268,32 @@ export async function startRun(
     throw err;
   }
   const { run, conversationId, inherited } = admitted;
+  const job = {
+    runId: run.id,
+    agentId,
+    conversationId,
+    prompt: messageText,
+    requestId: deps.requestId,
+  };
+  if (admitted.replayed === true) {
+    if (run.status === 'queued') {
+      try {
+        await getQueue().add('run', job, runEnqueueOptions(run.id));
+      } catch {
+        fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+      }
+    }
+    return { runId: run.id, conversationId, replayed: true as const };
+  }
   try {
-    await getQueue().add(
-      'run',
-      {
-        runId: run.id,
-        agentId,
-        conversationId,
-        prompt: messageText,
-        requestId: deps.requestId,
-      },
-      runEnqueueOptions(run.id),
-    );
+    await getQueue().add('run', job, runEnqueueOptions(run.id));
   } catch {
-    try {
-      await failQueuedRunEnqueue(deps.db, run.id);
-    } catch {
-      deps.log.warn({ runId: run.id }, 'chat enqueue failure cleanup failed');
+    if (options?.externalRequest === undefined) {
+      try {
+        await failQueuedRunEnqueue(deps.db, run.id);
+      } catch {
+        deps.log.warn({ runId: run.id }, 'chat enqueue failure cleanup failed');
+      }
     }
     fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
   }
@@ -273,7 +302,7 @@ export async function startRun(
     actor: principal.businessId,
     action: 'agent.run.requested',
     target: run.id,
-    input: {
+    input: options?.auditInput ?? {
       agentId,
       prompt: messageText,
       ...(writtenAttachments === undefined

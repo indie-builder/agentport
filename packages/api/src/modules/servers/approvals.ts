@@ -10,12 +10,32 @@ export async function requestToolApproval(
   toolName: string,
   args: Record<string, unknown>,
 ) {
-  const approval = await repo.runs.requestApproval(app.db, {
-    runId,
-    serverId,
-    toolName,
-    expiresAt: new Date(Date.now() + app.config.APPROVAL_WAIT_MS),
-    argumentsSummary: summarizeToolArguments(args),
+  const approval = await app.db.transaction(async (tx) => {
+    const approval = await repo.runs.requestApproval(tx, {
+      runId,
+      serverId,
+      toolName,
+      expiresAt: new Date(Date.now() + app.config.APPROVAL_WAIT_MS),
+      argumentsSummary: summarizeToolArguments(args),
+    });
+    if (approval.approvedAt !== null || approval.deniedAt !== null) return approval;
+    const webhookOwner = await repo.runs.getRunInitiator(tx, runId);
+    if (webhookOwner === null) return approval;
+    const server = await repo.servers.getServer(tx, serverId);
+    await repo.integrations.enqueueWebhookEvent(tx, {
+      eventType: 'approval.requested',
+      sourceId: `approval:${runId}:${serverId}:${approval.toolName}`,
+      ownerBusinessId: webhookOwner,
+      payload: JSON.stringify({
+        runId,
+        serverId,
+        serverName: server?.name ?? null,
+        toolName: approval.toolName,
+        channelId: approval.channelId,
+        expiresAt: approval.expiresAt?.toISOString() ?? null,
+      }),
+    });
+    return approval;
   });
   if (approval.approvedAt !== null || approval.deniedAt !== null) return approval;
   if (approval.channelId === null) {

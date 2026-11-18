@@ -18,6 +18,7 @@ import { Route as ShellAuditRouteImport } from './routes/_shell/audit'
 import { Route as ShellChatRouteImport } from './routes/_shell/chat'
 import { Route as ShellEvalRouteImport } from './routes/_shell/eval'
 import { Route as ShellGovernanceRouteImport } from './routes/_shell/governance'
+import { Route as ShellIntegrationsRouteImport } from './routes/_shell/integrations'
 import { Route as ShellNotificationsRouteImport } from './routes/_shell/notifications'
 import { Route as ShellOperationsRouteImport } from './routes/_shell/operations'
 import { Route as ShellPersonalRouteImport } from './routes/_shell/personal'
@@ -91,6 +92,11 @@ const ShellEvalRoute = ShellEvalRouteImport.update({
 const ShellGovernanceRoute = ShellGovernanceRouteImport.update({
   id: '/governance',
   path: '/governance',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellIntegrationsRoute = ShellIntegrationsRouteImport.update({
+  id: '/integrations',
+  path: '/integrations',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellNotificationsRoute = ShellNotificationsRouteImport.update({
@@ -256,6 +262,7 @@ export interface FileRoutesByFullPath {
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
   '/governance': typeof ShellGovernanceRoute
+  '/integrations': typeof ShellIntegrationsRoute
   '/notifications': typeof ShellNotificationsRoute
   '/operations': typeof ShellOperationsRoute
   '/personal': typeof ShellPersonalRouteWithChildren
@@ -295,6 +302,7 @@ export interface FileRoutesByTo {
   '/chat': typeof ShellChatRoute
   '/eval': typeof ShellEvalRoute
   '/governance': typeof ShellGovernanceRoute
+  '/integrations': typeof ShellIntegrationsRoute
   '/notifications': typeof ShellNotificationsRoute
   '/operations': typeof ShellOperationsRoute
   '/roles': typeof ShellRolesRoute
@@ -336,6 +344,7 @@ export interface FileRoutesById {
   '/_shell/chat': typeof ShellChatRoute
   '/_shell/eval': typeof ShellEvalRoute
   '/_shell/governance': typeof ShellGovernanceRoute
+  '/_shell/integrations': typeof ShellIntegrationsRoute
   '/_shell/notifications': typeof ShellNotificationsRoute
   '/_shell/operations': typeof ShellOperationsRoute
   '/_shell/personal': typeof ShellPersonalRouteWithChildren
@@ -379,6 +388,7 @@ export interface FileRouteTypes {
     | '/chat'
     | '/eval'
     | '/governance'
+    | '/integrations'
     | '/notifications'
     | '/operations'
     | '/personal'
@@ -418,6 +428,7 @@ export interface FileRouteTypes {
     | '/chat'
     | '/eval'
     | '/governance'
+    | '/integrations'
     | '/notifications'
     | '/operations'
     | '/roles'
@@ -458,6 +469,7 @@ export interface FileRouteTypes {
     | '/_shell/chat'
     | '/_shell/eval'
     | '/_shell/governance'
+    | '/_shell/integrations'
     | '/_shell/notifications'
     | '/_shell/operations'
     | '/_shell/personal'
@@ -560,6 +572,13 @@ declare module '@tanstack/react-router' {
       path: '/governance'
       fullPath: '/governance'
       preLoaderRoute: typeof ShellGovernanceRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/integrations': {
+      id: '/_shell/integrations'
+      path: '/integrations'
+      fullPath: '/integrations'
+      preLoaderRoute: typeof ShellIntegrationsRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/notifications': {
@@ -806,6 +825,7 @@ interface ShellRouteChildren {
   ShellChatRoute: typeof ShellChatRoute
   ShellEvalRoute: typeof ShellEvalRoute
   ShellGovernanceRoute: typeof ShellGovernanceRoute
+  ShellIntegrationsRoute: typeof ShellIntegrationsRoute
   ShellNotificationsRoute: typeof ShellNotificationsRoute
   ShellOperationsRoute: typeof ShellOperationsRoute
   ShellPersonalRoute: typeof ShellPersonalRouteWithChildren
@@ -838,6 +858,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellChatRoute: ShellChatRoute,
   ShellEvalRoute: ShellEvalRoute,
   ShellGovernanceRoute: ShellGovernanceRoute,
+  ShellIntegrationsRoute: ShellIntegrationsRoute,
   ShellNotificationsRoute: ShellNotificationsRoute,
   ShellOperationsRoute: ShellOperationsRoute,
   ShellPersonalRoute: ShellPersonalRouteWithChildren,

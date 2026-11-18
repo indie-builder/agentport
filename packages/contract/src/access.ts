@@ -4,6 +4,10 @@ export type RouteAccess =
   | { kind: 'public'; reason: string }
   | { kind: 'authenticated' }
   | { kind: 'permission'; permissionId: PermissionId }
-  | { kind: 'service'; boundary: 'mcp' | 'share-token'; reason: string };
+  | {
+      kind: 'service';
+      boundary: 'mcp' | 'share-token' | 'api-token' | 'webhook';
+      reason: string;
+    };
 
 export type RouteMeta = { access: RouteAccess; rateLimit?: number };

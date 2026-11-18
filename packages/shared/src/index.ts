@@ -15,6 +15,7 @@ export * from './connector-catalog.js';
 export * from './data-domain.js';
 export * from './errors.js';
 export * from './governance.js';
+export * from './integrations.js';
 export * from './json.js';
 export * from './knowledge.js';
 export * from './mcp.js';

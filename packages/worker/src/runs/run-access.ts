@@ -110,6 +110,7 @@ export async function checkQueuedRunAccess(
     conversationId: string;
     businessId: string;
     channelId: string | null;
+    evalRunId: string | null;
   },
 ): Promise<RunAccessDenial | null> {
   const identity = await repo.accounts.getIdentity(db, run.businessId);
@@ -218,25 +219,40 @@ export async function checkQueuedRunAccess(
       return null;
     }
     case 'event': {
-      // 评估用例运行在 DB 标记为 event；必须仍有一场本人发起、同专家且在跑的评估。
-      const [evalRun] = await db
-        .select({ id: schema.evalRuns.id })
-        .from(schema.evalRuns)
-        .where(
-          and(
-            eq(schema.evalRuns.agentId, run.agentId),
-            eq(schema.evalRuns.createdBy, run.businessId),
-            eq(schema.evalRuns.status, 'running'),
-          ),
-        )
-        .limit(1);
-      if (
-        !evalRun ||
-        !agentPermissionAllows(access.grants, 'eval.execute', relation, run.businessId)
-      ) {
-        return denied();
+      if (run.evalRunId !== null) {
+        const [evalRun] = await db
+          .select({
+            agentId: schema.evalRuns.agentId,
+            createdBy: schema.evalRuns.createdBy,
+            status: schema.evalRuns.status,
+          })
+          .from(schema.evalRuns)
+          .where(eq(schema.evalRuns.id, run.evalRunId))
+          .limit(1);
+        if (!evalRun || evalRun.agentId !== run.agentId || evalRun.createdBy !== run.businessId) {
+          return { reason: 'invalid_subject', message: QUEUED_SOURCE_MISMATCH };
+        }
+        if (evalRun.status !== 'running') return denied();
+        return agentPermissionAllows(access.grants, 'eval.execute', relation, run.businessId)
+          ? null
+          : denied();
       }
-      return null;
+      const [conversation] = await db
+        .select({ createdBy: schema.conversations.createdBy })
+        .from(schema.conversations)
+        .where(eq(schema.conversations.id, run.conversationId))
+        .limit(1);
+      if (!conversation) {
+        return { reason: 'invalid_subject', message: QUEUED_SOURCE_MISMATCH };
+      }
+      return objectPermissionAllows(
+        access.grants,
+        'conversations.update',
+        conversation.createdBy,
+        run.businessId,
+      )
+        ? null
+        : denied();
     }
     case 'review': {
       const [review] = await db

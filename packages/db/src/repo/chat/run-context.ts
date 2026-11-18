@@ -94,6 +94,7 @@ export async function createRun(
     conversationId: string;
     agentId: string;
     trigger?: RunTrigger;
+    evalRunId?: string;
     agentVersion?: number | null;
     model?: string | null;
     departmentId?: string | null;
@@ -110,6 +111,7 @@ export async function createRun(
       id: input.id,
       conversationId: input.conversationId,
       agentId: input.agentId,
+      evalRunId: input.evalRunId,
       status: 'queued',
       ...runSubject(input.subject),
       ...(input.trigger === undefined ? {} : { trigger: input.trigger }),

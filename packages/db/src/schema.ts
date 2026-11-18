@@ -37,6 +37,12 @@ import {
   resourceGrants,
 } from './schema/governance.js';
 import {
+  apiTokens,
+  externalRequestKeys,
+  webhookDeliveries,
+  webhookEndpoints,
+} from './schema/integrations.js';
+import {
   knowledgeBasePins,
   knowledgeBases,
   knowledgeFolders,
@@ -76,6 +82,7 @@ export * from './schema/chat.js';
 export * from './schema/data-domains.js';
 export * from './schema/eval.js';
 export * from './schema/governance.js';
+export * from './schema/integrations.js';
 export * from './schema/knowledge-bases.js';
 export * from './schema/knowledge-documents.js';
 export * from './schema/knowledge-sources.js';
@@ -93,6 +100,10 @@ export const schema = {
   departmentMembers,
   resourceGrants,
   budgetLimits,
+  apiTokens,
+  webhookEndpoints,
+  webhookDeliveries,
+  externalRequestKeys,
   servers,
   apiTools,
   agents,

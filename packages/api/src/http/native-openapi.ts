@@ -8,6 +8,10 @@ import {
   chatEventSchema,
   evalDatasetSchema,
   evalRunExportSchema,
+  externalRunAcceptedSchema,
+  externalRunInputSchema,
+  externalRunStatusSchema,
+  inboundWebhookPayloadSchema,
   knowledgeFaqTransferDocumentSchema,
   outputContentSchema,
   outputPathSchema,
@@ -80,6 +84,12 @@ function params(...names: string[]): OpenAPI.ParameterObject[] {
   }));
 }
 
+function header(name: string, required: boolean, description: string): OpenAPI.ParameterObject {
+  return { name, in: 'header', required, description, schema: { type: 'string' } };
+}
+
+const signatureHeader = ['X-Agentport', 'Signature'].join('-');
+
 function query(shape: Record<string, z.ZodType>): OpenAPI.ParameterObject[] {
   const [, schema] = converter.convert(z.object(shape), { strategy: 'input' });
   if (!isObjectSchema(schema)) throw new Error('OpenAPI query schema must be an object');
@@ -117,6 +127,12 @@ const zipRequest = {
 const strings = z.array(z.string());
 const exportedAt = z.iso.datetime();
 const count = z.number().int().nonnegative();
+const acceptedRun = {
+  description: '已受理。replayed=true 表示同一幂等键命中原请求。',
+  content: {
+    'application/json': { schema: jsonSchema('ExternalRunAccepted', externalRunAcceptedSchema) },
+  },
+} satisfies OpenAPI.ResponseObject;
 
 export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
   '/audit/export': {
@@ -576,6 +592,89 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
       security: session,
       parameters: params('id'),
       responses: { ...protectedErrors, 200: archive, 409: problem },
+    },
+  },
+  '/v1/runs': {
+    post: {
+      operationId: 'submitExternalRun',
+      description:
+        '使用应用级 API token（Authorization: Bearer，scope runs.create），独立于登录会话。可选 Idempotency-Key（1–200 字符）：同一键同一请求体重放返回原 run，不同请求体返回 409。入队失败返回 503，可携同一幂等键重试。请求体最大 1 MiB。',
+      security: [{ apiToken: [] }],
+      parameters: [header('Idempotency-Key', false, '1–200 字符；同一键重试返回原 run。')],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: jsonSchema('ExternalRunInput', externalRunInputSchema),
+          },
+        },
+      },
+      responses: {
+        202: { ...acceptedRun, description: '已新建并受理。' },
+        200: { ...acceptedRun, description: '幂等重放，返回原 run。' },
+        400: problem,
+        401: problem,
+        403: problem,
+        409: problem,
+        413: problem,
+        503: problem,
+      },
+    },
+  },
+  '/v1/runs/{id}': {
+    get: {
+      operationId: 'getExternalRun',
+      description:
+        '使用应用级 API token（scope runs.read），独立于登录会话。仅允许 token 所有者本人发起且非频道的 run；其他情况按不存在返回 404。',
+      security: [{ apiToken: [] }],
+      parameters: params('id'),
+      responses: {
+        200: {
+          description: '外部触发的 run 状态与计量。',
+          content: {
+            'application/json': {
+              schema: jsonSchema('ExternalRunStatus', externalRunStatusSchema),
+            },
+          },
+        },
+        400: problem,
+        401: problem,
+        403: problem,
+        404: problem,
+        429: problem,
+        500: problem,
+      },
+    },
+  },
+  '/webhooks/inbound/{id}': {
+    post: {
+      operationId: 'receiveInboundWebhook',
+      description: `入站 webhook 使用 HMAC-SHA256 签名认证，不使用会话或 API token：${signatureHeader} 为 sha256=<hex>，覆盖 \`<X-Agentport-Timestamp>.<原始请求体>\`。以请求体 eventId 幂等；另带 X-Idempotency-Key 时必须与 eventId 一致。入队失败返回 503，可携同一 eventId 重试。请求体最大 1 MiB。`,
+      security: [],
+      parameters: [
+        ...params('id'),
+        header('X-Agentport-Timestamp', true, '毫秒时间戳，参与签名。'),
+        header(signatureHeader, true, 'HMAC-SHA256，格式 sha256=<hex>。'),
+        header('X-Idempotency-Key', false, '可选；提供时必须与请求体 eventId 一致。'),
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: jsonSchema('InboundWebhookPayload', inboundWebhookPayloadSchema),
+          },
+        },
+      },
+      responses: {
+        202: { ...acceptedRun, description: '已新建并受理。' },
+        200: { ...acceptedRun, description: '幂等重放，返回原 run。' },
+        400: problem,
+        401: problem,
+        404: problem,
+        409: problem,
+        413: problem,
+        500: problem,
+      },
     },
   },
 };

@@ -127,6 +127,7 @@ describe.skipIf(!ready)('checkQueuedRunAccess re-checks the DB source per trigge
     conversationId,
     businessId,
     channelId: null as string | null,
+    evalRunId: null,
     ...overrides,
   });
 
@@ -244,20 +245,20 @@ describe.skipIf(!ready)('checkQueuedRunAccess re-checks the DB source per trigge
       createdBy: businessId,
       status: 'running',
     });
-    expect(await checkQueuedRunAccess(db, queued('event'))).toMatchObject({
+    expect(await checkQueuedRunAccess(db, { ...queued('event'), evalRunId })).toMatchObject({
       reason: 'permission_denied',
     });
 
     await db
       .insert(schema.rolePermissions)
       .values({ roleId, permissionId: 'eval.execute', scope: 'maintained_agents' });
-    expect(await checkQueuedRunAccess(db, queued('event'))).toBeNull();
+    expect(await checkQueuedRunAccess(db, { ...queued('event'), evalRunId })).toBeNull();
 
     await db
       .update(schema.evalRuns)
       .set({ status: 'succeeded' })
       .where(eq(schema.evalRuns.id, evalRunId));
-    expect(await checkQueuedRunAccess(db, queued('event'))).toMatchObject({
+    expect(await checkQueuedRunAccess(db, { ...queued('event'), evalRunId })).toMatchObject({
       reason: 'permission_denied',
     });
     await db.delete(schema.evalRuns).where(eq(schema.evalRuns.id, evalRunId));

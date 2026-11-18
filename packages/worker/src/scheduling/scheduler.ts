@@ -99,12 +99,35 @@ async function enqueueRun(
     }
   }
   // 只改 queued：run 可能已被 worker 接手，running/succeeded 绝不能覆盖。
-  const failed = await db
-    .update(schema.agentRuns)
-    .set({ status: 'failed', endedAt: new Date(), error: '定时任务入队失败', errorKind: 'infra' })
-    .where(and(eq(schema.agentRuns.id, job.runId), eq(schema.agentRuns.status, 'queued')))
-    .returning({ id: schema.agentRuns.id });
-  if (failed.length > 0) {
+  const failed = await db.transaction(async (tx) => {
+    const [failed] = await tx
+      .update(schema.agentRuns)
+      .set({ status: 'failed', endedAt: new Date(), error: '定时任务入队失败', errorKind: 'infra' })
+      .where(and(eq(schema.agentRuns.id, job.runId), eq(schema.agentRuns.status, 'queued')))
+      .returning({
+        id: schema.agentRuns.id,
+        agentId: schema.agentRuns.agentId,
+        conversationId: schema.agentRuns.conversationId,
+        initiatedBy: schema.agentRuns.initiatedBy,
+      });
+    if (failed === undefined) return undefined;
+    if (failed.initiatedBy !== null) {
+      await repo.integrations.enqueueWebhookEvent(tx, {
+        eventType: 'run.failed',
+        sourceId: `run:${failed.id}:failed`,
+        ownerBusinessId: failed.initiatedBy,
+        payload: JSON.stringify({
+          runId: failed.id,
+          agentId: failed.agentId,
+          conversationId: failed.conversationId,
+          status: 'failed',
+          error: '定时任务入队失败',
+        }),
+      });
+    }
+    return failed;
+  });
+  if (failed !== undefined) {
     await repo.notifications
       .createNotification(db, {
         businessId: schedule.createdBy,

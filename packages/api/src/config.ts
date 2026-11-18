@@ -36,6 +36,7 @@ const envSchema = z
     KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
     /** 逗号分隔的私网主机（host 或 host:port）；generated 连接器只在这些主机上放行内网地址。 */
     GENERATED_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
+    WEBHOOK_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
     WREN_RUNTIME_URL: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z.string().url().default(''),

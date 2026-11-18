@@ -54,6 +54,12 @@ export function registerOpenApi(
                 scheme: 'bearer',
                 description: '分享链接 token，独立于用户登录会话。',
               },
+              apiToken: {
+                type: 'http',
+                scheme: 'bearer',
+                description:
+                  '应用级 API token，作为 Authorization: Bearer 发送，scope 为 runs.create 或 runs.read。',
+              },
             },
           },
           externalDocs: {
