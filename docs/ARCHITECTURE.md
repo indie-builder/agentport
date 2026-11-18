@@ -106,7 +106,7 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 
 预算按 user/department/agent 的 UTC 自然月成本、knowledge_base 文档数、data_domain 月查询数分别计量。运行准入只检查已结算成本，不预占在途费用，因此不是严格硬上限。`agent_runs.model` 与 `department_id` 在准入时快照，成本汇总只读历史快照，不跟随当前模型或部门变动。预算阈值沿用 `budget_alert` 通知，`platform_settings` 保存运行失败及队列 failed/waiting 的七项告警配置，运维通知使用 `ops_alert`。
 
-交接清单覆盖专家、六类资源和定时任务，单事务转交当前负责人及定时任务执行身份，保留创建历史；伴生连接器随所属知识库或数据域一并转交。接收人须为启用账户且具备相应管理权限，反向转交可恢复原负责人访问。资源绑定在配置时检查使用权限，运行按已固定的专家版本快照执行。
+交接清单覆盖专家、六类资源和定时任务，单事务转交当前负责人及定时任务执行身份，保留创建历史；伴生连接器随所属知识库或数据域一并转交。接收人须为启用账户且具备相应管理权限，反向转交可恢复原负责人访问。删除账户在同一事务撤销该业务身份的 API token 并停用其 webhook endpoint；用同一业务身份恢复账户不恢复这些外部集成凭证，须重新创建。资源绑定在配置时检查使用权限，运行按已固定的专家版本快照执行。
 
 ## 2. 运行时拓扑
 
@@ -311,7 +311,7 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 API 重启只中断当前短请求，runner 对网络错误和 5xx 按 2–5 秒退避，429 遵守 Retry-After，恢复后继续读取同一审批。批准后 hook 不给权限决策，沿用既有 `allowedTools` / 权限规则；显式禁用仍生效，原 MCP 调用在权限通过后执行；拒绝、过期、取消或 401/403/404 返回 deny。hook 设置 360 秒超时和 `onFailure: 'block'`，回调最多等待 355 秒，并受 run 取消/超时的既有 SIGTERM 约束。服务端不再长等待，执行前仍刷新批准/拒绝与 run 活动状态；绕过 hook 的未批准调用只登记并立即拒绝。
 
-边界：当前只有站内投递与页面/侧栏徽标，没有外部邮件、IM、webhook、通知偏好或免打扰。审批恢复要求 sandbox runner 与 run 保持存活；不恢复已经发出的 MCP/upstream 调用，也不重放副作用。超过 hook/run 截止或 API 持续不可用时拒绝执行；`APPROVAL_WAIT_MS` 超过 355 秒也不会延长 hook 等待。
+边界：当前只有站内投递与页面/侧栏徽标，没有外部邮件、IM、通知偏好或免打扰；外部 webhook 见 3.9。审批恢复要求 sandbox runner 与 run 保持存活；不恢复已经发出的 MCP/upstream 调用，也不重放副作用。超过 hook/run 截止或 API 持续不可用时拒绝执行；`APPROVAL_WAIT_MS` 超过 355 秒也不会延长 hook 等待。
 
 ### 3.7 专家发布闭环（2026-11-18）
 
@@ -329,6 +329,21 @@ API 重启只中断当前短请求，runner 对网络错误和 5xx 按 2–5 秒
 `GET /api/schedules/{id}/runs` 要求 `schedules.read`，按任务对象范围授权后返回该任务最近运行（默认 20，最多 50），包含状态、创建/开始/结束时间、耗时、失败原因与分类、费用。`POST /api/schedules/{id}/runs/{runId}/retry` 要求 `schedules.manage` 并校验读/管理对象范围；只允许同一任务的 failed/timeout 运行，且任务仍启用。重试复用与计划触发一致的智能体启用与预算准入，创建新会话/消息/运行，入队失败把 queued run 收为 failed 并返回 503；成功返回 201 并写 `schedule.retried` 审计。重试按 `retry_of_run_id` 部分唯一索引独立认领，不推进任务 `last_run_at`，因此不会吞掉正常计划触发。
 
 补跑契约：`skip` 跳过停机错过的计划，`run_once` 由 worker 同步时识别错过计划并至多补一次；触发载荷可带 `triggerAt`。DB 认领仍以 `last_run_at < triggerAt` 去重，但补跑将 `recordedAt`（当前时间）写入 `last_run_at`，避免下轮同步再次补跑。`listSchedulesForSync` 提供时区、策略与上次执行/创建时间；worker 启动与每轮对账会同步 Job Scheduler、按 `run_once` 扫描错过计划并至多补一次，消费端在 `skip` 策略下跳过迟到触发。界面 `/schedules` 展示可读计划、任务时区与执行历史，失败或超时运行可直接重试。
+
+### 3.9 外部触发与开放 API（2026-11-18）
+
+外部系统通过应用级 API token 或签名 webhook 触发 run，复用既有 `startRun` 与 `'event'` 触发来源。`event` 来源由 `agent_runs.eval_run_id` 区分评估用例与外部触发：评估用例按父评估复核 `eval.execute` 与运行状态，外部触发按会话 `conversations.update` 复核。令牌与密钥只存哈希或 AES-256-GCM 密文，明文仅创建响应返回一次；管理入口按当前 `businessId` 过滤资源。出站事件由 outbox 表按 `(endpoint_id, event_type, source_id)` 去重，worker 认领后投递。
+
+| 表 | 关键列与约束 | 说明 |
+|---|---|---|
+| `api_tokens` | `id`（`atk_`）、`name`、`token_hash`（sha256，唯一索引）、`token_prefix`、`scopes` text[]（非空且仅 `runs.create` / `runs.read`）、`owner_business_id`（索引）、`expires_at` / `revoked_at` / `last_used_at` nullable、`created_at` / `updated_at` | 应用级 Bearer token；认证时按 hash 查行并加载绑定业务身份 |
+| `webhook_endpoints` | `id`（`whe_`）、`name`、`direction`（inbound/outbound，索引）、`agent_id` nullable 级联外键、`url` nullable、`secret_encrypted`、`events` text[] 默认 `{}`、`enabled` 默认 true、`owner_business_id`（索引）、`created_at` / `updated_at`；CHECK 约束方向与 `agent_id` / `url` / `events` 的组合 | inbound 只绑定专家、由外部签名调用；outbound 只有 URL 与订阅事件 |
+| `webhook_deliveries` | `id`（`whd_`）、`endpoint_id` 级联外键、`event_type`、`source_id`、`payload` text（JSON 原文）、`status`（pending/delivering/succeeded/failed，默认 pending）、`attempts`、`next_attempt_at`、`last_error`、`delivered_at`；unique `(endpoint_id, event_type, source_id)`、index `(status, next_attempt_at)` | 事件去重 outbox；worker 用 `FOR UPDATE SKIP LOCKED` 认领，成功、重排与失败均按状态 CAS 更新 |
+| `external_request_keys` | `id`（`xrq_`）、`source_kind`（api_token/webhook）、`source_id`、`idempotency_key`、`request_hash`（sha256）、`run_id` nullable、`created_at`；unique `(source_kind, source_id, idempotency_key)` | 外部请求幂等键：重复键同 hash 返回原 run，不同 hash 冲突 |
+
+管理接口 `GET/POST /api/integrations/tokens`、`DELETE /api/integrations/tokens/{id}`、`GET/POST /api/integrations/webhooks`、`DELETE /api/integrations/webhooks/{id}` 读取需 `integrations.read`、写入需 `integrations.manage`，资源按当前 `businessId` 过滤。开放入口为 `POST /api/v1/runs`（Bearer token，scope `runs.create`，可选 `Idempotency-Key`，重放返回 200、新请求 202；首次入队失败返回 503，调用方可携同一幂等键重试补投）、`GET /api/v1/runs/{id}`（scope `runs.read`，另需通过 token 所有者的当前 `runs.read` 对象授权；仅允许 token 所有者本人发起且非频道的 run，否则按不存在返回 404）与 `POST /api/webhooks/inbound/{id}`（`X-Agentport-Timestamp` + `X-Agentport-Signature: sha256=<hex>`，HMAC-SHA256 覆盖 `timestamp.rawBody`，以 `eventId` 幂等，若另带 `X-Idempotency-Key` 必须与之一致；首次入队失败同样返回 503，可用同一 `eventId` 重试补投）。出站事件为 `run.completed`、`run.failed`、`approval.requested`、`budget.alert`，worker 每秒认领投递，2xx 记成功，失败最多 5 次指数退避。页面入口 `/integrations` 仅 `integrations.read` 可见，`integrations.manage` 可管理 token 与 webhook endpoint。
+
+删除账户在同一事务内撤销该 `businessId` 的未撤销 API token、把其 webhook endpoint 置为 disabled；用同一 `businessId` 恢复原身份不恢复这些外部集成凭证，须重新创建。出站 `run.failed` 覆盖 failed/timeout/cancelled；定时任务入队失败产生的 `run.failed` 之后可能补投同一 run 并最终投递 `run.completed`，消费方不能把 `run.failed` 当作不可恢复的终态。
 
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 

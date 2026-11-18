@@ -403,6 +403,7 @@ agent_runs(
   status text,               -- queued|running|succeeded|failed|cancelled|timeout
   session_id text,           -- Agent SDK session id
   sandbox_id text,
+  eval_run_id text,          -- 评估用例运行的父 eval_runs.id；外部触发为 null
   schedule_id text,          -- 定时触发的来源 agent_schedules.id；普通与频道运行为 null
   retry_of_run_id text,      -- 手工重试来源 run id；非重试为 null（唯一）
   agent_version int,         -- 准入时固定的线上版本；null 表示按 live 表执行的历史行或夹具
@@ -997,6 +998,10 @@ bun run dev
 | run | `run` | `run_01m5ag7sq6eh7bw81dxdrhkvec` |
 | notification | `ntf` | — |
 | run feedback | `rfb` | — |
+| api token | `atk` | — |
+| webhook endpoint | `whe` | — |
+| webhook delivery | `whd` | — |
+| external request | `xrq` | — |
 | runtime environment | `rte` | — |
 | runtime environment version | `rtev` | — |
 | agent workflow | `awf` | — |

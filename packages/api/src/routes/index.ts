@@ -22,6 +22,8 @@ import { dataDomainsRouter } from '../modules/data-domains/router.js';
 import { registerEvalHttp } from '../modules/eval/http.js';
 import { evalRouter } from '../modules/eval/router.js';
 import { governanceRouter } from '../modules/governance/router.js';
+import { registerIntegrationsHttp } from '../modules/integrations/http.js';
+import { integrationsRouter } from '../modules/integrations/router.js';
 import { FAQ_MAX_BYTES } from '../modules/knowledge/faq.js';
 import { registerKnowledgeHttp } from '../modules/knowledge/http.js';
 import { KNOWLEDGE_PACKAGE_MAX_BYTES } from '../modules/knowledge/package.js';
@@ -62,6 +64,7 @@ const apiRouter: Router<RpcContract, RequestContext> = {
   dataDomains: dataDomainsRouter,
   eval: evalRouter,
   governance: governanceRouter,
+  integrations: integrationsRouter,
   knowledge: knowledgeRouter,
   market: marketRouter,
   memory: memoryRouter,
@@ -120,6 +123,7 @@ export function registerRoutes(
   registerEvalHttp(app);
   registerMemoryHttp(app);
   registerOutputSharesHttp(app);
+  registerIntegrationsHttp(app);
   registerChatHttp(app, native);
   registerChannelsHttp(app, native);
   registerRunExportHttp(app);

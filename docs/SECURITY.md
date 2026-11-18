@@ -59,6 +59,10 @@
 
 `GENERATED_PRIVATE_HOST_ALLOWLIST` 是部署方通过环境变量配置的逗号分隔 `host` 或 `host:port` 列表，用于让显式声明的企业内网 HTTP 服务被 generated 连接器访问；它不是用户可编辑的界面配置，普通账户无权修改。`assertServerEndpoint` 在创建/保存、测试连接、`/mcp/:serverId` 运行调用、对话工具与专家包导入五处统一使用：目标主机名与有效端口精确命中白名单时跳过私网地址拒绝，其余目标仍走 `assertSafeUrl` 的原有校验，公网访问行为不变。白名单不做通配符、网段或 DNS 后缀匹配，未授权私网、回环与 link-local 目标继续返回 `INVALID_URL`；它与模型端点的 `KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 相互独立。校验与实际 `fetch` 之间的 DNS 重绑定风险无法在应用层彻底消除，仍需网络层出站 allowlist 兜底。
 
+## Webhook 出站私网白名单（2026-11-18）
+
+`WEBHOOK_PRIVATE_HOST_ALLOWLIST` 是部署方通过环境变量配置的逗号分隔 `host` 或 `host:port` 列表，只对 webhook 出站目标生效；它不是用户可编辑的界面配置，普通账户无权修改。创建/保存 endpoint 与 worker 投递两处都调用 `assertServerEndpoint`：目标主机名与有效端口精确命中白名单时跳过私网地址拒绝，其余私网、回环与 link-local 目标仍被拒绝，公网访问行为不变。worker 投递使用 `redirect: 'manual'`，不自动跟随 3xx，避免白名单校验被重定向绕过。白名单不做通配符、网段或 DNS 后缀匹配，且与 `GENERATED_PRIVATE_HOST_ALLOWLIST`、`KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` 相互独立。校验与实际 `fetch` 之间的 DNS 重绑定风险无法在应用层彻底消除，仍需网络层出站 allowlist 兜底。
+
 ## 待处理
 
 | 编号 | 严重度 | 问题 | 状态 |

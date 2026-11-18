@@ -624,6 +624,20 @@
       "when": 1794956138070,
       "tag": "0088_yellow_klaw",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1794959379146,
+      "tag": "0089_glorious_anita_blake",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1794960973662,
+      "tag": "0090_glorious_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }

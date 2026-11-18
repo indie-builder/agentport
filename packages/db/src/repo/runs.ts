@@ -491,7 +491,7 @@ export async function getRunConversationId(db: Database, runId: string): Promise
   return row?.conversationId ?? null;
 }
 
-export async function getRunInitiator(db: Database, runId: string): Promise<string | null> {
+export async function getRunInitiator(db: DbHandle, runId: string): Promise<string | null> {
   const [row] = await db
     .select({ initiatedBy: agentRuns.initiatedBy })
     .from(agentRuns)
@@ -597,7 +597,7 @@ export interface RequestedApproval {
 }
 
 export async function requestApproval(
-  db: Database,
+  db: DbHandle,
   input: {
     runId: string;
     serverId: string;

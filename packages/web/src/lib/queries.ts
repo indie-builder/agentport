@@ -6,6 +6,7 @@ export * from './queries/chat.js';
 export * from './queries/data-domains.js';
 export * from './queries/eval.js';
 export * from './queries/governance.js';
+export * from './queries/integrations.js';
 export * from './queries/knowledge-documents.js';
 export * from './queries/knowledge-faq.js';
 export * from './queries/knowledge-models.js';

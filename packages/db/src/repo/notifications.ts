@@ -1,6 +1,6 @@
 import type { NotificationKind } from '@agentport/shared';
 import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { notifications } from '../schema.js';
 import { keysetBefore, paginate } from './keyset.js';
@@ -17,7 +17,7 @@ export interface CreateNotificationInput {
 }
 
 export async function createNotification(
-  db: Database,
+  db: DbHandle,
   input: CreateNotificationInput,
 ): Promise<void> {
   await db

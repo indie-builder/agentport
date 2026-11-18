@@ -1,4 +1,4 @@
-import { type createDb, repo, schema } from '@agentport/db';
+import { type createDb, type DbHandle, repo, schema } from '@agentport/db';
 import {
   type ChatEvent,
   type RunErrorKind,
@@ -36,12 +36,32 @@ interface RunFinishValues {
 interface RunTerminalRow {
   id: string;
   agentId: string;
+  conversationId: string;
   channelId: string | null;
   scheduleId: string | null;
   initiatedBy: string | null;
   departmentId: string | null;
   trigger: typeof schema.agentRuns.$inferSelect.trigger;
   costUsd: string | null;
+}
+
+export async function enqueueRunWebhook(
+  input: { db: DbHandle; status: TerminalRunStatus; error?: string | null | undefined },
+  row: Pick<RunTerminalRow, 'id' | 'agentId' | 'conversationId' | 'initiatedBy'>,
+): Promise<void> {
+  if (row.initiatedBy === null) return;
+  await repo.integrations.enqueueWebhookEvent(input.db, {
+    eventType: input.status === 'succeeded' ? 'run.completed' : 'run.failed',
+    sourceId: `run:${row.id}:${input.status}`,
+    ownerBusinessId: row.initiatedBy,
+    payload: JSON.stringify({
+      runId: row.id,
+      agentId: row.agentId,
+      conversationId: row.conversationId,
+      status: input.status,
+      error: input.status === 'succeeded' ? null : (input.error ?? null),
+    }),
+  });
 }
 
 async function notifyRunTerminal(
@@ -131,16 +151,33 @@ async function notifyRunTerminal(
               ? 'alert'
               : null;
         if (tier === null || agent === null) return;
-        await repo.notifications.createNotification(input.db, {
-          businessId: agent.ownerBusinessId,
-          kind: 'budget_alert',
-          title: `智能体${tier === 'exceeded' ? '预算已超支' : '预算告警'}`,
-          body:
-            tier === 'exceeded'
-              ? `本月已使用 $${spent.toFixed(2)}，达到 $${budget.limit.toFixed(2)} 月度预算上限`
-              : `本月已使用 $${spent.toFixed(2)}，达到 $${budget.limit.toFixed(2)} 月度预算的 ${Math.round(budget.ratio * 100)}%`,
-          link: `/agents/${row.agentId}`,
-          sourceId: `budget:${row.agentId}:${now.toISOString().slice(0, 7)}:${tier}`,
+        const sourceId = `budget:${row.agentId}:${now.toISOString().slice(0, 7)}:${tier}`;
+        await input.db.transaction(async (tx) => {
+          await repo.notifications.createNotification(tx, {
+            businessId: agent.ownerBusinessId,
+            kind: 'budget_alert',
+            title: `智能体${tier === 'exceeded' ? '预算已超支' : '预算告警'}`,
+            body:
+              tier === 'exceeded'
+                ? `本月已使用 $${spent.toFixed(2)}，达到 $${budget.limit.toFixed(2)} 月度预算上限`
+                : `本月已使用 $${spent.toFixed(2)}，达到 $${budget.limit.toFixed(2)} 月度预算的 ${Math.round(budget.ratio * 100)}%`,
+            link: `/agents/${row.agentId}`,
+            sourceId,
+          });
+          await repo.integrations.enqueueWebhookEvent(tx, {
+            eventType: 'budget.alert',
+            sourceId,
+            ownerBusinessId: agent.ownerBusinessId,
+            payload: JSON.stringify({
+              kind: 'agent',
+              scopeId: row.agentId,
+              name: agent.name,
+              used: spent,
+              limit: budget.limit,
+              metric: 'cost_usd_month',
+              tier,
+            }),
+          });
         });
       }),
     );
@@ -163,6 +200,7 @@ export async function notifyRunOutcome(input: {
       id: schema.agentRuns.id,
       channelId: schema.agentRuns.channelId,
       agentId: schema.agentRuns.agentId,
+      conversationId: schema.agentRuns.conversationId,
       initiatedBy: schema.agentRuns.initiatedBy,
       departmentId: schema.agentRuns.departmentId,
       scheduleId: schema.agentRuns.scheduleId,
@@ -178,6 +216,9 @@ export async function notifyRunOutcome(input: {
       input.logger.warn({ err, runId: input.runId }, 'run terminal notification failed');
     },
   );
+  await enqueueRunWebhook(input, row).catch((err: unknown) => {
+    input.logger.warn({ err, runId: row.id }, 'run webhook enqueue failed');
+  });
 }
 
 export async function finalizeRun(input: {
@@ -202,35 +243,46 @@ export async function finalizeRun(input: {
         : input.pending === 'absent'
           ? isNull(schema.agentRuns.pendingFinish)
           : undefined;
-  const [row] = await input.db
-    .update(schema.agentRuns)
-    .set({
-      status: input.event.status,
-      endedAt: new Date(),
-      // 接管 pendingFinish 时保留交接时保存的 error/errorKind（比 wire 分类更精确）。
-      ...input.values,
-      ...(input.pending === 'required' ? { pendingFinish: null } : {}),
-    })
-    .where(
-      and(
-        eq(schema.agentRuns.id, input.runId),
-        eq(schema.agentRuns.status, input.fromStatus ?? 'running'),
-        ...(pendingCondition === undefined ? [] : [pendingCondition]),
-        ...(input.queuedBefore === undefined
-          ? []
-          : [lt(schema.agentRuns.createdAt, input.queuedBefore)]),
-      ),
-    )
-    .returning({
-      id: schema.agentRuns.id,
-      channelId: schema.agentRuns.channelId,
-      agentId: schema.agentRuns.agentId,
-      initiatedBy: schema.agentRuns.initiatedBy,
-      departmentId: schema.agentRuns.departmentId,
-      scheduleId: schema.agentRuns.scheduleId,
-      trigger: schema.agentRuns.trigger,
-      costUsd: schema.agentRuns.costUsd,
-    });
+  const row = await input.db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(schema.agentRuns)
+      .set({
+        status: input.event.status,
+        endedAt: new Date(),
+        // 接管 pendingFinish 时保留交接时保存的 error/errorKind（比 wire 分类更精确）。
+        ...input.values,
+        ...(input.pending === 'required' ? { pendingFinish: null } : {}),
+      })
+      .where(
+        and(
+          eq(schema.agentRuns.id, input.runId),
+          eq(schema.agentRuns.status, input.fromStatus ?? 'running'),
+          ...(pendingCondition === undefined ? [] : [pendingCondition]),
+          ...(input.queuedBefore === undefined
+            ? []
+            : [lt(schema.agentRuns.createdAt, input.queuedBefore)]),
+        ),
+      )
+      .returning({
+        id: schema.agentRuns.id,
+        channelId: schema.agentRuns.channelId,
+        agentId: schema.agentRuns.agentId,
+        conversationId: schema.agentRuns.conversationId,
+        initiatedBy: schema.agentRuns.initiatedBy,
+        departmentId: schema.agentRuns.departmentId,
+        scheduleId: schema.agentRuns.scheduleId,
+        trigger: schema.agentRuns.trigger,
+        costUsd: schema.agentRuns.costUsd,
+      });
+    if (row === undefined) return undefined;
+    if (row.initiatedBy !== null) {
+      await enqueueRunWebhook(
+        { db: tx, status: input.event.status, error: input.event.error },
+        row,
+      );
+    }
+    return row;
+  });
   if (row === undefined) return false;
   await notifyRunTerminal({ db: input.db, status: input.event.status }, row).catch(
     (err: unknown) => {

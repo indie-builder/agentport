@@ -1495,6 +1495,7 @@ async function main(): Promise<void> {
     HOME: process.env.HOME ?? '',
     TMPDIR: process.env.TMPDIR ?? tmpdir(),
     LANG: process.env.LANG ?? 'C.UTF-8',
+    WEBHOOK_PRIVATE_HOST_ALLOWLIST: '127.0.0.1',
     ...(process.env.DOCKER_HOST === undefined ? {} : { DOCKER_HOST: process.env.DOCKER_HOST }),
     ...(process.env.DOCKER_CONFIG === undefined
       ? {}

@@ -109,6 +109,7 @@ function runOneCase(
   redisUrl: string,
   input: {
     agentId: string;
+    evalRunId: string;
     businessId: string;
     prompt: string;
     timeoutMs: number;
@@ -126,8 +127,8 @@ function runOneCase(
         agentId: input.agentId,
         message: input.prompt,
         title: input.title,
-        // 用例运行在 DB 标记为 event：worker 排队复核据此从 evalRuns 重查 eval.execute。
         trigger: 'event',
+        evalRunId: input.evalRunId,
         budgetExempt: true,
         subject: { kind: 'user', businessId: input.businessId },
         ...(input.agentVersion === null ? {} : { agentVersion: input.agentVersion }),
@@ -294,6 +295,7 @@ export async function executeEvalRun(input: {
               redisUrl,
               {
                 agentId: evalRun.agentId,
+                evalRunId,
                 businessId: evalRun.createdBy,
                 prompt: testCase.prompt,
                 timeoutMs: definition?.agent.timeoutMs ?? agent.timeoutMs,

@@ -297,6 +297,8 @@ const catalog = [
 
   { id: 'governance.read', label: '查看治理', treePath: ['平台', '治理'], scopes: P },
   { id: 'governance.manage', label: '管理治理', treePath: ['平台', '治理'], scopes: P },
+  { id: 'integrations.read', label: '查看集成', treePath: ['平台', '集成'], scopes: P },
+  { id: 'integrations.manage', label: '管理集成', treePath: ['平台', '集成'], scopes: P },
   { id: 'operations.read', label: '查看运维', treePath: ['平台', '运维'], scopes: P },
   { id: 'operations.manage', label: '运维控制', treePath: ['平台', '运维'], scopes: P },
   { id: 'audit.read', label: '查看审计', treePath: ['平台', '审计'], scopes: P },
@@ -484,6 +486,7 @@ const READ_DEPENDENCIES: Partial<Record<PermissionId, PermissionId>> = {
   'data_domains.publish': 'data_domains.read',
   'market.install': 'market.read',
   'governance.manage': 'governance.read',
+  'integrations.manage': 'integrations.read',
   'operations.manage': 'operations.read',
   'accounts.manage': 'accounts.read',
   'roles.manage': 'roles.read',

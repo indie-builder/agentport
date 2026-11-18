@@ -21,6 +21,7 @@ import {
   LayoutDashboard,
   LibraryBig,
   MessagesSquare,
+  Plug,
   Puzzle,
   Scale,
   ScrollText,
@@ -132,6 +133,12 @@ const pages = {
     icon: Scale,
     permissionIds: ['governance.read'],
   },
+  integrations: {
+    to: '/integrations',
+    label: '集成',
+    icon: Plug,
+    permissionIds: ['integrations.read'],
+  },
   notifications: { to: '/notifications', label: '通知与待办', icon: Bell, permissionIds: [] },
   profile: { to: '/personal/profile', label: '个人资料', icon: User, permissionIds: [] },
   memory: {
@@ -223,7 +230,12 @@ export const OPERATIONS_MENU: readonly MenuItem[] = [
   pages.audit,
 ];
 
-export const PLATFORM_MENU: readonly MenuItem[] = [pages.accounts, pages.roles, pages.governance];
+export const PLATFORM_MENU: readonly MenuItem[] = [
+  pages.accounts,
+  pages.roles,
+  pages.governance,
+  pages.integrations,
+];
 
 const HOME_ORDER: readonly MenuItem[] = [
   ...WORK_MENU,
@@ -272,6 +284,7 @@ export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
   '/_shell/accounts': pages.accounts,
   '/_shell/roles': pages.roles,
   '/_shell/governance': pages.governance,
+  '/_shell/integrations': pages.integrations,
 };
 
 export function requiredPermissions(routeId: string | undefined): readonly PermissionId[] | null {

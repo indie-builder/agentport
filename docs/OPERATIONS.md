@@ -137,6 +137,7 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 | `DOCLING_TOKEN` | 否 | — | worker | 以 `X-Api-Key` 头发给 Docling；服务端用 `DOCLING_SERVE_API_KEY` 校验。compose 把同一变量同时喂给 `docling` 服务，留空即不启用鉴权 |
 | `KNOWLEDGE_WIKI_MODEL` | 否 | — | worker | Wiki 生成使用的模型；未设置时 wiki 任务明确失败 |
 | `KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api、worker | 逗号分隔的精确私网主机（可含端口）；仅部署白名单端点放行，用于自建GitLab和模型服务，不是用户可配置的通用私网开关 |
+| `WEBHOOK_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api、worker | 逗号分隔的精确 `host` 或 `host:port`；仅对 webhook 出站目标放行显式声明的私网地址，默认拒绝私网与回环，不是用户可配置的通用私网开关 |
 
 `.env.example` 与本表一致；schema 之外可用的变量（`PLATFORM_MCP_TOKEN`、`RATE_LIMIT_DISABLED` 等）已在上方「不在 schema 中」表中列出。
 

@@ -261,6 +261,7 @@ export const agentRuns = pgTable(
       (): AnyPgColumn => channelMessages.id,
       { onDelete: 'set null' },
     ),
+    evalRunId: text('eval_run_id'),
     scheduleId: text('schedule_id'),
     retryOfRunId: text('retry_of_run_id'),
     status: text('status', {

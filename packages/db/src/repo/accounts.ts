@@ -2,9 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { AppError, fail } from '@agentport/core';
 import type { Account, RoleSummary } from '@agentport/shared';
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
-import { and, asc, count, eq, ilike, inArray, ne, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, ilike, inArray, isNull, ne, or, type SQL } from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../client.js';
-import { authAccounts, authSessions, authUsers, roles, userRoles } from '../schema.js';
+import {
+  apiTokens,
+  authAccounts,
+  authSessions,
+  authUsers,
+  roles,
+  userRoles,
+  webhookEndpoints,
+} from '../schema.js';
 import { assertCanRemoveActiveAdmin, lockAdminMutation, toSummary } from './access.js';
 import { hasBusinessHistory, listIdentities } from './identities.js';
 
@@ -48,6 +56,30 @@ function toAccount(row: AccountRow, roles: RoleSummary[]): Account {
 async function getAccountRow(db: DbHandle, businessId: string): Promise<AccountRow | null> {
   const [row] = await db
     .select()
+    .from(authUsers)
+    .where(eq(authUsers.businessId, businessId))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getAuthUserForPrincipal(
+  db: DbHandle,
+  businessId: string,
+): Promise<{
+  id: string;
+  businessId: string;
+  username: string | null;
+  name: string;
+  disabled: boolean;
+} | null> {
+  const [row] = await db
+    .select({
+      id: authUsers.id,
+      businessId: authUsers.businessId,
+      username: authUsers.username,
+      name: authUsers.name,
+      disabled: authUsers.disabled,
+    })
     .from(authUsers)
     .where(eq(authUsers.businessId, businessId))
     .limit(1);
@@ -317,7 +349,14 @@ export async function deleteAccount(db: DbHandle, businessId: string): Promise<b
     if (!row.disabled) {
       await assertCanRemoveActiveAdmin(tx, businessId);
     }
-    // 只删认证资料；业务记录、角色、成员和个人记忆都按 businessId 保留。
+    await tx
+      .update(apiTokens)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(apiTokens.ownerBusinessId, businessId), isNull(apiTokens.revokedAt)));
+    await tx
+      .update(webhookEndpoints)
+      .set({ enabled: false })
+      .where(eq(webhookEndpoints.ownerBusinessId, businessId));
     await tx.delete(authUsers).where(eq(authUsers.id, row.id));
     return true;
   });

@@ -20,6 +20,7 @@ export default {
     '!tests/agent-publish.e2e.ts',
     '!tests/channels.e2e.ts',
     '!tests/channels-business.e2e.ts',
+    '!tests/integrations.e2e.ts',
   ],
   targets: [
     {

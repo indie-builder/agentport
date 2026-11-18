@@ -98,6 +98,7 @@ const envSchema = z
     DATA_DOMAIN_ENRICH_MODEL: z.string().optional(),
     /** 逗号分隔的私网主机名（可含端口）；知识出站只在这些主机上放行内网地址。 */
     KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
+    WEBHOOK_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
   })
   .superRefine((env, ctx) => {
     // fail-closed：proxy 没配代理时宁可不启动，也不静默降级成不隔离出站的 open。

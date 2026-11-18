@@ -14,6 +14,7 @@ import {
   knowledgeDocuments,
 } from '../../schema.js';
 import { getIdentity } from '../accounts.js';
+import { enqueueWebhookEvent } from '../integrations.js';
 import { createNotification } from '../notifications.js';
 import { getDepartmentIdForBusinessId } from './departments.js';
 import { listAlertRecipientBusinessIds } from './reporting.js';
@@ -302,15 +303,32 @@ async function notifyBudget(db: Database, kind: BudgetScopeKind, id: string) {
     ...owners.map((owner) => owner.businessId),
     ...(kind === 'user' ? [id] : []),
   ]);
+  const sourceId = `budget:${kind}:${id}:${row.metric}:${monthWindow().key}:${tier}`;
   await Promise.all(
     [...recipients].map((businessId) =>
-      createNotification(db, {
-        businessId,
-        kind: 'budget_alert',
-        title: `${label}${tier === 'exceeded' ? '预算或配额已用尽' : '预算或配额即将用尽'}`,
-        body: `「${name}」已使用 ${used}，限额 ${limit}`,
-        link: '/governance?tab=budgets',
-        sourceId: `budget:${kind}:${id}:${row.metric}:${monthWindow().key}:${tier}`,
+      db.transaction(async (tx) => {
+        await createNotification(tx, {
+          businessId,
+          kind: 'budget_alert',
+          title: `${label}${tier === 'exceeded' ? '预算或配额已用尽' : '预算或配额即将用尽'}`,
+          body: `「${name}」已使用 ${used}，限额 ${limit}`,
+          link: '/governance?tab=budgets',
+          sourceId,
+        });
+        await enqueueWebhookEvent(tx, {
+          eventType: 'budget.alert',
+          sourceId,
+          ownerBusinessId: businessId,
+          payload: JSON.stringify({
+            kind,
+            scopeId: id,
+            name,
+            used,
+            limit,
+            metric: row.metric,
+            tier,
+          }),
+        });
       }),
     ),
   );
