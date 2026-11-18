@@ -2,17 +2,23 @@ import { rm } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import {
   conversationInputsDir,
+  decodeAttachmentInput,
   displayAttachmentFilename,
   fail,
   notFound,
+  readConversationAttachment,
+  sha256Hex,
   writeConversationAttachments,
 } from '@agentport/core';
 import { type Database, newId, repo } from '@agentport/db';
 import {
   type AccessResource,
+  attachmentByteLimit,
   attachmentExtension,
   type ChatRequest,
+  isTextAttachment,
   type MessageAttachment,
+  messageAttachments,
   type PermissionId,
   type Principal,
   RUN_QUEUE_MAX_WAITING,
@@ -24,15 +30,17 @@ import type { Config } from '../../config.js';
 import { getQueue } from '../../queue/producer.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
+import { canonicalJson, enforceContentPolicy } from '../security/policy-gate.js';
 import { CONVERSATION_MISSING } from './access.js';
 import {
-  actionBytes,
   checkOpenUiActionSource,
   OPENUI_ACTION_MAX_BYTES,
   openUiActionContent,
+  openUiActionContentSchema,
+  openUiActionPolicyTexts,
   sourcePairingProblem,
 } from './openui-actions.js';
-import { checkOutputSelection, outputUserContent } from './outputs.js';
+import { checkOutputSelection } from './outputs.js';
 export type StartRunDependencies = {
   db: Database;
   client: SQL;
@@ -46,6 +54,13 @@ export type StartRunDependencies = {
   ) => Promise<void>;
 };
 const chatRepo = repo.chat;
+const CONSUMABLE_JOB_STATES = new Set([
+  'waiting',
+  'active',
+  'delayed',
+  'prioritized',
+  'waiting-children',
+]);
 function attachmentConversationTitle(
   message: string,
   attachments: Array<{
@@ -89,17 +104,11 @@ export async function startRun(
   options?: {
     trigger?: 'chat' | 'event';
     auditInput?: Record<string, unknown>;
-    externalRequest?: {
-      sourceKind: 'api_token' | 'webhook';
-      sourceId: string;
-      idempotencyKey: string;
-      requestHash: string;
-    };
+    externalRequest?: repo.chat.ExternalRequest;
   },
 ) {
   const { openuiAction, attachments, ...chatInput } = body;
   const { message, output } = chatInput;
-  const messageText = message ?? '';
   if (attachments !== undefined && openuiAction !== undefined) {
     return fail('INVALID_INPUT', '附件与生成式 UI 动作不能同时发送，请只保留一种');
   }
@@ -110,7 +119,9 @@ export async function startRun(
   if (openuiAction?.type === 'open_url') {
     return null;
   }
-  if (openuiAction !== undefined && actionBytes(openuiAction) > OPENUI_ACTION_MAX_BYTES) {
+  const originalParts = openuiAction === undefined ? undefined : openUiActionContent(openuiAction);
+  const originalAction = originalParts === undefined ? '' : JSON.stringify(originalParts);
+  if (Buffer.byteLength(originalAction) > OPENUI_ACTION_MAX_BYTES) {
     return fail('PAYLOAD_TOO_LARGE', '生成式 UI 动作数据超过 64KB 上限，未发送');
   }
   const sourceProblem =
@@ -163,12 +174,229 @@ export async function startRun(
       CONVERSATION_MISSING,
     );
   }
+  const externalRequest = options?.externalRequest;
+  const enqueueRunJob = async (job: {
+    runId: string;
+    agentId: string;
+    conversationId: string;
+    prompt: string;
+  }) => {
+    const markEnqueueFailed = async (runId: string) => {
+      try {
+        await failQueuedRunEnqueue(deps.db, runId);
+      } catch {
+        deps.log.warn({ runId }, 'chat enqueue failure cleanup failed');
+      }
+    };
+    const recoverEnqueuedRun = async () => {
+      await chatRepo.requeueInfraFailedRun(deps.db, job.runId);
+    };
+    const queue = getQueue();
+    const existing = await queue.getJob(job.runId);
+    if (existing != null) {
+      const state = await existing.getState();
+      if (CONSUMABLE_JOB_STATES.has(state)) return recoverEnqueuedRun();
+      if (state === 'completed' || state === 'failed') {
+        try {
+          await existing.remove();
+        } catch {
+          const current = await queue.getJob(job.runId);
+          if (current != null) {
+            if (CONSUMABLE_JOB_STATES.has(await current.getState())) return recoverEnqueuedRun();
+            await markEnqueueFailed(job.runId);
+            fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+          }
+        }
+      }
+    }
+    try {
+      await queue.add(
+        'run',
+        {
+          runId: job.runId,
+          agentId: job.agentId,
+          conversationId: job.conversationId,
+          prompt: job.prompt,
+          requestId: deps.requestId,
+        },
+        runEnqueueOptions(job.runId),
+      );
+    } catch {
+      const raced = await queue.getJob(job.runId);
+      if (raced == null || !CONSUMABLE_JOB_STATES.has(await raced.getState())) {
+        await markEnqueueFailed(job.runId);
+        const late = await queue.getJob(job.runId);
+        if (late == null || !CONSUMABLE_JOB_STATES.has(await late.getState())) {
+          fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+        }
+      }
+    }
+    await recoverEnqueuedRun();
+  };
+  const replayExternalRun = async (run: repo.chat.AgentRun, request: repo.chat.ExternalRequest) => {
+    const replayed = (current: repo.chat.AgentRun) => ({
+      runId: current.id,
+      conversationId: current.conversationId,
+      replayed: true as const,
+    });
+    if (run.status === 'queued') {
+      const prompt = await chatRepo.getRunUserMessageText(deps.db, run.id);
+      if (prompt === null) fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+      await enqueueRunJob({
+        runId: run.id,
+        agentId: run.agentId,
+        conversationId: run.conversationId,
+        prompt,
+      });
+      return replayed(run);
+    }
+    if (run.status === 'failed' && run.errorKind === 'infra' && run.startedAt === null) {
+      const storedText = await chatRepo.getRunUserMessageText(deps.db, run.id);
+      if (storedText !== null) {
+        const policyDecision = await enforceContentPolicy({
+          db: deps.db,
+          log: deps.log,
+          requestId: deps.requestId,
+          actor: run.initiatedBy ?? principal.businessId,
+          texts: [storedText],
+          payload: ([text]) => ({
+            data: text,
+            binding: { runId: run.id, idempotencyKey: request.idempotencyKey, text },
+          }),
+          agentId: run.agentId,
+          origin: 'external',
+          sourceKind: 'run_prompt',
+          sourceId: `external:${request.sourceKind}:${request.sourceId}:${request.idempotencyKey}`,
+          runId: run.id,
+        });
+        if (policyDecision.approvalId !== null) {
+          const approval = await repo.security.getPolicyApproval(
+            deps.db,
+            policyDecision.approvalId,
+          );
+          if (approval?.status !== 'approved') {
+            fail('CONTENT_APPROVAL_REQUIRED', '敏感内容外发需要审批', {
+              resource: 'policy_approval',
+              resourceId: policyDecision.approvalId,
+              hint: '审批后重试同一请求',
+            });
+          }
+        }
+        const prompt = policyDecision.payload;
+        if (
+          await chatRepo.requeueInfraFailedRun(
+            deps.db,
+            run.id,
+            prompt,
+            policyDecision.approvalId ?? undefined,
+          )
+        ) {
+          await enqueueRunJob({
+            runId: run.id,
+            agentId: run.agentId,
+            conversationId: run.conversationId,
+            prompt,
+          });
+          return replayed(run);
+        }
+        const latest = await chatRepo.getRun(deps.db, run.id);
+        if (latest === null) fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+        if (latest.status === 'queued') {
+          await enqueueRunJob({
+            runId: latest.id,
+            agentId: latest.agentId,
+            conversationId: latest.conversationId,
+            prompt,
+          });
+          return replayed(latest);
+        }
+        if (
+          latest.status === 'failed' &&
+          latest.errorKind === 'infra' &&
+          latest.startedAt === null
+        ) {
+          fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+        }
+        return replayed(latest);
+      }
+      fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+    }
+    return replayed(run);
+  };
+  if (externalRequest !== undefined) {
+    const run = await chatRepo.findExternalRequestRun(deps.db, externalRequest);
+    if (run !== null) return replayExternalRun(run, externalRequest);
+  }
   if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
     return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
   }
   const agent = await repo.agents.getAgent(deps.db, agentId);
   if (!agent) return notFound('agent');
   const agentVersion = agent.publishedVersion;
+  const uploads = (attachments ?? []).map(decodeAttachmentInput).map((attachment) => ({
+    attachment,
+    text: isTextAttachment(attachment.mimeType) ? attachment.data.toString('utf8') : '',
+  }));
+  const policyDecision = await enforceContentPolicy({
+    db: deps.db,
+    log: deps.log,
+    requestId: deps.requestId,
+    actor: principal.businessId,
+    texts: [message ?? '', openuiAction?.message ?? '', ...uploads.map(({ text }) => text)],
+    extraTexts: [
+      ...uploads.map(({ attachment }) => attachment.filename),
+      ...(openuiAction === undefined || originalParts === undefined
+        ? []
+        : new Set([
+            ...openUiActionPolicyTexts(openuiAction),
+            ...openUiActionPolicyTexts(originalParts[1]),
+          ])),
+    ],
+    payload: ([text, actionText, ...attachmentTexts]) => {
+      const parts =
+        originalParts === undefined
+          ? undefined
+          : ([
+              { ...originalParts[0], text: actionText ?? originalParts[0].text },
+              originalParts[1],
+            ] satisfies ReturnType<typeof openUiActionContent>);
+      const finalAttachments = uploads.map(({ attachment, text: original }, index) => {
+        const redacted = attachmentTexts[index];
+        if (redacted === undefined || redacted === original) return attachment;
+        const data = Buffer.from(redacted, 'utf8');
+        if (data.length > attachmentByteLimit(attachment.mimeType)) {
+          fail('PAYLOAD_TOO_LARGE', '脱敏后的附件超过文件大小上限，请缩小附件后重试');
+        }
+        return { ...attachment, data, size: data.length, sha256: sha256Hex(data) };
+      });
+      return {
+        data: { message: text, openuiAction: parts, attachments: finalAttachments },
+        binding: {
+          conversationId: body.conversationId ?? null,
+          message: text,
+          submittedMessageHash: sha256Hex(message ?? ''),
+          openuiAction: parts,
+          submittedActionHash: sha256Hex(canonicalJson(openuiAction ?? null)),
+          output,
+          attachments: finalAttachments.map(({ filename, sha256 }, index) => ({
+            filename,
+            sha256,
+            submittedSha256: uploads[index]?.attachment.sha256,
+          })),
+        },
+      };
+    },
+    agentId,
+    ...(body.conversationId === undefined ? {} : { conversationId: body.conversationId }),
+    origin: externalRequest !== undefined || options?.trigger === 'event' ? 'external' : 'chat',
+    sourceKind: 'run_prompt',
+    sourceId: body.conversationId ?? deps.requestId,
+  });
+  const {
+    message: messageText,
+    openuiAction: actionParts,
+    attachments: finalAttachments,
+  } = policyDecision.payload;
   let createdConversationId: string | undefined;
   let attachmentSlug: string | undefined;
   let requestedConversationId = body.conversationId;
@@ -203,7 +431,7 @@ export async function startRun(
         root: deps.config.WORKSPACES_DIR,
         slug: agentSlug,
         conversationId: requestedConversationId,
-        inputs: attachments,
+        attachments: finalAttachments,
       });
     } catch (err) {
       if (createdConversationId !== undefined) {
@@ -215,22 +443,16 @@ export async function startRun(
     }
   }
   const userContent =
-    writtenAttachments === undefined
-      ? output === undefined
-        ? openuiAction === undefined
-          ? undefined
-          : openUiActionContent(openuiAction)
-        : outputUserContent({
-            text: messageText,
-            output,
-            ...(openuiAction === undefined ? {} : { openuiAction }),
-          })
-      : {
+    actionParts === undefined
+      ? {
           type: 'text',
           text: messageText,
-          attachments: writtenAttachments,
+          ...(writtenAttachments === undefined ? {} : { attachments: writtenAttachments }),
           ...(output === undefined ? {} : { output }),
-        };
+        }
+      : output === undefined
+        ? actionParts
+        : [{ ...actionParts[0], output }, actionParts[1]];
   let admitted: Awaited<ReturnType<typeof chatRepo.admitChatRun>>;
   try {
     admitted = await chatRepo.admitChatRun(deps.db, {
@@ -240,10 +462,12 @@ export async function startRun(
       ...(agentVersion === null ? {} : { agentVersion }),
       trigger: options?.trigger ?? 'chat',
       ...(requestedConversationId === undefined ? {} : { conversationId: requestedConversationId }),
-      ...(userContent === undefined ? {} : { userContent }),
-      ...(options?.externalRequest === undefined
+      userContent,
+      ...(policyDecision.eventId === null ? {} : { policyEventId: policyDecision.eventId }),
+      ...(policyDecision.approvalId === null
         ? {}
-        : { externalRequest: options.externalRequest }),
+        : { consumePolicyApprovalId: policyDecision.approvalId }),
+      ...(externalRequest === undefined ? {} : { externalRequest }),
     });
   } catch (err) {
     if (
@@ -268,35 +492,12 @@ export async function startRun(
     throw err;
   }
   const { run, conversationId, inherited } = admitted;
-  const job = {
-    runId: run.id,
-    agentId,
-    conversationId,
-    prompt: messageText,
-    requestId: deps.requestId,
-  };
   if (admitted.replayed === true) {
-    if (run.status === 'queued') {
-      try {
-        await getQueue().add('run', job, runEnqueueOptions(run.id));
-      } catch {
-        fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
-      }
-    }
-    return { runId: run.id, conversationId, replayed: true as const };
+    return externalRequest === undefined
+      ? { runId: run.id, conversationId, replayed: true as const }
+      : replayExternalRun(run, externalRequest);
   }
-  try {
-    await getQueue().add('run', job, runEnqueueOptions(run.id));
-  } catch {
-    if (options?.externalRequest === undefined) {
-      try {
-        await failQueuedRunEnqueue(deps.db, run.id);
-      } catch {
-        deps.log.warn({ runId: run.id }, 'chat enqueue failure cleanup failed');
-      }
-    }
-    fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
-  }
+  await enqueueRunJob({ runId: run.id, agentId, conversationId, prompt: messageText });
   deps.log.info({ runId: run.id }, 'run enqueued');
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: principal.businessId,
@@ -368,6 +569,59 @@ export async function regenerateLastRun(
   const agent = await repo.agents.getAgent(deps.db, agentId);
   if (!agent) return notFound('agent');
   const agentVersion = agent.publishedVersion;
+  const last = await chatRepo.getLastUserMessage(deps.db, conversationId);
+  if (last === null || last.runId === null) return fail('CONFLICT', '该会话没有可重新生成的回复');
+  const originalText = chatRepo.messageText(last.content) ?? '';
+  const parsedParts = openUiActionContentSchema.safeParse(last.content);
+  const originalParts = parsedParts.success ? parsedParts.data : undefined;
+  const attachments = messageAttachments(last.content);
+  const attachmentTexts = await Promise.all(
+    attachments
+      .filter(({ mimeType }) => isTextAttachment(mimeType))
+      .map(async (attachment) => {
+        const { data } = await readConversationAttachment({
+          root: deps.config.WORKSPACES_DIR,
+          slug: agent.slug,
+          conversationId,
+          attachment,
+        });
+        return data.toString('utf8');
+      }),
+  );
+  const policyDecision = await enforceContentPolicy({
+    db: deps.db,
+    log: deps.log,
+    requestId: deps.requestId,
+    actor: principal.businessId,
+    agentId,
+    conversationId,
+    origin: 'regenerate',
+    texts: [originalText],
+    extraTexts: [
+      ...attachmentTexts,
+      ...attachments.map(({ filename }) => filename),
+      ...(originalParts === undefined ? [] : openUiActionPolicyTexts(originalParts[1])),
+    ],
+    payload: ([text]) => ({
+      data: {
+        message: text,
+        openuiAction:
+          originalParts === undefined
+            ? undefined
+            : [{ ...originalParts[0], text }, originalParts[1]],
+      },
+      binding: {
+        conversationId,
+        messageId: last.id,
+        message: text,
+        storedTextHash: sha256Hex(originalText),
+        openuiAction: originalParts,
+        attachments: attachments.map(({ filename, sha256 }) => ({ filename, sha256 })),
+      },
+    }),
+    sourceKind: 'run_prompt',
+    sourceId: last.id,
+  });
   const admitted = await chatRepo.admitChatRun(deps.db, {
     agentId,
     message: '',
@@ -376,6 +630,11 @@ export async function regenerateLastRun(
     trigger: 'chat',
     conversationId,
     regenerate: true,
+    regeneratePrompt: { messageId: last.id, text: policyDecision.payload.message },
+    ...(policyDecision.approvalId === null
+      ? {}
+      : { consumePolicyApprovalId: policyDecision.approvalId }),
+    ...(policyDecision.eventId === null ? {} : { policyEventId: policyDecision.eventId }),
   });
   const { run, regenerate } = admitted;
   if (regenerate === undefined) return fail('CONFLICT', '该会话没有可重新生成的回复');
@@ -389,6 +648,9 @@ export async function regenerateLastRun(
         prompt: regenerate.prompt,
         requestId: deps.requestId,
         replacesRunId: regenerate.replacesRunId,
+        regenerateContent: {
+          openuiAction: policyDecision.payload.openuiAction,
+        },
         ...(regenerate.forkFromMessageUuid === undefined
           ? {}
           : { forkFromMessageUuid: regenerate.forkFromMessageUuid }),

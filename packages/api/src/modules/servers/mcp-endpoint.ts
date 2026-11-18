@@ -6,6 +6,7 @@ import type { AppContext, RequestContext } from '../../http/context.js';
 import { isRunCancelRequested } from '../../queue/producer.js';
 import { buildDataDomainServer } from '../data-domains/mcp.js';
 import { buildKnowledgeServer } from '../knowledge/mcp.js';
+import { checkOutboundToolArgs } from '../security/outbound-policy.js';
 import { requestToolApproval } from './approvals.js';
 import { bearerToken, tokenMatches } from './bearer.js';
 import { buildGeneratedServer } from './generated.js';
@@ -33,17 +34,19 @@ export async function validRunToken(
 function handlerFor(
   app: AppContext,
   serverId: string,
-  runId: string | null,
-  snapshotRunId: string | null,
+  trustedRunId: string | null,
 ): McpHttpHandler {
   return createMcpHandler(
     async () => {
       const row = await getServerRow(app.db, serverId);
       if (!row) throw new Error('连接器已不存在');
+      const runId =
+        trustedRunId !== null &&
+        (await repo.runs.isRunBoundToServer(app.db, trustedRunId, serverId))
+          ? trustedRunId
+          : null;
       const snapshot =
-        snapshotRunId === null
-          ? null
-          : await repo.runs.getRunServerSnapshot(app.db, snapshotRunId, serverId);
+        runId === null ? null : await repo.runs.getRunServerSnapshot(app.db, runId, serverId);
       const server = snapshot
         ? {
             kind: snapshot.kind,
@@ -56,18 +59,9 @@ function handlerFor(
         : toApiServer(row, app.config.APP_SECRET_KEY);
       if (server.kind !== 'generated') throw new Error('连接器不是生成式 MCP');
       const tools = snapshot?.tools ?? (await listTools(app.db, serverId));
-      // runId 由路由层从当前 HTTP 请求头读入；外部客户端没有 run，审批工具一律拒绝。
-      // run header 来自沙盒，外部客户端也能伪造：只有 run 存在且该智能体绑定了本 server 才采信。
-      const trustedRunId =
-        runId !== null && (await repo.runs.isRunBoundToServer(app.db, runId, serverId))
-          ? runId
-          : null;
-      const approvals = trustedRunId
-        ? await repo.runs.getApprovedToolNames(app.db, trustedRunId, serverId)
-        : [];
-      const denied = trustedRunId
-        ? await repo.runs.getDeniedToolNames(app.db, trustedRunId, serverId)
-        : [];
+      const approvals = runId ? await repo.runs.getApprovedToolNames(app.db, runId, serverId) : [];
+      const denied = runId ? await repo.runs.getDeniedToolNames(app.db, runId, serverId) : [];
+      const agentId = runId === null ? null : await repo.runs.getRunAgentId(app.db, runId);
       return buildGeneratedServer({
         name: server.name,
         baseUrl: server.baseUrl,
@@ -77,33 +71,40 @@ function handlerFor(
         denied,
         nodeEnv: app.config.NODE_ENV,
         privateHostAllowlist: app.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
+        checkOutbound: (toolName, args) =>
+          checkOutboundToolArgs({
+            db: app.db,
+            agentId,
+            runId,
+            sourceId: `${serverId}/${toolName}`,
+            args,
+          }),
         onDenied: async (toolName, args) => {
           await repo.audit.writeAudit(app.db, app.log, {
             action: 'mcp.tool.denied',
             target: serverId,
-            input: { toolName, runId: trustedRunId, args: summarizeToolArguments(args) },
+            input: { toolName, runId, args: summarizeToolArguments(args) },
             status: 'denied',
           });
         },
-        ...(trustedRunId === null
+        ...(runId === null
           ? {}
           : {
-              refreshApprovals: () =>
-                repo.runs.getApprovedToolNames(app.db, trustedRunId, serverId),
-              refreshDenied: () => repo.runs.getDeniedToolNames(app.db, trustedRunId, serverId),
+              refreshApprovals: () => repo.runs.getApprovedToolNames(app.db, runId, serverId),
+              refreshDenied: () => repo.runs.getDeniedToolNames(app.db, runId, serverId),
               // run 结束后挂起的调用要立刻停下，不能等批准或把请求发到上游。
               // running 的取消只发 Redis 信号，终态由 worker 收尾；等待方据此提前停止。
               isRunActive: async () =>
-                (await repo.runs.isRunActive(app.db, trustedRunId)) &&
-                !(await isRunCancelRequested(trustedRunId)),
+                (await repo.runs.isRunActive(app.db, runId)) &&
+                !(await isRunCancelRequested(runId)),
               onApprovalRequired: async (toolName, args) => {
-                await requestToolApproval(app, trustedRunId, serverId, toolName, args);
+                await requestToolApproval(app, runId, serverId, toolName, args);
               },
             }),
       });
     },
     {
-      onerror: (err) => app.log.error({ err, serverId, runId }, 'mcp endpoint error'),
+      onerror: (err) => app.log.error({ err, serverId, runId: trustedRunId }, 'mcp endpoint error'),
     },
   );
 }
@@ -155,5 +156,5 @@ export async function serverMcpResponse(
     context.responseHeaders.set('WWW-Authenticate', 'Bearer realm="agentport-mcp"');
     fail('UNAUTHORIZED', 'invalid bearer token');
   }
-  return handlerFor(context, serverId, runId, hasRunToken ? runId : null).fetch(request);
+  return handlerFor(context, serverId, hasRunToken ? runId : null).fetch(request);
 }

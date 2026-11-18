@@ -262,6 +262,18 @@ export async function enqueueWebhookEvent(
   });
 }
 
+export async function cancelPendingRunFailedWebhooks(db: DbHandle, runId: string): Promise<void> {
+  await db
+    .delete(webhookDeliveries)
+    .where(
+      and(
+        inArray(webhookDeliveries.status, ['pending']),
+        eq(webhookDeliveries.eventType, 'run.failed'),
+        eq(webhookDeliveries.sourceId, `run:${runId}:failed`),
+      ),
+    );
+}
+
 export interface WebhookDeliveryClaim {
   id: string;
   endpointId: string;

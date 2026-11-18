@@ -180,12 +180,12 @@
 
 **问题**：worker 把 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 直接注入沙盒 env，容器内任何进程都能读取；这是安全清单里唯一剩余的 Medium 项。
 
-**决定**：宿主侧（worker）起一个仅监听回环的模型代理，沙盒只拿到**按 run 签发的短期 token** 与代理地址。真实凭证只存在于 worker 进程内，不落盘、不进容器 env。
+**决定**：宿主侧（worker）启动模型凭证代理（容器内监听 `0.0.0.0:<MODEL_PROXY_PORT>`，Compose 仅把宿主端口发布到 `127.0.0.1`），沙盒只拿到**按 run 签发的短期 token** 与代理地址。真实凭证只存在于 worker 进程内，不落盘、不进容器 env。
 
 **边界**：
 - 代理只转发白名单路径（`/v1/messages`、`/v1/models`），不转发任意 URL，避免变成开放代理。
 - token 明文即 runId，DB 存它的 sha256 并要求 run 仍在 `running`；run 结束清空。
-- 未配置任何模型凭证时回退到直接注入，启动日志明确警告。
+- 未配置任何模型凭证时由模型代理回退到 env 上游，启动日志明确警告；沙盒仍不直接持有真实凭证。
 
 **验证**：真实 run 中容器 env 只有 `ANTHROPIC_AUTH_TOKEN=run_...` 与代理地址，`ANTHROPIC_API_KEY` 为空；run 结束后 `model_token_hash` 与 `mcp_token_hash` 均为 null。
 
@@ -617,7 +617,7 @@
 
 **问题**：用户为原生 stdio/HTTP MCP 配置的 env/headers 凭据由 worker 解密写入沙盒工作区 `.mcp.json`；同容器内默认启用的 Bash、技能/插件执行内容及 stdio 子进程可读取，并可按该凭据的上游权限调用。0600、`/workspace:ro`、PreToolUse hook 与 `${VAR}` 插值都不能隔离同容器进程。
 
-**当前处理（按运行边界合同 R5，最小策略）**：接受该受信执行边界，保留用户已选的原生 MCP；`docs/SECURITY.md` 明确“仅绑定受信任代码与该任务所需最小权限凭据”。不新增审批流或弹窗、不默认关闭 Bash、不引入上游统一代理、主机工具执行或第二套 MCP 路由，也不声称已实现上游代理。模型凭据走 D-17 回环代理与按 run token；generated/knowledge MCP 用按 run token；二者与上游长期 secret 的边界不同。
+**当前处理（按运行边界合同 R5，最小策略）**：接受该受信执行边界，保留用户已选的原生 MCP；`docs/SECURITY.md` 明确“仅绑定受信任代码与该任务所需最小权限凭据”。不新增审批流或弹窗、不默认关闭 Bash、不引入上游统一代理、主机工具执行或第二套 MCP 路由，也不声称已实现上游代理。模型凭据走 D-17 模型凭证代理与按 run token；generated/knowledge MCP 用按 run token；二者与上游长期 secret 的边界不同。
 
 **待决策**：仅当目标变为“模型/沙盒进程不能接触上游 MCP 长期凭据”时，才需要单独选择原生 stdio/HTTP 的执行与凭据边界（如上游代理、主机侧工具执行、按工具 egress 等）。这属独立决定，环境变量插值不能满足；不阻塞当前已授权的系统架构修复。
 

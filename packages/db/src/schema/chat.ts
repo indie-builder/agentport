@@ -25,6 +25,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { agents } from './agents.js';
+import { modelProviders } from './model-providers.js';
 
 export const conversations = pgTable(
   'conversations',
@@ -60,6 +61,7 @@ export const conversations = pgTable(
      */
     lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
     dataDomainRestricted: boolean('data_domain_restricted').notNull().default(false),
+    providerDestination: text('provider_destination'),
   },
   (t) => [
     index('conversations_agent_idx').on(t.agentId),
@@ -279,6 +281,11 @@ export const agentRuns = pgTable(
     subjectKind: text('subject_kind', { enum: ['user', 'service'] }).notNull(),
     initiatedBy: text('initiated_by'),
     model: text('model'),
+    providerId: text('provider_id').references(() => modelProviders.id, { onDelete: 'set null' }),
+    servedProviderId: text('served_provider_id').references(() => modelProviders.id, {
+      onDelete: 'set null',
+    }),
+    providerFailovers: integer('provider_failovers').notNull().default(0),
     departmentId: text('department_id'),
     serviceId: text('service_id', { enum: ['system', 'mcp'] }),
     /** 入队时锁定的智能体版本号，让「用什么配置跑的」可追溯。 */
@@ -331,6 +338,7 @@ export const agentRuns = pgTable(
       sql`${t.trigger} in ('chat', 'mcp', 'schedule', 'event', 'review', 'channel')`,
     ),
     check('agent_runs_subject_kind_check', sql`${t.subjectKind} in ('user', 'service')`),
+    check('agent_runs_provider_failovers_check', sql`${t.providerFailovers} >= 0`),
     check(
       'agent_runs_subject_check',
       sql`(${t.subjectKind} = 'user' and ${t.initiatedBy} is not null and ${t.serviceId} is null) or (${t.subjectKind} = 'service' and ${t.initiatedBy} is null and ${t.serviceId} in ('system', 'mcp'))`,

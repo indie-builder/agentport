@@ -95,12 +95,14 @@ function sameAnswers(
 }
 
 /**
- * 返回要落库的答案；decline 返回 null。题键必须恰好覆盖本次问题。
+ * 返回要落库的答案。题键必须恰好覆盖本次问题。
  * 映射回原问题文本后必须再按 SDK stdin 的同一 schema 校验整体载荷：
  * 逐题合法不代表原问题键与全部答案合起来能通过 responseBytes。
  */
-function answersFor(questions: NativeQuestions, response: PublicQuestionResponse) {
-  if ('decline' in response) return null;
+export function buildQuestionAnswers(
+  questions: NativeQuestions,
+  response: Extract<PublicQuestionResponse, { answers: Record<string, string> }>,
+) {
   const choices = response.choices ?? {};
   const expected = new Set(questions.map((_, index) => String(index)));
   const keys = new Set([...Object.keys(response.answers), ...Object.keys(choices)]);
@@ -166,7 +168,7 @@ export async function respondToQuestion(
       .for('update');
     if (!row) return null;
 
-    const answers = answersFor(row.questions, response);
+    const answers = 'decline' in response ? null : buildQuestionAnswers(row.questions, response);
     const unchanged =
       'decline' in response
         ? row.status === 'declined'

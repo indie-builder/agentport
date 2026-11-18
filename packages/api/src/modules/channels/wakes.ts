@@ -1,11 +1,21 @@
-import { copyChannelAttachmentsToConversation } from '@agentport/core';
+import {
+  copyChannelAttachmentsToConversation,
+  readChannelAttachment,
+  sha256Hex,
+} from '@agentport/core';
 import { type Database, repo } from '@agentport/db';
-import { type AgentRunJob, errorText, runEnqueueOptions } from '@agentport/shared';
+import {
+  type AgentRunJob,
+  errorText,
+  isTextAttachment,
+  runEnqueueOptions,
+} from '@agentport/shared';
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { AppError } from '../../http/errors.js';
 import { publishChannelMessage } from '../../queue/producer.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
+import { enforceContentPolicy } from '../security/policy-gate.js';
 
 const channelRepo = repo.channels;
 const channelWakeRepo = repo.channelWakes;
@@ -189,7 +199,7 @@ async function dispatchWake(
             runId: existing.id,
             agentId: wake.agentId,
             conversationId: existing.conversationId,
-            prompt: message.body,
+            prompt: existing.prompt,
           },
           runEnqueueOptions(existing.id),
         );
@@ -213,31 +223,98 @@ async function dispatchWake(
     channelId: wake.channelId,
     agentId: wake.agentId,
   });
-  if (activeRun !== null && message.attachments.length === 0) {
-    const appended = await repo.runInstructions.createRunInstruction(context.db, {
-      runId: activeRun.id,
-      channelMessageId: wake.channelMessageId,
-      body: message.body,
-      createdBy: message.authorBusinessId,
-      wake: { id: wake.id, claimedAt: wake.claimedAt as Date },
-    });
-    if (appended === 'enqueued') return 'enqueued';
-    if (appended === 'claim_lost') return 'skipped';
-  }
+  const attachmentTexts = await Promise.all(
+    message.attachments
+      .filter(({ mimeType }) => isTextAttachment(mimeType))
+      .map(async (attachment) => {
+        const { data } = await readChannelAttachment({
+          root: context.workspacesDir,
+          channelId: wake.channelId,
+          messageId: wake.channelMessageId,
+          attachment,
+        });
+        return data.toString('utf8');
+      }),
+  );
   let admitted: Awaited<ReturnType<typeof repo.chat.admitChatRun>>;
+  let prompt: string;
+  const authorBusinessId = message.authorBusinessId;
   try {
+    const targetRunId = message.attachments.length === 0 ? activeRun?.id : undefined;
+    const checkPolicy = (runId: string | undefined) =>
+      enforceContentPolicy({
+        db: context.db,
+        log: context.log,
+        requestId: `channel-wake:${wake.id}`,
+        actor: authorBusinessId,
+        agentId: wake.agentId,
+        origin: 'channel',
+        sourceKind: 'channel_message',
+        sourceId: wake.channelMessageId,
+        channelId: wake.channelId,
+        ...(runId !== undefined
+          ? { runId }
+          : binding.conversationId === null
+            ? {}
+            : { conversationId: binding.conversationId }),
+        texts: [message.body],
+        extraTexts: [...attachmentTexts, ...message.attachments.map(({ filename }) => filename)],
+        payload: ([body]) => ({
+          data: body,
+          binding: {
+            channelId: wake.channelId,
+            body,
+            submittedBodyHash: sha256Hex(message.body),
+            attachments: message.attachments.map(({ filename, sha256 }) => ({ filename, sha256 })),
+          },
+        }),
+      });
+    let policyDecision = await checkPolicy(targetRunId);
+    if (targetRunId !== undefined) {
+      const appended = await repo.runInstructions.createRunInstruction(context.db, {
+        runId: targetRunId,
+        channelMessageId: wake.channelMessageId,
+        body: policyDecision.payload,
+        createdBy: authorBusinessId,
+        wake: { id: wake.id, claimedAt: wake.claimedAt as Date },
+        ...(policyDecision.approvalId === null
+          ? {}
+          : { consumePolicyApprovalId: policyDecision.approvalId }),
+      });
+      if (appended === 'enqueued') return 'enqueued';
+      if (appended === 'claim_lost') return 'skipped';
+      policyDecision = await checkPolicy(undefined);
+    }
+    prompt = policyDecision.payload;
     const agentVersion = agent.publishedVersion;
     admitted = await repo.chat.admitChatRun(context.db, {
       agentId: wake.agentId,
-      message: message.body,
+      message: prompt,
       subject: { kind: 'user', businessId: message.authorBusinessId },
       ...(agentVersion === null ? {} : { agentVersion }),
       trigger: 'channel',
-      channel: { channelId: wake.channelId, channelMessageId: wake.channelMessageId },
+      channel: {
+        channelId: wake.channelId,
+        channelMessageId: wake.channelMessageId,
+        filterContext:
+          policyDecision.approvalId === null ? policyDecision.filterChannelContext : () => null,
+      },
+      ...(policyDecision.approvalId === null
+        ? {}
+        : { consumePolicyApprovalId: policyDecision.approvalId }),
+      ...(policyDecision.eventId === null ? {} : { policyEventId: policyDecision.eventId }),
       ...(message.attachments.length === 0 ? {} : { attachments: message.attachments }),
     });
   } catch (err) {
     if (err instanceof AppError) {
+      if (err.code === 'CONTENT_BLOCKED') return skipWake(context, wake, err.message);
+      if (err.code === 'CONTENT_APPROVAL_REQUIRED') {
+        return skipWake(
+          context,
+          wake,
+          '消息需要外发审批，未发送给智能体。审批通过后请重新发送相同内容并 @ 智能体。',
+        );
+      }
       const notice =
         err.code === 'CONFLICT'
           ? LANE_BUSY_NOTICE
@@ -272,7 +349,7 @@ async function dispatchWake(
         runId: admitted.run.id,
         agentId: wake.agentId,
         conversationId: admitted.conversationId,
-        prompt: message.body,
+        prompt,
       },
       runEnqueueOptions(admitted.run.id),
     );

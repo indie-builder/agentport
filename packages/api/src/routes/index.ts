@@ -33,7 +33,9 @@ import { marketRouter } from '../modules/market/router.js';
 import { registerMemoryHttp } from '../modules/memory/http.js';
 import { memoryRouter } from '../modules/memory/router.js';
 import { memoryReviewsRouter } from '../modules/memory-reviews/router.js';
+import { modelProvidersRouter } from '../modules/model-providers/router.js';
 import { notificationsRouter } from '../modules/notifications/router.js';
+import { observabilityRouter } from '../modules/observability/router.js';
 import { registerOpsQueuesHttp } from '../modules/ops/http.js';
 import { opsRouter } from '../modules/ops/router.js';
 import { registerOutputSharesHttp } from '../modules/output-shares/http.js';
@@ -45,6 +47,7 @@ import { pluginsRouter } from '../modules/plugins/router.js';
 import { registerRunExportHttp, runsRouter } from '../modules/runs/router.js';
 import { runtimeEnvironmentsRouter } from '../modules/runtime-environments/router.js';
 import { searchRouter } from '../modules/search/router.js';
+import { securityRouter } from '../modules/security/router.js';
 import { registerServersHttp } from '../modules/servers/http.js';
 import { serversRouter } from '../modules/servers/router.js';
 import { registerSkillsHttp } from '../modules/skills/http.js';
@@ -70,7 +73,9 @@ const apiRouter: Router<RpcContract, RequestContext> = {
   market: marketRouter,
   memory: memoryRouter,
   memoryReviews: memoryReviewsRouter,
+  modelProviders: modelProvidersRouter,
   notifications: notificationsRouter,
+  observability: observabilityRouter,
   ops: opsRouter,
   outputShares: outputSharesRouter,
   overview: overviewRouter,
@@ -79,6 +84,7 @@ const apiRouter: Router<RpcContract, RequestContext> = {
   runs: runsRouter,
   runtimeEnvironments: runtimeEnvironmentsRouter,
   search: searchRouter,
+  security: securityRouter,
   servers: serversRouter,
   skills: skillsRouter,
   workflows: workflowsRouter,

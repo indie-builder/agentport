@@ -97,6 +97,7 @@ export async function createRun(
     evalRunId?: string;
     agentVersion?: number | null;
     model?: string | null;
+    providerId?: string | null;
     departmentId?: string | null;
     definitionSnapshot?: AgentDefinition | null;
     serverIds?: string[];
@@ -117,6 +118,7 @@ export async function createRun(
       ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
       ...(input.agentVersion === undefined ? {} : { agentVersion: input.agentVersion }),
       ...(input.model === undefined ? {} : { model: input.model }),
+      ...(input.providerId === undefined ? {} : { providerId: input.providerId }),
       ...(input.departmentId === undefined ? {} : { departmentId: input.departmentId }),
       ...(input.definitionSnapshot === undefined
         ? {}

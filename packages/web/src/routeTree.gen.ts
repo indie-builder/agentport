@@ -19,12 +19,15 @@ import { Route as ShellChatRouteImport } from './routes/_shell/chat'
 import { Route as ShellEvalRouteImport } from './routes/_shell/eval'
 import { Route as ShellGovernanceRouteImport } from './routes/_shell/governance'
 import { Route as ShellIntegrationsRouteImport } from './routes/_shell/integrations'
+import { Route as ShellModelsRouteImport } from './routes/_shell/models'
 import { Route as ShellNotificationsRouteImport } from './routes/_shell/notifications'
+import { Route as ShellObservabilityRouteImport } from './routes/_shell/observability'
 import { Route as ShellOperationsRouteImport } from './routes/_shell/operations'
 import { Route as ShellPersonalRouteImport } from './routes/_shell/personal'
 import { Route as ShellRolesRouteImport } from './routes/_shell/roles'
 import { Route as ShellSchedulesRouteImport } from './routes/_shell/schedules'
 import { Route as ShellSearchRouteImport } from './routes/_shell/search'
+import { Route as ShellSecurityRouteImport } from './routes/_shell/security'
 import { Route as ShellServersRouteImport } from './routes/_shell/servers'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
 import { Route as ShellStatusRouteImport } from './routes/_shell/status'
@@ -101,9 +104,19 @@ const ShellIntegrationsRoute = ShellIntegrationsRouteImport.update({
   path: '/integrations',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellModelsRoute = ShellModelsRouteImport.update({
+  id: '/models',
+  path: '/models',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellNotificationsRoute = ShellNotificationsRouteImport.update({
   id: '/notifications',
   path: '/notifications',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellObservabilityRoute = ShellObservabilityRouteImport.update({
+  id: '/observability',
+  path: '/observability',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellOperationsRoute = ShellOperationsRouteImport.update({
@@ -129,6 +142,11 @@ const ShellSchedulesRoute = ShellSchedulesRouteImport.update({
 const ShellSearchRoute = ShellSearchRouteImport.update({
   id: '/search',
   path: '/search',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellSecurityRoute = ShellSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellServersRoute = ShellServersRouteImport.update({
@@ -275,12 +293,15 @@ export interface FileRoutesByFullPath {
   '/eval': typeof ShellEvalRoute
   '/governance': typeof ShellGovernanceRoute
   '/integrations': typeof ShellIntegrationsRoute
+  '/models': typeof ShellModelsRoute
   '/notifications': typeof ShellNotificationsRoute
+  '/observability': typeof ShellObservabilityRoute
   '/operations': typeof ShellOperationsRoute
   '/personal': typeof ShellPersonalRouteWithChildren
   '/roles': typeof ShellRolesRoute
   '/schedules': typeof ShellSchedulesRoute
   '/search': typeof ShellSearchRoute
+  '/security': typeof ShellSecurityRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
   '/status': typeof ShellStatusRoute
@@ -317,11 +338,14 @@ export interface FileRoutesByTo {
   '/eval': typeof ShellEvalRoute
   '/governance': typeof ShellGovernanceRoute
   '/integrations': typeof ShellIntegrationsRoute
+  '/models': typeof ShellModelsRoute
   '/notifications': typeof ShellNotificationsRoute
+  '/observability': typeof ShellObservabilityRoute
   '/operations': typeof ShellOperationsRoute
   '/roles': typeof ShellRolesRoute
   '/schedules': typeof ShellSchedulesRoute
   '/search': typeof ShellSearchRoute
+  '/security': typeof ShellSecurityRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
   '/status': typeof ShellStatusRoute
@@ -361,12 +385,15 @@ export interface FileRoutesById {
   '/_shell/eval': typeof ShellEvalRoute
   '/_shell/governance': typeof ShellGovernanceRoute
   '/_shell/integrations': typeof ShellIntegrationsRoute
+  '/_shell/models': typeof ShellModelsRoute
   '/_shell/notifications': typeof ShellNotificationsRoute
+  '/_shell/observability': typeof ShellObservabilityRoute
   '/_shell/operations': typeof ShellOperationsRoute
   '/_shell/personal': typeof ShellPersonalRouteWithChildren
   '/_shell/roles': typeof ShellRolesRoute
   '/_shell/schedules': typeof ShellSchedulesRoute
   '/_shell/search': typeof ShellSearchRoute
+  '/_shell/security': typeof ShellSecurityRoute
   '/_shell/servers': typeof ShellServersRoute
   '/_shell/skills': typeof ShellSkillsRoute
   '/_shell/status': typeof ShellStatusRoute
@@ -407,12 +434,15 @@ export interface FileRouteTypes {
     | '/eval'
     | '/governance'
     | '/integrations'
+    | '/models'
     | '/notifications'
+    | '/observability'
     | '/operations'
     | '/personal'
     | '/roles'
     | '/schedules'
     | '/search'
+    | '/security'
     | '/servers'
     | '/skills'
     | '/status'
@@ -449,11 +479,14 @@ export interface FileRouteTypes {
     | '/eval'
     | '/governance'
     | '/integrations'
+    | '/models'
     | '/notifications'
+    | '/observability'
     | '/operations'
     | '/roles'
     | '/schedules'
     | '/search'
+    | '/security'
     | '/servers'
     | '/skills'
     | '/status'
@@ -492,12 +525,15 @@ export interface FileRouteTypes {
     | '/_shell/eval'
     | '/_shell/governance'
     | '/_shell/integrations'
+    | '/_shell/models'
     | '/_shell/notifications'
+    | '/_shell/observability'
     | '/_shell/operations'
     | '/_shell/personal'
     | '/_shell/roles'
     | '/_shell/schedules'
     | '/_shell/search'
+    | '/_shell/security'
     | '/_shell/servers'
     | '/_shell/skills'
     | '/_shell/status'
@@ -605,11 +641,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellIntegrationsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/models': {
+      id: '/_shell/models'
+      path: '/models'
+      fullPath: '/models'
+      preLoaderRoute: typeof ShellModelsRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/notifications': {
       id: '/_shell/notifications'
       path: '/notifications'
       fullPath: '/notifications'
       preLoaderRoute: typeof ShellNotificationsRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/observability': {
+      id: '/_shell/observability'
+      path: '/observability'
+      fullPath: '/observability'
+      preLoaderRoute: typeof ShellObservabilityRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/operations': {
@@ -645,6 +695,13 @@ declare module '@tanstack/react-router' {
       path: '/search'
       fullPath: '/search'
       preLoaderRoute: typeof ShellSearchRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/security': {
+      id: '/_shell/security'
+      path: '/security'
+      fullPath: '/security'
+      preLoaderRoute: typeof ShellSecurityRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/servers': {
@@ -866,12 +923,15 @@ interface ShellRouteChildren {
   ShellEvalRoute: typeof ShellEvalRoute
   ShellGovernanceRoute: typeof ShellGovernanceRoute
   ShellIntegrationsRoute: typeof ShellIntegrationsRoute
+  ShellModelsRoute: typeof ShellModelsRoute
   ShellNotificationsRoute: typeof ShellNotificationsRoute
+  ShellObservabilityRoute: typeof ShellObservabilityRoute
   ShellOperationsRoute: typeof ShellOperationsRoute
   ShellPersonalRoute: typeof ShellPersonalRouteWithChildren
   ShellRolesRoute: typeof ShellRolesRoute
   ShellSchedulesRoute: typeof ShellSchedulesRoute
   ShellSearchRoute: typeof ShellSearchRoute
+  ShellSecurityRoute: typeof ShellSecurityRoute
   ShellServersRoute: typeof ShellServersRoute
   ShellSkillsRoute: typeof ShellSkillsRoute
   ShellStatusRoute: typeof ShellStatusRoute
@@ -900,12 +960,15 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellEvalRoute: ShellEvalRoute,
   ShellGovernanceRoute: ShellGovernanceRoute,
   ShellIntegrationsRoute: ShellIntegrationsRoute,
+  ShellModelsRoute: ShellModelsRoute,
   ShellNotificationsRoute: ShellNotificationsRoute,
+  ShellObservabilityRoute: ShellObservabilityRoute,
   ShellOperationsRoute: ShellOperationsRoute,
   ShellPersonalRoute: ShellPersonalRouteWithChildren,
   ShellRolesRoute: ShellRolesRoute,
   ShellSchedulesRoute: ShellSchedulesRoute,
   ShellSearchRoute: ShellSearchRoute,
+  ShellSecurityRoute: ShellSecurityRoute,
   ShellServersRoute: ShellServersRoute,
   ShellSkillsRoute: ShellSkillsRoute,
   ShellStatusRoute: ShellStatusRoute,

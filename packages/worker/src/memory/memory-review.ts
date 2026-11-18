@@ -1,6 +1,8 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { hashMcpToken } from '@agentport/core';
+import { createServiceLogger } from '@agentport/core/logger';
 import { type Database, repo, schema } from '@agentport/db';
 import {
   AGENT_MEMORY_MAX_BYTES,
@@ -28,8 +30,13 @@ import { RedisClient } from 'bun';
 import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { z } from 'zod';
+import { type Config, loadConfig } from '../config.js';
+import { checkOutboundPolicy } from '../content-policy.js';
+import { resolveProviderUpstreams } from '../model-providers.js';
+import type { ModelProxy } from '../model-proxy.js';
 import { enqueueRunWebhook, notifyRunOutcome } from '../runs/run-finish.js';
-import { sdkEnv } from '../upstream.js';
+import { modelProxyUpstream, sdkEnv } from '../upstream.js';
+import { version } from '../version.js';
 
 /** 测试可替换 query；真实运行时直接用官方实现。 */
 export type MemoryReviewQueryFn = (params: {
@@ -317,12 +324,12 @@ function sdkOptions(input: {
   maxBudgetUsd: number;
   cwd: string;
   controller: AbortController;
+  envOverrides?: Record<string, string>;
 }): Options {
-  const env = sdkEnv(input.cwd);
   return {
     model: input.model,
     cwd: input.cwd,
-    env,
+    env: { ...sdkEnv(input.cwd), ...input.envOverrides },
     tools: [],
     mcpServers: {},
     strictMcpConfig: true,
@@ -347,12 +354,18 @@ function sdkOptions(input: {
 export async function executeMemoryReview(
   db: Database,
   input: { runId: string; redisUrl: string; signal: AbortSignal },
-  deps: { queryFn?: MemoryReviewQueryFn; logger?: Logger } = {},
+  deps: {
+    config?: Config;
+    queryFn?: MemoryReviewQueryFn;
+    logger?: Logger;
+    modelProxy?: Pick<ModelProxy, 'localUrl' | 'issueToken' | 'revokeToken'>;
+  } = {},
 ): Promise<void> {
   const [run] = await db
     .select({
       trigger: schema.agentRuns.trigger,
       agentId: schema.agentRuns.agentId,
+      model: schema.agentRuns.model,
       agentVersion: schema.agentRuns.agentVersion,
       definitionSnapshot: schema.agentRuns.definitionSnapshot,
     })
@@ -389,6 +402,21 @@ export async function executeMemoryReview(
 
       const review = await repo.memoryReviews.find(db, input.runId);
       if (!review) throw new Error('记忆审核记录不存在');
+      const sources = await Promise.all(
+        review.sources.map(async ({ conversationId }) => {
+          const [conversation, approval] = await Promise.all([
+            repo.chat.getConversation(db, conversationId),
+            repo.security.getApprovedPolicyApprovalForConversation(db, conversationId),
+          ]);
+          if (conversation === null) throw new Error('记忆审核来源会话不存在');
+          return { agentId: conversation.agentId, destination: approval?.destination ?? null };
+        }),
+      );
+      const [destination = null, ...destinations] = sources.map((source) => source.destination);
+      if (destinations.some((other) => other !== destination)) {
+        throw new Error('记忆审核来源会话的审批目的地不一致');
+      }
+
       const definition =
         run.definitionSnapshot ??
         (run.agentVersion === null
@@ -411,7 +439,7 @@ export async function executeMemoryReview(
           .where(eq(schema.agents.id, run.agentId))
           .limit(1);
         if (!agent) throw new Error(`agent ${run.agentId} not found`);
-        model = agent.model;
+        model = run.model ?? agent.model;
         maxTurns = agent.maxTurns;
         maxBudgetUsd = Number(agent.maxBudgetUsd);
         timeoutMs = agent.timeoutMs;
@@ -433,19 +461,74 @@ export async function executeMemoryReview(
       timeout = setTimeout(() => terminate('timeout'), timeoutMs);
       timeout.unref();
 
+      const prompt = buildPrompt({
+        target: review.target,
+        before: review.before,
+        instruction: review.instruction,
+        snapshot,
+      });
+      const config = deps.config ?? loadConfig();
+      const logger =
+        deps.logger ??
+        createServiceLogger({
+          service: 'worker',
+          env: config.NODE_ENV,
+          version,
+          level: config.LOG_LEVEL,
+        });
+      const originalText = prompt;
+      let outboundText = JSON.stringify(prompt);
+      for (const agentId of new Set([run.agentId, ...sources.map((source) => source.agentId)])) {
+        const checked = await checkOutboundPolicy(db, logger, {
+          agentId,
+          runId: input.runId,
+          text: outboundText,
+          originalText,
+          sourceId: `memory-review:${input.runId}`,
+        });
+        if (checked.blocked) throw new Error('记忆审核提示词被出站内容策略拦截');
+        outboundText = checked.text;
+      }
+
+      const upstreams = await resolveProviderUpstreams(
+        db,
+        config,
+        model,
+        input.runId,
+        modelProxyUpstream(process.env.ANTHROPIC_BASE_URL || undefined, false),
+      );
+      if (upstreams.routed && upstreams.blocked) {
+        throw new Error('记忆审核无法使用模型供应商或审批目的地');
+      }
+      if (controller.signal.aborted) throw new MemoryReviewCancelled();
+      let envOverrides: Record<string, string> | undefined;
+      if (deps.modelProxy) {
+        const token = deps.modelProxy.issueToken(input.runId);
+        await repo.runs.setRunModelTokenHash(db, input.runId, hashMcpToken(token));
+        envOverrides = {
+          ANTHROPIC_BASE_URL: deps.modelProxy.localUrl,
+          ANTHROPIC_AUTH_TOKEN: token,
+          ANTHROPIC_API_KEY: '',
+        };
+      } else if (upstreams.routed) {
+        const [provider] = upstreams.providers;
+        envOverrides = {
+          ANTHROPIC_BASE_URL: provider.baseUrl.toString(),
+          ANTHROPIC_AUTH_TOKEN: provider.credential,
+          ANTHROPIC_API_KEY: '',
+        };
+      }
+      if (controller.signal.aborted) throw new MemoryReviewCancelled();
+      const outboundPrompt: string = JSON.parse(outboundText);
       messages = (deps.queryFn ?? query)({
-        prompt: buildPrompt({
-          target: review.target,
-          before: review.before,
-          instruction: review.instruction,
-          snapshot,
-        }),
+        prompt: outboundPrompt,
         options: sdkOptions({
           model,
           maxTurns,
           maxBudgetUsd,
           cwd,
           controller,
+          ...(envOverrides === undefined ? {} : { envOverrides }),
         }),
       });
 
@@ -502,6 +585,8 @@ export async function executeMemoryReview(
   } finally {
     input.signal.removeEventListener('abort', onShutdown);
     if (timeout !== undefined) clearTimeout(timeout);
+    deps.modelProxy?.revokeToken(input.runId);
+    await repo.runs.setRunModelTokenHash(db, input.runId, null).catch(() => undefined);
     // 与 Wiki/图片处理一致：return() 才等 CLI cleanup 完成，再删临时目录。
     controller.abort();
     await messages?.return(undefined).catch(() => undefined);

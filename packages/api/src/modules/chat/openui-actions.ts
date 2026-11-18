@@ -1,12 +1,29 @@
 import type { Database } from '@agentport/db';
 import { repo, schema } from '@agentport/db';
-import { type OpenUiAction, segmentOpenUi } from '@agentport/shared';
+import {
+  type OpenUiAction,
+  openUiActionPartSchema,
+  outputRefSchema,
+  segmentOpenUi,
+} from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
 
 type OpenUiActionRequest = OpenUiAction;
 export const OPENUI_ACTION_MAX_BYTES = 64 * 1024;
-export function openUiActionContent(action: OpenUiActionRequest): unknown[] {
-  const params = action.params as Record<string, unknown>;
+export const openUiActionContentSchema = z.tuple([
+  z.object({ type: z.literal('text'), text: z.string(), output: outputRefSchema.optional() }),
+  openUiActionPartSchema.extend({
+    params: z.record(z.string(), z.unknown()).optional(),
+    messageId: z.string().optional(),
+    blockKey: z.string().optional(),
+  }),
+]);
+
+export function openUiActionContent(
+  action: OpenUiActionRequest,
+): z.infer<typeof openUiActionContentSchema> {
+  const params: Record<string, unknown> = action.params;
   const context = action.context !== undefined ? action.context : params.context;
   return [
     { type: 'text', text: action.message },
@@ -21,9 +38,23 @@ export function openUiActionContent(action: OpenUiActionRequest): unknown[] {
     },
   ];
 }
-export function actionBytes(action: OpenUiActionRequest): number {
-  return Buffer.byteLength(JSON.stringify(openUiActionContent(action)), 'utf8');
+function userControlledStrings(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(userControlledStrings);
+  return value !== null && typeof value === 'object'
+    ? Object.entries(value).flatMap(([key, child]) => [key, ...userControlledStrings(child)])
+    : [];
 }
+
+export function openUiActionPolicyTexts(
+  action: Pick<
+    z.infer<typeof openUiActionContentSchema>[1],
+    'params' | 'context' | 'formState' | 'formName'
+  >,
+): string[] {
+  return userControlledStrings([action.params, action.context, action.formState, action.formName]);
+}
+
 export function sourcePairingProblem(action: OpenUiActionRequest): string | null {
   const { messageId, blockKey } = action;
   if (messageId === undefined && blockKey === undefined) return null;

@@ -104,7 +104,7 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 
 治理数据由 `departments`、`department_members`、`resource_grants`、`budget_limits` 四表承载：部门名称唯一，一个业务身份最多属于一个部门；资源授权按资源类别、资源 ID、业务身份唯一，`can_manage` 同时允许读与执行。知识库、数据域、技能、连接器、插件、运行环境用可空 `owner_business_id` 表示当前负责人，null 表示平台所有；`created_by` 保留历史。对象权限范围为本人资源、`authorized_resources` 明细授权及全平台，专家成员关系不授予资源权限。
 
-预算按 user/department/agent 的 UTC 自然月成本、knowledge_base 文档数、data_domain 月查询数分别计量。运行准入只检查已结算成本，不预占在途费用，因此不是严格硬上限。`agent_runs.model` 与 `department_id` 在准入时快照，成本汇总只读历史快照，不跟随当前模型或部门变动。预算阈值沿用 `budget_alert` 通知，`platform_settings` 保存运行失败及队列 failed/waiting 的七项告警配置，运维通知使用 `ops_alert`。
+预算按 user/department/agent 的 UTC 自然月成本、knowledge_base 文档数、data_domain 月查询数分别计量。运行准入只检查已结算成本，不预占在途费用，因此不是严格硬上限。`agent_runs.model` 与 `department_id` 在准入时快照，成本汇总只读历史快照，不跟随当前模型或部门变动。预算阈值沿用 `budget_alert` 通知，`platform_settings` 保存运行失败及队列 failed/waiting 的七项告警配置，运维通知使用 `ops_alert`。供应商用量与预算按每个 run 的成功生成请求数在供应商间分摊成本，无成功请求日志时才回退 `served_provider_id` / `provider_id`；观测看板的运行、供应商与近期告警按请求窗口统计，队列保持实时快照，SLO 状态按 `platform_settings.slo_window_minutes` 独立评估。
 
 交接清单覆盖专家、六类资源和定时任务，单事务转交当前负责人及定时任务执行身份，保留创建历史；伴生连接器随所属知识库或数据域一并转交。接收人须为启用账户且具备相应管理权限，反向转交可恢复原负责人访问。删除账户在同一事务撤销该业务身份的 API token 并停用其 webhook endpoint；用同一业务身份恢复账户不恢复这些外部集成凭证，须重新创建。资源绑定在配置时检查使用权限，运行按已固定的专家版本快照执行。
 
@@ -207,6 +207,8 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 
 默认助手与召唤/移除专家：纯 AI Chat 就是平台默认助手「通用助手」；默认解析点唯一在 server `startRun` 的 `agentId ?? getDefaultAgent().id`，DB 按 `is_default` 识别默认行，不按 slug/name/role。前端裸 `/chat` 发送时省略 `agentId`，不新增默认查询接口、不解析默认 id。召唤或移除专家都是切会话：选中专家进入该专家的新会话，移除则回到不带 agent 的裸 `/chat` 新会话；旧会话与其后台 run 原样保留，只解除旧事件流订阅，不取消运行、不重建沙盒。会话仍恰好绑定一个 agent，`conversations.agentId` / `agent_runs.agentId` 的 NOT NULL 外键与绑定守卫不变。slug `assistant` 为保留字，用户创建、复制与导入在 `createAgent` 处拒绝；若启动时已有普通专家占用该 slug，播种明确报错，不覆盖或升级原专家。
 
+会话模型目的地由 `conversations.provider_destination` 持久锁定，值与 `policy_approvals.destination` 相同。首次关联带目的地的已消费审批时写入。迁移用仍能关联到 run 的最早已消费审批回填已有会话。后续运行继续使用该目的地，当前审批指向其他目的地时阻止请求。清理历史 run 后锁定仍有效，分支会话继承来源的锁定值。
+
 会话串行与范围：同一会话的 run 通过 lease 串行执行，lease 持续到消息与本轮成果发布完成；不同会话相互独立。首版仍是现有单 worker 的进程内管理，不包含多 worker 路由、容器池、快照或新 provider；空闲容器计入资源占用，但不计入 `AGENT_MAX_CONCURRENT` 的同时执行数。容器复用只省创建/启动（缓存镜像基线约 122ms/次），不跳过每轮 SDK query 启动，不算也不承诺 SDK 冷启动优化。实现状态（2026-10-29）：session manager、supervisor、core 限定 review 与取消链路独立复审均通过，已发现阻断项修复并复核。当时的旧 Vitest 入口 root backend 38 files 458 passed / 0 failed / 0 skipped（含真实 Docker 8 例与 SDK + 本地假 Anthropic SSE 4 例，均从当前源码独立临时编译）；该数字不代表迁移到 `bun:test` 后的当前结果。真实付费模型与浏览器全链路未测，不据此声称生产可用或多 worker 支持。
 
 ### 3.1 原生任务清单进度（TodoWrite）
@@ -290,7 +292,7 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 ### 3.6 通知与待办（2026-11-18）
 
-站内通知是一张独立表 `notifications`（主键 `ntf_`）：`business_id`、`kind`、`title`、`body`、`link`、`source_id`、`read_at`、`created_at`；`kind` 为 `approval` / `question` / `run_failed` / `schedule_failed` / `budget_alert` / `ops_alert`。唯一索引 `(business_id, kind, source_id)` 让生产者可安全重试而不重复投递；`(business_id, created_at, id)` 支撑游标分页，`(business_id, created_at) where read_at is null` 支撑未读计数与「待办」筛选。`read_at is null` 即未读，也就是页面上的「待办」。
+站内通知是一张独立表 `notifications`（主键 `ntf_`）：`business_id`、`kind`、`title`、`body`、`link`、`source_id`、`read_at`、`created_at`；`kind` 为 `approval` / `question` / `run_failed` / `schedule_failed` / `budget_alert` / `ops_alert` / `policy_approval` / `policy_violation`。唯一索引 `(business_id, kind, source_id)` 让生产者可安全重试而不重复投递；`(business_id, created_at, id)` 支撑游标分页，`(business_id, created_at) where read_at is null` 支撑未读计数与「待办」筛选。`read_at is null` 即未读，也就是页面上的「待办」。
 
 | 入口 | 行为 |
 |---|---|
@@ -311,6 +313,8 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 | `run_failed` | 私有或频道 run 失败/超时 | run 发起人 | 私有 `/runs/{runId}`，频道 `/channels/{channelId}` |
 | `schedule_failed` | 定时 run 失败/超时，或触发入队失败 | 定时任务创建人 | `/schedules` |
 | `budget_alert` | run 结算成本后达到月度预算告警比例或超支 | 专家负责人 | `/agents/{agentId}` |
+| `policy_approval` | 入站内容命中 `require_approval` 策略、创建待审批时投递 | 安全运营告警接收人（`listAlertRecipientBusinessIds`） | `/security?tab=approvals` |
+| `policy_violation` | 策略 `block` / `require_approval` 生成违规工单时投递 | 安全运营告警接收人 | `/security?tab=violations` |
 
 定时触发的 run 在 `agent_runs.schedule_id` 记录来源 `agent_schedules.id`，用于按任务查询执行历史、校验重试归属及失败通知定位任务创建人；普通与频道运行为 null。定时 run 失败时若创建人与 run 发起人不是同一人，发起人另收一条 `run_failed`。
 
@@ -350,7 +354,7 @@ API 重启只中断当前短请求，runner 对网络错误和 5xx 按 2–5 秒
 | `webhook_deliveries` | `id`（`whd_`）、`endpoint_id` 级联外键、`event_type`、`source_id`、`payload` text（JSON 原文）、`status`（pending/delivering/succeeded/failed，默认 pending）、`attempts`、`next_attempt_at`、`last_error`、`delivered_at`；unique `(endpoint_id, event_type, source_id)`、index `(status, next_attempt_at)` | 事件去重 outbox；worker 用 `FOR UPDATE SKIP LOCKED` 认领，成功、重排与失败均按状态 CAS 更新 |
 | `external_request_keys` | `id`（`xrq_`）、`source_kind`（api_token/webhook）、`source_id`、`idempotency_key`、`request_hash`（sha256）、`run_id` nullable、`created_at`；unique `(source_kind, source_id, idempotency_key)` | 外部请求幂等键：重复键同 hash 返回原 run，不同 hash 冲突 |
 
-管理接口 `GET/POST /api/integrations/tokens`、`DELETE /api/integrations/tokens/{id}`、`GET/POST /api/integrations/webhooks`、`DELETE /api/integrations/webhooks/{id}` 读取需 `integrations.read`、写入需 `integrations.manage`，资源按当前 `businessId` 过滤。开放入口为 `POST /api/v1/runs`（Bearer token，scope `runs.create`，可选 `Idempotency-Key`，重放返回 200、新请求 202；首次入队失败返回 503，调用方可携同一幂等键重试补投）、`GET /api/v1/runs/{id}`（scope `runs.read`，另需通过 token 所有者的当前 `runs.read` 对象授权；仅允许 token 所有者本人发起且非频道的 run，否则按不存在返回 404）与 `POST /api/webhooks/inbound/{id}`（`X-Agentport-Timestamp` + `X-Agentport-Signature: sha256=<hex>`，HMAC-SHA256 覆盖 `timestamp.rawBody`，以 `eventId` 幂等，若另带 `X-Idempotency-Key` 必须与之一致；首次入队失败同样返回 503，可用同一 `eventId` 重试补投）。出站事件为 `run.completed`、`run.failed`、`approval.requested`、`budget.alert`，worker 每秒认领投递，2xx 记成功，失败最多 5 次指数退避。页面入口 `/integrations` 仅 `integrations.read` 可见，`integrations.manage` 可管理 token 与 webhook endpoint。
+管理接口 `GET/POST /api/integrations/tokens`、`DELETE /api/integrations/tokens/{id}`、`GET/POST /api/integrations/webhooks`、`DELETE /api/integrations/webhooks/{id}` 读取需 `integrations.read`、写入需 `integrations.manage`，资源按当前 `businessId` 过滤。开放入口为 `POST /api/v1/runs`（Bearer token，scope `runs.create`，可选 `Idempotency-Key`，重放返回 200、新请求 202）、`GET /api/v1/runs/{id}`（scope `runs.read`，另需通过 token 所有者的当前 `runs.read` 对象授权；仅允许 token 所有者本人发起且非频道的 run，否则按不存在返回 404）与 `POST /api/webhooks/inbound/{id}`（`X-Agentport-Timestamp` + `X-Agentport-Signature: sha256=<hex>`，HMAC-SHA256 覆盖 `timestamp.rawBody`，以 `eventId` 幂等，若另带 `X-Idempotency-Key` 必须与之一致）。两个写入入口仅在入队失败且没有其他并发成功投递或可消费 job 时返回 503，并将仍排队的 run 标记失败；已有可消费 job 时按已受理处理。已准入的请求按原键重放时返回原 run 及当前状态；尚未入队的 queued run 会按落库正文补投同一 run；因基础设施失败且尚未启动的 run 会按落库正文重新执行入站策略后补投同一 run；其余重放不入队。出站事件为 `run.completed`、`run.failed`、`approval.requested`、`budget.alert`，worker 每秒认领投递，2xx 记成功，失败最多 5 次指数退避。页面入口 `/integrations` 仅 `integrations.read` 可见，`integrations.manage` 可管理 token 与 webhook endpoint。
 
 删除账户在同一事务内撤销该 `businessId` 的未撤销 API token、把其 webhook endpoint 置为 disabled；用同一 `businessId` 恢复原身份不恢复这些外部集成凭证，须重新创建。出站 `run.failed` 覆盖 failed/timeout/cancelled；定时任务入队失败产生的 `run.failed` 之后可能补投同一 run 并最终投递 `run.completed`，消费方不能把 `run.failed` 当作不可恢复的终态。
 

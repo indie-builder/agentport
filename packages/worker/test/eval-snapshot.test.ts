@@ -77,7 +77,7 @@ type SnapshotCase = { id: string; name: string; prompt: string; expectation: str
 const db = {
   select: () => ({
     from: () => ({
-      where: () => ({ limit: async () => [{ timeoutMs: 5_000 }] }),
+      where: () => ({ limit: async () => [{ timeoutMs: 5_000 }], orderBy: async () => [] }),
     }),
   }),
 } as unknown as Database;

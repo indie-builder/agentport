@@ -1,4 +1,4 @@
-import type { AlertSettings, CostGroupBy } from '@agentport/shared';
+import type { AlertSettings, CostGroupBy, SloSettings } from '@agentport/shared';
 import { utcWindowStart } from '@agentport/shared';
 import { and, count, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
@@ -88,6 +88,44 @@ export async function updateAlertSettings(db: Database, input: AlertSettings, up
     .values({ id: 'singleton', ...values })
     .onConflictDoUpdate({ target: platformSettings.id, set: values });
   return getAlertSettings(db);
+}
+
+export async function getSloSettings(db: DbHandle): Promise<SloSettings> {
+  const [row] = await db
+    .select()
+    .from(platformSettings)
+    .where(eq(platformSettings.id, 'singleton'))
+    .limit(1);
+  return {
+    enabled: row?.sloEnabled ?? true,
+    windowMinutes: row?.sloWindowMinutes ?? 60,
+    runSuccessTarget: Number(row?.sloRunSuccessTarget ?? '0.950'),
+    runP95LatencyMs: row?.sloRunP95LatencyMs ?? 120_000,
+    queueOldestWaitMs: row?.sloQueueOldestWaitMs ?? 60_000,
+    providerErrorRateTarget: Number(row?.sloProviderErrorRateTarget ?? '0.050'),
+  };
+}
+
+export async function updateSloSettings(
+  db: Database,
+  input: SloSettings,
+  updatedBy?: string,
+): Promise<SloSettings> {
+  const values = {
+    sloEnabled: input.enabled,
+    sloWindowMinutes: input.windowMinutes,
+    sloRunSuccessTarget: String(input.runSuccessTarget),
+    sloRunP95LatencyMs: input.runP95LatencyMs,
+    sloQueueOldestWaitMs: input.queueOldestWaitMs,
+    sloProviderErrorRateTarget: String(input.providerErrorRateTarget),
+    updatedAt: new Date(),
+    ...(updatedBy === undefined ? {} : { updatedBy }),
+  };
+  await db
+    .insert(platformSettings)
+    .values({ id: 'singleton', ...values })
+    .onConflictDoUpdate({ target: platformSettings.id, set: values });
+  return getSloSettings(db);
 }
 
 export async function listAlertRecipientBusinessIds(db: DbHandle) {

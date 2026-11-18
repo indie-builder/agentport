@@ -3,6 +3,7 @@ export {
   conversationInputsDir,
   copyChannelAttachmentsToConversation,
   copyConversationInputs,
+  decodeAttachmentInput,
   displayAttachmentFilename,
   readChannelAttachment,
   readConversationAttachment,
@@ -11,6 +12,12 @@ export {
   writeChannelAttachments,
   writeConversationAttachments,
 } from './attachments.js';
+export {
+  type ContentPolicyDecision,
+  evaluateContentPolicy,
+  providerRouteDestination,
+  providerRouteMatches,
+} from './content-policy.js';
 export { DbError, isRetryableFailure, RunFailure, runProgram } from './effect-runtime.js';
 export {
   AppError,

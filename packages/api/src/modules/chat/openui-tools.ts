@@ -13,6 +13,7 @@ import { fromJsonSchema } from '@modelcontextprotocol/server';
 import { implement } from '@orpc/server';
 import { actorOf, authorizeObject } from '../../http/access.js';
 import type { AppContext, RequestContext } from '../../http/context.js';
+import { checkOutboundToolArgs } from '../security/outbound-policy.js';
 import { buildGeneratedServer } from '../servers/generated.js';
 import { getServerWithSecrets, listTools } from '../servers/repo.js';
 import { assertSafeUrl } from '../servers/ssrf.js';
@@ -41,6 +42,7 @@ async function callTool(
   context: AppContext,
   tool: ToolRow,
   args: Record<string, unknown>,
+  agentId: string,
 ): Promise<CallToolResult> {
   const server = await getServerWithSecrets(
     context.db,
@@ -62,6 +64,14 @@ async function callTool(
       approvals: [bareName],
       nodeEnv: context.config.NODE_ENV,
       privateHostAllowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
+      checkOutbound: (toolName, checkedArgs) =>
+        checkOutboundToolArgs({
+          db: context.db,
+          agentId,
+          runId: null,
+          sourceId: `${tool.serverId}/${toolName}`,
+          args: checkedArgs,
+        }),
     });
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     await built.connect(serverSide);
@@ -81,6 +91,16 @@ async function callTool(
     throw new AppError('FORBIDDEN', `${server.kind} 工具不能从浏览器调用；请让模型在沙盒内使用`);
   }
   await assertSafeUrl(server.url, context.config.NODE_ENV);
+  const checked = await checkOutboundToolArgs({
+    db: context.db,
+    agentId,
+    runId: null,
+    sourceId: `${tool.serverId}/${bareName}`,
+    args,
+  });
+  if (checked.blocked) {
+    throw new AppError('CONTENT_BLOCKED', '内容命中安全策略，已阻止外发');
+  }
   const client = new Client({ name: 'agentport-openui', version: '0.1.0' });
   const transport = new StreamableHTTPClientTransport(new URL(server.url), {
     requestInit: { headers: server.headers, redirect: 'error' },
@@ -88,7 +108,7 @@ async function callTool(
   try {
     await client.connect(transport, { timeout: 5000 });
     return await client.callTool(
-      { name: bareName, arguments: args },
+      { name: bareName, arguments: checked.args },
       { timeout: CLIENT_TIMEOUT_MS },
     );
   } finally {
@@ -210,7 +230,7 @@ export const chatToolsRouter = {
     }
     const startedAt = Date.now();
     try {
-      const data = extractToolResult(await callTool(context, tool, args));
+      const data = extractToolResult(await callTool(context, tool, args, conversation.agentId));
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'openui.tool.called',

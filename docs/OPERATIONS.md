@@ -54,13 +54,15 @@
 
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
-| `ANTHROPIC_API_KEY` | 二选一 | — | worker | 模型 API key 的配置入口；默认只由 worker 的模型凭证代理持有，不注入容器 |
-| `ANTHROPIC_AUTH_TOKEN` | 二选一 | — | worker | 以 Bearer token 发送；与上一项二选一，同样由 worker 持有 |
-| `ANTHROPIC_BASE_URL` | 否 | — | worker | 自建网关地址，作为模型凭证代理的上游；容器内不可达的 loopback 由 worker 改写为 `host.docker.internal` |
+| `ANTHROPIC_API_KEY` | 环境回退时二选一 | — | worker | 环境上游的 API key，仅由 worker 持有 |
+| `ANTHROPIC_AUTH_TOKEN` | 环境回退时二选一 | — | worker | 环境上游的 Bearer token，仅由 worker 持有 |
+| `ANTHROPIC_BASE_URL` | 否 | — | worker | 环境上游的自建网关地址，容器内不可达的 loopback 由 worker 改写为 `host.docker.internal` |
 | `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | 仅用于孤儿 run 对账：queued run 超过该值 + 5 分钟宽限且队列探测确认 job 消失/已终态才置 failed；running run 从 `startedAt` 按该智能体当前配置的 `timeout_ms` + 5 分钟宽限判定。两者每 5 分钟扫描，通常 15–20 分钟收敛，不是保证期限。不是执行超时，执行取 `agent.timeoutMs`（默认 `600000`）；api 也解析但不读 |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 队列并发数；只限制同时执行的 run，正常完成或成功取消后的热空闲会话容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内继续占用资源 |
 
-**配置入口与容器 env 不同。** 配置任一模型凭证后，worker 在 `MODEL_PROXY_PORT`（默认 3426）启动模型凭证代理（D-17）：真实凭证只留在 worker 进程，沙盒每轮只拿到 `ANTHROPIC_BASE_URL=<代理地址>` 与短期 `ANTHROPIC_AUTH_TOKEN=run_...`（`ANTHROPIC_API_KEY` 置空），run 结束会从代理内存集合移除该 token 并尝试清空 DB hash（不论容器清理是否成功）；代理要求 DB hash 匹配、run 状态为 `running`，且 run 同时存在于本进程的 `activeRuns` 集合；从集合移除后，即使 DB 清空或终态落库失败，也不会放行新请求，集合为空时同样拒绝。未配置凭证时代理不启动，`sandboxEnv` 保留直接把配置值注入容器的回退路径，并打印警告。
+**配置入口与容器 env 不同。** worker 在 `MODEL_PROXY_PORT`（默认 3426）启动模型凭证代理（D-17）。真实凭证留在 worker 进程，沙盒每轮只拿到 `ANTHROPIC_BASE_URL=<代理地址>` 与短期 `ANTHROPIC_AUTH_TOKEN=run_...`（`ANTHROPIC_API_KEY` 置空）。代理要求 DB hash 匹配、run 状态为 `running`，且 token 已由本进程签发。run 结束即撤销内存中的 token 并尝试清空 DB hash，即使容器清理失败也会撤销。
+
+代理优先使用目录中启用且匹配请求 `model` 的供应商，按优先级尝试可用端点。仅在没有匹配供应商时才使用环境凭证及 `ANTHROPIC_BASE_URL`。有匹配供应商但都不可用（例如月预算已耗尽、端点校验未通过或凭证无法读取）时，代理返回 HTTP 502，不回退到环境凭证。worker 在连接前使用 `MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST` 校验目录端点，`NODE_ENV=development` 时允许 `127.0.0.1`、`localhost` 和 `::1`。
 
 ### 1.3 沙盒（worker schema）
 
@@ -137,6 +139,7 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 | `DOCLING_TOKEN` | 否 | — | worker | 以 `X-Api-Key` 头发给 Docling；服务端用 `DOCLING_SERVE_API_KEY` 校验。compose 把同一变量同时喂给 `docling` 服务，留空即不启用鉴权 |
 | `KNOWLEDGE_WIKI_MODEL` | 否 | — | worker | Wiki 生成使用的模型；未设置时 wiki 任务明确失败 |
 | `KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api、worker | 逗号分隔的精确私网主机（可含端口）；仅部署白名单端点放行，用于自建GitLab和模型服务，不是用户可配置的通用私网开关 |
+| `MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api、worker | 逗号分隔的精确 `host` 或 `host:port`，用于 API 保存、测试以及 worker 转发模型供应商请求前校验端点。默认拒绝私网与回环，开发环境允许本机回环 |
 | `WEBHOOK_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api、worker | 逗号分隔的精确 `host` 或 `host:port`；仅对 webhook 出站目标放行显式声明的私网地址，默认拒绝私网与回环，不是用户可配置的通用私网开关 |
 
 `.env.example` 与本表一致；schema 之外可用的变量（`PLATFORM_MCP_TOKEN`、`RATE_LIMIT_DISABLED` 等）已在上方「不在 schema 中」表中列出。
@@ -464,6 +467,8 @@ worker 启动时注册 BullMQ 的 `maintenance` 每日重复任务（`upsertJobS
 | 清理孤立消息 | 无 `run_id` 且超过平台设置「数据保留」的消息保留天数的消息（无设置行时回退 `RETAIN_MESSAGE_DAYS`） | `messages` |
 | 清理频道消息 | 超过平台设置「数据保留」的消息保留天数的频道时间线消息（无设置行时回退 `RETAIN_MESSAGE_DAYS`），`channel_wakes` 随消息级联删除；`messages.channel_message_id` 与 `agent_runs.channel_trigger_message_id` 被置空，30–90 天窗口内的 run 会失去触发消息归因 | `channel_messages`、`channel_wakes` |
 
+清理运行只删除当前 UTC 月之前开始的运行，以及当月开始但 `provider_id` 与 `served_provider_id` 都为空的运行；当月已归属模型供应商的运行不按保留天数删除，以免供应商当月额度与成本统计丢失。
+
 频道消息按 `created_at` 删除会全表扫描；按 30 天保留量设计，单机规模可接受，消息量到十万级前评估加索引。
 
 `audit_log` 与 `eval_results` 不参与清理。每次执行写入一条 `maintenance.pruned` 审计，`target` 为 JSON 摘要。
@@ -559,6 +564,7 @@ docker ps --filter 'name=^(pace-session-|agentport-)'
 | 页面「审计」 | 同上，按时间倒序 | 登录 |
 | 页面「运行」→ 详情 | 状态、耗时、轮次、成本、token、错误、步骤时间线（子智能体内部调用缩进）；「用同样输入重新运行」 |
 | 页面「系统状态」`/status` | live / ready / metrics 三面板，10 秒刷新；浏览器内只读自检 | 登录；metrics 接口需 `operations.read` 权限 |
+| 页面「观测」`/observability` | 运行、队列与供应商指标，SLO 状态与告警计数；运行、供应商与近期告警按页面选择的统计窗口，队列为实时快照，SLO 按 `platform_settings.slo_window_minutes` 独立评估 | `operations.read` 权限；修改 SLO 需 `operations.manage` |
 | api 日志 | pino JSON（生产）/ pino-pretty（开发）；按路由模板记录，>2s 记 `slow request`，SSE 不打慢请求 | stdout |
 | worker 日志 | 结构化 JSON；每步带 `runId`，容器 stderr 以 `sandbox` 字段转发 | stdout |
 
@@ -800,7 +806,7 @@ ANTHROPIC_AUTH_TOKEN=<网关的 key>
 
 - `ANTHROPIC_BASE_URL` 写 `127.0.0.1` 即可：worker 在容器里时会改写为 `host.docker.internal`。
 - 模型名必须是网关接受的名字。直连 Anthropic 的名字（`claude-sonnet-5-5`）在自建网关上通常不存在。
-- 代理只转发 `/v1/messages`、`/v1/count_tokens`、`/v1/models`；网关的其他端点不可达。
+- 代理只转发 `/v1/messages`、`/v1/messages/count_tokens`、`/v1/models` 及其子路径；网关的其他端点不可达。
 - 代理使用 Node 原生 `http` 与 `stream/promises.pipeline` 流式转发：上游/下游按流背压，沙盒或客户端提前断开时中止上游请求，不再手工逐 chunk 读写。
 - 改端口时同步改 compose 的 `ports` 映射，否则沙盒连不上。
 - 容器里只有 `ANTHROPIC_AUTH_TOKEN=run_...`；拿这个 token 直接访问代理以外的地址没有意义。

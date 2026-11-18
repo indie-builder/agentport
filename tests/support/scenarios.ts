@@ -17,4 +17,5 @@ export const scenarios = {
   'deliverable-feedback': () => import('./fixtures/deliverable-feedback.js'),
   schedules: () => import('./fixtures/schedules.js'),
   'chat-replay': () => import('./fixtures/chat-replay.js'),
+  'model-security': () => import('./fixtures/model-security.js'),
 };

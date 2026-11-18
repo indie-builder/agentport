@@ -1,9 +1,15 @@
 import { fail } from '@agentport/core';
 import type { ExecutionSubject } from '@agentport/shared';
-import { and, asc, desc, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
-import { conversations, messages } from '../../schema.js';
+import { agentRuns, conversations, messages } from '../../schema.js';
+import { cancelPendingRunFailedWebhooks } from '../integrations.js';
+import {
+  consumePolicyApproval,
+  getApprovedPolicyApprovalForConversation,
+  linkPolicyApprovalToRun,
+} from '../security.js';
 import { type Conversation, getConversation } from './conversations.js';
 import { conversationSubject } from './shared.js';
 
@@ -44,6 +50,87 @@ export async function listMessages(
     .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(options.limit);
   return rows.reverse();
+}
+
+export async function getRunUserMessageText(db: DbHandle, runId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ content: messages.content })
+    .from(messages)
+    .where(and(eq(messages.runId, runId), eq(messages.role, 'user')))
+    .limit(1);
+  return messageText(row?.content);
+}
+
+export async function requeueInfraFailedRun(
+  db: DbHandle,
+  runId: string,
+  text?: string,
+  consumePolicyApprovalId?: string,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(agentRuns)
+      .set({ status: 'queued', endedAt: null, error: null, errorKind: null })
+      .where(
+        and(
+          eq(agentRuns.id, runId),
+          eq(agentRuns.status, 'failed'),
+          eq(agentRuns.errorKind, 'infra'),
+          isNull(agentRuns.startedAt),
+        ),
+      )
+      .returning({ conversationId: agentRuns.conversationId });
+    if (updated === undefined) return false;
+    if (consumePolicyApprovalId !== undefined) {
+      const lockedRoute = await getApprovedPolicyApprovalForConversation(
+        tx,
+        updated.conversationId,
+      );
+      const consumed = await consumePolicyApproval(
+        tx,
+        consumePolicyApprovalId,
+        lockedRoute?.destination ?? undefined,
+      );
+      if (consumed === null || (consumed.runId !== null && consumed.runId !== runId)) {
+        fail('CONTENT_APPROVAL_REQUIRED', '审批已失效，请重新发起');
+      }
+      await linkPolicyApprovalToRun(tx, consumePolicyApprovalId, runId);
+    }
+    if (text !== undefined && !(await updateRunUserMessageText(tx, runId, text))) {
+      throw new Error('requeued run has no user message');
+    }
+    await cancelPendingRunFailedWebhooks(tx, runId);
+    return true;
+  });
+}
+
+export async function updateRunUserMessageText(db: DbHandle, runId: string, text: string) {
+  const queuedRun = db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, 'queued')))
+    .for('update');
+  const [updated] = await db
+    .update(messages)
+    .set({ content: { type: 'text', text } })
+    .where(and(eq(messages.runId, runId), eq(messages.role, 'user'), exists(queuedRun)))
+    .returning({ id: messages.id });
+  return updated !== undefined;
+}
+
+export async function getLastUserMessage(db: DbHandle, conversationId: string) {
+  const [row] = await db
+    .select({
+      id: messages.id,
+      content: messages.content,
+      runId: messages.runId,
+      sdkMessageUuid: messages.sdkMessageUuid,
+    })
+    .from(messages)
+    .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(1);
+  return row ?? null;
 }
 
 /** 分页游标必须属于本会话；否则行值比较会静默取整段历史。 */
@@ -153,6 +240,11 @@ export async function branchConversation(
       .where(eq(conversations.id, source.id))
       .limit(1);
 
+    const providerDestination =
+      source.providerDestination ??
+      (await getApprovedPolicyApprovalForConversation(tx, source.id))?.destination ??
+      null;
+
     const [conversation] = await tx
       .insert(conversations)
       .values({
@@ -165,6 +257,7 @@ export async function branchConversation(
         sdkSessionId: source.sdkSessionId,
         forkFromSdkMessageUuid: forkPoint,
         dataDomainRestricted: source.dataDomainRestricted || (restriction?.restricted ?? false),
+        providerDestination,
         ...conversationSubject(input.subject),
       })
       .returning();

@@ -64,6 +64,12 @@ export const idPrefixes = {
   budgetLimit: 'bl',
   resourceGrant: 'rgr',
   role: 'role',
+  modelProvider: 'mpr',
+  modelProviderRequest: 'mpl',
+  contentPolicy: 'cpl',
+  policyEvent: 'pev',
+  policyApproval: 'pap',
+  violationCase: 'vic',
 } as const;
 
 type Entity = keyof typeof idPrefixes;

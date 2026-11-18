@@ -79,6 +79,14 @@ export function attachmentExtension(mime: AttachmentMimeType): string {
   return MIME_EXTENSION[mime];
 }
 
+export function isTextAttachment(mimeType: AttachmentMimeType): boolean {
+  return (
+    mimeType.startsWith('text/') ||
+    mimeType === 'application/json' ||
+    mimeType === 'application/x-ndjson'
+  );
+}
+
 export function attachmentByteLimit(mimeType: AttachmentMimeType): number {
   if (mimeType.startsWith('image/')) return ATTACHMENT_LIMITS.imageBytes;
   if (mimeType === 'application/pdf') return ATTACHMENT_LIMITS.pdfBytes;

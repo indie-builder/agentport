@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { sha256Hex } from '@agentport/core';
 import { and, asc, desc, eq, gt, gte, isNotNull, like, lt, type SQL, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
 import { keysetBefore } from './keyset.js';
@@ -77,6 +77,36 @@ function chainHash(row: AuditHashMaterial): string {
   );
 }
 
+export async function writeAuditInTx(tx: Transaction, event: AuditEvent): Promise<void> {
+  const row = {
+    id: event.dedupeKey ?? newId('audit'),
+    actor: event.actor ?? 'system',
+    actorKind: event.actorKind ?? (event.actor && event.actor !== 'system' ? 'user' : 'service'),
+    subjectBusinessId: event.subjectBusinessId ?? null,
+    action: event.action,
+    target: event.target ?? null,
+    inputDigest: digest(event.input),
+    status: event.status,
+    durationMs: event.durationMs ?? null,
+    requestId: event.requestId ?? null,
+    createdAt: new Date(),
+  };
+  // 事务级 advisory lock 把「读上一条 hash + 插入」串行化，并发写入不会分成两叉。
+  await tx.execute(sql`select pg_advisory_xact_lock(781236)`);
+  const [last] = await tx
+    .select({ hash: auditLog.hash })
+    .from(auditLog)
+    .where(isNotNull(auditLog.hash))
+    .orderBy(desc(auditLog.chainSeq))
+    .limit(1);
+  const chained = { ...row, prevHash: last?.hash ?? null };
+  const values = { ...chained, hash: chainHash(chained) };
+  // 有幂等键时不覆盖已有行：重试只是重复上报同一件事。
+  await (event.dedupeKey
+    ? tx.insert(auditLog).values(values).onConflictDoNothing()
+    : tx.insert(auditLog).values(values));
+}
+
 /**
  * 审计写入失败不能影响主流程：业务已经成功，丢一条审计比返回 500 更好。
  * 失败只记日志。API 与 worker 共用这一处，ID 统一走 TypeID。
@@ -87,35 +117,7 @@ export async function writeAudit(
   event: AuditEvent,
 ): Promise<void> {
   try {
-    const row = {
-      id: event.dedupeKey ?? newId('audit'),
-      actor: event.actor ?? 'system',
-      actorKind: event.actorKind ?? (event.actor && event.actor !== 'system' ? 'user' : 'service'),
-      subjectBusinessId: event.subjectBusinessId ?? null,
-      action: event.action,
-      target: event.target ?? null,
-      inputDigest: digest(event.input),
-      status: event.status,
-      durationMs: event.durationMs ?? null,
-      requestId: event.requestId ?? null,
-      createdAt: new Date(),
-    };
-    await db.transaction(async (tx) => {
-      // 事务级 advisory lock 把「读上一条 hash + 插入」串行化，并发写入不会分成两叉。
-      await tx.execute(sql`select pg_advisory_xact_lock(781236)`);
-      const [last] = await tx
-        .select({ hash: auditLog.hash })
-        .from(auditLog)
-        .where(isNotNull(auditLog.hash))
-        .orderBy(desc(auditLog.chainSeq))
-        .limit(1);
-      const chained = { ...row, prevHash: last?.hash ?? null };
-      const values = { ...chained, hash: chainHash(chained) };
-      // 有幂等键时不覆盖已有行：重试只是重复上报同一件事。
-      await (event.dedupeKey
-        ? tx.insert(auditLog).values(values).onConflictDoNothing()
-        : tx.insert(auditLog).values(values));
-    });
+    await db.transaction((tx) => writeAuditInTx(tx, event));
   } catch (err) {
     logger.warn({ err, action: event.action }, 'audit write failed');
   }

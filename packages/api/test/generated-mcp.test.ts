@@ -186,14 +186,18 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       })
     ).json<{ id: string }>();
 
-    const { runId } = await seedRun(app, agent.id, { runId: unique('run') });
+    const runToken = randomBytes(32).toString('base64url');
+    const { runId } = await seedRun(app, agent.id, {
+      runId: unique('run'),
+      mcpTokenHash: hashMcpToken(runToken),
+    });
     runIds.push(runId);
 
     const call = async (): Promise<{ isError?: boolean; content: Array<{ text?: string }> }> => {
       const client = new Client({ name: 'agentport-test', version: '0.0.0' });
       const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp/${server.id}`), {
         requestInit: {
-          headers: { authorization: `Bearer ${token}`, 'x-agentport-run-id': runId },
+          headers: { authorization: `Bearer ${runToken}`, 'x-agentport-run-id': runId },
         },
       });
       try {

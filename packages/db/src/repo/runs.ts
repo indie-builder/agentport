@@ -502,6 +502,15 @@ export async function getRunInitiator(db: DbHandle, runId: string): Promise<stri
   return row?.initiatedBy ?? null;
 }
 
+export async function getRunAgentId(db: DbHandle, runId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ agentId: agentRuns.agentId })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  return row?.agentId ?? null;
+}
+
 export async function isRunBoundToServer(
   db: Database,
   runId: string,
@@ -533,6 +542,14 @@ export async function setRunMcpToken(
       ...(serverIds === undefined ? {} : { serverIds }),
     })
     .where(eq(agentRuns.id, runId));
+}
+
+export async function setRunModelTokenHash(
+  db: Database,
+  runId: string,
+  tokenHash: string | null,
+): Promise<void> {
+  await db.update(agentRuns).set({ modelTokenHash: tokenHash }).where(eq(agentRuns.id, runId));
 }
 
 export async function clearRunTokens(db: Database, runId: string): Promise<void> {

@@ -23,6 +23,7 @@ import {
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
+import { checkOutboundToolArgs } from '../security/outbound-policy.js';
 import { connectorCatalog } from './connector-catalog-data.js';
 import { buildGeneratedServer } from './generated.js';
 import * as repo from './repo.js';
@@ -453,6 +454,14 @@ export const serversRouter = os.router({
         approvals: [tool.name],
         nodeEnv: context.config.NODE_ENV,
         privateHostAllowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
+        checkOutbound: (toolName, args) =>
+          checkOutboundToolArgs({
+            db: context.db,
+            agentId: null,
+            runId: null,
+            sourceId: `${id}/${toolName}`,
+            args,
+          }),
       });
       const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
       await built.connect(serverSide);

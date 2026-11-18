@@ -7,7 +7,10 @@ import {
   channelMessages,
   channels,
   channelWakes,
+  messages,
 } from '../schema.js';
+
+import { messageText } from './chat/messages.js';
 
 export type ChannelWakeRow = typeof channelWakes.$inferSelect;
 
@@ -137,14 +140,16 @@ export async function markChannelWakeRetry(
 export async function findChannelRunByTrigger(
   db: Database,
   input: { channelId: string; channelMessageId: string; agentId: string },
-): Promise<{ id: string; status: string; conversationId: string } | null> {
+): Promise<{ id: string; status: string; conversationId: string; prompt: string } | null> {
   const [run] = await db
     .select({
       id: agentRuns.id,
       status: agentRuns.status,
       conversationId: agentRuns.conversationId,
+      content: messages.content,
     })
     .from(agentRuns)
+    .leftJoin(messages, and(eq(messages.runId, agentRuns.id), eq(messages.role, 'user')))
     .where(
       and(
         eq(agentRuns.channelId, input.channelId),
@@ -153,15 +158,20 @@ export async function findChannelRunByTrigger(
       ),
     )
     .limit(1);
-  return run ?? null;
+  if (run === undefined) return null;
+  const { content, ...rest } = run;
+  return { ...rest, prompt: messageText(content) ?? '' };
 }
 
 export async function getChannelWakeBindingStatus(
   db: Database,
   input: { channelId: string; agentId: string },
-): Promise<{ status: typeof channelAgentBindings.$inferSelect.status } | null> {
+) {
   const [binding] = await db
-    .select({ status: channelAgentBindings.status })
+    .select({
+      status: channelAgentBindings.status,
+      conversationId: channelAgentBindings.conversationId,
+    })
     .from(channelAgentBindings)
     .where(
       and(

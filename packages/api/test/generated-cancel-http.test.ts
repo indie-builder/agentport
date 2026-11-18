@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { hashMcpToken } from '@agentport/core';
 import type { Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import {
@@ -29,7 +31,6 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
   let cookie: string;
   let baseUrl: string;
   let server: Server;
-  let token: string;
   const createdServers: string[] = [];
   const createdAgents: string[] = [];
   const runIds: string[] = [];
@@ -79,13 +80,6 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
       },
     });
     expect(toolRes.statusCode, toolRes.body).toBe(201);
-
-    const row = await app.client.unsafe<{ token: string }[]>(
-      "select config->>'mcpToken' as token from servers where id = $1",
-      [server.id],
-    );
-    token = row[0]?.token ?? '';
-    expect(token).not.toBe('');
   });
 
   afterAll(async () => {
@@ -103,13 +97,17 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
         track: createdAgents,
       })
     ).json<{ id: string }>();
-    const { runId } = await seedRun(app, agent.id, { runId: unique('cancel-run') });
+    const runToken = randomBytes(32).toString('base64url');
+    const { runId } = await seedRun(app, agent.id, {
+      runId: unique('cancel-run'),
+      mcpTokenHash: hashMcpToken(runToken),
+    });
     runIds.push(runId);
 
     const client = new Client({ name: 'agentport-test', version: '0.0.0' });
     const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp/${server.id}`), {
       requestInit: {
-        headers: { authorization: `Bearer ${token}`, 'x-agentport-run-id': runId },
+        headers: { authorization: `Bearer ${runToken}`, 'x-agentport-run-id': runId },
       },
     });
     await client.connect(transport);

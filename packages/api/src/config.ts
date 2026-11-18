@@ -34,6 +34,7 @@ const envSchema = z
     KNOWLEDGE_DIR: z.string().min(1).default('./data/knowledge'),
     /** 逗号分隔的私网主机（`host` 或 `host:port`）；模型端点只在这些主机上放行内网地址。 */
     KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
+    MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
     /** 逗号分隔的私网主机（host 或 host:port）；generated 连接器只在这些主机上放行内网地址。 */
     GENERATED_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
     WEBHOOK_PRIVATE_HOST_ALLOWLIST: z.string().default(''),

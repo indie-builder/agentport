@@ -742,3 +742,39 @@
 - **现象**：同时启动 `bun run --filter @agentport/db typecheck` 与 `bun run --filter @agentport/api typecheck`，api 可能报 db 源码级联错误；串行重跑全部 exit 0。
 - **原因**：多个 `tsc -b` 进程共用项目引用与增量 tsbuildinfo 状态，并行时相互读写中间产物。
 - **规避**：包级 typecheck 串行执行；需要并行时只对无项目引用关系的包，或先清理增量产物后单进程构建。
+
+## 外部幂等重放：jobId=run.id 不等于已有可消费 job
+
+- **现象**：外部幂等请求重放一个 queued run 时返回成功，但 DB 是 queued、Redis 却没有 job；或并发重放中一方投递失败后把另一方已投递的 run 标成 failed/infra。
+- **原因**：BullMQ `queue.add` 用 `jobId=run.id` 去重，已有 completed/failed job 时不会新建；并发的 producer 各自检查后投递，失败者回写失败状态会覆盖成功者的 queued 与可消费 job。
+- **规避**：重放前读取 job 状态；只把 waiting/active/delayed/prioritized/waiting-children 视为可消费；completed/failed 先 remove 再 add；`add` 失败后重查 job，仍有可消费 job 就按成功处理；失败回写用 CAS，迟到的 job 出现时把 run 改回 queued。改动这段必须用并发混合成功/失败与双重失败探针覆盖。
+
+## 内容策略：不要对 JSON.stringify 后的文本做原始正则判断
+
+- **现象**：包含换行的敏感文本可以绕过 source block 策略，运行没有被拦截。
+- **原因**：`JSON.stringify(prompt)` 会把真实换行转义成 `\n`，依赖原始多行文本的正则不再命中；token 扫描和脱敏需要序列化文本，但 block/require_approval 判断必须看原始文本。
+- **规避**：在 memory review、模型代理入站等文本入口同时保留原始文本和序列化文本：原始文本只做 block/require_approval 预检，序列化文本只做 token 扫描与脱敏。新增入口按同样双读实现。
+
+## 模型供应商预算：预算耗尽的优先供应商会挡住可用备用
+
+- **现象**：主供应商达到月预算后，即使还有可用备用供应商，请求仍返回 502 或错误回退到 env。
+- **原因**：供应商选择只按优先级取第一个，没有先按预算、端点校验和凭证可用性过滤；先选到耗尽供应商后再用 allowExhausted 兜底，会锁死在错误目标。
+- **规避**：审批阶段按启用状态、模型与预算选择目的地；只有完全没有有预算候选时才允许用预算耗尽供应商记录审批 destination，且不得因此回退 env。运行时 `resolveProviderUpstreams` 再按预算、端点与凭证校验已审批目的地，不可用则按失败处理，不会自动改投未审批供应商。
+
+## MCP connector token 不能携带 run 身份
+
+- **现象**：持有 connector token 的客户端可以通过 `x-agentport-run-id` 声称任意 run，取得 run 级审批与策略身份。
+- **原因**：MCP handler 只校验 token 存在，没有区分 connector token 与 run token，也没有核对 run 是否绑定该 server。
+- **规避**：run 身份只从有效 run token 建立；connector token 只做服务器级认证。任何新增 MCP 入口都必须先验证 run 属于当前 server，再使用 runId 做审批、策略或审计。
+
+## 运行保留：按天清理 `agent_runs` 会重置当月供应商成本
+
+- **现象**：`pruneRuns` 删除当月已归属供应商的 `agent_runs` 后，`providerUsageByPeriod` 的当月成本归零，已经耗尽月预算的供应商重新变为可用。
+- **原因**：供应商用量按保留期内的运行汇总；把运行保留当成纯存储清理，没有区分成本归属数据与历史展示数据。
+- **规避**：当月已归属模型供应商（`provider_id` 或 `served_provider_id` 非空）的运行不按保留天数删除，其余运行照常清理；不要用「保留当月全部运行」的过宽条件，否则破坏运行保留语义。
+
+## 入队：失败 503 后迟到的成功投递会把 run 永久卡死
+
+- **现象**：生产者 A 入队失败，把 run 标成 failed/infra 并返回 503；生产者 B 随后成功写入 Redis。DB 是 failed、Redis 有 waiting job，worker 跳过该 run，运行永久卡死。
+- **原因**：失败回写是终态写入，没有考虑同一 run 的并发生产者稍后成功投递；成功路径也没有撤销已经排队的 `run.failed` webhook。
+- **规避**：成功路径统一条件恢复，把未启动的 failed/infra run 恢复为 queued，并在恢复事务内撤销 `run:<id>:failed` 的 pending 投递。

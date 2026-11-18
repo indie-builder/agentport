@@ -14,6 +14,7 @@ import type { RequestContext } from '../../http/context.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
 import { getQueue } from '../../queue/producer.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
+import { enforceContentPolicy } from '../security/policy-gate.js';
 import {
   getScheduleQueue,
   removeScheduler,
@@ -295,6 +296,24 @@ export const opsRouter = os.router({
         fail('CONFLICT', '仅失败或超时的运行可以重试');
       }
       if (!schedule.enabled) fail('CONFLICT', '定时任务已停用，无法重试');
+      if (await opsRepo.scheduleRetryExists(context.db, previous.id)) {
+        fail('CONFLICT', '任务已触发或已停用，请刷新后重试');
+      }
+      const policyDecision = await enforceContentPolicy({
+        db: context.db,
+        log: context.log,
+        requestId: context.requestId,
+        actor: actorOf(context),
+        agentId: schedule.agentId,
+        origin: 'schedule',
+        sourceKind: 'run_prompt',
+        sourceId: `schedule:${schedule.id}`,
+        texts: [schedule.prompt],
+        payload: ([text]) => ({
+          data: text,
+          binding: { scheduleId: schedule.id, previousRunId: previous.id, prompt: text },
+        }),
+      });
       const runId = newId('run');
       const conversationId = newId('conversation');
       const claimed = await opsRepo.claimScheduleRetry(context.db, {
@@ -303,6 +322,10 @@ export const opsRouter = os.router({
         runId,
         conversationId,
         messageId: newId('message'),
+        prompt: policyDecision.payload,
+        ...(policyDecision.approvalId === null
+          ? {}
+          : { consumePolicyApprovalId: policyDecision.approvalId }),
       });
       if (claimed === 'agent_disabled') fail('CONFLICT', '智能体已停用，无法重试');
       if (claimed === 'budget_exceeded') fail('CONFLICT', '智能体本月预算已用尽，无法重试');
@@ -314,7 +337,7 @@ export const opsRouter = os.router({
             runId,
             agentId: schedule.agentId,
             conversationId,
-            prompt: schedule.prompt,
+            prompt: policyDecision.payload,
           },
           runEnqueueOptions(runId),
         );

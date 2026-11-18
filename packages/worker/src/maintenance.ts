@@ -6,6 +6,7 @@ import {
   DATA_DOMAIN_BUILDS_QUEUE,
   DATA_DOMAIN_ENRICHMENTS_QUEUE,
   EVAL_RUNS_QUEUE,
+  evaluateSloStatuses,
   KNOWLEDGE_JOBS_QUEUE,
   KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
   MAINTENANCE_QUEUE,
@@ -31,15 +32,23 @@ export async function runOpsAlerts(input: {
   redisUrl: string;
 }): Promise<void> {
   const now = new Date();
-  const settings = await repo.governance.getAlertSettings(input.db);
+  const [settings, slo] = await Promise.all([
+    repo.governance.getAlertSettings(input.db),
+    repo.governance.getSloSettings(input.db),
+  ]);
   const failedRuns = settings.runFailures.enabled
     ? await repo.governance.countRecentFailedRuns(
         input.db,
         new Date(now.getTime() - settings.runFailures.windowMinutes * 60_000),
       )
     : 0;
-  let queueCounts: Array<{ name: string; failed: number; waiting: number }> = [];
-  if (settings.queueFailed.enabled || settings.queueWaiting.enabled) {
+  let queueCounts: Array<{
+    name: string;
+    failed: number;
+    waiting: number;
+    oldestWaitingMs: number | null;
+  }> = [];
+  if (settings.queueFailed.enabled || settings.queueWaiting.enabled || slo.enabled) {
     const connection = createBunRedisClient(new RedisClient(input.redisUrl));
     const queues = [
       RUNS_QUEUE,
@@ -50,14 +59,24 @@ export async function runOpsAlerts(input: {
       RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
       SANDBOX_PROBES_QUEUE,
       NATIVE_PLUGINS_QUEUE,
+      MAINTENANCE_QUEUE,
       DATA_DOMAIN_BUILDS_QUEUE,
       DATA_DOMAIN_ENRICHMENTS_QUEUE,
     ].map((name) => new Queue(name, { connection }));
     try {
       queueCounts = await Promise.all(
         queues.map(async (queue) => {
-          const counts = await queue.getJobCounts('failed', 'waiting');
-          return { name: queue.name, failed: counts.failed ?? 0, waiting: counts.waiting ?? 0 };
+          const [counts, oldest] = await Promise.all([
+            queue.getJobCounts('failed', 'waiting').catch(() => null),
+            queue.getWaiting(0, 0).catch(() => []),
+          ]);
+          return {
+            name: queue.name,
+            failed: counts?.failed ?? 0,
+            waiting: counts?.waiting ?? 0,
+            oldestWaitingMs:
+              oldest[0] === undefined ? null : Math.max(0, now.getTime() - oldest[0].timestamp),
+          };
         }),
       );
     } catch (err) {
@@ -71,13 +90,21 @@ export async function runOpsAlerts(input: {
   }
   const failed = queueCounts.reduce((total, queue) => total + queue.failed, 0);
   const waiting = queueCounts.reduce((total, queue) => total + queue.waiting, 0);
-  const alerts = [
+  const alerts: Array<{
+    kind: string;
+    title: string;
+    body: string;
+    link: string;
+    sourceId: string;
+  }> = [
     ...(settings.runFailures.enabled && failedRuns >= settings.runFailures.threshold
       ? [
           {
             kind: 'run_failures',
             title: '运行失败告警',
             body: `最近 ${settings.runFailures.windowMinutes} 分钟有 ${failedRuns} 次运行失败，达到 ${settings.runFailures.threshold} 次阈值`,
+            link: '/operations',
+            sourceId: `ops-alert:run_failures:${Math.floor(now.getTime() / OPS_ALERT_INTERVAL_MS)}`,
           },
         ]
       : []),
@@ -90,6 +117,8 @@ export async function runOpsAlerts(input: {
               .filter((queue) => queue.failed > 0)
               .map((queue) => `${queue.name}: ${queue.failed}`)
               .join('；')}`,
+            link: '/operations',
+            sourceId: `ops-alert:queue_failed:${Math.floor(now.getTime() / OPS_ALERT_INTERVAL_MS)}`,
           },
         ]
       : []),
@@ -102,10 +131,61 @@ export async function runOpsAlerts(input: {
               .filter((queue) => queue.waiting > 0)
               .map((queue) => `${queue.name}: ${queue.waiting}`)
               .join('；')}`,
+            link: '/operations',
+            sourceId: `ops-alert:queue_waiting:${Math.floor(now.getTime() / OPS_ALERT_INTERVAL_MS)}`,
           },
         ]
       : []),
   ];
+  if (slo.enabled) {
+    const since = new Date(now.getTime() - slo.windowMinutes * 60_000);
+    const [runs, providerStats] = await Promise.all([
+      repo.observability.runWindowStats(input.db, since),
+      repo.observability.providerWindowStats(input.db, since),
+    ]);
+    const queueWaits = queueCounts.flatMap((queue) =>
+      queue.oldestWaitingMs === null ? [] : [queue.oldestWaitingMs],
+    );
+    const providerRequests = providerStats.reduce((total, row) => total + row.requests, 0);
+    const providerErrors = providerStats.reduce((total, row) => total + row.errors, 0);
+    const statuses = evaluateSloStatuses({
+      settings: slo,
+      finishedRuns: runs.finished,
+      successRate: runs.finished > 0 ? runs.succeeded / runs.finished : 0,
+      p95LatencyMs: runs.p95LatencyMs,
+      latencySamples: runs.latencySamples,
+      queueOldestWaitMs: queueWaits.length === 0 ? null : Math.max(...queueWaits),
+      queueSamples: queueWaits.length,
+      providerRequests,
+      providerErrors,
+    });
+    const bucket = Math.floor(now.getTime() / (slo.windowMinutes * 60_000));
+    for (const status of statuses) {
+      if (status.ok !== false) continue;
+      alerts.push({
+        kind: `slo_${status.key}`,
+        title: `SLO 未达标：${status.label}`,
+        body: `目标 ${status.target}，实际 ${status.actual}（样本 ${status.sampleSize}）`,
+        link: '/observability',
+        sourceId: `slo:${status.key}:${bucket}`,
+      });
+    }
+  }
+  const providers = await repo.modelProviders.listModelProviders(input.db);
+  for (const provider of providers) {
+    if (!provider.enabled || provider.monthlyBudgetUsd === null) continue;
+    const budget = Number(provider.monthlyBudgetUsd);
+    if (budget <= 0) continue;
+    const ratio = Number(provider.alertRatio);
+    if (provider.usage.costUsd < budget * ratio) continue;
+    alerts.push({
+      kind: 'provider_budget',
+      title: `模型供应商预算告警：${provider.name}`,
+      body: `当月成本 $${provider.usage.costUsd.toFixed(2)}，达到月预算 $${budget.toFixed(2)} 的 ${Math.round(ratio * 100)}%。`,
+      link: '/models',
+      sourceId: `provider-budget:${provider.id}:${now.toISOString().slice(0, 7)}`,
+    });
+  }
   if (alerts.length === 0) return;
   const recipients = await repo.governance.listAlertRecipientBusinessIds(input.db);
   await Promise.all(
@@ -116,8 +196,8 @@ export async function runOpsAlerts(input: {
           kind: 'ops_alert',
           title: alert.title,
           body: alert.body,
-          link: '/operations',
-          sourceId: `ops-alert:${alert.kind}:${Math.floor(now.getTime() / OPS_ALERT_INTERVAL_MS)}`,
+          link: alert.link,
+          sourceId: alert.sourceId,
         }),
       ),
     ),
@@ -141,6 +221,7 @@ interface MaintenanceSummary extends Retention {
   orphanMessagesDeleted: number;
   channelMessagesDeleted: number;
   channelInputsCleaned: number;
+  providerLogsDeleted: number;
   durationMs: number;
 }
 
@@ -161,6 +242,10 @@ export async function runMaintenance(
   const agentVersionsDeleted = await repo.maintenance.pruneAgentVersions(
     db,
     effective.agentVersions,
+  );
+  const providerLogsDeleted = await repo.modelProviders.pruneProviderRequestLogs(
+    db,
+    new Date(Date.now() - effective.runDays * DAY_MS),
   );
   // 已发布成果的锚点先完整读齐再删消息；任一 manifest 读取失败都中止本轮，不留不可 fork 的成果。
   const conversations = await db
@@ -212,6 +297,7 @@ export async function runMaintenance(
     orphanMessagesDeleted,
     channelMessagesDeleted: prunedChannelMessages.length,
     channelInputsCleaned,
+    providerLogsDeleted,
     durationMs: Date.now() - startedAt,
   };
 

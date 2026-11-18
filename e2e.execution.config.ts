@@ -13,5 +13,6 @@ export default {
     'tests/governance.e2e.ts',
     'tests/integrations.e2e.ts',
     'tests/agent-discovery.e2e.ts',
+    'tests/model-security-ops.e2e.ts',
   ],
 } satisfies E2EConfig;

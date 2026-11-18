@@ -12,6 +12,7 @@ import {
   Cable,
   CalendarClock,
   Container,
+  Cpu,
   Database,
   FlaskConical,
   Hash,
@@ -23,10 +24,12 @@ import {
   MessagesSquare,
   Plug,
   Puzzle,
+  Radar,
   Scale,
   ScrollText,
   Search,
   Share2,
+  ShieldAlert,
   Sparkles,
   User,
   Users,
@@ -111,6 +114,12 @@ const pages = {
     icon: LayoutDashboard,
     permissionIds: ['operations.read'],
   },
+  observability: {
+    to: '/observability',
+    label: '观测',
+    icon: Radar,
+    permissionIds: ['operations.read'],
+  },
   runs: { to: '/runs', label: '运行', icon: Activity, permissionIds: ['runs.read'] },
   dataDomains: {
     to: '/data-domains',
@@ -139,6 +148,18 @@ const pages = {
     label: '集成',
     icon: Plug,
     permissionIds: ['integrations.read'],
+  },
+  models: {
+    to: '/models',
+    label: '模型供应商',
+    icon: Cpu,
+    permissionIds: ['models.read'],
+  },
+  securityOps: {
+    to: '/security',
+    label: '安全运营',
+    icon: ShieldAlert,
+    permissionIds: ['security.read'],
   },
   notifications: { to: '/notifications', label: '通知与待办', icon: Bell, permissionIds: [] },
   search: { to: '/search', label: '搜索', icon: Search, permissionIds: [] },
@@ -232,6 +253,7 @@ export const BUILD_MENU: readonly MenuItem[] = [
 
 export const OPERATIONS_MENU: readonly MenuItem[] = [
   pages.operations,
+  pages.observability,
   pages.runs,
   pages.runtimeEnvironments,
   pages.status,
@@ -242,6 +264,8 @@ export const PLATFORM_MENU: readonly MenuItem[] = [
   pages.accounts,
   pages.roles,
   pages.governance,
+  pages.models,
+  pages.securityOps,
   pages.integrations,
 ];
 
@@ -285,6 +309,7 @@ export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
   '/_shell/data-domains/$dataDomainId': pages.dataDomains,
   '/_shell/eval': pages.eval,
   '/_shell/operations': pages.operations,
+  '/_shell/observability': pages.observability,
   '/_shell/runs/': pages.runs,
   '/_shell/runs/$runId': pages.runs,
   '/_shell/runtime-environments/': pages.runtimeEnvironments,
@@ -294,6 +319,8 @@ export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
   '/_shell/accounts': pages.accounts,
   '/_shell/roles': pages.roles,
   '/_shell/governance': pages.governance,
+  '/_shell/models': pages.models,
+  '/_shell/security': pages.securityOps,
   '/_shell/integrations': pages.integrations,
 };
 

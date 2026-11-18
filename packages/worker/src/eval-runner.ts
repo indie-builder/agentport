@@ -12,6 +12,7 @@ import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import { Cause, Effect, Result } from 'effect';
 import type { Logger } from 'pino';
+import { checkRunPromptPolicy } from './content-policy.js';
 import { loadUserAgentAccess } from './runs/run-access.js';
 
 const evalRepo = repo.evalRepo;
@@ -120,12 +121,23 @@ function runOneCase(
   context: { runId: string | null },
 ) {
   return Effect.gen(function* () {
+    const prompt = yield* dbQuery(() =>
+      checkRunPromptPolicy(db, {
+        agentId: input.agentId,
+        prompt: input.prompt,
+        sourceId: `eval:${input.evalRunId}`,
+        subject: { kind: 'user', id: input.businessId },
+      }),
+    );
+    if (prompt === null) {
+      return yield* Effect.fail(new UnrecoverableError('内容命中安全策略，评估已停止'));
+    }
     // 评估用例与聊天共用准入：同一事务取绑定锁、锁「发起专家 + enabled 子级」的记忆。
     // 执行主体显式取 evalRuns.createdBy，不接受 job/client 用户字段。
     const admitted = yield* dbQuery(() =>
       chatRepo.admitChatRun(db, {
         agentId: input.agentId,
-        message: input.prompt,
+        message: prompt,
         title: input.title,
         trigger: 'event',
         evalRunId: input.evalRunId,
@@ -150,7 +162,7 @@ function runOneCase(
             runId: run.id,
             agentId: input.agentId,
             conversationId: admitted.conversationId,
-            prompt: input.prompt,
+            prompt,
           },
           runEnqueueOptions(run.id),
         ),
