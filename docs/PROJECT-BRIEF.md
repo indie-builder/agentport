@@ -137,14 +137,14 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 校验 | zod（与后端共享） | 4.6.7 |
 | 客户端状态 | Zustand | 5.1.0 |
 | 动效 | Motion | 14.14.0 |
-| 图表 | Recharts | 3.10.1 |
+| 图表 | Recharts | 3.11.0 |
 | 源码编辑 | CodeMirror 6（按需加载） | 6.43.15（`@codemirror/view`）等子包 |
 | 智能体输出渲染 | Streamdown（含 `@streamdown/code`） | 2.8.0 / 2.0.1 |
 | 生成式 UI | OpenUI：`@openuidev/lang-core`（后端）、`@openuidev/react-lang`（前端）、`@openuidev/cli`（生成 spec） | 1.1.1 / 1.1.1 / 0.6.3；`@openuidev/react-ui` 0.18.8 仅作开发期契约对照（测试用） |
 | 提示 | ui-sdk toast（`@ui-sdk/react/toast`） | 0.1.0-beta.6 |
-| 图标 | lucide-react | 1.74.0 |
+| 图标 | lucide-react | 1.75.0 |
 | 流式 | 原生 `EventSource` | 无需额外库 |
-| 本地访问 | Portless（开发期 `bun run dev` 分配域名） | 0.18.0 |
+| 本地访问 | Portless（开发期 `bun run dev` 分配域名） | 0.18.1 |
 
 ### 3.3 后端
 
@@ -185,7 +185,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 
 | 用途 | 选型 | 版本 |
 |---|---|---|
-| Agent SDK | @anthropic-ai/claude-agent-sdk | 0.3.326 |
+| Agent SDK | @anthropic-ai/claude-agent-sdk | 0.3.327 |
 | MCP Server 实现 | @modelcontextprotocol/server | 2.4.0 |
 | MCP Node 适配 | @modelcontextprotocol/node | 2.1.2 |
 | MCP Client | @modelcontextprotocol/client | 2.4.0 |
@@ -206,8 +206,8 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | 用途 | 选型 | 版本 |
 |---|---|---|
 | 后端单元/集成测试 | `bun:test`（`bun run test` → `scripts/test-backend.ts`，`--isolate`） | Bun 1.4.4 |
-| 前端单元测试 | Vitest（`bun run test:web`，jsdom） | 5.1.0 |
-| 前端请求模拟 | msw | 3.0.6 |
+| 前端单元测试 | Vitest（`bun run test:web`，jsdom） | 5.1.1 |
+| 前端请求模拟 | msw | 3.0.7 |
 | 覆盖率 | 未配置 | — |
 | E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.23.1 / 0.16.0 |
 | 集成测试 | 本地/CI service containers（未用 testcontainers）；每轮随机 PostgreSQL 库 + 临时 Redis 容器 | — |
