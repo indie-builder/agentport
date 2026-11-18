@@ -11,7 +11,7 @@ import { useDebouncedValue } from '../use-debounced-value.js';
 
 export const skillsQuery = queryOptions<SkillWithAgentCount[]>({
   queryKey: ['skills'],
-  queryFn: api.skills,
+  queryFn: () => api.skills(),
 });
 
 /** 「录制学习」：把一次运行沉淀为技能草稿，成功后刷新技能列表。 */
@@ -86,6 +86,39 @@ export function useUpdateSkill() {
       if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
         void client.invalidateQueries({ queryKey: ['skills'] });
       }
+    },
+  });
+}
+
+export function useSubmitSkill() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.submitSkill(id),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['skills'] });
+      void client.invalidateQueries({ queryKey: ['agent-options'] });
+    },
+  });
+}
+
+export function useApproveSkill() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.approveSkill(id),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['skills'] });
+      void client.invalidateQueries({ queryKey: ['agent-options'] });
+    },
+  });
+}
+
+export function useRejectSkill() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; note: string }) => api.rejectSkill(vars.id, vars.note),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['skills'] });
+      void client.invalidateQueries({ queryKey: ['agent-options'] });
     },
   });
 }

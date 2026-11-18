@@ -288,6 +288,8 @@ async function applyDefinition(
       permissionMode: agent.permissionMode,
       uiFormat: agent.uiFormat,
       effort: agent.effort ?? null,
+      visibility: agent.visibility ?? 'private',
+      tags: agent.tags ?? [],
       maxTurns: agent.maxTurns,
       maxBudgetUsd: String(agent.maxBudgetUsd),
       monthlyBudgetUsd: agent.monthlyBudgetUsd === null ? null : String(agent.monthlyBudgetUsd),

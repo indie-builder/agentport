@@ -207,12 +207,16 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     const item = own.json<Array<Record<string, unknown>>>().find((entry) => entry.id === agent.id);
     expect(item).toBeTruthy();
     expect(Object.keys(item ?? {}).sort()).toEqual([
+      'archivedAt',
       'createdAt',
       'createdBy',
+      'deletedAt',
       'description',
       'enabled',
       'id',
       'isDefault',
+      'isFavorite',
+      'lastUsedAt',
       'model',
       'name',
       'ownerBusinessId',
@@ -220,7 +224,9 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       'role',
       'serverIds',
       'slug',
+      'tags',
       'uiFormat',
+      'visibility',
     ]);
     expect(item?.serverIds).toEqual([server.id]);
     for (const key of [
@@ -770,12 +776,24 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expect(ownerDelete.statusCode, ownerDelete.body).toBe(204);
 
-    const gone = await request(app, {
+    const readable = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}`,
       headers: { cookie: owner1.cookie },
     });
-    expect(gone.statusCode, gone.body).toBe(404);
+    expect(readable.statusCode, readable.body).toBe(200);
+    const active = await request(app, {
+      method: 'GET',
+      url: '/api/agents',
+      headers: { cookie: owner1.cookie },
+    });
+    expect(active.json<Array<{ id: string }>>().some((row) => row.id === agent.id)).toBe(false);
+    const deleted = await request(app, {
+      method: 'GET',
+      url: '/api/agents?status=deleted',
+      headers: { cookie: owner1.cookie },
+    });
+    expect(deleted.json<Array<{ id: string }>>().some((row) => row.id === agent.id)).toBe(true);
   });
 
   it('allows admins to manage any agent and audits with the business id', async () => {

@@ -118,6 +118,7 @@ describe.skipIf(!ready)('chat attachments', () => {
       agentId: agent.id,
       conversationId,
       prompt: '分析一下',
+      requestId: expect.any(String),
     });
 
     const saved = await detail(conversationId);
@@ -527,7 +528,7 @@ describe.skipIf(!ready)('chat attachments', () => {
     expect(await filesIn(inputsDir(agent.slug, conversationId))).toEqual([]);
   });
 
-  it('removes conversation inputs when the agent is deleted', async () => {
+  it('keeps conversation inputs when the agent is soft deleted', async () => {
     const agent = await newAgent();
     const created = await post({
       agentId: agent.id,
@@ -545,6 +546,6 @@ describe.skipIf(!ready)('chat attachments', () => {
       headers: { cookie },
     });
     expect(deleted.statusCode, deleted.body).toBe(204);
-    expect(await filesIn(inputsDir(agent.slug, conversationId))).toEqual([]);
+    expect(await filesIn(inputsDir(agent.slug, conversationId))).toHaveLength(1);
   });
 });

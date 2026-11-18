@@ -74,6 +74,8 @@ export const effortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 /** 助手回复的渲染格式：Markdown（默认）或生成式 UI（围栏内的 OpenUI Lang）。 */
 export const uiFormatSchema = z.enum(['markdown', 'openui']);
 
+export const agentVisibilitySchema = z.enum(['private', 'organization']);
+
 export const displayNameSchema = z
   .string()
   .min(1)
@@ -122,6 +124,8 @@ export const agentInputSchema = z.object({
   /** 推理强度；不填则用 SDK 默认。 */
   effort: effortSchema.optional(),
   enabled: z.boolean().default(true),
+  visibility: agentVisibilitySchema.default('private'),
+  tags: z.array(z.string().trim().min(1).max(24)).max(10).default([]),
 });
 
 export type AgentInput = z.infer<typeof agentInputSchema>;
@@ -142,6 +146,8 @@ export const agentSchema = agentInputSchema.extend({ role: z.string().default('�
     publishedVersion: z.number().nullable().optional(),
     publishedAt: z.string().nullable().optional(),
     hasDraft: z.boolean().optional(),
+    archivedAt: z.string().nullable().optional(),
+    deletedAt: z.string().nullable().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
   }),
@@ -181,6 +187,12 @@ export const agentSummarySchema = z.object({
   model: z.string().optional(),
   maxBudgetUsd: z.number().optional(),
   timeoutMs: z.number().int().optional(),
+  visibility: agentVisibilitySchema.default('private'),
+  tags: z.array(z.string()).default([]),
+  archivedAt: z.string().nullable().optional(),
+  deletedAt: z.string().nullable().optional(),
+  isFavorite: z.boolean().default(false),
+  lastUsedAt: z.string().nullable().optional(),
 });
 
 export type AgentSummary = z.infer<typeof agentSummarySchema>;
@@ -219,6 +231,8 @@ export const skillInputSchema = z.object({
 
 export type SkillInput = z.infer<typeof skillInputSchema>;
 
+export const skillStatusSchema = z.enum(['draft', 'pending', 'published', 'rejected']);
+
 export const skillSchema = skillInputSchema.and(
   z.object({
     id: z.string(),
@@ -226,6 +240,11 @@ export const skillSchema = skillInputSchema.and(
     sourceId: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
+    status: skillStatusSchema.default('published'),
+    submittedAt: z.string().nullable().default(null),
+    reviewedAt: z.string().nullable().default(null),
+    reviewedBy: z.string().nullable().default(null),
+    reviewNote: z.string().nullable().default(null),
   }),
 );
 

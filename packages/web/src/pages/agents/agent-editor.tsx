@@ -213,13 +213,15 @@ export function AgentEditor({
   const skillCatalog = useMemo(
     () =>
       canSkills
-        ? (skills.data ?? []).map((skill) => ({
-            id: skill.id,
-            slug: skill.slug,
-            name: skill.name,
-            description: skill.description,
-            body: skill.body,
-          }))
+        ? (skills.data ?? [])
+            .filter((skill) => skill.status === 'published')
+            .map((skill) => ({
+              id: skill.id,
+              slug: skill.slug,
+              name: skill.name,
+              description: skill.description,
+              body: skill.body,
+            }))
         : (options.data?.skills ?? []).map((skill) => ({
             id: skill.id,
             slug: skill.slug,
@@ -360,6 +362,8 @@ export function AgentEditor({
   const errors = rhf.formState.errors;
   const allowedInvalid = Boolean(errors.allowedTools);
   const roleField = useController({ control, name: 'role' }).field;
+  const visibilityField = useController({ control, name: 'visibility' }).field;
+  const tagsField = useController({ control, name: 'tags' }).field;
   const effortField = useController({ control, name: 'effort' }).field;
   const serverIdsField = useController({ control, name: 'serverIds' }).field;
   const skillIdsField = useController({ control, name: 'skillIds' }).field;
@@ -788,6 +792,8 @@ export function AgentEditor({
     'budgetAlertRatio',
     'timeoutMs',
     'runtimeEnvironmentId',
+    'visibility',
+    'tags',
   ];
   const bindingKeys: Array<keyof AgentDraft> = [
     'serverIds',
@@ -1254,6 +1260,55 @@ export function AgentEditor({
                           <FieldError id="agent-desc-error">
                             {errors.description?.message}
                           </FieldError>
+                        </Field>
+                        <Field data-disabled={configDisabled} className="gap-1.5">
+                          <FieldLabel htmlFor="agent-visibility">可见范围</FieldLabel>
+                          <Select
+                            disabled={configDisabled}
+                            value={visibilityField.value}
+                            items={[
+                              { value: 'private', label: '私有' },
+                              { value: 'organization', label: '组织可见' },
+                            ]}
+                            onValueChange={(next) => {
+                              if (next === 'private' || next === 'organization')
+                                visibilityField.onChange(next);
+                            }}
+                          >
+                            <SelectTrigger id="agent-visibility" className="w-full min-w-0">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                <SelectItem value="private">私有</SelectItem>
+                                <SelectItem value="organization">组织可见</SelectItem>
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                          <FieldDescription>组织可见需发布后对其他成员开放。</FieldDescription>
+                        </Field>
+                        <Field
+                          data-disabled={configDisabled}
+                          className="gap-1.5"
+                          data-invalid={Boolean(errors.tags)}
+                        >
+                          <FieldLabel htmlFor="agent-tags">标签</FieldLabel>
+                          <Input
+                            disabled={configDisabled}
+                            id="agent-tags"
+                            value={tagsField.value}
+                            placeholder="客服、写作"
+                            aria-invalid={Boolean(errors.tags)}
+                            aria-describedby={errors.tags ? 'agent-tags-error' : 'agent-tags-hint'}
+                            onChange={(event) => tagsField.onChange(event.target.value)}
+                          />
+                          {errors.tags ? (
+                            <FieldError id="agent-tags-error">{errors.tags.message}</FieldError>
+                          ) : (
+                            <FieldDescription id="agent-tags-hint">
+                              用逗号分隔，最多 10 个。
+                            </FieldDescription>
+                          )}
                         </Field>
                         <Field className="gap-1.5 sm:col-span-2" data-disabled="true">
                           <FieldLabel htmlFor="agent-slug">Slug</FieldLabel>

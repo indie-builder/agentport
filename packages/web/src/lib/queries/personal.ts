@@ -1,6 +1,7 @@
 import type {
   AuthMe,
   ConversationSummary,
+  PersonalOutputList,
   PersonalOutputShareList,
   PersonalRunList,
   PersonalRunListQuery,
@@ -96,6 +97,24 @@ export function usePersonalConversations(agentId: string | null, enabled = true)
   return useQuery<ConversationSummary[]>({
     queryKey: ['personal-conversations', agentId],
     queryFn: ({ signal }) => api.personalConversations(agentId === null ? {} : { agentId }, signal),
+    enabled,
+    staleTime: 0,
+  });
+}
+
+export function usePersonalWorkConversations(enabled = true) {
+  return useQuery<ConversationSummary[]>({
+    queryKey: ['personal-work', 'conversations'],
+    queryFn: ({ signal }) => api.personalConversations({ limit: 50 }, signal),
+    enabled,
+    staleTime: 0,
+  });
+}
+
+export function usePersonalWorkOutputs(enabled = true) {
+  return useQuery<PersonalOutputList>({
+    queryKey: ['personal-work', 'outputs'],
+    queryFn: ({ signal }) => api.personalOutputs({ limit: 50 }, signal),
     enabled,
     staleTime: 0,
   });

@@ -6,7 +6,16 @@ import {
 } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { Calendar, Ellipsis, IdCard, Plus, Upload } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  Calendar,
+  Ellipsis,
+  IdCard,
+  Plus,
+  Star,
+  Upload,
+} from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import digitalTwinPortrait from '../../assets/agents/digital-twin.png';
 import { AgentAvatar, createShowcaseAvatars } from '../../components/agent/agent-avatar.js';
@@ -55,13 +64,21 @@ import { can } from '../../lib/access.js';
 import { api } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
-import { meQuery, useDeleteAgent, useExperts, useRuntimeEnvironments } from '../../lib/queries.js';
+import {
+  meQuery,
+  useAgentTags,
+  useArchiveAgent,
+  useDeleteAgent,
+  useExperts,
+  useRestoreAgent,
+  useRuntimeEnvironments,
+  useSetAgentFavorite,
+} from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { CreateAgentDialog } from './create-agent-dialog.js';
 import { badgeCreatedAt } from './shared.js';
 
 export function AgentsPage() {
-  const agents = useExperts();
   const me = useQuery(meQuery);
   const canCreate = can(me.data, 'agents.create');
   const canImport = can(me.data, 'agents.import');
@@ -73,10 +90,24 @@ export function AgentsPage() {
   const location = useLocation();
   const search = useSearch({ from: '/_shell/agents/' });
   const query = search.q ?? '';
-  const sort = search.sort ?? 'newest';
+  const sort = search.order === 'recent' ? 'recent' : (search.sort ?? 'newest');
   // 默认只发现已启用的专家；「全部」需要显式写进 URL，不另造页面状态。
   const status = search.status ?? 'enabled';
   const role = search.role ?? '';
+  const lifecycle = search.lifecycle ?? 'active';
+  const tag = search.tag ?? '';
+  const favoriteOnly = search.favorite === '1';
+  const agents = useExperts({
+    status: lifecycle,
+    ...(query.trim() === '' ? {} : { q: query.trim() }),
+    ...(tag === '' ? {} : { tag }),
+    ...(favoriteOnly ? { favorite: 'true' as const } : {}),
+    ...(sort === 'name' || sort === 'recent' ? { sort } : {}),
+  });
+  const agentTags = useAgentTags();
+  const favorite = useSetAgentFavorite();
+  const archive = useArchiveAgent();
+  const restore = useRestoreAgent();
   const [creating, setCreating] = useState(false);
   const [createRole, setCreateRole] = useState<AgentInput['role'] | null>(null);
   const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null);
@@ -129,23 +160,27 @@ export function AgentsPage() {
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const hasRoleData = (agents.data ?? []).some((agent) => agent.role !== undefined);
     return (agents.data ?? [])
       .filter(
         (agent) =>
-          (status === 'all' || agent.enabled === (status === 'enabled')) &&
+          (lifecycle !== 'active' ||
+            status === 'all' ||
+            agent.enabled === (status === 'enabled')) &&
           (!hasRoleData || !role || (agent.role?.trim() || '通用助手') === role) &&
-          [agent.name, agent.slug, agent.description, agent.role?.trim() || '通用助手']
-            .join(' ')
-            .toLowerCase()
-            .includes(needle),
+          (needle === '' ||
+            [agent.name, agent.slug, agent.description, agent.role?.trim() || '通用助手']
+              .join(' ')
+              .toLowerCase()
+              .includes(needle)),
       )
       .sort((a, b) =>
         sort === 'name'
           ? a.name.localeCompare(b.name, 'zh-CN')
-          : Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? ''),
+          : sort === 'newest'
+            ? Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? '')
+            : 0,
       );
-  }, [agents.data, query, sort, status, role]);
+  }, [agents.data, lifecycle, status, role, hasRoleData, query, sort]);
 
   const openAgent = (id: string): void => {
     void navigate({
@@ -226,6 +261,23 @@ export function AgentsPage() {
           />
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <FilterSelect
+              value={lifecycle}
+              onValueChange={(next) => {
+                if (next !== 'active' && next !== 'archived' && next !== 'deleted') return;
+                void navigate({
+                  to: '/agents',
+                  search: { ...search, lifecycle: next === 'active' ? undefined : next },
+                });
+              }}
+              options={[
+                { value: 'active', label: '进行中' },
+                { value: 'archived', label: '已归档' },
+                { value: 'deleted', label: '已删除' },
+              ]}
+              label="按生命周期筛选"
+              className="w-32"
+            />
+            <FilterSelect
               value={status}
               onValueChange={(next) => {
                 if (next !== 'all' && next !== 'enabled' && next !== 'disabled') return;
@@ -240,7 +292,7 @@ export function AgentsPage() {
                 { value: 'disabled', label: '已停用' },
               ]}
               label="按启用状态筛选"
-              className="w-36"
+              className="w-32"
             />
             {hasRoleData ? (
               <FilterSelect
@@ -262,20 +314,55 @@ export function AgentsPage() {
                   ...AGENT_ROLES.map((item) => ({ value: item, label: item })),
                 ]}
                 label="按角色筛选"
-                className="w-36"
+                className="w-32"
               />
             ) : null}
             <FilterSelect
-              value={sort}
-              onValueChange={(next) => {
-                if (next !== 'newest' && next !== 'name') return;
+              value={tag}
+              onValueChange={(next) =>
                 void navigate({
                   to: '/agents',
-                  search: { ...search, sort: next === 'newest' ? undefined : next },
+                  search: { ...search, tag: next === '' ? undefined : next },
+                })
+              }
+              options={[
+                { value: '', label: '全部标签' },
+                ...(agentTags.data?.items ?? []).map((item) => ({ value: item, label: item })),
+              ]}
+              label="按标签筛选"
+              className="w-32"
+            />
+            <Button
+              variant={favoriteOnly ? 'secondary' : 'outline'}
+              aria-pressed={favoriteOnly}
+              onClick={() =>
+                void navigate({
+                  to: '/agents',
+                  search: { ...search, favorite: favoriteOnly ? undefined : '1' },
+                })
+              }
+            >
+              <Star
+                data-icon="inline-start"
+                className={favoriteOnly ? 'fill-current' : undefined}
+              />
+              收藏
+            </Button>
+            <FilterSelect
+              value={sort}
+              onValueChange={(next) => {
+                if (next !== 'newest' && next !== 'name' && next !== 'recent') return;
+                void navigate({
+                  to: '/agents',
+                  search:
+                    next === 'recent'
+                      ? { ...search, sort: undefined, order: 'recent' }
+                      : { ...search, order: undefined, sort: next === 'newest' ? undefined : next },
                 });
               }}
               options={[
                 { value: 'newest', label: '最新创建' },
+                { value: 'recent', label: '最近使用' },
                 { value: 'name', label: '名称排序' },
               ]}
               label="专家排序"
@@ -294,11 +381,17 @@ export function AgentsPage() {
             <LoadingState rows={4} layout="cards" />
           ) : me.isError ? (
             <ErrorState error={me.error} onRetry={() => void me.refetch()} />
-          ) : canCreate ? null : (
+          ) : canCreate && lifecycle === 'active' ? null : (
             <PageNote
               icon={<BusinessIllustration name="agents" size="compact" />}
-              title="暂无可用专家"
-              description="请联系管理员分配。"
+              title={
+                lifecycle === 'archived'
+                  ? '没有归档的专家'
+                  : lifecycle === 'deleted'
+                    ? '没有已删除的专家'
+                    : '暂无可用专家'
+              }
+              description={lifecycle === 'active' ? '请联系管理员分配。' : undefined}
             />
           )
         ) : null}
@@ -315,7 +408,16 @@ export function AgentsPage() {
                     void navigate({
                       to: '/agents',
                       // 默认隐式按「已启用」筛选；清除必须显式回到全部，否则只剩停用专家时仍是空列表。
-                      search: { ...search, q: undefined, role: undefined, status: 'all' },
+                      search: {
+                        ...search,
+                        q: undefined,
+                        role: undefined,
+                        tag: undefined,
+                        favorite: undefined,
+                        lifecycle: undefined,
+                        order: undefined,
+                        status: 'all',
+                      },
                     })
                   }
                 >
@@ -326,12 +428,12 @@ export function AgentsPage() {
           />
         ) : null}
 
-        {agents.data && (canCreate || filtered.length > 0) ? (
+        {agents.data && ((canCreate && lifecycle === 'active') || filtered.length > 0) ? (
           <ul
             aria-label="专家列表"
             className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
           >
-            {canCreate ? (
+            {canCreate && lifecycle === 'active' ? (
               <>
                 <li className="min-w-0">
                   <button
@@ -387,6 +489,16 @@ export function AgentsPage() {
               const canDelete =
                 canDeleteAny &&
                 (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
+              const isArchived = agent.archivedAt != null;
+              const isDeleted = agent.deletedAt != null;
+              const lastUsedAt = formatLastUsed(agent.lastUsedAt);
+              const unavailableTitle = isDeleted
+                ? '专家已删除，恢复后才能开始对话'
+                : isArchived
+                  ? '专家已归档，恢复后才能开始对话'
+                  : agent.enabled
+                    ? '当前账户没有使用该专家的权限'
+                    : '专家已停用，启用后才能开始对话';
               return (
                 <li key={agent.id} className="min-w-0">
                   <Card className="h-full min-h-44 gap-3">
@@ -395,28 +507,69 @@ export function AgentsPage() {
                       <div className="flex min-w-0 flex-1 flex-col gap-1">
                         <CardTitle>
                           <h2 className="min-w-0">
-                            <Link
-                              to="/agents/$agentId"
-                              params={{ agentId: agent.id }}
-                              search={{ backTo: location.href }}
-                              title={agent.name}
-                              disabled={importing}
-                              className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                              {agent.name}
-                            </Link>
+                            {isArchived || isDeleted ? (
+                              <span className="block min-w-0 truncate text-base font-medium text-fg">
+                                {agent.name}
+                              </span>
+                            ) : (
+                              <Link
+                                to="/agents/$agentId"
+                                params={{ agentId: agent.id }}
+                                search={{ backTo: location.href }}
+                                title={agent.name}
+                                disabled={importing}
+                                className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                {agent.name}
+                              </Link>
+                            )}
                           </h2>
                         </CardTitle>
                         <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                           <span className="min-w-0 truncate" title={agentRole}>
                             {agentRole}
                           </span>
-                          {!agent.enabled ? (
+                          {!agent.enabled && !isArchived && !isDeleted ? (
                             <StatusBadge className="shrink-0">已停用</StatusBadge>
                           ) : null}
+                          {isArchived ? (
+                            <StatusBadge className="shrink-0">已归档</StatusBadge>
+                          ) : null}
+                          {isDeleted ? (
+                            <StatusBadge className="shrink-0">已删除</StatusBadge>
+                          ) : null}
                         </div>
+                        {(agent.tags ?? []).length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {(agent.tags ?? []).map((item) => (
+                              <span
+                                key={item}
+                                className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground"
+                              >
+                                {item}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
-                      <CardAction>
+                      <CardAction className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={
+                            agent.isFavorite ? `取消收藏 ${agent.name}` : `收藏 ${agent.name}`
+                          }
+                          aria-pressed={agent.isFavorite}
+                          disabled={favorite.isPending || isArchived || isDeleted}
+                          onClick={() =>
+                            favorite.mutate(
+                              { id: agent.id, favorite: !agent.isFavorite },
+                              { onError: toastError },
+                            )
+                          }
+                        >
+                          <Star className={agent.isFavorite ? 'fill-current' : undefined} />
+                        </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger
                             render={
@@ -437,19 +590,47 @@ export function AgentsPage() {
                           />
                           <DropdownMenuContent align="end">
                             <DropdownMenuGroup>
-                              <DropdownMenuItem
-                                disabled={importing}
-                                onSelect={() =>
-                                  void navigate({
-                                    to: '/agents/$agentId',
-                                    params: { agentId: agent.id },
-                                    search: { tab: 'config', backTo: location.href },
-                                  })
-                                }
-                              >
-                                配置
-                              </DropdownMenuItem>
-                              {canDelete ? (
+                              {!isArchived && !isDeleted ? (
+                                <DropdownMenuItem
+                                  disabled={importing}
+                                  onSelect={() =>
+                                    void navigate({
+                                      to: '/agents/$agentId',
+                                      params: { agentId: agent.id },
+                                      search: { tab: 'config', backTo: location.href },
+                                    })
+                                  }
+                                >
+                                  配置
+                                </DropdownMenuItem>
+                              ) : null}
+                              {canDelete && (isArchived || isDeleted) ? (
+                                <DropdownMenuItem
+                                  disabled={restore.isPending}
+                                  onSelect={() =>
+                                    restore.mutate(agent.id, {
+                                      onSuccess: () => toastSuccess('已恢复专家'),
+                                      onError: toastError,
+                                    })
+                                  }
+                                >
+                                  <ArchiveRestore className="size-4" /> 恢复
+                                </DropdownMenuItem>
+                              ) : null}
+                              {canDelete && !isArchived && !isDeleted ? (
+                                <DropdownMenuItem
+                                  disabled={archive.isPending}
+                                  onSelect={() =>
+                                    archive.mutate(agent.id, {
+                                      onSuccess: () => toastSuccess('已归档专家'),
+                                      onError: toastError,
+                                    })
+                                  }
+                                >
+                                  <Archive className="size-4" /> 归档
+                                </DropdownMenuItem>
+                              ) : null}
+                              {canDelete && !isDeleted ? (
                                 <DropdownMenuItem
                                   variant="destructive"
                                   onSelect={() => setDeleting(agent)}
@@ -468,7 +649,7 @@ export function AgentsPage() {
                           {agent.description}
                         </CardDescription>
                       ) : null}
-                      {agent.enabled && !canUse ? (
+                      {agent.enabled && !canUse && lifecycle === 'active' ? (
                         <p
                           id={`agent-use-denied-${agent.id}`}
                           className="text-xs text-muted-foreground"
@@ -476,9 +657,12 @@ export function AgentsPage() {
                           当前账户没有使用该专家的权限，无法开始对话。
                         </p>
                       ) : null}
+                      {lastUsedAt ? (
+                        <p className="text-xs text-muted-foreground">最近使用 {lastUsedAt}</p>
+                      ) : null}
                     </CardContent>
                     <CardContent className="flex items-center justify-between gap-2">
-                      {agent.enabled && canUse ? (
+                      {lifecycle === 'active' && agent.enabled && canUse ? (
                         <Link
                           to="/chat"
                           search={{ agent: agent.id }}
@@ -494,13 +678,11 @@ export function AgentsPage() {
                           disabled
                           aria-label={`与 ${agent.name} 开始对话`}
                           aria-describedby={
-                            agent.enabled ? `agent-use-denied-${agent.id}` : undefined
+                            lifecycle === 'active' && agent.enabled
+                              ? `agent-use-denied-${agent.id}`
+                              : undefined
                           }
-                          title={
-                            agent.enabled
-                              ? '当前账户没有使用该专家的权限'
-                              : '专家已停用，启用后才能开始对话'
-                          }
+                          title={unavailableTitle}
                         >
                           开始对话
                         </Button>
@@ -569,7 +751,7 @@ export function AgentsPage() {
         open={deleting !== null}
         onClose={() => setDeleting(null)}
         title={`删除专家「${deleting?.name ?? ''}」`}
-        description="它的会话、消息与绑定关系会一并删除，正在运行的任务不会被自动停止。此操作不可撤销。"
+        description="专家会移入「已删除」并停止被发现，会话、消息与绑定关系都会保留，可随时恢复。"
         finalFocus={() =>
           editorTriggerRef.current?.isConnected ? editorTriggerRef.current : createButtonRef.current
         }
@@ -701,6 +883,19 @@ function ImportAgentDialog({
       </DialogShell>
     </Dialog>
   );
+}
+
+const lastUsedFormatter = new Intl.DateTimeFormat('zh-CN', {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+function formatLastUsed(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : lastUsedFormatter.format(date);
 }
 
 /** 工牌只读取列表摘要里已授权的字段，不拉详情、提示词或成员资料。 */

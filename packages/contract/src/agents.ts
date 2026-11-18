@@ -90,6 +90,8 @@ const patchSchema = z
     timeoutMs: agentFields.timeoutMs.removeDefault().optional(),
     effort: agentFields.effort.nullable().optional(),
     enabled: agentFields.enabled.removeDefault().optional(),
+    visibility: agentFields.visibility.removeDefault().optional(),
+    tags: agentFields.tags.removeDefault().optional(),
     expectedUpdatedAt: z.coerce.date().optional(),
   })
   .strict();
@@ -107,8 +109,38 @@ export const agentsContract = {
   list: contractProcedure
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'GET', path: '/agents', successStatus: 200 })
-    .input(z.object({}))
+    .input(
+      z.object({
+        query: z.object({
+          q: z.string().trim().max(128).optional(),
+          tag: z.string().max(24).optional(),
+          favorite: z.stringbool().optional(),
+          sort: z.enum(['name', 'recent']).optional(),
+          status: z.enum(['active', 'archived', 'deleted']).default('active'),
+        }),
+      }),
+    )
     .output(z.array(agentSummarySchema)),
+  tags: contractProcedure
+    .meta({ access: { kind: 'authenticated' } })
+    .route({ method: 'GET', path: '/agents/tags', successStatus: 200 })
+    .input(z.object({}))
+    .output(z.object({ items: z.array(z.string()) })),
+  favorite: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'agents.use' } })
+    .route({ method: 'PUT', path: '/agents/{id}/favorite', successStatus: 200 })
+    .input(z.object({ params: idParams, body: z.object({ favorite: z.boolean() }) }))
+    .output(z.object({ favorite: z.boolean() })),
+  archive: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'agents.delete' } })
+    .route({ method: 'POST', path: '/agents/{id}/archive', successStatus: 200 })
+    .input(z.object({ params: idParams }))
+    .output(z.union([agentSchema, agentSummarySchema])),
+  restore: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'agents.delete' } })
+    .route({ method: 'POST', path: '/agents/{id}/restore', successStatus: 200 })
+    .input(z.object({ params: idParams }))
+    .output(z.union([agentSchema, agentSummarySchema])),
   create: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.create' } })
     .route({ method: 'POST', path: '/agents', successStatus: 201 })

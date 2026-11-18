@@ -359,6 +359,10 @@ agents(
   system_prompt_md text,     -- 渲染为 CLAUDE.md
   allowed_tools jsonb,       -- 例如 ["mcp__crm-api__*"]
   disallowed_tools jsonb,    -- 显式拒绝的工具名，默认空；平台默认在代码中
+  visibility text not null default 'private',  -- private | organization；organization 只对已发布、启用、未归档、未软删除的专家生效
+  tags jsonb not null default '[]',            -- 字符串数组，用于发现与筛选
+  archived_at timestamptz,   -- 归档：不删除数据，仅从默认列表与搜索隐藏
+  deleted_at timestamptz,    -- 软删除：保留会话、消息、绑定与工作区目录，可恢复
   max_turns int,
   max_budget_usd numeric,
   monthly_budget_usd numeric,  -- 可空；null 表示不限，当月花费达上限拦截 chat/频道/平台 MCP/定时/记忆审核（eval 不拦截但花费计入）
@@ -371,6 +375,8 @@ agents(
 )
 -- partial unique index agents_single_default_idx on (is_default) where is_default = true
 -- 只保证至多一个默认；恰好一个由 bootstrap 与 buildApp 启动时的幂等播种 ensureDefaultAssistant 保证
+-- index agents_visibility_idx (visibility)；partial index agents_archived_idx (archived_at) where archived_at is not null
+-- CHECK：visibility in ('private','organization')；tags 为字符串数组
 
 agent_versions(
   id text pk,                -- TypeID（av_）
@@ -384,6 +390,30 @@ agent_versions(
 )
 
 agent_servers(agent_id text, server_id text, primary key (agent_id, server_id))
+
+agent_favorites(
+  business_id text,          -- 收藏按业务身份隔离
+  agent_id text fk cascade,
+  created_at timestamptz default now(),
+  primary key (business_id, agent_id)
+)
+-- index agent_favorites_business_idx (business_id)
+
+skills(
+  id text pk,
+  slug text unique,
+  name text, description text, body text, metadata jsonb,
+  license text, compatibility text,  -- SKILL.md frontmatter 原样保留
+  source_id text unique,     -- 市场来源 owner/repo/skill；内部技能为 null
+  owner_business_id text,
+  status text not null default 'published',  -- draft | pending | published | rejected
+  submitted_at timestamptz,  -- 提交审核时间
+  reviewed_at timestamptz,
+  reviewed_by text,
+  review_note text,          -- 驳回原因
+  created_at timestamptz, updated_at timestamptz
+)
+-- index skills_status_updated_idx (status, updated_at)；CHECK status in ('draft','pending','published','rejected')
 
 conversations(id text pk                 -- TypeID，如 srv_/agt_/run_, agent_id text fk           -- TypeID, title text, created_at timestamptz, data_domain_restricted boolean not null default false)
 
@@ -1106,6 +1136,7 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
 │  ├─ 个人记忆 /personal/memory
 │  └─ 记忆提案 /personal/reviews
 ├─ 工作记录
+│  ├─ 会话与成果 /personal/work
 │  ├─ 我的分享 /personal/shares
 │  └─ 使用记录 /personal/usage
 └─ 账号
@@ -1127,10 +1158,15 @@ UI 实体列表复用实体主键；DataTable 通过 `rowKey` 提供行标识，
 - 底部账号入口（显示姓名/头像，指向 `/personal/profile`）是整个个人模块的入口，默认进入个人资料；进入个人模块后侧栏切换为上述三组个人导航，底部同时提供返回工作区与退出登录。个人资料与账号安全对所有已登录用户开放。
 - 运维使用独立导航；业务分组不出现运行、运行环境、健康、审计；账户与角色在同一运维上下文中单列为「平台」。
 - `/` 不承载业务首页或概况，直接重定向到 `/agents`；概况迁入「运维」。
+- 命令面板（⌘K）的完整搜索结果页为 `/search`，不在侧栏导航；页面地图见 `docs/ARCHITECTURE.md` §1.1。
 
 ### 17.3 页面行为
 
 - 专家卡：主操作「开始对话」；名称链接进入配置页；停用专家不执行；卡片不显示连接器/技能计数与 slug。
+- 找专家 `/agents`：支持关键词、标签、收藏与最近使用排序/筛选；可切换进行中 / 已归档 / 已删除，归档与删除列表只对负责人或平台返回数据，归档与软删除均可恢复；默认助手不可归档或删除。
+- 搜索：命令面板（⌘K）按 200ms 防抖查询并按类型分组，可进入 `/search` 查看完整结果；各类型按自身权限过滤。
+- 技能 `/skills`：列表显示状态徽标并支持按状态筛选；按权限提供提交审核、批准与驳回，草稿、待审与驳回技能不能绑定到专家。
+- 会话与成果 `/personal/work`：展示本人最近会话与成果。
 - 创建：名称、角色、职责与工作方式前置；职责与工作方式写入同一个系统提示词（渲染到 `CLAUDE.md`），不新增职责字段；高级设置放模型与 slug；保留导入。
 - 登录：按钮文案为「登录」/「正在登录…」/「重试」；登录成功回到工作区（`/` 重定向 `/agents`）。
 - 专家详情：页签为概览 / 配置 / 专家记忆 / 指令 / 文件与版本（其中「项目规则」「输出风格」「工作流」「Hooks」为「指令」页内的分段）；不再有运行统计页签，改为「查看运行」次级链接。

@@ -44,6 +44,7 @@ import { registerPluginsHttp } from '../modules/plugins/http.js';
 import { pluginsRouter } from '../modules/plugins/router.js';
 import { registerRunExportHttp, runsRouter } from '../modules/runs/router.js';
 import { runtimeEnvironmentsRouter } from '../modules/runtime-environments/router.js';
+import { searchRouter } from '../modules/search/router.js';
 import { registerServersHttp } from '../modules/servers/http.js';
 import { serversRouter } from '../modules/servers/router.js';
 import { registerSkillsHttp } from '../modules/skills/http.js';
@@ -77,6 +78,7 @@ const apiRouter: Router<RpcContract, RequestContext> = {
   plugins: pluginsRouter,
   runs: runsRouter,
   runtimeEnvironments: runtimeEnvironmentsRouter,
+  search: searchRouter,
   servers: serversRouter,
   skills: skillsRouter,
   workflows: workflowsRouter,

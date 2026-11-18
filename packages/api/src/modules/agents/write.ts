@@ -19,6 +19,8 @@ export function toAgentConfigValues(input: AgentConfig) {
     uiFormat: input.uiFormat,
     effort: input.effort ?? null,
     enabled: input.enabled,
+    visibility: input.visibility,
+    tags: input.tags,
     maxTurns: input.maxTurns,
     maxBudgetUsd: String(input.maxBudgetUsd),
     monthlyBudgetUsd: input.monthlyBudgetUsd === null ? null : String(input.monthlyBudgetUsd),
@@ -43,6 +45,8 @@ export function toAgentPatch(
   if (input.uiFormat !== undefined) patch.uiFormat = input.uiFormat;
   if (input.effort !== undefined) patch.effort = input.effort;
   if (input.enabled !== undefined) patch.enabled = input.enabled;
+  if (input.visibility !== undefined) patch.visibility = input.visibility;
+  if (input.tags !== undefined) patch.tags = input.tags;
   if (input.maxTurns !== undefined) patch.maxTurns = input.maxTurns;
   if (input.maxBudgetUsd !== undefined) patch.maxBudgetUsd = String(input.maxBudgetUsd);
   if (input.monthlyBudgetUsd !== undefined)

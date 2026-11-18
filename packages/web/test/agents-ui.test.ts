@@ -135,6 +135,10 @@ vi.mock('../src/lib/queries.js', () => ({
   useCreateAgent: () => ({ isPending: state.creating, mutate: state.create }),
   useDuplicateAgent: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteAgent: () => ({ mutateAsync: state.remove }),
+  useAgentTags: () => ({ data: { items: [] }, isPending: false, isError: false }),
+  useSetAgentFavorite: () => ({ mutate: vi.fn(), isPending: false }),
+  useArchiveAgent: () => ({ mutate: vi.fn(), isPending: false }),
+  useRestoreAgent: () => ({ mutate: vi.fn(), isPending: false }),
   useAgentVersions: () => ({
     data: [{ id: 'v1', version: 1, note: null, createdAt: '2026-01-01' }],
   }),
@@ -1353,7 +1357,11 @@ describe('expert editor regressions', () => {
     { isPending: true, isError: false },
     { isPending: false, isError: true },
     { isPending: false, isError: false },
-    { isPending: false, isError: true, data: { snapshot: parent, definition: null, definitionState: 'legacy' } },
+    {
+      isPending: false,
+      isError: true,
+      data: { snapshot: parent, definition: null, definitionState: 'legacy' },
+    },
   ])('blocks rollback without a successfully loaded version: %j', async (detail) => {
     state.detail = detail;
     await inspect(
@@ -1397,7 +1405,7 @@ describe('expert editor regressions', () => {
         const fields = tree.filter(
           (node) => node.type === Input || node.type === Textarea || node.type === Select,
         );
-        expect(fields).toHaveLength(5);
+        expect(fields).toHaveLength(7);
         expect(fields.every((node) => node.props.disabled === true)).toBe(true);
         expect(
           tree

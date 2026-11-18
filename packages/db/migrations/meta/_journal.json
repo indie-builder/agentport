@@ -645,6 +645,13 @@
       "when": 1794968268323,
       "tag": "0091_magical_eternity",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1794972378671,
+      "tag": "0092_rich_infant_terrible",
+      "breakpoints": true
     }
   ]
 }

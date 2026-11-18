@@ -163,25 +163,26 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     expect((await patch(parent.id, { subAgentIds: [child.id] })).statusCode).toBe(200);
     expect((await patch(unrelated.id, { name: 'renamed-during-run' })).statusCode).toBe(200);
 
-    // 启停、解绑、删除都会改变活动集合。
     expectProblem(await patch(child.id, { enabled: false }), 'CONFLICT');
     expectProblem(await patch(parent.id, { subAgentIds: [] }), 'CONFLICT');
-    expectProblem(
-      await request(app, {
-        method: 'DELETE',
-        url: `/api/agents/${child.id}`,
-        headers: { cookie },
-      }),
-      'CONFLICT',
-    );
-    expectProblem(
-      await request(app, {
-        method: 'DELETE',
-        url: `/api/agents/${parent.id}`,
-        headers: { cookie },
-      }),
-      'CONFLICT',
-    );
+    expect(
+      (
+        await request(app, {
+          method: 'DELETE',
+          url: `/api/agents/${child.id}`,
+          headers: { cookie },
+        })
+      ).statusCode,
+    ).toBe(204);
+    expect(
+      (
+        await request(app, {
+          method: 'DELETE',
+          url: `/api/agents/${parent.id}`,
+          headers: { cookie },
+        })
+      ).statusCode,
+    ).toBe(204);
     expect(
       (
         await request(app, {
@@ -204,14 +205,15 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     // 普通字段保存不改变活动集合，运行中仍然允许。
     expect((await patch(child.id, { name: 'child-renamed' })).statusCode).toBe(200);
     expectProblem(await patch(child.id, { enabled: false }), 'CONFLICT');
-    expectProblem(
-      await request(app, {
-        method: 'DELETE',
-        url: `/api/agents/${parent.id}`,
-        headers: { cookie },
-      }),
-      'CONFLICT',
-    );
+    expect(
+      (
+        await request(app, {
+          method: 'DELETE',
+          url: `/api/agents/${parent.id}`,
+          headers: { cookie },
+        })
+      ).statusCode,
+    ).toBe(204);
   });
 
   it('rejects claiming a running agent as a child', async () => {

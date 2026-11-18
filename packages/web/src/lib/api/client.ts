@@ -18,6 +18,7 @@ import personal from './personal.js';
 import plugins from './plugins.js';
 import runs from './runs.js';
 import runtimeEnvironments from './runtime-environments.js';
+import search from './search.js';
 import servers from './servers.js';
 import skills from './skills.js';
 import workflows from './workflows.js';
@@ -95,6 +96,10 @@ export const api = {
   approveRun: runs.approveRun,
   denyRun: runs.denyRun,
   agents: agents.agents,
+  agentTags: agents.agentTags,
+  setAgentFavorite: agents.setAgentFavorite,
+  archiveAgent: agents.archiveAgent,
+  restoreAgent: agents.restoreAgent,
   agent: agents.agent,
   agentBudget: agents.agentBudget,
   createAgent: agents.createAgent,
@@ -147,6 +152,9 @@ export const api = {
   importSkillFile: skills.importSkillFile,
   updateSkill: skills.updateSkill,
   deleteSkill: skills.deleteSkill,
+  submitSkill: skills.submitSkill,
+  approveSkill: skills.approveSkill,
+  rejectSkill: skills.rejectSkill,
   plugins: plugins.plugins,
   plugin: plugins.plugin,
   updatePlugin: plugins.updatePlugin,
@@ -192,6 +200,7 @@ export const api = {
   channelRunOutputDownloadUrl: channels.channelRunOutputDownloadUrl,
   channelAttachmentDownloadUrl: channels.channelAttachmentDownloadUrl,
   conversations: chat.conversations,
+  search: search.search,
   searchConversations: chat.searchConversations,
   conversation: chat.conversation,
   outputs: chat.outputs,
@@ -245,6 +254,7 @@ export const api = {
   personalRuns: personal.personalRuns,
   personalExportRuns: personal.personalExportRuns,
   personalConversations: personal.personalConversations,
+  personalOutputs: personal.personalOutputs,
   writePersonalMemory: memory.writePersonalMemory,
   personalMemoryDownloadUrl: memory.personalMemoryDownloadUrl,
   personalMemoryVersions: memory.personalMemoryVersions,

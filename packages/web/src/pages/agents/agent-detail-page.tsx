@@ -8,7 +8,7 @@ import {
   useParams,
   useSearch,
 } from '@tanstack/react-router';
-import { ArrowLeft, Bot, Ellipsis, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, Bot, Ellipsis, Trash2 } from 'lucide-react';
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { AgentAvatar } from '../../components/agent/agent-avatar.js';
 import { AgentOverview } from '../../components/agent/agent-overview.js';
@@ -42,7 +42,9 @@ import {
   useAgentDetail,
   useAgentFiles,
   useAgentSummary,
+  useArchiveAgent,
   useDeleteAgent,
+  useRestoreAgent,
   useUpdateAgent,
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
@@ -71,6 +73,8 @@ export function AgentDetailPage() {
   const canReadConfig = !summary.data?.isDefault && hasAnyGrant(permissions, 'agents.config.read');
   const detail = useAgentDetail(params.agentId, canReadConfig);
   const remove = useDeleteAgent();
+  const archive = useArchiveAgent();
+  const restore = useRestoreAgent();
   const toggleEnable = useUpdateAgent();
   const location = useLocation();
   const search = useSearch({ from: '/_shell/agents/$agentId' });
@@ -81,7 +85,12 @@ export function AgentDetailPage() {
   const [membersOpen, setMembersOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   // 删除请求在途时编辑、离开与刷新都要先等它结束；失败则保留草稿供重试。
-  const pending = editorPending || remove.isPending || toggleEnable.isPending;
+  const pending =
+    editorPending ||
+    remove.isPending ||
+    archive.isPending ||
+    restore.isPending ||
+    toggleEnable.isPending;
   // 导入后随导航状态带过来的一次性提示；展示关闭后从本地状态清空。
   const [warnings, setWarnings] = useState<string[]>(() => {
     const state = location.state as { importWarnings?: string[] } | undefined;
@@ -198,6 +207,11 @@ export function AgentDetailPage() {
   const canManageMembers = hasAnyGrant(permissions, 'agents.members.manage');
   const canTransfer = hasAnyGrant(permissions, 'agents.transfer');
   const canDelete = hasAnyGrant(permissions, 'agents.delete');
+  const isArchived =
+    summary.data?.archivedAt != null ||
+    summary.data?.deletedAt != null ||
+    full?.archivedAt != null ||
+    full?.deletedAt != null;
   const canViewRuns = can(me.data, 'runs.read');
   const roleLabel = current.role?.trim() || '通用助手';
   // 配置任务已由工具栏承载删除；页头只在工具栏确实渲染（详情已就绪）时让出入口。
@@ -239,7 +253,7 @@ export function AgentDetailPage() {
                   查看运行
                 </Link>
               ) : null}
-              {canManageMembers || canTransfer || deleteInHeader ? (
+              {canManageMembers || canTransfer || canDelete ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
@@ -263,6 +277,37 @@ export function AgentDetailPage() {
                       {canTransfer ? (
                         <DropdownMenuItem onSelect={() => setTransferOpen(true)}>
                           转交负责人
+                        </DropdownMenuItem>
+                      ) : null}
+                      {canDelete && !isArchived ? (
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            archive.mutate(agentId, {
+                              onSuccess: () => {
+                                toastSuccess('已归档专家');
+                                backToList();
+                              },
+                              onError: toastError,
+                            })
+                          }
+                        >
+                          <Archive className="size-4" /> 归档专家
+                        </DropdownMenuItem>
+                      ) : null}
+                      {canDelete && isArchived ? (
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            restore.mutate(agentId, {
+                              onSuccess: () => {
+                                toastSuccess('已恢复专家');
+                                void summary.refetch();
+                                void access.refetch();
+                              },
+                              onError: toastError,
+                            })
+                          }
+                        >
+                          <ArchiveRestore className="size-4" /> 恢复专家
                         </DropdownMenuItem>
                       ) : null}
                       {deleteInHeader ? (
@@ -354,7 +399,7 @@ export function AgentDetailPage() {
         open={deleting}
         onClose={() => setDeleting(false)}
         title={`删除专家「${current.name}」`}
-        description="它的会话、消息与绑定关系会一并删除，正在运行的任务不会被自动停止。此操作不可撤销。"
+        description="专家会移入「已删除」并停止被发现，会话、消息与绑定关系都会保留，可随时恢复。"
         confirmDisabled={pending}
         onConfirm={async () => {
           if (pending) return;

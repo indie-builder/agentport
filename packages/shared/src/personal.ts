@@ -135,3 +135,33 @@ export const personalRunExportSchema = z.object({
 });
 
 export type PersonalRunExport = z.infer<typeof personalRunExportSchema>;
+
+export const personalOutputListQuerySchema = z
+  .object({
+    q: z.string().trim().max(128).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .strict();
+
+export type PersonalOutputListQuery = z.infer<typeof personalOutputListQuerySchema>;
+
+export const personalOutputItemSchema = z.object({
+  conversationId: z.string(),
+  conversationTitle: z.string(),
+  agentId: z.string(),
+  agentName: z.string(),
+  runId: z.string(),
+  path: z.string(),
+  size: z.number(),
+  mimeType: z.string(),
+  createdAt: z.string(),
+});
+
+export type PersonalOutputItem = z.infer<typeof personalOutputItemSchema>;
+
+export const personalOutputListSchema = z.object({
+  items: z.array(personalOutputItemSchema),
+  truncated: z.boolean(),
+});
+
+export type PersonalOutputList = z.infer<typeof personalOutputListSchema>;

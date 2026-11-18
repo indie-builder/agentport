@@ -131,6 +131,7 @@ async function inspectRoute(
       ['/personal/security', '账号安全'],
       ['/personal/shares', '我的分享'],
       ['/personal/usage', '使用记录'],
+      ['/personal/work', '会话与成果'],
     ] as const
   ).map(([personalPath, title]) =>
     createRoute({
@@ -519,6 +520,7 @@ describe('business and operations navigation contexts', () => {
 const PERSONAL_HREFS = [
   '/personal/memory',
   '/personal/reviews',
+  '/personal/work',
   '/personal/shares',
   '/personal/usage',
   '/personal/profile',
@@ -526,7 +528,7 @@ const PERSONAL_HREFS = [
 ];
 
 describe('personal navigation context', () => {
-  it('shows only the six personal items and the workspace return on personal pages', async () => {
+  it('shows only the seven personal items and the workspace return on personal pages', async () => {
     const view = await inspectRoute('/personal/memory', 'success');
     try {
       expect(navHrefs(view.host)).toEqual(PERSONAL_HREFS);
@@ -609,6 +611,7 @@ describe('personal navigation context', () => {
       expect(navLinks(view.host).map((link) => link.textContent?.trim())).toEqual([
         '个人记忆',
         '记忆提案',
+        '会话与成果',
         '我的分享',
         '使用记录',
         '个人资料',

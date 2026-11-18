@@ -61,6 +61,9 @@ export async function authorize(
   const cached: { value?: AgentRelation } = {};
   if (resource?.agentId !== undefined && resource.privateContent !== true) {
     const relation = await relationFor(context, principal, resource.agentId, cached);
+    if (relation.inactive && permissionId === 'agents.use') {
+      throw new AppError('NOT_FOUND', '对象不存在');
+    }
     if (relation.isDefault) {
       if (agentPermissionAllows(grants, permissionId, relation, principal.businessId)) return;
       throw new AppError('NOT_FOUND', '对象不存在');
@@ -171,6 +174,7 @@ export async function agentAccess(context: RequestContext, agentId: string): Pro
   const permissionIds: PermissionId[] = [];
   for (const definition of PERMISSIONS) {
     if (!granted.has(definition.id)) continue;
+    if (relation.inactive && definition.id === 'agents.use') continue;
     if (
       !definition.scopes.some(
         (scope) =>

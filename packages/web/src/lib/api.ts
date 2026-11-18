@@ -17,6 +17,7 @@ export * from './api/personal.js';
 export * from './api/plugins.js';
 export * from './api/runs.js';
 export * from './api/runtime-environments.js';
+export * from './api/search.js';
 export * from './api/servers.js';
 export * from './api/skills.js';
 export * from './api/workflows.js';

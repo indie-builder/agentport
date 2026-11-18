@@ -2,6 +2,7 @@ import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { Skill } from '@agentport/shared';
 import { isPgCode } from '../../http/errors.js';
+import { toIso } from '../../lib/iso.js';
 
 type SkillRow = NonNullable<Awaited<ReturnType<typeof repo.skills.getSkill>>>;
 export function rethrowConflict(err: unknown): never {
@@ -15,5 +16,10 @@ export function toApi(row: SkillRow): Skill {
     sourceId: row.sourceId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    status: row.status,
+    submittedAt: toIso(row.submittedAt),
+    reviewedAt: toIso(row.reviewedAt),
+    reviewedBy: row.reviewedBy,
+    reviewNote: row.reviewNote,
   };
 }

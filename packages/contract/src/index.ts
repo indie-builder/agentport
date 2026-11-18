@@ -19,6 +19,7 @@ import { personalContract } from './personal.js';
 import { pluginsContract } from './plugins.js';
 import { runsContract } from './runs.js';
 import { runtimeEnvironmentsContract } from './runtime-environments.js';
+import { searchContract } from './search.js';
 import { serversContract } from './servers.js';
 import { skillsContract } from './skills.js';
 import { workflowsContract } from './workflows.js';
@@ -47,6 +48,7 @@ export * from './personal.js';
 export * from './plugins.js';
 export * from './runs.js';
 export * from './runtime-environments.js';
+export * from './search.js';
 export * from './servers.js';
 export * from './skills.js';
 export * from './workflows.js';
@@ -73,6 +75,7 @@ export const apiContract: {
   plugins: typeof pluginsContract;
   runs: typeof runsContract;
   runtimeEnvironments: typeof runtimeEnvironmentsContract;
+  search: typeof searchContract;
   servers: typeof serversContract;
   skills: typeof skillsContract;
   workflows: typeof workflowsContract;
@@ -98,6 +101,7 @@ export const apiContract: {
   plugins: pluginsContract,
   runs: runsContract,
   runtimeEnvironments: runtimeEnvironmentsContract,
+  search: searchContract,
   servers: serversContract,
   skills: skillsContract,
   workflows: workflowsContract,

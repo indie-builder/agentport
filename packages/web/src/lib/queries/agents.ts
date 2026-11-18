@@ -9,6 +9,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import {
   type AgentAccess,
   type AgentFiles,
+  type AgentListParams,
   type AgentMemberList,
   type AgentSummary,
   type AgentVersionDetail,
@@ -17,9 +18,22 @@ import {
 } from '../api.js';
 import { useInvalidate } from './shared.js';
 
+const listAgents = api.agents;
+
 export const agentsQuery = queryOptions<AgentSummary[]>({
   queryKey: ['agents'],
-  queryFn: api.agents,
+  queryFn: () => listAgents(),
+});
+
+export const agentsListQuery = (options: AgentListParams) =>
+  queryOptions<AgentSummary[]>({
+    queryKey: ['agents', 'list', options],
+    queryFn: () => api.agents(options),
+  });
+
+export const agentTagsQuery = queryOptions<{ items: string[] }>({
+  queryKey: ['agent-tags'],
+  queryFn: () => api.agentTags(),
 });
 
 export const agentDetailQuery = (id: string, enabled = true) =>
@@ -76,10 +90,72 @@ export function useAgents() {
   return useQuery(agentsQuery);
 }
 
-export function useExperts() {
+function isDefaultList(options: AgentListParams): boolean {
+  return (
+    (options.status ?? 'active') === 'active' &&
+    options.q === undefined &&
+    options.tag === undefined &&
+    options.favorite === undefined &&
+    options.sort === undefined
+  );
+}
+
+export function useExperts(options?: AgentListParams) {
+  const resolved = options ?? {};
   return useQuery({
-    ...agentsQuery,
+    ...(isDefaultList(resolved) ? agentsQuery : agentsListQuery(resolved)),
     select: (agents: AgentSummary[]) => agents.filter((agent) => !agent.isDefault),
+  });
+}
+
+export function useAgentTags() {
+  return useQuery(agentTagsQuery);
+}
+
+export function useSetAgentFavorite() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; favorite: boolean }) =>
+      api.setAgentFavorite(vars.id, vars.favorite),
+    onSuccess: (_result, vars) => {
+      client.setQueriesData<AgentSummary[]>({ queryKey: ['agents'] }, (old) =>
+        old?.map((agent) =>
+          agent.id === vars.id ? { ...agent, isFavorite: vars.favorite } : agent,
+        ),
+      );
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: ['agent-tags'] });
+    },
+  });
+}
+
+export function useArchiveAgent() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.archiveAgent(id),
+    onSuccess: (_agent, id) => {
+      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: ['agent-tags'] });
+      void client.invalidateQueries({ queryKey: ['overview'] });
+      void client.invalidateQueries({ queryKey: ['agent-detail', id] });
+      void client.invalidateQueries({ queryKey: ['agent-access', id] });
+    },
+  });
+}
+
+export function useRestoreAgent() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.restoreAgent(id),
+    onSuccess: (_agent, id) => {
+      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: ['agent-tags'] });
+      void client.invalidateQueries({ queryKey: ['overview'] });
+      void client.invalidateQueries({ queryKey: ['agent-detail', id] });
+      void client.invalidateQueries({ queryKey: ['agent-access', id] });
+    },
   });
 }
 
@@ -263,6 +339,7 @@ export function useCreateAgent() {
     mutationFn: (input: AgentInput) => api.createAgent(input),
     onSuccess: () => {
       invalidate('agents');
+      invalidate('agent-tags');
       invalidate('overview');
     },
   });
@@ -309,6 +386,7 @@ export function useUpdateAgent() {
     },
     onSettled: (_data, _error, vars) => {
       void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: ['agent-tags'] });
       void client.invalidateQueries({ queryKey: ['agent-files'] });
       void client.invalidateQueries({ queryKey: ['agent-detail', vars.id] });
       void client.invalidateQueries({ queryKey: ['agent-budget', vars.id] });

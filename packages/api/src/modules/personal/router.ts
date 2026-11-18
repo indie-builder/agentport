@@ -7,6 +7,7 @@ import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { toIso } from '../../lib/iso.js';
 import { auditShareRevoked, toOutputShare } from '../output-shares/router.js';
+import { collectPersonalOutputs } from '../search/outputs.js';
 
 const os = implement(personalContract).$context<RequestContext>();
 
@@ -114,6 +115,15 @@ export const personalRouter = os.router({
       })),
       truncated,
     };
+  }),
+
+  outputs: os.outputs.handler(async ({ input, context }) => {
+    const result = await collectPersonalOutputs(context, {
+      q: input.query.q,
+      limit: input.query.limit,
+    });
+    context.responseHeaders.set('cache-control', 'no-store');
+    return result;
   }),
 
   conversations: os.conversations.handler(async ({ input, context }) => {

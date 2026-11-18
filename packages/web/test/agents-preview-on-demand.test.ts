@@ -38,6 +38,7 @@ const state = vi.hoisted(() => ({
     name: string;
     description: string;
     body: string;
+    status: string;
   }>,
 }));
 
@@ -243,6 +244,7 @@ beforeEach(() => {
       name: 'Review skill',
       description: 'Checks reviews',
       body: '# Review',
+      status: 'published',
     },
   ];
   renderSpy.mockClear();

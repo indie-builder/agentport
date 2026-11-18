@@ -10,7 +10,18 @@ import {
 } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Download, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
+import {
+  Check,
+  Download,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Send,
+  Sparkles,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -24,6 +35,7 @@ import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
 import { SourceEditor } from '../components/source-editor.js';
 import { ErrorState, LoadingState } from '../components/states.js';
+import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
@@ -41,20 +53,24 @@ import {
   FieldLabel,
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
+import { Textarea } from '../components/ui/textarea.js';
 import { SegmentedToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
-import { ApiError, api } from '../lib/api.js';
+import { ApiError, api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
 import { formatTokens } from '../lib/format.js';
 import {
   meQuery,
+  useApproveSkill,
   useCreateSkill,
   useDeleteSkill,
   useImportSkillFile,
   useInstallMarketSkill,
   useMarketSkills,
+  useRejectSkill,
   useSkills,
+  useSubmitSkill,
   useUpdateSkill,
 } from '../lib/queries.js';
 import { matchesQuery } from '../lib/search.js';
@@ -70,6 +86,22 @@ const usageOptions = [
   { value: 'bound', label: '已绑定' },
   { value: 'unbound', label: '未绑定' },
 ];
+const statusOptions = [
+  { value: 'all', label: '全部状态' },
+  { value: 'draft', label: '草稿' },
+  { value: 'pending', label: '待审' },
+  { value: 'published', label: '已发布' },
+  { value: 'rejected', label: '已驳回' },
+];
+const statusMeta: Record<
+  Skill['status'],
+  { label: string; tone: 'outline' | 'warn' | 'success' | 'danger' }
+> = {
+  draft: { label: '草稿', tone: 'outline' },
+  pending: { label: '待审', tone: 'warn' },
+  published: { label: '已发布', tone: 'success' },
+  rejected: { label: '已驳回', tone: 'danger' },
+};
 const scopeOptions = [
   { value: 'internal', label: '内部' },
   { value: 'market', label: '市场' },
@@ -110,6 +142,7 @@ export function SkillsPage() {
   const canCreateSkill = can(me.data, 'skills.create');
   const canUpdateSkill = can(me.data, 'skills.update');
   const canDeleteSkill = can(me.data, 'skills.delete');
+  const canReviewSkill = can(me.data, 'skills.review');
   const canImportSkill = can(me.data, 'skills.import');
   const canReadSkillFiles = can(me.data, 'skills.files.read');
   const canWriteSkillFiles = can(me.data, 'skills.files.write');
@@ -121,12 +154,16 @@ export function SkillsPage() {
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
   const usage = search.usage ?? 'all';
+  const skillStatus = search.status;
   const [editing, setEditing] = useState<Skill | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<SkillWithAgentCount | null>(null);
+  const [rejecting, setRejecting] = useState<SkillWithAgentCount | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const importSkill = useImportSkillFile();
+  const submitSkill = useSubmitSkill();
+  const approveSkill = useApproveSkill();
   // 安装生命周期放在常驻页上：切换 scope 卸载市场子页时，请求与提示仍然接得住。
   const install = useInstallMarketSkill();
   const actionTriggerRef = useRef<HTMLElement | null>(null);
@@ -134,19 +171,23 @@ export function SkillsPage() {
   const panelFocus = (): HTMLElement | null =>
     actionTriggerRef.current?.isConnected ? actionTriggerRef.current : createButtonRef.current;
   const setFilter = (
-    patch: { q?: string | undefined; usage?: 'bound' | 'unbound' | undefined },
+    patch: {
+      q?: string | undefined;
+      usage?: 'bound' | 'unbound' | undefined;
+      status?: Skill['status'] | undefined;
+    },
     replace = false,
   ): void => {
-    void navigate({ to: '/skills', search: (previous) => ({ ...previous, ...patch }), replace });
+    void navigate({ to: '/skills', search: { ...search, ...patch }, replace });
   };
   const openMarket = (): void => {
     void navigate({
       to: '/skills',
-      search: (previous) => ({
+      search: {
         scope: 'market',
-        ...(previous.sort ? { sort: previous.sort } : {}),
-        ...(previous.marketView ? { marketView: previous.marketView } : {}),
-      }),
+        ...(search.sort ? { sort: search.sort } : {}),
+        ...(search.marketView ? { marketView: search.marketView } : {}),
+      },
     });
   };
   const importSkillMd = async (file: File): Promise<void> => {
@@ -162,17 +203,30 @@ export function SkillsPage() {
       toastError(error);
     }
   };
+  const submitForReview = (skill: SkillWithAgentCount): void => {
+    submitSkill.mutate(skill.id, {
+      onSuccess: (saved) => toastSuccess(`已提交「${saved.name}」审核`),
+      onError: toastError,
+    });
+  };
+  const approve = (skill: SkillWithAgentCount): void => {
+    approveSkill.mutate(skill.id, {
+      onSuccess: (saved) => toastSuccess(`已发布「${saved.name}」`),
+      onError: toastError,
+    });
+  };
   const visibleSkills = useMemo(() => {
     const term = query.trim().toLocaleLowerCase();
     return (skills.data ?? [])
       .filter(
         (skill) =>
+          (skillStatus === undefined || skill.status === skillStatus) &&
           (usage === 'all' ||
             (usage === 'bound' ? skill.agentCount > 0 : skill.agentCount === 0)) &&
           matchesQuery([skill.name, skill.slug, skill.description, skill.body], term),
       )
       .sort((a, b) => compareBySort(a, b, sort));
-  }, [skills.data, query, sort, usage]);
+  }, [skills.data, query, sort, usage, skillStatus]);
 
   if (scope === 'market') {
     return <MarketSkillsPage skills={skills} install={install} canInstall={canInstallMarket} />;
@@ -204,16 +258,34 @@ export function SkillsPage() {
         />
       }
       filters={
-        <FilterSelect
-          value={usage}
-          onValueChange={(next) => {
-            if (next !== 'all' && next !== 'bound' && next !== 'unbound') return;
-            setFilter({ usage: next === 'all' ? undefined : next });
-          }}
-          options={usageOptions}
-          label="按使用情况筛选"
-          className="w-36"
-        />
+        <>
+          <FilterSelect
+            value={skillStatus ?? 'all'}
+            onValueChange={(next) => {
+              if (next === 'all') setFilter({ status: undefined });
+              else if (
+                next === 'draft' ||
+                next === 'pending' ||
+                next === 'published' ||
+                next === 'rejected'
+              )
+                setFilter({ status: next });
+            }}
+            options={statusOptions}
+            label="按审核状态筛选"
+            className="w-32"
+          />
+          <FilterSelect
+            value={usage}
+            onValueChange={(next) => {
+              if (next !== 'all' && next !== 'bound' && next !== 'unbound') return;
+              setFilter({ usage: next === 'all' ? undefined : next });
+            }}
+            options={usageOptions}
+            label="按使用情况筛选"
+            className="w-36"
+          />
+        </>
       }
       actions={
         <>
@@ -293,7 +365,7 @@ export function SkillsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setFilter({ q: undefined, usage: undefined })}
+              onClick={() => setFilter({ q: undefined, usage: undefined, status: undefined })}
             >
               清除筛选
             </Button>
@@ -322,7 +394,15 @@ export function SkillsPage() {
                   </span>
                 </Button>
                 <p className="truncate text-sm text-muted-foreground">{skill.description}</p>
+                {skill.status === 'rejected' && skill.reviewNote ? (
+                  <p className="truncate text-sm text-danger" title={skill.reviewNote}>
+                    {`驳回原因：${skill.reviewNote}`}
+                  </p>
+                ) : null}
               </div>
+              <StatusBadge tone={statusMeta[skill.status].tone}>
+                {statusMeta[skill.status].label}
+              </StatusBadge>
               <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
                 {skill.agentCount > 0 ? `${skill.agentCount} 个专家` : '未绑定'}
               </span>
@@ -359,10 +439,34 @@ export function SkillsPage() {
                         <Pencil /> 编辑
                       </DropdownMenuItem>
                     ) : null}
-                    {canReadSkillFiles ? (
+                    {canReadSkillFiles && skill.status === 'published' ? (
                       <DropdownMenuItem render={<a href={`/api/skills/${skill.id}/file`} />}>
                         <Download /> 导出 SKILL.md
                       </DropdownMenuItem>
+                    ) : null}
+                    {canUpdateSkill && (skill.status === 'draft' || skill.status === 'rejected') ? (
+                      <DropdownMenuItem
+                        disabled={submitSkill.isPending}
+                        onSelect={() => submitForReview(skill)}
+                      >
+                        <Send /> 提交审核
+                      </DropdownMenuItem>
+                    ) : null}
+                    {canReviewSkill && skill.status === 'pending' ? (
+                      <>
+                        <DropdownMenuItem
+                          disabled={approveSkill.isPending}
+                          onSelect={() => approve(skill)}
+                        >
+                          <Check /> 批准
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => setRejecting(skill)}
+                        >
+                          <X /> 驳回
+                        </DropdownMenuItem>
+                      </>
                     ) : null}
                     {canDeleteSkill ? (
                       <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(skill)}>
@@ -402,6 +506,13 @@ export function SkillsPage() {
           onClose={() => setDeleting(null)}
         />
       ) : null}
+      {rejecting ? (
+        <RejectSkillDialog
+          skill={rejecting}
+          finalFocus={panelFocus}
+          onClose={() => setRejecting(null)}
+        />
+      ) : null}
     </ResourcePage>
   );
 }
@@ -429,7 +540,7 @@ function MarketSkillsPage({
   const clearSearch = (): void => {
     void navigate({
       to: '/skills',
-      search: (previous) => ({ ...previous, q: undefined }),
+      search: { ...search, q: undefined },
       replace: true,
     });
   };
@@ -446,7 +557,7 @@ function MarketSkillsPage({
       onQueryChange={(next) =>
         void navigate({
           to: '/skills',
-          search: (previous) => ({ ...previous, q: next || undefined }),
+          search: { ...search, q: next || undefined },
           replace: true,
         })
       }
@@ -462,9 +573,9 @@ function MarketSkillsPage({
           onChange={() =>
             void navigate({
               to: '/skills',
-              search: (previous) => ({
-                ...(previous.sort ? { sort: previous.sort } : {}),
-              }),
+              search: {
+                ...(search.sort ? { sort: search.sort } : {}),
+              },
             })
           }
         />
@@ -478,10 +589,10 @@ function MarketSkillsPage({
             onChange={(next) =>
               void navigate({
                 to: '/skills',
-                search: (previous) => ({
-                  ...previous,
+                search: {
+                  ...search,
                   marketView: next === 'all-time' ? undefined : next,
-                }),
+                },
               })
             }
           />
@@ -1033,6 +1144,93 @@ function SkillFilesEditor({
         onConfirm={() => (deleteTarget ? remove(deleteTarget) : Promise.resolve())}
       />
     </Field>
+  );
+}
+
+function RejectSkillDialog({
+  skill,
+  onClose,
+  finalFocus,
+}: {
+  skill: SkillWithAgentCount;
+  onClose: () => void;
+  finalFocus?: () => HTMLElement | null;
+}) {
+  const dialog = useDialogClose(onClose);
+  const reject = useRejectSkill();
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const pending = reject.isPending;
+
+  const submit = (): void => {
+    if (pending) return;
+    const trimmed = note.trim();
+    if (trimmed === '') {
+      setError('请填写驳回原因');
+      return;
+    }
+    setError(null);
+    reject.mutate(
+      { id: skill.id, note: trimmed },
+      {
+        onSuccess: () => {
+          toastSuccess(`已驳回「${skill.name}」`);
+          dialog.finish(onClose);
+        },
+        onError: (cause) => setError(errorMessage(cause)),
+      },
+    );
+  };
+
+  return (
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={guardedOpenChange(pending, dialog.close)}
+    >
+      <DialogShell
+        title="驳回技能"
+        description={`驳回「${skill.name}」，修改后可再次提交审核。`}
+        closeDisabled={pending}
+        finalFocus={finalFocus}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" disabled={pending} onClick={dialog.close}>
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={pending}
+              aria-busy={pending}
+              onClick={submit}
+            >
+              {pending ? '提交中…' : '驳回'}
+            </Button>
+          </div>
+        }
+      >
+        <Field data-disabled={pending} data-invalid={Boolean(error)}>
+          <FieldLabel htmlFor="skill-reject-note">驳回原因</FieldLabel>
+          <Textarea
+            id="skill-reject-note"
+            rows={3}
+            maxLength={500}
+            disabled={pending}
+            placeholder="说明需要修改的内容"
+            aria-required="true"
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? 'skill-reject-note-error' : 'skill-reject-note-hint'}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+          <FieldDescription id="skill-reject-note-hint">
+            会记录在技能审核信息中，最长 500 个字符。
+          </FieldDescription>
+          <FieldError id="skill-reject-note-error">{error}</FieldError>
+        </Field>
+      </DialogShell>
+    </Dialog>
   );
 }
 

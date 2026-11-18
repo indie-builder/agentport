@@ -24,6 +24,7 @@ import { Route as ShellOperationsRouteImport } from './routes/_shell/operations'
 import { Route as ShellPersonalRouteImport } from './routes/_shell/personal'
 import { Route as ShellRolesRouteImport } from './routes/_shell/roles'
 import { Route as ShellSchedulesRouteImport } from './routes/_shell/schedules'
+import { Route as ShellSearchRouteImport } from './routes/_shell/search'
 import { Route as ShellServersRouteImport } from './routes/_shell/servers'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
 import { Route as ShellStatusRouteImport } from './routes/_shell/status'
@@ -43,6 +44,7 @@ import { Route as ShellPersonalReviewsRouteImport } from './routes/_shell/person
 import { Route as ShellPersonalSecurityRouteImport } from './routes/_shell/personal.security'
 import { Route as ShellPersonalSharesRouteImport } from './routes/_shell/personal.shares'
 import { Route as ShellPersonalUsageRouteImport } from './routes/_shell/personal.usage'
+import { Route as ShellPersonalWorkRouteImport } from './routes/_shell/personal.work'
 import { Route as ShellPluginsIndexRouteImport } from './routes/_shell/plugins.index'
 import { Route as ShellPluginsPluginIdRouteImport } from './routes/_shell/plugins.$pluginId'
 import { Route as ShellRunsIndexRouteImport } from './routes/_shell/runs.index'
@@ -122,6 +124,11 @@ const ShellRolesRoute = ShellRolesRouteImport.update({
 const ShellSchedulesRoute = ShellSchedulesRouteImport.update({
   id: '/schedules',
   path: '/schedules',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellSearchRoute = ShellSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellServersRoute = ShellServersRouteImport.update({
@@ -220,6 +227,11 @@ const ShellPersonalUsageRoute = ShellPersonalUsageRouteImport.update({
   path: '/usage',
   getParentRoute: () => ShellPersonalRoute,
 } as any)
+const ShellPersonalWorkRoute = ShellPersonalWorkRouteImport.update({
+  id: '/work',
+  path: '/work',
+  getParentRoute: () => ShellPersonalRoute,
+} as any)
 const ShellPluginsIndexRoute = ShellPluginsIndexRouteImport.update({
   id: '/plugins/',
   path: '/plugins/',
@@ -268,6 +280,7 @@ export interface FileRoutesByFullPath {
   '/personal': typeof ShellPersonalRouteWithChildren
   '/roles': typeof ShellRolesRoute
   '/schedules': typeof ShellSchedulesRoute
+  '/search': typeof ShellSearchRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
   '/status': typeof ShellStatusRoute
@@ -282,6 +295,7 @@ export interface FileRoutesByFullPath {
   '/personal/security': typeof ShellPersonalSecurityRoute
   '/personal/shares': typeof ShellPersonalSharesRoute
   '/personal/usage': typeof ShellPersonalUsageRoute
+  '/personal/work': typeof ShellPersonalWorkRoute
   '/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
@@ -307,6 +321,7 @@ export interface FileRoutesByTo {
   '/operations': typeof ShellOperationsRoute
   '/roles': typeof ShellRolesRoute
   '/schedules': typeof ShellSchedulesRoute
+  '/search': typeof ShellSearchRoute
   '/servers': typeof ShellServersRoute
   '/skills': typeof ShellSkillsRoute
   '/status': typeof ShellStatusRoute
@@ -322,6 +337,7 @@ export interface FileRoutesByTo {
   '/personal/security': typeof ShellPersonalSecurityRoute
   '/personal/shares': typeof ShellPersonalSharesRoute
   '/personal/usage': typeof ShellPersonalUsageRoute
+  '/personal/work': typeof ShellPersonalWorkRoute
   '/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/runs/$runId': typeof ShellRunsRunIdRoute
   '/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
@@ -350,6 +366,7 @@ export interface FileRoutesById {
   '/_shell/personal': typeof ShellPersonalRouteWithChildren
   '/_shell/roles': typeof ShellRolesRoute
   '/_shell/schedules': typeof ShellSchedulesRoute
+  '/_shell/search': typeof ShellSearchRoute
   '/_shell/servers': typeof ShellServersRoute
   '/_shell/skills': typeof ShellSkillsRoute
   '/_shell/status': typeof ShellStatusRoute
@@ -365,6 +382,7 @@ export interface FileRoutesById {
   '/_shell/personal/security': typeof ShellPersonalSecurityRoute
   '/_shell/personal/shares': typeof ShellPersonalSharesRoute
   '/_shell/personal/usage': typeof ShellPersonalUsageRoute
+  '/_shell/personal/work': typeof ShellPersonalWorkRoute
   '/_shell/plugins/$pluginId': typeof ShellPluginsPluginIdRoute
   '/_shell/runs/$runId': typeof ShellRunsRunIdRoute
   '/_shell/runtime-environments/$environmentId': typeof ShellRuntimeEnvironmentsEnvironmentIdRoute
@@ -394,6 +412,7 @@ export interface FileRouteTypes {
     | '/personal'
     | '/roles'
     | '/schedules'
+    | '/search'
     | '/servers'
     | '/skills'
     | '/status'
@@ -408,6 +427,7 @@ export interface FileRouteTypes {
     | '/personal/security'
     | '/personal/shares'
     | '/personal/usage'
+    | '/personal/work'
     | '/plugins/$pluginId'
     | '/runs/$runId'
     | '/runtime-environments/$environmentId'
@@ -433,6 +453,7 @@ export interface FileRouteTypes {
     | '/operations'
     | '/roles'
     | '/schedules'
+    | '/search'
     | '/servers'
     | '/skills'
     | '/status'
@@ -448,6 +469,7 @@ export interface FileRouteTypes {
     | '/personal/security'
     | '/personal/shares'
     | '/personal/usage'
+    | '/personal/work'
     | '/plugins/$pluginId'
     | '/runs/$runId'
     | '/runtime-environments/$environmentId'
@@ -475,6 +497,7 @@ export interface FileRouteTypes {
     | '/_shell/personal'
     | '/_shell/roles'
     | '/_shell/schedules'
+    | '/_shell/search'
     | '/_shell/servers'
     | '/_shell/skills'
     | '/_shell/status'
@@ -490,6 +513,7 @@ export interface FileRouteTypes {
     | '/_shell/personal/security'
     | '/_shell/personal/shares'
     | '/_shell/personal/usage'
+    | '/_shell/personal/work'
     | '/_shell/plugins/$pluginId'
     | '/_shell/runs/$runId'
     | '/_shell/runtime-environments/$environmentId'
@@ -614,6 +638,13 @@ declare module '@tanstack/react-router' {
       path: '/schedules'
       fullPath: '/schedules'
       preLoaderRoute: typeof ShellSchedulesRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/search': {
+      id: '/_shell/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof ShellSearchRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/servers': {
@@ -749,6 +780,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellPersonalUsageRouteImport
       parentRoute: typeof ShellPersonalRoute
     }
+    '/_shell/personal/work': {
+      id: '/_shell/personal/work'
+      path: '/work'
+      fullPath: '/personal/work'
+      preLoaderRoute: typeof ShellPersonalWorkRouteImport
+      parentRoute: typeof ShellPersonalRoute
+    }
     '/_shell/plugins/': {
       id: '/_shell/plugins/'
       path: '/plugins'
@@ -801,6 +839,7 @@ interface ShellPersonalRouteChildren {
   ShellPersonalSecurityRoute: typeof ShellPersonalSecurityRoute
   ShellPersonalSharesRoute: typeof ShellPersonalSharesRoute
   ShellPersonalUsageRoute: typeof ShellPersonalUsageRoute
+  ShellPersonalWorkRoute: typeof ShellPersonalWorkRoute
   ShellPersonalIndexRoute: typeof ShellPersonalIndexRoute
 }
 
@@ -811,6 +850,7 @@ const ShellPersonalRouteChildren: ShellPersonalRouteChildren = {
   ShellPersonalSecurityRoute: ShellPersonalSecurityRoute,
   ShellPersonalSharesRoute: ShellPersonalSharesRoute,
   ShellPersonalUsageRoute: ShellPersonalUsageRoute,
+  ShellPersonalWorkRoute: ShellPersonalWorkRoute,
   ShellPersonalIndexRoute: ShellPersonalIndexRoute,
 }
 
@@ -831,6 +871,7 @@ interface ShellRouteChildren {
   ShellPersonalRoute: typeof ShellPersonalRouteWithChildren
   ShellRolesRoute: typeof ShellRolesRoute
   ShellSchedulesRoute: typeof ShellSchedulesRoute
+  ShellSearchRoute: typeof ShellSearchRoute
   ShellServersRoute: typeof ShellServersRoute
   ShellSkillsRoute: typeof ShellSkillsRoute
   ShellStatusRoute: typeof ShellStatusRoute
@@ -864,6 +905,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellPersonalRoute: ShellPersonalRouteWithChildren,
   ShellRolesRoute: ShellRolesRoute,
   ShellSchedulesRoute: ShellSchedulesRoute,
+  ShellSearchRoute: ShellSearchRoute,
   ShellServersRoute: ShellServersRoute,
   ShellSkillsRoute: ShellSkillsRoute,
   ShellStatusRoute: ShellStatusRoute,

@@ -34,11 +34,15 @@ async function requireSkill(
   );
   return row;
 }
+async function conflictOrMissing(context: RequestContext, id: string, message: string) {
+  if (await repo.getSkill(context.db, id)) return fail('CONFLICT', message);
+  return notFound();
+}
 const os = implement(skillsContract).$context<RequestContext>();
 export const skillsRouter = os.router({
-  list: os.list.handler(async ({ context }) => {
+  list: os.list.handler(async ({ context, input: routeInput }) => {
     const access = await resourceAccessFilter(context, 'skills.read', 'skill', 'read');
-    const rows = await repo.listSkills(context.db, access);
+    const rows = await repo.listSkills(context.db, access, routeInput.query.status);
     return rows.map((row): SkillWithAgentCount => ({ ...toApi(row), agentCount: row.agentCount }));
   }),
   create: os.create.handler(async ({ context, input: routeInput }) => {
@@ -128,6 +132,56 @@ export const skillsRouter = os.router({
       requestId: context.requestId,
     });
     return undefined;
+  }),
+  submit: os.submit.handler(async ({ context, input: routeInput }) => {
+    await requireSkill(context, routeInput.params.id, 'skills.update', 'manage');
+    const row = await repo.submitSkillForReview(context.db, routeInput.params.id);
+    if (!row)
+      return conflictOrMissing(context, routeInput.params.id, '只有草稿或已驳回的技能可以提交审核');
+    await skillRepo.audit.writeAudit(context.db, context.log, {
+      actor: actorOf(context),
+      action: 'skill.submitted',
+      target: row.id,
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return toApi(row);
+  }),
+  approve: os.approve.handler(async ({ context, input: routeInput }) => {
+    await requireSkill(context, routeInput.params.id, 'skills.review', 'manage');
+    const row = await repo.approveSkill(
+      context.db,
+      routeInput.params.id,
+      requireUser(context).businessId,
+    );
+    if (!row) return conflictOrMissing(context, routeInput.params.id, '只有待审核的技能可以批准');
+    await skillRepo.audit.writeAudit(context.db, context.log, {
+      actor: actorOf(context),
+      action: 'skill.approved',
+      target: row.id,
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return toApi(row);
+  }),
+  reject: os.reject.handler(async ({ context, input: routeInput }) => {
+    await requireSkill(context, routeInput.params.id, 'skills.review', 'manage');
+    const row = await repo.rejectSkill(
+      context.db,
+      routeInput.params.id,
+      requireUser(context).businessId,
+      routeInput.body.note,
+    );
+    if (!row) return conflictOrMissing(context, routeInput.params.id, '只有待审核的技能可以驳回');
+    await skillRepo.audit.writeAudit(context.db, context.log, {
+      actor: actorOf(context),
+      action: 'skill.rejected',
+      target: row.id,
+      input: { note: routeInput.body.note },
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return toApi(row);
   }),
   files: os.files.handler(async ({ context, input: routeInput }) => {
     const skill = await requireSkill(context, routeInput.params.id, 'skills.files.read', 'read');

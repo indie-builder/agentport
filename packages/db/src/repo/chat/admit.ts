@@ -170,6 +170,8 @@ export async function admitChatRun(
       .select({
         id: agents.id,
         enabled: agents.enabled,
+        archivedAt: agents.archivedAt,
+        deletedAt: agents.deletedAt,
         model: agents.model,
       })
       .from(agents)
@@ -177,6 +179,9 @@ export async function admitChatRun(
       .limit(1)
       .for('key share');
     if (!owner) notFound('agent');
+    if (owner.archivedAt !== null || owner.deletedAt !== null) {
+      fail('AGENT_DISABLED', '该智能体已归档或删除，无法发起新对话');
+    }
     // 入口的 enabled 预检在锁外；停用若在等锁期间提交，只有锁内重读才能拦住这次入队。
     if (!owner.enabled && input.allowDisabled !== true) {
       fail('AGENT_DISABLED', '该智能体已停用，无法发起新对话；请到智能体页面启用后再试');

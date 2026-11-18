@@ -94,6 +94,24 @@ function objectPermissionAllows(
   });
 }
 
+export async function checkQueuedAgentActive(
+  db: Database,
+  agentId: string,
+): Promise<RunAccessDenial | null> {
+  const [agent] = await db
+    .select({ archivedAt: schema.agents.archivedAt, deletedAt: schema.agents.deletedAt })
+    .from(schema.agents)
+    .where(eq(schema.agents.id, agentId))
+    .limit(1);
+  if (!agent) {
+    return { reason: 'invalid_subject', message: '专家不存在，运行未启动' };
+  }
+  if (agent.archivedAt !== null || agent.deletedAt !== null) {
+    return { reason: 'permission_denied', message: '该专家已归档或删除，运行未启动' };
+  }
+  return null;
+}
+
 const QUEUED_DENIED = '当前账户没有该操作的权限，运行未启动';
 const QUEUED_SOURCE_MISMATCH = '运行来源与数据库记录不一致，未启动';
 
@@ -123,6 +141,7 @@ export async function checkQueuedRunAccess(
     reason: 'permission_denied',
     message: QUEUED_DENIED,
   });
+  if (relation.inactive) return denied();
   // 频道成员资格就是频道 lane 的授权来源：不再要求平台的 agents.use 专家范围。
   if (
     run.trigger !== 'channel' &&

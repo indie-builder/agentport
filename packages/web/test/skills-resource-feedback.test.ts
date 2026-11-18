@@ -24,8 +24,13 @@ const state = vi.hoisted(() => ({
 vi.mock('@tanstack/react-router', () => ({
   useNavigate:
     () =>
-    (options: { search?: (current: Record<string, unknown>) => object; replace?: boolean }) => {
-      Object.assign(state.search, options.search?.(state.search) ?? {});
+    (options: {
+      search?: ((current: Record<string, unknown>) => object) | object;
+      replace?: boolean;
+    }) => {
+      const next =
+        typeof options.search === 'function' ? options.search(state.search) : options.search;
+      Object.assign(state.search, next ?? {});
       state.lastReplace = options.replace;
     },
   useSearch: () => state.search,
@@ -46,6 +51,9 @@ vi.mock('../src/lib/queries.js', () => {
     useCreateSkill: mutation,
     useUpdateSkill: mutation,
     useDeleteSkill: mutation,
+    useSubmitSkill: mutation,
+    useApproveSkill: mutation,
+    useRejectSkill: mutation,
     useImportSkillFile: mutation,
   };
 });
@@ -187,6 +195,11 @@ describe('internal skill library empty state', () => {
           agentCount: 0,
           createdAt: '2026-01-01',
           updatedAt: '2026-01-01',
+          status: 'published',
+          submittedAt: null,
+          reviewedAt: null,
+          reviewedBy: null,
+          reviewNote: null,
         },
       ],
     };
@@ -297,7 +310,19 @@ describe('market readiness', () => {
   it('treats an installed skill as done from the real installed set', async () => {
     state.skills = {
       ...state.skills,
-      data: [{ id: 'skill', sourceId: 'owner/repo/pdf', agentCount: 0, name: 'PDF' }],
+      data: [
+        {
+          id: 'skill',
+          sourceId: 'owner/repo/pdf',
+          agentCount: 0,
+          name: 'PDF',
+          status: 'published',
+          submittedAt: null,
+          reviewedAt: null,
+          reviewedBy: null,
+          reviewNote: null,
+        },
+      ],
     };
     await inspectMarket((tree) => {
       const button = required(tree, (node) => installButtons([node]).length === 1);

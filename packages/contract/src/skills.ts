@@ -4,6 +4,7 @@ import {
   skillFileSchema,
   skillInputSchema,
   skillSchema,
+  skillStatusSchema,
   skillWithAgentCountSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
@@ -28,7 +29,7 @@ export const skillsContract = {
   list: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'skills.read' } })
     .route({ method: 'GET', path: '/skills', successStatus: 200 })
-    .input(z.object({}))
+    .input(z.object({ query: z.object({ status: skillStatusSchema.optional() }) }))
     .output(z.array(skillWithAgentCountSchema)),
   create: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'skills.create' } })
@@ -72,4 +73,24 @@ export const skillsContract = {
     .route({ method: 'DELETE', path: '/skills/{id}/files/{+path}', successStatus: 204 })
     .input(z.object({ params: skillFileParams }))
     .output(z.void()),
+  submit: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'skills.update' } })
+    .route({ method: 'POST', path: '/skills/{id}/submit', successStatus: 200 })
+    .input(z.object({ params: idParams }))
+    .output(skillSchema),
+  approve: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'skills.review' } })
+    .route({ method: 'POST', path: '/skills/{id}/approve', successStatus: 200 })
+    .input(z.object({ params: idParams }))
+    .output(skillSchema),
+  reject: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'skills.review' } })
+    .route({ method: 'POST', path: '/skills/{id}/reject', successStatus: 200 })
+    .input(
+      z.object({
+        params: idParams,
+        body: z.object({ note: z.string().trim().min(1).max(500) }),
+      }),
+    )
+    .output(skillSchema),
 };

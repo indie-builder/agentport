@@ -33,6 +33,14 @@ export interface AgentImportResult {
 
 export type AgentOptions = ApiOutput<ApiClient['agents']['options']>;
 
+export interface AgentListParams {
+  q?: string;
+  tag?: string;
+  favorite?: 'true';
+  sort?: 'name' | 'recent';
+  status?: 'active' | 'archived' | 'deleted';
+}
+
 export type AgentSummary = ApiOutput<ApiClient['agents']['list']>[number];
 
 export interface AgentMemberList {
@@ -56,7 +64,15 @@ export interface AgentVersionDetail {
 }
 
 export default {
-  agents: (): Promise<AgentSummary[]> => rpc.agents.list({}),
+  agents: (params: AgentListParams = {}): Promise<AgentSummary[]> =>
+    rpc.agents.list({ query: params }),
+  agentTags: (): Promise<{ items: string[] }> => rpc.agents.tags({}),
+  setAgentFavorite: (id: string, favorite: boolean): Promise<{ favorite: boolean }> =>
+    rpc.agents.favorite({ params: { id }, body: { favorite } }),
+  archiveAgent: (id: string): Promise<Agent | AgentSummary> =>
+    rpc.agents.archive({ params: { id } }),
+  restoreAgent: (id: string): Promise<Agent | AgentSummary> =>
+    rpc.agents.restore({ params: { id } }),
   agent: (id: string, signal?: AbortSignal): Promise<Agent> =>
     rpc.agents.get({ params: { id } }, clientOptions(signal)),
   agentBudget: (id: string): Promise<AgentBudgetStatus> => rpc.agents.budget({ params: { id } }),
