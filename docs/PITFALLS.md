@@ -599,7 +599,7 @@
 
 ## 测试：给共用页面新增查询后，其他测试文件的「未配置请求」断言会集体失败
 
-- **现象**：知识库列表页新增个人置顶查询后，只改了自己的 `knowledge-management.test.ts`，另三个也渲染 `KnowledgePage` 的文件（`knowledge-audio`、`knowledge-source-forms`、`knowledge-create-flow`）报 `expected [ 'GET /api/knowledge/bases/pins' ] to deeply equal []`。
+- **现象**：知识库列表页新增个人置顶查询后，只改了自己负责的知识库测试，另三个也渲染 `KnowledgePage` 的文件（`knowledge-audio`、`knowledge-source-forms`、`knowledge-create-flow`）报 `expected [ 'GET /api/knowledge/bases/pins' ] to deeply equal []`。
 - **原因**：这些文件各自维护 MSW handler，`msw.assertClean()` 把任何未配置请求当作失败；页面新增 Query 等于给所有渲染它的文件加了必配路由。中途 `await cleanup()` 会 `resetHandlers()`，之后还需要重新注册默认 handler。
 - **规避**：新增列表级查询时先 `grep -l "<页面组件>" packages/web/test` 找出所有渲染该页面的文件，逐文件补默认 handler；用例内覆盖同一路由时用更靠后的 `server.use` 覆盖默认值，不要在共享 helper 里写死业务返回。
 
