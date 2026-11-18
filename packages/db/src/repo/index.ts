@@ -31,6 +31,7 @@ export * as runFeedback from './run-feedback.js';
 export * as runInstructions from './run-instructions.js';
 export * as runs from './runs.js';
 export * as runtimeEnvironments from './runtime-environments.js';
+export * as search from './search.js';
 export * as servers from './servers.js';
 export * as skillFiles from './skill-files.js';
 export * as skills from './skills.js';

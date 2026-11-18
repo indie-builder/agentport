@@ -25,6 +25,7 @@ import {
   Puzzle,
   Scale,
   ScrollText,
+  Search,
   Share2,
   Sparkles,
   User,
@@ -140,6 +141,13 @@ const pages = {
     permissionIds: ['integrations.read'],
   },
   notifications: { to: '/notifications', label: '通知与待办', icon: Bell, permissionIds: [] },
+  search: { to: '/search', label: '搜索', icon: Search, permissionIds: [] },
+  work: {
+    to: '/personal/work',
+    label: '会话与成果',
+    icon: History,
+    permissionIds: ['conversations.read'],
+  },
   profile: { to: '/personal/profile', label: '个人资料', icon: User, permissionIds: [] },
   memory: {
     to: '/personal/memory',
@@ -190,7 +198,7 @@ export const PERSONAL_NAV_GROUPS: readonly {
   },
   {
     label: '工作记录',
-    items: [pages.shares, pages.usage],
+    items: [pages.work, pages.shares, pages.usage],
   },
   {
     label: '账号',
@@ -255,10 +263,12 @@ export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
   '/_shell/agents/$agentId': pages.agents,
   '/_shell/chat': pages.chat,
   '/_shell/notifications': pages.notifications,
+  '/_shell/search': pages.search,
   '/_shell/channels/': pages.channels,
   '/_shell/channels/$channelId': pages.channels,
   '/_shell/personal/': pages.profile,
   '/_shell/personal/profile': pages.profile,
+  '/_shell/personal/work': pages.work,
   '/_shell/personal/memory': pages.memory,
   '/_shell/personal/reviews': pages.reviews,
   '/_shell/personal/security': pages.security,

@@ -11,6 +11,14 @@
 - 接入原生 `TodoWrite` 任务清单：运行配置与专家包可移植启用，成功快照贯通 SSE、消息保存、历史恢复与按轮展示；停止/失败不改写步骤状态。
 - 会话成果：原生 Read/Write/Edit 写入独立 `/mnt/outputs` 草稿，每轮发布不可变文件快照；成果面板支持版本选择、Markdown/源码预览、下载与“基于此版本修改”，分支按历史边界复制，停止后保留已写文件；不新增成果表或云存储服务。
 
+### 专家发现与工作检索
+
+- 迁移 0092：`agents` 新增 `visibility`（`private` / `organization`）、`tags`、`archived_at`、`deleted_at` 及索引；新增按业务身份隔离的 `agent_favorites`；`skills` 新增 `status`（`draft` / `pending` / `published` / `rejected`）与提交/审核字段及状态索引。
+- 专家发现：组织可见仅对已发布、启用、未归档、未软删除的专家生效；列表支持关键词、标签、收藏与最近使用排序；新增标签、收藏、归档与恢复入口。软删除保留会话、消息、绑定关系与工作区成果并可恢复；频道 @、MCP 调用与所有已入队 run 同步拒绝归档/软删除专家；默认助手不可归档或删除。
+- 统一搜索：`GET /api/search` 跨专家、会话、知识库、连接器、技能、插件与成果聚合，按类型独立过滤权限；命令面板（⌘K）200ms 防抖分组展示，并可进入 `/search` 完整结果页。
+- 个人工作清单：`GET /api/me/outputs` 返回本人私有会话成果，新增 `/personal/work`「会话与成果」页。
+- 技能审核：运行沉淀生成草稿，提交、批准与驳回构成审核生命周期；审核使用 `skills.review` 并写审计；未发布技能不能绑定、加载或导出，技能页增加状态徽标与审核操作。
+
 ### 连接器
 
 - generated 连接器补齐内部/外部 HTTP→MCP：新增 `GENERATED_PRIVATE_HOST_ALLOWLIST` 与 `assertServerEndpoint`，对显式白名单主机放行私网，贯穿创建/保存/测试/运行/对话/专家包导入；支持 OpenAPI 3.x / Swagger 2.0（JSON/YAML）批量导入，先预览勾选再单事务写入，web 提供「导入 OpenAPI」弹层。仅 `kind='generated'` 可用，导入写审计，错误码沿用现有集合；不引入聚合网关。

@@ -65,6 +65,8 @@ export const emptyInput: AgentInput = {
   budgetAlertRatio: 0.8,
   timeoutMs: 600_000,
   enabled: true,
+  visibility: 'private',
+  tags: [],
   runtimeEnvironmentId: null,
 };
 
@@ -90,6 +92,8 @@ export function toInput(agent: Agent): AgentInput {
     budgetAlertRatio: agent.budgetAlertRatio,
     timeoutMs: agent.timeoutMs,
     enabled: agent.enabled,
+    visibility: agent.visibility ?? 'private',
+    tags: agent.tags ?? [],
     runtimeEnvironmentId: agent.runtimeEnvironmentId,
     // 显式保留 undefined 键：RHF 的 defaultValues 必须覆盖每个受控字段，
     // 否则 reset 后 useController 写回的 undefined 会让表单再次判定为 dirty。
@@ -115,18 +119,27 @@ export function toolLines(text: string): string[] {
     .filter(Boolean);
 }
 
+export function tagList(text: string): string[] {
+  return text
+    .split(/[,，、]/)
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
 /**
  * 表单里保留原始文本：工具列表在输入过程中可能还不合法，
  * 但 RHF 必须能存住这份中间草稿，提交时才解析成 AgentInput。
  */
-export type AgentDraft = Omit<AgentInput, 'allowedTools'> & {
+export type AgentDraft = Omit<AgentInput, 'allowedTools' | 'tags'> & {
   allowedTools: string;
+  tags: string;
 };
 
 export function draftFromInput(input: AgentInput): AgentDraft {
   return {
     ...input,
     allowedTools: input.allowedTools.join('\n'),
+    tags: input.tags.join('、'),
   };
 }
 
@@ -134,6 +147,7 @@ export function inputFromDraft(draft: AgentDraft): AgentInput {
   return {
     ...draft,
     allowedTools: toolLines(draft.allowedTools),
+    tags: tagList(draft.tags),
   };
 }
 
@@ -147,6 +161,18 @@ export const agentFormSchema = agentInputSchema
       .max(128, '最多 128 个字符，请精简后再保存'),
     description: z.string().max(300, '最多 300 个字符，请精简后再保存').default(''),
     allowedTools: z.string().default(''),
+    tags: z
+      .string()
+      .default('')
+      .superRefine((value, ctx) => {
+        const tags = tagList(value);
+        if (tags.length > 10) {
+          ctx.addIssue({ code: 'custom', message: '最多 10 个标签，请精简后再保存' });
+        }
+        if (tags.some((tag) => tag.length > 24)) {
+          ctx.addIssue({ code: 'custom', message: '单个标签最多 24 个字符，请精简后再保存' });
+        }
+      }),
     maxTurns: z
       .number({ error: invalidNumberMessage })
       .int(invalidNumberMessage)

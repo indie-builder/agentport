@@ -235,6 +235,7 @@ describe('agent list empty state follows agent permissions', () => {
 
   it('keeps the no-results state actionable when filters return nothing', async () => {
     client.setQueryData(['agents'], [agent]);
+    client.setQueryData(['agents', 'list', { status: 'active', q: 'missing' }], [agent]);
     client.setQueryData(['me'], readerMe);
     client.setQueryData(['runtime-environments'], []);
     const router = await mount(AgentsPage, '/agents?q=missing');

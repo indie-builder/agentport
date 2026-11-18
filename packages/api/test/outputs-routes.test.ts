@@ -602,7 +602,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     expect(read.json<{ content: string }>().content).toBe('# v1\n');
   });
 
-  it('removes outputs with the conversation and with the agent', async () => {
+  it('removes outputs with the conversation and keeps them on agent soft delete', async () => {
     const agent = await newAgent();
     const id = await newConversation(agent.id);
     await publish(agent.slug, id, 'run_del', { 'a.md': 'a' });
@@ -624,6 +624,16 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
       headers: auth(),
     });
     expect(removedAgent.statusCode, removedAgent.body).toBe(204);
-    await expect(stat(join(outputsDir(secondAgent.slug)))).rejects.toThrow();
+    await expect(stat(join(outputsDir(secondAgent.slug)))).resolves.toBeDefined();
+    expect((await repo.agents.getAgent(app.db, secondAgent.id))?.deletedAt).not.toBeNull();
+    const deleted = await request(app, {
+      method: 'GET',
+      url: '/api/agents?status=deleted',
+      headers: auth(),
+    });
+    expect(deleted.statusCode, deleted.body).toBe(200);
+    expect(deleted.json<Array<{ id: string }>>().some((row) => row.id === secondAgent.id)).toBe(
+      true,
+    );
   });
 });

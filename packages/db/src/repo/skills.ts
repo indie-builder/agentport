@@ -1,6 +1,6 @@
 import { AppError, fail, type SkillProvenance } from '@agentport/core';
 import { findSkillResourcePathConflict, type ResourceAccessFilter } from '@agentport/shared';
-import { and, asc, count, eq } from 'drizzle-orm';
+import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentSkills, skillFiles, skills } from '../schema.js';
@@ -39,12 +39,14 @@ export interface SkillWrite {
   metadata?: Record<string, unknown> | undefined;
   sourceId?: string | null;
   ownerBusinessId?: string | null;
+  status?: SkillRow['status'];
 }
 
 /** 列表附带绑定的智能体数量；分组依据是主键，其余列在 PG 中函数依赖于它。 */
 export async function listSkills(
   db: Database,
   access?: ResourceAccessFilter,
+  status?: SkillRow['status'],
 ): Promise<SkillWithAgentCount[]> {
   return db
     .select({
@@ -58,6 +60,11 @@ export async function listSkills(
       metadata: skills.metadata,
       sourceId: skills.sourceId,
       ownerBusinessId: skills.ownerBusinessId,
+      status: skills.status,
+      submittedAt: skills.submittedAt,
+      reviewedAt: skills.reviewedAt,
+      reviewedBy: skills.reviewedBy,
+      reviewNote: skills.reviewNote,
       createdAt: skills.createdAt,
       updatedAt: skills.updatedAt,
       agentCount: count(agentSkills.agentId),
@@ -65,9 +72,12 @@ export async function listSkills(
     .from(skills)
     .leftJoin(agentSkills, eq(agentSkills.skillId, skills.id))
     .where(
-      access === undefined
-        ? undefined
-        : resourceScopeWhere(access, skills.id, skills.ownerBusinessId),
+      and(
+        access === undefined
+          ? undefined
+          : resourceScopeWhere(access, skills.id, skills.ownerBusinessId),
+        status === undefined ? undefined : eq(skills.status, status),
+      ),
     )
     .groupBy(skills.id)
     .orderBy(asc(skills.createdAt), asc(skills.id));
@@ -146,6 +156,61 @@ export async function updateSkill(
   if (!row && expectedUpdatedAt !== undefined && (await getSkill(db, id))) {
     throw new AppError('CONFLICT_STALE', '技能已被修改，请刷新后重试');
   }
+  return row ?? null;
+}
+
+export async function submitSkillForReview(db: Database, id: string): Promise<SkillRow | null> {
+  const [row] = await db
+    .update(skills)
+    .set({
+      status: 'pending',
+      submittedAt: new Date(),
+      reviewedAt: null,
+      reviewedBy: null,
+      reviewNote: null,
+      updatedAt: touchUpdatedAt(skills.updatedAt),
+    })
+    .where(and(eq(skills.id, id), inArray(skills.status, ['draft', 'rejected'])))
+    .returning();
+  return row ?? null;
+}
+
+export async function approveSkill(
+  db: Database,
+  id: string,
+  reviewer: string,
+): Promise<SkillRow | null> {
+  const [row] = await db
+    .update(skills)
+    .set({
+      status: 'published',
+      reviewedAt: new Date(),
+      reviewedBy: reviewer,
+      reviewNote: null,
+      updatedAt: touchUpdatedAt(skills.updatedAt),
+    })
+    .where(and(eq(skills.id, id), eq(skills.status, 'pending')))
+    .returning();
+  return row ?? null;
+}
+
+export async function rejectSkill(
+  db: Database,
+  id: string,
+  reviewer: string,
+  note: string,
+): Promise<SkillRow | null> {
+  const [row] = await db
+    .update(skills)
+    .set({
+      status: 'rejected',
+      reviewedAt: new Date(),
+      reviewedBy: reviewer,
+      reviewNote: note,
+      updatedAt: touchUpdatedAt(skills.updatedAt),
+    })
+    .where(and(eq(skills.id, id), eq(skills.status, 'pending')))
+    .returning();
   return row ?? null;
 }
 

@@ -252,10 +252,41 @@ async function sandboxTargetsForConversation(
 export interface ConversationSummary {
   id: string;
   agentId: string;
+  agentName: string;
   title: string;
   createdAt: Date;
   updatedAt: Date;
   lastMessage: { role: string; text: string; createdAt: Date } | null;
+}
+
+export interface OwnConversationWithAgent {
+  id: string;
+  title: string;
+  agentId: string;
+  agentName: string;
+  agentSlug: string;
+  updatedAt: Date;
+}
+
+export async function listOwnConversationsWithAgent(
+  db: Database,
+  businessId: string,
+  limit: number,
+): Promise<OwnConversationWithAgent[]> {
+  return db
+    .select({
+      id: conversations.id,
+      title: conversations.title,
+      agentId: conversations.agentId,
+      agentName: agents.name,
+      agentSlug: agents.slug,
+      updatedAt: conversations.lastMessageAt,
+    })
+    .from(conversations)
+    .innerJoin(agents, eq(agents.id, conversations.agentId))
+    .where(and(eq(conversations.createdBy, businessId), isNull(conversations.channelId)))
+    .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
+    .limit(limit);
 }
 
 /** 会话列表：updatedAt 取最后一条消息时间，无消息时退回创建时间。 */
@@ -271,10 +302,12 @@ export async function listConversations(
     .select({
       id: conversations.id,
       agentId: conversations.agentId,
+      agentName: agents.name,
       title: conversations.title,
       createdAt: conversations.createdAt,
     })
     .from(conversations)
+    .innerJoin(agents, eq(agents.id, conversations.agentId))
     .where(
       and(agentFilter, conversationAccessWhere(options.access), isNull(conversations.channelId)),
     )
@@ -300,6 +333,7 @@ export async function listConversations(
     .select({
       id: page.id,
       agentId: page.agentId,
+      agentName: page.agentName,
       title: page.title,
       createdAt: page.createdAt,
       lastRole: last.role,

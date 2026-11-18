@@ -686,10 +686,11 @@ describe('expert creation lifecycle', () => {
   });
 
   it('finds experts by occupation and displays a fallback for historical blank roles', async () => {
-    client.setQueryData(
-      ['agents'],
-      [agent, { ...agent, id: 'tester', name: 'QA', role: '测试工程师' }],
+    const tester = { ...agent, id: 'tester', name: 'QA', role: '测试工程师' };
+    vi.mocked(api.agents).mockImplementation(async (params) =>
+      params?.q === undefined ? [agent, tester] : [tester],
     );
+    client.setQueryData(['agents'], [agent, tester]);
     const router = await mount();
     expect(host.querySelector('[aria-label="专家列表"]')?.textContent).toContain('通用助手');
     await act(async () => router.navigate({ to: '/agents', search: { q: '测试工程师' } }));

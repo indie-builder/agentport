@@ -74,6 +74,8 @@ export function CreateAgentDialog({
   const control = rhf.control as unknown as Control<AgentDraft, unknown, AgentDraft>;
   const errors = rhf.formState.errors;
   const roleField = useController({ control, name: 'role' }).field;
+  const visibilityField = useController({ control, name: 'visibility' }).field;
+  const tagsField = useController({ control, name: 'tags' }).field;
   const isTwin = roleField.value === '数字分身';
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -217,6 +219,56 @@ export function CreateAgentDialog({
                 </SelectContent>
               </Select>
               <FieldError id="new-agent-role-error">{errors.role?.message}</FieldError>
+            </Field>
+          </FieldGroup>
+          <FieldGroup className="grid gap-3 sm:grid-cols-2">
+            <Field data-disabled={create.isPending} className="gap-1.5">
+              <FieldLabel htmlFor="new-agent-visibility">可见范围</FieldLabel>
+              <Select
+                disabled={create.isPending}
+                value={visibilityField.value}
+                items={[
+                  { value: 'private', label: '私有' },
+                  { value: 'organization', label: '组织可见' },
+                ]}
+                onValueChange={(next) => {
+                  if (next === 'private' || next === 'organization') visibilityField.onChange(next);
+                }}
+              >
+                <SelectTrigger id="new-agent-visibility" className="w-full min-w-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="private">私有</SelectItem>
+                    <SelectItem value="organization">组织可见</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <FieldDescription>组织可见需发布后对其他成员开放。</FieldDescription>
+            </Field>
+            <Field
+              data-disabled={create.isPending}
+              className="gap-1.5"
+              data-invalid={Boolean(errors.tags)}
+            >
+              <FieldLabel htmlFor="new-agent-tags">标签</FieldLabel>
+              <Input
+                disabled={create.isPending}
+                id="new-agent-tags"
+                value={tagsField.value}
+                placeholder="客服、写作"
+                aria-invalid={Boolean(errors.tags)}
+                aria-describedby={errors.tags ? 'new-agent-tags-error' : 'new-agent-tags-hint'}
+                onChange={(event) => tagsField.onChange(event.target.value)}
+              />
+              {errors.tags ? (
+                <FieldError id="new-agent-tags-error">{errors.tags.message}</FieldError>
+              ) : (
+                <FieldDescription id="new-agent-tags-hint">
+                  用逗号分隔，最多 10 个。
+                </FieldDescription>
+              )}
             </Field>
           </FieldGroup>
           <Field data-disabled={create.isPending} className="gap-1.5">

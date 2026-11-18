@@ -1,5 +1,3 @@
-import { rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { agentsContract } from '@agentport/contract/agents';
 import { fail, notFound, parseAgentMd } from '@agentport/core';
 import { repo as allRepo, plugins as pluginsTable, schema } from '@agentport/db';
@@ -29,7 +27,6 @@ import {
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
-import { deleteAgentWithSandboxes } from '../runtime/runtime-deletion.js';
 import { authorizeAgent, authorizedAgent } from './access.js';
 import { listMemoryFiles, readMemoryFile } from './memory-files.js';
 import {
@@ -107,7 +104,11 @@ async function validateDefinition(
 function invalid(message: string) {
   return fail('INVALID_INPUT', message);
 }
-function toSummary(row: allRepo.agents.AgentRow, serverIds?: string[]) {
+function toSummary(
+  row: allRepo.agents.AgentRow,
+  serverIds?: string[],
+  extras: { isFavorite?: boolean; lastUsedAt?: string | null } = {},
+) {
   return {
     id: row.id,
     name: row.name,
@@ -121,6 +122,12 @@ function toSummary(row: allRepo.agents.AgentRow, serverIds?: string[]) {
     model: row.model,
     uiFormat: row.uiFormat,
     parentId: row.parentId,
+    visibility: row.visibility,
+    tags: row.tags,
+    archivedAt: row.archivedAt?.toISOString() ?? null,
+    deletedAt: row.deletedAt?.toISOString() ?? null,
+    isFavorite: extras.isFavorite ?? false,
+    lastUsedAt: extras.lastUsedAt ?? null,
     createdAt: row.createdAt.toISOString(),
     ...(serverIds === undefined ? {} : { serverIds }),
   };
@@ -134,8 +141,9 @@ const repo = allRepo.agents;
 
 const os = implement(agentsContract).$context<RequestContext>();
 export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.router({
-  list: os.list.handler(async ({ context }) => {
+  list: os.list.handler(async ({ context, input }) => {
     const principal = requireUser(context);
+    const { q, tag, favorite, sort, status } = input.query;
     const rows = await repo.listAgents(
       context.db,
       {
@@ -150,8 +158,69 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
           .filter((grant) => grant.permissionId === 'agents.config.read')
           .map((grant) => grant.scope),
       },
+      {
+        status,
+        ...(q === undefined ? {} : { q }),
+        ...(tag === undefined ? {} : { tag }),
+        ...(favorite === undefined ? {} : { favorite }),
+        ...(sort === undefined ? {} : { sort }),
+      },
     );
-    return rows.map((row) => toSummary(row, row.serverIds ?? undefined));
+    return rows.map((row) =>
+      toSummary(row, row.serverIds ?? undefined, {
+        isFavorite: row.isFavorite,
+        lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+      }),
+    );
+  }),
+  tags: os.tags.handler(async ({ context }) => {
+    const items = await repo.listAgentTags(context.db, accessFilter(context, 'agents.read'));
+    return { items };
+  }),
+  favorite: os.favorite.handler(async ({ context, input }) => {
+    const current = await repo.getAgent(context.db, input.params.id);
+    if (!current) return notFound('agent');
+    const principal = requireUser(context);
+    await authorizeAgent(context, current, 'agents.use');
+    const favorite = await repo.setAgentFavorite(
+      context.db,
+      principal.businessId,
+      current.id,
+      input.body.favorite,
+    );
+    return { favorite };
+  }),
+  archive: os.archive.handler(async ({ context, input }) => {
+    const principal = requireUser(context);
+    const current = await repo.getAgent(context.db, input.params.id);
+    if (!current) return notFound('agent');
+    await authorizeAgent(context, current, 'agents.delete');
+    const row = await repo.archiveAgent(context.db, current.id);
+    if (!row) return notFound('agent');
+    await allRepo.audit.writeAudit(context.db, context.log, {
+      actor: principal.businessId,
+      action: 'agent.archived',
+      target: row.id,
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return toSummary(row);
+  }),
+  restore: os.restore.handler(async ({ context, input }) => {
+    const principal = requireUser(context);
+    const current = await repo.getAgent(context.db, input.params.id);
+    if (!current) return notFound('agent');
+    await authorizeAgent(context, current, 'agents.delete');
+    const row = await repo.restoreAgent(context.db, current.id);
+    if (!row) return notFound('agent');
+    await allRepo.audit.writeAudit(context.db, context.log, {
+      actor: principal.businessId,
+      action: 'agent.restored',
+      target: row.id,
+      status: 'ok',
+      requestId: context.requestId,
+    });
+    return toSummary(row);
   }),
   create: os.create.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
@@ -287,10 +356,13 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
         })
         .from(schema.skills)
         .where(
-          allRepo.access.resourceScopeWhere(
-            skillAccess,
-            schema.skills.id,
-            schema.skills.ownerBusinessId,
+          and(
+            allRepo.access.resourceScopeWhere(
+              skillAccess,
+              schema.skills.id,
+              schema.skills.ownerBusinessId,
+            ),
+            eq(schema.skills.status, 'published'),
           ),
         )
         .orderBy(schema.skills.name),
@@ -402,6 +474,8 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       input.budgetAlertRatio,
       input.timeoutMs,
       input.runtimeEnvironmentId,
+      input.visibility,
+      input.tags,
     ];
     const bindingFields = [
       input.serverIds,
@@ -580,41 +654,8 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
     const current = await repo.getAgent(context.db, routeInput.params.id);
     if (!current) return notFound('agent');
     await authorizeAgent(context, current, 'agents.delete');
-    const deleted = await deleteAgentWithSandboxes({
-      client: context.client,
-      redisUrl: context.config.REDIS_URL,
-      deletion: {
-        id: current.id,
-        access: accessFilter(context, 'agents.delete'),
-        readAccess: accessFilter(context, 'agents.read'),
-      },
-    });
-    if (deleted === null) return notFound('agent');
-    const slug = deleted.slug;
-    await rm(join(context.config.WORKSPACES_DIR, slug, 'sdk-sessions'), {
-      recursive: true,
-      force: true,
-    }).catch((err: unknown) => {
-      context.log.warn({ err, agentId: current.id }, 'sdk session cleanup failed');
-    });
-    await rm(join(context.config.WORKSPACES_DIR, slug, 'session-sandboxes'), {
-      recursive: true,
-      force: true,
-    }).catch((err: unknown) => {
-      context.log.warn({ err, agentId: current.id }, 'session sandbox cleanup failed');
-    });
-    await rm(join(context.config.WORKSPACES_DIR, slug, 'conversation-outputs'), {
-      recursive: true,
-      force: true,
-    }).catch((err: unknown) => {
-      context.log.warn({ err, agentId: current.id }, 'output cleanup failed');
-    });
-    await rm(join(context.config.WORKSPACES_DIR, slug, 'conversation-inputs'), {
-      recursive: true,
-      force: true,
-    }).catch((err: unknown) => {
-      context.log.warn({ err, agentId: current.id }, 'input cleanup failed');
-    });
+    const deleted = await repo.softDeleteAgent(context.db, current.id);
+    if (!deleted) return notFound('agent');
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,
       action: 'agent.deleted',

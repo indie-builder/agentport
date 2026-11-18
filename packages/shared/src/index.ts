@@ -39,3 +39,4 @@ export * from './sandbox-probe.js';
 export * from './sandbox-session.js';
 export * from './schedules.js';
 export * from './schemas.js';
+export * from './search.js';

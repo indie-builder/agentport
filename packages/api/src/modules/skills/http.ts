@@ -16,6 +16,7 @@ export function registerSkillsHttp(app: Hono<HttpEnv>): void {
       const { id } = idParams.parse(c.req.param());
       const row = await repo.skills.getSkill(context.db, id);
       if (!row) fail('NOT_FOUND', '技能不存在，可能已被删除；请刷新后重试');
+      if (row.status !== 'published') fail('NOT_FOUND', '技能不存在，可能已被删除；请刷新后重试');
       await authorizeResourceAccess(
         context,
         'skills.read',

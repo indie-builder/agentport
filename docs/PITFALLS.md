@@ -633,7 +633,9 @@
 - **原因**：终态 notice 只落库时，在线端要等 `run.finished` 的 SSE catch-up 才拿到；前端若不按 runId 丢弃本地流锚点，流内失败提示与持久 notice 会同时显示。
 - **规避**：写库方同时发布 `message.created`；前端收到任何带 runId 的持久消息时丢弃对应本地流，并保留 `run.finished` catch-up 作为发布失败的兜底。
 
-## 数据库：ON DELETE RESTRICT 报 23001，不是 23503
+## 数据库（历史背景）：ON DELETE RESTRICT 报 23001，不是 23503
+
+**历史背景**：该条源于已移除的专家物理删除；专家删除现已改为软删除，此条仅保留为其他 `RESTRICT` 外键排障参考。
 
 - **现象**：父专家删除改为 `ON DELETE restrict` 后，按 23503 捕获外键冲突的映射不生效，删除返回 500。
 - **原因**：PostgreSQL 对 `RESTRICT` 立即检查报 `23001 restrict_violation`，`NO ACTION` 才报 `23503 foreign_key_violation`；Drizzle 还会把错误包在 cause 链里。
@@ -734,3 +736,9 @@
 - **现象**：运行中追加的指令已记 `delivered_at`，但智能体从未处理，run 结束后也没有重新入队。
 - **原因**：worker 每 500ms 把未送达指令经 supervisor `input` 帧写入 runner，写入成功即标记 `delivered_at`；runner 在最后一次 `result` 且指令队列无待发指令时关闭队列，从关闭到 worker 处理 `run_finished` 的毫秒级窗口内，已写入 stdin 的 `user_message` 会被 `packages/sandbox/src/runner.ts` 的 `createInstructionQueue.push` 以「input stream is closed」静默丢弃，而 `finalizeRun` 的 `requeueUndeliveredInstructionWakes` 只处理未送达指令，于是跳过它。
 - **规避**：这是已知的 at-most-once 边界，不要把 `delivered_at` 当作 runner 已消费的证据；若要消除，需增加 runner→worker 的送达 ACK 协议（runner 确认入队后再标记），改动前先评估协议、超时与重试语义。
+
+## 构建：并行跑多个包的 `tsc -b` 会因共享 tsbuildinfo 产生伪错误
+
+- **现象**：同时启动 `bun run --filter @agentport/db typecheck` 与 `bun run --filter @agentport/api typecheck`，api 可能报 db 源码级联错误；串行重跑全部 exit 0。
+- **原因**：多个 `tsc -b` 进程共用项目引用与增量 tsbuildinfo 状态，并行时相互读写中间产物。
+- **规避**：包级 typecheck 串行执行；需要并行时只对无项目引用关系的包，或先清理增量产物后单进程构建。

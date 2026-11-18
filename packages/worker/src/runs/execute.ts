@@ -69,7 +69,12 @@ import {
   recordOutputSandboxSettlement,
   selectedOutput,
 } from './outputs.js';
-import { checkQueuedRunAccess, type RunAccessDenial, runExecutionSubject } from './run-access.js';
+import {
+  checkQueuedAgentActive,
+  checkQueuedRunAccess,
+  type RunAccessDenial,
+  runExecutionSubject,
+} from './run-access.js';
 import {
   finalizeRun,
   handOffPendingFinish,
@@ -92,8 +97,12 @@ function applyAgentDefinition(definition: AgentDefinition): AgentRow {
     createdBy: agent.createdBy,
     ownerBusinessId: agent.ownerBusinessId,
     isDefault: agent.isDefault,
+    visibility: agent.visibility ?? 'private',
+    tags: agent.tags ?? [],
     publishedVersion: agent.publishedVersion ?? null,
     publishedAt: agent.publishedAt == null ? null : new Date(agent.publishedAt),
+    archivedAt: agent.archivedAt == null ? null : new Date(agent.archivedAt),
+    deletedAt: agent.deletedAt == null ? null : new Date(agent.deletedAt),
     createdAt: new Date(agent.createdAt),
     updatedAt: new Date(agent.updatedAt),
     name: agent.name,
@@ -235,21 +244,22 @@ export async function runAgentJob(
       });
       return;
     }
-    if (subject.kind === 'user') {
-      const denial = await checkQueuedRunAccess(db, {
-        runId,
-        trigger: run.trigger,
-        evalRunId: run.evalRunId,
-        agentId: run.agentId,
-        conversationId: run.conversationId,
-        businessId: subject.businessId,
-        channelId: run.channelId,
-      });
-      if (denial !== null) {
-        logger.warn({ runId, reason: denial.reason }, 'run denied before sandbox start');
-        await denyQueuedRun(db, logger, runId, denial);
-        return;
-      }
+    const denial =
+      subject.kind === 'user'
+        ? await checkQueuedRunAccess(db, {
+            runId,
+            trigger: run.trigger,
+            evalRunId: run.evalRunId,
+            agentId: run.agentId,
+            conversationId: run.conversationId,
+            businessId: subject.businessId,
+            channelId: run.channelId,
+          })
+        : await checkQueuedAgentActive(db, run.agentId);
+    if (denial !== null) {
+      logger.warn({ runId, reason: denial.reason }, 'run denied before sandbox start');
+      await denyQueuedRun(db, logger, runId, denial);
+      return;
     }
   }
   // running 行的重投只会在认领时被拒绝；主体损坏时不继续使用它挂载任何目录。

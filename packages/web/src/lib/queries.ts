@@ -21,6 +21,7 @@ export * from './queries/personal.js';
 export * from './queries/plugins.js';
 export * from './queries/runs.js';
 export * from './queries/runtime-environments.js';
+export * from './queries/search.js';
 export * from './queries/servers.js';
 export {
   clearSessionQueries,

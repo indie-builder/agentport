@@ -57,6 +57,12 @@ export async function authorizeBoundResources(
         message,
       );
     }
+    if (kind === 'skill') {
+      const published = await repo.getPublishedSkillIds(context.db, unique);
+      if (published.size !== unique.length) {
+        fail('INVALID_INPUT', '技能不可用或未发布，请刷新后重新选择');
+      }
+    }
   }
 }
 

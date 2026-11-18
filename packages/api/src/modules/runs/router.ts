@@ -229,12 +229,13 @@ const runsMainRouter = {
       const row = await repo.skills.createSkill(context.db, {
         ...draft,
         ownerBusinessId: requireUser(context).businessId,
+        status: 'draft',
       });
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
-        action: 'skill.created',
+        action: 'skill.draft.created',
         target: row.id,
-        input: { fromRun: detail.run.id, slug: row.slug },
+        input: { fromRun: detail.run.id, slug: row.slug, status: row.status },
         status: 'ok',
         requestId: context.requestId,
       });
@@ -247,6 +248,11 @@ const runsMainRouter = {
         sourceId: row.sourceId,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
+        status: row.status,
+        submittedAt: toIso(row.submittedAt),
+        reviewedAt: toIso(row.reviewedAt),
+        reviewedBy: row.reviewedBy,
+        reviewNote: row.reviewNote,
       };
     } catch (err) {
       if (isPgCode(err, '23505')) return fail('CONFLICT', '同名技能已存在，请先重命名或删除后重试');

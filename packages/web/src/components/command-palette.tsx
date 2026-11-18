@@ -1,4 +1,5 @@
-import type { AuthMe } from '@agentport/shared';
+import type { AuthMe, SearchItem } from '@agentport/shared';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Command,
@@ -11,7 +12,16 @@ import {
   CommandList,
 } from '@ui-sdk/react/command';
 import { useShortcut, useShortcutHint } from '@ui-sdk/react/shortcuts';
-import { Search } from 'lucide-react';
+import {
+  Bot,
+  Cable,
+  FileText,
+  LibraryBig,
+  MessagesSquare,
+  Puzzle,
+  Search,
+  Sparkles,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import {
   BUILD_MENU,
@@ -24,6 +34,8 @@ import {
   WORK_MENU,
 } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
+import { searchQuery } from '../lib/queries.js';
+import { useDebouncedValue } from '../lib/use-debounced-value.js';
 import { Button } from './ui/button.js';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog.js';
 import { Input } from './ui/input.js';
@@ -40,6 +52,42 @@ const COMMAND_SOURCES: readonly { label: string; items: readonly MenuItem[] }[] 
   { label: '个人', items: PERSONAL_NAV_GROUPS.flatMap((group) => group.items) },
 ];
 
+export const SEARCH_KIND_META = {
+  agent: { label: '专家', icon: Bot },
+  conversation: { label: '会话', icon: MessagesSquare },
+  knowledge: { label: '知识库', icon: LibraryBig },
+  server: { label: '连接器', icon: Cable },
+  skill: { label: '技能', icon: Sparkles },
+  plugin: { label: '插件', icon: Puzzle },
+  output: { label: '成果', icon: FileText },
+} as const;
+
+export const SEARCH_KIND_ORDER = Object.keys(SEARCH_KIND_META) as Array<SearchItem['kind']>;
+
+export function searchItemHref(item: SearchItem): string {
+  switch (item.kind) {
+    case 'agent':
+      return `/agents/${item.id}`;
+    case 'conversation':
+      return `/chat?${new URLSearchParams({ conversation: item.id }).toString()}`;
+    case 'knowledge':
+      return `/knowledge/${item.id}`;
+    case 'server':
+      return `/servers?${new URLSearchParams({ q: item.title }).toString()}`;
+    case 'skill':
+      return `/skills?${new URLSearchParams({ q: item.title }).toString()}`;
+    case 'plugin':
+      return `/plugins/${item.id}`;
+    case 'output': {
+      const params = new URLSearchParams();
+      if (item.conversationId !== undefined) params.set('conversation', item.conversationId);
+      if (item.runId !== undefined) params.set('outputRun', item.runId);
+      if (item.path !== undefined) params.set('outputPath', item.path);
+      return params.size === 0 ? '/chat' : `/chat?${params.toString()}`;
+    }
+  }
+}
+
 function openCommandPalette(): void {
   window.dispatchEvent(new CustomEvent(OPEN_EVENT));
 }
@@ -47,7 +95,18 @@ function openCommandPalette(): void {
 export function CommandPalette({ me }: { me: AuthMe | undefined }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const composing = useRef(false);
+  const debouncedQuery = useDebouncedValue(query.trim().slice(0, 128), 200);
+  const search = useQuery({
+    ...searchQuery(debouncedQuery, 5),
+    enabled: open && me?.authenticated === true && debouncedQuery.length > 0,
+  });
+  const searchGroups = SEARCH_KIND_ORDER.map((kind) => ({
+    kind,
+    ...SEARCH_KIND_META[kind],
+    items: (search.data?.items ?? []).filter((item) => item.kind === kind),
+  })).filter((group) => group.items.length > 0);
 
   useShortcut('mod+k', () => setOpen(true), { description: '打开命令面板' });
 
@@ -69,8 +128,13 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
     }),
   })).filter((group) => group.items.length > 0);
 
+  const changeOpen = (next: boolean): void => {
+    setOpen(next);
+    if (!next) setQuery('');
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent
         showCloseButton={false}
         aria-describedby={undefined}
@@ -79,9 +143,11 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
         <DialogTitle className="sr-only">命令面板</DialogTitle>
         <Command
           filter="contains"
+          query={query}
+          onQueryChange={setQuery}
           onAction={(to) => {
-            setOpen(false);
-            void navigate({ to });
+            changeOpen(false);
+            void navigate({ href: to });
           }}
           className="flex min-h-0 flex-1 flex-col"
         >
@@ -108,7 +174,7 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
                   return;
                 }
                 event.preventDefault();
-                setOpen(false);
+                changeOpen(false);
               }}
               render={
                 <Input className="h-11 flex-1 rounded-none border-0 bg-transparent px-0 shadow-none focus-visible:border-0" />
@@ -125,6 +191,58 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
             <div className="py-12 text-center text-sm text-muted-foreground">没有匹配的结果</div>
           </CommandEmpty>
           <CommandList className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
+            {debouncedQuery === ''
+              ? null
+              : searchGroups.map((group) => (
+                  <CommandGroup key={group.kind}>
+                    <CommandGroupLabel className="px-2 pb-1 pt-3 text-xs font-medium text-muted-foreground">
+                      {group.label}
+                    </CommandGroupLabel>
+                    {group.items.map((item) => {
+                      const href = searchItemHref(item);
+                      return (
+                        <CommandItem
+                          key={item.id}
+                          value={href}
+                          label={item.title}
+                          keywords={
+                            item.subtitle === ''
+                              ? [debouncedQuery]
+                              : [item.subtitle, debouncedQuery]
+                          }
+                          className="flex cursor-default items-center gap-2.5 rounded-item px-2.5 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
+                        >
+                          <CommandItemIcon className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+                            <group.icon aria-hidden="true" />
+                          </CommandItemIcon>
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate">{item.title}</span>
+                            {item.subtitle === '' ? null : (
+                              <span className="truncate text-xs text-muted-foreground">
+                                {item.subtitle}
+                              </span>
+                            )}
+                          </span>
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                ))}
+            {debouncedQuery === '' ? null : (
+              <CommandGroup>
+                <CommandItem
+                  value={`/search?${new URLSearchParams({ q: debouncedQuery }).toString()}`}
+                  label="查看全部搜索结果"
+                  keywords={[debouncedQuery]}
+                  className="flex cursor-default items-center gap-2.5 rounded-item px-2.5 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
+                >
+                  <CommandItemIcon className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+                    <Search aria-hidden="true" />
+                  </CommandItemIcon>
+                  <span className="truncate">查看全部搜索结果</span>
+                </CommandItem>
+              </CommandGroup>
+            )}
             {groups.map((group) => (
               <CommandGroup key={group.label}>
                 <CommandGroupLabel className="px-2 pb-1 pt-3 text-xs font-medium text-muted-foreground">

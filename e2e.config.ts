@@ -21,6 +21,9 @@ export default {
     '!tests/channels.e2e.ts',
     '!tests/channels-business.e2e.ts',
     '!tests/integrations.e2e.ts',
+    '!tests/agent-discovery.e2e.ts',
+    '!tests/governance.e2e.ts',
+    '!tests/schedule-lifecycle.e2e.ts',
   ],
   targets: [
     {

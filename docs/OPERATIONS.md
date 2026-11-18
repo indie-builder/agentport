@@ -106,13 +106,13 @@ runner 将目录挂到 `/mnt/agent-memory`，设置官方 `autoMemoryEnabled`/`a
 
 ### 会话成果存储
 
-`WORKSPACES_DIR/<slug>/conversation-outputs/<conversationId>/` 保存会话成果：`drafts/<runId>/` 是本轮草稿，`runs/<runId>/{manifest.json,files/**}` 是发布后不可变快照。沙盒实际写入会话级稳定的 `session-sandboxes/<conversationId>/outputs`（`/mnt/outputs` 可写）；停稳后由 `captureOutputDraft` 复制回 `drafts/<runId>/`。复制不动源目录，也保留 `drafts/<runId>.base`、`drafts/<runId>.blocked` 与已发布快照的原有语义。它不属于 `run_*`，run 保留期清理不会删除；删除会话或专家时回收对应目录。`scripts/backup.sh` 备份整个 workspaces 卷，因此成果随工作区备份，不需要新增变量或独立存储。成果内容不做聊天密钥脱敏；读取与下载由 API 鉴权，路径/链接边界在存储层校验。
+`WORKSPACES_DIR/<slug>/conversation-outputs/<conversationId>/` 保存会话成果：`drafts/<runId>/` 是本轮草稿，`runs/<runId>/{manifest.json,files/**}` 是发布后不可变快照。沙盒实际写入会话级稳定的 `session-sandboxes/<conversationId>/outputs`（`/mnt/outputs` 可写）；停稳后由 `captureOutputDraft` 复制回 `drafts/<runId>/`。复制不动源目录，也保留 `drafts/<runId>.base`、`drafts/<runId>.blocked` 与已发布快照的原有语义。它不属于 `run_*`，run 保留期清理不会删除；删除会话时回收对应目录，专家软删除保留成果目录并可恢复。`scripts/backup.sh` 备份整个 workspaces 卷，因此成果随工作区备份，不需要新增变量或独立存储。成果内容不做聊天密钥脱敏；读取与下载由 API 鉴权，路径/链接边界在存储层校验。
 
 ### 会话输入附件存储
 
 `WORKSPACES_DIR/<slug>/conversation-inputs/<conversationId>/<attachmentId><ext>` 保存随消息上传的临时资料。发送时经 `POST /api/chat` 的 base64 JSON 写入（路由上限 16MiB）；每条消息最多 5 个文件，原件合计 ≤10MiB；文本 ≤1MiB，图片 ≤5MiB，PDF ≤10MiB。只接受 txt/md/csv/tsv/json/jsonl、PNG/JPEG/GIF/WebP 与未加密 PDF；Office/ODF、压缩包、音视频等请在知识库处理或转成文本。目录 0700、文件 0600，磁盘名只用服务端 UUID 与规范扩展名，原文件名仅作显示。
 
-worker 预建该会话目录（即使本轮没有附件）并把整个目录只读挂到 `/mnt/inputs`，挂载始终存在且只指向当前会话目录；prompt 列出本轮文件并要求主智能体用原生 `Read` 读取；图片与 PDF 由 Read 原生处理。子智能体不能直接读文件；输入不可写，交付仍写 `/mnt/outputs`。附件按会话保留，分支只复制被复制消息引用的文件，删除会话或专家时回收目录；run 保留清理会保留带附件的用户消息，因此历史下载入口不随旧 run 消失。
+worker 预建该会话目录（即使本轮没有附件）并把整个目录只读挂到 `/mnt/inputs`，挂载始终存在且只指向当前会话目录；prompt 列出本轮文件并要求主智能体用原生 `Read` 读取；图片与 PDF 由 Read 原生处理。子智能体不能直接读文件；输入不可写，交付仍写 `/mnt/outputs`。附件按会话保留，分支只复制被复制消息引用的文件，删除会话时回收目录，专家软删除保留附件目录并可恢复；run 保留清理会保留带附件的用户消息，因此历史下载入口不随旧 run 消失。
 
 Compose 中 API/worker/沙盒同为 uid 1000，可直接读写这些 0700/0600 目录。Linux 宿主以其他 UID 直跑 `bun run dev` 时，沙盒以 1000 运行将无法读取附件（与原生记忆的既有 UID 限制相同）；需要附件时请用 Compose 启动，不要递归放宽目录权限。
 

@@ -345,6 +345,7 @@ export const conversationRenameSchema = z.object({
 export const conversationSummarySchema = z.object({
   id: z.string(),
   agentId: z.string(),
+  agentName: z.string(),
   title: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

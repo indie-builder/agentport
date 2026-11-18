@@ -341,7 +341,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     }
   });
 
-  it('rejects queued runs with 409 before asking the worker to close anything', async () => {
+  it('rejects queued run conversation deletes while agent delete only soft deletes', async () => {
     const agent = await newAgent('lifecycle-busy');
     const conversationId = await newConversation(agent.id);
     await queuedRun(agent.id, conversationId);
@@ -350,10 +350,11 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
 
     const fake = await startResponder();
     expectProblem(await deleteConversation(conversationId), 'CONFLICT');
-    expectProblem(await deleteAgent(agent.id), 'CONFLICT');
+    expect((await deleteAgent(agent.id)).statusCode).toBe(204);
     expect(fake.calls).toEqual([]);
     expect(await repo.chat.getConversation(app.db, conversationId)).not.toBeNull();
     expect(await exists(targetDir)).not.toBeNull();
+    expect((await repo.agents.getAgent(app.db, agent.id))?.deletedAt).not.toBeNull();
   });
 
   it('waits outside a transaction while holding the session lock, then admits after release', async () => {
@@ -587,7 +588,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     expect(await exists(blocked)).not.toBeNull();
   });
 
-  it('blocks deleting a parent agent while it still has child agents', async () => {
+  it('soft deletes a parent agent while keeping children, sessions and memories', async () => {
     const child = await newAgent('lifecycle-child');
     const parent = await newAgent('lifecycle-parent', [child.id]);
     const other = await newAgent('lifecycle-other');
@@ -614,12 +615,10 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     await makeDir(personalDir, 'personal memory');
 
     const fake = await startResponder();
-    expectProblem(await deleteAgent(parent.id), 'CONFLICT');
+    expect((await deleteAgent(parent.id)).statusCode).toBe(204);
 
-    expect(fake.calls).toEqual([
-      { conversationId: parentConversation, sandboxIds: ['sandbox-parent'] },
-    ]);
-    expect(await repo.agents.getAgent(app.db, parent.id)).not.toBeNull();
+    expect(fake.calls).toEqual([]);
+    expect((await repo.agents.getAgent(app.db, parent.id))?.deletedAt).not.toBeNull();
     expect(await repo.chat.getConversation(app.db, parentConversation)).not.toBeNull();
     expect(await exists(parentSessions)).not.toBeNull();
 
@@ -639,7 +638,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     expect(await exists(personalDir)).not.toBeNull();
   });
 
-  it('rolls an agent delete back on close failure and retries without touching memories', async () => {
+  it('soft deletes an agent without closing sandboxes or touching memories', async () => {
     const agent = await newAgent('lifecycle-agent-retry');
     const conversationId = await newConversation(agent.id);
     await completedRun(agent.id, conversationId, 'sandbox-agent-retry');
@@ -648,16 +647,10 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     await makeDir(workspace(agent.slug, 'agent-memory'), 'keep');
 
     const fake = await startResponder();
-    fake.failures.set(conversationId, new Error('close failed'));
-    expectProblem(await deleteAgent(agent.id), 'SERVICE_UNAVAILABLE');
-    expect(await repo.agents.getAgent(app.db, agent.id)).not.toBeNull();
-    expect(await exists(sessionsDir)).not.toBeNull();
-    expect(await exists(workspace(agent.slug, 'agent-memory'))).not.toBeNull();
-
-    fake.failures.clear();
     expect((await deleteAgent(agent.id)).statusCode).toBe(204);
-    expect(await repo.agents.getAgent(app.db, agent.id)).toBeNull();
-    expect(await exists(sessionsDir)).toBeNull();
+    expect(fake.calls).toEqual([]);
+    expect((await repo.agents.getAgent(app.db, agent.id))?.deletedAt).not.toBeNull();
+    expect(await exists(sessionsDir)).not.toBeNull();
     expect(await exists(workspace(agent.slug, 'agent-memory'))).not.toBeNull();
   });
 });

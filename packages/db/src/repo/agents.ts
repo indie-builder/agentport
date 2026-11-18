@@ -15,11 +15,13 @@ import {
 import {
   and,
   asc,
+  desc,
   eq,
   getTableColumns,
   gte,
+  ilike,
   inArray,
-  isNotNull,
+  isNull,
   ne,
   or,
   type SQL,
@@ -28,6 +30,7 @@ import {
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
+  agentFavorites,
   agentHookFiles,
   agentMembers,
   agentOutputStyles,
@@ -40,7 +43,6 @@ import {
   agentVersions,
   agentWorkflows,
   apiTools,
-  conversations,
   plugins,
   runtimeEnvironments,
   servers,
@@ -48,10 +50,9 @@ import {
 } from '../schema.js';
 import { assertDefinitionResources } from './agent-definitions.js';
 import { getAgentVersion, insertAgentVersion, retryOnVersionConflict } from './agent-versions.js';
-import { type ConversationSandboxTarget, sameTargets } from './chat.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
-import { isPgCode, isPgConstraint } from './pg-errors.js';
+import { isPgCode } from './pg-errors.js';
 import { getPluginFilesByPluginIds, listAgentPluginBindingInputs } from './plugins.js';
 import { getSkillFilesBySkillIds } from './skill-files.js';
 import { toSkillDefinition } from './skills.js';
@@ -84,6 +85,8 @@ export interface AgentWrite {
   uiFormat: AgentRow['uiFormat'];
   effort: AgentRow['effort'];
   enabled: boolean;
+  visibility: AgentRow['visibility'];
+  tags: string[];
   maxTurns: number;
   /** numeric 列以字符串写入，避免浮点误差。 */
   maxBudgetUsd: string;
@@ -106,7 +109,7 @@ export function toAgent(
   skillIds: string[],
   subAgentIds: string[] = [],
   pluginBindings: Agent['pluginBindings'] = [],
-): Agent {
+): Agent & { archivedAt: string | null; deletedAt: string | null } {
   return {
     id: row.id,
     slug: row.slug,
@@ -134,15 +137,21 @@ export function toAgent(
     timeoutMs: row.timeoutMs,
     ...(row.effort === null ? {} : { effort: row.effort }),
     enabled: row.enabled,
+    visibility: row.visibility,
+    tags: row.tags,
     isDefault: row.isDefault,
     publishedVersion: row.publishedVersion,
     publishedAt: row.publishedAt?.toISOString() ?? null,
+    archivedAt: row.archivedAt?.toISOString() ?? null,
+    deletedAt: row.deletedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
-/** agents.read 的列表与删除重核共用同一范围谓词；范围不够时返回空结果。 */
+const organizationVisibleWhere = sql`(${agents.visibility} = 'organization' and ${agents.publishedVersion} is not null and ${agents.enabled} and ${agents.archivedAt} is null and ${agents.deletedAt} is null)`;
+
+/** agents.read 的列表范围谓词；范围不够时返回空结果。 */
 function agentReadScopeWhere(access: AccessFilter): SQL | undefined {
   const scopes = new Set(access.scopes);
   if (scopes.has('platform')) return undefined;
@@ -152,7 +161,7 @@ function agentReadScopeWhere(access: AccessFilter): SQL | undefined {
   }
   if (scopes.has('authorized_agents')) {
     visible.push(
-      sql`(${agents.ownerBusinessId} = ${access.businessId} or exists (select 1 from ${agentMembers} m where m.agent_id = ${agents.id} and m.business_id = ${access.businessId} and m.can_use))`,
+      sql`(${agents.ownerBusinessId} = ${access.businessId} or exists (select 1 from ${agentMembers} m where m.agent_id = ${agents.id} and m.business_id = ${access.businessId} and m.can_use) or ${organizationVisibleWhere})`,
     );
   }
   if (scopes.has('maintained_agents')) {
@@ -170,32 +179,66 @@ function agentListScopeWhere(access: AccessFilter): SQL | undefined {
   return or(eq(agents.isDefault, true), scope);
 }
 
-/** agents.delete 只接受 owned_agents / platform，不因 can_use/can_maintain 扩大删除范围。 */
-function agentDeleteScopeWhere(access: AccessFilter): SQL | undefined {
-  const scopes = new Set(access.scopes);
-  if (scopes.has('platform')) return undefined;
-  if (scopes.has('owned_agents')) return eq(agents.ownerBusinessId, access.businessId);
-  return sql`false`;
-}
+export type AgentLifecycleStatus = 'active' | 'archived' | 'deleted';
 
-function agentDeletionWhere(input: AgentDeletionInput): SQL | undefined {
-  return and(
-    eq(agents.id, input.id),
-    agentDeleteScopeWhere(input.access),
-    agentReadScopeWhere(input.readAccess),
-  );
-}
-
-function isParentAgentRestriction(err: unknown): boolean {
-  return isPgConstraint(err, ['23001', '23503'], 'agents_parent_id_agents_id_fk');
+export interface AgentListOptions {
+  q?: string;
+  tag?: string;
+  favorite?: boolean;
+  sort?: 'name' | 'recent';
+  status?: AgentLifecycleStatus;
 }
 
 export async function listAgents(
   db: Database,
   access: AccessFilter,
   configAccess?: AccessFilter,
-): Promise<Array<AgentRow & { serverIds: string[] | null }>> {
+  options: AgentListOptions = {},
+): Promise<
+  Array<AgentRow & { serverIds: string[] | null; isFavorite: boolean; lastUsedAt: Date | null }>
+> {
   const configScope = configAccess ? agentReadScopeWhere(configAccess) : sql`false`;
+  const status = options.status ?? 'active';
+  const lifecycleWhere =
+    status === 'deleted'
+      ? sql`${agents.deletedAt} is not null`
+      : status === 'archived'
+        ? sql`${agents.archivedAt} is not null and ${agents.deletedAt} is null`
+        : sql`${agents.archivedAt} is null and ${agents.deletedAt} is null`;
+  const lifecycleVisible =
+    status === 'active' || access.scopes.includes('platform')
+      ? undefined
+      : access.scopes.includes('owned_agents')
+        ? eq(agents.ownerBusinessId, access.businessId)
+        : sql`false`;
+  const favoriteWhere = sql`exists (select 1 from ${agentFavorites} where ${agentFavorites.agentId} = ${agents.id} and ${agentFavorites.businessId} = ${access.businessId})`;
+  const lastUsedAt = sql<Date | null>`(select max(${agentRuns.createdAt}) from ${agentRuns} where ${agentRuns.agentId} = ${agents.id} and ${agentRuns.initiatedBy} = ${access.businessId})`;
+  const needle = options.q?.trim();
+  const searchWhere =
+    needle === undefined || needle === ''
+      ? undefined
+      : or(
+          ilike(agents.name, `%${needle}%`),
+          ilike(agents.role, `%${needle}%`),
+          ilike(agents.description, `%${needle}%`),
+          ilike(agents.slug, `%${needle}%`),
+        );
+  const tagWhere =
+    options.tag === undefined
+      ? undefined
+      : sql`${agents.tags} @> ${JSON.stringify([options.tag])}::jsonb`;
+  const favoriteFilter =
+    options.favorite === undefined
+      ? undefined
+      : options.favorite
+        ? favoriteWhere
+        : sql`not ${favoriteWhere}`;
+  const order =
+    options.sort === 'name'
+      ? [asc(agents.name), asc(agents.id)]
+      : options.sort === 'recent'
+        ? [sql`${lastUsedAt} desc nulls last`, asc(agents.name), asc(agents.id)]
+        : [desc(agents.createdAt), desc(agents.id)];
   return db
     .select({
       ...getTableColumns(agents),
@@ -205,12 +248,79 @@ export async function listAgents(
         coalesce(array_agg(${agentServers.serverId} order by ${agentServers.serverId})
           filter (where ${agentServers.serverId} is not null), '{}'::text[])
         else null end`,
+      isFavorite: sql<boolean>`${favoriteWhere}`,
+      lastUsedAt,
     })
     .from(agents)
     .leftJoin(agentServers, eq(agentServers.agentId, agents.id))
-    .where(agentListScopeWhere(access))
+    .where(
+      and(
+        agentListScopeWhere(access),
+        lifecycleWhere,
+        lifecycleVisible,
+        searchWhere,
+        tagWhere,
+        favoriteFilter,
+      ),
+    )
     .groupBy(agents.id)
-    .orderBy(asc(agents.createdAt), asc(agents.id));
+    .orderBy(...order);
+}
+
+export async function listAgentTags(db: Database, access: AccessFilter): Promise<string[]> {
+  const tag = sql<string>`jsonb_array_elements_text(${agents.tags})`.as('tag');
+  const rows = await db
+    .selectDistinct({ tag })
+    .from(agents)
+    .where(and(agentListScopeWhere(access), isNull(agents.archivedAt), isNull(agents.deletedAt)))
+    .orderBy(asc(tag));
+  return rows.map((row) => row.tag);
+}
+
+export async function setAgentFavorite(
+  db: DbHandle,
+  businessId: string,
+  agentId: string,
+  favorite: boolean,
+): Promise<boolean> {
+  if (favorite) {
+    await db.insert(agentFavorites).values({ businessId, agentId }).onConflictDoNothing();
+  } else {
+    await db
+      .delete(agentFavorites)
+      .where(and(eq(agentFavorites.businessId, businessId), eq(agentFavorites.agentId, agentId)));
+  }
+  return favorite;
+}
+
+export async function archiveAgent(db: DbHandle, agentId: string): Promise<AgentRow | null> {
+  const now = new Date();
+  const [row] = await db
+    .update(agents)
+    .set({ archivedAt: now, updatedAt: now })
+    .where(and(eq(agents.id, agentId), isNull(agents.deletedAt)))
+    .returning();
+  return row ?? null;
+}
+
+export async function restoreAgent(db: DbHandle, agentId: string): Promise<AgentRow | null> {
+  const now = new Date();
+  const [row] = await db
+    .update(agents)
+    .set({ archivedAt: null, deletedAt: null, updatedAt: now })
+    .where(eq(agents.id, agentId))
+    .returning();
+  return row ?? null;
+}
+
+export async function softDeleteAgent(db: DbHandle, agentId: string): Promise<boolean> {
+  const now = new Date();
+  const rows = await db
+    .update(agents)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(eq(agents.id, agentId))
+    .returning({ id: agents.id });
+  return rows.length > 0;
 }
 
 export async function getAgent(db: DbHandle, id: string): Promise<AgentRow | null> {
@@ -599,6 +709,8 @@ export async function duplicateAgent(
               uiFormat: source.uiFormat,
               effort: source.effort,
               enabled: source.enabled,
+              visibility: source.visibility,
+              tags: source.tags,
               maxTurns: source.maxTurns,
               maxBudgetUsd: source.maxBudgetUsd,
               monthlyBudgetUsd: source.monthlyBudgetUsd,
@@ -846,165 +958,6 @@ async function writeAgentPluginBindings(
   );
 }
 
-export interface AgentDeletionInput {
-  id: string;
-  /** agents.delete 的范围；只接受 owned_agents / platform。 */
-  access: AccessFilter;
-  /** agents.delete 依赖的 agents.read 范围，保留同一请求内授权快照。 */
-  readAccess: AccessFilter;
-}
-
-export interface AgentDeletionSnapshot {
-  id: string;
-  slug: string;
-  ownerBusinessId: string;
-  parentId: string | null;
-  enabled: boolean;
-  /** 全部直接子级；影响解绑与活动集合。 */
-  childIds: string[];
-  affectedAgentIds: string[];
-  /** 只含目标专家自身的会话，不包含子级会话。 */
-  targets: ConversationSandboxTarget[];
-}
-
-/**
- * 短 tx A：按删除/读取范围重查主体，返回确定快照后立即提交。
- * 不在事务内等待任何网络关闭确认；目标集合由调用方在事务外精确核对。
- */
-export async function prepareAgentDeletion(
-  db: Database,
-  input: AgentDeletionInput,
-): Promise<AgentDeletionSnapshot | null> {
-  return db.transaction((tx) => readAgentDeletionSnapshot(tx, input));
-}
-
-/** 短 tx B：重读完整快照并与 A 精确比较，匹配才删除；任何变化回滚。 */
-export async function deleteAgent(
-  db: Database,
-  input: AgentDeletionInput & { expected: AgentDeletionSnapshot },
-): Promise<boolean> {
-  try {
-    return await db.transaction(async (tx) => {
-      const actual = await readAgentDeletionSnapshot(tx, input, true);
-      if (actual === null) return false;
-      if (!sameAgentSnapshot(input.expected, actual)) {
-        throw new AppError('CONFLICT', '智能体或其会话在删除期间发生变化，请重试', {
-          retryable: true,
-        });
-      }
-      const rows = await tx
-        .delete(agents)
-        .where(agentDeletionWhere(input))
-        .returning({ id: agents.id });
-      return rows.length > 0;
-    });
-  } catch (err) {
-    if (isParentAgentRestriction(err)) {
-      throw new AppError('CONFLICT', '该专家下仍有子专家，请先删除或迁移子专家后再删除');
-    }
-    if (isPgConstraint(err, ['23001', '23503'], 'memory_reviews_model_agent_id_agents_id_fk')) {
-      throw new AppError(
-        'CONFLICT',
-        '该专家曾被用作记忆审核的执行模型，无法删除；请先清理相关记忆审核记录后再试',
-      );
-    }
-    throw err;
-  }
-}
-
-async function readAgentDeletionSnapshot(
-  tx: Transaction,
-  input: AgentDeletionInput,
-  lockSelf = false,
-): Promise<AgentDeletionSnapshot | null> {
-  await lockAgentBindings(tx);
-  const query = tx.select().from(agents).where(agentDeletionWhere(input)).limit(1);
-  const [self] = lockSelf ? await query.for('update') : await query;
-  if (!self) return null;
-  const childIds = await getAgentSubAgentIds(tx, self.id);
-  // 删除一个 enabled 子级也会改变父专家的活动集合。
-  const affected = [...new Set([self.id, ...childIds])];
-  if (self.enabled && self.parentId !== null) affected.push(self.parentId);
-  affected.sort();
-  await assertAgentsIdle(tx, affected);
-  const [publishedParent] = await tx
-    .select({ id: agents.id })
-    .from(agents)
-    .innerJoin(
-      agentVersions,
-      and(eq(agentVersions.agentId, agents.id), eq(agentVersions.version, agents.publishedVersion)),
-    )
-    .where(
-      sql`${agentVersions.definition}->'resources'->'subAgents'
-        @> jsonb_build_array(jsonb_build_object('id', ${self.id}::text))`,
-    )
-    .limit(1);
-  if (publishedParent) {
-    throw new AppError(
-      'CONFLICT',
-      '该专家仍被其他已发布专家的定义引用，请先重新发布相关父专家后再删除',
-    );
-  }
-  const targets = await sandboxTargetsForAgent(tx, self.id);
-  return {
-    id: self.id,
-    slug: self.slug,
-    ownerBusinessId: self.ownerBusinessId,
-    parentId: self.parentId,
-    enabled: self.enabled,
-    childIds,
-    affectedAgentIds: affected,
-    targets,
-  };
-}
-
-function sameAgentSnapshot(
-  expected: AgentDeletionSnapshot,
-  actual: AgentDeletionSnapshot,
-): boolean {
-  return (
-    expected.id === actual.id &&
-    expected.slug === actual.slug &&
-    expected.ownerBusinessId === actual.ownerBusinessId &&
-    expected.parentId === actual.parentId &&
-    expected.enabled === actual.enabled &&
-    sameIdSet(expected.childIds, actual.childIds) &&
-    sameIdSet(expected.affectedAgentIds, actual.affectedAgentIds) &&
-    sameTargets(expected.targets, actual.targets)
-  );
-}
-
-/** 目标会话与各会话已落库的容器名；锁内查询，供事务外精确关闭。 */
-async function sandboxTargetsForAgent(
-  tx: Transaction,
-  agentId: string,
-): Promise<ConversationSandboxTarget[]> {
-  const conversationRows = await tx
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(eq(conversations.agentId, agentId))
-    .orderBy(asc(conversations.id));
-  const conversationIds = conversationRows.map((row) => row.id);
-  const byConversation = new Map<string, Set<string>>(
-    conversationIds.map((conversationId) => [conversationId, new Set<string>()]),
-  );
-  if (conversationIds.length > 0) {
-    const runRows = await tx
-      .select({ conversationId: agentRuns.conversationId, sandboxId: agentRuns.sandboxId })
-      .from(agentRuns)
-      .where(
-        and(inArray(agentRuns.conversationId, conversationIds), isNotNull(agentRuns.sandboxId)),
-      );
-    for (const row of runRows) {
-      if (row.sandboxId !== null) byConversation.get(row.conversationId)?.add(row.sandboxId);
-    }
-  }
-  return conversationIds.map((conversationId) => ({
-    conversationId,
-    sandboxIds: [...(byConversation.get(conversationId) ?? [])].sort(),
-  }));
-}
-
 export async function getAgentServerIds(db: DbHandle, agentId: string): Promise<string[]> {
   const rows = await db
     .select({ serverId: agentServers.serverId })
@@ -1012,6 +965,15 @@ export async function getAgentServerIds(db: DbHandle, agentId: string): Promise<
     .where(eq(agentServers.agentId, agentId))
     .orderBy(asc(agentServers.serverId));
   return rows.map((row) => row.serverId);
+}
+
+export async function getPublishedSkillIds(db: DbHandle, skillIds: string[]): Promise<Set<string>> {
+  if (skillIds.length === 0) return new Set();
+  const rows = await db
+    .select({ id: skills.id })
+    .from(skills)
+    .where(and(inArray(skills.id, skillIds), eq(skills.status, 'published')));
+  return new Set(rows.map((row) => row.id));
 }
 
 export async function getAgentSkillIds(db: DbHandle, agentId: string): Promise<string[]> {
@@ -1137,7 +1099,7 @@ export async function getBoundSkillsByAgentIds(
     .select({ agentId: agentSkills.agentId, skill: skills })
     .from(agentSkills)
     .innerJoin(skills, eq(agentSkills.skillId, skills.id))
-    .where(inArray(agentSkills.agentId, agentIds))
+    .where(and(inArray(agentSkills.agentId, agentIds), eq(skills.status, 'published')))
     .orderBy(asc(agentSkills.agentId), asc(skills.slug));
   for (const row of rows) {
     const list = out.get(row.agentId);
@@ -1181,7 +1143,7 @@ export async function loadLiveDefinition(
       .select(getTableColumns(skills))
       .from(agentSkills)
       .innerJoin(skills, eq(agentSkills.skillId, skills.id))
-      .where(eq(agentSkills.agentId, agentId))
+      .where(and(eq(agentSkills.agentId, agentId), eq(skills.status, 'published')))
       .orderBy(asc(skills.id)),
     db
       .select({
@@ -1312,6 +1274,11 @@ export async function loadLiveDefinition(
         ...toSkillDefinition(item),
         id: item.id,
         sourceId: item.sourceId,
+        status: item.status,
+        submittedAt: item.submittedAt?.toISOString() ?? null,
+        reviewedAt: item.reviewedAt?.toISOString() ?? null,
+        reviewedBy: item.reviewedBy,
+        reviewNote: item.reviewNote,
         createdAt: item.createdAt.toISOString(),
         updatedAt: item.updatedAt.toISOString(),
         files: (skillFileMap.get(item.id) ?? []).map(({ path, content }) => ({ path, content })),

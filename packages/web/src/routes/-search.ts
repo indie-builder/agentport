@@ -84,6 +84,7 @@ export const agentDetailSearchSchema = z.object({
 });
 
 export const skillsSearchSchema = resourceSearchSchema.extend({
+  status: z.enum(['draft', 'pending', 'published', 'rejected']).optional().catch(undefined),
   usage: z.enum(['bound', 'unbound']).optional().catch(undefined),
   scope: z.enum(['internal', 'market']).optional().catch(undefined),
   marketView: z.enum(['all-time', 'trending', 'hot']).optional().catch(undefined),

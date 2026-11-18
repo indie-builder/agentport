@@ -7,7 +7,8 @@ export interface SkillImportResult {
 }
 
 export default {
-  skills: (): Promise<SkillWithAgentCount[]> => rpc.skills.list({}),
+  skills: (status?: Skill['status']): Promise<SkillWithAgentCount[]> =>
+    rpc.skills.list({ query: status === undefined ? {} : { status } }),
   createSkill: (input: SkillInput): Promise<Skill> => rpc.skills.create({ body: input }),
   importSkillFile: (content: string): Promise<SkillImportResult> =>
     rpc.skills.importFile({ body: { skillMd: content } }),
@@ -24,6 +25,10 @@ export default {
       },
     }),
   deleteSkill: (id: string): Promise<void> => rpc.skills.delete({ params: { id } }),
+  submitSkill: (id: string): Promise<Skill> => rpc.skills.submit({ params: { id } }),
+  approveSkill: (id: string): Promise<Skill> => rpc.skills.approve({ params: { id } }),
+  rejectSkill: (id: string, note: string): Promise<Skill> =>
+    rpc.skills.reject({ params: { id }, body: { note } }),
   skillFiles: (id: string): Promise<SkillFile[]> => rpc.skills.files({ params: { id } }),
   writeSkillFile: (id: string, path: string, content: string): Promise<SkillFile> =>
     rpc.skills.writeFile({ params: { id, path }, body: { content } }),

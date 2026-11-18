@@ -1,5 +1,6 @@
 import { agentMembers, rolePermissions, roles, userRoles } from './schema/accounts.js';
 import {
+  agentFavorites,
   agentHookFiles,
   agentOutputStyles,
   agentRules,
@@ -107,6 +108,7 @@ export const schema = {
   servers,
   apiTools,
   agents,
+  agentFavorites,
   skills,
   agentSkills,
   skillFiles,

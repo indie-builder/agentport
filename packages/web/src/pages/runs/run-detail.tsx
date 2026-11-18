@@ -185,7 +185,7 @@ export function RunDetailPage() {
   const saveAsSkill = (): void => {
     if (!run.data) return;
     draftMutation.mutate(run.data.run.id, {
-      onSuccess: (skill) => toastSuccess(`已生成技能草稿「${skill.name}」，可在技能页查看编辑`),
+      onSuccess: (skill) => toastSuccess(`已生成技能草稿「${skill.name}」，审核通过后可绑定`),
       onError: (error) => toastError(error),
     });
   };

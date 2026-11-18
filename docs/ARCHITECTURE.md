@@ -59,7 +59,7 @@
 | `knowledge-detail/`（`index.tsx` 桶导出 `KnowledgeDetailPage`；`knowledge-detail-page`、`documents-tab`、`sources-tab`、`jobs-tab`、`document-*`/`source-*` 等组件、`shared` 等） | 单个知识库：文档、来源、Wiki、检索调试 | `knowledge/knowledge-citations.tsx`、`source-editor.tsx`、`markdown.tsx`、`filter-select.tsx`；目录内 `shared.ts` |
 | `servers.tsx` | 连接器：MCP/stdio/生成式 server、工具目录、测试连接 | `resource-page.tsx`、`dialog-shell.tsx`、`filter-select.tsx`、`source-editor.tsx` |
 | `eval.tsx` | 评估：数据集、跑批、结果对比 | `data-table.tsx`、`dialog-shell.tsx` |
-| 其余（`skills`、`plugins`、`runtime-environments`、`ops`、`overview`、`audit`、`runs`、`status`、`memory-panel`、`knowledge`、`notifications`、`personal-profile`、`personal-memory`、`personal-security`、`personal-shares`、`personal-usage`） | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`，`knowledge` 用 `knowledge/knowledge-settings.tsx`，个人模块五页沿用标准 Page/表格/Dialog 并共用 `personal-profile.tsx` 的个人导航外壳 | 同上，优先复用而不是新写 |
+| 其余（`skills`、`plugins`、`runtime-environments`、`ops`、`overview`、`audit`、`runs`、`status`、`memory-panel`、`knowledge`、`notifications`、`search`、`personal-profile`、`personal-memory`、`personal-security`、`personal-shares`、`personal-usage`、`personal-work`） | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`，`knowledge` 用 `knowledge/knowledge-settings.tsx`，个人模块各页沿用标准 Page/表格/Dialog 并共用 `personal-profile.tsx` 的个人导航外壳 | 同上，优先复用而不是新写 |
 
 `notifications` 是全局「通知与待办」页：侧栏入口带未读徽标，页内提供全部/待办（未读）筛选、单条与全部标为已读、游标分页；服务端只按当前 `businessId` 返回本人通知。页面骨架统一走 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`）；每个渲染状态恰好一个 `h1`。共享状态在 `lib/`（`api.ts`、`queries.ts`），路由表由 `routes/` 生成到 `routeTree.gen.ts`。业务组件按域收进 `components/<域>/`（`knowledge`、`memory`、`run`、`channel`、`plugin`、`agent`、`chat`、`media`），泛用组件留在 `components/` 根，`components/ui/` 为无样式原语。
 
@@ -223,7 +223,7 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 
 ### 3.2 会话成果的生成、版本与查看
 
-成果是运行数据，不是智能体定义；不新增成果表，也不把 `.claude/` 文件当成果。用户消息可携带 `output: { runId, path }`，API 校验该版本属于当前会话后随用户消息落库；worker 读取它准备下一轮草稿。每轮发布后，`GET /api/conversations/:id/outputs` 按版本返回有变化的文件，认证的 `GET /api/conversations/:id/outputs/:runId?path=` 返回该版 `{ file }` 元数据（大小、类型、sha256、创建时刻、状态与消息锚点，含列表分页外的旧版），`.../outputs/:runId/content` 返回完整 UTF-8 文本，`.../download` 返回原件。前端右侧成果面板按路径分组、可选版本、阅读/源码切换和下载；图片仅 PNG/JPEG/GIF/WebP，经鉴权下载取 Blob 且浏览器解码成功后才显示，解码失败保留下载；PDF 经同一鉴权下载取 Blob 交给浏览器原生查看器，`navigator.pdfViewerEnabled` 与 `%PDF-` 前 5 字节 header 门槛不满足时只提示并保留下载；“基于此版本修改”只挂引用，不自动发送，用户可继续编辑或取消。Fork 只复制历史边界内且两个消息锚点都能映射的版本，并把锚点重写为分支消息 ID；删除会话或专家回收成果，run 保留期清理不删除成果。
+成果是运行数据，不是智能体定义；不新增成果表，也不把 `.claude/` 文件当成果。用户消息可携带 `output: { runId, path }`，API 校验该版本属于当前会话后随用户消息落库；worker 读取它准备下一轮草稿。每轮发布后，`GET /api/conversations/:id/outputs` 按版本返回有变化的文件，认证的 `GET /api/conversations/:id/outputs/:runId?path=` 返回该版 `{ file }` 元数据（大小、类型、sha256、创建时刻、状态与消息锚点，含列表分页外的旧版），`.../outputs/:runId/content` 返回完整 UTF-8 文本，`.../download` 返回原件。前端右侧成果面板按路径分组、可选版本、阅读/源码切换和下载；图片仅 PNG/JPEG/GIF/WebP，经鉴权下载取 Blob 且浏览器解码成功后才显示，解码失败保留下载；PDF 经同一鉴权下载取 Blob 交给浏览器原生查看器，`navigator.pdfViewerEnabled` 与 `%PDF-` 前 5 字节 header 门槛不满足时只提示并保留下载；“基于此版本修改”只挂引用，不自动发送，用户可继续编辑或取消。Fork 只复制历史边界内且两个消息锚点都能映射的版本，并把锚点重写为分支消息 ID；删除会话回收成果，专家软删除保留成果与工作区目录并可恢复，run 保留期清理不删除成果。
 
 固定版本公开分享单独建 `output_shares`：`POST /api/conversations/:id/output-shares` 锚定 `runId + path` 的真实字节并复用同三元组的有效分享，`GET /api/public/output-shares/:id[/content|/download]` 在未登录下凭 Bearer token 访问，`DELETE /api/output-shares/:id` 幂等撤销。公开元数据只含文件名、大小、类型、哈希与创建时刻；无效、撤销或来源删除统一 404。读取过数据域治理数据的会话在 `conversations.data_domain_restricted` 上持久标记（由 run_sql 成功返回前可靠写入，分支会话继承）：其成果创建分享返回 403，已有 token 的公开读取与下载按 404 失效；本人授权下载不受影响，标记独立于数据域存续。公开页图片仅 PNG/JPEG/GIF/WebP，经 Bearer 下载且解码成功后才显示；PDF 与会话成果共用 `BlobPdf`（Bearer 下载 + 同一支持/header 门槛），旧的对象 URL/iframe 分支已移除；其余格式沿用既有行为。
 
@@ -253,7 +253,7 @@ US-6.2以官方 `AskUserQuestion → canUseTool → updatedInput` 接回用户�
 
 worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也预建并挂载），prompt 追加受控清单（显示名 JSON 转义、容器路径、类型、字节数），要求主智能体先 `Read` 再分析、读取失败必须说明。图片由官方 Read 返回视觉内容；PDF 短文件整份读取，长文件按 `pages` 分页，沙盒镜像安装 `poppler-utils`。输入目录的原生文件工具只允许主会话 `Read`，Write/Edit、子智能体的文件工具、未挂载路径、软链/硬链与越界继续拒绝；Bash 不在该 hook 内，但 `/mnt/inputs` 为只读挂载，shell 也只能读取。交付仍写 `/mnt/outputs`。
 
-附件按会话保留：分支只复制被复制消息引用的文件（字节复制，删源后独立）；删除会话/专家回收目录；`pruneRuns` 保留带附件的用户消息并置空 `runId`，孤儿清理永不删除附件消息，保证历史与下载入口不随旧 run 消失。下载经鉴权且只接受该会话消息引用的附件。附件是运行数据，不进入智能体定义，也不替代知识库。
+附件按会话保留：分支只复制被复制消息引用的文件（字节复制，删源后独立）；删除会话回收目录，专家软删除保留附件目录并可恢复；`pruneRuns` 保留带附件的用户消息并置空 `runId`，孤儿清理永不删除附件消息，保证历史与下载入口不随旧 run 消失。下载经鉴权且只接受该会话消息引用的附件。附件是运行数据，不进入智能体定义，也不替代知识库。
 
 实现状态（2026-10-28）：隔离环境真实模型验证 CSV/PNG/14 页 PDF 的原生读取、报告内容与下载哈希一致、同会话第二轮读取历史附件、分支删源后继续读取；跨会话下载 404、伪类型/超限 400。Compose 为完整支持环境；宿主直跑需同一绝对 `WORKSPACES_DIR`，非 uid 1000 宿主与沙盒的 0700 目录限制见 `docs/OPERATIONS.md`。详见任务记录。
 
@@ -272,7 +272,7 @@ worker 预建该会话目录并只读挂到 `/mnt/inputs`（首轮无附件也�
 
 角色、状态与消息类型沿用 text + CHECK，不引入 PostgreSQL enum。M2 增加 `conversations.channel_id` 可空级联外键与 partial unique `(channel_id, agent_id) where channel_id is not null`、`messages.channel_message_id` 可空来源标识、`agent_runs.channel_id` / `channel_trigger_message_id` 可空来源标识，并扩展 trigger CHECK 为 `channel`。lane 的 `created_by` 仅记录首次触发者；私有会话列表与搜索排除 lane，执行准入按频道成员角色与 active 绑定判断。
 
-频道消息请求使用显式 `mentions: agentId[]`，不解析正文中的名字；`mentionAll` 只唤醒 `auto_wake_on_all=true`、active 且专家已启用的绑定。无 mention 不执行；每个 lane 复用既有 `admitChatRun` → BullMQ → sandbox 管线；忙碌 lane 的无附件 @ 消息追加到当前 run，带附件时写 system 提示并跳过。助手文本与频道投影同事务保存；可重试的中间尝试只保留 lane 消息，不进入频道时间线，最终尝试才投影，`source_message_id` 唯一索引保证投影身份唯一。`packages/shared/src/channels.ts` 是请求/响应/生命周期事件契约；Redis 键由 `channelStreamKey` / `channelEventsConnectionName` 统一生成。消息用 DB `seq` 回放，`run.started` / `run.finished` 是实时提示，发布失败不改变运行结果。
+频道消息请求使用显式 `mentions: agentId[]`，不解析正文中的名字；`mentionAll` 只唤醒 `auto_wake_on_all=true`、active、专家已启用且未归档/未软删除的绑定。无 mention 不执行；每个 lane 复用既有 `admitChatRun` → BullMQ → sandbox 管线；忙碌 lane 的无附件 @ 消息追加到当前 run，带附件时写 system 提示并跳过。助手文本与频道投影同事务保存；可重试的中间尝试只保留 lane 消息，不进入频道时间线，最终尝试才投影，`source_message_id` 唯一索引保证投影身份唯一。`packages/shared/src/channels.ts` 是请求/响应/生命周期事件契约；Redis 键由 `channelStreamKey` / `channelEventsConnectionName` 统一生成。消息用 DB `seq` 回放，`run.started` / `run.finished` 是实时提示，发布失败不改变运行结果。
 
 频道准入在同一事务内用绑定的 `context_seq` 做增量上下文注入：只取 `context_seq < seq < 触发消息 seq` 的 human/agent/system 消息，最多最新 20 条（`CHANNEL_CONTEXT_MESSAGE_LIMIT`），再反转成升序拼到本轮用户消息前。前缀总长（含分隔与省略提示、不含当前消息）不超过 8000 字符（`CHANNEL_CONTEXT_CHAR_LIMIT`），超限从最早整条丢弃并标注「更早的消息已省略」，单条超长时只保留省略提示；没有新消息时保持原 content 不变。游标**不在准入时推进**：只有该 run 被确认执行（消息持久化事务内）才把 `context_seq` 推进到触发消息 seq，因此 queued 取消、入队失败、开跑前拒绝都不会吞掉未注入的上下文；旧消息重放用 `Math.max` 不回退。注入只改该 run 原有的一条 lane 用户消息，不新增频道消息。
 
@@ -354,6 +354,23 @@ API 重启只中断当前短请求，runner 对网络错误和 5xx 按 2–5 秒
 
 删除账户在同一事务内撤销该 `businessId` 的未撤销 API token、把其 webhook endpoint 置为 disabled；用同一 `businessId` 恢复原身份不恢复这些外部集成凭证，须重新创建。出站 `run.failed` 覆盖 failed/timeout/cancelled；定时任务入队失败产生的 `run.failed` 之后可能补投同一 run 并最终投递 `run.completed`，消费方不能把 `run.failed` 当作不可恢复的终态。
 
+### 3.10 专家发现、归档与统一搜索（2026-11-18）
+
+**数据基础**：迁移 0092 的 `agents` / `skills` 字段、约束与索引见 [PROJECT-BRIEF.md §5](PROJECT-BRIEF.md#5-数据模型)；`agent_favorites` 按业务身份隔离，外键随专家行物理删除级联；当前 DELETE 走软删除，收藏行保留。
+
+**专家发现与生命周期**：
+
+- `organization` 可见只对「已发布 + 启用 + 未归档 + 未软删除」的专家生效；发现读取按 `agents.read` 过滤，使用按 `agents.use`，普通组织成员可发现并使用但不能维护，维护权限仍只来自负责人或维护成员。
+- `GET /api/agents` 支持 `q`、`tag`、`favorite`、`sort=name|recent` 与 `status=active|archived|deleted`（默认 `active`）；`GET /api/agents/tags` 返回当前用户可见标签，`PUT /api/agents/{id}/favorite` 收藏或取消收藏。
+- `lastUsedAt` 由当前业务身份在 `agent_runs.initiated_by` 的最大 `created_at` 实时推导，不新增表；`sort=recent` 据此排序。
+- `POST /api/agents/{id}/archive` 设置 `archived_at` 并更新 `updated_at`；`DELETE /api/agents/{id}` 改为软删除，设置 `deleted_at` 并更新 `updated_at`，保留会话、消息、绑定关系与工作区目录（含成果），不再关闭或删除沙盒与会话目录。归档与软删除的专家不出现在默认列表与搜索，不能发起新使用；频道 @/`@all` 唤醒、MCP 工具调用与所有已入队 run 同样拒绝归档或软删除专家。默认助手不可归档或软删除，避免裸聊失去默认解析。负责人仍可读取配置，`POST /api/agents/{id}/restore` 同时恢复归档与软删除。归档/删除列表只对负责人或平台可见。专家包导出不携带 `visibility`/`tags`，导入按 `private`/`[]` 落库，避免组织可见信息随导出物扩散。
+
+**统一搜索**：`GET /api/search` 接受 `q`（1..128 字符）与 `limit`（1..20，默认 5），并行聚合专家、会话、知识库、连接器、技能、插件与成果。每类先检查对应权限叶并按自身资源范围过滤，无权限的类返回空而不使整个请求 403。技能只搜 `status='published'`；专家只搜启用、未归档、未软删除且当前用户可见的行；成果来自本人最近 50 个私有会话的成果文件（每会话最多 100 条），不跨用户。前端命令面板（⌘K）按 200ms 防抖调用该接口，结果按类型分组，并可进入 `/search` 完整结果页。
+
+**个人工作清单**：`GET /api/me/outputs` 接受 `q` 与 `limit`（1..100，默认 50），返回本人私有会话成果（会话标题、专家、`runId`、`path`、`size`、`mimeType`、`createdAt`）；`truncated` 表示 `limit` 或单会话 100 文件上限发生截断；只扫描最近 50 个会话，更早会话不另行标记。`/personal/work`「会话与成果」页同时展示 `GET /api/me/conversations` 的最近会话与上述成果，侧栏「个人 → 工作记录」提供入口。
+
+**技能审核生命周期**：`POST /api/runs/{id}/skill-draft` 从运行沉淀 `draft` 技能；`POST /api/skills/{id}/submit`（`draft|rejected → pending`，需 `skills.update`）、`approve`（`pending → published`）与 `reject`（`pending → rejected`，`note` 必填 1..500）完成审核流转，submit、approve 与 reject 均写审计；approve 与 reject 另需 `skills.review`（platform scope，默认平台管理员拥有）。`skills.list` 支持按 `status` 筛选；创建、导入与市场安装默认 `published`。草稿、待审与驳回技能不能绑定到专家、不能在运行时加载、不能导出；技能页显示状态徽标与筛选、驳回原因，并按权限提供提交审核、批准与驳回操作。
+
 ## 4. HTTP → MCP、平台 → MCP 与内置知识 MCP
 
 前两个方向共用 MCP 协议、都由 `createMcpHandler()` 构建 handler，但 handler 实现不同（generated 走 `mcp-endpoint.ts`，平台走 `agent-tools.ts`），目的不同；`/mcp/:serverId` 还承载平台为知识库与数据域自动生成的内置连接（两种都只服务 run）。
@@ -408,7 +425,7 @@ data/workspaces/<agent-slug>/
       └─ files/**                 发布后不可变的完整文件快照
 ```
 
-工作区按会话稳定复用，每轮只刷新定义内容；根目录不按 run 重命名或删除。目录 0700、文件 0600。持久数据只有 `agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/` 与 `conversation-inputs/<conversationId>/`；`session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存：`workspace` 每轮由数据库重渲染，`outputs` 在停稳后复制进 `conversation-outputs`，容器回收或关停不删除它，但它不是不可丢失的持久交付。run 保留期清理不删除会话成果；删除会话或专家时 API 都回收 `sdk-sessions/<conversationId>/`、`session-sandboxes/<conversationId>/`、`conversation-outputs/<conversationId>/` 与 `conversation-inputs/<conversationId>/` 四类目录，`agent-memory/` 与个人记忆保留；仍有子专家的父专家拒绝删除（409），需先删除或迁移子专家。删除编排固定为同一 checked-out 连接持 session advisory lock → 短 tx A 取快照 → 事务外等待沙盒关闭 ACK（连接保持 idle、无事务）→ 同连接短 tx B 精确重核并删除 → unlock 成功后按 A/B 核对过的快照 best-effort 回收目录。控制查询（读设置、取锁/解锁、写设置）有 5s 客户端截止；删除持锁总预算 40s 从确认拿到锁起覆盖设置恢复、tx A、ACK、tx B 与 unlock。B 提交前任何失败都保留实体行与全部目录；B 提交后 unlock/reset 失败不能伪装成回滚；rm 失败只记录并尽力收敛，可能残留目录。全局绑定锁使 ACK 等待窗口短时挡住其他专家的准入、绑定修改与经过绑定锁的记忆操作，这是已接受的代价；更细粒度需另改准入协议。上述编排已在 agent 与 conversation 两个删除入口落地。
+工作区按会话稳定复用，每轮只刷新定义内容；根目录不按 run 重命名或删除。目录 0700、文件 0600。持久数据只有 `agent-memory/`、`sdk-sessions/<conversationId>/`、`conversation-outputs/<conversationId>/` 与 `conversation-inputs/<conversationId>/`；`session-sandboxes/<conversationId>/{workspace,outputs}` 是可再生的派生缓存：`workspace` 每轮由数据库重渲染，`outputs` 在停稳后复制进 `conversation-outputs`，容器回收或关停不删除它，但它不是不可丢失的持久交付。run 保留期清理不删除会话成果；删除会话时 API 回收 `sdk-sessions/<conversationId>/`、`session-sandboxes/<conversationId>/`、`conversation-outputs/<conversationId>/` 与 `conversation-inputs/<conversationId>/` 四类目录，`agent-memory/` 与个人记忆保留。专家删除为软删除（设置 `deleted_at`），保留会话、消息、绑定关系与全部工作区目录（含成果），可由负责人恢复；归档同样不关闭沙盒、不删除目录，也不再因存在子专家而拒绝。以下锁序与 ACK 编排现仅用于会话删除，专家物理删除曾使用这套编排、现已改为软删除，属历史背景：同一 checked-out 连接持 session advisory lock → 短 tx A 取快照 → 事务外等待沙盒关闭 ACK（连接保持 idle、无事务）→ 同连接短 tx B 精确重核并删除 → unlock 成功后按 A/B 核对过的快照 best-effort 回收目录。控制查询（读设置、取锁/解锁、写设置）有 5s 客户端截止；删除持锁总预算 40s 从确认拿到锁起覆盖设置恢复、tx A、ACK、tx B 与 unlock。B 提交前任何失败都保留实体行与全部目录；B 提交后 unlock/reset 失败不能伪装成回滚；rm 失败只记录并尽力收敛，可能残留目录。全局绑定锁使 ACK 等待窗口短时挡住其他专家的准入、绑定修改与经过绑定锁的记忆操作，这是已接受的代价；更细粒度需另改准入协议。专家删除不再走该编排。
 
 子智能体各自的工作区同样包含 `agent-memory/`。运行时按 slug 把该目录 rw 挂到父会话 workspace 的 `/workspace/.claude/agent-memory/<slug>/`，不复制、不回写；会话刷新保留这棵挂载子树的 inode，挂载集合变化时重建容器。源码评审已通过（整体 `a9f539537d2542d89` PASS、`sessions` format `a8c52733b5e29b393` PASS）；SDK 最新接口 16/16 PASS（`/tmp/subagent-memory-sdk-final-interface-unique.json`，含跨 run、容器内自动 system 加载与显式 Read/Write/Edit deny）；浏览器全部 PASS、0 残留。运行整合 13 文件 195/195 PASS（`/tmp/subagent-memory-runtime-final-green.json`）；已实现并合入 main（`50ae93e4`）。
 

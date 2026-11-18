@@ -189,9 +189,20 @@ export async function getAgentRelation(
   ownerBusinessId: string | null;
   canUse: boolean;
   canMaintain: boolean;
+  organizationVisible: boolean;
+  inactive: boolean;
 }> {
   const [agent] = await db
-    .select({ id: agents.id, isDefault: agents.isDefault, ownerBusinessId: agents.ownerBusinessId })
+    .select({
+      id: agents.id,
+      isDefault: agents.isDefault,
+      ownerBusinessId: agents.ownerBusinessId,
+      visibility: agents.visibility,
+      publishedVersion: agents.publishedVersion,
+      enabled: agents.enabled,
+      archivedAt: agents.archivedAt,
+      deletedAt: agents.deletedAt,
+    })
     .from(agents)
     .where(eq(agents.id, agentId))
     .limit(1);
@@ -202,8 +213,16 @@ export async function getAgentRelation(
       ownerBusinessId: null,
       canUse: false,
       canMaintain: false,
+      organizationVisible: false,
+      inactive: false,
     };
   }
+  const inactive = agent.archivedAt !== null || agent.deletedAt !== null;
+  const organizationVisible =
+    agent.visibility === 'organization' &&
+    agent.publishedVersion !== null &&
+    agent.enabled &&
+    !inactive;
   if (agent.ownerBusinessId === businessId) {
     return {
       exists: true,
@@ -211,6 +230,8 @@ export async function getAgentRelation(
       ownerBusinessId: agent.ownerBusinessId,
       canUse: true,
       canMaintain: true,
+      organizationVisible,
+      inactive,
     };
   }
   const [member] = await db
@@ -224,6 +245,8 @@ export async function getAgentRelation(
     ownerBusinessId: agent.ownerBusinessId,
     canUse: member?.canUse ?? false,
     canMaintain: member?.canMaintain ?? false,
+    organizationVisible,
+    inactive,
   };
 }
 

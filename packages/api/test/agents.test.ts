@@ -762,7 +762,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(del.statusCode).toBe(404);
   });
 
-  it('DELETE removes the agent', async () => {
+  it('DELETE soft deletes the agent', async () => {
     const slug = unique('delete');
     const agent = (await newAgent(slug)).json<Agent>();
     const del = await request(app, {
@@ -776,7 +776,15 @@ describe.skipIf(!ready)('agents', () => {
       url: `/api/agents/${agent.id}`,
       headers: auth(),
     });
-    expect(get.statusCode).toBe(404);
+    expect(get.statusCode).toBe(200);
+    const active = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
+    expect(active.json<Array<{ id: string }>>().some((row) => row.id === agent.id)).toBe(false);
+    const deleted = await request(app, {
+      method: 'GET',
+      url: '/api/agents?status=deleted',
+      headers: auth(),
+    });
+    expect(deleted.json<Array<{ id: string }>>().some((row) => row.id === agent.id)).toBe(true);
   });
 
   it('delegates to sub-agents and renders them as agent files', async () => {

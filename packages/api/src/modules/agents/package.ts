@@ -827,6 +827,8 @@ export function parseAgentPackage(
     timeoutMs: sidecar.agent.timeoutMs,
     ...(sidecar.agent.effort === undefined ? {} : { effort: sidecar.agent.effort }),
     enabled: sidecar.agent.enabled,
+    visibility: 'private' as const,
+    tags: [],
   };
   const ruleFiles = listMarkdown(files, AGENT_PACKAGE_PATHS.rulesDir);
   for (const file of ruleFiles) {
@@ -999,6 +1001,8 @@ export function parseAgentPackage(
         timeoutMs: meta?.timeoutMs ?? 600000,
         ...(parsed.effort === undefined ? {} : { effort: parsed.effort }),
         enabled: meta?.enabled ?? true,
+        visibility: 'private' as const,
+        tags: [],
       },
       serverNames: parsed.mcpServers,
       skillSlugs: parsed.skills,

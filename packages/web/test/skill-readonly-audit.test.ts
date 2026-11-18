@@ -26,6 +26,11 @@ const skill: SkillWithAgentCount = {
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: 'v1',
   agentCount: 0,
+  status: 'published',
+  submittedAt: null,
+  reviewedAt: null,
+  reviewedBy: null,
+  reviewNote: null,
 };
 
 const supportFile: SkillFile = {

@@ -188,6 +188,7 @@ const catalog = [
     treePath: ['资源', '技能', '文件'],
     scopes: OAP,
   },
+  { id: 'skills.review', label: '审核技能', treePath: ['资源', '技能', '审核'], scopes: P },
 
   { id: 'plugins.read', label: '查看插件', treePath: ['资源', '插件', '包'], scopes: OAP },
   { id: 'plugins.import', label: '导入插件', treePath: ['资源', '插件', '包'], scopes: OP },
@@ -541,6 +542,8 @@ export type AgentRelation = {
   ownerBusinessId: string | null;
   canUse: boolean;
   canMaintain: boolean;
+  organizationVisible?: boolean;
+  inactive?: boolean;
 };
 
 /**
@@ -554,6 +557,7 @@ export function agentPermissionAllows(
   businessId: string,
 ): boolean {
   if (!relation.exists) return false;
+  if (relation.inactive && permissionId === 'agents.use') return false;
   if (relation.isDefault) {
     return permissionId === 'agents.read' || permissionId === 'agents.use';
   }
@@ -574,7 +578,9 @@ export function agentScopeAllows(
     case 'platform':
       return true;
     case 'authorized_agents':
-      return owner || relation.canUse;
+      return (
+        !relation.inactive && (owner || relation.canUse || relation.organizationVisible === true)
+      );
     case 'maintained_agents':
       return owner || relation.canMaintain;
     case 'owned_agents':

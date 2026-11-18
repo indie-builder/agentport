@@ -1,5 +1,6 @@
 import type {
   ConversationSummary,
+  PersonalOutputList,
   PersonalOutputShareList,
   PersonalProfile,
   PersonalRunExport,
@@ -38,4 +39,8 @@ export default {
     query: { agentId?: string; limit?: number } = {},
     signal?: AbortSignal,
   ): Promise<ConversationSummary[]> => rpc.personal.conversations({ query }, clientOptions(signal)),
+  personalOutputs: (
+    query: { q?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<PersonalOutputList> => rpc.personal.outputs({ query }, clientOptions(signal)),
 };

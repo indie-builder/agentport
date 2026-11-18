@@ -16,7 +16,7 @@ import {
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
-import { deleteAgentWithSandboxes } from '../../api/src/modules/runtime/runtime-deletion.js';
+import { deleteConversationWithSandboxes } from '../../api/src/modules/runtime/runtime-deletion.js';
 import { DockerSandboxProvider } from '../src/sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from '../src/sandbox/provider.js';
 import { startSessionCleanupChannel } from '../src/sandbox/session-cleanup.js';
@@ -262,13 +262,12 @@ async function setup(failDestroy = false): Promise<Incident> {
 }
 
 function deleteWithClose(incident: Incident): Promise<boolean> {
-  return deleteAgentWithSandboxes({
+  return deleteConversationWithSandboxes({
     client,
     redisUrl: REDIS_URL,
     deletion: {
-      id: incident.agentId,
-      access: { businessId: 'delete-docker-owner', scopes: ['owned_agents'] },
-      readAccess: { businessId: 'delete-docker-owner', scopes: ['owned_agents'] },
+      id: incident.conversationId,
+      access: { businessId: 'delete-docker-owner', scopes: ['own_data'] },
     },
   }).then((snapshot) => snapshot !== null);
 }
@@ -308,7 +307,7 @@ describe.skipIf(!dockerReady || !imageReady || !dbReady)('session cleanup real d
 
     // 关闭确认成功后才会走到删行与目录回收；顺序由事务决定，这里核对最终结果。
     expect(containerExists(incident.sandboxId)).toBe(false);
-    expect(await repo.agents.getAgent(db, incident.agentId)).toBeNull();
+    expect(await repo.chat.getConversation(db, incident.conversationId)).toBeNull();
     // ACK 丢失后的重试/重复请求：容器已不存在必须按成功处理，不能拖住下一次删除。
     await expect(
       requestClose([{ conversationId: incident.conversationId, sandboxIds: [incident.sandboxId] }]),
@@ -321,7 +320,7 @@ describe.skipIf(!dockerReady || !imageReady || !dbReady)('session cleanup real d
     const incident = await setup(true);
 
     await expect(deleteWithClose(incident)).rejects.toThrow(/destroy|close failed/);
-    expect(await repo.agents.getAgent(db, incident.agentId)).not.toBeNull();
+    expect(await repo.chat.getConversation(db, incident.conversationId)).not.toBeNull();
     expect(containerExists(incident.sandboxId)).toBe(true);
     expect(await readFile(join(incident.secretsDir, '.mcp.json'), 'utf8')).toContain(
       'fake-not-real',
@@ -330,7 +329,7 @@ describe.skipIf(!dockerReady || !imageReady || !dbReady)('session cleanup real d
     incident.provider.failDestroy = false;
     await expect(deleteWithClose(incident)).resolves.toBe(true);
     expect(containerExists(incident.sandboxId)).toBe(false);
-    expect(await repo.agents.getAgent(db, incident.agentId)).toBeNull();
+    expect(await repo.chat.getConversation(db, incident.conversationId)).toBeNull();
     await rm(incident.root, { recursive: true, force: true });
   }, 60_000);
 
@@ -359,14 +358,14 @@ describe.skipIf(!dockerReady || !imageReady || !dbReady)('session cleanup real d
       requestChannel: REQUEST_CHANNEL,
     });
     try {
-      expect(await repo.agents.getAgent(db, incident.agentId)).not.toBeNull();
+      expect(await repo.chat.getConversation(db, incident.conversationId)).not.toBeNull();
       expect(await readFile(join(incident.secretsDir, '.mcp.json'), 'utf8')).toContain(
         'fake-not-real',
       );
       // 走完整删除编排：新 worker 先按 persisted ID 关容器，API 确认后才删 DB 行。
       await expect(deleteWithClose(incident)).resolves.toBe(true);
       expect(containerExists(sandboxId)).toBe(false);
-      expect(await repo.agents.getAgent(db, incident.agentId)).toBeNull();
+      expect(await repo.chat.getConversation(db, incident.conversationId)).toBeNull();
       // 编排返回后才回收目录；用真实文件系统确认路径确实移除，而不是只补 mock。
       await rm(incident.root, { recursive: true, force: true });
       await expect(access(incident.root)).rejects.toMatchObject({ code: 'ENOENT' });

@@ -89,6 +89,7 @@ async function mount(
     '/personal/security',
     '/personal/shares',
     '/personal/usage',
+    '/personal/work',
     '/away',
   ].map((path) =>
     createRoute({
@@ -188,6 +189,7 @@ const PERSONAL_HREFS = [
   '/personal/security',
   '/personal/shares',
   '/personal/usage',
+  '/personal/work',
 ];
 
 async function click(element: HTMLElement) {

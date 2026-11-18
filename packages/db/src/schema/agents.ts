@@ -10,6 +10,7 @@ import {
   jsonb,
   numeric,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -41,6 +42,10 @@ export const agents = pgTable(
     uiFormat: text('ui_format').$type<AgentInput['uiFormat']>().notNull().default('markdown'),
     effort: text('effort').$type<NonNullable<AgentInput['effort']>>(),
     enabled: boolean('enabled').notNull().default(true),
+    visibility: text('visibility').$type<AgentInput['visibility']>().notNull().default('private'),
+    tags: jsonb('tags').$type<string[]>().notNull().default([]),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     publishedVersion: integer('published_version'),
     publishedAt: timestamp('published_at', { withTimezone: true }),
     maxTurns: integer('max_turns').notNull().default(20),
@@ -81,6 +86,13 @@ export const agents = pgTable(
     index('agents_runtime_environment_idx')
       .on(t.runtimeEnvironmentId)
       .where(isNotNull(t.runtimeEnvironmentId)),
+    index('agents_visibility_idx').on(t.visibility),
+    index('agents_archived_idx').on(t.archivedAt).where(isNotNull(t.archivedAt)),
+    check('agents_visibility_check', sql`${t.visibility} in ('private', 'organization')`),
+    check(
+      'agents_tags_check',
+      sql`jsonb_typeof(${t.tags}) = 'array' and not jsonb_path_exists(${t.tags}, '$[*] ? (@.type() != "string")')`,
+    ),
     check(
       'agents_permission_mode_check',
       sql`${t.permissionMode} in ('dontAsk', 'plan', 'default', 'acceptEdits')`,
@@ -90,6 +102,21 @@ export const agents = pgTable(
       'agents_allowed_tools_check',
       sql`jsonb_typeof(${t.allowedTools}) = 'array' and not jsonb_path_exists(${t.allowedTools}, '$[*] ? (@.type() != "string")')`,
     ),
+  ],
+);
+
+export const agentFavorites = pgTable(
+  'agent_favorites',
+  {
+    businessId: text('business_id').notNull(),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.businessId, t.agentId] }),
+    index('agent_favorites_business_idx').on(t.businessId),
   ],
 );
 

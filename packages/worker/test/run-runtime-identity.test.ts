@@ -798,6 +798,7 @@ describe('run runtime environment identity persistence', () => {
     expect(mocks.checkAccess).toHaveBeenCalledWith(expect.anything(), {
       runId: fixture.runId,
       trigger: 'chat',
+      evalRunId: null,
       agentId: fixture.agentId,
       conversationId: fixture.conversationId,
       businessId: TEST_BUSINESS_ID,
@@ -992,6 +993,7 @@ describe('run runtime environment identity persistence', () => {
     expect(mocks.checkAccess).toHaveBeenCalledWith(expect.anything(), {
       runId: fixture.runId,
       trigger: 'schedule',
+      evalRunId: null,
       agentId: fixture.agentId,
       conversationId: fixture.conversationId,
       businessId: TEST_BUSINESS_ID,
