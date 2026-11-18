@@ -189,7 +189,6 @@ export class DockerSandboxProvider implements SandboxProvider {
     const name = options.name ?? `agentport-${process.pid}-${Date.now()}`;
 
     await this.ensureImage(options.image, signal);
-    // 拉取结束前取消：不创建容器。
     if (signal.aborted) throw abortError();
 
     // 拆成 create + start -ai：create 完成即拿到容器，取消时才能 rm 而不启动。

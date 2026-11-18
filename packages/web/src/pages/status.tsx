@@ -97,6 +97,18 @@ function formatUptime(seconds: number): string {
   return `${minutes} 分 ${seconds % 60} 秒`;
 }
 
+function readyPassed(probe: HealthProbe<HealthReady>): boolean {
+  const body = probe.body;
+  return (
+    probe.reachable &&
+    probe.httpStatus === 200 &&
+    body !== null &&
+    body.status === 'ok' &&
+    body.db === 'ok' &&
+    body.redis === 'ok'
+  );
+}
+
 function readyReason(ready: {
   isPending: boolean;
   isError: boolean;
@@ -107,8 +119,7 @@ function readyReason(ready: {
   const probe = ready.data;
   if (!probe.reachable) return probe.error ?? '就绪检查端点不可达。';
   const body = probe.body;
-  if (probe.httpStatus === 200 && body?.status === 'ok' && body.db === 'ok' && body.redis === 'ok')
-    return null;
+  if (readyPassed(probe)) return null;
   if (body && (body.db === 'error' || body.redis === 'error')) {
     const failed = [body.db === 'error' ? '数据库' : null, body.redis === 'error' ? 'Redis' : null]
       .filter(Boolean)
@@ -167,11 +178,7 @@ function SmokeChecklist() {
       if (!probe.reachable) return { ok: false, detail: probe.error ?? '请求失败' };
       const body = probe.body;
       return {
-        ok:
-          probe.httpStatus === 200 &&
-          body?.status === 'ok' &&
-          body.db === 'ok' &&
-          body.redis === 'ok',
+        ok: readyPassed(probe),
         detail: body
           ? `HTTP ${probe.httpStatus} · db=${body.db} · redis=${body.redis}`
           : `HTTP ${probe.httpStatus} · 响应体无法解析`,

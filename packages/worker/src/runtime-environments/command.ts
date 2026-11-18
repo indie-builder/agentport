@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/db';
+import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/shared';
 
 export type SpawnFn = (
   command: string,

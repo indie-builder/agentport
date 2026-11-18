@@ -28,6 +28,8 @@ import { useFormBlocker } from '../../lib/form.js';
 import {
   chatKeys,
   useAgents,
+  useApproveRun,
+  useCancelRun,
   useConversation,
   useConversations,
   useRunApprovals,
@@ -257,7 +259,6 @@ function ChatWorkspace({
     [runQuestions.data],
   );
   const [historyPanels] = useState(createResizableController);
-  // 历史默认隐藏：每次进入都从折叠态开始。
   const [historyCollapsed, setHistoryCollapsed] = useState(true);
   // 零宽面板没有「上次宽度」可恢复，自己记住最后一个正宽度。
   // 存储里是百分比（随分组宽度自适应），首次进入没有存储时按设计规范的 240px。
@@ -314,29 +315,10 @@ function ChatWorkspace({
   );
 
   // 三个写操作都用 mutation：pending 与失效刷新交给 TanStack Query。
-  const cancelMutation = useMutation({
-    mutationFn: (runId: string) => api.cancelRun(runId),
-    onError: (error) => toastError(error),
-    onSettled: (_data, _error, runId) => client.invalidateQueries({ queryKey: ['run', runId] }),
-  });
+  const cancelMutation = useCancelRun();
 
   const approvalInFlight = useRef(false);
-  const approveMutation = useMutation({
-    mutationFn: (item: ApprovalRequest & { runId: string }) =>
-      api.approveRun(item.runId, item.serverId, item.toolName),
-    onSettled: () => {
-      approvalInFlight.current = false;
-    },
-    onSuccess: (data, item) => {
-      toastSuccess(
-        data.waiting
-          ? `已批准 ${item.toolName}；仍在等待的调用可继续，无需重发消息`
-          : '已记录后续调用许可；本次调用不会恢复。',
-      );
-      void client.invalidateQueries({ queryKey: ['run-approvals'] });
-    },
-    onError: (error) => toastError(error),
-  });
+  const approveMutation = useApproveRun();
 
   const branchMutation = useMutation({
     mutationFn: ({
@@ -393,7 +375,7 @@ function ChatWorkspace({
   const cancel = (): void => {
     // 没有 runId 时后端还没有可取消的 run；按钮也不会显示。
     if (!runId) return;
-    cancelMutation.mutate(runId);
+    cancelMutation.mutate(runId, { onError: (error) => toastError(error) });
   };
 
   // 引用只挂在输入框上，不自动发送：用户仍可改写文案或取消引用再发。
@@ -408,7 +390,21 @@ function ChatWorkspace({
       const activeRunId = runId || lastRunId;
       if (!activeRunId || approvalInFlight.current) return;
       approvalInFlight.current = true;
-      approveMutation.mutate({ ...item, runId: activeRunId });
+      approveMutation.mutate(
+        { runId: activeRunId, serverId: item.serverId, toolName: item.toolName },
+        {
+          onSettled: () => {
+            approvalInFlight.current = false;
+          },
+          onSuccess: (data) =>
+            toastSuccess(
+              data.waiting
+                ? `已批准 ${item.toolName}；仍在等待的调用可继续，无需重发消息`
+                : '已记录后续调用许可；本次调用不会恢复。',
+            ),
+          onError: (error) => toastError(error),
+        },
+      );
     },
     [runId, lastRunId, approveMutation.mutate],
   );
@@ -596,7 +592,15 @@ function ChatWorkspace({
       phase={phase}
       lastRun={lastRun}
       lastRunId={lastRunId}
-      approving={approveMutation.isPending ? (approveMutation.variables?.id ?? null) : null}
+      approving={
+        approveMutation.isPending
+          ? (approvalData.find(
+              (item) =>
+                item.serverId === approveMutation.variables?.serverId &&
+                item.toolName === approveMutation.variables?.toolName,
+            )?.id ?? null)
+          : null
+      }
       cancelling={cancelMutation.isPending}
       approvalItems={approvalData}
       questionsByToolUseId={questionsByToolUseId}

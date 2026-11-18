@@ -1,3 +1,4 @@
+import { isActiveRunStatus } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
@@ -80,19 +81,13 @@ export function RunDetailPage() {
   const navigate = useNavigate();
   // 状态尚未读取或仍在排队时也轮询，终态转换负责最后刷新。
   const status = run.data?.run.status;
-  const approvals = useRunApprovals(
-    params.runId,
-    !status || status === 'queued' || status === 'running',
-  );
-  const questions = useRunQuestions(
-    params.runId,
-    !status || status === 'queued' || status === 'running',
-  );
+  const approvals = useRunApprovals(params.runId, !status || isActiveRunStatus(status));
+  const questions = useRunQuestions(params.runId, !status || isActiveRunStatus(status));
   const outputs = useConversationOutputs(run.data?.conversation.id ?? null, params.runId);
   useDrainPages(outputs);
   useRefetchWhenRunEnds(
     params.runId,
-    status === 'queued' || status === 'running',
+    isActiveRunStatus(status),
     chatKeys.runOutputs(run.data?.conversation.id ?? null, params.runId),
   );
   const rerunMutation = useRerun();
@@ -117,7 +112,7 @@ export function RunDetailPage() {
   const rerun = (): void => {
     if (!run.data) return;
     const { run: detail, steps } = run.data;
-    if (detail.status === 'queued' || detail.status === 'running') return;
+    if (isActiveRunStatus(detail.status)) return;
     const prompt = steps.find((step) => step.kind === 'user')?.text;
     if (!prompt) {
       toastError(new Error('这次运行没有可重发的用户消息。'));
@@ -179,7 +174,7 @@ export function RunDetailPage() {
   };
 
   const hasPrompt = run.data?.steps.some((step) => step.kind === 'user') ?? false;
-  const cancellable = run.data?.run.status === 'queued' || run.data?.run.status === 'running';
+  const cancellable = isActiveRunStatus(run.data?.run.status);
   const terminal = run.data ? !cancellable : false;
 
   const saveAsSkill = (): void => {
@@ -520,9 +515,7 @@ export function RunDetailPage() {
             {steps.length === 0 ? (
               <EmptyState
                 title="还没有事件"
-                {...(detail.status === 'queued' || detail.status === 'running'
-                  ? { description: '稍后自动刷新。' }
-                  : {})}
+                {...(isActiveRunStatus(detail.status) ? { description: '稍后自动刷新。' } : {})}
               />
             ) : (
               <ol className="flex flex-col">

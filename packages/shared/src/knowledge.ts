@@ -32,6 +32,8 @@ export function knowledgeEnqueueOptions(jobId: string) {
 /** 官方视觉输入单图上限 5MB；按二进制字节计，base64 膨胀不算在内。 */
 export const KNOWLEDGE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
+export const KNOWLEDGE_DOCUMENT_MAX_BYTES = 32 * 1024 * 1024;
+
 /** 图片名必须是版本清单里的单段文件名；任何路径分隔符或 `..` 都不接受。 */
 const knowledgeImageNameSchema = z
   .string()
@@ -575,6 +577,18 @@ export const knowledgeJobTypeSchema = z.enum([
   'wiki_generate',
   'cleanup',
 ]);
+
+export type KnowledgeJobType = z.infer<typeof knowledgeJobTypeSchema>;
+
+/** 各任务类型的硬超时；超时按失败收尾，保留游标与旧版本。 */
+export const KNOWLEDGE_JOB_TIMEOUT_MS: Record<KnowledgeJobType, number> = {
+  ingest: 30 * 60_000,
+  sync: 30 * 60_000,
+  reindex: 2 * 60 * 60_000,
+  source_probe: 5 * 60_000,
+  wiki_generate: 15 * 60_000,
+  cleanup: 30 * 60_000,
+};
 
 export const knowledgeJobStatusSchema = z.enum([
   'queued',

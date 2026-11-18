@@ -66,7 +66,6 @@ export interface SearchKnowledgeOptions {
   signal?: AbortSignal;
 }
 
-/** 一次检索的可见范围：库、过滤条件、图片开关与当前 embedding profile。 */
 interface SearchScope {
   baseId: string;
   query: SearchQuery;

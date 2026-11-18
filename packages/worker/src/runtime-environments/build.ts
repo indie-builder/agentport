@@ -2,9 +2,9 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/db';
 import {
   errorText,
+  RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT,
   RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
   type RuntimeEnvironmentBuildJob,
 } from '@agentport/shared';

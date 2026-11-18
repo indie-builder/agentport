@@ -30,7 +30,7 @@ interface Span {
   replacement: string;
 }
 
-const ACTION_RANK = { allow: 0, redact: 1, require_approval: 2, block: 3 } as const;
+export const ACTION_RANK = { allow: 0, redact: 1, require_approval: 2, block: 3 } as const;
 const SNIPPET_LENGTH = 160;
 
 const SECRET_PATTERNS: ReadonlyArray<{ pattern: RegExp; replacement: string }> = [
@@ -119,6 +119,12 @@ function digestOf(spans: Span[], text: string): string {
 }
 
 type ProviderRoute = { id: string; baseUrl: string };
+
+export const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com';
+
+export function envProviderDestination(baseUrl?: string) {
+  return { id: 'env' as const, baseUrl: baseUrl || ANTHROPIC_DEFAULT_BASE_URL };
+}
 
 export function providerRouteDestination(provider: ProviderRoute): string {
   const digest = createHash('sha256').update(provider.baseUrl).digest('hex').slice(0, 16);

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import * as ssrfModule from '@agentport/core/net-guard';
 import type { Server } from '@agentport/shared';
 import * as mcpClientModule from '@modelcontextprotocol/client';
-import * as ssrfModule from '../src/modules/servers/ssrf.js';
 
 const realMcpClient = { ...mcpClientModule };
 const realSsrf = { ...ssrfModule };
@@ -31,7 +31,7 @@ mock.module('@modelcontextprotocol/client', () => ({
 
 // SSRF 边界单独有测试；本套件只关心目录上限与 close 语义，
 // 用真实 DNS 会让离线/沙箱环境里的固定域名解析失败，掩盖真正的断言。
-mock.module('../src/modules/servers/ssrf.js', () => ({
+mock.module('@agentport/core/net-guard', () => ({
   ...realSsrf,
   assertSafeUrl: mock(async () => undefined),
 }));

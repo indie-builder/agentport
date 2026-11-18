@@ -40,6 +40,7 @@ import {
   formatTokens,
   formatUtcDateTime,
   runStatusLabel,
+  runTriggerLabel,
   shortId,
 } from '../../lib/format.js';
 import { agentsQuery, meQuery, usePersonalRuns, usePersonalUsage } from '../../lib/queries.js';
@@ -47,15 +48,6 @@ import { toastError, toastSuccess } from '../../lib/toast.js';
 
 const triggers = runTriggerSchema.options;
 type Trigger = (typeof triggers)[number];
-
-const triggerLabel: Record<Trigger, string> = {
-  chat: '对话',
-  mcp: '连接器',
-  schedule: '定时任务',
-  event: '事件',
-  review: '记忆提案',
-  channel: '频道',
-};
 
 const statuses = runStatusSchema.options;
 
@@ -120,7 +112,7 @@ function RunCard({ run, action }: { run: PersonalRun; action: ReactNode }) {
       <CardContent className="flex flex-1 flex-col gap-3">
         <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
           <dt className="text-muted-foreground">来源</dt>
-          <dd className="text-right text-muted-foreground">{triggerLabel[run.trigger]}</dd>
+          <dd className="text-right text-muted-foreground">{runTriggerLabel[run.trigger]}</dd>
           <dt className="text-muted-foreground">时间</dt>
           <dd className="text-right text-muted-foreground" title={run.startedAt ?? run.createdAt}>
             {formatDateTime(run.startedAt ?? run.createdAt)}
@@ -182,7 +174,7 @@ export function PersonalUsagePage() {
       });
       const rows = result.items.map((run) => [
         run.agentName || '已删除的专家',
-        triggerLabel[run.trigger],
+        runTriggerLabel[run.trigger],
         runStatusLabel[run.status],
         formatDateTime(run.startedAt || run.createdAt),
         run.latencyMs ?? '',
@@ -297,7 +289,7 @@ export function PersonalUsagePage() {
       header: '来源',
       width: '88px',
       cell: (run) => (
-        <span className="text-sm text-muted-foreground">{triggerLabel[run.trigger]}</span>
+        <span className="text-sm text-muted-foreground">{runTriggerLabel[run.trigger]}</span>
       ),
     },
     {
@@ -482,7 +474,10 @@ export function PersonalUsagePage() {
                 }
                 options={[
                   { value: '', label: '全部来源' },
-                  ...triggers.map((trigger) => ({ value: trigger, label: triggerLabel[trigger] })),
+                  ...triggers.map((trigger) => ({
+                    value: trigger,
+                    label: runTriggerLabel[trigger],
+                  })),
                 ]}
                 label="按来源筛选"
                 className="w-full sm:w-36"

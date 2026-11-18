@@ -4,9 +4,7 @@ import type { MemoryPolicy } from '@agentport/shared';
 interface MemoryRuntimeSettings {
   /** 是否开启 SDK auto-memory（同时决定是否传 autoMemoryDirectory）。 */
   autoMemoryEnabled: boolean;
-  /** 是否安装 UserPromptSubmit 个人记忆 hook。 */
   installPersonalHook: boolean;
-  /** 是否允许模型经文件工具写专家记忆目录。 */
   allowMemoryWrite: boolean;
 }
 

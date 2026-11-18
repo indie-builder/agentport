@@ -9,7 +9,6 @@ const outcomeLabel: Record<RunOutcome, string> = {
   timeout: '超时',
 };
 
-/** 一行读数：完成 · 轮次 · 耗时 · token · 成本 · 查看详情。 */
 export function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
   const location = useLocation();
   const tone =

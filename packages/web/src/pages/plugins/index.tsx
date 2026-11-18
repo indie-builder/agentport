@@ -1,4 +1,5 @@
 import {
+  PLUGIN_ZIP_MAX_BYTES as maxPluginBytes,
   nativePluginInstallInputSchema,
   type PluginWithAgentCount,
   pluginInputSchema,
@@ -54,8 +55,6 @@ import { matchesQuery } from '../../lib/search.js';
 import { compareBySort } from '../../lib/sort.js';
 import { toast, toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
-
-const maxPluginBytes = 4_194_304;
 
 const pluginSourceLabel = (plugin: PluginWithAgentCount): string =>
   plugin.sourceId ? plugin.sourceId.slice(plugin.sourceId.indexOf('@') + 1) : '本地 ZIP';

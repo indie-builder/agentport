@@ -1,5 +1,6 @@
 import { chatContract } from '@agentport/contract/chat';
 import { AppError, fail, notFound } from '@agentport/core';
+import { assertSafeUrl } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
 import type { OpenUiToolResult } from '@agentport/shared';
 import { openUiToolResultSchema } from '@agentport/shared';
@@ -16,7 +17,6 @@ import type { AppContext, RequestContext } from '../../http/context.js';
 import { checkOutboundToolArgs } from '../security/outbound-policy.js';
 import { buildGeneratedServer } from '../servers/generated.js';
 import { getServerWithSecrets, listTools } from '../servers/repo.js';
-import { assertSafeUrl } from '../servers/ssrf.js';
 import { loadOpenuiConversation } from './access.js';
 import { hasOpenUiBlock } from './openui-actions.js';
 

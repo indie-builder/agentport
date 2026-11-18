@@ -56,7 +56,6 @@ const envSchema = z
 
 export type Config = z.infer<typeof envSchema>;
 
-/** 浏览器 Origin allowlist：逗号分隔的 CORS_ORIGINS 加上平台自身地址。 */
 export function getTrustedOrigins(config: Pick<Config, 'CORS_ORIGINS' | 'SELF_URL'>): string[] {
   return [
     ...config.CORS_ORIGINS.split(',')

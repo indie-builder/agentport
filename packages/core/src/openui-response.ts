@@ -131,7 +131,6 @@ export function resolveOpenUiResponseDetailed(
   return { text: joinParts(parts), diagnostics };
 }
 
-/** 段与段之间一个空行；单段（纯文字）原样返回。 */
 function joinParts(parts: string[]): string {
   const kept = parts.filter((part) => part.trim() !== '');
   if (kept.length <= 1) return kept[0] ?? '';

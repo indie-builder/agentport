@@ -237,7 +237,6 @@ export function memoryReviewHasChanges(
   );
 }
 
-/** 空串 0 行；否则去掉且仅去掉一个末尾换行后按 \n 计数。 */
 export function countMemoryLines(content: string): number {
   if (content === '') return 0;
   const withoutTrailingNewline = content.endsWith('\n') ? content.slice(0, -1) : content;

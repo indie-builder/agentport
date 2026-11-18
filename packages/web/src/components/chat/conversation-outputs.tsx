@@ -60,7 +60,6 @@ function versionLabel(index: number, createdAt: string): string {
   return `${position} · ${formatDateTime(createdAt)}`;
 }
 
-/** 右侧工作区：会话成果的版本列表与预览。 */
 export function ConversationOutputs({
   inline = false,
   conversationId,

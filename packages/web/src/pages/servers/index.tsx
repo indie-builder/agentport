@@ -208,7 +208,6 @@ export function ServersPage() {
     );
   };
 
-  // stdio 的每个入口都先经过环境确认；HTTP/generated 直接测试。
   const startTest = (server: Server, trigger: HTMLElement): void => {
     triggerRef.current = trigger;
     if (server.kind === 'stdio') setTestingServer(server);

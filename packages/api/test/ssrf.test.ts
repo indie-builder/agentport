@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test';
 const dns = { lookup: mock() };
 mock.module('node:dns/promises', () => ({ lookup: dns.lookup }));
 
-import { assertSafeUrl } from '../src/modules/servers/ssrf.js';
+import { assertSafeUrl } from '@agentport/core/net-guard';
 
 const DEV = 'development';
 const PROD = 'production';

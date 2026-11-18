@@ -1,5 +1,6 @@
 import { repo, schema } from '@agentport/db';
 import {
+  KNOWLEDGE_JOB_TIMEOUT_MS,
   KNOWLEDGE_JOBS_QUEUE,
   knowledgeCancelKey,
   knowledgeEnqueueOptions,
@@ -29,16 +30,6 @@ const CANCEL_POLL_MS = 1_000;
  * 对账每 5 分钟扫描、宽限 5 分钟；1 分钟后重看一次即可接上退回的 queued。
  */
 const REDELIVERY_DELAY_MS = 60_000;
-
-/** 各任务类型的硬超时；超时按失败收尾，保留游标与旧版本。 */
-export const KNOWLEDGE_TIMEOUT_MS: Record<KnowledgeJobRow['type'], number> = {
-  ingest: 30 * 60_000,
-  sync: 30 * 60_000,
-  reindex: 2 * 60 * 60_000,
-  source_probe: 5 * 60_000,
-  wiki_generate: 15 * 60_000,
-  cleanup: 30 * 60_000,
-};
 
 /** 分派所需依赖；队列与测试共用同一份判定。 */
 interface DispatchDeps extends KnowledgeDeps {
@@ -169,7 +160,7 @@ export async function startKnowledgeWorker(
       const timeout = setTimeout(() => {
         timedOut = true;
         controller.abort();
-      }, KNOWLEDGE_TIMEOUT_MS[row.type]);
+      }, KNOWLEDGE_JOB_TIMEOUT_MS[row.type]);
       const cancelWatch = setInterval(() => {
         // 运行中取消走 Redis 键；任务已取消后 API 不再写 job 行。
         void scanner

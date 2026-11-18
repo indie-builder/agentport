@@ -1,4 +1,4 @@
-import { fail, providerRouteDestination } from '@agentport/core';
+import { envProviderDestination, fail, providerRouteDestination } from '@agentport/core';
 import { isActiveRunStatus } from '@agentport/shared';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
@@ -54,10 +54,7 @@ export async function createRunInstruction(
           fail('CONTENT_BLOCKED', '追加指令审批的目标与当前运行不一致');
         }
         destination = providerRouteDestination(
-          provider ?? {
-            id: 'env',
-            baseUrl: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
-          },
+          provider ?? envProviderDestination(process.env.ANTHROPIC_BASE_URL),
         );
       }
       const approvedRoute = await getApprovedPolicyApprovalForRun(tx, input.runId);

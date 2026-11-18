@@ -1684,21 +1684,7 @@ function AccountSelect({
 }
 
 const HANDOVER_GROUPS: readonly {
-  key: keyof HandoverChecklist['items'];
-  label: string;
-}[] = [
-  { key: 'agents', label: '专家' },
-  { key: 'knowledgeBases', label: '知识库' },
-  { key: 'dataDomains', label: '数据域' },
-  { key: 'skills', label: '技能' },
-  { key: 'servers', label: '连接器' },
-  { key: 'plugins', label: '插件' },
-  { key: 'runtimeEnvironments', label: '运行环境' },
-  { key: 'schedules', label: '定时任务' },
-];
-
-const COUNT_GROUPS: readonly {
-  key: keyof HandoverChecklist['counts'];
+  key: keyof HandoverChecklist['items'] & keyof HandoverChecklist['counts'];
   label: string;
 }[] = [
   { key: 'agents', label: '专家' },
@@ -1768,7 +1754,7 @@ function HandoverSection({ canManage }: { canManage: boolean }) {
               </StatusBadge>
             </div>
             <ul className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 p-2">
-              {COUNT_GROUPS.map((group) => (
+              {HANDOVER_GROUPS.map((group) => (
                 <li key={group.key} className="min-w-0">
                   <Card size="sm">
                     <CardContent className="flex items-baseline justify-between gap-2">

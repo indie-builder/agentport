@@ -208,6 +208,28 @@ function personalRunWhere(businessId: string, since: Date, until: Date): SQL[] {
   ];
 }
 
+function personalRunRows(
+  db: Database,
+  options: { businessId: string; filters: SQL[]; limit: number },
+) {
+  return db
+    .select({
+      ...runColumns,
+      createdAt: agentRuns.createdAt,
+      // 会话归属另行判定：运行属本人，不代表来源会话也属本人。
+      conversationId: sql<string | null>`case
+        when ${conversations.createdBy} = ${options.businessId} then ${agentRuns.conversationId}
+        else null
+      end`,
+    })
+    .from(agentRuns)
+    .leftJoin(agents, eq(agents.id, agentRuns.agentId))
+    .leftJoin(conversations, eq(conversations.id, agentRuns.conversationId))
+    .where(and(...options.filters))
+    .orderBy(desc(agentRuns.createdAt), desc(agentRuns.id))
+    .limit(options.limit);
+}
+
 /** 「我的运行」按 (createdAt, id) 倒序翻页；游标锚点必须落在同一本人窗口与筛选内。 */
 export async function listPersonalRuns(
   db: Database,
@@ -238,22 +260,11 @@ export async function listPersonalRuns(
     filters.push(keysetBefore(agentRuns, options.cursor));
   }
 
-  const rows = await db
-    .select({
-      ...runColumns,
-      createdAt: agentRuns.createdAt,
-      // 会话归属另行判定：运行属本人，不代表来源会话也属本人。
-      conversationId: sql<string | null>`case
-        when ${conversations.createdBy} = ${options.businessId} then ${agentRuns.conversationId}
-        else null
-      end`,
-    })
-    .from(agentRuns)
-    .leftJoin(agents, eq(agents.id, agentRuns.agentId))
-    .leftJoin(conversations, eq(conversations.id, agentRuns.conversationId))
-    .where(and(...filters))
-    .orderBy(desc(agentRuns.createdAt), desc(agentRuns.id))
-    .limit(options.limit + 1);
+  const rows = await personalRunRows(db, {
+    businessId: options.businessId,
+    filters,
+    limit: options.limit + 1,
+  });
 
   return paginate(rows, options.limit);
 }
@@ -276,21 +287,11 @@ export async function listPersonalRunsForExport(
   if (options.status !== undefined) filters.push(eq(agentRuns.status, options.status));
   if (options.trigger !== undefined) filters.push(eq(agentRuns.trigger, options.trigger));
 
-  const rows = await db
-    .select({
-      ...runColumns,
-      createdAt: agentRuns.createdAt,
-      conversationId: sql<string | null>`case
-        when ${conversations.createdBy} = ${options.businessId} then ${agentRuns.conversationId}
-        else null
-      end`,
-    })
-    .from(agentRuns)
-    .leftJoin(agents, eq(agents.id, agentRuns.agentId))
-    .leftJoin(conversations, eq(conversations.id, agentRuns.conversationId))
-    .where(and(...filters))
-    .orderBy(desc(agentRuns.createdAt), desc(agentRuns.id))
-    .limit(EXPORT_LIMIT + 1);
+  const rows = await personalRunRows(db, {
+    businessId: options.businessId,
+    filters,
+    limit: EXPORT_LIMIT + 1,
+  });
 
   return { items: rows.slice(0, EXPORT_LIMIT), truncated: rows.length > EXPORT_LIMIT };
 }

@@ -376,7 +376,6 @@ export const conversationBranchSchema = publicConversationSchema.extend({
 
 export type ConversationBranch = z.infer<typeof conversationBranchSchema>;
 
-/** 会话详情中的单条消息。 */
 export const conversationMessageSchema = z.object({
   id: z.string(),
   conversationId: z.string(),

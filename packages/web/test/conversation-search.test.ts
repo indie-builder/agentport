@@ -51,6 +51,7 @@ describe('conversation search client', () => {
     expect(new URL((fetch.mock.calls[0][0] as Request).url).pathname).toBe(
       '/api/conversations/search',
     );
+    expect(new URL((fetch.mock.calls[0][0] as Request).url).search).toBe('');
   });
 
   it('exposes searchConversationsOptions for the UI domain', () => {

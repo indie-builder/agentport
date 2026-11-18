@@ -1,4 +1,9 @@
-import type { AuthMe, PublicRunQuestion } from '@agentport/shared';
+import {
+  type AuthMe,
+  KNOWLEDGE_JOB_TIMEOUT_MS,
+  type KnowledgeJob,
+  type PublicRunQuestion,
+} from '@agentport/shared';
 import { QueryClient, type QueryKey, queryOptions, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { ApiError, api, type KnowledgeSearchOptions } from '../api.js';
@@ -90,18 +95,6 @@ export function useInvalidate() {
 
 // ---- 知识库 ---------------------------------------------------------------
 
-/**
- * 轮询窗口按任务硬超时（与 worker KNOWLEDGE_TIMEOUT_MS 一致）：只有任务还在
- * 可能运行的窗口内才继续刷新。超窗后由页面显式提示手动刷新，不静默假装还在跑。
- */
-const KNOWLEDGE_JOB_WINDOW_MS: Record<string, number> = {
-  ingest: 30 * 60_000,
-  sync: 30 * 60_000,
-  reindex: 2 * 60 * 60_000,
-  wiki_generate: 15 * 60_000,
-  cleanup: 30 * 60_000,
-};
-
 /** 文档列表拿不到任务类型；按最长的摄取超时兜底，宁可多刷也不提前停。 */
 const KNOWLEDGE_DOCUMENT_WINDOW_MS = 30 * 60_000;
 
@@ -120,7 +113,7 @@ export function isTerminalKnowledgeJob(status: string | undefined): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
 }
 
-/** 活跃且仍未超过该类型的超时窗口；页面用同一函数决定「已停止自动刷新」提示。 */
+/** 活跃且未超过该类型硬超时（与 worker 的 KNOWLEDGE_JOB_TIMEOUT_MS 一致）；页面用同一函数决定「已停止自动刷新」提示。 */
 export function knowledgeShouldPoll(items: readonly PollableJob[] | undefined): boolean {
   const now = Date.now();
   return (items ?? []).some((item) => {
@@ -128,9 +121,9 @@ export function knowledgeShouldPoll(items: readonly PollableJob[] | undefined): 
       return false;
     }
     const window =
-      item.type === undefined
-        ? KNOWLEDGE_DOCUMENT_WINDOW_MS
-        : (KNOWLEDGE_JOB_WINDOW_MS[item.type] ?? KNOWLEDGE_DOCUMENT_WINDOW_MS);
+      item.type !== undefined && Object.hasOwn(KNOWLEDGE_JOB_TIMEOUT_MS, item.type)
+        ? KNOWLEDGE_JOB_TIMEOUT_MS[item.type as KnowledgeJob['type']]
+        : KNOWLEDGE_DOCUMENT_WINDOW_MS;
     return now - new Date(item.startedAt ?? item.createdAt).getTime() < window;
   });
 }

@@ -89,7 +89,6 @@ function toolToForm(tool: ApiTool): ToolFormValues {
   };
 }
 
-/** 同一个表单用于新增与编辑；编辑时提交按钮换成「保存更改」。 */
 export function ToolForm({
   serverId,
   tool,

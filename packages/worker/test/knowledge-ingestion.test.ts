@@ -730,7 +730,6 @@ describe.skipIf(!ready)('runIngest image processing', () => {
   it('indexes an uploaded PNG through the same images path and writes OCR/caption chunks', async () => {
     const fixtureBase = await makeBase();
     await enableImages(fixtureBase);
-    const parse = fixtureBase.deps.parse;
     // 真实 parser 负责图片 magic 校验与 ParsedDocument.images 投影。
     fixtureBase.deps.parse = (input) => createParsingAdapter().parse(input);
     const { documentId, jobId } = await makeImageDocument(
@@ -790,7 +789,6 @@ describe.skipIf(!ready)('runIngest image processing', () => {
         ),
       ),
     ).toBeDefined();
-    expect(parse).toBeDefined();
   });
 
   it('publishes with a warning when one action fails and both output when both fail', async () => {

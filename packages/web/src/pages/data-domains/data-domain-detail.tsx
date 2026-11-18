@@ -45,6 +45,7 @@ import { useDialogClose } from '../../lib/dialog-guard.js';
 import { useFormBlocker } from '../../lib/form.js';
 import { formatBytes, formatRelative, shortId } from '../../lib/format.js';
 import {
+  dataDomainBuildShouldPoll,
   meQuery,
   useCreateDataDomainVersion,
   useDataDomain,
@@ -666,8 +667,7 @@ export function DataDomainDetailPage() {
                     spellCheck={false}
                     value={selectedVersion.data.logTail}
                     placeholder={
-                      selectedVersion.data.status === 'queued' ||
-                      selectedVersion.data.status === 'building'
+                      dataDomainBuildShouldPoll([selectedVersion.data])
                         ? '构建还没有输出日志'
                         : selectedVersion.data.status === 'failed'
                           ? '构建失败，没有输出日志'

@@ -4,8 +4,10 @@ import { EventEmitter } from 'node:events';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/db';
-import type { RuntimeEnvironmentBuildJob } from '@agentport/shared';
+import {
+  RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT,
+  type RuntimeEnvironmentBuildJob,
+} from '@agentport/shared';
 import type { Job } from 'bullmq';
 import type { Logger } from 'pino';
 import {

@@ -1,4 +1,9 @@
-import { decryptSecrets, providerRouteDestination, providerRouteMatches } from '@agentport/core';
+import {
+  decryptSecrets,
+  envProviderDestination,
+  providerRouteDestination,
+  providerRouteMatches,
+} from '@agentport/core';
 import { assertServerEndpoint } from '@agentport/core/net-guard';
 import { type Database, repo } from '@agentport/db';
 import type { Config } from './config.js';
@@ -28,7 +33,7 @@ export async function resolveProviderUpstreams(
   }
   if (
     destination === 'env' ||
-    destination === providerRouteDestination({ id: 'env', baseUrl: envBaseUrl })
+    destination === providerRouteDestination(envProviderDestination(envBaseUrl))
   ) {
     return { routed: false };
   }

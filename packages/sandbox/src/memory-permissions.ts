@@ -70,7 +70,6 @@ export function createPersonalMemoryHook(
   };
 }
 
-/** 是否位于 base 之内且不是 base 本身。 */
 function inside(local: string): boolean {
   return local.length > 0 && local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local);
 }

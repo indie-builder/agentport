@@ -12,10 +12,10 @@ export const outputStatusSchema = terminalRunStatusSchema;
 
 export type OutputStatus = z.infer<typeof outputStatusSchema>;
 
-const segmentPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+export const segmentIdPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 /** 会话与运行 id 直接成为目录名：只允许非点开头的安全字符，拒绝任何路径语义。 */
-export const outputOwnerIdSchema = z.string().regex(segmentPattern, '产出目录名非法');
+export const outputOwnerIdSchema = z.string().regex(segmentIdPattern, '产出目录名非法');
 
 /**
  * manifest 与快照内的相对路径。绝对路径、反斜杠、`.`/`..` 与空段都拒绝；

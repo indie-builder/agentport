@@ -4,6 +4,7 @@ import {
   DEFAULT_RUNTIME_ENVIRONMENT_NAME,
   type ResolvedRuntimeEnvironment,
   type ResourceAccessFilter,
+  RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT,
   type RuntimeEnvironment,
   type RuntimeEnvironmentInput,
   type RuntimeEnvironmentPatch,
@@ -19,9 +20,6 @@ import { isPgCode } from './pg-errors.js';
 
 export type RuntimeEnvironmentRow = typeof runtimeEnvironments.$inferSelect;
 export type RuntimeEnvironmentVersionRow = typeof runtimeEnvironmentVersions.$inferSelect;
-
-/** 构建日志上限（字符，64 KiB）；超出后只保留尾部并置 logTruncated。 */
-export const RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT = 64 * 1024;
 
 const DEFAULT_ENVIRONMENT_LOCK = 'agentport.runtime-environment-default';
 

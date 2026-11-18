@@ -34,6 +34,7 @@ import { type Config, loadConfig } from '../config.js';
 import { checkOutboundPolicy } from '../content-policy.js';
 import { resolveProviderUpstreams } from '../model-providers.js';
 import type { ModelProxy } from '../model-proxy.js';
+import { hermeticQueryOptions } from '../one-shot-sdk.js';
 import { enqueueRunWebhook, notifyRunOutcome } from '../runs/run-finish.js';
 import { modelProxyUpstream, sdkEnv } from '../upstream.js';
 import { version } from '../version.js';
@@ -318,35 +319,6 @@ async function watchCancel(
   }
 }
 
-function sdkOptions(input: {
-  model: string;
-  maxTurns: number;
-  maxBudgetUsd: number;
-  cwd: string;
-  controller: AbortController;
-  envOverrides?: Record<string, string>;
-}): Options {
-  return {
-    model: input.model,
-    cwd: input.cwd,
-    env: { ...sdkEnv(input.cwd), ...input.envOverrides },
-    tools: [],
-    mcpServers: {},
-    strictMcpConfig: true,
-    settingSources: [],
-    settings: { autoMemoryEnabled: false },
-    permissionMode: 'dontAsk',
-    persistSession: false,
-    maxTurns: input.maxTurns,
-    maxBudgetUsd: input.maxBudgetUsd,
-    abortController: input.controller,
-    outputFormat: {
-      type: 'json_schema',
-      schema: z.toJSONSchema(memoryReviewProposalSchema, { target: 'draft-7' }),
-    },
-  };
-}
-
 /**
  * 记忆审核运行：只读会话快照，产出提案写回 memory_reviews，不进入聊天沙盒、
  * 不追加消息、不写工作区或成果。终态与花费在本函数内落库。
@@ -522,13 +494,17 @@ export async function executeMemoryReview(
       const outboundPrompt: string = JSON.parse(outboundText);
       messages = (deps.queryFn ?? query)({
         prompt: outboundPrompt,
-        options: sdkOptions({
+        options: hermeticQueryOptions({
           model,
           maxTurns,
           maxBudgetUsd,
           cwd,
-          controller,
-          ...(envOverrides === undefined ? {} : { envOverrides }),
+          abortController: controller,
+          ...(envOverrides === undefined ? {} : { env: { ...sdkEnv(cwd), ...envOverrides } }),
+          outputFormat: {
+            type: 'json_schema',
+            schema: z.toJSONSchema(memoryReviewProposalSchema, { target: 'draft-7' }),
+          },
         }),
       });
 

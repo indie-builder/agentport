@@ -43,20 +43,13 @@ import {
   formatRelative,
   formatTokens,
   runStatusLabel,
+  runTriggerLabel,
   shortId,
 } from '../../lib/format.js';
 import { meQuery, useAgents, useRuns } from '../../lib/queries.js';
 import { toastError } from '../../lib/toast.js';
 
 const statuses = runStatusSchema.options;
-const TRIGGER_LABEL: Record<RunTrigger, string> = {
-  chat: '对话',
-  mcp: '连接器',
-  schedule: '定时任务',
-  event: '事件',
-  review: '记忆提案',
-  channel: '频道',
-};
 
 function ExpandableError({ error }: { error: string }) {
   const [open, setOpen] = useState(false);
@@ -319,7 +312,7 @@ export function RunsPage() {
           run.id,
           run.agentName ?? '已删除的专家',
           runStatusLabel[run.status],
-          run.trigger ? TRIGGER_LABEL[run.trigger] : '',
+          run.trigger ? runTriggerLabel[run.trigger] : '',
           formatDateTime(run.startedAt),
           run.latencyMs ?? '',
           run.costUsd ?? '',
@@ -356,7 +349,7 @@ export function RunsPage() {
   ];
   const triggerOptions = [
     { value: '', label: '全部触发' },
-    ...runTriggerSchema.options.map((value) => ({ value, label: TRIGGER_LABEL[value] })),
+    ...runTriggerSchema.options.map((value) => ({ value, label: runTriggerLabel[value] })),
   ];
 
   return (

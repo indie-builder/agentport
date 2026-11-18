@@ -21,6 +21,7 @@ import {
   hasErrorCode,
   type MessageAttachment,
   messageAttachmentSchema,
+  segmentIdPattern,
   slugSchema,
 } from '@agentport/shared';
 import { fail } from './errors.js';
@@ -36,7 +37,6 @@ import { pathSegmentsProblem } from './path-segments.js';
  */
 
 const INPUTS_DIR = 'conversation-inputs';
-const segmentPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MiB = 1024 * 1024;
@@ -66,7 +66,7 @@ function conversationSegments(input: ConversationInputsIdentity): string[] {
   if (!slugSchema.safeParse(input.slug).success) {
     fail('INVALID_INPUT', '智能体目录名非法', { path: '/slug' });
   }
-  if (!segmentPattern.test(input.conversationId)) {
+  if (!segmentIdPattern.test(input.conversationId)) {
     fail('INVALID_INPUT', '会话 id 不能用作目录名', { path: '/conversationId' });
   }
   return [input.slug, INPUTS_DIR, input.conversationId];
@@ -462,7 +462,7 @@ export async function copyConversationInputs(input: CopyConversationInputsInput)
 
 /** 删除且只删除该会话的输入目录；重复调用或目录不存在都无副作用。 */
 export async function removeConversationInputs(input: ConversationInputsIdentity): Promise<void> {
-  if (!slugSchema.safeParse(input.slug).success || !segmentPattern.test(input.conversationId))
+  if (!slugSchema.safeParse(input.slug).success || !segmentIdPattern.test(input.conversationId))
     return;
   const dir = await existingDirectory(input, [input.slug, INPUTS_DIR, input.conversationId]);
   if (dir === null) return;
@@ -478,10 +478,10 @@ interface ChannelInputsIdentity {
 }
 
 function channelSegments(input: ChannelInputsIdentity): string[] {
-  if (!segmentPattern.test(input.channelId)) {
+  if (!segmentIdPattern.test(input.channelId)) {
     fail('INVALID_INPUT', '频道 id 不能用作目录名', { path: '/channelId' });
   }
-  if (!segmentPattern.test(input.messageId)) {
+  if (!segmentIdPattern.test(input.messageId)) {
     fail('INVALID_INPUT', '消息 id 不能用作目录名', { path: '/messageId' });
   }
   return [CHANNEL_INPUTS_DIR, input.channelId, input.messageId];
@@ -529,7 +529,7 @@ export async function copyChannelAttachmentsToConversation(
 }
 
 export async function removeChannelInputs(input: ChannelInputsIdentity): Promise<void> {
-  if (!segmentPattern.test(input.channelId) || !segmentPattern.test(input.messageId)) return;
+  if (!segmentIdPattern.test(input.channelId) || !segmentIdPattern.test(input.messageId)) return;
   const dir = await existingDirectory({ root: input.root }, channelSegments(input));
   if (dir === null) return;
   await rm(dir, { recursive: true, force: true });

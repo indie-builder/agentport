@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'bun:test';
+import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
@@ -218,7 +219,7 @@ describe.skipIf(!ready)('runtime environment repo', () => {
     await repo.appendRuntimeEnvironmentBuildLog(db, version.id, 'tail-marker\n');
 
     const detail = await repo.getRuntimeEnvironmentVersion(db, environment.id, version.id);
-    expect(detail?.buildLog.length).toBe(repo.RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT);
+    expect(detail?.buildLog.length).toBe(RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT);
     // 失败原因通常在最后：截断保留尾部而不是前缀。
     expect(detail?.buildLog.endsWith('tail-marker\n')).toBe(true);
     expect(detail?.logTruncated).toBe(true);

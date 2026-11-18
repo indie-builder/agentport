@@ -58,7 +58,7 @@ describe('ReaderToolbar layout', () => {
       ),
     };
     for (const control of Object.values(controls)) {
-      expect(control).not.toBeUndefined();
+      expect(control).toBeTruthy();
       if (!control) continue;
       expect(actions.contains(control)).toBe(true);
       control.focus();

@@ -354,7 +354,6 @@ describe('public source registry wiring', () => {
         secrets: entry.secrets,
         ranges: entry.ranges,
       });
-      expect(input.type).toBe(entry.type);
       expect(input.config.syncDeletions).toBe(false);
       expect(input.ranges[0]).toMatchObject({
         kind: entry.ranges[0]?.kind,

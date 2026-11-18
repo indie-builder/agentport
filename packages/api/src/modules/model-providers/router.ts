@@ -1,12 +1,12 @@
 import { modelProvidersContract } from '@agentport/contract/model-providers';
 import { decryptSecrets, encryptSecrets, fail } from '@agentport/core';
+import { assertServerEndpoint } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
 import type { ModelProvider, ModelProviderUsage } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { toIso } from '../../lib/iso.js';
-import { assertServerEndpoint } from '../servers/ssrf.js';
 
 const providers = repo.modelProviders;
 const os = implement(modelProvidersContract).$context<RequestContext>();

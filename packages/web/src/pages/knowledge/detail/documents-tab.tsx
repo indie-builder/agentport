@@ -1,4 +1,4 @@
-import type { KnowledgeDocument } from '@agentport/shared';
+import { KNOWLEDGE_DOCUMENT_MAX_BYTES, type KnowledgeDocument } from '@agentport/shared';
 import { Toolbar, ToolbarButton } from '@ui-sdk/react/toolbar';
 import {
   ChevronDown,
@@ -70,8 +70,6 @@ import { DocumentDialog, FolderDialog, TagDialog } from './document-dialogs.js';
 import { ManualDocumentDialog, UrlImportDialog } from './document-imports.js';
 import { DocumentViewer } from './document-viewer.js';
 import type { KnowledgeCaps } from './shared.js';
-
-// ---- 文档 -----------------------------------------------------------------
 
 export function DocumentsTab({
   baseId,
@@ -208,7 +206,7 @@ export function DocumentsTab({
         failed.push(`${file.name}（音频超过 25 MB）`);
         continue;
       }
-      if (file.size > 32 * 1024 * 1024) {
+      if (file.size > KNOWLEDGE_DOCUMENT_MAX_BYTES) {
         failed.push(`${file.name}（超过 32 MB）`);
         continue;
       }

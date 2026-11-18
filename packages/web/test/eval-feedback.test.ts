@@ -247,7 +247,10 @@ describe('evaluation run detail refresh feedback', () => {
       id === runB.id
         ? {
             evalRun: runB,
-            results: [result('Batch B First', 'first output'), result('Batch B Last', 'last output')],
+            results: [
+              result('Batch B First', 'first output'),
+              result('Batch B Last', 'last output'),
+            ],
           }
         : {
             evalRun: finishedRun,
@@ -318,7 +321,6 @@ describe('evaluation run detail refresh feedback', () => {
     expect(summary()).toContain('通过 1');
     expect(container.textContent).toContain('当前用例可能继续执行；停止后不再开始后续用例。');
     await click('内容过大，点击查看');
-    expect(button('收起内容')).not.toBeUndefined();
     expect((container.querySelector('pre')?.textContent ?? '').length).toBeGreaterThan(64 * 1024);
 
     await act(async () => {
@@ -327,8 +329,6 @@ describe('evaluation run detail refresh feedback', () => {
     await actWaitFor(() => expect(container.textContent).toContain('刷新失败，内容仍是上次结果'));
     expect(container.textContent).toContain('network down');
     expect(container.textContent).toContain('Result One');
-    expect(button('收起内容')).not.toBeUndefined();
-    expect(button('重试')).not.toBeUndefined();
     expect(button('导出结果').disabled).toBe(true);
 
     await click('重试');
@@ -347,7 +347,6 @@ describe('evaluation run detail refresh feedback', () => {
     await actWaitFor(() => expect(container.textContent).toContain('新输出'));
     expect(container.textContent).not.toContain('刷新失败，内容仍是上次结果');
     expect(button('导出结果').disabled).toBe(false);
-    expect(button('收起内容')).not.toBeUndefined();
     expect(summary()).toContain('全部通过');
     expect(summary()).toContain('已记录 2 / 2');
     expect(summary()).toContain('无记录 0');

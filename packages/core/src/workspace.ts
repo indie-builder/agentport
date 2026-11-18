@@ -60,9 +60,7 @@ export interface WorkspaceInput {
   subAgents?: WorkspaceAgent[];
   /** 工作流：{ slug, content }；content 是完整官方脚本，原样落盘。 */
   workflows?: Array<{ slug: string; content: string }>;
-  /** 项目规则：{ slug, content, globs? }。 */
   rules?: Array<{ slug: string; content: string; globs?: string }>;
-  /** 自定义输出风格：{ slug, description, keepCodingInstructions, body }。 */
   outputStyles?: Array<{
     slug: string;
     description: string;

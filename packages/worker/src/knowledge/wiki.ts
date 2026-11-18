@@ -13,8 +13,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { runOneShotSdkQuery } from '../one-shot-sdk.js';
-import { sdkEnv } from '../upstream.js';
+import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
 import { KnowledgeCancelled } from './ingestion.js';
 
 type WikiPageRow = typeof schema.knowledgeWikiPages.$inferSelect;
@@ -236,37 +235,6 @@ function buildPrompt(input: {
 }
 
 /**
- * Worker 直接调用 SDK 时只给 MCP 工具：不给内置工具、不加载用户/项目设置、
- * 不放行 .mcp.json/插件、关闭 auto-memory，cwd 与 HOME 指向独立临时目录。
- * env 只保留 CLI 运行与模型凭证，避免 DATABASE_URL/APP_SECRET_KEY 进入子进程。
- */
-function sdkOptions(input: {
-  model: string;
-  server: ReturnType<typeof createSdkMcpServer>;
-  cwd: string;
-  controller: AbortController;
-}): Options {
-  const env = sdkEnv(input.cwd);
-  return {
-    model: input.model,
-    cwd: input.cwd,
-    env,
-    mcpServers: { knowledge: input.server },
-    strictMcpConfig: true,
-    tools: [],
-    allowedTools: WIKI_ALLOWED_TOOLS,
-    settingSources: [],
-    settings: { autoMemoryEnabled: false },
-    permissionMode: 'dontAsk',
-    maxTurns: 12,
-    maxBudgetUsd: 0.5,
-    abortController: input.controller,
-    // 临时会话不落盘：退出慢于 rm 时 CLI 也没有会话文件可重建。
-    persistSession: false,
-  };
-}
-
-/**
  * Wiki 生成：独立 knowledge_jobs 行，不建 agent_runs、不写工作区。
  * 这里只负责生成与保存草稿；终态（succeeded/failed/cancelled）由队列统一写入。
  */
@@ -381,7 +349,15 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
             instruction: payload.instruction,
             sourceDocumentIds: payload.sourceDocumentIds,
           }),
-          options: sdkOptions({ model, server, cwd, controller }),
+          options: hermeticQueryOptions({
+            model,
+            cwd,
+            mcpServers: { knowledge: server },
+            allowedTools: WIKI_ALLOWED_TOOLS,
+            abortController: controller,
+            maxTurns: 12,
+            maxBudgetUsd: 0.5,
+          }),
         }),
     });
     if (outcome.status === 'aborted') throw new KnowledgeCancelled();

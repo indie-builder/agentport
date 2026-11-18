@@ -23,7 +23,6 @@ export function useDraftGuard(dirty: boolean, pending: boolean, onClose: () => v
   return { blocker, confirmDiscard, setConfirmDiscard, finish, close };
 }
 
-/** 弹层内统一的放弃草稿与路由离开确认。 */
 export function DraftGuardDialogs({
   guard,
   draft,

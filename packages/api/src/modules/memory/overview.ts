@@ -24,7 +24,6 @@ const INDEX_LINES_NEAR = Math.ceil(AGENT_MEMORY_MAX_LINES * 0.9);
 const INDEX_BYTES_NEAR = 22 * 1024;
 /** 账本与文件时间戳的容忍差：平台写入与文件 mtime 不要求完全相等。 */
 const UNACCOUNTED_TOLERANCE_MS = 60_000;
-/** 概览里最近变更条数。 */
 const RECENT_CHANGE_LIMIT = 5;
 /** 最近变更摘要只展示首个非空行的前 120 个字符。 */
 const RECENT_CHANGE_SUMMARY_CHARS = 120;

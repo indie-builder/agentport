@@ -545,7 +545,6 @@ function MarketSkillsPage({
     });
   };
   const installSkill = (item: MarketSkill): void => {
-    // 串行安装：只有全局 pending 结束才允许下一次点击。
     if (install.isPending) return;
     install.mutate({ id: item.id });
   };

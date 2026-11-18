@@ -19,7 +19,6 @@ export interface OpenUiSegment {
   blockKey?: OpenUiBlockKey;
 }
 
-/** 任一围栏起始行：三反引号 + 可选语言标签。 */
 const FENCE_OPEN = /^ {0,3}```(.*)$/;
 const OPENUI_LANG = /^(?:openui-lang|openui)[ \t]*$/;
 const FENCE_CLOSE = /^ {0,3}```[ \t]*$/;

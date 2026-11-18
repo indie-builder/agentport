@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { AppError, fail, isAppError } from '@agentport/core';
+import { assertSafeUrl } from '@agentport/core/net-guard';
 import { repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
-import { assertSafeUrl } from '../../servers/ssrf.js';
 import { createJob, documentWire, enqueueKnowledgeJob, storeBlob } from '../service.js';
 import {
   assertBodyBytes,

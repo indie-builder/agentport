@@ -1,12 +1,15 @@
 import { type createDb, repo, schema } from '@agentport/db';
-import { KNOWLEDGE_JOBS_QUEUE, knowledgeEnqueueOptions } from '@agentport/shared';
+import {
+  KNOWLEDGE_JOB_TIMEOUT_MS,
+  KNOWLEDGE_JOBS_QUEUE,
+  knowledgeEnqueueOptions,
+} from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, eq, gte, inArray, isNull, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { startIntervalTicker } from '../scheduling/interval-ticker.js';
 import { ACTIVE_STATES, queueState } from '../runs/queue-state.js';
-import { KNOWLEDGE_TIMEOUT_MS } from './queue.js';
+import { startIntervalTicker } from '../scheduling/interval-ticker.js';
 
 const RECONCILE_MS = 5 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
@@ -64,7 +67,7 @@ export async function reconcileKnowledgeJobs(
     if (row.status === 'running') {
       const timedOut =
         row.startedAt !== null &&
-        now - row.startedAt.getTime() > 2 * KNOWLEDGE_TIMEOUT_MS[row.type];
+        now - row.startedAt.getTime() > 2 * KNOWLEDGE_JOB_TIMEOUT_MS[row.type];
       if (!timedOut && state !== null && ACTIVE_STATES.has(state)) {
         if (state === 'active') continue;
         // waiting/delayed：重试中的 job 需要行回到 queued 才能被认领。

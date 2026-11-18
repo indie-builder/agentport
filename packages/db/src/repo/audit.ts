@@ -5,6 +5,7 @@ import type { Database, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
 import { keysetBefore } from './keyset.js';
+import { escapeLike } from './knowledge/shared.js';
 
 export type AuditStatus = 'ok' | 'error' | 'denied';
 
@@ -261,9 +262,7 @@ export async function listAudit(db: Database, query: AuditQuery = {}): Promise<A
   const limit = Math.min(Math.max(query.limit ?? 100, 1), 1001);
   const filters: SQL[] = [];
   if (query.action) {
-    // 转义 LIKE 通配符，保持「前缀」语义。
-    const prefix = query.action.replaceAll(/[%_\\]/g, '\\$&');
-    filters.push(like(auditLog.action, `${prefix}%`));
+    filters.push(like(auditLog.action, `${escapeLike(query.action)}%`));
   }
   if (query.status) filters.push(eq(auditLog.status, query.status));
   if (query.target) filters.push(eq(auditLog.target, query.target));

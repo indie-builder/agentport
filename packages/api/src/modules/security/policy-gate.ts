@@ -1,11 +1,17 @@
-import { evaluateContentPolicy, fail, providerRouteDestination, sha256Hex } from '@agentport/core';
+import {
+  ACTION_RANK,
+  envProviderDestination,
+  evaluateContentPolicy,
+  fail,
+  providerRouteDestination,
+  sha256Hex,
+} from '@agentport/core';
 import { type Database, type DbHandle, repo, type Transaction } from '@agentport/db';
 import type { PolicySourceKind } from '@agentport/shared';
 import type { Logger } from 'pino';
 
 const security = repo.security;
 const APPROVAL_TTL_MS = 15 * 60 * 1000;
-const ACTION_RANK = { allow: 0, redact: 1, require_approval: 2, block: 3 } as const;
 
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) =>
@@ -98,10 +104,7 @@ export async function enforceContentPolicy<T>(input: {
     const provider =
       providerId === null ? null : await repo.modelProviders.getModelProvider(input.db, providerId);
     destination = providerRouteDestination(
-      provider ?? {
-        id: 'env',
-        baseUrl: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
-      },
+      provider ?? envProviderDestination(process.env.ANTHROPIC_BASE_URL),
     );
   }
   const createEvent = async (db: DbHandle, eventAction = action) => {
