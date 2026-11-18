@@ -578,6 +578,18 @@ export const knowledgeJobTypeSchema = z.enum([
   'cleanup',
 ]);
 
+export type KnowledgeJobType = z.infer<typeof knowledgeJobTypeSchema>;
+
+/** 各任务类型的硬超时；超时按失败收尾，保留游标与旧版本。 */
+export const KNOWLEDGE_JOB_TIMEOUT_MS: Record<KnowledgeJobType, number> = {
+  ingest: 30 * 60_000,
+  sync: 30 * 60_000,
+  reindex: 2 * 60 * 60_000,
+  source_probe: 5 * 60_000,
+  wiki_generate: 15 * 60_000,
+  cleanup: 30 * 60_000,
+};
+
 export const knowledgeJobStatusSchema = z.enum([
   'queued',
   'running',

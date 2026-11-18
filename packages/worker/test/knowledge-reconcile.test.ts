@@ -1,11 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { createDb, newId, repo, schema } from '@agentport/db';
-import { KNOWLEDGE_JOBS_QUEUE, knowledgeEnqueueOptions } from '@agentport/shared';
+import {
+  KNOWLEDGE_JOB_TIMEOUT_MS,
+  KNOWLEDGE_JOBS_QUEUE,
+  knowledgeEnqueueOptions,
+} from '@agentport/shared';
 import { type Job, Queue, Worker } from 'bullmq';
 import { and, eq, gte, isNull } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { KNOWLEDGE_TIMEOUT_MS } from '../src/knowledge/queue.js';
 import {
   ensureDailyCleanup,
   KNOWLEDGE_LOST_ERROR,
@@ -245,7 +248,7 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
   });
 
   it('fails a running job past twice its type timeout even if a job still exists', async () => {
-    const timedOutAt = new Date(Date.now() - 2 * KNOWLEDGE_TIMEOUT_MS.ingest - 60_000);
+    const timedOutAt = new Date(Date.now() - 2 * KNOWLEDGE_JOB_TIMEOUT_MS.ingest - 60_000);
     const id = await insertJob({ status: 'running', startedAt: timedOutAt });
     await queue.add('knowledge', { jobId: id }, { ...knowledgeEnqueueOptions(id), delay: 60_000 });
 

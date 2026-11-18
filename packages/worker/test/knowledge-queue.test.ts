@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import {
+  KNOWLEDGE_JOB_TIMEOUT_MS,
   KNOWLEDGE_JOBS_QUEUE,
   knowledgeCancelKey,
   knowledgeEnqueueOptions,
@@ -14,7 +15,7 @@ import { Queue, QueueEvents } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import { KnowledgeCancelled, type KnowledgeConnector } from '../src/knowledge/ingestion.js';
-import { KNOWLEDGE_TIMEOUT_MS, startKnowledgeWorker } from '../src/knowledge/queue.js';
+import { startKnowledgeWorker } from '../src/knowledge/queue.js';
 import { type KnowledgeQueueLike, reconcileKnowledgeJobs } from '../src/knowledge/reconcile.js';
 import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { createIsolatedDatabase } from './isolated-db.js';
@@ -832,8 +833,8 @@ describe('knowledge worker queue', () => {
         await rejectOnAbort(input.signal);
       },
     };
-    const previousTimeout = KNOWLEDGE_TIMEOUT_MS.sync;
-    KNOWLEDGE_TIMEOUT_MS.sync = 200;
+    const previousTimeout = KNOWLEDGE_JOB_TIMEOUT_MS.sync;
+    KNOWLEDGE_JOB_TIMEOUT_MS.sync = 200;
     let worker: Awaited<ReturnType<typeof startKnowledgeWorker>> | undefined;
     const queue = new Queue(KNOWLEDGE_JOBS_QUEUE, { connection: connection(), prefix });
     try {
@@ -851,7 +852,7 @@ describe('knowledge worker queue', () => {
         lastError: '任务超时',
       });
     } finally {
-      KNOWLEDGE_TIMEOUT_MS.sync = previousTimeout;
+      KNOWLEDGE_JOB_TIMEOUT_MS.sync = previousTimeout;
       await queue.close();
       await worker?.close();
     }

@@ -3,6 +3,9 @@ import { z } from 'zod';
 /** BullMQ 队列名；jobId = versionId，并发 1。 */
 export const RUNTIME_ENVIRONMENT_BUILDS_QUEUE = 'runtime-environment-builds';
 
+/** 构建日志上限（字符，64 KiB）；超出后只保留尾部并置 logTruncated。 */
+export const RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT = 64 * 1024;
+
 /** 默认环境的固定名称；worker 首次启动时登记平台基座。 */
 export const DEFAULT_RUNTIME_ENVIRONMENT_NAME = '默认环境';
 
