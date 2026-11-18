@@ -120,6 +120,12 @@ function digestOf(spans: Span[], text: string): string {
 
 type ProviderRoute = { id: string; baseUrl: string };
 
+export const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com';
+
+export function envProviderDestination(baseUrl?: string) {
+  return { id: 'env' as const, baseUrl: baseUrl || ANTHROPIC_DEFAULT_BASE_URL };
+}
+
 export function providerRouteDestination(provider: ProviderRoute): string {
   const digest = createHash('sha256').update(provider.baseUrl).digest('hex').slice(0, 16);
   return `provider:${provider.id}:${digest}`;

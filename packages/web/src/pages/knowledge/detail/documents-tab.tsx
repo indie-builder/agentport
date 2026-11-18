@@ -1,4 +1,4 @@
-import type { KnowledgeDocument } from '@agentport/shared';
+import { KNOWLEDGE_DOCUMENT_MAX_BYTES, type KnowledgeDocument } from '@agentport/shared';
 import { Toolbar, ToolbarButton } from '@ui-sdk/react/toolbar';
 import {
   ChevronDown,
@@ -208,7 +208,7 @@ export function DocumentsTab({
         failed.push(`${file.name}（音频超过 25 MB）`);
         continue;
       }
-      if (file.size > 32 * 1024 * 1024) {
+      if (file.size > KNOWLEDGE_DOCUMENT_MAX_BYTES) {
         failed.push(`${file.name}（超过 32 MB）`);
         continue;
       }

@@ -1,5 +1,36 @@
 import { rm } from 'node:fs/promises';
-import type { SDKMessage, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
+import type { Options, SDKMessage, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
+import { sdkEnv } from './upstream.js';
+
+type HermeticQueryOverrides = Pick<
+  Options,
+  | 'model'
+  | 'env'
+  | 'mcpServers'
+  | 'allowedTools'
+  | 'maxTurns'
+  | 'maxBudgetUsd'
+  | 'abortController'
+  | 'outputFormat'
+>;
+
+export function hermeticQueryOptions({
+  cwd,
+  ...overrides
+}: { cwd: string } & HermeticQueryOverrides): Options {
+  return {
+    cwd,
+    env: sdkEnv(cwd),
+    tools: [],
+    mcpServers: {},
+    strictMcpConfig: true,
+    settingSources: [],
+    settings: { autoMemoryEnabled: false },
+    permissionMode: 'dontAsk',
+    persistSession: false,
+    ...overrides,
+  };
+}
 
 export type OneShotSdkOutcome =
   | { status: 'aborted' }

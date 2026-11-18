@@ -1,6 +1,6 @@
 import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
-import { idParams, slugSchema } from '@agentport/shared';
+import { idParams, PLUGIN_ZIP_MAX_BYTES, slugSchema } from '@agentport/shared';
 import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
@@ -18,7 +18,7 @@ import { requireTrustedOrigin } from '../auth/origin.js';
 import { toApi, toPluginWrite } from './api.js';
 import { parsePluginFiles } from './parse.js';
 
-export const PLUGIN_ZIP_MAX_BYTES = 4_194_304;
+export { PLUGIN_ZIP_MAX_BYTES };
 
 export const pluginImportQuerySchema = z.object({ slug: slugSchema }).strict();
 

@@ -14,8 +14,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import sharp from 'sharp';
 import { z } from 'zod';
-import { runOneShotSdkQuery } from '../one-shot-sdk.js';
-import { sdkEnv } from '../upstream.js';
+import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
 
 type ImageDescription = {
   ocr: string | null;
@@ -111,20 +110,12 @@ async function runAction(input: {
       signal: input.signal,
       cwd,
       create: (controller) => {
-        const options: Options = {
+        const options = hermeticQueryOptions({
           model: input.model,
           cwd,
-          env: sdkEnv(cwd),
-          mcpServers: {},
-          strictMcpConfig: true,
-          tools: [],
-          settingSources: [],
-          settings: { autoMemoryEnabled: false },
-          permissionMode: 'dontAsk',
+          abortController: controller,
           maxTurns: 2,
           maxBudgetUsd: 0.5,
-          abortController: controller,
-          persistSession: false,
           outputFormat: {
             type: 'json_schema',
             schema: {
@@ -134,7 +125,7 @@ async function runAction(input: {
               additionalProperties: false,
             },
           },
-        };
+        });
         return input.queryFn({ prompt: prompt(), options });
       },
       onSuccessFrame: (message) => {

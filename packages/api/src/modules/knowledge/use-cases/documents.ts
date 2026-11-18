@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { AppError, inspectKnowledgeAudio, segmentForSearch, sha256Hex } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
-import { knowledgeImageChunkMetadataSchema } from '@agentport/shared';
+import { KNOWLEDGE_DOCUMENT_MAX_BYTES, knowledgeImageChunkMetadataSchema } from '@agentport/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Config } from '../../../config.js';
 import { isPgCode } from '../../../http/errors.js';
@@ -22,8 +22,6 @@ import {
 } from './shared.js';
 
 type ChunkRow = Awaited<ReturnType<typeof repo.knowledge.listChunkSummaries>>['items'][number];
-
-const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
 
 export const KNOWLEDGE_UPLOAD_BODY_LIMIT = 48 * 1024 * 1024;
 
@@ -278,7 +276,7 @@ export async function uploadDocument(
   assertBodyBytes(body.dataBase64, KNOWLEDGE_UPLOAD_BODY_LIMIT);
   const data = decodeBase64(body.dataBase64);
   if (!data) throw new AppError('INVALID_INPUT', 'dataBase64 不是合法的 base64');
-  if (data.length > MAX_UPLOAD_BYTES) {
+  if (data.length > KNOWLEDGE_DOCUMENT_MAX_BYTES) {
     throw new AppError('PAYLOAD_TOO_LARGE', '文件解码后超过 32MiB 上限');
   }
   const audio = await inspectKnowledgeAudio({

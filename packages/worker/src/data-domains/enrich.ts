@@ -17,9 +17,8 @@ import { createBunRedisClient, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import { z } from 'zod';
-import { runOneShotSdkQuery } from '../one-shot-sdk.js';
+import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
 import { startIntervalTicker } from '../scheduling/interval-ticker.js';
-import { sdkEnv } from '../upstream.js';
 
 const ENRICH_TIMEOUT_MS = 5 * 60_000;
 const STALE_GENERATING_MS = 15 * 60_000;
@@ -49,28 +48,6 @@ function buildPrompt(instruction: string, projectFiles: Record<string, string>):
     '4. 保持 wren_project.yml 与现有模型文件结构有效；新增模型文件使用 models/<表>/metadata.yml 路径。',
     '5. 没有把握的改动不要做；summary 用一句话说明本次提案改了什么。',
   ].join('\n');
-}
-
-function sdkOptions(input: { model: string; cwd: string; controller: AbortController }): Options {
-  return {
-    model: input.model,
-    cwd: input.cwd,
-    env: sdkEnv(input.cwd),
-    tools: [],
-    mcpServers: {},
-    strictMcpConfig: true,
-    settingSources: [],
-    settings: { autoMemoryEnabled: false },
-    permissionMode: 'dontAsk',
-    persistSession: false,
-    maxTurns: 6,
-    maxBudgetUsd: 0.5,
-    abortController: input.controller,
-    outputFormat: {
-      type: 'json_schema',
-      schema: z.toJSONSchema(dataDomainEnrichmentOutputSchema, { target: 'draft-7' }),
-    },
-  };
 }
 
 interface DataDomainEnrichmentDeps {
@@ -124,7 +101,17 @@ export async function runDataDomainEnrichment(
         create: (controller) =>
           (deps.queryFn ?? query)({
             prompt: buildPrompt(proposal.instruction, source.projectFiles),
-            options: sdkOptions({ model, cwd, controller }),
+            options: hermeticQueryOptions({
+              model,
+              cwd,
+              abortController: controller,
+              maxTurns: 6,
+              maxBudgetUsd: 0.5,
+              outputFormat: {
+                type: 'json_schema',
+                schema: z.toJSONSchema(dataDomainEnrichmentOutputSchema, { target: 'draft-7' }),
+              },
+            }),
           }),
         onSuccessFrame: (message) => {
           structured = message.structured_output;

@@ -1,5 +1,6 @@
 import {
   ACTION_RANK,
+  envProviderDestination,
   evaluateContentPolicy,
   fail,
   providerRouteDestination,
@@ -103,10 +104,7 @@ export async function enforceContentPolicy<T>(input: {
     const provider =
       providerId === null ? null : await repo.modelProviders.getModelProvider(input.db, providerId);
     destination = providerRouteDestination(
-      provider ?? {
-        id: 'env',
-        baseUrl: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
-      },
+      provider ?? envProviderDestination(process.env.ANTHROPIC_BASE_URL),
     );
   }
   const createEvent = async (db: DbHandle, eventAction = action) => {

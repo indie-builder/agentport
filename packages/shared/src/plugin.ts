@@ -6,6 +6,8 @@ import { slugSchema } from './params.js';
  * 的完整快照。平台只保存文件并渲染成同名目录，加载交给 Claude Agent SDK 原生 `plugins`。
  */
 
+export const PLUGIN_ZIP_MAX_BYTES = 4_194_304;
+
 /** 插件根内路径：相对、POSIX、不含 `..`，与技能资源文件同一套安全规则。 */
 export const pluginFilePathSchema = z
   .string()

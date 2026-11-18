@@ -14,7 +14,9 @@ export {
 } from './attachments.js';
 export {
   ACTION_RANK,
+  ANTHROPIC_DEFAULT_BASE_URL,
   type ContentPolicyDecision,
+  envProviderDestination,
   evaluateContentPolicy,
   providerRouteDestination,
   providerRouteMatches,
