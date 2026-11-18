@@ -6,7 +6,8 @@ import { implement } from '@orpc/server';
 import { and, eq } from 'drizzle-orm';
 import { authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { agentSlug, writeMemoryTarget } from './changes.js';
+import { requireAgentSlug } from '../../lib/outputs.js';
+import { writeMemoryTarget } from './changes.js';
 import { buildMemoryAssembly, buildMemoryOverview, countMemoryTopics } from './overview.js';
 import { listPersonalMemoryVersions, readPersonalMemory, writePersonalMemory } from './personal.js';
 
@@ -72,7 +73,7 @@ export const memoryRouter = os.router({
       { agentId: input.params.id },
       '智能体不存在，可能已被删除；请刷新后重新选择',
     );
-    await agentSlug(context.db, input.params.id);
+    await requireAgentSlug(context.db, input.params.id);
     const limit = input.query.limit;
     const rows = await listVersions(context, {
       agentId: input.params.id,
@@ -95,7 +96,7 @@ export const memoryRouter = os.router({
       { agentId: input.params.id },
       '智能体不存在，可能已被删除；请刷新后重新选择',
     );
-    await agentSlug(context.db, input.params.id);
+    await requireAgentSlug(context.db, input.params.id);
     const limit = input.query.limit;
     const rows = await listVersions(context, {
       agentId: input.params.id,
@@ -121,7 +122,7 @@ export const memoryRouter = os.router({
       db: context.db,
       workspacesDir: context.config.WORKSPACES_DIR,
       agentId: input.params.id,
-      slug: await agentSlug(context.db, input.params.id),
+      slug: await requireAgentSlug(context.db, input.params.id),
       businessId: requireUser(context).businessId,
     });
   }),
@@ -136,7 +137,7 @@ export const memoryRouter = os.router({
       db: context.db,
       workspacesDir: context.config.WORKSPACES_DIR,
       agentId: input.params.id,
-      slug: await agentSlug(context.db, input.params.id),
+      slug: await requireAgentSlug(context.db, input.params.id),
       businessId: requireUser(context).businessId,
     });
   }),
@@ -149,7 +150,7 @@ export const memoryRouter = os.router({
     );
     const current = await repo.agents.getAgentMemoryPolicy(context.db, input.params.id);
     if (current === null) fail('NOT_FOUND', MISSING_AGENT);
-    const slug = await agentSlug(context.db, input.params.id);
+    const slug = await requireAgentSlug(context.db, input.params.id);
     const topics = await countMemoryTopics(context.config.WORKSPACES_DIR, slug);
     if (input.body.policy.topicLimit < topics) {
       fail(

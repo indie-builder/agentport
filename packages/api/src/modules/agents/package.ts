@@ -58,6 +58,7 @@ import {
   agentPackageSidecarSchema,
   findSkillResourcePathConflict,
   knowledgeTokenEnv,
+  mcpEndpointPath,
   PORTABLE_TODO_ENV,
   skillFileInputSchema,
   slugSchema,
@@ -99,7 +100,7 @@ function managedPackageEntries(
   row: Pick<ServerRow, 'id' | 'name' | 'description' | 'kind'>,
   selfUrl: string,
 ) {
-  const url = `${selfUrl.replace(/\/$/, '')}/mcp/${row.id}`;
+  const url = `${selfUrl.replace(/\/$/, '')}${mcpEndpointPath(row.id)}`;
   const tokenEnv =
     row.kind === 'knowledge' ? knowledgeTokenEnv(row.name) : dataDomainTokenEnv(row.name);
   return {
@@ -186,7 +187,11 @@ function toPreviewEntry(row: ServerRow, selfUrl: string): McpJsonEntry {
     };
   }
   if (row.kind === 'generated') {
-    return { type: 'http', url: `${selfUrl.replace(/\/$/, '')}/mcp/${row.id}`, headers: {} };
+    return {
+      type: 'http',
+      url: `${selfUrl.replace(/\/$/, '')}${mcpEndpointPath(row.id)}`,
+      headers: {},
+    };
   }
   const raw = row.config.url;
   return {
@@ -1255,7 +1260,7 @@ export async function importAgentPackage(
     for (const row of rows) {
       knownManaged.set(
         `${row.kind}:${row.name}`,
-        `${options.selfUrl.replace(/\/$/, '')}/mcp/${row.id}`,
+        `${options.selfUrl.replace(/\/$/, '')}${mcpEndpointPath(row.id)}`,
       );
     }
   }

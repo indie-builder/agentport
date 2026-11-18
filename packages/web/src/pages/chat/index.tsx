@@ -418,14 +418,12 @@ function ChatWorkspace({
   // 删除当前会话时没有可返回的会话，未发送输入跟到新会话，避免随删除丢失。
   const newConversation = useCallback(
     (carryDraft = false): void => {
-      stream.closeStream();
-      stream.hydratedRef.current = null;
-      useChatStore.getState().resetConversation(null, carryDraft);
+      stream.resetWorkspace(null, carryDraft);
       onConversationChange(null);
       setHistoryOpen(false);
       composerRef.current?.focus();
     },
-    [stream.closeStream, stream.hydratedRef, onConversationChange, setHistoryOpen],
+    [stream.resetWorkspace, onConversationChange, setHistoryOpen],
   );
 
   // 删除已结算：先作废删除期间挂起的离开导航，再切到新会话，避免路由残留。
@@ -446,12 +444,9 @@ function ChatWorkspace({
 
   // URL → store：只清掉属于别的会话的本地状态；自己发送时 store 已先于 URL 写入，这里不动。
   useEffect(() => {
-    const store = useChatStore.getState();
-    if (store.conversationId === conversationId) return;
-    stream.closeStream();
-    stream.hydratedRef.current = null;
-    store.resetConversation(conversationId);
-  }, [conversationId, stream.closeStream, stream.hydratedRef]);
+    if (useChatStore.getState().conversationId === conversationId) return;
+    stream.resetWorkspace(conversationId);
+  }, [conversationId, stream.resetWorkspace]);
 
   const hydrated = stream.hydratedRef;
   const { historyPrefix, setHistoryPrefix } = stream;
@@ -478,10 +473,8 @@ function ChatWorkspace({
 
   const switchAgent = (id: string | null): void => {
     if (id === agentId) return;
-    stream.closeStream();
-    stream.hydratedRef.current = null;
     // 切换专家进入该专家的新会话，但没发出的输入要跟过去。
-    useChatStore.getState().resetConversation(null, true);
+    stream.resetWorkspace(null, true);
     onAgentChange(id);
   };
 

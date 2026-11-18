@@ -1,8 +1,9 @@
-import { isAppError, listOutputFiles } from '@agentport/core';
+import { isAppError } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { PersonalOutputItem, PersonalOutputList } from '@agentport/shared';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { listWorkspaceOutputs } from '../../lib/outputs.js';
 
 const RECENT_CONVERSATIONS = 50;
 const FILES_PER_CONVERSATION = 100;
@@ -18,8 +19,7 @@ export async function collectPersonalOutputs(
   );
   const pages = await Promise.all(
     conversations.map(async (conversation) => {
-      const page = await listOutputFiles({
-        root: context.config.WORKSPACES_DIR,
+      const page = await listWorkspaceOutputs(context, {
         slug: conversation.agentSlug,
         conversationId: conversation.id,
         limit: FILES_PER_CONVERSATION,

@@ -30,7 +30,7 @@ import { AgentAvatar } from '../agent/agent-avatar.js';
 import { AgentPicker } from '../agent/agent-picker.js';
 import { ConfirmDialog } from '../confirm-dialog.js';
 import { DialogShell } from '../dialog-shell.js';
-import { DraftGuardDialogs, useDraftGuard } from '../knowledge/knowledge-shared.js';
+import { DraftGuardDialogs, useDraftGuard } from '../draft-guard.js';
 import { RequiredMark } from '../required-mark.js';
 import { Badge } from '../ui/badge.js';
 import { Button } from '../ui/button.js';

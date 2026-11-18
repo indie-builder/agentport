@@ -13,6 +13,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
+import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import {
   isAbort,
   parseInitialCursor,
@@ -21,7 +22,6 @@ import {
   textOf,
   titleWithExtension,
 } from './source-utils.js';
-import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
  * DingTalk wiki (知识库) leaf reader.

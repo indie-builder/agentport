@@ -9,7 +9,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import { api } from '../api.js';
 import { useInvalidate } from './shared.js';
 
-export const serversQuery = queryOptions<Server[]>({
+const serversQuery = queryOptions<Server[]>({
   queryKey: ['servers'],
   queryFn: api.servers,
 });

@@ -1929,7 +1929,5 @@ export async function runKnowledgeJob(
     case 'cleanup':
       await runCleanup(deps, job, signal);
       return;
-    case 'wiki_generate':
-      throw new Error('wiki_generate 由 P5 的 wiki worker 处理');
   }
 }

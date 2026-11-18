@@ -68,18 +68,9 @@ export const agentMemoryFileQuery = (id: string, name: string) =>
 
 // ---- 记忆：个人偏好、版本回顾与审核 ---------------------------------------
 
-export const personalMemoryQuery = queryOptions<PersonalMemory>({
+const personalMemoryQuery = queryOptions<PersonalMemory>({
   queryKey: ['personal-memory'],
   queryFn: () => api.personalMemory(),
-  staleTime: 0,
-});
-
-export const personalMemoryVersionsQuery = queryOptions<{
-  items: MemoryChange[];
-  nextCursor: string | null;
-}>({
-  queryKey: ['personal-memory-versions'],
-  queryFn: ({ signal }) => api.personalMemoryVersions({}, signal),
   staleTime: 0,
 });
 
@@ -102,7 +93,7 @@ export function usePersonalMemory() {
 }
 
 export function usePersonalMemoryVersions() {
-  return useQuery(personalMemoryVersionsQuery);
+  return useQuery(memoryVersionsQuery({ kind: 'personal' }));
 }
 
 /** 保存只改个人偏好：写回缓存让编辑器立即拿到新内容，再失效偏好与版本账本。 */
@@ -114,7 +105,6 @@ export function useSavePersonalMemory() {
     onSuccess: (saved) => {
       client.setQueryData(personalMemoryQuery.queryKey, saved);
       void client.invalidateQueries({ queryKey: personalMemoryQuery.queryKey });
-      void client.invalidateQueries({ queryKey: personalMemoryVersionsQuery.queryKey });
       void client.invalidateQueries({ queryKey: ['memory-versions'] });
     },
   });
@@ -123,7 +113,6 @@ export function useSavePersonalMemory() {
 /** 记忆写入会改动偏好、专家文件/规则与变更账本，相关读取一次全部失效。 */
 function invalidateMemoryContent(client: ReturnType<typeof useQueryClient>): void {
   void client.invalidateQueries({ queryKey: personalMemoryQuery.queryKey });
-  void client.invalidateQueries({ queryKey: personalMemoryVersionsQuery.queryKey });
   void client.invalidateQueries({ queryKey: ['memory-versions'] });
   void client.invalidateQueries({ queryKey: agentMemoryKeys.list() });
   // 采纳主题会同时补索引，两个文件的正文缓存都必须刷新。

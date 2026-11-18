@@ -1,7 +1,6 @@
 import { fail } from '@agentport/core';
 import type {
   AccessFilter,
-  AgentDefinition,
   AgentDefinitionServer,
   PublicRunQuestion,
   ResolvedRuntimeEnvironment,
@@ -35,7 +34,7 @@ import {
   servers,
 } from '../schema.js';
 import { getAgentVersion } from './agent-versions.js';
-import { messageText } from './chat.js';
+import { messageText } from './chat/messages.js';
 import { keysetBefore, paginate } from './keyset.js';
 
 export interface RunListItem {
@@ -427,25 +426,6 @@ function runServerScope(serverId: string): SQL {
         and (${runMayUseServer()})
     )
   ))`;
-}
-
-export async function getRunDefinition(
-  db: Database,
-  runId: string,
-): Promise<AgentDefinition | null> {
-  const [run] = await db
-    .select({
-      agentId: agentRuns.agentId,
-      agentVersion: agentRuns.agentVersion,
-      definitionSnapshot: agentRuns.definitionSnapshot,
-    })
-    .from(agentRuns)
-    .where(eq(agentRuns.id, runId))
-    .limit(1);
-  if (!run) return null;
-  if (run.definitionSnapshot !== null) return run.definitionSnapshot;
-  if (run.agentVersion === null) return null;
-  return (await getAgentVersion(db, run.agentId, run.agentVersion))?.definition ?? null;
 }
 
 export async function getRunServerSnapshot(

@@ -52,7 +52,7 @@ const CATEGORY_FALLBACKS: Record<string, string> = {
   travel: 'Plane',
 };
 
-export function resolveIcon(name: string, category?: string): LucideIcon | null {
+function resolveIcon(name: string, category?: string): LucideIcon | null {
   const catalog = icons as unknown as Record<string, LucideIcon | undefined>;
   const direct = catalog[toPascalCase(name)] ?? catalog[name];
   if (direct) return direct;

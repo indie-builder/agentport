@@ -2,7 +2,6 @@ import { isActiveRunStatus } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
-  ArrowLeft,
   CircleAlert,
   CircleStop,
   ClipboardList,
@@ -11,6 +10,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useRef, useState } from 'react';
+import { BackLink } from '../../components/back-link.js';
 import { CopyButton } from '../../components/copy-button.js';
 import { Metric } from '../../components/metric-label.js';
 import { Page, PageBody, PageHeader, PageSection, PageTopbar } from '../../components/page.js';
@@ -25,7 +25,7 @@ import {
   stepName,
 } from '../../components/run/run-steps.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
-import { Button, buttonVariants } from '../../components/ui/button.js';
+import { Button } from '../../components/ui/button.js';
 import { can } from '../../lib/access.js';
 import { type ApprovalRequest, api } from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
@@ -209,29 +209,7 @@ export function RunDetailPage() {
 
   const header = (
     <PageHeader
-      leading={
-        <a
-          href={backTo}
-          onClick={(event) => {
-            if (
-              event.defaultPrevented ||
-              event.button !== 0 ||
-              event.metaKey ||
-              event.ctrlKey ||
-              event.shiftKey ||
-              event.altKey
-            ) {
-              return;
-            }
-            event.preventDefault();
-            void navigate({ href: backTo });
-          }}
-          aria-label={search.backTo ? '返回来源' : '返回运行列表'}
-          className={buttonVariants({ variant: 'outline', size: 'icon' })}
-        >
-          <ArrowLeft aria-hidden="true" />
-        </a>
-      }
+      leading={<BackLink to={backTo} label={search.backTo ? '返回来源' : '返回运行列表'} />}
       title={`运行 ${shortId(params.runId)}`}
       eyebrow={run.data ? <RunStatusBadge status={run.data.run.status} /> : null}
       actions={

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { z } from 'zod';
-import { EXTENSION_BY_MIME, extensionOf, mimeOf } from './source-formats.js';
+import { EXTENSION_BY_MIME, extensionWithDot, mimeOf } from './source-formats.js';
 import {
   type FetchOptions,
   sourceFailure as failureOf,
@@ -13,8 +13,8 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { trimSlash } from './source-paths.js';
+import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import { parseInitialCursor, snapshotOf } from './source-utils.js';
-import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
  * Nextcloud WebDAV leaf reader.
@@ -105,7 +105,7 @@ function safeSegment(segment: string): boolean {
 
 function titleOf(relative: string, mime: string | undefined): string {
   const name = relative.slice(relative.lastIndexOf('/') + 1);
-  if (extensionOf(name)) return name;
+  if (extensionWithDot(name)) return name;
   const extension = mime ? EXTENSION_BY_MIME[mime] : undefined;
   return extension ? `${name}.${extension}` : name;
 }
@@ -523,7 +523,7 @@ async function emitFile(
         externalId,
         title,
         new ItemError(
-          `unsupported file type ${extensionOf(title) || '(none)'}`,
+          `unsupported file type ${extensionWithDot(title) || '(none)'}`,
           'unsupported_type',
           false,
         ),

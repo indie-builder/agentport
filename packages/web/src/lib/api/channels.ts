@@ -135,9 +135,7 @@ export default {
   ): Promise<ChannelRunOutputContent> =>
     nativeRequest(
       `/channels/${id}/runs/${encodeURIComponent(runId)}/outputs/content?path=${encodeURIComponent(path)}`,
-      'GET',
-      undefined,
-      signal,
+      { signal },
     ),
   channelRunOutputBlob: (
     id: string,
@@ -147,10 +145,7 @@ export default {
   ): Promise<Blob> =>
     nativeRequest(
       `/channels/${id}/runs/${encodeURIComponent(runId)}/outputs/download?path=${encodeURIComponent(path)}`,
-      'GET',
-      undefined,
-      signal,
-      'blob',
+      { signal, responseType: 'blob' },
     ),
   channelRunOutputDownloadUrl: (id: string, runId: string, path: string): string =>
     `/api/channels/${id}/runs/${encodeURIComponent(runId)}/outputs/download?path=${encodeURIComponent(path)}`,

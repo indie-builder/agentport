@@ -139,7 +139,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     workspaces = await mkdtemp(join(await realpath(tmpdir()), 'agents-access-'));
     app = await startApp({ WORKSPACES_DIR: workspaces, DATABASE_URL: isolated.url });
     sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
-    // 首次登录触发 bootstrap，播种四个默认角色。
+    // 启动时已完成管理员初始化并播种四个默认角色；登录复用同一结果。
     adminCookie = await loginCookie(app);
     adminBusinessId = (
       await app.client.unsafe<{ business_id: string }[]>(

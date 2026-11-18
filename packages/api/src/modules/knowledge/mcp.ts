@@ -18,20 +18,12 @@ import type { CallToolResult, McpHttpHandler } from '@modelcontextprotocol/serve
 import { createMcpHandler, fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { KnowledgeReadImageError, readKnowledgeImage } from './read-image.js';
+import {
+  KnowledgeReadImageError,
+  type KnowledgeServerInput,
+  readKnowledgeImage,
+} from './read-image.js';
 import { QUOTE_LIMIT, type SearchKnowledgeResult, searchKnowledge } from './retrieval.js';
-
-export interface KnowledgeServerInput {
-  db: Database;
-  /** server.config.knowledgeBaseId：工具只能看这一库。 */
-  baseId: string;
-  serverId: string;
-  runId: string;
-  secretKey: string;
-  /** 与 worker 共享的解析产物根目录。 */
-  knowledgeDir: string;
-  signal?: AbortSignal | undefined;
-}
 
 const baseIdArg = z.object({ baseId: z.string().optional() });
 

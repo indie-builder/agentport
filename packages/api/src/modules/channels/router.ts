@@ -19,7 +19,7 @@ import type { Hono } from 'hono';
 import { type SSEStreamingApi, streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { actorOf, authorize, authorizeObject, requireUser } from '../../http/access.js';
-import type { HttpEnv, RequestContext } from '../../http/context.js';
+import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { beginSse } from '../../http/sse.js';
@@ -29,7 +29,6 @@ import {
   type RunSubscription,
   subscribeChannel,
 } from '../../queue/producer.js';
-import type { NativeHttpDependencies } from '../chat/http.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
 import { channelsHandoffRouter } from './handoff.js';

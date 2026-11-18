@@ -5,8 +5,8 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { api, type KnowledgeJob, type KnowledgeSearchResponse } from '../api.js';
-import { isTerminalKnowledgeJob, KNOWLEDGE_PAGE_SIZE, knowledgeKeys } from './shared.js';
+import { api, type KnowledgeSearchResponse } from '../api.js';
+import { KNOWLEDGE_PAGE_SIZE, knowledgeJobQuery, knowledgeKeys } from './shared.js';
 
 // ---- FAQ -----------------------------------------------------------------
 
@@ -135,14 +135,7 @@ export function usePublishKnowledgeFaqBatch(baseId: string) {
 
 /** 导入批次逐任务轮询；全部终态后停止，供 UI 判断能否显式整批发布。 */
 export function useKnowledgeFaqImportJobs(jobIds: string[]) {
-  return useQueries({
-    queries: jobIds.map((jobId) => ({
-      queryKey: knowledgeKeys.job(jobId),
-      queryFn: () => api.knowledgeJob(jobId),
-      refetchInterval: (query: { state: { data?: KnowledgeJob | undefined } }) =>
-        isTerminalKnowledgeJob(query.state.data?.status) ? false : 1_500,
-    })),
-  });
+  return useQueries({ queries: jobIds.map((jobId) => knowledgeJobQuery(jobId)) });
 }
 
 /** 导入草稿版本在任务完成后才生成；按文档取详情，不凭列表猜版本。 */

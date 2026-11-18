@@ -1,15 +1,16 @@
 import { fail, readChannelAttachment } from '@agentport/core';
 import { repo } from '@agentport/db';
-import { outputPathSchema } from '@agentport/shared';
+import { ATTACHMENT_LIMITS, outputPathSchema } from '@agentport/shared';
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import { requireUser } from '../../http/access.js';
-import type { HttpEnv } from '../../http/context.js';
+import { attachmentResponse } from '../../http/attachment.js';
+import { requestBodyLimit } from '../../http/body-limit.js';
+import type { HttpEnv, NativeHttpDependencies } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import type { NativeHttpDependencies } from '../chat/http.js';
-import { contentDisposition, safeMediaType } from '../chat/outputs.js';
+import { safeMediaType } from '../../lib/outputs.js';
 import { registerChannelRunEventsHttp } from './control.js';
 import { registerChannelEventsHttp } from './router.js';
 import { readChannelRunOutput } from './runs.js';
@@ -33,11 +34,7 @@ function registerChannelRunOutputsHttp(app: Hono<HttpEnv>): void {
         input.params.runId,
         input.query.path,
       );
-      c.header('Content-Type', safeMediaType(file.mediaType));
-      c.header('Content-Disposition', contentDisposition(file.path));
-      c.header('Cache-Control', 'no-store');
-      c.header('X-Content-Type-Options', 'nosniff');
-      return c.body(new Uint8Array(data));
+      return attachmentResponse(new Uint8Array(data), file.path, safeMediaType(file.mediaType));
     },
   );
 }
@@ -83,16 +80,13 @@ function registerChannelAttachmentsHttp(app: Hono<HttpEnv>): void {
         }
         throw err;
       }
-      c.header('Content-Type', file.mimeType);
-      c.header('Content-Disposition', contentDisposition(file.filename));
-      c.header('Cache-Control', 'no-store');
-      c.header('X-Content-Type-Options', 'nosniff');
-      return c.body(new Uint8Array(file.data));
+      return attachmentResponse(new Uint8Array(file.data), file.filename, file.mimeType);
     },
   );
 }
 
 export function registerChannelsHttp(app: Hono<HttpEnv>, deps: NativeHttpDependencies): void {
+  app.on('POST', '/api/channels/:id/messages', requestBodyLimit(ATTACHMENT_LIMITS.bodyBytes));
   registerChannelEventsHttp(app, deps);
   registerChannelRunEventsHttp(app, deps);
   registerChannelAttachmentsHttp(app);

@@ -14,6 +14,7 @@ import {
   type NativePluginOutput,
   nativeInstalledPluginSchema,
   nativePluginActionSchema,
+  PLUGIN_CACHE_CONTAINER_DIR,
   type PluginFileInput,
   pluginFileInputSchema,
 } from '@agentport/shared';
@@ -27,7 +28,7 @@ import { readTask } from './stdin-task.js';
  * 都独立于宿主 ~/.claude；读取以 `plugin list --json` 的 installPath 为准。
  */
 
-const CACHE_ROOT = '/mnt/plugin-cache';
+const CACHE_ROOT = PLUGIN_CACHE_CONTAINER_DIR;
 /** CLI 单次输出上限；文本快照另有 shared 的条目与字节上限。 */
 const CLI_MAX_BUFFER = 8 * 1024 * 1024;
 const MAX_FILE_CHARS = 200_000;

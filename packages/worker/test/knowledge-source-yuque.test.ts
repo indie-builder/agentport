@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import type { SourceConfig } from '../src/knowledge/source-types.js';
 import { probeYuque, readYuque } from '../src/knowledge/source-yuque.js';
-import type { SourceConfig } from '../src/knowledge/sources.js';
 import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
 const BASE = 'http://127.0.0.1:4444';

@@ -3,7 +3,7 @@ import { isIP } from 'node:net';
 import { isLoopbackAddress, isPrivateAddress } from '@agentport/core/net-guard';
 import { commonEnvSchema, errorText } from '@agentport/shared';
 import type { z } from 'zod';
-import type { SourceFailure } from './sources.js';
+import type { SourceFailure } from './source-types.js';
 
 /**
  * 所有外部来源共用的 HTTP 信任边界：SSRF/DNS 检查、跨域去凭证、响应大小与超时。

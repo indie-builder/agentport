@@ -1,3 +1,5 @@
+export const WORKSPACE_CONTAINER_DIR = '/workspace';
+export const PLUGIN_CACHE_CONTAINER_DIR = '/mnt/plugin-cache';
 export const OUTPUTS_CONTAINER_DIR = '/mnt/outputs';
 export const INPUTS_CONTAINER_DIR = '/mnt/inputs';
 export const CONFIG_CONTAINER_DIR = '/home/node/.claude';

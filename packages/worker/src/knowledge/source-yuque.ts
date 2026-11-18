@@ -7,8 +7,8 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
+import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import { encodePathSegments, parseInitialCursor, snapshotOf } from './source-utils.js';
-import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
  * 语雀来源：数字 ID 才是身份；列表按 offset 读全，正文优先 body（Markdown），

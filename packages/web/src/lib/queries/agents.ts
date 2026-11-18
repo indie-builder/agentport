@@ -25,13 +25,13 @@ export const agentsQuery = queryOptions<AgentSummary[]>({
   queryFn: () => listAgents(),
 });
 
-export const agentsListQuery = (options: AgentListParams) =>
+const agentsListQuery = (options: AgentListParams) =>
   queryOptions<AgentSummary[]>({
     queryKey: ['agents', 'list', options],
     queryFn: () => api.agents(options),
   });
 
-export const agentTagsQuery = queryOptions<{ items: string[] }>({
+const agentTagsQuery = queryOptions<{ items: string[] }>({
   queryKey: ['agent-tags'],
   queryFn: () => api.agentTags(),
 });
@@ -51,7 +51,7 @@ export const agentStatsQuery = (agentId: string, days: number) =>
     staleTime: 60_000,
   });
 
-export const agentBudgetQuery = (agentId: string, enabled = true) =>
+const agentBudgetQuery = (agentId: string, enabled = true) =>
   queryOptions<AgentBudgetStatus>({
     queryKey: ['agent-budget', agentId],
     queryFn: () => api.agentBudget(agentId),
@@ -59,7 +59,7 @@ export const agentBudgetQuery = (agentId: string, enabled = true) =>
     staleTime: 30_000,
   });
 
-export const agentAccessQuery = (id: string | null) =>
+const agentAccessQuery = (id: string | null) =>
   queryOptions<AgentAccess>({
     queryKey: ['agent-access', id],
     queryFn: () => api.agentAccess(id ?? ''),
@@ -67,7 +67,7 @@ export const agentAccessQuery = (id: string | null) =>
     staleTime: 0,
   });
 
-export const agentMembersQuery = (id: string | null) =>
+const agentMembersQuery = (id: string | null) =>
   queryOptions<AgentMemberList>({
     queryKey: ['agent-members', id],
     queryFn: () => api.agentMembers(id ?? ''),
@@ -75,7 +75,7 @@ export const agentMembersQuery = (id: string | null) =>
     staleTime: 0,
   });
 
-export const agentOptionsQuery = queryOptions<AgentOptions>({
+const agentOptionsQuery = queryOptions<AgentOptions>({
   queryKey: ['agent-options'],
   queryFn: api.agentOptions,
   staleTime: 60_000,

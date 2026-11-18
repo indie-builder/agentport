@@ -36,7 +36,7 @@ export interface OpenUiApprovalInput {
   approvalId: string;
 }
 
-export interface OpenUiBlockProps {
+interface OpenUiBlockProps {
   /** 围栏内的程序文本（不含围栏本身）。 */
   program: string;
   streaming?: boolean;

@@ -1,5 +1,5 @@
 import type { PermissionId } from '@agentport/shared';
-import { useState } from 'react';
+import { type ComponentType, useState } from 'react';
 import { HooksPanel } from '../../components/agent/hooks-panel.js';
 import { WorkflowsPanel } from '../../components/agent/workflow-panel.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
@@ -9,6 +9,27 @@ import { hasAnyGrant } from '../../lib/access.js';
 import type { AgentInstruction } from '../../lib/detail-tabs.js';
 import { useEditStateNotify } from '../../lib/use-edit-state-notify.js';
 import { availableInstructions } from './shared.js';
+
+const writePermissions: Record<AgentInstruction, PermissionId> = {
+  rules: 'agents.rules.write',
+  styles: 'agents.styles.write',
+  workflows: 'agents.workflows.write',
+  hooks: 'agents.hooks.write',
+};
+
+type InstructionPanelProps = {
+  agentId: string;
+  canWrite: boolean;
+  onDirtyChange: (dirty: boolean) => void;
+  onPendingChange: (pending: boolean) => void;
+};
+
+const instructionPanels: Record<AgentInstruction, ComponentType<InstructionPanelProps>> = {
+  rules: RulesPanel,
+  styles: OutputStylesPanel,
+  workflows: WorkflowsPanel,
+  hooks: HooksPanel,
+};
 
 /**
  * 「指令」任务：项目规则、输出风格与工作流共用一张卡片，分段只在可读项不止一个时出现。
@@ -32,6 +53,7 @@ export function AgentInstructions({
   onPendingChange: (pending: boolean) => void;
 }) {
   const options = availableInstructions(permissions, isSubAgent);
+  const Panel = instructionPanels[instruction];
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState(false);
   const [pendingInstruction, setPendingInstruction] = useState<AgentInstruction | null>(null);
@@ -75,35 +97,12 @@ export function AgentInstructions({
         </Tabs>
       ) : null}
       <div className="min-w-0 cds-card-surface rounded-card bg-surface px-6 py-5">
-        {instruction === 'rules' ? (
-          <RulesPanel
-            agentId={agentId}
-            canWrite={hasAnyGrant(permissions, 'agents.rules.write')}
-            onDirtyChange={setDirty}
-            onPendingChange={setPending}
-          />
-        ) : instruction === 'styles' ? (
-          <OutputStylesPanel
-            agentId={agentId}
-            canWrite={hasAnyGrant(permissions, 'agents.styles.write')}
-            onDirtyChange={setDirty}
-            onPendingChange={setPending}
-          />
-        ) : instruction === 'workflows' ? (
-          <WorkflowsPanel
-            agentId={agentId}
-            canWrite={hasAnyGrant(permissions, 'agents.workflows.write')}
-            onDirtyChange={setDirty}
-            onPendingChange={setPending}
-          />
-        ) : (
-          <HooksPanel
-            agentId={agentId}
-            canWrite={hasAnyGrant(permissions, 'agents.hooks.write')}
-            onDirtyChange={setDirty}
-            onPendingChange={setPending}
-          />
-        )}
+        <Panel
+          agentId={agentId}
+          canWrite={hasAnyGrant(permissions, writePermissions[instruction])}
+          onDirtyChange={setDirty}
+          onPendingChange={setPending}
+        />
       </div>
       <ConfirmDialog
         open={pendingInstruction !== null}

@@ -5,6 +5,7 @@ import { evalRunExportSchema } from '@agentport/shared';
 import { asc, eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { authorizeObject } from '../../http/access.js';
+import { attachmentResponse } from '../../http/attachment.js';
 import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { agentNotFound, toEvalRun } from './use-cases.js';
@@ -12,18 +13,6 @@ import { agentNotFound, toEvalRun } from './use-cases.js';
 const EXPORT_CASE_LIMIT = 500;
 const EXPORT_RESULT_LIMIT = 500;
 const EXPORT_BYTE_LIMIT = 1024 * 1024;
-
-function fileResponse(body: string, filename: string): Response {
-  return new Response(body, {
-    status: 200,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'content-disposition': `attachment; filename="${filename}"`,
-      'cache-control': 'no-store',
-      'x-content-type-options': 'nosniff',
-    },
-  });
-}
 
 export function registerEvalHttp(app: Hono<HttpEnv>): void {
   app.get(
@@ -62,7 +51,7 @@ export function registerEvalHttp(app: Hono<HttpEnv>): void {
       if (Buffer.byteLength(body, 'utf8') > EXPORT_BYTE_LIMIT) {
         fail('CONFLICT', '导出内容超过 1 MiB，请拆分成多个数据集后导出');
       }
-      return fileResponse(body, 'eval-cases.json');
+      return attachmentResponse(body, 'eval-cases.json', 'application/json; charset=utf-8');
     },
   );
 
@@ -102,7 +91,7 @@ export function registerEvalHttp(app: Hono<HttpEnv>): void {
       if (Buffer.byteLength(body, 'utf8') > EXPORT_BYTE_LIMIT) {
         fail('CONFLICT', '导出内容超过 1 MiB，请拆分为多次运行后再导出');
       }
-      return fileResponse(body, 'eval-result.json');
+      return attachmentResponse(body, 'eval-result.json', 'application/json; charset=utf-8');
     },
   );
 }

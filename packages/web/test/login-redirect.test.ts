@@ -1,18 +1,18 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loginPath, resolveReturnTo, safeReturnTo } from '../src/lib/auth-redirect.js';
+import { loginPath, resolveReturnTo, safeInternalPath } from '../src/lib/auth-redirect.js';
 import { LoginPage } from '../src/pages/login.js';
 import { allAccessMe } from './me-fixture.js';
 
 const PLUGIN_TARGET = '/plugins/plugin_1?tab=content&file=skills%2Fdemo%2FSKILL.md&mode=source#top';
 const KNOWLEDGE_TARGET = '/knowledge/kb_1?panel=wiki&page=guide&folder=docs';
 
-describe('safeReturnTo', () => {
+describe('safeInternalPath', () => {
   it.each([PLUGIN_TARGET, KNOWLEDGE_TARGET, '/agents/agent_1?tab=files#memory'])(
     'keeps the in-app path %s with search and hash',
     (target) => {
-      expect(safeReturnTo(target)).toBe(target);
+      expect(safeInternalPath(target)).toBe(target);
       expect(resolveReturnTo(target)).toBe(target);
     },
   );
@@ -31,16 +31,18 @@ describe('safeReturnTo', () => {
     '/login/',
     '/login?returnTo=%2Fagents',
     '/login/#top',
+    '/a/..//evil.example',
+    '/a/..//evil.example/steal',
     '',
   ])('rejects the untrusted target %s', (target) => {
-    expect(safeReturnTo(target)).toBeUndefined();
+    expect(safeInternalPath(target)).toBeUndefined();
     expect(resolveReturnTo(target)).toBe('/');
   });
 
   it('rejects non-string values', () => {
-    expect(safeReturnTo(undefined)).toBeUndefined();
-    expect(safeReturnTo(null)).toBeUndefined();
-    expect(safeReturnTo(['/agents'])).toBeUndefined();
+    expect(safeInternalPath(undefined)).toBeUndefined();
+    expect(safeInternalPath(null)).toBeUndefined();
+    expect(safeInternalPath(['/agents'])).toBeUndefined();
   });
 });
 

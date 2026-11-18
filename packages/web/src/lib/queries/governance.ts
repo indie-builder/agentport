@@ -16,7 +16,7 @@ import type {
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { rpc } from '../orpc.js';
 
-export const governanceKeys = {
+const governanceKeys = {
   departments: ['governance', 'departments'] as const,
   budgets: ['governance', 'budgets'] as const,
   grants: (resourceKind: ResourceKind, resourceId: string) =>
@@ -35,13 +35,13 @@ export const departmentsQuery = queryOptions<Department[]>({
   staleTime: 0,
 });
 
-export const budgetsQuery = queryOptions<BudgetStatus[]>({
+const budgetsQuery = queryOptions<BudgetStatus[]>({
   queryKey: governanceKeys.budgets,
   queryFn: () => rpc.governance.budgets.list(),
   staleTime: 0,
 });
 
-export const resourceGrantsQuery = (resourceKind: ResourceKind, resourceId: string) =>
+const resourceGrantsQuery = (resourceKind: ResourceKind, resourceId: string) =>
   queryOptions<ResourceGrant[]>({
     queryKey: governanceKeys.grants(resourceKind, resourceId),
     queryFn: () => rpc.governance.resourceGrants.list({ query: { resourceKind, resourceId } }),
@@ -49,7 +49,7 @@ export const resourceGrantsQuery = (resourceKind: ResourceKind, resourceId: stri
     staleTime: 0,
   });
 
-export const governanceResourcesQuery = (resourceKind: ResourceKind, q: string, enabled = true) =>
+const governanceResourcesQuery = (resourceKind: ResourceKind, q: string, enabled = true) =>
   queryOptions<GovernanceResource[]>({
     queryKey: governanceKeys.resources(resourceKind, q),
     queryFn: () =>
@@ -60,14 +60,14 @@ export const governanceResourcesQuery = (resourceKind: ResourceKind, q: string, 
     staleTime: 10_000,
   });
 
-export const governanceIdentitiesQuery = (q: string) =>
+const governanceIdentitiesQuery = (q: string) =>
   queryOptions<GovernanceIdentity[]>({
     queryKey: governanceKeys.identities(q),
     queryFn: () => rpc.governance.identities({ query: q.trim() ? { q: q.trim() } : {} }),
     staleTime: 10_000,
   });
 
-export const handoverQuery = (businessId: string) =>
+const handoverQuery = (businessId: string) =>
   queryOptions<HandoverChecklist>({
     queryKey: governanceKeys.handover(businessId),
     queryFn: () => rpc.governance.handover.checklist({ params: { businessId } }),
@@ -75,14 +75,14 @@ export const handoverQuery = (businessId: string) =>
     staleTime: 0,
   });
 
-export const costSummaryQuery = (days: number, groupBy: CostGroupBy) =>
+const costSummaryQuery = (days: number, groupBy: CostGroupBy) =>
   queryOptions<CostSummary>({
     queryKey: governanceKeys.cost(days, groupBy),
     queryFn: () => rpc.governance.costSummary({ query: { days, groupBy } }),
     staleTime: 30_000,
   });
 
-export const alertSettingsQuery = queryOptions<AlertSettings>({
+const alertSettingsQuery = queryOptions<AlertSettings>({
   queryKey: governanceKeys.alerts,
   queryFn: () => rpc.governance.alerts.get(),
   staleTime: 0,

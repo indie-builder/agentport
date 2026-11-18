@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
-import { CONFIG_CONTAINER_DIR } from '@agentport/shared';
+import { CONFIG_CONTAINER_DIR, WORKSPACE_CONTAINER_DIR } from '@agentport/shared';
 import {
   type Sandbox,
   SandboxCleanupError,
@@ -217,7 +217,7 @@ export class DockerSandboxProvider implements SandboxProvider {
       ...readOnlyArgs(options.extraMounts),
       ...(options.init === true ? ['--init'] : []),
       '-v',
-      `${workspace}:/workspace:ro`,
+      `${workspace}:${WORKSPACE_CONTAINER_DIR}:ro`,
       ...(options.extraMounts ?? []).flatMap((mount) => [
         '-v',
         `${resolve(mount.hostPath)}:${mount.containerPath}:${mount.readonly ? 'ro' : 'rw'}`,

@@ -47,8 +47,12 @@ import {
   servers,
   skills,
 } from '../schema.js';
-import { assertDefinitionResources } from './agent-definitions.js';
-import { getAgentVersion, insertAgentVersion, retryOnVersionConflict } from './agent-versions.js';
+import {
+  assertDefinitionResources,
+  getAgentVersion,
+  insertAgentVersion,
+  retryOnVersionConflict,
+} from './agent-versions.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
 import { isPgCode } from './pg-errors.js';

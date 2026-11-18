@@ -11,6 +11,7 @@ import {
   type NativePluginOutput,
   nativePluginActionSchema,
   nativePluginOutputSchema,
+  PLUGIN_CACHE_CONTAINER_DIR,
   parseJsonAs,
   redactSecrets,
 } from '@agentport/shared';
@@ -29,7 +30,6 @@ const STDERR_TAIL_BYTES = 2 * 1024;
 /** 安装动作不写工作区：固定挂载一个空的只读目录即可。 */
 const ACTION_WORKSPACE = 'native-plugin-actions';
 const CACHE_DIR = 'plugin-cache';
-const CONTAINER_CACHE_DIR = '/mnt/plugin-cache';
 
 export interface NativePluginsDeps {
   provider: SandboxProvider;
@@ -108,7 +108,10 @@ export async function runNativePluginAction(
     entrypoint: 'bun',
     command: ['dist/native-plugins.js'],
     extraMounts: [
-      { hostPath: join(deps.hostWorkspacesDir, CACHE_DIR), containerPath: CONTAINER_CACHE_DIR },
+      {
+        hostPath: join(deps.hostWorkspacesDir, CACHE_DIR),
+        containerPath: PLUGIN_CACHE_CONTAINER_DIR,
+      },
     ],
   };
 

@@ -225,7 +225,9 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const res = await exportAgent(agentId);
     expect(res.statusCode, res.body).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/^application\/zip/);
-    expect(res.headers.get('content-disposition')).toBe(`attachment; filename="${slug}.zip"`);
+    expect(res.headers.get('content-disposition')).toBe(
+      `attachment; filename="${slug}.zip"; filename*=UTF-8''${slug}.zip`,
+    );
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.rawPayload.byteLength).toBeLessThanOrEqual(AGENT_PACKAGE_MAX_BYTES);

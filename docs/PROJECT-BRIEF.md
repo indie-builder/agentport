@@ -374,7 +374,7 @@ agents(
   updated_at timestamptz
 )
 -- partial unique index agents_single_default_idx on (is_default) where is_default = true
--- 只保证至多一个默认；恰好一个由 bootstrap 与 buildApp 启动时的幂等播种 ensureDefaultAssistant 保证
+-- 只保证至多一个默认；恰好一个由 buildApp 启动时独立执行的幂等播种 ensureDefaultAssistant 保证
 -- index agents_visibility_idx (visibility)；partial index agents_archived_idx (archived_at) where archived_at is not null
 -- CHECK：visibility in ('private','organization')；tags 为字符串数组
 

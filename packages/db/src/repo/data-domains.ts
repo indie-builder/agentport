@@ -1,7 +1,7 @@
 import { AppError } from '@agentport/core';
 import type { ResourceAccessFilter } from '@agentport/shared';
 import { and, asc, desc, eq, inArray, lt, type SQL, sql } from 'drizzle-orm';
-import type { Database, DbHandle } from '../client.js';
+import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
   dataDomainEnrichmentProposals,
@@ -96,14 +96,6 @@ export async function getDataDomain(db: DbHandle, id: string): Promise<DataDomai
   return row ?? null;
 }
 
-export async function getDataDomainBySlug(
-  db: DbHandle,
-  slug: string,
-): Promise<DataDomainRow | null> {
-  const [row] = await db.select().from(dataDomains).where(eq(dataDomains.slug, slug)).limit(1);
-  return row ?? null;
-}
-
 export async function createDataDomain(
   db: DbHandle,
   input: DataDomainInput,
@@ -137,7 +129,7 @@ export async function updateDataDomain(
   }
 }
 
-export async function deleteDataDomain(db: DbHandle, id: string): Promise<boolean> {
+export async function deleteDataDomain(db: Transaction, id: string): Promise<boolean> {
   const [row] = await db
     .select({ id: dataDomains.id })
     .from(dataDomains)
@@ -529,7 +521,7 @@ export async function listDataDomainQueryApprovals(
     filters.push(eq(dataDomainQueryApprovals.status, options.status));
   if (options.cursor !== undefined) {
     filters.push(
-      sql`(${dataDomainQueryApprovals.requestedAt}, ${dataDomainQueryApprovals.id}) < (select cursor.requested_at, cursor.id from ${dataDomainQueryApprovals} cursor where cursor.id = ${options.cursor})`,
+      keysetBefore(dataDomainQueryApprovals, options.cursor, dataDomainQueryApprovals.requestedAt),
     );
   }
   const rows = await db

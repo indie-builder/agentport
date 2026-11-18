@@ -1,14 +1,18 @@
 import { AppError } from '@agentport/core';
 import type { Hono } from 'hono';
 import { requirePermission } from '../../http/access.js';
+import { attachmentResponse } from '../../http/attachment.js';
+import { requestBodyLimit } from '../../http/body-limit.js';
 import type { HttpContext, HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { problem, toAppError } from '../../http/errors.js';
 import { requireTrustedOrigin } from '../auth/origin.js';
 import { authenticate } from '../auth/session.js';
 import { authorizeBase, authorizeVersion } from './access.js';
+import { FAQ_MAX_BYTES } from './faq.js';
+import { KNOWLEDGE_PACKAGE_MAX_BYTES } from './package.js';
 import * as useCases from './use-cases.js';
-import { depsOf } from './use-cases.js';
+import { depsOf, KNOWLEDGE_UPLOAD_BODY_LIMIT } from './use-cases.js';
 
 function param(c: HttpContext, name: string): string {
   const value = c.req.param(name);
@@ -41,6 +45,17 @@ function native(handler: (context: RequestContext, c: HttpContext) => Promise<Re
 }
 
 export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
+  app.on(
+    'PUT',
+    '/api/knowledge/bases/:id/documents/upload',
+    requestBodyLimit(KNOWLEDGE_UPLOAD_BODY_LIMIT),
+  );
+  app.on(
+    'POST',
+    '/api/knowledge/bases/:id/faqs/import',
+    requestBodyLimit(FAQ_MAX_BYTES * 8 + 1024),
+  );
+  app.on('POST', '/api/knowledge/bases/import', requestBodyLimit(KNOWLEDGE_PACKAGE_MAX_BYTES));
   app.get(
     '/api/knowledge/versions/:versionId/images/:name',
     native(async (context, c) => {
@@ -49,14 +64,9 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
       await authorizeVersion(context, versionId, 'knowledge.read', 'read');
       const name = param(c, 'name');
       const image = await useCases.getVersionImage(depsOf(context), versionId, name);
-      return new Response(new Uint8Array(image.data), {
-        headers: {
-          'content-type': image.mimeType,
-          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
-          'x-content-type-options': 'nosniff',
-          'cache-control': 'private',
-        },
-      });
+      const response = attachmentResponse(new Uint8Array(image.data), name, image.mimeType);
+      response.headers.set('cache-control', 'private');
+      return response;
     }),
   );
 
@@ -67,13 +77,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
       const versionId = param(c, 'versionId');
       await authorizeVersion(context, versionId, 'knowledge.read', 'read');
       const content = await useCases.getVersionContent(depsOf(context), versionId);
-      return new Response(new Uint8Array(content.data), {
-        headers: {
-          'content-type': content.mimeType,
-          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(content.filename)}`,
-          'x-content-type-options': 'nosniff',
-        },
-      });
+      return attachmentResponse(new Uint8Array(content.data), content.filename, content.mimeType);
     }),
   );
 
@@ -101,14 +105,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
       await authorizeBase(context, id, 'knowledge.export', 'read');
 
       const pkg = await useCases.exportPackage(depsOf(context), id);
-      return new Response(new Uint8Array(pkg.body), {
-        headers: {
-          'content-disposition': `attachment; filename="${pkg.filename}"`,
-          'cache-control': 'no-store',
-          'x-content-type-options': 'nosniff',
-          'content-type': 'application/zip',
-        },
-      });
+      return attachmentResponse(new Uint8Array(pkg.body), pkg.filename, 'application/zip');
     }),
   );
 
@@ -138,12 +135,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
         format,
         version,
       });
-      return new Response(exported.content, {
-        headers: {
-          'content-type': exported.contentType,
-          'content-disposition': `attachment; filename="${exported.filename}"`,
-        },
-      });
+      return attachmentResponse(exported.content, exported.filename, exported.contentType);
     }),
   );
 }

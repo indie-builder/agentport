@@ -7,6 +7,7 @@ import {
   countMemoryLines,
   DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
+  MEMORY_CONTAINER_DIR,
   MEMORY_TOPIC_STALE_DAYS,
   type MemoryFile,
   type MemoryHealth,
@@ -14,6 +15,8 @@ import {
   memoryIndexLinksFile,
   PERSONAL_MEMORY_FILENAME,
   PERSONAL_MEMORY_MAX_CHARS,
+  USER_CONTAINER_DIR,
+  WORKSPACE_CONTAINER_DIR,
 } from '@agentport/shared';
 import { asc, eq } from 'drizzle-orm';
 import { listMemoryFiles, readMemoryFile } from '../agents/memory-files.js';
@@ -341,7 +344,7 @@ export async function buildMemoryAssembly(input: MemoryReadInput): Promise<Agent
     {
       kind: 'personal',
       name: PERSONAL_MEMORY_FILENAME,
-      path: '/mnt/user/CLAUDE.md',
+      path: `${USER_CONTAINER_DIR}/${PERSONAL_MEMORY_FILENAME}`,
       chars: personalChars,
       lines: null,
       trigger: personalSkipped === null ? 'every-run' : 'skipped',
@@ -351,7 +354,7 @@ export async function buildMemoryAssembly(input: MemoryReadInput): Promise<Agent
     {
       kind: 'index',
       name: INDEX_FILE_NAME,
-      path: '/mnt/agent-memory/MEMORY.md',
+      path: `${MEMORY_CONTAINER_DIR}/${INDEX_FILE_NAME}`,
       chars: utf8Bytes(indexContent),
       lines: indexContent === null ? null : countMemoryLines(indexContent),
       trigger: indexSkipped === null ? 'every-run' : 'skipped',
@@ -361,7 +364,7 @@ export async function buildMemoryAssembly(input: MemoryReadInput): Promise<Agent
     ...rules.map((rule) => ({
       kind: 'rule' as const,
       name: rule.slug,
-      path: `/workspace/.claude/rules/${rule.slug}.md`,
+      path: `${WORKSPACE_CONTAINER_DIR}/.claude/rules/${rule.slug}.md`,
       chars: utf8Bytes(rule.content),
       lines: countMemoryLines(rule.content),
       trigger: rulesSkipped === null ? ('every-run' as const) : ('skipped' as const),
@@ -371,7 +374,7 @@ export async function buildMemoryAssembly(input: MemoryReadInput): Promise<Agent
     ...topics.map((topic) => ({
       kind: 'topic' as const,
       name: topic.name,
-      path: `/mnt/agent-memory/${topic.name}`,
+      path: `${MEMORY_CONTAINER_DIR}/${topic.name}`,
       chars: topic.size,
       lines: null,
       trigger: topicsSkipped === null ? ('on-demand' as const) : ('skipped' as const),

@@ -18,6 +18,7 @@ import { downloadBlob } from '../../lib/browser-files.js';
 import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import {
+  isMissingJob,
   isTerminalKnowledgeJob,
   knowledgeKeys,
   useCreateKnowledgeFaq,
@@ -725,7 +726,15 @@ function FaqImportDialog({
     ...new Set(recoveredMembers.flatMap((member) => (member.jobId === null ? [] : [member.jobId]))),
   ];
   const recoveredJobs = useKnowledgeFaqImportJobs(recoveredJobIds);
-  const recoveredJobError = recoveredJobs.some((query) => query.isError);
+  const recoveredJobsMissing = recoveredJobs.some((query) => isMissingJob(query.error));
+  const recoveredMissingIds = new Set(
+    recoveredJobs.flatMap((query, index) =>
+      isMissingJob(query.error) ? [recoveredJobIds[index]] : [],
+    ),
+  );
+  const recoveredJobError = recoveredJobs.some(
+    (query) => query.isError && !isMissingJob(query.error),
+  );
   const recoveredStatus = new Map(
     recoveredJobs.map((query, index) => [recoveredJobIds[index], query.data?.status]),
   );
@@ -734,6 +743,7 @@ function FaqImportDialog({
     const status = jobId === null ? undefined : recoveredStatus.get(jobId);
     return jobId !== null &&
       !retryPending(member) &&
+      !recoveredMissingIds.has(jobId) &&
       (status === 'failed' || status === 'cancelled')
       ? [{ documentId: member.documentId, jobId }]
       : [];
@@ -742,6 +752,7 @@ function FaqImportDialog({
     recovered !== null &&
     recoveryReadReady &&
     !recoveredJobError &&
+    !recoveredJobsMissing &&
     recoveredMembers.every(
       (member) => member.jobId !== null && recoveredStatus.get(member.jobId) === 'succeeded',
     );
@@ -749,6 +760,7 @@ function FaqImportDialog({
     recovered !== null &&
     recoveryReadReady &&
     !recoveredJobError &&
+    !recoveredJobsMissing &&
     recoveredMembers.some(
       (member) => member.jobId !== null && recoveredStatus.get(member.jobId) === undefined,
     );
@@ -757,6 +769,7 @@ function FaqImportDialog({
     recovered !== null &&
     recoveryReadReady &&
     !recoveredJobError &&
+    !recoveredJobsMissing &&
     recoveredMembers.some((member) => {
       const status = member.jobId === null ? undefined : recoveredStatus.get(member.jobId);
       return status !== undefined && !isTerminalKnowledgeJob(status);
@@ -772,12 +785,17 @@ function FaqImportDialog({
     ...new Set(publishable.flatMap((result) => (result.jobId === undefined ? [] : [result.jobId]))),
   ];
   const jobs = useKnowledgeFaqImportJobs(jobIds);
-  const jobsReadError = jobs.some((job) => job.isError);
+  const jobsMissing = jobs.some((job) => isMissingJob(job.error));
+  const jobsReadError = jobs.some((job) => job.isError && !isMissingJob(job.error));
   const jobsRetrying = jobs.some((job) => job.isError && job.isFetching);
   const jobsSettled =
-    jobs.length > 0 && jobs.every((job) => isTerminalKnowledgeJob(job.data?.status));
+    jobs.length > 0 &&
+    jobs.every((job) => isMissingJob(job.error) || isTerminalKnowledgeJob(job.data?.status));
   const jobsOk =
-    !jobsReadError && jobsSettled && jobs.every((job) => job.data?.status === 'succeeded');
+    !jobsReadError &&
+    !jobsMissing &&
+    jobsSettled &&
+    jobs.every((job) => job.data?.status === 'succeeded');
   const documentIds = jobsOk
     ? publishable.flatMap((result) => (result.documentId === undefined ? [] : [result.documentId]))
     : [];
@@ -808,7 +826,7 @@ function FaqImportDialog({
   const jobsPending =
     committed !== null &&
     !jobsReadError &&
-    jobs.some((job) => !isTerminalKnowledgeJob(job.data?.status));
+    jobs.some((job) => !job.isError && !isTerminalKnowledgeJob(job.data?.status));
   const pending =
     importer.isPending ||
     publisher.isPending ||
@@ -919,7 +937,7 @@ function FaqImportDialog({
 
   const recoveryLoading = !recoveryReadReady
     ? !existing.isError && detailErrorCount === 0
-    : recovering || recoveredWaiting || recoveredStatusLoading;
+    : !recoveredJobsMissing && (recovering || recoveredWaiting || recoveredStatusLoading);
   const recoveryTone = recoveredReady
     ? 'text-xs text-success'
     : recoveryLoading
@@ -950,19 +968,21 @@ function FaqImportDialog({
                   ? existing.isError || detailErrorCount > 0
                     ? '批次成员读取不完整，暂不能整批发布。'
                     : '正在核对批次成员…'
-                  : recoveredJobError
-                    ? '索引任务状态读取失败，重试后再发布。'
-                    : recoveredReady
-                      ? '索引已完成，可整批发布。'
-                      : recovering
-                        ? '重试已提交，等待新的索引任务…'
-                        : retryTargets.length > 0
-                          ? '有索引任务失败，重试完成后再发布。'
-                          : recoveredWaiting
-                            ? '等待索引任务完成…'
-                            : recoveredStatusLoading
-                              ? '正在读取索引任务状态…'
-                              : '缺少可跟踪的索引任务，不能整批发布。'}
+                  : recoveredJobsMissing
+                    ? '索引任务记录已被清理，无法确认索引结果，不能整批发布。'
+                    : recoveredJobError
+                      ? '索引任务状态读取失败，重试后再发布。'
+                      : recoveredReady
+                        ? '索引已完成，可整批发布。'
+                        : recovering
+                          ? '重试已提交，等待新的索引任务…'
+                          : retryTargets.length > 0
+                            ? '有索引任务失败，重试完成后再发布。'
+                            : recoveredWaiting
+                              ? '等待索引任务完成…'
+                              : recoveredStatusLoading
+                                ? '正在读取索引任务状态…'
+                                : '缺少可跟踪的索引任务，不能整批发布。'}
               </span>
               <div className="flex flex-wrap justify-end gap-2">
                 {existing.isError ? (
@@ -989,7 +1009,7 @@ function FaqImportDialog({
                     {detailsRetrying ? '重试中…' : `重试读取 ${detailErrorCount} 条详情`}
                   </Button>
                 ) : null}
-                {recoveredJobError ? (
+                {recoveredJobError && !recoveredJobsMissing ? (
                   <Button type="button" variant="outline" size="sm" onClick={retryRecoveredJobs}>
                     重试读取任务状态
                   </Button>
@@ -997,6 +1017,7 @@ function FaqImportDialog({
                 {canExecute &&
                 recoveryReadReady &&
                 !recoveredJobError &&
+                !recoveredJobsMissing &&
                 retryTargets.length > 0 ? (
                   <Button
                     type="button"
@@ -1009,7 +1030,10 @@ function FaqImportDialog({
                     {retryJob.isPending ? '重试中…' : '重试失败索引'}
                   </Button>
                 ) : null}
-                {hasPublishPermission && recoveryReadReady && !recoveredJobError ? (
+                {hasPublishPermission &&
+                recoveryReadReady &&
+                !recoveredJobError &&
+                !recoveredJobsMissing ? (
                   <Button
                     type="button"
                     size="sm"
@@ -1211,6 +1235,10 @@ function FaqImportDialog({
                   >
                     {jobsRetrying ? '重试中…' : '重试读取任务状态'}
                   </Button>
+                </span>
+              ) : jobsMissing ? (
+                <span className="text-sm text-danger">
+                  索引任务记录已被清理，无法确认索引结果，未发布；旧 FAQ 仍在线上。
                 </span>
               ) : failedJob ? (
                 <span className="text-sm text-danger">
@@ -2068,13 +2096,14 @@ function FaqPublishDialog({
   const [retriedJobId, setRetriedJobId] = useState<string | null>(null);
   const jobId = retriedJobId ?? draftJobId;
   const jobs = useKnowledgeFaqImportJobs(jobId === null ? [] : [jobId]);
+  const jobMissing = jobs.some((job) => isMissingJob(job.error));
   const jobStatus = jobId === null ? undefined : jobs[0]?.data?.status;
   const importDraft =
     draft != null &&
     draft.metadata.faqImport !== undefined &&
     draft.metadata.publication !== 'published';
-  const indexSucceeded = draftJobId === null || jobStatus === 'succeeded';
-  const indexFailed = jobStatus === 'failed' || jobStatus === 'cancelled';
+  const indexSucceeded = (draftJobId === null || jobStatus === 'succeeded') && !jobMissing;
+  const indexFailed = (jobStatus === 'failed' || jobStatus === 'cancelled') && !jobMissing;
   return (
     <Dialog
       open={dialog.open}
@@ -2111,6 +2140,10 @@ function FaqPublishDialog({
             )}
             {importDraft ? (
               <p className="text-xs text-danger">该草稿属于导入批次，请在导入对话框中整批发布。</p>
+            ) : draft && draftJobId !== null && jobMissing ? (
+              <p className="text-xs text-danger">
+                本次索引任务记录已被清理，无法确认索引结果，暂不能发布。
+              </p>
             ) : draft && draftJobId !== null && jobStatus === undefined ? (
               <p className="text-xs text-muted-foreground">等待本次索引任务完成…</p>
             ) : indexFailed ? (

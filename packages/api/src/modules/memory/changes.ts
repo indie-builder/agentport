@@ -1,4 +1,4 @@
-import { fail, notFound } from '@agentport/core';
+import { fail } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
   DEFAULT_MEMORY_POLICY,
@@ -14,6 +14,7 @@ import {
 } from '@agentport/shared';
 import type { SQL } from 'bun';
 import { and, eq } from 'drizzle-orm';
+import { requireAgentSlug } from '../../lib/outputs.js';
 import {
   deleteMemoryFile,
   readMemoryFile,
@@ -38,16 +39,6 @@ import {
   writePersonalMemoryLocked,
 } from './personal.js';
 
-export async function agentSlug(db: Database, agentId: string): Promise<string> {
-  const slug = await repo.agents.findAgentSlug(db, agentId);
-  if (slug === null) notFound('agent');
-  return slug;
-}
-
-/**
- * 采纳/回滚会覆盖工作区文件或规则，目标专家不能还有在跑的运行。
- * 一次 parent 运行也占用其 enabled 直接子级的记忆；审核 run 不挂可写目录，不算占用。
- */
 export async function assertNoActiveRun(db: Database, agentId: string): Promise<void> {
   const [target] = await db
     .select({ enabled: schema.agents.enabled, parentId: schema.agents.parentId })
@@ -81,7 +72,7 @@ export async function readMemoryTarget(
     const memory = await readPersonalMemory(db, businessId);
     return { content: memory.content, globs: null, index: null, revision: memory.revision };
   }
-  const slug = await agentSlug(db, target.agentId);
+  const slug = await requireAgentSlug(db, target.agentId);
   if (target.kind === 'agent_memory') {
     const file = await readMemoryFile(workspacesDir, slug, target.name);
     const index =
@@ -250,7 +241,7 @@ export async function discardReviewWriteJournal(
 ): Promise<void> {
   if (review.target.kind !== 'agent_memory') return;
   try {
-    const slug = await agentSlug(db, review.target.agentId);
+    const slug = await requireAgentSlug(db, review.target.agentId);
     await deleteMemoryJournal(workspacesDir, slug, review.runId);
   } catch (error) {
     logger?.warn({ err: error }, 'failed to remove settled memory write journal');
@@ -544,7 +535,7 @@ export async function assertNoPendingReviewWrite(
 ): Promise<void> {
   const target = review.target;
   if (target.kind !== 'agent_memory') return;
-  const slug = await agentSlug(db, target.agentId);
+  const slug = await requireAgentSlug(db, target.agentId);
   for (const entry of await listMemoryJournals(workspacesDir, slug)) {
     if (await settledJournal(db, entry)) {
       await discardJournalQuietly(workspacesDir, slug, entry.operationId);
@@ -642,7 +633,7 @@ async function writeAgentMemoryTarget(
   changed: string[],
   after: MemoryContentSnapshot,
 ): Promise<repo.memoryChanges.MemoryChangeRow> {
-  const slug = await agentSlug(db, target.agentId);
+  const slug = await requireAgentSlug(db, target.agentId);
   assertCandidateLimits(target, after, changed);
   const operation = input.sourceReviewRunId
     ? ('review' as const)
@@ -758,7 +749,7 @@ export async function writeMemoryTargetLocked(
   }
 
   await assertNoActiveRun(db, target.agentId);
-  const slug = await agentSlug(db, target.agentId);
+  const slug = await requireAgentSlug(db, target.agentId);
   const operation = input.sourceReviewRunId
     ? ('review' as const)
     : input.reversesChangeId

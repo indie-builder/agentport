@@ -29,7 +29,7 @@ export const roleMatrixQuery = queryOptions<RoleMatrix>({
   staleTime: 0,
 });
 
-export const identitiesQuery = (
+const identitiesQuery = (
   agentId: string | null,
   query: { q?: string; limit?: number; offset?: number } = {},
 ) =>

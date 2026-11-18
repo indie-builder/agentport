@@ -6,6 +6,15 @@ import {
   WORKSPACE_DIR_MODE,
   WORKSPACE_FILE_MODE,
 } from '@agentport/core';
+import { idPrefixes } from '@agentport/db';
+
+export function runWorkspaceDir(workspacesDir: string, slug: string, runId: string): string {
+  return join(workspacesDir, slug, runId);
+}
+
+export function isRunWorkspaceName(name: string): boolean {
+  return name.startsWith(`${idPrefixes.run}_`);
+}
 
 export function toHostWorkspacePath(
   input: { workspacesDir: string; hostWorkspacesDir: string },

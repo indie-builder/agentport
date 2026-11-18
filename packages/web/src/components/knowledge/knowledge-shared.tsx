@@ -78,7 +78,7 @@ export function parseKnowledgeDocumentStatusFilter(
   return parsed.success ? parsed.data : undefined;
 }
 
-export const originLabel: Record<KnowledgeVersionOrigin, string> = {
+const originLabel: Record<KnowledgeVersionOrigin, string> = {
   source: '来源解析',
   manual: '人工编辑',
   faq: 'FAQ',

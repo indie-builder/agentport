@@ -7,6 +7,17 @@ import { parseUrl } from './url.js';
 export const serverKindSchema = z.enum(['stdio', 'http', 'generated', 'knowledge', 'data_domain']);
 export type ServerKind = z.infer<typeof serverKindSchema>;
 
+export const MCP_APPROVAL_WAIT_MS = 355_000;
+export const MCP_APPROVAL_HOOK_TIMEOUT_SECONDS = 360;
+
+export function mcpEndpointPath(serverId: string): string {
+  return `/mcp/${serverId}`;
+}
+
+export function toolApprovalPath(serverId: string, runId: string, tool: string): string {
+  return `/tool-approvals/${encodeURIComponent(runId)}/${encodeURIComponent(serverId)}/${encodeURIComponent(tool)}`;
+}
+
 export const SECRET_MASK = '••••';
 export const PREVIEW_SECRET = SECRET_MASK;
 
@@ -68,7 +79,7 @@ export function knowledgeMcpEntry(input: {
 }) {
   return {
     type: 'http' as const,
-    url: `${input.apiUrl.replace(/\/$/, '')}/mcp/${input.serverId}`,
+    url: `${input.apiUrl.replace(/\/$/, '')}${mcpEndpointPath(input.serverId)}`,
     headers: {
       Authorization: `Bearer ${input.runToken}`,
       'x-agentport-run-id': input.runId,
@@ -82,7 +93,7 @@ export function generatedMcpEntry(
 ) {
   return {
     type: 'http' as const,
-    url: `${input.apiUrl.replace(/\/$/, '')}/mcp/${input.serverId}`,
+    url: `${input.apiUrl.replace(/\/$/, '')}${mcpEndpointPath(input.serverId)}`,
     headers: {
       ...headers,
       Authorization: `Bearer ${input.runToken}`,

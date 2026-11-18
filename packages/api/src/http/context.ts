@@ -14,6 +14,8 @@ export type AppContext = {
   auth: Auth;
 };
 
+export type NativeHttpDependencies = { timeout: (request: Request, seconds: number) => void };
+
 export type RequestContext = AppContext & {
   principal: Principal | null;
   requestId: string;
@@ -26,7 +28,7 @@ export type RequestContext = AppContext & {
 
 export type HttpEnv = {
   Bindings: { remoteAddress?: string };
-  Variables: { context: RequestContext };
+  Variables: { context: RequestContext; bodyLimitApplied?: boolean };
 };
 export type HttpContext = Context<HttpEnv>;
 

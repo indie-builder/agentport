@@ -2,11 +2,6 @@ import type { SearchItem } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
-  SEARCH_KIND_META,
-  SEARCH_KIND_ORDER,
-  searchItemHref,
-} from '../components/command-palette.js';
-import {
   Page,
   PageBody,
   PageHeader,
@@ -19,6 +14,7 @@ import { SearchInput } from '../components/search-input.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { formatDateTime } from '../lib/format.js';
 import { searchQuery } from '../lib/queries.js';
+import { SEARCH_KIND_META, SEARCH_KIND_ORDER, searchItemHref } from '../lib/search-meta.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
 
 function ResultRow({ item }: { item: SearchItem }) {

@@ -6,7 +6,7 @@ import { search, searchKeymap } from '@codemirror/search';
 import { Compartment, EditorState, type Extension, Transaction } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { SourceEditorProps } from './source-editor.js';
+import type { SourceEditorProps } from './source-editor-props.js';
 
 type InnerProps = Omit<SourceEditorProps, 'className'>;
 

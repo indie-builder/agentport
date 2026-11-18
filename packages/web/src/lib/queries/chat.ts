@@ -167,7 +167,7 @@ export function useOutputBlob(
   });
 }
 
-export const outputSharesQueryKey = (
+const outputSharesQueryKey = (
   conversationId: string | null,
   runId: string | null,
   path: string | null,

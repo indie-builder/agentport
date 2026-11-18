@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { Hono, MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
+import { requestBodyLimit } from '../../http/body-limit.js';
 import type { AppContext, HttpEnv } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { isRunCancelRequested } from '../../queue/producer.js';
@@ -19,6 +20,7 @@ export type ServersHttpDependencies = AppContext & {
 };
 
 export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDependencies): void {
+  app.on('POST', '/api/servers/import-file', requestBodyLimit(8 * 1024 * 1024));
   const invoker = deps.invoker ?? createInvoker(deps);
   const mcpRateLimit: MiddlewareHandler<HttpEnv> = async (c, next) => {
     await c.get('context').limit(60, c.req.path === '/mcp' ? 'mcp:platform' : 'mcp:server');

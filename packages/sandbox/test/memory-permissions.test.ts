@@ -17,7 +17,7 @@ let hook: ReturnType<typeof createFileBoundaryHook>;
 beforeEach(async () => {
   dir = await realpath(await mkdtemp(join(tmpdir(), 'memory-permissions-')));
   memory = join(dir, 'memory');
-  hook = createFileBoundaryHook(memory);
+  hook = createFileBoundaryHook({ memoryDir: memory });
   await mkdir(memory);
   await writeFile(join(memory, 'MEMORY.md'), '# memory');
   await writeFile(join(dir, 'outside.md'), 'secret');
@@ -136,14 +136,10 @@ describe('native memory filesystem boundary', () => {
   });
 
   it('keeps memory reads but denies writes when memoryWritable is false', async () => {
-    const readOnlyHook = createFileBoundaryHook(
-      memory,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      { memoryWritable: false },
-    );
+    const readOnlyHook = createFileBoundaryHook({
+      memoryDir: memory,
+      memoryWritable: false,
+    });
     const call = (tool: string, file_path: string) =>
       readOnlyHook(
         {
@@ -190,7 +186,7 @@ describe('skill reference read-only boundary', () => {
 
   beforeEach(async () => {
     skills = join(dir, 'skills');
-    skillHook = createFileBoundaryHook(memory, skills);
+    skillHook = createFileBoundaryHook({ memoryDir: memory, skillsDir: skills });
     await mkdir(join(skills, 'demo', 'references'), { recursive: true });
     await writeFile(join(skills, 'demo', 'references', 'api.md'), '# api');
     await writeFile(join(skills, 'demo', 'references', 'notes.json'), '{}');
@@ -258,7 +254,12 @@ describe('run outputs boundary', () => {
 
   beforeEach(async () => {
     outputs = join(dir, 'outputs');
-    outputHook = createFileBoundaryHook(memory, join(dir, 'skills'), join(dir, 'plugins'), outputs);
+    outputHook = createFileBoundaryHook({
+      memoryDir: memory,
+      skillsDir: join(dir, 'skills'),
+      pluginsDir: join(dir, 'plugins'),
+      outputsDir: outputs,
+    });
     await mkdir(join(outputs, 'reports'), { recursive: true });
     await writeFile(join(outputs, 'reports', 'final.md'), '# final');
     await writeFile(join(outputs, 'data.csv'), 'a,b');
@@ -370,7 +371,8 @@ describe('subagent project memory boundary', () => {
 
   beforeEach(async () => {
     projectMemory = join(dir, 'agent-memory');
-    childHook = createFileBoundaryHook(memory, undefined, undefined, undefined, undefined, {
+    childHook = createFileBoundaryHook({
+      memoryDir: memory,
       projectMemoryDir: projectMemory,
       subAgentSlugs: new Set(['child']),
     });
@@ -460,18 +462,12 @@ describe('subagent project memory boundary', () => {
   });
 
   it('follows the parent memory policy for child writes', async () => {
-    const readOnlyHook = createFileBoundaryHook(
-      memory,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      {
-        projectMemoryDir: projectMemory,
-        subAgentSlugs: new Set(['child']),
-        memoryWritable: false,
-      },
-    );
+    const readOnlyHook = createFileBoundaryHook({
+      memoryDir: memory,
+      projectMemoryDir: projectMemory,
+      subAgentSlugs: new Set(['child']),
+      memoryWritable: false,
+    });
     const callWith =
       (target: ReturnType<typeof createFileBoundaryHook>) => (tool: string, file_path: string) =>
         target(
@@ -552,13 +548,13 @@ describe('conversation inputs read-only boundary', () => {
 
   beforeEach(async () => {
     inputs = join(dir, 'inputs');
-    inputsHook = createFileBoundaryHook(
-      memory,
-      join(dir, 'skills'),
-      join(dir, 'plugins'),
-      join(dir, 'outputs'),
-      inputs,
-    );
+    inputsHook = createFileBoundaryHook({
+      memoryDir: memory,
+      skillsDir: join(dir, 'skills'),
+      pluginsDir: join(dir, 'plugins'),
+      outputsDir: join(dir, 'outputs'),
+      inputsDir: inputs,
+    });
     await mkdir(join(inputs, 'reports'), { recursive: true });
     for (const name of ['brief.pdf', 'photo.png', 'data.csv', 'notes.txt', 'reports/a.json']) {
       await writeFile(join(inputs, name), 'content');
@@ -613,7 +609,11 @@ describe('plugin skill read-only boundary', () => {
   beforeEach(async () => {
     skillsDirForPlugin = join(dir, 'skills');
     plugRoot = join(dir, 'plugins');
-    pluginHook = createFileBoundaryHook(memory, skillsDirForPlugin, plugRoot);
+    pluginHook = createFileBoundaryHook({
+      memoryDir: memory,
+      skillsDir: skillsDirForPlugin,
+      pluginsDir: plugRoot,
+    });
     await mkdir(join(plugRoot, 'demo', 'skills', 'review', 'references'), { recursive: true });
     await writeFile(join(plugRoot, 'demo', 'skills', 'review', 'SKILL.md'), '# review');
     await writeFile(join(plugRoot, 'demo', 'skills', 'review', 'references', 'a.md'), '# a');

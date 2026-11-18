@@ -190,7 +190,9 @@ describe.skipIf(!ready)('personal memory', () => {
       headers: auth(),
     });
     expect(response.statusCode, response.body).toBe(200);
-    expect(response.headers.get('content-disposition')).toBe('attachment; filename="CLAUDE.md"');
+    expect(response.headers.get('content-disposition')).toBe(
+      'attachment; filename="CLAUDE.md"; filename*=UTF-8\'\'CLAUDE.md',
+    );
     expect(response.body).toBe(content);
   });
 

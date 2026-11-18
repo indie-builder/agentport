@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
-  ArrowLeft,
   CircleAlert,
   CircleCheck,
   Clock,
@@ -14,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BackLink } from '../../components/back-link.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import {
@@ -317,29 +317,7 @@ export function DataDomainDetailPage() {
             )
           }
           description={`${current.slug} · ${current.datasource}`}
-          leading={
-            <a
-              href={backTo}
-              onClick={(event) => {
-                if (
-                  event.defaultPrevented ||
-                  event.button !== 0 ||
-                  event.metaKey ||
-                  event.ctrlKey ||
-                  event.shiftKey ||
-                  event.altKey
-                ) {
-                  return;
-                }
-                event.preventDefault();
-                void navigate({ href: backTo });
-              }}
-              aria-label={search.backTo ? '返回来源' : '返回数据域列表'}
-              className={buttonVariants({ variant: 'outline', size: 'icon' })}
-            >
-              <ArrowLeft aria-hidden="true" />
-            </a>
-          }
+          leading={<BackLink to={backTo} label={search.backTo ? '返回来源' : '返回数据域列表'} />}
           actions={
             canUpdate || canDelete ? (
               <>

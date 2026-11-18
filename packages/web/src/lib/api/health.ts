@@ -29,7 +29,7 @@ export interface HealthProbe<T> {
   error: string | null;
 }
 
-export async function probeHealth<T>(path: string): Promise<HealthProbe<T>> {
+async function probeHealth<T>(path: string): Promise<HealthProbe<T>> {
   try {
     const res = await fetch(path, { credentials: 'include' });
     const body = (await res.json().catch(() => null)) as T | null;

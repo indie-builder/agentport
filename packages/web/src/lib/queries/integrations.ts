@@ -7,18 +7,18 @@ import type {
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { rpc } from '../orpc.js';
 
-export const integrationsKeys = {
+const integrationsKeys = {
   tokens: ['integrations', 'tokens'] as const,
   webhooks: ['integrations', 'webhooks'] as const,
 };
 
-export const apiTokensQuery = queryOptions<ApiToken[]>({
+const apiTokensQuery = queryOptions<ApiToken[]>({
   queryKey: integrationsKeys.tokens,
   queryFn: () => rpc.integrations.tokens.list(),
   staleTime: 0,
 });
 
-export const webhookEndpointsQuery = queryOptions<WebhookEndpoint[]>({
+const webhookEndpointsQuery = queryOptions<WebhookEndpoint[]>({
   queryKey: integrationsKeys.webhooks,
   queryFn: () => rpc.integrations.webhooks.list(),
   staleTime: 0,

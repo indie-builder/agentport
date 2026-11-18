@@ -1,7 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { httpServerSchema, type SandboxTask, toolApprovalResponseSchema } from '@agentport/shared';
+import {
+  httpServerSchema,
+  MCP_APPROVAL_WAIT_MS,
+  mcpEndpointPath,
+  type SandboxTask,
+  toolApprovalPath,
+  toolApprovalResponseSchema,
+} from '@agentport/shared';
 import type { HookCallback, HookPermissionDecision } from '@anthropic-ai/claude-agent-sdk';
 
 export function createApprovalHook(
@@ -26,7 +33,11 @@ export function createApprovalHook(
         permissionDecisionReason,
       },
     });
-    const signal = AbortSignal.any([options.signal, runSignal, AbortSignal.timeout(355_000)]);
+    const signal = AbortSignal.any([
+      options.signal,
+      runSignal,
+      AbortSignal.timeout(MCP_APPROVAL_WAIT_MS),
+    ]);
     if (signal.aborted) return decision('deny', '运行已取消，工具调用未执行。');
     const config: unknown = JSON.parse(await readFile(join(workspaceDir, '.mcp.json'), 'utf8'));
     if (
@@ -46,16 +57,16 @@ export function createApprovalHook(
     const headers = new Headers(connection.headers);
     const runId = headers.get('x-agentport-run-id');
     const url = new URL(connection.url);
-    const suffix = `/mcp/${serverId}`;
+    if (serverId === undefined) return decision('deny', '平台工具审批凭证缺失。');
+    const suffix = mcpEndpointPath(serverId);
     if (
-      serverId === undefined ||
       !url.pathname.endsWith(suffix) ||
       runId === null ||
       !headers.get('authorization')?.startsWith('Bearer ')
     ) {
       return decision('deny', '平台工具审批凭证缺失。');
     }
-    url.pathname = `${url.pathname.slice(0, -suffix.length)}/tool-approvals/${encodeURIComponent(runId)}/${encodeURIComponent(serverId)}/${encodeURIComponent(tool.tool)}`;
+    url.pathname = `${url.pathname.slice(0, -suffix.length)}${toolApprovalPath(serverId, runId, tool.tool)}`;
     url.search = '';
     url.hash = '';
     headers.set('content-type', 'application/json');

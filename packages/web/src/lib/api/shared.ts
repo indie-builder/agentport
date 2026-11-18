@@ -8,14 +8,21 @@ export function clientOptions(signal?: AbortSignal): { signal?: AbortSignal } {
 
 export async function nativeRequest<T>(
   path: string,
-  method = 'GET',
-  body?: unknown,
-  signal?: AbortSignal,
-  responseType: 'json' | 'blob' | 'text' = 'json',
-  onResponse?: (response: Response) => void,
-  extraHeaders?: Record<string, string>,
+  {
+    method = 'GET',
+    body,
+    signal,
+    responseType = 'json',
+    onResponse,
+  }: {
+    method?: string;
+    body?: unknown;
+    signal?: AbortSignal | undefined;
+    responseType?: 'json' | 'blob' | 'text';
+    onResponse?: (response: Response) => void;
+  } = {},
 ): Promise<T> {
-  const headers: Record<string, string> = { ...extraHeaders };
+  const headers: Record<string, string> = {};
   if (body !== undefined) {
     headers['content-type'] =
       body instanceof Blob ? body.type || 'application/zip' : 'application/json';

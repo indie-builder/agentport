@@ -13,6 +13,7 @@ import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
 import { SegmentedToggle } from '../components/view-toggle.js';
+import { safeInternalPath } from '../lib/auth-redirect.js';
 import { cn } from '../lib/cn.js';
 import { formatDateTime, formatRelative } from '../lib/format.js';
 import {
@@ -39,10 +40,6 @@ const FILTERS = [
   { value: 'unread', label: '待办' },
 ] as const;
 
-function internalLink(href: string): string | null {
-  return href.startsWith('/') && !href.startsWith('//') ? href : null;
-}
-
 function NotificationRow({
   item,
   marking,
@@ -55,7 +52,7 @@ function NotificationRow({
   const navigate = useNavigate();
   const meta = KIND_META[item.kind];
   const unread = item.readAt === null;
-  const link = internalLink(item.link);
+  const link = safeInternalPath(item.link) ?? null;
 
   return (
     <li className="group relative flex min-w-0 items-start gap-3 py-3 transition-colors duration-150 ease-out-soft hover:bg-hover">

@@ -92,7 +92,9 @@ describe.skipIf(!ready)('skills', () => {
     });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
-    expect(res.headers.get('content-disposition')).toBe('attachment; filename="SKILL.md"');
+    expect(res.headers.get('content-disposition')).toBe(
+      'attachment; filename="SKILL.md"; filename*=UTF-8\'\'SKILL.md',
+    );
 
     // 期望值手写：正文只去外层空白，内部 CRLF 与 Unicode 原样保留。
     const expected = [

@@ -1,17 +1,18 @@
 import { runsContract } from '@agentport/contract/runs';
-import { buildSkillDraft, fail, isAppError, notFound, readOutputFile } from '@agentport/core';
+import { buildSkillDraft, fail, isAppError, notFound } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { runStatusSchema, runTriggerSchema } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import { accessFilter, actorOf, requireUser } from '../../http/access.js';
+import { attachmentResponse } from '../../http/attachment.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { toIso } from '../../lib/iso.js';
-import { agentSlug } from '../chat/outputs.js';
+import { agentSlug, readWorkspaceOutput } from '../../lib/outputs.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from './access.js';
 import { runsQuestionsRouter } from './questions.js';
 
@@ -68,11 +69,10 @@ const runsMainRouter = {
     const outputPath = input.body.outputPath ?? null;
     let outputSha256: string | null = null;
     if (outputPath !== null) {
-      const slug = await agentSlug(context, run.agentId);
+      const slug = await agentSlug(context.db, run.agentId);
       if (slug === null) return fail('INVALID_INPUT', '验收成果不存在或不属于该运行');
       try {
-        const { file } = await readOutputFile({
-          root: context.config.WORKSPACES_DIR,
+        const { file } = await readWorkspaceOutput(context, {
           slug,
           conversationId: run.conversationId,
           runId: run.id,
@@ -292,16 +292,14 @@ export function registerRunExportHttp(app: Hono<HttpEnv>): void {
       if (items.length > limit) {
         return fail('CONFLICT', `运行记录超过 ${limit} 条，请先按智能体或状态缩小范围后再导出`);
       }
-      c.header('content-disposition', 'attachment; filename="runs.json"');
-      c.header('cache-control', 'no-store');
-      c.header('x-content-type-options', 'nosniff');
-      c.header('Content-Type', 'application/json');
-      return c.body(
+      return attachmentResponse(
         JSON.stringify({
           format: 'agentport/runs@1',
           exportedAt: new Date().toISOString(),
           items: items.map(toItem),
         }),
+        'runs.json',
+        'application/json',
       );
     },
   );
@@ -325,11 +323,7 @@ export function registerRunExportHttp(app: Hono<HttpEnv>): void {
         steps: detail.steps,
         conversation: detail.conversation,
       });
-      c.header('content-disposition', `attachment; filename="run-${id}.json"`);
-      c.header('cache-control', 'no-store');
-      c.header('x-content-type-options', 'nosniff');
-      c.header('Content-Type', 'application/json');
-      return c.body(body);
+      return attachmentResponse(body, `run-${id}.json`, 'application/json');
     },
   );
 }

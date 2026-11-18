@@ -377,7 +377,9 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
 
     const res = await exportAudit(`${targetQuery(target)}${cursor(before)}`);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers.get('content-disposition')).toBe('attachment; filename="audit.json"');
+    expect(res.headers.get('content-disposition')).toBe(
+      'attachment; filename="audit.json"; filename*=UTF-8\'\'audit.json',
+    );
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     const body = res.json<ExportBody>();

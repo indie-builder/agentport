@@ -1,21 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { cn } from '../lib/cn.js';
-
-export type SourceLanguage = 'json' | 'markdown' | 'text';
-
-export type SourceEditorProps = {
-  value: string;
-  onChange: (value: string) => void;
-  id?: string | undefined;
-  'aria-label'?: string | undefined;
-  'aria-describedby'?: string | undefined;
-  'aria-invalid'?: boolean | undefined;
-  disabled?: boolean | undefined;
-  readOnly?: boolean | undefined;
-  language?: SourceLanguage | undefined;
-  className?: string | undefined;
-  onBlur?: (() => void) | undefined;
-};
+import type { SourceEditorProps } from './source-editor-props.js';
 
 // CodeMirror 只在真正渲染编辑器时才加载；其余页面不为它付首屏体积。
 const LazySourceEditor = lazy(() =>

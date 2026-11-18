@@ -2,11 +2,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { sanitizeSegment, trimSlash, uniquePath } from '../src/knowledge/source-paths.js';
+import type { SourceConfig } from '../src/knowledge/source-types.js';
 import {
   probeSource,
   readSource,
   SourceAuthError,
-  type SourceConfig,
   validateSourceUrl,
 } from '../src/knowledge/sources.js';
 

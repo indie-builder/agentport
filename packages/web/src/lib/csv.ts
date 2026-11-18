@@ -1,4 +1,4 @@
-export function csvCell(value: unknown): string {
+function csvCell(value: unknown): string {
   const field = String(value ?? '');
   const guarded = /^[=+\-@\t\r]/.test(field) ? `'${field}` : field;
   return /[",\r\n]/.test(guarded) ? `"${guarded.replaceAll('"', '""')}"` : guarded;

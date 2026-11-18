@@ -6,12 +6,12 @@ import type {
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
 
-export const runtimeEnvironmentsQuery = queryOptions<RuntimeEnvironment[]>({
+const runtimeEnvironmentsQuery = queryOptions<RuntimeEnvironment[]>({
   queryKey: ['runtime-environments'],
   queryFn: api.runtimeEnvironments,
 });
 
-export function runtimeEnvironmentQuery(id: string) {
+function runtimeEnvironmentQuery(id: string) {
   return queryOptions<RuntimeEnvironment>({
     queryKey: ['runtime-environments', id],
     queryFn: () => api.runtimeEnvironment(id),
@@ -28,7 +28,7 @@ export function buildShouldPoll(
   );
 }
 
-export function runtimeEnvironmentVersionsQuery(id: string) {
+function runtimeEnvironmentVersionsQuery(id: string) {
   return queryOptions<RuntimeEnvironmentVersionSummary[]>({
     queryKey: ['runtime-environments', id, 'versions'],
     queryFn: () => api.runtimeEnvironmentVersions(id),
@@ -36,7 +36,7 @@ export function runtimeEnvironmentVersionsQuery(id: string) {
   });
 }
 
-export function runtimeEnvironmentVersionQuery(id: string, versionId: string) {
+function runtimeEnvironmentVersionQuery(id: string, versionId: string) {
   return queryOptions<RuntimeEnvironmentVersion>({
     queryKey: ['runtime-environments', id, 'versions', versionId],
     queryFn: () => api.runtimeEnvironmentVersion(id, versionId),

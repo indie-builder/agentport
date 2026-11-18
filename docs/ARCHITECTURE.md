@@ -799,7 +799,7 @@ runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`ag
 - 多角色合并完整授权结果：不把 A 角色的动作与 B 角色的范围拼接。
 - 服务端每个业务入口声明并执行动作授权与对象范围检查；前端菜单与动作由同一功能目录驱动。
 - 平台默认助手「通用助手」是对象授权例外：所有已认证用户可 `agents.read` / `agents.use`，其余专家管理动作（含平台管理员）一律拒绝，保证默认对象持续不可改、不可删。判定集中在 api `http/access.ts` 授权边界；`privateContent` 请求绝不走该放行分支。worker 开跑前复用同一 `agentPermissionAllows` 策略，api 与 worker 不各留一份。
-- 数据库部分唯一索引 `agents_single_default_idx` 只保证「至多一个默认」；「恰好一个」由 bootstrap 与 `buildApp` 启动时的幂等播种 `ensureDefaultAssistant` 保证。已有默认行时播种直接返回，不改配置、ID 与版本。
+- 数据库部分唯一索引 `agents_single_default_idx` 只保证「至多一个默认」；「恰好一个」由 `buildApp` 启动时独立执行的幂等播种 `ensureDefaultAssistant` 保证（自己的事务，与管理员初始化 `ensureBootstrap` 共用同一 `agentport:bootstrap` advisory lock）。已有默认行时播种直接返回，不改配置、ID 与版本。
 - 角色页为「顶部横向角色列 × 左侧纵向功能层级树」的勾选矩阵：左侧父功能下缩进显示子功能并整组展开收起，不平铺父子名称；中间单元格只放勾选状态，父级按叶权限三态聚合，授权范围在矩阵外的角色设置中配置，整张矩阵一次保存。后台仍保存完整矩阵，评估与定时任务分立。
 - 至少保留一名未停用的活跃管理员；删除、停用、降权或矩阵保存导致无管理员时返回 409。
 

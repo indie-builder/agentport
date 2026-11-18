@@ -11,6 +11,7 @@ import {
   violationCaseStatusSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
+import { safeInternalPath } from '../lib/auth-redirect.js';
 import {
   agentInstructions,
   agentSections,
@@ -38,21 +39,12 @@ export const agentsSearchSchema = resourceSearchSchema.extend({
   role: z.enum(AGENT_ROLES).optional().catch(undefined),
 });
 
-// 只接受站内相对地址，三层校验：必须以 / 开头（相对地址）；不能以 // 开头（协议相对地址会离站）；
-// 不能含反斜杠或空白（URL 解析器会把 \ 归一化成 /、裁剪空白，再拼成离站地址）。
-// 最后解析一次作兜底：origin 必须仍是占位站。
+// 只接受站内相对地址；规则与登录回跳共用 safeInternalPath。
 const backToSearchSchema = z
   .string()
   .min(1)
   .max(2048)
-  .refine((value) => {
-    if (!value.startsWith('/') || value.startsWith('//') || /[\\\s]/.test(value)) return false;
-    try {
-      return new URL(value, 'https://placeholder.invalid').origin === 'https://placeholder.invalid';
-    } catch {
-      return false;
-    }
-  })
+  .refine((value) => safeInternalPath(value) !== undefined)
   .optional()
   .catch(undefined);
 

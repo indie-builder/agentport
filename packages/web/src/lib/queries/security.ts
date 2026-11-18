@@ -20,7 +20,7 @@ import { api, type SecurityEventQuery } from '../api.js';
 
 const PAGE_SIZE = 50;
 
-export const securityKeys = {
+const securityKeys = {
   policies: ['security', 'policies'] as const,
   events: (filters: Pick<SecurityEventQuery, 'sourceKind' | 'action'>) =>
     ['security', 'events', filters] as const,
@@ -28,7 +28,7 @@ export const securityKeys = {
   violations: (status: ViolationCaseStatus | 'all') => ['security', 'violations', status] as const,
 };
 
-export const securityPoliciesQuery = queryOptions<ContentPolicy[]>({
+const securityPoliciesQuery = queryOptions<ContentPolicy[]>({
   queryKey: securityKeys.policies,
   queryFn: () => api.securityPolicies(),
   staleTime: 0,

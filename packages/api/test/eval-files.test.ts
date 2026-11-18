@@ -247,7 +247,7 @@ describe.skipIf(!ready)('eval dataset files', () => {
     const exported = await exportCases(source.id);
     expect(exported.statusCode).toBe(200);
     expect(exported.headers.get('content-disposition')).toBe(
-      'attachment; filename="eval-cases.json"',
+      'attachment; filename="eval-cases.json"; filename*=UTF-8\'\'eval-cases.json',
     );
     expect(exported.headers.get('cache-control')).toBe('no-store');
     expect(exported.headers.get('x-content-type-options')).toBe('nosniff');

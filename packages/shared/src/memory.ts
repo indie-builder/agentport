@@ -47,13 +47,11 @@ export const memoryPolicySchema = z
 
 export type MemoryPolicy = z.infer<typeof memoryPolicySchema>;
 
-export const DEFAULT_MEMORY_POLICY: MemoryPolicy = {
-  enabled: true,
-  writeMode: 'native_auto',
-  injectPersonalMemory: true,
-  injectRules: true,
-  topicLimit: 20,
-};
+export const DEFAULT_MEMORY_POLICY: MemoryPolicy = memoryPolicySchema.parse({});
+
+export function memoryWritable(policy: MemoryPolicy): boolean {
+  return policy.enabled && policy.writeMode === 'native_auto';
+}
 
 /** 读取已落库的策略；缺失或非法时整体回落默认值，不让半套策略进入运行期。 */
 export function resolveMemoryPolicy(value: unknown): MemoryPolicy {

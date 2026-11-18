@@ -3,12 +3,12 @@ import { repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { z } from 'zod';
+import { attachmentResponse } from '../../http/attachment.js';
 import type { HttpEnv } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { loadReadableConversation } from './access.js';
-import { contentDisposition } from './outputs.js';
 
 const notFound = () => fail('NOT_FOUND', '附件不存在，可能已被清理');
 export function registerChatAttachmentsHttp(app: Hono<HttpEnv>): void {
@@ -51,11 +51,7 @@ export function registerChatAttachmentsHttp(app: Hono<HttpEnv>): void {
         if (isAppError(err) && err.code === 'NOT_FOUND') return notFound();
         throw err;
       }
-      c.header('Content-Type', file.mimeType);
-      c.header('Content-Disposition', contentDisposition(file.filename));
-      c.header('Cache-Control', 'no-store');
-      c.header('X-Content-Type-Options', 'nosniff');
-      return c.body(new Uint8Array(file.data));
+      return attachmentResponse(new Uint8Array(file.data), file.filename, file.mimeType);
     },
   );
 }

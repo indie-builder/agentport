@@ -119,9 +119,7 @@ export default {
   ): Promise<OutputContent> =>
     nativeRequest(
       `/conversations/${conversationId}/outputs/${encodeURIComponent(runId)}/content?path=${encodeURIComponent(path)}`,
-      'GET',
-      undefined,
-      signal,
+      { signal },
     ),
   /** 列表未覆盖的旧版先取真实元信息，再决定按文本还是图片预览，不猜类型。 */
   outputFile: (
@@ -143,10 +141,7 @@ export default {
   ): Promise<Blob> =>
     nativeRequest(
       `/conversations/${conversationId}/outputs/${encodeURIComponent(runId)}/download?path=${encodeURIComponent(path)}`,
-      'GET',
-      undefined,
-      signal,
-      'blob',
+      { signal, responseType: 'blob' },
     ),
   outputDownloadUrl: (conversationId: string, runId: string, path: string): string =>
     `/api/conversations/${conversationId}/outputs/${encodeURIComponent(runId)}/download?path=${encodeURIComponent(path)}`,

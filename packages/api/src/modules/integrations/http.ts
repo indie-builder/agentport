@@ -7,8 +7,8 @@ import {
   inboundWebhookPayloadSchema,
 } from '@agentport/shared';
 import type { Hono } from 'hono';
-import { bodyLimit } from 'hono/body-limit';
 import { requireUser } from '../../http/access.js';
+import { requestBodyLimit } from '../../http/body-limit.js';
 import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { authorizeRun } from '../runs/access.js';
@@ -16,10 +16,7 @@ import { authenticateApiToken, principalForBusinessId } from './auth.js';
 import { verifyWebhookSignature } from './signature.js';
 import { submitExternalRun } from './use-cases.js';
 
-const bodyLimitHandler = bodyLimit({
-  maxSize: 1_048_576,
-  onError: () => fail('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试'),
-});
+const bodyLimitHandler = requestBodyLimit(1_048_576);
 
 function parseJson(body: string): unknown {
   try {

@@ -1,17 +1,14 @@
 import { readdir, rm } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import type { McpJsonEntry, WorkspacePlugin, WorkspaceSkill } from '@agentport/core';
+import { resolve } from 'node:path';
+import type { McpJsonEntry, WorkspacePlugin } from '@agentport/core';
 import {
   decryptSecrets,
   hashMcpToken,
   installProcessGuards,
   RunFailure,
   renderPlugin,
-  renderWorkspace,
-  WORKSPACE_FILE_MODE,
 } from '@agentport/core';
 import { createServiceLogger } from '@agentport/core/logger';
-import { toWorkspaceInput } from '@agentport/core/workspace-input';
 import { createDb, plugins as pluginsTable, repo, schema } from '@agentport/db';
 import {
   ACTIVE_RUN_STATUSES,
@@ -21,16 +18,12 @@ import {
   agentRunJobSchema,
   CONFIG_CONTAINER_DIR,
   EVAL_RUNS_QUEUE,
-  effortSchema,
   generatedMcpEntry,
   knowledgeMcpEntry,
-  type MemoryPolicy,
-  permissionModeSchema,
   previewMcpEntry,
   RUNS_QUEUE,
   SESSION_CLEANUP_TIMEOUT_MS,
   serverInputSchema,
-  uiFormatSchema,
 } from '@agentport/shared';
 import { createBunRedisClient, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
@@ -60,6 +53,7 @@ import { closeRunnerClient, configureRunnerClient } from './runner-client.js';
 import { runAgentJob } from './runs/execute.js';
 import type { RunAccessDenial } from './runs/run-access.js';
 import { finalizeRun } from './runs/run-finish.js';
+import { createWorkspaceAssembly } from './runs/workspace-assembly.js';
 import { startRuntimeEnvironmentBuildWorker } from './runtime-environments/build.js';
 import {
   ensureDefaultEnvironment,
@@ -74,10 +68,10 @@ import { SessionSandboxes } from './sandbox/sessions.js';
 import { registerSandboxProbe } from './sandbox-probe.js';
 import { startReconciler } from './scheduling/reconcile.js';
 import { startScheduleScheduler } from './scheduling/scheduler.js';
+import { isRunWorkspaceName, runWorkspaceDir } from './session-workspace.js';
 import { runShutdown } from './shutdown.js';
 import { modelProxyUpstream } from './upstream.js';
 import { version } from './version.js';
-import { materializeWorkspace } from './workspace-files.js';
 
 const config = loadConfig();
 const logger = createServiceLogger({
@@ -146,8 +140,6 @@ const sessionCleanup = await startSessionCleanupChannel({
 
 type ServerRow = AgentDefinitionServer;
 type AgentRow = typeof schema.agents.$inferSelect;
-/** 子智能体行带上自己的技能；根智能体的技能单独传，避免混进根配置。 */
-type SubAgentRow = AgentRow & { skills?: WorkspaceSkill[] };
 
 function toEntry(
   server: ServerRow,
@@ -235,77 +227,7 @@ async function loadAgentPlugins(
 }
 
 /** 每次 run 重写工作区：文件是 DB 的只读快照，prompt 只走 stdin。 */
-async function writeWorkspace(
-  agent: AgentRow & { serverNames: string[] },
-  runId: string,
-  servers: Array<{ name: string; entry: McpJsonEntry }>,
-  skills: Array<{
-    slug: string;
-    name: string;
-    description: string;
-    body: string;
-    files?: Array<{ path: string; content: string }>;
-  }>,
-  subAgents: SubAgentRow[],
-  rules: Array<{ slug: string; content: string; globs: string }>,
-  outputStyles: Array<{
-    slug: string;
-    description: string;
-    keepCodingInstructions: boolean;
-    body: string;
-  }>,
-  selectedOutputStyle: string | null,
-  workflows: Array<{ slug: string; content: string }>,
-  hooks: Record<string, unknown> | null,
-  hookFiles: Array<{ path: string; content: string; executable: boolean }>,
-  plugins: WorkspacePlugin[],
-  /** 本轮已解析的专家记忆策略：CLAUDE.md 的记忆文案必须与记忆挂载权限同源。 */
-  memoryPolicy: MemoryPolicy,
-): Promise<{ dir: string; hasSubAgents: boolean; hasWorkflows: boolean }> {
-  // 生成式 UI 的工具目录与提示词、执行桥同源：这里查一次，渲染时写进 CLAUDE.md。
-  const openuiTools =
-    agent.uiFormat === 'openui' ? await repo.openui.listOpenUiTools(db, agent.id) : [];
-  const files = renderWorkspace(
-    toWorkspaceInput({
-      agent: {
-        ...agent,
-        permissionMode: permissionModeSchema.parse(agent.permissionMode),
-        uiFormat: uiFormatSchema.parse(agent.uiFormat),
-        effort: effortSchema.nullable().parse(agent.effort),
-      },
-      servers,
-      skills,
-      subAgents: subAgents.map((row) => ({
-        ...row,
-        permissionMode: permissionModeSchema.parse(row.permissionMode),
-        uiFormat: uiFormatSchema.parse(row.uiFormat),
-        effort: effortSchema.nullable().parse(row.effort),
-      })),
-      rules,
-      outputStyles,
-      selectedOutputStyle,
-      workflows,
-      ...(hooks ? { hooks } : {}),
-      hookFiles,
-      openuiTools,
-      plugins,
-      memoryPolicy,
-    }),
-  );
-
-  // 按 run 隔离：同一智能体并发运行时不能互相覆盖 .mcp.json / 技能 / 子智能体。
-  const dir = join(workspacesDir, agent.slug, runId);
-  await materializeWorkspace(dir, files);
-  logger.debug(
-    { runId, dir, mode: WORKSPACE_FILE_MODE.toString(8) },
-    'workspace permissions applied',
-  );
-  return {
-    dir,
-    hasSubAgents: files.subAgents.length > 0,
-    hasWorkflows: files.workflows.length > 0,
-  };
-}
+const writeWorkspace = createWorkspaceAssembly({ db, workspacesDir, logger });
 
 /** 沙盒里的地址：容器内 127.0.0.1 指向容器自身，必须改写成宿主别名。 */
 function toHostUrl(value: string): string {
@@ -315,51 +237,50 @@ function toHostUrl(value: string): string {
   );
 }
 
-/**
- * 模型代理（D-17）。启用后沙盒只拿到代理地址与 run token，真实凭证留在 worker。
- * 未启用时回退到直接注入，启动日志会警告。
- */
-let modelProxy: ModelProxy | null = null;
-
 /** 容器只拿凭证与 API 地址；密钥不落盘。 */
-function sandboxEnv(apiUrl: string, runId: string): Record<string, string> {
-  const env: Record<string, string> = {
-    SANDBOX_API_URL: apiUrl,
-    // 会话容器把持久 sessions 目录挂到 /home/node/.claude（见 sessions.ts），
-    // 这里指定 SDK 使用同一路径；没有会话挂载的一次性容器由 docker.ts 提供 tmpfs。
-    CLAUDE_CONFIG_DIR: CONFIG_CONTAINER_DIR,
-  };
-  if (modelProxy) {
-    env.ANTHROPIC_BASE_URL = modelProxy.url;
-    // 短期 token：run 结束即吊销；沙盒读不到真实模型密钥。
-    env.ANTHROPIC_AUTH_TOKEN = modelProxy.issueToken(runId);
-    env.ANTHROPIC_API_KEY = '';
-  } else {
-    for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const) {
-      const value = config[key];
-      if (value) env[key] = value;
+function makeSandboxEnv(modelProxy: ModelProxy | null) {
+  return (apiUrl: string, runId: string): Record<string, string> => {
+    const env: Record<string, string> = {
+      SANDBOX_API_URL: apiUrl,
+      // 会话容器把持久 sessions 目录挂到 /home/node/.claude（见 sessions.ts），
+      // 这里指定 SDK 使用同一路径；没有会话挂载的一次性容器由 docker.ts 提供 tmpfs。
+      CLAUDE_CONFIG_DIR: CONFIG_CONTAINER_DIR,
+    };
+    if (modelProxy) {
+      env.ANTHROPIC_BASE_URL = modelProxy.url;
+      // 短期 token：run 结束即吊销；沙盒读不到真实模型密钥。
+      env.ANTHROPIC_AUTH_TOKEN = modelProxy.issueToken(runId);
+      env.ANTHROPIC_API_KEY = '';
+    } else {
+      for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const) {
+        const value = config[key];
+        if (value) env[key] = value;
+      }
+      if (config.ANTHROPIC_BASE_URL) env.ANTHROPIC_BASE_URL = toHostUrl(config.ANTHROPIC_BASE_URL);
     }
-    if (config.ANTHROPIC_BASE_URL) env.ANTHROPIC_BASE_URL = toHostUrl(config.ANTHROPIC_BASE_URL);
-  }
 
-  // proxy 模式：把宿主上的代理地址传给沙盒，仍由容器自行出站。
-  if (config.SANDBOX_EGRESS === 'proxy') {
-    for (const key of ['HTTPS_PROXY', 'HTTP_PROXY'] as const) {
-      const value = config[key];
-      if (value) env[key] = toHostUrl(value);
+    // proxy 模式：把宿主上的代理地址传给沙盒，仍由容器自行出站。
+    if (config.SANDBOX_EGRESS === 'proxy') {
+      for (const key of ['HTTPS_PROXY', 'HTTP_PROXY'] as const) {
+        const value = config[key];
+        if (value) env[key] = toHostUrl(value);
+      }
+      const noProxy = config.NO_PROXY ?? config.no_proxy;
+      if (noProxy) env.NO_PROXY = noProxy;
     }
-    const noProxy = config.NO_PROXY ?? config.no_proxy;
-    if (noProxy) env.NO_PROXY = noProxy;
-  }
-  return env;
+    return env;
+  };
 }
 
 /**
+ * 模型代理（D-17）。启用后沙盒只拿到代理地址与 run token，真实凭证留在 worker。
+ * 未启用时回退到直接注入，启动日志会警告。
+ *
  * 模型代理必须在 worker 启动前就绪：sandboxEnv 在任务里同步读取它。
  * 未配置凭证时返回 null，随后回退到直接注入并打印警告。
  */
 const envUpstream = config.ANTHROPIC_BASE_URL || undefined;
-modelProxy = await startModelProxy({
+const modelProxy = await startModelProxy({
   logger,
   port: config.MODEL_PROXY_PORT,
   // worker 在容器里时 127.0.0.1 指向容器自身，网关在宿主上；宿主直跑则原样保留。
@@ -392,6 +313,7 @@ modelProxy = await startModelProxy({
     repo.modelProviders.markRunServedProvider(db, runId, providerId),
   recordProviderResult: (result) => repo.modelProviders.recordProviderRequest(db, result),
 });
+const sandboxEnv = makeSandboxEnv(modelProxy);
 if (modelProxy) {
   logger.info('model credentials stay in the worker; sandbox gets a per-run proxy token');
 } else {
@@ -416,10 +338,12 @@ async function sweepStaleWorkspaces(): Promise<number> {
   );
   for (const agent of agents) {
     if (!agent.isDirectory()) continue;
-    const agentDir = join(workspacesDir, agent.name);
-    for (const run of await readdir(agentDir, { withFileTypes: true })) {
-      if (!run.isDirectory() || !run.name.startsWith('run_') || liveIds.has(run.name)) continue;
-      await rm(join(agentDir, run.name), { recursive: true, force: true });
+    for (const run of await readdir(resolve(workspacesDir, agent.name), { withFileTypes: true })) {
+      if (!run.isDirectory() || !isRunWorkspaceName(run.name) || liveIds.has(run.name)) continue;
+      await rm(runWorkspaceDir(workspacesDir, agent.name, run.name), {
+        recursive: true,
+        force: true,
+      });
       removed += 1;
     }
   }
@@ -539,7 +463,8 @@ worker.on('failed', async (job, err) => {
   const { runId, agentId } = parsed.data;
   try {
     const slug = await repo.agents.findAgentSlug(db, agentId);
-    if (slug !== null) await rm(join(workspacesDir, slug, runId), { recursive: true, force: true });
+    if (slug !== null)
+      await rm(runWorkspaceDir(workspacesDir, slug, runId), { recursive: true, force: true });
   } catch (cleanupError) {
     logger.warn({ err: cleanupError, runId }, 'workspace cleanup failed');
   }

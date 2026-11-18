@@ -32,7 +32,7 @@ export const BINARY_MIME_BY_EXTENSION: Record<string, string> = {
   '.webp': 'image/webp',
 };
 
-export function extensionOf(name: string): string {
+export function extensionWithDot(name: string): string {
   const dot = name.lastIndexOf('.');
   return dot < 0 ? '' : name.slice(dot).toLowerCase();
 }
@@ -44,7 +44,7 @@ export function declaredMime(contentType: string | null | undefined): string | u
 
 /** 扩展名优先于上传声明；声明只接受已知 MIME，octet-stream 不算。 */
 export function mimeOf(name: string, declared: string | undefined): string | undefined {
-  const extension = extensionOf(name);
+  const extension = extensionWithDot(name);
   const byExtension = BINARY_MIME_BY_EXTENSION[extension] ?? TEXT_MIME_BY_EXTENSION[extension];
   if (byExtension) return byExtension;
   const mime = declaredMime(declared);
