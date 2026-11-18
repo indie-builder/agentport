@@ -784,3 +784,15 @@
 - **现象**：生产者 A 入队失败，把 run 标成 failed/infra 并返回 503；生产者 B 随后成功写入 Redis。DB 是 failed、Redis 有 waiting job，worker 跳过该 run，运行永久卡死。
 - **原因**：失败回写是终态写入，没有考虑同一 run 的并发生产者稍后成功投递；成功路径也没有撤销已经排队的 `run.failed` webhook。
 - **规避**：成功路径统一条件恢复，把未启动的 failed/infra run 恢复为 queued，并在恢复事务内撤销 `run:<id>:failed` 的 pending 投递。
+
+## SSRF：开发机 fake-IP DNS 被误判、ipaddr.js 旧版漏判
+
+- **现象**：本机开发/集成测试里访问公网域名被拒绝为「该地址解析到内网」，而域名实际公网可达；servers/agents 等创建 MCP 服务器的用例批量失败。
+- **原因**：本机 DNS 代理把公网域名解析到保留的 benchmarking 段 `198.18.0.0/15` 与 `2001:2::/48`（fake-IP）。SSRF 使用顶层 `ipaddr.js@2.5.0` 的 `range()` 后这些地址按非 unicast 拒绝；锁文件里 `proxy-addr` 仍带传递依赖 `ipaddr.js@1.9.1`，它会把 `198.18.0.1` 判成 unicast，不能拿来替代顶层实现。
+- **规避**：生产环境严格拒绝这两段；只有 `NODE_ENV=development` 通过 `isPrivateAddress(..., allowDevProxy)` 放行，`allowDevLocal` 只控制 localhost 早退，不控制 fake-IP。API `assertSafeUrl`/`assertServerEndpoint` 与 worker `validateSourceUrl` 均按此执行。SSRF 回归测试对这两段要用 `PROD` 断言拒绝，不能为了本地测试全局放宽。
+
+## 知识重试：只放在 worker 摄取层，不要放进共享 HTTP 客户端
+
+- **现象**：把 429/5xx/timeout 重试加进 `packages/core/src/knowledge-models.ts` 后，API 搜索的 embedding 故障要等 3 次指数退避才降级为关键词，查询 latency 与相关测试耗时大幅上升；BullMQ 队列重试用例也观察不到重投。
+- **原因**：core 的模型客户端同时服务 worker 知识摄取与 API 检索。摄取重试是为避免整任务重跑 Docling/OCR/embedding；检索需要失败后立即降级，两者策略不同。
+- **规避**：请求级重试放在 worker `packages/worker/src/knowledge/ingestion.ts` 的 `withModelRetry`，只包装 `embed`/`embedImage`，仅重试 timeout/rate_limit/unavailable，最多 3 次并透传 `AbortSignal`；core 保持单次 HTTP 与失败分类。不要再把重试移回 core。

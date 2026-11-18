@@ -65,6 +65,26 @@ describe('IPv4 private ranges', () => {
       allowed: ['192.88.98.255', '192.88.100.0'],
     },
     {
+      cidr: '192.0.2.0/24',
+      blocked: ['192.0.2.0', '192.0.2.255'],
+      allowed: ['192.0.1.255', '192.0.3.0'],
+    },
+    {
+      cidr: '198.18.0.0/15',
+      blocked: ['198.18.0.0', '198.19.255.255'],
+      allowed: ['198.17.255.255', '198.20.0.0'],
+    },
+    {
+      cidr: '198.51.100.0/24',
+      blocked: ['198.51.100.0', '198.51.100.255'],
+      allowed: ['198.51.99.255', '198.51.101.0'],
+    },
+    {
+      cidr: '203.0.113.0/24',
+      blocked: ['203.0.113.0', '203.0.113.255'],
+      allowed: ['203.0.112.255', '203.0.114.0'],
+    },
+    {
       cidr: '224.0.0.0/4',
       blocked: ['224.0.0.0', '239.255.255.255'],
       allowed: ['223.255.255.255'],
@@ -108,7 +128,8 @@ describe('IPv6 private ranges', () => {
     ['link-local first', 'fe80::', false],
     ['link-local last', 'febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff', false],
     ['below link-local', 'fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff', true],
-    ['above link-local', 'fec0::', true],
+    ['deprecated site-local', 'fec0::', false],
+    ['6to4', '2002:0a00:0001::', false],
   ])('handles %s boundary address %s', async (_label, ip, isPublic) => {
     const url = `http://[${ip}]/`;
     if (isPublic) await expectAllowed(url);

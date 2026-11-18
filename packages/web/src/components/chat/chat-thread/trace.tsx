@@ -1,6 +1,6 @@
 import type { PublicRunQuestion } from '@agentport/shared';
 import { CircleAlert, ListChecks, LoaderCircle, Wrench } from 'lucide-react';
-import { memo, useEffect, useState } from 'react';
+import { lazy, memo, Suspense, useEffect, useState } from 'react';
 import type { ApprovalRequest } from '../../../lib/api.js';
 import { type ChatItem, toolFailed } from '../../../lib/chat-state.js';
 import { cn } from '../../../lib/cn.js';
@@ -9,6 +9,7 @@ import { formatDuration } from '../../../lib/format.js';
 import { JsonBlock } from '../../code-block.js';
 import { KnowledgeCitations, knowledgeHitsFromTool } from '../../knowledge/knowledge-citations.js';
 import { RunQuestionCard } from '../../run/run-question.js';
+import { Skeleton } from '../../ui/skeleton.js';
 import {
   Trace,
   TraceCollapsible,
@@ -20,7 +21,10 @@ import {
   TraceTitle,
 } from '../../ui/trace.js';
 import { ApprovalCard } from './approval.js';
-import { DataDomainResultView } from './data-domain-result.js';
+
+const DataDomainResultView = lazy(() =>
+  import('./data-domain-result.js').then((module) => ({ default: module.DataDomainResultView })),
+);
 
 function toolRunning(item: ToolItem): boolean {
   return item.result === undefined && item.startedAt !== undefined && item.endedAt === undefined;
@@ -356,7 +360,9 @@ const ToolRow = memo(function ToolRow({
                 </div>
               </>
             ) : (
-              <DataDomainResultView result={dataDomainResult} />
+              <Suspense fallback={<Skeleton className="h-16 w-full" />}>
+                <DataDomainResultView result={dataDomainResult} />
+              </Suspense>
             )
           ) : (
             <p className="text-2xs text-muted-foreground">{running ? '等待结果…' : '未收到结果'}</p>

@@ -34,7 +34,7 @@
 **作为** 管理员，**我想** 填写 URL 与请求头，**以便** 复用已有的远程 MCP 服务。
 
 验收：
-- 仅允许 http/https；SSRF 校验（生产拒绝私网，开发放行 localhost）。
+- 仅允许 http/https；SSRF 校验（生产拒绝私网；开发放行 localhost 与本机 DNS fake-IP 段）。
 - headers 中的密钥脱敏返回。
 
 ### US-1.3 把一个 HTTP API 变成 MCP Server
