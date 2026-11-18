@@ -127,10 +127,13 @@ import {
   type AgentDraft,
   activeAgentTab,
   activeInstruction,
+  agentDefaults,
   agentFormSchema,
   asInstruction,
   baseFileEntries,
+  bindingKeys,
   canOpenTab,
+  configKeys,
   draftFromInput,
   errorSections,
   inputFromDraft,
@@ -598,10 +601,10 @@ export function AgentEditor({
             slug: detail?.slug ?? item.slug ?? item.id,
             name: detail?.name ?? item.name,
             description: detail?.description ?? item.description,
-            model: detail?.model ?? 'claude-sonnet-5-5',
+            model: detail?.model ?? agentDefaults.model,
             systemPrompt: detail?.systemPrompt ?? '',
-            maxTurns: detail?.maxTurns ?? 20,
-            timeoutMs: detail?.timeoutMs ?? 600_000,
+            maxTurns: detail?.maxTurns ?? agentDefaults.maxTurns,
+            timeoutMs: detail?.timeoutMs ?? agentDefaults.timeoutMs,
             permissionMode: detail?.permissionMode ?? 'default',
             effort: detail?.effort ?? null,
             allowedTools: detail?.allowedTools ?? [],
@@ -774,33 +777,6 @@ export function AgentEditor({
 
   // 配置、绑定与启停各自独立授权：保存只提交当前用户有权的字段。
   const dirtyKeys = Object.keys(rhf.formState.dirtyFields) as Array<keyof AgentDraft>;
-  const configKeys: Array<keyof AgentDraft> = [
-    'slug',
-    'name',
-    'role',
-    'description',
-    'model',
-    'systemPrompt',
-    'allowedTools',
-    'disallowedTools',
-    'permissionMode',
-    'uiFormat',
-    'effort',
-    'maxTurns',
-    'maxBudgetUsd',
-    'monthlyBudgetUsd',
-    'budgetAlertRatio',
-    'timeoutMs',
-    'runtimeEnvironmentId',
-    'visibility',
-    'tags',
-  ];
-  const bindingKeys: Array<keyof AgentDraft> = [
-    'serverIds',
-    'skillIds',
-    'pluginBindings',
-    'subAgentIds',
-  ];
   const dirtyConfig = dirtyKeys.some((key) => configKeys.includes(key));
   const dirtyBindings = dirtyKeys.some((key) => bindingKeys.includes(key));
   const dirtyEnabled = dirtyKeys.includes('enabled');
@@ -852,7 +828,7 @@ export function AgentEditor({
     },
     (invalid) => {
       // 错误可能不在当前分区：切到第一个出错的分区，下一帧聚焦该字段。
-      const section = Object.keys(invalid)
+      const section = (Object.keys(invalid) as Array<keyof AgentInput>)
         .map((key) => errorSections[key])
         .find((item): item is SectionId => item !== undefined);
       if (section) focusFirstInvalid(section);

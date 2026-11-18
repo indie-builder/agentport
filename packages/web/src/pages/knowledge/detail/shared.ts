@@ -29,72 +29,68 @@ export type KnowledgeCaps = {
 /** 来源类型以 shared 的输入契约为准，与 api.ts 的 wire 类型保持一致。 */
 export type SourceType = KnowledgeSourceInput['type'];
 
-export const sourceProviders: Array<{
-  type: SourceType;
+type SourceProviderMeta = {
   label: string;
   description: string;
   icon: typeof Code;
-}> = [
-  {
-    type: 'github',
+};
+
+const sourceProviderMeta = {
+  github: {
     label: 'GitHub',
     description: '读取仓库指定分支与路径下的文本文件',
     icon: Code,
   },
-  {
-    type: 'gitlab',
+  gitlab: {
     label: 'GitLab',
     description: '读取项目指定分支与路径下的文本文件',
     icon: GitFork,
   },
-  {
-    type: 'feishu_wiki',
+  feishu_wiki: {
     label: '飞书知识库',
     description: '同步知识空间或知识节点下的文档',
     icon: BookOpen,
   },
-  {
-    type: 'feishu_drive',
+  feishu_drive: {
     label: '飞书云盘',
     description: '同步云盘目录中的文件',
     icon: Cloud,
   },
-  {
-    type: 'lark_wiki',
+  lark_wiki: {
     label: 'Lark 知识库',
     description: '使用 Lark 应用同步知识空间或知识节点',
     icon: BookOpen,
   },
-  {
-    type: 'lark_drive',
+  lark_drive: {
     label: 'Lark 云盘',
     description: '使用 Lark 应用同步云盘目录中的文件',
     icon: Cloud,
   },
-  { type: 'notion', label: 'Notion', description: '同步页面、数据库与数据源', icon: NotebookText },
-  {
-    type: 'confluence',
+  notion: { label: 'Notion', description: '同步页面、数据库与数据源', icon: NotebookText },
+  confluence: {
     label: 'Confluence',
     description: '同步空间或页面及附件',
     icon: BookMarked,
   },
-  { type: 'yuque', label: '语雀', description: '同步知识库文档', icon: Feather },
-  {
-    type: 'dingtalk',
+  yuque: { label: '语雀', description: '同步知识库文档', icon: Feather },
+  dingtalk: {
     label: '钉钉',
     description: '同步知识空间或节点文档',
     icon: MessageSquare,
   },
-  { type: 'ima', label: 'IMA', description: '同步指定知识库的媒体与笔记', icon: LibraryBig },
-  {
-    type: 'seafile',
+  ima: { label: 'IMA', description: '同步指定知识库的媒体与笔记', icon: LibraryBig },
+  seafile: {
     label: 'Seafile',
     description: '同步 Seafile 11+ 库内目录文件',
     icon: FolderArchive,
   },
-  { type: 'nextcloud', label: 'Nextcloud', description: '同步账号目录文件', icon: Cloud },
-  { type: 'feed', label: 'RSS', description: '抓取 Feed 最近窗口内的条目', icon: Rss },
-];
+  nextcloud: { label: 'Nextcloud', description: '同步账号目录文件', icon: Cloud },
+  feed: { label: 'RSS', description: '抓取 Feed 最近窗口内的条目', icon: Rss },
+} satisfies Record<SourceType, SourceProviderMeta>;
+
+export const sourceProviders: Array<{ type: SourceType } & SourceProviderMeta> = (
+  Object.keys(sourceProviderMeta) as SourceType[]
+).map((type) => ({ type, ...sourceProviderMeta[type] }));
 
 /** 未知类型显式标注，不回落到某个具体 provider 误导用户。 */
 export function sourceProvider(type: SourceType): (typeof sourceProviders)[number] {

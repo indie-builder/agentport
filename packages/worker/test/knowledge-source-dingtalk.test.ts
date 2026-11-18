@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { probeDingtalk, readDingtalk } from '../src/knowledge/source-dingtalk.js';
 import { SourceAuthError } from '../src/knowledge/source-http.js';
-import type { SourceConfig } from '../src/knowledge/sources.js';
+import type { SourceConfig } from '../src/knowledge/source-types.js';
 import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
 type RequestRecord = {

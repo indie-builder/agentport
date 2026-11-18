@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   knowledgeKeys,
   useKnowledgeDocuments,
+  useKnowledgeFaqImportJobs,
   useKnowledgeJobs,
   useRetryKnowledgeJob,
 } from '../src/lib/queries.js';
@@ -47,6 +48,7 @@ type Call = {
 const state = {
   calls: [] as Call[],
   jobs: (_query: JobQuery): unknown => ({ items: [], nextCursor: null }),
+  jobDetailStatus: null as number | null,
 };
 
 function jobCalls() {
@@ -56,6 +58,7 @@ function jobCalls() {
 beforeEach(() => {
   state.calls.length = 0;
   state.jobs = () => ({ items: [], nextCursor: null });
+  state.jobDetailStatus = null;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const request =
       input instanceof Request
@@ -68,6 +71,12 @@ beforeEach(() => {
       cursor: url.searchParams.get('cursor'),
       signal: request.signal,
     });
+    if (state.jobDetailStatus !== null && url.pathname.startsWith('/api/knowledge/jobs/')) {
+      return new Response(JSON.stringify({ code: 'NOT_FOUND', message: '任务不存在' }), {
+        status: state.jobDetailStatus,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
     if (url.pathname === '/api/knowledge/jobs') {
       return Response.json(
         state.jobs({
@@ -163,6 +172,23 @@ describe('useKnowledgeJobs', () => {
       await client?.invalidateQueries({ queryKey: knowledgeKeys.jobs('kb_1') });
     });
     await vi.waitFor(() => expect(jobCalls().length).toBe(before + 3));
+  });
+
+  it('FAQ 导入任务在 404 后停止轮询', async () => {
+    state.jobDetailStatus = 404;
+    let latest: ReturnType<typeof useKnowledgeFaqImportJobs> | undefined;
+    function Probe() {
+      latest = useKnowledgeFaqImportJobs(['kjob_gone']);
+      return null;
+    }
+    await mount(createElement(Probe));
+    await vi.waitFor(() => expect(latest?.[0]?.isError).toBe(true));
+    const detailCalls = () =>
+      state.calls.filter((call) => call.path === '/api/knowledge/jobs/kjob_gone').length;
+    expect(detailCalls()).toBe(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 2_300));
+    expect(detailCalls()).toBe(1);
   });
 
   it('任务重试成功刷新任务与文档查询', async () => {

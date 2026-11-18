@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BINARY_MIME_BY_EXTENSION, declaredMime, extensionOf } from './source-formats.js';
+import { BINARY_MIME_BY_EXTENSION, declaredMime, extensionWithDot } from './source-formats.js';
 import {
   type FetchOptions,
   fetchChecked,
@@ -11,8 +11,8 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
+import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import { parseInitialCursor, snapshotOf } from './source-utils.js';
-import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
  * Notion 来源：页面正文走官方原生 Markdown，块接口只负责发现子页面/子数据库与附件。
@@ -213,13 +213,14 @@ const EXTENSION_BY_MIME: Record<string, string> = Object.fromEntries(
 /** 扩展名优先：下载响应头常缺失或误报文本，不能拿它覆盖真实原件类型。 */
 function mimeForName(name: string, contentType: string | null): string {
   const byExtension =
-    BINARY_MIME_BY_EXTENSION[extensionOf(name)] ?? TEXT_MIME_BY_EXTENSION[extensionOf(name)];
+    BINARY_MIME_BY_EXTENSION[extensionWithDot(name)] ??
+    TEXT_MIME_BY_EXTENSION[extensionWithDot(name)];
   if (byExtension) return byExtension;
   return declaredMime(contentType) ?? 'application/octet-stream';
 }
 
 function ensureExtension(name: string, mimeType: string): string {
-  if (extensionOf(name)) return name;
+  if (extensionWithDot(name)) return name;
   return `${name}${EXTENSION_BY_MIME[mimeType] ?? '.bin'}`;
 }
 

@@ -7,6 +7,7 @@ import {
   apiToolInputSchema,
   connectorCatalogSchema,
   maskSecret,
+  mcpEndpointPath,
   type PermissionId,
   type ResourceAccessLevel,
   type ServerTestResult,
@@ -156,7 +157,7 @@ export const serversRouter = os.router({
     const token = await getMcpToken(context.db, row.id);
     return {
       maskedToken: maskSecret(token),
-      endpoint: `${context.config.SELF_URL}/mcp/${row.id}`,
+      endpoint: `${context.config.SELF_URL}${mcpEndpointPath(row.id)}`,
     };
   }),
   rotateToken: os.rotateToken.handler(async ({ input, context }) => {
@@ -176,7 +177,7 @@ export const serversRouter = os.router({
       status: 'ok',
       requestId: context.requestId,
     });
-    return { token, endpoint: `${context.config.SELF_URL}/mcp/${row.id}` };
+    return { token, endpoint: `${context.config.SELF_URL}${mcpEndpointPath(row.id)}` };
   }),
   update: os.update.handler(async ({ input, context }) => {
     const { id } = input.params;

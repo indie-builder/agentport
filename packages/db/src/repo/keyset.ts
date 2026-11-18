@@ -2,11 +2,12 @@ import { type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn, AnyPgTable } from 'drizzle-orm/pg-core';
 
 export function keysetBefore(
-  table: AnyPgTable & { createdAt: AnyPgColumn; id: AnyPgColumn },
+  table: AnyPgTable & { id: AnyPgColumn },
   cursorId: string,
+  column: AnyPgColumn = (table as unknown as { createdAt: AnyPgColumn }).createdAt,
 ): SQL {
-  return sql`(${table.createdAt}, ${table.id}) < (
-    select cursor.created_at, cursor.id from ${table} cursor
+  return sql`(${column}, ${table.id}) < (
+    select cursor.${sql.raw(column.name)}, cursor.id from ${table} cursor
     where cursor.id = ${cursorId}
   )`;
 }

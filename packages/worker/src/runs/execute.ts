@@ -25,6 +25,7 @@ import {
   messageAttachments,
   permissionModeSchema,
   type SandboxTaskInput,
+  WORKSPACE_CONTAINER_DIR,
   wireFailureKind,
 } from '@agentport/shared';
 import type { Job } from 'bullmq';
@@ -56,6 +57,7 @@ import { loadRunServerBindings } from '../server-bindings.js';
 import {
   ensureSessionWorkspace,
   refreshSessionDirectory,
+  runWorkspaceDir,
   toHostWorkspacePath,
 } from '../session-workspace.js';
 import { promptWithAttachments } from './attachments.js';
@@ -81,11 +83,11 @@ import {
   publishRunFinished,
   type RunFinishedEvent,
 } from './run-finish.js';
+import type { WorkspaceAssemblyInput } from './workspace-assembly.js';
 
 type Db = ReturnType<typeof createDb>['db'];
 type ServerRow = AgentDefinitionServer;
 type AgentRow = typeof schema.agents.$inferSelect;
-type SubAgentRow = AgentRow & { skills?: WorkspaceSkill[] };
 
 function applyAgentDefinition(definition: AgentDefinition): AgentRow {
   const { agent } = definition;
@@ -178,30 +180,7 @@ export async function runAgentJob(
       runToken: string,
     ) => McpJsonEntry;
     writeWorkspace: (
-      agent: AgentRow & { serverNames: string[] },
-      runId: string,
-      servers: Array<{ name: string; entry: McpJsonEntry }>,
-      skills: Array<{
-        slug: string;
-        name: string;
-        description: string;
-        body: string;
-        files?: Array<{ path: string; content: string }>;
-      }>,
-      subAgents: SubAgentRow[],
-      rules: Array<{ slug: string; content: string; globs: string }>,
-      outputStyles: Array<{
-        slug: string;
-        description: string;
-        keepCodingInstructions: boolean;
-        body: string;
-      }>,
-      selectedOutputStyle: string | null,
-      workflows: Array<{ slug: string; content: string }>,
-      hooks: Record<string, unknown> | null,
-      hookFiles: Array<{ path: string; content: string; executable: boolean }>,
-      plugins: WorkspacePlugin[],
-      memoryPolicy: MemoryPolicy,
+      input: WorkspaceAssemblyInput,
     ) => Promise<{ dir: string; hasSubAgents: boolean; hasWorkflows: boolean }>;
   },
 ): Promise<void> {
@@ -737,24 +716,24 @@ export async function runAgentJob(
         dir: workspaceDir,
         hasSubAgents,
         hasWorkflows,
-      } = await writeWorkspace(
-        { ...effectiveAgent, serverNames: parentServerNames },
+      } = await writeWorkspace({
+        agent: { ...effectiveAgent, serverNames: parentServerNames },
         runId,
-        serverRows.map((server) => ({
+        servers: serverRows.map((server) => ({
           name: server.name,
           entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY, runId, runToken),
         })),
-        skillsWithFiles,
+        skills: skillsWithFiles,
         subAgents,
         rules,
         outputStyles,
         selectedOutputStyle,
         workflows,
-        effectiveAgent.hooksEnabled ? effectiveAgent.hooksConfig : null,
+        hooks: effectiveAgent.hooksEnabled ? effectiveAgent.hooksConfig : null,
         hookFiles,
-        runPlugins,
-        runMemoryPolicy,
-      );
+        plugins: runPlugins,
+        memoryPolicy: runMemoryPolicy,
+      });
       await refreshSessionDirectory(workspaceDir, stableWorkspaceDir, {
         preserveMemoryMount: true,
       });
@@ -806,7 +785,7 @@ export async function runAgentJob(
         allowSubAgents: hasSubAgents,
         maxFieldBytes: config.SANDBOX_MAX_FIELD_BYTES,
         plugins: runPlugins.map((plugin) => ({
-          path: `/workspace/.claude/plugins/${plugin.slug}`,
+          path: `${WORKSPACE_CONTAINER_DIR}/.claude/plugins/${plugin.slug}`,
           runtimeName: plugin.runtimeName,
           skills: plugin.skillNames,
           mcpServers: plugin.mcpServerNames,
@@ -1235,9 +1214,10 @@ export async function runAgentJob(
     }
   } finally {
     // run 临时渲染可删；稳定挂载与持久 transcript、附件、记忆留给下一轮。
-    await rm(join(workspacesDir, agentSlugForRun, runId), { recursive: true, force: true }).catch(
-      (err: unknown) => runLog.warn({ err }, 'workspace cleanup failed'),
-    );
+    await rm(runWorkspaceDir(workspacesDir, agentSlugForRun, runId), {
+      recursive: true,
+      force: true,
+    }).catch((err: unknown) => runLog.warn({ err }, 'workspace cleanup failed'));
     if (lease && !leaseReleased) {
       await lease.release({ reuse: reuseSession }).catch((err: unknown) => {
         runLog.error({ err }, 'session lease release failed');

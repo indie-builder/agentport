@@ -30,7 +30,7 @@ export function useUpdatePersonalProfile() {
   });
 }
 
-export const personalSessionsQuery = queryOptions<PersonalSessionList>({
+const personalSessionsQuery = queryOptions<PersonalSessionList>({
   queryKey: ['me-sessions'],
   queryFn: ({ signal }) => api.meSessions(signal),
   staleTime: 0,

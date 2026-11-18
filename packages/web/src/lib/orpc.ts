@@ -63,7 +63,7 @@ export function errorMessage(error: unknown): string {
   return error.message;
 }
 
-export function problemToApiError(body: unknown, status?: number): ApiError | null {
+function problemToApiError(body: unknown, status?: number): ApiError | null {
   const parsed = problemSchema.safeParse(body);
   if (!parsed.success) return null;
   return new ApiError(status ?? parsed.data.status, parsed.data.message, {

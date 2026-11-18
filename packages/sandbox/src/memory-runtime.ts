@@ -1,4 +1,4 @@
-import type { MemoryPolicy } from '@agentport/shared';
+import { type MemoryPolicy, memoryWritable } from '@agentport/shared';
 
 /** 记忆策略在容器运行期的三个开关；runner 只消费这份结果，不重复解释策略字段。 */
 interface MemoryRuntimeSettings {
@@ -14,7 +14,7 @@ interface MemoryRuntimeSettings {
  * - 个人记忆 hook 只由 injectPersonalMemory 独立控制，与专家记忆开关无关。
  */
 export function memoryRuntimeSettings(policy: MemoryPolicy): MemoryRuntimeSettings {
-  const nativeAuto = policy.enabled && policy.writeMode === 'native_auto';
+  const nativeAuto = memoryWritable(policy);
   return {
     autoMemoryEnabled: nativeAuto,
     installPersonalHook: policy.injectPersonalMemory,

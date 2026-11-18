@@ -154,7 +154,9 @@ describe.skipIf(!ready)('eval result export', () => {
 
     const res = await exportRun(run);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers.get('content-disposition')).toBe('attachment; filename="eval-result.json"');
+    expect(res.headers.get('content-disposition')).toBe(
+      'attachment; filename="eval-result.json"; filename*=UTF-8\'\'eval-result.json',
+    );
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.headers.get('content-type')).toContain('application/json');

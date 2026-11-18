@@ -44,12 +44,14 @@ export function badgeCreatedAt(value: string | undefined): { label: string; iso:
     : { label: badgeTimeFormatter.format(date), iso: value };
 }
 
+export const agentDefaults = agentInputSchema.parse({ slug: 'default', name: 'default' });
+
 export const emptyInput: AgentInput = {
   slug: '',
   name: '',
   role: '通用助手',
   description: '',
-  model: 'claude-sonnet-5-5',
+  model: agentDefaults.model,
   systemPrompt: '',
   serverIds: [],
   skillIds: [],
@@ -59,11 +61,11 @@ export const emptyInput: AgentInput = {
   disallowedTools: [],
   permissionMode: 'default',
   uiFormat: 'markdown',
-  maxTurns: 20,
-  maxBudgetUsd: 2,
-  monthlyBudgetUsd: null,
-  budgetAlertRatio: 0.8,
-  timeoutMs: 600_000,
+  maxTurns: agentDefaults.maxTurns,
+  maxBudgetUsd: agentDefaults.maxBudgetUsd,
+  monthlyBudgetUsd: agentDefaults.monthlyBudgetUsd,
+  budgetAlertRatio: agentDefaults.budgetAlertRatio,
+  timeoutMs: agentDefaults.timeoutMs,
   enabled: true,
   visibility: 'private',
   tags: [],
@@ -177,23 +179,26 @@ export const agentFormSchema = agentInputSchema
       .number({ error: invalidNumberMessage })
       .int(invalidNumberMessage)
       .positive(positiveIntMessage)
-      .default(20),
-    maxBudgetUsd: z.number({ error: invalidNumberMessage }).positive(positiveIntMessage).default(2),
+      .default(agentDefaults.maxTurns),
+    maxBudgetUsd: z
+      .number({ error: invalidNumberMessage })
+      .positive(positiveIntMessage)
+      .default(agentDefaults.maxBudgetUsd),
     monthlyBudgetUsd: z
       .number({ error: invalidNumberMessage })
       .min(0.01, '至少 0.01 美元，留空表示不限')
       .nullable()
-      .default(null),
+      .default(agentDefaults.monthlyBudgetUsd),
     budgetAlertRatio: z
       .number({ error: invalidNumberMessage })
       .min(0.001, '至少 0.1%')
       .max(1, '最多 100%')
-      .default(0.8),
+      .default(agentDefaults.budgetAlertRatio),
     timeoutMs: z
       .number({ error: invalidNumberMessage })
       .int(invalidNumberMessage)
       .positive(positiveIntMessage)
-      .default(600_000),
+      .default(agentDefaults.timeoutMs),
   })
   .superRefine((value, ctx) => {
     if (!toolLines(value.allowedTools).every((tool) => !/\s/.test(tool))) {
@@ -315,28 +320,53 @@ export function mergeKnowledgeIds(
   return [...current.filter((id) => !knowledgeIds.has(id)), ...next];
 }
 
-export const errorSections: Record<string, SectionId> = {
-  slug: 'identity',
-  name: 'identity',
-  role: 'identity',
-  description: 'identity',
-  systemPrompt: 'behavior',
-  model: 'behavior',
-  effort: 'behavior',
-  serverIds: 'capability',
-  skillIds: 'capability',
-  subAgentIds: 'capability',
-  permissionMode: 'permissions',
-  allowedTools: 'permissions',
-  disallowedTools: 'permissions',
-  uiFormat: 'limits',
-  maxTurns: 'limits',
-  maxBudgetUsd: 'limits',
-  monthlyBudgetUsd: 'limits',
-  budgetAlertRatio: 'limits',
-  timeoutMs: 'limits',
+type AgentEditClass = 'config' | 'binding' | 'enable';
+
+const agentFieldMap: Record<
+  keyof AgentInput,
+  { section: SectionId | null; editClass: AgentEditClass }
+> = {
+  slug: { section: 'identity', editClass: 'config' },
+  name: { section: 'identity', editClass: 'config' },
+  role: { section: 'identity', editClass: 'config' },
+  description: { section: 'identity', editClass: 'config' },
+  visibility: { section: 'identity', editClass: 'config' },
+  tags: { section: 'identity', editClass: 'config' },
+  model: { section: 'behavior', editClass: 'config' },
+  effort: { section: 'behavior', editClass: 'config' },
+  systemPrompt: { section: 'behavior', editClass: 'config' },
+  serverIds: { section: 'capability', editClass: 'binding' },
+  skillIds: { section: 'capability', editClass: 'binding' },
+  pluginBindings: { section: 'capability', editClass: 'binding' },
+  subAgentIds: { section: 'capability', editClass: 'binding' },
+  permissionMode: { section: 'permissions', editClass: 'config' },
+  allowedTools: { section: 'permissions', editClass: 'config' },
+  disallowedTools: { section: 'permissions', editClass: 'config' },
+  runtimeEnvironmentId: { section: 'limits', editClass: 'config' },
+  uiFormat: { section: 'limits', editClass: 'config' },
+  maxTurns: { section: 'limits', editClass: 'config' },
+  maxBudgetUsd: { section: 'limits', editClass: 'config' },
+  monthlyBudgetUsd: { section: 'limits', editClass: 'config' },
+  budgetAlertRatio: { section: 'limits', editClass: 'config' },
+  timeoutMs: { section: 'limits', editClass: 'config' },
+  enabled: { section: null, editClass: 'enable' },
 };
 
+function fieldsByEditClass(editClass: AgentEditClass): Array<keyof AgentInput> {
+  return (Object.keys(agentFieldMap) as Array<keyof AgentInput>).filter(
+    (key) => agentFieldMap[key].editClass === editClass,
+  );
+}
+
+export const configKeys = fieldsByEditClass('config');
+export const bindingKeys = fieldsByEditClass('binding');
+
+export const errorSections = Object.fromEntries(
+  (Object.keys(agentFieldMap) as Array<keyof AgentInput>).flatMap((key) => {
+    const section = agentFieldMap[key].section;
+    return section === null ? [] : [[key, section]];
+  }),
+) as Partial<Record<keyof AgentInput, SectionId>>;
 export type FileEntry = { id: string; path: string; group: string; content: string };
 
 /** 加载中或失败时也保留根文件入口，文件与版本视图和重试界面才始终可达。 */

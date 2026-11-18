@@ -119,7 +119,9 @@ describe.skipIf(!ready)('subagent file download', () => {
     const res = await download(parent.id, child.id);
     expect(res.statusCode, res.body).toBe(200);
     expect(res.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
-    expect(res.headers.get('content-disposition')).toBe(`attachment; filename="${child.slug}.md"`);
+    expect(res.headers.get('content-disposition')).toBe(
+      `attachment; filename="${child.slug}.md"; filename*=UTF-8''${child.slug}.md`,
+    );
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
   });

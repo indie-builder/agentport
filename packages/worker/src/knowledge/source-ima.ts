@@ -15,8 +15,9 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
+import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import {
-  extensionOf,
+  extensionName,
   isAbort,
   parseInitialCursor,
   signalOption,
@@ -24,7 +25,6 @@ import {
   textOf,
   titleWithExtension,
 } from './source-utils.js';
-import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
  * IMA knowledge-base leaf reader.
@@ -275,7 +275,7 @@ function mediaExtension(mediaType: number, contentType: string | null, title: st
     return fromContentType;
   }
   // 没有可信 MIME 时沿用标题里已允许的扩展，避免把 Budget.csv 改成 .xlsx。
-  const fromTitle = extensionOf(title);
+  const fromTitle = extensionName(title);
   if (fromTitle && allowed?.includes(fromTitle)) {
     return fromTitle;
   }

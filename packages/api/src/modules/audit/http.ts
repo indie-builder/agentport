@@ -3,6 +3,7 @@ import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { Hono } from 'hono';
 import { z } from 'zod';
+import { attachmentResponse } from '../../http/attachment.js';
 import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { auditOptions, toItem } from './router.js';
@@ -55,16 +56,13 @@ export function registerAuditHttp(app: Hono<HttpEnv>): void {
             }),
           )
           .join('\n');
-        return new Response(lines.length > 0 ? `${lines}\n` : '', {
-          status: 200,
-          headers: {
-            'content-type': 'application/x-ndjson; charset=utf-8',
-            'content-disposition': 'attachment; filename="audit.ndjson"',
-            'cache-control': 'no-store',
-            'x-content-type-options': 'nosniff',
-            ...(last ? { 'x-next-after-seq': String(last.chainSeq) } : {}),
-          },
-        });
+        const response = attachmentResponse(
+          lines.length > 0 ? `${lines}\n` : '',
+          'audit.ndjson',
+          'application/x-ndjson; charset=utf-8',
+        );
+        if (last) response.headers.set('x-next-after-seq', String(last.chainSeq));
+        return response;
       }
 
       const rows = await repo.audit.listAudit(context.db, {
@@ -86,15 +84,7 @@ export function registerAuditHttp(app: Hono<HttpEnv>): void {
         exportedAt: new Date().toISOString(),
         items: rows.map(toItem),
       });
-      return new Response(body, {
-        status: 200,
-        headers: {
-          'content-type': 'application/json; charset=utf-8',
-          'content-disposition': 'attachment; filename="audit.json"',
-          'cache-control': 'no-store',
-          'x-content-type-options': 'nosniff',
-        },
-      });
+      return attachmentResponse(body, 'audit.json', 'application/json; charset=utf-8');
     },
   );
 }

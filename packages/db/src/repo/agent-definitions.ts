@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from 'node:util';
 import { AppError } from '@agentport/core';
 import type { AgentDefinition } from '@agentport/shared';
 import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
@@ -14,7 +13,7 @@ import {
   agentWorkflows,
 } from '../schema.js';
 import {
-  getAgentVersion,
+  assertDefinitionResources,
   insertAgentVersion,
   latestAgentVersion,
   retryOnVersionConflict,
@@ -29,95 +28,7 @@ import {
 import { lockAgentBindings } from './locks.js';
 
 export { loadLiveDefinition } from './agents.js';
-
-export async function assertDefinitionResources(
-  db: DbHandle | Transaction,
-  definition: AgentDefinition,
-): Promise<void> {
-  if (definition.agent.parentId !== null || definition.resources.subAgents.length === 0) return;
-  const children = await Promise.all(
-    definition.resources.subAgents.map(async ({ id, name, publishedVersion }) => {
-      if (publishedVersion === null) {
-        throw new AppError(
-          'INVALID_INPUT',
-          `子智能体「${name}」尚未发布，无法固定版本；请先发布子智能体`,
-        );
-      }
-      const version = await getAgentVersion(db, id, publishedVersion);
-      if (!version) {
-        throw new AppError(
-          'INVALID_INPUT',
-          `子智能体「${name}」的发布版本不存在；请重新发布子智能体`,
-        );
-      }
-      return version.definition;
-    }),
-  );
-  const resources = [definition, ...children.filter((child) => child !== null)].map(
-    (item) => item.resources,
-  );
-  const servers = new Map<string, AgentDefinition['resources']['servers'][number]>();
-  const serverNames = new Map<string, string>();
-  resources
-    .flatMap((item) => item.servers)
-    .forEach((server) => {
-      const snapshot = ({ name, kind, config, secretsEncrypted, tools }: typeof server) => ({
-        name,
-        kind,
-        config,
-        secretsEncrypted,
-        tools: [...(tools ?? [])].sort((a, b) => a.id.localeCompare(b.id)),
-      });
-      const nameOwner = serverNames.get(server.name);
-      if (nameOwner !== undefined && nameOwner !== server.id) {
-        throw new AppError(
-          'INVALID_INPUT',
-          `父子专家共享的 MCP Server 名称「${server.name}」对应不同资源；请重新命名或重新发布相关专家后再发布`,
-        );
-      }
-      serverNames.set(server.name, server.id);
-      const previous = servers.get(server.id);
-      if (previous && !isDeepStrictEqual(snapshot(previous), snapshot(server))) {
-        throw new AppError(
-          'INVALID_INPUT',
-          `父子专家共享的 MCP Server「${server.name}」快照内容不一致；请重新发布相关专家后再发布`,
-        );
-      }
-      servers.set(server.id, server);
-    });
-  const skills = new Map<string, AgentDefinition['resources']['skills'][number]>();
-  resources
-    .flatMap((item) => item.skills)
-    .forEach((skill) => {
-      const snapshot = ({
-        name,
-        description,
-        body,
-        license,
-        compatibility,
-        metadata,
-        files,
-      }: typeof skill) => ({
-        name,
-        description,
-        body,
-        license,
-        compatibility,
-        metadata,
-        files: files
-          .map(({ path, content }) => ({ path, content }))
-          .sort((a, b) => a.path.localeCompare(b.path)),
-      });
-      const previous = skills.get(skill.slug);
-      if (previous && !isDeepStrictEqual(snapshot(previous), snapshot(skill))) {
-        throw new AppError(
-          'INVALID_INPUT',
-          `父子专家共享的技能「${skill.slug}」内容不一致；请重新发布相关专家后再发布`,
-        );
-      }
-      skills.set(skill.slug, skill);
-    });
-}
+export { assertDefinitionResources };
 
 export async function recordDraftVersionTx(
   tx: Transaction,
@@ -140,7 +51,10 @@ export async function publishCurrent(
       const [agent] = await tx.select().from(agents).where(eq(agents.id, agentId)).for('update');
       if (!agent) return null;
       if (agent.enabled === false) {
-        await assertAgentsIdle(tx, agent.parentId === null ? [agent.id] : [agent.id, agent.parentId]);
+        await assertAgentsIdle(
+          tx,
+          agent.parentId === null ? [agent.id] : [agent.id, agent.parentId],
+        );
       }
       const definition = await loadLiveDefinition(tx, agentId);
       if (!definition) return null;
@@ -175,7 +89,10 @@ export async function publishDefinition(
       const [agent] = await tx.select().from(agents).where(eq(agents.id, agentId)).for('update');
       if (!agent) return null;
       if (agent.enabled === false) {
-        await assertAgentsIdle(tx, agent.parentId === null ? [agent.id] : [agent.id, agent.parentId]);
+        await assertAgentsIdle(
+          tx,
+          agent.parentId === null ? [agent.id] : [agent.id, agent.parentId],
+        );
       }
       await applyDefinition(tx, agent, definition);
       const fresh = await loadLiveDefinition(tx, agentId);
@@ -208,10 +125,6 @@ export async function markLatestPublishedTx(
     .where(eq(agents.id, agentId))
     .returning();
   return row ?? null;
-}
-
-export async function markLatestPublished(db: DbHandle, agentId: string): Promise<AgentRow | null> {
-  return db.transaction((tx) => markLatestPublishedTx(tx, agentId));
 }
 
 export async function setAgentEnabled(

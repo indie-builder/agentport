@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { makeSourceFailure } from './source-http.js';
-import type { SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
+import type { SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 
 export const sourceCursorSchema = z.object({ version: z.literal(1), initial: z.boolean() });
 
@@ -46,7 +46,7 @@ export function textOf(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-export function extensionOf(value: string): string {
+export function extensionName(value: string): string {
   const dot = value.lastIndexOf('.');
   return dot < 0 ? '' : value.slice(dot + 1).toLowerCase();
 }
@@ -61,7 +61,7 @@ export function encodePathSegments(value: string): string {
 }
 
 export function titleWithExtension(name: string, extension: string): string {
-  return extensionOf(name) === extension.toLowerCase() ? name : `${name}.${extension}`;
+  return extensionName(name) === extension.toLowerCase() ? name : `${name}.${extension}`;
 }
 
 /** 分页上限/空页仍未证明终页：单项失败，不能把截断内容当完整文档发布。 */

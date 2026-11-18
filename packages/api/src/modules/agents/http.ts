@@ -11,7 +11,6 @@ import {
 } from '@agentport/shared';
 import { inArray } from 'drizzle-orm';
 import type { Hono } from 'hono';
-import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import {
   authorize,
@@ -19,6 +18,8 @@ import {
   authorizeResourceAccess,
   requireUser,
 } from '../../http/access.js';
+import { attachmentResponse } from '../../http/attachment.js';
+import { requestBodyLimit } from '../../http/body-limit.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
@@ -66,10 +67,7 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
   app.post(
     '/api/import/agents',
     access({ kind: 'permission', permissionId: 'agents.import' }),
-    bodyLimit({
-      maxSize: AGENT_PACKAGE_MAX_BYTES,
-      onError: () => fail('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试'),
-    }),
+    requestBodyLimit(AGENT_PACKAGE_MAX_BYTES),
     async (c) => {
       const context = requestContext(c);
       requireTrustedOrigin(context);
@@ -175,13 +173,13 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
           authorizeResource: (resource) => authorizePackageResource(context, resource),
         },
       );
-      return c.body(new Uint8Array(packAgentPackage(pkg)), 200, {
-        'content-disposition': `attachment; filename="${pkg.slug}.zip"`,
-        'cache-control': 'no-store',
-        'x-content-type-options': 'nosniff',
-        'x-package-warnings': encodeURIComponent(JSON.stringify(pkg.warnings)),
-        'content-type': 'application/zip',
-      });
+      const response = attachmentResponse(
+        new Uint8Array(packAgentPackage(pkg)),
+        `${pkg.slug}.zip`,
+        'application/zip',
+      );
+      response.headers.set('x-package-warnings', encodeURIComponent(JSON.stringify(pkg.warnings)));
+      return response;
     },
   );
   app.get(
@@ -200,12 +198,11 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
       const files = await renderAgentWorkspace(context, parent.id);
       const rendered = files?.subAgents.find((subAgent) => subAgent.slug === child.slug);
       if (!rendered) notFound('agent');
-      return c.body(rendered.content, 200, {
-        'content-type': 'text/markdown; charset=utf-8',
-        'content-disposition': `attachment; filename="${child.slug}.md"`,
-        'cache-control': 'no-store',
-        'x-content-type-options': 'nosniff',
-      });
+      return attachmentResponse(
+        rendered.content,
+        `${child.slug}.md`,
+        'text/markdown; charset=utf-8',
+      );
     },
   );
   app.get(
@@ -247,12 +244,11 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
           return body;
         },
       );
-      return c.body(new Uint8Array(archive), 200, {
-        'content-disposition': `attachment; filename="${row.slug}-memory.zip"`,
-        'cache-control': 'no-store',
-        'x-content-type-options': 'nosniff',
-        'content-type': 'application/zip',
-      });
+      return attachmentResponse(
+        new Uint8Array(archive),
+        `${row.slug}-memory.zip`,
+        'application/zip',
+      );
     },
   );
 }

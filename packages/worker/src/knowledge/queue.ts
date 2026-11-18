@@ -129,11 +129,10 @@ export async function startKnowledgeWorker(
   const activeJobs = new Set<AbortController>();
   let closing = false;
 
-  const dispatch: DispatchDeps = {
+  const dispatch: Omit<DispatchDeps, 'signal'> = {
     ...deps,
     knowledgeDir: config.knowledgeDir,
     wikiModel: config.wikiModel,
-    signal: new AbortController().signal,
     ...(config.queryFn === undefined ? {} : { queryFn: config.queryFn }),
   };
 

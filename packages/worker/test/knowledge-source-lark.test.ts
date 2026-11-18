@@ -3,12 +3,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { knowledgeConnectors } from '../src/knowledge/connector-adapter.js';
 import { parseDocument } from '../src/knowledge/parsing.js';
-import {
-  probeSource,
-  readSource,
-  SourceAuthError,
-  type SourceConfig,
-} from '../src/knowledge/sources.js';
+import type { SourceConfig } from '../src/knowledge/source-types.js';
+import { probeSource, readSource, SourceAuthError } from '../src/knowledge/sources.js';
 import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
 type Call = { method: string; url: URL; headers: Headers; body: string };

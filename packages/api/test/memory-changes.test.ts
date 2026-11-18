@@ -866,7 +866,7 @@ describe.skipIf(!ready)('memory changes', () => {
     expect(download.statusCode, download.body).toBe(200);
     expect(download.headers.get('content-type')).toContain('application/zip');
     expect(download.headers.get('content-disposition')).toBe(
-      `attachment; filename="${agent.slug}-memory.zip"`,
+      `attachment; filename="${agent.slug}-memory.zip"; filename*=UTF-8''${agent.slug}-memory.zip`,
     );
     expect(download.headers.get('cache-control')).toBe('no-store');
     const files = decodePackage(download.rawPayload);

@@ -44,7 +44,11 @@ export default {
     }),
   deletePlugin: (id: string): Promise<void> => rpc.plugins.delete({ params: { id } }),
   importPlugin: (file: Blob, slug: string, signal?: AbortSignal): Promise<PluginImportResult> =>
-    nativeRequest(`/plugins/import?slug=${encodeURIComponent(slug)}`, 'POST', file, signal),
+    nativeRequest(`/plugins/import?slug=${encodeURIComponent(slug)}`, {
+      method: 'POST',
+      body: file,
+      signal,
+    }),
   nativePlugins: (): Promise<NativePlugins> => rpc.plugins.native({}),
   installNativePlugin: async (input: NativePluginInstallInput): Promise<NativePluginImportResult> =>
     (await rpc.plugins.install({ body: input })).body,

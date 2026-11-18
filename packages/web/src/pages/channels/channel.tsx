@@ -47,7 +47,7 @@ import { cn } from '../../lib/cn.js';
 import { shortId } from '../../lib/format.js';
 import {
   CHANNEL_MESSAGES_PAGE_SIZE,
-  channelMessagesQuery,
+  channelMessagesKey,
   meQuery,
   useAgents,
   useApproveChannelApproval,
@@ -362,7 +362,7 @@ function ChannelWorkspace({
   );
 
   const setMessages = (update: (previous: readonly ChannelMessage[]) => ChannelMessage[]): void => {
-    client.setQueryData<ChannelMessage[]>(channelMessagesQuery(channel.id).queryKey, (previous) =>
+    client.setQueryData<ChannelMessage[]>(channelMessagesKey(channel.id), (previous) =>
       update(previous ?? []),
     );
   };
@@ -382,7 +382,7 @@ function ChannelWorkspace({
         before: first.seq,
         limit: CHANNEL_MESSAGES_PAGE_SIZE,
       });
-      client.setQueryData<ChannelMessage[]>(channelMessagesQuery(channel.id).queryKey, (previous) =>
+      client.setQueryData<ChannelMessage[]>(channelMessagesKey(channel.id), (previous) =>
         mergeChannelMessages(previous ?? [], page),
       );
       if (page.length < CHANNEL_MESSAGES_PAGE_SIZE) setOlderExhausted(true);

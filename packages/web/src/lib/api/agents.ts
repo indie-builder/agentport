@@ -156,16 +156,20 @@ export default {
     signal?: AbortSignal,
     onWarnings?: (warnings: string[]) => void,
   ): Promise<Blob> =>
-    nativeRequest(`/export/agents/${id}`, 'GET', undefined, signal, 'blob', (response) => {
-      if (onWarnings === undefined) return;
-      const raw = response.headers.get('x-package-warnings');
-      if (raw === null) return;
-      try {
-        const parsed: unknown = JSON.parse(decodeURIComponent(raw));
-        if (Array.isArray(parsed)) onWarnings(parsed.filter((item) => typeof item === 'string'));
-      } catch {
-        // 头部损坏不影响下载本身，忽略即可。
-      }
+    nativeRequest(`/export/agents/${id}`, {
+      signal,
+      responseType: 'blob',
+      onResponse: (response) => {
+        if (onWarnings === undefined) return;
+        const raw = response.headers.get('x-package-warnings');
+        if (raw === null) return;
+        try {
+          const parsed: unknown = JSON.parse(decodeURIComponent(raw));
+          if (Array.isArray(parsed)) onWarnings(parsed.filter((item) => typeof item === 'string'));
+        } catch {
+          // 头部损坏不影响下载本身，忽略即可。
+        }
+      },
     }),
   /** 显式传环境 id 时覆盖包内名称映射；省略则按包中名称匹配。 */
   importAgent: (
@@ -179,9 +183,7 @@ export default {
           ? ''
           : `?runtimeEnvironmentId=${encodeURIComponent(runtimeEnvironmentId)}`
       }`,
-      'POST',
-      file,
-      signal,
+      { method: 'POST', body: file, signal },
     ),
   importAgentFile: (agentMd: string): Promise<Pick<AgentImportResult, 'agent' | 'warnings'>> =>
     rpc.agents.importFile({ body: { agentMd } }),

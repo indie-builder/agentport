@@ -548,11 +548,11 @@ export default {
     rpc.knowledge.chunks.remove({ params: { chunkId }, body: { expectedVersionId } }),
   /** 解析正文是 text/markdown，不是 JSON；原件走 content 端点直接下载。 */
   knowledgeMarkdown: (versionId: string, signal?: AbortSignal): Promise<string> =>
-    nativeRequest(`/knowledge/versions/${versionId}/markdown`, 'GET', undefined, signal, 'text'),
+    nativeRequest(`/knowledge/versions/${versionId}/markdown`, { signal, responseType: 'text' }),
   knowledgeOriginalUrl: (versionId: string): string =>
     `/api/knowledge/versions/${versionId}/content`,
   knowledgeOriginalBlob: (versionId: string, signal?: AbortSignal): Promise<Blob> =>
-    nativeRequest(`/knowledge/versions/${versionId}/content`, 'GET', undefined, signal, 'blob'),
+    nativeRequest(`/knowledge/versions/${versionId}/content`, { signal, responseType: 'blob' }),
   knowledgeVersionDetails: (
     versionId: string,
     signal?: AbortSignal,
@@ -725,13 +725,9 @@ export default {
     format: 'json' | 'csv',
     version: 'published' | 'draft' = 'published',
   ): Promise<Blob> =>
-    nativeRequest(
-      `/knowledge/bases/${baseId}/faqs/export?format=${format}&version=${version}`,
-      'GET',
-      undefined,
-      undefined,
-      'blob',
-    ),
+    nativeRequest(`/knowledge/bases/${baseId}/faqs/export?format=${format}&version=${version}`, {
+      responseType: 'blob',
+    }),
   testKnowledgeFaqs: (
     baseId: string,
     input: {
@@ -800,9 +796,9 @@ export default {
   ): Promise<Omit<KnowledgeWikiPageDetail, 'versions' | 'nextCursor'>> =>
     rpc.knowledge.wiki.publish({ params: { pageId }, body: { versionId } }),
   exportKnowledgeBase: (baseId: string): Promise<Blob> =>
-    nativeRequest(`/knowledge/bases/${baseId}/export`, 'GET', undefined, undefined, 'blob'),
+    nativeRequest(`/knowledge/bases/${baseId}/export`, { responseType: 'blob' }),
   importKnowledgeBase: (archive: Blob): Promise<KnowledgePackageImportResult> =>
-    nativeRequest('/knowledge/bases/import', 'POST', archive),
+    nativeRequest('/knowledge/bases/import', { method: 'POST', body: archive }),
   knowledgeModelProfiles: async (): Promise<KnowledgeModelProfile[]> =>
     (await rpc.knowledge.modelProfiles.list({ query: {} })).flatMap((profile) =>
       'endpointUrl' in profile ? [profile] : [],

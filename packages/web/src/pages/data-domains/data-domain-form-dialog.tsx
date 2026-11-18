@@ -1,5 +1,4 @@
 import { dataDomainInputSchema } from '@agentport/contract/data-domains';
-import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useFieldArray } from 'react-hook-form';
 import { z } from 'zod';
@@ -29,37 +28,18 @@ import {
 } from '../../lib/queries.js';
 import { toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
+import {
+  KeyValueRowEditor,
+  keyValueRowIssues,
+  refineKeyValueRows,
+  rowsToRecord,
+} from './key-value-rows.js';
 
-type ConnectionRow = { key: string; value: string };
-
-function connectionRowIssues(rows: ConnectionRow[]): Array<{ index: number; message: string }> {
-  const issues: Array<{ index: number; message: string }> = [];
-  const seen = new Map<string, number>();
-  for (const [index, row] of rows.entries()) {
-    const key = row.key.trim();
-    if (key === '' && row.value === '') continue;
-    if (key === '') {
-      issues.push({ index, message: `第 ${index + 1} 行：请填写配置项名称` });
-      continue;
-    }
-    const previous = seen.get(key);
-    if (previous !== undefined) {
-      issues.push({ index, message: `第 ${index + 1} 行：与第 ${previous + 1} 行重复，请合并` });
-      continue;
-    }
-    seen.set(key, index);
-  }
-  return issues;
-}
-
-function connectionFromRows(rows: ConnectionRow[]): Record<string, string> {
-  return Object.fromEntries(
-    rows.flatMap((row) => {
-      const key = row.key.trim();
-      return key === '' ? [] : [[key, row.value] as const];
-    }),
-  );
-}
+const connectionRowMessages = {
+  emptyKey: (index: number) => `第 ${index + 1} 行：请填写配置项名称`,
+  duplicate: (index: number, previous: number) =>
+    `第 ${index + 1} 行：与第 ${previous + 1} 行重复，请合并`,
+};
 
 const dataDomainFormSchema = (requireConnection: boolean) =>
   z
@@ -72,44 +52,16 @@ const dataDomainFormSchema = (requireConnection: boolean) =>
       queryApprovalMode: z.enum(['off', 'all']),
     })
     .superRefine((values, ctx) => {
-      const rowIssues = connectionRowIssues(values.connection);
-      for (const issue of rowIssues) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['connection', issue.index, 'key'],
-          message: issue.message,
-        });
-      }
-      const hasRow = values.connection.some((row) => row.key.trim() !== '' || row.value !== '');
-      if (!hasRow) {
-        if (requireConnection) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['connection'],
-            message: '请至少填写一项连接配置',
-          });
-        }
-        return;
-      }
-      if (rowIssues.length > 0) return;
       const { keyType, valueType } = dataDomainInputSchema.shape.connection;
-      for (const [index, row] of values.connection.entries()) {
-        if (row.key.trim() === '' && row.value === '') continue;
-        for (const [field, schema] of [
-          ['key', keyType],
-          ['value', valueType],
-        ] as const) {
-          const parsed = schema.safeParse(field === 'key' ? row.key.trim() : row.value);
-          if (parsed.success) continue;
-          const issue = parsed.error.issues[0];
-          if (issue === undefined) continue;
-          ctx.addIssue({
-            code: 'custom',
-            path: ['connection', index, field],
-            message: Object.values(fieldErrors([issue]))[0] ?? issue.message,
-          });
-        }
-      }
+      refineKeyValueRows(ctx, {
+        path: 'connection',
+        rows: values.connection,
+        issues: keyValueRowIssues(values.connection, connectionRowMessages),
+        emptyMessage: requireConnection ? '请至少填写一项连接配置' : null,
+        keyType,
+        valueType,
+        skipEmptyRows: true,
+      });
     });
 
 type FormValues = z.infer<ReturnType<typeof dataDomainFormSchema>>;
@@ -184,12 +136,12 @@ export function DataDomainFormDialog({
   const runTest = async (): Promise<void> => {
     const values = getValues();
     const rows = values.connection;
-    const rowIssue = connectionRowIssues(rows)[0];
+    const rowIssue = keyValueRowIssues(rows, connectionRowMessages)[0];
     if (rowIssue) {
       setTestResult({ ok: false, error: rowIssue.message });
       return;
     }
-    const connection = connectionFromRows(rows);
+    const connection = rowsToRecord(rows);
     if (Object.keys(connection).length === 0) {
       setTestResult({ ok: false, error: '请先填写连接配置' });
       return;
@@ -234,7 +186,7 @@ export function DataDomainFormDialog({
 
   const submit = handleSubmit(async (values) => {
     if (busy) return;
-    const connection = connectionFromRows(values.connection);
+    const connection = rowsToRecord(values.connection);
     setSubmitError(null);
     try {
       if (domain) {
@@ -396,86 +348,37 @@ export function DataDomainFormDialog({
                 连接配置
                 {creating ? <RequiredMark /> : null}
               </FieldLabel>
-              <div className="flex flex-col gap-2">
-                {fields.map((field, index) => (
-                  <div key={field.id} className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <Input
-                        {...register(`connection.${index}.key` as const)}
-                        aria-label={`第 ${index + 1} 项配置名`}
-                        placeholder="key"
-                        className="w-40 shrink-0 font-mono text-xs"
-                        autoComplete="off"
-                        disabled={busy}
-                        aria-invalid={Boolean(keyError(index))}
-                        aria-describedby={
-                          keyError(index)
-                            ? `data-domain-connection-${index}-key-error`
-                            : index === 0 && connectionError
-                              ? 'data-domain-connection-error'
-                              : undefined
-                        }
-                      />
-                      <Input
-                        {...register(`connection.${index}.value` as const)}
-                        aria-label={`第 ${index + 1} 项配置值`}
-                        placeholder="value"
-                        className="min-w-0 flex-1 font-mono text-xs"
-                        autoComplete="off"
-                        disabled={busy}
-                        aria-invalid={Boolean(valueError(index))}
-                        aria-describedby={
-                          valueError(index)
-                            ? `data-domain-connection-${index}-value-error`
-                            : undefined
-                        }
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`移除第 ${index + 1} 项连接配置`}
-                        disabled={busy}
-                        onClick={() => remove(index)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
-                    <FieldError id={`data-domain-connection-${index}-key-error`}>
-                      {keyError(index)}
-                    </FieldError>
-                    <FieldError id={`data-domain-connection-${index}-value-error`}>
-                      {valueError(index)}
-                    </FieldError>
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  aria-invalid={Boolean(connectionError)}
-                  aria-describedby={connectionError ? 'data-domain-connection-error' : undefined}
-                  onClick={() => append({ key: '', value: '' })}
-                >
-                  <Plus data-icon="inline-start" /> 添加配置项
-                </Button>
-                {canTest ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    aria-busy={test.isPending}
-                    onClick={() => void runTest()}
-                  >
-                    {test.isPending ? '测试中…' : '测试连接'}
-                  </Button>
-                ) : null}
-              </div>
-              <FieldError id="data-domain-connection-error">{connectionError}</FieldError>
+              <KeyValueRowEditor
+                rows={fields}
+                prefix="data-domain-connection"
+                keyAriaLabel="配置名"
+                valueAriaLabel="配置值"
+                removeLabel="连接配置"
+                addLabel="添加配置项"
+                rootErrorId="data-domain-connection-error"
+                rootError={connectionError}
+                disabled={busy}
+                registerKey={(index) => register(`connection.${index}.key` as const)}
+                registerValue={(index) => register(`connection.${index}.value` as const)}
+                keyError={keyError}
+                valueError={valueError}
+                onAppend={() => append({ key: '', value: '' })}
+                onRemove={remove}
+                extraActions={
+                  canTest ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      aria-busy={test.isPending}
+                      onClick={() => void runTest()}
+                    >
+                      {test.isPending ? '测试中…' : '测试连接'}
+                    </Button>
+                  ) : null
+                }
+              />
               {testResult ? (
                 <p
                   role="status"

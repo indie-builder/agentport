@@ -1,6 +1,6 @@
 import { assertSafeUrl, assertServerEndpoint } from '@agentport/core/net-guard';
 import type { Server, ServerTestResult } from '@agentport/shared';
-import { limitToolCatalog, redactSecrets } from '@agentport/shared';
+import { limitToolCatalog, mcpEndpointPath, redactSecrets } from '@agentport/shared';
 import type { Transport } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { Cause, Effect, type Scope } from 'effect';
@@ -29,7 +29,8 @@ function transportFor(server: Server, self?: SelfMcp): Transport {
   if (server.kind === 'generated') {
     // generated server 的 MCP 端点是平台自己挂载的 /mcp/:id，不是上游 baseUrl。
     if (!self) throw new Error('generated server requires platform MCP endpoint info');
-    return new StreamableHTTPClientTransport(new URL(`${self.baseUrl}/mcp/${server.id}`), {
+    const endpoint = new URL(`${self.baseUrl}${mcpEndpointPath(server.id)}`);
+    return new StreamableHTTPClientTransport(endpoint, {
       requestInit: { headers: { authorization: `Bearer ${self.token}` }, redirect: 'error' },
     });
   }

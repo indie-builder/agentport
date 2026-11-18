@@ -1,10 +1,6 @@
 import type { ConnectorNetwork, KnowledgeConnector, SourceItem } from './ingestion.js';
-import {
-  type SourceItem as LeafSourceItem,
-  probeSource,
-  readSource,
-  type SourceConfig,
-} from './sources.js';
+import type { SourceItem as LeafSourceItem, SourceConfig } from './source-types.js';
+import { probeSource, readSource } from './sources.js';
 
 /**
  * 把 sources.ts 的「读一次快照」适配成 ingestion 的连接器协议。

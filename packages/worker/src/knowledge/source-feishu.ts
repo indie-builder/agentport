@@ -2,7 +2,7 @@ import { z } from 'zod';
 import {
   BINARY_MIME_BY_EXTENSION,
   declaredMime,
-  extensionOf,
+  extensionWithDot,
   MIME_BY_EXTENSION,
   textContentType,
 } from './source-formats.js';
@@ -19,6 +19,7 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
+import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import {
   failureOf,
   parseCursor,
@@ -26,7 +27,6 @@ import {
   snapshotOf,
   sourceCursorSchema,
 } from './source-utils.js';
-import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 // ---------------------------------------------------------------------------
 // Feishu wiki + Drive (docx blocks, text files)
@@ -50,7 +50,7 @@ for (const [extension, mime] of Object.entries({
  * 下载响应头可能缺失或误报文本；扩展名指向的格式优先，未知原件保持字节交给 parser。
  */
 function driveFileMime(fileName: string, contentType: string | null): string {
-  const extension = extensionOf(fileName);
+  const extension = extensionWithDot(fileName);
   const byExtension = BINARY_MIME_BY_EXTENSION[extension] ?? MIME_BY_EXTENSION[extension];
   if (byExtension) return byExtension;
   return declaredMime(contentType) ?? 'application/octet-stream';
@@ -487,7 +487,7 @@ function wikiDownloadFormat(
   downloadedName: string | undefined,
   contentType: string | null,
 ): DownloadFormat | 'conflict' | null {
-  const named = downloadedName ? downloadFormat(extensionOf(downloadedName)) : null;
+  const named = downloadedName ? downloadFormat(extensionWithDot(downloadedName)) : null;
   const mime = contentType?.split(';')[0]?.trim().toLowerCase() ?? '';
   const declaredExtension = EXTENSION_BY_MIME[mime];
   const declared = declaredExtension ? { extension: declaredExtension, mimeType: mime } : null;
@@ -502,12 +502,12 @@ function wikiDownloadFormat(
 
 /** 标题只提供展示名；没有任何下载元数据时，明确的二进制后缀才可作为格式线索。 */
 function titleBinaryFormat(title: string): DownloadFormat | null {
-  const extension = extensionOf(title);
+  const extension = extensionWithDot(title);
   return BINARY_MIME_BY_EXTENSION[extension] ? downloadFormat(extension) : null;
 }
 
 function withFormatExtension(title: string, extension: string): string {
-  const current = extensionOf(title);
+  const current = extensionWithDot(title);
   return `${current ? title.slice(0, -current.length) : title}.${extension}`;
 }
 

@@ -1,5 +1,5 @@
 import { chatContract } from '@agentport/contract/chat';
-import { fail, listOutputFiles, readOutputFile } from '@agentport/core';
+import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import {
   type ErrorCode,
@@ -11,53 +11,20 @@ import {
 import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
 import { z } from 'zod';
+import { attachmentResponse } from '../../http/attachment.js';
 import type { AppContext, HttpContext, HttpEnv, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
+import {
+  agentSlug,
+  listWorkspaceOutputs,
+  previewText,
+  readWorkspaceOutput,
+  safeMediaType,
+} from '../../lib/outputs.js';
 import { CONVERSATION_MISSING, loadReadableConversation } from './access.js';
 
-const PREVIEW_MAX_BYTES = 1024 * 1024;
-function isTextPreview(mediaType: string): boolean {
-  return (
-    mediaType.startsWith('text/') ||
-    mediaType === 'application/json' ||
-    mediaType === 'image/svg+xml'
-  );
-}
-function decodeUtf8(data: Buffer): string | null {
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(data);
-  } catch {
-    return null;
-  }
-}
-export type PreviewResult =
-  | { ok: true; content: string }
-  | { ok: false; code: 'PAYLOAD_TOO_LARGE' | 'UNSUPPORTED_MEDIA_TYPE'; message: string };
-export function previewText(data: Buffer, mediaType: string): PreviewResult {
-  if (data.length > PREVIEW_MAX_BYTES) {
-    return { ok: false, code: 'PAYLOAD_TOO_LARGE', message: '文件超过 1MiB，请下载原件查看' };
-  }
-  if (!isTextPreview(mediaType)) {
-    return { ok: false, code: 'UNSUPPORTED_MEDIA_TYPE', message: '该文件不能直接预览，请下载原件' };
-  }
-  const content = decodeUtf8(data);
-  if (content === null) {
-    return {
-      ok: false,
-      code: 'UNSUPPORTED_MEDIA_TYPE',
-      message: '该文件不是有效的 UTF-8 文本，请下载原件',
-    };
-  }
-  return { ok: true, content };
-}
-export async function agentSlug(
-  context: Pick<AppContext, 'db'>,
-  agentId: string,
-): Promise<string | null> {
-  return repo.agents.findAgentSlug(context.db, agentId);
-}
 function selectionProblem(err: unknown): {
   code: ErrorCode;
   message: string;
@@ -89,12 +56,11 @@ export async function checkOutputSelection(
   const conversation = await repo.chat.getConversation(context.db, input.conversationId);
   if (!conversation)
     return { code: 'NOT_FOUND', message: CONVERSATION_MISSING, resource: 'conversation' };
-  const slug = await agentSlug(context, conversation.agentId);
+  const slug = await agentSlug(context.db, conversation.agentId);
   if (slug === null)
     return { code: 'NOT_FOUND', message: CONVERSATION_MISSING, resource: 'conversation' };
   try {
-    await readOutputFile({
-      root: context.config.WORKSPACES_DIR,
+    await readWorkspaceOutput(context, {
       slug,
       conversationId: conversation.id,
       runId: input.output.runId,
@@ -107,30 +73,15 @@ export async function checkOutputSelection(
     throw err;
   }
 }
-export function contentDisposition(path: string): string {
-  const name = path.split('/').at(-1) ?? 'download';
-  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_') || 'download';
-  const encoded = encodeURIComponent(name).replace(
-    /['()*]/g,
-    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
-}
-export function safeMediaType(mediaType: string): string {
-  return /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(mediaType)
-    ? mediaType
-    : 'application/octet-stream';
-}
 const os = implement(chatContract).$context<RequestContext>();
 export const chatOutputsRouter = {
   listOutputs: os.listOutputs.handler(async ({ input, context }) => {
     const conversation = await loadReadableConversation(context, input.params.id);
-    const slug = await agentSlug(context, conversation.agentId);
+    const slug = await agentSlug(context.db, conversation.agentId);
     if (slug === null) return { items: [], nextCursor: null };
     const { limit, cursor, runId } = input.query;
     try {
-      return await listOutputFiles({
-        root: context.config.WORKSPACES_DIR,
+      return await listWorkspaceOutputs(context, {
         slug,
         conversationId: conversation.id,
         limit,
@@ -146,11 +97,10 @@ export const chatOutputsRouter = {
   }),
   output: os.output.handler(async ({ input, context }) => {
     const conversation = await loadReadableConversation(context, input.params.id);
-    const slug = await agentSlug(context, conversation.agentId);
+    const slug = await agentSlug(context.db, conversation.agentId);
     if (slug === null) return fail('NOT_FOUND', '成果文件不存在，可能已被清理');
     try {
-      const { file } = await readOutputFile({
-        root: context.config.WORKSPACES_DIR,
+      const { file } = await readWorkspaceOutput(context, {
         slug,
         conversationId: conversation.id,
         runId: input.params.runId,
@@ -174,10 +124,9 @@ async function readRequestedOutput(c: HttpContext) {
     }),
   );
   const conversation = await loadReadableConversation(context, input.params.id);
-  const slug = await agentSlug(context, conversation.agentId);
+  const slug = await agentSlug(context.db, conversation.agentId);
   if (slug === null) fail('NOT_FOUND', '成果文件不存在，可能已被清理');
-  return readOutputFile({
-    root: context.config.WORKSPACES_DIR,
+  return readWorkspaceOutput(context, {
     slug,
     conversationId: conversation.id,
     runId: input.params.runId,
@@ -201,11 +150,7 @@ export function registerChatOutputsHttp(app: Hono<HttpEnv>): void {
     access({ kind: 'permission', permissionId: 'conversations.read' }),
     async (c) => {
       const { file, data } = await readRequestedOutput(c);
-      c.header('Content-Type', safeMediaType(file.mediaType));
-      c.header('Content-Disposition', contentDisposition(file.path));
-      c.header('Cache-Control', 'no-store');
-      c.header('X-Content-Type-Options', 'nosniff');
-      return c.body(new Uint8Array(data));
+      return attachmentResponse(new Uint8Array(data), file.path, safeMediaType(file.mediaType));
     },
   );
 }

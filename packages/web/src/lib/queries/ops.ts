@@ -34,7 +34,7 @@ export const healthReadyQuery = queryOptions<HealthProbe<HealthReady>>({
   staleTime: 0,
 });
 
-export const retentionQuery = queryOptions<RetentionSettings>({
+const retentionQuery = queryOptions<RetentionSettings>({
   queryKey: ['retention'],
   queryFn: api.retention,
 });

@@ -1,6 +1,6 @@
 import { sha256Hex } from '@agentport/core';
 import { z } from 'zod';
-import { extensionOf, mimeOf } from './source-formats.js';
+import { extensionWithDot, mimeOf } from './source-formats.js';
 import {
   type FetchOptions,
   sourceFailure as failureOf,
@@ -14,8 +14,8 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { trimSlash } from './source-paths.js';
+import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import { parseInitialCursor, snapshotOf } from './source-utils.js';
-import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
  * Seafile 11+ leaf reader.
@@ -247,7 +247,7 @@ async function emitFile(
         externalId,
         entry.name,
         new ItemError(
-          `unsupported file type ${extensionOf(entry.name) || '(none)'}`,
+          `unsupported file type ${extensionWithDot(entry.name) || '(none)'}`,
           'unsupported_type',
           false,
         ),

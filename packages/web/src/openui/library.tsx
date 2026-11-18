@@ -1,5 +1,5 @@
 import type { OpenUiKit } from '@agentport/shared';
-import { createOpenUiDefinitions, openUiPromptOptions } from '@agentport/shared';
+import { createOpenUiDefinitions } from '@agentport/shared';
 import {
   action,
   type ComponentRenderer,
@@ -33,6 +33,3 @@ export const library: Library = createLibrary({
   components: definitions.components as DefinedComponent[],
   componentGroups: definitions.componentGroups,
 });
-
-/** 提示词示例与规则（官方原文 + 平台的 inline/edit 模式），随 spec 一起生成。 */
-export const promptOptions = openUiPromptOptions();

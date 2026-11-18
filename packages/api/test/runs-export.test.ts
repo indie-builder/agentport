@@ -149,7 +149,9 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
 
     const res = await exportRunTrajectory(id);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers.get('content-disposition')).toBe(`attachment; filename="run-${id}.json"`);
+    expect(res.headers.get('content-disposition')).toBe(
+      `attachment; filename="run-${id}.json"; filename*=UTF-8''run-${id}.json`,
+    );
     expect(res.headers.get('content-type')).toContain('application/json');
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
@@ -259,7 +261,9 @@ describe.skipIf(!(ready && isolated))('runs export', () => {
 
     const res = await exportRuns(`?agentId=${encodeURIComponent(agent.id)}`);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers.get('content-disposition')).toBe('attachment; filename="runs.json"');
+    expect(res.headers.get('content-disposition')).toBe(
+      'attachment; filename="runs.json"; filename*=UTF-8\'\'runs.json',
+    );
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.headers.get('content-type')).toContain('application/json');

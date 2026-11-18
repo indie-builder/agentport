@@ -7,7 +7,7 @@ import { probeDingtalk, readDingtalk } from './source-dingtalk.js';
 import { probeFeishu, readFeishu } from './source-feishu.js';
 import {
   BINARY_MIME_BY_EXTENSION,
-  extensionOf,
+  extensionWithDot,
   MIME_BY_EXTENSION,
   textContentType,
 } from './source-formats.js';
@@ -27,6 +27,7 @@ import { probeNextcloud, readNextcloud } from './source-nextcloud.js';
 import { probeNotion, readNotion } from './source-notion.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import { probeSeafile, readSeafile } from './source-seafile.js';
+import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import {
   encodePathSegments,
   failureOf,
@@ -39,62 +40,6 @@ import { probeYuque, readYuque } from './source-yuque.js';
 
 export { SourceAuthError, validateSourceUrl } from './source-http.js';
 export type { FetchOptions, SourceUrlOptions };
-
-export type SourceConfig = {
-  type:
-    | 'rss'
-    | 'gitlab'
-    | 'github'
-    | 'feishu'
-    | 'notion'
-    | 'confluence'
-    | 'yuque'
-    | 'dingtalk'
-    | 'ima'
-    | 'seafile'
-    | 'nextcloud';
-  url: string;
-  credentials: Record<string, string>;
-  settings: Record<string, unknown>;
-  /** Deployment-trusted `host` or `host:port`; only these may resolve to private addresses. */
-  trustedHosts?: readonly string[];
-  /** Local fixtures only; validateSourceUrl still refuses loopback in production. */
-  allowLoopback?: boolean;
-};
-
-export type SourceItem = {
-  externalId: string;
-  title: string;
-  path: string;
-  sourceUrl: string;
-  content: string;
-  /** 二进制原件；解析器按字节与 MIME 处理，文本来源不使用。 */
-  bytes?: Uint8Array;
-  mimeType: string;
-  /** provider 的真实版本标识（如 last_edited_time）；没有可靠版本时留空，由字节哈希判断变化。 */
-  revision?: string;
-  deleted?: boolean;
-  /** feed 是滚动窗口：全文抓取失败时只剩摘要，摄取层据此不许把已有全文降级。 */
-  completeness?: 'full' | 'summary';
-};
-
-/** 单个外部条目的持久失败：不阻断其它条目，但本轮不能据此推导删除。 */
-export type SourceFailure = {
-  externalId: string;
-  title: string;
-  code: string;
-  message: string;
-  retryable: boolean;
-};
-
-export type SourceSnapshot = {
-  items: SourceItem[];
-  /** 单项失败/不支持：继续读其它条目，但整轮不能算完整枚举。 */
-  failures?: SourceFailure[];
-  cursor: Record<string, unknown>;
-  /** False when the source cannot prove it listed everything (feeds roll items off). */
-  complete: boolean;
-};
 
 async function fetchText(url: string, options: FetchOptions, label: string): Promise<string> {
   return readCapped(await fetchChecked(url, options), label);
@@ -378,7 +323,7 @@ async function readGitlab(
   const failures: SourceFailure[] = [];
   for (const entry of treeEntries) {
     if (entry.type !== 'blob') continue;
-    const extension = extensionOf(entry.path);
+    const extension = extensionWithDot(entry.path);
     const textMime = MIME_BY_EXTENSION[extension];
     const binaryMime = BINARY_MIME_BY_EXTENSION[extension];
     if (!inScope(entry.path, paths)) continue;
@@ -529,7 +474,7 @@ async function readGithub(
   const failures: SourceFailure[] = [];
   for (const entry of tree.tree) {
     if (entry.type !== 'blob' || entry.mode === '120000') continue;
-    const extension = extensionOf(entry.path);
+    const extension = extensionWithDot(entry.path);
     const textMime = MIME_BY_EXTENSION[extension];
     const binaryMime = BINARY_MIME_BY_EXTENSION[extension];
     const externalId = `github:${apiBase}:${repoId}:${ref}:${entry.path}`;
@@ -588,105 +533,113 @@ async function readGithub(
  * 远程连通性探测：只核凭证与范围首项，不导入条目、不推进游标。
  * 任何一步失败都抛错，由调用方记入该 range 的检查结果。
  */
-export async function probeSource(config: SourceConfig, signal?: AbortSignal): Promise<void> {
+async function probeRss(config: SourceConfig, signal: AbortSignal | undefined): Promise<void> {
   const signalOptions = signalOption(signal);
-  switch (config.type) {
-    case 'rss': {
-      const origins = sourceNetworkOptions(config);
-      const feedUrl = await validateSourceUrl(config.url, origins);
-      const headers = Object.fromEntries(
-        Object.entries(config.credentials).filter(([name]) => name.trim() !== ''),
-      );
-      const response = await fetchChecked(feedUrl.href, {
-        headers,
-        authOrigin: feedUrl.origin,
-        ...origins,
-        ...signalOptions,
-      });
-      feedEntries(await readCapped(response, 'feed'));
-      return;
-    }
-    case 'gitlab': {
-      const settings = gitlabConfigSchema.parse(config.settings);
-      const token = config.credentials.token?.trim();
-      if (!token) throw new Error('gitlab credentials.token is required');
-      const origins = sourceNetworkOptions(config);
-      const base = new URL(await validateSourceUrl(config.url, origins));
-      const apiBase = /\/api\/v4\/?$/.test(base.pathname)
-        ? base.href.replace(/\/$/, '')
-        : `${base.href.replace(/\/$/, '')}/api/v4`;
-      const options: FetchOptions = {
-        headers: { 'private-token': token },
-        authOrigin: base.origin,
-        ...origins,
-        ...signalOptions,
-      };
-      const project = await fetchJson(
-        `${apiBase}/projects/${encodeURIComponent(settings.project)}`,
-        gitlabProjectSchema,
-        options,
-        'gitlab project',
-      );
-      const ref = settings.ref?.trim() || project.default_branch;
-      if (!ref) throw new Error('gitlab project has no default branch; set settings.ref');
-      await fetchChecked(
-        `${apiBase}/projects/${encodeURIComponent(String(project.id))}/repository/tree?ref=${encodeURIComponent(ref)}&recursive=true&per_page=1&page=1`,
-        options,
-      );
-      return;
-    }
-    case 'github': {
-      const settings = githubConfigSchema.parse(config.settings);
-      const token = config.credentials.token?.trim();
-      if (!token) throw new Error('github credentials.token is required');
-      const project = parseGithubProject(settings.project);
-      const origins = sourceNetworkOptions(config);
-      const base = new URL(
-        await validateSourceUrl(config.url.trim() || GITHUB_DEFAULT_API_BASE, origins),
-      );
-      const apiBase = base.href.replace(/\/$/, '');
-      const options: FetchOptions = {
-        headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
-        authOrigin: base.origin,
-        ...origins,
-        ...signalOptions,
-      };
-      const repo = await fetchJson(
-        `${apiBase}/repos/${project}`,
-        githubRepoSchema,
-        options,
-        'github repository',
-      );
-      const ref = settings.ref?.trim() || repo.default_branch;
-      if (!ref) throw new Error('github repository has no default branch; set settings.ref');
-      const tree = await fetchJson(
-        `${apiBase}/repos/${project}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
-        githubTreeSchema,
-        options,
-        'github tree',
-      );
-      if (tree.truncated === true) throw new Error('仓库树超过 100,000 条，无法完整枚举');
-      return;
-    }
-    case 'feishu':
-      return probeFeishu(config, signal);
-    case 'notion':
-      return probeNotion(config, signal);
-    case 'confluence':
-      return probeConfluence(config, signal);
-    case 'yuque':
-      return probeYuque(config, signal);
-    case 'dingtalk':
-      return probeDingtalk(config, signal);
-    case 'ima':
-      return probeIma(config, signal);
-    case 'seafile':
-      return probeSeafile(config, signal);
-    case 'nextcloud':
-      return probeNextcloud(config, signal);
-    default:
-      throw new Error(`unsupported source type: ${String((config as { type: unknown }).type)}`);
-  }
+  const origins = sourceNetworkOptions(config);
+  const feedUrl = await validateSourceUrl(config.url, origins);
+  const headers = Object.fromEntries(
+    Object.entries(config.credentials).filter(([name]) => name.trim() !== ''),
+  );
+  const response = await fetchChecked(feedUrl.href, {
+    headers,
+    authOrigin: feedUrl.origin,
+    ...origins,
+    ...signalOptions,
+  });
+  feedEntries(await readCapped(response, 'feed'));
+}
+
+async function probeGitlab(config: SourceConfig, signal: AbortSignal | undefined): Promise<void> {
+  const signalOptions = signalOption(signal);
+  const settings = gitlabConfigSchema.parse(config.settings);
+  const token = config.credentials.token?.trim();
+  if (!token) throw new Error('gitlab credentials.token is required');
+  const origins = sourceNetworkOptions(config);
+  const base = new URL(await validateSourceUrl(config.url, origins));
+  const apiBase = /\/api\/v4\/?$/.test(base.pathname)
+    ? base.href.replace(/\/$/, '')
+    : `${base.href.replace(/\/$/, '')}/api/v4`;
+  const options: FetchOptions = {
+    headers: { 'private-token': token },
+    authOrigin: base.origin,
+    ...origins,
+    ...signalOptions,
+  };
+  const project = await fetchJson(
+    `${apiBase}/projects/${encodeURIComponent(settings.project)}`,
+    gitlabProjectSchema,
+    options,
+    'gitlab project',
+  );
+  const ref = settings.ref?.trim() || project.default_branch;
+  if (!ref) throw new Error('gitlab project has no default branch; set settings.ref');
+  await fetchChecked(
+    `${apiBase}/projects/${encodeURIComponent(String(project.id))}/repository/tree?ref=${encodeURIComponent(ref)}&recursive=true&per_page=1&page=1`,
+    options,
+  );
+}
+
+async function probeGithub(config: SourceConfig, signal: AbortSignal | undefined): Promise<void> {
+  const signalOptions = signalOption(signal);
+  const settings = githubConfigSchema.parse(config.settings);
+  const token = config.credentials.token?.trim();
+  if (!token) throw new Error('github credentials.token is required');
+  const project = parseGithubProject(settings.project);
+  const origins = sourceNetworkOptions(config);
+  const base = new URL(
+    await validateSourceUrl(config.url.trim() || GITHUB_DEFAULT_API_BASE, origins),
+  );
+  const apiBase = base.href.replace(/\/$/, '');
+  const options: FetchOptions = {
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
+    authOrigin: base.origin,
+    ...origins,
+    ...signalOptions,
+  };
+  const repo = await fetchJson(
+    `${apiBase}/repos/${project}`,
+    githubRepoSchema,
+    options,
+    'github repository',
+  );
+  const ref = settings.ref?.trim() || repo.default_branch;
+  if (!ref) throw new Error('github repository has no default branch; set settings.ref');
+  const tree = await fetchJson(
+    `${apiBase}/repos/${project}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+    githubTreeSchema,
+    options,
+    'github tree',
+  );
+  if (tree.truncated === true) throw new Error('仓库树超过 100,000 条，无法完整枚举');
+}
+
+type SourceHandler = {
+  read: (
+    config: SourceConfig,
+    cursor: Record<string, unknown> | undefined,
+    signal: AbortSignal | undefined,
+  ) => Promise<SourceSnapshot>;
+  probe: (config: SourceConfig, signal: AbortSignal | undefined) => Promise<void>;
+};
+
+const SOURCE_HANDLERS: Record<string, SourceHandler | undefined> = {
+  rss: { read: readRss, probe: probeRss },
+  gitlab: { read: readGitlab, probe: probeGitlab },
+  github: { read: readGithub, probe: probeGithub },
+  feishu: { read: readFeishu, probe: probeFeishu },
+  notion: { read: readNotion, probe: probeNotion },
+  confluence: { read: readConfluence, probe: probeConfluence },
+  yuque: { read: readYuque, probe: probeYuque },
+  dingtalk: { read: readDingtalk, probe: probeDingtalk },
+  ima: { read: readIma, probe: probeIma },
+  seafile: { read: readSeafile, probe: probeSeafile },
+  nextcloud: { read: readNextcloud, probe: probeNextcloud },
+} satisfies Record<SourceConfig['type'], SourceHandler>;
+
+export async function probeSource(config: SourceConfig, signal?: AbortSignal): Promise<void> {
+  const handler = SOURCE_HANDLERS[config.type];
+  if (handler === undefined) throw new Error(`unsupported source type: ${String(config.type)}`);
+  return handler.probe(config, signal);
 }
 
 export async function readSource(
@@ -694,30 +647,7 @@ export async function readSource(
   cursor?: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<SourceSnapshot> {
-  switch (config.type) {
-    case 'rss':
-      return readRss(config, cursor, signal);
-    case 'gitlab':
-      return readGitlab(config, cursor, signal);
-    case 'github':
-      return readGithub(config, cursor, signal);
-    case 'feishu':
-      return readFeishu(config, cursor, signal);
-    case 'notion':
-      return readNotion(config, cursor, signal);
-    case 'confluence':
-      return readConfluence(config, cursor, signal);
-    case 'yuque':
-      return readYuque(config, cursor, signal);
-    case 'dingtalk':
-      return readDingtalk(config, cursor, signal);
-    case 'ima':
-      return readIma(config, cursor, signal);
-    case 'seafile':
-      return readSeafile(config, cursor, signal);
-    case 'nextcloud':
-      return readNextcloud(config, cursor, signal);
-    default:
-      throw new Error(`unsupported source type: ${String((config as { type: unknown }).type)}`);
-  }
+  const handler = SOURCE_HANDLERS[config.type];
+  if (handler === undefined) throw new Error(`unsupported source type: ${String(config.type)}`);
+  return handler.read(config, cursor, signal);
 }

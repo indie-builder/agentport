@@ -10,6 +10,7 @@ import {
   PERSONAL_MEMORY_MAX_CHARS,
   SUBAGENT_MEMORY_CONTAINER_DIR,
   USER_CONTAINER_DIR,
+  WORKSPACE_CONTAINER_DIR,
 } from '@agentport/shared';
 import type { HookCallback, PreToolUseHookSpecificOutput } from '@anthropic-ai/claude-agent-sdk';
 
@@ -17,8 +18,8 @@ const MEMORY_TOOLS = new Set(['Read', 'Write', 'Edit']);
 const OTHER_FILE_TOOLS = new Set(['Glob', 'Grep', 'NotebookEdit']);
 
 /** 工作区技能与插件资源根；文件工具对它们只读。 */
-const SKILLS_DIR = '/workspace/.claude/skills';
-const PLUGINS_DIR = '/workspace/.claude/plugins';
+const SKILLS_DIR = `${WORKSPACE_CONTAINER_DIR}/.claude/skills`;
+const PLUGINS_DIR = `${WORKSPACE_CONTAINER_DIR}/.claude/plugins`;
 
 /** 个人记忆由宿主只读挂载到 /mnt/user；每轮用户提交前注入，恢复会话也读最新文件。 */
 export const PERSONAL_MEMORY_FILE = `${USER_CONTAINER_DIR}/${PERSONAL_MEMORY_FILENAME}`;
@@ -83,24 +84,28 @@ function inside(local: string): boolean {
  *   可写性跟随父专家的运行期策略；未登记的调用方、兄弟目录、父级记忆/产出/附件一律拒绝。
  * 其余文件工具请求一律拒绝。
  */
-export function createFileBoundaryHook(
-  memoryDir: string,
+export function createFileBoundaryHook({
+  memoryDir,
   skillsDir = SKILLS_DIR,
   pluginsDir = PLUGINS_DIR,
   outputsDir = OUTPUTS_CONTAINER_DIR,
   inputsDir = INPUTS_CONTAINER_DIR,
-  options: {
-    /** 子智能体 project 记忆根；缺省为容器内官方目录。 */
-    projectMemoryDir?: string;
-    /** 本次加载的已知子智能体 slug；未登记的子智能体不放行任何文件。 */
-    subAgentSlugs?: ReadonlySet<string>;
-    /** 主会话与已登记子智能体是否可写记忆目录；proposal_only 或未启用记忆时为 false，只保留读。 */
-    memoryWritable?: boolean;
-  } = {},
-): HookCallback {
-  const projectMemoryDir = options.projectMemoryDir ?? SUBAGENT_MEMORY_CONTAINER_DIR;
-  const knownSubAgents = options.subAgentSlugs ?? new Set<string>();
-  const memoryWritable = options.memoryWritable ?? true;
+  projectMemoryDir = SUBAGENT_MEMORY_CONTAINER_DIR,
+  subAgentSlugs: knownSubAgents = new Set<string>(),
+  memoryWritable = true,
+}: {
+  memoryDir: string;
+  skillsDir?: string;
+  pluginsDir?: string;
+  outputsDir?: string;
+  inputsDir?: string;
+  /** 子智能体 project 记忆根；缺省为容器内官方目录。 */
+  projectMemoryDir?: string;
+  /** 本次加载的已知子智能体 slug；未登记的子智能体不放行任何文件。 */
+  subAgentSlugs?: ReadonlySet<string>;
+  /** 主会话与已登记子智能体是否可写记忆目录；proposal_only 或未启用记忆时为 false，只保留读。 */
+  memoryWritable?: boolean;
+}): HookCallback {
   return async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {};
     if (!MEMORY_TOOLS.has(input.tool_name) && !OTHER_FILE_TOOLS.has(input.tool_name)) return {};

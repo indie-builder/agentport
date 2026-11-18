@@ -1,24 +1,32 @@
 const INTERNAL_ORIGIN = 'http://app.invalid';
+const MAX_INTERNAL_PATH_LENGTH = 2048;
 
 /**
- * 登录回跳的信任边界：只接受应用内路径。
- * 用 URL 解析而不是字符串前缀判断，才能挡住 `/\evil`、控制字符被浏览器规范化成 `//evil` 等绕法。
+ * 站内路径的信任边界：只接受应用内的绝对路径。
+ * 先拒绝反斜杠、空白与超长值，再用 URL 解析兜底挡住 `/\evil`、控制字符被规范化成 `//evil` 等绕法。
  */
-export function safeReturnTo(value: unknown): string | undefined {
-  if (typeof value !== 'string' || !value.startsWith('/')) return undefined;
+export function safeInternalPath(value: unknown): string | undefined {
+  if (
+    typeof value !== 'string' ||
+    value.length > MAX_INTERNAL_PATH_LENGTH ||
+    !value.startsWith('/') ||
+    value.startsWith('//') ||
+    /[\\\s]/.test(value)
+  )
+    return undefined;
   let url: URL;
   try {
     url = new URL(value, INTERNAL_ORIGIN);
   } catch {
-    // 反斜杠会触发浏览器规范化（如 `/\evil:bad`），畸形地址直接当作不可信。
     return undefined;
   }
   if (url.origin !== INTERNAL_ORIGIN || /^\/login\/?$/.test(url.pathname)) return undefined;
+  if (!url.pathname.startsWith('/') || url.pathname.startsWith('//')) return undefined;
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
 export function resolveReturnTo(value: unknown): string {
-  return safeReturnTo(value) ?? '/';
+  return safeInternalPath(value) ?? '/';
 }
 
 /** 会话失效时把当前 pathname + search + hash 交给登录页，登录后原样回去。 */

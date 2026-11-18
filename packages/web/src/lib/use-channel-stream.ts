@@ -11,7 +11,7 @@ import { mergeChannelMessages } from './channel-state.js';
 import { applyEvent, type ChatItem } from './chat-state.js';
 import {
   channelApprovalsQuery,
-  channelMessagesQuery,
+  channelMessagesKey,
   channelRunQuestionsQueryKey,
   channelRunsQuery,
   useChannelMessages,
@@ -92,9 +92,8 @@ export function useChannelStream(channelId: string) {
       if (event === null) return;
       if (event.type === 'message.created') {
         cursorRef.current.after = Math.max(cursorRef.current.after, event.seq);
-        client.setQueryData<ChannelMessage[]>(
-          channelMessagesQuery(channelId).queryKey,
-          (previous) => mergeChannelMessages(previous ?? [], [event.message]),
+        client.setQueryData<ChannelMessage[]>(channelMessagesKey(channelId), (previous) =>
+          mergeChannelMessages(previous ?? [], [event.message]),
         );
         // 落库消息到达：本地流锚点让位给持久消息。
         if (event.message.runId) {

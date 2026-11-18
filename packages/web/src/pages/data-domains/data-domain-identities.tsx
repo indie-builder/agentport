@@ -1,7 +1,7 @@
 import { dataDomainIdentityInputSchema } from '@agentport/contract/data-domains';
 import { businessIdSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useFieldArray } from 'react-hook-form';
 import { z } from 'zod';
@@ -27,7 +27,7 @@ import { can } from '../../lib/access.js';
 import type { DataDomainIdentity } from '../../lib/api.js';
 import { errorMessage } from '../../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
-import { fieldErrors, useFormBlocker } from '../../lib/form.js';
+import { useFormBlocker } from '../../lib/form.js';
 import { formatRelative } from '../../lib/format.js';
 import {
   accountQuery,
@@ -39,36 +39,17 @@ import {
 import { toastSuccess } from '../../lib/toast.js';
 import { useDebouncedValue } from '../../lib/use-debounced-value.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
+import {
+  KeyValueRowEditor,
+  keyValueRowIssues,
+  refineKeyValueRows,
+  rowsToRecord,
+} from './key-value-rows.js';
 
-type PropertyRow = { key: string; value: string };
-
-function propertyRowIssues(rows: PropertyRow[]): Array<{ index: number; message: string }> {
-  const issues: Array<{ index: number; message: string }> = [];
-  const seen = new Set<string>();
-  for (const [index, row] of rows.entries()) {
-    const key = row.key.trim();
-    if (key === '' && row.value === '') continue;
-    if (key === '') {
-      issues.push({ index, message: `第 ${index + 1} 行：请填写属性名` });
-      continue;
-    }
-    if (seen.has(key)) {
-      issues.push({ index, message: `第 ${index + 1} 行：属性名重复，请合并` });
-      continue;
-    }
-    seen.add(key);
-  }
-  return issues;
-}
-
-function propertiesFromRows(rows: PropertyRow[]): Record<string, string> {
-  return Object.fromEntries(
-    rows.flatMap((row) => {
-      const key = row.key.trim();
-      return key === '' ? [] : [[key, row.value] as const];
-    }),
-  );
-}
+const propertyRowMessages = {
+  emptyKey: (index: number) => `第 ${index + 1} 行：请填写属性名`,
+  duplicate: (index: number) => `第 ${index + 1} 行：属性名重复，请合并`,
+};
 
 const identityFormSchema = z
   .object({
@@ -76,41 +57,16 @@ const identityFormSchema = z
     properties: z.array(z.object({ key: z.string(), value: z.string() })),
   })
   .superRefine((values, ctx) => {
-    const rowIssues = propertyRowIssues(values.properties);
-    for (const issue of rowIssues) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['properties', issue.index, 'key'],
-        message: issue.message,
-      });
-    }
-    const hasRow = values.properties.some((row) => row.key.trim() !== '' || row.value !== '');
-    if (!hasRow) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['properties'],
-        message: '请至少填写一项属性',
-      });
-      return;
-    }
-    if (rowIssues.length > 0) return;
     const { keyType, valueType } = dataDomainIdentityInputSchema.shape.properties;
-    for (const [index, row] of values.properties.entries()) {
-      for (const [field, schema] of [
-        ['key', keyType],
-        ['value', valueType],
-      ] as const) {
-        const parsed = schema.safeParse(field === 'key' ? row.key.trim() : row.value);
-        if (parsed.success) continue;
-        const issue = parsed.error.issues[0];
-        if (issue === undefined) continue;
-        ctx.addIssue({
-          code: 'custom',
-          path: ['properties', index, field],
-          message: Object.values(fieldErrors([issue]))[0] ?? issue.message,
-        });
-      }
-    }
+    refineKeyValueRows(ctx, {
+      path: 'properties',
+      rows: values.properties,
+      issues: keyValueRowIssues(values.properties, propertyRowMessages),
+      emptyMessage: '请至少填写一项属性',
+      keyType,
+      valueType,
+      skipEmptyRows: false,
+    });
   });
 
 type FormValues = z.infer<typeof identityFormSchema>;
@@ -233,7 +189,7 @@ function IdentityDialog({
       await upsert.mutateAsync({
         id: dataDomainId,
         businessId: values.businessId,
-        properties: propertiesFromRows(values.properties),
+        properties: rowsToRecord(values.properties),
       });
       setSaved(true);
       blockerRef.current.reset?.();
@@ -318,74 +274,23 @@ function IdentityDialog({
           </Field>
           <Field data-disabled={pending} data-invalid={Boolean(errors.properties)}>
             <FieldLabel>属性</FieldLabel>
-            <div className="flex flex-col gap-2">
-              {fields.map((field, index) => (
-                <div key={field.id} className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      {...register(`properties.${index}.key` as const)}
-                      aria-label={`第 ${index + 1} 项属性名`}
-                      placeholder="key"
-                      className="w-40 shrink-0 font-mono text-xs"
-                      autoComplete="off"
-                      disabled={pending}
-                      aria-invalid={Boolean(keyError(index))}
-                      aria-describedby={
-                        keyError(index)
-                          ? `data-domain-identity-${index}-key-error`
-                          : index === 0 && propertiesError
-                            ? 'data-domain-identity-properties-error'
-                            : undefined
-                      }
-                    />
-                    <Input
-                      {...register(`properties.${index}.value` as const)}
-                      aria-label={`第 ${index + 1} 项属性值`}
-                      placeholder="value"
-                      className="min-w-0 flex-1 font-mono text-xs"
-                      autoComplete="off"
-                      disabled={pending}
-                      aria-invalid={Boolean(valueError(index))}
-                      aria-describedby={
-                        valueError(index) ? `data-domain-identity-${index}-value-error` : undefined
-                      }
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`移除第 ${index + 1} 项属性`}
-                      disabled={pending}
-                      onClick={() => remove(index)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                  <FieldError id={`data-domain-identity-${index}-key-error`}>
-                    {keyError(index)}
-                  </FieldError>
-                  <FieldError id={`data-domain-identity-${index}-value-error`}>
-                    {valueError(index)}
-                  </FieldError>
-                </div>
-              ))}
-            </div>
-            <div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={pending}
-                aria-invalid={Boolean(propertiesError)}
-                aria-describedby={
-                  propertiesError ? 'data-domain-identity-properties-error' : undefined
-                }
-                onClick={() => append({ key: '', value: '' })}
-              >
-                <Plus data-icon="inline-start" /> 添加属性
-              </Button>
-            </div>
-            <FieldError id="data-domain-identity-properties-error">{propertiesError}</FieldError>
+            <KeyValueRowEditor
+              rows={fields}
+              prefix="data-domain-identity"
+              keyAriaLabel="属性名"
+              valueAriaLabel="属性值"
+              removeLabel="属性"
+              addLabel="添加属性"
+              rootErrorId="data-domain-identity-properties-error"
+              rootError={propertiesError}
+              disabled={pending}
+              registerKey={(index) => register(`properties.${index}.key` as const)}
+              registerValue={(index) => register(`properties.${index}.value` as const)}
+              keyError={keyError}
+              valueError={valueError}
+              onAppend={() => append({ key: '', value: '' })}
+              onRemove={remove}
+            />
             <FieldDescription>
               属性用于把业务用户映射到数据域中的身份过滤条件；属性名不能重复。
             </FieldDescription>

@@ -6,14 +6,18 @@ import {
   DEFAULT_DISALLOWED_TOOLS,
   DEFAULT_MEMORY_POLICY,
   displayNameSchema,
+  MEMORY_CONTAINER_DIR,
   type MemoryPolicy,
+  memoryWritable,
   type OpenUiToolDescriptor,
+  OUTPUTS_CONTAINER_DIR,
   SANDBOX_RUNTIME_ENV,
   slugSchema,
   type WorkspaceFiles,
 } from '@agentport/shared';
 import { fail } from './errors.js';
 import {
+  CHILD_AGENT_FRONTMATTER_KEYS,
   escapeGeneratedBoundaryLines,
   GENERATED_SUFFIX_END,
   GENERATED_SUFFIX_START,
@@ -241,7 +245,7 @@ const SKILL_REFERENCE_CLAUSE =
  * runner 也只在 `native_auto` 下预批准 `Edit`。文案若越权宣称可写，子智能体会写只读目录（EROFS）。
  */
 function subAgentMemoryClause(policy: MemoryPolicy): string {
-  const writable = policy.enabled && policy.writeMode === 'native_auto';
+  const writable = memoryWritable(policy);
   const capability = writable ? '读写' : '读取';
   const suffix = writable ? '' : '，写入会被拒绝';
   return `已登记的子智能体只允许${capability}自己的 project 记忆（\`.claude/agent-memory/<slug>/\` 内的 Markdown）${suffix}；其他目录与未登记子智能体的原生文件工具请求均被拒绝。`;
@@ -254,10 +258,10 @@ function subAgentMemoryClause(policy: MemoryPolicy): string {
  */
 function memoryAccessLine(policy: MemoryPolicy): string {
   const main = !policy.enabled
-    ? '专家记忆已停用：本轮不挂载 `/mnt/agent-memory/`，不要读取或写入该目录。'
+    ? `专家记忆已停用：本轮不挂载 \`${MEMORY_CONTAINER_DIR}/\`，不要读取或写入该目录。`
     : policy.writeMode === 'proposal_only'
-      ? '主会话只能用 `Read` 访问 `/mnt/agent-memory/` 内的 Markdown 原生记忆；该目录本轮只读，`Write`、`Edit` 会被拒绝。需要改进记忆时，把建议写进最终回复，由用户或管理员通过记忆提案审核后写入。'
-      : '主会话可用 `Read`、`Write`、`Edit` 访问 `/mnt/agent-memory/` 内的 Markdown 原生记忆；';
+      ? `主会话只能用 \`Read\` 访问 \`${MEMORY_CONTAINER_DIR}/\` 内的 Markdown 原生记忆；该目录本轮只读，\`Write\`、\`Edit\` 会被拒绝。需要改进记忆时，把建议写进最终回复，由用户或管理员通过记忆提案审核后写入。`
+      : `主会话可用 \`Read\`、\`Write\`、\`Edit\` 访问 \`${MEMORY_CONTAINER_DIR}/\` 内的 Markdown 原生记忆；`;
   return `${main}${SKILL_REFERENCE_CLAUSE}${subAgentMemoryClause(policy)}`;
 }
 
@@ -331,7 +335,7 @@ function renderClaudeMd(input: WorkspaceInput): string {
     '',
     `业务能力使用 \`mcp__*\` MCP 工具；${bashCapability ?? '`Bash` 已被显式禁用'}，网络工具仍禁用。`,
     memoryAccessLine(input.memoryPolicy ?? DEFAULT_MEMORY_POLICY),
-    `交付给用户的文件写到 \`/mnt/outputs/\`。完成后告诉用户打开右上角「会话成果」即可预览或下载，只用这个叫法。修改已有交付时继续用同一路径覆盖，本轮没有新增或修改的文件不必重写；原生文件工具在目录之外不可写${bashCapability ? '，`Bash` 在容器内执行，可访问容器内已挂载的目录' : ''}。`,
+    `交付给用户的文件写到 \`${OUTPUTS_CONTAINER_DIR}/\`。完成后告诉用户打开右上角「会话成果」即可预览或下载，只用这个叫法。修改已有交付时继续用同一路径覆盖，本轮没有新增或修改的文件不必重写；原生文件工具在目录之外不可写${bashCapability ? '，`Bash` 在容器内执行，可访问容器内已挂载的目录' : ''}。`,
     '如需更多能力，请让管理员在平台中为智能体绑定对应的 MCP Server。',
     '',
     '## 任务清单',
@@ -415,27 +419,42 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
   const description =
     agent.description?.trim() || summarize(agent.systemPrompt, `${agent.name} 智能体`);
 
-  const frontmatter = [
-    '---',
-    `name: ${yamlString(agent.slug)}`,
-    `description: ${yamlString(description)}`,
-    `model: ${yamlString(agent.model)}`,
+  const frontmatterValues: Array<[string, string[]]> = [
+    ['name', [yamlString(agent.slug)]],
+    ['description', [yamlString(description)]],
+    ['model', [yamlString(agent.model)]],
     // 子智能体不能声明 tools：SDK 在派生时先按主会话解析这些名字，MCP 工具此时尚未注册，
     // `mcp__<server>__*` 解析为空会被直接拒绝（"would be spawned with zero tools"）。
     // 省略 tools 即继承父会话工具集；子级靠官方 memory: project 读写自己的记忆目录，文件工具不再默认禁用。
-    ...(standalone
-      ? []
-      : [`tools: ${yamlList(hasSubAgents ? [...new Set([...tools, 'Agent'])] : tools)}`]),
+    [
+      'tools',
+      standalone ? [] : [yamlList(hasSubAgents ? [...new Set([...tools, 'Agent'])] : tools)],
+    ],
     // project 作用域即工作区内的 .claude/agent-memory/<slug>/，与平台既有记忆目录对应。
-    ...(standalone ? ['memory: project'] : []),
+    ['memory', standalone ? ['project'] : []],
     // 子级按名字引用根 .mcp.json 的条目：inline 配置在非交互/未信任目录会被跳过。
-    ...(standalone && bound !== undefined && ownServers.length > 0
-      ? ['mcpServers:', ...ownServers.map((s) => `  - ${yamlString(s.name)}`)]
-      : []),
-    `disallowedTools: ${yamlList(disallowed)}`,
-    `maxTurns: ${agent.maxTurns}`,
-    ...(skills.length > 0 ? [`skills: ${yamlList(skills.map((s) => s.slug))}`] : []),
-    ...(agent.effort ? [`effort: ${yamlString(agent.effort)}`] : []),
+    [
+      'mcpServers',
+      standalone && bound !== undefined && ownServers.length > 0
+        ? ownServers.map((s) => `  - ${yamlString(s.name)}`)
+        : [],
+    ],
+    ['disallowedTools', [yamlList(disallowed)]],
+    ['maxTurns', [`${agent.maxTurns}`]],
+    ['skills', skills.length > 0 ? [yamlList(skills.map((s) => s.slug))] : []],
+    ['effort', agent.effort ? [yamlString(agent.effort)] : []],
+  ];
+  const frontmatter = [
+    '---',
+    ...frontmatterValues.flatMap(([key, values]) =>
+      standalone && !CHILD_AGENT_FRONTMATTER_KEYS.has(key)
+        ? []
+        : values.length === 0
+          ? []
+          : key === 'mcpServers'
+            ? [`${key}:`, ...values]
+            : [`${key}: ${values[0]}`],
+    ),
     '---',
   ];
 

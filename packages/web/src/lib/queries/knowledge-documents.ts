@@ -224,7 +224,7 @@ export function useKnowledgeDocuments(
 
 export function useKnowledgeDocument(documentId: string | null, enabled = true) {
   return useQuery({
-    queryKey: ['knowledge', 'document', documentId],
+    queryKey: knowledgeKeys.document(documentId),
     queryFn: ({ signal }) => api.knowledgeDocument(documentId ?? '', signal),
     enabled: documentId !== null && enabled,
     staleTime: 0,
@@ -369,7 +369,7 @@ export function useUpdateKnowledgeChunk(
         expectedVersionId: versionId ?? '',
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['knowledge', 'chunks', documentId] });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.chunksOfDocument(documentId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
       // 改正文会清空向量并补建，任务列表需要刷新。
@@ -391,7 +391,7 @@ export function useCreateKnowledgeChunk(
         expectedVersionId: versionId ?? '',
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['knowledge', 'chunks', documentId] });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.chunksOfDocument(documentId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
@@ -408,7 +408,7 @@ export function useDeleteKnowledgeChunk(
   return useMutation({
     mutationFn: (chunkId: string) => api.deleteKnowledgeChunk(chunkId, versionId ?? ''),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['knowledge', 'chunks', documentId] });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.chunksOfDocument(documentId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
     },
@@ -454,7 +454,7 @@ function useDocumentVersionInvalidate(baseId: string) {
     void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
     void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
     void client.invalidateQueries({ queryKey: knowledgeKeys.manual(documentId) });
-    void client.invalidateQueries({ queryKey: ['knowledge', 'document', documentId] });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.document(documentId) });
   };
 }
 
@@ -473,7 +473,7 @@ export function useRollbackKnowledgeDocument(baseId: string) {
       }),
     onSuccess: (_data, vars) => {
       invalidate(vars.documentId);
-      void client.invalidateQueries({ queryKey: ['knowledge', 'chunks', vars.documentId] });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.chunksOfDocument(vars.documentId) });
     },
   });
 }
@@ -596,7 +596,7 @@ export function useKnowledgeDocumentJob(baseId: string, documentId: string, jobI
     settled.current = jobId;
     void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
     void client.invalidateQueries({ queryKey: knowledgeKeys.manual(documentId) });
-    void client.invalidateQueries({ queryKey: ['knowledge', 'document', documentId] });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.document(documentId) });
     void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
     void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
   }, [jobId, job.data?.status, client, documentId, baseId]);

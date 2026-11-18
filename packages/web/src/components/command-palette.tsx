@@ -1,4 +1,4 @@
-import type { AuthMe, SearchItem } from '@agentport/shared';
+import type { AuthMe } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
@@ -12,16 +12,7 @@ import {
   CommandList,
 } from '@ui-sdk/react/command';
 import { useShortcut, useShortcutHint } from '@ui-sdk/react/shortcuts';
-import {
-  Bot,
-  Cable,
-  FileText,
-  LibraryBig,
-  MessagesSquare,
-  Puzzle,
-  Search,
-  Sparkles,
-} from 'lucide-react';
+import { Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import {
   BUILD_MENU,
@@ -35,6 +26,7 @@ import {
 } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
 import { searchQuery } from '../lib/queries.js';
+import { SEARCH_KIND_META, SEARCH_KIND_ORDER, searchItemHref } from '../lib/search-meta.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
 import { Button } from './ui/button.js';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog.js';
@@ -51,42 +43,6 @@ const COMMAND_SOURCES: readonly { label: string; items: readonly MenuItem[] }[] 
   { label: '平台', items: PLATFORM_MENU },
   { label: '个人', items: PERSONAL_NAV_GROUPS.flatMap((group) => group.items) },
 ];
-
-export const SEARCH_KIND_META = {
-  agent: { label: '专家', icon: Bot },
-  conversation: { label: '会话', icon: MessagesSquare },
-  knowledge: { label: '知识库', icon: LibraryBig },
-  server: { label: '连接器', icon: Cable },
-  skill: { label: '技能', icon: Sparkles },
-  plugin: { label: '插件', icon: Puzzle },
-  output: { label: '成果', icon: FileText },
-} as const;
-
-export const SEARCH_KIND_ORDER = Object.keys(SEARCH_KIND_META) as Array<SearchItem['kind']>;
-
-export function searchItemHref(item: SearchItem): string {
-  switch (item.kind) {
-    case 'agent':
-      return `/agents/${item.id}`;
-    case 'conversation':
-      return `/chat?${new URLSearchParams({ conversation: item.id }).toString()}`;
-    case 'knowledge':
-      return `/knowledge/${item.id}`;
-    case 'server':
-      return `/servers?${new URLSearchParams({ q: item.title }).toString()}`;
-    case 'skill':
-      return `/skills?${new URLSearchParams({ q: item.title }).toString()}`;
-    case 'plugin':
-      return `/plugins/${item.id}`;
-    case 'output': {
-      const params = new URLSearchParams();
-      if (item.conversationId !== undefined) params.set('conversation', item.conversationId);
-      if (item.runId !== undefined) params.set('outputRun', item.runId);
-      if (item.path !== undefined) params.set('outputPath', item.path);
-      return params.size === 0 ? '/chat' : `/chat?${params.toString()}`;
-    }
-  }
-}
 
 function openCommandPalette(): void {
   window.dispatchEvent(new CustomEvent(OPEN_EVENT));

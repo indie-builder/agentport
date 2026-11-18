@@ -1,14 +1,13 @@
 import { z } from 'zod';
+import { ATTACHMENT_LIMITS } from './attachments.js';
 import { runTriggerSchema } from './ops.js';
 import { runStatusSchema } from './run-state.js';
 import { utf8Bytes } from './utf8.js';
 
-const MAX_MESSAGE_BYTES = 64 * 1024;
-
 const messageSchema = z
   .string()
   .min(1, '请输入消息')
-  .refine((value) => utf8Bytes(value) <= MAX_MESSAGE_BYTES, '消息不能超过 64KiB');
+  .refine((value) => utf8Bytes(value) <= ATTACHMENT_LIMITS.messageBytes, '消息不能超过 64KiB');
 
 export const integrationScopeSchema = z.enum(['runs.create', 'runs.read']);
 export type IntegrationScope = z.infer<typeof integrationScopeSchema>;

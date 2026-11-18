@@ -3,6 +3,7 @@ import { repo } from '@agentport/db';
 import { idParams } from '@agentport/shared';
 import type { Hono } from 'hono';
 import { authorizeResourceAccess } from '../../http/access.js';
+import { attachmentResponse } from '../../http/attachment.js';
 import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
@@ -23,10 +24,11 @@ export function registerSkillsHttp(app: Hono<HttpEnv>): void {
         { kind: 'skill', resourceId: row.id, ownerBusinessId: row.ownerBusinessId, level: 'read' },
         '技能不存在，可能已被删除；请刷新后重试',
       );
-      return c.body(renderSkillMd(repo.skills.toSkillDefinition(row)), 200, {
-        'content-type': 'text/markdown; charset=utf-8',
-        'content-disposition': 'attachment; filename="SKILL.md"',
-      });
+      return attachmentResponse(
+        renderSkillMd(repo.skills.toSkillDefinition(row)),
+        'SKILL.md',
+        'text/markdown; charset=utf-8',
+      );
     },
   );
 }

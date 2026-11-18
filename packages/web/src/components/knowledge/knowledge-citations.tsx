@@ -145,7 +145,7 @@ function targetField(value: unknown): { kind: KnowledgeContentKind; id: string }
  * MCP 结果按工具名解析；服务端四种知识工具都写 JSON 文本。
  * 解析失败返回 null，工具错误文本不会被当成引用。
  */
-export function parseKnowledgeToolResult(
+function parseKnowledgeToolResult(
   name: string,
   result: string | undefined,
 ): ParsedToolResult | null {

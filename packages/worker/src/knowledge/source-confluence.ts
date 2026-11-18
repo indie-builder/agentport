@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { EXTENSION_BY_MIME, extensionOf, mimeOf } from './source-formats.js';
+import { EXTENSION_BY_MIME, extensionWithDot, mimeOf } from './source-formats.js';
 import {
   type FetchOptions,
   sourceFailure as failureOf,
@@ -14,8 +14,8 @@ import {
   validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, trimSlash, uniquePath } from './source-paths.js';
+import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import { parseInitialCursor, snapshotOf } from './source-utils.js';
-import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './sources.js';
 
 /**
  * Confluence Cloud (basic/scoped token) and Data Center (PAT) leaf reader.
@@ -327,7 +327,7 @@ async function fetchJsonWithNext<T>(
 
 function filenameOf(title: string | undefined, id: string, mime: string | undefined): string {
   const clean = sanitizeSegment(title ?? '', `attachment-${id}`);
-  if (extensionOf(clean)) return clean;
+  if (extensionWithDot(clean)) return clean;
   const extension = mime ? EXTENSION_BY_MIME[mime] : undefined;
   return extension ? `${clean}.${extension}` : clean;
 }
@@ -837,7 +837,7 @@ async function emitAttachment(
         externalId,
         title,
         new ItemError(
-          `unsupported attachment type ${extensionOf(title) || '(none)'}`,
+          `unsupported attachment type ${extensionWithDot(title) || '(none)'}`,
           'unsupported_type',
           false,
         ),

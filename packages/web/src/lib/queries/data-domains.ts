@@ -33,7 +33,7 @@ export function useDataDomains() {
   });
 }
 
-export function dataDomainQuery(id: string) {
+function dataDomainQuery(id: string) {
   return queryOptions<DataDomain>({
     queryKey: [...dataDomainKeys, id],
     queryFn: () => api.dataDomain(id),
@@ -49,7 +49,7 @@ export function dataDomainBuildShouldPoll(
   );
 }
 
-export function dataDomainVersionsQuery(id: string) {
+function dataDomainVersionsQuery(id: string) {
   return queryOptions<DataDomainVersion[]>({
     queryKey: [...dataDomainKeys, id, 'versions'],
     queryFn: () => api.dataDomainVersions(id),
@@ -57,7 +57,7 @@ export function dataDomainVersionsQuery(id: string) {
   });
 }
 
-export function dataDomainVersionQuery(id: string, versionId: string) {
+function dataDomainVersionQuery(id: string, versionId: string) {
   return queryOptions<DataDomainVersionDetail>({
     queryKey: [...dataDomainKeys, id, 'versions', versionId],
     queryFn: () => api.dataDomainVersion(id, versionId),
@@ -67,7 +67,7 @@ export function dataDomainVersionQuery(id: string, versionId: string) {
   });
 }
 
-export function dataDomainEnrichmentProposalsQuery(id: string) {
+function dataDomainEnrichmentProposalsQuery(id: string) {
   return queryOptions<DataDomainEnrichmentProposal[]>({
     queryKey: [...dataDomainKeys, id, 'enrichment-proposals'],
     queryFn: () => api.dataDomainEnrichmentProposals(id),
@@ -76,7 +76,7 @@ export function dataDomainEnrichmentProposalsQuery(id: string) {
   });
 }
 
-export function dataDomainEnrichmentProposalQuery(id: string, proposalId: string, enabled = true) {
+function dataDomainEnrichmentProposalQuery(id: string, proposalId: string, enabled = true) {
   return queryOptions<DataDomainEnrichmentProposalDetail>({
     queryKey: [...dataDomainKeys, id, 'enrichment-proposals', proposalId],
     queryFn: () => api.dataDomainEnrichmentProposal(id, proposalId),

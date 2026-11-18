@@ -48,10 +48,7 @@ export function authenticated(me: AuthMe | undefined): AuthenticatedMe | null {
 }
 
 /** 同一 permissionId 的多角色授权只合并范围；判定仍以单条 grant 为准。 */
-export function grantScopes(
-  me: AuthMe | undefined,
-  permissionId: PermissionId,
-): readonly AccessScope[] {
+function grantScopes(me: AuthMe | undefined, permissionId: PermissionId): readonly AccessScope[] {
   const user = authenticated(me);
   if (!user) return [];
   const scopes = new Set<AccessScope>();

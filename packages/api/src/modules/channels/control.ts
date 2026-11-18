@@ -7,14 +7,13 @@ import type { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { actorOf, requireUser } from '../../http/access.js';
-import type { HttpEnv, RequestContext } from '../../http/context.js';
+import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { beginSse } from '../../http/sse.js';
 import { publishChannelEvent, publishChannelMessage } from '../../queue/producer.js';
 import { cancelAgentRun } from '../chat/cancel-run.js';
-import type { NativeHttpDependencies } from '../chat/http.js';
 import { writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
 

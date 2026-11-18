@@ -23,7 +23,7 @@ import {
   authorizeObject,
   requireUser,
 } from '../../http/access.js';
-import type { HttpEnv, RequestContext } from '../../http/context.js';
+import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { beginSse } from '../../http/sse.js';
@@ -33,7 +33,6 @@ import { relayRunEvents } from '../runs/stream.js';
 import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
 import { loadReadableConversation, loadWritableConversation } from './access.js';
 import { cancelAgentRun } from './cancel-run.js';
-import type { NativeHttpDependencies } from './http.js';
 import { chatStateRouter } from './openui-state.js';
 import { chatToolsRouter } from './openui-tools.js';
 import { chatOutputsRouter } from './outputs.js';

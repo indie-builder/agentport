@@ -180,12 +180,7 @@ export async function listPolicyApprovals(
       .where(and(eq(policyApprovals.id, input.cursor), ...filters))
       .limit(1);
     if (!anchor) return null;
-    filters.push(
-      sql`(${policyApprovals.requestedAt}, ${policyApprovals.id}) < (
-        select cursor.requested_at, cursor.id from ${policyApprovals} cursor
-        where cursor.id = ${input.cursor}
-      )`,
-    );
+    filters.push(keysetBefore(policyApprovals, input.cursor, policyApprovals.requestedAt));
   }
   const rows = await db
     .select()

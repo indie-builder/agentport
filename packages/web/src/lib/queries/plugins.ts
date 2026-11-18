@@ -9,12 +9,12 @@ import type {
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type NativePlugins } from '../api.js';
 
-export const pluginsQuery = queryOptions<PluginWithAgentCount[]>({
+const pluginsQuery = queryOptions<PluginWithAgentCount[]>({
   queryKey: ['plugins'],
   queryFn: api.plugins,
 });
 
-export const nativePluginsQuery = queryOptions<NativePlugins>({
+const nativePluginsQuery = queryOptions<NativePlugins>({
   queryKey: ['plugins-native'],
   queryFn: api.nativePlugins,
 });

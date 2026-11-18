@@ -6,6 +6,7 @@ import type {
   PublicQuestionResponse,
 } from '@agentport/shared';
 import {
+  type QueryClient,
   queryOptions,
   useInfiniteQuery,
   useMutation,
@@ -27,13 +28,13 @@ import { mergeRunQuestions, useRefetchWhenRunEnds, withRunQuestion } from './sha
 
 // ---- 频道 ----------------------------------------------------------------
 
-export const channelsQuery = queryOptions<ChannelListItem[]>({
+const channelsQuery = queryOptions<ChannelListItem[]>({
   queryKey: ['channels'],
   queryFn: ({ signal }) => api.channels(signal),
   staleTime: 0,
 });
 
-export const channelQuery = (id: string) =>
+const channelQuery = (id: string) =>
   queryOptions<ChannelDetail>({
     queryKey: ['channel', id],
     queryFn: ({ signal }) => api.channel(id, signal),
@@ -42,18 +43,24 @@ export const channelQuery = (id: string) =>
 
 export const CHANNEL_MESSAGES_PAGE_SIZE = 200;
 
+export const channelMessagesKey = (id: string) => ['channel-messages', id] as const;
+
 /** 取最新一页；更早消息由频道页按 before 游标补齐，重取只能并入不能替换。 */
-export const channelMessagesQuery = (id: string) =>
-  queryOptions<ChannelMessage[]>({
-    queryKey: ['channel-messages', id],
-    queryFn: ({ signal }) =>
-      api.channelMessages(
-        id,
-        { before: Number.MAX_SAFE_INTEGER, limit: CHANNEL_MESSAGES_PAGE_SIZE },
-        signal,
-      ),
-    staleTime: 0,
-  });
+async function fetchChannelMessages(
+  id: string,
+  client: QueryClient,
+  signal?: AbortSignal,
+): Promise<ChannelMessage[]> {
+  const page = await api.channelMessages(
+    id,
+    { before: Number.MAX_SAFE_INTEGER, limit: CHANNEL_MESSAGES_PAGE_SIZE },
+    signal,
+  );
+  return mergeChannelMessages(
+    client.getQueryData<ChannelMessage[]>(channelMessagesKey(id)) ?? [],
+    page,
+  );
+}
 
 export const channelRunsQuery = (id: string) =>
   queryOptions<ChannelActiveRun[]>({
@@ -70,7 +77,7 @@ export const channelApprovalsQuery = (id: string) =>
     refetchInterval: 15_000,
   });
 
-export const channelRunDetailQueryKey = (channelId: string, runId: string) =>
+const channelRunDetailQueryKey = (channelId: string, runId: string) =>
   ['channel-run-detail', channelId, runId] as const;
 
 export const channelRunQuestionsQueryKey = (channelId: string, runId: string) =>
@@ -96,19 +103,10 @@ export function useChannel(id: string) {
 export function useChannelMessages(id: string) {
   const client = useQueryClient();
   return useQuery({
-    ...channelMessagesQuery(id),
+    queryKey: channelMessagesKey(id),
     // 缓存可能已补入更早消息与 SSE 消息，重取最新页只能并入，否则更早区间永久丢失。
-    queryFn: async ({ signal }) => {
-      const page = await api.channelMessages(
-        id,
-        { before: Number.MAX_SAFE_INTEGER, limit: CHANNEL_MESSAGES_PAGE_SIZE },
-        signal,
-      );
-      return mergeChannelMessages(
-        client.getQueryData<ChannelMessage[]>(channelMessagesQuery(id).queryKey) ?? [],
-        page,
-      );
-    },
+    queryFn: ({ signal }) => fetchChannelMessages(id, client, signal),
+    staleTime: 0,
   });
 }
 
@@ -261,7 +259,7 @@ export function useChannelHandoff(id: string) {
     mutationFn: (input: ChannelHandoffInput) => api.handoffChannel(id, input),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['channels'] });
-      void client.invalidateQueries({ queryKey: channelMessagesQuery(id).queryKey });
+      void client.invalidateQueries({ queryKey: channelMessagesKey(id) });
     },
   });
 }

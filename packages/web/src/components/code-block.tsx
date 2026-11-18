@@ -10,7 +10,7 @@ const JSON_TOKEN =
   /"(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"\s*:|"(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"|\b(?:true|false|(null))\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
 
 /** 轻量 JSON 高亮：null 表示缺失，用弱化文字；其余 token 与正文同色，避免引入高亮依赖。 */
-export function highlightJson(text: string): ReactNode[] {
+function highlightJson(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let last = 0;
   let index = 0;

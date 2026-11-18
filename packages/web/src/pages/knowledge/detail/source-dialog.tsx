@@ -4,6 +4,7 @@ import { ConfirmDialog } from '../../../components/confirm-dialog.js';
 import { DialogShell } from '../../../components/dialog-shell.js';
 import {
   DraftGuardDialogs,
+  sourceStatusLabel,
   useDraftGuard,
 } from '../../../components/knowledge/knowledge-shared.js';
 import { RequiredMark } from '../../../components/required-mark.js';
@@ -121,6 +122,14 @@ export function SourceDialog({
   );
   const provider = sourceProvider(type);
   const ProviderIcon = provider.icon;
+  const statusOptions = [
+    ...(status === 'auth_error'
+      ? [{ value: 'auth_error' as const, label: sourceStatusLabel.auth_error }]
+      : []),
+    { value: 'active' as const, label: sourceStatusLabel.active },
+    { value: 'paused' as const, label: sourceStatusLabel.paused },
+    { value: 'disabled' as const, label: sourceStatusLabel.disabled },
+  ];
   const credential = credentialField(type, authMode);
   const secretRequired = credential !== null && !(editing && source.hasSecret);
   const issue = rangeIssue(type, ranges);
@@ -454,26 +463,18 @@ export function SourceDialog({
                             setStatus(next);
                           }
                         }}
-                        items={[
-                          ...(status === 'auth_error'
-                            ? [{ value: 'auth_error', label: '凭证失效' }]
-                            : []),
-                          { value: 'active', label: '启用' },
-                          { value: 'paused', label: '暂停' },
-                          { value: 'disabled', label: '停用' },
-                        ]}
+                        items={statusOptions}
                       >
                         <SelectTrigger id="knowledge-source-status" className="w-full">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
-                            {status === 'auth_error' ? (
-                              <SelectItem value="auth_error">凭证失效</SelectItem>
-                            ) : null}
-                            <SelectItem value="active">启用</SelectItem>
-                            <SelectItem value="paused">暂停</SelectItem>
-                            <SelectItem value="disabled">停用</SelectItem>
+                            {statusOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
                           </SelectGroup>
                         </SelectContent>
                       </Select>

@@ -1,14 +1,25 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { repo } from '@agentport/db';
+import { type Database, repo } from '@agentport/db';
 import {
   KNOWLEDGE_IMAGE_MAX_BYTES,
   type KnowledgeReadImageInput,
   type KnowledgeReadImageResult,
   knowledgeImageChunkMetadataSchema,
 } from '@agentport/shared';
-import type { KnowledgeServerInput } from './mcp.js';
 import { QUOTE_LIMIT } from './retrieval.js';
+
+export interface KnowledgeServerInput {
+  db: Database;
+  /** server.config.knowledgeBaseId：工具只能看这一库。 */
+  baseId: string;
+  serverId: string;
+  runId: string;
+  secretKey: string;
+  /** 与 worker 共享的解析产物根目录。 */
+  knowledgeDir: string;
+  signal?: AbortSignal | undefined;
+}
 
 /** SDK 原生视觉输入只接受这四种 MIME；其他格式提示走 description。 */
 const VISUAL_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);

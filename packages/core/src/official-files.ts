@@ -92,7 +92,7 @@ interface ParsedChildAgent {
   systemPrompt: string;
 }
 
-const CHILD_KEYS = new Set([
+export const CHILD_AGENT_FRONTMATTER_KEYS: ReadonlySet<string> = new Set([
   'name',
   'description',
   'model',
@@ -136,7 +136,7 @@ export function parseChildAgentMd(content: string, path: string): ParsedChildAge
   const { fields, body } = parseMarkdownFrontmatter(content, '子智能体文件', path, {
     maxBytes: 200_000,
   });
-  const unknown = [...fields.keys()].filter((key) => !CHILD_KEYS.has(key));
+  const unknown = [...fields.keys()].filter((key) => !CHILD_AGENT_FRONTMATTER_KEYS.has(key));
   if (unknown.length > 0) {
     fail('INVALID_INPUT', `子智能体文件含不支持的字段：${unknown.join('、')}`, {
       path: `${path}/${unknown[0]}`,

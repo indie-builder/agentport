@@ -7,6 +7,7 @@ import {
   INPUTS_CONTAINER_DIR,
   MEMORY_CONTAINER_DIR,
   type MemoryPolicy,
+  memoryWritable,
   OUTPUTS_CONTAINER_DIR,
   type ResolvedRuntimeEnvironment,
   redactSecrets,
@@ -206,7 +207,7 @@ export function memoryMountFor(
   memoryDir: string,
 ): Pick<SessionSandboxSpec, 'memoryDir' | 'memoryWritable'> {
   if (!policy.enabled) return {};
-  return { memoryDir, memoryWritable: policy.writeMode === 'native_auto' };
+  return { memoryDir, memoryWritable: memoryWritable(policy) };
 }
 
 function mountsFor(

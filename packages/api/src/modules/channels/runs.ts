@@ -1,5 +1,5 @@
 import { channelsContract } from '@agentport/contract/channels';
-import { fail, listOutputFiles, readOutputFile } from '@agentport/core';
+import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { type OutputFile, outputContentSchema, publicRunQuestion } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -7,7 +7,12 @@ import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { toIso } from '../../lib/iso.js';
-import { agentSlug, previewText } from '../chat/outputs.js';
+import {
+  agentSlug,
+  listWorkspaceOutputs,
+  previewText,
+  readWorkspaceOutput,
+} from '../../lib/outputs.js';
 import { answerRunQuestion } from '../runs/questions.js';
 
 const runsRepo = repo.runs;
@@ -41,11 +46,10 @@ async function readOutput(
   runId: string,
   path: string,
 ): Promise<{ file: OutputFile; data: Buffer }> {
-  const slug = await agentSlug(context, agentId);
+  const slug = await agentSlug(context.db, agentId);
   if (slug === null) return fail('NOT_FOUND', '成果文件不存在，可能已被清理');
   try {
-    return await readOutputFile({
-      root: context.config.WORKSPACES_DIR,
+    return await readWorkspaceOutput(context, {
       slug,
       conversationId,
       runId,
@@ -110,12 +114,11 @@ export const channelsRunsRouter = {
     const { id, runId } = input.params;
     await memberRun(context, id, runId);
     const detail = await runConversation(context, runId);
-    const slug = await agentSlug(context, detail.conversation.agentId);
+    const slug = await agentSlug(context.db, detail.conversation.agentId);
     if (slug === null) return { items: [], nextCursor: null };
     const { limit, cursor } = input.query;
     try {
-      return await listOutputFiles({
-        root: context.config.WORKSPACES_DIR,
+      return await listWorkspaceOutputs(context, {
         slug,
         conversationId: detail.conversation.id,
         limit,

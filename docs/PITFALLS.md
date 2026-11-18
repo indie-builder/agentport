@@ -675,7 +675,7 @@
 
 - **现象**：`agents_single_default_idx` 已存在，空库或默认行被删后仍可能没有任何默认助手，裸聊解析不到 agent。
 - **原因**：partial unique index 只约束 `is_default = true` 的行最多一行，缺少默认行不会报错；它与该索引条件被序列化成 `$1` 是两件不同的事。
-- **规避**：恰好一个由启动时幂等播种 `ensureDefaultAssistant`（bootstrap 与 `buildApp` 共用同一 `agentport:bootstrap` 锁）保证；默认对象由授权规则禁止改/删，播种重复执行不改配置、ID 与版本。不要用索引或 SQL 唯一性检查代替播种。
+- **规避**：恰好一个由 `buildApp` 启动时独立执行的幂等播种 `ensureDefaultAssistant`（自己的事务，与管理员初始化 `ensureBootstrap` 共用同一 `agentport:bootstrap` 锁）保证；默认对象由授权规则禁止改/删，播种重复执行不改配置、ID 与版本。不要用索引或 SQL 唯一性检查代替播种。
 
 ## 来源鉴权：派生更新回滚不代表已经撤权
 

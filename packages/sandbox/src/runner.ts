@@ -7,6 +7,7 @@ import {
   DEFAULT_DISALLOWED_TOOLS,
   errorText,
   INPUTS_CONTAINER_DIR,
+  MCP_APPROVAL_HOOK_TIMEOUT_SECONDS,
   MEMORY_CONTAINER_DIR,
   type NativeQuestion,
   OUTPUTS_CONTAINER_DIR,
@@ -18,6 +19,7 @@ import {
   sandboxTaskSchema,
   type TerminalRunStatus,
   type WireFailureKind,
+  WORKSPACE_CONTAINER_DIR,
 } from '@agentport/shared';
 import {
   forkSession,
@@ -91,7 +93,7 @@ interface RunnerEvent {
 
 const configDir = process.env.CLAUDE_CONFIG_DIR ?? CONFIG_CONTAINER_DIR;
 const memoryDirectory = MEMORY_CONTAINER_DIR;
-const workspaceDir = '/workspace';
+const workspaceDir = WORKSPACE_CONTAINER_DIR;
 // 频道 run 由 worker 在容器 env 里标记；私聊不设置，token 口径保持原样。
 const channelRun = process.env.PACE_RUN_TRIGGER === 'channel';
 
@@ -295,9 +297,11 @@ const allowedTools = [
   'Bash',
   `Read(/${memoryDirectory}/**)`,
   // 技能参考文件只读：.claude/skills/<slug>/references/**；写入仍仅限原生记忆目录。
-  'Read(//workspace/.claude/skills/*/references/**)',
+  `Read(/${WORKSPACE_CONTAINER_DIR}/.claude/skills/*/references/**)`,
   // 插件技能的支持资源同样在只读挂载内：.claude/plugins/<slug>/skills/<name>/**。
-  ...(task.plugins.length === 0 ? [] : ['Read(//workspace/.claude/plugins/*/skills/*/**)']),
+  ...(task.plugins.length === 0
+    ? []
+    : [`Read(/${WORKSPACE_CONTAINER_DIR}/.claude/plugins/*/skills/*/**)`]),
   // Edit(path) also authorizes Write; Write(path) is not a file permission rule.
   // proposal_only / 未启用专家记忆时必须拿掉这条写权限：SDK 的 auto-memory 已关闭，
   // 模型只能经记忆提案由平台写入；预批准写目录会让提案制形同虚设。
@@ -580,17 +584,11 @@ if (session.error !== undefined) {
           PreToolUse: [
             {
               hooks: [
-                createFileBoundaryHook(
-                  memoryDirectory,
-                  undefined,
-                  undefined,
-                  undefined,
-                  undefined,
-                  {
-                    subAgentSlugs: new Set(task.subAgents.map((sub) => sub.slug)),
-                    memoryWritable: memoryRuntime.allowMemoryWrite,
-                  },
-                ),
+                createFileBoundaryHook({
+                  memoryDir: memoryDirectory,
+                  subAgentSlugs: new Set(task.subAgents.map((sub) => sub.slug)),
+                  memoryWritable: memoryRuntime.allowMemoryWrite,
+                }),
                 createSubAgentBoundaryHook({
                   // 插件 MCP 的 scoped 名（plugin_<plugin>_<server>）与普通 server 同名空间，
                   // 主会话放行自己绑定的插件 server，子智能体保持一律拒绝。
@@ -608,7 +606,7 @@ if (session.error !== undefined) {
             },
             {
               matcher: 'mcp__.*',
-              timeout: 360,
+              timeout: MCP_APPROVAL_HOOK_TIMEOUT_SECONDS,
               onFailure: 'block',
               hooks: [createApprovalHook(task, workspaceDir, abortController.signal)],
             },

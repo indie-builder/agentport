@@ -2,9 +2,10 @@ import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { idParams, PLUGIN_ZIP_MAX_BYTES, slugSchema } from '@agentport/shared';
 import type { Hono } from 'hono';
-import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { actorOf, authorizeResourceAccess, requireUser } from '../../http/access.js';
+import { attachmentResponse } from '../../http/attachment.js';
+import { requestBodyLimit } from '../../http/body-limit.js';
 import type { HttpEnv } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
@@ -26,10 +27,7 @@ export function registerPluginsHttp(app: Hono<HttpEnv>): void {
   app.post(
     '/api/plugins/import',
     access({ kind: 'permission', permissionId: 'plugins.import' }),
-    bodyLimit({
-      maxSize: PLUGIN_ZIP_MAX_BYTES,
-      onError: () => fail('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试'),
-    }),
+    requestBodyLimit(PLUGIN_ZIP_MAX_BYTES),
     async (c) => {
       const context = requestContext(c);
       requireTrustedOrigin(context);
@@ -89,11 +87,11 @@ export function registerPluginsHttp(app: Hono<HttpEnv>): void {
         '插件不存在，可能已被删除；请刷新后重试',
       );
       const files = await repo.plugins.listPluginFiles(context.db, row.id);
-      return c.body(new Uint8Array(encodePackageEntries(files)), 200, {
-        'content-disposition': `attachment; filename="${row.slug}.zip"`,
-        'cache-control': 'no-store',
-        'content-type': 'application/zip',
-      });
+      return attachmentResponse(
+        new Uint8Array(encodePackageEntries(files)),
+        `${row.slug}.zip`,
+        'application/zip',
+      );
     },
   );
 }

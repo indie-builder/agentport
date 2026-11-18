@@ -135,12 +135,14 @@ export const knowledgeKeys = {
   summary: (id: string) => ['knowledge', 'base-summary', id] as const,
   activity: (id: string) => ['knowledge', 'base-activity', id] as const,
   documents: (baseId: string) => ['knowledge', 'documents', baseId] as const,
+  document: (documentId: string | null) => ['knowledge', 'document', documentId] as const,
   documentVersions: (documentId: string) => ['knowledge', 'document-versions', documentId] as const,
   manual: (documentId: string) => ['knowledge', 'manual', documentId] as const,
   faqs: (baseId: string) => ['knowledge', 'faqs', baseId] as const,
   faq: (documentId: string) => ['knowledge', 'faq', documentId] as const,
   chunks: (documentId: string, versionId: string) =>
     ['knowledge', 'chunks', documentId, versionId] as const,
+  chunksOfDocument: (documentId: string) => ['knowledge', 'chunks', documentId] as const,
   markdown: (versionId: string) => ['knowledge', 'markdown', versionId] as const,
   versionDetails: (versionId: string) => ['knowledge', 'version-details', versionId] as const,
   search: (baseId: string, options: KnowledgeSearchOptions) =>

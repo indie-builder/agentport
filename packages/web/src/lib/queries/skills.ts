@@ -9,7 +9,7 @@ import { ApiError, api } from '../api.js';
 import { toast, toastError, toastSuccess } from '../toast.js';
 import { useDebouncedValue } from '../use-debounced-value.js';
 
-export const skillsQuery = queryOptions<SkillWithAgentCount[]>({
+const skillsQuery = queryOptions<SkillWithAgentCount[]>({
   queryKey: ['skills'],
   queryFn: () => api.skills(),
 });

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { SourceAuthError, type SourceConfig } from '../src/knowledge/sources.js';
+import type { SourceConfig } from '../src/knowledge/source-types.js';
+import { SourceAuthError } from '../src/knowledge/sources.js';
 import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
 // Scoped tokens use the fixed Atlassian gateway; resolve it to a public address

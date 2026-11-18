@@ -278,6 +278,15 @@ export function useChatStream({
     closeSource();
   }, [closeSource]);
 
+  const resetWorkspace = useCallback(
+    (nextConversationId: string | null, carryDraft = false): void => {
+      closeStream();
+      hydratedRef.current = null;
+      useChatStore.getState().resetConversation(nextConversationId, carryDraft);
+    },
+    [closeStream],
+  );
+
   const restoreRegenerate = useCallback((snapshot: RegenerateSnapshot): void => {
     const store = useChatStore.getState();
     store.setItems(snapshot.items);
@@ -1068,6 +1077,7 @@ export function useChatStream({
     regenerate,
     regenerating,
     closeStream,
+    resetWorkspace,
     captureRequest,
     hydratedRef,
     reconcileRun,

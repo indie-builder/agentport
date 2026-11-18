@@ -5,7 +5,6 @@ import type {
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
-  ArrowLeft,
   CircleAlert,
   CircleCheck,
   Clock,
@@ -17,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
+import { BackLink } from '../../components/back-link.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterSelect } from '../../components/filter-select.js';
@@ -30,7 +30,7 @@ import {
 } from '../../components/page.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
-import { Button, buttonVariants } from '../../components/ui/button.js';
+import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import {
   DropdownMenu,
@@ -267,29 +267,7 @@ export function RuntimeEnvironmentDetailPage() {
         <PageHeader
           title={current.name}
           eyebrow={current.isDefault ? <Badge variant="secondary">默认</Badge> : null}
-          leading={
-            <a
-              href={backTo}
-              onClick={(event) => {
-                if (
-                  event.defaultPrevented ||
-                  event.button !== 0 ||
-                  event.metaKey ||
-                  event.ctrlKey ||
-                  event.shiftKey ||
-                  event.altKey
-                ) {
-                  return;
-                }
-                event.preventDefault();
-                void navigate({ href: backTo });
-              }}
-              aria-label={search.backTo ? '返回来源' : '返回运行环境列表'}
-              className={buttonVariants({ variant: 'outline', size: 'icon' })}
-            >
-              <ArrowLeft aria-hidden="true" />
-            </a>
-          }
+          leading={<BackLink to={backTo} label={search.backTo ? '返回来源' : '返回运行环境列表'} />}
           actions={
             canBuild || canDelete ? (
               <>

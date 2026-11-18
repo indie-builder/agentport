@@ -2,11 +2,11 @@ import type { ModelProvider, ModelProviderCreate, ModelProviderUpdate } from '@a
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
 
-export const modelProviderKeys = {
+const modelProviderKeys = {
   all: ['model-providers'] as const,
 };
 
-export const modelProvidersQuery = queryOptions<ModelProvider[]>({
+const modelProvidersQuery = queryOptions<ModelProvider[]>({
   queryKey: modelProviderKeys.all,
   queryFn: () => api.modelProviders(),
   staleTime: 0,

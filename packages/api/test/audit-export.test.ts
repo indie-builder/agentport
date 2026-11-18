@@ -159,7 +159,9 @@ describe.skipIf(!ready)('audit export', () => {
 
     const res = await exportAudit(`?target=${encodeURIComponent(target)}`);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.headers.get('content-disposition')).toBe('attachment; filename="audit.json"');
+    expect(res.headers.get('content-disposition')).toBe(
+      'attachment; filename="audit.json"; filename*=UTF-8\'\'audit.json',
+    );
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.headers.get('content-type')).toContain('application/json');
@@ -244,7 +246,9 @@ describe.skipIf(!ready)('audit export', () => {
     const res = await exportAudit(`?target=${encodeURIComponent(target)}&format=ndjson`);
     expect(res.statusCode, res.body).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/x-ndjson');
-    expect(res.headers.get('content-disposition')).toBe('attachment; filename="audit.ndjson"');
+    expect(res.headers.get('content-disposition')).toBe(
+      'attachment; filename="audit.ndjson"; filename*=UTF-8\'\'audit.ndjson',
+    );
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
 

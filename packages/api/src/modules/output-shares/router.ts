@@ -6,7 +6,6 @@ import {
   fail,
   isAppError,
   notFound,
-  readOutputFile,
   sha256Hex,
 } from '@agentport/core';
 import { repo } from '@agentport/db';
@@ -14,8 +13,8 @@ import type { OutputFile, OutputShare, PublicOutputShare } from '@agentport/shar
 import { implement } from '@orpc/server';
 import { actorOf, authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { agentSlug, previewText, readWorkspaceOutput } from '../../lib/outputs.js';
 import { CONVERSATION_MISSING } from '../chat/access.js';
-import { agentSlug, previewText } from '../chat/outputs.js';
 import { bearerToken, tokenMatches } from '../servers/bearer.js';
 
 const os = implement(outputSharesContract).$context<RequestContext>();
@@ -78,12 +77,11 @@ export async function resolveSharedFile(
   const conversation = await repo.chat.getConversation(context.db, row.conversationId);
   if (!conversation) return null;
   if (await repo.chat.isConversationDataDomainRestricted(context.db, conversation.id)) return null;
-  const slug = await agentSlug(context, conversation.agentId);
+  const slug = await agentSlug(context.db, conversation.agentId);
   if (slug === null) return null;
 
   try {
-    const { file, data } = await readOutputFile({
-      root: context.config.WORKSPACES_DIR,
+    const { file, data } = await readWorkspaceOutput(context, {
       slug,
       conversationId: conversation.id,
       runId: row.runId,
@@ -115,14 +113,13 @@ export const outputSharesRouter = os.router({
     if (await repo.chat.isConversationDataDomainRestricted(context.db, conversation.id)) {
       fail('FORBIDDEN', '该会话读取过数据域治理数据，其成果不支持公开分享');
     }
-    const slug = await agentSlug(context, conversation.agentId);
+    const slug = await agentSlug(context.db, conversation.agentId);
     if (slug === null) fail('NOT_FOUND', '成果文件不存在，可能已被清理');
 
     let file: OutputFile;
     let data: Buffer;
     try {
-      ({ file, data } = await readOutputFile({
-        root: context.config.WORKSPACES_DIR,
+      ({ file, data } = await readWorkspaceOutput(context, {
         slug,
         conversationId: conversation.id,
         runId: input.body.runId,

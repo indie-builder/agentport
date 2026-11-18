@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { slugSchema } from './params.js';
+import { utf8Bytes } from './utf8.js';
 
 /** 平台支持的权限模式；SDK 的 auto 依赖模型分类器，平台不开放。 */
 export const permissionModeSchema = z.enum(['default', 'acceptEdits', 'plan', 'dontAsk']);
@@ -291,21 +292,12 @@ export const agentHookFilePathSchema = z
     '路径必须是相对路径，且不能包含 .、.. 或空路径段',
   );
 
-function utf8ByteLength(value: string): number {
-  let bytes = 0;
-  for (const char of value) {
-    const code = char.codePointAt(0) ?? 0;
-    bytes += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
-  }
-  return bytes;
-}
-
 export const agentHooksConfigSchema = z
   .record(z.string().min(1).max(100), z.unknown())
   .nullable()
   .default(null)
   .refine(
-    (config) => config === null || utf8ByteLength(JSON.stringify(config)) <= AGENT_HOOKS_CONFIG_MAX,
+    (config) => config === null || utf8Bytes(JSON.stringify(config)) <= AGENT_HOOKS_CONFIG_MAX,
     `hooks 配置不能超过 ${AGENT_HOOKS_CONFIG_MAX} 字节`,
   );
 

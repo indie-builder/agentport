@@ -1193,6 +1193,53 @@ describe('FAQ committed import publish readiness', () => {
       items: [{ documentId: 'kdoc_m', versionId: 'kdv_m_new', expectedVersionId: 'kdv_m_pub' }],
     });
   });
+
+  it('disables batch publish when a previously succeeded job later returns 404', async () => {
+    baseHandlers();
+    let jobMissing = false;
+    const batchCalls = () =>
+      calls.filter(
+        (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/faqs/batch',
+      );
+    server.use(
+      faqListHandler([{ ...mergedDocument, faq }]),
+      http.get('/api/knowledge/faqs/kdoc_m', () => HttpResponse.json(oldDetail)),
+      http.get('/api/knowledge/jobs/:jobId', ({ params }) =>
+        jobMissing
+          ? HttpResponse.json({ code: 'NOT_FOUND', message: '任务不存在' }, { status: 404 })
+          : HttpResponse.json(job('succeeded', String(params.jobId))),
+      ),
+      http.post('/api/knowledge/bases/kb_1/faqs/import', async ({ request }) => {
+        const body = (await request.json()) as { dryRun: boolean };
+        return HttpResponse.json({
+          ...importResponse,
+          dryRun: body.dryRun,
+          committed: !body.dryRun,
+        });
+      }),
+    );
+    const mounted = await mount('/knowledge/kb_1', { panel: 'faqs' });
+    await click(button('导入'));
+    const importer = dialog('导入 FAQ');
+    await fill(
+      'faq-import-content',
+      JSON.stringify([{ question: '如何恢复数据？', answers: ['从备份恢复。'] }]),
+    );
+    await click(button('预览', importer));
+    await waitFor(() => maybeButton('确认导入', importer)?.disabled === false);
+    await click(button('确认导入', importer));
+    await waitFor(() => maybeButton('发布本批 1 条 FAQ', importer)?.disabled === false);
+
+    jobMissing = true;
+    await act(async () => {
+      await mounted.client.invalidateQueries({ queryKey: ['knowledge', 'job', 'kjob_m'] });
+    });
+    await flush();
+    expect(importer.textContent).toContain('索引任务记录已被清理');
+    expect(maybeButton('发布本批 1 条 FAQ', importer)?.disabled).toBe(true);
+    await click(button('发布本批 1 条 FAQ', importer));
+    expect(batchCalls()).toHaveLength(0);
+  });
 });
 
 describe('FAQ list status semantics', () => {

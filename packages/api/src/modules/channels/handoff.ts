@@ -1,12 +1,5 @@
 import { channelsContract } from '@agentport/contract/channels';
-import {
-  fail,
-  isAppError,
-  listOutputFiles,
-  readOutputFile,
-  removeChannelInputs,
-  writeChannelAttachments,
-} from '@agentport/core';
+import { fail, isAppError, removeChannelInputs, writeChannelAttachments } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import {
   ATTACHMENT_LIMITS,
@@ -20,6 +13,7 @@ import {
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { listWorkspaceOutputs, readWorkspaceOutput } from '../../lib/outputs.js';
 import { getQueue, publishChannelMessage } from '../../queue/producer.js';
 import { loadReadableConversation } from '../chat/access.js';
 import { dispatchChannelWakes } from './wakes.js';
@@ -113,8 +107,7 @@ export const channelsHandoffRouter = {
     const firstUser =
       triggerMessage?.body || source.steps.find((step) => step.kind === 'user')?.text || '';
 
-    const outputs = await listOutputFiles({
-      root: context.config.WORKSPACES_DIR,
+    const outputs = await listWorkspaceOutputs(context, {
       slug: sourceAgent.slug,
       conversationId: source.run.conversationId,
       runId: source.run.id,
@@ -155,8 +148,7 @@ export const channelsHandoffRouter = {
         for (const file of picked) {
           let input: ChatAttachmentInput;
           try {
-            const { data } = await readOutputFile({
-              root: context.config.WORKSPACES_DIR,
+            const { data } = await readWorkspaceOutput(context, {
               slug: sourceAgent.slug,
               conversationId: source.run.conversationId,
               runId: source.run.id,

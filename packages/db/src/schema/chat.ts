@@ -331,11 +331,11 @@ export const agentRuns = pgTable(
     index('agent_runs_conversation_idx').on(t.conversationId),
     check(
       'agent_runs_status_check',
-      sql`${t.status} in ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'timeout')`,
+      sql`${t.status} in (${sql.raw(runStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'agent_runs_trigger_check',
-      sql`${t.trigger} in ('chat', 'mcp', 'schedule', 'event', 'review', 'channel')`,
+      sql`${t.trigger} in (${sql.raw(runTriggerSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check('agent_runs_subject_kind_check', sql`${t.subjectKind} in ('user', 'service')`),
     check('agent_runs_provider_failovers_check', sql`${t.providerFailovers} >= 0`),

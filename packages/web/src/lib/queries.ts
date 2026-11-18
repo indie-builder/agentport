@@ -35,7 +35,6 @@ export {
   knowledgeShouldPoll,
   logoutAccount,
   meQuery,
-  mergeRunQuestions,
   queryClient,
   useDrainPages,
   useRefetchWhenRunEnds,
