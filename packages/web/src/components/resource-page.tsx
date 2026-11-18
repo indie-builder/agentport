@@ -25,6 +25,7 @@ export function ResourcePage({
   leadingFilters,
   hideToolbar,
   actions,
+  toolbarActions,
   children,
 }: {
   section: keyof typeof RESOURCE_SECTIONS;
@@ -37,6 +38,7 @@ export function ResourcePage({
   leadingFilters?: ReactNode;
   hideToolbar?: boolean;
   actions?: ReactNode;
+  toolbarActions?: ReactNode;
   children: ReactNode;
 } & (
   | { sort: 'newest' | 'name'; onSortChange: (value: 'newest' | 'name') => void }
@@ -105,15 +107,20 @@ export function ResourcePage({
                 className="w-32"
               />
             ) : null}
-            {status === 'success' && count === undefined ? null : (
-              <span role="status" className="ml-auto text-xs text-muted-foreground">
-                {status === 'pending'
-                  ? '加载中…'
-                  : status === 'error'
-                    ? '数量不可用'
-                    : `共 ${count} 个${label}`}
-              </span>
-            )}
+            {!(status === 'success' && count === undefined) || toolbarActions ? (
+              <div className="ml-auto flex min-w-0 flex-wrap items-center gap-3">
+                {status === 'success' && count === undefined ? null : (
+                  <span role="status" className="text-xs text-muted-foreground">
+                    {status === 'pending'
+                      ? '加载中…'
+                      : status === 'error'
+                        ? '数量不可用'
+                        : `共 ${count} 个${label}`}
+                  </span>
+                )}
+                {toolbarActions}
+              </div>
+            ) : null}
           </PageToolbar>
         )}
       </PageTopbar>
