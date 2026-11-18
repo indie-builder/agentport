@@ -12,7 +12,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { agents } from './agents.js';
-import { agentRuns, channels, conversations, messages } from './chat.js';
+import { agentRuns, channelMessages, channels, conversations, messages } from './chat.js';
 import { evalCases } from './eval.js';
 import { servers } from './servers.js';
 
@@ -45,6 +45,29 @@ export const runQuestions = pgTable(
       'run_questions_status_check',
       sql`${t.status} in ('pending', 'answered', 'declined', 'closed', 'expired')`,
     ),
+  ],
+);
+
+export const runInstructions = pgTable(
+  'run_instructions',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: 'cascade' }),
+    channelMessageId: text('channel_message_id')
+      .notNull()
+      .references(() => channelMessages.id, { onDelete: 'cascade' }),
+    body: text('body').notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('run_instructions_run_message_idx')
+      .on(t.runId, t.channelMessageId)
+      .where(sql`${t.channelMessageId} is not null`),
+    index('run_instructions_run_delivered_idx').on(t.runId, t.deliveredAt),
   ],
 );
 

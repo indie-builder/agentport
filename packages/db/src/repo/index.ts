@@ -28,6 +28,7 @@ export * as plugins from './plugins.js';
 export * as questions from './questions.js';
 export * as rules from './rules.js';
 export * as runFeedback from './run-feedback.js';
+export * as runInstructions from './run-instructions.js';
 export * as runs from './runs.js';
 export * as runtimeEnvironments from './runtime-environments.js';
 export * as servers from './servers.js';

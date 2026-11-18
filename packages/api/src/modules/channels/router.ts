@@ -1,5 +1,5 @@
 import { channelsContract } from '@agentport/contract/channels';
-import { fail } from '@agentport/core';
+import { fail, removeChannelInputs, writeChannelAttachments } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import {
   CHANNEL_MAX_WAKE_AGENTS,
@@ -32,6 +32,7 @@ import {
 import type { NativeHttpDependencies } from '../chat/http.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
+import { channelsHandoffRouter } from './handoff.js';
 import { channelsRunsRouter } from './runs.js';
 import { dispatchChannelWakes } from './wakes.js';
 
@@ -444,15 +445,44 @@ const channelsMainRouter = {
     if (wakes && (await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
       return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
     }
-    const result = await channelRepo.postMessage(context.db, subjectFor(context), id, {
-      id: newId('channelMessage'),
-      body: input.body.body,
-      ...(input.body.clientMessageId === undefined
-        ? {}
-        : { clientMessageId: input.body.clientMessageId }),
-      ...(mentions.length === 0 ? {} : { mentions }),
-      ...(mentionAll ? { mentionAll } : {}),
+    const messageId = newId('channelMessage');
+    const attachments = await writeChannelAttachments({
+      root: context.config.WORKSPACES_DIR,
+      channelId: id,
+      messageId,
+      inputs: input.body.attachments ?? [],
     });
+    const discardAttachments = async (): Promise<void> => {
+      if (attachments.length === 0) return;
+      try {
+        await removeChannelInputs({
+          root: context.config.WORKSPACES_DIR,
+          channelId: id,
+          messageId,
+        });
+      } catch (err) {
+        context.log.warn({ err, channelId: id, messageId }, 'channel attachment cleanup failed');
+      }
+    };
+    let result: Awaited<ReturnType<typeof channelRepo.postMessage>>;
+    try {
+      result = await channelRepo.postMessage(context.db, subjectFor(context), id, {
+        id: messageId,
+        body: input.body.body ?? '',
+        ...(input.body.clientMessageId === undefined
+          ? {}
+          : { clientMessageId: input.body.clientMessageId }),
+        ...(mentions.length === 0 ? {} : { mentions }),
+        ...(mentionAll ? { mentionAll } : {}),
+        ...(attachments.length === 0 ? {} : { attachments }),
+      });
+    } catch (err) {
+      await discardAttachments();
+      throw err;
+    }
+    if (result.kind !== 'ok' || result.duplicate) {
+      await discardAttachments();
+    }
     switch (result.kind) {
       case 'not_found':
         return notFound();
@@ -467,7 +497,13 @@ const channelsMainRouter = {
         await auditWrite(context, {
           action: 'channel.message.posted',
           target: message.id,
-          input: { channelId: id, mentions, mentionAll },
+          input: {
+            channelId: id,
+            mentions,
+            mentionAll,
+            attachmentCount: attachments.length,
+            attachmentNames: attachments.map((attachment) => attachment.filename),
+          },
           dedupeKey: `aud_chmsg_${message.id.slice(4)}`,
         });
         await publishMessage(context, id, message);
@@ -475,6 +511,7 @@ const channelsMainRouter = {
           db: context.db,
           log: context.log,
           queue: getQueue(),
+          workspacesDir: context.config.WORKSPACES_DIR,
           channelMessageId: message.id,
         });
         return { status: result.duplicate ? (200 as const) : (201 as const), body: message };
@@ -696,5 +733,6 @@ export const channelsRouter = {
   ...channelsMainRouter,
   ...channelsControlRouter,
   ...channelsApprovalsRouter,
+  ...channelsHandoffRouter,
   ...channelsRunsRouter,
 };

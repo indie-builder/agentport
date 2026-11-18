@@ -51,6 +51,8 @@ const FEEDBACK_OUTPUT_PATH = '/mnt/outputs/feedback-report.md';
 /** 慢响应标记：正文含它时假模型先吐半句、延迟后再收尾，供停止/刷新恢复用例观察。 */
 const SLOW_MARKER = 'E2E-CHANNEL-SLOW';
 const SLOW_PARTIAL = 'E2E-CHANNEL-SLOW-PARTIAL';
+/** 附件标记：先对提示里列出的 /mnt/inputs 路径发 Read，读回后再把内容带回回复。 */
+const ATTACH_MARKER = 'E2E-CHANNEL-ATTACH';
 const SLOW_DELAY_MS = Number(process.env.E2E_CHANNEL_FAKE_SLOW_MS ?? 15_000);
 /** 失败标记：正文含它时假模型返回 500，供真实失败运行与重试用例。 */
 const FAIL_MARKER = 'E2E-CHANNEL-FAIL';
@@ -621,6 +623,33 @@ function nextApprovalToolCall(
   return { name: 'ToolSearch', input: { query: `select:${promptToolName}` } };
 }
 
+/**
+ * 附件标记轮：从频道提示里取第一条 /mnt/inputs 路径，发 Read；工具结果回来后
+ * 把读取内容带进最终文本，证明是沙盒真实读取而不是模型编造。
+ */
+function attachmentReadState(body: unknown): { path: string; content?: string } | null {
+  const messages = historyMessages(body);
+  const promptIndex = messages.findLastIndex((message) => {
+    if (typeof message !== 'object' || message === null) return false;
+    if ((message as { role?: unknown }).role !== 'user') return false;
+    return contentText((message as { content?: unknown }).content).includes(ATTACH_MARKER);
+  });
+  if (promptIndex < 0) return null;
+  const prompt = contentText((messages[promptIndex] as { content?: unknown }).content);
+  const path = prompt.match(/\/mnt\/inputs\/[^\s，；（)]+/)?.[0];
+  if (path === undefined) return null;
+  const results = historyToolResults(body);
+  const use = toolUsesOf(messages.slice(promptIndex)).find(
+    (candidate) =>
+      candidate.name === 'Read' &&
+      typeof candidate.input === 'object' &&
+      candidate.input !== null &&
+      (candidate.input as { file_path?: unknown }).file_path === path &&
+      results.has(candidate.id),
+  );
+  return use === undefined ? { path } : { path, content: results.get(use.id) ?? '' };
+}
+
 interface FeedbackReply {
   text: string;
   content: string;
@@ -801,7 +830,15 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
       const approvalCall = conversation.includes(APPROVAL_TOOL_MARKER)
         ? nextApprovalToolCall(body)
         : null;
-      const toolCall = dataDomainCall ?? approvalCall ?? nextOutputWriteCall(body, feedback);
+      const attachmentState = conversation.includes(ATTACH_MARKER)
+        ? attachmentReadState(body)
+        : null;
+      const attachmentCall =
+        attachmentState !== null && attachmentState.content === undefined
+          ? { name: 'Read', input: { file_path: attachmentState.path } }
+          : null;
+      const toolCall =
+        dataDomainCall ?? approvalCall ?? attachmentCall ?? nextOutputWriteCall(body, feedback);
       const completedResults = historyToolResults(body);
       const runSqlDone = historyToolUses(body).some(
         (use) => use.name.endsWith('__run_sql') && completedResults.has(use.id),
@@ -825,7 +862,7 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
             ? `E2E-DD-TOOL-MISSING ${toolsOf(body)
                 .map((tool) => String(tool.name))
                 .join(',')}`
-            : `${REPLY_PREFIX} ${prompt}${echoToken === undefined ? '' : ` [SYSTEM:${echoToken}]`}`;
+            : `${REPLY_PREFIX} ${prompt}${echoToken === undefined ? '' : ` [SYSTEM:${echoToken}]`}${attachmentState?.content === undefined ? '' : `\n[ATTACH-READ:${attachmentState.content}]`}`;
       messageRequests.push({ at: Date.now(), path: pathname, prompt, reply });
 
       res.writeHead(200, {

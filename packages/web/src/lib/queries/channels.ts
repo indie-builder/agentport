@@ -17,6 +17,7 @@ import {
   api,
   type ChannelActiveRun,
   type ChannelApproval,
+  type ChannelHandoffInput,
   type ChannelRunDetail,
   type ChannelRunOutputContent,
   type ChannelRunQuestions,
@@ -233,9 +234,7 @@ export function useUpdateChannelAgent(id: string) {
             ? {
                 ...old,
                 agentBindings: old.agentBindings.map((b) =>
-                  b.agentId === vars.agentId
-                    ? { ...b, autoWakeOnAll: vars.autoWakeOnAll }
-                    : b,
+                  b.agentId === vars.agentId ? { ...b, autoWakeOnAll: vars.autoWakeOnAll } : b,
                 ),
               }
             : old,
@@ -252,6 +251,17 @@ export function useUpdateChannelAgent(id: string) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['channel', id] });
       void client.invalidateQueries({ queryKey: ['channels'] });
+    },
+  });
+}
+
+export function useChannelHandoff(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ChannelHandoffInput) => api.handoffChannel(id, input),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['channels'] });
+      void client.invalidateQueries({ queryKey: channelMessagesQuery(id).queryKey });
     },
   });
 }

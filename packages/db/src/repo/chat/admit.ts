@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { fail, notFound } from '@agentport/core';
-import type { AgentDefinition, ExecutionSubject, RunTrigger } from '@agentport/shared';
+import type {
+  AgentDefinition,
+  ExecutionSubject,
+  MessageAttachment,
+  RunTrigger,
+} from '@agentport/shared';
 import { ACTIVE_RUN_STATUSES } from '@agentport/shared';
 import { and, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Database } from '../../client.js';
@@ -34,11 +39,17 @@ interface ChannelContextMessage {
   authorBusinessId: string | null;
   agentId: string | null;
   body: string;
+  attachments: MessageAttachment[] | null;
+}
+
+function attachmentNames(message: ChannelContextMessage): string {
+  const names = (message.attachments ?? []).map((attachment) => attachment.filename);
+  return names.length === 0 ? '' : `（附件：${names.join('、')}）`;
 }
 
 function channelContextLine(message: ChannelContextMessage): string {
   if (message.kind === 'human') {
-    return `成员 ${(message.authorBusinessId ?? '').slice(-6)}：${message.body}\n`;
+    return `成员 ${(message.authorBusinessId ?? '').slice(-6)}：${message.body}${attachmentNames(message)}\n`;
   }
   if (message.kind === 'agent') return `智能体 ${message.agentId ?? ''}：${message.body}\n`;
   return `系统：${message.body}\n`;
@@ -81,6 +92,7 @@ export async function admitChatRun(
     subject: ExecutionSubject;
     /** 频道触发：准入自行取建该 agent 的 lane，并从 DB 复核频道成员与绑定。 */
     channel?: { channelId: string; channelMessageId: string };
+    attachments?: MessageAttachment[];
     budgetExempt?: boolean;
     allowDisabled?: boolean;
     regenerate?: true;
@@ -236,6 +248,7 @@ export async function admitChatRun(
           authorBusinessId: channelMessages.authorBusinessId,
           agentId: channelMessages.agentId,
           body: channelMessages.body,
+          attachments: channelMessages.attachments,
         })
         .from(channelMessages)
         .where(
@@ -450,8 +463,16 @@ export async function admitChatRun(
         senderBusinessId: input.subject.kind === 'user' ? input.subject.businessId : null,
         content:
           channelContext === null
-            ? (input.userContent ?? { type: 'text', text: input.message })
-            : { type: 'text', text: `${channelContext}${input.message}` },
+            ? (input.userContent ?? {
+                type: 'text',
+                text: input.message,
+                ...(input.attachments === undefined ? {} : { attachments: input.attachments }),
+              })
+            : {
+                type: 'text',
+                text: `${channelContext}${input.message}`,
+                ...(input.attachments === undefined ? {} : { attachments: input.attachments }),
+              },
         runId: run.id,
         sdkMessageUuid: userMessageUuid,
         ...(input.channel === undefined

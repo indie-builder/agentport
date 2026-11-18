@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
@@ -18,6 +19,10 @@ import { fixture as runFixture } from './support/fixture.js';
 const REPLY_PREFIX = 'E2E-CHANNEL-REPLY';
 const SLOW_MARKER = 'E2E-CHANNEL-SLOW';
 const SLOW_PARTIAL = 'E2E-CHANNEL-SLOW-PARTIAL';
+const ATTACH_MARKER = 'E2E-CHANNEL-ATTACH';
+const STEER_MARKER = 'E2E-CHANNEL-STEER';
+const APPROVAL_TOOL_MARKER = 'E2E-APPROVAL-TOOL';
+const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -73,17 +78,64 @@ async function createChannel(browser: Browser, tag: string): Promise<{ id: strin
   return { id: result.json.id, name };
 }
 
-async function createAgent(browser: Browser, tag: string): Promise<{ id: string; name: string }> {
+async function createAgent(
+  browser: Browser,
+  tag: string,
+  options: { serverIds?: string[] } = {},
+): Promise<{ id: string; name: string }> {
   const suffix = uniqueSuffix();
   const name = `E2E 智能体 ${tag} ${suffix}`;
   const result = await apiJson<{ id: string }>(browser, 'POST', '/api/agents', {
     slug: `e2e-channel-${tag}-${suffix}`,
     name,
     systemPrompt: '你是频道验证智能体。收到消息后直接回复内容。',
+    ...options,
   });
   assert(result.status === 201 && result.json !== null, `创建智能体失败：${result.status}`);
   created.agents.push(result.json.id);
   return { id: result.json.id, name };
+}
+
+function fakeModelUrl(): string {
+  return (process.env.E2E_FAKE_MODEL_URL ?? 'http://127.0.0.1:4318').replace(/\/+$/, '');
+}
+
+async function approvalEchoHits(): Promise<number> {
+  const response = await fetch(`${fakeModelUrl()}/__e2e_upstream/hits`);
+  assert(response.ok, `读取假模型上游命中数失败：${response.status}`);
+  const body = (await response.json()) as { approvalEcho?: unknown };
+  assert(typeof body.approvalEcho === 'number', '假模型上游命中数格式不符');
+  return body.approvalEcho;
+}
+
+async function createApprovalServer(
+  browser: Browser,
+  tag: string,
+): Promise<{ serverId: string; serverName: string }> {
+  const suffix = uniqueSuffix();
+  const serverName = `e2e-channel-approval-${tag}-${suffix}`;
+  const server = await apiJson<{ id: string }>(browser, 'POST', '/api/servers', {
+    kind: 'generated',
+    name: serverName,
+    baseUrl: `${fakeModelUrl()}/__e2e_upstream`,
+  });
+  assert(server.status === 201 && server.json !== null, `创建服务器失败：${server.status}`);
+  created.servers.push(server.json.id);
+  const tool = await apiJson(browser, 'POST', `/api/servers/${server.json.id}/tools`, {
+    name: 'approval-echo',
+    method: 'GET',
+    pathTemplate: '/approval-echo',
+    approvalMode: 'ask',
+    inputSchema: { type: 'object', properties: {} },
+  });
+  assert(tool.status === 201, `创建审批工具失败：${tool.status}`);
+  return { serverId: server.json.id, serverName };
+}
+
+async function terminalRunStatus(channelId: string, runId: string): Promise<string | null> {
+  const rows = await runFixture('channels', 'runs', channelId);
+  const status = rows.find((run) => run.id === runId)?.status;
+  return status !== undefined && TERMINAL_STATUSES.has(status) ? status : null;
 }
 
 async function bindAgent(
@@ -157,6 +209,21 @@ async function sendMention(screen: Screen, agentName: string, text: string): Pro
   await screen.getByRole('listbox', '提及智能体').getByRole('option', { name: agentName }).tap();
   await composer.focus();
   await composer.press('End');
+  await composer.pressSequentially(text);
+  await expect(composer).toHaveValue(`@${agentName} ${text}`);
+  await screen.getByRole('button', '发送消息').tap();
+}
+
+async function sendMentionViaKeyboard(
+  screen: Screen,
+  agentName: string,
+  text: string,
+): Promise<void> {
+  const composer = screen.getByRole('textbox', '消息');
+  await composer.fill('@');
+  await screen.getByRole('listbox', '提及智能体').waitFor();
+  await composer.press('Enter');
+  await expect(composer).toHaveValue(`@${agentName} `);
   await composer.pressSequentially(text);
   await expect(composer).toHaveValue(`@${agentName} ${text}`);
   await screen.getByRole('button', '发送消息').tap();
@@ -363,6 +430,424 @@ test('approves a pending tool approval from the channel', { session: 'admin' }, 
     )
     .toBe(true);
   await expect(screen.getByRole('button', '批准')).toHaveCount(0);
+});
+
+test('attaches a file to a channel message, reads it in the sandbox and limits download to members', {
+  session: 'admin',
+  timeout: 300_000,
+}, async ({ app, screen, browser }) => {
+  await app.open('/channels');
+  const agent = await createAgent(browser, 'attach');
+  const channel = await createChannel(browser, 'attach');
+  await bindAgent(browser, channel.id, agent.id);
+
+  await app.open(`/channels/${channel.id}`);
+  const suffix = uniqueSuffix();
+  const filename = `e2e-attach-${suffix}.txt`;
+  const content = `E2E-ATTACH-CONTENT-${suffix}`;
+  const filePath = join(tmpdir(), filename);
+  writeFileSync(filePath, content, 'utf8');
+
+  await browser.locator('input[aria-label="选择资料文件"]').setInputFiles(filePath);
+  await expect(screen.getByRole('button', { name: `移除 ${filename}`, exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  const text = `${ATTACH_MARKER} 请读取附件 ${suffix}`;
+  await sendMention(screen, agent.name, text);
+  await waitForReply(screen, browser, `@${agent.name} ${text}`);
+  await expect(screen.getByText(content, { exact: false }).first()).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(
+    screen.getByRole('link', { name: new RegExp(`下载 ${escapeRegExp(filename)}`) }).first(),
+  ).toBeVisible({ timeout: 30_000 });
+
+  const messages = await apiJson<
+    Array<{
+      id: string;
+      kind: string;
+      agentId: string | null;
+      body: string;
+      attachments: Array<{ id: string; filename: string; mimeType: string; size: number }>;
+    }>
+  >(browser, 'GET', `/api/channels/${channel.id}/messages`);
+  assert(messages.status === 200 && messages.json !== null, `读取频道消息失败：${messages.status}`);
+  const attached = messages.json.find(
+    (message) => message.kind === 'human' && message.body.includes(text),
+  );
+  assert(attached !== undefined, '频道消息列表缺少带附件的消息');
+  const attachment = attached.attachments.find((item) => item.filename === filename);
+  assert(attachment !== undefined, `频道消息缺少附件 ${filename}`);
+
+  const downloadUrl = `/api/channels/${channel.id}/messages/${attached.id}/attachments/${attachment.id}/download`;
+  const download = await browserFetch(browser, 'GET', downloadUrl);
+  assert(download.status === 200, `成员下载附件失败：${download.status}`);
+  assert(download.text === content, `下载内容不符：${download.text}`);
+
+  const attachOnlyFilename = `e2e-attach-only-${suffix}.txt`;
+  const attachOnlyContent = `E2E-ATTACH-ONLY-CONTENT-${suffix}`;
+  const attachOnlyFilePath = join(tmpdir(), attachOnlyFilename);
+  writeFileSync(attachOnlyFilePath, attachOnlyContent, 'utf8');
+
+  await browser.locator('input[aria-label="选择资料文件"]').setInputFiles(attachOnlyFilePath);
+  await expect(
+    screen.getByRole('button', { name: `移除 ${attachOnlyFilename}`, exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  await screen.getByRole('button', { name: '发送消息' }).tap();
+  await expect(
+    screen
+      .getByRole('link', { name: new RegExp(`下载 ${escapeRegExp(attachOnlyFilename)}`) })
+      .first(),
+  ).toBeVisible({ timeout: 30_000 });
+
+  await app.open(`/channels/${channel.id}`);
+  await expect(
+    screen
+      .getByRole('link', { name: new RegExp(`下载 ${escapeRegExp(attachOnlyFilename)}`) })
+      .first(),
+  ).toBeVisible({ timeout: 30_000 });
+
+  const attachOnlyMessages = await apiJson<
+    Array<{
+      id: string;
+      kind: string;
+      body: string;
+      attachments: Array<{ id: string; filename: string }>;
+    }>
+  >(browser, 'GET', `/api/channels/${channel.id}/messages`);
+  assert(
+    attachOnlyMessages.status === 200 && attachOnlyMessages.json !== null,
+    `读取频道消息失败：${attachOnlyMessages.status}`,
+  );
+  const attachOnly = attachOnlyMessages.json.find(
+    (message) =>
+      message.kind === 'human' &&
+      message.body === '' &&
+      message.attachments.some((item) => item.filename === attachOnlyFilename),
+  );
+  assert(attachOnly !== undefined, '频道消息列表缺少纯附件消息');
+  const attachOnlyAttachment = attachOnly.attachments.find(
+    (item) => item.filename === attachOnlyFilename,
+  );
+  assert(attachOnlyAttachment !== undefined, `纯附件消息缺少附件 ${attachOnlyFilename}`);
+  const attachOnlyDownload = await browserFetch(
+    browser,
+    'GET',
+    `/api/channels/${channel.id}/messages/${attachOnly.id}/attachments/${attachOnlyAttachment.id}/download`,
+  );
+  assert(attachOnlyDownload.status === 200, `纯附件下载失败：${attachOnlyDownload.status}`);
+  assert(
+    attachOnlyDownload.text === attachOnlyContent,
+    `纯附件内容不符：${attachOnlyDownload.text}`,
+  );
+
+  const largeFilename = `e2e-attach-large-${suffix}.txt`;
+  const largeContent = 'A'.repeat(900 * 1024);
+  const largeFilePath = join(tmpdir(), largeFilename);
+  writeFileSync(largeFilePath, largeContent, 'utf8');
+
+  await browser.locator('input[aria-label="选择资料文件"]').setInputFiles(largeFilePath);
+  await expect(
+    screen.getByRole('button', { name: `移除 ${largeFilename}`, exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  await screen.getByRole('button', { name: '发送消息' }).tap();
+  await expect(
+    screen.getByRole('link', { name: new RegExp(`下载 ${escapeRegExp(largeFilename)}`) }).first(),
+  ).toBeVisible({ timeout: 60_000 });
+
+  const largeMessages = await apiJson<
+    Array<{
+      id: string;
+      kind: string;
+      body: string;
+      attachments: Array<{ id: string; filename: string }>;
+    }>
+  >(browser, 'GET', `/api/channels/${channel.id}/messages`);
+  assert(
+    largeMessages.status === 200 && largeMessages.json !== null,
+    `读取频道消息失败：${largeMessages.status}`,
+  );
+  const large = largeMessages.json.find(
+    (message) =>
+      message.kind === 'human' &&
+      message.body === '' &&
+      message.attachments.some((item) => item.filename === largeFilename),
+  );
+  assert(large !== undefined, '频道消息列表缺少大附件消息');
+  const largeAttachment = large.attachments.find((item) => item.filename === largeFilename);
+  assert(largeAttachment !== undefined, `大附件消息缺少附件 ${largeFilename}`);
+  const largeDownload = await browserFetch(
+    browser,
+    'GET',
+    `/api/channels/${channel.id}/messages/${large.id}/attachments/${largeAttachment.id}/download`,
+  );
+  assert(largeDownload.status === 200, `大附件下载失败：${largeDownload.status}`);
+  assert(
+    largeDownload.text.length === largeContent.length,
+    `大附件长度不符：${largeDownload.text.length}`,
+  );
+  assert(largeDownload.text === largeContent, '大附件内容不符');
+
+  const outsider = await createAccount(browser, 'attach-outsider');
+  await loginAs(browser, outsider);
+  const denied = await browserFetch(browser, 'GET', downloadUrl);
+  assert(denied.status === 404, `非成员下载附件应当 404（实际 ${denied.status}）`);
+});
+
+test('denying a channel approval leaves no upstream side effect', {
+  session: 'admin',
+  timeout: 300_000,
+}, async ({ app, screen, browser }) => {
+  await app.open('/channels');
+  const { serverId, serverName } = await createApprovalServer(browser, 'channel');
+  const agent = await createAgent(browser, 'approval', { serverIds: [serverId] });
+  const channel = await createChannel(browser, 'approval');
+  await bindAgent(browser, channel.id, agent.id);
+  const hitsBefore = await approvalEchoHits();
+
+  await app.open(`/channels/${channel.id}`);
+  const text = `${APPROVAL_TOOL_MARKER} mcp__${serverName}__approval-echo ${uniqueSuffix()}`;
+  await sendMention(screen, agent.name, text);
+
+  await expect(screen.getByText(/需要批准：/)).toBeVisible({ timeout: 120_000 });
+  await expect(screen.getByText(serverName, { exact: false }).first()).toBeVisible();
+  await expect
+    .poll(
+      async () => (await runFixture('channels', 'latestApprovalByChannel', channel.id)).length > 0,
+      { timeout: 60_000 },
+    )
+    .toBe(true);
+
+  const [approval] = await runFixture('channels', 'latestApprovalByChannel', channel.id);
+  assert(approval !== undefined && approval.run_id !== null, '审批缺少所属运行');
+  assert(approval.server_id === serverId, `审批服务器不符：${approval.server_id}`);
+  assert(approval.tool_name === 'approval-echo', `审批工具不符：${approval.tool_name}`);
+
+  await screen.getByRole('button', '拒绝').tap();
+  await expect(screen.getByText('已拒绝')).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(
+      async () => {
+        const rows = await runFixture('channels', 'latestApprovalByChannel', channel.id);
+        return {
+          approved: rows[0]?.approved_at != null,
+          denied: rows[0]?.denied_at != null,
+        };
+      },
+      { timeout: 30_000 },
+    )
+    .toEqual({ approved: false, denied: true });
+
+  await expect
+    .poll(
+      async () => (await terminalRunStatus(channel.id, approval.run_id as string)) ?? 'pending',
+      {
+        timeout: 180_000,
+      },
+    )
+    .not.toBe('pending');
+  expect(await terminalRunStatus(channel.id, approval.run_id)).toBe('succeeded');
+  expect(await approvalEchoHits()).toBe(hitsBefore);
+  await expect(screen.getByRole('button', '拒绝')).toHaveCount(0);
+});
+
+test('hands off a finished channel run to another agent with an output attachment', {
+  session: 'admin',
+  timeout: 420_000,
+}, async ({ app, screen, browser }) => {
+  await app.open('/channels');
+  const source = await createAgent(browser, 'handoff-source');
+  const target = await createAgent(browser, 'handoff-target');
+  const channel = await createChannel(browser, 'handoff');
+  await bindAgent(browser, channel.id, source.id);
+  await bindAgent(browser, channel.id, target.id);
+
+  await app.open(`/channels/${channel.id}`);
+  const suffix = uniqueSuffix();
+  const sourceText = `${OUTPUT_WRITE_MARKER} 交接来源 ${suffix}`;
+  await sendMention(screen, source.name, sourceText);
+  await waitForReply(screen, browser, `@${source.name} ${sourceText}`);
+
+  const sourceRun = await runFixture('channels', 'runs', channel.id).then((rows) =>
+    rows.find((run) => run.agent_id === source.id),
+  );
+  assert(sourceRun !== undefined, '交接来源运行不存在');
+  await expect
+    .poll(async () => (await terminalRunStatus(channel.id, sourceRun.id)) ?? 'pending', {
+      timeout: 120_000,
+    })
+    .not.toBe('pending');
+  expect(await terminalRunStatus(channel.id, sourceRun.id)).toBe('succeeded');
+
+  await expect
+    .poll(
+      async () => {
+        const outputs = await apiJson<{ items: Array<{ path: string }> }>(
+          browser,
+          'GET',
+          `/api/channels/${channel.id}/runs/${sourceRun.id}/outputs`,
+        );
+        return outputs.json?.items.some((item) => item.path === 'normal-report.md') ?? false;
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(true);
+
+  await expect(screen.getByRole('button', { name: '交接', exact: true }).first()).toBeVisible({
+    timeout: 60_000,
+  });
+  await screen.getByRole('button', { name: '交接', exact: true }).first().tap();
+  const dialog = screen.getByRole('dialog', '交接运行');
+  await expect(dialog).toBeVisible({ timeout: 15_000 });
+  await dialog.getByLabel('目标智能体').tap();
+  await screen.getByRole('option', { name: target.name, exact: false }).tap();
+  const note = `E2E 交接备注 ${suffix}`;
+  await dialog.getByLabel('备注').fill(note);
+  await dialog.getByRole('button', { name: '确认交接', exact: true }).tap();
+  await expect(screen.getByText('已交接')).toBeVisible({ timeout: 60_000 });
+
+  const listMessages = () =>
+    apiJson<
+      Array<{
+        id: string;
+        kind: string;
+        agentId: string | null;
+        body: string;
+        attachments: Array<{ id: string; filename: string }>;
+      }>
+    >(browser, 'GET', `/api/channels/${channel.id}/messages`);
+
+  const messages = await listMessages();
+  assert(messages.status === 200 && messages.json !== null, `读取频道消息失败：${messages.status}`);
+  const handoff = messages.json.find(
+    (message) => message.kind === 'human' && message.body.includes('【运行交接】'),
+  );
+  assert(handoff !== undefined, '频道消息列表缺少交接消息');
+  assert(handoff.body.includes(`来自智能体「${source.name}」`), '交接消息缺少来源智能体');
+  assert(handoff.body.includes(sourceRun.id), '交接消息缺少来源运行 ID');
+  assert(
+    (handoff.body.split('最近回复：')[0] ?? '').includes(sourceText),
+    '交接消息的原任务段缺少来源任务正文',
+  );
+  assert(handoff.body.includes('normal-report.md'), '交接消息缺少成果路径');
+  assert(handoff.body.includes(note), '交接消息缺少备注');
+  const handoffAttachment = handoff.attachments.find(
+    (attachment) => attachment.filename === 'normal-report.md',
+  );
+  assert(handoffAttachment !== undefined, '交接消息缺少 normal-report.md 附件');
+
+  const download = await browserFetch(
+    browser,
+    'GET',
+    `/api/channels/${channel.id}/messages/${handoff.id}/attachments/${handoffAttachment.id}/download`,
+  );
+  assert(download.status === 200, `交接附件下载失败：${download.status}`);
+  assert(download.text.includes('# 普通成果'), '交接附件缺少标题');
+  assert(download.text.includes('E2E normal output'), '交接附件缺少成果正文');
+
+  await expect
+    .poll(
+      async () => {
+        const targetRun = (await runFixture('channels', 'runs', channel.id)).find(
+          (run) => run.agent_id === target.id,
+        );
+        return targetRun !== undefined && TERMINAL_STATUSES.has(targetRun.status)
+          ? targetRun.status
+          : 'pending';
+      },
+      { timeout: 240_000 },
+    )
+    .toBe('succeeded');
+
+  const runs = await runFixture('channels', 'runs', channel.id);
+  expect(runs.length).toBeGreaterThanOrEqual(2);
+  expect(runs.find((run) => run.id === sourceRun.id)?.status).toBe('succeeded');
+
+  const after = await listMessages();
+  assert(after.status === 200 && after.json !== null, `读取频道消息失败：${after.status}`);
+  assert(
+    after.json.some(
+      (message) =>
+        message.kind === 'agent' &&
+        message.agentId === target.id &&
+        message.body.includes(`请「${target.name}」基于以上上下文继续推进。`),
+    ),
+    '目标智能体没有基于交接上下文回复',
+  );
+});
+
+test('steers a running channel run without creating a second run', {
+  session: 'admin',
+  timeout: 300_000,
+}, async ({ app, screen, browser }) => {
+  await app.open('/channels');
+  const agent = await createAgent(browser, 'steer');
+  const channel = await createChannel(browser, 'steer');
+  await bindAgent(browser, channel.id, agent.id);
+
+  await app.open(`/channels/${channel.id}`);
+  const suffix = uniqueSuffix();
+  await sendMention(screen, agent.name, `${SLOW_MARKER} 运行中追加 ${suffix}`);
+  // 慢响应写的是已落库回复，不能只等页面流式片段；以 run 真实状态确认仍在运行。
+  await expect
+    .poll(async () => (await latestRunStatus(channel.id)) ?? 'missing', { timeout: 90_000 })
+    .toBe('running');
+
+  const steer = `${STEER_MARKER} ${suffix}`;
+  await sendMentionViaKeyboard(screen, agent.name, steer);
+
+  await expect
+    .poll(
+      async () => {
+        const rows = await runFixture('channels', 'runs', channel.id);
+        return rows.length === 1 && TERMINAL_STATUSES.has(rows[0]?.status ?? '')
+          ? rows[0]?.status
+          : 'pending';
+      },
+      { timeout: 240_000 },
+    )
+    .toBe('succeeded');
+
+  await expect
+    .poll(
+      async () => {
+        const instructions = await runFixture('channels', 'runInstructions', channel.id);
+        return instructions.some(
+          (instruction) => instruction.body.includes(steer) && instruction.delivered_at !== null,
+        );
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(true);
+
+  const instructions = await runFixture('channels', 'runInstructions', channel.id);
+  expect(instructions).toHaveLength(1);
+  expect(instructions[0]?.body).toContain(steer);
+  expect(instructions[0]?.delivered_at).not.toBeNull();
+  const runs = await runFixture('channels', 'runCount', channel.id);
+  expect(runs[0]?.count).toBe('1');
+
+  const messages = await apiJson<Array<{ kind: string; body: string }>>(
+    browser,
+    'GET',
+    `/api/channels/${channel.id}/messages`,
+  );
+  assert(messages.status === 200 && messages.json !== null, `读取频道消息失败：${messages.status}`);
+  assert(
+    messages.json.some(
+      (message) =>
+        message.kind === 'agent' &&
+        message.body.includes(REPLY_PREFIX) &&
+        message.body.includes(STEER_MARKER),
+    ),
+    '运行中追加的指令没有得到回复',
+  );
+
+  await expect(screen.getByText('空闲', { visible: true })).toBeVisible({ timeout: 60_000 });
+  await expect(
+    screen.getByText('当前智能体正在处理上一轮消息，本条已保存；请等它结束后再 @ 继续。'),
+  ).toHaveCount(0);
 });
 
 test('reloads a running channel and recovers the streamed content', { session: 'admin' }, async ({

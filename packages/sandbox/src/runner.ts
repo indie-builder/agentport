@@ -19,7 +19,12 @@ import {
   type TerminalRunStatus,
   type WireFailureKind,
 } from '@agentport/shared';
-import { forkSession, query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import {
+  forkSession,
+  query,
+  type SDKResultMessage,
+  type SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk';
 import { createApprovalHook } from './approval-hook.js';
 import {
   createFileBoundaryHook,
@@ -366,6 +371,92 @@ function failRun(kind: WireFailureKind, message: string): void {
   });
 }
 
+function emitFinalResult(message: SDKResultMessage, cancelled: boolean): void {
+  if (cancelled) {
+    emit({
+      type: 'run_finished',
+      status: 'cancelled',
+      failureKind: 'cancelled',
+      costUsd: message.total_cost_usd,
+      turns: message.num_turns,
+      sessionId: message.session_id,
+      ...resultTokenUsage(message),
+    });
+    return;
+  }
+  const succeeded = message.subtype === 'success' && !message.is_error;
+  emit({
+    type: 'run_finished',
+    status: succeeded ? 'succeeded' : 'failed',
+    costUsd: message.total_cost_usd,
+    turns: message.num_turns,
+    sessionId: message.session_id,
+    ...resultTokenUsage(message),
+    ...(succeeded
+      ? {}
+      : {
+          error:
+            message.subtype === 'success'
+              ? message.result
+              : `${message.subtype}: ${message.errors.join('; ')}`,
+          failureKind: 'agent',
+        }),
+  });
+}
+
+function createInstructionQueue(): {
+  push(text: string, uuid: string): void;
+  close(): void;
+  hasPending(): boolean;
+  next(): Promise<SDKUserMessage | null>;
+} {
+  const messages: SDKUserMessage[] = [];
+  let closed = false;
+  let wake: (() => void) | undefined;
+  const notify = (): void => {
+    const pending = wake;
+    wake = undefined;
+    pending?.();
+  };
+  return {
+    push(text, uuid) {
+      if (closed) {
+        log('dropped an instruction: input stream is closed');
+        return;
+      }
+      messages.push({
+        type: 'user',
+        message: { role: 'user', content: text },
+        parent_tool_use_id: null,
+        uuid: uuid as NonNullable<SDKUserMessage['uuid']>,
+        client_composed: true,
+        priority: 'now',
+      });
+      notify();
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      notify();
+    },
+    hasPending() {
+      return messages.length > 0;
+    },
+    async next() {
+      while (messages.length === 0) {
+        if (closed) return null;
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+      }
+      return messages.shift() ?? null;
+    },
+  };
+}
+
+const instructionQueue = createInstructionQueue();
+process.stdin.once('end', () => instructionQueue.close());
+
 /**
  * 原生澄清提问：dontAsk 下 SDK 根本不会调用 canUseTool，问题会被直接拒绝，
  * 因此不安装回调，也不把该模式暗映射成可提问。其他模式下只放行 AskUserQuestion。
@@ -376,10 +467,14 @@ const questionChannel = createQuestionChannel({
     requested: (event) => emit({ type: 'question_requested', ...event }),
     closed: (requestId) => emit({ type: 'question_closed', requestId }),
   },
+  onUserMessage: (command) => instructionQueue.push(command.text, command.uuid),
   log,
 });
 // SIGTERM 中止整个 query 时，挂起的提问也必须收尾，不能把容器留在等答案上。
-abortController.signal.addEventListener('abort', () => questionChannel.close());
+abortController.signal.addEventListener('abort', () => {
+  questionChannel.close();
+  instructionQueue.close();
+});
 
 /**
  * 解析本次运行的 SDK session：
@@ -438,9 +533,16 @@ if (session.error !== undefined) {
       // 用户文本是纯文本：不要做 @路径展开或斜杠命令解析。
       client_composed: true,
     };
+    for (;;) {
+      const next = await instructionQueue.next();
+      if (next === null) return;
+      yield next;
+    }
   }
 
   let activeQuery: ReturnType<typeof query> | undefined;
+  let finalResult: SDKResultMessage | undefined;
+  let finalCancelled = false;
   try {
     /**
      * 每个 parent 当前正在流式输出的块。SDK 的完整 assistant 消息只带自己那一个块，
@@ -695,41 +797,13 @@ if (session.error !== undefined) {
       }
 
       if (message.type === 'result') {
-        // 主动中止也会走到 result（subtype=error_during_execution），不会抛异常；
-        // 不在这里判 abort，用户点「停止」会被显示成红色失败。
-        const cancelled = abortController.signal.aborted;
-        if (cancelled) {
-          emit({
-            type: 'run_finished',
-            status: 'cancelled',
-            failureKind: 'cancelled',
-            costUsd: message.total_cost_usd,
-            turns: message.num_turns,
-            // fork 后 session id 会变；以 result 为准，宿主据此更新会话。
-            sessionId: message.session_id,
-            ...resultTokenUsage(message),
-          });
-          continue;
-        }
-        const succeeded = message.subtype === 'success' && !message.is_error;
-        emit({
-          type: 'run_finished',
-          status: succeeded ? 'succeeded' : 'failed',
-          costUsd: message.total_cost_usd,
-          turns: message.num_turns,
-          sessionId: message.session_id,
-          ...resultTokenUsage(message),
-          ...(succeeded
-            ? {}
-            : {
-                error:
-                  message.subtype === 'success'
-                    ? message.result
-                    : `${message.subtype}: ${message.errors.join('; ')}`,
-                failureKind: 'agent',
-              }),
-        });
+        finalResult = message;
+        finalCancelled = abortController.signal.aborted;
+        if (finalCancelled || !instructionQueue.hasPending()) instructionQueue.close();
       }
+    }
+    if (finalResult !== undefined && !emittedTerminal) {
+      emitFinalResult(finalResult, finalCancelled);
     }
   } catch (err) {
     // 未捕获的异常会直接退出进程，宿主只能看到「没有 run_finished」。
@@ -739,6 +813,7 @@ if (session.error !== undefined) {
     failRun(abortController.signal.aborted ? 'cancelled' : 'agent', message);
   } finally {
     // 运行已结束：未决提问收尾并停止读取 stdin，进程才能正常退出。
+    instructionQueue.close();
     questionChannel.close();
     closeInput();
     // 显式关闭 query：中止后 SDK 的 CLI/MCP 子进程不能只靠父进程退出被动收尾。

@@ -59,7 +59,7 @@ export interface SessionSandboxSpec {
 
 export interface SandboxExecution {
   done: Promise<ExecutionSettlement>;
-  send(command: SandboxInputCommand): void;
+  send(command: SandboxInputCommand): boolean;
   cancel(): Promise<ExecutionSettlement>;
 }
 
@@ -651,8 +651,8 @@ export class SessionSandboxes {
     return {
       done: execution.done.promise,
       send: (command) => {
-        if (entry.active !== execution) return;
-        this.write(entry, { type: 'input', runId: execution.runId, command });
+        if (entry.active !== execution) return false;
+        return this.write(entry, { type: 'input', runId: execution.runId, command });
       },
       cancel: () => this.cancel(entry, execution),
     };
@@ -1076,16 +1076,17 @@ export class SessionSandboxes {
     }
   }
 
-  private write(entry: SessionEntry, frame: SupervisorInputFrame): void {
+  private write(entry: SessionEntry, frame: SupervisorInputFrame): boolean {
     const child = entry.sandbox?.child;
     if (child === undefined || child.stdin.destroyed) {
       this.logger.warn(
         { conversationId: entry.conversationId, phase: sessionPhase(entry) },
         'session supervisor stdin is not writable',
       );
-      return;
+      return false;
     }
     child.stdin.write(`${JSON.stringify(frame)}\n`);
+    return true;
   }
 
   private async finishClose(): Promise<void> {

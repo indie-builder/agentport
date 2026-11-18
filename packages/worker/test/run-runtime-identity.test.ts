@@ -1270,7 +1270,7 @@ describe('run runtime environment identity persistence', () => {
                   }
                   return {
                     done: Promise.resolve({ state: 'stopped', code: 0, signal: null }),
-                    send() {},
+                    send: () => true,
                     cancel: async () => ({ state: 'stopped', code: 0, signal: null }),
                   };
                 },

@@ -284,6 +284,16 @@ export async function finalizeRun(input: {
     return row;
   });
   if (row === undefined) return false;
+  if (row.channelId !== null) {
+    try {
+      await repo.runInstructions.requeueUndeliveredInstructionWakes(input.db, {
+        runId: row.id,
+        agentId: row.agentId,
+      });
+    } catch (err) {
+      input.logger.warn({ err, runId: row.id }, 'requeue undelivered channel instructions failed');
+    }
+  }
   await notifyRunTerminal({ db: input.db, status: input.event.status }, row).catch(
     (err: unknown) => {
       input.logger.warn({ err, runId: row.id }, 'run terminal notification failed');

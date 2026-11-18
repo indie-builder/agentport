@@ -79,6 +79,12 @@ export function attachmentExtension(mime: AttachmentMimeType): string {
   return MIME_EXTENSION[mime];
 }
 
+export function attachmentByteLimit(mimeType: AttachmentMimeType): number {
+  if (mimeType.startsWith('image/')) return ATTACHMENT_LIMITS.imageBytes;
+  if (mimeType === 'application/pdf') return ATTACHMENT_LIMITS.pdfBytes;
+  return ATTACHMENT_LIMITS.textBytes;
+}
+
 export const chatAttachmentInputSchema = z
   .object({
     filename: z.string().min(1, '附件文件名不能为空'),

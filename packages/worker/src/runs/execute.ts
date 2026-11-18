@@ -834,6 +834,14 @@ export async function runAgentJob(
           expireStale: () =>
             repo.questions.expireStaleQuestions(db, { runId }).then(() => undefined),
         },
+        ...(run.channelId === null
+          ? {}
+          : {
+              instructions: {
+                list: () => repo.runInstructions.listPendingRunInstructions(db, runId),
+                markDelivered: (id) => repo.runInstructions.markRunInstructionDelivered(db, id),
+              },
+            }),
       });
       runLatencyMs = Date.now() - runStartedAt;
       leaseReleased = outcome.leaseReleased === true;
@@ -1076,11 +1084,17 @@ export async function runAgentJob(
     if (willRetry) {
       // 认领只接受 queued，所以重试前必须把行改回 queued 再抛错；
       // 否则下一次投递会被自己的守卫当成「外部已终止」而跳过。
-      const requeued = await db
-        .update(schema.agentRuns)
-        .set({ status: 'queued', startedAt: null })
-        .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')))
-        .returning({ id: schema.agentRuns.id });
+      const requeued = await db.transaction(async (tx) => {
+        const rows = await tx
+          .update(schema.agentRuns)
+          .set({ status: 'queued', startedAt: null })
+          .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')))
+          .returning({ id: schema.agentRuns.id });
+        if (rows.length > 0) {
+          await repo.runInstructions.resetInstructionDeliveryForRun(tx, runId);
+        }
+        return rows;
+      });
       if (requeued.length > 0) {
         runLog.warn({ attempt: job.attemptsMade + 1 }, 'retrying sandbox failure');
         throw new Error(`retryable sandbox failure: ${outcome.error ?? 'unknown'}`);

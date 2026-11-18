@@ -1,3 +1,4 @@
+import { copyChannelAttachmentsToConversation } from '@agentport/core';
 import { type Database, repo } from '@agentport/db';
 import { type AgentRunJob, errorText, runEnqueueOptions } from '@agentport/shared';
 import type { Queue } from 'bullmq';
@@ -28,7 +29,10 @@ type WakeContext = {
   db: Database;
   log: Logger;
   queue: Queue<AgentRunJob>;
+  workspacesDir: string;
 };
+
+type WakeMessage = NonNullable<Awaited<ReturnType<typeof channelWakeRepo.getChannelWakeMessage>>>;
 
 type WakeDispatchResult = { enqueued: number; skipped: number; retried: number; failed: number };
 type WakeOutcome = keyof WakeDispatchResult;
@@ -110,6 +114,24 @@ async function handleEnqueueFailure(
   return 'retried';
 }
 
+async function copyMessageAttachments(
+  context: WakeContext,
+  wake: repo.channelWakes.ChannelWakeRow,
+  message: WakeMessage,
+  agentSlug: string,
+  conversationId: string,
+): Promise<void> {
+  if (message.attachments.length === 0) return;
+  await copyChannelAttachmentsToConversation({
+    root: context.workspacesDir,
+    channelId: wake.channelId,
+    messageId: wake.channelMessageId,
+    slug: agentSlug,
+    conversationId,
+    attachments: message.attachments,
+  });
+}
+
 async function dispatchWake(
   context: WakeContext,
   wake: repo.channelWakes.ChannelWakeRow,
@@ -146,6 +168,8 @@ async function dispatchWake(
     await postNotice(context, wake, WAKE_FAILED_NOTICE);
     return 'failed';
   }
+  const agent = await repo.agents.getAgent(context.db, wake.agentId);
+  if (!agent) return skipWake(context, wake, AGENT_GONE_NOTICE);
   const existing = await channelWakeRepo.findChannelRunByTrigger(context.db, {
     channelId: wake.channelId,
     channelMessageId: wake.channelMessageId,
@@ -153,6 +177,11 @@ async function dispatchWake(
   });
   if (existing !== null) {
     if (existing.status === 'queued') {
+      try {
+        await copyMessageAttachments(context, wake, message, agent.slug, existing.conversationId);
+      } catch (err) {
+        return handleEnqueueFailure(context, wake, existing.id, err);
+      }
       try {
         await context.queue.add(
           'run',
@@ -180,10 +209,23 @@ async function dispatchWake(
   });
   if (binding === null) return skipWake(context, wake, AGENT_GONE_NOTICE);
   if (binding.status !== 'active') return skipWake(context, wake, BINDING_INACTIVE_NOTICE);
+  const activeRun = await channelWakeRepo.findActiveChannelRunForAgent(context.db, {
+    channelId: wake.channelId,
+    agentId: wake.agentId,
+  });
+  if (activeRun !== null && message.attachments.length === 0) {
+    const appended = await repo.runInstructions.createRunInstruction(context.db, {
+      runId: activeRun.id,
+      channelMessageId: wake.channelMessageId,
+      body: message.body,
+      createdBy: message.authorBusinessId,
+      wake: { id: wake.id, claimedAt: wake.claimedAt as Date },
+    });
+    if (appended === 'enqueued') return 'enqueued';
+    if (appended === 'claim_lost') return 'skipped';
+  }
   let admitted: Awaited<ReturnType<typeof repo.chat.admitChatRun>>;
   try {
-    const agent = await repo.agents.getAgent(context.db, wake.agentId);
-    if (!agent) return skipWake(context, wake, AGENT_GONE_NOTICE);
     const agentVersion = agent.publishedVersion;
     admitted = await repo.chat.admitChatRun(context.db, {
       agentId: wake.agentId,
@@ -192,6 +234,7 @@ async function dispatchWake(
       ...(agentVersion === null ? {} : { agentVersion }),
       trigger: 'channel',
       channel: { channelId: wake.channelId, channelMessageId: wake.channelMessageId },
+      ...(message.attachments.length === 0 ? {} : { attachments: message.attachments }),
     });
   } catch (err) {
     if (err instanceof AppError) {
@@ -218,6 +261,11 @@ async function dispatchWake(
     return 'retried';
   }
   try {
+    await copyMessageAttachments(context, wake, message, agent.slug, admitted.conversationId);
+  } catch (err) {
+    return handleEnqueueFailure(context, wake, admitted.run.id, err);
+  }
+  try {
     await context.queue.add(
       'run',
       {
@@ -242,6 +290,7 @@ export async function dispatchChannelWakes(input: {
   db: Database;
   log: Logger;
   queue: Queue<AgentRunJob>;
+  workspacesDir: string;
   channelMessageId?: string;
   minAgeMs?: number;
   limit?: number;
@@ -284,6 +333,7 @@ export function startChannelWakeSweeper(input: {
   db: Database;
   log: Logger;
   queue: Queue<AgentRunJob>;
+  workspacesDir: string;
 }): () => Promise<void> {
   let inFlight: Promise<void> | null = null;
   let stopped = false;

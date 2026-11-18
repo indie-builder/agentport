@@ -86,6 +86,10 @@ const JSON_BODY_LIMIT = 1_048_576;
 
 const bodyLimits: ReadonlyArray<{ route: RegExp; maxSize: number }> = [
   { route: /^POST \/api\/chat$/, maxSize: ATTACHMENT_LIMITS.bodyBytes },
+  {
+    route: /^POST \/api\/channels\/[^/]+\/messages$/,
+    maxSize: ATTACHMENT_LIMITS.bodyBytes,
+  },
   { route: /^POST \/api\/servers\/import-file$/, maxSize: 8 * 1024 * 1024 },
   {
     route: /^PUT \/api\/knowledge\/bases\/[^/]+\/documents\/upload$/,

@@ -16,8 +16,15 @@ export async function cancelAgentRun(
         initiatedBy: schema.agentRuns.initiatedBy,
         agentId: schema.agentRuns.agentId,
         conversationId: schema.agentRuns.conversationId,
+        channelId: schema.agentRuns.channelId,
       });
     if (queued === undefined) return undefined;
+    if (queued.channelId !== null) {
+      await repo.runInstructions.requeueUndeliveredInstructionWakes(tx, {
+        runId: queued.id,
+        agentId: queued.agentId,
+      });
+    }
     if (queued.initiatedBy !== null) {
       await repo.integrations.enqueueWebhookEvent(tx, {
         eventType: 'run.failed',

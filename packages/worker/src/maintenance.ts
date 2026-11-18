@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url';
-import { outputMessageAnchors } from '@agentport/core';
+import { outputMessageAnchors, removeChannelInputs } from '@agentport/core';
 import { createServiceLogger } from '@agentport/core/logger';
 import { createDb, repo, schema } from '@agentport/db';
 import {
@@ -140,6 +140,7 @@ interface MaintenanceSummary extends Retention {
   runMessagesDeleted: number;
   orphanMessagesDeleted: number;
   channelMessagesDeleted: number;
+  channelInputsCleaned: number;
   durationMs: number;
 }
 
@@ -183,17 +184,34 @@ export async function runMaintenance(
     effective.messageDays,
     pruneOptions,
   );
-  const channelMessagesDeleted = await repo.maintenance.pruneChannelMessages(
+  const prunedChannelMessages = await repo.maintenance.pruneChannelMessages(
     db,
     effective.messageDays,
   );
+  let channelInputsCleaned = 0;
+  for (const message of prunedChannelMessages) {
+    try {
+      await removeChannelInputs({
+        root: workspacesDir,
+        channelId: message.channelId,
+        messageId: message.id,
+      });
+      channelInputsCleaned += 1;
+    } catch (err) {
+      logger.warn(
+        { err, channelId: message.channelId, messageId: message.id },
+        'channel inputs cleanup failed',
+      );
+    }
+  }
   const summary: MaintenanceSummary = {
     ...effective,
     agentVersionsDeleted,
     runsDeleted: runs.runs,
     runMessagesDeleted: runs.messages,
     orphanMessagesDeleted,
-    channelMessagesDeleted,
+    channelMessagesDeleted: prunedChannelMessages.length,
+    channelInputsCleaned,
     durationMs: Date.now() - startedAt,
   };
 

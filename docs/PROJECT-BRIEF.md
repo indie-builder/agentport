@@ -516,6 +516,7 @@ channel_messages(id text pk, channel_id text fk cascade, seq bigserial,
                  kind text check in (human,agent,system),
                  author_business_id text nullable, agent_id text nullable, run_id text nullable,
                  body text, client_message_id text nullable, source_message_id text nullable,
+                 attachments jsonb nullable,  -- [{id, filename, mimeType, size, sha256}]
                  created_at timestamptz)
 -- 索引 (channel_id, seq)；partial unique (channel_id, client_message_id) where client_message_id is not null
 -- partial unique (source_message_id) where source_message_id is not null
@@ -530,6 +531,14 @@ channel_wakes(id text pk,  -- 派生 ID：channel_message_id:agent_id
               )
 -- 索引 (channel_message_id, agent_id) 普通索引、去重由派生主键承担；(status, next_attempt_at)；agent_runs partial unique
 -- (channel_id, channel_trigger_message_id, agent_id) where channel_id is not null
+
+run_instructions(id text pk,  -- rin_
+                 run_id text fk agent_runs cascade,
+                 channel_message_id text fk channel_messages cascade,
+                 body text not null, created_by text not null,
+                 created_at timestamptz not null default now(),
+                 delivered_at timestamptz nullable)
+-- unique (run_id, channel_message_id)；index (run_id, delivered_at)
 
 -- M2：只新增可空列，私有对话 channel_id 保持 null
 conversations.channel_id text nullable fk channels(id) on delete cascade
@@ -549,6 +558,12 @@ approval_requests.authorization_expires_at timestamptz nullable
 ```
 
 人发消息只写一条频道时间线；显式 `mentions` 与 opt-in `mentionAll` 才唤醒 agent，`mentionAll` 只命中 `auto_wake_on_all=true`、active 且专家已启用的绑定，解析后合计最多唤醒 5 个（`CHANNEL_MAX_WAKE_AGENTS`），超限整条消息拒绝且不落库；频道设置可逐个绑定开关「响应 @all」，频道输入区「通知全部（N）」发送前确认并显示影响人数，未开启的绑定不会被 @all 唤醒；频道消息列表首屏取最新一页，`before` 游标加载更早消息。每个 `(channel_id, agent_id)` 复用一个 lane，lane 内的 user message 指向来源频道消息，run 也记录频道与触发消息。准入按绑定的 `context_seq` 增量拼入频道上下文：只取游标之后、触发消息之前的 human/agent/system 消息，最多最新 20 条，前缀（含分隔与省略提示，不含当前消息）不超过 8000 字符，超限从最早整条丢弃并标注「更早的消息已省略」；准入只读取游标，不推进。没有新消息时保持原 content 不变，不新增频道消息。游标只在 run 被确认执行后（消息持久化事务内）推进到触发消息 seq，旧消息重放不回退，queued 取消与入队失败不吞上下文。频道 run 不投影也不注入触发者的个人记忆。助手回复与 `channel_messages` 投影同事务写入，可重试中间尝试不投影到频道；最终回复投影由 `source_message_id` 唯一索引去重。lane 首次创建者仅供溯源，频道成员角色与 active 绑定决定执行准入；私有会话列表和搜索排除 lane。频道关闭后 `postMessage` 与 `admitChatRun` 在频道行锁内拒绝新消息与新 run。审批行以 `approved_at` 或 `denied_at` 记录终态（二者互斥，不设 `expired` 持久状态机）；私有 run 的批准与拒绝经 `POST /api/runs/:id/approve|deny`、`runs.approve` 权限；频道审批已支持批准与拒绝，经 `POST /api/channels/:id/approvals/:approvalId/approve|deny`，由频道 owner/admin 或触发该 run 的 member 操作，viewer 不可。
+
+频道附件与私聊附件共用同一套入口校验（扩展名映射、规范 base64、大小、文件签名、文本 UTF-8），字节存 `WORKSPACES_DIR/_channel-inputs/<channelId>/<messageId>/`，消息只保存元数据；落库失败、幂等重放或任何非 ok 结果都会删除本次目录。下载入口按频道成员与消息归属一次校验，不存在统一 404。wake 新建 run 时把附件元数据写进 lane 用户消息，并在入队前复制字节到该 lane 的 `conversation-inputs`（不硬链），使 `/mnt/inputs` 与附件清单生效；复制失败按入队失败处理。消息保留期删除频道消息后，worker 同步清理宿主附件目录，失败只告警。
+
+运行中追加指令：同一 agent 在频道已有 queued/running run 时，新的无附件 @ 消息写入 `run_instructions` 并把唤醒标记为 enqueued，不新建 run、不写忙碌提示；worker 每 500ms 把未送达指令经 supervisor 写入 runner，runner 把它们作为 `priority:'now'` 的用户消息继续送入同一个 SDK 会话，发送成功才标记 `delivered_at`。带附件的新消息仍按忙碌 lane 跳过。run 终态时未送达的指令会把对应 wake 重新置为 pending，由 sweeper 重新建立 run；基础设施重试前清空 `delivered_at` 以重新投递。
+
+人工交接：`POST /api/channels/{id}/handoffs` 由成员显式发起（viewer 不可），要求目标为频道内 active 且已启用的绑定、来源 run 为调用者可读的任意频道 run 或私有会话 run（服务端支持跨频道/跨会话交接，频道 UI 仅在当前频道 run 详情提供入口）且已结束。服务端生成一条 @ 目标智能体的 `human` 消息，包含来源智能体、run ID、来源 run 的频道触发消息正文（私有 run 取首条用户消息）、最近回复、成果路径与可选备注；可识别且不超限的最多 5 个成果文件转为频道附件，其余仅列路径。目标智能体有活跃 run 时交接直接拒绝，不写消息也不写附件。交接必须由用户点击确认，agent 不能自动触发。
 
 知识库是一组独立的内容表，不挂在专家定义下（字段契约见 [ARCHITECTURE.md §6.1](ARCHITECTURE.md#61-存储与数据模型)）：
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { businessIdSchema } from './access.js';
+import { chatAttachmentInputsSchema, messageAttachmentSchema } from './attachments.js';
 import { errorCodeSchema } from './errors.js';
 import { terminalRunStatusSchema } from './run-state.js';
 
@@ -59,6 +60,7 @@ export const channelMessageSchema = z.object({
   body: z.string(),
   clientMessageId: z.string().nullable(),
   sourceMessageId: z.string().nullable(),
+  attachments: z.array(messageAttachmentSchema),
   createdAt: z.string(),
 });
 export type ChannelMessage = z.infer<typeof channelMessageSchema>;
@@ -135,13 +137,29 @@ export const channelMessageInputSchema = z
       .string()
       .min(1)
       .max(32000)
-      .refine((body) => body.trim().length > 0, '消息不能为空'),
+      .refine((body) => body.trim().length > 0, '消息不能为空')
+      .optional(),
     // 幂等标识不 trim：' a' 与 'a' 是不同客户端的 key。
     clientMessageId: z.string().min(1).max(160).optional(),
     /** 显式 @ 的 agentId；只唤醒频道内 active 且 enabled 的绑定。 */
     mentions: z.array(z.string().min(1)).max(CHANNEL_MAX_WAKE_AGENTS).optional(),
     /** @all：只唤醒绑定上 autoWakeOnAll=true 的 active agent。 */
     mentionAll: z.boolean().optional(),
+    attachments: chatAttachmentInputsSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      (value.body !== undefined && value.body.trim().length > 0) ||
+      (value.attachments?.length ?? 0) > 0,
+    { message: '消息正文和附件至少提供一项', path: ['body'] },
+  );
+
+export const channelHandoffInputSchema = z
+  .object({
+    sourceRunId: z.string().min(1),
+    targetAgentId: z.string().min(1),
+    note: z.string().trim().max(2000).optional(),
   })
   .strict();
 

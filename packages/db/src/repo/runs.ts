@@ -57,6 +57,8 @@ export interface RunListItem {
 
 export interface RunDetailRow extends RunListItem {
   conversationId: string;
+  channelId: string | null;
+  channelTriggerMessageId: string | null;
   initiatedBy: string | null;
   sessionId: string | null;
   sandboxId: string | null;
@@ -869,6 +871,8 @@ export async function getRunDetail(db: Database, runId: string): Promise<RunDeta
     .select({
       ...runColumns,
       conversationId: agentRuns.conversationId,
+      channelId: agentRuns.channelId,
+      channelTriggerMessageId: agentRuns.channelTriggerMessageId,
       initiatedBy: agentRuns.initiatedBy,
       sessionId: agentRuns.sessionId,
       sandboxId: agentRuns.sandboxId,

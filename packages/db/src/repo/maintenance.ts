@@ -198,11 +198,13 @@ export async function pruneOrphanMessages(
   return (result as typeof result & { count: number }).count;
 }
 
-export async function pruneChannelMessages(db: Database, olderThanDays: number): Promise<number> {
+export async function pruneChannelMessages(
+  db: Database,
+  olderThanDays: number,
+): Promise<Array<{ id: string; channelId: string }>> {
   const days = positive(olderThanDays, 'olderThanDays');
-  const result = await db.execute(sql`
-    delete from ${channelMessages}
-    where ${channelMessages.createdAt} < now() - make_interval(days => ${days})
-  `);
-  return (result as typeof result & { count: number }).count;
+  return db
+    .delete(channelMessages)
+    .where(sql`${channelMessages.createdAt} < now() - make_interval(days => ${days})`)
+    .returning({ id: channelMessages.id, channelId: channelMessages.channelId });
 }

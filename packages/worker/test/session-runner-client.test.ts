@@ -106,7 +106,7 @@ function fixture(
           event({ type: 'run_finished', status: 'succeeded', sessionId: 'sdk-session' });
           finish(input.uncertain ? { state: 'unconfirmed', error: 'runner still alive' } : stopped);
         });
-      return { done, send() {}, cancel };
+      return { done, send: () => true, cancel };
     }),
   };
   return { lease, release, cancel };
@@ -722,7 +722,7 @@ describe('session runner client', () => {
       onEvent({ type: 'run_finished', status: 'succeeded', sessionId: 'sdk-before-crash' });
       return {
         done: Promise.resolve({ state: 'stopped', code: 137, signal: 'SIGKILL' }),
-        send() {},
+        send: () => true,
         cancel: async () => stopped,
       };
     };
@@ -805,7 +805,7 @@ describe('session runner client', () => {
     const { lease, release } = fixture({ releaseError: cleanup });
     lease.start = async () => ({
       done: Promise.resolve({ state: 'unconfirmed', error: 'runner still alive' }),
-      send() {},
+      send: () => true,
       cancel: async () => stopped,
     });
     const outcome = await runInSandbox({

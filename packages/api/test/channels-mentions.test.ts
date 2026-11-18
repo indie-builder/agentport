@@ -428,7 +428,7 @@ describe.skipIf(!ready)('channel mentions', () => {
     expect(runs[0]?.agent_id).toBe(agent.id);
   });
 
-  it('writes a system notice and skips a busy lane', async () => {
+  it('appends a busy lane mention as a run instruction', async () => {
     const channel = await createChannel();
     const agent = await createBoundAgent(channel.id);
 
@@ -443,15 +443,24 @@ describe.skipIf(!ready)('channel mentions', () => {
       mentions: [agent.id],
     });
     expect(busy.statusCode, busy.body).toBe(201);
-    expect(await channelRuns(channel.id)).toHaveLength(1);
+    const runs = await channelRuns(channel.id);
+    expect(runs).toHaveLength(1);
 
-    const notices = await app.client.unsafe<{ kind: string; agent_id: string; body: string }[]>(
-      "select kind, agent_id, body from channel_messages where channel_id = $1 and kind = 'system'",
+    const instructions = await app.client.unsafe<
+      { run_id: string; body: string; delivered_at: string | null }[]
+    >('select run_id, body, delivered_at from run_instructions where run_id = $1', [runs[0]?.id]);
+    expect(instructions).toHaveLength(1);
+    expect(instructions[0]).toMatchObject({
+      run_id: runs[0]?.id,
+      body: 'second turn while busy',
+      delivered_at: null,
+    });
+
+    const notices = await app.client.unsafe<{ kind: string }[]>(
+      "select kind from channel_messages where channel_id = $1 and kind = 'system'",
       [channel.id],
     );
-    expect(notices).toHaveLength(1);
-    expect(notices[0]).toMatchObject({ kind: 'system', agent_id: agent.id });
-    expect(notices[0]?.body).toContain('处理上一轮');
+    expect(notices).toHaveLength(0);
   });
 
   it('does not wake again for a repeated client message id', async () => {

@@ -1,10 +1,14 @@
 export { parseAgentMd } from './agent-md.js';
 export {
   conversationInputsDir,
+  copyChannelAttachmentsToConversation,
   copyConversationInputs,
   displayAttachmentFilename,
+  readChannelAttachment,
   readConversationAttachment,
+  removeChannelInputs,
   removeConversationInputs,
+  writeChannelAttachments,
   writeConversationAttachments,
 } from './attachments.js';
 export { DbError, isRetryableFailure, RunFailure, runProgram } from './effect-runtime.js';

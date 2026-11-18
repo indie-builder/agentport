@@ -4,6 +4,7 @@ import {
   CHANNEL_MAX_WAKE_AGENTS,
   type ChannelMessage,
   type ChannelRole,
+  type MessageAttachment,
 } from '@agentport/shared';
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
@@ -42,6 +43,7 @@ export function toChannelMessage(row: ChannelMessageRow): ChannelMessage {
     body: row.body,
     clientMessageId: row.clientMessageId,
     sourceMessageId: row.sourceMessageId,
+    attachments: row.attachments ?? [],
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -676,6 +678,26 @@ export async function listMessages(
   return { kind: 'ok', items, ...channel };
 }
 
+export async function getMessageForMember(
+  db: Database,
+  businessId: string,
+  channelId: string,
+  messageId: string,
+): Promise<ChannelMessageRow | null> {
+  const [row] = await db
+    .select()
+    .from(channelMessages)
+    .where(
+      and(
+        eq(channelMessages.id, messageId),
+        eq(channelMessages.channelId, channelId),
+        readCondition({ businessId }, channelId),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
 /** 显式 @ 任一无效返回 null 拒绝整条消息；@all 只补 autoWakeOnAll 且 agent 启用的绑定，结果去重。 */
 async function resolveWakeAgents(
   tx: DbHandle,
@@ -729,6 +751,7 @@ export async function postMessage(
     clientMessageId?: string;
     mentions?: string[];
     mentionAll?: boolean;
+    attachments?: MessageAttachment[];
   },
 ): Promise<
   | { kind: 'ok'; message: ChannelMessageRow; duplicate: boolean; wakeAgentIds: string[] }
@@ -779,6 +802,7 @@ export async function postMessage(
         authorBusinessId: subject.businessId,
         body: input.body,
         clientMessageId: input.clientMessageId ?? null,
+        ...(input.attachments === undefined ? {} : { attachments: input.attachments }),
       })
       .onConflictDoNothing()
       .returning();

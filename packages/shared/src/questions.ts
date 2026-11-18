@@ -153,11 +153,18 @@ export const publicRunQuestionSchema = runQuestionSchema.extend({
 });
 export type PublicRunQuestion = z.infer<typeof publicRunQuestionSchema>;
 
-/** runner stdin 命令；当前只有回答一个问题。 */
-export const sandboxInputCommandSchema = z.object({
-  type: z.literal('question_response'),
-  requestId: z.string().min(1).max(256),
-  response: questionResponseSchema,
-});
+/** runner stdin 命令：回答问题，或把运行中追加的用户指令送入同一轮。 */
+export const sandboxInputCommandSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('question_response'),
+    requestId: z.string().min(1).max(256),
+    response: questionResponseSchema,
+  }),
+  z.object({
+    type: z.literal('user_message'),
+    text: z.string().min(1).max(32000),
+    uuid: z.uuid(),
+  }),
+]);
 
 export type SandboxInputCommand = z.infer<typeof sandboxInputCommandSchema>;

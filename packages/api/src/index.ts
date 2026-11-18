@@ -17,6 +17,7 @@ const stopChannelWakeSweeper = startChannelWakeSweeper({
   db: runtime.db,
   log: runtime.log,
   queue: getQueue(),
+  workspacesDir: config.WORKSPACES_DIR,
 });
 const { app } = runtime;
 const webDist = process.env.WEB_DIST ? resolve(process.env.WEB_DIST) : undefined;
