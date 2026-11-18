@@ -115,7 +115,7 @@ export async function lockServer(tx: Transaction, id: string): Promise<ServerRow
 }
 
 export async function createServer(
-  db: Database,
+  db: DbHandle,
   input: ServerWrite,
   ownerBusinessId: string | null,
 ): Promise<ServerRow> {
@@ -192,7 +192,7 @@ export async function getApiToolByName(db: Database, serverId: string, toolName:
   return row ?? null;
 }
 
-export async function createApiTool(db: Database, input: ApiToolWrite): Promise<ApiToolRow> {
+export async function createApiTool(db: DbHandle, input: ApiToolWrite): Promise<ApiToolRow> {
   const [row] = await db
     .insert(apiTools)
     .values({ id: newId('tool'), ...input })

@@ -58,6 +58,7 @@ bun run build                   # 生成各包 dist；db:migrate 依赖它
 cp .env.example .env            # 填写下方必填项
 docker compose up -d --wait postgres redis
 bun run db:migrate
+bun run db:seed                 # 可选：写入一套演示数据（专家、知识库、频道、运行记录等）
 # 沙盒镜像与 api/worker 共用根 Dockerfile，安装与构建都在镜像内完成
 docker build --target sandbox -t agentport/sandbox:dev .
 bun run dev
@@ -101,6 +102,7 @@ bun -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toSt
 | `bun run test:e2e` | e2e 端到端测试（`e2e run`，默认配置 `e2e.config.ts` 收集 `tests/**/*.e2e.ts`，排除 dev-data、评估执行、运行环境构建与频道用例）。自动启动或复用 [http://localhost:5173](http://localhost:5173) 的 Vite（不经过 Portless）；API 需另行在 [http://localhost:3000](http://localhost:3000) 运行。前置与凭据见下方说明；默认套件仍含要求停 worker 的回放用例，真实对话用例需单独跑（见下）；执行类与频道类专项各自带独享栈 |
 | `bun run db:generate` | 修改 Drizzle schema 后生成迁移 |
 | `bun run db:migrate` | 在宿主机应用迁移（`bun run up` 部署时由 compose 的 `migrate` 服务自动执行） |
+| `bun run db:seed` | 写入开发/演示用的幂等种子数据；重复执行只创建尚不存在的演示对象，已存在的保持原样、不修改不修复，不覆盖真实数据，不自动重置；幂等按原始标识匹配：专家与知识库按 slug，连接器、频道、会话、定时任务与评估用例按名称/标题；修改显示名/标题后，按名称匹配的对象可能再创建一份，专家/知识库的名称或归属与演示值不一致时重跑会报错，需清理或重置开发库；`.env` 中的相对存储路径按仓库根解析，API/worker/种子使用同一根目录；仅用于本地开发，不要在生产库执行 |
 | `bun run backup` | `pg_dump` + 工作区/知识库/配置 → `backups/<timestamp>.tar.gz`，保留最近 7 份；默认读仓库根 `.env`，可用 `BACKUP_ENV_FILE` 或显式 `DATABASE_URL` |
 | `bun run restore` | `bun run restore <backup-file>`：先留恢复前安全副本，再单事务整库替换并补迁移 |
 | `bun run smoke` | 部署自检（健康、登录、列表、`/mcp` 鉴权）；需 `ADMIN_PASSWORD` 与服务已启动 |

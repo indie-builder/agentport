@@ -1,7 +1,7 @@
 import { AppError } from '@agentport/core';
 import type { KnowledgeBaseSettings, ResourceAccessFilter } from '@agentport/shared';
 import { and, desc, eq, type SQL, sql } from 'drizzle-orm';
-import type { Database } from '../../client.js';
+import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeBasePins, knowledgeBases, knowledgeModelProfiles } from '../../schema.js';
 import { resourceScopeWhere } from '../access.js';
@@ -34,7 +34,7 @@ export interface CreateBaseInput {
 }
 
 /** ASR 绑定与 embedding/rerank 同一条规则：换绑只能指向存在、类型正确且启用的 profile。 */
-async function assertUsableAsrProfile(db: Database, profileId: string): Promise<void> {
+async function assertUsableAsrProfile(db: DbHandle, profileId: string): Promise<void> {
   const [profile] = await db
     .select({
       kind: knowledgeModelProfiles.kind,
@@ -48,7 +48,7 @@ async function assertUsableAsrProfile(db: Database, profileId: string): Promise<
   }
 }
 
-export async function createBase(db: Database, input: CreateBaseInput): Promise<KnowledgeBaseRow> {
+export async function createBase(db: DbHandle, input: CreateBaseInput): Promise<KnowledgeBaseRow> {
   if (input.asrProfileId !== null && input.asrProfileId !== undefined) {
     await assertUsableAsrProfile(db, input.asrProfileId);
   }

@@ -593,7 +593,7 @@ function sameIdSet(left: string[], right: string[]): boolean {
 }
 
 export async function createAgent(
-  db: Database,
+  db: DbHandle,
   input: AgentWrite,
   serverIds: string[],
   skillIds: string[],
