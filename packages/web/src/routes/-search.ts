@@ -272,6 +272,7 @@ export const runtimeEnvironmentDetailSearchSchema = z.object({
 
 export const dataDomainsSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
+  view: listViewSchema,
 });
 
 export const dataDomainDetailSearchSchema = z.object({

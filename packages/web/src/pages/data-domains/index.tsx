@@ -4,10 +4,12 @@ import { Database, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { PageNote } from '../../components/page.js';
+import { RecordRows } from '../../components/record-rows.js';
 import { ResourcePage } from '../../components/resource-page.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card.js';
 import {
   Table,
   TableBody,
@@ -16,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui/table.js';
+import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import type { DataDomain } from '../../lib/api.js';
 import { formatRelative, shortId } from '../../lib/format.js';
@@ -38,6 +41,7 @@ export function DataDomainsPage() {
   const canCreate = can(me.data, 'data_domains.create');
   const canDelete = can(me.data, 'data_domains.delete');
   const query = search.q ?? '';
+  const view: ListView = search.view ?? 'cards';
   const fullyLoaded = domains.data !== undefined && !domains.hasNextPage;
 
   const shown = useMemo(() => {
@@ -60,6 +64,14 @@ export function DataDomainsPage() {
     });
   };
 
+  const setView = (next: ListView): void => {
+    void navigate({
+      to: '/data-domains',
+      search: (current) => ({ ...current, view: next }),
+      replace: true,
+    });
+  };
+
   return (
     <ResourcePage
       section="dataDomains"
@@ -74,6 +86,7 @@ export function DataDomainsPage() {
           </Button>
         ) : null
       }
+      toolbarActions={shown.length > 0 ? <ViewToggle value={view} onChange={setView} /> : undefined}
     >
       {domains.isPending ? <LoadingState rows={4} /> : null}
       {domains.isError && !domains.isFetchNextPageError ? (
@@ -113,7 +126,7 @@ export function DataDomainsPage() {
         />
       ) : null}
 
-      {shown.length > 0 ? (
+      {shown.length > 0 && view !== 'cards' ? (
         <Table aria-label="数据域列表">
           <TableHeader>
             <TableRow>
@@ -155,7 +168,7 @@ export function DataDomainsPage() {
                       to="/data-domains/$dataDomainId"
                       params={{ dataDomainId: domain.id }}
                       search={{ backTo: location.href }}
-                      aria-label={`进入数据域 ${domain.name}`}
+                      aria-label={`进入详情：${domain.name}`}
                       className={buttonVariants({ variant: 'outline', size: 'sm' })}
                     >
                       进入详情
@@ -178,6 +191,63 @@ export function DataDomainsPage() {
             ))}
           </TableBody>
         </Table>
+      ) : null}
+
+      {shown.length > 0 && view === 'cards' ? (
+        <ul
+          aria-label="数据域列表"
+          className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2"
+        >
+          {shown.map((domain) => (
+            <li key={domain.id} className="min-w-0">
+              <Card size="sm" className="h-full">
+                <CardHeader>
+                  <CardTitle className="min-w-0 truncate" title={domain.name}>
+                    {domain.name}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <RecordRows
+                    rows={[
+                      { label: '标识', value: domain.slug, mono: true, title: domain.slug },
+                      { label: '数据源', value: domain.datasource },
+                      {
+                        label: '线上版本',
+                        value: domain.onlineVersionId
+                          ? `在线 ${shortId(domain.onlineVersionId)}`
+                          : '未发布',
+                      },
+                      { label: '更新时间', value: formatRelative(domain.updatedAt) },
+                    ]}
+                  />
+                </CardContent>
+                <CardFooter className="justify-end gap-2">
+                  <Link
+                    to="/data-domains/$dataDomainId"
+                    params={{ dataDomainId: domain.id }}
+                    search={{ backTo: location.href }}
+                    aria-label={`进入详情：${domain.name}`}
+                    className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                  >
+                    进入详情
+                  </Link>
+                  {canDelete ? (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={(event) => {
+                        deleteTriggerRef.current = event.currentTarget;
+                        setDeleting(domain);
+                      }}
+                    >
+                      <Trash2 data-icon="inline-start" /> 删除
+                    </Button>
+                  ) : null}
+                </CardFooter>
+              </Card>
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       {creating ? (
