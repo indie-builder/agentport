@@ -85,7 +85,7 @@ test('setting and clearing effort on the page survives save and reload', {
 
   await chooseEffort(screen, 'high');
   const configured = agentResponse(browser, fixture.id);
-  await screen.getByRole('button', '保存更改').tap();
+  await screen.getByRole('button', '保存草稿').tap();
   const configuredResponse = await configured;
   expect(configuredResponse.status).toBe(200);
   expect(await configuredResponse.json<Record<string, unknown>>()).toMatchObject({
@@ -96,7 +96,7 @@ test('setting and clearing effort on the page survives save and reload', {
   // 回到默认：选择「默认」，保存必须显式发 null。
   await chooseEffort(screen, '默认');
   const cleared = agentResponse(browser, fixture.id);
-  await screen.getByRole('button', '保存更改').tap();
+  await screen.getByRole('button', '保存草稿').tap();
   const clearedResponse = await cleared;
   expect(clearedResponse.status).toBe(200);
   expect(await clearedResponse.json<Record<string, unknown>>()).not.toHaveProperty('effort');
@@ -107,7 +107,7 @@ test('setting and clearing effort on the page survives save and reload', {
   await screen.getByRole('button', '身份', { exact: false }).tap();
   await browser.locator('#agent-name').fill(renamed);
   const saved = agentResponse(browser, fixture.id);
-  await screen.getByRole('button', '保存更改').tap();
+  await screen.getByRole('button', '保存草稿').tap();
   const renamedResponse = await saved;
   expect(renamedResponse.status).toBe(200);
   const renamedBody = await renamedResponse.json<Record<string, unknown>>();

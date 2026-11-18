@@ -19,7 +19,6 @@ import {
   eq,
   getTableColumns,
   gte,
-  ilike,
   inArray,
   isNull,
   ne,
@@ -187,6 +186,8 @@ export interface AgentListOptions {
   favorite?: boolean;
   sort?: 'name' | 'recent';
   status?: AgentLifecycleStatus;
+  enabled?: boolean;
+  limit?: number;
 }
 
 export async function listAgents(
@@ -218,10 +219,11 @@ export async function listAgents(
     needle === undefined || needle === ''
       ? undefined
       : or(
-          ilike(agents.name, `%${needle}%`),
-          ilike(agents.role, `%${needle}%`),
-          ilike(agents.description, `%${needle}%`),
-          ilike(agents.slug, `%${needle}%`),
+          sql`strpos(lower(${agents.name}), lower(${needle})) > 0`,
+          sql`strpos(lower(${agents.role}), lower(${needle})) > 0`,
+          sql`strpos(lower(${agents.description}), lower(${needle})) > 0`,
+          sql`strpos(lower(${agents.slug}), lower(${needle})) > 0`,
+          sql`exists (select 1 from jsonb_array_elements_text(${agents.tags}) as tag(value) where strpos(lower(tag.value), lower(${needle})) > 0)`,
         );
   const tagWhere =
     options.tag === undefined
@@ -233,13 +235,15 @@ export async function listAgents(
       : options.favorite
         ? favoriteWhere
         : sql`not ${favoriteWhere}`;
+  const enabledWhere =
+    options.enabled === undefined ? undefined : eq(agents.enabled, options.enabled);
   const order =
     options.sort === 'name'
       ? [asc(agents.name), asc(agents.id)]
       : options.sort === 'recent'
         ? [sql`${lastUsedAt} desc nulls last`, asc(agents.name), asc(agents.id)]
         : [desc(agents.createdAt), desc(agents.id)];
-  return db
+  const query = db
     .select({
       ...getTableColumns(agents),
       serverIds: sql<
@@ -258,6 +262,7 @@ export async function listAgents(
         agentListScopeWhere(access),
         lifecycleWhere,
         lifecycleVisible,
+        enabledWhere,
         searchWhere,
         tagWhere,
         favoriteFilter,
@@ -265,6 +270,7 @@ export async function listAgents(
     )
     .groupBy(agents.id)
     .orderBy(...order);
+  return options.limit === undefined ? query : query.limit(options.limit);
 }
 
 export async function listAgentTags(db: Database, access: AccessFilter): Promise<string[]> {

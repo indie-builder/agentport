@@ -177,8 +177,10 @@ describe('overview trend accessibility', () => {
     vi.spyOn(api, 'overviewTimeseries').mockResolvedValue(points);
     await render(createElement(RunTrendCard, { days: 7 }));
 
+    await vi.waitFor(() => {
+      expect(host.querySelector('[data-slot="chart"]')).toBeTruthy();
+    });
     const chart = host.querySelector('[data-slot="chart"]');
-    expect(chart).toBeTruthy();
     const hidden = chart?.closest('[aria-hidden="true"]');
     expect(hidden).toBeTruthy();
     expect(

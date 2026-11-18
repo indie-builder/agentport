@@ -17,9 +17,7 @@ mock.module('node:dns/promises', () => ({
   ...realDns,
   lookup: mock(async (host: string, options?: { all?: boolean }) => {
     if (host === 'pace.example.com') {
-      return options?.all
-        ? [{ address: '203.0.113.10', family: 4 }]
-        : { address: '203.0.113.10', family: 4 };
+      return options?.all ? [{ address: '8.8.8.8', family: 4 }] : { address: '8.8.8.8', family: 4 };
     }
     return realDns.lookup(host, options as never);
   }),

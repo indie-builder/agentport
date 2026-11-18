@@ -771,7 +771,6 @@ function ChatWorkspace({
         <div className="flex min-h-0 w-full">
           <Resizable
             orientation="horizontal"
-            defaultLayout={[0, 100]}
             controller={historyPanels}
             className="min-h-0 w-full"
             // 折叠/展开是程序化改尺寸，写回存储只会把宽度记成 0；只持久化用户拖拽/键盘调整。
@@ -788,7 +787,7 @@ function ChatWorkspace({
           >
             <ResizablePanel
               id="history"
-              defaultSize={0}
+              defaultSize={historyCollapsed ? 0 : lastHistorySize.current}
               minSize="200px"
               maxSize="360px"
               collapsible

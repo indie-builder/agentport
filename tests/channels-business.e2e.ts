@@ -60,6 +60,7 @@ interface State {
   agents: [AgentRef, AgentRef];
   firstRunId: string;
   firstReply: string;
+  firstReplyId: string;
   /** 第一个智能体回复里的可检索片段，用来证明它真的被注入第二个 lane。 */
   firstReplyFragment: string;
   firstHumanSeq: number;
@@ -253,6 +254,7 @@ async function ensureState(): Promise<State> {
     agents: [primary, secondary],
     firstRunId: '',
     firstReply: '',
+    firstReplyId: '',
     firstReplyFragment: '',
     firstHumanSeq: 0,
     firstReplySeq: 0,
@@ -288,6 +290,10 @@ async function sendMention(screen: Screen, agentName: string, text: string): Pro
   await composer.pressSequentially(text);
   await expect(composer).toHaveValue(`@${agentName} ${text}`);
   await screen.getByRole('button', '发送消息').tap();
+}
+
+function messageItemById(browser: Browser, id: string) {
+  return browser.locator(`[data-message-id="${id}"]`);
 }
 
 function replyPrefix(reply: string): string {
@@ -367,18 +373,23 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     ctx.channelId = channelIdFromUrl(await browser.url());
     console.log(`  频道 ID：${ctx.channelId}（${Date.now() - started}ms）`);
 
+    await screen.getByRole('button', '频道设置').tap();
+    const settings = screen.getByRole('dialog', '频道设置');
+    await expect(settings).toBeVisible();
     for (const agent of ctx.agents) {
-      const select = screen.getByLabel('选择要绑定的智能体');
+      const select = settings.getByLabel('选择要绑定的智能体');
       await expect(select).toBeVisible({ timeout: 60_000 });
       await select.tap();
-      const option = screen.getByRole('option', { name: agent.name });
+      const option = screen.getByRole('option', { name: agent.name, exact: false });
       await expect(option).toBeVisible({ timeout: 30_000 });
       await option.tap();
-      const bindButton = screen.getByRole('button', { name: '绑定智能体' });
+      const bindButton = settings.getByRole('button', { name: '绑定智能体' });
       await expect(bindButton).toBeEnabled();
       await bindButton.tap();
-      await expect(screen.getByText('智能体已加入频道').first()).toBeVisible();
+      await expect(screen.getByText('智能体已绑定').first()).toBeVisible();
     }
+    await settings.getByRole('button', '关闭').tap();
+    await expect(settings).toBeHidden();
 
     for (const [account, role] of [
       [ctx.ops, 'member'],
@@ -427,7 +438,9 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     await expect(screen.getByRole('heading', { name: ctx.channelName, level: 1 })).toBeVisible();
 
     await sendMention(screen, ctx.agents[0].name, requirement);
-    await expect(screen.getByText('运行中').first()).toBeVisible({ timeout: 120_000 });
+    await expect(screen.getByText('运行中', { visible: true }).first()).toBeVisible({
+      timeout: 120_000,
+    });
     console.log(`  运行已开始：${Date.now() - started}ms`);
 
     // 运行中由运营补一条不带 @ 的上下文：必须进入时间线，但不能唤醒任何智能体。
@@ -475,6 +488,7 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     expect(Number(reply.seq)).toBeGreaterThan(Number(human.seq));
     expect(Number(posted.json?.seq ?? 0)).toBeGreaterThan(Number(human.seq));
     ctx.firstReply = reply.body;
+    ctx.firstReplyId = reply.id;
     ctx.firstReplyFragment = replyPrefix(reply.body);
     assert(ctx.firstReplyFragment.length >= 8, '第一个回复有可注入检索的连续片段');
     ctx.firstReplySeq = reply.seq;
@@ -488,10 +502,14 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     );
     console.log(`  真实模型摘录：${reply.body.slice(0, 220).replaceAll('\n', ' ')}…`);
 
-    await expect(screen.getByText(replyPrefix(reply.body), { exact: false })).toBeVisible({
+    await expect(messageItemById(browser, reply.id)).toHaveCount(1);
+    await expect(messageItemById(browser, reply.id)).toBeVisible({ timeout: 60_000 });
+    await expect(
+      messageItemById(browser, reply.id).getByText(replyPrefix(reply.body), { exact: false }),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(screen.getByText('空闲', { visible: true }).first()).toBeVisible({
       timeout: 60_000,
     });
-    await expect(screen.getByText('空闲').first()).toBeVisible({ timeout: 60_000 });
     console.log(`  步骤耗时：${Date.now() - started}ms`);
   });
 
@@ -509,7 +527,9 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     await browserAs(app, browser, ctx.ops);
     await app.open(`/channels/${ctx.channelId}`);
     await sendMention(screen, ctx.agents[1].name, ask);
-    await expect(screen.getByText('运行中').first()).toBeVisible({ timeout: 120_000 });
+    await expect(screen.getByText('运行中', { visible: true }).first()).toBeVisible({
+      timeout: 120_000,
+    });
 
     const trigger = await messageByBody(ctx.channelId, `@${ctx.agents[1].name} ${ask}`);
     assert(trigger !== undefined, '周报请求已落库');
@@ -578,10 +598,14 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     );
     console.log(`  真实模型摘录：${reply.body.slice(0, 220).replaceAll('\n', ' ')}…`);
 
-    await expect(screen.getByText(replyPrefix(reply.body), { exact: false })).toBeVisible({
+    await expect(messageItemById(browser, reply.id)).toHaveCount(1);
+    await expect(messageItemById(browser, reply.id)).toBeVisible({ timeout: 60_000 });
+    await expect(
+      messageItemById(browser, reply.id).getByText(replyPrefix(reply.body), { exact: false }),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(screen.getByText('空闲', { visible: true }).first()).toBeVisible({
       timeout: 60_000,
     });
-    await expect(screen.getByText('空闲').first()).toBeVisible({ timeout: 60_000 });
     console.log(`  步骤耗时：${Date.now() - started}ms`);
   });
 
@@ -593,7 +617,7 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     const ctx = await ensureState();
     const started = Date.now();
     const ask =
-      '请详细分析频道协作对增长转化的影响，输出不少于 800 字的完整报告，按章节展开，不要省略。';
+      '请详细分析频道协作对增长转化的影响，输出不少于 800 字的完整报告，按章节展开，不要省略。 E2E-CHANNEL-SLOW';
 
     await browserAs(app, browser, ctx.pm);
     await app.open(`/channels/${ctx.channelId}`);
@@ -603,7 +627,9 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     const stopVisibleAt = Date.now();
     await stop.tap();
 
-    await expect(screen.getByText('运行已停止。')).toBeVisible({ timeout: 120_000 });
+    await expect(screen.getByText('运行已停止', { exact: false })).toBeVisible({
+      timeout: 120_000,
+    });
     const trigger = await messageByBody(ctx.channelId, `@${ctx.agents[0].name} ${ask}`);
     assert(trigger !== undefined, '中断请求已落库');
     const run = await latestRunForTrigger(trigger.id);
@@ -632,14 +658,19 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     await app.open(`/channels/${ctx.channelId}`);
 
     await expect(screen.getByRole('heading', { name: ctx.channelName, level: 1 })).toBeVisible();
-    await expect(screen.getByText(replyPrefix(ctx.firstReply), { exact: false })).toBeVisible({
-      timeout: 30_000,
-    });
+    assert(ctx.firstReplyId !== '', '首个回复 ID 已由用例 2 记录');
+    const firstReplyItem = messageItemById(browser, ctx.firstReplyId);
+    await expect(firstReplyItem).toHaveCount(1);
+    await expect(firstReplyItem).toBeVisible({ timeout: 30_000 });
+    await expect(
+      firstReplyItem.getByText(replyPrefix(ctx.firstReply), { exact: false }),
+    ).toBeVisible({ timeout: 30_000 });
     const composer = screen.getByRole('textbox', '消息');
     await expect(composer).toBeDisabled();
     await expect(composer).toHaveAttribute('placeholder', '频道只读');
     await expect(screen.getByText('你在该频道是只读成员，不能发送消息。')).toBeVisible();
     await expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
+    await expect(screen.getByRole('button', { name: '频道设置' })).toHaveCount(0);
     await expect(screen.getByLabel('选择要绑定的智能体')).toHaveCount(0);
 
     const denied = await nodeApi(ctx.viewer, 'POST', `/api/channels/${ctx.channelId}/messages`, {
@@ -707,24 +738,27 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     const ctx = await ensureState();
     const started = Date.now();
     const ask =
-      '请用不少于 400 字说明接下来的增长实验计划，给出优先级、负责人和衡量指标，分点展开。';
+      '请用不少于 400 字说明接下来的增长实验计划，给出优先级、负责人和衡量指标，分点展开。 E2E-CHANNEL-SLOW';
 
     await browserAs(app, browser, ctx.ops);
     await app.open(`/channels/${ctx.channelId}`);
     await sendMention(screen, ctx.agents[0].name, ask);
     const stop = screen.getByRole('button', { name: '停止' }).first();
     await expect(stop).toBeVisible({ timeout: 120_000 });
-    const wasRunning = (await screen.getByText('运行中').count()) > 0;
-    await browser.reload();
-
-    await expect(screen.getByText(`@${ctx.agents[0].name} ${ask}`)).toBeVisible({
-      timeout: 30_000,
-    });
-    const afterReloadRunning = (await screen.getByText('运行中').count()) > 0;
-    await expect(screen.getByText('空闲').first()).toBeVisible({ timeout: 300_000 });
-
+    const agentStatus = screen.getByRole('listitem').filter({ hasText: ctx.agents[0].name });
+    await expect(agentStatus).toContainText('运行中', { timeout: 120_000 });
     const trigger = await messageByBody(ctx.channelId, `@${ctx.agents[0].name} ${ask}`);
     assert(trigger !== undefined, '刷新前请求已落库');
+    await browser.reload();
+
+    const refreshedUserMessage = messageItemById(browser, trigger.id);
+    await expect(refreshedUserMessage).toBeVisible({ timeout: 30_000 });
+    await expect(
+      refreshedUserMessage.getByText(`@${ctx.agents[0].name} ${ask}`, { exact: false }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(agentStatus).toContainText('运行中', { timeout: 30_000 });
+    await expect(agentStatus).toContainText('空闲', { timeout: 300_000 });
+
     const run = await waitRunSettled(trigger.id);
     expect(run.status).toBe('succeeded');
     ctx.reloadRunId = run.id;
@@ -733,11 +767,13 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     const reply = messages[0];
     assert(reply !== undefined, '刷新后回复已落库');
     expect(reply.body.trim().length).toBeGreaterThan(50);
-    await expect(screen.getByText(replyPrefix(reply.body), { exact: false })).toBeVisible({
-      timeout: 60_000,
-    });
+    await expect(messageItemById(browser, reply.id)).toHaveCount(1);
+    await expect(messageItemById(browser, reply.id)).toBeVisible({ timeout: 60_000 });
+    await expect(
+      messageItemById(browser, reply.id).getByText(replyPrefix(reply.body), { exact: false }),
+    ).toBeVisible({ timeout: 60_000 });
     console.log(
-      `  刷新前运行中=${wasRunning}，刷新后仍运行中=${afterReloadRunning}；运行 ${run.id} ${run.status}；回复 ${reply.body.length} 字；耗时：${Date.now() - started}ms`,
+      `  运行 ${run.id} ${run.status}；回复 ${reply.body.length} 字；耗时：${Date.now() - started}ms`,
     );
   });
 

@@ -2,8 +2,7 @@ import { type RetentionSettings, retentionSettingsSchema } from '@agentport/shar
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { Activity, Bot, Download, Plus, Server, Sparkles } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { AttentionPanel } from '../components/attention-panel.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
@@ -31,14 +30,6 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/ui/card.js';
-import {
-  type ChartConfig,
-  ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
-  ChartTooltip,
-  ChartTooltipContent,
-} from '../components/ui/chart.js';
 import {
   Field,
   FieldContent,
@@ -376,10 +367,9 @@ function HealthLine() {
   );
 }
 
-const trendConfig = {
-  runs: { label: '运行', color: 'var(--color-chart-runs)' },
-  failed: { label: '失败', color: 'var(--color-chart-failed)' },
-} satisfies ChartConfig;
+const RunTrendChart = lazy(() =>
+  import('./overview-trend-chart.js').then((module) => ({ default: module.RunTrendChart })),
+);
 
 export function RunTrendCard({ days }: { days: number }) {
   const { data, isPending, isError, error, refetch } = useOverviewTimeseries(days);
@@ -417,54 +407,9 @@ export function RunTrendCard({ days }: { days: number }) {
               <div className="flex flex-col gap-2">
                 {/* 图表仅视觉展示，读屏改走下方同源数据表。 */}
                 <div aria-hidden="true">
-                  <ChartContainer config={trendConfig} className="aspect-auto h-56 w-full">
-                    {/* Recharts 3 默认开启 accessibilityLayer，会生成无名称的可聚焦 application。 */}
-                    <AreaChart
-                      accessibilityLayer={false}
-                      data={points}
-                      margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
-                    >
-                      <CartesianGrid vertical={false} />
-                      <XAxis
-                        dataKey="date"
-                        tickLine={false}
-                        axisLine={false}
-                        tickMargin={8}
-                        minTickGap={24}
-                        tickFormatter={(value: string) => value.slice(5)}
-                      />
-                      <YAxis
-                        allowDecimals={false}
-                        axisLine={false}
-                        tickLine={false}
-                        tickMargin={8}
-                        width={28}
-                      />
-                      <ChartTooltip
-                        cursor={false}
-                        content={<ChartTooltipContent indicator="line" />}
-                      />
-                      <ChartLegend content={<ChartLegendContent />} />
-                      <Area
-                        dataKey="runs"
-                        type="monotone"
-                        fill="var(--color-runs)"
-                        fillOpacity={0.08}
-                        stroke="var(--color-runs)"
-                        strokeWidth={1.5}
-                        isAnimationActive={false}
-                      />
-                      <Area
-                        dataKey="failed"
-                        type="monotone"
-                        fill="var(--color-failed)"
-                        fillOpacity={0.16}
-                        stroke="var(--color-failed)"
-                        strokeWidth={1.5}
-                        isAnimationActive={false}
-                      />
-                    </AreaChart>
-                  </ChartContainer>
+                  <Suspense fallback={<div className="h-56 w-full" />}>
+                    <RunTrendChart points={points} />
+                  </Suspense>
                 </div>
                 <Collapsible open={open} onOpenChange={setOpen}>
                   <CollapsibleTrigger

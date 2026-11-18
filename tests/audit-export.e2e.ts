@@ -113,6 +113,7 @@ test('target filter narrows the list and the export', { session: 'admin' }, asyn
       'inputDigest',
       'requestId',
       'status',
+      'subjectBusinessId',
       'target',
     ]);
     expect(raw).not.toContain(unrelatedTarget);

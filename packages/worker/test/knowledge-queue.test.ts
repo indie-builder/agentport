@@ -269,8 +269,8 @@ describe('knowledge worker queue', () => {
   });
 
   it('retries a transient embedding failure through BullMQ and keeps the old version until the rebuild succeeds', async () => {
-    // 第一次 embedding 请求返回 503，重试后恢复；只替换上游，队列/认领/重试全走真实路径。
-    let failNextEmbedding = false;
+    // 首个任务内 3 次请求尝试全部返回 503 才交给 BullMQ，重投后恢复；只替换上游，队列/认领/重试全走真实路径。
+    let embeddingFailuresRemaining = 0;
     let embeddingCalls = 0;
     const server = createServer((req, res) => {
       let raw = '';
@@ -279,8 +279,8 @@ describe('knowledge worker queue', () => {
       });
       req.on('end', () => {
         embeddingCalls += 1;
-        if (failNextEmbedding) {
-          failNextEmbedding = false;
+        if (embeddingFailuresRemaining > 0) {
+          embeddingFailuresRemaining -= 1;
           // 留出可观测的 running 窗口，避免状态采样漏掉首次尝试。
           setTimeout(() => {
             res.writeHead(503, { 'content-type': 'application/json' });
@@ -390,7 +390,7 @@ describe('knowledge worker queue', () => {
         }
       });
 
-      failNextEmbedding = true;
+      embeddingFailuresRemaining = 3;
       await queue.add('knowledge', { jobId: reindex.id }, knowledgeEnqueueOptions(reindex.id));
       const statuses = ['queued'];
       let last = 'queued';
@@ -434,8 +434,8 @@ describe('knowledge worker queue', () => {
       expect(statuses.filter((status) => status === 'queued')).toHaveLength(2);
       expect(statuses.at(-1)).toBe('succeeded');
       expect(oldVersionHeldDuringRetry).toBe(true);
-      // 一次 503 + 一次成功，没有把可重试错误吞成永久失败。
-      expect(embeddingCalls).toBe(2);
+      // 首个任务内三次 503 + 重投后一次成功，没有把可重试错误吞成永久失败。
+      expect(embeddingCalls).toBe(4);
 
       const current = await repo.knowledge.getDocument(db, documentId);
       expect(current?.status).toBe('ready');
@@ -454,8 +454,8 @@ describe('knowledge worker queue', () => {
   }, 30_000);
 
   it('keeps a sync run running across a retryable embedding failure and only succeeds with the cursor', async () => {
-    // 首次 embedding 返回 503；重试等待期间 run 不能提前落 failed/cancelled，成功时才推进游标。
-    let failNextEmbedding = false;
+    // 首个任务内 3 次请求尝试全部返回 503 才交给 BullMQ；退避期间 run 不能提前落 failed/cancelled，成功时才推进游标。
+    let embeddingFailuresRemaining = 0;
     let embeddingCalls = 0;
     const server = createServer((req, res) => {
       let raw = '';
@@ -464,8 +464,8 @@ describe('knowledge worker queue', () => {
       });
       req.on('end', () => {
         embeddingCalls += 1;
-        if (failNextEmbedding) {
-          failNextEmbedding = false;
+        if (embeddingFailuresRemaining > 0) {
+          embeddingFailuresRemaining -= 1;
           res.writeHead(503, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ error: 'temporarily down' }));
           return;
@@ -564,7 +564,7 @@ describe('knowledge worker queue', () => {
           if (jobId === job.id) resolve(true);
         });
       });
-      failNextEmbedding = true;
+      embeddingFailuresRemaining = 3;
       await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
 
       const delayed = await Promise.race([
@@ -593,7 +593,7 @@ describe('knowledge worker queue', () => {
       }
       expect(final?.status).toBe('succeeded');
       expect(final?.attempts).toBeGreaterThanOrEqual(2);
-      expect(embeddingCalls).toBe(2);
+      expect(embeddingCalls).toBe(4);
 
       const finished = (await repo.knowledge.listSyncRuns(db, source.id)).items.find(
         (item) => item.id === created.run.id,

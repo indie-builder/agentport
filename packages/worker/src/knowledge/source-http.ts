@@ -1,7 +1,7 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { isLoopbackAddress, isPrivateAddress } from '@agentport/core/net-guard';
-import { errorText } from '@agentport/shared';
+import { commonEnvSchema, errorText } from '@agentport/shared';
 import type { z } from 'zod';
 import type { SourceFailure } from './sources.js';
 
@@ -87,7 +87,11 @@ export async function validateSourceUrl(raw: string, options: SourceUrlOptions =
       throw new Error(`cannot resolve source host: ${host}`);
     }
   }
-  if (addresses.length === 0 || addresses.some(isPrivateAddress)) {
+  const nodeEnv = commonEnvSchema.shape.NODE_ENV.parse(process.env.NODE_ENV);
+  if (
+    addresses.length === 0 ||
+    addresses.some((address) => isPrivateAddress(address, nodeEnv === 'development'))
+  ) {
     throw new Error(`source host resolves to a private address: ${host}`);
   }
   return url;

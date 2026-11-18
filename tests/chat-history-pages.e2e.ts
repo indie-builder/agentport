@@ -378,8 +378,7 @@ test('switching conversations in the history panel drops the old messages', {
     await expect(screen.getByText('switch-b-000', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('switch-a-000', { exact: true })).toHaveCount(0);
 
-    // 切换会话会重载工作区并收起历史，重新展开后再点另一条。
-    await screen.getByRole('button', '显示会话历史').tap();
+    // 切换会话后历史面板保持展开，直接点另一条。
     await screen.getByText('E2E switch-a-', { exact: true }).first().tap();
     await expect(browser).toHaveURL(new RegExp(`conversation=${first}`));
     await expect(screen.getByText('switch-a-000', { exact: true })).toHaveCount(1);
