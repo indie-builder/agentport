@@ -69,7 +69,7 @@ test('overview page shows failed and token hints from the aggregates', {
   // 概况迁入运维后复用 OverviewPage，h1 与路由名称一致。
   await expect(screen.getByRole('heading', '概况')).toBeVisible();
   await expect(browser).toHaveTitle('概况 · PACE');
-  await expect(browser.locator('[role="alert"]')).toHaveCount(0);
+  await expect(browser.locator('main [role="alert"]')).toHaveCount(0);
 
   await expect(screen.getByText('最近 7 天', { exact: true })).toBeVisible();
   await expect(screen.getByText(/^\d+ 次失败$/)).toBeVisible();

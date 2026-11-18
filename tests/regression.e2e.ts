@@ -97,10 +97,12 @@ test('skill cancel preserves unsaved form until discard is confirmed', {
   await browser.locator('#skill-name').fill('Unsaved skill draft');
   await screen.getByRole('button', '取消', { exact: true }).tap();
   await expect(screen.getByRole('heading', '放弃未保存的更改？')).toBeVisible();
-  await screen.getByRole('button', '取消', { exact: true }).last().tap();
+  const discard = screen.getByRole('dialog', '放弃未保存的更改？');
+  await discard.getByRole('button', '取消', { exact: true }).tap();
+  await discard.waitFor({ state: 'detached' });
   await expect(browser.locator('#skill-name')).toHaveValue('Unsaved skill draft');
   await browser.keyboard.press('Escape');
-  await screen.getByRole('button', '放弃并关闭').tap();
+  await discard.getByRole('button', '放弃并关闭').tap();
   await expect(screen.getByRole('button', '新建技能').first()).toBeVisible();
 });
 
@@ -210,9 +212,17 @@ test('personal module opens as profile and exposes direct subpages', { session: 
 }) => {
   await app.open('/personal/profile');
   await expect(screen.getByRole('heading', '个人资料', { exact: true })).toHaveCount(1);
-  // 个人上下文把六页放进主侧栏；用导航边界精确限定，避免与同名底部账号入口混淆。
+  // 个人上下文把七页放进主侧栏；用导航边界精确限定，避免与同名底部账号入口混淆。
   const personalNav = browser.locator('nav[aria-label="主导航"]');
-  const personalLinks = ['个人记忆', '记忆提案', '我的分享', '使用记录', '个人资料', '账号安全'];
+  const personalLinks = [
+    '个人记忆',
+    '记忆提案',
+    '会话与成果',
+    '我的分享',
+    '使用记录',
+    '个人资料',
+    '账号安全',
+  ];
   await expect(personalNav.getByRole('link', { exact: true })).toHaveCount(personalLinks.length);
   for (const label of personalLinks) {
     await expect(personalNav.getByRole('link', label, { exact: true })).toBeVisible();

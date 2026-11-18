@@ -42,7 +42,9 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
     await screen.getByRole('button', '添加').tap();
     await expect(screen.getByText('工具已添加')).toBeVisible();
 
-    await screen.getByRole('button', '关闭').tap();
+    const editor = screen.getByRole('dialog', `工具定义「${serverName}」`);
+    await editor.getByRole('button', '关闭', { exact: true }).tap();
+    await editor.waitFor({ state: 'detached' });
 
     const actions = screen.getByRole('button', { name: `操作 ${serverName}`, exact: true });
     await actions.tap();
@@ -54,10 +56,10 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
 
     await actions.tap();
     await screen.getByRole('menuitem', '工具与测试', { exact: true }).tap();
-    const catalog = browser.locator('[role="dialog"]');
+    const catalog = screen.getByRole('dialog', `工具与试连「${serverName}」`);
     await expect(catalog).toContainText('properties');
     await expect(catalog).toContainText('integer');
-    await screen.getByRole('button', '关闭').tap();
+    await catalog.getByRole('button', '关闭', { exact: true }).tap();
 
     await app.open('/agents');
     await screen.getByRole('button', '新建专家').first().tap();
@@ -74,8 +76,8 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
     await screen.getByRole('combobox', 'MCP Server').tap();
     await browser.locator('[role="option"]').filter({ hasText: serverName }).first().click();
     await browser.keyboard.press('Escape');
-    await screen.getByRole('button', '保存更改').first().tap();
-    await expect(screen.getByText('智能体已保存')).toBeVisible();
+    await screen.getByRole('button', '保存草稿').first().tap();
+    await expect(screen.getByText('草稿已保存')).toBeVisible();
 
     await screen.getByRole('button', '.mcp.json 与 frontmatter 草稿', { exact: true }).tap();
     await expect(screen.getByText('"mcpServers"', { exact: false }).first()).toBeVisible();
@@ -89,10 +91,12 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
     await prompt.fill('Unsaved expert draft');
     await screen.getByRole('button', '返回列表', { exact: true }).tap();
     await expect(screen.getByRole('heading', '放弃未保存的更改？')).toBeVisible();
-    await screen.getByRole('button', '取消', { exact: true }).tap();
+    const discard = screen.getByRole('dialog', '放弃未保存的更改？');
+    await discard.getByRole('button', '取消', { exact: true }).tap();
+    await discard.waitFor({ state: 'detached' });
     await expect(prompt).toHaveValue('Unsaved expert draft');
     await screen.getByRole('button', '返回列表', { exact: true }).tap();
-    await screen.getByRole('button', '放弃并离开').tap();
+    await discard.getByRole('button', '放弃并离开').tap();
     await expect(screen.getByRole('link', { name: agentName, exact: true })).toBeVisible();
   } catch (error) {
     errors.push(error);

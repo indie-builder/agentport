@@ -159,7 +159,7 @@ async function notifyRunTerminal(
             title: `智能体${tier === 'exceeded' ? '预算已超支' : '预算告警'}`,
             body:
               tier === 'exceeded'
-                ? `本月已使用 $${spent.toFixed(2)}，达到 $${budget.limit.toFixed(2)} 月度预算上限`
+                ? `本月已使用 $${spent.toFixed(2)}，达到或超过 $${budget.limit.toFixed(2)} 月度预算上限`
                 : `本月已使用 $${spent.toFixed(2)}，达到 $${budget.limit.toFixed(2)} 月度预算的 ${Math.round(budget.ratio * 100)}%`,
             link: `/agents/${row.agentId}`,
             sourceId,

@@ -2238,7 +2238,8 @@ export function AgentEditor({
                               </FieldContent>
                               <Input
                                 {...rhf.register('monthlyBudgetUsd', {
-                                  setValueAs: (value) => (value === '' ? null : Number(value)),
+                                  setValueAs: (value) =>
+                                    value == null || value === '' ? null : Number(value),
                                 })}
                                 disabled={configDisabled}
                                 id="agent-monthly-budget"
