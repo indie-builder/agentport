@@ -28,7 +28,7 @@ import {
   wireFailureKind,
 } from '@agentport/shared';
 import type { Job } from 'bullmq';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { publishChannelEventSafely } from '../channels/channel-events.js';
 import type { Config } from '../config.js';
@@ -215,6 +215,8 @@ export async function runAgentJob(
   const [run] = await db
     .select({
       status: schema.agentRuns.status,
+      errorKind: schema.agentRuns.errorKind,
+      startedAt: schema.agentRuns.startedAt,
       agentVersion: schema.agentRuns.agentVersion,
       definitionSnapshot: schema.agentRuns.definitionSnapshot,
       trigger: schema.agentRuns.trigger,
@@ -230,13 +232,16 @@ export async function runAgentJob(
     .where(eq(schema.agentRuns.id, runId))
     .limit(1);
   // 排队取消由 API 的 queued → cancelled 更新负责发布终态，worker 不重复发布。
-  if (!isActiveRunStatus(run?.status)) {
+  // 入队失败后未启动的 infra 行：API 已投递 job 但尚未恢复 DB 时，worker 也要能领取。
+  const retryingEnqueueFailure =
+    run?.status === 'failed' && run.errorKind === 'infra' && run.startedAt === null;
+  if (!isActiveRunStatus(run?.status) && !retryingEnqueueFailure) {
     logger.info({ runId, status: run?.status }, 'run no longer pending, skipping');
     return;
   }
   // 主体只从 run 行读取；job/client 里的任何用户或管理员字段都不参与判定。
   const subject = runExecutionSubject(run);
-  if (run.status === 'queued') {
+  if (run.status === 'queued' || retryingEnqueueFailure) {
     if (subject === null) {
       await denyQueuedRun(db, logger, runId, {
         reason: 'invalid_subject',
@@ -273,12 +278,30 @@ export async function runAgentJob(
     agentId,
     conversationId,
   });
-  // 只认领 queued：BullMQ 在 Redis 抖动后会重投递仍在 running 的任务，
+  // 只认领 queued 或入队失败且从未启动的 infra 行：BullMQ 在 Redis 抖动后会重投递仍在 running 的任务，
   // 若这里也接受 running，同一 run 会被两个 worker 各跑一遍（重复计费、消息互相覆盖）。
   const claimed = await db
     .update(schema.agentRuns)
-    .set({ status: 'running', startedAt: new Date() })
-    .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'queued')))
+    .set({
+      status: 'running',
+      startedAt: new Date(),
+      endedAt: null,
+      error: null,
+      errorKind: null,
+    })
+    .where(
+      and(
+        eq(schema.agentRuns.id, runId),
+        or(
+          eq(schema.agentRuns.status, 'queued'),
+          and(
+            eq(schema.agentRuns.status, 'failed'),
+            eq(schema.agentRuns.errorKind, 'infra'),
+            isNull(schema.agentRuns.startedAt),
+          ),
+        ),
+      ),
+    )
     .returning({ id: schema.agentRuns.id });
   if (claimed.length === 0) {
     runLog.info('run externally terminated before claim, skipping');
@@ -293,14 +316,14 @@ export async function runAgentJob(
         redisUrl: config.REDIS_URL,
         signal: sandboxClosing.signal,
       },
-      { logger: runLog },
+      { config, logger: runLog, ...(modelProxy === null ? {} : { modelProxy }) },
     );
     return;
   }
   try {
     await publishRun(runId, { type: 'run_started', runId, conversationId }, runLog);
   } catch (err) {
-    // 认领只接受 queued；发布失败若不回退，BullMQ 重试会被 running 守卫跳过。
+    // 认领不接受 running；发布失败若不回退，BullMQ 重试会被 running 守卫跳过。
     try {
       await db
         .update(schema.agentRuns)
@@ -555,8 +578,11 @@ export async function runAgentJob(
       // 用户可能在消息里选择了一个已交付文件作为修改对象：复制成草稿并在提示里给出路径。
       const chosenOutput = selectedOutput(userMessage.content);
       // 动作回传要把上下文与表单值一起交给模型；纯文本消息仍是原文。
+      const regenerated = parsed.data.regenerateContent;
+      const openuiContent =
+        regenerated === undefined ? userMessage.content : regenerated.openuiAction;
       const taskPrompt = promptWithAttachments(
-        promptWithSelectedOutput(promptWithOpenUiAction(userMessage.content, prompt), chosenOutput),
+        promptWithSelectedOutput(promptWithOpenUiAction(openuiContent, prompt), chosenOutput),
         messageAttachments(userMessage.content),
       );
       // 非浏览器入口（定时、评估、外部调用）不经过准入；uuid 由平台生成后显式发给 SDK，
@@ -1092,7 +1118,7 @@ export async function runAgentJob(
     }
 
     if (willRetry) {
-      // 认领只接受 queued，所以重试前必须把行改回 queued 再抛错；
+      // 认领不接受 running，所以重试前必须把行改回 queued 再抛错；
       // 否则下一次投递会被自己的守卫当成「外部已终止」而跳过。
       const requeued = await db.transaction(async (tx) => {
         const rows = await tx

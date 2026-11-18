@@ -757,7 +757,12 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
       }
       if (pathname === '/__e2e_upstream/hits') {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ approvalEcho: approvalEchoHits }));
+        res.end(
+          JSON.stringify({
+            approvalEcho: approvalEchoHits,
+            prompts: messageRequests.map((request) => request.prompt),
+          }),
+        );
         return;
       }
       if (EXECUTION_MODE && pathname === '/__e2e_execution') {
@@ -1558,6 +1563,7 @@ async function main(): Promise<void> {
     KNOWLEDGE_DIR: knowledgeDir,
     SANDBOX_IMAGE: IMAGE,
     WEB_DIST,
+    ...(NEED_FAKE_MODEL ? { ANTHROPIC_BASE_URL: `http://127.0.0.1:${FAKE_PORT}` } : {}),
     ...(wrenRuntimeUrl === undefined ? {} : { WREN_RUNTIME_URL: wrenRuntimeUrl }),
   };
   apiProcess = spawn('bun', [join(REPO, 'packages/api/src/index.ts')], {

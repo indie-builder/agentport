@@ -1,0 +1,2 @@
+ALTER TABLE "notifications" DROP CONSTRAINT "notifications_kind_check";--> statement-breakpoint
+ALTER TABLE "notifications" ADD CONSTRAINT "notifications_kind_check" CHECK ("notifications"."kind" in ('approval', 'question', 'run_failed', 'schedule_failed', 'budget_alert', 'ops_alert', 'policy_approval', 'policy_violation'));

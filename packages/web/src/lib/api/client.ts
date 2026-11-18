@@ -11,7 +11,9 @@ import health from './health.js';
 import knowledge from './knowledge.js';
 import market from './market.js';
 import memory from './memory.js';
+import modelProviders from './model-providers.js';
 import notifications from './notifications.js';
+import observability from './observability.js';
 import ops from './ops.js';
 import overview from './overview.js';
 import personal from './personal.js';
@@ -19,6 +21,7 @@ import plugins from './plugins.js';
 import runs from './runs.js';
 import runtimeEnvironments from './runtime-environments.js';
 import search from './search.js';
+import security from './security.js';
 import servers from './servers.js';
 import skills from './skills.js';
 import workflows from './workflows.js';
@@ -234,6 +237,23 @@ export const api = {
   unreadNotificationCount: notifications.unreadNotificationCount,
   markNotificationRead: notifications.markNotificationRead,
   markAllNotificationsRead: notifications.markAllNotificationsRead,
+  modelProviders: modelProviders.modelProviders,
+  createModelProvider: modelProviders.createModelProvider,
+  updateModelProvider: modelProviders.updateModelProvider,
+  deleteModelProvider: modelProviders.deleteModelProvider,
+  testModelProvider: modelProviders.testModelProvider,
+  securityPolicies: security.securityPolicies,
+  createSecurityPolicy: security.createSecurityPolicy,
+  updateSecurityPolicy: security.updateSecurityPolicy,
+  deleteSecurityPolicy: security.deleteSecurityPolicy,
+  securityEvents: security.securityEvents,
+  securityApprovals: security.securityApprovals,
+  decideSecurityApproval: security.decideSecurityApproval,
+  securityViolations: security.securityViolations,
+  updateSecurityViolation: security.updateSecurityViolation,
+  observabilitySnapshot: observability.observabilitySnapshot,
+  sloSettings: observability.sloSettings,
+  updateSloSettings: observability.updateSloSettings,
   attention: ops.attention,
   retention: ops.retention,
   updateRetention: ops.updateRetention,

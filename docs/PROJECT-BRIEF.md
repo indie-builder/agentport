@@ -415,7 +415,14 @@ skills(
 )
 -- index skills_status_updated_idx (status, updated_at)；CHECK status in ('draft','pending','published','rejected')
 
-conversations(id text pk                 -- TypeID，如 srv_/agt_/run_, agent_id text fk           -- TypeID, title text, created_at timestamptz, data_domain_restricted boolean not null default false)
+conversations(
+  id text pk,
+  agent_id text fk,
+  title text,
+  created_at timestamptz,
+  data_domain_restricted boolean not null default false,
+  provider_destination text nullable
+)
 
 messages(
   id text pk                 -- TypeID，如 srv_/agt_/run_,
@@ -595,6 +602,88 @@ approval_requests.authorization_expires_at timestamptz nullable
 
 人工交接：`POST /api/channels/{id}/handoffs` 由成员显式发起（viewer 不可），要求目标为频道内 active 且已启用的绑定、来源 run 为调用者可读的任意频道 run 或私有会话 run（服务端支持跨频道/跨会话交接，频道 UI 仅在当前频道 run 详情提供入口）且已结束。服务端生成一条 @ 目标智能体的 `human` 消息，包含来源智能体、run ID、来源 run 的频道触发消息正文（私有 run 取首条用户消息）、最近回复、成果路径与可选备注；可识别且不超限的最多 5 个成果文件转为频道附件，其余仅列路径。目标智能体有活跃 run 时交接直接拒绝，不写消息也不写附件。交接必须由用户点击确认，agent 不能自动触发。
 
+模型供应商与安全运营（迁移 0093 至 0097）：
+
+```sql
+model_providers(
+  id text pk, name text unique not null, protocol text not null default 'anthropic'
+    check (protocol = 'anthropic'), base_url text not null,
+  credential_encrypted text not null, models jsonb not null default '[]',
+  priority int not null default 100 check (priority >= 0),
+  enabled boolean not null default true,
+  monthly_budget_usd numeric(14,4) check (monthly_budget_usd is null or monthly_budget_usd >= 0),
+  alert_ratio numeric(4,3) not null default 0.800 check (alert_ratio between 0 and 1),
+  last_error text, last_error_at timestamptz, last_success_at timestamptz,
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+)
+-- index (enabled, priority)
+
+provider_request_logs(
+  id text pk, run_id text, provider_id text not null fk model_providers restrict,
+  model text, status_code int, error_kind text
+    check in ('network','timeout','rate_limit','auth','upstream','content_blocked'),
+  duration_ms int not null, upstream_request_id text, failover_from_provider_id text,
+  created_at timestamptz not null default now()
+)
+-- index (provider_id, created_at)、(run_id)、(created_at)
+
+content_policies(
+  id text pk, name text not null, description text not null default '',
+  direction text check in ('inbound','outbound'),
+  action text check in ('block','redact','require_approval'),
+  match_type text check in ('keyword','regex','secret','pii'), pattern text not null,
+  case_sensitive boolean not null default false, agent_id text nullable,
+  priority int not null default 100 check (priority >= 0),
+  enabled boolean not null default true, version int not null default 1 check (version >= 1),
+  created_by text not null, created_at timestamptz, updated_at timestamptz
+)
+-- index (direction, enabled, priority)
+-- action=require_approval 仅用于入站；出站策略只允许 block/redact
+
+policy_events(
+  id text pk, policy_id text nullable fk content_policies set null,
+  policy_name text not null, policy_version int not null,
+  direction/action/source_kind text check, source_id text not null,
+  run_id text, channel_id text, actor text, match_digest text not null,
+  snippet text not null, destination text, created_at timestamptz
+)
+-- index (created_at)、(run_id)、(policy_id, created_at)
+
+policy_approvals(
+  id text pk, policy_id text nullable fk content_policies set null,
+  policy_name text not null, policy_version int not null, source_kind text check,
+  source_id text not null, run_id text, channel_id text, payload_hash text not null,
+  destination text, status text not null default 'pending'
+    check in ('pending','approved','rejected','expired'),
+  requested_by text not null, requested_at timestamptz not null default now(),
+  decided_by text, decided_at timestamptz, expires_at timestamptz not null,
+  note text, consumed_at timestamptz
+)
+-- index (status, expires_at)、(requested_by, payload_hash)
+
+violation_cases(
+  id text pk, policy_id text nullable fk content_policies set null,
+  policy_name text not null, event_id text, run_id text,
+  subject_kind text check in ('user','agent','channel'), subject_id text not null,
+  severity text check in ('low','medium','high'),
+  status text not null default 'open' check in ('open','investigating','resolved','dismissed'),
+  assignee_business_id text, summary text not null, resolution text,
+  created_at timestamptz, updated_at timestamptz
+)
+-- index (status, created_at)、(assignee_business_id)
+
+agent_runs.provider_id text nullable fk model_providers set null
+agent_runs.served_provider_id text nullable fk model_providers set null
+agent_runs.provider_failovers int not null default 0 check (provider_failovers >= 0)
+platform_settings.slo_enabled boolean not null default true
+platform_settings.slo_window_minutes int not null default 60 check (between 5 and 1440)
+platform_settings.slo_run_success_target numeric(4,3) not null default 0.950 check (between 0 and 1)
+platform_settings.slo_run_p95_latency_ms int not null default 120000 check (> 0)
+platform_settings.slo_queue_oldest_wait_ms int not null default 60000 check (> 0)
+platform_settings.slo_provider_error_rate_target numeric(4,3) not null default 0.050 check (between 0 and 1)
+-- 新增权限：models.read/manage、security.read/manage（platform）；错误码 CONTENT_BLOCKED 403、CONTENT_APPROVAL_REQUIRED 409
+```
+
 知识库是一组独立的内容表，不挂在专家定义下（字段契约见 [ARCHITECTURE.md §6.1](ARCHITECTURE.md#61-存储与数据模型)）：
 
 ```sql
@@ -769,7 +858,7 @@ interface SandboxProvider {
 ### 6.5 沙盒内的网络与凭证
 
 - 沙盒访问 API：用 `SANDBOX_API_URL`，默认 `http://host.docker.internal:3000`，由 worker 的 `--add-host` 解析；其他网络模式改用宿主可达地址。
-- **不要把 model API key 写进挂载文件。** 默认由 worker 的模型凭证代理（D-17）持有真实凭证：配置 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN` 后，沙盒只注入代理地址与按 run 签发的短期 `ANTHROPIC_AUTH_TOKEN`，容器内进程看不到明文密钥；未配置凭证时代理不启动，保留直接注入配置值的回退路径并打印警告。
+- **不要把 model API key 写进挂载文件。** 默认由 worker 的模型凭证代理（D-17）持有真实凭证：worker 启动代理，并从 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` 或供应商目录取得上游；沙盒只注入代理地址与按 run 签发的短期 `ANTHROPIC_AUTH_TOKEN`，容器内进程看不到明文密钥。环境凭证与可用供应商目录都没有时，代理仍会启动，但请求因没有可用上游而失败，沙盒不会拿到真实密钥。
 - 出站由 `SANDBOX_EGRESS` 控制：默认 `open`，容器走 bridge 直连，**不隔离出站**；`proxy` 为 bridge + 容器内 `HTTPS_PROXY`（未配置代理时启动失败，不降级为 open）；`none` 才使用 `--network none`。
 - 挂载一律只读；需要写的工作区单独给一个可写子目录。
 
@@ -901,7 +990,7 @@ interface SandboxProvider {
 | M2 | HTTP→MCP 动态挂载 | ✅ 已完成：`/mcp/:serverId` + Bearer token；工具真实转发上游 HTTP |
 | M3 | 智能体文件定义 + 单机运行 | ✅ 已完成：DB → `.mcp.json` / `CLAUDE.md` / `.claude/agents/*.md`，页面可预览 |
 | M4 | 队列 + 沙盒 | ✅ 已完成：BullMQ → Docker 容器 → Agent SDK → SSE 回传 text/tool 事件 |
-| M5 | 生产化 | ✅ 审计、E2E、CI、限流、CSP、会话吊销、乐观锁、外键、备份恢复、Runbook、状态页均已落地（缺少持久化 HITL 与模型凭证代理，见 [SECURITY.md](SECURITY.md) M12a） |
+| M5 | 生产化 | ✅ 审计、E2E、CI、限流、CSP、会话吊销、乐观锁、外键、备份恢复、Runbook、状态页均已落地（缺少持久化 HITL；模型凭证代理已按 [SECURITY.md](SECURITY.md) M12a 落地） |
 | M6 | 强隔离（可选） | ⬜ 未开始（`SandboxProvider` 接口已就位；D-12 决定暂不接入） |
 | M7 | HTTP→MCP 完整化 | ✅ 已完成：generated 连接器支持 OpenAPI 3.x / Swagger 2.0 批量导入工具；`GENERATED_PRIVATE_HOST_ALLOWLIST` 放行显式内网主机，创建/保存/测试/运行/对话/专家包导入全链路生效 |
 

@@ -1,0 +1,2 @@
+ALTER TABLE "model_providers" DROP CONSTRAINT "model_providers_protocol_check";--> statement-breakpoint
+ALTER TABLE "model_providers" ADD CONSTRAINT "model_providers_protocol_check" CHECK ("model_providers"."protocol" = 'anthropic');

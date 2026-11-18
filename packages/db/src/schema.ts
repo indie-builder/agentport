@@ -70,9 +70,16 @@ import {
   knowledgeWikiVersions,
 } from './schema/knowledge-wiki.js';
 import { memoryChanges, memoryReviews, userPreferences } from './schema/memory.js';
+import { modelProviders, providerRequestLogs } from './schema/model-providers.js';
 import { auditLog, notifications, platformBootstrap, platformSettings } from './schema/ops.js';
 import { agentSchedules, approvalRequests, runFeedback, runInstructions } from './schema/runs.js';
 import { runtimeEnvironments, runtimeEnvironmentVersions } from './schema/runtime-environments.js';
+import {
+  contentPolicies,
+  policyApprovals,
+  policyEvents,
+  violationCases,
+} from './schema/security.js';
 import { apiTools, servers } from './schema/servers.js';
 import { skillFiles, skills } from './schema/skills.js';
 
@@ -89,10 +96,12 @@ export * from './schema/knowledge-documents.js';
 export * from './schema/knowledge-sources.js';
 export * from './schema/knowledge-wiki.js';
 export * from './schema/memory.js';
+export * from './schema/model-providers.js';
 export * from './schema/ops.js';
 export * from './schema/plugins.js';
 export * from './schema/runs.js';
 export * from './schema/runtime-environments.js';
+export * from './schema/security.js';
 export * from './schema/servers.js';
 export * from './schema/skills.js';
 
@@ -175,4 +184,10 @@ export const schema = {
   knowledgeWikiVersions,
   knowledgeWikiSources,
   knowledgeDocumentTags,
+  modelProviders,
+  providerRequestLogs,
+  contentPolicies,
+  policyEvents,
+  policyApprovals,
+  violationCases,
 };

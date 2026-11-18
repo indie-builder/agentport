@@ -3,6 +3,7 @@ import {
   AGENT_RUNS_BACKLOG_LIMIT,
   type AgentRunJob,
   RUNS_QUEUE,
+  type RunErrorKind,
   runEnqueueOptions,
   SCHEDULE_TRIGGERS_QUEUE,
   type ScheduleTriggerJob,
@@ -11,9 +12,10 @@ import {
 } from '@agentport/shared';
 import { createBunRedisClient, getNextMillis, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { z } from 'zod';
+import { checkRunPromptPolicy } from '../content-policy.js';
 import { checkUserAgentAccess } from '../runs/run-access.js';
 import { startIntervalTicker } from './interval-ticker.js';
 
@@ -68,6 +70,52 @@ async function audit(
   });
 }
 
+function retryableScheduleRunFailure() {
+  return and(
+    eq(schema.agentRuns.status, 'failed'),
+    eq(schema.agentRuns.errorKind, 'infra'),
+    isNull(schema.agentRuns.startedAt),
+  );
+}
+
+async function failScheduleRun(
+  db: Db,
+  runId: string,
+  error: string,
+  errorKind: Extract<RunErrorKind, 'agent' | 'infra'>,
+) {
+  const queued = eq(schema.agentRuns.status, 'queued');
+  const eligible = errorKind === 'infra' ? queued : or(queued, retryableScheduleRunFailure());
+  return db.transaction(async (tx) => {
+    const [failed] = await tx
+      .update(schema.agentRuns)
+      .set({ status: 'failed', endedAt: new Date(), error, errorKind })
+      .where(and(eq(schema.agentRuns.id, runId), eligible))
+      .returning({
+        id: schema.agentRuns.id,
+        agentId: schema.agentRuns.agentId,
+        conversationId: schema.agentRuns.conversationId,
+        initiatedBy: schema.agentRuns.initiatedBy,
+      });
+    if (failed === undefined) return false;
+    if (failed.initiatedBy !== null) {
+      await repo.integrations.enqueueWebhookEvent(tx, {
+        eventType: 'run.failed',
+        sourceId: `run:${failed.id}:failed`,
+        ownerBusinessId: failed.initiatedBy,
+        payload: JSON.stringify({
+          runId: failed.id,
+          agentId: failed.agentId,
+          conversationId: failed.conversationId,
+          status: 'failed',
+          error,
+        }),
+      });
+    }
+    return true;
+  });
+}
+
 /** 提交后的入队最多重试 3 次；最终失败只动仍 queued 的运行。 */
 async function enqueueRun(
   db: Db,
@@ -98,36 +146,7 @@ async function enqueueRun(
       logger.warn({ err, runId: job.runId, attempt }, 'schedule enqueue failed');
     }
   }
-  // 只改 queued：run 可能已被 worker 接手，running/succeeded 绝不能覆盖。
-  const failed = await db.transaction(async (tx) => {
-    const [failed] = await tx
-      .update(schema.agentRuns)
-      .set({ status: 'failed', endedAt: new Date(), error: '定时任务入队失败', errorKind: 'infra' })
-      .where(and(eq(schema.agentRuns.id, job.runId), eq(schema.agentRuns.status, 'queued')))
-      .returning({
-        id: schema.agentRuns.id,
-        agentId: schema.agentRuns.agentId,
-        conversationId: schema.agentRuns.conversationId,
-        initiatedBy: schema.agentRuns.initiatedBy,
-      });
-    if (failed === undefined) return undefined;
-    if (failed.initiatedBy !== null) {
-      await repo.integrations.enqueueWebhookEvent(tx, {
-        eventType: 'run.failed',
-        sourceId: `run:${failed.id}:failed`,
-        ownerBusinessId: failed.initiatedBy,
-        payload: JSON.stringify({
-          runId: failed.id,
-          agentId: failed.agentId,
-          conversationId: failed.conversationId,
-          status: 'failed',
-          error: '定时任务入队失败',
-        }),
-      });
-    }
-    return failed;
-  });
-  if (failed !== undefined) {
+  if (await failScheduleRun(db, job.runId, '定时任务入队失败', 'infra')) {
     await repo.notifications
       .createNotification(db, {
         businessId: schedule.createdBy,
@@ -196,88 +215,101 @@ export async function processScheduleTrigger(
     return 'skipped';
   }
 
-  let runId = data.runId;
-  let conversationId = data.conversationId;
-  let messageId = data.messageId;
+  const existing = data.runId === undefined ? null : await repo.chat.getRun(input.db, data.runId);
+  const retryingFailed =
+    existing?.status === 'failed' && existing.errorKind === 'infra' && existing.startedAt === null;
+  if (existing !== null && existing.status !== 'queued' && !retryingFailed) return 'duplicate';
 
-  if (runId !== undefined) {
-    const existing = await repo.chat.getRun(input.db, runId);
-    // 上次已建好运行但没入队：补投即可，不再新建。
-    if (existing?.status === 'queued') {
-      const enqueued = await enqueueRun(
-        input.db,
-        input.logger,
-        input.runsQueue,
-        {
-          runId,
-          agentId: existing.agentId,
-          conversationId: existing.conversationId,
-          prompt: schedule.prompt,
-        },
-        schedule,
-      );
-      return enqueued ? 'fired' : 'failed';
-    }
-    // 入队耗尽把运行标成 failed(infra)：重投时重新排队补投，避免触发永久丢失。
-    if (
-      existing?.status === 'failed' &&
-      existing.errorKind === 'infra' &&
-      existing.startedAt === null
-    ) {
-      const requeued = await input.db
-        .update(schema.agentRuns)
-        .set({ status: 'queued', endedAt: null, error: null, errorKind: null })
-        .where(
-          and(
-            eq(schema.agentRuns.id, runId),
-            eq(schema.agentRuns.status, 'failed'),
-            eq(schema.agentRuns.errorKind, 'infra'),
-            isNull(schema.agentRuns.startedAt),
-          ),
-        )
-        .returning({ id: schema.agentRuns.id });
-      if (requeued.length === 1) {
-        const enqueued = await enqueueRun(
-          input.db,
-          input.logger,
-          input.runsQueue,
-          {
-            runId,
-            agentId: existing.agentId,
-            conversationId: existing.conversationId,
-            prompt: schedule.prompt,
-          },
-          schedule,
-        );
-        return enqueued ? 'fired' : 'failed';
-      }
-      return 'duplicate';
-    }
-    // 运行已开始或已结束：同一触发不必再跑一次。
-    if (existing) return 'duplicate';
-  }
-
-  if (schedule.lastRunAt !== null && triggerAt < schedule.lastRunAt.getTime()) return 'duplicate';
   const missed = Date.now() - triggerAt > TRIGGER_MISSED_GRACE_MS;
-  if (schedule.missedPolicy === 'skip' && missed) {
-    await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
-      reason: 'missed',
+  if (existing === null) {
+    if (schedule.lastRunAt !== null && triggerAt < schedule.lastRunAt.getTime()) return 'duplicate';
+    if (schedule.missedPolicy === 'skip' && missed) {
+      await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
+        reason: 'missed',
+      });
+      return 'skipped';
+    }
+
+    const backlog = await input.runsQueue.getWaitingCount();
+    if (backlog > AGENT_RUNS_BACKLOG_LIMIT) {
+      await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
+        reason: 'backlog',
+        waiting: backlog,
+      });
+      return 'skipped';
+    }
+  }
+
+  let originalPrompt = schedule.prompt;
+  if (existing !== null) {
+    const message = await repo.chat.getLastUserMessage(input.db, existing.conversationId);
+    const storedPrompt =
+      message?.runId === existing.id ? repo.chat.messageText(message.content) : null;
+    if (storedPrompt === null) {
+      await failScheduleRun(input.db, existing.id, '定时任务运行正文不存在', 'agent');
+      await audit(input.db, input.logger, 'schedule.skipped', schedule.id, 'ok', {
+        reason: 'missing_run_prompt',
+        runId: existing.id,
+      });
+      return 'skipped';
+    }
+    originalPrompt = storedPrompt;
+  }
+  const prompt = await checkRunPromptPolicy(input.db, {
+    agentId: schedule.agentId,
+    prompt: originalPrompt,
+    sourceId: `schedule:${schedule.id}`,
+    subject: { kind: 'agent', id: schedule.agentId },
+  });
+  if (prompt === null) {
+    if (existing !== null) {
+      await failScheduleRun(input.db, existing.id, '定时任务正文命中安全策略', 'agent');
+    }
+    await audit(input.db, input.logger, 'schedule.skipped', schedule.id, 'ok', {
+      reason: 'content_policy',
+      agentId: schedule.agentId,
     });
     return 'skipped';
   }
 
-  const backlog = await input.runsQueue.getWaitingCount();
-  if (backlog > AGENT_RUNS_BACKLOG_LIMIT) {
-    await audit(input.db, input.logger, 'schedule.skipped', data.scheduleId, 'ok', {
-      reason: 'backlog',
-      waiting: backlog,
-    });
-    return 'skipped';
+  if (existing !== null) {
+    // 入队耗尽把运行标成 failed(infra)：重投时重新排队补投，避免触发永久丢失。
+    if (retryingFailed || prompt !== originalPrompt) {
+      const ready = await input.db.transaction(async (tx) => {
+        if (retryingFailed) {
+          const requeued = await tx
+            .update(schema.agentRuns)
+            .set({ status: 'queued', endedAt: null, error: null, errorKind: null })
+            .where(and(eq(schema.agentRuns.id, existing.id), retryableScheduleRunFailure()))
+            .returning({ id: schema.agentRuns.id });
+          if (requeued.length !== 1) return false;
+        }
+        if (prompt !== originalPrompt) {
+          return repo.chat.updateRunUserMessageText(tx, existing.id, prompt);
+        }
+        return true;
+      });
+      if (!ready) return 'duplicate';
+    }
+    // 上次已建好运行但没入队：补投即可，不再新建。
+    const enqueued = await enqueueRun(
+      input.db,
+      input.logger,
+      input.runsQueue,
+      {
+        runId: existing.id,
+        agentId: existing.agentId,
+        conversationId: existing.conversationId,
+        prompt,
+      },
+      schedule,
+    );
+    return enqueued ? 'fired' : 'failed';
   }
 
-  runId ??= newId('run');
-  conversationId ??= newId('conversation');
-  messageId ??= newId('message');
+  const runId = data.runId ?? newId('run');
+  const conversationId = data.conversationId ?? newId('conversation');
+  const messageId = data.messageId ?? newId('message');
   // 先落盘再建运行：崩溃后重投能靠 runId 识别已创建的运行。
   await job.updateData({ ...data, runId, conversationId, messageId });
 
@@ -286,6 +318,7 @@ export async function processScheduleTrigger(
     runId,
     conversationId,
     messageId,
+    prompt,
     triggerAt,
     ...(data.triggerAt !== undefined || missed ? { recordedAt: Date.now() } : {}),
   });
@@ -313,7 +346,7 @@ export async function processScheduleTrigger(
       runId,
       agentId: schedule.agentId,
       conversationId,
-      prompt: schedule.prompt,
+      prompt,
     },
     schedule,
   );

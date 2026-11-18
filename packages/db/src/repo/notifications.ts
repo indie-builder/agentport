@@ -1,5 +1,5 @@
 import type { NotificationKind } from '@agentport/shared';
-import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { notifications } from '../schema.js';
@@ -48,6 +48,18 @@ export async function listNotifications(
     .orderBy(desc(notifications.createdAt), desc(notifications.id))
     .limit(input.limit + 1);
   return paginate(rows, input.limit);
+}
+
+export async function countNotificationsByKindSince(
+  db: DbHandle,
+  kind: NotificationKind,
+  since: Date,
+): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`count(distinct ${notifications.sourceId})::int` })
+    .from(notifications)
+    .where(and(eq(notifications.kind, kind), gte(notifications.createdAt, since)));
+  return row?.total ?? 0;
 }
 
 export async function unreadCount(db: Database, businessId: string): Promise<number> {

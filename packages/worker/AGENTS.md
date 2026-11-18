@@ -11,7 +11,7 @@
 
 ## 运行与状态
 
-- 只认领 `queued → running`；BullMQ 重投 running 时不得再跑一遍。重复投递、取消与主体失效都先查 DB。
+- 只认领 `queued → running`（以及入队失败后从未启动的 `failed/infra` 行）；BullMQ 重投 running 时不得再跑一遍。重复投递、取消与主体失效都先查 DB。
 - 执行前从 run 行重查执行主体与权限；job/client 里的身份字段不参与判定，不降级成 system/admin。
 - 重试仅限「停稳已确认 + 基础设施瞬时故障」；重试前把行改回 queued 再抛错。业务失败不重试，停稳未确认不得重跑。
 - 终态用 CAS 只写一次；频道 lifecycle 只由 CAS 胜者发布。生产者 CAS 落空但 DB 已终态时，沿用 DB 终态补发 run 事件与审计。停稳后、消息已保存且不再重试才发布产出；停止未确认时只交接 `pendingFinish`，保持 running，等 reconcile 确认容器销毁。
@@ -20,7 +20,7 @@
 
 ## 凭证与清理
 
-- 模型代理启用时每轮用短期 token，DB 只存 hash；未启用时按现有回退注入真实凭证并保留启动告警。结束（无论是否停稳）都清 DB token 并撤销模型 token；停稳后删除 idle workspace 的 `.mcp.json`，删除失败则禁止复用并销毁容器。
+- 模型代理始终启用，每轮用短期 token，DB 只存 hash；无匹配供应商且环境凭证可用时由代理回退 env 上游，真实凭证不进入沙盒。结束（无论是否停稳）都清 DB token 并撤销模型 token；停稳后删除 idle workspace 的 `.mcp.json`，删除失败则禁止复用并销毁容器。
 - run 临时目录结束即删；稳定工作区、outputs、sdk-sessions、agent-memory 不随 run 或关停删除。
 - 关停先 abort 新容器，再有界排空 run、关闭沙盒与队列，最后关闭 Redis 与 Bun SQL 连接；清理失败如实记录并以非零码退出。
 

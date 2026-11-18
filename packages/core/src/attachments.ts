@@ -302,15 +302,15 @@ async function writeAttachmentSet(input: {
   root: string;
   segments: string[];
   label: string;
-  inputs: readonly ChatAttachmentInput[];
+  attachments: readonly DecodedConversationAttachment[];
 }): Promise<MessageAttachment[]> {
-  if (input.inputs.length === 0) return [];
-  if (input.inputs.length > ATTACHMENT_LIMITS.count) {
+  const decoded = input.attachments;
+  if (decoded.length === 0) return [];
+  if (decoded.length > ATTACHMENT_LIMITS.count) {
     fail('INVALID_INPUT', `每条消息最多 ${ATTACHMENT_LIMITS.count} 个附件`, {
       path: '/attachments',
     });
   }
-  const decoded = input.inputs.map(decodeAttachmentInput);
   const totalBytes = decoded.reduce((sum, attachment) => sum + attachment.size, 0);
   if (totalBytes > ATTACHMENT_LIMITS.totalBytes) {
     fail(
@@ -336,9 +336,11 @@ async function writeAttachmentSet(input: {
   }));
 }
 
-interface WriteConversationAttachmentsInput extends ConversationInputsIdentity {
-  inputs: readonly ChatAttachmentInput[];
-}
+type WriteConversationAttachmentsInput = ConversationInputsIdentity &
+  (
+    | { inputs: readonly ChatAttachmentInput[] }
+    | { attachments: readonly DecodedConversationAttachment[] }
+  );
 
 /** 全部先校验再落盘；失败清理本次写入的文件，不留半套附件。 */
 export async function writeConversationAttachments(
@@ -348,7 +350,7 @@ export async function writeConversationAttachments(
     root: input.root,
     segments: conversationSegments(input),
     label: 'conversationId',
-    inputs: input.inputs,
+    attachments: 'inputs' in input ? input.inputs.map(decodeAttachmentInput) : input.attachments,
   });
 }
 
@@ -492,7 +494,7 @@ export async function writeChannelAttachments(
     root: input.root,
     segments: channelSegments(input),
     label: 'messageId',
-    inputs: input.inputs,
+    attachments: input.inputs.map(decodeAttachmentInput),
   });
 }
 

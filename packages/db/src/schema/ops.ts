@@ -5,6 +5,7 @@ import {
   check,
   index,
   integer,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -65,7 +66,16 @@ export const notifications = pgTable(
     id: text('id').primaryKey(),
     businessId: text('business_id').notNull(),
     kind: text('kind', {
-      enum: ['approval', 'question', 'run_failed', 'schedule_failed', 'budget_alert', 'ops_alert'],
+      enum: [
+        'approval',
+        'question',
+        'run_failed',
+        'schedule_failed',
+        'budget_alert',
+        'ops_alert',
+        'policy_approval',
+        'policy_violation',
+      ],
     }).notNull(),
     title: text('title').notNull(),
     body: text('body').notNull(),
@@ -80,7 +90,7 @@ export const notifications = pgTable(
     index('notifications_unread_idx').on(t.businessId, t.createdAt).where(sql`${t.readAt} is null`),
     check(
       'notifications_kind_check',
-      sql`${t.kind} in ('approval', 'question', 'run_failed', 'schedule_failed', 'budget_alert', 'ops_alert')`,
+      sql`${t.kind} in ('approval', 'question', 'run_failed', 'schedule_failed', 'budget_alert', 'ops_alert', 'policy_approval', 'policy_violation')`,
     ),
   ],
 );
@@ -101,6 +111,19 @@ export const platformSettings = pgTable(
     alertQueueFailedThreshold: integer('alert_queue_failed_threshold').notNull().default(1),
     alertQueueWaitingEnabled: boolean('alert_queue_waiting_enabled').notNull().default(true),
     alertQueueWaitingThreshold: integer('alert_queue_waiting_threshold').notNull().default(100),
+    sloEnabled: boolean('slo_enabled').notNull().default(true),
+    sloWindowMinutes: integer('slo_window_minutes').notNull().default(60),
+    sloRunSuccessTarget: numeric('slo_run_success_target', { precision: 4, scale: 3 })
+      .notNull()
+      .default('0.950'),
+    sloRunP95LatencyMs: integer('slo_run_p95_latency_ms').notNull().default(120000),
+    sloQueueOldestWaitMs: integer('slo_queue_oldest_wait_ms').notNull().default(60000),
+    sloProviderErrorRateTarget: numeric('slo_provider_error_rate_target', {
+      precision: 4,
+      scale: 3,
+    })
+      .notNull()
+      .default('0.050'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     updatedBy: text('updated_by'),
   },
@@ -120,6 +143,20 @@ export const platformSettings = pgTable(
     check(
       'platform_settings_queue_waiting_threshold_check',
       sql`${t.alertQueueWaitingThreshold} > 0`,
+    ),
+    check(
+      'platform_settings_slo_window_check',
+      sql`${t.sloWindowMinutes} >= 5 and ${t.sloWindowMinutes} <= 1440`,
+    ),
+    check(
+      'platform_settings_slo_run_success_check',
+      sql`${t.sloRunSuccessTarget} >= 0 and ${t.sloRunSuccessTarget} <= 1`,
+    ),
+    check('platform_settings_slo_p95_check', sql`${t.sloRunP95LatencyMs} > 0`),
+    check('platform_settings_slo_queue_wait_check', sql`${t.sloQueueOldestWaitMs} > 0`),
+    check(
+      'platform_settings_slo_provider_error_check',
+      sql`${t.sloProviderErrorRateTarget} >= 0 and ${t.sloProviderErrorRateTarget} <= 1`,
     ),
   ],
 );

@@ -249,6 +249,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
       runId: newId('run'),
       conversationId: newId('conversation'),
       messageId: newId('message'),
+      prompt: 'tick',
       triggerAt: Date.now(),
     });
     expect(claim).toBe('claimed');
@@ -276,6 +277,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
         runId: newId('run'),
         conversationId: newId('conversation'),
         messageId: newId('message'),
+        prompt: 'tick',
         triggerAt: Date.now(),
       });
       const blocked = await waitFor(() => blockedOn(holder, /pg_advisory_xact_lock/));

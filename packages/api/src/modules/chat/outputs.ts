@@ -3,7 +3,6 @@ import { fail, listOutputFiles, readOutputFile } from '@agentport/core';
 import { repo } from '@agentport/db';
 import {
   type ErrorCode,
-  type OpenUiAction,
   type OutputRef,
   outputContentSchema,
   outputOwnerIdSchema,
@@ -17,7 +16,6 @@ import { parseRequest, requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { CONVERSATION_MISSING, loadReadableConversation } from './access.js';
-import { openUiActionContent } from './openui-actions.js';
 
 const PREVIEW_MAX_BYTES = 1024 * 1024;
 function isTextPreview(mediaType: string): boolean {
@@ -108,18 +106,6 @@ export async function checkOutputSelection(
     if (problem !== null) return problem;
     throw err;
   }
-}
-export function outputUserContent(input: {
-  text: string;
-  output: OutputRef;
-  openuiAction?: OpenUiAction;
-}): unknown {
-  if (input.openuiAction === undefined) {
-    return { type: 'text', text: input.text, output: input.output };
-  }
-  const parts = openUiActionContent(input.openuiAction) as Array<Record<string, unknown>>;
-  const [first, ...rest] = parts;
-  return [{ ...first, output: input.output }, ...rest];
 }
 export function contentDisposition(path: string): string {
   const name = path.split('/').at(-1) ?? 'download';

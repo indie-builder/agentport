@@ -29,6 +29,10 @@ export interface GeneratedServerInput {
   isRunActive?: () => Promise<boolean>;
   onApprovalRequired?: (toolName: string, args: Record<string, unknown>) => Promise<void>;
   onDenied?: (toolName: string, args: Record<string, unknown>) => Promise<void>;
+  checkOutbound?: (
+    toolName: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ blocked: boolean; args: Record<string, unknown> }>;
 }
 
 /** 未批准时的固定文案：前端靠这段文本识别审批请求。 */
@@ -242,11 +246,15 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
             };
           }
         }
+        const checked = input.checkOutbound
+          ? await input.checkOutbound(tool.name, args)
+          : { blocked: false, args };
+        if (checked.blocked) return policyDeniedResult(tool.name);
         const result = await callUpstream(
           tool,
           input.baseUrl,
           input.headers,
-          args,
+          checked.args,
           input.nodeEnv,
           input.privateHostAllowlist,
           signal,

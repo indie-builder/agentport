@@ -24,10 +24,18 @@ import { getAgentServerIds } from '../agents.js';
 import { channelMemberRole, lockChannelRow } from '../channels.js';
 import { assertRunBudget, getDepartmentIdForBusinessId } from '../governance.js';
 import { lockRunResources } from '../locks.js';
+import { selectProviderForModel } from '../model-providers.js';
 import { inheritApprovals } from '../runs.js';
+import {
+  consumePolicyApproval,
+  getApprovedPolicyApprovalForConversation,
+  linkPolicyApprovalToRun,
+  linkPolicyEventToRun,
+} from '../security.js';
 import { CHANNEL_CONTEXT_CHAR_LIMIT, CHANNEL_CONTEXT_MESSAGE_LIMIT } from './channel-context.js';
 import { createConversation } from './conversations.js';
-import { appendMessage, messageText } from './messages.js';
+import { type ExternalRequest, findExternalRequestRun } from './external-requests.js';
+import { appendMessage, getLastUserMessage, messageText } from './messages.js';
 import { type AgentRun, createRun } from './run-context.js';
 
 const CHANNEL_CONTEXT_HEADER = '【频道上下文】\n';
@@ -91,17 +99,19 @@ export async function admitChatRun(
     userContent?: unknown;
     subject: ExecutionSubject;
     /** 频道触发：准入自行取建该 agent 的 lane，并从 DB 复核频道成员与绑定。 */
-    channel?: { channelId: string; channelMessageId: string };
+    channel?: {
+      channelId: string;
+      channelMessageId: string;
+      filterContext?: (text: string) => string | null;
+    };
     attachments?: MessageAttachment[];
     budgetExempt?: boolean;
     allowDisabled?: boolean;
     regenerate?: true;
-    externalRequest?: {
-      sourceKind: 'api_token' | 'webhook';
-      sourceId: string;
-      idempotencyKey: string;
-      requestHash: string;
-    };
+    regeneratePrompt?: { messageId: string; text: string };
+    policyEventId?: string;
+    consumePolicyApprovalId?: string;
+    externalRequest?: ExternalRequest;
   },
 ): Promise<{
   run: AgentRun;
@@ -124,29 +134,8 @@ export async function admitChatRun(
       if (inserted !== undefined) {
         externalRequestId = inserted.id;
       } else {
-        const [existing] = await tx
-          .select()
-          .from(externalRequestKeys)
-          .where(
-            and(
-              eq(externalRequestKeys.sourceKind, sourceKind),
-              eq(externalRequestKeys.sourceId, sourceId),
-              eq(externalRequestKeys.idempotencyKey, idempotencyKey),
-            ),
-          )
-          .limit(1);
-        if (existing === undefined || existing.requestHash !== requestHash) {
-          fail('CONFLICT', '同一幂等键已用于不同的请求');
-        }
-        if (existing.runId === null) {
-          fail('CONFLICT', '同一幂等键的请求仍在处理中，请稍后重试');
-        }
-        const [existingRun] = await tx
-          .select()
-          .from(agentRuns)
-          .where(eq(agentRuns.id, existing.runId))
-          .limit(1);
-        if (existingRun === undefined) fail('CONFLICT', '原始运行记录已不可用');
+        const existingRun = await findExternalRequestRun(tx, input.externalRequest);
+        if (existingRun === null) fail('CONFLICT', '同一幂等键已用于不同的请求');
         return {
           run: existingRun,
           conversationId: existingRun.conversationId,
@@ -266,7 +255,12 @@ export async function admitChatRun(
         .orderBy(desc(channelMessages.seq))
         .limit(CHANNEL_CONTEXT_MESSAGE_LIMIT + 1);
       channelContext = buildChannelContext(
-        contextRows.slice(0, CHANNEL_CONTEXT_MESSAGE_LIMIT),
+        contextRows.slice(0, CHANNEL_CONTEXT_MESSAGE_LIMIT).flatMap((row) => {
+          const filter = input.channel?.filterContext;
+          if (filter === undefined) return [row];
+          const body = filter(row.body + attachmentNames(row));
+          return body === null ? [] : [{ ...row, body, attachments: null }];
+        }),
         contextRows.length > CHANNEL_CONTEXT_MESSAGE_LIMIT,
       );
       if (binding.conversationId === null) {
@@ -354,18 +348,11 @@ export async function admitChatRun(
       if (input.conversationId === undefined) {
         fail('INVALID_INPUT', '重新生成需要指定会话');
       }
-      const [u] = await tx
-        .select({
-          id: messages.id,
-          content: messages.content,
-          runId: messages.runId,
-          sdkMessageUuid: messages.sdkMessageUuid,
-        })
-        .from(messages)
-        .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
-        .orderBy(desc(messages.createdAt), desc(messages.id))
-        .limit(1);
-      if (!u || u.runId === null) fail('CONFLICT', '该会话没有可重新生成的回复');
+      const u = await getLastUserMessage(tx, conversationId);
+      if (u === null || u.runId === null) fail('CONFLICT', '该会话没有可重新生成的回复');
+      if (input.regeneratePrompt !== undefined && input.regeneratePrompt.messageId !== u.id) {
+        fail('CONFLICT', '会话最新消息已变化，请重新生成');
+      }
       const beforeU = sql`(
         select b.created_at, b.id from ${messages} b
         where b.id = ${u.id} and b.conversation_id = ${conversationId}
@@ -417,16 +404,27 @@ export async function admitChatRun(
       regenerated = {
         replacesRunId: u.runId,
         ...(forkFromMessageUuid === undefined ? {} : { forkFromMessageUuid }),
-        prompt: messageText(u.content) ?? '',
+        prompt: input.regeneratePrompt?.text ?? messageText(u.content) ?? '',
       };
     }
 
+    if (input.consumePolicyApprovalId !== undefined) {
+      const lockedRoute = await getApprovedPolicyApprovalForConversation(tx, conversationId);
+      const consumed = await consumePolicyApproval(
+        tx,
+        input.consumePolicyApprovalId,
+        lockedRoute?.destination ?? undefined,
+      );
+      if (consumed === null) fail('CONTENT_APPROVAL_REQUIRED', '审批已失效，请重新发起');
+    }
+    const model = definition?.agent.model ?? owner.model;
     const run = await createRun(tx, {
       id: newId('run'),
       conversationId,
       agentId: input.agentId,
       ...(input.evalRunId === undefined ? {} : { evalRunId: input.evalRunId }),
-      model: definition?.agent.model ?? owner.model,
+      model,
+      providerId: await selectProviderForModel(tx, model ?? null),
       departmentId:
         input.subject.kind === 'user'
           ? await getDepartmentIdForBusinessId(tx, input.subject.businessId)
@@ -450,6 +448,12 @@ export async function admitChatRun(
         ? {}
         : { definitionSnapshot: input.definitionSnapshot }),
     });
+    if (input.consumePolicyApprovalId !== undefined) {
+      await linkPolicyApprovalToRun(tx, input.consumePolicyApprovalId, run.id);
+    }
+    if (input.policyEventId !== undefined) {
+      await linkPolicyEventToRun(tx, input.policyEventId, run.id);
+    }
     // 频道 lane 由多位成员共享，单次运行批准不能跨触发者继承。
     const inherited =
       input.channel === undefined

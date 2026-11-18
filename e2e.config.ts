@@ -24,6 +24,7 @@ export default {
     '!tests/agent-discovery.e2e.ts',
     '!tests/governance.e2e.ts',
     '!tests/schedule-lifecycle.e2e.ts',
+    '!tests/model-security-ops.e2e.ts',
   ],
   targets: [
     {

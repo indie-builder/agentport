@@ -1,9 +1,17 @@
+import { fail, providerRouteDestination } from '@agentport/core';
 import { isActiveRunStatus } from '@agentport/shared';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agentRuns, channelWakes, runInstructions } from '../schema.js';
 import { markChannelWakeEnqueued } from './channel-wakes.js';
+import { getModelProvider } from './model-providers.js';
+import {
+  consumePolicyApproval,
+  getApprovedPolicyApprovalForConversation,
+  getApprovedPolicyApprovalForRun,
+  linkPolicyApprovalToRun,
+} from './security.js';
 
 export type RunInstructionRow = typeof runInstructions.$inferSelect;
 
@@ -15,18 +23,53 @@ export async function createRunInstruction(
     channelMessageId: string;
     body: string;
     createdBy: string;
+    consumePolicyApprovalId?: string;
     wake: { id: string; claimedAt: Date };
   },
 ): Promise<'enqueued' | 'run_ended' | 'claim_lost'> {
   return db.transaction(async (tx) => {
     const [run] = await tx
-      .select({ status: agentRuns.status })
+      .select({
+        status: agentRuns.status,
+        conversationId: agentRuns.conversationId,
+        providerId: agentRuns.providerId,
+        servedProviderId: agentRuns.servedProviderId,
+      })
       .from(agentRuns)
       .where(eq(agentRuns.id, input.runId))
       .for('update');
     if (run === undefined || !isActiveRunStatus(run.status)) return 'run_ended';
     const claimed = await markChannelWakeEnqueued(tx, input.wake);
     if (!claimed) return 'claim_lost';
+    if (input.consumePolicyApprovalId !== undefined) {
+      const lockedRoute = await getApprovedPolicyApprovalForConversation(tx, run.conversationId);
+      let destination = lockedRoute?.destination ?? null;
+      if (destination === null) {
+        if (run.servedProviderId === null && run.providerId !== null) {
+          fail('CONTENT_BLOCKED', '运行尚未开始使用模型供应商，请稍后重试');
+        }
+        const provider =
+          run.servedProviderId === null ? null : await getModelProvider(tx, run.servedProviderId);
+        if (run.servedProviderId !== null && provider === null) {
+          fail('CONTENT_BLOCKED', '追加指令审批的目标与当前运行不一致');
+        }
+        destination = providerRouteDestination(
+          provider ?? {
+            id: 'env',
+            baseUrl: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
+          },
+        );
+      }
+      const approvedRoute = await getApprovedPolicyApprovalForRun(tx, input.runId);
+      if (approvedRoute !== null && approvedRoute.destination !== destination) {
+        fail('CONTENT_BLOCKED', '追加指令审批的目标与当前运行不一致');
+      }
+      const consumed = await consumePolicyApproval(tx, input.consumePolicyApprovalId, destination);
+      if (consumed === null || consumed.runId !== input.runId) {
+        fail('CONTENT_APPROVAL_REQUIRED', '审批已失效，请重新发起');
+      }
+      await linkPolicyApprovalToRun(tx, input.consumePolicyApprovalId, input.runId);
+    }
     await tx
       .insert(runInstructions)
       .values({

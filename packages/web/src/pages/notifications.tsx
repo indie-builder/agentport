@@ -30,6 +30,8 @@ const KIND_META: Record<NotificationKind, { label: string; tone: 'default' | 'wa
     schedule_failed: { label: '定时任务失败', tone: 'danger' },
     budget_alert: { label: '预算提醒', tone: 'warn' },
     ops_alert: { label: '运维告警', tone: 'danger' },
+    policy_approval: { label: '外发审批', tone: 'warn' },
+    policy_violation: { label: '违规处置', tone: 'danger' },
   };
 
 const FILTERS = [

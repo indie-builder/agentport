@@ -37,6 +37,7 @@ import { RedisClient } from 'bun';
 import { inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { loadConfig } from './config.js';
+import { checkOutboundPolicy } from './content-policy.js';
 import {
   startDataDomainBuildReconciler,
   startDataDomainBuildWorker,
@@ -52,6 +53,7 @@ import { startKnowledgeWorker } from './knowledge/queue.js';
 import { startKnowledgeReconciler } from './knowledge/reconcile.js';
 import { startKnowledgeScheduler } from './knowledge/scheduler.js';
 import { startMaintenanceWorker } from './maintenance.js';
+import { resolveProviderUpstreams } from './model-providers.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
 import { registerNativePlugins } from './native-plugins.js';
 import { closeRunnerClient, configureRunnerClient } from './runner-client.js';
@@ -356,12 +358,13 @@ function sandboxEnv(apiUrl: string, runId: string): Record<string, string> {
  * 模型代理必须在 worker 启动前就绪：sandboxEnv 在任务里同步读取它。
  * 未配置凭证时返回 null，随后回退到直接注入并打印警告。
  */
+const envUpstream = config.ANTHROPIC_BASE_URL || undefined;
 modelProxy = await startModelProxy({
   logger,
   port: config.MODEL_PROXY_PORT,
   // worker 可能在容器里：127.0.0.1 指向容器自身，网关在宿主上。
   // worker 在容器里时 127.0.0.1 指向容器自身，网关在宿主上；宿主直跑则原样保留。
-  upstreamBaseUrl: modelProxyUpstream(config.ANTHROPIC_BASE_URL),
+  upstreamBaseUrl: modelProxyUpstream(envUpstream),
   ...(config.ANTHROPIC_API_KEY ? { apiKey: config.ANTHROPIC_API_KEY } : {}),
   ...(config.ANTHROPIC_AUTH_TOKEN ? { authToken: config.ANTHROPIC_AUTH_TOKEN } : {}),
   resolveRun: async (token) => {
@@ -369,6 +372,26 @@ modelProxy = await startModelProxy({
     const row = await repo.runs.findRunByModelToken(db, hashMcpToken(token));
     return row;
   },
+  checkOutbound: async ({ runId, body }) => {
+    const run = await repo.chat.getRun(db, runId);
+    if (run === null) return { blocked: true, body: Buffer.alloc(0) };
+    const text = body.toString('utf8');
+    const checked = await checkOutboundPolicy(db, logger, {
+      agentId: run.agentId,
+      runId,
+      text,
+      sourceId: runId,
+    });
+    return {
+      blocked: checked.blocked,
+      body: checked.text === text ? body : Buffer.from(checked.text),
+    };
+  },
+  resolveProviders: (runId, model) =>
+    resolveProviderUpstreams(db, config, model, runId, modelProxyUpstream(envUpstream, false)),
+  recordProviderServed: ({ runId, providerId }) =>
+    repo.modelProviders.markRunServedProvider(db, runId, providerId),
+  recordProviderResult: (result) => repo.modelProviders.recordProviderRequest(db, result),
 });
 if (modelProxy) {
   logger.info('model credentials stay in the worker; sandbox gets a per-run proxy token');

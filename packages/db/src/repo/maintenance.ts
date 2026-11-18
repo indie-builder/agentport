@@ -118,6 +118,14 @@ export async function pruneRuns(
       select ${agentRuns.id} as id
       from ${agentRuns}
       where ${agentRuns.status} in ('succeeded', 'failed', 'cancelled', 'timeout')
+        and (
+          ${agentRuns.startedAt} is null
+          or ${agentRuns.startedAt} < date_trunc('month', now(), 'UTC')
+          or (
+            ${agentRuns.providerId} is null
+            and ${agentRuns.servedProviderId} is null
+          )
+        )
         and coalesce(${agentRuns.endedAt}, ${agentRuns.startedAt})
           < now() - make_interval(days => ${days})
     ),

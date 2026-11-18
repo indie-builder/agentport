@@ -1,10 +1,14 @@
 import {
   AGENT_ROLES,
+  contentPolicyActionSchema,
   knowledgeContentKindSchema,
+  policyApprovalStatusSchema,
+  policySourceKindSchema,
   resourceKindSchema,
   runStatusSchema,
   runTriggerSchema,
   runtimeEnvironmentVersionStatusSchema,
+  violationCaseStatusSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
 import {
@@ -205,6 +209,27 @@ export const governanceSearchSchema = z.object({
   resourceKind: resourceKindSchema.optional().catch(undefined),
   resourceId: z.string().min(1).max(160).optional().catch(undefined),
   resourceQ: z.string().optional().catch(undefined),
+});
+
+export const modelsSearchSchema = z.object({
+  q: z.string().optional().catch(undefined),
+  status: z.enum(['all', 'enabled', 'disabled']).optional().catch(undefined),
+});
+
+export const securitySearchSchema = z.object({
+  tab: z.enum(['policies', 'approvals', 'events', 'violations']).optional().catch(undefined),
+  approvalStatus: policyApprovalStatusSchema.optional().catch(undefined),
+  eventAction: contentPolicyActionSchema.optional().catch(undefined),
+  eventSource: policySourceKindSchema.optional().catch(undefined),
+  violationStatus: violationCaseStatusSchema.optional().catch(undefined),
+});
+
+export const observabilitySearchSchema = z.object({
+  windowMinutes: z.coerce
+    .number()
+    .pipe(z.union([z.literal(15), z.literal(60), z.literal(360), z.literal(1440)]))
+    .optional()
+    .catch(undefined),
 });
 
 /** 运行详情：返回来源用进入前的相对 URL，刷新后能回到同一列表视图。 */

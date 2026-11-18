@@ -442,6 +442,7 @@ describe('business and operations navigation contexts', () => {
     try {
       expect(navHrefs(view.host)).toEqual([
         '/operations',
+        '/observability',
         '/runs',
         '/runtime-environments',
         '/status',
@@ -449,6 +450,8 @@ describe('business and operations navigation contexts', () => {
         '/accounts',
         '/roles',
         '/governance',
+        '/models',
+        '/security',
         '/integrations',
       ]);
       expect(view.host.querySelector('a[aria-label="返回工作区"]')?.getAttribute('href')).toBe(

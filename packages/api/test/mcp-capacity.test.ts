@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { hashMcpToken } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -75,7 +77,6 @@ describe.skipIf(!ready)('MCP capacity: approval requests must not block executio
   let cookie: string;
   let mcpUrl: string;
   let server: Server;
-  let token: string;
   const createdServers: string[] = [];
   const createdAgents: string[] = [];
   const runIds: string[] = [];
@@ -127,13 +128,6 @@ describe.skipIf(!ready)('MCP capacity: approval requests must not block executio
       });
       expect(toolRes.statusCode, toolRes.body).toBe(201);
     }
-
-    const row = await app.client.unsafe<{ token: string }[]>(
-      "select config->>'mcpToken' as token from servers where id = $1",
-      [server.id],
-    );
-    token = row[0]?.token ?? '';
-    expect(token).not.toBe('');
   });
 
   afterAll(async () => {
@@ -154,10 +148,16 @@ describe.skipIf(!ready)('MCP capacity: approval requests must not block executio
     ).json<{ id: string }>();
 
     const runIdsForAgent: string[] = [];
+    const runTokens = new Map<string, string>();
     for (let i = 0; i < 5; i += 1) {
-      const { runId } = await seedRun(app, agent.id, { runId: unique(`capacity-run-${i}`) });
+      const runToken = randomBytes(32).toString('base64url');
+      const { runId } = await seedRun(app, agent.id, {
+        runId: unique(`capacity-run-${i}`),
+        mcpTokenHash: hashMcpToken(runToken),
+      });
       runIds.push(runId);
       runIdsForAgent.push(runId);
+      runTokens.set(runId, runToken);
     }
 
     const clients: Client[] = [];
@@ -167,7 +167,10 @@ describe.skipIf(!ready)('MCP capacity: approval requests must not block executio
       await client.connect(
         new StreamableHTTPClientTransport(new URL(`${mcpUrl}/mcp/${server.id}`), {
           requestInit: {
-            headers: { authorization: `Bearer ${token}`, 'x-agentport-run-id': runId },
+            headers: {
+              authorization: `Bearer ${runTokens.get(runId)}`,
+              'x-agentport-run-id': runId,
+            },
           },
         }),
       );

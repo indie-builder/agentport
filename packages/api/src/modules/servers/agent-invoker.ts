@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fail, notFound } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
@@ -12,6 +13,7 @@ import type { AppContext } from '../../http/context.js';
 import { getQueue } from '../../queue/producer.js';
 import { cancelAgentRun } from '../chat/cancel-run.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
+import { enforceContentPolicy } from '../security/policy-gate.js';
 import type { AgentInvoker } from './agent-tools.js';
 
 const writeAudit = repo.audit.writeAudit;
@@ -54,15 +56,31 @@ export function createInvoker(app: AppContext): AgentInvoker {
         // 已取消的调用不落任何 run/会话，避免为没人等的结果排队。
         if (signal?.aborted) fail('UPSTREAM_FAILED', 'agent run cancelled');
 
+        const requestId = randomUUID();
+        const policyDecision = await enforceContentPolicy({
+          db: app.db,
+          log: app.log,
+          requestId,
+          actor: 'mcp',
+          agentId: agent.id,
+          origin: 'mcp',
+          sourceKind: 'run_prompt',
+          sourceId: requestId,
+          texts: [prompt],
+          payload: ([text]) => ({ data: text, binding: { slug, prompt } }),
+        });
+        if (signal?.aborted) fail('UPSTREAM_FAILED', 'agent run cancelled');
+        const message = policyDecision.payload;
         const agentVersion = agent.publishedVersion;
         // 与浏览器入口共用同一准入事务：会话、run、用户消息一起提交或回滚。
         const { run, conversationId } = await repo.chat.admitChatRun(app.db, {
           agentId: agent.id,
-          message: prompt,
-          title: `mcp: ${prompt.slice(0, 60)}`,
+          message,
+          title: `mcp: ${message.slice(0, 60)}`,
           trigger: 'mcp',
           subject: { kind: 'service', serviceId: 'mcp' },
           ...(agentVersion === null ? {} : { agentVersion }),
+          ...(policyDecision.eventId === null ? {} : { policyEventId: policyDecision.eventId }),
         });
         const abortRun = async (
           input: { slug: string; promptLength: number } | { reason: 'deadline' },
@@ -88,7 +106,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
         try {
           await getQueue().add(
             'run',
-            { runId: run.id, agentId: agent.id, conversationId, prompt },
+            { runId: run.id, agentId: agent.id, conversationId, prompt: message },
             runEnqueueOptions(run.id),
           );
         } catch (err) {

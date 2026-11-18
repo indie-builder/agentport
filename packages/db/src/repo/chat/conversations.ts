@@ -37,6 +37,7 @@ export async function createConversation(
     subject: ExecutionSubject;
     /** 非空表示频道 agent lane；私有对话不传。 */
     channelId?: string;
+    providerDestination?: string | null;
   },
 ): Promise<Conversation> {
   const [row] = await db
@@ -46,6 +47,7 @@ export async function createConversation(
       agentId: input.agentId,
       title: input.title,
       channelId: input.channelId ?? null,
+      providerDestination: input.providerDestination ?? null,
       ...conversationSubject(input.subject),
     })
     .returning();

@@ -82,6 +82,7 @@ const envSchema = z
      * 宿主机直跑 worker 时随意。
      */
     MODEL_PROXY_PORT: z.coerce.number().int().positive().default(3426),
+    MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
     /** Docling HTTP base URL；不给对应任务直接失败，避免解析静默降级。compose 的 `${DOCLING_URL:-}` 会传空串，按未配置处理。 */
     DOCLING_URL: z.preprocess(
       (value) => (value === '' ? undefined : value),

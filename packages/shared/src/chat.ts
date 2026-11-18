@@ -240,6 +240,9 @@ export const agentRunJobSchema = z.object({
   prompt: z.string(),
   requestId: z.string().optional(),
   replacesRunId: z.string().optional(),
+  regenerateContent: z
+    .object({ openuiAction: z.array(z.record(z.string(), z.unknown())).optional() })
+    .optional(),
   forkFromMessageUuid: z.uuid().optional(),
 });
 

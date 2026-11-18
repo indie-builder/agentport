@@ -27,6 +27,7 @@ import {
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
+import { enforceContentPolicy } from '../security/policy-gate.js';
 import { authorizeAgent, authorizedAgent } from './access.js';
 import { listMemoryFiles, readMemoryFile } from './memory-files.js';
 import {
@@ -610,7 +611,20 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
     if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
       return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
     }
-    const { prompt } = routeInput.body;
+    const { prompt: submittedPrompt } = routeInput.body;
+    const policyDecision = await enforceContentPolicy({
+      db: context.db,
+      log: context.log,
+      requestId: context.requestId,
+      actor: principal.businessId,
+      agentId: current.id,
+      origin: 'trial',
+      sourceKind: 'run_prompt',
+      sourceId: context.requestId,
+      texts: [submittedPrompt],
+      payload: ([text]) => ({ data: text, binding: { prompt: submittedPrompt } }),
+    });
+    const prompt = policyDecision.payload;
     const { run, conversationId } = await allRepo.chat.admitChatRun(context.db, {
       agentId: current.id,
       message: prompt,
@@ -620,6 +634,10 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       ...(current.publishedVersion === null ? {} : { agentVersion: current.publishedVersion }),
       definitionSnapshot: definition,
       allowDisabled: true,
+      ...(policyDecision.eventId === null ? {} : { policyEventId: policyDecision.eventId }),
+      ...(policyDecision.approvalId === null
+        ? {}
+        : { consumePolicyApprovalId: policyDecision.approvalId }),
     });
     try {
       await getQueue().add(

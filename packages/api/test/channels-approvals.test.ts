@@ -368,13 +368,6 @@ describe.skipIf(!ready)('channel approvals', () => {
       hashMcpToken(token),
       new Date(Date.now() + 60_000),
     );
-    const row = await app.client.unsafe<{ token: string }[]>(
-      "select config->>'mcpToken' as token from servers where id = $1",
-      [server.id],
-    );
-    const serverToken = row[0]?.token ?? '';
-    expect(serverToken).not.toBe('');
-
     const callTool = async (): Promise<{
       isError?: boolean;
       content: Array<{ text?: string }>;
@@ -382,7 +375,7 @@ describe.skipIf(!ready)('channel approvals', () => {
       const client = new Client({ name: 'agentport-test', version: '0.0.0' });
       const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp/${server.id}`), {
         requestInit: {
-          headers: { authorization: `Bearer ${serverToken}`, 'x-agentport-run-id': runId },
+          headers: { authorization: `Bearer ${token}`, 'x-agentport-run-id': runId },
         },
       });
       try {

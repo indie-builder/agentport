@@ -1,4 +1,4 @@
-import { isAppError } from '@agentport/core';
+import { fail, isAppError } from '@agentport/core';
 import {
   ACTIVE_RUN_STATUSES,
   type AccessFilter,
@@ -23,6 +23,7 @@ import { getAgentServerIds } from './agents.js';
 import { notStale } from './freshness.js';
 import { assertRunBudget, getDepartmentIdForBusinessId } from './governance.js';
 import { lockRunResources } from './locks.js';
+import { consumePolicyApproval, linkPolicyApprovalToRun } from './security.js';
 
 export type ScheduleRow = typeof agentSchedules.$inferSelect;
 
@@ -151,6 +152,7 @@ export interface ScheduleTriggerWrite {
   runId: string;
   conversationId: string;
   messageId: string;
+  prompt: string;
   /** 本轮计划时刻 prevMillis：只允许比上次更新更晚的触发落库，重复投递自然被挡掉。 */
   triggerAt: number;
   recordedAt?: number;
@@ -249,11 +251,20 @@ export async function claimScheduleTrigger(
       conversationId: input.conversationId,
       role: 'user',
       senderBusinessId: schedule.executeAsBusinessId,
-      content: { type: 'text', text: schedule.prompt },
+      content: { type: 'text', text: input.prompt },
       runId: input.runId,
     });
     return 'claimed';
   });
+}
+
+export async function scheduleRetryExists(db: DbHandle, previousRunId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(eq(agentRuns.retryOfRunId, previousRunId))
+    .limit(1);
+  return row !== undefined;
 }
 
 export interface ScheduleRetryWrite {
@@ -262,6 +273,8 @@ export interface ScheduleRetryWrite {
   runId: string;
   conversationId: string;
   messageId: string;
+  prompt: string;
+  consumePolicyApprovalId?: string;
 }
 
 export async function claimScheduleRetry(
@@ -272,9 +285,6 @@ export async function claimScheduleRetry(
     const [schedule] = await tx
       .select({
         agentId: agentSchedules.agentId,
-        name: agentSchedules.name,
-        prompt: agentSchedules.prompt,
-        executeAsBusinessId: agentSchedules.executeAsBusinessId,
       })
       .from(agentSchedules)
       .where(and(eq(agentSchedules.id, input.scheduleId), eq(agentSchedules.enabled, true)))
@@ -296,7 +306,6 @@ export async function claimScheduleRetry(
       .select({
         agentId: agentSchedules.agentId,
         name: agentSchedules.name,
-        prompt: agentSchedules.prompt,
         executeAsBusinessId: agentSchedules.executeAsBusinessId,
       })
       .from(agentSchedules)
@@ -358,12 +367,17 @@ export async function claimScheduleRetry(
       await tx.delete(conversations).where(eq(conversations.id, input.conversationId));
       return 'duplicate';
     }
+    if (input.consumePolicyApprovalId !== undefined) {
+      const consumed = await consumePolicyApproval(tx, input.consumePolicyApprovalId);
+      if (consumed === null) fail('CONTENT_APPROVAL_REQUIRED', '审批已失效，请重新发起');
+      await linkPolicyApprovalToRun(tx, input.consumePolicyApprovalId, input.runId);
+    }
     await tx.insert(messages).values({
       id: input.messageId,
       conversationId: input.conversationId,
       role: 'user',
       senderBusinessId: lockedSchedule.executeAsBusinessId,
-      content: { type: 'text', text: lockedSchedule.prompt },
+      content: { type: 'text', text: input.prompt },
       runId: input.runId,
     });
     return 'claimed';
