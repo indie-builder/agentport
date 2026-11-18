@@ -73,7 +73,7 @@ test('golden export downloads a claude directory zip and re-imports through the 
   await screen.getByRole('dialog', '导入专家包').getByRole('button', '导入', { exact: true }).tap();
   const response = await responsePromise;
   expect(response.status).toBe(201);
-  await expect(browser).toHaveURL(/\/agents\/[^/?#]+$/);
+  await expect(browser).toHaveURL(/\/agents\/[^/?#]+(?:\?.*)?$/);
   const importedId = new URL(await browser.url()).pathname.split('/').pop() ?? '';
   const imported = await browser.evaluate(
     async (agentId: string) =>
@@ -86,8 +86,10 @@ test('golden export downloads a claude directory zip and re-imports through the 
   expect(imported.slug).toMatch(new RegExp(`^${fixture.slug}-\\d+$`));
   expect(imported.systemPrompt).toBe(prompt);
   await expect(screen.getByText('已导入「', { exact: false }).first()).toBeVisible();
-  await expect(screen.getByRole('dialog', '导入提示')).toBeVisible();
-  await screen.getByRole('button', '关闭', { exact: true }).tap();
+  const warnings = screen.getByRole('dialog', '导入提示');
+  await expect(warnings).toBeVisible();
+  await warnings.getByRole('button', '关闭', { exact: true }).tap();
+  await expect(warnings).toBeHidden();
   await screen.getByRole('tab', '配置', { exact: true }).tap();
   await expect(screen.getByRole('button', '更多操作')).toBeVisible();
 });

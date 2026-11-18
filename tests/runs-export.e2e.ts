@@ -43,6 +43,7 @@ const ITEM_KEYS = [
   'inputTokens',
   'latencyMs',
   'outputTokens',
+  'scheduleId',
   'startedAt',
   'status',
   'trigger',
