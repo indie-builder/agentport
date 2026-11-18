@@ -14,6 +14,7 @@ import { join, resolve, sep } from 'node:path';
 import {
   ATTACHMENT_LIMITS,
   type AttachmentMimeType,
+  attachmentByteLimit,
   attachmentExtension,
   attachmentMimeForFilename,
   type ChatAttachmentInput,
@@ -102,12 +103,6 @@ export function displayAttachmentFilename(raw: string): string {
   return truncateFilename(cleanFilename(raw));
 }
 
-function limitForMime(mimeType: AttachmentMimeType): number {
-  if (mimeType.startsWith('image/')) return ATTACHMENT_LIMITS.imageBytes;
-  if (mimeType === 'application/pdf') return ATTACHMENT_LIMITS.pdfBytes;
-  return ATTACHMENT_LIMITS.textBytes;
-}
-
 function mimeLabel(mimeType: AttachmentMimeType): string {
   if (mimeType.startsWith('image/')) return '图片';
   if (mimeType === 'application/pdf') return 'PDF';
@@ -186,7 +181,7 @@ export function decodeAttachmentInput(input: ChatAttachmentInput): DecodedConver
     );
   }
   const data = decodeBase64(input.dataBase64, filename);
-  const limit = limitForMime(mimeType);
+  const limit = attachmentByteLimit(mimeType);
   if (data.length > limit) {
     fail(
       'INVALID_INPUT',
@@ -214,7 +209,7 @@ export function decodeAttachmentInput(input: ChatAttachmentInput): DecodedConver
  * 访问路径上每个已存在组件都不能是符号链接，且 realpath 仍在根内。
  */
 async function trustedPath(
-  input: ConversationInputsIdentity,
+  input: { root: string },
   segments: string[],
   label: string,
 ): Promise<string> {
@@ -236,7 +231,7 @@ async function trustedPath(
 }
 
 async function existingDirectory(
-  input: ConversationInputsIdentity,
+  input: { root: string },
   segments: string[],
 ): Promise<string | null> {
   const logicalRoot = resolve(input.root);
@@ -263,18 +258,21 @@ async function existingDirectory(
   return join(logicalRoot, ...segments);
 }
 
-async function prepareDirectory(input: ConversationInputsIdentity, label: string): Promise<string> {
-  const segments = conversationSegments(input);
+async function preparePath(root: string, segments: string[], label: string): Promise<string> {
   // 首次写入时根可能还不存在；只有写入路径创建根，读取路径保持不隐式创建。
-  await mkdir(resolve(input.root), { recursive: true, mode: 0o700 });
-  await trustedPath(input, segments, label);
-  const dir = conversationInputsDir(input);
+  await mkdir(resolve(root), { recursive: true, mode: 0o700 });
+  await trustedPath({ root }, segments, label);
+  const dir = join(resolve(root), ...segments);
   await mkdir(dir, { recursive: true, mode: 0o700 });
-  await chmod(join(resolve(input.root), input.slug, INPUTS_DIR), 0o700);
+  await chmod(join(resolve(root), ...segments.slice(0, -1)), 0o700);
   await chmod(dir, 0o700);
   // mkdir 之后复查一次：已存在的中间目录若是软链，这时候必须拒绝。
-  await trustedPath(input, segments, label);
+  await trustedPath({ root }, segments, label);
   return dir;
+}
+
+async function prepareDirectory(input: ConversationInputsIdentity, label: string): Promise<string> {
+  return preparePath(input.root, conversationSegments(input), label);
 }
 
 async function writeFiles(
@@ -300,14 +298,12 @@ async function writeFiles(
   }
 }
 
-interface WriteConversationAttachmentsInput extends ConversationInputsIdentity {
+async function writeAttachmentSet(input: {
+  root: string;
+  segments: string[];
+  label: string;
   inputs: readonly ChatAttachmentInput[];
-}
-
-/** 全部先校验再落盘；失败清理本次写入的文件，不留半套附件。 */
-export async function writeConversationAttachments(
-  input: WriteConversationAttachmentsInput,
-): Promise<MessageAttachment[]> {
+}): Promise<MessageAttachment[]> {
   if (input.inputs.length === 0) return [];
   if (input.inputs.length > ATTACHMENT_LIMITS.count) {
     fail('INVALID_INPUT', `每条消息最多 ${ATTACHMENT_LIMITS.count} 个附件`, {
@@ -323,7 +319,7 @@ export async function writeConversationAttachments(
       { path: '/attachments' },
     );
   }
-  const dir = await prepareDirectory(input, 'conversationId');
+  const dir = await preparePath(input.root, input.segments, input.label);
   await writeFiles(
     dir,
     decoded.map((attachment) => ({
@@ -340,22 +336,35 @@ export async function writeConversationAttachments(
   }));
 }
 
-interface ReadConversationAttachmentInput extends ConversationInputsIdentity {
-  attachment: MessageAttachment;
+interface WriteConversationAttachmentsInput extends ConversationInputsIdentity {
+  inputs: readonly ChatAttachmentInput[];
 }
 
-/** 只按元数据 uuid + 规范扩展名读取；软链、硬链与非普通文件一律拒绝。 */
-export async function readConversationAttachment(
-  input: ReadConversationAttachmentInput,
+/** 全部先校验再落盘；失败清理本次写入的文件，不留半套附件。 */
+export async function writeConversationAttachments(
+  input: WriteConversationAttachmentsInput,
+): Promise<MessageAttachment[]> {
+  return writeAttachmentSet({
+    root: input.root,
+    segments: conversationSegments(input),
+    label: 'conversationId',
+    inputs: input.inputs,
+  });
+}
+
+async function readAttachmentAt(
+  root: string,
+  segments: string[],
+  attachment: MessageAttachment,
 ): Promise<{ data: Buffer; filename: string; mimeType: AttachmentMimeType }> {
-  const parsed = messageAttachmentSchema.safeParse(input.attachment);
+  const parsed = messageAttachmentSchema.safeParse(attachment);
   if (!parsed.success) {
     fail('INVALID_INPUT', '附件元数据非法', { path: '/attachment' });
   }
   const { id, filename, mimeType } = parsed.data;
   const full = await trustedPath(
-    input,
-    [...conversationSegments(input), `${id}${attachmentExtension(mimeType)}`],
+    { root },
+    [...segments, `${id}${attachmentExtension(mimeType)}`],
     'attachmentId',
   );
   const info = await lstat(full).catch((error: unknown) => {
@@ -371,6 +380,17 @@ export async function readConversationAttachment(
     fail('INVALID_INPUT', '附件文件不允许硬链接', { path: '/attachmentId' });
   }
   return { data: await readFile(full), filename, mimeType };
+}
+
+interface ReadConversationAttachmentInput extends ConversationInputsIdentity {
+  attachment: MessageAttachment;
+}
+
+/** 只按元数据 uuid + 规范扩展名读取；软链、硬链与非普通文件一律拒绝。 */
+export async function readConversationAttachment(
+  input: ReadConversationAttachmentInput,
+): Promise<{ data: Buffer; filename: string; mimeType: AttachmentMimeType }> {
+  return readAttachmentAt(input.root, conversationSegments(input), input.attachment);
 }
 
 interface CopyConversationInputsInput {
@@ -443,6 +463,72 @@ export async function removeConversationInputs(input: ConversationInputsIdentity
   if (!slugSchema.safeParse(input.slug).success || !segmentPattern.test(input.conversationId))
     return;
   const dir = await existingDirectory(input, [input.slug, INPUTS_DIR, input.conversationId]);
+  if (dir === null) return;
+  await rm(dir, { recursive: true, force: true });
+}
+
+const CHANNEL_INPUTS_DIR = '_channel-inputs';
+
+interface ChannelInputsIdentity {
+  root: string;
+  channelId: string;
+  messageId: string;
+}
+
+function channelSegments(input: ChannelInputsIdentity): string[] {
+  if (!segmentPattern.test(input.channelId)) {
+    fail('INVALID_INPUT', '频道 id 不能用作目录名', { path: '/channelId' });
+  }
+  if (!segmentPattern.test(input.messageId)) {
+    fail('INVALID_INPUT', '消息 id 不能用作目录名', { path: '/messageId' });
+  }
+  return [CHANNEL_INPUTS_DIR, input.channelId, input.messageId];
+}
+
+export async function writeChannelAttachments(
+  input: ChannelInputsIdentity & { inputs: readonly ChatAttachmentInput[] },
+): Promise<MessageAttachment[]> {
+  return writeAttachmentSet({
+    root: input.root,
+    segments: channelSegments(input),
+    label: 'messageId',
+    inputs: input.inputs,
+  });
+}
+
+export async function readChannelAttachment(
+  input: ChannelInputsIdentity & { attachment: MessageAttachment },
+): Promise<{ data: Buffer; filename: string; mimeType: AttachmentMimeType }> {
+  return readAttachmentAt(input.root, channelSegments(input), input.attachment);
+}
+
+export async function copyChannelAttachmentsToConversation(
+  input: ChannelInputsIdentity & {
+    slug: string;
+    conversationId: string;
+    attachments: readonly MessageAttachment[];
+  },
+): Promise<void> {
+  if (input.attachments.length === 0) return;
+  const segments = channelSegments(input);
+  const files: Array<{ name: string; data: Buffer }> = [];
+  for (const attachment of input.attachments) {
+    const file = await readAttachmentAt(input.root, segments, attachment);
+    files.push({
+      name: `${attachment.id}${attachmentExtension(attachment.mimeType)}`,
+      data: file.data,
+    });
+  }
+  const dir = await prepareDirectory(
+    { root: input.root, slug: input.slug, conversationId: input.conversationId },
+    'conversationId',
+  );
+  await writeFiles(dir, files);
+}
+
+export async function removeChannelInputs(input: ChannelInputsIdentity): Promise<void> {
+  if (!segmentPattern.test(input.channelId) || !segmentPattern.test(input.messageId)) return;
+  const dir = await existingDirectory({ root: input.root }, channelSegments(input));
   if (dir === null) return;
   await rm(dir, { recursive: true, force: true });
 }

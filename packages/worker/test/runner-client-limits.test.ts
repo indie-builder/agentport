@@ -128,7 +128,7 @@ function fakeProvider(
       setTimeout(emitLines, 5);
       return {
         done,
-        send() {},
+        send: () => true,
         cancel: async () => {
           finish({ state: 'unconfirmed', error: 'cancel unconfirmed' });
           return done;

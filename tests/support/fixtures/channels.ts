@@ -75,8 +75,28 @@ export async function runCount(channelId: string) {
 
 export async function runs(channelId: string) {
   return sql<
-    { id: string; conversation_id: string; status: string }[]
-  >`select id, conversation_id, status from agent_runs where channel_id = ${channelId} order by created_at asc`;
+    { id: string; conversation_id: string; agent_id: string; status: string }[]
+  >`select id, conversation_id, agent_id, status from agent_runs where channel_id = ${channelId} order by created_at asc`;
+}
+
+export async function latestApprovalByChannel(channelId: string) {
+  return sql<
+    {
+      id: string;
+      run_id: string | null;
+      server_id: string;
+      tool_name: string;
+      approved_at: Date | null;
+      denied_at: Date | null;
+      channel_id: string | null;
+    }[]
+  >`select id, run_id, server_id, tool_name, approved_at, denied_at, channel_id from approval_requests where channel_id = ${channelId} order by created_at desc, id desc limit 1`;
+}
+
+export async function runInstructions(channelId: string) {
+  return sql<
+    { run_id: string; body: string; delivered_at: Date | null }[]
+  >`select i.run_id, i.body, i.delivered_at from run_instructions i join agent_runs r on r.id = i.run_id where r.channel_id = ${channelId} order by i.created_at asc`;
 }
 
 export async function channelMessageAudits(channelId: string) {

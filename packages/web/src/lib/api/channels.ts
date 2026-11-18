@@ -6,21 +6,21 @@ import type {
   ChannelMember,
   ChannelMessage,
   ChannelRole,
+  channelHandoffInputSchema,
+  channelMessageInputSchema,
   PublicQuestionResponse,
   PublicRunQuestion,
   RunStatus,
 } from '@agentport/shared';
+import type { z } from 'zod';
 import type { ApiClient } from '../orpc.js';
 import { rpc } from '../orpc.js';
 import type { ApiOutput } from './shared.js';
 import { clientOptions, nativeRequest } from './shared.js';
 
-interface ChannelMessageInput {
-  body: string;
-  clientMessageId?: string;
-  mentions?: string[];
-  mentionAll?: boolean;
-}
+export type ChannelMessageInput = z.input<typeof channelMessageInputSchema>;
+
+export type ChannelHandoffInput = z.input<typeof channelHandoffInputSchema>;
 
 /** 频道活动 run：只有 queued/running；状态来自 DB，不是 SSE 快照。 */
 export interface ChannelActiveRun {
@@ -56,6 +56,8 @@ export default {
     rpc.channels.messages({ params: { id }, query: options }, clientOptions(signal)),
   postChannelMessage: async (id: string, input: ChannelMessageInput): Promise<ChannelMessage> =>
     (await rpc.channels.postMessage({ params: { id }, body: input })).body,
+  handoffChannel: (id: string, input: ChannelHandoffInput): Promise<ChannelMessage> =>
+    rpc.channels.handoff({ params: { id }, body: input }),
   markChannelRead: (id: string, seq: number): Promise<{ lastReadSeq: number }> =>
     rpc.channels.markRead({ params: { id }, body: { seq } }),
   bindChannelAgent: (
@@ -152,4 +154,10 @@ export default {
     ),
   channelRunOutputDownloadUrl: (id: string, runId: string, path: string): string =>
     `/api/channels/${id}/runs/${encodeURIComponent(runId)}/outputs/download?path=${encodeURIComponent(path)}`,
+  channelAttachmentDownloadUrl: (
+    channelId: string,
+    messageId: string,
+    attachmentId: string,
+  ): string =>
+    `/api/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}/download`,
 };

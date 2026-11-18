@@ -4,6 +4,7 @@ import {
   channelAgentWakeInputSchema,
   channelCreateSchema,
   channelDetailSchema,
+  channelHandoffInputSchema,
   channelListItemSchema,
   channelMemberInputSchema,
   channelMemberSchema,
@@ -129,6 +130,11 @@ export const channelsContract = {
     .route({ method: 'POST', path: '/channels/{id}/read', successStatus: 200 })
     .input(z.object({ params: idParams, body: channelReadInputSchema }))
     .output(channelReadStateSchema),
+  handoff: contractProcedure
+    .meta({ access: { kind: 'authenticated' } })
+    .route({ method: 'POST', path: '/channels/{id}/handoffs', successStatus: 201 })
+    .input(z.object({ params: idParams, body: channelHandoffInputSchema }))
+    .output(channelMessageSchema),
   activeRuns: contractProcedure
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'GET', path: '/channels/{id}/runs', successStatus: 200 })

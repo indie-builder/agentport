@@ -52,6 +52,11 @@ export interface SandboxQuestionCallbacks {
   expireStale?(): Promise<void>;
 }
 
+export interface SandboxInstructionCallbacks {
+  list(): Promise<Array<{ id: string; body: string }>>;
+  markDelivered(id: string): Promise<void>;
+}
+
 interface SandboxRunInput {
   runId: string;
   timeoutMs: number;
@@ -64,6 +69,7 @@ interface SandboxRunInput {
   logger: Logger;
   /** 缺省时不支持提问：runner 的提问会被本地拒绝，不会假装已落库。 */
   questions?: SandboxQuestionCallbacks;
+  instructions?: SandboxInstructionCallbacks;
 }
 
 /**
@@ -356,6 +362,96 @@ function createQuestionRuntime(input: {
     },
     error() {
       return failure;
+    },
+  };
+}
+
+const INSTRUCTION_POLL_MS = 500;
+
+function createInstructionRuntime(input: {
+  runId: string;
+  callbacks: SandboxInstructionCallbacks | undefined;
+  logger: Logger;
+}): {
+  attach(write: (command: SandboxInputCommand) => boolean): void;
+  stop(): void;
+} {
+  const sent = new Set<string>();
+  let stopped = false;
+  let polling = false;
+  let timer: NodeJS.Timeout | undefined;
+  let write: ((command: SandboxInputCommand) => boolean) | undefined;
+
+  const tick = async (): Promise<void> => {
+    if (stopped || polling) return;
+    const callbacks = input.callbacks;
+    if (callbacks === undefined) return;
+    polling = true;
+    try {
+      let items: Array<{ id: string; body: string }>;
+      try {
+        items = await callbacks.list();
+      } catch (err) {
+        input.logger.warn({ err, runId: input.runId }, 'instruction poll failed');
+        return;
+      }
+      for (const item of items) {
+        if (stopped) break;
+        if (sent.has(item.id)) continue;
+        let delivered: boolean;
+        try {
+          delivered =
+            write?.({ type: 'user_message', text: item.body, uuid: crypto.randomUUID() }) ?? false;
+        } catch (err) {
+          input.logger.warn(
+            { err, runId: input.runId, instructionId: item.id },
+            'instruction send failed',
+          );
+          continue;
+        }
+        if (!delivered) {
+          input.logger.warn(
+            { runId: input.runId, instructionId: item.id },
+            'instruction not delivered: session is not accepting input',
+          );
+          continue;
+        }
+        sent.add(item.id);
+        try {
+          await callbacks.markDelivered(item.id);
+        } catch (err) {
+          input.logger.warn(
+            { err, runId: input.runId, instructionId: item.id },
+            'instruction delivery mark failed',
+          );
+        }
+      }
+    } finally {
+      polling = false;
+    }
+  };
+
+  const schedule = (): void => {
+    if (stopped || timer !== undefined) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      void tick().finally(schedule);
+    }, INSTRUCTION_POLL_MS);
+    timer.unref();
+  };
+
+  return {
+    attach(activeWrite) {
+      if (input.callbacks === undefined) return;
+      write = activeWrite;
+      schedule();
+    },
+    stop() {
+      stopped = true;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
     },
   };
 }
@@ -732,6 +828,13 @@ function runInSandboxEffect(
     questionHandle.error = questionRuntime.error;
     questionHandle.persistOverflowed = () => persistOverflowed;
 
+    const instructionRuntime = createInstructionRuntime({
+      runId,
+      callbacks: input.instructions,
+      logger,
+    });
+    yield* Effect.addFinalizer(() => Effect.sync(() => instructionRuntime.stop()));
+
     const onEvent = (parsed: ChatEvent): void => {
       const line = JSON.stringify(parsed);
       const bytes = Buffer.byteLength(line);
@@ -751,6 +854,7 @@ function runInSandboxEffect(
 
       if (publicEvent.type === 'run_finished') {
         // 只记下终态，由调用方统一发布，保证每个 run 恰好一条。
+        instructionRuntime.stop();
         reportedStatus = publicEvent.status;
         reportedCost = publicEvent.costUsd;
         reportedTurns = publicEvent.turns;
@@ -865,6 +969,7 @@ function runInSandboxEffect(
       (command) => execution?.send(command),
       new Date(Date.now() + input.timeoutMs),
     );
+    instructionRuntime.attach((command) => execution?.send(command) ?? false);
     const result = yield* Effect.raceAll([
       Effect.promise(() =>
         activeExecution.done.catch(

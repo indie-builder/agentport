@@ -73,7 +73,7 @@ describe.skipIf(!ready)('runInSandbox task payload', () => {
           options.onEvent({ type: 'run_finished', status: 'succeeded' });
           return {
             done: Promise.resolve({ state: 'stopped', code: 0, signal: null }),
-            send() {},
+            send: () => true,
             cancel: async () => ({ state: 'stopped', code: 0, signal: null }),
           };
         },
@@ -160,7 +160,7 @@ describe.skipIf(!ready)('runInSandbox cancellation', () => {
             started();
             return {
               done,
-              send() {},
+              send: () => true,
               cancel: async () => {
                 onEvent({
                   type: 'run_finished',

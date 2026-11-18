@@ -638,6 +638,13 @@
       "when": 1794960973662,
       "tag": "0090_glorious_squadron_supreme",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1794968268323,
+      "tag": "0091_magical_eternity",
+      "breakpoints": true
     }
   ]
 }

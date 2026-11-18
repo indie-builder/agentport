@@ -17,8 +17,15 @@ export async function failQueuedRunEnqueue(db: Database, runId: string): Promise
         agentId: schema.agentRuns.agentId,
         conversationId: schema.agentRuns.conversationId,
         initiatedBy: schema.agentRuns.initiatedBy,
+        channelId: schema.agentRuns.channelId,
       });
     if (failed === undefined) return false;
+    if (failed.channelId !== null) {
+      await repo.runInstructions.requeueUndeliveredInstructionWakes(tx, {
+        runId: failed.id,
+        agentId: failed.agentId,
+      });
+    }
     if (failed.initiatedBy !== null) {
       await repo.integrations.enqueueWebhookEvent(tx, {
         eventType: 'run.failed',

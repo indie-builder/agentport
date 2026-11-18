@@ -1,4 +1,5 @@
 import {
+  attachmentMimeForFilename,
   CHANNEL_MAX_WAKE_AGENTS,
   type ChannelDetail,
   type ChannelMember,
@@ -9,6 +10,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
   ArrowLeft,
+  ArrowRightLeft,
   CircleStop,
   Hash,
   Megaphone,
@@ -18,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentAvatar, type AgentDisplay } from '../../components/agent/agent-avatar.js';
+import { ChannelHandoffDialog } from '../../components/channel/channel-handoff-dialog.js';
 import { ChannelRunSheet } from '../../components/channel/channel-run-sheet.js';
 import { ChannelSettingsButton } from '../../components/channel/channel-settings.js';
 import { Composer, MessagePane } from '../../components/chat/chat-thread.js';
@@ -30,6 +33,7 @@ import { Button } from '../../components/ui/button.js';
 import { MentionList, useMentionList } from '../../components/ui/mention-list.js';
 import { authenticated, can } from '../../lib/access.js';
 import { api, type ChannelApproval } from '../../lib/api.js';
+import { readFileBase64 } from '../../lib/browser-files.js';
 import {
   applyMention,
   mentionQueryAt,
@@ -38,7 +42,7 @@ import {
   visibleReadSeq,
 } from '../../lib/channel-state.js';
 import type { ChatItem } from '../../lib/chat-state.js';
-import type { RunMetrics } from '../../lib/chat-store.js';
+import { type RunMetrics, useChatStore } from '../../lib/chat-store.js';
 import { cn } from '../../lib/cn.js';
 import { shortId } from '../../lib/format.js';
 import {
@@ -152,6 +156,7 @@ function ChannelWorkspace({
     body: string;
     mentionIds: string[];
     notifyAll: boolean;
+    attachmentKey: string;
   } | null>(null);
   const [input, setInput] = useState('');
   const [caret, setCaret] = useState(0);
@@ -162,6 +167,7 @@ function ChannelWorkspace({
   const [olderExhausted, setOlderExhausted] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [runSheetId, setRunSheetId] = useState<string | null>(null);
+  const [handoff, setHandoff] = useState<{ runId: string; sourceAgentId: string } | null>(null);
 
   const agentById = useMemo(
     () => new Map((agents.data ?? []).map((agent) => [agent.id, agent])),
@@ -248,6 +254,7 @@ function ChannelWorkspace({
     const persistedRuns = new Set<string>();
     for (const message of stream.messages) {
       if (message.kind === 'human') {
+        const { attachments } = message;
         items.push({
           kind: 'user',
           id: message.id,
@@ -256,6 +263,19 @@ function ChannelWorkspace({
             ? {}
             : { authorBusinessId: message.authorBusinessId }),
           self: message.authorBusinessId === businessId,
+          ...(attachments.length === 0
+            ? {}
+            : {
+                attachments: attachments.map(({ id, filename, mimeType, size }) => ({
+                  ...(id ? { id } : {}),
+                  filename,
+                  mimeType,
+                  size,
+                  ...(id
+                    ? { downloadUrl: api.channelAttachmentDownloadUrl(channel.id, message.id, id) }
+                    : {}),
+                })),
+              }),
         });
         continue;
       }
@@ -311,7 +331,7 @@ function ChannelWorkspace({
       });
     }
     return { items, meta };
-  }, [businessId, stream.messages, stream.streams]);
+  }, [businessId, channel.id, stream.messages, stream.streams]);
 
   const hasRunning =
     stream.activeRuns.length > 0 ||
@@ -375,18 +395,27 @@ function ChannelWorkspace({
 
   const sendMessage = async (mentionAll: boolean): Promise<void> => {
     const body = input.trim();
+    const files = useChatStore.getState().pendingAttachments;
     const mentionIds = pruneMentions(input, mentions);
+    const attachmentKey = files.map((file) => `${file.name}:${file.size}`).join('|');
     const pending = pendingSend.current;
     const clientMessageId =
       pending !== null &&
       pending.body === body &&
       pending.notifyAll === mentionAll &&
+      pending.attachmentKey === attachmentKey &&
       pending.mentionIds.length === mentionIds.length &&
       pending.mentionIds.every((id, index) => id === mentionIds[index])
         ? pending.clientMessageId
         : crypto.randomUUID();
     const sentMentions = mentions;
-    pendingSend.current = { clientMessageId, body, mentionIds, notifyAll: mentionAll };
+    pendingSend.current = {
+      clientMessageId,
+      body,
+      mentionIds,
+      notifyAll: mentionAll,
+      attachmentKey,
+    };
     const optimistic: ChannelMessage = {
       id: `local-${clientMessageId}`,
       channelId: channel.id,
@@ -399,6 +428,12 @@ function ChannelWorkspace({
       clientMessageId,
       sourceMessageId: null,
       createdAt: new Date().toISOString(),
+      attachments: files.flatMap((file) => {
+        const mimeType = attachmentMimeForFilename(file.name);
+        return mimeType === null
+          ? []
+          : [{ id: '', sha256: '', filename: file.name, mimeType, size: file.size }];
+      }),
     };
     setMessages((previous) => mergeChannelMessages(previous, [optimistic]));
     setInput('');
@@ -407,14 +442,27 @@ function ChannelWorkspace({
     setMention(null);
     setNotifyAll(false);
     try {
+      const payload =
+        files.length === 0
+          ? []
+          : await Promise.all(
+              files.map(async (file) => ({
+                filename: file.name,
+                dataBase64: await readFileBase64(file),
+              })),
+            );
       const saved = await api.postChannelMessage(channel.id, {
-        body,
+        ...(body === '' ? {} : { body }),
         clientMessageId,
+        ...(payload.length === 0 ? {} : { attachments: payload }),
         ...(mentionIds.length === 0 ? {} : { mentions: mentionIds }),
         ...(mentionAll ? { mentionAll: true } : {}),
       });
       if (pendingSend.current?.clientMessageId === clientMessageId) pendingSend.current = null;
       setMessages((previous) => mergeChannelMessages(previous, [saved]));
+      if (files.length > 0 && useChatStore.getState().pendingAttachments === files) {
+        useChatStore.getState().setPendingAttachments([]);
+      }
       void client.invalidateQueries({ queryKey: ['channels'] });
     } catch (error) {
       setMessages((previous) => previous.filter((item) => item.id !== optimistic.id));
@@ -429,7 +477,8 @@ function ChannelWorkspace({
   };
 
   const send = async (): Promise<void> => {
-    if (!input.trim() || !canPost) return;
+    if (!canPost) return;
+    if (!input.trim() && useChatStore.getState().pendingAttachments.length === 0) return;
     if (notifyAll) {
       if (notifyLimitExceeded) {
         toastError(
@@ -513,6 +562,12 @@ function ChannelWorkspace({
       if (runId === undefined) return null;
       const active = entry.control?.active ?? false;
       const canAnswer = canAnswerFor(runId);
+      const sourceAgentId = entry.headerAgentId;
+      const canHandoff =
+        canPost &&
+        !active &&
+        sourceAgentId !== undefined &&
+        boundAgents.some((agent) => agent.agentId !== sourceAgentId);
       return (
         <RunControls
           channelId={channel.id}
@@ -521,15 +576,29 @@ function ChannelWorkspace({
           canStop={canAnswer}
           canApprove={canAnswer}
           canAnswer={canAnswer}
+          canHandoff={canHandoff}
           approvals={entry.control === undefined ? [] : pendingApprovals}
           stop={stop}
           approve={approve}
           deny={deny}
           onOpenRun={setRunSheetId}
+          onHandoff={() => {
+            if (sourceAgentId !== undefined) setHandoff({ runId, sourceAgentId });
+          }}
         />
       );
     },
-    [approve, canAnswerFor, channel.id, deny, pendingApprovals, stop, timeline],
+    [
+      approve,
+      boundAgents,
+      canAnswerFor,
+      canPost,
+      channel.id,
+      deny,
+      pendingApprovals,
+      stop,
+      timeline,
+    ],
   );
 
   return (
@@ -702,7 +771,7 @@ function ChannelWorkspace({
           historyReady={!stream.messagesQuery.isPending}
           enabled={canPost}
           locked={false}
-          canAttach={false}
+          canAttach={canPost && channel.archivedAt === null}
           canSend={canPost}
           sendDenied={
             channel.archivedAt !== null
@@ -740,6 +809,15 @@ function ChannelWorkspace({
         canWrite={channelRole !== 'viewer'}
         onClose={() => setRunSheetId(null)}
       />
+      {handoff === null ? null : (
+        <ChannelHandoffDialog
+          channelId={channel.id}
+          sourceRunId={handoff.runId}
+          sourceAgentId={handoff.sourceAgentId}
+          agents={boundAgents}
+          onClose={() => setHandoff(null)}
+        />
+      )}
     </div>
   );
 }
@@ -926,11 +1004,13 @@ function RunControls({
   canStop,
   canApprove,
   canAnswer,
+  canHandoff,
   approvals,
   stop,
   approve,
   deny,
   onOpenRun,
+  onHandoff,
 }: {
   channelId: string;
   runId: string;
@@ -938,11 +1018,13 @@ function RunControls({
   canStop: boolean;
   canApprove: boolean;
   canAnswer: boolean;
+  canHandoff: boolean;
   approvals: readonly ChannelApproval[];
   stop: ReturnType<typeof useStopChannelRun>;
   approve: ReturnType<typeof useApproveChannelApproval>;
   deny: ReturnType<typeof useDenyChannelApproval>;
   onOpenRun: (runId: string) => void;
+  onHandoff: () => void;
 }) {
   const pendingApprovals = approvals.filter((approval) => approval.runId === runId);
   const showStop = active && canStop;
@@ -958,6 +1040,12 @@ function RunControls({
           <SquareArrowOutUpRight aria-hidden="true" />
           查看运行
         </Button>
+        {canHandoff ? (
+          <Button variant="outline" size="sm" onClick={onHandoff}>
+            <ArrowRightLeft aria-hidden="true" />
+            交接
+          </Button>
+        ) : null}
         {showStop ? (
           <Button
             variant="outline"

@@ -1,6 +1,7 @@
 import type {
   AgentDefinition,
   ChatEvent,
+  MessageAttachment,
   RunErrorKind,
   RunStatus,
   RunTrigger,
@@ -192,6 +193,7 @@ export const channelMessages = pgTable(
     clientMessageId: text('client_message_id'),
     /** agent 回复对应的 messages.id；一条消息只投影一次。 */
     sourceMessageId: text('source_message_id'),
+    attachments: jsonb('attachments').$type<MessageAttachment[]>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

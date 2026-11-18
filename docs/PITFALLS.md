@@ -30,9 +30,9 @@
 
 ## 测试：陈旧沙盒镜像让 strict schema 拒绝新字段
 
-- **现象**：频道 E2E 在沙盒启动阶段反复超时，worker 日志为 `retryable sandbox failure: 出现未知的键(key): "hasWorkflows"`，而该镜像此前能跑。
-- **原因**：`agentport/sandbox:dev` 是旧构建，容器内 `/app/dist` 早于当前 `sandboxTaskSchema` 增加的 `hasWorkflows` 字段；该 schema 是 `.strict()`，worker 按环境线上版本把含新字段的任务发给旧镜像即被拒。
-- **规避**：用当前根 `Dockerfile` 的 `sandbox` target 重建镜像并作为 `SANDBOX_IMAGE`（`docker build --target sandbox -t agentport/sandbox:e2e-current .`）；`bun run e2e:suite` 不重建镜像，跑真实 worker 前先确认镜像含当前 `dist`。不要靠放宽 schema 或加兼容字段绕过。
+- **现象**：频道 E2E 在沙盒启动阶段反复超时，worker 日志为 `retryable sandbox failure: 出现未知的键(key): "hasWorkflows"`，而该镜像此前能跑。同一陈旧镜像也会让容器内 supervisor 不识别新增的 input 指令；本次频道 E2E 中 worker 日志为 `session supervisor rejected a command ... 期望 "question_response"`，频道没有第二轮回复。
+- **原因**：`agentport/sandbox:dev` 是旧构建，容器内 `/app/dist` 早于当前 `sandboxTaskSchema` 增加的 `hasWorkflows` 字段；该 schema 是 `.strict()`，worker 按环境线上版本把含新字段的任务发给旧镜像即被拒。`packages/shared` / `packages/sandbox` 的 supervisor 协议新增了 `{type:'user_message'}`，旧镜像的 `dist` 早于该协议；只检查镜像里 `dist/session-supervisor.js` 是否存在无法识别协议陈旧。
+- **规避**：用当前根 `Dockerfile` 的 `sandbox` target 重建镜像并作为 `SANDBOX_IMAGE`（`docker build --target sandbox -t agentport/sandbox:e2e-current .`）；`bun run e2e:suite` 不重建镜像，跑真实 worker 前先确认镜像含当前 `dist`。改动 `packages/sandbox` 或 `packages/shared` 的 supervisor 协议后必须重建镜像；频道 E2E 可用 `E2E_CHANNEL_REBUILD_IMAGE=1 bun run e2e:channel:ui` 按当前源码重建。不要靠放宽 schema 或加兼容字段绕过。
 
 ## 复制到 worktree 的 `.env` 可能比刚确认的配置旧
 
@@ -728,3 +728,9 @@
 - **现象**：run 准入时已记录发布版本，worker 却按 `agents` 当前编辑态渲染，编辑中的配置提前影响线上运行。
 - **原因**：把 `agents` 子表当成运行来源，忽略 `published_version` 指向的 `agent_versions.definition` 才是该 run 的固定快照。
 - **规避**：worker 渲染与执行只读 run 准入时固定的版本 `definition`；仅 `published_version` 为空的历史行或夹具回退 live 表；发布、试跑与回滚分别走各自入口，不改写已有 run。
+
+## 运行：追加指令的 `delivered_at` 只代表 stdin 写入成功，不代表 runner 已消费
+
+- **现象**：运行中追加的指令已记 `delivered_at`，但智能体从未处理，run 结束后也没有重新入队。
+- **原因**：worker 每 500ms 把未送达指令经 supervisor `input` 帧写入 runner，写入成功即标记 `delivered_at`；runner 在最后一次 `result` 且指令队列无待发指令时关闭队列，从关闭到 worker 处理 `run_finished` 的毫秒级窗口内，已写入 stdin 的 `user_message` 会被 `packages/sandbox/src/runner.ts` 的 `createInstructionQueue.push` 以「input stream is closed」静默丢弃，而 `finalizeRun` 的 `requeueUndeliveredInstructionWakes` 只处理未送达指令，于是跳过它。
+- **规避**：这是已知的 at-most-once 边界，不要把 `delivered_at` 当作 runner 已消费的证据；若要消除，需增加 runner→worker 的送达 ACK 协议（runner 确认入队后再标记），改动前先评估协议、超时与重试语义。

@@ -173,6 +173,7 @@ async function run(
         done,
         send: (command) => {
           child.stdin.write(`${JSON.stringify(command)}\n`);
+          return true;
         },
         cancel: async () => {
           child.emit('close', 0, null);

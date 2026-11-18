@@ -47,6 +47,7 @@ export function createQuestionChannel(input: {
   readLine: () => Promise<string | null>;
   events: QuestionChannelEvents;
   log?: (message: string) => void;
+  onUserMessage?: (command: { text: string; uuid: string }) => void;
 }): QuestionChannel {
   const pending = new Map<string, PendingQuestion>();
   let stopped = false;
@@ -79,7 +80,7 @@ export function createQuestionChannel(input: {
     denyAll(DENY_CLOSED);
   };
 
-  const respond = (command: SandboxInputCommand): void => {
+  const respond = (command: Extract<SandboxInputCommand, { type: 'question_response' }>): void => {
     const entry = pending.get(command.requestId);
     if (entry === undefined) {
       log(`ignored a response for unknown or settled question ${command.requestId}`);
@@ -127,7 +128,15 @@ export function createQuestionChannel(input: {
         log('ignored a malformed stdin command');
         continue;
       }
-      if (command.type === 'question_response') respond(command);
+      if (command.type === 'user_message') {
+        if (input.onUserMessage === undefined) {
+          log('ignored a user_message command: no instruction runtime attached');
+        } else {
+          input.onUserMessage({ text: command.text, uuid: command.uuid });
+        }
+        continue;
+      }
+      respond(command);
     }
   })();
 

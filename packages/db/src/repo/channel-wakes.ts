@@ -1,3 +1,4 @@
+import { ACTIVE_RUN_STATUSES, type MessageAttachment } from '@agentport/shared';
 import { and, asc, eq, inArray, or, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import {
@@ -78,7 +79,7 @@ export async function claimChannelWakes(
 }
 
 async function updateClaimedWake(
-  db: Database,
+  db: DbHandle,
   id: string,
   claimedAt: Date,
   patch: Partial<typeof channelWakes.$inferInsert>,
@@ -98,7 +99,7 @@ async function updateClaimedWake(
 }
 
 export async function markChannelWakeEnqueued(
-  db: Database,
+  db: DbHandle,
   input: { id: string; claimedAt: Date },
 ): Promise<boolean> {
   return updateClaimedWake(db, input.id, input.claimedAt, { status: 'enqueued' });
@@ -180,6 +181,7 @@ export async function getChannelWakeMessage(
   channelId: string;
   body: string;
   authorBusinessId: string | null;
+  attachments: MessageAttachment[];
   channelArchivedAt: Date | null;
 } | null> {
   const [message] = await db
@@ -188,11 +190,35 @@ export async function getChannelWakeMessage(
       channelId: channelMessages.channelId,
       body: channelMessages.body,
       authorBusinessId: channelMessages.authorBusinessId,
+      attachments: channelMessages.attachments,
       channelArchivedAt: channels.archivedAt,
     })
     .from(channelMessages)
     .innerJoin(channels, eq(channels.id, channelMessages.channelId))
     .where(eq(channelMessages.id, channelMessageId))
     .limit(1);
-  return message ?? null;
+  return message === undefined ? null : { ...message, attachments: message.attachments ?? [] };
+}
+
+export async function findActiveChannelRunForAgent(
+  db: Database,
+  input: { channelId: string; agentId: string },
+): Promise<{ id: string; conversationId: string; status: string } | null> {
+  const [run] = await db
+    .select({
+      id: agentRuns.id,
+      conversationId: agentRuns.conversationId,
+      status: agentRuns.status,
+    })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.channelId, input.channelId),
+        eq(agentRuns.agentId, input.agentId),
+        inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
+      ),
+    )
+    .orderBy(asc(agentRuns.createdAt))
+    .limit(1);
+  return run ?? null;
 }

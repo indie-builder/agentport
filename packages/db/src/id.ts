@@ -30,6 +30,7 @@ export const idPrefixes = {
   channel: 'chn',
   channelMessage: 'chm',
   run: 'run',
+  runInstruction: 'rin',
   question: 'q',
   approval: 'apr',
   runFeedback: 'rfb',
