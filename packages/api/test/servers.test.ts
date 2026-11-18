@@ -206,7 +206,7 @@ describe.skipIf(!ready)('servers', () => {
         method: 'POST',
         url: '/api/servers',
         headers: auth(),
-        payload: { name: publicName, kind: 'http', url: 'https://example.com/mcp' },
+        payload: { name: publicName, kind: 'http', url: 'https://8.8.8.8/mcp' },
       });
       expect(ok.statusCode).toBe(201);
 

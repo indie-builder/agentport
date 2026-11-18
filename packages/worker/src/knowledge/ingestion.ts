@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   type AsrProfile,
   embedImages,
@@ -21,6 +22,7 @@ import {
   knowledgeJobPayloadSchema,
 } from '@agentport/shared';
 import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
+import pLimit from 'p-limit';
 import type { Logger } from 'pino';
 import { describeKnowledgeImage, type ImageQueryFn } from './image-processing.js';
 import { KnowledgeParseError, type ParsedDocument, type ParsedImage } from './parsing.js';
@@ -163,6 +165,7 @@ export interface KnowledgeDeps {
 }
 
 const EMBED_BATCH = 32;
+const MODEL_CONCURRENCY = 2;
 const SYNC_CHECKPOINT_ITEMS = 50;
 const SYNC_CHECKPOINT_MS = 30_000;
 const BLOB_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -171,6 +174,9 @@ const LIST_PAGE_SIZE = 200;
 
 /** timeout/rate_limit/unavailable 值得重试；auth 与 bad_response 重试也不会变好。 */
 const RETRYABLE = new Set(['timeout', 'rate_limit', 'unavailable']);
+
+const MODEL_RETRY_ATTEMPTS = 3;
+const MODEL_RETRY_BASE_DELAY_MS = 1_000;
 
 /** 解析服务的临时故障可重试；格式不支持、输入非法与部分成功不重试。 */
 const RETRYABLE_PARSE = new Set([
@@ -184,6 +190,24 @@ export function isRetryableKnowledgeError(err: unknown): boolean {
   if (err instanceof KnowledgeModelError) return RETRYABLE.has(err.kind);
   if (err instanceof KnowledgeParseError) return RETRYABLE_PARSE.has(err.code);
   return false;
+}
+
+async function withModelRetry<T>(
+  call: () => Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await call();
+    } catch (err) {
+      if (attempt + 1 >= MODEL_RETRY_ATTEMPTS || !isRetryableKnowledgeError(err)) throw err;
+      await delay(
+        MODEL_RETRY_BASE_DELAY_MS * 2 ** attempt + Math.random() * 100,
+        undefined,
+        signal ? { signal } : undefined,
+      );
+    }
+  }
 }
 
 export function describeKnowledgeError(err: unknown): string {
@@ -211,6 +235,37 @@ class SourceSnapshotStale extends Error {}
 
 function checkAborted(signal: AbortSignal): void {
   if (signal.aborted) throw new KnowledgeCancelled();
+}
+
+async function runBounded<T, R>(
+  items: readonly T[],
+  signal: AbortSignal,
+  task: (item: T, taskSignal: AbortSignal) => Promise<R>,
+): Promise<R[]> {
+  const limit = pLimit(MODEL_CONCURRENCY);
+  const controller = new AbortController();
+  const taskSignal = AbortSignal.any([signal, controller.signal]);
+  let failed = false;
+  let firstError: unknown;
+  const settled = await Promise.allSettled(
+    items.map((item) =>
+      limit(async () => {
+        if (failed) throw firstError;
+        try {
+          return await task(item, taskSignal);
+        } catch (err) {
+          if (!failed) {
+            failed = true;
+            firstError = err;
+            controller.abort();
+          }
+          throw err;
+        }
+      }),
+    ),
+  );
+  if (failed) throw firstError;
+  return settled.map((result) => (result as PromiseFulfilledResult<R>).value);
 }
 
 /**
@@ -307,12 +362,13 @@ async function embeddingClient(deps: KnowledgeDeps, profileId: string): Promise<
       profile.embeddingProtocol === 'cohere_v2' &&
       profile.model === 'embed-v4.0' &&
       profile.imageInputEnabled,
-    embed: (texts, signal) => embedTexts(settings, texts, signal),
-    embedImage: async (image, signal) => {
-      const [vector] = await embedImages(settings, [image], signal);
-      if (!vector) throw new Error('图片向量返回为空');
-      return vector;
-    },
+    embed: (texts, signal) => withModelRetry(() => embedTexts(settings, texts, signal), signal),
+    embedImage: async (image, signal) =>
+      withModelRetry(async () => {
+        const [vector] = await embedImages(settings, [image], signal);
+        if (!vector) throw new Error('图片向量返回为空');
+        return vector;
+      }, signal),
   };
 }
 
@@ -321,12 +377,14 @@ async function embedAll(
   texts: string[],
   signal: AbortSignal,
 ): Promise<number[][]> {
-  const vectors: number[][] = [];
-  for (let start = 0; start < texts.length; start += EMBED_BATCH) {
-    checkAborted(signal);
-    vectors.push(...(await client.embed(texts.slice(start, start + EMBED_BATCH), signal)));
-  }
-  return vectors;
+  const batches = Array.from({ length: Math.ceil(texts.length / EMBED_BATCH) }, (_, index) =>
+    texts.slice(index * EMBED_BATCH, (index + 1) * EMBED_BATCH),
+  );
+  const vectors = await runBounded(batches, signal, (batch, taskSignal) => {
+    checkAborted(taskSignal);
+    return client.embed(batch, taskSignal);
+  });
+  return vectors.flat();
 }
 
 async function setStep(
@@ -477,27 +535,28 @@ async function imageDrafts(
       ? '图片向量已跳过：当前 embedding profile 不是 cohere_v2/embed-v4.0 或未开启图片输入'
       : null;
 
-  for (const image of parsed.images) {
-    checkAborted(signal);
+  const processImage = async (image: ParsedImage, taskSignal: AbortSignal) => {
+    checkAborted(taskSignal);
     const described = await describeKnowledgeImage(
       {
         image: { mimeType: image.mimeType, data: image.data },
         settings,
-        signal,
+        signal: taskSignal,
       },
       deps.imageQueryFn ? { queryFn: deps.imageQueryFn } : {},
     );
-    checkAborted(signal);
+    checkAborted(taskSignal);
     const own = [...described.warnings];
     if (vectorWarning) own.push(vectorWarning);
     if (described.ocr === null && described.caption === null) {
       // 失败占位不能当正文索引：整版不发布，旧版本继续可查。
       throw new Error(`图片 ${image.name} 没有可用的 OCR 或描述：${own.join('; ')}`);
     }
+    const ownDrafts: ChunkDraft[] = [];
     const metadata = (role: 'ocr' | 'caption' | 'vector') =>
       knowledgeImageChunkMetadataSchema.parse({ image: imageRefOf(image), imageRole: role });
     if (described.ocr !== null) {
-      drafts.push({
+      ownDrafts.push({
         kind: 'image',
         heading: null,
         content: described.ocr,
@@ -508,7 +567,7 @@ async function imageDrafts(
       });
     }
     if (described.caption !== null) {
-      drafts.push({
+      ownDrafts.push({
         kind: 'image',
         heading: null,
         content: described.caption,
@@ -523,9 +582,9 @@ async function imageDrafts(
       try {
         const embedding = await client.embedImage(
           { mimeType: image.mimeType, dataBase64: Buffer.from(image.data).toString('base64') },
-          signal,
+          taskSignal,
         );
-        drafts.push({
+        ownDrafts.push({
           kind: 'image',
           heading: null,
           content: description,
@@ -538,10 +597,10 @@ async function imageDrafts(
           embedding,
         });
       } catch (err) {
-        if (signal.aborted) throw err;
+        if (taskSignal.aborted) throw err;
         // 保留 vector 草稿身份（描述、metadata、searchText 为空、embedding:null），
         // 让 chunksOnly 能按原图补向量；它不进文字 embedding，也不参与关键词索引。
-        drafts.push({
+        ownDrafts.push({
           kind: 'image',
           heading: null,
           content: description,
@@ -555,7 +614,13 @@ async function imageDrafts(
         own.push(`图片向量失败，已降级为描述检索：${describeKnowledgeError(err)}`);
       }
     }
-    if (own.length > 0) warnings.set(image.name, own);
+    return { name: image.name, drafts: ownDrafts, warnings: own };
+  };
+
+  const results = await runBounded(parsed.images, signal, processImage);
+  for (const result of results) {
+    drafts.push(...result.drafts);
+    if (result.warnings.length > 0) warnings.set(result.name, result.warnings);
   }
   return { drafts, warnings };
 }

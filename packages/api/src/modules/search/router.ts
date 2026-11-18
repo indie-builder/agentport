@@ -17,25 +17,18 @@ async function agentItems(
   q: string,
   limit: number,
 ): Promise<SearchItem[]> {
-  const needle = q.toLocaleLowerCase();
-  const rows = await repo.agents.listAgents(context.db, accessFilter(context, 'agents.read'));
-  return rows
-    .flatMap((row): SearchItem[] => {
-      if (!row.enabled || row.archivedAt !== null || row.deletedAt !== null) return [];
-      const matched = [row.name, row.role, row.description, row.slug, ...row.tags].some((value) =>
-        value.toLocaleLowerCase().includes(needle),
-      );
-      if (!matched) return [];
-      return [
-        {
-          kind: 'agent',
-          id: row.id,
-          title: row.name,
-          subtitle: row.tags.length === 0 ? row.role : `${row.role} · ${row.tags.join(' / ')}`,
-        },
-      ];
-    })
-    .slice(0, limit);
+  const rows = await repo.agents.listAgents(
+    context.db,
+    accessFilter(context, 'agents.read'),
+    undefined,
+    { q, limit, enabled: true },
+  );
+  return rows.map((row) => ({
+    kind: 'agent',
+    id: row.id,
+    title: row.name,
+    subtitle: row.tags.length === 0 ? row.role : `${row.role} · ${row.tags.join(' / ')}`,
+  }));
 }
 
 async function conversationItems(
