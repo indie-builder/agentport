@@ -12,7 +12,7 @@ export function Metric({
 }) {
   return (
     <span className="inline-flex min-w-0 flex-wrap items-baseline gap-1.5">
-      <span className="text-2xs text-muted-foreground">{label}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
       <span className={cn('font-mono tabular-nums', danger ? 'text-danger' : 'text-fg')}>
         {value}
       </span>

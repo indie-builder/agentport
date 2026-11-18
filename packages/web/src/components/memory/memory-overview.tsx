@@ -4,10 +4,10 @@ import { FileText, Gauge, UserRound } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { formatBytes, formatDateTime } from '../../lib/format.js';
 import { agentMemoryAssemblyQuery, agentMemoryOverviewQuery } from '../../lib/queries.js';
+import { MetricCard, MetricGrid } from '../metric-card.js';
 import { EmptyState, ErrorState, LoadingState } from '../states.js';
 import { StatusBadge } from '../status-badge.js';
 import { Button } from '../ui/button.js';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.js';
 import { HEALTH_LABEL, HEALTH_TONE } from './health-status.js';
 
@@ -19,35 +19,6 @@ const TRIGGER_LABEL: Record<AgentMemoryAssembly['blocks'][number]['trigger'], st
 
 /** 概览只列最近 3 条变更，其余交给文件视图的版本区。 */
 const RECENT_CHANGE_LIMIT = 3;
-
-function KpiCard({
-  label,
-  value,
-  hint,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  icon: typeof FileText;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-3">
-          <span className="text-sm font-normal text-muted-foreground">{label}</span>
-          <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2">
-        <span className="min-w-0 break-words text-xl font-medium tabular-nums text-fg [overflow-wrap:anywhere]">
-          {value}
-        </span>
-        <CardDescription className="tabular-nums">{hint}</CardDescription>
-      </CardContent>
-    </Card>
-  );
-}
 
 function SectionHeading({ id, children }: { id: string; children: ReactNode }) {
   return (
@@ -258,26 +229,26 @@ export function MemoryOverview({
         <ErrorState error={overview.error} onRetry={() => void overview.refetch()} />
       ) : null}
       <div className="flex flex-col gap-2">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <KpiCard
+        <MetricGrid>
+          <MetricCard
             label="主题文件数"
             value={`${data.topics.count} 个`}
             hint={`共 ${formatBytes(data.topics.bytes)}`}
             icon={FileText}
           />
-          <KpiCard
+          <MetricCard
             label="索引占用"
             value={`${data.index.lines} 行`}
             hint={`占上限 ${indexShare}% · 上限 ${data.index.maxLines} 行 / ${formatBytes(data.index.maxBytes)}`}
             icon={Gauge}
           />
-          <KpiCard
+          <MetricCard
             label="当前个人记忆"
             value={`${data.personal.chars} 字符`}
             hint={`上限 ${data.personal.maxChars} 字符`}
             icon={UserRound}
           />
-        </div>
+        </MetricGrid>
         {/* 停用只在 KPI 区用一句中性说明，状态细节留给健康检查。 */}
         {data.policy.enabled ? null : (
           <p className="text-xs text-muted-foreground">

@@ -19,6 +19,7 @@ import {
   PageToolbar,
   PageTopbar,
 } from '../../components/page.js';
+import { RecordRows } from '../../components/record-rows.js';
 import { RunStatusBadge } from '../../components/run/run-status-badge.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
@@ -194,38 +195,27 @@ function RunCard({ run }: { run: RunListItem }) {
         </CardAction>
       </CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-3">
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs tabular-nums">
-          <dt className="text-muted-foreground">开始</dt>
-          <dd className="text-right text-muted-foreground" title={formatDateTime(run.startedAt)}>
-            {formatRelative(run.startedAt)}
-          </dd>
-          {run.latencyMs != null ? (
-            <>
-              <dt className="text-muted-foreground">耗时</dt>
-              <dd className="text-right">{formatDuration(run.latencyMs)}</dd>
-            </>
-          ) : null}
-          {run.turns != null ? (
-            <>
-              <dt className="text-muted-foreground">轮次</dt>
-              <dd className="text-right">{run.turns}</dd>
-            </>
-          ) : null}
-          {run.costUsd != null ? (
-            <>
-              <dt className="text-muted-foreground">成本</dt>
-              <dd className="text-right">{formatCost(run.costUsd)}</dd>
-            </>
-          ) : null}
-          {run.inputTokens != null || run.outputTokens != null ? (
-            <>
-              <dt className="text-muted-foreground">输入 Tokens</dt>
-              <dd className="text-right">{formatTokens(run.inputTokens)}</dd>
-              <dt className="text-muted-foreground">输出 Tokens</dt>
-              <dd className="text-right">{formatTokens(run.outputTokens)}</dd>
-            </>
-          ) : null}
-        </dl>
+        <RecordRows
+          rows={[
+            {
+              label: '开始',
+              value: (
+                <span title={formatDateTime(run.startedAt)}>{formatRelative(run.startedAt)}</span>
+              ),
+            },
+            ...(run.latencyMs != null
+              ? [{ label: '耗时', value: formatDuration(run.latencyMs) }]
+              : []),
+            ...(run.turns != null ? [{ label: '轮次', value: run.turns }] : []),
+            ...(run.costUsd != null ? [{ label: '成本', value: formatCost(run.costUsd) }] : []),
+            ...(run.inputTokens != null || run.outputTokens != null
+              ? [
+                  { label: '输入 Tokens', value: formatTokens(run.inputTokens) },
+                  { label: '输出 Tokens', value: formatTokens(run.outputTokens) },
+                ]
+              : []),
+          ]}
+        />
         {run.error ? (
           <div className="flex min-w-0 flex-col gap-0.5 text-xs">
             <span className="text-xs text-muted-foreground">错误</span>
@@ -488,7 +478,7 @@ export function RunsPage() {
               ) : (
                 <ul
                   aria-label="运行列表"
-                  className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
+                  className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2"
                 >
                   {items.map((run) => (
                     <li key={run.id} className="min-w-0">

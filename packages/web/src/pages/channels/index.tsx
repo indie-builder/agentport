@@ -118,7 +118,7 @@ export function ChannelsPage() {
             {view === 'cards' ? (
               <ul
                 aria-label="频道列表"
-                className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
+                className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2"
               >
                 {items.map((channel) => (
                   <li key={channel.id} className="min-w-0">
@@ -217,7 +217,10 @@ function ChannelCard({ channel }: { channel: ChannelListItem }) {
       params={{ channelId: channel.id }}
       className="group block h-full rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <Card className={cn('h-full min-h-44 gap-3', channel.archivedAt && 'opacity-70')}>
+      <Card
+        hover="lift"
+        className={cn('h-full min-h-44 gap-3', channel.archivedAt && 'opacity-70')}
+      >
         <CardHeader className="grid-cols-[auto_minmax(0,1fr)_auto]! items-start gap-3">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-item bg-sunken text-muted-foreground">
             <Hash aria-hidden="true" />

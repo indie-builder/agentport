@@ -6,6 +6,7 @@ import { Activity, CircleCheck, CircleDollarSign, Cpu } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { FilterSelect } from '../../components/filter-select.js';
+import { MetricCard, MetricGrid } from '../../components/metric-card.js';
 import {
   Page,
   PageBody,
@@ -15,6 +16,7 @@ import {
   PageToolbar,
   PageTopbar,
 } from '../../components/page.js';
+import { RecordRows } from '../../components/record-rows.js';
 import { RunStatusBadge } from '../../components/run/run-status-badge.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
@@ -22,7 +24,6 @@ import {
   Card,
   CardAction,
   CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
@@ -31,7 +32,6 @@ import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { api, type RunStatus } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
-import { cn } from '../../lib/cn.js';
 import { toCsv } from '../../lib/csv.js';
 import {
   formatCost,
@@ -58,37 +58,6 @@ function formatTokenCount(value: number): string {
   return tokenCountFormatter.format(value);
 }
 
-function MetricCard({
-  label,
-  icon,
-  value,
-  hint,
-  compact = false,
-}: {
-  label: string;
-  icon: ReactNode;
-  value: ReactNode;
-  hint?: string | undefined;
-  compact?: boolean;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-2 text-xs font-normal text-muted-foreground">
-          {label}
-          {icon}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-1">
-        <span className={cn('font-medium tabular-nums text-fg', compact ? 'text-2xl' : 'text-3xl')}>
-          {value}
-        </span>
-        {hint ? <CardDescription className="text-xs">{hint}</CardDescription> : null}
-      </CardContent>
-    </Card>
-  );
-}
-
 function runDestination(
   run: PersonalRun,
   options: { canReadMemory: boolean; canReadConversations: boolean },
@@ -110,26 +79,23 @@ function RunCard({ run, action }: { run: PersonalRun; action: ReactNode }) {
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
-        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
-          <dt className="text-muted-foreground">来源</dt>
-          <dd className="text-right text-muted-foreground">{runTriggerLabel[run.trigger]}</dd>
-          <dt className="text-muted-foreground">时间</dt>
-          <dd className="text-right text-muted-foreground" title={run.startedAt ?? run.createdAt}>
-            {formatDateTime(run.startedAt ?? run.createdAt)}
-          </dd>
-          <dt className="text-muted-foreground">耗时</dt>
-          <dd className="font-mono tabular-nums text-fg">{formatDuration(run.latencyMs)}</dd>
-          <dt className="text-muted-foreground">成本</dt>
-          <dd className="font-mono tabular-nums text-fg">{formatCost(run.costUsd)}</dd>
-          <dt className="text-muted-foreground">Token</dt>
-          <dd className="font-mono tabular-nums text-fg">
-            {`${formatTokens(run.inputTokens)} / ${formatTokens(run.outputTokens)}`}
-          </dd>
-          <dt className="text-muted-foreground">运行 ID</dt>
-          <dd className="font-mono text-xs text-fg" title={run.id}>
-            {shortId(run.id)}
-          </dd>
-        </dl>
+        <RecordRows
+          rows={[
+            { label: '来源', value: runTriggerLabel[run.trigger] },
+            {
+              label: '时间',
+              value: formatDateTime(run.startedAt ?? run.createdAt),
+              title: run.startedAt ?? run.createdAt,
+            },
+            { label: '耗时', value: formatDuration(run.latencyMs) },
+            { label: '成本', value: formatCost(run.costUsd) },
+            {
+              label: 'Token',
+              value: `${formatTokens(run.inputTokens)} / ${formatTokens(run.outputTokens)}`,
+            },
+            { label: '运行 ID', value: shortId(run.id), mono: true, title: run.id },
+          ]}
+        />
       </CardContent>
       <CardFooter className="justify-end">{action}</CardFooter>
     </Card>
@@ -344,17 +310,11 @@ export function PersonalUsagePage() {
             ) : null}
             {summary ? (
               <>
-                <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-                  <MetricCard
-                    label="运行总数"
-                    icon={<Activity className="size-4 text-muted-foreground" aria-hidden="true" />}
-                    value={summary.runCount}
-                  />
+                <MetricGrid>
+                  <MetricCard label="运行总数" icon={Activity} value={summary.runCount} />
                   <MetricCard
                     label="成功率"
-                    icon={
-                      <CircleCheck className="size-4 text-muted-foreground" aria-hidden="true" />
-                    }
+                    icon={CircleCheck}
                     value={
                       summary.runCount === 0
                         ? '—'
@@ -363,12 +323,7 @@ export function PersonalUsagePage() {
                   />
                   <MetricCard
                     label="已记录成本"
-                    icon={
-                      <CircleDollarSign
-                        className="size-4 text-muted-foreground"
-                        aria-hidden="true"
-                      />
-                    }
+                    icon={CircleDollarSign}
                     value={summary.costUsd === null ? '未记录' : formatCost(summary.costUsd)}
                     hint={
                       summary.runCount > 0 && summary.costMissingRuns > 0
@@ -378,8 +333,7 @@ export function PersonalUsagePage() {
                   />
                   <MetricCard
                     label="Token"
-                    icon={<Cpu className="size-4 text-muted-foreground" aria-hidden="true" />}
-                    compact
+                    icon={Cpu}
                     value={
                       <span className="flex flex-col">
                         <span>{`输入 ${formatTokenCount(summary.inputTokens)}`}</span>
@@ -387,7 +341,7 @@ export function PersonalUsagePage() {
                       </span>
                     }
                   />
-                </div>
+                </MetricGrid>
                 <dl
                   aria-label="运行状态分布"
                   className="grid grid-cols-3 gap-x-6 gap-y-2 xl:grid-cols-6"
@@ -581,7 +535,7 @@ export function PersonalUsagePage() {
               runs.isPending ? (
                 <LoadingState rows={3} layout="cards" />
               ) : (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2">
                   {(runs.data?.items ?? []).map((run) => (
                     <RunCard key={run.id} run={run} action={runAction(run)} />
                   ))}

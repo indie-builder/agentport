@@ -285,7 +285,7 @@ export function PersonalSharesPage() {
           shares.isPending ? (
             <LoadingState rows={3} layout="cards" />
           ) : (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2">
               {(shares.data?.items ?? []).map((share) => (
                 <ShareCard
                   key={share.id}

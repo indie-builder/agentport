@@ -473,7 +473,7 @@ describe('runtime environments page', () => {
     state.search = {};
     const cards = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));
     expect(cards).toContain(
-      'grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2',
+      'grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2',
     );
     expect(cards).toContain('data-slot="card"');
     expect(cards).toContain('数据分析');

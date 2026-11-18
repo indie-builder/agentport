@@ -1133,7 +1133,7 @@ export function AgentEditor({
           ) : null}
         </div>
       </PageTopbar>
-      <PageBody className="gap-5 p-2">
+      <PageBody className="gap-5 pt-2">
         {tab === 'overview' ? (
           <AgentOverview
             agentId={agent.id}

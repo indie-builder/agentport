@@ -431,7 +431,7 @@ export function AgentsPage() {
         {agents.data && ((canCreate && lifecycle === 'active') || filtered.length > 0) ? (
           <ul
             aria-label="专家列表"
-            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2"
           >
             {canCreate && lifecycle === 'active' ? (
               <>

@@ -1069,6 +1069,7 @@ function RunControls({
           return (
             <div
               key={approval.id}
+              data-hover="shadow"
               className="cds-card-surface flex min-w-0 flex-wrap items-center gap-2 rounded-card bg-surface px-3 py-2 text-sm"
             >
               <ShieldAlert className="size-3.5 shrink-0 text-warning" aria-hidden="true" />

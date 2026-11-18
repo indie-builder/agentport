@@ -504,7 +504,7 @@ export function RunDetailPage() {
           </div>
         ) : null}
 
-        <div className="grid min-w-0 gap-4 border-t pt-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <div className="grid min-w-0 gap-6 border-t pt-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           <section className="flex min-w-0 flex-col gap-4" aria-label="步骤">
             <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-3">
               <h2 className="text-base font-medium text-fg">步骤</h2>

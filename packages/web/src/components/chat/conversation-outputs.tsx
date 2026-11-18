@@ -124,7 +124,7 @@ export function ConversationOutputs({
       <div className="flex shrink-0 items-center border-b px-3 py-2.5">
         <h2 className="min-w-0 truncate text-base font-medium text-fg">会话成果</h2>
       </div>
-      <div className="@container min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {outputs.isError && outputs.data !== undefined ? (
           <PageNote
             tone="danger"
@@ -153,12 +153,7 @@ export function ConversationOutputs({
             description="此处用于查看报告等会话成果。"
           />
         ) : (
-          <div
-            className={cn(
-              'grid min-w-0 gap-4',
-              selection !== null && '@2xl:grid-cols-[320px_minmax(0,1fr)] @2xl:items-start',
-            )}
-          >
+          <div className="grid min-w-0 gap-4">
             <div className="flex min-w-0 flex-col gap-0.5">
               <ul className="flex flex-col gap-0.5">
                 {files.map((file) => {
@@ -206,7 +201,7 @@ export function ConversationOutputs({
             </div>
 
             {selection ? (
-              <div className="flex min-w-0 flex-col gap-2 border-t pt-3 @2xl:border-t-0 @2xl:pt-0">
+              <div className="flex min-w-0 flex-col gap-2 border-t pt-3">
                 <ReaderToolbar
                   identity={
                     <span className="block truncate" title={selection.path}>

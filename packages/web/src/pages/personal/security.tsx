@@ -17,6 +17,7 @@ import {
   PageSection,
   PageTopbar,
 } from '../../components/page.js';
+import { RecordRows } from '../../components/record-rows.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
@@ -422,7 +423,7 @@ function SessionGroup({
         {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
       </div>
       {view === 'cards' ? (
-        <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2">
+        <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2">
           {sessions.map((session) => (
             <li key={session.id} className="min-w-0">
               <SessionCard session={session} revoke={revoke} onRevoke={onRevoke} />
@@ -468,14 +469,14 @@ function SessionGroup({
                   )}
                 </div>
                 <CollapsibleContent animated>
-                  <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-4 gap-y-1 pb-3 text-xs text-muted-foreground">
-                    <dt>用户代理</dt>
-                    <dd className="min-w-0 break-all">{session.userAgent || '未记录用户代理'}</dd>
-                    <dt>登录</dt>
-                    <dd>{formatDateTime(session.createdAt)}</dd>
-                    <dt>到期</dt>
-                    <dd>{formatDateTime(session.expiresAt)}</dd>
-                  </dl>
+                  <RecordRows
+                    className="pb-3"
+                    rows={[
+                      { label: '用户代理', value: session.userAgent || '未记录用户代理' },
+                      { label: '登录', value: formatDateTime(session.createdAt) },
+                      { label: '到期', value: formatDateTime(session.expiresAt) },
+                    ]}
+                  />
                 </CollapsibleContent>
               </Collapsible>
             </li>
@@ -526,14 +527,13 @@ function SessionCard({
             会话详情
           </CollapsibleTrigger>
           <CollapsibleContent animated>
-            <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <dt>用户代理</dt>
-              <dd className="min-w-0 break-all">{session.userAgent || '未记录用户代理'}</dd>
-              <dt>登录</dt>
-              <dd>{formatDateTime(session.createdAt)}</dd>
-              <dt>到期</dt>
-              <dd>{formatDateTime(session.expiresAt)}</dd>
-            </dl>
+            <RecordRows
+              rows={[
+                { label: '用户代理', value: session.userAgent || '未记录用户代理' },
+                { label: '登录', value: formatDateTime(session.createdAt) },
+                { label: '到期', value: formatDateTime(session.expiresAt) },
+              ]}
+            />
           </CollapsibleContent>
         </CardContent>
         {session.current ? null : (

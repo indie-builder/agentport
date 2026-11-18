@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../../components/page.js';
+import { RecordRows } from '../../components/record-rows.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { SearchInput } from '../../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
@@ -192,7 +193,7 @@ export function RuntimeEnvironmentsPage() {
         {shown.length > 0 && view === 'cards' ? (
           <ul
             aria-label="运行环境列表"
-            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2"
           >
             {shown.map((environment) => (
               <li key={environment.id} className="min-w-0">
@@ -215,22 +216,21 @@ export function RuntimeEnvironmentsPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-2">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="shrink-0 text-xs text-muted-foreground">线上版本</span>
-                      {environment.onlineVersionId ? (
-                        <code className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-                          {shortId(environment.onlineVersionId)}
-                        </code>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">未发布</span>
-                      )}
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="shrink-0 text-xs text-muted-foreground">更新时间</span>
-                      <span className="text-sm text-muted-foreground">
-                        {formatRelative(environment.updatedAt)}
-                      </span>
-                    </div>
+                    <RecordRows
+                      rows={[
+                        {
+                          label: '线上版本',
+                          value: environment.onlineVersionId
+                            ? shortId(environment.onlineVersionId)
+                            : '未发布',
+                          mono: Boolean(environment.onlineVersionId),
+                        },
+                        {
+                          label: '更新时间',
+                          value: formatRelative(environment.updatedAt),
+                        },
+                      ]}
+                    />
                   </CardContent>
                 </Card>
               </li>

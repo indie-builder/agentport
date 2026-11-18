@@ -32,7 +32,7 @@ export function LoadingState({
     <div
       className={
         layout === 'cards'
-          ? 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2'
+          ? 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2'
           : 'flex flex-col gap-2'
       }
       aria-busy="true"

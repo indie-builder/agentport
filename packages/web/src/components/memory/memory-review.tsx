@@ -407,7 +407,7 @@ export function MemoryReviews({
               }
             />
           ) : view === 'cards' ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2">
               {visibleItems.map((review) => {
                 const target = targetDisplay(review.target, agents.data);
                 const status = decisionDisplay(review, rolledBack(review));

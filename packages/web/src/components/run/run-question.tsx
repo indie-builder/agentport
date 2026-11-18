@@ -82,7 +82,10 @@ function ReadOnlyQuestion({
 }) {
   const pending = question.status === 'pending';
   return (
-    <div className="cds-card-surface flex flex-col gap-2 rounded-card bg-surface px-3 py-2.5">
+    <div
+      data-hover="shadow"
+      className="cds-card-surface flex flex-col gap-2 rounded-card bg-surface px-3 py-2.5"
+    >
       <div className="flex items-center gap-1.5 text-xs font-medium text-fg">
         <MessageCircleQuestion
           className="size-3.5 shrink-0 text-muted-foreground"
@@ -203,7 +206,10 @@ export function RunQuestionCard({
   };
 
   return (
-    <div className="cds-card-surface flex flex-col gap-3 rounded-card bg-surface px-3 py-2.5">
+    <div
+      data-hover="shadow"
+      className="cds-card-surface flex flex-col gap-3 rounded-card bg-surface px-3 py-2.5"
+    >
       <div className="flex items-center gap-1.5 text-xs font-medium text-fg">
         <MessageCircleQuestion
           className="size-3.5 shrink-0 text-muted-foreground"
