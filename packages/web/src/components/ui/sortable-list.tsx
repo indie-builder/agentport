@@ -130,11 +130,6 @@ const {
   Root: SortableList,
   Item: SortableListItem,
   Handle: SortableListHandle,
-} = createParts(
-  sortableList as typeof sortableList & {
-    options: NonNullable<typeof sortableList.options>;
-  },
-  { root: 'fieldset', item: 'div', handle: 'button' },
-);
+} = createParts(sortableList, { root: 'fieldset', item: 'div', handle: 'button' });
 
 export { SortableList, SortableListHandle, SortableListItem };
