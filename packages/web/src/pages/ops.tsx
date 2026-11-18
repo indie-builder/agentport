@@ -23,6 +23,7 @@ import {
   PageSection,
   PageTopbar,
 } from '../components/page.js';
+import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { RunStatusBadge } from '../components/run/run-status-badge.js';
 import { ErrorState, LoadingState } from '../components/states.js';
@@ -380,7 +381,7 @@ export function SchedulesPage() {
         {items.length > 0 && view === 'cards' ? (
           <ul
             aria-label="定时任务列表"
-            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2"
           >
             {items.map((schedule) => {
               const nextDue =
@@ -606,16 +607,16 @@ function ScheduleCard({
         </CardAction>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
-          <dt className="text-muted-foreground">执行计划</dt>
-          <dd className="break-words text-right text-muted-foreground">
-            {schedule.description}（{schedule.timezone}）
-          </dd>
-          <dt className="text-muted-foreground">下次触发</dt>
-          <dd className="text-right tabular-nums text-muted-foreground">{nextDue}</dd>
-          <dt className="text-muted-foreground">上次触发</dt>
-          <dd className="text-right text-muted-foreground">{formatRelative(schedule.lastRunAt)}</dd>
-        </dl>
+        <RecordRows
+          rows={[
+            {
+              label: '执行计划',
+              value: `${schedule.description}（${schedule.timezone}）`,
+            },
+            { label: '下次触发', value: nextDue },
+            { label: '上次触发', value: formatRelative(schedule.lastRunAt) },
+          ]}
+        />
       </CardContent>
       <CardFooter className="justify-end gap-1.5">
         <Button

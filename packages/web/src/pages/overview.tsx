@@ -6,6 +6,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { AttentionPanel } from '../components/attention-panel.js';
 import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
+import { MetricCard, MetricGrid } from '../components/metric-card.js';
 import {
   Collapsible,
   CollapsibleContent,
@@ -23,13 +24,7 @@ import { RunStatusBadge } from '../components/run/run-status-badge.js';
 import { EmptyState, ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button, buttonVariants } from '../components/ui/button.js';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card.js';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
 import {
   Field,
   FieldContent,
@@ -382,7 +377,7 @@ export function RunTrendCard({ days }: { days: number }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-normal text-muted-foreground">运行趋势</CardTitle>
+        <CardTitle>运行趋势</CardTitle>
       </CardHeader>
       <CardContent>
         {firstLoadFailed ? (
@@ -709,7 +704,7 @@ export function OverviewPage() {
         />
       </PageTopbar>
 
-      <PageBody className="p-2">
+      <PageBody className="pt-2">
         {error && !data ? (
           <ErrorState error={error} onRetry={() => void overview.refetch()} />
         ) : null}
@@ -748,7 +743,7 @@ export function OverviewPage() {
           <>
             <HealthLine />
             <PageSection title="平台概况" description={windowLabel} divided={false}>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <MetricGrid>
                 {[
                   {
                     label: '运行次数',
@@ -767,23 +762,10 @@ export function OverviewPage() {
                   },
                   { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
                   { label: '连接器', value: data.counts.servers, hint: null, icon: Server },
-                ].map(({ label, value, hint, icon: Icon }) => (
-                  <Card key={label}>
-                    <CardHeader>
-                      <CardTitle className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-normal text-muted-foreground">{label}</span>
-                        <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="flex flex-col gap-2">
-                      <span className="min-w-0 break-words text-3xl font-medium tabular-nums text-fg [overflow-wrap:anywhere]">
-                        {value}
-                      </span>
-                      {hint ? <CardDescription>{hint}</CardDescription> : null}
-                    </CardContent>
-                  </Card>
+                ].map(({ label, value, hint, icon }) => (
+                  <MetricCard key={label} label={label} value={value} hint={hint} icon={icon} />
                 ))}
-              </div>
+              </MetricGrid>
             </PageSection>
 
             <RunTrendCard days={days} />

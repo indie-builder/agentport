@@ -13,6 +13,7 @@ import {
   webhookEndpointCreateInputSchema,
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { KeyRound, Plus, Trash2, Webhook } from 'lucide-react';
 import { useState } from 'react';
 import { Controller } from 'react-hook-form';
@@ -30,10 +31,19 @@ import {
   PageSection,
   PageTopbar,
 } from '../components/page.js';
+import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
@@ -52,6 +62,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select.js';
+import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
@@ -109,6 +120,15 @@ function tokenStatus(token: ApiToken): { label: string; tone: 'default' | 'warn'
 export function IntegrationsPage() {
   const me = useQuery(meQuery);
   const canManage = can(me.data, 'integrations.manage');
+  const search = useSearch({ from: '/_shell/integrations' });
+  const navigate = useNavigate({ from: '/integrations' });
+  const view = search.view ?? 'cards';
+  const setView = (next: ListView): void => {
+    void navigate({ to: '/integrations', search: { ...search, view: next }, replace: true });
+  };
+  const tokens = useApiTokens();
+  const endpoints = useWebhookEndpoints();
+  const hasRows = (tokens.data?.length ?? 0) + (endpoints.data?.length ?? 0) > 0;
 
   return (
     <Page>
@@ -116,17 +136,18 @@ export function IntegrationsPage() {
         <PageHeader
           title="集成"
           description="令牌用于外部系统调用开放 API，Webhook 端点接收签名触发并推送运行事件。"
+          actions={hasRows ? <ViewToggle value={view} onChange={setView} /> : null}
         />
       </PageTopbar>
       <PageBody>
-        <ApiTokensSection canManage={canManage} />
-        <WebhookEndpointsSection canManage={canManage} />
+        <ApiTokensSection canManage={canManage} view={view} />
+        <WebhookEndpointsSection canManage={canManage} view={view} />
       </PageBody>
     </Page>
   );
 }
 
-function ApiTokensSection({ canManage }: { canManage: boolean }) {
+function ApiTokensSection({ canManage, view }: { canManage: boolean; view: ListView }) {
   const tokens = useApiTokens();
   const revoke = useRevokeApiToken();
   const [creating, setCreating] = useState(false);
@@ -226,7 +247,7 @@ function ApiTokensSection({ canManage }: { canManage: boolean }) {
           }
         />
       ) : null}
-      {rows.length > 0 ? (
+      {rows.length > 0 && view === 'table' ? (
         <DataTable
           rows={rows}
           columns={columns}
@@ -234,6 +255,54 @@ function ApiTokensSection({ canManage }: { canManage: boolean }) {
           rowLabel={(token) => token.name}
           label="API 令牌"
         />
+      ) : null}
+      {rows.length > 0 && view === 'cards' ? (
+        <ul
+          aria-label="API 令牌"
+          className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))] gap-4 pt-2"
+        >
+          {rows.map((token) => {
+            const status = tokenStatus(token);
+            return (
+              <li key={token.id} className="min-w-0">
+                <Card size="sm" className="h-full">
+                  <CardHeader>
+                    <CardTitle className="truncate" title={token.name}>
+                      {token.name}
+                    </CardTitle>
+                    <CardAction>
+                      <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+                    </CardAction>
+                  </CardHeader>
+                  <CardContent>
+                    <RecordRows
+                      rows={[
+                        { label: '前缀', value: `${token.tokenPrefix}…`, mono: true },
+                        {
+                          label: '权限范围',
+                          value: token.scopes.map((scope) => SCOPE_LABEL[scope]).join('、'),
+                        },
+                        { label: '最近使用', value: formatDateTime(token.lastUsedAt) },
+                      ]}
+                    />
+                  </CardContent>
+                  {canManage && !token.revokedAt ? (
+                    <CardFooter className="justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`撤销令牌 ${token.name}`}
+                        onClick={() => setRevoking(token)}
+                      >
+                        撤销
+                      </Button>
+                    </CardFooter>
+                  ) : null}
+                </Card>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
 
       {creating ? <ApiTokenDialog onClose={() => setCreating(false)} /> : null}
@@ -441,7 +510,7 @@ function ApiTokenDialog({ onClose: onClosed }: { onClose: () => void }) {
   );
 }
 
-function WebhookEndpointsSection({ canManage }: { canManage: boolean }) {
+function WebhookEndpointsSection({ canManage, view }: { canManage: boolean; view: ListView }) {
   const endpoints = useWebhookEndpoints();
   const remove = useRemoveWebhookEndpoint();
   const [creating, setCreating] = useState(false);
@@ -550,7 +619,7 @@ function WebhookEndpointsSection({ canManage }: { canManage: boolean }) {
           }
         />
       ) : null}
-      {rows.length > 0 ? (
+      {rows.length > 0 && view === 'table' ? (
         <DataTable
           rows={rows}
           columns={columns}
@@ -558,6 +627,70 @@ function WebhookEndpointsSection({ canManage }: { canManage: boolean }) {
           rowLabel={(endpoint) => endpoint.name}
           label="Webhook 端点"
         />
+      ) : null}
+      {rows.length > 0 && view === 'cards' ? (
+        <ul
+          aria-label="Webhook 端点"
+          className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))] gap-4 pt-2"
+        >
+          {rows.map((endpoint) => (
+            <li key={endpoint.id} className="min-w-0">
+              <Card size="sm" className="h-full">
+                <CardHeader>
+                  <CardTitle className="truncate" title={endpoint.name}>
+                    {endpoint.name}
+                  </CardTitle>
+                  <CardAction>
+                    <StatusBadge>{endpoint.enabled ? '启用' : '停用'}</StatusBadge>
+                  </CardAction>
+                </CardHeader>
+                <CardContent>
+                  <RecordRows
+                    rows={[
+                      { label: '方向', value: DIRECTION_LABEL[endpoint.direction] },
+                      {
+                        label: '目标',
+                        value:
+                          endpoint.direction === 'inbound' ? (
+                            <span className="flex min-w-0 flex-col items-end gap-0.5">
+                              <span className="break-words">
+                                {endpoint.agentName ?? endpoint.agentId ?? '—'}
+                              </span>
+                              <code className="break-all font-mono text-xs text-muted-foreground">
+                                POST /api/webhooks/inbound/{endpoint.id}
+                              </code>
+                            </span>
+                          ) : (
+                            (endpoint.url ?? '—')
+                          ),
+                        mono: endpoint.direction === 'outbound',
+                      },
+                      {
+                        label: '订阅事件',
+                        value:
+                          endpoint.direction === 'inbound'
+                            ? '触发运行'
+                            : endpoint.events.map((event) => EVENT_LABEL[event]).join('、') || '—',
+                      },
+                    ]}
+                  />
+                </CardContent>
+                {canManage ? (
+                  <CardFooter className="justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`删除端点 ${endpoint.name}`}
+                      onClick={() => setDeleting(endpoint)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </CardFooter>
+                ) : null}
+              </Card>
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       <div className="flex min-w-0 flex-col gap-1.5 border-t pt-4 text-sm text-muted-foreground">

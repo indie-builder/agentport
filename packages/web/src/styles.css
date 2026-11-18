@@ -644,7 +644,10 @@
   }
 
   @media (hover: hover) and (pointer: fine) {
-    .cds-card-surface:hover {
+    .cds-card-surface[data-hover="shadow"]:hover {
+      box-shadow: var(--shadow-panel-hover);
+    }
+    .cds-card-surface[data-hover="lift"]:hover {
       box-shadow: var(--shadow-panel-hover);
       transform: translateY(-1.5px);
     }

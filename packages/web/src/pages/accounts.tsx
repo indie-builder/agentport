@@ -25,6 +25,7 @@ import {
   PageToolbar,
   PageTopbar,
 } from '../components/page.js';
+import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
 import { ErrorState, LoadingState } from '../components/states.js';
@@ -273,7 +274,7 @@ export function AccountsPage() {
         {items.length > 0 && view === 'cards' ? (
           <ul
             aria-label="账户列表"
-            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 p-2"
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2"
           >
             {items.map((account) => (
               <li key={account.businessId} className="min-w-0">
@@ -299,33 +300,22 @@ export function AccountsPage() {
                     </CardAction>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-2">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="shrink-0 text-xs text-muted-foreground">业务 ID</span>
-                      <span
-                        className="min-w-0 truncate font-mono text-xs text-muted-foreground"
-                        title={account.businessId}
-                      >
-                        {account.businessId}
-                      </span>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="shrink-0 text-xs text-muted-foreground">用户名</span>
-                      <span className="min-w-0 break-words text-right text-sm text-fg">
-                        {account.username}
-                      </span>
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-xs text-muted-foreground">角色</span>
-                      <span className="whitespace-normal text-sm text-fg">
-                        {account.roles.map((role) => role.name).join('、') || '—'}
-                      </span>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="shrink-0 text-xs text-muted-foreground">创建时间</span>
-                      <span className="text-sm text-muted-foreground">
-                        {formatDate(account.createdAt)}
-                      </span>
-                    </div>
+                    <RecordRows
+                      rows={[
+                        {
+                          label: '业务 ID',
+                          value: account.businessId,
+                          mono: true,
+                          title: account.businessId,
+                        },
+                        { label: '用户名', value: account.username },
+                        {
+                          label: '角色',
+                          value: account.roles.map((role) => role.name).join('、') || '—',
+                        },
+                        { label: '创建时间', value: formatDate(account.createdAt) },
+                      ]}
+                    />
                   </CardContent>
                 </Card>
               </li>

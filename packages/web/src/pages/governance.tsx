@@ -1753,7 +1753,7 @@ function HandoverSection({ canManage }: { canManage: boolean }) {
                 {data.status === 'active' ? '启用' : data.status === 'deleted' ? '已删除' : '停用'}
               </StatusBadge>
             </div>
-            <ul className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 p-2">
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 pt-2">
               {HANDOVER_GROUPS.map((group) => (
                 <li key={group.key} className="min-w-0">
                   <Card size="sm">

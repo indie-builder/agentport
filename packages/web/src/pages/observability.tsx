@@ -23,6 +23,7 @@ import { type DataColumn, DataTable } from '../components/data-table.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
 import { FilterSelect } from '../components/filter-select.js';
+import { MetricCard, MetricGrid } from '../components/metric-card.js';
 import {
   Page,
   PageBody,
@@ -34,13 +35,7 @@ import {
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card.js';
+import { Card, CardContent } from '../components/ui/card.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   Field,
@@ -301,7 +296,7 @@ export function ObservabilityPage() {
         {data ? (
           <>
             <PageSection divided={false} title="窗口指标">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              <MetricGrid>
                 {[
                   {
                     label: '运行成功率',
@@ -340,23 +335,10 @@ export function ObservabilityPage() {
                     hint: null,
                     icon: Coins,
                   },
-                ].map(({ label, value, hint, icon: Icon }) => (
-                  <Card key={label}>
-                    <CardHeader>
-                      <CardTitle className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-normal text-muted-foreground">{label}</span>
-                        <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="flex flex-col gap-2">
-                      <span className="min-w-0 break-words text-3xl font-medium tabular-nums text-fg [overflow-wrap:anywhere]">
-                        {value}
-                      </span>
-                      {hint ? <CardDescription>{hint}</CardDescription> : null}
-                    </CardContent>
-                  </Card>
+                ].map(({ label, value, hint, icon }) => (
+                  <MetricCard key={label} label={label} value={value} hint={hint} icon={icon} />
                 ))}
-              </div>
+              </MetricGrid>
             </PageSection>
 
             <PageSection title="告警">

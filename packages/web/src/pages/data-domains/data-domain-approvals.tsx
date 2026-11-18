@@ -4,19 +4,21 @@ import { useState } from 'react';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { FilterSelect } from '../../components/filter-select.js';
 import { PageSection, PageToolbar } from '../../components/page.js';
+import { RecordRows } from '../../components/record-rows.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button } from '../../components/ui/button.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../../components/ui/card.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import { Field, FieldDescription, FieldError, FieldLabel } from '../../components/ui/field.js';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../../components/ui/table.js';
 import { Textarea } from '../../components/ui/textarea.js';
 import type { DataDomainQueryApproval } from '../../lib/api.js';
 import { errorMessage } from '../../lib/api.js';
@@ -213,100 +215,78 @@ export function DataDomainApprovals({
         <p className="border-y py-5 text-sm text-muted-foreground">没有待审批的查询。</p>
       ) : null}
       {rows.length > 0 ? (
-        <Table aria-label="查询审批记录">
-          <TableHeader>
-            <TableRow>
-              <TableHead>发起人</TableHead>
-              <TableHead>运行</TableHead>
-              <TableHead>SQL</TableHead>
-              <TableHead>状态</TableHead>
-              <TableHead>请求 / 决策时间</TableHead>
-              {canUpdate ? <TableHead className="text-right">操作</TableHead> : null}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((approval) => {
-              const meta = statusMeta[approval.status];
-              return (
-                <TableRow key={approval.id}>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {approval.actorBusinessId ?? '—'}
-                  </TableCell>
-                  <TableCell>
-                    <code
-                      className="font-mono text-xs text-muted-foreground"
-                      title={approval.runId}
-                    >
-                      {shortId(approval.runId)}
-                    </code>
-                  </TableCell>
-                  <TableCell>
-                    <code
-                      className="block max-w-80 truncate font-mono text-xs text-fg"
-                      title={approval.sqlText}
-                    >
-                      {approval.sqlText}
-                    </code>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex min-w-0 flex-col gap-0.5">
+        <ul aria-label="查询审批记录" className="grid grid-cols-1 gap-4 pt-2 xl:grid-cols-2">
+          {rows.map((approval) => {
+            const meta = statusMeta[approval.status];
+            return (
+              <li key={approval.id} className="min-w-0">
+                <Card size="sm" className="h-full">
+                  <CardHeader>
+                    <CardTitle className="min-w-0 font-mono text-sm text-fg [overflow-wrap:anywhere]">
+                      {approval.actorBusinessId ?? '—'}
+                    </CardTitle>
+                    <CardAction>
                       <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>
-                      {approval.decisionNote ? (
-                        <span
-                          className="max-w-48 truncate text-xs text-muted-foreground"
-                          title={approval.decisionNote}
-                        >
-                          {approval.decisionNote}
-                        </span>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    <div className="flex flex-col gap-0.5">
-                      <span>请求 {formatDateTime(approval.requestedAt)}</span>
-                      {approval.decidedAt ? (
-                        <span>决策 {formatDateTime(approval.decidedAt)}</span>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  {canUpdate ? (
-                    <TableCell>
-                      {approval.status === 'pending' ? (
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            onClick={(event) =>
-                              setDeciding({
-                                approval,
-                                decision: 'approve',
-                                trigger: event.currentTarget,
-                              })
-                            }
-                          >
-                            批准
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={(event) =>
-                              setDeciding({
-                                approval,
-                                decision: 'reject',
-                                trigger: event.currentTarget,
-                              })
-                            }
-                          >
-                            拒绝
-                          </Button>
-                        </div>
-                      ) : null}
-                    </TableCell>
+                    </CardAction>
+                    {approval.decisionNote ? (
+                      <CardDescription className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">
+                        {approval.decisionNote}
+                      </CardDescription>
+                    ) : null}
+                  </CardHeader>
+                  <CardContent className="flex min-w-0 flex-col gap-3">
+                    <RecordRows
+                      rows={[
+                        {
+                          label: '运行',
+                          value: shortId(approval.runId),
+                          mono: true,
+                          title: approval.runId,
+                        },
+                        { label: '请求时间', value: formatDateTime(approval.requestedAt) },
+                        ...(approval.decidedAt
+                          ? [{ label: '决策时间', value: formatDateTime(approval.decidedAt) }]
+                          : []),
+                      ]}
+                    />
+                    <pre className="max-h-40 overflow-auto rounded-item bg-code p-3 font-mono text-xs whitespace-pre-wrap break-words text-fg">
+                      {approval.sqlText}
+                    </pre>
+                  </CardContent>
+                  {approval.status === 'pending' && canUpdate ? (
+                    <CardFooter className="justify-end gap-2">
+                      <Button
+                        size="sm"
+                        onClick={(event) =>
+                          setDeciding({
+                            approval,
+                            decision: 'approve',
+                            trigger: event.currentTarget,
+                          })
+                        }
+                      >
+                        批准
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(event) =>
+                          setDeciding({
+                            approval,
+                            decision: 'reject',
+                            trigger: event.currentTarget,
+                          })
+                        }
+                      >
+                        拒绝
+                      </Button>
+                    </CardFooter>
                   ) : null}
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                </Card>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
       {approvals.isFetchNextPageError ? (
         <ErrorState
