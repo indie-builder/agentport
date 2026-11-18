@@ -135,7 +135,9 @@ describe('chat workspace without experts', () => {
     client.setQueryData(['agents'], []);
     client.setQueryData(['me'], creatorMe);
     await mount(ChatPage, '/chat');
-    const composer = await waitFor(() => host.querySelector<HTMLTextAreaElement>('textarea'));
+    const composer = await waitFor(() =>
+      host.querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]'),
+    );
     expect(composer).not.toBeNull();
     expect(composer?.disabled).toBe(false);
     expect(host.textContent).toContain('通用助手');
@@ -146,7 +148,7 @@ describe('chat workspace without experts', () => {
     client.setQueryData(['agents'], []);
     client.setQueryData(['me'], readerMe);
     await mount(ChatPage, '/chat');
-    expect(host.querySelector('textarea')).not.toBeNull();
+    expect(host.querySelector('textarea[aria-label="消息"]')).not.toBeNull();
     expect(host.textContent).toContain('通用助手');
     expect(host.textContent).not.toContain('先创建一位专家');
     expect(host.textContent).not.toContain('请联系管理员分配。');
@@ -156,7 +158,7 @@ describe('chat workspace without experts', () => {
     client.setQueryData(['agents'], []);
     client.setQueryData(['me'], noAgentReadMe);
     await mount(ChatPage, '/chat');
-    expect(host.querySelector('textarea')).not.toBeNull();
+    expect(host.querySelector('textarea[aria-label="消息"]')).not.toBeNull();
     expect(host.textContent).toContain('通用助手');
     expect(host.textContent).not.toContain('前往专家');
   });
@@ -165,7 +167,7 @@ describe('chat workspace without experts', () => {
     client.setQueryData(['agents'], []);
     vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise(() => {}));
     await mount(ChatPage, '/chat');
-    expect(host.querySelector('textarea')).not.toBeNull();
+    expect(host.querySelector('textarea[aria-label="消息"]')).not.toBeNull();
     expect(host.querySelector<HTMLButtonElement>('[aria-label="发送消息"]')?.disabled).toBe(true);
     expect(host.textContent).not.toContain('先创建一位专家');
     expect(host.textContent).not.toContain('暂无可用专家');

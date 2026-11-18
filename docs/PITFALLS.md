@@ -394,6 +394,12 @@
 - **原因**：`hidden="until-found"` 依赖 UA 的 `content-visibility: hidden` 规则；作者内联 `content-visibility: visible` 会覆盖它。
 - **规避**：关闭面板不要设置 `content-visibility`，交给原生 `until-found`；行为测试断言 `hidden` 属性存在且内联 `content-visibility` 为空。
 
+## UI：ui-sdk beta.8+ 保留退场期间 owner 写的 `inert`，别在 render 里按 open 写 inert
+
+- **现象**：keepMounted/带动画的折叠面板收起后再展开，内容仍 `inert`、字段无法聚焦（面板看似展开但不可交互）。
+- **原因**：`animateOut` 在 beta.6 里于退场结束时统一清除 `inert`；beta.8 改为「退场开始记下 `wasInert`，若 owner 在退场期间写过 `inert` 就保留，否则恢复 `wasInert`」。若渲染层在 `render` 里按 `state.open` 写 `inert={!open}`，关闭时 React 写入的 inert 被当作 owner 写入而保留；重开时 React 会先移除 inert，但延迟的退场清理随后按关闭时的快照把它写回，于是重开后仍 `inert`、内容不可聚焦。
+- **规避**：不要把运行期状态驱动的 `inert` 写到手写 `render` 的展开容器上；`hidden="until-found"`（UA `content-visibility:hidden`）本身已让关闭内容不可聚焦，交给它即可。当前 `components/motion-collapsible.tsx` 不再写 inert；真机验证打开可聚焦、收起不可聚焦、再展开恢复可聚焦。
+
 ## 分享：token 放在 URL 片段，页内锚点会把它替换掉
 
 - **现象**：分享页点正文锚点后刷新变成 404；或 token 出现在请求头/日志里。

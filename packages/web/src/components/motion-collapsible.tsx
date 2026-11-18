@@ -17,7 +17,9 @@ const ANIMATED_PANEL =
  * Registry Collapsible unmounts collapsed content, which cuts the Motion exit animation.
  * keepMounted keeps the panel; hiddenUntilFound hides it with ui-sdk's native
  * hidden="until-found" (UA content-visibility), so never override content-visibility
- * or the closed panel keeps laying out its content. inert keeps it out of the focus order.
+ * or the closed panel keeps laying out its content; that UA rule also keeps closed content
+ * out of the focus order, so no manual inert, which ui-sdk keeps after the exit animation and
+ * would then stick on reopen.
  * animated uses ui-sdk's own height variable instead of Motion.
  */
 function CollapsibleContent({
@@ -42,7 +44,7 @@ function CollapsibleContent({
       {...(render === undefined && !keepMounted && !animated
         ? {}
         : {
-            render: render ?? ((panelProps, state) => <div {...panelProps} inert={!state.open} />),
+            render: render ?? ((panelProps) => <div {...panelProps} />),
           })}
       {...props}
     />

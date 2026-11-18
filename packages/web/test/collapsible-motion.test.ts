@@ -162,6 +162,5 @@ describe('collapsible content motion', () => {
     expect(trigger().getAttribute('aria-expanded')).toBe('false');
     expect(panel().getAttribute('hidden')).toBe('until-found');
     expect(panel().style.getPropertyValue('content-visibility')).toBe('');
-    expect(panel().hasAttribute('inert')).toBe(true);
   });
 });

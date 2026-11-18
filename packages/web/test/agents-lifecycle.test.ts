@@ -472,18 +472,15 @@ describe('expert creation lifecycle', () => {
     await editInput('new-agent-slug', 'draft');
     const advanced = setup.querySelector<HTMLElement>('[data-slot="collapsible-content"]');
     if (!advanced) throw new Error('Missing advanced settings');
-    expect(advanced.hasAttribute('inert')).toBe(false);
 
     await click(button('高级设置', setup));
     expect(advanced.getAttribute('hidden')).toBe('until-found');
-    expect(advanced.hasAttribute('inert')).toBe(true);
     expect(setup.querySelector<HTMLInputElement>('#new-agent-model')?.value).toBe(
       'gateway/custom-model',
     );
 
     await click(button('高级设置', setup));
     expect(advanced.hasAttribute('hidden')).toBe(false);
-    expect(advanced.hasAttribute('inert')).toBe(false);
     expect(setup.querySelector<HTMLInputElement>('#new-agent-slug')?.value).toBe('draft');
   });
 
@@ -1030,12 +1027,12 @@ describe('expert discovery', () => {
     const prompt = setup.querySelector('#new-agent-prompt') as HTMLElement;
     const model = setup.querySelector('#new-agent-model') as HTMLElement;
     const slug = setup.querySelector('#new-agent-slug') as HTMLElement;
+    const advanced = setup.querySelector('[data-slot="collapsible-content"]');
+    expect(advanced?.getAttribute('hidden')).toBe('until-found');
     expect(name.compareDocumentPosition(role)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(role.compareDocumentPosition(prompt)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(prompt.compareDocumentPosition(model)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(model.compareDocumentPosition(slug)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    const advanced = setup.querySelector('[data-slot="collapsible-content"]');
-    expect(advanced?.hasAttribute('inert')).toBe(true);
     expect(setup.textContent).toContain('高级设置');
   });
 });

@@ -97,9 +97,7 @@ const mentionList = definePrimitive({
   }),
 });
 
-const mentionPrimitive = mentionList as typeof mentionList & {
-  options: NonNullable<typeof mentionList.options>;
-};
+const mentionPrimitive = mentionList;
 
 type MentionListHandle = PrimitiveHandle<typeof mentionPrimitive>;
 
