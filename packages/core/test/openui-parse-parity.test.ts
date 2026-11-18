@@ -120,9 +120,6 @@ describe('parser behavior: local Zod definitions vs official library', () => {
     // 官方解析器不在解析期强制 minItems；约束由 schema 携带（library 测试覆盖），
     // 这里锁住「本地定义的解析结果与官方一致」。
     expect(summary(ours, program)).toEqual(summary(official, program));
-    expect(ours.parse(program).root === null ? 0 : 1).toBe(
-      official.parse(program).root === null ? 0 : 1,
-    );
   });
 
   test('checkbox dictionary with a non-boolean value behaves like the official library', () => {

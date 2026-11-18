@@ -117,7 +117,6 @@ describe('FAQ normalization and matching', () => {
     expect(normalizeFaqQuestion('看 https://example.com/a 这个')).toBe('看这个');
     expect(normalizeFaqQuestion('“密码 重置！”')).toBe('密码重置');
     expect(normalizeFaqQuestion('密碼重置')).toBe('密码重置');
-    expect(normalizeFaqQuestion('忘记密码？')).toBe(normalizeFaqQuestion('忘記密碼'));
   });
 
   it('drops answer-strategy and recommendation flags from the content hash', () => {

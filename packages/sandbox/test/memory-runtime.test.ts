@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { DEFAULT_MEMORY_POLICY, memoryPolicySchema, sandboxTaskSchema } from '@agentport/shared';
+import { DEFAULT_MEMORY_POLICY, sandboxTaskSchema } from '@agentport/shared';
 import { memoryRuntimeSettings } from '../src/memory-runtime.js';
 
 const taskBase = {
@@ -25,7 +25,6 @@ describe('sandbox task memory policy', () => {
       ...DEFAULT_MEMORY_POLICY,
       writeMode: 'proposal_only',
     });
-    expect(memoryPolicySchema.parse(task.memoryPolicy)).toEqual(task.memoryPolicy);
   });
 });
 

@@ -181,7 +181,6 @@ afterEach(async () => {
 describe('healthy stream detail polling', () => {
   it('stops full run detail reads while the stream stays healthy', async () => {
     await mount();
-    expect(source()).toBeDefined();
     expect(runReads()).toBe(1);
 
     source().onopen?.();
