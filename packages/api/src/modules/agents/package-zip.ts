@@ -417,7 +417,6 @@ export function encodePackageEntries(files: readonly PackageFile[]): Buffer {
   return Buffer.from(zipSync(entries, { level: 6 }));
 }
 
-/** 打包：所有条目都是普通文本资源。 */
 export function encodePackage(files: Record<string, string>): Buffer {
   return encodePackageEntries(
     Object.entries(files).map(([path, content]) => ({ path, content, executable: false })),

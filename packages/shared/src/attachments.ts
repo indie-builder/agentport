@@ -66,7 +66,6 @@ const MIME_EXTENSION: Record<AttachmentMimeType, string> = {
   'application/pdf': '.pdf',
 };
 
-/** 不支持的扩展名返回 null；只取最后一段扩展名，大小写不敏感。 */
 export function attachmentMimeForFilename(filename: string): AttachmentMimeType | null {
   const base = filename.slice(Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\')) + 1);
   const dot = base.lastIndexOf('.');

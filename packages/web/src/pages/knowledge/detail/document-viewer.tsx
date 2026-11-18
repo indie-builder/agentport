@@ -54,8 +54,6 @@ import {
 import { toastError, toastSuccess } from '../../../lib/toast.js';
 import { useZodForm } from '../../../lib/use-zod-form.js';
 
-// ---- 文档查看 -------------------------------------------------------------
-
 /** 图片 chunk 的角色来自 metadata.imageRole；普通 chunk 没有。 */
 function imageRoleLabel(chunk: KnowledgeChunk): string | null {
   const role = chunk.metadata?.imageRole;

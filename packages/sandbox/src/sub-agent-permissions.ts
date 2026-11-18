@@ -14,7 +14,6 @@ export interface SubAgentBoundary {
    * 主会话可用，子智能体一律拒绝。
    */
   pluginSkills?: Set<string>;
-  /** 子智能体 slug → 它自己的绑定。 */
   subAgents: Map<string, SubAgentBinding>;
 }
 

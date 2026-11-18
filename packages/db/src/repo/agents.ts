@@ -990,7 +990,6 @@ export async function listSubAgents(db: Database, agentId: string): Promise<Agen
   return db.select().from(agents).where(eq(agents.parentId, agentId)).orderBy(asc(agents.id));
 }
 
-/** 某 agent 的子智能体 id（parent_id 指向它）。 */
 export async function getAgentSubAgentIds(db: DbHandle, agentId: string): Promise<string[]> {
   const rows = await db
     .select({ id: agents.id })

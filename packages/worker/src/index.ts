@@ -362,7 +362,6 @@ const envUpstream = config.ANTHROPIC_BASE_URL || undefined;
 modelProxy = await startModelProxy({
   logger,
   port: config.MODEL_PROXY_PORT,
-  // worker 可能在容器里：127.0.0.1 指向容器自身，网关在宿主上。
   // worker 在容器里时 127.0.0.1 指向容器自身，网关在宿主上；宿主直跑则原样保留。
   upstreamBaseUrl: modelProxyUpstream(envUpstream),
   ...(config.ANTHROPIC_API_KEY ? { apiKey: config.ANTHROPIC_API_KEY } : {}),
@@ -546,7 +545,6 @@ worker.on('failed', async (job, err) => {
   }
 });
 
-// 评估本身串行：并发固定 1。
 const evalWorker = new Worker(
   EVAL_RUNS_QUEUE,
   (job) => runEvalJob({ db, logger, redisUrl: config.REDIS_URL, job }),

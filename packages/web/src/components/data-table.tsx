@@ -137,7 +137,6 @@ function compareValues(av: string | number | null, bv: string | number | null): 
     : String(av).localeCompare(String(bv));
 }
 
-/** 列设置里的一行：拖动手柄负责排序，复选框负责显隐。 */
 function ColumnRow({
   column,
   checked,

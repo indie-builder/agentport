@@ -216,7 +216,6 @@ export const knowledgeChunks = pgTable(
   ],
 );
 
-/** 文档与标签的多对多关系。 */
 export const knowledgeDocumentTags = pgTable(
   'knowledge_document_tags',
   {

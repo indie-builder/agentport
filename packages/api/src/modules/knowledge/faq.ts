@@ -59,7 +59,6 @@ export interface FaqExistingEntry {
   documentId: string;
   faq: KnowledgeFaq;
   enabled: boolean;
-  /** 最新草稿；没有草稿时为 null。 */
   latestDraftVersionId: string | null;
   publishedVersionId: string | null;
   updatedAt: string;

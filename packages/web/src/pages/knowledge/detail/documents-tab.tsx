@@ -71,8 +71,6 @@ import { ManualDocumentDialog, UrlImportDialog } from './document-imports.js';
 import { DocumentViewer } from './document-viewer.js';
 import type { KnowledgeCaps } from './shared.js';
 
-// ---- 文档 -----------------------------------------------------------------
-
 export function DocumentsTab({
   baseId,
   caps,

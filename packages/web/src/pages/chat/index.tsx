@@ -259,7 +259,6 @@ function ChatWorkspace({
     [runQuestions.data],
   );
   const [historyPanels] = useState(createResizableController);
-  // 历史默认隐藏：每次进入都从折叠态开始。
   const [historyCollapsed, setHistoryCollapsed] = useState(true);
   // 零宽面板没有「上次宽度」可恢复，自己记住最后一个正宽度。
   // 存储里是百分比（随分组宽度自适应），首次进入没有存储时按设计规范的 240px。
