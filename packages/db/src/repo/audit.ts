@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { sha256Hex } from '@agentport/core';
 import { and, asc, desc, eq, gt, gte, isNotNull, like, lt, type SQL, sql } from 'drizzle-orm';
-import type { Database, Transaction } from '../client.js';
+import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
 import { keysetBefore } from './keyset.js';
@@ -113,7 +113,7 @@ export async function writeAuditInTx(tx: Transaction, event: AuditEvent): Promis
  * 失败只记日志。API 与 worker 共用这一处，ID 统一走 TypeID。
  */
 export async function writeAudit(
-  db: Database,
+  db: DbHandle,
   logger: WarnLogger,
   event: AuditEvent,
 ): Promise<void> {

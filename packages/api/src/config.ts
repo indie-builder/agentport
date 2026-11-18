@@ -1,5 +1,13 @@
+import { isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { commonEnvSchema, parseEnv } from '@agentport/shared';
 import { z } from 'zod';
+
+const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+
+function fromRepoRoot(path: string): string {
+  return isAbsolute(path) ? path : resolve(repoRoot, path);
+}
 
 /** 常见弱默认口令：默认不允许，避免配置被原样带到部署环境。 */
 const WEAK_PASSWORDS = new Set(['admin-change-me', 'changeme', 'password']);
@@ -111,5 +119,10 @@ export function isTrustedOrigin(origin: string, trustedOrigins: readonly string[
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  return parseEnv(envSchema, env);
+  const config = parseEnv(envSchema, env);
+  return {
+    ...config,
+    WORKSPACES_DIR: fromRepoRoot(config.WORKSPACES_DIR),
+    KNOWLEDGE_DIR: fromRepoRoot(config.KNOWLEDGE_DIR),
+  };
 }

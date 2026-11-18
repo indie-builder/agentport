@@ -1,5 +1,13 @@
+import { isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { commonEnvSchema, parseEnv, RETENTION_DEFAULTS } from '@agentport/shared';
 import { z } from 'zod';
+
+const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+
+function fromRepoRoot(path: string): string {
+  return isAbsolute(path) ? path : resolve(repoRoot, path);
+}
 
 const { NODE_ENV, LOG_LEVEL, REDIS_URL } = commonEnvSchema.shape;
 
@@ -116,5 +124,13 @@ const envSchema = z
 export type Config = z.infer<typeof envSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  return parseEnv(envSchema, env);
+  const config = parseEnv(envSchema, env);
+  return {
+    ...config,
+    WORKSPACES_DIR: fromRepoRoot(config.WORKSPACES_DIR),
+    ...(config.HOST_WORKSPACES_DIR === undefined
+      ? {}
+      : { HOST_WORKSPACES_DIR: fromRepoRoot(config.HOST_WORKSPACES_DIR) }),
+    KNOWLEDGE_DIR: fromRepoRoot(config.KNOWLEDGE_DIR),
+  };
 }

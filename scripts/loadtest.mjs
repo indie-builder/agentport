@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import { readdir, rm } from 'node:fs/promises';
 import http from 'node:http';
 import { SQL } from 'bun';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -216,8 +216,9 @@ async function cleanup(label) {
       const result = await client.unsafe(sql);
       counts[table] = (counts[table] ?? 0) + result.count;
     }
-    // worker 的工作区目录（WORKSPACES_DIR 相对 worker 的 cwd）。
-    const workspaces = join(ROOT, 'packages/worker/data/workspaces');
+    // 与 api/worker/种子一致：相对 WORKSPACES_DIR 按仓库根解析。
+    const workspacesValue = process.env.WORKSPACES_DIR ?? './data/workspaces';
+    const workspaces = isAbsolute(workspacesValue) ? workspacesValue : join(ROOT, workspacesValue);
     if (existsSync(workspaces)) {
       const names = await readdir(workspaces).catch(() => []);
       const mine = names.filter((name) => name.startsWith(PREFIX));

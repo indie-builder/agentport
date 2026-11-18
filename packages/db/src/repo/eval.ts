@@ -95,7 +95,7 @@ export async function deleteCase(db: Database, id: string): Promise<boolean> {
 }
 
 export async function createEvalRun(
-  db: Database,
+  db: DbHandle,
   input: {
     id: string;
     agentId: string;
@@ -131,7 +131,7 @@ export async function getEvalRun(db: Database, id: string): Promise<EvalRun | nu
 }
 
 export async function finishEvalRun(
-  db: Database,
+  db: DbHandle,
   id: string,
   result: { status: 'succeeded' | 'failed'; passed: number; error?: string | null },
 ): Promise<void> {
@@ -247,7 +247,7 @@ export interface EvalComparisonRow {
 }
 
 export async function addResult(
-  db: Database,
+  db: DbHandle,
   input: {
     id: string;
     evalRunId: string;

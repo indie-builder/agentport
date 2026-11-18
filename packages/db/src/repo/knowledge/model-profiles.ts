@@ -1,5 +1,5 @@
 import { asc, eq, sql } from 'drizzle-orm';
-import type { Database } from '../../client.js';
+import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeModelProfiles } from '../../schema.js';
 import type { KnowledgeModelProfileRow } from './shared.js';
@@ -21,7 +21,7 @@ export interface CreateModelProfileInput {
 }
 
 export async function createModelProfile(
-  db: Database,
+  db: DbHandle,
   input: CreateModelProfileInput,
 ): Promise<KnowledgeModelProfileRow> {
   const [row] = await db

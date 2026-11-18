@@ -151,7 +151,7 @@ type ChannelManageDenied =
   | { kind: 'forbidden'; reason: 'channel_role' };
 
 async function withChannelManage<T>(
-  db: Database,
+  db: DbHandle,
   subject: ChannelSubject,
   channelId: string,
   body: (tx: Transaction, role: ChannelRole) => Promise<T>,
@@ -259,7 +259,7 @@ export async function listChannels(
 
 /** 建频道与 owner 成员同一事务：任何一步失败都不留下半条频道。 */
 export async function createChannel(
-  db: Database,
+  db: DbHandle,
   input: {
     id: string;
     name: string;
@@ -500,7 +500,7 @@ export async function getChannelManageAccess(
 }
 
 export async function addAgentBinding(
-  db: Database,
+  db: DbHandle,
   subject: ChannelSubject,
   channelId: string,
   input: { agentId: string; autoWakeOnAll: boolean },
@@ -746,7 +746,7 @@ async function resolveWakeAgents(
 
 /** 行锁串行化 bigserial seq 的分配与提交顺序，不靠 max(seq)+1。 */
 export async function postMessage(
-  db: Database,
+  db: DbHandle,
   subject: ChannelSubject,
   channelId: string,
   input: {
@@ -840,7 +840,7 @@ export async function postMessage(
 
 /** 忙碌提示等系统消息：与频道时间线共用 seq 并推进排序时间；默认频道已关闭返回 null（allowArchived 可显式写入），传 runId 时按 (channelId, runId, kind='system') 幂等。 */
 export async function postSystemMessage(
-  db: Database,
+  db: DbHandle,
   input: {
     channelId: string;
     agentId: string;

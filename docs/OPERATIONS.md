@@ -69,7 +69,7 @@
 | 变量 | 必填 | 默认 | 读取方 | 说明 |
 |---|---|---|---|---|
 | `SANDBOX_IMAGE` | 否 | `agentport/sandbox:dev` | worker、api | 平台沙盒基座：worker 首次启动时本地缺失会先拉取，再用真实本地 image ID 登记默认环境的首个线上版本，并作为之后所有环境构建的基座；默认环境已存在时不再 inspect/pull。api 入队构建时记录该值。它不自动推进线上指针，也不是每次创建容器的直接来源（容器用环境线上版本的 image ID） |
-| `WORKSPACES_DIR` | 否 | `./data/workspaces` | worker | 工作区根目录。compose 下为 `/workspaces`，必须与 api 同路径 |
+| `WORKSPACES_DIR` | 否 | `./data/workspaces` | worker | 工作区根目录。相对路径统一按仓库根解析，API、worker 与种子看到同一目录；Compose 下为 `/workspaces`，绝对路径按原值使用 |
 | `HOST_WORKSPACES_DIR` | 否 | 同 `WORKSPACES_DIR` | worker | 宿主视角的工作区路径，`docker -v` 的源路径；compose 默认 `/var/lib/docker/volumes/agentport_workspaces/_data` |
 | `SANDBOX_API_URL` | 否 | `http://host.docker.internal:3000` | worker、api（预览） | 沙盒视角的平台地址，写入 generated server 的 `.mcp.json` |
 | `SANDBOX_EGRESS` | 否 | `open` | worker | `open` = bridge 直连（不隔离出站）；`proxy` = bridge + 容器内 `HTTPS_PROXY`；`none` = `--network none`。**fail-closed**：`proxy` 未设置 `HTTPS_PROXY`/`HTTP_PROXY` 时启动直接报错退出，不会降级为 `open` |
@@ -118,7 +118,7 @@ worker 预建该会话目录（即使本轮没有附件）并把整个目录只�
 
 Compose 中 API/worker/沙盒同为 uid 1000，可直接读写这些 0700/0600 目录。Linux 宿主以其他 UID 直跑 `bun run dev` 时，沙盒以 1000 运行将无法读取附件（与原生记忆的既有 UID 限制相同）；需要附件时请用 Compose 启动，不要递归放宽目录权限。
 
-Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两者看到同一目录。本地 `bun run dev` 时 API 与 worker 各自以包目录为 cwd 解析 `.env` 里的相对 `WORKSPACES_DIR`，附件、原生记忆与成果会分别落到两个目录；本地开发请把 `WORKSPACES_DIR` 设为同一个绝对路径（例如 `/abs/path/data/workspaces`），或改用 Compose。这与上面的 UID 限制同属本地启动方式带来的差异，不是附件功能本身的缺陷。
+Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两者看到同一目录。本地 `bun run dev` 时 `.env` 里的相对 `WORKSPACES_DIR` 统一按仓库根解析，API、worker 与种子看到同一目录；绝对路径按原值使用，Compose 与绝对路径行为不变。这与上面的 UID 限制相互独立，不是附件功能本身的缺陷。
 
 ### 1.4 数据保留
 
@@ -729,6 +729,19 @@ E2E 截图按 e2e 0.22 的安全语义处理：secret fill 不再关闭截图，
 数据生成过程还修复了专家摘要缺少的 6 个既有元数据字段（`parentId`/`slug`/`role`/`model`/`uiFormat`/`createdAt`，不下发敏感配置）；相关后端测试 40/40、API build 通过，子专家 UI 解绑/重绑与文件核对、看板 table/cards 均已用真实 UI 验证，且没有新增运行。
 
 日常开发在最新 `origin/main` 对应的工作树启动：`bun --env-file=/Users/xbjt/.local/share/agentport/business-e2e-dataset/.env run dev`。父进程已注入的变量优先，子包同名的 `--env-file=../../.env` 不会覆盖，因此无需替换主 `.env`。这是配置加载方式，不是运行能力证明：`D/.env` 仍保留旧 `SANDBOX_IMAGE`，按上面限制，旧镜像无法在当前 worker 下执行新的会话运行。数据集命令也必须显式带上该参数才能读到 `D/.env` 的 manifest 等设置：`bun --env-file=/Users/xbjt/.local/share/agentport/business-e2e-dataset/.env run dev:data:verify` 做只读验收；现有数据不重建，只有缺项首次生成或需要恢复时才运行 `bun --env-file=/Users/xbjt/.local/share/agentport/business-e2e-dataset/.env run dev:data`，日常复用不运行 `dev:data`。
+
+### 9.4 演示数据（`db:seed`）
+
+`bun run db:seed` 为本地开发与演示离线写入一套演示数据：专家、知识库、频道、运行记录，以及运营侧的通知、定时任务、评估、预算与审计。它直接写库，不启动 API/worker，不调用真实模型、沙盒或 Redis。
+
+- 前置：数据库已完成迁移（`bun run db:migrate`）；命令会先构建 `shared`/`contract`/`db`/`core` 再执行 `scripts/seed-demo.ts`，读取当前环境（如 `.env`）的 `DATABASE_URL` 与 `APP_SECRET_KEY`（缺失或不足 32 字符时在写入任何数据前退出）。
+- 存储路径：`.env` 中的相对存储路径按仓库根解析，API/worker/种子使用同一根目录。
+- 幂等：重复执行只创建尚不存在的演示对象；已存在的演示对象（专家、连接器、知识库、频道、会话、成果、分享、通知、定时、评估、预算、审计）保持原样，不修改、不修复；需要干净重建时重置开发库后重新迁移。幂等按原始标识匹配：专家与知识库按 slug；连接器、频道、会话、定时任务与评估用例按名称/标题。修改显示名/标题后，按名称匹配的对象可能再创建一份；专家名称/标签或知识库名称/归属与演示值不一致时重跑会报错，需清理或重置开发库。
+- 不自动重置：命令不删除、不覆盖已有数据，也不改保留期等真实设置。同名但名称/标签、归属或关键配置与演示值不符的专家、连接器、知识库、模型端点与频道会直接报错，不会继续写入。
+- 数据归属：全部写入当前管理员账号的 `businessId`。
+- 专家模型：默认使用平台默认 `claude-sonnet-5-5`；使用模型网关的用户可用 `SEED_AGENT_MODEL` 覆盖。
+- 知识库检索：演示库可直接使用关键词检索；向量检索需配置真实端点并重新生成向量。
+- 仅用于开发/演示，不要在共享或生产库执行。
 
 
 ## 10. Wren 数据域运行时与运维

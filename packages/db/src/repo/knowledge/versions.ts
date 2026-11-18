@@ -4,7 +4,7 @@ import {
   knowledgeBaseSettingsSchema,
   knowledgeJobPayloadSchema,
 } from '@agentport/shared';
-import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
 import {
@@ -20,12 +20,12 @@ import { keysetBefore, paginate } from '../keyset.js';
 import {
   type KnowledgeDocumentRow,
   type KnowledgeVersionRow,
-  type Page,
-  type PageOptions,
-  type SourceReadSnapshot,
   lockWikiSourceScope,
   markWikiStaleByDocumentsTx,
+  type Page,
+  type PageOptions,
   pageLimit,
+  type SourceReadSnapshot,
   sourceScopeAllowsDocument,
   sourceSnapshotMatchesTx,
   usableSourceChunks,
@@ -149,7 +149,7 @@ export interface PublishGuard {
  * 返回 null 表示守卫拒绝（任务已收尾/abort、库停用、配置/指针变化或来源失权），不区分原因。
  */
 export async function setCurrentVersion(
-  db: Database,
+  db: DbHandle,
   documentId: string,
   versionId: string,
   guard?: PublishGuard,

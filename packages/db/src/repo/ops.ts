@@ -40,7 +40,7 @@ export interface ScheduleWrite {
 }
 
 /** 创建定时任务；下次触发时间由 BullMQ 原生 scheduler 展示，不在库里自算。 */
-export async function createSchedule(db: Database, input: ScheduleWrite): Promise<ScheduleRow> {
+export async function createSchedule(db: DbHandle, input: ScheduleWrite): Promise<ScheduleRow> {
   const [row] = await db
     .insert(agentSchedules)
     .values({ id: newId('schedule'), ...input })

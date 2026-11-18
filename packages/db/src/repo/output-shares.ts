@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { conversations, outputShares } from '../schema.js';
 import { keysetBefore, paginate } from './keyset.js';
@@ -15,7 +15,7 @@ export interface CreateOutputShareInput {
   tokenEncrypted: string;
 }
 
-export async function create(db: Database, input: CreateOutputShareInput): Promise<OutputShareRow> {
+export async function create(db: DbHandle, input: CreateOutputShareInput): Promise<OutputShareRow> {
   const [row] = await db
     .insert(outputShares)
     .values({ id: newId('outputShare'), ...input })
@@ -38,7 +38,7 @@ export async function findActiveById(db: Database, id: string): Promise<OutputSh
 
 /** 同一文件已有有效分享时复用，避免重复生成 token。 */
 export async function findByTriple(
-  db: Database,
+  db: DbHandle,
   conversationId: string,
   runId: string,
   path: string,
