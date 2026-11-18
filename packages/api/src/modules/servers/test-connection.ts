@@ -1,9 +1,9 @@
+import { assertSafeUrl, assertServerEndpoint } from '@agentport/core/net-guard';
 import type { Server, ServerTestResult } from '@agentport/shared';
 import { limitToolCatalog, redactSecrets } from '@agentport/shared';
 import type { Transport } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { Cause, Effect, type Scope } from 'effect';
-import { assertSafeUrl, assertServerEndpoint } from './ssrf.js';
 
 const TIMEOUT_MS = 5000;
 

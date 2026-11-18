@@ -19,6 +19,7 @@ import {
   toWorkspaceInput,
   unionById,
 } from '@agentport/core';
+import { assertSafeUrl, assertServerEndpoint } from '@agentport/core/net-guard';
 import type { Database, Transaction } from '@agentport/db';
 import {
   agentHookFiles,
@@ -63,7 +64,6 @@ import {
 } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { isPgCode } from '../../http/errors.js';
-import { assertSafeUrl, assertServerEndpoint } from '../servers/ssrf.js';
 import { decodePackage, encodePackageEntries } from './package-zip.js';
 import { unsupportedAllowedTool } from './validation.js';
 import { toAgentConfigValues } from './write.js';

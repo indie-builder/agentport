@@ -7,10 +7,10 @@ import {
   KnowledgeModelError,
   rerankDocuments,
 } from '@agentport/core';
+import { assertSafeUrl } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
-import { assertSafeUrl } from '../../servers/ssrf.js';
 import { supportsImageVectors } from '../service.js';
 import { type KnowledgeDeps, notFound } from './shared.js';
 

@@ -1,8 +1,7 @@
-import { type ContentPolicyDecision, evaluateContentPolicy } from '@agentport/core';
+import { ACTION_RANK, type ContentPolicyDecision, evaluateContentPolicy } from '@agentport/core';
 import { type Database, repo } from '@agentport/db';
 
 const security = repo.security;
-const ACTION_RANK = { allow: 0, redact: 1, require_approval: 2, block: 3 } as const;
 
 export async function checkOutboundToolArgs(input: {
   db: Database;

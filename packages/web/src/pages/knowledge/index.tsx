@@ -78,6 +78,7 @@ import {
   useCreateKnowledgeBase,
   useCreateKnowledgeModelProfile,
   useDeleteKnowledgeBase,
+  useDrainPages,
   useExportKnowledgeBase,
   useImportKnowledgeBase,
   useKnowledgeBasePins,
@@ -287,11 +288,8 @@ export function KnowledgePage() {
   const setPin = useSetKnowledgeBasePin();
   // 知识库是小型集合：一次取完剩余分页（每页 50，仅取元数据），
   // 这样「共 N 个」是真实总数，本地搜索也覆盖整库，而不是假装首屏就是全部。
-  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = bases;
-  useEffect(() => {
-    // 失败后不自动重试，交给下方显式「重试」，避免请求循环。
-    if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
+  const { hasNextPage, isFetchNextPageError, fetchNextPage } = bases;
+  useDrainPages(bases);
   const agents = useAgents();
   const update = useUpdateKnowledgeBase();
   const remove = useDeleteKnowledgeBase();

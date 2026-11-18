@@ -18,7 +18,7 @@ mock.module('@modelcontextprotocol/server', () => ({
   fromJsonSchema: (schema: unknown) => schema,
 }));
 
-mock.module('../src/modules/servers/ssrf.js', () => ({
+mock.module('@agentport/core/net-guard', () => ({
   assertSafeUrl: mock(async () => undefined),
   assertServerEndpoint: mock(async () => undefined),
 }));

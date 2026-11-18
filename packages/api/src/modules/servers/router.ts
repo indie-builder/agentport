@@ -1,5 +1,6 @@
 import { serversContract } from '@agentport/contract/servers';
 import { fail, isAppError, parseMcpJson, parseOpenApiDocument } from '@agentport/core';
+import { assertSafeUrl, assertServerEndpoint } from '@agentport/core/net-guard';
 import { repo as dbRepo } from '@agentport/db';
 import {
   type ApiToolInput,
@@ -30,7 +31,6 @@ import * as repo from './repo.js';
 import { getMcpToken, toApiServer } from './repo.js';
 import { testStdioInSandbox } from './sandbox-probe.js';
 import { maskServer } from './secrets.js';
-import { assertSafeUrl, assertServerEndpoint } from './ssrf.js';
 import { testConnection } from './test-connection.js';
 
 const writeAudit = dbRepo.audit.writeAudit;

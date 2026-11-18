@@ -1,8 +1,8 @@
+import { assertServerEndpoint } from '@agentport/core/net-guard';
 import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { runMcpExecution } from '../../plugins/concurrency.js';
-import { assertServerEndpoint } from './ssrf.js';
 
 export interface GeneratedServerInput {
   /** 决定 SSRF 是否放行 localhost；与 test-connection 保持同一来源。 */

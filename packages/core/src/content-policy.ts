@@ -30,7 +30,7 @@ interface Span {
   replacement: string;
 }
 
-const ACTION_RANK = { allow: 0, redact: 1, require_approval: 2, block: 3 } as const;
+export const ACTION_RANK = { allow: 0, redact: 1, require_approval: 2, block: 3 } as const;
 const SNIPPET_LENGTH = 160;
 
 const SECRET_PATTERNS: ReadonlyArray<{ pattern: RegExp; replacement: string }> = [

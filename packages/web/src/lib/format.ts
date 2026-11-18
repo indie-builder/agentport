@@ -1,3 +1,4 @@
+import type { RunTrigger } from '@agentport/shared';
 import type { AuditStatus, EvalComparison, EvalRunStatus, RunStatus } from './api.js';
 
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
@@ -29,10 +30,7 @@ export function formatUtcDateTime(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? '—' : utcDateTimeFormatter.format(date);
 }
 
-export function formatZonedDateTime(
-  value: string | null | undefined,
-  timeZone: string,
-): string {
+export function formatZonedDateTime(value: string | null | undefined, timeZone: string): string {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
@@ -108,6 +106,15 @@ export const runStatusLabel: Record<RunStatus, string> = {
   failed: '失败',
   cancelled: '已取消',
   timeout: '超时',
+};
+
+export const runTriggerLabel: Record<RunTrigger, string> = {
+  chat: '对话',
+  mcp: '连接器',
+  schedule: '定时任务',
+  event: '事件',
+  review: '记忆提案',
+  channel: '频道',
 };
 
 export const runStatusVariant = {

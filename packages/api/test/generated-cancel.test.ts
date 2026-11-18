@@ -22,7 +22,7 @@ mock.module('@modelcontextprotocol/server', () => ({
 
 const ssrfMock = mock(async () => undefined);
 
-mock.module('../src/modules/servers/ssrf.js', () => ({
+mock.module('@agentport/core/net-guard', () => ({
   assertSafeUrl: ssrfMock,
   assertServerEndpoint: ssrfMock,
 }));

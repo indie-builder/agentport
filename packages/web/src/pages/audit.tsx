@@ -124,6 +124,24 @@ const columns: DataColumn<AuditEntry>[] = [
   },
 ];
 
+function buildAuditQuery(values: {
+  action: string;
+  status: AuditStatus | 'all';
+  target: string;
+  actor: string;
+  actorKind: AuditEntry['actorKind'] | 'all';
+  since: string | undefined;
+}) {
+  return {
+    ...(values.action ? { action: values.action } : {}),
+    ...(values.status === 'all' ? {} : { status: values.status }),
+    ...(values.target ? { target: values.target } : {}),
+    ...(values.actor ? { actor: values.actor } : {}),
+    ...(values.actorKind === 'all' ? {} : { actorKind: values.actorKind }),
+    ...(values.since ? { since: values.since } : {}),
+  };
+}
+
 /** 只展示接口已有的字段；输入原文本就不落库，摘要为空时如实给「—」。 */
 function auditDetails(row: AuditEntry) {
   return (
@@ -158,14 +176,15 @@ export function AuditPage() {
   const settledAction = useDebouncedValue(action.trim(), 300);
   const settledTarget = useDebouncedValue(target.trim(), 300);
   const settledActor = useDebouncedValue(actor.trim(), 300);
-  const audit = useAudit({
-    ...(settledAction ? { action: settledAction } : {}),
-    ...(status === 'all' ? {} : { status }),
-    ...(settledTarget ? { target: settledTarget } : {}),
-    ...(settledActor ? { actor: settledActor } : {}),
-    ...(actorKind === 'all' ? {} : { actorKind }),
-    ...(since ? { since } : {}),
+  const query = buildAuditQuery({
+    action: settledAction,
+    status,
+    target: settledTarget,
+    actor: settledActor,
+    actorKind,
+    since,
   });
+  const audit = useAudit(query);
 
   const rows = audit.data?.pages.flatMap((page) => page.items) ?? [];
   const filtered =
@@ -184,14 +203,7 @@ export function AuditPage() {
     setExporting(true);
     try {
       // 与表格使用同一份已生效的筛选值，避免刚输入就导出时导出旧条件。
-      const data = await api.exportAudit({
-        ...(settledAction ? { action: settledAction } : {}),
-        ...(status === 'all' ? {} : { status }),
-        ...(settledTarget ? { target: settledTarget } : {}),
-        ...(settledActor ? { actor: settledActor } : {}),
-        ...(actorKind === 'all' ? {} : { actorKind }),
-        ...(since ? { since } : {}),
-      });
+      const data = await api.exportAudit(query);
       downloadJson(data, 'audit.json');
     } catch (error) {
       toastError(error);
@@ -203,14 +215,7 @@ export function AuditPage() {
   const exportAuditCsv = async (): Promise<void> => {
     setExportingCsv(true);
     try {
-      const data = await api.exportAudit({
-        ...(settledAction ? { action: settledAction } : {}),
-        ...(status === 'all' ? {} : { status }),
-        ...(settledTarget ? { target: settledTarget } : {}),
-        ...(settledActor ? { actor: settledActor } : {}),
-        ...(actorKind === 'all' ? {} : { actorKind }),
-        ...(since ? { since } : {}),
-      });
+      const data = await api.exportAudit(query);
       const csv = toCsv(
         ['时间', '动作', '目标', '状态', '操作者', '主体类型', '耗时ms', '请求ID'],
         data.items.map((row) => [

@@ -1,12 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { integrationsContract } from '@agentport/contract';
 import { encryptSecrets, fail, sha256Hex } from '@agentport/core';
+import { assertServerEndpoint } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
 import type { ApiToken, WebhookEndpoint } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { assertServerEndpoint } from '../servers/ssrf.js';
 
 const os = implement(integrationsContract).$context<RequestContext>();
 
