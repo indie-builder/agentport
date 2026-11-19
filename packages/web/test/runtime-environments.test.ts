@@ -480,6 +480,8 @@ describe('runtime environments page', () => {
     expect(cards).toContain('aaaaaaaa');
     expect(cards).toContain('线上版本');
     expect(cards).toContain('更新时间');
+    expect(cards).toContain('共 1 个运行环境');
+    expect(cards).toContain('查看详情');
 
     state.search = { view: 'table' };
     const table = renderToStaticMarkup(withClient(createElement(RuntimeEnvironmentsPage)));

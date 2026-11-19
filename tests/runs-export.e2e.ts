@@ -64,10 +64,11 @@ test('runs page exports only the filtered agent runs', { session: 'admin' }, asy
   try {
     await app.open(`/runs?agent=${fixture.ownAgentId}&view=table`);
     await expect(screen.getByRole('heading', '运行')).toBeVisible();
-    await expect(screen.getByText('2 行', { exact: true })).toBeVisible();
+    await expect(screen.getByText('共 2 条运行', { exact: true })).toBeVisible();
 
+    await screen.getByRole('button', '更多操作', { exact: true }).tap();
     const download = await browser.waitForDownload(() =>
-      screen.getByRole('button', '导出运行', { exact: true }).tap(),
+      screen.getByRole('menuitem', '导出运行 (JSON)', { exact: true }).tap(),
     );
     expect(download.suggestedFilename).toBe('runs.json');
 
@@ -90,8 +91,10 @@ test('runs page exports only the filtered agent runs', { session: 'admin' }, asy
     expect(raw).not.toContain(fixture.foreignRunId);
     expect(raw).not.toContain(fixture.foreignAgentId);
 
-    // 导出完成后按钮恢复，页面筛选不变。
-    await expect(screen.getByRole('button', '导出运行', { exact: true })).toBeEnabled();
+    // 导出完成后菜单项恢复，页面筛选不变。
+    await screen.getByRole('button', '更多操作', { exact: true }).tap();
+    await expect(screen.getByRole('menuitem', '导出运行 (JSON)', { exact: true })).toBeEnabled();
+    await browser.keyboard.press('Escape');
     await expect(browser).toHaveURL(new RegExp(`/runs\\?agent=${fixture.ownAgentId}&view=table$`));
   } finally {
     await cleanup(fixture);
@@ -106,10 +109,11 @@ test('runs page status filter narrows the export', { session: 'admin' }, async (
   const fixture = await seed();
   try {
     await app.open(`/runs?agent=${fixture.ownAgentId}&status=failed&view=table`);
-    await expect(screen.getByText('1 行', { exact: true })).toBeVisible();
+    await expect(screen.getByText('共 1 条运行', { exact: true })).toBeVisible();
 
+    await screen.getByRole('button', '更多操作', { exact: true }).tap();
     const download = await browser.waitForDownload(() =>
-      screen.getByRole('button', '导出运行', { exact: true }).tap(),
+      screen.getByRole('menuitem', '导出运行 (JSON)', { exact: true }).tap(),
     );
     expect(download.suggestedFilename).toBe('runs.json');
 

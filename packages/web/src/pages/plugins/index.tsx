@@ -105,12 +105,15 @@ export function PluginsPage() {
   const [editing, setEditing] = useState<PluginWithAgentCount | null>(null);
   const [deleting, setDeleting] = useState<PluginWithAgentCount | null>(null);
   const [installing, setInstalling] = useState(false);
-  const importButtonRef = useRef<HTMLButtonElement>(null);
+  const installButtonRef = useRef<HTMLButtonElement>(null);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const importPlugin = useImportPlugin();
   const actionTriggerRef = useRef<HTMLElement | null>(null);
   const panelFocus = (): HTMLElement | null =>
-    actionTriggerRef.current?.isConnected ? actionTriggerRef.current : importButtonRef.current;
+    actionTriggerRef.current?.isConnected
+      ? actionTriggerRef.current
+      : (installButtonRef.current ?? moreTriggerRef.current);
 
   const visiblePlugins = useMemo(() => {
     const term = query.trim().toLocaleLowerCase();
@@ -181,20 +184,9 @@ export function PluginsPage() {
               if (file) void importZip(file);
             }}
           />
-          {canImport ? (
-            <Button
-              ref={importButtonRef}
-              variant="outline"
-              disabled={importPlugin.isPending}
-              aria-busy={importPlugin.isPending}
-              onClick={() => importInputRef.current?.click()}
-            >
-              <Upload data-icon="inline-start" aria-hidden="true" />{' '}
-              {importPlugin.isPending ? '导入中…' : '导入插件 ZIP'}
-            </Button>
-          ) : null}
           {canInstall ? (
             <Button
+              ref={installButtonRef}
               aria-haspopup="dialog"
               onClick={(event) => {
                 actionTriggerRef.current = event.currentTarget;
@@ -203,6 +195,36 @@ export function PluginsPage() {
             >
               <PackagePlus data-icon="inline-start" aria-hidden="true" /> 安装插件
             </Button>
+          ) : null}
+          {canImport ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    ref={moreTriggerRef}
+                    variant="ghost"
+                    size="icon"
+                    aria-label="更多操作"
+                    disabled={importPlugin.isPending}
+                    aria-busy={importPlugin.isPending}
+                  >
+                    <MoreHorizontal aria-hidden="true" />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    disabled={importPlugin.isPending}
+                    aria-busy={importPlugin.isPending}
+                    onSelect={() => importInputRef.current?.click()}
+                  >
+                    <Upload aria-hidden="true" />
+                    {importPlugin.isPending ? '导入中…' : '导入插件 ZIP'}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : null}
         </>
       }

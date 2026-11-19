@@ -332,7 +332,7 @@ beforeEach(() => {
 });
 
 describe('agents import permission gate', () => {
-  it('hides the import button without agents.import', async () => {
+  it('hides the import action without agents.import', async () => {
     const { allAccessMe } = await import('./me-fixture.js');
     state.me = {
       ...allAccessMe,
@@ -340,20 +340,18 @@ describe('agents import permission gate', () => {
     };
     await inspect(AgentsPage, (tree) => {
       const header = tree.find((node) => node.type === PageHeader);
-      const importBtn = elements(header?.props.actions as ReactNode).find(
+      const importItem = elements(header?.props.actions as ReactNode).find(
         (node) => node.props.title === '导入专家 ZIP 或 agent.md',
       );
-      expect(importBtn).toBeDefined();
-      expect(importBtn?.props.className).toBe('hidden');
+      expect(importItem).toBeUndefined();
     });
     state.me = undefined;
     await inspect(AgentsPage, (tree) => {
       const header = tree.find((node) => node.type === PageHeader);
-      const importBtn = elements(header?.props.actions as ReactNode).find(
+      const importItem = elements(header?.props.actions as ReactNode).find(
         (node) => node.props.title === '导入专家 ZIP 或 agent.md',
       );
-      expect(importBtn).toBeDefined();
-      expect(importBtn?.props.className).not.toBe('hidden');
+      expect(importItem).toBeDefined();
     });
   });
 });

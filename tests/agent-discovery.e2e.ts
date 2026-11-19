@@ -481,8 +481,9 @@ test('agent discovery 授权专家发现、归档恢复、统一搜索、个人�
     await expect(screen.getByRole('heading', { name: '会话与成果', level: 1 })).toBeVisible({
       timeout: 60_000,
     });
-    await expect(screen.getByRole('heading', { name: '我的会话', level: 2 })).toBeVisible();
-    await expect(screen.getByRole('heading', { name: '我的成果', level: 2 })).toBeVisible();
+    await expect(screen.getByRole('tab', { name: '会话', exact: true })).toBeVisible();
+    await expect(screen.getByRole('tab', { name: '成果', exact: true })).toBeVisible();
+    await screen.getByRole('tab', { name: '成果', exact: true }).tap();
     await expect(screen.getByText('normal-report.md').first()).toBeVisible({ timeout: 30_000 });
 
     await app.open(`/search?q=${encodeURIComponent(suffix)}`);

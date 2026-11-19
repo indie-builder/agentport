@@ -394,6 +394,7 @@ describe('resource async state regressions', () => {
   it.each(['pending', 'error'] as const)(
     'does not count unavailable server bindings as zero (%s)',
     async (status) => {
+      state.search = { view: 'table' };
       const queryClient = client();
       queryClient
         .getQueryCache()
@@ -426,6 +427,7 @@ describe('resource async state regressions', () => {
   );
 
   it('tests stdio connectors in the chosen runtime environment', async () => {
+    state.search = { view: 'table' };
     const queryClient = client();
     queryClient.setQueryData(['servers'], [stdioServer]);
     queryClient.setQueryData(['runtime-environments'], [defaultEnvironment, namedEnvironment]);
@@ -474,6 +476,7 @@ describe('resource async state regressions', () => {
   });
 
   it('locks only the approval select whose tool is being edited', () => {
+    state.search = { view: 'table' };
     const queryClient = client();
     queryClient.setQueryData(['tools', server.id], [tool, { ...tool, id: 'other', name: 'other' }]);
     let dialog: Element | undefined;

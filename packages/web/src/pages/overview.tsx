@@ -376,11 +376,11 @@ export function RunTrendCard({ days }: { days: number }) {
   const firstLoadFailed = isError && data === undefined;
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader>
         <CardTitle>运行趋势</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0">
         {firstLoadFailed ? (
           <ErrorState error={error} onRetry={() => void refetch()} />
         ) : isPending ? (
@@ -400,9 +400,9 @@ export function RunTrendCard({ days }: { days: number }) {
               />
             ) : null}
             {hasRuns ? (
-              <div className="flex flex-col gap-2">
+              <div className="flex min-w-0 flex-col gap-2">
                 {/* 图表仅视觉展示，读屏改走下方同源数据表。 */}
-                <div aria-hidden="true">
+                <div aria-hidden="true" className="min-w-0 overflow-hidden">
                   <Suspense fallback={<div className="h-56 w-full" />}>
                     <RunTrendChart points={points} />
                   </Suspense>
@@ -420,7 +420,7 @@ export function RunTrendCard({ days }: { days: number }) {
                       // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
                       tabIndex={0}
                       aria-label="趋势数据"
-                      className="max-h-64 overflow-y-auto overscroll-contain"
+                      className="max-h-64 min-w-0 overflow-y-auto overscroll-contain"
                     >
                       <Table>
                         <caption className="sr-only">最近 {days} 天运行趋势明细</caption>
@@ -636,7 +636,11 @@ function RetentionSection() {
   const canManage = can(me.data, 'operations.manage');
   const retention = useRetention();
   return (
-    <PageSection title="数据保留" description="每日维护任务据此清理；修改后下次维护生效。">
+    <PageSection
+      title="数据保留"
+      description="每日维护任务据此清理；修改后下次维护生效。"
+      divided={false}
+    >
       {retention.isPending ? (
         <LoadingState rows={3} />
       ) : retention.data ? (
@@ -654,8 +658,6 @@ export function OverviewPage() {
   const tab = search.tab ?? 'recent';
   const location = useLocation();
   const me = useQuery(meQuery);
-  const canStartConversation =
-    can(me.data, 'conversations.create') && can(me.data, 'conversations.read');
   const canReadServers = can(me.data, 'servers.read');
   const canReadRuns = can(me.data, 'runs.read');
   const canReadAgents = can(me.data, 'agents.read');
@@ -676,7 +678,7 @@ export function OverviewPage() {
     data.recent.length === 0;
 
   const days = data?.window.days ?? 7;
-  const windowLabel = data ? `最近 ${days} 天` : '';
+  const windowLabel = data && !empty ? `最近 ${days} 天` : '';
   const failedCount = data?.counts.failed ?? 0;
 
   const exportUsageCsv = (): void => {
@@ -692,19 +694,7 @@ export function OverviewPage() {
   return (
     <Page>
       <PageTopbar>
-        <PageHeader
-          title="概况"
-          actions={
-            canStartConversation ? (
-              <Link
-                to="/chat"
-                className={buttonVariants({ variant: empty ? 'default' : 'secondary' })}
-              >
-                <Plus data-icon="inline-start" aria-hidden="true" /> 新建对话
-              </Link>
-            ) : undefined
-          }
-        />
+        <PageHeader title="概况" {...(windowLabel ? { description: windowLabel } : {})} />
       </PageTopbar>
 
       <PageBody className="pt-2">
@@ -745,31 +735,27 @@ export function OverviewPage() {
         {data && !empty ? (
           <>
             <HealthLine />
-            <PageSection title="平台概况" description={windowLabel} divided={false}>
-              <MetricGrid>
-                {[
-                  {
-                    label: '运行次数',
-                    value: data.counts.runs,
-                    hint: failedCount > 0 ? `${failedCount} 次失败` : null,
-                    icon: Activity,
-                  },
-                  {
-                    label: '运行成本',
-                    value: formatCost(data.counts.costUsd),
-                    hint:
-                      data.counts.tokens === 0
-                        ? null
-                        : `${formatTokens(data.counts.tokens)} tokens`,
-                    icon: Sparkles,
-                  },
-                  { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
-                  { label: '连接器', value: data.counts.servers, hint: null, icon: Server },
-                ].map(({ label, value, hint, icon }) => (
-                  <MetricCard key={label} label={label} value={value} hint={hint} icon={icon} />
-                ))}
-              </MetricGrid>
-            </PageSection>
+            <MetricGrid columns={4}>
+              {[
+                {
+                  label: '运行次数',
+                  value: data.counts.runs,
+                  hint: failedCount > 0 ? `${failedCount} 次失败` : null,
+                  icon: Activity,
+                },
+                {
+                  label: '运行成本',
+                  value: formatCost(data.counts.costUsd),
+                  hint:
+                    data.counts.tokens === 0 ? null : `${formatTokens(data.counts.tokens)} tokens`,
+                  icon: Sparkles,
+                },
+                { label: '专家', value: data.counts.agents, hint: null, icon: Bot },
+                { label: '连接器', value: data.counts.servers, hint: null, icon: Server },
+              ].map(({ label, value, hint, icon }) => (
+                <MetricCard key={label} label={label} value={value} hint={hint} icon={icon} />
+              ))}
+            </MetricGrid>
 
             <RunTrendCard days={days} />
 
@@ -777,8 +763,9 @@ export function OverviewPage() {
 
             <PageSection
               title="运行"
+              divided={false}
               actions={
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <SegmentedToggle
                     label="切换区段"
                     value={tab}
@@ -794,7 +781,7 @@ export function OverviewPage() {
                     }
                   />
                   {tab === 'recent' && canReadRuns ? (
-                    <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                    <Link to="/runs" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
                       查看运行
                     </Link>
                   ) : null}
@@ -808,7 +795,7 @@ export function OverviewPage() {
                       {canReadAgents ? (
                         <Link
                           to="/agents"
-                          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                          className={buttonVariants({ variant: 'ghost', size: 'sm' })}
                         >
                           管理专家
                         </Link>

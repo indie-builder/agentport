@@ -16,7 +16,7 @@ export function FilterPopover({
     <Popover>
       <PopoverTrigger
         render={
-          <Button variant="outline" size="sm" aria-label={label}>
+          <Button variant="outline" size="default" aria-label={label}>
             <ListFilter data-icon="inline-start" aria-hidden="true" />
             {label}
             {activeCount > 0 ? (

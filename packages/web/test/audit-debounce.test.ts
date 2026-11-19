@@ -80,11 +80,24 @@ async function type(label: string, value: string): Promise<void> {
   });
 }
 
-function exportButton(): HTMLButtonElement {
-  const found = [...document.querySelectorAll('button')].find((button) =>
-    ['导出审计', '等待筛选…', '导出中…'].some((label) => button.textContent?.includes(label)),
+function moreTrigger(): HTMLButtonElement {
+  const found = document.querySelector<HTMLButtonElement>('button[aria-label="更多操作"]');
+  if (!found) throw new Error('missing more actions button');
+  return found;
+}
+
+async function openMoreMenu(): Promise<void> {
+  const trigger = moreTrigger();
+  if (trigger.getAttribute('aria-expanded') === 'true') return;
+  await act(async () => trigger.click());
+  await flush();
+}
+
+function exportMenuItem(): HTMLElement {
+  const found = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    ['导出审计 (JSON)', '等待筛选…', '导出中…'].some((label) => item.textContent?.includes(label)),
   );
-  if (!found) throw new Error('missing export button');
+  if (!found) throw new Error('missing export menu item');
   return found;
 }
 
@@ -143,7 +156,9 @@ describe('audit filter debounce', () => {
       root.render(createElement(QueryClientProvider, { client }, createElement(Harness)));
     });
     await flush();
-    expect(exportButton().disabled).toBe(false);
+    await openMoreMenu();
+    expect(exportMenuItem().getAttribute('aria-disabled')).toBeNull();
+    expect(exportMenuItem().textContent).toContain('导出审计 (JSON)');
 
     const clear = document.querySelector<HTMLButtonElement>(
       'button[aria-label="清除：按动作前缀过滤"]',
@@ -154,16 +169,18 @@ describe('audit filter debounce', () => {
     // URL 与输入框立即清空，但查询还要等防抖落定；导出入口用可见文字说明为什么不可点。
     expect(input('按动作前缀过滤').value).toBe('');
     expect(router.search.action).toBeUndefined();
-    expect(exportButton().disabled).toBe(true);
-    expect(exportButton().textContent).toBe('等待筛选…');
+    await openMoreMenu();
+    expect(exportMenuItem().getAttribute('aria-disabled')).toBe('true');
+    expect(exportMenuItem().textContent?.trim()).toBe('等待筛选…');
     expect(mocks.audit).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
     });
     await flush();
-    expect(exportButton().disabled).toBe(false);
-    expect(exportButton().textContent).toContain('导出审计');
+    await openMoreMenu();
+    expect(exportMenuItem().getAttribute('aria-disabled')).toBeNull();
+    expect(exportMenuItem().textContent).toContain('导出审计 (JSON)');
     expect(mocks.audit).toHaveBeenLastCalledWith({ limit: 100 }, expect.anything());
   });
 

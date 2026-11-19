@@ -1,7 +1,9 @@
 import type {
   AuthMe,
+  ConversationSummary,
   MemoryReview,
   PermissionId,
+  PersonalOutputItem,
   PersonalOutputShare,
   PersonalRun,
   PersonalSession,
@@ -32,11 +34,13 @@ import { PersonalProfilePage } from '../src/pages/personal/profile.js';
 import { PersonalSecurityPage } from '../src/pages/personal/security.js';
 import { PersonalSharesPage } from '../src/pages/personal/shares.js';
 import { PersonalUsagePage } from '../src/pages/personal/usage.js';
+import { PersonalWorkPage } from '../src/pages/personal/work.js';
 import {
   personalReviewsSearchSchema,
   personalSecuritySearchSchema,
   personalSharesSearchSchema,
   personalUsageSearchSchema,
+  personalWorkSearchSchema,
 } from '../src/routes/-search.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
@@ -276,8 +280,17 @@ describe('个人资料', () => {
     await vi.waitFor(() => expect(host.textContent).toContain('当前设备'));
     expect(host.textContent).toContain('user-1');
     expect(host.textContent).toContain(formatDateTime(sessionCurrent.updatedAt));
+    // 未修改时取消与保存同步禁用，消除视觉倒挂；登录安全链接具可见下划线与箭头。
+    expect(button('取消').disabled).toBe(true);
+    expect(button('保存').disabled).toBe(true);
+    const securityLink = host.querySelector<HTMLAnchorElement>('a[href="/personal/security"]');
+    expect(securityLink?.textContent).toContain('前往账号安全');
+    expect(securityLink?.className).toContain('underline');
+    expect(securityLink?.querySelector('svg')).not.toBeNull();
 
     await setInput('personal-name', '新姓名');
+    expect(button('取消').disabled).toBe(false);
+    expect(button('保存').disabled).toBe(false);
     await click(button('保存'));
     await vi.waitFor(() =>
       expect(api.updatePersonalProfile).toHaveBeenCalledWith({ name: '新姓名' }),
@@ -512,6 +525,14 @@ describe('账号安全', () => {
     expect(otherCard.textContent).toContain(formatDateTime(sessionOther.updatedAt));
     expect(otherCard.textContent).toContain('127.0.0.1');
 
+    // 刷新位于页头 actions；卡片视图各会话分组不叠顶部分隔线；详情触发器带展开箭头；撤销用危险样式。
+    const header = host.querySelector('[data-slot="page-header"]');
+    expect(header?.contains(button('刷新', host))).toBe(true);
+    const groupSections = [...host.querySelectorAll('[data-slot="page-section"]')];
+    expect(groupSections.every((section) => !section.className.includes('border-t'))).toBe(true);
+    expect(button('会话详情', currentCard).querySelector('svg')).not.toBeNull();
+    expect(button('撤销', otherCard).className).toContain('text-destructive');
+
     await click(button('会话详情', currentCard));
     await vi.waitFor(() => expect(currentCard.textContent).toContain('Chrome on macOS'));
     expect(currentCard.textContent).toContain(formatDateTime(sessionCurrent.createdAt));
@@ -529,6 +550,8 @@ describe('账号安全', () => {
     );
     await vi.waitFor(() => expect(host.querySelector('[data-slot="card"]')).toBeNull());
     expect(host.querySelectorAll('ul')).toHaveLength(2);
+    expect(button('撤销', host).className).toContain('text-destructive');
+    expect(button('会话详情', host).querySelector('svg')).not.toBeNull();
   });
 });
 
@@ -875,5 +898,157 @@ describe('记忆提案只读', () => {
     expect(maybeButton('重新生成', dialog)).toBeNull();
     expect(dialog.querySelector('a[href^="/chat?"]')).toBeNull();
     expect(maybeButton('关闭详情', dialog)).not.toBeNull();
+  });
+});
+
+describe('会话与成果', () => {
+  const manualConversation: ConversationSummary = {
+    id: 'conv-manual',
+    agentId: 'agent-a',
+    agentName: '产品文档专家',
+    title: '需求评审整理',
+    createdAt: '2026-10-20T00:00:00.000Z',
+    updatedAt: '2026-10-21T08:00:00.000Z',
+    lastMessage: null,
+  };
+  const scheduledConversation: ConversationSummary = {
+    id: 'conv-scheduled',
+    agentId: 'agent-b',
+    agentName: '巡检助手',
+    title: '定时: 每日早报汇总',
+    createdAt: '2026-10-20T01:00:00.000Z',
+    updatedAt: '2026-10-21T09:00:00.000Z',
+    lastMessage: null,
+  };
+  const outputA: PersonalOutputItem = {
+    conversationId: 'conv-manual',
+    conversationTitle: '需求评审整理',
+    runId: 'run-1',
+    path: 'reports/spec.md',
+    size: 2048,
+    createdAt: '2026-10-21T08:30:00.000Z',
+  };
+  const outputB: PersonalOutputItem = {
+    conversationId: 'conv-scheduled',
+    conversationTitle: '定时: 每日早报汇总',
+    runId: 'run-2',
+    path: 'briefing/daily.md',
+    size: 512,
+    createdAt: '2026-10-21T09:30:00.000Z',
+  };
+
+  it('默认显示会话单任务视图，支持按关键词与来源筛选，并可切换到成果视图', async () => {
+    const me = meWith(['conversations.read']);
+    vi.spyOn(api, 'me').mockResolvedValue(me);
+    vi.spyOn(api, 'personalConversations').mockResolvedValue([
+      manualConversation,
+      scheduledConversation,
+    ]);
+    vi.spyOn(api, 'personalOutputs').mockResolvedValue({
+      items: [outputA, outputB],
+      truncated: false,
+    });
+    await mount({
+      path: '/personal/work',
+      component: PersonalWorkPage,
+      validateSearch: personalWorkSearchSchema,
+      me,
+    });
+    const workTab = (label: string): HTMLElement => {
+      const match = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+        (item) => item.textContent?.trim() === label,
+      );
+      if (!match) throw new Error(`Missing tab: ${label}`);
+      return match;
+    };
+    await vi.waitFor(() => expect(host.textContent).toContain('共 2 条会话'));
+    expect(host.querySelector('h1')?.textContent).toBe('会话与成果');
+    expect(host.querySelector('[data-slot="page-header"] [role="tab"]')).toBeNull();
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('共 2 条会话');
+    expect(host.textContent).toContain('需求评审整理');
+    expect(host.textContent).toContain('定时: 每日早报汇总');
+    expect(host.textContent).not.toContain('reports/spec.md');
+
+    // 按来源筛选：定时任务
+    await click(button('按来源筛选会话', host));
+    const scheduledOption = await vi.waitFor(() => {
+      const match = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (item) => item.textContent?.trim() === '定时任务',
+      );
+      expect(match).toBeTruthy();
+      return match as HTMLElement;
+    });
+    await click(scheduledOption);
+    await vi.waitFor(() =>
+      expect((router.state.location.search as { source?: string }).source).toBe('scheduled'),
+    );
+    expect(host.textContent).toContain('共 1 条会话');
+    expect(host.textContent).toContain('定时: 每日早报汇总');
+    expect(host.textContent).not.toContain('需求评审整理');
+
+    // 按关键词过滤会话：无匹配时显示事实空态与清除筛选
+    const convSearch = host.querySelector<HTMLInputElement>('input[aria-label="搜索会话"]');
+    if (!convSearch) throw new Error('Missing conversation search input');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        convSearch,
+        '不存在的关键词',
+      );
+      convSearch.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+    await vi.waitFor(() => expect(host.textContent).toContain('当前筛选下无匹配会话'));
+    expect(host.textContent).not.toContain('还没有');
+    await click(button('清除筛选', host));
+    await vi.waitFor(() => expect(host.textContent).toContain('共 2 条会话'));
+
+    // 切换到成果视图
+    await click(workTab('成果'));
+    await vi.waitFor(() =>
+      expect((router.state.location.search as { tab?: string }).tab).toBe('outputs'),
+    );
+    await vi.waitFor(() => expect(host.textContent).toContain('共 2 份成果'));
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('共 2 份成果');
+    expect(host.textContent).toContain('reports/spec.md');
+    expect(host.textContent).toContain('briefing/daily.md');
+
+    const outputSearch = host.querySelector<HTMLInputElement>('input[aria-label="搜索成果"]');
+    if (!outputSearch) throw new Error('Missing output search input');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        outputSearch,
+        'spec.md',
+      );
+      outputSearch.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await flush();
+    await vi.waitFor(() => expect(host.textContent).toContain('共 1 份成果'));
+    expect(host.textContent).toContain('reports/spec.md');
+    expect(host.textContent).not.toContain('briefing/daily.md');
+  });
+
+  it('无会话与无成果时均显示事实空态且不出现「还没有」', async () => {
+    const me = meWith(['conversations.read']);
+    vi.spyOn(api, 'me').mockResolvedValue(me);
+    vi.spyOn(api, 'personalConversations').mockResolvedValue([]);
+    vi.spyOn(api, 'personalOutputs').mockResolvedValue({ items: [], truncated: false });
+    await mount({
+      path: '/personal/work',
+      component: PersonalWorkPage,
+      validateSearch: personalWorkSearchSchema,
+      me,
+    });
+    await vi.waitFor(() => expect(host.textContent).toContain('当前无会话记录'));
+    expect(host.textContent).not.toContain('还没有');
+    expect(host.querySelector('a[href="/chat"]')?.textContent).toBe('开始对话');
+
+    const outputsTab = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+      (item) => item.textContent?.trim() === '成果',
+    );
+    if (!outputsTab) throw new Error('Missing tab: 成果');
+    await click(outputsTab);
+    await vi.waitFor(() => expect(host.textContent).toContain('当前无已发布成果'));
+    expect(host.textContent).not.toContain('还没有');
+    expect(host.querySelector('a[href="/chat"]')?.textContent).toBe('开始对话');
   });
 });

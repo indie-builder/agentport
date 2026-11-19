@@ -642,7 +642,8 @@ describe('knowledge package export and import', () => {
       }),
     );
     await mount('/knowledge');
-    await click(button('导入知识包'));
+    await openMenu('更多操作');
+    await chooseMenuItem('导入知识包');
     const file = new File(['zip'], 'handbook.zip', { type: 'application/zip' });
     await act(async () => {
       const input = document.querySelector<HTMLInputElement>('input[type="file"]');

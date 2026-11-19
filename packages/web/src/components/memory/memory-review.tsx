@@ -42,12 +42,21 @@ import { BusinessIllustration } from '../business-illustration.js';
 import { CodeBlock } from '../code-block.js';
 import { ConfirmDialog } from '../confirm-dialog.js';
 import { DialogShell } from '../dialog-shell.js';
+import { FilterPopover } from '../filter-popover.js';
 import { FilterSelect } from '../filter-select.js';
-import { PageBody, PageToolbar, PageTopbar } from '../page.js';
+import { PageBody, PageHeader, PageToolbar, PageTopbar } from '../page.js';
 import { EmptyState, ErrorState, LoadingState } from '../states.js';
 import { StatusBadge } from '../status-badge.js';
 import { Button } from '../ui/button.js';
-import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '../ui/card.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../ui/card.js';
 import { Checkbox } from '../ui/checkbox.js';
 import { Dialog } from '../ui/dialog.js';
 import { Field, FieldError, FieldLabel, FieldTitle } from '../ui/field.js';
@@ -168,6 +177,7 @@ interface SelectedSource {
 }
 
 export function MemoryReviews({
+  title = '记忆提案',
   agentId,
   onAgentChange,
   canReview = true,
@@ -183,6 +193,7 @@ export function MemoryReviews({
   view,
   onViewChange,
 }: {
+  title?: string;
   agentId: string | null;
   onAgentChange: (next: string | null) => void;
   /** 创建、拒绝、重新生成与取消生成。 */
@@ -296,33 +307,15 @@ export function MemoryReviews({
     onRunChange(review.runId);
   };
 
+  const activeFilterCount = (canReadAgents && agentId ? 1 : 0) + (stage ? 1 : 0);
+
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+    <>
       <PageTopbar>
-        <PageToolbar>
-          {canReadAgents ? (
-            <FilterSelect
-              value={agentId ?? ''}
-              onValueChange={(next) => onAgentChange(next || null)}
-              options={agentOptions}
-              label="按专家筛选记忆提案"
-              className="w-full sm:w-36"
-            />
-          ) : null}
-          <FilterSelect
-            value={stage ?? 'all'}
-            onValueChange={(next) =>
-              onStageChange(next === 'all' ? null : (next as MemoryReviewView))
-            }
-            options={reviewViewOptions}
-            label="按处理状态筛选"
-            className="w-full sm:w-36"
-          />
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            {reviews.data && items.length > 0 ? (
-              <p className="text-xs text-muted-foreground">共 {items.length} 条</p>
-            ) : null}
-            {canReview ? (
+        <PageHeader
+          title={title}
+          actions={
+            canReview ? (
               <Button
                 ref={createTrigger}
                 onClick={() => openCreate()}
@@ -346,6 +339,37 @@ export function MemoryReviews({
                 <Plus data-icon="inline-start" aria-hidden="true" />
                 生成记忆提案
               </Button>
+            ) : undefined
+          }
+        />
+        <PageToolbar>
+          <FilterPopover activeCount={activeFilterCount}>
+            {canReadAgents ? (
+              <FilterSelect
+                value={agentId ?? ''}
+                onValueChange={(next) => onAgentChange(next || null)}
+                options={agentOptions}
+                label="按专家筛选记忆提案"
+                className="w-full"
+              />
+            ) : null}
+            <FilterSelect
+              value={stage ?? 'all'}
+              onValueChange={(next) =>
+                onStageChange(next === 'all' ? null : (next as MemoryReviewView))
+              }
+              options={reviewViewOptions}
+              label="按处理状态筛选"
+              className="w-full"
+            />
+          </FilterPopover>
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            {reviews.data && items.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {stage
+                  ? `显示 ${visibleItems.length} / ${items.length} 条`
+                  : `共 ${items.length} 条`}
+              </p>
             ) : null}
             <ViewToggle value={view} onChange={onViewChange} />
           </div>
@@ -412,15 +436,15 @@ export function MemoryReviews({
                   <Card key={review.runId} size="sm" className="h-full min-w-0">
                     <CardHeader>
                       <CardTitle className="min-w-0">
-                        <h2 className="truncate" title={target.detail ?? target.label}>
-                          {target.label}
-                          {target.detail ? (
-                            <span className="ml-1.5 font-normal text-muted-foreground">
-                              {target.detail}
-                            </span>
-                          ) : null}
+                        <h2 className="break-words" title={target.detail ?? target.label}>
+                          {target.detail ?? target.label}
                         </h2>
                       </CardTitle>
+                      {target.detail ? (
+                        <CardDescription className="min-w-0 text-xs">
+                          {target.label}
+                        </CardDescription>
+                      ) : null}
                       <CardAction>
                         {status ? (
                           <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
@@ -483,14 +507,14 @@ export function MemoryReviews({
                     <div className="flex min-h-14 items-center gap-3 py-2">
                       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <span className="truncate text-base font-medium text-fg">
-                            {target.label}
-                            {target.detail ? (
-                              <span className="ml-1.5 font-normal text-muted-foreground">
-                                {target.detail}
-                              </span>
-                            ) : null}
+                          <span className="min-w-0 break-words text-base font-medium text-fg">
+                            {target.detail ?? target.label}
                           </span>
+                          {target.detail ? (
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {target.label}
+                            </span>
+                          ) : null}
                           {status ? (
                             <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
                           ) : null}
@@ -606,7 +630,7 @@ export function MemoryReviews({
           </DialogShell>
         </Dialog>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -1319,7 +1343,7 @@ function CreateMemoryReviewDialog({
                   {conversations.data ? (
                     conversations.data.length === 0 ? (
                       <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-                        该专家还没有会话，先和这位专家对话后再生成提案。
+                        该专家当前无会话，请先与这位专家对话后再生成提案。
                       </p>
                     ) : (
                       <ul className="divide-y">

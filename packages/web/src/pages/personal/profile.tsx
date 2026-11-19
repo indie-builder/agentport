@@ -1,6 +1,7 @@
 import { updatePersonalProfileInputSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { Page, PageBody, PageHeader, PageTopbar } from '../../components/page.js';
@@ -139,7 +140,7 @@ export function PersonalProfilePage() {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={update.isPending}
+                    disabled={!dirty || update.isPending}
                     onClick={() => {
                       setFormError(null);
                       reset({ name: user.user.name });
@@ -193,10 +194,11 @@ export function PersonalProfilePage() {
                   className={buttonVariants({
                     variant: 'link',
                     size: 'sm',
-                    className: 'self-start',
+                    className: 'self-start px-0 underline',
                   })}
                 >
                   前往账号安全
+                  <ArrowRight data-icon="inline-end" aria-hidden="true" />
                 </Link>
               </CardContent>
             </Card>

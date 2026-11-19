@@ -1,6 +1,6 @@
 import { type PersonalSession, passwordSchema } from '@agentport/shared';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { KeyRound } from 'lucide-react';
+import { ChevronRight, KeyRound, RefreshCw } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
@@ -77,6 +77,7 @@ export function PersonalSecurityPage() {
   const search = useSearch({ from: '/_shell/personal/security' });
   const navigate = useNavigate({ from: '/personal/security' });
   const view = search.view ?? 'cards';
+  const sessions = usePersonalSessions();
   const change = useChangePassword();
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -142,9 +143,21 @@ export function PersonalSecurityPage() {
                     })
                   }
                 />
+                <Button
+                  variant="ghost"
+                  onClick={() => void sessions.refetch()}
+                  disabled={sessions.isFetching}
+                >
+                  <RefreshCw
+                    data-icon="inline-start"
+                    className={sessions.isFetching ? 'animate-spin' : undefined}
+                    aria-hidden="true"
+                  />
+                  {sessions.isFetching ? '刷新中…' : '刷新'}
+                </Button>
                 <CollapsibleTrigger
                   disabled={change.isPending}
-                  render={<Button variant="outline" />}
+                  render={<Button variant={passwordOpen ? 'outline' : 'default'} />}
                 >
                   {passwordOpen ? '收起' : '修改密码'}
                 </CollapsibleTrigger>
@@ -266,7 +279,12 @@ export function PersonalSecurityPage() {
             </PageSection>
           </CollapsibleContent>
 
-          <SessionSection view={view} onRelogin={relogin} divided={passwordOpen} />
+          <SessionSection
+            sessions={sessions}
+            view={view}
+            onRelogin={relogin}
+            divided={passwordOpen}
+          />
         </PageBody>
       </Collapsible>
 
@@ -284,15 +302,16 @@ export function PersonalSecurityPage() {
 }
 
 function SessionSection({
+  sessions,
   view,
   onRelogin,
   divided,
 }: {
+  sessions: ReturnType<typeof usePersonalSessions>;
   view: ListView;
   onRelogin: () => Promise<void>;
   divided: boolean;
 }) {
-  const sessions = usePersonalSessions();
   const revoke = useRevokePersonalSession();
   const [target, setTarget] = useState<PersonalSession | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -332,11 +351,6 @@ function SessionSection({
               setModalError(null);
               setTarget(session);
             }}
-            action={
-              <Button variant="outline" size="sm" onClick={() => void sessions.refetch()}>
-                刷新
-              </Button>
-            }
           />
         ) : null}
         {others.length > 0 ? (
@@ -407,23 +421,17 @@ function SessionGroup({
   sessions,
   revoke,
   onRevoke,
-  action,
 }: {
   title: string;
   view: ListView;
   sessions: PersonalSession[];
   revoke: ReturnType<typeof useRevokePersonalSession>;
   onRevoke: (session: PersonalSession) => void;
-  action?: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 flex-col">
-      <div className="flex min-w-0 items-center justify-between gap-4">
-        <h2 className="text-base font-medium text-fg">{title}</h2>
-        {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
-      </div>
+    <PageSection title={title} divided={false} className="gap-3">
       {view === 'cards' ? (
-        <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2">
+        <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2">
           {sessions.map((session) => (
             <li key={session.id} className="min-w-0">
               <SessionCard session={session} revoke={revoke} onRevoke={onRevoke} />
@@ -431,7 +439,7 @@ function SessionGroup({
           ))}
         </ul>
       ) : (
-        <ul className="mt-3 divide-y border-y">
+        <ul className="divide-y border-y">
           {sessions.map((session) => (
             <li key={session.id}>
               <Collapsible>
@@ -454,11 +462,16 @@ function SessionGroup({
                       />
                     }
                   >
+                    <ChevronRight
+                      data-icon="inline-start"
+                      className="transition-transform duration-150 ease-out-soft group-aria-expanded:rotate-90"
+                      aria-hidden="true"
+                    />
                     会话详情
                   </CollapsibleTrigger>
                   {session.current ? null : (
                     <Button
-                      variant="outline"
+                      variant="destructive"
                       size="sm"
                       disabled={revoke.isPending}
                       aria-label={`撤销 ${formatDateTime(session.updatedAt)} 的会话`}
@@ -483,7 +496,7 @@ function SessionGroup({
           ))}
         </ul>
       )}
-    </div>
+    </PageSection>
   );
 }
 
@@ -520,10 +533,15 @@ function SessionCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 justify-start px-0 text-sm text-muted-foreground"
+                className="group self-start text-muted-foreground"
               />
             }
           >
+            <ChevronRight
+              data-icon="inline-start"
+              className="transition-transform duration-150 ease-out-soft group-aria-expanded:rotate-90"
+              aria-hidden="true"
+            />
             会话详情
           </CollapsibleTrigger>
           <CollapsibleContent animated>
@@ -539,7 +557,7 @@ function SessionCard({
         {session.current ? null : (
           <CardFooter className="justify-end">
             <Button
-              variant="outline"
+              variant="destructive"
               size="sm"
               disabled={revoke.isPending}
               aria-label={`撤销 ${formatDateTime(session.updatedAt)} 的会话`}

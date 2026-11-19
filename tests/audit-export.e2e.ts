@@ -76,17 +76,20 @@ test('target filter narrows the list and the export', { session: 'admin' }, asyn
     await app.open('/audit');
     await expect(screen.getByRole('heading', '审计')).toBeVisible();
 
+    await screen.getByRole('button', '筛选').tap();
     const targetInput = screen.getByLabel('按目标精确筛选');
     await targetInput.fill(ownTarget);
+    await browser.keyboard.press('Escape');
     await expect(browser).toHaveURL(/\/audit\?.*target=/);
 
     await expect(screen.getByText(ownAction, { exact: true }).first()).toBeVisible();
     await expect(screen.getByText(unrelatedAction, { exact: true }).first()).not.toBeVisible();
 
     // 输入后防抖期间导出入口显示「等待筛选…」，等它恢复为可导出的动作名再点击。
-    await expect(screen.getByRole('button', '导出审计', { exact: true })).toBeEnabled();
+    await screen.getByRole('button', '更多操作', { exact: true }).tap();
+    await expect(screen.getByRole('menuitem', '导出审计 (JSON)', { exact: true })).toBeEnabled();
     const download = await browser.waitForDownload(() =>
-      screen.getByRole('button', '导出审计', { exact: true }).tap(),
+      screen.getByRole('menuitem', '导出审计 (JSON)', { exact: true }).tap(),
     );
     expect(download.suggestedFilename).toBe('audit.json');
 
@@ -179,10 +182,13 @@ test('oversize audit export reports the error instead of silently truncating', {
   await runFixture('audit-export', 'seedOversize', target);
   try {
     await app.open(`/audit?target=${encodeURIComponent(target)}`);
-    await screen.getByRole('button', '导出审计', { exact: true }).tap();
+    await screen.getByRole('button', '更多操作', { exact: true }).tap();
+    await screen.getByRole('menuitem', '导出审计 (JSON)', { exact: true }).tap();
     await expect(screen.getByText('超过 1000 条', { exact: false }).first()).toBeVisible();
     await expect(browser).toHaveURL(/\/audit\?target=/);
-    await expect(screen.getByRole('button', '导出审计', { exact: true })).toBeEnabled();
+    await screen.getByRole('button', '更多操作', { exact: true }).tap();
+    await expect(screen.getByRole('menuitem', '导出审计 (JSON)', { exact: true })).toBeEnabled();
+    await browser.keyboard.press('Escape');
   } finally {
     await removeFixtures([], [target]);
   }
@@ -197,15 +203,18 @@ test('exports exactly 1000 audit rows', { session: 'admin' }, async ({ app, scre
     // 列表每页 100 条；导出上限刚好 1000 条。
     await expect(screen.getByText('100 行', { exact: true })).toBeVisible();
 
+    await screen.getByRole('button', '更多操作', { exact: true }).tap();
     const download = await browser.waitForDownload(() =>
-      screen.getByRole('button', '导出审计', { exact: true }).tap(),
+      screen.getByRole('menuitem', '导出审计 (JSON)', { exact: true }).tap(),
     );
     const body = await readJson(download.absolutePath);
     expect(body.format).toBe('agentport/audit@1');
     expect(body.items).toHaveLength(1000);
     expect(body.items.every((row) => row.target === target)).toBe(true);
-    // 导出后按钮恢复，页面不跳转。
-    await expect(screen.getByRole('button', '导出审计', { exact: true })).toBeEnabled();
+    // 导出后菜单项恢复，页面不跳转。
+    await screen.getByRole('button', '更多操作', { exact: true }).tap();
+    await expect(screen.getByRole('menuitem', '导出审计 (JSON)', { exact: true })).toBeEnabled();
+    await browser.keyboard.press('Escape');
     await expect(browser).toHaveURL(/\/audit\?target=/);
   } finally {
     await removeFixtures([], [target]);

@@ -14,7 +14,7 @@ import {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { KeyRound, Plus, Trash2, Webhook } from 'lucide-react';
+import { ChevronDown, KeyRound, Plus, Trash2, Webhook } from 'lucide-react';
 import { useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -29,13 +29,14 @@ import {
   PageHeader,
   PageNote,
   PageSection,
+  PageToolbar,
   PageTopbar,
 } from '../components/page.js';
 import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
 import {
   Card,
   CardAction,
@@ -45,6 +46,11 @@ import {
   CardTitle,
 } from '../components/ui/card.js';
 import { Checkbox } from '../components/ui/checkbox.js';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../components/ui/collapsible.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   Field,
@@ -62,9 +68,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select.js';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
+import { cn } from '../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
 import { formatDateTime } from '../lib/format.js';
 import {
@@ -109,12 +117,17 @@ const DIRECTION_LABEL = Object.fromEntries(
   DIRECTION_OPTIONS.map((option) => [option.value, option.label]),
 ) as Record<WebhookDirection, string>;
 
-function tokenStatus(token: ApiToken): { label: string; tone: 'default' | 'warn' | 'danger' } {
+const TABS = [
+  { value: 'tokens', label: 'API 令牌' },
+  { value: 'webhooks', label: 'Webhook 端点' },
+] as const;
+
+function tokenStatus(token: ApiToken): { label: string; tone: 'success' | 'warn' | 'danger' } {
   if (token.revokedAt) return { label: '已撤销', tone: 'danger' };
   if (token.expiresAt && Date.parse(token.expiresAt) <= Date.now()) {
     return { label: '已过期', tone: 'warn' };
   }
-  return { label: '有效', tone: 'default' };
+  return { label: '有效', tone: 'success' };
 }
 
 export function IntegrationsPage() {
@@ -122,35 +135,105 @@ export function IntegrationsPage() {
   const canManage = can(me.data, 'integrations.manage');
   const search = useSearch({ from: '/_shell/integrations' });
   const navigate = useNavigate({ from: '/integrations' });
+  const tab = search.tab ?? 'tokens';
   const view = search.view ?? 'cards';
+  const [creating, setCreating] = useState<'token' | 'webhook' | null>(null);
   const setView = (next: ListView): void => {
     void navigate({ to: '/integrations', search: { ...search, view: next }, replace: true });
   };
   const tokens = useApiTokens();
   const endpoints = useWebhookEndpoints();
-  const hasRows = (tokens.data?.length ?? 0) + (endpoints.data?.length ?? 0) > 0;
+  const currentCount =
+    tab === 'tokens' ? (tokens.data?.length ?? 0) : (endpoints.data?.length ?? 0);
 
   return (
     <Page>
-      <PageTopbar>
-        <PageHeader
-          title="集成"
-          description="令牌用于外部系统调用开放 API，Webhook 端点接收签名触发并推送运行事件。"
-          actions={hasRows ? <ViewToggle value={view} onChange={setView} /> : null}
-        />
-      </PageTopbar>
-      <PageBody>
-        <ApiTokensSection canManage={canManage} view={view} />
-        <WebhookEndpointsSection canManage={canManage} view={view} />
-      </PageBody>
+      <Tabs
+        value={tab}
+        onValueChange={(next) => {
+          if (next === tab) return;
+          if (!TABS.some((item) => item.value === next)) return;
+          void navigate({
+            to: '/integrations',
+            search: { ...search, tab: next as (typeof TABS)[number]['value'] },
+            replace: true,
+          });
+        }}
+        className="min-h-0 flex-1 gap-4"
+      >
+        <PageTopbar>
+          <PageHeader
+            title="集成"
+            actions={
+              canManage ? (
+                tab === 'tokens' ? (
+                  <Button onClick={() => setCreating('token')}>
+                    <Plus data-icon="inline-start" aria-hidden="true" /> 创建令牌
+                  </Button>
+                ) : (
+                  <Button onClick={() => setCreating('webhook')}>
+                    <Plus data-icon="inline-start" aria-hidden="true" /> 创建端点
+                  </Button>
+                )
+              ) : null
+            }
+          />
+          <PageToolbar>
+            <TabsList variant="line" aria-label="集成分区">
+              {TABS.map((item) => (
+                <TabsTrigger key={item.value} value={item.value}>
+                  {item.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {currentCount > 0 ? (
+              <div className="ml-auto flex flex-wrap items-center gap-3">
+                <span role="status" className="text-xs text-muted-foreground">
+                  {tab === 'tokens' ? `共 ${currentCount} 个令牌` : `共 ${currentCount} 个端点`}
+                </span>
+                <ViewToggle value={view} onChange={setView} />
+              </div>
+            ) : null}
+          </PageToolbar>
+        </PageTopbar>
+        <PageBody>
+          <TabsContent value="tokens" className="min-w-0">
+            {tab === 'tokens' ? (
+              <ApiTokensSection
+                canManage={canManage}
+                view={view}
+                onCreate={() => setCreating('token')}
+              />
+            ) : null}
+          </TabsContent>
+          <TabsContent value="webhooks" className="min-w-0">
+            {tab === 'webhooks' ? (
+              <WebhookEndpointsSection
+                canManage={canManage}
+                view={view}
+                onCreate={() => setCreating('webhook')}
+              />
+            ) : null}
+          </TabsContent>
+        </PageBody>
+      </Tabs>
+      {creating === 'token' ? <ApiTokenDialog onClose={() => setCreating(null)} /> : null}
+      {creating === 'webhook' ? <WebhookDialog onClose={() => setCreating(null)} /> : null}
     </Page>
   );
 }
 
-function ApiTokensSection({ canManage, view }: { canManage: boolean; view: ListView }) {
+function ApiTokensSection({
+  canManage,
+  view,
+  onCreate,
+}: {
+  canManage: boolean;
+  view: ListView;
+  onCreate: () => void;
+}) {
   const tokens = useApiTokens();
   const revoke = useRevokeApiToken();
-  const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState<ApiToken | null>(null);
   const rows = tokens.data ?? [];
 
@@ -219,16 +302,7 @@ function ApiTokensSection({ canManage, view }: { canManage: boolean; view: ListV
   }
 
   return (
-    <PageSection
-      title="API 令牌"
-      actions={
-        canManage ? (
-          <Button onClick={() => setCreating(true)}>
-            <Plus data-icon="inline-start" aria-hidden="true" /> 创建令牌
-          </Button>
-        ) : null
-      }
-    >
+    <PageSection divided={false}>
       {tokens.isPending ? <LoadingState rows={4} /> : null}
       {tokens.isError ? (
         <ErrorState error={tokens.error} onRetry={() => void tokens.refetch()} />
@@ -236,8 +310,15 @@ function ApiTokensSection({ canManage, view }: { canManage: boolean; view: ListV
       {tokens.data && rows.length === 0 ? (
         <PageNote
           icon={<KeyRound aria-hidden="true" />}
-          title="还没有 API 令牌"
+          title="无 API 令牌"
           description="创建后可用 Authorization: Bearer <token> 调用开放 API。"
+          action={
+            canManage ? (
+              <Button variant="outline" size="sm" onClick={onCreate}>
+                <Plus data-icon="inline-start" aria-hidden="true" /> 创建令牌
+              </Button>
+            ) : undefined
+          }
         />
       ) : null}
       {rows.length > 0 && view === 'table' ? (
@@ -247,6 +328,7 @@ function ApiTokensSection({ canManage, view }: { canManage: boolean; view: ListV
           rowKey={(token) => token.id}
           rowLabel={(token) => token.name}
           label="API 令牌"
+          hideRowCount
         />
       ) : null}
       {rows.length > 0 && view === 'cards' ? (
@@ -259,15 +341,15 @@ function ApiTokensSection({ canManage, view }: { canManage: boolean; view: ListV
             return (
               <li key={token.id} className="min-w-0">
                 <Card size="sm" className="h-full">
-                  <CardHeader>
-                    <CardTitle className="truncate" title={token.name}>
+                  <CardHeader className="grid-cols-[minmax(0,1fr)_auto]! items-center">
+                    <CardTitle className="min-w-0 truncate" title={token.name}>
                       {token.name}
                     </CardTitle>
-                    <CardAction>
+                    <CardAction className="col-start-2 row-start-1 self-center">
                       <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
                     </CardAction>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="flex-1">
                     <RecordRows
                       rows={[
                         { label: '前缀', value: `${token.tokenPrefix}…`, mono: true },
@@ -298,7 +380,6 @@ function ApiTokensSection({ canManage, view }: { canManage: boolean; view: ListV
         </ul>
       ) : null}
 
-      {creating ? <ApiTokenDialog onClose={() => setCreating(false)} /> : null}
       {revoking ? (
         <ConfirmDialog
           open
@@ -503,11 +584,19 @@ function ApiTokenDialog({ onClose: onClosed }: { onClose: () => void }) {
   );
 }
 
-function WebhookEndpointsSection({ canManage, view }: { canManage: boolean; view: ListView }) {
+function WebhookEndpointsSection({
+  canManage,
+  view,
+  onCreate,
+}: {
+  canManage: boolean;
+  view: ListView;
+  onCreate: () => void;
+}) {
   const endpoints = useWebhookEndpoints();
   const remove = useRemoveWebhookEndpoint();
-  const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<WebhookEndpoint | null>(null);
+  const [inboundDocOpen, setInboundDocOpen] = useState(false);
   const rows = endpoints.data ?? [];
 
   const columns: DataColumn<WebhookEndpoint>[] = [
@@ -561,7 +650,11 @@ function WebhookEndpointsSection({ canManage, view }: { canManage: boolean; view
       id: 'status',
       header: '状态',
       width: '72px',
-      cell: (endpoint) => <StatusBadge>{endpoint.enabled ? '启用' : '停用'}</StatusBadge>,
+      cell: (endpoint) => (
+        <StatusBadge tone={endpoint.enabled ? 'success' : 'default'}>
+          {endpoint.enabled ? '启用' : '停用'}
+        </StatusBadge>
+      ),
     },
   ];
   if (canManage) {
@@ -573,7 +666,7 @@ function WebhookEndpointsSection({ canManage, view }: { canManage: boolean; view
       cell: (endpoint) => (
         <Button
           variant="ghost"
-          size="sm"
+          size="icon-sm"
           aria-label={`删除端点 ${endpoint.name}`}
           onClick={() => setDeleting(endpoint)}
         >
@@ -584,16 +677,7 @@ function WebhookEndpointsSection({ canManage, view }: { canManage: boolean; view
   }
 
   return (
-    <PageSection
-      title="Webhook 端点"
-      actions={
-        canManage ? (
-          <Button onClick={() => setCreating(true)}>
-            <Plus data-icon="inline-start" aria-hidden="true" /> 创建端点
-          </Button>
-        ) : null
-      }
-    >
+    <PageSection divided={false}>
       {endpoints.isPending ? <LoadingState rows={4} /> : null}
       {endpoints.isError ? (
         <ErrorState error={endpoints.error} onRetry={() => void endpoints.refetch()} />
@@ -601,8 +685,15 @@ function WebhookEndpointsSection({ canManage, view }: { canManage: boolean; view
       {endpoints.data && rows.length === 0 ? (
         <PageNote
           icon={<Webhook aria-hidden="true" />}
-          title="还没有 Webhook 端点"
-          description="入站端点接收外部签名触发，出站端点推送运行完成、失败、审批与预算事件。"
+          title="无 Webhook 端点"
+          description="入站端点接收外部签名触发，出站端点推送运行事件。"
+          action={
+            canManage ? (
+              <Button variant="outline" size="sm" onClick={onCreate}>
+                <Plus data-icon="inline-start" aria-hidden="true" /> 创建端点
+              </Button>
+            ) : undefined
+          }
         />
       ) : null}
       {rows.length > 0 && view === 'table' ? (
@@ -612,6 +703,7 @@ function WebhookEndpointsSection({ canManage, view }: { canManage: boolean; view
           rowKey={(endpoint) => endpoint.id}
           rowLabel={(endpoint) => endpoint.name}
           label="Webhook 端点"
+          hideRowCount
         />
       ) : null}
       {rows.length > 0 && view === 'cards' ? (
@@ -622,15 +714,17 @@ function WebhookEndpointsSection({ canManage, view }: { canManage: boolean; view
           {rows.map((endpoint) => (
             <li key={endpoint.id} className="min-w-0">
               <Card size="sm" className="h-full">
-                <CardHeader>
-                  <CardTitle className="truncate" title={endpoint.name}>
+                <CardHeader className="grid-cols-[minmax(0,1fr)_auto]! items-center">
+                  <CardTitle className="min-w-0 truncate" title={endpoint.name}>
                     {endpoint.name}
                   </CardTitle>
-                  <CardAction>
-                    <StatusBadge>{endpoint.enabled ? '启用' : '停用'}</StatusBadge>
+                  <CardAction className="col-start-2 row-start-1 self-center">
+                    <StatusBadge tone={endpoint.enabled ? 'success' : 'default'}>
+                      {endpoint.enabled ? '启用' : '停用'}
+                    </StatusBadge>
                   </CardAction>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="flex-1">
                   <RecordRows
                     rows={[
                       { label: '方向', value: DIRECTION_LABEL[endpoint.direction] },
@@ -665,7 +759,7 @@ function WebhookEndpointsSection({ canManage, view }: { canManage: boolean; view
                   <CardFooter className="justify-end">
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="icon-sm"
                       aria-label={`删除端点 ${endpoint.name}`}
                       onClick={() => setDeleting(endpoint)}
                     >
@@ -679,34 +773,50 @@ function WebhookEndpointsSection({ canManage, view }: { canManage: boolean; view
         </ul>
       ) : null}
 
-      <div className="flex min-w-0 flex-col gap-1.5 border-t pt-4 text-sm text-muted-foreground">
-        <p className="text-fg">入站调用</p>
-        <p className="break-words">
-          向{' '}
-          <code className="font-mono text-xs text-fg">
-            POST /api/webhooks/inbound/&lt;端点 ID&gt;
-          </code>{' '}
-          发送 JSON{' '}
-          <code className="font-mono text-xs text-fg">
-            {'{ eventId, message, conversationId? }'}
-          </code>
-          。
-        </p>
-        <p className="break-words">
-          签名头 <code className="font-mono text-xs text-fg">X-Agentport-Timestamp</code>
-          （秒或毫秒，超出 5 分钟窗口拒绝）与{' '}
-          <code className="font-mono text-xs text-fg">
-            X-Agentport-Signature: sha256=&lt;hex&gt;
-          </code>
-          ，内容为{' '}
-          <code className="font-mono text-xs text-fg">HMAC-SHA256(secret, timestamp.rawBody)</code>
-          ；幂等键使用 body 的 <code className="font-mono text-xs text-fg">eventId</code>；如另带{' '}
-          <code className="font-mono text-xs text-fg">X-Idempotency-Key</code>，必须与{' '}
-          <code className="font-mono text-xs text-fg">eventId</code> 相同。
-        </p>
-      </div>
+      <Collapsible open={inboundDocOpen} onOpenChange={setInboundDocOpen} className="border-t pt-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-base font-medium text-fg">入站调用</h2>
+          <CollapsibleTrigger className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+            {inboundDocOpen ? '收起' : '查看签名协议'}
+            <ChevronDown
+              data-icon="inline-end"
+              aria-hidden="true"
+              className={cn(
+                'transition-transform duration-150 ease-out-soft',
+                inboundDocOpen && 'rotate-180',
+              )}
+            />
+          </CollapsibleTrigger>
+        </div>
+        <CollapsibleContent className="mt-3 flex min-w-0 flex-col gap-1.5 text-sm text-muted-foreground">
+          <p className="break-words">
+            向{' '}
+            <code className="font-mono text-xs text-fg">
+              POST /api/webhooks/inbound/&lt;端点 ID&gt;
+            </code>{' '}
+            发送 JSON{' '}
+            <code className="font-mono text-xs text-fg">
+              {'{ eventId, message, conversationId? }'}
+            </code>
+            。
+          </p>
+          <p className="break-words">
+            签名头 <code className="font-mono text-xs text-fg">X-Agentport-Timestamp</code>
+            （秒或毫秒，超出 5 分钟窗口拒绝）与{' '}
+            <code className="font-mono text-xs text-fg">
+              X-Agentport-Signature: sha256=&lt;hex&gt;
+            </code>
+            ，内容为{' '}
+            <code className="font-mono text-xs text-fg">
+              HMAC-SHA256(secret, timestamp.rawBody)
+            </code>
+            ；幂等键使用 body 的 <code className="font-mono text-xs text-fg">eventId</code>
+            ；如另带 <code className="font-mono text-xs text-fg">X-Idempotency-Key</code>
+            ，必须与 <code className="font-mono text-xs text-fg">eventId</code> 相同。
+          </p>
+        </CollapsibleContent>
+      </Collapsible>
 
-      {creating ? <WebhookDialog onClose={() => setCreating(false)} /> : null}
       {deleting ? (
         <ConfirmDialog
           open

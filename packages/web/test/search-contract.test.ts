@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   evalSearchSchema,
+  integrationsSearchSchema,
+  personalWorkSearchSchema,
   runDetailSearchSchema,
   runsSearchSchema,
+  serversSearchSchema,
 } from '../src/routes/-search.js';
 
 describe('shared search contract', () => {
@@ -71,5 +74,28 @@ describe('shared search contract', () => {
     // 空 ID 不能表达“选中”，按未选中处理，避免用空参数请求详情。
     expect(evalSearchSchema.parse({ run: '', base: '', head: '' })).toEqual({});
     expect(evalSearchSchema.parse({ unknown: 'x' })).toEqual({});
+  });
+
+  it('validates tab and view parameters for integrations, servers and personal work', () => {
+    expect(integrationsSearchSchema.parse({ tab: 'webhooks', view: 'table' })).toEqual({
+      tab: 'webhooks',
+      view: 'table',
+    });
+    expect(integrationsSearchSchema.parse({ tab: 'invalid', view: 'grid' })).toEqual({});
+
+    expect(serversSearchSchema.parse({ kind: 'http', view: 'cards' })).toEqual({
+      kind: 'http',
+      view: 'cards',
+    });
+    expect(serversSearchSchema.parse({ view: 'invalid' })).toEqual({});
+
+    expect(
+      personalWorkSearchSchema.parse({ tab: 'outputs', q: 'report', source: 'scheduled' }),
+    ).toEqual({
+      tab: 'outputs',
+      q: 'report',
+      source: 'scheduled',
+    });
+    expect(personalWorkSearchSchema.parse({ tab: 'bad', source: 'auto' })).toEqual({});
   });
 });

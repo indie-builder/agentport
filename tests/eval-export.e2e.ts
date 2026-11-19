@@ -85,8 +85,9 @@ test('eval dataset export downloads the seeded golden file', { session: 'admin' 
     await expect(screen.getByText('golden alpha', { exact: true }).first()).toBeVisible();
     await expect(screen.getByText('golden beta', { exact: true }).first()).toBeVisible();
 
+    await screen.getByRole('button', '用例更多操作', { exact: true }).tap();
     const download = await browser.waitForDownload(() =>
-      screen.getByRole('button', '导出 JSON', { exact: true }).tap(),
+      screen.getByRole('menuitem', '导出 JSON', { exact: true }).tap(),
     );
     expect(download.suggestedFilename).toBe('eval-cases.json');
 
@@ -108,8 +109,10 @@ test('eval dataset export downloads the seeded golden file', { session: 'admin' 
         },
       ]),
     );
-    // 导出完成后按钮恢复，页面仍在评估页。
-    await expect(screen.getByRole('button', '导出 JSON', { exact: true })).toBeEnabled();
+    // 导出完成后操作菜单恢复可用，页面仍在评估页。
+    await expect(screen.getByRole('button', '用例更多操作', { exact: true })).toBeEnabled();
+    await screen.getByRole('button', '用例更多操作', { exact: true }).tap();
+    await expect(screen.getByRole('menuitem', '导出 JSON', { exact: true })).toBeEnabled();
     await expect(browser).toHaveURL(/\/eval\?agent=/);
   } finally {
     await removeFixture(agent.id);

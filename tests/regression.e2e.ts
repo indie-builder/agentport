@@ -141,10 +141,12 @@ test('resource tabs preserve navigation and searchable URL state', { session: 'a
     ).toBeVisible();
     await resourceNav.getByRole('link', '连接器', { exact: true }).tap();
     await expect(browser).toHaveURL(/\/servers$/);
+    await screen.getByRole('button', '筛选').tap();
     await screen.getByRole('combobox', '按来源筛选').tap();
     await screen.getByRole('option', '本地命令', { exact: true }).tap();
     await expect(browser).toHaveURL(/\/servers\?kind=stdio$/);
     await app.open('/servers?kind=stdio');
+    await screen.getByRole('button', '筛选').tap();
     await expect(screen.getByRole('combobox', '按来源筛选')).toHaveText('本地命令');
   } catch (error) {
     failure = error;

@@ -239,10 +239,9 @@ function CostSection() {
   return (
     <PageSection
       divided={false}
-      title="成本"
       {...(summary.data
         ? {
-            description: `${formatDate(summary.data.since)} 起 ${summary.data.days} 天`,
+            description: `${formatDate(summary.data.since)} 起`,
           }
         : {})}
       actions={
@@ -293,7 +292,7 @@ function CostSection() {
       {summary.data && groups.length === 0 ? (
         <PageNote
           icon={<Coins aria-hidden="true" />}
-          title="窗口内还没有运行成本"
+          title="窗口内无运行成本"
           description="运行产生成本后会按所选维度汇总。"
         />
       ) : null}
@@ -354,7 +353,6 @@ function BudgetsSection({ canManage }: { canManage: boolean }) {
   return (
     <PageSection
       divided={false}
-      title="预算"
       actions={
         canManage ? (
           <Button onClick={() => setCreating(true)}>
@@ -370,7 +368,7 @@ function BudgetsSection({ canManage }: { canManage: boolean }) {
       {budgets.data && rows.length === 0 ? (
         <PageNote
           icon={<Coins aria-hidden="true" />}
-          title="还没有预算"
+          title="无预算"
           description="为个人、部门、专家、知识库或数据域设置上限后，达到阈值会发送提醒。"
           action={
             canManage ? (
@@ -799,7 +797,6 @@ function DepartmentsSection({ canManage }: { canManage: boolean }) {
   return (
     <PageSection
       divided={false}
-      title="部门"
       actions={
         canManage ? (
           <Button onClick={() => setCreating(true)}>
@@ -815,7 +812,7 @@ function DepartmentsSection({ canManage }: { canManage: boolean }) {
       {departments.data && rows.length === 0 ? (
         <PageNote
           icon={<UsersRound aria-hidden="true" />}
-          title="还没有部门"
+          title="无部门"
           description="部门用于按组织汇总成本与设置预算。"
           action={
             canManage ? (
@@ -1233,7 +1230,7 @@ function GrantsSection({ canManage }: { canManage: boolean }) {
         ];
 
   return (
-    <PageSection divided={false} title="资源授权">
+    <PageSection divided={false}>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Select
           value={resourceKind}
@@ -1341,7 +1338,7 @@ function GrantsSection({ canManage }: { canManage: boolean }) {
       ) : null}
       {resourceId.length > 0 && grants.data && grantRows.length === 0 ? (
         <PageNote
-          title="还没有额外授权"
+          title="无额外授权"
           description="资源所有者与平台管理员始终可访问。"
           action={
             canManage ? (
@@ -1712,7 +1709,7 @@ function HandoverSection({ canManage }: { canManage: boolean }) {
   const total = data ? Object.values(data.counts).reduce((sum, value) => sum + value, 0) : 0;
 
   return (
-    <PageSection divided={false} title="离职交接">
+    <PageSection divided={false}>
       <div className="flex max-w-md min-w-0 flex-col gap-2">
         <p className="text-sm font-medium text-fg">离职账户</p>
         <AccountSelect
@@ -1748,7 +1745,7 @@ function HandoverSection({ canManage }: { canManage: boolean }) {
         <>
           <div className="flex min-w-0 flex-col gap-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="text-sm font-medium text-fg">{data.name}</h3>
+              <h2 className="text-sm font-medium text-fg">{data.name}</h2>
               <StatusBadge>
                 {data.status === 'active' ? '启用' : data.status === 'deleted' ? '已删除' : '停用'}
               </StatusBadge>
@@ -1771,7 +1768,7 @@ function HandoverSection({ canManage }: { canManage: boolean }) {
 
           {data.departments.length > 0 ? (
             <div className="flex min-w-0 flex-col gap-2">
-              <h3 className="text-sm font-medium text-fg">部门</h3>
+              <h2 className="text-sm font-medium text-fg">部门</h2>
               <ul className="divide-y divide-line border-y">
                 {data.departments.map((department) => (
                   <li
@@ -1790,7 +1787,7 @@ function HandoverSection({ canManage }: { canManage: boolean }) {
             <div className="grid grid-cols-2 gap-x-6 gap-y-5">
               {HANDOVER_GROUPS.filter((group) => data.items[group.key].length > 0).map((group) => (
                 <div key={group.key} className="flex min-w-0 flex-col gap-2">
-                  <h3 className="text-sm font-medium text-fg">{group.label}</h3>
+                  <h2 className="text-sm font-medium text-fg">{group.label}</h2>
                   <ul className="divide-y divide-line border-y">
                     {data.items[group.key].map((item) => (
                       <li key={item.id} className="min-w-0 py-1.5 text-sm text-muted-foreground">
@@ -1809,7 +1806,7 @@ function HandoverSection({ canManage }: { canManage: boolean }) {
           ) : null}
 
           <div className="flex min-w-0 flex-col gap-3">
-            <h3 className="text-sm font-medium text-fg">接收人</h3>
+            <h2 className="text-sm font-medium text-fg">接收人</h2>
             <div className="max-w-md">
               <AccountSelect
                 label="接收人"
@@ -1878,7 +1875,7 @@ type AlertsFormValues = z.infer<typeof alertsFormSchema>;
 function AlertsSection({ canManage }: { canManage: boolean }) {
   const alerts = useAlertSettings();
   return (
-    <PageSection divided={false} title="告警">
+    <PageSection divided={false}>
       {alerts.isPending ? <LoadingState rows={3} /> : null}
       {alerts.isError ? (
         <ErrorState error={alerts.error} onRetry={() => void alerts.refetch()} />

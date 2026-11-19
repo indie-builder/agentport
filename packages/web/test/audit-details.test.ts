@@ -138,10 +138,31 @@ function loadMore(): HTMLButtonElement {
 
 function button(text: string): HTMLButtonElement {
   const found = [...container.querySelectorAll('button')].find(
-    (node) => node.textContent?.trim() === text,
+    (node) => node.textContent?.trim() === text || node.getAttribute('aria-label') === text,
   );
   if (!found) throw new Error(`missing button ${text}`);
   return found;
+}
+
+async function openMoreMenu(): Promise<void> {
+  const trigger = button('更多操作');
+  if (trigger.getAttribute('aria-expanded') === 'true') return;
+  await act(async () => trigger.click());
+  await flush();
+}
+
+function menuItem(text: string): HTMLElement {
+  const found = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (node) => node.textContent?.trim() === text,
+  );
+  if (!found) throw new Error(`missing menuitem ${text}`);
+  return found;
+}
+
+async function clickMoreAction(text: string): Promise<void> {
+  await openMoreMenu();
+  await act(async () => menuItem(text).click());
+  await flush();
 }
 
 beforeEach(() => {
@@ -190,7 +211,7 @@ describe('audit CSV export', () => {
       '?action=agent.&target=agent:123&actor=alice&status=denied&actorKind=service&range=7',
     );
 
-    await act(async () => button('导出 CSV').click());
+    await clickMoreAction('导出 CSV');
     await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
     expect(api.exportAudit).toHaveBeenLastCalledWith({
       action: 'agent.',
@@ -211,7 +232,7 @@ describe('audit CSV export', () => {
     expect(new Uint8Array(await blob.arrayBuffer()).slice(0, 3)).toEqual(
       new Uint8Array([0xef, 0xbb, 0xbf]),
     );
-    await act(async () => button('导出审计').click());
+    await clickMoreAction('导出审计 (JSON)');
     expect(api.exportAudit).toHaveBeenCalledTimes(2);
     expect(vi.mocked(api.exportAudit).mock.calls[1]).toEqual(
       vi.mocked(api.exportAudit).mock.calls[0],
@@ -227,19 +248,23 @@ describe('audit CSV export', () => {
       items: [],
     });
     await mount();
-    const csvButton = button('导出 CSV');
     await typeAction('auth.');
-    expect(csvButton.disabled).toBe(true);
-    expect(csvButton.textContent).toBe('等待筛选…');
-    await act(async () => csvButton.click());
+    await openMoreMenu();
+    const pendingItems = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].filter(
+      (node) => node.textContent?.trim() === '等待筛选…',
+    );
+    expect(pendingItems).toHaveLength(2);
+    const csvItem = pendingItems[1] as HTMLElement;
+    expect(csvItem.getAttribute('aria-disabled')).toBe('true');
+    await act(async () => csvItem.click());
     expect(api.exportAudit).not.toHaveBeenCalled();
 
     await act(async () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 400));
     });
-    expect(csvButton.disabled).toBe(false);
-    expect(csvButton.textContent).toBe('导出 CSV');
-    await act(async () => csvButton.click());
+    const readyCsv = menuItem('导出 CSV');
+    expect(readyCsv.getAttribute('aria-disabled')).toBeNull();
+    await act(async () => readyCsv.click());
     expect(api.exportAudit).toHaveBeenCalledWith({ action: 'auth.' });
   });
 });
@@ -270,7 +295,7 @@ describe('audit integrity verification', () => {
     vi.spyOn(api, 'audit').mockResolvedValue(page([entry('a')]));
     await mount();
 
-    await act(async () => button('校验完整性').click());
+    await clickMoreAction('校验完整性');
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('审计链完整，已校验 12 条记录'));
     expect(api.verifyAudit).toHaveBeenCalledWith({ limit: 5000 });
     expect(toastError).not.toHaveBeenCalled();
@@ -287,7 +312,7 @@ describe('audit integrity verification', () => {
     vi.spyOn(api, 'audit').mockResolvedValue(page([entry('a')]));
     await mount();
 
-    await act(async () => button('校验完整性').click());
+    await clickMoreAction('校验完整性');
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
         expect.objectContaining({ message: '审计链校验失败：seq 42 处断链（已校验 5 条）' }),
@@ -315,7 +340,7 @@ describe('audit integrity verification', () => {
     vi.spyOn(api, 'audit').mockResolvedValue(page([entry('a')]));
     await mount();
 
-    await act(async () => button('校验完整性').click());
+    await clickMoreAction('校验完整性');
     await waitFor(() =>
       expect(toastSuccess).toHaveBeenCalledWith('审计链完整，已校验 5010 条记录'),
     );

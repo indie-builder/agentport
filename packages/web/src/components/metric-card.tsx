@@ -15,7 +15,7 @@ export function MetricCard({
   icon?: LucideIcon;
 }) {
   return (
-    <Card size="sm">
+    <Card size="sm" className="min-w-0">
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-3">
           <span className="text-sm font-normal text-muted-foreground">{label}</span>
@@ -34,11 +34,28 @@ export function MetricCard({
   );
 }
 
-export function MetricGrid({ children, className }: { children: ReactNode; className?: string }) {
+const GRID_COLUMNS = {
+  2: 'grid-cols-1 sm:grid-cols-2',
+  3: 'grid-cols-1 sm:grid-cols-3',
+  4: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4',
+} as const;
+
+export function MetricGrid({
+  children,
+  columns,
+  className,
+}: {
+  children: ReactNode;
+  columns?: 2 | 3 | 4;
+  className?: string;
+}) {
   return (
     <div
       className={cn(
-        'grid gap-4 grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))]',
+        'grid min-w-0 gap-4',
+        columns
+          ? GRID_COLUMNS[columns]
+          : 'grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))]',
         className,
       )}
     >
