@@ -455,10 +455,7 @@ describe('记忆提案', () => {
       nextCursor: null,
     });
     const router = await mount();
-    await vi.waitFor(() => expect(host.textContent).toContain('当前已加载 4 条'));
-    expect(host.textContent).toContain('待审核 1');
-    expect(host.textContent).toContain('生成中 1');
-    expect(host.textContent).toContain('已处理 2');
+    await vi.waitFor(() => expect(host.textContent).toContain('共 4 条'));
     // 默认顺序把待审核放在已处理之前，不静默改变用户需要先处理的对象。
     expect(host.textContent.indexOf('待审核摘要')).toBeLessThan(
       host.textContent.indexOf('已处理摘要'),

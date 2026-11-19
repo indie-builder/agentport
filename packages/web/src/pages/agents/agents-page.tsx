@@ -22,6 +22,7 @@ import { AgentAvatar, createShowcaseAvatars } from '../../components/agent/agent
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
+import { FilterPopover } from '../../components/filter-popover.js';
 import { FilterSelect } from '../../components/filter-select.js';
 import {
   Page,
@@ -121,6 +122,11 @@ export function AgentsPage() {
   const remove = useDeleteAgent();
   const runtimeEnvironments = useRuntimeEnvironments();
   const hasRoleData = (agents.data ?? []).some((agent) => agent.role !== undefined);
+  const activeFilterCount =
+    (lifecycle === 'active' ? 0 : 1) +
+    (status === 'enabled' ? 0 : 1) +
+    (role === '' ? 0 : 1) +
+    (tag === '' ? 0 : 1);
 
   const importFile = async (file: File, runtimeEnvironmentId?: string): Promise<void> => {
     setImporting(true);
@@ -260,78 +266,80 @@ export function AgentsPage() {
             className="w-56 min-w-0"
           />
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <FilterSelect
-              value={lifecycle}
-              onValueChange={(next) => {
-                if (next !== 'active' && next !== 'archived' && next !== 'deleted') return;
-                void navigate({
-                  to: '/agents',
-                  search: { ...search, lifecycle: next === 'active' ? undefined : next },
-                });
-              }}
-              options={[
-                { value: 'active', label: '进行中' },
-                { value: 'archived', label: '已归档' },
-                { value: 'deleted', label: '已删除' },
-              ]}
-              label="按生命周期筛选"
-              className="w-32"
-            />
-            <FilterSelect
-              value={status}
-              onValueChange={(next) => {
-                if (next !== 'all' && next !== 'enabled' && next !== 'disabled') return;
-                void navigate({
-                  to: '/agents',
-                  search: { ...search, status: next === 'enabled' ? undefined : next },
-                });
-              }}
-              options={[
-                { value: 'enabled', label: '已启用' },
-                { value: 'all', label: '全部' },
-                { value: 'disabled', label: '已停用' },
-              ]}
-              label="按启用状态筛选"
-              className="w-32"
-            />
-            {hasRoleData ? (
+            <FilterPopover activeCount={activeFilterCount}>
               <FilterSelect
-                value={role}
+                value={lifecycle}
                 onValueChange={(next) => {
-                  const valid =
-                    next === '' || AGENT_ROLES.includes(next as (typeof AGENT_ROLES)[number]);
-                  if (!valid) return;
+                  if (next !== 'active' && next !== 'archived' && next !== 'deleted') return;
                   void navigate({
                     to: '/agents',
-                    search: {
-                      ...search,
-                      role: next === '' ? undefined : (next as (typeof AGENT_ROLES)[number]),
-                    },
+                    search: { ...search, lifecycle: next === 'active' ? undefined : next },
                   });
                 }}
                 options={[
-                  { value: '', label: '全部角色' },
-                  ...AGENT_ROLES.map((item) => ({ value: item, label: item })),
+                  { value: 'active', label: '进行中' },
+                  { value: 'archived', label: '已归档' },
+                  { value: 'deleted', label: '已删除' },
                 ]}
-                label="按角色筛选"
-                className="w-32"
+                label="按生命周期筛选"
+                className="w-full"
               />
-            ) : null}
-            <FilterSelect
-              value={tag}
-              onValueChange={(next) =>
-                void navigate({
-                  to: '/agents',
-                  search: { ...search, tag: next === '' ? undefined : next },
-                })
-              }
-              options={[
-                { value: '', label: '全部标签' },
-                ...(agentTags.data?.items ?? []).map((item) => ({ value: item, label: item })),
-              ]}
-              label="按标签筛选"
-              className="w-32"
-            />
+              <FilterSelect
+                value={status}
+                onValueChange={(next) => {
+                  if (next !== 'all' && next !== 'enabled' && next !== 'disabled') return;
+                  void navigate({
+                    to: '/agents',
+                    search: { ...search, status: next === 'enabled' ? undefined : next },
+                  });
+                }}
+                options={[
+                  { value: 'enabled', label: '已启用' },
+                  { value: 'all', label: '全部' },
+                  { value: 'disabled', label: '已停用' },
+                ]}
+                label="按启用状态筛选"
+                className="w-full"
+              />
+              {hasRoleData ? (
+                <FilterSelect
+                  value={role}
+                  onValueChange={(next) => {
+                    const valid =
+                      next === '' || AGENT_ROLES.includes(next as (typeof AGENT_ROLES)[number]);
+                    if (!valid) return;
+                    void navigate({
+                      to: '/agents',
+                      search: {
+                        ...search,
+                        role: next === '' ? undefined : (next as (typeof AGENT_ROLES)[number]),
+                      },
+                    });
+                  }}
+                  options={[
+                    { value: '', label: '全部角色' },
+                    ...AGENT_ROLES.map((item) => ({ value: item, label: item })),
+                  ]}
+                  label="按角色筛选"
+                  className="w-full"
+                />
+              ) : null}
+              <FilterSelect
+                value={tag}
+                onValueChange={(next) =>
+                  void navigate({
+                    to: '/agents',
+                    search: { ...search, tag: next === '' ? undefined : next },
+                  })
+                }
+                options={[
+                  { value: '', label: '全部标签' },
+                  ...(agentTags.data?.items ?? []).map((item) => ({ value: item, label: item })),
+                ]}
+                label="按标签筛选"
+                className="w-full"
+              />
+            </FilterPopover>
             <Button
               variant={favoriteOnly ? 'secondary' : 'outline'}
               aria-pressed={favoriteOnly}

@@ -238,13 +238,6 @@ function ApiTokensSection({ canManage, view }: { canManage: boolean; view: ListV
           icon={<KeyRound aria-hidden="true" />}
           title="还没有 API 令牌"
           description="创建后可用 Authorization: Bearer <token> 调用开放 API。"
-          action={
-            canManage ? (
-              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                创建令牌
-              </Button>
-            ) : undefined
-          }
         />
       ) : null}
       {rows.length > 0 && view === 'table' ? (
@@ -610,13 +603,6 @@ function WebhookEndpointsSection({ canManage, view }: { canManage: boolean; view
           icon={<Webhook aria-hidden="true" />}
           title="还没有 Webhook 端点"
           description="入站端点接收外部签名触发，出站端点推送运行完成、失败、审批与预算事件。"
-          action={
-            canManage ? (
-              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                创建端点
-              </Button>
-            ) : undefined
-          }
         />
       ) : null}
       {rows.length > 0 && view === 'table' ? (

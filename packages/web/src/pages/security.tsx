@@ -413,13 +413,6 @@ function PoliciesSection() {
           icon={<ShieldCheck aria-hidden="true" />}
           title="还没有内容策略"
           description="策略决定入站与出站内容被拦截、脱敏还是转人工审批。"
-          action={
-            canManage ? (
-              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                新建策略
-              </Button>
-            ) : undefined
-          }
         />
       ) : null}
       {rows.length > 0 ? (

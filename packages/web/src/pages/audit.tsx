@@ -3,6 +3,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
+import { FilterPopover } from '../components/filter-popover.js';
 import { FilterSelect } from '../components/filter-select.js';
 import {
   Page,
@@ -198,6 +199,8 @@ export function AuditPage() {
     action.trim() !== settledAction ||
     target.trim() !== settledTarget ||
     actor.trim() !== settledActor;
+  const activeFilterCount =
+    (actorKind !== 'all' ? 1 : 0) + (status !== 'all' ? 1 : 0) + (range !== 'all' ? 1 : 0);
 
   const exportAudit = async (): Promise<void> => {
     setExporting(true);
@@ -357,48 +360,53 @@ export function AuditPage() {
             }
             className="w-full sm:w-56"
           />
-          <FilterSelect
-            value={actorKind}
-            onValueChange={(next) =>
-              void navigate({
-                to: '/audit',
-                search: {
-                  ...search,
-                  actorKind: next === 'all' ? undefined : (next as AuditEntry['actorKind']),
-                },
-              })
-            }
-            options={actorKindOptions}
-            label="按主体类型过滤"
-            className="w-full sm:w-36"
-          />
-          <FilterSelect
-            value={status}
-            onValueChange={(next) =>
-              void navigate({
-                to: '/audit',
-                search: { ...search, status: next === 'all' ? undefined : (next as AuditStatus) },
-              })
-            }
-            options={statusOptions}
-            label="按状态过滤"
-            className="w-full sm:w-36"
-          />
-          <FilterSelect
-            value={range}
-            onValueChange={(next) =>
-              void navigate({
-                to: '/audit',
-                search: {
-                  ...search,
-                  range: next === 'all' ? undefined : (next as '7' | '30' | '90'),
-                },
-              })
-            }
-            options={rangeOptions}
-            label="按时间范围过滤"
-            className="w-full sm:w-36"
-          />
+          <FilterPopover activeCount={activeFilterCount}>
+            <FilterSelect
+              value={actorKind}
+              onValueChange={(next) =>
+                void navigate({
+                  to: '/audit',
+                  search: {
+                    ...search,
+                    actorKind: next === 'all' ? undefined : (next as AuditEntry['actorKind']),
+                  },
+                })
+              }
+              options={actorKindOptions}
+              label="按主体类型过滤"
+              className="w-full"
+            />
+            <FilterSelect
+              value={status}
+              onValueChange={(next) =>
+                void navigate({
+                  to: '/audit',
+                  search: {
+                    ...search,
+                    status: next === 'all' ? undefined : (next as AuditStatus),
+                  },
+                })
+              }
+              options={statusOptions}
+              label="按状态过滤"
+              className="w-full"
+            />
+            <FilterSelect
+              value={range}
+              onValueChange={(next) =>
+                void navigate({
+                  to: '/audit',
+                  search: {
+                    ...search,
+                    range: next === 'all' ? undefined : (next as '7' | '30' | '90'),
+                  },
+                })
+              }
+              options={rangeOptions}
+              label="按时间范围过滤"
+              className="w-full"
+            />
+          </FilterPopover>
         </PageToolbar>
       </PageTopbar>
 
