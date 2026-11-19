@@ -10,6 +10,7 @@ import { Download, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
+import { FilterPopover } from '../../components/filter-popover.js';
 import { FilterSelect } from '../../components/filter-select.js';
 import {
   Page,
@@ -322,6 +323,8 @@ export function RunsPage() {
   const firstLoadFailed = runs.isError && runs.data === undefined;
   const empty = !runs.isPending && !firstLoadFailed && items.length === 0;
   const filtered = Boolean(agentId || status || trigger || range !== 'all');
+  const activeFilterCount =
+    (agentId ? 1 : 0) + (status ? 1 : 0) + (trigger ? 1 : 0) + (range !== 'all' ? 1 : 0);
 
   const agentOptions = [
     { value: '', label: '全部专家' },
@@ -347,7 +350,7 @@ export function RunsPage() {
       <PageTopbar>
         <PageHeader
           title="运行"
-          description={`${filtered ? '符合筛选条件的最近 100 条运行' : '最近 100 条运行'} · 排序仅作用于当前显示的记录`}
+          description={`${filtered ? '符合筛选条件的最近 100 条' : '最近 100 条'} · 排序仅作用于当前显示`}
           actions={
             <>
               {canExport ? (
@@ -384,40 +387,45 @@ export function RunsPage() {
         />
 
         <PageToolbar>
-          <FilterSelect
-            value={agentId}
-            onValueChange={(next) => setFilter({ agent: next || undefined })}
-            options={agentOptions}
-            label="按专家筛选"
-            className="w-full sm:w-36"
-          />
-          <FilterSelect
-            value={status}
-            onValueChange={(next) =>
-              setFilter({ status: (next || undefined) as RunStatus | undefined })
-            }
-            options={statusOptions}
-            label="按状态筛选"
-            className="w-full sm:w-36"
-          />
-          <FilterSelect
-            value={trigger}
-            onValueChange={(next) =>
-              setFilter({ trigger: (next || undefined) as RunTrigger | undefined })
-            }
-            options={triggerOptions}
-            label="按触发筛选"
-            className="w-full sm:w-36"
-          />
-          <FilterSelect
-            value={range}
-            onValueChange={(next) =>
-              setFilter({ range: next === 'all' ? undefined : (next as '7' | '30' | '90') })
-            }
-            options={rangeOptions}
-            label="按时间范围过滤"
-            className="w-full sm:w-36"
-          />
+          <FilterPopover activeCount={activeFilterCount}>
+            <FilterSelect
+              value={agentId}
+              onValueChange={(next) => setFilter({ agent: next || undefined })}
+              options={agentOptions}
+              label="按专家筛选"
+              className="w-full"
+            />
+            <FilterSelect
+              value={status}
+              onValueChange={(next) =>
+                setFilter({ status: (next || undefined) as RunStatus | undefined })
+              }
+              options={statusOptions}
+              label="按状态筛选"
+              className="w-full"
+            />
+            <FilterSelect
+              value={trigger}
+              onValueChange={(next) =>
+                setFilter({ trigger: (next || undefined) as RunTrigger | undefined })
+              }
+              options={triggerOptions}
+              label="按触发筛选"
+              className="w-full"
+            />
+            <FilterSelect
+              value={range}
+              onValueChange={(next) =>
+                setFilter({ range: next === 'all' ? undefined : (next as '7' | '30' | '90') })
+              }
+              options={rangeOptions}
+              label="按时间范围过滤"
+              className="w-full"
+            />
+          </FilterPopover>
+          <span className="sr-only">
+            {`时间范围：${rangeOptions.find((option) => option.value === range)?.label ?? '全部时间'}`}
+          </span>
           <div className="ml-auto">
             <ViewToggle value={view} onChange={setView} />
           </div>

@@ -328,7 +328,7 @@ export function ModelsPage() {
           title="模型供应商"
           {...(rows.length > 0
             ? {
-                description: `${rows.length} 个供应商 · 本月成本 ${formatCost(totalCost)}${
+                description: `本月成本 ${formatCost(totalCost)}${
                   budgets.length > 0 ? ` / 预算 ${formatCost(totalBudget)}` : ''
                 }`,
               }
@@ -371,14 +371,21 @@ export function ModelsPage() {
             label="按启用状态筛选"
             className="w-full sm:w-36"
           />
-          <div className="ml-auto">
-            {filtered.length > 0 ? <ViewToggle value={view} onChange={setView} /> : null}
+          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-3">
+            {filtered.length > 0 ? (
+              <>
+                <span role="status" className="text-xs text-muted-foreground">
+                  共 {filtered.length} 个供应商
+                </span>
+                <ViewToggle value={view} onChange={setView} />
+              </>
+            ) : null}
           </div>
         </PageToolbar>
       </PageTopbar>
 
       <PageBody>
-        <PageSection divided={false} title="供应商" className="min-w-0">
+        <PageSection divided={false} className="min-w-0">
           {providers.isPending ? <LoadingState rows={4} /> : null}
           {providers.isError ? (
             <ErrorState
@@ -447,13 +454,6 @@ export function ModelsPage() {
                     <CardContent className="flex flex-col gap-3">
                       <RecordRows
                         rows={[
-                          { label: '协议', value: 'Anthropic' },
-                          {
-                            label: 'Base URL',
-                            value: baseHost(provider.baseUrl),
-                            mono: true,
-                            title: provider.baseUrl,
-                          },
                           {
                             label: '模型',
                             value: provider.models.length
@@ -489,11 +489,6 @@ export function ModelsPage() {
                                 </span>
                               </span>
                             ),
-                          },
-                          {
-                            label: '更新时间',
-                            value: formatRelative(provider.updatedAt),
-                            title: formatDateTime(provider.updatedAt),
                           },
                         ]}
                       />

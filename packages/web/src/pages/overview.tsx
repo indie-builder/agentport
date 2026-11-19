@@ -1,6 +1,6 @@
 import { type RetentionSettings, retentionSettingsSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useLocation, useNavigate } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { Activity, Bot, Download, Plus, Server, Sparkles } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { AttentionPanel } from '../components/attention-panel.js';
@@ -650,7 +650,8 @@ function RetentionSection() {
 
 export function OverviewPage() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<'recent' | 'agents'>('recent');
+  const search = useSearch({ from: '/_shell/operations' });
+  const tab = search.tab ?? 'recent';
   const location = useLocation();
   const me = useQuery(meQuery);
   const canStartConversation =
@@ -785,7 +786,12 @@ export function OverviewPage() {
                       { value: 'recent', label: '最近运行' },
                       { value: 'agents', label: '专家运行' },
                     ]}
-                    onChange={setTab}
+                    onChange={(value) =>
+                      void navigate({
+                        to: '/operations',
+                        search: (prev) => ({ ...prev, tab: value }),
+                      })
+                    }
                   />
                   {tab === 'recent' && canReadRuns ? (
                     <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>

@@ -81,10 +81,14 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function mount(path = '/') {
+async function mount(path = '/operations') {
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
-  const overview = createRoute({ getParentRoute: () => shell, path: '/', component: OverviewPage });
+  const overview = createRoute({
+    getParentRoute: () => shell,
+    path: '/operations',
+    component: OverviewPage,
+  });
   const runs = createRoute({
     getParentRoute: () => shell,
     path: '/runs/',
@@ -202,18 +206,18 @@ describe('overview retained run history', () => {
 
 describe('run list scope disclosure', () => {
   it.each([
-    { path: '/runs?view=table', agent: null, status: null, scope: '最近 100 条运行' },
+    { path: '/runs?view=table', agent: null, status: null, scope: '最近 100 条' },
     {
       path: '/runs?status=failed&view=table',
       agent: null,
       status: 'failed',
-      scope: '符合筛选条件的最近 100 条运行',
+      scope: '符合筛选条件的最近 100 条',
     },
     {
       path: '/runs?agent=deleted-agent&status=failed&view=table',
       agent: 'deleted-agent',
       status: 'failed',
-      scope: '符合筛选条件的最近 100 条运行',
+      scope: '符合筛选条件的最近 100 条',
     },
   ])(
     'discloses the returned subset and sorts only its rows: $path',
@@ -226,7 +230,7 @@ describe('run list scope disclosure', () => {
       client.setQueryData(['runs', agent, status, 100], { items });
       await mount(path);
       expect(host.textContent).toContain(scope);
-      expect(host.textContent).toContain('排序仅作用于当前显示的记录');
+      expect(host.textContent).toContain('排序仅作用于当前显示');
       const table = host.querySelector('table[aria-label="运行列表"]');
       expect(table?.querySelectorAll('tbody tr')).toHaveLength(100);
       expect(table?.querySelector('tbody code')?.getAttribute('title')).toBe('run_0');

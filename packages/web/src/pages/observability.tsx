@@ -87,7 +87,7 @@ function formatSloValue(key: SloStatus['key'], value: number | null): string {
 export function ObservabilityPage() {
   const search = useSearch({ from: '/_shell/observability' });
   const navigate = useNavigate({ from: '/observability' });
-  const [tab, setTab] = useState<'slo' | 'queues' | 'providers'>('slo');
+  const tab = search.tab ?? 'slo';
   const me = useQuery(meQuery);
   const canManage = can(me.data, 'operations.manage');
   const windowMinutes = search.windowMinutes ?? 60;
@@ -253,9 +253,10 @@ export function ObservabilityPage() {
                 onValueChange={(next) =>
                   void navigate({
                     to: '/observability',
-                    search: {
+                    search: (prev) => ({
+                      ...prev,
                       windowMinutes: Number(next) as 15 | 60 | 360 | 1440,
-                    },
+                    }),
                     replace: true,
                   })
                 }
@@ -386,7 +387,12 @@ export function ObservabilityPage() {
                     { value: 'queues', label: '队列' },
                     { value: 'providers', label: '供应商' },
                   ]}
-                  onChange={setTab}
+                  onChange={(value) =>
+                    void navigate({
+                      to: '/observability',
+                      search: (prev) => ({ ...prev, tab: value }),
+                    })
+                  }
                 />
               }
             >
@@ -412,50 +418,55 @@ export function ObservabilityPage() {
                       description="窗口内没有样本时，SLO 会显示无数据而不是达标。"
                     />
                   ) : (
-                    <Table aria-label="SLO 状态">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead scope="col">SLO</TableHead>
-                          <TableHead scope="col" className="text-right">
-                            目标
-                          </TableHead>
-                          <TableHead scope="col" className="text-right">
-                            实际
-                          </TableHead>
-                          <TableHead scope="col" className="text-right">
-                            样本量
-                          </TableHead>
-                          <TableHead scope="col">状态</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {data.slo.map((item) => (
-                          <TableRow key={item.key}>
-                            <TableCell className="text-fg">{item.label}</TableCell>
-                            <TableCell className="text-right tabular-nums">
-                              {formatSloValue(item.key, item.target)}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums">
-                              {item.sampleSize === 0
-                                ? '无数据'
-                                : formatSloValue(item.key, item.actual)}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-muted-foreground">
-                              {item.sampleSize}
-                            </TableCell>
-                            <TableCell>
-                              {item.sampleSize === 0 || item.ok === null ? (
-                                <StatusBadge>无数据</StatusBadge>
-                              ) : item.ok ? (
-                                <StatusBadge tone="success">达标</StatusBadge>
-                              ) : (
-                                <StatusBadge tone="danger">未达标</StatusBadge>
-                              )}
-                            </TableCell>
+                    <>
+                      <p className="text-xs text-muted-foreground">
+                        评估窗口 {data.sloWindowMinutes} 分钟
+                      </p>
+                      <Table aria-label="SLO 状态">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead scope="col">SLO</TableHead>
+                            <TableHead scope="col" className="text-right">
+                              目标
+                            </TableHead>
+                            <TableHead scope="col" className="text-right">
+                              实际
+                            </TableHead>
+                            <TableHead scope="col" className="text-right">
+                              样本量
+                            </TableHead>
+                            <TableHead scope="col">状态</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                        </TableHeader>
+                        <TableBody>
+                          {data.slo.map((item) => (
+                            <TableRow key={item.key}>
+                              <TableCell className="text-fg">{item.label}</TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {formatSloValue(item.key, item.target)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {item.sampleSize === 0
+                                  ? '无数据'
+                                  : formatSloValue(item.key, item.actual)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                                {item.sampleSize}
+                              </TableCell>
+                              <TableCell>
+                                {item.sampleSize === 0 || item.ok === null ? (
+                                  <StatusBadge>无数据</StatusBadge>
+                                ) : item.ok ? (
+                                  <StatusBadge tone="success">达标</StatusBadge>
+                                ) : (
+                                  <StatusBadge tone="danger">未达标</StatusBadge>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </>
                   )}
                 </>
               ) : null}
