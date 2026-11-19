@@ -309,51 +309,38 @@ export function PersonalUsagePage() {
               <ErrorState error={usage.error} onRetry={() => void usage.refetch()} />
             ) : null}
             {summary ? (
-              <>
-                <MetricGrid>
-                  <MetricCard label="运行总数" icon={Activity} value={summary.runCount} />
-                  <MetricCard
-                    label="成功率"
-                    icon={CircleCheck}
-                    value={
-                      summary.runCount === 0
-                        ? '—'
-                        : `${Math.round((summary.succeeded / summary.runCount) * 100)}%`
-                    }
-                  />
-                  <MetricCard
-                    label="已记录成本"
-                    icon={CircleDollarSign}
-                    value={summary.costUsd === null ? '未记录' : formatCost(summary.costUsd)}
-                    hint={
-                      summary.runCount > 0 && summary.costMissingRuns > 0
-                        ? `${summary.costRecordedRuns} 次已记录 · ${summary.costMissingRuns} 次未记录`
-                        : undefined
-                    }
-                  />
-                  <MetricCard
-                    label="Token"
-                    icon={Cpu}
-                    value={
-                      <span className="flex flex-col">
-                        <span>{`输入 ${formatTokenCount(summary.inputTokens)}`}</span>
-                        <span>{`输出 ${formatTokenCount(summary.outputTokens)}`}</span>
-                      </span>
-                    }
-                  />
-                </MetricGrid>
-                <dl
-                  aria-label="运行状态分布"
-                  className="grid grid-cols-3 gap-x-6 gap-y-2 xl:grid-cols-6"
-                >
-                  {statuses.map((status) => (
-                    <div key={status} className="flex items-baseline justify-between gap-3">
-                      <dt className="text-xs text-muted-foreground">{runStatusLabel[status]}</dt>
-                      <dd className="font-mono text-sm tabular-nums text-fg">{summary[status]}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </>
+              <MetricGrid>
+                <MetricCard label="运行总数" icon={Activity} value={summary.runCount} />
+                <MetricCard
+                  label="成功率"
+                  icon={CircleCheck}
+                  value={
+                    summary.runCount === 0
+                      ? '—'
+                      : `${Math.round((summary.succeeded / summary.runCount) * 100)}%`
+                  }
+                />
+                <MetricCard
+                  label="已记录成本"
+                  icon={CircleDollarSign}
+                  value={summary.costUsd === null ? '未记录' : formatCost(summary.costUsd)}
+                  hint={
+                    summary.runCount > 0 && summary.costMissingRuns > 0
+                      ? `${summary.costRecordedRuns} 次已记录 · ${summary.costMissingRuns} 次未记录`
+                      : undefined
+                  }
+                />
+                <MetricCard
+                  label="Token"
+                  icon={Cpu}
+                  value={
+                    <span className="flex flex-col">
+                      <span>{`输入 ${formatTokenCount(summary.inputTokens)}`}</span>
+                      <span>{`输出 ${formatTokenCount(summary.outputTokens)}`}</span>
+                    </span>
+                  }
+                />
+              </MetricGrid>
             ) : null}
           </PageSection>
         ) : null}
@@ -363,9 +350,6 @@ export function PersonalUsagePage() {
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
                 <h2 className="text-base font-medium text-fg">运行</h2>
-                {canOverview ? (
-                  <p className="text-sm text-muted-foreground">汇总不随下面的筛选和分页变化。</p>
-                ) : null}
               </div>
               {!canOverview || cursor || runs.data?.nextCursor ? (
                 <div className="flex flex-wrap items-center gap-2">

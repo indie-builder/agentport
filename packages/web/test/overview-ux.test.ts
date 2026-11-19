@@ -151,6 +151,14 @@ function trigger(): HTMLButtonElement {
   return button;
 }
 
+function segment(label: string): HTMLButtonElement {
+  const button = [...host.querySelectorAll('button')].find((item) =>
+    item.textContent?.includes(label),
+  );
+  if (!button) throw new Error(`Missing segment: ${label}`);
+  return button;
+}
+
 function cells(row: Element): (string | null)[] {
   return [...row.querySelectorAll('th, td')].map((cell) => cell.textContent);
 }
@@ -251,6 +259,7 @@ describe('overview trend accessibility', () => {
 
     await render(createElement(OverviewPage), queryClient);
 
+    await click(segment('专家运行'));
     const link = host.querySelector('a[href="/agents/agt_trend"]');
     expect(link?.textContent).toContain('趋势专家');
 
@@ -282,6 +291,7 @@ describe('overview usage export', () => {
 
     await render(createElement(OverviewPage), queryClient);
 
+    await click(segment('专家运行'));
     const button = [...host.querySelectorAll('button')].find((item) =>
       item.textContent?.includes('导出 CSV'),
     );
