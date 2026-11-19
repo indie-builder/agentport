@@ -130,9 +130,8 @@ describe('knowledge library list', () => {
       .querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]')
       ?.closest<HTMLElement>('li');
     const link = row?.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]');
-    // 覆盖整行：入口是行的直接子节点并铺满整行，描述也在点击范围内，
-    // 而不是只有标题可点。
-    expect(link?.parentElement).toBe(row);
+    // 覆盖整卡：入口铺满卡片，描述也在点击范围内，而不是只有标题可点。
+    expect(link?.closest('li')).toBe(row);
     expect(link?.className).toContain('absolute');
     expect(link?.className).toContain('inset-0');
     expect(row?.querySelectorAll('a')).toHaveLength(1);

@@ -84,9 +84,10 @@ export const skillsSearchSchema = resourceSearchSchema.extend({
   usage: z.enum(['bound', 'unbound']).optional().catch(undefined),
   scope: z.enum(['internal', 'market']).optional().catch(undefined),
   marketView: z.enum(['all-time', 'trending', 'hot']).optional().catch(undefined),
+  view: listViewSchema,
 });
 
-export const pluginsSearchSchema = resourceSearchSchema;
+export const pluginsSearchSchema = resourceSearchSchema.extend({ view: listViewSchema });
 
 /** 插件详情：简介/内容、选中文件与阅读/源码模式进 URL，刷新和分享后回到同一视图。 */
 export const pluginDetailSearchSchema = z.object({
@@ -208,6 +209,7 @@ export const governanceSearchSchema = z.object({
 export const modelsSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
   status: z.enum(['all', 'enabled', 'disabled']).optional().catch(undefined),
+  view: listViewSchema,
 });
 
 export const securitySearchSchema = z.object({
@@ -248,6 +250,7 @@ export const evalSearchSchema = z.object({
 export const knowledgeSearchSchema = resourceSearchSchema.extend({
   // 缺省表示不筛选；显式写入 active / disabled 才只看对应启停状态的库。
   status: z.enum(['active', 'disabled']).optional().catch(undefined),
+  view: listViewSchema,
 });
 
 export const runtimeEnvironmentsSearchSchema = z.object({

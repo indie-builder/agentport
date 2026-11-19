@@ -35,11 +35,13 @@ import {
   CollapsibleTrigger,
 } from '../../components/motion-collapsible.js';
 import { PageNote } from '../../components/page.js';
+import { RecordRows } from '../../components/record-rows.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { ResourcePage } from '../../components/resource-page.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
 import { Checkbox } from '../../components/ui/checkbox.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import {
@@ -66,6 +68,7 @@ import {
   SelectValue,
 } from '../../components/ui/select.js';
 import { Textarea } from '../../components/ui/textarea.js';
+import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { errorMessage } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
@@ -138,6 +141,7 @@ function KnowledgeRow({
   canCreate,
   canExport,
   canDelete,
+  layout = 'row',
 }: {
   base: KnowledgeBase;
   pinned: boolean;
@@ -153,8 +157,117 @@ function KnowledgeRow({
   onToggleStatus: (trigger: HTMLElement) => void;
   onExport: (trigger: HTMLElement) => void;
   onDelete: (trigger: HTMLElement) => void;
+  layout?: 'row' | 'card';
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button ref={triggerRef} variant="ghost" size="icon" aria-label={`操作 ${base.name}`}>
+            <MoreHorizontal />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+        <DropdownMenuGroup>
+          {/* 置顶是个人偏好：所有能读知识库的人都能切换，不看 update 权限。 */}
+          <DropdownMenuItem disabled={pinPending} onSelect={onTogglePin}>
+            {pinned ? <PinOff /> : <Pin />}
+            {pinned ? '取消置顶' : '置顶'}
+          </DropdownMenuItem>
+          {canUpdate ? (
+            <DropdownMenuItem onSelect={() => triggerRef.current && onEdit(triggerRef.current)}>
+              <Pencil /> 编辑信息
+            </DropdownMenuItem>
+          ) : null}
+          {canCreate ? (
+            <DropdownMenuItem
+              onSelect={() => triggerRef.current && onDuplicate(triggerRef.current)}
+            >
+              <Copy /> 复制知识库
+            </DropdownMenuItem>
+          ) : null}
+          {canUpdate ? (
+            <DropdownMenuItem onSelect={() => triggerRef.current && onSettings(triggerRef.current)}>
+              <Settings /> 设置
+            </DropdownMenuItem>
+          ) : null}
+          {canUpdate ? (
+            <DropdownMenuItem
+              onSelect={() => triggerRef.current && onToggleStatus(triggerRef.current)}
+            >
+              {base.status === 'active' ? <CirclePause /> : <CirclePlay />}
+              {base.status === 'active' ? '停用' : '启用'}
+            </DropdownMenuItem>
+          ) : null}
+          {canExport ? (
+            <DropdownMenuItem onSelect={() => triggerRef.current && onExport(triggerRef.current)}>
+              <Download /> 导出知识包
+            </DropdownMenuItem>
+          ) : null}
+          {canDelete ? (
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => triggerRef.current && onDelete(triggerRef.current)}
+            >
+              <Trash2 /> 删除
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+  if (layout === 'card') {
+    return (
+      <li className="min-w-0">
+        <Card size="sm" className="relative h-full">
+          <Link
+            to="/knowledge/$baseId"
+            params={{ baseId: base.id }}
+            aria-label={`查看知识库 ${base.name}`}
+            className="absolute inset-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          />
+          <CardHeader>
+            <CardTitle className="min-w-0">
+              <span className="flex min-w-0 items-center gap-2">
+                {pinned ? (
+                  <span className="flex shrink-0 items-center" title="已置顶">
+                    <Pin className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                  </span>
+                ) : null}
+                <h2 className="min-w-0 truncate text-sm font-medium text-fg" title={base.name}>
+                  {base.name}
+                </h2>
+              </span>
+            </CardTitle>
+            <CardAction className="flex items-center gap-1">
+              <StatusBadge tone={base.status === 'active' ? 'success' : 'outline'}>
+                {base.status === 'active' ? '启用' : '停用'}
+              </StatusBadge>
+              <div className="relative z-10">{menu}</div>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {base.description ? (
+              <p className="line-clamp-2 break-words text-sm text-muted-foreground">
+                {base.description}
+              </p>
+            ) : null}
+            <RecordRows
+              rows={[
+                {
+                  label: '更新时间',
+                  value: formatRelative(base.updatedAt),
+                  title: formatDateTime(base.updatedAt),
+                },
+              ]}
+            />
+          </CardContent>
+        </Card>
+      </li>
+    );
+  }
   return (
     <li className="relative min-w-0 transition-colors duration-150 ease-out-soft hover:bg-hover">
       {/* 覆盖整行的可点击入口；操作菜单用 z-10 保持在它之上。 */}
@@ -193,75 +306,7 @@ function KnowledgeRow({
         >
           {formatRelative(base.updatedAt)}
         </span>
-        <div className="relative z-10 shrink-0">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  ref={triggerRef}
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`操作 ${base.name}`}
-                >
-                  <MoreHorizontal />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end" sideOffset={4} className="w-40">
-              <DropdownMenuGroup>
-                {/* 置顶是个人偏好：所有能读知识库的人都能切换，不看 update 权限。 */}
-                <DropdownMenuItem disabled={pinPending} onSelect={onTogglePin}>
-                  {pinned ? <PinOff /> : <Pin />}
-                  {pinned ? '取消置顶' : '置顶'}
-                </DropdownMenuItem>
-                {canUpdate ? (
-                  <DropdownMenuItem
-                    onSelect={() => triggerRef.current && onEdit(triggerRef.current)}
-                  >
-                    <Pencil /> 编辑信息
-                  </DropdownMenuItem>
-                ) : null}
-                {canCreate ? (
-                  <DropdownMenuItem
-                    onSelect={() => triggerRef.current && onDuplicate(triggerRef.current)}
-                  >
-                    <Copy /> 复制知识库
-                  </DropdownMenuItem>
-                ) : null}
-                {canUpdate ? (
-                  <DropdownMenuItem
-                    onSelect={() => triggerRef.current && onSettings(triggerRef.current)}
-                  >
-                    <Settings /> 设置
-                  </DropdownMenuItem>
-                ) : null}
-                {canUpdate ? (
-                  <DropdownMenuItem
-                    onSelect={() => triggerRef.current && onToggleStatus(triggerRef.current)}
-                  >
-                    {base.status === 'active' ? <CirclePause /> : <CirclePlay />}
-                    {base.status === 'active' ? '停用' : '启用'}
-                  </DropdownMenuItem>
-                ) : null}
-                {canExport ? (
-                  <DropdownMenuItem
-                    onSelect={() => triggerRef.current && onExport(triggerRef.current)}
-                  >
-                    <Download /> 导出知识包
-                  </DropdownMenuItem>
-                ) : null}
-                {canDelete ? (
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onSelect={() => triggerRef.current && onDelete(triggerRef.current)}
-                  >
-                    <Trash2 /> 删除
-                  </DropdownMenuItem>
-                ) : null}
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <div className="relative z-10 shrink-0">{menu}</div>
       </div>
     </li>
   );
@@ -280,6 +325,13 @@ export function KnowledgePage() {
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
   const status = search.status;
+  const view: ListView = search.view ?? 'cards';
+  const setView = (next: ListView): void => {
+    void navigate({
+      to: '/knowledge',
+      search: { ...search, view: next === 'cards' ? undefined : next },
+    });
+  };
   const bases = useKnowledgeBases();
   const baseItems = bases.data ?? [];
   // 置顶是个人偏好：读取失败时静默按全部未置顶处理，不打断列表也不 toast。
@@ -374,6 +426,60 @@ export function KnowledgePage() {
       if (pinnedA !== pinnedIds.has(b.id)) return pinnedA ? -1 : 1;
       return compareBases(a, b);
     });
+  const renderRows = (layout: 'row' | 'card') =>
+    visible.map((base) => (
+      <KnowledgeRow
+        key={base.id}
+        base={base}
+        layout={layout}
+        pinned={pinnedIds.has(base.id)}
+        pinPending={setPin.isPending && setPin.variables?.baseId === base.id}
+        onTogglePin={() =>
+          setPin.mutate(
+            { baseId: base.id, pinned: !pinnedIds.has(base.id) },
+            { onError: toastError },
+          )
+        }
+        onEdit={(trigger) => {
+          setActionFocus(trigger);
+          setEditing(base);
+        }}
+        onDuplicate={(trigger) => {
+          setActionFocus(trigger);
+          setDuplicating(base);
+        }}
+        onSettings={(trigger) => {
+          setActionFocus(trigger);
+          setConfiguring(base);
+        }}
+        onToggleStatus={(trigger) => {
+          setActionFocus(trigger);
+          update.mutate(
+            {
+              baseId: base.id,
+              patch: { status: base.status === 'active' ? 'disabled' : 'active' },
+            },
+            {
+              onSuccess: () =>
+                toastSuccess(base.status === 'active' ? '知识库已停用' : '知识库已启用'),
+              onError: toastError,
+            },
+          );
+        }}
+        onExport={(trigger) => {
+          setActionFocus(trigger);
+          download(base);
+        }}
+        canUpdate={canUpdate}
+        canCreate={canCreate}
+        canExport={canExport}
+        canDelete={canDelete}
+        onDelete={(trigger) => {
+          setActionFocus(trigger);
+          setDeleting(base);
+        }}
+      />
+    ));
 
   // 关键词只换当前地址（不新增历史）；筛选与排序 push，便于后退回到上一组条件。
   const setSearch = (
@@ -479,6 +585,9 @@ export function KnowledgePage() {
           ) : null}
         </>
       }
+      {...(visible.length > 0
+        ? { toolbarActions: <ViewToggle value={view} onChange={setView} /> }
+        : {})}
     >
       {failedImport ? (
         <PageNote
@@ -547,60 +656,15 @@ export function KnowledgePage() {
           }
         />
       ) : null}
-      {visible.length > 0 ? (
-        <ul className="divide-y divide-line border-y">
-          {visible.map((base) => (
-            <KnowledgeRow
-              key={base.id}
-              base={base}
-              pinned={pinnedIds.has(base.id)}
-              pinPending={setPin.isPending && setPin.variables?.baseId === base.id}
-              onTogglePin={() =>
-                setPin.mutate(
-                  { baseId: base.id, pinned: !pinnedIds.has(base.id) },
-                  { onError: toastError },
-                )
-              }
-              onEdit={(trigger) => {
-                setActionFocus(trigger);
-                setEditing(base);
-              }}
-              onDuplicate={(trigger) => {
-                setActionFocus(trigger);
-                setDuplicating(base);
-              }}
-              onSettings={(trigger) => {
-                setActionFocus(trigger);
-                setConfiguring(base);
-              }}
-              onToggleStatus={(trigger) => {
-                setActionFocus(trigger);
-                update.mutate(
-                  {
-                    baseId: base.id,
-                    patch: { status: base.status === 'active' ? 'disabled' : 'active' },
-                  },
-                  {
-                    onSuccess: () =>
-                      toastSuccess(base.status === 'active' ? '知识库已停用' : '知识库已启用'),
-                    onError: toastError,
-                  },
-                );
-              }}
-              onExport={(trigger) => {
-                setActionFocus(trigger);
-                download(base);
-              }}
-              canUpdate={canUpdate}
-              canCreate={canCreate}
-              canExport={canExport}
-              canDelete={canDelete}
-              onDelete={(trigger) => {
-                setActionFocus(trigger);
-                setDeleting(base);
-              }}
-            />
-          ))}
+      {visible.length > 0 && view !== 'cards' ? (
+        <ul className="divide-y divide-line border-y">{renderRows('row')}</ul>
+      ) : null}
+      {visible.length > 0 && view === 'cards' ? (
+        <ul
+          aria-label="知识库列表"
+          className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,288px),1fr))] gap-4 pt-2"
+        >
+          {renderRows('card')}
         </ul>
       ) : null}
       {hasNextPage ? (

@@ -23,11 +23,13 @@ import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../../components/draft-guard.js';
 import { PageNote } from '../../components/page.js';
+import { RecordRows } from '../../components/record-rows.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { ResourcePage } from '../../components/resource-page.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import {
   DropdownMenu,
@@ -39,6 +41,7 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
+import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import {
@@ -92,6 +95,13 @@ export function PluginsPage() {
   const search = useSearch({ from: '/_shell/plugins/' });
   const query = search.q ?? '';
   const sort = search.sort ?? 'newest';
+  const view: ListView = search.view ?? 'cards';
+  const setView = (next: ListView): void => {
+    void navigate({
+      to: '/plugins',
+      search: { ...search, view: next === 'cards' ? undefined : next },
+    });
+  };
   const [editing, setEditing] = useState<PluginWithAgentCount | null>(null);
   const [deleting, setDeleting] = useState<PluginWithAgentCount | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -145,7 +155,7 @@ export function PluginsPage() {
       onQueryChange={(next) =>
         void navigate({
           to: '/plugins',
-          search: (previous) => ({ ...previous, q: next || undefined }),
+          search: { ...search, q: next || undefined },
           replace: true,
         })
       }
@@ -196,6 +206,9 @@ export function PluginsPage() {
           ) : null}
         </>
       }
+      {...(visiblePlugins.length > 0
+        ? { toolbarActions: <ViewToggle value={view} onChange={setView} /> }
+        : {})}
     >
       {plugins.isPending ? <LoadingState rows={4} /> : null}
       {plugins.isError ? (
@@ -212,7 +225,7 @@ export function PluginsPage() {
               onClick={() =>
                 void navigate({
                   to: '/plugins',
-                  search: (previous) => ({ ...previous, q: undefined }),
+                  search: { ...search, q: undefined },
                 })
               }
             >
@@ -248,7 +261,7 @@ export function PluginsPage() {
         />
       ) : null}
 
-      {visiblePlugins.length > 0 ? (
+      {visiblePlugins.length > 0 && view !== 'cards' ? (
         <ul className="divide-y divide-line border-y">
           {visiblePlugins.map((plugin) => (
             <li
@@ -326,6 +339,92 @@ export function PluginsPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {visiblePlugins.length > 0 && view === 'cards' ? (
+        <ul
+          aria-label="插件列表"
+          className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,304px),1fr))] gap-4 pt-2"
+        >
+          {visiblePlugins.map((plugin) => (
+            <li key={plugin.id} className="min-w-0">
+              <Card size="sm" className="h-full">
+                <CardHeader>
+                  <CardTitle className="min-w-0">
+                    <Link
+                      to="/plugins/$pluginId"
+                      params={{ pluginId: plugin.id }}
+                      title={plugin.name}
+                      className="block min-w-0 truncate text-sm font-medium text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {plugin.name}
+                    </Link>
+                  </CardTitle>
+                  <CardAction>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`操作 ${plugin.name}`}
+                            onFocus={(event) => {
+                              actionTriggerRef.current = event.currentTarget;
+                            }}
+                            onClick={(event) => {
+                              actionTriggerRef.current = event.currentTarget;
+                            }}
+                          >
+                            <MoreHorizontal />
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                        <DropdownMenuGroup>
+                          {canUpdate ? (
+                            <DropdownMenuItem onSelect={() => setEditing(plugin)}>
+                              <Pencil /> 编辑
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canExport ? (
+                            <DropdownMenuItem
+                              render={<a href={`/api/plugins/${plugin.id}/export`} />}
+                            >
+                              <Download /> 导出 ZIP
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canDelete ? (
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onSelect={() => setDeleting(plugin)}
+                            >
+                              <Trash2 /> 删除
+                            </DropdownMenuItem>
+                          ) : null}
+                        </DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </CardAction>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  {plugin.description ? (
+                    <p className="line-clamp-2 break-words text-sm text-muted-foreground">
+                      {plugin.description}
+                    </p>
+                  ) : null}
+                  <RecordRows
+                    rows={[
+                      { label: '来源', value: pluginSourceLabel(plugin) },
+                      { label: '版本', value: plugin.version || '—', mono: true },
+                      { label: '能力', value: pluginCapabilitySummary(plugin) },
+                      { label: '专家', value: `${plugin.agentCount} 个专家` },
+                    ]}
+                  />
+                </CardContent>
+              </Card>
             </li>
           ))}
         </ul>

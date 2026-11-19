@@ -19,11 +19,20 @@ import {
   PageToolbar,
   PageTopbar,
 } from '../components/page.js';
+import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { SearchInput } from '../components/search-input.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   Field,
@@ -34,6 +43,7 @@ import {
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Switch } from '../components/ui/switch.js';
+import { type ListView, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
@@ -80,6 +90,13 @@ export function ModelsPage() {
   const rows = providers.data ?? [];
   const q = (search.q ?? '').trim().toLowerCase();
   const status = search.status ?? 'all';
+  const view: ListView = search.view ?? 'cards';
+  const setView = (next: ListView): void => {
+    void navigate({
+      to: '/models',
+      search: { ...search, view: next === 'cards' ? undefined : next },
+    });
+  };
   const filtered = rows.filter((provider) => {
     if (status === 'enabled' && !provider.enabled) return false;
     if (status === 'disabled' && provider.enabled) return false;
@@ -354,6 +371,9 @@ export function ModelsPage() {
             label="按启用状态筛选"
             className="w-full sm:w-36"
           />
+          <div className="ml-auto">
+            {filtered.length > 0 ? <ViewToggle value={view} onChange={setView} /> : null}
+          </div>
         </PageToolbar>
       </PageTopbar>
 
@@ -395,7 +415,7 @@ export function ModelsPage() {
               }
             />
           ) : null}
-          {filtered.length > 0 ? (
+          {filtered.length > 0 && view !== 'cards' ? (
             <DataTable
               rows={filtered}
               columns={columns}
@@ -405,6 +425,106 @@ export function ModelsPage() {
               storageKey="pace.models.provider-columns"
               renderExpanded={expanded}
             />
+          ) : null}
+          {filtered.length > 0 && view === 'cards' ? (
+            <ul
+              aria-label="模型供应商列表"
+              className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))] gap-4 pt-2"
+            >
+              {filtered.map((provider) => (
+                <li key={provider.id} className="min-w-0">
+                  <Card size="sm" className="h-full">
+                    <CardHeader>
+                      <CardTitle className="min-w-0 truncate" title={provider.name}>
+                        {provider.name}
+                      </CardTitle>
+                      <CardAction className="flex items-center gap-1">
+                        <StatusBadge tone={provider.enabled ? 'success' : 'default'}>
+                          {provider.enabled ? '启用' : '停用'}
+                        </StatusBadge>
+                      </CardAction>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-3">
+                      <RecordRows
+                        rows={[
+                          { label: '协议', value: 'Anthropic' },
+                          {
+                            label: 'Base URL',
+                            value: baseHost(provider.baseUrl),
+                            mono: true,
+                            title: provider.baseUrl,
+                          },
+                          {
+                            label: '模型',
+                            value: provider.models.length
+                              ? `${provider.models.length} 个：${provider.models.slice(0, 2).join('、')}${provider.models.length > 2 ? ' 等' : ''}`
+                              : '—',
+                          },
+                          {
+                            label: '健康',
+                            value: (
+                              <StatusBadge
+                                tone={
+                                  provider.health.state === 'healthy'
+                                    ? 'success'
+                                    : provider.health.state === 'unhealthy'
+                                      ? 'danger'
+                                      : 'default'
+                                }
+                              >
+                                {HEALTH_LABEL[provider.health.state]}
+                              </StatusBadge>
+                            ),
+                          },
+                          {
+                            label: '本月成本 / 预算',
+                            value: (
+                              <span className="tabular-nums">
+                                {formatCost(provider.usage.costUsd)}
+                                <span className="text-muted-foreground">
+                                  {' / '}
+                                  {provider.monthlyBudgetUsd === null
+                                    ? '未设预算'
+                                    : formatCost(provider.monthlyBudgetUsd)}
+                                </span>
+                              </span>
+                            ),
+                          },
+                          {
+                            label: '更新时间',
+                            value: formatRelative(provider.updatedAt),
+                            title: formatDateTime(provider.updatedAt),
+                          },
+                        ]}
+                      />
+                    </CardContent>
+                    {canManage ? (
+                      <CardFooter className="justify-end gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => setEditing(provider)}>
+                          编辑
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={test.isPending && test.variables === provider.id}
+                          onClick={() => runTest(provider)}
+                        >
+                          测试连接
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`删除供应商 ${provider.name}`}
+                          onClick={() => setDeleting(provider)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </CardFooter>
+                    ) : null}
+                  </Card>
+                </li>
+              ))}
+            </ul>
           ) : null}
         </PageSection>
       </PageBody>
