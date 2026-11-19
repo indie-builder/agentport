@@ -237,13 +237,13 @@ describe('run list keeps cached rows when a refetch fails', () => {
       .mockRejectedValueOnce(new Error('runs unavailable'));
 
     await mountRuns();
-    await actWaitFor(() => expect(host.textContent).toContain('还没有运行记录'));
+    await actWaitFor(() => expect(host.textContent).toContain('无运行记录'));
 
     await act(async () => {
       await client.invalidateQueries({ queryKey: ['runs', null, null, 100] });
     });
     await actWaitFor(() => expect(host.textContent).toContain('runs unavailable'));
-    expect(host.textContent).toContain('还没有运行记录');
+    expect(host.textContent).toContain('无运行记录');
     expect(host.querySelector('[role="alert"]')).not.toBeNull();
   });
 
@@ -345,9 +345,16 @@ describe('eval agent access states', () => {
     await actWaitFor(() => expect(host.textContent).toContain('用例为空'));
 
     expect(button('新建用例')).toBeNull();
-    expect(button('导入 JSON')).toBeNull();
-    expect(button('导出 JSON')).not.toBeNull();
     expect(button('运行评估')).not.toBeNull();
+    await click('用例更多操作');
+    await actWaitFor(() =>
+      expect(document.querySelectorAll('[role="menuitem"]').length).toBeGreaterThan(0),
+    );
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    expect(items.find((item) => item.textContent?.trim() === '导入 JSON')).toBeUndefined();
+    const exportItem = items.find((item) => item.textContent?.trim() === '导出 JSON');
+    expect(exportItem).toBeDefined();
+    expect(exportItem?.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('keeps an open draft when a background access refresh fails', async () => {

@@ -1,6 +1,16 @@
 import { evalDatasetSchema } from '@agentport/shared';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { CircleStop, Download, GitCompare, Pencil, Play, Plus, Trash2, Upload } from 'lucide-react';
+import {
+  CircleStop,
+  Download,
+  GitCompare,
+  MoreHorizontal,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { useRef, useState } from 'react';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
@@ -23,6 +33,13 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../../components/ui/collapsible.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../../components/ui/dropdown-menu.js';
 import { hasAnyGrant } from '../../lib/access.js';
 import { api, type EvalCase, type EvalRun, type EvalTarget } from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
@@ -516,31 +533,52 @@ export function EvalPage() {
                     void importJson(targetId, targetName, file);
                   }}
                 />
-                {canManageEval ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!effectiveAgentId || importDataset.isPending}
-                    aria-busy={importDataset.isPending}
-                    onClick={() => importInputRef.current?.click()}
-                  >
-                    <Upload data-icon="inline-start" aria-hidden="true" />{' '}
-                    {importDataset.isPending ? '导入中…' : '导入 JSON'}
-                  </Button>
-                ) : null}
-                {canReadEval ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!effectiveAgentId || exporting}
-                    aria-busy={exporting}
-                    onClick={() => void exportJson()}
-                  >
-                    <Download data-icon="inline-start" aria-hidden="true" />{' '}
-                    {exporting ? '导出中…' : '导出 JSON'}
-                  </Button>
-                ) : null}
                 {casesEmpty ? null : createCaseButton}
+                {canManageEval || canReadEval ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="用例更多操作"
+                          disabled={!effectiveAgentId || importDataset.isPending || exporting}
+                          aria-busy={importDataset.isPending || exporting}
+                        >
+                          <MoreHorizontal aria-hidden="true" />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+                      <DropdownMenuGroup>
+                        {canManageEval ? (
+                          <DropdownMenuItem
+                            disabled={!effectiveAgentId || importDataset.isPending}
+                            onSelect={() => importInputRef.current?.click()}
+                          >
+                            <Upload aria-hidden="true" />
+                            {importDataset.isPending ? '导入中…' : '导入 JSON'}
+                          </DropdownMenuItem>
+                        ) : null}
+                        {canReadEval ? (
+                          <DropdownMenuItem
+                            disabled={
+                              !effectiveAgentId ||
+                              exporting ||
+                              !cases.data ||
+                              cases.data.length === 0
+                            }
+                            title={casesEmpty ? '至少新建一条用例后可导出' : undefined}
+                            onSelect={() => void exportJson()}
+                          >
+                            <Download aria-hidden="true" />
+                            {exporting ? '导出中…' : '导出 JSON'}
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
               </div>
             }
           >
@@ -578,6 +616,7 @@ export function EvalPage() {
               <PageNote
                 icon={<BusinessIllustration name="review" size="compact" />}
                 title="用例为空"
+                description={canManageEval ? undefined : '当前账户没有维护该专家用例的权限。'}
                 action={createCaseButton}
               />
             ) : null}
@@ -640,9 +679,13 @@ export function EvalPage() {
                 icon={<BusinessIllustration name="runs" size="compact" />}
                 title="评估尚未运行"
                 description={
-                  cases.isSuccess && !casesEmpty && canExecuteEval
-                    ? '点「运行评估」开始。'
-                    : undefined
+                  cases.isSuccess && casesEmpty
+                    ? '先添加用例后再运行评估。'
+                    : cases.isSuccess && !casesEmpty && canExecuteEval
+                      ? '点击右上角「运行评估」开始。'
+                      : !canExecuteEval
+                        ? '当前账户没有执行该专家评估的权限。'
+                        : undefined
                 }
               />
             ) : null}

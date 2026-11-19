@@ -368,6 +368,17 @@ describe('记忆提案', () => {
     });
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('专家甲 / no-console'));
+    const headings = [...host.querySelectorAll<HTMLElement>('[data-slot="card"] h2')].map((item) =>
+      item.textContent?.trim(),
+    );
+    expect(headings).toContain('专家甲 / no-console');
+    expect(headings).toContain('专家乙 / topic.md');
+    expect(headings).toContain('个人记忆');
+    const descriptions = [
+      ...host.querySelectorAll<HTMLElement>('[data-slot="card-description"]'),
+    ].map((item) => item.textContent?.trim());
+    expect(descriptions).toContain('专家记忆');
+    expect(descriptions).toContain('专家规则');
     for (const text of [
       '个人记忆',
       '专家记忆',
@@ -460,11 +471,16 @@ describe('记忆提案', () => {
     expect(host.textContent.indexOf('待审核摘要')).toBeLessThan(
       host.textContent.indexOf('已处理摘要'),
     );
+    // 主操作位于页头 actions 右侧，筛选收进 FilterPopover。
+    const header = host.querySelector('[data-slot="page-header"]');
+    expect(header?.contains(button('生成记忆提案', host))).toBe(true);
 
-    await chooseOption('按处理状态筛选', '待审核', host);
+    await click(button('筛选', host));
+    await chooseOption('按处理状态筛选', '待审核', document);
     expect(host.textContent).toContain('待审核摘要');
     expect(host.textContent).not.toContain('已处理摘要');
     expect(host.textContent).not.toContain('无需变更摘要');
+    expect(button('筛选', host).textContent).toContain('· 1');
     expect(
       [...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="查看"]')].some((item) =>
         item.getAttribute('aria-label')?.includes('生成中会话'),
@@ -475,7 +491,10 @@ describe('记忆提案', () => {
     );
     expect(router.state.location.search).not.toHaveProperty('create');
 
-    await chooseOption('按处理状态筛选', '生成中', host);
+    if (!buttonOrNull('按处理状态筛选', document)) {
+      await click(button('筛选', host));
+    }
+    await chooseOption('按处理状态筛选', '生成中', document);
     expect(
       [...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="查看"]')].some((item) =>
         item.getAttribute('aria-label')?.includes('生成中会话'),

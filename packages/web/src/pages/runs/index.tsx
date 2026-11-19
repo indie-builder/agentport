@@ -6,7 +6,7 @@ import {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { Download, RefreshCw } from 'lucide-react';
+import { Download, MoreHorizontal, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
@@ -32,6 +32,13 @@ import {
   CardHeader,
   CardTitle,
 } from '../../components/ui/card.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../../components/ui/dropdown-menu.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { api, errorMessage, type RunListItem, type RunStatus } from '../../lib/api.js';
@@ -195,7 +202,7 @@ function RunCard({ run }: { run: RunListItem }) {
           <RunStatusBadge status={run.status} />
         </CardAction>
       </CardHeader>
-      <CardContent className="flex min-w-0 flex-col gap-3">
+      <CardContent className="flex min-w-0 flex-1 flex-col gap-3">
         <RecordRows
           rows={[
             {
@@ -224,13 +231,20 @@ function RunCard({ run }: { run: RunListItem }) {
           </div>
         ) : null}
       </CardContent>
-      <CardFooter className="justify-between gap-3">
+      <CardFooter className="mt-auto justify-between gap-3">
         <span className="flex min-w-0 items-baseline gap-1.5">
           <span className="shrink-0 text-xs text-muted-foreground">运行 ID</span>
           <code className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={run.id}>
             {shortId(run.id)}
           </code>
         </span>
+        <Link
+          {...detailLink}
+          aria-label={`查看 ${agentName} 运行 ${shortId(run.id)} 详情`}
+          className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'shrink-0')}
+        >
+          查看详情
+        </Link>
       </CardFooter>
     </Card>
   );
@@ -353,28 +367,7 @@ export function RunsPage() {
           description={`${filtered ? '符合筛选条件的最近 100 条' : '最近 100 条'} · 排序仅作用于当前显示`}
           actions={
             <>
-              {canExport ? (
-                <Button variant="outline" onClick={() => void exportRuns()} disabled={exporting}>
-                  <Download data-icon="inline-start" aria-hidden="true" />
-                  {exporting ? '导出中…' : '导出运行'}
-                </Button>
-              ) : null}
-              {canExport ? (
-                <Button
-                  variant="outline"
-                  onClick={() => void exportRunsCsv()}
-                  disabled={exportingCsv}
-                  aria-busy={exportingCsv}
-                >
-                  <Download data-icon="inline-start" aria-hidden="true" />
-                  {exportingCsv ? '导出中…' : '导出 CSV'}
-                </Button>
-              ) : null}
-              <Button
-                variant="outline"
-                onClick={() => void runs.refetch()}
-                disabled={runs.isFetching}
-              >
+              <Button onClick={() => void runs.refetch()} disabled={runs.isFetching}>
                 <RefreshCw
                   data-icon="inline-start"
                   className={runs.isFetching ? 'animate-spin' : undefined}
@@ -382,6 +375,37 @@ export function RunsPage() {
                 />
                 {runs.isFetching ? '刷新中…' : '刷新'}
               </Button>
+              {canExport ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button variant="ghost" size="icon" aria-label="更多操作">
+                        <MoreHorizontal aria-hidden="true" />
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent align="end" sideOffset={4} className="w-48">
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        disabled={exporting}
+                        aria-busy={exporting}
+                        onSelect={() => void exportRuns()}
+                      >
+                        <Download aria-hidden="true" />
+                        {exporting ? '导出中…' : '导出运行 (JSON)'}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={exportingCsv}
+                        aria-busy={exportingCsv}
+                        onSelect={() => void exportRunsCsv()}
+                      >
+                        <Download aria-hidden="true" />
+                        {exportingCsv ? '导出中…' : '导出 CSV'}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
             </>
           }
         />
@@ -426,7 +450,14 @@ export function RunsPage() {
           <span className="sr-only">
             {`时间范围：${rangeOptions.find((option) => option.value === range)?.label ?? '全部时间'}`}
           </span>
-          <div className="ml-auto">
+          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-3">
+            <span role="status" className="text-xs text-muted-foreground">
+              {runs.isPending
+                ? '加载中…'
+                : firstLoadFailed
+                  ? '数量不可用'
+                  : `共 ${items.length} 条运行`}
+            </span>
             <ViewToggle value={view} onChange={setView} />
           </div>
         </PageToolbar>
@@ -456,7 +487,7 @@ export function RunsPage() {
             {empty ? (
               <PageNote
                 icon={<BusinessIllustration name={filtered ? 'search' : 'runs'} size="compact" />}
-                title={filtered ? '没有匹配的运行' : '还没有运行记录'}
+                title={filtered ? '没有匹配的运行' : '无运行记录'}
                 action={
                   filtered ? (
                     <Button
@@ -505,6 +536,7 @@ export function RunsPage() {
                 }
                 label="运行列表"
                 loading={runs.isPending}
+                hideRowCount
                 storageKey="pace.runs.columns"
                 initialSorting={[{ id: 'startedAt', desc: true }]}
                 empty="没有匹配的运行"

@@ -338,7 +338,11 @@ function PoliciesSection() {
         id: 'enabled',
         header: '启用',
         width: '72px',
-        cell: (policy) => <StatusBadge>{policy.enabled ? '启用' : '停用'}</StatusBadge>,
+        cell: (policy) => (
+          <StatusBadge tone={policy.enabled ? 'success' : 'default'}>
+            {policy.enabled ? '启用' : '停用'}
+          </StatusBadge>
+        ),
       },
       {
         id: 'version',
@@ -373,7 +377,7 @@ function PoliciesSection() {
                   </Button>
                   <Button
                     variant="ghost"
-                    size="sm"
+                    size="icon-sm"
                     aria-label={`删除策略 ${policy.name}`}
                     onClick={() => setDeleting(policy)}
                   >
@@ -411,8 +415,15 @@ function PoliciesSection() {
       {policies.data && rows.length === 0 ? (
         <PageNote
           icon={<ShieldCheck aria-hidden="true" />}
-          title="还没有内容策略"
-          description="策略决定入站与出站内容被拦截、脱敏还是转人工审批。"
+          title="无内容策略"
+          description="添加策略以拦截、脱敏或人工审批入站与出站内容。"
+          action={
+            canManage ? (
+              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+                新建策略
+              </Button>
+            ) : undefined
+          }
         />
       ) : null}
       {rows.length > 0 ? (
@@ -933,8 +944,25 @@ function ApprovalsSection() {
       {approvals.data && rows.length === 0 ? (
         <PageNote
           icon={<ShieldCheck aria-hidden="true" />}
-          title={`没有${APPROVAL_STATUS_LABEL[status]}记录`}
-          description="命中「人工审批」策略的外发内容会出现在这里。"
+          title={`无${APPROVAL_STATUS_LABEL[status]}记录`}
+          description={status === 'pending' ? '命中人工审批策略的外发内容会在此排队。' : undefined}
+          action={
+            status !== 'pending' ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  void navigate({
+                    to: '/security',
+                    search: { ...search, approvalStatus: undefined },
+                    replace: true,
+                  })
+                }
+              >
+                查看待审批
+              </Button>
+            ) : undefined
+          }
         />
       ) : null}
       {rows.length > 0 ? (
@@ -1272,8 +1300,8 @@ function EventsSection() {
       {events.data && rows.length === 0 ? (
         <PageNote
           icon={<ShieldCheck aria-hidden="true" />}
-          title={filtered ? '没有符合筛选条件的策略事件' : '还没有策略事件'}
-          description="命中策略的请求会在这里留下脱敏摘要。"
+          title={filtered ? '无匹配策略事件' : '无策略事件'}
+          description={filtered ? undefined : '命中策略的请求会记录脱敏摘要。'}
           action={
             filtered ? (
               <Button
@@ -1488,10 +1516,25 @@ function ViolationsSection() {
       {violations.data && rows.length === 0 ? (
         <PageNote
           icon={<ShieldCheck aria-hidden="true" />}
-          title={
-            status === 'all' ? '还没有违规记录' : `没有${VIOLATION_STATUS_LABEL[status]}的违规记录`
+          title={status === 'all' ? '无违规记录' : `无${VIOLATION_STATUS_LABEL[status]}的违规记录`}
+          description={status === 'all' ? '严重违规会生成处置记录并跟踪处理结论。' : undefined}
+          action={
+            status !== 'all' ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  void navigate({
+                    to: '/security',
+                    search: { ...search, violationStatus: undefined },
+                    replace: true,
+                  })
+                }
+              >
+                清除筛选
+              </Button>
+            ) : undefined
           }
-          description="严重违规会生成处置记录，便于指派负责人并跟踪结论。"
         />
       ) : null}
       {rows.length > 0 ? (

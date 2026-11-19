@@ -521,16 +521,16 @@ test('governance 告警回读、成本汇总与页面冒烟', {
     timeout: 60_000,
   });
   const sections = [
-    ['成本', '成本'],
-    ['预算', '预算'],
-    ['部门', '部门'],
-    ['资源授权', '资源授权'],
-    ['交接', '离职交接'],
-    ['告警', '告警'],
+    ['成本', () => screen.getByRole('button', { name: '按人', exact: true })],
+    ['预算', () => screen.getByRole('button', { name: '新建预算', exact: true })],
+    ['部门', () => screen.getByRole('button', { name: '新建部门', exact: true })],
+    ['资源授权', () => screen.getByRole('button', { name: '添加授权', exact: true })],
+    ['交接', () => screen.getByText('选择离职账户', { exact: true })],
+    ['告警', () => screen.getByRole('button', { name: '保存设置', exact: true })],
   ] as const;
-  for (const [tab, heading] of sections) {
+  for (const [tab, locator] of sections) {
     await screen.getByRole('tab', { name: tab, exact: true }).tap();
-    await expect(screen.getByRole('heading', { name: heading, level: 2 })).toBeVisible({
+    await expect(locator()).toBeVisible({
       timeout: 30_000,
     });
   }

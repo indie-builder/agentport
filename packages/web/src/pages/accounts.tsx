@@ -31,7 +31,14 @@ import { SearchInput } from '../components/search-input.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card.js';
 import { Checkbox } from '../components/ui/checkbox.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
@@ -198,7 +205,7 @@ export function AccountsPage() {
         {accounts.data && items.length === 0 ? (
           <PageNote
             icon={settled ? <SearchX /> : <UsersRound />}
-            title={settled ? '没有匹配的账户' : '还没有账户'}
+            title={settled ? '没有匹配的账户' : '无账户'}
             description={settled ? undefined : '创建后即可分配角色；删除认证资料不会移除业务授权。'}
             action={
               settled ? (
@@ -247,7 +254,9 @@ export function AccountsPage() {
                     {account.roles.map((role) => role.name).join('、') || '—'}
                   </TableCell>
                   <TableCell>
-                    <StatusBadge>{account.status === 'active' ? '启用' : '停用'}</StatusBadge>
+                    <StatusBadge tone={account.status === 'active' ? 'success' : 'default'}>
+                      {account.status === 'active' ? '启用' : '停用'}
+                    </StatusBadge>
                   </TableCell>
                   <TableCell className="font-mono tabular-nums text-muted-foreground">
                     {formatDate(account.createdAt)}
@@ -280,18 +289,17 @@ export function AccountsPage() {
               <li key={account.businessId} className="min-w-0">
                 <Card size="sm" className="h-full">
                   <CardHeader className="grid-cols-[minmax(0,1fr)_auto]! items-center">
-                    <CardTitle className="flex min-w-0 items-center gap-2">
-                      <span className="truncate" title={account.name}>
-                        {account.name}
-                      </span>
-                      <StatusBadge>{account.status === 'active' ? '启用' : '停用'}</StatusBadge>
+                    <CardTitle className="min-w-0 truncate" title={account.name}>
+                      {account.name}
                     </CardTitle>
-                    <CardAction className="col-start-2 row-start-1">
-                      <AccountRowActions
+                    <CardAction className="col-start-2 row-start-1 flex items-center gap-1 self-center">
+                      <StatusBadge tone={account.status === 'active' ? 'success' : 'default'}>
+                        {account.status === 'active' ? '启用' : '停用'}
+                      </StatusBadge>
+                      <AccountRowMenu
                         account={account}
                         canManage={canManage}
                         canManageRoles={canManageRoles}
-                        onEdit={setEditing}
                         onResetPassword={setResetting}
                         onAssignRoles={setAssigningRoles}
                         onToggleStatus={toggleStatus}
@@ -299,7 +307,7 @@ export function AccountsPage() {
                       />
                     </CardAction>
                   </CardHeader>
-                  <CardContent className="flex flex-col gap-2">
+                  <CardContent className="flex flex-1 flex-col gap-2">
                     <RecordRows
                       rows={[
                         {
@@ -316,6 +324,18 @@ export function AccountsPage() {
                       ]}
                     />
                   </CardContent>
+                  {canManage ? (
+                    <CardFooter className="justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`编辑 ${account.name}`}
+                        onClick={() => setEditing(account)}
+                      >
+                        编辑
+                      </Button>
+                    </CardFooter>
+                  ) : null}
                 </Card>
               </li>
             ))}
@@ -435,6 +455,65 @@ type RoleDirectory = {
   refetch: () => void;
 };
 
+function AccountRowMenu({
+  account,
+  canManage,
+  canManageRoles,
+  onResetPassword,
+  onAssignRoles,
+  onToggleStatus,
+  onDelete,
+}: {
+  account: Account;
+  canManage: boolean;
+  canManageRoles: boolean;
+  onResetPassword: (account: Account) => void;
+  onAssignRoles: (account: Account) => void;
+  onToggleStatus: (account: Account) => void;
+  onDelete: (account: Account) => void;
+}) {
+  if (!canManage && !canManageRoles) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="ghost" size="icon-sm" aria-label={`操作 ${account.name}`}>
+            <MoreHorizontal />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" sideOffset={4} className="w-40">
+        <DropdownMenuGroup>
+          {canManageRoles ? (
+            <DropdownMenuItem onSelect={() => onAssignRoles(account)}>
+              <ShieldCheck /> 分配角色
+            </DropdownMenuItem>
+          ) : null}
+          {canManage ? (
+            <>
+              <DropdownMenuItem onSelect={() => onResetPassword(account)}>
+                <KeyRound /> 重置密码
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onToggleStatus(account)}>
+                {account.status === 'active' ? <CirclePause /> : <CirclePlay />}
+                {account.status === 'active' ? '停用' : '启用'}
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuGroup>
+        {canManage ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={() => onDelete(account)}>
+              <Trash2 /> 删除认证
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function AccountRowActions({
   account,
   canManage,
@@ -469,43 +548,15 @@ function AccountRowActions({
           编辑
         </Button>
       ) : null}
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button variant="ghost" size="icon-sm" aria-label={`操作 ${account.name}`}>
-              <MoreHorizontal />
-            </Button>
-          }
-        />
-        <DropdownMenuContent align="end" sideOffset={4} className="w-40">
-          <DropdownMenuGroup>
-            {canManageRoles ? (
-              <DropdownMenuItem onSelect={() => onAssignRoles(account)}>
-                <ShieldCheck /> 分配角色
-              </DropdownMenuItem>
-            ) : null}
-            {canManage ? (
-              <>
-                <DropdownMenuItem onSelect={() => onResetPassword(account)}>
-                  <KeyRound /> 重置密码
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => onToggleStatus(account)}>
-                  {account.status === 'active' ? <CirclePause /> : <CirclePlay />}
-                  {account.status === 'active' ? '停用' : '启用'}
-                </DropdownMenuItem>
-              </>
-            ) : null}
-          </DropdownMenuGroup>
-          {canManage ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onSelect={() => onDelete(account)}>
-                <Trash2 /> 删除认证
-              </DropdownMenuItem>
-            </>
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <AccountRowMenu
+        account={account}
+        canManage={canManage}
+        canManageRoles={canManageRoles}
+        onResetPassword={onResetPassword}
+        onAssignRoles={onAssignRoles}
+        onToggleStatus={onToggleStatus}
+        onDelete={onDelete}
+      />
     </div>
   );
 }

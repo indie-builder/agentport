@@ -31,6 +31,7 @@ export const listViewSchema = z.enum(['table', 'cards']).optional().catch(undefi
 
 export const serversSearchSchema = resourceSearchSchema.extend({
   kind: z.enum(['stdio', 'http', 'generated', 'data_domain']).optional().catch(undefined),
+  view: listViewSchema,
 });
 
 export const agentsSearchSchema = resourceSearchSchema.extend({
@@ -167,7 +168,16 @@ export const runsSearchSchema = z.object({
 
 export const channelsSearchSchema = z.object({ view: listViewSchema });
 
-export const integrationsSearchSchema = z.object({ view: listViewSchema });
+export const integrationsSearchSchema = z.object({
+  tab: z.enum(['tokens', 'webhooks']).optional().catch(undefined),
+  view: listViewSchema,
+});
+
+export const personalWorkSearchSchema = z.object({
+  tab: z.enum(['conversations', 'outputs']).optional().catch(undefined),
+  q: z.string().optional().catch(undefined),
+  source: z.enum(['manual', 'scheduled']).optional().catch(undefined),
+});
 
 export const notificationsSearchSchema = z.object({
   filter: z.enum(['all', 'unread']).optional().catch(undefined),

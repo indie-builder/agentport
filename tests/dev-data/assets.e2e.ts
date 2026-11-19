@@ -532,7 +532,7 @@ async function ensureConnectionState(
   }
   if (record.ready) fail(`连接器 ${spec.name} 已标记完成但缺少试连结果`);
 
-  await ctx.app.open('/servers');
+  await ctx.app.open('/servers?view=table');
   const row = ctx.browser.locator('tr').filter({ hasText: spec.name }).first();
   await row.getByRole('button', { name: `操作 ${spec.name}` }).tap();
   await ctx.screen.getByRole('menuitem', '测试连接').tap();
@@ -558,7 +558,7 @@ function toolDialog(ctx: Ctx): Locator {
 }
 
 async function openToolDialog(ctx: Ctx, serverName: string): Promise<Locator> {
-  await ctx.app.open('/servers');
+  await ctx.app.open('/servers?view=table');
   const row = ctx.browser.locator('tr').filter({ hasText: serverName }).first();
   await row.getByRole('button', { name: `操作 ${serverName}` }).tap();
   await ctx.screen.getByRole('menuitem', '工具定义').tap();

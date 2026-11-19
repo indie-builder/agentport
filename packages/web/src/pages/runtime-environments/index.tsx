@@ -17,8 +17,8 @@ import { RequiredMark } from '../../components/required-mark.js';
 import { SearchInput } from '../../components/search-input.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
-import { Button } from '../../components/ui/button.js';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
+import { Button, buttonVariants } from '../../components/ui/button.js';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
@@ -95,7 +95,14 @@ export function RuntimeEnvironmentsPage() {
               });
             }}
           />
-          <div className="ml-auto">
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <span role="status" className="text-xs text-muted-foreground">
+              {environments.isPending
+                ? '加载中…'
+                : environments.isError
+                  ? '数量不可用'
+                  : `共 ${shown.length} 个运行环境`}
+            </span>
             <ViewToggle value={view} onChange={setView} />
           </div>
         </PageToolbar>
@@ -215,7 +222,7 @@ export function RuntimeEnvironmentsPage() {
                       ) : null}
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="flex flex-col gap-2">
+                  <CardContent className="flex flex-1 flex-col gap-2">
                     <RecordRows
                       rows={[
                         {
@@ -232,6 +239,16 @@ export function RuntimeEnvironmentsPage() {
                       ]}
                     />
                   </CardContent>
+                  <CardFooter className="justify-end">
+                    <Link
+                      to="/runtime-environments/$environmentId"
+                      params={{ environmentId: environment.id }}
+                      search={{ backTo: location.href }}
+                      className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+                    >
+                      查看详情
+                    </Link>
+                  </CardFooter>
                 </Card>
               </li>
             ))}

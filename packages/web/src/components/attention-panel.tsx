@@ -46,6 +46,8 @@ export function AttentionPanel({ canOpenRuns = true }: { canOpenRuns?: boolean }
   return (
     <PageSection
       title="需要处理"
+      divided={false}
+      className="overflow-x-clip"
       actions={data ? <StatusBadge tone="danger">{data.total} 项</StatusBadge> : null}
     >
       {attention.isPending ? <LoadingState rows={2} /> : null}

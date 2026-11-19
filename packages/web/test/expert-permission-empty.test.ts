@@ -170,7 +170,7 @@ describe('chat workspace without experts', () => {
     expect(host.querySelector('textarea[aria-label="消息"]')).not.toBeNull();
     expect(host.querySelector<HTMLButtonElement>('[aria-label="发送消息"]')?.disabled).toBe(true);
     expect(host.textContent).not.toContain('先创建一位专家');
-    expect(host.textContent).not.toContain('暂无可用专家');
+    expect(host.textContent).not.toContain('无可用专家');
   });
 });
 
@@ -185,7 +185,7 @@ describe('agent list empty state follows agent permissions', () => {
     expect(host.textContent).toContain('创建数字分身');
     expect(host.textContent).not.toContain('还没有专家');
     expect(host.textContent).not.toContain('创建第一位专家');
-    expect(host.textContent).not.toContain('暂无可用专家');
+    expect(host.textContent).not.toContain('无可用专家');
   });
 
   it('explains an unassigned reader without listing the default assistant as an expert', async () => {
@@ -196,7 +196,7 @@ describe('agent list empty state follows agent permissions', () => {
     client.setQueryData(['me'], readerMe);
     client.setQueryData(['runtime-environments'], []);
     await mount(AgentsPage, '/agents');
-    await waitFor(() => host.textContent?.includes('暂无可用专家'));
+    await waitFor(() => host.textContent?.includes('无可用专家'));
     expect(host.textContent).toContain('请联系管理员分配。');
     expect(host.textContent).not.toContain('还没有专家');
     expect(host.textContent).not.toContain('创建第一位专家');
@@ -242,7 +242,7 @@ describe('agent list empty state follows agent permissions', () => {
     client.setQueryData(['runtime-environments'], []);
     const router = await mount(AgentsPage, '/agents?q=missing');
     await waitFor(() => host.textContent?.includes('没有匹配的专家'));
-    expect(host.textContent).not.toContain('暂无可用专家');
+    expect(host.textContent).not.toContain('无可用专家');
     const clear = [...host.querySelectorAll('button')].find(
       (item) => item.textContent?.trim() === '清除筛选',
     );

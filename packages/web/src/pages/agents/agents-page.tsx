@@ -12,6 +12,7 @@ import {
   Calendar,
   Ellipsis,
   IdCard,
+  MoreHorizontal,
   Plus,
   Star,
   Upload,
@@ -118,6 +119,7 @@ export function AgentsPage() {
   const badgeTriggerRef = useRef<HTMLElement | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const editorTriggerRef = useRef<HTMLElement | null>(null);
   const remove = useDeleteAgent();
   const runtimeEnvironments = useRuntimeEnvironments();
@@ -223,19 +225,6 @@ export function AgentsPage() {
                 }}
               />
               <Button
-                variant="outline"
-                title="导入专家 ZIP 或 agent.md"
-                disabled={importing}
-                aria-busy={importing}
-                onClick={(event) => {
-                  editorTriggerRef.current = event.currentTarget;
-                  fileInput.current?.click();
-                }}
-                {...(canCreate && canImport ? {} : { className: 'hidden' })}
-              >
-                <Upload data-icon="inline-start" /> {importing ? '导入中…' : '导入'}
-              </Button>
-              <Button
                 ref={createButtonRef}
                 disabled={importing}
                 {...(canCreate ? {} : { className: 'hidden' })}
@@ -247,6 +236,40 @@ export function AgentsPage() {
               >
                 <Plus data-icon="inline-start" /> 新建专家
               </Button>
+              {canCreate && canImport ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        ref={moreTriggerRef}
+                        variant="ghost"
+                        size="icon"
+                        aria-label="更多操作"
+                        title="更多操作"
+                        disabled={importing}
+                        aria-busy={importing}
+                      >
+                        <MoreHorizontal aria-hidden="true" />
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent align="end" sideOffset={4}>
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        title="导入专家 ZIP 或 agent.md"
+                        disabled={importing}
+                        onSelect={() => {
+                          editorTriggerRef.current = moreTriggerRef.current;
+                          fileInput.current?.click();
+                        }}
+                      >
+                        <Upload className="size-4" aria-hidden="true" />
+                        {importing ? '导入中…' : '导入专家'}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
             </>
           }
         />
@@ -397,7 +420,7 @@ export function AgentsPage() {
                   ? '没有归档的专家'
                   : lifecycle === 'deleted'
                     ? '没有已删除的专家'
-                    : '暂无可用专家'
+                    : '无可用专家'
               }
               description={lifecycle === 'active' ? '请联系管理员分配。' : undefined}
             />
@@ -914,7 +937,7 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
     <div className="badge-swing pointer-events-none flex h-full w-full flex-col items-center">
       <div aria-hidden="true" className="flex shrink-0 flex-col items-center">
         <div className="flex h-[22vh] min-h-24 w-24 flex-col items-center rounded-b-xl bg-badge-accent pt-4">
-          <span className="text-[11px] font-semibold tracking-[0.22em] text-white/95 [writing-mode:vertical-rl]">
+          <span className="text-xs font-semibold tracking-[0.22em] text-white/95 [writing-mode:vertical-rl]">
             PACE
           </span>
         </div>

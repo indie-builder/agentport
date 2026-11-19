@@ -366,6 +366,7 @@ export function KnowledgePage() {
   // 复制同理：弹层先关闭（结算 blocker），下一轮再进入新库。
   const [duplicatedBaseId, setDuplicatedBaseId] = useState<string | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (creating || createdBaseId === null) return;
@@ -497,6 +498,7 @@ export function KnowledgePage() {
         ...(next.q ? { q: next.q } : {}),
         ...(next.sort === undefined || next.sort === 'newest' ? {} : { sort: next.sort }),
         ...(next.status === undefined ? {} : { status: next.status }),
+        ...(search.view === undefined || search.view === 'cards' ? {} : { view: search.view }),
       },
       replace,
     });
@@ -528,7 +530,7 @@ export function KnowledgePage() {
               ? 'pending'
               : 'success'
       }
-      filters={
+      menuFilters={
         <FilterSelect
           value={status ?? 'all'}
           onValueChange={(next) =>
@@ -536,9 +538,10 @@ export function KnowledgePage() {
           }
           options={statusFilterOptions}
           label="按启用状态筛选"
-          className="w-36"
+          className="w-full"
         />
       }
+      activeFilterCount={status === undefined ? 0 : 1}
       leadingFilters={
         // 搜索在已加载的库里本地过滤；还有更多时直接显示加载入口，避免被当成全库搜索。
         query.trim() !== '' && hasNextPage ? (
@@ -549,22 +552,6 @@ export function KnowledgePage() {
       }
       actions={
         <>
-          {canManageModels ? (
-            <Button variant="outline" onClick={() => setProfilesOpen(true)}>
-              <Settings data-icon="inline-start" aria-hidden="true" /> 模型配置
-            </Button>
-          ) : null}
-          {canImport ? (
-            <Button
-              variant="outline"
-              disabled={importer.isPending}
-              aria-busy={importer.isPending}
-              onClick={() => importInput.current?.click()}
-            >
-              <Upload data-icon="inline-start" aria-hidden="true" />
-              {importer.isPending ? '导入中…' : '导入知识包'}
-            </Button>
-          ) : null}
           <input
             ref={importInput}
             type="file"
@@ -582,6 +569,41 @@ export function KnowledgePage() {
             <Button ref={createButtonRef} onClick={() => setCreating(true)}>
               <Plus data-icon="inline-start" aria-hidden="true" /> 新建知识库
             </Button>
+          ) : null}
+          {canImport || canManageModels ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button ref={moreTriggerRef} variant="ghost" size="icon" aria-label="更多操作">
+                    <MoreHorizontal aria-hidden="true" />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                <DropdownMenuGroup>
+                  {canImport ? (
+                    <DropdownMenuItem
+                      disabled={importer.isPending}
+                      aria-busy={importer.isPending}
+                      onSelect={() => importInput.current?.click()}
+                    >
+                      <Upload aria-hidden="true" />
+                      {importer.isPending ? '导入中…' : '导入知识包'}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canManageModels ? (
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setActionFocus(moreTriggerRef.current);
+                        setProfilesOpen(true);
+                      }}
+                    >
+                      <Settings aria-hidden="true" /> 模型配置
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : null}
         </>
       }
@@ -732,7 +754,13 @@ export function KnowledgePage() {
       ) : null}
       {profilesOpen ? (
         <KnowledgeProfilesDialog
-          finalFocus={() => (createButtonRef.current?.isConnected ? createButtonRef.current : null)}
+          finalFocus={() =>
+            actionFocus?.isConnected
+              ? actionFocus
+              : createButtonRef.current?.isConnected
+                ? createButtonRef.current
+                : null
+          }
           onClose={() => setProfilesOpen(false)}
         />
       ) : null}
@@ -993,11 +1021,11 @@ function CreateBaseDialog({
                 {missingProfiles ? (
                   canManageModels ? (
                     <FieldDescription>
-                      还没有启用的 embedding profile；先创建一个再回填到上方。
+                      当前无启用的 embedding profile；先创建一个再回填到上方。
                     </FieldDescription>
                   ) : (
                     <FieldDescription>
-                      还没有可用的 embedding
+                      当前无可用的 embedding
                       模型。创建知识库前，需要由有「管理模型端点」权限的成员先添加一个。
                     </FieldDescription>
                   )

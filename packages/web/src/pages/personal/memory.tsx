@@ -61,10 +61,8 @@ export function PersonalReviewsPage() {
 
   return (
     <Page>
-      <PageTopbar>
-        <PageHeader title="记忆提案" />
-      </PageTopbar>
       <MemoryReviews
+        title="记忆提案"
         agentId={search.agent ?? null}
         onAgentChange={(next) =>
           void navigate({

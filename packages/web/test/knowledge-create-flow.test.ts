@@ -13,8 +13,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { toastSuccess } from '../src/lib/toast.js';
-import { KnowledgePage } from '../src/pages/knowledge/index.js';
 import { KnowledgeDetailPage } from '../src/pages/knowledge/detail/index.js';
+import { KnowledgePage } from '../src/pages/knowledge/index.js';
 import { allAccessMe } from './me-fixture.js';
 import { createMsw, runCleanup } from './msw.js';
 
@@ -491,7 +491,7 @@ describe('knowledge create flow', () => {
       false,
     );
     await waitFor(() => advancedPanel()?.hasAttribute('hidden') === false);
-    expect(creator.textContent).toContain('还没有可用的 embedding 模型');
+    expect(creator.textContent).toContain('当前无可用的 embedding 模型');
     expect(creator.textContent).toContain('管理模型端点');
     const inline = [...creator.querySelectorAll<HTMLButtonElement>('button')].find((item) =>
       item.textContent?.includes('创建 embedding profile'),

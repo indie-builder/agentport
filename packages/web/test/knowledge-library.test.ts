@@ -158,26 +158,34 @@ describe('knowledge library list', () => {
     const router = await mount('/knowledge');
     expect(document.body.textContent).toContain('共 2 个知识库');
 
-    await chooseFilter('按启用状态筛选', '启用');
+    const openStatusFilter = async (option: string) => {
+      const trigger = button('筛选');
+      if (trigger.getAttribute('aria-expanded') !== 'true') {
+        await click(trigger);
+      }
+      await chooseFilter('按启用状态筛选', option);
+    };
+
+    await openStatusFilter('启用');
     expect(router.state.location.search).toMatchObject({ status: 'active' });
     expect(document.body.textContent).toContain('产品手册');
     expect(document.body.textContent).not.toContain('研发手册');
     // 数量按过滤后的可见项计。
     expect(document.body.textContent).toContain('共 1 个知识库');
 
-    await chooseFilter('按启用状态筛选', '停用');
+    await openStatusFilter('停用');
     expect(router.state.location.search).toMatchObject({ status: 'disabled' });
     expect(document.body.textContent).toContain('研发手册');
     expect(document.body.textContent).not.toContain('产品手册');
     expect(document.body.textContent).toContain('共 1 个知识库');
 
     // 回到全部状态：URL 不再带 status，列表恢复完整。
-    await chooseFilter('按启用状态筛选', '全部状态');
+    await openStatusFilter('全部状态');
     expect(router.state.location.search.status).toBeUndefined();
     expect(document.body.textContent).toContain('共 2 个知识库');
 
     // 关键词与状态同时无结果时，清除筛选把两者一起清空。
-    await chooseFilter('按启用状态筛选', '停用');
+    await openStatusFilter('停用');
     await act(async () => {
       const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索知识库"]');
       if (!input) throw new Error('Missing search input');

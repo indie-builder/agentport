@@ -202,7 +202,7 @@ function SidebarLink({
         <span
           aria-hidden="true"
           className={cn(
-            'flex h-4 min-w-4 items-center justify-center rounded-full bg-fg px-1 text-[10px] font-medium leading-none text-surface tabular-nums',
+            'flex h-4 min-w-4 items-center justify-center rounded-full bg-fg px-1 text-xs font-medium leading-none text-surface tabular-nums',
             collapsed ? 'absolute right-0 top-0' : 'ml-auto',
           )}
         >
@@ -695,14 +695,7 @@ export function AppShell() {
                         navCollapsed ? 'size-4' : 'size-5 bg-sidebar',
                       )}
                     >
-                      <span
-                        className={cn(
-                          'font-medium leading-none',
-                          navCollapsed ? 'text-[10px]' : 'text-[11px]',
-                        )}
-                      >
-                        {accountInitial}
-                      </span>
+                      <span className="text-xs font-medium leading-none">{accountInitial}</span>
                     </span>
                     <span className={navCollapsed ? 'sr-only' : 'max-w-32 truncate'}>
                       {user.user.name || user.user.username}

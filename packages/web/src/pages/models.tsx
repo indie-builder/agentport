@@ -9,6 +9,7 @@ import { ConfirmDialog } from '../components/confirm-dialog.js';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
+import { FilterPopover } from '../components/filter-popover.js';
 import { FilterSelect } from '../components/filter-select.js';
 import {
   Page,
@@ -231,7 +232,11 @@ export function ModelsPage() {
       id: 'enabled',
       header: '启用',
       width: '76px',
-      cell: (provider) => <StatusBadge>{provider.enabled ? '启用' : '停用'}</StatusBadge>,
+      cell: (provider) => (
+        <StatusBadge tone={provider.enabled ? 'success' : 'default'}>
+          {provider.enabled ? '启用' : '停用'}
+        </StatusBadge>
+      ),
     },
     {
       id: 'updatedAt',
@@ -266,7 +271,7 @@ export function ModelsPage() {
                 </Button>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="icon-sm"
                   aria-label={`删除供应商 ${provider.name}`}
                   onClick={() => setDeleting(provider)}
                 >
@@ -355,22 +360,24 @@ export function ModelsPage() {
             }
             className="w-full sm:w-56"
           />
-          <FilterSelect
-            value={status}
-            onValueChange={(next) =>
-              void navigate({
-                to: '/models',
-                search: {
-                  ...search,
-                  status: next === 'all' ? undefined : (next as 'enabled' | 'disabled'),
-                },
-                replace: true,
-              })
-            }
-            options={statusOptions}
-            label="按启用状态筛选"
-            className="w-full sm:w-36"
-          />
+          <FilterPopover activeCount={status === 'all' ? 0 : 1}>
+            <FilterSelect
+              value={status}
+              onValueChange={(next) =>
+                void navigate({
+                  to: '/models',
+                  search: {
+                    ...search,
+                    status: next === 'all' ? undefined : (next as 'enabled' | 'disabled'),
+                  },
+                  replace: true,
+                })
+              }
+              options={statusOptions}
+              label="按启用状态筛选"
+              className="w-full"
+            />
+          </FilterPopover>
           <div className="ml-auto flex min-w-0 flex-wrap items-center gap-3">
             {filtered.length > 0 ? (
               <>
@@ -397,7 +404,7 @@ export function ModelsPage() {
           {providers.data && rows.length === 0 ? (
             <PageNote
               icon={<Cpu aria-hidden="true" />}
-              title="还没有模型供应商"
+              title="无模型供应商"
               description="添加供应商后，专家运行才能按配置调用模型。"
               action={
                 canManage ? (
@@ -431,6 +438,7 @@ export function ModelsPage() {
               label="模型供应商"
               storageKey="pace.models.provider-columns"
               renderExpanded={expanded}
+              hideRowCount
             />
           ) : null}
           {filtered.length > 0 && view === 'cards' ? (
@@ -441,17 +449,17 @@ export function ModelsPage() {
               {filtered.map((provider) => (
                 <li key={provider.id} className="min-w-0">
                   <Card size="sm" className="h-full">
-                    <CardHeader>
+                    <CardHeader className="grid-cols-[minmax(0,1fr)_auto]! items-center">
                       <CardTitle className="min-w-0 truncate" title={provider.name}>
                         {provider.name}
                       </CardTitle>
-                      <CardAction className="flex items-center gap-1">
+                      <CardAction className="col-start-2 row-start-1 flex items-center gap-1 self-center">
                         <StatusBadge tone={provider.enabled ? 'success' : 'default'}>
                           {provider.enabled ? '启用' : '停用'}
                         </StatusBadge>
                       </CardAction>
                     </CardHeader>
-                    <CardContent className="flex flex-col gap-3">
+                    <CardContent className="flex flex-1 flex-col gap-3">
                       <RecordRows
                         rows={[
                           {
@@ -494,7 +502,7 @@ export function ModelsPage() {
                       />
                     </CardContent>
                     {canManage ? (
-                      <CardFooter className="justify-end gap-2">
+                      <CardFooter className="justify-end gap-1">
                         <Button variant="ghost" size="sm" onClick={() => setEditing(provider)}>
                           编辑
                         </Button>
@@ -508,7 +516,7 @@ export function ModelsPage() {
                         </Button>
                         <Button
                           variant="ghost"
-                          size="sm"
+                          size="icon-sm"
                           aria-label={`删除供应商 ${provider.name}`}
                           onClick={() => setDeleting(provider)}
                         >

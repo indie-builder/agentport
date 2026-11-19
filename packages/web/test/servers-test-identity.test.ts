@@ -156,14 +156,14 @@ async function click(element: HTMLElement): Promise<void> {
 }
 
 function serverRow(name: string): HTMLElement {
-  const row = [...document.querySelectorAll<HTMLElement>('tbody tr[role="row"]')].find((item) =>
-    item.textContent?.includes(name),
+  const row = [...document.querySelectorAll<HTMLElement>('ul[aria-label="连接器列表"] > li')].find(
+    (item) => item.textContent?.includes(name),
   );
-  if (!row) throw new Error(`Missing server row: ${name}`);
+  if (!row) throw new Error(`Missing server card: ${name}`);
   return row;
 }
 
-async function openTest(name: string): Promise<HTMLButtonElement> {
+async function openServerMenuItem(name: string, label: string): Promise<HTMLButtonElement> {
   const trigger = serverRow(name).querySelector<HTMLButtonElement>(`[aria-label="操作 ${name}"]`);
   if (!trigger) throw new Error(`Missing server menu: ${name}`);
   await act(async () => {
@@ -173,11 +173,15 @@ async function openTest(name: string): Promise<HTMLButtonElement> {
   });
   await flush();
   const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-    (entry) => entry.textContent?.trim() === '测试连接',
+    (entry) => entry.textContent?.trim() === label,
   );
-  if (!item) throw new Error('Missing test menu item');
+  if (!item) throw new Error(`Missing menu item: ${label}`);
   await click(item);
   return trigger;
+}
+
+async function openTest(name: string): Promise<HTMLButtonElement> {
+  return openServerMenuItem(name, '测试连接');
 }
 
 function dialog(title: string): HTMLElement {
@@ -237,7 +241,7 @@ describe('server search', () => {
   it('matches a connector by its catalog display name as well as its slug', async () => {
     vi.spyOn(api, 'servers').mockResolvedValue([huggingFaceServer]);
     await mount([huggingFaceServer], { catalog: [huggingFaceCatalogItem] });
-    const cards = () => document.querySelectorAll('tbody tr[role="row"]');
+    const cards = () => document.querySelectorAll('ul[aria-label="连接器列表"] > li');
     expect(cards()).toHaveLength(1);
     const card = serverRow('Hugging Face');
 
@@ -254,6 +258,18 @@ describe('server search', () => {
     state.search = { q: 'no-such-connector' };
     await render();
     expect(cards()).toHaveLength(0);
+  });
+
+  it('defaults to cards view and switches to table view when view=table is active', async () => {
+    vi.spyOn(api, 'servers').mockResolvedValue([httpServer]);
+    await mount([httpServer]);
+    expect(document.querySelector('ul[aria-label="连接器列表"]')).not.toBeNull();
+    expect(document.querySelector('table[aria-label="连接器列表"]')).toBeNull();
+
+    state.search = { view: 'table' };
+    await render();
+    expect(document.querySelector('table[aria-label="连接器列表"]')).not.toBeNull();
+    expect(document.querySelector('ul[aria-label="连接器列表"]')).toBeNull();
   });
 });
 
@@ -301,7 +317,7 @@ describe('server test environment identity', () => {
     expect(testServer).toHaveBeenNthCalledWith(3, generatedServer.id, null);
     expect(document.querySelector('[role="dialog"]')).toBeNull();
 
-    await click(button(`打开 ${httpServer.name}`));
+    await openServerMenuItem(httpServer.name, '工具与测试');
     const tools = dialog(`工具与试连「${httpServer.name}」`);
     expect(tools.textContent).toContain('http-tool');
     expect(tools.textContent).not.toContain(namedEnvironment.name);
@@ -342,7 +358,7 @@ describe('server test environment identity', () => {
     await click(button('开始测试', dialog(`测试 ${secondStdioServer.name}`)));
     expect(testServer).toHaveBeenNthCalledWith(2, secondStdioServer.id, otherEnvironment.id);
 
-    await click(button(`打开 ${stdioServer.name}`));
+    await openServerMenuItem(stdioServer.name, '工具与测试');
     const details = dialog(`工具与试连「${stdioServer.name}」`);
     await click(button('重新测试', details));
     const environmentDialog = dialog(`测试 ${stdioServer.name}`);
@@ -374,7 +390,7 @@ describe('server test environment identity', () => {
     expect(card.textContent).toContain(`环境 ${namedEnvironment.name} · 1234abcd`);
     expect(card.textContent).not.toContain('未测试');
 
-    await click(button(`打开 ${stdioServer.name}`));
+    await openServerMenuItem(stdioServer.name, '工具与测试');
     const tools = dialog(`工具与试连「${stdioServer.name}」`);
     expect(tools.textContent).toContain(`环境 ${namedEnvironment.name} · 1234abcd`);
     expect(tools.textContent).toContain('重新测试后查看工具目录。');

@@ -1,6 +1,6 @@
 import { utcWindowStart } from '@agentport/shared';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Download, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Download, MoreHorizontal, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterPopover } from '../components/filter-popover.js';
@@ -17,6 +17,13 @@ import { SearchInput } from '../components/search-input.js';
 import { ErrorState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
 import { type AuditEntry, type AuditStatus, api } from '../lib/api.js';
 import { downloadBlob, downloadJson } from '../lib/browser-files.js';
 import { toCsv } from '../lib/csv.js';
@@ -200,7 +207,11 @@ export function AuditPage() {
     target.trim() !== settledTarget ||
     actor.trim() !== settledActor;
   const activeFilterCount =
-    (actorKind !== 'all' ? 1 : 0) + (status !== 'all' ? 1 : 0) + (range !== 'all' ? 1 : 0);
+    (target.trim() ? 1 : 0) +
+    (actor.trim() ? 1 : 0) +
+    (actorKind !== 'all' ? 1 : 0) +
+    (status !== 'all' ? 1 : 0) +
+    (range !== 'all' ? 1 : 0);
 
   const exportAudit = async (): Promise<void> => {
     setExporting(true);
@@ -284,31 +295,7 @@ export function AuditPage() {
           description="输入只保存摘要，不落原文。"
           actions={
             <>
-              <Button variant="outline" onClick={() => void verifyChain()} disabled={verifying}>
-                <ShieldCheck data-icon="inline-start" aria-hidden="true" />
-                {verifying ? '校验中…' : '校验完整性'}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => void exportAudit()}
-                disabled={exporting || searchPending}
-              >
-                <Download data-icon="inline-start" aria-hidden="true" />
-                {exporting ? '导出中…' : searchPending ? '等待筛选…' : '导出审计'}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => void exportAuditCsv()}
-                disabled={exportingCsv || searchPending}
-              >
-                <Download data-icon="inline-start" aria-hidden="true" />
-                {exportingCsv ? '导出中…' : searchPending ? '等待筛选…' : '导出 CSV'}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => void audit.refetch()}
-                disabled={audit.isFetching}
-              >
+              <Button onClick={() => void audit.refetch()} disabled={audit.isFetching}>
                 <RefreshCw
                   data-icon="inline-start"
                   className={audit.isFetching ? 'animate-spin' : undefined}
@@ -316,6 +303,48 @@ export function AuditPage() {
                 />
                 {audit.isFetching ? '刷新中…' : '刷新'}
               </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="更多操作"
+                      aria-busy={verifying || exporting || exportingCsv}
+                    >
+                      <MoreHorizontal aria-hidden="true" />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" sideOffset={4} className="w-48">
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem
+                      disabled={verifying}
+                      aria-busy={verifying}
+                      onSelect={() => void verifyChain()}
+                    >
+                      <ShieldCheck aria-hidden="true" />
+                      {verifying ? '校验中…' : '校验完整性'}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={exporting || searchPending}
+                      aria-busy={exporting}
+                      onSelect={() => void exportAudit()}
+                    >
+                      <Download aria-hidden="true" />
+                      {exporting ? '导出中…' : searchPending ? '等待筛选…' : '导出审计 (JSON)'}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={exportingCsv || searchPending}
+                      aria-busy={exportingCsv}
+                      onSelect={() => void exportAuditCsv()}
+                    >
+                      <Download aria-hidden="true" />
+                      {exportingCsv ? '导出中…' : searchPending ? '等待筛选…' : '导出 CSV'}
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           }
         />
@@ -334,33 +363,33 @@ export function AuditPage() {
             }
             className="w-full sm:w-56"
           />
-          <SearchInput
-            label="按目标精确筛选"
-            placeholder="目标，如 agent:123"
-            value={target}
-            onChange={(value) =>
-              void navigate({
-                to: '/audit',
-                search: { ...search, target: value || undefined },
-                replace: true,
-              })
-            }
-            className="w-full sm:w-56"
-          />
-          <SearchInput
-            label="按操作者过滤"
-            placeholder="操作者，如 alice"
-            value={actor}
-            onChange={(value) =>
-              void navigate({
-                to: '/audit',
-                search: { ...search, actor: value || undefined },
-                replace: true,
-              })
-            }
-            className="w-full sm:w-56"
-          />
           <FilterPopover activeCount={activeFilterCount}>
+            <SearchInput
+              label="按目标精确筛选"
+              placeholder="目标，如 agent:123"
+              value={target}
+              onChange={(value) =>
+                void navigate({
+                  to: '/audit',
+                  search: { ...search, target: value || undefined },
+                  replace: true,
+                })
+              }
+              className="w-full"
+            />
+            <SearchInput
+              label="按操作者过滤"
+              placeholder="操作者，如 alice"
+              value={actor}
+              onChange={(value) =>
+                void navigate({
+                  to: '/audit',
+                  search: { ...search, actor: value || undefined },
+                  replace: true,
+                })
+              }
+              className="w-full"
+            />
             <FilterSelect
               value={actorKind}
               onValueChange={(next) =>

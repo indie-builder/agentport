@@ -1,16 +1,34 @@
 import type { ConnectorCatalogItem, Server } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { CircleAlert, CircleCheck, LibraryBig, LoaderCircle, Plus, Upload } from 'lucide-react';
+import {
+  CircleAlert,
+  CircleCheck,
+  LibraryBig,
+  LoaderCircle,
+  MoreHorizontal,
+  Plus,
+  Upload,
+} from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
 import { FilterSelect } from '../../components/filter-select.js';
 import { PageNote } from '../../components/page.js';
+import { RecordRows } from '../../components/record-rows.js';
 import { ResourcePage } from '../../components/resource-page.js';
-import { ErrorState } from '../../components/states.js';
+import { ErrorState, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../../components/ui/dropdown-menu.js';
 import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover.js';
+import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { cn } from '../../lib/cn.js';
 import { formatDateTime, formatRelative, shortId } from '../../lib/format.js';
@@ -73,19 +91,24 @@ export function ServersPage() {
   const test = useTestServer();
   const importMcp = useImportMcpFile();
   const search = useSearch({ from: '/_shell/servers' });
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: '/servers' });
   const query = search.q ?? '';
   const kind = search.kind ?? 'all';
   const sort = search.sort ?? 'newest';
+  const view: ListView = search.view ?? 'cards';
   const setFilter = (
     patch: {
       q?: string | undefined;
       kind?: ListedKind | undefined;
       sort?: 'newest' | 'name' | undefined;
+      view?: ListView | undefined;
     },
     replace = false,
   ): void => {
     void navigate({ to: '/servers', search: (previous) => ({ ...previous, ...patch }), replace });
+  };
+  const setView = (next: ListView): void => {
+    setFilter({ view: next === 'cards' ? undefined : next });
   };
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Server | null>(null);
@@ -98,11 +121,14 @@ export function ServersPage() {
   const [tested, setTested] = useState<Map<string, LastTest>>(() => new Map());
   const [testingServer, setTestingServer] = useState<Server | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   // 弹层关闭后焦点回到真正打开它的控件，而不是统一回到「新建」。
   const triggerRef = useRef<HTMLElement | null>(null);
   const focusTrigger = (): HTMLElement | null =>
-    triggerRef.current?.isConnected ? triggerRef.current : createButtonRef.current;
+    triggerRef.current?.isConnected
+      ? triggerRef.current
+      : (createButtonRef.current ?? moreTriggerRef.current);
 
   const catalogTest = catalogServer ? tested.get(catalogServer.id) : undefined;
   const all = servers.data ?? [];
@@ -236,6 +262,130 @@ export function ServersPage() {
     { value: 'data_domain', label: kindMeta.data_domain.label },
   ];
 
+  const renderServerStatus = (server: Server, alignEnd = false) => {
+    if (server.kind === 'data_domain') {
+      return <span className="text-sm text-muted-foreground">平台托管</span>;
+    }
+    const lastTest = tested.get(server.id) ?? null;
+    const testing = test.isPending && test.variables?.id === server.id;
+    if (testing) {
+      return (
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 text-sm text-muted-foreground',
+            alignEnd && 'justify-end',
+          )}
+        >
+          <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+          测试中…
+        </span>
+      );
+    }
+    const result = lastTest?.result ?? null;
+    const testedAt = lastTest?.at ?? server.lastTestedAt ?? null;
+    if (!testedAt) return <span className="text-sm text-muted-foreground">未测试</span>;
+    const ok = result ? result.ok : server.lastTestOk === true;
+    const environment = result
+      ? (result.runtimeEnvironment ?? null)
+      : (server.lastTestRuntimeEnvironment ?? null);
+    return (
+      <div className={cn('flex min-w-0 flex-col gap-0.5', alignEnd && 'items-end')}>
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 text-sm',
+            ok ? 'text-success' : 'text-danger',
+          )}
+        >
+          {ok ? (
+            <CircleCheck className="size-3.5 shrink-0" aria-hidden="true" />
+          ) : (
+            <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
+          )}
+          {ok ? '试连成功' : '未能连接'}
+        </span>
+        <span
+          className="font-mono text-xs tabular-nums text-muted-foreground"
+          title={formatDateTime(testedAt)}
+        >
+          {formatRelative(testedAt)}
+        </span>
+        {environment ? (
+          <span
+            className="max-w-full truncate font-mono text-xs text-muted-foreground"
+            title={`${environment.environmentName} · ${environment.versionId} · ${environment.imageId}`}
+          >
+            环境 {environment.environmentName} · {shortId(environment.versionId)}
+          </span>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderServerAgents = (server: Server) => {
+    if (agents.isError) return '未知';
+    if (agents.isPending) return '加载中…';
+    const count = agentCounts.get(server.id) ?? 0;
+    if (count === 0) return 0;
+    const names = agentNames.get(server.id) ?? [];
+    return (
+      <Popover>
+        <PopoverTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto px-1.5 font-normal tabular-nums"
+              aria-label={`查看使用该连接器的 ${count} 个专家`}
+            >
+              {count}
+            </Button>
+          }
+        />
+        <PopoverContent align="end" className="w-64">
+          <p className="text-xs text-muted-foreground">使用该连接器的专家</p>
+          <ul className="flex flex-col gap-1">
+            {names.map((name) => (
+              <li key={name} className="text-sm break-words text-fg">
+                {name}
+              </li>
+            ))}
+          </ul>
+        </PopoverContent>
+      </Popover>
+    );
+  };
+
+  const renderServerActions = (server: Server) =>
+    server.kind === 'data_domain' ? null : (
+      <ServerActions
+        displayName={catalogNames.get(server.name) ?? server.name}
+        generated={server.kind === 'generated'}
+        testing={test.isPending && test.variables?.id === server.id}
+        testPending={test.isPending}
+        canTest={canTest}
+        canTools={canTools}
+        canTokens={canTokens}
+        canDelete={canDelete}
+        onTest={(trigger) => startTest(server, trigger)}
+        onCatalog={(trigger) => {
+          triggerRef.current = trigger;
+          setCatalogServer(server);
+        }}
+        onTools={(trigger) => {
+          triggerRef.current = trigger;
+          setToolServer(server);
+        }}
+        onConnection={(trigger) => {
+          triggerRef.current = trigger;
+          setConnection(server);
+        }}
+        onDelete={(trigger) => {
+          triggerRef.current = trigger;
+          setDeleting(server);
+        }}
+      />
+    );
+
   const columns: DataColumn<Server>[] = [
     {
       id: 'name',
@@ -298,59 +448,7 @@ export function ServersPage() {
       id: 'status',
       header: '连通状态',
       width: '150px',
-      cell: (server) => {
-        if (server.kind === 'data_domain') {
-          return <span className="text-sm text-muted-foreground">平台托管</span>;
-        }
-        const lastTest = tested.get(server.id) ?? null;
-        const testing = test.isPending && test.variables?.id === server.id;
-        if (testing) {
-          return (
-            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
-              测试中…
-            </span>
-          );
-        }
-        const result = lastTest?.result ?? null;
-        const testedAt = lastTest?.at ?? server.lastTestedAt ?? null;
-        if (!testedAt) return <span className="text-sm text-muted-foreground">未测试</span>;
-        const ok = result ? result.ok : server.lastTestOk === true;
-        const environment = result
-          ? (result.runtimeEnvironment ?? null)
-          : (server.lastTestRuntimeEnvironment ?? null);
-        return (
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span
-              className={cn(
-                'flex items-center gap-1.5 text-sm',
-                ok ? 'text-success' : 'text-danger',
-              )}
-            >
-              {ok ? (
-                <CircleCheck className="size-3.5 shrink-0" aria-hidden="true" />
-              ) : (
-                <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
-              )}
-              {ok ? '试连成功' : '未能连接'}
-            </span>
-            <span
-              className="font-mono text-xs tabular-nums text-muted-foreground"
-              title={formatDateTime(testedAt)}
-            >
-              {formatRelative(testedAt)}
-            </span>
-            {environment ? (
-              <span
-                className="truncate font-mono text-xs text-muted-foreground"
-                title={`${environment.environmentName} · ${environment.versionId} · ${environment.imageId}`}
-              >
-                环境 {environment.environmentName} · {shortId(environment.versionId)}
-              </span>
-            ) : null}
-          </div>
-        );
-      },
+      cell: (server) => renderServerStatus(server),
     },
     {
       id: 'tools',
@@ -364,75 +462,14 @@ export function ServersPage() {
       header: '专家',
       numeric: true,
       width: '72px',
-      cell: (server) => {
-        if (agents.isError) return '未知';
-        if (agents.isPending) return '加载中…';
-        const count = agentCounts.get(server.id) ?? 0;
-        if (count === 0) return 0;
-        const names = agentNames.get(server.id) ?? [];
-        return (
-          <Popover>
-            <PopoverTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-auto px-1.5 font-normal tabular-nums"
-                  aria-label={`查看使用该连接器的 ${count} 个专家`}
-                >
-                  {count}
-                </Button>
-              }
-            />
-            <PopoverContent align="end" className="w-64">
-              <p className="text-xs text-muted-foreground">使用该连接器的专家</p>
-              <ul className="flex flex-col gap-1">
-                {names.map((name) => (
-                  <li key={name} className="text-sm break-words text-fg">
-                    {name}
-                  </li>
-                ))}
-              </ul>
-            </PopoverContent>
-          </Popover>
-        );
-      },
+      cell: (server) => renderServerAgents(server),
     },
     {
       id: 'actions',
       header: '操作',
       align: 'end',
       width: '32px',
-      cell: (server) =>
-        server.kind === 'data_domain' ? null : (
-          <ServerActions
-            displayName={catalogNames.get(server.name) ?? server.name}
-            generated={server.kind === 'generated'}
-            testing={test.isPending && test.variables?.id === server.id}
-            testPending={test.isPending}
-            canTest={canTest}
-            canTools={canTools}
-            canTokens={canTokens}
-            canDelete={canDelete}
-            onTest={(trigger) => startTest(server, trigger)}
-            onCatalog={(trigger) => {
-              triggerRef.current = trigger;
-              setCatalogServer(server);
-            }}
-            onTools={(trigger) => {
-              triggerRef.current = trigger;
-              setToolServer(server);
-            }}
-            onConnection={(trigger) => {
-              triggerRef.current = trigger;
-              setConnection(server);
-            }}
-            onDelete={(trigger) => {
-              triggerRef.current = trigger;
-              setDeleting(server);
-            }}
-          />
-        ),
+      cell: (server) => renderServerActions(server),
     },
   ];
 
@@ -445,7 +482,7 @@ export function ServersPage() {
       onSortChange={(next) => setFilter({ sort: next === 'newest' ? undefined : next })}
       count={filtered.length}
       status={servers.status}
-      filters={
+      menuFilters={
         <FilterSelect
           value={kind}
           onValueChange={(next) =>
@@ -453,9 +490,10 @@ export function ServersPage() {
           }
           options={kindOptions}
           label="按来源筛选"
-          className="w-36"
+          className="w-full"
         />
       }
+      activeFilterCount={kind === 'all' ? 0 : 1}
       actions={
         <>
           <input
@@ -470,35 +508,54 @@ export function ServersPage() {
               if (file) void importFile(file);
             }}
           />
-          {canImport ? (
-            <Button
-              variant="outline"
-              disabled={importMcp.isPending}
-              aria-busy={importMcp.isPending}
-              onClick={() => importInputRef.current?.click()}
-            >
-              <Upload data-icon="inline-start" aria-hidden="true" />{' '}
-              {importMcp.isPending ? '导入中…' : '导入 .mcp.json'}
-            </Button>
-          ) : null}
-          {canCreate ? (
-            <Button
-              variant="outline"
-              onClick={(event) => {
-                triggerRef.current = event.currentTarget;
-                setCatalogOpen(true);
-              }}
-            >
-              <LibraryBig data-icon="inline-start" aria-hidden="true" /> 浏览目录
-            </Button>
-          ) : null}
           {canCreate && !(servers.data && all.length === 0) ? (
             <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>
               <Plus data-icon="inline-start" /> 新建连接器
             </Button>
           ) : null}
+          {canCreate || canImport ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button ref={moreTriggerRef} variant="ghost" size="icon" aria-label="更多操作">
+                    <MoreHorizontal aria-hidden="true" />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                <DropdownMenuGroup>
+                  {canCreate ? (
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        triggerRef.current = moreTriggerRef.current;
+                        setCatalogOpen(true);
+                      }}
+                    >
+                      <LibraryBig aria-hidden="true" /> 浏览目录
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canImport ? (
+                    <DropdownMenuItem
+                      disabled={importMcp.isPending}
+                      aria-busy={importMcp.isPending}
+                      onSelect={() => {
+                        triggerRef.current = moreTriggerRef.current;
+                        importInputRef.current?.click();
+                      }}
+                    >
+                      <Upload aria-hidden="true" />
+                      {importMcp.isPending ? '导入中…' : '导入 .mcp.json'}
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </>
       }
+      {...(filtered.length > 0
+        ? { toolbarActions: <ViewToggle value={view} onChange={setView} /> }
+        : {})}
     >
       {servers.isError ? (
         <ErrorState error={servers.error} onRetry={() => void servers.refetch()} />
@@ -540,7 +597,77 @@ export function ServersPage() {
         />
       ) : null}
 
-      {servers.isPending || (servers.data && all.length > 0 && filtered.length > 0) ? (
+      {view === 'cards' ? (
+        servers.isPending ? (
+          <LoadingState rows={4} layout="cards" />
+        ) : servers.data && all.length > 0 && filtered.length > 0 ? (
+          <ul
+            aria-label="连接器列表"
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2"
+          >
+            {filtered.map((server) => {
+              const displayName = catalogNames.get(server.name) ?? server.name;
+              const detail = detailOf(server);
+              const actions = renderServerActions(server);
+              return (
+                <li key={server.id} className="min-w-0">
+                  <Card size="sm" className="h-full">
+                    <CardHeader>
+                      <CardTitle className="min-w-0">
+                        <div className="flex min-w-0 flex-col gap-0.5">
+                          {server.kind === 'data_domain' ? (
+                            <span className="truncate font-medium text-fg" title={displayName}>
+                              {displayName}
+                            </span>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              className="h-auto w-full min-w-0 justify-start p-0 text-left text-sm font-medium text-fg"
+                              onClick={(event) => openEdit(server, event.currentTarget)}
+                            >
+                              <span className="block min-w-0 truncate" title={displayName}>
+                                {displayName}
+                              </span>
+                            </Button>
+                          )}
+                          {displayName === server.name ? null : (
+                            <code
+                              className="truncate font-mono text-xs text-muted-foreground"
+                              title={server.name}
+                            >
+                              {server.name}
+                            </code>
+                          )}
+                        </div>
+                      </CardTitle>
+                      {actions ? <CardAction>{actions}</CardAction> : null}
+                    </CardHeader>
+                    <CardContent className="flex min-w-0 flex-1 flex-col gap-3">
+                      <RecordRows
+                        rows={[
+                          { label: '来源', value: kindMeta[server.kind].label },
+                          {
+                            label: '地址',
+                            value: <span className="block truncate">{detail || '—'}</span>,
+                            mono: true,
+                            title: detail,
+                          },
+                          { label: '连通状态', value: renderServerStatus(server, true) },
+                          {
+                            label: '工具',
+                            value: toolCountOf(server, tested.get(server.id) ?? null) ?? '—',
+                          },
+                          { label: '专家', value: renderServerAgents(server) },
+                        ]}
+                      />
+                    </CardContent>
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null
+      ) : servers.isPending || (servers.data && all.length > 0 && filtered.length > 0) ? (
         <DataTable
           rows={filtered}
           columns={columns}

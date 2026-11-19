@@ -311,17 +311,6 @@ export function SkillsPage() {
               if (file) void importSkillMd(file);
             }}
           />
-          {canImportSkill ? (
-            <Button
-              variant="outline"
-              disabled={importSkill.isPending}
-              aria-busy={importSkill.isPending}
-              onClick={() => importInputRef.current?.click()}
-            >
-              <Upload data-icon="inline-start" aria-hidden="true" />{' '}
-              {importSkill.isPending ? '导入中…' : '导入 SKILL.md'}
-            </Button>
-          ) : null}
           {canCreateSkill ? (
             <Button
               ref={createButtonRef}
@@ -332,6 +321,35 @@ export function SkillsPage() {
             >
               <Plus data-icon="inline-start" aria-hidden="true" /> 新建技能
             </Button>
+          ) : null}
+          {canImportSkill ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="更多操作"
+                    disabled={importSkill.isPending}
+                    aria-busy={importSkill.isPending}
+                  >
+                    <MoreHorizontal aria-hidden="true" />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    disabled={importSkill.isPending}
+                    aria-busy={importSkill.isPending}
+                    onSelect={() => importInputRef.current?.click()}
+                  >
+                    <Upload aria-hidden="true" />
+                    {importSkill.isPending ? '导入中…' : '导入 SKILL.md'}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : null}
         </>
       }

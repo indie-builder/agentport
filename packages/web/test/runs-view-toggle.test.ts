@@ -129,12 +129,15 @@ describe('run list view toggle', () => {
       items: [run],
     });
     await mount('/runs?agent=agent-1&status=succeeded&trigger=schedule&range=7');
-    const exportButton = [...host.querySelectorAll('button')].find(
+    const more = host.querySelector<HTMLButtonElement>('button[aria-label="更多操作"]');
+    if (!more) throw new Error('Missing more actions trigger');
+    await act(async () => more.click());
+    const exportItem = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
       (element) => element.textContent?.trim() === '导出 CSV',
     );
-    if (!exportButton) throw new Error('Missing CSV export button');
+    if (!exportItem) throw new Error('Missing CSV export menu item');
 
-    await act(async () => exportButton.click());
+    await act(async () => exportItem.click());
 
     expect(api.exportRuns).toHaveBeenCalledExactlyOnceWith({
       agentId: 'agent-1',
@@ -153,8 +156,12 @@ describe('run list view toggle', () => {
     expect(new Uint8Array(await blob.arrayBuffer()).slice(0, 3)).toEqual(
       new Uint8Array([0xef, 0xbb, 0xbf]),
     );
-    expect(exportButton.disabled).toBe(false);
-    expect(exportButton.getAttribute('aria-busy')).toBe('false');
+    await act(async () => more.click());
+    const reopenedExport = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (element) => element.textContent?.trim() === '导出 CSV',
+    );
+    expect(reopenedExport?.getAttribute('aria-disabled')).toBeNull();
+    expect(reopenedExport?.getAttribute('aria-busy')).toBe('false');
   });
 
   it('maps the time range from the URL to since and clears it with the filters', async () => {
@@ -204,6 +211,7 @@ describe('run list view toggle', () => {
     await mount('/runs?view=cards');
 
     expect(table()).toBeNull();
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('共 1 条运行');
     const text = cards()?.textContent ?? '';
     expect(text).toContain('专家');
     expect(text).toContain('成功');
@@ -222,6 +230,10 @@ describe('run list view toggle', () => {
     const detailUrl = new URL(detailHref ?? '', 'http://localhost');
     expect(detailUrl.pathname).toBe(`/runs/${run.id}`);
     expect(detailUrl.searchParams.get('backTo')).toBe('/runs?view=cards');
+    const footerDetailHref = [...(cards()?.querySelectorAll<HTMLAnchorElement>('a') ?? [])]
+      .find((anchor) => anchor.textContent?.trim() === '查看详情')
+      ?.getAttribute('href');
+    expect(footerDetailHref).toBe(detailHref);
   });
 
   it('expands the full error text on click and keeps the row from navigating', async () => {

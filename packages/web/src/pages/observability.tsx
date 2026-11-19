@@ -179,7 +179,9 @@ export function ObservabilityPage() {
         cell: (provider) => (
           <span className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="font-medium text-fg [overflow-wrap:anywhere]">{provider.name}</span>
-            <StatusBadge>{provider.enabled ? '启用' : '停用'}</StatusBadge>
+            <StatusBadge tone={provider.enabled ? 'success' : 'default'}>
+              {provider.enabled ? '启用' : '停用'}
+            </StatusBadge>
           </span>
         ),
       },
@@ -245,7 +247,6 @@ export function ObservabilityPage() {
       <PageTopbar>
         <PageHeader
           title="观测"
-          {...(data ? { description: `最近 ${windowMinutes} 分钟` } : {})}
           actions={
             <>
               <FilterSelect
@@ -274,7 +275,7 @@ export function ObservabilityPage() {
         />
       </PageTopbar>
 
-      <PageBody>
+      <PageBody className="pt-2">
         {snapshot.isError && !data ? (
           <ErrorState
             error={snapshot.error}
@@ -299,7 +300,7 @@ export function ObservabilityPage() {
         {data ? (
           <>
             <PageSection divided={false} title="窗口指标">
-              <MetricGrid>
+              <MetricGrid columns={4}>
                 {[
                   {
                     label: '运行成功率',
@@ -308,14 +309,8 @@ export function ObservabilityPage() {
                     hint:
                       data.runs.finished === 0
                         ? null
-                        : `${data.runs.succeeded} / ${data.runs.finished} 成功`,
+                        : `${data.runs.succeeded} / ${data.runs.finished} 成功 · ${data.runs.failed} 失败`,
                     icon: Activity,
-                  },
-                  {
-                    label: '错误率',
-                    value: data.runs.finished === 0 ? '无数据' : formatPercent(data.runs.errorRate),
-                    hint: data.runs.failed > 0 ? `${data.runs.failed} 次失败` : null,
-                    icon: CircleAlert,
                   },
                   {
                     label: 'P95 延迟',
@@ -344,7 +339,7 @@ export function ObservabilityPage() {
               </MetricGrid>
             </PageSection>
 
-            <PageSection title="告警">
+            <PageSection divided={false} title="告警">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 {[
                   {
@@ -363,10 +358,10 @@ export function ObservabilityPage() {
                     icon: CircleAlert,
                   },
                 ].map(({ label, value, icon: Icon }) => (
-                  <Card key={label} size="sm">
-                    <CardContent className="flex items-baseline justify-between gap-3">
-                      <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Icon className="size-4" aria-hidden="true" />
+                  <Card key={label} size="sm" className="min-w-0">
+                    <CardContent className="flex items-center justify-between gap-3">
+                      <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Icon className="size-4 shrink-0" aria-hidden="true" />
                         {label}
                       </span>
                       <span className="text-xl font-medium tabular-nums text-fg">{value}</span>
@@ -377,7 +372,9 @@ export function ObservabilityPage() {
             </PageSection>
 
             <PageSection
-              title="评估与队列"
+              divided={false}
+              title="运行明细"
+              {...(tab === 'slo' ? { description: `评估窗口 ${data.sloWindowMinutes} 分钟` } : {})}
               actions={
                 <SegmentedToggle
                   label="切换区段"
@@ -414,59 +411,54 @@ export function ObservabilityPage() {
                   ) : data.slo.length === 0 ? (
                     <PageNote
                       icon={<Gauge aria-hidden="true" />}
-                      title="还没有 SLO 读数"
+                      title="无 SLO 读数"
                       description="窗口内没有样本时，SLO 会显示无数据而不是达标。"
                     />
                   ) : (
-                    <>
-                      <p className="text-xs text-muted-foreground">
-                        评估窗口 {data.sloWindowMinutes} 分钟
-                      </p>
-                      <Table aria-label="SLO 状态">
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead scope="col">SLO</TableHead>
-                            <TableHead scope="col" className="text-right">
-                              目标
-                            </TableHead>
-                            <TableHead scope="col" className="text-right">
-                              实际
-                            </TableHead>
-                            <TableHead scope="col" className="text-right">
-                              样本量
-                            </TableHead>
-                            <TableHead scope="col">状态</TableHead>
+                    <Table aria-label="SLO 状态">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead scope="col">SLO</TableHead>
+                          <TableHead scope="col" className="text-right">
+                            目标
+                          </TableHead>
+                          <TableHead scope="col" className="text-right">
+                            实际
+                          </TableHead>
+                          <TableHead scope="col" className="text-right">
+                            样本量
+                          </TableHead>
+                          <TableHead scope="col">状态</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.slo.map((item) => (
+                          <TableRow key={item.key}>
+                            <TableCell className="text-fg">{item.label}</TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {formatSloValue(item.key, item.target)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {item.sampleSize === 0
+                                ? '无数据'
+                                : formatSloValue(item.key, item.actual)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-muted-foreground">
+                              {item.sampleSize}
+                            </TableCell>
+                            <TableCell>
+                              {item.sampleSize === 0 || item.ok === null ? (
+                                <StatusBadge>无数据</StatusBadge>
+                              ) : item.ok ? (
+                                <StatusBadge tone="success">达标</StatusBadge>
+                              ) : (
+                                <StatusBadge tone="danger">未达标</StatusBadge>
+                              )}
+                            </TableCell>
                           </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.slo.map((item) => (
-                            <TableRow key={item.key}>
-                              <TableCell className="text-fg">{item.label}</TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {formatSloValue(item.key, item.target)}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {item.sampleSize === 0
-                                  ? '无数据'
-                                  : formatSloValue(item.key, item.actual)}
-                              </TableCell>
-                              <TableCell className="text-right tabular-nums text-muted-foreground">
-                                {item.sampleSize}
-                              </TableCell>
-                              <TableCell>
-                                {item.sampleSize === 0 || item.ok === null ? (
-                                  <StatusBadge>无数据</StatusBadge>
-                                ) : item.ok ? (
-                                  <StatusBadge tone="success">达标</StatusBadge>
-                                ) : (
-                                  <StatusBadge tone="danger">未达标</StatusBadge>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </>
+                        ))}
+                      </TableBody>
+                    </Table>
                   )}
                 </>
               ) : null}
