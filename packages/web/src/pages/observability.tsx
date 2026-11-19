@@ -54,6 +54,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table.js';
+import { SegmentedToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { errorMessage } from '../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
@@ -86,6 +87,7 @@ function formatSloValue(key: SloStatus['key'], value: number | null): string {
 export function ObservabilityPage() {
   const search = useSearch({ from: '/_shell/observability' });
   const navigate = useNavigate({ from: '/observability' });
+  const [tab, setTab] = useState<'slo' | 'queues' | 'providers'>('slo');
   const me = useQuery(meQuery);
   const canManage = can(me.data, 'operations.manage');
   const windowMinutes = search.windowMinutes ?? 60;
@@ -373,98 +375,118 @@ export function ObservabilityPage() {
               </div>
             </PageSection>
 
-            <PageSection title="SLO" description={`评估窗口：${data.sloWindowMinutes} 分钟`}>
-              {slo.isError ? (
-                <ErrorState
-                  error={slo.error}
-                  onRetry={() => void slo.refetch()}
-                  title="SLO 设置没有加载出来"
+            <PageSection
+              title="评估与队列"
+              actions={
+                <SegmentedToggle
+                  label="切换区段"
+                  value={tab}
+                  options={[
+                    { value: 'slo', label: 'SLO' },
+                    { value: 'queues', label: '队列' },
+                    { value: 'providers', label: '供应商' },
+                  ]}
+                  onChange={setTab}
                 />
+              }
+            >
+              {tab === 'slo' ? (
+                <>
+                  {slo.isError ? (
+                    <ErrorState
+                      error={slo.error}
+                      onRetry={() => void slo.refetch()}
+                      title="SLO 设置没有加载出来"
+                    />
+                  ) : null}
+                  {!data.sloEnabled ? (
+                    <PageNote
+                      icon={<Gauge aria-hidden="true" />}
+                      title="SLO 告警已停用"
+                      description="停用后不再发送未达标告警，因此这里不展示达标评估；可在 SLO 设置中重新启用。"
+                    />
+                  ) : data.slo.length === 0 ? (
+                    <PageNote
+                      icon={<Gauge aria-hidden="true" />}
+                      title="还没有 SLO 读数"
+                      description="窗口内没有样本时，SLO 会显示无数据而不是达标。"
+                    />
+                  ) : (
+                    <Table aria-label="SLO 状态">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead scope="col">SLO</TableHead>
+                          <TableHead scope="col" className="text-right">
+                            目标
+                          </TableHead>
+                          <TableHead scope="col" className="text-right">
+                            实际
+                          </TableHead>
+                          <TableHead scope="col" className="text-right">
+                            样本量
+                          </TableHead>
+                          <TableHead scope="col">状态</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.slo.map((item) => (
+                          <TableRow key={item.key}>
+                            <TableCell className="text-fg">{item.label}</TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {formatSloValue(item.key, item.target)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {item.sampleSize === 0
+                                ? '无数据'
+                                : formatSloValue(item.key, item.actual)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-muted-foreground">
+                              {item.sampleSize}
+                            </TableCell>
+                            <TableCell>
+                              {item.sampleSize === 0 || item.ok === null ? (
+                                <StatusBadge>无数据</StatusBadge>
+                              ) : item.ok ? (
+                                <StatusBadge tone="success">达标</StatusBadge>
+                              ) : (
+                                <StatusBadge tone="danger">未达标</StatusBadge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </>
               ) : null}
-              {!data.sloEnabled ? (
-                <PageNote
-                  icon={<Gauge aria-hidden="true" />}
-                  title="SLO 告警已停用"
-                  description="停用后不再发送未达标告警，因此这里不展示达标评估；可在 SLO 设置中重新启用。"
-                />
-              ) : data.slo.length === 0 ? (
-                <PageNote
-                  icon={<Gauge aria-hidden="true" />}
-                  title="还没有 SLO 读数"
-                  description="窗口内没有样本时，SLO 会显示无数据而不是达标。"
-                />
-              ) : (
-                <Table aria-label="SLO 状态">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead scope="col">SLO</TableHead>
-                      <TableHead scope="col" className="text-right">
-                        目标
-                      </TableHead>
-                      <TableHead scope="col" className="text-right">
-                        实际
-                      </TableHead>
-                      <TableHead scope="col" className="text-right">
-                        样本量
-                      </TableHead>
-                      <TableHead scope="col">状态</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.slo.map((item) => (
-                      <TableRow key={item.key}>
-                        <TableCell className="text-fg">{item.label}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatSloValue(item.key, item.target)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {item.sampleSize === 0 ? '无数据' : formatSloValue(item.key, item.actual)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">
-                          {item.sampleSize}
-                        </TableCell>
-                        <TableCell>
-                          {item.sampleSize === 0 || item.ok === null ? (
-                            <StatusBadge>无数据</StatusBadge>
-                          ) : item.ok ? (
-                            <StatusBadge tone="success">达标</StatusBadge>
-                          ) : (
-                            <StatusBadge tone="danger">未达标</StatusBadge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </PageSection>
 
-            <PageSection title="队列" description="实时快照">
-              {data.queues.length === 0 ? (
-                <PageNote title="当前没有队列读数" />
-              ) : (
-                <DataTable
-                  rows={data.queues}
-                  columns={queueColumns}
-                  rowKey={(queue) => queue.name}
-                  label="队列"
-                  storageKey="pace.observability.queue-columns"
-                />
-              )}
-            </PageSection>
+              {tab === 'queues' ? (
+                data.queues.length === 0 ? (
+                  <PageNote title="当前没有队列读数" />
+                ) : (
+                  <DataTable
+                    rows={data.queues}
+                    columns={queueColumns}
+                    rowKey={(queue) => queue.name}
+                    label="队列"
+                    storageKey="pace.observability.queue-columns"
+                  />
+                )
+              ) : null}
 
-            <PageSection title="供应商指标">
-              {data.providers.length === 0 ? (
-                <PageNote icon={<Coins aria-hidden="true" />} title="窗口内没有供应商请求" />
-              ) : (
-                <DataTable
-                  rows={data.providers}
-                  columns={providerColumns}
-                  rowKey={(provider) => provider.providerId}
-                  label="供应商指标"
-                  storageKey="pace.observability.provider-columns"
-                />
-              )}
+              {tab === 'providers' ? (
+                data.providers.length === 0 ? (
+                  <PageNote icon={<Coins aria-hidden="true" />} title="窗口内没有供应商请求" />
+                ) : (
+                  <DataTable
+                    rows={data.providers}
+                    columns={providerColumns}
+                    rowKey={(provider) => provider.providerId}
+                    label="供应商指标"
+                    storageKey="pace.observability.provider-columns"
+                  />
+                )
+              ) : null}
             </PageSection>
           </>
         ) : null}

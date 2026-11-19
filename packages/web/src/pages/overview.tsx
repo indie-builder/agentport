@@ -42,6 +42,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table.js';
+import { SegmentedToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { errorMessage, type OverviewAgentRow, type RecentRun } from '../lib/api.js';
 import { downloadBlob } from '../lib/browser-files.js';
@@ -649,6 +650,7 @@ function RetentionSection() {
 
 export function OverviewPage() {
   const navigate = useNavigate();
+  const [tab, setTab] = useState<'recent' | 'agents'>('recent');
   const location = useLocation();
   const me = useQuery(meQuery);
   const canStartConversation =
@@ -773,65 +775,69 @@ export function OverviewPage() {
             {attentionSection}
 
             <PageSection
-              title="最近运行"
-              {...(data.counts.running ? { description: `${data.counts.running} 个正在运行` } : {})}
+              title="运行"
               actions={
-                canReadRuns ? (
-                  <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                    查看运行
-                  </Link>
-                ) : undefined
+                <div className="flex items-center gap-2">
+                  <SegmentedToggle
+                    label="切换区段"
+                    value={tab}
+                    options={[
+                      { value: 'recent', label: '最近运行' },
+                      { value: 'agents', label: '专家运行' },
+                    ]}
+                    onChange={setTab}
+                  />
+                  {tab === 'recent' && canReadRuns ? (
+                    <Link to="/runs" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                      查看运行
+                    </Link>
+                  ) : null}
+                  {tab === 'agents' ? (
+                    <div className="flex items-center gap-2">
+                      {data.agents.length > 0 ? (
+                        <Button variant="outline" size="sm" onClick={exportUsageCsv}>
+                          <Download data-icon="inline-start" aria-hidden="true" /> 导出 CSV
+                        </Button>
+                      ) : null}
+                      {canReadAgents ? (
+                        <Link
+                          to="/agents"
+                          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                        >
+                          管理专家
+                        </Link>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               }
             >
-              {data.recent.length > 0 ? (
-                <DataTable
-                  rows={data.recent.slice(0, 6)}
-                  columns={runColumns}
-                  rowKey={(run) => run.id}
-                  rowLabel={(run) =>
-                    `${run.agentName ?? '已删除的专家'} · ${formatDateTime(run.startedAt)} · ${shortId(run.id)}`
-                  }
-                  label="最近运行"
-                  storageKey="pace.overview.run-columns"
-                  {...(canReadRuns
-                    ? {
-                        onRowClick: (run: RecentRun) =>
-                          void navigate({
-                            to: '/runs/$runId',
-                            params: { runId: run.id },
-                            search: { backTo: location.href },
-                          }),
-                      }
-                    : {})}
-                />
-              ) : (
-                <PageNote title="发起对话后在这里查看运行" />
-              )}
-            </PageSection>
-
-            <PageSection
-              title="专家运行"
-              actions={
-                data.agents.length > 0 || canReadAgents ? (
-                  <div className="flex items-center gap-2">
-                    {data.agents.length > 0 ? (
-                      <Button variant="outline" size="sm" onClick={exportUsageCsv}>
-                        <Download data-icon="inline-start" aria-hidden="true" /> 导出 CSV
-                      </Button>
-                    ) : null}
-                    {canReadAgents ? (
-                      <Link
-                        to="/agents"
-                        className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                      >
-                        管理专家
-                      </Link>
-                    ) : null}
-                  </div>
-                ) : undefined
-              }
-            >
-              {data.agents.length > 0 ? (
+              {tab === 'recent' ? (
+                data.recent.length > 0 ? (
+                  <DataTable
+                    rows={data.recent.slice(0, 6)}
+                    columns={runColumns}
+                    rowKey={(run) => run.id}
+                    rowLabel={(run) =>
+                      `${run.agentName ?? '已删除的专家'} · ${formatDateTime(run.startedAt)} · ${shortId(run.id)}`
+                    }
+                    label="最近运行"
+                    storageKey="pace.overview.run-columns"
+                    {...(canReadRuns
+                      ? {
+                          onRowClick: (run: RecentRun) =>
+                            void navigate({
+                              to: '/runs/$runId',
+                              params: { runId: run.id },
+                              search: { backTo: location.href },
+                            }),
+                        }
+                      : {})}
+                  />
+                ) : (
+                  <PageNote title="发起对话后在这里查看运行" />
+                )
+              ) : data.agents.length > 0 ? (
                 <DataTable
                   rows={data.agents}
                   columns={agentColumns}
