@@ -251,13 +251,6 @@ export function MemoryReviews({
     ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
   ];
 
-  const viewCounts: Record<MemoryReviewView, number> = {
-    pending: 0,
-    generating: 0,
-    aborted: 0,
-    done: 0,
-  };
-  for (const item of items) viewCounts[reviewViewOf(item)] += 1;
   const visibleItems = items
     .filter((item) => stage === null || reviewViewOf(item) === stage)
     .slice()
@@ -327,12 +320,7 @@ export function MemoryReviews({
           />
           <div className="ml-auto flex flex-wrap items-center gap-3">
             {reviews.data && items.length > 0 ? (
-              <p className="text-xs text-muted-foreground">
-                当前已加载 {items.length} 条 · 待审核 {viewCounts.pending} · 生成中{' '}
-                {viewCounts.generating}
-                {viewCounts.aborted > 0 ? ` · 已中断 ${viewCounts.aborted}` : null} · 已处理{' '}
-                {viewCounts.done}
-              </p>
+              <p className="text-xs text-muted-foreground">共 {items.length} 条</p>
             ) : null}
             {canReview ? (
               <Button
