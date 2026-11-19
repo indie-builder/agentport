@@ -31,12 +31,14 @@ import { DialogShell } from '../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../components/draft-guard.js';
 import { FilterSelect } from '../components/filter-select.js';
 import { PageNote } from '../components/page.js';
+import { RecordRows } from '../components/record-rows.js';
 import { RequiredMark } from '../components/required-mark.js';
 import { ResourcePage } from '../components/resource-page.js';
 import { SourceEditor } from '../components/source-editor.js';
 import { ErrorState, LoadingState } from '../components/states.js';
 import { StatusBadge } from '../components/status-badge.js';
 import { Button } from '../components/ui/button.js';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
 import { Dialog } from '../components/ui/dialog.js';
 import {
   DropdownMenu,
@@ -54,7 +56,7 @@ import {
 } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Textarea } from '../components/ui/textarea.js';
-import { SegmentedToggle } from '../components/view-toggle.js';
+import { type ListView, SegmentedToggle, ViewToggle } from '../components/view-toggle.js';
 import { can } from '../lib/access.js';
 import { ApiError, api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
@@ -155,6 +157,13 @@ export function SkillsPage() {
   const sort = search.sort ?? 'newest';
   const usage = search.usage ?? 'all';
   const skillStatus = search.status;
+  const view: ListView = search.view ?? 'cards';
+  const setView = (next: ListView): void => {
+    void navigate({
+      to: '/skills',
+      search: { ...search, view: next === 'cards' ? undefined : next },
+    });
+  };
   const [editing, setEditing] = useState<Skill | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<SkillWithAgentCount | null>(null);
@@ -325,6 +334,9 @@ export function SkillsPage() {
           ) : null}
         </>
       }
+      {...(visibleSkills.length > 0
+        ? { toolbarActions: <ViewToggle value={view} onChange={setView} /> }
+        : {})}
     >
       {skills.isPending ? <LoadingState rows={4} /> : null}
       {skills.isError ? (
@@ -373,7 +385,7 @@ export function SkillsPage() {
         />
       ) : null}
 
-      {visibleSkills.length > 0 ? (
+      {visibleSkills.length > 0 && view !== 'cards' ? (
         <ul className="divide-y divide-line border-y">
           {visibleSkills.map((skill) => (
             <li
@@ -476,6 +488,138 @@ export function SkillsPage() {
                   </DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {visibleSkills.length > 0 && view === 'cards' ? (
+        <ul
+          aria-label="技能列表"
+          className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,288px),1fr))] gap-4 pt-2"
+        >
+          {visibleSkills.map((skill) => (
+            <li key={skill.id} className="min-w-0">
+              <Card size="sm" className="h-full">
+                <CardHeader>
+                  <CardTitle className="min-w-0">
+                    <Button
+                      variant="ghost"
+                      className="h-auto w-full min-w-0 justify-start p-0 text-left text-sm font-medium"
+                      onClick={(event) => {
+                        actionTriggerRef.current = event.currentTarget;
+                        setEditing(skill);
+                      }}
+                    >
+                      <span className="block min-w-0 truncate" title={skill.name}>
+                        {skill.name}
+                      </span>
+                    </Button>
+                  </CardTitle>
+                  <CardAction className="flex items-center gap-1">
+                    <StatusBadge tone={statusMeta[skill.status].tone}>
+                      {statusMeta[skill.status].label}
+                    </StatusBadge>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`操作 ${skill.name}`}
+                            onFocus={(event) => {
+                              actionTriggerRef.current = event.currentTarget;
+                            }}
+                            onClick={(event) => {
+                              actionTriggerRef.current = event.currentTarget;
+                            }}
+                          >
+                            <MoreHorizontal />
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                        <DropdownMenuGroup>
+                          {canUpdateSkill ? (
+                            <DropdownMenuItem onSelect={() => setEditing(skill)}>
+                              <Pencil /> 编辑
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canReadSkillFiles && skill.status === 'published' ? (
+                            <DropdownMenuItem render={<a href={`/api/skills/${skill.id}/file`} />}>
+                              <Download /> 导出 SKILL.md
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canUpdateSkill &&
+                          (skill.status === 'draft' || skill.status === 'rejected') ? (
+                            <DropdownMenuItem
+                              disabled={submitSkill.isPending}
+                              onSelect={() => submitForReview(skill)}
+                            >
+                              <Send /> 提交审核
+                            </DropdownMenuItem>
+                          ) : null}
+                          {canReviewSkill && skill.status === 'pending' ? (
+                            <>
+                              <DropdownMenuItem
+                                disabled={approveSkill.isPending}
+                                onSelect={() => approve(skill)}
+                              >
+                                <Check /> 批准
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onSelect={() => setRejecting(skill)}
+                              >
+                                <X /> 驳回
+                              </DropdownMenuItem>
+                            </>
+                          ) : null}
+                          {canDeleteSkill ? (
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onSelect={() => setDeleting(skill)}
+                            >
+                              <Trash2 /> 删除
+                            </DropdownMenuItem>
+                          ) : null}
+                        </DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </CardAction>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <p className="line-clamp-2 break-words text-sm text-muted-foreground">
+                    {skill.description}
+                  </p>
+                  {skill.status === 'rejected' && skill.reviewNote ? (
+                    <p
+                      className="line-clamp-2 break-words text-sm text-danger"
+                      title={skill.reviewNote}
+                    >
+                      {`驳回原因：${skill.reviewNote}`}
+                    </p>
+                  ) : null}
+                  <RecordRows
+                    rows={[
+                      {
+                        label: '专家',
+                        value: skill.agentCount > 0 ? `${skill.agentCount} 个专家` : '未绑定',
+                      },
+                      ...(skill.sourceId
+                        ? [
+                            {
+                              label: '来源',
+                              value: skill.sourceId.split('/').slice(0, 2).join('/'),
+                              mono: true,
+                              title: skill.sourceId,
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
+                </CardContent>
+              </Card>
             </li>
           ))}
         </ul>
