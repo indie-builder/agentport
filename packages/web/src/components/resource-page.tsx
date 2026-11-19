@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { canAny, RESOURCE_MENU, RESOURCE_SECTIONS } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
 import { meQuery } from '../lib/queries.js';
+import { FilterPopover } from './filter-popover.js';
 import { FilterSelect } from './filter-select.js';
 import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from './page.js';
 import { SearchInput } from './search-input.js';
@@ -22,6 +23,8 @@ export function ResourcePage({
   count,
   status,
   filters,
+  menuFilters,
+  activeFilterCount,
   leadingFilters,
   hideToolbar,
   actions,
@@ -35,6 +38,8 @@ export function ResourcePage({
   count?: number | undefined;
   status: 'pending' | 'error' | 'success';
   filters?: ReactNode;
+  menuFilters?: ReactNode;
+  activeFilterCount?: number;
   leadingFilters?: ReactNode;
   hideToolbar?: boolean;
   actions?: ReactNode;
@@ -93,7 +98,9 @@ export function ResourcePage({
               onChange={onQueryChange}
               className="w-56 min-w-0"
             />
-            {filters ? (
+            {menuFilters ? (
+              <FilterPopover activeCount={activeFilterCount ?? 0}>{menuFilters}</FilterPopover>
+            ) : filters ? (
               <div className="flex min-w-0 flex-wrap items-center gap-2">{filters}</div>
             ) : null}
             {onSortChange ? (

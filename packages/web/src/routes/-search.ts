@@ -220,7 +220,12 @@ export const securitySearchSchema = z.object({
   violationStatus: violationCaseStatusSchema.optional().catch(undefined),
 });
 
+export const operationsSearchSchema = z.object({
+  tab: z.enum(['recent', 'agents']).optional().catch(undefined),
+});
+
 export const observabilitySearchSchema = z.object({
+  tab: z.enum(['slo', 'queues', 'providers']).optional().catch(undefined),
   windowMinutes: z.coerce
     .number()
     .pipe(z.union([z.literal(15), z.literal(60), z.literal(360), z.literal(1440)]))

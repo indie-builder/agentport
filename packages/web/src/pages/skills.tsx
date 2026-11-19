@@ -266,7 +266,7 @@ export function SkillsPage() {
           onChange={openMarket}
         />
       }
-      filters={
+      menuFilters={
         <>
           <FilterSelect
             value={skillStatus ?? 'all'}
@@ -282,7 +282,7 @@ export function SkillsPage() {
             }}
             options={statusOptions}
             label="按审核状态筛选"
-            className="w-32"
+            className="w-full"
           />
           <FilterSelect
             value={usage}
@@ -292,10 +292,11 @@ export function SkillsPage() {
             }}
             options={usageOptions}
             label="按使用情况筛选"
-            className="w-36"
+            className="w-full"
           />
         </>
       }
+      activeFilterCount={(skillStatus === undefined ? 0 : 1) + (usage === 'all' ? 0 : 1)}
       actions={
         <>
           <input

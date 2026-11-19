@@ -59,7 +59,8 @@ vi.mock('@tanstack/react-router', async () => {
       params?: unknown;
     }) => createElement('a', { href: to, ...props }, children),
     useNavigate: () => vi.fn(),
-    useSearch: ({ from }: { from?: string } = {}) => (from === '/_shell/eval' ? evalSearch : {}),
+    useSearch: ({ from }: { from?: string } = {}) =>
+      from === '/_shell/eval' ? evalSearch : from === '/_shell/operations' ? { tab: 'agents' } : {},
     useLocation: () => ({ href: '/eval' }),
   };
 });

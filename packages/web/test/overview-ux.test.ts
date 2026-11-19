@@ -16,6 +16,8 @@ import { allAccessMe } from './me-fixture.js';
 
 vi.mock('../src/lib/browser-files.js', () => ({ downloadBlob: vi.fn() }));
 
+const state = vi.hoisted(() => ({ search: {} as Record<string, unknown> }));
+
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     to,
@@ -30,7 +32,10 @@ vi.mock('@tanstack/react-router', () => ({
     const href = to.replace(/\$([A-Za-z]+)/g, (_, key: string) => params?.[key] ?? '');
     return createElement('a', { href, ...props }, children);
   },
-  useNavigate: () => vi.fn(),
+  useNavigate: () => (opts: { search?: (current: Record<string, unknown>) => object }) => {
+    state.search = { ...(opts.search?.(state.search) ?? {}) };
+  },
+  useSearch: () => state.search,
   useLocation: () => ({ href: '/overview' }),
 }));
 
@@ -97,6 +102,7 @@ let host: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  state.search = {};
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -148,14 +154,6 @@ function trigger(): HTMLButtonElement {
     item.textContent?.includes('趋势数据'),
   );
   if (!button) throw new Error('Missing trend table trigger');
-  return button;
-}
-
-function segment(label: string): HTMLButtonElement {
-  const button = [...host.querySelectorAll('button')].find((item) =>
-    item.textContent?.includes(label),
-  );
-  if (!button) throw new Error(`Missing segment: ${label}`);
   return button;
 }
 
@@ -257,9 +255,9 @@ describe('overview trend accessibility', () => {
     });
     queryClient.setQueryData(healthMetricsQuery.queryKey, metrics);
 
+    state.search = { tab: 'agents' };
     await render(createElement(OverviewPage), queryClient);
 
-    await click(segment('专家运行'));
     const link = host.querySelector('a[href="/agents/agt_trend"]');
     expect(link?.textContent).toContain('趋势专家');
 
@@ -289,9 +287,9 @@ describe('overview usage export', () => {
     });
     queryClient.setQueryData(healthMetricsQuery.queryKey, metrics);
 
+    state.search = { tab: 'agents' };
     await render(createElement(OverviewPage), queryClient);
 
-    await click(segment('专家运行'));
     const button = [...host.querySelectorAll('button')].find((item) =>
       item.textContent?.includes('导出 CSV'),
     );

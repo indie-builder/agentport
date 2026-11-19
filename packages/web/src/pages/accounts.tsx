@@ -313,7 +313,6 @@ export function AccountsPage() {
                           label: '角色',
                           value: account.roles.map((role) => role.name).join('、') || '—',
                         },
-                        { label: '创建时间', value: formatDate(account.createdAt) },
                       ]}
                     />
                   </CardContent>
