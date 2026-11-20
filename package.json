@@ -48,6 +48,8 @@
     "test:web": "vitest run --config packages/web/vitest.config.ts",
     "test:watch": "bun scripts/test-backend.ts --watch",
     "test:e2e": "e2e run",
+    "ci": "bun scripts/ci.ts",
+    "ci:e2e": "bun scripts/ci.ts --e2e",
     "e2e:channel": "bun run --filter @agentport/shared --filter @agentport/contract --filter @agentport/db --filter @agentport/core build && bun --cwd packages/worker ../../scripts/e2e-channel.ts",
     "e2e:channel:stack": "bun run --filter @agentport/shared --filter @agentport/contract --filter @agentport/db --filter @agentport/core build && E2E_CHANNEL_MODE=stack bun --cwd packages/worker ../../scripts/e2e-channel.ts",
     "e2e:channel:ui": "bun run --filter @agentport/shared --filter @agentport/contract --filter @agentport/db --filter @agentport/core build && E2E_CHANNEL_MODE=ui bun --cwd packages/worker ../../scripts/e2e-channel.ts",

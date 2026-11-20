@@ -682,7 +682,7 @@ bun run --filter @agentport/web build
 
 此命令禁用 `.env` 文件加载，不需要 API、worker、PostgreSQL 或 Redis，也不依赖机器上的临时配置。它仍会继承调用进程已有的环境变量。
 
-根 `bun run test` 只跑后端（`scripts/test-backend.ts` → `bun test --isolate`）；`bun run test:web` 只跑前端 Vitest。手动触发 CI 时两个命令分别执行，不存在“根测试命令自动包含 web”的旧行为；push 和 PR 不自动运行 CI，合并不等待远端检查。后端运行前提见 §9.2。
+根 `bun run test` 只跑后端（`scripts/test-backend.ts` → `bun test --isolate`）；`bun run test:web` 只跑前端 Vitest。本地 CI（`bun run ci`）会分别执行两条命令，不存在“根测试命令自动包含 web”的旧行为；push 和 PR 不触发远端检查，合并不等待远端检查。后端运行前提见 §9.2。
 
 只检查 web 测试文件收集、不执行测试模块时，运行 `bunx vitest list --config packages/web/vitest.config.ts --filesOnly`；根 `vitest.config.ts` 也只配置了 web project。
 
