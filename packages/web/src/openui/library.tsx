@@ -1,5 +1,5 @@
 import type { OpenUiKit } from '@agentport/shared';
-import { createOpenUiDefinitions } from '@agentport/shared';
+import { createOpenUiDefinitions, openUiPromptOptions } from '@agentport/shared';
 import {
   action,
   type ComponentRenderer,
@@ -33,3 +33,5 @@ export const library: Library = createLibrary({
   components: definitions.components as DefinedComponent[],
   componentGroups: definitions.componentGroups,
 });
+
+export const promptOptions = openUiPromptOptions();

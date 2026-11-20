@@ -121,12 +121,7 @@ export function EvalRunResults({ id }: { id: string }) {
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {failedCount > 0 ? (
-            <Button
-              variant="outline"
-              size="sm"
-              aria-pressed={onlyFailed}
-              onClick={toggleFailed}
-            >
+            <Button variant="outline" size="sm" aria-pressed={onlyFailed} onClick={toggleFailed}>
               {onlyFailed ? '显示全部' : `只看未通过（${failedCount}）`}
             </Button>
           ) : null}
@@ -160,9 +155,7 @@ export function EvalRunResults({ id }: { id: string }) {
           tone="danger"
           title={results.length === 0 ? '评估失败，未生成结果' : '评估失败'}
           description={
-            <span className="[overflow-wrap:anywhere]">
-              {evalRun.error} 请检查后重新运行评估。
-            </span>
+            <span className="[overflow-wrap:anywhere]">{evalRun.error} 请检查后重新运行评估。</span>
           }
         />
       ) : null}

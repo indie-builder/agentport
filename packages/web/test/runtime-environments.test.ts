@@ -20,8 +20,8 @@ import { Button } from '../src/components/ui/button.js';
 import { ApiError } from '../src/lib/api.js';
 import { buildShouldPoll } from '../src/lib/queries.js';
 import { toastError, toastSuccess } from '../src/lib/toast.js';
-import { RuntimeEnvironmentDetailPage } from '../src/pages/runtime-environments/runtime-environment-detail.js';
 import { RuntimeEnvironmentsPage } from '../src/pages/runtime-environments/index.js';
+import { RuntimeEnvironmentDetailPage } from '../src/pages/runtime-environments/runtime-environment-detail.js';
 import { allAccessMe } from './me-fixture.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
@@ -86,7 +86,9 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
     useLocation: () => {
       if (state.realRouter) return realLocation();
       const query = Object.entries(state.search)
-        .flatMap(([key, value]) => (value === undefined ? [] : [`${key}=${encodeURIComponent(value)}`]))
+        .flatMap(([key, value]) =>
+          value === undefined ? [] : [`${key}=${encodeURIComponent(value)}`],
+        )
         .join('&');
       return { href: `/runtime-environments${query ? `?${query}` : ''}` };
     },
@@ -367,7 +369,9 @@ async function click(element: HTMLElement): Promise<void> {
 
 async function press(element: HTMLElement): Promise<void> {
   await act(async () => {
-    element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 0 }));
+    element.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 0 }),
+    );
     element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 0, clientY: 0 }));
   });
   await flush();

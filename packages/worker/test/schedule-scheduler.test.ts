@@ -18,7 +18,9 @@ mock.module('../src/runs/run-access.js', () => ({
   checkUserAgentAccess: access.check,
 }));
 
-const { processScheduleTrigger, startScheduleScheduler } = await import('../src/scheduling/scheduler.js');
+const { processScheduleTrigger, startScheduleScheduler } = await import(
+  '../src/scheduling/scheduler.js'
+);
 
 async function probeInfra(): Promise<boolean> {
   const databaseUrl = process.env.DATABASE_URL;

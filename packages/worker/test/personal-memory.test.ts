@@ -6,7 +6,10 @@ import { personalMemoryDir } from '@agentport/core';
 import { createDb, schema } from '@agentport/db';
 import { DEFAULT_MEMORY_POLICY } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
-import { personalMemoryBusinessIdForRun, projectPersonalMemory } from '../src/memory/personal-memory.js';
+import {
+  personalMemoryBusinessIdForRun,
+  projectPersonalMemory,
+} from '../src/memory/personal-memory.js';
 
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;

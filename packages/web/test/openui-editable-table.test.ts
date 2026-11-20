@@ -184,9 +184,7 @@ describe('EditableTable cell types', () => {
 
     await click(host.querySelector<HTMLElement>('[aria-label="日期 第 1 行"]') as HTMLElement);
     const day = [
-      ...document.querySelectorAll<HTMLElement>(
-        '[data-slot="calendar-day"]:not([data-outside])',
-      ),
+      ...document.querySelectorAll<HTMLElement>('[data-slot="calendar-day"]:not([data-outside])'),
     ].find((item) => item.textContent?.trim() === '15');
     if (!day) throw new Error('missing calendar day');
     await click(day);

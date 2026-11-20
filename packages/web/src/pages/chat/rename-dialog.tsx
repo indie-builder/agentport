@@ -83,7 +83,10 @@ export function RenameDialog({
   const submit = (event: FormEvent): void => {
     event.preventDefault();
     if (saveDisabled || !parsed.success) return;
-    void onRename(parsed.data.title).then(() => dialog.finish(onClosed), () => {});
+    void onRename(parsed.data.title).then(
+      () => dialog.finish(onClosed),
+      () => {},
+    );
   };
 
   const leaving = blocker.status === 'blocked';

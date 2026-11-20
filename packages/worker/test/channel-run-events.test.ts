@@ -5,8 +5,8 @@ import { RedisClient } from 'bun';
 import { eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
 import { publishChannelEventSafely } from '../src/channels/channel-events.js';
-import { finalizeRun, publishRunFinished, type RunFinishedEvent } from '../src/runs/run-finish.js';
 import { closeRunnerClient, configureRunnerClient } from '../src/runner-client.js';
+import { finalizeRun, publishRunFinished, type RunFinishedEvent } from '../src/runs/run-finish.js';
 
 const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 const redisUrl = process.env.REDIS_URL ?? '';

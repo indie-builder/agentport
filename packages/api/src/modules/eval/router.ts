@@ -73,7 +73,7 @@ export const evalRouter = os.router({
       const detail = await repo.runs.getRunDetail(context.db, run.id);
       if (!detail) notFound('run', RUN_MISSING);
       const prompt = detail.steps.find((step) => step.kind === 'user')?.text;
-      if (!prompt || !prompt.trim()) {
+      if (!prompt?.trim()) {
         fail('INVALID_INPUT', '该运行没有可用的用户输入，无法生成评估用例');
       }
       const lastAnswer = [...detail.steps]

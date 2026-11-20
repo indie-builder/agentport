@@ -6,8 +6,8 @@ import { RedisClient } from 'bun';
 import { and, eq, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { Effect, Result, Schedule } from 'effect';
 import type { Logger } from 'pino';
-import { startIntervalTicker } from './interval-ticker.js';
 import { finalizeRun, type RunFinishedEvent } from '../runs/run-finish.js';
+import { startIntervalTicker } from './interval-ticker.js';
 
 const RECONCILE_EVERY_MS = 5 * 60 * 1000;
 const GRACE_MS = 5 * 60 * 1000;

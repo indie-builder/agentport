@@ -1,5 +1,5 @@
 import { AppError } from '@agentport/core';
-import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeWikiPages, knowledgeWikiSources, knowledgeWikiVersions } from '../../schema.js';
@@ -7,10 +7,10 @@ import { keysetBefore, paginate } from '../keyset.js';
 import {
   type KnowledgeWikiPageRow,
   type KnowledgeWikiVersionRow,
-  type Page,
-  type PageOptions,
   lockWikiSourceScope,
   markWikiStaleByDocumentsTx,
+  type Page,
+  type PageOptions,
   pageLimit,
   readableDocumentSql,
   usableSourceChunks,
