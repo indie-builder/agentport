@@ -25,13 +25,12 @@ function countOwnershipReads(sql: string[]): number {
 }
 
 /**
- * 直通真实 pool.query：drizzle 的 node-postgres 会话最终也调用它，
+ * 直通真实 pool.query：drizzle 的 bun-sql 会话最终也调用它，
  * 因此能同时看到 repo 的 select/update 与 direct pool 查询。恢复必须放 finally。
  */
 function spyPoolQueries(app: TestApp): { sql: string[]; restore: () => void } {
   const sql: string[] = [];
-  const original = app.client.unsafe;
-  app.client.unsafe = ((...args: unknown[]) => {
+  const record = (args: unknown[]) => {
     const first = args[0];
     sql.push(
       typeof first === 'string'
@@ -40,11 +39,26 @@ function spyPoolQueries(app: TestApp): { sql: string[]; restore: () => void } {
           ? String((first as { text: unknown }).text)
           : '',
     );
+  };
+  const original = app.client.unsafe;
+  app.client.unsafe = ((...args: unknown[]) => {
+    record(args);
     return (original as (...inner: unknown[]) => unknown).apply(app.client, args);
   }) as typeof app.client.unsafe;
+  const originalBegin = app.client.begin;
+  app.client.begin = ((callback: (tx: typeof app.client) => Promise<unknown>) =>
+    originalBegin.call(app.client, (tx: typeof app.client) => {
+      const txUnsafe = tx.unsafe;
+      tx.unsafe = ((...args: unknown[]) => {
+        record(args);
+        return (txUnsafe as (...inner: unknown[]) => unknown).apply(tx, args);
+      }) as typeof tx.unsafe;
+      return callback(tx);
+    })) as typeof app.client.begin;
   return {
     sql,
     restore: () => {
+      app.client.begin = originalBegin;
       app.client.unsafe = original;
     },
   };
