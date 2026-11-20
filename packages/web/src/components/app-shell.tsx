@@ -3,11 +3,11 @@ import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-route
 import {
   ArrowLeft,
   Bell,
+  ChevronDown,
   LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  User,
   Wrench,
   X,
 } from 'lucide-react';
@@ -31,7 +31,7 @@ import {
 } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
 import { logoutAccount, meQuery, useUnreadNotificationCount } from '../lib/queries.js';
-import { animateBrand, Brand, BrandMark } from './brand.js';
+import { animateBrand, Brand } from './brand.js';
 import { CommandPalette, CommandPaletteTrigger } from './command-palette.js';
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from './page.js';
@@ -53,73 +53,60 @@ const resourceNavTargets = new Set<string>(RESOURCE_MENU.map((item) => item.to))
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
 
-type SidebarMode = 'collapsed' | 'preview' | 'expanded';
+type SidebarMode = 'expanded' | 'rail' | 'hidden';
+
+const AVATAR_TONES = [
+  'bg-avatar-1',
+  'bg-avatar-2',
+  'bg-avatar-3',
+  'bg-avatar-4',
+  'bg-avatar-5',
+  'bg-avatar-6',
+] as const;
+
+function pickAvatarTone(seed: string): string {
+  let n = 0;
+  for (const ch of seed) n = (n + (ch.codePointAt(0) ?? 0)) % 9973;
+  return AVATAR_TONES[n % AVATAR_TONES.length] ?? AVATAR_TONES[0];
+}
 
 function SidebarBrand({
-  mode,
-  logoRef,
+  expanded,
+  iconOnly,
   toggleRef,
+  logoRef,
   onToggle,
-  onNavigate,
 }: {
-  mode: SidebarMode;
-  logoRef: RefObject<HTMLButtonElement | null>;
+  expanded: boolean;
+  iconOnly: boolean;
   toggleRef: RefObject<HTMLButtonElement | null>;
+  logoRef: RefObject<HTMLButtonElement | null>;
   onToggle: () => void;
-  onNavigate: () => void;
 }) {
-  const collapsed = mode === 'collapsed';
   return (
-    <div className="relative flex h-8 shrink-0 items-center gap-2">
-      <Link
-        to="/"
-        aria-label="返回首页"
-        tabIndex={collapsed ? 0 : -1}
-        onClick={onNavigate}
-        className={cn(
-          'group/logo pointer-events-none absolute left-0 top-0 z-10 flex size-8 items-center justify-center rounded-icon bg-sidebar transition-opacity duration-[140ms] ease-out-soft focus-visible:pointer-events-auto focus-visible:opacity-100',
-          collapsed
-            ? 'group-hover/nav:opacity-0 group-has-[button:focus-visible]/nav:opacity-0'
-            : 'pointer-events-none opacity-0',
-        )}
-      >
-        <BrandMark />
-      </Link>
-      <Button
-        ref={logoRef}
-        type="button"
-        variant="plain"
-        aria-label="切换 PACE Logo"
-        tabIndex={collapsed ? -1 : 0}
-        onClick={animateBrand}
-        className={cn(
-          'h-8 min-w-0 flex-1 justify-start rounded-[var(--radius-icon)] p-0',
-          collapsed && 'invisible',
-        )}
-      >
-        <Brand className="h-8 self-center" />
-      </Button>
+    <div className="flex h-8 shrink-0 items-center gap-2">
       <Button
         ref={toggleRef}
-        variant="ghost"
-        aria-label={
-          mode === 'expanded' ? '收起侧栏' : mode === 'preview' ? '固定展开侧栏' : '展开侧栏'
-        }
-        aria-pressed={mode === 'expanded'}
-        aria-expanded={!collapsed}
+        variant="plain"
+        aria-label={expanded ? '收起为窄边' : '完全收起'}
+        aria-expanded={!iconOnly}
         onClick={onToggle}
-        className={cn(
-          'size-8 shrink-0 rounded-[var(--radius-icon)] p-0 hover:bg-sidebar-hover aria-expanded:bg-sidebar-hover',
-          collapsed &&
-            'absolute left-0 top-0 opacity-0 transition-opacity duration-[140ms] ease-out-soft focus-visible:opacity-100 group-hover/nav:opacity-100',
-        )}
+        className="size-8 shrink-0 rounded-[var(--radius-icon)] p-0 text-fg hover:bg-sidebar-hover"
       >
-        {mode === 'expanded' ? (
-          <PanelLeftClose className="size-4" />
-        ) : (
-          <PanelLeftOpen className="size-4" />
-        )}
+        <PanelLeftClose className="size-4" />
       </Button>
+      {!iconOnly ? (
+        <Button
+          ref={logoRef}
+          type="button"
+          variant="plain"
+          aria-label="切换 PACE Logo"
+          onClick={animateBrand}
+          className="h-8 min-w-0 flex-1 justify-start rounded-[var(--radius-icon)] p-0"
+        >
+          <Brand className="h-8 self-center" />
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -128,19 +115,15 @@ function SidebarLink({
   to,
   label,
   icon: Icon,
-  collapsed,
-  tooltipDisabled,
+  iconOnly,
   navGroup,
-  badge,
   onNavigate,
 }: {
   to: string;
   label: string;
   icon: MenuItem['icon'];
-  collapsed: boolean;
-  tooltipDisabled: boolean;
+  iconOnly: boolean;
   navGroup?: 'resources' | undefined;
-  badge?: number | undefined;
   onNavigate?: (() => void) | undefined;
 }) {
   const activeRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
@@ -150,70 +133,32 @@ function SidebarLink({
     navGroup === 'resources'
       ? activeNav !== undefined && resourceNavTargets.has(activeNav)
       : activeNav === to;
-  // 收起态按参考页：整行透明，状态落在 32×32、radius 6 的图标块上。
-  const link = (
-    <Link
-      to={to}
-      onClick={onNavigate}
-      aria-label={badge !== undefined && badge > 0 ? `${label}，${badge} 条未读` : label}
-      aria-current={active ? 'page' : undefined}
-      // 归属由 ROUTE_META 判定；Link 自带的路径前缀匹配会把未知路由误判为 active。
-      activeOptions={{ exact: true, includeSearch: false }}
-      className={cn(
-        'relative flex h-8 items-center text-sm transition-colors duration-150 ease-out-soft',
-        collapsed ? 'w-8 justify-center' : 'gap-2.5 rounded-item px-2',
-        collapsed
-          ? ''
-          : active
-            ? 'bg-sidebar-selected text-selected-foreground shadow-panel hover:shadow-panel-hover'
-            : 'text-fg hover:bg-sidebar-hover',
-        collapsed && (active ? 'text-selected-foreground' : 'text-fg'),
-      )}
-    >
-      <span
-        className={cn(
-          'flex shrink-0 items-center justify-center transition-colors duration-150 ease-out-soft',
-          collapsed
-            ? cn(
-                'size-8 rounded-tag',
-                active
-                  ? 'bg-sidebar-selected shadow-panel hover:shadow-panel-hover'
-                  : 'hover:bg-sidebar-hover',
-              )
-            : 'size-4',
-        )}
-      >
-        <Icon aria-hidden="true" />
-      </span>
-      {/*
-        收起与展开共用同一文本节点。收起时标签脱离流、保留自身宽度，只让占位收为 0、
-        opacity 走 90ms，避免宽度即时裁掉文字让过渡不可见；收起瞬间链接仍在展开态
-        起点，left-9 让文字从原 48px 起画，不跳位。
-      */}
-      <span
-        className={cn(
-          'whitespace-nowrap transition-opacity duration-[90ms] ease-out-soft',
-          collapsed ? 'absolute inset-y-0 left-9 flex items-center opacity-0' : 'truncate',
-        )}
-      >
-        {label}
-      </span>
-      {badge !== undefined && badge > 0 ? (
-        <span
-          aria-hidden="true"
-          className={cn(
-            'flex h-4 min-w-4 items-center justify-center rounded-full bg-fg px-1 text-xs font-medium leading-none text-surface tabular-nums',
-            collapsed ? 'absolute right-0 top-0' : 'ml-auto',
-          )}
-        >
-          {badge > 99 ? '99+' : badge}
-        </span>
-      ) : null}
-    </Link>
-  );
   return (
-    <Tooltip disabled={tooltipDisabled} delay={400}>
-      <TooltipTrigger render={link} />
+    <Tooltip disabled={!iconOnly} delay={400}>
+      <TooltipTrigger
+        render={
+          <Link
+            to={to}
+            onClick={onNavigate}
+            aria-label={label}
+            aria-current={active ? 'page' : undefined}
+            // 归属由 ROUTE_META 判定；Link 自带的路径前缀匹配会把未知路由误判为 active。
+            activeOptions={{ exact: true, includeSearch: false }}
+            className={cn(
+              'relative flex h-8 items-center text-sm transition-colors duration-150 ease-out-soft',
+              iconOnly ? 'w-8 justify-center rounded-tag' : 'gap-2.5 rounded-item px-2',
+              active
+                ? 'bg-sidebar-selected text-selected-foreground'
+                : 'text-fg hover:bg-sidebar-hover',
+            )}
+          >
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              <Icon aria-hidden="true" />
+            </span>
+            {!iconOnly ? <span className="truncate">{label}</span> : null}
+          </Link>
+        }
+      />
       <TooltipContent side="right" sideOffset={8}>
         {label}
       </TooltipContent>
@@ -339,18 +284,25 @@ export function AppShell() {
   const allowed = required === null || canAny(me.data, required);
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() => {
     try {
-      return localStorage.getItem(COLLAPSE_KEY) === '0' ? 'expanded' : 'collapsed';
-    } catch {
-      return 'collapsed';
-    }
+      const stored = localStorage.getItem(COLLAPSE_KEY);
+      if (stored === 'expanded' || stored === 'hidden') return stored;
+    } catch {}
+    return 'rail';
   });
-  const collapsed = sidebarMode === 'collapsed';
+  const [previewing, setPreviewing] = useState(false);
+  const preview = sidebarMode === 'rail' && previewing;
+  const sidebarWidth = {
+    expanded: 'var(--sidebar-width)',
+    rail: 'var(--sidebar-collapsed)',
+    hidden: 0,
+  }[sidebarMode];
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const pointerInSidebar = useRef(false);
-  const navigationTrigger = useRef<HTMLButtonElement>(null);
   const sidebarLogo = useRef<HTMLButtonElement>(null);
   const sidebarToggle = useRef<HTMLButtonElement>(null);
+  const restoreToggleFocus = useRef(false);
+  const navigationTrigger = useRef<HTMLButtonElement>(null);
   const reduce = useReducedMotion();
   const locationHref = useRouterState({ select: (state) => state.location.href });
   // 对话与频道详情占满高度；频道列表仍是普通可滚动页面。
@@ -400,15 +352,21 @@ export function AppShell() {
   }, [pathname]);
 
   useEffect(() => {
-    if (sidebarMode !== 'preview' || mobileOpen) return;
+    if (sidebarMode === 'rail' || !restoreToggleFocus.current) return;
+    restoreToggleFocus.current = false;
+    sidebarToggle.current?.focus();
+  }, [sidebarMode]);
+
+  useEffect(() => {
+    if (!preview || mobileOpen || accountOpen) return;
     const dismiss = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       if (document.activeElement === sidebarLogo.current) sidebarToggle.current?.focus();
-      setSidebarMode('collapsed');
+      setPreviewing(false);
     };
     window.addEventListener('keydown', dismiss);
     return () => window.removeEventListener('keydown', dismiss);
-  }, [sidebarMode, mobileOpen]);
+  }, [preview, mobileOpen, accountOpen]);
 
   if (me.isPending) {
     return (
@@ -419,21 +377,23 @@ export function AppShell() {
         aria-label="加载中"
       >
         <PageHeader title={pageTitle} className="sr-only" />
-        <div
-          className="hidden shrink-0 bg-sidebar lg:block"
-          style={
-            sidebarMode === 'expanded'
-              ? { width: 'var(--sidebar-width)', padding: 'var(--sidebar-pad)' }
-              : { width: 'var(--sidebar-collapsed)', padding: 'var(--sidebar-pad-collapsed)' }
-          }
-        >
-          <Skeleton className="mb-3 h-8 w-full" />
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
+        {sidebarMode !== 'hidden' ? (
+          <div
+            className="hidden shrink-0 bg-sidebar lg:block"
+            style={{
+              width: sidebarWidth,
+              padding:
+                sidebarMode === 'rail' ? 'var(--sidebar-pad-collapsed)' : 'var(--sidebar-pad)',
+            }}
+          >
+            <Skeleton className="mb-3 h-8 w-full" />
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
           </div>
-        </div>
+        ) : null}
         <div className="flex flex-1 flex-col gap-4 bg-surface px-6 pb-6">
           <Skeleton className="h-6 w-40" />
           <Skeleton className="h-32 w-full" />
@@ -463,39 +423,81 @@ export function AppShell() {
 
   if (!user) return null;
 
-  const rail = collapsed
-    ? { width: 'var(--sidebar-collapsed)', padding: 'var(--sidebar-pad-collapsed)' }
-    : { width: 'var(--sidebar-width)', padding: 'var(--sidebar-pad)' };
+  const avatarTone = pickAvatarTone(user.user.username);
+
+  const toggleSidebar = (): void => {
+    const next = { expanded: 'rail', rail: 'hidden', hidden: 'expanded' } as const;
+    const mode = next[sidebarMode];
+    restoreToggleFocus.current =
+      mode !== 'rail' && document.activeElement === sidebarToggle.current;
+    setPreviewing(false);
+    setSidebarMode(mode);
+    try {
+      localStorage.setItem(COLLAPSE_KEY, mode);
+    } catch {}
+  };
   const sidebar = (drawer: boolean) => {
-    const navCollapsed = !drawer && collapsed;
-    const tooltipDisabled = drawer || sidebarMode === 'expanded';
+    const iconOnly = !drawer && sidebarMode === 'rail' && !preview;
+    const interactiveRail = !drawer && sidebarMode === 'rail';
+    const bottomIconOnly = iconOnly || preview;
     const accountInitial = (
       Array.from(user.user.name.trim())[0] ??
       Array.from(user.user.username)[0] ??
       ''
     ).toUpperCase();
+    const displayName = user.user.name || user.user.username;
+    const roleNames = user.roles.map((role) => role.name).join('、');
+    const accountSecondary = roleNames || user.user.username;
+    const unreadCount = unreadNotifications.data?.unreadCount ?? 0;
     const accountCurrent =
       pathname === '/personal/profile' || pathname === '/personal' ? 'page' : undefined;
+    const accountAvatar = (
+      <span
+        className={cn(
+          'flex shrink-0 items-center justify-center rounded-full text-[11px] font-medium text-surface',
+          bottomIconOnly ? 'size-8' : 'size-5',
+          avatarTone,
+        )}
+      >
+        {accountInitial}
+      </span>
+    );
+    const accountLabel = !bottomIconOnly ? (
+      <span className="min-w-0 flex-1 truncate text-left">
+        <span className="text-fg">{displayName}</span>
+        <span className="text-muted-foreground"> · {accountSecondary}</span>
+      </span>
+    ) : null;
+    const accountClass = bottomIconOnly
+      ? 'size-8 rounded-full p-0'
+      : 'h-8 min-w-0 flex-1 justify-start gap-2 rounded-item px-2';
     const onNavigate = (): void => {
       if (drawer) setMobileOpen(false);
-      else setSidebarMode((mode) => (mode === 'preview' ? 'collapsed' : mode));
+      else setPreviewing(false);
     };
     return (
       <motion.aside
         className={cn(
-          'group/nav flex h-full flex-col overflow-hidden bg-sidebar',
-          drawer ? 'px-3 py-4' : 'absolute inset-y-0 left-0',
-          !drawer && sidebarMode === 'preview' && 'shadow-overlay',
+          'flex h-full flex-col overflow-hidden bg-sidebar',
+          drawer ? 'px-3 py-4' : 'absolute inset-y-0 left-0 border-r border-line',
+          !drawer && preview && 'shadow-overlay',
         )}
         initial={false}
-        animate={drawer ? { width: '100%' } : rail}
+        animate={
+          drawer
+            ? { width: '100%' }
+            : {
+                width: iconOnly ? 'var(--sidebar-collapsed)' : 'var(--sidebar-width)',
+                padding: iconOnly ? 'var(--sidebar-pad-collapsed)' : 'var(--sidebar-pad)',
+              }
+        }
         transition={reduce ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
         onPointerEnter={
           drawer
             ? undefined
             : () => {
                 pointerInSidebar.current = true;
-                setSidebarMode((mode) => (mode === 'collapsed' ? 'preview' : mode));
+                if (interactiveRail) setPreviewing(true);
               }
         }
         onPointerLeave={
@@ -503,35 +505,32 @@ export function AppShell() {
             ? undefined
             : (event) => {
                 pointerInSidebar.current = false;
-                if (!event.currentTarget.contains(document.activeElement)) {
-                  setSidebarMode((mode) => (mode === 'preview' ? 'collapsed' : mode));
-                }
+                if (!event.currentTarget.contains(document.activeElement)) setPreviewing(false);
               }
         }
         onFocus={
-          drawer
-            ? undefined
-            : (event) => {
+          interactiveRail
+            ? (event) => {
                 if (
-                  !(event.relatedTarget instanceof Node) ||
+                  event.currentTarget.contains(event.target) &&
                   !event.currentTarget.contains(event.relatedTarget)
                 ) {
-                  setSidebarMode((mode) => (mode === 'collapsed' ? 'preview' : mode));
+                  setPreviewing(true);
                 }
               }
+            : undefined
         }
         onBlur={
-          drawer
-            ? undefined
-            : (event) => {
+          interactiveRail
+            ? (event) => {
                 if (
                   !pointerInSidebar.current &&
-                  (!(event.relatedTarget instanceof Node) ||
-                    !event.currentTarget.contains(event.relatedTarget))
+                  !event.currentTarget.contains(event.relatedTarget)
                 ) {
-                  setSidebarMode((mode) => (mode === 'preview' ? 'collapsed' : mode));
+                  setPreviewing(false);
                 }
               }
+            : undefined
         }
       >
         {drawer ? (
@@ -545,36 +544,35 @@ export function AppShell() {
           </Link>
         ) : (
           <SidebarBrand
-            mode={sidebarMode}
-            logoRef={sidebarLogo}
+            expanded={sidebarMode === 'expanded'}
+            iconOnly={iconOnly}
             toggleRef={sidebarToggle}
-            onNavigate={onNavigate}
-            onToggle={() => {
-              const next = sidebarMode === 'expanded' ? 'collapsed' : 'expanded';
-              setSidebarMode(next);
-              try {
-                localStorage.setItem(COLLAPSE_KEY, next === 'expanded' ? '0' : '1');
-              } catch {}
-            }}
+            logoRef={sidebarLogo}
+            onToggle={toggleSidebar}
           />
         )}
-        <div className="mt-3">
-          <CommandPaletteTrigger collapsed={navCollapsed} tooltipDisabled={tooltipDisabled} />
+        <div
+          className={cn(
+            'mt-3',
+            iconOnly &&
+              '[&>button]:size-8 [&>button]:justify-center [&>button]:rounded-tag [&>button]:p-0 [&>button>span]:hidden',
+          )}
+        >
+          <CommandPaletteTrigger />
         </div>
-        {/* 收起态标签会横向溢出链接，导航不提供横向滚动。 */}
         <nav
           aria-label="主导航"
           className={cn(
             '-mx-2 mt-4 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2',
-            navCollapsed && '[scrollbar-width:none]',
+            iconOnly && '[scrollbar-width:none]',
           )}
         >
           {navGroups.map((group) => (
             <div key={group.label} className="mt-0.5">
               <div
                 className={cn(
-                  'whitespace-nowrap px-2 pb-1.5 pt-4 text-xs text-muted-foreground',
-                  navCollapsed && 'invisible',
+                  'whitespace-nowrap px-2 pb-1.5 pt-4 text-[13px] font-medium text-muted-foreground',
+                  iconOnly && 'invisible',
                 )}
               >
                 {group.label}
@@ -586,9 +584,8 @@ export function AppShell() {
                     to={item.to}
                     label={item.label}
                     icon={item.icon}
+                    iconOnly={iconOnly}
                     navGroup={item.navGroup}
-                    collapsed={navCollapsed}
-                    tooltipDisabled={tooltipDisabled}
                     onNavigate={onNavigate}
                   />
                 ))}
@@ -597,174 +594,151 @@ export function AppShell() {
           ))}
         </nav>
         {/* 底部：次级运维入口（或返回工作区）与用户信息。 */}
-        <div className={cn('flex flex-col gap-1 pt-4', navCollapsed && 'items-center')}>
-          <SidebarLink
-            to="/notifications"
-            label="通知"
-            icon={Bell}
-            badge={unreadNotifications.data?.unreadCount ?? 0}
-            collapsed={navCollapsed}
-            tooltipDisabled={tooltipDisabled}
-            onNavigate={onNavigate}
-          />
+        <div className="flex flex-col gap-1 pt-4">
           {bottomEntry ? (
             <SidebarLink
               to={bottomEntry.to}
               label={bottomEntry.label}
               icon={bottomEntry.icon}
-              collapsed={navCollapsed}
-              tooltipDisabled={tooltipDisabled}
+              iconOnly={bottomIconOnly}
               onNavigate={onNavigate}
             />
           ) : null}
           {personalContext ? (
-            <Tooltip disabled={tooltipDisabled} delay={400}>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    aria-label="退出登录"
-                    onClick={() => void logout()}
-                    className={cn(
-                      'h-8 text-sm text-fg hover:bg-sidebar-hover',
-                      navCollapsed
-                        ? 'size-8 rounded-tag p-0'
-                        : 'justify-start gap-2.5 rounded-item px-2',
-                    )}
-                  >
-                    <LogOut aria-hidden="true" />
-                    <span className={navCollapsed ? 'sr-only' : undefined}>退出登录</span>
-                  </Button>
-                }
-              />
-              <TooltipContent side="right">退出登录</TooltipContent>
-            </Tooltip>
+            <Button
+              variant="ghost"
+              aria-label="退出登录"
+              onClick={() => void logout()}
+              className={cn(
+                'h-8 text-sm text-fg hover:bg-sidebar-hover',
+                bottomIconOnly ? 'w-8 rounded-tag p-0' : 'justify-start gap-2.5 rounded-item px-2',
+              )}
+            >
+              <LogOut aria-hidden="true" />
+              {!bottomIconOnly ? <span>退出登录</span> : null}
+            </Button>
           ) : null}
-          {personalContext ? (
-            <Tooltip disabled={tooltipDisabled} delay={400}>
-              <TooltipTrigger
-                render={
-                  <Link
-                    to="/personal/profile"
-                    aria-label="个人资料"
-                    aria-current={accountCurrent}
-                    onClick={onNavigate}
-                    className={
-                      navCollapsed
-                        ? 'flex size-8 items-center justify-center rounded-full bg-sidebar p-0 text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-sidebar-hover'
-                        : buttonVariants({
-                            variant: 'ghost',
-                            className:
-                              'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground hover:bg-sidebar-hover',
-                          })
-                    }
-                  >
+          <div
+            className={cn(
+              '-mx-2 mt-1 flex items-center gap-1 border-t border-line px-2 pt-2',
+              bottomIconOnly && 'flex-col items-start',
+            )}
+          >
+            {personalContext ? (
+              <Link
+                to="/personal/profile"
+                aria-label="个人资料"
+                aria-current={accountCurrent}
+                onClick={onNavigate}
+                className={cn(
+                  'flex items-center text-sm text-fg hover:bg-sidebar-hover',
+                  accountClass,
+                  bottomIconOnly && 'justify-center',
+                )}
+              >
+                {accountAvatar}
+                {accountLabel}
+              </Link>
+            ) : (
+              <Popover open={accountOpen} onOpenChange={setAccountOpen}>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      aria-label="账户菜单"
+                      aria-current={accountCurrent}
+                      className={cn('text-sm text-fg hover:bg-sidebar-hover', accountClass)}
+                    >
+                      {accountAvatar}
+                      {accountLabel}
+                      {!bottomIconOnly ? (
+                        <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+                      ) : null}
+                    </Button>
+                  }
+                />
+                <PopoverContent side="top" align="start" sideOffset={8} className="w-72 gap-0 p-0">
+                  <div className="flex min-w-0 items-center gap-3 p-3">
                     <span
+                      aria-hidden="true"
                       className={cn(
-                        'flex shrink-0 items-center justify-center text-muted-foreground',
-                        navCollapsed ? 'size-4' : 'size-5 rounded-full bg-sidebar',
+                        'flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-medium text-surface',
+                        avatarTone,
                       )}
                     >
-                      <User className={navCollapsed ? 'size-4' : 'size-3'} />
+                      {accountInitial}
                     </span>
-                    <span className={navCollapsed ? 'sr-only' : 'max-w-32 truncate'}>
-                      {user.user.name || user.user.username}
-                    </span>
-                  </Link>
-                }
-              />
-              <TooltipContent side="right">{user.user.name || user.user.username}</TooltipContent>
-            </Tooltip>
-          ) : (
-            <Popover open={accountOpen} onOpenChange={setAccountOpen}>
-              <PopoverTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    aria-label="账户菜单"
-                    aria-current={accountCurrent}
-                    className={
-                      navCollapsed
-                        ? 'flex size-8 items-center justify-center rounded-full bg-sidebar p-0 text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-sidebar-hover'
-                        : 'h-8 w-50 justify-start gap-2 rounded-[var(--radius-icon)] px-2 text-xs text-muted-foreground hover:bg-sidebar-hover'
-                    }
-                  >
-                    <span
-                      className={cn(
-                        'flex shrink-0 items-center justify-center rounded-full text-muted-foreground',
-                        navCollapsed ? 'size-4' : 'size-5 bg-sidebar',
-                      )}
-                    >
-                      <span className="text-xs font-medium leading-none">{accountInitial}</span>
-                    </span>
-                    <span className={navCollapsed ? 'sr-only' : 'max-w-32 truncate'}>
-                      {user.user.name || user.user.username}
-                    </span>
-                  </Button>
-                }
-              />
-              <PopoverContent side="right" align="end" sideOffset={8} className="w-72 gap-0 p-0">
-                <div className="flex min-w-0 items-center gap-3 p-3">
-                  <span
-                    aria-hidden="true"
-                    className="flex size-9 shrink-0 items-center justify-center rounded-full bg-sunken text-sm font-medium text-fg"
-                  >
-                    {accountInitial}
-                  </span>
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <p className="min-w-0 truncate text-sm font-medium text-fg">
-                      {user.user.name || user.user.username}
-                    </p>
-                    <p className="min-w-0 truncate text-xs text-muted-foreground">
-                      @{user.user.username} ·{' '}
-                      {user.roles.map((role) => role.name).join('、') || '无角色'}
-                    </p>
-                  </div>
-                </div>
-                <div className="h-px bg-line" />
-                <div className="flex flex-col gap-0.5 p-2">
-                  {visiblePersonalGroups.map((group) => (
-                    <div key={group.label} className="flex flex-col gap-0.5">
-                      <div className="px-3 pb-1 pt-1.5 text-xs text-muted-foreground">
-                        {group.label}
-                      </div>
-                      {group.items.map((item) => (
-                        <Link
-                          key={item.to}
-                          to={item.to}
-                          onClick={() => {
-                            setAccountOpen(false);
-                            onNavigate();
-                          }}
-                          className="flex h-9 items-center gap-2.5 rounded-item px-3 text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-hover"
-                        >
-                          <item.icon
-                            aria-hidden="true"
-                            className="shrink-0 text-muted-foreground"
-                          />
-                          <span className="min-w-0 truncate">{item.label}</span>
-                        </Link>
-                      ))}
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <p className="min-w-0 truncate text-sm font-medium text-fg">{displayName}</p>
+                      <p className="min-w-0 truncate text-xs text-muted-foreground">
+                        @{user.user.username} · {roleNames || '无角色'}
+                      </p>
                     </div>
-                  ))}
-                </div>
-                <div className="h-px bg-line" />
-                <div className="p-2">
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setAccountOpen(false);
-                      void logout();
-                    }}
-                    className="h-9 w-full justify-start gap-2.5 rounded-item px-3 text-sm text-danger hover:bg-hover hover:text-danger"
-                  >
-                    <LogOut aria-hidden="true" className="shrink-0" />
-                    退出登录
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-          )}
+                  </div>
+                  <div className="h-px bg-line" />
+                  <div className="flex flex-col gap-0.5 p-2">
+                    {visiblePersonalGroups.map((group) => (
+                      <div key={group.label} className="flex flex-col gap-0.5">
+                        <div className="px-3 pb-1 pt-1.5 text-xs text-muted-foreground">
+                          {group.label}
+                        </div>
+                        {group.items.map((item) => (
+                          <Link
+                            key={item.to}
+                            to={item.to}
+                            onClick={() => {
+                              setAccountOpen(false);
+                              onNavigate();
+                            }}
+                            className="flex h-9 items-center gap-2.5 rounded-item px-3 text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-hover"
+                          >
+                            <item.icon
+                              aria-hidden="true"
+                              className="shrink-0 text-muted-foreground"
+                            />
+                            <span className="min-w-0 truncate">{item.label}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="h-px bg-line" />
+                  <div className="p-2">
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setAccountOpen(false);
+                        void logout();
+                      }}
+                      className="h-9 w-full justify-start gap-2.5 rounded-item px-3 text-sm text-danger hover:bg-hover hover:text-danger"
+                    >
+                      <LogOut aria-hidden="true" className="shrink-0" />
+                      退出登录
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+            <Link
+              to="/notifications"
+              aria-label={unreadCount > 0 ? `通知（${unreadCount} 条未读）` : '通知'}
+              onClick={onNavigate}
+              className={cn(
+                'relative flex size-8 shrink-0 items-center justify-center text-fg hover:bg-sidebar-hover',
+                bottomIconOnly ? 'rounded-tag' : 'rounded-item',
+              )}
+            >
+              <Bell className="size-4" aria-hidden="true" />
+              {unreadCount > 0 ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-fg px-1 text-xs font-medium leading-none text-surface tabular-nums"
+                >
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              ) : null}
+            </Link>
+          </div>
         </div>
       </motion.aside>
     );
@@ -788,12 +762,10 @@ export function AppShell() {
       <motion.div
         className="relative z-20 hidden shrink-0 lg:block"
         initial={false}
-        animate={{
-          width: sidebarMode === 'expanded' ? 'var(--sidebar-width)' : 'var(--sidebar-collapsed)',
-        }}
+        animate={{ width: sidebarWidth }}
         transition={reduce ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
       >
-        {sidebar(false)}
+        {sidebarMode !== 'hidden' ? sidebar(false) : null}
       </motion.div>
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -823,7 +795,21 @@ export function AppShell() {
         </SheetContent>
       </Sheet>
 
-      <div className="isolate flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
+      <div className="relative isolate flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
+        {sidebarMode === 'hidden' ? (
+          <div className="absolute top-4 left-2 z-10 hidden lg:block">
+            <Button
+              ref={sidebarToggle}
+              variant="plain"
+              aria-label="展开侧栏"
+              aria-expanded={false}
+              onClick={toggleSidebar}
+              className="size-8 shrink-0 rounded-[var(--radius-icon)] p-0 text-fg hover:bg-sidebar-hover"
+            >
+              <PanelLeftOpen className="size-4" />
+            </Button>
+          </div>
+        ) : null}
         {/*
          * 桌面端没有外壳自己的顶栏：参考页白面板里就是页面内容的第一行。
          * 移动端才需要这一行来放抽屉入口，页面标题由各页的 PageHeader 负责。
@@ -842,7 +828,15 @@ export function AppShell() {
           </Button>
         </header>
 
-        <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-hidden">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className={cn(
+            'min-h-0 flex-1 overflow-hidden',
+            sidebarMode === 'hidden' &&
+              (immersive ? 'lg:pt-10' : 'lg:[&_[data-slot=page-header]]:pl-5'),
+          )}
+        >
           {immersive ? (
             <div className={cn('h-full', denied && 'p-6')}>{content}</div>
           ) : (
