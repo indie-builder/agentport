@@ -111,7 +111,10 @@ describe('knowledge job failure reasons', () => {
       ),
     );
     await mount('/knowledge/kb_1', { panel: 'jobs' });
-    const reason = document.querySelector('[title="knowledge worker lost track of this job"]');
+    const findReason = () =>
+      document.querySelector('[title="knowledge worker lost track of this job"]');
+    await waitFor(() => findReason() !== null);
+    const reason = findReason();
     expect(reason?.textContent).toBe('后台任务中断，本次未完成；重试会重新执行');
   });
 });

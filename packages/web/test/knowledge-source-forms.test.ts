@@ -226,8 +226,8 @@ function patchBody() {
 }
 
 async function openCreate(choice: string) {
-  await click(button('新建来源'));
-  await click(sourceChoice(choice));
+  await click(await vi.waitFor(() => button('新建来源'), { timeout: 5000 }));
+  await click(await vi.waitFor(() => sourceChoice(choice), { timeout: 5000 }));
 }
 
 describe('knowledge source forms', () => {
