@@ -70,14 +70,14 @@ function ratio(foreground: string, background: string): number {
 }
 
 describe('CDS light theme token contract', () => {
-  it('keeps the neutral content ladder and petrol sidebar', () => {
+  it('keeps the neutral content ladder and neutral sidebar', () => {
     expect(token('--color-surface')).toEqual(parse('#ffffff'));
     expect(token('--color-canvas')).toEqual(parse('#fbfbfb'));
     expect(token('--color-sunken')).toEqual(parse('#f7f7f7'));
     expect(token('--color-selected')).toEqual(parse('#e6e6e6'));
-    expect(token('--color-sidebar')).toEqual(parse('#eaf0f0'));
-    expect(token('--color-sidebar-hover')).toEqual(parse('#dfe8e9'));
-    expect(token('--color-sidebar-selected')).toEqual(token('--color-surface'));
+    expect(token('--color-sidebar')).toEqual(parse('#fafafa'));
+    expect(token('--color-sidebar-hover')).toEqual(parse('rgba(0, 0, 0, 0.05)'));
+    expect(token('--color-sidebar-selected')).toEqual(parse('rgba(0, 0, 0, 0.10)'));
   });
 
   it('keeps body and helper text readable on every surface', () => {
