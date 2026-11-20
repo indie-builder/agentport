@@ -1,5 +1,7 @@
 import { fail } from '@agentport/core';
 import type { MarketSkill, MarketView } from '@agentport/shared';
+import { LRUCache } from 'lru-cache';
+import { parse } from 'node-html-parser';
 import { readCappedText } from './fetch-body.js';
 
 const BASE_URL = 'https://www.skills.sh';
@@ -13,40 +15,16 @@ const PATHS: Record<MarketView, string> = {
   hot: '/hot',
 };
 
-const cache = new Map<MarketView, { at: number; data: MarketSkill[] }>();
-
-const ENTITIES: Record<string, string> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  nbsp: ' ',
-};
-
-function fromCode(code: number, fallback: string): string {
-  return Number.isInteger(code) && code >= 0 && code <= 0x10ffff
-    ? String.fromCodePoint(code)
-    : fallback;
-}
-
-function decodeEntities(value: string): string {
-  return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity: string) => {
-    if (entity.startsWith('#x') || entity.startsWith('#X')) {
-      return fromCode(Number.parseInt(entity.slice(2), 16), match);
-    }
-    if (entity.startsWith('#')) return fromCode(Number.parseInt(entity.slice(1), 10), match);
-    return ENTITIES[entity.toLowerCase()] ?? match;
-  });
-}
-
-function textOf(html: string): string {
-  return decodeEntities(html.replace(/<[^>]*>/g, '')).trim();
-}
+const cache = new LRUCache<MarketView, MarketSkill[]>({
+  max: 10,
+  ttl: CACHE_TTL_MS,
+  ttlResolution: 0,
+  perf: { now: () => Date.now() },
+});
 
 /** 4.0M / 60.7K / 1,234 → 整数；解析不出返回 null。 */
 function parseInstalls(raw: string): number | null {
-  const match = /^([\d.,]+)\s*([kmb])?$/i.exec(decodeEntities(raw).trim());
+  const match = /^([\d.,]+)\s*([kmb])?$/i.exec(raw.trim());
   if (!match?.[1]) return null;
   const value = Number(match[1].replace(/,/g, ''));
   if (!Number.isFinite(value)) return null;
@@ -58,33 +36,32 @@ function parseInstalls(raw: string): number | null {
 /** 从榜单 HTML 提取行；顺序即页面顺序，重复 id 只保留首次出现。 */
 // shortcut: 绑定 skills.sh 榜单 HTML；站点改版会取不到行，届时改用官方 v1（需 Vercel OIDC）。
 export function parseLeaderboard(html: string): MarketSkill[] {
-  const rowPattern = /<a\b[^>]*href="\/([^"/]+)\/([^"/]+)\/([^"/]+)"[^>]*>([\s\S]*?)<\/a>/g;
-  const namePattern = /<h3[^>]*>([\s\S]*?)<\/h3>/i;
-  const installsPattern =
-    /<span\b[^>]*class="[^"]*font-mono text-sm text-foreground[^"]*"[^>]*>([\s\S]*?)<\/span>/g;
-
   const seen = new Set<string>();
   const rows: MarketSkill[] = [];
-  for (const match of html.matchAll(rowPattern)) {
-    const [, owner, repo, skill, body = ''] = match;
+  for (const link of parse(html).querySelectorAll('a')) {
+    const match = /^\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(link.getAttribute('href') ?? '');
+    if (!match) continue;
+    const [, owner, repo, skill] = match;
     if (!owner || !repo || !skill) continue;
-    const h3 = namePattern.exec(body);
-    const span = [...body.matchAll(installsPattern)].at(-1);
-    if (!h3?.[1] || !span?.[1]) continue;
-    const installs = parseInstalls(span[1]);
+    const h3 = link.querySelector('h3');
+    const installsSpan = link.querySelectorAll('span.font-mono.text-sm.text-foreground').at(-1);
+    if (!h3 || !installsSpan) continue;
+    const name = h3.text.trim();
+    if (!name) continue;
+    const installs = parseInstalls(installsSpan.text);
     if (installs === null) continue;
     const id = `${owner}/${repo}/${skill}`;
     if (seen.has(id)) continue;
     seen.add(id);
-    rows.push({ id, source: `${owner}/${repo}`, slug: skill, name: textOf(h3[1]), installs });
+    rows.push({ id, source: `${owner}/${repo}`, slug: skill, name, installs });
     if (rows.length === MAX_ROWS) break;
   }
   return rows;
 }
 
 export async function fetchLeaderboard(view: MarketView): Promise<MarketSkill[]> {
-  const cached = cache.get(view);
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.data;
+  const cached = cache.peek(view, { allowStale: true });
+  if (cached && cache.getRemainingTTL(view) > 0) return cached;
 
   try {
     const response = await fetch(`${BASE_URL}${PATHS[view]}`, {
@@ -96,10 +73,10 @@ export async function fetchLeaderboard(view: MarketView): Promise<MarketSkill[]>
       throw new Error(`skills.sh responded ${response.status}`);
     }
     const data = parseLeaderboard(await readCappedText(response, '技能市场榜单响应超过大小限制'));
-    cache.set(view, { at: Date.now(), data });
+    cache.set(view, data);
     return data;
   } catch (err) {
-    if (cached) return cached.data;
+    if (cached) return cached;
     fail('UPSTREAM_FAILED', '暂时无法获取技能市场榜单，请稍后重试', {
       cause: err,
       retryable: true,

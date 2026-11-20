@@ -5,6 +5,7 @@ import {
   type SystemPromptSpec,
   type ToolSpec,
 } from '@openuidev/lang-core';
+import { LRUCache } from 'lru-cache';
 import spec from './generated/openui.spec.json' with { type: 'json' };
 
 /**
@@ -15,10 +16,8 @@ import spec from './generated/openui.spec.json' with { type: 'json' };
  * 主构建不调用 web → core：生成物是提交进仓库的静态文件，构建只读。
  */
 
-const CACHE_MAX = 32;
-
 /** 提示词只随工具目录变化：按工具名+schema+描述缓存，避免每个 run 重算整段。 */
-const cache = new Map<string, string>();
+const cache = new LRUCache<string, string>({ max: 32 });
 
 /** lang-core 的 ToolSpec 要求 outputSchema；平台侧可以没有，用 object 占位以保留入参签名。 */
 function toToolSpec(tool: OpenUiToolDescriptor): ToolSpec {
@@ -43,7 +42,7 @@ export function openuiSystemPrompt(tools: OpenUiToolDescriptor[] = []): string {
     )
     .sort()
     .join('|');
-  const cached = cache.get(key);
+  const cached = cache.peek(key);
   if (cached !== undefined) return cached;
 
   const { tools: _ignored, examples, ...options } = openUiPromptOptions();
@@ -56,11 +55,6 @@ export function openuiSystemPrompt(tools: OpenUiToolDescriptor[] = []): string {
     },
   };
   const prompt = generateSystemPrompt(input);
-  // 超出上限时丢最早一条：工具目录是有限组合，不需要完整 LRU。
-  if (cache.size >= CACHE_MAX) {
-    const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
-  }
   cache.set(key, prompt);
   return prompt;
 }
