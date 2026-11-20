@@ -8,7 +8,70 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.22.2
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run lint:focus
+      - run: bun run lint:contract
+
+  build-openui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.22.2
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run openui:check
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.22.2
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+
+  test-backend:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -32,19 +95,40 @@ jobs:
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24.22.2
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
       - run: bun install --frozen-lockfile
-      - run: bun run biome ci .
-      - run: bun run lint:focus
-      - run: bun run lint:contract
       # globalSetup 用 docker create --pull=never 启动临时 Redis，只需镜像先在本地。
       # tag 必须与 packages/worker/test/global-setup.ts 的 REDIS_IMAGE 一致。
       - name: Prepare test Redis image
         run: docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
-      - run: bun run openui:check
-      - run: bun run typecheck
       - run: bun run build
       - run: bun run db:migrate
       - run: bun run test
+
+  test-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.22.2
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
+      - run: bun run build
       - run: bun run test:web
 
   e2e:
@@ -89,6 +173,12 @@ jobs:
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24.22.2
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
       - run: bun install --frozen-lockfile
       - run: bun run build
       - run: bun run db:migrate
@@ -114,11 +204,17 @@ jobs:
             dev.log
           retention-days: 7
 
-  docker:
+  docker-api:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7.0.1
       # 两个镜像都从 root context 构建；依赖安装与构建在 Dockerfile 内完成。
       - run: docker build -t agentport/api:ci .
+
+  docker-sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
       - run: docker build --target sandbox -t agentport/sandbox:ci .
