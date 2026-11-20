@@ -243,7 +243,10 @@ async function defaultStubs() {
     'pg_restore',
     `printf "PGRESTORE %s\\n" "$*" >>"$STUB_LOG"; cat </dev/null; for a in "$@"; do case "$a" in --dbname=*) printf "%s" "\${a#--dbname=}";; esac; done`,
   );
-  await stub('bun', 'printf "BUN %s DATABASE_URL=%s\\n" "$*" "$DATABASE_URL" >>"$STUB_LOG"');
+  await stub(
+    'bun',
+    `printf "BUN %s DATABASE_URL=%s\\n" "$*" "$DATABASE_URL" >>"$STUB_LOG"\nif [ "$1" = "-e" ]; then exec "${process.execPath}" "$@"; fi`,
+  );
   await addPassThrough('gzip');
   await addPassThrough('shasum');
 }

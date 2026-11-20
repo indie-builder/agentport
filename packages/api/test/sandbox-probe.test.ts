@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { SANDBOX_PROBES_QUEUE, type Server } from '@agentport/shared';
+import { newId } from '@agentport/db';
+import { DEFAULT_RUNTIME_DOCKERFILE, SANDBOX_PROBES_QUEUE, type Server } from '@agentport/shared';
 import { createBunRedisClient, type Job, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { testStdioInSandbox } from '../src/modules/servers/sandbox-probe.js';
@@ -36,6 +37,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
   let adminQueue: Queue<{ serverId: string }> | undefined;
   let cookie: string;
   const created: string[] = [];
+  const createdEnvironments: string[] = [];
   const workers: Worker[] = [];
   const gates: XreadGate[] = [];
   const watches: CommandWatch[] = [];
@@ -72,6 +74,9 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
 
   afterAll(async () => {
     await cleanup(app, { serverNames: created });
+    for (const id of createdEnvironments) {
+      await app.client.unsafe('delete from runtime_environments where id = $1', [id]);
+    }
     await app.close();
     await adminQueue?.obliterate({ force: true });
     await adminQueue?.close();
@@ -87,6 +92,16 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     });
     expect(res.statusCode, res.body).toBe(201);
     return res.json<Server>();
+  };
+
+  const createEnvironment = async (): Promise<string> => {
+    const id = newId('runtimeEnvironment');
+    createdEnvironments.push(id);
+    await app.client.unsafe(
+      'insert into runtime_environments (id, name, dockerfile) values ($1, $2, $3)',
+      [id, unique('probe-env'), DEFAULT_RUNTIME_DOCKERFILE],
+    );
+    return id;
   };
 
   it('enqueues only the server id and returns the worker result', async () => {
@@ -176,28 +191,31 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
       };
     });
 
+    const firstEnv = await createEnvironment();
+    const secondEnv = await createEnvironment();
+
     const first = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/test`,
       headers: { cookie },
-      payload: { runtimeEnvironmentId: 'rte_first' },
+      payload: { runtimeEnvironmentId: firstEnv },
     });
     expect(first.statusCode, first.body).toBe(200);
-    expect(first.json()).toMatchObject({ runtimeEnvironment: { environmentId: 'rte_first' } });
+    expect(first.json()).toMatchObject({ runtimeEnvironment: { environmentId: firstEnv } });
 
     // 换环境再测：上一次的成功不能被当成当前环境的结果复用。
     const second = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/test`,
       headers: { cookie },
-      payload: { runtimeEnvironmentId: 'rte_second' },
+      payload: { runtimeEnvironmentId: secondEnv },
     });
     expect(second.statusCode, second.body).toBe(200);
-    expect(second.json()).toMatchObject({ runtimeEnvironment: { environmentId: 'rte_second' } });
+    expect(second.json()).toMatchObject({ runtimeEnvironment: { environmentId: secondEnv } });
 
     expect(seen).toEqual([
-      { serverId: server.id, runtimeEnvironmentId: 'rte_first' },
-      { serverId: server.id, runtimeEnvironmentId: 'rte_second' },
+      { serverId: server.id, runtimeEnvironmentId: firstEnv },
+      { serverId: server.id, runtimeEnvironmentId: secondEnv },
     ]);
   });
 
@@ -206,6 +224,8 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     created.push(name);
     const server = await createStdio(name);
 
+    const envA = await createEnvironment();
+    const envB = await createEnvironment();
     const identity = (id: string) => ({
       environmentId: id,
       environmentName: `环境 ${id}`,
@@ -215,7 +235,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     startWorker<{ serverId: string; runtimeEnvironmentId?: string }>(async (job) => {
       const id = job.data.runtimeEnvironmentId ?? 'default';
       // B 故意失败：证明失败结果会覆盖 A 的成功，而不是把 A 的可用性当成当前环境可用。
-      if (id === 'rte_b') {
+      if (id === envB) {
         return {
           ok: false,
           tools: [],
@@ -249,24 +269,24 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
       return res.json<Server>();
     };
 
-    expect((await test('rte_a')).statusCode).toBe(200);
+    expect((await test(envA)).statusCode).toBe(200);
     expect(await readBack()).toMatchObject({
       lastTestOk: true,
       lastToolCount: 1,
-      lastTestRuntimeEnvironment: identity('rte_a'),
+      lastTestRuntimeEnvironment: identity(envA),
     });
 
-    expect((await test('rte_b')).statusCode).toBe(200);
+    expect((await test(envB)).statusCode).toBe(200);
     expect(await readBack()).toMatchObject({
       lastTestOk: false,
       lastToolCount: null,
-      lastTestRuntimeEnvironment: identity('rte_b'),
+      lastTestRuntimeEnvironment: identity(envB),
     });
 
-    expect((await test('rte_a')).statusCode).toBe(200);
+    expect((await test(envA)).statusCode).toBe(200);
     expect(await readBack()).toMatchObject({
       lastTestOk: true,
-      lastTestRuntimeEnvironment: identity('rte_a'),
+      lastTestRuntimeEnvironment: identity(envA),
     });
   });
 

@@ -603,7 +603,9 @@ export function AppShell() {
             onClick={onNavigate}
             className={cn(
               'flex h-8 items-center text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-sidebar-hover',
-              iconOnly ? 'relative w-8 justify-center rounded-tag p-0' : 'gap-2.5 rounded-item px-2',
+              iconOnly
+                ? 'relative w-8 justify-center rounded-tag p-0'
+                : 'gap-2.5 rounded-item px-2',
             )}
           >
             <Bell aria-hidden="true" className="shrink-0" />

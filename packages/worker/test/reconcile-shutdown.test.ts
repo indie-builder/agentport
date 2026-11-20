@@ -24,6 +24,7 @@ const runnerClientActual = await import('../src/runner-client.js');
 mock.module('../src/runner-client.js', () => ({
   ...runnerClientActual,
   publishRun: publishRun.fn,
+  clearRunCancel: async () => undefined,
 }));
 mock.module('bullmq', () => ({
   createBunRedisClient: () => ({ quit: async () => undefined }),
@@ -67,14 +68,26 @@ describe('startReconciler shutdown', () => {
     // where() 既可能被直接 await，也可能在 running 重查时继续 .limit(1)。
     const rows = (value: unknown[] | Promise<unknown[]>) =>
       Object.assign(Promise.resolve(value), { limit: async () => value });
+    const terminalRow = {
+      id: runningRow.id,
+      channelId: null,
+      agentId: newId('agent'),
+      conversationId: runningRow.conversationId,
+      initiatedBy: null,
+      departmentId: null,
+      scheduleId: null,
+      trigger: 'chat',
+      costUsd: null,
+    };
     const db = {
-      update: () => ({
-        set: () => ({
-          where: () => ({
-            returning: async () => [{ id: runningRow.id }],
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({
+          update: () => ({
+            set: () => ({
+              where: () => ({ returning: async () => [terminalRow] }),
+            }),
           }),
         }),
-      }),
       select: (fields: { id: unknown; status?: unknown }) => ({
         from: () => ({
           where: () =>
