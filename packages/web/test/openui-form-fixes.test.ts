@@ -83,9 +83,7 @@ describe('DatePicker', () => {
     );
 
     await click(byText('Select date'));
-    const cell = document.querySelector(
-      `[data-slot="calendar-day"][data-value="${targetIso}"]`,
-    );
+    const cell = document.querySelector(`[data-slot="calendar-day"][data-value="${targetIso}"]`);
     await click(cell);
     expect(
       document

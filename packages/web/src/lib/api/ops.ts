@@ -1,11 +1,11 @@
-import {
-  type Attention,
-  type RetentionSettings,
-  type RetentionUpdate,
-  type Schedule,
-  type ScheduleInput,
-  type SchedulePatch,
-  type ScheduleRun,
+import type {
+  Attention,
+  RetentionSettings,
+  RetentionUpdate,
+  Schedule,
+  ScheduleInput,
+  SchedulePatch,
+  ScheduleRun,
 } from '@agentport/shared';
 import { rpc } from '../orpc.js';
 

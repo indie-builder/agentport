@@ -193,7 +193,9 @@ async function clickBackdrop(): Promise<void> {
   const overlay = overlays[overlays.length - 1];
   if (!overlay) throw new Error('Missing dialog backdrop');
   await act(async () => {
-    overlay.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 0 }));
+    overlay.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 0 }),
+    );
     overlay.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 0, clientY: 0 }));
   });
   await flush();
