@@ -13,7 +13,7 @@ import {
   PageSection,
   PageTopbar,
 } from '../../components/page.js';
-import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
+import { ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
 import {
@@ -37,6 +37,7 @@ import {
 import { Textarea } from '../../components/ui/textarea.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
+import { errorMessage } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { formatRelative } from '../../lib/format.js';
@@ -86,7 +87,7 @@ export function ChannelsPage() {
           <PageNote
             tone="danger"
             title="刷新失败，已保留加载的内容"
-            description="以下为上次成功加载的内容。"
+            description={errorMessage(channels.error)}
             action={
               <Button variant="outline" size="sm" onClick={() => void channels.refetch()}>
                 重试
@@ -100,18 +101,20 @@ export function ChannelsPage() {
         ) : channels.isError && channels.data === undefined ? (
           <ErrorState error={channels.error} onRetry={() => void channels.refetch()} />
         ) : items.length === 0 ? (
-          <EmptyState
-            icon={<Hash className="size-5" />}
+          <PageNote
+            icon={<Hash className="size-4" aria-hidden="true" />}
             title="未创建频道"
             {...(canCreate ? {} : { description: '管理员把你加入频道后，频道会出现在这里。' })}
-            action={
-              canCreate ? (
-                <Button variant="default" onClick={() => setCreating(true)}>
-                  <Plus aria-hidden="true" />
-                  新建频道
-                </Button>
-              ) : undefined
-            }
+            {...(canCreate
+              ? {
+                  action: (
+                    <Button variant="default" onClick={() => setCreating(true)}>
+                      <Plus data-icon="inline-start" aria-hidden="true" />
+                      新建频道
+                    </Button>
+                  ),
+                }
+              : {})}
           />
         ) : (
           <PageSection divided={false}>

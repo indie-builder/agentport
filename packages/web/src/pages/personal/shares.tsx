@@ -15,7 +15,7 @@ import {
   PageToolbar,
   PageTopbar,
 } from '../../components/page.js';
-import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
+import { ErrorState, LoadingState } from '../../components/states.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Card, CardContent } from '../../components/ui/card.js';
 import { FieldError } from '../../components/ui/field.js';
@@ -259,7 +259,7 @@ export function PersonalSharesPage() {
           <PageNote
             tone="danger"
             title="刷新失败，已保留加载的内容"
-            description="以下为上次成功加载的内容。"
+            description={errorMessage(shares.error)}
             action={
               <Button variant="outline" size="sm" onClick={() => void shares.refetch()}>
                 重试
@@ -271,8 +271,8 @@ export function PersonalSharesPage() {
         {shares.isError && shares.data === undefined ? (
           <ErrorState error={shares.error} onRetry={() => void shares.refetch()} />
         ) : shares.data && shares.data.items.length === 0 ? (
-          <EmptyState
-            illustration={<BusinessIllustration name="sharing" />}
+          <PageNote
+            icon={<BusinessIllustration name="sharing" size="compact" />}
             title="没有分享链接"
             description="从会话成果中分享文件。"
             action={

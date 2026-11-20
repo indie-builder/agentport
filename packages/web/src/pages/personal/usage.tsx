@@ -30,7 +30,7 @@ import {
 } from '../../components/ui/card.js';
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
-import { api, type RunStatus } from '../../lib/api.js';
+import { api, errorMessage, type RunStatus } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
 import { toCsv } from '../../lib/csv.js';
 import {
@@ -477,7 +477,7 @@ export function PersonalUsagePage() {
               <PageNote
                 tone="danger"
                 title="刷新失败，已保留加载的内容"
-                description="以下为上次成功加载的内容。"
+                description={errorMessage(runs.error)}
                 action={
                   <Button variant="outline" size="sm" onClick={() => void runs.refetch()}>
                     重试

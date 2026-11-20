@@ -1,5 +1,11 @@
-import type { KnowledgeSourceInput } from '@agentport/shared';
-import { useState } from 'react';
+import {
+  type KnowledgeSourceInput,
+  knowledgeSourceConfigTypeSchema,
+  knowledgeSourceRangeKindSchema,
+} from '@agentport/shared';
+import { useMemo, useRef, useState } from 'react';
+import { Controller, useWatch } from 'react-hook-form';
+import { z } from 'zod';
 import { ConfirmDialog } from '../../../components/confirm-dialog.js';
 import { DialogShell } from '../../../components/dialog-shell.js';
 import {
@@ -32,6 +38,7 @@ import { cn } from '../../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../../lib/dialog-guard.js';
 import { useCreateKnowledgeSource, useUpdateKnowledgeSource } from '../../../lib/queries.js';
 import { toastError, toastSuccess } from '../../../lib/toast.js';
+import { useZodForm } from '../../../lib/use-zod-form.js';
 import {
   type AuthMode,
   authModeOptions,
@@ -45,11 +52,9 @@ import {
   rangeExternalLabel,
   rangeIssue,
   rangeKinds,
-  type SourceFieldKey,
   type SourceFieldState,
   type SourceType,
   seafilePathIssue,
-  sourceDraftSignature,
   sourceFieldId,
   sourceFieldRequired,
   sourceFieldSpecs,
@@ -58,6 +63,218 @@ import {
   toRangeInput,
 } from './shared.js';
 import { RangeRows } from './source-ranges.js';
+
+const rangeDraftSchema = z.object({
+  clientId: z.string(),
+  kind: knowledgeSourceRangeKindSchema,
+  externalId: z.string(),
+  ref: z.string().nullable(),
+  paths: z.array(z.string()),
+  enabled: z.boolean(),
+});
+
+const sourceFieldsSchema = z.object({
+  appId: z.string(),
+  baseUrl: z.string(),
+  email: z.string(),
+  cloudId: z.string(),
+  username: z.string(),
+  operatorUnionId: z.string(),
+  clientId: z.string(),
+});
+
+const sourceFormBaseSchema = z.object({
+  type: knowledgeSourceConfigTypeSchema,
+  name: z.string(),
+  secret: z.string(),
+  fields: sourceFieldsSchema,
+  authMode: z.enum(['cloud_basic', 'cloud_scoped', 'dc_pat']),
+  cron: z.string(),
+  syncDeletions: z.boolean(),
+  status: z.enum(['active', 'paused', 'auth_error', 'disabled']),
+  ranges: z.array(rangeDraftSchema),
+});
+
+type SourceFormValues = {
+  type: SourceType;
+  name: string;
+  secret: string;
+  fields: SourceFieldState;
+  authMode: AuthMode;
+  cron: string;
+  syncDeletions: boolean;
+  status: KnowledgeSource['status'];
+  ranges: RangeDraft[];
+};
+
+function createSourceFormSchema(editing: boolean, hasExistingSecret: boolean) {
+  return sourceFormBaseSchema.superRefine((values, ctx) => {
+    if (values.name.trim() === '') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['name'],
+        message: '请填写来源名称',
+      });
+    }
+    const credential = credentialField(values.type, values.authMode);
+    if (credential !== null && !(editing && hasExistingSecret) && values.secret === '') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['secret'],
+        message: `请填写 ${credential.label}`,
+      });
+    }
+    const visibleSpecs = (sourceFieldSpecs[values.type] ?? []).filter(
+      (spec) => spec.visible === undefined || spec.visible(values.authMode),
+    );
+    visibleSpecs.forEach((spec) => {
+      if (sourceFieldRequired(spec, values.authMode) && values.fields[spec.key].trim() === '') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['fields', spec.key],
+          message: `请填写 ${spec.label}`,
+        });
+      }
+    });
+    if (
+      (values.type === 'feishu_wiki' || values.type === 'feishu_drive') &&
+      values.fields.appId.trim() === ''
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['fields', 'appId'],
+        message: '请填写 App ID',
+      });
+    }
+    if (values.type === 'gitlab' && values.fields.baseUrl.trim() === '') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['fields', 'baseUrl'],
+        message: '请填写实例 URL',
+      });
+    }
+    values.ranges.forEach((range, index) => {
+      if (range.externalId.trim() === '') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['ranges', index, 'externalId'],
+          message: `请填写${rangeExternalLabel(range.kind)}`,
+        });
+      }
+      if (values.type === 'gitlab' && !range.ref?.trim()) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['ranges', index, 'ref'],
+          message: '请填写 Ref',
+        });
+      }
+      if (values.type === 'seafile') {
+        const pathError = seafilePathIssue(range.paths);
+        if (pathError !== null) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['ranges', index, 'paths'],
+            message: pathError,
+          });
+        }
+      }
+    });
+    const overallRangeError = rangeIssue(values.type, values.ranges);
+    if (overallRangeError !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ranges', 'root'],
+        message: overallRangeError,
+      });
+    }
+  });
+}
+
+function createInitialValues(source: KnowledgeSource | undefined): SourceFormValues {
+  return {
+    type: source ? source.type : 'feishu_wiki',
+    name: source?.name ?? '',
+    secret: '',
+    fields: {
+      ...emptySourceFields,
+      appId: configString(source, 'appId'),
+      baseUrl: configString(source, 'baseUrl'),
+      email: configString(source, 'email'),
+      cloudId: configString(source, 'cloudId'),
+      username: configString(source, 'username'),
+      operatorUnionId: configString(source, 'operatorUnionId'),
+      clientId: configString(source, 'clientId'),
+    },
+    authMode: isAuthMode(source?.config.authMode) ? source.config.authMode : 'cloud_basic',
+    cron: source?.syncCron ?? '',
+    syncDeletions: source?.config.syncDeletions === true,
+    status: source?.status ?? 'active',
+    ranges: source
+      ? source.ranges.map(({ id, ...range }) => ({
+          ...range,
+          clientId: id,
+          paths: range.kind === 'seafile_repo' && range.paths.length === 0 ? ['/'] : range.paths,
+        }))
+      : [newRangeDraft(rangeKinds.feishu_wiki[0] as RangeKind)],
+  };
+}
+
+function buildSourceConfig(
+  values: SourceFormValues,
+  normalized: Array<ReturnType<typeof toRangeInput>>,
+): Record<string, unknown> {
+  const { type, fields, authMode, syncDeletions, ranges } = values;
+  switch (type) {
+    case 'feishu_wiki':
+    case 'feishu_drive':
+      return {
+        appId: fields.appId.trim(),
+        ...(fields.baseUrl.trim() ? { baseUrl: fields.baseUrl.trim() } : {}),
+        syncDeletions,
+      };
+    case 'lark_wiki':
+    case 'lark_drive':
+      return { appId: fields.appId.trim(), syncDeletions };
+    case 'github':
+      return {
+        ...(fields.baseUrl.trim() ? { baseUrl: fields.baseUrl.trim() } : {}),
+        projectId: normalized[0]?.externalId ?? '',
+        syncDeletions,
+      };
+    case 'gitlab':
+      return {
+        ...(fields.baseUrl.trim() ? { baseUrl: fields.baseUrl.trim() } : {}),
+        projectId: normalized[0]?.externalId ?? '',
+        ref: ranges.find((range) => range.ref)?.ref?.trim() ?? '',
+        syncDeletions,
+      };
+    case 'notion':
+    case 'yuque':
+      return { syncDeletions };
+    case 'confluence':
+      return {
+        authMode,
+        baseUrl: fields.baseUrl.trim(),
+        ...(authMode === 'dc_pat' ? {} : { email: fields.email.trim() }),
+        ...(authMode === 'cloud_scoped' ? { cloudId: fields.cloudId.trim() } : {}),
+        syncDeletions,
+      };
+    case 'dingtalk':
+      return {
+        clientId: fields.clientId.trim(),
+        operatorUnionId: fields.operatorUnionId.trim(),
+        syncDeletions,
+      };
+    case 'ima':
+      return { clientId: fields.clientId.trim(), syncDeletions };
+    case 'seafile':
+      return { baseUrl: fields.baseUrl.trim(), syncDeletions };
+    case 'nextcloud':
+      return { baseUrl: fields.baseUrl.trim(), username: fields.username.trim(), syncDeletions };
+    default:
+      return {};
+  }
+}
 
 export function SourceDialog({
   baseId,
@@ -71,142 +288,45 @@ export function SourceDialog({
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
   const editing = source !== undefined;
+  const hasExistingSecret = source?.hasSecret ?? false;
   const create = useCreateKnowledgeSource(baseId);
   const update = useUpdateKnowledgeSource(baseId);
   const pending = create.isPending || update.isPending;
   const [step, setStep] = useState<'choose' | 'configure'>(editing ? 'configure' : 'choose');
-  const [type, setType] = useState<SourceType>(source ? source.type : 'feishu_wiki');
-  const [name, setName] = useState(source?.name ?? '');
-  const [secret, setSecret] = useState('');
-  const [fields, setFields] = useState<SourceFieldState>(() => ({
-    ...emptySourceFields,
-    appId: configString(source, 'appId'),
-    baseUrl: configString(source, 'baseUrl'),
-    email: configString(source, 'email'),
-    cloudId: configString(source, 'cloudId'),
-    username: configString(source, 'username'),
-    operatorUnionId: configString(source, 'operatorUnionId'),
-    clientId: configString(source, 'clientId'),
-  }));
-  const [authMode, setAuthMode] = useState<AuthMode>(() =>
-    isAuthMode(source?.config.authMode) ? source.config.authMode : 'cloud_basic',
-  );
-  const [cron, setCron] = useState(source?.syncCron ?? '');
-  const [syncDeletions, setSyncDeletions] = useState(source?.config.syncDeletions === true);
-  // auth_error 不在可写枚举里：保持原值，只有用户主动改状态才提交。
-  const [status, setStatus] = useState<KnowledgeSource['status']>(source?.status ?? 'active');
-  const [ranges, setRanges] = useState<RangeDraft[]>(() =>
-    source
-      ? source.ranges.map(({ id, ...range }) => ({
-          ...range,
-          clientId: id,
-          // 后端空 paths 表示全库；草稿显式写 /，清空后才是真正的空。
-          paths: range.kind === 'seafile_repo' && range.paths.length === 0 ? ['/'] : range.paths,
-        }))
-      : [newRangeDraft(rangeKinds.feishu_wiki[0] as RangeKind)],
-  );
-  const [submitted, setSubmitted] = useState(false);
   const [confirmSwitch, setConfirmSwitch] = useState(false);
-  const [baseline, setBaseline] = useState(() =>
-    sourceDraftSignature({
-      type: source ? source.type : 'feishu_wiki',
-      name: source?.name ?? '',
-      secret: '',
-      fields,
-      authMode,
-      cron: source?.syncCron ?? '',
-      syncDeletions: source?.config.syncDeletions === true,
-      status: source?.status ?? 'active',
-      ranges,
-    }),
+  const formRef = useRef<HTMLFormElement>(null);
+
+  const schema = useMemo(
+    () => createSourceFormSchema(editing, hasExistingSecret),
+    [editing, hasExistingSecret],
   );
+  const defaultValues = useMemo(() => createInitialValues(source), [source]);
+
+  const { register, control, handleSubmit, reset, getValues, setValue, clearErrors, formState } =
+    useZodForm<SourceFormValues>(schema, { defaultValues });
+  const { isDirty, errors } = formState;
+
+  const [type, authMode] = useWatch({ control, name: ['type', 'authMode'] });
   const provider = sourceProvider(type);
   const ProviderIcon = provider.icon;
-  const statusOptions = [
-    ...(status === 'auth_error'
-      ? [{ value: 'auth_error' as const, label: sourceStatusLabel.auth_error }]
-      : []),
-    { value: 'active' as const, label: sourceStatusLabel.active },
-    { value: 'paused' as const, label: sourceStatusLabel.paused },
-    { value: 'disabled' as const, label: sourceStatusLabel.disabled },
-  ];
   const credential = credentialField(type, authMode);
-  const secretRequired = credential !== null && !(editing && source.hasSecret);
-  const issue = rangeIssue(type, ranges);
-  const normalized = ranges.map(toRangeInput);
-  const syncCron = cron.trim() === '' ? null : cron.trim();
-  const dirty =
-    step === 'configure' &&
-    sourceDraftSignature({
-      type,
-      name,
-      secret,
-      fields,
-      authMode,
-      cron,
-      syncDeletions,
-      status,
-      ranges,
-    }) !== baseline;
+  const secretRequired = credential !== null && !(editing && hasExistingSecret);
+  const dirty = step === 'configure' && isDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
   const specs = (sourceFieldSpecs[type] ?? []).filter(
     (spec) => spec.visible === undefined || spec.visible(authMode),
   );
-  const fieldIssues = Object.fromEntries(
-    specs.map((spec) => [
-      spec.key,
-      sourceFieldRequired(spec, authMode) && fields[spec.key].trim() === ''
-        ? `请填写 ${spec.label}`
-        : null,
-    ]),
-  ) as Partial<Record<SourceFieldKey, string | null>>;
-  const nameIssue = name.trim() === '' ? '请填写来源名称' : null;
-  const secretIssue = secretRequired && secret === '' ? `请填写 ${credential.label}` : null;
-  const legacyIssues = {
-    appId:
-      (type === 'feishu_wiki' || type === 'feishu_drive') && fields.appId.trim() === ''
-        ? '请填写 App ID'
-        : null,
-    baseUrl: type === 'gitlab' && fields.baseUrl.trim() === '' ? '请填写实例 URL' : null,
-  };
-  const rowIssues = ranges.map((range) => ({
-    externalId: range.externalId.trim() === '' ? `请填写${rangeExternalLabel(range.kind)}` : null,
-    ref: type === 'gitlab' && !range.ref?.trim() ? '请填写 Ref' : null,
-    paths: type === 'seafile' ? seafilePathIssue(range.paths) : null,
-  }));
-  const hasSubmitIssue =
-    nameIssue !== null ||
-    secretIssue !== null ||
-    Object.values(fieldIssues).some(Boolean) ||
-    Object.values(legacyIssues).some(Boolean) ||
-    rowIssues.some((row) => row.externalId !== null || row.ref !== null || row.paths !== null) ||
-    issue !== null;
 
-  // 各类型的范围 kind 与外键含义不同，切换类型时整套重建，不能把旧行带过去；
-  // 凭证与连接地址也只属于原类型，必须清空。
   const chooseType = (next: SourceType): void => {
-    const nextRanges = [newRangeDraft(rangeKinds[next][0] as RangeKind)];
-    setType(next);
-    setSecret('');
-    setFields({ ...emptySourceFields });
-    setAuthMode('cloud_basic');
-    setRanges(nextRanges);
+    reset({
+      ...getValues(),
+      type: next,
+      secret: '',
+      fields: { ...emptySourceFields },
+      authMode: 'cloud_basic',
+      ranges: [newRangeDraft(rangeKinds[next][0] as RangeKind)],
+    });
     setStep('configure');
-    setSubmitted(false);
-    // 选类型本身不算草稿；只有真正改过字段才需要离开确认。
-    setBaseline(
-      sourceDraftSignature({
-        type: next,
-        name,
-        secret: '',
-        fields: { ...emptySourceFields },
-        authMode: 'cloud_basic',
-        cron,
-        syncDeletions,
-        status,
-        ranges: nextRanges,
-      }),
-    );
   };
 
   const requestChooseType = (): void => {
@@ -215,106 +335,90 @@ export function SourceDialog({
     else setStep('choose');
   };
 
-  const buildConfig = (): Record<string, unknown> => {
-    switch (type) {
-      case 'feishu_wiki':
-      case 'feishu_drive':
-        return {
-          appId: fields.appId.trim(),
-          ...(fields.baseUrl.trim() ? { baseUrl: fields.baseUrl.trim() } : {}),
-          syncDeletions,
-        };
-      case 'lark_wiki':
-      case 'lark_drive':
-        return { appId: fields.appId.trim(), syncDeletions };
-      case 'github':
-        // ref 属于每个 range，多仓库时不能把第一条写进公共 config。
-        return {
-          ...(fields.baseUrl.trim() ? { baseUrl: fields.baseUrl.trim() } : {}),
-          projectId: normalized[0]?.externalId ?? '',
-          syncDeletions,
-        };
-      case 'gitlab':
-        return {
-          ...(fields.baseUrl.trim() ? { baseUrl: fields.baseUrl.trim() } : {}),
-          projectId: normalized[0]?.externalId ?? '',
-          ref: ranges.find((range) => range.ref)?.ref?.trim() ?? '',
-          syncDeletions,
-        };
-      case 'notion':
-      case 'yuque':
-        return { syncDeletions };
-      case 'confluence':
-        return {
-          authMode,
-          baseUrl: fields.baseUrl.trim(),
-          ...(authMode === 'dc_pat' ? {} : { email: fields.email.trim() }),
-          ...(authMode === 'cloud_scoped' ? { cloudId: fields.cloudId.trim() } : {}),
-          syncDeletions,
-        };
-      case 'dingtalk':
-        return {
-          clientId: fields.clientId.trim(),
-          operatorUnionId: fields.operatorUnionId.trim(),
-          syncDeletions,
-        };
-      case 'ima':
-        return { clientId: fields.clientId.trim(), syncDeletions };
-      case 'seafile':
-        return { baseUrl: fields.baseUrl.trim(), syncDeletions };
-      case 'nextcloud':
-        return { baseUrl: fields.baseUrl.trim(), username: fields.username.trim(), syncDeletions };
-      default:
-        return {};
-    }
-  };
-
-  const buildInput = (): KnowledgeSourceInput => {
-    const common = { name: name.trim(), syncCron, ranges: normalized };
-    const secrets = credential ? { [credential.key]: secret } : {};
-    // 服务端 Zod 才是信任边界；这里只按所选 type 组装对应 wire 形状。
-    return { ...common, type, config: buildConfig(), secrets } as KnowledgeSourceInput;
-  };
-
-  const buildPatch = (target: KnowledgeSource) => {
-    // 填了新凭证说明已修复 auth_error：自动恢复启用；留空则保留原状态。
-    const patchStatus =
-      status === 'auth_error'
-        ? secret !== ''
-          ? 'active'
-          : undefined
-        : status === target.status
-          ? undefined
-          : status;
-    return {
-      name: name.trim(),
-      ...(patchStatus === undefined ? {} : { status: patchStatus }),
-      syncCron,
-      ranges: normalized,
-      ...(type === 'feed' ? {} : { config: buildConfig() }),
-      // 空值不提交，服务端保留原凭证；填了才是轮换。
-      ...(credential && secret !== '' ? { secrets: { [credential.key]: secret } } : {}),
-    };
-  };
+  const submit = handleSubmit(
+    (values) => {
+      if (pending) return;
+      const normalized = values.ranges.map(toRangeInput);
+      const syncCron = values.cron.trim() === '' ? null : values.cron.trim();
+      const activeCredential = credentialField(values.type, values.authMode);
+      if (source) {
+        const patchStatus =
+          values.status === 'auth_error'
+            ? values.secret !== ''
+              ? 'active'
+              : undefined
+            : values.status === source.status
+              ? undefined
+              : values.status;
+        update.mutate(
+          {
+            sourceId: source.id,
+            patch: {
+              name: values.name.trim(),
+              ...(patchStatus === undefined ? {} : { status: patchStatus }),
+              syncCron,
+              ranges: normalized,
+              ...(values.type === 'feed' ? {} : { config: buildSourceConfig(values, normalized) }),
+              ...(activeCredential && values.secret !== ''
+                ? { secrets: { [activeCredential.key]: values.secret } }
+                : {}),
+            },
+          },
+          {
+            onSuccess: (result) => {
+              const revoked = result.disabledDocumentIds?.length ?? 0;
+              toastSuccess(revoked > 0 ? `来源已更新，${revoked} 个文档立即撤权` : '来源已更新');
+              guard.finish();
+            },
+            onError: toastError,
+          },
+        );
+        return;
+      }
+      const secrets = activeCredential ? { [activeCredential.key]: values.secret } : {};
+      create.mutate(
+        {
+          name: values.name.trim(),
+          syncCron,
+          ranges: normalized,
+          type: values.type,
+          config: buildSourceConfig(values, normalized),
+          secrets,
+        } as KnowledgeSourceInput,
+        {
+          onSuccess: () => {
+            toastSuccess('来源已创建');
+            guard.finish();
+          },
+          onError: toastError,
+        },
+      );
+    },
+    () => {
+      requestAnimationFrame(() => {
+        formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+      });
+    },
+  );
 
   const secretInput =
     credential === null ? null : (
-      <Field className="gap-1.5" data-invalid={submitted && secretIssue !== null}>
+      <Field className="gap-1.5" data-invalid={Boolean(errors.secret)}>
         <FieldLabel htmlFor="knowledge-source-secret">
           {credential.label} {secretRequired ? <RequiredMark /> : null}
         </FieldLabel>
         <Input
           id="knowledge-source-secret"
           type="password"
-          value={secret}
+          {...register('secret')}
           autoComplete="off"
           disabled={pending}
-          aria-invalid={submitted && secretIssue !== null}
-          aria-describedby={submitted && secretIssue ? 'knowledge-source-secret-error' : undefined}
-          onChange={(event) => setSecret(event.target.value)}
-          placeholder={editing ? (source.hasSecret ? '留空保持原凭证' : '填写凭证') : '填写凭据'}
+          aria-required={secretRequired ? 'true' : undefined}
+          aria-invalid={Boolean(errors.secret)}
+          aria-describedby={errors.secret ? 'knowledge-source-secret-error' : undefined}
+          placeholder={editing ? (hasExistingSecret ? '留空保持原凭证' : '填写凭证') : '填写凭据'}
         />
-        <FieldError id="knowledge-source-secret-error">{submitted ? secretIssue : null}</FieldError>
+        <FieldError id="knowledge-source-secret-error">{errors.secret?.message}</FieldError>
         {type === 'github' ? (
           <FieldDescription>需要 Contents 只读权限；私有仓库还需 Metadata 只读。</FieldDescription>
         ) : credential.description ? (
@@ -353,38 +457,11 @@ export function SourceDialog({
         }
       >
         <form
+          ref={formRef}
           id="source-form"
           className="flex flex-col gap-4"
           noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (pending) return;
-            setSubmitted(true);
-            if (hasSubmitIssue) return;
-            if (source) {
-              update.mutate(
-                { sourceId: source.id, patch: buildPatch(source) },
-                {
-                  onSuccess: (result) => {
-                    const revoked = result.disabledDocumentIds?.length ?? 0;
-                    toastSuccess(
-                      revoked > 0 ? `来源已更新，${revoked} 个文档立即撤权` : '来源已更新',
-                    );
-                    guard.finish();
-                  },
-                  onError: toastError,
-                },
-              );
-              return;
-            }
-            create.mutate(buildInput(), {
-              onSuccess: () => {
-                toastSuccess('来源已创建');
-                guard.finish();
-              },
-              onError: toastError,
-            });
-          }}
+          onSubmit={submit}
         >
           {step === 'choose' ? (
             <div className="flex flex-col">
@@ -436,74 +513,90 @@ export function SourceDialog({
                 <FieldGroup className="grid gap-3 sm:grid-cols-2">
                   <Field
                     className={cn('gap-1.5', !editing && 'sm:col-span-2')}
-                    data-invalid={submitted && nameIssue !== null}
+                    data-invalid={Boolean(errors.name)}
                   >
                     <FieldLabel htmlFor="source-name">
                       名称 <RequiredMark />
                     </FieldLabel>
                     <Input
                       id="source-name"
-                      value={name}
+                      {...register('name')}
                       maxLength={120}
                       disabled={pending}
-                      aria-invalid={submitted && nameIssue !== null}
-                      aria-describedby={submitted && nameIssue ? 'source-name-error' : undefined}
-                      onChange={(event) => setName(event.target.value)}
+                      aria-required="true"
+                      aria-invalid={Boolean(errors.name)}
+                      aria-describedby={errors.name ? 'source-name-error' : undefined}
                     />
-                    <FieldError id="source-name-error">{submitted ? nameIssue : null}</FieldError>
+                    <FieldError id="source-name-error">{errors.name?.message}</FieldError>
                   </Field>
                   {editing ? (
                     <Field className="gap-1.5">
                       <FieldLabel htmlFor="knowledge-source-status">状态</FieldLabel>
-                      <Select
-                        value={status === 'auth_error' ? 'auth_error' : status}
-                        disabled={pending}
-                        onValueChange={(next) => {
-                          if (next === 'active' || next === 'paused' || next === 'disabled') {
-                            setStatus(next);
-                          }
+                      <Controller
+                        control={control}
+                        name="status"
+                        render={({ field }) => {
+                          const statusOptions = [
+                            ...(field.value === 'auth_error'
+                              ? [
+                                  {
+                                    value: 'auth_error' as const,
+                                    label: sourceStatusLabel.auth_error,
+                                  },
+                                ]
+                              : []),
+                            { value: 'active' as const, label: sourceStatusLabel.active },
+                            { value: 'paused' as const, label: sourceStatusLabel.paused },
+                            { value: 'disabled' as const, label: sourceStatusLabel.disabled },
+                          ];
+                          return (
+                            <Select
+                              value={field.value}
+                              disabled={pending}
+                              onValueChange={(next) => {
+                                if (next === 'active' || next === 'paused' || next === 'disabled') {
+                                  field.onChange(next);
+                                }
+                              }}
+                              items={statusOptions}
+                            >
+                              <SelectTrigger id="knowledge-source-status" className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectGroup>
+                                  {statusOptions.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                          );
                         }}
-                        items={statusOptions}
-                      >
-                        <SelectTrigger id="knowledge-source-status" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {statusOptions.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
+                      />
                     </Field>
                   ) : null}
                   {type === 'feishu_wiki' || type === 'feishu_drive' ? (
                     <>
-                      <Field
-                        className="gap-1.5"
-                        data-invalid={submitted && legacyIssues.appId !== null}
-                      >
+                      <Field className="gap-1.5" data-invalid={Boolean(errors.fields?.appId)}>
                         <FieldLabel htmlFor="source-app-id">
                           App ID <RequiredMark />
                         </FieldLabel>
                         <Input
                           id="source-app-id"
-                          value={fields.appId}
+                          {...register('fields.appId')}
                           disabled={pending}
-                          aria-invalid={submitted && legacyIssues.appId !== null}
+                          aria-required="true"
+                          aria-invalid={Boolean(errors.fields?.appId)}
                           aria-describedby={
-                            submitted && legacyIssues.appId ? 'source-app-id-error' : undefined
-                          }
-                          onChange={(event) =>
-                            setFields((previous) => ({ ...previous, appId: event.target.value }))
+                            errors.fields?.appId ? 'source-app-id-error' : undefined
                           }
                           className="font-mono"
                         />
                         <FieldError id="source-app-id-error">
-                          {submitted ? legacyIssues.appId : null}
+                          {errors.fields?.appId?.message}
                         </FieldError>
                       </Field>
                       {secretInput}
@@ -511,11 +604,8 @@ export function SourceDialog({
                         <FieldLabel htmlFor="source-base-url">Base URL</FieldLabel>
                         <Input
                           id="source-base-url"
-                          value={fields.baseUrl}
+                          {...register('fields.baseUrl')}
                           disabled={pending}
-                          onChange={(event) =>
-                            setFields((previous) => ({ ...previous, baseUrl: event.target.value }))
-                          }
                           placeholder="留空使用官方地址"
                           className="font-mono"
                         />
@@ -527,11 +617,8 @@ export function SourceDialog({
                         <FieldLabel htmlFor="source-github-api">API 地址</FieldLabel>
                         <Input
                           id="source-github-api"
-                          value={fields.baseUrl}
+                          {...register('fields.baseUrl')}
                           disabled={pending}
-                          onChange={(event) =>
-                            setFields((previous) => ({ ...previous, baseUrl: event.target.value }))
-                          }
                           placeholder="https://api.github.com"
                           className="font-mono"
                         />
@@ -540,31 +627,24 @@ export function SourceDialog({
                     </>
                   ) : type === 'gitlab' ? (
                     <>
-                      <Field
-                        className="gap-1.5"
-                        data-invalid={submitted && legacyIssues.baseUrl !== null}
-                      >
+                      <Field className="gap-1.5" data-invalid={Boolean(errors.fields?.baseUrl)}>
                         <FieldLabel htmlFor="source-gitlab-url">
                           实例 URL <RequiredMark />
                         </FieldLabel>
                         <Input
                           id="source-gitlab-url"
-                          value={fields.baseUrl}
+                          {...register('fields.baseUrl')}
                           disabled={pending}
-                          aria-invalid={submitted && legacyIssues.baseUrl !== null}
+                          aria-required="true"
+                          aria-invalid={Boolean(errors.fields?.baseUrl)}
                           aria-describedby={
-                            submitted && legacyIssues.baseUrl
-                              ? 'source-gitlab-url-error'
-                              : undefined
-                          }
-                          onChange={(event) =>
-                            setFields((previous) => ({ ...previous, baseUrl: event.target.value }))
+                            errors.fields?.baseUrl ? 'source-gitlab-url-error' : undefined
                           }
                           placeholder="https://gitlab.example.com"
                           className="font-mono"
                         />
                         <FieldError id="source-gitlab-url-error">
-                          {submitted ? legacyIssues.baseUrl : null}
+                          {errors.fields?.baseUrl?.message}
                         </FieldError>
                       </Field>
                       {secretInput}
@@ -574,61 +654,58 @@ export function SourceDialog({
                       {type === 'confluence' ? (
                         <Field className="gap-1.5 sm:col-span-2">
                           <FieldLabel htmlFor="source-confluence-auth">认证模式</FieldLabel>
-                          <Select
-                            value={authMode}
-                            disabled={pending || editing}
-                            onValueChange={(next) => {
-                              if (!next || !isAuthMode(next)) return;
-                              setAuthMode(next);
-                              // 模式切换会换凭证类型，旧值不能带到新模式。
-                              setSecret('');
-                            }}
-                            items={authModeOptions}
-                          >
-                            <SelectTrigger id="source-confluence-auth" className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectGroup>
-                                {authModeOptions.map((option) => (
-                                  <SelectItem key={option.value} value={option.value}>
-                                    {option.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectGroup>
-                            </SelectContent>
-                          </Select>
+                          <Controller
+                            control={control}
+                            name="authMode"
+                            render={({ field }) => (
+                              <Select
+                                value={field.value}
+                                disabled={pending || editing}
+                                onValueChange={(next) => {
+                                  if (!next || !isAuthMode(next)) return;
+                                  field.onChange(next);
+                                  setValue('secret', '', { shouldDirty: true });
+                                  clearErrors(['secret', 'fields.email', 'fields.cloudId']);
+                                }}
+                                items={authModeOptions}
+                              >
+                                <SelectTrigger id="source-confluence-auth" className="w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectGroup>
+                                    {authModeOptions.map((option) => (
+                                      <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectGroup>
+                                </SelectContent>
+                              </Select>
+                            )}
+                          />
                         </Field>
                       ) : null}
                       {specs.map((spec) => {
-                        const error = fieldIssues[spec.key] ?? null;
+                        const error = errors.fields?.[spec.key]?.message;
                         const id = sourceFieldId(spec.key);
+                        const required = sourceFieldRequired(spec, authMode);
                         return (
-                          <Field
-                            key={spec.key}
-                            className="gap-1.5"
-                            data-invalid={submitted && error !== null}
-                          >
+                          <Field key={spec.key} className="gap-1.5" data-invalid={Boolean(error)}>
                             <FieldLabel htmlFor={id}>
-                              {spec.label}{' '}
-                              {sourceFieldRequired(spec, authMode) ? <RequiredMark /> : null}
+                              {spec.label} {required ? <RequiredMark /> : null}
                             </FieldLabel>
                             <Input
                               id={id}
-                              value={fields[spec.key]}
+                              {...register(`fields.${spec.key}`)}
                               disabled={pending || (editing && spec.identity === true)}
-                              aria-invalid={submitted && error !== null}
-                              aria-describedby={submitted && error ? `${id}-error` : undefined}
-                              onChange={(event) =>
-                                setFields((previous) => ({
-                                  ...previous,
-                                  [spec.key]: event.target.value,
-                                }))
-                              }
+                              aria-required={required ? 'true' : undefined}
+                              aria-invalid={Boolean(error)}
+                              aria-describedby={error ? `${id}-error` : undefined}
                               placeholder={spec.placeholder}
                               className="font-mono"
                             />
-                            <FieldError id={`${id}-error`}>{submitted ? error : null}</FieldError>
+                            <FieldError id={`${id}-error`}>{error}</FieldError>
                           </Field>
                         );
                       })}
@@ -669,25 +746,51 @@ export function SourceDialog({
               </div>
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-medium text-fg">同步范围</span>
-                <RangeRows
-                  type={type}
-                  ranges={ranges}
-                  disabled={pending}
-                  errors={ranges.map((_, index) =>
-                    submitted
-                      ? (rowIssues[index] ?? { externalId: null, ref: null, paths: null })
-                      : { externalId: null, ref: null, paths: null },
-                  )}
-                  onChange={setRanges}
+                <Controller
+                  control={control}
+                  name="ranges"
+                  render={({ field }) => {
+                    const rangesErrors = errors.ranges;
+                    const rowErrors = field.value.map((_, index) => ({
+                      externalId: rangesErrors?.[index]?.externalId?.message ?? null,
+                      ref: rangesErrors?.[index]?.ref?.message ?? null,
+                      paths: rangesErrors?.[index]?.paths?.message ?? null,
+                    }));
+                    const structuralRangeIssue =
+                      field.value.length === 0
+                        ? '至少需要一个范围'
+                        : !field.value.some((range) => range.enabled)
+                          ? '至少需要一个启用的范围'
+                          : null;
+                    const rangesBannerError =
+                      structuralRangeIssue ?? rangesErrors?.root?.message ?? null;
+                    return (
+                      <>
+                        <RangeRows
+                          type={type}
+                          ranges={field.value}
+                          disabled={pending}
+                          errors={rowErrors}
+                          onChange={(next) => {
+                            if (errors.ranges) clearErrors('ranges');
+                            field.onChange(next);
+                          }}
+                        />
+                        {rangesBannerError ? (
+                          <FieldError id="knowledge-source-ranges-error">
+                            {rangesBannerError}
+                          </FieldError>
+                        ) : null}
+                      </>
+                    );
+                  }}
                 />
-                {issue ? <FieldError id="knowledge-source-ranges-error">{issue}</FieldError> : null}
                 <Field className="gap-1.5">
                   <FieldLabel htmlFor="knowledge-source-cron">同步 cron（UTC）</FieldLabel>
                   <Input
                     id="knowledge-source-cron"
-                    value={cron}
+                    {...register('cron')}
                     disabled={pending}
-                    onChange={(event) => setCron(event.target.value)}
                     placeholder="留空不自动同步"
                     className="font-mono"
                   />
@@ -698,11 +801,17 @@ export function SourceDialog({
                   </FieldDescription>
                 ) : (
                   <Field orientation="horizontal" className="items-center gap-2">
-                    <Switch
-                      id="knowledge-source-sync-deletions"
-                      checked={syncDeletions}
-                      disabled={pending}
-                      onCheckedChange={(checked) => setSyncDeletions(checked)}
+                    <Controller
+                      control={control}
+                      name="syncDeletions"
+                      render={({ field }) => (
+                        <Switch
+                          id="knowledge-source-sync-deletions"
+                          checked={field.value}
+                          disabled={pending}
+                          onCheckedChange={field.onChange}
+                        />
+                      )}
                     />
                     <FieldLabel htmlFor="knowledge-source-sync-deletions">
                       远端删除时停用文档

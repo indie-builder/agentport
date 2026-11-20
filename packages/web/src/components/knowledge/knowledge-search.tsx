@@ -17,6 +17,7 @@ import { Field, FieldLabel } from '../ui/field.js';
 import { Input } from '../ui/input.js';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover.js';
 import { Switch } from '../ui/switch.js';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.js';
 import {
   citationFromHit,
   citationPageLabel,
@@ -353,37 +354,61 @@ function Diagnostics({ result }: { result: KnowledgeSearchResponse }) {
             </div>
           </dl>
           {diagnostics.candidates.length === 0 ? null : (
-            <div className="max-h-64 overflow-auto">
-              <table className="w-full text-2xs">
-                <thead>
-                  <tr className="text-left text-muted-foreground">
-                    <th className="py-1 pr-2 font-normal">候选</th>
-                    <th className="py-1 pr-2 text-right font-normal">关键词</th>
-                    <th className="py-1 pr-2 text-right font-normal">向量</th>
-                    <th className="py-1 pr-2 text-right font-normal">RRF</th>
-                    <th className="py-1 text-right font-normal">重排</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <div className="max-h-64 overflow-y-auto">
+              <Table aria-label="检索诊断候选" className="text-2xs">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead scope="col" className="h-auto px-0 py-1 pr-2 text-2xs font-normal">
+                      候选
+                    </TableHead>
+                    <TableHead
+                      scope="col"
+                      className="h-auto px-0 py-1 pr-2 text-right text-2xs font-normal"
+                    >
+                      关键词
+                    </TableHead>
+                    <TableHead
+                      scope="col"
+                      className="h-auto px-0 py-1 pr-2 text-right text-2xs font-normal"
+                    >
+                      向量
+                    </TableHead>
+                    <TableHead
+                      scope="col"
+                      className="h-auto px-0 py-1 pr-2 text-right text-2xs font-normal"
+                    >
+                      RRF
+                    </TableHead>
+                    <TableHead
+                      scope="col"
+                      className="h-auto px-0 py-1 text-right text-2xs font-normal"
+                    >
+                      重排
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {diagnostics.candidates.map((candidate) => (
-                    <tr key={candidate.chunkId} className="border-t border-line">
-                      <td className="max-w-0 truncate py-1 pr-2 font-mono">{candidate.chunkId}</td>
-                      <td className="py-1 pr-2 text-right font-mono tabular-nums">
+                    <TableRow key={candidate.chunkId} className="hover:bg-transparent">
+                      <TableCell className="max-w-0 truncate px-0 py-1 pr-2 font-mono">
+                        {candidate.chunkId}
+                      </TableCell>
+                      <TableCell className="px-0 py-1 pr-2 text-right font-mono tabular-nums">
                         {candidate.scores.keyword?.toFixed(3) ?? '—'}
-                      </td>
-                      <td className="py-1 pr-2 text-right font-mono tabular-nums">
+                      </TableCell>
+                      <TableCell className="px-0 py-1 pr-2 text-right font-mono tabular-nums">
                         {candidate.scores.vector?.toFixed(3) ?? '—'}
-                      </td>
-                      <td className="py-1 pr-2 text-right font-mono tabular-nums">
+                      </TableCell>
+                      <TableCell className="px-0 py-1 pr-2 text-right font-mono tabular-nums">
                         {candidate.scores.rrf.toFixed(4)}
-                      </td>
-                      <td className="py-1 text-right font-mono tabular-nums">
+                      </TableCell>
+                      <TableCell className="px-0 py-1 text-right font-mono tabular-nums">
                         {candidate.scores.rerank?.toFixed(3) ?? '—'}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </div>

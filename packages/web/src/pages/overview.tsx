@@ -706,7 +706,7 @@ export function OverviewPage() {
           <PageNote
             tone="danger"
             title="刷新失败，已保留加载的内容"
-            description="以下内容为上次成功加载的结果。"
+            description={errorMessage(error)}
             action={
               <Button variant="outline" size="sm" onClick={() => void overview.refetch()}>
                 重试

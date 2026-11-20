@@ -351,7 +351,7 @@ export function SchedulesPage() {
           <PageNote
             tone="danger"
             title="刷新失败，已保留上次列表"
-            description="以下为上次成功加载的定时任务。"
+            description={errorMessage(schedules.error)}
             action={
               <Button variant="outline" size="sm" onClick={() => void schedules.refetch()}>
                 重试

@@ -79,8 +79,8 @@ export function ChatPage() {
     !agents.data.some((item) => item.id === search.agent)
   ) {
     return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
-        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
+      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto p-6">
+        <PageHeader title="对话" className="sr-only" />
         <EmptyState
           icon={<Bot className="size-5" />}
           title="找不到这位专家"
@@ -674,8 +674,8 @@ function ChatWorkspace({
   // 只有「静默的」深链失败才整页报错；正在跑的这一轮不能被卸载，否则事件流会被掐断。
   if (conversationId && detail.isError && items.length === 0 && !running) {
     return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
-        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
+      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto p-6">
+        <PageHeader title="对话" className="sr-only" />
         <div className="flex flex-col gap-3">
           <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
           <Button
@@ -695,8 +695,8 @@ function ChatWorkspace({
   // 自己发送时 store 已有本轮消息，不会闪这一屏。
   if (conversationId && !running && items.length === 0 && hydrated.current !== conversationId) {
     return (
-      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto px-6 pb-6">
-        <PageHeader title="对话" className="shrink-0 [&_h1]:sr-only" />
+      <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto p-6">
+        <PageHeader title="对话" className="sr-only" />
         <LoadingState rows={4} />
       </Page>
     );

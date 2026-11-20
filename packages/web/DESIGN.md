@@ -453,7 +453,7 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 
 ### Metrics / Record rows
 
-- **MetricCard / MetricGrid:** 指标卡统一用 `components/metric-card.tsx` 的 `MetricCard`（`Card size="sm"`）：标签 13/20 `muted-foreground` 常规字重，可带 16px 图标；数值 24/32、500、`tabular-nums`、`fg`；说明 12/16 `text-xs` `muted-foreground`；标签→数值 12px（sm 卡块间距），数值→说明 4px。多个指标用 `MetricGrid`，按可用宽度自适应分列（`auto-fit`，最小 220px）、`gap-4`，卡片按数量铺满整行。
+- **MetricCard / MetricGrid:** 指标卡统一用 `components/metric-card.tsx` 的 `MetricCard`（`Card size="sm"`）：标签 13/20 `muted-foreground` 常规字重，可带 16px 图标；数值 24/32、500、`tabular-nums`、`fg`；说明 12/16 `text-xs` `muted-foreground`；标签→数值 12px（sm 卡块间距），数值→说明 4px。多个指标用 `MetricGrid`，按可用宽度自适应分列（`auto-fit`，最小 180px，可按需传固定列数 `columns` 2/3/4）、`gap-4`，卡片按数量铺满整行。
 - **RecordRows:** 卡片内字段行的唯一形态 `RecordRows`：`dl` 双列 `grid-cols-[auto_minmax(0,1fr)]`，行距 6px；标签 12/16 `muted-foreground`，值 13/20 `fg` 右对齐 `tabular-nums`，长值换行；`mono` 变体用于标识与数值。
 - 同一类指标或字段行必须复用上述两个原语，不各页手写。
 

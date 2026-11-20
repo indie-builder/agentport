@@ -32,7 +32,7 @@ import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
 import { MentionList, useMentionList } from '../../components/ui/mention-list.js';
 import { authenticated, can } from '../../lib/access.js';
-import { api, type ChannelApproval } from '../../lib/api.js';
+import { api, type ChannelApproval, errorMessage } from '../../lib/api.js';
 import { readFileBase64 } from '../../lib/browser-files.js';
 import {
   applyMention,
@@ -113,7 +113,7 @@ export function ChannelPage({ channelId }: { channelId: string }) {
     <ChannelWorkspace
       key={detail.data.id}
       channel={detail.data}
-      refreshFailed={detail.isError}
+      refreshError={detail.isError ? detail.error : null}
       onRetryRefresh={() => void detail.refetch()}
     />
   );
@@ -121,11 +121,11 @@ export function ChannelPage({ channelId }: { channelId: string }) {
 
 function ChannelWorkspace({
   channel,
-  refreshFailed,
+  refreshError,
   onRetryRefresh,
 }: {
   channel: ChannelDetail;
-  refreshFailed: boolean;
+  refreshError: unknown;
   onRetryRefresh: () => void;
 }) {
   const me = useQuery(meQuery);
@@ -682,12 +682,12 @@ function ChannelWorkspace({
           ) : null}
         </header>
 
-        {refreshFailed ? (
+        {refreshError ? (
           <div className="shrink-0 px-6 pt-2">
             <PageNote
               tone="danger"
               title="刷新失败，已保留加载的内容"
-              description="以下为上次成功加载的内容。"
+              description={errorMessage(refreshError)}
               action={
                 <Button variant="outline" size="sm" onClick={onRetryRefresh}>
                   重试
