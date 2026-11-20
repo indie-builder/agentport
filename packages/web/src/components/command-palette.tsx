@@ -24,14 +24,12 @@ import {
   RESOURCE_MENU,
   WORK_MENU,
 } from '../lib/access.js';
-import { cn } from '../lib/cn.js';
 import { searchQuery } from '../lib/queries.js';
 import { SEARCH_KIND_META, SEARCH_KIND_ORDER, searchItemHref } from '../lib/search-meta.js';
 import { useDebouncedValue } from '../lib/use-debounced-value.js';
 import { Button } from './ui/button.js';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog.js';
 import { Input } from './ui/input.js';
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js';
 
 const OPEN_EVENT = 'command-palette:open';
 
@@ -249,40 +247,19 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
   );
 }
 
-export function CommandPaletteTrigger({
-  collapsed,
-  tooltipDisabled,
-}: {
-  collapsed: boolean;
-  tooltipDisabled: boolean;
-}) {
+export function CommandPaletteTrigger() {
   const hint = useShortcutHint('mod+k');
-  const trigger = (
+  return (
     <Button
       variant="ghost"
       aria-label={`搜索（${hint.text}）`}
       aria-keyshortcuts={hint.ariaKeyshortcuts}
       onClick={openCommandPalette}
-      className={cn(
-        'h-8 text-sm text-fg hover:bg-sidebar-hover',
-        collapsed ? 'size-8 rounded-tag p-0' : 'w-full justify-start gap-2.5 rounded-item px-2',
-      )}
+      className="h-8 w-full justify-start gap-2.5 rounded-item px-2 text-sm text-fg hover:bg-sidebar-hover"
     >
       <Search aria-hidden="true" className="shrink-0" />
-      {collapsed ? null : (
-        <>
-          <span className="truncate">搜索…</span>
-          <span className="ml-auto shrink-0 text-xs text-muted-foreground">{hint.text}</span>
-        </>
-      )}
+      <span className="truncate">搜索…</span>
+      <span className="ml-auto shrink-0 text-xs text-muted-foreground">{hint.text}</span>
     </Button>
-  );
-  return (
-    <Tooltip disabled={tooltipDisabled} delay={400}>
-      <TooltipTrigger render={trigger} />
-      <TooltipContent side="right" sideOffset={8}>
-        搜索（{hint.text}）
-      </TooltipContent>
-    </Tooltip>
   );
 }

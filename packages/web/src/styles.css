@@ -22,11 +22,18 @@
   --color-hover: #f0f0f0;
   --color-chip: #f2f2f2;
   --color-selected: #e6e6e6;
-  --color-sidebar: #eaf0f0;
-  --color-sidebar-hover: #dfe8e9;
-  --color-sidebar-selected: var(--color-surface);
+  --color-sidebar: #fafafa;
+  --color-sidebar-hover: rgba(0, 0, 0, 0.05);
+  --color-sidebar-selected: rgba(0, 0, 0, 0.10);
   --color-badge-accent: #3a7578;
   --color-badge-accent-soft: #edf4f4;
+
+  --color-avatar-1: #a0472f;
+  --color-avatar-2: #9e3f6b;
+  --color-avatar-3: #45597f;
+  --color-avatar-4: #566b3a;
+  --color-avatar-5: #8a5a2e;
+  --color-avatar-6: #3f6563;
 
   /*
    * 线与文本：分隔线只做分组，边线取 CDS alpha 阶梯。

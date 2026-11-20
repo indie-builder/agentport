@@ -1,6 +1,6 @@
 ---
 name: PACE
-description: 石青品牌亮色外观：浅石青侧栏、白底中性主操作、纯白内容面，沿用 CDS 字体、圆角、发丝边与双环浮层。
+description: 中性亮色外观：中性侧栏、白底中性主操作、纯白内容面，工牌点缀石青，沿用 CDS 字体、圆角、发丝边与双环浮层。
 colors:
   canvas: "#FBFBFB"
   surface: "#FFFFFF"
@@ -9,11 +9,17 @@ colors:
   chip: "#F2F2F2"
   hover: "#F0F0F0"
   selected: "#E6E6E6"
-  sidebar: "#EAF0F0"
-  sidebar-hover: "#DFE8E9"
-  sidebar-selected: "#FFFFFF"
+  sidebar: "#FAFAFA"
+  sidebar-hover: "rgba(0, 0, 0, 0.05)"
+  sidebar-selected: "rgba(0, 0, 0, 0.10)"
   badge-accent: "#3A7578"
   badge-accent-soft: "#EDF4F4"
+  avatar-1: "#A0472F"
+  avatar-2: "#9E3F6B"
+  avatar-3: "#45597F"
+  avatar-4: "#566B3A"
+  avatar-5: "#8A5A2E"
+  avatar-6: "#3F6563"
   accent: "#E6E6E6"
   accent-foreground: "#202B2E"
   selected-foreground: "#202B2E"
@@ -220,24 +226,24 @@ components:
 
 ## Overview
 
-2026-11-07 用户决定撤回 #208 / #209 / #210 的全站 UI 重设计，视觉以 #207（`fbf3c332`）的既有 CDS 外观为恢复基线；石青配色、主侧栏导航与书签、Bun 与脚手架保留。同日进一步确认：所有业务卡片沿用找专家卡片的白底与常态深度；主侧栏导航选中项共用纯白 `surface` 与共享投影，导航保留既有几何与功能（卡片 hover 现按三态契约执行，见「共享卡片深度」）。实现必须同步共享入口与现有调用方；规范本身不代表真实渲染验收通过，历史验证记录只覆盖其记录版本。
+2026-11-07 用户决定撤回 #208 / #209 / #210 的全站 UI 重设计，视觉以 #207（`fbf3c332`）的既有 CDS 外观为恢复基线；主侧栏导航与书签、Bun 与脚手架保留。同日进一步确认：所有业务卡片沿用找专家卡片的白底与常态深度；主侧栏导航保留既有几何与功能，选中项为平面灰色胶囊（见 Navigation），卡片 hover 按三态契约执行，见「共享卡片深度」。实现必须同步共享入口与现有调用方；规范本身不代表真实渲染验收通过，历史验证记录只覆盖其记录版本。
 
-2026-11-13 用户决定将内容区动作色由石青改为中性白：主操作按钮使用白底、细边与深色文字，链接、键盘焦点环与文本选区使用中性色；石青仅保留在左侧导航，品牌 Logo 与插画保留原配色。
+2026-11-13 用户决定将内容区动作色由石青改为中性白：主操作按钮使用白底、细边与深色文字，链接、键盘焦点环与文本选区使用中性色；石青仅保留在工牌装饰，品牌 Logo 与插画保留原配色。
 
 2026-11-14 工牌（实体证件）作为例外启用石青强调色：`badge-accent #3A7578` 与 `badge-accent-soft #EDF4F4` 仅用于工牌装饰（状态点、短横线、职责简介标签与浅底、入职日期图标、点阵），内容区其他控件维持中性。
 
 **Creative North Star: "The Quiet Workbench（静默工作台）"**
 
-PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`，侧栏铺不透明的 `sidebar` 浅石青底；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异与留白。侧栏底面与非选中 hover 使用既有浅石青角色，导航当前项采用与卡片一致的纯白表面和共享投影，文字与图标仍为深色。工具、标题、正文、链接与按钮键盘焦点使用中性色，主操作使用白底细边按钮，状态只在需要时以小面积语义色或呼吸点出现。
+PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`，侧栏铺不透明的 `sidebar #FAFAFA` 中性底，右缘一道 1px 发丝边；主工作区是贴边平铺的纯白 `surface`，分区只靠底色差异、发丝边与留白。侧栏非选中 hover 用 `sidebar-hover rgba(0,0,0,.05)`，导航当前项是 `sidebar-selected rgba(0,0,0,.10)` 的平面灰色胶囊，无白色表面、无投影，文字与图标仍为深色。工具、标题、正文、链接与按钮键盘焦点使用中性色，主操作使用白底细边按钮，状态只在需要时以小面积语义色或呼吸点出现。
 
-这套系统仅在左侧导航与工牌装饰使用石青，品牌 Logo 与插画保留原配色，用中性灰、浅石青侧栏与白色阶梯承担层级：普通主操作、发送、登录共用白底、细 `line` 边线与 `fg` 深色文字，hover 用 `hover` 中性浅底；正文链接与按钮键盘焦点环使用 `fg #202B2E`，文本选区使用中性色；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。运行图表首系列保留独立数据蓝；它与石青品牌角色分开使用。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。
+这套系统仅在工牌装饰使用石青，品牌 Logo 与插画保留原配色，用中性灰、中性侧栏与白色阶梯承担层级：普通主操作、发送、登录共用白底、细 `line` 边线与 `fg` 深色文字，hover 用 `hover` 中性浅底；正文链接与按钮键盘焦点环使用 `fg #202B2E`，文本选区使用中性色；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，composer 用三态阴影。运行图表首系列保留独立数据蓝；它与工牌的石青装饰分开使用。层级由留白、分组、字重与实底/浅底关系表达，动作色不扩展到状态与数据。
 
-本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。颜色采用用户选定的石青，字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，未覆盖项与规范差异见 Known Gaps 和对应任务记录。颜色角色以石青品牌系统为准；CDS 组件机制、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等既有适配保留，见 Do's 与 Known Gaps。
+本文是视觉与组件外观的权威来源（impeccable），机器可读 token 以 frontmatter 为准；布局、交互、无障碍与信息表达的工程规约见 [DESIGN-SYSTEM](../../docs/DESIGN-SYSTEM.md)。配色采用中性工作面，石青仅保留在工牌装饰（`badge-accent`）；字体、圆角、阴影与其他控件外观沿用 Claude Design System（CDS，参考 open-claude-ui），仅亮色；2026-10-30 批准的布局契约与 2026-10-31 批准的字体收紧已落到当前实现。本文记录视觉契约与实现值，未覆盖项与规范差异见 Known Gaps 和对应任务记录。颜色角色以中性灰系统为准；CDS 组件机制、字号 14/22·13/20 收紧、Inter/JetBrains 字体栈等既有适配保留，见 Do's 与 Known Gaps。
 
 **Key Characteristics:**
 - 平铺外壳：`canvas #FBFBFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、无外边距、无外层描边。
 - 中性动作按钮：`default` / `solid` 为白底、细 `line` 边线与 `fg` 深色文字，hover 用 `hover #F0F0F0`，保留轻阴影与按压反馈。
-- 中性灰状态层：hover `#F0F0F0`，selected / accent `#E6E6E6`，chip `#F2F2F2`；主侧栏底面与非选中 hover 使用浅石青 `sidebar`、`sidebar-hover`，当前项用映射到纯白 `surface` 的 `sidebar-selected` 与共享 `shadow-panel`，hover 换 `shadow-panel-hover`。
+- 中性灰状态层：hover `#F0F0F0`，selected / accent `#E6E6E6`，chip `#F2F2F2`；主侧栏底面为中性 `sidebar #FAFAFA`，非选中 hover 用 `sidebar-hover rgba(0,0,0,.05)`，当前项为 `sidebar-selected rgba(0,0,0,.10)` 的平面灰色胶囊，无表面与投影。
 - 输入默认发丝边 `rgba(0,0,0,.10)`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`.cds-focus-glow`：`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus #BDBDBD`，composer 聚焦用 `shadow-composer-focus`；checkbox/radio 强边界 `rgba(0,0,0,.35)`，见 Known Gaps。
 - 正文链接与 `link` 变体用中性 `fg #202B2E`，保留下划线区分；卡片常态用 `--shadow-panel`，hover 分 `static` / `shadow` / `lift` 三态：`static` 无变化，`shadow` 只换 `--shadow-panel-hover`，`lift` 换投影并上浮 1.5px（仅整卡可点），过渡为 200ms `--ease-out-soft`。
 - 数据蓝 `#2A78D6` 只用于图表首系列，不参与任何 UI 动作；按钮键盘焦点环为中性 `fg #202B2E`，输入框聚焦为中性暖灰。
@@ -245,7 +251,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 ## Colors
 
-浅石青导航、纯白工作面、深墨文字与白底中性动作按钮；没有外壳渐变或页面自定强调色。
+中性导航面、纯白工作面、深墨文字与白底中性动作按钮；没有外壳渐变或页面自定强调色。
 
 ### Primary
 
@@ -257,7 +263,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 - **浅中性层（Quiet Neutral）** (#F0F0F0)：中性灰的 `secondary` 按钮、ghost 的 hover/展开、分段页签容器与悬停层。资源页胶囊分段轨道用 `sunken`。它不是文字色。
 - **选中中性层（Selected Neutral）** (#E6E6E6)：选中页签、页内导航、菜单键盘高亮、用户消息气泡。中性灰比悬停层更深，保留文字、字重与上下文区分选中状态。
 - **Chip 底（Chip Surface）** (#F2F2F2)：资源与角色标签的弱色底。
-- **侧栏品牌面（Sidebar）**：`sidebar` 与 `sidebar-hover` 是独立指定的不透明浅石青角色，不从按钮色按百分比混合生成。用于主侧栏及其 Sheet 内同角色的底面、品牌标记占位、非选中导航与账号入口背景，不扩展到页内菜单、消息、按钮或状态。主侧栏导航选中项通过 `sidebar-selected` 映射到纯白 `surface #FFFFFF`，并使用共享卡片投影，见 Navigation。文字和图标保留 `fg` / `muted-foreground`；选中项前景继续为 `selected-foreground`。
+- **侧栏中性面（Sidebar）**：`sidebar` 是独立指定的不透明中性面 `#FAFAFA`，`sidebar-hover` / `sidebar-selected` 是在该面上叠加的 `rgba(0, 0, 0, 0.05)` / `rgba(0, 0, 0, 0.10)`，不从按钮色按百分比混合生成。用于主侧栏及其 Sheet 内同角色的底面、品牌标记占位、非选中导航与账号入口背景，不扩展到页内菜单、消息、按钮或状态；侧栏右缘另有一道 1px `line` 发丝边。主侧栏导航选中项是 `sidebar-selected` 的平面灰色胶囊（8px 圆角），无白色表面、无投影，见 Navigation。文字和图标保留 `fg` / `muted-foreground`；选中项前景继续为 `selected-foreground`。
 
 ### Tertiary
 
@@ -265,9 +271,9 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 ### Neutral
 
-- **画布（Canvas）** (#FBFBFB)：应用根容器与公开分享页的底色，保持全局含义；侧栏另用 `sidebar` 浅石青层。它不再等同于纯白内容面。
-- **纸白（Paper White）** (#FFFFFF)：`surface`、`panel`、卡片、标准弹层、主内容区与输入基底。临时预览侧栏仍用 `sidebar` 实底。内容区不得铺渐变。
-- **分隔线（Hairline）** (`rgba(0, 0, 0, 0.10)`)：卡片与弹层的 1px ring、表格与分组分隔、页签当前项边框。只做分组；输入默认边线借用同值 `input`，但分隔本身不表达可编辑。
+- **画布（Canvas）** (#FBFBFB)：应用根容器与公开分享页的底色，保持全局含义；侧栏另用 `sidebar` 中性层。它不再等同于纯白内容面。
+- **纸白（Paper White）** (#FFFFFF)：`surface`、`panel`、卡片、标准弹层、主内容区与输入基底。内容区不得铺渐变。
+- **分隔线（Hairline）** (`rgba(0, 0, 0, 0.10)`)：卡片与弹层的 1px ring、表格与分组分隔、页签当前项边框、侧栏右缘边框。只做分组；输入默认边线借用同值 `input`，但分隔本身不表达可编辑。
 - **输入默认边线（Input Boundary）** (`rgba(0, 0, 0, 0.10)`)：Input、Textarea、Select 触发器、Combobox、InputGroup、CodeMirror 搜索输入的默认 1px 发丝边，等同 `line`；不新增 hover 加深。对白约 1.25:1，是已接受的已知限制。
 - **输入聚焦（Focus Boundary）** (`#898781`)：输入族（Input / Textarea / Select / Combobox / InputGroup）真实 `:focus-visible` 时把边线换成中性暖灰 `subtle`，无光晕；对白约 3.59:1，满足非文字 3:1。
 - **输入聚焦线（Input Focus）** (#BDBDBD)：仅 SourceEditor 与 CodeMirror 搜索普通聚焦时替换默认边线；对白约 1.88:1，低于 3:1。
@@ -281,11 +287,15 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 - **运行中状态**：`StatusBadge` 的 `brand` tone 使用 `selected` 浅底与 `fg` 字，运行圆点用 `fg`。状态文字与既有动效保留，不借品牌色。
 - **遮罩（Scrim）** (`rgb(0 0 0 / 0.4)`)：Dialog、Sheet 等模态遮罩。
 
+### Avatar（头像身份色）
+
+- **头像圆底（Avatar）**：账户头像用 6 色身份色板 `avatar-1..6`（`#A0472F` / `#9E3F6B` / `#45597F` / `#566B3A` / `#8A5A2E` / `#3F6563`），按用户名稳定哈希确定性取色，圆底配白色首字母（`text-surface`）。只承担「这是谁」的身份识别，不表达动作、状态或可点击语义，是内容区除工牌石青外的唯一彩色例外；不扩散到按钮、导航选中、徽章或状态。
+
 ### Named Rules
 
-**The Flat-Shell Rule.** 应用外壳平铺全幅：根容器铺 `canvas #FBFBFB`，侧栏铺不透明的 `sidebar` 浅石青底，主内容区贴边铺 `surface #FFFFFF`。外壳不得再加渐变、圆角、外边距或描边；收起与固定展开侧栏无阴影，只有临时预览侧栏复用 `shadow-overlay` 覆盖正文。分区靠底色差异与留白表达。
+**The Flat-Shell Rule.** 应用外壳平铺全幅：根容器铺 `canvas #FBFBFB`，侧栏铺不透明的 `sidebar #FAFAFA` 中性底并在右缘保留 1px `line` 发丝边，主内容区贴边铺 `surface #FFFFFF`。外壳不得再加渐变、圆角、外边距或除侧栏右缘外的描边；收起与展开侧栏均无阴影。分区靠底色差异、发丝边与留白表达。
 
-**The Neutral-Action Rule.** 内容区主操作用白底中性按钮：`default` 与显式 `solid` 共用白底、细边、深色字与中性 hover，按钮键盘焦点 `ring` 与链接 `link` 均映射到 `fg`，文本选区使用中性色。石青仅用于左侧导航（工牌实体证件装饰为已记录例外），品牌 Logo 与插画保留原配色。通用 `primary` 保持墨色，供复选框、Slider 活跃轨道与 line 页签等控件使用；成功、警告与危险不借品牌色。
+**The Neutral-Action Rule.** 内容区主操作用白底中性按钮：`default` 与显式 `solid` 共用白底、细边、深色字与中性 hover，按钮键盘焦点 `ring` 与链接 `link` 均映射到 `fg`，文本选区使用中性色。石青仅用于工牌实体证件装饰，品牌 Logo 与插画保留原配色。通用 `primary` 保持墨色，供复选框、Slider 活跃轨道与 line 页签等控件使用；成功、警告与危险不借品牌色。
 
 **The Data-Blue Exception Rule.** `chart-runs #2A78D6` 只允许出现在图表数据系列；失败用 `danger`。内容区动作、链接、焦点与文本选区使用中性色，数据蓝不得蔓延到这些角色或状态。
 
@@ -318,17 +328,17 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 ## Layout
 
-桌面端布局，窗口窄于 `lg` 时侧栏沿用现有 Sheet 抽屉，仍按桌面密度，不为触摸新增尺寸。应用外壳平铺全幅：根容器铺 `canvas` `#FBFBFB`，主侧栏用 `sidebar` 不透明浅石青底，主内容区贴边铺 `surface` `#FFFFFF`；没有外层圆角、外边距、渐变或描边。侧栏收起占 48px、内边距 `16px 8px`；临时预览宽 224px、正文仍只让出 48px；固定展开占 224px 并推开正文。收起与固定展开无外壳阴影，临时预览是浮层例外，复用 `shadow-overlay`，不加 scrim、不锁焦点。三态交互与偏好持久化契约见 [DESIGN-SYSTEM §7](../../docs/DESIGN-SYSTEM.md#7-侧栏)。分区靠底色差异和留白表达。
+桌面端布局，窗口窄于 `lg` 时侧栏沿用现有 Sheet 抽屉，仍按桌面密度，不为触摸新增尺寸。应用外壳平铺全幅：根容器铺 `canvas` `#FBFBFB`，主侧栏用 `sidebar` 不透明中性底并带 1px 右缘发丝边，主内容区贴边铺 `surface` `#FFFFFF`；没有外层圆角、外边距、渐变或其它描边。侧栏三态：完整展开 224px 推开正文、窄边 48px 图标栏（内边距 `16px 8px`）、完全收起 0；窄边悬停或聚焦时浮出 224px 预览浮层覆盖正文、不推开。完整展开与窄边顶部最左侧都是品牌字标之前的 32×32 折叠按钮（`PanelLeftClose`，窄边不显示品牌字标）；完全收起时正文左上角保留一枚 32×32「展开侧栏」按钮（`PanelLeftOpen`，与折叠按钮同款无边框图标按钮、绝对位置对齐到 left 8px / top 16px）。三态均无外壳阴影，仅悬停预览带 `shadow-overlay`。折叠按钮按 展开 → 窄边 → 完全收起 → 展开 循环并持久化偏好，默认窄边。三态与悬停预览契约见 [DESIGN-SYSTEM §7](../../docs/DESIGN-SYSTEM.md#7-侧栏)。分区靠底色差异、发丝边和留白表达。
 
 非 chat 内容区水平、底部各 24px（`px-6 pb-6`）；AppShell 的 main 不承担普通页面的整页滚动。`Page` 是有界纵向 flex 工作面（根 gap 16px），`PageTopbar` 将页头、资源导航、任务页签和页面全局搜索筛选组成常驻顶部组（内部 gap 12px），`PageBody` 滚动正文；详情完整只读描述放入可滚动内容，不占常驻顶部：专家各权限分支随任务正文滚动，插件在简介滚动区显示、无文件时仍在正文显示；描述保留换行且不截断，长描述不得挤占正文可用高度。聊天与频道对话、角色矩阵、文件阅读器保留自身滚动容器，公开 login/share 页面保持自然文档滚动。`PageBody` 内部区块间距仍为 24px，`PageHeader` 单行最小高 48px、不另加顶部或横向 padding，`PageSection` 内部间距 16px、默认顶部 20px。`PageHeader` 与 `PageToolbar` 自身不使用 sticky，排版不变；`PageToolbar` 自身 `gap-2`（8px），控件内部 8px 由组内组合决定；搜索桌面 224px 且可收缩，筛选 144px，排序 128px。窗口收窄时允许换行、内部滚动与容器伸缩，但表格只在自身容器内横向滚动，页面不出现横向溢出。卡片网格与 `PageBody` 只保留纵向 `pt-2` 为投影留出绘制空间，不加横向 `p-2` / `px-*`；卡片左右缘与页头标题共用外壳 24px 内容轴线。
 
 对话阅读轴线 832px，含左右 24px 的外容器最大 880px；聊天没有横跨三栏的外顶栏，历史、消息列与成果栏从工作区顶部并排开始。消息列自带 56px 头部（`px-6`，左右 24px）：历史关闭时显示历史开关、搜索、唯一 `AgentPicker`、标题操作与成果开关，无论是否已选专家，专家选择都在原有的 `ChatTopBar` 内。历史打开时，唯一 `AgentPicker` 位于 `HistoryHeader`，与「新建会话」同排，搜索位于历史面板内；消息列头部只留历史开关、标题操作与成果开关。历史头部同为 56px（`px-3`、`gap-1`）：左侧显示专家选择，右侧 32px ghost「新建会话」；侧栏不再有新建会话入口。成果面板 400px 从顶部开始；Composer 在消息列之后距底 24px、始终同一位置。会话历史默认收起 0，首次展开 240px，可在 200–360px 间调整并记忆。历史关闭指桌面 `historyCollapsed` 或窄桌面 Sheet 关闭；历史打开指桌面历史展开或窄桌面 Sheet 打开。
 
-资源中心工具区固定两行：首行类型导航与管理操作（最小高 48px），次行来源/搜索/筛选/排序/数量（紧随 12px，`PageToolbar` 自身 gap 8px）；内资源默认为卡片视图并统一带「卡片 / 表格」切换（`view=cards|table` 进 URL，缺省 `cards`；用共享 `ViewToggle`，卡片在前）——技能、插件、知识库、连接器均默认卡片，卡片等量呈现对应表格字段；连接器保留 `DataTable` 表格视图（名称/来源/地址/连通状态/工具/专家/操作，明细进详情弹层，`hideRowCount` 避免与工具栏「共 N 个」重复）；专家卡以独立操作行收尾，不设底带或分隔线。列表空态用无框 `PageNote`（仅上下发丝线，按首次无数据 / 筛选无结果 / 无权限给一句事实与一个动作），`EmptyState` 默认无外框。个人模块使用标准 Page / PageHeader / PageSection 骨架，默认个人资料，各分区可直达并提供返回工作区；入口在侧栏底部用户信息，展开与收起行为一致；进入后由同一主侧栏承载七项个人导航，具体几何见下方 Personal。
+资源中心工具区固定两行：首行类型导航与管理操作（最小高 48px），次行来源/搜索/筛选/排序/数量（紧随 12px，`PageToolbar` 自身 gap 8px）；内资源默认为卡片视图并统一带「卡片 / 表格」切换（`view=cards|table` 进 URL，缺省 `cards`；用共享 `ViewToggle`，卡片在前）——技能、插件、知识库、连接器均默认卡片，卡片等量呈现对应表格字段；连接器保留 `DataTable` 表格视图（名称/来源/地址/连通状态/工具/专家/操作，明细进详情弹层，`hideRowCount` 避免与工具栏「共 N 个」重复）；专家卡以独立操作行收尾，不设底带或分隔线。列表空态用无框 `PageNote`（仅上下发丝线，按首次无数据 / 筛选无结果 / 无权限给一句事实与一个动作），`EmptyState` 默认无外框。个人模块使用标准 Page / PageHeader / PageSection 骨架，默认个人资料，各分区可直达并提供返回工作区；入口在侧栏底部用户信息，仅在展开态与窄桌面 Sheet 渲染；进入后由同一主侧栏承载七项个人导航，具体几何见下方 Personal。
 
 间距节奏取 4 / 8 / 12 / 16 / 20 / 24px。所有尺寸、宽高、图标 16px / `strokeWidth 1.75`（尺寸档 12/14/16/20/24，默认 16；见 docs/DESIGN-SYSTEM.md §5）、边框 1px、页签指示线与焦点 2px 以当前实现值为准；几何调整只按已批准布局契约进入，不通过新增 border 或页面级 padding 临时改变。
 
-**密度与层级。** 每屏一个主任务、一个 `h1`；页头只留标题、必要的一句说明与至多一个主操作；筛选与视图切换归入工具区，禁止在标题、区块标题、工具栏三处重复同一计数或时间窗口。工具区默认一行：搜索 + 单个「筛选」入口（其余筛选收进 Popover）+ 视图切换 + 次信息计数。卡片与列表行设信息上限（标题 + 一句描述 + 至多 3 行字段 + 1 个主操作；列表为主信息 + 次信息 + 1 状态 + 操作），其余进详情。指标区不就同一含义再铺一行计数。删除与标签、标题重复的说明；同屏只用一种边界语言，顶级区块用 24px 间距替代堆叠分隔线。品牌与受保护元素（石青侧栏、找专家入口卡与创建数字分身卡）不受影响。
+**密度与层级。** 每屏一个主任务、一个 `h1`；页头只留标题、必要的一句说明与至多一个主操作；筛选与视图切换归入工具区，禁止在标题、区块标题、工具栏三处重复同一计数或时间窗口。工具区默认一行：搜索 + 单个「筛选」入口（其余筛选收进 Popover）+ 视图切换 + 次信息计数。卡片与列表行设信息上限（标题 + 一句描述 + 至多 3 行字段 + 1 个主操作；列表为主信息 + 次信息 + 1 状态 + 操作），其余进详情。指标区不就同一含义再铺一行计数。删除与标签、标题重复的说明；同屏只用一种边界语言，顶级区块用 24px 间距替代堆叠分隔线。品牌与受保护元素（主侧栏、找专家入口卡与创建数字分身卡）不受影响。
 
 ### Channels（频道）
 
@@ -357,7 +367,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 ### Personal（个人）
 
-- **导航：** 进入 `/personal/*` 后，主导航把「工作 / 构建」替换为三组七项：与专家协作（个人记忆、记忆提案）、工作记录（会话与成果、我的分享、使用记录）、账号（个人资料、账号安全），继续使用共享 `SidebarLink`、`aria-current`、展开 224px / 收起 48px 与窄桌面 Sheet；内容顶部不再出现横向 chip。侧栏底部依次为「返回工作区」、独立「退出登录」与账号入口；无对应权限的项按现有 permissionIds 隐藏，退出仍走现有登出跳转。工作区语境下，账号入口点击打开「账户菜单」Popover，依次呈现身份摘要、个人中心七项导航与退出登录；进入个人中心后侧栏已常驻七项导航，账号入口恢复为资料入口，不在弹层里重复导航。
+- **导航：** 进入 `/personal/*` 后，主导航把「工作 / 构建」替换为三组七项：与专家协作（个人记忆、记忆提案）、工作记录（会话与成果、我的分享、使用记录）、账号（个人资料、账号安全），继续使用共享 `SidebarLink`、`aria-current`、展开 224px / 窄边 48px / 完全收起 0 三态与窄桌面 Sheet；内容顶部不再出现横向 chip。侧栏底部依次为「返回工作区」、独立「退出登录」与账号入口；无对应权限的项按现有 permissionIds 隐藏，退出仍走现有登出跳转。工作区语境下，账号入口点击打开「账户菜单」Popover，依次呈现身份摘要、个人中心七项导航与退出登录；进入个人中心后侧栏已常驻七项导航，账号入口恢复为资料入口，不在弹层里重复导航。
 - **页头与轴线：** 七页都从单行最小高 48px 的 `PageHeader` 开始，恰好一个 h1；统一左对齐、与普通页面同宽、不限制整页 1024px 的 `Page`，页头、正文与操作共右轴，不再嵌套 768/896 次级宽度。沿用外壳左右 24px、底部 24px；组内 8/12、子组 16、区块 24。分区标题 14px medium、正文 13px、元信息 12px，个人模块列表主信息 14px；局部操作贴内容边界，全页动作 32px。分区线按渲染顺序：PageHeader 下第一个顶层分区不画线，其后每个顶层分区以 1px 分隔线 + 20px 上内距隔开；折叠或条件区块按当前是否渲染判断谁在第一。纯几何只写在本节，不新增私有全局组件规则。
 - **个人资料：** 桌面两栏，主列 `minmax(0,1fr)`、右列 320px、间距 24px。左列主卡：身份概览为 48px 圆形首字母头像 + 显示姓名（主信息）与「@用户名 · 角色」次要行，作为只读身份摘要；1px 分隔线后是「基本资料」，含唯一可编辑的「显示姓名」字段（最大宽 448px、横向标签列 96px，字段值与取消 / 保存右对齐）。右列两张卡纵向 16px：**账号**卡展示角色与业务 ID（等宽小字）并说明业务 ID 由管理员分配、不可修改；**登录安全**卡展示当前会话的「当前设备」徽章与最近活动时间，未取到会话时只显示说明文案，底部提供「前往账号安全」链接。业务 ID 常驻右列，不再使用折叠的「账号详情」。个人资料与账号安全表单共用同一字段尺度。
 - **个人记忆：** 阅读态优先正文，阅读正文限 75ch，显式「编辑」；编辑态复用现有 SourceEditor，编辑区与版本历史用整条内容宽，取消 / 保存与未保存状态就近出现，保存成功明确「下一轮对话会带入」。空态左对齐任务轴并提供「自己填写」与「从对话整理」两个动作，「从对话整理」进入记忆提案创建。版本历史作为按需展开的 Collapsible 放在正文之后的同一内容带，不常驻空版本列。
@@ -376,28 +386,28 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 ## Elevation & Depth
 
-外壳的收起与固定展开态、表格与连续列表行保持平面（连续行只换各自既有底色，不位移、不加投影）；临时预览侧栏作为浮层复用 `shadow-overlay`；所有业务卡片常驻 `.cds-card-surface` 的 `--shadow-panel`（1px `line` 环 + 轻投影），hover 按「共享卡片深度」的三态契约（`static` / `shadow` / `lift`），阴影与 transform 均以 200ms `--ease-out-soft` 过渡。主侧栏导航选中项同样使用纯白 `surface` 与共享卡片投影，保留导航几何、不随 hover 上浮。深度用于卡片、导航选中项、浮层与 Composer：所有菜单、Select、Popover、Dialog、Sheet、Toast 共用 CDS 双环 overlay 阴影；Composer 使用默认/hover/聚焦三态阴影，普通输入聚焦只用中性暖灰边框，不叠加光晕。
+外壳的收起与展开态、表格与连续列表行保持平面（连续行只换各自既有底色，不位移、不加投影）；所有业务卡片常驻 `.cds-card-surface` 的 `--shadow-panel`（1px `line` 环 + 轻投影），hover 按「共享卡片深度」的三态契约（`static` / `shadow` / `lift`），阴影与 transform 均以 200ms `--ease-out-soft` 过渡。主侧栏导航选中项是平面灰色胶囊，保留导航几何、不套卡片深度、不随 hover 上浮。深度用于卡片、浮层与 Composer：所有菜单、Select、Popover、Dialog、Sheet、Toast 共用 CDS 双环 overlay 阴影；Composer 使用默认/hover/聚焦三态阴影，普通输入聚焦只用中性暖灰边框，不叠加光晕。
 
-**共享卡片深度。** 2026-11-07 用户确认找专家卡片的白底与立体感为共享标准：适合卡片的内容与主侧栏导航选中项共用纯白 `surface`、`shadow-panel` 常态深度与 `shadow-panel-hover` 交互反馈。该标准跨页面覆盖现有业务卡片，包括卡片视图、概况指标与趋势、专家配置及其子面板详情卡。内容卡复用共享 `Card`；已有自定义布局的详情卡复用 `.cds-card-surface`，保留原有内边距与内容结构。卡片 hover 分三态、过渡均为 200ms `--ease-out-soft`：`static` 不设 `data-hover`、hover 完全无变化，用于表单详情卡、纯阅读卡与 OpenUI 生成内容；`shadow` 只换 `--shadow-panel-hover`、不上浮，是共享 `Card` 的默认值，覆盖记录卡、身份卡、指标卡、审批卡与问答卡；`lift` 换 `--shadow-panel-hover` 并 `translateY(-1.5px)`，仅用于整卡是链接或整卡可点的卡片（频道卡）。上浮只表达整卡可点；其余卡片不因视觉反馈新增点击处理、焦点或 `tabIndex`，也不新增参考没有的 active、selected、disabled 卡片外观。内部真实按钮、链接与表单保留各自焦点和业务状态。OpenUI 显式 `sunk` 等语义变体保持。导航选中项只复用表面与投影，保留既有圆角、字号、几何与焦点，不增加上浮。共享投影已含必要边界，不再叠加额外 outline、ring 或边框作为装饰。卡片网格与父级滚动容器只用纵向 `pt-2` 留出投影绘制空间，不加横向 `p-2` / `px-*`，首排顶部不得被裁切；卡片左右缘与页头标题共用外壳 24px 内容轴线。不得以全站减重为由将卡片压平，也不另造页面级平行阴影；按钮、表格、连续列表行与输入不套卡片上浮，按下方「共享交互状态契约」执行，不机械改成卡片。
+**共享卡片深度。** 2026-11-07 用户确认找专家卡片的白底与立体感为共享标准：适合卡片的内容共用纯白 `surface`、`shadow-panel` 常态深度与 `shadow-panel-hover` 交互反馈；主侧栏导航选中项不参与该标准，按侧栏自身的平面灰色选中态执行。该标准跨页面覆盖现有业务卡片，包括卡片视图、概况指标与趋势、专家配置及其子面板详情卡。内容卡复用共享 `Card`；已有自定义布局的详情卡复用 `.cds-card-surface`，保留原有内边距与内容结构。卡片 hover 分三态、过渡均为 200ms `--ease-out-soft`：`static` 不设 `data-hover`、hover 完全无变化，用于表单详情卡、纯阅读卡与 OpenUI 生成内容；`shadow` 只换 `--shadow-panel-hover`、不上浮，是共享 `Card` 的默认值，覆盖记录卡、身份卡、指标卡、审批卡与问答卡；`lift` 换 `--shadow-panel-hover` 并 `translateY(-1.5px)`，仅用于整卡是链接或整卡可点的卡片（频道卡）。上浮只表达整卡可点；其余卡片不因视觉反馈新增点击处理、焦点或 `tabIndex`，也不新增参考没有的 active、selected、disabled 卡片外观。内部真实按钮、链接与表单保留各自焦点和业务状态。OpenUI 显式 `sunk` 等语义变体保持。导航选中项保留既有圆角、字号、几何与焦点，不增加上浮。共享投影已含必要边界，不再叠加额外 outline、ring 或边框作为装饰。卡片网格与父级滚动容器只用纵向 `pt-2` 留出投影绘制空间，不加横向 `p-2` / `px-*`，首排顶部不得被裁切；卡片左右缘与页头标题共用外壳 24px 内容轴线。不得以全站减重为由将卡片压平，也不另造页面级平行阴影；按钮、表格、连续列表行与输入不套卡片上浮，按下方「共享交互状态契约」执行，不机械改成卡片。
 
-**共享交互状态契约。** 指针反馈按内容面、连续行、控件三层区分，输入与浮层各有独立表面深度。内容面指卡片、独立瓦片与可拖拽对象，沿用「共享卡片深度」：纯白 `surface`、常态 `shadow-panel`；hover 按三态契约，`static` 无变化、`shadow` 只换 `shadow-panel-hover`、`lift` 换投影并上浮 1.5px，200ms `--ease-out-soft`，卡片契约本身不变。连续行指表格行、列表行、树行、导航项、菜单项与频道左栏：保持平面，hover 沿用各区域既有底色，表格与列表用 `hover`，主侧栏用 `sidebar-hover`，菜单与页内导航沿用既有 `accent` / `selected` 状态，不位移、不加投影，菜单键盘高亮保持即时；150ms `--ease-out-soft` 只约束表格、列表、树行与普通导航项，不强制菜单统一过渡时长；表头行不响应；空态行、展开详情行与无行级操作的表（权限矩阵、趋势明细、检索评估结果等）显式关闭 hover；`DataTable` 数据行保留行 hover 作为扫读反馈；选中继续用 `selected` / `sidebar-selected`。主侧栏选中项是连续行的既有例外：纯白 `surface` + `shadow-panel`，hover 换 `shadow-panel-hover`，只换投影、不上浮，与找专家卡片共用深度标准。控件指 Button、Toggle、TabsTrigger、分段控件与可点击 Badge：hover 按 variant 换底色或前景，150ms `--ease-out-soft`；Button 的 active 保留 `.cds-btn-squish` 的 `scale(0.975)` 与 60ms 按压，Toggle、TabsTrigger、分段控件与可点击 Badge 沿用各自选中/按压状态；所有控件都不套卡片投影或上浮，焦点沿用既有 ring 或边界。输入指 Input、Textarea、Select、Combobox 与 InputGroup：不响应 hover 抬升，聚焦沿用既有边界与焦点契约。浮层与容器指 Dialog、Sheet、Popover、Composer 与 Toast：不响应 hover 上浮，只使用各自表面深度。上浮只留给整卡可点的内容面，其余内容面不因视觉反馈获得整面点击语义。
+**共享交互状态契约。** 指针反馈按内容面、连续行、控件三层区分，输入与浮层各有独立表面深度。内容面指卡片、独立瓦片与可拖拽对象，沿用「共享卡片深度」：纯白 `surface`、常态 `shadow-panel`；hover 按三态契约，`static` 无变化、`shadow` 只换 `shadow-panel-hover`、`lift` 换投影并上浮 1.5px，200ms `--ease-out-soft`，卡片契约本身不变。连续行指表格行、列表行、树行、导航项、菜单项与频道左栏：保持平面，hover 沿用各区域既有底色，表格与列表用 `hover`，主侧栏用 `sidebar-hover`，菜单与页内导航沿用既有 `accent` / `selected` 状态，不位移、不加投影，菜单键盘高亮保持即时；150ms `--ease-out-soft` 只约束表格、列表、树行与普通导航项，不强制菜单统一过渡时长；表头行不响应；空态行、展开详情行与无行级操作的表（权限矩阵、趋势明细、检索评估结果等）显式关闭 hover；`DataTable` 数据行保留行 hover 作为扫读反馈；选中继续用 `selected` / `sidebar-selected`。主侧栏选中项按连续行处理：`sidebar-selected` 平面灰色胶囊，hover 换 `sidebar-hover`，无投影、不上浮。控件指 Button、Toggle、TabsTrigger、分段控件与可点击 Badge：hover 按 variant 换底色或前景，150ms `--ease-out-soft`；Button 的 active 保留 `.cds-btn-squish` 的 `scale(0.975)` 与 60ms 按压，Toggle、TabsTrigger、分段控件与可点击 Badge 沿用各自选中/按压状态；所有控件都不套卡片投影或上浮，焦点沿用既有 ring 或边界。输入指 Input、Textarea、Select、Combobox 与 InputGroup：不响应 hover 抬升，聚焦沿用既有边界与焦点契约。浮层与容器指 Dialog、Sheet、Popover、Composer 与 Toast：不响应 hover 上浮，只使用各自表面深度。上浮只留给整卡可点的内容面，其余内容面不因视觉反馈获得整面点击语义。
 
 ### Shadow Vocabulary
 
-- **Overlay** (`0 0 0 1px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)`；实现经 `--hairline`，retina 下约 0.5px)：菜单、Select、Combobox、Popover、Dialog、AlertDialog、Sheet、Toast 与临时预览侧栏。`shadow-md` 与 `shadow-lg` 都映射到这一值。
+- **Overlay** (`0 0 0 1px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08)`；实现经 `--hairline`，retina 下约 0.5px)：菜单、Select、Combobox、Popover、Dialog、AlertDialog、Sheet 与 Toast。`shadow-md` 与 `shadow-lg` 都映射到这一值。
 - **Composer**：默认 `0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 1px rgba(0, 0, 0, 0.10)`；hover `0 4px 24px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(0, 0, 0, 0.20)`；聚焦 `0 4px 24px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.20), 0 0 0 1px rgba(0, 0, 0, 0.20)`。
 - **Input Focus** (`border-color: #898781`)：输入族经 `.cds-focus-glow` 使用的 1px 中性暖灰聚焦边，无光晕；无边框按钮类仍用单层 2px 中性 `ring`。
-- **Panel** (`0 0 0 1px rgba(0, 0, 0, 0.10), var(--shadow-sm)`（值 `0 1px 2px 0 rgba(0,0,0,0.05), 0 2px 8px 0 rgba(0,0,0,0.08)`）)：内容卡与导航选中项共用的常态边界与轻投影，取代单独 ring。
-- **Panel Hover** (`0 0 0 1px rgba(0, 0, 0, 0.20), 0 4px 16px -2px rgba(0, 0, 0, 0.09)`)：`shadow` / `lift` 内容卡与导航选中项的 hover 投影；仅 `data-hover="lift"` 的整卡可点卡片叠加 `translateY(-1.5px)`，`shadow` 态与导航不位移。
+- **Panel** (`0 0 0 1px rgba(0, 0, 0, 0.10), var(--shadow-sm)`（值 `0 1px 2px 0 rgba(0,0,0,0.05), 0 2px 8px 0 rgba(0,0,0,0.08)`）)：内容卡共用的常态边界与轻投影，取代单独 ring。
+- **Panel Hover** (`0 0 0 1px rgba(0, 0, 0, 0.20), 0 4px 16px -2px rgba(0, 0, 0, 0.09)`)：`shadow` / `lift` 内容卡的 hover 投影；仅 `data-hover="lift"` 的整卡可点卡片叠加 `translateY(-1.5px)`，`shadow` 态不位移。
 - **Modal Scrim** (`rgb(0 0 0 / 0.4)`)：模态遮罩，不是阴影。
 
 ### Named Rules
 
-**The One-Shadow Rule.** 浮层只有一种双环阴影值，Composer 只有三态阴影，内容卡与导航选中项共用 `--shadow-panel` / `--shadow-panel-hover` 两态。外壳的收起与固定展开态无阴影，只有临时预览侧栏作为浮层复用 `shadow-overlay`。不得新增第二套浮层阴影，也不得给卡片或外壳叠加其它投影；输入聚焦只用中性暖灰边框、不新增阴影，焦点信号不作为常驻装饰。
+**The One-Shadow Rule.** 浮层只有一种双环阴影值，Composer 只有三态阴影，内容卡使用 `--shadow-panel` / `--shadow-panel-hover` 两态。外壳的展开、窄边与完全收起态均无阴影（悬停预览浮层除外），主侧栏导航选中项是平面灰色胶囊、不参与卡片深度。不得新增第二套浮层阴影，也不得给卡片或外壳叠加其它投影；输入聚焦只用中性暖灰边框、不新增阴影，焦点信号不作为常驻装饰。
 
 ## Shapes
 
-形态是克制的圆角矩形：外壳本身平铺全幅、没有外框圆角；卡片与线程容器为 12px，Dialog 为 16px，Popover / Select / Combobox / DropdownMenu 为 10px，Composer 为 14px，用户消息气泡为 12px；常规按钮、输入、页签容器、菜单项与侧栏展开条目为 8px。共享 `Button` 的 `size="icon"` 32px / `icon-lg` 36px、紧凑 28/24px 图标按钮、小控件、页签项与侧栏折叠按钮实例均为 8px。徽章、标签与侧栏收起态 32×32 图标块为 6px；头像、胶囊按钮与模型选择器为 9999px。Checkbox 保持 4px。
+形态是克制的圆角矩形：外壳本身平铺全幅、没有外框圆角；卡片与线程容器为 12px，Dialog 为 16px，Popover / Select / Combobox / DropdownMenu 为 10px，Composer 为 14px，用户消息气泡为 12px；常规按钮、输入、页签容器、菜单项与侧栏展开条目为 8px。共享 `Button` 的 `size="icon"` 32px / `icon-lg` 36px、紧凑 28/24px 图标按钮、小控件、页签项与侧栏折叠按钮实例均为 8px。徽章与标签为 6px；头像、胶囊按钮与模型选择器为 9999px。Checkbox 保持 4px。
 
 边线宽度全部沿用既有值：1px border/outline、2px 页签指示线与焦点轮廓。只换颜色，不通过新增边框改变控件尺寸。容器用圆角裁切图片与内容，不使用斜切、硬投影或装饰性几何。
 
@@ -435,9 +445,9 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 ### Cards / Tables / Lists
 
-- **Cards:** 纯白 `surface`、12px 圆角，必要边界由共享投影承担，不叠加独立 ring 或边框；按「共享卡片深度」与导航选中项共用 `--shadow-panel` / `--shadow-panel-hover`。所有业务卡片统一通过共享 `Card` 或 `.cds-card-surface` 常驻 `--shadow-panel`，hover 按 `data-hover` 三态执行（共享 `Card` 默认 `shadow`；`static` 无变化、`shadow` 只换投影、`lift` 换投影并上浮 1.5px 且仅限整卡可点），阴影与 transform 均以 200ms `--ease-out-soft` 过渡。Card 根是带 `py-4` 的纵向 flex，子块间距 16px（`size="sm"` 为 12px），根本身没有水平 padding；Header、Content、Footer 各自承担 16px 水平内边距，Footer 独立 `p-4`，存在 Footer 时根 `pb-0`。因此不能描述成「所有裸 Card 子节点统一 p16」。CardTitle 为 14/22（`text-base`），sm 卡为 13/20（`text-sm`）；描述 13/20 `muted-foreground`。真实浏览器已测量标题行高 22px。
+- **Cards:** 纯白 `surface`、12px 圆角，必要边界由共享投影承担，不叠加独立 ring 或边框；按「共享卡片深度」使用 `--shadow-panel` / `--shadow-panel-hover`。所有业务卡片统一通过共享 `Card` 或 `.cds-card-surface` 常驻 `--shadow-panel`，hover 按 `data-hover` 三态执行（共享 `Card` 默认 `shadow`；`static` 无变化、`shadow` 只换投影、`lift` 换投影并上浮 1.5px 且仅限整卡可点），阴影与 transform 均以 200ms `--ease-out-soft` 过渡。Card 根是带 `py-4` 的纵向 flex，子块间距 16px（`size="sm"` 为 12px），根本身没有水平 padding；Header、Content、Footer 各自承担 16px 水平内边距，Footer 独立 `p-4`，存在 Footer 时根 `pb-0`。因此不能描述成「所有裸 Card 子节点统一 p16」。CardTitle 为 14/22（`text-base`），sm 卡为 13/20（`text-sm`）；描述 13/20 `muted-foreground`。真实浏览器已测量标题行高 22px。
 - **Card endings:** 身份/入口卡用 16px 内距、`min-h-44`、无 footer；记录卡用 `Card size="sm"`、12px 内距，有操作时用 `CardFooter`（自带 1px `line` 上边线）。
-- **Expert card:** 已创建专家卡与两张创建入口卡采用 176px 最小高度（`min-h-44`），同一网格行等高，必要说明较多时自然增高；同列宽、16px 网格 gap 与内部 padding。网格按可用宽度使用 `repeat(auto-fill, minmax(min(100%, 256px), 1fr))` 自动分列，`pt-2` 只保留纵向绘制空间；卡片左右缘与页头标题共用外壳 24px 内容轴线；1440px 桌面固定展开侧栏时目标四列，1200px 时三列。40px 头像（「创建数字分身」入口为 64px）。身份头部为头像加名称链接与角色两行，角色在名称下方用 12/16 `muted-foreground` 纯文本，单行截断并用 `title` 保留全文，空角色回退「通用助手」；停用状态仍用默认中性 `StatusBadge`，以 `shrink-0` 保持与角色同行，右上角只保留「更多」操作菜单。头部、正文与操作行之间各隔 12px，不固定头部或中部高度。正文占据剩余高度并垂直居中（`CardContent` 的 `flex-1 justify-center`），简介占全宽、最多两行，权限原因完整换行、不截断，空介绍不造占位文案；底部为独立 32px 操作行，同一行间距 8px（`gap-2`），随卡片高度贴底，「开始对话」用 secondary 次操作并保持自身内容宽度，与右侧带 `IdCard` 图标的 ghost「工牌」按钮同一行两端对齐，禁用时用 outline + disabled；列表页顶部「新建专家」使用白底中性主操作按钮。无使用权限时权限原因可见并以 `aria-describedby` 关联「开始对话」，停用专家不提供可执行对话。可访问名为「查看 <名称> 工牌」的按钮打开工牌专用的插画式实体证件：沿用 ui-sdk Dialog 的焦点、Esc/外部点击关闭与关闭后返回原触发器，但作为明确例外使用透明 DialogContent，不套标准头部或白色弹框外壳，标题「<名称> 的工牌」仅 sr-only，关闭按钮可达，不改动全局 DialogShell 契约。视觉为居中的 96px 中性挂绳与圆形夹扣连接 360px 宽竖式卡套：卡套纯白 `surface`、`rounded-[24px]`、`border-line`、`shadow-sm`、`p-6`，顶部左侧 PACE 品牌字标，右侧为「数字员工」次要标签与 3×3 石青点阵装饰；身份区先列「工号」与真实 id（等宽、`break-all`）及「在职」/「已停用」，下接石青短横线，再以左文右像两栏展示大号姓名、岗位与 96px 原插画头像（`rounded-[18px]`、浅石青底）；「职责简介」为浅石青圆角块，正文完整换行；资料行只保留「入职日期」，用真实 `createdAt`（含年与时区；缺失或无效显示「未记录」，空介绍显示「未填写介绍」）；底部以 `border-line` 分隔，左侧为同步说明、右侧再列真实 id。短视口整体单层滚动，长姓名、介绍与 id 都不截断；插画配色例外沿用，工牌是唯一启用石青强调色的内容区场景且仅限装饰，见决策记录；不新增动效；只读不请求详情，不展示提示词、成员资料、页签、服务能力、可用受众、负责人或二维码等无数据支撑的字段。列表专家卡不使用 CardFooter、底带或分隔线。**保留（受保护）**：找专家页的扇形「新建专家」入口卡与「创建数字分身」卡是用户刻意要求的创建入口，不得删除、合并或改为仅页头入口。
+- **Expert card:** 已创建专家卡与两张创建入口卡采用 176px 最小高度（`min-h-44`），同一网格行等高，必要说明较多时自然增高；同列宽、16px 网格 gap 与内部 padding。网格按可用宽度使用 `repeat(auto-fill, minmax(min(100%, 256px), 1fr))` 自动分列，`pt-2` 只保留纵向绘制空间；卡片左右缘与页头标题共用外壳 24px 内容轴线；1440px 桌面展开侧栏时目标四列，1200px 时三列。40px 头像（「创建数字分身」入口为 64px）。身份头部为头像加名称链接与角色两行，角色在名称下方用 12/16 `muted-foreground` 纯文本，单行截断并用 `title` 保留全文，空角色回退「通用助手」；停用状态仍用默认中性 `StatusBadge`，以 `shrink-0` 保持与角色同行，右上角只保留「更多」操作菜单。头部、正文与操作行之间各隔 12px，不固定头部或中部高度。正文占据剩余高度并垂直居中（`CardContent` 的 `flex-1 justify-center`），简介占全宽、最多两行，权限原因完整换行、不截断，空介绍不造占位文案；底部为独立 32px 操作行，同一行间距 8px（`gap-2`），随卡片高度贴底，「开始对话」用 secondary 次操作并保持自身内容宽度，与右侧带 `IdCard` 图标的 ghost「工牌」按钮同一行两端对齐，禁用时用 outline + disabled；列表页顶部「新建专家」使用白底中性主操作按钮。无使用权限时权限原因可见并以 `aria-describedby` 关联「开始对话」，停用专家不提供可执行对话。可访问名为「查看 <名称> 工牌」的按钮打开工牌专用的插画式实体证件：沿用 ui-sdk Dialog 的焦点、Esc/外部点击关闭与关闭后返回原触发器，但作为明确例外使用透明 DialogContent，不套标准头部或白色弹框外壳，标题「<名称> 的工牌」仅 sr-only，关闭按钮可达，不改动全局 DialogShell 契约。视觉为居中的 96px 中性挂绳与圆形夹扣连接 360px 宽竖式卡套：卡套纯白 `surface`、`rounded-[24px]`、`border-line`、`shadow-sm`、`p-6`，顶部左侧 PACE 品牌字标，右侧为「数字员工」次要标签与 3×3 石青点阵装饰；身份区先列「工号」与真实 id（等宽、`break-all`）及「在职」/「已停用」，下接石青短横线，再以左文右像两栏展示大号姓名、岗位与 96px 原插画头像（`rounded-[18px]`、浅石青底）；「职责简介」为浅石青圆角块，正文完整换行；资料行只保留「入职日期」，用真实 `createdAt`（含年与时区；缺失或无效显示「未记录」，空介绍显示「未填写介绍」）；底部以 `border-line` 分隔，左侧为同步说明、右侧再列真实 id。短视口整体单层滚动，长姓名、介绍与 id 都不截断；插画配色例外沿用，工牌是唯一启用石青强调色的内容区场景且仅限装饰，见决策记录；不新增动效；只读不请求详情，不展示提示词、成员资料、页签、服务能力、可用受众、负责人或二维码等无数据支撑的字段。列表专家卡不使用 CardFooter、底带或分隔线。**保留（受保护）**：找专家页的扇形「新建专家」入口卡与「创建数字分身」卡是用户刻意要求的创建入口，不得删除、合并或改为仅页头入口。
 - **Tables / Lists:** 纯白底、1px `line` 分隔；表头 12px `muted-foreground`，单元格 13/20；连续行保持平面，行 hover 与展开只换不透明 `hover` `#F0F0F0`，150ms `--ease-out-soft`，不位移、不加投影；表头行不响应；空态行、展开详情行与无行级操作的表（权限矩阵、趋势明细、检索评估结果等）显式关闭 hover，`DataTable` 数据行保留行 hover 作为扫读反馈；选中用 `selected` `#E6E6E6`。CardFooter 继承卡片白底、顶部细边与自身内边距，没有统一浅底。
 - **Skeleton / Separator:** Skeleton 用 `sunken`；Separator 用 `line`。当前没有共享 Progress 视觉原语，真实任务清单、状态与百分比沿用各自实现。
 
@@ -462,9 +472,9 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 ### Navigation
 
-- **Sidebar:** 用 `sidebar` 令牌铺不透明浅石青底，不新增主题或改变全局 `canvas`。宽度与三态占位见 Layout，交互见 [DESIGN-SYSTEM §7](../../docs/DESIGN-SYSTEM.md#7-侧栏)。条目高 32px；预览与固定展开态 8px 圆角（`rounded-item`），收起态为 32×32 图标块、6px 圆角（`rounded-tag`）。普通文字 `fg`，分组与账号元信息 `muted-foreground`；普通条目、折叠按钮、底部运维或返回入口、账号与退出的 hover 用 `sidebar-hover`，折叠按钮的展开背景同档；普通导航项属连续行，hover 只换底色（150ms `--ease-out-soft`），不位移、不加投影；当前导航项是既有例外，保留白面与 `shadow-panel` / `shadow-panel-hover`，不上浮，使用 `sidebar-selected`（`var(--color-surface)`，纯白 `#FFFFFF`）+ `selected-foreground`，hover 保持白底，与找专家卡片共用深度标准；投影已含必要边界，不叠加装饰性 outline、ring 或边框。展开、收起、preview 与 Sheet 由同一 `SidebarLink` 表达状态；收起态白底与投影仅落在原图标块，导航不增加上浮或改动几何。保留既有可见键盘焦点、`aria-current`、权限与状态功能，不加彩色竖条。品牌标记占位、账号头像底与加载栏使用 `sidebar`，窄桌面 Sheet 内同角色共用这些 token。收起态状态只落在图标块上。保留 Logo 切图、权限过滤与工作 / 构建、个人、运维上下文分组；进入个人模块后，同一主侧栏把工作 / 构建分组替换为「与专家协作 / 工作记录 / 账号」三组七项（个人记忆、记忆提案、会话与成果、我的分享、使用记录、个人资料、账号安全），不新增第二套导航。
+- **Sidebar:** 用 `sidebar` 令牌铺不透明中性 `#FAFAFA` 底，右缘 1px `line` 发丝边，不新增主题或改变全局 `canvas`。宽度与三态见 Layout，交互见 [DESIGN-SYSTEM §7](../../docs/DESIGN-SYSTEM.md#7-侧栏)。展开态与窄边顶部最左侧均为 32×32 折叠按钮（`PanelLeftClose`；展开时品牌字标在其右、窄边不显示品牌字标）；完全收起时整栏菜单隐藏，只在正文左上角保留一枚 32×32「展开侧栏」按钮（`PanelLeftOpen`，带 tooltip，与展开 / 窄边折叠按钮同款无边框图标按钮（`plain` 变体）、位置对齐到 left 8px / top 16px）。条目高 32px、展开态 8px 圆角（`rounded-item`）；窄边只渲染 32×32 居中 `rounded-tag` 图标块（6px，与展开行 8px 为有意分层；带 tooltip）、不显示标签与分组标题，完全收起不渲染任何条目或图标块。普通文字 `fg`，分组与账号元信息 `muted-foreground`；普通条目、折叠按钮、底部运维或返回入口、账号与退出的 hover 用 `sidebar-hover`（折叠按钮常态无底色，仅 hover 显该底色）；普通导航项属连续行，hover 只换底色（150ms `--ease-out-soft`），不位移、不加投影；当前导航项是平面灰色胶囊：`sidebar-selected`（`rgba(0, 0, 0, 0.10)`）+ `selected-foreground`，8px 圆角，无白色表面、无 `shadow-panel`，hover 换 `sidebar-hover`，不上浮；不加装饰性 outline、ring 或边框。展开、窄边、悬停预览与窄桌面 Sheet 由同一 `SidebarLink` 表达状态；窄边选中为 32×32 图标块，完全收起时选中胶囊随整栏菜单一并隐藏，导航不增加上浮或改动几何。保留既有可见键盘焦点、`aria-current`、权限与状态功能，不加彩色竖条。品牌标记占位、账号头像底与加载栏使用 `sidebar`，窄桌面 Sheet 内同角色共用这些 token。保留 Logo 切图、权限过滤与工作 / 构建、个人、运维上下文分组；进入个人模块后，同一主侧栏把工作 / 构建分组替换为「与专家协作 / 工作记录 / 账号」三组七项（个人记忆、记忆提案、会话与成果、我的分享、使用记录、个人资料、账号安全），不新增第二套导航。
 - **New conversation:** 只在会话历史头部出现，32px ghost 图标按钮；侧栏不设新建会话条目。
-- **Account / personal entry:** 账号触发器保留紧凑 12px 标签与 8px 圆角；展开时头像与姓名靠左、按账号入口外观呈现，不套用导航选中行。工作区语境下展开与收起状态点击都打开「账户菜单」Popover，依次为身份摘要、个人中心七项导航与退出登录；进入个人模块后侧栏已常驻七项导航，账号入口为资料入口、不在弹层重复导航，不直接登出。个人资料为桌面两栏：左列身份概览与姓名表单，只自助编辑显示姓名，username/businessId/角色只读；右列「账号」（角色、业务 ID 常驻）与「登录安全」（当前设备、最近活动、前往账号安全）。个人模块包含个人资料、个人记忆、记忆提案、会话与成果、账号安全、我的分享与使用记录；分享表格标题为「我的会话分享」。专家记忆、定时任务与平台凭据不迁入个人模块。登出保持独立动作，位于「返回工作区」与账号入口之间，不占页头；通用菜单 hover/键盘高亮仍用 `accent` `#E6E6E6`。
+- **Account / personal entry:** 账号触发器是底部一行：彩色圆形首字母头像（6 色身份色板，按用户名确定性取色）+ 显示名 + `· 角色/用户名`（次要灰字）+ 下箭头组成 8px 圆角的账户 pill，其右并排一个 32px 通知铃铛图标按钮（带未读数徽标）；完整 pill 只在展开态、悬停预览与窄桌面 Sheet 渲染（窄边仅显示彩色头像圆钮与铃铛），hover 用 `sidebar-hover`，不套用导航选中行。工作区语境下展开态（含窄桌面 Sheet）点击账号入口打开「账户菜单」Popover，依次为身份摘要、个人中心七项导航与退出登录；进入个人模块后侧栏已常驻七项导航，账号入口为资料入口、不在弹层重复导航，不直接登出。身份行与上方导航（含运维 / 返回工作区等次级入口）之间有一条通栏 1px `line` 发丝分割线（左右出血到侧栏边缘），使身份区成为独立页脚，展开与窄边同款。个人资料为桌面两栏：左列身份概览与姓名表单，只自助编辑显示姓名，username/businessId/角色只读；右列「账号」（角色、业务 ID 常驻）与「登录安全」（当前设备、最近活动、前往账号安全）。个人模块包含个人资料、个人记忆、记忆提案、会话与成果、账号安全、我的分享与使用记录；分享表格标题为「我的会话分享」。专家记忆、定时任务与平台凭据不迁入个人模块。登出保持独立动作，位于「返回工作区」与账号入口之间，不占页头；通用菜单 hover/键盘高亮仍用 `accent` `#E6E6E6`。
 
 ## Do's and Don'ts
 
@@ -473,7 +483,7 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 - **Do** 保持外壳平铺全幅：`canvas #FBFBFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、外边距、外框圆角或描边。
 - **Do** 用白底、细 `line` 边线、`fg` 深色文字与中性 hover 承载 `default` 与 `solid`，保留轻阴影。
 - **Do** 用 `input` `rgba(0,0,0,.10)` 画输入默认发丝边，用 `line`（同值）只做分组与分隔；checkbox/radio 强边界用 `control-boundary` `rgba(0,0,0,.35)`。
-- **Do** 适合卡片的内容与主侧栏当前项共用纯白 `surface` 与常态 `shadow-panel`；hover 按三态契约（`shadow` / `lift` 换 `shadow-panel-hover`），导航保留深色前景和原有几何，卡片绘制空间不得被滚动容器裁切。页内导航、选中页签、菜单高亮与用户消息继续用 `selected` / `accent` `#E6E6E6`。
+- **Do** 适合卡片的内容共用纯白 `surface` 与常态 `shadow-panel`；hover 按三态契约（`shadow` / `lift` 换 `shadow-panel-hover`），卡片绘制空间不得被滚动容器裁切。主侧栏当前项是平面灰色胶囊（`sidebar-selected`），保留深色前景和原有几何，不套卡片深度。页内导航、选中页签、菜单高亮与用户消息继续用 `selected` / `accent` `#E6E6E6`。
 - **Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 中性 ring（Toast 使用 outline）；`default` / `solid` 按钮外加 2px 背景色间隔；Input / Textarea / Select 错误态只保留单条危险边框，按钮与选中控件错误态可另用既有 2px ring/outline 补焦点。
 - **Do** 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与 CDS 动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。
 - **Do** 把 `chart-runs` `#2A78D6` 只用于图表首系列；失败用 `danger`。
@@ -481,8 +491,8 @@ PACE 的世界是一张安静的石青工作台。根容器铺 `canvas #FBFBFB`�
 
 ### Don't:
 
-- **Don't** 把数据令牌 `chart-runs #2A78D6` 用于导航、按钮、焦点、徽章或状态；石青仅用于左侧导航（工牌实体证件装饰为已记录例外），品牌 Logo 与插画保留原配色。
-- **Don't** 给外壳加回渐变、外边距、圆角或描边，也不要把外壳白框铺到画布后面；收起与固定展开侧栏不得加阴影，仅临时预览可用既有 `shadow-overlay`。
+- **Don't** 把数据令牌 `chart-runs #2A78D6` 用于导航、按钮、焦点、徽章或状态；石青仅用于工牌实体证件装饰，品牌 Logo 与插画保留原配色。
+- **Don't** 给外壳加回渐变、外边距、圆角或除侧栏右缘发丝边外的描边，也不要把外壳白框铺到画布后面；收起与展开侧栏不得加阴影。
 - **Don't** 把默认徽章或 secondary 徽章改成深色填充；它们应是浅中性底配 `fg` 字。
 - **Don't** 用 `subtle` `#898781` 承载可读文字，或用非 `control-boundary` 的浅色承担 checkbox/radio 强边界。
 - **Don't** 给已经使用中性暖灰聚焦边或 `input-focus` 的输入再叠 2px ring 或 outline；Input / Textarea / Select 错误态也只保留单条危险边框，不出现第二层边界。
