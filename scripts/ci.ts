@@ -44,7 +44,7 @@ results.push(
   ...(built
     ? await Promise.all([
         run('openui:check', [['run', 'openui:check']]),
-        run('test', [['run', 'test']]),
+        run('test', [['run', 'test:sharded']]),
         run('test:web', [['run', 'test:web']]),
       ])
     : skipped(['openui:check', 'test', 'test:web'])),

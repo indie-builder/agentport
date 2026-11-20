@@ -45,6 +45,7 @@
     "openui:meta": "bun scripts/generate-openui-meta.mjs",
     "openui:spec": "bun scripts/generate-openui-meta.mjs && openui generate packages/web/src/openui/library.tsx --spec --out packages/core/src/generated/openui.spec.json --no-telemetry",
     "test": "bun scripts/test-backend.ts",
+    "test:sharded": "bun scripts/test-backend-sharded.ts",
     "test:web": "vitest run --config packages/web/vitest.config.ts",
     "test:watch": "bun scripts/test-backend.ts --watch",
     "test:e2e": "e2e run",
