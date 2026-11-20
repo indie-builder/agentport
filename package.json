@@ -3,20 +3,20 @@
   "version": "0.14.0",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.4.4",
+  "packageManager": "bun@1.4.5",
   "workspaces": {
     "packages": [
       "packages/*"
     ],
     "catalog": {
       "@modelcontextprotocol/client": "2.4.0",
-      "@types/bun": "1.4.4",
+      "@types/bun": "1.4.5",
       "@types/node": "24.19.2",
-      "@ui-sdk/core": "0.1.0-beta.10",
-      "@ui-sdk/react": "0.1.0-beta.10",
-      "bullmq": "6.7.7",
+      "@ui-sdk/core": "0.1.0-beta.13",
+      "@ui-sdk/react": "0.1.0-beta.13",
+      "bullmq": "6.7.8",
       "drizzle-orm": "0.45.4",
-      "effect": "4.1.4",
+      "effect": "4.1.5",
       "pino": "10.4.0",
       "typescript": "7.0.2",
       "zod": "4.6.7"
@@ -28,7 +28,7 @@
   ],
   "engines": {
     "node": ">=24.22.2 <25",
-    "bun": "1.4.4"
+    "bun": "1.4.5"
   },
   "scripts": {
     "dev": "bun run --parallel --filter './packages/*' dev",
@@ -76,14 +76,14 @@
     "@agentport/shared": "workspace:*",
     "@ai-sdk/openai-compatible": "^3.0.93",
     "@biomejs/biome": "2.6.8",
-    "@e2e-dev/web": "0.16.0",
+    "@e2e-dev/web": "0.16.1",
     "@openuidev/cli": "0.6.3",
     "@openuidev/react-ui": "0.18.8",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
-    "ai": "^7.0.176",
+    "ai": "^7.0.177",
     "drizzle-orm": "catalog:",
-    "e2e": "0.23.1",
+    "e2e": "0.24.0",
     "jsdom": "31.0.1",
     "msw": "3.0.7",
     "portless": "0.18.1",

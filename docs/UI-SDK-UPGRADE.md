@@ -14,8 +14,8 @@
 
 | 包 | 锁定版本 | 用途 |
 |---|---|---|
-| `@ui-sdk/core` | `0.1.0-beta.10` | 行为/primitive 层 |
-| `@ui-sdk/react` | `0.1.0-beta.10` | React 适配器 |
+| `@ui-sdk/core` | `0.1.0-beta.13` | 行为/primitive 层 |
+| `@ui-sdk/react` | `0.1.0-beta.13` | React 适配器 |
 
 - 两者必须同版本：上游 changesets 配置为 `fixed: [["@ui-sdk/*"]]`，所有包强制一起发版。
 - 版本只在根 `package.json` 的 `catalog` 精确 pin（不用 `^`），`packages/web/package.json` 用 `"catalog:"` 引用；升级只改这一处再 `bun install`。
@@ -79,6 +79,7 @@ rg -n "@ui-sdk/" packages/web/src
 | 2026-11-14 | `0.1.0-beta.2`（版本不变） | 手写 `<details>/<summary>` 改用 ui-sdk `Collapsible`：`pages/knowledge/detail/source-runs.tsx`、`components/knowledge/knowledge-citations.tsx`、`components/knowledge/knowledge-search.tsx`（两处） | 旧 `<details>` 正文常挂载：SyncRunItems 立即取数、折叠态文本断言依赖 DOM 保留，迁移必须 keepMounted + hiddenUntilFound；无 animated 为即时显隐；展开指示用 ChevronRight + group-aria-expanded:rotate-90（Tailwind v4 输出 rotate 属性） | build 通过；test:web 1933 通过、10 条既有失败（与基线一致）；隔离栈真实渲染验证 4 处：aria-expanded 切换、面板显隐、ChevronRight 展开旋转 90°、无 console error；截图 /tmp/visual-detail-chevron/expanded.png |
 | 2026-11-18 | `0.1.0-beta.2` → `0.1.0-beta.6` | 仅根 `catalog` 改版本；`components/markdown.tsx` 静态正文链路的 sanitize 覆盖为 `clobberPrefix: ''` 并排除 `undoubleClobberPrefix`（随 streamdown 2.8.0 一同暴露） | 上游 docs 与 d.ts 以新增导出和类型放宽为主，slider 泛型、menu triggerElements、calendar isPickable 等签名有变化，本项目 typecheck 未暴露破点；实际破点是 rehype-sanitize 不再关闭 clobberPrefix，`#plugin-file=`、页内锚点与脚注 id 被改写，只剥 href 前缀会破坏脚注/回链匹配 | typecheck/build 绿；test:web 1959 通过、9 失败（其中 1 条单独重跑通过，8 条既有失败：admin-pages 缺 useRetention mock、resource-navigation 未含 /data-domains，均与依赖无关）；隔离栈真实渲染 /、/agents、/knowledge、/operations：每页 1 个 h1、无横向溢出、无 console error，专家/知识库弹层焦点在弹层内且 Escape 关闭；截图 /tmp/visual-deps-update-2026-11 |
 | 2026-11-18 | `0.1.0-beta.6` → `0.1.0-beta.10` | 仅根 `catalog` 改版本（`bun install` 同步 `bun.lock`）；删两处已不必需的类型强转：`components/ui/mention-list.tsx`、`components/ui/sortable-list.tsx` 的 `options: NonNullable<...>`（beta.8 已修 `Primitive.options` 在 `exactOptionalPropertyTypes` 下的赋值）；`components/motion-collapsible.tsx` 去掉手写 `inert`；同步 3 处测试（`agents-lifecycle`、`collapsible-motion` 删 inert 断言，`expert-permission-empty` 用 `textarea[aria-label="消息"]` 定位 composer） | release notes 全为补丁/新增，无破坏性签名变更，typecheck 未暴露破点；实际破点两个：① beta.8 起 `animateOut` 保留 owner 在退场动画期间写的 `inert`，若在 `render` 里按 `state.open` 写 `inert={!open}`，收起时写入的 inert 被保留，重开时 React 移除后又被延迟的退场清理按关闭快照写回，inert 卡在面板上导致重开后字段不可聚焦（`hidden="until-found"` 的 `content-visibility:hidden` 本身已阻止关闭态聚焦，故直接删手写 inert）；② beta.8 起 Combobox/Select/Listbox 渲染独立的 `data-slot="combobox-form-input"` 隐藏表单字段（由 `<input>` 改为 `<textarea>`，是否 `disabled` 取决于字段配置），`querySelector('textarea')` 会抓到它 | typecheck/build 绿；`test:web` 154 文件 / 1969 用例全通过；隔离栈真实渲染 `/`、`/agents`、`/knowledge`、`/operations`、`/chat`（1440/1200 整页）无白屏、无横向溢出、每页单一 h1；真机 ego-browser 验证新建专家高级设置：打开可聚焦、收起不可聚焦、再展开恢复可聚焦（修复前再展开仍 inert 不可聚焦） |
+| 2026-11-20 | `0.1.0-beta.10` → `0.1.0-beta.13` | 仅根 catalog 改版本（bun install 同步 bun.lock），无源码改动；typecheck 未暴露破点 | 随包 docs 差异仅文档与 experimental agent-key 措辞；core 公共 index.d.ts 完全一致；react 相关模块 d.ts 仅共享 HTML 属性（defaultChecked/defaultValue/popoverTargetAction）在继承 props 中顺序挪动，无签名变化；未见 data-slot/状态属性契约变化 | typecheck 8/8、build 8/8、test:web 159 文件/1977 用例（全量并行偶发 1–2 条既有抖动，单跑通过）；真实渲染 visual:shots 已完成（隔离栈，空闲端口 3100/5273，1440x900 与 1200x900 整页长图，路由 /、/agents、/knowledge、/operations、/chat，截图 .visual/deps-upgrade/）——无白屏、无页面级横向溢出、每页单一 h1、布局与卡片/配色正常；弹层展开、分栏拖动、频道 @ 提及等交互态未在浏览器逐一手测，相关 collapsible/aria-disabled 行为由 test:web 覆盖 |
 
 ### 视觉验收（真实渲染）· 2026-11-14
 
