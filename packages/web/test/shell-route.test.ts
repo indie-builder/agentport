@@ -194,7 +194,7 @@ async function inspectRoute(
 
 beforeEach(() => {
   localStorage.clear();
-  localStorage.setItem('agentport:nav-collapsed', '0');
+  localStorage.setItem('agentport:nav-collapsed', 'expanded');
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
 });
 afterEach(() => vi.restoreAllMocks());
@@ -588,7 +588,9 @@ describe('personal navigation context', () => {
   it('keeps personal items reachable and marked through collapse and immediate expand', async () => {
     const view = await inspectRoute('/personal/memory', 'success');
     try {
-      const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
+      const collapse = view.host.querySelector<HTMLButtonElement>(
+        'button[aria-label="收起为窄边"]',
+      );
       await act(async () => collapse?.click());
 
       expect(navHrefs(view.host)).toEqual(PERSONAL_HREFS);
@@ -721,22 +723,24 @@ describe('personal entry', () => {
     try {
       const entry = view.host.querySelector<HTMLButtonElement>('button[aria-label="账户菜单"]');
       if (!entry) throw new Error('missing expanded account entry');
-      // 账号入口不是导航条目：头像与姓名靠左，保持 200×32 与紧凑样式。
+      // 账号入口不是导航条目：头像与姓名靠左，占满侧栏宽度并保持 32px 紧凑行。
       expect(entry.closest('nav')).toBeNull();
       expect(entry.classList.contains('justify-start')).toBe(true);
-      expect(entry.classList.contains('w-50')).toBe(true);
+      expect(entry.classList.contains('flex-1')).toBe(true);
       expect(entry.classList.contains('h-8')).toBe(true);
-      expect(entry.classList.contains('text-xs')).toBe(true);
-      expect(entry.classList.contains('rounded-[var(--radius-icon)]')).toBe(true);
-      expect(entry.classList.contains('bg-selected')).toBe(false);
+      expect(entry.classList.contains('text-sm')).toBe(true);
+      expect(entry.classList.contains('rounded-item')).toBe(true);
+      expect(entry.classList.contains('bg-sidebar-selected')).toBe(false);
       expect(entry.querySelector('span')?.classList.contains('size-5')).toBe(true);
 
-      const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
+      const collapse = view.host.querySelector<HTMLButtonElement>(
+        'button[aria-label="收起为窄边"]',
+      );
       await act(async () => collapse?.click());
       const collapsed = view.host.querySelector<HTMLButtonElement>('button[aria-label="账户菜单"]');
       expect(collapsed?.classList.contains('size-8')).toBe(true);
       expect(collapsed?.classList.contains('rounded-full')).toBe(true);
-      expect(collapsed?.classList.contains('bg-selected')).toBe(false);
+      expect(collapsed?.classList.contains('bg-sidebar-selected')).toBe(false);
     } finally {
       await view.close();
     }
@@ -758,7 +762,9 @@ describe('personal entry', () => {
         expect(document.querySelector('a[href="/personal/profile"]')).toBeNull(),
       );
 
-      const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
+      const collapse = view.host.querySelector<HTMLButtonElement>(
+        'button[aria-label="收起为窄边"]',
+      );
       await act(async () => collapse?.click());
       const collapsedTrigger = view.host.querySelector<HTMLButtonElement>(
         'button[aria-label="账户菜单"]',
@@ -775,30 +781,33 @@ describe('personal entry', () => {
 });
 
 describe('sidebar collapse', () => {
-  it('keeps the same label node and accessible name through collapse and immediate expand', async () => {
+  it('keeps the same nav link and accessible name through collapse and immediate expand', async () => {
     const view = await inspectRoute('/skills', 'success');
     try {
       const link = navLink(view.host);
-      const label = link.querySelector('span:last-child');
+      expect(link.getAttribute('aria-label')).toBe('资源');
+      expect(link.querySelector('span:last-child')?.textContent).toBe('资源');
       expect(link.getAttribute('aria-current')).toBe('page');
 
-      const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
+      const collapse = view.host.querySelector<HTMLButtonElement>(
+        'button[aria-label="收起为窄边"]',
+      );
       await act(async () => collapse?.click());
 
+      // 窄边只渲染图标块，不渲染文字标签；可访问名由链接自身的 aria-label 保留。
       const collapsed = navLink(view.host);
-      const collapsedLabel = collapsed.querySelector('span:last-child');
-      expect(collapsedLabel).toBe(label);
-      expect(collapsedLabel?.closest('[aria-hidden="true"]')).toBeNull();
-      // 收起草稿只做 90ms 淡出：标签保留自身宽度（absolute），不能被裁成 0 宽。
-      expect(collapsedLabel?.classList.contains('opacity-0')).toBe(true);
-      expect(collapsedLabel?.classList.contains('absolute')).toBe(true);
-      expect(collapsedLabel?.classList.contains('duration-[90ms]')).toBe(true);
+      expect(collapsed).toBe(link);
+      expect(collapsed.getAttribute('aria-label')).toBe('资源');
+      expect(collapsed.querySelector('span.truncate')).toBeNull();
+      expect(collapsed.textContent).toBe('');
       expect(collapsed.getAttribute('aria-current')).toBe('page');
 
       const expand = view.host.querySelector<HTMLButtonElement>('button[aria-label="展开侧栏"]');
       await act(async () => expand?.click());
 
-      expect(navLink(view.host).querySelector('span:last-child')).toBe(label);
+      expect(navLink(view.host)).toBe(link);
+      expect(navLink(view.host).getAttribute('aria-label')).toBe('资源');
+      expect(navLink(view.host).querySelector('span:last-child')?.textContent).toBe('资源');
       expect(navLink(view.host).getAttribute('aria-current')).toBe('page');
       expect(view.host.querySelector('nav[aria-label="主导航"] .sr-only')).toBeNull();
     } finally {
@@ -815,7 +824,9 @@ describe('sidebar collapse', () => {
       await act(async () => vi.advanceTimersByTime(1_000));
       expect(document.querySelector('[data-slot="tooltip-content"]:not([hidden])')).toBeNull();
 
-      const collapse = view.host.querySelector<HTMLButtonElement>('button[aria-label="收起侧栏"]');
+      const collapse = view.host.querySelector<HTMLButtonElement>(
+        'button[aria-label="收起为窄边"]',
+      );
       if (!collapse) throw new Error('missing sidebar toggle');
       await act(async () => collapse.click());
       await act(async () => navLink(view.host).blur());
@@ -823,10 +834,11 @@ describe('sidebar collapse', () => {
       await act(async () => vi.advanceTimersByTime(1_000));
       expect(navLink(view.host)).toBe(link);
       expect(document.activeElement).toBe(link);
-      expect(view.host.querySelector('button[aria-label="固定展开侧栏"]')).toBe(collapse);
+      // 焦点进入窄边侧栏时浮出预览；折叠按钮仍是同一个切换控件。
+      expect(view.host.querySelector('button[aria-label="展开侧栏"]')).toBe(collapse);
       expect(collapse.getAttribute('aria-expanded')).toBe('true');
-      expect(collapse.getAttribute('aria-pressed')).toBe('false');
-      expect(localStorage.getItem('agentport:nav-collapsed')).toBe('1');
+      expect(collapse.getAttribute('aria-label')).toBe('展开侧栏');
+      expect(localStorage.getItem('agentport:nav-collapsed')).toBe('rail');
       expect(document.querySelector('[data-slot="tooltip-content"]:not([hidden])')).toBeNull();
 
       await act(async () => {
@@ -861,7 +873,8 @@ describe('sidebar collapse', () => {
       expect(document.activeElement).toBe(collapse);
       expect(collapse.getAttribute('aria-expanded')).toBe('false');
       expect(collapse.getAttribute('aria-label')).toBe('展开侧栏');
-      expect(logo.classList.contains('invisible')).toBe(true);
+      // 窄边不渲染品牌字标。
+      expect(view.host.querySelector('button[aria-label="切换 PACE Logo"]')).toBeNull();
     } finally {
       vi.useRealTimers();
       await view.close();
