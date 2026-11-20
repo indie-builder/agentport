@@ -68,7 +68,6 @@ describe('build context and sandbox image', () => {
       expect(existsSync(new URL(path, root)), path).toBe(false);
     }
     expect(read('scripts/up.sh')).not.toContain('packages/sandbox/shared');
-    expect(read('.github/workflows/ci.yml')).not.toContain('packages/sandbox/shared');
     expect(read('.github/workflows/release.yml')).not.toContain('packages/sandbox/shared');
   });
 
@@ -89,7 +88,6 @@ describe('build context and sandbox image', () => {
 
   it('builds the sandbox target everywhere the image is produced', () => {
     expect(read('scripts/up.sh')).toContain('docker build --target sandbox');
-    expect(read('.github/workflows/ci.yml')).toContain('docker build --target sandbox');
     expect(read('.github/workflows/release.yml')).toContain('target: sandbox');
     expect(read('packages/sandbox/package.json')).toContain('--target sandbox');
   });

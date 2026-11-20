@@ -1,7 +1,7 @@
 # 研发流程规范
 
 > 本文件是**执行流程**的唯一来源；`AGENTS.md` 只放指针和最高优先级约束。所有任务统一按本流程执行。
-> 个人项目取向：**不加阻塞式门禁**（不装 pre-commit 跑 typecheck/test），本地按改动范围验证；CI 仅手动触发，提交和合并不等待 CI，保证快速迭代。
+> 个人项目取向：**不加阻塞式门禁**（不装 pre-commit 跑 typecheck/test），本地按改动范围验证；完整检查用本地 `bun run ci`，提交和合并不等待 CI，保证快速迭代。
 
 ## 1. 文档体系（单一真相，不建副本）
 
@@ -119,8 +119,8 @@
 ## 5. 门禁策略（个人项目）
 
 - **不加 blocking 钩子**：不装 pre-commit 跑 typecheck/build/test。
-- **CI 仅手动运行**：`ci.yml` 只使用 `workflow_dispatch`，push 与 PR 不自动触发；需要完整检查时在 GitHub Actions 手动运行。
+- **CI 在本地运行**：`bun run ci` 并行跑 lint/typecheck/build，build 通过后并行跑 openui:check/test/test:web；`bun run ci:e2e` 再追加 `e2e:suite`。不使用 GitHub CI（`ci.yml` 已删除），push 与 PR 不触发远端检查。
 - **合并不等待 CI**：用户要求提交或合并时直接执行，不自动开启 PR 监控、冷却等待或远端检查门禁。只有用户明确要求时才监控 CI。
-- **本地验证按改动范围选择**：保留现有测试、类型检查和构建命令，不把全套检查固定绑定到每次修改或提交。发布工作流保持独立。
+- **本地验证按改动范围选择**：保留现有测试、类型检查和构建命令，不把全套检查固定绑定到每次修改或提交；需要完整检查时跑 `bun run ci`。发布工作流 `release.yml` 独立保留。
 - **机械检查按需跑**：`lint:focus`、`lint:contract`、`lint:lines`、`bun run lint`、`openui:audit` 这类秒级脚本交给 review 阶段顺手执行。
 - **判断类标准**交独立 review 代理：风格与跨文件一致性可交 Sonnet 初审，契约、架构与安全取舍交 Opus；规则不写进常驻上下文。

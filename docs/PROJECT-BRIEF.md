@@ -214,7 +214,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | E2E | e2e（`e2e` + `@e2e-dev/web`） | 0.24.0 / 0.16.1 |
 | 集成测试 | 本地/CI service containers（未用 testcontainers）；每轮随机 PostgreSQL 库 + 临时 Redis 容器 | — |
 | 容器化 | Dockerfile（多阶段）+ docker-compose.yml | — |
-| CI | GitHub Actions（`workflow_dispatch`，手动触发） | — |
+| CI | 本地 `bun run ci`（lint/typecheck/build/test/test:web，`ci:e2e` 追加 e2e）；GitHub CI 已删除 | — |
 
 ---
 
