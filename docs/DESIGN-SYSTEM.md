@@ -10,7 +10,7 @@
 
 ```
 根容器 #FBFBFB（画布 canvas）
-├─ 侧栏（三态：展开 224px 推开正文 / 窄边 48px 图标栏 / 完全收起 0，窄边悬停浮出 224px 预览；不透明中性 #FAFAFA 底 + 右缘 1px 发丝边）
+├─ 侧栏（两态：展开 224px 推开正文 / 窄边 48px 图标栏，窄边悬停浮出 224px 预览；不透明中性 #FAFAFA 底 + 右缘 1px 发丝边）
 └─ 主区：平铺全幅，表面 #FFFFFF，无外边距、无圆角、无描边、无阴影
    └─ 普通页面：内容左右 24px、底部 24px，顶部最小 48px 页头
       └─ 聊天：历史／消息列／成果三栏从工作区顶部并排开始
@@ -22,7 +22,7 @@
 **硬性规则**
 
 1. **外壳平铺全幅，不再做悬浮白框。** 根容器铺 `canvas` `#FBFBFB`，侧栏使用 `sidebar` 令牌铺不透明的中性 `#FAFAFA` 底并在右缘保留 1px `line` 发丝边，主内容区是贴边的 `surface` `#FFFFFF`；没有外层圆角、没有外边距、没有渐变、没有其它外壳描边。收起与展开态均无外壳阴影。分区靠底色差异、发丝边和留白表达。
-2. 侧栏中性底与主区靠底色差异、留白和右缘 1px 发丝边分开；展开、窄边、完全收起与悬停预览的交互见 §7。
+2. 侧栏中性底与主区靠底色差异、留白和右缘 1px 发丝边分开；展开、窄边与悬停预览的交互见 §7。
 3. **聊天三栏顶端平齐，消息列自带 56px 头部。** 历史、消息列与成果栏都从 ChatWorkspace 顶部开始并排，没有横跨三栏的外顶栏；ChatTopBar 位于消息列内的 ChatColumn 头部，高 56px、左右 24px。历史收起时头部依次容纳历史开关、搜索、唯一专家选择、当前会话 h1 与操作菜单、右侧成果开关；历史展开时头部只保留历史开关、会话标题与操作、成果开关，搜索与专家选择移入历史栏：历史头部为专家选择 + 新建，其下是既有「搜索全部会话」与列表。窄桌面历史 Sheet 打开时消息头部隐藏搜索与专家选择，Sheet 的 `HistoryHeader` 显示专家选择、新建与关闭，搜索仍在其下；Sheet 关闭后恢复消息头部。专家选择同一时刻只有一处，允许随历史开合切换 DOM 挂载点，不要求前后同一节点或相同 x/y；头部始终位于消息列顶部且高度不变；消息列随分栏开合移动并伸缩，其它子项沿现有 flex 自然排布，不保留空占位。历史默认收起（0），首次展开 240px，可在 200–360px 间拖动并记忆。历史与消息区同用 `bg-surface`（纯白），外部主导航使用 `sidebar` 令牌铺不透明的中性 `#FAFAFA` 底；登录页采用桌面左右分栏（左 `sidebar` 中性品牌面板 + 右纯白 `surface` 表单），公开分享页铺 `canvas` 画布。消息区左侧历史按钮使用虚线面板图标 `PanelLeftDashed`，右侧会话成果按钮使用镜像的 `PanelRightDashed`；桌面端（`lg` 起）同时显示「会话成果」文字，窄屏保留图标与无障碍名。两者均为常规 32px ghost 按钮，图形比导航的实线折叠图标更轻。右侧会话成果与专家定义文件不同，不展示 `.claude` 配置树；仅展示服务端真实发布的成果，同路径可选择版本，提供静态阅读/源码与下载、基于此版本修改与固定版本分享。成果属于产生它的对话轮次；分享从对应版本的成果面板发起，链接形如 `/s/<shareId>#<token>`，token 只放 URL 片段。无成果显示真实空态，不从回复猜测文件或伪造卡片。该链路已交付，运行验收证据见任务记录。窗口收窄时历史面板仍可收起；面板切换不得清空输入、变更专家或重建消息流。始终仅一个 h1。
 4. 对话、欢迎态与 Composer 共用同一条 832px 阅读轴线；含左右各 24px 内边距的外容器最大 880px。Composer 在 ChatColumn 内正常流、始终同一位置、距底 24px，不用 `position: fixed` 覆盖消息。
 
@@ -41,7 +41,7 @@
 ### 2.3 使用规则
 
 - **平铺外壳，只靠底色与发丝边分层。** 根容器铺 `canvas` `#FBFBFB`，侧栏使用 `sidebar` 中性实底并在右缘保留 1px `line` 发丝边，主区贴边铺 `surface` `#FFFFFF`；外壳没有渐变、圆角或其它描边，收起与展开态均无阴影。`bg-canvas` 的全局含义仍为 `#FBFBFB`；登录页采用桌面左右分栏（左 `sidebar` 中性品牌面板 + 右纯白 `surface` 表单），公开分享页铺 `canvas` 画布。
-- **导航保持深色文字与图标。** 普通导航文字 `fg`，分组与元信息 `muted-foreground`；主侧栏底面与非选中 hover 使用 `sidebar`、`sidebar-hover`；当前项是 `sidebar-selected`（`rgba(0, 0, 0, 0.10)`）的平面灰色胶囊（8px 圆角），配深色 `selected-foreground`，无白色表面与投影，具体角色见 [DESIGN.md](../packages/web/DESIGN.md#navigation)。导航保留原有几何与可见键盘焦点，不增加上浮或装饰性边界；其它导航沿用 `hover` / `selected`。保留当前字重与 `aria-current`，不加彩色竖条。窄边态保留图标块（选中显示为 32×32 图标块），完全收起时整栏菜单、图标块与选中胶囊均隐藏。
+- **导航保持深色文字与图标。** 普通导航文字 `fg`，分组与元信息 `muted-foreground`；主侧栏底面与非选中 hover 使用 `sidebar`、`sidebar-hover`；当前项是 `sidebar-selected`（`rgba(0, 0, 0, 0.10)`）的平面灰色胶囊（8px 圆角），配深色 `selected-foreground`，无白色表面与投影，具体角色见 [DESIGN.md](../packages/web/DESIGN.md#navigation)。导航保留原有几何与可见键盘焦点，不增加上浮或装饰性边界；其它导航沿用 `hover` / `selected`。保留当前字重与 `aria-current`，不加彩色竖条。窄边态保留图标块（选中显示为 32×32 图标块）。
 - **主操作使用白底中性按钮。** 普通主操作 `default` 与显式 `solid`（发送、登录）共用白底、细 `line` 边线与 `fg` 深色文字，hover 与展开用 `hover #F0F0F0`，保留轻阴影与按压反馈；沿用现有 1px 边框、全部尺寸和图标。次操作 `outline`（白底细 `line` 边线、深色字）、`secondary`（`hover` 中性浅填充）、`ghost`（透明，hover/展开中性浅底）与 `plain` 保持各自职责；取消、过滤器、菜单触发器保持各自中性变体。链接用 `link` 中性 `fg #202B2E`，保留现有下划线、hover 与可访问名。焦点：输入族（Input / Textarea / Select / Combobox / InputGroup）用 `.cds-focus-glow` 的 1px 中性暖灰边（`subtle #898781`，对白 3.59:1，无光晕）；仅 SourceEditor 与 CodeMirror 搜索用 `input-focus` 浅中性线，按钮类用中性 `ring` `#202B2E`，输入框聚焦为中性暖灰，composer 用 `shadow-composer-focus`；状态允许小面积中性呼吸点（见 §11），状态与数据不借用动作色。
 - **分段与 line 页签。** 资源页分段控件为 CDS 胶囊轨道：容器 `sunken` 底 + `rounded-pill`、`p-0.5`；当前项为 `surface` 白 thumb + `fg` 字 + `shadow-sm`，非当前项 `muted-foreground`、hover `fg`，不再叠加 hover 底。页签类分段控件容器仍用 `hover`；当前 tab 用 `selected` + `fg`，1px 边框换 `line`，去掉当前 tab 的小阴影。line 页签与二级导航继续透明、不铺底，现有 2px 指示线改为 `primary` 深色，文字 `fg`，位置与宽度不变，focus 独立可见。
 - **卡片、表格与列表。** 适合卡片的内容沿用 DESIGN.md「共享卡片深度」：纯白 `surface`、常态 `shadow-panel` 与 hover `shadow-panel-hover`，必要边界由共享投影承担，不叠加装饰性 outline、ring 或边框；主侧栏选中项不参与该深度，按平面灰色胶囊执行。所有业务内容卡复用共享 `Card` 或 `.cds-card-surface`，hover 分三态（`static` 不设 `data-hover`、无变化；`shadow` 与 `lift` 用 `data-hover`）：`static` 无变化（表单详情卡、纯阅读卡、OpenUI 生成内容），`shadow` 只换投影（共享 `Card` 默认，覆盖记录卡、身份卡、指标卡、审批卡、问答卡），`lift` 换投影并上浮 1.5px（仅整卡可点的频道卡）。上浮只给整卡可点卡片；其余整卡不因视觉反馈新增点击、焦点或 `tabIndex`，内部真实控件与业务状态保留，导航几何保持不变。卡片网格与 `PageBody` 只用纵向 `pt-2` 预留投影绘制空间，不加横向 `p-2` / `px-*`，首排顶部不能裁切；卡片左右缘与页头标题共用外壳 24px 内容轴线，具体实现值以真实渲染核对。表格与列表继续使用纯白基底、`line` 分隔、行 hover `hover` 与行选中 `selected`（150ms `--ease-out-soft`，不位移、不加投影；表头与静态行不响应 hover），文字 `fg` / `muted-foreground`，不机械卡片化；输入沿用自身边界契约。Skeleton 用 `sunken`；当前没有共享 Progress 视觉原语，任务进度沿用真实实现；空态与加载态结构不变。
@@ -202,33 +202,31 @@
 - **工作**：找专家（`/agents`，工作区首个入口；`/` 按账户权限落到第一个可用入口，无业务权限时进入个人资料）、对话（`/chat`）、频道（`/channels`）、定时任务（`/schedules`）。
 - **构建**：资源（`/skills`，四类资源：技能 / 连接器 / 插件 / 知识库）、评估（`/eval`）。
 - **运维**：底部独立入口 `/operations`。进入后使用独立导航——概况（原 `OverviewPage`）、运行、运行环境、健康、审计，并提供「返回工作区」；运维不占业务分组。
-- **个人**：底部用户信息即入口，不占业务分组。展开显示头像、姓名与角色，窄边收为彩色头像圆钮，完全收起时整栏隐藏；账号入口在展开态、窄边与窄桌面 Sheet 均可访问；工作区语境下展开态（含窄桌面 Sheet）点击打开「账户菜单」Popover（身份摘要、个人中心七项导航与退出登录），可访问名为「账户菜单」；进入个人中心后侧栏已常驻七项导航，账号入口为资料入口、可访问名为「个人资料」，不在弹层重复导航，且均不触发登出。进入个人模块后，主导航在 `AppShell` 内把「工作 / 构建」替换为按目的分组的个人七项——**与专家协作**：个人记忆（`/personal/memory`）、记忆提案（`/personal/reviews`）；**工作记录**：会话与成果（`/personal/work`）、我的分享（`/personal/shares`）、使用记录（`/personal/usage`）；**账号**：个人资料（`/personal/profile`）、账号安全（`/personal/security`）——展开 224px、窄边 48px、完全收起 0 三态不变。侧栏底部依次为「返回工作区」、独立「退出登录」与账号入口，退出沿用现有登录跳转，不占页头。`/personal` 默认转个人资料。用户可见名称为记忆提案、账号安全；历史 API 术语与路由（`/personal/reviews`、`/personal/security`）保持不变。我的分享表格标题为「我的会话分享」，只列本人会话下未撤销的链接。原 `/memory` 页面已删除，功能迁入个人模块。专家记忆、定时任务与平台凭据仍留原入口；权限不因整合扩大，管理员个人页也只显示本人数据。
+- **个人**：底部用户信息即入口，不占业务分组。展开显示头像、姓名与角色，窄边收为彩色头像圆钮；账号入口在展开态、窄边与窄桌面 Sheet 均可访问；工作区语境下展开态（含窄桌面 Sheet）点击打开「账户菜单」Popover（身份摘要、个人中心七项导航与退出登录），可访问名为「账户菜单」；进入个人中心后侧栏已常驻七项导航，账号入口为资料入口、可访问名为「个人资料」，不在弹层重复导航，且均不触发登出。进入个人模块后，主导航在 `AppShell` 内把「工作 / 构建」替换为按目的分组的个人七项——**与专家协作**：个人记忆（`/personal/memory`）、记忆提案（`/personal/reviews`）；**工作记录**：会话与成果（`/personal/work`）、我的分享（`/personal/shares`）、使用记录（`/personal/usage`）；**账号**：个人资料（`/personal/profile`）、账号安全（`/personal/security`）——展开 224px、窄边 48px 两态不变。侧栏底部依次为「返回工作区」、独立「退出登录」与账号入口，退出沿用现有登录跳转，不占页头。`/personal` 默认转个人资料。用户可见名称为记忆提案、账号安全；历史 API 术语与路由（`/personal/reviews`、`/personal/security`）保持不变。我的分享表格标题为「我的会话分享」，只列本人会话下未撤销的链接。原 `/memory` 页面已删除，功能迁入个人模块。专家记忆、定时任务与平台凭据仍留原入口；权限不因整合扩大，管理员个人页也只显示本人数据。
 
-参数来源：2026-10-21 CDP 实测；展开宽度按 2026-10-30 用户批准布局更新，窄边宽度与水平内边距按 2026-11-07 用户决定收紧；三态（展开 / 窄边 / 完全收起）加悬停预览与循环折叠按钮按 2026-11-20 用户确认。历史浏览器复测只覆盖当时版本，不覆盖当前中性配色与三态交互。
+参数来源：2026-10-21 CDP 实测；展开宽度按 2026-10-30 用户批准布局更新，窄边宽度与水平内边距按 2026-11-07 用户决定收紧；两态（展开 / 窄边）加悬停预览与折叠按钮按 2026-11-20 用户确认。历史浏览器复测只覆盖当时版本，不覆盖当前中性配色与两态交互。
 
-桌面主导航采用 Chrome 式竖直侧栏，状态为 `SidebarMode = expanded | rail | hidden`，另有仅在 `rail` 态悬停或聚焦时出现的临时预览 `preview`（不落偏好）：
+桌面主导航采用 Chrome 式竖直侧栏，状态为 `SidebarMode = expanded | rail`，另有仅在 `rail` 态悬停或聚焦时出现的临时预览 `preview`（不落偏好）：
 
 | 状态 | 侧栏宽度 | 正文让位 | 外壳阴影 |
 |---|---|---|---|
 | `expanded` 完整展开 | 224px | 224px，推开正文 | 无 |
 | `rail` 窄边 | 48px 图标栏 | 48px | 无 |
-| `hidden` 完全收起 | 0 | 0 | 无 |
 | `preview` 悬停预览（仅 `rail` 态） | 224px 浮层 | 0，浮层覆盖正文 | `shadow-overlay` |
 
-- 单一折叠按钮按 `expanded → rail → hidden → expanded` 循环，并持久化偏好；首次无偏好时默认 `rail`。
+- 单一折叠按钮在 `expanded ↔ rail` 之间切换，并持久化偏好；首次无偏好时默认 `rail`。
 - `rail` 态鼠标进入、键盘焦点进入时浮出 224px 预览层：覆盖正文、不推开、带 `shadow-overlay`；移出、失焦或按 Esc 收回。预览不写偏好。
 - 窄桌面沿用现有 Sheet 展开行为（完整展开布局）。
-- 工作、个人与运维上下文共用上述三态与预览，保留现有分组、路由与权限过滤。
+- 工作、个人与运维上下文共用上述两态与预览，保留现有分组、路由与权限过滤。
 
-- **展开 224px**，内边距 `16px 8px`，分组间距 18px；三态宽度过渡 `160ms cubic-bezier(.22,1,.36,1)`，同时过渡 width / height / transform / background-color。
-- **窄边 48px**，内边距 `16px 8px`：只渲染 32×32 居中图标块（`SidebarLink` 的 iconOnly 分支，圆角 `rounded-tag`），不渲染文字标签与分组标题，每个图标 hover 显示 label tooltip；底部为纵向的图标化「运维」、彩色圆形头像圆钮与通知铃铛（均 32×32）。48px 中性 `#FAFAFA` 护栏与右缘 1px `line` 发丝边保留，正文在其后开始。
-- **完全收起**：不渲染侧栏槽（宽度 0），正文占满；只在主内容区左上角保留一枚 32×32「展开侧栏」按钮（`PanelLeftOpen`，无边框图标按钮（`plain` 变体：透明底、仅 hover 显 `sidebar-hover` 底色），与展开 / 窄边折叠按钮同款同尺寸、绝对位置对齐到同一内距 left 8px / top 16px，带 tooltip），普通页面与沉浸页面为它让出左上角内距。
-- 顶部：`expanded` 与 `rail` 态的品牌区最左侧都是 32×32 折叠按钮（`PanelLeftClose`）：`expanded` 时 aria-label 为「收起为窄边」、品牌字标在其右（顺序 `[toggle][brand]`）、同高同中心线；`rail` 时 aria-label 为「完全收起」、不显示品牌字标。`hidden` 态不显示顶部按钮，改为正文左上角的 `PanelLeftOpen`「展开侧栏」按钮。三态折叠 / 展开按钮均为同一款无边框图标按钮（`plain` 变体，不用 ghost 以免继承其 `aria-expanded` 底色）：常态透明、仅 hover 显 `sidebar-hover` 底色，无常驻填充、无额外描边或投影，尺寸均 32×32、radius 8，且绝对位置对齐（left 8px / top 16px）；折叠按钮不触发 Logo 切图，Logo 切图沿用 §5。
+- **展开 224px**，内边距 `16px 8px`，分组间距 18px；两态宽度过渡 `160ms cubic-bezier(.22,1,.36,1)`，同时过渡 width / height / transform / background-color。
+- **窄边 48px**，内边距 `16px 8px`：只渲染 32×32 居中图标块（`SidebarLink` 的 iconOnly 分支，圆角 `rounded-tag`），不渲染文字标签与分组标题，每个图标 hover 显示 label tooltip；底部在窄边为纵向图标：图标化「运维」、通知铃铛（右上角带未读角标），通栏发丝线下方为彩色圆形头像圆钮（均 32×32）。48px 中性 `#FAFAFA` 护栏与右缘 1px `line` 发丝边保留，正文在其后开始。
+- 顶部：`expanded` 与 `rail` 态的品牌区最左侧都是 32×32 折叠按钮（`PanelLeftClose`）：`expanded` 时 aria-label 为「收起为窄边」、品牌字标在其右（顺序 `[toggle][brand]`）、同高同中心线；`rail` 时 aria-label 为「展开侧栏」、不显示品牌字标。两态折叠按钮均为同一款无边框图标按钮（`plain` 变体，不用 ghost 以免继承其 `aria-expanded` 底色）：常态透明、仅 hover 显 `sidebar-hover` 底色，无常驻填充、无额外描边或投影，尺寸均 32×32、radius 8，且绝对位置对齐（left 8px / top 16px）；折叠按钮不触发 Logo 切图，Logo 切图沿用 §5。
 - 「新建会话」位于对话历史头部，为常规 32px ghost 图标按钮；侧栏不设新建会话入口。
-- 分组条目高 32px：`expanded`、预览与窄桌面 Sheet 为 `rounded-item` 图标 + 文字并显示分组标题；`rail` 为 32×32 居中 `rounded-tag` 图标块（带 tooltip）、不显示分组标题；`hidden` 不渲染任何条目。
-- 普通导航文字用 `fg`；分组标题与账号等辅助入口用 `muted-foreground`。底部用户信息为一行：彩色圆形首字母头像（6 色身份色板，按用户名确定性取色）+ 显示名 + `· 角色/用户名`（次要灰字）+ 下箭头组成 8px 圆角的账户 pill，其右并排一个 32px 通知铃铛图标按钮（带未读数徽标），按账号入口而非导航选中行呈现、hover 用 `sidebar-hover`；工作区语境点 pill 向上弹出「账户菜单」Popover，个人中心语境为资料入口，可访问名分别为「账户菜单」「个人资料」。`rail` 态底部收为纵向图标：运维图标、彩色头像圆钮、铃铛。完整账户 pill 只在展开态、悬停预览与窄桌面 Sheet 渲染；窄边仅显示头像圆钮。独立「退出登录」在个人中心另占一项。底部身份行与上方导航（含运维 / 返回工作区等次级入口）之间以一条通栏 1px `line` 发丝分割线分隔，分割线左右出血到侧栏边缘，使身份区成为独立页脚；窄边态在图标化身份区上方保留同一条通栏发丝线。
-- 侧栏用 `sidebar` 中性实底，右缘 1px `line` 发丝边，普通条目 hover 用 `sidebar-hover`；`rail` 沿用同一中性底与发丝边作为 48px 沟槽，`hidden` 无侧栏底与发丝边；预览浮层额外带 `shadow-overlay`。品牌标记占位、加载栏与底部入口及 Sheet 内同角色共用侧栏 token，具体映射见 [DESIGN.md Navigation](../packages/web/DESIGN.md#navigation)。不套外层白框，展开、窄边与完全收起均无外壳阴影（悬停预览浮层除外）。
-- 选中态 = `sidebar-selected`（`rgba(0, 0, 0, 0.10)`）平面灰色胶囊 + `selected-foreground` 深色文字与图标，8px 圆角，无白色表面、无 `shadow-panel`，hover 换 `sidebar-hover`，**没有彩色竖条**，不叠加装饰性 outline、ring 或边框。工作、个人与运维上下文的展开、窄边（选中为 32×32 图标块，圆角 `rounded-tag` 6px；与展开行 `rounded-item` 8px 为有意分层，非不一致）、悬停预览与窄桌面 Sheet 共用 `SidebarLink`；`hidden` 态不渲染选中胶囊。保留既有圆角、字号、尺寸、位置、可见键盘焦点、`aria-current`、权限过滤与全部状态功能；侧栏底面为中性 `#FAFAFA`，非选中 hover 仍用 `sidebar-hover`。
+- 分组条目高 32px：`expanded`、预览与窄桌面 Sheet 为 `rounded-item` 图标 + 文字并显示分组标题；`rail` 为 32×32 居中 `rounded-tag` 图标块（带 tooltip）、不显示分组标题。
+- 普通导航文字用 `fg`；分组标题与账号等辅助入口用 `muted-foreground`。底部用户信息为一行：彩色圆形首字母头像（6 色身份色板，按用户名确定性取色）+ 显示名 + `· 角色/用户名`（次要灰字）+ 下箭头组成 8px 圆角的账户 pill，按账号入口而非导航选中行呈现、hover 用 `sidebar-hover`；工作区语境点 pill 向上弹出「账户菜单」Popover，个人中心语境为资料入口，可访问名分别为「账户菜单」「个人资料」。「通知」为独立一行，紧接在「运维」/「返回工作区」次级入口之下、身份分割线之上，按普通导航行呈现：展开态与悬停预览显示铃铛图标 + 「通知」+ 行尾未读计数胶囊；`rail` 仅铃铛图标 + 右上角未读角标。完整账户 pill 只在展开态、悬停预览与窄桌面 Sheet 渲染；窄边仅显示头像圆钮。`rail` 态底部整体为纵向图标（运维、通知、头像圆钮），悬停预览时底部与展开态一致显示文字。独立「退出登录」在个人中心另占一项。底部身份行与上方导航（含运维 / 返回工作区等次级入口）之间以一条通栏 1px `line` 发丝分割线分隔，分割线左右出血到侧栏边缘，使身份区成为独立页脚；窄边态在图标化身份区上方保留同一条通栏发丝线。
+- 侧栏用 `sidebar` 中性实底，右缘 1px `line` 发丝边，普通条目 hover 用 `sidebar-hover`；`rail` 沿用同一中性底与发丝边作为 48px 沟槽；预览浮层额外带 `shadow-overlay`。品牌标记占位、加载栏与底部入口及 Sheet 内同角色共用侧栏 token，具体映射见 [DESIGN.md Navigation](../packages/web/DESIGN.md#navigation)。不套外层白框，展开与窄边均无外壳阴影（悬停预览浮层除外）。
+- 选中态 = `sidebar-selected`（`rgba(0, 0, 0, 0.10)`）平面灰色胶囊 + `selected-foreground` 深色文字与图标，8px 圆角，无白色表面、无 `shadow-panel`，hover 换 `sidebar-hover`，**没有彩色竖条**，不叠加装饰性 outline、ring 或边框。工作、个人与运维上下文的展开、窄边（选中为 32×32 图标块，圆角 `rounded-tag` 6px；与展开行 `rounded-item` 8px 为有意分层，非不一致）、悬停预览与窄桌面 Sheet 共用 `SidebarLink`。保留既有圆角、字号、尺寸、位置、可见键盘焦点、`aria-current`、权限过滤与全部状态功能；侧栏底面为中性 `#FAFAFA`，非选中 hover 仍用 `sidebar-hover`。
 
 ## 8. 其他页面
 
