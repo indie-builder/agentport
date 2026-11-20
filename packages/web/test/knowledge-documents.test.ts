@@ -35,6 +35,30 @@ vi.mock('../src/lib/toast.js', () => ({
   toastSuccess: vi.fn(),
 }));
 
+const editorImport = vi.hoisted(() => {
+  let release: () => void = () => {};
+  let gate: Promise<void> | undefined;
+  return {
+    hold() {
+      gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    },
+    release() {
+      release();
+      gate = undefined;
+    },
+    wait() {
+      return gate ?? Promise.resolve();
+    },
+  };
+});
+
+vi.mock('../src/components/source-editor-inner.js', async (importOriginal) => {
+  await editorImport.wait();
+  return importOriginal();
+});
+
 registerKnowledgeHarness();
 
 describe('knowledge document inspection', () => {
@@ -571,12 +595,15 @@ describe('knowledge manual and url import', () => {
       (element) => element.textContent?.trim() === '手写文档',
     );
     if (!item) throw new Error('Missing menu item: 手写文档');
-    // 不等待懒加载：先看到 Suspense 回退的 textarea，再看到 CodeMirror 的 contenteditable。
-    // 本文件里这是首次挂载 SourceEditor，懒模块必然先回退；之后按真实 DOM 条件等它换入。
-    await act(async () => item.click());
-    const loading = document.getElementById('knowledge-manual-content');
-    expect(loading?.tagName).toBe('TEXTAREA');
-    expect(loading?.getAttribute('aria-label')).toBe('正文（Markdown）');
+    editorImport.hold();
+    try {
+      await act(async () => item.click());
+      const loading = document.getElementById('knowledge-manual-content');
+      expect(loading?.tagName).toBe('TEXTAREA');
+      expect(loading?.getAttribute('aria-label')).toBe('正文（Markdown）');
+    } finally {
+      editorImport.release();
+    }
 
     await waitFor(
       () =>
