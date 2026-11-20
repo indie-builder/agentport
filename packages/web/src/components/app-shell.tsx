@@ -7,7 +7,6 @@ import {
   LogOut,
   Menu,
   PanelLeftClose,
-  PanelLeftOpen,
   Wrench,
   X,
 } from 'lucide-react';
@@ -53,7 +52,7 @@ const resourceNavTargets = new Set<string>(RESOURCE_MENU.map((item) => item.to))
 
 const COLLAPSE_KEY = 'agentport:nav-collapsed';
 
-type SidebarMode = 'expanded' | 'rail' | 'hidden';
+type SidebarMode = 'expanded' | 'rail';
 
 const AVATAR_TONES = [
   'bg-avatar-1',
@@ -88,7 +87,7 @@ function SidebarBrand({
       <Button
         ref={toggleRef}
         variant="plain"
-        aria-label={expanded ? '收起为窄边' : '完全收起'}
+        aria-label={expanded ? '收起为窄边' : '展开侧栏'}
         aria-expanded={!iconOnly}
         onClick={onToggle}
         className="size-8 shrink-0 rounded-[var(--radius-icon)] p-0 text-fg hover:bg-sidebar-hover"
@@ -285,7 +284,7 @@ export function AppShell() {
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() => {
     try {
       const stored = localStorage.getItem(COLLAPSE_KEY);
-      if (stored === 'expanded' || stored === 'hidden') return stored;
+      if (stored === 'expanded') return stored;
     } catch {}
     return 'rail';
   });
@@ -294,7 +293,6 @@ export function AppShell() {
   const sidebarWidth = {
     expanded: 'var(--sidebar-width)',
     rail: 'var(--sidebar-collapsed)',
-    hidden: 0,
   }[sidebarMode];
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -377,23 +375,20 @@ export function AppShell() {
         aria-label="加载中"
       >
         <PageHeader title={pageTitle} className="sr-only" />
-        {sidebarMode !== 'hidden' ? (
-          <div
-            className="hidden shrink-0 bg-sidebar lg:block"
-            style={{
-              width: sidebarWidth,
-              padding:
-                sidebarMode === 'rail' ? 'var(--sidebar-pad-collapsed)' : 'var(--sidebar-pad)',
-            }}
-          >
-            <Skeleton className="mb-3 h-8 w-full" />
-            <div className="flex flex-col gap-2">
-              <Skeleton className="h-8 w-full" />
-              <Skeleton className="h-8 w-full" />
-              <Skeleton className="h-8 w-full" />
-            </div>
+        <div
+          className="hidden shrink-0 bg-sidebar lg:block"
+          style={{
+            width: sidebarWidth,
+            padding: sidebarMode === 'rail' ? 'var(--sidebar-pad-collapsed)' : 'var(--sidebar-pad)',
+          }}
+        >
+          <Skeleton className="mb-3 h-8 w-full" />
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
           </div>
-        ) : null}
+        </div>
         <div className="flex flex-1 flex-col gap-4 bg-surface px-6 pb-6">
           <Skeleton className="h-6 w-40" />
           <Skeleton className="h-32 w-full" />
@@ -426,8 +421,7 @@ export function AppShell() {
   const avatarTone = pickAvatarTone(user.user.username);
 
   const toggleSidebar = (): void => {
-    const next = { expanded: 'rail', rail: 'hidden', hidden: 'expanded' } as const;
-    const mode = next[sidebarMode];
+    const mode = sidebarMode === 'expanded' ? 'rail' : 'expanded';
     restoreToggleFocus.current =
       mode !== 'rail' && document.activeElement === sidebarToggle.current;
     setPreviewing(false);
@@ -439,7 +433,6 @@ export function AppShell() {
   const sidebar = (drawer: boolean) => {
     const iconOnly = !drawer && sidebarMode === 'rail' && !preview;
     const interactiveRail = !drawer && sidebarMode === 'rail';
-    const bottomIconOnly = iconOnly || preview;
     const accountInitial = (
       Array.from(user.user.name.trim())[0] ??
       Array.from(user.user.username)[0] ??
@@ -455,20 +448,20 @@ export function AppShell() {
       <span
         className={cn(
           'flex shrink-0 items-center justify-center rounded-full text-[11px] font-medium text-surface',
-          bottomIconOnly ? 'size-8' : 'size-5',
+          iconOnly ? 'size-8' : 'size-5',
           avatarTone,
         )}
       >
         {accountInitial}
       </span>
     );
-    const accountLabel = !bottomIconOnly ? (
+    const accountLabel = !iconOnly ? (
       <span className="min-w-0 flex-1 truncate text-left">
         <span className="text-fg">{displayName}</span>
         <span className="text-muted-foreground"> · {accountSecondary}</span>
       </span>
     ) : null;
-    const accountClass = bottomIconOnly
+    const accountClass = iconOnly
       ? 'size-8 rounded-full p-0'
       : 'h-8 min-w-0 flex-1 justify-start gap-2 rounded-item px-2';
     const onNavigate = (): void => {
@@ -600,10 +593,38 @@ export function AppShell() {
               to={bottomEntry.to}
               label={bottomEntry.label}
               icon={bottomEntry.icon}
-              iconOnly={bottomIconOnly}
+              iconOnly={iconOnly}
               onNavigate={onNavigate}
             />
           ) : null}
+          <Link
+            to="/notifications"
+            aria-label={unreadCount > 0 ? `通知（${unreadCount} 条未读）` : '通知'}
+            onClick={onNavigate}
+            className={cn(
+              'flex h-8 items-center text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-sidebar-hover',
+              iconOnly ? 'relative w-8 justify-center rounded-tag p-0' : 'gap-2.5 rounded-item px-2',
+            )}
+          >
+            <Bell aria-hidden="true" className="shrink-0" />
+            {!iconOnly ? <span className="truncate">通知</span> : null}
+            {unreadCount > 0 && !iconOnly ? (
+              <span
+                aria-hidden="true"
+                className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-fg px-1.5 text-xs font-medium leading-none text-surface tabular-nums"
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            ) : null}
+            {unreadCount > 0 && iconOnly ? (
+              <span
+                aria-hidden="true"
+                className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-fg px-1 text-xs font-medium leading-none text-surface tabular-nums"
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            ) : null}
+          </Link>
           {personalContext ? (
             <Button
               variant="ghost"
@@ -611,17 +632,17 @@ export function AppShell() {
               onClick={() => void logout()}
               className={cn(
                 'h-8 text-sm text-fg hover:bg-sidebar-hover',
-                bottomIconOnly ? 'w-8 rounded-tag p-0' : 'justify-start gap-2.5 rounded-item px-2',
+                iconOnly ? 'w-8 rounded-tag p-0' : 'justify-start gap-2.5 rounded-item px-2',
               )}
             >
               <LogOut aria-hidden="true" />
-              {!bottomIconOnly ? <span>退出登录</span> : null}
+              {!iconOnly ? <span>退出登录</span> : null}
             </Button>
           ) : null}
           <div
             className={cn(
               '-mx-2 mt-1 flex items-center gap-1 border-t border-line px-2 pt-2',
-              bottomIconOnly && 'flex-col items-start',
+              iconOnly && 'flex-col items-start',
             )}
           >
             {personalContext ? (
@@ -633,7 +654,7 @@ export function AppShell() {
                 className={cn(
                   'flex items-center text-sm text-fg hover:bg-sidebar-hover',
                   accountClass,
-                  bottomIconOnly && 'justify-center',
+                  iconOnly && 'justify-center',
                 )}
               >
                 {accountAvatar}
@@ -651,7 +672,7 @@ export function AppShell() {
                     >
                       {accountAvatar}
                       {accountLabel}
-                      {!bottomIconOnly ? (
+                      {!iconOnly ? (
                         <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
                       ) : null}
                     </Button>
@@ -719,25 +740,6 @@ export function AppShell() {
                 </PopoverContent>
               </Popover>
             )}
-            <Link
-              to="/notifications"
-              aria-label={unreadCount > 0 ? `通知（${unreadCount} 条未读）` : '通知'}
-              onClick={onNavigate}
-              className={cn(
-                'relative flex size-8 shrink-0 items-center justify-center text-fg hover:bg-sidebar-hover',
-                bottomIconOnly ? 'rounded-tag' : 'rounded-item',
-              )}
-            >
-              <Bell className="size-4" aria-hidden="true" />
-              {unreadCount > 0 ? (
-                <span
-                  aria-hidden="true"
-                  className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-fg px-1 text-xs font-medium leading-none text-surface tabular-nums"
-                >
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </span>
-              ) : null}
-            </Link>
           </div>
         </div>
       </motion.aside>
@@ -765,7 +767,7 @@ export function AppShell() {
         animate={{ width: sidebarWidth }}
         transition={reduce ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
       >
-        {sidebarMode !== 'hidden' ? sidebar(false) : null}
+        {sidebar(false)}
       </motion.div>
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -796,20 +798,6 @@ export function AppShell() {
       </Sheet>
 
       <div className="relative isolate flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
-        {sidebarMode === 'hidden' ? (
-          <div className="absolute top-4 left-2 z-10 hidden lg:block">
-            <Button
-              ref={sidebarToggle}
-              variant="plain"
-              aria-label="展开侧栏"
-              aria-expanded={false}
-              onClick={toggleSidebar}
-              className="size-8 shrink-0 rounded-[var(--radius-icon)] p-0 text-fg hover:bg-sidebar-hover"
-            >
-              <PanelLeftOpen className="size-4" />
-            </Button>
-          </div>
-        ) : null}
         {/*
          * 桌面端没有外壳自己的顶栏：参考页白面板里就是页面内容的第一行。
          * 移动端才需要这一行来放抽屉入口，页面标题由各页的 PageHeader 负责。
@@ -828,15 +816,7 @@ export function AppShell() {
           </Button>
         </header>
 
-        <main
-          id="main-content"
-          tabIndex={-1}
-          className={cn(
-            'min-h-0 flex-1 overflow-hidden',
-            sidebarMode === 'hidden' &&
-              (immersive ? 'lg:pt-10' : 'lg:[&_[data-slot=page-header]]:pl-5'),
-          )}
-        >
+        <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-hidden">
           {immersive ? (
             <div className={cn('h-full', denied && 'p-6')}>{content}</div>
           ) : (
