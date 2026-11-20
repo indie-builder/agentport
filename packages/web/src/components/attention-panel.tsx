@@ -1,5 +1,6 @@
 import { Link, useLocation } from '@tanstack/react-router';
 import { CircleAlert, ShieldAlert } from 'lucide-react';
+import { errorMessage } from '../lib/api.js';
 import { formatRelative } from '../lib/format.js';
 import { useAttention } from '../lib/queries.js';
 import { PageNote, PageSection } from './page.js';
@@ -58,7 +59,7 @@ export function AttentionPanel({ canOpenRuns = true }: { canOpenRuns?: boolean }
         <PageNote
           tone="danger"
           title="刷新失败，已保留上次结果"
-          description="以下为上次成功加载的待处理项。"
+          description={errorMessage(attention.error)}
           action={
             <Button variant="outline" size="sm" onClick={() => void attention.refetch()}>
               重试

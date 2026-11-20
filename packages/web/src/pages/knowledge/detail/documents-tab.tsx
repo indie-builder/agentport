@@ -29,7 +29,7 @@ import {
 } from '../../../components/knowledge/knowledge-shared.js';
 import { PageNote, PageToolbar } from '../../../components/page.js';
 import { SearchInput } from '../../../components/search-input.js';
-import { EmptyState, ErrorState, LoadingState } from '../../../components/states.js';
+import { ErrorState, LoadingState } from '../../../components/states.js';
 import { StatusBadge } from '../../../components/status-badge.js';
 import { Button, buttonVariants } from '../../../components/ui/button.js';
 import { Checkbox } from '../../../components/ui/checkbox.js';
@@ -525,20 +525,35 @@ export function DocumentsTab({
           <ErrorState error={documents.error} onRetry={() => void documents.refetch()} />
         ) : null}
         {documents.isSuccess && documentItems.length === 0 ? (
-          <EmptyState
-            illustration={<BusinessIllustration name={filtersActive ? 'search' : 'documents'} />}
-            title={filtersActive ? '没有匹配的文档' : '还没有文档'}
-            action={
-              filtersActive ? (
-                <Button variant="outline" size="sm" onClick={clearFilters}>
-                  清除筛选
-                </Button>
-              ) : caps.content ? (
-                <Button variant="outline" size="sm" onClick={() => uploadInput.current?.click()}>
-                  <Upload data-icon="inline-start" aria-hidden="true" /> 上传文件
-                </Button>
-              ) : undefined
+          <PageNote
+            icon={
+              <BusinessIllustration name={filtersActive ? 'search' : 'documents'} size="compact" />
             }
+            title={filtersActive ? '没有匹配的文档' : '还没有文档'}
+            {...(!filtersActive && !caps.content
+              ? { description: '当前账户没有上传文档的权限。' }
+              : {})}
+            {...(filtersActive
+              ? {
+                  action: (
+                    <Button variant="outline" size="sm" onClick={clearFilters}>
+                      清除筛选
+                    </Button>
+                  ),
+                }
+              : caps.content
+                ? {
+                    action: (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => uploadInput.current?.click()}
+                      >
+                        <Upload data-icon="inline-start" aria-hidden="true" /> 上传文件
+                      </Button>
+                    ),
+                  }
+                : {})}
           />
         ) : null}
         {documentItems.length > 0 ? (

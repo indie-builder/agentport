@@ -16,7 +16,7 @@ import { RequiredMark } from '../../../components/required-mark.js';
 import { ErrorState, InlineEmpty, LoadingState } from '../../../components/states.js';
 import { Button } from '../../../components/ui/button.js';
 import { Dialog } from '../../../components/ui/dialog.js';
-import { Field, FieldGroup, FieldLabel } from '../../../components/ui/field.js';
+import { Field, FieldError, FieldGroup, FieldLabel } from '../../../components/ui/field.js';
 import { Input } from '../../../components/ui/input.js';
 import {
   Select,
@@ -308,7 +308,7 @@ export function TagDialog({ baseId, onClose: onClosed }: { baseId: string; onClo
 }
 
 const documentPropertiesSchema = z.object({
-  title: z.string(),
+  title: z.string().trim().min(1, '请填写文档标题').max(300, '最多 300 个字符'),
   folderId: z.string(),
   tags: z.string(),
   status: z.enum(['ready', 'disabled']),
@@ -336,13 +336,10 @@ export function DocumentDialog({
     tags: document.tags.join(', '),
     status: document.status === 'disabled' ? ('disabled' as const) : ('ready' as const),
   }));
-  const { register, control, handleSubmit, watch, formState } = useZodForm(
-    documentPropertiesSchema,
-    {
-      defaultValues: initial,
-    },
-  );
-  const { isDirty } = formState;
+  const { register, control, handleSubmit, formState } = useZodForm(documentPropertiesSchema, {
+    defaultValues: initial,
+  });
+  const { isDirty, errors } = formState;
   const pending = update.isPending;
   const statusEditable = document.status === 'ready' || document.status === 'disabled';
   const guard = useDraftGuard(isDirty, pending, onClose);
@@ -351,7 +348,7 @@ export function DocumentDialog({
       {
         documentId: document.id,
         patch: {
-          title: values.title.trim(),
+          title: values.title,
           folderId: values.folderId === 'null' ? null : values.folderId,
           tags: values.tags
             .split(',')
@@ -377,13 +374,22 @@ export function DocumentDialog({
       onOpenChange={guardedOpenChange(pending, guard.close)}
     >
       <DialogShell title="编辑文档" closeDisabled={pending}>
-        <form className="flex flex-col gap-4" onSubmit={submit}>
+        <form className="flex flex-col gap-4" noValidate onSubmit={submit}>
           <FieldGroup>
-            <Field className="gap-1.5">
+            <Field className="gap-1.5" data-invalid={Boolean(errors.title)}>
               <FieldLabel htmlFor="document-title">
                 标题 <RequiredMark />
               </FieldLabel>
-              <Input id="document-title" {...register('title')} disabled={pending} />
+              <Input
+                id="document-title"
+                {...register('title')}
+                maxLength={300}
+                disabled={pending}
+                aria-required="true"
+                aria-invalid={Boolean(errors.title)}
+                aria-describedby={errors.title ? 'document-title-error' : undefined}
+              />
+              <FieldError id="document-title-error">{errors.title?.message}</FieldError>
             </Field>
             <FieldGroup className="grid gap-3 sm:grid-cols-2">
               <Field className="gap-1.5">
@@ -470,11 +476,7 @@ export function DocumentDialog({
             <Button variant="outline" onClick={guard.close} disabled={pending}>
               取消
             </Button>
-            <Button
-              type="submit"
-              disabled={pending || watch('title').trim() === ''}
-              aria-busy={pending}
-            >
+            <Button type="submit" disabled={pending} aria-busy={pending}>
               {pending ? '保存中…' : '保存'}
             </Button>
           </div>

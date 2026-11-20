@@ -433,7 +433,7 @@ export function ObservabilityPage() {
                       </TableHeader>
                       <TableBody>
                         {data.slo.map((item) => (
-                          <TableRow key={item.key}>
+                          <TableRow key={item.key} className="hover:bg-transparent">
                             <TableCell className="text-fg">{item.label}</TableCell>
                             <TableCell className="text-right tabular-nums">
                               {formatSloValue(item.key, item.target)}

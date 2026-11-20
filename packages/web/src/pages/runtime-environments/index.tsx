@@ -6,16 +6,23 @@ import {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { Box, Plus } from 'lucide-react';
+import { Box, Plus, SearchX } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { DialogShell } from '../../components/dialog-shell.js';
-import { Page, PageBody, PageHeader, PageToolbar, PageTopbar } from '../../components/page.js';
+import {
+  Page,
+  PageBody,
+  PageHeader,
+  PageNote,
+  PageToolbar,
+  PageTopbar,
+} from '../../components/page.js';
 import { RecordRows } from '../../components/record-rows.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { SearchInput } from '../../components/search-input.js';
-import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
+import { ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card.js';
@@ -117,21 +124,25 @@ export function RuntimeEnvironmentsPage() {
         ) : null}
 
         {environments.data && environments.data.length === 0 ? (
-          <EmptyState
-            icon={<Box className="size-5" />}
+          <PageNote
+            icon={<Box className="size-4" aria-hidden="true" />}
             title="新建第一个运行环境"
-            action={
-              canCreate ? (
-                <Button ref={createTriggerRef} onClick={openCreate}>
-                  新建环境
-                </Button>
-              ) : undefined
-            }
+            {...(canCreate ? {} : { description: '当前账户没有创建运行环境的权限。' })}
+            {...(canCreate
+              ? {
+                  action: (
+                    <Button ref={createTriggerRef} onClick={openCreate}>
+                      新建环境
+                    </Button>
+                  ),
+                }
+              : {})}
           />
         ) : null}
 
         {environments.data && environments.data.length > 0 && shown.length === 0 ? (
-          <EmptyState
+          <PageNote
+            icon={<SearchX className="size-4" aria-hidden="true" />}
             title="没有匹配的运行环境"
             action={
               <Button

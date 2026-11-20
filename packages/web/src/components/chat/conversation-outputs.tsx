@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { History, Pencil } from 'lucide-react';
 import { useMemo } from 'react';
 import { can } from '../../lib/access.js';
-import { api } from '../../lib/api.js';
+import { api, errorMessage } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { formatBytes, formatDateTime, formatRelative } from '../../lib/format.js';
 import { outputPreviewKind, outputSelectionMode } from '../../lib/output-preview.js';
@@ -129,7 +129,7 @@ export function ConversationOutputs({
           <PageNote
             tone="danger"
             title="刷新失败，已保留加载的内容"
-            description="以下为上次成功加载的内容。"
+            description={errorMessage(outputs.error)}
             action={
               <Button variant="outline" size="sm" onClick={() => void outputs.refetch()}>
                 重试

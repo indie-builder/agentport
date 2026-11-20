@@ -388,21 +388,6 @@ export function rangeIssue(type: SourceType, ranges: RangeDraft[]): string | nul
   return null;
 }
 
-/** 来源弹层的草稿签名：关闭确认只比较真实字段，不依赖输入框注册顺序。 */
-export function sourceDraftSignature(input: {
-  type: SourceType;
-  name: string;
-  secret: string;
-  fields: SourceFieldState;
-  authMode: AuthMode;
-  cron: string;
-  syncDeletions: boolean;
-  status: KnowledgeSource['status'];
-  ranges: RangeDraft[];
-}): string {
-  return JSON.stringify(input);
-}
-
 /** 列表行的目标摘要：仓库@ref / 来源范围 / Feed，并带上 cron。 */
 export function sourceTargetSummary(source: KnowledgeSource): string {
   const summary = source.ranges
