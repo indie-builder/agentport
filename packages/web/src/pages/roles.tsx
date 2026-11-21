@@ -4,6 +4,7 @@ import {
   type PermissionDefinition,
   type PermissionGrant,
   roleMatrixInputSchema,
+  systemKeySchema,
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
@@ -81,7 +82,7 @@ const formSchema = z
     roles: z.array(
       z.object({
         roleId: z.string().nullable(),
-        systemKey: z.enum(['admin', 'user', 'owner', 'maintainer']).nullable(),
+        systemKey: systemKeySchema.nullable(),
         name: z.string().trim().pipe(roleMatrixInputSchema.shape.roles.element.shape.name),
         scopes: z.custom<AccessScope[][]>(() => true),
       }),

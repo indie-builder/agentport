@@ -3,6 +3,7 @@ import {
   type Schedule,
   type ScheduleInput,
   scheduleInputSchema,
+  scheduleMissedPolicySchema,
 } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
@@ -216,7 +217,7 @@ const scheduleFormSchema = z
     name: z.string(),
     cron: z.string(),
     timezone: z.string(),
-    missedPolicy: z.enum(['skip', 'run_once']),
+    missedPolicy: scheduleMissedPolicySchema,
     prompt: z.string(),
     enabled: z.boolean(),
     frequency: z.enum(['daily', 'weekly', 'custom']),

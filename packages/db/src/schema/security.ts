@@ -1,3 +1,20 @@
+import type {
+  ContentPolicyAction,
+  ContentPolicyDirection,
+  ContentPolicyMatchType,
+  PolicyApprovalStatus,
+  PolicySourceKind,
+} from '@agentport/shared';
+import {
+  contentPolicyActionSchema,
+  contentPolicyDirectionSchema,
+  contentPolicyMatchTypeSchema,
+  policyApprovalStatusSchema,
+  policySourceKindSchema,
+  violationCaseStatusSchema,
+  violationSeveritySchema,
+  violationSubjectKindSchema,
+} from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { boolean, check, index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
@@ -7,9 +24,21 @@ export const contentPolicies = pgTable(
     id: text('id').primaryKey(),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
-    direction: text('direction', { enum: ['inbound', 'outbound'] }).notNull(),
-    action: text('action', { enum: ['block', 'redact', 'require_approval'] }).notNull(),
-    matchType: text('match_type', { enum: ['keyword', 'regex', 'secret', 'pii'] }).notNull(),
+    direction: text('direction', {
+      enum: contentPolicyDirectionSchema.options as [
+        ContentPolicyDirection,
+        ...ContentPolicyDirection[],
+      ],
+    }).notNull(),
+    action: text('action', {
+      enum: contentPolicyActionSchema.options as [ContentPolicyAction, ...ContentPolicyAction[]],
+    }).notNull(),
+    matchType: text('match_type', {
+      enum: contentPolicyMatchTypeSchema.options as [
+        ContentPolicyMatchType,
+        ...ContentPolicyMatchType[],
+      ],
+    }).notNull(),
     pattern: text('pattern').notNull(),
     caseSensitive: boolean('case_sensitive').notNull().default(false),
     agentId: text('agent_id'),
@@ -24,14 +53,17 @@ export const contentPolicies = pgTable(
     index('content_policies_direction_enabled_idx').on(t.direction, t.enabled, t.priority),
     check('content_policies_priority_check', sql`${t.priority} >= 0`),
     check('content_policies_version_check', sql`${t.version} >= 1`),
-    check('content_policies_direction_check', sql`${t.direction} in ('inbound', 'outbound')`),
+    check(
+      'content_policies_direction_check',
+      sql`${t.direction} in (${sql.raw(contentPolicyDirectionSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     check(
       'content_policies_action_check',
-      sql`${t.action} in ('block', 'redact', 'require_approval')`,
+      sql`${t.action} in (${sql.raw(contentPolicyActionSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'content_policies_match_type_check',
-      sql`${t.matchType} in ('keyword', 'regex', 'secret', 'pii')`,
+      sql`${t.matchType} in (${sql.raw(contentPolicyMatchTypeSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );
@@ -43,10 +75,17 @@ export const policyEvents = pgTable(
     policyId: text('policy_id').references(() => contentPolicies.id, { onDelete: 'set null' }),
     policyName: text('policy_name').notNull(),
     policyVersion: integer('policy_version').notNull(),
-    direction: text('direction', { enum: ['inbound', 'outbound'] }).notNull(),
-    action: text('action', { enum: ['block', 'redact', 'require_approval'] }).notNull(),
+    direction: text('direction', {
+      enum: contentPolicyDirectionSchema.options as [
+        ContentPolicyDirection,
+        ...ContentPolicyDirection[],
+      ],
+    }).notNull(),
+    action: text('action', {
+      enum: contentPolicyActionSchema.options as [ContentPolicyAction, ...ContentPolicyAction[]],
+    }).notNull(),
     sourceKind: text('source_kind', {
-      enum: ['run_prompt', 'channel_message', 'model_request', 'assistant_output'],
+      enum: policySourceKindSchema.options as [PolicySourceKind, ...PolicySourceKind[]],
     }).notNull(),
     sourceId: text('source_id').notNull(),
     runId: text('run_id'),
@@ -61,14 +100,17 @@ export const policyEvents = pgTable(
     index('policy_events_created_idx').on(t.createdAt),
     index('policy_events_run_idx').on(t.runId),
     index('policy_events_policy_created_idx').on(t.policyId, t.createdAt),
-    check('policy_events_direction_check', sql`${t.direction} in ('inbound', 'outbound')`),
+    check(
+      'policy_events_direction_check',
+      sql`${t.direction} in (${sql.raw(contentPolicyDirectionSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     check(
       'policy_events_action_check',
-      sql`${t.action} in ('block', 'redact', 'require_approval')`,
+      sql`${t.action} in (${sql.raw(contentPolicyActionSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'policy_events_source_kind_check',
-      sql`${t.sourceKind} in ('run_prompt', 'channel_message', 'model_request', 'assistant_output')`,
+      sql`${t.sourceKind} in (${sql.raw(policySourceKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );
@@ -81,14 +123,16 @@ export const policyApprovals = pgTable(
     policyName: text('policy_name').notNull(),
     policyVersion: integer('policy_version').notNull(),
     sourceKind: text('source_kind', {
-      enum: ['run_prompt', 'channel_message', 'model_request', 'assistant_output'],
+      enum: policySourceKindSchema.options as [PolicySourceKind, ...PolicySourceKind[]],
     }).notNull(),
     sourceId: text('source_id').notNull(),
     runId: text('run_id'),
     channelId: text('channel_id'),
     payloadHash: text('payload_hash').notNull(),
     destination: text('destination'),
-    status: text('status', { enum: ['pending', 'approved', 'rejected', 'expired'] })
+    status: text('status', {
+      enum: policyApprovalStatusSchema.options as [PolicyApprovalStatus, ...PolicyApprovalStatus[]],
+    })
       .notNull()
       .default('pending'),
     requestedBy: text('requested_by').notNull(),
@@ -104,11 +148,11 @@ export const policyApprovals = pgTable(
     index('policy_approvals_requester_hash_idx').on(t.requestedBy, t.payloadHash),
     check(
       'policy_approvals_status_check',
-      sql`${t.status} in ('pending', 'approved', 'rejected', 'expired')`,
+      sql`${t.status} in (${sql.raw(policyApprovalStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'policy_approvals_source_kind_check',
-      sql`${t.sourceKind} in ('run_prompt', 'channel_message', 'model_request', 'assistant_output')`,
+      sql`${t.sourceKind} in (${sql.raw(policySourceKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );
@@ -121,10 +165,25 @@ export const violationCases = pgTable(
     policyName: text('policy_name').notNull(),
     eventId: text('event_id'),
     runId: text('run_id'),
-    subjectKind: text('subject_kind', { enum: ['user', 'agent', 'channel'] }).notNull(),
+    subjectKind: text('subject_kind', {
+      enum: violationSubjectKindSchema.options as [
+        (typeof violationSubjectKindSchema.options)[number],
+        ...(typeof violationSubjectKindSchema.options)[number][],
+      ],
+    }).notNull(),
     subjectId: text('subject_id').notNull(),
-    severity: text('severity', { enum: ['low', 'medium', 'high'] }).notNull(),
-    status: text('status', { enum: ['open', 'investigating', 'resolved', 'dismissed'] })
+    severity: text('severity', {
+      enum: violationSeveritySchema.options as [
+        (typeof violationSeveritySchema.options)[number],
+        ...(typeof violationSeveritySchema.options)[number][],
+      ],
+    }).notNull(),
+    status: text('status', {
+      enum: violationCaseStatusSchema.options as [
+        (typeof violationCaseStatusSchema.options)[number],
+        ...(typeof violationCaseStatusSchema.options)[number][],
+      ],
+    })
       .notNull()
       .default('open'),
     assigneeBusinessId: text('assignee_business_id'),
@@ -138,12 +197,15 @@ export const violationCases = pgTable(
     index('violation_cases_assignee_idx').on(t.assigneeBusinessId),
     check(
       'violation_cases_subject_kind_check',
-      sql`${t.subjectKind} in ('user', 'agent', 'channel')`,
+      sql`${t.subjectKind} in (${sql.raw(violationSubjectKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
-    check('violation_cases_severity_check', sql`${t.severity} in ('low', 'medium', 'high')`),
+    check(
+      'violation_cases_severity_check',
+      sql`${t.severity} in (${sql.raw(violationSeveritySchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     check(
       'violation_cases_status_check',
-      sql`${t.status} in ('open', 'investigating', 'resolved', 'dismissed')`,
+      sql`${t.status} in (${sql.raw(violationCaseStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );

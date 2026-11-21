@@ -1,3 +1,5 @@
+import type { KnowledgeWikiGeneratedBy, KnowledgeWikiPageStatus } from '@agentport/shared';
+import { knowledgeWikiGeneratedBySchema, knowledgeWikiPageStatusSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -31,7 +33,12 @@ export const knowledgeWikiPages = pgTable(
       onDelete: 'set null',
     }),
     position: integer('position').notNull().default(0),
-    status: text('status', { enum: ['draft', 'published', 'stale', 'failed'] })
+    status: text('status', {
+      enum: knowledgeWikiPageStatusSchema.options as [
+        KnowledgeWikiPageStatus,
+        ...KnowledgeWikiPageStatus[],
+      ],
+    })
       .notNull()
       .default('draft'),
     currentVersionId: text('current_version_id'),
@@ -43,7 +50,7 @@ export const knowledgeWikiPages = pgTable(
     index('knowledge_wiki_pages_base_parent_idx').on(t.baseId, t.parentId, t.position),
     check(
       'knowledge_wiki_pages_status_check',
-      sql`${t.status} in ('draft', 'published', 'stale', 'failed')`,
+      sql`${t.status} in (${sql.raw(knowledgeWikiPageStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );
@@ -59,12 +66,20 @@ export const knowledgeWikiVersions = pgTable(
     markdown: text('markdown').notNull(),
     sourceChunkIds: jsonb('source_chunk_ids').$type<string[]>().notNull().default([]),
     model: text('model').notNull(),
-    generatedBy: text('generated_by', { enum: ['sdk', 'manual'] }).notNull(),
+    generatedBy: text('generated_by', {
+      enum: knowledgeWikiGeneratedBySchema.options as [
+        KnowledgeWikiGeneratedBy,
+        ...KnowledgeWikiGeneratedBy[],
+      ],
+    }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('knowledge_wiki_versions_page_version_idx').on(t.pageId, t.version),
-    check('knowledge_wiki_versions_generated_by_check', sql`${t.generatedBy} in ('sdk', 'manual')`),
+    check(
+      'knowledge_wiki_versions_generated_by_check',
+      sql`${t.generatedBy} in (${sql.raw(knowledgeWikiGeneratedBySchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
   ],
 );
 

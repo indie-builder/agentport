@@ -1,6 +1,7 @@
 import { AppError } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import {
+  type KnowledgeJob,
   knowledgeFaqImportMetadataSchema,
   knowledgeJobPayloadSchema,
   type ResourceAccessFilter,
@@ -39,7 +40,7 @@ export async function listJobs(
   query: PageQuery & {
     baseId?: string | undefined;
     documentId?: string | undefined;
-    status?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | undefined;
+    status?: KnowledgeJob['status'] | undefined;
   },
   access?: ResourceAccessFilter,
 ) {

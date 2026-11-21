@@ -1,3 +1,5 @@
+import type { ProviderErrorKind } from '@agentport/shared';
+import { modelProviderProtocolSchema, providerErrorKindSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -17,7 +19,9 @@ export const modelProviders = pgTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    protocol: text('protocol', { enum: ['anthropic'] })
+    protocol: text('protocol', {
+      enum: [modelProviderProtocolSchema.value] as [typeof modelProviderProtocolSchema.value],
+    })
       .notNull()
       .default('anthropic'),
     baseUrl: text('base_url').notNull(),
@@ -42,7 +46,10 @@ export const modelProviders = pgTable(
       'model_providers_budget_check',
       sql`${t.monthlyBudgetUsd} is null or ${t.monthlyBudgetUsd} >= 0`,
     ),
-    check('model_providers_protocol_check', sql`${t.protocol} = 'anthropic'`),
+    check(
+      'model_providers_protocol_check',
+      sql`${t.protocol} = ${sql.raw(`'${modelProviderProtocolSchema.value}'`)}`,
+    ),
   ],
 );
 
@@ -57,7 +64,7 @@ export const providerRequestLogs = pgTable(
     model: text('model'),
     statusCode: integer('status_code'),
     errorKind: text('error_kind', {
-      enum: ['network', 'timeout', 'rate_limit', 'auth', 'upstream', 'content_blocked'],
+      enum: providerErrorKindSchema.options as [ProviderErrorKind, ...ProviderErrorKind[]],
     }),
     durationMs: integer('duration_ms').notNull(),
     upstreamRequestId: text('upstream_request_id'),
@@ -70,7 +77,7 @@ export const providerRequestLogs = pgTable(
     index('provider_request_logs_created_idx').on(t.createdAt),
     check(
       'provider_request_logs_error_kind_check',
-      sql`${t.errorKind} is null or ${t.errorKind} in ('network', 'timeout', 'rate_limit', 'auth', 'upstream', 'content_blocked')`,
+      sql`${t.errorKind} is null or ${t.errorKind} in (${sql.raw(providerErrorKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );

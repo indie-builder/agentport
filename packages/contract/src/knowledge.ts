@@ -5,11 +5,13 @@ import {
   knowledgeBaseInputSchema,
   knowledgeBaseSchema,
   knowledgeBaseSettingsSchema,
+  knowledgeBaseStatusSchema,
   knowledgeBaseSummarySchema,
   knowledgeChunkSchema,
   knowledgeDocumentSchema,
   knowledgeDocumentStatusSchema,
   knowledgeDocumentVersionSchema,
+  knowledgeEmbeddingProtocolSchema,
   knowledgeFaqImportInputSchema,
   knowledgeFaqImportIssueSchema,
   knowledgeFaqImportResponseSchema,
@@ -19,15 +21,18 @@ import {
   knowledgeImageProcessingPatchSchema,
   knowledgeJobSchema,
   knowledgeJobStatusSchema,
+  knowledgeModelProfileKindSchema,
   knowledgeModelProfileSelectionSchema,
+  knowledgeParseStatusSchema,
   knowledgeSearchQuerySchema,
   knowledgeSearchResultSchema,
   knowledgeSearchWarningSchema,
+  knowledgeSourceConfigTypeSchema,
   knowledgeSourceInputSchema,
   knowledgeSourceRangeInputSchema,
   knowledgeSourceStatusSchema,
-  knowledgeSourceTypeSchema,
   knowledgeSyncItemSchema,
+  knowledgeSyncItemStatusSchema,
   knowledgeTargetKindSchema,
   knowledgeWikiGraphSchema,
   knowledgeWikiLinksResultSchema,
@@ -101,12 +106,12 @@ export const knowledgeTagSchema = z.object({
 
 export const knowledgeModelProfileSchema = z.object({
   id: z.string(),
-  kind: z.enum(['embedding', 'rerank', 'asr']),
+  kind: knowledgeModelProfileKindSchema,
   name: z.string(),
   endpointUrl: z.string(),
   model: z.string(),
   dimensions: z.number().int().nullable(),
-  embeddingProtocol: z.enum(['openai', 'cohere_v2']),
+  embeddingProtocol: knowledgeEmbeddingProtocolSchema,
   imageInputEnabled: z.boolean(),
   enabled: z.boolean(),
   hasSecret: z.boolean(),
@@ -117,7 +122,7 @@ export const knowledgeModelProfileSchema = z.object({
 export const knowledgeSourceSchema = z.object({
   id: z.string(),
   baseId: z.string(),
-  type: knowledgeSourceTypeSchema.exclude(['upload', 'url', 'manual']),
+  type: knowledgeSourceConfigTypeSchema,
   name: z.string(),
   config: z.record(z.string(), z.unknown()),
   hasSecret: z.boolean(),
@@ -217,7 +222,7 @@ const knowledgeVersionDetailsSchema = z.object({
   mimeType: z.string(),
   sizeBytes: z.number().int(),
   sourceRevision: z.string().nullable(),
-  parseStatus: z.enum(['parsed', 'parse_failed']),
+  parseStatus: knowledgeParseStatusSchema,
   pageMap: z.array(z.record(z.string(), z.unknown())),
   images: z.array(
     z.object({
@@ -264,7 +269,7 @@ const knowledgeBaseCreateSchema = knowledgeBaseInputSchema.extend({
 const knowledgeBasePatchSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   description: z.string().max(500).optional(),
-  status: z.enum(['active', 'disabled']).optional(),
+  status: knowledgeBaseStatusSchema.optional(),
   embeddingProfileId: z.string().min(1).optional(),
   rerankProfileId: z.string().min(1).nullable().optional(),
   asrProfileId: z.string().min(1).nullable().optional(),
@@ -459,14 +464,13 @@ const faqTestSchema = z.object({
   faqDirectAnswerThreshold: z.number().min(-1).max(1).default(0.9),
 });
 
-const profileKindSchema = z.enum(['embedding', 'rerank', 'asr']);
 const profileCreateSchema = z
   .object({
-    kind: profileKindSchema,
+    kind: knowledgeModelProfileKindSchema,
     name: z.string().trim().min(1).max(120),
     endpointUrl: httpUrlSchema,
     model: z.string().trim().min(1).max(200),
-    embeddingProtocol: z.enum(['openai', 'cohere_v2']).default('openai'),
+    embeddingProtocol: knowledgeEmbeddingProtocolSchema.default('openai'),
     imageInputEnabled: z.boolean().default(false),
     apiKey: z.string().min(1).max(500).optional(),
     enabled: z.boolean().default(true),
@@ -492,7 +496,7 @@ const profilePatchSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   endpointUrl: httpUrlSchema.optional(),
   model: z.string().trim().min(1).max(200).optional(),
-  embeddingProtocol: z.enum(['openai', 'cohere_v2']).optional(),
+  embeddingProtocol: knowledgeEmbeddingProtocolSchema.optional(),
   imageInputEnabled: z.boolean().optional(),
   apiKey: z.string().min(1).max(500).nullable().optional(),
   enabled: z.boolean().optional(),
@@ -510,7 +514,7 @@ const sourcePatchSchema = z.object({
 
 const sourceDeleteQuery = z.object({ documents: z.enum(['keep', 'delete']).default('keep') });
 
-const syncItemsQuery = pageQuery.extend({ status: z.enum(['failed', 'skipped']).optional() });
+const syncItemsQuery = pageQuery.extend({ status: knowledgeSyncItemStatusSchema.optional() });
 
 const wikiPageCreateSchema = z.object({
   slug: slugSchema,

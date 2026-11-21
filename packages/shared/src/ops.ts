@@ -3,6 +3,12 @@ import { runErrorKindSchema, runStatusSchema } from './run-state.js';
 
 export const MAINTENANCE_QUEUE = 'maintenance';
 
+export const auditActorKindSchema = z.enum(['user', 'service', 'anonymous', 'agent']);
+export type AuditActorKind = z.infer<typeof auditActorKindSchema>;
+
+export const scheduleMissedPolicySchema = z.enum(['skip', 'run_once']);
+export type ScheduleMissedPolicy = z.infer<typeof scheduleMissedPolicySchema>;
+
 /** 运行来源：对话 / 外部 MCP / 定时 / 事件 / 记忆审核 / 频道。 */
 export const runTriggerSchema = z.enum(['chat', 'mcp', 'schedule', 'event', 'review', 'channel']);
 export type RunTrigger = z.infer<typeof runTriggerSchema>;
@@ -26,7 +32,7 @@ export const scheduleInputSchema = z.object({
   name: z.string().min(1).max(120),
   cron: cronSchema,
   timezone: scheduleTimezoneSchema.default('Asia/Shanghai'),
-  missedPolicy: z.enum(['skip', 'run_once']).default('skip'),
+  missedPolicy: scheduleMissedPolicySchema.default('skip'),
   prompt: z.string().min(1).max(8000),
   enabled: z.boolean().default(true),
 });
@@ -40,7 +46,7 @@ export const scheduleSchema = z.object({
   name: z.string(),
   cron: z.string(),
   timezone: z.string(),
-  missedPolicy: z.enum(['skip', 'run_once']),
+  missedPolicy: scheduleMissedPolicySchema,
   description: z.string(),
   prompt: z.string(),
   enabled: z.boolean(),
@@ -54,15 +60,12 @@ export type Schedule = z.infer<typeof scheduleSchema>;
 
 // `.partial()` 只把字段设为可选，不会移除 `default()`；直接 partial 会在省略
 // enabled 时仍注入 true，把停用的任务重新启用。这里显式覆盖成纯可选。
-export const schedulePatchSchema = scheduleInputSchema
-  .omit({ agentId: true })
-  .partial()
-  .extend({
-    enabled: z.boolean().optional(),
-    timezone: scheduleTimezoneSchema.optional(),
-    missedPolicy: z.enum(['skip', 'run_once']).optional(),
-    expectedUpdatedAt: z.string().optional(),
-  });
+export const schedulePatchSchema = scheduleInputSchema.omit({ agentId: true }).partial().extend({
+  enabled: z.boolean().optional(),
+  timezone: scheduleTimezoneSchema.optional(),
+  missedPolicy: scheduleMissedPolicySchema.optional(),
+  expectedUpdatedAt: z.string().optional(),
+});
 
 export type SchedulePatch = z.infer<typeof schedulePatchSchema>;
 

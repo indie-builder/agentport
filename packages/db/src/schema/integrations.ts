@@ -1,5 +1,15 @@
-import type { WebhookEventType } from '@agentport/shared';
-import { webhookEventTypeSchema } from '@agentport/shared';
+import type {
+  IntegrationScope,
+  IntegrationSourceKind,
+  WebhookDirection,
+  WebhookEventType,
+} from '@agentport/shared';
+import {
+  integrationScopeSchema,
+  integrationSourceKindSchema,
+  webhookDirectionSchema,
+  webhookEventTypeSchema,
+} from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -20,7 +30,9 @@ export const apiTokens = pgTable(
     name: text('name').notNull(),
     tokenHash: text('token_hash').notNull(),
     tokenPrefix: text('token_prefix').notNull(),
-    scopes: text('scopes', { enum: ['runs.create', 'runs.read'] })
+    scopes: text('scopes', {
+      enum: integrationScopeSchema.options as [IntegrationScope, ...IntegrationScope[]],
+    })
       .array()
       .notNull(),
     ownerBusinessId: text('owner_business_id').notNull(),
@@ -45,7 +57,9 @@ export const webhookEndpoints = pgTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    direction: text('direction', { enum: ['inbound', 'outbound'] }).notNull(),
+    direction: text('direction', {
+      enum: webhookDirectionSchema.options as [WebhookDirection, ...WebhookDirection[]],
+    }).notNull(),
     agentId: text('agent_id').references(() => agents.id, { onDelete: 'cascade' }),
     url: text('url'),
     secretEncrypted: text('secret_encrypted').notNull(),
@@ -114,7 +128,12 @@ export const externalRequestKeys = pgTable(
   'external_request_keys',
   {
     id: text('id').primaryKey(),
-    sourceKind: text('source_kind', { enum: ['api_token', 'webhook'] }).notNull(),
+    sourceKind: text('source_kind', {
+      enum: integrationSourceKindSchema.options as [
+        IntegrationSourceKind,
+        ...IntegrationSourceKind[],
+      ],
+    }).notNull(),
     sourceId: text('source_id').notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
     requestHash: text('request_hash').notNull(),
@@ -125,7 +144,7 @@ export const externalRequestKeys = pgTable(
     uniqueIndex('external_request_keys_key_idx').on(t.sourceKind, t.sourceId, t.idempotencyKey),
     check(
       'external_request_keys_source_kind_check',
-      sql`${t.sourceKind} in ('api_token', 'webhook')`,
+      sql`${t.sourceKind} in (${sql.raw(integrationSourceKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );

@@ -1,12 +1,12 @@
 import { fail, sha256Hex } from '@agentport/core';
 import { repo } from '@agentport/db';
-import type { ChatRequest, Principal, RunStatus } from '@agentport/shared';
+import type { ChatRequest, IntegrationSourceKind, Principal, RunStatus } from '@agentport/shared';
 import { authorize, authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { type StartRunDependencies, startRun } from '../chat/use-cases.js';
 
 export interface ExternalRunSource {
-  kind: 'api_token' | 'webhook';
+  kind: IntegrationSourceKind;
   id: string;
 }
 

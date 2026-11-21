@@ -338,14 +338,23 @@ export type PermissionGrant = { permissionId: PermissionId; scope: AccessScope }
 
 export type AccessFilter = { businessId: BusinessId; scopes: AccessScope[] };
 
+export const serviceIdSchema = z.enum(['system', 'mcp']);
+export type ServiceId = z.infer<typeof serviceIdSchema>;
+
+export const runSubjectKindSchema = z.enum(['user', 'service']);
+export type RunSubjectKind = z.infer<typeof runSubjectKindSchema>;
+
 export type ExecutionSubject =
   | { kind: 'user'; businessId: BusinessId }
-  | { kind: 'service'; serviceId: 'system' | 'mcp' };
+  | { kind: 'service'; serviceId: ServiceId };
+
+export const systemKeySchema = z.enum(['admin', 'user', 'owner', 'maintainer']);
+export type SystemKey = z.infer<typeof systemKeySchema>;
 
 export const roleSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
-  systemKey: z.enum(['admin', 'user', 'owner', 'maintainer']).nullable(),
+  systemKey: systemKeySchema.nullable(),
 });
 
 export type RoleSummary = z.infer<typeof roleSummarySchema>;
@@ -360,7 +369,7 @@ export type Principal =
       roles: RoleSummary[];
       grants: PermissionGrant[];
     }
-  | { kind: 'service'; serviceId: 'system' | 'mcp' };
+  | { kind: 'service'; serviceId: ServiceId };
 
 export const resourceKindSchema = z.enum([
   'knowledge_base',

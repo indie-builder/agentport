@@ -104,10 +104,28 @@ export const dataDomainListSchema = z.object({
 });
 export type DataDomainList = z.infer<typeof dataDomainListSchema>;
 
+export const dataDomainVersionStatusSchema = z.enum(['queued', 'building', 'ready', 'failed']);
+export type DataDomainVersionStatus = z.infer<typeof dataDomainVersionStatusSchema>;
+
+export const dataDomainQueryLogStatusSchema = z.enum(['ok', 'error']);
+export type DataDomainQueryLogStatus = z.infer<typeof dataDomainQueryLogStatusSchema>;
+
+export const dataDomainQueryApprovalStatusSchema = z.enum(['pending', 'approved', 'rejected']);
+export type DataDomainQueryApprovalStatus = z.infer<typeof dataDomainQueryApprovalStatusSchema>;
+
+export const dataDomainEnrichmentStatusSchema = z.enum([
+  'generating',
+  'ready',
+  'approved',
+  'rejected',
+  'failed',
+]);
+export type DataDomainEnrichmentStatus = z.infer<typeof dataDomainEnrichmentStatusSchema>;
+
 export const dataDomainVersionSchema = z.object({
   id: z.string(),
   dataDomainId: z.string(),
-  status: z.enum(['queued', 'building', 'ready', 'failed']),
+  status: dataDomainVersionStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -116,7 +134,7 @@ export type DataDomainVersion = z.infer<typeof dataDomainVersionSchema>;
 export const dataDomainVersionDetailSchema = z.object({
   id: z.string(),
   dataDomainId: z.string(),
-  status: z.enum(['queued', 'building', 'ready', 'failed']),
+  status: dataDomainVersionStatusSchema,
   logTail: z.string(),
   logTruncated: z.boolean(),
   createdAt: z.string(),
@@ -153,7 +171,7 @@ const dataDomainQueryLogSchema = z.object({
   actorBusinessId: z.string().nullable(),
   sqlSummary: z.string(),
   rowCount: z.number().int().nullable(),
-  status: z.enum(['ok', 'error']),
+  status: dataDomainQueryLogStatusSchema,
   durationMs: z.number().int(),
   createdAt: z.string(),
 });
@@ -161,7 +179,7 @@ const dataDomainQueryLogSchema = z.object({
 export const dataDomainQueryLogListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  status: z.enum(['ok', 'error']).optional(),
+  status: dataDomainQueryLogStatusSchema.optional(),
   runId: z.string().min(1).max(128).optional(),
 });
 export type DataDomainQueryLogListQuery = z.infer<typeof dataDomainQueryLogListQuerySchema>;
@@ -180,7 +198,7 @@ export const dataDomainQueryApprovalSchema = z.object({
   actorBusinessId: z.string().nullable(),
   sqlText: z.string(),
   sqlHash: z.string(),
-  status: z.enum(['pending', 'approved', 'rejected']),
+  status: dataDomainQueryApprovalStatusSchema,
   decisionNote: z.string(),
   requestedAt: z.string(),
   decidedAt: z.string().nullable(),
@@ -191,7 +209,7 @@ export type DataDomainQueryApproval = z.infer<typeof dataDomainQueryApprovalSche
 export const dataDomainQueryApprovalListQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  status: z.enum(['pending', 'approved', 'rejected']).optional(),
+  status: dataDomainQueryApprovalStatusSchema.optional(),
 });
 export type DataDomainQueryApprovalListQuery = z.infer<
   typeof dataDomainQueryApprovalListQuerySchema
@@ -212,7 +230,7 @@ export const dataDomainEnrichmentProposalSchema = z.object({
   id: z.string(),
   dataDomainId: z.string(),
   sourceVersionId: z.string(),
-  status: z.enum(['generating', 'ready', 'approved', 'rejected', 'failed']),
+  status: dataDomainEnrichmentStatusSchema,
   instruction: z.string(),
   summary: z.string(),
   error: z.string(),

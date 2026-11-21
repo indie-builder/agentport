@@ -1,12 +1,14 @@
 import { z } from 'zod';
 
-export type ProviderErrorKind =
-  | 'network'
-  | 'timeout'
-  | 'rate_limit'
-  | 'auth'
-  | 'upstream'
-  | 'content_blocked';
+export const providerErrorKindSchema = z.enum([
+  'network',
+  'timeout',
+  'rate_limit',
+  'auth',
+  'upstream',
+  'content_blocked',
+]);
+export type ProviderErrorKind = z.infer<typeof providerErrorKindSchema>;
 
 export function providerErrorKindForStatus(status: number): ProviderErrorKind {
   if (status === 401 || status === 403) return 'auth';
@@ -15,7 +17,7 @@ export function providerErrorKindForStatus(status: number): ProviderErrorKind {
   return 'upstream';
 }
 
-const modelProviderProtocolSchema = z.literal('anthropic');
+export const modelProviderProtocolSchema = z.literal('anthropic');
 
 const modelProviderCredentialSchema = z
   .string()

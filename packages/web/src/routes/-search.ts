@@ -1,6 +1,9 @@
 import {
   AGENT_ROLES,
+  auditActorKindSchema,
   contentPolicyActionSchema,
+  dataDomainQueryLogStatusSchema,
+  knowledgeBaseStatusSchema,
   knowledgeContentKindSchema,
   policyApprovalStatusSchema,
   policySourceKindSchema,
@@ -106,7 +109,7 @@ export const auditSearchSchema = z.object({
   status: z.enum(['ok', 'error', 'denied']).optional().catch(undefined),
   target: z.string().optional().catch(undefined),
   actor: z.string().optional().catch(undefined),
-  actorKind: z.enum(['user', 'service', 'anonymous', 'agent']).optional().catch(undefined),
+  actorKind: auditActorKindSchema.optional().catch(undefined),
   range: z.coerce
     .string()
     .pipe(z.enum(['7', '30', '90']))
@@ -247,7 +250,7 @@ export const evalSearchSchema = z.object({
 });
 
 export const knowledgeSearchSchema = resourceSearchSchema.extend({
-  status: z.enum(['active', 'disabled']).optional().catch(undefined),
+  status: knowledgeBaseStatusSchema.optional().catch(undefined),
   view: listViewSchema,
 });
 
@@ -270,7 +273,7 @@ export const dataDomainsSearchSchema = z.object({
 export const dataDomainDetailSearchSchema = z.object({
   version: z.string().min(1).optional().catch(undefined),
   approvalStatus: z.enum(['all', 'pending', 'approved', 'rejected']).optional().catch(undefined),
-  queryStatus: z.enum(['ok', 'error']).optional().catch(undefined),
+  queryStatus: dataDomainQueryLogStatusSchema.optional().catch(undefined),
   run: z.string().min(1).max(128).optional().catch(undefined),
   backTo: backToSearchSchema,
 });

@@ -1,5 +1,9 @@
 import type { KnowledgeBase, KnowledgeBaseSettings } from '@agentport/shared';
-import { knowledgeImageProcessingSchema } from '@agentport/shared';
+import {
+  knowledgeEmbeddingProtocolSchema,
+  knowledgeImageProcessingSchema,
+  knowledgeModelProfileKindSchema,
+} from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
@@ -932,7 +936,7 @@ export function KnowledgeProfilesDialog({
 }
 
 const profileFormSchema = z.object({
-  kind: z.enum(['embedding', 'rerank', 'asr']),
+  kind: knowledgeModelProfileKindSchema,
   name: z.string().superRefine((value, ctx) => {
     if (value.trim() === '') ctx.addIssue({ code: 'custom', message: '请填写 profile 名称' });
   }),
@@ -943,7 +947,7 @@ const profileFormSchema = z.object({
     if (value.trim() === '') ctx.addIssue({ code: 'custom', message: '请填写模型 ID' });
   }),
   apiKey: z.string(),
-  protocol: z.enum(['openai', 'cohere_v2']),
+  protocol: knowledgeEmbeddingProtocolSchema,
   imageInput: z.boolean(),
   enabled: z.boolean(),
 });

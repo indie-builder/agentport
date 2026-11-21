@@ -8,6 +8,7 @@ import {
   sha256Hex,
 } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
+import type { KnowledgeDocumentStatus } from '@agentport/shared';
 import { KNOWLEDGE_DOCUMENT_MAX_BYTES, knowledgeImageChunkMetadataSchema } from '@agentport/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Config } from '../../../config.js';
@@ -235,7 +236,7 @@ export async function listDocuments(
   query: PageQuery & {
     folderId?: string | undefined;
     tag?: string | undefined;
-    status?: 'pending' | 'processing' | 'ready' | 'failed' | 'disabled' | undefined;
+    status?: KnowledgeDocumentStatus | undefined;
     q?: string | undefined;
     sort?: 'updated' | 'created' | 'title' | undefined;
     order?: 'asc' | 'desc' | undefined;

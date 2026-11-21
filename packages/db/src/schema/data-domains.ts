@@ -1,5 +1,17 @@
-import type { DataDomainQueryApprovalMode } from '@agentport/shared';
-import { dataDomainQueryApprovalModeSchema } from '@agentport/shared';
+import type {
+  DataDomainEnrichmentStatus,
+  DataDomainQueryApprovalMode,
+  DataDomainQueryApprovalStatus,
+  DataDomainQueryLogStatus,
+  DataDomainVersionStatus,
+} from '@agentport/shared';
+import {
+  dataDomainEnrichmentStatusSchema,
+  dataDomainQueryApprovalModeSchema,
+  dataDomainQueryApprovalStatusSchema,
+  dataDomainQueryLogStatusSchema,
+  dataDomainVersionStatusSchema,
+} from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -23,7 +35,12 @@ export const dataDomainVersions = pgTable(
     dataDomainId: text('data_domain_id')
       .notNull()
       .references((): AnyPgColumn => dataDomains.id, { onDelete: 'cascade' }),
-    status: text('status', { enum: ['queued', 'building', 'ready', 'failed'] })
+    status: text('status', {
+      enum: dataDomainVersionStatusSchema.options as [
+        DataDomainVersionStatus,
+        ...DataDomainVersionStatus[],
+      ],
+    })
       .notNull()
       .default('queued'),
     projectFiles: jsonb('project_files').$type<Record<string, string>>().notNull(),
@@ -38,7 +55,7 @@ export const dataDomainVersions = pgTable(
     index('data_domain_versions_domain_created_idx').on(t.dataDomainId, t.createdAt, t.id),
     check(
       'data_domain_versions_status_check',
-      sql`${t.status} in ('queued', 'building', 'ready', 'failed')`,
+      sql`${t.status} in (${sql.raw(dataDomainVersionStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'data_domain_versions_ready_manifest_check',
@@ -117,14 +134,22 @@ export const dataDomainQueryLogs = pgTable(
     actorBusinessId: text('actor_business_id'),
     sqlSummary: text('sql_summary').notNull().default(''),
     rowCount: integer('row_count'),
-    status: text('status', { enum: ['ok', 'error'] }).notNull(),
+    status: text('status', {
+      enum: dataDomainQueryLogStatusSchema.options as [
+        DataDomainQueryLogStatus,
+        ...DataDomainQueryLogStatus[],
+      ],
+    }).notNull(),
     durationMs: integer('duration_ms').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('data_domain_query_logs_domain_created_idx').on(t.dataDomainId, t.createdAt, t.id),
     index('data_domain_query_logs_run_idx').on(t.runId),
-    check('data_domain_query_logs_status_check', sql`${t.status} in ('ok','error')`),
+    check(
+      'data_domain_query_logs_status_check',
+      sql`${t.status} in (${sql.raw(dataDomainQueryLogStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
   ],
 );
 
@@ -140,7 +165,12 @@ export const dataDomainQueryApprovals = pgTable(
     actorBusinessId: text('actor_business_id'),
     sqlText: text('sql_text').notNull(),
     sqlHash: text('sql_hash').notNull(),
-    status: text('status', { enum: ['pending', 'approved', 'rejected'] })
+    status: text('status', {
+      enum: dataDomainQueryApprovalStatusSchema.options as [
+        DataDomainQueryApprovalStatus,
+        ...DataDomainQueryApprovalStatus[],
+      ],
+    })
       .notNull()
       .default('pending'),
     decisionNote: text('decision_note').notNull().default(''),
@@ -155,7 +185,7 @@ export const dataDomainQueryApprovals = pgTable(
       .where(sql`${t.status} = 'pending'`),
     check(
       'data_domain_query_approvals_status_check',
-      sql`${t.status} in ('pending','approved','rejected')`,
+      sql`${t.status} in (${sql.raw(dataDomainQueryApprovalStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'data_domain_query_approvals_decision_check',
@@ -173,7 +203,10 @@ export const dataDomainEnrichmentProposals = pgTable(
       .references((): AnyPgColumn => dataDomains.id, { onDelete: 'cascade' }),
     sourceVersionId: text('source_version_id').notNull(),
     status: text('status', {
-      enum: ['generating', 'ready', 'approved', 'rejected', 'failed'],
+      enum: dataDomainEnrichmentStatusSchema.options as [
+        DataDomainEnrichmentStatus,
+        ...DataDomainEnrichmentStatus[],
+      ],
     })
       .notNull()
       .default('generating'),
@@ -195,7 +228,7 @@ export const dataDomainEnrichmentProposals = pgTable(
     ),
     check(
       'data_domain_enrichment_proposals_status_check',
-      sql`${t.status} in ('generating','ready','approved','rejected','failed')`,
+      sql`${t.status} in (${sql.raw(dataDomainEnrichmentStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );
