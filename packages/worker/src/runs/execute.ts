@@ -7,8 +7,6 @@ import {
   hashMcpToken,
   RunFailure,
   toOutputStyleSelection,
-  toRuleEntries,
-  toWorkflowEntries,
 } from '@agentport/core';
 import { runScopedLogger } from '@agentport/core/logger';
 import { resolveWorkspaceMemoryPolicy } from '@agentport/core/workspace-input';
@@ -633,7 +631,9 @@ export async function runAgentJob(
       }));
 
       const rules = runMemoryPolicy.injectRules
-        ? toRuleEntries(definition ? definition.rules : await repo.rules.listRules(db, agentId))
+        ? definition
+          ? definition.rules
+          : await repo.rules.listRules(db, agentId)
         : [];
 
       const styleRows = definition
@@ -642,9 +642,9 @@ export async function runAgentJob(
       const { outputStyles, selectedOutputStyle } = toOutputStyleSelection(styleRows);
       const workflows =
         effectiveAgent.parentId === null
-          ? toWorkflowEntries(
-              definition ? definition.workflows : await repo.workflows.listWorkflows(db, agentId),
-            )
+          ? definition
+            ? definition.workflows
+            : await repo.workflows.listWorkflows(db, agentId)
           : [];
       const pluginBindings: Agent['pluginBindings'] = definition
         ? definition.agent.pluginBindings

@@ -71,10 +71,12 @@ export function createApprovalHook(
     url.hash = '';
     headers.set('content-type', 'application/json');
     let registered = false;
+    let transportFailures = 0;
     let backoff = 2_000;
     let expiresAt = Number.POSITIVE_INFINITY;
     while (!signal.aborted && Date.now() < expiresAt) {
       let delay = 2_000;
+      let responded = false;
       try {
         const response = await fetch(url, {
           method: registered ? 'GET' : 'PUT',
@@ -83,6 +85,8 @@ export function createApprovalHook(
           redirect: 'error',
           signal: AbortSignal.any([signal, AbortSignal.timeout(5_000)]),
         });
+        responded = true;
+        transportFailures = 0;
         if ([401, 403, 404].includes(response.status))
           return decision('deny', '工具审批授权已失效，调用未执行。');
         if (response.status === 429) {
@@ -118,10 +122,13 @@ export function createApprovalHook(
           return decision('deny', '工具审批请求失败，调用未执行。');
         }
       } catch {
+        if (!responded) transportFailures += 1;
         delay = backoff;
         backoff = Math.min(backoff * 2, 5_000);
       }
       if (Date.now() >= expiresAt) return decision('deny', '工具审批已过期，调用未执行。');
+      if (!signal.aborted && transportFailures >= 3)
+        return decision('deny', '工具审批服务不可达，调用未执行。');
       await sleep(Math.min(delay, Math.max(0, expiresAt - Date.now())), undefined, {
         signal,
       }).catch(() => undefined);

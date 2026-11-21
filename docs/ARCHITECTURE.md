@@ -322,7 +322,7 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 工具审批恢复：worker 通过 shared `SandboxTask` 传递父级与启用子级的 server 名到 ID 映射及本轮 ask 工具快照。sandbox `PreToolUse` 从官方 `.mcp.json` 读取既有 run Bearer token 与 `x-agentport-run-id`，调用 `PUT /tool-approvals/{runId}/{serverId}/{toolName}` 幂等登记，再每 2 秒 GET 同一路径。接口复用 MCP service 边界与限流，只接受绑定该 generated server 的 run token、启用且仍为 ask 的工具；返回 pending/approved/denied/expired/cancelled、approvalId 与 expiresAt。审批按 `(runId, serverId, toolName)` 持久化，首次截止由 `APPROVAL_WAIT_MS`（默认 300 秒）固定，重试不延期。过期由尚未决策行的截止派生，不新增状态列；已有 approved/denied 行语义保持不变，批准记录不因等待截止而撤销。
 
-API 重启只中断当前短请求，runner 对网络错误和 5xx 按 2–5 秒退避，429 遵守 Retry-After，恢复后继续读取同一审批。批准后 hook 不给权限决策，沿用既有 `allowedTools` / 权限规则；显式禁用仍生效，原 MCP 调用在权限通过后执行；拒绝、过期、取消或 401/403/404 返回 deny。hook 设置 360 秒超时和 `onFailure: 'block'`，回调最多等待 355 秒，并受 run 取消/超时的既有 SIGTERM 约束。服务端不再长等待，执行前仍刷新批准/拒绝与 run 活动状态；绕过 hook 的未批准调用只登记并立即拒绝。
+API 重启只中断当前短请求，runner 对网络错误和 5xx 按 2–5 秒退避，429 遵守 Retry-After，恢复后继续读取同一审批；连续 3 次未收到 HTTP 响应的传输失败，且等待未取消、未超时、审批未过期时，立即按“工具审批服务不可达”拒绝，收到响应后的解析失败仍按原退避继续。批准后 hook 不给权限决策，沿用既有 `allowedTools` / 权限规则；显式禁用仍生效，原 MCP 调用在权限通过后执行；拒绝、过期、取消或 401/403/404 返回 deny。hook 设置 360 秒超时和 `onFailure: 'block'`，回调最多等待 355 秒，并受 run 取消/超时的既有 SIGTERM 约束。服务端不再长等待，执行前仍刷新批准/拒绝与 run 活动状态；绕过 hook 的未批准调用只登记并立即拒绝。
 
 边界：当前只有站内投递与页面/侧栏徽标，没有外部邮件、IM、通知偏好或免打扰；外部 webhook 见 3.9。审批恢复要求 sandbox runner 与 run 保持存活；不恢复已经发出的 MCP/upstream 调用，也不重放副作用。超过 hook/run 截止或 API 持续不可用时拒绝执行；`APPROVAL_WAIT_MS` 超过 355 秒也不会延长 hook 等待。
 

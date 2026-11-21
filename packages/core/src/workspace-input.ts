@@ -109,18 +109,6 @@ export function toWorkspaceInput(params: {
   };
 }
 
-export function toRuleEntries(
-  rows: Array<{ slug: string; content: string; globs: string }>,
-): Array<{ slug: string; content: string; globs: string }> {
-  return rows.map((r) => ({ slug: r.slug, content: r.content, globs: r.globs }));
-}
-
-export function toWorkflowEntries(
-  rows: Array<{ slug: string; content: string }>,
-): Array<{ slug: string; content: string }> {
-  return rows.map((r) => ({ slug: r.slug, content: r.content }));
-}
-
 export function toOutputStyleSelection(
   rows: Array<{
     slug: string;
