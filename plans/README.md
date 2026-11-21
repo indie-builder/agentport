@@ -22,7 +22,7 @@
 
 - 010：为保留图例排序，XY/饼图图例增加按原始标签的 `itemSorter`；散点图使用内部键并在提示框显式显示轴名。
 - 013：批量取数保留了逐项 64MiB 检查与逐项错误语义；标签 `add`/`remove` 改为逐项读取当前标签，避免覆盖后台自动打标写入；`replace` 不额外读。
-- 016：`memorySha256`、`changeOwnPassword`、`updateProgress`、`replaceRanges`、`rollbackWikiPage`、`listReadableDocuments` 被混在真实行为测试中当夹具/断言，按计划保留，未删除。
+- 016：`memorySha256`、`updateProgress`、`replaceRanges` 按计划保留；`changeOwnPassword`、`listReadableDocuments`、`rollbackWikiPage` 在后续 cleanup 轮次因生产零引用删除，wiki 回滚能力由 API use-case 保留，相应测试断言已删除或改名。
 
 第三批依赖说明：
 

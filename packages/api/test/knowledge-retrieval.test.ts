@@ -998,7 +998,7 @@ describe('searchKnowledge', () => {
       slug: `wiki-${Math.random().toString(36).slice(2, 8)}`,
       title: 'Wiki 页面',
     });
-    const published = await repo.knowledge.saveWikiVersion(db, page.id, {
+    const published = await repo.knowledge.saveWikiDraft(db, page.id, {
       markdown: '线上 Wiki 正文',
       sourceChunkIds: [chunk[0]!.id],
       model: 'manual',
@@ -1068,7 +1068,7 @@ describe('searchKnowledge', () => {
     );
     expect(byOtherTag.hits.some((entry) => entry.target.id === page.id)).toBe(false);
 
-    const next = await repo.knowledge.saveWikiVersion(db, page.id, {
+    const next = await repo.knowledge.saveWikiDraft(db, page.id, {
       markdown: '线上 Wiki 新正文',
       sourceChunkIds: [chunk[0]!.id],
       model: 'manual',

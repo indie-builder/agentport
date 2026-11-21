@@ -125,7 +125,6 @@ export async function saveWikiDraft(
   });
 }
 
-export { saveWikiDraft as saveWikiVersion };
 /**
  * 发布指定版本：只切指针，不复制内容。来源必须仍可检索，
  * 否则 409——草稿不能绕过来源撤权。
@@ -182,38 +181,6 @@ export async function publishWikiVersion(
   versionId: string,
 ): Promise<KnowledgeWikiPageRow | null> {
   return db.transaction((tx) => publishWikiVersionTx(tx, pageId, versionId));
-}
-
-/** 回退 = 复制目标版本内容成新草稿并发布，历史版本不删；来源失效时 409。 */
-export async function rollbackWikiPage(
-  db: Database,
-  pageId: string,
-  versionId: string,
-): Promise<KnowledgeWikiVersionRow | null> {
-  const [source] = await db
-    .select()
-    .from(knowledgeWikiVersions)
-    .where(and(eq(knowledgeWikiVersions.id, versionId), eq(knowledgeWikiVersions.pageId, pageId)))
-    .limit(1);
-  if (!source) return null;
-  const page = await getWikiPage(db, pageId);
-  if (!page) return null;
-  if (source.generatedBy === 'sdk' && source.sourceChunkIds.length === 0) {
-    throw new AppError('CONFLICT', '模型生成的 Wiki 没有来源，不能回退');
-  }
-  const checked = await usableSourceChunks(db, page, source.sourceChunkIds);
-  if (checked.unusable > 0) {
-    throw new AppError('CONFLICT', '草稿引用的来源已删除或禁用，请重新生成后再发布');
-  }
-  const draft = await saveWikiDraft(db, pageId, {
-    markdown: source.markdown,
-    sourceChunkIds: source.sourceChunkIds,
-    model: source.model,
-    generatedBy: source.generatedBy,
-  });
-  if (!draft) return null;
-  await publishWikiVersion(db, pageId, draft.id);
-  return draft;
 }
 
 export async function listWikiVersions(

@@ -58,11 +58,11 @@ export type Me = AuthMe;
 
 明确保留（不删除，理由记录在此）：
 
-- `changeOwnPassword`（`packages/db/src/repo/accounts.ts:291`）：`packages/db/test/access.test.ts` 的混合用例如实断言它，同一 `it` 块还验证 `setAccountStatus`、`listAccounts`、`getIdentity`、`resetPassword`。
+- `changeOwnPassword`（`packages/db/src/repo/accounts.ts:291`）：`packages/db/test/access.test.ts` 的混合用例如实断言它，同一 `it` 块还验证 `setAccountStatus`、`listAccounts`、`getIdentity`、`resetPassword`。状态：已在后续 cleanup 轮次因生产零引用删除。
 - `updateProgress`（`packages/db/src/repo/eval.ts:304`）：`packages/db/test/guards.test.ts` 与 `packages/api/test/eval-cancel.test.ts` 把它作为批次状态断言的一部分；`packages/worker/test/eval-snapshot.test.ts` 作为 mock 字段。
 - `replaceRanges`（`packages/db/src/repo/knowledge/sources.ts:271`）：`packages/db/test/knowledge-foundation.test.ts` 与 `packages/worker/test/knowledge-integrity-regressions.test.ts` 用它构造后续生产行为断言的前置数据。
-- `rollbackWikiPage`（`packages/db/src/repo/knowledge/wiki.ts:188`）：`knowledge-foundation.test.ts` 的混合用例如实断言回滚行为。
-- `listReadableDocuments`（`packages/db/src/repo/knowledge/documents.ts:435`）：`knowledge-foundation.test.ts` 用它验证可读文档范围。
+- `rollbackWikiPage`（`packages/db/src/repo/knowledge/wiki.ts:188`）：`knowledge-foundation.test.ts` 的混合用例如实断言回滚行为。状态：已于 cleanup loop 删除；wiki 回滚能力由 API `rollbackWiki` 保留。
+- `listReadableDocuments`（`packages/db/src/repo/knowledge/documents.ts:435`）：`knowledge-foundation.test.ts` 用它验证可读文档范围。状态：已在后续 cleanup 轮次因生产零引用删除。
 
 仓库约定：删除前用 `rg` 确认引用；删除后跑 typecheck；不新增测试与注释。
 
@@ -87,7 +87,7 @@ export type Me = AuthMe;
 - `packages/web/test/login-route.test.ts`（仅把 `Me` 类型引用改为 `AuthMe`）
 
 **Out of scope**:
-- 上表「明确保留」的 5 个函数及其测试。
+- 原计划保留的 5 个函数及其测试（后续 cleanup 已删除其中 changeOwnPassword、listReadableDocuments、rollbackWikiPage；updateProgress、replaceRanges 仍在）。
 - 任何生产调用方 — 若出现，STOP。
 - 不重构删除后文件里的其他函数；只清理因删除而不再使用的 import/私有 helper。
 
@@ -152,7 +152,7 @@ bunx biome check packages/db/src/repo/data-domains.ts packages/db/src/repo/tool-
 ## Done criteria
 
 - [ ] `rg` 确认 `listDataDomains`、`getById`、`Me` 无定义、无引用
-- [ ] 5 个「明确保留」的函数与测试未被修改
+- [ ] 原计划验收条件：5 个「明确保留」的函数与测试未被修改（现状：changeOwnPassword、listReadableDocuments、rollbackWikiPage 已删除，updateProgress、replaceRanges 仍在）
 - [ ] db / api / web typecheck exit 0
 - [ ] `bun run test:web` 全部通过
 - [ ] biome 0 error
@@ -169,5 +169,5 @@ Stop and report back (do not improvise) if:
 
 ## Maintenance notes
 
-- 5 个保留函数是「生产不可达但被测试当夹具」的已知债务；若未来重写这些测试，可一并评估删除。
+- 原 5 个保留函数中，changeOwnPassword、listReadableDocuments、rollbackWikiPage 已在后续 cleanup 删除；updateProgress、replaceRanges 仍是「生产不可达但被测试当夹具」的已知债务，若未来重写这些测试可一并评估删除。
 - 评审重点：3 个符号确实零引用；保留的测试块没有被顺手改动。

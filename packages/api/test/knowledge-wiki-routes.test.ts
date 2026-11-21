@@ -115,7 +115,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     pageId: string,
     input: { markdown: string; documentId: string; versionId: string; chunkId: string },
   ) {
-    return repo.knowledge.saveWikiVersion(app.db, pageId, {
+    return repo.knowledge.saveWikiDraft(app.db, pageId, {
       markdown: input.markdown,
       sourceChunkIds: [input.chunkId],
       model: 'wiki-model',
@@ -292,13 +292,13 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   it('serializes two concurrent saves on one page into versions 1 and 2', async () => {
     const page = await createPage();
     const saved = await Promise.all([
-      repo.knowledge.saveWikiVersion(app.db, page.id, {
+      repo.knowledge.saveWikiDraft(app.db, page.id, {
         markdown: '# 并发 A',
         sourceChunkIds: [],
         model: 'wiki-model',
         generatedBy: 'sdk',
       }),
-      repo.knowledge.saveWikiVersion(app.db, page.id, {
+      repo.knowledge.saveWikiDraft(app.db, page.id, {
         markdown: '# 并发 B',
         sourceChunkIds: [],
         model: 'wiki-model',
@@ -322,7 +322,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const page = await createPage();
     const documentId = await seedSourceDocument();
     const source = await addSourceVersion(documentId, 1);
-    const draft = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const draft = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# 引用有效来源',
       sourceChunkIds: [source.chunkId],
       model: 'wiki-model',
@@ -417,7 +417,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     );
     const slug = pageRow[0]?.slug ?? '';
     const save = async (markdown: string) =>
-      repo.knowledge.saveWikiVersion(app.db, page.id, {
+      repo.knowledge.saveWikiDraft(app.db, page.id, {
         markdown,
         sourceChunkIds: [],
         model: 'manual',
@@ -549,7 +549,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   it('同页并发首次发布只创建一个内部索引文档', async () => {
     const page = await createPage('并发索引页');
     const save = (markdown: string) =>
-      repo.knowledge.saveWikiVersion(app.db, page.id, {
+      repo.knowledge.saveWikiDraft(app.db, page.id, {
         markdown,
         sourceChunkIds: [],
         model: 'manual',
@@ -586,7 +586,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   it('发布失败不改旧索引指针，旧 queued 任务真实摄取仍读取 w1', async () => {
     const page = await createPage('失败保旧索引');
-    const w1 = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const w1 = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# w1 正文',
       sourceChunkIds: [],
       model: 'manual',
@@ -617,7 +617,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       `update knowledge_documents set status = 'disabled', disabled_reason = 'source' where id = $1`,
       [documentId],
     );
-    const w2 = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const w2 = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# w2 正文',
       sourceChunkIds: [source.chunkId],
       model: 'wiki-model',
@@ -653,7 +653,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   it('索引任务写库失败时页面指针与索引文档整体回滚', async () => {
     const page = await createPage('任务写库失败页');
-    const draft = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const draft = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# 不应发布正文',
       sourceChunkIds: [],
       model: 'manual',
@@ -696,7 +696,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
 
   it('索引任务入队失败时保留 queued 任务供 reconcile 补投', async () => {
     const page = await createPage('入队失败页');
-    const draft = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const draft = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# 入队失败正文',
       sourceChunkIds: [],
       model: 'manual',
@@ -730,7 +730,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   it('回退的索引准备失败时保留原线上版本', async () => {
     const page = await createPage('回退准备失败页');
     const save = (markdown: string) =>
-      repo.knowledge.saveWikiVersion(app.db, page.id, {
+      repo.knowledge.saveWikiDraft(app.db, page.id, {
         markdown,
         sourceChunkIds: [],
         model: 'manual',
@@ -872,7 +872,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(publish.statusCode, publish.body).toBe(200);
 
-    const draft = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const draft = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# 自动草稿',
       sourceChunkIds: [],
       model: 'wiki-model',
@@ -941,7 +941,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       headers: { cookie },
       payload: { markdown: '# 第二版' },
     });
-    const draft = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const draft = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# 待发布草稿',
       sourceChunkIds: [],
       model: 'manual',
@@ -1072,7 +1072,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
        values ($1, $2, $3, $4, 0, 'text', '正文', '正文')`,
       [chunkId, baseId, documentId, versionId],
     );
-    const draft = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const draft = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# 引用失效来源',
       sourceChunkIds: [chunkId],
       model: 'wiki-model',
@@ -1117,7 +1117,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       currentVersionId: null,
     });
 
-    const next = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const next = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# 第二轮草稿',
       sourceChunkIds: [],
       model: 'wiki-model',
@@ -1134,7 +1134,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const page = await createPage();
     const documentId = await seedSourceDocument();
     const v1 = await addSourceVersion(documentId, 1);
-    const candidate = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const candidate = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# 已发布',
       sourceChunkIds: [v1.chunkId],
       model: 'manual',
@@ -1147,7 +1147,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(stalePage?.currentVersionId).toBe(candidate?.id);
     expect(stalePage?.status).toBe('stale');
 
-    const draft = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const draft = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# 自动草稿',
       sourceChunkIds: [],
       model: 'wiki-model',
@@ -1252,7 +1252,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       const { ids } = await prepare();
       for (const generatedBy of ['manual', 'sdk'] as const) {
         const page = await createPage();
-        const draft = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+        const draft = await repo.knowledge.saveWikiDraft(app.db, page.id, {
           markdown: '# 草稿',
           sourceChunkIds: ids,
           model: generatedBy === 'manual' ? 'manual' : 'wiki-model',
@@ -1303,7 +1303,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   it.each(usableSourceCases)('显式发布有效来源（$name）后去重记账', async ({ prepare }) => {
     const { ids, usable } = await prepare();
     const page = await createPage();
-    const saved = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const saved = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: '# 有效来源',
       sourceChunkIds: ids,
       model: 'manual',
@@ -1523,13 +1523,13 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const page = await createPage();
     const documentId = await seedSourceDocument();
     const chunk = await addSourceVersion(documentId, 1);
-    const first = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const first = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: 'a\nb\nc',
       sourceChunkIds: [chunk.chunkId],
       model: 'manual',
       generatedBy: 'manual',
     });
-    const second = await repo.knowledge.saveWikiVersion(app.db, page.id, {
+    const second = await repo.knowledge.saveWikiDraft(app.db, page.id, {
       markdown: 'a\nb\nc\nc\nd',
       sourceChunkIds: [],
       model: 'manual',

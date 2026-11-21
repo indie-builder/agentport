@@ -795,7 +795,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     });
     expect(page.statusCode, page.body).toBe(201);
     const newPageId = page.json<{ id: string }>().id;
-    const version = await repo.knowledge.saveWikiVersion(app.db, newPageId, {
+    const version = await repo.knowledge.saveWikiDraft(app.db, newPageId, {
       markdown: '# 引用被删文档的 Wiki',
       sourceChunkIds: [newChunkId],
       model: 'manual',

@@ -219,7 +219,7 @@ async function publishLinkedPage(
     slug: `page-${suffix()}`,
     title,
   });
-  const version = await repo.knowledge.saveWikiVersion(db, page.id, {
+  const version = await repo.knowledge.saveWikiDraft(db, page.id, {
     markdown: `# ${title}\n\n人工发布的内容。`,
     sourceChunkIds: [source.chunkId],
     model: 'manual',

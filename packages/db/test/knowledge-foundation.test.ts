@@ -1063,9 +1063,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     await expect(knowledge.publishWikiVersion(db, page.id, next.id)).rejects.toMatchObject({
       code: 'CONFLICT',
     });
-    await expect(knowledge.rollbackWikiPage(db, page.id, draft.id)).rejects.toMatchObject({
-      code: 'CONFLICT',
-    });
   });
 
   it('Wiki 版本列表按 version 倒序：created_at 倒挂时首项仍是最新版本', async () => {
@@ -2040,7 +2037,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(toggledChunks.items[0]).toMatchObject({ enabled: false, editedByUser: false });
   });
 
-  it('Wiki 发布与回退拒绝内部索引来源，SDK 无来源不可发布', async () => {
+  it('Wiki 发布拒绝内部索引来源，SDK 无来源不可发布', async () => {
     const baseId = await seedBase();
     const index = await seedDocument(baseId, {
       contentKind: 'wiki',
@@ -2072,9 +2069,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     await expect(knowledge.publishWikiVersion(db, page.id, sdkEmpty.id)).rejects.toMatchObject({
       code: 'CONFLICT',
     });
-    await expect(knowledge.rollbackWikiPage(db, page.id, sdkEmpty.id)).rejects.toMatchObject({
-      code: 'CONFLICT',
-    });
 
     const manualEmpty = await knowledge.saveWikiDraft(db, page.id, {
       markdown: '# manual no source',
@@ -2094,8 +2088,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     });
     if (!sdkWithSource) throw new Error('sdk sourced draft missing');
     await knowledge.publishWikiVersion(db, page.id, sdkWithSource.id);
-    const rolled = await knowledge.rollbackWikiPage(db, page.id, sdkWithSource.id);
-    expect(rolled?.generatedBy).toBe('sdk');
   });
 
   it('FAQ 批发布在切指针/删旧集前整批校验库状态与 profile', async () => {
