@@ -4,7 +4,6 @@ import {
   type FetchOptions,
   fetchChecked,
   fetchJson,
-  makeSourceFailure,
   readBytesCapped,
   SourceAuthError,
   sourceNetworkOptions,
@@ -12,20 +11,13 @@ import {
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
-import { parseInitialCursor, snapshotOf } from './source-utils.js';
+import { failureOf, parseInitialCursor, SourceTruncatedError, snapshotOf } from './source-utils.js';
 
 const NOTION_API = 'https://api.notion.com';
 const NOTION_VERSION = '2026-03-11';
 const MAX_PAGES = 1000;
 const MAX_BLOCKS = 50_000;
 const DATA_SOURCE_RESULT_LIMIT = 10_000;
-
-class TruncatedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'TruncatedError';
-  }
-}
 
 const richTextSchema = z.looseObject({
   plain_text: z.string().optional(),
@@ -298,8 +290,6 @@ function notionBase(config: SourceConfig): string {
   return (config.url.trim() || NOTION_API).replace(/\/+$/, '');
 }
 
-const failureOf = makeSourceFailure((err) => err instanceof TruncatedError);
-
 function rethrowAbort(err: unknown, signal: AbortSignal | undefined): void {
   if (signal?.aborted === true) throw signal.reason ?? err;
 }
@@ -469,7 +459,9 @@ async function completePaginatedProperty(
     cursors.add(next);
     cursor = next;
   }
-  throw new TruncatedError(`notion property ${name} on ${pageId} exceeded ${MAX_PAGES} pages`);
+  throw new SourceTruncatedError(
+    `notion property ${name} on ${pageId} exceeded ${MAX_PAGES} pages`,
+  );
 }
 
 async function completePageProperties(
@@ -538,13 +530,13 @@ async function listBlockChildren(ctx: NotionContext, blockId: string): Promise<B
       'notion block children',
     );
     if (response.request_status?.type === 'incomplete') {
-      throw new TruncatedError(
+      throw new SourceTruncatedError(
         `notion block children for ${blockId} are incomplete (${response.request_status.incomplete_reason ?? 'unknown reason'})`,
       );
     }
     blocks.push(...response.results);
     if (blocks.length > MAX_BLOCKS) {
-      throw new TruncatedError(`notion block tree exceeded ${MAX_BLOCKS} blocks`);
+      throw new SourceTruncatedError(`notion block tree exceeded ${MAX_BLOCKS} blocks`);
     }
     if (!response.has_more) return blocks;
     const next = response.next_cursor ?? '';
@@ -555,7 +547,9 @@ async function listBlockChildren(ctx: NotionContext, blockId: string): Promise<B
     seen.add(next);
     cursor = next;
   }
-  throw new TruncatedError(`notion block pagination for ${blockId} exceeded ${MAX_PAGES} pages`);
+  throw new SourceTruncatedError(
+    `notion block pagination for ${blockId} exceeded ${MAX_PAGES} pages`,
+  );
 }
 
 async function collectBlocks(ctx: NotionContext, rootId: string): Promise<Block[]> {
@@ -568,7 +562,7 @@ async function collectBlocks(ctx: NotionContext, rootId: string): Promise<Block[
     visited.add(containerId);
     for (const block of await listBlockChildren(ctx, containerId)) {
       if (result.length >= MAX_BLOCKS) {
-        throw new TruncatedError(`notion block tree exceeded ${MAX_BLOCKS} blocks`);
+        throw new SourceTruncatedError(`notion block tree exceeded ${MAX_BLOCKS} blocks`);
       }
       result.push(block);
       if (
@@ -601,7 +595,7 @@ async function queryDataSource(ctx: NotionContext, dataSourceId: string): Promis
       'notion data source query',
     );
     if (response.request_status?.type === 'incomplete') {
-      throw new TruncatedError(
+      throw new SourceTruncatedError(
         `notion data source ${dataSourceId} query is incomplete (${response.request_status.incomplete_reason ?? 'unknown reason'}); split the range`,
       );
     }
@@ -614,7 +608,7 @@ async function queryDataSource(ctx: NotionContext, dataSourceId: string): Promis
       }
     }
     if (rows.length >= DATA_SOURCE_RESULT_LIMIT) {
-      throw new TruncatedError(
+      throw new SourceTruncatedError(
         `notion data source ${dataSourceId} reached the ${DATA_SOURCE_RESULT_LIMIT} result limit; split the range`,
       );
     }
@@ -629,7 +623,7 @@ async function queryDataSource(ctx: NotionContext, dataSourceId: string): Promis
     seen.add(next);
     cursor = next;
   }
-  throw new TruncatedError(
+  throw new SourceTruncatedError(
     `notion data source ${dataSourceId} pagination exceeded ${MAX_PAGES} pages`,
   );
 }
@@ -873,15 +867,15 @@ async function walkPage(
       throw new Error(`notion markdown id ${response.id} did not match page ${pageId}`);
     }
     if (response.truncated) {
-      throw new TruncatedError(`notion markdown for ${pageId} is truncated`);
+      throw new SourceTruncatedError(`notion markdown for ${pageId} is truncated`);
     }
     if (response.unknown_block_ids.length > 0) {
-      throw new TruncatedError(
+      throw new SourceTruncatedError(
         `notion markdown for ${pageId} has unknown blocks: ${response.unknown_block_ids.join(', ')}`,
       );
     }
     if ((response.warnings?.length ?? 0) > 0) {
-      throw new TruncatedError(`notion markdown for ${pageId} returned warnings`);
+      throw new SourceTruncatedError(`notion markdown for ${pageId} returned warnings`);
     }
     markdown = response.markdown;
   } catch (err) {

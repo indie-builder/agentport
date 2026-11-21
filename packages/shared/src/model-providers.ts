@@ -1,5 +1,20 @@
 import { z } from 'zod';
 
+export type ProviderErrorKind =
+  | 'network'
+  | 'timeout'
+  | 'rate_limit'
+  | 'auth'
+  | 'upstream'
+  | 'content_blocked';
+
+export function providerErrorKindForStatus(status: number): ProviderErrorKind {
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 429) return 'rate_limit';
+  if (status === 408) return 'timeout';
+  return 'upstream';
+}
+
 const modelProviderProtocolSchema = z.literal('anthropic');
 
 const modelProviderCredentialSchema = z

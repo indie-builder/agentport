@@ -1,14 +1,14 @@
 import { z } from 'zod';
-import {
-  type FetchOptions,
-  fetchJson,
-  makeSourceFailure,
-  SourceAuthError,
-  validateSourceUrl,
-} from './source-http.js';
+import { type FetchOptions, fetchJson, SourceAuthError, validateSourceUrl } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
-import { encodePathSegments, parseInitialCursor, snapshotOf } from './source-utils.js';
+import {
+  encodePathSegments,
+  failureOf,
+  parseInitialCursor,
+  SourceTruncatedError,
+  snapshotOf,
+} from './source-utils.js';
 
 /**
  * 语雀来源：数字 ID 才是身份；列表按 offset 读全，正文优先 body（Markdown），
@@ -17,13 +17,6 @@ import { encodePathSegments, parseInitialCursor, snapshotOf } from './source-uti
 const YUQUE_API = 'https://www.yuque.com';
 const PAGE_SIZE = 100;
 const MAX_PAGES = 1000;
-
-class TruncatedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'TruncatedError';
-  }
-}
 
 const safePositiveInteger = z.number().int().safe().positive();
 
@@ -112,8 +105,6 @@ function skipped(externalId: string, title: string, message: string): SourceFail
   return { externalId, title, code: 'skipped', message: message.slice(0, 500), retryable: false };
 }
 
-const failureOf = makeSourceFailure((err) => err instanceof TruncatedError);
-
 function sourceUrlOf(ctx: YuqueContext, detail: Detail, summary: Summary): string {
   const namespace = detail.book?.namespace;
   const slug = detail.slug ?? summary.slug;
@@ -163,10 +154,10 @@ async function listDocuments(ctx: YuqueContext): Promise<Summary[]> {
     }
     offset += response.data.length;
     if (page === MAX_PAGES - 1) {
-      throw new TruncatedError(`yuque docs pagination exceeded ${MAX_PAGES} pages`);
+      throw new SourceTruncatedError(`yuque docs pagination exceeded ${MAX_PAGES} pages`);
     }
   }
-  throw new TruncatedError(`yuque docs pagination exceeded ${MAX_PAGES} pages`);
+  throw new SourceTruncatedError(`yuque docs pagination exceeded ${MAX_PAGES} pages`);
 }
 
 function itemFor(

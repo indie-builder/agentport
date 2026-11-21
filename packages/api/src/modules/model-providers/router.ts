@@ -2,7 +2,11 @@ import { modelProvidersContract } from '@agentport/contract/model-providers';
 import { decryptSecrets, encryptSecrets, fail } from '@agentport/core';
 import { assertServerEndpoint } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
-import type { ModelProvider, ModelProviderUsage } from '@agentport/shared';
+import {
+  type ModelProvider,
+  type ModelProviderUsage,
+  providerErrorKindForStatus,
+} from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
@@ -115,13 +119,6 @@ function modelsFromPayload(payload: unknown): string[] {
   });
 }
 
-function errorKindForStatus(status: number) {
-  if (status === 401 || status === 403) return 'auth' as const;
-  if (status === 429) return 'rate_limit' as const;
-  if (status === 408) return 'timeout' as const;
-  return 'upstream' as const;
-}
-
 export const modelProvidersRouter = os.router({
   list: os.list.handler(async ({ context }) => {
     const rows = await providers.listModelProviders(context.db);
@@ -226,7 +223,7 @@ export const modelProvidersRouter = os.router({
       const latencyMs = Math.round(performance.now() - started);
       const payload: unknown = await response.json().catch(() => null);
       if (!response.ok) {
-        const errorKind = errorKindForStatus(response.status);
+        const errorKind = providerErrorKindForStatus(response.status);
         await providers.recordProviderRequest(context.db, {
           providerId: row.id,
           statusCode: response.status,

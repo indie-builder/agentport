@@ -430,7 +430,7 @@ export const memoryReviewsRouter = os.router({
         .getJob(review.runId)
         .then((job) => job?.remove())
         .catch(() => undefined);
-      await failQueuedRunEnqueue(context.db, review.runId, { deleteMemoryReview: true });
+      await failQueuedRunEnqueue(context.db, review.runId);
       fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试');
     }
 

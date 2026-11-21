@@ -14,6 +14,7 @@ import { access } from '../../http/middleware.js';
 import { toIso } from '../../lib/iso.js';
 import { agentSlug, readWorkspaceOutput } from '../../lib/outputs.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from './access.js';
+import { toRunDetail } from './events.js';
 import { runsQuestionsRouter } from './questions.js';
 
 const runsRepo = repo.runs;
@@ -41,15 +42,7 @@ const runsMainRouter = {
     await authorizeRun(context, input.params.id, 'runs.read');
     const detail = await runsRepo.getRunDetail(context.db, input.params.id);
     if (!detail) notFound('run', RUN_MISSING);
-    return {
-      run: {
-        ...detail.run,
-        startedAt: toIso(detail.run.startedAt),
-        endedAt: toIso(detail.run.endedAt),
-      },
-      steps: detail.steps,
-      conversation: detail.conversation,
-    };
+    return toRunDetail(detail);
   }),
   feedback: os.feedback.handler(async ({ input, context }) => {
     await authorizeRunFeedback(context, input.params.id, 'runs.read');
@@ -315,13 +308,7 @@ export function registerRunExportHttp(app: Hono<HttpEnv>): void {
       const body = JSON.stringify({
         format: 'agentport/run-trajectory@1',
         exportedAt: new Date().toISOString(),
-        run: {
-          ...detail.run,
-          startedAt: toIso(detail.run.startedAt),
-          endedAt: toIso(detail.run.endedAt),
-        },
-        steps: detail.steps,
-        conversation: detail.conversation,
+        ...toRunDetail(detail),
       });
       return attachmentResponse(body, `run-${id}.json`, 'application/json');
     },

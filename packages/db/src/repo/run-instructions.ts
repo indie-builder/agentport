@@ -13,8 +13,6 @@ import {
   linkPolicyApprovalToRun,
 } from './security.js';
 
-export type RunInstructionRow = typeof runInstructions.$inferSelect;
-
 export async function createRunInstruction(
   db: Database,
   input: {

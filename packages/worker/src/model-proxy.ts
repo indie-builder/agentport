@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { pipeline } from 'node:stream/promises';
 
 import type { repo } from '@agentport/db';
+import { type ProviderErrorKind, providerErrorKindForStatus } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 
@@ -26,7 +27,6 @@ export type ProviderResolution =
     };
 
 type ProviderAttemptRecord = repo.modelProviders.ProviderRequestRecord;
-type ProviderErrorKind = NonNullable<ProviderAttemptRecord['errorKind']>;
 
 interface ModelProxyOptions {
   logger: Logger;
@@ -82,13 +82,6 @@ function modelOf(body: Buffer): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function errorKindForStatus(status: number): ProviderErrorKind {
-  if (status === 401 || status === 403) return 'auth';
-  if (status === 429) return 'rate_limit';
-  if (status === 408) return 'timeout';
-  return 'upstream';
 }
 
 async function readBody(req: IncomingMessage): Promise<Buffer> {
@@ -319,7 +312,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
         if (retryable) {
           clearTimeout(startTimer);
           lastStatus = statusCode;
-          lastError = errorKindForStatus(statusCode);
+          lastError = providerErrorKindForStatus(statusCode);
           await recordAttempt({ statusCode, errorKind: lastError, upstreamRequestId });
           failoverFrom = providerId;
           await upstreamRes.body?.cancel().catch(() => undefined);
@@ -484,7 +477,8 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
         await recordAttempt({
           statusCode,
           upstreamRequestId,
-          errorKind: upstreamRes.ok && !incompleteStream ? null : errorKindForStatus(statusCode),
+          errorKind:
+            upstreamRes.ok && !incompleteStream ? null : providerErrorKindForStatus(statusCode),
           ...(incompleteStream ? { error: '上游未完成流式响应' } : {}),
         });
         logger.info(
