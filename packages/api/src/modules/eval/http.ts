@@ -47,7 +47,15 @@ export function registerEvalHttp(app: Hono<HttpEnv>): void {
       }
 
       const body = JSON.stringify(
-        { format: 'agentport/eval@1', exportedAt: new Date().toISOString(), cases },
+        {
+          format: 'agentport/eval@1',
+          exportedAt: new Date().toISOString(),
+          cases: cases.map(({ expectedTools, forbiddenTools, ...rest }) => ({
+            ...rest,
+            ...(expectedTools === null ? {} : { expectedTools }),
+            ...(forbiddenTools === null ? {} : { forbiddenTools }),
+          })),
+        },
         null,
         2,
       );
