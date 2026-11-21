@@ -242,6 +242,59 @@ function inScope(file: string, roots: string[]): boolean {
   return roots.some((root) => file === root || file.startsWith(`${root.replace(/\/+$/, '')}/`));
 }
 
+function repoBlobMimes(relative: string): { textMime: string } | { binaryMime: string } | null {
+  const extension = extensionWithDot(relative);
+  const textMime = MIME_BY_EXTENSION[extension];
+  if (textMime) return { textMime };
+  const binaryMime = BINARY_MIME_BY_EXTENSION[extension];
+  return binaryMime ? { binaryMime } : null;
+}
+
+function unsupportedRepoBlob(relative: string, externalId: string, title: string): SourceFailure {
+  return failureOf(
+    externalId,
+    title,
+    new Error(`unsupported file type ${extensionWithDot(relative) || '(none)'}`),
+    false,
+  );
+}
+
+async function emitRepoBlob(input: {
+  relative: string;
+  externalId: string;
+  title: string;
+  mimes: { textMime: string } | { binaryMime: string };
+  sourceUrl: () => string;
+  usedPaths: Set<string>;
+  items: SourceItem[];
+  failures: SourceFailure[];
+  readText: () => Promise<string>;
+  readBytes: () => Promise<Uint8Array>;
+}): Promise<void> {
+  try {
+    let content = '';
+    let bytes: Uint8Array | undefined;
+    if ('textMime' in input.mimes) {
+      content = await input.readText();
+      if (content === '') content = `# ${input.relative}\n`;
+    } else {
+      bytes = await input.readBytes();
+    }
+    input.items.push({
+      externalId: input.externalId,
+      title: input.title,
+      path: uniquePath(input.relative, input.usedPaths, input.relative),
+      sourceUrl: input.sourceUrl(),
+      content,
+      ...(bytes ? { bytes } : {}),
+      mimeType: 'textMime' in input.mimes ? input.mimes.textMime : input.mimes.binaryMime,
+    });
+  } catch (err) {
+    rethrowAuth(err);
+    input.failures.push(failureOf(input.externalId, input.title, err, true));
+  }
+}
+
 async function readGitlab(
   config: SourceConfig,
   cursor: Record<string, unknown> | undefined,
@@ -306,46 +359,27 @@ async function readGitlab(
   const failures: SourceFailure[] = [];
   for (const entry of treeEntries) {
     if (entry.type !== 'blob') continue;
-    const extension = extensionWithDot(entry.path);
-    const textMime = MIME_BY_EXTENSION[extension];
-    const binaryMime = BINARY_MIME_BY_EXTENSION[extension];
     if (!inScope(entry.path, paths)) continue;
     const externalId = `gitlab:${base.href.replace(/\/$/, '')}:${projectId}:${ref}:${entry.path}`;
     const title = entry.path.slice(entry.path.lastIndexOf('/') + 1);
-    if (!textMime && !binaryMime) {
-      failures.push(
-        failureOf(
-          externalId,
-          title,
-          new Error(`unsupported file type ${extension || '(none)'}`),
-          false,
-        ),
-      );
+    const mimes = repoBlobMimes(entry.path);
+    if (mimes === null) {
+      failures.push(unsupportedRepoBlob(entry.path, externalId, title));
       continue;
     }
     const fileUrl = `${apiBase}/projects/${encodeURIComponent(projectId)}/repository/files/${encodeURIComponent(entry.path)}/raw?ref=${encodeURIComponent(ref)}`;
-    try {
-      let content = '';
-      let bytes: Uint8Array | undefined;
-      if (textMime) {
-        content = await fetchText(fileUrl, fetchOptions(), 'gitlab file');
-        if (content === '') content = `# ${entry.path}\n`;
-      } else {
-        bytes = await fetchBytes(fileUrl, fetchOptions(), 'gitlab file');
-      }
-      items.push({
-        externalId,
-        title,
-        path: uniquePath(entry.path, usedPaths, entry.path),
-        sourceUrl: `${webUrl}/-/blob/${ref}/${entry.path}`,
-        content,
-        ...(bytes ? { bytes } : {}),
-        mimeType: textMime ?? (binaryMime as string),
-      });
-    } catch (err) {
-      rethrowAuth(err);
-      failures.push(failureOf(externalId, title, err, true));
-    }
+    await emitRepoBlob({
+      relative: entry.path,
+      externalId,
+      title,
+      mimes,
+      sourceUrl: () => `${webUrl}/-/blob/${ref}/${entry.path}`,
+      usedPaths,
+      items,
+      failures,
+      readText: () => fetchText(fileUrl, fetchOptions(), 'gitlab file'),
+      readBytes: () => fetchBytes(fileUrl, fetchOptions(), 'gitlab file'),
+    });
   }
 
   return snapshotOf(items, failures, previous);
@@ -450,53 +484,37 @@ async function readGithub(
   const failures: SourceFailure[] = [];
   for (const entry of tree.tree) {
     if (entry.type !== 'blob' || entry.mode === '120000') continue;
-    const extension = extensionWithDot(entry.path);
-    const textMime = MIME_BY_EXTENSION[extension];
-    const binaryMime = BINARY_MIME_BY_EXTENSION[extension];
+    if (!inScope(entry.path, paths)) continue;
     const externalId = `github:${apiBase}:${repoId}:${ref}:${entry.path}`;
     const title = entry.path.slice(entry.path.lastIndexOf('/') + 1);
-    if (!inScope(entry.path, paths)) continue;
-    if (!textMime && !binaryMime) {
-      failures.push(
-        failureOf(
-          externalId,
-          title,
-          new Error(`unsupported file type ${extension || '(none)'}`),
-          false,
-        ),
-      );
+    const mimes = repoBlobMimes(entry.path);
+    if (mimes === null) {
+      failures.push(unsupportedRepoBlob(entry.path, externalId, title));
       continue;
     }
-    try {
-      let content = '';
-      let bytes: Uint8Array | undefined;
-      if (textMime) {
-        content = await fetchText(
+    await emitRepoBlob({
+      relative: entry.path,
+      externalId,
+      title,
+      mimes,
+      sourceUrl: () =>
+        `${htmlUrl}/blob/${encodePathSegments(ref)}/${encodePathSegments(entry.path)}`,
+      usedPaths,
+      items,
+      failures,
+      readText: () =>
+        fetchText(
           `${apiBase}/repos/${project}/git/blobs/${encodeURIComponent(entry.sha)}`,
           fetchOptions('application/vnd.github.raw+json'),
           'github file',
-        );
-        if (content === '') content = `# ${entry.path}\n`;
-      } else {
-        bytes = await fetchBytes(
+        ),
+      readBytes: () =>
+        fetchBytes(
           `${apiBase}/repos/${project}/git/blobs/${encodeURIComponent(entry.sha)}`,
           fetchOptions('application/vnd.github.raw+json'),
           'github file',
-        );
-      }
-      items.push({
-        externalId,
-        title,
-        path: uniquePath(entry.path, usedPaths, entry.path),
-        sourceUrl: `${htmlUrl}/blob/${encodePathSegments(ref)}/${encodePathSegments(entry.path)}`,
-        content,
-        ...(bytes ? { bytes } : {}),
-        mimeType: textMime ?? (binaryMime as string),
-      });
-    } catch (err) {
-      rethrowAuth(err);
-      failures.push(failureOf(externalId, title, err, true));
-    }
+        ),
+    });
   }
 
   return snapshotOf(items, failures, previous);
