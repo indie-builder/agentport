@@ -246,6 +246,11 @@ export async function getAgentRelation(
   };
 }
 
+export async function roleExists(db: DbHandle, roleId: string): Promise<boolean> {
+  const [row] = await db.select({ id: roles.id }).from(roles).where(eq(roles.id, roleId)).limit(1);
+  return row !== undefined;
+}
+
 export async function getRoleMatrix(db: DbHandle): Promise<RoleMatrix> {
   const [bootstrap] = await db
     .select({ revision: platformBootstrap.rolesRevision })

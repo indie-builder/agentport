@@ -676,6 +676,21 @@ violation_cases(
 )
 -- index (status, created_at)、(assignee_business_id)
 
+tool_approval_policies(
+  id text pk, agent_id text nullable fk agents cascade,
+  server_id text nullable fk servers cascade, tool_id text nullable fk api_tools cascade,
+  role text nullable check (null 或 platform:<role id>|agent:owner|agent:maintainer
+    |agent:user|channel:owner|channel:admin|channel:member|channel:viewer
+    |service:system|service:mcp),
+  http_method text nullable check in ('GET','POST','PUT','PATCH','DELETE'),
+  path_template text nullable,
+  approval_mode text not null check in ('allow','ask','deny'),
+  enabled boolean not null default true, version int not null default 1,
+  created_by text not null, created_at timestamptz not null default now(),
+  updated_by text not null, updated_at timestamptz not null default now()
+)
+-- index (enabled, server_id, agent_id)；选择器为空表示该维度不限制
+
 agent_runs.provider_id text nullable fk model_providers set null
 agent_runs.served_provider_id text nullable fk model_providers set null
 agent_runs.provider_failovers int not null default 0 check (provider_failovers >= 0)

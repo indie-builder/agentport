@@ -187,6 +187,11 @@ export async function getApiToolByName(db: Database, serverId: string, toolName:
   return row ?? null;
 }
 
+export async function getApiTool(db: DbHandle, id: string) {
+  const [row] = await db.select().from(apiTools).where(eq(apiTools.id, id)).limit(1);
+  return row ?? null;
+}
+
 export async function createApiTool(db: DbHandle, input: ApiToolWrite): Promise<ApiToolRow> {
   const [row] = await db
     .insert(apiTools)

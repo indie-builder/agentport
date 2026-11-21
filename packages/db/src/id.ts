@@ -70,6 +70,7 @@ export const idPrefixes = {
   policyEvent: 'pev',
   policyApproval: 'pap',
   violationCase: 'vic',
+  toolApprovalPolicy: 'tap',
 } as const;
 
 type Entity = keyof typeof idPrefixes;

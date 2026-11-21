@@ -176,7 +176,9 @@ function auditDetails(row: AuditEntry) {
         .map(([key, value]) => (
           <Fragment key={key}>
             <dt className="text-muted-foreground">{detailLabels.get(key) ?? key}</dt>
-            <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">{value}</dd>
+            <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
+              {value ?? <span className="text-muted-foreground">—</span>}
+            </dd>
           </Fragment>
         ))}
     </dl>
@@ -256,7 +258,7 @@ export function AuditPage() {
           row.durationMs ?? '',
           row.requestId ?? '',
           Object.entries(row.detail ?? {})
-            .map(([key, value]) => `${key}=${value}`)
+            .map(([key, value]) => `${key}=${value ?? ''}`)
             .join('; '),
         ]),
       );
