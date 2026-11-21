@@ -3,12 +3,18 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import { and, eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
 import { reconcileExpiredApprovals } from '../src/maintenance.js';
+import { createIsolatedDatabase } from './isolated-db.js';
 
-const { db, client } = createDb(process.env.DATABASE_URL ?? '');
+const isolated = await createIsolatedDatabase(
+  'worker_approval_expiry',
+  process.env.DATABASE_URL ?? '',
+);
+const { db, client } = createDb(isolated?.url ?? process.env.DATABASE_URL ?? '');
 const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
 );
+if (!(ready && isolated)) await isolated?.close();
 const logger = pino({ level: 'silent' });
 const businessId = 'approval-expiry-owner';
 const agentIds: string[] = [];
@@ -122,7 +128,7 @@ async function expiryAudits(runId: string) {
 }
 
 afterAll(async () => {
-  if (ready) {
+  if (ready && isolated) {
     await db.delete(schema.notifications).where(eq(schema.notifications.businessId, businessId));
     if (runIds.length > 0) {
       await db.delete(schema.auditLog).where(inArray(schema.auditLog.target, runIds));
@@ -138,9 +144,10 @@ afterAll(async () => {
     }
   }
   await client.close();
+  await isolated?.close();
 });
 
-describe.skipIf(!ready)('reconcileExpiredApprovals', () => {
+describe.skipIf(!(ready && isolated))('reconcileExpiredApprovals', () => {
   it('expires stale approvals once, audits them and clears the waiting notification', async () => {
     const run = await newRun();
     const approvalId = await addApproval({

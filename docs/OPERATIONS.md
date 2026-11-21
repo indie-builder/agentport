@@ -473,7 +473,7 @@ worker 启动时注册 BullMQ 的 `maintenance` 每日重复任务（`upsertJobS
 
 `audit_log` 与 `eval_results` 不参与清理。每次执行写入一条 `maintenance.pruned` 审计，`target` 为 JSON 摘要。
 
-同一 `maintenance` 队列的 `ops-alerts` 每 5 分钟核对过期审批：`approved_at`、`denied_at`、`expired_at` 均为空且 `expires_at` 已过的 `approval_requests` 行写入 `expired_at`，逐行记 `agent.run.approval.expired` 审计，并把对应的滞留「等待审批」通知置读（私有来源 `approval:<runId>:<serverId>:<toolName>`，频道来源 `channel-approval:<approvalId>`）。核对幂等，只做治理收尾，不改动执行与工具调用路径。
+同一 `maintenance` 队列的 `ops-alerts` 每 5 分钟核对过期审批：`approved_at`、`denied_at`、`expired_at` 均为空且 `expires_at` 已过的 `approval_requests` 行写入 `expired_at`，逐行记 `agent.run.approval.expired` 审计，并把对应的滞留「等待审批」通知置读（私有来源 `approval:<runId>:<serverId>:<toolName>`，频道来源 `channel-approval:<approvalId>`）。核对幂等，只做治理收尾，不改动执行与工具调用路径。`expired_at` 一旦提交，若随后审计写入或通知置读失败仅记告警，不回滚；下一轮扫描会跳过该行，不会补做。
 
 ### 4.2 手动触发
 
