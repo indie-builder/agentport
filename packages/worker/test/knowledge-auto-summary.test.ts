@@ -252,6 +252,24 @@ describe('ingestion → auto summary', () => {
     expect(document?.summaryVersionId).toBe(document?.currentVersionId);
   });
 
+  it('keeps the queued job and clears pending when summary enqueue fails', async () => {
+    const fixtureBase = await makeBase({ autoSummary: true });
+    fixtureBase.deps.onSummaryJobs = async () => {
+      throw new Error('queue unavailable');
+    };
+    const ingest = await startIngestForNewDocument(fixtureBase.baseId, '# 认证\n\n正文。');
+
+    await runIngest(fixtureBase.deps, ingest.job, new AbortController().signal);
+
+    const document = await repo.knowledge.getDocument(db, ingest.documentId);
+    const jobs = await summaryJobs(fixtureBase.baseId);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.status).toBe('queued');
+    expect(document?.summaryStatus).toBe('none');
+    expect(document?.summaryVersionId).toBe(document?.currentVersionId);
+    expect(fixtureBase.notified).toHaveLength(0);
+  });
+
   it('does not enqueue when autoSummary is off', async () => {
     const fixtureBase = await makeBase({ autoSummary: false });
     const ingest = await startIngestForNewDocument(fixtureBase.baseId, '# 认证\n\n正文。');

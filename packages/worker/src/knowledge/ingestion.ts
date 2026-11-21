@@ -533,20 +533,23 @@ async function requestAutoSummary(
   try {
     await deps.onSummaryJobs({ baseId: base.id, jobIds: [job.id] });
   } catch (err) {
-    await repo.knowledge
-      .setDocumentSummary(
-        deps.db,
-        document.id,
-        {
-          summaryStatus: 'none',
-          summaryVersionId: versionId,
-          summary: null,
-          summaryGeneratedAt: null,
-          summaryError: null,
-        },
-        versionId,
-      )
-      .catch(() => undefined);
+    const current = await repo.knowledge.getDocument(deps.db, document.id);
+    if (current?.summaryStatus === 'pending' && current.summaryVersionId === versionId) {
+      await repo.knowledge
+        .setDocumentSummary(
+          deps.db,
+          document.id,
+          {
+            summaryStatus: 'none',
+            summaryVersionId: versionId,
+            summary: null,
+            summaryGeneratedAt: null,
+            summaryError: null,
+          },
+          versionId,
+        )
+        .catch(() => undefined);
+    }
     deps.logger.warn(
       { err, baseId: base.id, jobIds: [job.id] },
       'summary job enqueue failed; awaiting reconcile',
