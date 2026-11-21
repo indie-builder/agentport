@@ -17,7 +17,7 @@ export interface GeneratedServerInput {
   baseUrl: string;
   headers: Record<string, string>;
   tools: ApiTool[];
-  evaluateApproval?: (tool: ApiTool) => Promise<ApprovalEvaluation>;
+  evaluateApproval?: (tool: ApiTool, baseUrl: string) => Promise<ApprovalEvaluation>;
   isRunActive?: () => Promise<boolean>;
   onApprovalRequired?: (
     toolName: string,
@@ -236,7 +236,7 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
           }
         };
         const evaluateApproval = input.evaluateApproval;
-        const decision = await evaluateApproval?.(tool);
+        const decision = await evaluateApproval?.(tool, input.baseUrl);
         const blocked = await approvalGate(decision);
         if (blocked) return blocked;
         const checked = input.checkOutbound
@@ -254,7 +254,7 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
           input.isRunActive,
           evaluateApproval &&
             (async () => {
-              const current = await evaluateApproval(tool);
+              const current = await evaluateApproval(tool, input.baseUrl);
               if (current?.decisionHash !== decision?.decisionHash) {
                 if (current.effectiveMode === 'deny') return approvalGate(current);
                 return {

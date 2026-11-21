@@ -76,11 +76,14 @@ describe.skipIf(!ready)('approval lifecycle', () => {
       paramsIn: 'query',
       approvalMode: 'ask',
     });
-    const { decisionHash } = await createApprovalEvaluator({
-      db: app.db,
-      runId: run.id,
-      serverId: server.id,
-    })({ ...tool, method: 'GET' });
+    const { decisionHash } =
+      status === 'running'
+        ? await createApprovalEvaluator({
+            db: app.db,
+            runId: run.id,
+            serverId: server.id,
+          })({ ...tool, method: 'GET' })
+        : { decisionHash: unique('stale-hash') };
     const row = await app.db.transaction((tx) =>
       repo.runs.requestApproval(tx, {
         runId: run.id,

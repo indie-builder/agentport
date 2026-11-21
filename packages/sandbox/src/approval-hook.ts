@@ -106,6 +106,8 @@ export function createApprovalHook(
         } else if (response.ok) {
           const state = toolApprovalResponseSchema.parse(await response.json());
           if (signal.aborted) break;
+          if (approvalId !== null && state.approvalId !== approvalId)
+            return decision('deny', '工具审批身份不一致，调用未执行。');
           if (state.status === 'approved')
             return Date.now() >= expiresAt ? decision('deny', '工具审批已过期，调用未执行。') : {};
           if (state.status !== 'pending')
@@ -114,9 +116,7 @@ export function createApprovalHook(
               `工具审批${state.status === 'denied' ? '已拒绝' : state.status === 'expired' ? '已过期' : '已取消'}，调用未执行。`,
             );
           if (state.approvalId === null) return decision('deny', '工具审批未登记，调用未执行。');
-          if (approvalId === null) approvalId = state.approvalId;
-          else if (approvalId !== state.approvalId)
-            return decision('deny', '工具审批身份不一致，调用未执行。');
+          approvalId = state.approvalId;
           expiresAt =
             state.expiresAt === null ? Number.POSITIVE_INFINITY : Date.parse(state.expiresAt);
           backoff = 2_000;

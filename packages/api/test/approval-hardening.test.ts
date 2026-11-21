@@ -149,8 +149,8 @@ describe.skipIf(!ready || isolated === null)('approval hardening', () => {
     await app.client.unsafe(
       `insert into agent_runs
          (id, conversation_id, agent_id, status, trigger, channel_id, subject_kind, initiated_by,
-          agent_version, mcp_token_hash, mcp_token_expires_at)
-       values ($1, $2, $3, 'running', $4, $5, 'user', $6, $7, $8, $9)`,
+          agent_version, mcp_token_hash, mcp_token_expires_at, started_at)
+       values ($1, $2, $3, 'running', $4, $5, 'user', $6, $7, $8, $9, $10)`,
       [
         runId,
         conversationId,
@@ -161,6 +161,7 @@ describe.skipIf(!ready || isolated === null)('approval hardening', () => {
         input.agentVersion ?? null,
         hashMcpToken(input.token),
         new Date(Date.now() + 5 * 60_000).toISOString(),
+        new Date(),
       ],
     );
     return { runId, conversationId };
@@ -292,6 +293,16 @@ describe.skipIf(!ready || isolated === null)('approval hardening', () => {
 
     const denied = await callTool({ serverId: server.id, runId, token, name: tool.name });
     expect(denied.isError).toBe(true);
+    expect(upstreamCalls).toBe(0);
+
+    await publish(child.id);
+    const republished = await callTool({
+      serverId: server.id,
+      runId,
+      token,
+      name: tool.name,
+    }).catch(() => null);
+    expect(republished?.isError ?? true).toBe(true);
     expect(upstreamCalls).toBe(0);
   });
 
@@ -432,6 +443,17 @@ describe.skipIf(!ready || isolated === null)('approval hardening', () => {
         })
       ).statusCode,
     ).toBe(200);
+    expectProblem(
+      await approvalState({
+        runId,
+        serverId: server.id,
+        name: tool.name,
+        token,
+        method: 'GET',
+        approvalId: pending.approvalId,
+      }),
+      'CONFLICT',
+    );
     expect(
       (await callTool({ serverId: server.id, runId, token, name: tool.name })).isError,
     ).toBeFalsy();

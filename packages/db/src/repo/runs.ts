@@ -1,3 +1,4 @@
+import { AppError } from '@agentport/core';
 import type {
   AccessFilter,
   AgentDefinition,
@@ -440,6 +441,7 @@ export async function getRunServerSnapshot(
       agentId: agentRuns.agentId,
       agentVersion: agentRuns.agentVersion,
       definitionSnapshot: agentRuns.definitionSnapshot,
+      startedAt: agentRuns.startedAt,
     })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId))
@@ -458,15 +460,22 @@ export async function getRunServerSnapshot(
             .select({
               id: agents.id,
               publishedVersion: agents.publishedVersion,
+              publishedAt: agents.publishedAt,
               enabled: agents.enabled,
             })
             .from(agents)
             .where(eq(agents.parentId, run.agentId))
             .orderBy(asc(agents.id))
-        ).map(({ id, publishedVersion, enabled }) => ({ id, publishedVersion, enabled }))
+        ).map(({ id, publishedVersion, publishedAt, enabled }) => ({
+          id,
+          publishedVersion,
+          publishedAt,
+          enabled,
+        }))
       : definition.resources.subAgents.map(({ id, publishedVersion }) => ({
           id,
           publishedVersion,
+          publishedAt: null,
           enabled: true,
         }));
   const liveChildren =
@@ -481,6 +490,7 @@ export async function getRunServerSnapshot(
           ).map((row) => [row.id, row.enabled]),
         );
   const children: Array<{ agentId: string; definition: AgentDefinition | null }> = [];
+  let ambiguous = false;
   for (const ref of childRefs) {
     if (liveChildren.get(ref.id) !== true) continue;
     const version =
@@ -488,6 +498,15 @@ export async function getRunServerSnapshot(
         ? null
         : await getAgentVersion(db, ref.id, ref.publishedVersion);
     if (ref.publishedVersion !== null && version === null) continue;
+    if (
+      definition === null &&
+      run.startedAt !== null &&
+      ref.publishedVersion !== null &&
+      (ref.publishedAt === null || ref.publishedAt.getTime() > run.startedAt.getTime())
+    ) {
+      ambiguous = true;
+      continue;
+    }
     children.push({ agentId: ref.id, definition: version?.definition ?? null });
   }
   const liveIds = [
@@ -499,12 +518,13 @@ export async function getRunServerSnapshot(
     agentDefinition !== null
       ? agentDefinition.resources.servers
       : (liveServers.get(agentId) ?? []).map(toDefinitionServer);
-  return (
-    [
-      ...serversOf(run.agentId, definition),
-      ...children.flatMap(({ agentId, definition: child }) => serversOf(agentId, child)),
-    ].find((server) => server.id === serverId) ?? null
-  );
+  const server = [
+    ...serversOf(run.agentId, definition),
+    ...children.flatMap(({ agentId, definition: child }) => serversOf(agentId, child)),
+  ].find((entry) => entry.id === serverId);
+  if (server) return server;
+  if (ambiguous) throw new AppError('FORBIDDEN', '子专家在运行开始后重新发布，无法确认工具定义');
+  return null;
 }
 
 export async function getRunConversationId(db: Database, runId: string): Promise<string | null> {

@@ -203,11 +203,18 @@ describe.skipIf(!ready)('channel approvals', () => {
       paramsIn: 'query',
       approvalMode: 'ask',
     });
-    const { decisionHash } = await createApprovalEvaluator({
-      db: app.db,
-      runId,
-      serverId: server.id,
-    })({ ...tool, method: 'GET' });
+    const [run] = await app.client.unsafe<{ status: string }[]>(
+      'select status from agent_runs where id = $1',
+      [runId],
+    );
+    const { decisionHash } =
+      run?.status === 'running'
+        ? await createApprovalEvaluator({
+            db: app.db,
+            runId,
+            serverId: server.id,
+          })({ ...tool, method: 'GET' })
+        : { decisionHash: unique('stale-hash') };
     const row = await app.db.transaction((tx) =>
       repo.runs.requestApproval(tx, {
         runId,

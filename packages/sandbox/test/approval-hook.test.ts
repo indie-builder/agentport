@@ -105,4 +105,35 @@ describe('approval hook', () => {
     });
     expect(calls).toHaveLength(2);
   });
+
+  it('rejects an approval for a different id even when it was approved', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'approval-hook-approved-'));
+    dirs.push(dir);
+    const hook = await setup();
+    const calls: Array<{ method: string; url: string }> = [];
+    globalThis.fetch = (async (request: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ method: init?.method ?? 'GET', url: String(request) });
+      if (calls.length === 1) {
+        return Response.json({
+          status: 'pending',
+          approvalId: 'approval-1',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        });
+      }
+      return Response.json({
+        status: 'approved',
+        approvalId: 'approval-2',
+        expiresAt: null,
+      });
+    }) as typeof fetch;
+
+    const result = await hook(input(dir), 'tool-use', {
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toMatchObject({
+      hookSpecificOutput: { permissionDecision: 'deny' },
+    });
+    expect(calls.map((call) => call.method)).toEqual(['PUT', 'GET']);
+  });
 });

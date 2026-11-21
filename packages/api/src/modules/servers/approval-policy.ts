@@ -4,6 +4,7 @@ import {
   type ApiTool,
   apiToolApprovalModeSchema,
   apiToolParamsInSchema,
+  isActiveRunStatus,
   toolApprovalMethodSchema,
 } from '@agentport/shared';
 import type { RequestContext } from '../../http/context.js';
@@ -25,11 +26,12 @@ export function createApprovalEvaluator({
   runId: string;
   serverId: string;
 }) {
-  return async (tool: Omit<ApprovalTool, 'baseUrl'>) => {
+  return async (tool: Omit<ApprovalTool, 'baseUrl'>, baseUrl?: string) => {
     const decision = await db.transaction(async (tx) => {
-      if (!(await repo.runs.lockRunForApproval(tx, runId))) return null;
+      const run = await repo.runs.lockRunForApproval(tx, runId);
+      if (run === null || !isActiveRunStatus(run.status)) return null;
       const currentTool = await getRunApprovalTool(tx, runId, serverId, tool.name);
-      if (currentTool === null) {
+      if (currentTool === null || (baseUrl !== undefined && currentTool.baseUrl !== baseUrl)) {
         await repo.runs.supersedeMismatchedApprovals(tx, {
           runId,
           serverId,
