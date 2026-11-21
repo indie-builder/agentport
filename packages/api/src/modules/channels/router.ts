@@ -9,7 +9,6 @@ import {
   type ChannelEvent,
   type ChannelListItem,
   type ChannelMember,
-  type ChannelMessage,
   channelEventsQuerySchema,
   channelMessageCreatedEvent,
   idParams,
@@ -23,16 +22,12 @@ import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http
 import { parseRequest, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
 import { beginSse } from '../../http/sse.js';
-import {
-  getQueue,
-  publishChannelMessage,
-  type RunSubscription,
-  subscribeChannel,
-} from '../../queue/producer.js';
+import { getQueue, type RunSubscription, subscribeChannel } from '../../queue/producer.js';
 import { runQueueHasCapacity } from '../runs/capacity.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
 import { channelsHandoffRouter } from './handoff.js';
+import { publishChannelMessageSafely } from './publish.js';
 import { channelsRunsRouter } from './runs.js';
 import { dispatchChannelWakes } from './wakes.js';
 
@@ -132,20 +127,6 @@ async function auditWrite(
     status: 'ok',
     requestId: context.requestId,
   });
-}
-async function publishMessage(
-  context: RequestContext,
-  channelId: string,
-  message: ChannelMessage,
-): Promise<void> {
-  try {
-    await publishChannelMessage(channelId, message);
-  } catch (err) {
-    context.log.warn(
-      { err, channelId, seq: message.seq },
-      'channel event publish failed; SSE will recover from DB replay',
-    );
-  }
 }
 function forbidden(message: string): never {
   return fail('FORBIDDEN', message);
@@ -506,7 +487,7 @@ const channelsMainRouter = {
           },
           dedupeKey: `aud_chmsg_${message.id.slice(4)}`,
         });
-        await publishMessage(context, id, message);
+        await publishChannelMessageSafely(context.log, id, message, { seq: message.seq });
         await dispatchChannelWakes({
           db: context.db,
           log: context.log,

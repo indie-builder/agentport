@@ -12,10 +12,10 @@ import { parseRequest, requestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { beginSse } from '../../http/sse.js';
-import { publishChannelEvent, publishChannelMessage } from '../../queue/producer.js';
 import { cancelAgentRun } from '../runs/cancel-run.js';
 import { writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
+import { publishChannelEventSafely, publishChannelMessageSafely } from './publish.js';
 
 const channelControl = repo.channelControl;
 type ControlRun = repo.channelControl.ControlRun;
@@ -40,19 +40,17 @@ async function publishChannelFinished(
   channelId: string,
   run: ControlRun,
 ): Promise<void> {
-  try {
-    await publishChannelEvent(
+  await publishChannelEventSafely(
+    context.log,
+    channelId,
+    channelRunFinishedEvent({
       channelId,
-      channelRunFinishedEvent({
-        channelId,
-        runId: run.id,
-        agentId: run.agentId,
-        status: 'cancelled',
-      }),
-    );
-  } catch (err) {
-    context.log.warn({ err, runId: run.id }, 'channel run.finished publish failed');
-  }
+      runId: run.id,
+      agentId: run.agentId,
+      status: 'cancelled',
+    }),
+    { runId: run.id },
+  );
 }
 async function cancelRun(
   context: RequestContext,
@@ -74,7 +72,12 @@ async function cancelRun(
           body: '运行已停止，打开运行详情查看状态。',
         });
         if (notice !== null)
-          await publishChannelMessage(channelId, repo.channels.toChannelMessage(notice));
+          await publishChannelMessageSafely(
+            context.log,
+            channelId,
+            repo.channels.toChannelMessage(notice),
+            { runId: run.id },
+          );
       } catch (err) {
         context.log.warn({ err, runId: run.id }, 'channel stop notice failed');
       }

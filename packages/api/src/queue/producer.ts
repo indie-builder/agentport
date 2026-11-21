@@ -2,7 +2,6 @@ import { appendStreamEvent } from '@agentport/core';
 import type {
   AgentRunJob,
   ChannelEvent,
-  ChannelMessage,
   ChatEvent,
   DataDomainBuildJob,
   DataDomainEnrichmentJob,
@@ -14,7 +13,6 @@ import type {
 import {
   channelEventSchema,
   channelEventsConnectionName,
-  channelMessageCreatedEvent,
   channelStreamKey,
   chatEventSchema,
   DATA_DOMAIN_BUILDS_QUEUE,
@@ -188,13 +186,6 @@ export async function publishChannelEvent(channelId: string, event: ChannelEvent
   const redis = getChannelClient();
   if (!redis.connected) await redis.connect();
   await appendStreamEvent(redis, channelStreamKey(channelId), event);
-}
-
-export async function publishChannelMessage(
-  channelId: string,
-  message: ChannelMessage,
-): Promise<void> {
-  return publishChannelEvent(channelId, channelMessageCreatedEvent(channelId, message));
 }
 
 export async function requestRunCancel(runId: string): Promise<boolean> {

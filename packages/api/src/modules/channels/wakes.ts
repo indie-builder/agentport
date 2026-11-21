@@ -15,9 +15,9 @@ import {
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { AppError } from '../../http/errors.js';
-import { publishChannelMessage } from '../../queue/producer.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
+import { publishChannelMessageSafely } from './publish.js';
 
 const channelRepo = repo.channels;
 const channelWakeRepo = repo.channelWakes;
@@ -66,14 +66,11 @@ async function postNotice(
       body,
     });
     if (notice === null) return;
-    try {
-      await publishChannelMessage(target.channelId, repo.channels.toChannelMessage(notice));
-    } catch (err) {
-      context.log.warn(
-        { err, channelId: target.channelId },
-        'channel wake notice publish failed; SSE will recover from DB replay',
-      );
-    }
+    await publishChannelMessageSafely(
+      context.log,
+      target.channelId,
+      repo.channels.toChannelMessage(notice),
+    );
   } catch (err) {
     context.log.warn(
       { err, channelId: target.channelId, agentId: target.agentId },

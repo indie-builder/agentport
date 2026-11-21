@@ -5,7 +5,6 @@ import {
   ATTACHMENT_LIMITS,
   attachmentByteLimit,
   attachmentMimeForFilename,
-  type ChannelMessage,
   type ChatAttachmentInput,
   isActiveRunStatus,
   type MessageAttachment,
@@ -14,8 +13,9 @@ import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { listWorkspaceOutputs, readWorkspaceOutput } from '../../lib/outputs.js';
-import { getQueue, publishChannelMessage } from '../../queue/producer.js';
+import { getQueue } from '../../queue/producer.js';
 import { loadReadableConversation } from '../chat/access.js';
+import { publishChannelMessageSafely } from './publish.js';
 import { dispatchChannelWakes } from './wakes.js';
 
 const channelRepo = repo.channels;
@@ -30,21 +30,6 @@ function notFound(message = '频道不存在'): never {
 function clip(value: string, max: number): string {
   const chars = Array.from(value);
   return chars.length <= max ? value : chars.slice(0, max).join('');
-}
-
-async function publishMessage(
-  context: RequestContext,
-  channelId: string,
-  message: ChannelMessage,
-): Promise<void> {
-  try {
-    await publishChannelMessage(channelId, message);
-  } catch (err) {
-    context.log.warn(
-      { err, channelId, seq: message.seq },
-      'channel handoff publish failed; SSE will recover from DB replay',
-    );
-  }
 }
 
 const os = implement(channelsContract).$context<RequestContext>();
@@ -238,7 +223,7 @@ export const channelsHandoffRouter = {
       case 'ok': {
         if (result.duplicate) return fail('CONFLICT', '交接消息重复，请刷新后重试');
         const message = repo.channels.toChannelMessage(result.message);
-        await publishMessage(context, id, message);
+        await publishChannelMessageSafely(context.log, id, message, { seq: message.seq });
         await dispatchChannelWakes({
           db: context.db,
           log: context.log,
