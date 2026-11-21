@@ -8,6 +8,7 @@ import type {
 } from '@agentport/shared';
 import {
   type InfiniteData,
+  type QueryClient,
   queryOptions,
   useMutation,
   useQuery,
@@ -168,17 +169,19 @@ export function useSetAgentFavorite() {
   });
 }
 
+function invalidateAgentLifecycle(client: QueryClient, id: string): void {
+  void client.invalidateQueries({ queryKey: agentKeys.all });
+  void client.invalidateQueries({ queryKey: agentKeys.tags });
+  void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
+  void client.invalidateQueries({ queryKey: agentKeys.detail(id) });
+  void client.invalidateQueries({ queryKey: agentKeys.access(id) });
+}
+
 export function useArchiveAgent() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.archiveAgent(id),
-    onSuccess: (_agent, id) => {
-      void client.invalidateQueries({ queryKey: agentKeys.all });
-      void client.invalidateQueries({ queryKey: agentKeys.tags });
-      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
-      void client.invalidateQueries({ queryKey: agentKeys.detail(id) });
-      void client.invalidateQueries({ queryKey: agentKeys.access(id) });
-    },
+    onSuccess: (_agent, id) => invalidateAgentLifecycle(client, id),
   });
 }
 
@@ -186,13 +189,7 @@ export function useRestoreAgent() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.restoreAgent(id),
-    onSuccess: (_agent, id) => {
-      void client.invalidateQueries({ queryKey: agentKeys.all });
-      void client.invalidateQueries({ queryKey: agentKeys.tags });
-      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
-      void client.invalidateQueries({ queryKey: agentKeys.detail(id) });
-      void client.invalidateQueries({ queryKey: agentKeys.access(id) });
-    },
+    onSuccess: (_agent, id) => invalidateAgentLifecycle(client, id),
   });
 }
 
