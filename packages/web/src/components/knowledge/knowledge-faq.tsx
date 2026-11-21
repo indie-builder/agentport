@@ -689,10 +689,7 @@ function FaqImportDialog({
   const existingItems = existing.data?.pages.flatMap((page) => page.items) ?? [];
   const existingCount = existingItems.length;
   const existingComplete =
-    existing.isSuccess &&
-    !existing.isError &&
-    !existing.hasNextPage &&
-    !existing.isFetchingNextPage;
+    existing.isSuccess && !existing.isError && !existing.hasNextPage && !existing.isFetching;
   const [format, setFormat] = useState<FaqImportFormat>('json');
   const [content, setContent] = useState('');
   const [mode, setMode] = useState<'append' | 'replace'>('append');
@@ -704,7 +701,7 @@ function FaqImportDialog({
 
   const draftQueries = useKnowledgeFaqDrafts(
     existingItems.map((item) => item.id),
-    existingItems.length > 0,
+    existingComplete && existingItems.length > 0,
   );
   const draftSummary = summarizeFaqDrafts(draftQueries);
   const detailErrorCount = draftSummary.errorCount;
@@ -726,8 +723,11 @@ function FaqImportDialog({
   const recoveredJobIds = [
     ...new Set(recoveredMembers.flatMap((member) => (member.jobId === null ? [] : [member.jobId]))),
   ];
-  const recoveredJobQueries = useKnowledgeFaqImportJobs(baseId, recoveredJobIds);
-  const recoveredJobs = summarizeFaqJobs(recoveredJobQueries, recoveredJobIds);
+  const { chunkIds: recoveredJobChunks, results: recoveredJobQueries } = useKnowledgeFaqImportJobs(
+    baseId,
+    recoveredJobIds,
+  );
+  const recoveredJobs = summarizeFaqJobs(recoveredJobQueries, recoveredJobChunks);
   const recoveredJobsMissing = recoveredJobs.missing.size > 0;
   const recoveredMissingIds = recoveredJobs.missing;
   const recoveredJobError = recoveredJobs.error;
@@ -777,8 +777,8 @@ function FaqImportDialog({
   const jobIds = [
     ...new Set(publishable.flatMap((result) => (result.jobId === undefined ? [] : [result.jobId]))),
   ];
-  const jobQueries = useKnowledgeFaqImportJobs(baseId, jobIds);
-  const jobSummary = summarizeFaqJobs(jobQueries, jobIds);
+  const { chunkIds: jobChunks, results: jobQueries } = useKnowledgeFaqImportJobs(baseId, jobIds);
+  const jobSummary = summarizeFaqJobs(jobQueries, jobChunks);
   const jobsMissing = jobSummary.missing.size > 0;
   const jobsReadError = jobSummary.error;
   const jobsRetrying = jobSummary.retrying;
@@ -2086,8 +2086,11 @@ function FaqPublishDialog({
         readString(draft.metadata, 'faqImportJobId'));
   const [retriedJobId, setRetriedJobId] = useState<string | null>(null);
   const jobId = retriedJobId ?? draftJobId;
-  const jobQueries = useKnowledgeFaqImportJobs(baseId, jobId === null ? [] : [jobId]);
-  const jobSummary = summarizeFaqJobs(jobQueries, jobId === null ? [] : [jobId]);
+  const { chunkIds: jobChunks, results: jobQueries } = useKnowledgeFaqImportJobs(
+    baseId,
+    jobId === null ? [] : [jobId],
+  );
+  const jobSummary = summarizeFaqJobs(jobQueries, jobChunks);
   const jobMissing = jobSummary.missing.size > 0;
   const jobStatus = jobId === null ? undefined : jobSummary.statuses.get(jobId);
   const importDraft =

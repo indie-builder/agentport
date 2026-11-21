@@ -181,7 +181,7 @@ describe('useKnowledgeJobs', () => {
       return null;
     }
     await mount(createElement(Probe));
-    await vi.waitFor(() => expect(latest?.[0]?.isError).toBe(true));
+    await vi.waitFor(() => expect(latest?.results[0]?.isError).toBe(true));
     const batchCalls = () =>
       state.calls.filter((call) => call.path === '/api/knowledge/jobs').length;
     expect(batchCalls()).toBe(1);

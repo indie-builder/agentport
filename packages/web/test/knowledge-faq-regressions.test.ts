@@ -907,6 +907,8 @@ describe('FAQ import batch recovery', () => {
   it('refuses to announce a batch from a partial FAQ list and recovers after retrying the page', async () => {
     baseHandlers();
     let secondPageFails = true;
+    const draftCalls = () =>
+      calls.filter((call) => call.method === 'POST' && call.path === '/api/knowledge/faqs/drafts');
     server.use(
       http.get('/api/knowledge/bases/kb_1/faqs', ({ request }) => {
         const cursor = new URL(request.url).searchParams.get('cursor');
@@ -925,15 +927,18 @@ describe('FAQ import batch recovery', () => {
     await mount('/knowledge/kb_1', { panel: 'faqs' });
     await click(button('导入'));
     const importer = dialog('导入 FAQ');
-    await waitFor(() => importer.textContent?.includes('继续未完成批次') === true);
+    await waitFor(() => importer.textContent?.includes('未能完整读取现有 FAQ') === true);
+    expect(importer.textContent).not.toContain('继续未完成批次');
     expect(importer.textContent).not.toContain('索引已完成，可整批发布');
     expect(maybeButton('发布批次 2 条 FAQ', importer)).toBeUndefined();
+    expect(draftCalls()).toHaveLength(0);
 
     secondPageFails = false;
     await click(button('重试读取列表', importer));
     await waitFor(() => importer.textContent?.includes('索引已完成，可整批发布') === true);
     expect(importer.textContent).toContain('2 条');
     expect(button('发布批次 2 条 FAQ', importer).disabled).toBe(false);
+    expect(draftCalls()).toHaveLength(1);
   });
 
   it('treats a cached detail with a failed refetch as incomplete and recovers after retrying it', async () => {

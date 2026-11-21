@@ -124,6 +124,7 @@ export function usePublishKnowledgeFaqBatch(baseId: string) {
       void client.invalidateQueries({ queryKey: knowledgeKeys.faqs(baseId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
       void client.invalidateQueries({ queryKey: ['knowledge', 'faq'] });
+      void client.invalidateQueries({ queryKey: ['knowledge', 'faq-drafts'] });
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
     },
   });
@@ -193,26 +194,36 @@ export function summarizeFaqJobs(
     isError: boolean;
     isFetching: boolean;
   }>,
-  jobIds: string[],
+  chunkIds: string[][],
 ): FaqJobSummary {
   const byId = new Map<string, string>();
-  for (const result of results) {
+  const missing = new Set<string>();
+  let error = false;
+  let retrying = false;
+  results.forEach((result, index) => {
     for (const job of result.data?.items ?? []) byId.set(job.id, job.status);
-  }
-  const deleted = results.some((result) => result.isError && isMissingJob(result.error));
-  const loaded = results.every((result) => result.data !== undefined);
+    const ids = chunkIds[index] ?? [];
+    if (result.isError && isMissingJob(result.error)) {
+      for (const id of ids) missing.add(id);
+    } else if (!result.isError && result.data !== undefined) {
+      const returned = new Set(result.data.items.map((job) => job.id));
+      for (const id of ids) if (!returned.has(id)) missing.add(id);
+    }
+    if (result.isError && !isMissingJob(result.error)) error = true;
+    if (result.isError && result.isFetching) retrying = true;
+  });
   return {
-    statuses: new Map(jobIds.map((id) => [id, byId.get(id)])),
-    missing: new Set(deleted ? jobIds : loaded ? jobIds.filter((id) => !byId.has(id)) : []),
-    error: results.some((r) => r.isError && !isMissingJob(r.error)),
-    retrying: results.some((r) => r.isError && r.isFetching),
+    statuses: new Map(chunkIds.flat().map((id) => [id, byId.get(id)])),
+    missing,
+    error,
+    retrying,
   };
 }
 
 export function useKnowledgeFaqImportJobs(baseId: string, jobIds: string[]) {
-  const chunks = chunk(jobIds);
-  return useQueries({
-    queries: chunks.map((ids) => ({
+  const chunkIds = chunk(jobIds);
+  const results = useQueries({
+    queries: chunkIds.map((ids) => ({
       queryKey: ['knowledge', 'jobs', 'batch', baseId, ...ids],
       queryFn: () => api.knowledgeJobs(baseId, { ids, limit: ids.length }),
       enabled: ids.length > 0,
@@ -230,6 +241,7 @@ export function useKnowledgeFaqImportJobs(baseId: string, jobIds: string[]) {
       },
     })),
   });
+  return { chunkIds, results };
 }
 
 export function useExportKnowledgeFaqs() {
