@@ -109,6 +109,8 @@ export function WikiTab({
   const [creating, setCreating] = useState(false);
   const [createdPage, setCreatedPage] = useState<string | null>(null);
   const [graphOpen, setGraphOpen] = useState(false);
+  const [focusPageId, setFocusPageId] = useState<string | null>(null);
+  const pageListRef = useRef<HTMLUListElement>(null);
   const graph = useKnowledgeWikiGraph(baseId, graphOpen);
   useEffect(() => {
     if (creating || createdPage === null) return;
@@ -117,6 +119,15 @@ export function WikiTab({
     setCreatedPage(null);
   }, [createdPage, creating, onSelect]);
   const pageItems = pages.data ?? [];
+  useEffect(() => {
+    if (focusPageId === null || pageItems.length === 0) return;
+    const item = pageListRef.current?.querySelector<HTMLButtonElement>(
+      `[data-page-id="${focusPageId}"]`,
+    );
+    if (!item) return;
+    item.focus();
+    setFocusPageId(null);
+  }, [focusPageId, pageItems.length]);
 
   return (
     <div className="grid min-w-0 gap-5 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
@@ -160,11 +171,12 @@ export function WikiTab({
         ) : null}
         {pages.data && pageItems.length === 0 ? <InlineEmpty>还没有 Wiki 页面</InlineEmpty> : null}
         {pageItems.length > 0 ? (
-          <ul className="flex flex-col">
+          <ul ref={pageListRef} className="flex flex-col">
             {wikiTreePages(pageItems).map(({ page, depth }) => (
               <li key={page.id}>
                 <button
                   type="button"
+                  data-page-id={page.id}
                   aria-current={page.id === pageId ? 'true' : undefined}
                   onClick={() => {
                     setGraphOpen(false);
@@ -202,6 +214,7 @@ export function WikiTab({
               onSelectPage={(id) => {
                 setGraphOpen(false);
                 onSelect(id);
+                setFocusPageId(id);
               }}
             />
           ) : null

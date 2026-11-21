@@ -8,10 +8,48 @@ const WIDTH = 760;
 const HEIGHT = 520;
 const CENTER_X = WIDTH / 2;
 const CENTER_Y = HEIGHT / 2;
-const RADIUS = 190;
 
 function labelOf(title: string): string {
   return title.length > 16 ? `${title.slice(0, 15)}…` : title;
+}
+
+function graphLayout(count: number): {
+  slots: Array<{ x: number; y: number; cos: number; sin: number }>;
+  nodeRadius: number;
+} {
+  const nodeRadius = count <= 24 ? 5 : count <= 90 ? 4 : 3;
+  const spacing = nodeRadius * 2 + 8;
+  const maxRadius = HEIGHT / 2 - 40;
+  const single = Math.min(CENTER_X, CENTER_Y) - 70;
+  let radii = [single];
+  if (Math.floor((2 * Math.PI * single) / spacing) < count) {
+    for (let rings = 2; rings <= 8; rings += 1) {
+      radii = Array.from(
+        { length: rings },
+        (_, ring) => 60 + ((maxRadius - 60) * ring) / (rings - 1),
+      );
+      if (
+        radii.reduce((sum, radius) => sum + Math.floor((2 * Math.PI * radius) / spacing), 0) >=
+        count
+      ) {
+        break;
+      }
+    }
+  }
+  const slots: Array<{ x: number; y: number; cos: number; sin: number }> = [];
+  let placed = 0;
+  for (const radius of radii) {
+    const onRing = Math.min(Math.floor((2 * Math.PI * radius) / spacing), count - placed);
+    for (let index = 0; index < onRing; index += 1) {
+      const angle = (index / onRing) * Math.PI * 2 - Math.PI / 2;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      slots.push({ x: CENTER_X + radius * cos, y: CENTER_Y + radius * sin, cos, sin });
+    }
+    placed += onRing;
+    if (placed >= count) break;
+  }
+  return { slots, nodeRadius };
 }
 
 export function KnowledgeWikiGraph({
@@ -34,16 +72,15 @@ export function KnowledgeWikiGraph({
     () => graph.edges.filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to)),
     [graph.edges, visibleIds],
   );
-  const positions = useMemo(() => {
+  const { positions, nodeRadius } = useMemo(() => {
+    const { slots, nodeRadius: radius } = graphLayout(visibleNodes.length);
     const map = new Map<string, { x: number; y: number; cos: number; sin: number }>();
-    graph.nodes.forEach((node, index) => {
-      const angle = (index / Math.max(graph.nodes.length, 1)) * Math.PI * 2 - Math.PI / 2;
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      map.set(node.id, { x: CENTER_X + RADIUS * cos, y: CENTER_Y + RADIUS * sin, cos, sin });
+    visibleNodes.forEach((node, index) => {
+      const slot = slots[index];
+      if (slot) map.set(node.id, slot);
     });
-    return map;
-  }, [graph.nodes]);
+    return { positions: map, nodeRadius: radius };
+  }, [visibleNodes]);
   const connected = useMemo(() => {
     if (hovered === null) return null;
     const ids = new Set<string>([hovered]);
@@ -133,12 +170,12 @@ export function KnowledgeWikiGraph({
                 <circle
                   cx={position.x}
                   cy={position.y}
-                  r={active ? 7 : 5}
+                  r={active ? nodeRadius + 2 : nodeRadius}
                   className={cn('fill-fg transition-all', active && 'stroke-fg stroke-2')}
                 />
                 <text
-                  x={position.x + position.cos * 12}
-                  y={position.y + position.sin * 12 + 3}
+                  x={position.x + position.cos * (nodeRadius + 8)}
+                  y={position.y + position.sin * (nodeRadius + 8) + 3}
                   textAnchor={anchor}
                   className="fill-muted-foreground text-[10px]"
                 >
