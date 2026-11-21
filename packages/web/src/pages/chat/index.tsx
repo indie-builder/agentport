@@ -366,7 +366,7 @@ function ChatWorkspace({
       if (!activeRunId || approvalInFlight.current) return;
       approvalInFlight.current = true;
       approveMutation.mutate(
-        { runId: activeRunId, serverId: item.serverId, toolName: item.toolName },
+        { runId: activeRunId, approvalId: item.id },
         {
           onSettled: () => {
             approvalInFlight.current = false;
@@ -375,7 +375,7 @@ function ChatWorkspace({
             toastSuccess(
               data.waiting
                 ? `已批准 ${item.toolName}；仍在等待的调用可继续，无需重发消息`
-                : '已记录后续调用许可；本次调用不会恢复。',
+                : '已批准工具。',
             ),
           onError: (error) => toastError(error),
         },
@@ -550,15 +550,7 @@ function ChatWorkspace({
       phase={phase}
       lastRun={lastRun}
       lastRunId={lastRunId}
-      approving={
-        approveMutation.isPending
-          ? (approvalData.find(
-              (item) =>
-                item.serverId === approveMutation.variables?.serverId &&
-                item.toolName === approveMutation.variables?.toolName,
-            )?.id ?? null)
-          : null
-      }
+      approving={approveMutation.isPending ? (approveMutation.variables?.approvalId ?? null) : null}
       cancelling={cancelMutation.isPending}
       approvalItems={approvalData}
       questionsByToolUseId={questionsByToolUseId}

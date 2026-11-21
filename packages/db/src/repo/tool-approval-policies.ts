@@ -25,7 +25,7 @@ export async function listToolApprovalPolicies(db: Database) {
     .orderBy(asc(toolApprovalPolicies.createdAt), asc(toolApprovalPolicies.id));
 }
 
-export async function listEnabledForTool(db: Database, input: ToolLookup) {
+export async function listEnabledForTool(db: DbHandle, input: ToolLookup) {
   return db
     .select()
     .from(toolApprovalPolicies)

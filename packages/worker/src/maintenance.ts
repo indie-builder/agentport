@@ -30,9 +30,7 @@ export async function reconcileExpiredApprovals(
       status: 'ok',
     });
     const sourceId =
-      row.channelId === null
-        ? `approval:${row.runId}:${row.serverId}:${row.toolName}`
-        : `channel-approval:${row.id}`;
+      row.channelId === null ? `approval:${row.runId}:${row.id}` : `channel-approval:${row.id}`;
     await repo.notifications.markBySource(db, 'approval', sourceId).catch((err: unknown) => {
       logger.warn({ err, approvalId: row.id }, 'approval notification cleanup failed');
     });

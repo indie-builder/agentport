@@ -4,6 +4,7 @@ import { repo } from '@agentport/db';
 import type { Channel, Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { RedisClient } from 'bun';
+import { createApprovalEvaluator } from '../src/modules/servers/approval-policy.js';
 import {
   cleanup,
   createAgent,
@@ -55,7 +56,7 @@ describe.skipIf(!ready)('channel approvals', () => {
   const serverNames: string[] = [];
 
   beforeAll(async () => {
-    app = await startApp({ APPROVAL_WAIT_MS: '0' });
+    app = await startApp();
     adminCookie = await loginCookie(app);
     listener = await listen(app);
     baseUrl = listener.url;
@@ -179,12 +180,30 @@ describe.skipIf(!ready)('channel approvals', () => {
     options: { toolName?: string; expiresAt?: Date | null } = {},
   ): Promise<{ id: string; toolName: string }> => {
     const toolName = options.toolName ?? unique('tool');
-    const row = await repo.runs.requestApproval(app.db, {
+    const tool = await repo.servers.createApiTool(app.db, {
+      serverId: server.id,
+      name: toolName,
+      description: '',
+      method: 'GET',
+      pathTemplate: '/',
+      inputSchema: {},
+      paramsIn: 'query',
+      approvalMode: 'ask',
+    });
+    const { decisionHash } = await createApprovalEvaluator({
+      db: app.db,
       runId,
       serverId: server.id,
-      toolName,
-      ...(options.expiresAt === undefined ? {} : { expiresAt: options.expiresAt }),
-    });
+    })({ ...tool, method: 'GET' });
+    const row = await app.db.transaction((tx) =>
+      repo.runs.requestApproval(tx, {
+        runId,
+        serverId: server.id,
+        toolName,
+        decisionHash,
+        ...(options.expiresAt === undefined ? {} : { expiresAt: options.expiresAt }),
+      }),
+    );
     return { id: row.id, toolName };
   };
 
@@ -307,6 +326,25 @@ describe.skipIf(!ready)('channel approvals', () => {
     expect((await approve(channel.id, active.id, owner.cookie)).statusCode).toBe(200);
     expectProblem(await approve(channel.id, active.id, channelAdmin.cookie), 'CONFLICT');
     expect(await approvedAuditCount(runningRun)).toBe(1);
+
+    const stale = await requestApproval(runningRun, { toolName: 'stale' });
+    const policy = await call('POST', '/api/security/tool-policies', adminCookie, {
+      serverId: server.id,
+      httpMethod: 'GET',
+      approvalMode: 'ask',
+    });
+    expect(policy.statusCode, policy.body).toBe(201);
+    const { id: policyId } = policy.json<{ id: string }>();
+    try {
+      expectProblem(await approve(channel.id, stale.id, owner.cookie), 'CONFLICT');
+      expectProblem(
+        await call('POST', `/api/channels/${channel.id}/approvals/${stale.id}/deny`, owner.cookie),
+        'CONFLICT',
+      );
+      expect((await approvalState(stale.id))?.approved_at).toBeNull();
+    } finally {
+      await repo.toolApprovalPolicies.delete(app.db, policyId);
+    }
   });
 
   it('returns 404 for an approval id from another channel', async () => {

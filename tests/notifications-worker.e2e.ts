@@ -103,12 +103,19 @@ async function createApprovalServer(
   created.serverIds.push(server.json.id);
   const tool = await apiJson(browser, 'POST', `/api/servers/${server.json.id}/tools`, {
     name: 'approval-echo',
-    method: 'GET',
+    method: 'POST',
     pathTemplate: '/approval-echo',
-    approvalMode: 'ask',
+    approvalMode: 'allow',
     inputSchema: { type: 'object', properties: {} },
   });
   assert(tool.status === 201, `创建审批工具失败：${tool.status}`);
+  const policy = await apiJson(browser, 'POST', '/api/security/tool-policies', {
+    serverId: server.json.id,
+    approvalMode: 'ask',
+    httpMethod: 'POST',
+    role: 'agent:owner',
+  });
+  assert(policy.status === 201, `创建审批策略失败：${policy.status}`);
   return { serverId: server.json.id, serverName };
 }
 
@@ -185,7 +192,7 @@ test('runs an ask tool after the approver approves the sandbox hook request', {
   expect(approval.denied_at).toBeNull();
   const runId = approval.run_id;
 
-  const sourceId = `approval:${runId}:${serverId}:approval-echo`;
+  const sourceId = `approval:${runId}:${approval.id}`;
   const notification = await waitFor('审批通知', 15_000, () =>
     fixture('notifications-worker', 'notification', sourceId, businessId),
   );
@@ -198,8 +205,7 @@ test('runs an ask tool after the approver approves the sandbox hook request', {
   expect(await approvalEchoHits()).toBe(hitsBefore);
 
   const approved = await apiJson(browser, 'POST', `/api/runs/${runId}/approve`, {
-    serverId,
-    toolName: 'approval-echo',
+    approvalId: approval.id,
   });
   expect(approved.status).toBe(200);
 

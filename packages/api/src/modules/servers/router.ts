@@ -453,7 +453,6 @@ export const serversRouter = os.router({
         tools: [
           { ...tool, enabled: true, approvalMode: tool.approvalMode === 'deny' ? 'deny' : 'allow' },
         ],
-        approvals: [tool.name],
         nodeEnv: context.config.NODE_ENV,
         privateHostAllowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
         checkOutbound: (toolName, args) =>

@@ -25,7 +25,6 @@ import { channelMemberRole, lockChannelRow } from '../channels.js';
 import { assertRunBudget, getDepartmentIdForBusinessId } from '../governance.js';
 import { lockRunResources } from '../locks.js';
 import { selectProviderForModel } from '../model-providers.js';
-import { inheritApprovals } from '../runs.js';
 import {
   consumePolicyApproval,
   getApprovedPolicyApprovalForConversation,
@@ -115,7 +114,6 @@ export async function admitChatRun(
 ): Promise<{
   run: AgentRun;
   conversationId: string;
-  inherited: string[];
   userMessageUuid: string;
   regenerate?: { replacesRunId: string; forkFromMessageUuid?: string; prompt: string };
   replayed?: true;
@@ -137,7 +135,6 @@ export async function admitChatRun(
         return {
           run: existingRun,
           conversationId: existingRun.conversationId,
-          inherited: [],
           userMessageUuid: '',
           replayed: true,
         };
@@ -445,10 +442,6 @@ export async function admitChatRun(
     if (input.policyEventId !== undefined) {
       await linkPolicyEventToRun(tx, input.policyEventId, run.id);
     }
-    const inherited =
-      input.channel === undefined
-        ? await inheritApprovals(tx, { conversationId, runId: run.id })
-        : [];
     let userMessageUuid: string;
     if (regenerated !== undefined) {
       userMessageUuid = regeneratedUserMessageUuid;
@@ -489,7 +482,6 @@ export async function admitChatRun(
     return {
       run,
       conversationId,
-      inherited,
       userMessageUuid,
       ...(regenerated === undefined ? {} : { regenerate: regenerated }),
     };

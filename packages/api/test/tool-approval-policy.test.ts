@@ -1,16 +1,23 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { hashMcpToken } from '@agentport/core';
 import { createDb, repo } from '@agentport/db';
+import { toolApprovalResponseSchema } from '@agentport/shared';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import {
+  ADMIN_BUSINESS_ID,
   createTestAccount,
   expectProblem,
   infraReady,
   loginCookie,
   request,
+  seedRun,
+  setAgentMember,
   startApp,
   type TestApp,
   unique,
 } from './helpers.js';
+import { listen } from './server.js';
 
 const ready = await infraReady;
 const isolated = ready ? await createIsolatedDatabase('tool_approval_') : null;
@@ -116,6 +123,198 @@ describe.skipIf(!ready || isolated === null)('tool approval policy governance', 
       headers: { cookie },
       payload: body,
     });
+
+  it('guards direct run calls and binds approval IDs to the current decision', async () => {
+    let upstreamCalls = 0;
+    using upstream = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch: () => {
+        upstreamCalls += 1;
+        return Response.json({ ok: true });
+      },
+    });
+    const listener = await listen(app);
+    const admin = (url: string, method: string, payload?: unknown) =>
+      request(app, { url, method, headers: { cookie }, payload });
+    try {
+      const connector = await admin('/api/servers', 'POST', {
+        name: unique('policy-runtime'),
+        kind: 'generated',
+        baseUrl: upstream.url.origin,
+      });
+      expect(connector.statusCode, connector.body).toBe(201);
+      const { id: target } = connector.json<{ id: string }>();
+      for (const [name, method] of [
+        ['write', 'POST'],
+        ['read', 'GET'],
+      ]) {
+        const tool = await admin(`/api/servers/${target}/tools`, 'POST', {
+          name,
+          method,
+          pathTemplate: `/${name}`,
+          approvalMode: 'allow',
+        });
+        expect(tool.statusCode, tool.body).toBe(201);
+      }
+      const agent = await admin('/api/agents', 'POST', {
+        slug: unique('policy-operator'),
+        name: 'Policy operator',
+        serverIds: [target],
+      });
+      expect(agent.statusCode, agent.body).toBe(201);
+      const { id: agentId } = agent.json<{ id: string }>();
+      const ownerPolicy = await createPolicy({
+        serverId: target,
+        approvalMode: 'ask',
+        httpMethod: 'POST',
+        role: 'agent:owner',
+      });
+      expect(ownerPolicy.statusCode, ownerPolicy.body).toBe(201);
+      const { id: policyId } = ownerPolicy.json<Policy>();
+      const member = await createTestAccount(app, cookie, { systemKeys: ['user'] });
+      await setAgentMember(app, cookie, agentId, member.businessId, {
+        canUse: true,
+        canMaintain: false,
+      });
+      const [role] = (await repo.access.getUserAccess(app.db, member.businessId)).roles;
+      if (!role) throw new Error('member role missing');
+      const memberPolicy = await createPolicy({
+        serverId: target,
+        approvalMode: 'deny',
+        httpMethod: 'POST',
+        role: `platform:${role.id}`,
+      });
+      expect(memberPolicy.statusCode, memberPolicy.body).toBe(201);
+
+      const openRun = async (
+        subject?: { kind: 'user'; businessId: string },
+        conversationId?: string,
+      ) => {
+        const token = crypto.randomUUID();
+        const run =
+          conversationId === undefined
+            ? await seedRun(app, agentId, {
+                mcpTokenHash: hashMcpToken(token),
+                ...(subject ? { subject } : {}),
+              })
+            : {
+                conversationId,
+                runId: (
+                  await repo.chat.createRun(app.db, {
+                    id: unique('policy-run'),
+                    conversationId,
+                    agentId,
+                    subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+                  })
+                ).id,
+              };
+        if (conversationId !== undefined) {
+          await repo.chat.updateRun(app.db, run.runId, { status: 'running' });
+          await repo.runs.setRunMcpToken(
+            app.db,
+            run.runId,
+            hashMcpToken(token),
+            new Date(Date.now() + 60_000),
+          );
+        }
+        const headers = { authorization: `Bearer ${token}`, 'x-agentport-run-id': run.runId };
+        return {
+          ...run,
+          async call(name: string) {
+            const client = new Client({ name: 'policy-runtime', version: '1' });
+            try {
+              await client.connect(
+                new StreamableHTTPClientTransport(new URL(`${listener.url}/mcp/${target}`), {
+                  requestInit: { headers },
+                }),
+              );
+              return await client.callTool({ name, arguments: {} });
+            } finally {
+              await client.close();
+            }
+          },
+          async state(method = 'GET', name = 'write') {
+            const response = await request(app, {
+              method,
+              url: `/tool-approvals/${run.runId}/${target}/${name}`,
+              headers,
+              ...(method === 'PUT' ? { payload: {} } : {}),
+            });
+            expect(response.statusCode, response.body).toBe(200);
+            return toolApprovalResponseSchema.parse(response.json());
+          },
+          decide(approvalId: string, action = 'approve') {
+            return admin(`/api/runs/${run.runId}/${action}`, 'POST', { approvalId });
+          },
+        };
+      };
+      const regular = await openRun({ kind: 'user', businessId: member.businessId });
+      expect((await regular.call('write')).isError).toBe(true);
+      expect(await regular.state('PUT')).toEqual({
+        status: 'denied',
+        approvalId: null,
+        expiresAt: null,
+      });
+      expect(upstreamCalls).toBe(0);
+      const owner = await openRun();
+      expect((await owner.call('write')).isError).toBe(true);
+      expect(upstreamCalls).toBe(0);
+      const first = await owner.state();
+      expect(first.status).toBe('pending');
+      if (first.approvalId === null) throw new Error('approval missing');
+      const changed = await admin(`/api/security/tool-policies/${policyId}`, 'PATCH', {
+        enabled: true,
+      });
+      expect(changed.statusCode, changed.body).toBe(200);
+      expectProblem(await owner.decide(first.approvalId), 'CONFLICT');
+      expect(await owner.state()).toEqual({ status: 'pending', approvalId: null, expiresAt: null });
+      const next = await owner.state('PUT');
+      expect(next.approvalId).not.toBe(first.approvalId);
+      if (next.approvalId === null) throw new Error('replacement approval missing');
+      expect((await owner.decide(next.approvalId)).statusCode).toBe(200);
+      expect((await owner.call('write')).isError).toBeFalsy();
+      expect(upstreamCalls).toBe(1);
+      const expiresAt = new Date(Date.now() - 1_000).toISOString();
+      await app.client.unsafe('update approval_requests set expires_at = $2 where id = $1', [
+        next.approvalId,
+        expiresAt,
+      ]);
+      expect((await owner.call('write')).isError).toBeFalsy();
+      expect(upstreamCalls).toBe(2);
+      const nextRun = await openRun(undefined, owner.conversationId);
+      expect((await nextRun.call('write')).isError).toBe(true);
+      expect(upstreamCalls).toBe(2);
+      const pending = await nextRun.state();
+      if (pending.approvalId === null) throw new Error('second run approval missing');
+      expect((await nextRun.decide(pending.approvalId, 'deny')).statusCode).toBe(200);
+      expect((await nextRun.call('write')).isError).toBe(true);
+      expect(upstreamCalls).toBe(2);
+      expect(await regular.state('PUT', 'read')).toEqual({
+        status: 'approved',
+        approvalId: null,
+        expiresAt: null,
+      });
+      expect((await regular.call('read')).isError).toBeFalsy();
+      expect(upstreamCalls).toBe(3);
+      await app.client.unsafe('update "user" set disabled = true where business_id = $1', [
+        ADMIN_BUSINESS_ID,
+      ]);
+      try {
+        expect((await owner.call('write')).isError).toBe(true);
+        expect(upstreamCalls).toBe(3);
+      } finally {
+        await app.client.unsafe('update "user" set disabled = false where business_id = $1', [
+          ADMIN_BUSINESS_ID,
+        ]);
+      }
+      expect((await owner.call('write')).isError).toBe(true);
+      expect(upstreamCalls).toBe(3);
+      expectProblem(await owner.decide(next.approvalId), 'CONFLICT');
+    } finally {
+      await listener.close();
+    }
+  });
 
   it('creates a policy and records a stable audit snapshot', async () => {
     const res = await createPolicy({

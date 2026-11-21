@@ -1,4 +1,3 @@
-import { fail } from '@agentport/core';
 import type {
   AccessFilter,
   AgentDefinitionServer,
@@ -7,22 +6,23 @@ import type {
   RunStatus,
   RunTrigger,
 } from '@agentport/shared';
-import { isActiveRunStatus } from '@agentport/shared';
+import { agentPermissionAllows, isActiveRunStatus } from '@agentport/shared';
 import {
   and,
   asc,
   desc,
   eq,
+  gt,
   gte,
-  inArray,
   isNotNull,
   isNull,
   lte,
   ne,
+  or,
   type SQL,
   sql,
 } from 'drizzle-orm';
-import type { Database, DbHandle } from '../client.js';
+import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
   agentRuns,
@@ -33,7 +33,10 @@ import {
   messages,
   servers,
 } from '../schema.js';
+import { getAgentRelation, getUserAccess } from './access.js';
+import { getAuthUserForPrincipal } from './accounts.js';
 import { getAgentVersion } from './agent-versions.js';
+import { channelMemberRole } from './channels.js';
 import { messageText } from './chat/messages.js';
 import { keysetBefore, paginate } from './keyset.js';
 
@@ -410,7 +413,7 @@ function runServerScope(serverId: string): SQL {
 }
 
 export async function getRunServerSnapshot(
-  db: Database,
+  db: DbHandle,
   runId: string,
   serverId: string,
 ): Promise<AgentDefinitionServer | null> {
@@ -464,6 +467,48 @@ export async function getRunInitiator(db: DbHandle, runId: string): Promise<stri
   return row?.initiatedBy ?? null;
 }
 
+export async function getRunApprovalSubject(db: DbHandle, runId: string) {
+  const [run] = await db
+    .select({
+      agentId: agentRuns.agentId,
+      subjectKind: agentRuns.subjectKind,
+      initiatedBy: agentRuns.initiatedBy,
+      serviceId: agentRuns.serviceId,
+      channelId: agentRuns.channelId,
+      scheduleId: agentRuns.scheduleId,
+      trigger: agentRuns.trigger,
+    })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  if (!run) return null;
+  const { agentId, subjectKind, initiatedBy, serviceId, channelId } = run;
+  if (subjectKind === 'service') {
+    return serviceId === null ? null : { agentId, subjectKind, roles: [`service:${serviceId}`] };
+  }
+  if (subjectKind !== 'user' || initiatedBy === null) return null;
+  const [account, access, relation, channelRole] = await Promise.all([
+    getAuthUserForPrincipal(db, initiatedBy),
+    getUserAccess(db, initiatedBy),
+    getAgentRelation(db, agentId, initiatedBy),
+    channelId === null ? null : channelMemberRole(db, channelId, initiatedBy),
+  ]);
+  if (!account || account.disabled || !relation.exists || relation.inactive) return null;
+  if (
+    channelId === null
+      ? !agentPermissionAllows(access.grants, 'agents.use', relation, initiatedBy)
+      : channelRole === null
+  )
+    return null;
+  const roles = access.roles.map((role) => `platform:${role.id}`);
+  if (relation.ownerBusinessId === initiatedBy) roles.push('agent:owner');
+  if (relation.canMaintain) roles.push('agent:maintainer');
+  if (relation.canUse || relation.canMaintain || relation.organizationVisible || relation.isDefault)
+    roles.push('agent:user');
+  if (channelRole !== null) roles.push(`channel:${channelRole}`);
+  return { agentId, subjectKind, roles };
+}
+
 export async function getRunAgentId(db: DbHandle, runId: string): Promise<string | null> {
   const [row] = await db
     .select({ agentId: agentRuns.agentId })
@@ -474,7 +519,7 @@ export async function getRunAgentId(db: DbHandle, runId: string): Promise<string
 }
 
 export async function isRunBoundToServer(
-  db: Database,
+  db: DbHandle,
   runId: string,
   serverId: string,
 ): Promise<boolean> {
@@ -561,96 +606,86 @@ export interface ApprovalRequestRow {
   expiresAt: Date | null;
 }
 
-export interface RequestedApproval {
-  id: string;
-  channelId: string | null;
-  runId: string;
-  serverId: string;
-  toolName: string;
-  createdAt: Date;
-  approvedAt: Date | null;
-  deniedAt: Date | null;
-  expiresAt: Date | null;
+type RunToolApproval = { runId: string; serverId: string; toolName: string; decisionHash: string };
+
+function runToolApprovalScope({
+  runId,
+  serverId,
+  toolName,
+}: Omit<RunToolApproval, 'decisionHash'>) {
+  return and(
+    eq(approvalRequests.runId, runId),
+    eq(approvalRequests.serverId, serverId),
+    eq(approvalRequests.toolName, toolName),
+    isNull(approvalRequests.supersededAt),
+  );
 }
 
-export async function requestApproval(
-  db: DbHandle,
-  input: {
-    runId: string;
-    serverId: string;
-    toolName: string;
-    expiresAt?: Date | null;
-    argumentsSummary?: Record<string, unknown> | null;
-  },
-): Promise<RequestedApproval> {
-  const [run] = await db
-    .select({ channelId: agentRuns.channelId })
-    .from(agentRuns)
-    .where(eq(agentRuns.id, input.runId))
-    .limit(1);
-  const columns = {
-    id: approvalRequests.id,
-    channelId: approvalRequests.channelId,
-    runId: approvalRequests.runId,
-    serverId: approvalRequests.serverId,
-    toolName: approvalRequests.toolName,
-    createdAt: approvalRequests.createdAt,
-    approvedAt: approvalRequests.approvedAt,
-    deniedAt: approvalRequests.deniedAt,
-    expiresAt: approvalRequests.expiresAt,
-  };
-  const [inserted] = await db
-    .insert(approvalRequests)
-    .values({
-      id: newId('approval'),
-      ...input,
-      channelId: run?.channelId ?? null,
-      expiresAt: input.expiresAt ?? null,
-    })
-    .onConflictDoUpdate({
-      target: [approvalRequests.runId, approvalRequests.serverId, approvalRequests.toolName],
-      set: {
-        expiresAt: sql`coalesce(${approvalRequests.expiresAt}, excluded.expires_at)`,
-        argumentsSummary: sql`coalesce(${approvalRequests.argumentsSummary}, excluded.arguments_summary)`,
-      },
-      setWhere: isNull(approvalRequests.approvedAt),
-    })
-    .returning(columns);
-  if (inserted) return { ...inserted, runId: input.runId };
-
-  const [existing] = await db
-    .select(columns)
-    .from(approvalRequests)
-    .where(
-      and(
-        eq(approvalRequests.runId, input.runId),
-        eq(approvalRequests.serverId, input.serverId),
-        eq(approvalRequests.toolName, input.toolName),
-      ),
-    )
-    .limit(1);
-  if (!existing) throw new Error('approval request conflict without existing row');
-  return { ...existing, runId: input.runId };
-}
-
-export async function getApprovalRequest(
-  db: Database,
-  runId: string,
-  serverId: string,
-  toolName: string,
-) {
+export async function getCurrentApproval(db: DbHandle, input: RunToolApproval) {
   const [row] = await db
     .select()
     .from(approvalRequests)
-    .where(
-      and(
-        eq(approvalRequests.runId, runId),
-        eq(approvalRequests.serverId, serverId),
-        eq(approvalRequests.toolName, toolName),
-      ),
-    )
+    .where(and(runToolApprovalScope(input), eq(approvalRequests.decisionHash, input.decisionHash)))
     .limit(1);
   return row ?? null;
+}
+
+export async function supersedeMismatchedApprovals(
+  db: Transaction,
+  input: Omit<RunToolApproval, 'decisionHash'> & { decisionHash: string | null },
+) {
+  await db
+    .update(approvalRequests)
+    .set({ supersededAt: sql`clock_timestamp()` })
+    .where(
+      and(
+        runToolApprovalScope(input),
+        isNotNull(approvalRequests.decisionHash),
+        input.decisionHash === null
+          ? undefined
+          : ne(approvalRequests.decisionHash, input.decisionHash),
+      ),
+    );
+}
+
+export async function lockRunForApproval(tx: Transaction, runId: string) {
+  const [run] = await tx
+    .select({ channelId: agentRuns.channelId, status: agentRuns.status })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .for('update');
+  return run ?? null;
+}
+
+export async function requestApproval(
+  tx: Transaction,
+  input: RunToolApproval & {
+    expiresAt?: Date | null;
+    argumentsSummary?: Record<string, unknown> | null;
+  },
+) {
+  const run = await lockRunForApproval(tx, input.runId);
+  const existing = await getCurrentApproval(tx, input);
+  if (
+    existing &&
+    (existing.approvedAt !== null ||
+      existing.deniedAt !== null ||
+      existing.expiresAt === null ||
+      existing.expiresAt.getTime() > Date.now())
+  )
+    return existing;
+  if (existing) {
+    await tx
+      .update(approvalRequests)
+      .set({ supersededAt: sql`clock_timestamp()` })
+      .where(eq(approvalRequests.id, existing.id));
+  }
+  const [inserted] = await tx
+    .insert(approvalRequests)
+    .values({ id: newId('approval'), ...input, channelId: run?.channelId ?? null })
+    .returning();
+  if (!inserted) throw new Error('approval request insert returned no row');
+  return inserted;
 }
 
 export async function expireStaleApprovals(
@@ -688,42 +723,6 @@ export async function expireStaleApprovals(
     });
 }
 
-export async function getApprovedToolNames(
-  db: Database,
-  runId: string,
-  serverId: string,
-): Promise<string[]> {
-  const rows = await db
-    .select({ toolName: approvalRequests.toolName })
-    .from(approvalRequests)
-    .where(
-      and(
-        eq(approvalRequests.runId, runId),
-        eq(approvalRequests.serverId, serverId),
-        isNotNull(approvalRequests.approvedAt),
-      ),
-    );
-  return rows.map((row) => row.toolName);
-}
-
-export async function getDeniedToolNames(
-  db: Database,
-  runId: string,
-  serverId: string,
-): Promise<string[]> {
-  const rows = await db
-    .select({ toolName: approvalRequests.toolName })
-    .from(approvalRequests)
-    .where(
-      and(
-        eq(approvalRequests.runId, runId),
-        eq(approvalRequests.serverId, serverId),
-        isNotNull(approvalRequests.deniedAt),
-      ),
-    );
-  return rows.map((row) => row.toolName);
-}
-
 export async function listApprovalRequests(
   db: Database,
   runId: string,
@@ -741,134 +740,77 @@ export async function listApprovalRequests(
     })
     .from(approvalRequests)
     .leftJoin(servers, eq(servers.id, approvalRequests.serverId))
-    .where(eq(approvalRequests.runId, runId))
+    .where(
+      and(
+        eq(approvalRequests.runId, runId),
+        isNull(approvalRequests.supersededAt),
+        isNotNull(approvalRequests.decisionHash),
+      ),
+    )
     .orderBy(asc(approvalRequests.createdAt), asc(approvalRequests.id));
   return rows.map((row) => ({ ...row, runId }));
 }
 
-/**
- * 新 run 继承同一会话上一次 run 已批准的工具：批准原本绑定单次 run，
- * 用户重发消息会新建 run，不继承则批准立刻失效。跨会话不继承。
- * run id 是 uuidv7，按 id 倒序即按创建时间倒序；排除刚创建的本 run。
- */
-export async function inheritApprovals(
-  db: DbHandle,
-  input: { conversationId: string; runId: string },
-): Promise<string[]> {
-  const previous = db
-    .select({ id: agentRuns.id })
-    .from(agentRuns)
-    .where(and(eq(agentRuns.conversationId, input.conversationId), ne(agentRuns.id, input.runId)))
-    .orderBy(desc(agentRuns.id))
-    .limit(1);
+export type RecheckApproval = (
+  tx: Transaction,
+  input: { runId: string; serverId: string; toolName: string },
+) => Promise<string | null>;
 
-  const approved = await db
-    .select({
-      serverId: approvalRequests.serverId,
-      toolName: approvalRequests.toolName,
-      approvedAt: approvalRequests.approvedAt,
-    })
-    .from(approvalRequests)
-    .where(and(inArray(approvalRequests.runId, previous), isNotNull(approvalRequests.approvedAt)));
-  if (approved.length === 0) return [];
-
-  await db
-    .insert(approvalRequests)
-    .values(
-      approved.map((row) => ({
-        id: newId('approval'),
-        runId: input.runId,
-        serverId: row.serverId,
-        toolName: row.toolName,
-        approvedAt: row.approvedAt,
-      })),
-    )
-    .onConflictDoNothing();
-  return approved.map((row) => row.toolName);
-}
-
-/**
- * 只批准已存在且 run 仍在 running 的请求；run 不存在返回 null（调用方按找不到请求处理）。
- * 锁 agent_runs 行再更新请求：与 cancelRun / worker 的 updateRun 串行，状态检查才不会被并发覆盖。
- * waiting 表示批准后调用方是否还应等这个被挂起的调用：已过期则不追加等待。
- */
-export async function approveTool(
+export async function decideToolApproval(
   db: Database,
-  runId: string,
-  serverId: string,
-  toolName: string,
-): Promise<{ serverId: string; toolName: string; approvedAt: Date; waiting: boolean } | null> {
+  input: { runId: string; approvalId: string; businessId: string; decision: 'approve' | 'deny' },
+  recheck: RecheckApproval,
+) {
   return db.transaction(async (tx) => {
-    const [run] = await tx
-      .select({ status: agentRuns.status })
-      .from(agentRuns)
-      .where(eq(agentRuns.id, runId))
-      .limit(1)
-      .for('update');
-    if (!run) return null;
-    if (run.status !== 'running') {
-      fail('CONFLICT', '运行已结束或尚未开始，无法批准；请刷新运行状态');
-    }
-
-    const [row] = await tx
-      .update(approvalRequests)
-      .set({ approvedAt: sql`coalesce(${approvalRequests.approvedAt}, now())` })
+    const run = await lockRunForApproval(tx, input.runId);
+    const [approval] = await tx
+      .select()
+      .from(approvalRequests)
       .where(
-        and(
-          eq(approvalRequests.runId, runId),
-          eq(approvalRequests.serverId, serverId),
-          eq(approvalRequests.toolName, toolName),
-          isNull(approvalRequests.deniedAt),
-        ),
+        and(eq(approvalRequests.id, input.approvalId), eq(approvalRequests.runId, input.runId)),
+      );
+    if (!run || run.channelId !== null || !approval) return { kind: 'not_found' } as const;
+    if (run.status !== 'running') return { kind: 'conflict' } as const;
+    if (approval.decisionHash === null || approval.supersededAt !== null)
+      return { kind: 'conflict' } as const;
+    const current = await recheck(tx, {
+      runId: input.runId,
+      serverId: approval.serverId,
+      toolName: approval.toolName,
+    });
+    if (current !== approval.decisionHash) return { kind: 'conflict' } as const;
+    if (input.decision === 'approve' && approval.approvedAt !== null) {
+      return {
+        kind: 'ok',
+        approval,
+        waiting: approval.expiresAt !== null && approval.expiresAt.getTime() > Date.now(),
+      } as const;
+    }
+    const [decided] = await tx
+      .update(approvalRequests)
+      .set(
+        input.decision === 'approve'
+          ? { approvedAt: sql`clock_timestamp()`, approvedByBusinessId: input.businessId }
+          : { deniedAt: sql`clock_timestamp()`, deniedByBusinessId: input.businessId },
       )
-      .returning({
-        serverId: approvalRequests.serverId,
-        toolName: approvalRequests.toolName,
-        approvedAt: approvalRequests.approvedAt,
-        waiting: sql<boolean>`coalesce(${approvalRequests.expiresAt} > now(), false)`,
-      });
-    return row && row.approvedAt !== null ? { ...row, approvedAt: row.approvedAt } : null;
-  });
-}
-
-export async function denyTool(
-  db: Database,
-  runId: string,
-  serverId: string,
-  toolName: string,
-  deniedByBusinessId: string,
-): Promise<{ serverId: string; toolName: string; deniedAt: Date; waiting: boolean } | null> {
-  return db.transaction(async (tx) => {
-    const [run] = await tx
-      .select({ status: agentRuns.status })
-      .from(agentRuns)
-      .where(eq(agentRuns.id, runId))
-      .limit(1)
-      .for('update');
-    if (!run) return null;
-    if (run.status !== 'running') {
-      fail('CONFLICT', '运行已结束或尚未开始，无法拒绝；请刷新运行状态');
-    }
-
-    const [row] = await tx
-      .update(approvalRequests)
-      .set({ deniedAt: sql`now()`, deniedByBusinessId })
       .where(
         and(
-          eq(approvalRequests.runId, runId),
-          eq(approvalRequests.serverId, serverId),
-          eq(approvalRequests.toolName, toolName),
+          eq(approvalRequests.id, input.approvalId),
+          eq(approvalRequests.runId, input.runId),
+          eq(approvalRequests.decisionHash, current),
+          isNull(approvalRequests.supersededAt),
           isNull(approvalRequests.approvedAt),
           isNull(approvalRequests.deniedAt),
+          or(
+            isNull(approvalRequests.expiresAt),
+            gt(approvalRequests.expiresAt, sql`clock_timestamp()`),
+          ),
         ),
       )
-      .returning({
-        serverId: approvalRequests.serverId,
-        toolName: approvalRequests.toolName,
-        deniedAt: approvalRequests.deniedAt,
-        waiting: sql<boolean>`coalesce(${approvalRequests.expiresAt} > now(), false)`,
-      });
-    return row && row.deniedAt !== null ? { ...row, deniedAt: row.deniedAt } : null;
+      .returning();
+    return decided
+      ? ({ kind: 'ok', approval: decided, waiting: decided.expiresAt !== null } as const)
+      : ({ kind: 'conflict' } as const);
   });
 }
 

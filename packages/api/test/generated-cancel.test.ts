@@ -39,12 +39,20 @@ const tool: ApiTool = {
   approvalMode: 'ask',
 };
 
+const evaluation = (tool: ApiTool, approved: boolean) => ({
+  effectiveMode: tool.approvalMode,
+  baseline: tool.approvalMode,
+  approved,
+  decisionHash: 'test-decision',
+  matchedRuleIds: [],
+});
+
 const baseInput = {
   name: 'srv',
   baseUrl: 'https://upstream.test',
   headers: {},
   tools: [tool],
-  approvals: [],
+  privateHostAllowlist: '',
 };
 
 function expectCancelled(result: CallToolResult): void {
@@ -86,7 +94,7 @@ it('refuses an already approved tool when the run is no longer active', async ()
 
   buildGeneratedServer({
     ...baseInput,
-    approvals: ['approve-tool'],
+    evaluateApproval: async (tool) => evaluation(tool, true),
     isRunActive: async () => false,
   });
 
@@ -103,7 +111,7 @@ it('checks cancellation after the DNS gate and before fetch', async () => {
   const controller = new AbortController();
   buildGeneratedServer({
     ...baseInput,
-    approvals: ['approve-tool'],
+    evaluateApproval: async (tool) => evaluation(tool, true),
     isRunActive: async () => true,
   });
 
@@ -129,6 +137,7 @@ it.each([1, 2])(
         if (reads === cancelAt) controller.abort();
         return true;
       },
+      evaluateApproval: async (tool) => evaluation(tool, false),
       onApprovalRequired,
     });
     expectCancelled(await callTool(controller.signal));
@@ -142,7 +151,7 @@ it('still calls upstream for an active run with approval', async () => {
 
   buildGeneratedServer({
     ...baseInput,
-    approvals: ['approve-tool'],
+    evaluateApproval: async (tool) => evaluation(tool, true),
     isRunActive: async () => true,
   });
 

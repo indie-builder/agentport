@@ -60,8 +60,9 @@ async function callTool(
       name: server.name,
       baseUrl: server.baseUrl,
       headers: server.headers,
-      tools: apiTools,
-      approvals: [bareName],
+      tools: apiTools.map((tool) =>
+        tool.approvalMode === 'ask' ? { ...tool, approvalMode: 'allow' } : tool,
+      ),
       nodeEnv: context.config.NODE_ENV,
       privateHostAllowlist: context.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
       checkOutbound: (toolName, checkedArgs) =>

@@ -45,12 +45,20 @@ const plainTool: ApiTool = {
   approvalMode: 'allow',
 };
 
+const evaluation = (tool: ApiTool, approved: boolean) => ({
+  effectiveMode: tool.approvalMode,
+  baseline: tool.approvalMode,
+  approved,
+  decisionHash: 'test-decision',
+  matchedRuleIds: [],
+});
+
 const baseInput = {
   name: 'srv',
   baseUrl: 'https://upstream.test',
   headers: {},
   tools: [approvalTool, plainTool],
-  approvals: [],
+  privateHostAllowlist: '',
 };
 
 function handler(name: string): ToolHandler {
@@ -80,7 +88,7 @@ it('keeps the execution pool free when unapproved calls are refused', async () =
   buildGeneratedServer({
     ...baseInput,
     isRunActive: async () => true,
-    refreshApprovals: async () => [],
+    evaluateApproval: async (tool) => evaluation(tool, false),
     onApprovalRequired,
   });
 
@@ -98,7 +106,11 @@ it('keeps the execution pool free when unapproved calls are refused', async () =
   expect(fifth.isError).toBe(true);
   expect(JSON.stringify(fifth.content)).toContain('需要批准');
   expect(onApprovalRequired).toHaveBeenCalledTimes(5);
-  expect(onApprovalRequired).toHaveBeenLastCalledWith('approve-tool', expect.any(Object));
+  expect(onApprovalRequired).toHaveBeenLastCalledWith(
+    'approve-tool',
+    expect.any(Object),
+    expect.any(Object),
+  );
 
   const results = await Promise.all(waiting);
   for (const result of results) expect(result.isError).toBe(true);
@@ -110,7 +122,7 @@ it('never calls upstream for a call cancelled while queued for the execution poo
   const fetchSpy = mock(() => slots[fetchSpy.mock.calls.length - 1]?.promise ?? Promise.reject());
   stubGlobal('fetch', fetchSpy);
 
-  buildGeneratedServer({ ...baseInput, approvals: ['plain-tool'], isRunActive: async () => true });
+  buildGeneratedServer({ ...baseInput, isRunActive: async () => true });
 
   const controller = new AbortController();
   const activeCalls = Array.from({ length: 4 }, () =>

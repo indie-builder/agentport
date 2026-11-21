@@ -17,7 +17,7 @@
 | M1 | Medium | 登录失败把无长度上限的用户名写入永不清理的审计表 | 截断到 128 字符 |
 | M6 | Medium | `/api/conversations` 的 limit 无上限 | 上限 200 |
 | L6 | Medium | overview `days` 无上限导致非法日期 500 | 限制 1–3650 |
-| — | — | 审批状态在连接建立时快照，批准后同一连接仍被拒 | 改为调用时重新读取（`refreshApprovals`） |
+| — | — | 审批状态在连接建立时快照，批准后同一连接仍被拒 | 改为执行前重判策略并按当前 `decisionHash` 校验批准 |
 | — | — | `generated.ts` 的 SSRF 调用未传 `nodeEnv`，与测试连接行为不一致 | 显式传入 `config.NODE_ENV` |
 | — | — | FakeIP `198.18.0.0/15` 的放行范围 | `ssrf.ts` 不单独屏蔽该网段，开发与生产一致；本机开发例外仅 `localhost`/`127.0.0.1`/`::1`。历史记录；现行 fake-IP 与开发放行边界见 [PITFALLS.md](PITFALLS.md) |
 

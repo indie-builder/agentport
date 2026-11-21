@@ -87,7 +87,7 @@ export function createApprovalHook(
         });
         responded = true;
         transportFailures = 0;
-        if ([401, 403, 404].includes(response.status))
+        if ([401, 403, 404, 409].includes(response.status))
           return decision('deny', '工具审批授权已失效，调用未执行。');
         if (response.status === 429) {
           const retryAfter = response.headers.get('retry-after');
@@ -111,7 +111,7 @@ export function createApprovalHook(
               'deny',
               `工具审批${state.status === 'denied' ? '已拒绝' : state.status === 'expired' ? '已过期' : '已取消'}，调用未执行。`,
             );
-          registered = true;
+          registered = state.approvalId !== null;
           expiresAt =
             state.expiresAt === null ? Number.POSITIVE_INFINITY : Date.parse(state.expiresAt);
           backoff = 2_000;

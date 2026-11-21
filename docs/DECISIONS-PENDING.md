@@ -329,9 +329,9 @@
 
 **迁移限制**：旧配置的掩码URL不再是可保存或可运行的有效配置；需显式改成不含凭证的URL，并把认证放入加密headers。不会自动搬迁、删除或猜测认证方式。测试使用独立数据库与固定测试密钥，预览使用本地密钥，不混库绕过解密失败。
 
-## D-34 ✅ 审批等待与后续许可分开（2026-10-22）
+## D-34 ✅ 审批等待与后续许可分开（run 的迟到批准与继承已由 D-88 取代）
 
-**采用**：approval_requests.expires_at记录调用等待期限；立即拒绝或旧记录为空。未批准重复请求固定首次期限，不再延长；已批准记录不修改。等待轮询在sandbox `PreToolUse` hook中按2秒GET读取状态，API只处理短请求，API重启后runner按退避重试即可恢复。过期仍可批准运行中的工具供后续调用/既有继承使用，但不声称恢复已结束调用。终态run仍拒绝批准。
+**采用**：approval_requests.expires_at记录调用等待期限；立即拒绝或旧记录为空。未批准重复请求固定首次期限，不再延长；已批准记录不修改。等待轮询在sandbox `PreToolUse` hook中按2秒GET读取状态，API只处理短请求，API重启后runner按退避重试即可恢复。D-88 起，run 的待决请求到期后不能批准；按时批准只用于本 run 的同一判定，终态 run 不执行。
 
 **边界**：不使用浏览器时钟猜期限；sandbox hook在睡眠后再次检查截止时间，防止截止后的批准恢复当前调用。审批恢复要求sandbox runner与run保持存活，没有sandbox重启后的检查点，也不保证沙盒失联情况下期限尚未来到就一定有活跃调用。0024只新增可空期限列，旧记录不回填。
 
@@ -768,11 +768,11 @@
 
 ---
 
-## D-88 ⏳ 工具审批可配置策略与可读审计（Stage 2 已交付，其余待决策）
+## D-88 ⏳ 工具审批可配置策略与可读审计（Stage 3a-2 已实现，其他入口待接入）
 
 **用户故事**：安全运营人员希望让同一专家的查询工具直通，让普通成员的写操作先审批，并能在审计中看到谁把哪条规则从什么改成了什么。
 
-**现状与依据**：
+**Stage 3 前的基线与依据**：
 
 - generated 工具已有 `api_tools.approval_mode`（`allow`、`ask`、`deny`）。[`generated.ts`](../packages/api/src/modules/servers/generated.ts) 在调用上游前先做审批门禁：活动状态检查后，`deny` 返回 `policyDeniedResult`，MCP 入口记录 `mcp.tool.denied`；`ask` 在服务端复核批准。已有 run 定义快照时，[MCP 入口](../packages/api/src/modules/servers/mcp-endpoint.ts)与[审批入口](../packages/api/src/modules/servers/http.ts)按快照取工具；外部连接器调用走当前定义。
 - worker 把父级和启用子级的连接器名到 ID 映射、`ask` 工具清单交给 runner。[`approval-hook.ts`](../packages/sandbox/src/approval-hook.ts) 用 `PreToolUse` 从 `.mcp.json` 取 run 凭证，`PUT /tool-approvals/{runId}/{serverId}/{toolName}` 登记，再 `GET` 轮询。`approval_requests` 的等待截止由 `APPROVAL_WAIT_MS` 写入（默认 300 秒，hook 最多等 355 秒）。[私有 run](../packages/api/src/modules/runs/router.ts)与[频道](../packages/api/src/modules/channels/approvals.ts)的批准、拒绝写 `agent.run.approved`、`agent.run.denied`。[#614](https://github.com/indie-builder/agentport/pull/614) 每 5 分钟随 `ops-alerts` 核对已到期且未决策的记录，写 `expired_at`，尝试追加 `agent.run.approval.expired` 和清理未读审批通知。等待按 `expires_at` 截止，不等扫描；私有 run 的迟到批准仍可用于后续调用，不能恢复已经超时的调用。
@@ -798,7 +798,7 @@
   - **Stage 3：接通 generated 策略。** 用隔离上游和真实 sandbox 验证同一 POST 对两种角色判定不同，未命中的 GET 沿用基线。等待中撤权、规则变动或请求到期后，旧请求不能批准；仍需审批时，新请求获批才执行。对 run MCP（含直接请求）、外部 token、OpenUI 和试跑逐一确认拒绝时上游请求为零。
   - **Stage 4：核验投影和运行时目录，再决定扩展。** 用实际 SDK 加载 `.claude/settings.json`，验证原生规则往返，包含 `__` 的命名及 knowledge、HTTP、stdio、plugin 合法工具仍可发现与调用。仅对可识别且确有审批需求的运行时来源启用 hook 策略，无法证明身份的来源维持现有行为。
 
-**边界与风险**：现有批准可按会话继承，且以工具名为粒度，不能当成对每次参数的批准。新规则若需要逐次核准参数，另定调用级审批；本项不承诺撤销已发出的上游请求。管理 `testInvoke` 目前放行 `ask`、保留 `deny` 和 SSRF 校验，不能把这条例外悄悄扩大成动态规则的绕行入口。
+**边界与风险**：run 批准不继承，按工具操作和当前判定绑定，不等同于对每次参数的批准。新规则若需要逐次核准参数，另定调用级审批；本项不承诺撤销已发出的上游请求。管理 `testInvoke` 目前放行 `ask`、保留 `deny` 和 SSRF 校验，不能把这条例外悄悄扩大成动态规则的绕行入口。
 
 **待确认决策点**：
 

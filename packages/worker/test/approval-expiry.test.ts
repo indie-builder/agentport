@@ -155,7 +155,7 @@ describe.skipIf(!(ready && isolated))('reconcileExpiredApprovals', () => {
       toolName: 'web_search',
       expiresAt: new Date(Date.now() - 60_000),
     });
-    const sourceId = `approval:${run.runId}:${run.serverId}:web_search`;
+    const sourceId = `approval:${run.runId}:${approvalId}`;
     await createNotification(sourceId);
     const now = new Date();
 

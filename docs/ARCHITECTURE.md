@@ -320,9 +320,11 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 已读语义：用户批准或拒绝私有 run / 频道审批后，服务端按来源键把对应 `approval` 通知标为已读；回答澄清提问后把对应 `question` 通知标为已读。标记失败只记日志，不回滚已完成的审批或回答。其余通知保留未读，直到用户单条或全部标为已读。页面 `/notifications` 提供全部/待办筛选、单条与全部已读、游标分页，侧栏入口显示未读数并按 30 秒轮询更新。
 
-工具审批恢复：worker 通过 shared `SandboxTask` 传递父级与启用子级的 server 名到 ID 映射及本轮 ask 工具快照。sandbox `PreToolUse` 从官方 `.mcp.json` 读取既有 run Bearer token 与 `x-agentport-run-id`，调用 `PUT /tool-approvals/{runId}/{serverId}/{toolName}` 幂等登记，再每 2 秒 GET 同一路径。接口复用 MCP service 边界与限流，只接受绑定该 generated server 的 run token、启用且仍为 ask 的工具；返回 pending/approved/denied/expired/cancelled、approvalId 与 expiresAt。审批按 `(runId, serverId, toolName)` 持久化，首次截止由 `APPROVAL_WAIT_MS`（默认 300 秒）固定，重试不延期。过期由尚未决策行的截止派生，ops-alerts 过期核对照写 `expired_at` 供审计与清理滞留「等待审批」通知，不改动执行判定；已有 approved/denied 行语义保持不变，批准记录不因等待截止而撤销。
+工具审批恢复：worker 通过 shared `SandboxTask` 传递父级和启用子级的 server 名到 ID 映射，以及本轮绑定的全部启用 generated 工具。sandbox `PreToolUse` 从官方 `.mcp.json` 读取既有 run Bearer token 与 `x-agentport-run-id`，调用 `PUT /tool-approvals/{runId}/{serverId}/{toolName}`，待审批时每 2 秒 GET 同一路径。API 按运行快照、当前发起者角色与规则计算最严格模式（`deny > ask > allow`）。`allow` 不创建审批；`deny` 不执行并审计；仅 `ask` 创建审批。generated 服务端独立重判，直接 MCP 调用也不能绕过审批。
 
-API 重启只中断当前短请求，runner 对网络错误和 5xx 按 2–5 秒退避，429 遵守 Retry-After，恢复后继续读取同一审批；连续 3 次未收到 HTTP 响应的传输失败，且等待未取消、未超时、审批未过期时，立即按“工具审批服务不可达”拒绝，收到响应后的解析失败仍按原退避继续。批准后 hook 不给权限决策，沿用既有 `allowedTools` / 权限规则；显式禁用仍生效，原 MCP 调用在权限通过后执行；拒绝、过期、取消或 401/403/404 返回 deny。hook 设置 360 秒超时和 `onFailure: 'block'`，回调最多等待 355 秒，并受 run 取消/超时的既有 SIGTERM 约束。服务端不再长等待，执行前仍刷新批准/拒绝与 run 活动状态；绕过 hook 的未批准调用只登记并立即拒绝。
+run 审批的 `approval_requests.decision_hash` 绑定操作、角色、基线、生效模式与命中规则版本。唯一索引是未被 `superseded_at` 作废的 `(run_id, server_id, tool_name, decision_hash)`。旧 NULL hash 不参与决策或执行；OpenUI 会话审批不变。私有 run 按 `approvalId` 批准或拒绝，频道沿用原 `approvalId` 路径，两者都重算 hash；不匹配或待决请求已过 `expires_at` 返回 409。已观察到的判定变化作废旧 ID，即便判定恢复也不复活；到期的待决请求在下一次登记时重新发 ID。按时批准仅对同一个 run 的同一判定有效，不跨 run 继承。
+
+API 重启只中断短请求，runner 对网络错误、5xx 和 429 按原规则退避。批准后 hook 不返回 SDK `allow`，仍走既有 `allowedTools` 与权限路径；拒绝、超时、取消或 401/403/404/409 均不执行。hook 最长等待 355 秒。generated 服务端在出站内容检查前判定、并在执行槽内发往上游前重判。解析身份或判定失败时拒绝，不降级成基线。外部 connector token、OpenUI 与管理试跑的行为留待 3a-3。
 
 边界：当前只有站内投递与页面/侧栏徽标，没有外部邮件、IM、通知偏好或免打扰；外部 webhook 见 3.9。审批恢复要求 sandbox runner 与 run 保持存活；不恢复已经发出的 MCP/upstream 调用，也不重放副作用。超过 hook/run 截止或 API 持续不可用时拒绝执行；`APPROVAL_WAIT_MS` 超过 355 秒也不会延长 hook 等待。
 
@@ -493,7 +495,7 @@ data/workspaces/<agent-slug>/
 - **消息级格式快照**：`messages.ui_format` 固定消息生成时的渲染模式；`content` 保留原始模型输出与 SDK transcript 对应，`ui_program` 保存完成后按段合并的完整混合响应，`ui_state` 原样保存官方渲染器状态。历史优先读已存快照，不在浏览器二次合并。
 - **段归属**：消息的每个UI围栏按`s0/s1…`编号，Markdown段不占编号；状态保存在`ui_state.blocks[sN]`。外部请求另带真实conversationId/messageId，不能把messageId编码到state键，也不能从全局store倒找最后一条消息。分支复制快照后不需重写段键。
 - **工具目录单一来源**：`repo.openui.listOpenUiTools(agentId)` 同时喂提示词（worker 渲染 CLAUDE.md）和执行桥（API 校验）。只收已绑定且启用的 http / generated server 工具；stdio 由用户提供任意命令，仅沙盒内可见。http server 的目录来自最近一次「测试连接」写入 `servers.config.toolCatalog` 的快照——worker 没有 MCP client。
-- **审批与会话绑定**：生成式UI的工具需要批准时返回202与approvalId，由当前UI段提供批准及重试；会话级批准8小时有效，重放不能续期，过期须重新请求并批准。Query可显式重试，Mutation不自动重放。它与run级审批分开：`approval_requests.run_id` 可空，UI来源使用 `conversation_id/message_id/source` 和会话工具部分唯一索引；run审批行为不变。
+- **审批与会话绑定**：生成式UI的工具需要批准时返回202与approvalId，由当前UI段提供批准及重试；会话级批准8小时有效，重放不能续期，过期须重新请求并批准。Query可显式重试，Mutation不自动重放。它与run级审批分开：`approval_requests.run_id` 可空，UI来源使用 `conversation_id/message_id/source` 和会话工具部分唯一索引；不参与 run 审批决策绑定。
 - 提示词进 CLAUDE.md 而不是 `.claude/rules/`：该段位于成对、末尾锚定的 `agentport:generated:start/end` 生成区内，不污染用户可编辑正文；导出→导入按生成区解析，用户同名标题与标记正文逐字保留。
 - Bun 默认不执行未列入根 `package.json` `trustedDependencies` 的生命周期脚本；当前只放行 `esbuild` 与 `msgpackr-extract`。`@openuidev/lang-core` 的 postinstall 只发匿名安装遥测，因此不加白名单。新增带安装脚本的依赖时显式补决定，不让脚本静默运行。
 

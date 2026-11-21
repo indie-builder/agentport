@@ -94,6 +94,8 @@ export const approvalRequests = pgTable(
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
     toolName: text('tool_name').notNull(),
+    decisionHash: text('decision_hash'),
+    supersededAt: timestamp('superseded_at', { withTimezone: true }),
     argumentsSummary: jsonb('arguments_summary').$type<Record<string, unknown>>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
@@ -109,7 +111,9 @@ export const approvalRequests = pgTable(
       'approval_requests_decision_check',
       sql`not (${t.approvedAt} is not null and ${t.deniedAt} is not null)`,
     ),
-    uniqueIndex('approval_requests_run_server_tool_idx').on(t.runId, t.serverId, t.toolName),
+    uniqueIndex('approval_requests_run_server_tool_decision_idx')
+      .on(t.runId, t.serverId, t.toolName, t.decisionHash)
+      .where(sql`${t.supersededAt} is null`),
     uniqueIndex('approval_requests_openui_idx')
       .on(t.conversationId, t.serverId, t.toolName)
       .where(sql`${t.runId} is null`),

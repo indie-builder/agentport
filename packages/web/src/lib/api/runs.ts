@@ -42,10 +42,10 @@ export interface RunQuery {
 export default {
   runApprovals: (runId: string): Promise<ApprovalRequestList> =>
     rpc.runs.approvals({ params: { id: runId } }),
-  approveRun: (runId: string, serverId: string, toolName: string) =>
-    rpc.runs.approve({ params: { id: runId }, body: { serverId, toolName } }),
-  denyRun: (runId: string, serverId: string, toolName: string) =>
-    rpc.runs.deny({ params: { id: runId }, body: { serverId, toolName } }),
+  approveRun: (runId: string, approvalId: string) =>
+    rpc.runs.approve({ params: { id: runId }, body: { approvalId } }),
+  denyRun: (runId: string, approvalId: string) =>
+    rpc.runs.deny({ params: { id: runId }, body: { approvalId } }),
   runs: (query: RunQuery = {}): Promise<RunList> => rpc.runs.list({ query }),
   exportRuns: (query: {
     agentId?: string;

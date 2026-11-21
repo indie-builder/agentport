@@ -588,12 +588,19 @@ describe('confirmed chat UX defects', () => {
       approvedAt: null,
       deniedAt: null,
       createdAt: '',
+      expiresAt: '2026-12-01T00:00:00Z',
+      waiting: true,
     }));
     vi.mocked(api.runApprovals).mockResolvedValue({ items: approvals });
-    let approvedServer: string | undefined;
-    vi.spyOn(api, 'approveRun').mockImplementation(async (_runId, serverId) => {
-      approvedServer = serverId;
-      return { ok: true };
+    let approvedId: string | undefined;
+    vi.spyOn(api, 'approveRun').mockImplementation(async (_runId, approvalId) => {
+      approvedId = approvalId;
+      return {
+        serverId: 'server-b',
+        toolName: 'write',
+        approvedAt: '2026-11-21T00:00:00Z',
+        waiting: true,
+      };
     });
     await mount('/chat?agent=agent-a&conversation=conversation-a');
     const cards = [...host.querySelectorAll('[role="alert"]')];
@@ -609,7 +616,7 @@ describe('confirmed chat UX defects', () => {
       'button[aria-label="批准 server-b / write"]',
     );
     await act(async () => second?.click());
-    expect(approvedServer).toBe('server-b');
+    expect(approvedId).toBe('approval-server-b');
   });
 
   it.each(['reject', 'accept'] as const)(
