@@ -38,7 +38,11 @@ export async function assertUsableImage(input: {
   if (input.data.length > KNOWLEDGE_IMAGE_MAX_BYTES) {
     throw new Error('图片超过 5MiB，不能供视觉模型直接读取');
   }
-  const meta = await sharp(input.data).metadata();
+  const meta = await sharp(input.data)
+    .metadata()
+    .catch((err: unknown) => {
+      throw new Error(`图片无法解码：${errorText(err)}`);
+    });
   const frames = meta.pages ?? 1;
   const frameHeight = meta.pageHeight ?? meta.height ?? 0;
   const totalPixels = (meta.width ?? 0) * frameHeight * frames;

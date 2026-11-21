@@ -1,5 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  opendir,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import {
   hasErrorCode,
@@ -23,6 +33,7 @@ const FILES = 'files';
 const MANIFEST = 'manifest.json';
 
 const CAPTURE_MAX_FILES = 2_000;
+const CAPTURE_MAX_ENTRIES = 20_000;
 const CAPTURE_MAX_FILE_BYTES = 32 * 1024 * 1024;
 const CAPTURE_MAX_TOTAL_BYTES = 256 * 1024 * 1024;
 const CAPTURE_MAX_DEPTH = 16;
@@ -238,6 +249,7 @@ async function readRegularFile(
 
 interface CaptureBudget {
   files: number;
+  entries: number;
   bytes: number;
 }
 
@@ -250,24 +262,37 @@ async function draftEntries(
 ): Promise<Array<{ path: string; data: Buffer }>> {
   if (depth > CAPTURE_MAX_DEPTH) fail('INVALID_INPUT', '产出目录层级过深', { path: `/${prefix}` });
   await trustedPath(identity, relative(resolve(identity.root), dir).split(sep), 'draft');
-  const entries = await readdir(dir, { withFileTypes: true });
+  const reader = await opendir(dir);
   const files: Array<{ path: string; data: Buffer }> = [];
-  for (const entry of entries) {
-    const path = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await draftEntries(identity, full, budget, path, depth + 1)));
-      continue;
+  try {
+    for await (const entry of reader) {
+      budget.entries += 1;
+      if (budget.entries > CAPTURE_MAX_ENTRIES)
+        fail('INVALID_INPUT', '产出目录项超过上限', { path: `/${prefix}` });
+      const path = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...(await draftEntries(identity, full, budget, path, depth + 1)));
+        continue;
+      }
+      const safe = safePath(path);
+      budget.files += 1;
+      if (budget.files > CAPTURE_MAX_FILES)
+        fail('INVALID_INPUT', '产出文件数超过上限', { path: `/${safe}` });
+      const remaining = CAPTURE_MAX_TOTAL_BYTES - budget.bytes;
+      const data = await readRegularFile(
+        identity,
+        full,
+        safe,
+        Math.min(CAPTURE_MAX_FILE_BYTES, remaining),
+      );
+      budget.bytes += data.length;
+      if (budget.bytes > CAPTURE_MAX_TOTAL_BYTES)
+        fail('INVALID_INPUT', '产出总字节超过上限', { path: `/${safe}` });
+      files.push({ path: safe, data });
     }
-    const safe = safePath(path);
-    budget.files += 1;
-    if (budget.files > CAPTURE_MAX_FILES)
-      fail('INVALID_INPUT', '产出文件数超过上限', { path: `/${safe}` });
-    const data = await readRegularFile(identity, full, safe, CAPTURE_MAX_FILE_BYTES);
-    budget.bytes += data.length;
-    if (budget.bytes > CAPTURE_MAX_TOTAL_BYTES)
-      fail('INVALID_INPUT', '产出总字节超过上限', { path: `/${safe}` });
-    files.push({ path: safe, data });
+  } finally {
+    await reader.close().catch(() => undefined);
   }
   return files.sort((a, b) => compareText(a.path, b.path));
 }
@@ -448,7 +473,7 @@ export async function captureOutputDraft(input: {
     fail('INVALID_INPUT', '产出挂载目录非法', { path: '/sourceDir' });
   }
 
-  const files = await draftEntries(input, sourceDir, { files: 0, bytes: 0 });
+  const files = await draftEntries(input, sourceDir, { files: 0, entries: 0, bytes: 0 });
 
   const staging = join(conversationRoot, DRAFTS, `.tmp-${runId}-${randomUUID()}`);
   await mkdir(staging, { recursive: true });
@@ -540,7 +565,7 @@ export async function publishOutputSnapshot(input: PublishOutputSnapshotInput): 
     .toString('utf8')
     .trim();
   const base = baseRunId === '' ? null : await loadManifest(input, baseRunId);
-  const files = await draftEntries(input, draftDir, { files: 0, bytes: 0 });
+  const files = await draftEntries(input, draftDir, { files: 0, entries: 0, bytes: 0 });
   if (files.length === 0 && (base === null || base.files.length === 0)) {
     await discardDraft(conversationRoot, runId);
     return;
