@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import {
   chatEventSchema,
@@ -467,10 +468,6 @@ function runIdOf(raw: unknown): string {
   if (typeof raw !== 'object' || raw === null) return '';
   const runId = (raw as { runId?: unknown }).runId;
   return typeof runId === 'string' ? runId : '';
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 
 /**
