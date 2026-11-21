@@ -21,6 +21,7 @@ import {
   runKnowledgeJob,
 } from './ingestion.js';
 import { createParsingAdapter } from './parsing-adapter.js';
+import { runKnowledgeSummary } from './summary.js';
 import { runWikiGenerate, type WikiQueryFn } from './wiki.js';
 
 type KnowledgeJobRow = typeof schema.knowledgeJobs.$inferSelect;
@@ -31,6 +32,7 @@ const REDELIVERY_DELAY_MS = 60_000;
 interface DispatchDeps extends KnowledgeDeps {
   knowledgeDir: string;
   wikiModel?: string | undefined;
+  summaryModel?: string | undefined;
   signal: AbortSignal;
   /** 测试替换 SDK；生产走官方 query。 */
   queryFn?: WikiQueryFn;
@@ -52,6 +54,18 @@ export async function dispatchKnowledgeJob(
     });
     return;
   }
+  if (job.type === 'summary') {
+    await runKnowledgeSummary(job, {
+      db: deps.db,
+      config: {
+        KNOWLEDGE_DIR: deps.knowledgeDir,
+        KNOWLEDGE_SUMMARY_MODEL: deps.summaryModel,
+      },
+      signal: deps.signal,
+      ...(deps.queryFn === undefined ? {} : { queryFn: deps.queryFn }),
+    });
+    return;
+  }
   return runKnowledgeJob(deps, job, deps.signal);
 }
 
@@ -63,6 +77,8 @@ interface KnowledgeWorkerConfig {
   decrypt: (payload: string) => Record<string, string>;
   /** Wiki 生成使用的模型；未配置时 wiki 任务会明确失败。 */
   wikiModel?: string | undefined;
+  /** 文档摘要使用的模型；未配置时摘要任务会明确失败。 */
+  summaryModel?: string | undefined;
   /** Docling 端点与密钥；不配置时二进制格式会明确失败而不是静默降级。 */
   parser?: { url?: string | undefined; key?: string | undefined } | undefined;
   /** KNOWLEDGE_PRIVATE_HOST_ALLOWLIST 解析后的可信私网主机。 */
@@ -120,6 +136,7 @@ export async function startKnowledgeWorker(
     ...deps,
     knowledgeDir: config.knowledgeDir,
     wikiModel: config.wikiModel,
+    summaryModel: config.summaryModel,
     ...(config.queryFn === undefined ? {} : { queryFn: config.queryFn }),
   };
 

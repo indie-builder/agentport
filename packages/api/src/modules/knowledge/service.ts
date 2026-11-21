@@ -1,6 +1,6 @@
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { sha256Hex } from '@agentport/core';
+import { sha256Hex, visibleDocumentSummary } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import { knowledgeEnqueueOptions } from '@agentport/shared';
@@ -28,6 +28,7 @@ export function documentWire(row: KnowledgeDocumentRow, tags: string[]) {
     disabledReason: row.disabledReason,
     sourceConnectionId: row.sourceConnectionId,
     currentVersionId: row.currentVersionId,
+    ...visibleDocumentSummary(row),
     tags,
     lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),

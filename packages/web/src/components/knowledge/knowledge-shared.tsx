@@ -47,6 +47,7 @@ export const jobTypeLabel = {
   sync: '来源同步',
   source_probe: '来源连接测试',
   wiki_generate: 'Wiki 生成',
+  summary: '文档摘要',
   cleanup: '清理',
 } as const;
 

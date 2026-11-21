@@ -687,6 +687,13 @@
       "when": 1794998420902,
       "tag": "0097_sharp_puppet_master",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1795238111781,
+      "tag": "0098_mature_trish_tilby",
+      "breakpoints": true
     }
   ]
 }

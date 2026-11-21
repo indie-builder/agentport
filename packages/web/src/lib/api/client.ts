@@ -322,6 +322,7 @@ export const api = {
   knowledgeDocuments: knowledge.knowledgeDocuments,
   knowledgeImages: knowledge.knowledgeImages,
   knowledgeDocument: knowledge.knowledgeDocument,
+  generateKnowledgeDocumentSummary: knowledge.generateKnowledgeDocumentSummary,
   uploadKnowledgeDocument: knowledge.uploadKnowledgeDocument,
   createKnowledgeManualDocument: knowledge.createKnowledgeManualDocument,
   importKnowledgeUrl: knowledge.importKnowledgeUrl,

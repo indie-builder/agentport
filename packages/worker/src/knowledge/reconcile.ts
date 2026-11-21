@@ -77,6 +77,16 @@ export async function reconcileKnowledgeJobs(
         });
         if (finished) {
           failed += 1;
+          if (row.type === 'summary' && row.documentId !== null) {
+            await repo.knowledge
+              .failDocumentSummary(db, row.documentId, error)
+              .catch((err: unknown) => {
+                logger.warn(
+                  { err, documentId: row.documentId },
+                  'knowledge document summary settle failed',
+                );
+              });
+          }
           if (row.documentId !== null) {
             await repo.knowledge
               .settleProcessingDocument(db, row.documentId)

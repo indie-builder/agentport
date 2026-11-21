@@ -51,6 +51,15 @@ export async function getDocument(db: Database, id: string): Promise<KnowledgeDo
   return row ?? null;
 }
 
+export async function isDocumentReadable(db: Database, id: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: knowledgeDocuments.id })
+    .from(knowledgeDocuments)
+    .where(and(eq(knowledgeDocuments.id, id), readableDocumentSql('knowledge_documents')))
+    .limit(1);
+  return row !== undefined;
+}
+
 export interface ListDocumentsFilter extends PageOptions {
   baseId: string;
   folderId?: string | null;
@@ -136,6 +145,63 @@ export async function updateDocument(
     .where(eq(knowledgeDocuments.id, id))
     .returning();
   return row ?? null;
+}
+
+export interface DocumentSummaryPatch {
+  summaryStatus: KnowledgeDocumentRow['summaryStatus'];
+  summaryVersionId: string | null;
+  summary?: string | null | undefined;
+  summaryGeneratedAt?: Date | null | undefined;
+  summaryError?: string | null | undefined;
+}
+
+export async function setDocumentSummary(
+  db: DbHandle,
+  id: string,
+  patch: DocumentSummaryPatch,
+): Promise<KnowledgeDocumentRow | null> {
+  const [row] = await db
+    .update(knowledgeDocuments)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(knowledgeDocuments.id, id))
+    .returning();
+  return row ?? null;
+}
+
+export async function beginDocumentSummary(
+  db: DbHandle,
+  documentId: string,
+  versionId: string,
+  status: 'pending' | 'generating',
+): Promise<KnowledgeDocumentRow | null> {
+  return setDocumentSummary(db, documentId, {
+    summaryStatus: status,
+    summaryVersionId: versionId,
+    summary: null,
+    summaryGeneratedAt: null,
+    summaryError: null,
+  });
+}
+
+export async function failDocumentSummary(
+  db: DbHandle,
+  documentId: string,
+  message: string,
+): Promise<void> {
+  const [document] = await db
+    .select()
+    .from(knowledgeDocuments)
+    .where(eq(knowledgeDocuments.id, documentId))
+    .limit(1);
+  if (!document) return;
+  if (document.summaryStatus !== 'pending' && document.summaryStatus !== 'generating') return;
+  await setDocumentSummary(db, documentId, {
+    summaryStatus: 'failed',
+    summaryVersionId: document.summaryVersionId ?? document.currentVersionId,
+    summary: null,
+    summaryGeneratedAt: null,
+    summaryError: message,
+  });
 }
 
 export async function settleProcessingDocument(db: Database, documentId: string): Promise<void> {

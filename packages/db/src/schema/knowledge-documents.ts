@@ -58,6 +58,15 @@ export const knowledgeDocuments = pgTable(
       .default('pending'),
     disabledReason: text('disabled_reason', { enum: ['manual', 'source', 'range', 'remote'] }),
     currentVersionId: text('current_version_id'),
+    summary: text('summary'),
+    summaryStatus: text('summary_status', {
+      enum: ['none', 'pending', 'generating', 'ready', 'failed'],
+    })
+      .notNull()
+      .default('none'),
+    summaryVersionId: text('summary_version_id'),
+    summaryGeneratedAt: timestamp('summary_generated_at', { withTimezone: true }),
+    summaryError: text('summary_error'),
     contentHash: text('content_hash'),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
@@ -91,6 +100,10 @@ export const knowledgeDocuments = pgTable(
     check(
       'knowledge_documents_disabled_status_check',
       sql`(${t.status} = 'disabled') = (${t.disabledReason} is not null)`,
+    ),
+    check(
+      'knowledge_documents_summary_status_check',
+      sql`${t.summaryStatus} in ('none', 'pending', 'generating', 'ready', 'failed')`,
     ),
   ],
 );

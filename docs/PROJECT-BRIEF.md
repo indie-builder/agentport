@@ -701,6 +701,8 @@ knowledge_documents  (id, base_id, folder_id, title,
                       content_kind document|faq|wiki, source_id, source_connection_id,
                       source_url, source_path, mime_type, size_bytes, status,
                       disabled_reason check (manual,source,range,remote), current_version_id,
+                      summary, summary_status none|pending|generating|ready|failed,
+                      summary_version_id, summary_generated_at, summary_error,
                       content_hash, metadata, last_synced_at)
 knowledge_document_versions (id, document_id, version, blob_sha256, markdown_sha256,
                       original_filename, mime_type, size_bytes, source_revision,
@@ -722,7 +724,7 @@ knowledge_document_source_ranges (document_id fk, range_id fk, pk(document_id, r
 knowledge_sync_runs  (id, source_id, status, started_at, ended_at, cursor_before, cursor_after, stats, error)
 knowledge_sync_items (id, sync_run_id fk, source_id fk, range_id fk, external_id, document_id fk,
                       status failed|skipped, code, message, retryable)
-knowledge_jobs       (id, type check in (ingest,reindex,sync,source_probe,wiki_generate,cleanup),
+knowledge_jobs       (id, type check in (ingest,reindex,sync,source_probe,wiki_generate,summary,cleanup),
                       base_id, document_id, source_id, status, step, progress, attempts,
                       error, result, payload)     -- BullMQ jobId = id
 knowledge_model_profiles (id, kind embedding|rerank|asr, name, endpoint_url, model, dimensions,

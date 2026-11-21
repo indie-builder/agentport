@@ -677,7 +677,7 @@ PATCH 范围或来源状态走 `replaceSourceScope`：同一事务缩小范围�
 
 ### 6.4 任务、调度与恢复
 
-知识任务使用独立队列 `knowledge-jobs`（BullMQ jobId 即 `knowledge_jobs.id`），不占聊天 run 的并发额度，也不出现在运行历史。`queued → running` 用条件更新认领；job 终态由 DB 仓库 `finishJob` 的条件事务一次提交，sync 同时提交 sync run 终态、source 摘要与成功游标；失败/取消不推进 `source.cursor`，中间检查点只保留在本次 sync run，任务内部重试不重新打开终态。运行中取消通过 Redis 键 + `AbortController` 落地。超时为 ingest/sync/cleanup 30 分钟、reindex 2 小时、wiki_generate 15 分钟。
+知识任务使用独立队列 `knowledge-jobs`（BullMQ jobId 即 `knowledge_jobs.id`），不占聊天 run 的并发额度，也不出现在运行历史。`queued → running` 用条件更新认领；job 终态由 DB 仓库 `finishJob` 的条件事务一次提交，sync 同时提交 sync run 终态、source 摘要与成功游标；失败/取消不推进 `source.cursor`，中间检查点只保留在本次 sync run，任务内部重试不重新打开终态。运行中取消通过 Redis 键 + `AbortController` 落地。超时为 ingest/sync/cleanup 30 分钟、reindex 2 小时、wiki_generate 15 分钟、summary 10 分钟。
 
 - `knowledge/reconcile.ts` 定期对账：running 且超过 2 倍超时、或 Redis 中已消失的置 failed；Redis 丢失但 DB 仍 queued 的重新入队。
 - `knowledge/scheduler.ts` 以数据库的 `sync_cron` 为权威，在 Redis 维护 `knowledge-sync:<sourceId>` 调度器；到点经同一 `createSyncJob` 创建 pair，不在 Redis 保存凭证。清空 cron 即移除调度器；同一来源已有 queued/running 任务时跳过重复触发。入口 cron 先用 shared `cronSchema` 做结构校验，API 再用 BullMQ `getNextMillis` 判定实际可调度性（`99 99 99 99 99` 等被拒），scheduler 不重复预解析；每个来源的「移除旧 pattern → upsert 新 pattern」在独立 `try/catch` 内执行，单来源失败记录来源 ID 与阶段后继续其余来源。

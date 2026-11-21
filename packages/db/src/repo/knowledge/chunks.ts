@@ -149,6 +149,23 @@ function chunkPageFilters(versionId: string, options: PageOptions): SQL[] {
   return filters;
 }
 
+export async function readVersionText(
+  db: Database,
+  versionId: string,
+  maxChars: number,
+): Promise<string> {
+  const rows = await db
+    .select({ content: knowledgeChunks.content })
+    .from(knowledgeChunks)
+    .where(and(eq(knowledgeChunks.versionId, versionId), eq(knowledgeChunks.enabled, true)))
+    .orderBy(asc(knowledgeChunks.ordinal), asc(knowledgeChunks.id));
+  const text = rows
+    .map((row) => row.content.trim())
+    .filter((content) => content !== '')
+    .join('\n\n');
+  return text.length > maxChars ? text.slice(0, maxChars) : text;
+}
+
 export async function listChunks(
   db: Database,
   versionId: string,
