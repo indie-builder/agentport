@@ -12,7 +12,9 @@ import type {
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { rpc } from '../orpc.js';
 import { AGENTS_QUERY_KEY } from './agents.js';
+import { SERVERS_QUERY_KEY } from './servers.js';
 import { useCursorList } from './shared.js';
+import { SKILLS_QUERY_KEY } from './skills.js';
 
 const GOVERNANCE_PAGE_SIZE = 50;
 
@@ -246,8 +248,8 @@ export function useTransferHandover() {
         AGENTS_QUERY_KEY[0],
         'knowledge',
         'data-domains',
-        'skills',
-        'servers',
+        SKILLS_QUERY_KEY[0],
+        SERVERS_QUERY_KEY[0],
         'plugins',
         'runtime-environments',
         'schedules',

@@ -70,6 +70,8 @@ import {
   AGENTS_QUERY_KEY,
   meQuery,
   OVERVIEW_QUERY_KEY,
+  SERVERS_QUERY_KEY,
+  SKILLS_QUERY_KEY,
   useAgentsBrowse,
   useAgentTags,
   useArchiveAgent,
@@ -149,8 +151,8 @@ export function AgentsPage() {
         ? await api.importAgentFile(await file.text())
         : await api.importAgent(file, undefined, runtimeEnvironmentId);
       await Promise.all(
-        [AGENTS_QUERY_KEY[0], 'servers', 'skills', OVERVIEW_QUERY_KEY[0]].map((key) =>
-          queryClient.invalidateQueries({ queryKey: [key] }),
+        [AGENTS_QUERY_KEY[0], SERVERS_QUERY_KEY[0], SKILLS_QUERY_KEY[0], OVERVIEW_QUERY_KEY[0]].map(
+          (key) => queryClient.invalidateQueries({ queryKey: [key] }),
         ),
       );
       const suffix = result.warnings.length > 0 ? `，${result.warnings.length} 条提示` : '';
