@@ -451,18 +451,24 @@ export async function setUserRoles(
   });
 }
 
-export async function listAgentMembers(db: DbHandle, agentId: string): Promise<AgentMember[]> {
-  const rows = await db
-    .select({
-      businessId: agentMembers.businessId,
-      name: authUsers.name,
-      userId: authUsers.id,
-      disabled: authUsers.disabled,
-      canUse: agentMembers.canUse,
-      canMaintain: agentMembers.canMaintain,
-    })
+const memberColumns = {
+  businessId: agentMembers.businessId,
+  name: authUsers.name,
+  userId: authUsers.id,
+  disabled: authUsers.disabled,
+  canUse: agentMembers.canUse,
+  canMaintain: agentMembers.canMaintain,
+};
+
+function queryMembers(db: DbHandle) {
+  return db
+    .select(memberColumns)
     .from(agentMembers)
-    .leftJoin(authUsers, eq(authUsers.businessId, agentMembers.businessId))
+    .leftJoin(authUsers, eq(authUsers.businessId, agentMembers.businessId));
+}
+
+export async function listAgentMembers(db: DbHandle, agentId: string): Promise<AgentMember[]> {
+  const rows = await queryMembers(db)
     .where(eq(agentMembers.agentId, agentId))
     .orderBy(asc(agentMembers.businessId));
   return rows.map((row) => ({
@@ -475,17 +481,7 @@ export async function listAgentMembers(db: DbHandle, agentId: string): Promise<A
 }
 
 async function getMember(db: DbHandle, agentId: string, businessId: string): Promise<AgentMember> {
-  const [row] = await db
-    .select({
-      businessId: agentMembers.businessId,
-      name: authUsers.name,
-      userId: authUsers.id,
-      disabled: authUsers.disabled,
-      canUse: agentMembers.canUse,
-      canMaintain: agentMembers.canMaintain,
-    })
-    .from(agentMembers)
-    .leftJoin(authUsers, eq(authUsers.businessId, agentMembers.businessId))
+  const [row] = await queryMembers(db)
     .where(and(eq(agentMembers.agentId, agentId), eq(agentMembers.businessId, businessId)))
     .limit(1);
   if (!row) throw new AppError('NOT_FOUND', '成员不存在');
