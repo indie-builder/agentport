@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -94,6 +95,24 @@ describe('gradeCase', () => {
     expect(result).toEqual({ passed: true, reason: 'ok' });
     expect(sent).toContain('answer');
     expect(sent).toContain('通过条件');
+  });
+
+  it('llm 模式发送前对判分提示词脱敏', async () => {
+    const secret = `sk-live-eval-judge-${randomUUID()}`;
+    let sent = '';
+    const queryFn: JudgeQueryFn = (params) => {
+      sent = params.prompt;
+      return replyQuery('{"pass":true,"reason":"ok"}')(params);
+    };
+    const result = await gradeCase(deps(queryFn), {
+      prompt: `prompt ${secret}`,
+      output: `answer ${secret}`,
+      expectation: '通过条件',
+      judgeMode: 'llm',
+    });
+    expect(result).toEqual({ passed: true, reason: 'ok' });
+    expect(sent).not.toContain(secret);
+    expect(sent).toContain('sk-l***');
   });
 
   it('flags an aborted judge as cancelled only when the caller signal aborted', async () => {

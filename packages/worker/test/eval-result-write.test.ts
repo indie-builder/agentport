@@ -40,9 +40,11 @@ mock.module('bullmq', () => ({
 
 let judgeError = 'judge unavailable';
 let judgeCalls = 0;
+let judgePrompts: string[] = [];
 mock.module('@anthropic-ai/claude-agent-sdk', () => ({
-  query: () => {
+  query: (params: { prompt: string }) => {
     judgeCalls += 1;
+    judgePrompts.push(params.prompt);
     throw new Error(judgeError);
   },
 }));
@@ -106,14 +108,19 @@ async function seed(cases: CaseInput[]) {
   return { agentId, evalRunId, snapshot };
 }
 
-async function addPolicy(agentId: string, direction: 'inbound' | 'outbound') {
+async function addPolicy(
+  agentId: string,
+  direction: 'inbound' | 'outbound',
+  action: 'block' | 'redact' = 'block',
+  pattern = 'nothing-matches',
+) {
   await db.insert(schema.contentPolicies).values({
     id: newId('contentPolicy'),
     name: `eval-${direction}`,
     direction,
-    action: 'block',
+    action,
     matchType: 'keyword',
-    pattern: 'nothing-matches',
+    pattern,
     agentId,
     createdBy: evalBusinessId,
   });
@@ -162,6 +169,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     logs.length = 0;
     judgeError = 'judge unavailable';
     judgeCalls = 0;
+    judgePrompts = [];
     mocks.queueAdd.mockReset();
     mocks.waitUntilFinished.mockReset().mockResolvedValue(undefined);
     mocks.queueAdd.mockImplementation(async (_name, data) => {
@@ -362,6 +370,31 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.results[0]?.judgeReason).toContain(
       '评判出错',
     );
+  });
+
+  it('grades with the inbound-redacted prompt instead of the raw snapshot', async () => {
+    const secret = `sk-live-eval-inbound-${randomUUID()}`;
+    const { agentId, evalRunId } = await seed([
+      {
+        name: 'inbound-redacted',
+        prompt: `prompt-inbound ${secret}`,
+        expectation: 'reply:prompt-inbound',
+        judgeMode: 'llm',
+      },
+    ]);
+    await addPolicy(agentId, 'inbound', 'redact', secret);
+
+    await executeEvalRun({
+      db,
+      logger,
+      redisUrl: 'redis://unused',
+      evalRunId,
+      judgeConfig: { knowledgeDir: tmpdir(), evalJudgeModel: 'judge-test' },
+    });
+
+    expect(judgeCalls).toBe(1);
+    expect(judgePrompts[0]).toContain('[REDACTED]');
+    expect(judgePrompts[0]).not.toContain(secret);
   });
 
   it('waits for a delegated child memory lock before admitting the eval case run', async () => {

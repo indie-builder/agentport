@@ -119,7 +119,7 @@ export async function gradeCase(
     cwd,
     create: (controller) =>
       queryFn({
-        prompt: judgePrompt,
+        prompt: redactSecrets(judgePrompt),
         options: hermeticQueryOptions({
           model,
           cwd,
@@ -312,7 +312,7 @@ function runOneCase(
     }
     if (current.status === 'succeeded') {
       const messages = yield* dbQuery(() => chatRepo.listMessages(db, admitted.conversationId));
-      return { output: assistantText(messages) };
+      return { output: assistantText(messages), prompt };
     }
     if (Result.isFailure(completion)) {
       return yield* Effect.fail(
@@ -461,7 +461,7 @@ export async function executeEvalRun(input: {
                 Effect.tryPromise({
                   try: () =>
                     gradeCase(gradeDeps, {
-                      prompt: testCase.prompt,
+                      prompt: runResult.success.prompt,
                       output,
                       expectation: testCase.expectation,
                       judgeMode: testCase.judgeMode,
