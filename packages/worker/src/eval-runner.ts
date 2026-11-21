@@ -146,6 +146,26 @@ export async function gradeCase(
     : { passed: verdict.pass, reason: verdict.reason };
 }
 
+export interface TrajectoryInput {
+  expectedTools?: string[] | null;
+  forbiddenTools?: string[] | null;
+}
+
+export function gradeTrajectory(
+  input: TrajectoryInput,
+  actualTools: Iterable<string>,
+): { passed: boolean; reason: string | null } {
+  const actual = new Set(actualTools);
+  const missing = (input.expectedTools ?? []).filter((tool) => !actual.has(tool));
+  const forbidden = (input.forbiddenTools ?? []).filter((tool) => actual.has(tool));
+  if (missing.length === 0 && forbidden.length === 0) return { passed: true, reason: null };
+  const reasons = [
+    ...(missing.length === 0 ? [] : [`缺少期望工具: ${missing.join(', ')}`]),
+    ...(forbidden.length === 0 ? [] : [`出现禁止工具: ${forbidden.join(', ')}`]),
+  ];
+  return { passed: false, reason: reasons.join('；') };
+}
+
 export interface EvalJudgeConfig {
   knowledgeDir: string;
   evalJudgeModel?: string | undefined;
@@ -233,6 +253,16 @@ function assistantText(messages: Awaited<ReturnType<typeof chatRepo.listMessages
     .join('\n\n');
 }
 
+function calledToolNames(messages: Awaited<ReturnType<typeof chatRepo.listMessages>>): string[] {
+  return messages.flatMap((message) => {
+    if (message.role !== 'tool') return [];
+    const content = message.content;
+    if (typeof content !== 'object' || content === null) return [];
+    const { type, name } = content as { type?: unknown; name?: unknown };
+    return type === 'tool_use' && typeof name === 'string' ? [name] : [];
+  });
+}
+
 function runOneCase(
   db: Database,
   redisUrl: string,
@@ -312,7 +342,11 @@ function runOneCase(
     }
     if (current.status === 'succeeded') {
       const messages = yield* dbQuery(() => chatRepo.listMessages(db, admitted.conversationId));
-      return { output: assistantText(messages), prompt };
+      return {
+        output: assistantText(messages),
+        prompt,
+        actualTools: calledToolNames(messages),
+      };
     }
     if (Result.isFailure(completion)) {
       return yield* Effect.fail(
@@ -425,6 +459,10 @@ export async function executeEvalRun(input: {
           let output = '';
           let ok = false;
           let judgeReason: string | null = null;
+          let trajectory: { passed: boolean; reason: string | null } = {
+            passed: true,
+            reason: null,
+          };
           const runContext: { runId: string | null } = { runId: null };
           // Effect v4 的 result 对应 v3 的 either，保留每条成功或失败。
           const runResult = yield* Effect.result(
@@ -446,6 +484,7 @@ export async function executeEvalRun(input: {
           );
           if (Result.isSuccess(runResult)) {
             output = runResult.success.output;
+            trajectory = gradeTrajectory(testCase, runResult.success.actualTools);
             if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
               return;
             const outboundPolicies =
@@ -482,6 +521,11 @@ export async function executeEvalRun(input: {
                 ? publicEvalFailureMessage(runResult.failure)
                 : errorMessage(runResult.failure);
           }
+          ok = ok && trajectory.passed;
+          if (!trajectory.passed) {
+            judgeReason =
+              judgeReason === null ? trajectory.reason : `${judgeReason}；${trajectory.reason}`;
+          }
           if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
             return;
 
@@ -502,6 +546,12 @@ export async function executeEvalRun(input: {
                   prompt: testCase.prompt,
                   expectation: testCase.expectation,
                   judgeMode: testCase.judgeMode,
+                  ...(testCase.expectedTools == null
+                    ? {}
+                    : { expectedTools: testCase.expectedTools }),
+                  ...(testCase.forbiddenTools == null
+                    ? {}
+                    : { forbiddenTools: testCase.forbiddenTools }),
                 },
               },
               { recordProgress: true },

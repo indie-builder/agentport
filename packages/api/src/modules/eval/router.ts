@@ -19,6 +19,8 @@ function toEvalCase(row: repo.evalRepo.EvalCase) {
     prompt: row.prompt,
     expectation: row.expectation,
     judgeMode: row.judgeMode,
+    expectedTools: row.expectedTools,
+    forbiddenTools: row.forbiddenTools,
     createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
   };

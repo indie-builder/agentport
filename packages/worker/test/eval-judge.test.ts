@@ -4,7 +4,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { type GradeDeps, gradeCase, type JudgeQueryFn } from '../src/eval-runner.js';
+import {
+  type GradeDeps,
+  gradeCase,
+  gradeTrajectory,
+  type JudgeQueryFn,
+} from '../src/eval-runner.js';
 
 let knowledgeDir = '';
 
@@ -31,6 +36,37 @@ function replyQuery(result: string): JudgeQueryFn {
 function deps(queryFn: JudgeQueryFn): GradeDeps {
   return { model: 'judge-test', knowledgeDir, anthropicBaseUrl: undefined, queryFn };
 }
+
+describe('gradeTrajectory', () => {
+  it('通过：期望工具全部出现且没有禁止工具', () => {
+    expect(
+      gradeTrajectory(
+        { expectedTools: ['Read', 'mcp__knowledge__search'], forbiddenTools: ['Bash'] },
+        ['Read', 'mcp__knowledge__search', 'Write'],
+      ),
+    ).toEqual({ passed: true, reason: null });
+  });
+
+  it('不通过：缺少期望工具', () => {
+    const result = gradeTrajectory({ expectedTools: ['Read', 'Bash'] }, ['Read']);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toBe('缺少期望工具: Bash');
+  });
+
+  it('不通过：出现禁止工具', () => {
+    const result = gradeTrajectory({ forbiddenTools: ['Bash'] }, ['Read', 'Bash']);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toBe('出现禁止工具: Bash');
+  });
+
+  it('通过：未配置任何工具约束', () => {
+    expect(gradeTrajectory({}, ['Bash'])).toEqual({ passed: true, reason: null });
+    expect(gradeTrajectory({ expectedTools: [], forbiddenTools: [] }, ['Bash'])).toEqual({
+      passed: true,
+      reason: null,
+    });
+  });
+});
 
 describe('gradeCase', () => {
   it('contains 模式沿用子串判定', async () => {

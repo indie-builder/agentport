@@ -104,6 +104,8 @@ export async function startEvalRun(
           prompt: schema.evalCases.prompt,
           expectation: schema.evalCases.expectation,
           judgeMode: schema.evalCases.judgeMode,
+          expectedTools: schema.evalCases.expectedTools,
+          forbiddenTools: schema.evalCases.forbiddenTools,
         })
         .from(schema.evalCases)
         .where(eq(schema.evalCases.agentId, agentId))
@@ -135,7 +137,11 @@ export async function startEvalRun(
           agentId,
           createdBy,
           total: cases.length,
-          caseSnapshot: cases,
+          caseSnapshot: cases.map(({ expectedTools, forbiddenTools, ...rest }) => ({
+            ...rest,
+            ...(expectedTools === null ? {} : { expectedTools }),
+            ...(forbiddenTools === null ? {} : { forbiddenTools }),
+          })),
           agentVersion,
           definitionSnapshot: definition,
           resourceVersions:

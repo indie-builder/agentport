@@ -35,6 +35,8 @@ export function registerEvalHttp(app: Hono<HttpEnv>): void {
           prompt: schema.evalCases.prompt,
           expectation: schema.evalCases.expectation,
           judgeMode: schema.evalCases.judgeMode,
+          expectedTools: schema.evalCases.expectedTools,
+          forbiddenTools: schema.evalCases.forbiddenTools,
         })
         .from(schema.evalCases)
         .where(eq(schema.evalCases.agentId, agentId))

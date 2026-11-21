@@ -27,6 +27,8 @@ export const evalCases = pgTable(
     judgeMode: text('judge_mode', { enum: ['contains', 'llm'] })
       .notNull()
       .default('contains'),
+    expectedTools: jsonb('expected_tools').$type<string[]>(),
+    forbiddenTools: jsonb('forbidden_tools').$type<string[]>(),
     createdBy: text('created_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -42,6 +44,8 @@ export type EvalCaseSnapshot = {
   prompt: string;
   expectation: string;
   judgeMode: 'contains' | 'llm';
+  expectedTools?: string[] | null;
+  forbiddenTools?: string[] | null;
 };
 
 export const evalRuns = pgTable(

@@ -6,6 +6,7 @@ import {
   evalRunDetailSchema,
   evalRunListQuerySchema,
   evalRunPageSchema,
+  evalToolNamesSchema,
   idParams,
 } from '@agentport/shared';
 import { z } from 'zod';
@@ -18,6 +19,8 @@ export const evalCaseSchema = z.object({
   prompt: z.string(),
   expectation: z.string(),
   judgeMode: evalJudgeModeSchema,
+  expectedTools: evalToolNamesSchema.nullable(),
+  forbiddenTools: evalToolNamesSchema.nullable(),
   createdBy: z.string(),
   createdAt: z.iso.datetime(),
 });

@@ -141,11 +141,15 @@ export type OverviewTimeseriesPoint = z.infer<typeof overviewTimeseriesSchema>[n
 
 export const evalJudgeModeSchema = z.enum(['contains', 'llm']);
 
+export const evalToolNamesSchema = z.array(z.string().min(1).max(200)).max(50);
+
 export const evalCaseFieldsSchema = z.object({
   name: z.string().trim().min(1).max(128),
   prompt: z.string().min(1).max(20_000),
   expectation: z.string().max(5_000).default(''),
   judgeMode: evalJudgeModeSchema.default('contains'),
+  expectedTools: evalToolNamesSchema.optional(),
+  forbiddenTools: evalToolNamesSchema.optional(),
 });
 
 export const evalDatasetSchema = z.object({
