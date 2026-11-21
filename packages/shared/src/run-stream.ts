@@ -5,6 +5,18 @@ export const EVAL_RUNS_QUEUE = 'eval-runs';
 
 export const RUN_CANCEL_PAYLOAD = '1';
 
+const ACTIVE_JOB_STATES: ReadonlySet<string> = new Set([
+  'waiting',
+  'active',
+  'delayed',
+  'prioritized',
+  'waiting-children',
+]);
+
+export function isActiveJobState(state: string): boolean {
+  return ACTIVE_JOB_STATES.has(state);
+}
+
 export const STREAM_TTL_SECONDS = 3600;
 
 export const RUN_QUEUE_MAX_WAITING = 100;

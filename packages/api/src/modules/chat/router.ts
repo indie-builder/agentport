@@ -1,5 +1,4 @@
 import { cp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { chatContract } from '@agentport/contract/chat';
 import {
   copyConversationInputs,
@@ -8,6 +7,8 @@ import {
   notFound,
   removeConversationInputs,
   removeConversationOutputs,
+  sdkSessionDir,
+  sessionSandboxDir,
 } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import type { PermissionId } from '@agentport/shared';
@@ -187,13 +188,13 @@ const chatMainRouter = {
     if (deleted === null) notFound('conversation');
     const agent = { slug: deleted.agentSlug };
     await Promise.all([
-      rm(join(context.config.WORKSPACES_DIR, agent.slug, 'sdk-sessions', deleted.id), {
+      rm(sdkSessionDir(context.config.WORKSPACES_DIR, agent.slug, deleted.id), {
         recursive: true,
         force: true,
       }).catch((err: unknown) => {
         context.log.warn({ err, conversationId: deleted.id }, 'sdk session cleanup failed');
       }),
-      rm(join(context.config.WORKSPACES_DIR, agent.slug, 'session-sandboxes', deleted.id), {
+      rm(sessionSandboxDir(context.config.WORKSPACES_DIR, agent.slug, deleted.id), {
         recursive: true,
         force: true,
       }).catch((err: unknown) => {
@@ -258,11 +259,12 @@ const chatMainRouter = {
       .from(schema.agents)
       .where(eq(schema.agents.id, result.conversation.agentId))
       .limit(1);
-    const sessionsRoot = agent
-      ? join(context.config.WORKSPACES_DIR, agent.slug, 'sdk-sessions')
+    const sourceDir = agent
+      ? sdkSessionDir(context.config.WORKSPACES_DIR, agent.slug, input.params.id)
       : null;
-    const sourceDir = sessionsRoot === null ? null : join(sessionsRoot, input.params.id);
-    const targetDir = sessionsRoot === null ? null : join(sessionsRoot, result.conversation.id);
+    const targetDir = agent
+      ? sdkSessionDir(context.config.WORKSPACES_DIR, agent.slug, result.conversation.id)
+      : null;
     const rollback = async (reason: string, err: unknown): Promise<void> => {
       context.log.warn({ err, conversationId: result.conversation.id }, reason);
       const compensated = await deleteCreatedConversation(

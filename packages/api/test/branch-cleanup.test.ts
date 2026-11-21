@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { sdkSessionDir } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
 import { startRedisContainer, stopRedisContainer } from '../../worker/test/global-setup.js';
@@ -127,7 +128,7 @@ describe.skipIf(!isolated)('branch rollback cleanup', () => {
       '88888888-9999-4aaa-8bbb-cccccccccccc',
       conversationId,
     ]);
-    await mkdir(join(app.config.WORKSPACES_DIR, agent.slug, 'sdk-sessions', conversationId), {
+    await mkdir(sdkSessionDir(app.config.WORKSPACES_DIR, agent.slug, conversationId), {
       recursive: true,
     });
     await rm(join(app.config.WORKSPACES_DIR, agent.slug, 'conversation-inputs', conversationId), {

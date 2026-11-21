@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { sdkSessionDir } from '@agentport/core';
 import type { Agent } from '@agentport/shared';
 import { chatEventSchema, RUN_CANCEL_PAYLOAD, runCancelKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
@@ -225,10 +226,7 @@ describe.skipIf(!ready)('chat', () => {
       '11111111-2222-4333-8444-555555555555',
     ]);
     const sessionsDir = join(
-      app.config.WORKSPACES_DIR,
-      agent.slug,
-      'sdk-sessions',
-      conversationId,
+      sdkSessionDir(app.config.WORKSPACES_DIR, agent.slug, conversationId),
       'projects',
       'workspace',
     );

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { captureOutputDraft } from '@agentport/core';
+import { captureOutputDraft, sessionSandboxDir } from '@agentport/core';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { inArray } from 'drizzle-orm';
 import { persistRunMessages } from '../src/messages.js';
@@ -151,10 +151,7 @@ describe('publishing run outputs', () => {
   it('captures stable outputs and leaves the mounted root intact after publishing an immutable snapshot', async () => {
     await prepareRunOutputs(identity);
     const stable = join(
-      identity.workspacesDir,
-      identity.slug,
-      'session-sandboxes',
-      identity.conversationId,
+      sessionSandboxDir(identity.workspacesDir, identity.slug, identity.conversationId),
       'outputs',
     );
     await mkdir(stable, { recursive: true });

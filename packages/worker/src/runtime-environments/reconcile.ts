@@ -1,8 +1,12 @@
-import { RUNTIME_ENVIRONMENT_BUILDS_QUEUE, runtimeBuildEnqueueOptions } from '@agentport/shared';
+import {
+  isActiveJobState,
+  RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
+  runtimeBuildEnqueueOptions,
+} from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
-import { ACTIVE_STATES, queueState } from '../runs/queue-state.js';
+import { queueState } from '../runs/queue-state.js';
 import { startIntervalTicker } from '../scheduling/interval-ticker.js';
 import {
   RUNTIME_ENVIRONMENT_BUILD_JOB,
@@ -73,7 +77,7 @@ export async function reconcileRuntimeEnvironmentBuilds(
     }
 
     if (state === 'active') continue;
-    if (state !== null && ACTIVE_STATES.has(state)) {
+    if (state !== null && isActiveJobState(state)) {
       if (now - row.createdAt.getTime() > QUEUED_STALE_MS) {
         await store.failBuild(row.id, '构建排队超时');
         failed += 1;

@@ -7,6 +7,7 @@ import {
   outputMessageAnchors,
   prepareOutputDraft,
   publishOutputSnapshot,
+  sdkSessionDir,
   writeConversationAttachments,
 } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
@@ -120,14 +121,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       conversationId,
       sessionId,
     ]);
-    const sessions = join(
-      root,
-      agent.slug,
-      'sdk-sessions',
-      conversationId,
-      'projects',
-      'workspace',
-    );
+    const sessions = join(sdkSessionDir(root, agent.slug, conversationId), 'projects', 'workspace');
     await mkdir(sessions, { recursive: true });
     await writeFile(join(sessions, `${sessionId}.jsonl`), '');
     const draft = await prepareOutputDraft({ root, slug: agent.slug, conversationId, runId });

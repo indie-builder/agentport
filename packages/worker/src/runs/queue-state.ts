@@ -1,11 +1,3 @@
-export const ACTIVE_STATES = new Set([
-  'waiting',
-  'delayed',
-  'active',
-  'prioritized',
-  'waiting-children',
-]);
-
 export async function queueState(
   queue: { getJob: (id: string) => Promise<{ getState: () => Promise<string> } | undefined> },
   id: string,

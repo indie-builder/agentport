@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { sdkSessionDir } from '@agentport/core';
 import type { Agent } from '@agentport/shared';
 import { getQueue } from '../src/queue/producer.js';
 import {
@@ -400,7 +401,7 @@ describe.skipIf(!ready)('chat attachments', () => {
       '66666666-7777-4888-8999-000000000000',
       conversationId,
     ]);
-    await mkdir(join(testConfig().WORKSPACES_DIR, agent.slug, 'sdk-sessions', conversationId), {
+    await mkdir(sdkSessionDir(testConfig().WORKSPACES_DIR, agent.slug, conversationId), {
       recursive: true,
     });
 
@@ -455,7 +456,7 @@ describe.skipIf(!ready)('chat attachments', () => {
       '77777777-8888-4999-8aaa-bbbbbbbbbbbb',
       conversationId,
     ]);
-    await mkdir(join(testConfig().WORKSPACES_DIR, agent.slug, 'sdk-sessions', conversationId), {
+    await mkdir(sdkSessionDir(testConfig().WORKSPACES_DIR, agent.slug, conversationId), {
       recursive: true,
     });
     await rm(inputsDir(agent.slug, conversationId), { recursive: true, force: true });
