@@ -7,6 +7,7 @@ import type { Logger } from 'pino';
 import type { Config } from '../../../config.js';
 import { actorOf, requireUser } from '../../../http/access.js';
 import type { RequestContext } from '../../../http/context.js';
+import { PAYLOAD_TOO_LARGE_MESSAGE } from '../../../http/errors.js';
 import { cursorOption, requireCursorPage } from '../../../http/pagination.js';
 import {
   createJob,
@@ -42,7 +43,7 @@ export type FullChunkRow = typeof schema.knowledgeChunks.$inferSelect;
 
 export function assertBodyBytes(value: string, limit: number): void {
   if (Buffer.byteLength(value, 'utf8') > limit) {
-    throw new AppError('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试');
+    throw new AppError('PAYLOAD_TOO_LARGE', PAYLOAD_TOO_LARGE_MESSAGE);
   }
 }
 
