@@ -50,7 +50,7 @@ import { getRunChannelAccess } from './channels.js';
 import { messageText } from './chat/messages.js';
 import { enqueueWebhookEvent } from './integrations.js';
 import { markBySource } from './notifications.js';
-import { type CursorPage, isCanonicalTimestamp, keysetPage } from './pagination.js';
+import { type CursorPage, cursorValueSql, isCanonicalTimestamp, keysetPage } from './pagination.js';
 import { neverStartedFailureFilter } from './run-predicates.js';
 
 export interface RunListItem {
@@ -122,10 +122,6 @@ export interface RunDetail {
   conversation: { id: string; agentId: string; title: string };
 }
 
-const runStartedAtCursor = sql<
-  string | null
->`to_char(${agentRuns.startedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
-
 const runColumns = {
   id: agentRuns.id,
   agentId: agentRuns.agentId,
@@ -193,7 +189,7 @@ export async function listRuns(
 
   // drizzle 0.45 的 ORDER BY 没有 nullsLast 构造器（只有索引列有），保留原始 sql。
   const rows = await db
-    .select({ ...runColumns, startedAtCursor: runStartedAtCursor })
+    .select({ ...runColumns, startedAtCursor: cursorValueSql(agentRuns.startedAt) })
     .from(agentRuns)
     .leftJoin(agents, eq(agents.id, agentRuns.agentId))
     .where(and(...filters))
