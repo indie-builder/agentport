@@ -143,16 +143,14 @@ export function RunDetailPage() {
     if (!run.data || approvalInFlight.current) return;
     approvalInFlight.current = true;
     approveMutation.mutate(
-      { runId: run.data.run.id, serverId: item.serverId, toolName: item.toolName },
+      { runId: run.data.run.id, approvalId: item.id },
       {
         onSettled: () => {
           approvalInFlight.current = false;
         },
         onSuccess: (data) =>
           toastSuccess(
-            data.waiting
-              ? '已批准工具；仍在等待的调用可继续，无需重发消息'
-              : '已记录后续调用许可；本次调用不会恢复。',
+            data.waiting ? '已批准工具；仍在等待的调用可继续，无需重发消息' : '已批准工具。',
           ),
         onError: (error) => toastError(error),
       },
@@ -163,7 +161,7 @@ export function RunDetailPage() {
     if (!run.data || approvalInFlight.current) return;
     approvalInFlight.current = true;
     denyMutation.mutate(
-      { runId: run.data.run.id, serverId: item.serverId, toolName: item.toolName },
+      { runId: run.data.run.id, approvalId: item.id },
       {
         onSettled: () => {
           approvalInFlight.current = false;
@@ -428,12 +426,9 @@ export function RunDetailPage() {
                     const deciding = approveMutation.isPending || denyMutation.isPending;
                     const approving =
                       approveMutation.isPending &&
-                      approveMutation.variables?.serverId === item.serverId &&
-                      approveMutation.variables.toolName === item.toolName;
+                      approveMutation.variables?.approvalId === item.id;
                     const denying =
-                      denyMutation.isPending &&
-                      denyMutation.variables?.serverId === item.serverId &&
-                      denyMutation.variables.toolName === item.toolName;
+                      denyMutation.isPending && denyMutation.variables?.approvalId === item.id;
                     return (
                       <div
                         key={item.id}
@@ -442,9 +437,9 @@ export function RunDetailPage() {
                         <span className="min-w-0 [overflow-wrap:anywhere] text-2xs text-muted-foreground">
                           {item.waiting
                             ? `等待至 ${formatDateTime(item.expiresAt)}`
-                            : '本次调用已结束等待'}
+                            : '审批已失效，请让智能体重新发起'}
                         </span>
-                        {canApprove ? (
+                        {canApprove && item.waiting ? (
                           <>
                             <Button
                               size="sm"
@@ -456,9 +451,7 @@ export function RunDetailPage() {
                               <span className="min-w-0 [overflow-wrap:anywhere]">
                                 {approving
                                   ? `批准中… ${item.serverName ?? item.serverId} / ${item.toolName}`
-                                  : item.waiting
-                                    ? `批准 ${item.serverName ?? item.serverId} / ${item.toolName}`
-                                    : `批准后续 ${item.serverName ?? item.serverId} / ${item.toolName}`}
+                                  : `批准 ${item.serverName ?? item.serverId} / ${item.toolName}`}
                               </span>
                             </Button>
                             <Button

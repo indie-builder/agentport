@@ -41,13 +41,13 @@ function digest(input: unknown): string | null {
   }
 }
 
-function detailValue(value: unknown): Record<string, string> | null {
+function detailValue(value: unknown): Record<string, string | null> | null {
   if (value === null || value === undefined) return null;
   const parsed: unknown = JSON.parse(JSON.stringify(value) ?? 'null');
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const values = Object.values(parsed);
-  if (!values.every((entry) => typeof entry === 'string')) return null;
-  return parsed as Record<string, string>;
+  if (!values.every((entry) => typeof entry === 'string' || entry === null)) return null;
+  return parsed as Record<string, string | null>;
 }
 
 interface AuditHashMaterial {
@@ -258,7 +258,7 @@ export interface AuditEntry {
   durationMs: number | null;
   requestId: string | null;
   inputDigest: string | null;
-  detail: Record<string, string> | null;
+  detail: Record<string, string | null> | null;
   detailType: string | null;
   createdAt: Date;
   chainSeq: number;

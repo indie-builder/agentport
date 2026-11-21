@@ -207,7 +207,7 @@ describe('audit CSV export', () => {
     const data = {
       format: 'agentport/audit@1' as const,
       exportedAt: '2026-01-02T00:00:00.000Z',
-      items: [row],
+      items: [{ ...row, detail: { from: 'allow', to: null } }],
     };
     vi.spyOn(api, 'audit').mockResolvedValue(page([]));
     vi.spyOn(api, 'exportAudit').mockResolvedValue(data);
@@ -231,7 +231,7 @@ describe('audit CSV export', () => {
     expect(filename).toBe('audit.csv');
     expect(blob.type).toBe('text/csv;charset=utf-8');
     expect(await blob.text()).toContain(
-      `时间,动作,目标,状态,操作者,主体类型,耗时ms,请求ID,变更明细\n${formatDateTime(row.createdAt)},agent.update,agent:123,拒绝,alice,服务,42,req-123,from=allow; to=ask`,
+      `时间,动作,目标,状态,操作者,主体类型,耗时ms,请求ID,变更明细\n${formatDateTime(row.createdAt)},agent.update,agent:123,拒绝,alice,服务,42,req-123,from=allow; to=`,
     );
     expect(new Uint8Array(await blob.arrayBuffer()).slice(0, 3)).toEqual(
       new Uint8Array([0xef, 0xbb, 0xbf]),
@@ -433,6 +433,24 @@ describe('audit row details', () => {
     const labels = [...panel.querySelectorAll('dt')].map((node) => node.textContent);
     expect(labels.indexOf('变更前')).toBeGreaterThanOrEqual(0);
     expect(labels.indexOf('变更前')).toBeLessThan(labels.indexOf('变更后'));
+  });
+
+  it('shows a dash for a null detail value', async () => {
+    vi.spyOn(api, 'audit').mockResolvedValue(
+      page([
+        entry('audit_null', {
+          action: 'security.tool_policy.deleted',
+          detail: { policyId: 'tap_x', to: null },
+          detailType: 'object',
+        }),
+      ]),
+    );
+    await mount();
+    await waitFor(() => expect(toggle('audit_null')).not.toBeUndefined());
+    await toggleRow('audit_null');
+    const panel = panelOf('audit_null');
+    expect(detailValue(panel, 'policyId')).toBe('tap_x');
+    expect(detailValue(panel, '变更后')).toBe('—');
   });
 
   it('adds no detail rows when the event has none', async () => {

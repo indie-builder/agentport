@@ -14,11 +14,45 @@ import { access } from '../../http/middleware.js';
 import { requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 import { agentSlug, readWorkspaceOutput } from '../../lib/outputs.js';
+import { recheckRunApproval } from '../servers/approval-policy.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from './access.js';
 import { toRunDetail } from './events.js';
 import { runsQuestionsRouter } from './questions.js';
 
 const runsRepo = repo.runs;
+async function decideRunApproval(
+  context: RequestContext,
+  runId: string,
+  approvalId: string,
+  decision: 'approve' | 'deny',
+) {
+  await authorizeRun(context, runId, 'runs.approve');
+  const businessId = actorOf(context);
+  const result = await runsRepo.decideToolApproval(
+    context.db,
+    { runId, approvalId, businessId, decision },
+    recheckRunApproval(context.log),
+  );
+  if (result.kind === 'not_found') notFound('approval');
+  if (result.kind === 'conflict')
+    fail('CONFLICT', '工具审批已失效、被拒绝或运行已结束，请刷新后重试');
+  const { serverId, toolName } = result.approval;
+  await repo.notifications
+    .markBySource(context.db, 'approval', `approval:${runId}:${approvalId}`)
+    .catch((err: unknown) => {
+      context.log.warn({ err, runId, approvalId }, 'approval notification mark-read failed');
+    });
+  await repo.audit.writeAudit(context.db, context.log, {
+    actor: businessId,
+    action: decision === 'approve' ? 'agent.run.approved' : 'agent.run.denied',
+    target: runId,
+    input: { approvalId, serverId, toolName },
+    status: 'ok',
+    requestId: context.requestId,
+  });
+  return result;
+}
+
 function toItem(run: repo.runs.RunListItem) {
   return { ...run, startedAt: toIso(run.startedAt), endedAt: toIso(run.endedAt) };
 }
@@ -134,80 +168,31 @@ const runsMainRouter = {
     };
   }),
   approve: os.approve.handler(async ({ input, context }) => {
-    const { serverId, toolName } = input.body;
-    await authorizeRun(context, input.params.id, 'runs.approve');
-    const approved = await runsRepo.approveTool(context.db, input.params.id, serverId, toolName);
-    if (!approved) {
-      notFound('approval', '这次工具调用没有待批准记录；它可能已批准或已失效，请刷新后重试');
-    }
-    await repo.notifications
-      .markBySource(
-        context.db,
-        'approval',
-        `approval:${input.params.id}:${approved.serverId}:${approved.toolName}`,
-      )
-      .catch((err: unknown) => {
-        context.log.warn(
-          { err, runId: input.params.id, serverId: approved.serverId, toolName: approved.toolName },
-          'approval notification mark-read failed',
-        );
-      });
-    await repo.audit.writeAudit(context.db, context.log, {
-      actor: actorOf(context),
-      action: 'agent.run.approved',
-      target: input.params.id,
-      input: { serverId: approved.serverId, toolName: approved.toolName },
-      status: 'ok',
-      requestId: context.requestId,
-    });
+    const { approval, waiting } = await decideRunApproval(
+      context,
+      input.params.id,
+      input.body.approvalId,
+      'approve',
+    );
     return {
-      serverId: approved.serverId,
-      toolName: approved.toolName,
-      approvedAt: approved.approvedAt.toISOString(),
-      waiting: approved.waiting,
+      serverId: approval.serverId,
+      toolName: approval.toolName,
+      approvedAt: approval.approvedAt?.toISOString() ?? fail('CONFLICT', '工具审批未批准'),
+      waiting,
     };
   }),
   deny: os.deny.handler(async ({ input, context }) => {
-    const { serverId, toolName } = input.body;
-    await authorizeRun(context, input.params.id, 'runs.approve');
-    const denied = await runsRepo.denyTool(
-      context.db,
+    const { approval, waiting } = await decideRunApproval(
+      context,
       input.params.id,
-      serverId,
-      toolName,
-      actorOf(context),
+      input.body.approvalId,
+      'deny',
     );
-    if (!denied) {
-      notFound(
-        'approval',
-        '这次工具调用没有待处理记录；它可能已批准、已拒绝或已失效，请刷新后重试',
-      );
-    }
-    await repo.notifications
-      .markBySource(
-        context.db,
-        'approval',
-        `approval:${input.params.id}:${denied.serverId}:${denied.toolName}`,
-      )
-      .catch((err: unknown) => {
-        context.log.warn(
-          { err, runId: input.params.id, serverId: denied.serverId, toolName: denied.toolName },
-          'deny notification mark-read failed',
-        );
-      });
-    await repo.audit.writeAudit(context.db, context.log, {
-      actor: actorOf(context),
-      action: 'agent.run.denied',
-      target: input.params.id,
-      input: { serverId: denied.serverId, toolName: denied.toolName },
-      status: 'ok',
-      requestId: context.requestId,
-    });
     return {
-      serverId: denied.serverId,
-      toolName: denied.toolName,
-      deniedAt: denied.deniedAt.toISOString(),
-      waiting: denied.waiting,
+      serverId: approval.serverId,
+      toolName: approval.toolName,
+      deniedAt: approval.deniedAt?.toISOString() ?? fail('CONFLICT', '工具审批未拒绝'),
+      waiting,
     };
   }),
   skillDraft: os.skillDraft.handler(async ({ input, context }) => {

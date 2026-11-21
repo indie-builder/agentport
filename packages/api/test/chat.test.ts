@@ -272,7 +272,7 @@ describe.skipIf(!ready)('chat', () => {
     expect(copied.map((message) => message.role)).toEqual(['user']);
   });
 
-  it('inherits approvals from the previous run in the same conversation', async () => {
+  it('does not inherit approvals from the previous run in the same conversation', async () => {
     const agent = await newAgent();
     const first = await request(app, {
       method: 'POST',
@@ -320,15 +320,7 @@ describe.skipIf(!ready)('chat', () => {
       url: `/api/runs/${secondBody.runId}/approvals`,
       headers: auth(),
     });
-    expect(approvals.json()).toMatchObject({
-      items: [{ toolName: 'approved-tool', approvedAt: expect.any(String) }],
-    });
-
-    const audit = await app.client.unsafe<{ action: string }[]>(
-      "select action from audit_log where action = 'agent.run.approvals_inherited' and target = $1",
-      [secondBody.runId],
-    );
-    expect(audit).toHaveLength(1);
+    expect(approvals.json()).toMatchObject({ items: [] });
   });
 
   it('POST /api/conversations/:id/branch rejects an unknown branch point', async () => {

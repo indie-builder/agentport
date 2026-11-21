@@ -61,6 +61,22 @@ export async function isDocumentReadable(db: Database, id: string): Promise<bool
   return row !== undefined;
 }
 
+export async function sourceScopeAllowsDocumentById(
+  db: Database,
+  documentId: string,
+): Promise<boolean> {
+  const result = await db.execute<{ ok: boolean }>(sql`
+    select ${readableDocumentSql('probe')} as ok
+    from (
+      select d.id, 'ready'::text as status, d.current_version_id, null::text as disabled_reason,
+             d.source_connection_id, d.base_id, d.source_path
+      from knowledge_documents d
+      where d.id = ${documentId}
+    ) probe
+  `);
+  return result[0]?.ok === true;
+}
+
 export interface ListDocumentsFilter extends PageOptions {
   baseId: string;
   folderId?: string | null;

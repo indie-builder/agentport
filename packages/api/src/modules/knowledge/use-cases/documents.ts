@@ -12,11 +12,11 @@ import {
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeDocumentStatus } from '@agentport/shared';
 import { KNOWLEDGE_DOCUMENT_MAX_BYTES, knowledgeImageChunkMetadataSchema } from '@agentport/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Config } from '../../../config.js';
 import { isPgCode } from '../../../http/errors.js';
 import { invalidCursor, requireCursorPage } from '../../../http/pagination.js';
-import { createJob, documentWire, enqueueKnowledgeJob, storeBlob } from '../service.js';
+import { createJob, documentWire, enqueueKnowledgeJobAfterCommit, storeBlob } from '../service.js';
 import { getVersionMarkdown } from './binary.js';
 import {
   assertBodyBytes,
@@ -204,7 +204,7 @@ async function enqueueChunkReindex(
   deps: KnowledgeDeps,
   baseId: string,
   documentId: string,
-): Promise<string | null> {
+): Promise<string> {
   const job = await createJob(deps.db, {
     baseId,
     documentId,
@@ -216,27 +216,8 @@ async function enqueueChunkReindex(
       confirmOverwriteManualChunks: false,
     },
   });
-  try {
-    await enqueueKnowledgeJob(job);
-    return job.id;
-  } catch (err) {
-    await deps.db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.id, job.id));
-    deps.log.warn({ err, documentId }, 'knowledge chunk reindex enqueue failed');
-    return null;
-  }
-}
-
-async function sourceScopeAllowsEnable(db: Database, documentId: string): Promise<boolean> {
-  const result = await db.execute<{ ok: boolean }>(sql`
-    select ${repo.knowledge.readableDocumentSql('probe')} as ok
-    from (
-      select d.id, 'ready'::text as status, d.current_version_id, null::text as disabled_reason,
-             d.source_connection_id, d.base_id, d.source_path
-      from knowledge_documents d
-      where d.id = ${documentId}
-    ) probe
-  `);
-  return result[0]?.ok === true;
+  await enqueueKnowledgeJobAfterCommit(deps.log, job);
+  return job.id;
 }
 
 export async function listDocuments(
@@ -429,7 +410,7 @@ export async function generateDocumentSummary(deps: KnowledgeDeps, documentId: s
       },
     });
   });
-  await enqueueKnowledgeJob(job);
+  await enqueueKnowledgeJobAfterCommit(deps.log, job);
   return { jobId: job.id };
 }
 
@@ -488,7 +469,7 @@ export async function updateDocument(
   if (!current) notFound('文档');
   const { tags, ...patch } = body;
   if (current.status === 'disabled' && patch.status === 'ready' && current.sourceConnectionId) {
-    if (!(await sourceScopeAllowsEnable(deps.db, current.id))) {
+    if (!(await repo.knowledge.sourceScopeAllowsDocumentById(deps.db, current.id))) {
       throw new AppError('CONFLICT', '来源授权已失效，需成功同步重新确认范围后才能启用');
     }
   }
@@ -513,6 +494,9 @@ export async function updateDocument(
       ? []
       : ((await repo.knowledge.getDocumentTagNames(deps.db, [current.id])).get(current.id) ?? []);
   const fields = changedDocumentFields(current, body, currentTags);
+  if (tags !== undefined && patch.status === undefined && fields.length === 0) {
+    return documentWithTags(deps, current);
+  }
   const row = await repo.knowledge.updateDocument(deps.db, current.id, {
     ...patch,
     ...(patch.status === 'disabled' ? { disabledReason: 'manual' } : {}),
@@ -563,6 +547,9 @@ export async function reprocessDocument(
   if (!row) notFound('文档');
   if (row.status === 'disabled' || row.disabledReason !== null) {
     throw new AppError('CONFLICT', '文档已停用，不能通过重解析恢复；请先完成来源同步或显式启用');
+  }
+  if (await repo.knowledge.hasUnpublishedDraft(deps.db, row)) {
+    throw new AppError('CONFLICT', '文档存在未发布的草稿，请先发布或放弃草稿后再重解析');
   }
   if (row.currentVersionId) {
     const manualChunkCount = await repo.knowledge.countEditedChunks(deps.db, row.currentVersionId);

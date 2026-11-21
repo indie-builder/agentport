@@ -45,6 +45,25 @@ export async function getJob(db: Database, id: string): Promise<KnowledgeJobRow 
   return row ?? null;
 }
 
+export async function findActiveIngestJobId(
+  db: Database,
+  documentId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ id: knowledgeJobs.id })
+    .from(knowledgeJobs)
+    .where(
+      and(
+        eq(knowledgeJobs.documentId, documentId),
+        eq(knowledgeJobs.type, 'ingest'),
+        inArray(knowledgeJobs.status, ['queued', 'running']),
+      ),
+    )
+    .orderBy(desc(knowledgeJobs.createdAt), desc(knowledgeJobs.id))
+    .limit(1);
+  return row?.id ?? null;
+}
+
 export interface ListJobsFilter extends PageOptions {
   baseId?: string;
   documentId?: string;

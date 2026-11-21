@@ -17,6 +17,7 @@ import {
   channelMembers,
   channelMessages,
   channels,
+  conversations,
 } from '../schema.js';
 import { createChannelWakes } from './channel-wakes.js';
 import { type CursorPage, keysetPage } from './pagination.js';
@@ -97,6 +98,40 @@ export async function channelMemberRole(
     .where(and(eq(channelMembers.channelId, channelId), eq(channelMembers.businessId, businessId)))
     .limit(1);
   return row?.role ?? null;
+}
+
+/** 频道 run 的执行授权条件：成员角色、频道归档、绑定状态与会话归属必须同时成立。 */
+export async function getRunChannelAccess(
+  db: DbHandle,
+  input: { channelId: string; agentId: string; conversationId: string; businessId: string },
+) {
+  const [lane] = await db
+    .select({
+      role: channelMembers.role,
+      archivedAt: channels.archivedAt,
+      bindingStatus: channelAgentBindings.status,
+      conversationChannelId: conversations.channelId,
+      conversationAgentId: conversations.agentId,
+    })
+    .from(channelAgentBindings)
+    .innerJoin(conversations, eq(conversations.id, input.conversationId))
+    .innerJoin(channels, eq(channels.id, input.channelId))
+    .leftJoin(
+      channelMembers,
+      and(
+        eq(channelMembers.channelId, input.channelId),
+        eq(channelMembers.businessId, input.businessId),
+      ),
+    )
+    .where(
+      and(
+        eq(channelAgentBindings.channelId, input.channelId),
+        eq(channelAgentBindings.agentId, input.agentId),
+        eq(channelAgentBindings.conversationId, input.conversationId),
+      ),
+    )
+    .limit(1);
+  return lane ?? null;
 }
 
 export async function listChannelApproverBusinessIds(

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { apiToolApprovalModeSchema } from './mcp.js';
 
 export const contentPolicyDirectionSchema = z.enum(['inbound', 'outbound']);
 export type ContentPolicyDirection = z.infer<typeof contentPolicyDirectionSchema>;
@@ -139,3 +140,55 @@ export const violationCaseUpdateSchema = z.object({
   resolution: z.string().max(1000).nullable().optional(),
 });
 export type ViolationCaseUpdate = z.infer<typeof violationCaseUpdateSchema>;
+
+export const toolApprovalRoleSchema = z
+  .string()
+  .regex(
+    /^(platform:[A-Za-z0-9_]+|agent:(owner|maintainer|user)|channel:(owner|admin|member|viewer)|service:(system|mcp))$/,
+  );
+export type ToolApprovalRole = z.infer<typeof toolApprovalRoleSchema>;
+
+export const toolApprovalMethodSchema = z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
+export type ToolApprovalMethod = z.infer<typeof toolApprovalMethodSchema>;
+
+export const toolApprovalPolicySchema = z.object({
+  id: z.string(),
+  agentId: z.string().nullable(),
+  serverId: z.string().nullable(),
+  toolId: z.string().nullable(),
+  role: toolApprovalRoleSchema.nullable(),
+  httpMethod: toolApprovalMethodSchema.nullable(),
+  pathTemplate: z.string().nullable(),
+  approvalMode: apiToolApprovalModeSchema,
+  enabled: z.boolean(),
+  version: z.number().int(),
+  createdBy: z.string(),
+  updatedBy: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type ToolApprovalPolicy = z.infer<typeof toolApprovalPolicySchema>;
+
+export const toolApprovalPolicyCreateSchema = z.object({
+  agentId: z.string().min(1).nullable().default(null),
+  serverId: z.string().min(1).nullable().default(null),
+  toolId: z.string().min(1).nullable().default(null),
+  role: toolApprovalRoleSchema.nullable().default(null),
+  httpMethod: toolApprovalMethodSchema.nullable().default(null),
+  pathTemplate: z.string().min(1).max(500).nullable().default(null),
+  approvalMode: apiToolApprovalModeSchema,
+  enabled: z.boolean().default(true),
+});
+export type ToolApprovalPolicyCreate = z.infer<typeof toolApprovalPolicyCreateSchema>;
+
+export const toolApprovalPolicyUpdateSchema = z.object({
+  agentId: z.string().min(1).nullable().optional(),
+  serverId: z.string().min(1).nullable().optional(),
+  toolId: z.string().min(1).nullable().optional(),
+  role: toolApprovalRoleSchema.nullable().optional(),
+  httpMethod: toolApprovalMethodSchema.nullable().optional(),
+  pathTemplate: z.string().min(1).max(500).nullable().optional(),
+  approvalMode: apiToolApprovalModeSchema.optional(),
+  enabled: z.boolean().optional(),
+});
+export type ToolApprovalPolicyUpdate = z.infer<typeof toolApprovalPolicyUpdateSchema>;

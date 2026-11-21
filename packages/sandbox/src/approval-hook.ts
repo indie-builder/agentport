@@ -70,7 +70,7 @@ export function createApprovalHook(
     url.search = '';
     url.hash = '';
     headers.set('content-type', 'application/json');
-    let registered = false;
+    let approvalId: string | null = null;
     let transportFailures = 0;
     let backoff = 2_000;
     let expiresAt = Number.POSITIVE_INFINITY;
@@ -78,16 +78,18 @@ export function createApprovalHook(
       let delay = 2_000;
       let responded = false;
       try {
+        url.search = '';
+        if (approvalId !== null) url.searchParams.set('approvalId', approvalId);
         const response = await fetch(url, {
-          method: registered ? 'GET' : 'PUT',
+          method: approvalId === null ? 'PUT' : 'GET',
           headers,
-          ...(registered ? {} : { body: JSON.stringify(input.tool_input) }),
+          ...(approvalId === null ? { body: JSON.stringify(input.tool_input) } : {}),
           redirect: 'error',
           signal: AbortSignal.any([signal, AbortSignal.timeout(5_000)]),
         });
         responded = true;
         transportFailures = 0;
-        if ([401, 403, 404].includes(response.status))
+        if ([401, 403, 404, 409].includes(response.status))
           return decision('deny', '工具审批授权已失效，调用未执行。');
         if (response.status === 429) {
           const retryAfter = response.headers.get('retry-after');
@@ -104,6 +106,8 @@ export function createApprovalHook(
         } else if (response.ok) {
           const state = toolApprovalResponseSchema.parse(await response.json());
           if (signal.aborted) break;
+          if (approvalId !== null && state.approvalId !== approvalId)
+            return decision('deny', '工具审批身份不一致，调用未执行。');
           if (state.status === 'approved')
             return Date.now() >= expiresAt ? decision('deny', '工具审批已过期，调用未执行。') : {};
           if (state.status !== 'pending')
@@ -111,7 +115,8 @@ export function createApprovalHook(
               'deny',
               `工具审批${state.status === 'denied' ? '已拒绝' : state.status === 'expired' ? '已过期' : '已取消'}，调用未执行。`,
             );
-          registered = true;
+          if (state.approvalId === null) return decision('deny', '工具审批未登记，调用未执行。');
+          approvalId = state.approvalId;
           expiresAt =
             state.expiresAt === null ? Number.POSITIVE_INFINITY : Date.parse(state.expiresAt);
           backoff = 2_000;

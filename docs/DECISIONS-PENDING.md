@@ -329,9 +329,9 @@
 
 **迁移限制**：旧配置的掩码URL不再是可保存或可运行的有效配置；需显式改成不含凭证的URL，并把认证放入加密headers。不会自动搬迁、删除或猜测认证方式。测试使用独立数据库与固定测试密钥，预览使用本地密钥，不混库绕过解密失败。
 
-## D-34 ✅ 审批等待与后续许可分开（2026-10-22）
+## D-34 ✅ 审批等待与后续许可分开（run 的迟到批准与继承已由 D-88 取代）
 
-**采用**：approval_requests.expires_at记录调用等待期限；立即拒绝或旧记录为空。未批准重复请求固定首次期限，不再延长；已批准记录不修改。等待轮询在sandbox `PreToolUse` hook中按2秒GET读取状态，API只处理短请求，API重启后runner按退避重试即可恢复。过期仍可批准运行中的工具供后续调用/既有继承使用，但不声称恢复已结束调用。终态run仍拒绝批准。
+**采用**：approval_requests.expires_at记录调用等待期限；立即拒绝或旧记录为空。未批准重复请求固定首次期限，不再延长；已批准记录不修改。等待轮询在sandbox `PreToolUse` hook中按2秒GET读取状态，API只处理短请求，API重启后runner按退避重试即可恢复。D-88 起，run 的待决请求到期后不能批准；按时批准只用于本 run 的同一判定，终态 run 不执行。
 
 **边界**：不使用浏览器时钟猜期限；sandbox hook在睡眠后再次检查截止时间，防止截止后的批准恢复当前调用。审批恢复要求sandbox runner与run保持存活，没有sandbox重启后的检查点，也不保证沙盒失联情况下期限尚未来到就一定有活跃调用。0024只新增可空期限列，旧记录不回填。
 
@@ -768,11 +768,11 @@
 
 ---
 
-## D-88 ⏳ 工具审批可配置策略与可读审计（Stage 2 已交付，其余待决策）
+## D-88 ⏳ 工具审批可配置策略与可读审计（Stage 3a-2 已实现，其他入口待接入）
 
 **用户故事**：安全运营人员希望让同一专家的查询工具直通，让普通成员的写操作先审批，并能在审计中看到谁把哪条规则从什么改成了什么。
 
-**现状与依据**：
+**Stage 3 前的基线与依据**：
 
 - generated 工具已有 `api_tools.approval_mode`（`allow`、`ask`、`deny`）。[`generated.ts`](../packages/api/src/modules/servers/generated.ts) 在调用上游前先做审批门禁：活动状态检查后，`deny` 返回 `policyDeniedResult`，MCP 入口记录 `mcp.tool.denied`；`ask` 在服务端复核批准。已有 run 定义快照时，[MCP 入口](../packages/api/src/modules/servers/mcp-endpoint.ts)与[审批入口](../packages/api/src/modules/servers/http.ts)按快照取工具；外部连接器调用走当前定义。
 - worker 把父级和启用子级的连接器名到 ID 映射、`ask` 工具清单交给 runner。[`approval-hook.ts`](../packages/sandbox/src/approval-hook.ts) 用 `PreToolUse` 从 `.mcp.json` 取 run 凭证，`PUT /tool-approvals/{runId}/{serverId}/{toolName}` 登记，再 `GET` 轮询。`approval_requests` 的等待截止由 `APPROVAL_WAIT_MS` 写入（默认 300 秒，hook 最多等 355 秒）。[私有 run](../packages/api/src/modules/runs/router.ts)与[频道](../packages/api/src/modules/channels/approvals.ts)的批准、拒绝写 `agent.run.approved`、`agent.run.denied`。[#614](https://github.com/indie-builder/agentport/pull/614) 每 5 分钟随 `ops-alerts` 核对已到期且未决策的记录，写 `expired_at`，尝试追加 `agent.run.approval.expired` 和清理未读审批通知。等待按 `expires_at` 截止，不等扫描；私有 run 的迟到批准仍可用于后续调用，不能恢复已经超时的调用。
@@ -798,7 +798,18 @@
   - **Stage 3：接通 generated 策略。** 用隔离上游和真实 sandbox 验证同一 POST 对两种角色判定不同，未命中的 GET 沿用基线。等待中撤权、规则变动或请求到期后，旧请求不能批准；仍需审批时，新请求获批才执行。对 run MCP（含直接请求）、外部 token、OpenUI 和试跑逐一确认拒绝时上游请求为零。
   - **Stage 4：核验投影和运行时目录，再决定扩展。** 用实际 SDK 加载 `.claude/settings.json`，验证原生规则往返，包含 `__` 的命名及 knowledge、HTTP、stdio、plugin 合法工具仍可发现与调用。仅对可识别且确有审批需求的运行时来源启用 hook 策略，无法证明身份的来源维持现有行为。
 
-**边界与风险**：现有批准可按会话继承，且以工具名为粒度，不能当成对每次参数的批准。新规则若需要逐次核准参数，另定调用级审批；本项不承诺撤销已发出的上游请求。管理 `testInvoke` 目前放行 `ask`、保留 `deny` 和 SSRF 校验，不能把这条例外悄悄扩大成动态规则的绕行入口。
+**边界与风险**：run 批准不继承，按工具操作和当前判定绑定，不等同于对每次参数的批准。新规则若需要逐次核准参数，另定调用级审批；本项不承诺撤销已发出的上游请求。管理 `testInvoke` 目前放行 `ask`、保留 `deny` 和 SSRF 校验，不能把这条例外悄悄扩大成动态规则的绕行入口。
+
+**Stage 3a 复评补充（撤销时序）**：审批判定与出站前的最后复核使用 worker 实际选定的 server/tool 定义（根与已发布子级快照优先，未固定子级用当前定义）；当前工具定义不存在、禁用或与快照不一致时 fail-closed 拒绝。频道 run 的身份解析复用执行授权条件：发起者降为 viewer、频道归档、绑定失效或会话归属不符都不再产生有效主体。审批复核（工具定义、角色、命中规则版本、有效批准）与紧随其后的取消检查共同构成 `fetch` 前的最后异步检查，取消检查是其中最后一步；复核通过到请求发出之间的进程内窗口无法消除：此刻撤权或作废不会取消已经进入 `fetch` 的请求，也不承诺撤销上游副作用。要缩小该窗口可把数据库检查与出站发送放进同一分布式临界区，但无法撤回已送达的请求，当前不做；生效边界是「复核时点」，不是「上游收到请求时点」。另有一个版本窗口：子专家在本 run 启动后重新发布时，run 行没有记录 worker 启动时选中的子级版本，API 无法唯一还原；此时不采用该子级重发布后的定义，发现来源不明的子级即 fail-closed 拒绝（不退回当前定义放行）。若要求跨发布版本继续执行，需要把子级版本在启动时固定进 run。
+
+**Stage 3a 已知残留（内部自用可接受；对外前必须清除或产品化）**：以下各项不阻塞内部自用；在 D-21 从「暂不对外」翻转前，须逐项清除或产品化，不能只以文档免责。
+
+1. **取消微窗口**：出站前已恢复对已受理取消的检查（DB run 状态，以及 MCP 入口注入的 Redis 取消键检查），但复核通过到请求送达之间不是原子操作，极小窗口内受理的取消仍可能放过已在途请求。这与 D-88「不能撤销已发出的上游请求」一致；本地检查无法完全消除该窗口，即使把取消判定与出站发送放进同一临界区，也只能缩小窗口，不能撤回已经送达的请求。
+2. **来源无法唯一还原**：legacy/未固定 run 在 live 绑定被移除时可能回退到当前连接器或工具定义，基线 `allow` 下存在出站风险。后续需统一「固定快照 vs 确认 live vs 不可还原即拒绝」的来源解析。
+3. **出站凭证/请求头**：`decisionHash` 覆盖 `serverId`、`toolId`、`method`、`pathTemplate`、`baseUrl`、`paramsIn`、`agentId`、有效角色、基线与命中规则，但不包含实际出站认证头或凭证摘要；连接器管理员变更授权头后，旧批准仍可能命中。后续需把出站凭证摘要纳入判定并在复核时比对。
+4. **子级重发布/来源失效时的审批作废时序**：部分场景审批行作废与 409 返回的先后尚未完全统一，客户端可能先看到 409，随后审批行才落为终态。
+5. **工具删除级联删除 `tool_approval_policies`**：删除工具会级联删除其策略，绕开 `security.manage` 治理写入；删除后重建同名工具的新 run 可能按基线放行。需补治理生命周期设计（策略与可执行工具同生命周期，或改用稳定操作标识）。
+6. **未将全局 `rolesRevision` 纳入哈希**：判定使用已解析角色加 `agents.use`，相关授权变化会改变角色或置 `subject=null`，命中规则版本已入哈希，因此当前判为可接受。若后续出现不改变已解析角色却能改写判定结果的全局变更，需把该版本纳入。
 
 **待确认决策点**：
 
@@ -829,6 +840,37 @@
 **当前状态**：本轮已移除导入回滚直接删除共享 blob 的路径——[`package.ts`](../packages/api/src/modules/knowledge/package.ts) 的导入失败回滚只删除本次新建的版本目录，已写入的 content-addressed blob 交由 `cleanup` 回收。竞态本身未修，[`ingestion.ts`](../packages/worker/src/knowledge/ingestion.ts) 的 `runCleanup` 仍按上述引用集合与 mtime 规则回收。
 
 **待确认问题**：是否接受按 sha 加锁（API 与 worker 共同实现）；或接受导入返回 201 后极低概率原件下载 404，保留现状。
+
+---
+
+## D-90 ⏳ 其余 BullMQ 队列的启动就绪与故障恢复（待决策）
+
+**现状与依据**：
+
+- BullMQ 6.7.8 会缓存首次初始化失败的 Promise，同一实例不会重试（已实测）。知识主队列与对账器已按 [ARCHITECTURE §6.4](ARCHITECTURE.md) 加就绪门槛，不在此列；其余仍未设就绪门槛的入口包括：[知识 followups Queue](../packages/worker/src/knowledge/queue.ts)、[API producer](../packages/api/src/queue/producer.ts)、[知识 scheduler](../packages/worker/src/knowledge/scheduler.ts)、[通用 run/eval 对账](../packages/worker/src/scheduling/reconcile.ts)、[通用 schedule 调度](../packages/worker/src/scheduling/scheduler.ts)，以及主 run/eval 等未设就绪门槛的 consumer。
+- 失败影响按入口不同：知识 followups 初始化失败只失去即时投递，`queued` 任务仍可由知识对账按 `jobId` 补投；自动摘要的 followup 投递失败会把该版本摘要从 `pending` 回写为 `none`（[`ingestion.ts`](../packages/worker/src/knowledge/ingestion.ts) 的补偿），任务行仍在，仍可由对账补投。API producer 持续失败时知识接口保留各端点原有的成功状态码（例如批量重解析 200、新建分块 201，其余多为 202；入队异常只记日志），任务由 worker 对账补投；API 后续入队会持续失败、健康指标对应项为 `null`，直到重启 API 实例。知识 scheduler、通用 run/eval 对账与通用 schedule 调度的连接或初始化失败可能只记日志后继续运行，Compose 看不到非零退出，不会重启，同一实例内该队列一直不可用。
+- 这些入口没有统一在启动阶段 `waitUntilReady`，知识主链路的修复不覆盖它们。
+
+**候选方案与成本**：
+
+- **统一启动门槛**：各入口启动时 `waitUntilReady`，失败直接非零退出，交给 Compose `restart: unless-stopped` 得到干净实例。与知识主链路一致，改动集中在启动处；代价是每个入口增加一次启动等待，Redis 不可用时进程不再带病运行，API 会在启动失败后反复重启。
+- **按需重建**：捕获初始化失败后丢弃该 Queue 与连接，下一次使用时重建，同实例内自愈。避免重启扩散，但需封装重建与并发去重，连接和事件监听要一并替换，容易漏；也要确认 BullMQ 对 Queue/Worker 的缓存边界。
+
+**验证方式**：用单个连接失败（错误 URL 或阻断 Redis）制造首次初始化失败，待 Redis 恢复后对照「同一实例继续使用」与「重启后新实例」两组：前者应持续失败或按方案重建成功，后者应恢复正常；同时确认失败路径不吞掉入队错误、不产生重复消费。
+
+**待确认问题**：是否接受按入口逐个加就绪门槛（而不是抽一层统一封装），并接受 API 在启动阶段因 Redis 不可用而退出重启？
+
+---
+
+## D-91 ⏳ 知识库数据包恢复未发布草稿（待决策）
+
+现状：已生成版本的草稿导入后引用旧库 indexingJobId，无法在本库发布；停用的零版本手写文档导入后只落文档与原件，没有恢复入口；清单的当前指针可指向 draft/superseded，Wiki 指针可绕过 `knowledge.publish`。候选：导入时重建版本并绑定本库索引任务；拒绝 draft/superseded 作为当前指针；恢复线上指针要求 `knowledge.publish` 权限。
+
+---
+
+## D-92 ⏳ 知识库变更审计的原子性与必达（待决策）
+
+现状：`writeAudit` 写失败只 warn，知识库文档变更（移动、标签、删除、重解析）与发布均可能成功但无审计；复制已改为事务内写审计，手写显式发布没有独立审计事件。候选：把必须留痕的变更与 `writeAuditInTx` 放进同一事务；发布补审计事件；明确「审计失败是否回滚业务」。验证：注入审计写入失败，逐个端点核对返回值与审计行。
 
 ---
 

@@ -573,25 +573,24 @@ export async function runAgentJob(
       );
       const parentServerNames = serverNamesByAgent.get(agentId) ?? [];
       const mcpServerIds = Object.fromEntries(serverRows.map((server) => [server.name, server.id]));
-      const serverNamesById = new Map(serverRows.map((server) => [server.id, server.name]));
-      const liveApprovalServerIds = serverRows
+      const generatedServers = serverRows.filter((server) => server.kind === 'generated');
+      const liveGeneratedIds = generatedServers
         .filter((server) => server.tools === undefined)
         .map((server) => server.id);
-      const approvalModes =
-        liveApprovalServerIds.length === 0
+      const liveTools =
+        liveGeneratedIds.length === 0
           ? []
-          : await repo.servers.listToolApprovalModes(db, liveApprovalServerIds);
+          : await repo.servers.listEnabledGeneratedToolNames(db, liveGeneratedIds);
+      const serverNamesById = new Map(generatedServers.map((server) => [server.id, server.name]));
       const mcpApprovalTools = [
-        ...serverRows.flatMap((server) =>
+        ...generatedServers.flatMap((server) =>
           (server.tools ?? [])
-            .filter((tool) => tool.enabled && tool.approvalMode === 'ask')
+            .filter((tool) => tool.enabled)
             .map((tool) => ({ server: server.name, tool: tool.name })),
         ),
-        ...approvalModes.flatMap((tool) => {
-          const server = serverNamesById.get(tool.serverId);
-          return tool.approvalMode === 'ask' && server !== undefined
-            ? [{ server, tool: tool.toolName }]
-            : [];
+        ...liveTools.flatMap(({ serverId, toolName }) => {
+          const server = serverNamesById.get(serverId);
+          return server === undefined ? [] : [{ server, tool: toolName }];
         }),
       ];
 

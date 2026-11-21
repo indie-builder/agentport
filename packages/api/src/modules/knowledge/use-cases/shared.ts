@@ -8,7 +8,11 @@ import type { Config } from '../../../config.js';
 import { actorOf, requireUser } from '../../../http/access.js';
 import type { RequestContext } from '../../../http/context.js';
 import { requireCursorPage } from '../../../http/pagination.js';
-import { createJob, enqueueKnowledgeJob, type KnowledgeDocumentRow } from '../service.js';
+import {
+  createJob,
+  enqueueKnowledgeJobAfterCommit,
+  type KnowledgeDocumentRow,
+} from '../service.js';
 
 export type KnowledgeDeps = {
   db: Database;
@@ -114,7 +118,7 @@ export async function enqueue(
     ...(refs.sourceId === undefined ? {} : { sourceId: refs.sourceId }),
     payload,
   });
-  await enqueueKnowledgeJob(job);
+  await enqueueKnowledgeJobAfterCommit(deps.log, job);
   return job;
 }
 

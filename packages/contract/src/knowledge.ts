@@ -971,6 +971,7 @@ const documentsContract = {
         content: z.string(),
         versionId: z.string(),
         status: z.enum(['draft', 'published']),
+        pendingJobId: z.string().nullable(),
       }),
     ),
   saveManual: contractProcedure

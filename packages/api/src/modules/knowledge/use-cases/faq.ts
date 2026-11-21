@@ -33,7 +33,12 @@ import {
   serializeFaqExport,
 } from '../faq.js';
 import { searchKnowledge } from '../retrieval.js';
-import { createJob, enqueueKnowledgeJob, enqueueKnowledgeJobs, storeBlob } from '../service.js';
+import {
+  createJob,
+  enqueueKnowledgeJobAfterCommit,
+  enqueueKnowledgeJobsAfterCommit,
+  storeBlob,
+} from '../service.js';
 import {
   assertBodyBytes,
   type DocumentRow,
@@ -89,22 +94,34 @@ async function loadFaqDocument(deps: KnowledgeDeps, documentId: string) {
   return document;
 }
 
-async function latestFaqVersion(deps: KnowledgeDeps, documentId: string) {
+async function latestFaqDraftVersion(
+  deps: KnowledgeDeps,
+  documentId: string,
+  currentVersionId: string | null,
+) {
   const [row] = await deps.db
     .select()
     .from(schema.knowledgeDocumentVersions)
-    .where(eq(schema.knowledgeDocumentVersions.documentId, documentId))
+    .where(
+      and(
+        eq(schema.knowledgeDocumentVersions.documentId, documentId),
+        currentVersionId === null
+          ? undefined
+          : sql`${schema.knowledgeDocumentVersions.id} <> ${currentVersionId}`,
+        sql`${schema.knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
+      ),
+    )
     .orderBy(desc(schema.knowledgeDocumentVersions.version))
     .limit(1);
   return row ?? null;
 }
 
-function isPublishedFaqVersion(document: DocumentRow, version: VersionRow): boolean {
-  return version.id === document.currentVersionId || version.metadata?.publication === 'published';
+function isDraftFaqVersion(document: DocumentRow, version: VersionRow): boolean {
+  return version.id !== document.currentVersionId && version.metadata?.publication === 'draft';
 }
 
 function faqEnabledForVersion(document: DocumentRow, version: VersionRow): boolean {
-  if (!isPublishedFaqVersion(document, version)) {
+  if (isDraftFaqVersion(document, version)) {
     const imported = knowledgeFaqImportMetadataSchema.safeParse(version.metadata?.faqImport);
     if (imported.success) return imported.data.enabled;
   }
@@ -162,14 +179,16 @@ async function loadExistingFaqEntries(
     )
     .orderBy(desc(schema.knowledgeDocumentVersions.version));
   const versionById = new Map(versions.map((version) => [version.id, version]));
-  const latestByDocument = new Map<string, VersionRow>();
+  const documentById = new Map(documents.map((document) => [document.id, document]));
+  const draftByDocument = new Map<string, VersionRow>();
   for (const version of versions) {
-    if (!latestByDocument.has(version.documentId))
-      latestByDocument.set(version.documentId, version);
+    if (version.metadata.publication !== 'draft') continue;
+    const document = documentById.get(version.documentId);
+    if (!document || version.id === document.currentVersionId) continue;
+    if (!draftByDocument.has(version.documentId)) draftByDocument.set(version.documentId, version);
   }
   return documents.flatMap((document) => {
-    const latest = latestByDocument.get(document.id);
-    const draft = latest && !isPublishedFaqVersion(document, latest) ? latest : null;
+    const draft = draftByDocument.get(document.id) ?? null;
     const published = document.currentVersionId
       ? versionById.get(document.currentVersionId)
       : undefined;
@@ -299,7 +318,7 @@ async function writeFaqVersion(deps: KnowledgeDeps, input: WriteFaqVersionInput)
     });
     return { version, job };
   });
-  await enqueueKnowledgeJob(job);
+  await enqueueKnowledgeJobAfterCommit(deps.log, job);
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: input.auditAction,
@@ -554,14 +573,13 @@ export async function createFaq(
 }
 
 async function faqDetail(deps: KnowledgeDeps, document: DocumentRow) {
-  const [published, latest, tags] = await Promise.all([
+  const [published, draft, tags] = await Promise.all([
     document.currentVersionId
       ? repo.knowledge.getVersion(deps.db, document.currentVersionId)
       : null,
-    latestFaqVersion(deps, document.id),
+    latestFaqDraftVersion(deps, document.id, document.currentVersionId),
     repo.knowledge.getDocumentTagNames(deps.db, [document.id]),
   ]);
-  const draft = latest && !isPublishedFaqVersion(document, latest) ? latest : null;
   return {
     document: toFaqDocument(document, tags.get(document.id) ?? []),
     draftVersion: draft ? toFaqVersion(draft, false) : null,
@@ -592,9 +610,8 @@ export async function updateFaq(
   const base = await repo.knowledge.getBase(deps.db, document.baseId);
   if (!base) notFound('知识库');
   if (base.status !== 'active') throw new AppError('CONFLICT', '知识库已禁用，启用后再编辑 FAQ');
-  const latest = await latestFaqVersion(deps, document.id);
-  const latestIsDraft = latest !== null && !isPublishedFaqVersion(document, latest);
-  const expectedVersionId = latestIsDraft ? latest.id : document.currentVersionId;
+  const draft = await latestFaqDraftVersion(deps, document.id, document.currentVersionId);
+  const expectedVersionId = draft?.id ?? document.currentVersionId;
   if (expectedVersionId !== body.expectedVersionId) {
     throw new AppError('CONFLICT_STALE', 'FAQ 已被修改，请刷新后重试');
   }
@@ -806,10 +823,9 @@ export async function importFaqs(
     ),
   });
   const jobs = new Map(saved.items.map((item) => [item.documentId, item]));
-  await enqueueKnowledgeJobs(saved.items.map((item) => ({ id: item.jobId }))).catch(
-    (err: unknown) => {
-      deps.log.warn({ err }, 'faq import job enqueue failed; awaiting reconcile');
-    },
+  await enqueueKnowledgeJobsAfterCommit(
+    deps.log,
+    saved.items.map((item) => ({ id: item.jobId })),
   );
   await repo.governance.notifyKnowledgeDocumentQuota(deps.db, base.id);
   const results = plan.results.map((result) => {
@@ -899,17 +915,19 @@ export async function exportFaqs(
           )
           .orderBy(desc(schema.knowledgeDocumentVersions.version));
   const versionById = new Map(versions.map((version) => [version.id, version]));
-  const latestByDocument = new Map<string, VersionRow>();
+  const documentById = new Map(documents.map((document) => [document.id, document]));
+  const draftByDocument = new Map<string, VersionRow>();
   for (const version of versions) {
-    if (!latestByDocument.has(version.documentId))
-      latestByDocument.set(version.documentId, version);
+    if (version.metadata.publication !== 'draft') continue;
+    const document = documentById.get(version.documentId);
+    if (!document || version.id === document.currentVersionId) continue;
+    if (!draftByDocument.has(version.documentId)) draftByDocument.set(version.documentId, version);
   }
   const items = documents.flatMap((document) => {
-    const latest = latestByDocument.get(document.id);
     const published = document.currentVersionId
       ? versionById.get(document.currentVersionId)
       : undefined;
-    const draft = latest && !isPublishedFaqVersion(document, latest) ? latest : undefined;
+    const draft = draftByDocument.get(document.id);
     const version = query.version === 'published' ? published : (draft ?? published);
     if (!version?.faq) return [];
     return [

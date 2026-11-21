@@ -25,7 +25,7 @@ export const auditItemSchema = z.object({
   durationMs: z.number().nullable(),
   requestId: z.string().nullable(),
   inputDigest: z.string().nullable(),
-  detail: z.record(z.string(), z.string()).nullable(),
+  detail: z.record(z.string(), z.string().nullable()).nullable(),
   detailType: z.string().nullable(),
   createdAt: z.iso.datetime(),
 });

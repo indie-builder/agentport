@@ -41,12 +41,20 @@ const tool: ApiTool = {
   approvalMode: 'ask',
 };
 
+const evaluation = (tool: ApiTool, approved: boolean) => ({
+  effectiveMode: tool.approvalMode,
+  baseline: tool.approvalMode,
+  approved,
+  decisionHash: 'test-decision',
+  matchedRuleIds: [],
+});
+
 const baseInput = {
   name: 'srv',
   baseUrl: 'https://upstream.test',
   headers: {},
   tools: [tool],
-  approvals: [],
+  privateHostAllowlist: '',
 };
 
 afterEach(() => {
@@ -58,14 +66,14 @@ afterEach(() => {
 it('refuses an unapproved call immediately without polling or touching upstream', async () => {
   const fetchSpy = mock(async () => new Response('ok'));
   stubGlobal('fetch', fetchSpy);
-  const refreshApprovals = mock(async () => [] as string[]);
+  const evaluateApproval = mock(async (tool: ApiTool) => evaluation(tool, false));
   const onApprovalRequired = mock(async () => undefined);
-  buildGeneratedServer({ ...baseInput, refreshApprovals, onApprovalRequired });
+  buildGeneratedServer({ ...baseInput, evaluateApproval, onApprovalRequired });
   const handler = mcp.handlers.get('approve-tool');
   if (!handler) throw new Error('tool was not registered');
   const result = await handler({}, ctx);
   expect(result.isError).toBe(true);
-  expect(refreshApprovals).toHaveBeenCalledTimes(1);
+  expect(evaluateApproval).toHaveBeenCalledTimes(1);
   expect(onApprovalRequired).toHaveBeenCalledTimes(1);
   expect(fetchSpy).not.toHaveBeenCalled();
 });
@@ -73,7 +81,7 @@ it('refuses an unapproved call immediately without polling or touching upstream'
 it('calls upstream when the refreshed approval is already present', async () => {
   const fetchSpy = mock(async () => new Response('ok'));
   stubGlobal('fetch', fetchSpy);
-  buildGeneratedServer({ ...baseInput, refreshApprovals: async () => ['approve-tool'] });
+  buildGeneratedServer({ ...baseInput, evaluateApproval: async (tool) => evaluation(tool, true) });
   const handler = mcp.handlers.get('approve-tool');
   if (!handler) throw new Error('tool was not registered');
   const result = await handler({}, ctx);

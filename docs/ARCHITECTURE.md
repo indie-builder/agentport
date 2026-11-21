@@ -321,9 +321,11 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 已读语义：用户批准或拒绝私有 run / 频道审批后，服务端按来源键把对应 `approval` 通知标为已读；回答澄清提问后把对应 `question` 通知标为已读。标记失败只记日志，不回滚已完成的审批或回答。其余通知保留未读，直到用户单条或全部标为已读。页面 `/notifications` 提供全部/待办筛选、单条与全部已读、游标分页，侧栏入口显示未读数并按 30 秒轮询更新。
 
-工具审批恢复：worker 通过 shared `SandboxTask` 传递父级与启用子级的 server 名到 ID 映射及本轮 ask 工具快照。sandbox `PreToolUse` 从官方 `.mcp.json` 读取既有 run Bearer token 与 `x-agentport-run-id`，调用 `PUT /tool-approvals/{runId}/{serverId}/{toolName}` 幂等登记，再每 2 秒 GET 同一路径。接口复用 MCP service 边界与限流，只接受绑定该 generated server 的 run token、启用且仍为 ask 的工具；返回 pending/approved/denied/expired/cancelled、approvalId 与 expiresAt。审批按 `(runId, serverId, toolName)` 持久化，首次截止由 `APPROVAL_WAIT_MS`（默认 300 秒）固定，重试不延期。过期由尚未决策行的截止派生，ops-alerts 过期核对照写 `expired_at` 供审计与清理滞留「等待审批」通知，不改动执行判定；已有 approved/denied 行语义保持不变，批准记录不因等待截止而撤销。
+工具审批恢复：worker 通过 shared `SandboxTask` 传递父级和启用子级的 server 名到 ID 映射，以及本轮绑定的全部启用 generated 工具。sandbox `PreToolUse` 从官方 `.mcp.json` 读取既有 run Bearer token 与 `x-agentport-run-id`，调用 `PUT /tool-approvals/{runId}/{serverId}/{toolName}`，待审批时每 2 秒 GET 同一路径。API 按运行快照、当前发起者角色与规则计算最严格模式（`deny > ask > allow`）。`allow` 不创建审批；`deny` 不执行并审计；仅 `ask` 创建审批。generated 服务端独立重判，直接 MCP 调用也不能绕过审批。
 
-API 重启只中断当前短请求，runner 对网络错误和 5xx 按 2–5 秒退避，429 遵守 Retry-After，恢复后继续读取同一审批；连续 3 次未收到 HTTP 响应的传输失败，且等待未取消、未超时、审批未过期时，立即按“工具审批服务不可达”拒绝，收到响应后的解析失败仍按原退避继续。批准后 hook 不给权限决策，沿用既有 `allowedTools` / 权限规则；显式禁用仍生效，原 MCP 调用在权限通过后执行；拒绝、过期、取消或 401/403/404 返回 deny。hook 设置 360 秒超时和 `onFailure: 'block'`，回调最多等待 355 秒，并受 run 取消/超时的既有 SIGTERM 约束。服务端不再长等待，执行前仍刷新批准/拒绝与 run 活动状态；绕过 hook 的未批准调用只登记并立即拒绝。
+run 审批的 `approval_requests.decision_hash` 绑定操作、角色、基线、生效模式与命中规则版本。唯一索引是未被 `superseded_at` 作废的 `(run_id, server_id, tool_name, decision_hash)`。旧 NULL hash 不参与决策或执行；OpenUI 会话审批不变。私有 run 按 `approvalId` 批准或拒绝，频道沿用原 `approvalId` 路径，两者都重算 hash；不匹配或待决请求已过 `expires_at` 返回 409。已观察到的判定变化作废旧 ID，即便判定恢复也不复活；到期的待决请求在下一次登记时重新发 ID。按时批准仅对同一个 run 的同一判定有效，不跨 run 继承。
+
+API 重启只中断短请求，runner 对网络错误、5xx 和 429 按原规则退避。批准后 hook 不返回 SDK `allow`，仍走既有 `allowedTools` 与权限路径；拒绝、超时、取消或 401/403/404/409 均不执行。hook 最长等待 355 秒。generated 服务端在出站内容检查前判定、并在执行槽内发往上游前重判。解析身份或判定失败时拒绝，不降级成基线。外部 connector token、OpenUI 与管理试跑的行为留待 3a-3。
 
 边界：当前只有站内投递与页面/侧栏徽标，没有外部邮件、IM、通知偏好或免打扰；外部 webhook 见 3.9。审批恢复要求 sandbox runner 与 run 保持存活；不恢复已经发出的 MCP/upstream 调用，也不重放副作用。超过 hook/run 截止或 API 持续不可用时拒绝执行；`APPROVAL_WAIT_MS` 超过 355 秒也不会延长 hook 等待。
 
@@ -494,7 +496,7 @@ data/workspaces/<agent-slug>/
 - **消息级格式快照**：`messages.ui_format` 固定消息生成时的渲染模式；`content` 保留原始模型输出与 SDK transcript 对应，`ui_program` 保存完成后按段合并的完整混合响应，`ui_state` 原样保存官方渲染器状态。历史优先读已存快照，不在浏览器二次合并。
 - **段归属**：消息的每个UI围栏按`s0/s1…`编号，Markdown段不占编号；状态保存在`ui_state.blocks[sN]`。外部请求另带真实conversationId/messageId，不能把messageId编码到state键，也不能从全局store倒找最后一条消息。分支复制快照后不需重写段键。
 - **工具目录单一来源**：`repo.openui.listOpenUiTools(agentId)` 同时喂提示词（worker 渲染 CLAUDE.md）和执行桥（API 校验）。只收已绑定且启用的 http / generated server 工具；stdio 由用户提供任意命令，仅沙盒内可见。http server 的目录来自最近一次「测试连接」写入 `servers.config.toolCatalog` 的快照——worker 没有 MCP client。
-- **审批与会话绑定**：生成式UI的工具需要批准时返回202与approvalId，由当前UI段提供批准及重试；会话级批准8小时有效，重放不能续期，过期须重新请求并批准。Query可显式重试，Mutation不自动重放。它与run级审批分开：`approval_requests.run_id` 可空，UI来源使用 `conversation_id/message_id/source` 和会话工具部分唯一索引；run审批行为不变。
+- **审批与会话绑定**：生成式UI的工具需要批准时返回202与approvalId，由当前UI段提供批准及重试；会话级批准8小时有效，重放不能续期，过期须重新请求并批准。Query可显式重试，Mutation不自动重放。它与run级审批分开：`approval_requests.run_id` 可空，UI来源使用 `conversation_id/message_id/source` 和会话工具部分唯一索引；不参与 run 审批决策绑定。
 - 提示词进 CLAUDE.md 而不是 `.claude/rules/`：该段位于成对、末尾锚定的 `agentport:generated:start/end` 生成区内，不污染用户可编辑正文；导出→导入按生成区解析，用户同名标题与标记正文逐字保留。
 - Bun 默认不执行未列入根 `package.json` `trustedDependencies` 的生命周期脚本；当前只放行 `esbuild` 与 `msgpackr-extract`。`@openuidev/lang-core` 的 postinstall 只发匿名安装遥测，因此不加白名单。新增带安装脚本的依赖时显式补决定，不让脚本静默运行。
 
@@ -622,12 +624,12 @@ data/workspaces/<agent-slug>/
 
 摄取链路是「API 落原件 + 建行 + 入队」→「worker 解析、分块、embedding、原子切版本」：
 
-1. 上传走 base64 JSON（路由级 `bodyLimit` 48 MiB，解码后上限 32 MiB），手写正文与 URL 导入走独立入口；三者都先写 blob，再建 `knowledge_documents` 行，最后投 `ingest` 任务并返回 202。
-2. worker 取当前知识库的 embedding profile，解析（Markdown/文本/CSV/JSON/HTML 本地处理；PDF/Office/OCR 走 `DOCLING_URL`）、结构感知分块、批量 embedding，最后在事务里把 `current_version_id` 切到新版本。失败或取消时旧版本继续可查。
+1. 上传走 base64 JSON（路由级 `bodyLimit` 48 MiB，解码后上限 32 MiB），手写正文与 URL 导入走独立入口；三者都先写 blob、建 `knowledge_documents` 行与 `ingest` 任务行（`queued`），再尝试投递并返回 202；202 只表示已持久化受理，首次投递失败只记 warning，任务保持 `queued`，由对账器按 `jobId` 补投。
+2. worker 取当前知识库的 embedding profile，解析（Markdown/文本/CSV/JSON/HTML 本地处理；PDF/Office/OCR 走 `DOCLING_URL`）、结构感知分块、批量 embedding；自动发布路径最后在事务里把 `current_version_id` 切到新版本，手写保存走草稿路径，只追加 `publication:'draft'` 版本，显式 publish 才切换指针。失败或取消时旧版本继续可查。手写正文接口 `GET /knowledge/documents/{documentId}/manual` 返回可编辑版本正文与 `versionId`、`status`（`draft`/`published`）及 `pendingJobId`；`pendingJobId` 是本文档最新 `queued`/`running` 摄取任务 ID，无在途任务为 `null`。首个版本尚未生成时当前实现因无编辑版本返回 409，不返回已有的在途任务 ID，属待修复限制。
 3. 内容读取只走带鉴权的 REST：`versions/:versionId/content` 回原件（`Content-Disposition` 用清洗后的文件名）、`.../markdown` 回解析正文（用 `X-Knowledge-Document-Status` 带文档状态）、`.../images/:name` 回图片。图片名必须匹配白名单文件名且在该版本的 `images` 清单里，磁盘路径只由库内记录拼出，不按 URL 原文读取；对外不暴露静态目录。
-4. 检索固定为两路：关键词（应用侧 `Intl.Segmenter('zh')` 分词 + `plainto_tsquery('simple')`）与向量（pgvector `<=>`），各取 top 50 后用 RRF（k=60）融合取前 30，再按知识库配置的 rerank profile 重排。`kinds` 默认合并 document/FAQ/Wiki；文本向量在融合前按 `minVectorScore`（默认 0.3，未校准初值）过滤，关键词命中不因向量门槛被删。命中带 `target`/`targetVersionId`/`parentContent`/`scores:{keyword,vector,rrf,rerank}` 与 `scoreKind`；Wiki 的 `documentId` 指内部索引，导航必须用 `target`。召回条件同时要求 `chunks.enabled`、文档 `ready` 且 `current_version_id = chunks.version_id`，并叠加来源/范围可读过滤；旧版本、停用、撤权内容与内部 Wiki 索引文档不会作为普通文档命中。
-5. embedding 不可用时只返回关键词结果并标 `degraded: true` 与 `warnings.embedding_unavailable`；rerank 失败保留完整 RRF 顺序并带 `warnings.rerank_unavailable`，Wiki 索引尚未追上线上指针时带 `wiki_index_pending`。降级不把整次检索变成错误。REST 的 `diagnostics` 只在管理端显式开启，MCP 不返回候选正文/内部配置，但必须完整保留 `degraded`/`warnings`。模型端点失败被归类为 `auth / rate_limit / timeout / bad_response / unavailable`；只有 `rate_limit`、`timeout`、`unavailable` 会重试，`auth` 与 `bad_response` 重试也不会变好。
-6. 版本写入是显式 COW：人工改块、删除、启停由 API 按预分配版本 ID 先写完整正文/图片，事务内克隆旧块、重映射 ordinal、插入新版本后切指针；分块编辑另投 `chunksOnly` reindex 补向量。FAQ 草稿同样由 API 预分配文档版本 ID 并先写文件与版本行，发布只切指针。已发布版本与其文件不变，`expectedVersionId` 不符返回 409，不能从旧版本绕过；人工编辑清 locator/page 并标 `editedByUser`，纯 enabled 修改保留定位。`ingest` 任务的输入分三种：上传任务只带 `documentId`，worker 从文档 `contentHash` 取 blob；手写（含草稿保存）、URL 导入与 Wiki 索引任务携带不可变 `input`（内容哈希、文件名、MIME、`expectedCurrentVersionId`），worker 只消费该快照、不读运行时最新文档状态，但文档版本 ID 仍由 worker 解析完成时生成（Wiki 任务里的 `wikiVersionId` 只是页面版本，不是文档版本）；只有 FAQ 的 `ingest` job 携带 API 预分配的文档 `versionId` 与 `input`。草稿发布前核对同一 job 已成功且输入与版本一致（blob/文件名/MIME/父版本）。cleanup 按版本 `blobSha256`、文档非空 `contentHash` 与 `queued`/`running` 任务 `payload.input.blobSha256` 的并集判断引用（详见 §6.1）；「不得删除刚提交的新版本文件」是目标约束，当前实现尚未保证：孤儿 blob 超过保留期后，导入可能 `stat` 复用它但不刷新 mtime，cleanup 在读取引用集合之后、`rm` 之前若导入已提交引用，会出现导入返回 201 但原件下载 404 的已知窗口（D-89）。
+4. 检索默认两路：关键词（应用侧 `Intl.Segmenter('zh')` 分词 + `plainto_tsquery('simple')`）与文本向量（pgvector `<=>`），各取 top 50；启用图片向量时追加第三条图片向量路径（同样 top 50、按 `imageVectorMinScore` 过滤），再用 RRF（k=60）融合取前 30，最后按知识库配置的 rerank profile 重排；重排受 `query.rerank` 控制、默认开启，未开启时保留 RRF 顺序。`kinds` 默认合并 document/FAQ/Wiki；文本向量在融合前按 `minVectorScore`（默认 0.3，未校准初值）过滤，关键词命中不因向量门槛被删。命中带 `target`/`targetVersionId`/`parentContent`/`scores:{keyword,vector,rrf,rerank}` 与 `scoreKind`；Wiki 的 `documentId` 指内部索引，导航必须用 `target`。召回条件同时要求 `chunks.enabled`、文档 `ready` 且 `current_version_id = chunks.version_id`，并叠加来源/范围可读过滤；旧版本、停用、撤权内容与内部 Wiki 索引文档不会作为普通文档命中。
+5. embedding 不可用时只返回关键词结果并标 `degraded: true` 与 `warnings.embedding_unavailable`；rerank 失败保留完整 RRF 顺序并带 `warnings.rerank_unavailable`，Wiki 索引尚未追上线上指针时带 `wiki_index_pending`。降级不把整次检索变成错误。REST 的 `diagnostics` 由具备 `knowledge.execute` 且可读该库的调用者显式开启，MCP 不返回候选正文/内部配置，但必须完整保留 `degraded`/`warnings`。模型端点失败被归类为 `auth / rate_limit / timeout / bad_response / unavailable`；只有 `rate_limit`、`timeout`、`unavailable` 会重试，`auth` 与 `bad_response` 重试也不会变好。
+6. 版本写入是显式 COW：人工改块、删除、启停由 API 按预分配版本 ID 先写完整正文/图片，事务内克隆旧块、重映射 ordinal、插入新版本后切指针；分块编辑另投 `chunksOnly` reindex 补向量。FAQ 草稿同样由 API 预分配文档版本 ID 并先写文件与版本行，发布时目标版本标 published、同文档其它草稿标 superseded。已发布版本与其文件不变，`expectedVersionId` 不符返回 409，不能从旧版本绕过；人工编辑清 locator/page 并标 `editedByUser`，纯 enabled 修改保留定位。`ingest` 任务的输入分三种：上传任务只带 `type`/`documentId`/`publish`（`publish: 'automatic'`），不带 `input` 快照，worker 从文档 `contentHash` 取 blob；手写（含草稿保存）、URL 导入与 Wiki 索引任务携带不可变 `input`（内容哈希、文件名、MIME、`expectedCurrentVersionId`），worker 只消费该快照，但文档版本 ID 仍由 worker 解析完成时生成（Wiki 任务里的 `wikiVersionId` 只是页面版本，不是文档版本）；Wiki 索引任务例外：worker 摄取时不用快照的 `expectedCurrentVersionId`，而按文档当前版本指针（`document.currentVersionId`）作发布基线，内容仍取任务投递时写入的 blob；FAQ 的 `ingest` job 由 API 预分配文档 `versionId`：单条保存同时携带 `input`，批量导入省略 `input`。草稿发布前核对同一 job 已成功且输入与版本一致（blob/文件名/MIME/父版本）。cleanup 按版本 `blobSha256`、文档非空 `contentHash` 与 `queued`/`running` 任务 `payload.input.blobSha256` 的并集判断引用（详见 §6.1）；「不得删除刚提交的新版本文件」是目标约束，当前实现尚未保证：孤儿 blob 超过保留期后，导入可能 `stat` 复用它但不刷新 mtime，cleanup 在读取引用集合之后、`rm` 之前若导入已提交引用，会出现导入返回 201 但原件下载 404 的已知窗口（D-89）。草稿发布只经 publish 接口（含回退）；`chunksOnly` 只补当前版本向量、不切指针，不受未发布草稿阻塞；完整重解析/重建跳过未发布草稿，单篇与批量 reprocess 返回 409（批量 HTTP 200 中逐项 CONFLICT）。
 7. FAQ 以 `contentKind='faq'`、`sourceType='manual'` 的草稿版本保存标准问/相似问/反例/多答案、`answerStrategy` 与推荐标记；保存不改线上，显式 publish 或整批 publish 后才召回，停用立即撤出 search/read/list。FAQ 不是 Feed 来源，Feed 条目也不会成为 FAQ，二者不共用导入/发布链路。导入支持 JSON/CSV/xlsx（xlsx 只读首张工作表，拒绝公式与额外非空表），`append`/`replace`、`dryRun` 与整批原子发布沿用共享契约 D。
 8. 音频走同一条摄取链：入口 `inspectKnowledgeAudio` 只按真实字节接受 mp3/wav/m4a/flac/ogg 五种，原件上限 25,000,000 字节；空文件、超限、声明/后缀与字节不一致分别明确拒绝，普通非音频返回 null 继续原解析。worker 读取库绑定的启用 `kind='asr'` profile，用唯一 OpenAI Transcriptions multipart + `verbose_json` + `timestamp_granularities[]=segment` 协议请求完整最终 Endpoint URL（不补 `/v1`、不硬编码供应商模型，单请求 300 秒）；段级 start/end 转真实毫秒，正文按转录 markdown 拼接，逐块写真实 `timeFromMs/timeToMs` 并保存 `metadata.audio`。`segments` 缺省或为空时只索引顶层 text、不按 duration 编造时码，详情与引用明确标“无时码”，不作为时码验收通过。`chunksOnly` 只补向量、不重新转录；人工编辑清时码；关闭/切换 ASR 只影响后续摄取，历史音频原件、转录版本与引用仍可读。ASR profile 的测试入口在出站前返回 409，不提供静音探针，验证只能通过显式上传并可能计费；真实转录质量、端点时码覆盖与费用尚未验收。
 
@@ -639,7 +641,7 @@ data/workspaces/<agent-slug>/
 
 OCR 与 caption 分别形成 `kind:image` 的文字块，`metadata.imageRole` 标记来源动作，`metadata.image` 保存当前版本图片名/MIME/页码；图片字节留在已有版本图片目录。至少一个动作成功可使用，失败动作记录 `versions.images[].warnings`，两者均无有效输出则不发布新版本。默认经现有文字 embedding/关键词检索；启用图片处理不等于默认启用图片向量。
 
-可选原生图片向量使用同一 embedding profile 的 Cohere v2 `embed-v4.0` 文本与图像编码，固定1024维；profile 新字段 `embeddingProtocol`/`imageInputEnabled` 由迁移 `0036_demonic_dust.sql` 声明。只有显式支持图片输入的 profile 才允许库开启图片向量；关键词排除 vector 子块，图像向量召回独立应用最低相似度。同维不同模型不混用：向量分支限定版本 profile ID，profile 被引用后不允许原地替换模型/协议。
+可选原生图片向量使用同一 embedding profile 的 Cohere v2 `embed-v4.0` 文本与图像编码，固定1024维；profile 新字段 `embeddingProtocol`/`imageInputEnabled` 由迁移 `0036_demonic_dust.sql` 声明。只有显式支持图片输入的 profile 才允许库开启图片向量；关键词与文本向量均排除 vector 子块，图像向量召回单独应用最低相似度，命中的 vector 子块作为第三路参与 RRF 融合。同维不同模型不混用：向量分支限定版本 profile ID，profile 被引用后不允许原地替换模型/协议。
 
 专家仍通过官方 `.mcp.json` 加载知识连接。`knowledge_read_image` 默认返回可读描述；`format:image` 校验绑定库、当前版本、文档/chunk状态和版本图片清单后返回 JSON 文本加 MCP 原生 image content。原图传给 SDK，不在聊天执行层重新拼消息；Web 引用经已有鉴权图片端点显示同一原图。真实 SDK→受控 MCP→图像到达本地模型协议夹具已实测，真实视觉模型质量与 Cohere 服务未验收。详见多模态实施。
 
@@ -682,12 +684,12 @@ PATCH 范围或来源状态走 `replaceSourceScope`：同一事务缩小范围�
 
 ### 6.4 任务、调度与恢复
 
-知识任务使用独立队列 `knowledge-jobs`（BullMQ jobId 即 `knowledge_jobs.id`），不占聊天 run 的并发额度，也不出现在运行历史。`queued → running` 用条件更新认领；job 终态由 DB 仓库 `finishJob` 的条件事务一次提交，sync 同时提交 sync run 终态、source 摘要与成功游标；失败/取消不推进 `source.cursor`，中间检查点只保留在本次 sync run，任务内部重试不重新打开终态。运行中取消通过 Redis 键 + `AbortController` 落地。超时为 ingest/sync/cleanup 30 分钟、reindex 2 小时、wiki_generate 15 分钟、summary 10 分钟、tag_generate 5 分钟。
+知识任务使用独立队列 `knowledge-jobs`（BullMQ jobId 即 `knowledge_jobs.id`），不占聊天 run 的并发额度，也不出现在运行历史。`queued → running` 用条件更新认领；job 终态由 DB 仓库 `finishJob` 的条件事务一次提交，sync 同时提交 sync run 终态、source 摘要与成功游标；失败/取消不推进 `source.cursor`，中间检查点只保留在本次 sync run，任务内部重试不重新打开终态。运行中取消通过 Redis 键 + `AbortController` 落地。超时为 ingest/sync/cleanup 30 分钟、reindex 2 小时、wiki_generate 15 分钟、summary 10 分钟、tag_generate/source_probe 5 分钟。
 
-- `knowledge/reconcile.ts` 定期对账：running 且超过 2 倍超时、或 Redis 中已消失的置 failed；Redis 丢失但 DB 仍 queued 的重新入队。
+- `knowledge/reconcile.ts` 定期对账：补投只针对已落库且状态仍为 `queued` 的任务——Redis 无对应条目则按原 `jobId` 补投，已有可消费条目则跳过；旧 `failed/completed` 条目先尝试移除，移除失败仍会尝试 `add`（同 ID 可能被去重）；Redis 查询失败则跳过该行、保留 DB 状态，不误标 `failed`。`running` 有 5 分钟宽限期；超过 2 倍任务超时，或 Redis 条目消失/处于 `failed`、`completed`、`unknown` 等非活跃状态时置 `failed`；仍可重投的 `running` 退回 `queued` 等待补投。补投对 ingest、Wiki 索引、摘要、来源同步、重试、chunk reindex 等所有知识任务一视同仁；例外是知识 scheduler 的定时同步连续三次投递失败时，只把仍为 `queued` 的任务置 `failed`，不走补投契约。启动顺序为：先启动并等待对账器 Queue 就绪（`waitUntilReady`），再启动知识 consumer（`autorun: false`，`worker.waitUntilReady()` 后才 `run()` 开始消费）；任一初始化失败使进程非零退出，由 Compose `restart: unless-stopped` 重启为干净实例（BullMQ 会缓存首次初始化失败，同一实例不复用）；初始化成功后中途断线由 adapter 自动重连，同一实例继续运行。运行期消费循环若最终拒绝（`worker.run()` 的 promise reject），当前只记录 `knowledge worker loop failed` 日志、不退出进程，这是已知限制。
 - `knowledge/scheduler.ts` 以数据库的 `sync_cron` 为权威，在 Redis 维护 `knowledge-sync:<sourceId>` 调度器；到点经同一 `createSyncJob` 创建 pair，不在 Redis 保存凭证。清空 cron 即移除调度器；同一来源已有 queued/running 任务时跳过重复触发。入口 cron 先用 shared `cronSchema` 做结构校验，API 再用 BullMQ `getNextMillis` 判定实际可调度性（`99 99 99 99 99` 等被拒），scheduler 不重复预解析；每个来源的「移除旧 pattern → upsert 新 pattern」在独立 `try/catch` 内执行，单来源失败记录来源 ID 与阶段后继续其余来源。
 - 任务重试不复用原行，而是创建新任务；这样才能被重新认领。
-- 知识队列观测复用现有 JSON `GET /health/metrics` 的 `knowledgeQueue:{waiting,active,completed,failed,delayed}`（读既有 producer Queue；单项失败为 `null`），不新增 Prometheus 端点或采集器。
+- 知识队列观测复用现有 JSON `GET /health/metrics` 的 `knowledgeQueue:{waiting,active,completed,failed,delayed,oldestWaitingMs}`（读既有 producer Queue；单项失败为 `null`；`oldestWaitingMs` 为最老等待任务的已等待毫秒数，无等待任务为 `null`），不新增 Prometheus 端点或采集器。
 
 ### 6.5 Wiki 生成
 
@@ -711,7 +713,7 @@ SDK 生成与管理端手工保存都只追加草稿版本，不移动已发布�
 
 ### 6.8 当前实现状态
 
-知识库已作为与专家/技能/连接器/插件并列的资源页签接入：`/knowledge`列表含新建、编辑信息、复制知识库、设置、启停、知识包导入导出和删除，模型配置支持创建/编辑/删除/测试；`/knowledge/$baseId` 含概览/文档/图片/来源/检索测试/离线评估/FAQ/Wiki/处理记录九个页签，页头可编辑基本信息，概览页签汇总配置、内容计数与最近任务并可直接复制知识库。文档支持批量上传、网页和手写，检查器含分块编辑与图片访问；库设置可调整分块字符长度、重叠、Wiki自动更新与重排配置。专家绑定、聊天工具引用和后端任务、调度、对账、导出备份均已落盘。
+知识库已作为与专家/技能/连接器/插件并列的资源页签接入：`/knowledge`列表含新建、编辑信息、复制知识库、设置、启停、知识包导入导出和删除，模型配置支持创建/编辑/删除/测试；`/knowledge/$baseId` 含概览/文档/图片/来源/检索测试/离线评估/FAQ/Wiki/处理记录九个页签，页头可编辑基本信息，概览页签汇总配置、内容计数与最近任务并可直接复制知识库。文档支持批量上传、网页和手写，检查器含分块编辑与图片访问；库设置可调整分块字符长度、重叠、Wiki自动更新与重排配置。专家绑定、聊天工具引用和后端任务、调度、对账、导出备份均已落盘。批量文档操作逐项复用单文档用例，审计与单项一致（沿用 writeAudit 语义）；复制在副本事务内写审计，来源授权失效的来源文档拒绝复制。
 
 **当前仍处于评审整改与隔离验收阶段**：上述源码存在不等于整体完成；FAQ、Wiki、来源/范围即时撤权、版本 COW、ZIP 往返等链路仍在按评审意见修复与复测，模块测试或类型检查通过不能写成端到端通过。音频 ASR 的 core/shared/DB/API/worker/Web 本地链路与九种新增来源的 shared/API/DB/worker/Web 已落，但来源叶模块仍在独立评审收尾；真实转录质量与费用、真实 Lark/Notion/Confluence/语雀/钉钉/IMA/Seafile/Nextcloud 账号与配额、真实飞书/GitLab/GitHub/Feed 企业源均未验收。真实 embedding/rerank/视觉模型、Docling Office 与 Cohere 服务也仍未验收；GraphRAG 需要 Neo4j 与抽取模型费用，属待依赖，不部署、不声称可用。
 

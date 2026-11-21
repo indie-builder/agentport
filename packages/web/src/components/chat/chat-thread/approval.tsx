@@ -39,19 +39,23 @@ export const ApprovalCard = memo(function ApprovalCard({
         <span className="text-muted-foreground"> @ {item.serverName ?? item.serverId}</span>{' '}
         {item.waiting
           ? '调用仍在等待，批准后可继续本次调用，无需重发'
-          : '本次调用已结束等待，批准仅对后续调用生效，不会恢复已结束的调用。'}{' '}
-        <span className="text-muted-foreground">批准在本会话内有效，8 小时后需重新批准。</span>
+          : '审批已失效，请让智能体重新发起。'}{' '}
+        {isPending ? (
+          <span className="text-muted-foreground">批准仅对本次运行的当前判定有效。</span>
+        ) : null}
       </div>
-      <Button
-        size="sm"
-        className="h-auto min-h-7 max-w-full whitespace-normal py-1"
-        disabled={pending !== null}
-        aria-busy={busy}
-        aria-label={`批准 ${item.serverName ?? item.serverId} / ${item.toolName}`}
-        onClick={() => onApprove(item)}
-      >
-        {busy ? '批准中…' : item.waiting ? '批准本次调用' : '批准后续调用'}
-      </Button>
+      {isPending ? (
+        <Button
+          size="sm"
+          className="h-auto min-h-7 max-w-full whitespace-normal py-1"
+          disabled={pending !== null}
+          aria-busy={busy}
+          aria-label={`批准 ${item.serverName ?? item.serverId} / ${item.toolName}`}
+          onClick={() => onApprove(item)}
+        >
+          {busy ? '批准中…' : '批准本次调用'}
+        </Button>
+      ) : null}
     </motion.div>
   );
 });

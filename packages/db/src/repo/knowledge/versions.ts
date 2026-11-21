@@ -93,6 +93,65 @@ export interface CreateVersionInput {
   embeddingProfileId: string;
 }
 
+export async function latestUnpublishedDraft(
+  db: DbHandle,
+  document: { id: string; currentVersionId: string | null },
+): Promise<{ id: string; version: number } | undefined> {
+  const [row] = await db
+    .select({ id: knowledgeDocumentVersions.id, version: knowledgeDocumentVersions.version })
+    .from(knowledgeDocumentVersions)
+    .where(
+      and(
+        eq(knowledgeDocumentVersions.documentId, document.id),
+        sql`${knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
+        document.currentVersionId === null
+          ? undefined
+          : sql`${knowledgeDocumentVersions.id} <> ${document.currentVersionId}`,
+      ),
+    )
+    .orderBy(desc(knowledgeDocumentVersions.version))
+    .limit(1);
+  return row;
+}
+
+export async function hasUnpublishedDraft(
+  db: DbHandle,
+  document: {
+    id: string;
+    sourceType: string;
+    contentKind: string;
+    currentVersionId: string | null;
+  },
+): Promise<boolean> {
+  if (
+    document.sourceType === 'manual' &&
+    document.contentKind === 'document' &&
+    document.currentVersionId === null
+  ) {
+    return true;
+  }
+  return (await latestUnpublishedDraft(db, document)) !== undefined;
+}
+
+export async function supersedeDraftVersionsTx(
+  tx: Transaction,
+  documentId: string,
+  keepVersionId: string,
+): Promise<void> {
+  await tx
+    .update(knowledgeDocumentVersions)
+    .set({
+      metadata: sql`${knowledgeDocumentVersions.metadata} || '{"publication":"superseded"}'::jsonb`,
+    })
+    .where(
+      and(
+        eq(knowledgeDocumentVersions.documentId, documentId),
+        sql`${knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
+        sql`${knowledgeDocumentVersions.id} <> ${keepVersionId}`,
+      ),
+    );
+}
+
 /** 版本号在 INSERT 内用按文档过滤的 coalesce(max)+1 子查询算出，单次往返即可。
  * 同文档并发没有行锁兜底，仍可能撞唯一索引；冲突原样抛出，不自动重试。 */
 export async function createVersion(
@@ -143,7 +202,7 @@ export async function setCurrentVersion(
   documentId: string,
   versionId: string,
   guard?: PublishGuard,
-  options?: { expectedCurrentVersionId: string | null },
+  options?: { expectedCurrentVersionId: string | null; forbidUnpublishedDraft?: boolean },
 ): Promise<KnowledgeDocumentRow | null> {
   return db.transaction(async (tx) => {
     const [version] = await tx
@@ -160,6 +219,7 @@ export async function setCurrentVersion(
       .where(eq(knowledgeDocumentVersions.id, versionId))
       .limit(1);
     if (version?.documentId !== documentId) return null;
+    if (version.metadata?.publication === 'superseded') return null;
     const [preview] = await tx
       .select({
         sourceConnectionId: knowledgeDocuments.sourceConnectionId,
@@ -221,6 +281,20 @@ export async function setCurrentVersion(
       .where(eq(knowledgeDocuments.id, documentId))
       .for('update');
     if (!document) return null;
+    const [lockedVersion] = await tx
+      .select({
+        version: knowledgeDocumentVersions.version,
+        metadata: knowledgeDocumentVersions.metadata,
+      })
+      .from(knowledgeDocumentVersions)
+      .where(eq(knowledgeDocumentVersions.id, versionId))
+      .limit(1);
+    if (!lockedVersion) return null;
+    if (lockedVersion.metadata.publication === 'superseded') return null;
+    if (lockedVersion.metadata.publication === 'draft') {
+      const latestDraft = await latestUnpublishedDraft(tx, document);
+      if (latestDraft && lockedVersion.version < latestDraft.version) return null;
+    }
     if (document.status === 'disabled' || document.disabledReason !== null) return null;
     if (
       guard?.sourceSnapshot &&
@@ -236,15 +310,21 @@ export async function setCurrentVersion(
     if (options !== undefined && document.currentVersionId !== options.expectedCurrentVersionId) {
       return null;
     }
+    if (options?.forbidUnpublishedDraft && (await hasUnpublishedDraft(tx, document))) {
+      return null;
+    }
     if (
-      version.metadata?.faqImport !== undefined &&
-      version.metadata?.publication !== 'published'
+      lockedVersion.metadata.faqImport !== undefined &&
+      lockedVersion.metadata.publication !== 'published'
     ) {
       return null;
     }
     if (
-      version.metadata?.publication === 'draft' &&
-      !(await draftIndexJobAllowsVersionTx(tx, document, version))
+      lockedVersion.metadata.publication === 'draft' &&
+      !(await draftIndexJobAllowsVersionTx(tx, document, {
+        ...version,
+        metadata: lockedVersion.metadata,
+      }))
     ) {
       return null;
     }
@@ -293,6 +373,9 @@ export async function setCurrentVersion(
           sql`${knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
         ),
       );
+    if (lockedVersion.metadata.publication === 'draft') {
+      await supersedeDraftVersionsTx(tx, documentId, versionId);
+    }
     const [row] = await tx
       .update(knowledgeDocuments)
       .set({
@@ -338,6 +421,7 @@ export async function activateDocumentVersion(
     const [version] = await tx
       .select({
         documentId: knowledgeDocumentVersions.documentId,
+        version: knowledgeDocumentVersions.version,
         embeddingProfileId: knowledgeDocumentVersions.embeddingProfileId,
         metadata: knowledgeDocumentVersions.metadata,
         blobSha256: knowledgeDocumentVersions.blobSha256,
@@ -350,6 +434,15 @@ export async function activateDocumentVersion(
       .limit(1);
     if (version?.documentId !== input.documentId) {
       throw new AppError('NOT_FOUND', '版本文档不属于该文档');
+    }
+    if (version.metadata.publication === 'superseded') {
+      throw new AppError('CONFLICT', '该版本已被新草稿取代');
+    }
+    if (version.metadata.publication === 'draft') {
+      const latestDraft = await latestUnpublishedDraft(tx, document);
+      if (latestDraft && version.version < latestDraft.version) {
+        throw new AppError('CONFLICT_STALE', '存在更新的草稿，请先发布或放弃后再切换');
+      }
     }
     if (version.metadata.faqImport !== undefined && version.metadata.publication !== 'published') {
       throw new AppError('CONFLICT', '该 FAQ 草稿尚未正式批发布，不能逐条上线');
@@ -383,6 +476,9 @@ export async function activateDocumentVersion(
           sql`${knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
         ),
       );
+    if (version.metadata.publication === 'draft') {
+      await supersedeDraftVersionsTx(tx, input.documentId, input.versionId);
+    }
     const [row] = await tx
       .update(knowledgeDocuments)
       .set({

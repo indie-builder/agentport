@@ -432,6 +432,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       status: 'published',
       versionId: published.version.id,
       content: '已发布正文',
+      pendingJobId: null,
     });
 
     const draft = await request(app, {
@@ -441,9 +442,10 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       payload: { content: '草稿正文', expectedVersionId: published.version.id },
     });
     expect(draft.statusCode, draft.body).toBe(202);
+    const draftJobId = draft.json<{ jobId: string }>().jobId;
     const draftJob = await app.client.unsafe<{ payload: { publish?: string } }[]>(
       'select payload from knowledge_jobs where id = $1',
-      [draft.json<{ jobId: string }>().jobId],
+      [draftJobId],
     );
     expect(draftJob[0]?.payload.publish).toBe('draft');
 
@@ -465,6 +467,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       status: 'draft',
       versionId: draftVersion.id,
       content: '草稿正文',
+      pendingJobId: draftJobId,
     });
 
     const publish = await request(app, {
@@ -487,6 +490,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(afterPublish.json()).toMatchObject({
       status: 'published',
       versionId: draftVersion.id,
+      pendingJobId: draftJobId,
     });
   });
 
@@ -512,6 +516,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       status: 'published',
       versionId: published.version.id,
       content: '已发布正文',
+      pendingJobId: null,
     });
 
     const savedByB = await request(app, {
@@ -521,6 +526,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       payload: { content: '草稿正文', expectedVersionId: baseVersionId },
     });
     expect(savedByB.statusCode, savedByB.body).toBe(202);
+    const savedByBJobId = savedByB.json<{ jobId: string }>().jobId;
     const draft = await seedDraftVersion({
       baseId,
       documentId,
@@ -568,6 +574,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       status: 'draft',
       versionId: draft.id,
       content: '草稿正文',
+      pendingJobId: savedByBJobId,
     });
 
     const savedByDraft = await request(app, {
@@ -2099,6 +2106,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       status: 'published',
       versionId: v3.id,
       content: '线上 v3',
+      pendingJobId: null,
     });
 
     const rollback = await request(app, {
@@ -2117,6 +2125,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       status: 'published',
       versionId: seeded.version.id,
       content: '线上 v1',
+      pendingJobId: null,
     });
 
     const v4 = await addDraft('未发布 v4', seeded.version.id);
@@ -2129,6 +2138,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       status: 'draft',
       versionId: v4.id,
       content: '未发布 v4',
+      pendingJobId: null,
     });
     const saveAgain = await request(app, {
       method: 'PUT',

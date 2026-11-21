@@ -9,7 +9,7 @@ import {
 import { and, eq, sql } from 'drizzle-orm';
 import { requireCursorPage } from '../../../http/pagination.js';
 import { publishKnowledgeCancel } from '../../../queue/producer.js';
-import { createJob, enqueueKnowledgeJob } from '../service.js';
+import { createJob, enqueueKnowledgeJobAfterCommit } from '../service.js';
 import { enqueue, type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
 
 function toJob(
@@ -76,7 +76,7 @@ export async function retryJob(deps: KnowledgeDeps, row: JobRow) {
     if (created.status === 'in_progress') {
       throw new AppError('CONFLICT', '该来源已有同步任务在进行中');
     }
-    await enqueueKnowledgeJob(created.job);
+    await enqueueKnowledgeJobAfterCommit(deps.log, created.job);
     return { jobId: created.job.id };
   }
   let faqDraftBinding: {
@@ -129,7 +129,7 @@ export async function retryJob(deps: KnowledgeDeps, row: JobRow) {
       if (!bound) throw new AppError('CONFLICT', '目标 FAQ 草稿已变化，请刷新后重试');
       return created;
     });
-    await enqueueKnowledgeJob(job);
+    await enqueueKnowledgeJobAfterCommit(deps.log, job);
     return { jobId: job.id };
   }
   const job = await enqueue(deps, payload, {

@@ -11,6 +11,9 @@ import {
   policyApprovalStatusSchema,
   policyEventSchema,
   policySourceKindSchema,
+  toolApprovalPolicyCreateSchema,
+  toolApprovalPolicySchema,
+  toolApprovalPolicyUpdateSchema,
   violationCaseSchema,
   violationCaseStatusSchema,
   violationCaseUpdateSchema,
@@ -81,5 +84,22 @@ export const securityContract = {
       .route({ method: 'PATCH', path: '/security/violations/{id}' })
       .input(z.object({ params: idParams, body: violationCaseUpdateSchema }))
       .output(violationCaseSchema),
+  },
+  toolPolicies: {
+    list: read
+      .route({ method: 'GET', path: '/security/tool-policies' })
+      .output(z.array(toolApprovalPolicySchema)),
+    create: manage
+      .route({ method: 'POST', path: '/security/tool-policies', successStatus: 201 })
+      .input(z.object({ body: toolApprovalPolicyCreateSchema }))
+      .output(toolApprovalPolicySchema),
+    update: manage
+      .route({ method: 'PATCH', path: '/security/tool-policies/{id}' })
+      .input(z.object({ params: idParams, body: toolApprovalPolicyUpdateSchema }))
+      .output(toolApprovalPolicySchema),
+    remove: manage
+      .route({ method: 'DELETE', path: '/security/tool-policies/{id}', successStatus: 204 })
+      .input(z.object({ params: idParams }))
+      .output(z.void()),
   },
 };

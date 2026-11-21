@@ -11,6 +11,11 @@ import { isRunCancelRequested } from '../../queue/producer.js';
 import { createInvoker } from './agent-invoker.js';
 import type { AgentInvoker } from './agent-tools.js';
 import { agentHandler, platformMcpToken } from './agent-tools.js';
+import {
+  auditToolPolicyDenial,
+  createApprovalEvaluator,
+  getRunApprovalTool,
+} from './approval-policy.js';
 import { requestToolApproval } from './approvals.js';
 import { bearerToken, tokenMatches } from './bearer.js';
 import { serverMcpResponse, validRunToken } from './mcp-endpoint.js';
@@ -82,28 +87,79 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
         !(await validRunToken(context, runId, serverId, bearerToken(c.req.header('authorization'))))
       )
         fail('UNAUTHORIZED', 'invalid bearer token');
-      const snapshot = await repo.runs.getRunServerSnapshot(context.db, runId, serverId);
-      if (snapshot?.tools !== undefined) {
-        const tool =
-          snapshot.kind === 'generated'
-            ? snapshot.tools.find((candidate) => candidate.name === toolName)
-            : undefined;
-        if (!tool?.enabled || tool.approvalMode !== 'ask') {
-          fail('NOT_FOUND', 'approval tool not found');
-        }
-      } else {
-        const [server, tool] = await Promise.all([
-          repo.servers.getServer(context.db, serverId),
-          repo.servers.getApiToolByName(context.db, serverId, toolName),
-        ]);
-        if (server?.kind !== 'generated' || !tool?.enabled || tool.approvalMode !== 'ask') {
-          fail('NOT_FOUND', 'approval tool not found');
-        }
+      if (
+        !(await repo.runs.isRunActive(context.db, runId)) ||
+        (await isRunCancelRequested(runId))
+      ) {
+        return c.json({ status: 'cancelled', approvalId: null, expiresAt: null });
       }
-      const active =
-        (await repo.runs.isRunActive(context.db, runId)) && !(await isRunCancelRequested(runId));
+      const boundApprovalId = c.req.method === 'GET' ? c.req.query('approvalId') : undefined;
+      const evaluationFailed = (err: unknown) => {
+        context.log.warn({ err, runId, serverId, toolName }, 'tool approval evaluation failed');
+        return boundApprovalId === undefined
+          ? fail('FORBIDDEN', '无法确认工具审批判定，调用未执行')
+          : fail('CONFLICT', '工具审批已失效，调用未执行');
+      };
+      const tool = await getRunApprovalTool(context.db, runId, serverId, toolName).catch(
+        evaluationFailed,
+      );
+      if (tool === null) {
+        await context.db.transaction(async (tx) => {
+          await repo.runs.lockRunForApproval(tx, runId);
+          await repo.runs.supersedeMismatchedApprovals(tx, {
+            runId,
+            serverId,
+            toolName,
+            decisionHash: null,
+          });
+        });
+        if (boundApprovalId !== undefined) fail('CONFLICT', '工具审批已失效，调用未执行');
+        fail('NOT_FOUND', 'approval tool not found');
+      }
+      const decision = await createApprovalEvaluator({ db: context.db, runId, serverId })(
+        tool,
+        undefined,
+        boundApprovalId,
+      ).catch(evaluationFailed);
+      if (boundApprovalId !== undefined) {
+        if (decision.effectiveMode === 'deny') {
+          await auditToolPolicyDenial(context, {
+            runId,
+            serverId,
+            toolName,
+            matchedRuleIds: decision.matchedRuleIds,
+          });
+        }
+        const bound = decision.approval ?? null;
+        if (bound === null || decision.effectiveMode !== 'ask' || bound.id !== boundApprovalId)
+          fail('CONFLICT', '工具审批已失效，调用未执行');
+        return c.json({
+          status:
+            bound.deniedAt !== null
+              ? 'denied'
+              : bound.approvedAt !== null
+                ? 'approved'
+                : bound.expiresAt !== null && bound.expiresAt.getTime() <= Date.now()
+                  ? 'expired'
+                  : 'pending',
+          approvalId: bound.id,
+          expiresAt: bound.expiresAt?.toISOString() ?? null,
+        });
+      }
+      if (decision.effectiveMode === 'deny') {
+        await auditToolPolicyDenial(context, {
+          runId,
+          serverId,
+          toolName,
+          matchedRuleIds: decision.matchedRuleIds,
+        });
+        return c.json({ status: 'denied', approvalId: null, expiresAt: null });
+      }
+      if (decision.effectiveMode === 'allow') {
+        return c.json({ status: 'approved', approvalId: null, expiresAt: null });
+      }
       const approval =
-        active && c.req.method === 'PUT'
+        c.req.method === 'PUT'
           ? await requestToolApproval(
               context,
               runId,
@@ -114,15 +170,11 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
                 .parse(
                   await c.req.json().catch(() => fail('INVALID_INPUT', '请求体必须是有效 JSON')),
                 ),
+              decision,
             )
-          : await repo.runs.getApprovalRequest(context.db, runId, serverId, toolName);
-      if (!active)
-        return c.json({
-          status: 'cancelled',
-          approvalId: approval?.id ?? null,
-          expiresAt: approval?.expiresAt?.toISOString() ?? null,
-        });
-      if (approval === null) fail('NOT_FOUND', 'approval request not found');
+          : decision.approval;
+      if (approval === null)
+        return c.json({ status: 'pending', approvalId: null, expiresAt: null });
       const status =
         approval.deniedAt !== null
           ? 'denied'

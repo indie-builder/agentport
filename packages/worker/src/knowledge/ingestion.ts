@@ -897,6 +897,7 @@ async function ingestContent(
     versionMetadata?: Record<string, unknown>;
     publish?: 'draft' | 'automatic';
     expectedCurrentVersionId: string | null;
+    forbidUnpublishedDraft?: boolean;
     sourceSnapshot?: repo.knowledge.SourceReadSnapshot | undefined;
     signal: AbortSignal;
     jobId: string;
@@ -1055,16 +1056,27 @@ async function ingestContent(
     checkAborted(input.signal);
     return version.id;
   }
-  const published = await repo.knowledge.setCurrentVersion(deps.db, document.id, version.id, {
-    jobId: input.jobId,
-    baseId: document.baseId,
-    embeddingProfileId: client.profileId,
-    imageProcessingJson: JSON.stringify(settings.imageProcessing),
-    expectedCurrentVersionId: input.expectedCurrentVersionId,
-    ...(parsed.audio ? { asrProfileId: base.asrProfileId } : {}),
-    ...(input.sourceSnapshot ? { sourceSnapshot: input.sourceSnapshot } : {}),
-    isAborted: () => input.signal.aborted,
-  });
+  const published = await repo.knowledge.setCurrentVersion(
+    deps.db,
+    document.id,
+    version.id,
+    {
+      jobId: input.jobId,
+      baseId: document.baseId,
+      embeddingProfileId: client.profileId,
+      imageProcessingJson: JSON.stringify(settings.imageProcessing),
+      expectedCurrentVersionId: input.expectedCurrentVersionId,
+      ...(parsed.audio ? { asrProfileId: base.asrProfileId } : {}),
+      ...(input.sourceSnapshot ? { sourceSnapshot: input.sourceSnapshot } : {}),
+      isAborted: () => input.signal.aborted,
+    },
+    input.forbidUnpublishedDraft
+      ? {
+          expectedCurrentVersionId: input.expectedCurrentVersionId,
+          forbidUnpublishedDraft: true,
+        }
+      : undefined,
+  );
   if (!published) throw new Error('知识库配置已变化或已停用，未发布本次结果');
   await repo.knowledge.updateDocument(deps.db, document.id, {
     lastSyncedAt: new Date(),
@@ -1283,14 +1295,20 @@ async function rebuildFaqDocument(
     chunks,
   });
   await ensureJobRunning(deps, jobId, signal);
-  const published = await repo.knowledge.setCurrentVersion(deps.db, document.id, version.id, {
-    jobId,
-    baseId: document.baseId,
-    embeddingProfileId: base.embeddingProfileId,
-    imageProcessingJson: JSON.stringify(settings.imageProcessing),
-    expectedCurrentVersionId: current.id,
-    isAborted: () => signal.aborted,
-  });
+  const published = await repo.knowledge.setCurrentVersion(
+    deps.db,
+    document.id,
+    version.id,
+    {
+      jobId,
+      baseId: document.baseId,
+      embeddingProfileId: base.embeddingProfileId,
+      imageProcessingJson: JSON.stringify(settings.imageProcessing),
+      expectedCurrentVersionId: current.id,
+      isAborted: () => signal.aborted,
+    },
+    { expectedCurrentVersionId: current.id, forbidUnpublishedDraft: true },
+  );
   if (!published) {
     await ensureJobRunning(deps, jobId, signal);
     throw new Error('知识库配置已变化或已停用，未发布本次结果');
@@ -1323,6 +1341,13 @@ export async function runReindex(
     checkAborted(signal);
     try {
       if (payload.chunksOnly) {
+        if (!document.currentVersionId) {
+          deps.logger.warn(
+            { documentId: document.id },
+            'chunksOnly skipped: document has no current version',
+          );
+          continue;
+        }
         await reembedMissing(deps, document, signal);
         continue;
       }
@@ -1330,17 +1355,17 @@ export async function runReindex(
         deps.logger.warn({ documentId: document.id }, 'reindex skipped disabled document');
         continue;
       }
+      if (await repo.knowledge.hasUnpublishedDraft(deps.db, document)) {
+        deps.logger.warn(
+          { documentId: document.id },
+          'reindex skipped: unpublished draft requires explicit publish',
+        );
+        continue;
+      }
       if (!confirmOverwriteManualChunks && (await hasManualEdits(deps, document))) {
         deps.logger.warn(
           { documentId: document.id },
           'reindex skipped: manual edits require confirmOverwriteManualChunks',
-        );
-        continue;
-      }
-      if (!confirmOverwriteManualChunks && (await hasUnpublishedDraft(deps, document))) {
-        deps.logger.warn(
-          { documentId: document.id },
-          'reindex skipped: unpublished draft requires confirmOverwriteManualChunks',
         );
         continue;
       }
@@ -1388,6 +1413,7 @@ export async function runReindex(
             : {}),
         },
         expectedCurrentVersionId: document.currentVersionId,
+        forbidUnpublishedDraft: true,
         ...(sourceSnapshot ? { sourceSnapshot } : {}),
         signal,
         jobId: job.id,
@@ -1412,20 +1438,6 @@ async function hasManualEdits(
 ): Promise<boolean> {
   if (!document.currentVersionId) return false;
   return (await repo.knowledge.countEditedChunks(deps.db, document.currentVersionId)) > 0;
-}
-
-async function hasUnpublishedDraft(
-  deps: KnowledgeDeps,
-  document: KnowledgeDocumentRow,
-): Promise<boolean> {
-  if (document.contentKind === 'document' && document.sourceType !== 'manual') return false;
-  const latest = await repo.knowledge.listVersions(deps.db, document.id, { limit: 1 });
-  const version = latest?.items[0];
-  return (
-    version !== undefined &&
-    version.id !== document.currentVersionId &&
-    version.metadata.publication === 'draft'
-  );
 }
 
 async function upsertSourceItem(

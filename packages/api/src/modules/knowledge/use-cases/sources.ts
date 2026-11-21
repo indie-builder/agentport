@@ -1,4 +1,4 @@
-import { AppError, decryptSecrets, encryptSecrets, isAppError } from '@agentport/core';
+import { AppError, decryptSecrets, encryptSecrets } from '@agentport/core';
 import { type Database, repo, schema } from '@agentport/db';
 import type { KnowledgeSourceInput, KnowledgeSourceStatus } from '@agentport/shared';
 import { knowledgeSourceInputSchema, knowledgeSourceRangeExternalIdMax } from '@agentport/shared';
@@ -6,7 +6,7 @@ import { and, eq } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
 import { requireCursorPage } from '../../../http/pagination.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../../lib/cron.js';
-import { createJob, enqueueKnowledgeJob } from '../service.js';
+import { createJob, enqueueKnowledgeJobAfterCommit } from '../service.js';
 import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
 
 type RangeInput = KnowledgeSourceInput['ranges'][number];
@@ -502,13 +502,7 @@ export async function testSource(deps: KnowledgeDeps, sourceId: string) {
     sourceId: source.id,
     payload: { type: 'source_probe', sourceId: source.id },
   });
-  try {
-    await enqueueKnowledgeJob(job);
-  } catch (err) {
-    await deps.db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.id, job.id));
-    if (isAppError(err)) throw err;
-    throw new AppError('SERVICE_UNAVAILABLE', '测试任务未能提交，请稍后重试');
-  }
+  await enqueueKnowledgeJobAfterCommit(deps.log, job);
   return { jobId: job.id };
 }
 
@@ -519,7 +513,7 @@ export async function syncSource(deps: KnowledgeDeps, sourceId: string) {
   if (created.status === 'in_progress') {
     throw new AppError('CONFLICT', '该来源已有同步任务在进行中');
   }
-  await enqueueKnowledgeJob(created.job);
+  await enqueueKnowledgeJobAfterCommit(deps.log, created.job);
   return { jobId: created.job.id, syncRunId: created.run.id };
 }
 

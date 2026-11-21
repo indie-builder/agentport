@@ -337,7 +337,7 @@ describe.skipIf(!ready)('channel lane admission', () => {
     ).toBe('FORBIDDEN');
   });
 
-  it('does not inherit one member approval into another member channel run but preserves private inheritance', async () => {
+  it('does not inherit one member approval into another member channel run or into the next private run', async () => {
     const agentId = await makeAgent();
     const channelId = await makeChannel();
     await bindAgent(channelId, agentId);
@@ -365,8 +365,7 @@ describe.skipIf(!ready)('channel lane admission', () => {
       });
       await finish(admitted);
       const next = await admit(channelId, agentId, second.message.id, member);
-      expect(next.inherited).toEqual([]);
-      expect(await runs.getApprovedToolNames(db, next.run.id, serverId)).toEqual([]);
+      expect(await runs.listApprovalRequests(db, next.run.id)).toEqual([]);
 
       const privateRun = await chat.admitChatRun(db, {
         agentId,
@@ -387,10 +386,7 @@ describe.skipIf(!ready)('channel lane admission', () => {
         message: 'private B',
         subject: { kind: 'user', businessId: owner },
       });
-      expect(privateNext.inherited).toEqual(['private-approved']);
-      expect(await runs.getApprovedToolNames(db, privateNext.run.id, serverId)).toEqual([
-        'private-approved',
-      ]);
+      expect(await runs.listApprovalRequests(db, privateNext.run.id)).toEqual([]);
     } finally {
       await db.delete(servers).where(eq(servers.id, serverId));
     }

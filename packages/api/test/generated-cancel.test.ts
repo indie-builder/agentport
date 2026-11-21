@@ -39,12 +39,20 @@ const tool: ApiTool = {
   approvalMode: 'ask',
 };
 
+const evaluation = (tool: ApiTool, approved: boolean) => ({
+  effectiveMode: tool.approvalMode,
+  baseline: tool.approvalMode,
+  approved,
+  decisionHash: 'test-decision',
+  matchedRuleIds: [],
+});
+
 const baseInput = {
   name: 'srv',
   baseUrl: 'https://upstream.test',
   headers: {},
   tools: [tool],
-  approvals: [],
+  privateHostAllowlist: '',
 };
 
 function expectCancelled(result: CallToolResult): void {
@@ -86,7 +94,7 @@ it('refuses an already approved tool when the run is no longer active', async ()
 
   buildGeneratedServer({
     ...baseInput,
-    approvals: ['approve-tool'],
+    evaluateApproval: async (tool) => evaluation(tool, true),
     isRunActive: async () => false,
   });
 
@@ -103,7 +111,7 @@ it('checks cancellation after the DNS gate and before fetch', async () => {
   const controller = new AbortController();
   buildGeneratedServer({
     ...baseInput,
-    approvals: ['approve-tool'],
+    evaluateApproval: async (tool) => evaluation(tool, true),
     isRunActive: async () => true,
   });
 
@@ -129,6 +137,7 @@ it.each([1, 2])(
         if (reads === cancelAt) controller.abort();
         return true;
       },
+      evaluateApproval: async (tool) => evaluation(tool, false),
       onApprovalRequired,
     });
     expectCancelled(await callTool(controller.signal));
@@ -136,13 +145,58 @@ it.each([1, 2])(
   },
 );
 
+it('rechecks approval immediately before fetch and refuses a revoked decision', async () => {
+  const fetchSpy = mock(async () => {
+    throw new Error('upstream must not be called after the decision was revoked');
+  });
+  stubGlobal('fetch', fetchSpy);
+  let evaluations = 0;
+
+  buildGeneratedServer({
+    ...baseInput,
+    evaluateApproval: async (candidate) => {
+      evaluations += 1;
+      return evaluation(candidate, evaluations === 1);
+    },
+    isRunActive: async () => true,
+  });
+
+  const result = await callTool(new AbortController().signal);
+  expect(result.isError).toBe(true);
+  expect(evaluations).toBe(2);
+  expect(fetchSpy).not.toHaveBeenCalled();
+});
+
+it('cancels before fetch when the run is cancelled during the approval recheck', async () => {
+  const fetchSpy = mock(async () => {
+    throw new Error('upstream must not be called after the run was cancelled');
+  });
+  stubGlobal('fetch', fetchSpy);
+  let cancelled = false;
+  let evaluations = 0;
+
+  buildGeneratedServer({
+    ...baseInput,
+    evaluateApproval: async (candidate) => {
+      evaluations += 1;
+      if (evaluations === 2) cancelled = true;
+      return evaluation(candidate, true);
+    },
+    isRunActive: async () => !cancelled,
+  });
+
+  expectCancelled(await callTool(new AbortController().signal));
+  expect(evaluations).toBe(2);
+  expect(fetchSpy).not.toHaveBeenCalled();
+});
+
 it('still calls upstream for an active run with approval', async () => {
   const fetchSpy = mock(async () => new Response('ok'));
   stubGlobal('fetch', fetchSpy);
 
   buildGeneratedServer({
     ...baseInput,
-    approvals: ['approve-tool'],
+    evaluateApproval: async (tool) => evaluation(tool, true),
     isRunActive: async () => true,
   });
 
