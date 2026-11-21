@@ -195,14 +195,16 @@ describe('runKnowledgeTagging', () => {
 
     await runKnowledgeTagging(
       await startTagJob(seeded.documentId),
-      deps(successQuery('["自动三"]')),
+      deps(successQuery('["自动三","自动四","自动五"]')),
     );
 
     const regenerated = await repo.knowledge.getDocumentTagRows(db, seeded.documentId);
-    expect(regenerated).toHaveLength(2);
+    expect(regenerated).toHaveLength(4);
     const regeneratedByName = new Map(regenerated.map((row) => [row.name, row.origin]));
     expect(regeneratedByName.get('人工标签')).toBe('manual');
     expect(regeneratedByName.get('自动三')).toBe('auto');
+    expect(regeneratedByName.get('自动四')).toBe('auto');
+    expect(regeneratedByName.get('自动五')).toBe('auto');
     expect(regeneratedByName.has('自动一')).toBe(false);
     expect(regeneratedByName.has('自动二')).toBe(false);
   });
@@ -213,10 +215,10 @@ describe('runKnowledgeTagging', () => {
     await repo.knowledge.setDocumentTags(db, seeded.documentId, [manual.id]);
     await runKnowledgeTagging(
       await startTagJob(seeded.documentId),
-      deps(successQuery('["旧自动"]')),
+      deps(successQuery('["旧自动一","旧自动二","旧自动三"]')),
     );
     const before = await repo.knowledge.getDocumentTagRows(db, seeded.documentId);
-    expect(before).toHaveLength(2);
+    expect(before).toHaveLength(4);
 
     await expect(
       runKnowledgeTagging(await startTagJob(seeded.documentId), deps(successQuery('不是 JSON'))),

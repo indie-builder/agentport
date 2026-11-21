@@ -112,7 +112,7 @@ export async function runKnowledgeTagging(job: JobRow, deps: TaggingDeps): Promi
   if (outcome.status === 'failure') throw new Error(outcome.message);
   const names = result.tags;
   if (names === null) throw new Error('SDK 没有返回标签');
-  if (names.length === 0) throw new Error('SDK 没有返回有效标签');
+  if (names.length < 3) throw new Error('SDK 返回的有效标签少于 3 个');
 
   const rows = await repo.knowledge.upsertTags(db, document.baseId, names);
   await repo.knowledge.replaceAutoTags(
