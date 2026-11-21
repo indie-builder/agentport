@@ -1,5 +1,6 @@
 import {
   ACTION_RANK,
+  canonicalJson,
   envProviderDestination,
   evaluateContentPolicy,
   fail,
@@ -12,14 +13,6 @@ import type { Logger } from 'pino';
 
 const security = repo.security;
 const APPROVAL_TTL_MS = 15 * 60 * 1000;
-
-export function canonicalJson(value: unknown): string {
-  return JSON.stringify(value, (_key, item: unknown) =>
-    item !== null && typeof item === 'object' && !Array.isArray(item)
-      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-      : item,
-  );
-}
 
 export async function enforceContentPolicy<T>(input: {
   db: Database;

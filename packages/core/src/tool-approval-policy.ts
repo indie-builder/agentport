@@ -1,3 +1,4 @@
+import { canonicalJson } from './canonical-json.js';
 import { sha256Hex } from './outputs.js';
 
 export type ApprovalMode = 'allow' | 'ask' | 'deny';
@@ -44,21 +45,6 @@ function matches(rule: ApprovalRuleSelector, ctx: ApprovalContext): boolean {
   if (rule.httpMethod !== null && rule.httpMethod !== ctx.method) return false;
   if (rule.pathTemplate !== null && rule.pathTemplate !== ctx.pathTemplate) return false;
   return true;
-}
-
-function canonicalJson(value: unknown): string {
-  const normalize = (v: unknown): unknown => {
-    if (Array.isArray(v)) return v.map(normalize);
-    if (v !== null && typeof v === 'object') {
-      return Object.fromEntries(
-        Object.keys(v)
-          .sort()
-          .map((key) => [key, normalize((v as Record<string, unknown>)[key])]),
-      );
-    }
-    return v;
-  };
-  return JSON.stringify(normalize(JSON.parse(JSON.stringify(value) ?? 'null')));
 }
 
 export function evaluateToolApproval(
