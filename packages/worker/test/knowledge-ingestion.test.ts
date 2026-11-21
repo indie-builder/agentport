@@ -1713,7 +1713,7 @@ describe.skipIf(!ready)('runSync', () => {
       slug: `stale-${suffix()}`,
       title: '过期引用',
     });
-    await repo.knowledge.saveWikiVersion(db, wikiPage.id, {
+    await repo.knowledge.saveWikiDraft(db, wikiPage.id, {
       markdown: '# 过期引用',
       sourceChunkIds: [],
       model: 'manual',
@@ -2000,7 +2000,7 @@ describe.skipIf(!ready)('runSync', () => {
       slug: `auth-${document.id}`,
       title: '认证',
     });
-    await repo.knowledge.saveWikiVersion(db, page.id, {
+    await repo.knowledge.saveWikiDraft(db, page.id, {
       markdown: '# 认证',
       sourceChunkIds: [],
       model: 'manual',

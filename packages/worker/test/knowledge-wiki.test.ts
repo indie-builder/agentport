@@ -314,7 +314,7 @@ describe('runWikiGenerate', () => {
     const { baseId } = await fixture();
     const source = await seedChunk(baseId, '认证 当前内容');
     const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
-    const published = await repo.knowledge.saveWikiVersion(db, page.id, {
+    const published = await repo.knowledge.saveWikiDraft(db, page.id, {
       markdown: '# 已发布',
       sourceChunkIds: [],
       model: 'manual',
@@ -511,7 +511,7 @@ describe('runWikiGenerate', () => {
   it('throws KnowledgeCancelled when the job signal fires and keeps the old version', async () => {
     const { baseId } = await fixture();
     const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
-    const published = await repo.knowledge.saveWikiVersion(db, page.id, {
+    const published = await repo.knowledge.saveWikiDraft(db, page.id, {
       markdown: '# 已发布',
       sourceChunkIds: [],
       model: 'manual',
@@ -601,7 +601,7 @@ describe('runWikiGenerate', () => {
     const { baseId } = await fixture();
     const source = await seedChunk(baseId, '认证 当前内容');
     const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
-    const published = await repo.knowledge.saveWikiVersion(db, page.id, {
+    const published = await repo.knowledge.saveWikiDraft(db, page.id, {
       markdown: '# 已发布',
       sourceChunkIds: [],
       model: 'manual',
@@ -638,7 +638,7 @@ describe('runWikiGenerate', () => {
   it('fails on a model error result and keeps the previous published version', async () => {
     const { baseId } = await fixture();
     const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
-    const published = await repo.knowledge.saveWikiVersion(db, page.id, {
+    const published = await repo.knowledge.saveWikiDraft(db, page.id, {
       markdown: '# 已发布',
       sourceChunkIds: [],
       model: 'manual',
