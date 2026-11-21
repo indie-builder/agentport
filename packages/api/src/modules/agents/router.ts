@@ -28,7 +28,7 @@ import {
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
 import { runQueueHasCapacity } from '../runs/capacity.js';
-import { failQueuedRunEnqueue } from '../runs/enqueue.js';
+import { failQueuedRunEnqueue, failRunEnqueue } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
 import { authorizeAgent, authorizedAgent } from './access.js';
 import { listMemoryFiles, readMemoryFile } from './memory-files.js';
@@ -681,7 +681,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       await failQueuedRunEnqueue(context.db, run.id).catch((err: unknown) => {
         context.log.warn({ err, runId: run.id }, 'trial enqueue failure cleanup failed');
       });
-      return fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+      return failRunEnqueue();
     }
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: principal.businessId,

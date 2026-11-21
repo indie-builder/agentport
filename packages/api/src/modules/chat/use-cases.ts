@@ -31,7 +31,7 @@ import type { Logger } from 'pino';
 import type { Config } from '../../config.js';
 import { getQueue } from '../../queue/producer.js';
 import { runQueueHasCapacity } from '../runs/capacity.js';
-import { enqueueRunJob, failQueuedRunEnqueue } from '../runs/enqueue.js';
+import { enqueueRunJob, failQueuedRunEnqueue, failRunEnqueue } from '../runs/enqueue.js';
 import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
 import { CONVERSATION_MISSING } from './access.js';
@@ -179,7 +179,7 @@ export async function startRun(
     });
     if (run.status === 'queued') {
       const prompt = await chatRepo.getRunUserMessageText(deps.db, run.id);
-      if (prompt === null) fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+      if (prompt === null) failRunEnqueue();
       await enqueueRunJob(deps, {
         runId: run.id,
         agentId: run.agentId,
@@ -239,7 +239,7 @@ export async function startRun(
           return replayed(run);
         }
         const latest = await chatRepo.getRun(deps.db, run.id);
-        if (latest === null) fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+        if (latest === null) failRunEnqueue();
         if (latest.status === 'queued') {
           await enqueueRunJob(deps, {
             runId: latest.id,
@@ -250,11 +250,11 @@ export async function startRun(
           return replayed(latest);
         }
         if (repo.runPredicates.isNeverStartedFailure(latest)) {
-          fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+          failRunEnqueue();
         }
         return replayed(latest);
       }
-      fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+      failRunEnqueue();
     }
     return replayed(run);
   };
@@ -590,7 +590,7 @@ export async function regenerateLastRun(
     } catch {
       deps.log.warn({ runId: run.id }, 'regenerate enqueue failure cleanup failed');
     }
-    fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+    failRunEnqueue();
   }
   deps.log.info(
     { runId: run.id, replacesRunId: regenerate.replacesRunId },
