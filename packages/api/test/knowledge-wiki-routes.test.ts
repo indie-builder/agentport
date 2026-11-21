@@ -1375,30 +1375,36 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(res.statusCode, res.body).toBe(200);
   }
 
-  it('wiki graph 只连接本 base 页面，忽略外部链接、重复链接与自环', async () => {
+  it('wiki graph 只连接本 base 最新版本页面，忽略外部链接、重复链接与自环', async () => {
     const graphBase = await createBase(await createProfile());
     const a = await createWikiPageInBase(graphBase, 'graph-a', '页面 A');
     const b = await createWikiPageInBase(graphBase, 'graph-b', '页面 B');
     const c = await createWikiPageInBase(graphBase, 'graph-c', '页面 C');
     const foreign = await createWikiPageInBase(otherBaseId, 'graph-a', '外库同名页面');
+    const foreignOnly = await createWikiPageInBase(otherBaseId, 'graph-external', '仅外库页面');
 
     await setMarkdown(
       a,
       ['[[graph-b]]', '[[graph-b#section|别名]]', '[[graph-a]]', '[[missing-page]]'].join('\n'),
     );
     await setMarkdown(b, '[[graph-c]]');
+    await setMarkdown(c, '[[graph-external]]');
 
-    const res = await request(app, {
-      method: 'GET',
-      url: `/api/knowledge/bases/${graphBase}/wiki-graph`,
-      headers: { cookie },
-    });
-    expect(res.statusCode, res.body).toBe(200);
-    const body = res.json<{
-      nodes: Array<{ id: string; slug: string; title: string }>;
-      edges: Array<{ from: string; to: string }>;
-      truncated: boolean;
-    }>();
+    const fetchGraph = async () => {
+      const res = await request(app, {
+        method: 'GET',
+        url: `/api/knowledge/bases/${graphBase}/wiki-graph`,
+        headers: { cookie },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      return res.json<{
+        nodes: Array<{ id: string; slug: string; title: string }>;
+        edges: Array<{ from: string; to: string }>;
+        truncated: boolean;
+      }>();
+    };
+
+    const body = await fetchGraph();
     expect(body.truncated).toBe(false);
     expect(body.nodes.map((node) => node.id).sort()).toEqual([a, b, c].sort());
     expect(body.nodes.map((node) => [node.slug, node.title])).toEqual(
@@ -1416,6 +1422,20 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       ]),
     );
     expect(body.nodes.some((node) => node.id === foreign)).toBe(false);
+    expect(body.edges.some((edge) => edge.from === foreignOnly || edge.to === foreignOnly)).toBe(
+      false,
+    );
+
+    await setMarkdown(a, '[[graph-c]]');
+    const latest = await fetchGraph();
+    expect(latest.edges).toHaveLength(2);
+    expect(latest.edges).toEqual(
+      expect.arrayContaining([
+        { from: a, to: c },
+        { from: b, to: c },
+      ]),
+    );
+    expect(latest.edges.some((edge) => edge.from === a && edge.to === b)).toBe(false);
 
     const emptyBase = await createBase(await createProfile());
     const empty = await request(app, {

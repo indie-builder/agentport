@@ -26,12 +26,7 @@ export function KnowledgeWikiGraph({
   const query = filter.trim().toLowerCase();
   const visibleNodes = useMemo(
     () =>
-      query
-        ? graph.nodes.filter(
-            (node) =>
-              node.title.toLowerCase().includes(query) || node.slug.toLowerCase().includes(query),
-          )
-        : graph.nodes,
+      query ? graph.nodes.filter((node) => node.title.toLowerCase().includes(query)) : graph.nodes,
     [graph.nodes, query],
   );
   const visibleIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
@@ -76,9 +71,10 @@ export function KnowledgeWikiGraph({
       ) : visibleNodes.length === 0 ? (
         <InlineEmpty>没有匹配的页面</InlineEmpty>
       ) : (
+        // biome-ignore lint/a11y/useSemanticElements: SVG 图谱没有等价语义元素，group 保留子节点按钮语义
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          role="img"
+          role="group"
           aria-label={`Wiki 链接图谱：${graph.nodes.length} 个页面，${graph.edges.length} 条链接`}
           className="w-full"
         >
