@@ -13,10 +13,24 @@ import { runKeys } from './runs.js';
 import { useCursorList } from './shared.js';
 
 const EVAL_CASES_PAGE_SIZE = 50;
+const EVAL_RUNS_PAGE_SIZE = 50;
+
+const evalKeys = {
+  cases: (agentId: string | null) => ['eval-cases', agentId, EVAL_CASES_PAGE_SIZE] as const,
+  casesAll: ['eval-cases'] as const,
+  casesByAgent: (agentId: string) => ['eval-cases', agentId] as const,
+  samples: (agentId: string) => ['eval-samples', agentId] as const,
+  runs: (agentId: string | null) => ['eval-runs', agentId, EVAL_RUNS_PAGE_SIZE] as const,
+  runsAll: ['eval-runs'] as const,
+  run: (id: string | null) => ['eval-run', id] as const,
+  runAll: ['eval-run'] as const,
+  comparison: (baseId: string | null, headId: string | null) =>
+    ['eval-comparison', baseId, headId] as const,
+};
 
 export function useEvalCases(agentId: string | null) {
   return useCursorList({
-    queryKey: ['eval-cases', agentId, EVAL_CASES_PAGE_SIZE],
+    queryKey: evalKeys.cases(agentId),
     queryFn: (cursor, signal) =>
       api.evalCases(
         {
@@ -35,7 +49,7 @@ export function useCreateEvalCase() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: EvalCaseInput) => api.createEvalCase(input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-cases'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: evalKeys.casesAll }),
   });
 }
 
@@ -44,13 +58,13 @@ export function useCreateEvalCaseFromRun() {
   return useMutation({
     mutationFn: (input: EvalCaseFromRunInput) => api.createEvalCaseFromRun(input),
     onSuccess: async (created, input) => {
-      const candidatesKey = ['eval-samples', created.agentId];
+      const candidatesKey = evalKeys.samples(created.agentId);
       await client.cancelQueries({ queryKey: candidatesKey });
       client.setQueryData<EvalSampleCandidate[]>(candidatesKey, (old) =>
         old?.filter((candidate) => candidate.runId !== input.runId),
       );
       void client.invalidateQueries({ queryKey: candidatesKey });
-      void client.invalidateQueries({ queryKey: ['eval-cases'] });
+      void client.invalidateQueries({ queryKey: evalKeys.casesAll });
       void client.invalidateQueries({ queryKey: runKeys.feedbackAll });
     },
   });
@@ -58,7 +72,7 @@ export function useCreateEvalCaseFromRun() {
 
 export function useSampleEvalCandidates(agentId: string) {
   return useQuery<EvalSampleCandidate[]>({
-    queryKey: ['eval-samples', agentId],
+    queryKey: evalKeys.samples(agentId),
     queryFn: () => api.sampleEvalCandidates({ agentId }),
     enabled: Boolean(agentId),
     staleTime: 0,
@@ -71,7 +85,7 @@ export function useImportEvalDataset() {
     mutationFn: (input: { agentId: string; dataset: EvalDataset }) =>
       api.importEvalDataset(input.agentId, input.dataset),
     onSuccess: (_result, input) =>
-      void client.invalidateQueries({ queryKey: ['eval-cases', input.agentId] }),
+      void client.invalidateQueries({ queryKey: evalKeys.casesByAgent(input.agentId) }),
   });
 }
 
@@ -80,7 +94,7 @@ export function useUpdateEvalCase() {
   return useMutation({
     mutationFn: (vars: { id: string; input: Partial<Omit<EvalCaseInput, 'agentId'>> }) =>
       api.updateEvalCase(vars.id, vars.input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-cases'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: evalKeys.casesAll }),
   });
 }
 
@@ -88,15 +102,13 @@ export function useDeleteEvalCase() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteEvalCase(id),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-cases'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: evalKeys.casesAll }),
   });
 }
 
-const EVAL_RUNS_PAGE_SIZE = 50;
-
 export function useEvalRuns(agentId: string | null) {
   return useCursorList({
-    queryKey: ['eval-runs', agentId, EVAL_RUNS_PAGE_SIZE],
+    queryKey: evalKeys.runs(agentId),
     queryFn: (cursor, signal) =>
       api.evalRuns(
         {
@@ -119,7 +131,7 @@ export function useStartEvalRun() {
   return useMutation({
     mutationFn: (vars: { agentId: string; target?: EvalTarget }) =>
       api.startEvalRun(vars.agentId, vars.target),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['eval-runs'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: evalKeys.runsAll }),
   });
 }
 
@@ -128,15 +140,15 @@ export function useCancelEvalRun() {
   return useMutation({
     mutationFn: (id: string) => api.cancelEvalRun(id),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['eval-runs'] });
-      void client.invalidateQueries({ queryKey: ['eval-run'] });
+      void client.invalidateQueries({ queryKey: evalKeys.runsAll });
+      void client.invalidateQueries({ queryKey: evalKeys.runAll });
     },
   });
 }
 
 export function useEvalRun(id: string | null) {
   return useQuery<EvalRunDetail>({
-    queryKey: ['eval-run', id],
+    queryKey: evalKeys.run(id),
     queryFn: () => api.evalRun(id ?? ''),
     enabled: id !== null,
     refetchInterval: (query) => (query.state.data?.evalRun.status === 'running' ? 2_000 : false),
@@ -145,7 +157,7 @@ export function useEvalRun(id: string | null) {
 
 export function useEvalComparison(baseId: string | null, headId: string | null) {
   return useQuery<EvalComparison>({
-    queryKey: ['eval-comparison', baseId, headId],
+    queryKey: evalKeys.comparison(baseId, headId),
     queryFn: () => api.compareEvalRuns(baseId ?? '', headId ?? ''),
     enabled: baseId !== null && headId !== null && baseId !== headId,
   });
