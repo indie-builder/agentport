@@ -1360,6 +1360,10 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       confirmOverwriteManualChunks: true,
     });
 
+    await app.client.unsafe(
+      "update knowledge_jobs set status = 'succeeded' where document_id = $1 and status in ('queued', 'running')",
+      [seeded.document.id],
+    );
     const batch = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/documents/batch`,

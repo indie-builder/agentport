@@ -548,6 +548,19 @@ export async function reprocessDocument(
   body: { confirmOverwriteManualChunks: boolean },
 ) {
   const job = await deps.db.transaction(async (tx) => {
+    const [initial] = await tx
+      .select({ baseId: schema.knowledgeDocuments.baseId })
+      .from(schema.knowledgeDocuments)
+      .where(eq(schema.knowledgeDocuments.id, documentId))
+      .limit(1);
+    if (!initial) notFound('文档');
+    const [base] = await tx
+      .select({ id: schema.knowledgeBases.id })
+      .from(schema.knowledgeBases)
+      .where(eq(schema.knowledgeBases.id, initial.baseId))
+      .limit(1)
+      .for('key share');
+    if (!base) notFound('文档');
     const [row] = await tx
       .select()
       .from(schema.knowledgeDocuments)
@@ -561,8 +574,8 @@ export async function reprocessDocument(
     if (await repo.knowledge.hasUnpublishedDraft(tx, row)) {
       throw new AppError('CONFLICT', '文档存在未发布的草稿，请先发布或放弃草稿后再重解析');
     }
-    if ((await repo.knowledge.findActiveIngestJobId(tx, row.id)) !== null) {
-      throw new AppError('CONFLICT', '文档有正在进行的入库任务，请稍后重试');
+    if ((await repo.knowledge.findActiveReprocessJobId(tx, row.id)) !== null) {
+      throw new AppError('CONFLICT', '文档有正在进行的处理任务，请稍后重试');
     }
     if (row.currentVersionId) {
       const manualChunkCount = await repo.knowledge.countEditedChunks(tx, row.currentVersionId);

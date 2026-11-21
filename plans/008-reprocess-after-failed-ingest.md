@@ -78,7 +78,10 @@
 
 **In scope**
 - `packages/db/src/repo/knowledge/versions.ts`
+- `packages/db/src/repo/knowledge/jobs.ts`（活跃任务查询）
+- `packages/db/src/repo/knowledge/chunks.ts`（类型放宽）
 - `packages/api/src/modules/knowledge/use-cases/documents.ts`
+- `packages/api/test/knowledge-management-routes.test.ts`（活跃任务门槛下的既有用例调整）
 
 **Out of scope**
 - `packages/worker/src/knowledge/ingestion.ts` 的重解析流程。
@@ -116,15 +119,15 @@ export async function hasUnpublishedDraft(
 
 ### Step 2: 在重解析入口加“活跃入库任务”门槛
 
-在 `reprocessDocument` 的草稿检查之后加：
+在 `reprocessDocument` 的事务内、对文档行 `FOR UPDATE` 并重查全部条件后加：
 ```ts
-if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
-  throw new AppError('CONFLICT', '文档有正在进行的入库任务，请稍后重试');
+if ((await repo.knowledge.findActiveReprocessJobId(tx, row.id)) !== null) {
+  throw new AppError('CONFLICT', '文档有正在进行的处理任务，请稍后重试');
 }
 ```
-顺序保持：先草稿（真实草稿优先提示发布/放弃），后活跃任务。不要把这个检查加到 `hasUnpublishedDraft`。
+`findActiveReprocessJobId` 匹配 `type in ('ingest','reindex')` 的活跃任务，避免已有版本的文档连续重解析各建一个 `reindex`；检查必须用事务内的 `tx`，不能改用 `deps.db`。`findActiveIngestJobId` 仍只匹配 `ingest`，供 `manual-documents.ts` 读取待处理入库任务。顺序保持：先草稿（真实草稿优先提示发布/放弃），后活跃任务。不要把这个检查加到 `hasUnpublishedDraft`。
 
-**Verify**: `bun run --filter @agentport/api typecheck` → exit 0；`grep -rn "findActiveIngestJobId" packages/api/src` → 至少 2 处（原有导入路径 + 新增重解析）。
+**Verify**: `bun run --filter @agentport/api typecheck` → exit 0；`grep -rn "findActiveReprocessJobId" packages/api/src` → 1 处（重解析）；`findActiveIngestJobId` 仍只有 `manual-documents.ts` 一处调用。
 
 ### Step 3: 现有测试回归
 
@@ -136,8 +139,8 @@ if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
 
 原计划的 e2e 用例已作废，本轮不新增系统级用例：
 
-- 上传入口走 `sourceType='upload'`，修复前后都返回 202，无法作为本修复的回归证据。
-- manual 路径（`importDocument`）当前没有 e2e 覆盖；本轮不补。
+- `tests/knowledge.e2e.ts:169` 已覆盖正常的手工创建文档与任务展示；本轮不新增系统级用例。
+- 唯一缺口是「首次入库失败后重解析」这一条路径，本轮不补。
 
 ## Test plan
 
@@ -148,7 +151,7 @@ if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
 ## Done criteria
 
 - [ ] `hasUnpublishedDraft` 中不再出现 `sourceType === 'manual'`。
-- [ ] `reprocessDocument` 在草稿检查后调用 `findActiveIngestJobId`。
+- [ ] `reprocessDocument` 在草稿检查后调用 `findActiveReprocessJobId`。
 - [ ] `grep -rn "hasUnpublishedDraft" packages --include="*.ts"` 仍为 3 个调用点（无新增/删除）。
 - [ ] 两个后端套件全绿。
 - [ ] `git status --short` 只含 Scope 内文件。
@@ -163,6 +166,7 @@ if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
 ## Maintenance notes
 
 - 重解析的检查与建任务在同一事务内并对文档行 `FOR UPDATE`，防止并发重复入队。
+- 事务内锁序为 `knowledge_bases` `FOR KEY SHARE` → `knowledge_documents` `FOR UPDATE`，与删除知识库的级联顺序一致，避免与删除并发时死锁。
 - `hasUnpublishedDraft` 现在严格对应名字：只回答“是否存在未发布草稿”。活跃任务属于调用方判断。
 - 批量重解析复用 `reprocessDocument`，未来新增入口也必须走它。
 - 审查重点：`forbidUnpublishedDraft`（worker 写版本守卫）必须是“真实草稿才拒绝”，否则 ingest 会自锁。
