@@ -157,6 +157,7 @@ export const knowledgeKeys = {
   wikiPages: (baseId: string) => ['knowledge', 'wiki-pages', baseId] as const,
   wikiPage: (pageId: string) => ['knowledge', 'wiki-page', pageId] as const,
   wikiLinks: (pageId: string) => ['knowledge', 'wiki-links', pageId] as const,
+  wikiGraph: (baseId: string) => ['knowledge', 'wiki-graph', baseId] as const,
   wikiDiff: (pageId: string, fromVersionId: string, toVersionId: string) =>
     ['knowledge', 'wiki-diff', pageId, fromVersionId, toVersionId] as const,
   profiles: ['knowledge', 'model-profiles'] as const,

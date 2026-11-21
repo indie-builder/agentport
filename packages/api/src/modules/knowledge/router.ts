@@ -173,6 +173,11 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
       await authorizeBase(context, input.params.id, 'knowledge.content.manage', 'manage');
       return useCases.createWikiPage(depsOf(context), input.params.id, input.body);
     }),
+    wikiGraph: os.bases.wikiGraph.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      await authorizeBase(context, input.params.id, 'knowledge.read', 'read');
+      return useCases.wikiGraph(depsOf(context), input.params.id);
+    }),
     faqs: os.bases.faqs.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
       await authorizeBase(context, input.params.id, 'knowledge.read', 'read');

@@ -28,6 +28,7 @@ import {
   knowledgeSourceTypeSchema,
   knowledgeSyncItemSchema,
   knowledgeTargetKindSchema,
+  knowledgeWikiGraphSchema,
   knowledgeWikiLinksResultSchema,
   knowledgeWikiPageStatusSchema,
   knowledgeWikiVersionDiffSchema,
@@ -786,6 +787,11 @@ const basesContract = {
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(z.object({ params: idParams, body: wikiPageCreateSchema }))
     .output(knowledgeWikiPageSchema),
+  wikiGraph: contractProcedure
+    .route({ method: 'GET', path: '/knowledge/bases/{id}/wiki-graph' })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
+    .input(z.object({ params: idParams }))
+    .output(knowledgeWikiGraphSchema),
   faqs: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases/{id}/faqs' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })

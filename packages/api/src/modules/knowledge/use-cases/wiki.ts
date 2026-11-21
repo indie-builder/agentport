@@ -84,14 +84,24 @@ function extractWikiLinks(markdown: string): WikiLinkToken[] {
 const pageMarkdownRowSchema = z.object({
   id: z.string(),
   slug: z.string(),
+  title: z.string(),
   markdown: z.string().nullable(),
 });
 
 type PageMarkdownRow = z.infer<typeof pageMarkdownRowSchema>;
 
-async function latestPageMarkdowns(db: Database, baseId: string): Promise<PageMarkdownRow[]> {
-  const result = await db.execute<{ id: string; slug: string; markdown: string | null }>(sql`
-    select p.id, p.slug, v.markdown
+async function latestPageMarkdowns(
+  db: Database,
+  baseId: string,
+  limit?: number,
+): Promise<PageMarkdownRow[]> {
+  const result = await db.execute<{
+    id: string;
+    slug: string;
+    title: string;
+    markdown: string | null;
+  }>(sql`
+    select p.id, p.slug, p.title, v.markdown
     from knowledge_wiki_pages p
     left join lateral (
       select wv.markdown
@@ -102,6 +112,7 @@ async function latestPageMarkdowns(db: Database, baseId: string): Promise<PageMa
     ) v on true
     where p.base_id = ${baseId}
     order by p.created_at, p.id
+    ${limit === undefined ? sql`` : sql`limit ${limit}`}
   `);
   return z.array(pageMarkdownRowSchema).parse(result);
 }
@@ -375,6 +386,29 @@ export async function wikiLinks(deps: KnowledgeDeps, pageId: string) {
     );
   });
   return { outgoing, incoming };
+}
+
+const WIKI_GRAPH_NODE_LIMIT = 300;
+
+export async function wikiGraph(deps: KnowledgeDeps, baseId: string) {
+  if (!(await repo.knowledge.getBase(deps.db, baseId))) notFound('知识库');
+  const rows = await latestPageMarkdowns(deps.db, baseId, WIKI_GRAPH_NODE_LIMIT + 1);
+  const visible = rows.slice(0, WIKI_GRAPH_NODE_LIMIT);
+  const bySlug = new Map(visible.map((row) => [row.slug.toLowerCase(), row.id]));
+  const edges = new Map<string, { from: string; to: string }>();
+  for (const row of visible) {
+    if (!row.markdown) continue;
+    for (const link of extractWikiLinks(row.markdown)) {
+      const to = bySlug.get(link.slug);
+      if (!to || to === row.id) continue;
+      edges.set(`${row.id}:${to}`, { from: row.id, to });
+    }
+  }
+  return {
+    nodes: visible.map((row) => ({ id: row.id, slug: row.slug, title: row.title })),
+    edges: [...edges.values()],
+    truncated: rows.length > WIKI_GRAPH_NODE_LIMIT,
+  };
 }
 
 export async function wikiDiff(

@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { BookOpen, GitCompare, Link2, Plus } from 'lucide-react';
+import { BookOpen, GitCompare, Link2, Network, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -19,6 +19,7 @@ import {
   useGenerateKnowledgeWikiPage,
   useKnowledgeJobs,
   useKnowledgeWikiDiff,
+  useKnowledgeWikiGraph,
   useKnowledgeWikiLinks,
   useKnowledgeWikiPage,
   useKnowledgeWikiPages,
@@ -58,6 +59,7 @@ import {
   pageStatusLabel,
   useDraftGuard,
 } from './knowledge-shared.js';
+import { KnowledgeWikiGraph } from './knowledge-wiki-graph.js';
 
 type WikiPageSummary = Omit<KnowledgeWikiPageDetail, 'versions' | 'nextCursor'>;
 
@@ -106,8 +108,11 @@ export function WikiTab({
   useDrainPages(pages);
   const [creating, setCreating] = useState(false);
   const [createdPage, setCreatedPage] = useState<string | null>(null);
+  const [graphOpen, setGraphOpen] = useState(false);
+  const graph = useKnowledgeWikiGraph(baseId, graphOpen);
   useEffect(() => {
     if (creating || createdPage === null) return;
+    setGraphOpen(false);
     onSelect(createdPage);
     setCreatedPage(null);
   }, [createdPage, creating, onSelect]);
@@ -118,16 +123,31 @@ export function WikiTab({
       <div className="flex min-w-0 flex-col gap-2">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-medium text-fg">页面</h2>
-          {caps.content ? (
+          <div className="flex items-center gap-1">
             <Button
               variant="ghost"
-              size="icon-sm"
-              aria-label="新建 Wiki 页面"
-              onClick={() => setCreating(true)}
+              size="sm"
+              aria-pressed={graphOpen}
+              onClick={() => setGraphOpen((open) => !open)}
             >
-              <Plus />
+              {graphOpen ? (
+                <BookOpen data-icon="inline-start" aria-hidden="true" />
+              ) : (
+                <Network data-icon="inline-start" aria-hidden="true" />
+              )}
+              {graphOpen ? '页面' : '图谱'}
             </Button>
-          ) : null}
+            {caps.content ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="新建 Wiki 页面"
+                onClick={() => setCreating(true)}
+              >
+                <Plus />
+              </Button>
+            ) : null}
+          </div>
         </div>
         {pages.isPending ? <LoadingState rows={3} /> : null}
         {pages.isError ? (
@@ -146,7 +166,10 @@ export function WikiTab({
                 <button
                   type="button"
                   aria-current={page.id === pageId ? 'true' : undefined}
-                  onClick={() => onSelect(page.id)}
+                  onClick={() => {
+                    setGraphOpen(false);
+                    onSelect(page.id);
+                  }}
                   style={{ paddingLeft: `${8 + depth * 12}px` }}
                   className={cn(
                     'flex w-full flex-col gap-0.5 rounded-item py-1.5 pr-2 text-left text-sm transition-colors duration-150 ease-out-soft',
@@ -164,7 +187,25 @@ export function WikiTab({
         ) : null}
       </div>
       <div className="flex min-w-0 flex-col gap-4">
-        {pageId ? (
+        {graphOpen ? (
+          graph.isPending ? (
+            <LoadingState rows={4} />
+          ) : graph.isError ? (
+            <ErrorState
+              title="图谱没有加载出来"
+              error={graph.error}
+              onRetry={() => void graph.refetch()}
+            />
+          ) : graph.data ? (
+            <KnowledgeWikiGraph
+              graph={graph.data}
+              onSelectPage={(id) => {
+                setGraphOpen(false);
+                onSelect(id);
+              }}
+            />
+          ) : null
+        ) : pageId ? (
           <WikiPageEditor
             key={pageId}
             baseId={baseId}

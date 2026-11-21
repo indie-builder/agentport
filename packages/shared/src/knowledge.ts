@@ -919,6 +919,25 @@ export const knowledgeWikiLinksResultSchema = z.object({
 
 export type KnowledgeWikiLinksResult = z.infer<typeof knowledgeWikiLinksResultSchema>;
 
+export const knowledgeWikiGraphNodeSchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  title: z.string(),
+});
+
+export const knowledgeWikiGraphEdgeSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+});
+
+export const knowledgeWikiGraphSchema = z.object({
+  nodes: z.array(knowledgeWikiGraphNodeSchema),
+  edges: z.array(knowledgeWikiGraphEdgeSchema),
+  truncated: z.boolean(),
+});
+
+export type KnowledgeWikiGraph = z.infer<typeof knowledgeWikiGraphSchema>;
+
 export const knowledgeWikiVersionDiffSchema = z.object({
   fromVersionId: z.string(),
   toVersionId: z.string(),

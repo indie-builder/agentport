@@ -37,7 +37,10 @@ export function useCreateKnowledgeWikiPage(baseId: string) {
       parentId?: string | null;
       position?: number;
     }) => api.createKnowledgeWikiPage(baseId, input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: knowledgeKeys.wikiPages(baseId) }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: knowledgeKeys.wikiPages(baseId) });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.wikiGraph(baseId) });
+    },
   });
 }
 
@@ -46,6 +49,7 @@ function useKnowledgeWikiInvalidate(baseId: string) {
   return (pageId: string): void => {
     void client.invalidateQueries({ queryKey: knowledgeKeys.wikiPage(pageId) });
     void client.invalidateQueries({ queryKey: knowledgeKeys.wikiPages(baseId) });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.wikiGraph(baseId) });
   };
 }
 
@@ -63,6 +67,15 @@ export function useSaveKnowledgeWikiPage(baseId: string) {
       };
     }) => api.updateKnowledgeWikiPage(vars.pageId, vars.patch),
     onSuccess: (_data, vars) => invalidate(vars.pageId),
+  });
+}
+
+export function useKnowledgeWikiGraph(baseId: string, enabled = true) {
+  return useQuery({
+    queryKey: knowledgeKeys.wikiGraph(baseId),
+    queryFn: () => api.knowledgeWikiGraph(baseId),
+    enabled,
+    staleTime: 30_000,
   });
 }
 
