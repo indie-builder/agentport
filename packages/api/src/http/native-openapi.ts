@@ -29,6 +29,7 @@ import { PLUGIN_ZIP_MAX_BYTES, pluginImportQuerySchema } from '../modules/plugin
 import { runExportQuerySchema } from '../modules/runs/router.js';
 
 const converter = new ZodToJsonSchemaConverter();
+const auditExportItemSchema = auditItemSchema.extend({ detail: z.unknown().nullable() });
 export const nativeOpenAPISchemas: Record<string, OpenAPI.SchemaObject> = {
   ChatEvent: toOpenAPISchema(converter.convert(chatEventSchema, { strategy: 'output' })[1]),
   ChannelEvent: toOpenAPISchema(converter.convert(channelEventSchema, { strategy: 'output' })[1]),
@@ -139,7 +140,7 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
     get: {
       operationId: 'exportAudit',
       description:
-        '需要 audit.read。可用 actor、actorKind、since（created_at 下限）与 before（created_at 上限）组合过滤。format=ndjson 返回 application/x-ndjson，每行一个事件，按 chain_seq 升序，含 chainSeq/prevHash/hash，用 afterSeq 游标分页（响应头 x-next-after-seq），空页表示结束；format=json（默认）返回审计快照，最多 limit 条，超限返回 409。',
+        '需要 audit.read。可用 actor、actorKind、since（created_at 下限）与 before（created_at 上限）组合过滤。format=ndjson 返回 application/x-ndjson，每行一个事件，按 chain_seq 升序，含 chainSeq/prevHash/hash，用 afterSeq 游标分页（响应头 x-next-after-seq），空页表示结束；format=json（默认）返回审计快照，最多 limit 条，超限返回 409。每条记录的 detailType 为 jsonb_typeof(detail)，detail 保留原始 JSONB 值，供离线复算区分类型。',
       security: session,
       parameters: query(auditExportQuerySchema.shape),
       responses: {
@@ -157,7 +158,7 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
                 z.object({
                   format: z.literal('agentport/audit@1'),
                   exportedAt,
-                  items: z.array(auditItemSchema),
+                  items: z.array(auditExportItemSchema),
                 }),
               ),
             },
@@ -165,7 +166,7 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
               schema: jsonSchema(
                 'AuditExportLine',
                 z.object({
-                  ...auditItemSchema.shape,
+                  ...auditExportItemSchema.shape,
                   chainSeq: z.number().int(),
                   prevHash: z.string().nullable(),
                   hash: z.string().nullable(),

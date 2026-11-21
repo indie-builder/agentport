@@ -505,6 +505,7 @@ audit_log(
   action text,               -- mcp.test | mcp.call | agent.run | config.update
   target text,
   input_digest text,         -- 只存摘要，不存原文
+  detail jsonb,              -- 可读结构化明细（策略 from→to 等），可空并入链
   status text,
   duration_ms int,
   request_id text,

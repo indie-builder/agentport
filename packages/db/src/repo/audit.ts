@@ -17,6 +17,7 @@ export interface AuditEvent {
   action: string;
   target?: string;
   input?: unknown;
+  detail?: unknown;
   status: AuditStatus;
   durationMs?: number;
   requestId?: string;
@@ -40,6 +41,15 @@ function digest(input: unknown): string | null {
   }
 }
 
+function detailValue(value: unknown): Record<string, string> | null {
+  if (value === null || value === undefined) return null;
+  const parsed: unknown = JSON.parse(JSON.stringify(value) ?? 'null');
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const values = Object.values(parsed);
+  if (!values.every((entry) => typeof entry === 'string')) return null;
+  return parsed as Record<string, string>;
+}
+
 interface AuditHashMaterial {
   prevHash: string | null;
   id: string;
@@ -53,24 +63,41 @@ interface AuditHashMaterial {
   durationMs: number | null;
   requestId: string | null;
   createdAt: Date;
+  detail?: unknown;
+}
+
+function canonicalJson(value: unknown): string {
+  const normalize = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(normalize);
+    if (v !== null && typeof v === 'object') {
+      return Object.fromEntries(
+        Object.keys(v)
+          .sort()
+          .map((key) => [key, normalize((v as Record<string, unknown>)[key])]),
+      );
+    }
+    return v;
+  };
+  return JSON.stringify(normalize(JSON.parse(JSON.stringify(value) ?? 'null')));
 }
 
 function chainHash(row: AuditHashMaterial): string {
+  const base = [
+    row.prevHash,
+    row.id,
+    row.actor,
+    row.actorKind,
+    row.subjectBusinessId,
+    row.action,
+    row.target,
+    row.inputDigest,
+    row.status,
+    row.durationMs,
+    row.requestId,
+    row.createdAt.toISOString(),
+  ];
   return sha256Hex(
-    JSON.stringify([
-      row.prevHash,
-      row.id,
-      row.actor,
-      row.actorKind,
-      row.subjectBusinessId,
-      row.action,
-      row.target,
-      row.inputDigest,
-      row.status,
-      row.durationMs,
-      row.requestId,
-      row.createdAt.toISOString(),
-    ]),
+    JSON.stringify(row.detail == null ? base : [2, ...base, canonicalJson(row.detail)]),
   );
 }
 
@@ -83,6 +110,7 @@ export async function writeAuditInTx(tx: Transaction, event: AuditEvent): Promis
     action: event.action,
     target: event.target ?? null,
     inputDigest: digest(event.input),
+    detail: detailValue(event.detail),
     status: event.status,
     durationMs: event.durationMs ?? null,
     requestId: event.requestId ?? null,
@@ -161,6 +189,8 @@ export async function verifyAuditChain(
       action: auditLog.action,
       target: auditLog.target,
       inputDigest: auditLog.inputDigest,
+      detail: auditLog.detail,
+      detailType: sql<string | null>`jsonb_typeof(${auditLog.detail})`,
       status: auditLog.status,
       durationMs: auditLog.durationMs,
       requestId: auditLog.requestId,
@@ -175,7 +205,9 @@ export async function verifyAuditChain(
   const page = hasMore ? rows.slice(0, limit) : rows;
   let checked = 0;
   for (const row of page) {
-    if (row.prevHash !== expectedPrev || row.hash !== chainHash(row)) {
+    const detailOk = row.detailType === null || row.detailType === 'object';
+    const detail = row.detailType === 'object' ? row.detail : null;
+    if (!detailOk || row.prevHash !== expectedPrev || row.hash !== chainHash({ ...row, detail })) {
       return {
         ok: false,
         checked,
@@ -222,6 +254,8 @@ export interface AuditEntry {
   durationMs: number | null;
   requestId: string | null;
   inputDigest: string | null;
+  detail: Record<string, string> | null;
+  detailType: string | null;
   createdAt: Date;
   chainSeq: number;
   prevHash: string | null;
@@ -239,6 +273,8 @@ const columns = {
   durationMs: auditLog.durationMs,
   requestId: auditLog.requestId,
   inputDigest: auditLog.inputDigest,
+  detail: auditLog.detail,
+  detailType: sql<string | null>`jsonb_typeof(${auditLog.detail})`,
   createdAt: auditLog.createdAt,
   chainSeq: auditLog.chainSeq,
   prevHash: auditLog.prevHash,

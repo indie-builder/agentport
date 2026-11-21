@@ -96,6 +96,7 @@ test('target filter narrows the list and the export', { session: 'admin' }, asyn
       target: ownTarget,
       status: 'ok',
       inputDigest: 'a'.repeat(32),
+      detail: null,
       requestId: 'req-audit-e2e',
     });
     const raw = await readFile(download.absolutePath, 'utf8');
@@ -104,6 +105,8 @@ test('target filter narrows the list and the export', { session: 'admin' }, asyn
       'actor',
       'actorKind',
       'createdAt',
+      'detail',
+      'detailType',
       'durationMs',
       'id',
       'inputDigest',

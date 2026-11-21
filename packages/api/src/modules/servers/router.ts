@@ -522,6 +522,7 @@ export const serversRouter = os.router({
       if (body.paramsIn !== undefined) patch.paramsIn = body.paramsIn;
       if (body.approvalMode !== undefined) patch.approvalMode = body.approvalMode;
       if (body.enabled !== undefined) patch.enabled = body.enabled;
+      const before = (await repo.listTools(context.db, id)).find((t) => t.id === toolId);
       let tool: Awaited<ReturnType<typeof repo.updateTool>>;
       try {
         tool = await repo.updateTool(context.db, id, toolId, patch);
@@ -539,6 +540,26 @@ export const serversRouter = os.router({
         status: 'ok',
         requestId: context.requestId,
       });
+      if (
+        body.approvalMode !== undefined &&
+        before !== undefined &&
+        before.approvalMode !== tool.approvalMode
+      ) {
+        await writeAudit(context.db, context.log, {
+          actor: actorOf(context),
+          action: 'server.tool.approval_mode.changed',
+          target: id,
+          input: { toolId, toolName: tool.name },
+          detail: {
+            toolId,
+            toolName: tool.name,
+            from: before.approvalMode,
+            to: tool.approvalMode,
+          },
+          status: 'ok',
+          requestId: context.requestId,
+        });
+      }
       return tool;
     }),
     delete: os.tools.delete.handler(async ({ input, context }) => {

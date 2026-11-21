@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { sha256Hex } from '@agentport/core';
+import { repo } from '@agentport/db';
+import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import {
   expectProblem,
   infraReady,
@@ -21,7 +24,24 @@ interface ExportedItem {
   durationMs: number | null;
   requestId: string | null;
   inputDigest: string | null;
+  detail: unknown;
+  detailType: string | null;
   createdAt: string;
+}
+
+function canonicalJson(value: unknown): string {
+  const normalize = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(normalize);
+    if (v !== null && typeof v === 'object') {
+      return Object.fromEntries(
+        Object.keys(v)
+          .sort()
+          .map((key) => [key, normalize((v as Record<string, unknown>)[key])]),
+      );
+    }
+    return v;
+  };
+  return JSON.stringify(normalize(JSON.parse(JSON.stringify(value) ?? 'null')));
 }
 
 interface ExportBody {
@@ -181,6 +201,8 @@ describe.skipIf(!ready)('audit export', () => {
         durationMs: 42,
         requestId: 'req-1',
         inputDigest: 'a'.repeat(32),
+        detail: null,
+        detailType: null,
         createdAt: expect.any(String),
       },
     ]);
@@ -359,5 +381,145 @@ describe.skipIf(!ready)('audit export', () => {
     expect(sinceList.json<{ items: { id: string }[] }>().items.map((row) => row.id)).toEqual([
       newId,
     ]);
+  });
+});
+
+const chainIsolated = ready ? await createIsolatedDatabase('audit_export_chain') : null;
+
+describe.skipIf(!ready || chainIsolated === null)('audit export detail type', () => {
+  let app: TestApp;
+  let cookie: string;
+
+  beforeAll(async () => {
+    if (!chainIsolated) throw new Error('isolated database missing');
+    app = await startApp({ DATABASE_URL: chainIsolated.url });
+    cookie = await loginCookie(app);
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await chainIsolated?.close();
+  });
+
+  const exportAudit = (query = '') =>
+    request(app, { method: 'GET', url: `/api/audit/export${query}`, headers: { cookie } });
+
+  const parseLines = (body: string) =>
+    body
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map(
+        (line) =>
+          JSON.parse(line) as ExportedItem & {
+            chainSeq: number;
+            prevHash: string | null;
+            hash: string | null;
+          },
+      );
+
+  it('lets offline recomputation reject a JSONB type tamper like online verification', async () => {
+    const target = unique('audit-detail-type');
+    const logger = { warn: () => undefined };
+    await repo.audit.writeAudit(app.db, logger, {
+      action: 'audit.export.detail',
+      target,
+      status: 'ok',
+    });
+    await repo.audit.writeAudit(app.db, logger, {
+      action: 'audit.export.detail',
+      target,
+      status: 'ok',
+      detail: { from: 'ask', to: 'allow' },
+    });
+    await repo.audit.writeAudit(app.db, logger, {
+      action: 'audit.export.detail',
+      target,
+      status: 'ok',
+      detail: { from: 'allow', to: 'ask' },
+    });
+
+    const seeded = await app.client.unsafe<{ id: string; chain_seq: string }[]>(
+      'select id, chain_seq from audit_log where target = $1 order by chain_seq',
+      [target],
+    );
+    expect(seeded).toHaveLength(3);
+    const tampered = seeded[2]!;
+    await app.client.unsafe('update audit_log set detail = to_jsonb(detail::text) where id = $1', [
+      tampered.id,
+    ]);
+
+    const lines: Array<
+      ExportedItem & { chainSeq: number; prevHash: string | null; hash: string | null }
+    > = [];
+    let afterSeq: number | undefined;
+    let pages = 0;
+    for (;;) {
+      const suffix = afterSeq === undefined ? '' : `&afterSeq=${afterSeq}`;
+      const res = await exportAudit(`?format=ndjson&limit=2${suffix}`);
+      expect(res.statusCode, res.body).toBe(200);
+      pages += 1;
+      lines.push(...parseLines(res.body));
+      const next = res.headers.get('x-next-after-seq');
+      if (next === null) break;
+      afterSeq = Number(next);
+    }
+    expect(pages).toBeGreaterThanOrEqual(2);
+
+    const chainRows = lines.filter(
+      (row): row is typeof row & { hash: string } => row.hash !== null,
+    );
+    expect(chainRows[0]?.prevHash).toBeNull();
+    let expectedPrev: string | null = null;
+    let offlineChecked = 0;
+    let offlineBrokenSeq: number | null = null;
+    for (const row of chainRows) {
+      const base = [
+        row.prevHash,
+        row.id,
+        row.actor,
+        row.actorKind,
+        row.subjectBusinessId,
+        row.action,
+        row.target,
+        row.inputDigest,
+        row.status,
+        row.durationMs,
+        row.requestId,
+        row.createdAt,
+      ];
+      const recomputed =
+        row.detailType === null
+          ? sha256Hex(JSON.stringify(base))
+          : row.detailType === 'object'
+            ? sha256Hex(JSON.stringify([2, ...base, canonicalJson(row.detail)]))
+            : null;
+      if (row.prevHash !== expectedPrev || recomputed === null || recomputed !== row.hash) {
+        offlineBrokenSeq = row.chainSeq;
+        break;
+      }
+      expectedPrev = row.hash;
+      offlineChecked += 1;
+    }
+    expect(offlineBrokenSeq).toBe(Number(tampered.chain_seq));
+    expect(offlineChecked).toBe(
+      chainRows.findIndex((row) => row.chainSeq === Number(tampered.chain_seq)),
+    );
+    expect(offlineChecked).toBeGreaterThanOrEqual(2);
+
+    const online = await repo.audit.verifyAuditChain(app.db, { limit: 5000 });
+    expect(online.ok).toBe(false);
+    expect(online.brokenSeq).toBe(tampered.chain_seq);
+
+    const json = (await exportAudit('')).json<ExportBody>();
+    const byId = new Map(json.items.map((row) => [row.id, row]));
+    expect(byId.get(seeded[0]!.id)?.detailType).toBeNull();
+    expect(byId.get(seeded[1]!.id)?.detailType).toBe('object');
+    expect(byId.get(tampered.id)?.detailType).toBe('string');
+    for (const item of json.items) {
+      const line = lines.find((row) => row.id === item.id);
+      expect(line?.detail).toEqual(item.detail);
+      expect(line?.detailType).toBe(item.detailType);
+    }
   });
 });
