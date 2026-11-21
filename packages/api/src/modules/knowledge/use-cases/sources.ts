@@ -1,6 +1,6 @@
 import { AppError, decryptSecrets, encryptSecrets, isAppError } from '@agentport/core';
 import { type Database, repo, schema } from '@agentport/db';
-import type { KnowledgeSourceInput } from '@agentport/shared';
+import type { KnowledgeSourceInput, KnowledgeSourceStatus } from '@agentport/shared';
 import { knowledgeSourceInputSchema, knowledgeSourceRangeExternalIdMax } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
@@ -14,7 +14,7 @@ type SourcePatch = {
   name?: string | undefined;
   config?: Record<string, unknown> | undefined;
   secrets?: Record<string, string> | undefined;
-  status?: 'active' | 'paused' | 'disabled' | undefined;
+  status?: Exclude<KnowledgeSourceStatus, 'auth_error'> | undefined;
   syncCron?: string | null | undefined;
   ranges?: RangeInput[] | undefined;
 };

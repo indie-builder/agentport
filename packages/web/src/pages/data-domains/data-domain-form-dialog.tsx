@@ -1,4 +1,5 @@
 import { dataDomainInputSchema } from '@agentport/contract/data-domains';
+import { dataDomainQueryApprovalModeSchema } from '@agentport/shared';
 import { useEffect, useRef, useState } from 'react';
 import { useFieldArray } from 'react-hook-form';
 import { z } from 'zod';
@@ -49,7 +50,7 @@ const dataDomainFormSchema = (requireConnection: boolean) =>
       description: dataDomainInputSchema.shape.description,
       datasource: dataDomainInputSchema.shape.datasource,
       connection: z.array(z.object({ key: z.string(), value: z.string() })),
-      queryApprovalMode: z.enum(['off', 'all']),
+      queryApprovalMode: dataDomainQueryApprovalModeSchema,
     })
     .superRefine((values, ctx) => {
       const { keyType, valueType } = dataDomainInputSchema.shape.connection;

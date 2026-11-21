@@ -1,4 +1,9 @@
-import { businessIdSchema, idParams, slugSchema } from '@agentport/shared';
+import {
+  businessIdSchema,
+  dataDomainQueryApprovalModeSchema,
+  idParams,
+  slugSchema,
+} from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
 
@@ -17,7 +22,7 @@ export const dataDomainInputSchema = z.object({
   description: z.string().trim().max(2000).default(''),
   datasource: z.string().trim().min(1).max(64),
   connection: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写连接配置'),
-  queryApprovalMode: z.enum(['off', 'all']).default('off'),
+  queryApprovalMode: dataDomainQueryApprovalModeSchema.default('off'),
 });
 
 export const dataDomainConnectionTestInputSchema = z.object({
@@ -37,7 +42,7 @@ export const dataDomainPatchSchema = z
     description: z.string().trim().max(2000),
     datasource: z.string().trim().min(1).max(64),
     connection: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写连接配置'),
-    queryApprovalMode: z.enum(['off', 'all']),
+    queryApprovalMode: dataDomainQueryApprovalModeSchema,
   })
   .partial()
   .refine((value) => Object.keys(value).length > 0, { message: '至少需要修改一项' });
@@ -49,7 +54,7 @@ export const dataDomainSchema = z.object({
   description: z.string(),
   datasource: z.string(),
   onlineVersionId: z.string().nullable(),
-  queryApprovalMode: z.enum(['off', 'all']),
+  queryApprovalMode: dataDomainQueryApprovalModeSchema,
   createdBy: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

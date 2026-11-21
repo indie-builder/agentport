@@ -1,5 +1,10 @@
 import type { Agent, AgentDefinition, AgentInput, MemoryPolicy } from '@agentport/shared';
-import { agentVisibilitySchema, DEFAULT_MEMORY_POLICY, uiFormatSchema } from '@agentport/shared';
+import {
+  agentVisibilitySchema,
+  DEFAULT_MEMORY_POLICY,
+  permissionModeSchema,
+  uiFormatSchema,
+} from '@agentport/shared';
 import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -32,8 +37,12 @@ export const agents = pgTable(
     systemPromptMd: text('system_prompt_md').notNull().default(''),
     allowedTools: jsonb('allowed_tools').$type<string[]>().notNull().default([]),
     disallowedTools: jsonb('disallowed_tools').$type<string[]>().notNull().default([]),
-    permissionMode: text('permission_mode')
-      .$type<AgentInput['permissionMode']>()
+    permissionMode: text('permission_mode', {
+      enum: permissionModeSchema.options as [
+        AgentInput['permissionMode'],
+        ...AgentInput['permissionMode'][],
+      ],
+    })
       .notNull()
       .default('default'),
     uiFormat: text('ui_format', {
@@ -102,7 +111,7 @@ export const agents = pgTable(
     ),
     check(
       'agents_permission_mode_check',
-      sql`${t.permissionMode} in ('dontAsk', 'plan', 'default', 'acceptEdits')`,
+      sql`${t.permissionMode} in (${sql.raw(permissionModeSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'agents_ui_format_check',

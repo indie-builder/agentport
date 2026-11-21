@@ -3,8 +3,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   CONFIG_CONTAINER_DIR,
-  CONFIGURABLE_DISALLOWED_TOOLS,
-  DEFAULT_DISALLOWED_TOOLS,
+  disallowedToolsFor,
   errorText,
   INPUTS_CONTAINER_DIR,
   MCP_APPROVAL_HOOK_TIMEOUT_SECONDS,
@@ -297,14 +296,11 @@ const allowedTools = [
 const abortController = new AbortController();
 process.once('SIGTERM', () => abortController.abort());
 
-const allowedByConfig = new Set(task.extraAllowedTools);
-const configurableTools = new Set<string>(CONFIGURABLE_DISALLOWED_TOOLS);
 const disallowedTools = [
-  ...DEFAULT_DISALLOWED_TOOLS.filter((tool) => {
-    if (tool === 'Read' || tool === 'Write' || tool === 'Edit') return false;
-    if (!configurableTools.has(tool)) return true;
-    if (tool === 'Agent' || tool === 'TaskStop') return !(task.allowSubAgents || hasPluginAgents);
-    return !allowedByConfig.has(tool);
+  ...disallowedToolsFor({
+    allowedTools: task.extraAllowedTools,
+    allowSubAgents: task.allowSubAgents || hasPluginAgents,
+    keepFileTools: true,
   }),
   ...task.extraDisallowedTools,
 ];

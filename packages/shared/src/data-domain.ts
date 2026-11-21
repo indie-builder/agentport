@@ -35,3 +35,7 @@ export const dataDomainEnrichmentOutputSchema = z.object({
   removedPaths: z.array(z.string().min(1).max(512)).default([]),
 });
 export type DataDomainEnrichmentOutput = z.infer<typeof dataDomainEnrichmentOutputSchema>;
+
+export const dataDomainQueryApprovalModeSchema = z.enum(['off', 'all']);
+
+export type DataDomainQueryApprovalMode = z.infer<typeof dataDomainQueryApprovalModeSchema>;

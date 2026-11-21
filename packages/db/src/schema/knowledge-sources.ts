@@ -4,6 +4,7 @@ import type {
   KnowledgeSourceConfigType,
   KnowledgeSourceProbeResult,
   KnowledgeSourceRangeKind,
+  KnowledgeSourceStatus,
   KnowledgeSyncItem,
 } from '@agentport/shared';
 import {
@@ -11,6 +12,7 @@ import {
   knowledgeJobTypeSchema,
   knowledgeSourceConfigTypeSchema,
   knowledgeSourceRangeKindSchema,
+  knowledgeSourceStatusSchema,
   knowledgeSyncItemStatusSchema,
 } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
@@ -46,7 +48,10 @@ export const knowledgeSources = pgTable(
     config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
     secretsEncrypted: text('secrets_encrypted'),
     status: text('status', {
-      enum: ['active', 'paused', 'auth_error', 'disabled'],
+      enum: knowledgeSourceStatusSchema.options as [
+        KnowledgeSourceStatus,
+        ...KnowledgeSourceStatus[],
+      ],
     })
       .notNull()
       .default('active'),
@@ -66,7 +71,7 @@ export const knowledgeSources = pgTable(
     ),
     check(
       'knowledge_sources_status_check',
-      sql`${t.status} in ('active', 'paused', 'auth_error', 'disabled')`,
+      sql`${t.status} in (${sql.raw(knowledgeSourceStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );

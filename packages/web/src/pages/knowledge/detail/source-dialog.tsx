@@ -2,6 +2,7 @@ import {
   type KnowledgeSourceInput,
   knowledgeSourceConfigTypeSchema,
   knowledgeSourceRangeKindSchema,
+  knowledgeSourceStatusSchema,
 } from '@agentport/shared';
 import { useMemo, useRef, useState } from 'react';
 import { Controller, useWatch } from 'react-hook-form';
@@ -91,7 +92,7 @@ const sourceFormBaseSchema = z.object({
   authMode: z.enum(['cloud_basic', 'cloud_scoped', 'dc_pat']),
   cron: z.string(),
   syncDeletions: z.boolean(),
-  status: z.enum(['active', 'paused', 'auth_error', 'disabled']),
+  status: knowledgeSourceStatusSchema,
   ranges: z.array(rangeDraftSchema),
 });
 
