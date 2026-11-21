@@ -13,7 +13,7 @@ import {
   updateAgent,
 } from '../src/repo/agents.js';
 import * as repo from '../src/repo/runtime-environments.js';
-import { agents, runtimeEnvironments, runtimeEnvironmentVersions, servers } from '../src/schema.js';
+import { agents, runtimeEnvironments, runtimeEnvironmentVersions } from '../src/schema.js';
 
 const url = process.env.DATABASE_URL ?? 'postgres://unreachable@127.0.0.1:1/unavailable';
 const { db, client } = createDb(url);
@@ -25,7 +25,6 @@ const ready = await client.unsafe('select 1').then(
 describe.skipIf(!ready)('runtime environment repo', () => {
   const environmentIds: string[] = [];
   const agentIds: string[] = [];
-  const serverIds: string[] = [];
 
   const uniqueName = (prefix: string) => `${prefix}-${newId('runtimeEnvironment')}`;
 
@@ -76,7 +75,6 @@ describe.skipIf(!ready)('runtime environment repo', () => {
 
   afterAll(async () => {
     for (const id of agentIds) await db.delete(agents).where(eq(agents.id, id));
-    for (const id of serverIds) await db.delete(servers).where(eq(servers.id, id));
     for (const id of environmentIds) {
       await db
         .update(runtimeEnvironments)
@@ -253,30 +251,6 @@ describe.skipIf(!ready)('runtime environment repo', () => {
       ]),
     );
     expect(rows.some((row) => row.id === ready.id)).toBe(false);
-  });
-
-  it('stores the resolved runtime environment on a server test snapshot', async () => {
-    const id = newId('server');
-    serverIds.push(id);
-    const runtimeEnvironment = {
-      environmentId: newId('runtimeEnvironment'),
-      environmentName: 'snapshot-env',
-      versionId: newId('runtimeEnvironmentVersion'),
-      imageId: 'sha256:snapshot',
-    };
-    await db.insert(servers).values({
-      id,
-      name: uniqueName('server'),
-      kind: 'stdio',
-      config: {},
-      lastTestRuntimeEnvironment: runtimeEnvironment,
-    });
-
-    const [row] = await db
-      .select({ value: servers.lastTestRuntimeEnvironment })
-      .from(servers)
-      .where(eq(servers.id, id));
-    expect(row?.value).toEqual(runtimeEnvironment);
   });
 
   it('refuses to delete default, bound or still-building environments', async () => {

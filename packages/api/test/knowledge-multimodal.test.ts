@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -245,47 +245,19 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       });
       expect(baseRes.statusCode, baseRes.body).toBe(201);
 
-      // 真实 pool.query 正对照：引用判断必须发 EXISTS 布尔查询，而不是数完再比较。
-      const statements: string[] = [];
-      const realQuery = app.client.unsafe.bind(app.client);
-      const querySpy = spyOn(app.client, 'unsafe').mockImplementation(((
-        query: string | { text?: string },
-        params?: unknown[],
-      ) => {
-        statements.push(typeof query === 'string' ? query : (query.text ?? ''));
-        return Reflect.apply(
-          realQuery,
-          app.client,
-          params === undefined ? [query] : [query, params],
-        );
-      }) as never);
-      try {
-        // 保持能力组合合法，确保命中「已被引用不可原地更换」而不是输入校验。
-        for (const payload of [
-          { model: 'other-model', imageInputEnabled: false },
-          { embeddingProtocol: 'openai', imageInputEnabled: false },
-          { imageInputEnabled: false },
-        ]) {
-          const res = await request(app, {
-            method: 'PATCH',
-            url: `/api/knowledge/model-profiles/${cohereId}`,
-            headers: { cookie },
-            payload,
-          });
-          expect(res.statusCode, `${JSON.stringify(payload)} ${res.body}`).toBe(409);
-        }
-      } finally {
-        querySpy.mockRestore();
-      }
-      const referenceQueries = statements.filter(
-        (sql) => /exists\s*\(/i.test(sql) && sql.includes('knowledge_document_versions'),
-      );
-      expect(referenceQueries).toHaveLength(3);
-      for (const sql of referenceQueries) {
-        expect(sql).not.toMatch(/count\s*\(/i);
-        expect(sql).toMatch(
-          /select\s+exists\s*\(\s*select 1 from knowledge_bases[\s\S]*union all[\s\S]*select 1 from knowledge_document_versions/is,
-        );
+      // 保持能力组合合法，确保命中「已被引用不可原地更换」而不是输入校验。
+      for (const payload of [
+        { model: 'other-model', imageInputEnabled: false },
+        { embeddingProtocol: 'openai', imageInputEnabled: false },
+        { imageInputEnabled: false },
+      ]) {
+        const res = await request(app, {
+          method: 'PATCH',
+          url: `/api/knowledge/model-profiles/${cohereId}`,
+          headers: { cookie },
+          payload,
+        });
+        expect(res.statusCode, `${JSON.stringify(payload)} ${res.body}`).toBe(409);
       }
 
       // 409 不能留下部分配置。

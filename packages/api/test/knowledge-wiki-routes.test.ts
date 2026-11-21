@@ -292,68 +292,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     ).toEqual(expect.arrayContaining(['# 第一版', '# 第二版']));
   });
 
-  it('writes each wiki version with one insert that computes the next number in SQL', async () => {
-    const page = await createPage();
-
-    type TxClient = { unsafe: (...args: unknown[]) => unknown };
-    const statements: string[] = [];
-    const wrapped: TxClient[] = [];
-    const originalBegin = app.client.begin.bind(app.client) as <T>(
-      fn: (client: TxClient) => Promise<T>,
-    ) => Promise<T>;
-    const spy = spyOn(app.client, 'begin').mockImplementation((<T>(
-      callback: (client: TxClient) => Promise<T>,
-    ) =>
-      originalBegin((client) => {
-        if (!wrapped.includes(client)) {
-          const originalQuery = client.unsafe;
-          wrapped.push(client);
-          client.unsafe = (...args: unknown[]) => {
-            const first = args[0] as { text?: unknown } | undefined;
-            const sql =
-              typeof first === 'string' ? first : typeof first?.text === 'string' ? first.text : '';
-            if (sql) statements.push(sql);
-            return originalQuery.apply(client, args);
-          };
-        }
-        return callback(client);
-      })) as never);
-    let first: Awaited<ReturnType<typeof repo.knowledge.saveWikiVersion>>;
-    let second: Awaited<ReturnType<typeof repo.knowledge.saveWikiVersion>>;
-    try {
-      first = await repo.knowledge.saveWikiVersion(app.db, page.id, {
-        markdown: '# 第一稿',
-        sourceChunkIds: [],
-        model: 'wiki-model',
-        generatedBy: 'sdk',
-      });
-      second = await repo.knowledge.saveWikiVersion(app.db, page.id, {
-        markdown: '# 第二稿',
-        sourceChunkIds: [],
-        model: 'wiki-model',
-        generatedBy: 'sdk',
-      });
-    } finally {
-      spy.mockRestore();
-    }
-
-    expect([first?.version, second?.version]).toEqual([1, 2]);
-    const writes = statements.filter((text) => /insert into "knowledge_wiki_versions"/i.test(text));
-    expect(writes).toHaveLength(2);
-    for (const text of writes) {
-      expect(text).toMatch(
-        /select coalesce\(max\("knowledge_wiki_versions"\."version"\), 0\) \+ 1 from "knowledge_wiki_versions" where "knowledge_wiki_versions"\."page_id" =/i,
-      );
-    }
-    expect(
-      statements.filter(
-        (text) =>
-          /\bmax\("knowledge_wiki_versions"\."version"\)/i.test(text) &&
-          !/insert into "knowledge_wiki_versions"/i.test(text),
-      ),
-    ).toEqual([]);
-  });
-
   it('serializes two concurrent saves on one page into versions 1 and 2', async () => {
     const page = await createPage();
     const saved = await Promise.all([

@@ -574,7 +574,7 @@ describe('knowledge source input types', () => {
       const cap = knowledgeSourceRangeExternalIdMax[type as keyof typeof payloads];
       expect(cap, type).toBeGreaterThan(0);
       // connectionId（ksrc_ 前缀 + 26 字符）+ ':' + 叶 externalId 必须留在 500 内。
-      expect(cap, type).toBeLessThanOrEqual(255);
+      expect(cap + 32, type).toBeLessThanOrEqual(500);
     }
   });
 

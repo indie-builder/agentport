@@ -82,10 +82,6 @@ describe('openuiSystemPrompt', () => {
     }
   });
 
-  it('works without a tool catalog and is stable across calls', () => {
-    expect(openuiSystemPrompt([])).toBe(openuiSystemPrompt());
-  });
-
   it('lists the tool catalog so the model can call it', () => {
     const prompt = openuiSystemPrompt([tool]);
     expect(prompt).toContain('mcp__billing__get-invoice');

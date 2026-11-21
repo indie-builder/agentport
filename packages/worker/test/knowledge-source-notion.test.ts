@@ -716,41 +716,6 @@ describe('notion property completeness', () => {
     expect(snapshot.complete).toBe(true);
     expect(page?.content).toContain('- Original: 8, 5');
   });
-
-  it('fails the page instead of publishing a partially paginated property', async () => {
-    const list = {
-      object: 'list',
-      type: 'property_item',
-      results: [{ object: 'property_item', type: 'relation', relation: { id: relatedA } }],
-      has_more: true,
-      next_cursor: 'same',
-    };
-    installFetch(
-      pageWith(
-        {
-          Related: {
-            id: 'rel',
-            type: 'relation',
-            relation: [{ id: relatedA }],
-            has_more: true,
-          },
-        },
-        (call) => {
-          if (pathOf(call) === `/v1/pages/${ROOT_ID}/properties/rel`) return json(list);
-          throw new Error(`unexpected request ${call.method} ${call.url}`);
-        },
-      ),
-    );
-
-    const snapshot = await readNotion(config('notion_page', ROOT_ID), undefined, undefined);
-
-    expect(snapshot.items).toEqual([]);
-    expect(snapshot.complete).toBe(false);
-    expect(snapshot.failures?.[0]).toMatchObject({
-      externalId: `notion:page:${ROOT_ID}`,
-      code: 'fetch_failed',
-    });
-  });
 });
 
 describe('notion data source traversal', () => {

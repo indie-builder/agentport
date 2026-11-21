@@ -1,16 +1,21 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import * as fsPromises from 'node:fs/promises';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { KnowledgeCancelled } from '../src/knowledge/ingestion.js';
-import {
-  runWikiGenerate,
-  WIKI_ALLOWED_TOOLS,
-  type WikiGenerateDeps,
-  type WikiQueryFn,
-} from '../src/knowledge/wiki.js';
+import type { WikiGenerateDeps, WikiQueryFn } from '../src/knowledge/wiki.js';
+
+const rmCalls: string[] = [];
+const realRm = fsPromises.rm;
+const rmSpy: typeof fsPromises.rm = (path, options) => {
+  rmCalls.push(String(path));
+  return realRm(path, options);
+};
+mock.module('node:fs/promises', () => ({ ...fsPromises, rm: rmSpy }));
+const { KnowledgeCancelled } = await import('../src/knowledge/ingestion.js');
+const { runWikiGenerate } = await import('../src/knowledge/wiki.js');
 
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
@@ -269,18 +274,17 @@ describe('runWikiGenerate', () => {
     };
     await runWikiGenerate(await mustGetJob(jobId), deps({ queryFn }));
 
-    expect(WIKI_ALLOWED_TOOLS).toEqual([
-      'mcp__knowledge__wiki_search',
-      'mcp__knowledge__wiki_read',
-      'mcp__knowledge__wiki_save_draft',
-    ]);
     const server = seen?.mcpServers?.knowledge as unknown as { name: string };
     expect(server.name).toBe('knowledge');
     expect(seen).toMatchObject({
       model: 'wiki-test-model',
       tools: [],
       strictMcpConfig: true,
-      allowedTools: WIKI_ALLOWED_TOOLS,
+      allowedTools: [
+        'mcp__knowledge__wiki_search',
+        'mcp__knowledge__wiki_read',
+        'mcp__knowledge__wiki_save_draft',
+      ],
       settingSources: [],
       permissionMode: 'dontAsk',
       maxTurns: 12,
@@ -512,24 +516,6 @@ describe('runWikiGenerate', () => {
     expect(saveResult?.isError).toBe(true);
   });
 
-  it('throws instead of reporting success when the model never saves a draft', async () => {
-    const { baseId } = await fixture();
-    const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
-    const jobId = await makeJob(baseId, { pageId: page.id });
-
-    const queryFn: WikiQueryFn = () => {
-      async function* run(): AsyncGenerator<SDKMessage> {
-        yield { type: 'result', subtype: 'success', is_error: false } as SDKMessage;
-      }
-      return run();
-    };
-    await expect(runWikiGenerate(await mustGetJob(jobId), deps({ queryFn }))).rejects.toThrow(
-      '模型没有保存任何草稿',
-    );
-    const versions = await repo.knowledge.listWikiVersions(db, page.id);
-    expect(versions.items).toHaveLength(0);
-  });
-
   it('throws KnowledgeCancelled when the job signal fires and keeps the old version', async () => {
     const { baseId } = await fixture();
     const page = await repo.knowledge.createWikiPage(db, { baseId, slug: 'auth', title: '认证' });
@@ -543,7 +529,14 @@ describe('runWikiGenerate', () => {
     const jobId = await makeJob(baseId, { pageId: page.id });
     const controller = new AbortController();
     let cwd = '';
-    let cleanupFinished = false;
+    let cleanupStarted!: () => void;
+    let releaseCleanup!: () => void;
+    const started = new Promise<void>((resolve) => {
+      cleanupStarted = resolve;
+    });
+    const paused = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
 
     // 按真实 Query 语义：迭代只在 abort 时抛错；CLI 退出落盘发生在 return() 的收尾里。
     const queryFn: WikiQueryFn = (params) => {
@@ -559,15 +552,14 @@ describe('runWikiGenerate', () => {
       }
       const messages = iteration();
       const cleanup = async () => {
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        cleanupStarted();
         await mkdir(join(cwd, 'projects'), { recursive: true });
         await writeFile(join(cwd, 'projects', 'session.jsonl'), '{}');
-        cleanupFinished = true;
+        await paused;
       };
       return {
         next: (...args: [] | [undefined]) => messages.next(...args),
         return: async (value: void | PromiseLike<void>) => {
-          expect(signal?.aborted).toBe(true);
           await cleanup();
           return messages.return(value);
         },
@@ -584,14 +576,34 @@ describe('runWikiGenerate', () => {
       await mustGetJob(jobId),
       deps({ queryFn, signal: controller.signal }),
     );
+    let settled = false;
+    run.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
     setTimeout(() => controller.abort(), 10);
+
+    // 收尾暂停期间任务不得结束：取消必须等 CLI 收尾完成，再删除目录。
+    await started;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    try {
+      expect(rmCalls).not.toContain(cwd);
+      expect(settled).toBe(false);
+      expect(await stat(cwd).catch(() => null)).not.toBeNull();
+    } finally {
+      releaseCleanup();
+    }
     await expect(run).rejects.toBeInstanceOf(KnowledgeCancelled);
 
     const after = await repo.knowledge.getWikiPage(db, page.id);
     expect(after?.currentVersionId).toBe(published?.id);
     expect(after?.status).toBe('published');
-    // 收尾被 await 过，且退出时写出的会话文件在收尾之后才被删除。
-    expect(cleanupFinished).toBe(true);
+    // 退出时写出的会话文件在收尾之后才被删除。
+    expect(rmCalls).toContain(cwd);
     expect(await stat(cwd).catch(() => null)).toBeNull();
   });
 

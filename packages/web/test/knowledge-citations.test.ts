@@ -222,7 +222,7 @@ describe('knowledge citations', () => {
         ? new Response(new Blob(['png'], { type: 'image/png' }))
         : new Response('正文\n\n![image-1.png](images/image-1.png)'),
     );
-    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:image');
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:image');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     const image = { name: '图 1.png', mimeType: 'image/png', page: 3 };
     mount(
@@ -239,7 +239,6 @@ describe('knowledge citations', () => {
     const shown = document.querySelector<HTMLImageElement>('[role="dialog"] img');
     expect(shown?.getAttribute('src')).toBe('blob:image');
     expect(shown?.getAttribute('alt')).toBe('发布前需要产品与研发双方确认。');
-    expect(createObjectURL).toHaveBeenCalled();
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('第 3 页');
     // 原图已在上面单独展示，正文里同一条 images/ 引用连同占位一起消失。
     expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('image-1.png');

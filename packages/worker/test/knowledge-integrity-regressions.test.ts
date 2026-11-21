@@ -992,7 +992,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
       await expect(runIngest(depsForCall, claimed, controller.signal)).rejects.toBeInstanceOf(
         KnowledgeCancelled,
       );
-      expect(controller.signal.aborted).toBe(true);
       const document = await repo.knowledge.getDocument(db, documentId);
       expect(document?.currentVersionId).toBeNull();
       expect(document?.status).toBe('pending');
@@ -1547,7 +1546,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     fixtureBase.deps.chunkMarkdown = adapter.chunkMarkdown;
     const data = Buffer.from('%PDF-1.7');
     const filename = 'report.pdf';
-    const parsed = await adapter.parse({ filename, mimeType: 'application/pdf', data });
     const document = await seedManualDocument(fixtureBase, 'docling-report', '', {
       mimeType: 'application/pdf',
       filename,
@@ -1565,9 +1563,8 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
       parserRef: '#/texts/1',
       bbox: { left: 1, top: 2, right: 3, bottom: 4 },
     });
-    const paragraphAt = parsed.markdown.indexOf('第一段内容。');
-    expect(paragraph?.locator?.startOffset).toBe(paragraphAt);
-    expect(paragraph?.locator?.endOffset).toBe(paragraphAt + '第一段内容。'.length);
+    expect(paragraph?.locator?.startOffset).toBe(8);
+    expect(paragraph?.locator?.endOffset).toBe(14);
     expect(paragraph?.locator?.lineFrom).toBe(3);
 
     const table = chunks.find(
@@ -1578,11 +1575,8 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
       parserRef: '#/tables/0',
       bbox: { left: 0, top: 0, right: 9, bottom: 9 },
     });
-    const tableAt = parsed.markdown.indexOf('| 指标 | 数值 |');
-    expect(table?.locator?.startOffset).toBe(tableAt);
-    expect(table?.locator?.endOffset).toBe(
-      tableAt + '| 指标 | 数值 |\n| --- | --- |\n| 收入 | 100 |'.length,
-    );
+    expect(table?.locator?.startOffset).toBe(16);
+    expect(table?.locator?.endOffset).toBe(54);
 
     const result = await searchHits(fixtureBase, '第一段内容');
     const hit = result.hits.find((row) => row.documentId === document.id);

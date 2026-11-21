@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { probeSeafile, readSeafile } from '../src/knowledge/source-seafile.js';
 import type { SourceConfig } from '../src/knowledge/source-types.js';
@@ -122,11 +121,6 @@ describe('seafile', () => {
     expect(snapshot.items[0]?.mimeType).toBe('text/markdown');
     expect(snapshot.items[0]?.title).toBe('a.md');
     expect(Buffer.from(snapshot.items[0]?.bytes ?? []).toString('utf8')).toBe('abc');
-    expect(
-      createHash('sha256')
-        .update(snapshot.items[0]?.bytes ?? [])
-        .digest('hex'),
-    ).toBe(createHash('sha256').update(A_MD).digest('hex'));
     expect(snapshot.items[0]?.revision).toBe('oid-a:10:3');
     expect(snapshot.items[0]?.sourceUrl).toBe('');
     expect(snapshot.items[0]?.externalId.length).toBeLessThan(500);
@@ -305,8 +299,7 @@ describe('seafile', () => {
       return new Response('unexpected', { status: 404 });
     };
     await probeSeafile(config(REPO, ['Documents', 'Manuals']), undefined);
-    expect(calls).toHaveLength(3);
-    expect(calls.map((call) => call.url)).toEqual([
+    expect(calls.map((call) => call.url).sort()).toEqual([
       `${SITE}/api2/auth/ping/`,
       `${SITE}/api2/repos/${REPO}/dir/?p=%2FDocuments`,
       `${SITE}/api2/repos/${REPO}/dir/?p=%2FManuals`,

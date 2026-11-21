@@ -622,10 +622,16 @@ describe('Wiki management regressions', () => {
       versions: [wikiVersion('kwv_old', 1, '## 当前\n\n线上正文。')],
       nextCursor: null,
     };
+    let linkReads = 0;
     mockFetch(
       wikiHandlers(
         () => page,
-        () => json({ outgoing: [], incoming: [] }),
+        () => {
+          linkReads += 1;
+          return linkReads === 1
+            ? json({ outgoing: [], incoming: [] })
+            : json({ outgoing: [{ targetPageId: 'kwp_1', anchor: '新链接' }], incoming: [] });
+        },
       ),
     );
     await mountWiki();
@@ -633,6 +639,7 @@ describe('Wiki management regressions', () => {
       () => calls.some((call) => call.url.endsWith('/knowledge/wiki-pages/kwp_1/links')),
       'Initial links request missing',
     );
+    expect(document.body.textContent).not.toContain('新链接');
     await click(button('编辑正文'));
     await waitFor(
       () => document.getElementById('knowledge-wiki-markdown') !== null,
@@ -642,8 +649,12 @@ describe('Wiki management regressions', () => {
     await click(button('保存草稿'));
     await waitFor(
       () =>
-        calls.filter((call) => call.url.endsWith('/knowledge/wiki-pages/kwp_1/links')).length >= 2,
+        [...document.querySelectorAll<HTMLButtonElement>('button')].some(
+          (item) => item.textContent?.trim() === '链接',
+        ),
       'Links were not refreshed after save',
     );
+    await click(button('链接'));
+    expect(document.body.textContent).toContain('新链接');
   });
 });

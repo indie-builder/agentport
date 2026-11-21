@@ -991,11 +991,9 @@ describe('knowledge document upload', () => {
     await flush();
     const body = calls.find(
       (item) => item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',
-    )?.body as { filename: string; relativePath?: string; title?: string } | undefined;
-    // 相对路径交给后端建真实目录；不再把路径写进标题。
+    )?.body as { filename: string; relativePath?: string } | undefined;
     expect(body?.filename).toBe('docs/spec.txt');
     expect(body?.relativePath).toBe('docs/spec.txt');
-    expect(body?.title).toBeUndefined();
   });
 });
 

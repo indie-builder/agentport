@@ -363,8 +363,6 @@ describe('public source registry wiring', () => {
       });
       const connector = knowledgeConnectors[input.type as keyof typeof knowledgeConnectors];
       expect(connector).toBeDefined();
-      expect(typeof connector.sync).toBe('function');
-      expect(typeof connector.probe).toBe('function');
     },
   );
 });

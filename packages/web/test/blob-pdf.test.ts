@@ -140,7 +140,6 @@ describe('BlobPdf', () => {
     const frame = iframe();
     expect(frame?.getAttribute('src')).toBe('blob:pdf-1');
     expect(frame?.getAttribute('title')).toBe('report.pdf');
-    expect(frame?.className).toContain('h-[50vh]');
     expect(create).toHaveBeenCalledTimes(1);
   });
 

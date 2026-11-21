@@ -10,7 +10,6 @@ import type { SourceFailure } from './source-types.js';
  * 叶来源模块只调用这里，不复制第二套实现。
  */
 export type SourceUrlOptions = {
-  allowedOrigins?: string[];
   allowLoopback?: boolean;
   /** Exactly-matched `host` / `host:port` entries that may resolve to private addresses. */
   trustedHosts?: readonly string[];
@@ -32,11 +31,9 @@ function stripBrackets(host: string): string {
 
 /**
  * http(s) only, no URL credentials, and (unless allowLoopback) never a private address.
- * allowedOrigins must be exact origins; `https://host/path` is rejected instead of
- * silently allowing a whole host. trustedHosts is deployment config (env), never user
- * config: an exact `host`/`host:port` match lets a private host through. DNS rebinding
- * between check and fetch needs a network-level egress allowlist; this is the
- * app-level guard.
+ * trustedHosts is deployment config (env), never user config: an exact `host`/`host:port`
+ * match lets a private host through. DNS rebinding between check and fetch needs a
+ * network-level egress allowlist; this is the app-level guard.
  */
 export async function validateSourceUrl(raw: string, options: SourceUrlOptions = {}): Promise<URL> {
   let url: URL;
@@ -50,24 +47,6 @@ export async function validateSourceUrl(raw: string, options: SourceUrlOptions =
   }
   if (url.username || url.password) {
     throw new Error('source URL must not contain credentials; put them in credentials');
-  }
-
-  if (options.allowedOrigins) {
-    const origins = options.allowedOrigins.map((origin) => {
-      let parsed: URL;
-      try {
-        parsed = new URL(origin);
-      } catch {
-        throw new Error(`allowedOrigins entry is not a URL: ${origin}`);
-      }
-      if (parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.username) {
-        throw new Error(`allowedOrigins entries must be exact origins: ${origin}`);
-      }
-      return parsed.origin;
-    });
-    if (!origins.includes(url.origin)) {
-      throw new Error(`source URL origin is not allowed: ${url.origin}`);
-    }
   }
 
   const host = stripBrackets(url.hostname);

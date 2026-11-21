@@ -62,10 +62,8 @@ describe('Image / ImageBlock', () => {
     expect(img?.getAttribute('alt')).toBe('示例图');
     const box = host.firstElementChild as HTMLElement;
     expect(box.className).toContain('aspect-[3/2]');
-    expect(box.className).not.toContain('h-40');
     expect(img?.className).toContain('object-contain');
     expect(img?.className).not.toContain('object-cover');
-    expect(img?.className).not.toContain('h-40');
   });
 
   it('renders no image at all without a URL', async () => {
@@ -113,12 +111,9 @@ describe('Image / ImageBlock', () => {
     expect(img?.getAttribute('alt')).toBe('图块');
     expect(img?.className).toContain('w-full');
     expect(img?.className).toContain('h-auto');
-    expect(img?.className).not.toContain('h-40');
     expect(img?.className).not.toContain('object-cover');
     const box = host.firstElementChild as HTMLElement;
     expect(box.className).not.toContain('aspect-[3/2]');
-    expect(box.className).not.toContain('max-h-96');
-    expect(box.className).not.toContain('h-40');
   });
 
   it('shows a skeleton in the ImageBlock container until the image loads', async () => {

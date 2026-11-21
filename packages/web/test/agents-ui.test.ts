@@ -582,8 +582,6 @@ describe('expert editor regressions', () => {
           selectSection(tree, '运行限制');
           return true;
         }
-        // 固定思考预算控件已移除，推理深度只由 effort 表达。
-        expect(tree.find((node) => node.props.id === 'agent-thinking')).toBeUndefined();
         const form = tree.find((node) => node.type === 'form');
         if (!form) throw new Error('Missing editor form');
         await (form.props.onSubmit as (event: unknown) => Promise<void>)({

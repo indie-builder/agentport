@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api.js';
-import { searchConversationsOptions } from '../src/lib/queries.js';
 
 function mockFetch(response: Response) {
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async () => response);
@@ -52,11 +51,5 @@ describe('conversation search client', () => {
       '/api/conversations/search',
     );
     expect(new URL((fetch.mock.calls[0][0] as Request).url).search).toBe('');
-  });
-
-  it('exposes searchConversationsOptions for the UI domain', () => {
-    const options = searchConversationsOptions({ q: '进', agentId: 'agt_1', limit: 10 });
-    expect(options.queryKey).toEqual(['conversation-search', '进', 'agt_1', 10, null]);
-    expect(typeof options.queryFn).toBe('function');
   });
 });

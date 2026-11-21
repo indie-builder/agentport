@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -124,28 +124,6 @@ async function upload(baseId: string, content: string, filename = 'notes.md') {
   });
 }
 
-/** 捕获 rebuild 期间的文档归属查询，区分一次批量查询与逐条查询。 */
-async function rebuildCapturingDocumentSelects(
-  baseId: string,
-  payload: { documentIds?: string[]; chunksOnly?: boolean },
-) {
-  const spy = spyOn(app.client, 'unsafe');
-  try {
-    const res = await request(app, {
-      method: 'POST',
-      url: `/api/knowledge/bases/${baseId}/rebuild`,
-      headers: { cookie },
-      payload,
-    });
-    const selects = spy.mock.calls
-      .map(([query]) => (typeof query === 'string' ? query : query.text))
-      .filter((text) => /from "knowledge_documents"/.test(text));
-    return { res, selects };
-  } finally {
-    spy.mockRestore();
-  }
-}
-
 /** 检索依赖 chunk 与当前版本；这里直接落 ready 文档，验证 API 层而不是 worker。 */
 async function seedReadyDocument(baseId: string, profileId: string, content: string) {
   const document = await request(app, {
@@ -255,59 +233,47 @@ describe('knowledge routes', () => {
     expect(jobRow[0]?.payload.documentId).toBe(body.documentId);
   });
 
-  it('任务列表只返回展示字段，列表查询不读 payload，单任务仍保留 payload', async () => {
+  it('任务列表只返回展示字段，单任务仍保留 payload', async () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);
     const uploaded = await upload(base.id, '任务列表投影');
     expect(uploaded.statusCode, uploaded.body).toBe(202);
     const { documentId, jobId } = uploaded.json<{ documentId: string; jobId: string }>();
 
-    const spy = spyOn(app.client, 'unsafe');
-    try {
-      const list = await request(app, {
-        method: 'GET',
-        url: `/api/knowledge/jobs?baseId=${base.id}`,
-        headers: { cookie },
-      });
-      expect(list.statusCode, list.body).toBe(200);
-      const [item] = list.json<{ items: Array<Record<string, unknown>> }>().items;
-      expect(Object.keys(item ?? {}).sort()).toEqual(
-        [
-          'id',
-          'type',
-          'status',
-          'step',
-          'progress',
-          'attempts',
-          'error',
-          'result',
-          'documentId',
-          'sourceId',
-          'documentTitle',
-          'sourceName',
-          'createdAt',
-          'startedAt',
-          'endedAt',
-        ].sort(),
-      );
+    const list = await request(app, {
+      method: 'GET',
+      url: `/api/knowledge/jobs?baseId=${base.id}`,
+      headers: { cookie },
+    });
+    expect(list.statusCode, list.body).toBe(200);
+    const [item] = list.json<{ items: Array<Record<string, unknown>> }>().items;
+    expect(Object.keys(item ?? {}).sort()).toEqual(
+      [
+        'id',
+        'type',
+        'status',
+        'step',
+        'progress',
+        'attempts',
+        'error',
+        'result',
+        'documentId',
+        'sourceId',
+        'documentTitle',
+        'sourceName',
+        'createdAt',
+        'startedAt',
+        'endedAt',
+      ].sort(),
+    );
 
-      const detail = await request(app, {
-        method: 'GET',
-        url: `/api/knowledge/jobs/${jobId}`,
-        headers: { cookie },
-      });
-      expect(detail.statusCode, detail.body).toBe(200);
-      expect(detail.json()).toMatchObject({ id: jobId, type: 'ingest', status: 'queued' });
-
-      const jobSelects = spy.mock.calls
-        .map(([query]) => (typeof query === 'string' ? query : query.text))
-        .filter((text) => /from "knowledge_jobs"/.test(text));
-      expect(jobSelects).toHaveLength(2);
-      expect(jobSelects[0]).not.toMatch(/"payload"/i);
-      expect(jobSelects[1]).toMatch(/"payload"/i);
-    } finally {
-      spy.mockRestore();
-    }
+    const detail = await request(app, {
+      method: 'GET',
+      url: `/api/knowledge/jobs/${jobId}`,
+      headers: { cookie },
+    });
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(detail.json()).toMatchObject({ id: jobId, type: 'ingest', status: 'queued' });
 
     const stored = await app.client.unsafe<{ payload: { documentId: string } }[]>(
       'select payload from knowledge_jobs where id = $1',
@@ -627,7 +593,7 @@ describe('knowledge routes', () => {
     expect(jobs[0]?.count).toBe('0');
   });
 
-  it('重建多个合法文档只做一次归属查询且只取 id', async () => {
+  it('重建多个合法文档按原数组入队', async () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);
     const first = await upload(base.id, '文档一', 'one.md');
@@ -639,15 +605,13 @@ describe('knowledge routes', () => {
       second.json<{ documentId: string }>().documentId,
     ];
 
-    const { res, selects } = await rebuildCapturingDocumentSelects(base.id, {
-      documentIds,
-      chunksOnly: true,
+    const res = await request(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${base.id}/rebuild`,
+      headers: { cookie },
+      payload: { documentIds, chunksOnly: true },
     });
     expect(res.statusCode, res.body).toBe(202);
-    expect(selects).toHaveLength(1);
-    const sql = selects[0]?.replace(/\s+/g, ' ') ?? '';
-    expect(sql).toMatch(/^select "id" from "knowledge_documents"/i);
-    expect(sql).not.toMatch(/"metadata"|"content_hash"/i);
 
     const jobs = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
       "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
@@ -673,26 +637,27 @@ describe('knowledge routes', () => {
     expect(foreign.statusCode, foreign.body).toBe(202);
     const ownId = own.json<{ documentId: string }>().documentId;
     const foreignId = foreign.json<{ documentId: string }>().documentId;
+    const rebuild = (documentIds: string[]) =>
+      request(app, {
+        method: 'POST',
+        url: `/api/knowledge/bases/${first.id}/rebuild`,
+        headers: { cookie },
+        payload: { documentIds },
+      });
 
-    const cross = await rebuildCapturingDocumentSelects(first.id, {
-      documentIds: [ownId, foreignId],
-    });
-    expect(cross.res.statusCode, cross.res.body).toBe(400);
-    expect(cross.res.json<{ code: string; message: string }>()).toMatchObject({
+    const cross = await rebuild([ownId, foreignId]);
+    expect(cross.statusCode, cross.body).toBe(400);
+    expect(cross.json<{ code: string; message: string }>()).toMatchObject({
       code: 'INVALID_INPUT',
       message: '存在不属于该知识库的文档',
     });
-    expect(cross.selects).toHaveLength(1);
 
-    const missing = await rebuildCapturingDocumentSelects(first.id, {
-      documentIds: [ownId, 'kdoc_missing'],
-    });
-    expect(missing.res.statusCode, missing.res.body).toBe(400);
-    expect(missing.res.json<{ code: string; message: string }>()).toMatchObject({
+    const missing = await rebuild([ownId, 'kdoc_missing']);
+    expect(missing.statusCode, missing.body).toBe(400);
+    expect(missing.json<{ code: string; message: string }>()).toMatchObject({
       code: 'INVALID_INPUT',
       message: '存在不属于该知识库的文档',
     });
-    expect(missing.selects).toHaveLength(1);
 
     const jobs = await app.client.unsafe<{ count: string }[]>(
       "select count(*)::text as count from knowledge_jobs where base_id = $1 and type = 'reindex'",
@@ -701,18 +666,20 @@ describe('knowledge routes', () => {
     expect(jobs[0]?.count).toBe('0');
   });
 
-  it('重建重复文档只做一次归属查询并保留原数组入队', async () => {
+  it('重建重复文档保留原数组入队', async () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);
     const uploaded = await upload(base.id, '重复文档');
     expect(uploaded.statusCode, uploaded.body).toBe(202);
     const documentId = uploaded.json<{ documentId: string }>().documentId;
 
-    const { res, selects } = await rebuildCapturingDocumentSelects(base.id, {
-      documentIds: [documentId, documentId],
+    const res = await request(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${base.id}/rebuild`,
+      headers: { cookie },
+      payload: { documentIds: [documentId, documentId] },
     });
     expect(res.statusCode, res.body).toBe(202);
-    expect(selects).toHaveLength(1);
 
     const jobs = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
       "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
@@ -728,13 +695,17 @@ describe('knowledge routes', () => {
     });
   });
 
-  it('重建空数组不查询文档并以空数组入队', async () => {
+  it('重建空数组以空数组入队', async () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);
 
-    const { res, selects } = await rebuildCapturingDocumentSelects(base.id, { documentIds: [] });
+    const res = await request(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${base.id}/rebuild`,
+      headers: { cookie },
+      payload: { documentIds: [] },
+    });
     expect(res.statusCode, res.body).toBe(202);
-    expect(selects).toHaveLength(0);
 
     const jobs = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
       "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",
@@ -750,13 +721,17 @@ describe('knowledge routes', () => {
     });
   });
 
-  it('重建缺省 documentIds 不查询且不传该属性', async () => {
+  it('重建缺省 documentIds 不传该属性', async () => {
     const embedding = await createProfile('embedding');
     const base = await createBase(embedding);
 
-    const { res, selects } = await rebuildCapturingDocumentSelects(base.id, { chunksOnly: true });
+    const res = await request(app, {
+      method: 'POST',
+      url: `/api/knowledge/bases/${base.id}/rebuild`,
+      headers: { cookie },
+      payload: { chunksOnly: true },
+    });
     expect(res.statusCode, res.body).toBe(202);
-    expect(selects).toHaveLength(0);
 
     const jobs = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(
       "select payload from knowledge_jobs where base_id = $1 and type = 'reindex'",

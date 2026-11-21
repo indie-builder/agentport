@@ -671,7 +671,7 @@ describe('角色权限矩阵', () => {
     await click(button('保存并生效', confirmation));
   }
 
-  it('顶部按角色分列、行头为功能，数据单元格只含勾选框', async () => {
+  it('父级半选与整棵子树勾选使用同一份矩阵草稿', async () => {
     await openRoles();
     const table = matrixTable();
 
@@ -706,12 +706,7 @@ describe('角色权限矩阵', () => {
     }
 
     expect(document.querySelectorAll('input[aria-label="角色名称"]')).toHaveLength(0);
-    expect(cell('管理员', '查看专家').getAttribute('aria-checked')).toBe('true');
-    expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('false');
-  });
 
-  it('父级半选与整棵子树勾选使用同一份矩阵草稿', async () => {
-    await openRoles();
     const settings = await openSettings('成员');
     expect(roleNameInput(settings).value).toBe('成员');
     await click(button('完成', settings));

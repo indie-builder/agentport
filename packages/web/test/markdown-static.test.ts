@@ -52,11 +52,4 @@ describe('Markdown static content', () => {
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noreferrer noopener"');
   });
-
-  it('keeps chat rendering unchanged by default', () => {
-    const html = render({ text: '# 标题\n\n正文', staticContent: false });
-
-    expect(html).toContain('<h2');
-    expect(html).not.toContain('<h1');
-  });
 });

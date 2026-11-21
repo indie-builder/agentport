@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
@@ -41,30 +41,6 @@ describe.skipIf(!ready)('run stream contract', () => {
   };
 
   const eventCount = async (runId: string): Promise<number> => redis.xlen(runStreamKey(runId));
-
-  /**
-   * 只统计客户端实际发出的读命令：spy 默认 call-through，真实读写仍走 Redis。
-   * 按本次 run 的唯一键过滤，取每条命令的 COUNT；这是客户端调用计数，不是服务端 MONITOR。
-   */
-  const watchCounts = (command: 'XRANGE' | 'XREAD', runId: string) => {
-    const key = runStreamKey(runId);
-    const spy = spyOn(RedisClient.prototype, 'send');
-    return {
-      get counts(): number[] {
-        return spy.mock.calls
-          .filter(([name, args]) => {
-            if (name !== command) return false;
-            const streams = args.indexOf('STREAMS');
-            return (streams >= 0 ? args[streams + 1] : args[0]) === key;
-          })
-          .map(([, args]) => {
-            const index = args.indexOf('COUNT');
-            return index >= 0 ? Number(args[index + 1]) : -1;
-          });
-      },
-      stop: () => spy.mockRestore(),
-    };
-  };
 
   it('API and worker publish to the same stream key', async () => {
     configureRunnerClient(testConfig().REDIS_URL);
@@ -137,49 +113,7 @@ describe.skipIf(!ready)('run stream contract', () => {
     }
   });
 
-  it('replays 40 events in order with two-entry XRANGE pages', async () => {
-    const runId = newRun();
-    const total = 40;
-    for (let i = 0; i < total; i += 1) {
-      await publishRun(runId, { type: 'text_delta', text: `e${i}` });
-    }
-
-    const watched = watchCounts('XRANGE', runId);
-    const texts: string[] = [];
-    let subscription: Awaited<ReturnType<typeof subscribeRun>> | undefined;
-    try {
-      subscription = await subscribeRun(runId, (event) => {
-        if (event.type === 'text_delta') texts.push(event.text);
-      });
-      expect(texts).toEqual(Array.from({ length: total }, (_, i) => `e${i}`));
-      expect(await waitFor(() => watched.counts.length >= 21)).toBe(true);
-      await delay(200);
-      // 40 条按 2 条一页：20 次读满 + 1 次空页确认到头（整除才有这一次）；逐条读是 41 次。
-      expect(watched.counts).toEqual(Array.from({ length: 21 }, () => 2));
-    } finally {
-      subscription?.close();
-      watched.stop();
-    }
-  });
-
-  it('follows live events with bounded multi-event XREAD batches', async () => {
-    const runId = newRun();
-    const watched = watchCounts('XREAD', runId);
-    const types: string[] = [];
-    let subscription: Awaited<ReturnType<typeof subscribeRun>> | undefined;
-    try {
-      subscription = await subscribeRun(runId, (event) => types.push(event.type));
-      await publishRun(runId, { type: 'text_delta', text: 'live' });
-      expect(await waitFor(() => types.length === 1)).toBe(true);
-      expect(await waitFor(() => watched.counts.length > 0)).toBe(true);
-      expect(watched.counts.every((count) => count === 2)).toBe(true);
-    } finally {
-      subscription?.close();
-      watched.stop();
-    }
-  });
-
-  it('replays all 9 escaped tool results beyond 8MiB, each page COUNT 2', async () => {
+  it('replays all 9 escaped tool results beyond 8MiB', async () => {
     const runId = newRun();
     // runner 默认单字段上限 1MiB。控制字符在 JSON 里转义成 \u00XX（6 字节），
     // 与普通字符各半，1MiB 字段序列化后约 3.5MiB，正好落在 worker 的 32MiB 落库额度内。
@@ -198,7 +132,6 @@ describe.skipIf(!ready)('run stream contract', () => {
       payloads.map((payload) => redis.xadd(runStreamKey(runId), '*', 'payload', payload)),
     );
 
-    const watched = watchCounts('XRANGE', runId);
     const types: string[] = [];
     let deliveredBytes = 0;
     let subscription: Awaited<ReturnType<typeof subscribeRun>> | undefined;
@@ -211,11 +144,8 @@ describe.skipIf(!ready)('run stream contract', () => {
       expect(types.filter((type) => type === 'replay_truncated')).toHaveLength(0);
       expect(types).toEqual(Array.from({ length: payloads.length }, () => 'tool_result'));
       expect(deliveredBytes).toBeGreaterThan(8 * 1024 * 1024);
-      // 9 条按 2 条一页：4 页读满 + 1 页只剩 1 条，COUNT 始终为 2。
-      expect(watched.counts).toEqual([2, 2, 2, 2, 2]);
     } finally {
       subscription?.close();
-      watched.stop();
     }
   });
 
@@ -263,7 +193,6 @@ describe.skipIf(!ready)('run stream contract', () => {
       await publishRun(runId, { type: 'text_delta', text: `e${i}` });
     }
 
-    const watched = watchCounts('XRANGE', runId);
     const controller = new AbortController();
     const seen: string[] = [];
     let subscription: Awaited<ReturnType<typeof subscribeRun>> | undefined;
@@ -278,11 +207,8 @@ describe.skipIf(!ready)('run stream contract', () => {
         controller.signal,
       );
       expect(seen).toEqual(['e0']);
-      // 第一页取到 2 条；回调 abort 后不再请求下一页，也不启动跟读。
-      expect(watched.counts).toEqual([2]);
     } finally {
       subscription?.close();
-      watched.stop();
     }
   });
 

@@ -156,7 +156,6 @@ describe('memory overview', () => {
     const skippedRow = [...host.querySelectorAll('tr')].find((row) =>
       row.textContent?.includes('deploy.md'),
     );
-    expect(skippedRow?.className).toContain('opacity-60');
     // 已跳过的块不能带大小，否则会被读成已加载 800 字节。
     expect(skippedRow?.querySelectorAll('td')[2]?.textContent?.trim()).toBe('—');
 

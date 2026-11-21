@@ -98,20 +98,30 @@ describe.skipIf(!ready)('auth', () => {
       cookies: { [AUTH_COOKIE]: cookie?.value ?? '' },
     });
     expect(authed.statusCode, authed.body).toBe(200);
-    const signIn = spyOn(app.auth.api, 'signInUsername');
+    const realGetSession = app.auth.api.getSession;
     const getSession = spyOn(app.auth.api, 'getSession');
+    let firstCookie: string | null = null;
+    let failReads = false;
+    getSession.mockImplementation(async (options) => {
+      if (failReads) throw new Error('session read failed');
+      const cookie = options?.headers.get('cookie') ?? '';
+      firstCookie ??= cookie;
+      return cookie === firstCookie ? null : realGetSession(options);
+    });
     try {
-      getSession.mockResolvedValueOnce(null);
       const retried = await login(app, config.ADMIN_USER, config.ADMIN_PASSWORD);
       expect(retried.statusCode, retried.body).toBe(200);
-      expect(signIn).toHaveBeenCalledTimes(2);
-      signIn.mockClear();
-      getSession.mockRejectedValueOnce(new Error('session read failed'));
+      const reached = await request(app, {
+        method: 'GET',
+        url: '/api/accounts',
+        headers: { cookie: cookieOf(retried) },
+      });
+      expect(reached.statusCode, reached.body).toBe(200);
+
+      failReads = true;
       const failed = await login(app, config.ADMIN_USER, config.ADMIN_PASSWORD);
       expectProblem(failed, 'INTERNAL_ERROR');
-      expect(signIn).toHaveBeenCalledTimes(1);
     } finally {
-      signIn.mockRestore();
       getSession.mockRestore();
     }
   });

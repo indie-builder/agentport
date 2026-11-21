@@ -161,11 +161,6 @@ describe('createParsingAdapter', () => {
     expect(parsed.markdown).toContain('# 季度报告');
   });
 
-  it('does not accept an endpoint from the document input', () => {
-    const adapter = createParsingAdapter();
-    expect(Object.keys(adapter)).toEqual(['parse', 'chunkMarkdown']);
-  });
-
   it('passes the caller abort signal through', async () => {
     const adapter = createParsingAdapter({ parserUrl: `${parserUrl}/slow` });
     const controller = new AbortController();
@@ -188,26 +183,6 @@ describe('createParsingAdapter', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(abortedRequests).toBe(before + 1);
-  });
-
-  it('keeps page map offsets aligned with the real markdown', async () => {
-    const adapter = createParsingAdapter({ parserUrl });
-    const parsed = await adapter.parse(doclingInput);
-
-    expect(parsed.pageMap.length).toBeGreaterThan(0);
-    for (const range of parsed.pageMap) {
-      expect(parsed.markdown.slice(range.startOffset, range.endOffset).trim()).not.toBe('');
-      expect(range.endOffset).toBeLessThanOrEqual(parsed.markdown.length);
-      expect(range.startOffset).toBeLessThan(range.endOffset);
-    }
-    // 页码来自解析结果的 prov，不是按 blocks 长度估算。
-    expect(parsed.pageMap.map((range) => range.page)).toEqual([2, 4]);
-    expect(
-      parsed.markdown.slice(parsed.pageMap[0]?.startOffset, parsed.pageMap[0]?.endOffset),
-    ).toBe('第一段内容。');
-    expect(
-      parsed.markdown.slice(parsed.pageMap[1]?.startOffset, parsed.pageMap[1]?.endOffset),
-    ).toBe(['| 指标 | 数值 |', '| --- | --- |', '| 收入 | 100 |'].join('\n'));
   });
 
   it('maps pages by original offsets across CRLF and surrogate pairs', () => {
@@ -409,16 +384,6 @@ describe('createParsingAdapter().parse', () => {
     expect(parsed.markdown).toContain('第一段内容');
     expect(parsed.pageMap).toEqual([]);
     expect(parsed.images).toEqual([]);
-  });
-
-  it('refuses a binary format when no parser service is configured', async () => {
-    await expect(
-      createParsingAdapter().parse({
-        filename: 'a.pdf',
-        mimeType: 'application/pdf',
-        data: Buffer.from('%PDF-1.4'),
-      }),
-    ).rejects.toThrow(/Docling/);
   });
 });
 

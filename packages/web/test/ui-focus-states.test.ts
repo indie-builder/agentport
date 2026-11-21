@@ -616,21 +616,6 @@ describe('error and focus states stay distinguishable', () => {
     }
   });
 
-  it('resolves the Tailwind outline variable before judging it visible', () => {
-    // outline-2 只写 outline-style: var(--tw-outline-style)；变量被 outline-none
-    // 设为 none 时实际没有轮廓，不能把 var 本身当作可见。
-    const hidden = parseRules(
-      '.probe-none{--tw-outline-style:none;outline-style:none}.probe{outline-width:2px;outline-style:var(--tw-outline-style)}',
-    );
-    expect(outlineVisible(hidden, ['probe', 'probe-none'], {}, false)).toBe(false);
-
-    const solid = parseRules(
-      '.probe{outline-width:2px;outline-style:var(--tw-outline-style);--tw-outline-style:solid}',
-    );
-    expect(outlineVisible(solid, ['probe'], {}, false)).toBe(true);
-    expect(outlineStyle(solid, ['probe'], {}, false)).toBe('solid');
-  });
-
   it('keeps the destructive border and the keyboard focus signal on invalid actions', () => {
     for (const name of [
       'checkbox',

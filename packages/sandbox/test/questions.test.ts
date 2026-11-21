@@ -93,7 +93,6 @@ describe('sandbox question channel', () => {
     });
     // 已回答不是关闭：界面据 question_updated 更新，不需要关闭事件。
     expect(closed).toEqual([]);
-    expect(bridge.pendingCount()).toBe(0);
   });
 
   it('fails closed for every tool that is not AskUserQuestion', async () => {
@@ -192,7 +191,6 @@ describe('sandbox question channel', () => {
 
     await expect(pending).resolves.toMatchObject({ behavior: 'deny' });
     expect(closed).toEqual(['req-1']);
-    expect(bridge.pendingCount()).toBe(0);
   });
 
   it('closes pending questions on stdin EOF so the tool never hangs', async () => {

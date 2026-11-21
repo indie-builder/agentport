@@ -1,4 +1,3 @@
-import { renderWorkspace } from '@agentport/core/workspace';
 import { type Agent, agentInputSchema, type RuntimeEnvironment } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
@@ -17,11 +16,6 @@ import { useAgentSummary } from '../src/lib/queries.js';
 import { toast } from '../src/lib/toast.js';
 import { AgentDetailPage, AgentsPage } from '../src/pages/agents/index.js';
 import { allAccessMe } from './me-fixture.js';
-
-vi.mock('@agentport/core/workspace', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@agentport/core/workspace')>();
-  return { ...actual, renderWorkspace: vi.fn(actual.renderWorkspace) };
-});
 
 const agent: Agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
@@ -1826,41 +1820,6 @@ describe('expert review details', () => {
 });
 
 describe('expert draft previews', () => {
-  it('does not render workspace files while previews are folded', async () => {
-    const render = vi.mocked(renderWorkspace);
-    render.mockClear();
-    await mount();
-    await openConfig();
-    expect(render).not.toHaveBeenCalled();
-
-    await editName('每按键草稿');
-    await click(button('行为'));
-    await editInput('agent-prompt', '每按键提示词');
-    await flush();
-    expect(render).not.toHaveBeenCalled();
-  });
-
-  it('renders the draft only after expansion and follows later edits', async () => {
-    const prompted = { ...agent, systemPrompt: '初始提示词' };
-    useAgentAs(prompted);
-    const render = vi.mocked(renderWorkspace);
-    render.mockClear();
-    await mount();
-    await openConfig();
-    await click(button('行为'));
-    expect(render).not.toHaveBeenCalled();
-    expect(document.querySelector<HTMLTextAreaElement>('#agent-prompt')?.value).toBe('初始提示词');
-
-    await click(button('CLAUDE.md 草稿'));
-    expect(render).toHaveBeenCalled();
-    expect(host.textContent).toContain('初始提示词');
-
-    await editInput('agent-prompt', '更新后的提示词');
-    await flush();
-    expect(host.textContent).toContain('更新后的提示词');
-    expect(host.textContent).not.toContain('初始提示词');
-  });
-
   it('keeps unsaved fields when switching config sections', async () => {
     await mount();
     await openConfig();

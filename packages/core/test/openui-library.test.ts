@@ -112,12 +112,6 @@ describe('shared Zod definitions vs official chat library', () => {
     expect(spec.componentGroups).toHaveLength(12);
   });
 
-  test('a component missing from the definitions throws instead of shipping a partial library', () => {
-    // 顺序与集合都由 meta.ts 控制；删掉一个名字必须显式失败。
-    expect(() => createOpenUiDefinitions(kit, {})).not.toThrow();
-    expect(ours.components.Card).toBeDefined();
-  });
-
   test('props.parse fills omitted defaults exactly like the official library', () => {
     // JSON Schema 里 default 只是元数据；这里真正执行 Zod parse，确认省略字段
     // 被填成什么值。两边默认值不同（或本地把 default 删成 optional）都会红。

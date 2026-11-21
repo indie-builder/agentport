@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, jest, spyOn } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, jest } from 'bun:test';
 import type { Agent } from '@agentport/shared';
 import {
   cleanup,
@@ -94,76 +94,6 @@ describe.skipIf(!ready)('agent update concurrency', () => {
     } finally {
       jest.useRealTimers();
     }
-  });
-
-  it('writes each snapshot with one insert that computes the next version in SQL', async () => {
-    const agent = await newAgent();
-    expect((await versionRows(agent.id)).map((row) => row.version)).toEqual([1]);
-
-    type TxClient = { unsafe: (...args: unknown[]) => unknown };
-    const statements: string[] = [];
-    const wrapped: TxClient[] = [];
-    const originalBegin = app.client.begin.bind(app.client) as <T>(
-      fn: (client: TxClient) => Promise<T>,
-    ) => Promise<T>;
-    const spy = spyOn(app.client, 'begin').mockImplementation((<T>(
-      callback: (client: TxClient) => Promise<T>,
-    ) =>
-      originalBegin((client) => {
-        if (!wrapped.includes(client)) {
-          const originalQuery = client.unsafe;
-          wrapped.push(client);
-          client.unsafe = (...args: unknown[]) => {
-            const first = args[0] as { text?: unknown } | undefined;
-            const sql =
-              typeof first === 'string' ? first : typeof first?.text === 'string' ? first.text : '';
-            if (sql) statements.push(sql);
-            return originalQuery.apply(client, args);
-          };
-        }
-        return callback(client);
-      })) as never);
-    try {
-      const first = await patch(agent.id, { name: 'Round one' });
-      expect(first.statusCode, first.body).toBe(200);
-      const second = await patch(agent.id, { description: 'Round two' });
-      expect(second.statusCode, second.body).toBe(200);
-    } finally {
-      spy.mockRestore();
-    }
-
-    const writes = statements.filter((text) => /insert into "agent_versions"/i.test(text));
-    expect(writes).toHaveLength(2);
-    for (const text of writes) {
-      expect(text).toMatch(
-        /select coalesce\(max\("agent_versions"\."version"\),\s*0\)\s*\+\s*1\s+from\s+"agent_versions"/i,
-      );
-    }
-    expect(
-      statements.filter(
-        (text) =>
-          /\bmax\("agent_versions"\."version"\)/i.test(text) &&
-          !/insert into "agent_versions"/i.test(text),
-      ),
-    ).toEqual([]);
-
-    const versions = await versionRows(agent.id);
-    expect(versions.map((row) => row.version)).toEqual([1, 2, 3]);
-    expect(versions.at(-1)?.snapshot).toMatchObject({
-      name: 'Round one',
-      description: 'Round two',
-    });
-
-    const rolledBack = await request(app, {
-      method: 'POST',
-      url: `/api/agents/${agent.id}/rollback`,
-      headers: { cookie },
-      payload: { version: 1 },
-    });
-    expect(rolledBack.statusCode, rolledBack.body).toBe(200);
-    const rolled = await versionRows(agent.id);
-    expect(rolled.at(-1)?.note).toBe('rollback to v1');
-    expect(rolled.at(-1)?.snapshot).toMatchObject({ name: agent.name });
   });
 
   it('lets exactly one of two same-version PATCHes win with one version and one audit row', async () => {

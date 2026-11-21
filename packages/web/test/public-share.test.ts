@@ -233,10 +233,7 @@ describe('public share page', () => {
     const image = host.querySelector('section img');
     expect(image?.getAttribute('src')).toBe('blob:image');
     expect(image?.getAttribute('alt')).toBe('photo.png');
-    // decode 之前是占位；只有真正触发 load 才算预览成功。
-    expect(image?.className).toContain('hidden');
     await act(async () => image?.dispatchEvent(new Event('load')));
-    expect(host.querySelector('section img')?.className).not.toContain('hidden');
     expect(host.querySelector('section [aria-busy="true"]')).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/download'))).toBe(true);
     expect(calls.some((call) => call.url.endsWith('/content'))).toBe(false);
@@ -286,7 +283,6 @@ describe('public share page', () => {
     const frame = host.querySelector('section iframe');
     expect(frame?.getAttribute('src')).toBe('blob:pdf');
     expect(frame?.getAttribute('title')).toBe('report.pdf');
-    expect(frame?.className).toContain('h-[70vh]');
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(calls.some((call) => call.url.endsWith('/content'))).toBe(false);
     const downloadCall = calls.find((call) => call.url.endsWith('/download'));

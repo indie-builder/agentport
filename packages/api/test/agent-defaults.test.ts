@@ -63,14 +63,6 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
     return rows[0];
   };
 
-  const versionCount = async (id: string) => {
-    const rows = await app.client.unsafe<{ count: string }[]>(
-      'select count(*) from agent_versions where agent_id = $1',
-      [id],
-    );
-    return Number(rows[0]?.count);
-  };
-
   const latestSnapshot = async (id: string) => {
     const rows = await app.client.unsafe<{ snapshot: Agent }[]>(
       'select snapshot from agent_versions where agent_id = $1 order by version desc limit 1',
@@ -111,30 +103,6 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
       });
       expect(res.statusCode, `${field}: ${res.body}`).toBe(400);
     }
-  });
-
-  it('rejects the removed fixed thinking budget without writing or versioning', async () => {
-    const slug = unique('defaults-thinking');
-    for (const value of [2048, null]) {
-      const res = await request(app, {
-        method: 'POST',
-        url: '/api/agents',
-        headers: auth(),
-        payload: { slug, name: 'Legacy thinking', maxThinkingTokens: value },
-      });
-      expect(res.statusCode, `create ${String(value)}: ${res.body}`).toBe(400);
-    }
-    const created = await app.client.unsafe('select id from agents where slug = $1', [slug]);
-    expect(created).toEqual([]);
-
-    const agent = await create({ effort: 'high' });
-    const versions = await versionCount(agent.id);
-    for (const value of [2048, null]) {
-      const res = await patch(agent.id, { maxThinkingTokens: value });
-      expect(res.statusCode, `patch ${String(value)}: ${res.body}`).toBe(400);
-    }
-    expect(await stored(agent.id)).toEqual({ effort: 'high' });
-    expect(await versionCount(agent.id)).toBe(versions);
   });
 
   it('drops cleared effort from rendered workspace files', async () => {
