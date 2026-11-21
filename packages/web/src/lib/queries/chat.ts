@@ -27,6 +27,9 @@ export const chatKeys = {
       options.limit ?? 20,
       options.cursor ?? null,
     ] as const,
+  outputShares: (conversationId: string | null, runId: string | null, path: string | null) =>
+    ['output-shares', conversationId, runId, path] as const,
+  outputSharesAll: ['output-shares'] as const,
 };
 
 export function useConversations(agentId: string | null) {
@@ -145,19 +148,13 @@ export function useOutputBlob(
   });
 }
 
-const outputSharesQueryKey = (
-  conversationId: string | null,
-  runId: string | null,
-  path: string | null,
-) => ['output-shares', conversationId, runId, path] as const;
-
 export function useOutputShares(
   conversationId: string | null,
   runId: string | null,
   path: string | null,
 ) {
   return useQuery<OutputShareList>({
-    queryKey: outputSharesQueryKey(conversationId, runId, path),
+    queryKey: chatKeys.outputShares(conversationId, runId, path),
     queryFn: ({ signal }) =>
       api.outputShares(conversationId ?? '', { runId: runId ?? '', path: path ?? '' }, signal),
     enabled: conversationId !== null && runId !== null && path !== null,
@@ -171,7 +168,7 @@ export function useCreateOutputShare() {
     mutationFn: (input: { conversationId: string; runId: string; path: string }) =>
       api.createOutputShare(input.conversationId, { runId: input.runId, path: input.path }),
     onSuccess: (share, input) => {
-      const key = outputSharesQueryKey(input.conversationId, input.runId, input.path);
+      const key = chatKeys.outputShares(input.conversationId, input.runId, input.path);
       client.setQueryData<OutputShareList>(key, (old) => ({
         items: [share, ...(old?.items ?? []).filter((item) => item.id !== share.id)],
       }));
@@ -184,6 +181,6 @@ export function useRevokeOutputShare() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.revokeOutputShare(id),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['output-shares'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: chatKeys.outputSharesAll }),
   });
 }
