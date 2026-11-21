@@ -58,6 +58,7 @@
 | `ANTHROPIC_AUTH_TOKEN` | 环境回退时二选一 | — | worker | 环境上游的 Bearer token，仅由 worker 持有 |
 | `ANTHROPIC_BASE_URL` | 否 | — | worker、api | 环境上游的自建网关地址，容器内不可达的 loopback 由 worker 改写为 `host.docker.internal`；api 读取同一地址计算审批目的地 |
 | `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | 仅用于孤儿 run 对账：queued run 超过该值 + 5 分钟宽限且队列探测确认 job 消失/已终态才置 failed；running run 从 `startedAt` 按该智能体当前配置的 `timeout_ms` + 5 分钟宽限判定。两者每 5 分钟扫描，通常 15–20 分钟收敛，不是保证期限。不是执行超时，执行取 `agent.timeoutMs`（默认 `600000`） |
+| `SCHEDULE_RECONCILE_MS` | 否 | `300000` | worker | 定时任务对账 tick 间隔（毫秒）；e2e 设为 `1000` 以加快触发 |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 队列并发数；只限制同时执行的 run，正常完成或成功取消后的热空闲会话容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内继续占用资源 |
 
 **配置入口与容器 env 不同。** worker 在 `MODEL_PROXY_PORT`（默认 3426）启动模型凭证代理（D-17）。真实凭证留在 worker 进程，沙盒每轮只拿到 `ANTHROPIC_BASE_URL=<代理地址>` 与短期 `ANTHROPIC_AUTH_TOKEN=run_...`（`ANTHROPIC_API_KEY` 置空）。代理要求 DB hash 匹配、run 状态为 `running`，且 token 已由本进程签发。run 结束即撤销内存中的 token 并尝试清空 DB hash，即使容器清理失败也会撤销。
@@ -497,7 +498,7 @@ bun run --filter @agentport/worker maintenance
 - `/chat?agent=<id>&conversation=<id>`保留专家和会话选择；刷新、前进后退恢复已保存历史，服务端会话归属优先于链接中的专家参数。新建会话清除conversation，首次发送获id后replace写入URL；链接本身不创建运行、不恢复SDK会话。浏览其他历史只关闭客户端事件流，不等同取消服务端运行；离开后的迟到提交响应不会把界面拉回，运行结束后会刷新会话及历史列表缓存。
 - 对话历史的操作菜单支持重命名持久化会话：标题去除首尾空白、1–128字符；只更新标题，不修改消息、归属或最近消息时间。脏草稿退出须确认，提交中不可关闭。
 - MCP上游执行每API进程4槽、排队最多8项，满额返回可重试错误；审批由 sandbox `PreToolUse` 短 PUT 登记、每 2 秒 GET 轮询，不占上游执行槽。握手/SSE/平台invoke不占上游槽，invoke仍保留既有4并发入场；多进程不共享全局容量，详见D-36。
-- 工具审批只接受running状态的运行；API在事务内锁定运行行再批准，与取消/终态更新串行。queued及终态返回409，不写批准时间；重复批准保留首次时间。API 不再长等待；运行中同一工具调用经批准且权限规则通过后执行，拒绝、过期、取消不执行。API 重启期间 runner 按退避重试；runner/run 结束或 hook 355 秒超时则拒绝。聊天结束后停止审批轮询，终态详情只显示失效说明。
+- 工具审批只接受running状态的运行；API在事务内锁定运行行再批准，与取消/终态更新串行。queued及终态返回409，不写批准时间；重复批准保留首次时间。API 不再长等待；运行中同一工具调用经批准且权限规则通过后执行，拒绝、过期、取消不执行。API 重启期间 runner 按退避重试；runner/run 结束或 hook 355 秒超时则拒绝。API 启动时拒绝 `APPROVAL_WAIT_MS` 超过 355000 的配置。聊天结束后停止审批轮询，终态详情只显示失效说明。
 - 出站请求前的最后一次复核由审批复核（当前工具定义、发起者身份、规则版本和有效批准）和紧随其后的取消检查组成；取消检查是 `fetch` 前最后一个异步步骤，读取 DB run 状态与 Redis 取消键（`run:<runId>:cancel`）。复核通过到请求发出之间仍存在进程内窗口，撤权、作废或受理取消不会撤销已经进入 `fetch` 的请求，也不承诺撤销上游副作用。该窗口只能缩小、不能完全消除：即使把判定与出站发送置于同一临界区，也不能撤回已经送出的请求；当前不做跨进程临界区。
 - 运维提示：内部自用可先接受 D-88「Stage 3a 已知残留」；对外（D-21 翻转）前须逐项清除或产品化。排查「已取消仍出站」时，先核对 `agent_runs.status` 与 Redis `run:<runId>:cancel`；两项检查之后的在途请求仍可能完成，属已知窗口。
 - 审批等待有上限；0024新增expires_at，登记/轮询接口返回pending/approved/denied/expired/cancelled，区分当前等待与后续调用许可。过期批准仍可用于后续调用，不会恢复已超时的旧调用；截止前后都检查期限（包括读取批准状态之后）。期限不证明沙盒仍在线；API 重启后短请求可恢复，runner/run 结束后无法恢复；API与数据库时钟需保持同步。

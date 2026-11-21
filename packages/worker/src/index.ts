@@ -595,6 +595,7 @@ const scheduleScheduler = startScheduleScheduler({
   db,
   logger,
   redisUrl: config.REDIS_URL,
+  reconcileMs: config.SCHEDULE_RECONCILE_MS,
 });
 await scheduleScheduler.sync().catch((err: unknown) => {
   logger.error({ err }, 'schedule reconcile failed');

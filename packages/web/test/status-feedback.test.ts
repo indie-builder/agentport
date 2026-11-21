@@ -7,13 +7,20 @@ import { StatusPage } from '../src/pages/status.js';
 
 const metrics: HealthMetrics = {
   process: { uptimeSeconds: 120, memoryRssBytes: 1024, bunVersion: '1.4.3' },
-  queue: { waiting: 3, active: 1, completed: 0, failed: 0, delayed: 0 },
+  queue: { waiting: 3, active: 1, completed: 0, failed: 0, delayed: 0, oldestWaitingMs: null },
   knowledgeQueue: null,
   db: { connected: true, pingMs: 2, maxConnections: 10 },
   redis: { pingMs: 2 },
 };
 
-const queueCounts = { waiting: 3, active: 1, completed: 0, failed: 0, delayed: 0 };
+const queueCounts = {
+  waiting: 3,
+  active: 1,
+  completed: 0,
+  failed: 0,
+  delayed: 0,
+  oldestWaitingMs: null,
+};
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

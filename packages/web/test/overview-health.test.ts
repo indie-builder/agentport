@@ -15,16 +15,25 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 const metrics: HealthMetrics = {
-  process: { uptimeSeconds: 20, memoryRssBytes: 1024, nodeVersion: 'v24' },
-  queue: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 },
-  db: { total: 1, idle: 1, waiting: 0 },
+  process: { uptimeSeconds: 20, memoryRssBytes: 1024, bunVersion: '1.3.0' },
+  queue: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, oldestWaitingMs: null },
+  knowledgeQueue: null,
+  db: { connected: true, pingMs: 1, maxConnections: 10 },
   redis: { pingMs: 1 },
 };
 
 function withQueue(queue: Partial<NonNullable<HealthMetrics['queue']>>): HealthMetrics {
   return {
     ...metrics,
-    queue: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, ...queue },
+    queue: {
+      waiting: 0,
+      active: 0,
+      completed: 0,
+      failed: 0,
+      delayed: 0,
+      oldestWaitingMs: null,
+      ...queue,
+    },
   };
 }
 

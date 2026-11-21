@@ -210,7 +210,13 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
   describe('sync', () => {
     it('registers a scheduler with a next run', async () => {
       const scheduleId = await insertSchedule({ cron: '*/5 * * * *' });
-      const scheduler = startScheduleScheduler({ db, logger, redisUrl, prefix });
+      const scheduler = startScheduleScheduler({
+        db,
+        logger,
+        redisUrl,
+        reconcileMs: 300_000,
+        prefix,
+      });
       try {
         await scheduler.sync();
         const entry = await schedulerQueue.getJobScheduler(scheduleId);
@@ -226,7 +232,13 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       await schedulerQueue.upsertJobScheduler(
         ...scheduleTriggerArgs('ghost-schedule', '* * * * *', 'Asia/Shanghai'),
       );
-      const scheduler = startScheduleScheduler({ db, logger, redisUrl, prefix });
+      const scheduler = startScheduleScheduler({
+        db,
+        logger,
+        redisUrl,
+        reconcileMs: 300_000,
+        prefix,
+      });
       try {
         await scheduler.sync();
         expect(await schedulerQueue.getJobScheduler('ghost-schedule')).toBeUndefined();
@@ -241,7 +253,13 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       await schedulerQueue.upsertJobScheduler(
         ...scheduleTriggerArgs(scheduleId, '* * * * *', 'Asia/Shanghai'),
       );
-      const scheduler = startScheduleScheduler({ db, logger, redisUrl, prefix });
+      const scheduler = startScheduleScheduler({
+        db,
+        logger,
+        redisUrl,
+        reconcileMs: 300_000,
+        prefix,
+      });
       try {
         await scheduler.sync();
         expect(await schedulerQueue.getJobScheduler(scheduleId)).toBeUndefined();
@@ -252,7 +270,13 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
 
     it('does not reset an unchanged scheduler', async () => {
       const scheduleId = await insertSchedule({ cron: '*/5 * * * *' });
-      const scheduler = startScheduleScheduler({ db, logger, redisUrl, prefix });
+      const scheduler = startScheduleScheduler({
+        db,
+        logger,
+        redisUrl,
+        reconcileMs: 300_000,
+        prefix,
+      });
       try {
         await scheduler.sync();
         const before = await schedulerQueue.getJobScheduler(scheduleId);
@@ -266,7 +290,13 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
 
     it('replaces the scheduler when the cron changes', async () => {
       const scheduleId = await insertSchedule({ cron: '*/5 * * * *' });
-      const scheduler = startScheduleScheduler({ db, logger, redisUrl, prefix });
+      const scheduler = startScheduleScheduler({
+        db,
+        logger,
+        redisUrl,
+        reconcileMs: 300_000,
+        prefix,
+      });
       try {
         await scheduler.sync();
         await db
@@ -292,7 +322,13 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       expect((await schedulerQueue.getJobScheduler(scheduleId))?.next).toBe(plannedAt);
       await plannedJob.promote();
 
-      const scheduler = startScheduleScheduler({ db, logger, redisUrl, prefix });
+      const scheduler = startScheduleScheduler({
+        db,
+        logger,
+        redisUrl,
+        reconcileMs: 300_000,
+        prefix,
+      });
       try {
         await scheduler.sync();
 
