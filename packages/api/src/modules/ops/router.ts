@@ -76,6 +76,28 @@ async function reportScheduleSyncFailure(
   });
 }
 
+const SCHEDULE_NOT_FOUND = '定时任务不存在';
+
+async function requireSchedule(context: RequestContext, id: string, manage: boolean) {
+  const schedule = await opsRepo.getSchedule(context.db, id);
+  if (!schedule) fail('NOT_FOUND', SCHEDULE_NOT_FOUND);
+  await authorizeObject(
+    context,
+    'schedules.read',
+    { agentId: schedule.agentId },
+    SCHEDULE_NOT_FOUND,
+  );
+  if (manage) {
+    await authorizeObject(
+      context,
+      'schedules.manage',
+      { agentId: schedule.agentId },
+      SCHEDULE_NOT_FOUND,
+    );
+  }
+  return schedule;
+}
+
 export const opsRouter = os.router({
   attention: os.attention.handler(async ({ context }) => {
     const [approvals, failed] = await Promise.all([
@@ -204,20 +226,7 @@ export const opsRouter = os.router({
       return toSchedule({ ...row, agentName: agent.name }, nextDueAt);
     }),
     update: os.schedules.update.handler(async ({ input, context }) => {
-      const existing = await opsRepo.getSchedule(context.db, input.params.id);
-      if (!existing) fail('NOT_FOUND', '定时任务不存在');
-      await authorizeObject(
-        context,
-        'schedules.read',
-        { agentId: existing.agentId },
-        '定时任务不存在',
-      );
-      await authorizeObject(
-        context,
-        'schedules.manage',
-        { agentId: existing.agentId },
-        '定时任务不存在',
-      );
+      const existing = await requireSchedule(context, input.params.id, true);
       assertSchedulableCron(
         input.body.cron ?? existing.cron,
         input.body.timezone ?? existing.timezone,
@@ -266,32 +275,12 @@ export const opsRouter = os.router({
       return toSchedule(row, nextDueAt);
     }),
     runs: os.schedules.runs.handler(async ({ input, context }) => {
-      const schedule = await opsRepo.getSchedule(context.db, input.params.id);
-      if (!schedule) fail('NOT_FOUND', '定时任务不存在');
-      await authorizeObject(
-        context,
-        'schedules.read',
-        { agentId: schedule.agentId },
-        '定时任务不存在',
-      );
+      const schedule = await requireSchedule(context, input.params.id, false);
       const runs = await opsRepo.listScheduleRuns(context.db, schedule.id, input.query.limit);
       return runs.map(toScheduleRun);
     }),
     retry: os.schedules.retry.handler(async ({ input, context }) => {
-      const schedule = await opsRepo.getSchedule(context.db, input.params.id);
-      if (!schedule) fail('NOT_FOUND', '定时任务不存在');
-      await authorizeObject(
-        context,
-        'schedules.read',
-        { agentId: schedule.agentId },
-        '定时任务不存在',
-      );
-      await authorizeObject(
-        context,
-        'schedules.manage',
-        { agentId: schedule.agentId },
-        '定时任务不存在',
-      );
+      const schedule = await requireSchedule(context, input.params.id, true);
       const previous = await opsRepo.getScheduleRun(context.db, schedule.id, input.params.runId);
       if (!previous) fail('NOT_FOUND', '运行记录不存在');
       if (previous.status !== 'failed' && previous.status !== 'timeout') {
@@ -386,22 +375,9 @@ export const opsRouter = os.router({
       return toScheduleRun(run);
     }),
     remove: os.schedules.remove.handler(async ({ input, context }) => {
-      const existing = await opsRepo.getSchedule(context.db, input.params.id);
-      if (!existing) fail('NOT_FOUND', '定时任务不存在');
-      await authorizeObject(
-        context,
-        'schedules.read',
-        { agentId: existing.agentId },
-        '定时任务不存在',
-      );
-      await authorizeObject(
-        context,
-        'schedules.manage',
-        { agentId: existing.agentId },
-        '定时任务不存在',
-      );
+      await requireSchedule(context, input.params.id, true);
       const removed = await opsRepo.deleteSchedule(context.db, input.params.id);
-      if (!removed) fail('NOT_FOUND', '定时任务不存在');
+      if (!removed) fail('NOT_FOUND', SCHEDULE_NOT_FOUND);
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'schedule.deleted',
