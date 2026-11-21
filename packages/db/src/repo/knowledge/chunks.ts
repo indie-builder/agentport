@@ -308,8 +308,10 @@ function decodeImageCursor(raw: string): { u: string; d: string; n: string } | n
     !isUtcTimestamp(u) ||
     typeof d !== 'string' ||
     d === '' ||
+    d.includes('\u0000') ||
     typeof n !== 'string' ||
-    n === ''
+    n === '' ||
+    n.includes('\u0000')
   ) {
     return null;
   }

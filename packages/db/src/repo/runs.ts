@@ -170,6 +170,7 @@ export async function listRuns(
     const cursorStartedAt = parts[0];
     const anchorId = parts[1];
     if (cursorStartedAt === undefined || anchorId === undefined) return null;
+    if (anchorId === '' || anchorId.includes('\u0000')) return null;
     if (cursorStartedAt !== '' && !isCanonicalTimestamp(cursorStartedAt)) return null;
     const [anchor] = await db
       .select({ id: agentRuns.id })

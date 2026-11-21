@@ -136,6 +136,7 @@ export async function keysetPage<T extends { id: string }>(
   if (cursor != null) {
     const column = options.column ?? (table as AnyPgTable & { createdAt: AnyPgColumn }).createdAt;
     if (valueCursor === undefined) {
+      if (cursor.includes('\u0000')) return null;
       const [anchor] = await db
         .select({ id })
         .from(table)
