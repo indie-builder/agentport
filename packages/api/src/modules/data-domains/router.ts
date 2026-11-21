@@ -10,7 +10,7 @@ import {
   resourceAccessFilter,
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { invalidCursor, requireCursorPage } from '../../http/pagination.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import {
   deleteDataDomainServer,
   enqueueDataDomainBuild,
@@ -156,18 +156,6 @@ function toEnrichmentProposal(row: EnrichmentProposalRow) {
   };
 }
 
-function encodeCursor(row: DataDomainRow): string {
-  return Buffer.from(`${row.createdAt.toISOString()}|${row.id}`).toString('base64url');
-}
-
-function decodeCursor(value: string): string {
-  const [raw, id, ...rest] = Buffer.from(value, 'base64url').toString('utf8').split('|');
-  if (raw === undefined || id === undefined || rest.length > 0 || Number.isNaN(Date.parse(raw))) {
-    invalidCursor();
-  }
-  return id;
-}
-
 async function loadDomain(context: RequestContext, id: string): Promise<DataDomainRow> {
   const row = await domains.getDataDomain(context.db, id);
   if (!row) fail('NOT_FOUND', notFoundMessage);
@@ -198,16 +186,11 @@ export const dataDomainsRouter = os.router({
     const access = await resourceAccessFilter(context, 'data_domains.read', 'data_domain', 'read');
     const { cursor, limit } = input.query;
     const page = requireCursorPage(
-      await domains.listDataDomainPage(context.db, {
-        access,
-        limit,
-        cursor: cursor === undefined ? undefined : decodeCursor(cursor),
-      }),
+      await domains.listDataDomainPage(context.db, { access, limit, cursor }),
     );
-    const last = page.items.at(-1);
     return {
       items: page.items.map(toDataDomain),
-      nextCursor: page.nextCursor !== null && last !== undefined ? encodeCursor(last) : null,
+      nextCursor: page.nextCursor,
     };
   }),
 

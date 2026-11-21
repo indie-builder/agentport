@@ -149,7 +149,7 @@ requireCursorPage(page)    // page 为 null 时调用 invalidCursor()
 | `GET /api/knowledge/bases/{id}/images` | 50 / 100 | 图片资产；复合游标 `{u: updatedAt, d: documentId, n: name}` |
 | `GET /api/knowledge/bases/{id}/faqs` | 50 / 100 | FAQ 列表；按 `(updatedAt, id)` 倒序，使用值游标 `{v, id}` |
 | `GET /api/me/memory/versions`、`/api/agents/{id}/memory/{name}/versions`、`/api/agents/{id}/rules/{slug}/versions`、`GET /api/memory-reviews` | 50 / 100 | 记忆版本与审核 |
-| `GET /api/data-domains`、`/{id}/query-logs`、`/{id}/approvals` | 50 / 100 | 数据域列表与查询记录；列表游标为 `createdAt\|id` 的 base64url 文本，服务端按末条 id 校验锚点；查询记录与审批游标为末条 id |
+| `GET /api/data-domains`、`/{id}/query-logs`、`/{id}/approvals` | 50 / 100 | 数据域列表与查询记录；列表游标为末条 id，服务端按 id 校验锚点；查询记录与审批游标同为末条 id |
 
 ### offset 页码
 
