@@ -16,6 +16,7 @@ import { newId } from '../../id.js';
 import { knowledgeDocuments, knowledgeDocumentTags, knowledgeTags } from '../../schema.js';
 import { cursorValueSql, keysetPage } from '../pagination.js';
 import {
+  clampDocumentTitle,
   disableDocumentsBySourceTx,
   escapeLike,
   type KnowledgeDocumentRow,
@@ -48,7 +49,7 @@ export async function createDocument(
 ): Promise<KnowledgeDocumentRow> {
   const [row] = await db
     .insert(knowledgeDocuments)
-    .values({ id: newId('knowledgeDocument'), ...input })
+    .values({ id: newId('knowledgeDocument'), ...input, title: clampDocumentTitle(input.title) })
     .returning();
   if (!row) throw new Error('knowledge document insert returned no row');
   return row;
@@ -272,7 +273,11 @@ export async function updateDocument(
 ): Promise<KnowledgeDocumentRow | null> {
   const [row] = await db
     .update(knowledgeDocuments)
-    .set({ ...patch, updatedAt: new Date() })
+    .set({
+      ...patch,
+      ...(patch.title === undefined ? {} : { title: clampDocumentTitle(patch.title) }),
+      updatedAt: new Date(),
+    })
     .where(eq(knowledgeDocuments.id, id))
     .returning();
   return row ?? null;

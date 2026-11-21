@@ -166,7 +166,7 @@ export async function listRuns(
 
   if (options.cursor !== undefined) {
     const parts = decodeCursor(options.cursor, 2);
-    if (parts === null || encodeCursor(parts) !== options.cursor) return null;
+    if (parts === null) return null;
     const cursorStartedAt = parts[0];
     const anchorId = parts[1];
     if (cursorStartedAt === undefined || anchorId === undefined) return null;

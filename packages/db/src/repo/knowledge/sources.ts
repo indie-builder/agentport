@@ -10,6 +10,7 @@ import {
 } from '../../schema.js';
 import { keysetPage } from '../pagination.js';
 import {
+  clampDocumentTitle,
   disableDocumentsBySourceTx,
   type KnowledgeDocumentRow,
   type KnowledgeSourceRangeRow,
@@ -450,7 +451,7 @@ export async function setDocumentSourceRanges(
     const [row] = await tx
       .update(knowledgeDocuments)
       .set({
-        title: patch.title,
+        title: clampDocumentTitle(patch.title),
         sourceUrl: patch.sourceUrl,
         sourcePath: patch.sourcePath,
         mimeType: patch.mimeType,

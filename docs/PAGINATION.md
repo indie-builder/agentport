@@ -29,7 +29,7 @@ offsetPageSchema(item)   // { items: item[], total: number }
 - `nextCursor === null` 表示没有下一页。
 - 游标无效、过期或锚点不在当前访问/筛选范围内时，服务端返回 400，不返回空页。
 - 客户端把 `cursor` 当作不透明字符串，不解析、不拼接。
-- 可变排序列的游标内嵌该行的排序值（时间列为时间戳文本，名称/标题列为原文），保证排序值变化时翻页稳定；解析或校验不通过视为无效游标，返回 400。
+- 可变排序列的游标内嵌该行的排序值（时间列为时间戳文本，名称/标题列为原文），把页边界固定在签发该页时记录的值；解析或校验不通过视为无效游标，返回 400。页边界不随数据漂移：已返回的行若在签发后改变排序值并跨到边界另一侧，仍可能再次出现；未返回的行若改到边界之前则会被跳过，游标不承诺跨写入的稳定快照。
 
 现有例外（不改造成新信封）：
 
@@ -51,9 +51,9 @@ offsetPageSchema(item)   // { items: item[], total: number }
 | `adminPageQuerySchema` | 50 | 200 | `cursor` |
 | `offsetQuerySchema` | 50 | 100 | `offset`（默认 0） |
 
-`cursor` 是不透明字符串，输入上限统一为 `CURSOR_MAX_LENGTH = 262144`（`packages/shared/src/pagination.ts`）。该上限必须覆盖服务端自己签发的最长游标：知识库文档标题游标内嵌同步文档的标题原文，可达数千字符，`JSON.stringify` 转义与 base64url 编码后再放大。不为单个接口另设游标上限。
+`cursor` 是不透明字符串，输入上限统一为 `CURSOR_MAX_LENGTH = 16384`（`packages/shared/src/pagination.ts`）。知识库文档标题游标内嵌标题原文，但标题在写入边界统一收敛到 `KNOWLEDGE_DOCUMENT_TITLE_MAX_CHARS = 300` 个 Unicode 码点（`packages/shared/src/knowledge.ts`），编码后的最长游标仍远低于 16 KB 的 HTTP 请求行预算。不为单个接口另设游标上限。
 
-三个专用短 ID 契约是例外，仍各自保留 200 字符的游标上限（`evalRunListQuerySchema` 见 `packages/shared/src/schemas.ts`，`personalRunListQuerySchema`、`personalShareListQuerySchema` 见 `packages/shared/src/personal.ts`）：它们只签当前页末条的 TypeID，游标长度有界，远低于 200。其余列表一律使用 `pageQuerySchema` / `adminPageQuerySchema` 的 262144。
+三个专用短 ID 契约是例外，仍各自保留 200 字符的游标上限（`evalRunListQuerySchema` 见 `packages/shared/src/schemas.ts`，`personalRunListQuerySchema`、`personalShareListQuerySchema` 见 `packages/shared/src/personal.ts`）：它们只签当前页末条的 TypeID，游标长度有界，远低于 200。其余列表一律使用 `pageQuerySchema` / `adminPageQuerySchema` 的 16384。
 
 接口专属上限仍可收窄或放宽，但必须写在契约里，例如：
 
@@ -85,7 +85,7 @@ offsetPageSchema(item)   // { items: item[], total: number }
 复合游标：
 
 - 多列排序、排序模式切换用 `encodeCursor(parts)` / `decodeCursor(cursor, expectedParts)`（base64url 编码的 JSON 字符串数组）。
-- `decodeCursor` 在 base64/JSON 损坏、部分数量不符或含非字符串时返回 `null`；调用方必须转 `invalidCursor()`。
+- `decodeCursor` 在 base64url 非规范编码、base64/JSON 损坏、部分数量不符或含非字符串时返回 `null`；调用方必须转 `invalidCursor()`。
 - 现有复合游标：runs `[startedAt, id]`（`startedAt` 为空时用空字符串）、agents `[sort, id]`、知识库文档 `[sort, order, id]`（默认 `created desc` 排序仍用末条 id；其他排序切换时按复合游标校验）。
 - 工作区产出游标 `{createdAt, runId, path}`（base64url 编码的 JSON 对象）：版本按 `(createdAt, runId)` 倒序，同一版本内按 `path` 升序；会话产出与频道 run 产出共用该游标。
 - 知识库图片游标 `{u: updatedAt, d: documentId, n: name}`（base64url 编码的 JSON 对象）：按 `(updatedAt, documentId, name)` 倒序，锚点在当前筛选范围内按 `documentId` 与 `name` 重查。

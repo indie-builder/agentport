@@ -41,6 +41,8 @@ export const KNOWLEDGE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 export const KNOWLEDGE_DOCUMENT_MAX_BYTES = 32 * 1024 * 1024;
 
+export const KNOWLEDGE_DOCUMENT_TITLE_MAX_CHARS = 300;
+
 /** 图片名必须是版本清单里的单段文件名；任何路径分隔符或 `..` 都不接受。 */
 const knowledgeImageNameSchema = z
   .string()

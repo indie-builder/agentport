@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const PAGE_LIMIT_DEFAULT = 50;
 export const PAGE_LIMIT_MAX = 100;
 export const ADMIN_PAGE_LIMIT_MAX = 200;
-export const CURSOR_MAX_LENGTH = 262144;
+export const CURSOR_MAX_LENGTH = 16384;
 
 export function cursorQuerySchema(options?: { max?: number }) {
   return z.object({
@@ -52,11 +52,15 @@ type WebGlobals = {
 
 const { TextEncoder, TextDecoder, btoa, atob } = globalThis as unknown as WebGlobals;
 
-export function encodeCursor(parts: readonly string[]): string {
-  const binary = Array.from(new TextEncoder().encode(JSON.stringify(parts)), (byte) =>
+function toBase64Url(text: string): string {
+  const binary = Array.from(new TextEncoder().encode(text), (byte) =>
     String.fromCharCode(byte),
   ).join('');
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function encodeCursor(parts: readonly string[]): string {
+  return toBase64Url(JSON.stringify(parts));
 }
 
 export function decodeCursor(cursor: string, expectedParts: number): string[] | null {
@@ -65,7 +69,9 @@ export function decodeCursor(cursor: string, expectedParts: number): string[] | 
     const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
     const binary = atob(padded);
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    const text = new TextDecoder().decode(bytes);
+    if (toBase64Url(text) !== cursor) return null;
+    const parsed: unknown = JSON.parse(text);
     return Array.isArray(parsed) &&
       parsed.length === expectedParts &&
       parsed.every((part) => typeof part === 'string')

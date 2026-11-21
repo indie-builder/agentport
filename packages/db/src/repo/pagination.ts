@@ -26,7 +26,10 @@ export function isCanonicalTimestamp(value: string): boolean {
     number,
     number,
   ];
-  const date = new Date(Date.UTC(y, mo - 1, d, h, mi, s));
+  if (y === 0) return false;
+  const date = new Date(0);
+  date.setUTCFullYear(y, mo - 1, d);
+  date.setUTCHours(h, mi, s, 0);
   return (
     date.getUTCFullYear() === y &&
     date.getUTCMonth() === mo - 1 &&
