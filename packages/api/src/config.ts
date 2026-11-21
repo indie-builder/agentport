@@ -1,6 +1,11 @@
 import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { commonEnvSchema, MCP_APPROVAL_WAIT_MS, parseEnv } from '@agentport/shared';
+import {
+  commonEnvSchema,
+  MCP_APPROVAL_WAIT_MS,
+  parseEnv,
+  serviceEnvShape,
+} from '@agentport/shared';
 import { z } from 'zod';
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
@@ -19,10 +24,10 @@ const envSchema = z
     LOG_LEVEL,
     PORT: z.coerce.number().int().positive().default(3000),
     SELF_URL: z.string().default('http://127.0.0.1:3000'),
-    DATABASE_URL: z.string().min(1),
+    DATABASE_URL: serviceEnvShape.DATABASE_URL,
     REDIS_URL,
-    APP_SECRET_KEY: z.string().min(32),
-    ANTHROPIC_BASE_URL: z.string().optional(),
+    APP_SECRET_KEY: serviceEnvShape.APP_SECRET_KEY,
+    ANTHROPIC_BASE_URL: serviceEnvShape.ANTHROPIC_BASE_URL,
     ADMIN_USER: z.string().default('admin'),
     ALLOW_WEAK_ADMIN_PASSWORD: z.enum(['true', 'false']).optional(),
     ADMIN_PASSWORD: z.string().min(1).max(128),
@@ -34,17 +39,14 @@ const envSchema = z
       .nonnegative()
       .max(MCP_APPROVAL_WAIT_MS, 'APPROVAL_WAIT_MS 不能超过 355000：沙盒审批 hook 最多等待 355 秒')
       .default(300_000),
-    SANDBOX_IMAGE: z.string().min(1).default('agentport/sandbox:dev'),
-    WORKSPACES_DIR: z.string().min(1).default('./data/workspaces'),
-    KNOWLEDGE_DIR: z.string().min(1).default('./data/knowledge'),
-    KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
-    MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
+    SANDBOX_IMAGE: serviceEnvShape.SANDBOX_IMAGE,
+    WORKSPACES_DIR: serviceEnvShape.WORKSPACES_DIR,
+    KNOWLEDGE_DIR: serviceEnvShape.KNOWLEDGE_DIR,
+    KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: serviceEnvShape.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST,
+    MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST: serviceEnvShape.MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST,
     GENERATED_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
-    WEBHOOK_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
-    WREN_RUNTIME_URL: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().url().default(''),
-    ),
+    WEBHOOK_PRIVATE_HOST_ALLOWLIST: serviceEnvShape.WEBHOOK_PRIVATE_HOST_ALLOWLIST,
+    WREN_RUNTIME_URL: serviceEnvShape.WREN_RUNTIME_URL,
   })
   .superRefine((env, ctx) => {
     if (env.ALLOW_WEAK_ADMIN_PASSWORD === 'true') return;

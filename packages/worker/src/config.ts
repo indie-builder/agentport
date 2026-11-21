@@ -1,6 +1,6 @@
 import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { commonEnvSchema, parseEnv, RETENTION_DEFAULTS } from '@agentport/shared';
+import { commonEnvSchema, parseEnv, RETENTION_DEFAULTS, serviceEnvShape } from '@agentport/shared';
 import { z } from 'zod';
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
@@ -23,16 +23,15 @@ const envSchema = z
   .object({
     NODE_ENV,
     LOG_LEVEL,
-    DATABASE_URL: z.string().min(1),
+    DATABASE_URL: serviceEnvShape.DATABASE_URL,
     REDIS_URL,
-    /** 与宿主机同一路径：worker 把该目录挂进沙盒，路径必须对宿主 daemon 有效。 */
-    WORKSPACES_DIR: z.string().min(1).default('./data/workspaces'),
+    WORKSPACES_DIR: serviceEnvShape.WORKSPACES_DIR,
     /**
      * 宿主视角的 WORKSPACES_DIR。容器部署时 WORKSPACES_DIR 是命名卷挂载点（如 /workspaces），
      * 而 docker -v 的源路径由宿主 daemon 解析，必须换成该卷的宿主目录。默认与 WORKSPACES_DIR 相同。
      */
     HOST_WORKSPACES_DIR: z.string().min(1).optional(),
-    SANDBOX_IMAGE: z.string().min(1).default('agentport/sandbox:dev'),
+    SANDBOX_IMAGE: serviceEnvShape.SANDBOX_IMAGE,
     SANDBOX_EGRESS: z.enum(['open', 'none', 'proxy']).default('open'),
     HTTPS_PROXY: z.string().optional(),
     HTTP_PROXY: z.string().optional(),
@@ -70,33 +69,30 @@ const envSchema = z
       )
       .default(1024 * 1024),
     SANDBOX_API_URL: z.string().min(1).default('http://host.docker.internal:3000'),
-    APP_SECRET_KEY: z.string().min(32),
+    APP_SECRET_KEY: serviceEnvShape.APP_SECRET_KEY,
     ANTHROPIC_API_KEY: z.string().optional(),
     ANTHROPIC_AUTH_TOKEN: z.string().optional(),
-    ANTHROPIC_BASE_URL: z.string().optional(),
+    ANTHROPIC_BASE_URL: serviceEnvShape.ANTHROPIC_BASE_URL,
     /**
      * 模型代理监听端口。compose 需要把它发布到宿主，沙盒才能经 host.docker.internal 访问；
      * 宿主机直跑 worker 时随意。
      */
     MODEL_PROXY_PORT: z.coerce.number().int().positive().default(3426),
-    MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
+    MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST: serviceEnvShape.MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST,
     /** Docling HTTP base URL；不给对应任务直接失败，避免解析静默降级。compose 的 `${DOCLING_URL:-}` 会传空串，按未配置处理。 */
     DOCLING_URL: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z.string().url().optional(),
     ),
     DOCLING_TOKEN: z.string().optional(),
-    WREN_RUNTIME_URL: z.preprocess(
-      (value) => (value === '' ? undefined : value),
-      z.string().url().default(''),
-    ),
-    KNOWLEDGE_DIR: z.string().min(1).default('./data/knowledge'),
+    WREN_RUNTIME_URL: serviceEnvShape.WREN_RUNTIME_URL,
+    KNOWLEDGE_DIR: serviceEnvShape.KNOWLEDGE_DIR,
     KNOWLEDGE_WIKI_MODEL: z.string().optional(),
     KNOWLEDGE_SUMMARY_MODEL: optionalModelEnv,
     EVAL_JUDGE_MODEL: optionalModelEnv,
     DATA_DOMAIN_ENRICH_MODEL: z.string().optional(),
-    KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
-    WEBHOOK_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
+    KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: serviceEnvShape.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST,
+    WEBHOOK_PRIVATE_HOST_ALLOWLIST: serviceEnvShape.WEBHOOK_PRIVATE_HOST_ALLOWLIST,
   })
   .superRefine((env, ctx) => {
     if (env.SANDBOX_EGRESS === 'proxy' && !env.HTTPS_PROXY && !env.HTTP_PROXY) {
