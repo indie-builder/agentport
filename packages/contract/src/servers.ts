@@ -2,6 +2,7 @@ import {
   apiToolInputSchema,
   apiToolSchema,
   connectorCatalogSchema,
+  expectedUpdatedAtSchema,
   generatedServerSchema,
   httpServerSchema,
   idParams,
@@ -24,7 +25,7 @@ const serverPatchSchema = z.object({
   url: httpServerSchema.shape.url.optional(),
   baseUrl: generatedServerSchema.shape.baseUrl.optional(),
   headers: httpServerSchema.shape.headers.removeDefault().optional(),
-  expectedUpdatedAt: z.coerce.date().optional(),
+  expectedUpdatedAt: expectedUpdatedAtSchema,
 });
 const toolPatchSchema = z
   .object({

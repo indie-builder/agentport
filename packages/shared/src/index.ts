@@ -17,6 +17,7 @@ export * from './governance.js';
 export * from './integrations.js';
 export * from './json.js';
 export * from './knowledge.js';
+export * from './limits.js';
 export * from './mcp.js';
 export * from './memory.js';
 export * from './model-providers.js';

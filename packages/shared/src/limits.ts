@@ -1,0 +1,3 @@
+export const MARKDOWN_FILE_MAX_BYTES = 131_072;
+
+export const MARKDOWN_FILE_MAX_CODE_POINTS = 131_072;

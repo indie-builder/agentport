@@ -1,4 +1,5 @@
 import {
+  MARKDOWN_FILE_MAX_BYTES,
   type MarketSkill,
   type MarketView,
   type Skill,
@@ -82,7 +83,6 @@ import { useZodForm } from '../lib/use-zod-form.js';
 
 const emptySkill: SkillInput = { slug: '', name: '', description: '', body: '' };
 const emptySkillFile = { path: '', content: '' };
-const maxSkillFileBytes = 131_072;
 const usageOptions = [
   { value: 'all', label: '全部技能' },
   { value: 'bound', label: '已绑定' },
@@ -197,7 +197,7 @@ export function SkillsPage() {
     });
   };
   const importSkillMd = async (file: File): Promise<void> => {
-    if (file.size > maxSkillFileBytes) {
+    if (file.size > MARKDOWN_FILE_MAX_BYTES) {
       toastError(new Error('SKILL.md 不能超过 128 KB，请精简后重试。'));
       return;
     }

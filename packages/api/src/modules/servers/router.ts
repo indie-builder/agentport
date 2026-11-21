@@ -203,7 +203,7 @@ export const serversRouter = os.router({
         id,
         body,
         context.config.APP_SECRET_KEY,
-        body.expectedUpdatedAt,
+        body.expectedUpdatedAt === undefined ? undefined : new Date(body.expectedUpdatedAt),
       );
       if (!updated) return notFound('server');
       await writeAudit(context.db, context.log, {

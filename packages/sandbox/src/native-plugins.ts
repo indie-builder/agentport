@@ -15,6 +15,7 @@ import {
   nativeInstalledPluginSchema,
   nativePluginActionSchema,
   PLUGIN_CACHE_CONTAINER_DIR,
+  PLUGIN_FILE_MAX_CODE_UNITS,
   type PluginFileInput,
   pluginFileInputSchema,
 } from '@agentport/shared';
@@ -30,7 +31,6 @@ import { readTask } from './stdin-task.js';
 
 const CACHE_ROOT = PLUGIN_CACHE_CONTAINER_DIR;
 const CLI_MAX_BUFFER = 8 * 1024 * 1024;
-const MAX_FILE_CHARS = 200_000;
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -289,8 +289,8 @@ async function snapshotPlugin(
         return fail('读取', `插件文件总大小超过 ${AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES} 字节`);
       }
       const content = decodeText(buffer, rel);
-      if (content.length > MAX_FILE_CHARS) {
-        return fail('读取', `插件文件超过 ${MAX_FILE_CHARS} 字符：${rel}`);
+      if (content.length > PLUGIN_FILE_MAX_CODE_UNITS) {
+        return fail('读取', `插件文件超过 ${PLUGIN_FILE_MAX_CODE_UNITS} 字符：${rel}`);
       }
       const file = pluginFileInputSchema.safeParse({
         path: rel,

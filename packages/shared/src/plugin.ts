@@ -8,6 +8,10 @@ import { slugSchema } from './params.js';
 
 export const PLUGIN_ZIP_MAX_BYTES = 4_194_304;
 
+export const PLUGIN_FILE_MAX_CODE_POINTS = 200_000;
+
+export const PLUGIN_FILE_MAX_CODE_UNITS = 200_000;
+
 /** 插件根内路径：相对、POSIX、不含 `..`，与技能资源文件同一套安全规则。 */
 export const pluginFilePathSchema = z
   .string()
@@ -25,7 +29,7 @@ export const pluginFilePathSchema = z
 
 export const pluginFileInputSchema = z.object({
   path: pluginFilePathSchema,
-  content: z.string().max(200_000).default(''),
+  content: z.string().max(PLUGIN_FILE_MAX_CODE_POINTS).default(''),
   /** Unix 可执行位；插件 hooks 依赖 `scripts/*.sh` 可直接执行。 */
   executable: z.boolean().default(false),
 });

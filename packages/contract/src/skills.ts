@@ -1,5 +1,7 @@
 import {
+  expectedUpdatedAtSchema,
   idParams,
+  MARKDOWN_FILE_MAX_CODE_POINTS,
   skillFileInputSchema,
   skillFileSchema,
   skillInputSchema,
@@ -22,9 +24,9 @@ const patchSchema = z.object({
   license: skillFields.license.nullable(),
   compatibility: skillFields.compatibility.nullable(),
   metadata: skillFields.metadata.nullable(),
-  expectedUpdatedAt: z.iso.datetime().optional(),
+  expectedUpdatedAt: expectedUpdatedAtSchema,
 });
-const importSchema = z.object({ skillMd: z.string().max(131072) });
+const importSchema = z.object({ skillMd: z.string().max(MARKDOWN_FILE_MAX_CODE_POINTS) });
 export const skillsContract = {
   list: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'skills.read' } })

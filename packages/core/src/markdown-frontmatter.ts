@@ -1,3 +1,4 @@
+import { MARKDOWN_FILE_MAX_BYTES } from '@agentport/shared';
 import { isAlias, isMap, parseDocument, visit } from 'yaml';
 import { fail } from './errors.js';
 
@@ -10,8 +11,6 @@ export function splitHeading(body: string): { body: string; displayName?: string
   return { body: lines.join('\n'), displayName: heading[1].trim() };
 }
 
-const MAX_BYTES = 131_072;
-
 export function parseMarkdownFrontmatter(
   content: string,
   label: string,
@@ -22,7 +21,7 @@ export function parseMarkdownFrontmatter(
     fail('INVALID_INPUT', message, { path });
   }
 
-  const maxBytes = options?.maxBytes ?? MAX_BYTES;
+  const maxBytes = options?.maxBytes ?? MARKDOWN_FILE_MAX_BYTES;
   const text = content.replace(/^﻿/, '');
   if (Buffer.byteLength(text, 'utf8') > maxBytes) {
     invalid(`${label} 超过 ${maxBytes} 字节上限`);
