@@ -1,4 +1,5 @@
 import {
+  expectedUpdatedAtSchema,
   idParams,
   nativeInstalledPluginSchema,
   nativePluginImportInputSchema,
@@ -13,7 +14,7 @@ const patchSchema = z.object({
   name: z.string().min(1).max(128).optional(),
   description: z.string().max(500).optional(),
   version: z.string().max(64).optional(),
-  expectedUpdatedAt: z.iso.datetime().optional(),
+  expectedUpdatedAt: expectedUpdatedAtSchema,
 });
 const nativeResultBodySchema = z.object({
   plugin: pluginSchema,

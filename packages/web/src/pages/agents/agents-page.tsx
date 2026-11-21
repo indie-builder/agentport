@@ -3,6 +3,7 @@ import {
   AGENT_ROLES,
   type AgentInput,
   type AgentSummary,
+  MARKDOWN_FILE_MAX_BYTES,
 } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
@@ -135,7 +136,7 @@ export function AgentsPage() {
     setImporting(true);
     try {
       const isMarkdown = file.name.toLowerCase().endsWith('.md');
-      if (file.size > (isMarkdown ? 131072 : AGENT_PACKAGE_MAX_BYTES)) {
+      if (file.size > (isMarkdown ? MARKDOWN_FILE_MAX_BYTES : AGENT_PACKAGE_MAX_BYTES)) {
         toastError(
           new Error(
             isMarkdown ? 'agent.md 不能超过 128 KB，请精简后重试。' : '导入文件不能超过 1 MiB。',

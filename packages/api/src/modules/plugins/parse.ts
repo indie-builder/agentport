@@ -1,6 +1,7 @@
 import { fail } from '@agentport/core';
+import type { PluginFileInput } from '@agentport/shared';
 import { pluginFilePathSchema, pluginInputSchema } from '@agentport/shared';
-import { z } from 'zod';
+import type { z } from 'zod';
 
 const UNSUPPORTED_TOP_LEVEL: Record<string, string> = {
   '.lsp.json': 'LSP server 暂不支持',
@@ -29,13 +30,7 @@ const RUNTIME_DEPENDENCY_FIELDS = ['dependencies', 'optionalDependencies'] as co
 
 const UNSUPPORTED_MCP_PLACEHOLDERS = /\$\{user_config\./;
 
-const pluginImportFileSchema = z.object({
-  path: pluginFilePathSchema,
-  content: z.string().max(200_000),
-  executable: z.boolean().default(false),
-});
-
-export type PluginImportFile = z.infer<typeof pluginImportFileSchema>;
+export type PluginImportFile = PluginFileInput;
 
 export interface ParsedPlugin {
   input: z.infer<typeof pluginInputSchema>;
@@ -70,7 +65,7 @@ function rejectUnsupported(path: string): void {
   if (reason !== undefined) fail('INVALID_INPUT', `插件包含不支持的组件：${reason}`, { path });
 }
 
-function assertNoRuntimeDependencies(files: PluginImportFile[]): void {
+function assertNoRuntimeDependencies(files: PluginFileInput[]): void {
   const pkg = files.find((file) => file.path === 'package.json');
   if (pkg === undefined) return;
   let parsed: unknown;
@@ -98,7 +93,7 @@ function slugify(value: string): string {
     .slice(0, 64);
 }
 
-function parseManifest(files: PluginImportFile[], warnings: string[]): ManifestShape {
+function parseManifest(files: PluginFileInput[], warnings: string[]): ManifestShape {
   const manifest = files.find((file) => file.path === '.claude-plugin/plugin.json');
   if (manifest === undefined) {
     warnings.push('插件没有 .claude-plugin/plugin.json，按目录名作为插件名');
@@ -133,7 +128,7 @@ function manifestMcpServers(manifest: ManifestShape): string[] {
   });
 }
 
-function detectMcpServers(files: PluginImportFile[], manifest: ManifestShape): string[] {
+function detectMcpServers(files: PluginFileInput[], manifest: ManifestShape): string[] {
   const names = new Set(manifestMcpServers(manifest));
   const mcpFile = files.find((file) => file.path === '.mcp.json');
   if (mcpFile === undefined) return [...names];
@@ -158,7 +153,7 @@ function detectMcpServers(files: PluginImportFile[], manifest: ManifestShape): s
   return [...names];
 }
 
-function skillNamesOf(files: PluginImportFile[]): string[] {
+function skillNamesOf(files: PluginFileInput[]): string[] {
   const names = new Set<string>();
   for (const file of files) {
     const match = /^skills\/([^/]+)\/SKILL\.md$/.exec(file.path);
@@ -168,14 +163,14 @@ function skillNamesOf(files: PluginImportFile[]): string[] {
 }
 
 /** 官方允许 agents/ 下再分子目录，子目录名会成为 agent 名的一部分。 */
-function agentNamesOf(files: PluginImportFile[]): string[] {
+function agentNamesOf(files: PluginFileInput[]): string[] {
   return files
     .filter((file) => /^agents\/.+\.md$/.test(file.path))
     .map((file) => file.path.slice('agents/'.length, -'.md'.length));
 }
 
 export function parsePluginFiles(params: {
-  files: PluginImportFile[];
+  files: PluginFileInput[];
   slug: string;
   name?: string;
   runtimeName?: string;

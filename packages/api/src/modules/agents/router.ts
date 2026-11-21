@@ -541,7 +541,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
               input.skillIds,
               null,
               input.subAgentIds,
-              input.expectedUpdatedAt,
+              input.expectedUpdatedAt === undefined ? undefined : new Date(input.expectedUpdatedAt),
               input.pluginBindings,
             );
       if (!row) return notFound('agent');

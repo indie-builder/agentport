@@ -13,7 +13,9 @@ import {
   agentSchema,
   agentSummarySchema,
   businessIdSchema,
+  expectedUpdatedAtSchema,
   idParams,
+  MARKDOWN_FILE_MAX_CODE_POINTS,
   memoryFileContentSchema,
   memoryFileListSchema,
   memoryFileNameSchema,
@@ -92,10 +94,10 @@ const patchSchema = z
     enabled: agentFields.enabled.removeDefault().optional(),
     visibility: agentFields.visibility.removeDefault().optional(),
     tags: agentFields.tags.removeDefault().optional(),
-    expectedUpdatedAt: z.coerce.date().optional(),
+    expectedUpdatedAt: expectedUpdatedAtSchema,
   })
   .strict();
-const importFileSchema = z.object({ agentMd: z.string().max(131072) });
+const importFileSchema = z.object({ agentMd: z.string().max(MARKDOWN_FILE_MAX_CODE_POINTS) });
 const hookFileBody = agentHookFileInputSchema;
 const hookFileDeleteBody = z.object({ path: agentHookFilePathSchema });
 const memberSchema = z.object({

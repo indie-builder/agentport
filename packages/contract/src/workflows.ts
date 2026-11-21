@@ -1,4 +1,9 @@
-import { agentWorkflowInputSchema, agentWorkflowSchema, idParams } from '@agentport/shared';
+import {
+  agentWorkflowInputSchema,
+  agentWorkflowSchema,
+  expectedUpdatedAtSchema,
+  idParams,
+} from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
 
@@ -9,7 +14,7 @@ const workflowParams = z.object({
 const createBody = agentWorkflowInputSchema.pick({ slug: true, content: true });
 const updateBody = z.object({
   content: agentWorkflowInputSchema.shape.content,
-  expectedUpdatedAt: z.iso.datetime().optional(),
+  expectedUpdatedAt: expectedUpdatedAtSchema,
 });
 
 export const workflowsContract = {
