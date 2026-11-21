@@ -9,7 +9,13 @@ import type {
   ResourceGrantInput,
   ResourceKind,
 } from '@agentport/shared';
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  type QueryClient,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { api } from '../api.js';
 import { AGENTS_QUERY_KEY } from './agents.js';
 import { dataDomainKeys } from './data-domains.js';
@@ -35,6 +41,12 @@ const governanceKeys = {
   cost: (days: number, groupBy: CostGroupBy) => ['governance', 'cost', days, groupBy] as const,
   alerts: ['governance', 'alerts'] as const,
 };
+
+function invalidateDepartmentStructure(client: QueryClient) {
+  void client.invalidateQueries({ queryKey: governanceKeys.departments });
+  void client.invalidateQueries({ queryKey: governanceKeys.budgets });
+  void client.invalidateQueries({ queryKey: governanceKeys.handoverAll });
+}
 
 const resourceGrantsQuery = (resourceKind: ResourceKind, resourceId: string) =>
   queryOptions<ResourceGrant[]>({
@@ -159,11 +171,7 @@ export function useUpdateDepartment() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; name: string }) => api.updateDepartment(vars.id, vars.name),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: governanceKeys.departments });
-      void client.invalidateQueries({ queryKey: governanceKeys.budgets });
-      void client.invalidateQueries({ queryKey: governanceKeys.handoverAll });
-    },
+    onSuccess: () => invalidateDepartmentStructure(client),
   });
 }
 
@@ -171,11 +179,7 @@ export function useDeleteDepartment() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteDepartment(id),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: governanceKeys.departments });
-      void client.invalidateQueries({ queryKey: governanceKeys.budgets });
-      void client.invalidateQueries({ queryKey: governanceKeys.handoverAll });
-    },
+    onSuccess: () => invalidateDepartmentStructure(client),
   });
 }
 
