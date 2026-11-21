@@ -1,3 +1,5 @@
+import type { ResourceKind } from '@agentport/shared';
+import { resourceKindSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -43,7 +45,7 @@ export const resourceGrants = pgTable(
   {
     id: text('id').primaryKey(),
     resourceKind: text('resource_kind', {
-      enum: ['knowledge_base', 'data_domain', 'skill', 'server', 'plugin', 'runtime_environment'],
+      enum: resourceKindSchema.options as [ResourceKind, ...ResourceKind[]],
     }).notNull(),
     resourceId: text('resource_id').notNull(),
     businessId: text('business_id').notNull(),
@@ -61,7 +63,7 @@ export const resourceGrants = pgTable(
     index('resource_grants_business_kind_idx').on(t.businessId, t.resourceKind),
     check(
       'resource_grants_kind_check',
-      sql`${t.resourceKind} in ('knowledge_base', 'data_domain', 'skill', 'server', 'plugin', 'runtime_environment')`,
+      sql`${t.resourceKind} in (${sql.raw(resourceKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check('resource_grants_flags_check', sql`${t.canUse} or ${t.canManage}`),
   ],

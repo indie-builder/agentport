@@ -1,3 +1,5 @@
+import type { WebhookEventType } from '@agentport/shared';
+import { webhookEventTypeSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -48,7 +50,7 @@ export const webhookEndpoints = pgTable(
     url: text('url'),
     secretEncrypted: text('secret_encrypted').notNull(),
     events: text('events', {
-      enum: ['run.completed', 'run.failed', 'approval.requested', 'budget.alert'],
+      enum: webhookEventTypeSchema.options as [WebhookEventType, ...WebhookEventType[]],
     })
       .array()
       .notNull()
@@ -63,7 +65,7 @@ export const webhookEndpoints = pgTable(
     index('webhook_endpoints_direction_idx').on(t.direction),
     check(
       'webhook_endpoints_events_check',
-      sql`${t.events} <@ array['run.completed', 'run.failed', 'approval.requested', 'budget.alert']::text[]`,
+      sql`${t.events} <@ array[${sql.raw(webhookEventTypeSchema.options.map((option) => `'${option}'`).join(', '))}]::text[]`,
     ),
     check(
       'webhook_endpoints_direction_check',
@@ -80,7 +82,7 @@ export const webhookDeliveries = pgTable(
       .notNull()
       .references(() => webhookEndpoints.id, { onDelete: 'cascade' }),
     eventType: text('event_type', {
-      enum: ['run.completed', 'run.failed', 'approval.requested', 'budget.alert'],
+      enum: webhookEventTypeSchema.options as [WebhookEventType, ...WebhookEventType[]],
     }).notNull(),
     sourceId: text('source_id').notNull(),
     payload: text('payload').notNull(),
@@ -99,7 +101,7 @@ export const webhookDeliveries = pgTable(
     index('webhook_deliveries_status_next_idx').on(t.status, t.nextAttemptAt),
     check(
       'webhook_deliveries_event_type_check',
-      sql`${t.eventType} in ('run.completed', 'run.failed', 'approval.requested', 'budget.alert')`,
+      sql`${t.eventType} in (${sql.raw(webhookEventTypeSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'webhook_deliveries_status_check',
