@@ -58,7 +58,7 @@ import {
   runWorkspaceDir,
   toHostWorkspacePath,
 } from '../session-workspace.js';
-import { collectApprovalTools } from './approval-tools.js';
+import { collectApprovalTools, unambiguousDeniedToolNames } from './approval-tools.js';
 import { promptWithAttachments } from './attachments.js';
 import { readForkUuidMap } from './fork-uuids.js';
 import { promptWithOpenUiAction } from './openui-action.js';
@@ -585,12 +585,11 @@ export async function runAgentJob(
         serverNamesById,
         'ask',
       );
-      const mcpDeniedToolNames = collectApprovalTools(
+      const mcpDeniedToolNames = unambiguousDeniedToolNames(
         serverRows,
         approvalModes,
         serverNamesById,
-        'deny',
-      ).map((tool) => `mcp__${tool.server}__${tool.tool}`);
+      );
 
       const liveSkillRowsByAgent: Map<
         string,

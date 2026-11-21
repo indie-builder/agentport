@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { collectApprovalTools } from '../src/runs/approval-tools.js';
+import { collectApprovalTools, unambiguousDeniedToolNames } from '../src/runs/approval-tools.js';
 
 describe('collectApprovalTools', () => {
   const serverRows = [
@@ -45,5 +45,28 @@ describe('collectApprovalTools', () => {
     expect(collectApprovalTools(serverRows, approvalModes, new Map(), 'deny')).toEqual([
       { server: 'crm', tool: 'delete_contact' },
     ]);
+  });
+});
+
+describe('unambiguousDeniedToolNames', () => {
+  it('drops deny names shared by servers whose names contain double underscores', () => {
+    const collidingRows = [
+      {
+        name: 'review',
+        tools: [{ name: 'crm__read', enabled: true, approvalMode: 'allow' as const }],
+      },
+    ];
+    const collidingModes = [
+      { serverId: 'srv-review-crm', toolName: 'read', approvalMode: 'deny' as const },
+      { serverId: 'srv-review', toolName: 'delete_all', approvalMode: 'deny' as const },
+    ];
+    const collidingServerNames = new Map([
+      ['srv-review-crm', 'review__crm'],
+      ['srv-review', 'review'],
+    ]);
+
+    expect(unambiguousDeniedToolNames(collidingRows, collidingModes, collidingServerNames)).toEqual(
+      ['mcp__review__delete_all'],
+    );
   });
 });
