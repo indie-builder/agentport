@@ -2,6 +2,7 @@ import { repo, schema } from '@agentport/db';
 import {
   KNOWLEDGE_JOB_TIMEOUT_MS,
   KNOWLEDGE_JOBS_QUEUE,
+  type KnowledgeJobQueuePayload,
   knowledgeCancelKey,
   knowledgeEnqueueOptions,
 } from '@agentport/shared';
@@ -88,7 +89,7 @@ export async function startKnowledgeWorker(
     parserKey: config.parser?.key,
   });
   const connection = createBunRedisClient(new RedisClient(config.redisUrl));
-  const followups = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
+  const followups = new Queue<KnowledgeJobQueuePayload>(KNOWLEDGE_JOBS_QUEUE, {
     connection,
     ...(config.prefix === undefined ? {} : { prefix: config.prefix }),
   });
@@ -124,7 +125,7 @@ export async function startKnowledgeWorker(
 
   const worker = new Worker(
     KNOWLEDGE_JOBS_QUEUE,
-    async (job: Job<{ jobId: string }>, token?: string) => {
+    async (job: Job<KnowledgeJobQueuePayload>, token?: string) => {
       const row = await repo.knowledge.claimJob(config.db, job.data.jobId);
       if (!row) {
         // 行仍是 running：崩溃 worker 已认领过，BullMQ 把同一个 job 重投了。

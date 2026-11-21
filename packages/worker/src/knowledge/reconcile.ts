@@ -2,6 +2,7 @@ import { type createDb, repo, schema } from '@agentport/db';
 import {
   KNOWLEDGE_JOB_TIMEOUT_MS,
   KNOWLEDGE_JOBS_QUEUE,
+  type KnowledgeJobQueuePayload,
   knowledgeEnqueueOptions,
 } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
@@ -23,7 +24,7 @@ export interface KnowledgeQueueLike {
   remove: (id: string) => Promise<unknown>;
   add: (
     name: 'knowledge',
-    data: { jobId: string },
+    data: KnowledgeJobQueuePayload,
     opts: ReturnType<typeof knowledgeEnqueueOptions>,
   ) => Promise<unknown>;
 }
@@ -159,7 +160,7 @@ export function startKnowledgeReconciler(input: {
   prefix?: string;
 }): () => Promise<void> {
   const connection = createBunRedisClient(new RedisClient(input.redisUrl));
-  const queue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
+  const queue = new Queue<KnowledgeJobQueuePayload>(KNOWLEDGE_JOBS_QUEUE, {
     connection,
     ...(input.prefix === undefined ? {} : { prefix: input.prefix }),
   });

@@ -4,6 +4,7 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import {
   KNOWLEDGE_JOB_TIMEOUT_MS,
   KNOWLEDGE_JOBS_QUEUE,
+  type KnowledgeJobQueuePayload,
   knowledgeEnqueueOptions,
 } from '@agentport/shared';
 import { type Job, Queue, Worker } from 'bullmq';
@@ -39,7 +40,7 @@ const prefix = `knowledge-reconcile-${randomUUID().slice(0, 8)}`;
 describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
   let db: ReturnType<typeof createDb>['db'];
   let client: ReturnType<typeof createDb>['client'];
-  let queue: Queue<{ jobId: string }>;
+  let queue: Queue<KnowledgeJobQueuePayload>;
   let queueRedis: ReturnType<typeof bunRedisConnection>;
   const logger = {
     info: () => undefined,
@@ -98,7 +99,7 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
   beforeAll(async () => {
     ({ db, client } = createDb(process.env.DATABASE_URL ?? ''));
     queueRedis = bunRedisConnection(redisUrl);
-    queue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
+    queue = new Queue<KnowledgeJobQueuePayload>(KNOWLEDGE_JOBS_QUEUE, {
       connection: queueRedis.connection,
       prefix,
     });
@@ -352,7 +353,9 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
     await reconcileKnowledgeJobs(db, logger, liveQueue());
     await reconcileKnowledgeJobs(db, logger, liveQueue());
     const jobs = await queue.getJobs(['waiting', 'delayed']);
-    expect(jobs.filter((job: Job<{ jobId: string }>) => job.data.jobId === id)).toHaveLength(1);
+    expect(jobs.filter((job: Job<KnowledgeJobQueuePayload>) => job.data.jobId === id)).toHaveLength(
+      1,
+    );
     expect((await rowOf(id)).status).toBe('queued');
   });
 

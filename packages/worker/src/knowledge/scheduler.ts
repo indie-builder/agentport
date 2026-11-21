@@ -2,6 +2,8 @@ import { type createDb, repo, schema } from '@agentport/db';
 import {
   KNOWLEDGE_JOBS_QUEUE,
   KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
+  type KnowledgeJobQueuePayload,
+  type KnowledgeSyncTriggerPayload,
   knowledgeEnqueueOptions,
 } from '@agentport/shared';
 import { createBunRedisClient, Queue, Worker } from 'bullmq';
@@ -18,7 +20,7 @@ type Db = ReturnType<typeof createDb>['db'];
 export interface KnowledgeJobsQueueLike {
   add: (
     name: 'knowledge',
-    data: { jobId: string },
+    data: KnowledgeJobQueuePayload,
     opts: ReturnType<typeof knowledgeEnqueueOptions>,
   ) => Promise<unknown>;
 }
@@ -80,7 +82,7 @@ export interface KnowledgeSchedulerQueue {
     repeat: { pattern: string; tz: 'UTC' },
     template: {
       name: string;
-      data: { sourceId: string };
+      data: KnowledgeSyncTriggerPayload;
       opts: {
         attempts: number;
         backoff: { type: 'exponential'; delay: number };
@@ -171,9 +173,9 @@ export function startKnowledgeScheduler(input: {
     connection,
     ...(input.prefix === undefined ? {} : { prefix: input.prefix }),
   };
-  const queue = new Queue<{ sourceId: string }>(KNOWLEDGE_SYNC_TRIGGERS_QUEUE, options);
-  const jobsQueue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, options);
-  const worker = new Worker<{ sourceId: string }>(
+  const queue = new Queue<KnowledgeSyncTriggerPayload>(KNOWLEDGE_SYNC_TRIGGERS_QUEUE, options);
+  const jobsQueue = new Queue<KnowledgeJobQueuePayload>(KNOWLEDGE_JOBS_QUEUE, options);
+  const worker = new Worker<KnowledgeSyncTriggerPayload>(
     KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
     (job) =>
       processKnowledgeSyncTrigger(
