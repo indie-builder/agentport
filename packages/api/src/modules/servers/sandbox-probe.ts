@@ -3,6 +3,7 @@ import {
   SANDBOX_PROBES_QUEUE,
   type SandboxProbeJob,
   type ServerTestResult,
+  SHORT_JOB_RETENTION,
 } from '@agentport/shared';
 import { createBunRedisClient, Queue, QueueEvents } from 'bullmq';
 import { RedisClient } from 'bun';
@@ -55,8 +56,7 @@ export async function testStdioInSandbox(
       (async () => {
         const queued = await queue.add('probe', job, {
           attempts: 1,
-          removeOnComplete: 50,
-          removeOnFail: 50,
+          ...SHORT_JOB_RETENTION,
         });
         return (await queued.waitUntilFinished(events, timeoutMs)) as ServerTestResult;
       })(),

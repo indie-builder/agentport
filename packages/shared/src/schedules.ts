@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_JOB_RETENTION } from './run-stream.js';
 
 /** BullMQ 原生 Job Scheduler 的队列：只负责按 cron 投递触发信号，不直接跑运行。 */
 export const SCHEDULE_TRIGGERS_QUEUE = 'schedule-triggers';
@@ -46,8 +47,7 @@ export function scheduleTriggerArgs(
       opts: {
         attempts: 3,
         backoff: { type: 'exponential', delay: 5_000 },
-        removeOnComplete: 100,
-        removeOnFail: 200,
+        ...DEFAULT_JOB_RETENTION,
       },
     },
   ];

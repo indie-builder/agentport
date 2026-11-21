@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { cronSchema } from './ops.js';
 import { slugSchema } from './params.js';
+import { DEFAULT_JOB_RETENTION } from './run-stream.js';
 
 /** 知识库任务队列；jobId 即 knowledge_jobs.id，重复投递由 BullMQ 去重。 */
 export const KNOWLEDGE_JOBS_QUEUE = 'knowledge-jobs';
@@ -32,8 +33,7 @@ export function knowledgeEnqueueOptions(jobId: string) {
     jobId,
     attempts: 3,
     backoff: { type: 'exponential' as const, delay: 5_000 },
-    removeOnComplete: 100,
-    removeOnFail: 200,
+    ...DEFAULT_JOB_RETENTION,
   };
 }
 

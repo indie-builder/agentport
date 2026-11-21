@@ -1,5 +1,6 @@
 import { type createDb, repo, schema } from '@agentport/db';
 import {
+  DEFAULT_JOB_RETENTION,
   KNOWLEDGE_JOBS_QUEUE,
   KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
   type KnowledgeJobQueuePayload,
@@ -132,8 +133,7 @@ export async function syncKnowledgeSchedulers(input: {
           opts: {
             attempts: 3,
             backoff: { type: 'exponential', delay: 5_000 },
-            removeOnComplete: 100,
-            removeOnFail: 200,
+            ...DEFAULT_JOB_RETENTION,
           },
         },
       );

@@ -21,6 +21,10 @@ export const STREAM_TTL_SECONDS = 3600;
 
 export const RUN_QUEUE_MAX_WAITING = 100;
 
+export const DEFAULT_JOB_RETENTION = { removeOnComplete: 100, removeOnFail: 200 } as const;
+
+export const SHORT_JOB_RETENTION = { removeOnComplete: 50, removeOnFail: 50 } as const;
+
 /** 单 run 展示上限：瞬时增量与块边界超出后只停止展示，不占用落库额度。 */
 export const RUN_TRANSIENT_MAX_EVENTS = 2_000;
 export const RUN_TRANSIENT_MAX_BYTES = 32 * 1024 * 1024;
@@ -49,7 +53,6 @@ export function runEnqueueOptions(jobId: string) {
     jobId,
     attempts: 2,
     backoff: { type: 'exponential', delay: 5_000 },
-    removeOnComplete: 100,
-    removeOnFail: 200,
+    ...DEFAULT_JOB_RETENTION,
   };
 }

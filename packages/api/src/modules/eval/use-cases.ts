@@ -1,6 +1,7 @@
 import { fail } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
+  DEFAULT_JOB_RETENTION,
   type EvalDatasetImportResult,
   type evalDatasetSchema,
   RUN_QUEUE_MAX_WAITING,
@@ -183,7 +184,7 @@ export async function startEvalRun(
     await getEvalQueue().add(
       'eval-run',
       { evalRunId: evalRun.id },
-      { jobId: evalRun.id, removeOnComplete: 100, removeOnFail: 200 },
+      { jobId: evalRun.id, ...DEFAULT_JOB_RETENTION },
     );
   } catch {
     try {

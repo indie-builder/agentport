@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_JOB_RETENTION } from './run-stream.js';
 
 /** BullMQ 队列名；jobId = versionId，并发 1。 */
 export const RUNTIME_ENVIRONMENT_BUILDS_QUEUE = 'runtime-environment-builds';
@@ -89,8 +90,7 @@ export function runtimeBuildEnqueueOptions(versionId: string) {
   return {
     jobId: versionId,
     attempts: 1,
-    removeOnComplete: 100,
-    removeOnFail: 200,
+    ...DEFAULT_JOB_RETENTION,
   };
 }
 

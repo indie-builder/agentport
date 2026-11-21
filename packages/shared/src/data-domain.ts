@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { slugSchema } from './params.js';
+import { DEFAULT_JOB_RETENTION } from './run-stream.js';
 
 export const DATA_DOMAIN_BUILDS_QUEUE = 'data-domain-builds';
 
@@ -13,8 +14,7 @@ export function dataDomainBuildEnqueueOptions(versionId: string) {
   return {
     jobId: versionId,
     attempts: 1,
-    removeOnComplete: 100,
-    removeOnFail: 200,
+    ...DEFAULT_JOB_RETENTION,
   };
 }
 
@@ -27,7 +27,7 @@ export const dataDomainEnrichmentJobSchema = z.object({
 export type DataDomainEnrichmentJob = z.infer<typeof dataDomainEnrichmentJobSchema>;
 
 export function dataDomainEnrichmentEnqueueOptions(proposalId: string) {
-  return { jobId: proposalId, attempts: 1, removeOnComplete: 100, removeOnFail: 200 };
+  return { jobId: proposalId, attempts: 1, ...DEFAULT_JOB_RETENTION };
 }
 
 export const dataDomainEnrichmentOutputSchema = z.object({

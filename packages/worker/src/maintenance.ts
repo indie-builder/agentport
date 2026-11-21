@@ -2,7 +2,12 @@ import { pathToFileURL } from 'node:url';
 import { outputMessageAnchors, removeChannelInputs } from '@agentport/core';
 import { createServiceLogger } from '@agentport/core/logger';
 import { createDb, repo, schema } from '@agentport/db';
-import { evaluateSloStatuses, MAINTENANCE_QUEUE, QUEUE_REGISTRY } from '@agentport/shared';
+import {
+  DEFAULT_JOB_RETENTION,
+  evaluateSloStatuses,
+  MAINTENANCE_QUEUE,
+  QUEUE_REGISTRY,
+} from '@agentport/shared';
 import { createBunRedisClient, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
@@ -331,7 +336,7 @@ export async function startMaintenanceWorker(input: {
       { every: OPS_ALERT_INTERVAL_MS },
       {
         name: 'ops-alerts',
-        opts: { removeOnComplete: 100, removeOnFail: 200 },
+        opts: DEFAULT_JOB_RETENTION,
       },
     ),
   ]);
