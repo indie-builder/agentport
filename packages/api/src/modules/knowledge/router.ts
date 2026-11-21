@@ -458,6 +458,16 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     }),
   },
   faqs: {
+    drafts: os.faqs.drafts.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      const access = await resourceAccessFilter(
+        context,
+        'knowledge.read',
+        'knowledge_base',
+        'read',
+      );
+      return useCases.faqDrafts(depsOf(context), input.body.documentIds, access);
+    }),
     remove: os.faqs.remove.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
       await authorizeDocument(

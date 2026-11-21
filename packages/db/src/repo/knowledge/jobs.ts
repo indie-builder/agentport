@@ -68,6 +68,7 @@ export interface ListJobsFilter extends PageOptions {
   baseId?: string;
   documentId?: string;
   status?: KnowledgeJobRow['status'];
+  ids?: string[];
   access?: ResourceAccessFilter;
 }
 
@@ -93,6 +94,9 @@ export async function listJobs(db: Database, filter: ListJobsFilter = {}) {
   if (filter.baseId) filters.push(eq(knowledgeJobs.baseId, filter.baseId));
   if (filter.documentId) filters.push(eq(knowledgeJobs.documentId, filter.documentId));
   if (filter.status) filters.push(eq(knowledgeJobs.status, filter.status));
+  if (filter.ids !== undefined && filter.ids.length > 0) {
+    filters.push(inArray(knowledgeJobs.id, filter.ids));
+  }
   if (filter.access) {
     const scope = resourceScopeWhere(
       filter.access,

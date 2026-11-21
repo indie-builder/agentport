@@ -16,6 +16,7 @@ import type {
   KnowledgeFaqImportResult,
   KnowledgeFaqImportState,
   KnowledgeJobPayload,
+  ResourceAccessFilter,
 } from '@agentport/shared';
 import { knowledgeFaqImportMetadataSchema } from '@agentport/shared';
 import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
@@ -593,6 +594,65 @@ async function faqDetail(deps: KnowledgeDeps, document: DocumentRow) {
 export async function getFaq(deps: KnowledgeDeps, documentId: string) {
   const document = await loadFaqDocument(deps, documentId);
   return faqDetail(deps, document);
+}
+
+export async function faqDrafts(
+  deps: KnowledgeDeps,
+  documentIds: string[],
+  access: ResourceAccessFilter,
+) {
+  const scope = repo.access.resourceScopeWhere(
+    access,
+    schema.knowledgeBases.id,
+    schema.knowledgeBases.ownerBusinessId,
+  );
+  const documents = await deps.db
+    .select({
+      id: schema.knowledgeDocuments.id,
+      currentVersionId: schema.knowledgeDocuments.currentVersionId,
+    })
+    .from(schema.knowledgeDocuments)
+    .innerJoin(
+      schema.knowledgeBases,
+      eq(schema.knowledgeDocuments.baseId, schema.knowledgeBases.id),
+    )
+    .where(
+      and(
+        inArray(schema.knowledgeDocuments.id, documentIds),
+        eq(schema.knowledgeDocuments.contentKind, 'faq'),
+        eq(schema.knowledgeDocuments.sourceType, 'manual'),
+        scope,
+      ),
+    );
+  if (documents.length === 0) return [];
+  const versions = await deps.db
+    .select()
+    .from(schema.knowledgeDocumentVersions)
+    .where(
+      and(
+        inArray(
+          schema.knowledgeDocumentVersions.documentId,
+          documents.map((document) => document.id),
+        ),
+        sql`${schema.knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
+      ),
+    )
+    .orderBy(desc(schema.knowledgeDocumentVersions.version));
+  const currentVersions = new Map(
+    documents.map((document) => [document.id, document.currentVersionId]),
+  );
+  const latest = new Map<string, VersionRow>();
+  for (const version of versions) {
+    if (version.id === currentVersions.get(version.documentId)) continue;
+    if (!latest.has(version.documentId)) latest.set(version.documentId, version);
+  }
+  return documents.map((document) => {
+    const draft = latest.get(document.id);
+    return {
+      documentId: document.id,
+      draft: draft ? toFaqVersion(draft, false) : null,
+    };
+  });
 }
 
 export async function updateFaq(

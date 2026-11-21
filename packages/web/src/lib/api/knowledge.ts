@@ -627,7 +627,7 @@ export default {
     }),
   knowledgeJobs: (
     baseId: string,
-    options: { documentId?: string; cursor?: string; limit?: number } = {},
+    options: { documentId?: string; ids?: string[]; cursor?: string; limit?: number } = {},
     signal?: AbortSignal,
   ): Promise<KnowledgePage<KnowledgeJob>> =>
     rpc.knowledge.jobs.list({ query: { baseId, ...options } }, clientOptions(signal)),
@@ -700,6 +700,12 @@ export default {
   },
   knowledgeFaq: (documentId: string, signal?: AbortSignal): Promise<KnowledgeFaqDetail> =>
     rpc.knowledge.faqs.get({ params: { documentId } }, clientOptions(signal)),
+  knowledgeFaqDrafts: (
+    documentIds: string[],
+    signal?: AbortSignal,
+  ): Promise<
+    Array<{ documentId: string; draft: NonNullable<KnowledgeFaqDetail['draftVersion']> | null }>
+  > => rpc.knowledge.faqs.drafts({ body: { documentIds } }, clientOptions(signal)),
   createKnowledgeFaq: (
     baseId: string,
     input: {

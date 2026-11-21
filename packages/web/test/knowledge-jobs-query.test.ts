@@ -69,7 +69,10 @@ beforeEach(() => {
       documentId: url.searchParams.get('documentId'),
       cursor: url.searchParams.get('cursor'),
     });
-    if (state.jobDetailStatus !== null && url.pathname.startsWith('/api/knowledge/jobs/')) {
+    if (
+      state.jobDetailStatus !== null &&
+      (url.pathname === '/api/knowledge/jobs' || url.pathname.startsWith('/api/knowledge/jobs/'))
+    ) {
       return new Response(JSON.stringify({ code: 'NOT_FOUND', message: '任务不存在' }), {
         status: state.jobDetailStatus,
         headers: { 'content-type': 'application/json' },
@@ -174,17 +177,17 @@ describe('useKnowledgeJobs', () => {
     state.jobDetailStatus = 404;
     let latest: ReturnType<typeof useKnowledgeFaqImportJobs> | undefined;
     function Probe() {
-      latest = useKnowledgeFaqImportJobs(['kjob_gone']);
+      latest = useKnowledgeFaqImportJobs('kb_1', ['kjob_gone']);
       return null;
     }
     await mount(createElement(Probe));
     await vi.waitFor(() => expect(latest?.[0]?.isError).toBe(true));
-    const detailCalls = () =>
-      state.calls.filter((call) => call.path === '/api/knowledge/jobs/kjob_gone').length;
-    expect(detailCalls()).toBe(1);
+    const batchCalls = () =>
+      state.calls.filter((call) => call.path === '/api/knowledge/jobs').length;
+    expect(batchCalls()).toBe(1);
 
     await new Promise((resolve) => setTimeout(resolve, 2_300));
-    expect(detailCalls()).toBe(1);
+    expect(batchCalls()).toBe(1);
   });
 
   it('任务重试成功刷新任务与文档查询', async () => {
