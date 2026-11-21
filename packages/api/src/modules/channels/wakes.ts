@@ -84,11 +84,11 @@ async function skipWake(
   wake: repo.channelWakes.ChannelWakeRow,
   notice: string,
 ): Promise<'skipped'> {
-  await postNotice(context, wake, notice);
-  await channelWakeRepo.markChannelWakeSkipped(context.db, {
+  const skipped = await channelWakeRepo.markChannelWakeSkipped(context.db, {
     id: wake.id,
     claimedAt: wake.claimedAt as Date,
   });
+  if (skipped) await postNotice(context, wake, notice);
   return 'skipped';
 }
 
@@ -107,12 +107,12 @@ async function handleEnqueueFailure(
         'channel wake queued run cleanup failed',
       );
     }
-    await channelWakeRepo.markChannelWakeFailed(context.db, {
+    const failed = await channelWakeRepo.markChannelWakeFailed(context.db, {
       id: wake.id,
       claimedAt: wake.claimedAt as Date,
       lastError: errorText(err),
     });
-    await postNotice(context, wake, WAKE_FAILED_NOTICE);
+    if (failed) await postNotice(context, wake, WAKE_FAILED_NOTICE);
     return 'failed';
   }
   await channelWakeRepo.markChannelWakeRetry(context.db, {
@@ -170,12 +170,12 @@ async function dispatchWake(
         );
       }
     }
-    await channelWakeRepo.markChannelWakeFailed(context.db, {
+    const failed = await channelWakeRepo.markChannelWakeFailed(context.db, {
       id: wake.id,
       claimedAt: wake.claimedAt as Date,
       lastError: 'channel wake exceeded max attempts',
     });
-    await postNotice(context, wake, WAKE_FAILED_NOTICE);
+    if (failed) await postNotice(context, wake, WAKE_FAILED_NOTICE);
     return 'failed';
   }
   const agent = await repo.agents.getAgent(context.db, wake.agentId);
