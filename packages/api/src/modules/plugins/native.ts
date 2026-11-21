@@ -5,6 +5,7 @@ import {
   type NativePluginAction,
   type NativePluginOutput,
   nativePluginOutputSchema,
+  SHORT_JOB_RETENTION,
 } from '@agentport/shared';
 import { createBunRedisClient, Queue, QueueEvents } from 'bullmq';
 import { RedisClient } from 'bun';
@@ -48,8 +49,7 @@ export async function runNativePluginAction(
     if (timedOut) return;
     const job = await queue.add(action.action, action, {
       attempts: 1,
-      removeOnComplete: 50,
-      removeOnFail: 50,
+      ...SHORT_JOB_RETENTION,
     });
     const jobId = job.id;
     if (timedOut || !jobId) return;
