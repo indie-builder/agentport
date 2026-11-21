@@ -21,8 +21,9 @@ export async function readForkUuidMap(
     fail('INVALID_INPUT', 'fork 转写文件不是普通文件');
   if (info.size > FORK_TRANSCRIPT_MAX_BYTES) fail('INVALID_INPUT', 'fork 转写文件超过上限');
   const map: Array<{ from: string; to: string }> = [];
+  const stream = createReadStream(file, { end: FORK_TRANSCRIPT_MAX_BYTES });
   const rl = createInterface({
-    input: createReadStream(file, { end: FORK_TRANSCRIPT_MAX_BYTES }),
+    input: stream,
     crlfDelay: Infinity,
   });
   try {
@@ -47,6 +48,7 @@ export async function readForkUuidMap(
   } finally {
     rl.close();
   }
+  if (stream.bytesRead > FORK_TRANSCRIPT_MAX_BYTES) fail('INVALID_INPUT', 'fork 转写文件超过上限');
   return map;
 }
 

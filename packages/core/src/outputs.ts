@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   lstat,
   mkdir,
+  open,
   opendir,
   readdir,
   readFile,
@@ -244,7 +245,24 @@ async function readRegularFile(
   if (info.nlink !== 1) fail('INVALID_INPUT', '产出文件不允许硬链接', { path: `/${path}` });
   if (maxBytes !== undefined && info.size > maxBytes)
     fail('INVALID_INPUT', '产出文件超过单文件上限', { path: `/${path}` });
-  return readFile(full);
+  if (maxBytes === undefined) return readFile(full);
+  const handle = await open(full, 'r');
+  try {
+    const opened = await handle.stat();
+    if (opened.size > maxBytes)
+      fail('INVALID_INPUT', '产出文件超过单文件上限', { path: `/${path}` });
+    const buffer = Buffer.alloc(maxBytes + 1);
+    let offset = 0;
+    while (offset <= maxBytes) {
+      const { bytesRead } = await handle.read(buffer, offset, maxBytes + 1 - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset > maxBytes) fail('INVALID_INPUT', '产出文件超过单文件上限', { path: `/${path}` });
+    return Buffer.from(buffer.subarray(0, offset));
+  } finally {
+    await handle.close();
+  }
 }
 
 interface CaptureBudget {

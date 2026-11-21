@@ -1,6 +1,7 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fail } from '@agentport/core';
 import {
   errorText,
   KNOWLEDGE_IMAGE_MAX_BYTES,
@@ -13,7 +14,7 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import sharp from 'sharp';
+import sharp, { type Metadata } from 'sharp';
 import { z } from 'zod';
 import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
 
@@ -38,16 +39,17 @@ export async function assertUsableImage(input: {
   if (input.data.length > KNOWLEDGE_IMAGE_MAX_BYTES) {
     throw new Error('图片超过 5MiB，不能供视觉模型直接读取');
   }
-  const meta = await sharp(input.data)
-    .metadata()
-    .catch((err: unknown) => {
-      throw new Error(`图片无法解码：${errorText(err)}`);
-    });
+  let meta: Metadata;
+  try {
+    meta = await sharp(input.data).metadata();
+  } catch (err) {
+    throw new Error(`图片无法解码：${errorText(err)}`);
+  }
   const frames = meta.pages ?? 1;
   const frameHeight = meta.pageHeight ?? meta.height ?? 0;
   const totalPixels = (meta.width ?? 0) * frameHeight * frames;
   if (totalPixels === 0 || totalPixels > KNOWLEDGE_IMAGE_MAX_PIXELS) {
-    throw new Error('图片像素超过上限，不能供视觉模型直接读取');
+    fail('INVALID_INPUT', '图片像素超过上限，不能供视觉模型直接读取');
   }
   try {
     // raw() 才会真正解码像素；metadata() 只读文件头，截断图能蒙混过关。
