@@ -68,8 +68,6 @@ function rangeCoversSourcePath(
   if (sourcePath === null) return false;
   return range.paths.some((prefix) => sourcePath === prefix || sourcePath.startsWith(`${prefix}/`));
 }
-// ---------------------------------------------------------------------------
-// 外部来源 / 同步
 
 export interface CreateSourceInput {
   baseId: string;
@@ -190,7 +188,6 @@ function rangeKey(range: { kind: string; externalId: string; ref: string | null 
   return `${range.kind}\u0000${range.externalId}\u0000${range.ref ?? ''}`;
 }
 
-/** 范围删除/停用/路径收缩后，移除不再被任何有效范围覆盖的条目归属。 */
 async function pruneSourceRangeMemberships(tx: Transaction, sourceId: string): Promise<void> {
   await tx.execute(sql`
     delete from knowledge_document_source_ranges dsr
@@ -404,7 +401,6 @@ export async function replaceSourceScope(
         .where(eq(knowledgeDocuments.id, document.id));
       disabledDocumentIds.push(document.id);
     }
-    // 一次汇总本事务受影响的 Wiki 页并按全局页 ID 取锁：逐文档加锁会在双来源交叉引用时形成锁环。
     await markWikiStaleByDocumentsTx(tx, disabledDocumentIds);
     return { source, ranges, disabledDocumentIds };
   });
@@ -436,7 +432,6 @@ export async function setDocumentSourceRanges(
     ) {
       return null;
     }
-    // 只挂该条目实际命中的范围；范围必须仍在快照内且覆盖本次路径。
     const selected: SourceReadSnapshot['ranges'] = [];
     for (const rangeId of unique) {
       const range = snapshot.ranges.find((entry) => entry.id === rangeId);
@@ -448,7 +443,6 @@ export async function setDocumentSourceRanges(
     if (!selected.some((range) => rangeCoversSourcePath(range, patch.sourcePath))) {
       throw new AppError('INVALID_INPUT', '来源范围未覆盖条目路径');
     }
-    // 人工停用不因来源同步复活；来源/范围/远端失权由成功读取恢复。
     const manualDisabled = document.disabledReason === 'manual';
     const [row] = await tx
       .update(knowledgeDocuments)

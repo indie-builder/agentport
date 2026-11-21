@@ -44,7 +44,6 @@ const logger = {
   error: mock(),
 } as unknown as Logger;
 
-/** 等所有排队的微任务与 setImmediate 回调走完，再断言 stop 没有提前结束。 */
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 describe('startReconciler shutdown', () => {
@@ -57,7 +56,6 @@ describe('startReconciler shutdown', () => {
     const evalRows = new Promise<unknown[]>((resolve) => {
       releaseEval = resolve;
     });
-    // 稳定的 running 候选：探测后按主键重查要拿回同一行，run 分支才能走到 publish 并真实失败。
     const runningRow = {
       id: newId('run'),
       conversationId: newId('conversation'),
@@ -93,8 +91,7 @@ describe('startReconciler shutdown', () => {
           where: () =>
             fields.id === schema.evalRuns.id
               ? evalRows
-              : // RUNNING_REF 带 status/重查；RUN_REF（queued）没有。
-                fields.status !== undefined
+              : fields.status !== undefined
                 ? rows([runningRow])
                 : rows([]),
           innerJoin: () => ({
@@ -112,7 +109,6 @@ describe('startReconciler shutdown', () => {
       cleanup: async () => undefined,
     });
 
-    // run 分支已 reject，eval 分支仍挂着；旧的 Promise.all 此时已结束 inFlight。
     await publishRun.failed;
 
     let stopped = false;

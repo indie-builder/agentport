@@ -13,7 +13,6 @@ export async function listHookFiles(db: DbHandle, agentId: string): Promise<Agen
     .orderBy(asc(agentHookFiles.path), asc(agentHookFiles.id));
 }
 
-/** 写入或覆盖同路径 hook 脚本（唯一键 agent_id+path）。 */
 export async function upsertHookFile(
   db: DbHandle,
   agentId: string,
@@ -43,7 +42,6 @@ export async function deleteHookFile(
   return rows.length > 0;
 }
 
-/** hooks 开关与配置写在 agents 行；null 表示未配置。 */
 export async function updateHooksSettings(
   db: DbHandle,
   agentId: string,

@@ -144,7 +144,6 @@ function serializeCron(
   return `${parsed.minutes} ${parsed.hours} * * ${days.join(',')}`;
 }
 
-/** 只接受能逐字符往返的规范简单表达式；其余一律按 custom 原文保留。 */
 function decodeCron(
   cron: string,
 ): { frequency: 'daily' | 'weekly'; time: string; weekdays: string[] } | null {
@@ -184,7 +183,6 @@ function draftFromSchedule(schedule: Schedule): ScheduleFormValues {
   return {
     agentId: schedule.agentId,
     name: schedule.name,
-    // 非简单表达式保留原文；简单表达式由 time/weekdays 重新投影，避免保存时改写 cron。
     cron: decoded ? '' : schedule.cron,
     timezone: schedule.timezone,
     missedPolicy: schedule.missedPolicy,
@@ -230,7 +228,6 @@ const scheduleFormSchema = z
       values.frequency === 'custom'
         ? values.cron
         : (serializeCron(values.frequency, values.time, values.weekdays) ?? '');
-    // 复用与 API 相同的约束；频率模式自身的错误映射到可见字段，隐藏的 cron 不接收错误。
     const parsed = scheduleInputSchema.safeParse({
       agentId: values.agentId,
       name: values.name,
@@ -273,7 +270,6 @@ export function SchedulesPage() {
   const agents = useExperts();
   const me = useQuery(meQuery);
   const canManage = can(me.data, 'schedules.manage');
-  // 专家列表失败只影响新建/编辑里的专家选择；列表页本身仍可用，错误在弹层内展示。
   const agentsError = agents.isError ? agents.error : null;
   const client = useQueryClient();
   const [creating, setCreating] = useState(false);
@@ -281,7 +277,6 @@ export function SchedulesPage() {
   const [deleting, setDeleting] = useState<Schedule | null>(null);
   const [historyOf, setHistoryOf] = useState<Schedule | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
-  // 删除成功标记：finalFocus 在弹层卸载时才读取，用 ref 保证读到的是本次结果。
   const deletedRef = useRef(false);
   const invalidate = (): void => {
     void client.invalidateQueries({ queryKey: schedulesQuery.queryKey });
@@ -318,7 +313,6 @@ export function SchedulesPage() {
   });
 
   const items = schedules.data ?? [];
-  // 启停和删除共用列表状态：任一请求在途时锁住所有行，避免用旧列表并发改同一批任务。
   const rowBusy = toggle.isPending || remove.isPending || !canManage;
 
   return (
@@ -453,7 +447,6 @@ export function SchedulesPage() {
                         <span className="block truncate text-xs text-muted-foreground">
                           {schedule.agentName ?? '已删除的专家'}
                         </span>
-                        {/* 窄屏收起列，用可见标签保留每项数据。 */}
                         <span className="block text-xs text-muted-foreground sm:hidden">
                           {schedule.description}（{schedule.timezone}） · 下次 {nextDue} · 上次触发{' '}
                           {formatRelative(schedule.lastRunAt)}
@@ -556,7 +549,6 @@ export function SchedulesPage() {
           title="删除定时任务"
           description={`将删除「${deleting.name}」，之后不再按计划自动运行。`}
           onClose={() => setDeleting(null)}
-          // 被删行会随刷新消失；只有删除成功才把焦点交给页头创建按钮，失败或取消走默认返回触发控件。
           finalFocus={() => (deletedRef.current ? createButtonRef.current : null)}
           onConfirm={async () => {
             await remove.mutateAsync(deleting.id);
@@ -796,7 +788,6 @@ function ScheduleDialog({
   const [deleted, setDeleted] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [reloadError, setReloadError] = useState<string | null>(null);
-  // 版本基线独立于打开弹层时的快照：冲突后重新加载才推进基线。
   const [baseline, setBaseline] = useState(schedule?.updatedAt);
   const {
     register,
@@ -811,7 +802,6 @@ function ScheduleDialog({
   } = useZodForm(scheduleFormSchema, {
     defaultValues: schedule ? draftFromSchedule(schedule) : emptyScheduleForm,
   });
-  // 首次切到每周才补默认一至五；用户清空后不再自动填充。
   const firstWeekly = useRef(true);
   const { errors, isDirty } = formState;
   const watched = watch();
@@ -836,13 +826,11 @@ function ScheduleDialog({
       guard.finish();
     },
     onError: (error) => {
-      // 冲突就地保留草稿；只有用户确认重新加载才推进版本基线，绝不自动重发旧稿。
       if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
         setConflict(true);
         toastError(new Error('定时任务已被修改；当前草稿已保留，请加载最新版本后重新编辑。'));
         return;
       }
-      // 编辑目标已被删除时同样保留草稿，只提供显式「另存为新建」，不自动转创建。
       if (error instanceof ApiError && error.code === 'NOT_FOUND') {
         setConflict(true);
         setDeleted(true);
@@ -911,7 +899,6 @@ function ScheduleDialog({
       if (current === 'custom') {
         const decoded = decodeCron(getValues('cron'));
         setValue('time', decoded?.time ?? '09:00', { shouldDirty: true });
-        // 规范每日 cron 解码出的周为空，首次进入每周仍按简单模式补默认工作日。
         const weeklyFromDaily =
           next === 'weekly' && decoded?.frequency === 'daily' && firstWeekly.current;
         setValue(
@@ -925,7 +912,6 @@ function ScheduleDialog({
         firstWeekly.current = false;
       }
       if (next === 'daily') clearErrors('weekdays');
-      // 简单模式约定隐藏 cron 为空值；恢复空值让 RHF 按默认值重新计算 dirty。
       setValue('cron', '', { shouldDirty: true });
     }
     setValue('frequency', next, { shouldDirty: true });
@@ -949,7 +935,6 @@ function ScheduleDialog({
     }
   });
 
-  // 任务已被删除时只有用户显式点「另存为新建」才把草稿建成新任务，不自动重发。
   const saveAsNew = handleSubmit((values) => {
     if (pending || !deleted) return;
     create.mutate(projectScheduleInput(values));

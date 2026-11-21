@@ -313,18 +313,15 @@ function CreateEnvironmentDialog({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [created, setCreated] = useState(false);
   const dirty = !created && isDirty;
-  // 成功回调读不到拦截发生后的 blocker 实例：用 ref 拿最新一次再结算。
   const blocker = useFormBlocker(dirty, !created && pending, { ignoreSamePath: true });
   const blockerRef = useRef(blocker);
   useEffect(() => {
     blockerRef.current = blocker;
   }, [blocker]);
-  // 关闭会卸载弹层并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
   const finish = (): void => {
     blockerRef.current.reset?.();
     onClose();
   };
-  // 半填的配置不能因为 Esc / 点遮罩 / 关闭按钮就消失：脏时先确认；请求中一律不能关闭。
   const close = (): void => {
     if (pending) return;
     if (dirty) setConfirmDiscard(true);
@@ -335,7 +332,6 @@ function CreateEnvironmentDialog({
     const input: RuntimeEnvironmentInput = { name: values.name, dockerfile: values.dockerfile };
     try {
       const environment = await create.mutateAsync(input);
-      // 实体已创建，草稿无需再保护；结算期间被拦下的离开后再进入详情。
       setCreated(true);
       blockerRef.current.reset?.();
       toastSuccess(`已创建「${environment.name}」`);
@@ -409,7 +405,6 @@ function CreateEnvironmentDialog({
             if (!pending) finish();
           }}
         />
-        {/* 路由离开/刷新与弹层关闭共用同一确认文案；取消保留草稿，确认才真正离开。 */}
         <ConfirmDialog
           open={blocker.status === 'blocked'}
           onClose={() => blocker.reset?.()}

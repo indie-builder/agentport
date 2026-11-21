@@ -119,7 +119,6 @@ export function renderOutputStyleMd(style: {
   ].join('\n');
 }
 
-/** 只在顶层逗号拆分 glob；花括号、方括号与反斜杠转义内的逗号属于同一个模式。 */
 function splitGlobs(value: string): string[] {
   const patterns: string[] = [];
   let depth = 0;
@@ -127,7 +126,6 @@ function splitGlobs(value: string): string[] {
   let start = 0;
   for (let i = 0; i < value.length; i++) {
     const char = value[i];
-    // 转义只影响下一个字符：既不是分隔符，也不改变括号深度。
     if (char === '\\') {
       i++;
       continue;
@@ -181,15 +179,10 @@ function summarize(prompt: string, fallback: string): string {
   return line.length > DESCRIPTION_MAX ? `${line.slice(0, DESCRIPTION_MAX)}…` : line;
 }
 
-/** JSON 字符串同时也是合法的 YAML 双引号标量，省掉手写转义。 */
 function yamlString(value: string): string {
   return JSON.stringify(value);
 }
 
-/**
- * 描述会被插进 markdown 列表与表格单元格。换行能另起段落伪造标题，
- * `|` 能冲出表格单元格，两者都要压平——描述是用户可控的导入内容。
- */
 function inlineText(value: string): string {
   return value.replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
 }
@@ -240,10 +233,6 @@ function delegationWaitSection(input: WorkspaceInput): string[] {
 const SKILL_REFERENCE_CLAUSE =
   '只读可用 `Read` 打开 `.claude/skills/<slug>/references/` 下的 Markdown。';
 
-/**
- * 子智能体记忆的可写性与父策略同源：worker 按同一策略把各 slug 目录挂成 rw 或 ro，
- * runner 也只在 `native_auto` 下预批准 `Edit`。文案若越权宣称可写，子智能体会写只读目录（EROFS）。
- */
 function subAgentMemoryClause(policy: MemoryPolicy): string {
   const writable = memoryWritable(policy);
   const capability = writable ? '读写' : '读取';
@@ -251,11 +240,6 @@ function subAgentMemoryClause(policy: MemoryPolicy): string {
   return `已登记的子智能体只允许${capability}自己的 project 记忆（\`.claude/agent-memory/<slug>/\` 内的 Markdown）${suffix}；其他目录与未登记子智能体的原生文件工具请求均被拒绝。`;
 }
 
-/**
- * 主会话记忆文案必须与挂载权限同源：worker 只在 `enabled && writeMode=native_auto` 时把
- * `/mnt/agent-memory/` 挂成可写，`proposal_only` 只读、`enabled=false` 不挂载。
- * 文案若仍宣称可写，模型会照做并向只读目录写入（EROFS）。
- */
 function memoryAccessLine(policy: MemoryPolicy): string {
   const main = !policy.enabled
     ? `专家记忆已停用：本轮不挂载 \`${MEMORY_CONTAINER_DIR}/\`，不要读取或写入该目录。`
@@ -324,7 +308,6 @@ function renderClaudeMd(input: WorkspaceInput): string {
           '委派前先读上面的「等待规则」。',
         ];
 
-  // 生成区只能由渲染器自己的边界行界定；外来多行文本里的同名行统一在这里消除。
   const generatedBody = [
     '## 工具使用',
     '',
@@ -373,15 +356,11 @@ function renderClaudeMd(input: WorkspaceInput): string {
   ].join('\n');
 }
 
-/** standalone：子智能体文件没有自己的 CLAUDE.md，正文直接放系统提示。 */
 function renderAgentMd(input: WorkspaceInput, standalone = false): string {
   const { agent, servers, skills = [] } = input;
-  // serverNames 缺省时保持调用方默认：input.servers 全部可见、不显式拒绝；
-  // 给出数组则把可见范围限定到该智能体自身绑定的 server，并显式拒绝其余。
   const bound = agent.serverNames;
   const ownNames = bound ?? servers.map((s) => s.name);
   const ownServers = servers.filter((s) => ownNames.includes(s.name));
-  // Bash 由运行时默认放行；预览白名单必须与运行一致，即使智能体配置了自己的 allow 列表。
   const tools = [
     ...new Set([
       'Bash',
@@ -391,17 +370,12 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
     ]),
   ];
   const hasSubAgents = (input.subAgents ?? []).length > 0;
-  // 智能体可显式放行 ListAgents/SendMessage（D-19）；其余默认项不能通过配置解除。
   const allowedByConfig = new Set(input.toolsAllow ?? []);
   const mayEnable = (tool: string): boolean =>
     CONFIGURABLE_DISALLOWED_TOOLS.includes(tool) &&
     (tool === 'Agent' || tool === 'TaskStop' ? hasSubAgents : allowedByConfig.has(tool));
-  // 工作区 .mcp.json 是父 + 启用子级的并集；不绑定的 server 必须显式拒绝，
-  // 否则 dontAsk 下这些工具仍出现在上下文里，等于把子级工具隐式放行给父级。
   const foreignServers =
     bound === undefined ? [] : servers.filter((s) => !ownNames.includes(s.name));
-  // 单层委派：有子智能体时放行 Agent/TaskStop，与 runner 的 options 保持一致；
-  // 子智能体本身不传 subAgents，因此仍被禁用，无法继续向下委派。
   const disallowed = [
     ...new Set([
       // 文件工具禁用只留给主定义；子定义靠官方 memory: project 读写自己的记忆目录，
@@ -409,8 +383,6 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
       ...DEFAULT_DISALLOWED_TOOLS.filter(
         (tool) => !mayEnable(tool) && !(standalone && SUBAGENT_FILE_TOOLS.has(tool)),
       ),
-      // 子智能体的单层约束由这里兜底：API 只拦两层父子，
-      // 手工把文件放回 .claude/agents/ 时也必须无法再委派。
       ...(standalone ? ['Agent', 'TaskStop'] : []),
       ...foreignServers.map((s) => `mcp__${s.name}`),
       ...(input.toolsDeny ?? []),
@@ -469,7 +441,6 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
       ? [
           agent.systemPrompt.trim(),
           '',
-          // 子智能体没有自己的 CLAUDE.md；固定等待语义属于生成后缀，不能混进用户正文。
           GENERATED_SUFFIX_START,
           '你是被父智能体同步调用的：直接执行任务并返回最终文本。',
           '不要再委派给其他智能体（`Agent`/`TaskStop` 已禁用）。',
@@ -552,7 +523,6 @@ export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
     mcpServers[server.name] = server.entry;
   }
 
-  // 技能按 slug 去重：根智能体在前，子智能体按序补齐，先出现者胜。
   const allSkills = new Map<string, WorkspaceSkill>();
   for (const skill of [
     ...(input.skills ?? []),

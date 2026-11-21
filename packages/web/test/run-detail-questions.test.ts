@@ -75,7 +75,6 @@ const detail: RunDetail = {
       at,
       name: 'AskUserQuestion',
       toolUseId: 'toolu_1',
-      // 运行步骤只保留工具参数；提问状态由该 run 的 questions 接口提供。
       content: { questions: question.questions },
       parentToolUseId: null,
     },

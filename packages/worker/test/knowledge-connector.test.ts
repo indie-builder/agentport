@@ -215,7 +215,6 @@ beforeAll(async () => {
       return;
     }
     if (path === '/open-apis/drive/v1/files/raw1/download') {
-      // 无 Content-Type 时按原始字节交给解析器，不能做 UTF-8 解码。
       response.writeHead(200);
       response.end(Buffer.from([0x25, 0x50, 0x44, 0x46, 0xff, 0xfe, 0x00, 0x80]));
       return;
@@ -302,14 +301,11 @@ describe('connector adapter ranges', () => {
       range(`${fixtureUrl}/feed-b`),
     ]);
 
-    // 每个 range 一个检查点，末尾再落一次汇总（complete 只可能出现在这里）。
     expect(result.checkpoints).toHaveLength(3);
     const [first, , last] = result.checkpoints;
-    // 中间检查点只有第一个 range 的游标，且明确 complete=false。
     expect(Object.keys(first?.cursor ?? {})).toHaveLength(1);
     expect(first?.status.complete).toBe(false);
     expect(Object.keys(last?.cursor ?? {})).toHaveLength(2);
-    // feed 是滚动窗口：即便读完两个 range 也不能证明删除。
     expect(last?.status.complete).toBe(false);
   });
 
@@ -335,7 +331,6 @@ describe('connector adapter ranges', () => {
         }
       })(),
     ).rejects.toThrow(/500/);
-    // 只有第一个 range 的检查点落过；失败的 range 没有游标。
     expect(collected.checkpoints).toHaveLength(1);
     expect(Object.keys(collected.checkpoints[0]?.cursor ?? {})).toHaveLength(1);
     expect(collected.checkpoints[0]?.status.complete).toBe(false);
@@ -390,7 +385,6 @@ describe('knowledgeConnectors range mapping', () => {
     expect(github.items.map((item) => item.sourceId)).toEqual([
       withConnection(`github:${fixtureUrl}/api/v3:77:main:docs/a.md`),
     ]);
-    // paths 是 github 范围键的一部分，缩小范围不会复用旧游标。
     expect(Object.keys(github.checkpoints.at(-1)?.cursor ?? {})).toEqual([
       'github|github_repo|octo/proj||docs',
     ]);
@@ -417,7 +411,6 @@ describe('knowledgeConnectors range mapping', () => {
     state.requests = [];
     const result = await run(
       'github',
-      // 旧版本会把第一条 range 的 ref 落到 config.ref，导致第二个仓库读错分支。
       { baseUrl: `${fixtureUrl}/api/v3`, ref: 'legacy' },
       [
         { kind: 'github_repo', externalId: 'octo/proj', ref: null, paths: ['docs'] },
@@ -450,7 +443,6 @@ describe('knowledgeConnectors range mapping', () => {
     );
     expect(trusted.items).toHaveLength(2);
 
-    // 用户 config 的 allowLoopback 不再透传到读取层。
     await expect(
       run('feed', { allowLoopback: true }, [range(`${fixtureUrl}/feed-a`)], {}, {}),
     ).rejects.toThrow(/private address/);
@@ -475,7 +467,6 @@ describe('source probe', () => {
   it('checks credentials and the first range item without reading articles or advancing cursors', async () => {
     state.requests = [];
     await probe('feed', {}, range(`${fixtureUrl}/feed-a`));
-    // 只读订阅本身；不会为了探测去抓每篇文章。
     expect(state.requests.map((entry) => entry.path)).toEqual(['/feed-a']);
 
     await probe(
@@ -529,7 +520,6 @@ describe('binary source bytes and per-item failures', () => {
     const failed = result.items.find((item) => item.failure);
     expect(failed?.sourceId).toMatch(/archive\.zip$/);
     expect(failed?.failure).toMatchObject({ code: 'unsupported_type', retryable: false });
-    // 单项失败后不能声称完整枚举，删除推导必须关闭。
     expect(result.checkpoints.at(-1)?.status.complete).toBe(false);
   });
 
@@ -656,7 +646,6 @@ describe('connector item sourceId limit', () => {
     installImaFetch({ 'kb-1': [overlong] });
     const result = await run('ima', imaConfig, [imaRange('kb-1')], {}, network, imaSecrets);
 
-    // 不 yield 内容条目，也不截断/改写 ID：只留一条可重试信息不泄凭证的失败项。
     expect(result.items.filter((item) => !item.failure)).toEqual([]);
     expect(result.items).toHaveLength(1);
     const failed = result.items[0];

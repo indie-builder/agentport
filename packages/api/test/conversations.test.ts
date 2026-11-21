@@ -18,7 +18,6 @@ import {
 } from './helpers.js';
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
-// 会话 fixture 直接写 repo，不经过 /api/chat：不会产生 queued run，也就不依赖 worker 空闲。
 const ready = await infraReady;
 
 describe.skipIf(!ready)('conversations', () => {
@@ -31,7 +30,6 @@ describe.skipIf(!ready)('conversations', () => {
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
-    // 删除路由在事务外等待 worker 关闭确认（仍持会话锁）；测试进程注册真实信道处理器。
     sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
   });
 
@@ -143,7 +141,6 @@ describe.skipIf(!ready)('conversations', () => {
         role: 'user',
         content: { type: 'text', text: '保留我' },
         runId: null,
-        // 消息级渲染快照：历史按它渲染，不再跟随当前智能体的开关。
         uiFormat: 'markdown',
         uiProgram: null,
         uiState: null,
@@ -179,7 +176,6 @@ describe.skipIf(!ready)('conversations', () => {
       [id],
     );
     expect(audit).toHaveLength(1);
-    // 审计只记字段名，不落标题原文。
     expect(audit[0]?.input_digest).toBe(
       createHash('sha256')
         .update(JSON.stringify({ fields: ['title'] }))
@@ -220,7 +216,6 @@ describe.skipIf(!ready)('conversations', () => {
         runId: run.id,
       });
     }
-    // 没有 run 的旧消息不该编造读数。
     await repo.chat.appendMessage(app.db, {
       id: newId('message'),
       conversationId: id,
@@ -416,7 +411,6 @@ describe.skipIf(!ready)('conversations', () => {
       agentId: agent.id,
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
-    // 终态 run 不阻塞删除，同时验证删除会级联带走运行记录。
     await repo.chat.updateRun(app.db, run.id, { status: 'cancelled', endedAt: new Date() });
 
     const res = await remove(id);

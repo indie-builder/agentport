@@ -12,10 +12,6 @@ import {
   servers,
 } from '../src/schema.js';
 
-/**
- * 准入的用户消息内容必须与 run、继承审批同一次提交：
- * 动作内容直接写在 appendMessage 里，不允许先落纯文本再补写（补写失败会留下没有 job 的 queued run）。
- */
 const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 const ready = await client.unsafe('select 1').then(
   () => true,
@@ -62,7 +58,6 @@ async function newConversation(agentId: string): Promise<string> {
   return id;
 }
 
-/** 上一轮已结束的 run 及其已批准工具；下一次准入应把批准继承过来。 */
 async function previousApprovedRun(
   conversationId: string,
   agentId: string,
@@ -95,7 +90,6 @@ const runsOf = (conversationId: string) =>
 
 describe.skipIf(!ready)('admitChatRun user content', () => {
   afterAll(async () => {
-    // agents 级联清会话、消息、run 与审批；servers 单独删。
     for (const agentId of agentIds) await db.delete(agents).where(eq(agents.id, agentId));
     for (const serverId of serverIds) await db.delete(servers).where(eq(servers.id, serverId));
     await client.close();
@@ -133,7 +127,6 @@ describe.skipIf(!ready)('admitChatRun user content', () => {
 
     const rows = await userMessages(admitted.conversationId);
     expect(rows).toHaveLength(1);
-    // 完整 context/params/formState 原样落库，且没有中间那条纯文本行。
     expect(rows[0]?.content).toEqual(userContent);
     expect(rows[0]?.runId).toBe(admitted.run.id);
     expect(rows[0]?.sdkMessageUuid).toBe(admitted.userMessageUuid);
@@ -196,7 +189,6 @@ describe.skipIf(!ready)('admitChatRun user content', () => {
 
     expect(await runsOf(conversationId)).toHaveLength(1);
     expect(await userMessages(conversationId)).toHaveLength(0);
-    // 原有 run 的批准仍在；失败事务没给新 run 留下任何行。
     const approvals = await db
       .select()
       .from(approvalRequests)

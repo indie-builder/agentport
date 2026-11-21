@@ -15,11 +15,8 @@ import {
   unique,
 } from './helpers.js';
 
-// 断言只看准入写入的用户消息内容与响应码：即使 worker 在线消费也不改写这条记录，
-// 因此不像状态类用例那样要求队列空闲。
 const ready = await infraReady;
 
-/** 一个合法的生成式 UI 段；段数只按这样的围栏计数。 */
 const uiSegment = (name: string) => `\`\`\`openui-lang\n${name} = Card([])\n\`\`\``;
 
 describe.skipIf(!ready)('openui actions', () => {
@@ -56,15 +53,10 @@ describe.skipIf(!ready)('openui actions', () => {
       await createAgent(app, cookie, { slug: unique('oui-action'), track: agentSlugs })
     ).json<Agent>();
 
-  /**
-   * 真实的主助手生成式 UI 消息。`uiProgram` 是落库的完整混合文本，
-   * 段数由 `segments` 决定；来源校验按它判断 `sN` 是否存在。
-   */
   const sourceMessage = async (
     agentId: string,
     options: {
       segments?: number;
-      /** 直接给定落库的完整混合文本；用于覆盖围栏嵌套等分段边界。 */
       text?: string;
       uiFormat?: 'markdown' | 'openui';
       role?: 'assistant' | 'user';
@@ -129,7 +121,6 @@ describe.skipIf(!ready)('openui actions', () => {
           type: 'continue_conversation',
           message: 'Plan a trip to Paris',
           params,
-          // 显式 context 优先于 params.context：两者都存在时不合并、不丢显式值。
           context: { card: 'paris', source: 'card' },
           formState: { budget: 2500, nested: { days: 3 } },
           formName: 'trip-planner',
@@ -213,7 +204,6 @@ describe.skipIf(!ready)('openui actions', () => {
     expect(res.statusCode, res.body).toBe(202);
     runIds.push(res.json<{ runId: string }>().runId);
     const rows = await userMessages(res.json<{ conversationId: string }>().conversationId);
-    // 不伪造来源 id：没有来源就不写 messageId/blockKey。
     expect(rows[0]?.content).toEqual([
       { type: 'text', text: 'submit' },
       {
@@ -250,8 +240,6 @@ describe.skipIf(!ready)('openui actions', () => {
 
   it('numbers segments past Markdown and non-openui code fences', async () => {
     const agent = await newAgent();
-    // 大量 Markdown 与 js 代码块（块内也有 openui 围栏，只是代码内容）夹在中间：
-    // 段键只按真实 UI 段计数，s1 仍指向第二段。
     const text = [
       '# 标题',
       '说明文字。',
@@ -332,11 +320,8 @@ describe.skipIf(!ready)('openui actions', () => {
     const source = await sourceMessage(agent.id);
     const other = await sourceMessage(agent.id);
     const cases = [
-      // 不存在
       { conversationId: source.conversationId, messageId: newId('message'), blockKey: 's0' },
-      // 消息属于另一个会话
       { conversationId: other.conversationId, messageId: source.messageId, blockKey: 's0' },
-      // 引用另一个会话里真实存在的消息，但当前会话不同
       { conversationId: source.conversationId, messageId: other.messageId, blockKey: 's0' },
     ];
     for (const sourcePart of cases) {
@@ -367,23 +352,18 @@ describe.skipIf(!ready)('openui actions', () => {
     const subagent = await sourceMessage(agent.id, { parentToolUseId: 'toolu_parent' });
     const oneSegment = await sourceMessage(agent.id, { segments: 1 });
     const cases = [
-      // 不是生成式 UI 消息
       { conversationId: markdown.conversationId, messageId: markdown.messageId, blockKey: 's0' },
-      // 不是助手消息
       {
         conversationId: userMessage.conversationId,
         messageId: userMessage.messageId,
         blockKey: 's0',
       },
-      // 子智能体消息不是主助手界面
       { conversationId: subagent.conversationId, messageId: subagent.messageId, blockKey: 's0' },
-      // 段不存在
       {
         conversationId: oneSegment.conversationId,
         messageId: oneSegment.messageId,
         blockKey: 's1',
       },
-      // 段标识不合法
       { conversationId: oneSegment.conversationId, messageId: oneSegment.messageId, blockKey: '0' },
     ];
     for (const sourcePart of cases) {
@@ -407,10 +387,6 @@ describe.skipIf(!ready)('openui actions', () => {
     }
   });
 
-  /**
-   * 动作内容与 run 必须同一个提交：让用户消息的插入在事务内失败，
-   * 若内容靠准入后的第二次 UPDATE 补写，就会留下一个没有 job 的 queued run。
-   */
   it('rolls back the run and message when action admission fails', async () => {
     const agent = await newAgent();
     const source = await sourceMessage(agent.id);
@@ -503,7 +479,6 @@ describe.skipIf(!ready)('openui actions', () => {
         },
       },
     });
-    // 浏览器自己开窗：既不起 run，也不写消息。
     expect(res.statusCode).toBe(204);
     const rows = await userMessages(source.conversationId);
     expect(rows).toHaveLength(0);

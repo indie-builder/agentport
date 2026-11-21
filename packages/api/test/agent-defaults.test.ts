@@ -185,7 +185,6 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
     agentIds.push(created.id);
     expect(created).toMatchObject({ effort: 'xhigh' });
 
-    // 清空后导出：侧车不写 effort，包仍可导入。
     const cleared = await patch(agent.id, { effort: null });
     expect(cleared.statusCode, cleared.body).toBe(200);
     const clearedPackage = await exportPackage(agent.id);

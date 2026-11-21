@@ -201,9 +201,7 @@ export async function startEvalRun(
           .then((job) => job?.remove())
           .catch(() => undefined);
       }
-    } catch {
-      // 清理失败时没有可安全回显的细节，仍然返回固定的入队失败。
-    }
+    } catch {}
     fail('SERVICE_UNAVAILABLE', '评估入队失败，请稍后重试');
   }
 

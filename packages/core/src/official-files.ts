@@ -9,10 +9,6 @@ import { parseMarkdownFrontmatter, splitHeading } from './markdown-frontmatter.j
 export const GENERATED_SUFFIX_START = '<!-- agentport:generated:start -->';
 export const GENERATED_SUFFIX_END = '<!-- agentport:generated:end -->';
 
-/**
- * 生成区内的外来多行文本（工具描述、schema 等）可能恰好含独占边界行，读取端会把它当成
- * 真正的后缀边界。转义 `<` 保留原文字面量，但不构成可识别的 HTML 注释边界。
- */
 export function escapeGeneratedBoundaryLines(content: string): string {
   return content
     .split('\n')
@@ -43,7 +39,6 @@ function lineSpans(text: string): LineSpan[] {
   }
 }
 
-/** 返回末尾生成后缀的字符区间；没有终端有效后缀时返回 null（全文当用户正文）。 */
 function terminalGeneratedSuffix(text: string): { start: number; end: number } | null {
   const lines = lineSpans(text);
   let last = lines.length - 1;
@@ -62,7 +57,6 @@ function terminalGeneratedSuffix(text: string): { start: number; end: number } |
  * 只认终端有效生成区，不用普通标题或自然语言截断；手写文件整篇当提示词。
  */
 export function parseClaudeMd(content: string): { name: string; systemPrompt: string } {
-  // 导出的文件会被 Windows 编辑器/autocrlf 存成 CRLF，生成段边界与子定义解析统一按 LF 判定。
   const text = content.replace(/^﻿/, '').replace(/\r\n/g, '\n');
   const firstLine = text.split('\n', 1)[0] ?? '';
   const heading = /^#[ \t]+(.+?)[ \t]*$/.exec(firstLine);
@@ -173,7 +167,6 @@ export function parseChildAgentMd(content: string, path: string): ParsedChildAge
     }
   }
   prompt = prompt.trim();
-  // 没有生成后缀的手写文件仍需正文；渲染器产物的空正文是合法的。
   if (prompt === '' && suffix === null) {
     fail('INVALID_INPUT', '子智能体文件的正文不能为空', { path });
   }
@@ -203,7 +196,6 @@ export function parseRuleMd(
   globs: string;
 } {
   const text = content.replace(/^﻿/, '');
-  // 无 frontmatter 的纯 Markdown 规则没有 globs 作用域，正文就是全文。
   if (!/^---[ \t]*\r?\n/.test(text)) {
     return { slug, content: text.trim(), globs: '' };
   }
@@ -219,7 +211,6 @@ export function parseRuleMd(
   return { slug, content: body.trim(), globs };
 }
 
-/** `.claude/output-styles/<slug>.md`：官方 frontmatter + 风格正文。 */
 export function parseOutputStyleMd(
   content: string,
   slug: string,

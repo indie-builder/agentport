@@ -186,7 +186,6 @@ describe('conversation search overlay', () => {
     vi.spyOn(api, 'searchConversations').mockResolvedValue(
       response([item('c1', '项目进度同步'), item('c2', '另一条会话')]),
     );
-    // Base UI 的 Enter 依赖对列表项合成 click；浏览器里这条路径可能不触发 React 事件。
     const syntheticClick = vi.spyOn(HTMLElement.prototype, 'click').mockImplementation(() => {});
     await mount();
 

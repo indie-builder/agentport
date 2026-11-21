@@ -277,7 +277,6 @@ function firstConversationCheckbox(): HTMLElement {
   return checkbox;
 }
 
-/** 第 1 步选一段来源后进入第 2 步，返回仍在同一弹层内的表单。 */
 async function openCreateOnTargetStep() {
   const dialog = await openCreate();
   await click(firstConversationCheckbox());
@@ -467,11 +466,9 @@ describe('记忆提案', () => {
     });
     const router = await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('共 4 条'));
-    // 默认顺序把待审核放在已处理之前，不静默改变用户需要先处理的对象。
     expect(host.textContent.indexOf('待审核摘要')).toBeLessThan(
       host.textContent.indexOf('已处理摘要'),
     );
-    // 主操作位于页头 actions 右侧，筛选收进 FilterPopover。
     const header = host.querySelector('[data-slot="page-header"]');
     expect(header?.contains(button('生成记忆提案', host))).toBe(true);
 
@@ -549,7 +546,6 @@ describe('记忆提案', () => {
     await click(checkbox);
     await click(button('下一步', dialog));
 
-    // 第 2 步才出现目标与执行专家，执行者与来源专家分开展示。
     expect(dialog.textContent).toContain('写入目标');
     expect(dialog.textContent).toContain('执行专家');
     await fill('memory-review-instruction', '只整理长期偏好');
@@ -557,7 +553,6 @@ describe('记忆提案', () => {
     expect(dialog.textContent).toContain('超时 10 分钟');
     await click(button('下一步', dialog));
 
-    // 摘要确认列出三类角色与可选要求。
     expect(dialog.textContent).toContain('确认生成');
     expect(dialog.textContent).toContain('来源专家');
     expect(dialog.textContent).toContain('专家甲');
@@ -585,7 +580,6 @@ describe('记忆提案', () => {
     await vi.waitFor(() => expect(dialog.textContent).toContain('会话一'));
     await click(firstConversationCheckbox());
 
-    // 第 1 步的隐式提交（Enter）也只推进，不生成。
     await act(async () => {
       dialog
         .querySelector('form')
@@ -595,7 +589,6 @@ describe('记忆提案', () => {
     expect(dialog.textContent).toContain('写入目标');
     expect(api.createMemoryReview).not.toHaveBeenCalled();
 
-    // 第 2 步的推进按钮会和第 3 步提交按钮落在同一位置；浏览器默认激活必须被拦住。
     await clickNative(button('下一步', dialog));
     expect(dialog.textContent).toContain('确认生成');
     expect(dialog.textContent).toContain('来源专家');
@@ -629,10 +622,8 @@ describe('记忆提案', () => {
         return Promise.reject(new Error(`Unexpected fetch: ${path}`));
       }),
     );
-    // agentsQuery 直接引用模块加载时的 api.agents，这里用挂起的 fetch 模拟目录尚未返回。
     client.removeQueries({ queryKey: ['agents'] });
     await mount('/personal/reviews?create=true');
-    // 专家目录未就绪时不挂载弹层，避免用空数组把来源专家初始化成空值。
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     await vi.waitFor(() => expect(releaseAgents).toBeDefined());
 
@@ -790,7 +781,6 @@ describe('记忆提案', () => {
     expect(api.rejectMemoryReview).toHaveBeenCalledWith('run-reject');
     await vi.waitFor(() => expect(dialog.textContent).toContain('提案已拒绝'));
     expect(dialog.textContent).toContain('目标内容未更改');
-    // 拒绝没有写入目标，链接文案说明看的是当前内容而不是本次提案。
     expect(dialog.textContent).toContain('查看当前个人记忆');
     expect(dialog.textContent).not.toContain('查看个人记忆');
   });
@@ -877,23 +867,19 @@ describe('记忆提案', () => {
     const findCreateDialog = () =>
       allDialogs().find((item) => item.textContent?.includes('新建记忆提案')) ?? null;
 
-    // 取消按钮
     await click(button('取消', createDialog));
     expect(discardDialog()).toBeTruthy();
     await click(button('取消', discardDialog() as HTMLElement));
     expect(findCreateDialog()).toBeTruthy();
 
-    // 关闭按钮
     await click(button('关闭', findCreateDialog() as HTMLElement));
     expect(discardDialog()).toBeTruthy();
     await click(button('取消', discardDialog() as HTMLElement));
 
-    // Esc
     await pressEscape();
     expect(discardDialog()).toBeTruthy();
     await click(button('取消', discardDialog() as HTMLElement));
 
-    // 外部点击
     await pressOutside();
     expect(discardDialog()).toBeTruthy();
 
@@ -1015,10 +1001,8 @@ describe('记忆提案', () => {
 
     await browserBack();
     await vi.waitFor(() => expect(discardDialog()).toBeTruthy());
-    // 浏览器已回退地址栏，但路由仍停在被拦下的 create=true；成功关闭时两者要对齐。
     expect(router.state.location.search).toMatchObject({ create: true });
 
-    // 不操作放弃确认而请求成功时，关闭表单不能把地址栏留在被拦下的上一页。
     await act(async () => resolve({ runId: 'run-new' }));
     await vi.waitFor(() => expect(discardDialog()).toBeNull());
     await vi.waitFor(() => expect(window.location.pathname).toBe('/personal/reviews'));
@@ -1180,7 +1164,6 @@ describe('记忆提案', () => {
     await vi.waitFor(() => expect(dialog.textContent).toContain('已回滚这次变更。'));
     expect(buttonOrNull('回滚', dialog)).toBeUndefined();
 
-    // 整页重挂载后仍从服务端版本列表恢复已回滚状态。
     await act(async () => root.unmount());
     root = createRoot(host);
     await mount();
@@ -1349,7 +1332,6 @@ describe('记忆提案', () => {
     );
     await click(button('下一步', dialog));
 
-    // 切换目标专家不会静默丢掉来源；三类角色在摘要里分别展示。
     expect(dialog.textContent).toContain('来源专家');
     expect(dialog.textContent).toContain('会话一');
     expect(dialog.textContent).toContain('写入目标');
@@ -1451,7 +1433,6 @@ describe('记忆提案', () => {
     await vi.waitFor(() => expect(host.textContent).toContain('无需变更'));
     const dialog = await openFirstDetail();
     expect(dialog.textContent).toContain('无需变更');
-    // 无变化时只展示一次当前内容，不渲染左右对比或空代码框。
     expect(dialog.textContent).toContain('当前内容');
     expect(dialog.textContent).not.toContain('修改前内容');
     expect(dialog.textContent).not.toContain('提案内容');

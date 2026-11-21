@@ -78,7 +78,6 @@ describe.skipIf(!ready)('audit export', () => {
           },
       );
 
-  /** 直接落库：写入路径已在别处覆盖，这里只验证读路径。 */
   async function seedAudit(options: {
     action: string;
     target: string;
@@ -199,7 +198,6 @@ describe.skipIf(!ready)('audit export', () => {
       [`audit-export-bulk-${target}`, target],
     );
 
-    // 超过上限必须明确拒绝，不能把 1000 条当成完整结果静默导出。
     expectProblem(await exportAudit(`?target=${encodeURIComponent(target)}`), 'CONFLICT');
 
     const exactly = unique('target');

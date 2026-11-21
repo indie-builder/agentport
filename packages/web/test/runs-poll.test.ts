@@ -1,10 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 
-/**
- * useRuns 的轮询配置测试：直接调用真实 hook，捕获它交给 useQuery 的配置，
- * 再用真实数据形状求值 refetchInterval，不另写一份判定逻辑。
- */
-
 const rq = vi.hoisted(() => ({
   useQuery: vi.fn(),
   useMutation: vi.fn(),
@@ -38,7 +33,6 @@ function capture(): RunsOptions {
   return rq.useQuery.mock.calls.at(-1)?.[0] as RunsOptions;
 }
 
-// biome 只允许 hook 在 hook/组件里调用，因此这个测试助手按 hook 命名。
 function useDefaultOptions(query: RunQuery = {}): RunsOptions {
   rq.useQuery.mockReturnValue({ data: undefined });
   useRuns(query);

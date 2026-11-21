@@ -12,9 +12,6 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import { ApiError, api } from '../api.js';
 import { meQuery } from './shared.js';
 
-// ---- 个人模块：资料、登录会话、分享与使用记录 -------------------------------
-
-/** 姓名保存成功后直接改 me 缓存，侧栏无需等一次刷新。 */
 export function useUpdatePersonalProfile() {
   const client = useQueryClient();
   return useMutation({
@@ -34,7 +31,6 @@ const personalSessionsQuery = queryOptions<PersonalSessionList>({
   queryKey: ['me-sessions'],
   queryFn: ({ signal }) => api.meSessions(signal),
   staleTime: 0,
-  // 鲜度不足是稳定 403，重试没有意义；页面提供重新登录动作。
   retry: (count, error) => !(error instanceof ApiError && error.status === 403) && count < 1,
 });
 
@@ -92,7 +88,6 @@ export function usePersonalRuns(query: PersonalRunListQuery, enabled = true) {
   });
 }
 
-/** 回顾来源固定本人；不用全局会话列表在浏览器里过滤。 */
 export function usePersonalConversations(agentId: string | null, enabled = true) {
   return useQuery<ConversationSummary[]>({
     queryKey: ['personal-conversations', agentId],

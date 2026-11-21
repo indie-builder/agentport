@@ -26,7 +26,6 @@ interface RunRow {
 
 const ready = await infraReady;
 
-/** M2 的私有运行入口（详情/提问/审批）不实现频道授权，频道 run 一律按不存在处理。 */
 describe.skipIf(!ready)('channel run private entry points', () => {
   let app: TestApp;
   let adminCookie: string;
@@ -88,7 +87,6 @@ describe.skipIf(!ready)('channel run private entry points', () => {
     });
     expect(bound.statusCode, bound.body).toBe(201);
 
-    // 普通成员触发频道 run：initiated_by 是触发者本人，正是旧私有入口放行的原因。
     const posted = await call('POST', `/api/channels/${channel.id}/messages`, member.cookie, {
       body: 'private entry probe',
       mentions: [agent.id],
@@ -109,7 +107,6 @@ describe.skipIf(!ready)('channel run private entry points', () => {
     runId = run.id;
     expect(run.channel_id).toBe(channel.id);
 
-    // 回答/批准都要求 run 仍在 running；worker 不在测试进程内消费，手动置为运行中。
     await app.client.unsafe("update agent_runs set status = 'running', error = $2 where id = $1", [
       runId,
       sensitiveError,

@@ -107,9 +107,7 @@ async function waitFor<T>(probe: () => T, tries = 50): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 页面切换过程中继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -297,7 +295,6 @@ function prepare(): void {
   route('GET', /^\/api\/roles$/, () => json(current));
   route('PUT', /^\/api\/roles$/, (call) => {
     const payload = call.body as RoleMatrixInput;
-    // 服务端回包带真实 id/systemKey；保存载荷本身不含 systemKey，不能直接回显 request body。
     const roles: Role[] = payload.roles.map((role, index) => {
       const existing = current.roles.find((item) => item.id === role.id);
       return {
@@ -523,7 +520,6 @@ describe('角色权限矩阵：工具栏展开控制', () => {
     expect(maybeMatrixCheckbox('成员', '查看专家')).toBeNull();
 
     await click(button('全部收起'));
-    // 顶层组行保留（可继续批量勾选），其下所有子组与叶隐藏。
     expect(matrixCheckbox('成员', '专家')).toBeTruthy();
     expect(matrixCheckbox('成员', '平台')).toBeTruthy();
     for (const label of ['发现', '配置', '查看专家', '使用专家', '查看配置']) {
@@ -616,7 +612,6 @@ describe('角色权限矩阵：父组聚合与范围变更', () => {
 
     expect(cellOf('成员', '专家').getAttribute('data-changed')).toBe('false');
 
-    // 只改范围、不改勾选状态，单元格同样视为未保存。
     const settings = await openSettings('成员');
     await click(scopeToggle('成员', '查看专家', '全平台'));
     await click(button('完成', settings));
@@ -626,13 +621,11 @@ describe('角色权限矩阵：父组聚合与范围变更', () => {
     expect(cellOf('成员', '查看专家').getAttribute('title')).toContain('未保存');
     expect(ariaDescription('成员', '查看专家')).toContain('范围调整');
 
-    // 叶被折叠隐藏后，父组聚合仍暴露该变化。
     await click(button('收起 专家'));
     expect(maybeMatrixCheckbox('成员', '查看专家')).toBeNull();
     expect(cellOf('成员', '专家').getAttribute('data-changed')).toBe('true');
     expect(cellOf('成员', '专家').getAttribute('title')).toContain('未保存');
 
-    // 范围改回基线后变化清除。
     await click(button('展开 专家'));
     const reopened = await openSettings('成员');
     await click(scopeToggle('成员', '查看专家', '全平台'));
@@ -654,7 +647,6 @@ describe('角色权限矩阵：工具栏反馈与保存清除', () => {
       expect(cell.getAttribute('title')).toContain('未保存');
     }
     expect(ariaDescription('成员', '查看专家')).toContain('新增');
-    // data-changed 会把父组聚合也算一行；未保存计数只算真实叶权限变化（3 个叶），不重复计父链。
     expect(dataCells().filter((cell) => cell.getAttribute('data-changed') === 'true')).toHaveLength(
       4,
     );
@@ -787,7 +779,6 @@ describe('角色设置：范围与批量勾选', () => {
     await openRoles();
 
     const settings = await openSettings('成员');
-    // 先改另一权限的范围，保证总变更数不为 0。
     await click(scopeToggle('成员', '使用专家', '全平台'));
     await click(scopeToggle('成员', '查看专家', '被授权专家'));
     await click(button('完成', settings));

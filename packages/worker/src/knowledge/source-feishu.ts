@@ -28,16 +28,11 @@ import {
   sourceCursorSchema,
 } from './source-utils.js';
 
-// ---------------------------------------------------------------------------
-// Feishu wiki + Drive (docx blocks, text files)
-// ---------------------------------------------------------------------------
-
 /** Documented Feishu credential/token failures; extend only with codes Feishu documents as auth. */
 const FEISHU_AUTH_CODES = new Set([99991661, 99991663, 99991668]);
 
 const MAX_FEISHU_BLOCKS = 50_000;
 
-/** 响应 Content-Type 反查后缀；只认文本与二进制格式表，octet-stream 不是格式证据。 */
 const EXTENSION_BY_MIME: Record<string, string> = {};
 for (const [extension, mime] of Object.entries({
   ...MIME_BY_EXTENSION,
@@ -46,9 +41,6 @@ for (const [extension, mime] of Object.entries({
   EXTENSION_BY_MIME[mime] ??= extension.slice(1);
 }
 
-/**
- * 下载响应头可能缺失或误报文本；扩展名指向的格式优先，未知原件保持字节交给 parser。
- */
 function driveFileMime(fileName: string, contentType: string | null): string {
   const extension = extensionWithDot(fileName);
   const byExtension = BINARY_MIME_BY_EXTENSION[extension] ?? MIME_BY_EXTENSION[extension];
@@ -132,7 +124,6 @@ const wikiNodesSchema = z.object({
   msg: z.string().optional(),
   data: z.object({
     items: z.array(wikiNodeSchema),
-    // 缺少终页证据不能当最后一页；字段缺失直接判响应不合契约。
     has_more: z.boolean(),
     page_token: z.string().optional(),
   }),
@@ -386,9 +377,6 @@ const feishuEnvelopeSchema = z.object({
   data: z.unknown().optional(),
 });
 
-/**
- * 先按公共 code/msg 判错，再校验 data：凭证错误不能因为 data 形状不符被降级成可重试的单项失败。
- */
 async function fetchFeishuData<T>(
   url: string,
   dataSchema: z.ZodType<T>,
@@ -405,7 +393,6 @@ async function fetchFeishuData<T>(
 const EXPORT_POLL_INTERVAL_MS = 1_000;
 const EXPORT_MAX_POLLS = 60;
 
-/** 在线文档的导出格式；其它类型本契约没有读取链，明确 unsupported。 */
 const EXPORT_KINDS: Record<string, { extension: 'docx' | 'xlsx'; mimeType: string }> = {
   doc: {
     extension: 'docx',
@@ -435,7 +422,6 @@ const exportTaskStatusDataSchema = z.object({
   }),
 });
 
-/** 固定有界轮询；导出任务是异步的，但取消必须能立刻打断等待。 */
 function waitForExportPoll(signal: AbortSignal | undefined): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -482,7 +468,6 @@ function downloadFormat(extension: string): DownloadFormat | null {
   return mimeType ? { extension: extension.slice(1), mimeType } : null;
 }
 
-/** 真实下载名优先，其次可信响应类型；同类格式选下载名，非文本与文本冲突时取能确认的一方。 */
 function wikiDownloadFormat(
   downloadedName: string | undefined,
   contentType: string | null,
@@ -496,11 +481,9 @@ function wikiDownloadFormat(
   const namedText = textContentType(named.mimeType);
   const declaredText = textContentType(declared.mimeType);
   if (namedText === declaredText) return namedText ? named : 'conflict';
-  // 文本响应头常是误报，非文本响应才更接近真实原件。
   return declaredText ? named : declared;
 }
 
-/** 标题只提供展示名；没有任何下载元数据时，明确的二进制后缀才可作为格式线索。 */
 function titleBinaryFormat(title: string): DownloadFormat | null {
   const extension = extensionWithDot(title);
   return BINARY_MIME_BY_EXTENSION[extension] ? downloadFormat(extension) : null;
@@ -596,12 +579,10 @@ async function listWikiNodes(
     );
     assertFeishuCode(response, 'wiki nodes');
     const pageItems = response.data.items;
-    // 空页仍声称有下一页：没有终页证据，也不能把这份列表当完整枚举。
     if (pageItems.length === 0 && response.data.has_more) {
       throw new Error('feishu wiki pagination returned an empty page with has_more');
     }
     nodes.push(...pageItems);
-    // 探测只验证首屏；正常同步仍要求枚举到终页。
     if (firstPageOnly) return nodes;
     if (!response.data.has_more) return nodes;
     const next = response.data.page_token ?? '';
@@ -639,7 +620,6 @@ async function readDocxBlocks(auth: FeishuAuth, documentId: string): Promise<Doc
     );
     assertFeishuCode(response, 'docx blocks');
     if (response.data.items.length === 0) {
-      // 空页仍声称有下一页：没有终页证据，不能把已读内容当完整文档。
       if (response.data.has_more) {
         throw new SourceTruncatedError('feishu docx blocks returned an empty page with has_more');
       }
@@ -686,12 +666,10 @@ async function listDriveFiles(
     );
     assertFeishuCode(response, 'drive files');
     const pageFiles = response.data.files;
-    // 与 wiki 一致：空页 + has_more 没有终页证据，立即失败而不是当完整列表。
     if (pageFiles.length === 0 && response.data.has_more) {
       throw new Error('feishu drive pagination returned an empty page with has_more');
     }
     files.push(...pageFiles);
-    // 探测只验证首屏；正常同步仍要求枚举到终页。
     if (firstPageOnly) return files;
     if (!response.data.has_more) return files;
     const next = response.data.next_page_token ?? '';
@@ -769,7 +747,6 @@ export async function readFeishu(
   const previous = parseCursor('feishu', sourceCursorSchema, cursor);
   const settings: FeishuSettings = feishuSettingsSchema.parse(config.settings);
   const { auth, base } = await feishuAuthFor(config, settings, signal);
-  // Lark 与飞书的条目身份必须隔离：同名 token 不能跨云互认。
   const namespace = settings.region === 'lark' ? 'lark' : 'feishu';
   const exportFiles = settings.exportFiles === true;
   const usedPaths = new Set<string>();
@@ -804,7 +781,6 @@ export async function readFeishu(
             );
             continue;
           }
-          // 目录快捷方式按真实目标递归；visited 负责断开环。
           if (targetType === 'folder') {
             await walk(target, prefix);
             continue;
@@ -847,7 +823,6 @@ export async function readFeishu(
         return;
       }
       if (file.type === 'docx') {
-        // 既有飞书默认：docx blocks → markdown；Lark 走 exportFiles 分支。
         try {
           const blocks = await readDocxBlocks(auth, file.token);
           items.push({
@@ -870,7 +845,6 @@ export async function readFeishu(
             `${base}/open-apis/drive/v1/files/${encodeURIComponent(file.token)}/download`,
             { ...feishuFetchOptions(auth), authFailure: 'item' },
           );
-          // 原件必须按字节保留：缺 MIME 或误报文本时也不能 UTF-8 解码。
           const contentType = response.headers.get('content-type');
           items.push({
             externalId,
@@ -1001,7 +975,6 @@ export async function readFeishu(
     };
 
     if (settings.nodeToken) {
-      // A node token is resolvable without listing its space first.
       const root = await getWikiNode(auth, settings.nodeToken);
       const spaceId = settings.spaceId ?? root.space_id;
       if (!spaceId) throw new Error('feishu wiki node did not report a space_id');

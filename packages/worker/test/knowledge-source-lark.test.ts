@@ -258,7 +258,6 @@ describe('Lark wiki and drive', () => {
     });
     for (const call of calls) expect(call.url.host).toBe(LARK_HOST);
 
-    // 建任务用 obj_type + 扩展名；查询带 token；下载只用返回的 file_token。
     const exportBodies = calls
       .filter((call) => call.url.pathname === '/open-apis/drive/v1/export_tasks')
       .map((call) => JSON.parse(call.body) as Record<string, string>);
@@ -330,7 +329,6 @@ describe('Lark wiki and drive', () => {
     const listFolders = calls
       .filter((call) => call.url.pathname === '/open-apis/drive/v1/files')
       .map((call) => call.url.searchParams.get('folder_token'));
-    // 根目录两页；目录快捷方式与真实目录只递归一次。
     expect(listFolders).toEqual(['fldroot', 'fldroot', 'fldA', 'fldB']);
 
     const byId = new Map(snapshot.items.map((item) => [item.externalId, item]));
@@ -432,7 +430,6 @@ describe('Lark wiki and drive', () => {
     const item = snapshot.items[0];
     expect(item?.title).toBe('Guide.pdf');
     expect(item?.mimeType).toBe('application/pdf');
-    // 真实解析链必须把 PDF 交给 Docling，而不是按可编辑标题的 .md 当文本解码。
     await expect(
       parseDocument({
         bytes: item?.bytes ?? new Uint8Array(),

@@ -128,7 +128,6 @@ const skillFormSchema = skillInputSchema.extend({
 });
 
 const skillFileFormSchema = skillFileInputSchema.extend({
-  // 表单只补中文必填/长度提示，规范路径（保留 SKILL.md、拒绝空段与 . / ..）仍由共享 schema 判定。
   path: z
     .string()
     .min(1, '不能为空，请填写后再保存')
@@ -173,10 +172,8 @@ export function SkillsPage() {
   const importSkill = useImportSkillFile();
   const submitSkill = useSubmitSkill();
   const approveSkill = useApproveSkill();
-  // 安装生命周期放在常驻页上：切换 scope 卸载市场子页时，请求与提示仍然接得住。
   const install = useInstallMarketSkill();
   const actionTriggerRef = useRef<HTMLElement | null>(null);
-  // 关闭后回到真实触发器；菜单项会随菜单卸载，所以记的是常驻的下拉触发器。
   const panelFocus = (): HTMLElement | null =>
     actionTriggerRef.current?.isConnected ? actionTriggerRef.current : createButtonRef.current;
   const setFilter = (
@@ -883,12 +880,10 @@ export function SkillDialog({
         }
       : emptySkill,
   );
-  // RHF 是唯一数据源；支持文件编辑器有自己的草稿与请求，两者一起保护弹层关闭。
   const rhf = useZodForm(skillFormSchema, { defaultValues: initial });
   const errors = rhf.formState.errors;
   const [filesDirty, setFilesDirty] = useState(false);
   const [filesSaving, setFilesSaving] = useState(false);
-  // 保存成功后只前进版本基线，弹层可继续编辑支持文件而不带旧版本号。
   const [baseline, setBaseline] = useState(skill?.updatedAt);
   const formId = skill ? 'skill-edit-form' : 'skill-create-form';
   const dirty = rhf.formState.isDirty || filesDirty;
@@ -898,7 +893,6 @@ export function SkillDialog({
   const submit = rhf.handleSubmit((values) => {
     if (readOnly || pending) return;
     const onError = (error: unknown): void => {
-      // 冲突时保留当前草稿，让用户关闭后重开拿到最新版本再决定。
       if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
         toast.error('配置已被修改，请关闭并重新打开以加载最新版本。');
         return;
@@ -913,7 +907,6 @@ export function SkillDialog({
             toastSuccess('技能已更新');
             rhf.reset(values);
             setBaseline(saved.updatedAt);
-            // 支持文件草稿由各自编辑器保存，主表单保存不丢弃它们。
             if (!filesDirty) guard.finish();
           },
           onError,
@@ -1000,7 +993,6 @@ export function SkillDialog({
                 aria-required="true"
                 aria-invalid={Boolean(errors.slug)}
                 aria-describedby={errors.slug ? 'skill-slug-error' : 'skill-slug-hint'}
-                // Keep the directory slug monospaced for literal identifier editing.
                 className="font-mono"
               />
               {skill ? (
@@ -1103,20 +1095,17 @@ function SkillFilesEditor({
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
   const pending = disabled || busy;
-  // 在途保存跨越 await 后要按最新权限决定是否续读；闭包里的 canRead 停在发起时。
   const canReadRef = useRef(canRead);
   useEffect(() => {
     canReadRef.current = canRead;
   }, [canRead]);
 
-  // 草稿与在途请求交回父级弹层，Esc / 点遮罩 / 取消都要先确认。
   useEffect(() => onDirtyChange(rhf.formState.isDirty), [rhf.formState.isDirty, onDirtyChange]);
   useEffect(() => onSavingChange(busy), [busy, onSavingChange]);
 
   const filesKey = ['skill-files', skillId];
   const invalidate = (refetchType: 'active' | 'none' = 'active'): void =>
     void client.invalidateQueries({ queryKey: filesKey, refetchType });
-  // 成功事实先写回列表：撤权恢复后刷新未回来也能立即重选到保存/删除后的状态。
   const writeToCache = (update: (current: SkillFile[]) => SkillFile[]): void => {
     client.setQueryData<SkillFile[]>(filesKey, (current) => (current ? update(current) : current));
   };
@@ -1131,7 +1120,6 @@ function SkillFilesEditor({
     rhf.reset(emptySkillFile);
   };
 
-  // 切换文件/新建会覆盖当前草稿，脏时先确认。
   const switchTo = (action: () => void): void => {
     if (!canRead || pending) return;
     if (rhf.formState.isDirty) setPendingSwitch(() => action);
@@ -1148,11 +1136,8 @@ function SkillFilesEditor({
           ? current.map((file) => (file.path === saved.path ? saved : file))
           : [...current, saved],
       );
-      // 写回后标脏但不在这里读：撤权期间 enabled=false 不会发请求，恢复权限时会补一次刷新。
       invalidate('none');
-      // 撤权后不再发起读取；恢复权限时继续用缓存与当前草稿。
       if (canReadRef.current) {
-        // 等列表真正刷新后再解 busy：慢网下重选不能拿到旧内容覆盖刚保存的版本。
         const refreshed = await files.refetch();
         if (refreshed.isError) {
           toastError(new Error('支持文件已保存，但列表刷新失败，请重试。'));
@@ -1169,7 +1154,6 @@ function SkillFilesEditor({
     }
   });
 
-  // 失败交给 ConfirmDialog 统一提示并保留确认框重试；这里吞错会让它误以为完成而关闭。
   const remove = async (target: string): Promise<void> => {
     if (!canRead || readOnly) return;
     setBusy(true);
@@ -1187,7 +1171,6 @@ function SkillFilesEditor({
     }
   };
 
-  // 撤权时保持挂载（Hooks 状态树与父层 dirty/pending 连续），只隐藏正文与控件。
   if (!canRead) return null;
 
   return (
@@ -1208,7 +1191,6 @@ function SkillFilesEditor({
                 aria-label={`${readOnly ? '查看' : '编辑'}支持文件 ${f.path}`}
                 aria-pressed={editingPath === f.path}
                 title={f.path}
-                // 刷新失败时列表还是旧内容，重试成功前不能载入覆盖刚保存的版本。
                 disabled={pending || files.isError}
                 className="h-auto min-w-0 flex-1 justify-start px-1 py-0.5 text-left font-mono text-xs whitespace-normal break-all"
                 onClick={() => switchTo(() => selectFile(f.path, f.content))}

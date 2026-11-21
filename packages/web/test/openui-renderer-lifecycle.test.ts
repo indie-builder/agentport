@@ -8,11 +8,6 @@ import type {
 } from '../src/openui/renderer.js';
 import { OpenUiBlock } from '../src/openui/renderer.js';
 
-/**
- * 渲染器生命周期：审批槽位不依赖 Query 错误、实时状态的来源与单飞写回、
- * 非空根下的诊断。全部走真实 @openuidev/react-lang runtime。
- */
-
 let host: HTMLDivElement;
 let root: Root;
 
@@ -121,7 +116,6 @@ describe('approval outside the query error slot', () => {
     await act(async () => buttonByText('保存记录').click());
     await settle();
 
-    // 纯 Mutation 不会产生 Query 错误：审批入口仍必须出现，并带有效期说明。
     expect(host.textContent).toContain('批准工具调用');
     expect(host.textContent).toContain('8 小时');
     expect(onToolCall).toHaveBeenCalledTimes(1);
@@ -133,7 +127,6 @@ describe('approval outside the query error slot', () => {
       conversationId: 'conversation_a',
       approvalId: 'approval_m',
     });
-    // 批准不会自动重放：用户必须再点原动作。
     expect(onToolCall).toHaveBeenCalledTimes(1);
 
     await act(async () => buttonByText('保存记录').click());
@@ -148,7 +141,6 @@ describe('approval outside the query error slot', () => {
       .fn<(input: OpenUiToolCallInput) => Promise<unknown>>()
       .mockResolvedValueOnce({ status: 'approval_required', approvalId: 'approval_reuse' })
       .mockResolvedValueOnce({ status: 'ok', data: { saved: true } })
-      // 同 id 再次要批准：服务端 8 小时过期后复用原 approvalId。
       .mockResolvedValueOnce({ status: 'approval_required', approvalId: 'approval_reuse' });
     const onApprove = vi
       .fn<(input: OpenUiApprovalInput) => Promise<void>>()
@@ -184,7 +176,6 @@ describe('approval outside the query error slot', () => {
     await settle();
     expect(onToolCall).toHaveBeenCalledTimes(2);
 
-    // 同一个 approvalId 再次要求批准：本地「已批准」必须失效，入口重新出现。
     await act(async () => buttonByText('保存记录').click());
     await settle();
     expect(onToolCall).toHaveBeenCalledTimes(3);
@@ -198,7 +189,6 @@ describe('approval outside the query error slot', () => {
       conversationId: 'conversation_a',
       approvalId: 'approval_reuse',
     });
-    // 批准仍然只解除门禁，Mutation 不自动重放。
     expect(onToolCall).toHaveBeenCalledTimes(3);
   });
 
@@ -226,7 +216,6 @@ describe('approval outside the query error slot', () => {
     await settle();
 
     expect(host.textContent).toContain('写入被拒绝');
-    // Mutation 失败只能由用户重新点动作，不能被自动重试。
     expect(onToolCall).toHaveBeenCalledTimes(1);
   });
 });
@@ -321,7 +310,6 @@ describe('serial state writes', () => {
     });
     await settle();
 
-    // 旧请求失败后立刻排队写最新值（单飞：不并写，也不拿旧值覆盖新输入）。
     const autoRetry = onSaveState.mock.calls.map(([input]) => input as OpenUiStateSaveInput);
     expect(savedValue(autoRetry[1] as OpenUiStateSaveInput)).toBe('新值');
     expect(host.textContent).toContain('再次失败');

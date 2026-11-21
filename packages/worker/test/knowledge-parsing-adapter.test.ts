@@ -13,10 +13,8 @@ let asrRequests: Array<{ headers: IncomingMessage['headers']; body: string }> = 
 let abortedRequests = 0;
 let slowTranscribeAborts = 0;
 
-// 1200 字符预算、200 重叠时，第二片的起点会落在 emoji 的低代理项上。
 const longAudioText = `${'中'.repeat(999)}😀${'文'.repeat(400)}`;
 
-/** 44 字节 WAV 头即可通过容器识别；这里只验证入口协议，不声称音频可解码。 */
 function wavBytes(): Buffer {
   const buffer = Buffer.alloc(44);
   buffer.write('RIFF', 0, 'ascii');
@@ -54,7 +52,6 @@ beforeAll(async () => {
     req.on('end', () => {
       const path = req.url ?? '';
       captured.push({ path, headers: req.headers });
-      // 慢服务：不响应，只有客户端断开连接才算结束。
       if (path === '/slow-transcribe') {
         req.on('close', () => {
           slowTranscribeAborts += 1;
@@ -182,7 +179,6 @@ describe('createParsingAdapter', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     controller.abort();
     await expect(pending).rejects.toThrow(/取消|abort/i);
-    // 真实连接被断开，而不是只让本地 promise 先返回。
     const deadline = Date.now() + 2_000;
     while (abortedRequests === before && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -200,7 +196,6 @@ describe('createParsingAdapter', () => {
       expect(range.endOffset).toBeLessThanOrEqual(parsed.markdown.length);
       expect(range.startOffset).toBeLessThan(range.endOffset);
     }
-    // 页码来自解析结果的 prov，不是按 blocks 长度估算。
     expect(parsed.pageMap.map((range) => range.page)).toEqual([2, 4]);
     expect(
       parsed.markdown.slice(parsed.pageMap[0]?.startOffset, parsed.pageMap[0]?.endOffset),
@@ -243,7 +238,6 @@ describe('createParsingAdapter', () => {
     expect(parsed.pageMap).toEqual([
       { page: 3, startOffset: 0, endOffset: 'Alpha\r\nBeta'.length },
     ]);
-    // JSON 已覆盖 Alpha/Beta；Markdown 只补未覆盖的尾巴，不能把同一段落整段再发一次。
     expect(parsed.blocks?.map((block) => block.content)).toEqual(['Alpha\nBeta', 'tail.']);
 
     const chunks = adapter.chunkMarkdown(
@@ -287,7 +281,6 @@ describe('createParsingAdapter', () => {
       },
       parsed.blocks,
     );
-    // 合并块保留首尾真实区间，不会把两次 "same" 都算成第一处。
     expect(chunks[0]?.locator).toMatchObject({ startOffset: 0, endOffset: 16 });
   });
 
@@ -295,7 +288,6 @@ describe('createParsingAdapter', () => {
     const adapter = createParsingAdapter({ parserUrl: `${parserUrl}/extra-repeat` });
     const parsed = await adapter.parse(doclingInput);
 
-    // JSON 只覆盖前两处 same；第三处按原文区间补入，不能按文本集合被当成重复删掉。
     expect(parsed.blocks?.map((block) => block.content)).toEqual(['same', 'same', 'same']);
     expect(parsed.blocks?.map((block) => block.locator)).toMatchObject([
       { page: 1, startOffset: 0, endOffset: 4 },
@@ -331,7 +323,6 @@ describe('createParsingAdapter', () => {
         endOffset: number;
         lineFrom: number;
       };
-      // CRLF 原文下标不能直接拿规范化后的文本下标相加。
       expect(parsed.markdown.slice(startOffset, endOffset).replace(/\r\n?/g, '\n')).toBe(
         chunk.content,
       );
@@ -364,7 +355,6 @@ describe('createParsingAdapter', () => {
 
     expect(chunks.length).toBeGreaterThan(1);
     for (const chunk of chunks) {
-      // 整表 bbox/ref 仍如实保留，但分段文本不能冒充整表原文区间。
       expect(chunk.locator).toMatchObject({
         pageFrom: 2,
         parserRef: '#/tables/0',
@@ -629,8 +619,6 @@ describe('createParsingAdapter().chunkMarkdown', () => {
   });
 
   it('matches the chunk preview for the same markdown, including clamp and atomic grouping', () => {
-    // 与 packages/api/test/knowledge-chunk-preview.test.ts 里的样本逐字相同：
-    // 两边都调 core 的 chunkBlocks，块数必须一致，否则用户按预览调参会被误导。
     const rows = Array.from(
       { length: 20 },
       (_, index) => `| 项目${index} | 指标${index}说明文本 |`,
@@ -783,7 +771,6 @@ describe('createParsingAdapter().parse -> chunkMarkdown reading order', () => {
         startOffset: number;
         endOffset: number;
       };
-      // 每个块的位置必须落在原文对应的切片上。
       expect(parsed.markdown.slice(startOffset, endOffset)).toBe(block.content);
     }
 
@@ -821,7 +808,6 @@ describe('createParsingAdapter().parse -> chunkMarkdown reading order', () => {
     const adapter = createParsingAdapter({ parserUrl: `${parserUrl}/formatted` });
     const parsed = await adapter.parse(doclingInput);
 
-    // JSON 文本丢掉了 ** 标记；正文仍要用原文，只在同一处挂上 JSON 的定位信息。
     expect(parsed.blocks?.map((block) => block.content)).toEqual(['Before **bold** after.']);
     expect(parsed.blocks?.[0]?.locator).toMatchObject({
       page: 2,
@@ -878,7 +864,6 @@ describe('createParsingAdapter().parse -> chunkMarkdown reading order', () => {
     expect(parsed.markdown).toBe(
       'A real repeated paragraph.\r\nSecond line.\r\n\r\nA real repeated paragraph.\r\nSecond line.',
     );
-    // 第一段没有页码，pageMap 只能落在第二段原文区间。
     expect(parsed.pageMap).toEqual([{ page: 2, startOffset: 44, endOffset: 84 }]);
     expect(parsed.blocks?.map((block) => block.locator)).toMatchObject([
       { startOffset: 0, endOffset: 40 },
@@ -924,10 +909,8 @@ describe('createParsingAdapter audio branch', () => {
       asrProfileName: '默认 ASR',
     });
 
-    // 实际音频优先于 Docling，不把二进制送解析服务。
     expect(captured.map((entry) => entry.path)).toEqual(['/transcribe']);
     expect(parsed.markdown).toBe('会议开始。\n\n重复句\n\n重复句 😀');
-    // 重复句与 emoji 各自按拼接位置独立计偏移；空白段不产块但保留上游下标。
     expect(parsed.blocks).toEqual([
       {
         content: '会议开始。',
@@ -977,7 +960,6 @@ describe('createParsingAdapter audio branch', () => {
 
     const request = asrRequests[0];
     expect(request?.headers.authorization).toBe('Bearer asr-secret');
-    // 声明别名与小写后缀会被入口换成 canonical MIME / 真实后缀。
     expect(request?.body).toContain('filename="Talk.wav"');
     expect(request?.body).toMatch(/content-type: audio\/wav/i);
     expect(request?.body).toContain('name="model"\r\n\r\nwhisper-test');
@@ -1001,7 +983,6 @@ describe('createParsingAdapter audio branch', () => {
       parsed.blocks,
     );
 
-    // 第二片从 emoji 开始，而不是从它的低代理项开始。
     expect(chunks.map((chunk) => chunk.content)).toEqual([
       `${'中'.repeat(999)}😀${'文'.repeat(199)}`,
       `😀${'文'.repeat(400)}`,
@@ -1014,9 +995,7 @@ describe('createParsingAdapter audio branch', () => {
         timeFromMs: number;
         timeToMs: number;
       };
-      // 区间仍是原文 UTF-16 下标；逐字切片必须精确等于分片内容。
       expect(parsed.markdown.slice(startOffset, endOffset)).toBe(chunk.content);
-      // 每片沿用整段的真实时码，不按字数插值。
       expect({ timeFromMs, timeToMs }).toEqual({ timeFromMs: 1500, timeToMs: 90_250 });
     }
   });

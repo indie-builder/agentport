@@ -55,7 +55,6 @@ describe.skipIf(!ready)('channel approvals', () => {
   const serverNames: string[] = [];
 
   beforeAll(async () => {
-    // 审批不挂起：调用立即落 pending 行并返回拒绝文本，事件与行都能立刻断言。
     app = await startApp({ APPROVAL_WAIT_MS: '0' });
     adminCookie = await loginCookie(app);
     listener = await listen(app);
@@ -142,7 +141,6 @@ describe.skipIf(!ready)('channel approvals', () => {
       role,
     });
 
-  /** 频道成员齐全的频道：owner / viewer / member / admin 各一个。 */
   const setupChannel = async (): Promise<Channel> => {
     const channel = await createChannel(owner.cookie);
     for (const [account, role] of [
@@ -156,7 +154,6 @@ describe.skipIf(!ready)('channel approvals', () => {
     return channel;
   };
 
-  /** 直接落一条频道 run；审批 API 只读 agent_runs.channel_id 与状态/触发者。 */
   const seedRun = async (
     channelId: string,
     trigger: TestAccount,
@@ -226,7 +223,6 @@ describe.skipIf(!ready)('channel approvals', () => {
       expiresAt: new Date(Date.now() + 60_000),
       toolName: 'pending-tool',
     });
-    // 已决定、已过期、run 已终态的审批都不在列表里。
     const expired = await requestApproval(runId, { toolName: 'past-tool' });
     await app.client.unsafe(
       "update approval_requests set expires_at = now() - interval '1 minute' where id = $1",
@@ -255,7 +251,6 @@ describe.skipIf(!ready)('channel approvals', () => {
       ]);
     }
 
-    // 非成员严格 404，平台管理员非成员也不能借平台权限读取。
     for (const cookie of [outsider.cookie, adminCookie]) {
       expectProblem(await listApprovals(channel.id, cookie), 'NOT_FOUND');
     }
@@ -283,7 +278,6 @@ describe.skipIf(!ready)('channel approvals', () => {
     });
     expect(await approvedAuditCount(ownerRun)).toBe(1);
 
-    // 触发该 run 的普通 member 也可以批准自己的 run。
     const memberRun = await seedRun(channel.id, member);
     const memberApproval = await requestApproval(memberRun);
     const memberAccepted = await approve(channel.id, memberApproval.id, member.cookie);
@@ -309,7 +303,6 @@ describe.skipIf(!ready)('channel approvals', () => {
     expectProblem(await approve(channel.id, terminal.id, owner.cookie), 'CONFLICT');
     expect((await approvalState(terminal.id))?.approved_at).toBeNull();
 
-    // 已批准后再次批准同样 409，不会重复写审计。
     const active = await requestApproval(runningRun, { toolName: 'active' });
     expect((await approve(channel.id, active.id, owner.cookie)).statusCode).toBe(200);
     expectProblem(await approve(channel.id, active.id, channelAdmin.cookie), 'CONFLICT');
@@ -411,7 +404,6 @@ describe.skipIf(!ready)('channel approvals', () => {
       toolName,
     });
 
-    // 发布失败只影响实时提示：调用照常返回审批文本，审批行仍 pending。
     const originalSend = RedisClient.prototype.send;
     let failed = false;
     const publishSpy = spyOn(RedisClient.prototype, 'send').mockImplementation(function (

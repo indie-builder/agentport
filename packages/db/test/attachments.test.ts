@@ -8,7 +8,6 @@ import * as chat from '../src/repo/chat.js';
 import * as maintenance from '../src/repo/maintenance.js';
 import { agents } from '../src/schema.js';
 
-// pruneRuns/pruneOrphanMessages 是全库操作：与其它套件共用库时会互相删掉对方的数据。
 const isolated = await createIsolatedDatabase('db_attach', process.env.DATABASE_URL ?? '');
 const { db, client } = createDb(isolated?.url ?? process.env.DATABASE_URL ?? '');
 const ready = await client.unsafe('select 1').then(

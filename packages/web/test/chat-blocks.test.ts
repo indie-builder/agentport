@@ -50,7 +50,6 @@ describe('streamed assistant blocks', () => {
         delta('continues', { blockIndex: 2, sdkUuid: 'u1' }),
       ],
     );
-    // 子智能体文本自成一簿（带 parentToolUseId），不并进父段。
     expect(items).toEqual([
       { kind: 'text', text: 'parent ', blockIndex: 0, sdkUuid: 'u1' },
       { kind: 'text', text: 'child', blockIndex: 0, sdkUuid: 'u2', parentToolUseId: 'toolu_p' },

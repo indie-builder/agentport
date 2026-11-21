@@ -281,7 +281,6 @@ export async function ensureDefaultRuntimeEnvironment(
   input: { imageTag: string; imageId: string },
 ): Promise<RuntimeEnvironment> {
   return db.transaction(async (tx) => {
-    // 多 worker 同时启动只允许一个建默认环境；行级唯一索引是最后兜底。
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${DEFAULT_ENVIRONMENT_LOCK}))`);
     const [existing] = await tx
       .select()
@@ -355,7 +354,6 @@ export async function getRuntimeEnvironmentVersion(
   return row === undefined ? null : toRuntimeEnvironmentVersion(row);
 }
 
-/** 崩溃恢复只需要的窄形状；时间保持 Date，null 表示从未开始。 */
 export interface PendingRuntimeEnvironmentBuild {
   id: string;
   status: 'queued' | 'building';
@@ -391,8 +389,6 @@ export async function enqueueRuntimeEnvironmentBuild(
   baseImageId: string,
 ): Promise<RuntimeEnvironmentVersion | null> {
   return db.transaction(async (tx) => {
-    // 与删除环境的 FOR UPDATE 串行：要么入队先提交（删除时能看见 queued 版本并拒绝），
-    // 要么删除先提交（这里读不到环境返回 null），不会出现刚入队就被连带删掉。
     const [environment] = await tx
       .select()
       .from(runtimeEnvironments)
@@ -413,7 +409,6 @@ export async function enqueueRuntimeEnvironmentBuild(
   });
 }
 
-/** BullMQ 重复投递时只有抢到 queued → building 的 worker 执行。 */
 export async function claimRuntimeEnvironmentBuild(
   db: Database,
   versionId: string,
@@ -431,7 +426,6 @@ export async function claimRuntimeEnvironmentBuild(
   return row === undefined ? null : toRuntimeEnvironmentVersion(row);
 }
 
-/** 只对构建中的版本追加；超出上限保留尾部并标记截断。 */
 export async function appendRuntimeEnvironmentBuildLog(
   db: Database,
   versionId: string,
@@ -452,10 +446,6 @@ export async function appendRuntimeEnvironmentBuildLog(
     );
 }
 
-/**
- * 构建成功时同时落库实际基座 image ID：入队冻结的是引用（tag），
- * 构建真正消费的内容身份只有这里知道，版本不能继续谎报入队 tag。
- */
 export async function completeRuntimeEnvironmentBuild(
   db: Database,
   versionId: string,
@@ -481,7 +471,6 @@ export async function completeRuntimeEnvironmentBuild(
   return row === undefined ? null : toRuntimeEnvironmentVersion(row);
 }
 
-/** 失败构建只改版本行，线上指针不动。 */
 export async function failRuntimeEnvironmentBuild(
   db: Database,
   versionId: string,

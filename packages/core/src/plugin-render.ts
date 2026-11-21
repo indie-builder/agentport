@@ -24,7 +24,6 @@ function parseObject(content: string): Record<string, unknown> | null {
   }
 }
 
-/** MCP server 名可写在 manifest 内联对象里，也可写在 `.mcp.json`；两处都算。 */
 function mcpServerNamesOf(
   mcpContent: string | undefined,
   manifest: Record<string, unknown> | null,

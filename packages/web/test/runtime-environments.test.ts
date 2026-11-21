@@ -67,10 +67,8 @@ const state = vi.hoisted(() => {
   return state;
 });
 
-// 同一份用例既覆盖轻量 mock，也在 realRouter 下跑真实 Router 的离开/刷新拦截。
 vi.mock('@tanstack/react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-router')>();
-  // 别名调用避开 hooks 命名规则：用例整体切换真实/轻量 Router，挂载期间标志不变。
   const realNavigate = actual.useNavigate;
   const realSearch = actual.useSearch;
   const realParams = actual.useParams;
@@ -139,7 +137,6 @@ vi.mock('../src/lib/queries.js', async (original) => {
       refetch: vi.fn(),
     }),
     useCreateRuntimeEnvironment: () => {
-      // 真实 Router 用例需要请求中状态在提交后实时生效，模拟 React Query 的重渲染。
       React.useSyncExternalStore(state.subscribeCreatePending, () => state.createPending);
       return {
         isPending: state.createPending,
@@ -282,7 +279,6 @@ async function mountWithRouter(initialPath: string) {
   const history = createBrowserHistory();
   const blockedNavigations: Promise<boolean>[] = [];
   const block = history.block.bind(history);
-  // 包装真实注册，捕获 useBlocker 交给 history 的 Promise，观察它最终 resolve 什么。
   vi.spyOn(history, 'block').mockImplementation((blocker) =>
     block({
       ...blocker,
@@ -927,7 +923,6 @@ describe('runtime environment detail page', () => {
     expect(dockerfile.value).toBe('FROM local draft');
     expect(state.blockerOptions.at(-1)?.shouldBlockFn()).toBe(true);
 
-    // 重试成功时服务端值刚好等于草稿，基线不能被推进成草稿值。
     state.environmentError = null;
     state.environment = { ...environment, name: '本地草稿', dockerfile: 'FROM local draft' };
     await act(async () =>
@@ -973,7 +968,6 @@ describe('runtime environment detail page', () => {
     expect(button('保存更改').disabled).toBe(true);
     await click(button('构建新版本'));
     expect(state.build).toHaveBeenCalledWith('rte_1', expect.anything());
-    // 保存后已无草稿，后台刷新应正常带入新值。
     state.environment = { ...environment, name: '服务器新名称', dockerfile: 'FROM server' };
     await act(async () =>
       page.root.render(withClient(createElement(RuntimeEnvironmentDetailPage))),
@@ -1091,7 +1085,6 @@ describe('runtime environment navigation guards with the real router', () => {
       finish(created);
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     });
-    // 不点取消：创建成功必须亲自结算被拦下的导航。
     await expect(
       Promise.race([
         page.blockedNavigations[0],

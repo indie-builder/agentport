@@ -3,13 +3,11 @@ import { cn } from '../lib/cn.js';
 import { CopyButton } from './copy-button.js';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './motion-collapsible.js';
 
-/** 阅读页的工具栏已经提供复制时，代码块不再重复一个复制动作。 */
 export const CodeBlockCopyAllowed = createContext(true);
 
 const JSON_TOKEN =
   /"(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"\s*:|"(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"|\b(?:true|false|(null))\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
 
-/** 轻量 JSON 高亮：null 表示缺失，用弱化文字；其余 token 与正文同色，避免引入高亮依赖。 */
 function highlightJson(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let last = 0;
@@ -33,7 +31,6 @@ function highlightJson(text: string): ReactNode[] {
   return nodes;
 }
 
-/** 尽量 pretty-print JSON；解析失败原样返回，避免吞掉上游错误文本。 */
 export function prettyJson(value: string | unknown): string {
   if (typeof value === 'string') {
     try {
@@ -49,7 +46,6 @@ export function prettyJson(value: string | unknown): string {
   }
 }
 
-/** 单块内容超过该长度时默认折叠：整块渲染会明显拖慢页面。 */
 export const LARGE_CONTENT_CHARS = 64 * 1024;
 
 /** 行拆分放在子组件里：Panel 收起时不挂载它，超大内容就不会被提前构造。 */
@@ -99,11 +95,9 @@ export function CodeBlock({
   className?: string;
   copyLabel?: string;
   json?: boolean;
-  /** 阅读页源码视图由工具栏负责复制时传 false。 */
   copyable?: boolean;
 }) {
   const copyAllowed = useContext(CodeBlockCopyAllowed);
-  // 超大内容默认折叠，只有展开时 Panel 才挂载内容。
   const [expanded, setExpanded] = useState(false);
   const large = code.length > LARGE_CONTENT_CHARS;
   const open = !large || expanded;
@@ -119,7 +113,6 @@ export function CodeBlock({
       )}
     >
       {large && (
-        // Keep compact disclosure text and its focus ring; the primitive supplies no styling.
         <CollapsibleTrigger className="px-3 py-2 text-xs hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-code-block-fg)]">
           {expanded ? '收起内容' : '内容过大，点击查看'}
         </CollapsibleTrigger>
@@ -133,7 +126,6 @@ export function CodeBlock({
             className="absolute right-2 top-2 z-10 bg-surface/90 text-fg [@media(hover:hover)_and_(pointer:fine)]:opacity-0 transition-opacity duration-150 ease-out-soft group-focus-within:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 focus-visible:ring-[color:var(--color-code-block-fg)]"
           />
         ) : null}
-        {/* 滚动区可聚焦，键盘用户才能用方向键/PageDown 浏览超长内容。 */}
         <section
           // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
           tabIndex={0}
@@ -165,7 +157,6 @@ export function CollapsibleText({ text, className }: { text: string; className?:
   if (text.length <= LARGE_CONTENT_CHARS) return <div className={className}>{text}</div>;
   return (
     <Collapsible open={open} onOpenChange={setOpen} className={className}>
-      {/* Keep compact disclosure text and its focus ring; the primitive supplies no styling. */}
       <CollapsibleTrigger className="text-xs text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         {open ? '收起内容' : '内容过大，点击查看'}
       </CollapsibleTrigger>

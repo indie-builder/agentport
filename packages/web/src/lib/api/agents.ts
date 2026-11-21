@@ -166,9 +166,7 @@ export default {
         try {
           const parsed: unknown = JSON.parse(decodeURIComponent(raw));
           if (Array.isArray(parsed)) onWarnings(parsed.filter((item) => typeof item === 'string'));
-        } catch {
-          // 头部损坏不影响下载本身，忽略即可。
-        }
+        } catch {}
       },
     }),
   /** 显式传环境 id 时覆盖包内名称映射；省略则按包中名称匹配。 */

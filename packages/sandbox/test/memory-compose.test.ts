@@ -11,7 +11,6 @@ interface Service {
   healthcheck?: { test?: string[] };
 }
 
-// config is read-only: it parses the deployment without starting containers or exposing env values.
 const config = JSON.parse(
   execFileSync(
     'docker',

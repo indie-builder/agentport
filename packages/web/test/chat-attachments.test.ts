@@ -150,7 +150,6 @@ function fileOf(name: string, content = 'hello', type = '') {
   return new File([content], name, { type });
 }
 
-/** 只改 size 属性，不为超限校验真的分配大文件。 */
 function sizedFile(name: string, size: number, type = '') {
   const file = fileOf(name, 'x', type);
   Object.defineProperty(file, 'size', { configurable: true, value: size });
@@ -221,7 +220,6 @@ describe('composer attachments', () => {
     expect(host.textContent).toContain('notes.md');
     expect(host.textContent).toContain('5 B');
     expect(useChatStore.getState().pendingAttachments).toHaveLength(1);
-    // 只有附件也能发送。
     expect(sendButton().disabled).toBe(false);
 
     await act(async () =>
@@ -251,14 +249,12 @@ describe('composer attachments', () => {
     expect(alertText()).toContain('large.png');
     expect(alertText()).toContain('5 MB');
 
-    // 两个 PDF 各自没超单文件上限，但合计超过 10MiB。
     await chooseFiles(
       sizedFile('one.pdf', 6 * 1024 * 1024, 'application/pdf'),
       sizedFile('two.pdf', 6 * 1024 * 1024, 'application/pdf'),
     );
     expect(alertText()).toContain('合计');
 
-    // 报错后仍可继续操作，成功添加会清掉错误。
     await chooseFiles(fileOf('ok.md', 'ok', 'text/markdown'));
     expect(alertText()).toBeNull();
     expect(useChatStore.getState().pendingAttachments).toHaveLength(1);
@@ -313,7 +309,6 @@ describe('composer attachments', () => {
     });
     await mount('/chat?agent=agent-a&conversation=conversation-a');
 
-    // FileReader 真正延迟到切换会话之后才完成，复现“读取期间 generation 失效”。
     const loads: Array<() => void> = [];
     class DelayedFileReader {
       result: string | null = null;
@@ -435,7 +430,6 @@ describe('composer attachments', () => {
         createdAt: '',
       },
     ]);
-    // 首屏历史为空；只有截断恢复按 limit=100 翻页时才拿到已落库的本轮消息。
     vi.mocked(api.conversation).mockImplementation(async (id: string, options = {}) =>
       options.limit === 100 ? saved : conversationDetail(id),
     );

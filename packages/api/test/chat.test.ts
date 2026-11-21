@@ -20,7 +20,6 @@ import {
   unique,
 } from './helpers.js';
 
-// 队列有活跃 worker 时会消费测试创建的 run，导致状态断言失败。
 const ready = (await infraReady) && (await queueIdle);
 
 describe.skipIf(!ready)('chat', () => {
@@ -38,7 +37,6 @@ describe.skipIf(!ready)('chat', () => {
   });
 
   afterAll(async () => {
-    // waiting 的 job 不会自行过期；只清理本文件创建的 run。
     for (const runId of runIds) {
       await getQueue()
         .getJob(runId)
@@ -100,7 +98,6 @@ describe.skipIf(!ready)('chat', () => {
     const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
     runIds.push(runId);
 
-    // worker 的事件落库逻辑；这里直接写同一张表，验证 content 结构可被读回。
     const events = chatEventSchema.array().parse([
       { type: 'tool_start', toolUseId: 'toolu_parent', name: 'Agent' },
       {
@@ -195,7 +192,6 @@ describe.skipIf(!ready)('chat', () => {
     const secondBody = second.json<{ runId: string }>();
     runIds.push(secondBody.runId);
 
-    // 上下文恢复靠 DB 里的 SDK session；队列只带标识与本次输入。
     const job = await getQueue().getJob(secondBody.runId);
     expect(job?.data).toEqual({
       runId: secondBody.runId,
@@ -216,7 +212,6 @@ describe.skipIf(!ready)('chat', () => {
     });
     const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
     runIds.push(runId);
-    // 分支要求线上消息都有 SDK uuid：这里模拟已完成的一轮 assistant 输出。
     await app.client.unsafe(
       "insert into messages (id, conversation_id, role, content, sdk_message_uuid) values ('msg_branch_test', $1, 'assistant', $2, $3)",
       [
@@ -229,7 +224,6 @@ describe.skipIf(!ready)('chat', () => {
       conversationId,
       '11111111-2222-4333-8444-555555555555',
     ]);
-    // 分支会复制来源 transcript 目录；必须存在，否则首轮无从 fork。
     const sessionsDir = join(
       app.config.WORKSPACES_DIR,
       agent.slug,
@@ -466,7 +460,6 @@ describe.skipIf(!ready)('chat', () => {
     });
     const { runId } = created.json<{ runId: string }>();
     runIds.push(runId);
-    // 直接把 DB 状态改成 running：模拟 worker 已领取，job 不再是 waiting。
     await app.client.unsafe("update agent_runs set status = 'running' where id = $1", [runId]);
 
     const res = await request(app, {
@@ -475,7 +468,6 @@ describe.skipIf(!ready)('chat', () => {
       headers: auth(),
     });
     expect(res.statusCode, res.body).toBe(202);
-    // 终态由 worker 写完消息与产出后落库；API 只发信号，不抢 worker 的 updateRun。
     expect(await runStatus(runId)).toBe('running');
     expect(await getQueue().getJob(runId)).toBeDefined();
     expect(await cancelAuditCount(runId)).toBe(1);

@@ -20,14 +20,6 @@ import {
   type SessionSandboxSpec,
 } from '../../src/sandbox/sessions.js';
 
-/**
- * 真实验收：官方 SDK 的原生 CLI 在 SANDBOX_IMAGE（默认 sandbox:dev）里经 supervisor
- * 执行，模型流量全部打到宿主本地假 Anthropic SSE，不读 .env、不向外发模型请求。
- * Bash 用例直接使用镜像自带的真实 bash，不再放测试专用包装脚本。
- *
- * 每次运行都从当前 shared/sandbox 源码编译到本次独占的临时目录，只读挂载覆盖镜像里
- * 旧版本；不重建共享镜像 tag，也不给 runtime 增加测试专用参数。
- */
 const IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const MODEL = 'claude-sonnet-5-5';
 const SDK_VERSION = (
@@ -35,7 +27,6 @@ const SDK_VERSION = (
     dependencies: Record<string, string>;
   }
 ).dependencies['@anthropic-ai/claude-agent-sdk'];
-/** 官方子智能体 project 记忆根；每个 slug 是独立 rw bind mount。 */
 export const SUBAGENT_MEMORY_ROOT = '/workspace/.claude/agent-memory';
 const REPO_ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
 
@@ -128,11 +119,6 @@ function artifact(path: string) {
   };
 }
 
-/**
- * 每次运行都从当前 shared/sandbox 源码在独占临时目录编译，绝不复用 packages/<pkg>/dist。
- * 临时 tsconfig 只覆盖 outDir/tsBuildInfoFile，并把 @agentport/shared 指向本次构建的
- * 声明文件；项目引用与 tsc -b 仍由工作区工具链负责，产物不会写进共享 dist。
- */
 async function compileCurrentSources(
   context: string,
 ): Promise<{ sandbox: string; shared: string }> {
@@ -168,7 +154,6 @@ async function compileCurrentSources(
         compilerOptions: {
           outDir: outputs.sandbox,
           tsBuildInfoFile: join(context, 'sandbox.tsbuildinfo'),
-          // sandbox 源码里的 bare import 在容器运行时解析；编译期用本次 shared 产物。
           paths: { '@agentport/shared': [join(outputs.shared, 'index.d.ts')] },
         },
         references: [{ path: sharedConfig }],
@@ -226,7 +211,6 @@ async function compileCurrentSources(
 
 export const hasDocker = await dockerAvailable();
 
-/** 每个测试用自己的 provider，避免上一轮的容器跟踪串进下一轮。 */
 class MountedDockerProvider extends DockerSandboxProvider {
   constructor(
     options: DockerSandboxOptions,
@@ -340,7 +324,6 @@ export function lastUserText(body: unknown): string {
   return '';
 }
 
-/** 当前会话已执行的工具结果数；每次请求都带着完整历史，用它推进脚本步骤。 */
 function countToolResults(body: unknown): number {
   if (typeof body !== 'object' || body === null) return 0;
   const messages = (body as { messages?: unknown }).messages;
@@ -370,7 +353,6 @@ export interface ToolStep {
 }
 
 interface ToolScenario {
-  /** 该场景只响应提示词里含此标记的请求。 */
   marker: string;
   steps: ToolStep[];
   finalText: string;
@@ -595,7 +577,6 @@ function sandboxEnv(baseUrl: string): Record<string, string> {
   return {
     ANTHROPIC_BASE_URL: baseUrl,
     ANTHROPIC_AUTH_TOKEN: 'testtoken',
-    // 清空真实凭证与其他 provider 入口：任何漏网请求只能落到本地假 API。
     ANTHROPIC_API_KEY: '',
     ANTHROPIC_BEDROCK_BASE_URL: '',
     ANTHROPIC_VERTEX_BASE_URL: '',
@@ -621,7 +602,6 @@ interface ToolCall {
   result?: string;
 }
 
-/** 把分散的 tool_start/tool_input/tool_result 事件按 tool_use id 配对。 */
 export function toolCalls(events: ChatEvent[]): ToolCall[] {
   const calls = new Map<string, ToolCall>();
   for (const event of events) {
@@ -646,7 +626,6 @@ export function toolCalls(events: ChatEvent[]): ToolCall[] {
 export const DENIED_RESULT =
   /denied|not allowed|not permitted|unavailable|no such tool|permission/i;
 
-/** PreToolUse 文件边界 hook 的固定拒绝原因，与 sandbox/memory-permissions.ts 一致。 */
 export const FILE_BOUNDARY_REASON =
   'File tools are limited to native memory, this run’s outputs, and skill reference Markdown.';
 
@@ -686,7 +665,6 @@ export const DENY_CASES = [
   },
 ] as const;
 
-/** 本套件直接使用已存在的 sandbox:dev，用固定环境身份解析到该镜像。 */
 export function sessionsFor(
   provider: DockerSandboxProvider,
   idleTimeoutMs = 60_000,
@@ -705,7 +683,6 @@ export function sessionsFor(
   });
 }
 
-/** 用当前 core 渲染器生成官方工作区文件，避免测试手写与产品渲染分叉。 */
 async function writeWorkspaceFixture(
   spec: SessionSandboxSpec,
   subAgents?: WorkspaceAgent[],
@@ -775,10 +752,6 @@ export function createSessionSdkSuite() {
   let providerMounts: NonNullable<SandboxCreateOptions['extraMounts']>;
   let logDir: string;
   let sourceBuildRoot = '';
-  /**
-   * Bash 行为用例共用一个假 API；每个用例在运行前声明自己的确定性脚本，
-   * 请求按「最近一条用户提示词」认领场景，按已有 tool_result 数推进到下一步。
-   */
   let toolScenarios: ToolScenario[] = [];
 
   async function sandboxSpec(name: string): Promise<SessionSandboxSpec> {
@@ -802,7 +775,6 @@ export function createSessionSdkSuite() {
       outputsDir: dirs.outputs,
       inputsDir: dirs.inputs,
       memoryDir: dirs.memory,
-      // 这套用例验证 native_auto 下的记忆读写与边界，专家与子智能体记忆都按可写挂载。
       memoryWritable: true,
       sessionsDir: dirs.sessions,
     };
@@ -837,7 +809,6 @@ export function createSessionSdkSuite() {
     return { events, stderr, execution };
   }
 
-  /** 与生产 ensureSessionWorkspace 同形：宿主目录 rw 挂到项目记忆根下的 slug 目录。 */
   async function mountSubAgentMemory(
     name: string,
     spec: SessionSandboxSpec,
@@ -860,7 +831,6 @@ export function createSessionSdkSuite() {
     return join(logDir, 'state', name, 'agent-memory', slug);
   }
 
-  /** 每次行为用例独占一个容器；结束后统一销毁，不把用例状态串到下一轮。 */
   async function execute(
     spec: SessionSandboxSpec,
     prompt: string,
@@ -890,7 +860,6 @@ export function createSessionSdkSuite() {
       async prepare(spec) {
         await mountSubAgentMemory(item.name, spec, [item.slug]);
         const host = subAgentHost(item.name, item.slug);
-        // 自动加载证据放 MEMORY.md，显式 Read 证据放主题文件，两者不混淆。
         await mkdir(join(host, 'topics'), { recursive: true, mode: 0o700 });
         await writeFile(join(host, 'MEMORY.md'), `# Memory\n\nAUTO-${item.name.toUpperCase()}\n`, {
           mode: 0o600,
@@ -929,7 +898,6 @@ export function createSessionSdkSuite() {
       name: 'boundary',
       async prepare(spec) {
         await mountSubAgentMemory('boundary', spec, ['mem-child', 'mem-sibling']);
-        // 兄弟记忆里放一个哨兵：子智能体若越界读到，结果会泄漏这个值。
         await writeFile(
           join(subAgentHost('boundary', 'mem-sibling'), 'MEMORY.md'),
           'SIBLING-SECRET\n',
@@ -946,7 +914,6 @@ export function createSessionSdkSuite() {
     [DENY_CASES[0].specKey]: denySpec(DENY_CASES[0]),
     [DENY_CASES[1].specKey]: denySpec(DENY_CASES[1]),
     [DENY_CASES[2].specKey]: denySpec(DENY_CASES[2]),
-    // 未知调用方：工作区不声明任何子定义，委派目标用 SDK 内置 general-purpose。
     unknown: { name: 'unknown', prepare: writeWorkspaceFixture },
   } satisfies Record<string, SpecDescriptor>;
   type SpecName = keyof typeof descriptors;
@@ -969,7 +936,6 @@ export function createSessionSdkSuite() {
       );
     }
 
-    // 开箱证据：真实 GNU bash、poppler 工具齐全，默认用户 1000；不满足就不跑用例。
     const bash = await run(
       'docker',
       ['run', '--rm', '--entrypoint', 'bash', IMAGE, '--version'],
@@ -1047,7 +1013,6 @@ export function createSessionSdkSuite() {
       }),
     );
 
-    // 沙盒固定以 uid 1000 运行；只调整本测试自己的 /tmp 目录。
     const chown = await run(
       'docker',
       [
@@ -1075,7 +1040,6 @@ export function createSessionSdkSuite() {
   }
 
   function reset() {
-    // 各用例只断言自己这轮的模型请求；落盘日志仍保留完整序列。
     fake.requests.length = 0;
     toolScenarios = [];
   }

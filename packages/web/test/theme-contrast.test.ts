@@ -3,9 +3,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// 直接读生产 styles.css，校验 CDS 亮色契约；
-// 只解析 @theme 里的 --color-* 声明与 var() 别名，不复制第二份颜色表。
-
 const css = await readFile(
   join(dirname(fileURLToPath(import.meta.url)), '../src/styles.css'),
   'utf8',

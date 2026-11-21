@@ -22,9 +22,6 @@ import {
   pageLimit,
 } from './shared.js';
 
-// ---------------------------------------------------------------------------
-// 任务
-
 export interface CreateJobInput {
   type: KnowledgeJobRow['type'];
   baseId: string | null;
@@ -55,7 +52,6 @@ export interface ListJobsFilter extends PageOptions {
   access?: ResourceAccessFilter;
 }
 
-/** 列表只需展示字段：payload 与来源 config 留给 getJob/worker，避免读出整块任务载荷。 */
 const jobSummaryColumns = {
   id: knowledgeJobs.id,
   type: knowledgeJobs.type,
@@ -111,7 +107,6 @@ export async function listJobs(db: Database, filter: ListJobsFilter = {}) {
   return paginate(rows, limit);
 }
 
-/** 同步任务的 payload 关联；缺失或与行上的 sourceId 不一致都是跨行数据错误。 */
 function syncRefOf(job: KnowledgeJobRow): { syncRunId: string; sourceId: string } {
   const payload = job.payload;
   if (
@@ -130,7 +125,6 @@ function syncRefOf(job: KnowledgeJobRow): { syncRunId: string; sourceId: string 
   return { syncRunId: payload.syncRunId, sourceId: job.sourceId };
 }
 
-/** 条件更新认领：BullMQ 重复投递时只有一个 worker 能把 queued 改成 running。 */
 export async function claimJob(db: Database, id: string): Promise<KnowledgeJobRow | null> {
   return db.transaction(async (tx) => {
     const startedAt = new Date();
@@ -147,7 +141,6 @@ export async function claimJob(db: Database, id: string): Promise<KnowledgeJobRo
     if (!row) return null;
     if (row.type === 'sync') {
       const { syncRunId, sourceId } = syncRefOf(row);
-      // 只有 queued run 需要进入 running；内部重试保持已写入的 startedAt 与检查点。
       const [run] = await tx
         .update(knowledgeSyncRuns)
         .set({
@@ -174,15 +167,12 @@ export interface SyncRunResult {
 }
 
 export interface FinishJobInput {
-  /** 允许转换的唯一前态；排队取消与调度入队失败传 queued。 */
   fromStatus?: Extract<KnowledgeJobRow['status'], 'queued' | 'running'>;
   status: Extract<KnowledgeJobRow['status'], 'succeeded' | 'failed' | 'cancelled'>;
   error?: string | null;
   step?: string | null;
   progress?: number;
-  /** 仅成功的 sync 任务必须携带；同一事务写入 run 与 source 游标。 */
   result?: SyncRunResult;
-  /** source_probe 的可见结果，不修改 source 游标或同步状态。 */
   probeResult?: KnowledgeSourceProbeResult | null;
 }
 

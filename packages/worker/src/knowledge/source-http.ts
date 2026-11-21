@@ -5,10 +5,6 @@ import { commonEnvSchema, errorText } from '@agentport/shared';
 import type { z } from 'zod';
 import type { SourceFailure } from './source-types.js';
 
-/**
- * 所有外部来源共用的 HTTP 信任边界：SSRF/DNS 检查、跨域去凭证、响应大小与超时。
- * 叶来源模块只调用这里，不复制第二套实现。
- */
 export type SourceUrlOptions = {
   allowedOrigins?: string[];
   allowLoopback?: boolean;
@@ -23,21 +19,12 @@ function hostKey(url: URL): string {
 const TIMEOUT_MS = 20_000;
 const MAX_REDIRECTS = 5;
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
-/** An error body only classifies the failure; never let a stalled one hold the request. */
 const ERROR_BODY_TIMEOUT_MS = 2_000;
 
 function stripBrackets(host: string): string {
   return host.replace(/^\[|\]$/g, '');
 }
 
-/**
- * http(s) only, no URL credentials, and (unless allowLoopback) never a private address.
- * allowedOrigins must be exact origins; `https://host/path` is rejected instead of
- * silently allowing a whole host. trustedHosts is deployment config (env), never user
- * config: an exact `host`/`host:port` match lets a private host through. DNS rebinding
- * between check and fetch needs a network-level egress allowlist; this is the
- * app-level guard.
- */
 export async function validateSourceUrl(raw: string, options: SourceUrlOptions = {}): Promise<URL> {
   let url: URL;
   try {
@@ -71,7 +58,6 @@ export async function validateSourceUrl(raw: string, options: SourceUrlOptions =
   }
 
   const host = stripBrackets(url.hostname);
-  // Explicit opt-in for local fixtures; production never accepts loopback.
   if (options.allowLoopback && process.env.NODE_ENV !== 'production' && isLoopbackAddress(host)) {
     return url;
   }
@@ -97,10 +83,6 @@ export async function validateSourceUrl(raw: string, options: SourceUrlOptions =
   return url;
 }
 
-/**
- * Credentials or permissions were revoked (HTTP 401/403, documented Feishu tenant-token codes).
- * Distinct from network/timeout/rate-limit failures, which must never disable a source.
- */
 export class SourceAuthError extends Error {
   constructor(message: string) {
     super(message);
@@ -108,7 +90,6 @@ export class SourceAuthError extends Error {
   }
 }
 
-/** 撤权失败必须上抛，不能降级为单项失败。 */
 export function rethrowAuth(err: unknown): void {
   if (err instanceof SourceAuthError) throw err;
 }
@@ -135,7 +116,6 @@ export type FetchOptions = {
   signal?: AbortSignal;
 };
 
-/** 路由/hop-by-hop 头会改变请求目标或长度，供应商下载头只允许普通业务头。 */
 const FORBIDDEN_REQUEST_HEADERS = new Set([
   'host',
   'content-length',
@@ -198,10 +178,7 @@ function checkedHeaders(
 export async function fetchChecked(raw: string, options: FetchOptions): Promise<Response> {
   const requestHeaders = checkedHeaders(options.headers);
   let current = new URL(raw);
-  // 错误信息只带 origin + pathname：签名 URL 的 query 不能进日志。
   const sourceLabel = `${current.origin}${current.pathname}`;
-  // Once a redirect leaves the bound origin, credentials never come back even if a
-  // later hop returns to that origin (A -> B -> A).
   let authTainted = false;
   const timeout = requestSignal(options.signal);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
@@ -214,9 +191,7 @@ export async function fetchChecked(raw: string, options: FetchOptions): Promise<
     }
     const sendAuth =
       options.authOrigin !== undefined && !authTainted && current.origin === options.authOrigin;
-    // A redirected POST/PROPFIND drops its body along with the credentials it carries.
     const method = sendAuth ? (options.method ?? 'GET') : 'GET';
-    // 403 的 error body 需要单独读取，给它一条可提前取消的通道。
     const bodyAbort = new AbortController();
     const signal = AbortSignal.any([timeout, bodyAbort.signal]);
     const response = await fetch(current.href, {
@@ -238,14 +213,12 @@ export async function fetchChecked(raw: string, options: FetchOptions): Promise<
     }
     if (!response.ok) {
       let body = '';
-      // 403 的 body 读不完就不能判定为撤权：既可能藏着次级限流说明，也可能是网络问题。
       let bodyUnavailable = false;
       if (response.status === 403) {
         const stop = setTimeout(() => bodyAbort.abort(), ERROR_BODY_TIMEOUT_MS);
         try {
           body = await readCapped(response, 'error response');
         } catch (error) {
-          // 调用方取消必须保留取消语义，不能被当成来源失败。
           if (options.signal?.aborted) throw options.signal.reason ?? error;
           bodyUnavailable = true;
         } finally {
@@ -294,7 +267,6 @@ export async function readBytesCapped(response: Response, label: string): Promis
   for await (const chunk of response.body) {
     total += chunk.byteLength;
     if (total > MAX_RESPONSE_BYTES) {
-      // Break first: cancelling a stream that for-await still holds throws.
       response.body.cancel().catch(() => undefined);
       throw new Error(`${label} response exceeds ${MAX_RESPONSE_BYTES} bytes`);
     }
@@ -369,7 +341,6 @@ export function sourceFailure(externalId: string, title: string, err: unknown): 
   };
 }
 
-/** 截断是终态；其余错误按调用方给出的可重试性归类为 fetch_failed / unsupported_type。 */
 export function makeSourceFailure(
   isTruncated: (err: unknown) => boolean,
 ): (externalId: string, title: string, err: unknown, retryable: boolean) => SourceFailure {

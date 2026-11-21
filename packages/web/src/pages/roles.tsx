@@ -268,7 +268,6 @@ export function RolesPage() {
       ),
     [defaultValues],
   );
-  // 管理员按服务端原授权提交，不受界面展示的权限目录裁剪。
   const adminGrants = useRef<Role['grants']>([]);
   const loadedRevision = useRef<number | null>(null);
   const recentAction = useRef<RecentAction | null>(null);
@@ -343,7 +342,6 @@ export function RolesPage() {
     [navigate],
   );
 
-  // append 生成的 field.id 是新角色的 URL 身份，等字段数组更新后再打开设置。
   useEffect(() => {
     if (!addingRole) return;
     const role = fields.at(-1);
@@ -441,7 +439,6 @@ export function RolesPage() {
   const changeName = useCallback(
     (index: number, name: string): void => {
       setValue(`roles.${index}.name`, name, { shouldDirty: true });
-      // 重复名称涉及两列，整组触发 resolver 才能同时设置/清除两端字段错误。
       void trigger('roles');
       setConflict(null);
       setError(null);

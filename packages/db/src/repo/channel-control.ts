@@ -55,7 +55,6 @@ export async function listActiveRuns(
   return { kind: 'ok', runs: await activeRuns(db, channelId) };
 }
 
-/** 与发消息/准入共用频道行锁：close 与 stop 不会在锁外看到旧归属。 */
 export async function stopRun(
   db: Database,
   businessId: string,
@@ -74,7 +73,6 @@ export async function stopRun(
       .where(and(eq(agentRuns.id, runId), eq(agentRuns.channelId, channelId)))
       .for('update');
     if (!run) return { kind: 'not_found', target: 'run' };
-    // 普通成员只能停自己触发的那条；owner/admin 可停任意 run。
     if (role === 'member' && run.initiatedBy !== businessId) {
       return { kind: 'forbidden', reason: 'run_owner' };
     }
@@ -149,7 +147,6 @@ export async function closeChannel(
   });
 }
 
-/** SSE 每次轮询都走这里：成员关系在事务外实时复核，撤权后立即停流。 */
 export async function getChannelRunForMember(
   db: Database,
   businessId: string,

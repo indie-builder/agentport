@@ -5,7 +5,6 @@ import { outputSelectionMode } from '../../lib/output-preview.js';
 import type { OutputSelection } from '../chat/conversation-outputs.js';
 import { Button } from '../ui/button.js';
 
-/** 只有成功版本可作为正常交付；其余状态原样显示，不冒充成功。 */
 const STATUS_LABEL: Record<OutputStatus, string | null> = {
   succeeded: null,
   failed: '失败',
@@ -13,7 +12,6 @@ const STATUS_LABEL: Record<OutputStatus, string | null> = {
   timeout: '超时',
 };
 
-/** 一轮运行发布过的成果入口；没有文件时整块不渲染。 */
 export function RunOutputs({
   files,
   onSelect,

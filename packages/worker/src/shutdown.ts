@@ -1,6 +1,5 @@
 import { waitClose } from './runs/close-wait.js';
 
-/** 关停排空等待：先等在跑任务，再在关 Redis/PG 前给其余关闭有界时间。 */
 const SHUTDOWN_WAIT_MS = 10_000;
 const CLOSE_WAIT_MS = 5_000;
 const DATABASE_WAIT_MS = 2_000;
@@ -40,7 +39,6 @@ export async function runShutdown(options: ShutdownOptions): Promise<number> {
   };
   let failed = false;
 
-  // attempt 自己吞掉 rejection 并记录失败，waitClose 只负责截止时间，不留 unhandled rejection。
   const attempt = async (step: ShutdownStep): Promise<boolean> => {
     try {
       await step.close();
@@ -53,13 +51,10 @@ export async function runShutdown(options: ShutdownOptions): Promise<number> {
   };
 
   options.abort();
-  // 先并发发起所有关闭：知识任务硬超时可达 2h，不能排在沙盒清理前面等它排空。
   const runs = Promise.all(options.workers.map(attempt));
   const others = Promise.all(options.steps.map(attempt));
 
   const runsClosed = await waitClose(runs, waits.shutdownMs);
-  // 沙盒必须等 stop 完（含 pending create 的取消），不能提前 exit 0 留下运行中的容器；
-  // 其余队列不排在它后面等它们无界排空。
   const providerClosed = await attempt(options.provider);
   const othersClosed = await waitClose(others, waits.closeMs);
 

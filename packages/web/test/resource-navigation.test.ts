@@ -38,7 +38,6 @@ vi.mock('@tanstack/react-query', async (original) => {
   const { allAccessMe } = await import('./me-fixture.js');
   return {
     ...actual,
-    // 页面用 useQuery 读取 /me 做权限判断；连接器目录不是权限对象，返回空目录。
     useQuery: (options?: { queryKey?: readonly unknown[] }) => ({
       data: options?.queryKey?.[0] === 'connector-catalog' ? [] : allAccessMe,
       isSuccess: true,
@@ -129,10 +128,6 @@ function elements(node: ReactNode): Element[] {
     ...elements(node.props.leadingFilters as ReactNode),
   ];
 }
-/**
- * 组件按函数直接调用，hook 落在 Probe 上。
- * 表单只由 RHF 驱动后不再有本地 state：visit 在两帧之间运行，返回 true 表示再看下一帧。
- */
 async function inspect(
   render: () => ReactNode,
   visit: (tree: Element[], pass: number) => boolean | undefined | Promise<boolean | undefined>,
@@ -214,7 +209,6 @@ const agent: Agent = {
 
 beforeEach(() => {
   state.pending = false;
-  // 专家编辑器用例针对配置任务；概览的默认落点由页面级用例覆盖。
   state.search = { tab: 'config' };
   state.blocker = undefined;
   vi.clearAllMocks();
@@ -342,7 +336,6 @@ describe('resource toolbar reading order', () => {
       const order = (first: Element, second: Element): boolean =>
         Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
 
-      // 阅读与 Tab 顺序：类型导航 → 管理动作 → 来源 → 搜索 → 筛选 → 排序 → 数量。
       expect(order(navNode, actionNode)).toBe(true);
       expect(order(actionNode, sourceNode)).toBe(true);
       expect(order(sourceNode, searchNode)).toBe(true);
@@ -408,7 +401,6 @@ describe('resource draft navigation', () => {
       );
       let render = renderDialog(dialog);
       if (kind === 'tool') {
-        // Open the existing tool editor through the page's own dialog contract.
         let tools: Element | undefined;
         await inspect(ServersPage, (tree, pass) => {
           if (pass === 0) {

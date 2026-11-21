@@ -34,7 +34,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     app = await startApp();
     admin = await loginCookie(app);
 
-    // 建号通过公共账户 API，测试不直接写 auth 表。
     for (const [slot, systemKeys] of [
       [userA, ['user']],
       [userB, ['user']],
@@ -56,7 +55,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     const second = await createAgent(app, admin);
     secondAgentId = second.json<{ id: string }>().id;
 
-    // A/B 被授权使用同一个专家；维护人员被授权维护它，另一维护人员只维护另一个专家。
     await setAgentMember(app, admin, agentId, userA.businessId, {
       canUse: true,
       canMaintain: false,
@@ -90,7 +88,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
   });
 
   it('每条 /api 路由都有 access 声明，未登录返回 401，公开分享不要求登录', async () => {
-    // beforeAll 的 startApp 会在 onRoute 校验缺声明时直接失败。
     expect(app).toBeDefined();
     expectProblem(await request(app, { method: 'GET', url: '/api/runs' }), 'UNAUTHORIZED');
     const share = await request(app, { method: 'GET', url: '/api/public/output-shares/missing' });
@@ -195,7 +192,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'run',
     );
 
-    // 维护人员能维护该专家，但不能借此读别人的私有正文。
     expectProblem(
       await request(app, {
         method: 'GET',
@@ -232,7 +228,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     });
     expect(adminRead.statusCode, adminRead.body).toBe(200);
 
-    // 管理员跨用户读取（run 属 A）必须落审计，且不写正文。
     await request(app, {
       method: 'GET',
       url: `/api/runs/${runA}`,
@@ -266,7 +261,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     expect(asA.statusCode, asA.body).toBe(202);
     const createdConversation = asA.json<{ conversationId: string }>().conversationId;
 
-    // 未获成员授权的维护人员可以维护别的专家，但不能使用这个专家。
     expectProblem(
       await request(app, {
         method: 'POST',
@@ -277,7 +271,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'NOT_FOUND',
     );
 
-    // 撤销 canUse 后，既有会话仍在本人列表里，但不能再发起新运行。
     const removed = await request(app, {
       method: 'DELETE',
       url: `/api/agents/${agentId}/members/${encodeURIComponent(userA.businessId)}`,
@@ -293,7 +286,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       }),
       'NOT_FOUND',
     );
-    // 已准入的私有会话仍按本人 O 可读，不因专家撤权而变成他人可读。
     const stillOwn = await request(app, {
       method: 'GET',
       url: `/api/conversations/${createdConversation}`,
@@ -335,7 +327,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
     expect(otherCases.statusCode, otherCases.body).toBe(200);
     expect(otherCases.json<Array<{ agentId: string }>>()).toHaveLength(0);
 
-    // 普通用户没有评估权限：功能级拒绝是 403，而不是空列表。
     expectProblem(
       await request(app, {
         method: 'GET',
@@ -345,7 +336,6 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'FORBIDDEN',
     );
 
-    // 负责人之外的人不能删除该用例。
     const cases = ownCases.json<Array<{ id: string }>>();
     const target = cases[0];
     expect(target).toBeDefined();

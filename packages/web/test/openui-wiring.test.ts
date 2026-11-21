@@ -5,11 +5,6 @@ import { AssistantText } from '../src/components/chat/openui-message.js';
 import type { OpenUiStateSaveInput, OpenUiToolCallInput } from '../src/openui/renderer.js';
 import '../src/openui/renderer.js';
 
-/**
- * 接线契约：动作保留完整载荷、每段工具调用带自己的来源、审批可见可重试、
- * 状态保存失败可见且动作前必须落盘。
- */
-
 const FENCE = (lines: string[]) => ['```openui-lang', ...lines, '```'].join('\n');
 
 let host: HTMLDivElement;
@@ -43,7 +38,6 @@ async function settle(rounds = 12): Promise<void> {
   }
 }
 
-/** 保存防抖是真实计时器：按条件等它落定，不靠固定睡眠时长。 */
 async function waitFor(probe: () => boolean, tries = 100): Promise<void> {
   for (let attempt = 0; attempt < tries; attempt += 1) {
     if (probe()) return;
@@ -254,7 +248,6 @@ describe('per-segment tool source', () => {
       onAction: vi.fn(),
     });
 
-    // 还没有 id：界面照常可见，不报错，也不发注定失败的请求。
     expect(host.textContent).toContain('默认值');
     expect(onToolCall).not.toHaveBeenCalled();
     expect(host.querySelector('[role="alert"]')).toBeNull();
@@ -416,7 +409,6 @@ describe('state persistence', () => {
       }),
     );
 
-    // afterEach 还会再 unmount 一次，这里换一个全新的根。
     root = createRoot(document.createElement('div'));
   });
 
@@ -474,7 +466,6 @@ describe('restored state', () => {
   });
 
   it('restores the same state after branching gives the message a new id', async () => {
-    // branch 复制 uiState 但换消息 id；键里不含 id，所以段快照仍按 sN 命中。
     await render({
       text: FENCE(FORM_PROGRAM),
       streaming: false,

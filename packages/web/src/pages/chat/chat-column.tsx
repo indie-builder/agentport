@@ -66,7 +66,6 @@ export function ChatColumn({
   send,
   composerRef,
 }: {
-  /** 消息列专属头部，在消息页内、消息流之前渲染。 */
   header: ReactNode;
   agent: AgentSummary | null;
   agentId: string | null;
@@ -104,18 +103,11 @@ export function ChatColumn({
   send: ReturnType<typeof useChatStream>['send'];
   composerRef: RefObject<HTMLTextAreaElement | null>;
 }) {
-  // 组件动作走同一条发送路径；send 每次渲染都是新函数，用 ref 保住 MessagePart 的 memo。
   const sendRef = useRef(send);
   sendRef.current = send;
-  // 动作本身就是一条完整的下一轮输入：正文用按钮说明，params/context/表单值原样带走。
-  // 不走输入框（不 setInput），因此用户没发出的草稿不会被覆盖。
   const openUiAction = useCallback((action: OpenUiAction) => {
     void sendRef.current(action.message, action);
   }, []);
-  /**
-   * Query/Mutation 走服务端工具桥。来源由渲染层按段闭包提供：
-   * 历史 UI、多条消息、同一消息的多个段都不会归错。
-   */
   const openUiToolCall = useCallback(
     (input: OpenUiToolCallInput) =>
       api.callOpenUiTool(input.conversationId, input.toolName, {
@@ -137,7 +129,6 @@ export function ChatColumn({
     (input: OpenUiApprovalInput) => api.approveOpenUiTool(input.conversationId, input.approvalId),
     [],
   );
-  // 回调身份固定：每段渲染器都靠 ref 读取它们，重新渲染不会重新挂载生成内容。
   const openUiSnapshot = useMemo(
     () => ({
       ...(conversationId === null ? {} : { conversationId }),
@@ -161,8 +152,6 @@ export function ChatColumn({
     />
   );
 
-  // 两个入参直接来自 query 数据；缓存住身份，流式期间 WebSocket 增量不会让工具行的 memo 失效。
-  // 运行进入终态后仍需展示未批准的兜底审批，供用户批准后续调用，因此不按 run 过滤。
   const pendingApprovals = useMemo(
     () => approvalItems.filter((item) => item.approvedAt === null && item.deniedAt === null),
     [approvalItems],
@@ -172,7 +161,6 @@ export function ChatColumn({
     phase.kind !== 'idle' ? (
       <RunFooter phase={phase} items={items} onRetry={onRetryStream} />
     ) : null;
-  // 历史轮次的读数由会话详情一次带回；运行中的 run 交给 runFooter，不在这里显示。
   const historyMetrics = useMemo(() => {
     const map = new Map<string, RunMetrics>();
     for (const run of detail.data?.runMetrics ?? []) {
@@ -190,7 +178,6 @@ export function ChatColumn({
     }
     return map;
   }, [detail.data]);
-  // 成果按 run 归属；同一路径的旧版仍留在产生它的那一轮，不并到最新路径。
   const outputs = useConversationOutputs(conversationId);
   const outputsByRun = useMemo(() => {
     const map = new Map<string, OutputFile[]>();
@@ -202,7 +189,6 @@ export function ChatColumn({
     for (const files of map.values()) files.sort((a, b) => a.path.localeCompare(b.path));
     return map;
   }, [outputs.data]);
-  // 维护与分支会清空消息上的 run_id；manifest 锚点仍指向保留/重写后的边界消息。
   const outputsByAnchor = useMemo(() => {
     const map = new Map<string, OutputFile[]>();
     for (const file of outputs.data?.items ?? []) {
@@ -259,7 +245,6 @@ export function ChatColumn({
           welcome={showWelcome ? <WelcomeState /> : null}
         />
 
-        {/* 运行状态跟着最后一轮走，不再单独占一条横栏；对屏幕阅读器仍播报同一句。 */}
         <div aria-live="polite" role="status" className="sr-only">
           {phase.kind !== 'idle' ? runStatusText(phase, items) : ''}
         </div>
@@ -306,7 +291,6 @@ export function ChatColumn({
   );
 }
 
-/** 与 shared 扩展名映射保持一致：映射不接受的写法不会进入选择器。 */
 const welcomeSuggestions = [
   {
     label: '梳理思路',

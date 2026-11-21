@@ -124,7 +124,6 @@ async function upload(baseId: string, content: string, filename = 'notes.md') {
   });
 }
 
-/** 捕获 rebuild 期间的文档归属查询，区分一次批量查询与逐条查询。 */
 async function rebuildCapturingDocumentSelects(
   baseId: string,
   payload: { documentIds?: string[]; chunksOnly?: boolean },
@@ -146,7 +145,6 @@ async function rebuildCapturingDocumentSelects(
   }
 }
 
-/** 检索依赖 chunk 与当前版本；这里直接落 ready 文档，验证 API 层而不是 worker。 */
 async function seedReadyDocument(baseId: string, profileId: string, content: string) {
   const document = await request(app, {
     method: 'PUT',
@@ -525,7 +523,6 @@ describe('knowledge routes', () => {
     );
     expect(endedAt[0]?.ended_at).not.toBeNull();
 
-    // 运行中：API 不能自己把 DB 改成 cancelled，否则 worker 还在跑却显示已取消。
     const runningJobId = `kjob_run${Math.random().toString(36).slice(2, 10)}`;
     await app.client.unsafe(
       `insert into knowledge_jobs (id, type, base_id, status, payload, started_at)
@@ -570,7 +567,6 @@ describe('knowledge routes', () => {
     const target = await seedReadyDocument(base.id, embedding, '目标 文档');
     const other = await seedReadyDocument(base.id, embedding, '其他 文档');
 
-    // 不传 expectedVersionId 是入口校验失败。
     const missing = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${target.documentId}/chunks`,
@@ -579,7 +575,6 @@ describe('knowledge routes', () => {
     });
     expect(missing.statusCode, missing.body).toBe(400);
 
-    // 传别的文档版本指针不能覆盖当前指针。
     const foreign = await request(app, {
       method: 'POST',
       url: `/api/knowledge/documents/${target.documentId}/chunks`,
@@ -589,7 +584,6 @@ describe('knowledge routes', () => {
     expect(foreign.statusCode, foreign.body).toBe(409);
     expect(foreign.json()).toMatchObject({ code: 'CONFLICT_STALE' });
 
-    // 超过单页 200 条后，序号仍必须接在整版最大值之后。
     await app.client.unsafe(
       `insert into knowledge_chunks (id, base_id, document_id, version_id, ordinal, kind, content, search_text)
        select 'kchk_bulk_' || g, $1, $2, $3, g + 1, 'text', 'bulk', 'bulk'
@@ -603,7 +597,6 @@ describe('knowledge routes', () => {
       payload: { expectedVersionId: target.versionId, content: '人工补充' },
     });
     expect(created.statusCode, created.body).toBe(201);
-    // 种子行是 0，批量插入 1..250；新版按原顺序克隆后追加，序号接在尾部。
     expect(created.json<{ chunk: { ordinal: number } }>().chunk.ordinal).toBe(251);
   });
 
@@ -809,7 +802,6 @@ describe('knowledge routes', () => {
       await second.close();
     }
 
-    // 存量行不经过创建校验：测试端点必须再拦一次，不能成为内网探针。
     const storedId = `kmp_${Math.random().toString(36).slice(2, 10)}`;
     await app.client.unsafe(
       `insert into knowledge_model_profiles (id, kind, name, endpoint_url, model, dimensions)

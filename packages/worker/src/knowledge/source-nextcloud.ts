@@ -290,7 +290,6 @@ function parseResponse(element: XmlElement): DavEntry {
       continue;
     }
     if (code === 404) {
-      // Only properties this reader can live without may be reported missing.
       if (prop === undefined) continue;
       const required = childrenOf(prop.value, prop.namespaces).find(
         (property) =>
@@ -330,8 +329,6 @@ function parseResponse(element: XmlElement): DavEntry {
 }
 
 function parseMultistatus(raw: string): DavResult[] {
-  // Entities and DTDs are never needed for a propfind response; refusing them
-  // removes external-entity and expansion attacks before parsing.
   if (/<!DOCTYPE|<!ENTITY/i.test(raw)) {
     throw new Error('nextcloud DAV response must not contain a DTD or entity declaration');
   }
@@ -361,7 +358,6 @@ function parseMultistatus(raw: string): DavResult[] {
     try {
       return { ok: true, entry: parseResponse(response) };
     } catch (error) {
-      // One failing child (for example 403) must not hide the other responses.
       return {
         ok: false,
         ...(href === undefined ? {} : { href }),
@@ -386,12 +382,6 @@ async function propfind(
   return parseMultistatus(text);
 }
 
-/**
- * Convert a response href into a files-root-relative path. Only the same
- * origin, the same instance context and the current user's DAV root are
- * accepted; encoded slashes, parent segments and deeper-than-Deep-1 entries are
- * rejected instead of being fetched.
- */
 function relativeFromHref(href: string, auth: Auth, request: string, current: string): string {
   if (/%2f|%5c/i.test(href)) {
     throw new Error('nextcloud DAV href contains an encoded slash');
@@ -668,7 +658,6 @@ export async function readNextcloud(
   const auth = await authenticate(config);
   signal?.throwIfAborted();
 
-  // The selected directory must exist and be a directory before any recursion.
   const root = await propfind(auth, auth.relative, '0', signal);
   const self = requireSelf(root, auth, auth.relative);
   if (!self.collection) throw new Error('nextcloud range path is not a directory');

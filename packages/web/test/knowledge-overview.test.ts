@@ -217,7 +217,6 @@ async function fill(id: string, value: string) {
   });
 }
 
-/** 定义列表项的值：配置项与计数项都以 dt 文本定位。 */
 function valueFor(label: string): string | undefined {
   const term = [...document.querySelectorAll('dt')].find(
     (item) => item.textContent?.trim() === label,
@@ -254,7 +253,6 @@ describe('knowledge base overview', () => {
     overviewHandlers();
     await mount('/knowledge/kb_1', { panel: 'overview' });
 
-    // 完整描述在概览最上方，不在页头。
     expect(document.body.textContent).toContain('内部知识');
     expect(valueFor('文档')).toBe('3');
     expect(valueFor('FAQ')).toBe('2');
@@ -262,7 +260,6 @@ describe('knowledge base overview', () => {
     expect(valueFor('来源')).toBe('4');
     expect(valueFor('文件夹')).toBe('5');
     expect(valueFor('标签')).toBe('6');
-    // 绑定已删除的 profile 不猜名字，如实标注不可见；未绑定显示未启用。
     expect(valueFor('向量模型')).toBe('已不可见');
     expect(valueFor('重排')).toBe('重排 B');
     expect(valueFor('音频转录')).toBe('未启用');
@@ -322,7 +319,6 @@ describe('knowledge base overview', () => {
     );
     await mount('/knowledge/kb_1', { panel: 'overview' });
 
-    // 计数照常可读，只是没有动作可做：整块下一步都不出现，不留空话。
     expect(valueFor('文档')).toBe('0');
     expect(document.body.textContent).not.toContain('这个库还没有内容');
     expect(findButton('上传文档')).toBeUndefined();
@@ -376,7 +372,6 @@ describe('knowledge base overview', () => {
     expect((document.getElementById('knowledge-duplicate-name') as HTMLInputElement).value).toBe(
       '产品手册 副本',
     );
-    // slug 默认留空，只在 placeholder 里给建议值，真正的落点交给服务端。
     expect(slugInput.value).toBe('');
     expect(slugInput.placeholder).toBe('handbook-copy');
     await click(button('复制', copier));
@@ -493,7 +488,6 @@ describe('knowledge base overview', () => {
     expect(document.body.textContent).toContain('重命名标签');
     expect(document.body.textContent).toContain('· 4 分钟前');
     expect(document.body.textContent).toContain('创建知识库');
-    // 没映射过的 action 原样显示，不猜中文名。
     expect(document.body.textContent).toContain('knowledge.not_mapped_action');
     expect(document.body.textContent).toContain('bus_ops');
     expect(document.body.textContent).toContain('bus_admin');

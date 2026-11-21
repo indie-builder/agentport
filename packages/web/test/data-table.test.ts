@@ -14,7 +14,6 @@ const columns: DataColumn<(typeof rows)[number]>[] = [
   },
 ];
 
-// 运行列表的真实形状：未开始的行为 null，按开始时间倒序时排在最后。
 const runRows = [
   { id: 'run_old', startedAt: '2026-10-01T00:00:00.000Z' },
   { id: 'run_new', startedAt: '2026-10-03T00:00:00.000Z' },
@@ -57,7 +56,6 @@ describe('DataTable accessibility', () => {
     const html = renderTable({ storageKey: 'test.columns' });
     expect(html).toContain('run-1');
     expect(html.match(/<th\b/g)).toHaveLength(3);
-    // 旧版裸数组偏好不再读取：专家列不能被 ['name'] 隐藏。
     expect(html).toContain('专家');
   });
 

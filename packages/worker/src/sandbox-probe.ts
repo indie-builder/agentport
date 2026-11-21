@@ -58,23 +58,14 @@ export interface SandboxProbeDeps {
   closing?: AbortSignal;
 }
 
-/** 试连结果回给 API：stderr 只进审计与日志，`serverTestResultSchema` 会把它剥掉。 */
 interface ProbeOutcome extends ServerTestResult {
   stderr?: string;
 }
 
-/** 只取容器 stdout 的第一条合法结果；其余行属于上游噪音。 */
 function parseResultLine(line: string): SandboxProbeOutput | null {
   return parseJsonAs(line, sandboxProbeOutputSchema);
 }
 
-/**
- * 在沙盒镜像里连一次 stdio MCP server：容器入口 `dist/probe.js` 只拿 stdio 配置，
- * 不给模型凭证、不写记忆。超时与容器启动失败都变成可读结果，不抛给 BullMQ。
- *
- * 整体预算含拉镜像与 docker create/start；容器内部的 connect/listTools 另有 5s 上限。
- * 超时后迟到的容器仍由 provider 销毁（失败只告警），避免 worker 无界等待与容器泄漏。
- */
 export async function runSandboxProbe(
   deps: SandboxProbeDeps,
   serverId: string,
@@ -93,7 +84,6 @@ export async function runSandboxProbe(
     ...elapsed(),
   });
 
-  // 只在这次真实创建前解析；没有线上版本时明确失败，不换用其他环境。
   const row = await repo.servers.getServer(deps.db, serverId);
   if (!row) return failure('MCP Server 不存在，可能已被删除；请刷新后重试');
   if (row.kind !== 'stdio') return failure('只支持 stdio 类型的连接测试');
@@ -126,7 +116,6 @@ export async function runSandboxProbe(
       create: {
         image: resolved.imageId,
         workspaceDir,
-        // 试连不跑模型：不给任何模型凭证，只留一个可写 HOME。
         env: { HOME: '/tmp' },
         name: `agentport-probe-${randomBytes(4).toString('hex')}`,
         entrypoint: 'bun',
@@ -144,7 +133,6 @@ export async function runSandboxProbe(
     },
     {
       complete: (outcome) => {
-        // 错误信息区分「worker 关停」「容器没起来」与「连上了但没结果」。
         if (!outcome.started) {
           return failure(
             outcome.exited === '__closing__'
@@ -170,7 +158,6 @@ export async function runSandboxProbe(
               stderrTail || undefined,
             );
           }
-          // 容器已按同一上限裁剪；宿主机是信任边界，再校验一次形状与目录上限。
           let tools: ProbeOutcome['tools'];
           try {
             tools = limitToolCatalog(output.tools);
@@ -205,12 +192,10 @@ export async function runSandboxProbe(
         return failure(stderrTail ? `${reason}: ${stderrTail}` : reason, stderrTail || undefined);
       },
       fail: (err, closing) => {
-        // create 也可能在关停竞速里先 reject；此时要给关停文案，不能报成启动失败。
         if (closing) {
           deps.logger.warn({ serverId }, 'sandbox probe cancelled by shutdown');
           return failure('worker 正在关停，连接测试已取消');
         }
-        // 容器创建失败（docker 不可达、镜像缺失）也只回可读结果，不让 BullMQ 重试无限拉长请求。
         deps.logger.warn({ err, serverId }, 'sandbox probe crashed');
         return failure(`无法启动沙盒：${redactSecrets(errorText(err))}`);
       },
@@ -218,10 +203,6 @@ export async function runSandboxProbe(
   );
 }
 
-/**
- * 独立队列消费者。固定契约：`registerSandboxProbe(config, resolveRuntimeEnvironment)`，
- * 由 worker/index.ts 启动时调用、关停时 `close()`；本模块自持 db 连接与 provider。
- */
 export async function registerSandboxProbe(
   config: Config,
   resolveRuntimeEnvironment: RuntimeEnvironmentResolver,
@@ -257,7 +238,6 @@ export async function registerSandboxProbe(
     async (job) => {
       const parsed = sandboxProbeJobSchema.safeParse(job.data);
       if (!parsed.success) throw new Error('invalid sandbox probe payload');
-      // 结果作为 job returnvalue 回给 API；失败也走正常返回，避免 waitUntilFinished 拿到原始错误。
       return runSandboxProbe(
         deps,
         parsed.data.serverId,
@@ -270,7 +250,6 @@ export async function registerSandboxProbe(
 
   return {
     close: async () => {
-      // 先停新任务并取消进行中的拉取/创建，再并行等消费者与容器清理收尾。
       closing.abort();
       const closed = worker.close().finally(() => connection.quit());
       const results = await Promise.allSettled([closed, provider.destroyAll?.()]);

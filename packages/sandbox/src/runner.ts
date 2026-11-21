@@ -58,7 +58,6 @@ interface RunnerEvent {
     | 'error'
     | 'run_finished';
   text?: string;
-  /** error / run_warning 事件的文本。 */
   message?: string;
   toolUseId?: string;
   /** question_requested：宿主据此落库；回答只经 stdin 回到这个工具。 */
@@ -66,7 +65,6 @@ interface RunnerEvent {
   questions?: NativeQuestion[];
   /** SDK 消息 uuid；落库后用于按历史点 fork。 */
   sdkUuid?: string;
-  /** session_forked：新会话 id。 */
   sessionId?: string;
   /** 子智能体产生的消息：指向父侧 Agent 的 tool_use id；顶层消息不写。 */
   parentToolUseId?: string;
@@ -94,21 +92,15 @@ interface RunnerEvent {
 const configDir = process.env.CLAUDE_CONFIG_DIR ?? CONFIG_CONTAINER_DIR;
 const memoryDirectory = MEMORY_CONTAINER_DIR;
 const workspaceDir = WORKSPACE_CONTAINER_DIR;
-// 频道 run 由 worker 在容器 env 里标记；私聊不设置，token 口径保持原样。
 const channelRun = process.env.PACE_RUN_TRIGGER === 'channel';
 
 function log(message: string): void {
   process.stderr.write(`[runner] ${message}\n`);
 }
 
-/**
- * 单块上限：默认 1MiB，可由任务的 maxFieldBytes 覆盖。
- * 超限时只截断这一块并显式标记（assistant_text 带 truncated），不再静默丢尾部。
- */
 const DEFAULT_MAX_FIELD_BYTES = 1024 * 1024;
 const TRUNCATED = '\n…[truncated]';
 
-/** 按字节截断但不在多字节字符中间切开；truncated 说明尾部已丢。 */
 function cap(value: string, maxBytes: number): { text: string; truncated: boolean } {
   const bytes = Buffer.byteLength(value);
   if (bytes <= maxBytes) return { text: value, truncated: false };
@@ -119,16 +111,11 @@ function cap(value: string, maxBytes: number): { text: string; truncated: boolea
   };
 }
 
-/** 工具负载没有 truncated 字段，用标记说明尾部被截断。 */
 function capWithMarker(value: string, maxBytes: number): string {
   const { text, truncated } = cap(value, maxBytes);
   return truncated ? `${text}${TRUNCATED}` : text;
 }
 
-/**
- * 首行是 SandboxTask；之后保持同一个行读取器，接收 `question_response` 等
- * 宿主动态下发的 stdin 命令，不再像单任务模式那样读完首行就关闭。
- */
 async function openTaskInput(): Promise<{
   task: SandboxTask;
   readLine: () => Promise<string | null>;
@@ -173,7 +160,6 @@ function tokenUsage(
   return seen ? { inputTokens: input, outputTokens: output } : {};
 }
 
-// 频道必须排除 resume 的历史累计用量，私聊保留原统计口径。
 function resultTokenUsage(message: {
   usage: {
     input_tokens: number;
@@ -212,15 +198,10 @@ function toolResultText(content: unknown): string {
     .join('\n');
 }
 
-/** 顶层消息 parent_tool_use_id 为 null：事件里省略该字段，宿主侧按 undefined 处理。 */
 function parentTag(id: string | null): { parentToolUseId?: string } {
   return id === null ? {} : { parentToolUseId: id };
 }
 
-/**
- * TodoWrite 的清单只认官方成功输出：同一条 user 消息上的 tool_use_result.newTodos。
- * 工具输入只用于配对顶层调用 id；失败、子智能体、缺失或损坏的输出都不更新清单。
- */
 function todoSnapshot(input: {
   toolUseId: string;
   isError: boolean | undefined;
@@ -235,7 +216,6 @@ function todoSnapshot(input: {
     .array()
     .safeParse((input.result as { newTodos?: unknown }).newTodos);
   if (!parsed.success) return undefined;
-  // 快照必须整份到达：截断 JSON 会变成假清单，所以超限时整份省略，宿主保留上一份。
   const bytes = Buffer.byteLength(JSON.stringify(parsed.data));
   if (bytes > maxFieldBytes) {
     log(`omitted a ${bytes} byte todo snapshot over the ${maxFieldBytes} byte limit`);
@@ -257,9 +237,7 @@ async function findSessionFile(sessionId: string): Promise<string | null> {
     const candidate = join(projects, entry, `${sessionId}.jsonl`);
     try {
       if ((await stat(candidate)).isFile()) return candidate;
-    } catch {
-      // 这个项目目录里没有该会话，继续找下一个。
-    }
+    } catch {}
   }
   return null;
 }
@@ -286,19 +264,14 @@ const pluginServers = task.plugins.flatMap((plugin) =>
 const pluginSkills = task.plugins.flatMap((plugin) =>
   plugin.skills.map((skill) => `${plugin.runtimeName}:${skill}`),
 );
-// 插件自带的子智能体也需要 Agent 工具，否则它们只是被发现了却无法调用。
 const hasPluginAgents = task.plugins.some((plugin) => plugin.hasAgents);
 
 // allow 规则只支持 `mcp__<server>__` 之后通配；`mcp__*` 不匹配任何工具。
 // server 名来自挂载的 .mcp.json，逐个生成精确规则。
 const allowedTools = [
-  // Bash 在 Docker 沙箱内执行；dontAsk 下未预批准的工具会被拒绝，所以必须显式放行。
-  // 智能体显式 deny 的 Bash 仍由 disallowedTools 拒绝。
   'Bash',
   `Read(/${memoryDirectory}/**)`,
-  // 技能参考文件只读：.claude/skills/<slug>/references/**；写入仍仅限原生记忆目录。
   `Read(/${WORKSPACE_CONTAINER_DIR}/.claude/skills/*/references/**)`,
-  // 插件技能的支持资源同样在只读挂载内：.claude/plugins/<slug>/skills/<name>/**。
   ...(task.plugins.length === 0
     ? []
     : [`Read(/${WORKSPACE_CONTAINER_DIR}/.claude/plugins/*/skills/*/**)`]),
@@ -306,38 +279,25 @@ const allowedTools = [
   // proposal_only / 未启用专家记忆时必须拿掉这条写权限：SDK 的 auto-memory 已关闭，
   // 模型只能经记忆提案由平台写入；预批准写目录会让提案制形同虚设。
   ...(memoryRuntime.allowMemoryWrite ? [`Edit(/${memoryDirectory}/**)`] : []),
-  // 子智能体 project 记忆：可写性跟随父专家策略，worker 按同一策略把各 slug 目录挂成 rw 或 ro；
-  // 只有策略允许写入时才预批准 Edit，只读策略下写请求留给 hook 与只读挂载拒绝。
-  // 具体到每个子的身份再由 PreToolUse hook 按 agent_id/agent_type 收窄。
-  // 同一容器里的 Bash 也能看到这些挂载；这里约束的是原生文件工具，不声称进程隔离。
   ...(task.subAgents.length === 0
     ? []
     : [
         `Read(/${SUBAGENT_MEMORY_CONTAINER_DIR}/**)`,
         ...(memoryRuntime.allowMemoryWrite ? [`Edit(/${SUBAGENT_MEMORY_CONTAINER_DIR}/**)`] : []),
       ]),
-  // 本轮产出草稿：独立 rw 挂载，交付文件用原生 Read/Write/Edit 直接写这里。
   `Read(/${OUTPUTS_CONTAINER_DIR}/**)`,
   `Edit(/${OUTPUTS_CONTAINER_DIR}/**)`,
-  // 本会话附件：只读挂载，主会话可用原生 Read 读取任意文件类型。
   `Read(/${INPUTS_CONTAINER_DIR}/**)`,
   ...task.mcpServers.map((name) => `mcp__${name}__*`),
-  // 插件 MCP 只在绑定方显式授权后才出现在 task.plugins 里。
   ...pluginServers.map((server) => `mcp__${server}__*`),
   ...task.extraAllowedTools.filter((rule) => !/^(Read|Write|Edit)(\(|$)/.test(rule)),
-  // dontAsk 下未预批准的工具会被拒绝；委派时需显式放行 Agent。
   ...(task.allowSubAgents || hasPluginAgents ? ['Agent'] : []),
-  // Workflows 只在工作区确实带官方脚本时放行；子代理仍受既有工具权限约束。
   ...(task.hasWorkflows ? ['Workflow'] : []),
 ];
 const abortController = new AbortController();
 process.once('SIGTERM', () => abortController.abort());
 
-// 子智能体文件自身仍禁用 Agent；会话间工具只有显式出现在 allowedTools 里才放行（D-19）。
 const allowedByConfig = new Set(task.extraAllowedTools);
-// 父会话只自动批准自己的 server。只属于子级的 server 不写进会话级 disallowedTools：
-// 子智能体继承会话权限，server 级 deny 会把它们自己的工具一起移除。
-// 父级误调用这些 server 由 sub-agent-permissions 的 PreToolUse hook 拒绝。
 const configurableTools = new Set<string>(CONFIGURABLE_DISALLOWED_TOOLS);
 const disallowedTools = [
   ...DEFAULT_DISALLOWED_TOOLS.filter((tool) => {
@@ -349,11 +309,7 @@ const disallowedTools = [
   ...task.extraDisallowedTools,
 ];
 
-// outputStyle 由下面 settingSources: ['project'] 从 .claude/settings.json 原生加载；
-// 不再手工解析同一文件再 inline 覆盖，避免两处合并语义漂移。
-
 let emittedTerminal = false;
-/** init 里拿到的真实会话 id；取消时 result 可能来不及到达，也要能上报。 */
 let initSessionId: string | undefined;
 const assistantUsage = new Map<string, { inputTokens: number; outputTokens: number }>();
 // run_finished 只能有一条：宿主按它落库并结束 SSE。
@@ -474,7 +430,6 @@ const questionChannel = createQuestionChannel({
   onUserMessage: (command) => instructionQueue.push(command.text, command.uuid),
   log,
 });
-// SIGTERM 中止整个 query 时，挂起的提问也必须收尾，不能把容器留在等答案上。
 abortController.signal.addEventListener('abort', () => {
   questionChannel.close();
   instructionQueue.close();
@@ -501,7 +456,6 @@ async function resolveSession(input: SandboxTask): Promise<{
   if (input.forkFromMessageUuid === undefined) return { resume: input.resumeSessionId };
 
   try {
-    // 映射由宿主从 transcript 的 forkedFrom 计算；这里只产生新会话 id。
     const forked = await forkSession(input.resumeSessionId, {
       upToMessageId: input.forkFromMessageUuid,
       dir: workspaceDir,
@@ -520,7 +474,6 @@ if (session.error !== undefined) {
   questionChannel.close();
   closeInput();
 } else {
-  // 先告诉宿主 fork 结果：即便这一轮随后失败，页面的历史映射也已经可写回。
   if (session.fork !== undefined) {
     emit({ type: 'session_forked', sessionId: session.fork.sessionId });
   }
@@ -534,7 +487,6 @@ if (session.error !== undefined) {
       parent_tool_use_id: null,
       // 宿主已按 uuid 校验过；SDK 的 UUID 是模板字面量类型，这里按契约收窄。
       uuid: task.userMessageUuid as NonNullable<SDKUserMessage['uuid']>,
-      // 用户文本是纯文本：不要做 @路径展开或斜杠命令解析。
       client_composed: true,
     };
     for (;;) {
@@ -548,13 +500,7 @@ if (session.error !== undefined) {
   let finalResult: SDKResultMessage | undefined;
   let finalCancelled = false;
   try {
-    /**
-     * 每个 parent 当前正在流式输出的块。SDK 的完整 assistant 消息只带自己那一个块，
-     * 对消息内容 entries() 从 0 编号会把 thinking(0)+text(1) 的文本错报成 0，
-     * 也不能与流事件的真实 index 对齐；完整消息在 content_block_stop 之前到达，按此对齐。
-     */
     const openBlocks = new Map<string, { index: number; kind: string }>();
-    /** 只记录顶层 TodoWrite 的调用 id；子智能体与失败结果都不能改主清单。 */
     const todoToolIds = new Set<string>();
     const parentKey = (id: string | null): string => id ?? '';
 
@@ -563,16 +509,11 @@ if (session.error !== undefined) {
       options: {
         cwd: workspaceDir,
         settingSources: ['project'],
-        // .mcp.json 里的 server 默认需要审批；无人值守时不批准就等于零工具静默成功。
-        // 长期记忆用 Claude Code 原生 auto-memory：目录由 worker 从宿主持久卷挂到这里，
-        // 跨 run 累积；平台侧只做浏览/编辑，不另造记忆格式。
         settings: {
           enableAllProjectMcpServers: true,
           autoMemoryEnabled: memoryRuntime.autoMemoryEnabled,
-          // 关闭时不要传空串或伪造目录：absence 才是 SDK 的“未启用”。
           ...(memoryRuntime.autoMemoryEnabled ? { autoMemoryDirectory: memoryDirectory } : {}),
         },
-        // 容器进程 env 与工作区 settings 同源；这里再兜一层，避免 project settings 未加载时丢约束。
         env: { ...process.env, ...SANDBOX_RUNTIME_ENV },
         forwardSubagentText: true,
         permissionMode,
@@ -611,8 +552,6 @@ if (session.error !== undefined) {
               hooks: [createApprovalHook(task, workspaceDir, abortController.signal)],
             },
           ],
-          // 个人记忆每轮重新读取：恢复会话也拿到宿主最新保存的内容，不依赖会话恢复缓存。
-          // injectPersonalMemory=false 时既不投影也不挂载，hook 必须一并缺席。
           ...(memoryRuntime.installPersonalHook
             ? {
                 UserPromptSubmit: [
@@ -644,8 +583,6 @@ if (session.error !== undefined) {
     for await (const message of activeQuery) {
       if (message.type === 'system' && message.subtype === 'init') {
         initSessionId = message.session_id;
-        // MCP 起不来时 SDK 仍会正常跑完：模型只能用内置工具，最后报「成功」。
-        // 这里必须显式暴露，否则用户在 UI 上看到的是「完成但什么都没做」。
         const failed = message.mcp_servers?.filter((s) => s.status !== 'connected') ?? [];
         if (failed.length > 0) {
           log(`mcp not connected: ${failed.map((s) => `${s.name}=${s.status}`).join(', ')}`);
@@ -656,7 +593,6 @@ if (session.error !== undefined) {
               .join('、')}`,
           });
         }
-        // 插件加载失败时 CLI 仍会跑完，只是少了这些组件；必须显式暴露，不能当成功。
         const pluginErrors = message.plugin_errors ?? [];
         if (pluginErrors.length > 0) {
           log(`plugin errors: ${pluginErrors.map((e) => `${e.plugin}:${e.type}`).join(', ')}`);
@@ -667,7 +603,6 @@ if (session.error !== undefined) {
               .join('、')}`,
           });
         }
-        // init 的 plugins 里始终有内置插件行，按路径核对本次绑定的插件是否真的加载。
         if (
           task.plugins.length > 0 &&
           !task.plugins.some((plugin) =>
@@ -681,7 +616,6 @@ if (session.error !== undefined) {
       }
 
       if (message.type === 'assistant') {
-        // result 未到便中断时保留真实用量；同一 API 响应的多个块共享 id，不能重复累计。
         const usage = message.message.usage;
         if (channelRun && message.error === undefined && usage !== undefined) {
           const previous = assistantUsage.get(message.message.id);
@@ -695,11 +629,8 @@ if (session.error !== undefined) {
             outputTokens: Math.max(previous?.outputTokens ?? 0, usage.output_tokens),
           });
         }
-        // 子智能体消息带 parent_tool_use_id（父侧 Agent 的 tool_use id）；顶层为 null。
         const parent = parentTag(message.parent_tool_use_id);
         const open = openBlocks.get(parentKey(message.parent_tool_use_id));
-        // 每个文本块单独发一次整块文本：前端已按 text_delta 渲染，这次用于落库。
-        // 完整消息只含当前一个块，块序号取正在流式的那个真实 index，不能按消息内位置重编。
         for (const block of message.message.content) {
           if (block.type === 'text') {
             if (block.text.length === 0) continue;
@@ -767,7 +698,6 @@ if (session.error !== undefined) {
         if (event.type === 'message_start' || event.type === 'message_stop') {
           openBlocks.delete(key);
         } else if (event.type === 'content_block_start') {
-          // 工具块的内容由完整 assistant 消息发送；这里只标记边界。
           const kind = event.content_block.type;
           if (kind === 'text' || kind === 'tool_use') {
             openBlocks.set(key, { index: event.index, kind });
@@ -804,17 +734,13 @@ if (session.error !== undefined) {
       emitFinalResult(finalResult, finalCancelled);
     }
   } catch (err) {
-    // 未捕获的异常会直接退出进程，宿主只能看到「没有 run_finished」。
-    // 这里统一转成终态事件：取消归 cancelled，其余归 agent。
     const message = errorText(err);
     log(`query failed: ${message}`);
     failRun(abortController.signal.aborted ? 'cancelled' : 'agent', message);
   } finally {
-    // 运行已结束：未决提问收尾并停止读取 stdin，进程才能正常退出。
     instructionQueue.close();
     questionChannel.close();
     closeInput();
-    // 显式关闭 query：中止后 SDK 的 CLI/MCP 子进程不能只靠父进程退出被动收尾。
     activeQuery?.close();
   }
 }

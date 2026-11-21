@@ -53,7 +53,6 @@ const batchActionLabel = {
 
 type BatchAction = keyof typeof batchActionLabel;
 
-/** 批量结果逐项展示；部分成功不会被包装成全部成功。 */
 function BatchResults({
   results,
   titles,
@@ -115,10 +114,6 @@ const batchActionFormSchema = z.object({
 });
 type BatchActionFormValues = z.infer<typeof batchActionFormSchema>;
 
-/**
- * 批量操作一次只提交一个 action；移动/复制选择目标目录，标签选择模式与本批标签。
- * 每个文档由后端单独事务处理，UI 原样展示逐项结果。
- */
 export function BatchActionDialog({
   baseId,
   action,
@@ -361,10 +356,6 @@ function manualStatusLabel(draft: KnowledgeManualDraft): string {
   return draft.status === 'draft' ? '未发布草稿' : '已发布版本';
 }
 
-/**
- * 手写正文显式草稿：保存只写新草稿版本，发布仍在版本列表里单独确认。
- * 保存失败保留输入；关闭与路由离开由统一 dirty/pending 守卫处理。
- */
 export function ManualDraftDialog({
   baseId,
   documentId,

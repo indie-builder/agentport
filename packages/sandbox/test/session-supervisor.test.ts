@@ -35,15 +35,10 @@ function cancel(runId: string): SupervisorInput {
   return { type: 'cancel', runId };
 }
 
-/** 合法的 start 行，但 JSON 序列化后明显超过 8MiB 单行上限。 */
 function oversizedStart(runId: string): string {
   return JSON.stringify(start(runId, 'x'.repeat(9 * 1024 * 1024)));
 }
 
-/**
- * Collects supervisor NDJSON. Waits are ordered: consuming an output advances a
- * cursor so a later wait cannot match the same line again.
- */
 class OutputSink extends Writable {
   readonly outputs: SupervisorOutput[] = [];
   private cursor = 0;
@@ -72,7 +67,6 @@ class OutputSink extends Writable {
       if (!waiter.predicate(output)) continue;
       this.waiters.splice(index, 1);
       clearTimeout(waiter.timer);
-      // Outputs are ordered, so everything up to this line is now consumed.
       this.cursor = this.outputs.length;
       waiter.resolve(output);
       return;
@@ -172,7 +166,6 @@ describe('session supervisor', () => {
       signal: null,
     });
 
-    // The second start inherits process.env but must add its own run env on top.
     send(stdin, start('run-b', 'plain-b', { RUN_MARKER: 'B' }));
     await sink.waitFor('started', (output) => output.runId === 'run-b');
     const second = await sink.waitFor(
@@ -226,7 +219,6 @@ describe('session supervisor', () => {
     expect(await sink.waitFor('settled', (output) => output.runId === 'run-a')).toMatchObject({
       stopped: true,
     });
-    // The runner itself reported the cancelled terminal event before settling.
     expect(
       sink.outputs.some(
         (output) =>
@@ -241,13 +233,11 @@ describe('session supervisor', () => {
     await sink.waitFor('started', (output) => output.runId === 'run-b');
     await sink.waitFor('event', (output) => output.runId === 'run-b');
 
-    // A late answer for the previous run must be rejected, not forwarded to B.
     send(stdin, input('run-a', 'req-a'));
     expect(await sink.waitFor('rejected', (output) => output.runId === 'run-a')).toMatchObject({
       code: 'NOT_ACTIVE',
     });
 
-    // B still receives its own command, and only that one.
     send(stdin, input('run-b', 'req-b'));
     const echo = await sink.waitFor(
       'event',
@@ -258,7 +248,6 @@ describe('session supervisor', () => {
     );
     expect(echo.event).toMatchObject({ text: expect.not.stringContaining('req-a') });
 
-    // A's delayed write would land after its settle if the process were still alive.
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(
       sink.outputs.some(
@@ -312,7 +301,6 @@ describe('session supervisor', () => {
     expect(settled.stopped).toBe(false);
     expect(settled.error).toContain('still running');
 
-    // The fixture reports the stubborn pid so the test can clean it up.
     process.kill(pid, 'SIGKILL');
   });
 
@@ -335,7 +323,6 @@ describe('session supervisor', () => {
     await sink.waitFor('ready');
 
     send(stdin, start('run-i', 'inherit-stdio'));
-    // 后代继承 stdout/stderr 后 root 退出：close 不会来，收尾仍必须有界完成。
     await sink.waitFor('stderr', (output) => output.text.includes('desc-pid:'));
     expect(await sink.waitFor('settled', (output) => output.runId === 'run-i')).toMatchObject({
       stopped: true,
@@ -375,9 +362,7 @@ describe('session supervisor', () => {
     } finally {
       try {
         process.kill(pid, 'SIGKILL');
-      } catch {
-        // 已停稳。
-      }
+      } catch {}
     }
   });
 
@@ -452,7 +437,6 @@ describe('session supervisor', () => {
       ),
     ).toBe(false);
 
-    // 收尾有界，active 已清空，下一轮可以正常启动。
     send(stdin, start('run-next', 'plain-ok'));
     await sink.waitFor('started', (output) => output.runId === 'run-next');
     expect(await sink.waitFor('settled', (output) => output.runId === 'run-next')).toMatchObject({

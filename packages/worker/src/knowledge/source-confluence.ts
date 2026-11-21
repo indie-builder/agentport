@@ -17,15 +17,6 @@ import { sanitizeSegment, trimSlash, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import { parseInitialCursor, snapshotOf } from './source-utils.js';
 
-/**
- * Confluence Cloud (basic/scoped token) and Data Center (PAT) leaf reader.
- *
- * The rendered `body.view` HTML goes to the existing HTML parser as bytes, so
- * storage-format macros are not flattened by a second converter here. Ranges are
- * a space or a page subtree; page identity is the provider page ID and
- * attachments use the attachment ID (never the fileId).
- */
-
 const PAGE_SIZE = 250;
 const DC_PAGE_SIZE = 100;
 const MAX_PAGES = 1000;
@@ -221,10 +212,6 @@ function pageApiUrl(auth: Auth, suffix: string): string {
   return `${auth.apiRoot.href}${suffix}`;
 }
 
-/**
- * Page links may only stay on the bound API origin and under its REST context;
- * a provider link must never become a request to another origin.
- */
 function checkedNextUrl(link: string, auth: Auth, label: string): string {
   const url = new URL(link, auth.apiRoot);
   if (url.origin !== auth.apiOrigin) {
@@ -256,15 +243,11 @@ function nextPageUrl(link: string, base: URL, auth: Auth, label: string): string
   if (link.trim() === '') throw new Error(`${label} returned an empty next link`);
   const checked = checkedNextUrl(resolveProviderLink(link, auth).href, auth, label);
   const url = new URL(checked);
-  // Only the endpoint being paginated may be continued: a provider link must
-  // not switch the request to another API resource.
   if (url.pathname !== base.pathname) {
     throw new Error(`${label} pagination used an unexpected endpoint`);
   }
   const cursor = url.searchParams.get('cursor');
   if (cursor === null) return url.href;
-  // Rebuild the known endpoint from the cursor instead of fetching a
-  // provider-supplied URL; the origin, context and endpoint are already checked.
   const rebuilt = new URL(base.href);
   rebuilt.searchParams.delete('cursor');
   rebuilt.searchParams.set('cursor', cursor);
@@ -746,7 +729,6 @@ type Attachment = {
   download?: string;
 };
 
-/** Normalize the Cloud and DC attachment shapes before emitting a document. */
 function cloudAttachment(value: z.infer<typeof cloudAttachmentSchema>): Attachment {
   return {
     id: value.id,

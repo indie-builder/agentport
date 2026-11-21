@@ -12,7 +12,6 @@ import { memoryChanges } from '../schema.js';
 export type MemoryChangeRow = typeof memoryChanges.$inferSelect;
 
 export interface InsertMemoryChangeInput {
-  /** 手工写入预分配的稳定操作身份；缺省由仓储生成。 */
   id?: string;
   businessId: string;
   agentId?: string | null;
@@ -49,7 +48,6 @@ export async function remove(db: Database, id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-/** 回滚崩溃恢复：同一被撤销变更只允许补记一次。 */
 export async function findByReverses(
   db: Database,
   reversesChangeId: string,
@@ -62,7 +60,6 @@ export async function findByReverses(
   return row ?? null;
 }
 
-/** 个人记忆版本：同一 businessId 也会作为操作者写入专家记忆/规则，必须按目标类型收窄。 */
 export async function listPersonalByUser(
   db: Database,
   businessId: string,
@@ -85,9 +82,7 @@ export interface MemoryChangeFilterOptions {
   agentId: string;
   kind: 'personal' | 'agent_memory' | 'agent_rule';
   slug?: string;
-  /** 专家记忆文件名；在 LIMIT 之前按目标名收窄。 */
   name?: string;
-  /** MEMORY.md 的历史还包含实际改动了伴随索引的主题变更。 */
   includeIndexChanges?: boolean;
   before?: Date;
 }
@@ -96,7 +91,6 @@ export interface ListMemoryChangesOptions extends MemoryChangeFilterOptions {
   limit: number;
 }
 
-/** 列表、计数与按文件归并都必须复用同一组过滤条件，避免口径漂移。 */
 function changeFilters(options: MemoryChangeFilterOptions): SQL[] {
   const filters: SQL[] = [
     eq(memoryChanges.agentId, options.agentId),
@@ -122,7 +116,6 @@ function changeFilters(options: MemoryChangeFilterOptions): SQL[] {
   return filters;
 }
 
-/** 专家记忆/规则版本：按目标类型过滤，规则再按 slug、记忆按文件名收窄。 */
 export async function listFiltered(
   db: Database,
   options: ListMemoryChangesOptions,
@@ -135,7 +128,6 @@ export async function listFiltered(
     .limit(options.limit);
 }
 
-/** 与 listFiltered 同源的计数：不受 LIMIT 影响，用于概览里的真实总数。 */
 export async function countFiltered(
   db: Database,
   options: MemoryChangeFilterOptions,
@@ -147,11 +139,6 @@ export async function countFiltered(
   return row?.total ?? 0;
 }
 
-/**
- * 每个目标文件最近一次平台写入时间：一次 group by 取代「取最近 N 条再在内存归并」，
- * 不会因为历史条数增长而把较早的记账误判成未记账。
- * 主题变更若同时改动了伴随索引，也把这次时间记到 MEMORY.md 上。
- */
 export async function latestCreatedAtByTarget(
   db: Database,
   agentId: string,

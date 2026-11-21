@@ -139,12 +139,10 @@ function ChannelWorkspace({
   const client = useQueryClient();
   const user = authenticated(me.data);
   const businessId = user?.user.businessId ?? null;
-  // 频道角色只在本频道的成员行里；平台管理员非成员时为 null。
   const selfMember = channel.members.find((item) => item.businessId === businessId);
   const channelRole = selfMember?.role ?? null;
   const canPost =
     channel.archivedAt === null &&
-    // 发言权以频道角色为准；me 未加载时按不可发处理，避免只读成员闪出输入框。
     (channelRole !== null
       ? channelRole !== 'viewer'
       : me.isSuccess && can(me.data, 'conversations.create'));
@@ -308,7 +306,6 @@ function ChannelWorkspace({
         meta.set(notice, entry);
       }
     }
-    // 落库回复优先：同一 run 的流式正文不再重复显示。
     for (const item of Object.values(stream.streams)) {
       if (persistedRuns.has(item.runId)) continue;
       const anchor: ChatItem =
@@ -342,7 +339,6 @@ function ChannelWorkspace({
 
   const markVisibleRead = useCallback(
     (visibleIds: string[]) => {
-      // 只认已落库消息；乐观项与流式临时项没有真实 seq。
       const seqById = new Map(
         stream.messages
           .filter((message) => !message.id.startsWith('local-'))

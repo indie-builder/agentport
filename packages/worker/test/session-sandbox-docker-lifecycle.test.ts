@@ -56,7 +56,6 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
         () => inContainer(lease.sandboxId, ['cat', '/tmp/session-fixture/progress']),
         'long task progress file',
       );
-      // 明显长于 idleTimeoutMs：忙碌中的执行不能触发空闲回收。
       await delay(500);
       expect(settled).toBe(false);
       expect(containerRunning(lease.sandboxId)).toBe(true);
@@ -129,11 +128,9 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       ] as const) {
         const stopped = JSON.parse(inContainer(lease.sandboxId, ['cat', stopFile]) ?? '{}');
         stopRecords[label] = stopped;
-        // SIGTERM 只在 runner 退出后发出；/proc 里的 ppid=1 证明子进程已回挂容器 PID1。
         expect({ label, ...stopped }).toMatchObject({ label, pid, ppid: 1 });
       }
 
-      // 两个子进程都持续写各自的进度文件；settled stopped 之后必须完全静默。
       const orphanAtSettle = inContainer(lease.sandboxId, ['cat', ORPHAN_PROGRESS]);
       const groupAtSettle = inContainer(lease.sandboxId, ['cat', GROUP_PROGRESS]);
       expect(orphanAtSettle).not.toBeNull();
@@ -195,7 +192,6 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       const child = recording.children[0];
       if (child === undefined) throw new Error('provider did not record the sandbox child');
       expect(child.stdin.destroyed).toBe(false);
-      // 只断开 worker 侧连接；不 release/close，容器清理必须由 EOF 触发的自身退出完成。
       child.stdin.end();
 
       await waitFor(
@@ -222,7 +218,6 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
         explicitRelease: false,
       });
     } finally {
-      // 仅兜底：正常路径已由 EOF 自清；失败时 close 仍必须把本轮容器清干净。
       await dispose(current);
       for (const id of current?.ids ?? []) {
         expect(containerExists(id)).toBe(false);
@@ -255,7 +250,6 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
         return tick !== null && tick >= 2 ? tick : null;
       }, 'busy output to advance');
 
-      // 第一次 destroy 被包装器拒绝：清理不能当成成功，容器必须继续存活并写共享宿主目录。
       await expect(lease.release({ reuse: false })).rejects.toThrow(/injected destroy failure/);
       expect(containerRunning(lease.sandboxId)).toBe(true);
       const tickAfterFailure = await readTick();
@@ -264,7 +258,6 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       const tickStillWriting = await readTick();
       expect(tickStillWriting).toBeGreaterThan(tickAfterFailure ?? 0);
 
-      // 显式 cleanup 走真实 destroy 重试：容器被删除后宿主文件必须停止变化。
       await current.sessions.cleanup(current.spec.conversationId, lease.sandboxId, runId);
       await waitFor(
         () => !containerExists(lease.sandboxId),

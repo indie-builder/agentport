@@ -53,11 +53,9 @@ export function ChatPage() {
   const conversationId = search.conversation ?? null;
   const detail = useConversation(conversationId);
 
-  // 已打开会话时，服务端记录才是真相；URL 只是它的镜像。
   const serverAgentId = detail.data?.conversation.agentId ?? null;
   const activeAgentId = serverAgentId ?? search.agent ?? null;
 
-  // URL 里的 agent 与会话不一致时，用会话的真实归属校正 URL（replace，不进历史）。
   useEffect(() => {
     if (!serverAgentId || serverAgentId === search.agent) return;
     void navigate({
@@ -71,7 +69,6 @@ export function ChatPage() {
     void navigate({ to: '/chat', search: {}, replace: true });
   };
 
-  // URL 指向的 agent 不存在：不静默改成第一个，免得把消息发给别的 agent。
   if (
     !conversationId &&
     search.agent &&
@@ -95,8 +92,6 @@ export function ChatPage() {
     );
   }
 
-  // 深链会话的加载 / 失败状态在 ChatWorkspace 内处理：那里能区分「正在发送的本轮」，
-  // 不会因为新会话的数据刚到就卸载整个工作区、掐断事件流。
   return (
     <ChatWorkspace
       agents={agents.data ?? EMPTY_AGENTS}
@@ -125,7 +120,6 @@ export function ChatPage() {
           replace: true,
         });
       }}
-      // 会话切换走 push：后退能回到上一条会话。新会话首次落 URL 用 replace。
       onConversationChange={(id, replace = false) => {
         void navigate({
           to: '/chat',
@@ -149,7 +143,6 @@ export function ChatPage() {
       onAgentChange={(id) => {
         void navigate({ to: '/chat', search: id === null ? {} : { agent: id } });
       }}
-      // 搜索结果一次导航同时写入专家与会话；不能走 switchAgent，那会清空目标会话。
       onSelectSearchResult={(item) => {
         void navigate({
           to: '/chat',
@@ -233,7 +226,6 @@ function ChatWorkspace({
   const client = useQueryClient();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const workspaceToggleRef = useRef<HTMLButtonElement>(null);
-  // 记下真正发起操作的菜单触发器：菜单与对话框卸载后，焦点要回到它。
   const [renaming, setRenaming] = useState<{
     entry: HistoryEntry;
     trigger: HTMLElement;
@@ -244,7 +236,6 @@ function ChatWorkspace({
     title: string;
     trigger: HTMLElement;
   } | null>(null);
-  // 删除成功后要等 mutation 结算成非 pending，再切到新会话，避免被删除中的离开保护拦住。
   const [deletedConversation, setDeletedConversation] = useState<string | null>(null);
   const desktop = useMediaQuery(DESKTOP);
   const wide = useMediaQuery(WIDE);
@@ -252,7 +243,6 @@ function ChatWorkspace({
   const conversations = useConversations(historyAgentId);
   const detail = useConversation(conversationId);
   const runApprovals = useRunApprovals(runId || lastRunId, runId !== null);
-  // 提问状态来自 Query：SSE 快照和回答结果都写这里，不在 Zustand 里再存一份。
   const runQuestions = useRunQuestions(runId || lastRunId, runId !== null);
   const questionsByToolUseId = useMemo(
     () => new Map((runQuestions.data?.items ?? []).map((item) => [item.toolUseId, item])),
@@ -260,8 +250,6 @@ function ChatWorkspace({
   );
   const [historyPanels] = useState(createResizableController);
   const [historyCollapsed, setHistoryCollapsed] = useState(true);
-  // 零宽面板没有「上次宽度」可恢复，自己记住最后一个正宽度。
-  // 存储里是百分比（随分组宽度自适应），首次进入没有存储时按设计规范的 240px。
   const [initialHistorySize] = useState(storedHistorySize);
   const lastHistorySize = useRef<ResizableSize>(initialHistorySize);
   useEffect(() => {
@@ -269,26 +257,21 @@ function ChatWorkspace({
     // Resizable 重新挂载后的首轮布局在微任务里初始化，等它完成再恢复宽度。
     queueMicrotask(() => historyPanels.resize('history', lastHistorySize.current));
   }, [desktop, historyCollapsed, historyPanels]);
-  // 右侧工作区展示会话成果，与历史列表互相独立。深链带选中成果时直接展开。
   const [workspaceOpen, setWorkspaceOpen] = useState(output !== null);
-  // 两个入口共用同一个搜索浮层；记下来源，以便关闭后焦点回到触发按钮。
   const [search, setSearch] = useState<{ trigger: HTMLElement; inSheet: boolean } | null>(null);
   const workspaceFeedbackRef = useRef(false);
   const reduce = useReducedMotion();
 
-  // 空数组也要稳定：否则轮询之外的重渲染会给工具行换一个新身份。
   const approvalData = useMemo(() => runApprovals.data?.items ?? [], [runApprovals.data]);
 
   const stream = useChatStream({
     agentId,
     history: detail,
     onAccepted: (accepted) => {
-      // 第一次发送才拿到会话 id：URL 镜像它，但这是同一次操作，用 replace 不留历史。
       onConversationChange(accepted.conversationId, true);
     },
   });
 
-  // 清空工作区，但保留尚未发送的输入。
   useEffect(
     () => () => {
       const store = useChatStore.getState();
@@ -298,7 +281,6 @@ function ChatWorkspace({
     [],
   );
 
-  // 空态或运行结束后把焦点交还输入框，键盘用户不用再找一次。
   useEffect(() => {
     if (!running && items.length === 0) composerRef.current?.focus();
   }, [running, items.length]);
@@ -314,7 +296,6 @@ function ChatWorkspace({
     [conversations.data],
   );
 
-  // 三个写操作都用 mutation：pending 与失效刷新交给 TanStack Query。
   const cancelMutation = useCancelRun();
 
   const approvalInFlight = useRef(false);
@@ -350,7 +331,6 @@ function ChatWorkspace({
 
   const renameDirty = renaming ? renaming.draft.trim() !== renaming.entry.title : false;
   const renameBlocker = useRenameBlocker(renameDirty, renameMutation.isPending);
-  // 保存成功后对话框已卸载；把保存期间挂起的离开导航结算掉，否则路由会一直停在 blocked。
   useEffect(() => {
     if (renaming || renameMutation.isPending || renameBlocker.status !== 'blocked') return;
     renameBlocker.proceed?.();
@@ -361,30 +341,24 @@ function ChatWorkspace({
     onSuccess: (_data, id) => {
       void client.invalidateQueries({ queryKey: chatKeys.conversations() });
       void client.invalidateQueries({ queryKey: chatKeys.conversation(id) });
-      // 级联删除了该会话的运行记录，运行列表与概况跟着刷新。
       void client.invalidateQueries({ queryKey: ['runs'] });
       void client.invalidateQueries({ queryKey: ['overview'] });
-      // 等请求结算后再换会话：删除中的离开保护会拦住它自己的导航。
       if (id === conversationId) setDeletedConversation(id);
       toastSuccess('会话已删除');
     },
-    // 失败交给 ConfirmDialog 统一提示：保留当前会话与草稿，对话框可重试。
   });
   const deleteBlocker = useFormBlocker(false, deleteMutation.isPending);
 
   const cancel = (): void => {
-    // 没有 runId 时后端还没有可取消的 run；按钮也不会显示。
     if (!runId) return;
     cancelMutation.mutate(runId, { onError: (error) => toastError(error) });
   };
 
-  // 引用只挂在输入框上，不自动发送：用户仍可改写文案或取消引用再发。
   const attachOutputRef = useCallback((ref: OutputRef): void => {
     useChatStore.getState().setOutputRef(ref);
     composerRef.current?.focus();
   }, []);
 
-  // 固定身份：工具行的 memo 依赖这个回调，每次渲染都换新函数会让整列重渲染。
   const approve = useCallback(
     (item: ApprovalRequest): void => {
       const activeRunId = runId || lastRunId;
@@ -409,13 +383,11 @@ function ChatWorkspace({
     [runId, lastRunId, approveMutation.mutate],
   );
 
-  // URL 是选中的会话：历史、新建、切换 agent 都只改 URL，store 由下面的同步 effect 收敛。
   const openConversation = (id: string): void => {
     if (id !== conversationId) onConversationChange(id);
     setHistoryOpen(false);
   };
 
-  // 删除当前会话时没有可返回的会话，未发送输入跟到新会话，避免随删除丢失。
   const newConversation = useCallback(
     (carryDraft = false): void => {
       stream.resetWorkspace(null, carryDraft);
@@ -426,7 +398,6 @@ function ChatWorkspace({
     [stream.resetWorkspace, onConversationChange, setHistoryOpen],
   );
 
-  // 删除已结算：先作废删除期间挂起的离开导航，再切到新会话，避免路由残留。
   useEffect(() => {
     if (!deletedConversation || deleteMutation.isPending) return;
     setDeletedConversation(null);
@@ -434,7 +405,6 @@ function ChatWorkspace({
     newConversation(true);
   }, [deletedConversation, deleteMutation.isPending, deleteBlocker, newConversation]);
 
-  // 分支：服务端复制消息，前端切到新会话；列表由 query 失效后刷新。
   const branch = (id: string, fromMessageId?: string): void =>
     branchMutation.mutate({
       id,
@@ -442,7 +412,6 @@ function ChatWorkspace({
       ownsRequest: stream.captureRequest(),
     });
 
-  // URL → store：只清掉属于别的会话的本地状态；自己发送时 store 已先于 URL 写入，这里不动。
   useEffect(() => {
     if (useChatStore.getState().conversationId === conversationId) return;
     stream.resetWorkspace(conversationId);
@@ -451,8 +420,6 @@ function ChatWorkspace({
   const hydrated = stream.hydratedRef;
   const { historyPrefix, setHistoryPrefix } = stream;
 
-  // 更早的页面只会在历史前缀前插入：整段前缀重新解析（跨页工具调用合并），尾部原样保留。
-  // 加载期间开始新一轮时先等它结束，避免合并打断流式基准。
   useEffect(() => {
     const data = detail.data;
     if (!data || running || !historyPrefix) return;
@@ -473,7 +440,6 @@ function ChatWorkspace({
 
   const switchAgent = (id: string | null): void => {
     if (id === agentId) return;
-    // 切换专家进入该专家的新会话，但没发出的输入要跟过去。
     stream.resetWorkspace(null, true);
     onAgentChange(id);
   };
@@ -519,8 +485,6 @@ function ChatWorkspace({
 
   const title = conversationId && detail.data ? titleFromDetail(detail.data) : '未命名会话';
 
-  // 唯一的 56px 头部随消息列渲染，历史／消息／成果三栏从工作区顶部并排开始。
-  // 专家选择随历史开合在头部与历史头部之间切换；展开时搜索只在历史面板保留一处。
   const header = (
     <ChatTopBar
       title={title}
@@ -609,7 +573,6 @@ function ChatWorkspace({
       onBranchMessage={branch}
       onRegenerate={() => void stream.regenerate()}
       regenerating={stream.regenerating}
-      // 从某一轮点开成果时直接展开工作区；宽屏是旁栏，窄屏是抽屉，选择本身仍交给外层。
       onSelectOutput={(selection) => {
         setWorkspaceOpen(true);
         onSelectOutput(selection);
@@ -640,7 +603,6 @@ function ChatWorkspace({
     />
   ) : null;
 
-  // ConfirmDialog 自己处理 pending 与失败提示；成功后关闭对话框。
   const deleteDialog = deleteTarget ? (
     <ConfirmDialog
       open
@@ -649,7 +611,6 @@ function ChatWorkspace({
       description={`「${deleteTarget.title}」及其消息、运行记录会被永久删除，无法恢复。`}
       confirmLabel="删除会话"
       onConfirm={() => deleteMutation.mutateAsync(deleteTarget.id)}
-      // 删除成功后会话已切换，触发器随之禁用：焦点交给输入框，其余情况回菜单按钮。
       finalFocus={() =>
         deleteTarget.trigger.isConnected && !deleteTarget.trigger.matches(':disabled')
           ? deleteTarget.trigger
@@ -658,7 +619,6 @@ function ChatWorkspace({
     />
   ) : null;
 
-  // 删除请求在途时离开一律拦下：确认按钮禁用，只能等请求完成。
   const deleteLeaveDialog = (
     <ConfirmDialog
       open={deleteBlocker.status === 'blocked'}
@@ -671,7 +631,6 @@ function ChatWorkspace({
     />
   );
 
-  // 只有「静默的」深链失败才整页报错；正在跑的这一轮不能被卸载，否则事件流会被掐断。
   if (conversationId && detail.isError && items.length === 0 && !running) {
     return (
       <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto p-6">
@@ -691,8 +650,6 @@ function ChatWorkspace({
     );
   }
 
-  // 深链会话还没回填历史时不给输入框：此时还不知道会话属于哪个 agent。
-  // 自己发送时 store 已有本轮消息，不会闪这一屏。
   if (conversationId && !running && items.length === 0 && hydrated.current !== conversationId) {
     return (
       <Page className="mx-auto h-full min-h-0 w-full max-w-220 overflow-y-auto p-6">
@@ -722,13 +679,11 @@ function ChatWorkspace({
             onSwitchAgent={switchAgent}
           />
           {renderHistoryPanel(true)}
-          {/* 必须挂在抽屉的 React 子树里：否则抽屉会把重命名对话框的 portal 当成外部节点隐藏。 */}
           {desktop ? null : renameDialog}
           {search?.inSheet ? searchDialog : null}
         </SheetContent>
       </Sheet>
 
-      {/* 右工作区：宽屏内联旁栏，窄屏走抽屉；与历史互不影响。 */}
       <Sheet
         open={workspaceOpen && !wide}
         onOpenChange={(open) => {
@@ -766,7 +721,6 @@ function ChatWorkspace({
             orientation="horizontal"
             controller={historyPanels}
             className="min-h-0 w-full"
-            // 折叠/展开是程序化改尺寸，写回存储只会把宽度记成 0；只持久化用户拖拽/键盘调整。
             onLayoutCommit={(next, details) => {
               if (details.reason !== 'drag' && details.reason !== 'step-key') return;
               const width = next[0];
@@ -785,11 +739,9 @@ function ChatWorkspace({
               maxSize="360px"
               collapsible
             >
-              {/* 隐藏时整块不渲染：零宽面板不该留下可聚焦内容，也避免出现第二个 h1。 */}
               {historyCollapsed ? null : (
                 <aside
                   id="chat-history"
-                  // 与对话内容同属一个工作区：纸白底，只用分隔线区分，不做成独立面板。
                   className="flex h-full min-w-0 flex-col gap-3 overflow-hidden bg-surface"
                   aria-label="会话历史"
                 >
@@ -809,12 +761,10 @@ function ChatWorkspace({
               className={historyCollapsed ? 'hidden' : 'w-px border-r'}
               aria-label="调整会话列表宽度"
             />
-            {/* 成果打开时消息列至少 400，给内联成果留出 400：历史再拖也不能挤掉正文。 */}
             <ResizablePanel id="chat" minSize={wide && workspaceOpen ? '800px' : '400px'}>
               <div className="flex h-full min-h-0">
                 <div className="relative min-w-0 flex-1">{column}</div>
                 {wide ? (
-                  // 宽度开合保留成果子树：收起后仍不可聚焦，也不会丢输入或流式上下文。
                   <motion.div
                     initial={false}
                     animate={{ width: workspaceOpen ? 400 : 0 }}
@@ -840,10 +790,8 @@ function ChatWorkspace({
           {deleteLeaveDialog}
         </div>
       ) : (
-        // 窄屏没有分栏：头部仍在消息列内，历史与成果由抽屉承担。
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {column}
-          {/* 抽屉打开时重命名由抽屉子树渲染，避免门户被遮挡；这里补上头部触发的对话框。 */}
           {historyOpen ? null : renameDialog}
           {deleteDialog}
           {deleteLeaveDialog}

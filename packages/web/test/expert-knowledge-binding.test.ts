@@ -22,7 +22,6 @@ vi.mock('@/components/ui/separator', () => import('../src/components/ui/separato
 vi.mock('@tanstack/react-router', () => ({
   useBlocker: () => ({ status: 'idle' }),
   useNavigate: () => () => {},
-  // 这些用例检查配置任务的绑定选择器；概览页有独立用例。
   useSearch: () => ({ tab: 'config' }),
   Link: 'a',
 }));
@@ -48,7 +47,6 @@ vi.mock('../src/lib/queries.js', async (original) => {
       isError: false,
       refetch: () => {},
     }),
-    // 通用 /api/servers 已过滤 knowledge；知识库只能从这里拿到 serverId 绑定。
     useKnowledgeBases: () => ({ data: mocks.bases, isPending: false, isError: false }),
     useSkills: () => ({ data: [], isPending: false, isError: false }),
     useExperts: () => ({ data: mocks.agents, isPending: false, isError: false }),
@@ -218,7 +216,6 @@ describe('expert knowledge binding', () => {
       expect(picker.props.value as PickerProps['value']).toEqual(['server-kb-disabled']);
       const bound = renderOption(picker, 'server-kb-disabled');
       const active = renderOption(picker, 'server-kb-active');
-      // 已绑定的停用库保留可解绑；未绑定的停用库不能再选。
       expect(bound.props.disabled).toBe(false);
       expect(active.props.disabled).toBe(false);
     });
@@ -246,7 +243,6 @@ describe('expert knowledge binding', () => {
         (picker.props.onValueChange as ChangePickerValue)(['server-kb-active']);
         return;
       }
-      // 更新后：知识库被选中，普通连接器的绑定仍在。
       const picker = knowledgePicker(tree, 'server-kb-active');
       expect(picker.props.value as PickerProps['value']).toEqual(['server-kb-active']);
       const connector = tree.find(

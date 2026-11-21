@@ -19,11 +19,9 @@ mock.module('pino', () => {
   return { default: factory, pino: factory };
 });
 
-// 每次运行建独立库：固定名的残留库迁移账本会与新迁移错位（缺插件表），导致建智能体 500。
 const isolated = await createIsolatedDatabase('api_chat_enqueue', process.env.DATABASE_URL ?? '');
 if (isolated) process.env.DATABASE_URL = isolated.url;
 
-// helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
 const {
   cleanup,
   createAgent,
@@ -41,7 +39,6 @@ const ready = await infraReady;
 // skipIf 的 describe 不跑 hook；Redis 缺失时这里回收自己刚建的库。
 if (!ready && isolated) await isolated.close();
 
-// 故意带上连接串与密码：日志和响应都不能回显它们。
 const DOWN = 'redis://:hunter2-secret@127.0.0.1:6379 refused';
 
 interface RunRow {
@@ -130,7 +127,6 @@ describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
     expect(run.error).not.toBeNull();
     expect(run.ended_at).not.toBeNull();
 
-    // 用户消息必须留在会话历史里，失败只收口 run。
     const history = await request(app, {
       method: 'GET',
       url: `/api/conversations/${run.conversation_id}`,
@@ -146,13 +142,11 @@ describe.skipIf(!(ready && isolated))('chat enqueue failure', () => {
       }),
     );
 
-    // 失败行已收口：同一会话可再次发送，不带版本条件也不返回 409。
     const retry = spyOn(queue, 'add').mockResolvedValueOnce({ id: 'synthetic' } as never);
     try {
       const next = await post(agentId, 'try again', run.conversation_id);
       expect(next.statusCode, next.body).toBe(202);
       const retryBody = next.json<{ runId: string }>();
-      // 注入的 add 不产生真实 job，队列里不应有残留。
       expect(await queue.getJob(retryBody.runId)).toBeUndefined();
     } finally {
       retry.mockRestore();

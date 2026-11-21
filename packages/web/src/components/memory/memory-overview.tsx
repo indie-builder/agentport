@@ -17,7 +17,6 @@ const TRIGGER_LABEL: Record<AgentMemoryAssembly['blocks'][number]['trigger'], st
   skipped: '已跳过',
 };
 
-/** 概览只列最近 3 条变更，其余交给文件视图的版本区。 */
 const RECENT_CHANGE_LIMIT = 3;
 
 function SectionHeading({ id, children }: { id: string; children: ReactNode }) {
@@ -35,7 +34,6 @@ function HealthSection({
   items: MemoryHealth[];
   onOpenFiles?: (() => void) | undefined;
 }) {
-  // 缺索引时直接给出下一步动作，而不是只留一条提示。
   const needIndex = items.some((item) => item.code === 'index_missing');
   return (
     <section aria-labelledby="memory-health-title" className="flex flex-col gap-2">
@@ -109,11 +107,9 @@ function AssemblySection({ agentId }: { agentId: string }) {
                       {TRIGGER_LABEL[block.trigger]}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs tabular-nums">
-                      {/* 已跳过的块本次装配没有内容，不给大小，避免被读成已加载。 */}
                       {skipped ? (
                         <span aria-hidden="true">—</span>
                       ) : block.kind === 'personal' ? (
-                        // 个人记忆按码点计数，其余文件是 UTF-8 字节数，单位不能混用。
                         `${block.chars} 字符`
                       ) : (
                         formatBytes(block.chars)
@@ -124,7 +120,6 @@ function AssemblySection({ agentId }: { agentId: string }) {
               })}
             </TableBody>
           </Table>
-          {/* 四项口径各不相同：个人记忆按码点，其余按 UTF-8 字节，只换算字节项。 */}
           <p className="text-xs tabular-nums text-muted-foreground">
             {`个人 ${assembly.data.totals.personalChars} 字符 · 索引 ${formatBytes(assembly.data.totals.indexBytes)} · 规则 ${formatBytes(assembly.data.totals.rulesBytes)} · 主题 ${formatBytes(assembly.data.totals.topicBytes)}`}
           </p>
@@ -154,7 +149,6 @@ function RecentChanges({
   changesTotal: number;
   onOpenFiles?: (() => void) | undefined;
 }) {
-  // 只渲染前 3 条，真实总数由后端给出，避免把截断后的条数当总数。
   const visible = changes.slice(0, RECENT_CHANGE_LIMIT);
   const remaining = changesTotal - visible.length;
   return (
@@ -172,7 +166,6 @@ function RecentChanges({
           <ul className="divide-y border-y">
             {visible.map((change) => (
               <li
-                // 摘要没有独立 id，用文件与时间戳组合；同一条变更只出现一次。
                 key={`${change.createdAt}-${change.name}`}
                 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2.5"
               >
@@ -202,13 +195,11 @@ function RecentChanges({
   );
 }
 
-/** 专家记忆概览：统计、健康提示、运行期装配与最近账本；停用后统计仍保留。 */
 export function MemoryOverview({
   agentId,
   onOpenFiles,
 }: {
   agentId: string;
-  /** 切到「文件」子视图；由父级把子视图写进路由 search。 */
   onOpenFiles?: (() => void) | undefined;
 }) {
   const overview = useQuery(agentMemoryOverviewQuery(agentId));
@@ -249,7 +240,6 @@ export function MemoryOverview({
             icon={UserRound}
           />
         </MetricGrid>
-        {/* 停用只在 KPI 区用一句中性说明，状态细节留给健康检查。 */}
         {data.policy.enabled ? null : (
           <p className="text-xs text-muted-foreground">
             专家主会话记忆已停用，运行期不加载也不写入；子智能体记忆不受此开关影响

@@ -7,7 +7,6 @@ import { pluginDetailSearchSchema } from '../-search.js';
 export const Route = createFileRoute('/_shell/plugins/$pluginId')({
   validateSearch: pluginDetailSearchSchema,
   loader: async ({ params }) => {
-    // Prefetch through the shared cache and keep failures owned by the page's query state.
     await queryClient.query({ ...pluginQuery(params.pluginId), staleTime: 'static' }).catch(noop);
   },
   component: PluginDetailPage,

@@ -43,7 +43,6 @@ export function PersonalMemoryPanel({
   const rollback = useRollbackMemoryChange();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
-  // 编辑开始时的服务端 revision；查询缓存后来刷新也不能改这次保存的乐观锁基线。
   const [draftBaseline, setDraftBaseline] = useState<number | null>(null);
   const [conflict, setConflict] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
@@ -53,7 +52,6 @@ export function PersonalMemoryPanel({
   const [cancelOpen, setCancelOpen] = useState(false);
   const [rollbackTarget, setRollbackTarget] = useState<MemoryChange | null>(null);
   const [rollbackError, setRollbackError] = useState<string | null>(null);
-  // 编辑区卸载后焦点会掉到 body；退出时把它交还给重新出现的入口按钮。
   const editTrigger = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
 
@@ -69,7 +67,6 @@ export function PersonalMemoryPanel({
   useEffect(() => {
     if (editing || !restoreFocus.current) return;
     restoreFocus.current = false;
-    // 等确认弹层卸载并完成它自己的焦点清理后再接回入口按钮。
     const frame = requestAnimationFrame(() => editTrigger.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [editing]);

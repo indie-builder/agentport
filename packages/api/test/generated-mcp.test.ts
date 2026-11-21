@@ -43,7 +43,6 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   const runIds: string[] = [];
 
   beforeAll(async () => {
-    // 测试里不要让审批挂起 5 分钟；默认配置仍是 300s。
     app = await startApp({ APPROVAL_WAIT_MS: '0' });
     cookie = await loginCookie(app);
     // MCP client 走真实 HTTP，app.inject 无法承载 StreamableHTTP 会话，因此临时监听端口。
@@ -105,7 +104,6 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     });
     expect(nestedUser.statusCode).toBe(201);
 
-    // mcpToken 是给沙盒/外部 host 的凭据，刻意不出现在 API 响应里。
     const row = await app.client.unsafe<{ token: string }[]>(
       "select config->>'mcpToken' as token from servers where id = $1",
       [server.id],
@@ -177,7 +175,6 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     const tool = res.json<{ id: string; approvalMode: 'allow' | 'ask' | 'deny' }>();
     expect(tool.approvalMode).toBe('ask');
 
-    // 审批只接受该 run 所属智能体实际绑定、且要求批准的工具，因此落一个真实 agent。
     const agent = (
       await createAgent(app, cookie, {
         slug: unique('approval-agent'),
@@ -215,8 +212,6 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     expect(denied.isError).toBe(true);
     expect(denied.content[0]?.text).toContain('需要批准：approved-user');
 
-    // 拒绝时 MCP 端点写入结构化审批请求，UI 不再依赖错误文本。
-    // 立即拒绝（wait=0）没有等待窗口：waiting 为 false、没有截止时间。
     const pending = await request(app, {
       method: 'GET',
       url: `/api/runs/${runId}/approvals`,
@@ -243,7 +238,6 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       },
     ]);
 
-    // 缺少 serverId 的旧式请求不再被接受。
     const legacy = await request(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
@@ -352,7 +346,6 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   });
 
   it('reports the tool catalog from a real self test connection', async () => {
-    // 用已监听的真实端口做 SELF_URL：测试连接会以 MCP client 连回平台自身。
     const testServer = await startApp({ SELF_URL: baseUrl });
     try {
       const res = await request(testServer, {
@@ -364,7 +357,6 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       const body = <Record<string, unknown>>res.json();
       expect(body.ok).toBe(true);
 
-      // catalog 契约：每项只含 name/title/description/inputSchema，其余 SDK 元数据不外泄。
       const tools = body.tools as Array<Record<string, unknown>>;
       expect(tools.map((t) => t.name)).toContain('get-user');
       for (const tool of tools) {
@@ -381,7 +373,6 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       });
       expect(getUser?.description).toBe('fetch one user');
 
-      // 平台自身的 mcpToken 不得随测试结果回显。
       expect(JSON.stringify(body)).not.toContain(token);
     } finally {
       await testServer.close();
@@ -548,24 +539,20 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
       });
 
-    // 有效期内可用；长期 token 若随请求带来也不能替代已过期的 run token 以外的路径。
     expect((await call(runToken)).status).toBe(200);
 
-    // 过期即拒绝。
     await app.client.unsafe(
       "update agent_runs set mcp_token_expires_at = now() - interval '1 second' where id = $1",
       [runId],
     );
     expect((await call(runToken)).status).toBe(401);
 
-    // run 结束后 worker 清空 hash，token 立即失效。
     await app.client.unsafe(
       'update agent_runs set mcp_token_hash = null, mcp_token_expires_at = null where id = $1',
       [runId],
     );
     expect((await call(runToken)).status).toBe(401);
 
-    // 长期 token 仍对没有 run token 的外部客户端可用。
     expect(
       (
         await fetch(`${baseUrl}/mcp/${server.id}`, {
@@ -600,14 +587,12 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
     });
     try {
       await client.connect(transport);
-      // 未绑定的 run 不被采信，因此审批工具仍被拒。
       const res = await client.callTool({ name: 'approved-user', arguments: { id: 1 } });
       expect(res.isError).toBe(true);
     } finally {
       await client.close();
     }
 
-    // 不受信的 run header 不应产生任何审批记录，也不会让审批工具通过。
     const rows = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from approval_requests where run_id = $1',
       [runId],

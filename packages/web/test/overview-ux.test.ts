@@ -161,7 +161,6 @@ function cells(row: Element): (string | null)[] {
   return [...row.querySelectorAll('th, td')].map((cell) => cell.textContent);
 }
 
-/** 「需要处理」标题是否位于趋势区块之前。 */
 function attentionPrecedesTrend(): boolean {
   const heading = [...host.querySelectorAll('h2')].find((item) => item.textContent === '需要处理');
   if (!heading) throw new Error('Missing attention section');
@@ -316,7 +315,6 @@ describe('overview usage export', () => {
 
 describe('overview attention placement', () => {
   it('keeps the attention section after the trend when a background refresh fails', async () => {
-    // 首次数据来自缓存，刷新时 fetch 失败即模拟后台刷新失败。
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Offline')));
     vi.spyOn(api, 'healthMetrics').mockResolvedValue(metrics);
     vi.spyOn(api, 'overviewTimeseries').mockResolvedValue(points);

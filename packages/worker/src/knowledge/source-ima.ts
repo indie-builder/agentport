@@ -247,7 +247,6 @@ function listKnowledge(
 
 function assertListPage(response: ListResult): void {
   const next = response.next_cursor?.trim() ?? '';
-  // 非终止空页说明枚举不完整；继续翻页会在后页终止时把空集合误判为完整。
   if (response.knowledge_list.length === 0 && !response.is_end) {
     throw new Error('ima get_knowledge_list returned an empty page before the end');
   }
@@ -274,7 +273,6 @@ function mediaExtension(mediaType: number, contentType: string | null, title: st
   if (fromContentType && allowed?.includes(fromContentType)) {
     return fromContentType;
   }
-  // 没有可信 MIME 时沿用标题里已允许的扩展，避免把 Budget.csv 改成 .xlsx。
   const fromTitle = extensionName(title);
   if (fromTitle && allowed?.includes(fromTitle)) {
     return fromTitle;
@@ -345,7 +343,6 @@ function officialFolder(raw: Record<string, unknown>): Folder | undefined {
   if (!folderId) return undefined;
   const name = textOf(raw.name).trim();
   if (!name) {
-    // 有 folder_id 却没有名字：目录形状不完整，不能当空目录继续。
     throw new ItemError('ima folder item had no name', 'invalid_response', false);
   }
   return { id: folderId, name };
@@ -398,7 +395,6 @@ async function readMedia(
       );
       const content = note.content ?? '';
       if (content.trim() === '') {
-        // 笔记是纯文本且仅作者可读；空笔记不能用标题占位冒充正文。
         throw new ItemError('ima note body was empty', 'empty_content', false);
       }
       const name = sanitizeSegment(candidate.title, candidate.mediaId);
@@ -570,6 +566,5 @@ export async function probeIma(
   signal: AbortSignal | undefined,
 ): Promise<void> {
   const auth = authenticate(config);
-  // 只验证指定知识库首屏可读；addable 列表不是权限证明，也不读全部笔记。
   assertListPage(await listKnowledge(auth, '', '', signal));
 }

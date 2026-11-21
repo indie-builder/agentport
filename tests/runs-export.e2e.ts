@@ -3,10 +3,6 @@ import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { fixture as runFixture } from './support/fixture.js';
 
-/**
- * 运行导出的真实浏览器验收：真实页面、真实 API、数据库直写 fixture。
- * E2E_DATABASE_URL 必须显式给出（无默认值），且与页面背后 API 指向同一个库。
- */
 interface Fixture {
   ownAgentId: string;
   foreignAgentId: string;
@@ -16,12 +12,10 @@ interface Fixture {
   targets: string[];
 }
 
-/** 自己的 agent 两条运行（succeeded / failed），另一个 agent 一条 failed。 */
 async function seed(): Promise<Fixture> {
   return runFixture('runs-export', 'seed');
 }
 
-/** 只删自己建的 agent：会话、运行随 agent 级联删除；审计行按 id 另删。 */
 async function cleanup(fixture: Fixture): Promise<void> {
   return runFixture('runs-export', 'cleanup', fixture);
 }
@@ -81,7 +75,6 @@ test('runs page exports only the filtered agent runs', { session: 'admin' }, asy
     expect(body.items.map((item) => item.id).sort()).toEqual(
       [fixture.succeededRunId, fixture.failedRunId].sort(),
     );
-    // 只有列表字段，没有步骤、消息或提示词。
     for (const item of body.items) {
       expect(Object.keys(item).sort()).toEqual(ITEM_KEYS);
     }
@@ -91,7 +84,6 @@ test('runs page exports only the filtered agent runs', { session: 'admin' }, asy
     expect(raw).not.toContain(fixture.foreignRunId);
     expect(raw).not.toContain(fixture.foreignAgentId);
 
-    // 导出完成后菜单项恢复，页面筛选不变。
     await screen.getByRole('button', '更多操作', { exact: true }).tap();
     await expect(screen.getByRole('menuitem', '导出运行 (JSON)', { exact: true })).toBeEnabled();
     await browser.keyboard.press('Escape');

@@ -137,7 +137,6 @@ export function DocumentsTab({
   const [folderDialog, setFolderDialog] = useState<
     { mode: 'create'; parentId: string | null } | { mode: 'rename'; folder: KnowledgeFolder } | null
   >(null);
-  // 创建成功的弹层卸载、blocker 注销后才切 URL：同一 tick 内导航仍会被旧的 dirty/pending 拦下。
   const [createdFolder, setCreatedFolder] = useState<string | null>(null);
   useEffect(() => {
     if (folderDialog !== null || createdFolder === null) return;
@@ -154,7 +153,6 @@ export function DocumentsTab({
     'move' | 'copy' | 'tag' | 'delete' | 'reprocess' | null
   >(null);
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
-  // 上传批次结束前不卸载这个面板：切页签、换文件夹或离开路由都会丢失批次状态。
   const uploadBlocker = useFormBlocker(false, uploading !== null);
   useEffect(() => {
     if (uploading === null && uploadBlocker.status === 'blocked') uploadBlocker.proceed();
@@ -163,7 +161,6 @@ export function DocumentsTab({
   const candidateDocument = resolvedDocument ?? knownDocument;
   const viewingDocument =
     documentId !== undefined && candidateDocument?.baseId === baseId ? candidateDocument : null;
-  // 选中集合随筛选/轮询收缩：已不在当前列表的文档不能继续参与批量操作。
   useEffect(() => {
     const visibleIds = new Set(documentItems.map((item) => item.id));
     setSelectedIds((previous) => {
@@ -182,14 +179,12 @@ export function DocumentsTab({
       return next;
     });
   };
-  // 目录补上当前快照：筛选或轮询暂时不含它时仍能标出当前位置，也不改动已挂载的查看器。
   const viewerDocuments =
     viewingDocument !== null && !documentItems.some((item) => item.id === viewingDocument.id)
       ? [...documentItems, viewingDocument]
       : documentItems;
 
   const targetFolderId = folderId === undefined || folderId === 'null' ? null : folderId;
-  // 任一筛选生效时，空结果给「清除筛选」而不是「还没有文档」的误导。
   const filtersActive =
     settledQuery !== '' || status !== 'all' || tag !== 'all' || folderId !== undefined;
   const clearFilters = (): void => {
@@ -199,10 +194,6 @@ export function DocumentsTab({
     onFolderChange(undefined);
   };
 
-  /**
-   * 多文件按顺序上传：每个文件单独一个请求（后端只收单文件），
-   * 某个失败时记下文件名并继续；结束时明确告出成功/失败数量，不静默丢文件。
-   */
   const onFiles = async (files: File[]): Promise<void> => {
     if (files.length === 0) return;
     const failed: string[] = [];
@@ -225,7 +216,6 @@ export function DocumentsTab({
           mimeType: file.type || 'application/octet-stream',
           dataBase64,
           folderId: targetFolderId,
-          // 后端按相对路径创建或复用真实目录；标题取 basename。
           ...(file.webkitRelativePath ? { relativePath: path } : {}),
         });
       } catch {
@@ -451,8 +441,6 @@ export function DocumentsTab({
                   multiple
                   // React 的类型里还没有这个非标准属性；浏览器原生支持目录选择。
                   {...({ webkitdirectory: '' } as Record<string, string>)}
-                  // 后端只有一个 folderId，不会按相对路径自动建目录树；
-                  // 这里把相对路径作为文件名保留，便于在列表里看出原目录。
                   className="hidden"
                   aria-label="选择要上传的文件夹"
                   onChange={(event) => {
@@ -872,7 +860,6 @@ export function DocumentsTab({
   );
 }
 
-/** 文件夹上传保留相对路径（后端只存一个 folderId，不建目录树）。 */
 function relativePath(file: File): string {
   return file.webkitRelativePath || file.name;
 }

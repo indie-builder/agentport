@@ -58,7 +58,6 @@ async function seedBase(): Promise<string> {
     profileId = profile.id;
     profileIds.push(profile.id);
   }
-  // 一个 server 只允许挂一个知识库。
   const server = await servers.createServer(db, {
     name: `document-filter-${suffix}`,
     kind: 'knowledge' as never,
@@ -116,7 +115,6 @@ interface CapturedQuery {
   values: unknown[];
 }
 
-/** 保留真实执行，只旁路记录该次调用发出的 SQL 与参数。 */
 async function captureQueries<T>(
   run: () => Promise<T>,
 ): Promise<{ value: T; queries: CapturedQuery[] }> {
@@ -165,7 +163,6 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
     });
     const manual = await seedDocument(baseId, { sourceType: 'manual' });
     const missing = await seedDocument(baseId, { sourceId: 'missing:1' });
-    // 同一来源 ID 在另一个库：baseId 仍必须限定范围。
     const foreign = await seedDocument(otherBaseId, {
       sourceId: 'a:foreign',
       sourceConnectionId: sourceA,
@@ -212,7 +209,6 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
         }),
       );
     }
-    // 交错另一来源，证明分页游标不会把别的来源算进页内或页边界。
     for (let index = 0; index < 5; index += 1) {
       await seedDocument(baseId, {
         sourceId: `other:${index}`,

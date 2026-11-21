@@ -183,7 +183,6 @@ export function mockMe() {
   server.use(http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)));
 }
 
-/** 置顶是列表页的附加查询；默认没有置顶项，用例按需覆盖。 */
 export function mockPins(baseIds: string[] = []) {
   server.use(http.get('/api/knowledge/bases/pins', () => HttpResponse.json({ baseIds })));
 }
@@ -215,7 +214,6 @@ export async function flush() {
   await msw.waitForRequests();
 }
 
-/** 条件轮询推进真实异步（FileReader、请求），不靠固定睡眠猜时长。 */
 export async function waitFor(probe: () => boolean, tries = 60): Promise<void> {
   for (let attempt = 0; attempt < tries; attempt += 1) {
     if (probe()) return;
@@ -313,7 +311,6 @@ export function button(text: string, scope: ParentNode = document): HTMLButtonEl
   return element;
 }
 
-/** 来源类型行按钮同时包含名称与能力说明，按包含匹配。 */
 export function sourceChoice(label: string, scope: ParentNode = document): HTMLButtonElement {
   const element = [...scope.querySelectorAll<HTMLButtonElement>('button')].find((item) =>
     item.textContent?.includes(label),
@@ -460,7 +457,6 @@ export function patchBody(path: string) {
   return calls.find((item) => item.method === 'PATCH' && item.path === path)?.body;
 }
 
-/** 详情页基线：库、文件夹、标签、来源、Wiki、任务与专家摘要都可读。 */
 export function documentList(documents: unknown[] = [doc]) {
   baseHandlers();
   server.use(

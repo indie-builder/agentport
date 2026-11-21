@@ -33,7 +33,6 @@ export async function listMessages(
 ): Promise<Message[]> {
   const filters: SQL[] = [eq(messages.conversationId, conversationId)];
   if (options.before !== undefined) {
-    // 行值比较正好命中 (conversation_id, created_at, id) 索引；游标也限定在本会话。
     filters.push(sql`(${messages.createdAt}, ${messages.id}) < (
       select b.created_at, b.id from ${messages} b
       where b.id = ${options.before} and b.conversation_id = ${conversationId}
@@ -133,7 +132,6 @@ export async function getLastUserMessage(db: DbHandle, conversationId: string) {
   return row ?? null;
 }
 
-/** 分页游标必须属于本会话；否则行值比较会静默取整段历史。 */
 export async function messageInConversation(
   db: Database,
   conversationId: string,
@@ -151,14 +149,12 @@ const INSERT_CHUNK = 500;
 
 export type MessageInsert = typeof messages.$inferInsert;
 
-/** 一个 run 的消息逐行 insert 会有上千次往返；按 500 行一条语句批量写。 */
 export async function insertMessages(db: DbHandle, rows: MessageInsert[]): Promise<void> {
   for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
     await db.insert(messages).values(rows.slice(i, i + INSERT_CHUNK));
   }
 }
 
-/** 消息正文在 content.text 或 text 块数组里；tool 消息没有该字段。 */
 export function messageText(content: unknown): string | null {
   if (Array.isArray(content)) {
     const parts = (content as unknown[]).flatMap((part) =>
@@ -177,7 +173,6 @@ export function messageText(content: unknown): string | null {
   return typeof content.text === 'string' ? content.text : null;
 }
 
-/** 分支首轮需要重映射的页面消息 uuid（该会话已保存、且有 SDK uuid 的那些）。 */
 export async function listConversationMessageUuids(
   db: DbHandle,
   conversationId: string,
@@ -213,7 +208,6 @@ export async function branchConversation(
     const source = await getConversation(tx, input.conversationId);
     if (!source) return null;
 
-    // 按 (createdAt, id) 排序后截断，与 listMessages 一致。
     const rows = await listMessages(tx, source.id);
     let cutoffIndex = rows.length - 1;
     if (input.fromMessageId !== undefined) {
@@ -222,12 +216,10 @@ export async function branchConversation(
     }
     const copy = rows.slice(0, cutoffIndex + 1);
     const forkPoint = copy.at(-1)?.sdkMessageUuid ?? null;
-    // 非空历史必须能对应到 SDK transcript：否则只能拼文本，而平台已不保留该路径。
     if (copy.length > 0 && source.sdkSessionId === null) {
       fail('CONFLICT', '该会话还没有可用的 SDK 会话记录，无法按历史点分支；请重新对话后再试');
     }
     if (copy.length > 0 && !copy.every((row) => row.sdkMessageUuid !== null)) {
-      // 旧版本会话的消息永远拿不到 uuid；不要把「等运行完成」当成可解决的问题。
       fail(
         'CONFLICT',
         '该会话的历史消息没有 SDK 会话记录（来自旧版本或 SDK 会话已丢失），无法按历史点分支',
@@ -253,7 +245,6 @@ export async function branchConversation(
         title: input.title ?? source.title,
         parentId: source.id,
         branchOfMessageId: copy.at(-1)?.id ?? null,
-        // 分叉前仍指向来源会话；首轮运行 fork 成功后改写为新 session。
         sdkSessionId: source.sdkSessionId,
         forkFromSdkMessageUuid: forkPoint,
         dataDomainRestricted: source.dataDomainRestricted || (restriction?.restricted ?? false),
@@ -275,9 +266,7 @@ export async function branchConversation(
           senderBusinessId: row.senderBusinessId,
           content: row.content,
           runId: null,
-          // 复制的是来源会话的 uuid；fork 后由运行收尾统一重映射到新 session。
           sdkMessageUuid: row.sdkMessageUuid,
-          // 生成式 UI 的渲染快照必须跟着走：否则分支里的界面会退回围栏源码、表单状态全丢。
           uiFormat: row.uiFormat,
           uiProgram: row.uiProgram,
           uiState: row.uiState,
@@ -298,11 +287,9 @@ export async function appendMessage(
     conversationId: string;
     role: string;
     content: unknown;
-    /** 自然人消息的业务身份；assistant/tool/服务输入为 null。 */
     senderBusinessId?: string | null;
     runId?: string;
     sdkMessageUuid?: string;
-    /** 频道触发时关联的频道消息。 */
     channelMessageId?: string;
   },
 ): Promise<Message> {

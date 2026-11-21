@@ -49,7 +49,6 @@ it('loads overview with three concurrent queries and one combined counts stateme
     lastEventId: undefined,
     errors: {},
   } as never);
-  // Drain pending I/O until the route has submitted its first batch.
   await new Promise<void>((resolve) => setImmediate(resolve));
   const firstBatch = queries.map(({ text }) => text);
   for (const release of releases.splice(0)) release();

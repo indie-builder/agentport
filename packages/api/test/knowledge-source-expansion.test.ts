@@ -245,7 +245,6 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       expect(res.json()).toMatchObject({ config: { syncDeletions: true } });
     }
 
-    // 凭证轮换不改变身份，允许覆盖且仍只以 hasSecret 暴露。
     const lark = await createSource(baseId, 'lark_wiki');
     const rotated = await request(app, {
       method: 'PATCH',
@@ -261,7 +260,6 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       [lark.id],
     );
     expect(stored[0]?.secrets_encrypted ?? '').not.toContain('rotated-lark-secret');
-    // 显式 secrets 是整体替换，不与旧凭证合并；缺省 secrets 才保留原值。
     expect(decryptSecrets(stored[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY)).toEqual({
       appSecret: 'rotated-lark-secret',
     });
@@ -407,7 +405,6 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     expect(badPatch.statusCode, badPatch.body).toBe(400);
     expect(badPatch.json<{ message: string }>().message).toContain('类型必须属于');
 
-    // 历史/绕过创建入口的破损配置：test 路由与创建共用同一校验，不入队探针。
     const brokenId = unique('ksrc_broken');
     await app.client.unsafe(
       `insert into knowledge_sources (id, base_id, type, name, config)
@@ -639,7 +636,6 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       );
 
       const sourcePath = type === 'nextcloud' ? `/Documents/${type}.md` : `sources/${type}/page.md`;
-      // 真实连接 ID 参与 sourceId，模拟 worker 的 `<connectionId>:<leaf externalId>`。
       const sourceId = `${source.id}:${type}:item-1`;
       expect(sourceId.length).toBeLessThanOrEqual(500);
       await app.client.unsafe(
@@ -715,7 +711,6 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
         mimeType: fixture.mimeType,
         currentVersionId: fixture.versionId,
       });
-      // 来源归属属于本机同步状态，不随包导出。
       expect(document!.metadata).toEqual({ note: 'keep' });
       const version = document!.versions[0]!;
       expect(version.id).toBe(fixture.versionId);
@@ -735,7 +730,6 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       expect(packageBytes.includes(Buffer.from(secret)), `${type} secret leaked`).toBe(false);
     }
 
-    // 导出后删除原库及其内置 server，复用同一 embedding profile 导入新库。
     const originalBase = await app.client.unsafe<{ slug: string }[]>(
       'select slug from knowledge_bases where id = $1',
       [baseId],
@@ -749,7 +743,6 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
     const result = imported.json<{ baseId: string }>();
     baseIds.push(result.baseId);
 
-    // 来源凭证/游标/连接不随包迁移：新库没有 knowledge_sources，文档连接置空。
     const sources = await app.client.unsafe<{ n: string }[]>(
       'select count(*)::text as n from knowledge_sources where base_id = $1',
       [result.baseId],

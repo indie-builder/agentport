@@ -6,10 +6,6 @@ import * as mcpClientModule from '@modelcontextprotocol/client';
 const realMcpClient = { ...mcpClientModule };
 const realSsrf = { ...ssrfModule };
 
-/**
- * testConnection 的目录上限走真实 Effect 流程，只 mock MCP client 边界：
- * 不建连接，断言失败/成功与 close 语义。stdio 已移到沙盒，这里用 http。
- */
 const mocks = {
   tools: [] as unknown[],
   connect: mock(async () => undefined),
@@ -29,8 +25,6 @@ mock.module('@modelcontextprotocol/client', () => ({
   StreamableHTTPClientTransport: class {},
 }));
 
-// SSRF 边界单独有测试；本套件只关心目录上限与 close 语义，
-// 用真实 DNS 会让离线/沙箱环境里的固定域名解析失败，掩盖真正的断言。
 mock.module('@agentport/core/net-guard', () => ({
   ...realSsrf,
   assertSafeUrl: mock(async () => undefined),

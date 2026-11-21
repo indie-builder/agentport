@@ -207,7 +207,6 @@ describe('chat request ownership', () => {
       message: '看这个渠道',
       openuiAction: action,
     });
-    // 动作不占输入框：草稿原样保留。
     expect(useChatStore.getState().input).toBe('还没发出去的草稿');
     expect(useChatStore.getState().items).toEqual([
       { kind: 'user', text: '看这个渠道', runId: 'run-a' },
@@ -533,7 +532,6 @@ function message(event: unknown): { data: string } {
   return { data: JSON.stringify(event) };
 }
 
-/** 会话分页：恢复只读真实会话消息，不再从运行详情伪造步骤。 */
 function conversationPage(
   messages: unknown[],
   options: { id?: string; nextCursor?: string | null } = {},
@@ -603,7 +601,6 @@ test('丢弃等待期间已离开的运行：不写 store、不回调、不开�
   const sending = hook.send();
   expect(useChatStore.getState().phase).toMatchObject({ kind: 'submitting' });
 
-  // 等待期间切换会话：关闭流并清空状态。
   hook.closeStream();
   useChatStore.getState().resetConversation('other');
 
@@ -644,7 +641,6 @@ test('正常接受：保留用户气泡，开流，run_finished 后失效缓存�
   expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['conversation', 'c1'] });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['conversations'] });
-  // 没有截断就只用流式结果，不为每次运行多发一次请求。
   expect(apiMock.conversation).not.toHaveBeenCalled();
 });
 
@@ -656,7 +652,6 @@ test('replay_truncated 只追加 muted 通知，不改写回答文本，也不�
   const opened = source();
   opened.onmessage?.(message({ type: 'text_delta', text: 'a' }));
   opened.onmessage?.(message({ type: 'replay_truncated', reason: 'retention' }));
-  // 通知之后的事件仍然生效：SSE 没有断开，回答文本没有被改写。
   opened.onmessage?.(message({ type: 'text_delta', text: 'b' }));
 
   expect(useChatStore.getState().items).toEqual([
@@ -735,7 +730,6 @@ test('截断后 run_finished 用真实会话消息重建尾部，不重复用户
   const { items, lastRun } = useChatStore.getState();
   expect(items[0]).toEqual({ kind: 'text', text: 'old' });
   const users = items.filter((item) => item.kind === 'user');
-  // 真实会话消息的用户 id 回填，不再出现运行详情的合成 id。
   expect(users).toEqual([{ id: 'u1:0', kind: 'user', text: 'hi', messageId: 'u1', runId: 'r1' }]);
   expect(items.some((item) => item.kind === 'text' && item.text === 'partial answer')).toBe(false);
   expect(items.find((item) => item.kind === 'text' && item.text === 'answer')).toMatchObject({
@@ -751,7 +745,6 @@ test('截断后 run_finished 用真实会话消息重建尾部，不重复用户
     input: '{\n  "q": "x"\n}',
     result: 'ok',
   });
-  // 运行读数来自终态事件，不因回读而丢失。
   expect(lastRun).toMatchObject({ runId: 'r1', status: 'succeeded' });
 });
 
@@ -818,7 +811,6 @@ test('截断结果补全完成前阻止发送，完成后才解除屏障', async
   opened.onmessage?.(message({ type: 'text_delta', text: 'partial' }));
   opened.onmessage?.(message({ type: 'run_finished', status: 'succeeded' }));
 
-  // 补全未完成：保留本轮 run 屏障，发送不能抢在 canonical 落地前开始下一轮。
   expect(useChatStore.getState().phase).toMatchObject({ kind: 'recovering', runId: 'r1' });
   useChatStore.getState().setInput('next');
   await hook.send();
@@ -834,7 +826,6 @@ test('截断结果补全完成前阻止发送，完成后才解除屏障', async
     'canonical',
   ]);
 
-  // 屏障解除后可以继续发送下一轮。
   apiMock.sendChat.mockResolvedValue({ runId: 'r2', conversationId: 'c1' });
   await act(async () => {
     await hook.send();
@@ -985,7 +976,6 @@ test('run_unavailable 结束本轮：保留部分输出并释放 run，不重连
   expect(state.phase).toEqual({ kind: 'idle' });
   expect(state.lastRun).toBeNull();
   expect(state.lastRunId).toBeNull();
-  // 记录已经不存在：不回读已保存结果，也不凭空补运行读数。
   expect(apiMock.conversation).not.toHaveBeenCalled();
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['conversation', 'c1'] });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['conversations'] });
@@ -1029,7 +1019,6 @@ test('协议 error 立即失去健康资格但保留本轮，onerror 只负责�
 
   const opened = source();
   opened.onmessage?.(message({ type: 'error', message: '工具失败' }));
-  // 服务端明确报错后不再视为健康流，回读轮询立即接替，不必等浏览器 onerror。
   expect(useChatStore.getState().phase).toMatchObject({ kind: 'detached', reason: 'protocol' });
 
   opened.onerror?.();

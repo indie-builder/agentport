@@ -40,7 +40,6 @@ function options(h: Harness, overrides: Partial<ShutdownOptions> = {}): Shutdown
 }
 
 function expectRemainingClosed(h: Harness): void {
-  // 任一资源失败后，后续步骤仍按原顺序执行到底。
   const order = ['maintenance worker', 'sandbox probe', 'eval queue', 'model proxy'];
   for (const label of order) expect(h.calls).toContain(label);
   expect(h.calls).toContain('sandbox provider');
@@ -103,7 +102,6 @@ describe('runShutdown', () => {
     expect(code).toBe(1);
     expect(h.errors).toEqual([{ label: 'sandbox provider', err: failure }]);
     expect(h.calls).toContain('sandbox probe');
-    // provider 失败已聚合，后续 final close 仍执行到底。
     expectRemainingClosed(h);
   });
 
@@ -124,7 +122,6 @@ describe('runShutdown', () => {
     });
 
     await new Promise((resolveWait) => setTimeout(resolveWait, 30));
-    // 运行中的容器还在 stop：关停不能在 provider 收尾前返回 exit 0。
     expect(settled).toBe(false);
     expect(h.calls).not.toContain('postgres pool');
 
@@ -171,9 +168,7 @@ describe('runShutdown', () => {
     );
 
     expect(code).toBe(0);
-    // 知识任务这类关闭可以挂很久，沙盒强杀不能排在它们后面等排空。
     expect(h.calls).toContain('sandbox provider');
-    // 仍有后台任务时提前关池会打断它正在跑的查询，直接退出交给进程回收连接。
     expect(h.calls).not.toContain('postgres pool');
   });
 
@@ -188,7 +183,6 @@ describe('runShutdown', () => {
 
     expect(code).toBe(0);
     expectRemainingClosed(h);
-    // run 未在宽限期内结束，池留给进程回收，不能提前打断在跑的查询。
     expect(h.calls).not.toContain('postgres pool');
   });
 
@@ -212,7 +206,6 @@ describe('runShutdown', () => {
           waits: { shutdownMs: 5, closeMs: 5, databaseMs: 5 },
         }),
       );
-      // 让首轮等待超时后的 rejection 全部落地，再断言没有漏成 unhandled。
       await new Promise((resolveWait) => setTimeout(resolveWait, 60));
 
       expect(code).toBe(0);

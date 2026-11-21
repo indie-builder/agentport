@@ -194,7 +194,6 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     expect(await boundServerNames(first?.id ?? '')).toEqual([firstServer]);
     expect(await boundServerNames(second?.id ?? '')).toEqual([]);
 
-    // 每个 agent 恰好一条 v1；父级快照包含最终的子智能体 id。
     for (const row of [parent, first, second]) {
       const versions = await versionsOf(row?.id ?? '');
       expect(versions).toHaveLength(1);
@@ -309,7 +308,6 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
         spec: {
           agent: {
             ...agent(unique('bundle-bad-mode')),
-            // 绕过类型：auto 依赖分类器，平台不开放。
             permissionMode: 'auto' as 'dontAsk',
           },
         },
@@ -323,7 +321,6 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
             agent: agent(rootSlug),
             subAgents: [child(childSlug)],
           });
-          // 子级绑定只能来自官方 mcpServers；引用包内没有的名字必须拒绝。
           const path = `.claude/agents/${childSlug}.md`;
           const md = (files[path] ?? '').replace(
             /^---\n/,
@@ -344,7 +341,6 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
       expect((await agentRow(spec.agent.slug))?.id, label).toBeUndefined();
     }
 
-    // 侧车未知字段一律拒绝：旧格式的 ID 字段不能悄悄被忽略。
     const slug = unique('bundle-unknown');
     const files = packageFiles({ agent: agent(slug) });
     const sidecar = sidecarOf(new Map(Object.entries(files)));
@@ -385,7 +381,6 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     });
     expectProblem(duplicateRef, 'INVALID_INPUT');
 
-    // ZIP 内同名条目：底层归档校验直接拒绝，不落任何行。
     const childSlug = unique('bundle-dup-child');
     const files = packageFiles({ agent: agent(parentSlug), subAgents: [child(childSlug)] });
     const raw = rawZip([
@@ -482,7 +477,6 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     const sourceChild = await agentRow(childSlug);
 
     const files = await exportFiles(seeded.agent.id);
-    // 停用的子定义仍写成官方文件；状态在侧车里。
     expect(files.get(`.claude/agents/${childSlug}.md`)).toContain(`prompt for ${childSlug}`);
     const sidecar = sidecarOf(files);
     expect(sidecar.subAgents[0]).toMatchObject({ slug: childSlug, enabled: false });
@@ -508,7 +502,6 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
       skillSlugs: [skillSlug],
     });
 
-    // 不改名导入：全部加后缀，源树不动。
     const copy = await requestZip(
       app,
       'POST',
@@ -523,7 +516,6 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     createdSkills.push(...imported.createdSkills);
     expect(imported.agent.slug).toBe(`${rootSlug}-2`);
     expect(imported.createdSubAgents).toEqual([`${childSlug}-2`]);
-    // 同名资源复用，不重复创建。
     expect(imported.createdServers).toEqual([]);
     expect(imported.createdSkills).toEqual([]);
 
@@ -545,7 +537,6 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     expect(sorted(await boundSkillSlugs(newRoot?.id ?? ''))).toEqual([skillSlug]);
     expect(sorted(await boundSkillSlugs(newChild?.id ?? ''))).toEqual([skillSlug]);
 
-    // 源树与版本都不被改写。
     expect((await agentRow(rootSlug))?.id).toBe(sourceRoot?.id);
     expect((await agentRow(childSlug))?.parent_id).toBe(sourceRoot?.id);
     expect(await versionsOf(sourceChild?.id ?? '')).toHaveLength(1);
@@ -585,7 +576,6 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     });
     expectProblem(res, 'INVALID_INPUT');
     expect(await agentRow(parentSlug)).toBeUndefined();
-    // 只有真正新建的子定义才需要清理。
     for (let index = 0; index < 21; index += 1) {
       expect(await agentRow(`${parentSlug}-${index.toString(36)}`)).toBeUndefined();
     }
@@ -634,7 +624,6 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
     const files = await exportFiles(imported.json<ImportResult>().agent.id);
     const sidecar = sidecarOf(files);
     expect(sorted(sidecar.agent.serverNames)).toEqual([sharedServer]);
-    // 子级绑定只写在官方 md 的 mcpServers；侧车不重复。
     const childMd = files.get(`.claude/agents/${childSlug}.md`) ?? '';
     const mcpList = /mcpServers:\n((?: {2}- .*\n)*)/.exec(childMd)?.[1] ?? '';
     expect(
@@ -660,12 +649,9 @@ describe.skipIf(!ready)('sub-agent packages (official files)', () => {
         },
       ] satisfies PortableTool[],
     );
-    // .mcp.json 与运行时一致：父 + 子绑定的并集，子定义按名字引用自己的条目。
     const mcp = JSON.parse(files.get('.mcp.json') ?? '{}') as {
       mcpServers: Record<string, unknown>;
     };
-    // 与运行时同源：.mcp.json 是父 + 子绑定的并集，CLAUDE.md 的工具清单同源于此；
-    // 子定义靠官方 mcpServers 名字只引用自己那几条。
     expect(Object.keys(mcp.mcpServers).sort()).toEqual([childServer, sharedServer].sort());
   });
 });

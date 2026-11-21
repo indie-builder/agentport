@@ -86,10 +86,6 @@ export function resourceScopeWhere(
 
 export const BOOTSTRAP_ID = 'initial';
 
-/**
- * 矩阵 revision 行是所有角色/管理员写操作的串行化点。
- * 账户停用/删除、角色分配与矩阵保存都必须先拿同一行的锁，再读取管理员数量。
- */
 export async function lockAdminMutation(tx: Transaction): Promise<number> {
   await tx.insert(platformBootstrap).values({ id: BOOTSTRAP_ID }).onConflictDoNothing();
   const [row] = await tx
@@ -315,15 +311,12 @@ export async function replaceRoleMatrix(db: DbHandle, input: RoleMatrixInput): P
     const keep = new Set(inputIds);
     if (admin) keep.add(admin.id);
 
-    // 先删省略的角色，避免改名撞上即将删除的旧名称。
     for (const role of existing) {
       if (!keep.has(role.id) && role.systemKey !== 'admin') {
         await tx.delete(roles).where(eq(roles.id, role.id));
       }
     }
 
-    // 先临时改名，再写最终名：两个角色互换名称时不会撞 roles.name 唯一约束。
-    // 临时名避开用户已占用的同名角色与全部最终名，冲突时递增后缀。
     const pending = input.roles.flatMap((role) => {
       const current = role.id === undefined ? undefined : byId.get(role.id);
       return current && current.name !== role.name ? [current] : [];
@@ -346,7 +339,6 @@ export async function replaceRoleMatrix(db: DbHandle, input: RoleMatrixInput): P
     for (const role of input.roles) {
       const current = role.id === undefined ? undefined : byId.get(role.id);
       if (current?.systemKey === 'admin') {
-        // 管理员矩阵只改显示名；grants 固定为目录种子。
         await tx
           .update(roles)
           .set({ name: role.name, updatedAt: now })
@@ -557,7 +549,6 @@ export async function transferAgent(
     .where(eq(agents.id, agentId))
     .returning({ id: agents.id });
   if (rows.length === 0) return false;
-  // 原负责人不自动保留成员权；显式成员行不因转交而删除。
   return true;
 }
 

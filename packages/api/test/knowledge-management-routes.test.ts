@@ -117,7 +117,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       }>;
     } = {},
   ) {
-    // 版本 profile 必须与所属库一致，否则发布守卫会拒绝切指针。
     const [baseRow] = await app.client.unsafe<{ embedding_profile_id: string }[]>(
       'select embedding_profile_id from knowledge_bases where id = $1',
       [baseId],
@@ -173,7 +172,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     return { document, version };
   }
 
-  /** 手写草稿要能发布，必须来自同文档已成功的 draft ingest 任务；按 worker 落库顺序造齐关联。 */
   async function seedDraftVersion(input: {
     baseId: string;
     documentId: string;
@@ -503,7 +501,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     const documentId = published.document.id;
 
-    // 窗口 A 打开编辑器时读到线上版本 P。
     const readByA = await request(app, {
       method: 'GET',
       url: `/api/knowledge/documents/${documentId}/manual`,
@@ -517,7 +514,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       content: '已发布正文',
     });
 
-    // 窗口 B 基于同一版本保存，真实摄取任务成功产出草稿 D。
     const savedByB = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/documents/${documentId}/manual`,
@@ -533,7 +529,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       profileId,
     });
 
-    // 窗口 A 仍持有旧读，基于 P 再保存不得覆盖 D，也不得新增任务或版本。
     const jobsBefore = await app.client.unsafe<{ count: string }[]>(
       'select count(*)::text as count from knowledge_jobs where document_id = $1',
       [documentId],
@@ -575,7 +570,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       content: '草稿正文',
     });
 
-    // 基于编辑器当前拿到的草稿 D 继续保存仍可入队。
     const savedByDraft = await request(app, {
       method: 'PUT',
       url: `/api/knowledge/documents/${documentId}/manual`,
@@ -652,7 +646,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     });
     expect(moved.statusCode, moved.body).toBe(200);
 
-    // 人工编辑过的文档：未确认时逐项失败，确认后才入队。
     const edited = await repo.knowledge.listChunks(app.db, second.version.id);
     await repo.knowledge.patchChunk(app.db, edited.items[0]!.id, { editedByUser: true });
     const blocked = await request(app, {
@@ -726,7 +719,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect((await readdir(copyImagesDir)).sort()).toEqual(['fig-1.png', 'fig-2.png']);
     expect(await readFile(join(copyImagesDir, 'fig-1.png'), 'utf8')).toBe('first-image');
 
-    // 清单声明了 fig-2.png，但源目录只放了 fig-1.png。
     const missing = await seedDocument(baseId, { title: '缺图', images });
     await writeImages(missing.document.id, missing.version.id, {
       'fig-1.png': Buffer.from('only-image'),
@@ -748,7 +740,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       failed.json<{ results: Array<{ status: string; code?: string }> }>().results[0],
     ).toMatchObject({ status: 'failed', code: 'CONFLICT' });
 
-    // 失败不建副本、不留预分配目录，源版本图片仍可读。
     const afterDocuments = await app.client.unsafe<{ id: string }[]>(
       'select id from knowledge_documents where base_id = $1 order by id',
       [baseId],
@@ -762,7 +753,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       ),
     ).toBe('only-image');
 
-    // 空目录：清单声明了图片，但源 images/ 目录里一个文件都没有。
     const emptyImages = images.slice(0, 1);
     const empty = await seedDocument(baseId, { title: '空图', images: emptyImages });
     await mkdir(join(knowledgeDir, 'docs', empty.document.id, empty.version.id, 'images'), {
@@ -815,7 +805,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const newImagesDir = join(knowledgeDir, 'docs', source.document.id, newVersionId, 'images');
     expect(await readdir(newImagesDir)).toEqual(['fig-1.png']);
     expect(await readFile(join(newImagesDir, 'fig-1.png'), 'utf8')).toBe('cow-image');
-    // 旧版本及其图片保持只读可读。
     expect(
       await readFile(
         join(knowledgeDir, 'docs', source.document.id, source.version.id, 'images', 'fig-1.png'),
@@ -860,7 +849,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       ),
     ).toBe('present');
 
-    // 空目录：清单声明了图片，但源 images/ 目录里一个文件都没有。
     const empty = await seedDocument(baseId, { title: 'COW 空图', images });
     await mkdir(join(knowledgeDir, 'docs', empty.document.id, empty.version.id, 'images'), {
       recursive: true,
@@ -1279,7 +1267,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
         metadata: seeded.document.metadata,
       },
     );
-    // seedDocument 切版时范围还没挂上，这里补一次发布。
     await repo.knowledge.setCurrentVersion(app.db, seeded.document.id, seeded.version.id);
 
     const revoked = await request(app, {
@@ -1698,7 +1685,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     );
     const committedVersionId = row[0]!.current_version_id;
     expect(committedVersionId).not.toBe(seeded.version.id);
-    // 指针已切到新版本：它的正文文件必须可读，不能因后续任务失败被清理。
     const markdown = await request(app, {
       method: 'GET',
       url: `/api/knowledge/versions/${committedVersionId}/markdown`,
@@ -1764,7 +1750,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     );
     expect(kept[0]?.content_hash).toBe('published-hash');
 
-    // 重试必须沿用同一快照，而不是重新读取运行时的文档指针。
     await app.client.unsafe(
       `update knowledge_jobs set status = 'failed', ended_at = now() where id = $1`,
       [firstJobId],
@@ -1826,7 +1811,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       sourceConnectionId: sourceId,
       sourcePath: '/item.md',
     });
-    // 有来源连接的文档必须先有覆盖范围才能发布，seed 时范围还没挂上。
     const read = await repo.knowledge.getSourceReadSnapshot(app.db, sourceId);
     if (!read) throw new Error('来源快照缺失');
     await repo.knowledge.setDocumentSourceRanges(
@@ -1939,7 +1923,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(await countDocs()).toBe(before);
     expect((await readdir(join(knowledgeDir, 'docs'))).length).toBe(dirsBefore);
 
-    // 图片清单存在且源文件真实存在时复制成功，图片随版本一起落到新目录。
     const imagesDir = join(knowledgeDir, 'docs', seeded.document.id, seeded.version.id, 'images');
     await mkdir(imagesDir, { recursive: true });
     await writeFile(join(imagesDir, 'fig-1.png'), Buffer.from('png'));
@@ -1979,7 +1962,6 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const baseId = await createBase();
     const profileId = profileIds.at(-1)!;
     for (const contentKind of ['faq', 'wiki'] as const) {
-      // Wiki 索引文档切指针要核真实发布链：页面已发布且版本 metadata 指回该 Wiki 版本。
       let metadata: Record<string, unknown> | undefined;
       if (contentKind === 'wiki') {
         const page = await repo.knowledge.createWikiPage(app.db, {

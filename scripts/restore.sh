@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# 从完整备份恢复：校验归档 → 生成恢复前安全副本（库 + 工作区）→ 单事务替换数据库 →
-# 换入工作区文件 → 补齐迁移。
-# 用法：bun run restore <backup.tar.gz> [--target-workspaces <dir>] [--target-knowledge <dir>]
-# 数据库目标永远来自调用环境（DATABASE_URL 或 BACKUP_ENV_FILE 里的值），
-# 备份里的 env 只用于恢复配置文件，不会覆盖本次连接的数据库。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -40,14 +35,10 @@ done
 ARCHIVE="$(cd "$(dirname -- "$ARCHIVE")" && pwd)/$(basename -- "$ARCHIVE")"
 
 ENV_SOURCE="${BACKUP_ENV_FILE:-$ROOT/.env}"
-# 灾难恢复常见于新机器：没有 .env 也能恢复，只要调用方显式给了 DATABASE_URL。
-# 安全副本必须包含配置；本地配置不存在时用该 URL 生成最小引导 env，
-# 现存但空/不可读的配置仍视为损坏，在写安全副本前中止。
 if [ ! -f "$ENV_SOURCE" ] && [ -z "${DATABASE_URL:-}" ]; then
   die "env file not found: $ENV_SOURCE (set BACKUP_ENV_FILE or export DATABASE_URL)"
 fi
 
-# 目标库只用调用环境；缺省时从 BACKUP_ENV_FILE 读（与 backup.sh 一致），绝不读归档内的 env。
 if [ -z "${DATABASE_URL:-}" ]; then
   DATABASE_URL="$(database_url_from_env_file "$ENV_SOURCE")"
 fi
@@ -73,13 +64,11 @@ if ! verify_tree "$WORK"; then
   die "restore aborted: archive content does not match manifest, nothing changed"
 fi
 
-# 应用必须先停：恢复期间不替用户停共享服务，也不接管别的会话在跑的服务。
 OTHERS="$(pg_client_backends)" || die "cannot query database; check DATABASE_URL and the postgres service"
 RUNNING="$(compose ps --status running -q api worker 2>/dev/null | grep -c . || true)"
 if [ "${RUNNING:-0}" -gt 0 ]; then
   die "api/worker are running; stop them first: docker compose stop api worker"
 fi
-# 非 compose 部署（宿主直跑）只能靠连接数提示：脚本不替用户停服务。
 [ "${OTHERS:-0}" = 0 ] ||
   log "warning: $OTHERS other database client(s) are connected; the restored database may be immediately overwritten by them. Restore expects api/worker to be stopped."
 
@@ -96,12 +85,8 @@ if [ -n "$TARGET_WS" ]; then
 else
   resolve_workspaces 1
 fi
-# 新机器上工作区目录可能还不存在；安全副本允许是空目录。
 [ "$WS_MODE" = host ] && mkdir -p "$WS_PATH"
 
-# 知识库目标：默认回到配置位置（容器卷时在容器里，宿主目录时在宿主）。
-# --target-knowledge 是隔离演练，永远写宿主空目录，不碰真实知识库。
-# 只给 --target-workspaces 时与配置一致：旁路验证不碰真实知识库。
 resolve_knowledge
 KN_TARGET=''
 if [ -n "$TARGET_KN" ]; then
@@ -127,8 +112,6 @@ else
   esac
 fi
 
-# 安全副本必须包含一份可恢复的配置：现存但为空/不可读时先中止，
-# 不能写出一个会被 validate_archive 拒绝的空 env 回退点。
 ENV_MISSING=0
 if [ ! -e "$ENV_SOURCE" ]; then
   ENV_MISSING=1
@@ -141,7 +124,6 @@ SAFETY="$BACKUP_DIR/pre-restore-$STAMP.tar.gz"
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 
-# ── 恢复前安全副本：当前库 + 当前工作区 ────────────────────────
 SAFETY_STAGE=""
 cleanup() {
   rm -rf "$WORK"
@@ -156,8 +138,6 @@ if ! pg_run pg_dump --format=custom --no-owner --no-privileges "$DATABASE_URL" >
 fi
 chmod 600 "$SAFETY_STAGE/database.dump"
 if [ "$ENV_MISSING" = 1 ]; then
-  # 本地配置原本不存在，没有可备份的密钥；只记录目标 DATABASE_URL。
-  # 单引号包裹，URL 被 source 时不会展开或执行其中的 shell 字符。
   sq() {
     local s=$1
     s=${s//\'/\'\\\'\'}
@@ -176,8 +156,6 @@ if ! ws_tar_out | tar -xf - -C "$SAFETY_STAGE/workspaces"; then
   die "pre-restore workspace backup failed; restore aborted, nothing changed"
 fi
 prune_workspaces "$SAFETY_STAGE/workspaces"
-# 当前知识库也进安全副本；侧验模式不碰真实知识库，无需复制。没有时留空，清单写 knowledge: null。
-# 已配置却读不到时中止：安全副本缺知识库等于没有回退路径。
 SAFETY_KN=''
 if [ -z "$TARGET_WS" ]; then
   KN_FILES="$(knowledge_file_count)" || die "cannot read current knowledge storage; restore aborted, nothing changed"
@@ -205,33 +183,26 @@ chmod 600 "$SAFETY_TMP"
 mv "$SAFETY_TMP" "$SAFETY"
 rm -rf "$SAFETY_STAGE"
 SAFETY_STAGE=''
-# 安全副本本身要能通过恢复侧同一套校验；不可恢复的包不能当回退点，改库前中止。
 if ! validate_archive "$SAFETY"; then
   rm -f "$SAFETY"
   die "pre-restore safety copy failed archive validation; restore aborted, database unchanged"
 fi
 log "safety copy: $SAFETY"
 
-# 先做一次只读的 TOC 解析：归档损坏在改库之前就失败。
 if ! pg_run pg_restore --list <"$WORK/database.dump" >/dev/null; then
   die "backup database image is unreadable; restore aborted, database unchanged"
 fi
-# ── 数据库：单事务整库替换；失败则整体回滚 ─────────────────────
 log "restoring database"
-# --clean --if-exists 由归档生成 DROP；--single-transaction 保证失败时整库回滚。
 # 归档从 stdin 传入：容器模式 exec 在 postgres 容器里，看不到宿主的临时路径。
 if ! pg_run pg_restore --clean --if-exists --no-owner --no-privileges \
   --single-transaction --exit-on-error --dbname="$DATABASE_URL" <"$WORK/database.dump"; then
   die "database restore failed and was rolled back; database unchanged. safety copy: $SAFETY"
 fi
 
-# 恢复配置文件（备份里的 env）；数据库连接始终是上面的目标，不受它影响。
-# 归档里的 DATABASE_URL 与新环境不同只提示一句，不打印任何一方的值。
 ARCHIVE_DB_URL="$(sed -n 's/^DATABASE_URL=//p' "$WORK/env" | tail -n 1)"
 if [ -n "$ARCHIVE_DB_URL" ] && [ "$ARCHIVE_DB_URL" != "$DATABASE_URL" ]; then
   log "note: the backup's .env points at a different DATABASE_URL than the one restored into; update it if this environment uses its own database"
 fi
-# 旁路验证到新目录时默认不碰配置；要覆盖配置就显式给 RESTORE_ENV_TARGET。
 if [ -n "$TARGET_WS" ] && [ -z "${RESTORE_ENV_TARGET:-}" ]; then
   log "config not restored (--target-workspaces verification run); set RESTORE_ENV_TARGET to write it"
 else
@@ -244,12 +215,10 @@ else
   log "config restored: $ENV_TARGET"
 fi
 
-# ── 工作区文件：先暂存，再整体换入；run_* 保留 ──────────────────
 log "restoring workspaces ($WS_MODE)"
 ws_swap "$WORK/workspaces" ||
   die "database and config were restored, but workspace files did NOT complete. Re-run the file restore or copy from $SAFETY; do not assume a full rollback. safety copy: $SAFETY"
 
-# ── 知识库文件：同套暂存/换入；归档里没有 knowledge/ 时保持现状 ──
 if [ -z "$KN_TARGET" ]; then
   log "knowledge not restored (side-by-side run without --target-knowledge)"
 elif [ -d "$WORK/knowledge" ]; then

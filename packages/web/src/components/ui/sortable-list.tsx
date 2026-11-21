@@ -81,7 +81,6 @@ const sortableList = definePrimitive({
           if (!event.target.closest('[data-reorder-control]')) return;
           part.api.reorder.cancel();
         };
-        // 焦点离开列表后 Escape 只会落到 document，需在这里取消草稿，避免弹层守卫反复吞键。
         const onKeydown = (event: KeyboardEvent) => {
           const moving = part.store.get().moving;
           if (!moving || moving.pointer || event.key !== 'Escape') return;

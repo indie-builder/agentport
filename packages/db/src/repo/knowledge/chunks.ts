@@ -140,7 +140,6 @@ export async function replaceChunks(
 function chunkPageFilters(versionId: string, options: PageOptions): SQL[] {
   const filters: SQL[] = [eq(knowledgeChunks.versionId, versionId)];
   if (options.cursor) {
-    // 按 ordinal 排序，游标行用 id 反查序号。
     filters.push(sql`(${knowledgeChunks.ordinal}, ${knowledgeChunks.id}) > (
       select b.ordinal, b.id from ${knowledgeChunks} b where b.id = ${options.cursor}
     )`);
@@ -163,7 +162,6 @@ export async function listChunks(
   return paginate(rows, limit);
 }
 
-/** 展示与导出只需要元数据：显式投影，避免把 1024 维向量读出来。 */
 const chunkSummaryColumns = {
   id: knowledgeChunks.id,
   documentId: knowledgeChunks.documentId,
@@ -200,7 +198,6 @@ export async function listChunkSummaries(
   return paginate(rows, limit);
 }
 
-/** 人工编辑总数取整版聚合，不能靠分页首页推断（>200 条时会漏）。 */
 export async function countEditedChunks(db: Database, versionId: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -208,7 +205,6 @@ export async function countEditedChunks(db: Database, versionId: string): Promis
     .where(and(eq(knowledgeChunks.versionId, versionId), eq(knowledgeChunks.editedByUser, true)));
   const editedCount = row?.count ?? 0;
   if (editedCount > 0) return editedCount;
-  // 删除后版本里已没有可标记的叶块；版本级 manualChanges 仍证明人工改过，不能被同步覆盖。
   const [version] = await db
     .select({ metadata: knowledgeDocumentVersions.metadata })
     .from(knowledgeDocumentVersions)
@@ -248,7 +244,6 @@ export async function patchChunk(
 export type DocumentChunkMutation =
   | {
       type: 'add';
-      /** 新增分块不接受 page/locator/父块定位，服务端固定为人工 leaf 块。 */
       chunk: Omit<
         NewChunk,
         | 'ordinal'
@@ -311,7 +306,6 @@ function seedFromChunk(chunk: KnowledgeChunkRow): ChunkSeed {
   };
 }
 
-/** 人工改稿的定位不再指向原件；保留 originalChunkId 仅供追溯。 */
 function editedMetadata(chunk: KnowledgeChunkRow): Record<string, unknown> {
   const metadata: Record<string, unknown> = { ...chunk.metadata, originalChunkId: chunk.id };
   delete metadata.image;
@@ -319,10 +313,6 @@ function editedMetadata(chunk: KnowledgeChunkRow): Record<string, unknown> {
   return metadata;
 }
 
-/**
- * 人工派生版仍保留音频来源快照（protocol/profileName/model/durationMs），
- * 但旧全文偏移已不适用，必须清空 segments。
- */
 function manualVersionMetadata(
   metadata: Record<string, unknown> | undefined,
   parentMetadata: Record<string, unknown> | undefined,
@@ -332,7 +322,6 @@ function manualVersionMetadata(
   return { ...metadata, audio: { ...(audio as Record<string, unknown>), segments: [] } };
 }
 
-/** 删除/启停后可能没有 editedByUser 叶块，版本级事实供同步冲突判断。 */
 function manualChangeMetadata(
   metadata: Record<string, unknown> | undefined,
   chunkId: string,
@@ -438,7 +427,6 @@ export async function editDocumentChunks(
       editedOrdinal = seeds.length - 1;
     }
 
-    // 父块按序号引用同版本中的另一块；克隆时重映射到新的连续序号。
     const ordinalMap = new Map(seeds.map((seed, index) => [seed.sourceOrdinal, index] as const));
     const newChunks: NewChunk[] = seeds.map((seed, index) => ({
       ordinal: index,

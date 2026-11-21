@@ -3,7 +3,6 @@ import { fail } from './errors.js';
 import { parseMarkdownFrontmatter } from './markdown-frontmatter.js';
 import { assertProjectMemory } from './official-files.js';
 
-/** 只导入角色定义；运行限制与权限由平台默认值决定。 */
 const ALLOWED_KEYS = new Set(['name', 'description', 'model', 'maxTurns', 'effort', 'memory']);
 
 const WARNING = '仅导入角色定义；平台运行限制与权限采用默认值，请检查后运行。';
@@ -12,7 +11,6 @@ function invalid(message: string, path: string): never {
   fail('INVALID_INPUT', message, { path });
 }
 
-/** 报错路径指向用户写的字段：slug 来自 name，systemPrompt 来自正文。 */
 function fieldOf(path: PropertyKey | undefined): string {
   const field = String(path ?? 'name');
   if (field === 'slug') return 'name';
@@ -44,7 +42,6 @@ export function parseAgentMd(content: string): { agent: AgentInput; warnings: st
     if (typeof model !== 'string' || model.trim() === '') {
       invalid('智能体文件的 model 必须是非空字符串', '/model');
     }
-    // 存储的根智能体没有父会话，inherit 在这里没有可继承的对象。
     if (model === 'inherit') {
       invalid('智能体文件的 model 不支持 inherit（导入的是根智能体，无父会话可继承）', '/model');
     }

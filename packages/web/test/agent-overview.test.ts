@@ -168,9 +168,7 @@ async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 查询或路由还没落地，继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -292,12 +290,10 @@ describe('agent overview', () => {
     const text = host.textContent ?? '';
     expect(text).toContain('负责把用户反馈整理成周报。');
     expect(text).toContain('用途');
-    // 角色徽章只在页头出现，概览不再重复一行。
     expect(text).not.toContain('角色');
     expect(text).not.toContain('内容运营');
     expect(text).toContain('已启用');
     expect(text).toContain(formatDateTime(agent.updatedAt));
-    // 有读权时不出现权限说明。
     expect(text).not.toContain('只能使用这个专家');
   });
 
@@ -357,7 +353,6 @@ describe('agent overview', () => {
     expect(text).toContain('子智能体');
     expect(text).toContain('插件');
 
-    // 两个配置入口文案必须能区分：用途是「编辑配置」，能力是「管理能力」。
     expect(button('编辑配置')).toBeDefined();
     await click(button('管理能力'));
     expect(navigations).toEqual([{ tab: 'config', section: 'capability' }]);

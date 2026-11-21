@@ -58,7 +58,6 @@ describe('uiFormat', () => {
   it('lists the caller-supplied tool catalog in CLAUDE.md', () => {
     const md = claudeMd({ uiFormat: 'openui' }, [tool]);
     expect(md).toContain('mcp__billing__get-invoice');
-    // markdown 路径即便传了目录也不该出现工具段。
     expect(claudeMd({ uiFormat: 'markdown' }, [tool])).not.toContain('mcp__billing__get-invoice');
   });
 });
@@ -66,7 +65,6 @@ describe('uiFormat', () => {
 describe('openuiSystemPrompt', () => {
   it('generates the prompt from the committed official spec', () => {
     const prompt = openuiSystemPrompt();
-    // 签名来自官方 LibrarySpec，不是手写；抽查几个易漂的组件。
     expect(prompt).toContain(
       'Text(variant?: "text" | "number", value: string, subtext?: string, subtextVariant?: "text" | "number" | "metric", size?: "xs" | "sm" | "md" | "lg")',
     );
@@ -76,7 +74,6 @@ describe('openuiSystemPrompt', () => {
     expect(prompt).toContain('CheckBoxGroup(name: string, items: CheckBoxItem[]');
     expect(prompt).toContain('Record<string, boolean>');
     expect(prompt).toContain('EntityList(rows?:');
-    // 12 个分组标题都在提示词里。
     for (const group of ['Content', 'Tables', 'Charts (2D)', 'Forms', 'Cards']) {
       expect(prompt).toContain(group);
     }

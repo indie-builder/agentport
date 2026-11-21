@@ -98,7 +98,6 @@ describe('PluginFileTree', () => {
       alphaGroup?.querySelector('[data-slot="tree-label"][title="skills/alpha/references"]'),
     ).not.toBeNull();
 
-    // 行上只显示 basename，完整路径留给 title 与选择结果。
     expect(tree().textContent).not.toContain('skills/alpha/SKILL.md');
   });
 
@@ -188,7 +187,6 @@ describe('PluginFileTree', () => {
     expect(row('README.md').className).toContain('bg-selected');
     expect(row('zeta.md').className).not.toContain('bg-selected');
 
-    // skills 默认展开，不应为了表示展开而铺任何底色（hover: 变体不算常态底色）。
     expect(item('skills').getAttribute('aria-expanded')).toBe('true');
     for (const title of ['skills', 'skills/alpha']) {
       const backgrounds = row(title)
@@ -220,7 +218,6 @@ describe('PluginFileTree', () => {
   it('keeps every row inside the tree width, including deep nesting', () => {
     mount({ files, onSelect: vi.fn(), selectedPath: DEEP });
 
-    // 每层只加一个 ms-4 缩进与 1px 引导线，长名由 truncate 收敛，不撑开文档。
     const referencesGroup =
       item('skills/alpha/references').querySelector(':scope > [role="group"]');
     expect(referencesGroup?.className).toContain('ms-4');
@@ -237,7 +234,6 @@ describe('PluginFileTree', () => {
     expect(item('output-styles').getAttribute('aria-expanded')).toBe('true');
     expect(item('output-styles/compact.md').getAttribute('aria-current')).toBe('page');
 
-    // skills 默认展开，但更深的 alpha / references 仍按选中路径自动展开。
     rerender({ files, onSelect: vi.fn(), selectedPath: DEEP });
     expect(item('skills/alpha').getAttribute('aria-expanded')).toBe('true');
     expect(item('skills/alpha/references').getAttribute('aria-expanded')).toBe('true');

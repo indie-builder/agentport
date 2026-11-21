@@ -71,7 +71,6 @@ function FoldingMessageBody({ text }: { text: string }) {
   );
 }
 
-/** 文本增量只更新对应片段，工具行继续使用独立的 memo。 */
 export const MessagePart = memo(function MessagePart({
   item,
   openUi,
@@ -85,9 +84,6 @@ export const MessagePart = memo(function MessagePart({
   openUiSnapshot?: OpenUiSnapshot;
   onAction?: ((action: OpenUiAction) => void) | undefined;
 }) {
-  // 历史消息自带格式快照：切回 markdown 后，已存的 UI 仍按 UI 渲染。
-  // 子智能体的文本（带 parentToolUseId）永远不当主线程 UI 渲染：
-  // 它的围栏属于子任务输出，混进主界面会让人误以为那是本轮回答。
   const subAgentText = item.kind === 'text' && item.parentToolUseId !== undefined;
   const messageOpenUi = subAgentText
     ? false
@@ -96,7 +92,6 @@ export const MessagePart = memo(function MessagePart({
       : openUi;
   switch (item.kind) {
     case 'user':
-      // 不覆盖行高：气泡与助手正文共用 base 14/22。附图消息可以没有正文。
       return (
         <div className="flex min-w-0 flex-col gap-2">
           {item.text ? (
@@ -154,7 +149,6 @@ export const MessagePart = memo(function MessagePart({
       return (
         <div className="min-w-0">
           {renderAssistantText(item.text, messageOpenUi, streaming, onAction, {
-            // 优先用回填的持久化 id；历史项的 id 形如 `msg_x:0`，需要去掉块后缀。
             ...(item.messageId !== undefined
               ? { messageId: item.messageId }
               : item.id === undefined
@@ -206,13 +200,10 @@ export const MessagePart = memo(function MessagePart({
   }
 });
 
-/** 消息级的渲染快照：渲染器提供的回调身份固定，来源由每段自己闭包。 */
 export interface OpenUiSnapshot {
   conversationId?: string;
   messageId?: string;
-  /** 落库后的完整混合文本（Markdown + 完整围栏）；稳定态优先于原文。 */
   uiProgram?: string;
-  /** `{ version, blocks }` 信封；渲染器按段取自己的快照。 */
   uiState?: unknown;
   onToolCall?: (input: OpenUiToolCallInput) => Promise<OpenUiToolResult>;
   onSaveState?: (input: OpenUiStateSaveInput) => Promise<unknown>;

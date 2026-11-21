@@ -48,7 +48,6 @@ const ATTACHMENT_ACCEPT = [
   .map((extension) => `.${extension}`)
   .join(',');
 
-/** 单文件上限按规范类型取，类型本身由 shared 扩展名映射决定。 */
 function attachmentLimitFor(filename: string): number | null {
   const mime = attachmentMimeForFilename(filename);
   if (mime === null) return null;
@@ -56,7 +55,6 @@ function attachmentLimitFor(filename: string): number | null {
   return mime.startsWith('image/') ? ATTACHMENT_LIMITS.imageBytes : ATTACHMENT_LIMITS.textBytes;
 }
 
-/** 输入与底部操作共用 InputGroup 的一层焦点边框。 */
 export function Composer({
   agent,
   send,
@@ -84,23 +82,16 @@ export function Composer({
   historyReady?: boolean;
   cancelling?: boolean;
   onCancel?: () => void;
-  /** 受控输入：频道页用本地状态，缺省仍读写聊天草稿。 */
   value?: string;
   onValueChange?: (value: string, caret: number | null) => void;
-  /** 返回 true 表示已消费按键（如 @ 补全），不再触发发送。 */
   onKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => boolean;
-  /** 不依赖聊天专家也能输入；频道没有单一 agent。 */
   enabled?: boolean;
-  /** 覆盖聊天运行锁：频道允许多条 run 并行时继续发送。 */
   locked?: boolean;
   canAttach?: boolean;
-  /** 覆盖平台发送权限：频道按成员角色判定。 */
   canSend?: boolean;
-  /** 不能发送时的原因，频道用于区分只读与已关闭。 */
   sendDenied?: string;
   placeholder?: string;
 }) {
-  // 只订阅输入内容：打字不会重渲染消息列表所在的 ChatColumn。
   const me = useQuery(meQuery);
   const location = useLocation();
   const canSend = canSendProp ?? can(me.data, 'conversations.create');
@@ -124,7 +115,6 @@ export function Composer({
     else setInput(next);
   };
 
-  // Enter 与发送按钮共用同一条发送路径；输入框在欢迎与会话之间保持同一个节点。
   const submit = (): void => {
     if (!historyReady || locked || !canSend) return;
     void send();
@@ -235,7 +225,6 @@ export function Composer({
               ) : null}
             </div>
             {runId && onCancel ? (
-              // 运行中发送位换成停止：动作在用户正在打字的地方，不用到消息流里找。
               canCancelRun ? (
                 <InputGroupButton
                   variant="outline"
@@ -278,10 +267,6 @@ export function Composer({
   );
 }
 
-/**
- * 资料选择：本地错误与文件框只在真正渲染时用 React 状态。
- * Composer 保持可直接调用（键盘单测），因此不在这里以外新增 hook。
- */
 function AttachmentPicker({ disabled }: { disabled: boolean }) {
   const pendingAttachments = useChatStore((state) => state.pendingAttachments);
   const setPendingAttachments = useChatStore((state) => state.setPendingAttachments);

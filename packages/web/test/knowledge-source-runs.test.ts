@@ -183,7 +183,6 @@ function button(text: string): HTMLButtonElement {
   return element;
 }
 
-/** 查询 promise resolve 后才出现目标 DOM：按条件等待真实异步，不用固定 tick 猜时长。 */
 async function waitForDom(probe: () => boolean): Promise<void> {
   await vi.waitFor(
     () => {
@@ -340,7 +339,6 @@ describe('knowledge source runs', () => {
         '/api/knowledge/sources/ksrc_a/runs',
         '/api/knowledge/sources/ksrc_b/runs',
       ]);
-      // A 仍在收起窗口里：各自面板只显示自己的记录。
       expect(sourcePanel('来源 A').textContent).toContain('新增 7');
       expect(sourcePanel('来源 B').textContent).toContain('新增 9');
       expect(sourcePanel('来源 B').textContent).not.toContain('新增 7');

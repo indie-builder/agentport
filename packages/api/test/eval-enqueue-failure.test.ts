@@ -47,7 +47,6 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
   });
 
   afterAll(async () => {
-    // 评估审计的目标是 run id，级联删除带不走。
     if (agentSlugs.length > 0) {
       await app.client.unsafe(
         `delete from audit_log where target in (
@@ -120,7 +119,6 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
     expect(loggedErrors.length).toBeGreaterThan(0);
     expect(inspect(loggedErrors, { depth: null })).not.toContain('hunter2');
     expect(inspect(loggedErrors, { depth: null })).not.toContain('redis://');
-    // 未认领的失败行没有 job，CAS 赢家才尝试清理。
     expect(getJob).toHaveBeenCalledTimes(1);
     getJob.mockRestore();
 
@@ -132,7 +130,6 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
     expect(row?.finishedAt).not.toBeNull();
     expect(await requestedAudits(runId)).toBe(0);
 
-    // 失败行已收口，同一 agent 可以重新发起（不是 409）。
     const retry = spyOn(queue, 'add').mockResolvedValueOnce({ id: 'synthetic' } as never);
     try {
       const next = await startRun(agent.id);

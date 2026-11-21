@@ -12,7 +12,6 @@ export async function recordMemoryChange(
       'applied',
       change.id,
     );
-    // 锁内不应再有人改决定；走到这里说明数据被外部改写，回滚整个事务。
     if (!decided) throw new Error('review decision changed under memory lock');
   }
   return change;

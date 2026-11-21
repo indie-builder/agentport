@@ -57,7 +57,6 @@ async function inspectRoute(
   const agentDetail = createRoute({
     getParentRoute: () => shell,
     path: '/agents/$agentId',
-    // 真实详情页按加载后的实体命名，这里用路由参数模拟不同实体的 h1。
     component: function AgentDetailPage() {
       const params = useParams({ strict: false });
       return createElement(PageHeader, { title: `专家 ${String(params.agentId)}` });
@@ -556,9 +555,7 @@ describe('personal navigation context', () => {
       ]) {
         expect(navHrefs(view.host)).not.toContain(href);
       }
-      // 内容区旧横导航删除后，个人导航只保留在 AppShell 侧栏。
       expect(view.host.querySelector('nav[aria-label="个人导航"]')).toBeNull();
-      // 底部账号入口仍是独立入口，不属于导航条目；只有在它指向的个人资料页才标记当前。
       const account = [
         ...view.host.querySelectorAll<HTMLAnchorElement>('a[aria-label="个人资料"]'),
       ].find((link) => link.closest('nav') === null);
@@ -723,7 +720,6 @@ describe('personal entry', () => {
     try {
       const entry = view.host.querySelector<HTMLButtonElement>('button[aria-label="账户菜单"]');
       if (!entry) throw new Error('missing expanded account entry');
-      // 账号入口不是导航条目：头像与姓名靠左，占满侧栏宽度并保持 32px 紧凑行。
       expect(entry.closest('nav')).toBeNull();
       expect(entry.classList.contains('justify-start')).toBe(true);
       expect(entry.classList.contains('flex-1')).toBe(true);
@@ -794,7 +790,6 @@ describe('sidebar collapse', () => {
       );
       await act(async () => collapse?.click());
 
-      // 窄边只渲染图标块，不渲染文字标签；可访问名由链接自身的 aria-label 保留。
       const collapsed = navLink(view.host);
       expect(collapsed).toBe(link);
       expect(collapsed.getAttribute('aria-label')).toBe('资源');
@@ -834,7 +829,6 @@ describe('sidebar collapse', () => {
       await act(async () => vi.advanceTimersByTime(1_000));
       expect(navLink(view.host)).toBe(link);
       expect(document.activeElement).toBe(link);
-      // 焦点进入窄边侧栏时浮出预览；折叠按钮仍是同一个切换控件。
       expect(view.host.querySelector('button[aria-label="展开侧栏"]')).toBe(collapse);
       expect(collapse.getAttribute('aria-expanded')).toBe('true');
       expect(collapse.getAttribute('aria-label')).toBe('展开侧栏');
@@ -873,7 +867,6 @@ describe('sidebar collapse', () => {
       expect(document.activeElement).toBe(collapse);
       expect(collapse.getAttribute('aria-expanded')).toBe('false');
       expect(collapse.getAttribute('aria-label')).toBe('展开侧栏');
-      // 窄边不渲染品牌字标。
       expect(view.host.querySelector('button[aria-label="切换 PACE Logo"]')).toBeNull();
     } finally {
       vi.useRealTimers();

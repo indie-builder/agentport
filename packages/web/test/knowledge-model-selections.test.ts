@@ -127,7 +127,6 @@ describe('knowledge model profile selections', () => {
     expect(profileCalls().map((item) => item.path)).toContain(
       '/api/knowledge/model-profiles?view=selection',
     );
-    // 管理列表仍走原 URL；两个查询不共用缓存。
     expect(profileCalls().map((item) => item.path)).toContain('/api/knowledge/model-profiles');
   });
 

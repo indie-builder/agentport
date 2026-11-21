@@ -95,7 +95,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
     const parentCalls = calls.filter((call) => call.parentToolUseId === undefined);
     const childCalls = calls.filter((call) => call.parentToolUseId !== undefined);
 
-    // 父自身记忆：写入与读取都放行，子智能体结束后仍继续可用。
     const parentWrites = parentCalls.filter((call) => call.name === 'Write');
     expect(parentWrites).toHaveLength(1);
     expect(parentWrites[0]?.result).not.toMatch(DENIED_RESULT);
@@ -107,14 +106,12 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
     // 第二次同文件读取可能被 SDK 去重为 "Wasted call"；关键是仍被放行，不是 deny。
     expect(parentOwnReads[1]?.result).not.toMatch(DENIED_RESULT);
 
-    // 父读子记忆：越界，拒绝且不泄漏内容。
     const parentReadsChild = parentCalls.find(
       (call) => call.name === 'Read' && call.input?.includes(ownMemoryPath),
     );
     expect(parentReadsChild?.result).toContain(FILE_BOUNDARY_REASON);
     expect(parentReadsChild?.result).not.toContain('SENTINEL-CHILD-OWN');
 
-    // 子自己的记忆：显式 Write / Read 都生效。
     const childOwnWrite = childCalls.find(
       (call) => call.name === 'Write' && call.input?.includes(ownMemoryPath),
     );
@@ -124,7 +121,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
     );
     expect(childOwnRead?.result).toContain('SENTINEL-CHILD-OWN');
 
-    // 兄弟记忆、父记忆、未登记目录：显式 Read / Write 都必须被拒绝。
     const siblingRead = childCalls.find(
       (call) => call.name === 'Read' && call.input?.includes(siblingMemoryPath),
     );
@@ -148,7 +144,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
     );
     expect(ghostRead?.result).toContain(FILE_BOUNDARY_REASON);
 
-    // 宿主字节证明允许的写入真正落盘，越界写入没有产生文件。
     expect(readIfExists(join(childHost, 'MEMORY.md'))).toBe(ownContent);
     expect(readIfExists(join(siblingHost, 'MEMORY.md'))).toBe('SIBLING-SECRET\n');
     expect(readIfExists(join(siblingHost, 'INTRUDER.md'))).toBeUndefined();
@@ -209,13 +204,11 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const calls = toolCalls(result.events);
       const agent = calls.find((call) => call.name === 'Agent');
       const child = calls.find((call) => call.name === tool && call.parentToolUseId !== undefined);
-      // 子调用必须挂在父侧实际发起的 Agent tool_use 上，不能靠事件顺序猜测。
       expect(agent).toBeDefined();
       expect(child?.parentToolUseId).toBe(agent?.id);
       expect(child?.result).toContain(`No such tool available: ${tool}`);
 
       if (tool === 'Read') {
-        // 主题文件只可能由显式 Read 读到；MEMORY.md 的自动加载另行核对。
         expect(child?.result).not.toContain(initial.trim());
         const childRequest = fake
           .messageRequests()
@@ -224,7 +217,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
         expect(systemText(childRequest?.body)).toContain(`AUTO-${name.toUpperCase()}`);
         expect(systemText(childRequest?.body)).not.toContain(initial.trim());
       } else {
-        // deny 生效时宿主文件必须原样保留。
         expect(readFileSync(hostPath, 'utf8')).toBe(initial);
       }
     },

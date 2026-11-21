@@ -81,7 +81,6 @@ const agentOptionsQuery = queryOptions<AgentOptions>({
   staleTime: 60_000,
 });
 
-/** 绑定选择器摘要；只有具备 agents.bindings.manage 的调用方才发请求。 */
 export function useAgentOptions(enabled = true) {
   return useQuery({ ...agentOptionsQuery, enabled });
 }
@@ -159,7 +158,6 @@ export function useRestoreAgent() {
   });
 }
 
-/** 列表摘要：只用于选择器和卡片，不包含配置正文。 */
 export function useAgentSummary(id: string | null) {
   return useQuery({
     ...agentsQuery,
@@ -167,7 +165,6 @@ export function useAgentSummary(id: string | null) {
   });
 }
 
-/** 完整配置：调用前必须已有 agents.config.read；禁用的查询不会发请求。 */
 export function useAgentDetail(id: string | null, enabled = true) {
   return useQuery({ ...agentDetailQuery(id ?? '', enabled && id !== null) });
 }
@@ -371,7 +368,6 @@ export function useUpdateAgent() {
       client.setQueryData<Agent[]>(['agents'], (old) =>
         old?.map((agent) => {
           if (agent.id !== id) return agent;
-          // PATCH 的 null 表示「清空」；本地缓存里缺省仍是 undefined。
           const next = { ...agent, ...input };
           return {
             ...next,
@@ -398,7 +394,6 @@ export function useDeleteAgent() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteAgent(id),
-    // 删除成功才移除缓存：失败时要保留详情与草稿，等用户重试或取消。
     onSuccess: (_data, id) => {
       client.setQueryData<Agent[]>(['agents'], (old) => old?.filter((agent) => agent.id !== id));
       client.removeQueries({ queryKey: ['agent-detail', id], exact: true });

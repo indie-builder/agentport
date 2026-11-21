@@ -16,9 +16,6 @@ import {
   usableSourceChunks,
 } from './shared.js';
 
-// ---------------------------------------------------------------------------
-// Wiki
-
 export async function createWikiPage(
   db: Database,
   input: { baseId: string; slug: string; title: string },
@@ -64,16 +61,13 @@ export interface SaveWikiVersionInput {
   sourceChunkIds: string[];
   model: string;
   generatedBy: KnowledgeWikiVersionRow['generatedBy'];
-  /** 草稿乐观锁：最新草稿版本已变则 409。 */
   expectedVersion?: string | null;
-  /** 与正文同事务落库的标题/目录结构；先核 expectedVersion 再写任何字段。 */
   structure?: {
     title?: string;
     slug?: string;
     parentId?: string | null;
     position?: number;
   };
-  /** 兼容来源快照入参；发布时以 sourceChunkIds 实际校验结果为准。 */
   sources?: Array<{ documentId: string | null; versionId: string | null; chunkId: string | null }>;
 }
 async function latestWikiVersionId(db: DbHandle, pageId: string): Promise<string | null> {
@@ -116,7 +110,6 @@ export async function saveWikiDraft(
       .values({
         id: newId('knowledgeWikiVersion'),
         pageId,
-        // 版本号在 INSERT 内计算，少一次往返；并发由上面的页面行锁与唯一索引兜底。
         version: sql`(select coalesce(max(${knowledgeWikiVersions.version}), 0) + 1 from ${knowledgeWikiVersions} where ${knowledgeWikiVersions.pageId} = ${pageId})`,
         markdown: input.markdown,
         sourceChunkIds: input.sourceChunkIds,
@@ -129,7 +122,6 @@ export async function saveWikiDraft(
   });
 }
 
-/** 既有调用名沿用；语义已改为「只追加草稿」。 */
 export { saveWikiDraft as saveWikiVersion };
 /**
  * 发布指定版本：只切指针，不复制内容。来源必须仍可检索，
@@ -140,7 +132,6 @@ export async function publishWikiVersionTx(
   pageId: string,
   versionId: string,
 ): Promise<KnowledgeWikiPageRow | null> {
-  // 先无锁读出页面与来源，按统一锁序拿锁后再重核；页面行锁放到来源/文档之后。
   const [preview] = await tx
     .select()
     .from(knowledgeWikiPages)
@@ -153,7 +144,6 @@ export async function publishWikiVersionTx(
     .where(and(eq(knowledgeWikiVersions.id, versionId), eq(knowledgeWikiVersions.pageId, pageId)))
     .limit(1);
   if (!version) return null;
-  // 模型生成必须保留来源快照；人工正文允许无来源。
   if (version.generatedBy === 'sdk' && version.sourceChunkIds.length === 0) {
     throw new AppError('CONFLICT', '模型生成的 Wiki 没有来源，不能发布');
   }
@@ -205,11 +195,9 @@ export async function rollbackWikiPage(
   if (!source) return null;
   const page = await getWikiPage(db, pageId);
   if (!page) return null;
-  // 模型生成必须保留来源快照；回退不能把空来源版本洗成人工正文再发布。
   if (source.generatedBy === 'sdk' && source.sourceChunkIds.length === 0) {
     throw new AppError('CONFLICT', '模型生成的 Wiki 没有来源，不能回退');
   }
-  // 先核来源再落草稿；publish 事务仍会再核一次，避免并发撤权绕过。
   const checked = await usableSourceChunks(db, page, source.sourceChunkIds);
   if (checked.unusable > 0) {
     throw new AppError('CONFLICT', '草稿引用的来源已删除或禁用，请重新生成后再发布');
@@ -233,8 +221,6 @@ export async function listWikiVersions(
   const limit = pageLimit(options);
   const filters: SQL[] = [eq(knowledgeWikiVersions.pageId, pageId)];
   if (options.cursor) {
-    // 版本号在页内唯一且单调；created_at 取事务开始时间，早开晚写会倒挂。
-    // 游标行必须属于本页，否则视为未知游标返回空页（与其它列表一致）。
     filters.push(sql`${knowledgeWikiVersions.version} < (
       select b.version from ${knowledgeWikiVersions} b
       where b.id = ${options.cursor} and b.page_id = ${pageId}
@@ -339,7 +325,6 @@ export interface WikiPageStructurePatch {
   slug?: string;
   parentId?: string | null;
   position?: number;
-  /** 与最新草稿版本比较；不传则不做乐观锁。 */
   expectedVersionId?: string | null;
 }
 
@@ -389,7 +374,6 @@ async function applyWikiStructureTx(
   return row;
 }
 
-/** 标题/目录结构更新：同事务校验同库、无循环与 expectedVersion。 */
 export async function updateWikiPageStructure(
   db: Database,
   pageId: string,

@@ -7,27 +7,17 @@ import { Cause, Effect, type Scope } from 'effect';
 
 const TIMEOUT_MS = 5000;
 
-/**
- * 只依赖 warn 的形状，`request.log` 与 pino 都满足。
- * 失败原因进日志：审计表只有 digest，读不出原文。
- */
 export interface TestLogger {
   warn: (obj: object, msg: string) => void;
 }
 
-/**
- * HTTP/generated 在 API 进程内直连；stdio 由用户提供任意命令，必须在沙盒镜像里跑
- * （见 modules/servers/sandbox-probe.ts），API 主机不 spawn 任何用户进程。
- */
 function transportFor(server: Server, self?: SelfMcp): Transport {
   if (server.kind === 'http') {
     return new StreamableHTTPClientTransport(new URL(server.url), {
-      // 不跟随重定向：SSRF 检查只覆盖第一跳，302 到内网地址会绕过它。
       requestInit: { headers: server.headers, redirect: 'error' },
     });
   }
   if (server.kind === 'generated') {
-    // generated server 的 MCP 端点是平台自己挂载的 /mcp/:id，不是上游 baseUrl。
     if (!self) throw new Error('generated server requires platform MCP endpoint info');
     const endpoint = new URL(`${self.baseUrl}${mcpEndpointPath(server.id)}`);
     return new StreamableHTTPClientTransport(endpoint, {
@@ -38,9 +28,7 @@ function transportFor(server: Server, self?: SelfMcp): Transport {
 }
 
 export interface SelfMcp {
-  /** 平台自身可达地址，例如 http://127.0.0.1:3000 */
   baseUrl: string;
-  /** 该 generated server 的 mcpToken */
   token: string;
 }
 
@@ -86,11 +74,6 @@ function connectAndList(
   });
 }
 
-/**
- * 真连一次并 listTools，任何异常都降级为结果对象，避免按钮因网络问题 500。
- * http server 的 url、generated server 的上游 baseUrl 都要走 SSRF 检查。
- * stdio 不在这里测：它需要用户命令，只能在沙盒镜像里执行。
- */
 export async function testConnection(
   server: Server,
   nodeEnv: string | undefined = process.env.NODE_ENV,
@@ -129,7 +112,6 @@ export async function testConnection(
   return { ok: false, tools: [], error, durationMs };
 }
 
-/** Exit/Cause 不可读；转成一句能贴到 UI 的话。 */
 function describeFailure(cause: Cause.Cause<unknown>): string {
   const error = Cause.squash(cause);
   if (error instanceof Error) return error.message;

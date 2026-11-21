@@ -63,7 +63,6 @@ describe('sandbox probe contracts', () => {
   });
 
   it('rejects a catalog over 1MiB by UTF-8 byte length', () => {
-    // 「界」是 3 字节：13 万个字符约 39 万字节的 JSON，必然超过 1MiB。
     const tools = [{ name: 'huge', description: '界'.repeat(400_000) }];
     expect(() => limitToolCatalog(tools)).toThrow(/1048576/);
   });

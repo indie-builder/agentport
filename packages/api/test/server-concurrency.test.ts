@@ -25,7 +25,6 @@ describe.skipIf(!ready)('server concurrent writes', () => {
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
-    // MCP 端点走真实 HTTP 才能验证 token 是否仍然有效。
     server = await listen(app);
     baseUrl = server.url;
   });
@@ -55,10 +54,6 @@ describe.skipIf(!ready)('server concurrent writes', () => {
   const get = (id: string) =>
     request(app, { method: 'GET', url: `/api/servers/${id}`, headers: { cookie } });
 
-  /**
-   * 用一条独立连接持有行锁，让所有写请求都在同一时刻到达锁点：
-   * 没有它，两次请求可能刚好一前一后完成，测试就测不到竞态。
-   */
   async function holdRowLock(id: string): Promise<{
     pid: number;
     release: () => Promise<void>;
@@ -89,10 +84,6 @@ describe.skipIf(!ready)('server concurrent writes', () => {
     }
   }
 
-  /**
-   * 等到两个写请求都停在锁上。第二个请求可能排在第一请求后面而不是直接排在
-   * 持锁连接后面，所以只数「正在等锁且与 servers 相关的会话」，不认具体阻塞者。
-   */
   const waitingOnServerWrites = async (holderPid: number): Promise<number> => {
     const rows = await app.client.unsafe<{ n: number }[]>(
       `select count(*)::int as n from pg_stat_activity
@@ -135,14 +126,12 @@ describe.skipIf(!ready)('server concurrent writes', () => {
 
       const winnerBody = winner.json<Server>();
       const final = (await get(server.id)).json<Server>();
-      // 后到的请求只能看到 409，不能把自己的草稿写进去。
       expect(final.description).toBe(winnerBody.description);
       if (final.kind !== 'stdio') throw new Error('unexpected kind');
       const winnerKey = final.description === 'first' ? 'FIRST' : 'SECOND';
       const loserKey = winnerKey === 'FIRST' ? 'SECOND' : 'FIRST';
       expect(Object.keys(final.env).sort()).toEqual(['TOKEN', winnerKey].sort());
       expect(final.env[loserKey]).toBeUndefined();
-      // 掩码合并仍然读到最新的密钥，而不是某个请求的旧快照。
       expect(final.env.TOKEN).toBe(SECRET_MASK);
     } finally {
       await lock.release().catch(() => undefined);
@@ -161,7 +150,6 @@ describe.skipIf(!ready)('server concurrent writes', () => {
       const res = await patch(server.id, { description, expectedUpdatedAt: expected });
       expect(res.statusCode, res.body).toBe(200);
       const next = res.json<Server>().updatedAt;
-      // 同一毫秒内的连续写入也必须推进版本，否则旧版本号还能再次命中。
       expect(Date.parse(next)).toBeGreaterThan(Date.parse(expected));
       expected = next;
     }
@@ -188,7 +176,6 @@ describe.skipIf(!ready)('server concurrent writes', () => {
 
     const lock = await holdRowLock(server.id);
     try {
-      // 两个请求都不带版本号：它们在锁外读到的都是旧配置。
       const rotate = request(app, {
         method: 'POST',
         url: `/api/servers/${server.id}/rotate-token`,
@@ -199,19 +186,16 @@ describe.skipIf(!ready)('server concurrent writes', () => {
       await lock.release();
 
       const [rotated, patched] = await Promise.all([rotate, edited]);
-      // 失败消息里只有状态码：rotate 的响应体是明文 token。
       expect(rotated.statusCode).toBe(200);
       expect(patched.statusCode, patched.body).toBe(200);
       expect(patched.json<Server>()).toMatchObject({ baseUrl: newBaseUrl });
 
-      // 最终行必须同时包含新地址和新 token：map 结果用布尔值，避免失败时打印 token。
       const final = await app.client.unsafe<{ same: boolean; url: string }[]>(
         "select config->>'mcpToken' = $2 as same, config->>'baseUrl' as url from servers where id = $1",
         [server.id, rotated.json<{ token: string }>().token],
       );
       expect(final[0]).toEqual({ same: true, url: newBaseUrl });
 
-      // 旧 token 必须真的失效，新 token 必须能初始化 MCP 会话。
       const initialize = (token: string) =>
         fetch(`${baseUrl}/mcp/${server.id}`, {
           method: 'POST',

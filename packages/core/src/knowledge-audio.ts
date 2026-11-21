@@ -1,4 +1,3 @@
-/** 知识库音频入口：只认五种格式，格式识别不等于完整解码。 */
 import { fileTypeFromBuffer } from 'file-type';
 import { fail } from './errors.js';
 
@@ -9,7 +8,6 @@ interface KnowledgeAudioInspection {
   mimeType: string;
 }
 
-/** 与 WeKnora 知识文件入口一致；上限取十进制 25 MB，不按 base64 或压缩长度判断。 */
 const MAX_BYTES = 25_000_000;
 
 const FORMATS: Record<
@@ -37,7 +35,6 @@ const DECLARED_MIME_FORMAT = new Map<string, KnowledgeAudioFormat>(
   ),
 );
 
-/** 只有这五种后缀能入库；其余音频后缀仍算“声称是音频”，用于拒绝未知内容。 */
 const SUPPORTED_SUFFIX = new Map<string, KnowledgeAudioFormat>(
   Object.entries(FORMATS).map(([format, entry]) => [entry.suffix, format as KnowledgeAudioFormat]),
 );
@@ -76,7 +73,6 @@ function filenameSuffix(filename: string): string {
   return dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
 }
 
-/** 识别结果只映射到知识入口允许的五种格式；Ogg 音频族共用 audio/ogg。 */
 function detectedFormat(detected: { ext: string; mime: string }): KnowledgeAudioFormat | null {
   if (detected.ext === 'mp3') return 'mp3';
   if (detected.ext === 'wav') return 'wav';
@@ -116,11 +112,9 @@ export async function inspectKnowledgeAudio(input: {
   const overLimit = data.length > MAX_BYTES;
 
   if (data.length === 0) {
-    // 空字节没有魔数可判；只有声明为音频时才是音频入口错误，普通空文件沿用既有解析。
     if (declaredAudio) fail('INVALID_INPUT', '音频文件为空');
     return null;
   }
-  // 声称是音频时先卡住 25 MB；非音频仍走现有 32 MiB 上传限额。
   if (overLimit && declaredAudio) {
     fail('PAYLOAD_TOO_LARGE', `音频文件超过 ${MAX_BYTES} 字节上限`);
   }

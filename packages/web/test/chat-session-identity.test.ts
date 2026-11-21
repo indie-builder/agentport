@@ -88,7 +88,6 @@ describe('chat account ownership', () => {
     await confirmIdentity('business-a');
     seedChatState();
 
-    // 身份尚未确认：不能提前删除 A 的稿子。
     expect(savedDrafts()).toEqual({ '': 'A welcome', 'conversation-a': 'A existing' });
 
     await confirmIdentity('business-b');

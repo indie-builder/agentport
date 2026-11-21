@@ -23,7 +23,6 @@ import { createIsolatedDatabase } from './isolated-db.js';
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
 const redisUrl = process.env.REDIS_URL ?? '';
-// 独立键前缀：测试 worker 绝不消费同机真实知识队列。
 const prefix = `knowledge-queue-test-${randomUUID().slice(0, 8)}`;
 const quiet = {
   info: () => undefined,
@@ -107,7 +106,6 @@ async function seedJob(): Promise<{ jobId: string; documentId: string; baseId: s
   return { jobId: job.id, documentId, baseId: base.id };
 }
 
-/** 同步三表终态测试：真实来源 + 启用范围 + createSyncJob 的 queued pair。 */
 async function seedSyncPair() {
   const { baseId } = await seedJob();
   const { source } = await repo.knowledge.createSource(db, {
@@ -126,7 +124,6 @@ async function seedSyncPair() {
   return { sourceId: source.id, job: created.job, run: created.run };
 }
 
-/** 只替换 connector 与队列前缀不同；认领、取消、超时与收尾全部走真实 worker。 */
 function startKnowledgeSyncWorker(connector: KnowledgeConnector) {
   return startKnowledgeWorker({
     db,
@@ -189,7 +186,6 @@ describe('knowledge job claim', () => {
 
 describe('knowledge worker queue', () => {
   it('runs an enqueued job end to end on the separate queue', async () => {
-    // 用真实 HTTP 上游替代 embedding 服务；解析通过注入 deps 走桩，队列/认领/收尾全走真实路径。
     const server = createServer((req, res) => {
       let raw = '';
       req.on('data', (chunk: Buffer) => {
@@ -269,7 +265,6 @@ describe('knowledge worker queue', () => {
   });
 
   it('retries a transient embedding failure through BullMQ and keeps the old version until the rebuild succeeds', async () => {
-    // 首个任务内 3 次请求尝试全部返回 503 才交给 BullMQ，重投后恢复；只替换上游，队列/认领/重试全走真实路径。
     let embeddingFailuresRemaining = 0;
     let embeddingCalls = 0;
     const server = createServer((req, res) => {
@@ -281,7 +276,6 @@ describe('knowledge worker queue', () => {
         embeddingCalls += 1;
         if (embeddingFailuresRemaining > 0) {
           embeddingFailuresRemaining -= 1;
-          // 留出可观测的 running 窗口，避免状态采样漏掉首次尝试。
           setTimeout(() => {
             res.writeHead(503, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ error: 'temporarily down' }));
@@ -350,7 +344,6 @@ describe('knowledge worker queue', () => {
       return row;
     };
     try {
-      // 先落一个真实旧版本，重建失败时它必须仍是 currentVersion。
       await queue.add('knowledge', { jobId: ingestJobId }, knowledgeEnqueueOptions(ingestJobId));
       expect((await waitForStatus(ingestJobId, ['succeeded', 'failed']))?.status).toBe('succeeded');
       const oldVersionId = (await repo.knowledge.getDocument(db, documentId))?.currentVersionId;
@@ -417,10 +410,8 @@ describe('knowledge worker queue', () => {
         row = await repo.knowledge.getJob(db, reindex.id);
       }
       if (row && row.status !== last) statuses.push(row.status);
-      // DB 已是 succeeded 时事件可能还没到；等它落地再断言原计数。
       if (row?.status === 'succeeded') await completedEvent;
 
-      // BullMQ 真实重投：两次 active、一次推迟重试、一次完成，DB 认领两次并最终成功。
       expect(row?.status).toBe('succeeded');
       expect(row?.attempts).toBeGreaterThanOrEqual(2);
       expect(active).toBe(2);
@@ -430,11 +421,9 @@ describe('knowledge worker queue', () => {
       expect(retryState).toBe('delayed');
       expect(retryReason).toContain('HTTP 503');
       expect(statuses).toContain('running');
-      // queued 出现两次：入队初始态与第一次失败后的重试态。
       expect(statuses.filter((status) => status === 'queued')).toHaveLength(2);
       expect(statuses.at(-1)).toBe('succeeded');
       expect(oldVersionHeldDuringRetry).toBe(true);
-      // 首个任务内三次 503 + 重投后一次成功，没有把可重试错误吞成永久失败。
       expect(embeddingCalls).toBe(4);
 
       const current = await repo.knowledge.getDocument(db, documentId);
@@ -454,7 +443,6 @@ describe('knowledge worker queue', () => {
   }, 30_000);
 
   it('keeps a sync run running across a retryable embedding failure and only succeeds with the cursor', async () => {
-    // 首个任务内 3 次请求尝试全部返回 503 才交给 BullMQ；退避期间 run 不能提前落 failed/cancelled，成功时才推进游标。
     let embeddingFailuresRemaining = 0;
     let embeddingCalls = 0;
     const server = createServer((req, res) => {
@@ -524,7 +512,6 @@ describe('knowledge worker queue', () => {
           checkpoint: { complete: boolean },
         ) => Promise<void>;
       }) {
-        // 只有完整枚举后的成功收尾才允许推进游标；失败重试仍从旧游标重读。
         await onCheckpoint({ page: 1 }, { complete: true });
         yield {
           sourceId: 'feed-item-1',
@@ -576,7 +563,6 @@ describe('knowledge worker queue', () => {
       expect(await queueJob?.getState()).toBe('delayed');
       expect(queueJob?.failedReason).toContain('HTTP 503');
 
-      // 重试等待期间：sync run 仍 running、未结束，来源游标还没有推进。
       const during = (await repo.knowledge.listSyncRuns(db, source.id)).items.find(
         (item) => item.id === created.run.id,
       );
@@ -799,7 +785,6 @@ describe('knowledge worker queue', () => {
     const redis = new RedisClient(redisUrl);
     try {
       await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
-      // 检查点落库后才发 cancel 键：确认取消发生在真实执行中，不是队列前。
       await checkpointedPromise;
       await redis.set(knowledgeCancelKey(job.id), '1', 'EX', 60);
 
@@ -946,7 +931,6 @@ describe('knowledge worker queue', () => {
       }
       expect(job?.status).toBe('failed');
       expect(job?.error).toContain('auth');
-      // auth 不重试：重试计数停在 1，而不是跑到 attempts=3。
       expect(job?.attempts).toBe(1);
     } finally {
       await queue.close();
@@ -971,7 +955,6 @@ describe('knowledge worker queue', () => {
       });
       return seeded;
     };
-    // 不注入 parse：走真实适配器；DOCLING_URL 为空时 PDF 明确失败，不是假成功。
     const worker = await startKnowledgeWorker({
       db,
       logger: quiet,
@@ -1006,7 +989,6 @@ describe('knowledge worker queue', () => {
       expect(failed?.status).toBe('failed');
       expect(failed?.error).toContain('Docling');
 
-      // worker 仍在消费：第二个任务同样明确失败，而不是进程挂掉后永远 queued。
       const second = await seedPdf();
       await queue.add(
         'knowledge',
@@ -1077,7 +1059,6 @@ describe('knowledge worker queue', () => {
       decrypt: () => ({}),
       wikiModel: 'wiki-test-model',
       connectors: {},
-      // 第一个任务保存草稿；第二个 SDK 报成功却不保存。
       queryFn: (() => {
         let call = 0;
         return (params) => {
@@ -1124,7 +1105,6 @@ describe('knowledge worker queue', () => {
         rows = await Promise.all(ids.map((id) => repo.knowledge.getJob(db, id)));
       }
       expect(rows.map((row) => row?.status).sort()).toEqual(['failed', 'succeeded']);
-      // 成功分支必须真的通过 save tool 落库，空来源的旧写法现在会被拒绝。
       expect(saveResult?.isError).toBeFalsy();
       expect(saveResult?.content?.[0]?.text).toContain('"saved":true');
       const failed = rows.find((row) => row?.status === 'failed');
@@ -1137,7 +1117,6 @@ describe('knowledge worker queue', () => {
     }
   });
   it('aborts active jobs on close and leaves them retryable', async () => {
-    // 永不响应的 embedding 上游：只有 abort 才能结束这个请求。
     let arrived!: () => void;
     const requestInFlight = new Promise<void>((resolve) => {
       arrived = resolve;
@@ -1207,7 +1186,6 @@ describe('knowledge worker queue', () => {
         row = await repo.knowledge.getJob(db, jobId);
       }
       expect(row?.status).toBe('running');
-      // DB 认领发生在发请求之前；必须等真实上游请求挂起，close 才是在中断执行中的任务。
       const inFlight = await Promise.race([
         requestInFlight.then(() => true),
         new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000).unref()),
@@ -1221,13 +1199,11 @@ describe('knowledge worker queue', () => {
         new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5_000)),
       ]);
       if (outcome === 'timeout') {
-        // 失败路径清理：断开挂起的上游，让当前实现也能结束，不把 hook 拖到超时。
         hanging.closeAllConnections();
         await closing;
       }
       expect(outcome).toBe('closed');
       expect(Date.now() - startedAt).toBeLessThan(5_000);
-      // abort 必须真正断开在途的上游请求，而不是让它继续挂着。
       const upstreamOutcome = await Promise.race([
         upstreamClose.then(() => 'closed' as const),
         new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 2_000).unref()),
@@ -1235,12 +1211,10 @@ describe('knowledge worker queue', () => {
       expect(upstreamOutcome).toBe('closed');
       expect(upstream).toEqual({ requestClosed: true, responseClosed: true, responseEnded: false });
 
-      // SIGTERM 中断不是用户取消：任务回到 queued，等重启后重试，而不是标记成功/取消。
       expect((await repo.knowledge.getJob(db, jobId))?.status).toBe('queued');
       const retryState = await (await queue.getJob(jobId))?.getState();
       expect(['delayed', 'waiting']).toContain(retryState);
 
-      // close 之后不再领取新任务。
       const next = await seedJob();
       await queue.add('knowledge', { jobId: next.jobId }, knowledgeEnqueueOptions(next.jobId));
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -1254,7 +1228,6 @@ describe('knowledge worker queue', () => {
   });
 });
 
-// 对账扫描整表，必须独占随机库，不能碰共享库中其他套件的 queued/running 行。
 describe.skipIf(!process.env.DATABASE_URL)('knowledge redelivery after a stalled job', () => {
   const redeliveryPrefix = `knowledge-redelivery-${randomUUID().slice(0, 8)}`;
   let isolated: Awaited<ReturnType<typeof createIsolatedDatabase>> = null;
@@ -1307,7 +1280,6 @@ describe.skipIf(!process.env.DATABASE_URL)('knowledge redelivery after a stalled
   };
 
   beforeAll(async () => {
-    // 库只在套件真正执行时创建：被 -t 过滤掉时不会留下空库。
     isolated = await createIsolatedDatabase('worker_knowledge_redelivery');
     if (!isolated) return;
     dbHandle = createDb(isolated.url);
@@ -1345,26 +1317,22 @@ describe.skipIf(!process.env.DATABASE_URL)('knowledge redelivery after a stalled
       sourceId: null,
       payload: { type: 'cleanup' },
     });
-    // 模拟已认领后崩溃的 worker：行停在 running，BullMQ 随后把同一个 job 重投。
     const claimed = await repo.knowledge.claimJob(db, job.id);
     expect(claimed).toMatchObject({ status: 'running', attempts: 1 });
 
     worker = await startWorker();
     await queue.add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
 
-    // 认领返回空但行仍是 running：必须延后重投，不能被记 completed。
     expect(await waitForState(job.id, ['delayed', 'completed', 'failed'])).toBe('delayed');
     expect((await repo.knowledge.getJob(db, job.id))?.status).toBe('running');
     const pending = await queue.getJob(job.id);
     expect(pending?.attemptsMade).toBe(0);
 
-    // delayed job 不占 active，关闭不必等它。
     const closeStarted = Date.now();
     await worker.close();
     worker = undefined;
     expect(Date.now() - closeStarted).toBeLessThan(5_000);
 
-    // 既有对账把超过宽限的 running 行退回 queued，delayed job 仍在队列里。
     await db
       .update(schema.knowledgeJobs)
       .set({ startedAt: new Date(Date.now() - 10 * 60_000) })

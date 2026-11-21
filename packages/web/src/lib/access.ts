@@ -47,7 +47,6 @@ export function authenticated(me: AuthMe | undefined): AuthenticatedMe | null {
   return me?.authenticated ? me : null;
 }
 
-/** 同一 permissionId 的多角色授权只合并范围；判定仍以单条 grant 为准。 */
 function grantScopes(me: AuthMe | undefined, permissionId: PermissionId): readonly AccessScope[] {
   const user = authenticated(me);
   if (!user) return [];
@@ -194,7 +193,6 @@ const pages = {
   },
 } as const satisfies Record<string, MenuItem>;
 
-/** 工作区入口；同一顺序也用于登录后的首页选择。 */
 export const WORK_MENU: readonly MenuItem[] = [
   pages.agents,
   pages.chat,
@@ -202,10 +200,6 @@ export const WORK_MENU: readonly MenuItem[] = [
   pages.schedules,
 ];
 
-/**
- * 个人模块：资料与安全对所有已登录用户开放，其余沿用原能力叶且数据固定本人。
- * 分组只表达目的地之间的任务关系，不新增概况页或数据。
- */
 export const PERSONAL_NAV_GROUPS: readonly {
   label: string;
   items: readonly MenuItem[];
@@ -325,8 +319,6 @@ export function requiredPermissions(routeId: string | undefined): readonly Permi
   const permissions = routeId ? ROUTE_META[routeId]?.permissionIds : undefined;
   return permissions?.length ? permissions : null;
 }
-
-// ---- 角色矩阵：功能树 -------------------------------------------------------
 
 export type PermissionTreeLeaf = PermissionDefinition;
 

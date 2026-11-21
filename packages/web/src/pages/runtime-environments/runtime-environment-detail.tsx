@@ -140,7 +140,6 @@ export function RuntimeEnvironmentDetailPage() {
   const { register, reset, handleSubmit, formState } = form;
   const nameError = formState.errors.name?.message;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  // 删除成功后实体已不存在，草稿无需再保护；用状态确保重渲染后 guard 立即解除。
   const [leaving, setLeaving] = useState(false);
   const logTriggerRef = useRef<HTMLElement | null>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement>(null);
@@ -150,7 +149,6 @@ export function RuntimeEnvironmentDetailPage() {
   useEffect(() => {
     const data = environment.data;
     if (!data) return;
-    // 同实体刷新时编辑中的草稿不推进基线；切换实体则强制重置到新实体值。
     if (baselineIdRef.current === data.id && readIsDirty()) return;
     reset({ name: data.name, dockerfile: data.dockerfile });
     baselineIdRef.current = data.id;
@@ -175,7 +173,6 @@ export function RuntimeEnvironmentDetailPage() {
   const dirty = !leaving && formState.isDirty;
   const pending = update.isPending || remove.isPending;
   const blocker = useFormBlocker(dirty, pending, { ignoreSamePath: true });
-  // 成功回调读不到拦截发生后的 blocker 实例：用 ref 拿最新一次再结算。
   const blockerRef = useRef(blocker);
   useEffect(() => {
     blockerRef.current = blocker;
@@ -253,11 +250,9 @@ export function RuntimeEnvironmentDetailPage() {
 
   const deleteEnvironment = async (): Promise<void> => {
     await remove.mutateAsync(current.id);
-    // 删除成功后实体已不存在；先结算期间被拦下的离开，再解除草稿保护返回列表。
     blockerRef.current.reset?.();
     setLeaving(true);
     toastSuccess('已删除运行环境');
-    // 忽略 blocker 的旧快照，避免刚解除的草稿拦截抢先拦住这次返回。
     void navigate({ href: backTo, ignoreBlocker: true });
   };
 

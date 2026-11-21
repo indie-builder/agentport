@@ -49,14 +49,12 @@ function SharePage() {
   return <ShareView shareId={shareId} token={readShareToken()} />;
 }
 
-/** 公开分享页：不经过应用外壳、不读管理会话，只凭 URL 片段里的 token 访问。 */
 export function ShareView({ shareId, token }: { shareId: string; token: string | null }) {
   const [state, setState] = useState<LoadState>(
     token === null ? { status: 'invalid' } : { status: 'loading' },
   );
   const [attempt, setAttempt] = useState(0);
 
-  // 先挂上 no-referrer，再发第一次公开请求，避免分享地址出现在请求来源里。
   useEffect(() => {
     const meta = document.createElement('meta');
     meta.name = 'referrer';

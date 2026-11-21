@@ -16,7 +16,6 @@ export function parseCursor<T>(
   schema: z.ZodType<T>,
   cursor: Record<string, unknown> | undefined,
 ): T | undefined {
-  // The DB column defaults to {}; that is "first sync", not a malformed cursor.
   if (cursor === undefined || Object.keys(cursor).length === 0) return undefined;
   const parsed = schema.safeParse(cursor);
   if (!parsed.success) {
@@ -55,7 +54,6 @@ export function signalOption(signal: AbortSignal | undefined): { signal?: AbortS
   return signal === undefined ? {} : { signal };
 }
 
-/** Human-facing link: encode each segment (`#`, `?`, spaces) but keep `/` as hierarchy. */
 export function encodePathSegments(value: string): string {
   return value.split('/').map(encodeURIComponent).join('/');
 }
@@ -64,7 +62,6 @@ export function titleWithExtension(name: string, extension: string): string {
   return extensionName(name) === extension.toLowerCase() ? name : `${name}.${extension}`;
 }
 
-/** 分页上限/空页仍未证明终页：单项失败，不能把截断内容当完整文档发布。 */
 export class SourceTruncatedError extends Error {
   constructor(message: string) {
     super(message);

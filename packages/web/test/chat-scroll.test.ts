@@ -57,7 +57,6 @@ function detail(messages: ConversationMessage[]): ConversationDetail {
   };
 }
 
-/** 首屏与更早一页；最后一条是用户消息，覆盖「末尾用户项」场景。 */
 const newest = [
   message('m1', 'user', '旧问题'),
   message('m2', 'assistant', '旧回复'),
@@ -137,7 +136,6 @@ test('补旧重新解析同一末尾用户消息时不回到底部，显式发�
   await render(loaded);
   expect(scrollToEnd).not.toHaveBeenCalled();
 
-  // 补入更早一页：末尾用户消息 id / messageId 不变，只是对象引用被重建。
   const merged = mergeOlderHistory(snapshot, olderPage, loaded);
   expect(merged).not.toBeNull();
   const repaired = merged?.items ?? [];
@@ -146,16 +144,13 @@ test('补旧重新解析同一末尾用户消息时不回到底部，显式发�
   await render(repaired);
   expect(scrollToEnd).not.toHaveBeenCalled();
 
-  // 向上阅读时追加助手增量：末尾不是用户项，不抢滚动。
   await render([...repaired, { kind: 'text', text: '流式增量', id: 'live:0' }]);
   expect(scrollToEnd).not.toHaveBeenCalled();
 
-  // 显式发送产生没有持久 id 的新用户项：回到底部一次。
   const sent = [...repaired, { kind: 'text' as const, text: '回复', id: 'live:0' }];
   await render([...sent, { kind: 'user', text: '新问题' }]);
   expect(scrollToEnd).toHaveBeenCalledTimes(1);
 
-  // 同一发送后续的流式增量不重复回底。
   await render([
     ...sent,
     { kind: 'user', text: '新问题' },

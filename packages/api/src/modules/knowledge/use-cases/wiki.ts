@@ -8,8 +8,6 @@ import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './sha
 
 type WikiPageRow = typeof schema.knowledgeWikiPages.$inferSelect;
 
-// ---- wiki -----------------------------------------------------------------
-
 function toWikiPage(row: WikiPageRow) {
   return {
     id: row.id,

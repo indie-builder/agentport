@@ -7,11 +7,6 @@ import * as chat from '../src/repo/chat.js';
 import { inheritApprovals } from '../src/repo/runs.js';
 import { agents, approvalRequests, schema, servers } from '../src/schema.js';
 
-/**
- * 继承查询把「找上一轮 run」和「读它的已批准工具」合成一条语句：
- * 无前轮/前轮无批准 1 SELECT，有批准再加 1 INSERT。
- * 事务走独立连接，client.unsafe 探针看不到，必须用 Drizzle logger 计数。
- */
 const { client } = createDb(process.env.DATABASE_URL ?? '');
 const statements: string[] = [];
 const db = drizzle(client, { schema, logger: { logQuery: (query) => statements.push(query) } });
@@ -61,7 +56,6 @@ async function newConversation(agentId: string): Promise<string> {
 }
 
 async function newRun(conversationId: string, agentId: string): Promise<string> {
-  // TypeID 时间戳是毫秒级，同一毫秒内的 id 顺序随机；这里保证上一轮/本轮的先后稳定。
   await new Promise((resolve) => setTimeout(resolve, 2));
   const id = newId('run');
   await chat.createRun(db, {
@@ -84,7 +78,6 @@ async function approve(
     .values({ id: newId('approval'), runId, serverId, toolName, approvedAt });
 }
 
-/** seed 不计入语句数：只清空并统计目标调用。 */
 async function measured<T>(call: () => Promise<T>) {
   statements.length = 0;
   const result = await call();

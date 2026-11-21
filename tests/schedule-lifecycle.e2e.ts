@@ -69,7 +69,6 @@ async function waitFor<T>(
   throw new Error(`等待超时：${label}`);
 }
 
-/** 用 Intl 独立算出目标时区“当前+2分钟”的本地时/分，以及该本地时刻对应的 UTC 瞬时。 */
 function scheduleCronFor(timeZone: string, minutesAhead = 2) {
   const expected = new Date(Date.now() + minutesAhead * 60_000);
   expected.setUTCSeconds(0, 0);

@@ -199,7 +199,6 @@ async function type(text: string) {
 }
 
 async function openWorkspace() {
-  // 深链选中成果时面板已展开；只在仍是收起态时点开关。
   if (host.querySelector('button[aria-label="隐藏会话成果"]')) return;
   const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="打开会话成果"]');
   if (!toggle) throw new Error('Missing workspace toggle');
@@ -224,7 +223,6 @@ async function selectFile(path: string) {
 
 let objectUrlSeed = 0;
 
-/** 每个 blob 一个稳定地址；测试据此证明面板显示的是哪一次请求的字节。 */
 function stubObjectUrls() {
   const urls = new Map<Blob, string>();
   const create = vi.fn((blob: Blob) => {
@@ -380,7 +378,6 @@ describe('output preview and versions', () => {
       '/chat?agent=agent-a&conversation=conversation-a&outputRun=run-1&outputPath=report.md&outputMode=source',
     );
     await openWorkspace();
-    // 正文类型来自列表元信息：列表就绪后才会发起正文请求。
     await flush();
     expect(api.outputContent).toHaveBeenCalledWith(
       'conversation-a',
@@ -388,7 +385,6 @@ describe('output preview and versions', () => {
       'report.md',
       expect.any(AbortSignal),
     );
-    // 深链直接展开工作区，选中版本来自 URL 而不是列表最新一版。
     expect(host.querySelector('button[aria-label="隐藏会话成果"]')).not.toBeNull();
     const pre = workspace().querySelector('pre');
     expect(pre?.textContent).toContain('# Older report');
@@ -405,7 +401,6 @@ describe('output preview and versions', () => {
   it('copies the selected version content and keeps downloading the same file', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
-    // 两个版本的正文都已缓存：切版本不卸载工具条，能验证复制反馈随正文重置。
     client.setQueryData(['conversation-output-content', 'conversation-a', 'run-1', 'report.md'], {
       file: reportOlder,
       content: contents['run-1:report.md'],
@@ -421,7 +416,6 @@ describe('output preview and versions', () => {
     expect(writeText).toHaveBeenLastCalledWith('# Latest report\n\nbody');
 
     await pickVersion(reportOlder.createdAt);
-    // 切到旧版后先看到可复制的动作，不能沿用上一版的「已复制」。
     const copied = workspace().querySelector<HTMLButtonElement>(
       'button[aria-label="复制 report.md"]',
     );
@@ -529,7 +523,6 @@ describe('output preview and versions', () => {
     const labels = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].map(
       (item) => item.textContent?.trim(),
     );
-    // 追加更旧版本只应改变新出现项的位置名，已有两项仍是「最新」「上一版」。
     expect(labels).toEqual([
       `最新 · ${formatDateTime(reportLatest.createdAt)}`,
       `上一版 · ${formatDateTime(reportOlder.createdAt)}`,
@@ -588,7 +581,6 @@ describe('output preview and versions', () => {
 
     expect(router.state.location.search).toMatchObject({ outputRun: 'run-1' });
     expect(workspace().textContent).toContain('Older report');
-    // 列表刷新不抢用户已选的旧版；点同一行才切到最新一版。
     await selectFile('report.md');
     expect(router.state.location.search).toMatchObject({ outputRun: 'run-3' });
     expect(workspace().textContent).toContain('Newest report');
@@ -718,7 +710,6 @@ describe('image outputs', () => {
     const image = previewImage();
     expect(image.getAttribute('src')).toBe(urls.get(blob));
     expect(image.getAttribute('alt')).toBe('photo.png');
-    // decode 之前只是占位，不能把 DOM 里存在 img 当成图片已可用。
     expect(image.className).toContain('hidden');
     await decodeImage(image);
     const shown = previewImage();
@@ -761,7 +752,6 @@ describe('image outputs', () => {
     expect(first.getAttribute('src')).toBe(urls.get(latestBlob));
 
     await pickVersion(older.createdAt);
-    // 旧版字节还没回来：不能继续显示上一版的图片。
     expect(workspace().querySelector('img')).toBeNull();
     expect(api.outputBlob).toHaveBeenLastCalledWith(
       'conversation-a',
@@ -823,7 +813,6 @@ describe('image outputs', () => {
     await act(async () => trigger.click());
     await flush();
 
-    // 两版同一秒相隔 30ms，时间文本相同；位置标签必须让可访问名唯一可区分。
     const items = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
     const labels = items.map((item) => item.textContent?.trim());
     expect(labels).toEqual([
@@ -835,7 +824,6 @@ describe('image outputs', () => {
     expect(checked).toHaveLength(1);
     expect(checked[0]?.textContent?.trim()).toBe(labels[0]);
 
-    // menuitemradio 的可访问名来自内容；按「上一版」选择，不依赖列表下标。
     const olderItem = items.find((item) => item.textContent?.trim().startsWith('上一版'));
     if (!olderItem) throw new Error('Missing older version item');
     await act(async () => olderItem.click());
@@ -906,7 +894,6 @@ describe('image outputs', () => {
       'photo.png',
       expect.any(AbortSignal),
     );
-    // 没有列表元信息时先拿真实类型，绝不先猜成文本去请求正文。
     expect(api.outputContent).not.toHaveBeenCalled();
     expect(vi.mocked(api.outputFile).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(api.outputBlob).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
@@ -1718,7 +1705,6 @@ describe('published outputs on message turns', () => {
     const failed = turnWithText('first prompt').querySelector('[aria-label="本轮成果"]');
     expect(failed?.textContent).toContain('failed.md');
     expect(failed?.textContent).toContain('失败');
-    // 用户轮已就地显示成果，后续没有助手回复的那一轮不能重复出现。
     expect(turnWithText('second prompt').querySelector('[aria-label="本轮成果"]')).toBeNull();
     expect(
       turnWithText('second reply').querySelector('[aria-label="本轮成果"]')?.textContent,
@@ -1818,7 +1804,6 @@ describe('published outputs on message turns', () => {
     });
     await mount();
 
-    // 用户轮后面还有工具轮，成果只能落在工具轮；结果消息锚点必须能命中，且只出现一次。
     const groups = host.querySelectorAll('[aria-label="本轮成果"]');
     expect(groups).toHaveLength(1);
     const toolTurn = host.querySelector<HTMLElement>('[data-message-id="branch-use:0"]');
@@ -1888,7 +1873,6 @@ describe('published outputs on message turns', () => {
     });
     await mount();
 
-    // run_id 可用时按 run 归属，结果锚点不会再把同一份文件加一遍。
     expect(host.querySelectorAll('[aria-label="本轮成果"]')).toHaveLength(1);
     const toolTurn = host.querySelector<HTMLElement>('[data-message-id="use-run-1:0"]');
     if (!toolTurn) throw new Error('Missing tool turn');
@@ -1926,7 +1910,6 @@ describe('published outputs on message turns', () => {
     });
     await mount();
 
-    // 两个助手轮各一组，用户轮不重复显示同一份成果。
     expect(host.querySelectorAll('[aria-label="本轮成果"]')).toHaveLength(2);
     for (const text of ['first prompt', 'second prompt']) {
       expect(turnWithText(text).querySelector('[aria-label="本轮成果"]')).toBeNull();
@@ -1966,7 +1949,6 @@ describe('published outputs on message turns', () => {
       viewportWidth = width;
       vi.mocked(api.conversation).mockResolvedValue(multiTurnHistory());
       await mount();
-      // 收起状态下不预取正文：只有用户真的选中成果才请求。
       expect(host.querySelector('button[aria-label="打开会话成果"]')).not.toBeNull();
       expect(api.outputContent).not.toHaveBeenCalled();
 
@@ -1975,7 +1957,6 @@ describe('published outputs on message turns', () => {
 
       expect(host.querySelector('button[aria-label="隐藏会话成果"]')).not.toBeNull();
       expect(document.querySelector('[role="dialog"]') !== null).toBe(width < 1280);
-      // 宽屏内联面板展开后不再 inert，正文对键盘与读屏都可见。
       expect(workspace().closest('[inert]')).toBeNull();
       expect(workspace().textContent).toContain('Older report');
     },
@@ -2035,7 +2016,6 @@ describe('published outputs on message turns', () => {
     const failed = firstTurn.querySelector('[aria-label="本轮成果"]');
     expect(failed?.textContent).toContain('failed.md');
     expect(failed?.textContent).toContain('失败');
-    // 只在没有助手行的那一轮补成果，避免同一份文件在相邻轮重复出现。
     expect(turnWithText('second prompt').querySelector('[aria-label="本轮成果"]')).toBeNull();
     expect(
       turnWithText('second reply').querySelector('[aria-label="本轮成果"]')?.textContent,
@@ -2129,7 +2109,6 @@ describe('default expert selection', () => {
     expect(panel.textContent).toContain('开始对话后，记录会出现在这里。');
     expect(api.conversations).toHaveBeenCalledWith(assistant.id, expect.any(AbortSignal));
 
-    // 专家选择随历史展开进入面板头部；历史仍显示真实空态。
     const picker = panel.querySelector<HTMLButtonElement>('button[aria-label="召唤专家"]');
     if (!picker) throw new Error('Missing history header expert picker');
     expect(host.querySelectorAll('button[aria-label="召唤专家"]')).toHaveLength(1);
@@ -2320,7 +2299,6 @@ describe('output refresh and conversation isolation', () => {
         search: { agent: 'agent-a', conversation: 'conversation-b' },
       });
     });
-    // 整包并行时固定 tick 可能早于会话成果查询落库，等真实渲染再断言。
     await act(async () => {
       await vi.waitFor(() => expect(workspace().textContent).toContain('other.md'));
     });

@@ -106,7 +106,6 @@ describe('PluginDocument', () => {
     expect(body().textContent).toContain('Alpha 正文');
     expect(body().textContent).not.toContain('allowed-tools');
     expect(body().textContent).not.toContain('name: Alpha Skill');
-    // HTML 只作为字面量，不生成可执行节点。
     expect(body().querySelector('script')).toBeNull();
     expect(body().textContent).toContain('<script>alert(1)</script>');
   });
@@ -116,7 +115,6 @@ describe('PluginDocument', () => {
 
     expect(body().textContent).toContain('name: Alpha Skill');
     expect(body().textContent).toContain('allowed-tools: Read');
-    // 源码模式不做 Markdown 渲染：正文标题保持字面量而不是标题元素。
     expect(body().querySelector('h1')).toBeNull();
     expect(body().textContent).toContain('# Alpha 正文');
   });
@@ -134,12 +132,10 @@ describe('PluginDocument', () => {
       expect(onSelectFile).toHaveBeenLastCalledWith(path);
     };
 
-    // `./`、裸路径按文件所在目录解析；`../` 落在 skills/ 而不是 skills/alpha/；`/` 按插件根。
     await open('指南', 'skills/alpha/references/guide.md');
     await open('裸路径', 'skills/alpha/references/bare.md');
     await open('上级', 'skills/shared.md');
     await open('根目录', 'README.md');
-    // 引用式链接按 definition 解析后与行内链接同规则，identifier 大小写不敏感。
     await open('引用指南', 'skills/alpha/references/guide.md');
     await open('引用裸路径', 'skills/alpha/references/bare.md');
     await open('引用上级', 'skills/shared.md');
@@ -148,7 +144,6 @@ describe('PluginDocument', () => {
     await open('折叠引用', 'skills/alpha/references/guide.md');
     await open('快捷引用', 'README.md');
 
-    // 不存在的目标保持文字，不变成指向应用路由的链接。伪装 token 也不可点。
     expect(button('缺失')).toBeUndefined();
     expect(button('引用缺失')).toBeUndefined();
     expect(button('引用脚本')).toBeUndefined();
@@ -161,14 +156,11 @@ describe('PluginDocument', () => {
     expect(body().querySelector('a[href^="javascript"]')).toBeNull();
     expect(body().querySelector('a[href^="skills/"]')).toBeNull();
     expect(body().querySelector('a[href="/README.md"]')).toBeNull();
-    // 无 definition 的引用按字面输出，原样保留方括号。
     expect(body().textContent).toContain('[未定义引用][unknown]');
 
-    // 外部链接仍以外链打开；协议相对地址保留为外链而不是本地跳转。
     expect(body().querySelector('a[href="https://example.com/"]')).not.toBeNull();
     expect(body().querySelector('a[href="https://example.com/doc"]')).not.toBeNull();
     expect(body().querySelector('a[href="mailto:dev@example.com"]')).not.toBeNull();
-    // 页内 fragment 合法，且不在新标签页打开。
     const anchor = body().querySelector('a[href="#alpha"]');
     expect(anchor).not.toBeNull();
     expect(anchor?.getAttribute('target')).toBeNull();
@@ -193,7 +185,6 @@ describe('PluginDocument', () => {
     };
 
     await open(skillFile, 'skills/alpha/references/guide.md');
-    // 同一解析器缓存下换文件，链接必须按新的 from 目录解析。
     await open(beta, 'skills/beta/references/guide.md');
   });
 

@@ -35,8 +35,6 @@ import {
   withItemContext,
 } from './shared.js';
 
-// ─── Table ───────────────────────────────────────────────────────────────────
-
 type ColType = 'string' | 'number' | 'action';
 
 export function TableRenderer({ props, renderNode }: RenderProps<{ columns: unknown[] }>) {
@@ -55,7 +53,6 @@ export function TableRenderer({ props, renderNode }: RenderProps<{ columns: unkn
         <TableRow>
           {columns.map((column) => {
             return (
-              // 列名即列身份；模型保证同一张表里的表头不同。
               <TableHead
                 key={column.label}
                 className={cn(
@@ -79,7 +76,6 @@ export function TableRenderer({ props, renderNode }: RenderProps<{ columns: unkn
                 <TableCell
                   // biome-ignore lint/suspicious/noArrayIndexKey: 单元格位置即身份
                   key={columnIndex}
-                  // §8：数字列右对齐 + 等宽且不折行；其余列可换行，长词才断（不逐字拆短值）。
                   className={cn(
                     column.type === 'number'
                       ? 'text-right font-mono tabular-nums whitespace-nowrap'
@@ -99,12 +95,9 @@ export function TableRenderer({ props, renderNode }: RenderProps<{ columns: unkn
   );
 }
 
-/** 虚拟组件：`Col` 的数据由 `Table` 读取；单独出现时不渲染。 */
 export function ColRenderer() {
   return null;
 }
-
-// ─── EditableTable ───────────────────────────────────────────────────────────
 
 type EditableColumn = {
   type: 'text' | 'number' | 'date-single' | 'select' | 'url';
@@ -116,7 +109,6 @@ type EditableColumn = {
 
 type EditableRow = { id: string; values: Array<string | number> };
 
-/** 编辑草稿：首次编辑时从当前来源冻结列顺序、单元格值与 baseline，来源更新不再覆盖。 */
 type EditableDraft = {
   tableName: string;
   keys: string[];
@@ -225,7 +217,6 @@ export function EditableTableRenderer({
   const stored = getFieldValue(tableName, tableName) as EditableRow[] | undefined;
   const source = stored ?? props.data ?? [];
   const [draft, setDraft] = useState<EditableDraft | null>(null);
-  // 同一渲染节点换成另一张表：草稿属于旧表，渲染期同步丢弃，避免旧值显示或被存进新表。
   if (draft !== null && draft.tableName !== tableName) setDraft(null);
   const activeDraft = draft?.tableName === tableName ? draft : null;
 
@@ -352,13 +343,10 @@ export function EditableTableRenderer({
   );
 }
 
-// ─── Metric indicators ───────────────────────────────────────────────────────
-
 type Trend = { direction: 'up' | 'down'; value: number };
 
 function TrendLabel({ trend }: { trend?: Trend | undefined }) {
   if (!trend) return null;
-  // 上升不必然是好事（如流失率），所以趋势只用中性色 + 箭头，不借状态色。
   return (
     <span className="font-mono text-xs tabular-nums text-muted-foreground">
       {trend.direction === 'up' ? '↑' : '↓'} {Math.abs(trend.value)}%
@@ -404,9 +392,6 @@ export function MetricIndicatorWithStrikethroughRenderer({
   );
 }
 
-// ─── Card blocks ─────────────────────────────────────────────────────────────
-
-/** 卡片块共享的点击句柄：把点中的卡片信息附加到块级动作上。 */
 function useBlockAction(action: unknown) {
   const trigger = useTriggerAction();
   const streaming = useIsStreaming();
@@ -506,7 +491,6 @@ export function OverviewCardBlockRenderer({
             }
           >
             {renderNode(itemProps?.top)}
-            {/* bottom 是元素节点（MetricIndicatorInline），必须交给渲染器，不能读字段。 */}
             {itemProps?.bottom ? (
               <div className="mt-auto min-w-0">{renderNode(itemProps.bottom)}</div>
             ) : null}

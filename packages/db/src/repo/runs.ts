@@ -61,7 +61,6 @@ export interface RunDetailRow extends RunListItem {
   initiatedBy: string | null;
   sessionId: string | null;
   sandboxId: string | null;
-  /** 容器实际使用的身份；queued 尚未创建容器时为 null。 */
   runtimeEnvironment: ResolvedRuntimeEnvironment | null;
 }
 
@@ -73,20 +72,12 @@ export type RunStep =
       at: string;
       name: string | null;
       toolUseId: string | null;
-      /** 调用参数；tool_result 合进来后仍保留 input。 */
       content: unknown;
-      /** 调用结果；与 input 分开，前端才能并排展示「传了什么/拿回什么」。 */
       result?: unknown;
-      /** 子智能体内部的调用：父侧 Agent 的 tool_use id；顶层为空。 */
       parentToolUseId: string | null;
-      /** 原生提问的最终展示快照；只有提问工具行才带。 */
       question?: PublicRunQuestion;
     };
 
-/**
- * tool_use 与 tool_result 是同一次调用的两半，按 toolUseId 合成一步。
- * 分开返回会让界面出现两个同名步骤，读者无法判断哪个是参数、哪个是结果。
- */
 export function mergeToolSteps(steps: RunStep[]): RunStep[] {
   const merged: RunStep[] = [];
   const byToolUse = new Map<string, Extract<RunStep, { kind: 'tool' }>>();
@@ -102,10 +93,8 @@ export function mergeToolSteps(steps: RunStep[]): RunStep[] {
       merged.push(copy);
       continue;
     }
-    // 后到的 result 补进已有步骤；后到的 use 补回 input。
     if (step.result !== undefined) existing.result = step.result;
     if (step.content !== null && step.content !== undefined) existing.content = step.content;
-    // 最终快照可能落在任一半上；后到的快照覆盖旧的 pending。
     if (step.question !== undefined) existing.question = step.question;
   }
   return merged;
@@ -135,7 +124,6 @@ const runColumns = {
   agentVersion: agentRuns.agentVersion,
 };
 
-/** 运行列表：join agents 取名字，按开始时间倒序（尚未开始的排在最后）。 */
 export async function listRuns(
   db: Database,
   options: {
@@ -149,7 +137,6 @@ export async function listRuns(
 ): Promise<RunListItem[]> {
   const filters: SQL[] = [isNull(agentRuns.channelId)];
   if (options.access.scopes.includes('platform')) {
-    // P 看全平台私有运行；频道运行只从频道入口访问。
   } else if (options.access.scopes.includes('own_data')) {
     filters.push(eq(agentRuns.initiatedBy, options.access.businessId));
   } else {
@@ -197,7 +184,6 @@ export interface PersonalUsageSummaryRow {
   costMissingRuns: number;
 }
 
-/** 个人数据固定本人：platform 范围也不放宽，专家创建人不参与过滤。 */
 function personalRunWhere(businessId: string, since: Date, until: Date): SQL[] {
   return [
     eq(agentRuns.subjectKind, 'user'),
@@ -215,7 +201,6 @@ function personalRunRows(
     .select({
       ...runColumns,
       createdAt: agentRuns.createdAt,
-      // 会话归属另行判定：运行属本人，不代表来源会话也属本人。
       conversationId: sql<string | null>`case
         when ${conversations.createdBy} = ${options.businessId} then ${agentRuns.conversationId}
         else null
@@ -295,7 +280,6 @@ export async function listPersonalRunsForExport(
   return { items: rows.slice(0, EXPORT_LIMIT), truncated: rows.length > EXPORT_LIMIT };
 }
 
-/** 个人使用汇总：窗口按 run.createdAt，tokens/cost 只统计已记录值。 */
 export async function personalUsageSummary(
   db: Database,
   options: { businessId: string; since: Date; until: Date },
@@ -340,7 +324,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
 }
 
-/** 消息内容里的公开问题快照；写入时已经脱敏投影。 */
 function questionOf(content: Record<string, unknown>): PublicRunQuestion | undefined {
   const question = content.question;
   return typeof question === 'object' && question !== null
@@ -348,7 +331,6 @@ function questionOf(content: Record<string, unknown>): PublicRunQuestion | undef
     : undefined;
 }
 
-/** messages 行 → trace 步骤。无法识别的行直接跳过，避免脏数据打断回放。 */
 export function toStep(message: {
   id?: string;
   role: string;
@@ -385,7 +367,6 @@ export function toStep(message: {
       at,
       name: typeof content.name === 'string' ? content.name : null,
       toolUseId: typeof content.toolUseId === 'string' ? content.toolUseId : null,
-      // result 消息没有 input；content 留空，由 mergeToolSteps 补回来。
       content: null,
       result: content.content,
       parentToolUseId: typeof content.parentToolUseId === 'string' ? content.parentToolUseId : null,
@@ -505,7 +486,6 @@ export async function isRunBoundToServer(
   return row !== undefined;
 }
 
-/** 写入本次 run 的短期 MCP token hash 与过期时间（明文只进工作区文件）。 */
 export async function setRunMcpToken(
   db: Database,
   runId: string,
@@ -540,7 +520,6 @@ export async function clearRunTokens(db: Database, runId: string): Promise<void>
     .where(eq(agentRuns.id, runId));
 }
 
-/** 模型代理校验：token 的 sha256 必须匹配，且 run 仍处于 running。 */
 export async function findRunByModelToken(
   db: Database,
   tokenHash: string,
@@ -572,7 +551,6 @@ export async function getRunToken(
 
 export interface ApprovalRequestRow {
   id: string;
-  /** 沙盒内调用所属的 run；生成式 UI 的会话级审批不在这份列表里。 */
   runId: string;
   serverId: string;
   serverName: string | null;
@@ -585,7 +563,6 @@ export interface ApprovalRequestRow {
 
 export interface RequestedApproval {
   id: string;
-  /** 频道触发的 run 才有值；私有对话为空，旧审批路径行为不变。 */
   channelId: string | null;
   runId: string;
   serverId: string;
@@ -606,7 +583,6 @@ export async function requestApproval(
     argumentsSummary?: Record<string, unknown> | null;
   },
 ): Promise<RequestedApproval> {
-  // 审批行归属频道：从 run 读取，调用方不必再传一次，也不会与 run 归属分叉。
   const [run] = await db
     .select({ channelId: agentRuns.channelId })
     .from(agentRuns)
@@ -642,7 +618,6 @@ export async function requestApproval(
     .returning(columns);
   if (inserted) return { ...inserted, runId: input.runId };
 
-  // 已批准的行不参与 upsert，returning 为空：读回既有行给调用方，行为保持幂等。
   const [existing] = await db
     .select(columns)
     .from(approvalRequests)
@@ -678,7 +653,6 @@ export async function getApprovalRequest(
   return row ?? null;
 }
 
-/** MCP handler 每次调用前读取：只认该 run 在该 server 上已批准的工具。 */
 export async function getApprovedToolNames(
   db: Database,
   runId: string,
@@ -719,7 +693,6 @@ export async function listApprovalRequests(
   db: Database,
   runId: string,
 ): Promise<ApprovalRequestRow[]> {
-  // 查询按 run_id 精确匹配，生成式 UI 的会话级行（run_id 为空）不会命中。
   const rows = await db
     .select({
       id: approvalRequests.id,
@@ -898,7 +871,6 @@ export async function getRunDetail(db: Database, runId: string): Promise<RunDeta
     runtimeEnvironmentImageId,
     ...run
   } = row;
-  // worker 一次写入四列；任一缺失时容器尚未创建，不拼出半套身份。
   const runtimeEnvironment: ResolvedRuntimeEnvironment | null =
     runtimeEnvironmentId === null ||
     runtimeEnvironmentName === null ||

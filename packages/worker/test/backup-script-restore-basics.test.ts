@@ -18,7 +18,6 @@ describe('restore.sh (compose volume)', () => {
     });
     const archive = backupOut.trim().split('\n').at(-1)?.replace('BACKUP OK ', '') ?? '';
 
-    // 线上知识库在“容器卷”里被改过：恢复必须换回归档内容，旧内容进安全副本。
     await writeFile(join(suite.env.knowledge, 'blobs', 'ab', 'abcdef'), 'changed\n');
     await writeFile(join(suite.env.knowledge, 'stale.txt'), 'stale\n');
 
@@ -41,7 +40,6 @@ describe('restore.sh (compose volume)', () => {
         await suite.readArchiveFile(join(suite.env.backupDir, safety ?? ''), './manifest.json')
       ).toString('utf8'),
     );
-    // 当前卷里的 3 个文件（2 个原始 + stale.txt）都在安全副本里。
     expect(manifest.knowledge).toMatchObject({ files: 3 });
   });
 
@@ -94,7 +92,6 @@ describe('restore.sh', () => {
     expect(stderr).not.toContain('caller/target');
     expect(await suite.restoreTargets()).toEqual(['postgres://caller/target']);
 
-    // 安全副本不能退回空 env：必须是只含目标 DATABASE_URL 的非空引导配置。
     const safety = (await readdir(suite.env.backupDir)).find(
       (name) => name.startsWith('pre-restore-') && name.endsWith('.tar.gz'),
     );
@@ -104,7 +101,6 @@ describe('restore.sh', () => {
     expect(safetyEnv).toContain("DATABASE_URL='postgres://caller/target'");
     expect(safetyEnv).not.toContain('APP_SECRET_KEY');
 
-    // 安全包本身能再作为恢复输入，且引导 env 能被脚本读回同一个目标库。
     const safetyEnvFile = join(suite.env.dir, 'safety.env');
     await writeFile(safetyEnvFile, safetyEnv);
     const second = await mkdtemp(join(suite.env.dir, 'target-'));
@@ -172,7 +168,6 @@ describe('restore.sh', () => {
       await suite.readArchiveFile(join(suite.env.backupDir, safety ?? ''), './env'),
     );
 
-    // 清空显式 DATABASE_URL：只让 restore 自己的读取流程从生成的引导 env 还原目标。
     await writeFile(suite.env.log, '');
     const second = await mkdtemp(join(suite.env.dir, 'target-'));
     const secondTarget = join(second, 'workspaces');
@@ -185,7 +180,6 @@ describe('restore.sh', () => {
       .map((line) => line.split('--dbname=')[1] ?? '');
     expect(restored).toEqual([tricky]);
 
-    // backup.sh 用同一个引导 env 也必须读到同一字节，而不是转义后的串。
     await writeFile(suite.env.log, '');
     await suite.backup({ BACKUP_ENV_FILE: bootstrap });
     const dumped = (await suite.stubLog())
@@ -215,12 +209,10 @@ describe('restore.sh', () => {
       '{"x":1}\n',
     );
 
-    // 恢复必须落在调用环境指定的库，不能拿归档 env 里的 DATABASE_URL。
     expect(await suite.restoreTargets()).toEqual(['postgres://caller/target']);
     const calls = await suite.stubLog();
     expect(calls.some((line) => line.startsWith('BUN '))).toBe(true);
     expect(calls.some((line) => line.includes('DATABASE_URL=postgres://caller/target'))).toBe(true);
-    // 配置文件恢复成归档里的内容，目标 .env 原样留了安全副本。
     expect(await readFile(targetEnv, 'utf8')).toContain('APP_SECRET_KEY=super-secret-value');
     const safety = (await readdir(suite.env.backupDir)).filter((name) =>
       name.startsWith('pre-restore-'),
@@ -238,7 +230,6 @@ describe('restore.sh', () => {
       '# changed\n',
     );
 
-    // 恢复真实工作区；配置写到临时目标，避免改到用例自己的 .env。
     await suite.restore([archive], { RESTORE_ENV_TARGET: join(suite.env.dir, 'restored.env') });
     expect(
       await readFile(join(suite.env.workspaces, 'demo-agent', 'run_live01', 'keep.txt'), 'utf8'),
@@ -246,7 +237,6 @@ describe('restore.sh', () => {
     expect(
       await readFile(join(suite.env.workspaces, 'demo-agent', 'agent-memory', 'MEMORY.md'), 'utf8'),
     ).toBe('# memory\n');
-    // 换入过程中的临时目录不能留在工作区里。
     expect(
       (await readdir(suite.env.workspaces)).filter((name) => name.startsWith('.restore-')),
     ).toEqual([]);
@@ -262,9 +252,7 @@ describe('restore.sh', () => {
 
     await suite.restore([archive], { RESTORE_ENV_TARGET: join(suite.env.dir, 'restored.env') });
 
-    // run_* 被备份排除，safety 里也没有第二份；恢复较旧备份时必须搬回。
     expect(await readFile(join(liveOnly, 'run_live09', 'keep.txt'), 'utf8')).toBe('live-run\n');
-    // 其余旧内容仍按 restore 原语义被备份内容替换（备份里没有这个专家）。
     expect(
       await readFile(join(liveOnly, 'sessions', 'transcript.jsonl'), 'utf8').catch(() => ''),
     ).toBe('');

@@ -204,7 +204,6 @@ describe('public share page', () => {
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(window.location.hash).toBe('#token-a');
 
-    // 刷新等同于重新挂载：token 仍从地址片段读出，正文请求继续带 bearer token。
     await act(async () => root.unmount());
     root = createRoot(host);
     await mount('share-a', readShareToken());
@@ -233,7 +232,6 @@ describe('public share page', () => {
     const image = host.querySelector('section img');
     expect(image?.getAttribute('src')).toBe('blob:image');
     expect(image?.getAttribute('alt')).toBe('photo.png');
-    // decode 之前是占位；只有真正触发 load 才算预览成功。
     expect(image?.className).toContain('hidden');
     await act(async () => image?.dispatchEvent(new Event('load')));
     expect(host.querySelector('section img')?.className).not.toContain('hidden');

@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react';
 import { api } from '../api.js';
 import { isTerminalKnowledgeJob, knowledgeKeys, knowledgeShouldPoll } from './shared.js';
 
-/** 来源是小型集合：一次取完全部元数据页，调用方拿到的仍是数组。 */
 export function useKnowledgeSources(baseId: string) {
   return useInfiniteQuery({
     queryKey: knowledgeKeys.sources(baseId),
@@ -30,7 +29,6 @@ export function useDeleteKnowledgeSource(baseId: string) {
       api.deleteKnowledgeSource(vars.sourceId, vars.documents),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: knowledgeKeys.sources(baseId) });
-      // 选 delete 时文档也一并消失。
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
     },
   });
@@ -45,7 +43,6 @@ export function useUpdateKnowledgeSource(baseId: string) {
     }) => api.updateKnowledgeSource(vars.sourceId, vars.patch),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: knowledgeKeys.sources(baseId) });
-      // 收缩范围会在响应前撤权，文档与 Wiki 派生内容必须立刻刷新。
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.wikiPages(baseId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.faqs(baseId) });

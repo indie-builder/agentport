@@ -190,7 +190,6 @@ describe.skipIf(!ready)('runtime environment repo', () => {
       repo.publishRuntimeEnvironmentVersion(db, first.id, foreignVersion.id),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
 
-    // 直接写库也过不了复合外键：线上版本必须属于本环境。
     let foreignKeyError: unknown;
     try {
       await db
@@ -220,7 +219,6 @@ describe.skipIf(!ready)('runtime environment repo', () => {
 
     const detail = await repo.getRuntimeEnvironmentVersion(db, environment.id, version.id);
     expect(detail?.buildLog.length).toBe(RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT);
-    // 失败原因通常在最后：截断保留尾部而不是前缀。
     expect(detail?.buildLog.endsWith('tail-marker\n')).toBe(true);
     expect(detail?.logTruncated).toBe(true);
   });
@@ -322,7 +320,6 @@ describe.skipIf(!ready)('runtime environment repo', () => {
       versionId: registered.onlineVersionId,
       imageId: 'sha256:base-one',
     });
-    // 默认版本记录的是实际基座 ID，不能把入队用的 tag 谎报成身份。
     const defaultVersion = await repo.getRuntimeEnvironmentVersion(
       db,
       registered.id,
@@ -365,7 +362,6 @@ describe.skipIf(!ready)('runtime environment repo', () => {
     const version = await agentVersionsRepo.getAgentVersion(db, agent.id, 1);
     expect(version?.snapshot.runtimeEnvironmentId).toBe(environment.id);
 
-    // 回滚就是把这些快照字段写回；绑定随版本保留。
     await updateAgent(db, agent.id, { runtimeEnvironmentId: null });
     expect((await getAgent(db, agent.id))?.runtimeEnvironmentId).toBeNull();
     await updateAgent(db, agent.id, {

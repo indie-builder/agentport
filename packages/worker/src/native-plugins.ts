@@ -27,7 +27,6 @@ import { version } from './version.js';
 
 const STDERR_TAIL_BYTES = 2 * 1024;
 
-/** 安装动作不写工作区：固定挂载一个空的只读目录即可。 */
 const ACTION_WORKSPACE = 'native-plugin-actions';
 const CACHE_DIR = 'plugin-cache';
 
@@ -45,10 +44,6 @@ export interface NativePluginsDeps {
   closing?: AbortSignal;
 }
 
-/**
- * 持久安装缓存：worker（容器内 uid 1000）与沙盒都以同一用户运行，0700 足够；
- * 沿用 agent-memory 的目录规范，不递归 chown 未核对的宿主目录。
- */
 async function ensureCacheDir(deps: NativePluginsDeps): Promise<string> {
   const dir = join(deps.workspacesDir, CACHE_DIR);
   await mkdir(dir, { recursive: true, mode: WORKSPACE_DIR_MODE });
@@ -64,16 +59,10 @@ async function ensureCacheDir(deps: NativePluginsDeps): Promise<string> {
   return dir;
 }
 
-/** 只取容器 stdout 的第一条合法结果；其余行属于 CLI 噪音。 */
 function parseResultLine(line: string): NativePluginOutput | null {
   return parseJsonAs(line, nativePluginOutputSchema);
 }
 
-/**
- * 在一次性沙盒里执行一次原生插件动作：容器入口 `dist/native-plugins.js` 只拿
- * 动作 JSON，没有模型或业务凭据；安装缓存以 rw 挂到 /mnt/plugin-cache。
- * 启动与整体动作共用 NATIVE_PLUGIN_TIMEOUT_MS，超时立即销毁容器。
- */
 export async function runNativePluginAction(
   deps: NativePluginsDeps,
   action: NativePluginAction,
@@ -91,7 +80,6 @@ export async function runNativePluginAction(
 
   let runtimeEnvironmentImageId: string;
   try {
-    // 插件市场动作固定使用默认环境线上版本；只有真实创建容器才解析。
     runtimeEnvironmentImageId = (await deps.resolveRuntimeEnvironment(null)).imageId;
   } catch (err) {
     deps.logger.warn({ err, action: action.action }, 'native plugin environment failed');
@@ -102,7 +90,6 @@ export async function runNativePluginAction(
   const createOptions: SandboxCreateOptions = {
     image: runtimeEnvironmentImageId,
     workspaceDir,
-    // 安装不调用模型：环境里只有 HOME/TMPDIR，任何平台密钥都不进容器。
     env: { HOME: '/tmp', TMPDIR: '/tmp' },
     name: `agentport-native-plugin-${randomBytes(4).toString('hex')}`,
     entrypoint: 'bun',
@@ -177,7 +164,6 @@ export async function runNativePluginAction(
         return { ok: false, error: tail ? `${reason}: ${tail}` : reason };
       },
       fail: (err, closing) => {
-        // create 可能在关停竞速里先 reject；此时仍要给关停文案，不能报成启动失败。
         if (closing) {
           deps.logger.warn({ action: action.action }, 'native plugin action cancelled by shutdown');
           return { ok: false, error: 'worker 正在关停，安装已取消' };
@@ -189,10 +175,6 @@ export async function runNativePluginAction(
   );
 }
 
-/**
- * 独立队列消费者。契约：`registerNativePlugins(config, resolveRuntimeEnvironment)`，
- * 由 worker/index.ts 启动时调用、关停时 `close()`；安装缓存与官方目录写入串行，并发固定 1。
- */
 export async function registerNativePlugins(
   config: Config,
   resolveRuntimeEnvironment: RuntimeEnvironmentResolver,
@@ -225,7 +207,6 @@ export async function registerNativePlugins(
     async (job) => {
       const parsed = nativePluginActionSchema.safeParse(job.data);
       if (!parsed.success) throw new Error('invalid native plugin payload');
-      // 失败也走正常返回，API 的 waitUntilFinished 拿到的是结果而不是异常。
       return runNativePluginAction(deps, parsed.data);
     },
     { connection, concurrency: 1 },
@@ -233,8 +214,6 @@ export async function registerNativePlugins(
 
   return {
     close: async () => {
-      // 先停新任务并取消活动安装，再销毁容器，最后才等 close 收尾：
-      // 反过来先 await 会等满 120s 安装预算，超过 compose 的 30s 宽限，Docker 来不及清理。
       closing.abort();
       const closed = worker.close().finally(() => connection.quit());
       const results = await Promise.allSettled([closed, provider.destroyAll()]);

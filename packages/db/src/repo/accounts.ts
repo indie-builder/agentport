@@ -95,7 +95,6 @@ export async function listAccounts(
   db: DbHandle,
   input: { q?: string; limit: number; offset: number },
 ): Promise<{ items: Account[]; total: number }> {
-  // 含启用与停用账户；已删除认证资料的行不存在。
   const filters: SQL[] = [];
   if (input.q !== undefined && input.q !== '') {
     const pattern = `%${input.q}%`;
@@ -270,7 +269,6 @@ export async function setAccountStatus(
 ): Promise<Account | null> {
   return db.transaction(async (tx) => {
     const disabling = status === 'disabled';
-    // 停用与角色/矩阵保存共用同一把锁，再读管理员数量，避免并发把管理员清零。
     if (disabling) await lockAdminMutation(tx);
     const row = await getAccountRow(tx, businessId);
     if (!row) return null;

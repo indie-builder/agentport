@@ -4,12 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantText } from '../src/components/chat/openui-message.js';
 import { OpenUiBlock } from '../src/openui/renderer.js';
 
-/**
- * 表单字段的无障碍接线：同一消息的两个 UI 段出现同名字段时，
- * DOM id 必须各自唯一，label 指向自己的控件，hint / 错误通过
- * aria-describedby 就地关联，禁用态同步到 Field。
- */
-
 const FENCE = (lines: string[]) => ['```openui-lang', ...lines, '```'].join('\n');
 
 const FORM = [
@@ -144,7 +138,6 @@ describe('FormControl field wiring', () => {
     expect(new Set(ids).size).toBe(2);
     for (const id of ids) expect(host.querySelectorAll(`[id="${id}"]`)).toHaveLength(1);
 
-    // 每个 label 只指向自己那一段的控件。
     for (const label of all('label')) {
       const target = label.getAttribute('for');
       if (!target) continue;
@@ -190,7 +183,6 @@ describe('FormControl field wiring', () => {
     expect(described.find((element) => element.getAttribute('role') === 'alert')?.textContent).toBe(
       'This field is required',
     );
-    // 解除错误后接线跟着回退。
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
     await act(async () => {
       setter?.call(input, 'a@b.co');
@@ -209,7 +201,6 @@ describe('FormControl field wiring', () => {
       `[id="${group?.getAttribute('aria-labelledby')}"]`,
     );
     expect(label?.textContent).toContain('住宿');
-    // 分组没有单一可聚焦控件，不能渲染成指向不存在 id 的 <label for>。
     expect(host.querySelector('label[for]')).toBeNull();
   });
 
@@ -239,7 +230,6 @@ describe('FormControl field wiring', () => {
     await act(async () => submit?.click());
     await settle();
 
-    // 分组容器与每个可聚焦控件同步 invalid。
     expect(radioGroup?.getAttribute('aria-invalid')).toBe('true');
     expect(radio?.getAttribute('aria-invalid')).toBe('true');
     expect(checkbox?.getAttribute('aria-invalid')).toBe('true');
@@ -248,7 +238,6 @@ describe('FormControl field wiring', () => {
     expect(card?.getAttribute('aria-invalid')).toBe('true');
     expect(range?.getAttribute('aria-invalid')).toBe('true');
 
-    // 键盘可聚焦的控件都能就地读到标签、提示与错误。
     for (const control of [radio, checkbox, chip, card, range]) {
       const labelledBy = control?.getAttribute('aria-labelledby');
       const labels = all<HTMLLabelElement>('label').filter((label) => label.control === control);
@@ -271,7 +260,6 @@ describe('FormControl field wiring', () => {
     );
     expect(range?.getAttribute('aria-labelledby')).toBeTruthy();
 
-    // 选好值后各自清除，不残留 invalid 与错误关联。
     await act(async () => radio?.click());
     await act(async () => checkbox?.click());
     await act(async () => chip?.click());
@@ -308,7 +296,6 @@ describe('FormControl field wiring', () => {
     for (const label of labels) {
       const control = label.control as HTMLInputElement | null;
       expect(control?.id).toBe(label.htmlFor);
-      // 每个 label 指向的隐藏输入与自己的开关同组，不会串到另一段。
       expect(control?.parentElement?.querySelector('[role="switch"]')).toBeTruthy();
       expect(control?.parentElement?.querySelectorAll('[role="switch"]')).toHaveLength(1);
     }
@@ -322,7 +309,6 @@ describe('FormControl field wiring', () => {
       'false',
     ]);
 
-    // 第一段的邮件开关只改变自己，第二段保持原样。
     await act(async () => (labels[0]?.control as HTMLInputElement | null)?.click());
     await settle();
     expect(switches.map((element) => element.getAttribute('aria-checked'))).toEqual([

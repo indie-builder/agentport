@@ -16,7 +16,6 @@ const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 let connection: ReturnType<typeof createBunRedisClient>;
 const logger = { warn: () => undefined };
 
-// 不需要 Postgres/Redis：这条用真实原生连接被拒绝的端口，不走 mock。
 it('fails within the budget with SERVICE_UNAVAILABLE when Redis refuses connections', async () => {
   const startedAt = Date.now();
   const refused = 'redis://127.0.0.1:1';
@@ -30,10 +29,6 @@ it('fails within the budget with SERVICE_UNAVAILABLE when Redis refuses connecti
   expect(error?.message).not.toContain('127.0.0.1:1');
 });
 
-/**
- * 队列边界用真实 BullMQ + 假 consumer 覆盖：断言只投递受限动作、
- * 结果按 shared schema 校验、超时与队列不可用都收敛成可读错误。
- */
 describe.skipIf(!ready)('native plugin queue client', () => {
   let adminQueue: Queue<NativePluginAction> | undefined;
   const workers: Worker[] = [];
@@ -56,13 +51,10 @@ describe.skipIf(!ready)('native plugin queue client', () => {
     await adminQueue.obliterate({ force: true });
   });
 
-  // 测试超时也要释放 consumer：留在 test body 的 finally 不会在超时后执行，
-  // 遗留 worker 会把后面“无 consumer”用例的 job 跑掉；close(true) 不等未完成的 job。
   afterEach(async () => {
     const activeGates = gates.splice(0);
     for (const gate of activeGates) gate.release();
     for (const finish of finishCallbacks.splice(0)) finish();
-    // 并行清理：任一资源关闭慢都不能挡住 worker 的强制关闭。
     await Promise.allSettled([
       ...activeGates.map((gate) => gate.close()),
       ...watches.splice(0).map((watch) => watch.close()),

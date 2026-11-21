@@ -2,7 +2,6 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { api } from '../api.js';
 import { knowledgeKeys } from './shared.js';
 
-/** Wiki 页面同样是小型集合：一次取完全部元数据页，避免旧页面永久不可选。 */
 export function useKnowledgeWikiPages(baseId: string) {
   return useInfiniteQuery({
     queryKey: knowledgeKeys.wikiPages(baseId),
@@ -22,7 +21,6 @@ export function useKnowledgeWikiPage(pageId: string | null) {
   });
 }
 
-/** 详情只回第一页版本；更早的版本按游标显式加载，追加到本页列表。 */
 export function useLoadOlderKnowledgeWikiVersions() {
   return useMutation({
     mutationFn: (vars: { pageId: string; cursor: string }) =>
@@ -43,7 +41,6 @@ export function useCreateKnowledgeWikiPage(baseId: string) {
   });
 }
 
-/** Wiki 写操作都会产生新版本，页面详情与列表一起失效。 */
 function useKnowledgeWikiInvalidate(baseId: string) {
   const client = useQueryClient();
   return (pageId: string): void => {
@@ -92,7 +89,6 @@ export function useKnowledgeWikiDiff(
 }
 
 export function useGenerateKnowledgeWikiPage() {
-  // Invalidation waits for the submitted job to reach a terminal state; the page tracks its id.
   return useMutation({
     mutationFn: (vars: { pageId: string; instruction?: string }) =>
       api.generateKnowledgeWikiPage(vars.pageId, {
@@ -110,7 +106,6 @@ export function useRollbackKnowledgeWikiPage(baseId: string) {
   });
 }
 
-/** 发布只是切当前指针；草稿仍留在版本列表里，历史版本不消失。 */
 export function usePublishKnowledgeWikiVersion(baseId: string) {
   const invalidate = useKnowledgeWikiInvalidate(baseId);
   return useMutation({

@@ -82,7 +82,6 @@ export function useEvalRuns(agentId: string | null) {
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: agentId !== null,
-    // 跑批在后台进行，已加载的列表里有 running 时轮询。
     refetchInterval: (query) => {
       const runs = query.state.data?.pages.flatMap((page) => page.items);
       return runs?.some((run) => run.status === 'running') ? 3_000 : false;

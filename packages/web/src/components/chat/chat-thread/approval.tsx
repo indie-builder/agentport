@@ -4,11 +4,9 @@ import { memo } from 'react';
 import type { ApprovalRequest } from '../../../lib/api.js';
 import { Button } from '../../ui/button.js';
 
-/** 设计规范 §9：只有展开折叠这类状态切换，150ms、ease-out、不加位移。 */
 const EXPAND = { duration: 0.15, ease: 'easeOut' } as const;
 const STILL = { duration: 0 } as const;
 
-/** 等待中的调用可继续，已结束的调用仅记录后续许可。 */
 export const ApprovalCard = memo(function ApprovalCard({
   item,
   pending,

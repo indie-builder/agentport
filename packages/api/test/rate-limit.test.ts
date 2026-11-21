@@ -12,7 +12,6 @@ describe.skipIf(!ready)('rate limiting', () => {
   });
 
   afterAll(async () => {
-    // 失败登录会写审计；runs 之间不清理会无限增长。
     await app.client.unsafe(
       "delete from audit_log where actor = 'nobody' and action = 'auth.login.failed'",
     );

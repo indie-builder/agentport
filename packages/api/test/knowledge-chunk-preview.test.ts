@@ -21,7 +21,6 @@ type ChunkPreview = {
   truncated: boolean;
 };
 
-/** 每段固定长度、用空行分隔：小预算逐段成块，大预算合并成一块。 */
 function paragraphs(count: number, length = 150): string {
   const unit = '分块预览用于核对切分效果。';
   const body = unit.repeat(Math.ceil(length / unit.length)).slice(0, length);
@@ -43,7 +42,6 @@ describe.skipIf(!ready)('knowledge chunk preview', () => {
 
   afterEach(async () => {
     if (baseIds.length > 0) {
-      // 知识库 server 是独立行；删 server 会级联删库，避免留下 kb-<slug> 名称占用。
       await app.client.unsafe(
         "delete from servers where kind = 'knowledge' and config->>'knowledgeBaseId' = any($1::text[])",
         [app.client.array(baseIds, 'TEXT')],
@@ -153,14 +151,12 @@ describe.skipIf(!ready)('knowledge chunk preview', () => {
     const result = await previewOk(baseId, { sample, chunkTokens: 200, chunkOverlap: 0 });
 
     expect(result.chunks.length).toBeGreaterThan(1);
-    // clamp 生效：长段落与长表格都被切到预算以内，没有整段超预算的块。
     for (const chunk of result.chunks) {
       expect(chunk.length).toBeLessThanOrEqual(200);
       expect(chunk.length).toBe(chunk.content.length);
     }
     expect(result.stats.maxChars).toBeLessThanOrEqual(200);
 
-    // 表格块独立：不与相邻段落合并，且每段都重复表头。
     const tableChunks = result.chunks.filter((chunk) => chunk.content.includes('| 名称 | 说明 |'));
     expect(tableChunks.length).toBeGreaterThan(1);
     for (const chunk of tableChunks) {
@@ -177,7 +173,6 @@ describe.skipIf(!ready)('knowledge chunk preview', () => {
 
   it('repeats the tail of a chunk as the head of the next one when overlap is set', async () => {
     const baseId = await createBase();
-    // 每 10 字符一个唯一前缀，避免周期性文本让「不同位置内容相同」掩盖重叠差异。
     const sample = Array.from(
       { length: 100 },
       (_, block) => `${String.fromCharCode(0x4e00 + block)}ABCDEFGHI`,
@@ -251,7 +246,6 @@ describe.skipIf(!ready)('knowledge chunk preview', () => {
     const res = await preview(baseId, { sample: paragraphs(2), chunkTokens: 200 }, readerCookie);
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json<ChunkPreview>().stats.count).toBe(2);
-    // 预览是纯计算：不建任务，也不要求 knowledge.execute / content.manage。
     const jobs = await app.client.unsafe<{ count: number }[]>(
       'select count(*)::int as count from knowledge_jobs where base_id = $1',
       [baseId],

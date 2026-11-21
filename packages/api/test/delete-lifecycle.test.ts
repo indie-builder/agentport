@@ -32,15 +32,8 @@ const ready = await infraReady;
 const isolated = ready ? await startRedisContainer() : null;
 const REDIS_URL = isolated?.url ?? 'redis://127.0.0.1:1/8';
 
-/**
- * 删除生命周期的路由级验收：真实 Fastify → 删除事务 → Redis 关闭请求 → worker 信道 ACK
- * → DB 删除 → 目录回收。Docker 容器销毁语义由 worker 的会话测试覆盖，这里用可控
- * `closeIdle` 观察顺序、失败与锁内准入。
- */
 describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
   let app: TestApp;
-  // 无 worker / 不 ACK 用例会持共享库绑定锁等满 ACK 预算；独享库避免同轮其它套件的删除
-  // 被锁等待拖成 5s 控制查询超时。
   let isolatedDb: IsolatedDatabase | null = null;
   let cookie: string;
   let responder: Awaited<ReturnType<typeof startSessionCleanupResponder>> | undefined;
@@ -63,9 +56,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
 
   afterAll(async () => {
     const failures: unknown[] = [];
-    // beforeAll 可能在建库或起 app 前就失败；没有 app 时也没有业务数据要清。
     if (app) {
-      // 业务数据或目录清理失败也要继续关 app、归还独享库与容器。
       try {
         await cleanup(app, { agentSlugs });
       } catch (error) {
@@ -95,7 +86,6 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
       }
     }
 
-    // app 关闭后再 drop 独享库；库与 Redis 各自尝试，一个失败不跳过另一个。
     const results = await Promise.allSettled([
       isolatedDb ? isolatedDb.close() : Promise.resolve(),
       stopRedisContainer(isolated),
@@ -214,7 +204,6 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     return result[0];
   }
 
-  /** 只终止当前数据库的连接；返回后端是否真的被终止。 */
   async function terminateBackend(pid: number): Promise<boolean> {
     const result = await app.client.unsafe<{ terminated: boolean }[]>(
       `select pg_terminate_backend(pid) as terminated from pg_stat_activity
@@ -262,7 +251,6 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
       conversationId,
       sandboxIds: ['sandbox-delete'],
     });
-    // ACK 未回之前既不返回 204，也不能先删目录。
     await delay(100);
     expect(settled).toBe(false);
     expect(await exists(targetDir)).not.toBeNull();
@@ -273,7 +261,6 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     expect(await repo.chat.getConversation(app.db, conversationId)).toBeNull();
     expect(await exists(targetDir)).toBeNull();
     expect(await exists(keptDir)).not.toBeNull();
-    // 记忆不属于删除范围。
     expect(await exists(workspace(agent.slug, 'agent-memory'))).not.toBeNull();
   });
 
@@ -309,7 +296,6 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     const targetDir = workspace(agent.slug, 'session-sandboxes', conversationId);
     await mkdir(targetDir, { recursive: true });
 
-    // 不启动 responder：模拟 worker 不在线，消息发出不等于确认。
     const failed = await deleteConversation(conversationId);
     const problem = expectProblem(failed, 'SERVICE_UNAVAILABLE');
     expect(problem.retryable).toBe(true);
@@ -380,10 +366,8 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     const pid = await deletingBackendPid();
     if (pid === null) throw new Error('deleting backend did not hold the session lock');
     const activity = await backendActivity(pid);
-    // ACK 等待必须发生在事务外：连接 idle，且没有打开的事务。
     expect(activity?.state).toBe('idle');
     expect(activity?.xact_start).toBeNull();
-    // A 已提交，实体在事务外仍然可见；目录也要等确认后才删。
     expect(await repo.chat.getConversation(app.db, conversationId)).not.toBeNull();
     expect(await exists(targetDir)).not.toBeNull();
     expect(settled).toBe(false);
@@ -399,7 +383,6 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
       return response;
     });
     await delay(150);
-    // 全局绑定锁仍被删除连接持有：准入不得在 ACK 与 B 之间落地。
     expect(admissionSettled).toBe(false);
     expect(await deletingBackendPid()).toBe(pid);
 
@@ -412,7 +395,6 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
   });
 
   it('ignores the same advisory key held in another isolated database', async () => {
-    // pg_locks 是集群级视图；Docker 套件在另一隔离库持同一绑定键，不能选成本轮删除连接。
     const other = await createIsolatedDatabase('api_delete_lifecycle_other');
     if (other === null) throw new Error('cannot create an isolated database for the boundary test');
     const otherClient = createDb(other.url).client;
@@ -424,14 +406,12 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
       const foreign = await otherClient.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
       expect(foreign[0]?.pid).toBeGreaterThan(0);
 
-      // 本库无人持锁：集群里只有另一库的连接持同一键，必须返回 null 而不是它。
       expect(await deletingBackendPid()).toBeNull();
 
       await own.unsafe('select pg_advisory_lock(hashtext($1))', [
         repo.locks.AGENT_BINDINGS_LOCK_KEY,
       ]);
       const ownPid = await own.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
-      // 本库自己的空闲 session 锁仍能被精确选中。
       expect(await deletingBackendPid()).toBe(Number(ownPid[0]?.pid));
     } finally {
       const unlocked = await own.unsafe('select pg_advisory_unlock_all()').then(
@@ -504,7 +484,6 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     expect(await repo.chat.getConversation(app.db, conversationId)).not.toBeNull();
     expect(await exists(targetDir)).not.toBeNull();
 
-    // 重试是完整的新操作，使用新连接重新取锁并成功删除。
     fake.hold = null;
     fake.calls.length = 0;
     expect((await deleteConversation(conversationId)).statusCode).toBe(204);
@@ -575,7 +554,6 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
   it('still returns 204 after commit when runtime directory removal fails', async () => {
     const agent = await newAgent('lifecycle-rm');
     const conversationId = await newConversation(agent.id);
-    // 用普通文件占住 session-sandboxes 路径：递归 rm 会 ENOTDIR，但提交结果不能被倒置。
     await mkdir(workspace(agent.slug), { recursive: true });
     const blocked = workspace(agent.slug, 'session-sandboxes');
     await writeFile(blocked, 'not a directory');

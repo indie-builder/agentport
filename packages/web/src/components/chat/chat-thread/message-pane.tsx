@@ -39,7 +39,6 @@ import {
   TurnTrace,
 } from './trace.js';
 
-/** 可见消息 id 变化时通知外部；频道用它推进已读游标。 */
 function VisibleMessageIdsTracker({ onChange }: { onChange: (ids: string[]) => void }) {
   const { visibleMessageIds } = useMessageScrollerVisibility();
   useEffect(() => {
@@ -96,7 +95,6 @@ export function MessagePane({
     onApprove: (item: ApprovalRequest) => void;
   };
   approvalItems: ApprovalRequest[];
-  /** 当前运行的提问快照，按 toolUseId 对齐到工具位；历史快照仍用 item.question。 */
   questionsByToolUseId?: ReadonlyMap<string, PublicRunQuestion>;
   liveRunId?: string | null;
   lastRun: RunMetrics | null;
@@ -116,19 +114,13 @@ export function MessagePane({
   onRegenerate?: () => void;
   regenerating?: boolean;
   running: boolean;
-  /** 当前智能体的回复格式；旧消息自身带格式时以消息为准。 */
   openUi: boolean;
-  /** 当前这一轮是否仍在流式输出：解析器按此自动闭合未完成的语句。 */
   streaming: boolean;
   onAction?: ((action: OpenUiAction) => void) | undefined;
-  /** 生成式 UI 的状态写回、工具桥与会话级审批；按段闭包来源。 */
   openUiSnapshot?: OpenUiSnapshot;
-  /** 频道用：在消息内容前后插入作者标识与运行控制，聊天不传。 */
   renderItemHeader?: (item: ChatItem) => ReactNode;
   renderItemFooter?: (item: ChatItem) => ReactNode;
-  /** 可见消息 id 变化时回调；频道用它推进已读游标。 */
   onVisibleMessageIdsChange?: (ids: string[]) => void;
-  /** 顶部预留高度；频道传 0，贴顶的短消息才会计入可见。 */
   scrollPreviousItemPeek?: number;
 }) {
   const reduce = useReducedMotion();
@@ -136,16 +128,12 @@ export function MessagePane({
     () => messageTurns(items, Boolean(lastRun) || running || approvalItems.length > 0),
     [items, lastRun, running, approvalItems],
   );
-  // 上一次的工具子集：文本增量不改工具对象，复用它就不会惊动下游 memo。
   const prevTools = useRef<ToolItem[]>([]);
 
-  // 文本增量只换最后一项，其余对象共享，但 items 数组身份每次都变。
-  // 工具子集逐项比对后复用；结构只依赖工具子集，于是增量不改变任何 ToolGroup 的入参。
   const tools = useMemo(() => stableTools(items, prevTools.current), [items]);
   prevTools.current = tools;
   const structure = useMemo(() => buildStructure(tools), [tools]);
 
-  // 审批只落到当前轮唯一匹配的工具位；历史同名成功调用仍留在各自的执行过程里。
   const latestTurn = turns.at(-1);
   const approvalHosts = useMemo(() => {
     if (!latestTurn || latestTurn.user) return new Map<string, ApprovalRequest>();
@@ -158,8 +146,6 @@ export function MessagePane({
     return ids;
   }, [approvalHosts]);
 
-  // 发送是明确动作：新的一轮用户消息出现就把视图拉回最新，即使此前往上翻过。
-  // 认「末尾那个用户项」而不是轮次 id：补旧会重建历史项对象，id 才是同一消息。
   const tailItem = items.at(-1);
   const appendedUser = tailItem?.kind === 'user' ? tailItem : null;
 
@@ -241,14 +227,10 @@ export function MessagePane({
                         )}
                       </Button>
                     ) : null;
-                  // 历史轮次按消息上的 run_id 取读数；读数默认藏起来，指到这一轮才浮出。
-                  // 没有助手输出的轮次（下一条仍是用户消息）由用户消息自己的 run_id 承载。
                   const turnRunId = turn.items
                     .map((item) => (item.kind === 'notice' ? undefined : item.runId))
                     .find((runId) => runId !== undefined);
                   const noReply = turn.user && turns[turnIndex + 1]?.user === true;
-                  // 最新一轮可能还没有助手文本，run 由当前运行或最近一次运行补上。
-                  // 失败/取消/超时的轮可能只有用户消息：没有助手行时由这条用户消息的 run_id 承载成果。
                   const userOnlyRunId =
                     turn.user && (noReply || turnIndex === turns.length - 1)
                       ? turnRunId
@@ -256,8 +238,6 @@ export function MessagePane({
                   const outputRunId = turn.user
                     ? userOnlyRunId
                     : (turnRunId ?? (latest ? (currentRunId ?? undefined) : undefined));
-                  // run_id 被维护清空或分支重写后，退回本轮边界消息的锚点；用户轮只在
-                  // 没有助手回复时就地显示，避免与助手轮重复。
                   const anchorVisible = !turn.user || noReply || turnIndex === turns.length - 1;
                   const runFiles = outputRunId
                     ? (runOutputs?.byRun.get(outputRunId) ?? [])
@@ -268,15 +248,12 @@ export function MessagePane({
                     latest || (turn.user && !noReply) || turnRunId === undefined
                       ? undefined
                       : historyMetrics.get(turnRunId);
-                  // 失败与超时的原因常驻；其余历史读数仍按悬停/聚焦显影。
                   const persistentRun =
                     historyRun !== undefined &&
                     (historyRun.status === 'failed' ||
                       historyRun.status === 'timeout' ||
                       Boolean(historyRun.error));
-                  // 清单是这一轮的最后一份顶层确认快照；子智能体与空快照都不显示。
                   const turnTodos = turn.user ? undefined : latestTopLevelTodos(turn.items);
-                  // 正常工具集中到本轮唯一的执行过程；待批/提问/失败/缺失结果留在折叠外。
                   const foldableRoots = turn.user
                     ? ([] as ToolItem[])
                     : foldableToolRoots(turn.items, structure, approvalHosts, questionsByToolUseId);
@@ -284,7 +261,6 @@ export function MessagePane({
                   let tracePlaced = false;
                   return (
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
-                      {/* 一轮一组：只靠拉开间距划出轮次边界，不加横线。 */}
                       <div className={cn('group/turn message-fade-up', turnIndex > 0 && 'pt-2')}>
                         <Message
                           align={turn.user ? (turnSelf ? 'end' : 'start') : 'start'}
@@ -296,7 +272,6 @@ export function MessagePane({
                             </span>
                             <MessageGroup className="min-w-0 gap-4">
                               {turn.items.map((item, index) => {
-                                // 有归属的子调用由父行渲染，不在顶层重复出现。
                                 if (item.kind === 'tool') {
                                   if (structure.root.has(item.toolUseId)) return null;
                                   if (foldableIds.has(item.toolUseId)) {
@@ -401,9 +376,6 @@ export function MessagePane({
                             ) : null}
                           </MessageContent>
                         </Message>
-                        {/* 历史读数常驻占位、默认透明：指到或聚焦这一轮才显影。
-                            只用 opacity 隐藏——「查看详情」始终留在可访问树与 Tab 序里，
-                            键盘聚焦到它时本轮 group-focus-within 显影，链接不会突然消失。 */}
                         {historyRun ? (
                           <div
                             className={cn(
@@ -484,7 +456,6 @@ export function MessagePane({
 
 type UserChatItem = Extract<ChatItem, { kind: 'user' }>;
 
-/** 历史项有持久 id：补旧重建对象时仍认同一消息。新发送的用户项没有 id，只能按对象身份。 */
 function sameUserItem(previous: UserChatItem | null, next: UserChatItem): boolean {
   if (previous === next) return true;
   const previousId = previous?.id ?? previous?.messageId;
@@ -492,10 +463,6 @@ function sameUserItem(previous: UserChatItem | null, next: UserChatItem): boolea
   return previousId !== undefined && nextId !== undefined && previousId === nextId;
 }
 
-/**
- * 新用户轮出现时回到底部；必须挂在 Provider 内才能拿到滚动控制。
- * 补旧消息会重建历史项对象，比较持久 id 才不会误判成新的一轮。
- */
 function ScrollToLatest({ userItem }: { userItem: UserChatItem | null }) {
   const { scrollToEnd } = useMessageScroller();
   const seen = useRef(userItem);
@@ -508,7 +475,6 @@ function ScrollToLatest({ userItem }: { userItem: UserChatItem | null }) {
   return null;
 }
 
-/** 分支需要原始消息 id；新发/流式消息没有，按不可分支处理。 */
 function userMessageId(items: ChatItem[]): string | undefined {
   for (const item of items) {
     if (item.kind === 'user' && item.messageId) return item.messageId;
@@ -516,14 +482,12 @@ function userMessageId(items: ChatItem[]): string | undefined {
   return undefined;
 }
 
-/** 历史项 id 形如 `<messageId>:<blockIndex>`；运行详情重建的合成 id 不会命中真实锚点。 */
 function itemMessageId(item: ChatItem): string | undefined {
   if (item.kind === 'notice') return undefined;
   if (item.kind !== 'tool' && item.messageId !== undefined) return item.messageId;
   return item.id?.split(':')[0];
 }
 
-/** 本轮边界消息命中 manifest 锚点时返回成果；同一 run 的同一路径只出现一次。 */
 function anchoredOutputs(
   items: ChatItem[],
   byAnchor: ReadonlyMap<string, OutputFile[]> | undefined,
@@ -532,7 +496,6 @@ function anchoredOutputs(
   const seen = new Set<string>();
   const files: OutputFile[] = [];
   for (const item of items) {
-    // 工具轮的结果消息与调用 id 都可能是 manifest 锚点：run_id 被清空后只能靠它们定位。
     const ids =
       item.kind === 'tool'
         ? [itemMessageId(item), item.toolUseId, item.resultMessageId]
@@ -557,7 +520,6 @@ function messageTurns(items: ChatItem[], hasFooter: boolean) {
     if (item.kind !== 'user' && previous && !previous.user) {
       previous.items.push(item);
     } else {
-      // 历史项自带稳定 id：补旧消息时前面整段不会换 key 重新挂载。
       turns.push({ id: item.id ?? `turn-${index}`, user: item.kind === 'user', items: [item] });
     }
   }

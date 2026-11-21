@@ -12,7 +12,6 @@ vi.mock('@/components/ui/textarea', () => import('../src/components/ui/textarea.
 vi.mock('@/components/ui/label', () => import('../src/components/ui/label.js'));
 vi.mock('@/components/ui/separator', () => import('../src/components/ui/separator.js'));
 
-// Field 是无关分区的稳定子组件：它多渲染一次就代表根表单跟着文本重渲染了一次。
 const fieldRenders = vi.hoisted(() => ({ count: 0 }));
 vi.mock('@/components/ui/field', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/components/ui/field.js')>();
@@ -24,7 +23,6 @@ vi.mock('@/components/ui/field', async (importOriginal) => {
     },
   };
 });
-// 保留真实渲染逻辑，只记录调用：回归点是「折叠时不该生成工作区」。
 vi.mock('@agentport/core/workspace', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@agentport/core/workspace')>();
   return { ...actual, renderWorkspace: vi.fn(actual.renderWorkspace) };
@@ -102,7 +100,6 @@ vi.mock('@tanstack/react-router', () => ({
   Link: 'a',
   useBlocker: () => ({ status: 'idle', proceed: vi.fn(), reset: vi.fn() }),
   useNavigate: () => vi.fn(),
-  // 这些用例检查配置任务里的草稿预览；概览页有独立用例。
   useSearch: () => ({ tab: 'config' }),
   useParams: () => ({ agentId: 'parent' }),
   useLocation: () => ({ state: undefined }),
@@ -147,9 +144,7 @@ async function waitFor<T>(probe: () => T, tries = 40): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 预览展开动画与状态更新还没落地，继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -289,7 +284,6 @@ describe('expert draft preview on demand', () => {
 
   it('does not re-render unrelated fields while typing the system prompt', async () => {
     await mount();
-    // 第一次输入把表单从 pristine 变 dirty，根渲染一次是合法开销；之后不应再跟随文本逐键重渲染。
     await type('agent-prompt', 'First edit');
     const baseline = fieldRenders.count;
     await type('agent-prompt', 'Second edit');

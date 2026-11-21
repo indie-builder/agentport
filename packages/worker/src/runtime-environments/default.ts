@@ -19,10 +19,6 @@ export interface DefaultEnvironmentDeps {
 
 const DEFAULT_ENVIRONMENT_RETRY_MS = 60_000;
 
-/**
- * 只在默认环境不存在时确保基座本地可用（缺失则 pull）并用真实 image ID 登记。
- * 已存在时完全不 inspect/pull：启动配置不是发布，不推进线上指针。
- */
 export async function ensureDefaultEnvironment(
   deps: DefaultEnvironmentDeps,
 ): Promise<'exists' | 'registered'> {
@@ -30,7 +26,6 @@ export async function ensureDefaultEnvironment(
     await deps.ensureDefaultAgentPublished();
     return 'exists';
   }
-  // 首次部署远程基座本地没有时，必须先拉取，否则登记出的环境无法创建容器。
   await deps.ensureImage(deps.sandboxImage, deps.signal);
   const imageId = await deps.resolveImageId(deps.sandboxImage);
   if (imageId === null) {
@@ -42,10 +37,6 @@ export async function ensureDefaultEnvironment(
   return 'registered';
 }
 
-/**
- * 启动登记失败后按固定间隔重试，直到成功或关闭；不把失败伪装成可用。
- * 基座拉取失败通常是 daemon/registry 暂时不可用，重启 worker 也能恢复。
- */
 export function startDefaultEnvironmentRetry(
   deps: DefaultEnvironmentDeps,
   retryMs: number = DEFAULT_ENVIRONMENT_RETRY_MS,
@@ -73,7 +64,6 @@ export function startDefaultEnvironmentRetry(
   return async () => {
     stopped = true;
     if (timer !== undefined) clearTimeout(timer);
-    // 关闭时等仍在进行的拉取/登记收尾（abort 会结束拉取），避免关池后还有查询。
     await inFlight;
   };
 }

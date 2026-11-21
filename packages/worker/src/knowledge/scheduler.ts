@@ -29,10 +29,6 @@ function schedulerId(sourceId: string): string {
   return `${SCHEDULER_ID_PREFIX}${sourceId}`;
 }
 
-/**
- * 一次定时触发：先重读库（陈旧触发不能复活已暂停/删除的来源），
- * 再用事务内 advisory lock 保证同一来源不会同时存在两个 queued/running 同步任务。
- */
 export async function processKnowledgeSyncTrigger(
   input: { db: Db; logger: Logger; queue: KnowledgeJobsQueueLike },
   data: unknown,
@@ -69,7 +65,6 @@ export async function processKnowledgeSyncTrigger(
     }
   }
 
-  // 入队最终失败：只有仍为 queued 的 CAS 赢家能收口 job/run/source；已认领不覆盖。
   await repo.knowledge.finishJob(input.db, created.job.id, {
     fromStatus: 'queued',
     status: 'failed',
@@ -78,7 +73,6 @@ export async function processKnowledgeSyncTrigger(
   return 'failed';
 }
 
-/** 对账所需的队列子集；测试可注入故障而不关停共用 Redis。 */
 export interface KnowledgeSchedulerQueue {
   getJobSchedulers(): Promise<Array<{ key: string; pattern?: string | null }>>;
   upsertJobScheduler(
@@ -98,10 +92,6 @@ export interface KnowledgeSchedulerQueue {
   removeJobScheduler(id: string): Promise<unknown>;
 }
 
-/**
- * DB 是调度权威：只对 active 且 cron 非空的来源保留 scheduler。
- * 每个来源的移除/更新独立隔离；坏 cron 或 Redis 单项失败不阻断其他来源与回收。
- */
 export async function syncKnowledgeSchedulers(input: {
   db: Db;
   logger: Logger;
@@ -129,7 +119,6 @@ export async function syncKnowledgeSchedulers(input: {
     const sourceId = id.slice(SCHEDULER_ID_PREFIX.length);
     let stage = 'remove';
     try {
-      // 先移除旧 pattern，避免 DB 改成坏值后旧 cron 继续触发。
       if (existing.has(id)) await input.queue.removeJobScheduler(id);
       stage = 'upsert';
       const entry = await input.queue.upsertJobScheduler(
@@ -170,10 +159,6 @@ interface KnowledgeScheduler {
   close: () => Promise<void>;
 }
 
-/**
- * 定时同步的权威来源是 knowledge_sources.sync_cron：启动同步一次，之后每 5 分钟对账。
- * 只有 active 且 cron 非空的来源进入 Redis；暂停、cron 置空或删除都会移除旧 scheduler。
- */
 export function startKnowledgeScheduler(input: {
   db: Db;
   logger: Logger;

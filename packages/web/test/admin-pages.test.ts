@@ -45,7 +45,6 @@ vi.mock('react', async (original) => {
 });
 vi.mock('@tanstack/react-router', async () => {
   const { evalSearchSchema } = await import('../src/routes/-search.js');
-  // 运行结果由 URL 的 run 选中：按真实 schema 造 search，不另造选中状态。
   const evalSearch = evalSearchSchema.parse({ run: 'eval-1' });
   return {
     Link: ({
@@ -114,7 +113,6 @@ vi.mock('../src/lib/queries.js', () => ({
   useCreateEvalCase: () => ({ isPending: state.pending, mutate: state.mutate }),
   useUpdateEvalCase: () => ({ isPending: state.pending, mutate: state.mutate }),
   useDeleteEvalCase: () => ({}),
-  // 运营层组件（工作台里嵌入的待办）依赖这些 hook；返回空数据即可。
   useAttention: () => ({ data: { approvals: [], failedRuns: [], total: 0 }, isSuccess: true }),
   attentionQuery: { queryKey: ['attention'] },
 }));
@@ -127,7 +125,6 @@ vi.mock('../src/components/ui/dialog.js', () => ({
 }));
 vi.mock('../src/components/confirm-dialog.js', () => ({ ConfirmDialog: () => null }));
 
-// Capture a page's own state and JSX, while React renders all child controls normally.
 function mount(component: () => ReactNode) {
   let tree: ReactNode;
   const render = () =>

@@ -18,7 +18,6 @@ describe('run query cancellation', () => {
       aborted = resolve;
     });
 
-    // 真实网络边界：queryFn -> api.run -> fetch。记录的是 fetch 实际收到的信号。
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const requestSignal =
         (input instanceof Request ? input.signal : undefined) ?? init?.signal ?? undefined;

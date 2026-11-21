@@ -15,7 +15,6 @@ import {
 
 const ready = await infraReady;
 
-/** 直接建 run（不经过队列），避免 worker 把状态从 running 改走。 */
 async function seedRun(app: TestApp, agentId: string): Promise<string> {
   const conversationId = unique('wait-conv');
   const runId = unique('wait-run');
@@ -107,7 +106,6 @@ describe.skipIf(!ready)('approval wait state', () => {
     expect(byName.get(past)).toMatchObject({ waiting: false, expiresAt: expect.any(String) });
     expect(byName.get(none)).toMatchObject({ waiting: false, expiresAt: null });
 
-    // 批准不改截止时间：过期的仍不等待，未来的继续等待。
     expect((await approve(runId, past)).json<{ waiting: boolean }>().waiting).toBe(false);
     expect((await approve(runId, future)).json<{ waiting: boolean }>().waiting).toBe(true);
     expect((await approve(runId, none)).json<{ waiting: boolean }>().waiting).toBe(false);
@@ -123,7 +121,6 @@ describe.skipIf(!ready)('approval wait state', () => {
       expiresAt: deadline,
     });
 
-    // 更早的重复请求不能缩短正在等待的调用。
     await repo.runs.requestApproval(app.db, {
       runId,
       serverId: server.id,
@@ -141,7 +138,6 @@ describe.skipIf(!ready)('approval wait state', () => {
     });
     expect((await list(runId))[0]?.expiresAt).toBe(deadline.toISOString());
 
-    // 已批准的行不再被重复请求改动。
     expect((await approve(runId, toolName)).statusCode).toBe(200);
     await repo.runs.requestApproval(app.db, {
       runId,

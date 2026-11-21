@@ -25,11 +25,6 @@ import type { RuntimeEnvironmentResolver } from '../runtime-environments/resolve
 import type { Sandbox, SandboxProvider } from './provider.js';
 import { SandboxCleanupError } from './provider.js';
 
-/**
- * 会话沙盒：同一 platform conversation 复用同一个常驻 supervisor 容器。
- * 容器创建用旧的一次性 provider 接口，长驻 supervisor 再由 stdin 接收每轮任务；
- * 每轮凭证只走 start 帧，不进入容器创建环境。
- */
 export interface SessionSandboxSpec {
   agentId: string;
   conversationId: string;
@@ -88,7 +83,6 @@ interface SessionSandboxesOptions {
   resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
 }
 
-/** 取消 ACK 等待上限；超时返回 unconfirmed，由调用方 release(false) 销毁容器。 */
 const CANCEL_GRACE_MS = 5_000;
 
 const IDLE_DESTROY_RETRY_MS = 30_000;
@@ -138,7 +132,6 @@ interface ReadyWaiter {
 
 interface LeaseState {
   released: boolean;
-  /** 第一次 release 的结果；重复调用必须拿到同一个 Promise，不能冒充已停稳。 */
   releasing: Promise<void> | null;
 }
 
@@ -158,12 +151,9 @@ interface SessionEntry {
   agentId: string;
   spec: SessionSandboxSpec;
   sandbox: Sandbox | null;
-  /** 容器实际创建时解析出的环境身份；存活期间不随线上版本变化。 */
   runtimeEnvironment: ResolvedRuntimeEnvironment | null;
-  /** 容器当前归属的 run；空闲或销毁中为 null。cleanup 据此拒绝别的 run 的清理。 */
   currentRunId: string | null;
   leaseHeld: boolean;
-  /** 已有 acquire 占用这次 entry（销毁收口期间也保留占位），第二个请求按 busy 拒绝。 */
   acquirePending: boolean;
   alive: boolean;
   broken: Error | null;
@@ -172,7 +162,6 @@ interface SessionEntry {
   active: ActiveExecution | null;
   ready: boolean;
   readyWaiter: ReadyWaiter | null;
-  /** 转为空闲时推进，用于软上限按「最久未用」挑选可回收条目。 */
   lastUsedSeq: number;
 }
 
@@ -198,10 +187,6 @@ function sessionPhase(entry: SessionEntry): SessionPhase {
   return 'creating';
 }
 
-/**
- * 记忆策略 → 记忆挂载：`enabled=false` 不挂 `/mnt/agent-memory`；只有 `native_auto` 允许容器内写。
- * `proposal_only` 按只读挂载，容器内 Bash 不能绕过 SDK 文件工具写记忆目录。
- */
 export function memoryMountFor(
   policy: MemoryPolicy,
   memoryDir: string,
@@ -263,7 +248,6 @@ export class SessionSandboxes {
   private readonly logger: Logger;
   private readonly resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
   private readonly entries = new Map<string, SessionEntry>();
-  /** 创建/重建中的 acquire；close 必须等它们按取消语义收尾。 */
   private readonly pending = new Set<Promise<unknown>>();
   private readonly closed = new AbortController();
   private useSeq = 0;
@@ -298,11 +282,6 @@ export class SessionSandboxes {
     return this.closePromise;
   }
 
-  /**
-   * 重启/替换后的显式清理入口。release(false) 会缓存第一次失败的 Promise，不能用来重试；
-   * 同 ID 的条目复用既有 destroy 收口（并发调用合并）。同一容器被别的 run 持有时直接拒绝，
-   * 不能退化成按 ID 删除而误杀当前容器；没有条目或条目已换成新容器时才按 ID 删除旧容器。
-   */
   async cleanup(conversationId: string, sandboxId: string, expectedRunId: string): Promise<void> {
     const entry = this.entries.get(conversationId);
     if (entry !== undefined && entry.sandbox?.id === sandboxId) {
@@ -321,11 +300,6 @@ export class SessionSandboxes {
     await this.provider.destroyById(sandboxId);
   }
 
-  /**
-   * 删除实体前的显式关闭：只关闭目标会话的空闲容器。活跃 lease / acquire 中的
-   * entry 一律拒绝（迟到的旧请求不能杀新 run）；重启后没有 entry 时才按已落库的
-   * 容器名逐个删除，provider 把「已不存在」视为成功。失败聚合上报，事务方回滚。
-   */
   async closeIdle(conversationId: string, sandboxIds: readonly string[]): Promise<void> {
     const ids = [...new Set(sandboxIds)];
     const attempted = new Set<string>();
@@ -337,7 +311,6 @@ export class SessionSandboxes {
         throw new Error(`session sandbox busy: ${conversationId}`);
       }
       if (entry.destroying !== null) {
-        // 空闲回收已在自己收口：合并同一轮销毁，不重复删除。
         const inFlight = entry.destroying;
         const id = entry.sandbox?.id;
         if (id !== undefined) attempted.add(id);
@@ -350,7 +323,6 @@ export class SessionSandboxes {
         throw new Error(`session sandbox busy: ${conversationId}`);
       } else if (entry.sandbox !== null) {
         const sandbox = entry.sandbox;
-        // 请求带精确容器身份时只关闭同一个容器；没有落库身份时才按会话关闭。
         if (ids.length === 0 || ids.includes(sandbox.id)) {
           attempted.add(sandbox.id);
           try {
@@ -393,12 +365,9 @@ export class SessionSandboxes {
         throw new Error(`session sandbox busy: ${spec.conversationId}`);
       }
       if (existing.broken !== null) {
-        // 上次清理失败时旧容器可能还在，宿主目录仍归它所有；下一次 acquire 独占重试一轮销毁，
-        // 成功后才在同一批目录上重建。失败继续拒绝，broken 保留给 close 重试。
         existing.leaseHeld = true;
         existing.acquirePending = true;
         existing.currentRunId = runId;
-        // 等待前记下 id：重试仍失败时必须带出可继续清理的容器。
         const sandboxId = existing.sandbox?.id;
         try {
           await this.destroyEntry(existing);
@@ -408,18 +377,14 @@ export class SessionSandboxes {
           existing.acquirePending = false;
         }
         if (this.closed.signal.aborted || signal.aborted) {
-          // 已确认删除但不重建：移除占位，别让后续 acquire 卡在空壳上。
           this.removeEntry(existing);
           throw abortError();
         }
         return this.createEntry(spec, signal, runId, existing);
       }
       if (existing.destroying !== null) {
-        // 空闲回收已经结束到“容器被删除”时才允许重取；等 destroy 收口，
-        // 不能把销毁中的短暂窗口报成 busy，也不能抢在删除前建新容器。
         existing.acquirePending = true;
         existing.currentRunId = runId;
-        // 等待前记下 id：销毁失败时同样要带出容器，不能只报普通错误。
         const sandboxId = existing.sandbox?.id;
         try {
           await existing.destroying;
@@ -453,7 +418,6 @@ export class SessionSandboxes {
           return this.leaseFor(existing);
         }
 
-        // 镜像/挂载变了就必须换容器：运行中的 bind mount 不能热替换。
         if (existing.sandbox !== null) {
           const sandboxId = existing.sandbox.id;
           try {
@@ -481,7 +445,6 @@ export class SessionSandboxes {
     replacing?: SessionEntry,
   ): Promise<SessionSandboxLease> {
     const current = this.entries.get(spec.conversationId);
-    // 旧条目让出后并发 acquire 可能已经先建成；不能覆盖，否则它的容器会失去跟踪。
     if (current !== undefined && current !== replacing) {
       throw new Error(`session sandbox busy: ${spec.conversationId}`);
     }
@@ -508,7 +471,6 @@ export class SessionSandboxes {
 
     let runtimeEnvironment: ResolvedRuntimeEnvironment;
     try {
-      // 只有真正新建容器才读线上版本；复用路径不经过这里。
       runtimeEnvironment = await this.resolveRuntimeEnvironment(
         spec.runtimeEnvironmentId,
         spec.runtimeEnvironmentVersionId,
@@ -531,7 +493,6 @@ export class SessionSandboxes {
       sandbox = await this.provider.create({
         image: runtimeEnvironment.imageId,
         workspaceDir: spec.workspaceDir,
-        // 创建环境不含任何 run 凭证；每轮凭证由 start 帧带入 supervisor。
         env: {},
         name: `pace-session-${randomBytes(6).toString('hex')}`,
         entrypoint: 'bun',
@@ -549,11 +510,9 @@ export class SessionSandboxes {
     this.attach(entry);
 
     if (createSignal.aborted) {
-      // provider 可能忽略了取消并迟到返回；所有权已在这里，必须销毁。
       try {
         await this.destroyEntry(entry);
       } catch (err) {
-        // 清理失败保留 broken 跟踪；本次创建留下残留容器，必须带出 id 交给上层继续清理。
         throw cleanupFailure(sandbox.id, 'acquire abort', err);
       }
       throw abortError();
@@ -565,7 +524,6 @@ export class SessionSandboxes {
       try {
         await this.destroyEntry(entry);
       } catch (cleanupErr) {
-        // 同上：销毁失败不能吞，带出容器 id，close/reconcile 还能按 id 重试。
         throw cleanupFailure(sandbox.id, `ready failure (${errorText(err)})`, cleanupErr);
       }
       throw err;
@@ -609,7 +567,6 @@ export class SessionSandboxes {
       start: (input) => this.start(entry, state, input),
       release: (input) => {
         state.released = true;
-        // 第一次调用的 reuse 决定后续路径；重复调用只复用同一个结果。
         state.releasing ??= this.release(entry, input.reuse);
         return state.releasing;
       },
@@ -740,10 +697,6 @@ export class SessionSandboxes {
     entry.idleTimer = timer;
   }
 
-  /**
-   * 新建容器前的软上限：达到上限就回收最久未用的空闲容器；没有可回收对象时
-   * 放行并告警，绝不为了腾位置停掉持锁或执行中的容器。
-   */
   private async reclaimForCreate(entry: SessionEntry): Promise<void> {
     const live = [...this.entries.values()].filter(
       (item) => item !== entry && item.sandbox !== null,
@@ -766,9 +719,7 @@ export class SessionSandboxes {
     }
     try {
       await this.destroyEntry(victim);
-    } catch {
-      // performDestroy 已记录并保留 broken；软上限不阻塞本次执行。
-    }
+    } catch {}
   }
 
   private reclaimable(entry: SessionEntry): boolean {
@@ -836,7 +787,6 @@ export class SessionSandboxes {
     }
     entry.alive = false;
     entry.sandbox = null;
-    // acquire 正持有该条目准备同步替换时保留占位，避免并发 acquire 在删除与重建之间看到空档。
     if (!entry.acquirePending) this.removeEntry(entry);
   }
 
@@ -851,7 +801,6 @@ export class SessionSandboxes {
     if (sandbox === null) return;
     const { child } = sandbox;
 
-    // 手写行切分：超长行丢弃而不是整行留在内存里。
     let pending = '';
     let discarding = false;
     child.stdout.setEncoding('utf8');
@@ -963,7 +912,6 @@ export class SessionSandboxes {
         return;
       }
       case 'event': {
-        // 控制帧不进 SSE；event 也只交给当前 run 的回调。
         this.activeFor(entry, output.runId)?.onEvent(output.event);
         return;
       }
@@ -1068,12 +1016,8 @@ export class SessionSandboxes {
     waiter?.reject(new Error(message));
     if (entry.active !== null) this.settle(entry, entry.active, unconfirmed(message));
     this.logger.warn({ conversationId: entry.conversationId, phase: sessionPhase(entry) }, message);
-    // 客户端进程退出不能证明 daemon 已删除容器；leash 仍被持有时由 owner 销毁，
-    // 空闲时也必须走 destroyEntry。失败保留 broken，close 会重试并报告。
     if (!entry.leaseHeld) {
-      void this.destroyEntry(entry).catch(() => {
-        // performDestroy 已记录并设置 broken；这里只避免 unhandled rejection。
-      });
+      void this.destroyEntry(entry).catch(() => {});
     }
   }
 

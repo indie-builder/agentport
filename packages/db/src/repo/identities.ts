@@ -24,10 +24,6 @@ import {
   userRoles,
 } from '../schema.js';
 
-/**
- * 历史业务身份的并集：没有身份登记表，登记事实来自认证账户与全部业务关联。
- * 角色/成员残留必须算作登记，否则删除认证资料后无法恢复原授权。
- */
 const identityIds = sql`
   select ${authUsers.businessId} as business_id from ${authUsers}
   union select ${userRoles.businessId} from ${userRoles}

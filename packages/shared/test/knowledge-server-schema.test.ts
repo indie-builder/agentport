@@ -22,7 +22,6 @@ describe('knowledge server read/write split', () => {
       config: { knowledgeBaseId: 'kb_1' },
     });
     expect(parsed.kind).toBe('knowledge');
-    // 读形状里没有 token / 凭据字段。
     expect('headers' in parsed).toBe(false);
     expect('url' in parsed).toBe(false);
   });

@@ -46,8 +46,6 @@ async function imageSettingsProblem(
   );
 }
 
-// ---- bases ----------------------------------------------------------------
-
 export async function listBases(
   deps: KnowledgeDeps,
   query: PageQuery,
@@ -57,10 +55,6 @@ export async function listBases(
   return { items: page.items.map(toBase), nextCursor: page.nextCursor };
 }
 
-/**
- * 置顶是个人偏好：没有用户主体时不报错，按「未置顶」返回；
- * 这不是管理变更，也不写审计。
- */
 export async function listPins(deps: KnowledgeDeps) {
   if (deps.actor === '' || deps.actor === 'anonymous') return { baseIds: [] };
   return { baseIds: await repo.knowledge.listPinnedBaseIds(deps.db, deps.actor) };
@@ -82,7 +76,6 @@ export async function createBase(
     embeddingProfileId: string;
     rerankProfileId: string | null;
     asrProfileId: string | null;
-    /** 省略时按表默认 active；复制已有库时沿用源库状态。 */
     status?: 'active' | 'disabled' | undefined;
     settings: KnowledgeBaseSettings;
   },
@@ -185,10 +178,6 @@ function settingsChanged(current: KnowledgeBaseSettings, next: KnowledgeBaseSett
   return keys.some((key) => current.imageProcessing[key] !== next.imageProcessing[key]);
 }
 
-/**
- * 审计只记被改动的字段名，不记值；空 patch 或提交了与原值相同的字段都不算变更，
- * 免得活动流里出现「更新知识库」却没有实际改动。
- */
 function changedBaseFields(
   current: NonNullable<Awaited<ReturnType<typeof repo.knowledge.getBase>>>,
   body: UpdateBaseBody,
@@ -331,10 +320,6 @@ export async function getBaseSummary(deps: KnowledgeDeps, id: string) {
   };
 }
 
-/**
- * 活动流只读：库不存在按对象不存在处理，其余口径由 repo 的单条 SQL 决定。
- * 与概览其它读数一致，时间统一转 ISO 字符串出 wire。
- */
 export async function listBaseActivity(deps: KnowledgeDeps, id: string, query: PageQuery) {
   if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
   const page = await repo.knowledge.listBaseActivity(deps.db, id, pageOptions(query));
@@ -353,10 +338,6 @@ export async function listBaseActivity(deps: KnowledgeDeps, id: string, query: P
 
 const CHUNK_PREVIEW_MAX_CHUNKS = 50;
 
-/**
- * 分块预览：只按传入样本与当前/草稿分块参数算一次切分，不读写库内容、不入队、不调模型。
- * chunkTokens 是字符预算，与 worker 摄取时的口径一致。
- */
 export async function previewChunks(
   deps: KnowledgeDeps,
   id: string,
@@ -375,7 +356,6 @@ export async function previewChunks(
     startOffset: offset,
     endOffset,
   }));
-  // 与摄取共用 chunkBlocks：clamp 超长块、表格/代码独立成块，预览块数才与真实分块一致。
   const chunks = chunkBlocks(blocks, body.sample, {
     chunkSize: chunkTokens,
     chunkOverlap,
@@ -405,16 +385,10 @@ const DUPLICATE_SLUG_MAX = 64;
 
 const DUPLICATE_SLUG_SUFFIX = '-copy';
 
-/** slug 上限 64：截断源 slug 让后缀完整保留；末尾字符仍是源 slug 的合法字符。 */
 function slugWithSuffix(sourceSlug: string, suffix: string): string {
   return `${sourceSlug.slice(0, DUPLICATE_SLUG_MAX - suffix.length)}${suffix}`;
 }
 
-/**
- * 副本 slug：先试 `-copy`，被占用就依次试 `-2`、`-3`……直到找到空位。
- * 每个候选都查唯一索引，命中数量受库里已有副本数限制，不会无限循环；
- * 真正的并发抢占仍由 knowledge_bases_slug_idx 与 createBase 的冲突映射兜底。
- */
 async function availableCopySlug(deps: KnowledgeDeps, sourceSlug: string): Promise<string> {
   const preferred = slugWithSuffix(sourceSlug, DUPLICATE_SLUG_SUFFIX);
   if (!(await repo.knowledge.baseSlugExists(deps.db, preferred))) return preferred;
@@ -424,10 +398,6 @@ async function availableCopySlug(deps: KnowledgeDeps, sourceSlug: string): Promi
   }
 }
 
-/**
- * 复制知识库只派生配置，不搬内容：profiles / settings / status / description 沿用源库，
- * 文档、FAQ、Wiki、来源、文件夹、标签都留在源库。创建路径仍走 createBase，不另写一套。
- */
 export async function duplicateBase(
   deps: KnowledgeDeps,
   id: string,

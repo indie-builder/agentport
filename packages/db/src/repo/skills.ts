@@ -11,7 +11,6 @@ export type SkillRow = typeof skills.$inferSelect;
 
 export type SkillWithAgentCount = SkillRow & { agentCount: number };
 
-/** DB 用 NULL / 空对象表示未设置；读取、预览、导出统一折叠掉，避免写出空 metadata。 */
 export function toSkillDefinition(
   row: Pick<
     SkillRow,
@@ -42,7 +41,6 @@ export interface SkillWrite {
   status?: SkillRow['status'];
 }
 
-/** 列表附带绑定的智能体数量；分组依据是主键，其余列在 PG 中函数依赖于它。 */
 export async function listSkills(
   db: Database,
   access?: ResourceAccessFilter,
@@ -102,7 +100,6 @@ export async function createSkill(db: Database, input: SkillWrite): Promise<Skil
   return row;
 }
 
-/** 市场安装：技能行与资源文件同一事务落库，避免只留下半套技能。 */
 export async function createSkillWithFiles(
   db: Database,
   input: SkillWrite,
@@ -152,7 +149,6 @@ export async function updateSkill(
         : and(eq(skills.id, id), notStale(skills.updatedAt, expectedUpdatedAt)),
     )
     .returning();
-  // 条件更新落空且行还在 = 并发修改；行没了交给路由返回 404。
   if (!row && expectedUpdatedAt !== undefined && (await getSkill(db, id))) {
     throw new AppError('CONFLICT_STALE', '技能已被修改，请刷新后重试');
   }

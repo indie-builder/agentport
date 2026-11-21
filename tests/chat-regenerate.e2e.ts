@@ -149,7 +149,6 @@ test('regenerating the last reply replaces it in place without duplicating messa
     })
     .toBe('succeeded');
 
-  // 实时视图（未刷新页面）：旧回复必须就地替换，不能与新回复并列或清空用户气泡。
   const liveMessages = browser.locator('[aria-label="对话消息"]');
   await expect(liveMessages.getByText(prompt, { exact: true })).toHaveCount(1, {
     timeout: 30_000,
@@ -322,7 +321,6 @@ test('regenerating the last reply after multiple turns keeps the earlier turns',
     })
     .toBe('succeeded');
 
-  // 实时视图（未刷新页面）：两轮用户文案都在，两轮各一个助手组，仅最后一轮可重生成。
   const liveMessages = browser.locator('[aria-label="对话消息"]');
   await expect(liveMessages.getByText(firstPrompt, { exact: true })).toHaveCount(1, {
     timeout: 30_000,
@@ -470,7 +468,6 @@ test('cancelling a regeneration keeps the previous reply', {
     throw new Error(`取消竞态未能命中：重新生成运行终态为 ${finalStatus}`);
   }
 
-  // 实时视图（未刷新页面）：取消后必须恢复原助手回复，不能留下空回复。
   const liveMessages = browser.locator('[aria-label="对话消息"]');
   await expect(liveMessages.getByRole('button', { name: '复制回复' })).toHaveCount(1, {
     timeout: 30_000,

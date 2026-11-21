@@ -94,7 +94,6 @@ describe('agentPermissionAllows', () => {
         'owner-a',
       ),
     ).toBe(false);
-    // 另一个叶的授权不能拼成这个叶的权限。
     expect(
       agentPermissionAllows(
         [{ permissionId: 'schedules.manage', scope: 'owned_agents' }],

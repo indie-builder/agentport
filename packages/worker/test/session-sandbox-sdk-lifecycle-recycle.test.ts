@@ -23,7 +23,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
   it('recycles an idle container and resumes from the persistent session on disk', async () => {
     const { fake } = suite;
     const provider = createProvider();
-    // 短阈值让真实回收可被观察；生产默认值仍由 worker 配置控制。
     const sessions = sessionsFor(provider, 1_200);
     try {
       const firstLease = await sessions.acquire(
@@ -99,10 +98,8 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
 
       const cancelledFinished = finishedEvent(second.events);
       expect(cancelledFinished?.status).toBe('cancelled');
-      // 取消分支也必须把本轮 session id 交给宿主，否则下一轮只能退回旧 id。
       expect(cancelledFinished?.sessionId).toBe(sessionId);
 
-      // 取消后不应再向模型发迟到请求（等待窗口内请求数不增长）。
       await delay(750);
       expect(fake.requests.length).toBe(requestCountAtCancel);
       expect(hung.closed).toBe(true);

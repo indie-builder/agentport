@@ -14,9 +14,6 @@ import {
   readableDocumentSql,
 } from './shared.js';
 
-// ---------------------------------------------------------------------------
-// 文档 / 版本 / chunk
-
 export interface CreateDocumentInput {
   baseId: string;
   folderId: string | null;
@@ -59,11 +56,8 @@ export interface ListDocumentsFilter extends PageOptions {
   folderId?: string | null;
   tag?: string;
   status?: KnowledgeDocumentRow['status'];
-  /** 精确匹配 sourceConnectionId（同步删除推导内部使用）。 */
   sourceConnectionId?: string;
-  /** 普通文档列表传 'document'，FAQ 专用列表传 'faq'，避免 Wiki 内部索引混入。 */
   contentKind?: KnowledgeDocumentRow['contentKind'];
-  /** 标题模糊匹配（大小写不敏感）。 */
   q?: string;
   sort?: 'updated' | 'created' | 'title';
   order?: 'asc' | 'desc';

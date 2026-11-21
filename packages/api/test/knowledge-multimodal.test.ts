@@ -245,7 +245,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       });
       expect(baseRes.statusCode, baseRes.body).toBe(201);
 
-      // 真实 pool.query 正对照：引用判断必须发 EXISTS 布尔查询，而不是数完再比较。
       const statements: string[] = [];
       const realQuery = app.client.unsafe.bind(app.client);
       const querySpy = spyOn(app.client, 'unsafe').mockImplementation(((
@@ -260,7 +259,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         );
       }) as never);
       try {
-        // 保持能力组合合法，确保命中「已被引用不可原地更换」而不是输入校验。
         for (const payload of [
           { model: 'other-model', imageInputEnabled: false },
           { embeddingProtocol: 'openai', imageInputEnabled: false },
@@ -288,7 +286,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         );
       }
 
-      // 409 不能留下部分配置。
       const stored = await app.client.unsafe<
         {
           model: string;
@@ -305,7 +302,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         image_input_enabled: true,
       });
 
-      // 能力校验先于引用判断：非法组合仍是 400，不因被引用而改判 409。
       const invalid = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/model-profiles/${cohereId}`,
@@ -433,7 +429,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         rerankProfileId: null,
       });
 
-      // 不换绑时仍可改名/停用：已绑 profile 后来被停用，不能卡住库自身的维护。
       const afterDisable = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/model-profiles/${textId}`,
@@ -527,7 +522,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       });
       await repo.knowledge.setCurrentVersion(app.db, document.id, version.id);
 
-      // 版本清单声明了原图，磁盘上就必须真实存在；否则编辑正文时复制图片会失败。
       const imagesDir = join(knowledgeDir, 'docs', document.id, version.id, 'images');
       await mkdir(imagesDir, { recursive: true });
       await writeFile(join(imagesDir, 'fig-1.png'), PNG);
@@ -542,7 +536,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         expect(res.statusCode, `${JSON.stringify(payload)} ${res.body}`).toBe(409);
       }
 
-      // 图片定位不可由用户改：PATCH body 没有 metadata 字段，传入也被 schema 丢弃。
       const located = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/chunks/${chunk!.id}`,
@@ -711,7 +704,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
             heading: null,
             content: '图 1 展示令牌轮换流程',
             searchText: '',
-            // 与文本查询向量方向不同：cos≈0.707，可区分 0.95 / 0.5 两个阈值。
             embedding: Array.from({ length: 1024 }, (_, i) => (i < 2 ? 1 : 0)),
             pageFrom: 1,
             pageTo: 1,
@@ -831,7 +823,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       });
       expect(switched.statusCode, switched.body).toBe(200);
 
-      // 切库后没有 base 再引用 first，但历史版本仍保留引用。
       const bases = await app.client.unsafe<{ count: string }[]>(
         'select count(*)::text as count from knowledge_bases where embedding_profile_id = $1',
         [first],
@@ -1196,7 +1187,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
 
     it('keeps vector chunk identity/metadata on export and imports it without an embedding', async () => {
       const seeded = await seedPackageLibrary();
-      // 停用状态不在导出/导入中丢失：vector 身份复用的是同一行。
       await repo.knowledge.patchChunk(app.db, seeded.chunks[1]!.id, { enabled: false });
       const pkg = await exportKnowledgePackage(app.db, knowledgeDir, seeded.baseId);
       expect(pkg).not.toBeNull();
@@ -1238,9 +1228,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         [imported.baseId],
       );
       expect(rows.map((row) => row.metadata.imageRole)).toEqual(['caption', 'vector']);
-      // 描述保留、向量不迁移：导入后靠 reindex chunksOnly 按原图补，不在这里调模型。
       expect(rows.every((row) => row.embedding === null)).toBe(true);
-      // vector chunk 身份与原图绑定保留，但不进关键词索引；停用状态同样保留。
       expect(rows[1]).toMatchObject({
         kind: 'image',
         enabled: false,
@@ -1252,7 +1240,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
     it('rejects image metadata without an image, non-image kinds, and mismatched MIME/page', async () => {
       const seeded = await seedPackageLibrary();
 
-      // 只有 imageRole、没有 image：导入后既没有可读图也没有检索路径，必须拒绝。
       await expect(
         importKnowledgePackage(
           app.db,
@@ -1264,7 +1251,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         ),
       ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
 
-      // kind=text 却带图片定位：检索给出图片身份，read_image 又因 kind 拒绝，必须拒绝。
       await expect(
         importKnowledgePackage(
           app.db,
@@ -1275,7 +1261,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         ),
       ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
 
-      // 页码与清单不符：原图定位会被篡改。
       await expect(
         importKnowledgePackage(
           app.db,
@@ -1289,7 +1274,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         ),
       ).rejects.toMatchObject({ code: 'INVALID_INPUT', message: expect.stringContaining('页码') });
 
-      // MIME 与清单不符：同名图片存在，但定位到的是另一份内容。
       await expect(
         importKnowledgePackage(
           app.db,
@@ -1303,7 +1287,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         ),
       ).rejects.toMatchObject({ code: 'INVALID_INPUT', message: expect.stringContaining('MIME') });
 
-      // 同时篡改 MIME 与页码时先报 MIME，保持既有检查顺序。
       await expect(
         importKnowledgePackage(
           app.db,
@@ -1339,7 +1322,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         message: expect.stringContaining('重复'),
       });
 
-      // 校验在事务前完成：被拒绝的包不会留下任何新库。
       expect(await count()).toBe(before);
     });
 
@@ -1430,7 +1412,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         )[0]?.count;
       const before = await count();
 
-      // missing.png 是合法单段文件名，能过 schema，但不在本版本的图片清单里。
       const missing = await editPackage(seeded.baseId, (manifest) => {
         const metadata = manifest.documents[0]!.versions[0]!.chunks[0]!.metadata as {
           image: { name: string };
@@ -1442,7 +1423,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         message: expect.stringMatching(/清单外的图片.*missing\.png/),
       });
 
-      // 校验在事务前完成：清单外的图片不会留下新库。
       expect(await count()).toBe(before);
     });
 
@@ -1484,7 +1464,6 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
       const imported = await importKnowledgePackage(app.db, knowledgeDir, pkg!.body);
       baseIds.push(imported.baseId);
 
-      // 导入的库保持「图片语义启用 + 图片向量启用」；描述模型不允许被调用。
       const importedBase = await repo.knowledge.getBase(app.db, imported.baseId);
       expect(importedBase?.settings.imageProcessing).toMatchObject({
         enabled: true,
@@ -1527,14 +1506,12 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         'select kind, metadata, search_text, embedding from knowledge_chunks where base_id = $1 order by ordinal',
         [imported.baseId],
       );
-      // 描述 chunk 走文字 embedding，vector chunk 由原图字节补回 1024 维并仍指向同一张图。
       expect(rows[0]!.embedding).not.toBeNull();
       expect(rows[1]!.embedding).toMatch(/^\[/);
       expect(rows[1]!.metadata.image.name).toBe('fig-1.png');
       expect(rows[1]!.search_text).toBe('');
       const vector = JSON.parse(rows[1]!.embedding!) as number[];
       expect(vector).toHaveLength(1024);
-      // fixture 对含「令牌」的文字返回 [1,...]，图片 data URI 返回 [0.01,...]；这里必须走图片路径。
       expect(vector[0]).toBeCloseTo(0.01);
       expect(cohereBodies.some((body) => Array.isArray(body.images))).toBe(true);
     });

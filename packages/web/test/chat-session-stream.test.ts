@@ -184,7 +184,6 @@ describe('chat account switch while the stream stays mounted', () => {
       }),
     );
 
-    // 截断后的 run_finished 会用落库消息异步重建尾部。
     await act(async () => {
       source.emit({ type: 'replay_truncated', reason: 'bytes' });
       source.emit({ type: 'run_finished', status: 'succeeded' });
@@ -204,9 +203,7 @@ describe('chat account switch while the stream stays mounted', () => {
     const source = await startRun();
 
     act(() => {
-      // 真实 meQuery 的 queryFn 在返回身份前同步调用这个绑定。
       bindChatIdentity('B');
-      // 断言在 act 回调内：不依赖 React effect 或计时器稍后生效。
       expect(source.closed).toBe(true);
       expect(useChatStore.getState()).toMatchObject({
         conversationId: null,
@@ -223,11 +220,9 @@ describe('chat account switch while the stream stays mounted', () => {
     vi.mocked(api.logout).mockResolvedValue({ ok: true });
     vi.useFakeTimers();
     try {
-      // 断线已进入有限重连，计时器尚未触发。
       act(() => source.onerror?.());
       expect(Source.instances).toHaveLength(1);
 
-      // app-shell 的两个显式退出入口都走这个共享清理；401/改密不走这里。
       await act(async () => {
         await logoutAccount();
       });

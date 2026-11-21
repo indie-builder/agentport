@@ -9,10 +9,6 @@ import {
 
 type BrowserHistory = ReturnType<typeof createBrowserHistory>;
 
-/**
- * 记录每次真实 history.block 调用产生的拦截 Promise。
- * 测试用它判断被 POP 拦下的导航最终是否结算，而不是断言某个 reset 函数被调用。
- */
 export function captureBlockedNavigations(history: BrowserHistory): Array<Promise<boolean>> {
   const promises: Array<Promise<boolean>> = [];
   const block = history.block.bind(history);
@@ -37,7 +33,6 @@ export function routerFor(history: BrowserHistory, children: (shell: AnyRoute) =
   });
 }
 
-/** 等 Promise 结算；未结算返回 'timeout'，避免测试挂到全局超时。 */
 export async function settled(
   promise: Promise<boolean>,
   timeoutMs = 100,

@@ -229,8 +229,6 @@ async function sourceScopeAllowsEnable(db: Database, documentId: string): Promis
   return result[0]?.ok === true;
 }
 
-// ---- documents ------------------------------------------------------------
-
 export async function listDocuments(
   deps: KnowledgeDeps,
   id: string,
@@ -384,10 +382,6 @@ function sameTagSet(left: string[], right: string[]): boolean {
   return a.length === b.length && a.every((name, index) => name === b[index]);
 }
 
-/**
- * 与知识库一致：审计只记被改动的字段名，不记值；空 patch 或提交原值都不算变更，
- * 免得活动流里出现「更新文档」却没有实际改动。
- */
 function changedDocumentFields(
   current: DocumentRow,
   body: UpdateDocumentBody,

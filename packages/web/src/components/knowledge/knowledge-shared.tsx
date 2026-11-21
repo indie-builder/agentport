@@ -85,7 +85,6 @@ const originLabel: Record<KnowledgeVersionOrigin, string> = {
   wiki: 'Wiki',
 };
 
-/** 前端上传只做后缀/大小预检；格式与字节仍由后端按真实内容复核。 */
 export const AUDIO_MAX_BYTES = 25_000_000;
 const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a', 'flac', 'ogg']);
 const AUDIO_MIME_TYPES = new Set([
@@ -154,13 +153,11 @@ function formatTimestamp(ms: number, withHours: boolean): string {
     : `${pad(minutes)}:${pad(seconds)}.${pad(millis, 3)}`;
 }
 
-/** 两端用同一精度；0 是合法时码，所以只判 undefined。 */
 function timeRangeLabel(fromMs: number, toMs: number): string {
   const withHours = fromMs >= 3_600_000 || toMs >= 3_600_000;
   return `${formatTimestamp(fromMs, withHours)}–${formatTimestamp(toMs, withHours)}`;
 }
 
-/** 定位只展示真实存在的字段；缺省不编造页码或坐标。 */
 export function locatorLabel(locator: KnowledgeLocator | null | undefined): string | null {
   if (!locator) return null;
   const parts: string[] = [];

@@ -4,7 +4,6 @@ import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 
 const DAY_MS = 86_400_000;
 
-/** 固定到当前 UTC 自然日，避免用例在午夜附近跨天。 */
 function utcMidnight(offsetDays = 0): Date {
   const now = new Date();
   return new Date(
@@ -12,11 +11,9 @@ function utcMidnight(offsetDays = 0): Date {
   );
 }
 
-// 每次创建一次性数据库：概览是全表聚合，既不读其他用例数据，也不能清空共享测试库。
 const isolated = await createIsolatedDatabase('api_overview', process.env.DATABASE_URL ?? '');
 if (isolated) process.env.DATABASE_URL = isolated.url;
 
-// helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
 const helpers = await import('./helpers.js');
 const { createAgent, createTestAccount, request, loginCookie, setAgentMember, startApp, unique } =
   helpers;
@@ -161,7 +158,6 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
       endedAt: startedAt.toISOString(),
     });
     expect(new Date(result.window.since).toISOString()).toBe(result.window.since);
-    // Keep later window fixtures independent of this run without clearing shared data.
     await app.client.unsafe('delete from agents where id = $1', [agentId]);
   });
 
@@ -173,13 +169,11 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     });
     await seedRun(agentId, 'failed', new Date(Date.now() - 7_200_000), { input: 3, output: 2 });
     await seedRun(agentId, 'timeout', new Date(Date.now() - 10_800_000), null);
-    // 窗口外：7 天窗口的下界之外，任何计数都不应包含它。
     await seedRun(agentId, 'failed', new Date(Date.now() - 8 * 86_400_000), {
       input: 100,
       output: 0,
     });
 
-    // running 是全局数量，包含窗口外以及尚无 started_at 的运行。
     await seedRun(agentId, 'running', new Date(Date.now() - 8 * 86_400_000), {
       input: 100,
       output: 100,
@@ -211,7 +205,6 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     const agentBefore = before.agents.find((a) => a.agentId === agentId);
     expect(agentBefore?.totalTokens).toBe(0);
 
-    // 两列各自都在 int4 内，但相加 2_500_000_000 越界。
     await seedRun(agentId, 'succeeded', new Date(Date.now() - 60_000), {
       input: 1_500_000_000,
       output: 1_000_000_000,
@@ -228,7 +221,6 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     const before = await overview(7);
     const tokensBefore = before.counts.tokens as number;
 
-    // 每行 1_500_000_000 在 int4 内，两行合计 3_000_000_000 越界。
     await seedRun(agentId, 'succeeded', new Date(Date.now() - 120_000), {
       input: 1_500_000_000,
       output: 0,
@@ -268,7 +260,6 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     const agentId = await seedAgent();
     const since = utcWindowStart(2);
     const before = await counts(2);
-    // 窗口起点那一毫秒计入，再早一毫秒就不计入。
     await seedRun(agentId, 'succeeded', since, { input: 1, output: 0 });
     await seedRun(agentId, 'failed', new Date(since.getTime() - 1), { input: 1, output: 0 });
 
@@ -293,7 +284,6 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
   it('returns exactly N UTC dates and groups runs by UTC day across a month boundary', async () => {
     const agentId = await seedAgent();
     const today = utcMidnight();
-    // 32 天必然跨月：最长月份只有 31 天；31 天在 10/31、12/31 恰好落在同一个月。
     const expected = recentUtcDays(32);
     const before = await timeseries(32);
 
@@ -308,7 +298,6 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
 
     const points = await timeseries(32);
     expect(points.map((point) => point.date)).toEqual(expected);
-    // 跨月点也必须连续补 0。
     expect(new Set(expected.map((date) => date.slice(0, 7))).size).toBeGreaterThan(1);
 
     const runsOn = (list: TrendPoint[], date: string) =>
@@ -337,7 +326,6 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     expect(sums.failed).toBe(body.counts.failed);
     expect(sums.tokens).toBe(body.counts.tokens);
     expect(sums.costUsd).toBeCloseTo(body.counts.costUsd as number, 6);
-    // 专家行与汇总共用同一个窗口与数据源。
     expect(body.agents.reduce((total, agent) => total + agent.runCount, 0)).toBe(body.counts.runs);
   });
 
@@ -345,10 +333,8 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
     const admin = cookie;
     const userA = await createTestAccount(app, admin, { systemKeys: ['owner'] });
     const userB = await createTestAccount(app, admin, { systemKeys: ['user'] });
-    // A 拥有专家，B 被授权在同一个专家上运行。
     const created = await createAgent(app, userA.cookie);
     const agentId = created.json<{ id: string }>().id;
-    // 另一个本人专家没有任何运行：JOIN 范围过滤不能把它整行过滤掉。
     const emptyAgentId = (await createAgent(app, userA.cookie)).json<{ id: string }>().id;
     await setAgentMember(app, admin, agentId, userB.businessId, {
       canUse: true,
@@ -401,7 +387,6 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
 
     const bBody = await overviewAs(userB.cookie);
     expect(bBody.counts).toMatchObject({ runs: 1, tokens: 150, costUsd: 2.5 });
-    // B 不是专家创建者：专家列表不出现 A 的专家，统计也不串。
     expect(bBody.agents.find((agent) => agent.agentId === agentId)).toBeUndefined();
 
     await app.client.unsafe('delete from agents where id = any($1::text[])', [

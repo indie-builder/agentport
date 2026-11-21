@@ -7,7 +7,6 @@ function render(props: Parameters<typeof Markdown>[0]): string {
   return renderToStaticMarkup(createElement(Markdown, props));
 }
 
-/** 带 Markdown 标记，确保走解析器；HTML 仍只能作为文字出现。 */
 const PARSED = '# 标题\n\n';
 
 describe('Markdown static content', () => {

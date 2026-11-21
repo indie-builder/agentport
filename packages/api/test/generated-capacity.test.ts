@@ -2,10 +2,6 @@ import { expect, it } from 'bun:test';
 import { runMcpExecution } from '../src/plugins/concurrency.js';
 import { waitForAssertion } from './native.js';
 
-/**
- * 进程内名额只做计数，不需要 MCP/DB：直接拿 deferred 任务验证边界，
- * 不触发任何 fetch 或模型调用。
- */
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   const promise = new Promise<void>((r) => {
@@ -26,7 +22,6 @@ it('holds four upstream executions and starts the fifth only after one finishes'
   const running = gates.slice(0, 4).map((_, index) => run(index));
   await waitForAssertion(() => expect(started).toEqual([0, 1, 2, 3]));
 
-  // 第 5 个请求必须排队，不能提前打上游。
   const queued = run(4);
   await Promise.resolve();
   expect(started).toEqual([0, 1, 2, 3]);

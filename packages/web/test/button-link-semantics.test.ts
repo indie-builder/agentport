@@ -83,7 +83,6 @@ function anchor(selector: string): HTMLAnchorElement {
   return found;
 }
 
-/** 原生链接保留隐式 link 角色；Button 包装的锚点会被 Base UI 覆盖成 role=button。 */
 function expectLinkSemantics(element: HTMLAnchorElement, href: string): void {
   expect(element.tagName).toBe('A');
   expect(element.getAttribute('href')).toBe(href);

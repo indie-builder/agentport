@@ -30,7 +30,6 @@ interface SupervisorChild extends EventEmitter {
   stderr: PassThrough;
 }
 
-/** cleanup 的形状由 SessionSandboxes 决定：缺这个方法时本文件无法通过编译。 */
 interface SessionManager {
   cleanup(conversationId: string, sandboxId: string, expectedRunId: string): Promise<void>;
   close(): Promise<void>;
@@ -66,7 +65,6 @@ mock.module('../src/runs/run-access.js', () => ({
   checkUserAgentAccess: async () => null,
 }));
 
-// 进程级守卫会把测试里任何未处理异常变成 process.exit；这里只验证 run 流程。
 const coreActual = await import('@agentport/core');
 mock.module('@agentport/core', () => ({ ...coreActual, installProcessGuards: () => undefined }));
 
@@ -84,7 +82,6 @@ mock.module('bullmq', () => {
   return { ...bullmqActual, Worker };
 });
 
-// provider 是外部边界：用 fake 容器注入 destroy 失败与取消无 ACK；SessionSandboxes 保持真实。
 mock.module('../src/sandbox/docker.js', () => ({
   DockerSandboxProvider: class {
     async ensureImage(): Promise<void> {}
@@ -107,7 +104,6 @@ mock.module('../src/sandbox/docker.js', () => ({
           if (frame.type === 'start' && frame.runId !== undefined) {
             mocks.startedRuns.push(frame.runId);
             child.stdout.write(`${JSON.stringify({ type: 'started', runId: frame.runId })}\n`);
-            // 先交付一轮完整消息与读数，再等取消：终态尚未交接。
             setTimeout(() => {
               child.stdout.write(
                 `${JSON.stringify({
@@ -165,7 +161,6 @@ mock.module('../src/sandbox/docker.js', () => ({
   resolveLocalImageId: async () => `sha256:${'a'.repeat(64)}`,
 }));
 
-// 记录 index 创建的 manager，reconcile 通过真实的 SessionSandboxes.cleanup 收口。
 const sessionsActual = await import('../src/sandbox/sessions.js');
 const ActualSessionSandboxes = sessionsActual.SessionSandboxes;
 mock.module('../src/sandbox/sessions.js', () => {
@@ -200,7 +195,6 @@ mock.module('../src/runtime-environments/reconcile.js', () => ({
   startRuntimeEnvironmentBuildReconciler: () => () => undefined,
 }));
 
-// index 不自己起后台 reconiler；下面的用例手动跑同一实现。
 const reconcileActual = await import('../src/scheduling/reconcile.js');
 mock.module('../src/scheduling/reconcile.js', () => ({
   ...reconcileActual,
@@ -265,7 +259,6 @@ const cleanupIds: { agents: string[]; conversations: string[]; runs: string[] } 
   runs: [],
 };
 
-// 与 worker 共用同一轮隔离库；数据全部按本次生成的 id 创建并在 afterAll 回收。
 let app: TestApp;
 let cookie = '';
 
@@ -309,7 +302,6 @@ async function createFixture(label: string) {
       ...agentOwnership,
     },
   ]);
-  // 运行占用 = 发起专家 + enabled 直接子级；用真实 API 建立这条关系。
   const bound = await patchAgent(agentId, { subAgentIds: [childId] });
   expect(bound.statusCode, bound.body).toBe(200);
   await repo.chat.createConversation(db, {
@@ -387,7 +379,6 @@ describe('unconfirmed stop handoff', () => {
     }
     app = await startApp({ WORKSPACES_DIR: workdir });
     cookie = await loginCookie(app);
-    // 排队 run 启动前按 DB 复核账户与 agents.use；用真实账户 API 建立测试主体。
     await createTestAccount(app, cookie, {
       businessId: TEST_BUSINESS_ID,
       systemKeys: ['user'],
@@ -414,7 +405,6 @@ describe('unconfirmed stop handoff', () => {
     await db.delete(schema.authUsers).where(eq(schema.authUsers.businessId, TEST_BUSINESS_ID));
     if (app) await app.close();
     await rm(workdir, { recursive: true, force: true });
-    // app.close 与 helper 的临时探测也会结束各自 pool；这里只兜底收尾剩余连接。
     for (const handle of mocks.dbHandles) await handle.client.close().catch(() => undefined);
   });
 
@@ -477,7 +467,6 @@ describe('unconfirmed stop handoff', () => {
   });
 
   it('keeps the run and its memory occupancy until reconcile confirms cleanup', async () => {
-    // processor 的 release 失败一次，reconcile 第一次 cleanup 再失败一次，第二次成功。
     mocks.destroyFailures = 2;
     const fixture = await createFixture('pending');
 
@@ -490,7 +479,6 @@ describe('unconfirmed stop handoff', () => {
     const processing = processor?.(fixture.job);
     await started;
     await requestCancel(fixture.runId);
-    // 不抛错 = BullMQ 正常完成；业务终态已交接给 DB，尚未发布。
     await expect(processing).resolves.toBeUndefined();
     expect(mocks.cancelFrames).toBe(1);
     expect(mocks.destroyed).toHaveLength(1);
@@ -513,24 +501,20 @@ describe('unconfirmed stop handoff', () => {
     });
     expect(pending?.pendingFinish?.messageIds).toHaveLength(1);
 
-    // 生产者不发布终态：run_finished 只能由 reconcile 补发一次。
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(
       (await readStream(fixture.runId)).filter((event) => event.type === 'run_finished'),
     ).toHaveLength(0);
 
-    // 业务占用仍在：memory 准入看的就是 running。
     const audits = await db
       .select({ action: schema.auditLog.action })
       .from(schema.auditLog)
       .where(eq(schema.auditLog.target, fixture.runId));
     expect(audits.map((row) => row.action)).not.toContain('agent.run.finished');
 
-    // 与真实 API 联动：pending 的 running 行仍占住「发起专家 + enabled 子级」。
     expectProblem(await putMemory(fixture.childId), 'CONFLICT');
     expectProblem(await patchAgent(fixture.childId, { enabled: false }), 'CONFLICT');
     expectProblem(await patchAgent(fixture.agentId, { subAgentIds: [] }), 'CONFLICT');
-    // 普通字段不改变活动集合，运行中仍可保存。
     expect((await patchAgent(fixture.agentId, { timeoutMs: 120_000 })).statusCode).toBe(200);
 
     const manager = mocks.managers[0];
@@ -544,7 +528,6 @@ describe('unconfirmed stop handoff', () => {
     });
 
     try {
-      // 第一次 cleanup 失败：保持 running，不发布终态。
       mocks.destroyFailures = 1;
       expect(
         await reconcileOrphanedRuns(db, logger, 10_000, queue, async (input) =>
@@ -562,12 +545,10 @@ describe('unconfirmed stop handoff', () => {
         (await readStream(fixture.runId)).filter((e) => e.type === 'run_finished'),
       ).toHaveLength(0);
 
-      // cleanup 失败时终态仍未落库，真实 API 继续拒绝。
       expectProblem(await putMemory(fixture.childId), 'CONFLICT');
       expectProblem(await patchAgent(fixture.childId, { enabled: false }), 'CONFLICT');
       expectProblem(await patchAgent(fixture.agentId, { subAgentIds: [] }), 'CONFLICT');
 
-      // 第二次 cleanup 成功：原事件只发布一次，状态与读数按交接时的值收敛。
       expect(
         await reconcileOrphanedRuns(db, logger, 10_000, queue, async (input) =>
           cleanup({
@@ -603,7 +584,6 @@ describe('unconfirmed stop handoff', () => {
         { action: 'agent.run.reconciled', status: 'error' },
       ]);
 
-      // 终态落库后活动集合释放：保存、启停、解绑恢复可用。
       const saved = await putMemory(fixture.childId, 'settled memory');
       expect(saved.statusCode, saved.body).toBe(200);
       const stored = await request(app, {

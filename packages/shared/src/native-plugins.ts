@@ -23,7 +23,6 @@ export const NATIVE_PLUGIN_WAIT_TIMEOUT_MS = 150_000;
 const pluginNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const githubRepoPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-/** 等价于 `/[\s\x00-\x1f\x7f]/`，按码点判断，避开正则里的控制字符转义。 */
 function hasWhitespaceOrControl(value: string): boolean {
   for (const ch of value) {
     const c = ch.codePointAt(0) ?? 0;

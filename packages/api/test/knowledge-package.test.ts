@@ -18,7 +18,6 @@ import {
 
 const ready = await infraReady;
 
-// 1x1 PNG：真实字节，用来验证图片随包归档与恢复。
 const TINY_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
@@ -97,7 +96,6 @@ function rewriteManifest(buffer: Buffer, mutate: (manifest: Manifest) => void): 
   return Buffer.from(zipSync(files, { level: 6 }));
 }
 
-/** 同时改 manifest 与条目，用来构造「清单登记了但内容缺失」的包。 */
 function rewritePackage(
   buffer: Buffer,
   mutate: (manifest: Manifest, files: Record<string, Uint8Array>) => void,
@@ -248,7 +246,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       ],
     );
 
-    // 250 个 chunk：验证导出按游标分页，不会在 200 条处截断。
     for (let index = 0; index < 250; index += 1) {
       const id = `kchk_${randomUUID().replace(/-/g, '')}`;
       if (index === 0) chunkId = id;
@@ -382,7 +379,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
   });
 
   it('导入还原到新库：新 ID、文件夹/标签/人工 chunk/Wiki 引用，embedding 为空但可关键词检索和重建', async () => {
-    // 移除原库避免 slug 冲突；导出的 ZIP 已保存在内存里。
     const removed = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/bases/${baseId}`,
@@ -589,7 +585,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     const mutated = rewritePackage(exported, (manifest, files) => {
       const version = manifest.documents[0]!.versions[0]!;
       const image = version.images[0]!;
-      // 语法合法的相对路径，但不在该版本的 images/ 目录下。
       const outside = version.originalPath;
       files[outside] = files[image.path]!;
       delete files[image.path];
@@ -652,7 +647,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
         ...version,
         id: randomUUID(),
         version: version.version + 1,
-        // 序号只在单个版本内唯一；不同版本重复同一序号合法。
         chunks: version.chunks.map((chunk) => ({ ...chunk, id: randomUUID() })),
       });
     });
@@ -725,7 +719,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     '重复$label 的知识包被拒绝，且不落库、不写文件',
     async ({ mutate, message }) => {
       const mutated = rewriteManifest(exported, (manifest) => {
-        // 旧实现会放过重复并在落库时撞 slug；换唯一 slug 才能证明拒绝来自重复校验。
         manifest.base.slug = unique('pkg-dup');
         mutate(manifest);
       });
@@ -752,7 +745,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     },
   );
 
-  /** 独立小库：一篇文档 + 一个 chunk + 一页引用它的已发布 Wiki。 */
   async function seedReferencedWiki(): Promise<{
     baseId: string;
     documentId: string;
@@ -838,7 +830,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     if (index >= 0) baseIds.splice(index, 1);
   }
 
-  /** 导入后核对：Wiki 文本保留，被删 chunk 的身份原样保留且明确失效，页面不装作有效。 */
   async function expectStaleReferenceRoundtrip(
     archive: Buffer,
     originalChunkId: string,
@@ -865,7 +856,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       versions: Array<{ markdown: string; sourceChunkIds: string[] }>;
     }>().versions[0]!;
     expect(version.markdown).toContain('引用被删文档的 Wiki');
-    // 失效引用保留原身份，但不指向任何导入后的 chunk。
     expect(version.sourceChunkIds).toEqual([originalChunkId]);
     expect(
       await app.client.unsafe('select id from knowledge_chunks where id = $1', [originalChunkId]),
@@ -886,7 +876,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     const archive = await exportBase(seeded.baseId);
     const wiki = readManifest(archive).wikiPages[0]!;
     expect(wiki.status).toBe('stale');
-    // 删除产生新版本而非原地改写；旧版本 chunk 仍在包内，引用可继续解析。
     expect(wiki.versions[0]!.sourceChunkIds).toEqual([seeded.chunkId]);
     expect(wiki.versions[0]!.unresolvedSourceChunkIds).toEqual([]);
     expect(wiki.sources).toEqual([
@@ -941,7 +930,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
 
   it('未声明的失效引用仍被拒绝：sourceChunkIds 指向包外 chunk 时导入失败', async () => {
     const seeded = await seedReferencedWiki();
-    // 删除整篇文档才会让所有版本与 chunk 一起消失，产生真正的失效引用。
     const removed = await request(app, {
       method: 'DELETE',
       url: `/api/knowledge/documents/${seeded.documentId}`,
@@ -950,7 +938,6 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     expect(removed.statusCode, removed.body).toBe(200);
     const archive = await exportBase(seeded.baseId);
 
-    // 把失效 id 挪回有效列表：导入端必须拒绝，不能接受「无声丢失」的伪造引用。
     const forged = rewriteManifest(archive, (manifest) => {
       const version = manifest.wikiPages[0]!.versions[0]!;
       version.sourceChunkIds = version.unresolvedSourceChunkIds ?? [];

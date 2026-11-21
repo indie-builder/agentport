@@ -22,7 +22,6 @@ export function ConnectionDialog({
   const onClose = dialog.close;
   const token = useServerToken(server.id);
   const rotate = useRotateServerToken(server.id);
-  // 轮换后只在这里保留明文；关闭对话框即丢弃。
   const [revealed, setRevealed] = useState<{ token: string; endpoint: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const data = revealed ?? token.data;
@@ -36,7 +35,6 @@ export function ConnectionDialog({
       onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={(next, details) => {
         if (next) return;
-        // 轮换进行中关闭会丢掉新 token；请求完成前不允许关闭。
         if (rotate.isPending) {
           details.cancel();
           return;
@@ -67,7 +65,6 @@ export function ConnectionDialog({
           <div className="flex flex-col gap-1">
             <span className="text-xs font-medium text-muted-foreground">Token</span>
             {data ? (
-              // 未轮换时接口只回掩码：那不是可用的 token，不能让用户复制。
               data.token === SECRET_MASK || !revealed ? (
                 <p className="text-sm text-muted-foreground">
                   {SECRET_MASK} 已配置。点「轮换 Token」生成新的明文，旧的立即失效。

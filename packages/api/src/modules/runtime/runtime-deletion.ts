@@ -4,13 +4,8 @@ import { closeSessionSandboxes } from '../../queue/session-cleanup.js';
 
 const { AGENT_BINDINGS_LOCK_KEY, withAdvisoryLock } = repo.locks;
 
-/** 删除持锁总预算：tx A + 10s ACK + tx B + unlock。 */
 const DELETION_HOLD_TIMEOUT_MS = 40_000;
 
-/**
- * 同一个绑定锁内完成 A → 事务外关闭确认 → B；db 不参与网络等待，
- * 所有 repo 调用都复用回调交付的同一连接。
- */
 export async function deleteConversationWithSandboxes(input: {
   client: SQL;
   redisUrl: string;

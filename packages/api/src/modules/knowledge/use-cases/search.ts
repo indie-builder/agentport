@@ -35,8 +35,6 @@ function cloneChunk(chunk: FullChunkRow): repo.knowledge.NewChunk {
   };
 }
 
-// ---- search / rebuild / batch --------------------------------------------
-
 export async function searchBase(
   deps: KnowledgeDeps,
   id: string,

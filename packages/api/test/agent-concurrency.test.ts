@@ -27,7 +27,6 @@ describe.skipIf(!ready)('agent update concurrency', () => {
 
   afterAll(async () => {
     if (createdIds.length > 0) {
-      // audit_log 没有外键，删 agent 不会带走它。
       await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
         app.client.array(createdIds, 'TEXT'),
       ]);
@@ -76,8 +75,6 @@ describe.skipIf(!ready)('agent update concurrency', () => {
 
   it('rejects a reused updatedAt when the clock is frozen in the same millisecond', async () => {
     const agent = await newAgent();
-    // 把版本值固定在同一毫秒，并让 Node 的 new Date() 也停在这一刻：
-    // 旧实现直接把 new Date() 写回，第二次请求仍能命中旧版本。
     const frozen = new Date(Date.now());
     await app.client.unsafe('update agents set updated_at = $2 where id = $1', [
       agent.id,
@@ -179,7 +176,6 @@ describe.skipIf(!ready)('agent update concurrency', () => {
 
       const first = patch(agent.id, { name: 'Concurrent A', expectedUpdatedAt: agent.updatedAt });
       const second = patch(agent.id, { name: 'Concurrent B', expectedUpdatedAt: agent.updatedAt });
-      // 两个写请求都停在行锁上才算真的并发；只等一个可能刚好一前一后完成。
       const blocked = await waitFor(async () => {
         const waiting = await app.client.unsafe<{ n: number }[]>(
           `with recursive blocked(pid) as (
@@ -241,7 +237,6 @@ describe.skipIf(!ready)('agent update concurrency', () => {
       if (holderPid === undefined) throw new Error('no backend pid');
       await client.unsafe('select id from agents where id = $1 for update', [agent.id]);
 
-      // 不带 expectedUpdatedAt 的请求不受乐观锁保护，必须靠「只写传入字段」避免互相回填旧值。
       const first = patch(agent.id, { name: 'Disjoint name' });
       const second = patch(agent.id, { description: 'Disjoint description' });
       const blocked = await waitFor(async () => {
@@ -282,8 +277,6 @@ describe.skipIf(!ready)('agent update concurrency', () => {
 
   it('advances updatedAt on consecutive updates without waits and rejects the old version', async () => {
     const agent = await newAgent();
-    // 起点放到未来：数据库 now() 不可能越过它，版本只能靠 +1ms 分支前进，
-    // 这样不用 sleep 也能稳定测到同一毫秒内的单调推进。
     const start = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
     await app.client.unsafe('update agents set updated_at = $2 where id = $1', [agent.id, start]);
 
