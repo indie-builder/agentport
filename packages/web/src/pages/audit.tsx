@@ -32,6 +32,7 @@ import {
   auditStatusVariant,
   formatDateTime,
   formatDuration,
+  timeRangeOptions,
 } from '../lib/format.js';
 import { useAudit } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
@@ -49,13 +50,6 @@ const statusOptions: Array<{ value: AuditStatus | 'all'; label: string }> = [
   { value: 'ok', label: '成功' },
   { value: 'error', label: '错误' },
   { value: 'denied', label: '拒绝' },
-];
-
-const rangeOptions = [
-  { value: 'all', label: '全部时间' },
-  { value: '7', label: '近 7 天' },
-  { value: '30', label: '近 30 天' },
-  { value: '90', label: '近 90 天' },
 ];
 
 const actorKindOptions: Array<{ value: AuditEntry['actorKind'] | 'all'; label: string }> = [
@@ -429,7 +423,7 @@ export function AuditPage() {
                   },
                 })
               }
-              options={rangeOptions}
+              options={timeRangeOptions}
               label="按时间范围过滤"
               className="w-full"
             />

@@ -4,7 +4,6 @@ import {
   type ChannelDetail,
   type ChannelMember,
   type ChannelMessage,
-  type ChannelRole,
 } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
@@ -22,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentAvatar, type AgentDisplay } from '../../components/agent/agent-avatar.js';
 import { ChannelHandoffDialog } from '../../components/channel/channel-handoff-dialog.js';
 import { ChannelRunSheet } from '../../components/channel/channel-run-sheet.js';
-import { ChannelSettingsButton } from '../../components/channel/channel-settings.js';
+import { ChannelSettingsButton, ROLE_LABEL } from '../../components/channel/channel-settings.js';
 import { Composer, MessagePane } from '../../components/chat/chat-thread.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../../components/page.js';
@@ -62,13 +61,6 @@ import {
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useChannelStream } from '../../lib/use-channel-stream.js';
-
-const ROLE_LABEL: Record<ChannelRole, string> = {
-  owner: '所有者',
-  admin: '管理员',
-  member: '成员',
-  viewer: '只读',
-};
 
 const NO_METRICS: ReadonlyMap<string, RunMetrics> = new Map();
 

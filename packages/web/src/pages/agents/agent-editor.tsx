@@ -100,6 +100,7 @@ import {
   agentSections as sectionItems,
   agentTabs as tabItems,
 } from '../../lib/detail-tabs.js';
+import { runtimeEnvironmentOptions } from '../../lib/format.js';
 import {
   agentDetailQuery,
   meQuery,
@@ -380,12 +381,7 @@ export function AgentEditor({
     runtimeEnvironmentField.value === defaultEnvironment?.id
       ? 'default'
       : runtimeEnvironmentField.value;
-  const runtimeEnvironmentOptions = [
-    { value: 'default', label: defaultEnvironment?.name ?? '平台默认环境' },
-    ...runtimeCatalog
-      .filter((environment) => !environment.isDefault)
-      .map((environment) => ({ value: environment.id, label: environment.name })),
-  ];
+  const runtimeEnvironmentItems = runtimeEnvironmentOptions(runtimeCatalog);
   const allowedToolsDraft = useWatch({ control, name: 'allowedTools' });
   const disallowedToolsDraft = useWatch({ control, name: 'disallowedTools' });
 
@@ -2056,7 +2052,7 @@ export function AgentEditor({
                                 runtimeState.isError
                               }
                               value={runtimeEnvironmentValue}
-                              items={runtimeEnvironmentOptions}
+                              items={runtimeEnvironmentItems}
                               onValueChange={(next) => {
                                 if (next === null || next === runtimeEnvironmentValue) return;
                                 runtimeEnvironmentField.onChange(next === 'default' ? null : next);
@@ -2067,7 +2063,7 @@ export function AgentEditor({
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectGroup>
-                                  {runtimeEnvironmentOptions.map((option) => (
+                                  {runtimeEnvironmentItems.map((option) => (
                                     <SelectItem key={option.value} value={option.value}>
                                       {option.label}
                                     </SelectItem>

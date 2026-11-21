@@ -48,7 +48,7 @@ import {
 import { Switch } from '../ui/switch.js';
 import { Textarea } from '../ui/textarea.js';
 
-const ROLE_LABEL: Record<ChannelRole, string> = {
+export const ROLE_LABEL: Record<ChannelRole, string> = {
   owner: '所有者',
   admin: '管理员',
   member: '成员',

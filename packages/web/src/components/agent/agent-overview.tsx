@@ -16,6 +16,7 @@ import {
   formatDuration,
   formatPercent,
   formatTokens,
+  runTriggerLabel,
 } from '../../lib/format.js';
 import {
   agentMemoryOverviewQuery,
@@ -47,15 +48,6 @@ export type AgentOverviewTarget = {
   instruction?: AgentInstruction | undefined;
   section?: AgentSection | undefined;
   view?: MemoryView | undefined;
-};
-
-const TRIGGER_LABEL: Record<string, string> = {
-  chat: '对话',
-  mcp: '连接器',
-  schedule: '定时任务',
-  event: '事件',
-  review: '记忆提案',
-  channel: '频道',
 };
 
 const BUDGET_STATE_LABEL = {
@@ -561,7 +553,7 @@ export function AgentOverview({
                           {formatDateTime(run.startedAt)}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {run.trigger ? (TRIGGER_LABEL[run.trigger] ?? run.trigger) : '—'}
+                          {run.trigger ? runTriggerLabel[run.trigger] : '—'}
                         </TableCell>
                         <TableCell>
                           <RunStatusBadge status={run.status} />

@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '../../components/ui/select.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
+import { runtimeEnvironmentOptions } from '../../lib/format.js';
 import type { LastTest } from './shared.js';
 
 export function TestEnvironmentDialog({
@@ -37,13 +38,7 @@ export function TestEnvironmentDialog({
   onClose: () => void;
   onConfirm: (environmentId: string) => void;
 }) {
-  const defaultEnvironment = environments.find((environment) => environment.isDefault);
-  const options = [
-    { value: 'default', label: defaultEnvironment?.name ?? '平台默认环境' },
-    ...environments
-      .filter((environment) => !environment.isDefault)
-      .map((environment) => ({ value: environment.id, label: environment.name })),
-  ];
+  const options = runtimeEnvironmentOptions(environments);
   const lastEnvironment = lastTest
     ? (lastTest.result.runtimeEnvironment ?? null)
     : (server.lastTestRuntimeEnvironment ?? null);

@@ -54,6 +54,7 @@ import {
   runStatusLabel,
   runTriggerLabel,
   shortId,
+  timeRangeOptions,
 } from '../../lib/format.js';
 import { meQuery, useAgents, useRuns } from '../../lib/queries.js';
 import { toastError } from '../../lib/toast.js';
@@ -346,12 +347,6 @@ export function RunsPage() {
     { value: '', label: '全部状态' },
     ...statuses.map((value) => ({ value, label: runStatusLabel[value] })),
   ];
-  const rangeOptions = [
-    { value: 'all', label: '全部时间' },
-    { value: '7', label: '近 7 天' },
-    { value: '30', label: '近 30 天' },
-    { value: '90', label: '近 90 天' },
-  ];
   const triggerOptions = [
     { value: '', label: '全部触发' },
     ...runTriggerSchema.options.map((value) => ({ value, label: runTriggerLabel[value] })),
@@ -440,13 +435,13 @@ export function RunsPage() {
               onValueChange={(next) =>
                 setFilter({ range: next === 'all' ? undefined : (next as '7' | '30' | '90') })
               }
-              options={rangeOptions}
+              options={timeRangeOptions}
               label="按时间范围过滤"
               className="w-full"
             />
           </FilterPopover>
           <span className="sr-only">
-            {`时间范围：${rangeOptions.find((option) => option.value === range)?.label ?? '全部时间'}`}
+            {`时间范围：${timeRangeOptions.find((option) => option.value === range)?.label ?? '全部时间'}`}
           </span>
           <div className="ml-auto flex min-w-0 flex-wrap items-center gap-3">
             <span role="status" className="text-xs text-muted-foreground">

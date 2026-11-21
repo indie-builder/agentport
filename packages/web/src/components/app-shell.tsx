@@ -25,7 +25,6 @@ import {
   PLATFORM_MENU,
   RESOURCE_MENU,
   ROUTE_META,
-  requiredPermissions,
   WORK_MENU,
 } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
@@ -224,7 +223,9 @@ export function AppShell() {
   const pageTitle = meta?.label ?? '页面不存在';
   const baseTitle = `${pageTitle} · PACE`;
   // 详情页共用同一个路由模板，固定名称无法区分实体（WCAG 2.4.2），改由页面实际 h1 命名。
-  const isDetailRoute = Boolean(meta && matchedRoute?.includes('$'));
+  const isDetailRoute = Boolean(
+    meta && matchedRoute !== '/_shell/$' && matchedRoute?.includes('$'),
+  );
   const user = authenticated(me.data);
   const home = homePath(me.data);
   const firstOperations = [...OPERATIONS_MENU, ...PLATFORM_MENU].find((item) =>
@@ -275,8 +276,8 @@ export function AppShell() {
       : firstOperations
         ? { to: firstOperations.to, label: '运维', icon: Wrench }
         : null;
-  const required = requiredPermissions(matchedRoute);
-  const allowed = required === null || canAny(me.data, required);
+  const allowed =
+    meta !== undefined && (meta.permissionIds.length === 0 || canAny(me.data, meta.permissionIds));
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() => {
     try {
       const stored = localStorage.getItem(COLLAPSE_KEY);

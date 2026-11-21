@@ -11,6 +11,7 @@ import {
   Brain,
   Cable,
   CalendarClock,
+  CircleAlert,
   Container,
   Cpu,
   Database,
@@ -18,6 +19,7 @@ import {
   Hash,
   HeartPulse,
   History,
+  Home,
   KeyRound,
   LayoutDashboard,
   LibraryBig,
@@ -313,12 +315,9 @@ export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
   '/_shell/models': pages.models,
   '/_shell/security': pages.securityOps,
   '/_shell/integrations': pages.integrations,
+  '/_shell/': { to: '/', label: '首页', icon: Home, permissionIds: [] },
+  '/_shell/$': { to: '/', label: '页面不存在', icon: CircleAlert, permissionIds: [] },
 };
-
-export function requiredPermissions(routeId: string | undefined): readonly PermissionId[] | null {
-  const permissions = routeId ? ROUTE_META[routeId]?.permissionIds : undefined;
-  return permissions?.length ? permissions : null;
-}
 
 export type PermissionTreeLeaf = PermissionDefinition;
 
