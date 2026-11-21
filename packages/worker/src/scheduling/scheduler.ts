@@ -2,7 +2,6 @@ import { type createDb, newId, repo, schema } from '@agentport/db';
 import {
   AGENT_RUNS_BACKLOG_LIMIT,
   type AgentRunJob,
-  buildRunWebhookEvent,
   RUNS_QUEUE,
   type RunErrorKind,
   runEnqueueOptions,
@@ -13,7 +12,7 @@ import {
 } from '@agentport/shared';
 import { createBunRedisClient, getNextMillis, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { checkRunPromptPolicy } from '../content-policy.js';
 import { checkUserAgentAccess } from '../runs/run-access.js';
@@ -67,29 +66,13 @@ async function failScheduleRun(
   error: string,
   errorKind: Extract<RunErrorKind, 'agent' | 'infra'>,
 ) {
-  const queued = eq(schema.agentRuns.status, 'queued');
-  const eligible =
-    errorKind === 'infra' ? queued : or(queued, repo.runPredicates.neverStartedFailureFilter());
-  return db.transaction(async (tx) => {
-    const [failed] = await tx
-      .update(schema.agentRuns)
-      .set({ status: 'failed', endedAt: new Date(), error, errorKind })
-      .where(and(eq(schema.agentRuns.id, runId), eligible))
-      .returning({
-        id: schema.agentRuns.id,
-        agentId: schema.agentRuns.agentId,
-        conversationId: schema.agentRuns.conversationId,
-        initiatedBy: schema.agentRuns.initiatedBy,
-      });
-    if (failed === undefined) return false;
-    if (failed.initiatedBy !== null) {
-      await repo.integrations.enqueueWebhookEvent(tx, {
-        ...buildRunWebhookEvent({ status: 'failed', error }, failed),
-        ownerBusinessId: failed.initiatedBy,
-      });
-    }
-    return true;
-  });
+  return (
+    (await repo.runs.failUnstartedRun(db, runId, {
+      error,
+      errorKind,
+      includeNeverStarted: errorKind === 'agent',
+    })) !== undefined
+  );
 }
 
 async function enqueueRun(
