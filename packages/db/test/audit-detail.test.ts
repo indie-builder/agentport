@@ -180,21 +180,17 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
   it('rejects JSON null in place of SQL NULL', async () => {
     const target = `audit-tamper-jsonnull-${randomUUID()}`;
     const id = `audit-detail-${randomUUID()}`;
-    await write({
-      dedupeKey: id,
-      action: 'audit.detail.tamper',
-      target,
-      status: 'ok',
-      detail: { from: 'allow', to: 'ask' },
-    });
+    await write({ dedupeKey: id, action: 'audit.detail.tamper', target, status: 'ok' });
     const row = await rowById(id);
+    expect(row.detail).toBeNull();
+    expect((await audit.verifyAuditChain(db)).ok).toBe(true);
 
     await db.execute(sql`update audit_log set detail = 'null'::jsonb where id = ${id}`);
     const result = await audit.verifyAuditChain(db);
     expect(result.ok).toBe(false);
     expect(result.brokenSeq).toBe(String(row.chainSeq));
 
-    await db.update(auditLog).set({ detail: row.detail }).where(eq(auditLog.id, id));
+    await db.execute(sql`update audit_log set detail = null where id = ${id}`);
     expect((await audit.verifyAuditChain(db)).ok).toBe(true);
   });
 
@@ -206,7 +202,7 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
       action: 'audit.detail.tamper',
       target,
       status: 'ok',
-      detail: { from: 'allow', to: 'ask' },
+      detail: { from: '1', to: 'ask' },
     });
     const row = await rowById(id);
 
