@@ -1,4 +1,4 @@
-import type { RetentionSettings, RetentionUpdate } from '@agentport/shared';
+import type { RetentionSettings, RetentionUpdate, Schedule, ScheduleRun } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
@@ -33,6 +33,29 @@ export const healthReadyQuery = queryOptions<HealthProbe<HealthReady>>({
   refetchInterval: 10_000,
   staleTime: 0,
 });
+
+export const schedulesQuery = queryOptions<Schedule[]>({
+  queryKey: ['schedules'],
+  queryFn: api.schedules,
+});
+
+export function useSchedules() {
+  return useQuery(schedulesQuery);
+}
+
+export const scheduleRunsQuery = (id: string) =>
+  queryOptions<ScheduleRun[]>({
+    queryKey: ['schedules', id, 'runs'],
+    queryFn: () => api.scheduleRuns(id),
+    refetchInterval: (query) =>
+      query.state.data?.some((run) => run.status === 'queued' || run.status === 'running')
+        ? 2_000
+        : 5_000,
+  });
+
+export function useScheduleRuns(id: string, enabled = true) {
+  return useQuery({ ...scheduleRunsQuery(id), enabled });
+}
 
 const retentionQuery = queryOptions<RetentionSettings>({
   queryKey: ['retention'],

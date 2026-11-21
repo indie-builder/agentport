@@ -399,7 +399,7 @@
 
 ## D-45 ✅ 平台MCP请求取消传播（2026-10-22）
 
-**采用**：平台MCP工具把`ctx.mcpReq.signal`传给AgentInvoker；预取消直接失败不建会话/运行/job；后续取消复用聊天的cancelAgentRun，running分支发布worker停止信号，queued分支发布终态并尽力移除等待job，只有状态迁移方记录取消审计。真实Redis订阅、停止键和终态流均已验证，停worker联合25项通过。
+**采用**：平台MCP工具把`ctx.mcpReq.signal`传给AgentInvoker；预取消直接失败不建会话/运行/job；后续取消复用 `runs` 域的 `cancelAgentRun`，running分支发布worker停止信号，queued分支发布终态并尽力移除等待job，只有状态迁移方记录取消审计。真实Redis订阅、停止键和终态流均已验证，停worker联合25项通过。
 
 **边界**：2025无状态逐请求服务下，单次`callTool`的`notifications/cancelled`无法送达执行实例，客户端本地拒绝但运行可能继续；现代逐请求协议是否可覆盖须另测。取消观察最多一个轮询周期（2秒），worker收到停止信号后异步终止沙盒；本轮验证信号送达，未运行真实模型或进程终止实测，不承诺撤回已发生上游。
 

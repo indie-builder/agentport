@@ -41,7 +41,7 @@ mock.module('@agentport/db', () => {
 });
 
 mock.module('../src/queue/producer.js', () => ({ getQueue: () => queue }));
-mock.module('../src/modules/chat/cancel-run.js', () => ({
+mock.module('../src/modules/runs/cancel-run.js', () => ({
   cancelAgentRun: mock(async () => 'queued'),
 }));
 

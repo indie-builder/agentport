@@ -13,7 +13,7 @@ import { AppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { beginSse } from '../../http/sse.js';
 import { publishChannelEvent, publishChannelMessage } from '../../queue/producer.js';
-import { cancelAgentRun } from '../chat/cancel-run.js';
+import { cancelAgentRun } from '../runs/cancel-run.js';
 import { writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
 

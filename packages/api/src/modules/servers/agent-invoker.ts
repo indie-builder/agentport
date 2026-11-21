@@ -6,7 +6,7 @@ import { isActiveRunStatus, isTerminalRunStatus, runEnqueueOptions } from '@agen
 import { eq } from 'drizzle-orm';
 import type { AppContext } from '../../http/context.js';
 import { getQueue } from '../../queue/producer.js';
-import { cancelAgentRun } from '../chat/cancel-run.js';
+import { cancelAgentRun } from '../runs/cancel-run.js';
 import { runQueueHasCapacity } from '../runs/capacity.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
