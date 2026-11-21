@@ -15,11 +15,26 @@ import type {
 import { api } from '../api.js';
 import { useCursorList } from './shared.js';
 
-const dataDomainKeys = ['data-domains'] as const;
+export const dataDomainKeys = {
+  all: ['data-domains'] as const,
+  list: ['data-domains', 'list'] as const,
+  detail: (id: string) => ['data-domains', id] as const,
+  versions: (id: string) => ['data-domains', id, 'versions'] as const,
+  version: (id: string, versionId: string) => ['data-domains', id, 'versions', versionId] as const,
+  enrichmentProposals: (id: string) => ['data-domains', id, 'enrichment-proposals'] as const,
+  enrichmentProposal: (id: string, proposalId: string) =>
+    ['data-domains', id, 'enrichment-proposals', proposalId] as const,
+  identities: (id: string) => ['data-domains', id, 'identities'] as const,
+  queryLogs: (id: string, query: DataDomainQueryLogListQuery) =>
+    ['data-domains', id, 'query-logs', query] as const,
+  approvals: (id: string, query: DataDomainQueryApprovalListQuery) =>
+    ['data-domains', id, 'approvals', query] as const,
+  approvalsAll: (id: string) => ['data-domains', id, 'approvals'] as const,
+};
 
 export function useDataDomains() {
   return useCursorList({
-    queryKey: [...dataDomainKeys, 'list'],
+    queryKey: dataDomainKeys.list,
     queryFn: (cursor) => api.dataDomainPage(cursor),
     select: (data) => data.pages.flatMap((page) => page.items),
   });
@@ -27,7 +42,7 @@ export function useDataDomains() {
 
 function dataDomainQuery(id: string) {
   return queryOptions<DataDomain>({
-    queryKey: [...dataDomainKeys, id],
+    queryKey: dataDomainKeys.detail(id),
     queryFn: () => api.dataDomain(id),
   });
 }
@@ -43,7 +58,7 @@ export function dataDomainBuildShouldPoll(
 
 function dataDomainVersionsQuery(id: string) {
   return queryOptions<DataDomainVersion[]>({
-    queryKey: [...dataDomainKeys, id, 'versions'],
+    queryKey: dataDomainKeys.versions(id),
     queryFn: () => api.dataDomainVersions(id),
     refetchInterval: (query) => (dataDomainBuildShouldPoll(query.state.data) ? 2_000 : false),
   });
@@ -51,7 +66,7 @@ function dataDomainVersionsQuery(id: string) {
 
 function dataDomainVersionQuery(id: string, versionId: string) {
   return queryOptions<DataDomainVersionDetail>({
-    queryKey: [...dataDomainKeys, id, 'versions', versionId],
+    queryKey: dataDomainKeys.version(id, versionId),
     queryFn: () => api.dataDomainVersion(id, versionId),
     enabled: Boolean(versionId),
     refetchInterval: (query) =>
@@ -61,7 +76,7 @@ function dataDomainVersionQuery(id: string, versionId: string) {
 
 function dataDomainEnrichmentProposalsQuery(id: string) {
   return queryOptions<DataDomainEnrichmentProposal[]>({
-    queryKey: [...dataDomainKeys, id, 'enrichment-proposals'],
+    queryKey: dataDomainKeys.enrichmentProposals(id),
     queryFn: () => api.dataDomainEnrichmentProposals(id),
     refetchInterval: (query) =>
       query.state.data?.some((proposal) => proposal.status === 'generating') ? 2_000 : false,
@@ -70,7 +85,7 @@ function dataDomainEnrichmentProposalsQuery(id: string) {
 
 function dataDomainEnrichmentProposalQuery(id: string, proposalId: string, enabled = true) {
   return queryOptions<DataDomainEnrichmentProposalDetail>({
-    queryKey: [...dataDomainKeys, id, 'enrichment-proposals', proposalId],
+    queryKey: dataDomainKeys.enrichmentProposal(id, proposalId),
     queryFn: () => api.dataDomainEnrichmentProposal(id, proposalId),
     enabled: Boolean(proposalId) && enabled,
   });
@@ -92,7 +107,7 @@ export function useCreateDataDomain() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: api.createDataDomain,
-    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys.all }),
   });
 }
 
@@ -101,7 +116,7 @@ export function useUpdateDataDomain() {
   return useMutation({
     mutationFn: (vars: { id: string; patch: Parameters<typeof api.updateDataDomain>[1] }) =>
       api.updateDataDomain(vars.id, vars.patch),
-    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys.all }),
   });
 }
 
@@ -109,7 +124,7 @@ export function useDeleteDataDomain() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: api.deleteDataDomain,
-    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys.all }),
   });
 }
 
@@ -118,7 +133,7 @@ export function useCreateDataDomainVersion() {
   return useMutation({
     mutationFn: (vars: { id: string; projectFiles: Record<string, string> }) =>
       api.createDataDomainVersion(vars.id, vars.projectFiles),
-    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys.all }),
   });
 }
 
@@ -126,7 +141,7 @@ export function useGenerateDataDomainMdl() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: api.generateDataDomainMdl,
-    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys.all }),
   });
 }
 
@@ -135,7 +150,7 @@ export function usePublishDataDomain() {
   return useMutation({
     mutationFn: (vars: { id: string; versionId: string }) =>
       api.publishDataDomain(vars.id, vars.versionId),
-    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys.all }),
   });
 }
 
@@ -159,7 +174,7 @@ export function useEnrichDataDomain() {
   return useMutation({
     mutationFn: (vars: { id: string; input: DataDomainEnrichInput }) =>
       api.enrichDataDomain(vars.id, vars.input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys.all }),
   });
 }
 
@@ -168,13 +183,13 @@ export function useDecideDataDomainEnrichmentProposal() {
   return useMutation({
     mutationFn: (vars: { id: string; proposalId: string; decision: 'approve' | 'reject' }) =>
       api.decideDataDomainEnrichmentProposal(vars.id, vars.proposalId, vars.decision),
-    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: dataDomainKeys.all }),
   });
 }
 
 export function useDataDomainIdentities(id: string) {
   return useQuery<DataDomainIdentity[]>({
-    queryKey: [...dataDomainKeys, id, 'identities'],
+    queryKey: dataDomainKeys.identities(id),
     queryFn: () => api.dataDomainIdentities(id),
   });
 }
@@ -185,7 +200,7 @@ export function useUpsertDataDomainIdentity() {
     mutationFn: (vars: { id: string; businessId: string; properties: Record<string, string> }) =>
       api.upsertDataDomainIdentity(vars.id, vars.businessId, vars.properties),
     onSuccess: (_, vars) =>
-      void client.invalidateQueries({ queryKey: [...dataDomainKeys, vars.id, 'identities'] }),
+      void client.invalidateQueries({ queryKey: dataDomainKeys.identities(vars.id) }),
   });
 }
 
@@ -195,13 +210,13 @@ export function useRemoveDataDomainIdentity() {
     mutationFn: (vars: { id: string; businessId: string }) =>
       api.removeDataDomainIdentity(vars.id, vars.businessId),
     onSuccess: (_, vars) =>
-      void client.invalidateQueries({ queryKey: [...dataDomainKeys, vars.id, 'identities'] }),
+      void client.invalidateQueries({ queryKey: dataDomainKeys.identities(vars.id) }),
   });
 }
 
 export function useDataDomainQueryLogs(id: string, query: DataDomainQueryLogListQuery) {
   return useCursorList({
-    queryKey: [...dataDomainKeys, id, 'query-logs', query],
+    queryKey: dataDomainKeys.queryLogs(id, query),
     queryFn: (cursor) =>
       api.dataDomainQueryLogs(id, {
         ...query,
@@ -222,7 +237,7 @@ export function dataDomainApprovalsShouldPoll(
 
 export function useDataDomainQueryApprovals(id: string, query: DataDomainQueryApprovalListQuery) {
   return useCursorList({
-    queryKey: [...dataDomainKeys, id, 'approvals', query],
+    queryKey: dataDomainKeys.approvals(id, query),
     queryFn: (cursor) =>
       api.dataDomainQueryApprovals(id, {
         ...query,
@@ -244,6 +259,6 @@ export function useDecideDataDomainApproval() {
     }): Promise<DataDomainQueryApproval> =>
       api.decideDataDomainApproval(vars.id, vars.approvalId, vars.decision, vars.note),
     onSuccess: (_, vars) =>
-      void client.invalidateQueries({ queryKey: [...dataDomainKeys, vars.id, 'approvals'] }),
+      void client.invalidateQueries({ queryKey: dataDomainKeys.approvalsAll(vars.id) }),
   });
 }
