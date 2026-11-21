@@ -1,3 +1,5 @@
+import type { DataDomainQueryApprovalMode } from '@agentport/shared';
+import { dataDomainQueryApprovalModeSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -55,7 +57,12 @@ export const dataDomains = pgTable(
     datasource: text('datasource').notNull(),
     connectionEncrypted: text('connection_encrypted').notNull(),
     onlineVersionId: text('online_version_id'),
-    queryApprovalMode: text('query_approval_mode', { enum: ['off', 'all'] })
+    queryApprovalMode: text('query_approval_mode', {
+      enum: dataDomainQueryApprovalModeSchema.options as [
+        DataDomainQueryApprovalMode,
+        ...DataDomainQueryApprovalMode[],
+      ],
+    })
       .notNull()
       .default('off'),
     createdBy: text('created_by').notNull(),
@@ -66,7 +73,10 @@ export const dataDomains = pgTable(
   (t) => [
     uniqueIndex('data_domains_slug_idx').on(t.slug),
     check('data_domains_datasource_check', sql`length(${t.datasource}) > 0`),
-    check('data_domains_query_approval_mode_check', sql`${t.queryApprovalMode} in ('off','all')`),
+    check(
+      'data_domains_query_approval_mode_check',
+      sql`${t.queryApprovalMode} in (${sql.raw(dataDomainQueryApprovalModeSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     foreignKey({
       columns: [t.onlineVersionId, t.id],
       foreignColumns: [dataDomainVersions.id, dataDomainVersions.dataDomainId],

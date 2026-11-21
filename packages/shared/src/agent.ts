@@ -45,6 +45,21 @@ export const CONFIGURABLE_DISALLOWED_TOOLS: readonly string[] = [
   'SendMessage',
 ];
 
+export function disallowedToolsFor(input: {
+  allowedTools: readonly string[];
+  allowSubAgents: boolean;
+  keepFileTools: boolean;
+}): string[] {
+  const configurable = new Set(CONFIGURABLE_DISALLOWED_TOOLS);
+  const allowed = new Set(input.allowedTools);
+  return DEFAULT_DISALLOWED_TOOLS.filter((tool) => {
+    if (tool === 'Read' || tool === 'Write' || tool === 'Edit') return !input.keepFileTools;
+    if (!configurable.has(tool)) return true;
+    if (tool === 'Agent' || tool === 'TaskStop') return !input.allowSubAgents;
+    return !allowed.has(tool);
+  });
+}
+
 export const AGENT_ROLES = [
   '通用助手',
   '前端工程师',

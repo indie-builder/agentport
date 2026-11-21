@@ -195,6 +195,10 @@ export const knowledgeSourceConfigTypeSchema = knowledgeSourceTypeSchema.exclude
 
 export type KnowledgeSourceConfigType = z.infer<typeof knowledgeSourceConfigTypeSchema>;
 
+export const knowledgeSourceStatusSchema = z.enum(['active', 'paused', 'auth_error', 'disabled']);
+
+export type KnowledgeSourceStatus = z.infer<typeof knowledgeSourceStatusSchema>;
+
 export const knowledgeSourceRangeExternalIdMax = {
   lark_wiki: 128,
   lark_drive: 128,

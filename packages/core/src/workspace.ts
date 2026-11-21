@@ -2,9 +2,8 @@ import {
   type AgentInput,
   agentHookFilePathSchema,
   agentHooksConfigSchema,
-  CONFIGURABLE_DISALLOWED_TOOLS,
-  DEFAULT_DISALLOWED_TOOLS,
   DEFAULT_MEMORY_POLICY,
+  disallowedToolsFor,
   displayNameSchema,
   MEMORY_CONTAINER_DIR,
   type MemoryPolicy,
@@ -156,9 +155,6 @@ export function renderRuleMd(rule: { slug: string; content: string; globs?: stri
     '',
   ].join('\n');
 }
-
-/** 子定义声明 memory: project 后，SDK 会用这三个工具读写自己的记忆目录。 */
-const SUBAGENT_FILE_TOOLS = new Set(['Read', 'Write', 'Edit']);
 
 const DESCRIPTION_MAX = 200;
 
@@ -370,20 +366,17 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
     ]),
   ];
   const hasSubAgents = (input.subAgents ?? []).length > 0;
-  const allowedByConfig = new Set(input.toolsAllow ?? []);
-  const mayEnable = (tool: string): boolean =>
-    CONFIGURABLE_DISALLOWED_TOOLS.includes(tool) &&
-    (tool === 'Agent' || tool === 'TaskStop' ? hasSubAgents : allowedByConfig.has(tool));
   const foreignServers =
     bound === undefined ? [] : servers.filter((s) => !ownNames.includes(s.name));
   const disallowed = [
     ...new Set([
       // 文件工具禁用只留给主定义；子定义靠官方 memory: project 读写自己的记忆目录，
       // 平台默认禁用会覆盖 SDK 对这三个工具的自动启用。用户显式 deny 仍在末尾合并。
-      ...DEFAULT_DISALLOWED_TOOLS.filter(
-        (tool) => !mayEnable(tool) && !(standalone && SUBAGENT_FILE_TOOLS.has(tool)),
-      ),
-      ...(standalone ? ['Agent', 'TaskStop'] : []),
+      ...disallowedToolsFor({
+        allowedTools: input.toolsAllow ?? [],
+        allowSubAgents: !standalone && hasSubAgents,
+        keepFileTools: standalone,
+      }),
       ...foreignServers.map((s) => `mcp__${s.name}`),
       ...(input.toolsDeny ?? []),
     ]),

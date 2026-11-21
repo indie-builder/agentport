@@ -14,6 +14,7 @@ import type {
   KnowledgeSearchResult,
   KnowledgeSearchWarning,
   KnowledgeSourceInput,
+  KnowledgeSourceStatus,
   KnowledgeSyncItem,
   KnowledgeTarget,
   KnowledgeWikiGraph,
@@ -270,7 +271,7 @@ export interface KnowledgeSource {
   name: string;
   config: Record<string, unknown>;
   hasSecret: boolean;
-  status: 'active' | 'paused' | 'auth_error' | 'disabled';
+  status: KnowledgeSourceStatus;
   syncCron: string | null;
   lastSyncAt: string | null;
   lastSyncStatus: string | null;
@@ -653,7 +654,7 @@ export default {
       config?: Record<string, unknown>;
       /** 省略表示沿用已存凭证；绝不发空字符串，避免把密钥清空。 */
       secrets?: Record<string, string>;
-      status?: 'active' | 'paused' | 'disabled';
+      status?: Exclude<KnowledgeSourceStatus, 'auth_error'>;
       syncCron?: string | null;
       ranges?: Array<Omit<KnowledgeSourceRange, 'id'>>;
     },
