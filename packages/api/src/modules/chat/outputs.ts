@@ -16,6 +16,7 @@ import type { AppContext, HttpContext, HttpEnv, RequestContext } from '../../htt
 import { parseRequest, requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
+import { invalidCursor } from '../../http/pagination.js';
 import {
   agentSlug,
   listWorkspaceOutputs,
@@ -78,22 +79,18 @@ export const chatOutputsRouter = {
   listOutputs: os.listOutputs.handler(async ({ input, context }) => {
     const conversation = await loadReadableConversation(context, input.params.id);
     const slug = await agentSlug(context.db, conversation.agentId);
-    if (slug === null) return { items: [], nextCursor: null };
     const { limit, cursor, runId } = input.query;
-    try {
-      return await listWorkspaceOutputs(context, {
-        slug,
-        conversationId: conversation.id,
-        limit,
-        ...(cursor === undefined ? {} : { before: cursor }),
-        ...(runId === undefined ? {} : { runId }),
-      });
-    } catch (err) {
-      if (cursor !== undefined && isAppError(err) && err.code === 'INVALID_INPUT') {
-        return fail('INVALID_INPUT', '游标无效，请刷新成果列表后重试');
-      }
-      throw err;
+    if (slug === null) {
+      if (cursor !== undefined) invalidCursor();
+      return { items: [], nextCursor: null };
     }
+    return listWorkspaceOutputs(context, {
+      slug,
+      conversationId: conversation.id,
+      limit,
+      ...(cursor === undefined ? {} : { before: cursor }),
+      ...(runId === undefined ? {} : { runId }),
+    });
   }),
   output: os.output.handler(async ({ input, context }) => {
     const conversation = await loadReadableConversation(context, input.params.id);

@@ -6,6 +6,7 @@ import {
   conversationSearchQuerySchema,
   conversationSearchResponseSchema,
   conversationSummarySchema,
+  cursorPageSchema,
   idParams,
   messageAttachmentSchema,
   openUiToolResultSchema,
@@ -13,6 +14,7 @@ import {
   outputListSchema,
   outputOwnerIdSchema,
   outputPathSchema,
+  pageQuerySchema,
   publicConversationSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
@@ -61,10 +63,7 @@ export const chatContract = {
     .input(
       z.object({
         params: idParams,
-        query: z.object({
-          limit: z.coerce.number().int().min(1).max(100).default(50),
-          cursor: z.string().min(1).optional(),
-        }),
+        query: pageQuerySchema,
       }),
     )
     .output(conversationDetailSchema),
@@ -98,13 +97,12 @@ export const chatContract = {
     .route({ method: 'GET', path: '/conversations', successStatus: 200 })
     .input(
       z.object({
-        query: z.object({
+        query: pageQuerySchema.extend({
           agentId: z.string().min(1).optional(),
-          limit: z.coerce.number().int().min(1).max(200).default(50),
         }),
       }),
     )
-    .output(z.array(conversationSummarySchema)),
+    .output(cursorPageSchema(conversationSummarySchema)),
   saveOpenuiState: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'conversations.update' } })
     .route({
@@ -180,9 +178,7 @@ export const chatContract = {
     .input(
       z.object({
         params: z.object({ id: outputOwnerIdSchema }),
-        query: z.object({
-          limit: z.coerce.number().int().min(1).max(100).default(50),
-          cursor: z.string().min(1).optional(),
+        query: pageQuerySchema.extend({
           runId: outputOwnerIdSchema.optional(),
         }),
       }),

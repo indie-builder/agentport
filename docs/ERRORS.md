@@ -11,7 +11,7 @@
 | Worker（BullMQ） | 运行失败 | `RunFailure(reason)` | Scope 收尾 + `isRetryableFailure` |
 | 沙盒（容器内） | 模型/工具失败 | `run_finished.failureKind` | 过 stdout 传给宿主 |
 | 进程 | 未捕获异常 | 日志 + 退出 | `installProcessGuards` |
-| 前端 | 所有 HTTP 失败 | `ApiError(code, retryable)` | `errorMessage()` 按 code 分支 |
+| 前端 | 所有 HTTP 失败 | `ApiError`（保留全部 Problem 字段） | `errorMessage()` / `describeError()` 按 code 与 status 分支 |
 
 一句话：**业务异常带稳定 code，系统异常只进日志，wire 上永远只有一个形状。**
 
@@ -38,8 +38,8 @@
   "status": 409,
   "requestId": "req-7",
   "retryable": false,
-  "path": "/name",
-  "errors": [{ "path": "/url", "message": "must be a valid URL" }]
+  "path": "/body/name",
+  "errors": [{ "path": "/body/url", "message": "must be a valid URL" }]
 }
 ```
 
@@ -54,7 +54,7 @@
   "retryable": false,
   "resource": "agent",
   "resourceId": "agent_01j...",
-  "hint": "确认 resource/resourceId 指向的对象存在且属于当前主体；必要时刷新列表，或用 requestId 查服务日志。"
+  "hint": "刷新资源列表，按资源类别和标识核对对象是否存在且可访问。"
 }
 ```
 
@@ -64,14 +64,13 @@
 | `message` | 面向用户；4xx 保留具体说明，5xx 固定文案 |
 | `status` | 与 HTTP 状态一致；客户端不必读 header |
 | `requestId` | 关联日志。用户报错时可直接贴这一串 |
-| `retryable` | 决定「自动重试」还是「提示用户」。429/5xx 为 true |
-| `path` / `errors` | 字段级校验失败；批量导入一次返回多条 |
+| `retryable` | 表示能否安全重放同一个请求。仅 `RATE_LIMITED` 默认允许重放 |
+| `path` / `errors` | 字段级校验失败；oRPC 校验问题的 path 带 `body` / `query` / `params` 包装段（如 `/body/name`），批量导入一次返回多条 |
 | `resource` | `NOT_FOUND` 的资源类别（`agent` / `conversation` / `run` / `approval` 等），不靠新增 `*_NOT_FOUND` 码表达 |
 | `resourceId` | 出错资源的标识；仅在调用方持有且适合外发时带上 |
 | `hint` | 面向智能体/运维的排查建议，不是给终端用户的文案；边界按 `code` 给默认值 |
 
-`errorCode` 常量表把 code 与 HTTP 状态写在一起（`errorCode.CONFLICT === 409`），所以业务代码只写
-`fail('CONFLICT', '...')`，不再出现 `statusCode: 409` 这种散落魔法数。
+`ERROR_META` 统一定义全部 26 个错误码的 HTTP 状态、默认重试策略和排查提示，三项均为必填；默认只有 `RATE_LIMITED` 的 `retryable` 为 `true`。业务代码可直接调用 `fail('CONFLICT', '...')`，对应状态取自 `ERROR_META.CONFLICT.status`。已登录的客户端可在 `/api/openapi.json` 的 `components.schemas.ErrorCodeCatalog` 查询完整目录。
 
 ## 错误码粒度
 
@@ -102,14 +101,11 @@ gRPC 只有单一的 canonical `NOT_FOUND`；Stripe 用 `code: "resource_missing
 - **AX（智能体 / 客户端）**：按固定顺序消费字段排查，不解析文案：
   1. `code` —— 错误类别，决定后续动作以及是否需要重试；
   2. `resource` / `resourceId` —— 出错的是哪个对象；
-  3. `retryable` —— 这个请求重试是否可能成功；
+  3. `retryable` —— 确认能否安全地重放同一个请求；
   4. `requestId` —— 关联服务日志；
   5. `hint` —— 面向智能体/运维的排查建议与下一步。
 
-`message` 面向人、`hint` 面向机器与运维；排查细节放 `hint`，不要塞进 `message`。`hint` 由边界按 `code`
-给默认值（如 `NOT_FOUND` → 确认 `resource`/`resourceId` 是否存在且属当前主体、必要时刷新或用 `requestId`
-查日志；`SERVICE_UNAVAILABLE` → 稍后重试并检查依赖/队列；`INTERNAL_ERROR` → 用 `requestId` 查服务日志），
-业务可在抛错时覆盖。
+`hint` 提供排查步骤。API 根据 `ERROR_META` 填充每个错误码的默认提示，业务可在抛错时覆盖。
 
 一次 agent 404 的完整 Problem：
 
@@ -122,7 +118,7 @@ gRPC 只有单一的 canonical `NOT_FOUND`；Stripe 用 `code: "resource_missing
   "retryable": false,
   "resource": "agent",
   "resourceId": "agent_01j...",
-  "hint": "确认 resource/resourceId 指向的对象存在且属于当前主体；必要时刷新列表，或用 requestId 查服务日志。"
+  "hint": "刷新资源列表，按资源类别和标识核对对象是否存在且可访问。"
 }
 ```
 
@@ -143,7 +139,7 @@ fail('CONFLICT', 'agent version conflict, retry later', { retryable: true });
 
 - **不出现 `statusCode`**：code 自带状态。
 - **不出现英文技术细节**：message 是给人看的下一步。
-- **可重试要显式声明**：默认只由状态码推断（5xx 可重试），并发冲突这类需要显式 `retryable: true`。
+- **可重试要显式声明**。默认策略取自 `ERROR_META`，仅 `RATE_LIMITED` 为 `true`。其他错误仅在同一请求可安全重放时显式传入 `retryable: true`。
 - **资源不存在用 `notFound(resource, message?, resourceId?)`**：统一产出 `NOT_FOUND` + `resource`，
   各资源的用户文案集中在一处，调用点不再各写一套。
 
@@ -158,7 +154,7 @@ fail('CONFLICT', 'agent version conflict, retry later', { retryable: true });
 | 错误 Content-Type | `UNSUPPORTED_MEDIA_TYPE` 415 |
 | 限流 | `RATE_LIMITED` 429，`retryable: true` |
 | 响应不符合 schema | `RESPONSE_INVALID` 500（服务端缺陷） |
-| 关停中/依赖不可用 | `SERVICE_UNAVAILABLE` 503 |
+| 关停中/依赖不可用 | `SERVICE_UNAVAILABLE` 503；Redis 连接错误映射为 `SERVICE_UNAVAILABLE` 且显式 `retryable: true` |
 
 5xx 的 `message` 在边界统一替换成 `Internal server error`——堆栈、SQL、上游响应体不会出现在 wire 上。
 
@@ -182,10 +178,13 @@ fail('CONFLICT', 'agent version conflict, retry later', { retryable: true });
 
 ### 前端
 
-`ApiError` 携带 `code` / `retryable` / `requestId`，`errorMessage()` 按 code 分支：
+`ApiError` 从 HTTP `Problem` 解码时保留全部 wire 字段：`code` / `message` / `status` / `requestId` / `retryable` / `path` / `resource` / `resourceId` / `hint` / `errors`；oRPC 客户端异常的回退路径只恢复 `code` / `status` / `requestId` / `retryable`，缺失字段按 `undefined` 处理。通用错误处理按字段分工：
 
-- 同样是 409，`CONFLICT`（已存在）和 `CONFLICT_STALE`（被别人改过）给出不同下一步。
-- 4xx 直接用服务端 message；5xx 一律换成可执行建议。
+- `errorMessage()` / `describeError()` 按 `code`、`status` 与 `message` 生成可执行文案：401 / 403 / `CONFLICT_STALE` / `RATE_LIMITED` 使用专门文案，其他 4xx 沿用服务端 message，5xx 一律换成可执行建议。
+- `toastError` 显示 `message`，带 `requestId` 时同时显示「请求 ID: …」。
+- 表单用 `applyProblemToForm` 消费 `errors[]` 的 `path` / `message`；映射到表单字段时去掉 oRPC 的 `body` / `query` / `params` 包装段（`/body/role` → `role`），并保留 JSON Pointer 解码；`errors[]` 缺失或为空时回退到顶层 `path`，只高亮该单字段。
+- `code` 与 `retryable` 供业务调用方决定是否重试；`hint` 由 `describeError` 返回给需要展示排查建议的调用方；`resource` / `resourceId` 供按资源分支的调用方读取。
+- 登录失效（401）在 `authenticatedFetch` 中直接跳转登录页，不经过 toast 文案。
 
 ## 明确的取舍
 

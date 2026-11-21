@@ -1,7 +1,9 @@
 import {
+  cursorPageSchema,
   expectedUpdatedAtSchema,
   idParams,
   MARKDOWN_FILE_MAX_CODE_POINTS,
+  pageQuerySchema,
   skillFileInputSchema,
   skillFileSchema,
   skillInputSchema,
@@ -27,12 +29,15 @@ const patchSchema = z.object({
   expectedUpdatedAt: expectedUpdatedAtSchema,
 });
 const importSchema = z.object({ skillMd: z.string().max(MARKDOWN_FILE_MAX_CODE_POINTS) });
+const skillListQuery = pageQuerySchema.extend({
+  status: skillStatusSchema.optional(),
+});
 export const skillsContract = {
   list: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'skills.read' } })
     .route({ method: 'GET', path: '/skills', successStatus: 200 })
-    .input(z.object({ query: z.object({ status: skillStatusSchema.optional() }) }))
-    .output(z.array(skillWithAgentCountSchema)),
+    .input(z.object({ query: skillListQuery }))
+    .output(cursorPageSchema(skillWithAgentCountSchema)),
   create: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'skills.create' } })
     .route({ method: 'POST', path: '/skills', successStatus: 201 })

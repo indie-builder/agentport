@@ -15,7 +15,7 @@
 | H6 | High | `/health/ready` 每请求新建 Redis 连接 | 复用 metrics 的共享 lazy 客户端 |
 | H11 | High | SSE 共享 subscriber 收到任意频道消息都触发 drain（N² 放大） | 按频道过滤后再 drain |
 | M1 | Medium | 登录失败把无长度上限的用户名写入永不清理的审计表 | 截断到 128 字符 |
-| M6 | Medium | `/api/conversations` 的 limit 无上限 | 上限 200 |
+| M6 | Medium | `/api/conversations` 的 limit 无上限 | 默认 50、上限 100（契约 `pageQuerySchema`） |
 | L6 | Medium | overview `days` 无上限导致非法日期 500 | 限制 1–3650 |
 | — | — | 审批状态在连接建立时快照，批准后同一连接仍被拒 | 改为执行前重判策略并按当前 `decisionHash` 校验批准 |
 | — | — | `generated.ts` 的 SSRF 调用未传 `nodeEnv`，与测试连接行为不一致 | 显式传入 `config.NODE_ENV` |

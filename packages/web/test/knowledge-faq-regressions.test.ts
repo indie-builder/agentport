@@ -331,7 +331,8 @@ function baseHandlers() {
     http.get('/api/knowledge/documents/:documentId/versions', () =>
       HttpResponse.json({ items: [], nextCursor: null }),
     ),
-    http.get('/api/agents', () => HttpResponse.json([])),
+    http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
   );
 }
 
@@ -434,7 +435,8 @@ describe('FAQ 叶权限入口', () => {
         node.textContent?.includes('v2'),
       );
       expect(historical).toBeDefined();
-      await click(historical!);
+      if (historical === undefined) throw new Error('missing v2 history button');
+      await click(historical);
       expect(maybeButton('回退到所选版本', history) !== undefined).toBe(publish);
       expect(calls.some((call) => call.method !== 'GET')).toBe(false);
     },

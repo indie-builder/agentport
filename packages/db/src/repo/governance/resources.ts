@@ -1,5 +1,5 @@
 import { fail } from '@agentport/core';
-import type { ResourceGrantInput, ResourceKind } from '@agentport/shared';
+import type { GovernanceResource, ResourceGrantInput, ResourceKind } from '@agentport/shared';
 import { and, asc, eq, ilike } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
@@ -14,6 +14,7 @@ import {
   skills,
 } from '../../schema.js';
 import { hasBusinessHistory } from '../accounts.js';
+import { type CursorPage, keysetPage } from '../pagination.js';
 
 export const resourceTables = {
   knowledge_base: knowledgeBases,
@@ -24,20 +25,38 @@ export const resourceTables = {
   runtime_environment: runtimeEnvironments,
 };
 
-export async function listGovernanceResources(db: DbHandle, kind: ResourceKind, q?: string) {
+export async function listGovernanceResources(
+  db: DbHandle,
+  kind: ResourceKind,
+  input: { q?: string | undefined; cursor?: string | undefined; limit: number },
+): Promise<CursorPage<GovernanceResource> | null> {
   const table = resourceTables[kind];
-  const rows = await db
-    .select({
-      id: table.id,
-      name: table.name,
-      ownerBusinessId: table.ownerBusinessId,
-      ownerName: authUsers.name,
-    })
-    .from(table)
-    .leftJoin(authUsers, eq(authUsers.businessId, table.ownerBusinessId))
-    .where(q ? ilike(table.name, `%${q}%`) : undefined)
-    .orderBy(asc(table.name));
-  return rows.map((row) => ({ resourceKind: kind, ...row }));
+  const page = await keysetPage(db, {
+    table,
+    cursor: input.cursor,
+    limit: input.limit,
+    column: table.name,
+    direction: 'asc',
+    where: [input.q ? ilike(table.name, `%${input.q}%`) : undefined],
+    load: ({ where, limit }) =>
+      db
+        .select({
+          id: table.id,
+          name: table.name,
+          ownerBusinessId: table.ownerBusinessId,
+          ownerName: authUsers.name,
+        })
+        .from(table)
+        .leftJoin(authUsers, eq(authUsers.businessId, table.ownerBusinessId))
+        .where(where)
+        .orderBy(asc(table.name), asc(table.id))
+        .limit(limit),
+  });
+  if (!page) return null;
+  return {
+    items: page.items.map((row) => ({ resourceKind: kind, ...row })),
+    nextCursor: page.nextCursor,
+  };
 }
 
 export async function listResourceGrants(db: DbHandle, kind: ResourceKind, resourceId: string) {

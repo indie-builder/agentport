@@ -1,19 +1,17 @@
-import { auditActorKindSchema } from '@agentport/shared';
+import { adminPageQuerySchema, auditActorKindSchema, cursorPageSchema } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
 
 export const auditStatusSchema = z.enum(['ok', 'error', 'denied']);
 
-export const auditQuerySchema = z.object({
+export const auditQuerySchema = adminPageQuerySchema.extend({
   action: z.string().trim().max(100).optional(),
   status: auditStatusSchema.optional(),
   target: z.string().trim().max(200).optional(),
   actor: z.string().trim().max(200).optional(),
   actorKind: auditActorKindSchema.optional(),
   since: z.iso.datetime().optional(),
-  limit: z.coerce.number().int().positive().max(200).optional(),
   before: z.iso.datetime().optional(),
-  cursor: z.string().trim().min(1).max(200).optional(),
 });
 
 export const auditItemSchema = z.object({
@@ -36,12 +34,7 @@ export const auditContract = {
   list: contractProcedure
     .route({ method: 'GET', path: '/audit' })
     .input(z.object({ query: auditQuerySchema }))
-    .output(
-      z.object({
-        items: z.array(auditItemSchema),
-        nextCursor: z.string().nullable(),
-      }),
-    )
+    .output(cursorPageSchema(auditItemSchema))
     .meta({ access: { kind: 'permission', permissionId: 'audit.read' } }),
   verify: contractProcedure
     .route({ method: 'GET', path: '/audit/verify' })

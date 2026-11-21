@@ -16,7 +16,7 @@
 - `src/run-stream.ts` 的队列名、Redis key、入队选项与取消载荷是 api/worker 的唯一来源。
 - 错误码新增属兼容变更；改语义或删除属破坏性变更，先核对前端与 MCP 客户端。
 - 入口统一中文校验文案（`z.config(z.locales.zhCN())`）；schema 描述可能进入错误或提示词，保持可读。
-- 列表分页统一用不透明游标 `limit` + `cursor`（入参）/ `nextCursor`（出参）；按 seq 的顺序区间分页（如频道消息、审计链校验）与页码跳转类表格（offset）属于独立机制，不受此约束。
+- 列表分页统一用 `src/pagination.ts` 的 `pageQuerySchema` / `adminPageQuerySchema` 与 `cursorPageSchema` / `offsetPageSchema`；默认 `limit` 50、上限 100（管理列表 200），默认值只放契约。按 seq 的顺序区间与显式有界列表是独立机制，见 [PAGINATION](../../docs/PAGINATION.md)。
 
 ## 验证
 

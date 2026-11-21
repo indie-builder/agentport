@@ -14,14 +14,18 @@ import {
   agentSchema,
   agentSummarySchema,
   businessIdSchema,
+  cursorPageSchema,
   expectedUpdatedAtSchema,
   idParams,
   MARKDOWN_FILE_MAX_CODE_POINTS,
   memoryFileContentSchema,
   memoryFileListSchema,
   memoryFileNameSchema,
+  offsetPageSchema,
+  offsetQuerySchema,
   outputStyleInputSchema,
   outputStyleSchema,
+  pageQuerySchema,
   permissionIdSchema,
   ruleSchema,
   slugSchema,
@@ -56,11 +60,9 @@ const memberParams = z.object({
   businessId: businessIdSchema,
 });
 const transferBody = z.object({ ownerBusinessId: businessIdSchema }).strict();
-const identitiesQuery = z.object({
+const identitiesQuery = offsetQuerySchema().extend({
   agentId: z.string().min(1),
   q: z.string().max(128).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  offset: z.coerce.number().int().min(0).default(0),
 });
 const createSchema = agentInputSchema.strict();
 const agentFields = agentInputSchema.shape;
@@ -107,7 +109,7 @@ export const agentsContract = {
     .route({ method: 'GET', path: '/agents', successStatus: 200 })
     .input(
       z.object({
-        query: z.object({
+        query: pageQuerySchema.extend({
           q: z.string().trim().max(128).optional(),
           tag: z.string().max(24).optional(),
           favorite: z.stringbool().optional(),
@@ -116,7 +118,12 @@ export const agentsContract = {
         }),
       }),
     )
-    .output(z.array(agentSummarySchema)),
+    .output(cursorPageSchema(agentSummarySchema)),
+  reference: contractProcedure
+    .meta({ access: { kind: 'authenticated' } })
+    .route({ method: 'GET', path: '/agents/reference', successStatus: 200 })
+    .input(z.object({}))
+    .output(z.object({ items: z.array(agentSummarySchema), truncated: z.boolean() })),
   tags: contractProcedure
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'GET', path: '/agents/tags', successStatus: 200 })
@@ -348,11 +355,8 @@ export const agentsContract = {
     .route({ method: 'GET', path: '/identities', successStatus: 200 })
     .input(z.object({ query: identitiesQuery }))
     .output(
-      z.object({
-        items: z.array(
-          z.object({ businessId: z.string(), name: z.string(), accountActive: z.boolean() }),
-        ),
-        total: z.number(),
-      }),
+      offsetPageSchema(
+        z.object({ businessId: z.string(), name: z.string(), accountActive: z.boolean() }),
+      ),
     ),
 };

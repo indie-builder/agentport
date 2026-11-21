@@ -148,7 +148,6 @@ export function SkillsPage() {
   const canReadSkillFiles = can(me.data, 'skills.files.read');
   const canWriteSkillFiles = can(me.data, 'skills.files.write');
   const canInstallMarket = can(me.data, 'market.install');
-  const skills = useSkills();
   const navigate = useNavigate();
   const search = useSearch({ from: '/_shell/skills' });
   const scope = search.scope ?? 'internal';
@@ -156,6 +155,7 @@ export function SkillsPage() {
   const sort = search.sort ?? 'newest';
   const usage = search.usage ?? 'all';
   const skillStatus = search.status;
+  const skills = useSkills({ status: skillStatus });
   const view: ListView = search.view ?? 'cards';
   const setView = (next: ListView): void => {
     void navigate({
@@ -226,13 +226,12 @@ export function SkillsPage() {
     return (skills.data ?? [])
       .filter(
         (skill) =>
-          (skillStatus === undefined || skill.status === skillStatus) &&
           (usage === 'all' ||
             (usage === 'bound' ? skill.agentCount > 0 : skill.agentCount === 0)) &&
           matchesQuery([skill.name, skill.slug, skill.description, skill.body], term),
       )
       .sort((a, b) => compareBySort(a, b, sort));
-  }, [skills.data, query, sort, usage, skillStatus]);
+  }, [skills.data, query, sort, usage]);
 
   if (scope === 'market') {
     return <MarketSkillsPage skills={skills} install={install} canInstall={canInstallMarket} />;
@@ -254,6 +253,7 @@ export function SkillsPage() {
         })
       }
       count={visibleSkills.length}
+      countPartial={skills.hasNextPage}
       status={skills.status}
       leadingFilters={
         <SegmentedToggle
@@ -639,6 +639,20 @@ export function SkillsPage() {
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {skills.hasNextPage ? (
+        <div className="flex justify-center pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={skills.isFetchingNextPage}
+            aria-busy={skills.isFetchingNextPage}
+            onClick={() => void skills.fetchNextPage()}
+          >
+            {skills.isFetchingNextPage ? '加载中…' : '加载更多'}
+          </Button>
+        </div>
       ) : null}
 
       {creating ? (

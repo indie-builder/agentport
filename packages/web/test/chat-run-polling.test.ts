@@ -50,6 +50,7 @@ const running: RunDetail = {
     error: null,
     sessionId: null,
     sandboxId: null,
+    runtimeEnvironment: null,
   },
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: 'History' },
   steps: [],
@@ -157,9 +158,9 @@ beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(['me'], adminMe);
-  client.setQueryData(['agents'], [agent]);
-  vi.spyOn(api, 'agents').mockResolvedValue([agent]);
-  vi.spyOn(api, 'conversations').mockResolvedValue([]);
+  client.setQueryData(['agents'], { items: [agent], truncated: false });
+  vi.spyOn(api, 'agentReference').mockResolvedValue({ items: [agent], truncated: false });
+  vi.spyOn(api, 'conversations').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'conversation').mockResolvedValue(history);
   vi.spyOn(api, 'run').mockResolvedValue(running);
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });

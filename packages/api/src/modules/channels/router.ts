@@ -21,6 +21,7 @@ import { actorOf, authorize, authorizeObject, requireUser } from '../../http/acc
 import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { beginSse } from '../../http/sse.js';
 import { getQueue, type RunSubscription, subscribeChannel } from '../../queue/producer.js';
 import { runQueueHasCapacity } from '../runs/capacity.js';
@@ -165,10 +166,15 @@ function parseEventCursor(raw: string | undefined): number | undefined {
 }
 const os = implement(channelsContract).$context<RequestContext>();
 const channelsMainRouter = {
-  list: os.list.handler(async ({ context }) => {
-    const items = await channelRepo.listChannels(context.db, subjectFor(context));
-    await Promise.all(items.map((channel) => auditRead(context, channel)));
-    return items.map(toListItem);
+  list: os.list.handler(async ({ input, context }) => {
+    const page = requireCursorPage(
+      await channelRepo.listChannels(context.db, subjectFor(context), {
+        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        limit: input.query.limit,
+      }),
+    );
+    await Promise.all(page.items.map((channel) => auditRead(context, channel)));
+    return { items: page.items.map(toListItem), nextCursor: page.nextCursor };
   }),
   create: os.create.handler(async ({ input, context }) => {
     const principal = requireUser(context);

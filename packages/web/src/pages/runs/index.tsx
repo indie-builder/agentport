@@ -279,7 +279,6 @@ export function RunsPage() {
     ...(status ? { status } : {}),
     ...(trigger ? { trigger } : {}),
     ...(since ? { since } : {}),
-    limit: 100,
   });
   const [exporting, setExporting] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
@@ -332,7 +331,7 @@ export function RunsPage() {
     }
   };
 
-  const items = runs.data?.items ?? [];
+  const items = runs.data?.pages.flatMap((page) => page.items) ?? [];
   const firstLoadFailed = runs.isError && runs.data === undefined;
   const empty = !runs.isPending && !firstLoadFailed && items.length === 0;
   const filtered = Boolean(agentId || status || trigger || range !== 'all');
@@ -357,7 +356,7 @@ export function RunsPage() {
       <PageTopbar>
         <PageHeader
           title="运行"
-          description={`${filtered ? '符合筛选条件的最近 100 条' : '最近 100 条'} · 排序仅作用于当前显示`}
+          description={`${filtered ? '符合筛选条件的运行' : '全部运行'} · 排序仅作用于当前显示`}
           actions={
             <>
               <Button onClick={() => void runs.refetch()} disabled={runs.isFetching}>
@@ -449,7 +448,9 @@ export function RunsPage() {
                 ? '加载中…'
                 : firstLoadFailed
                   ? '数量不可用'
-                  : `共 ${items.length} 条运行`}
+                  : runs.hasNextPage
+                    ? `已加载 ${items.length} 条运行`
+                    : `共 ${items.length} 条运行`}
             </span>
             <ViewToggle value={view} onChange={setView} />
           </div>
@@ -542,6 +543,30 @@ export function RunsPage() {
                 }
               />
             )}
+            {runs.isFetchNextPageError ? (
+              <PageNote
+                tone="danger"
+                title="更多运行没有加载出来"
+                description={errorMessage(runs.error)}
+                action={
+                  <Button variant="outline" size="sm" onClick={() => void runs.fetchNextPage()}>
+                    重试
+                  </Button>
+                }
+              />
+            ) : runs.hasNextPage ? (
+              <div className="flex justify-center pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={runs.isFetchingNextPage}
+                  aria-busy={runs.isFetchingNextPage}
+                  onClick={() => void runs.fetchNextPage()}
+                >
+                  {runs.isFetchingNextPage ? '加载中…' : '加载更多'}
+                </Button>
+              </div>
+            ) : null}
           </>
         )}
       </PageBody>

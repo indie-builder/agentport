@@ -1,19 +1,17 @@
 import type {
+  CursorPage,
   MarketInstallInput,
   MarketView,
+  Skill,
   SkillInput,
   SkillWithAgentCount,
 } from '@agentport/shared';
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type InfiniteData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../api.js';
 import { toast, toastError, toastSuccess } from '../toast.js';
 import { useDebouncedValue } from '../use-debounced-value.js';
 import { AGENT_OPTIONS_QUERY_KEY, AGENTS_QUERY_KEY } from './agents.js';
-
-const skillsQuery = queryOptions<SkillWithAgentCount[]>({
-  queryKey: ['skills'],
-  queryFn: () => api.skills(),
-});
+import { useCursorList } from './shared.js';
 
 export function useSkillDraftFromRun() {
   const client = useQueryClient();
@@ -23,8 +21,19 @@ export function useSkillDraftFromRun() {
   });
 }
 
-export function useSkills(enabled = true) {
-  return useQuery({ ...skillsQuery, enabled });
+export function useSkills(
+  options: { status?: Skill['status'] | undefined; enabled?: boolean | undefined } = {},
+) {
+  return useCursorList({
+    queryKey: ['skills', options.status ?? 'all'],
+    queryFn: (cursor) =>
+      api.skills({
+        ...(options.status === undefined ? {} : { status: options.status }),
+        ...(cursor === undefined ? {} : { cursor }),
+      }),
+    enabled: options.enabled ?? true,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
 }
 
 export function useCreateSkill() {
@@ -62,8 +71,17 @@ export function useInstallMarketSkill() {
     onSuccess: ({ skill, warnings }) => {
       toastSuccess(`已安装「${skill.name}」`);
       for (const warning of warnings) toast.info(warning);
-      client.setQueryData<SkillWithAgentCount[]>(['skills'], (old) =>
-        old ? [{ ...skill, agentCount: 0 }, ...old] : old,
+      client.setQueriesData<InfiniteData<CursorPage<SkillWithAgentCount>>>(
+        { queryKey: ['skills'] },
+        (old) => {
+          if (old === undefined) return old;
+          const [first, ...rest] = old.pages;
+          if (first === undefined) return old;
+          return {
+            ...old,
+            pages: [{ ...first, items: [{ ...skill, agentCount: 0 }, ...first.items] }, ...rest],
+          };
+        },
       );
       void client.invalidateQueries({ queryKey: ['skills'] });
     },

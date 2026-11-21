@@ -156,8 +156,8 @@ test('publishes, trials, rolls back and takes an agent offline through real runs
   let serverId: string | undefined;
 
   try {
-    const agents = await apiJson<AgentDetail[]>(browser, 'GET', '/api/agents');
-    const defaultAgent = agents.find((item) => item.isDefault === true);
+    const agents = await apiJson<{ items: AgentDetail[] }>(browser, 'GET', '/api/agents');
+    const defaultAgent = agents.items.find((item) => item.isDefault === true);
     if (defaultAgent === undefined) throw new Error('缺少默认助手');
     const defaultChat = await apiJson<{ runId: string }>(browser, 'POST', '/api/chat', {
       agentId: defaultAgent.id,

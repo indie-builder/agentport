@@ -28,11 +28,13 @@ import { ChatPage } from '../src/pages/chat/index.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
+const adminRole = DEFAULT_ROLES.find((role) => role.systemKey === 'admin');
+if (adminRole === undefined) throw new Error('admin role is missing');
 const adminMe = {
   authenticated: true as const,
   user: { businessId: 'admin', username: 'admin', name: '管理员' },
   roles: [],
-  grants: [...DEFAULT_ROLES.find((role) => role.systemKey === 'admin')!.grants],
+  grants: [...adminRole.grants],
 };
 
 const agent = {
@@ -61,6 +63,7 @@ const terminal: RunDetail = {
     error: 'Connector refused the request',
     sessionId: null,
     sandboxId: null,
+    runtimeEnvironment: null,
   },
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: 'History' },
   steps: [],
@@ -199,9 +202,9 @@ beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(['me'], adminMe);
-  client.setQueryData(['agents'], [agent]);
-  vi.spyOn(api, 'agents').mockResolvedValue([agent]);
-  vi.spyOn(api, 'conversations').mockResolvedValue([]);
+  client.setQueryData(['agents'], { items: [agent], truncated: false });
+  vi.spyOn(api, 'agentReference').mockResolvedValue({ items: [agent], truncated: false });
+  vi.spyOn(api, 'conversations').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'conversation').mockResolvedValue({
     conversation: { ...terminal.conversation, createdAt: '' },
     runMetrics: [],
@@ -322,6 +325,7 @@ describe('confirmed chat UX defects', () => {
     expect(host.textContent).toContain('notes.md');
 
     const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+    vi.mocked(api.agentReference).mockRestore();
     vi.stubGlobal('fetch', fetchMock);
     await act(async () => {
       await client.invalidateQueries({ queryKey: ['agents'] });
@@ -335,7 +339,7 @@ describe('confirmed chat UX defects', () => {
     expect(host.textContent).toContain('专家列表刷新失败，保留当前会话');
 
     fetchMock.mockResolvedValue(
-      new Response(JSON.stringify([agent]), {
+      new Response(JSON.stringify({ items: [agent], truncated: false }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }),
@@ -823,8 +827,11 @@ describe('live terminal outcomes across a follow-up send', () => {
 describe('chat shell layout', () => {
   it('sends bare chat without choosing an expert and keeps the authoritative default stream', async () => {
     const assistant = { ...agent, id: 'assistant', name: '通用助手', isDefault: true };
-    client.setQueryData(['agents'], [assistant, agent]);
-    vi.mocked(api.agents).mockResolvedValue([assistant, agent]);
+    client.setQueryData(['agents'], { items: [assistant, agent], truncated: false });
+    vi.mocked(api.agentReference).mockResolvedValue({
+      items: [assistant, agent],
+      truncated: false,
+    });
     vi.mocked(api.conversation).mockResolvedValue({
       conversation: { id: 'conversation-default', agentId: assistant.id, title: '', createdAt: '' },
       runMetrics: [],
@@ -939,9 +946,9 @@ describe('chat shell layout', () => {
       createdAt: '',
       updatedAt: '',
     };
-    client.setQueryData(['agents'], [agent, other]);
-    vi.mocked(api.agents).mockResolvedValue([agent, other]);
-    vi.mocked(api.conversations).mockResolvedValue([]);
+    client.setQueryData(['agents'], { items: [agent, other], truncated: false });
+    vi.mocked(api.agentReference).mockResolvedValue({ items: [agent, other], truncated: false });
+    vi.mocked(api.conversations).mockResolvedValue({ items: [], nextCursor: null });
     const router = await mount('/chat?agent=agent-a&conversation=conversation-a');
     await flush();
 
@@ -972,8 +979,8 @@ describe('chat shell layout', () => {
       createdAt: '',
       updatedAt: '',
     };
-    client.setQueryData(['agents'], [agent, slugOnly]);
-    vi.mocked(api.agents).mockResolvedValue([agent, slugOnly]);
+    client.setQueryData(['agents'], { items: [agent, slugOnly], truncated: false });
+    vi.mocked(api.agentReference).mockResolvedValue({ items: [agent, slugOnly], truncated: false });
     await mount();
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="召唤专家"]')?.click(),
@@ -1145,31 +1152,33 @@ describe('chat shell layout', () => {
       createdAt: '',
       updatedAt: '',
     };
-    client.setQueryData(['agents'], [agent, other]);
-    vi.mocked(api.agents).mockResolvedValue([agent, other]);
-    vi.mocked(api.conversations).mockImplementation(async (agentId?: string) =>
-      agentId === 'agent-a'
-        ? [
-            {
-              id: 'conversation-a',
-              agentId: 'agent-a',
-              title: 'History',
-              createdAt: '',
-              updatedAt: '',
-              lastMessage: null,
-            },
-          ]
-        : [
-            {
-              id: 'conversation-b',
-              agentId: 'agent-b',
-              title: 'Other history',
-              createdAt: '',
-              updatedAt: '',
-              lastMessage: null,
-            },
-          ],
-    );
+    client.setQueryData(['agents'], { items: [agent, other], truncated: false });
+    vi.mocked(api.agentReference).mockResolvedValue({ items: [agent, other], truncated: false });
+    vi.mocked(api.conversations).mockImplementation(async (query: { agentId?: string } = {}) => ({
+      items:
+        query.agentId === 'agent-a'
+          ? [
+              {
+                id: 'conversation-a',
+                agentId: 'agent-a',
+                title: 'History',
+                createdAt: '',
+                updatedAt: '',
+                lastMessage: null,
+              },
+            ]
+          : [
+              {
+                id: 'conversation-b',
+                agentId: 'agent-b',
+                title: 'Other history',
+                createdAt: '',
+                updatedAt: '',
+                lastMessage: null,
+              },
+            ],
+      nextCursor: null,
+    }));
     const remove = vi.spyOn(api, 'deleteConversation');
     const router = await mount('/chat?agent=agent-a&conversation=conversation-a');
     await type('unfinished draft');
@@ -1209,7 +1218,10 @@ describe('chat shell layout', () => {
     expect(host.textContent).not.toContain('History');
     expect(host.textContent).toContain('Other history');
     expect(host.textContent).toContain('未命名会话');
-    expect(vi.mocked(api.conversations)).toHaveBeenCalledWith('agent-b', expect.any(AbortSignal));
+    expect(vi.mocked(api.conversations)).toHaveBeenCalledWith(
+      { agentId: 'agent-b' },
+      expect.any(AbortSignal),
+    );
     expect(message().value).toBe('unfinished draft');
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="移除专家，回到通用助手"]')?.click(),

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hashMcpToken } from '@agentport/core';
-import { createServiceLogger } from '@agentport/core/logger';
+import { createServiceLogger, logEvent } from '@agentport/core/logger';
 import { type Database, repo, schema } from '@agentport/db';
 import {
   AGENT_MEMORY_MAX_BYTES,
@@ -267,6 +267,7 @@ async function watchCancel(
   redisUrl: string,
   runId: string,
   onCancel: () => void,
+  logger?: Logger,
 ): Promise<() => Promise<void>> {
   const redis = new RedisClient(redisUrl);
   redis.onclose = () => undefined;
@@ -282,9 +283,10 @@ async function watchCancel(
         .then(async () => {
           if (await lookup.exists(channel)) onCancel();
         })
-        .catch((err: unknown) =>
-          process.stderr.write(`memory review cancel resubscribe failed: ${errorText(err)}\n`),
-        );
+        .catch((err: unknown) => {
+          if (logger !== undefined)
+            logEvent(logger, 'queue error', { queue: 'memory-review-cancel' }, 'error', { err });
+        });
     };
     await redis.subscribe(channel, listener);
     if (await lookup.exists(channel)) onCancel();
@@ -402,7 +404,12 @@ export async function executeMemoryReview(
       const messagesById = new Map(snapshot.map((message) => [message.id, message]));
 
       cwd = await mkdtemp(join(tmpdir(), 'pace-memory-review-'));
-      unwatch = await watchCancel(input.redisUrl, input.runId, () => terminate('cancel'));
+      unwatch = await watchCancel(
+        input.redisUrl,
+        input.runId,
+        () => terminate('cancel'),
+        deps.logger,
+      );
       if (controller.signal.aborted) throw new MemoryReviewCancelled();
 
       timeout = setTimeout(() => terminate('timeout'), timeoutMs);

@@ -27,12 +27,12 @@ import { useAudit } from '../src/lib/queries.js';
 
 interface AuditOptions {
   queryKey: unknown[];
-  queryFn: (context: { pageParam: string | null; signal: AbortSignal }) => Promise<AuditList>;
-  initialPageParam: string | null;
+  queryFn: (context: { pageParam: string | undefined; signal: AbortSignal }) => Promise<AuditList>;
+  initialPageParam: string | undefined;
   getNextPageParam: (
     last: AuditList,
     pages: AuditList[],
-    pageParam: string | null,
+    pageParam: string | undefined,
   ) => string | undefined;
 }
 
@@ -74,20 +74,23 @@ test('查询键保留过滤条件，分页游标不进入键', () => {
     'audit',
     { action: 'agent.', status: 'ok' },
   ]);
-  expect(useQueryOptions().initialPageParam).toBeNull();
+  expect(useQueryOptions().initialPageParam).toBeUndefined();
 });
 
 test('首屏用筛选条件请求，不带游标', async () => {
   const query = { target: 'agent:1' };
   mocks.audit.mockResolvedValue(page([entry('e1')]));
-  await useQueryOptions(query).queryFn({ pageParam: null, signal: new AbortController().signal });
+  await useQueryOptions(query).queryFn({
+    pageParam: undefined,
+    signal: new AbortController().signal,
+  });
   expect(mocks.audit).toHaveBeenCalledWith({ ...query, limit: 100 }, expect.any(AbortSignal));
 });
 
 test('把查询的取消信号交给请求，离开页面时能中止在途分页', async () => {
   const signal = new AbortController().signal;
   mocks.audit.mockResolvedValue(page([entry('e1')]));
-  await useQueryOptions().queryFn({ pageParam: null, signal });
+  await useQueryOptions().queryFn({ pageParam: undefined, signal });
   expect(mocks.audit).toHaveBeenCalledWith({ limit: 100 }, signal);
 });
 
@@ -103,9 +106,9 @@ test('按服务端 nextCursor 翻页，null 表示结束', () => {
     Array.from({ length: 100 }, (_, index) => entry(`e${index}`)),
     'e99',
   );
-  expect(options.getNextPageParam(full, [full], null)).toBe('e99');
+  expect(options.getNextPageParam(full, [full], undefined)).toBe('e99');
 
   const last = page(Array.from({ length: 100 }, (_, index) => entry(`n${index}`)));
   expect(options.getNextPageParam(last, [full, last], 'e99')).toBeUndefined();
-  expect(options.getNextPageParam(page([]), [page([])], null)).toBeUndefined();
+  expect(options.getNextPageParam(page([]), [page([])], undefined)).toBeUndefined();
 });

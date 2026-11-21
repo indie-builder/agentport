@@ -1,6 +1,7 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
 import { toastError } from '../toast.js';
+import { useCursorList } from './shared.js';
 
 const NOTIFICATIONS_PAGE_SIZE = 20;
 
@@ -11,19 +12,17 @@ const notificationKeys = {
 };
 
 export function useNotifications(unreadOnly: boolean) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: notificationKeys.list(unreadOnly),
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: (cursor, signal) =>
       api.notifications(
         {
           ...(unreadOnly ? { unreadOnly: true } : {}),
-          ...(pageParam === null ? {} : { cursor: pageParam }),
+          ...(cursor === undefined ? {} : { cursor }),
           limit: NOTIFICATIONS_PAGE_SIZE,
         },
         signal,
       ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 10_000,
     refetchInterval: 30_000,
     refetchIntervalInBackground: true,

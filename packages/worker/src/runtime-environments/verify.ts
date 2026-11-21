@@ -7,7 +7,7 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 
 function fail(message) {
-  process.stderr.write('verify: ' + message + '\\n');
+  console.error('verify: ' + message);
   process.exit(1);
 }
 function tail(text) {

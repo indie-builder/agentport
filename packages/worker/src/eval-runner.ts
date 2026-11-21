@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DbError, runProgram } from '@agentport/core';
+import { logEvent } from '@agentport/core/logger';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
   type AgentDefinition,
@@ -217,11 +218,11 @@ function getRunQueue(redisUrl: string): Queue<AgentRunJob> {
   return runQueue;
 }
 
-function getRunQueueEvents(redisUrl: string): QueueEvents {
+function getRunQueueEvents(redisUrl: string, log: Logger): QueueEvents {
   if (!runQueueEvents) {
     runQueueEvents = new QueueEvents(RUNS_QUEUE, { connection: getConnection(redisUrl) });
     runQueueEvents.on('error', (error) => {
-      process.stderr.write(`[eval-queue] redis error: ${error.message}\n`);
+      logEvent(log, 'queue error', { queue: RUNS_QUEUE }, 'error', { err: error });
     });
   }
   return runQueueEvents;
@@ -253,7 +254,7 @@ export function messagesForRun<T extends { runId: string | null }>(
   return messages.filter((message) => message.runId === runId);
 }
 
-function assistantText(messages: Awaited<ReturnType<typeof chatRepo.listMessages>>): string {
+function assistantText(messages: repo.chat.Message[]): string {
   return messages
     .filter((message) => message.role === 'assistant')
     .map((message) => chatRepo.messageText(message.content) ?? '')
@@ -261,7 +262,7 @@ function assistantText(messages: Awaited<ReturnType<typeof chatRepo.listMessages
     .join('\n\n');
 }
 
-function calledToolNames(messages: Awaited<ReturnType<typeof chatRepo.listMessages>>): string[] {
+function calledToolNames(messages: repo.chat.Message[]): string[] {
   return messages.flatMap((message) => {
     if (message.role !== 'tool') return [];
     const content = message.content;
@@ -274,6 +275,7 @@ function calledToolNames(messages: Awaited<ReturnType<typeof chatRepo.listMessag
 function runOneCase(
   db: Database,
   redisUrl: string,
+  log: Logger,
   input: {
     agentId: string;
     evalRunId: string;
@@ -313,7 +315,7 @@ function runOneCase(
     );
     const run = admitted.run;
     context.runId = run.id;
-    const queueEvents = getRunQueueEvents(redisUrl);
+    const queueEvents = getRunQueueEvents(redisUrl, log);
     yield* Effect.tryPromise({
       try: () => queueEvents.waitUntilReady(),
       catch: (cause) => new Error(errorMessage(cause)),
@@ -483,6 +485,7 @@ export async function executeEvalRun(input: {
             runOneCase(
               db,
               redisUrl,
+              logger,
               {
                 agentId: evalRun.agentId,
                 evalRunId,

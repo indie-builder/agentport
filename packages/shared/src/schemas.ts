@@ -26,10 +26,6 @@ export const runListItemSchema = z.object({
 
 export type RunListItem = z.infer<typeof runListItemSchema>;
 
-export const runListSchema = z.object({ items: z.array(runListItemSchema) });
-
-export type RunList = z.infer<typeof runListSchema>;
-
 export const runStepSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('user'),

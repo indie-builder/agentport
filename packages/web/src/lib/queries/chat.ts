@@ -1,18 +1,12 @@
 import type { OutputContent, OutputFile } from '@agentport/shared';
-import {
-  infiniteQueryOptions,
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
-  type Conversation,
   type ConversationDetail,
   type ConversationSearchOptions,
   type OutputShareList,
 } from '../api.js';
+import { useCursorList } from './shared.js';
 
 export const chatKeys = {
   conversations: (...ids: [] | [string | null]) => ['conversations', ...ids] as const,
@@ -36,26 +30,21 @@ export const chatKeys = {
 };
 
 export function useConversations(agentId: string | null) {
-  return useQuery<Conversation[]>({
+  return useCursorList({
     queryKey: chatKeys.conversations(agentId),
-    queryFn: ({ signal }) => api.conversations(agentId ?? undefined, signal),
-    enabled: agentId !== null,
-    staleTime: 0,
-  });
-}
-
-export const searchConversationsOptions = (options: ConversationSearchOptions) =>
-  infiniteQueryOptions({
-    queryKey: chatKeys.search(options),
-    queryFn: ({ pageParam, signal }) =>
-      api.searchConversations(
-        { ...options, ...(pageParam === null ? {} : { cursor: pageParam }) },
+    queryFn: (cursor, signal) =>
+      api.conversations(
+        {
+          ...(agentId === null ? {} : { agentId }),
+          ...(cursor === undefined ? {} : { cursor }),
+        },
         signal,
       ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: agentId !== null,
     staleTime: 0,
+    select: (data) => data.pages.flatMap((page) => page.items),
   });
+}
 
 const CONVERSATION_PAGE_SIZE = 50;
 
@@ -72,7 +61,7 @@ export function useConversation(conversationId: string | null) {
         signal,
       ),
     initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    getNextPageParam: (last) => last?.nextCursor ?? undefined,
     enabled: conversationId !== null,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -90,23 +79,21 @@ export function useConversation(conversationId: string | null) {
 }
 
 export function useConversationOutputs(conversationId: string | null, runId: string | null = null) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey:
       runId === null
         ? chatKeys.outputs(conversationId)
         : chatKeys.runOutputs(conversationId, runId),
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: (cursor, signal) =>
       api.outputs(
         conversationId ?? '',
         {
           limit: 50,
           ...(runId === null ? {} : { runId }),
-          ...(pageParam === null ? {} : { cursor: pageParam }),
+          ...(cursor === undefined ? {} : { cursor }),
         },
         signal,
       ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: conversationId !== null,
     staleTime: 0,
     select: (data) => ({

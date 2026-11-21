@@ -1,5 +1,7 @@
 import {
+  cursorPageSchema,
   idParams,
+  pageQuerySchema,
   runtimeEnvironmentInputSchema,
   runtimeEnvironmentOnlineVersionInputSchema,
   runtimeEnvironmentPatchSchema,
@@ -18,7 +20,8 @@ const versionParams = z.object({
 export const runtimeEnvironmentsContract = {
   list: contractProcedure
     .route({ method: 'GET', path: '/runtime-environments' })
-    .output(z.array(runtimeEnvironmentSchema))
+    .input(z.object({ query: pageQuerySchema }))
+    .output(cursorPageSchema(runtimeEnvironmentSchema))
     .meta({ access: { kind: 'permission', permissionId: 'runtime_environments.read' } }),
   create: contractProcedure
     .route({ method: 'POST', path: '/runtime-environments', successStatus: 201 })

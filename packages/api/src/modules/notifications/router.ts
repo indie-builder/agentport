@@ -4,6 +4,7 @@ import { repo } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 
 const notificationsRepo = repo.notifications;
@@ -25,13 +26,15 @@ const os = implement(notificationsContract).$context<RequestContext>();
 export const notificationsRouter = os.router({
   list: os.list.handler(async ({ input, context }) => {
     const businessId = requireUser(context).businessId;
-    const page = await notificationsRepo.listNotifications(context.db, {
-      businessId,
-      unreadOnly: input.query.unreadOnly,
-      ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
-      limit: input.query.limit,
-    });
-    if (page === null) fail('NOT_FOUND', '通知游标无效，请刷新后重试');
+    const page = requireCursorPage(
+      await notificationsRepo.listNotifications(context.db, {
+        businessId,
+        unreadOnly: input.query.unreadOnly,
+        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        limit: input.query.limit,
+      }),
+    );
+
     const unreadCount = await notificationsRepo.unreadCount(context.db, businessId);
     return {
       items: page.items.map(toNotification),

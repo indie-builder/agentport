@@ -134,12 +134,16 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
   const assertNothingWritten = async (fixtureValue: Fixture) => {
     const [agents, skills] = await Promise.all([
       request(app, { method: 'GET', url: '/api/agents', headers: { cookie } }),
-      request(app, { method: 'GET', url: '/api/skills', headers: { cookie } }),
+      request(app, { method: 'GET', url: '/api/skills?limit=100', headers: { cookie } }),
     ]);
     const ownAgents = [fixtureValue.root];
-    expect(agents.json<Agent[]>().filter((entry) => ownAgents.includes(entry.slug))).toEqual([]);
     expect(
-      skills.json<Array<{ slug: string }>>().filter((entry) => entry.slug === fixtureValue.skill),
+      agents.json<{ items: Agent[] }>().items.filter((entry) => ownAgents.includes(entry.slug)),
+    ).toEqual([]);
+    expect(
+      skills
+        .json<{ items: Array<{ slug: string }> }>()
+        .items.filter((entry) => entry.slug === fixtureValue.skill),
     ).toEqual([]);
     const definitions = await app.client.unsafe(
       `select r.id from agent_rules r join agents a on a.id = r.agent_id where a.slug = any($1::text[])
@@ -234,7 +238,9 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
       label: 'duplicate child rule slugs',
       build: ({ spec }: Fixture) => {
         const target = structuredClone(spec);
-        target.subAgents[0]!.rules = [
+        const child = target.subAgents[0];
+        if (child === undefined) throw new Error('fixture is missing a child subagent');
+        child.rules = [
           { slug: 'guide', content: 'a', globs: '' },
           { slug: 'guide', content: 'b', globs: '' },
         ];
@@ -245,7 +251,9 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
       label: 'duplicate child style slugs',
       build: ({ spec }: Fixture) => {
         const target = structuredClone(spec);
-        target.subAgents[0]!.outputStyles = [childStyle, { ...childStyle, isSelected: false }];
+        const child = target.subAgents[0];
+        if (child === undefined) throw new Error('fixture is missing a child subagent');
+        child.outputStyles = [childStyle, { ...childStyle, isSelected: false }];
         return packageZip(target);
       },
     },
@@ -253,7 +261,9 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
       label: 'two selected child styles',
       build: ({ spec }: Fixture) => {
         const target = structuredClone(spec);
-        target.subAgents[0]!.outputStyles = [childStyle, { ...childStyle, slug: 'second' }];
+        const child = target.subAgents[0];
+        if (child === undefined) throw new Error('fixture is missing a child subagent');
+        child.outputStyles = [childStyle, { ...childStyle, slug: 'second' }];
         return packageZip(target);
       },
     },
@@ -314,7 +324,9 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
       label: '51 skill resources',
       build: ({ spec }: Fixture) => {
         const target = structuredClone(spec);
-        target.skills[0]!.files = Array.from({ length: 51 }, (_, index) => ({
+        const skill = target.skills[0];
+        if (skill === undefined) throw new Error('fixture is missing a skill');
+        skill.files = Array.from({ length: 51 }, (_, index) => ({
           path: `references/file-${index}.md`,
           content: 'Resource.',
         }));
@@ -369,7 +381,9 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
   it('round-trips a legal nested SKILL.md resource', async () => {
     const value = fixture();
     const nested = { path: 'references/nested/SKILL.md', content: 'Nested entry.\n' };
-    value.spec.skills[0]!.files = [nested];
+    const skill = value.spec.skills[0];
+    if (skill === undefined) throw new Error('fixture is missing a skill');
+    skill.files = [nested];
     const imported = await importSpec(value.spec);
     expect(imported.statusCode, imported.body).toBe(201);
     const files = await exportFiles(imported.json<{ agent: Agent }>().agent.id);
@@ -378,7 +392,9 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
 
   it('preserves resource spelling and content when only directory casing differs', async () => {
     const value = fixture();
-    value.spec.skills[0]!.files = [
+    const skill = value.spec.skills[0];
+    if (skill === undefined) throw new Error('fixture is missing a skill');
+    skill.files = [
       { path: 'Refs/B.md', content: 'Uppercase directory.\n' },
       { path: 'refs/A.md', content: 'Mixed-case filename.\n' },
     ];

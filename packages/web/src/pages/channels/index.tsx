@@ -66,7 +66,13 @@ export function ChannelsPage() {
       <PageTopbar>
         <PageHeader
           title="频道"
-          {...(items.length > 0 ? { description: `${items.length} 个频道` } : {})}
+          {...(items.length > 0
+            ? {
+                description: channels.hasNextPage
+                  ? `已加载 ${items.length} 个频道`
+                  : `共 ${items.length} 个频道`,
+              }
+            : {})}
           actions={
             items.length > 0 || showCreate ? (
               <>
@@ -83,7 +89,7 @@ export function ChannelsPage() {
         />
       </PageTopbar>
       <PageBody>
-        {channels.isError && channels.data !== undefined ? (
+        {channels.isRefetchError && channels.data !== undefined ? (
           <PageNote
             tone="danger"
             title="刷新失败，已保留加载的内容"
@@ -117,93 +123,116 @@ export function ChannelsPage() {
               : {})}
           />
         ) : (
-          <PageSection divided={false}>
-            {view === 'cards' ? (
-              <ul
-                aria-label="频道列表"
-                className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2"
-              >
-                {items.map((channel) => (
-                  <li key={channel.id} className="min-w-0">
-                    <ChannelCard channel={channel} />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <Table aria-label="频道列表">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>频道</TableHead>
-                    <TableHead>最近消息</TableHead>
-                    <TableHead>成员</TableHead>
-                    <TableHead>智能体</TableHead>
-                    <TableHead>未读</TableHead>
-                    <TableHead>更新时间</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.map((channel) => {
-                    const last = channel.lastMessage;
-                    return (
-                      <TableRow key={channel.id}>
-                        <TableCell className="max-w-72">
-                          <div className="flex min-w-0 items-center gap-2">
+          <>
+            <PageSection divided={false}>
+              {view === 'cards' ? (
+                <ul
+                  aria-label="频道列表"
+                  className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2"
+                >
+                  {items.map((channel) => (
+                    <li key={channel.id} className="min-w-0">
+                      <ChannelCard channel={channel} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <Table aria-label="频道列表">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>频道</TableHead>
+                      <TableHead>最近消息</TableHead>
+                      <TableHead>成员</TableHead>
+                      <TableHead>智能体</TableHead>
+                      <TableHead>未读</TableHead>
+                      <TableHead>更新时间</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {items.map((channel) => {
+                      const last = channel.lastMessage;
+                      return (
+                        <TableRow key={channel.id}>
+                          <TableCell className="max-w-72">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <Link
+                                to="/channels/$channelId"
+                                params={{ channelId: channel.id }}
+                                title={channel.name}
+                                className="min-w-0 truncate rounded-item text-sm font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                {channel.name}
+                              </Link>
+                              {channel.archivedAt ? <Badge variant="outline">已关闭</Badge> : null}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="block max-w-96 truncate">
+                              {last === null ? (
+                                <span className="text-muted-foreground">还没有消息</span>
+                              ) : (
+                                last.body
+                              )}
+                            </span>
+                          </TableCell>
+                          <TableCell className="tabular-nums text-muted-foreground">
+                            {channel.memberCount}
+                          </TableCell>
+                          <TableCell className="tabular-nums text-muted-foreground">
+                            {channel.agentCount}
+                          </TableCell>
+                          <TableCell>
+                            {channel.unreadCount > 0 ? (
+                              <Badge aria-label={`${channel.unreadCount} 条未读`}>
+                                {channel.unreadCount}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatRelative(channel.updatedAt)}
+                          </TableCell>
+                          <TableCell className="text-right">
                             <Link
                               to="/channels/$channelId"
                               params={{ channelId: channel.id }}
-                              title={channel.name}
-                              className="min-w-0 truncate rounded-item text-sm font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              aria-label={`进入频道 ${channel.name}`}
+                              className="text-link underline underline-offset-2 hover:text-link/80"
                             >
-                              {channel.name}
+                              进入
                             </Link>
-                            {channel.archivedAt ? <Badge variant="outline">已关闭</Badge> : null}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <span className="block max-w-96 truncate">
-                            {last === null ? (
-                              <span className="text-muted-foreground">还没有消息</span>
-                            ) : (
-                              last.body
-                            )}
-                          </span>
-                        </TableCell>
-                        <TableCell className="tabular-nums text-muted-foreground">
-                          {channel.memberCount}
-                        </TableCell>
-                        <TableCell className="tabular-nums text-muted-foreground">
-                          {channel.agentCount}
-                        </TableCell>
-                        <TableCell>
-                          {channel.unreadCount > 0 ? (
-                            <Badge aria-label={`${channel.unreadCount} 条未读`}>
-                              {channel.unreadCount}
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {formatRelative(channel.updatedAt)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Link
-                            to="/channels/$channelId"
-                            params={{ channelId: channel.id }}
-                            aria-label={`进入频道 ${channel.name}`}
-                            className="text-link underline underline-offset-2 hover:text-link/80"
-                          >
-                            进入
-                          </Link>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          </PageSection>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </PageSection>
+            {channels.isFetchNextPageError ? (
+              <div className="flex justify-center">
+                <ErrorState
+                  error={channels.error}
+                  title="列表没有加载完"
+                  onRetry={() => void channels.fetchNextPage()}
+                />
+              </div>
+            ) : channels.hasNextPage ? (
+              <div className="flex justify-center pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={channels.isFetchingNextPage}
+                  aria-busy={channels.isFetchingNextPage}
+                  onClick={() => void channels.fetchNextPage()}
+                >
+                  {channels.isFetchingNextPage ? '加载中…' : '加载更多'}
+                </Button>
+              </div>
+            ) : null}
+          </>
         )}
       </PageBody>
       {creating ? <CreateChannelDialog onClose={() => setCreating(false)} /> : null}

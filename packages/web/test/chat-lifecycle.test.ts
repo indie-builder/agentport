@@ -64,6 +64,7 @@ const run: RunDetail = {
     error: null,
     sessionId: null,
     sandboxId: null,
+    runtimeEnvironment: null,
   },
   steps: [],
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: 'History' },
@@ -126,7 +127,7 @@ beforeEach(() => {
   vi.spyOn(api, 'run').mockResolvedValue(run);
   vi.spyOn(api, 'conversation').mockResolvedValue(history);
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
-  vi.spyOn(api, 'conversations').mockResolvedValue([]);
+  vi.spyOn(api, 'conversations').mockResolvedValue({ items: [], nextCursor: null });
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -551,15 +552,18 @@ describe('approval final refresh', () => {
       runId: 'run-a',
       conversationId: 'conversation-a',
     });
-    vi.mocked(api.conversations).mockResolvedValue([{ ...history.conversation, updatedAt: 'now' }]);
+    vi.mocked(api.conversations).mockResolvedValue({
+      items: [{ ...history.conversation, updatedAt: 'now' }],
+      nextCursor: null,
+    });
     await act(async () => {
       useChatStore.getState().setInput('prompt');
       await stream.send();
     });
     await flush();
-    expect(client.getQueryData(['conversations', 'agent-a'])).toMatchObject([
-      { id: 'conversation-a' },
-    ]);
+    expect(client.getQueryData(['conversations', 'agent-a'])).toMatchObject({
+      pages: [{ items: [{ id: 'conversation-a' }], nextCursor: null }],
+    });
     vi.mocked(api.runApprovals).mockResolvedValue({ items: [approval] });
     const before = vi.mocked(api.conversations).mock.calls.length;
     await act(async () => Source.instances[0]?.emit({ type: 'run_finished', status: 'failed' }));

@@ -1,5 +1,6 @@
 import type {
   ConversationSummary,
+  CursorPage,
   PersonalOutputList,
   PersonalOutputShareList,
   PersonalProfile,
@@ -36,9 +37,10 @@ export default {
     rpc.personal.exportRuns({ query }),
   /** 回顾来源固定本人；只带专家筛选，不传全局会话列表。 */
   personalConversations: (
-    query: { agentId?: string; limit?: number } = {},
+    query: { agentId?: string; limit?: number; cursor?: string } = {},
     signal?: AbortSignal,
-  ): Promise<ConversationSummary[]> => rpc.personal.conversations({ query }, clientOptions(signal)),
+  ): Promise<CursorPage<ConversationSummary>> =>
+    rpc.personal.conversations({ query }, clientOptions(signal)),
   personalOutputs: (
     query: { q?: string; limit?: number } = {},
     signal?: AbortSignal,

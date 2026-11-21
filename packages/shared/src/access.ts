@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { offsetQuerySchema } from './pagination.js';
 
 /**
  * 账户与 RBAC 的唯一共享契约。
@@ -742,10 +743,8 @@ export const agentMemberInputSchema = z
     message: '至少授予使用或维护权限',
   });
 
-export const listQuerySchema = z.object({
+export const listQuerySchema = offsetQuerySchema().extend({
   q: z.string().max(128).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  offset: z.coerce.number().int().min(0).default(0),
 });
 
 const U_GRANTS: PermissionGrant[] = [

@@ -4,12 +4,13 @@ import type {
   ResolvedRuntimeEnvironment,
   ResourceAccessFilter,
 } from '@agentport/shared';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, ne } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { apiTools, servers } from '../schema.js';
 import { resourceScopeWhere } from './access.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
+import { type CursorPage, keysetPage } from './pagination.js';
 
 export type ServerRow = typeof servers.$inferSelect;
 export type ApiToolRow = typeof apiTools.$inferSelect;
@@ -46,19 +47,33 @@ export interface ApiToolPatch {
   approvalMode?: 'allow' | 'ask' | 'deny';
 }
 
-export async function listServers(
+export function listServerPage(
   db: Database,
-  access?: ResourceAccessFilter,
-): Promise<ServerRow[]> {
-  return db
-    .select()
-    .from(servers)
-    .where(
-      access === undefined
+  options: {
+    access?: ResourceAccessFilter | undefined;
+    cursor?: string | undefined;
+    limit: number;
+  },
+): Promise<CursorPage<ServerRow> | null> {
+  return keysetPage(db, {
+    table: servers,
+    cursor: options.cursor,
+    limit: options.limit,
+    direction: 'asc',
+    where: [
+      options.access === undefined
         ? undefined
-        : resourceScopeWhere(access, servers.id, servers.ownerBusinessId),
-    )
-    .orderBy(asc(servers.createdAt), asc(servers.id));
+        : resourceScopeWhere(options.access, servers.id, servers.ownerBusinessId),
+      ne(servers.kind, 'knowledge'),
+    ],
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(servers)
+        .where(where)
+        .orderBy(asc(servers.createdAt), asc(servers.id))
+        .limit(limit),
+  });
 }
 
 /**
@@ -150,6 +165,14 @@ export async function updateServer(
 export async function deleteServer(db: Database, id: string): Promise<boolean> {
   const rows = await db.delete(servers).where(eq(servers.id, id)).returning({ id: servers.id });
   return rows.length > 0;
+}
+
+export async function countApiTools(db: Database, serverId: string): Promise<number> {
+  const [row] = await db
+    .select({ total: count() })
+    .from(apiTools)
+    .where(eq(apiTools.serverId, serverId));
+  return row?.total ?? 0;
 }
 
 export async function listApiTools(db: Database, serverId: string): Promise<ApiToolRow[]> {

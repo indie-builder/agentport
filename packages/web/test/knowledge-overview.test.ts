@@ -244,7 +244,8 @@ function overviewHandlers(job: typeof summary.lastJob = summary.lastJob) {
         },
       ]),
     ),
-    http.get('/api/agents', () => HttpResponse.json([])),
+    http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
   );
 }
 

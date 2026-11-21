@@ -12,7 +12,7 @@ import {
   dataDomainVersions,
 } from '../schema.js';
 import { resourceScopeWhere } from './access.js';
-import { keysetBefore, paginate } from './keyset.js';
+import { type CursorPage, keysetPage } from './pagination.js';
 import { isPgCode } from './pg-errors.js';
 
 export type DataDomainRow = typeof dataDomains.$inferSelect;
@@ -84,11 +84,29 @@ export async function listDataDomains(
     access === undefined
       ? undefined
       : resourceScopeWhere(access, dataDomains.id, dataDomains.ownerBusinessId);
+  return dataDomainRows(db, scope);
+}
+
+function dataDomainRows(db: DbHandle, where: SQL | undefined) {
   return db
     .select()
     .from(dataDomains)
-    .where(scope)
+    .where(where)
     .orderBy(asc(dataDomains.createdAt), asc(dataDomains.id));
+}
+
+export function listDataDomainPage(
+  db: DbHandle,
+  options: { access: ResourceAccessFilter; cursor?: string | undefined; limit: number },
+): Promise<CursorPage<DataDomainRow> | null> {
+  return keysetPage(db, {
+    table: dataDomains,
+    cursor: options.cursor,
+    limit: options.limit,
+    direction: 'asc',
+    where: [resourceScopeWhere(options.access, dataDomains.id, dataDomains.ownerBusinessId)],
+    load: ({ where, limit }) => dataDomainRows(db, where).limit(limit),
+  });
 }
 
 export async function getDataDomain(db: DbHandle, id: string): Promise<DataDomainRow | null> {
@@ -419,18 +437,23 @@ export async function listDataDomainQueryLogs(
     status?: 'ok' | 'error';
     runId?: string;
   },
-): Promise<{ items: DataDomainQueryLogRow[]; nextCursor: string | null }> {
+): Promise<CursorPage<DataDomainQueryLogRow> | null> {
   const filters = [eq(dataDomainQueryLogs.dataDomainId, options.dataDomainId)];
   if (options.status !== undefined) filters.push(eq(dataDomainQueryLogs.status, options.status));
   if (options.runId !== undefined) filters.push(eq(dataDomainQueryLogs.runId, options.runId));
-  if (options.cursor !== undefined) filters.push(keysetBefore(dataDomainQueryLogs, options.cursor));
-  const rows = await db
-    .select()
-    .from(dataDomainQueryLogs)
-    .where(and(...filters))
-    .orderBy(desc(dataDomainQueryLogs.createdAt), desc(dataDomainQueryLogs.id))
-    .limit(options.limit + 1);
-  return paginate(rows, options.limit);
+  return keysetPage(db, {
+    table: dataDomainQueryLogs,
+    cursor: options.cursor,
+    limit: options.limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(dataDomainQueryLogs)
+        .where(where)
+        .orderBy(desc(dataDomainQueryLogs.createdAt), desc(dataDomainQueryLogs.id))
+        .limit(limit),
+  });
 }
 
 export async function getLatestDataDomainQueryApproval(
@@ -515,22 +538,24 @@ export async function listDataDomainQueryApprovals(
     cursor?: string;
     status?: 'pending' | 'approved' | 'rejected';
   },
-): Promise<{ items: DataDomainQueryApprovalRow[]; nextCursor: string | null }> {
+): Promise<CursorPage<DataDomainQueryApprovalRow> | null> {
   const filters = [eq(dataDomainQueryApprovals.dataDomainId, options.dataDomainId)];
   if (options.status !== undefined)
     filters.push(eq(dataDomainQueryApprovals.status, options.status));
-  if (options.cursor !== undefined) {
-    filters.push(
-      keysetBefore(dataDomainQueryApprovals, options.cursor, dataDomainQueryApprovals.requestedAt),
-    );
-  }
-  const rows = await db
-    .select()
-    .from(dataDomainQueryApprovals)
-    .where(and(...filters))
-    .orderBy(desc(dataDomainQueryApprovals.requestedAt), desc(dataDomainQueryApprovals.id))
-    .limit(options.limit + 1);
-  return paginate(rows, options.limit);
+  return keysetPage(db, {
+    table: dataDomainQueryApprovals,
+    cursor: options.cursor,
+    limit: options.limit,
+    column: dataDomainQueryApprovals.requestedAt,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(dataDomainQueryApprovals)
+        .where(where)
+        .orderBy(desc(dataDomainQueryApprovals.requestedAt), desc(dataDomainQueryApprovals.id))
+        .limit(limit),
+  });
 }
 
 export async function createDataDomainEnrichmentProposal(

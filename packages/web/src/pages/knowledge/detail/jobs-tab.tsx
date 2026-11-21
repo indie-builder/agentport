@@ -71,7 +71,9 @@ export function JobsTab({
           ? '加载中…'
           : jobs.isError && jobs.data === undefined
             ? '数量不可用'
-            : `已加载 ${jobs.data?.length ?? 0} 条处理记录`}
+            : jobs.hasNextPage
+              ? `已加载 ${jobs.data?.length ?? 0} 条处理记录`
+              : `共 ${jobs.data?.length ?? 0} 条处理记录`}
       </span>
       {jobs.data?.some((job) => job.status === 'queued' || job.status === 'running') &&
       !knowledgeShouldPoll(jobs.data) ? (

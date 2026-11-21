@@ -5,11 +5,7 @@ import type {
 } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
-
-const runtimeEnvironmentsQuery = queryOptions<RuntimeEnvironment[]>({
-  queryKey: ['runtime-environments'],
-  queryFn: api.runtimeEnvironments,
-});
+import { useCursorList } from './shared.js';
 
 function runtimeEnvironmentQuery(id: string) {
   return queryOptions<RuntimeEnvironment>({
@@ -46,7 +42,12 @@ function runtimeEnvironmentVersionQuery(id: string, versionId: string) {
 }
 
 export function useRuntimeEnvironments(enabled = true) {
-  return useQuery({ ...runtimeEnvironmentsQuery, enabled });
+  return useCursorList({
+    queryKey: ['runtime-environments'],
+    queryFn: (cursor, signal) => api.runtimeEnvironments(cursor, signal),
+    enabled,
+    select: (data) => data.pages.flatMap((page) => page.items ?? []),
+  });
 }
 
 export function useRuntimeEnvironment(id: string) {

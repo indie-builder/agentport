@@ -623,8 +623,10 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
       headers: auth(),
     });
     expect(deleted.statusCode, deleted.body).toBe(200);
-    expect(deleted.json<Array<{ id: string }>>().some((row) => row.id === secondAgent.id)).toBe(
-      true,
-    );
+    expect(
+      deleted
+        .json<{ items: Array<{ id: string }> }>()
+        .items.some((row) => row.id === secondAgent.id),
+    ).toBe(true);
   });
 });

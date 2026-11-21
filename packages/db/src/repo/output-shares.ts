@@ -1,8 +1,8 @@
-import { and, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { conversations, outputShares } from '../schema.js';
-import { keysetBefore, paginate } from './keyset.js';
+import { keysetPage } from './pagination.js';
 
 export type OutputShareRow = typeof outputShares.$inferSelect;
 
@@ -112,37 +112,34 @@ export async function listActiveOwnedBy(
   db: Database,
   options: { businessId: string; cursor?: string; limit: number },
 ): Promise<PersonalOutputSharePage | null> {
-  const filters: SQL[] = [ownedBy(options.businessId), active];
-  if (options.cursor !== undefined) {
-    const [anchor] = await db
-      .select({ id: outputShares.id })
-      .from(outputShares)
-      .innerJoin(conversations, eq(conversations.id, outputShares.conversationId))
-      .where(and(eq(outputShares.id, options.cursor), ...filters))
-      .limit(1);
-    if (!anchor) return null;
-    filters.push(keysetBefore(outputShares, options.cursor));
-  }
-
-  const rows = await db
-    .select({
-      id: outputShares.id,
-      conversationId: outputShares.conversationId,
-      runId: outputShares.runId,
-      path: outputShares.path,
-      sha256: outputShares.sha256,
-      tokenEncrypted: outputShares.tokenEncrypted,
-      createdAt: outputShares.createdAt,
-      conversationTitle: conversations.title,
-      agentId: conversations.agentId,
-    })
-    .from(outputShares)
-    .innerJoin(conversations, eq(conversations.id, outputShares.conversationId))
-    .where(and(...filters))
-    .orderBy(desc(outputShares.createdAt), desc(outputShares.id))
-    .limit(options.limit + 1);
-
-  return paginate(rows, options.limit);
+  const owner = db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(and(eq(conversations.id, outputShares.conversationId), ownedBy(options.businessId)));
+  return keysetPage(db, {
+    table: outputShares,
+    cursor: options.cursor,
+    limit: options.limit,
+    where: [active, exists(owner)],
+    load: ({ where, limit }) =>
+      db
+        .select({
+          id: outputShares.id,
+          conversationId: outputShares.conversationId,
+          runId: outputShares.runId,
+          path: outputShares.path,
+          sha256: outputShares.sha256,
+          tokenEncrypted: outputShares.tokenEncrypted,
+          createdAt: outputShares.createdAt,
+          conversationTitle: conversations.title,
+          agentId: conversations.agentId,
+        })
+        .from(outputShares)
+        .innerJoin(conversations, eq(conversations.id, outputShares.conversationId))
+        .where(where)
+        .orderBy(desc(outputShares.createdAt), desc(outputShares.id))
+        .limit(limit),
+  });
 }
 
 /** 本人来源会话下的分享，含已撤销行；用于区分「已撤销」与「不存在/他人」。 */

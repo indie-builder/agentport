@@ -13,7 +13,7 @@ import {
 } from '../schema.js';
 import { maintainedAgentScopeWhere } from './access.js';
 import { messageText } from './chat/messages.js';
-import { keysetBefore, paginate } from './keyset.js';
+import { keysetPage } from './pagination.js';
 
 export type EvalCase = typeof evalCases.$inferSelect;
 export type EvalRun = typeof evalRuns.$inferSelect;
@@ -292,35 +292,30 @@ export async function listRuns(
   const accessWhere = maintainedAgentScopeWhere(options.access, evalRuns.agentId);
   if (accessWhere) filters.push(accessWhere);
   if (options.agentId !== undefined) filters.push(eq(evalRuns.agentId, options.agentId));
-  if (options.cursor !== undefined) {
-    const [cursor] = await db
-      .select({ id: evalRuns.id })
-      .from(evalRuns)
-      .where(and(eq(evalRuns.id, options.cursor), ...filters))
-      .limit(1);
-    if (!cursor) return null;
-    // shortcut: 两步查询，游标恰在两步之间被删只会得到空页；需要严格语义时改成单条 CTE。
-    // 时间戳在库内读取并比较：JS Date 只有毫秒，转一手会丢掉微秒。
-    filters.push(keysetBefore(evalRuns, options.cursor));
-  }
-  const rows = await db
-    .select({
-      id: evalRuns.id,
-      agentId: evalRuns.agentId,
-      agentVersion: evalRuns.agentVersion,
-      resourceVersions: evalRuns.resourceVersions,
-      status: evalRuns.status,
-      total: evalRuns.total,
-      passed: evalRuns.passed,
-      error: evalRuns.error,
-      createdAt: evalRuns.createdAt,
-      finishedAt: evalRuns.finishedAt,
-    })
-    .from(evalRuns)
-    .where(filters.length > 0 ? and(...filters) : undefined)
-    .orderBy(desc(evalRuns.createdAt), desc(evalRuns.id))
-    .limit(options.limit + 1);
-  return paginate(rows, options.limit);
+  return keysetPage(db, {
+    table: evalRuns,
+    cursor: options.cursor,
+    limit: options.limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select({
+          id: evalRuns.id,
+          agentId: evalRuns.agentId,
+          agentVersion: evalRuns.agentVersion,
+          resourceVersions: evalRuns.resourceVersions,
+          status: evalRuns.status,
+          total: evalRuns.total,
+          passed: evalRuns.passed,
+          error: evalRuns.error,
+          createdAt: evalRuns.createdAt,
+          finishedAt: evalRuns.finishedAt,
+        })
+        .from(evalRuns)
+        .where(where)
+        .orderBy(desc(evalRuns.createdAt), desc(evalRuns.id))
+        .limit(limit),
+  });
 }
 
 export interface EvalResultRow {

@@ -1,4 +1,4 @@
-import { type ErrorCode, errorCode } from '@agentport/shared';
+import { ERROR_META, type ErrorCode } from '@agentport/shared';
 
 export class AppError extends Error {
   readonly code: ErrorCode;
@@ -25,8 +25,8 @@ export class AppError extends Error {
     super(message);
     this.name = 'AppError';
     this.code = code;
-    this.status = errorCode[code];
-    this.retryable = options?.retryable ?? this.status >= 500;
+    this.status = ERROR_META[code].status;
+    this.retryable = options?.retryable ?? ERROR_META[code].retryable;
     if (options?.path !== undefined) this.path = options.path;
     if (options?.resource !== undefined) this.resource = options.resource;
     if (options?.resourceId !== undefined) this.resourceId = options.resourceId;

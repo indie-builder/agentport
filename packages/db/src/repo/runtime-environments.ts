@@ -12,11 +12,12 @@ import {
   type RuntimeEnvironmentVersion,
   type RuntimeEnvironmentVersionSummary,
 } from '@agentport/shared';
-import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, ne, or, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agents, runtimeEnvironments, runtimeEnvironmentVersions } from '../schema.js';
 import { resourceScopeWhere } from './access.js';
+import { type CursorPage, paginate } from './pagination.js';
 import { isPgCode } from './pg-errors.js';
 
 export type RuntimeEnvironmentRow = typeof runtimeEnvironments.$inferSelect;
@@ -81,24 +82,62 @@ function rethrowNameConflict(err: unknown): never {
   throw err;
 }
 
-export async function listRuntimeEnvironments(
+function afterEnvironment(anchor: { isDefault: boolean; createdAt: Date }, cursorId: string): SQL {
+  return or(
+    sql`${runtimeEnvironments.isDefault} < ${anchor.isDefault}`,
+    and(
+      eq(runtimeEnvironments.isDefault, anchor.isDefault),
+      or(
+        gt(runtimeEnvironments.createdAt, anchor.createdAt),
+        and(
+          eq(runtimeEnvironments.createdAt, anchor.createdAt),
+          gt(runtimeEnvironments.id, cursorId),
+        ),
+      ),
+    ),
+  ) as SQL;
+}
+
+export async function listRuntimeEnvironmentPage(
   db: Database,
-  access?: ResourceAccessFilter,
-): Promise<RuntimeEnvironment[]> {
+  options: {
+    access?: ResourceAccessFilter | undefined;
+    cursor?: string | undefined;
+    limit: number;
+  },
+): Promise<CursorPage<RuntimeEnvironment> | null> {
+  const scope =
+    options.access === undefined
+      ? undefined
+      : resourceScopeWhere(
+          options.access,
+          runtimeEnvironments.id,
+          runtimeEnvironments.ownerBusinessId,
+        );
+  const filters: SQL[] = scope === undefined ? [] : [scope];
+  if (options.cursor !== undefined) {
+    const [anchor] = await db
+      .select({
+        isDefault: runtimeEnvironments.isDefault,
+        createdAt: runtimeEnvironments.createdAt,
+      })
+      .from(runtimeEnvironments)
+      .where(and(...filters, eq(runtimeEnvironments.id, options.cursor)))
+      .limit(1);
+    if (!anchor) return null;
+    filters.push(afterEnvironment(anchor, options.cursor));
+  }
   const rows = await db
     .select()
     .from(runtimeEnvironments)
-    .where(
-      access === undefined
-        ? undefined
-        : resourceScopeWhere(access, runtimeEnvironments.id, runtimeEnvironments.ownerBusinessId),
-    )
+    .where(and(...filters))
     .orderBy(
       desc(runtimeEnvironments.isDefault),
       asc(runtimeEnvironments.createdAt),
       asc(runtimeEnvironments.id),
-    );
-  return rows.map(toRuntimeEnvironment);
+    )
+    .limit(options.limit + 1);
+  return paginate(rows.map(toRuntimeEnvironment), options.limit);
 }
 
 export async function getRuntimeEnvironmentRow(

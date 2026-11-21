@@ -33,7 +33,7 @@ function normalizeTargets(targets: readonly SessionCleanupTarget[]): SessionClea
 }
 
 function unavailable(message: string, cause?: unknown): AppError {
-  return new AppError('SERVICE_UNAVAILABLE', message, { cause });
+  return new AppError('SERVICE_UNAVAILABLE', message, { cause, retryable: true });
 }
 
 export async function closeSessionSandboxes(input: CloseSessionSandboxesInput): Promise<void> {

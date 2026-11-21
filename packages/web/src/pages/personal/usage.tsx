@@ -180,7 +180,7 @@ export function PersonalUsagePage() {
 
   const agentOptions = [
     { value: '', label: '全部专家' },
-    ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
+    ...(agents.data?.items ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
   ];
 
   const actionLinkClass = buttonVariants({ variant: 'link', size: 'sm' });

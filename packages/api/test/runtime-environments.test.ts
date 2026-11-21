@@ -125,7 +125,9 @@ describe.skipIf(!ready)('runtime environments', () => {
       headers: auth(),
     });
     expect(list.statusCode, list.body).toBe(200);
-    expect(list.json<RuntimeEnvironment[]>().some((env) => env.id === created.id)).toBe(true);
+    expect(
+      list.json<{ items: RuntimeEnvironment[] }>().items.some((env) => env.id === created.id),
+    ).toBe(true);
 
     const patched = await request(app, {
       method: 'PATCH',

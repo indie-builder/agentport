@@ -1,7 +1,9 @@
 import {
   agentStatsSchema,
   attentionSchema,
+  cursorPageSchema,
   idParams,
+  pageQuerySchema,
   retentionSettingsSchema,
   retentionUpdateSchema,
   scheduleInputSchema,
@@ -37,7 +39,8 @@ export const opsContract = {
   schedules: {
     list: contractProcedure
       .route({ method: 'GET', path: '/schedules' })
-      .output(z.array(scheduleSchema))
+      .input(z.object({ query: pageQuerySchema }))
+      .output(cursorPageSchema(scheduleSchema))
       .meta({ access: { kind: 'permission', permissionId: 'schedules.read' } }),
     create: contractProcedure
       .route({ method: 'POST', path: '/schedules', successStatus: 201 })

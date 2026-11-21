@@ -1,4 +1,4 @@
-export { ApiError, errorMessage } from '../orpc.js';
+export { ApiError, describeError, errorMessage } from '../orpc.js';
 
 import agents from './agents.js';
 import audit from './audit.js';

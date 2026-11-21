@@ -3,9 +3,14 @@ import type { KnowledgeBaseSettings, ResourceAccessFilter } from '@agentport/sha
 import { and, desc, eq, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
-import { knowledgeBasePins, knowledgeBases, knowledgeModelProfiles } from '../../schema.js';
+import {
+  auditLog,
+  knowledgeBasePins,
+  knowledgeBases,
+  knowledgeModelProfiles,
+} from '../../schema.js';
 import { resourceScopeWhere } from '../access.js';
-import { keysetBefore, paginate } from '../keyset.js';
+import { keysetPage } from '../pagination.js';
 import {
   type KnowledgeBaseRow,
   type KnowledgeJobRow,
@@ -62,23 +67,26 @@ export async function listBases(
   db: Database,
   options: PageOptions = {},
   access?: ResourceAccessFilter,
-): Promise<Page<KnowledgeBaseRow>> {
+): Promise<Page<KnowledgeBaseRow> | null> {
   const limit = pageLimit(options);
   const filters: SQL[] = [];
   if (access) {
     const scope = resourceScopeWhere(access, knowledgeBases.id, knowledgeBases.ownerBusinessId);
     if (scope) filters.push(scope);
   }
-  if (options.cursor) {
-    filters.push(keysetBefore(knowledgeBases, options.cursor));
-  }
-  const rows = await db
-    .select()
-    .from(knowledgeBases)
-    .where(filters.length > 0 ? and(...filters) : undefined)
-    .orderBy(desc(knowledgeBases.createdAt), desc(knowledgeBases.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeBases,
+    cursor: options.cursor,
+    limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeBases)
+        .where(where)
+        .orderBy(desc(knowledgeBases.createdAt), desc(knowledgeBases.id))
+        .limit(limit),
+  });
 }
 
 export interface BasePatch {
@@ -254,7 +262,7 @@ export interface BaseActivityEntry {
 }
 
 /**
- * 知识库活动流：单条 SQL 同时取库自身、库内文档与库内标签的审计行。
+ * 知识库活动流：同时取库自身、库内文档与库内标签的审计行。
  * 文档与标签的审计 target 是自身 id，用 exists 子查询回连库归属，避免先取 id 列表再拼 in；
  * targetKind 也在 SQL 里判定，调用方不再逐条回查。
  * 只读聚合：不写审计、不改任何行。已删除文档的删除事件因目标行已不存在而不在流内。
@@ -263,51 +271,53 @@ export async function listBaseActivity(
   db: Database,
   baseId: string,
   options: PageOptions = {},
-): Promise<Page<BaseActivityEntry>> {
-  const limit = pageLimit(options);
-  const cursor = options.cursor
-    ? sql`and (a.created_at, a.id) < (
-        select c.created_at, c.id from audit_log c where c.id = ${options.cursor}
-      )`
-    : sql.empty();
-  const rows = await db.execute<{
-    id: string;
-    action: string;
-    actor: string;
-    status: string;
-    target_kind: BaseActivityEntry['targetKind'];
-    created_at: Date | string;
-  }>(sql`
-    select a.id, a.action, a.actor, a.status,
-      case
-        when a.target = ${baseId} then 'base'
-        when exists (
-          select 1 from knowledge_documents d where d.id = a.target and d.base_id = ${baseId}
-        ) then 'document'
-        else 'tag'
-      end as target_kind,
-      a.created_at
-    from audit_log a
-    where (
-        a.target = ${baseId}
-        or exists (
-          select 1 from knowledge_documents d where d.id = a.target and d.base_id = ${baseId}
-        )
-        or exists (
-          select 1 from knowledge_tags t where t.id = a.target and t.base_id = ${baseId}
-        )
+): Promise<Page<BaseActivityEntry> | null> {
+  return keysetPage(db, {
+    table: auditLog,
+    cursor: options.cursor,
+    limit: pageLimit(options),
+    where: [
+      sql`(
+      ${auditLog.target} = ${baseId}
+      or exists (
+        select 1 from knowledge_documents d where d.id = ${auditLog.target} and d.base_id = ${baseId}
       )
-      ${cursor}
-    order by a.created_at desc, a.id desc
-    limit ${limit + 1}
-  `);
-  const items = rows.map((row) => ({
-    id: row.id,
-    action: row.action,
-    actor: row.actor,
-    status: row.status,
-    targetKind: row.target_kind,
-    createdAt: toDate(row.created_at),
-  }));
-  return paginate(items, limit);
+      or exists (
+        select 1 from knowledge_tags t where t.id = ${auditLog.target} and t.base_id = ${baseId}
+      )
+    )`,
+    ],
+    load: async ({ where, limit }) => {
+      const rows = await db.execute<{
+        id: string;
+        action: string;
+        actor: string;
+        status: string;
+        target_kind: BaseActivityEntry['targetKind'];
+        created_at: Date | string;
+      }>(sql`
+        select ${auditLog.id}, ${auditLog.action}, ${auditLog.actor}, ${auditLog.status},
+          case
+            when ${auditLog.target} = ${baseId} then 'base'
+            when exists (
+              select 1 from knowledge_documents d where d.id = ${auditLog.target} and d.base_id = ${baseId}
+            ) then 'document'
+            else 'tag'
+          end as target_kind,
+          ${auditLog.createdAt}
+        from ${auditLog}
+        where ${where}
+        order by ${auditLog.createdAt} desc, ${auditLog.id} desc
+        limit ${limit}
+      `);
+      return rows.map((row) => ({
+        id: row.id,
+        action: row.action,
+        actor: row.actor,
+        status: row.status,
+        targetKind: row.target_kind,
+        createdAt: toDate(row.created_at),
+      }));
+    },
+  });
 }

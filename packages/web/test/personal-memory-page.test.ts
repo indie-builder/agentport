@@ -251,7 +251,7 @@ beforeEach(() => {
     },
   });
   client.setQueryData(['me'], allAccessMe);
-  client.setQueryData(['agents'], []);
+  client.setQueryData(['agents'], { items: [], truncated: false });
   vi.spyOn(api, 'me').mockResolvedValue(allAccessMe);
   vi.spyOn(api, 'personalMemory').mockResolvedValue(memory);
   vi.spyOn(api, 'personalMemoryVersions').mockResolvedValue({ items: [change], nextCursor: null });
@@ -269,8 +269,8 @@ beforeEach(() => {
     reversesChangeId: change.id,
   });
   vi.spyOn(api, 'memoryReviews').mockResolvedValue({ items: [], nextCursor: null });
-  vi.spyOn(api, 'agents').mockResolvedValue([]);
-  vi.spyOn(api, 'conversations').mockResolvedValue([]);
+  vi.spyOn(api, 'agentReference').mockResolvedValue({ items: [], truncated: false });
+  vi.spyOn(api, 'conversations').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'agentRules').mockResolvedValue([]);
   host = document.createElement('div');
   document.body.append(host);

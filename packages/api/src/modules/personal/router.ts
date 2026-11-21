@@ -5,6 +5,7 @@ import { utcWindowStart } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 import { auditShareRevoked, toOutputShare } from '../output-shares/router.js';
 import { collectPersonalOutputs } from '../search/outputs.js';
@@ -16,12 +17,14 @@ const SHARE_MISSING = '分享不存在或已失效';
 export const personalRouter = os.router({
   outputShares: os.outputShares.handler(async ({ input, context }) => {
     const { cursor, limit } = input.query;
-    const page = await repo.outputShares.listActiveOwnedBy(context.db, {
-      businessId: requireUser(context).businessId,
-      ...(cursor === undefined ? {} : { cursor }),
-      limit,
-    });
-    if (page === null) fail('NOT_FOUND', SHARE_MISSING);
+    const page = requireCursorPage(
+      await repo.outputShares.listActiveOwnedBy(context.db, {
+        businessId: requireUser(context).businessId,
+        ...(cursor === undefined ? {} : { cursor }),
+        limit,
+      }),
+    );
+
     context.responseHeaders.set('cache-control', 'no-store');
     return {
       items: page.items.map((row) => ({
@@ -69,17 +72,19 @@ export const personalRouter = os.router({
   runs: os.runs.handler(async ({ input, context }) => {
     const now = new Date();
     const { days, agentId, status, trigger, cursor, limit } = input.query;
-    const page = await repo.runs.listPersonalRuns(context.db, {
-      businessId: requireUser(context).businessId,
-      since: utcWindowStart(days, now),
-      until: now,
-      ...(agentId === undefined ? {} : { agentId }),
-      ...(status === undefined ? {} : { status }),
-      ...(trigger === undefined ? {} : { trigger }),
-      ...(cursor === undefined ? {} : { cursor }),
-      limit,
-    });
-    if (page === null) fail('NOT_FOUND', '运行记录不存在或不属于本人');
+    const page = requireCursorPage(
+      await repo.runs.listPersonalRuns(context.db, {
+        businessId: requireUser(context).businessId,
+        since: utcWindowStart(days, now),
+        until: now,
+        ...(agentId === undefined ? {} : { agentId }),
+        ...(status === undefined ? {} : { status }),
+        ...(trigger === undefined ? {} : { trigger }),
+        ...(cursor === undefined ? {} : { cursor }),
+        limit,
+      }),
+    );
+
     context.responseHeaders.set('cache-control', 'no-store');
     return {
       items: page.items.map((row) => ({
@@ -127,20 +132,27 @@ export const personalRouter = os.router({
   }),
 
   conversations: os.conversations.handler(async ({ input, context }) => {
-    const rows = await repo.chat.listConversations(context.db, {
-      ...(input.query.agentId === undefined ? {} : { agentId: input.query.agentId }),
-      limit: input.query.limit,
-      access: { businessId: requireUser(context).businessId, scopes: ['own_data'] },
-    });
+    const { agentId, limit, cursor } = input.query;
+    const page = requireCursorPage(
+      await repo.chat.listConversations(context.db, {
+        ...(agentId === undefined ? {} : { agentId }),
+        ...(cursor === undefined ? {} : { cursor }),
+        limit,
+        access: { businessId: requireUser(context).businessId, scopes: ['own_data'] },
+      }),
+    );
     context.responseHeaders.set('cache-control', 'no-store');
-    return rows.map((row) => ({
-      ...row,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-      lastMessage:
-        row.lastMessage === null
-          ? null
-          : { ...row.lastMessage, createdAt: row.lastMessage.createdAt.toISOString() },
-    }));
+    return {
+      items: page.items.map((row) => ({
+        ...row,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+        lastMessage:
+          row.lastMessage === null
+            ? null
+            : { ...row.lastMessage, createdAt: row.lastMessage.createdAt.toISOString() },
+      })),
+      nextCursor: page.nextCursor,
+    };
   }),
 });

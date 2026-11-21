@@ -57,7 +57,7 @@ describe.skipIf(!ready)('knowledge server is owned by the knowledge lifecycle', 
       headers: { cookie },
     });
     expect(response.statusCode, response.body).toBe(200);
-    const rows = response.json<Array<{ id: string }>>();
+    const rows = response.json<{ items: Array<{ id: string }> }>().items;
     expect(rows.some((row) => row.id === plainServerId)).toBe(true);
     expect(rows.some((row) => row.id === serverId)).toBe(false);
   });

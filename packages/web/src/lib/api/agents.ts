@@ -8,6 +8,7 @@ import type {
   AgentInput,
   AgentMember,
   AgentPatch,
+  CursorPage,
   OutputStyle,
   Rule,
   WorkspaceFiles,
@@ -33,15 +34,9 @@ export interface AgentImportResult {
 
 export type AgentOptions = ApiOutput<ApiClient['agents']['options']>;
 
-export interface AgentListParams {
-  q?: string;
-  tag?: string;
-  favorite?: 'true';
-  sort?: 'name' | 'recent';
-  status?: 'active' | 'archived' | 'deleted';
-}
+export type AgentListParams = Parameters<ApiClient['agents']['list']>[0]['query'];
 
-export type AgentSummary = ApiOutput<ApiClient['agents']['list']>[number];
+export type AgentSummary = ApiOutput<ApiClient['agents']['list']>['items'][number];
 
 export interface AgentMemberList {
   ownerBusinessId: string;
@@ -64,8 +59,9 @@ export interface AgentVersionDetail {
 }
 
 export default {
-  agents: (params: AgentListParams = {}): Promise<AgentSummary[]> =>
-    rpc.agents.list({ query: params }),
+  agents: (params: AgentListParams, signal?: AbortSignal): Promise<CursorPage<AgentSummary>> =>
+    rpc.agents.list({ query: params }, clientOptions(signal)),
+  agentReference: (signal?: AbortSignal) => rpc.agents.reference({}, clientOptions(signal)),
   agentTags: (): Promise<{ items: string[] }> => rpc.agents.tags({}),
   setAgentFavorite: (id: string, favorite: boolean): Promise<{ favorite: boolean }> =>
     rpc.agents.favorite({ params: { id }, body: { favorite } }),

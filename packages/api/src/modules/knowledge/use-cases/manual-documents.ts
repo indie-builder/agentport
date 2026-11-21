@@ -3,6 +3,7 @@ import { basename, extname } from 'node:path';
 import { AppError, fail, isAppError, knowledgeVersionMarkdownPath } from '@agentport/core';
 import { assertSafeUrl } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
+import { requireCursorPage } from '../../../http/pagination.js';
 import { createJob, documentWire, enqueueKnowledgeJobAfterCommit, storeBlob } from '../service.js';
 import {
   assertBodyBytes,
@@ -127,7 +128,7 @@ async function readVersionContent(
 
 function pendingDraftVersion(
   document: DocumentRow,
-  versions: Awaited<ReturnType<typeof repo.knowledge.listDocumentVersions>>['items'],
+  versions: NonNullable<Awaited<ReturnType<typeof repo.knowledge.listDocumentVersions>>>['items'],
 ) {
   return (
     versions.find(
@@ -139,7 +140,9 @@ function pendingDraftVersion(
 export async function getManualDocument(deps: KnowledgeDeps, documentId: string) {
   const document = await manualDocument(deps, documentId);
   const pendingJobId = await repo.knowledge.findActiveIngestJobId(deps.db, document.id);
-  const versions = await repo.knowledge.listDocumentVersions(deps.db, document.id, { limit: 200 });
+  const versions = requireCursorPage(
+    await repo.knowledge.listDocumentVersions(deps.db, document.id, { limit: 200 }),
+  );
   const draft = pendingDraftVersion(document, versions.items);
   if (draft) {
     const content = await readVersionContent(deps, document.id, draft.id);
@@ -168,7 +171,9 @@ export async function saveManualDraft(
   const base = await repo.knowledge.getBase(deps.db, document.baseId);
   if (!base) notFound('知识库');
   assertBodyBytes(body.content, MANUAL_BODY_LIMIT);
-  const versions = await repo.knowledge.listDocumentVersions(deps.db, document.id, { limit: 200 });
+  const versions = requireCursorPage(
+    await repo.knowledge.listDocumentVersions(deps.db, document.id, { limit: 200 }),
+  );
   const draft = pendingDraftVersion(document, versions.items);
   const editableVersionId = draft?.id ?? document.currentVersionId;
   if (!editableVersionId || body.expectedVersionId !== editableVersionId) {

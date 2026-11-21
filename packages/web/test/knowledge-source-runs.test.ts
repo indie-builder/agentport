@@ -307,7 +307,7 @@ function baseHandlers() {
   handler('GET', '/api/knowledge/bases/kb_1/tags', []);
   handler('GET', '/api/knowledge/jobs', { items: [], nextCursor: null });
   handler('GET', '/api/knowledge/model-profiles', []);
-  handler('GET', '/api/agents', []);
+  handler('GET', '/api/agents/reference', { items: [], truncated: false });
   handler('GET', '/api/knowledge/sources/ksrc_a/runs', {
     items: [run('krun_a', 'ksrc_a', 7)],
     nextCursor: null,

@@ -99,6 +99,7 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 - 不要求每个领域固定 `router.ts`、`http.ts`、`use-cases.ts` 文件组合，也不新增聚合根、仓储接口、`DomainError` 或通用状态机。
 - 原生边界直接读写 `Request`/`Response`，不为了统一而塞进 oRPC；反过来，业务 CRUD 也不绕过契约手写 REST 路由。
 - 原生 auth 的 login/logout 复用 `@agentport/contract/auth` 的 `authNativeContract` 元数据（`access`、`rateLimit`），不手抄第二份；logout 清 Cookie 使用 Better Auth 实际下发的 cookie 名与属性（`authCookies.sessionToken`），不自造序列化。
+- 列表分页统一契约见 [PAGINATION.md](PAGINATION.md)：普通列表默认游标键集 `{items,nextCursor}`，跳页表格用 offset `{items,total}`；契约默认 `limit` 50、上限 100（管理列表 200）。`GET /api/agents/reference` 是显式有界例外，按名称最多返回 500 条并用 `truncated` 标记。
 
 ### 1.4 治理与资源对象权限
 

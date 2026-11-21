@@ -2,11 +2,13 @@ import type {
   ApiTool,
   ApiToolInput,
   ConnectorCatalogItem,
+  CursorPage,
   Server,
   ServerInput,
   ServerTestResult,
 } from '@agentport/shared';
 import { rpc } from '../orpc.js';
+import { clientOptions } from './shared.js';
 
 /** OpenAPI 解析预览：tools 为可直接创建的工具定义，warnings 不阻断导入。 */
 export interface OpenApiPreviewResult {
@@ -40,8 +42,16 @@ export interface McpImportResult {
   warnings: string[];
 }
 
+export interface ServerImpact {
+  agents: Array<{ id: string; name: string }>;
+  hiddenCount: number;
+  toolCount: number;
+}
+
 export default {
-  servers: (): Promise<Server[]> => rpc.servers.list(),
+  servers: (cursor?: string, signal?: AbortSignal): Promise<CursorPage<Server>> =>
+    rpc.servers.list({ query: cursor === undefined ? {} : { cursor } }, clientOptions(signal)),
+  server: (id: string): Promise<Server> => rpc.servers.get({ params: { id } }),
   connectorCatalog: (): Promise<ConnectorCatalogItem[]> => rpc.servers.catalog(),
   createServer: (input: ServerInput): Promise<Server> => rpc.servers.create({ body: input }),
   updateServer: (
@@ -57,6 +67,7 @@ export default {
       },
     }),
   deleteServer: (id: string): Promise<void> => rpc.servers.delete({ params: { id } }),
+  serverImpact: (id: string): Promise<ServerImpact> => rpc.servers.impact({ params: { id } }),
   testServer: (id: string, runtimeEnvironmentId?: string | null): Promise<ServerTestResult> =>
     rpc.servers.test({
       params: { id },

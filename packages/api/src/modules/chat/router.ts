@@ -27,6 +27,7 @@ import {
 import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
+import { invalidCursor, requireCursorPage } from '../../http/pagination.js';
 import { beginSse } from '../../http/sse.js';
 import { authorizeRun } from '../runs/access.js';
 import { cancelAgentRun } from '../runs/cancel-run.js';
@@ -90,6 +91,7 @@ const chatMainRouter = {
       ...(cursor === undefined ? {} : { before: cursor }),
       access: accessFilter(context, 'conversations.read'),
     });
+    if (result === null) invalidCursor();
     return {
       items: result.items.map(({ updatedAt, ...item }) => ({
         ...item,
@@ -101,18 +103,10 @@ const chatMainRouter = {
   conversation: os.conversation.handler(async ({ input, context }) => {
     const conversation = await loadReadableConversation(context, input.params.id);
     const { limit, cursor } = input.query;
-    if (
-      cursor !== undefined &&
-      !(await chatRepo.messageInConversation(context.db, conversation.id, cursor))
-    ) {
-      return fail('INVALID_INPUT', '游标不属于该会话，请刷新后重试');
-    }
-    const rows = await chatRepo.listMessages(context.db, conversation.id, {
-      limit: limit + 1,
-      ...(cursor === undefined ? {} : { before: cursor }),
-    });
-    const hasMore = rows.length > limit;
-    const messages = hasMore ? rows.slice(1) : rows;
+    const page = requireCursorPage(
+      await chatRepo.listMessagePage(context.db, conversation.id, { limit, cursor }),
+    );
+    const messages = page.items.reverse();
     const runMetrics = (
       await chatRepo.listRunMetrics(context.db, [
         ...new Set(messages.flatMap((message) => (message.runId ? [message.runId] : []))),
@@ -149,7 +143,7 @@ const chatMainRouter = {
         uiState: message.uiState,
       })),
       runMetrics,
-      nextCursor: hasMore ? (messages[0]?.id ?? null) : null,
+      nextCursor: page.nextCursor,
     };
   }),
   renameConversation: os.renameConversation.handler(async ({ input, context }) => {
@@ -353,21 +347,27 @@ const chatMainRouter = {
     };
   }),
   listConversations: os.listConversations.handler(async ({ input, context }) => {
-    const { agentId, limit } = input.query;
-    const rows = await chatRepo.listConversations(context.db, {
-      ...(agentId === undefined ? {} : { agentId }),
-      limit,
-      access: accessFilter(context, 'conversations.read'),
-    });
-    return rows.map((row) => ({
-      ...row,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-      lastMessage: row.lastMessage && {
-        ...row.lastMessage,
-        createdAt: row.lastMessage.createdAt.toISOString(),
-      },
-    }));
+    const { agentId, limit, cursor } = input.query;
+    const page = requireCursorPage(
+      await chatRepo.listConversations(context.db, {
+        ...(agentId === undefined ? {} : { agentId }),
+        ...(cursor === undefined ? {} : { cursor }),
+        limit,
+        access: accessFilter(context, 'conversations.read'),
+      }),
+    );
+    return {
+      items: page.items.map((row) => ({
+        ...row,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+        lastMessage: row.lastMessage && {
+          ...row.lastMessage,
+          createdAt: row.lastMessage.createdAt.toISOString(),
+        },
+      })),
+      nextCursor: page.nextCursor,
+    };
   }),
 };
 export function registerChatEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDependencies): void {

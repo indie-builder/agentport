@@ -19,6 +19,7 @@
 
 - 常规业务实体主键用 `newId(entity)`；前缀只在 `src/id.ts` 定义，不在调用方拼前缀或改用随机 UUID。关联表、认证载体、幂等派生标识、外部资源及 UI 行标识按 [PROJECT-BRIEF §16.2](../../docs/PROJECT-BRIEF.md#162-id-约定) 的例外处理。
 - 含用户内容的列表/读取 repo 方法接收 `AccessFilter` 或主体参数，在 SQL 中按 `businessId` 与 scopes 过滤；私有正文只对创建者或平台开放。范围不符由调用方按对象不存在处理。
+- 列表 repo 用 `src/repo/pagination.ts` 的 `keysetPage`（`limit+1`、`(排序列,id)` 键集）；游标锚点必须在同一 `AccessFilter`/筛选条件内校验，锚点不存在返回 `null`，由 API 转 400。
 - 多步状态转换（run、question、版本、绑定）用 `db.transaction`；并发冲突用条件更新/CAS 或 `FOR UPDATE`，必要时 `repeatable read`。事务内每条读写仍带主体与范围条件，不用事务放大权限。
 
 ## 验证

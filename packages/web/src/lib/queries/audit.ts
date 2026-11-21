@@ -1,22 +1,20 @@
-import { useInfiniteQuery } from '@tanstack/react-query';
 import { type AuditQuery, api } from '../api.js';
+import { useCursorList } from './shared.js';
 
 const AUDIT_PAGE_SIZE = 100;
 
 export function useAudit(query: Omit<AuditQuery, 'before' | 'cursor' | 'limit'>) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: ['audit', query],
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: (cursor, signal) =>
       api.audit(
         {
           ...query,
           limit: AUDIT_PAGE_SIZE,
-          ...(pageParam === null ? {} : { cursor: pageParam }),
+          ...(cursor === undefined ? {} : { cursor }),
         },
         signal,
       ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 0,
   });
 }

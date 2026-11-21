@@ -8,11 +8,7 @@ import type {
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type NativePlugins } from '../api.js';
 import { AGENTS_QUERY_KEY } from './agents.js';
-
-const pluginsQuery = queryOptions<PluginWithAgentCount[]>({
-  queryKey: ['plugins'],
-  queryFn: api.plugins,
-});
+import { useCursorList } from './shared.js';
 
 const nativePluginsQuery = queryOptions<NativePlugins>({
   queryKey: ['plugins-native'],
@@ -31,8 +27,13 @@ export const connectorCatalogQuery = queryOptions<ConnectorCatalogItem[]>({
   staleTime: 5 * 60_000,
 });
 
-export function usePlugins(enabled = true) {
-  return useQuery({ ...pluginsQuery, enabled });
+export function usePlugins(options: { enabled?: boolean | undefined } = {}) {
+  return useCursorList({
+    queryKey: ['plugins'],
+    queryFn: (cursor) => api.plugins(cursor === undefined ? {} : { cursor }),
+    enabled: options.enabled ?? true,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
 }
 
 export function usePlugin(id: string) {

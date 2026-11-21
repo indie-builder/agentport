@@ -223,30 +223,32 @@ describe.skipIf(!ready)('personal memory', () => {
       headers: auth(),
     });
     const limitedBody = limited.json<{
-      items: Array<{ createdAt: string; after: { content: string } }>;
+      items: Array<{ id: string; createdAt: string; after: { content: string } }>;
       nextCursor: string | null;
     }>();
     expect(limitedBody.items).toMatchObject([{ after: { content: 'two' } }]);
-    expect(limitedBody.nextCursor).toBe(limitedBody.items[0]?.createdAt);
+    expect(limitedBody.nextCursor).toBe(limitedBody.items[0]?.id);
 
-    const future = new Date(Date.now() + 60_000).toISOString();
-    const after = await request(app, {
+    const next = await request(app, {
       method: 'GET',
-      url: `/api/me/memory/versions?cursor=${encodeURIComponent(future)}`,
+      url: `/api/me/memory/versions?cursor=${encodeURIComponent(limitedBody.nextCursor ?? '')}`,
       headers: auth(),
     });
-    expect(after.json()).toMatchObject({
-      items: [{ after: { content: 'two' } }, { after: { content: 'one' } }],
+    expect(next.json()).toMatchObject({
+      items: [{ after: { content: 'one' } }],
       nextCursor: null,
     });
 
-    const old = new Date(0).toISOString();
-    const none = await request(app, {
-      method: 'GET',
-      url: `/api/me/memory/versions?cursor=${encodeURIComponent(old)}`,
-      headers: auth(),
-    });
-    expect(none.json()).toEqual({ items: [], nextCursor: null });
+    for (const stale of [new Date(Date.now() + 60_000).toISOString(), new Date(0).toISOString()]) {
+      expectProblem(
+        await request(app, {
+          method: 'GET',
+          url: `/api/me/memory/versions?cursor=${encodeURIComponent(stale)}`,
+          headers: auth(),
+        }),
+        'INVALID_INPUT',
+      );
+    }
 
     expectProblem(
       await request(app, {
@@ -289,7 +291,7 @@ describe.skipIf(!ready)('personal memory', () => {
     await put({ content: 'two', expectedRevision: 1 });
     const recent = await request(app, {
       method: 'GET',
-      url: `/api/me/memory/versions?cursor=${encodeURIComponent(new Date(Date.now() + 60_000).toISOString())}&limit=1`,
+      url: '/api/me/memory/versions?limit=1',
       headers: auth(),
     });
     expect(recent.json()).toMatchObject({
@@ -350,22 +352,22 @@ describe.skipIf(!ready)('personal memory', () => {
     expect(first.statusCode, first.body).toBe(200);
     expect(first.json()).toMatchObject({
       items: [{ id: three, after: { content: 'three' } }],
-      nextCursor: at(4).toISOString(),
+      nextCursor: three,
     });
 
-    const second = await page(at(4).toISOString());
+    const second = await page(three);
     expect(second.json()).toMatchObject({
       items: [{ id: two, after: { content: 'two' } }],
-      nextCursor: at(2).toISOString(),
+      nextCursor: two,
     });
 
-    const third = await page(at(2).toISOString());
+    const third = await page(two);
     expect(third.json()).toMatchObject({
       items: [{ id: one, after: { content: 'one' } }],
       nextCursor: null,
     });
 
-    const end = await page(at(1).toISOString());
+    const end = await page(one);
     expect(end.json()).toEqual({ items: [], nextCursor: null });
   });
 

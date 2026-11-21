@@ -54,6 +54,7 @@ function run(status: RunDetail['run']['status'], id = 'run-a'): RunDetail {
       error: null,
       sessionId: null,
       sandboxId: null,
+      runtimeEnvironment: null,
     },
     conversation: { id: conversation.id, agentId: 'agent-a', title: '' },
     steps: [],

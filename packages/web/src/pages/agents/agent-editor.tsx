@@ -100,6 +100,7 @@ import {
   agentSections as sectionItems,
   agentTabs as tabItems,
 } from '../../lib/detail-tabs.js';
+import { applyProblemToForm } from '../../lib/form.js';
 import { runtimeEnvironmentOptions } from '../../lib/format.js';
 import {
   agentDetailQuery,
@@ -107,6 +108,7 @@ import {
   toolsQuery,
   useAgentFiles,
   useAgentOptions,
+  useDrainPages,
   useExperts,
   useKnowledgeBases,
   useOfflineAgent,
@@ -195,10 +197,14 @@ export function AgentEditor({
   const options = useAgentOptions(canBindings);
   const servers = useServers(canServers);
   const knowledgeBases = useKnowledgeBases(canKnowledge);
-  const skills = useSkills(canSkills);
-  const plugins = usePlugins(canPlugins);
+  const skills = useSkills({ enabled: canSkills });
+  const plugins = usePlugins({ enabled: canPlugins });
+  useDrainPages(skills);
+  useDrainPages(plugins);
   const agents = useExperts();
   const runtimeEnvironments = useRuntimeEnvironments(canRuntimeEnvironments);
+  useDrainPages(servers);
+  useDrainPages(runtimeEnvironments);
   const optionServers = options.data?.servers ?? [];
   const connectorCatalog = useMemo(
     () =>
@@ -760,6 +766,7 @@ export function AgentEditor({
             toastSuccess('草稿已保存');
           },
           onError: (error) => {
+            applyProblemToForm(rhf, error);
             if (error instanceof ApiError && error.status === 409) {
               setConflict(true);
               toastError(new Error('配置已被修改；当前草稿已保留，请加载最新配置后重新编辑。'));

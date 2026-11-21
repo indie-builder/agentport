@@ -90,7 +90,10 @@ async function mount() {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },
   });
-  client.setQueryData(['agents'], [{ id: 'agent-a', name: 'Expert A' }]);
+  client.setQueryData(['agents'], {
+    items: [{ id: 'agent-a', name: 'Expert A' }],
+    truncated: false,
+  });
   client.setQueryData(['agent-access', 'agent-a'], {
     agentId: 'agent-a',
     permissionIds: ['eval.read', 'eval.manage', 'eval.execute'],

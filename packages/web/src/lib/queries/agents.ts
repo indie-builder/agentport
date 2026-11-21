@@ -4,8 +4,15 @@ import type {
   AgentInput,
   AgentOptions,
   AgentPatch,
+  CursorPage,
 } from '@agentport/shared';
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  type InfiniteData,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import {
   type AgentAccess,
   type AgentFiles,
@@ -17,23 +24,19 @@ import {
   api,
 } from '../api.js';
 import { OVERVIEW_QUERY_KEY } from './overview.js';
-import { useInvalidate } from './shared.js';
-
-const listAgents = api.agents;
+import { useCursorList, useInvalidate } from './shared.js';
 
 export const AGENTS_QUERY_KEY = ['agents'] as const;
 export const AGENT_OPTIONS_QUERY_KEY = ['agent-options'] as const;
+const AGENTS_BROWSE_KEY = [...AGENTS_QUERY_KEY, 'list'] as const;
 
-export const agentsQuery = queryOptions<AgentSummary[]>({
+type AgentPages = InfiniteData<CursorPage<AgentSummary>, string | undefined>;
+type AgentReference = Awaited<ReturnType<typeof api.agentReference>>;
+
+export const agentsQuery = queryOptions({
   queryKey: AGENTS_QUERY_KEY,
-  queryFn: () => listAgents(),
+  queryFn: ({ signal }) => api.agentReference(signal),
 });
-
-const agentsListQuery = (options: AgentListParams) =>
-  queryOptions<AgentSummary[]>({
-    queryKey: [...AGENTS_QUERY_KEY, 'list', options],
-    queryFn: () => api.agents(options),
-  });
 
 const agentTagsQuery = queryOptions<{ items: string[] }>({
   queryKey: ['agent-tags'],
@@ -90,24 +93,25 @@ export function useAgentOptions(enabled = true) {
 }
 
 export function useAgents() {
-  return useQuery(agentsQuery);
+  return useQuery({ ...agentsQuery, select: (page) => page.items });
 }
 
-function isDefaultList(options: AgentListParams): boolean {
-  return (
-    (options.status ?? 'active') === 'active' &&
-    options.q === undefined &&
-    options.tag === undefined &&
-    options.favorite === undefined &&
-    options.sort === undefined
-  );
+export function useAgentsTruncated() {
+  return useQuery({ ...agentsQuery, select: (page) => page.truncated });
 }
 
-export function useExperts(options?: AgentListParams) {
-  const resolved = options ?? {};
+export function useAgentsBrowse(filters: Omit<AgentListParams, 'cursor' | 'limit'>) {
+  return useCursorList({
+    queryKey: [...AGENTS_BROWSE_KEY, filters],
+    queryFn: (cursor, signal) => api.agents({ ...filters, cursor }, signal),
+    select: ({ pages }) => pages.flatMap(({ items }) => items.filter((agent) => !agent.isDefault)),
+  });
+}
+
+export function useExperts() {
   return useQuery({
-    ...(isDefaultList(resolved) ? agentsQuery : agentsListQuery(resolved)),
-    select: (agents: AgentSummary[]) => agents.filter((agent) => !agent.isDefault),
+    ...agentsQuery,
+    select: (page) => page.items.filter((agent) => !agent.isDefault),
   });
 }
 
@@ -121,10 +125,19 @@ export function useSetAgentFavorite() {
     mutationFn: (vars: { id: string; favorite: boolean }) =>
       api.setAgentFavorite(vars.id, vars.favorite),
     onSuccess: (_result, vars) => {
-      client.setQueriesData<AgentSummary[]>({ queryKey: AGENTS_QUERY_KEY }, (old) =>
-        old?.map((agent) =>
-          agent.id === vars.id ? { ...agent, isFavorite: vars.favorite } : agent,
-        ),
+      const update = (agent: AgentSummary) =>
+        agent.id === vars.id ? { ...agent, isFavorite: vars.favorite } : agent;
+      client.setQueryData(
+        agentsQuery.queryKey,
+        (old) => old && { ...old, items: old.items.map(update) },
+      );
+      client.setQueriesData<AgentPages>(
+        { queryKey: AGENTS_BROWSE_KEY },
+        (old) =>
+          old && {
+            ...old,
+            pages: old.pages.map((page) => ({ ...page, items: page.items.map(update) })),
+          },
       );
     },
     onSettled: () => {
@@ -165,7 +178,7 @@ export function useRestoreAgent() {
 export function useAgentSummary(id: string | null) {
   return useQuery({
     ...agentsQuery,
-    select: (agents: AgentSummary[]) => agents.find((agent) => agent.id === id) ?? null,
+    select: (page) => page.items.find((agent) => agent.id === id) ?? null,
   });
 }
 
@@ -354,8 +367,8 @@ export function useDuplicateAgent() {
     onSuccess: (agent) => {
       void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
-      client.setQueryData(AGENTS_QUERY_KEY, (prev: Agent[] | undefined) =>
-        prev ? [...prev, agent] : prev,
+      client.setQueryData(AGENTS_QUERY_KEY, (prev: AgentReference | undefined) =>
+        prev ? { ...prev, items: [...prev.items, agent] } : prev,
       );
     },
   });
@@ -368,16 +381,21 @@ export function useUpdateAgent() {
       api.updateAgent(vars.id, vars.input, vars.expectedUpdatedAt),
     onMutate: async ({ id, input }) => {
       await client.cancelQueries({ queryKey: AGENTS_QUERY_KEY });
-      const previous = client.getQueryData<Agent[]>(AGENTS_QUERY_KEY);
-      client.setQueryData<Agent[]>(AGENTS_QUERY_KEY, (old) =>
-        old?.map((agent) => {
-          if (agent.id !== id) return agent;
-          const next = { ...agent, ...input };
-          return {
-            ...next,
-            effort: next.effort ?? undefined,
-          };
-        }),
+      const previous = client.getQueryData<AgentReference>(AGENTS_QUERY_KEY);
+      client.setQueryData<AgentReference>(
+        AGENTS_QUERY_KEY,
+        (old) =>
+          old && {
+            ...old,
+            items: old.items.map((agent) => {
+              if (agent.id !== id) return agent;
+              const next = { ...agent, ...input };
+              return {
+                ...next,
+                effort: next.effort ?? undefined,
+              };
+            }),
+          },
       );
       return { previous };
     },
@@ -399,8 +417,9 @@ export function useDeleteAgent() {
   return useMutation({
     mutationFn: (id: string) => api.deleteAgent(id),
     onSuccess: (_data, id) => {
-      client.setQueryData<Agent[]>(AGENTS_QUERY_KEY, (old) =>
-        old?.filter((agent) => agent.id !== id),
+      client.setQueryData<AgentReference>(
+        AGENTS_QUERY_KEY,
+        (old) => old && { ...old, items: old.items.filter((agent) => agent.id !== id) },
       );
       client.removeQueries({ queryKey: ['agent-detail', id], exact: true });
       client.removeQueries({ queryKey: ['agent-access', id], exact: true });

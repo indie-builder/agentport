@@ -1,9 +1,9 @@
 import { AppError } from '@agentport/core';
-import { and, asc, eq, gt, type SQL, sql } from 'drizzle-orm';
+import { asc, eq, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeFolders } from '../../schema.js';
-import { paginate } from '../keyset.js';
+import { keysetPage } from '../pagination.js';
 import {
   escapeLike,
   type KnowledgeFolderRow,
@@ -28,17 +28,24 @@ export async function listFolders(
   db: Database,
   baseId: string,
   options: PageOptions = {},
-): Promise<Page<KnowledgeFolderRow>> {
+): Promise<Page<KnowledgeFolderRow> | null> {
   const limit = pageLimit(options);
   const filters: SQL[] = [eq(knowledgeFolders.baseId, baseId)];
-  if (options.cursor) filters.push(gt(knowledgeFolders.id, options.cursor));
-  const rows = await db
-    .select()
-    .from(knowledgeFolders)
-    .where(and(...filters))
-    .orderBy(asc(knowledgeFolders.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeFolders,
+    cursor: options.cursor,
+    limit,
+    column: knowledgeFolders.id,
+    direction: 'asc',
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeFolders)
+        .where(where)
+        .orderBy(asc(knowledgeFolders.id))
+        .limit(limit),
+  });
 }
 
 export async function getFolder(db: DbHandle, id: string): Promise<KnowledgeFolderRow | null> {

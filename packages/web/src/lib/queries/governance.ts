@@ -1,13 +1,9 @@
 import type {
   AlertSettings,
   BudgetInput,
-  BudgetStatus,
   CostGroupBy,
   CostSummary,
-  Department,
   DepartmentMembersInput,
-  GovernanceIdentity,
-  GovernanceResource,
   HandoverChecklist,
   ResourceGrant,
   ResourceGrantInput,
@@ -16,6 +12,9 @@ import type {
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { rpc } from '../orpc.js';
 import { AGENTS_QUERY_KEY } from './agents.js';
+import { useCursorList } from './shared.js';
+
+const GOVERNANCE_PAGE_SIZE = 50;
 
 const governanceKeys = {
   departments: ['governance', 'departments'] as const,
@@ -30,42 +29,12 @@ const governanceKeys = {
   alerts: ['governance', 'alerts'] as const,
 };
 
-export const departmentsQuery = queryOptions<Department[]>({
-  queryKey: governanceKeys.departments,
-  queryFn: () => rpc.governance.departments.list(),
-  staleTime: 0,
-});
-
-const budgetsQuery = queryOptions<BudgetStatus[]>({
-  queryKey: governanceKeys.budgets,
-  queryFn: () => rpc.governance.budgets.list(),
-  staleTime: 0,
-});
-
 const resourceGrantsQuery = (resourceKind: ResourceKind, resourceId: string) =>
   queryOptions<ResourceGrant[]>({
     queryKey: governanceKeys.grants(resourceKind, resourceId),
     queryFn: () => rpc.governance.resourceGrants.list({ query: { resourceKind, resourceId } }),
     enabled: resourceId.length > 0,
     staleTime: 0,
-  });
-
-const governanceResourcesQuery = (resourceKind: ResourceKind, q: string, enabled = true) =>
-  queryOptions<GovernanceResource[]>({
-    queryKey: governanceKeys.resources(resourceKind, q),
-    queryFn: () =>
-      rpc.governance.resources({
-        query: q.trim() ? { resourceKind, q: q.trim() } : { resourceKind },
-      }),
-    enabled,
-    staleTime: 10_000,
-  });
-
-const governanceIdentitiesQuery = (q: string) =>
-  queryOptions<GovernanceIdentity[]>({
-    queryKey: governanceKeys.identities(q),
-    queryFn: () => rpc.governance.identities({ query: q.trim() ? { q: q.trim() } : {} }),
-    staleTime: 10_000,
   });
 
 const handoverQuery = (businessId: string) =>
@@ -90,11 +59,31 @@ const alertSettingsQuery = queryOptions<AlertSettings>({
 });
 
 export function useDepartments(enabled = true) {
-  return useQuery({ ...departmentsQuery, enabled });
+  return useCursorList({
+    queryKey: governanceKeys.departments,
+    queryFn: (cursor, signal) =>
+      rpc.governance.departments.list(
+        { query: { limit: GOVERNANCE_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) } },
+        { signal },
+      ),
+    enabled,
+    staleTime: 0,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
 }
 
 export function useBudgets(enabled = true) {
-  return useQuery({ ...budgetsQuery, enabled });
+  return useCursorList({
+    queryKey: governanceKeys.budgets,
+    queryFn: (cursor, signal) =>
+      rpc.governance.budgets.list(
+        { query: { limit: GOVERNANCE_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) } },
+        { signal },
+      ),
+    enabled,
+    staleTime: 0,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
 }
 
 export function useResourceGrants(resourceKind: ResourceKind, resourceId: string) {
@@ -102,11 +91,45 @@ export function useResourceGrants(resourceKind: ResourceKind, resourceId: string
 }
 
 export function useGovernanceResources(resourceKind: ResourceKind, q: string, enabled = true) {
-  return useQuery(governanceResourcesQuery(resourceKind, q, enabled));
+  const query = q.trim();
+  return useCursorList({
+    queryKey: governanceKeys.resources(resourceKind, q),
+    queryFn: (cursor, signal) =>
+      rpc.governance.resources(
+        {
+          query: {
+            resourceKind,
+            limit: GOVERNANCE_PAGE_SIZE,
+            ...(query ? { q: query } : {}),
+            ...(cursor === undefined ? {} : { cursor }),
+          },
+        },
+        { signal },
+      ),
+    enabled,
+    staleTime: 10_000,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
 }
 
 export function useGovernanceIdentities(q: string) {
-  return useQuery(governanceIdentitiesQuery(q));
+  const query = q.trim();
+  return useCursorList({
+    queryKey: governanceKeys.identities(q),
+    queryFn: (cursor, signal) =>
+      rpc.governance.identities(
+        {
+          query: {
+            limit: GOVERNANCE_PAGE_SIZE,
+            ...(query ? { q: query } : {}),
+            ...(cursor === undefined ? {} : { cursor }),
+          },
+        },
+        { signal },
+      ),
+    staleTime: 10_000,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
 }
 
 export function useHandover(businessId: string) {

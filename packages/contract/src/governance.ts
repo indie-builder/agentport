@@ -1,10 +1,12 @@
 import {
+  adminPageQuerySchema,
   alertSettingsSchema,
   budgetInputSchema,
   budgetStatusSchema,
   businessIdSchema,
   costGroupBySchema,
   costSummarySchema,
+  cursorPageSchema,
   departmentInputSchema,
   departmentMembersInputSchema,
   departmentSchema,
@@ -34,7 +36,8 @@ export const governanceContract = {
   departments: {
     list: read
       .route({ method: 'GET', path: '/governance/departments' })
-      .output(z.array(departmentSchema)),
+      .input(z.object({ query: adminPageQuerySchema }))
+      .output(cursorPageSchema(departmentSchema)),
     create: manage
       .route({ method: 'POST', path: '/governance/departments', successStatus: 201 })
       .input(z.object({ body: departmentInputSchema }))
@@ -55,7 +58,8 @@ export const governanceContract = {
   budgets: {
     list: read
       .route({ method: 'GET', path: '/governance/budgets' })
-      .output(z.array(budgetStatusSchema)),
+      .input(z.object({ query: adminPageQuerySchema }))
+      .output(cursorPageSchema(budgetStatusSchema)),
     upsert: manage
       .route({ method: 'PUT', path: '/governance/budgets' })
       .input(z.object({ body: budgetInputSchema }))
@@ -83,14 +87,17 @@ export const governanceContract = {
     .route({ method: 'GET', path: '/governance/resources' })
     .input(
       z.object({
-        query: z.object({ resourceKind: resourceKindSchema, q: z.string().max(200).optional() }),
+        query: adminPageQuerySchema.extend({
+          resourceKind: resourceKindSchema,
+          q: z.string().max(200).optional(),
+        }),
       }),
     )
-    .output(z.array(governanceResourceSchema)),
+    .output(cursorPageSchema(governanceResourceSchema)),
   identities: read
     .route({ method: 'GET', path: '/governance/identities' })
-    .input(z.object({ query: z.object({ q: z.string().max(200).optional() }) }))
-    .output(z.array(governanceIdentitySchema)),
+    .input(z.object({ query: adminPageQuerySchema.extend({ q: z.string().max(200).optional() }) }))
+    .output(cursorPageSchema(governanceIdentitySchema)),
   handover: {
     checklist: read
       .route({ method: 'GET', path: '/governance/handover/{businessId}' })

@@ -395,11 +395,13 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
     versionId: version.id,
   });
 
-  const servers = await apiJson<Array<{ id: string; name: string; kind: string }>>(
-    browser,
-    'GET',
-    '/api/servers',
-  );
+  const servers = (
+    await apiJson<{ items: Array<{ id: string; name: string; kind: string }> }>(
+      browser,
+      'GET',
+      '/api/servers',
+    )
+  ).items;
   const server = servers.find(
     (candidate) => candidate.kind === 'data_domain' && candidate.name === `dd-${domain.slug}`,
   );

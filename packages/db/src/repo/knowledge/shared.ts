@@ -17,6 +17,7 @@ import {
   knowledgeWikiSources,
   type knowledgeWikiVersions,
 } from '../../schema.js';
+import type { CursorPage } from '../pagination.js';
 
 export type KnowledgeBaseRow = typeof knowledgeBases.$inferSelect;
 export type KnowledgeFolderRow = typeof knowledgeFolders.$inferSelect;
@@ -49,10 +50,7 @@ export type SourceDocumentPatch = Pick<
   'title' | 'sourceUrl' | 'sourcePath' | 'mimeType' | 'sizeBytes' | 'metadata'
 >;
 
-export interface Page<T> {
-  items: T[];
-  nextCursor: string | null;
-}
+export type Page<T> = CursorPage<T>;
 
 export interface PageOptions {
   cursor?: string | null;

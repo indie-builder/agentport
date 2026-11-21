@@ -1,8 +1,8 @@
 import { expect } from 'bun:test';
 import {
   type AccessScope,
+  ERROR_META,
   type ErrorCode,
-  errorCode,
   type PermissionGrant,
   type PermissionId,
   type Problem,
@@ -160,7 +160,7 @@ export function grants(...values: [PermissionId, AccessScope][]): PermissionGran
 
 export function expectProblem(res: TestResponse, code: ErrorCode, resource?: string): Problem {
   const body = problemSchema.parse(res.json());
-  expect(res.statusCode).toBe(errorCode[code]);
+  expect(res.statusCode).toBe(ERROR_META[code].status);
   expect(body).toMatchObject({
     code,
     status: res.statusCode,

@@ -10,24 +10,31 @@ import {
   type RunQuery,
   type SubmitRunFeedback,
 } from '../api.js';
-import { mergeRunQuestions, useRefetchWhenRunEnds, withRunQuestion } from './shared.js';
+import {
+  mergeRunQuestions,
+  useCursorList,
+  useRefetchWhenRunEnds,
+  withRunQuestion,
+} from './shared.js';
 
 export function useRuns(query: RunQuery = {}, enabled = true) {
-  const queryKey: (string | number | null)[] = [
-    'runs',
-    query.agentId ?? null,
-    query.status ?? null,
-    query.limit ?? 50,
-  ];
-  if (query.trigger) queryKey.push(query.trigger);
-  if (query.since) queryKey.push(query.since);
-  return useQuery<RunList>({
-    queryKey,
-    queryFn: () => api.runs(query),
+  return useCursorList<RunList>({
+    queryKey: [
+      'runs',
+      query.agentId ?? null,
+      query.status ?? null,
+      query.trigger ?? null,
+      query.since ?? null,
+      query.limit ?? 50,
+    ],
+    queryFn: (cursor, signal) =>
+      api.runs({ ...query, ...(cursor === undefined ? {} : { cursor }) }, signal),
     enabled,
     staleTime: 5_000,
     refetchInterval: (query) =>
-      query.state.data?.items.some((run) => run.status === 'queued' || run.status === 'running')
+      query.state.data?.pages.some((page) =>
+        page.items.some((run) => run.status === 'queued' || run.status === 'running'),
+      )
         ? 5_000
         : false,
   });

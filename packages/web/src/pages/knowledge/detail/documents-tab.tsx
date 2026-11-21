@@ -382,7 +382,11 @@ export function DocumentsTab({
               </Button>
             ) : null}
             <span role="status" className="text-xs text-muted-foreground">
-              {documents.isPending ? '加载中…' : `已加载 ${documentItems.length} 个文档`}
+              {documents.isPending
+                ? '加载中…'
+                : documents.hasNextPage
+                  ? `已加载 ${documentItems.length} 个文档`
+                  : `共 ${documentItems.length} 个文档`}
             </span>
           </div>
           <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">

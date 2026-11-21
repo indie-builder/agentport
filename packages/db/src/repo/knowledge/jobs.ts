@@ -14,7 +14,7 @@ import {
   knowledgeSyncRuns,
 } from '../../schema.js';
 import { resourceScopeWhere } from '../access.js';
-import { keysetBefore, paginate } from '../keyset.js';
+import { keysetPage } from '../pagination.js';
 import {
   type KnowledgeJobRow,
   type KnowledgeSyncRunRow,
@@ -108,22 +108,25 @@ export async function listJobs(db: Database, filter: ListJobsFilter = {}) {
       );
     }
   }
-  if (filter.cursor) {
-    filters.push(keysetBefore(knowledgeJobs, filter.cursor));
-  }
-  const rows = await db
-    .select({
-      ...jobSummaryColumns,
-      documentTitle: knowledgeDocuments.title,
-      sourceName: knowledgeSources.name,
-    })
-    .from(knowledgeJobs)
-    .leftJoin(knowledgeDocuments, eq(knowledgeJobs.documentId, knowledgeDocuments.id))
-    .leftJoin(knowledgeSources, eq(knowledgeJobs.sourceId, knowledgeSources.id))
-    .where(filters.length > 0 ? and(...filters) : undefined)
-    .orderBy(desc(knowledgeJobs.createdAt), desc(knowledgeJobs.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeJobs,
+    cursor: filter.cursor,
+    limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select({
+          ...jobSummaryColumns,
+          documentTitle: knowledgeDocuments.title,
+          sourceName: knowledgeSources.name,
+        })
+        .from(knowledgeJobs)
+        .leftJoin(knowledgeDocuments, eq(knowledgeJobs.documentId, knowledgeDocuments.id))
+        .leftJoin(knowledgeSources, eq(knowledgeJobs.sourceId, knowledgeSources.id))
+        .where(where)
+        .orderBy(desc(knowledgeJobs.createdAt), desc(knowledgeJobs.id))
+        .limit(limit),
+  });
 }
 
 function syncRefOf(job: KnowledgeJobRow): { syncRunId: string; sourceId: string } {

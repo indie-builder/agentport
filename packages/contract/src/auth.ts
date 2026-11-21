@@ -11,6 +11,7 @@ import {
   businessIdSchema,
   changeOwnPasswordSchema,
   listQuerySchema,
+  offsetPageSchema,
   permissionIdSchema,
   personalProfileSchema,
   personalSessionListSchema,
@@ -88,7 +89,7 @@ export const authContract = {
     list: readAccounts
       .route({ method: 'GET', path: '/accounts' })
       .input(z.object({ query: listQuerySchema }))
-      .output(z.object({ items: z.array(accountSchema), total: z.number().int() })),
+      .output(offsetPageSchema(accountSchema)),
     create: manageAccounts
       .route({ method: 'POST', path: '/accounts', successStatus: 201 })
       .input(z.object({ body: accountCreateSchema }))

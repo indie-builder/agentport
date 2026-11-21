@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { api, type KnowledgeBaseInput, type KnowledgeBatchInput } from '../api.js';
 import {
@@ -7,16 +7,14 @@ import {
   knowledgeJobQuery,
   knowledgeKeys,
   knowledgeShouldPoll,
+  useCursorList,
   useDrainPages,
 } from './shared.js';
 
 export function useKnowledgeBases(enabled = true) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: knowledgeKeys.bases,
-    queryFn: ({ pageParam, signal }) =>
-      api.knowledgeBases(pageParam === null ? {} : { cursor: pageParam }, signal),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    queryFn: (cursor, signal) => api.knowledgeBases(cursor === undefined ? {} : { cursor }, signal),
     enabled,
     select: (data) => data.pages.flatMap((page) => page.items),
   });
@@ -191,40 +189,36 @@ export function useKnowledgeDocuments(
   baseId: string,
   filter: NonNullable<Parameters<typeof api.knowledgeDocuments>[1]>,
 ) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: [...knowledgeKeys.documents(baseId), filter],
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: (cursor, signal) =>
       api.knowledgeDocuments(
         baseId,
         {
           ...filter,
           limit: KNOWLEDGE_PAGE_SIZE,
-          ...(pageParam === null ? {} : { cursor: pageParam }),
+          ...(cursor === undefined ? {} : { cursor }),
         },
         signal,
       ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     refetchInterval: (query) =>
       knowledgeShouldPoll(query.state.data?.pages.flatMap((page) => page.items)) ? 3_000 : false,
   });
 }
 
 export function useKnowledgeImages(baseId: string, filter: { q: string }) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: knowledgeKeys.images(baseId, filter.q),
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: (cursor, signal) =>
       api.knowledgeImages(
         baseId,
         {
           ...(filter.q === '' ? {} : { q: filter.q }),
           limit: KNOWLEDGE_PAGE_SIZE,
-          ...(pageParam === null ? {} : { cursor: pageParam }),
+          ...(cursor === undefined ? {} : { cursor }),
         },
         signal,
       ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 }
 
@@ -317,17 +311,10 @@ export function useDeleteKnowledgeDocument(baseId: string) {
 }
 
 export function useKnowledgeDocumentChunks(documentId: string, versionId: string | null) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: knowledgeKeys.chunks(documentId, versionId ?? ''),
-    queryFn: ({ pageParam, signal }) =>
-      api.knowledgeChunks(
-        documentId,
-        versionId ?? undefined,
-        signal,
-        pageParam === null ? undefined : pageParam,
-      ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    queryFn: (cursor, signal) =>
+      api.knowledgeChunks(documentId, versionId ?? undefined, signal, cursor),
     enabled: versionId !== null,
   });
 }
@@ -474,16 +461,9 @@ export function useDownloadKnowledgeDocuments(baseId: string) {
 }
 
 export function useKnowledgeDocumentVersions(documentId: string | null) {
-  const query = useInfiniteQuery({
+  const query = useCursorList({
     queryKey: knowledgeKeys.documentVersions(documentId ?? ''),
-    queryFn: ({ pageParam, signal }) =>
-      api.knowledgeDocumentVersions(
-        documentId ?? '',
-        pageParam === null ? undefined : pageParam,
-        signal,
-      ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    queryFn: (cursor, signal) => api.knowledgeDocumentVersions(documentId ?? '', cursor, signal),
     enabled: documentId !== null,
   });
   useDrainPages(query);
@@ -581,19 +561,17 @@ export function useBatchKnowledgeDocuments(baseId: string) {
 }
 
 export function useKnowledgeJobs(baseId: string, filters: { documentId?: string } = {}) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: [...knowledgeKeys.jobs(baseId), filters],
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: (cursor, signal) =>
       api.knowledgeJobs(
         baseId,
         {
           ...(filters.documentId ? { documentId: filters.documentId } : {}),
-          ...(pageParam === null ? {} : { cursor: pageParam }),
+          ...(cursor === undefined ? {} : { cursor }),
         },
         signal,
       ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     select: (data) => data.pages.flatMap((page) => page.items),
     refetchInterval: (query) =>
       knowledgeShouldPoll(query.state.data?.pages.flatMap((page) => page.items)) ? 2_000 : false,

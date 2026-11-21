@@ -27,6 +27,7 @@ export * from './observability.js';
 export * from './openui/index.js';
 export * from './ops.js';
 export * from './outputs.js';
+export * from './pagination.js';
 export * from './params.js';
 export * from './personal.js';
 export * from './plugin.js';

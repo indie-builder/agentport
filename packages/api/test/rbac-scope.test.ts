@@ -102,7 +102,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       headers: { cookie: userA.cookie },
     });
     expect(listA.statusCode, listA.body).toBe(200);
-    const ids = listA.json<{ id: string }[]>().map((row) => row.id);
+    const ids = listA.json<{ items: { id: string }[] }>().items.map((row) => row.id);
     expect(ids).toContain(conversationA);
     expect(ids).not.toContain(conversationB);
 

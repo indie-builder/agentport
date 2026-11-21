@@ -6,6 +6,7 @@ import { implement } from '@orpc/server';
 import { and, eq } from 'drizzle-orm';
 import { authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { requireAgentSlug } from '../../lib/outputs.js';
 import { writeMemoryTarget } from './changes.js';
 import { buildMemoryAssembly, buildMemoryOverview, countMemoryTopics } from './overview.js';
@@ -14,27 +15,6 @@ import { listPersonalMemoryVersions, readPersonalMemory, writePersonalMemory } f
 const os = implement(memoryContract).$context<RequestContext>();
 
 const MISSING_AGENT = '智能体不存在，可能已被删除；请刷新后重新选择';
-
-function cursorDate(cursor: string | undefined): Date | undefined {
-  if (cursor === undefined) return undefined;
-  const at = new Date(cursor);
-  if (Number.isNaN(at.getTime())) fail('INVALID_INPUT', '游标无效，请刷新后重试');
-  return at;
-}
-
-function listVersions(
-  context: RequestContext,
-  options: Omit<repo.memoryChanges.ListMemoryChangesOptions, 'before'> & {
-    cursor?: string | undefined;
-  },
-) {
-  const { cursor, ...rest } = options;
-  const before = cursorDate(cursor);
-  return repo.memoryChanges.listFiltered(context.db, {
-    ...rest,
-    ...(before === undefined ? {} : { before }),
-  });
-}
 
 export const memoryRouter = os.router({
   readPersonal: os.readPersonal.handler(async ({ context }) => {
@@ -54,17 +34,11 @@ export const memoryRouter = os.router({
     return saved;
   }),
   personalVersions: os.personalVersions.handler(async ({ input, context }) => {
-    const limit = input.query.limit;
-    const before = cursorDate(input.query.cursor);
-    const rows = await listPersonalMemoryVersions(context.db, requireUser(context).businessId, {
-      ...(before === undefined ? {} : { before }),
-      limit: limit + 1,
+    const { limit, cursor } = input.query;
+    return listPersonalMemoryVersions(context.db, requireUser(context).businessId, {
+      limit,
+      ...(cursor === undefined ? {} : { cursor }),
     });
-    const items = rows.slice(0, limit);
-    return {
-      items,
-      nextCursor: rows.length > limit ? (items.at(-1)?.createdAt ?? null) : null,
-    };
   }),
   agentFileVersions: os.agentFileVersions.handler(async ({ input, context }) => {
     await authorizeObject(
@@ -75,18 +49,19 @@ export const memoryRouter = os.router({
     );
     await requireAgentSlug(context.db, input.params.id);
     const limit = input.query.limit;
-    const rows = await listVersions(context, {
-      agentId: input.params.id,
-      kind: 'agent_memory',
-      name: input.params.name,
-      includeIndexChanges: input.params.name === INDEX_FILE_NAME,
-      limit: limit + 1,
-      ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
-    });
-    const items = rows.slice(0, limit).map((row) => repo.memoryChanges.toMemoryChange(row));
+    const page = requireCursorPage(
+      await repo.memoryChanges.listFilteredPage(context.db, {
+        agentId: input.params.id,
+        kind: 'agent_memory',
+        name: input.params.name,
+        includeIndexChanges: input.params.name === INDEX_FILE_NAME,
+        limit,
+        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+      }),
+    );
     return {
-      items,
-      nextCursor: rows.length > limit ? (items.at(-1)?.createdAt ?? null) : null,
+      items: page.items.map(repo.memoryChanges.toMemoryChange),
+      nextCursor: page.nextCursor,
     };
   }),
   agentRuleVersions: os.agentRuleVersions.handler(async ({ input, context }) => {
@@ -98,17 +73,18 @@ export const memoryRouter = os.router({
     );
     await requireAgentSlug(context.db, input.params.id);
     const limit = input.query.limit;
-    const rows = await listVersions(context, {
-      agentId: input.params.id,
-      kind: 'agent_rule',
-      slug: input.params.slug,
-      limit: limit + 1,
-      ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
-    });
-    const items = rows.slice(0, limit).map((row) => repo.memoryChanges.toMemoryChange(row));
+    const page = requireCursorPage(
+      await repo.memoryChanges.listFilteredPage(context.db, {
+        agentId: input.params.id,
+        kind: 'agent_rule',
+        slug: input.params.slug,
+        limit,
+        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+      }),
+    );
     return {
-      items,
-      nextCursor: rows.length > limit ? (items.at(-1)?.createdAt ?? null) : null,
+      items: page.items.map(repo.memoryChanges.toMemoryChange),
+      nextCursor: page.nextCursor,
     };
   }),
   agentMemoryOverview: os.agentMemoryOverview.handler(async ({ input, context }) => {

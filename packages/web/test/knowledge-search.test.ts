@@ -405,7 +405,8 @@ describe('knowledge UX guards', () => {
         await pending.promise;
         return HttpResponse.json({ items: [base], nextCursor: null });
       }),
-      http.get('/api/agents', () => HttpResponse.json([])),
+      http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     );
     await mount('/knowledge');
     expect(document.querySelector('[aria-label="加载中"]')).not.toBeNull();
@@ -424,7 +425,8 @@ describe('knowledge UX guards', () => {
       http.get('/api/knowledge/bases', () =>
         HttpResponse.json({ code: 'INTERNAL', message: '列表失败' }, { status: 500 }),
       ),
-      http.get('/api/agents', () => HttpResponse.json([])),
+      http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     );
     await mount('/knowledge');
     expect(document.body.textContent).toContain('服务端暂时无法完成请求');

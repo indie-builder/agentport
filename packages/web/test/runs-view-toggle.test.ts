@@ -59,9 +59,12 @@ beforeEach(() => {
       queries: { retry: false, retryOnMount: false, refetchOnMount: false, gcTime: Infinity },
     },
   });
-  client.setQueryData(['agents'], []);
-  client.setQueryData(['runs', null, null, 100], { items: [run] });
-  vi.spyOn(api, 'runs').mockResolvedValue({ items: [] });
+  client.setQueryData(['agents'], { items: [], truncated: false });
+  client.setQueryData(['runs', null, null, null, null, 50], {
+    pages: [{ items: [run], nextCursor: null }],
+    pageParams: [undefined],
+  });
+  vi.spyOn(api, 'runs').mockResolvedValue({ items: [], nextCursor: null });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -170,6 +173,7 @@ describe('run list view toggle', () => {
     await vi.waitFor(() =>
       expect(api.runs).toHaveBeenCalledWith(
         expect.objectContaining({ since: utcWindowStart(7).toISOString() }),
+        expect.any(AbortSignal),
       ),
     );
     const clear = [...host.querySelectorAll('button')].find(
@@ -189,7 +193,8 @@ describe('run list view toggle', () => {
 
     await vi.waitFor(() =>
       expect(api.runs).toHaveBeenCalledWith(
-        expect.objectContaining({ trigger: 'schedule', limit: 100 }),
+        expect.objectContaining({ trigger: 'schedule' }),
+        expect.any(AbortSignal),
       ),
     );
     expect(host.textContent).toContain('符合筛选条件');
@@ -237,7 +242,10 @@ describe('run list view toggle', () => {
   });
 
   it('expands the full error text on click and keeps the row from navigating', async () => {
-    client.setQueryData(['runs', null, null, 100], { items: [{ ...run, error: longError }] });
+    client.setQueryData(['runs', null, null, null, null, 50], {
+      pages: [{ items: [{ ...run, error: longError }], nextCursor: null }],
+      pageParams: [undefined],
+    });
     const router = await mount('/runs?view=table');
 
     const expand = [...host.querySelectorAll('button')].find(
@@ -262,7 +270,10 @@ describe('run list view toggle', () => {
   });
 
   it('expands the full run error in the card without truncating it', async () => {
-    client.setQueryData(['runs', null, null, 100], { items: [{ ...run, error: longError }] });
+    client.setQueryData(['runs', null, null, null, null, 50], {
+      pages: [{ items: [{ ...run, error: longError }], nextCursor: null }],
+      pageParams: [undefined],
+    });
     await mount('/runs?view=cards');
 
     const card = cards();

@@ -1,5 +1,5 @@
 import type { EvalDataset } from '@agentport/shared';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
   type EvalCase,
@@ -10,6 +10,7 @@ import {
   type EvalSampleCandidate,
   type EvalTarget,
 } from '../api.js';
+import { useCursorList } from './shared.js';
 
 export function useEvalCases(agentId: string | null) {
   return useQuery<EvalCase[]>({
@@ -84,19 +85,17 @@ export function useDeleteEvalCase() {
 const EVAL_RUNS_PAGE_SIZE = 50;
 
 export function useEvalRuns(agentId: string | null) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: ['eval-runs', agentId, EVAL_RUNS_PAGE_SIZE],
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: (cursor, signal) =>
       api.evalRuns(
         {
           ...(agentId === null ? {} : { agentId }),
           limit: EVAL_RUNS_PAGE_SIZE,
-          ...(pageParam === null ? {} : { cursor: pageParam }),
+          ...(cursor === undefined ? {} : { cursor }),
         },
         signal,
       ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: agentId !== null,
     refetchInterval: (query) => {
       const runs = query.state.data?.pages.flatMap((page) => page.items);

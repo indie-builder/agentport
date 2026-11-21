@@ -1,11 +1,12 @@
 import {
   type AgentSummary,
+  type CursorPage,
   type Schedule,
   type ScheduleInput,
   scheduleInputSchema,
   scheduleMissedPolicySchema,
 } from '@agentport/shared';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type InfiniteData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
 import { History, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
@@ -79,7 +80,8 @@ import { formatCost, formatDuration, formatRelative, formatZonedDateTime } from 
 import {
   meQuery,
   scheduleRunsQuery,
-  schedulesQuery,
+  schedulesQueryKey,
+  useAgentsTruncated,
   useExperts,
   useScheduleRuns,
   useSchedules,
@@ -280,24 +282,34 @@ export function SchedulesPage() {
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const deletedRef = useRef(false);
   const invalidate = (): void => {
-    void client.invalidateQueries({ queryKey: schedulesQuery.queryKey });
+    void client.invalidateQueries({ queryKey: schedulesQueryKey });
   };
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       api.updateSchedule(id, { enabled }),
     onMutate: async (vars) => {
-      await client.cancelQueries({ queryKey: schedulesQuery.queryKey });
-      const prev = client.getQueryData<Schedule[]>(schedulesQuery.queryKey);
+      await client.cancelQueries({ queryKey: schedulesQueryKey });
+      const prev = client.getQueryData<InfiniteData<CursorPage<Schedule>>>(schedulesQueryKey);
       if (prev) {
-        client.setQueryData<Schedule[]>(schedulesQuery.queryKey, (old) =>
-          old ? old.map((s) => (s.id === vars.id ? { ...s, enabled: vars.enabled } : s)) : old,
+        client.setQueryData<InfiniteData<CursorPage<Schedule>>>(schedulesQueryKey, (old) =>
+          old
+            ? {
+                ...old,
+                pages: old.pages.map((page) => ({
+                  ...page,
+                  items: page.items.map((s) =>
+                    s.id === vars.id ? { ...s, enabled: vars.enabled } : s,
+                  ),
+                })),
+              }
+            : old,
         );
       }
       return { prev };
     },
     onError: (error, _vars, ctx) => {
       if (ctx?.prev !== undefined) {
-        client.setQueryData<Schedule[]>(schedulesQuery.queryKey, ctx.prev);
+        client.setQueryData<InfiniteData<CursorPage<Schedule>>>(schedulesQueryKey, ctx.prev);
       }
       toastError(error);
     },
@@ -313,7 +325,7 @@ export function SchedulesPage() {
     onSettled: invalidate,
   });
 
-  const items = schedules.data ?? [];
+  const items = schedules.data?.pages.flatMap((page) => page.items) ?? [];
   const rowBusy = toggle.isPending || remove.isPending || !canManage;
 
   return (
@@ -321,7 +333,13 @@ export function SchedulesPage() {
       <PageTopbar>
         <PageHeader
           title="定时任务"
-          {...(items.length > 0 ? { description: `${items.length} 个定时任务` } : {})}
+          {...(items.length > 0
+            ? {
+                description: schedules.hasNextPage
+                  ? `已加载 ${items.length} 个定时任务`
+                  : `共 ${items.length} 个定时任务`,
+              }
+            : {})}
           actions={
             <>
               {items.length > 0 ? <ViewToggle value={view} onChange={setView} /> : null}
@@ -518,6 +536,30 @@ export function SchedulesPage() {
             </Table>
           </PageSection>
         ) : null}
+
+        {schedules.isFetchNextPageError ? (
+          <PageNote
+            tone="danger"
+            title="更多定时任务没有加载出来"
+            action={
+              <Button variant="outline" size="sm" onClick={() => void schedules.fetchNextPage()}>
+                重试
+              </Button>
+            }
+          />
+        ) : schedules.hasNextPage ? (
+          <div className="flex justify-center pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={schedules.isFetchingNextPage}
+              aria-busy={schedules.isFetchingNextPage}
+              onClick={() => void schedules.fetchNextPage()}
+            >
+              {schedules.isFetchingNextPage ? '加载中…' : '加载更多'}
+            </Button>
+          </div>
+        ) : null}
       </PageBody>
 
       {creating ? (
@@ -662,7 +704,7 @@ function ScheduleRunsDialog({
     onError: toastError,
     onSettled: () => {
       void client.invalidateQueries({ queryKey: scheduleRunsQuery(schedule.id).queryKey });
-      void client.invalidateQueries({ queryKey: schedulesQuery.queryKey });
+      void client.invalidateQueries({ queryKey: schedulesQueryKey });
     },
   });
   return (
@@ -784,6 +826,7 @@ function ScheduleDialog({
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
   const client = useQueryClient();
+  const agentsTruncated = useAgentsTruncated().data ?? false;
   const [confirmReload, setConfirmReload] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [deleted, setDeleted] = useState(false);
@@ -808,7 +851,7 @@ function ScheduleDialog({
   const watched = watch();
   const dirty = isDirty;
   const invalidate = (): void => {
-    void client.invalidateQueries({ queryKey: schedulesQuery.queryKey });
+    void client.invalidateQueries({ queryKey: schedulesQueryKey });
   };
   const create = useMutation({
     mutationFn: (input: ScheduleInput) => api.createSchedule(input),
@@ -848,10 +891,11 @@ function ScheduleDialog({
     setReloading(true);
     try {
       // throwOnError 是 refetchQueries 的第二个参数，放进 filters 会被忽略并吞掉失败。
-      await client.refetchQueries({ queryKey: schedulesQuery.queryKey }, { throwOnError: true });
+      await client.refetchQueries({ queryKey: schedulesQueryKey }, { throwOnError: true });
       const latest = client
-        .getQueryData<Schedule[]>(schedulesQuery.queryKey)
-        ?.find((item) => item.id === schedule.id);
+        .getQueryData<InfiniteData<CursorPage<Schedule>>>(schedulesQueryKey)
+        ?.pages.flatMap((page) => page.items)
+        .find((item) => item.id === schedule.id);
       if (!latest) {
         setDeleted(true);
         throw new Error('该定时任务已被删除，当前草稿已保留；可另存为新建。');
@@ -1068,6 +1112,7 @@ function ScheduleDialog({
                           agent={selectedAgent ?? null}
                           agentId={field.value}
                           agentOptions={agentOptions}
+                          truncated={agentsTruncated}
                           onSwitchAgent={(id) => field.onChange(id)}
                           triggerRef={field.ref}
                           onBlur={field.onBlur}

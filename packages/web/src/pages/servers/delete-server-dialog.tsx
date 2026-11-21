@@ -5,7 +5,7 @@ import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { RequiredMark } from '../../components/required-mark.js';
 import { Field, FieldDescription, FieldLabel } from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
-import { useAgents, useDeleteServer, useTools } from '../../lib/queries.js';
+import { useDeleteServer, useServerImpact } from '../../lib/queries.js';
 import { toastSuccess } from '../../lib/toast.js';
 
 export function DeleteServerDialog({
@@ -18,15 +18,16 @@ export function DeleteServerDialog({
   getReturnFocus: () => HTMLElement | null;
 }) {
   const remove = useDeleteServer();
-  const agents = useAgents();
-  const tools = useTools(server.kind === 'generated' ? server.id : null);
+  const impact = useServerImpact(server.id);
   const [typed, setTyped] = useState('');
 
-  const bound = (agents.data ?? []).filter((agent) => (agent.serverIds ?? []).includes(server.id));
-  const toolCount = tools.data?.length ?? 0;
-  const loading = agents.isPending || (server.kind === 'generated' && tools.isPending);
-  const unknown = agents.isError || (server.kind === 'generated' && tools.isError);
-  const risky = bound.length > 0 || toolCount > 0;
+  const bound = impact.data?.agents ?? [];
+  const hiddenCount = impact.data?.hiddenCount ?? 0;
+  const total = bound.length + hiddenCount;
+  const toolCount = impact.data?.toolCount ?? 0;
+  const loading = impact.isPending || impact.isFetching || !impact.isFetchedAfterMount;
+  const unknown = impact.isError;
+  const risky = total > 0 || toolCount > 0;
   const confirmed = !risky || typed.trim() === server.name;
 
   return (
@@ -60,8 +61,8 @@ export function DeleteServerDialog({
                   {toolCount > 0 ? '，会一并删除' : ''}
                 </li>
                 <li>
-                  智能体 <span className="font-mono tabular-nums">{bound.length}</span> 个
-                  {bound.length > 0 ? '，会失去这些工具' : ''}
+                  智能体 <span className="font-mono tabular-nums">{total}</span> 个
+                  {total > 0 ? '，会失去这些工具' : ''}
                 </li>
               </ul>
               {bound.length > 0 ? (
@@ -70,6 +71,12 @@ export function DeleteServerDialog({
                     <li key={agent.id}>· {agent.name}</li>
                   ))}
                 </ul>
+              ) : null}
+              {hiddenCount > 0 ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  另有 <span className="font-mono tabular-nums">{hiddenCount}</span>{' '}
+                  个无权查看的智能体
+                </p>
               ) : null}
             </>
           )}

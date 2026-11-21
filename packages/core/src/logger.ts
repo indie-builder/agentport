@@ -1,3 +1,4 @@
+import type { ErrorCode } from '@agentport/shared';
 import pino, { type Logger } from 'pino';
 
 export const LOG_REDACT_PATHS: readonly string[] = [
@@ -44,6 +45,33 @@ export function createServiceLogger(input: ServiceLoggerInput): Logger {
       ? { transport: { target: 'pino-pretty', options: { translateTime: 'SYS:HH:MM:ss' } } }
       : {}),
   });
+}
+
+export type LogEventMap = {
+  'request completed': { route: string; statusCode: number; responseTime: number };
+  'slow request': { route: string; statusCode: number; responseTime: number };
+  'request failed': { route: string; statusCode: number; responseTime: number; code: ErrorCode };
+  'unhandled error': { code: ErrorCode };
+  'run enqueued': { runId: string; queue: string };
+  'run failed': { runId: string; attemptsMade: number; code?: ErrorCode };
+  'queue error': { queue: string };
+  'worker started': Record<string, never>;
+  'worker stopped': Record<string, never>;
+};
+
+export function logEvent<K extends keyof LogEventMap>(
+  log: Logger,
+  event: K,
+  fields: LogEventMap[K],
+  level: 'info' | 'warn' | 'error' = 'info',
+  extraFields?: Record<string, unknown>,
+): void {
+  const merged: Record<string, unknown> =
+    extraFields === undefined ? fields : { ...extraFields, ...fields };
+  const message = event as string;
+  if (level === 'error') log.error(merged, message);
+  else if (level === 'warn') log.warn(merged, message);
+  else log.info(merged, message);
 }
 
 export type RunLogFields = {

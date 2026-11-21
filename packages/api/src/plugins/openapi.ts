@@ -1,10 +1,15 @@
 import { createRequire } from 'node:module';
-import { problemSchema } from '@agentport/shared';
+import { ERROR_META, problemSchema } from '@agentport/shared';
 import type { AnyContractRouter } from '@orpc/contract';
-import { OpenAPIGenerator, type OpenAPIGeneratorGenerateOptions } from '@orpc/openapi';
+import {
+  OpenAPIGenerator,
+  type OpenAPIGeneratorGenerateOptions,
+  toOpenAPISchema,
+} from '@orpc/openapi';
 import { ZodToJsonSchemaConverter } from '@orpc/zod/zod4';
 import { Scalar } from '@scalar/hono-api-reference';
 import type { Hono } from 'hono';
+import { z } from 'zod';
 import { type HttpEnv, requestContext } from '../http/context.js';
 import { access } from '../http/middleware.js';
 import { nativeOpenAPISchemas } from '../http/native-openapi.js';
@@ -33,6 +38,19 @@ export function registerOpenApi(
   const converter = new ZodToJsonSchemaConverter();
   const generator = new OpenAPIGenerator({ schemaConverters: [converter] });
   const [, errorSchema] = converter.convert(problemSchema, { strategy: 'output' });
+  const errorCodeCatalogSchema = z.object(
+    Object.fromEntries(
+      Object.entries(ERROR_META).map(([code, { status, retryable, hint }]) => [
+        code,
+        z.object({
+          status: z.literal(status),
+          retryable: z.literal(retryable),
+          hint: z.literal(hint),
+        }),
+      ]),
+    ),
+  );
+  const [, errorCodeCatalog] = converter.convert(errorCodeCatalogSchema, { strategy: 'output' });
   let document: ReturnType<typeof generator.generate> | undefined;
   app.use('/api/docs/*', access({ kind: 'authenticated' }));
   app.on(
@@ -46,7 +64,10 @@ export function registerOpenApi(
           servers: [{ url: '/api' }],
           paths,
           components: {
-            schemas: nativeOpenAPISchemas,
+            schemas: {
+              ...nativeOpenAPISchemas,
+              ErrorCodeCatalog: toOpenAPISchema(errorCodeCatalog),
+            },
             securitySchemes: {
               sessionCookie: { type: 'apiKey', in: 'cookie', name: AUTH_COOKIE },
               shareToken: {

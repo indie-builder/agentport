@@ -23,6 +23,7 @@ import { z } from 'zod';
 import { actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { requireAgentSlug } from '../../lib/outputs.js';
 import { getQueue } from '../../queue/producer.js';
 import { listMemoryFiles } from '../agents/memory-files.js';
@@ -452,27 +453,21 @@ export const memoryReviewsRouter = os.router({
 
   list: os.list.handler(async ({ input, context }) => {
     const limit = input.query.limit;
-    const before = input.query.cursor === undefined ? undefined : new Date(input.query.cursor);
-    if (before !== undefined && Number.isNaN(before.getTime())) {
-      fail('INVALID_INPUT', '游标无效，请刷新后重试');
-    }
-    const rows = await repo.memoryReviews.listForUser(context.db, requireUser(context).businessId, {
-      limit: limit + 1,
-      ...(input.query.conversationId === undefined
-        ? {}
-        : { conversationId: input.query.conversationId }),
-      ...(input.query.agentId === undefined ? {} : { agentId: input.query.agentId }),
-      ...(before === undefined ? {} : { before }),
-    });
-    const items = await Promise.all(
-      rows
-        .slice(0, limit)
-        .map(async (detail) => toReview(detail, await sourceSummaries(context.db, detail.sources))),
+    const { cursor, conversationId, agentId } = input.query;
+    const page = requireCursorPage(
+      await repo.memoryReviews.listForUser(context.db, requireUser(context).businessId, {
+        limit,
+        ...(conversationId === undefined ? {} : { conversationId }),
+        ...(agentId === undefined ? {} : { agentId }),
+        ...(cursor === undefined ? {} : { cursor }),
+      }),
     );
-    return {
-      items,
-      nextCursor: rows.length > limit ? (items.at(-1)?.createdAt ?? null) : null,
-    };
+    const items = await Promise.all(
+      page.items.map(async (detail) =>
+        toReview(detail, await sourceSummaries(context.db, detail.sources)),
+      ),
+    );
+    return { items, nextCursor: page.nextCursor };
   }),
 
   detail: os.detail.handler(async ({ input, context }) => {

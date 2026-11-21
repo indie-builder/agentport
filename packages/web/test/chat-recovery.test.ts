@@ -39,6 +39,7 @@ const terminal: RunDetail['run'] = {
   error: 'stopped',
   sessionId: null,
   sandboxId: null,
+  runtimeEnvironment: null,
 };
 const history: ConversationDetail = {
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: '', createdAt: '' },

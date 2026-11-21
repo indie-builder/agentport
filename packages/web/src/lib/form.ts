@@ -1,5 +1,7 @@
 import { useBlocker } from '@tanstack/react-router';
+import type { FieldValues, Path, UseFormReturn } from 'react-hook-form';
 import type { z } from 'zod';
+import { ApiError } from './orpc.js';
 
 export function useFormBlocker(
   dirty: boolean,
@@ -22,6 +24,46 @@ export function useFormBlocker(
       if (!pending) blocker.proceed?.();
     },
   };
+}
+
+const WRAPPER_SEGMENTS = new Set(['body', 'query', 'params']);
+
+function fieldPath(pointer: string): string {
+  const segments = pointer.split('/');
+  if (segments[0] === '') segments.shift();
+  if (WRAPPER_SEGMENTS.has(segments[0] ?? '')) segments.shift();
+  return segments.map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~')).join('.');
+}
+
+export function applyProblemToForm<TValues extends FieldValues>(
+  form: Pick<UseFormReturn<TValues>, 'setError'>,
+  error: unknown,
+): boolean {
+  if (!(error instanceof ApiError)) return false;
+  const targets = (
+    error.errors?.length
+      ? error.errors
+      : error.path
+        ? [{ path: error.path, message: error.message }]
+        : []
+  )
+    .map((item) => ({ name: fieldPath(item.path), message: item.message }))
+    .filter((item) => item.name !== '');
+  if (targets.length === 0) return false;
+  const active = document.activeElement;
+  const typing =
+    active instanceof HTMLElement &&
+    (active.matches('input, textarea, select') || active.isContentEditable);
+  targets.forEach((item, index) => {
+    form.setError(
+      item.name as Path<TValues>,
+      { type: 'server', message: item.message },
+      {
+        shouldFocus: index === 0 && !typing,
+      },
+    );
+  });
+  return true;
 }
 
 export function fieldErrors(issues: z.ZodIssue[]): Record<string, string> {

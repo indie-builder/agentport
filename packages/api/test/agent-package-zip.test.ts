@@ -121,12 +121,12 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
   const listAgents = async (): Promise<Agent[]> => {
     const res = await request(app, { method: 'GET', url: '/api/agents', headers: { cookie } });
     expect(res.statusCode, res.body).toBe(200);
-    return res.json<Agent[]>();
+    return res.json<{ items: Agent[] }>().items;
   };
   const serverByName = async (name: string): Promise<Server | undefined> => {
     const res = await request(app, { method: 'GET', url: '/api/servers', headers: { cookie } });
     expect(res.statusCode).toBe(200);
-    return res.json<Server[]>().find((server) => server.name === name);
+    return res.json<{ items: Server[] }>().items.find((server) => server.name === name);
   };
   const createToolFor = async (serverId: string, tool: PortableTool): Promise<ApiToolResponse> => {
     const res = await request(app, {
@@ -823,7 +823,9 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     );
     expect(row[0]?.secrets_encrypted).toBeNull();
     const servers = await request(app, { method: 'GET', url: '/api/servers', headers: { cookie } });
-    const imported = servers.json<Server[]>().find((server) => server.name === serverName);
+    const imported = servers
+      .json<{ items: Server[] }>()
+      .items.find((server) => server.name === serverName);
     expect(imported?.kind === 'stdio' ? imported.env : imported?.headers).toEqual({});
   });
 
@@ -852,9 +854,17 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(body.createdSkills).toEqual([]);
     expect(body.agent.skillIds).toHaveLength(1);
     expect(body.warnings.some((warning) => warning.includes(skillSlug))).toBe(true);
-    const skills = await request(app, { method: 'GET', url: '/api/skills', headers: { cookie } });
-    expect(skills.json<Skill[]>().filter((skill) => skill.slug === skillSlug)).toHaveLength(1);
-    expect(skills.json<Skill[]>().find((skill) => skill.slug === skillSlug)?.body).toBe('');
+    const skills = await request(app, {
+      method: 'GET',
+      url: '/api/skills?limit=100',
+      headers: { cookie },
+    });
+    expect(
+      skills.json<{ items: Skill[] }>().items.filter((skill) => skill.slug === skillSlug),
+    ).toHaveLength(1);
+    expect(
+      skills.json<{ items: Skill[] }>().items.find((skill) => skill.slug === skillSlug)?.body,
+    ).toBe('');
   });
 
   it('warns when a reused skill differs only in provenance and keeps the original', async () => {
@@ -919,9 +929,15 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(body.warnings.some((w) => w.includes('内容与导入包不同'))).toBe(false);
     expect(body.warnings.some((w) => w.includes('来源信息与导入包不同'))).toBe(true);
 
-    const skills = await request(app, { method: 'GET', url: '/api/skills', headers: { cookie } });
+    const skills = await request(app, {
+      method: 'GET',
+      url: '/api/skills?limit=100',
+      headers: { cookie },
+    });
     expect(skills.statusCode, skills.body).toBe(200);
-    expect(skills.json<Skill[]>().find((skill) => skill.slug === skillSlug)).toMatchObject({
+    expect(
+      skills.json<{ items: Skill[] }>().items.find((skill) => skill.slug === skillSlug),
+    ).toMatchObject({
       license: 'MIT',
       compatibility: 'claude-code',
       metadata: { author: 'existing', version: 1 },

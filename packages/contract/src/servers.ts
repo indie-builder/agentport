@@ -2,10 +2,12 @@ import {
   apiToolInputSchema,
   apiToolSchema,
   connectorCatalogSchema,
+  cursorPageSchema,
   expectedUpdatedAtSchema,
   generatedServerSchema,
   httpServerSchema,
   idParams,
+  pageQuerySchema,
   serverInputSchema,
   serverSchema,
   serverTestResultSchema,
@@ -60,7 +62,10 @@ const manageTools = contractProcedure.meta({
 });
 
 export const serversContract = {
-  list: readServers.route({ method: 'GET', path: '/servers' }).output(z.array(serverSchema)),
+  list: readServers
+    .route({ method: 'GET', path: '/servers' })
+    .input(z.object({ query: pageQuerySchema }))
+    .output(cursorPageSchema(serverSchema)),
   catalog: readServers
     .route({ method: 'GET', path: '/connector-catalog' })
     .output(connectorCatalogSchema),
@@ -100,6 +105,17 @@ export const serversContract = {
     .route({ method: 'DELETE', path: '/servers/{id}', successStatus: 204 })
     .input(z.object({ params: idParams }))
     .output(z.void()),
+  impact: contractProcedure
+    .meta({ access: { kind: 'permission', permissionId: 'servers.delete' } })
+    .route({ method: 'GET', path: '/servers/{id}/impact' })
+    .input(z.object({ params: idParams }))
+    .output(
+      z.object({
+        agents: z.array(z.object({ id: z.string(), name: z.string() })),
+        hiddenCount: z.number().int().nonnegative(),
+        toolCount: z.number().int().nonnegative(),
+      }),
+    ),
   test: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'servers.test' }, rateLimit: 20 })
     .route({ method: 'POST', path: '/servers/{id}/test' })

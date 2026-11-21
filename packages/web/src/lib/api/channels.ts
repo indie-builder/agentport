@@ -6,6 +6,7 @@ import type {
   ChannelMember,
   ChannelMessage,
   ChannelRole,
+  CursorPage,
   channelHandoffInputSchema,
   channelMessageInputSchema,
   PublicQuestionResponse,
@@ -42,8 +43,8 @@ export type ChannelRunOutputs = ApiOutput<ApiClient['channels']['runOutputs']>;
 export type ChannelRunOutputContent = ApiOutput<ApiClient['channels']['runOutputContent']>;
 
 export default {
-  channels: (signal?: AbortSignal): Promise<ChannelListItem[]> =>
-    rpc.channels.list({}, clientOptions(signal)),
+  channels: (cursor?: string, signal?: AbortSignal): Promise<CursorPage<ChannelListItem>> =>
+    rpc.channels.list({ query: cursor === undefined ? {} : { cursor } }, clientOptions(signal)),
   createChannel: (input: { name: string; description?: string | null }): Promise<Channel> =>
     rpc.channels.create({ body: input }),
   channel: (id: string, signal?: AbortSignal): Promise<ChannelDetail> =>

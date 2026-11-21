@@ -9,6 +9,7 @@ import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { agents, apiTokens, authUsers, webhookDeliveries, webhookEndpoints } from '../schema.js';
 import { lockAdminMutation } from './access.js';
+import { keysetPage } from './pagination.js';
 
 interface IntegrationOwner {
   authUserId: string;
@@ -41,12 +42,23 @@ const apiTokenColumns = {
   createdAt: apiTokens.createdAt,
 };
 
-export async function listApiTokens(db: DbHandle, businessId: string) {
-  return db
-    .select(apiTokenColumns)
-    .from(apiTokens)
-    .where(eq(apiTokens.ownerBusinessId, businessId))
-    .orderBy(desc(apiTokens.createdAt), desc(apiTokens.id));
+export async function listApiTokens(
+  db: DbHandle,
+  input: { businessId: string; cursor?: string; limit: number },
+) {
+  return keysetPage(db, {
+    table: apiTokens,
+    cursor: input.cursor,
+    limit: input.limit,
+    where: [eq(apiTokens.ownerBusinessId, input.businessId)],
+    load: ({ where, limit }) =>
+      db
+        .select(apiTokenColumns)
+        .from(apiTokens)
+        .where(where)
+        .orderBy(desc(apiTokens.createdAt), desc(apiTokens.id))
+        .limit(limit),
+  });
 }
 
 export interface CreateApiTokenInput extends IntegrationOwner {
@@ -142,13 +154,24 @@ async function findWebhookEndpoint(db: DbHandle, id: string) {
   return row ?? null;
 }
 
-export async function listWebhookEndpoints(db: DbHandle, businessId: string) {
-  return db
-    .select(webhookEndpointColumns)
-    .from(webhookEndpoints)
-    .leftJoin(agents, eq(agents.id, webhookEndpoints.agentId))
-    .where(eq(webhookEndpoints.ownerBusinessId, businessId))
-    .orderBy(desc(webhookEndpoints.createdAt), desc(webhookEndpoints.id));
+export async function listWebhookEndpoints(
+  db: DbHandle,
+  input: { businessId: string; cursor?: string; limit: number },
+) {
+  return keysetPage(db, {
+    table: webhookEndpoints,
+    cursor: input.cursor,
+    limit: input.limit,
+    where: [eq(webhookEndpoints.ownerBusinessId, input.businessId)],
+    load: ({ where, limit }) =>
+      db
+        .select(webhookEndpointColumns)
+        .from(webhookEndpoints)
+        .leftJoin(agents, eq(agents.id, webhookEndpoints.agentId))
+        .where(where)
+        .orderBy(desc(webhookEndpoints.createdAt), desc(webhookEndpoints.id))
+        .limit(limit),
+  });
 }
 
 export interface CreateWebhookEndpointInput extends IntegrationOwner {

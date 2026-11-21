@@ -1,4 +1,4 @@
-import { test } from '@e2e-dev/web';
+import { type Browser, test } from '@e2e-dev/web';
 import type { AgentSummary } from '../../packages/shared/src/agent.js';
 import type {
   ChannelDetail,
@@ -7,6 +7,7 @@ import type {
 } from '../../packages/shared/src/channels.js';
 import {
   api,
+  apiAllPages,
   DATASET_ID,
   datasetPath,
   readManifest,
@@ -17,6 +18,20 @@ import { resolveOwnership } from '../support/dataset-ownership.js';
 const CHANNEL_NAME = '【青禾演示】采购与售后协作';
 const CHANNEL_DESCRIPTION = `DEV-DATA ${DATASET_ID} · 采购与售后协作 v1；由 tests/dev-data/channels.e2e.ts 生成，请勿手工改名`;
 const AGENT_SLUGS = [`${DATASET_ID}-main`, `${DATASET_ID}-supplier-analyst`];
+
+async function listAllChannels(browser: Browser): Promise<ChannelListItem[]> {
+  const items: ChannelListItem[] = [];
+  let cursor: string | undefined;
+  while (true) {
+    const page = await api<{ items: ChannelListItem[]; nextCursor: string | null }>(
+      browser,
+      cursor === undefined ? '/api/channels' : `/api/channels?cursor=${encodeURIComponent(cursor)}`,
+    );
+    items.push(...page.items);
+    if (page.nextCursor === null) return items;
+    cursor = page.nextCursor;
+  }
+}
 const MESSAGES = [
   {
     key: 'welcome',
@@ -89,7 +104,7 @@ test('channels dataset build: fixed channel, dataset members, expert bindings, i
   const actorBusinessId = me.user.businessId;
   manifest.actor = { businessId: actorBusinessId, username: me.user.username };
 
-  const list = await api<ChannelListItem[]>(browser, '/api/channels');
+  const list = await listAllChannels(browser);
   const decision = resolveOwnership({
     dataset: DATASET_ID,
     label: `频道 ${CHANNEL_NAME}`,
@@ -139,7 +154,7 @@ test('channels dataset build: fixed channel, dataset members, expert bindings, i
     });
   }
 
-  const summaries = await api<AgentSummary[]>(browser, '/api/agents');
+  const summaries = await apiAllPages<AgentSummary>(browser, '/api/agents');
   const agents = AGENT_SLUGS.flatMap((slug) =>
     summaries.filter((agent) => agent.enabled && agent.slug === slug),
   ).slice(0, 2);
@@ -231,7 +246,7 @@ test('channels dataset verify: read-only checks for channel, members, bindings, 
     me.authenticated && me.user?.businessId === actorBusinessId,
     '管理员会话主体与 manifest 不一致',
   );
-  const list = await api<ChannelListItem[]>(browser, '/api/channels');
+  const list = await listAllChannels(browser);
   const item = list.find((channel) => channel.id === manifest.channel?.id);
   check(item !== undefined, '频道不在当前账户的频道列表中');
   const detail = await api<ChannelDetail>(browser, `/api/channels/${manifest.channel.id}`);

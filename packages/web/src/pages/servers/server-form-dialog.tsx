@@ -24,7 +24,7 @@ import { Textarea } from '../../components/ui/textarea.js';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group.js';
 import { ApiError, api, errorMessage } from '../../lib/api.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
-import { fieldErrors, useFormBlocker } from '../../lib/form.js';
+import { applyProblemToForm, fieldErrors, useFormBlocker } from '../../lib/form.js';
 import { useCreateServer, useUpdateServer } from '../../lib/queries.js';
 import { parsePairs } from '../../lib/resource-form.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
@@ -185,10 +185,10 @@ export function ServerFormDialog({
   const prefill = creating && initial ? catalogToForm(initial) : null;
   const create = useCreateServer();
   const update = useUpdateServer();
-  const { register, handleSubmit, reset, setValue, clearErrors, watch, formState } = useZodForm(
-    serverFormSchema,
-    { defaultValues: server ? serverToForm(server) : (prefill ?? emptyForm) },
-  );
+  const form = useZodForm(serverFormSchema, {
+    defaultValues: server ? serverToForm(server) : (prefill ?? emptyForm),
+  });
+  const { register, handleSubmit, reset, setValue, clearErrors, watch, formState } = form;
   const { errors, isDirty } = formState;
   const kind = watch('kind');
   const watched = watch();
@@ -217,7 +217,7 @@ export function ServerFormDialog({
     if (!baseline || pending) return;
     setReloading(true);
     try {
-      const latest = (await api.servers()).find((item) => item.id === baseline.id);
+      const latest = await api.server(baseline.id);
       if (!latest) throw new Error('该连接器已不存在，请关闭配置并刷新列表');
       setBaseline(latest);
       reset(serverToForm(latest));
@@ -252,6 +252,7 @@ export function ServerFormDialog({
             dialog.finish(() => onSaved(saved, false));
           },
           onError: (error) => {
+            applyProblemToForm(form, error);
             if (error instanceof ApiError && error.status === 409) {
               setConflict(true);
               toastError(new Error('配置已被修改；当前草稿已保留，请加载最新配置后重新编辑。'));
@@ -268,7 +269,10 @@ export function ServerFormDialog({
           toastSuccess('Server 已创建');
           dialog.finish(() => onSaved(saved, true));
         },
-        onError: (error) => toastError(error),
+        onError: (error) => {
+          applyProblemToForm(form, error);
+          toastError(error);
+        },
       });
     }
   });

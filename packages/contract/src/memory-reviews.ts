@@ -1,24 +1,21 @@
 import {
   createMemoryReviewInputSchema,
+  cursorPageSchema,
   memoryChangeSchema,
   memoryReviewSchema,
+  pageQuerySchema,
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
 
 const runParams = z.object({ runId: z.string().min(1) });
 
-export const memoryReviewListQuerySchema = z.object({
+export const memoryReviewListQuerySchema = pageQuerySchema.extend({
   conversationId: z.string().min(1).optional(),
   agentId: z.string().min(1).optional(),
-  cursor: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
-export const memoryReviewListSchema = z.object({
-  items: z.array(memoryReviewSchema),
-  nextCursor: z.string().nullable(),
-});
+export const memoryReviewListSchema = cursorPageSchema(memoryReviewSchema);
 
 export const memoryReviewCreateQuerySchema = z.object({ scope: z.literal('own').optional() });
 

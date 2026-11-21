@@ -1,15 +1,13 @@
 import { auditContract } from '@agentport/contract/audit';
-import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { AuditActorKind } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { RequestContext } from '../../http/context.js';
+import { requireCursorPage } from '../../http/pagination.js';
 
 const os = implement(auditContract).$context<RequestContext>();
 
-type AuditRow = Awaited<ReturnType<typeof repo.audit.listAudit>>[number];
-
-export function toItem(row: AuditRow) {
+export function toItem(row: repo.audit.AuditEntry) {
   return {
     id: row.id,
     actor: row.actor,
@@ -56,21 +54,10 @@ export function auditOptions(query: AuditQueryParams): repo.audit.AuditQuery {
 
 export const auditRouter = os.router({
   list: os.list.handler(async ({ input, context }) => {
-    const limit = input.query.limit ?? 100;
-    const options = auditOptions({ ...input.query, limit: limit + 1 });
-    const rows = await repo.audit.listAudit(context.db, options);
-    if (
-      input.query.cursor !== undefined &&
-      rows.length === 0 &&
-      !(await repo.audit.auditEntryExists(context.db, input.query.cursor))
-    ) {
-      fail('INVALID_INPUT', '分页游标无效');
-    }
-    const items = rows.slice(0, limit).map(toItem);
-    return {
-      items,
-      nextCursor: rows.length > limit ? (items.at(-1)?.id ?? null) : null,
-    };
+    const page = requireCursorPage(
+      await repo.audit.listAuditPage(context.db, auditOptions(input.query)),
+    );
+    return { items: page.items.map(toItem), nextCursor: page.nextCursor };
   }),
   verify: os.verify.handler(async ({ input, context }) =>
     repo.audit.verifyAuditChain(context.db, {

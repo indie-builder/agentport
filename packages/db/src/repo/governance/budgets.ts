@@ -1,6 +1,6 @@
 import { fail } from '@agentport/core';
 import type { AgentDefinition, BudgetInput, BudgetScopeKind } from '@agentport/shared';
-import { and, count, eq, gte, lt, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, lt, or, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
 import {
@@ -16,6 +16,7 @@ import {
 import { getIdentity } from '../accounts.js';
 import { enqueueWebhookEvent } from '../integrations.js';
 import { createNotification } from '../notifications.js';
+import { type CursorPage, keysetPage } from '../pagination.js';
 import { getDepartmentIdForBusinessId } from './departments.js';
 import { listAlertRecipientBusinessIds } from './reporting.js';
 import { resourceTables } from './resources.js';
@@ -71,24 +72,45 @@ async function usedBudget(db: DbHandle, kind: BudgetScopeKind, id: string) {
   return row?.used ?? 0;
 }
 
-export async function listBudgetStatuses(db: DbHandle) {
-  const rows = await db.select().from(budgetLimits);
-  return Promise.all(
-    rows.map(async (row) => {
-      const [scopeName, used] = await Promise.all([
-        budgetScopeName(db, row.scopeKind, row.scopeId),
-        usedBudget(db, row.scopeKind, row.scopeId),
-      ]);
-      return {
-        ...row,
-        scopeName: scopeName ?? row.scopeId,
-        limitValue: Number(row.limitValue),
-        alertRatio: Number(row.alertRatio),
-        used,
-        updatedAt: row.updatedAt.toISOString(),
-      };
-    }),
-  );
+async function budgetStatus(db: DbHandle, row: typeof budgetLimits.$inferSelect) {
+  const [scopeName, used] = await Promise.all([
+    budgetScopeName(db, row.scopeKind, row.scopeId),
+    usedBudget(db, row.scopeKind, row.scopeId),
+  ]);
+  return {
+    ...row,
+    scopeName: scopeName ?? row.scopeId,
+    limitValue: Number(row.limitValue),
+    alertRatio: Number(row.alertRatio),
+    used,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function listBudgetStatuses(
+  db: DbHandle,
+  input: { cursor?: string | undefined; limit: number },
+): Promise<CursorPage<Awaited<ReturnType<typeof budgetStatus>>> | null> {
+  const page = await keysetPage(db, {
+    table: budgetLimits,
+    cursor: input.cursor,
+    limit: input.limit,
+    column: budgetLimits.updatedAt,
+    direction: 'desc',
+    where: [],
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(budgetLimits)
+        .where(where)
+        .orderBy(desc(budgetLimits.updatedAt), desc(budgetLimits.id))
+        .limit(limit),
+  });
+  if (!page) return null;
+  return {
+    items: await Promise.all(page.items.map((row) => budgetStatus(db, row))),
+    nextCursor: page.nextCursor,
+  };
 }
 
 export async function upsertBudget(db: Database, input: BudgetInput) {

@@ -632,11 +632,11 @@ describe.skipIf(!ready)('memory changes', () => {
       headers: auth(),
     });
     const firstIndexBody = firstIndexPage.json<{
-      items: Array<{ target: { name: string } }>;
+      items: Array<{ id: string; target: { name: string } }>;
       nextCursor: string | null;
     }>();
     expect(firstIndexBody.items.map((item) => item.target.name)).toEqual(['ops.md']);
-    expect(firstIndexBody.nextCursor).toBe('2026-01-01T00:00:02.000Z');
+    expect(firstIndexBody.nextCursor).toBe(firstIndexBody.items[0]?.id);
 
     const secondIndexPage = await request(app, {
       method: 'GET',

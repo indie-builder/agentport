@@ -2,6 +2,7 @@ import type {
   ConversationBranch,
   ConversationSearchResponse,
   ConversationSummary,
+  CursorPage,
   MessageAttachment,
   OpenUiToolResult,
   OutputContent,
@@ -54,8 +55,6 @@ export type ChatAttachmentInput = NonNullable<SharedChatRequest['attachments']>[
 
 export type ChatRequest = SharedChatRequest;
 
-export type Conversation = ConversationSummary;
-
 export type ConversationDetail = SharedConversationDetail;
 
 /** 会话消息分页：默认 50 条、上限 100；cursor 为上一页最早消息的 id。 */
@@ -86,11 +85,11 @@ export default {
     rpc.chat.renameConversation({ params: { id }, body: { title } }),
   deleteConversation: (id: string): Promise<void> =>
     rpc.chat.deleteConversation({ params: { id } }),
-  conversations: (agentId?: string, signal?: AbortSignal): Promise<Conversation[]> =>
-    rpc.chat.listConversations(
-      { query: agentId === undefined ? {} : { agentId } },
-      clientOptions(signal),
-    ),
+  conversations: (
+    query: { agentId?: string; limit?: number; cursor?: string } = {},
+    signal?: AbortSignal,
+  ): Promise<CursorPage<ConversationSummary>> =>
+    rpc.chat.listConversations({ query }, clientOptions(signal)),
   searchConversations: (
     options: ConversationSearchOptions = {},
     signal?: AbortSignal,

@@ -1,10 +1,10 @@
 import type {
+  CursorPage,
   PublicQuestionResponse,
   PublicRunQuestion,
   RunDetail,
   RunFeedback,
   RunFeedbackList,
-  RunList,
   RunListItem,
   RunStatus,
   RunTrigger,
@@ -20,12 +20,13 @@ export type {
   RunDetail,
   RunFeedback,
   RunFeedbackList,
-  RunList,
   RunListItem,
   RunStatus,
   RunStep,
   SubmitRunFeedback,
 } from '@agentport/shared';
+
+export type RunList = CursorPage<RunListItem>;
 
 export type ApprovalRequestList = ApiOutput<ApiClient['runs']['approvals']>;
 
@@ -36,6 +37,7 @@ export interface RunQuery {
   status?: RunStatus;
   trigger?: RunTrigger;
   since?: string;
+  cursor?: string;
   limit?: number;
 }
 
@@ -46,7 +48,8 @@ export default {
     rpc.runs.approve({ params: { id: runId }, body: { approvalId } }),
   denyRun: (runId: string, approvalId: string) =>
     rpc.runs.deny({ params: { id: runId }, body: { approvalId } }),
-  runs: (query: RunQuery = {}): Promise<RunList> => rpc.runs.list({ query }),
+  runs: (query: RunQuery = {}, signal?: AbortSignal): Promise<RunList> =>
+    rpc.runs.list({ query }, clientOptions(signal)),
   exportRuns: (query: {
     agentId?: string;
     status?: RunStatus;

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { RouteMeta } from '@agentport/contract/access';
 import { AppError } from '@agentport/core';
+import { logEvent } from '@agentport/core/logger';
 import { problemSchema } from '@agentport/shared';
 import { ORPCError } from '@orpc/contract';
 import { OpenAPIHandler } from '@orpc/openapi/fetch';
@@ -40,7 +41,7 @@ export function createOpenAPIHandler(router: AnyRouter) {
           if (error instanceof ORPCError) throw error;
           const body = errorProblem(context.requestId, error);
           if (body.status >= 500)
-            context.log.error({ err: error, code: body.code }, 'unhandled error');
+            logEvent(context.log, 'unhandled error', { code: body.code }, 'error', { err: error });
           else if (body.status !== 401)
             context.log.warn({ err: error, code: body.code }, 'request rejected');
           throw new ORPCError(body.code, {

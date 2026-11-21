@@ -85,7 +85,8 @@ describe('knowledge library list', () => {
   it('offers creation and shows a single h1 when there is no base', async () => {
     server.use(
       http.get('/api/knowledge/bases', () => HttpResponse.json({ items: [], nextCursor: null })),
-      http.get('/api/agents', () => HttpResponse.json([])),
+      http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     );
     await mount('/knowledge');
     expect(document.querySelectorAll('h1')).toHaveLength(1);
@@ -137,7 +138,8 @@ describe('knowledge library list', () => {
       http.get('/api/knowledge/bases', () =>
         HttpResponse.json({ items: [base, disabled], nextCursor: null }),
       ),
-      http.get('/api/agents', () => HttpResponse.json([])),
+      http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     );
     const router = await mount('/knowledge');
     expect(document.body.textContent).toContain('共 2 个知识库');
@@ -196,7 +198,8 @@ describe('knowledge library list', () => {
             })
           : HttpResponse.json({ items: [base], nextCursor: 'kb_cursor' }),
       ),
-      http.get('/api/agents', () => HttpResponse.json([])),
+      http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     );
     await mount('/knowledge');
     expect(document.body.textContent).toContain('研发手册');
@@ -238,7 +241,8 @@ describe('knowledge base pins', () => {
         pinnedIds = body.pinned ? ['kb_1'] : [];
         return HttpResponse.json({ pinned: body.pinned });
       }),
-      http.get('/api/agents', () => HttpResponse.json([])),
+      http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     );
     await mount('/knowledge');
 
@@ -271,7 +275,8 @@ describe('knowledge base pins', () => {
           { status: 500 },
         ),
       ),
-      http.get('/api/agents', () => HttpResponse.json([])),
+      http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     );
     await mount('/knowledge');
     expect(rowNames()).toEqual(['研发手册', '产品手册']);
@@ -317,10 +322,22 @@ describe('knowledge library lifecycle', () => {
     baseHandlers();
     server.use(
       http.get('/api/agents', () =>
-        HttpResponse.json([
-          { id: 'agent_1', name: '产品专家', serverIds: ['srv_1'] },
-          { id: 'agent_2', name: '无关专家', serverIds: [] },
-        ]),
+        HttpResponse.json({
+          items: [
+            { id: 'agent_1', name: '产品专家', serverIds: ['srv_1'] },
+            { id: 'agent_2', name: '无关专家', serverIds: [] },
+          ],
+          nextCursor: null,
+        }),
+      ),
+      http.get('/api/agents/reference', () =>
+        HttpResponse.json({
+          items: [
+            { id: 'agent_1', name: '产品专家', serverIds: ['srv_1'] },
+            { id: 'agent_2', name: '无关专家', serverIds: [] },
+          ],
+          truncated: false,
+        }),
       ),
       http.delete('/api/knowledge/bases/kb_1', () => HttpResponse.json({})),
     );
@@ -340,7 +357,16 @@ describe('knowledge library lifecycle', () => {
     baseHandlers();
     server.use(
       http.get('/api/agents', () =>
-        HttpResponse.json([{ id: 'agent_2', name: '无关专家', serverIds: [] }]),
+        HttpResponse.json({
+          items: [{ id: 'agent_2', name: '无关专家', serverIds: [] }],
+          nextCursor: null,
+        }),
+      ),
+      http.get('/api/agents/reference', () =>
+        HttpResponse.json({
+          items: [{ id: 'agent_2', name: '无关专家', serverIds: [] }],
+          truncated: false,
+        }),
       ),
       http.delete('/api/knowledge/bases/kb_1', () => HttpResponse.json({})),
     );

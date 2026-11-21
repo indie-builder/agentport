@@ -18,11 +18,13 @@ import { ChatPage } from '../src/pages/chat/index.js';
 
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
+const adminRole = DEFAULT_ROLES.find((role) => role.systemKey === 'admin');
+if (adminRole === undefined) throw new Error('admin role is missing');
 const adminMe = {
   authenticated: true as const,
   user: { businessId: 'admin', username: 'admin', name: '管理员' },
   roles: [],
-  grants: [...DEFAULT_ROLES.find((role) => role.systemKey === 'admin')!.grants],
+  grants: [...adminRole.grants],
 };
 
 const agent = {
@@ -187,9 +189,9 @@ beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(['me'], adminMe);
-  client.setQueryData(['agents'], [agent, other]);
-  vi.spyOn(api, 'agents').mockResolvedValue([agent, other]);
-  vi.spyOn(api, 'conversations').mockResolvedValue([]);
+  client.setQueryData(['agents'], { items: [agent, other], truncated: false });
+  vi.spyOn(api, 'agentReference').mockResolvedValue({ items: [agent, other], truncated: false });
+  vi.spyOn(api, 'conversations').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'conversation').mockImplementation(async (id: string) => conversationDetail(id));
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
   vi.spyOn(api, 'outputs').mockResolvedValue({ items: [], nextCursor: null });

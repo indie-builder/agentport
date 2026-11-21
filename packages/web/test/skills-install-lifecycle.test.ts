@@ -1,4 +1,5 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { CursorPage } from '@agentport/shared';
+import { type InfiniteData, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -64,10 +65,17 @@ beforeEach(() => {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  client.setQueryData(
-    ['skills'],
-    [{ ...installed, id: 'skill_0', slug: 'old', name: 'Old', sourceId: null, agentCount: 2 }],
-  );
+  client.setQueryData(['skills', 'all'], {
+    pages: [
+      {
+        items: [
+          { ...installed, id: 'skill_0', slug: 'old', name: 'Old', sourceId: null, agentCount: 2 },
+        ],
+        nextCursor: null,
+      },
+    ],
+    pageParams: [undefined],
+  });
   mocks.installMarketSkill.mockReset();
   vi.spyOn(client, 'invalidateQueries');
   vi.spyOn(toast, 'success');
@@ -95,7 +103,12 @@ describe('market skill install while the page is unmounted', () => {
     expect(mocks.installMarketSkill).toHaveBeenCalledTimes(1);
 
     await unmount();
-    expect(client.getQueryData<unknown[]>(['skills'])).toHaveLength(1);
+    expect(
+      client.getQueryData<InfiniteData<CursorPage<{ id: string; agentCount: number }>>>([
+        'skills',
+        'all',
+      ])?.pages[0]?.items,
+    ).toHaveLength(1);
 
     await act(async () => {
       pending.resolve({ skill: installed, warnings: ['已跳过同名文件'] });
@@ -104,7 +117,9 @@ describe('market skill install while the page is unmounted', () => {
 
     expect(toast.success).toHaveBeenCalledWith('已安装「PDF」');
     expect(toast.info).toHaveBeenCalledWith('已跳过同名文件');
-    const skills = client.getQueryData<Array<{ id: string; agentCount: number }>>(['skills']);
+    const skills = client.getQueryData<
+      InfiniteData<CursorPage<{ id: string; agentCount: number }>>
+    >(['skills', 'all'])?.pages[0]?.items;
     expect(skills?.map((skill) => skill.id)).toEqual(['skill_1', 'skill_0']);
     expect(skills?.[0]?.agentCount).toBe(0);
     expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['skills'] });
@@ -140,6 +155,11 @@ describe('market skill install while the page is unmounted', () => {
     expect(toast.success).not.toHaveBeenCalled();
     expect(toast.info).not.toHaveBeenCalled();
     expect(client.invalidateQueries).not.toHaveBeenCalled();
-    expect(client.getQueryData<unknown[]>(['skills'])).toHaveLength(1);
+    expect(
+      client.getQueryData<InfiniteData<CursorPage<{ id: string; agentCount: number }>>>([
+        'skills',
+        'all',
+      ])?.pages[0]?.items,
+    ).toHaveLength(1);
   });
 });

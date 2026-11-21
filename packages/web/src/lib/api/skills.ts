@@ -1,4 +1,10 @@
-import type { Skill, SkillFile, SkillInput, SkillWithAgentCount } from '@agentport/shared';
+import type {
+  CursorPage,
+  Skill,
+  SkillFile,
+  SkillInput,
+  SkillWithAgentCount,
+} from '@agentport/shared';
 import { rpc } from '../orpc.js';
 
 export interface SkillImportResult {
@@ -7,8 +13,9 @@ export interface SkillImportResult {
 }
 
 export default {
-  skills: (status?: Skill['status']): Promise<SkillWithAgentCount[]> =>
-    rpc.skills.list({ query: status === undefined ? {} : { status } }),
+  skills: (
+    query: { status?: Skill['status']; cursor?: string; limit?: number } = {},
+  ): Promise<CursorPage<SkillWithAgentCount>> => rpc.skills.list({ query }),
   createSkill: (input: SkillInput): Promise<Skill> => rpc.skills.create({ body: input }),
   importSkillFile: (content: string): Promise<SkillImportResult> =>
     rpc.skills.importFile({ body: { skillMd: content } }),

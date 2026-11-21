@@ -42,6 +42,7 @@ vi.mock('../src/lib/queries.js', async (original) => {
     ...actual,
     meQuery: { queryKey: ['me'], queryFn: async () => state.me },
     useAgents: () => query(state.agents),
+    useAgentsBrowse: () => query(state.agents),
     useExperts: () => query(state.agents),
     useAgentAccess: () => query({ agentId: 'agent-1', permissionIds: state.agentAccess }),
     useAgentSummary: () => query(state.agents[0]),

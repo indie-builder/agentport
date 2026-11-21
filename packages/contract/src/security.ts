@@ -3,7 +3,9 @@ import {
   contentPolicyCreateSchema,
   contentPolicySchema,
   contentPolicyUpdateSchema,
+  cursorPageSchema,
   idParams,
+  pageQuerySchema,
   policyApprovalDecisionSchema,
   policyApprovalSchema,
   policyApprovalStatusSchema,
@@ -26,24 +28,16 @@ const manage = contractProcedure.meta({
   access: { kind: 'permission', permissionId: 'security.manage' },
 });
 
-const pageQuery = {
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  cursor: z.string().min(1).optional(),
-};
-
-const eventListQuery = z.object({
-  ...pageQuery,
+const eventListQuery = pageQuerySchema.extend({
   sourceKind: policySourceKindSchema.optional(),
   action: contentPolicyActionSchema.optional(),
 });
 
-const approvalListQuery = z.object({
-  ...pageQuery,
+const approvalListQuery = pageQuerySchema.extend({
   status: policyApprovalStatusSchema.default('pending'),
 });
 
-const violationListQuery = z.object({
-  ...pageQuery,
+const violationListQuery = pageQuerySchema.extend({
   status: violationCaseStatusSchema.optional(),
 });
 
@@ -69,15 +63,13 @@ export const securityContract = {
     list: read
       .route({ method: 'GET', path: '/security/events' })
       .input(z.object({ query: eventListQuery }))
-      .output(z.object({ items: z.array(policyEventSchema), nextCursor: z.string().nullable() })),
+      .output(cursorPageSchema(policyEventSchema)),
   },
   approvals: {
     list: read
       .route({ method: 'GET', path: '/security/approvals' })
       .input(z.object({ query: approvalListQuery }))
-      .output(
-        z.object({ items: z.array(policyApprovalSchema), nextCursor: z.string().nullable() }),
-      ),
+      .output(cursorPageSchema(policyApprovalSchema)),
     decide: manage
       .route({ method: 'POST', path: '/security/approvals/{id}/decision' })
       .input(z.object({ params: idParams, body: policyApprovalDecisionSchema }))
@@ -87,7 +79,7 @@ export const securityContract = {
     list: read
       .route({ method: 'GET', path: '/security/violations' })
       .input(z.object({ query: violationListQuery }))
-      .output(z.object({ items: z.array(violationCaseSchema), nextCursor: z.string().nullable() })),
+      .output(cursorPageSchema(violationCaseSchema)),
     update: manage
       .route({ method: 'PATCH', path: '/security/violations/{id}' })
       .input(z.object({ params: idParams, body: violationCaseUpdateSchema }))

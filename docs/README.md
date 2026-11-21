@@ -15,6 +15,7 @@
 | [WREN-INTEGRATION.md](WREN-INTEGRATION.md) | Wren 数据语义层（MDL）集成契约：服务边界、安全调用约束、M0 验证与里程碑 |
 | [VALIDATION.md](VALIDATION.md) | oRPC 契约与原生 HTTP 边界的校验约定、错误返回形状 |
 | [ERRORS.md](ERRORS.md) | 异常分层设计：业务异常 / Problem JSON / RunFailure / 进程守卫 |
+| [PAGINATION.md](PAGINATION.md) | 列表分页契约：游标键集 / offset / seq 区间 / 显式有界，默认值与接口分类 |
 | [SECURITY.md](SECURITY.md) | 安全模型与已知风险（含 Docker socket、M- 编号事项） |
 | [DECISIONS-PENDING.md](DECISIONS-PENDING.md) | 待决策与已决策事项（D- 编号） |
 | [OPERATIONS.md](OPERATIONS.md) | 部署、备份恢复、维护任务、故障排查、观测入口、压测 |

@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { createServiceLogger, requestScopedLogger } from '@agentport/core/logger';
+import { createServiceLogger, logEvent, requestScopedLogger } from '@agentport/core/logger';
 import { createDb } from '@agentport/db';
 import { Hono } from 'hono';
 import { requestId } from 'hono/request-id';
@@ -12,7 +12,7 @@ import { createSecurity } from './http/security.js';
 import { createAuth } from './modules/auth/better-auth.js';
 import { ensureBootstrap, ensureDefaultAssistant } from './modules/auth/bootstrap.js';
 import { configureQueueProducer } from './queue/producer.js';
-import { closeScheduleQueue } from './queue/schedule.js';
+import { closeScheduleQueue, configureScheduleLogger } from './queue/schedule.js';
 import { registerRoutes } from './routes/index.js';
 import type { AppRuntime } from './types.js';
 
@@ -29,7 +29,8 @@ export async function buildApp(
     level: config.LOG_LEVEL,
     pretty: config.NODE_ENV === 'development',
   });
-  configureQueueProducer(config.REDIS_URL);
+  configureQueueProducer(config.REDIS_URL, log);
+  configureScheduleLogger(log);
   const { db, client } = createDb(config.DATABASE_URL);
   const app = new Hono<HttpEnv>();
   const context = { db, client, config, log, auth: createAuth(config, db) };
@@ -72,34 +73,44 @@ export async function buildApp(
       request: c.req.raw,
       responseHeaders: new Headers(),
       remoteAddress,
+      startedAt: performance.now(),
       limit: (max, bucket) => security.limit(c, max, bucket),
     };
     c.set('context', request);
-    const started = performance.now();
     await next();
     request.responseHeaders.forEach((value, key) => {
       if (key !== 'set-cookie') c.header(key, value);
     });
     for (const cookie of request.responseHeaders.getSetCookie())
       c.header('set-cookie', cookie, { append: true });
-    if (c.req.path.startsWith('/api/')) {
-      const responseTime = Math.round(performance.now() - started);
+    if (c.req.path.startsWith('/api/') && c.get('requestFailed') !== true) {
+      const responseTime = Math.round(performance.now() - request.startedAt);
       const details = {
         route: request.route ?? c.req.routePath,
         statusCode: c.res.status,
         responseTime,
       };
+      logEvent(request.log, 'request completed', details);
       if (responseTime > 2_000 && !c.res.headers.get('content-type')?.includes('text/event-stream'))
-        request.log.warn(details, 'slow request');
-      else request.log.info(details, 'request completed');
+        logEvent(request.log, 'slow request', details, 'warn');
     }
   });
   app.onError((error, c) => {
+    c.set('requestFailed', true);
     const context = c.get('context');
     const body = errorProblem(context.requestId, error);
-    if (body.status >= 500) context.log.error({ err: error, code: body.code }, 'unhandled error');
-    else if (body.status !== 401)
-      context.log.warn({ err: error, code: body.code }, 'request rejected');
+    logEvent(
+      context.log,
+      'request failed',
+      {
+        route: context.route ?? c.req.routePath,
+        statusCode: body.status,
+        responseTime: Math.round(performance.now() - context.startedAt),
+        code: body.code,
+      },
+      body.status >= 500 ? 'error' : 'warn',
+      body.status === 401 ? undefined : { err: error },
+    );
     return c.json(body, body.status as ContentfulStatusCode);
   });
   app.notFound((c) =>

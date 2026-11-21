@@ -276,10 +276,10 @@ function prepare(): void {
   route('GET', /^\/api\/permissions$/, () =>
     json({ permissions: CATALOG, scopes: [{ id: 'platform', label: '全平台' }] }),
   );
-  route('GET', /^\/api\/servers$/, () => json([]));
-  route('GET', /^\/api\/skills$/, () => json([]));
-  route('GET', /^\/api\/plugins$/, () => json([]));
-  route('GET', /^\/api\/runtime-environments$/, () => json([]));
+  route('GET', /^\/api\/servers$/, () => json({ items: [], nextCursor: null }));
+  route('GET', /^\/api\/skills$/, () => json({ items: [], nextCursor: null }));
+  route('GET', /^\/api\/plugins$/, () => json({ items: [], nextCursor: null }));
+  route('GET', /^\/api\/runtime-environments$/, () => json({ items: [], nextCursor: null }));
   route('GET', /^\/api\/knowledge\/bases/, () => json({ items: [], nextCursor: null }));
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
@@ -325,7 +325,7 @@ afterEach(async () => {
 
 describe('专家详情只认完整配置', () => {
   it('从摘要进入详情会请求完整配置并渲染配置表单', async () => {
-    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/reference$/, () => json({ items: [summary], truncated: false }));
     route('GET', /^\/api\/agents\/agt_1$/, () => json(fullAgent));
     route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
       json({ agentId: 'agt_1', permissionIds: ALL }),
@@ -341,7 +341,7 @@ describe('专家详情只认完整配置', () => {
   });
 
   it('没有配置读取权限时只提供对话，不请求也不渲染配置', async () => {
-    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/reference$/, () => json({ items: [summary], truncated: false }));
     route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
       json({ agentId: 'agt_1', permissionIds: ['agents.read', 'agents.use'] }),
     );
@@ -357,7 +357,7 @@ describe('专家详情只认完整配置', () => {
   });
 
   it('成员授权与转交负责人成功后提示并携带正确请求体', async () => {
-    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/reference$/, () => json({ items: [summary], truncated: false }));
     route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
       json({
         agentId: 'agt_1',
@@ -407,7 +407,7 @@ describe('专家详情只认完整配置', () => {
   });
 
   it('成员授权被拒绝时保留提示并显示服务端原因', async () => {
-    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/reference$/, () => json({ items: [summary], truncated: false }));
     route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
       json({
         agentId: 'agt_1',
@@ -438,7 +438,7 @@ describe('专家详情只认完整配置', () => {
 
 describe('专家配置权限拆分', () => {
   function editorAccess(permissionIds: string[]): void {
-    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/reference$/, () => json({ items: [summary], truncated: false }));
     route('GET', /^\/api\/agents\/agt_1\/access$/, () => json({ agentId: 'agt_1', permissionIds }));
     route('GET', /^\/api\/agents\/agt_1$/, () => json(fullAgent));
   }
@@ -552,7 +552,7 @@ describe('专家配置权限拆分', () => {
   });
 
   it('没有配置读取权但有启停权时，详情页提供独立启停入口', async () => {
-    route('GET', /^\/api\/agents$/, () => json([summary]));
+    route('GET', /^\/api\/agents\/reference$/, () => json({ items: [summary], truncated: false }));
     route('GET', /^\/api\/agents\/agt_1\/access$/, () =>
       json({ agentId: 'agt_1', permissionIds: ['agents.read', 'agents.enable'] }),
     );

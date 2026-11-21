@@ -167,6 +167,7 @@ export function PluginsPage() {
         })
       }
       count={visiblePlugins.length}
+      countPartial={plugins.hasNextPage}
       status={plugins.status}
       actions={
         <>
@@ -447,6 +448,20 @@ export function PluginsPage() {
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {plugins.hasNextPage ? (
+        <div className="flex justify-center pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={plugins.isFetchingNextPage}
+            aria-busy={plugins.isFetchingNextPage}
+            onClick={() => void plugins.fetchNextPage()}
+          >
+            {plugins.isFetchingNextPage ? '加载中…' : '加载更多'}
+          </Button>
+        </div>
       ) : null}
 
       {editing ? (

@@ -7,13 +7,14 @@ import {
   type ResourceAccessFilter,
 } from '@agentport/shared';
 import { and, eq, sql } from 'drizzle-orm';
+import { requireCursorPage } from '../../../http/pagination.js';
 import { publishKnowledgeCancel } from '../../../queue/producer.js';
 import { createJob, enqueueKnowledgeJobAfterCommit } from '../service.js';
 import { enqueue, type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
 
 function toJob(
   row:
-    | Awaited<ReturnType<typeof repo.knowledge.listJobs>>['items'][number]
+    | NonNullable<Awaited<ReturnType<typeof repo.knowledge.listJobs>>>['items'][number]
     | NonNullable<Awaited<ReturnType<typeof repo.knowledge.getJob>>>,
 ) {
   return {
@@ -45,13 +46,15 @@ export async function listJobs(
   access?: ResourceAccessFilter,
 ) {
   const { baseId, documentId, status, ...rest } = query;
-  const page = await repo.knowledge.listJobs(deps.db, {
-    ...pageOptions(rest),
-    ...(baseId === undefined ? {} : { baseId }),
-    ...(documentId === undefined ? {} : { documentId }),
-    ...(status === undefined ? {} : { status }),
-    ...(access === undefined ? {} : { access }),
-  });
+  const page = requireCursorPage(
+    await repo.knowledge.listJobs(deps.db, {
+      ...pageOptions(rest),
+      ...(baseId === undefined ? {} : { baseId }),
+      ...(documentId === undefined ? {} : { documentId }),
+      ...(status === undefined ? {} : { status }),
+      ...(access === undefined ? {} : { access }),
+    }),
+  );
   return { items: page.items.map(toJob), nextCursor: page.nextCursor };
 }
 

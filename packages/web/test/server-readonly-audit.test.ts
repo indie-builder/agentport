@@ -46,6 +46,7 @@ vi.mock('../src/lib/toast.js', () => ({
 vi.mock('../src/lib/queries.js', () => {
   const mutation = () => ({ isPending: false, mutate: state.mutate });
   return {
+    useDrainPages: () => {},
     meQuery: { queryKey: ['me'], queryFn: async () => state.me },
     connectorCatalogQuery: { queryKey: ['connector-catalog'], queryFn: async () => [] },
     useServers: () => ({

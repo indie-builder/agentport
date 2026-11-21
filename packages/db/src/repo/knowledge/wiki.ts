@@ -1,9 +1,9 @@
 import { AppError, diffLines } from '@agentport/core';
-import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeWikiPages, knowledgeWikiSources, knowledgeWikiVersions } from '../../schema.js';
-import { keysetBefore, paginate } from '../keyset.js';
+import { keysetPage } from '../pagination.js';
 import {
   type KnowledgeWikiPageRow,
   type KnowledgeWikiVersionRow,
@@ -41,19 +41,22 @@ export async function listWikiPages(
   db: Database,
   baseId: string,
   options: PageOptions = {},
-): Promise<Page<KnowledgeWikiPageRow>> {
+): Promise<Page<KnowledgeWikiPageRow> | null> {
   const limit = pageLimit(options);
   const filters: SQL[] = [eq(knowledgeWikiPages.baseId, baseId)];
-  if (options.cursor) {
-    filters.push(keysetBefore(knowledgeWikiPages, options.cursor));
-  }
-  const rows = await db
-    .select()
-    .from(knowledgeWikiPages)
-    .where(and(...filters))
-    .orderBy(desc(knowledgeWikiPages.createdAt), desc(knowledgeWikiPages.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeWikiPages,
+    cursor: options.cursor,
+    limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeWikiPages)
+        .where(where)
+        .orderBy(desc(knowledgeWikiPages.createdAt), desc(knowledgeWikiPages.id))
+        .limit(limit),
+  });
 }
 
 export interface SaveWikiVersionInput {
@@ -217,22 +220,23 @@ export async function listWikiVersions(
   db: Database,
   pageId: string,
   options: PageOptions = {},
-): Promise<Page<KnowledgeWikiVersionRow>> {
+): Promise<Page<KnowledgeWikiVersionRow> | null> {
   const limit = pageLimit(options);
   const filters: SQL[] = [eq(knowledgeWikiVersions.pageId, pageId)];
-  if (options.cursor) {
-    filters.push(sql`${knowledgeWikiVersions.version} < (
-      select b.version from ${knowledgeWikiVersions} b
-      where b.id = ${options.cursor} and b.page_id = ${pageId}
-    )`);
-  }
-  const rows = await db
-    .select()
-    .from(knowledgeWikiVersions)
-    .where(and(...filters))
-    .orderBy(desc(knowledgeWikiVersions.version))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeWikiVersions,
+    cursor: options.cursor,
+    limit,
+    column: knowledgeWikiVersions.version,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeWikiVersions)
+        .where(where)
+        .orderBy(desc(knowledgeWikiVersions.version), desc(knowledgeWikiVersions.id))
+        .limit(limit),
+  });
 }
 
 /**
@@ -293,30 +297,45 @@ export async function listReadableWikiPages(
   db: Database,
   baseId: string,
   options: PageOptions = {},
-): Promise<Page<ReadableWikiPage>> {
-  const limit = pageLimit(options);
-  const filters: SQL[] = [readableWikiPageSql('knowledge_wiki_pages', baseId)];
-  if (options.cursor) {
-    filters.push(sql`(${knowledgeWikiPages.updatedAt}, ${knowledgeWikiPages.id}) < (
-      select b.updated_at, b.id from ${knowledgeWikiPages} b where b.id = ${options.cursor}
-    )`);
-  }
-  const rows = await db
-    .select({ page: knowledgeWikiPages, version: knowledgeWikiVersions })
-    .from(knowledgeWikiPages)
-    .innerJoin(
-      knowledgeWikiVersions,
+): Promise<Page<ReadableWikiPage> | null> {
+  const currentVersion = db
+    .select({ id: knowledgeWikiVersions.id })
+    .from(knowledgeWikiVersions)
+    .where(
       and(
         eq(knowledgeWikiVersions.id, knowledgeWikiPages.currentVersionId),
         eq(knowledgeWikiVersions.pageId, knowledgeWikiPages.id),
       ),
-    )
-    .where(and(...filters))
-    .orderBy(desc(knowledgeWikiPages.updatedAt), desc(knowledgeWikiPages.id))
-    .limit(limit + 1);
+    );
+  const page = await keysetPage(db, {
+    table: knowledgeWikiPages,
+    cursor: options.cursor,
+    limit: pageLimit(options),
+    column: knowledgeWikiPages.updatedAt,
+    where: [readableWikiPageSql('knowledge_wiki_pages', baseId), exists(currentVersion)],
+    load: ({ where, limit }) =>
+      db
+        .select({
+          id: knowledgeWikiPages.id,
+          page: knowledgeWikiPages,
+          version: knowledgeWikiVersions,
+        })
+        .from(knowledgeWikiPages)
+        .innerJoin(
+          knowledgeWikiVersions,
+          and(
+            eq(knowledgeWikiVersions.id, knowledgeWikiPages.currentVersionId),
+            eq(knowledgeWikiVersions.pageId, knowledgeWikiPages.id),
+          ),
+        )
+        .where(where)
+        .orderBy(desc(knowledgeWikiPages.updatedAt), desc(knowledgeWikiPages.id))
+        .limit(limit),
+  });
+  if (page === null) return null;
   return {
-    items: rows.slice(0, limit),
-    nextCursor: rows.length > limit ? (rows[limit - 1]?.page.id ?? null) : null,
+    items: page.items.map(({ page, version }) => ({ page, version })),
+    nextCursor: page.nextCursor,
   };
 }
 

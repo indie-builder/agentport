@@ -1,9 +1,11 @@
 import {
+  cursorPageSchema,
   expectedUpdatedAtSchema,
   idParams,
   nativeInstalledPluginSchema,
   nativePluginImportInputSchema,
   nativePluginInstallInputSchema,
+  pageQuerySchema,
   pluginSchema,
   pluginWithAgentCountSchema,
 } from '@agentport/shared';
@@ -29,8 +31,8 @@ export const pluginsContract = {
   list: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'plugins.read' } })
     .route({ method: 'GET', path: '/plugins', successStatus: 200 })
-    .input(z.object({}))
-    .output(z.array(pluginWithAgentCountSchema)),
+    .input(z.object({ query: pageQuerySchema }))
+    .output(cursorPageSchema(pluginWithAgentCountSchema)),
   native: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'plugins.read' } })
     .route({ method: 'GET', path: '/plugins/native', successStatus: 200 })

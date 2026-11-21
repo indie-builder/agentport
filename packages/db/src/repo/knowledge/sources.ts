@@ -1,5 +1,5 @@
 import { AppError } from '@agentport/core';
-import { and, asc, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { asc, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
 import {
@@ -8,7 +8,7 @@ import {
   knowledgeSourceRanges,
   knowledgeSources,
 } from '../../schema.js';
-import { keysetBefore, paginate } from '../keyset.js';
+import { keysetPage } from '../pagination.js';
 import {
   disableDocumentsBySourceTx,
   type KnowledgeDocumentRow,
@@ -107,19 +107,22 @@ export async function listSources(
   db: Database,
   baseId: string,
   options: PageOptions = {},
-): Promise<Page<KnowledgeSourceRow>> {
+): Promise<Page<KnowledgeSourceRow> | null> {
   const limit = pageLimit(options);
   const filters: SQL[] = [eq(knowledgeSources.baseId, baseId)];
-  if (options.cursor) {
-    filters.push(keysetBefore(knowledgeSources, options.cursor));
-  }
-  const rows = await db
-    .select()
-    .from(knowledgeSources)
-    .where(and(...filters))
-    .orderBy(desc(knowledgeSources.createdAt), desc(knowledgeSources.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeSources,
+    cursor: options.cursor,
+    limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeSources)
+        .where(where)
+        .orderBy(desc(knowledgeSources.createdAt), desc(knowledgeSources.id))
+        .limit(limit),
+  });
 }
 
 export interface SourcePatch {

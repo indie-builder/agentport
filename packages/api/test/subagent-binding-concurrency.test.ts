@@ -212,7 +212,9 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
       expect(childAfter.parentId).toBe(owner.id);
       const list = await request(app, { method: 'GET', url: '/api/agents', headers: { cookie } });
       expect(list.statusCode, list.body).toBe(200);
-      expect(list.json<Agent[]>().some((agent) => agent.slug === slug)).toBe(false);
+      expect(list.json<{ items: Agent[] }>().items.some((agent) => agent.slug === slug)).toBe(
+        false,
+      );
     }
   });
 

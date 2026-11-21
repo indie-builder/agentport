@@ -11,6 +11,7 @@ import type {
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 
 const security = repo.security;
@@ -216,25 +217,29 @@ export const securityRouter = os.router({
   events: {
     list: os.events.list.handler(async ({ input, context }) => {
       const query = input.query;
-      const page = await security.listPolicyEvents(context.db, {
-        limit: query.limit,
-        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
-        ...(query.sourceKind === undefined ? {} : { sourceKind: query.sourceKind }),
-        ...(query.action === undefined ? {} : { action: query.action }),
-      });
-      if (page === null) fail('NOT_FOUND', '安全事件游标无效，请刷新后重试');
+      const page = requireCursorPage(
+        await security.listPolicyEvents(context.db, {
+          limit: query.limit,
+          ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+          ...(query.sourceKind === undefined ? {} : { sourceKind: query.sourceKind }),
+          ...(query.action === undefined ? {} : { action: query.action }),
+        }),
+      );
+
       return { items: page.items.map(toEvent), nextCursor: page.nextCursor };
     }),
   },
   approvals: {
     list: os.approvals.list.handler(async ({ input, context }) => {
       const query = input.query;
-      const page = await security.listPolicyApprovals(context.db, {
-        status: query.status,
-        limit: query.limit,
-        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
-      });
-      if (page === null) fail('NOT_FOUND', '审批游标无效，请刷新后重试');
+      const page = requireCursorPage(
+        await security.listPolicyApprovals(context.db, {
+          status: query.status,
+          limit: query.limit,
+          ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+        }),
+      );
+
       return { items: page.items.map(toApproval), nextCursor: page.nextCursor };
     }),
     decide: os.approvals.decide.handler(async ({ input, context }) => {
@@ -272,12 +277,14 @@ export const securityRouter = os.router({
   violations: {
     list: os.violations.list.handler(async ({ input, context }) => {
       const query = input.query;
-      const page = await security.listViolationCases(context.db, {
-        limit: query.limit,
-        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
-        ...(query.status === undefined ? {} : { status: query.status }),
-      });
-      if (page === null) fail('NOT_FOUND', '违规工单游标无效，请刷新后重试');
+      const page = requireCursorPage(
+        await security.listViolationCases(context.db, {
+          limit: query.limit,
+          ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+          ...(query.status === undefined ? {} : { status: query.status }),
+        }),
+      );
+
       return { items: page.items.map(toViolation), nextCursor: page.nextCursor };
     }),
     update: os.violations.update.handler(async ({ input, context }) => {

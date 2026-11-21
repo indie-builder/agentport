@@ -79,7 +79,7 @@ describe.skipIf(!ready)('agent.md import', () => {
   const agentSlugs = async (): Promise<string[]> => {
     const res = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(res.statusCode).toBe(200);
-    return res.json<Agent[]>().map((agent) => agent.slug);
+    return res.json<{ items: Agent[] }>().items.map((agent) => agent.slug);
   };
 
   it('imports a role definition as a standalone agent with platform defaults', async () => {

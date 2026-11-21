@@ -607,7 +607,7 @@ function decodeCursor(value: string): Cursor {
   } catch {
     // 落到统一的游标错误。
   }
-  fail('INVALID_INPUT', '分页游标无效', { path: '/before' });
+  fail('INVALID_INPUT', '分页游标无效，请刷新后重试', { path: '/cursor' });
 }
 
 function afterCursor(item: OutputFile, cursor: Cursor): boolean {
@@ -625,6 +625,7 @@ export async function listOutputFiles(input: ListOutputFilesInput): Promise<Outp
     fail('INVALID_INPUT', 'limit 必须是正整数', { path: '/limit' });
   }
   const cursor = input.before === undefined ? null : decodeCursor(input.before);
+  let cursorFound = cursor === null;
 
   const items: OutputFile[] = [];
   for (const { manifest } of await publishedVersions(input)) {
@@ -634,9 +635,22 @@ export async function listOutputFiles(input: ListOutputFilesInput): Promise<Outp
       .map((file) => fileOf(manifest, file))
       .sort((a, b) => compareText(a.path, b.path));
     for (const item of changed) {
-      if (cursor !== null && !afterCursor(item, cursor)) continue;
+      if (cursor !== null) {
+        if (
+          item.createdAt === cursor.createdAt &&
+          item.runId === cursor.runId &&
+          item.path === cursor.path
+        ) {
+          cursorFound = true;
+          continue;
+        }
+        if (!afterCursor(item, cursor)) continue;
+      }
       items.push(item);
     }
+  }
+  if (!cursorFound) {
+    fail('INVALID_INPUT', '分页游标无效，请刷新后重试', { path: '/cursor' });
   }
 
   const page = items.slice(0, input.limit);

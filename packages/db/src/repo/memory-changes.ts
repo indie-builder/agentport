@@ -4,10 +4,11 @@ import {
   type MemoryContentSnapshot,
   type MemoryReviewTarget,
 } from '@agentport/shared';
-import { and, desc, eq, lt, or, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, or, type SQL, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { memoryChanges } from '../schema.js';
+import { type CursorPage, keysetPage } from './pagination.js';
 
 export type MemoryChangeRow = typeof memoryChanges.$inferSelect;
 
@@ -63,19 +64,18 @@ export async function findByReverses(
 export async function listPersonalByUser(
   db: Database,
   businessId: string,
-  options: { before?: Date; limit: number },
-): Promise<MemoryChangeRow[]> {
-  const filters: SQL[] = [
-    eq(memoryChanges.businessId, businessId),
-    sql`${memoryChanges.target}->>'kind' = 'personal'`,
-  ];
-  if (options.before) filters.push(lt(memoryChanges.createdAt, options.before));
-  return db
-    .select()
-    .from(memoryChanges)
-    .where(and(...filters))
-    .orderBy(desc(memoryChanges.createdAt), desc(memoryChanges.id))
-    .limit(options.limit);
+  options: { cursor?: string; limit: number },
+): Promise<CursorPage<MemoryChangeRow> | null> {
+  return keysetPage(db, {
+    table: memoryChanges,
+    cursor: options.cursor,
+    limit: options.limit,
+    where: [
+      eq(memoryChanges.businessId, businessId),
+      sql`${memoryChanges.target}->>'kind' = 'personal'`,
+    ],
+    load: ({ where, limit }) => memoryChangeRows(db, where, limit),
+  });
 }
 
 export interface MemoryChangeFilterOptions {
@@ -84,7 +84,6 @@ export interface MemoryChangeFilterOptions {
   slug?: string;
   name?: string;
   includeIndexChanges?: boolean;
-  before?: Date;
 }
 
 export interface ListMemoryChangesOptions extends MemoryChangeFilterOptions {
@@ -112,7 +111,6 @@ function changeFilters(options: MemoryChangeFilterOptions): SQL[] {
       filters.push(ownTarget);
     }
   }
-  if (options.before) filters.push(lt(memoryChanges.createdAt, options.before));
   return filters;
 }
 
@@ -120,12 +118,29 @@ export async function listFiltered(
   db: Database,
   options: ListMemoryChangesOptions,
 ): Promise<MemoryChangeRow[]> {
+  return memoryChangeRows(db, and(...changeFilters(options)), options.limit);
+}
+
+export async function listFilteredPage(
+  db: Database,
+  options: ListMemoryChangesOptions & { cursor?: string | undefined },
+): Promise<CursorPage<MemoryChangeRow> | null> {
+  return keysetPage(db, {
+    table: memoryChanges,
+    cursor: options.cursor,
+    limit: options.limit,
+    where: changeFilters(options),
+    load: ({ where, limit }) => memoryChangeRows(db, where, limit),
+  });
+}
+
+function memoryChangeRows(db: Database, where: SQL | undefined, limit: number) {
   return db
     .select()
     .from(memoryChanges)
-    .where(and(...changeFilters(options)))
+    .where(where)
     .orderBy(desc(memoryChanges.createdAt), desc(memoryChanges.id))
-    .limit(options.limit);
+    .limit(limit);
 }
 
 export async function countFiltered(

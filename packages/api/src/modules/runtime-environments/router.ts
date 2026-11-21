@@ -11,6 +11,7 @@ import {
   resourceAccessFilter,
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { requestRuntimeEnvironmentBuild } from './use-cases.js';
 
 const os = implement(runtimeEnvironmentsContract).$context<RequestContext>();
@@ -42,14 +43,20 @@ async function authorizedEnvironment(
 }
 
 export const runtimeEnvironmentsRouter = os.router({
-  list: os.list.handler(async ({ context }) => {
+  list: os.list.handler(async ({ input, context }) => {
     const access = await resourceAccessFilter(
       context,
       'runtime_environments.read',
       'runtime_environment',
       'read',
     );
-    return envs.listRuntimeEnvironments(context.db, access);
+    return requireCursorPage(
+      await envs.listRuntimeEnvironmentPage(context.db, {
+        access,
+        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        limit: input.query.limit,
+      }),
+    );
   }),
 
   create: os.create.handler(async ({ input, context }) => {

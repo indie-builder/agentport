@@ -132,8 +132,11 @@ beforeEach(() => {
   schedules = [{ ...schedule }];
   msw.reset();
   msw.server.use(
-    http.get('/api/agents', () => HttpResponse.json([agent])),
-    http.get('/api/schedules', () => HttpResponse.json(schedules)),
+    http.get('/api/agents', () => HttpResponse.json({ items: [agent], nextCursor: null })),
+    http.get('/api/agents/reference', () =>
+      HttpResponse.json({ items: [agent], truncated: false }),
+    ),
+    http.get('/api/schedules', () => HttpResponse.json({ items: schedules, nextCursor: null })),
   );
 });
 

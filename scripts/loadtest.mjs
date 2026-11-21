@@ -509,7 +509,7 @@ async function queueTest(cookie, agentId, chatBudget) {
   let allTerminal = false;
   while (Date.now() < deadline) {
     const [list, metrics] = await Promise.all([
-      request('GET', '/api/runs?limit=200', { headers: { Cookie: cookie } }).catch(() => null),
+      request('GET', '/api/runs?limit=100', { headers: { Cookie: cookie } }).catch(() => null),
       request('GET', '/health/metrics', { headers: { Cookie: cookie }, timeoutMs: 3_000 }).catch(() => null),
     ]);
     if (metrics?.status === 200) {

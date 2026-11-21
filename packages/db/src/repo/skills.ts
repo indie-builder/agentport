@@ -6,6 +6,7 @@ import { newId } from '../id.js';
 import { agentSkills, skillFiles, skills } from '../schema.js';
 import { resourceScopeWhere } from './access.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
+import { type CursorPage, keysetPage } from './pagination.js';
 
 export type SkillRow = typeof skills.$inferSelect;
 
@@ -43,42 +44,54 @@ export interface SkillWrite {
 
 export async function listSkills(
   db: Database,
-  access?: ResourceAccessFilter,
-  status?: SkillRow['status'],
-): Promise<SkillWithAgentCount[]> {
-  return db
-    .select({
-      id: skills.id,
-      slug: skills.slug,
-      name: skills.name,
-      description: skills.description,
-      body: skills.body,
-      license: skills.license,
-      compatibility: skills.compatibility,
-      metadata: skills.metadata,
-      sourceId: skills.sourceId,
-      ownerBusinessId: skills.ownerBusinessId,
-      status: skills.status,
-      submittedAt: skills.submittedAt,
-      reviewedAt: skills.reviewedAt,
-      reviewedBy: skills.reviewedBy,
-      reviewNote: skills.reviewNote,
-      createdAt: skills.createdAt,
-      updatedAt: skills.updatedAt,
-      agentCount: count(agentSkills.agentId),
-    })
-    .from(skills)
-    .leftJoin(agentSkills, eq(agentSkills.skillId, skills.id))
-    .where(
-      and(
-        access === undefined
-          ? undefined
-          : resourceScopeWhere(access, skills.id, skills.ownerBusinessId),
-        status === undefined ? undefined : eq(skills.status, status),
-      ),
-    )
-    .groupBy(skills.id)
-    .orderBy(asc(skills.createdAt), asc(skills.id));
+  options: {
+    access?: ResourceAccessFilter | undefined;
+    status?: SkillRow['status'] | undefined;
+    limit: number;
+    cursor?: string | undefined;
+  },
+): Promise<CursorPage<SkillWithAgentCount> | null> {
+  return keysetPage(db, {
+    table: skills,
+    column: skills.name,
+    direction: 'asc',
+    limit: options.limit,
+    cursor: options.cursor,
+    where: [
+      options.access === undefined
+        ? undefined
+        : resourceScopeWhere(options.access, skills.id, skills.ownerBusinessId),
+      options.status === undefined ? undefined : eq(skills.status, options.status),
+    ],
+    load: ({ where, limit }) =>
+      db
+        .select({
+          id: skills.id,
+          slug: skills.slug,
+          name: skills.name,
+          description: skills.description,
+          body: skills.body,
+          license: skills.license,
+          compatibility: skills.compatibility,
+          metadata: skills.metadata,
+          sourceId: skills.sourceId,
+          ownerBusinessId: skills.ownerBusinessId,
+          status: skills.status,
+          submittedAt: skills.submittedAt,
+          reviewedAt: skills.reviewedAt,
+          reviewedBy: skills.reviewedBy,
+          reviewNote: skills.reviewNote,
+          createdAt: skills.createdAt,
+          updatedAt: skills.updatedAt,
+          agentCount: count(agentSkills.agentId),
+        })
+        .from(skills)
+        .leftJoin(agentSkills, eq(agentSkills.skillId, skills.id))
+        .where(where)
+        .groupBy(skills.id)
+        .orderBy(asc(skills.name), asc(skills.id))
+        .limit(limit),
+  });
 }
 
 export async function getSkill(db: Database, id: string): Promise<SkillRow | null> {

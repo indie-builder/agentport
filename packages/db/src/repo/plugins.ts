@@ -6,6 +6,7 @@ import { newId } from '../id.js';
 import { agentPlugins, pluginFiles, plugins } from '../schema.js';
 import { resourceScopeWhere } from './access.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
+import { type CursorPage, keysetPage } from './pagination.js';
 
 export type PluginRow = typeof plugins.$inferSelect;
 
@@ -44,19 +45,33 @@ const pluginColumns = {
 
 export async function listPlugins(
   db: Database,
-  access?: ResourceAccessFilter,
-): Promise<PluginWithAgentCount[]> {
-  return db
-    .select({ ...pluginColumns, agentCount: count(agentPlugins.agentId) })
-    .from(plugins)
-    .leftJoin(agentPlugins, eq(agentPlugins.pluginId, plugins.id))
-    .where(
-      access === undefined
+  options: {
+    access?: ResourceAccessFilter | undefined;
+    limit: number;
+    cursor?: string | undefined;
+  },
+): Promise<CursorPage<PluginWithAgentCount> | null> {
+  return keysetPage(db, {
+    table: plugins,
+    column: plugins.createdAt,
+    direction: 'asc',
+    limit: options.limit,
+    cursor: options.cursor,
+    where: [
+      options.access === undefined
         ? undefined
-        : resourceScopeWhere(access, plugins.id, plugins.ownerBusinessId),
-    )
-    .groupBy(plugins.id)
-    .orderBy(asc(plugins.createdAt), asc(plugins.id));
+        : resourceScopeWhere(options.access, plugins.id, plugins.ownerBusinessId),
+    ],
+    load: ({ where, limit }) =>
+      db
+        .select({ ...pluginColumns, agentCount: count(agentPlugins.agentId) })
+        .from(plugins)
+        .leftJoin(agentPlugins, eq(agentPlugins.pluginId, plugins.id))
+        .where(where)
+        .groupBy(plugins.id)
+        .orderBy(asc(plugins.createdAt), asc(plugins.id))
+        .limit(limit),
+  });
 }
 
 export async function getPlugin(db: Database, id: string): Promise<PluginRow | null> {

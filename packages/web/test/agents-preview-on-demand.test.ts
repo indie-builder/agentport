@@ -41,6 +41,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/lib/queries.js', () => ({
+  useDrainPages: () => {},
   meQuery: {
     queryKey: ['me'],
     queryFn: async () => (await import('./me-fixture.js')).allAccessMe,

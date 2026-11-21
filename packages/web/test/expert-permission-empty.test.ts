@@ -130,7 +130,7 @@ afterEach(async () => {
 
 describe('chat workspace without experts', () => {
   it('keeps bare chat available to an account that can create experts', async () => {
-    client.setQueryData(['agents'], []);
+    client.setQueryData(['agents'], { items: [], truncated: false });
     client.setQueryData(['me'], creatorMe);
     await mount(ChatPage, '/chat');
     const composer = await waitFor(() =>
@@ -143,7 +143,7 @@ describe('chat workspace without experts', () => {
   });
 
   it('keeps the workspace visible for a reader without assigned experts', async () => {
-    client.setQueryData(['agents'], []);
+    client.setQueryData(['agents'], { items: [], truncated: false });
     client.setQueryData(['me'], readerMe);
     await mount(ChatPage, '/chat');
     expect(host.querySelector('textarea[aria-label="消息"]')).not.toBeNull();
@@ -153,7 +153,7 @@ describe('chat workspace without experts', () => {
   });
 
   it('keeps bare chat visible without agents.read', async () => {
-    client.setQueryData(['agents'], []);
+    client.setQueryData(['agents'], { items: [], truncated: false });
     client.setQueryData(['me'], noAgentReadMe);
     await mount(ChatPage, '/chat');
     expect(host.querySelector('textarea[aria-label="消息"]')).not.toBeNull();
@@ -162,7 +162,7 @@ describe('chat workspace without experts', () => {
   });
 
   it('keeps the workspace mounted while permissions are unknown', async () => {
-    client.setQueryData(['agents'], []);
+    client.setQueryData(['agents'], { items: [], truncated: false });
     vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise(() => {}));
     await mount(ChatPage, '/chat');
     expect(host.querySelector('textarea[aria-label="消息"]')).not.toBeNull();
@@ -174,9 +174,15 @@ describe('chat workspace without experts', () => {
 
 describe('agent list empty state follows agent permissions', () => {
   it('keeps the original creation step for an account that can create experts', async () => {
-    client.setQueryData(['agents'], []);
+    client.setQueryData(['agents', 'list', { status: 'active' }], {
+      pages: [{ items: [], nextCursor: null }],
+      pageParams: [undefined],
+    });
     client.setQueryData(['me'], creatorMe);
-    client.setQueryData(['runtime-environments'], []);
+    client.setQueryData(['runtime-environments'], {
+      pages: [{ items: [], nextCursor: null }],
+      pageParams: [undefined],
+    });
     await mount(AgentsPage, '/agents');
     await waitFor(() => host.textContent?.includes('新建专家'));
     expect(host.querySelector('button[aria-label="新建专家"]')).not.toBeNull();
@@ -187,12 +193,20 @@ describe('agent list empty state follows agent permissions', () => {
   });
 
   it('explains an unassigned reader without listing the default assistant as an expert', async () => {
-    client.setQueryData(
-      ['agents'],
-      [{ ...agent, id: 'assistant', name: '通用助手', isDefault: true }],
-    );
+    client.setQueryData(['agents', 'list', { status: 'active' }], {
+      pages: [
+        {
+          items: [{ ...agent, id: 'assistant', name: '通用助手', isDefault: true }],
+          nextCursor: null,
+        },
+      ],
+      pageParams: [undefined],
+    });
     client.setQueryData(['me'], readerMe);
-    client.setQueryData(['runtime-environments'], []);
+    client.setQueryData(['runtime-environments'], {
+      pages: [{ items: [], nextCursor: null }],
+      pageParams: [undefined],
+    });
     await mount(AgentsPage, '/agents');
     await waitFor(() => host.textContent?.includes('无可用专家'));
     expect(host.textContent).toContain('请联系管理员分配。');
@@ -210,9 +224,15 @@ describe('agent list empty state follows agent permissions', () => {
       role: '群聊答疑专员',
       description: '处理群聊答疑。',
     };
-    client.setQueryData(['agents'], [staff]);
+    client.setQueryData(['agents', 'list', { status: 'active' }], {
+      pages: [{ items: [staff], nextCursor: null }],
+      pageParams: [undefined],
+    });
     client.setQueryData(['me'], readerMe);
-    client.setQueryData(['runtime-environments'], []);
+    client.setQueryData(['runtime-environments'], {
+      pages: [{ items: [], nextCursor: null }],
+      pageParams: [undefined],
+    });
     await mount(AgentsPage, '/agents');
     const trigger = await waitFor(() =>
       host.querySelector<HTMLButtonElement>('button[aria-label="查看 客服专家 工牌"]'),
@@ -233,10 +253,19 @@ describe('agent list empty state follows agent permissions', () => {
   });
 
   it('keeps the no-results state actionable when filters return nothing', async () => {
-    client.setQueryData(['agents'], [agent]);
-    client.setQueryData(['agents', 'list', { status: 'active', q: 'missing' }], [agent]);
+    client.setQueryData(['agents', 'list', { status: 'active' }], {
+      pages: [{ items: [agent], nextCursor: null }],
+      pageParams: [undefined],
+    });
+    client.setQueryData(['agents', 'list', { status: 'active', q: 'missing' }], {
+      pages: [{ items: [], nextCursor: null }],
+      pageParams: [undefined],
+    });
     client.setQueryData(['me'], readerMe);
-    client.setQueryData(['runtime-environments'], []);
+    client.setQueryData(['runtime-environments'], {
+      pages: [{ items: [], nextCursor: null }],
+      pageParams: [undefined],
+    });
     const router = await mount(AgentsPage, '/agents?q=missing');
     await waitFor(() => host.textContent?.includes('没有匹配的专家'));
     expect(host.textContent).not.toContain('无可用专家');

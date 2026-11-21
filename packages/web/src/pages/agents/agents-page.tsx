@@ -70,10 +70,11 @@ import {
   AGENTS_QUERY_KEY,
   meQuery,
   OVERVIEW_QUERY_KEY,
+  useAgentsBrowse,
   useAgentTags,
   useArchiveAgent,
   useDeleteAgent,
-  useExperts,
+  useDrainPages,
   useRestoreAgent,
   useRuntimeEnvironments,
   useSetAgentFavorite,
@@ -100,7 +101,7 @@ export function AgentsPage() {
   const lifecycle = search.lifecycle ?? 'active';
   const tag = search.tag ?? '';
   const favoriteOnly = search.favorite === '1';
-  const agents = useExperts({
+  const agents = useAgentsBrowse({
     status: lifecycle,
     ...(query.trim() === '' ? {} : { q: query.trim() }),
     ...(tag === '' ? {} : { tag }),
@@ -124,6 +125,7 @@ export function AgentsPage() {
   const editorTriggerRef = useRef<HTMLElement | null>(null);
   const remove = useDeleteAgent();
   const runtimeEnvironments = useRuntimeEnvironments();
+  useDrainPages(runtimeEnvironments);
   const hasRoleData = (agents.data ?? []).some((agent) => agent.role !== undefined);
   const activeFilterCount =
     (lifecycle === 'active' ? 0 : 1) +
@@ -168,27 +170,17 @@ export function AgentsPage() {
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return (agents.data ?? [])
-      .filter(
-        (agent) =>
-          (lifecycle !== 'active' ||
-            status === 'all' ||
-            agent.enabled === (status === 'enabled')) &&
-          (!hasRoleData || !role || (agent.role?.trim() || '通用助手') === role) &&
-          (needle === '' ||
-            [agent.name, agent.slug, agent.description, agent.role?.trim() || '通用助手']
-              .join(' ')
-              .toLowerCase()
-              .includes(needle)),
-      )
-      .sort((a, b) =>
-        sort === 'name'
-          ? a.name.localeCompare(b.name, 'zh-CN')
-          : sort === 'newest'
-            ? Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? '')
-            : 0,
-      );
-  }, [agents.data, lifecycle, status, role, hasRoleData, query, sort]);
+    return (agents.data ?? []).filter(
+      (agent) =>
+        (lifecycle !== 'active' || status === 'all' || agent.enabled === (status === 'enabled')) &&
+        (!hasRoleData || !role || (agent.role?.trim() || '通用助手') === role) &&
+        (needle === '' ||
+          [agent.name, agent.slug, agent.description, agent.role?.trim() || '通用助手']
+            .join(' ')
+            .toLowerCase()
+            .includes(needle)),
+    );
+  }, [agents.data, lifecycle, status, role, hasRoleData, query]);
 
   const openAgent = (id: string): void => {
     void navigate({
@@ -402,10 +394,15 @@ export function AgentsPage() {
       </PageTopbar>
       <PageBody>
         {agents.isPending ? <LoadingState rows={4} layout="cards" /> : null}
-        {agents.isError ? (
+        {agents.isError && !agents.isFetchNextPageError ? (
           <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
         ) : null}
-        {agents.data && agents.data.length === 0 ? (
+        {agents.data &&
+        !agents.hasNextPage &&
+        agents.data.length === 0 &&
+        !query.trim() &&
+        !tag &&
+        !favoriteOnly ? (
           me.isPending ? (
             <LoadingState rows={4} layout="cards" />
           ) : me.isError ? (
@@ -424,7 +421,10 @@ export function AgentsPage() {
             />
           )
         ) : null}
-        {agents.data && agents.data.length > 0 && filtered.length === 0 ? (
+        {agents.data &&
+        !agents.hasNextPage &&
+        filtered.length === 0 &&
+        (agents.data.length > 0 || query.trim() || tag || favoriteOnly) ? (
           <PageNote
             icon={<BusinessIllustration name="search" size="compact" />}
             title="没有匹配的专家"
@@ -733,6 +733,26 @@ export function AgentsPage() {
               );
             })}
           </ul>
+        ) : null}
+        {agents.isFetchNextPageError ? (
+          <div className="flex justify-center">
+            <ErrorState
+              error={agents.error}
+              title="列表没有加载完"
+              onRetry={() => void agents.fetchNextPage()}
+            />
+          </div>
+        ) : agents.hasNextPage ? (
+          <div className="flex justify-center">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={agents.isFetchingNextPage}
+              onClick={() => void agents.fetchNextPage()}
+            >
+              {agents.isFetchingNextPage ? '加载中…' : '加载更多'}
+            </Button>
+          </div>
         ) : null}
       </PageBody>
       <Dialog

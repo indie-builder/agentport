@@ -464,7 +464,8 @@ export function baseHandlers() {
     http.get('/api/knowledge/wiki-pages/:pageId/links', () =>
       HttpResponse.json({ outgoing: [], incoming: [] }),
     ),
-    http.get('/api/agents', () => HttpResponse.json([])),
+    http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
   );
 }
 

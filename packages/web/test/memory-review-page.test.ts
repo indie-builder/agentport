@@ -286,23 +286,26 @@ async function openCreateOnTargetStep() {
 
 beforeEach(() => {
   vi.spyOn(api, 'me').mockResolvedValue(allAccessMe);
-  vi.spyOn(api, 'agents').mockResolvedValue([agentA, agentB]);
+  vi.spyOn(api, 'agentReference').mockResolvedValue({ items: [agentA, agentB], truncated: false });
   vi.spyOn(api, 'personalMemory').mockResolvedValue({
     content: '',
     revision: 0,
     updatedAt: null,
   });
   vi.spyOn(api, 'personalMemoryVersions').mockResolvedValue({ items: [], nextCursor: null });
-  vi.spyOn(api, 'personalConversations').mockResolvedValue([
-    {
-      id: 'conv-1',
-      agentId: 'agent-a',
-      title: '会话一',
-      createdAt: '2026-10-01T00:00:00.000Z',
-      updatedAt: '2026-10-01T00:00:00.000Z',
-      lastMessage: null,
-    },
-  ]);
+  vi.spyOn(api, 'personalConversations').mockResolvedValue({
+    items: [
+      {
+        id: 'conv-1',
+        agentId: 'agent-a',
+        title: '会话一',
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-01T00:00:00.000Z',
+        lastMessage: null,
+      },
+    ],
+    nextCursor: null,
+  });
   vi.spyOn(api, 'agentRules').mockResolvedValue([]);
   vi.spyOn(api, 'agentMemory').mockResolvedValue({
     files: [
@@ -326,7 +329,7 @@ beforeEach(() => {
       queries: { retry: false, refetchOnWindowFocus: false, staleTime: Infinity },
     },
   });
-  client.setQueryData(['agents'], [agentA, agentB]);
+  client.setQueryData(['agents'], { items: [agentA, agentB], truncated: false });
   client.setQueryData(['me'], allAccessMe);
   host = document.createElement('div');
   document.body.append(host);
@@ -608,11 +611,11 @@ describe('记忆提案', () => {
           input instanceof Request ? input.url : String(input),
           'http://localhost',
         ).pathname;
-        if (path === '/api/agents') {
+        if (path === '/api/agents/reference') {
           return new Promise<Response>((resolve) => {
             releaseAgents = () =>
               resolve(
-                new Response(JSON.stringify([agentA, agentB]), {
+                new Response(JSON.stringify({ items: [agentA, agentB], truncated: false }), {
                   status: 200,
                   headers: { 'content-type': 'application/json' },
                 }),
@@ -623,6 +626,7 @@ describe('记忆提案', () => {
       }),
     );
     client.removeQueries({ queryKey: ['agents'] });
+    vi.mocked(api.agentReference).mockRestore();
     await mount('/personal/reviews?create=true');
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     await vi.waitFor(() => expect(releaseAgents).toBeDefined());

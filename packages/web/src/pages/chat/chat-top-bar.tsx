@@ -28,6 +28,7 @@ export function ChatTopBar({
   deleting,
   agent,
   agentOptions,
+  agentsTruncated,
   showAgentPicker,
   onSwitchAgent,
   historyVisible,
@@ -47,6 +48,7 @@ export function ChatTopBar({
   deleting: boolean;
   agent: AgentSummary | null;
   agentOptions: Array<{ value: string; label: string; agent?: AgentSummary }>;
+  agentsTruncated: boolean;
   showAgentPicker: boolean;
   onSwitchAgent: (id: string | null) => void;
   historyVisible: boolean;
@@ -98,6 +100,7 @@ export function ChatTopBar({
             agent={agent?.isDefault ? null : agent}
             agentId={agent?.id ?? null}
             agentOptions={agentOptions}
+            truncated={agentsTruncated}
             onSwitchAgent={onSwitchAgent}
             placeholder="通用助手"
             triggerAriaLabel={agent && !agent.isDefault ? `切换专家：${agent.name}` : '召唤专家'}

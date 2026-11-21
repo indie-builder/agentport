@@ -6,7 +6,7 @@ import {
   type ChannelRole,
   type MessageAttachment,
 } from '@agentport/shared';
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -20,6 +20,7 @@ import {
   conversations,
 } from '../schema.js';
 import { createChannelWakes } from './channel-wakes.js';
+import { type CursorPage, keysetPage } from './pagination.js';
 
 /** 频道权限只来自真实成员关系；平台范围不能替代成员身份。 */
 export type ChannelSubject = { businessId: string };
@@ -202,7 +203,8 @@ async function withChannelManage<T>(
 export async function listChannels(
   db: Database,
   subject: ChannelSubject,
-): Promise<ChannelListItemRow[]> {
+  options: { cursor?: string | undefined; limit: number },
+): Promise<CursorPage<ChannelListItemRow> | null> {
   const last = db
     .select({
       id: channelMessages.id,
@@ -219,77 +221,90 @@ export async function listChannels(
     .limit(1)
     .as('last_message');
 
-  const rows = await db
-    .select({
-      id: channels.id,
-      name: channels.name,
-      description: channels.description,
-      createdBy: channels.createdBy,
-      archivedAt: channels.archivedAt,
-      createdAt: channels.createdAt,
-      updatedAt: channels.updatedAt,
-      role: channelMembers.role,
-      lastReadSeq: channelMembers.lastReadSeq,
-      unreadCount: sql<number>`(
-        select count(*)::int from ${channelMessages} m
-        where m.channel_id = ${sql.raw('"channels"."id"')}
-          and m.seq > coalesce(${channelMembers.lastReadSeq}, 0)
-          and m.author_business_id is distinct from ${subject.businessId}
-      )`,
-      memberCount: sql<number>`(
-        select count(*)::int from ${channelMembers} cm
-        where cm.channel_id = ${sql.raw('"channels"."id"')}
-      )`.mapWith(Number),
-      agentCount: sql<number>`(
-        select count(*)::int from ${channelAgentBindings} cab
-        where cab.channel_id = ${sql.raw('"channels"."id"')}
-      )`.mapWith(Number),
-      lastId: last.id,
-      lastSeq: last.seq,
-      lastKind: last.kind,
-      lastBody: last.body,
-      lastAuthorBusinessId: last.authorBusinessId,
-      lastAgentId: last.agentId,
-      lastCreatedAt: last.createdAt,
-    })
-    .from(channels)
-    .leftJoin(
-      channelMembers,
-      and(
-        eq(channelMembers.channelId, channels.id),
-        eq(channelMembers.businessId, subject.businessId),
-      ),
-    )
-    .leftJoinLateral(last, sql`true`)
-    .where(isNotNull(channelMembers.businessId))
-    .orderBy(desc(channels.updatedAt), desc(channels.id));
+  const membership = sql`exists (select 1 from ${channelMembers} where ${channelMembers.channelId} = ${channels.id} and ${channelMembers.businessId} = ${subject.businessId})`;
 
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    createdBy: row.createdBy,
-    archivedAt: row.archivedAt,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    role: row.role,
-    lastReadSeq: row.lastReadSeq ?? 0,
-    unreadCount: row.unreadCount,
-    memberCount: row.memberCount,
-    agentCount: row.agentCount,
-    lastMessage:
-      row.lastId === null || row.lastSeq === null || row.lastKind === null
-        ? null
-        : {
-            id: row.lastId,
-            seq: row.lastSeq,
-            kind: row.lastKind,
-            body: row.lastBody ?? '',
-            authorBusinessId: row.lastAuthorBusinessId,
-            agentId: row.lastAgentId,
-            createdAt: row.lastCreatedAt ?? row.createdAt,
-          },
-  }));
+  return keysetPage(db, {
+    table: channels,
+    column: channels.updatedAt,
+    direction: 'desc',
+    cursor: options.cursor,
+    limit: options.limit,
+    where: [membership],
+    load: async ({ where, limit }) => {
+      const rows = await db
+        .select({
+          id: channels.id,
+          name: channels.name,
+          description: channels.description,
+          createdBy: channels.createdBy,
+          archivedAt: channels.archivedAt,
+          createdAt: channels.createdAt,
+          updatedAt: channels.updatedAt,
+          role: channelMembers.role,
+          lastReadSeq: channelMembers.lastReadSeq,
+          unreadCount: sql<number>`(
+            select count(*)::int from ${channelMessages} m
+            where m.channel_id = ${sql.raw('"channels"."id"')}
+              and m.seq > coalesce(${channelMembers.lastReadSeq}, 0)
+              and m.author_business_id is distinct from ${subject.businessId}
+          )`,
+          memberCount: sql<number>`(
+            select count(*)::int from ${channelMembers} cm
+            where cm.channel_id = ${sql.raw('"channels"."id"')}
+          )`.mapWith(Number),
+          agentCount: sql<number>`(
+            select count(*)::int from ${channelAgentBindings} cab
+            where cab.channel_id = ${sql.raw('"channels"."id"')}
+          )`.mapWith(Number),
+          lastId: last.id,
+          lastSeq: last.seq,
+          lastKind: last.kind,
+          lastBody: last.body,
+          lastAuthorBusinessId: last.authorBusinessId,
+          lastAgentId: last.agentId,
+          lastCreatedAt: last.createdAt,
+        })
+        .from(channels)
+        .leftJoin(
+          channelMembers,
+          and(
+            eq(channelMembers.channelId, channels.id),
+            eq(channelMembers.businessId, subject.businessId),
+          ),
+        )
+        .leftJoinLateral(last, sql`true`)
+        .where(where)
+        .orderBy(desc(channels.updatedAt), desc(channels.id))
+        .limit(limit);
+
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        createdBy: row.createdBy,
+        archivedAt: row.archivedAt,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        role: row.role,
+        lastReadSeq: row.lastReadSeq ?? 0,
+        unreadCount: row.unreadCount,
+        memberCount: row.memberCount,
+        agentCount: row.agentCount,
+        lastMessage:
+          row.lastId === null || row.lastSeq === null || row.lastKind === null
+            ? null
+            : {
+                id: row.lastId,
+                seq: row.lastSeq,
+                kind: row.lastKind,
+                body: row.lastBody ?? '',
+                authorBusinessId: row.lastAuthorBusinessId,
+                agentId: row.lastAgentId,
+                createdAt: row.lastCreatedAt ?? row.createdAt,
+              },
+      }));
+    },
+  });
 }
 
 export async function createChannel(

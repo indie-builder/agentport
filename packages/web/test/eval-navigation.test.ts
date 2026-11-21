@@ -98,13 +98,13 @@ async function mount(editing = false, options: MountOptions = {}) {
   for (const agent of ['agent-a', 'agent-b']) {
     client.setQueryData(['eval-cases', agent], editing ? [currentCase] : []);
   }
-  client.setQueryData(
-    ['agents'],
-    [
+  client.setQueryData(['agents'], {
+    items: [
       { id: 'agent-a', name: 'Expert A' },
       { id: 'agent-b', name: 'Expert B' },
     ],
-  );
+    truncated: false,
+  });
   for (const agentId of ['agent-a', 'agent-b']) {
     client.setQueryData(['agent-access', agentId], {
       agentId,

@@ -1,5 +1,7 @@
 import {
   conversationSummarySchema,
+  cursorPageSchema,
+  pageQuerySchema,
   personalOutputListQuerySchema,
   personalOutputListSchema,
   personalOutputShareListSchema,
@@ -15,11 +17,6 @@ import { z } from 'zod';
 import { contractProcedure } from './base.js';
 
 const shareParams = z.object({ id: z.string().min(1).max(200) });
-
-export const personalConversationsQuerySchema = z.object({
-  agentId: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
-});
 
 export const personalContract = {
   outputShares: contractProcedure
@@ -49,8 +46,14 @@ export const personalContract = {
     .meta({ access: { kind: 'permission', permissionId: 'runs.read' } }),
   conversations: contractProcedure
     .route({ method: 'GET', path: '/me/conversations' })
-    .input(z.object({ query: personalConversationsQuerySchema }))
-    .output(z.array(conversationSummarySchema))
+    .input(
+      z.object({
+        query: pageQuerySchema.extend({
+          agentId: z.string().min(1).optional(),
+        }),
+      }),
+    )
+    .output(cursorPageSchema(conversationSummarySchema))
     .meta({ access: { kind: 'permission', permissionId: 'conversations.read' } }),
   outputs: contractProcedure
     .route({ method: 'GET', path: '/me/outputs' })

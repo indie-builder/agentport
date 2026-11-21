@@ -29,9 +29,44 @@ api 与 worker 的 pino 日志都带三个基字段，由初始化处统一注�
 
 API 请求日志只记录路由模板、状态码与耗时；不记录请求/响应正文、SQL 参数或凭证。
 
+## 类型化横切事件
+
+`@agentport/core/logger` 的 `LogEventMap` 是横切事件的字段契约，`logEvent(log, event, fields, level?, extra?)` 按事件名约束字段：
+
+| 事件 | 字段 |
+|---|---|
+| `request completed` | `route`、`statusCode`、`responseTime` |
+| `slow request` | `route`、`statusCode`、`responseTime` |
+| `request failed` | `route`、`statusCode`、`responseTime`、`code` |
+| `unhandled error` | `code` |
+| `run enqueued` | `runId`、`queue` |
+| `run failed` | `runId`、`attemptsMade`、可选 `code` |
+| `queue error` | `queue` |
+| `worker started` / `worker stopped` | 无 |
+
+`extraFields` 用于补 `err` 等非契约字段；事件名与字段不要另建字符串常量表。模块内的普通 warn/error 仍可直接用 logger，但消息保持同一种短事件名风格。
+
+上表是 `LogEventMap` 的完整声明，且每个声明都有调用点：`request completed`、`slow request`、`request failed`、`unhandled error`、`run enqueued`、`run failed`、`queue error`、`worker started` 与 `worker stopped` 均经 `logEvent` 写入。新增横切事件先加 `LogEventMap`，再用 `logEvent` 调用。
+
+## 请求事件的实际语义
+
+- `request completed` 由 `packages/api/src/app.ts` 的请求中间件在 Hono dispatch 返回后写入，仅覆盖 `/api/*`；`/health/*`、`/mcp` 与静态资源不写该事件。`app.onError` 已处理该请求时中间件跳过此事件。
+- `request failed` 只在 `app.onError` 中写入，覆盖到达 Hono 错误边界的异常；oRPC 已转换成响应的业务错误不会触发它。`app.onError` 不另写 `unhandled error` / `request rejected`，同一请求只有这一条请求级错误事件。
+- 因此每个 `/api/*` 请求只写一条结果事件：正常返回写 `request completed`，经 `app.onError` 处理的请求只写 `request failed`。`slow request` 只在完成路径上作为额外 warn，不替代完成事件。
+- `unhandled error` 与 `request rejected` 只由 `packages/api/src/http/orpc.ts` 的拦截器写入，且仅针对非 `ORPCError` 的异常：5xx 写 `unhandled error`，其余非 401 错误写 `request rejected`；两者都带 `err`，用于堆栈检索。请求身份事件仍保持每请求一条。
+- 原生校验失败不经 `app.onError`。输入校验在业务 handler 执行前抛 `ORPCError`（400），输出校验在 handler 返回后抛 `ORPCError`（500）；拦截器对 `ORPCError` 原样重抛，因此两者都不写 `unhandled error` / `request rejected`。`customErrorResponseBodyEncoder` 把它们转成 `INVALID_INPUT` / `RESPONSE_INVALID` 的 400 / 500 Problem 响应，中间件按返回结果写 `request completed`（对应状态码），不写 `request failed`。输出校验分支另写一条 `unhandled transport error` 的 `logger.error`（带 `err`），它不是 `LogEventMap` 事件。
+
+## 队列错误
+
+BullMQ 的 `Queue` / `QueueEvents` 错误统一写 logger，不直接写 stderr：
+
+- api 的队列生产器与调度队列用 `logEvent(logger, 'queue error', { queue }, 'error', { err })`。
+- worker 的队列、reconciler 与调度器用各自的 `logger.warn` / `logger.error` 短事件名（如 `knowledge sync queue error`、`schedule queue error`）。
+- api/worker 应用源码中没有 `process.stderr.write` / `console.*` 日志旁路；`packages/worker/src/runtime-environments/verify.ts` 内嵌的容器自检脚本使用 `console.error` / `process.stdout.write` 输出校验结果，属于子进程协议，不是服务日志。
+
 ## 关联请求与后台运行
 
-聊天入队成功后，API 写一条 `run enqueued`，同一行同时带 `requestId` 与 `runId`。聊天 run 的 job payload 也带 `requestId`，worker 认领该 run 后使用 run 作用域 child logger，该 run 的执行日志（含传给沙盒的 logger）都带同一 `requestId`：一次 `requestId` 检索可横跨 api 与 worker。频道唤醒、MCP invoker 与定时触发的 run，其 job 不携带 `requestId`，即使由 HTTP 请求发起也一样；这些 run 只能用 `runId` 关联。
+聊天入队成功后，API 写一条 `run enqueued`（`runId` 与 `queue`），同一行同时带 `requestId` 与 `runId`。聊天 run 的 job payload 也带 `requestId`，worker 认领该 run 后使用 run 作用域 child logger，该 run 的执行日志（含传给沙盒的 logger）都带同一 `requestId`：一次 `requestId` 检索可横跨 api 与 worker。频道唤醒、MCP invoker 与定时触发的 run，其 job 不携带 `requestId`，即使由 HTTP 请求发起也一样；这些 run 只能用 `runId` 关联。
 
 ```bash
 # 一次 HTTP 请求在 API 与 worker 两侧的关联日志

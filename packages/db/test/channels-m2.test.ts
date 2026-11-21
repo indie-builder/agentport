@@ -568,8 +568,8 @@ describe.skipIf(!ready)('channel data isolation', () => {
     const list = await chat.listConversations(db, {
       access: { businessId: owner, scopes: ['platform'] },
     });
-    expect(list.map((row) => row.id)).toContain(privateId);
-    expect(list.map((row) => row.id)).not.toContain(admitted.conversationId);
+    expect(list?.items.map((row) => row.id)).toContain(privateId);
+    expect(list?.items.map((row) => row.id)).not.toContain(admitted.conversationId);
 
     const search = await chat.searchConversations(db, {
       q: '',

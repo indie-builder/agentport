@@ -55,6 +55,7 @@ export function RuntimeEnvironmentsPage() {
   const [creating, setCreating] = useState(false);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
   const query = search.q ?? '';
+  const fullyLoaded = environments.data !== undefined && !environments.hasNextPage;
 
   const shown = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -108,7 +109,9 @@ export function RuntimeEnvironmentsPage() {
                 ? '加载中…'
                 : environments.isError
                   ? '数量不可用'
-                  : `共 ${shown.length} 个运行环境`}
+                  : fullyLoaded
+                    ? `共 ${shown.length} 个运行环境`
+                    : `已加载 ${shown.length} 个运行环境`}
             </span>
             <ViewToggle value={view} onChange={setView} />
           </div>
@@ -123,7 +126,7 @@ export function RuntimeEnvironmentsPage() {
           <ErrorState error={environments.error} onRetry={() => void environments.refetch()} />
         ) : null}
 
-        {environments.data && environments.data.length === 0 ? (
+        {fullyLoaded && environments.data && environments.data.length === 0 ? (
           <PageNote
             icon={<Box className="size-4" aria-hidden="true" />}
             title="新建第一个运行环境"
@@ -140,7 +143,7 @@ export function RuntimeEnvironmentsPage() {
           />
         ) : null}
 
-        {environments.data && environments.data.length > 0 && shown.length === 0 ? (
+        {fullyLoaded && environments.data && environments.data.length > 0 && shown.length === 0 ? (
           <PageNote
             icon={<SearchX className="size-4" aria-hidden="true" />}
             title="没有匹配的运行环境"
@@ -264,6 +267,27 @@ export function RuntimeEnvironmentsPage() {
               </li>
             ))}
           </ul>
+        ) : null}
+
+        {environments.isFetchNextPageError ? (
+          <div className="flex justify-center">
+            <ErrorState
+              error={environments.error}
+              title="列表没有加载完"
+              onRetry={() => void environments.fetchNextPage()}
+            />
+          </div>
+        ) : environments.hasNextPage ? (
+          <div className="flex justify-center">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={environments.isFetchingNextPage}
+              onClick={() => void environments.fetchNextPage()}
+            >
+              {environments.isFetchingNextPage ? '加载中…' : '加载更多'}
+            </Button>
+          </div>
         ) : null}
       </PageBody>
 

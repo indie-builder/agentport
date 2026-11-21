@@ -10,14 +10,9 @@ import type {
   MemoryReviewTarget,
   PersonalMemory,
 } from '@agentport/shared';
-import {
-  queryOptions,
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
+import { useCursorList } from './shared.js';
 
 export const agentMemoryKeys = {
   list: (...ids: [] | [string]) => ['agent-memory', ...ids] as const,
@@ -130,19 +125,17 @@ function memoryReviewActive(review: MemoryReview): boolean {
 const MEMORY_REVIEWS_PAGE_SIZE = 50;
 
 export function useMemoryReviews(agentId: string | null) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: memoryReviewKey(agentId),
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: (cursor, signal) =>
       api.memoryReviews(
         {
           ...(agentId ? { agentId } : {}),
-          ...(pageParam ? { cursor: pageParam } : {}),
+          ...(cursor ? { cursor } : {}),
           limit: MEMORY_REVIEWS_PAGE_SIZE,
         },
         signal,
       ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 0,
     refetchInterval: (query) =>
       query.state.data?.pages.some((page) => page.items.some(memoryReviewActive)) ? 3_000 : false,

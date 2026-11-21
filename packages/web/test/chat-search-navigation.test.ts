@@ -105,9 +105,9 @@ beforeEach(() => {
   }));
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-  client.setQueryData(['agents'], [agentA, agentB]);
-  vi.spyOn(api, 'agents').mockResolvedValue([agentA, agentB]);
-  vi.spyOn(api, 'conversations').mockResolvedValue([]);
+  client.setQueryData(['agents'], { items: [agentA, agentB], truncated: false });
+  vi.spyOn(api, 'agentReference').mockResolvedValue({ items: [agentA, agentB], truncated: false });
+  vi.spyOn(api, 'conversations').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'conversation').mockImplementation(async (conversationId) => ({
     conversation: { id: conversationId, agentId: 'agent-b', title: '目标会话' },
     runMetrics: [],
@@ -181,7 +181,10 @@ describe('cross-expert conversation search', () => {
     const stored = JSON.parse(sessionStorage.getItem('pace.chat.drafts') ?? '{}');
     expect(stored['']).toBe('当前草稿');
     expect(stored['conversation-b']).toBe('目标草稿');
-    expect(vi.mocked(api.conversations)).toHaveBeenCalledWith('agent-b', expect.anything());
+    expect(vi.mocked(api.conversations)).toHaveBeenCalledWith(
+      { agentId: 'agent-b' },
+      expect.anything(),
+    );
   });
 
   it('navigates once with agent and conversation when Enter opens the highlighted result', async () => {

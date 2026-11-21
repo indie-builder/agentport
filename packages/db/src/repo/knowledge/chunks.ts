@@ -1,6 +1,6 @@
 import { AppError } from '@agentport/core';
 import type { KnowledgeLocator } from '@agentport/shared';
-import { and, asc, eq, type SQL, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import {
@@ -9,7 +9,7 @@ import {
   knowledgeDocumentVersions,
   knowledgeJobs,
 } from '../../schema.js';
-import { paginate } from '../keyset.js';
+import { keysetPage } from '../pagination.js';
 import {
   escapeLike,
   INSERT_CHUNK,
@@ -139,16 +139,6 @@ export async function replaceChunks(
   });
 }
 
-function chunkPageFilters(versionId: string, options: PageOptions): SQL[] {
-  const filters: SQL[] = [eq(knowledgeChunks.versionId, versionId)];
-  if (options.cursor) {
-    filters.push(sql`(${knowledgeChunks.ordinal}, ${knowledgeChunks.id}) > (
-      select b.ordinal, b.id from ${knowledgeChunks} b where b.id = ${options.cursor}
-    )`);
-  }
-  return filters;
-}
-
 export async function readVersionText(
   db: Database,
   versionId: string,
@@ -170,15 +160,23 @@ export async function listChunks(
   db: Database,
   versionId: string,
   options: PageOptions = {},
-): Promise<Page<KnowledgeChunkRow>> {
+): Promise<Page<KnowledgeChunkRow> | null> {
   const limit = pageLimit(options);
-  const rows = await db
-    .select()
-    .from(knowledgeChunks)
-    .where(and(...chunkPageFilters(versionId, options)))
-    .orderBy(asc(knowledgeChunks.ordinal), asc(knowledgeChunks.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeChunks,
+    cursor: options.cursor,
+    limit,
+    column: knowledgeChunks.ordinal,
+    direction: 'asc',
+    where: [eq(knowledgeChunks.versionId, versionId)],
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeChunks)
+        .where(where)
+        .orderBy(asc(knowledgeChunks.ordinal), asc(knowledgeChunks.id))
+        .limit(limit),
+  });
 }
 
 const chunkSummaryColumns = {
@@ -206,15 +204,23 @@ export async function listChunkSummaries(
   db: Database,
   versionId: string,
   options: PageOptions = {},
-): Promise<Page<KnowledgeChunkSummary>> {
+): Promise<Page<KnowledgeChunkSummary> | null> {
   const limit = pageLimit(options);
-  const rows = await db
-    .select(chunkSummaryColumns)
-    .from(knowledgeChunks)
-    .where(and(...chunkPageFilters(versionId, options)))
-    .orderBy(asc(knowledgeChunks.ordinal), asc(knowledgeChunks.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeChunks,
+    cursor: options.cursor,
+    limit,
+    column: knowledgeChunks.ordinal,
+    direction: 'asc',
+    where: [eq(knowledgeChunks.versionId, versionId)],
+    load: ({ where, limit }) =>
+      db
+        .select(chunkSummaryColumns)
+        .from(knowledgeChunks)
+        .where(where)
+        .orderBy(asc(knowledgeChunks.ordinal), asc(knowledgeChunks.id))
+        .limit(limit),
+  });
 }
 
 export interface ImageAssetRow {
@@ -286,15 +292,15 @@ function encodeImageCursor(row: ImageAssetQueryRow): string {
   ).toString('base64url');
 }
 
-function decodeImageCursor(raw: string): { u: string; d: string; n: string } {
+function decodeImageCursor(raw: string): { u: string; d: string; n: string } | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
   } catch {
-    throw new AppError('INVALID_INPUT', '分页游标无效');
+    return null;
   }
   if (typeof parsed !== 'object' || parsed === null) {
-    throw new AppError('INVALID_INPUT', '分页游标无效');
+    return null;
   }
   const { u, d, n } = parsed as { u?: unknown; d?: unknown; n?: unknown };
   if (
@@ -305,7 +311,7 @@ function decodeImageCursor(raw: string): { u: string; d: string; n: string } {
     typeof n !== 'string' ||
     n === ''
   ) {
-    throw new AppError('INVALID_INPUT', '分页游标无效');
+    return null;
   }
   return { u, d, n };
 }
@@ -314,34 +320,18 @@ export async function listImageAssets(
   db: Database,
   baseId: string,
   filter: ListImageAssetsFilter = {},
-): Promise<Page<ImageAssetRow>> {
+): Promise<Page<ImageAssetRow> | null> {
   const limit = pageLimit(filter);
-  const cursor = filter.cursor ? decodeImageCursor(filter.cursor) : null;
-  const cursorFilter = cursor
-    ? sql`and (d.updated_at, d.id, img->>'name') < (
-        ${cursor.u}::timestamptz, ${cursor.d}::text, ${cursor.n}::text
-      )`
-    : sql``;
+  const cursor = filter.cursor == null ? null : decodeImageCursor(filter.cursor);
+  if (filter.cursor != null && cursor === null) return null;
   const qFilter = filter.q
-    ? sql`where (
+    ? sql`and (
         x.name ilike ${`%${escapeLike(filter.q)}%`}
         or x.caption ilike ${`%${escapeLike(filter.q)}%`}
         or x.ocr_text ilike ${`%${escapeLike(filter.q)}%`}
       )`
     : sql``;
-  const rows = (await db.execute(sql`
-    select
-      x.document_id,
-      x.document_title,
-      x.version_id,
-      x.name,
-      x.mime_type,
-      x.page,
-      x.caption,
-      x.ocr_text,
-      x.updated_at,
-      x.updated_at_cursor
-    from (
+  const images = sql`(
       select
         d.id as document_id,
         d.title as document_title,
@@ -379,9 +369,24 @@ export async function listImageAssets(
       where d.base_id = ${baseId}
         and d.content_kind = 'document'
         and ${readableDocumentSql('d')}
-        ${cursorFilter}
-    ) x
-    ${qFilter}
+    ) x`;
+  let bound = sql`true`;
+  if (cursor !== null) {
+    const [anchor] = (await db.execute(sql`
+      select x.updated_at_cursor from ${images}
+      where x.document_id = ${cursor.d} and x.name = ${cursor.n}
+        ${qFilter}
+      limit 1
+    `)) as Pick<ImageAssetQueryRow, 'updated_at_cursor'>[];
+    if (!anchor) return null;
+    bound = sql`(x.updated_at, x.document_id, x.name) < (
+      ${anchor.updated_at_cursor}::timestamptz, ${cursor.d}, ${cursor.n}
+    )`;
+  }
+  const rows = (await db.execute(sql`
+    select * from ${images}
+    where ${bound}
+      ${qFilter}
     order by x.updated_at desc, x.document_id desc, x.name desc
     limit ${limit + 1}
   `)) as ImageAssetQueryRow[];

@@ -1,8 +1,8 @@
-import { fail } from '@agentport/core';
 import type { AccessFilter } from '@agentport/shared';
-import { and, desc, eq, isNull, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
+import { desc, eq, isNull, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
 import type { Database } from '../../client.js';
 import { agents, conversations, messages } from '../../schema.js';
+import { keysetPage } from '../pagination.js';
 import { conversationAccessWhere } from './shared.js';
 
 const SEARCH_EXCERPT_CHARS = 240;
@@ -31,24 +31,23 @@ function normalizedMessageTextSql(): SQL<string | null> {
 
 /**
  * 游标是服务端生成的不透明串；格式不对说明调用方拼错，按输入错误返回。
- * at 保留 PostgreSQL 的微秒原串：转成 JS Date 会在编码时被截到毫秒，翻页漏项。
  */
-function decodeSearchCursor(raw: string): { at: string; id: string } {
+function decodeSearchCursor(raw: string): string | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
   } catch {
-    fail('INVALID_INPUT', '游标无效，请刷新后重试');
+    return null;
   }
   if (typeof parsed !== 'object' || parsed === null) {
-    fail('INVALID_INPUT', '游标无效，请刷新后重试');
+    return null;
   }
   const { at, id } = parsed as { at?: unknown; id?: unknown };
   if (typeof at !== 'string' || typeof id !== 'string' || at === '' || id === '') {
-    fail('INVALID_INPUT', '游标无效，请刷新后重试');
+    return null;
   }
-  if (Number.isNaN(new Date(at).getTime())) fail('INVALID_INPUT', '游标无效，请刷新后重试');
-  return { at, id };
+  if (Number.isNaN(new Date(at).getTime())) return null;
+  return id;
 }
 
 function encodeSearchCursor(row: { cursorAt: string; id: string }): string {
@@ -79,102 +78,79 @@ export interface ConversationSearchRow {
   match: ConversationSearchMatch | null;
 }
 
-interface SearchRow {
-  id: string;
-  agentId: string;
-  agentName: string;
-  title: string;
-  updatedAt: Date;
-  cursorAt: string;
-  matchKind?: 'id' | 'title' | 'message';
-  excerpt?: string | null;
-}
-
 /**
  * 全库匹配后再分页：先按 q 过滤会话，再按活动时间与 id 倒序取一页。
  * 每个会话最多一项，匹配优先级 id → title → message；空查询退化为最近会话。
  */
+export function searchConversations(
+  db: Database,
+  options: ConversationSearchOptions & { before?: never },
+): Promise<{ items: ConversationSearchRow[]; nextBefore: string | null }>;
+export function searchConversations(
+  db: Database,
+  options: ConversationSearchOptions,
+): Promise<{ items: ConversationSearchRow[]; nextBefore: string | null } | null>;
 export async function searchConversations(
   db: Database,
   options: ConversationSearchOptions,
-): Promise<{ items: ConversationSearchRow[]; nextBefore: string | null }> {
-  const before = options.before === undefined ? null : decodeSearchCursor(options.before);
-  const cursorFilter =
-    before === null
-      ? undefined
-      : sql`(${conversations.lastMessageAt}, ${conversations.id}) < (${before.at}::timestamptz, ${before.id})`;
+): Promise<{ items: ConversationSearchRow[]; nextBefore: string | null } | null> {
+  const cursor = options.before === undefined ? null : decodeSearchCursor(options.before);
+  if (options.before !== undefined && cursor === null) return null;
   const agentFilter =
     options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId);
-  const accessFilter = conversationAccessWhere(options.access);
-  const privateOnly = isNull(conversations.channelId);
-  const take = options.limit + 1;
   const needle =
     options.q === ''
       ? null
       : sql<string>`lower(${normalizeWhitespaceSql(sql`${options.q}::text`)})`;
-  const cursorAt = sql<string>`${conversations.lastMessageAt}::text`;
-
-  let rows: SearchRow[];
-  if (needle === null) {
-    rows = await db
-      .select({
-        id: conversations.id,
-        agentId: conversations.agentId,
-        agentName: agents.name,
-        title: conversations.title,
-        updatedAt: conversations.lastMessageAt,
-        cursorAt,
-      })
-      .from(conversations)
-      .innerJoin(agents, eq(agents.id, conversations.agentId))
-      .where(and(agentFilter, accessFilter, privateOnly, cursorFilter))
-      .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
-      .limit(take);
-  } else {
-    const text = normalizedMessageTextSql();
-    const idMatch = sql`strpos(lower(${normalizeWhitespaceSql(conversations.id)}), ${needle}) > 0`;
-    const titleMatch = sql`strpos(lower(${normalizeWhitespaceSql(conversations.title)}), ${needle}) > 0`;
-    const matchKind = sql<'id' | 'title' | 'message'>`case
-      when ${idMatch} then 'id'
-      when ${titleMatch} then 'title'
-      else 'message'
-    end`;
-    rows = await db
-      .select({
-        id: conversations.id,
-        agentId: conversations.agentId,
-        agentName: agents.name,
-        title: conversations.title,
-        updatedAt: conversations.lastMessageAt,
-        cursorAt,
-        matchKind,
-      })
-      .from(conversations)
-      .innerJoin(agents, eq(agents.id, conversations.agentId))
-      .where(
-        and(
-          agentFilter,
-          accessFilter,
-          privateOnly,
-          sql`(
-            ${idMatch}
-            or ${titleMatch}
-            or exists (
-              select 1 from ${messages}
-              where ${messages.conversationId} = ${conversations.id}
-                and ${messages.role} in ('user', 'assistant')
-                and strpos(lower(${text}), ${needle}) > 0
-            )
-          )`,
-          cursorFilter,
-        ),
-      )
-      .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
-      .limit(take);
-  }
-
-  const hasMore = rows.length > options.limit;
-  const page = hasMore ? rows.slice(0, options.limit) : rows;
+  const idMatch = sql`strpos(lower(${normalizeWhitespaceSql(conversations.id)}), ${needle}) > 0`;
+  const titleMatch = sql`strpos(lower(${normalizeWhitespaceSql(conversations.title)}), ${needle}) > 0`;
+  const matchFilter =
+    needle === null
+      ? undefined
+      : sql`(
+    ${idMatch}
+    or ${titleMatch}
+    or exists (
+      select 1 from ${messages}
+      where ${messages.conversationId} = ${conversations.id}
+        and ${messages.role} in ('user', 'assistant')
+        and strpos(lower(${normalizedMessageTextSql()}), ${needle}) > 0
+    )
+  )`;
+  const result = await keysetPage(db, {
+    table: conversations,
+    cursor,
+    limit: options.limit,
+    column: conversations.lastMessageAt,
+    where: [
+      agentFilter,
+      conversationAccessWhere(options.access),
+      isNull(conversations.channelId),
+      matchFilter,
+    ],
+    load: ({ where, limit }) =>
+      db
+        .select({
+          id: conversations.id,
+          agentId: conversations.agentId,
+          agentName: agents.name,
+          title: conversations.title,
+          updatedAt: conversations.lastMessageAt,
+          cursorAt: sql<string>`${conversations.lastMessageAt}::text`,
+          matchKind: sql<'id' | 'title' | 'message' | null>`case
+            when ${idMatch} then 'id'
+            when ${titleMatch} then 'title'
+            when ${needle}::text is not null then 'message'
+          end`,
+        })
+        .from(conversations)
+        .innerJoin(agents, eq(agents.id, conversations.agentId))
+        .where(where)
+        .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
+        .limit(limit),
+  });
+  if (result === null) return null;
+  const page = result.items;
 
   const excerptById = new Map<string, string | null>();
   if (needle !== null && page.length > 0) {
@@ -228,6 +204,6 @@ export async function searchConversations(
   const last = page.at(-1);
   return {
     items,
-    nextBefore: hasMore && last !== undefined ? encodeSearchCursor(last) : null,
+    nextBefore: result.nextCursor !== null && last !== undefined ? encodeSearchCursor(last) : null,
   };
 }

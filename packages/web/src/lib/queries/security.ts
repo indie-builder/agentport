@@ -9,14 +9,9 @@ import type {
   ViolationCaseStatus,
   ViolationCaseUpdate,
 } from '@agentport/shared';
-import {
-  queryOptions,
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type SecurityEventQuery } from '../api.js';
+import { useCursorList } from './shared.js';
 
 const PAGE_SIZE = 50;
 
@@ -42,46 +37,40 @@ export function useSecurityEvents(filters: {
   sourceKind?: PolicySourceKind;
   action?: ContentPolicyAction;
 }) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: securityKeys.events(filters),
-    queryFn: ({ pageParam }) =>
+    queryFn: (cursor) =>
       api.securityEvents({
         ...filters,
         limit: PAGE_SIZE,
-        ...(pageParam === null ? {} : { cursor: pageParam }),
+        ...(cursor === undefined ? {} : { cursor }),
       }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 0,
   });
 }
 
 export function useSecurityApprovals(status: PolicyApprovalStatus) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: securityKeys.approvals(status),
-    queryFn: ({ pageParam }) =>
+    queryFn: (cursor) =>
       api.securityApprovals({
         status,
         limit: PAGE_SIZE,
-        ...(pageParam === null ? {} : { cursor: pageParam }),
+        ...(cursor === undefined ? {} : { cursor }),
       }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 0,
   });
 }
 
 export function useSecurityViolations(status: ViolationCaseStatus | 'all') {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: securityKeys.violations(status),
-    queryFn: ({ pageParam }) =>
+    queryFn: (cursor) =>
       api.securityViolations({
         ...(status === 'all' ? {} : { status }),
         limit: PAGE_SIZE,
-        ...(pageParam === null ? {} : { cursor: pageParam }),
+        ...(cursor === undefined ? {} : { cursor }),
       }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 0,
   });
 }

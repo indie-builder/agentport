@@ -5,6 +5,7 @@ import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { writeCrossUserAudit } from '../../plugins/audit.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from '../runs/access.js';
 import { agentNotFound, importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
@@ -206,13 +207,15 @@ export const evalRouter = os.router({
   },
   runs: {
     list: os.runs.list.handler(async ({ input, context }) => {
-      const page = await evalRepo.listRuns(context.db, {
-        ...(input.query.agentId === undefined ? {} : { agentId: input.query.agentId }),
-        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
-        limit: input.query.limit,
-        access: accessFilter(context, 'eval.read'),
-      });
-      if (!page) fail('INVALID_INPUT', '分页游标不存在或不属于当前筛选条件');
+      const page = requireCursorPage(
+        await evalRepo.listRuns(context.db, {
+          ...(input.query.agentId === undefined ? {} : { agentId: input.query.agentId }),
+          ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+          limit: input.query.limit,
+          access: accessFilter(context, 'eval.read'),
+        }),
+      );
+
       return { items: page.items.map(toEvalRun), nextCursor: page.nextCursor };
     }),
     create: os.runs.create.handler(async ({ input, context }) => {

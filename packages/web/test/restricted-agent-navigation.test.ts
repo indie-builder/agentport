@@ -254,7 +254,7 @@ beforeEach(() => {
       disconnect() {}
     },
   );
-  vi.spyOn(api, 'agents').mockResolvedValue([agent]);
+  vi.spyOn(api, 'agentReference').mockResolvedValue({ items: [agent], truncated: false });
   configGet = vi.spyOn(api, 'agent').mockRejectedValue(new Error('config GET is not allowed'));
   vi.spyOn(api, 'me').mockResolvedValue(me);
   vi.spyOn(api, 'agentAccess').mockResolvedValue({
@@ -293,7 +293,7 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } },
   });
   client.setQueryData(['me'], me);
-  client.setQueryData(['agents'], [agent]);
+  client.setQueryData(['agents'], { items: [agent], truncated: false });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -467,7 +467,7 @@ describe('restricted expert task navigation', () => {
     root = createRoot(host);
     client.clear();
     client.setQueryData(['me'], me);
-    client.setQueryData(['agents'], [agent]);
+    client.setQueryData(['agents'], { items: [agent], truncated: false });
     const fallbackRouter = await mount(['/agents/expert?tab=config']);
     await waitFor(() => tab('概览'));
     expect(

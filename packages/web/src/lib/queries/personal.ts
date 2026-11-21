@@ -1,6 +1,5 @@
 import type {
   AuthMe,
-  ConversationSummary,
   PersonalOutputList,
   PersonalOutputShareList,
   PersonalRunList,
@@ -10,7 +9,7 @@ import type {
 } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../api.js';
-import { meQuery } from './shared.js';
+import { meQuery, useCursorList } from './shared.js';
 
 export function useUpdatePersonalProfile() {
   const client = useQueryClient();
@@ -89,20 +88,30 @@ export function usePersonalRuns(query: PersonalRunListQuery, enabled = true) {
 }
 
 export function usePersonalConversations(agentId: string | null, enabled = true) {
-  return useQuery<ConversationSummary[]>({
+  return useCursorList({
     queryKey: ['personal-conversations', agentId],
-    queryFn: ({ signal }) => api.personalConversations(agentId === null ? {} : { agentId }, signal),
+    queryFn: (cursor, signal) =>
+      api.personalConversations(
+        {
+          ...(agentId === null ? {} : { agentId }),
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+        signal,
+      ),
     enabled,
     staleTime: 0,
+    select: (data) => data.pages.flatMap((page) => page.items),
   });
 }
 
 export function usePersonalWorkConversations(enabled = true) {
-  return useQuery<ConversationSummary[]>({
+  return useCursorList({
     queryKey: ['personal-work', 'conversations'],
-    queryFn: ({ signal }) => api.personalConversations({ limit: 50 }, signal),
+    queryFn: (cursor, signal) =>
+      api.personalConversations({ limit: 50, ...(cursor === undefined ? {} : { cursor }) }, signal),
     enabled,
     staleTime: 0,
+    select: (data) => data.pages.flatMap((page) => page.items),
   });
 }
 

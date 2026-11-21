@@ -7,9 +7,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createDb } from '@agentport/db';
 import {
   type Account,
+  ERROR_META,
   type ErrorCode,
   type ExecutionSubject,
-  errorCode,
   type Problem,
   problemSchema,
   type Role,
@@ -431,7 +431,7 @@ export async function seedRun(
 /** 断言响应体是完整 Problem，且 code 与 HTTP 状态一致。 */
 export function expectProblem(res: TestResponse, code: ErrorCode, resource?: string): Problem {
   const body = problemSchema.parse(res.json());
-  expect(res.statusCode).toBe(errorCode[code]);
+  expect(res.statusCode).toBe(ERROR_META[code].status);
   expect(body).toMatchObject({
     code,
     status: res.statusCode,

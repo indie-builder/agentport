@@ -15,6 +15,7 @@ import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { shortId } from '../../lib/format.js';
 import {
   useAddChannelMember,
+  useAgentsTruncated,
   useBindChannelAgent,
   useCloseChannel,
   useDisconnectChannelAgent,
@@ -483,6 +484,7 @@ function AgentsSection({
   agents: { id: string; name: string; description: string; enabled: boolean }[];
 }) {
   const bind = useBindChannelAgent(channel.id);
+  const agentsTruncated = useAgentsTruncated().data ?? false;
   const update = useUpdateChannelAgent(channel.id);
   const disconnect = useDisconnectChannelAgent(channel.id);
   const remove = useRemoveChannelAgent(channel.id);
@@ -587,6 +589,7 @@ function AgentsSection({
               triggerAriaLabel="选择要绑定的智能体"
               disabled={bind.isPending}
               triggerClassName="w-full"
+              truncated={agentsTruncated}
             />
           </div>
           <Button

@@ -8,7 +8,12 @@ import type {
   RunStatus,
   RunTrigger,
 } from '@agentport/shared';
-import { agentPermissionAllows, isActiveRunStatus } from '@agentport/shared';
+import {
+  agentPermissionAllows,
+  decodeCursor,
+  encodeCursor,
+  isActiveRunStatus,
+} from '@agentport/shared';
 import {
   and,
   asc,
@@ -41,8 +46,8 @@ import { getAgentVersion } from './agent-versions.js';
 import { getAgentsByIds, getBoundServersByAgentIds } from './agents.js';
 import { getRunChannelAccess } from './channels.js';
 import { messageText } from './chat/messages.js';
-import { keysetBefore, paginate } from './keyset.js';
 import { markBySource } from './notifications.js';
+import { type CursorPage, keysetPage } from './pagination.js';
 
 export interface RunListItem {
   id: string;
@@ -113,6 +118,10 @@ export interface RunDetail {
   conversation: { id: string; agentId: string; title: string };
 }
 
+const runStartedAtCursor = sql<
+  string | null
+>`to_char(${agentRuns.startedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
 const runColumns = {
   id: agentRuns.id,
   agentId: agentRuns.agentId,
@@ -138,10 +147,11 @@ export async function listRuns(
     status?: RunStatus;
     trigger?: RunTrigger;
     since?: Date;
-    limit?: number;
+    cursor?: string;
+    limit: number;
     access: AccessFilter;
   },
-): Promise<RunListItem[]> {
+): Promise<CursorPage<RunListItem> | null> {
   const filters: SQL[] = [isNull(agentRuns.channelId)];
   if (options.access.scopes.includes('platform')) {
   } else if (options.access.scopes.includes('own_data')) {
@@ -154,14 +164,40 @@ export async function listRuns(
   if (options.trigger !== undefined) filters.push(eq(agentRuns.trigger, options.trigger));
   if (options.since !== undefined) filters.push(gte(agentRuns.startedAt, options.since));
 
+  if (options.cursor !== undefined) {
+    const parts = decodeCursor(options.cursor, 2);
+    const cursorStartedAt = parts?.[0];
+    const anchorId = parts?.[1];
+    if (cursorStartedAt === undefined || anchorId === undefined) return null;
+    const [anchor] = await db
+      .select({ id: agentRuns.id, startedAt: runStartedAtCursor })
+      .from(agentRuns)
+      .where(and(...filters, eq(agentRuns.id, anchorId)))
+      .limit(1);
+    if (!anchor || (anchor.startedAt ?? '') !== cursorStartedAt) return null;
+    if (anchor.startedAt === null) {
+      filters.push(sql`(${agentRuns.startedAt} is null and ${agentRuns.id} < ${anchorId})`);
+    } else {
+      filters.push(
+        sql`(${agentRuns.startedAt} is null or (${agentRuns.startedAt}, ${agentRuns.id}) < (${anchor.startedAt}::timestamptz, ${anchorId}))`,
+      );
+    }
+  }
+
   // drizzle 0.45 的 ORDER BY 没有 nullsLast 构造器（只有索引列有），保留原始 sql。
-  return db
-    .select(runColumns)
+  const rows = await db
+    .select({ ...runColumns, startedAtCursor: runStartedAtCursor })
     .from(agentRuns)
     .leftJoin(agents, eq(agents.id, agentRuns.agentId))
     .where(and(...filters))
     .orderBy(sql`${agentRuns.startedAt} desc nulls last`, desc(agentRuns.id))
-    .limit(options.limit ?? 50);
+    .limit(options.limit + 1);
+
+  const last = rows.length > options.limit ? rows[options.limit - 1] : undefined;
+  return {
+    items: rows.slice(0, options.limit).map(({ startedAtCursor, ...item }) => item),
+    nextCursor: last === undefined ? null : encodeCursor([last.startedAtCursor ?? '', last.id]),
+  };
 }
 
 export interface PersonalRunRow extends RunListItem {
@@ -202,7 +238,7 @@ function personalRunWhere(businessId: string, since: Date, until: Date): SQL[] {
 
 function personalRunRows(
   db: Database,
-  options: { businessId: string; filters: SQL[]; limit: number },
+  options: { businessId: string; where: SQL | undefined; limit: number },
 ) {
   return db
     .select({
@@ -216,7 +252,7 @@ function personalRunRows(
     .from(agentRuns)
     .leftJoin(agents, eq(agents.id, agentRuns.agentId))
     .leftJoin(conversations, eq(conversations.id, agentRuns.conversationId))
-    .where(and(...options.filters))
+    .where(options.where)
     .orderBy(desc(agentRuns.createdAt), desc(agentRuns.id))
     .limit(options.limit);
 }
@@ -241,23 +277,14 @@ export async function listPersonalRuns(
   if (options.status !== undefined) filters.push(eq(agentRuns.status, options.status));
   if (options.trigger !== undefined) filters.push(eq(agentRuns.trigger, options.trigger));
 
-  if (options.cursor !== undefined) {
-    const [anchor] = await db
-      .select({ id: agentRuns.id })
-      .from(agentRuns)
-      .where(and(eq(agentRuns.id, options.cursor), ...filters))
-      .limit(1);
-    if (!anchor) return null;
-    filters.push(keysetBefore(agentRuns, options.cursor));
-  }
-
-  const rows = await personalRunRows(db, {
-    businessId: options.businessId,
-    filters,
-    limit: options.limit + 1,
+  return keysetPage(db, {
+    table: agentRuns,
+    cursor: options.cursor,
+    limit: options.limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      personalRunRows(db, { businessId: options.businessId, where, limit }),
   });
-
-  return paginate(rows, options.limit);
 }
 
 export async function listPersonalRunsForExport(
@@ -280,7 +307,7 @@ export async function listPersonalRunsForExport(
 
   const rows = await personalRunRows(db, {
     businessId: options.businessId,
-    filters,
+    where: and(...filters),
     limit: EXPORT_LIMIT + 1,
   });
 

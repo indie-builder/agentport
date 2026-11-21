@@ -1,4 +1,5 @@
 import type {
+  CursorPage,
   RuntimeEnvironment,
   RuntimeEnvironmentInput,
   RuntimeEnvironmentPatch,
@@ -6,9 +7,17 @@ import type {
   RuntimeEnvironmentVersionSummary,
 } from '@agentport/shared';
 import { rpc } from '../orpc.js';
+import { clientOptions } from './shared.js';
 
 export default {
-  runtimeEnvironments: (): Promise<RuntimeEnvironment[]> => rpc.runtimeEnvironments.list(),
+  runtimeEnvironments: (
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<CursorPage<RuntimeEnvironment>> =>
+    rpc.runtimeEnvironments.list(
+      { query: cursor === undefined ? {} : { cursor } },
+      clientOptions(signal),
+    ),
   runtimeEnvironment: (id: string): Promise<RuntimeEnvironment> =>
     rpc.runtimeEnvironments.detail({ params: { id } }),
   createRuntimeEnvironment: (input: RuntimeEnvironmentInput): Promise<RuntimeEnvironment> =>
