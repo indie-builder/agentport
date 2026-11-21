@@ -17,8 +17,8 @@ import { parseRequest, requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { invalidCursor } from '../../http/pagination.js';
+import { agentSlug } from '../../lib/agent-slug.js';
 import {
-  agentSlug,
   listWorkspaceOutputs,
   previewText,
   readWorkspaceOutput,

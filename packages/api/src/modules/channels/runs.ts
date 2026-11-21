@@ -7,12 +7,8 @@ import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { invalidCursor } from '../../http/pagination.js';
-import {
-  agentSlug,
-  listWorkspaceOutputs,
-  previewText,
-  readWorkspaceOutput,
-} from '../../lib/outputs.js';
+import { agentSlug } from '../../lib/agent-slug.js';
+import { listWorkspaceOutputs, previewText, readWorkspaceOutput } from '../../lib/outputs.js';
 import { toRunDetail } from '../runs/events.js';
 import { answerRunQuestion } from '../runs/questions.js';
 

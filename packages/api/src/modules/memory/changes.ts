@@ -14,7 +14,7 @@ import {
 } from '@agentport/shared';
 import type { SQL } from 'bun';
 import { and, eq } from 'drizzle-orm';
-import { requireAgentSlug } from '../../lib/outputs.js';
+import { requireAgentSlug } from '../../lib/agent-slug.js';
 import {
   deleteMemoryFile,
   readMemoryFile,
