@@ -1,5 +1,11 @@
 import { dataDomainsContract } from '@agentport/contract/data-domains';
-import { decryptSecrets, encryptSecrets, fail, validateWrenProjectFiles } from '@agentport/core';
+import {
+  decryptSecrets,
+  encryptSecrets,
+  fail,
+  NOT_FOUND_MESSAGES,
+  validateWrenProjectFiles,
+} from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { DataDomainQueryApprovalStatus, PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -28,8 +34,6 @@ type DataDomainVersionRow = NonNullable<Awaited<ReturnType<typeof domains.getDat
 type EnrichmentProposalRow = NonNullable<
   Awaited<ReturnType<typeof domains.getDataDomainEnrichmentProposal>>
 >;
-
-const notFoundMessage = '数据域不存在，可能已被删除；请刷新后重试';
 
 function toDataDomain(row: DataDomainRow) {
   return {
@@ -158,7 +162,7 @@ function toEnrichmentProposal(row: EnrichmentProposalRow) {
 
 async function loadDomain(context: RequestContext, id: string): Promise<DataDomainRow> {
   const row = await domains.getDataDomain(context.db, id);
-  if (!row) fail('NOT_FOUND', notFoundMessage);
+  if (!row) fail('NOT_FOUND', NOT_FOUND_MESSAGES.dataDomain);
   return row;
 }
 
@@ -177,7 +181,7 @@ async function authorizeDomain(
       ownerBusinessId: row.ownerBusinessId,
       level,
     },
-    notFoundMessage,
+    NOT_FOUND_MESSAGES.dataDomain,
   );
 }
 
@@ -253,7 +257,7 @@ export const dataDomainsRouter = os.router({
       });
       return updated;
     });
-    if (!row) fail('NOT_FOUND', notFoundMessage);
+    if (!row) fail('NOT_FOUND', NOT_FOUND_MESSAGES.dataDomain);
     return toDataDomain(row);
   }),
 
@@ -265,7 +269,7 @@ export const dataDomainsRouter = os.router({
       await deleteDataDomainServer(tx, existing.id);
       return true;
     });
-    if (!ok) fail('NOT_FOUND', notFoundMessage);
+    if (!ok) fail('NOT_FOUND', NOT_FOUND_MESSAGES.dataDomain);
     return undefined;
   }),
 
@@ -294,7 +298,7 @@ export const dataDomainsRouter = os.router({
       input.params.id,
       input.body.projectFiles,
     );
-    if (!version) fail('NOT_FOUND', notFoundMessage);
+    if (!version) fail('NOT_FOUND', NOT_FOUND_MESSAGES.dataDomain);
     await enqueueDataDomainBuild(context.db, context.log, version.dataDomainId, version.id);
     return toVersion(version);
   }),
@@ -314,7 +318,7 @@ export const dataDomainsRouter = os.router({
       input.params.id,
       result.projectFiles,
     );
-    if (!version) fail('NOT_FOUND', notFoundMessage);
+    if (!version) fail('NOT_FOUND', NOT_FOUND_MESSAGES.dataDomain);
     await enqueueDataDomainBuild(context.db, context.log, version.dataDomainId, version.id);
     return toVersion(version);
   }),
@@ -327,7 +331,7 @@ export const dataDomainsRouter = os.router({
       input.params.id,
       input.body.versionId,
     );
-    if (!published) fail('NOT_FOUND', notFoundMessage);
+    if (!published) fail('NOT_FOUND', NOT_FOUND_MESSAGES.dataDomain);
     return toDataDomain(published);
   }),
 
@@ -441,7 +445,7 @@ export const dataDomainsRouter = os.router({
       instruction: input.body.instruction,
       createdBy: actorOf(context),
     });
-    if (!proposal) fail('NOT_FOUND', notFoundMessage);
+    if (!proposal) fail('NOT_FOUND', NOT_FOUND_MESSAGES.dataDomain);
     const queued = await enqueueDataDomainEnrichment(
       context.db,
       context.log,

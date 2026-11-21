@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { fail, NOT_FOUND_MESSAGES } from '@agentport/core';
 import { repo as pluginRepo } from '@agentport/db';
 import type { PluginFileInput } from '@agentport/shared';
 import type { Logger } from 'pino';
@@ -9,7 +9,6 @@ import { type Db, type PluginRow, pluginFiles, toApi, toPluginWrite } from './ap
 import { parsePluginFiles } from './parse.js';
 
 const repo = pluginRepo.plugins;
-const pluginMissing = '插件不存在，可能已被删除；请刷新后重试';
 type PluginWriteDependencies = {
   context: RequestContext;
   db: Db;
@@ -55,7 +54,7 @@ export async function adoptNativePlugin(
         ownerBusinessId: existing.ownerBusinessId,
         level: 'read',
       },
-      pluginMissing,
+      NOT_FOUND_MESSAGES.plugin,
     );
     const current = await pluginFiles(deps.db, existing.id);
     if (existing.version === parsed.input.version && sameFiles(current, parsedFiles)) {
@@ -70,7 +69,7 @@ export async function adoptNativePlugin(
         ownerBusinessId: existing.ownerBusinessId,
         level: 'manage',
       },
-      pluginMissing,
+      NOT_FOUND_MESSAGES.plugin,
     );
     const updated = await repo.replacePluginWithFiles(
       deps.db,
@@ -117,7 +116,7 @@ export async function adoptNativePlugin(
           ownerBusinessId: raced.ownerBusinessId,
           level: 'read',
         },
-        pluginMissing,
+        NOT_FOUND_MESSAGES.plugin,
       );
       return reusedPlugin(deps.db, raced);
     }

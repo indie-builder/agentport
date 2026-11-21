@@ -1,5 +1,5 @@
 import { skillsContract } from '@agentport/contract/skills';
-import { fail, parseSkillMd } from '@agentport/core';
+import { fail, NOT_FOUND_MESSAGES, parseSkillMd } from '@agentport/core';
 import { repo as skillRepo } from '@agentport/db';
 import type { PermissionId, ResourceAccessLevel, SkillWithAgentCount } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -18,9 +18,6 @@ const repo = skillRepo.skills;
 const filesRepo = skillRepo.skillFiles;
 const skillSlugConflictMessage = '该 slug 已被其他技能占用，请换一个';
 type SkillWrite = Parameters<typeof repo.createSkill>[1];
-function notFound() {
-  return fail('NOT_FOUND', '技能不存在，可能已被删除；请刷新后重试');
-}
 async function requireSkill(
   context: RequestContext,
   id: string,
@@ -28,18 +25,18 @@ async function requireSkill(
   level: ResourceAccessLevel,
 ) {
   const row = await repo.getSkill(context.db, id);
-  if (!row) return notFound();
+  if (!row) return fail('NOT_FOUND', NOT_FOUND_MESSAGES.skill);
   await authorizeResourceAccess(
     context,
     permissionId,
     { kind: 'skill', resourceId: row.id, ownerBusinessId: row.ownerBusinessId, level },
-    '技能不存在，可能已被删除；请刷新后重试',
+    NOT_FOUND_MESSAGES.skill,
   );
   return row;
 }
 async function conflictOrMissing(context: RequestContext, id: string, message: string) {
   if (await repo.getSkill(context.db, id)) return fail('CONFLICT', message);
-  return notFound();
+  return fail('NOT_FOUND', NOT_FOUND_MESSAGES.skill);
 }
 const os = implement(skillsContract).$context<RequestContext>();
 export const skillsRouter = os.router({
@@ -122,7 +119,7 @@ export const skillsRouter = os.router({
         patch,
         input.expectedUpdatedAt === undefined ? undefined : new Date(input.expectedUpdatedAt),
       );
-      if (!row) return notFound();
+      if (!row) return fail('NOT_FOUND', NOT_FOUND_MESSAGES.skill);
       await skillRepo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'skill.updated',
@@ -139,7 +136,7 @@ export const skillsRouter = os.router({
   delete: os.delete.handler(async ({ context, input: routeInput }) => {
     await requireSkill(context, routeInput.params.id, 'skills.delete', 'manage');
     const ok = await repo.deleteSkill(context.db, routeInput.params.id);
-    if (!ok) return notFound();
+    if (!ok) return fail('NOT_FOUND', NOT_FOUND_MESSAGES.skill);
     await skillRepo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'skill.deleted',
@@ -236,7 +233,7 @@ export const skillsRouter = os.router({
   deleteFile: os.deleteFile.handler(async ({ context, input: routeInput }) => {
     const skill = await requireSkill(context, routeInput.params.id, 'skills.files.write', 'manage');
     const ok = await filesRepo.deleteSkillFile(context.db, skill.id, routeInput.params.path);
-    if (!ok) return notFound();
+    if (!ok) return fail('NOT_FOUND', NOT_FOUND_MESSAGES.skill);
     await skillRepo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'skill.file.deleted',

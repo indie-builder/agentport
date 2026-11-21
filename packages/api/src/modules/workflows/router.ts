@@ -1,5 +1,5 @@
 import { workflowsContract } from '@agentport/contract/workflows';
-import { fail, parseWorkflowMeta } from '@agentport/core';
+import { fail, NOT_FOUND_MESSAGES, parseWorkflowMeta } from '@agentport/core';
 import { repo as allRepo } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { actorOf } from '../../http/access.js';
@@ -9,9 +9,6 @@ import { authorizedAgent } from '../agents/access.js';
 import { toApi, toWorkflowWrite } from './api.js';
 
 const repo = allRepo.workflows;
-function notFound() {
-  return fail('NOT_FOUND', '工作流不存在，可能已被删除；请刷新后重试');
-}
 function assertRootAgent(agent: { parentId: string | null }): void {
   if (agent.parentId !== null) {
     fail('INVALID_INPUT', '子智能体不能拥有工作流；工作流是 project 级能力，请在主智能体上配置');
@@ -70,7 +67,7 @@ export const workflowsRouter = os.router({
         return updated;
       }),
     );
-    if (!row) return notFound();
+    if (!row) return fail('NOT_FOUND', NOT_FOUND_MESSAGES.workflow);
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'agent.workflow.updated',
@@ -92,7 +89,7 @@ export const workflowsRouter = os.router({
         return true;
       }),
     );
-    if (!ok) return notFound();
+    if (!ok) return fail('NOT_FOUND', NOT_FOUND_MESSAGES.workflow);
     await allRepo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'agent.workflow.deleted',
