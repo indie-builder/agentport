@@ -21,6 +21,8 @@ const testCase: EvalCase = {
   prompt: 'Prompt',
   expectation: '',
   judgeMode: 'contains',
+  expectedTools: null,
+  forbiddenTools: null,
   createdAt: '2026-10-28T00:00:00Z',
 };
 

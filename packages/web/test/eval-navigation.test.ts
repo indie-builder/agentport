@@ -36,6 +36,8 @@ const testCase: EvalCase = {
   prompt: 'Original prompt',
   expectation: '',
   judgeMode: 'contains',
+  expectedTools: null,
+  forbiddenTools: null,
   createdAt: '2026-10-22T00:00:00Z',
 };
 
@@ -76,10 +78,12 @@ type MountOptions = {
   url?: string;
   runs?: EvalRunPage | ((query: RunsQuery) => Promise<EvalRunPage>);
   openDialog?: boolean;
+  testCase?: EvalCase;
 };
 
 async function mount(editing = false, options: MountOptions = {}) {
-  vi.spyOn(api, 'evalCases').mockResolvedValue(editing ? [testCase] : []);
+  const currentCase = options.testCase ?? testCase;
+  vi.spyOn(api, 'evalCases').mockResolvedValue(editing ? [currentCase] : []);
   const evalRuns = vi.spyOn(api, 'evalRuns');
   if (typeof options.runs === 'function') {
     evalRuns.mockImplementation(
@@ -92,7 +96,7 @@ async function mount(editing = false, options: MountOptions = {}) {
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },
   });
   for (const agent of ['agent-a', 'agent-b']) {
-    client.setQueryData(['eval-cases', agent], editing ? [testCase] : []);
+    client.setQueryData(['eval-cases', agent], editing ? [currentCase] : []);
   }
   client.setQueryData(
     ['agents'],
@@ -344,6 +348,99 @@ describe('evaluation draft navigation', () => {
         judgeMode: 'contains',
       }),
     );
+  });
+
+  it('backfills tool assertions into the edit dialog', async () => {
+    await mount(true, {
+      testCase: {
+        ...testCase,
+        expectedTools: ['mcp__knowledge__search', 'Read'],
+        forbiddenTools: ['Write'],
+      },
+    });
+    expect((document.getElementById('eval-expected-tools') as HTMLTextAreaElement).value).toBe(
+      'mcp__knowledge__search\nRead',
+    );
+    expect((document.getElementById('eval-forbidden-tools') as HTMLTextAreaElement).value).toBe(
+      'Write',
+    );
+  });
+
+  it('submits parsed tool assertions when creating a case', async () => {
+    const create = vi.spyOn(api, 'createEvalCase').mockResolvedValue(testCase);
+    await mount();
+    await fill('eval-name', 'Tool case');
+    await fill('eval-prompt', 'Search the knowledge base');
+    await fill('eval-expected-tools', ' mcp__knowledge__search , Read\nBash,Read ');
+    await fill('eval-forbidden-tools', 'Write\n\nBash');
+    await click('保存');
+    await vi.waitFor(() =>
+      expect(create).toHaveBeenCalledWith({
+        agentId: 'agent-a',
+        name: 'Tool case',
+        prompt: 'Search the knowledge base',
+        expectation: '',
+        judgeMode: 'contains',
+        expectedTools: ['mcp__knowledge__search', 'Read', 'Bash'],
+        forbiddenTools: ['Write', 'Bash'],
+      }),
+    );
+  });
+
+  it('leaves an unmodified imported tool assertion untouched when only the name changes', async () => {
+    const update = vi.spyOn(api, 'updateEvalCase').mockResolvedValue(testCase);
+    await mount(true, {
+      testCase: { ...testCase, forbiddenTools: ['Read,Write'] },
+    });
+    await fill('eval-name', 'Renamed case');
+    await click('保存');
+    await vi.waitFor(() =>
+      expect(update).toHaveBeenCalledWith(testCase.id, {
+        name: 'Renamed case',
+        prompt: 'Original prompt',
+        expectation: '',
+        judgeMode: 'contains',
+      }),
+    );
+  });
+
+  it('clears tool assertions by submitting empty lists while editing', async () => {
+    const update = vi.spyOn(api, 'updateEvalCase').mockResolvedValue(testCase);
+    await mount(true, {
+      testCase: { ...testCase, expectedTools: ['Read'], forbiddenTools: ['Write'] },
+    });
+    await fill('eval-expected-tools', '');
+    await fill('eval-forbidden-tools', '');
+    await click('保存');
+    await vi.waitFor(() =>
+      expect(update).toHaveBeenCalledWith(testCase.id, {
+        name: 'Original case',
+        prompt: 'Original prompt',
+        expectation: '',
+        judgeMode: 'contains',
+        expectedTools: [],
+        forbiddenTools: [],
+      }),
+    );
+  });
+
+  it('rejects more than 50 expected tools before submitting', async () => {
+    const create = vi.spyOn(api, 'createEvalCase');
+    await mount();
+    await fill('eval-name', 'Too many tools');
+    await fill('eval-prompt', 'Prompt');
+    await fill(
+      'eval-expected-tools',
+      Array.from({ length: 51 }, (_, index) => `tool-${index}`).join('\n'),
+    );
+    await click('保存');
+    await vi.waitFor(() => {
+      expect(document.getElementById('eval-expected-tools')?.getAttribute('aria-invalid')).toBe(
+        'true',
+      );
+      expect(document.getElementById('eval-expected-tools-error')?.textContent).not.toBe('');
+    });
+    expect(create).not.toHaveBeenCalled();
   });
 });
 

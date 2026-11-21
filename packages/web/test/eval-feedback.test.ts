@@ -57,6 +57,8 @@ const testCase: EvalCase = {
   name: 'Case A',
   prompt: 'Prompt',
   expectation: '',
+  expectedTools: null,
+  forbiddenTools: null,
   createdAt: '2026-10-28T00:00:00Z',
 };
 

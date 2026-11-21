@@ -1,3 +1,4 @@
+import { evalToolNamesSchema } from '@agentport/shared';
 import type { ComponentProps } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -23,18 +24,40 @@ import {
   SelectValue,
 } from '../../components/ui/select.js';
 import { Textarea } from '../../components/ui/textarea.js';
-import type { EvalCase, EvalCaseInput } from '../../lib/api.js';
+import type { EvalCase } from '../../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { useCreateEvalCase, useUpdateEvalCase } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
+import { parseToolList } from '../../lib/tool-list.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 
-const evalCaseFormSchema = z.object({
-  name: z.string().trim().min(1, '名称需要填写。').max(128, '名称不能超过 128 字。'),
-  prompt: z.string().min(1, '输入需要填写。').max(20_000, '输入不能超过 20,000 字。'),
-  expectation: z.string().max(5_000, '期望不能超过 5,000 字。'),
-  judgeMode: z.enum(['contains', 'llm']),
-});
+function toolListTextSchema(initial: string) {
+  return z
+    .string()
+    .max(20_000, '工具名列表过长。')
+    .superRefine((text, ctx) => {
+      if (text === initial) return;
+      const parsed = evalToolNamesSchema.safeParse(parseToolList(text));
+      if (!parsed.success) {
+        ctx.addIssue({
+          code: 'custom',
+          message: parsed.error.issues[0]?.message ?? '工具名列表不合法。',
+        });
+      }
+    })
+    .transform(parseToolList);
+}
+
+function evalCaseFormSchema(initial: { expectedTools: string; forbiddenTools: string }) {
+  return z.object({
+    name: z.string().trim().min(1, '名称需要填写。').max(128, '名称不能超过 128 字。'),
+    prompt: z.string().min(1, '输入需要填写。').max(20_000, '输入不能超过 20,000 字。'),
+    expectation: z.string().max(5_000, '期望不能超过 5,000 字。'),
+    judgeMode: z.enum(['contains', 'llm']),
+    expectedTools: toolListTextSchema(initial.expectedTools),
+    forbiddenTools: toolListTextSchema(initial.forbiddenTools),
+  });
+}
 
 const judgeOptions = [
   { value: 'contains', label: '包含匹配' },
@@ -56,16 +79,31 @@ export function CaseDialog({
   const onClose = dialog.close;
   const create = useCreateEvalCase();
   const update = useUpdateEvalCase();
-  const { register, handleSubmit, watch, control, formState } = useZodForm(evalCaseFormSchema, {
-    defaultValues: testCase
-      ? {
-          name: testCase.name,
-          prompt: testCase.prompt,
-          expectation: testCase.expectation,
-          judgeMode: testCase.judgeMode,
-        }
-      : { name: '', prompt: '', expectation: '', judgeMode: 'contains' },
-  });
+  const initialTools = {
+    expectedTools: testCase?.expectedTools?.join('\n') ?? '',
+    forbiddenTools: testCase?.forbiddenTools?.join('\n') ?? '',
+  };
+  const { register, handleSubmit, watch, control, formState } = useZodForm(
+    evalCaseFormSchema(initialTools),
+    {
+      defaultValues: testCase
+        ? {
+            name: testCase.name,
+            prompt: testCase.prompt,
+            expectation: testCase.expectation,
+            judgeMode: testCase.judgeMode,
+            ...initialTools,
+          }
+        : {
+            name: '',
+            prompt: '',
+            expectation: '',
+            judgeMode: 'contains',
+            expectedTools: '',
+            forbiddenTools: '',
+          },
+    },
+  );
   const { errors, isDirty } = formState;
   const values = watch();
   const judgeMode = values.judgeMode;
@@ -73,9 +111,17 @@ export function CaseDialog({
 
   const submit = handleSubmit((form) => {
     if (pending) return;
-    const input: EvalCaseInput = {
-      agentId: agentId ?? testCase?.agentId ?? '',
-      ...form,
+    const base = {
+      name: form.name,
+      prompt: form.prompt,
+      expectation: form.expectation,
+      judgeMode: form.judgeMode,
+      ...(values.expectedTools === initialTools.expectedTools
+        ? {}
+        : { expectedTools: form.expectedTools }),
+      ...(values.forbiddenTools === initialTools.forbiddenTools
+        ? {}
+        : { forbiddenTools: form.forbiddenTools }),
     };
     const done = (): void => {
       toastSuccess(testCase ? '用例已更新' : '用例已创建');
@@ -83,19 +129,14 @@ export function CaseDialog({
     };
     if (testCase) {
       update.mutate(
-        {
-          id: testCase.id,
-          input: {
-            name: input.name,
-            prompt: input.prompt,
-            expectation: input.expectation,
-            judgeMode: input.judgeMode,
-          },
-        },
+        { id: testCase.id, input: base },
         { onSuccess: done, onError: toastError },
       );
     } else {
-      create.mutate(input, { onSuccess: done, onError: toastError });
+      create.mutate(
+        { agentId: agentId ?? '', ...base },
+        { onSuccess: done, onError: toastError },
+      );
     }
   });
 
@@ -227,6 +268,60 @@ export function CaseDialog({
                   : '最小判定，不做语义判断；需要更严格时写更具体的片段。'}
               </FieldDescription>
               <FieldError id="eval-expectation-error">{errors.expectation?.message}</FieldError>
+            </Field>
+            <Field
+              className="gap-1.5"
+              data-invalid={Boolean(errors.expectedTools)}
+              data-disabled={pending}
+            >
+              <FieldLabel htmlFor="eval-expected-tools">期望工具</FieldLabel>
+              <Textarea
+                {...register('expectedTools')}
+                value={values.expectedTools}
+                id="eval-expected-tools"
+                disabled={pending}
+                rows={2}
+                aria-invalid={Boolean(errors.expectedTools)}
+                aria-describedby={
+                  errors.expectedTools
+                    ? 'eval-expected-tools-error eval-expected-tools-description'
+                    : 'eval-expected-tools-description'
+                }
+                placeholder="Read"
+              />
+              <FieldDescription id="eval-expected-tools-description">
+                每行或逗号分隔一个工具名；留空表示不约束。缺少这些工具时用例不通过。
+              </FieldDescription>
+              <FieldError id="eval-expected-tools-error">
+                {errors.expectedTools?.message}
+              </FieldError>
+            </Field>
+            <Field
+              className="gap-1.5"
+              data-invalid={Boolean(errors.forbiddenTools)}
+              data-disabled={pending}
+            >
+              <FieldLabel htmlFor="eval-forbidden-tools">禁止工具</FieldLabel>
+              <Textarea
+                {...register('forbiddenTools')}
+                value={values.forbiddenTools}
+                id="eval-forbidden-tools"
+                disabled={pending}
+                rows={2}
+                aria-invalid={Boolean(errors.forbiddenTools)}
+                aria-describedby={
+                  errors.forbiddenTools
+                    ? 'eval-forbidden-tools-error eval-forbidden-tools-description'
+                    : 'eval-forbidden-tools-description'
+                }
+                placeholder="Write"
+              />
+              <FieldDescription id="eval-forbidden-tools-description">
+                每行或逗号分隔一个工具名；留空表示不约束。调用这些工具时用例不通过。
+              </FieldDescription>
+              <FieldError id="eval-forbidden-tools-error">
+                {errors.forbiddenTools?.message}
+              </FieldError>
             </Field>
           </FieldGroup>
         </form>

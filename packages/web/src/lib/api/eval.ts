@@ -21,6 +21,8 @@ export interface EvalCase {
   prompt: string;
   expectation: string;
   judgeMode: EvalJudgeMode;
+  expectedTools: string[] | null;
+  forbiddenTools: string[] | null;
   createdAt: string;
 }
 
@@ -30,6 +32,8 @@ export interface EvalCaseInput {
   prompt: string;
   expectation: string;
   judgeMode: EvalJudgeMode;
+  expectedTools?: string[];
+  forbiddenTools?: string[];
 }
 
 export interface EvalCaseFromRunInput {
