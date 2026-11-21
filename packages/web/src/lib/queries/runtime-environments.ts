@@ -7,9 +7,17 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import { api } from '../api.js';
 import { useCursorList } from './shared.js';
 
+export const runtimeEnvironmentKeys = {
+  all: ['runtime-environments'] as const,
+  detail: (id: string) => ['runtime-environments', id] as const,
+  versions: (id: string) => ['runtime-environments', id, 'versions'] as const,
+  version: (id: string, versionId: string) =>
+    ['runtime-environments', id, 'versions', versionId] as const,
+};
+
 function runtimeEnvironmentQuery(id: string) {
   return queryOptions<RuntimeEnvironment>({
-    queryKey: ['runtime-environments', id],
+    queryKey: runtimeEnvironmentKeys.detail(id),
     queryFn: () => api.runtimeEnvironment(id),
   });
 }
@@ -25,7 +33,7 @@ export function buildShouldPoll(
 
 function runtimeEnvironmentVersionsQuery(id: string) {
   return queryOptions<RuntimeEnvironmentVersionSummary[]>({
-    queryKey: ['runtime-environments', id, 'versions'],
+    queryKey: runtimeEnvironmentKeys.versions(id),
     queryFn: () => api.runtimeEnvironmentVersions(id),
     refetchInterval: (query) => (buildShouldPoll(query.state.data) ? 2_000 : false),
   });
@@ -33,7 +41,7 @@ function runtimeEnvironmentVersionsQuery(id: string) {
 
 function runtimeEnvironmentVersionQuery(id: string, versionId: string) {
   return queryOptions<RuntimeEnvironmentVersion>({
-    queryKey: ['runtime-environments', id, 'versions', versionId],
+    queryKey: runtimeEnvironmentKeys.version(id, versionId),
     queryFn: () => api.runtimeEnvironmentVersion(id, versionId),
     enabled: Boolean(versionId),
     refetchInterval: (query) =>
@@ -43,7 +51,7 @@ function runtimeEnvironmentVersionQuery(id: string, versionId: string) {
 
 export function useRuntimeEnvironments(enabled = true) {
   return useCursorList({
-    queryKey: ['runtime-environments'],
+    queryKey: runtimeEnvironmentKeys.all,
     queryFn: (cursor, signal) => api.runtimeEnvironments(cursor, signal),
     enabled,
     select: (data) => data.pages.flatMap((page) => page.items ?? []),
@@ -66,7 +74,7 @@ export function useCreateRuntimeEnvironment() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: api.createRuntimeEnvironment,
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['runtime-environments'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: runtimeEnvironmentKeys.all }),
   });
 }
 
@@ -75,7 +83,7 @@ export function useUpdateRuntimeEnvironment() {
   return useMutation({
     mutationFn: (vars: { id: string; patch: Parameters<typeof api.updateRuntimeEnvironment>[1] }) =>
       api.updateRuntimeEnvironment(vars.id, vars.patch),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['runtime-environments'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: runtimeEnvironmentKeys.all }),
   });
 }
 
@@ -83,7 +91,7 @@ export function useDeleteRuntimeEnvironment() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteRuntimeEnvironment(id),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['runtime-environments'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: runtimeEnvironmentKeys.all }),
   });
 }
 
@@ -91,7 +99,7 @@ export function useBuildRuntimeEnvironment() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: api.buildRuntimeEnvironment,
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['runtime-environments'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: runtimeEnvironmentKeys.all }),
   });
 }
 
@@ -100,6 +108,6 @@ export function usePublishRuntimeEnvironment() {
   return useMutation({
     mutationFn: (vars: { id: string; versionId: string }) =>
       api.publishRuntimeEnvironment(vars.id, vars.versionId),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['runtime-environments'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: runtimeEnvironmentKeys.all }),
   });
 }
