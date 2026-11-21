@@ -1,10 +1,11 @@
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   type AsrProfile,
   embedImages,
   embedTexts,
+  ensureKnowledgeBlob,
   KnowledgeModelError,
   knowledgeBlobPath,
   knowledgeBlobsRoot,
@@ -16,7 +17,7 @@ import {
   segmentForSearch,
   sha256Hex,
 } from '@agentport/core';
-import { type Database, newId, repo, schema } from '@agentport/db';
+import { type Database, repo, schema } from '@agentport/db';
 import type {
   KnowledgeImageProcessing,
   KnowledgeLocator,
@@ -280,23 +281,6 @@ async function ensureJobRunning(
   checkAborted(signal);
   const job = await repo.knowledge.getJob(deps.db, jobId);
   if (job?.status !== 'running') throw new KnowledgeCancelled();
-}
-
-async function storeBlob(knowledgeDir: string, data: Buffer): Promise<string> {
-  const sha = sha256Hex(data);
-  const target = knowledgeBlobPath(knowledgeDir, sha);
-  const existing = await stat(target).catch(() => null);
-  if (existing) return sha;
-  await mkdir(dirname(target), { recursive: true });
-  const temp = `${target}.tmp-${newId('knowledgeJob')}`;
-  try {
-    await writeFile(temp, data);
-    await rename(temp, target);
-  } catch (err) {
-    await rm(temp, { force: true }).catch(() => {});
-    throw err;
-  }
-  return sha;
 }
 
 async function writeParsed(
@@ -911,7 +895,8 @@ async function ingestContent(
   const client = await embeddingClient(deps, base.embeddingProfileId);
   const settings = knowledgeBaseSettingsSchema.parse(base.settings);
 
-  const blobSha = await storeBlob(deps.knowledgeDir, input.data);
+  const blobSha = sha256Hex(input.data);
+  await ensureKnowledgeBlob(deps.knowledgeDir, blobSha, input.data);
   await setStep(deps, input.jobId, 'parsing', 10);
   const audio = input.markdown === undefined ? await resolveAsrProfile(deps, base) : undefined;
   const parsed: IngestionDocument =
