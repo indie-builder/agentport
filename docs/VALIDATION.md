@@ -119,7 +119,7 @@ zod、oRPC 与 Hono 的校验错误由 `packages/api/src/http/errors.ts` 统一�
 | `POST /api/knowledge/bases/:id/documents/manual` | `{ title, content, folderId, tags }` | 正文最多 200,000 字符；无路由专属 `bodyLimit`，请求体受全局 `/api/*` JSON 上限 1 MiB 约束；`manual-documents.ts` 另校验正文 UTF-8 字节不超过 2 MiB |
 | `POST /api/knowledge/bases/:id/documents/url` | `{ url, title?, folderId? }` | URL 先经 `assertSafeUrl`；重定向直接拒绝（要求填最终地址），只接受可解析的文本类 MIME，响应上限 32 MiB |
 | `POST /api/knowledge/bases/import` | `application/zip` 二进制 | 入口 `bodyLimit` 64 MiB；包内路径、条目数、解压总量与 sha256 在解压前/后分别校验，拒绝绝对路径、`..`、链接和重复成员；`manifest.json` 是开放 JSON，由 `package.ts` 在 handler 内 `safeParse` 收窄 |
-| 内置知识 MCP 工具参数 | MCP JSON，非 oRPC 过程 | `modules/knowledge/mcp.ts` 在 handler 内 `safeParse` 工具参数：这里没有契约 input 可挂，且必须把非法参数转成工具错误而不是 HTTP 400 |
+| 内置知识 MCP 工具参数 | MCP JSON，非 oRPC 过程 | `modules/knowledge/mcp.ts` 把 `@agentport/shared` 的 zod schema 经 `z.toJSONSchema` 推导后注册为工具输入；SDK 先按该 schema 校验，非法参数返回 `Input validation error` 工具错误而不是 HTTP 400；handler 再用同一 schema `safeParse`，完成默认值、`trim()` 与类型收窄 |
 
 知识包在文件写入和导入事务前校验清单引用及唯一性：库内标签名、文档内版本号、版本内分块序号、Wiki 页内版本号与版本 ID、同页非空分块引用不得重复；各集合在所属作用域内独立判断。重复值返回 `INVALID_INPUT`，不等数据库约束冲突后再报错。
 

@@ -523,8 +523,8 @@ export type KnowledgeChunk = z.infer<typeof knowledgeChunkSchema>;
 export const knowledgeTargetKindSchema = z.enum(['document', 'faq', 'wiki']);
 
 export const knowledgeTargetSchema = z.object({
-  kind: knowledgeTargetKindSchema,
-  id: z.string(),
+  kind: knowledgeTargetKindSchema.describe('Target kind.'),
+  id: z.string().describe('Target ID.'),
 });
 
 export type KnowledgeTarget = z.infer<typeof knowledgeTargetSchema>;
@@ -539,19 +539,54 @@ export const knowledgeSearchScoresSchema = z.object({
 export type KnowledgeSearchScores = z.infer<typeof knowledgeSearchScoresSchema>;
 
 export const knowledgeSearchQuerySchema = z.object({
-  q: z.string().trim().min(1).max(500),
-  kinds: z.array(knowledgeTargetKindSchema).min(1).default(['document', 'faq', 'wiki']),
-  folders: z.array(z.string()).default([]),
-  tags: z.array(z.string()).default([]),
-  limit: z.number().int().min(1).max(50).default(10),
-  rerank: z.boolean().default(true),
-  minVectorScore: z.number().min(-1).max(1).default(0.3),
-  diagnostics: z.boolean().default(false),
+  q: z.string().trim().min(1).max(500).describe('Search query text.'),
+  kinds: z
+    .array(knowledgeTargetKindSchema)
+    .min(1)
+    .default(['document', 'faq', 'wiki'])
+    .describe('Source kinds to search; omit to include document, FAQ and wiki.'),
+  folders: z.array(z.string()).default([]).describe('Restrict the search to these folders.'),
+  tags: z.array(z.string()).default([]).describe('Return only entries carrying these tags.'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(10)
+    .describe('Maximum number of hits (default 10).'),
+  rerank: z.boolean().default(true).describe('Reorder hits with the rerank model (default true).'),
+  minVectorScore: z
+    .number()
+    .min(-1)
+    .max(1)
+    .default(0.3)
+    .describe(
+      'Minimum similarity for text-vector recall; keyword hits and the image-vector path are unaffected (default 0.3).',
+    ),
+  diagnostics: z
+    .boolean()
+    .default(false)
+    .describe('Include retrieval diagnostics; management REST only.'),
   /** 只筛选 FAQ，不排除可推荐条目；文档/Wiki 不受影响。 */
-  onlyRecommended: z.boolean().default(false),
+  onlyRecommended: z
+    .boolean()
+    .default(false)
+    .describe('Keep only recommended FAQ entries; documents and wiki pages are unaffected.'),
   /** FAQ 组排到普通结果前；默认不改变既有混合排序。 */
-  faqPriority: z.boolean().default(false),
-  faqDirectAnswerThreshold: z.number().min(-1).max(1).default(0.9),
+  faqPriority: z
+    .boolean()
+    .default(false)
+    .describe(
+      'Place FAQ hits before other results and enable directAnswer when retrieval is not degraded (default false).',
+    ),
+  faqDirectAnswerThreshold: z
+    .number()
+    .min(-1)
+    .max(1)
+    .default(0.9)
+    .describe(
+      'Raw-question cosine threshold for directAnswer; requires faqPriority=true and non-degraded retrieval (default 0.9).',
+    ),
 });
 
 export type KnowledgeSearchQuery = z.infer<typeof knowledgeSearchQuerySchema>;
@@ -1028,8 +1063,11 @@ export const knowledgeJobPayloadSchema = z.discriminatedUnion('type', [
 export type KnowledgeJobPayload = z.infer<typeof knowledgeJobPayloadSchema>;
 
 export const knowledgeReadImageInputSchema = z.object({
-  chunkId: z.string().min(1),
-  format: z.enum(['description', 'image']).default('description'),
+  chunkId: z.string().min(1).describe('Image chunk ID from a prior knowledge_search hit.'),
+  format: z
+    .enum(['description', 'image'])
+    .default('description')
+    .describe('description (default) returns text; image returns the original image.'),
 });
 
 export const knowledgeReadImageResultSchema = z.object({
@@ -1062,11 +1100,29 @@ export const knowledgeSearchResultSchema = z.object({
 });
 
 export const knowledgeReadInputSchema = z.object({
-  target: knowledgeTargetSchema,
-  versionId: z.string().optional(),
+  target: knowledgeTargetSchema.describe(
+    'Target to read; kind is document, faq or wiki and id comes from search/list results.',
+  ),
+  versionId: z
+    .string()
+    .optional()
+    .describe(
+      'Must equal the current effective version, otherwise VERSION_NOT_CURRENT is returned; omit to read the current effective version.',
+    ),
   /** Unicode code point 下标。 */
-  offset: z.number().int().nonnegative().default(0),
-  limit: z.number().int().min(1).max(20_000).default(10_000),
+  offset: z
+    .number()
+    .int()
+    .nonnegative()
+    .default(0)
+    .describe('Start position (Unicode code-point index).'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(20_000)
+    .default(10_000)
+    .describe('Maximum characters to return.'),
 });
 
 export const knowledgeReadResultSchema = z.object({
@@ -1082,9 +1138,13 @@ export const knowledgeReadResultSchema = z.object({
 });
 
 export const knowledgeListInputSchema = z.object({
-  kinds: z.array(knowledgeTargetKindSchema).min(1).default(['document', 'faq', 'wiki']),
-  cursor: z.string().optional(),
-  limit: z.number().int().min(1).max(50).default(20),
+  kinds: z
+    .array(knowledgeTargetKindSchema)
+    .min(1)
+    .default(['document', 'faq', 'wiki'])
+    .describe('Source kinds to list; omit to include document, FAQ and wiki.'),
+  cursor: z.string().optional().describe('Cursor from the previous page; omit for the first page.'),
+  limit: z.number().int().min(1).max(50).default(20).describe('Maximum items per page.'),
 });
 
 export const knowledgeListResultSchema = z.object({
