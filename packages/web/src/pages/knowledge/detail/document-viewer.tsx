@@ -53,13 +53,16 @@ import {
 import { cn } from '../../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../../lib/dialog-guard.js';
 import { formatRelative } from '../../../lib/format.js';
+import { knowledgeJobErrorText } from '../../../lib/knowledge-errors.js';
 import {
+  isTerminalKnowledgeJob,
   useCreateKnowledgeChunk,
   useDeleteKnowledgeChunk,
   useGenerateKnowledgeDocumentSummary,
   useGenerateKnowledgeDocumentTags,
   useKnowledgeDocumentChunks,
   useKnowledgeDocumentDiff,
+  useKnowledgeDocumentJob,
   useKnowledgeDocumentVersions,
   useKnowledgeMarkdown,
   useKnowledgeVersionDetails,
@@ -141,6 +144,10 @@ export function DocumentViewer({
   const publish = usePublishKnowledgeDocumentVersion(document.baseId);
   const generateSummary = useGenerateKnowledgeDocumentSummary(document.baseId);
   const generateTags = useGenerateKnowledgeDocumentTags(document.baseId);
+  const [tagJobId, setTagJobId] = useState<string | null>(null);
+  const tagJob = useKnowledgeDocumentJob(document.baseId, document.id, tagJobId);
+  const tagGenerating =
+    generateTags.isPending || (tagJobId !== null && !isTerminalKnowledgeJob(tagJob.data?.status));
   const toggle = useUpdateKnowledgeChunk(document.baseId, document.id, versionId);
   const remove = useDeleteKnowledgeChunk(document.baseId, document.id, versionId);
   const [mode, setMode] = useState<'read' | 'source'>('read');
@@ -167,6 +174,15 @@ export function DocumentViewer({
   const summaryBusy =
     document.summaryStatus === 'pending' || document.summaryStatus === 'generating';
   const summaryVersion = isCurrent && versionId !== null && versionId === document.currentVersionId;
+  useEffect(() => {
+    if (tagJobId === null || !isTerminalKnowledgeJob(tagJob.data?.status)) return;
+    if (tagJob.data?.status === 'succeeded') {
+      toastSuccess('标签已生成');
+    } else {
+      toastError(new Error(knowledgeJobErrorText(tagJob.data?.error) ?? '标签生成失败'));
+    }
+    setTagJobId(null);
+  }, [tagJobId, tagJob.data?.status, tagJob.data?.error]);
 
   return (
     <>
@@ -366,16 +382,16 @@ export function DocumentViewer({
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={generateTags.isPending}
-                    aria-busy={generateTags.isPending}
+                    disabled={tagGenerating}
+                    aria-busy={tagGenerating}
                     onClick={() =>
                       generateTags.mutate(document.id, {
-                        onSuccess: () => toastSuccess('已提交标签生成'),
+                        onSuccess: (data) => setTagJobId(data.jobId),
                         onError: toastError,
                       })
                     }
                   >
-                    {generateTags.isPending
+                    {tagGenerating
                       ? '生成中…'
                       : document.tags.length > 0
                         ? '重新生成标签'

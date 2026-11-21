@@ -226,4 +226,38 @@ describe('runKnowledgeTagging', () => {
 
     expect(await repo.knowledge.getDocumentTagRows(db, seeded.documentId)).toEqual(before);
   });
+
+  it('rejects the result and writes nothing when the current version changed mid-run', async () => {
+    const seeded = await makeDocument('正文。');
+    const nextVersion = await repo.knowledge.createVersion(db, {
+      documentId: seeded.documentId,
+      blobSha256: 'c'.repeat(64),
+      markdownSha256: 'd'.repeat(64),
+      originalFilename: 'tagging.md',
+      mimeType: 'text/markdown',
+      sizeBytes: 6,
+      sourceRevision: null,
+      parseStatus: 'parsed',
+      pageMap: [],
+      images: [],
+      embeddingProfileId: seeded.profileId,
+    });
+    const queryFn: TaggingQueryFn = () => {
+      return (async function* (): AsyncGenerator<SDKMessage, void> {
+        await repo.knowledge.setCurrentVersion(db, seeded.documentId, nextVersion.id);
+        yield {
+          type: 'result',
+          subtype: 'success',
+          is_error: false,
+          result: '["新一","新二","新三"]',
+        } as unknown as SDKMessage;
+      })();
+    };
+
+    await expect(
+      runKnowledgeTagging(await startTagJob(seeded.documentId), deps(queryFn)),
+    ).rejects.toThrow('文档版本已变化，标签未更新');
+
+    expect(await repo.knowledge.getDocumentTagRows(db, seeded.documentId)).toEqual([]);
+  });
 });

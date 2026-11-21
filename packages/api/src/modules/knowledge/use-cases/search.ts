@@ -288,12 +288,7 @@ export async function batchDocuments(
             : input.tagMode === 'remove'
               ? currentNames.filter((name) => !tags.includes(name))
               : [...new Set([...currentNames, ...tags])];
-        const rows = await repo.knowledge.upsertTags(deps.db, base.id, names);
-        await repo.knowledge.setDocumentTags(
-          deps.db,
-          document.id,
-          rows.map((tag) => tag.id),
-        );
+        await repo.knowledge.reconcileDocumentTags(deps.db, document.id, base.id, names);
         results.push({ documentId, status: 'succeeded' });
       } else if (input.action === 'delete') {
         await repo.knowledge.markWikiStaleByDocument(deps.db, document.id);

@@ -126,6 +126,41 @@ export async function setDocumentTags(
   });
 }
 
+export async function reconcileDocumentTags(
+  db: Database,
+  documentId: string,
+  baseId: string,
+  names: string[],
+): Promise<void> {
+  const targetRows = await upsertTags(db, baseId, names);
+  const targetIds = new Set(targetRows.map((row) => row.id));
+  await db.transaction(async (tx) => {
+    const current = await tx
+      .select({ tagId: knowledgeDocumentTags.tagId })
+      .from(knowledgeDocumentTags)
+      .where(eq(knowledgeDocumentTags.documentId, documentId));
+    const currentIds = new Set(current.map((row) => row.tagId));
+    const removed = [...currentIds].filter((tagId) => !targetIds.has(tagId));
+    if (removed.length > 0) {
+      await tx
+        .delete(knowledgeDocumentTags)
+        .where(
+          and(
+            eq(knowledgeDocumentTags.documentId, documentId),
+            inArray(knowledgeDocumentTags.tagId, removed),
+          ),
+        );
+    }
+    const added = [...targetIds].filter((tagId) => !currentIds.has(tagId));
+    if (added.length > 0) {
+      await tx
+        .insert(knowledgeDocumentTags)
+        .values(added.map((tagId) => ({ documentId, tagId, origin: 'manual' as const })))
+        .onConflictDoNothing();
+    }
+  });
+}
+
 export async function replaceAutoTags(
   db: Database,
   documentId: string,

@@ -72,6 +72,7 @@ export async function runKnowledgeTagging(job: JobRow, deps: TaggingDeps): Promi
     throw new Error('文档已停用，不能生成标签');
   }
   if (!document.currentVersionId) throw new Error('文档还没有可用版本，不能生成标签');
+  const versionId = document.currentVersionId;
   if (!(await repo.knowledge.isDocumentReadable(db, document.id))) {
     throw new Error('文档当前不可读（来源未授权或不在范围）');
   }
@@ -113,6 +114,11 @@ export async function runKnowledgeTagging(job: JobRow, deps: TaggingDeps): Promi
   const names = result.tags;
   if (names === null) throw new Error('SDK 没有返回标签');
   if (names.length < 3) throw new Error('SDK 返回的有效标签少于 3 个');
+
+  const latest = await repo.knowledge.getDocument(db, document.id);
+  if (latest?.currentVersionId !== versionId) {
+    throw new Error('文档版本已变化，标签未更新');
+  }
 
   const rows = await repo.knowledge.upsertTags(db, document.baseId, names);
   await repo.knowledge.replaceAutoTags(
