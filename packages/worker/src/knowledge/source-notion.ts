@@ -5,6 +5,7 @@ import {
   fetchChecked,
   fetchJson,
   readBytesCapped,
+  rethrowAuth,
   SourceAuthError,
   sourceNetworkOptions,
   validateSourceUrl,
@@ -766,7 +767,7 @@ async function emitBlockAttachment(
       refresh: () => fetchBlockFile(ctx, block),
     });
   } catch (err) {
-    if (err instanceof SourceAuthError) throw err;
+    rethrowAuth(err);
     rethrowAbort(err, ctx.signal);
     ctx.failures.push(failureOf(externalId, title, err, true));
   }
@@ -812,7 +813,7 @@ async function emitPropertyFiles(
           refresh,
         });
       } catch (err) {
-        if (err instanceof SourceAuthError) throw err;
+        rethrowAuth(err);
         rethrowAbort(err, ctx.signal);
         ctx.failures.push(failureOf(externalId, file.name ?? `${name} ${index}`, err, true));
       }
@@ -850,7 +851,7 @@ async function walkPage(
   try {
     page = await completePageProperties(ctx, pageId, page);
   } catch (err) {
-    if (err instanceof SourceAuthError) throw err;
+    rethrowAuth(err);
     rethrowAbort(err, ctx.signal);
     ctx.failures.push(failureOf(externalId, pageTitle(page) || pageId, err, true));
     return;
@@ -879,7 +880,7 @@ async function walkPage(
     }
     markdown = response.markdown;
   } catch (err) {
-    if (err instanceof SourceAuthError) throw err;
+    rethrowAuth(err);
     rethrowAbort(err, ctx.signal);
     ctx.failures.push(failureOf(externalId, title, err, true));
   }
@@ -901,7 +902,7 @@ async function walkPage(
   try {
     blocks = await collectBlocks(ctx, pageId);
   } catch (err) {
-    if (err instanceof SourceAuthError) throw err;
+    rethrowAuth(err);
     rethrowAbort(err, ctx.signal);
     ctx.failures.push(failureOf(externalId, title, err, true));
     return;

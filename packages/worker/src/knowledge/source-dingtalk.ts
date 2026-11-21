@@ -7,6 +7,7 @@ import {
   SourceItemError as ItemError,
   readBytesCapped,
   redactUrls,
+  rethrowAuth,
   SourceAuthError,
   safeDownloadHeaders,
   sourceNetworkOptions,
@@ -361,7 +362,7 @@ async function readUploadedDocument(
       const info = await requestDownloadInfo(auth, storage, signal);
       return await downloadSigned(config, info, signal);
     } catch (err) {
-      if (err instanceof SourceAuthError) throw err;
+      rethrowAuth(err);
       if (err instanceof ItemError || isAbort(err, signal)) throw err;
       lastError = err;
     }
@@ -751,7 +752,7 @@ async function emitNode(
       );
     }
   } catch (err) {
-    if (err instanceof SourceAuthError) throw err;
+    rethrowAuth(err);
     if (isAbort(err, signal)) throw err;
     failures.push(failureOf(externalId, name, err));
   }

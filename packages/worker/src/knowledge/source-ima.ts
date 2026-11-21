@@ -9,6 +9,7 @@ import {
   SourceItemError as ItemError,
   readBytesCapped,
   redactUrls,
+  rethrowAuth,
   SourceAuthError,
   safeDownloadHeaders,
   sourceNetworkOptions,
@@ -447,7 +448,7 @@ async function readMedia(
     });
     return undefined;
   } catch (err) {
-    if (err instanceof SourceAuthError) throw err;
+    rethrowAuth(err);
     if (isAbort(err, signal)) throw err;
     failures.push(failureOf(externalId, candidate.title, err));
     return undefined;

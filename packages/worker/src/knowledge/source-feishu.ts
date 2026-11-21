@@ -26,6 +26,7 @@ import {
   SourceTruncatedError,
   snapshotOf,
   sourceCursorSchema,
+  titleWithExtension,
 } from './source-utils.js';
 
 /** Documented Feishu credential/token failures; extend only with codes Feishu documents as auth. */
@@ -440,10 +441,6 @@ function waitForExportPoll(signal: AbortSignal | undefined): Promise<void> {
   });
 }
 
-function withExtension(title: string, extension: string): string {
-  return title.toLowerCase().endsWith(`.${extension}`) ? title : `${title}.${extension}`;
-}
-
 /** 下载响应里的真实文件名；`filename*=`（RFC 5987）优先于普通 `filename=`。 */
 function dispositionFilename(disposition: string | null): string | undefined {
   if (!disposition) return undefined;
@@ -806,7 +803,7 @@ export async function readFeishu(
             signal,
             `feishu drive ${file.token}`,
           );
-          const title = withExtension(baseTitle, exported.extension);
+          const title = titleWithExtension(baseTitle, exported.extension);
           items.push({
             externalId,
             title,
@@ -883,7 +880,7 @@ export async function readFeishu(
             signal,
             `feishu wiki ${node.node_token}`,
           );
-          const title = withExtension(baseTitle, exported.extension);
+          const title = titleWithExtension(baseTitle, exported.extension);
           items.push({
             externalId,
             title,
