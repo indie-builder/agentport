@@ -22,7 +22,7 @@
 | `JWT_SECRET` | 是 | — | api | better-auth 会话签名密钥（历史命名，不是 JWT），≥32 字符 |
 | `CORS_ORIGINS` | 否 | `http://localhost:5173` | api | 逗号分隔的浏览器 Origin allowlist；生产填实际访问域名（如 `https://agentport.example.com`），不要用 `*`。本机 Portless 可加通配符 `https://*.agentport.localhost`（仅 HTTPS 默认端口），一次覆盖变化的 worktree 子域名，精确的 `https://agentport.localhost` 仍保留；生产只有确实要覆盖子域名时才用通配符 |
 | `SELF_URL` | 否 | `http://127.0.0.1:3000` | api | generated server「测试连接」时访问的平台自身地址 |
-| `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 队列并发数；只限制同时执行的 run，热空闲的会话容器不计入该并发 |
+| `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 与 `sandbox-probes` 队列并发数；对 runs 只限制同时执行的 run，热空闲的会话容器不计入该并发 |
 | `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | **不是执行超时**。真实执行超时取该智能体的 `timeoutMs`（默认 `600000`）；本变量只作为孤儿 run 对账的时间窗口：queued run 超过 `AGENT_TIMEOUT_MS` + 5 分钟宽限后先探测队列，job 消失或已终态才置 failed；running run 从 `startedAt` 按该智能体当前配置的 `timeout_ms` + 5 分钟宽限判定。两者每 5 分钟扫描，通常 15–20 分钟收敛，不是保证期限 |
 
 以下变量不在 schema 中，由代码直接读 `process.env` 或只由 compose 使用：
@@ -59,7 +59,7 @@
 | `ANTHROPIC_BASE_URL` | 否 | — | worker、api | 环境上游的自建网关地址，容器内不可达的 loopback 由 worker 改写为 `host.docker.internal`；api 读取同一地址计算审批目的地 |
 | `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | 仅用于孤儿 run 对账：queued run 超过该值 + 5 分钟宽限且队列探测确认 job 消失/已终态才置 failed；running run 从 `startedAt` 按该智能体当前配置的 `timeout_ms` + 5 分钟宽限判定。两者每 5 分钟扫描，通常 15–20 分钟收敛，不是保证期限。不是执行超时，执行取 `agent.timeoutMs`（默认 `600000`） |
 | `SCHEDULE_RECONCILE_MS` | 否 | `300000` | worker | 定时任务对账 tick 间隔（毫秒）；e2e 设为 `1000` 以加快触发 |
-| `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 队列并发数；只限制同时执行的 run，正常完成或成功取消后的热空闲会话容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内继续占用资源 |
+| `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 与 `sandbox-probes` 队列并发数；对 runs 只限制同时执行的 run，正常完成或成功取消后的热空闲会话容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内继续占用资源 |
 
 **配置入口与容器 env 不同。** worker 在 `MODEL_PROXY_PORT`（默认 3426）启动模型凭证代理（D-17）。真实凭证留在 worker 进程，沙盒每轮只拿到 `ANTHROPIC_BASE_URL=<代理地址>` 与短期 `ANTHROPIC_AUTH_TOKEN=run_...`（`ANTHROPIC_API_KEY` 置空）。代理要求 DB hash 匹配、run 状态为 `running`，且 token 已由本进程签发。run 结束即撤销内存中的 token 并尝试清空 DB hash，即使容器清理失败也会撤销。
 

@@ -19,11 +19,10 @@ import {
   sandboxProbeOutputSchema,
   sandboxProbeTaskSchema,
 } from '@agentport/shared';
-import { createBunRedisClient, Worker } from 'bullmq';
-import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import type { Config } from './config.js';
 import { createWorkerLogger } from './logger.js';
+import { startRedisWorker } from './queue-worker.js';
 import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
 import { runSandboxTask, SANDBOX_TASK_OUTPUT_MAX_BYTES } from './sandbox/one-shot.js';
@@ -221,30 +220,31 @@ export async function registerSandboxProbe(
     workspacesDir: config.WORKSPACES_DIR,
     hostWorkspacesDir: config.HOST_WORKSPACES_DIR ?? config.WORKSPACES_DIR,
     secretKey: config.APP_SECRET_KEY,
-    closing: closing.signal,
   };
 
-  const connection = createBunRedisClient(new RedisClient(config.REDIS_URL));
-  const worker = new Worker<SandboxProbeJob>(
-    SANDBOX_PROBES_QUEUE,
-    async (job) => {
+  const worker = startRedisWorker<SandboxProbeJob>({
+    queue: SANDBOX_PROBES_QUEUE,
+    redisUrl: config.REDIS_URL,
+    logger: deps.logger,
+    failureMessage: 'sandbox probe job failed',
+    concurrency: config.AGENT_MAX_CONCURRENT,
+    externalSignal: closing.signal,
+    processor: (signal) => async (job) => {
       const parsed = sandboxProbeJobSchema.safeParse(job.data);
       if (!parsed.success) throw new Error('invalid sandbox probe payload');
       return runSandboxProbe(
-        deps,
+        { ...deps, closing: signal },
         parsed.data.serverId,
         undefined,
         parsed.data.runtimeEnvironmentId ?? null,
       );
     },
-    { connection, concurrency: config.AGENT_MAX_CONCURRENT },
-  );
+  });
 
   return {
     close: async () => {
       closing.abort();
-      const closed = worker.close().finally(() => connection.quit());
-      const results = await Promise.allSettled([closed, provider.destroyAll?.()]);
+      const results = await Promise.allSettled([worker.close(), provider.destroyAll?.()]);
       await handle.client.close();
       const failures = results.flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : [],
