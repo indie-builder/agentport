@@ -558,6 +558,44 @@ async function requestAutoSummary(
   }
 }
 
+async function requestAutoTag(
+  deps: KnowledgeDeps,
+  base: KnowledgeBaseRow,
+  document: KnowledgeDocumentRow,
+): Promise<void> {
+  if (document.contentKind !== 'document') return;
+  if (base.settings.autoTag !== true) return;
+  if (!deps.summaryModel || !deps.onSummaryJobs) return;
+  if (!document.currentVersionId) return;
+  const pending = await deps.db
+    .select({ id: schema.knowledgeJobs.id })
+    .from(schema.knowledgeJobs)
+    .where(
+      and(
+        eq(schema.knowledgeJobs.documentId, document.id),
+        eq(schema.knowledgeJobs.type, 'tag_generate'),
+        inArray(schema.knowledgeJobs.status, ['queued', 'running']),
+      ),
+    )
+    .limit(1);
+  if (pending.length > 0) return;
+  const job = await repo.knowledge.createJob(deps.db, {
+    type: 'tag_generate',
+    baseId: base.id,
+    documentId: document.id,
+    sourceId: null,
+    payload: { type: 'tag_generate', baseId: base.id, documentId: document.id },
+  });
+  try {
+    await deps.onSummaryJobs({ baseId: base.id, jobIds: [job.id] });
+  } catch (err) {
+    deps.logger.warn(
+      { err, baseId: base.id, jobIds: [job.id] },
+      'tag job enqueue failed; awaiting reconcile',
+    );
+  }
+}
+
 function imageRefOf(image: ParsedImage) {
   return { name: image.name, mimeType: image.mimeType, page: image.page };
 }
@@ -1019,6 +1057,7 @@ async function ingestContent(
   });
   await linkWikiAfterIngest(deps, base, document);
   await requestAutoSummary(deps, base, published);
+  await requestAutoTag(deps, base, published);
   return version.id;
 }
 

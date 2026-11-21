@@ -128,6 +128,7 @@ export const knowledgeBaseSettingsSchema = z.object({
   chunkOverlap: z.number().int().min(0).max(1000),
   wikiAutoUpdate: z.boolean(),
   autoSummary: z.boolean().optional(),
+  autoTag: z.boolean().optional(),
   imageProcessing: knowledgeImageProcessingSchema.default(imageProcessingDefaults),
 });
 

@@ -255,6 +255,7 @@ const knowledgeBaseCreateSchema = knowledgeBaseInputSchema.extend({
     chunkOverlap: 120,
     wikiAutoUpdate: false,
     autoSummary: false,
+    autoTag: false,
   }),
 });
 
