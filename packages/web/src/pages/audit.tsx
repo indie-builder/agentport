@@ -1,7 +1,7 @@
 import { utcWindowStart } from '@agentport/shared';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, EllipsisVertical, RefreshCw, ShieldCheck } from 'lucide-react';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterPopover } from '../components/filter-popover.js';
 import { FilterSelect } from '../components/filter-select.js';
@@ -144,6 +144,20 @@ function buildAuditQuery(values: {
   };
 }
 
+const detailLabels = new Map<string, string>([
+  ['toolName', '工具'],
+  ['toolId', '工具 ID'],
+  ['from', '变更前'],
+  ['to', '变更后'],
+]);
+
+const detailOrder = [...detailLabels.keys()];
+
+function detailRank(key: string) {
+  const index = detailOrder.indexOf(key);
+  return index === -1 ? detailOrder.length : index;
+}
+
 function auditDetails(row: AuditEntry) {
   return (
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
@@ -157,6 +171,14 @@ function auditDetails(row: AuditEntry) {
       <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
         {row.inputDigest ?? <span className="text-muted-foreground">—</span>}
       </dd>
+      {Object.entries(row.detail ?? {})
+        .sort(([a], [b]) => detailRank(a) - detailRank(b))
+        .map(([key, value]) => (
+          <Fragment key={key}>
+            <dt className="text-muted-foreground">{detailLabels.get(key) ?? key}</dt>
+            <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">{value}</dd>
+          </Fragment>
+        ))}
     </dl>
   );
 }
@@ -223,7 +245,7 @@ export function AuditPage() {
     try {
       const data = await api.exportAudit(query);
       const csv = toCsv(
-        ['时间', '动作', '目标', '状态', '操作者', '主体类型', '耗时ms', '请求ID'],
+        ['时间', '动作', '目标', '状态', '操作者', '主体类型', '耗时ms', '请求ID', '变更明细'],
         data.items.map((row) => [
           formatDateTime(row.createdAt),
           row.action,
@@ -233,6 +255,9 @@ export function AuditPage() {
           actorKindLabel[row.actorKind],
           row.durationMs ?? '',
           row.requestId ?? '',
+          Object.entries(row.detail ?? {})
+            .map(([key, value]) => `${key}=${value}`)
+            .join('; '),
         ]),
       );
       downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), 'audit.csv');
