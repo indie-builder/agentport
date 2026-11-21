@@ -11,6 +11,7 @@ interface StartRedisWorkerOptions<Data> {
   prefix?: string;
   externalSignal?: AbortSignal;
   includeErrorInFailedLog?: boolean;
+  concurrency?: number;
 }
 
 export function startRedisWorker<Data>(options: StartRedisWorkerOptions<Data>): {
@@ -25,7 +26,7 @@ export function startRedisWorker<Data>(options: StartRedisWorkerOptions<Data>): 
   const worker = new Worker<Data>(options.queue, processor, {
     connection,
     ...(options.prefix === undefined ? {} : { prefix: options.prefix }),
-    concurrency: 1,
+    concurrency: options.concurrency ?? 1,
   });
   worker.on('failed', (job, err) => {
     options.logger.warn(
@@ -38,8 +39,7 @@ export function startRedisWorker<Data>(options: StartRedisWorkerOptions<Data>): 
     close: async () => {
       closing.abort();
       options.externalSignal?.removeEventListener('abort', onExternalAbort);
-      await worker.close();
-      await connection.quit();
+      await worker.close().finally(() => connection.quit());
     },
   };
 }

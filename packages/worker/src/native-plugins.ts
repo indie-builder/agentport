@@ -14,11 +14,10 @@ import {
   parseJsonAs,
   redactSecrets,
 } from '@agentport/shared';
-import { createBunRedisClient, Worker } from 'bullmq';
-import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import type { Config } from './config.js';
 import { createWorkerLogger } from './logger.js';
+import { startRedisWorker } from './queue-worker.js';
 import type { RuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider } from './sandbox/docker.js';
 import { runSandboxTask, SANDBOX_TASK_OUTPUT_MAX_BYTES } from './sandbox/one-shot.js';
@@ -192,25 +191,25 @@ export async function registerNativePlugins(
     workspacesDir: config.WORKSPACES_DIR,
     hostWorkspacesDir: config.HOST_WORKSPACES_DIR ?? config.WORKSPACES_DIR,
     logger: createWorkerLogger(config),
-    closing: closing.signal,
   };
 
-  const connection = createBunRedisClient(new RedisClient(config.REDIS_URL));
-  const worker = new Worker<NativePluginAction>(
-    NATIVE_PLUGINS_QUEUE,
-    async (job) => {
+  const worker = startRedisWorker<NativePluginAction>({
+    queue: NATIVE_PLUGINS_QUEUE,
+    redisUrl: config.REDIS_URL,
+    logger: deps.logger,
+    failureMessage: 'native plugin job failed',
+    externalSignal: closing.signal,
+    processor: (signal) => async (job) => {
       const parsed = nativePluginActionSchema.safeParse(job.data);
       if (!parsed.success) throw new Error('invalid native plugin payload');
-      return runNativePluginAction(deps, parsed.data);
+      return runNativePluginAction({ ...deps, closing: signal }, parsed.data);
     },
-    { connection, concurrency: 1 },
-  );
+  });
 
   return {
     close: async () => {
       closing.abort();
-      const closed = worker.close().finally(() => connection.quit());
-      const results = await Promise.allSettled([closed, provider.destroyAll()]);
+      const results = await Promise.allSettled([worker.close(), provider.destroyAll()]);
       const failures = results.flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : [],
       );
