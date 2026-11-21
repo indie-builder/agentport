@@ -150,6 +150,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     });
 
     const result = await testStdioInSandbox('srv_any', logger, {
+      redisUrl,
       runtimeEnvironmentId: 'env_1',
       timeoutMs: 2_000,
     });
@@ -342,7 +343,7 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
   });
 
   it('returns a readable timeout result when no worker is consuming', async () => {
-    const result = await testStdioInSandbox('srv_any', logger, { timeoutMs: 300 });
+    const result = await testStdioInSandbox('srv_any', logger, { redisUrl, timeoutMs: 300 });
 
     expect(result.ok).toBe(false);
     expect(result.tools).toEqual([]);

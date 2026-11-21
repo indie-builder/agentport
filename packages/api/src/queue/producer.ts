@@ -34,7 +34,18 @@ import {
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+let redisUrl: string | undefined;
+
+export function configureQueueProducer(url: string): void {
+  redisUrl ??= url;
+}
+
+function requireRedisUrl(): string {
+  if (redisUrl === undefined) {
+    throw new Error('Queue producer used before configureQueueProducer(redisUrl)');
+  }
+  return redisUrl;
+}
 
 const READ_PAGE_SIZE = 2;
 
@@ -61,7 +72,7 @@ let channelClient: RedisClient | undefined;
 let queueConnection: ReturnType<typeof createBunRedisClient> | undefined;
 
 function getQueueConnection() {
-  queueConnection ??= createBunRedisClient(new RedisClient(REDIS_URL));
+  queueConnection ??= createBunRedisClient(new RedisClient(requireRedisUrl()));
   return queueConnection;
 }
 
@@ -137,7 +148,7 @@ export function getMonitoringQueue(name: MonitoredQueueName): Queue {
 
 function getClient(): RedisClient {
   if (!client) {
-    client = new RedisClient(REDIS_URL);
+    client = new RedisClient(requireRedisUrl());
     client.onclose = logRedisError;
   }
   return client;
@@ -145,7 +156,7 @@ function getClient(): RedisClient {
 
 function getChannelClient(): RedisClient {
   if (!channelClient) {
-    channelClient = new RedisClient(REDIS_URL, {
+    channelClient = new RedisClient(requireRedisUrl(), {
       connectionTimeout: 1_000,
       idleTimeout: 1_000,
       autoReconnect: false,
@@ -255,7 +266,7 @@ async function subscribeStream<T>(
 ): Promise<RunSubscription> {
   if (signal?.aborted) return { close: () => undefined };
   let closed = false;
-  let redis = new RedisClient(REDIS_URL);
+  let redis = new RedisClient(requireRedisUrl());
   redis.onclose = (err) => {
     if (!closed) logRedisError(err);
   };
@@ -337,7 +348,7 @@ async function subscribeStream<T>(
           subscriptions.delete(redis);
           redis.onclose = () => undefined;
           redis.close();
-          redis = new RedisClient(REDIS_URL);
+          redis = new RedisClient(requireRedisUrl());
           redis.onclose = logRedisError;
           subscriptions.set(redis, shutdown);
           await new Promise((resolve) => setTimeout(resolve, 500));
