@@ -38,6 +38,7 @@ const CAPTURE_MAX_ENTRIES = 20_000;
 const CAPTURE_MAX_FILE_BYTES = 32 * 1024 * 1024;
 const CAPTURE_MAX_TOTAL_BYTES = 256 * 1024 * 1024;
 const CAPTURE_MAX_DEPTH = 16;
+const READ_CHUNK_BYTES = 64 * 1024;
 
 const mediaTypes = new Map<string, string>([
   ['md', 'text/markdown'],
@@ -251,15 +252,17 @@ async function readRegularFile(
     const opened = await handle.stat();
     if (opened.size > maxBytes)
       fail('INVALID_INPUT', '产出文件超过单文件上限', { path: `/${path}` });
-    const buffer = Buffer.alloc(maxBytes + 1);
+    const chunks: Buffer[] = [];
     let offset = 0;
     while (offset <= maxBytes) {
-      const { bytesRead } = await handle.read(buffer, offset, maxBytes + 1 - offset, offset);
+      const chunk = Buffer.alloc(Math.min(READ_CHUNK_BYTES, maxBytes + 1 - offset));
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, offset);
       if (bytesRead === 0) break;
+      chunks.push(chunk.subarray(0, bytesRead));
       offset += bytesRead;
     }
     if (offset > maxBytes) fail('INVALID_INPUT', '产出文件超过单文件上限', { path: `/${path}` });
-    return Buffer.from(buffer.subarray(0, offset));
+    return Buffer.concat(chunks);
   } finally {
     await handle.close();
   }
