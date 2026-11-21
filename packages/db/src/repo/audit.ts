@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { sha256Hex } from '@agentport/core';
+import type { AuditActorKind } from '@agentport/shared';
 import { and, asc, desc, eq, gt, gte, isNotNull, like, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
@@ -11,7 +12,7 @@ export type AuditStatus = 'ok' | 'error' | 'denied';
 
 export interface AuditEvent {
   actor?: string;
-  actorKind?: 'user' | 'service' | 'anonymous' | 'agent';
+  actorKind?: AuditActorKind;
   subjectBusinessId?: string;
   action: string;
   target?: string;
@@ -201,7 +202,7 @@ export interface AuditQuery {
   status?: AuditStatus;
   target?: string;
   actor?: string;
-  actorKind?: 'user' | 'service' | 'anonymous' | 'agent';
+  actorKind?: AuditActorKind;
   since?: Date;
   limit?: number;
   before?: Date;
@@ -213,7 +214,7 @@ export interface AuditQuery {
 export interface AuditEntry {
   id: string;
   actor: string;
-  actorKind: 'user' | 'service' | 'anonymous' | 'agent';
+  actorKind: AuditActorKind;
   subjectBusinessId: string | null;
   action: string;
   target: string | null;

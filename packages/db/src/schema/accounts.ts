@@ -1,3 +1,5 @@
+import type { AccessScope, SystemKey } from '@agentport/shared';
+import { accessScopeSchema, systemKeySchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { boolean, check, index, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import { agents } from './agents.js';
@@ -7,7 +9,9 @@ export const roles = pgTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    systemKey: text('system_key', { enum: ['admin', 'user', 'owner', 'maintainer'] }),
+    systemKey: text('system_key', {
+      enum: systemKeySchema.options as [SystemKey, ...SystemKey[]],
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -16,7 +20,7 @@ export const roles = pgTable(
     uniqueIndex('roles_system_key_idx').on(t.systemKey),
     check(
       'roles_system_key_check',
-      sql`${t.systemKey} is null or ${t.systemKey} in ('admin', 'user', 'owner', 'maintainer')`,
+      sql`${t.systemKey} is null or ${t.systemKey} in (${sql.raw(systemKeySchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );
@@ -29,14 +33,7 @@ export const rolePermissions = pgTable(
       .references(() => roles.id, { onDelete: 'cascade' }),
     permissionId: text('permission_id').notNull(),
     scope: text('scope', {
-      enum: [
-        'own_data',
-        'authorized_resources',
-        'authorized_agents',
-        'maintained_agents',
-        'owned_agents',
-        'platform',
-      ],
+      enum: accessScopeSchema.options as [AccessScope, ...AccessScope[]],
     }).notNull(),
   },
   (t) => [
@@ -44,7 +41,7 @@ export const rolePermissions = pgTable(
     index('role_permissions_permission_idx').on(t.permissionId),
     check(
       'role_permissions_scope_check',
-      sql`${t.scope} in ('own_data', 'authorized_resources', 'authorized_agents', 'maintained_agents', 'owned_agents', 'platform')`,
+      sql`${t.scope} in (${sql.raw(accessScopeSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );

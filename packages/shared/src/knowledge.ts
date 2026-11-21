@@ -132,6 +132,12 @@ export const knowledgeBaseSettingsSchema = z.object({
   imageProcessing: knowledgeImageProcessingSchema.default(imageProcessingDefaults),
 });
 
+export const knowledgeBaseStatusSchema = z.enum(['active', 'disabled']);
+export type KnowledgeBaseStatus = z.infer<typeof knowledgeBaseStatusSchema>;
+
+export const knowledgeEmbeddingProtocolSchema = z.enum(['openai', 'cohere_v2']);
+export type KnowledgeEmbeddingProtocol = z.infer<typeof knowledgeEmbeddingProtocolSchema>;
+
 export const knowledgeBaseInputSchema = z.object({
   slug: slugSchema,
   name: z.string().trim().min(1).max(120),
@@ -141,7 +147,7 @@ export const knowledgeBaseInputSchema = z.object({
 export const knowledgeBaseSchema = knowledgeBaseInputSchema.extend({
   id: z.string(),
   serverId: z.string(),
-  status: z.enum(['active', 'disabled']),
+  status: knowledgeBaseStatusSchema,
   embeddingProfileId: z.string(),
   rerankProfileId: z.string().nullable(),
   /** 音频转录模型；null 表示未启用 ASR。 */
@@ -154,11 +160,14 @@ export const knowledgeBaseSchema = knowledgeBaseInputSchema.extend({
 export type KnowledgeBase = z.infer<typeof knowledgeBaseSchema>;
 export type KnowledgeBaseSettings = z.infer<typeof knowledgeBaseSettingsSchema>;
 
+export const knowledgeModelProfileKindSchema = z.enum(['embedding', 'rerank', 'asr']);
+export type KnowledgeModelProfileKind = z.infer<typeof knowledgeModelProfileKindSchema>;
+
 /** 无管理权限的创建/设置页只需选择项：不含端点、模型与任何密钥线索。 */
 export const knowledgeModelProfileSelectionSchema = z.object({
   id: z.string(),
   name: z.string(),
-  kind: z.enum(['embedding', 'rerank', 'asr']),
+  kind: knowledgeModelProfileKindSchema,
   enabled: z.boolean(),
   supportsImageVectors: z.boolean(),
 });
@@ -218,6 +227,7 @@ export const knowledgeDocumentStatusSchema = z.enum([
   'failed',
   'disabled',
 ]);
+export type KnowledgeDocumentStatus = z.infer<typeof knowledgeDocumentStatusSchema>;
 
 /** 语料角色：普通文档、FAQ 与 Wiki 索引文档共用同一套版本与分块。 */
 export const knowledgeContentKindSchema = z.enum(['document', 'faq', 'wiki']);
@@ -461,6 +471,9 @@ export type KnowledgeDocument = z.infer<typeof knowledgeDocumentSchema>;
 
 export const knowledgeVersionOriginSchema = z.enum(['source', 'manual', 'faq', 'wiki']);
 
+export const knowledgeParseStatusSchema = z.enum(['parsed', 'parse_failed']);
+export type KnowledgeParseStatus = z.infer<typeof knowledgeParseStatusSchema>;
+
 /** 版本列表 wire：不返回 hash 路径与存储细节。 */
 export const knowledgeDocumentVersionSchema = z.object({
   id: z.string(),
@@ -471,7 +484,7 @@ export const knowledgeDocumentVersionSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).default({}),
   faq: knowledgeFaqSchema.nullable().default(null),
   sourceRevision: z.string().nullable(),
-  parseStatus: z.enum(['parsed', 'parse_failed']),
+  parseStatus: knowledgeParseStatusSchema,
   originalFilename: z.string(),
   mimeType: z.string(),
   sizeBytes: z.number().int(),
@@ -904,6 +917,10 @@ export const knowledgeSourceInputSchema = z.discriminatedUnion('type', [
 export type KnowledgeSourceInput = z.infer<typeof knowledgeSourceInputSchema>;
 
 export const knowledgeWikiPageStatusSchema = z.enum(['draft', 'published', 'stale', 'failed']);
+export type KnowledgeWikiPageStatus = z.infer<typeof knowledgeWikiPageStatusSchema>;
+
+export const knowledgeWikiGeneratedBySchema = z.enum(['sdk', 'manual']);
+export type KnowledgeWikiGeneratedBy = z.infer<typeof knowledgeWikiGeneratedBySchema>;
 
 export const knowledgeWikiLinkSchema = z.object({
   /** null 表示目标页不存在：管理端据此标记坏链接，不伪造页面 ID。 */

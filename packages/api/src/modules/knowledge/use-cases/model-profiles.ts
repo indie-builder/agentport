@@ -9,6 +9,7 @@ import {
 } from '@agentport/core';
 import { assertSafeUrl } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
+import type { KnowledgeEmbeddingProtocol, KnowledgeModelProfileKind } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
 import { supportsImageVectors } from '../service.js';
@@ -64,9 +65,9 @@ async function assertKnowledgeEndpoint(
 }
 
 function imageCapabilityProblem(input: {
-  kind: 'embedding' | 'rerank' | 'asr';
+  kind: KnowledgeModelProfileKind;
   model: string;
-  embeddingProtocol: 'openai' | 'cohere_v2';
+  embeddingProtocol: KnowledgeEmbeddingProtocol;
   imageInputEnabled: boolean;
 }): string | null {
   if (!input.imageInputEnabled) return null;
@@ -93,11 +94,11 @@ export async function listModelProfiles(deps: KnowledgeDeps, view: 'selection' |
 export async function createModelProfile(
   deps: KnowledgeDeps,
   input: {
-    kind: 'embedding' | 'rerank' | 'asr';
+    kind: KnowledgeModelProfileKind;
     name: string;
     endpointUrl: string;
     model: string;
-    embeddingProtocol: 'openai' | 'cohere_v2';
+    embeddingProtocol: KnowledgeEmbeddingProtocol;
     imageInputEnabled: boolean;
     apiKey?: string | undefined;
     enabled: boolean;
@@ -134,7 +135,7 @@ export async function updateModelProfile(
     name?: string | undefined;
     endpointUrl?: string | undefined;
     model?: string | undefined;
-    embeddingProtocol?: 'openai' | 'cohere_v2' | undefined;
+    embeddingProtocol?: KnowledgeEmbeddingProtocol | undefined;
     imageInputEnabled?: boolean | undefined;
     apiKey?: string | null | undefined;
     enabled?: boolean | undefined;

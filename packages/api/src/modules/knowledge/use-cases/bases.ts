@@ -2,6 +2,7 @@ import { AppError, chunkBlocks, markdownBlocks } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type {
   KnowledgeBaseSettings,
+  KnowledgeBaseStatus,
   KnowledgeImageProcessingPatch,
   ResourceAccessFilter,
 } from '@agentport/shared';
@@ -80,7 +81,7 @@ export async function createBase(
     embeddingProfileId: string;
     rerankProfileId: string | null;
     asrProfileId: string | null;
-    status?: 'active' | 'disabled' | undefined;
+    status?: KnowledgeBaseStatus | undefined;
     settings: KnowledgeBaseSettings;
   },
 ) {
@@ -154,7 +155,7 @@ export async function getBase(deps: KnowledgeDeps, id: string) {
 type UpdateBaseBody = {
   name?: string | undefined;
   description?: string | undefined;
-  status?: 'active' | 'disabled' | undefined;
+  status?: KnowledgeBaseStatus | undefined;
   embeddingProfileId?: string | undefined;
   rerankProfileId?: string | null | undefined;
   asrProfileId?: string | null | undefined;

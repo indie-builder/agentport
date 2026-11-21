@@ -3,16 +3,18 @@ import type {
   EvalDatasetImportResult,
   EvalRunExport,
   EvalComparison as SharedEvalComparison,
+  EvalJudgeMode as SharedEvalJudgeMode,
   EvalRunPage as SharedEvalRunPage,
+  EvalRunStatus as SharedEvalRunStatus,
 } from '@agentport/shared';
 import { rpc } from '../orpc.js';
 import { clientOptions, nativeRequest } from './shared.js';
 
-export type EvalRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type EvalRunStatus = SharedEvalRunStatus;
 
 export type EvalTarget = 'published' | 'draft';
 
-export type EvalJudgeMode = 'contains' | 'llm';
+export type EvalJudgeMode = SharedEvalJudgeMode;
 
 export interface EvalCase {
   id: string;

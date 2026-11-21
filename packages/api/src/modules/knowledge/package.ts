@@ -11,15 +11,20 @@ import { type Database, newId, repo, schema } from '@agentport/db';
 import {
   knowledgeAudioMetadataSchema,
   knowledgeBaseSettingsSchema,
+  knowledgeBaseStatusSchema,
+  knowledgeChunkIndexRoleSchema,
   knowledgeChunkKindSchema,
   knowledgeContentKindSchema,
   knowledgeDisabledReasonSchema,
   knowledgeDocumentStatusSchema,
+  knowledgeEmbeddingProtocolSchema,
   knowledgeFaqSchema,
   knowledgeImageChunkMetadataSchema,
   knowledgeLocatorSchema,
+  knowledgeParseStatusSchema,
   knowledgeSourceTypeSchema,
   knowledgeVersionOriginSchema,
+  knowledgeWikiGeneratedBySchema,
   knowledgeWikiPageStatusSchema,
   slugSchema,
 } from '@agentport/shared';
@@ -77,7 +82,7 @@ const chunkSchema = z.object({
   id: z.string().min(1),
   ordinal: z.number().int().nonnegative(),
   parentOrdinal: z.number().int().nonnegative().nullable().default(null),
-  indexRole: z.enum(['leaf', 'parent']).default('leaf'),
+  indexRole: knowledgeChunkIndexRoleSchema.default('leaf'),
   kind: knowledgeChunkKindSchema,
   heading: z.string().max(300).nullable(),
   content: z.string(),
@@ -105,7 +110,7 @@ const versionSchema = z.object({
   blobSha256: sha256Schema,
   markdownSha256: sha256Schema.nullable(),
   sourceRevision: z.string().nullable(),
-  parseStatus: z.enum(['parsed', 'parse_failed']),
+  parseStatus: knowledgeParseStatusSchema,
   pageMap: z.array(pageMapEntrySchema),
   images: z.array(
     z.object({
@@ -172,7 +177,7 @@ const wikiPageSchema = z.object({
       /** 导出时已不存在的历史引用：包内没有对应 chunk，身份原样保留但明确标记失效。 */
       unresolvedSourceChunkIds: z.array(z.string().min(1)).default([]),
       model: z.string().min(1).max(200),
-      generatedBy: z.enum(['sdk', 'manual']),
+      generatedBy: knowledgeWikiGeneratedBySchema,
     }),
   ),
   sources: z.array(
@@ -194,14 +199,14 @@ const manifestSchema = z.object({
       slug: slugSchema,
       name: z.string().min(1).max(120),
       description: z.string().max(500),
-      status: z.enum(['active', 'disabled']),
+      status: knowledgeBaseStatusSchema,
       settings: knowledgeBaseSettingsSchema,
       embeddingProfileName: z.string().min(1).max(120),
       rerankProfileName: z.string().min(1).max(120).nullable(),
       /** 导入端据此判断本机 profile 是否具备导出时的图片能力。 */
       embeddingProfile: z.object({
         model: z.string().min(1).max(200),
-        embeddingProtocol: z.enum(['openai', 'cohere_v2']),
+        embeddingProtocol: knowledgeEmbeddingProtocolSchema,
         imageInputEnabled: z.boolean(),
       }),
       /** 音频转录绑定只含可移植身份；endpoint/key/profileId 一律不出包。 */

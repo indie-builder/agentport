@@ -1,5 +1,5 @@
-import type { NotificationKind } from '@agentport/shared';
-import { notificationKindSchema } from '@agentport/shared';
+import type { AuditActorKind, NotificationKind } from '@agentport/shared';
+import { auditActorKindSchema, notificationKindSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigserial,
@@ -19,7 +19,9 @@ export const auditLog = pgTable(
   {
     id: text('id').primaryKey(),
     actor: text('actor').notNull().default('system'),
-    actorKind: text('actor_kind', { enum: ['user', 'service', 'anonymous', 'agent'] })
+    actorKind: text('actor_kind', {
+      enum: auditActorKindSchema.options as [AuditActorKind, ...AuditActorKind[]],
+    })
       .notNull()
       .default('service'),
     subjectBusinessId: text('subject_business_id'),

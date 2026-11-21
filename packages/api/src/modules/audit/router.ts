@@ -1,6 +1,7 @@
 import { auditContract } from '@agentport/contract/audit';
 import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
+import type { AuditActorKind } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { RequestContext } from '../../http/context.js';
 
@@ -29,7 +30,7 @@ type AuditQueryParams = {
   status?: 'ok' | 'error' | 'denied' | undefined;
   target?: string | undefined;
   actor?: string | undefined;
-  actorKind?: 'user' | 'service' | 'anonymous' | 'agent' | undefined;
+  actorKind?: AuditActorKind | undefined;
   since?: string | undefined;
   limit?: number | undefined;
   before?: string | undefined;

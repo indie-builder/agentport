@@ -2,15 +2,19 @@ import type { KnowledgeBaseActivityItem, KnowledgeImageAsset } from '@agentport/
 import type {
   KnowledgeBase,
   KnowledgeBaseSettings,
+  KnowledgeBaseStatus,
   KnowledgeBaseSummary,
   KnowledgeChunk,
   KnowledgeDocument,
   KnowledgeDocumentVersion,
+  KnowledgeEmbeddingProtocol,
   KnowledgeFaq,
   KnowledgeFaqImportInput,
   KnowledgeFaqImportResponse,
   KnowledgeJob,
+  KnowledgeModelProfileKind,
   KnowledgeModelProfileSelection,
+  KnowledgeParseStatus,
   KnowledgeSearchResult,
   KnowledgeSearchWarning,
   KnowledgeSourceInput,
@@ -19,6 +23,7 @@ import type {
   KnowledgeTarget,
   KnowledgeWikiGraph,
   KnowledgeWikiLinksResult,
+  KnowledgeWikiPageStatus,
   KnowledgeWikiVersionDiff,
 } from '@agentport/shared';
 import type { ApiClient } from '../orpc.js';
@@ -75,7 +80,7 @@ export interface KnowledgeBaseInput {
 export interface KnowledgeBasePatch {
   name?: string;
   description?: string;
-  status?: 'active' | 'disabled';
+  status?: KnowledgeBaseStatus;
   embeddingProfileId?: string;
   rerankProfileId?: string | null;
   asrProfileId?: string | null;
@@ -284,7 +289,7 @@ export interface KnowledgeSource {
 export interface KnowledgeSyncRun {
   id: string;
   sourceId: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  status: KnowledgeJob['status'];
   startedAt: string | null;
   endedAt: string | null;
   cursorBefore: Record<string, unknown> | null;
@@ -322,7 +327,7 @@ export interface KnowledgeVersionDetails {
   mimeType: string;
   sizeBytes: number;
   sourceRevision: string | null;
-  parseStatus: 'parsed' | 'parse_failed';
+  parseStatus: KnowledgeParseStatus;
   pageMap: Array<Record<string, unknown>>;
   images: KnowledgeVersionImage[];
   createdAt: string;
@@ -333,7 +338,7 @@ export interface KnowledgeWikiPageDetail {
   baseId: string;
   slug: string;
   title: string;
-  status: 'draft' | 'published' | 'stale' | 'failed';
+  status: KnowledgeWikiPageStatus;
   currentVersionId: string | null;
   parentId?: string | null;
   position?: number;
@@ -345,7 +350,7 @@ export interface KnowledgeWikiPageDetail {
 
 export interface KnowledgeModelProfile {
   id: string;
-  kind: 'embedding' | 'rerank' | 'asr';
+  kind: KnowledgeModelProfileKind;
   name: string;
   endpointUrl: string;
   model: string;
@@ -353,7 +358,7 @@ export interface KnowledgeModelProfile {
   enabled: boolean;
   hasSecret: boolean;
   /** 只有 Cohere v2 协议 + embed-v4.0 才能接收图片。 */
-  embeddingProtocol: 'openai' | 'cohere_v2';
+  embeddingProtocol: KnowledgeEmbeddingProtocol;
   imageInputEnabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -847,7 +852,7 @@ export default {
       model?: string;
       apiKey?: string | null;
       enabled?: boolean;
-      embeddingProtocol?: 'openai' | 'cohere_v2';
+      embeddingProtocol?: KnowledgeEmbeddingProtocol;
       imageInputEnabled?: boolean;
     },
   ): Promise<KnowledgeModelProfile> =>
@@ -866,13 +871,13 @@ export default {
     } = {},
   ): Promise<{ jobId: string }> => rpc.knowledge.bases.rebuild({ params: { id }, body: input }),
   createKnowledgeModelProfile: (input: {
-    kind: 'embedding' | 'rerank' | 'asr';
+    kind: KnowledgeModelProfileKind;
     name: string;
     endpointUrl: string;
     model: string;
     apiKey?: string;
     enabled?: boolean;
-    embeddingProtocol?: 'openai' | 'cohere_v2';
+    embeddingProtocol?: KnowledgeEmbeddingProtocol;
     imageInputEnabled?: boolean;
   }): Promise<KnowledgeModelProfile> => rpc.knowledge.modelProfiles.create({ body: input }),
 };

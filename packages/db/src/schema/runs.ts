@@ -1,4 +1,14 @@
-import type { NativeQuestions } from '@agentport/shared';
+import type {
+  NativeQuestions,
+  RunFeedbackDecision,
+  RunQuestionStatus,
+  ScheduleMissedPolicy,
+} from '@agentport/shared';
+import {
+  runFeedbackDecisionSchema,
+  runQuestionStatusSchema,
+  scheduleMissedPolicySchema,
+} from '@agentport/shared';
 import { eq, sql } from 'drizzle-orm';
 import {
   boolean,
@@ -26,7 +36,9 @@ export const runQuestions = pgTable(
     requestId: text('request_id').notNull(),
     toolUseId: text('tool_use_id').notNull(),
     questions: jsonb('questions').$type<NativeQuestions>().notNull(),
-    status: text('status', { enum: ['pending', 'answered', 'declined', 'closed', 'expired'] })
+    status: text('status', {
+      enum: runQuestionStatusSchema.options as [RunQuestionStatus, ...RunQuestionStatus[]],
+    })
       .notNull()
       .default('pending'),
     answers: jsonb('answers').$type<Record<string, string>>(),
@@ -39,7 +51,7 @@ export const runQuestions = pgTable(
     uniqueIndex('run_questions_run_request_idx').on(t.runId, t.requestId),
     check(
       'run_questions_status_check',
-      sql`${t.status} in ('pending', 'answered', 'declined', 'closed', 'expired')`,
+      sql`${t.status} in (${sql.raw(runQuestionStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );
@@ -116,7 +128,9 @@ export const agentSchedules = pgTable(
     executeAsBusinessId: text('execute_as_business_id').notNull(),
     cron: text('cron').notNull(),
     timezone: text('timezone').notNull().default('Asia/Shanghai'),
-    missedPolicy: text('missed_policy', { enum: ['skip', 'run_once'] })
+    missedPolicy: text('missed_policy', {
+      enum: scheduleMissedPolicySchema.options as [ScheduleMissedPolicy, ...ScheduleMissedPolicy[]],
+    })
       .notNull()
       .default('skip'),
     prompt: text('prompt').notNull(),
@@ -145,7 +159,9 @@ export const runFeedback = pgTable(
     messageId: text('message_id').references(() => messages.id, { onDelete: 'set null' }),
     outputPath: text('output_path'),
     outputSha256: text('output_sha256'),
-    decision: text('decision', { enum: ['accepted', 'rejected'] }).notNull(),
+    decision: text('decision', {
+      enum: runFeedbackDecisionSchema.options as [RunFeedbackDecision, ...RunFeedbackDecision[]],
+    }).notNull(),
     rating: smallint('rating'),
     comment: text('comment').notNull().default(''),
     reason: text('reason').notNull().default(''),
@@ -156,7 +172,10 @@ export const runFeedback = pgTable(
   (t) => [
     index('run_feedback_run_created_idx').on(t.runId, t.createdAt, t.id),
     index('run_feedback_eval_case_idx').on(t.evalCaseId).where(sql`${t.evalCaseId} is not null`),
-    check('run_feedback_decision_check', sql`${t.decision} in ('accepted', 'rejected')`),
+    check(
+      'run_feedback_decision_check',
+      sql`${t.decision} in (${sql.raw(runFeedbackDecisionSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     check(
       'run_feedback_rating_check',
       sql`${t.rating} is null or (${t.rating} >= 1 and ${t.rating} <= 5)`,

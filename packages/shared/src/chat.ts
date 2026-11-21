@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { effortSchema, permissionModeSchema } from './agent.js';
+import { effortSchema, permissionModeSchema, uiFormatSchema } from './agent.js';
 import { ATTACHMENT_LIMITS, chatAttachmentInputsSchema } from './attachments.js';
 import { DEFAULT_MEMORY_POLICY, memoryPolicySchema } from './memory.js';
 import { openUiActionSchema } from './openui/protocol.js';
@@ -70,6 +70,9 @@ export const chatRequestSchema = z
   );
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
+
+export const chatMessageRoleSchema = z.enum(['user', 'assistant', 'tool']);
+export type ChatMessageRole = z.infer<typeof chatMessageRoleSchema>;
 
 /** 原生 TodoWrite 的一项；状态即模型自己维护的生命周期。 */
 export const progressTodoSchema = z.object({
@@ -192,7 +195,7 @@ export const chatEventSchema = z.discriminatedUnion('type', [
           blockIndex: z.number(),
           streamBlockId: z.string().optional(),
           parentToolUseId: z.string().optional(),
-          uiFormat: z.enum(['markdown', 'openui']).optional(),
+          uiFormat: uiFormatSchema.optional(),
           uiProgram: z.string().nullable().optional(),
           uiState: z.unknown().optional(),
         }),
@@ -385,7 +388,7 @@ export const conversationMessageSchema = z.object({
    * 生成该消息时的回复格式快照。历史按消息自身渲染，
    * 不随智能体之后切换 `uiFormat` 变化。
    */
-  uiFormat: z.enum(['markdown', 'openui']).default('markdown'),
+  uiFormat: uiFormatSchema.default('markdown'),
   /** editMode 合并后的完整 OpenUI 程序；为空时从 content 的围栏提取。 */
   uiProgram: z.string().nullable().default(null),
   /** UI 段的表单/绑定快照：`{ version: 1, blocks: { [blockKey]: state } }`。 */

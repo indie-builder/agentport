@@ -1,5 +1,5 @@
 import { fail } from '@agentport/core';
-import type { ExecutionSubject } from '@agentport/shared';
+import type { ChatMessageRole, ExecutionSubject } from '@agentport/shared';
 import { and, asc, desc, eq, exists, isNotNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
@@ -279,7 +279,7 @@ export async function appendMessage(
   input: {
     id: string;
     conversationId: string;
-    role: string;
+    role: ChatMessageRole;
     content: unknown;
     senderBusinessId?: string | null;
     runId?: string;

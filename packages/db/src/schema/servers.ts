@@ -1,4 +1,14 @@
-import type { ResolvedRuntimeEnvironment } from '@agentport/shared';
+import type {
+  ApiToolApprovalMode,
+  ApiToolParamsIn,
+  ResolvedRuntimeEnvironment,
+  ServerKind,
+} from '@agentport/shared';
+import {
+  apiToolApprovalModeSchema,
+  apiToolParamsInSchema,
+  serverKindSchema,
+} from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -17,7 +27,7 @@ export const servers = pgTable(
     id: text('id').primaryKey(),
     name: text('name').notNull(),
     kind: text('kind', {
-      enum: ['stdio', 'http', 'generated', 'knowledge', 'data_domain'],
+      enum: serverKindSchema.options as [ServerKind, ...ServerKind[]],
     }).notNull(),
     description: text('description').notNull().default(''),
     config: jsonb('config').$type<Record<string, unknown>>().notNull(),
@@ -36,7 +46,7 @@ export const servers = pgTable(
     uniqueIndex('servers_name_idx').on(t.name),
     check(
       'servers_kind_check',
-      sql`${t.kind} in ('stdio', 'http', 'generated', 'knowledge', 'data_domain')`,
+      sql`${t.kind} in (${sql.raw(serverKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );
@@ -54,11 +64,15 @@ export const apiTools = pgTable(
     pathTemplate: text('path_template').notNull(),
     inputSchema: jsonb('input_schema').$type<Record<string, unknown>>().notNull(),
     outputSchema: jsonb('output_schema').$type<Record<string, unknown>>(),
-    paramsIn: text('params_in', { enum: ['query', 'body'] })
+    paramsIn: text('params_in', {
+      enum: apiToolParamsInSchema.options as [ApiToolParamsIn, ...ApiToolParamsIn[]],
+    })
       .notNull()
       .default('query'),
     enabled: boolean('enabled').notNull().default(true),
-    approvalMode: text('approval_mode', { enum: ['allow', 'ask', 'deny'] })
+    approvalMode: text('approval_mode', {
+      enum: apiToolApprovalModeSchema.options as [ApiToolApprovalMode, ...ApiToolApprovalMode[]],
+    })
       .notNull()
       .default('allow'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

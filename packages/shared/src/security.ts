@@ -111,6 +111,8 @@ export const violationCaseStatusSchema = z.enum(['open', 'investigating', 'resol
 export type ViolationCaseStatus = z.infer<typeof violationCaseStatusSchema>;
 
 export const violationSeveritySchema = z.enum(['low', 'medium', 'high']);
+
+export const violationSubjectKindSchema = z.enum(['user', 'agent', 'channel']);
 export type ViolationSeverity = z.infer<typeof violationSeveritySchema>;
 
 export const violationCaseSchema = z.object({
@@ -119,7 +121,7 @@ export const violationCaseSchema = z.object({
   policyName: z.string(),
   eventId: z.string().nullable(),
   runId: z.string().nullable(),
-  subjectKind: z.enum(['user', 'agent', 'channel']),
+  subjectKind: violationSubjectKindSchema,
   subjectId: z.string(),
   severity: violationSeveritySchema,
   status: violationCaseStatusSchema,

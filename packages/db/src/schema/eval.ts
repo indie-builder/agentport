@@ -1,4 +1,10 @@
-import type { AgentDefinition, AgentResourceVersions } from '@agentport/shared';
+import type {
+  AgentDefinition,
+  AgentResourceVersions,
+  EvalJudgeMode,
+  EvalRunStatus,
+} from '@agentport/shared';
+import { evalJudgeModeSchema, evalRunStatusSchema } from '@agentport/shared';
 import { eq, sql } from 'drizzle-orm';
 import {
   boolean,
@@ -24,7 +30,9 @@ export const evalCases = pgTable(
     name: text('name').notNull(),
     prompt: text('prompt').notNull(),
     expectation: text('expectation').notNull().default(''),
-    judgeMode: text('judge_mode', { enum: ['contains', 'llm'] })
+    judgeMode: text('judge_mode', {
+      enum: evalJudgeModeSchema.options as [EvalJudgeMode, ...EvalJudgeMode[]],
+    })
       .notNull()
       .default('contains'),
     expectedTools: jsonb('expected_tools').$type<string[]>(),
@@ -34,7 +42,10 @@ export const evalCases = pgTable(
   },
   (t) => [
     index('eval_cases_agent_idx').on(t.agentId),
-    check('eval_cases_judge_mode_check', sql`${t.judgeMode} in ('contains', 'llm')`),
+    check(
+      'eval_cases_judge_mode_check',
+      sql`${t.judgeMode} in (${sql.raw(evalJudgeModeSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
   ],
 );
 
@@ -43,7 +54,7 @@ export type EvalCaseSnapshot = {
   name: string;
   prompt: string;
   expectation: string;
-  judgeMode: 'contains' | 'llm';
+  judgeMode: EvalJudgeMode;
   expectedTools?: string[] | null;
   forbiddenTools?: string[] | null;
 };
@@ -55,7 +66,9 @@ export const evalRuns = pgTable(
     agentId: text('agent_id')
       .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
-    status: text('status', { enum: ['running', 'succeeded', 'failed', 'cancelled'] })
+    status: text('status', {
+      enum: evalRunStatusSchema.options as [EvalRunStatus, ...EvalRunStatus[]],
+    })
       .notNull()
       .default('running'),
     total: integer('total').notNull().default(0),
@@ -75,7 +88,7 @@ export const evalRuns = pgTable(
     index('eval_runs_created_idx').on(t.createdAt, t.id),
     check(
       'eval_runs_status_check',
-      sql`${t.status} in ('running', 'succeeded', 'failed', 'cancelled')`,
+      sql`${t.status} in (${sql.raw(evalRunStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'eval_runs_counts_check',

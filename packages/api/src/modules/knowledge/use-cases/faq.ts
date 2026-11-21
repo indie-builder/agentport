@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { AppError, fail, isAppError, sha256Hex } from '@agentport/core';
 import { escapeLike, newId, repo, schema } from '@agentport/db';
 import type {
+  KnowledgeDocumentStatus,
   KnowledgeFaq,
   KnowledgeFaqImportIssue,
   KnowledgeFaqImportResponse,
@@ -459,7 +460,7 @@ export async function listFaqs(
   id: string,
   query: PageQuery & {
     q?: string | undefined;
-    status?: 'pending' | 'processing' | 'ready' | 'failed' | 'disabled' | undefined;
+    status?: KnowledgeDocumentStatus | undefined;
     folderId?: string | undefined;
     isRecommended?: boolean | undefined;
   },

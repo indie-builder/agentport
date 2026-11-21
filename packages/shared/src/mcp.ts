@@ -250,6 +250,12 @@ export const serverSchema = z.discriminatedUnion('kind', [
 
 export type Server = z.infer<typeof serverSchema>;
 
+export const apiToolParamsInSchema = z.enum(['query', 'body']);
+export type ApiToolParamsIn = z.infer<typeof apiToolParamsInSchema>;
+
+export const apiToolApprovalModeSchema = z.enum(['allow', 'ask', 'deny']);
+export type ApiToolApprovalMode = z.infer<typeof apiToolApprovalModeSchema>;
+
 /** generated server 下的单个 HTTP 工具。 */
 export const apiToolInputSchema = z.object({
   name: slugSchema,
@@ -262,9 +268,9 @@ export const apiToolInputSchema = z.object({
   /** MCP tool outputSchema（JSON Schema），来自 OpenAPI 响应结构；可为空 */
   outputSchema: z.record(z.string(), z.unknown()).nullable().optional(),
   /** 参数放在 query 还是 body */
-  paramsIn: z.enum(['query', 'body']).default('query'),
+  paramsIn: apiToolParamsInSchema.default('query'),
   /** allow 直接执行；ask 调用前需在运行页批准；deny 直接拒绝。 */
-  approvalMode: z.enum(['allow', 'ask', 'deny']).default('allow'),
+  approvalMode: apiToolApprovalModeSchema.default('allow'),
 });
 
 export type ApiToolInput = z.infer<typeof apiToolInputSchema>;

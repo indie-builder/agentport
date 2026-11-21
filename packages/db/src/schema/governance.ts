@@ -1,5 +1,5 @@
-import type { ResourceKind } from '@agentport/shared';
-import { resourceKindSchema } from '@agentport/shared';
+import type { BudgetMetric, BudgetScopeKind, ResourceKind } from '@agentport/shared';
+import { budgetMetricSchema, budgetScopeKindSchema, resourceKindSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -74,10 +74,12 @@ export const budgetLimits = pgTable(
   {
     id: text('id').primaryKey(),
     scopeKind: text('scope_kind', {
-      enum: ['user', 'department', 'agent', 'knowledge_base', 'data_domain'],
+      enum: budgetScopeKindSchema.options as [BudgetScopeKind, ...BudgetScopeKind[]],
     }).notNull(),
     scopeId: text('scope_id').notNull(),
-    metric: text('metric', { enum: ['cost_usd_month', 'documents', 'queries_month'] }).notNull(),
+    metric: text('metric', {
+      enum: budgetMetricSchema.options as [BudgetMetric, ...BudgetMetric[]],
+    }).notNull(),
     limitValue: numeric('limit_value', { precision: 14, scale: 4 }).notNull(),
     alertRatio: numeric('alert_ratio', { precision: 4, scale: 3 }).notNull().default('0.800'),
     enabled: boolean('enabled').notNull().default(true),
@@ -89,11 +91,11 @@ export const budgetLimits = pgTable(
     index('budget_limits_scope_idx').on(t.scopeKind, t.scopeId),
     check(
       'budget_limits_scope_kind_check',
-      sql`${t.scopeKind} in ('user', 'department', 'agent', 'knowledge_base', 'data_domain')`,
+      sql`${t.scopeKind} in (${sql.raw(budgetScopeKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'budget_limits_metric_check',
-      sql`${t.metric} in ('cost_usd_month', 'documents', 'queries_month')`,
+      sql`${t.metric} in (${sql.raw(budgetMetricSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'budget_limits_scope_metric_check',

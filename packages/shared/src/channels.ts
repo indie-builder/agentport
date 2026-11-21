@@ -9,8 +9,10 @@ export type ChannelRole = z.infer<typeof channelRoleSchema>;
 
 export const CHANNEL_MAX_WAKE_AGENTS = 5;
 
-const channelMessageKindSchema = z.enum(['human', 'agent', 'system']);
-const channelAgentStatusSchema = z.enum(['active', 'disconnected']);
+export const channelMessageKindSchema = z.enum(['human', 'agent', 'system']);
+export type ChannelMessageKind = z.infer<typeof channelMessageKindSchema>;
+export const channelAgentStatusSchema = z.enum(['active', 'disconnected']);
+export type ChannelAgentStatus = z.infer<typeof channelAgentStatusSchema>;
 
 /** seq / lastReadSeq 走 bigint(mode: number)，wire 上限定非负安全整数。 */
 const seqSchema = z.number().int().nonnegative().safe();

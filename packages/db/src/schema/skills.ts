@@ -1,4 +1,4 @@
-import type { Skill } from '@agentport/shared';
+import { skillStatusSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { check, index, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
@@ -15,7 +15,14 @@ export const skills = pgTable(
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
     sourceId: text('source_id'),
     ownerBusinessId: text('owner_business_id'),
-    status: text('status').$type<Skill['status']>().notNull().default('published'),
+    status: text('status', {
+      enum: skillStatusSchema.options as [
+        (typeof skillStatusSchema.options)[number],
+        ...(typeof skillStatusSchema.options)[number][],
+      ],
+    })
+      .notNull()
+      .default('published'),
     submittedAt: timestamp('submitted_at', { withTimezone: true }),
     reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
     reviewedBy: text('reviewed_by'),
@@ -28,7 +35,10 @@ export const skills = pgTable(
     // 同一市场技能只允许装一次；Postgres 唯一索引允许多个 NULL，内部技能不受影响。
     uniqueIndex('skills_source_id_idx').on(t.sourceId),
     index('skills_status_updated_idx').on(t.status, t.updatedAt),
-    check('skills_status_check', sql`${t.status} in ('draft', 'pending', 'published', 'rejected')`),
+    check(
+      'skills_status_check',
+      sql`${t.status} in (${sql.raw(skillStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
   ],
 );
 

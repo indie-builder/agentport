@@ -13,6 +13,9 @@ const messageSchema = z
 export const integrationScopeSchema = z.enum(['runs.create', 'runs.read']);
 export type IntegrationScope = z.infer<typeof integrationScopeSchema>;
 
+export const integrationSourceKindSchema = z.enum(['api_token', 'webhook']);
+export type IntegrationSourceKind = z.infer<typeof integrationSourceKindSchema>;
+
 export const apiTokenSchema = z.object({
   id: z.string(),
   name: z.string(),

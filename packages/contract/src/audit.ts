@@ -1,9 +1,8 @@
+import { auditActorKindSchema } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
 
 export const auditStatusSchema = z.enum(['ok', 'error', 'denied']);
-
-export const auditActorKindSchema = z.enum(['user', 'service', 'anonymous', 'agent']);
 
 export const auditQuerySchema = z.object({
   action: z.string().trim().max(100).optional(),

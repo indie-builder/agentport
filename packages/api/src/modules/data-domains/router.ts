@@ -1,7 +1,7 @@
 import { dataDomainsContract } from '@agentport/contract/data-domains';
 import { decryptSecrets, encryptSecrets, fail, validateWrenProjectFiles } from '@agentport/core';
 import { repo } from '@agentport/db';
-import type { PermissionId } from '@agentport/shared';
+import type { DataDomainQueryApprovalStatus, PermissionId } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import {
   actorOf,
@@ -117,7 +117,7 @@ function toApproval(row: {
   actorBusinessId: string | null;
   sqlText: string;
   sqlHash: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: DataDomainQueryApprovalStatus;
   decisionNote: string;
   requestedAt: Date;
   decidedAt: Date | null;

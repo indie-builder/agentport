@@ -286,6 +286,7 @@ describe('executeEvalRun case snapshot', () => {
       .mockResolvedValueOnce(running)
       .mockResolvedValueOnce(running)
       .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(running)
       .mockResolvedValueOnce(cancelled)
       .mockResolvedValueOnce(cancelled);
 

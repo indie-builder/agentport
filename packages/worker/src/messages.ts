@@ -2,6 +2,7 @@ import { resolveOpenUiResponse } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
   type ChatEvent,
+  type ChatMessageRole,
   hasOpenUiSegment,
   type PublicRunQuestion,
   redactJson,
@@ -20,7 +21,7 @@ function parseToolInput(raw: string | undefined): unknown {
 }
 
 interface MessageRow {
-  role: string;
+  role: ChatMessageRole;
   content: unknown;
   sdkMessageUuid?: string;
   streamBlockId?: string;

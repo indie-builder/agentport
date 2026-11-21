@@ -1,4 +1,14 @@
-import type { KnowledgeBaseSettings } from '@agentport/shared';
+import type {
+  KnowledgeBaseSettings,
+  KnowledgeBaseStatus,
+  KnowledgeEmbeddingProtocol,
+  KnowledgeModelProfileKind,
+} from '@agentport/shared';
+import {
+  knowledgeBaseStatusSchema,
+  knowledgeEmbeddingProtocolSchema,
+  knowledgeModelProfileKindSchema,
+} from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -18,12 +28,22 @@ export const knowledgeModelProfiles = pgTable(
   'knowledge_model_profiles',
   {
     id: text('id').primaryKey(),
-    kind: text('kind', { enum: ['embedding', 'rerank', 'asr'] }).notNull(),
+    kind: text('kind', {
+      enum: knowledgeModelProfileKindSchema.options as [
+        KnowledgeModelProfileKind,
+        ...KnowledgeModelProfileKind[],
+      ],
+    }).notNull(),
     name: text('name').notNull(),
     endpointUrl: text('endpoint_url').notNull(),
     model: text('model').notNull(),
     dimensions: integer('dimensions'),
-    embeddingProtocol: text('embedding_protocol', { enum: ['openai', 'cohere_v2'] })
+    embeddingProtocol: text('embedding_protocol', {
+      enum: knowledgeEmbeddingProtocolSchema.options as [
+        KnowledgeEmbeddingProtocol,
+        ...KnowledgeEmbeddingProtocol[],
+      ],
+    })
       .notNull()
       .default('openai'),
     imageInputEnabled: boolean('image_input_enabled').notNull().default(false),
@@ -34,14 +54,17 @@ export const knowledgeModelProfiles = pgTable(
   },
   (t) => [
     uniqueIndex('knowledge_model_profiles_kind_name_idx').on(t.kind, t.name),
-    check('knowledge_model_profiles_kind_check', sql`${t.kind} in ('embedding', 'rerank', 'asr')`),
+    check(
+      'knowledge_model_profiles_kind_check',
+      sql`${t.kind} in (${sql.raw(knowledgeModelProfileKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     check(
       'knowledge_model_profiles_dimensions_check',
       sql`(${t.kind} = 'embedding' and ${t.dimensions} = 1024) or (${t.kind} in ('rerank', 'asr') and ${t.dimensions} is null)`,
     ),
     check(
       'knowledge_model_profiles_embedding_protocol_check',
-      sql`${t.embeddingProtocol} in ('openai', 'cohere_v2')`,
+      sql`${t.embeddingProtocol} in (${sql.raw(knowledgeEmbeddingProtocolSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'knowledge_model_profiles_image_input_check',
@@ -61,7 +84,9 @@ export const knowledgeBases = pgTable(
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
-    status: text('status', { enum: ['active', 'disabled'] })
+    status: text('status', {
+      enum: knowledgeBaseStatusSchema.options as [KnowledgeBaseStatus, ...KnowledgeBaseStatus[]],
+    })
       .notNull()
       .default('active'),
     serverId: text('server_id')
@@ -85,7 +110,10 @@ export const knowledgeBases = pgTable(
     uniqueIndex('knowledge_bases_slug_idx').on(t.slug),
     uniqueIndex('knowledge_bases_server_idx').on(t.serverId),
     index('knowledge_bases_asr_profile_idx').on(t.asrProfileId),
-    check('knowledge_bases_status_check', sql`${t.status} in ('active', 'disabled')`),
+    check(
+      'knowledge_bases_status_check',
+      sql`${t.status} in (${sql.raw(knowledgeBaseStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
   ],
 );
 

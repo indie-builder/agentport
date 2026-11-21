@@ -1,4 +1,5 @@
 import type { ApiTool, ApiToolInput } from '@agentport/shared';
+import { apiToolApprovalModeSchema, apiToolParamsInSchema } from '@agentport/shared';
 import { Plus } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { Controller } from 'react-hook-form';
@@ -65,8 +66,8 @@ const toolFormSchema = z
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
     pathTemplate: z.string(),
     inputSchema: z.string(),
-    paramsIn: z.enum(['query', 'body']),
-    approvalMode: z.enum(['allow', 'ask', 'deny']),
+    paramsIn: apiToolParamsInSchema,
+    approvalMode: apiToolApprovalModeSchema,
   })
   .superRefine((values, ctx) => {
     const result = validateToolInput(toolPayload(values), values.inputSchema);

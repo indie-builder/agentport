@@ -1,17 +1,27 @@
 import type {
   AgentDefinition,
+  ChannelAgentStatus,
+  ChannelMessageKind,
   ChannelRole,
   ChatEvent,
+  ChatMessageRole,
   MessageAttachment,
   RunErrorKind,
   RunStatus,
+  RunSubjectKind,
   RunTrigger,
+  ServiceId,
 } from '@agentport/shared';
 import {
+  channelAgentStatusSchema,
+  channelMessageKindSchema,
   channelRoleSchema,
+  chatMessageRoleSchema,
   runErrorKindSchema,
   runStatusSchema,
+  runSubjectKindSchema,
   runTriggerSchema,
+  serviceIdSchema,
   uiFormatSchema,
 } from '@agentport/shared';
 import { eq, isNotNull, sql } from 'drizzle-orm';
@@ -43,7 +53,9 @@ export const conversations = pgTable(
       .references(() => agents.id, { onDelete: 'cascade' }),
     title: text('title').notNull().default(''),
     createdBy: text('created_by'),
-    serviceId: text('service_id', { enum: ['system', 'mcp'] }),
+    serviceId: text('service_id', {
+      enum: serviceIdSchema.options as [ServiceId, ...ServiceId[]],
+    }),
     channelId: text('channel_id').references(() => channels.id, { onDelete: 'cascade' }),
     parentId: text('parent_id').references((): AnyPgColumn => conversations.id, {
       onDelete: 'set null',
@@ -82,7 +94,9 @@ export const messages = pgTable(
     conversationId: text('conversation_id')
       .notNull()
       .references(() => conversations.id, { onDelete: 'cascade' }),
-    role: text('role').notNull(),
+    role: text('role', {
+      enum: chatMessageRoleSchema.options as [ChatMessageRole, ...ChatMessageRole[]],
+    }).notNull(),
     senderBusinessId: text('sender_business_id'),
     content: jsonb('content').$type<unknown>().notNull(),
     uiFormat: text('ui_format', {
@@ -106,7 +120,10 @@ export const messages = pgTable(
     index('messages_conversation_idx').on(t.conversationId, t.createdAt, t.id),
     index('messages_run_idx').on(t.runId),
     index('messages_sender_idx').on(t.senderBusinessId),
-    check('messages_role_check', sql`${t.role} in ('user', 'assistant', 'tool')`),
+    check(
+      'messages_role_check',
+      sql`${t.role} in (${sql.raw(chatMessageRoleSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     check(
       'messages_ui_format_check',
       sql`${t.uiFormat} in (${sql.raw(uiFormatSchema.options.map((option) => `'${option}'`).join(', '))})`,
@@ -162,7 +179,9 @@ export const channelAgentBindings = pgTable(
     conversationId: text('conversation_id').references(() => conversations.id, {
       onDelete: 'set null',
     }),
-    status: text('status', { enum: ['active', 'disconnected'] })
+    status: text('status', {
+      enum: channelAgentStatusSchema.options as [ChannelAgentStatus, ...ChannelAgentStatus[]],
+    })
       .notNull()
       .default('active'),
     contextSeq: bigint('context_seq', { mode: 'number' }).notNull().default(0),
@@ -174,7 +193,10 @@ export const channelAgentBindings = pgTable(
     uniqueIndex('channel_agent_bindings_channel_agent_idx').on(t.channelId, t.agentId),
     index('channel_agent_bindings_agent_idx').on(t.agentId),
     index('channel_agent_bindings_conversation_idx').on(t.conversationId),
-    check('channel_agent_bindings_status_check', sql`${t.status} in ('active', 'disconnected')`),
+    check(
+      'channel_agent_bindings_status_check',
+      sql`${t.status} in (${sql.raw(channelAgentStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
   ],
 );
 
@@ -186,7 +208,9 @@ export const channelMessages = pgTable(
       .notNull()
       .references(() => channels.id, { onDelete: 'cascade' }),
     seq: bigserial('seq', { mode: 'number' }).notNull(),
-    kind: text('kind', { enum: ['human', 'agent', 'system'] }).notNull(),
+    kind: text('kind', {
+      enum: channelMessageKindSchema.options as [ChannelMessageKind, ...ChannelMessageKind[]],
+    }).notNull(),
     authorBusinessId: text('author_business_id'),
     agentId: text('agent_id'),
     runId: text('run_id'),
@@ -207,7 +231,10 @@ export const channelMessages = pgTable(
     uniqueIndex('channel_messages_agent_run_uniq')
       .on(t.channelId, t.runId)
       .where(sql`${t.kind} = 'agent' and ${t.runId} is not null`),
-    check('channel_messages_kind_check', sql`${t.kind} in ('human', 'agent', 'system')`),
+    check(
+      'channel_messages_kind_check',
+      sql`${t.kind} in (${sql.raw(channelMessageKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
   ],
 );
 
@@ -272,7 +299,9 @@ export const agentRuns = pgTable(
     trigger: text('trigger', { enum: runTriggerSchema.options as [RunTrigger, ...RunTrigger[]] })
       .notNull()
       .default('chat'),
-    subjectKind: text('subject_kind', { enum: ['user', 'service'] }).notNull(),
+    subjectKind: text('subject_kind', {
+      enum: runSubjectKindSchema.options as [RunSubjectKind, ...RunSubjectKind[]],
+    }).notNull(),
     initiatedBy: text('initiated_by'),
     model: text('model'),
     providerId: text('provider_id').references(() => modelProviders.id, { onDelete: 'set null' }),
@@ -281,7 +310,9 @@ export const agentRuns = pgTable(
     }),
     providerFailovers: integer('provider_failovers').notNull().default(0),
     departmentId: text('department_id'),
-    serviceId: text('service_id', { enum: ['system', 'mcp'] }),
+    serviceId: text('service_id', {
+      enum: serviceIdSchema.options as [ServiceId, ...ServiceId[]],
+    }),
     agentVersion: integer('agent_version'),
     definitionSnapshot: jsonb('definition_snapshot').$type<AgentDefinition>(),
     serverIds: jsonb('server_ids').$type<string[]>(),
@@ -318,7 +349,10 @@ export const agentRuns = pgTable(
       'agent_runs_trigger_check',
       sql`${t.trigger} in (${sql.raw(runTriggerSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
-    check('agent_runs_subject_kind_check', sql`${t.subjectKind} in ('user', 'service')`),
+    check(
+      'agent_runs_subject_kind_check',
+      sql`${t.subjectKind} in (${sql.raw(runSubjectKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     check('agent_runs_provider_failovers_check', sql`${t.providerFailovers} >= 0`),
     check(
       'agent_runs_subject_check',

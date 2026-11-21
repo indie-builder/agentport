@@ -140,6 +140,10 @@ export const overviewTimeseriesSchema = z.array(
 export type OverviewTimeseriesPoint = z.infer<typeof overviewTimeseriesSchema>[number];
 
 export const evalJudgeModeSchema = z.enum(['contains', 'llm']);
+export type EvalJudgeMode = z.infer<typeof evalJudgeModeSchema>;
+
+export const evalRunStatusSchema = z.enum(['running', 'succeeded', 'failed', 'cancelled']);
+export type EvalRunStatus = z.infer<typeof evalRunStatusSchema>;
 
 export const evalToolNamesSchema = z.array(z.string().min(1).max(200)).max(50);
 
@@ -169,7 +173,7 @@ export interface EvalDatasetImportResult {
 export const evalRunSchema = z.object({
   id: z.string(),
   agentId: z.string(),
-  status: z.enum(['running', 'succeeded', 'failed', 'cancelled']),
+  status: evalRunStatusSchema,
   agentVersion: z.number().nullable().optional(),
   resourceVersions: agentResourceVersionsSchema.nullable().optional(),
   total: z.number(),

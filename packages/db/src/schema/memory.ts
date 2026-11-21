@@ -1,9 +1,11 @@
 import type {
   MemoryContentSnapshot,
+  MemoryReviewDecision,
   MemoryReviewProposal,
   MemoryReviewSource,
   MemoryReviewTarget,
 } from '@agentport/shared';
+import { memoryChangeStateSchema, memoryReviewDecisionValueSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   check,
@@ -46,7 +48,12 @@ export const memoryReviews = pgTable(
     instruction: text('instruction').notNull().default(''),
     before: jsonb('before').$type<MemoryContentSnapshot>().notNull(),
     proposal: jsonb('proposal').$type<MemoryReviewProposal>(),
-    decision: text('decision', { enum: ['pending', 'applied', 'rejected'] })
+    decision: text('decision', {
+      enum: memoryReviewDecisionValueSchema.options as [
+        MemoryReviewDecision,
+        ...MemoryReviewDecision[],
+      ],
+    })
       .notNull()
       .default('pending'),
     appliedChangeId: text('applied_change_id').references(() => memoryChanges.id, {
@@ -76,7 +83,9 @@ export const memoryChanges = pgTable(
       onDelete: 'set null',
     }),
     reversesChangeId: text('reverses_change_id'),
-    state: text('state', { enum: ['applied'] })
+    state: text('state', {
+      enum: [memoryChangeStateSchema.value] as [typeof memoryChangeStateSchema.value],
+    })
       .notNull()
       .default('applied'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
