@@ -7,6 +7,7 @@ import channels from './channels.js';
 import chat from './chat.js';
 import dataDomains from './data-domains.js';
 import evalApi from './eval.js';
+import governance from './governance.js';
 import health from './health.js';
 import integrations from './integrations.js';
 import knowledge from './knowledge.js';
@@ -35,6 +36,7 @@ export const api = {
   ...chat,
   ...dataDomains,
   ...evalApi,
+  ...governance,
   ...health,
   ...integrations,
   ...knowledge,

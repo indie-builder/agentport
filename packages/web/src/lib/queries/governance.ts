@@ -10,7 +10,7 @@ import type {
   ResourceKind,
 } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { rpc } from '../orpc.js';
+import { api } from '../api.js';
 import { AGENTS_QUERY_KEY } from './agents.js';
 import { dataDomainKeys } from './data-domains.js';
 import { pluginKeys } from './plugins.js';
@@ -39,7 +39,7 @@ const governanceKeys = {
 const resourceGrantsQuery = (resourceKind: ResourceKind, resourceId: string) =>
   queryOptions<ResourceGrant[]>({
     queryKey: governanceKeys.grants(resourceKind, resourceId),
-    queryFn: () => rpc.governance.resourceGrants.list({ query: { resourceKind, resourceId } }),
+    queryFn: () => api.resourceGrants({ resourceKind, resourceId }),
     enabled: resourceId.length > 0,
     staleTime: 0,
   });
@@ -47,7 +47,7 @@ const resourceGrantsQuery = (resourceKind: ResourceKind, resourceId: string) =>
 const handoverQuery = (businessId: string) =>
   queryOptions<HandoverChecklist>({
     queryKey: governanceKeys.handover(businessId),
-    queryFn: () => rpc.governance.handover.checklist({ params: { businessId } }),
+    queryFn: () => api.handoverChecklist(businessId),
     enabled: businessId.length > 0,
     staleTime: 0,
   });
@@ -55,13 +55,13 @@ const handoverQuery = (businessId: string) =>
 const costSummaryQuery = (days: number, groupBy: CostGroupBy) =>
   queryOptions<CostSummary>({
     queryKey: governanceKeys.cost(days, groupBy),
-    queryFn: () => rpc.governance.costSummary({ query: { days, groupBy } }),
+    queryFn: () => api.costSummary(days, groupBy),
     staleTime: 30_000,
   });
 
 const alertSettingsQuery = queryOptions<AlertSettings>({
   queryKey: governanceKeys.alerts,
-  queryFn: () => rpc.governance.alerts.get(),
+  queryFn: () => api.alertSettings(),
   staleTime: 0,
 });
 
@@ -69,9 +69,9 @@ export function useDepartments(enabled = true) {
   return useCursorList({
     queryKey: governanceKeys.departments,
     queryFn: (cursor, signal) =>
-      rpc.governance.departments.list(
-        { query: { limit: GOVERNANCE_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) } },
-        { signal },
+      api.departments(
+        { limit: GOVERNANCE_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) },
+        signal,
       ),
     enabled,
     staleTime: 0,
@@ -83,9 +83,9 @@ export function useBudgets(enabled = true) {
   return useCursorList({
     queryKey: governanceKeys.budgets,
     queryFn: (cursor, signal) =>
-      rpc.governance.budgets.list(
-        { query: { limit: GOVERNANCE_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) } },
-        { signal },
+      api.budgets(
+        { limit: GOVERNANCE_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) },
+        signal,
       ),
     enabled,
     staleTime: 0,
@@ -102,16 +102,14 @@ export function useGovernanceResources(resourceKind: ResourceKind, q: string, en
   return useCursorList({
     queryKey: governanceKeys.resources(resourceKind, q),
     queryFn: (cursor, signal) =>
-      rpc.governance.resources(
+      api.governanceResources(
         {
-          query: {
-            resourceKind,
-            limit: GOVERNANCE_PAGE_SIZE,
-            ...(query ? { q: query } : {}),
-            ...(cursor === undefined ? {} : { cursor }),
-          },
+          resourceKind,
+          limit: GOVERNANCE_PAGE_SIZE,
+          ...(query ? { q: query } : {}),
+          ...(cursor === undefined ? {} : { cursor }),
         },
-        { signal },
+        signal,
       ),
     enabled,
     staleTime: 10_000,
@@ -124,15 +122,13 @@ export function useGovernanceIdentities(q: string) {
   return useCursorList({
     queryKey: governanceKeys.identities(q),
     queryFn: (cursor, signal) =>
-      rpc.governance.identities(
+      api.governanceIdentities(
         {
-          query: {
-            limit: GOVERNANCE_PAGE_SIZE,
-            ...(query ? { q: query } : {}),
-            ...(cursor === undefined ? {} : { cursor }),
-          },
+          limit: GOVERNANCE_PAGE_SIZE,
+          ...(query ? { q: query } : {}),
+          ...(cursor === undefined ? {} : { cursor }),
         },
-        { signal },
+        signal,
       ),
     staleTime: 10_000,
     select: (data) => data.pages.flatMap((page) => page.items),
@@ -154,7 +150,7 @@ export function useAlertSettings() {
 export function useCreateDepartment() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => rpc.governance.departments.create({ body: { name } }),
+    mutationFn: (name: string) => api.createDepartment(name),
     onSuccess: () => void client.invalidateQueries({ queryKey: governanceKeys.departments }),
   });
 }
@@ -162,8 +158,7 @@ export function useCreateDepartment() {
 export function useUpdateDepartment() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { id: string; name: string }) =>
-      rpc.governance.departments.update({ params: { id: vars.id }, body: { name: vars.name } }),
+    mutationFn: (vars: { id: string; name: string }) => api.updateDepartment(vars.id, vars.name),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: governanceKeys.departments });
       void client.invalidateQueries({ queryKey: governanceKeys.budgets });
@@ -175,7 +170,7 @@ export function useUpdateDepartment() {
 export function useDeleteDepartment() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => rpc.governance.departments.remove({ params: { id } }),
+    mutationFn: (id: string) => api.deleteDepartment(id),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: governanceKeys.departments });
       void client.invalidateQueries({ queryKey: governanceKeys.budgets });
@@ -188,10 +183,7 @@ export function useSetDepartmentMembers() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; members: DepartmentMembersInput['members'] }) =>
-      rpc.governance.departments.members({
-        params: { id: vars.id },
-        body: { members: vars.members },
-      }),
+      api.setDepartmentMembers(vars.id, vars.members),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: governanceKeys.departments });
       void client.invalidateQueries({ queryKey: governanceKeys.handoverAll });
@@ -202,7 +194,7 @@ export function useSetDepartmentMembers() {
 export function useUpsertBudget() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: BudgetInput) => rpc.governance.budgets.upsert({ body: input }),
+    mutationFn: (input: BudgetInput) => api.upsertBudget(input),
     onSuccess: () => void client.invalidateQueries({ queryKey: governanceKeys.budgets }),
   });
 }
@@ -210,7 +202,7 @@ export function useUpsertBudget() {
 export function useDeleteBudget() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => rpc.governance.budgets.remove({ params: { id } }),
+    mutationFn: (id: string) => api.deleteBudget(id),
     onSuccess: () => void client.invalidateQueries({ queryKey: governanceKeys.budgets }),
   });
 }
@@ -218,8 +210,7 @@ export function useDeleteBudget() {
 export function useUpsertResourceGrant() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: ResourceGrantInput) =>
-      rpc.governance.resourceGrants.upsert({ body: input }),
+    mutationFn: (input: ResourceGrantInput) => api.upsertResourceGrant(input),
     onSuccess: () => void client.invalidateQueries({ queryKey: governanceKeys.grantsAll }),
   });
 }
@@ -228,12 +219,10 @@ export function useDeleteResourceGrant() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: ResourceGrant) =>
-      rpc.governance.resourceGrants.remove({
-        query: {
-          resourceKind: vars.resourceKind,
-          resourceId: vars.resourceId,
-          businessId: vars.businessId,
-        },
+      api.deleteResourceGrant({
+        resourceKind: vars.resourceKind,
+        resourceId: vars.resourceId,
+        businessId: vars.businessId,
       }),
     onSuccess: () => void client.invalidateQueries({ queryKey: governanceKeys.grantsAll }),
   });
@@ -243,10 +232,7 @@ export function useTransferHandover() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: { businessId: string; toBusinessId: string }) =>
-      rpc.governance.handover.transfer({
-        params: { businessId: vars.businessId },
-        body: { toBusinessId: vars.toBusinessId },
-      }),
+      api.transferHandover(vars.businessId, vars.toBusinessId),
     onSuccess: () => {
       for (const key of [
         'governance',
@@ -268,7 +254,7 @@ export function useTransferHandover() {
 export function useUpdateAlertSettings() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: AlertSettings) => rpc.governance.alerts.update({ body: input }),
+    mutationFn: (input: AlertSettings) => api.updateAlertSettings(input),
     onSuccess: (settings) => {
       client.setQueryData(alertSettingsQuery.queryKey, settings);
     },
