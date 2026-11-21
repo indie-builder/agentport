@@ -69,7 +69,7 @@ function canonicalJson(value: unknown): string {
     }
     return v;
   };
-  return JSON.stringify(normalize(value));
+  return JSON.stringify(normalize(JSON.parse(JSON.stringify(value) ?? 'null')));
 }
 
 function chainHash(row: AuditHashMaterial): string {

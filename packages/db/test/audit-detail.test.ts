@@ -69,6 +69,7 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
         toolId: 'tool_1',
         from: 'allow',
         to: 'ask',
+        when: new Date('2026-01-02T03:04:05.678Z'),
         nested: { b: 2, a: [3, 2, 1] },
       },
     });
@@ -90,6 +91,7 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
       toolId: 'tool_1',
       from: 'allow',
       to: 'ask',
+      when: '2026-01-02T03:04:05.678Z',
       nested: { b: 2, a: [3, 2, 1] },
     });
   });
