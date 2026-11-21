@@ -236,7 +236,7 @@ bun run --filter @agentport/sandbox image
 - 镜像构建期验证 `dist/runner.js` 存在、Agent SDK 原生 CLI 可执行，并确认 `bash` 是 GNU bash、`pdftoppm`/`pdfinfo` 可用；生产依赖与 sandbox、shared 的 `dist` 已在镜像内安装并复制。
 - `runtime` target 额外安装 `docker-cli` 与 `docker-cli-buildx`，只服务 worker 的宿主 Docker 调用和运行环境构建，不进入 `sandbox` 基座。
 - 不再有 `package.shared.json` / `package.docker.json` 或 `packages/sandbox/.dockerignore`；旧版 `packages/sandbox/shared` 暂存目录也已删除。
-- 根 `.dockerignore` 排除 `.git`、docs、data、`node_modules`、`dist` 等；镜像内重新安装和编译，`packages/sandbox/shared` 即使残留也不会进入构建上下文。
+- 根 `.dockerignore` 排除 `.git`、docs、data、`node_modules`、`dist` 等；镜像内重新安装和编译，旧版 `packages/sandbox/shared` 即使残留也不会进入构建上下文。
 - 反向代理之后部署时，设置 `TRUST_PROXY=1`（否则限流按代理 IP 计数），并把 `CORS_ORIGINS` 改成浏览器实际访问的 Origin。
 
 #### 2.2.2 运行环境构建、发布与回退

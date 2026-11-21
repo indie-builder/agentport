@@ -8,7 +8,7 @@
 >
 > 对本仓库的所有回复、总结、提交说明都用中文；代码、命令、标识符、路径保持原样。
 >
-> 文档入口见 [docs/README.md](docs/README.md)；研发流程规范见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)；跨任务踩坑见 [docs/PITFALLS.md](docs/PITFALLS.md)，开工前按任务类别查相关条目、报错时按症状查。各包专属规则见「模块规则」。
+> 文档入口见 [docs/README.md](docs/README.md)；研发流程规范见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)；跨任务踩坑见 [docs/PITFALLS.md](docs/PITFALLS.md)：先看顶部索引定位节名，再用 Read 的 offset/limit 只读命中节，不整读全文。各包专属规则见「模块规则」。
 >
 > 同目录 `CLAUDE.md`（根与各 `packages/*`）是指向本文件的软链接，供 Claude 系 Harness 加载。**唯一真源是本文件 `AGENTS.md`**：只改 `AGENTS.md`，不要用实体副本替换链接，也不要因两者内容相同而视为重复。
 
@@ -87,7 +87,7 @@
 - **项目专属约束照旧高于通用技能与 pstack。** 本文件的文件系统第一性（§0）、官方最佳实践、技术栈与视觉基准、安全、worktree 与授权规则不因 pstack 或其它技能而改变。
 - **主会话永远不写代码（硬性）**：任何代码变更动作——新增/修改/删除源码、测试、配置、脚本、迁移文件——都必须派给 Subagent 执行，主会话不亲自编辑。主会话只做：读代码、定契约、派发任务、审查产出、合并、运行验证命令与提交。唯一例外是用户在本轮明确要求主会话直接改，或单行配置修正（如版本号、路径拼写）且用户已同意；这两种情况要在回复里说明为什么没有派发。
 - 能拆成互不依赖的子任务就并行，不要串行做完一个再下一个；每个子代理要有明确产出边界（改哪些文件、不改哪些文件）与验收方式。
-- **完整研发流程（含建树、配置与启动规则）、review 轮次做法、验证与撤销规则统一见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)**；每个任务首次写入前、续做同一未完成任务恢复时必读 §2，流程细节不在此复制；开工前按任务类别查 [docs/PITFALLS.md](docs/PITFALLS.md) 相关条目、报错时按症状查，踩坑记入该文件不散落。产出只落在 worktree，主 checkout 保持干净。
+- **完整研发流程（含建树、配置与启动规则）、review 轮次做法、验证与撤销规则统一见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md)**；每个任务首次写入前、续做同一未完成任务恢复时必读 §2，流程细节不在此复制；开工前用 [docs/PITFALLS.md](docs/PITFALLS.md) 顶部索引定位节名，再用 Read 的 offset/limit 只读命中节，不整读全文；踩坑记入该文件不散落。产出只落在 worktree，主 checkout 保持干净。
 - **开发交付后的工作区收尾按 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md) §2-7 默认执行**：清理本任务已交付的 worktree、退出回主 checkout 并快进更新 main；清理判据与例外都在 §2-7，此处不复制。
 - **检索用 `rg -n PATTERN <path> -g '*.ts'`，glob 必须加引号。** 未加引号的 `*.ts` / `--include=*.ts` 在当前目录没有匹配项时会被 zsh 展开失败并报 `no matches found`。
 
