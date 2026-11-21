@@ -5,11 +5,13 @@ import type {
   AgentDefinitionServer,
   PublicRunQuestion,
   ResolvedRuntimeEnvironment,
+  RunErrorKind,
   RunStatus,
   RunTrigger,
 } from '@agentport/shared';
 import {
   agentPermissionAllows,
+  buildRunWebhookEvent,
   decodeCursor,
   encodeCursor,
   isActiveRunStatus,
@@ -46,8 +48,10 @@ import { getAgentVersion } from './agent-versions.js';
 import { getAgentsByIds, getBoundServersByAgentIds } from './agents.js';
 import { getRunChannelAccess } from './channels.js';
 import { messageText } from './chat/messages.js';
+import { enqueueWebhookEvent } from './integrations.js';
 import { markBySource } from './notifications.js';
 import { type CursorPage, isCanonicalTimestamp, keysetPage } from './pagination.js';
+import { neverStartedFailureFilter } from './run-predicates.js';
 
 export interface RunListItem {
   id: string;
@@ -573,6 +577,56 @@ export async function getRunInitiator(db: DbHandle, runId: string): Promise<stri
     .where(eq(agentRuns.id, runId))
     .limit(1);
   return row?.initiatedBy ?? null;
+}
+
+export interface FailedUnstartedRunRow {
+  id: string;
+  agentId: string;
+  conversationId: string;
+  channelId: string | null;
+  initiatedBy: string | null;
+}
+
+export async function failUnstartedRun(
+  db: DbHandle,
+  runId: string,
+  input: {
+    error: string;
+    errorKind: Extract<RunErrorKind, 'agent' | 'infra'>;
+    includeNeverStarted?: boolean;
+  },
+  afterFail?: (tx: Transaction, row: FailedUnstartedRunRow) => Promise<void>,
+): Promise<FailedUnstartedRunRow | undefined> {
+  const queued = eq(agentRuns.status, 'queued');
+  const eligible =
+    input.includeNeverStarted === true ? or(queued, neverStartedFailureFilter()) : queued;
+  return db.transaction(async (tx) => {
+    const [failed] = await tx
+      .update(agentRuns)
+      .set({
+        status: 'failed',
+        endedAt: new Date(),
+        error: input.error,
+        errorKind: input.errorKind,
+      })
+      .where(and(eq(agentRuns.id, runId), eligible))
+      .returning({
+        id: agentRuns.id,
+        agentId: agentRuns.agentId,
+        conversationId: agentRuns.conversationId,
+        channelId: agentRuns.channelId,
+        initiatedBy: agentRuns.initiatedBy,
+      });
+    if (failed === undefined) return undefined;
+    if (afterFail !== undefined) await afterFail(tx, failed);
+    if (failed.initiatedBy !== null) {
+      await enqueueWebhookEvent(tx, {
+        ...buildRunWebhookEvent({ status: 'failed', error: input.error }, failed),
+        ownerBusinessId: failed.initiatedBy,
+      });
+    }
+    return failed;
+  });
 }
 
 export async function getRunApprovalSubject(db: DbHandle, runId: string) {

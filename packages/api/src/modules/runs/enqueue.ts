@@ -1,43 +1,25 @@
 import { fail } from '@agentport/core';
-import { type Database, repo, schema } from '@agentport/db';
-import { buildRunWebhookEvent, isActiveJobState, runEnqueueOptions } from '@agentport/shared';
-import { and, eq } from 'drizzle-orm';
+import { type Database, repo } from '@agentport/db';
+import { isActiveJobState, runEnqueueOptions } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { getQueue } from '../../queue/producer.js';
 
 export async function failQueuedRunEnqueue(db: Database, runId: string): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    const [failed] = await tx
-      .update(schema.agentRuns)
-      .set({
-        status: 'failed',
-        endedAt: new Date(),
-        error: '消息入队失败，请重新发送。',
-        errorKind: 'infra',
-      })
-      .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'queued')))
-      .returning({
-        id: schema.agentRuns.id,
-        agentId: schema.agentRuns.agentId,
-        conversationId: schema.agentRuns.conversationId,
-        initiatedBy: schema.agentRuns.initiatedBy,
-        channelId: schema.agentRuns.channelId,
-      });
-    if (failed === undefined) return false;
-    if (failed.channelId !== null) {
-      await repo.runInstructions.requeueUndeliveredInstructionWakes(tx, {
-        runId: failed.id,
-        agentId: failed.agentId,
-      });
-    }
-    if (failed.initiatedBy !== null) {
-      await repo.integrations.enqueueWebhookEvent(tx, {
-        ...buildRunWebhookEvent({ status: 'failed', error: '消息入队失败，请重新发送。' }, failed),
-        ownerBusinessId: failed.initiatedBy,
-      });
-    }
-    return true;
-  });
+  return (
+    (await repo.runs.failUnstartedRun(
+      db,
+      runId,
+      { error: '消息入队失败，请重新发送。', errorKind: 'infra', includeNeverStarted: false },
+      async (tx, row) => {
+        if (row.channelId !== null) {
+          await repo.runInstructions.requeueUndeliveredInstructionWakes(tx, {
+            runId: row.id,
+            agentId: row.agentId,
+          });
+        }
+      },
+    )) !== undefined
+  );
 }
 
 export async function enqueueRunJob(
