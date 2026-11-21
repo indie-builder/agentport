@@ -13,7 +13,7 @@ import {
 } from '@agentport/shared';
 import { createBunRedisClient, getNextMillis, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
-import { and, eq, isNull, or } from 'drizzle-orm';
+import { and, eq, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import { checkRunPromptPolicy } from '../content-policy.js';
@@ -68,14 +68,6 @@ async function audit(
   });
 }
 
-function retryableScheduleRunFailure() {
-  return and(
-    eq(schema.agentRuns.status, 'failed'),
-    eq(schema.agentRuns.errorKind, 'infra'),
-    isNull(schema.agentRuns.startedAt),
-  );
-}
-
 async function failScheduleRun(
   db: Db,
   runId: string,
@@ -83,7 +75,8 @@ async function failScheduleRun(
   errorKind: Extract<RunErrorKind, 'agent' | 'infra'>,
 ) {
   const queued = eq(schema.agentRuns.status, 'queued');
-  const eligible = errorKind === 'infra' ? queued : or(queued, retryableScheduleRunFailure());
+  const eligible =
+    errorKind === 'infra' ? queued : or(queued, repo.runPredicates.neverStartedFailureFilter());
   return db.transaction(async (tx) => {
     const [failed] = await tx
       .update(schema.agentRuns)
@@ -262,7 +255,12 @@ export async function processScheduleTrigger(
           const requeued = await tx
             .update(schema.agentRuns)
             .set({ status: 'queued', endedAt: null, error: null, errorKind: null })
-            .where(and(eq(schema.agentRuns.id, existing.id), retryableScheduleRunFailure()))
+            .where(
+              and(
+                eq(schema.agentRuns.id, existing.id),
+                repo.runPredicates.neverStartedFailureFilter(),
+              ),
+            )
             .returning({ id: schema.agentRuns.id });
           if (requeued.length !== 1) return false;
         }

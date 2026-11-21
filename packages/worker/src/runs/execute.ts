@@ -29,7 +29,7 @@ import {
   wireFailureKind,
 } from '@agentport/shared';
 import type { Job } from 'bullmq';
-import { and, asc, eq, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { publishChannelEventSafely } from '../channels/channel-events.js';
 import type { Config } from '../config.js';
@@ -266,14 +266,7 @@ export async function runAgentJob(
     .where(
       and(
         eq(schema.agentRuns.id, runId),
-        or(
-          eq(schema.agentRuns.status, 'queued'),
-          and(
-            eq(schema.agentRuns.status, 'failed'),
-            eq(schema.agentRuns.errorKind, 'infra'),
-            isNull(schema.agentRuns.startedAt),
-          ),
-        ),
+        or(eq(schema.agentRuns.status, 'queued'), repo.runPredicates.neverStartedFailureFilter()),
       ),
     )
     .returning({ id: schema.agentRuns.id });
