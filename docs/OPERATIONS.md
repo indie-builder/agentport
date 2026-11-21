@@ -473,7 +473,7 @@ worker 启动时注册 BullMQ 的 `maintenance` 每日重复任务（`upsertJobS
 
 `audit_log` 与 `eval_results` 不参与清理。每次执行写入一条 `maintenance.pruned` 审计，`target` 为 JSON 摘要。
 
-同一 `maintenance` 队列的 `ops-alerts` 每 5 分钟核对过期审批：`approved_at`、`denied_at`、`expired_at` 均为空且 `expires_at` 已过的 `approval_requests` 行写入 `expired_at`，逐行记 `agent.run.approval.expired` 审计，并把对应的滞留「等待审批」通知置读（私有来源 `approval:<runId>:<serverId>:<toolName>`，频道来源 `channel-approval:<approvalId>`）。核对幂等，只做治理收尾，不改动执行与工具调用路径。`expired_at` 一旦提交，若随后审计写入或通知置读失败仅记告警，不回滚；下一轮扫描会跳过该行，不会补做。
+同一 `maintenance` 队列的 `ops-alerts` 每 5 分钟核对过期审批：`approved_at`、`denied_at`、`expired_at` 均为空且 `expires_at` 已过的 `approval_requests` 行写入 `expired_at`，逐行记 `agent.run.approval.expired` 审计，并把对应的滞留「等待审批」通知置读（私有来源 `approval:<runId>:<approvalId>`，频道来源 `channel-approval:<approvalId>`）。核对幂等，只做治理收尾，不改动执行与工具调用路径。`expired_at` 一旦提交，若随后审计写入或通知置读失败仅记告警，不回滚；下一轮扫描会跳过该行，不会补做。
 
 ### 4.2 手动触发
 
@@ -498,6 +498,7 @@ bun run --filter @agentport/worker maintenance
 - 对话历史的操作菜单支持重命名持久化会话：标题去除首尾空白、1–128字符；只更新标题，不修改消息、归属或最近消息时间。脏草稿退出须确认，提交中不可关闭。
 - MCP上游执行每API进程4槽、排队最多8项，满额返回可重试错误；审批由 sandbox `PreToolUse` 短 PUT 登记、每 2 秒 GET 轮询，不占上游执行槽。握手/SSE/平台invoke不占上游槽，invoke仍保留既有4并发入场；多进程不共享全局容量，详见D-36。
 - 工具审批只接受running状态的运行；API在事务内锁定运行行再批准，与取消/终态更新串行。queued及终态返回409，不写批准时间；重复批准保留首次时间。API 不再长等待；运行中同一工具调用经批准且权限规则通过后执行，拒绝、过期、取消不执行。API 重启期间 runner 按退避重试；runner/run 结束或 hook 355 秒超时则拒绝。聊天结束后停止审批轮询，终态详情只显示失效说明。
+- 出站请求前的最后一次复核（当前工具定义、发起者身份、规则版本和有效批准）是 `fetch` 前最后一个异步步骤；复核通过到请求发出之间仍存在进程内窗口，撤权或作废不会取消已经进入 `fetch` 的请求，也不承诺撤销上游副作用。要完全消除该窗口需要把数据库检查与出站发送置于同一分布式临界区，当前不做。
 - 审批等待有上限；0024新增expires_at，登记/轮询接口返回pending/approved/denied/expired/cancelled，区分当前等待与后续调用许可。过期批准仍可用于后续调用，不会恢复已超时的旧调用；截止前后都检查期限（包括读取批准状态之后）。期限不证明沙盒仍在线；API 重启后短请求可恢复，runner/run 结束后无法恢复；API与数据库时钟需保持同步。
 - 事件流在 Redis 中保留 1 小时（`run:<runId>:events`），`XADD` 不按条数裁剪，每次写入续期 `EXPIRE 3600`；首次回放从流头按 `XRANGE COUNT 2` 逐页读取，不设累计字节上限，读完后用 `XREAD BLOCK` 跟随。每个观众独占一条订阅连接。展示增量（`text_delta`、块边界）与需落库的完整事件分开限额：`shared/run-stream.ts` 各为 2000 条、32MiB；增量超限只停止展示，不挤占完整消息的落库额度；完整事件超过保存上限时保留部分结果并明确失败（不可自动重试），取消、超时等既有非成功状态优先。流过期后页面读取该 run 已保存步骤恢复本轮尾部，保留已加载旧历史；保存缺失或读取失败则保留部分输出并提示。过期流仍需从历史查看，不等于 SDK 会话恢复，详见 D-50。
 - 已订阅运行每2秒非重叠检查数据库终态：结束事件缺失时发terminal_missing标记后补终态，页面读取已保存步骤；若确认运行行已消失，则发run_unavailable并关闭，页面保留已接收文本、释放忙碌、不伪造结果。初次请求不存在仍404，数据库查询失败继续固定警告重试，详见D-58/D-60。

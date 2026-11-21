@@ -162,9 +162,9 @@ async function callUpstream(
   return runMcpExecution(async () => {
     if (signal.aborted) return cancelledResult(tool.name);
     if (isRunActive && !(await isRunActive())) return cancelledResult(tool.name);
+    if (signal.aborted) return cancelledResult(tool.name);
     const blocked = await recheckApproval?.();
     if (blocked) return blocked;
-    if (recheckApproval && isRunActive && !(await isRunActive())) return cancelledResult(tool.name);
     if (signal.aborted) return cancelledResult(tool.name);
     try {
       const res = await fetch(url, {

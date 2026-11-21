@@ -104,6 +104,32 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
       const decision = await createApprovalEvaluator({ db: context.db, runId, serverId })(
         tool,
       ).catch(evaluationFailed);
+      const boundApprovalId = c.req.method === 'GET' ? c.req.query('approvalId') : undefined;
+      if (boundApprovalId !== undefined) {
+        if (decision.effectiveMode === 'deny') {
+          await auditToolPolicyDenial(context, {
+            runId,
+            serverId,
+            toolName,
+            matchedRuleIds: decision.matchedRuleIds,
+          });
+        }
+        const bound = decision.approval ?? null;
+        if (bound === null || decision.effectiveMode !== 'ask' || bound.id !== boundApprovalId)
+          fail('CONFLICT', '工具审批已失效，调用未执行');
+        return c.json({
+          status:
+            bound.deniedAt !== null
+              ? 'denied'
+              : bound.approvedAt !== null
+                ? 'approved'
+                : bound.expiresAt !== null && bound.expiresAt.getTime() <= Date.now()
+                  ? 'expired'
+                  : 'pending',
+          approvalId: bound.id,
+          expiresAt: bound.expiresAt?.toISOString() ?? null,
+        });
+      }
       if (decision.effectiveMode === 'deny') {
         await auditToolPolicyDenial(context, {
           runId,

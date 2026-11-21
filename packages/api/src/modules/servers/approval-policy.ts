@@ -3,13 +3,18 @@ import { type DbHandle, repo, type Transaction } from '@agentport/db';
 import {
   type ApiTool,
   apiToolApprovalModeSchema,
+  apiToolParamsInSchema,
   toolApprovalMethodSchema,
 } from '@agentport/shared';
 import type { RequestContext } from '../../http/context.js';
 import { isRunCancelRequested } from '../../queue/producer.js';
+import { str } from './repo.js';
 import { summarizeToolArguments } from './tool-arguments.js';
 
-type ApprovalTool = Pick<ApiTool, 'id' | 'name' | 'method' | 'pathTemplate' | 'approvalMode'>;
+type ApprovalTool = Pick<
+  ApiTool,
+  'id' | 'name' | 'method' | 'pathTemplate' | 'approvalMode' | 'paramsIn'
+> & { baseUrl: string };
 
 export function createApprovalEvaluator({
   db,
@@ -20,7 +25,7 @@ export function createApprovalEvaluator({
   runId: string;
   serverId: string;
 }) {
-  return async (tool: ApprovalTool) => {
+  return async (tool: Omit<ApprovalTool, 'baseUrl'>) => {
     const decision = await db.transaction(async (tx) => {
       if (!(await repo.runs.lockRunForApproval(tx, runId))) return null;
       const currentTool = await getRunApprovalTool(tx, runId, serverId, tool.name);
@@ -37,7 +42,8 @@ export function createApprovalEvaluator({
       return currentTool.id === tool.id &&
         currentTool.method === tool.method &&
         currentTool.pathTemplate === tool.pathTemplate &&
-        currentTool.approvalMode === tool.approvalMode
+        currentTool.approvalMode === tool.approvalMode &&
+        currentTool.paramsIn === tool.paramsIn
         ? current
         : null;
     });
@@ -69,6 +75,8 @@ export async function evaluateLockedApproval(
   const rules = await repo.toolApprovalPolicies.listEnabledForTool(tx, selected);
   const decision = evaluateToolApproval(apiToolApprovalModeSchema.parse(tool.approvalMode), rules, {
     ...selected,
+    baseUrl: tool.baseUrl,
+    paramsIn: tool.paramsIn,
     roles: subject.roles,
   });
   const key = { ...scope, decisionHash: decision.decisionHash };
@@ -88,18 +96,33 @@ export async function getRunApprovalTool(
   runId: string,
   serverId: string,
   toolName: string,
-) {
+): Promise<ApprovalTool | null> {
   const snapshot = await repo.runs.getRunServerSnapshot(db, runId, serverId);
   if (snapshot !== null && snapshot.kind !== 'generated') return null;
-  if (snapshot?.tools !== undefined) {
-    return snapshot.tools.find((tool) => tool.enabled && tool.name === toolName) ?? null;
-  }
-  const [server, tool] = await Promise.all([
+  const [server, currentTool] = await Promise.all([
     repo.servers.getServer(db, serverId),
     repo.servers.getApiToolByName(db, serverId, toolName),
   ]);
-  if (server?.kind !== 'generated' || !tool?.enabled) return null;
-  return { ...tool, method: toolApprovalMethodSchema.parse(tool.method) };
+  if (server?.kind !== 'generated' || !currentTool?.enabled) return null;
+  const current: ApprovalTool = {
+    id: currentTool.id,
+    name: currentTool.name,
+    method: toolApprovalMethodSchema.parse(currentTool.method),
+    pathTemplate: currentTool.pathTemplate,
+    approvalMode: apiToolApprovalModeSchema.parse(currentTool.approvalMode),
+    paramsIn: apiToolParamsInSchema.parse(currentTool.paramsIn),
+    baseUrl: str(snapshot !== null ? snapshot.config.baseUrl : server.config.baseUrl),
+  };
+  if (snapshot?.tools === undefined) return current;
+  const snapshotTool = snapshot.tools.find((tool) => tool.enabled && tool.name === toolName);
+  if (!snapshotTool) return null;
+  return snapshotTool.id === current.id &&
+    snapshotTool.method === current.method &&
+    snapshotTool.pathTemplate === current.pathTemplate &&
+    snapshotTool.approvalMode === current.approvalMode &&
+    snapshotTool.paramsIn === current.paramsIn
+    ? current
+    : null;
 }
 
 export function recheckRunApproval(log: RequestContext['log']): repo.runs.RecheckApproval {

@@ -21,6 +21,8 @@ export interface ApprovalContext {
   toolId: string;
   method: string;
   pathTemplate: string;
+  baseUrl: string;
+  paramsIn: string;
   roles: readonly string[];
 }
 
@@ -81,6 +83,8 @@ export function evaluateToolApproval(
       toolId: ctx.toolId,
       method: ctx.method,
       pathTemplate: ctx.pathTemplate,
+      baseUrl: ctx.baseUrl,
+      paramsIn: ctx.paramsIn,
       agentId: ctx.agentId,
       roles: [...ctx.roles].sort(),
       baseline,

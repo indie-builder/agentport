@@ -27,6 +27,8 @@ const ctx: ApprovalContext = {
   toolId: 'tool_1',
   method: 'GET',
   pathTemplate: '/users/{id}',
+  baseUrl: 'https://api.example.com',
+  paramsIn: 'query',
   roles: ['agent:owner', 'platform:role_admin'],
 };
 
@@ -138,6 +140,19 @@ describe('evaluateToolApproval', () => {
         modeChange.decisionHash,
       ]).size,
     ).toBe(4);
+  });
+
+  it('changes the hash with outbound destination and parameter placement', () => {
+    const base = evaluateToolApproval('allow', [], ctx);
+    const baseUrlChange = evaluateToolApproval('allow', [], {
+      ...ctx,
+      baseUrl: 'https://other.example.com',
+    });
+    const paramsInChange = evaluateToolApproval('allow', [], { ...ctx, paramsIn: 'body' });
+
+    expect(
+      new Set([base.decisionHash, baseUrlChange.decisionHash, paramsInChange.decisionHash]).size,
+    ).toBe(3);
   });
 
   it('returns the baseline with a stable hash for an empty rule set', () => {

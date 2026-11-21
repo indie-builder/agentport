@@ -137,7 +137,6 @@ function serializeToolPolicy(row: ToolPolicyRow): string {
     toolId: row.toolId,
     role: row.role,
     httpMethod: row.httpMethod,
-    pathTemplate: row.pathTemplate,
     approvalMode: row.approvalMode,
     enabled: row.enabled,
     version: row.version,

@@ -1,5 +1,6 @@
 import type {
   AccessFilter,
+  AgentDefinition,
   AgentDefinitionServer,
   PublicRunQuestion,
   ResolvedRuntimeEnvironment,
@@ -36,9 +37,11 @@ import {
 import { getAgentRelation, getUserAccess } from './access.js';
 import { getAuthUserForPrincipal } from './accounts.js';
 import { getAgentVersion } from './agent-versions.js';
-import { channelMemberRole } from './channels.js';
+import { getAgentsByIds, getBoundServersByAgentIds } from './agents.js';
+import { getRunChannelAccess } from './channels.js';
 import { messageText } from './chat/messages.js';
 import { keysetBefore, paginate } from './keyset.js';
+import { markBySource } from './notifications.js';
 
 export interface RunListItem {
   id: string;
@@ -412,6 +415,21 @@ function runServerScope(serverId: string): SQL {
   ))`;
 }
 
+function toDefinitionServer(row: typeof servers.$inferSelect): AgentDefinitionServer {
+  return {
+    id: row.id,
+    name: row.name,
+    kind: row.kind,
+    config: row.config,
+    secretsEncrypted: row.secretsEncrypted,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * 还原 worker 为本 run 选择的 server 定义：根与子级快照优先，未固定的子级用当前定义。
+ * 审批与执行必须和 worker 看到同一份定义，任一层无法唯一确定都按不存在处理。
+ */
 export async function getRunServerSnapshot(
   db: DbHandle,
   runId: string,
@@ -431,21 +449,61 @@ export async function getRunServerSnapshot(
     run.definitionSnapshot ??
     (run.agentVersion !== null
       ? (await getAgentVersion(db, run.agentId, run.agentVersion))?.definition
-      : null);
-  if (!definition) return null;
-  const snapshot = definition.resources.servers.find((server) => server.id === serverId);
-  if (snapshot) return snapshot;
-  const children = await Promise.all(
-    definition.resources.subAgents.map(async ({ id, publishedVersion }) =>
-      publishedVersion !== null
-        ? (await getAgentVersion(db, id, publishedVersion))?.definition
-        : null,
-    ),
-  );
+      : null) ??
+    null;
+  const childRefs =
+    definition === null
+      ? (
+          await db
+            .select({
+              id: agents.id,
+              publishedVersion: agents.publishedVersion,
+              enabled: agents.enabled,
+            })
+            .from(agents)
+            .where(eq(agents.parentId, run.agentId))
+            .orderBy(asc(agents.id))
+        ).map(({ id, publishedVersion, enabled }) => ({ id, publishedVersion, enabled }))
+      : definition.resources.subAgents.map(({ id, publishedVersion }) => ({
+          id,
+          publishedVersion,
+          enabled: true,
+        }));
+  const liveChildren =
+    definition === null
+      ? new Map(childRefs.map(({ id, enabled }) => [id, enabled]))
+      : new Map(
+          (
+            await getAgentsByIds(
+              db,
+              childRefs.map(({ id }) => id),
+            )
+          ).map((row) => [row.id, row.enabled]),
+        );
+  const children: Array<{ agentId: string; definition: AgentDefinition | null }> = [];
+  for (const ref of childRefs) {
+    if (liveChildren.get(ref.id) !== true) continue;
+    const version =
+      ref.publishedVersion === null
+        ? null
+        : await getAgentVersion(db, ref.id, ref.publishedVersion);
+    if (ref.publishedVersion !== null && version === null) continue;
+    children.push({ agentId: ref.id, definition: version?.definition ?? null });
+  }
+  const liveIds = [
+    run.agentId,
+    ...children.filter(({ definition: child }) => child === null).map(({ agentId }) => agentId),
+  ];
+  const liveServers = await getBoundServersByAgentIds(db, liveIds);
+  const serversOf = (agentId: string, agentDefinition: AgentDefinition | null) =>
+    agentDefinition !== null
+      ? agentDefinition.resources.servers
+      : (liveServers.get(agentId) ?? []).map(toDefinitionServer);
   return (
-    children
-      .flatMap((child) => child?.resources.servers ?? [])
-      .find((server) => server.id === serverId) ?? null
+    [
+      ...serversOf(run.agentId, definition),
+      ...children.flatMap(({ agentId, definition: child }) => serversOf(agentId, child)),
+    ].find((server) => server.id === serverId) ?? null
   );
 }
 
@@ -475,31 +533,50 @@ export async function getRunApprovalSubject(db: DbHandle, runId: string) {
       initiatedBy: agentRuns.initiatedBy,
       serviceId: agentRuns.serviceId,
       channelId: agentRuns.channelId,
-      scheduleId: agentRuns.scheduleId,
-      trigger: agentRuns.trigger,
+      conversationId: agentRuns.conversationId,
     })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId))
     .limit(1);
   if (!run) return null;
-  const { agentId, subjectKind, initiatedBy, serviceId, channelId } = run;
+  const { agentId, subjectKind, initiatedBy, serviceId, channelId, conversationId } = run;
   if (subjectKind === 'service') {
-    return serviceId === null ? null : { agentId, subjectKind, roles: [`service:${serviceId}`] };
+    return serviceId === 'system' || serviceId === 'mcp'
+      ? { agentId, subjectKind, roles: [`service:${serviceId}`] }
+      : null;
   }
   if (subjectKind !== 'user' || initiatedBy === null) return null;
-  const [account, access, relation, channelRole] = await Promise.all([
+  const [account, access, relation] = await Promise.all([
     getAuthUserForPrincipal(db, initiatedBy),
     getUserAccess(db, initiatedBy),
     getAgentRelation(db, agentId, initiatedBy),
-    channelId === null ? null : channelMemberRole(db, channelId, initiatedBy),
   ]);
   if (!account || account.disabled || !relation.exists || relation.inactive) return null;
-  if (
-    channelId === null
-      ? !agentPermissionAllows(access.grants, 'agents.use', relation, initiatedBy)
-      : channelRole === null
-  )
-    return null;
+  let channelRole: string | null = null;
+  if (channelId === null) {
+    if (!agentPermissionAllows(access.grants, 'agents.use', relation, initiatedBy)) return null;
+  } else {
+    const lane =
+      conversationId === null
+        ? null
+        : await getRunChannelAccess(db, {
+            channelId,
+            agentId,
+            conversationId,
+            businessId: initiatedBy,
+          });
+    if (
+      !lane ||
+      lane.conversationChannelId !== channelId ||
+      lane.conversationAgentId !== agentId ||
+      lane.archivedAt !== null ||
+      lane.role === null ||
+      lane.role === 'viewer' ||
+      lane.bindingStatus !== 'active'
+    )
+      return null;
+    channelRole = lane.role;
+  }
   const roles = access.roles.map((role) => `platform:${role.id}`);
   if (relation.ownerBusinessId === initiatedBy) roles.push('agent:owner');
   if (relation.canMaintain) roles.push('agent:maintainer');
@@ -634,7 +711,7 @@ export async function supersedeMismatchedApprovals(
   db: Transaction,
   input: Omit<RunToolApproval, 'decisionHash'> & { decisionHash: string | null },
 ) {
-  await db
+  const rows = await db
     .update(approvalRequests)
     .set({ supersededAt: sql`clock_timestamp()` })
     .where(
@@ -645,7 +722,17 @@ export async function supersedeMismatchedApprovals(
           ? undefined
           : ne(approvalRequests.decisionHash, input.decisionHash),
       ),
-    );
+    )
+    .returning({ id: approvalRequests.id, channelId: approvalRequests.channelId });
+  await Promise.all(
+    rows.map((row) =>
+      markBySource(
+        db,
+        'approval',
+        row.channelId === null ? `approval:${input.runId}:${row.id}` : `channel-approval:${row.id}`,
+      ),
+    ),
+  );
 }
 
 export async function lockRunForApproval(tx: Transaction, runId: string) {

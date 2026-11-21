@@ -997,7 +997,7 @@ export async function listAgentSubAgentIds(
   return out;
 }
 
-export async function getAgentsByIds(db: Database, ids: string[]): Promise<AgentRow[]> {
+export async function getAgentsByIds(db: DbHandle, ids: string[]): Promise<AgentRow[]> {
   if (ids.length === 0) return [];
   return db.select().from(agents).where(inArray(agents.id, ids));
 }
@@ -1038,7 +1038,7 @@ export async function getResourceOwners(
 }
 
 export async function getBoundServersByAgentIds(
-  db: Database,
+  db: DbHandle,
   agentIds: string[],
 ): Promise<Map<string, Array<typeof servers.$inferSelect>>> {
   const out = new Map<string, Array<typeof servers.$inferSelect>>();

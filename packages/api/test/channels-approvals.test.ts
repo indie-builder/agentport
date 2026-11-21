@@ -160,12 +160,25 @@ describe.skipIf(!ready)('channel approvals', () => {
     trigger: TestAccount,
     status: 'queued' | 'running' | 'succeeded' = 'running',
   ): Promise<string> => {
-    const conversationId = unique('approval-conv');
-    const runId = unique('approval-run');
-    await app.client.unsafe(
-      'insert into conversations (id, agent_id, created_by) values ($1, $2, $3)',
-      [conversationId, agentId, trigger.businessId],
+    const [binding] = await app.client.unsafe<{ conversation_id: string | null }[]>(
+      'select conversation_id from channel_agent_bindings where channel_id = $1 and agent_id = $2',
+      [channelId, agentId],
     );
+    let conversationId = binding?.conversation_id ?? null;
+    if (conversationId === null) {
+      conversationId = unique('approval-conv');
+      await app.client.unsafe(
+        'insert into conversations (id, agent_id, created_by, channel_id) values ($1, $2, $3, $4)',
+        [conversationId, agentId, trigger.businessId, channelId],
+      );
+      await app.client.unsafe(
+        `insert into channel_agent_bindings
+           (channel_id, agent_id, conversation_id, status, added_by)
+         values ($1, $2, $3, 'active', $4)`,
+        [channelId, agentId, conversationId, trigger.businessId],
+      );
+    }
+    const runId = unique('approval-run');
     await app.client.unsafe(
       `insert into agent_runs
          (id, conversation_id, agent_id, channel_id, trigger, status, subject_kind, initiated_by)

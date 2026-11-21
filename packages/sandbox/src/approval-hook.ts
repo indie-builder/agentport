@@ -70,7 +70,7 @@ export function createApprovalHook(
     url.search = '';
     url.hash = '';
     headers.set('content-type', 'application/json');
-    let registered = false;
+    let approvalId: string | null = null;
     let transportFailures = 0;
     let backoff = 2_000;
     let expiresAt = Number.POSITIVE_INFINITY;
@@ -78,10 +78,12 @@ export function createApprovalHook(
       let delay = 2_000;
       let responded = false;
       try {
+        url.search = '';
+        if (approvalId !== null) url.searchParams.set('approvalId', approvalId);
         const response = await fetch(url, {
-          method: registered ? 'GET' : 'PUT',
+          method: approvalId === null ? 'PUT' : 'GET',
           headers,
-          ...(registered ? {} : { body: JSON.stringify(input.tool_input) }),
+          ...(approvalId === null ? { body: JSON.stringify(input.tool_input) } : {}),
           redirect: 'error',
           signal: AbortSignal.any([signal, AbortSignal.timeout(5_000)]),
         });
@@ -111,7 +113,10 @@ export function createApprovalHook(
               'deny',
               `工具审批${state.status === 'denied' ? '已拒绝' : state.status === 'expired' ? '已过期' : '已取消'}，调用未执行。`,
             );
-          registered = state.approvalId !== null;
+          if (state.approvalId === null) return decision('deny', '工具审批未登记，调用未执行。');
+          if (approvalId === null) approvalId = state.approvalId;
+          else if (approvalId !== state.approvalId)
+            return decision('deny', '工具审批身份不一致，调用未执行。');
           expiresAt =
             state.expiresAt === null ? Number.POSITIVE_INFINITY : Date.parse(state.expiresAt);
           backoff = 2_000;
