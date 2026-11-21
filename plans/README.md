@@ -1,8 +1,29 @@
 # Implementation Plans
 
-由 improve 技能生成于 2026-11-14，基线 commit `7166f519`。执行前请读完整份计划，遵守其 STOP 条件，完成后更新本表状态。
+由 improve 技能生成。第一批 001–004 生成于 2026-11-14（基线 `7166f519`）；第二批 005–009 生成于 2026-11-22（基线 `90a0ad2c`）。执行前请读完整份计划，遵守其 STOP 条件，完成后更新本表状态。
 
-## 执行顺序与状态
+## 第二批（2026-11-22）
+
+基线 `90a0ad2c`。推荐先做 007（验证门），再做 005 / 006 / 008（相互独立、可并行），最后做 009。
+
+| Plan | Title | Priority | Effort | Risk | Depends on | Status |
+|------|-------|----------|--------|------|------------|--------|
+| 005 | 上限化 worker 对沙盒可控数据的读取（产出 / 图片解码 / fork 转写） | P1 | M | MED | — | TODO |
+| 006 | 分页游标携带排序键，消除重复页与 runs 游标 400 | P1 | M | LOW | — | TODO |
+| 007 | 本地 CI 先 typecheck 后 build，消除两个 `tsc -b` 并发写 | P1 | S | LOW | — | TODO |
+| 008 | 首次入库失败后允许重解析手工文档 | P1 | S | LOW | — | TODO |
+| 009 | FAQ 导入对话框改为批量取数，消除逐条请求风暴 | P2 | M | MED | — | TODO |
+
+第二批依赖说明：
+
+- 007 独立，但建议最先做：先让本地门禁可信，后续计划的结果才有意义。
+- 005 / 006 / 008 相互不共享文件，可并行执行。
+- 009 触及 contract + api + web，风险最高，建议最后单独做并做视觉验收。
+- 006 的 e2e 回归需要可用的本地栈；栈不可用时按 STOP 报告，不得宣称通过。
+
+## 第一批（2026-11-14）
+
+### 执行顺序与状态
 
 | Plan | Title | Priority | Effort | Risk | Depends on | Status |
 |------|-------|----------|--------|------|------------|--------|
@@ -13,7 +34,7 @@
 
 Status: TODO | IN PROGRESS | DONE | BLOCKED (原因) | REJECTED (理由)
 
-## 依赖说明
+### 依赖说明
 
 - 四个计划相互独立，可并行。每个都可单独执行、单独验证。
 - 001 与 004 都改 `packages/api/src/modules/servers/` 下文件但**不同文件、不同关注点**（001 只动 `generated.ts`；004 动 `repo.ts`/`mcp-endpoint.ts`/`package.ts`），可并行；若同一执行者串行做，先 001 后 004 避免合并冲突。
@@ -48,4 +69,23 @@ Status: TODO | IN PROGRESS | DONE | BLOCKED (原因) | REJECTED (理由)
 - 性能测量候选：运行详情无界 + 2s 轮询；记忆审核列表整段读会话（**既有审计称实测非问题，须先复测**）；`listServers` 每次解密全部 secret；knowledge 包导入请求内同步 CPU。
 - 安全候选：OpenUI 来源链接 scheme 白名单（需先核对 React/CSP 处理 `javascript:`）；知识图片内联返回且接受 SVG。
 - 一致性/技术债：`isPgCode` 两份实现；`cn` 双导入口径；三个超大前端文件（agent-editor / knowledge-faq / memory-review）。
-- DX/文档：src 范围 Biome 39 error（26 为可自动修的 organizeImports）；`DECISIONS-PENDING.md` D-15 与 `PROJECT-BRIEF §9.4` 关于 `@bull-board/*` 的表述已过时（代码与 `OBSERVABILITY.md` 已接入 `/api/ops/queues`）。
+- DX/文档：src 范围 Biome 39 error（26 为可自动修的 organizeImports）。
+
+## 第二批审计：已核实但不建计划（勿再报）
+
+- **「入队后审计失败会回删文档」不成立**：`repo.audit.writeAudit` 内部 catch 后只 warn（`packages/db/src/repo/audit.ts:137-147`）；`enqueueKnowledgeJobAfterCommit` 同样吞错（`packages/api/src/modules/knowledge/service.ts:41-50`）。`manual-documents.ts` / `faq.ts` 的 catch 只可能在 enqueue 之前失败时触发，删除文档是正确回滚。原审计 #5 撤回。
+- **新知识发布生命周期与共享 blob 回滚缺测试**：仓库规则禁止未经指示新增单测/集成测试；如需覆盖可单独授权。
+- **`AGENTS.md` 的 “Highest priority / takes precedence” 措辞**：仓库所有者的自定规则，不作为 prompt-injection 发现。
+- **D-91（知识包恢复草稿）/ D-92（知识变更审计原子性）**：已在 `docs/DECISIONS-PENDING.md` 登记，按待决策处理，不重复立项。
+- **memory-review 列表整段读会话**：未复测，按项目规则不报。
+- **`0.0.0.0:3000` 暴露 / `TRUST_PROXY=1` 信任任意来源 XFF**：单机部署边界已在上轮否决；本轮只把后者列为低优先级候选，未立项。
+- **依赖审计**：`bun audit` 17 条（2 high / 11 moderate / 4 low）。直连服务器栈 `hono@4.13.19` 已高于修复线（4.13.16）；`@hono/node-server`、`body-parser`、`esbuild` 不在 Bun 运行时路径；其余为传递依赖与 dev 链。无可达高危，不立项。
+- **未审计范围**：`packages/sandbox` 运行时内部与 Docker provider 生命周期、真实性能测量、新模块逐条 authz 穷举。后续如需可单开审计。
+- **D-15 / PROJECT-BRIEF §9.4 的 @bull-board 表述、文档 pnpm 残留**：已核实为已解决或历史记录；D-15 与 §9.4 均已标注现行只读 Bull Board 实现，现行文档的 pnpm 指令已改为 Bun。勿再报。
+
+## 第二批发现中未立项的候选（按需再排）
+
+- 安全低优先：模型代理用 `runId` 作 Bearer（`worker/src/model-proxy.ts:510`）；导入专家的 stdio 连接器在运行时自动执行（`api/src/modules/agents/package.ts:1121` + `sandbox/src/runner.ts:503`）；频道 SSE 无 `onerror`（`web/src/lib/use-channel-stream.ts:76`）；频道 wake 遇终态 run 静默丢弃（`api/src/modules/channels/wakes.ts:188`）；关停 `stop(true)` 无 catch（`api/src/index.ts:57`）。
+- 性能候选：全局搜索每次防抖扫 50 会话（`api/src/modules/search/outputs.ts`）；Wiki 反向链接全库扫描（`use-cases/wiki.ts:377`）；运行详情 3 组 2s 轮询；日程列表每行一次 Redis 读；`zipSync` 在事件循环上。
+- 技术债/DX/文档：ZIP 编解码跨域（`package-zip.ts`）；`canonicalJson` 4 份；`rethrowConflict` 5 份且 wire code 不一致；README 模型凭证回退分支不可达。
+- 方向：记忆/规则编辑缺 `expectedUpdatedAt` 且嵌套主题文件不可见；自动进化的 PRODUCT/ARCHITECTURE 矛盾待决策。
