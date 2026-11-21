@@ -7,7 +7,7 @@ import { and, eq } from 'drizzle-orm';
 import { authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
-import { requireAgentSlug } from '../../lib/outputs.js';
+import { requireAgentSlug } from '../../lib/agent-slug.js';
 import { writeMemoryTarget } from './changes.js';
 import { buildMemoryAssembly, buildMemoryOverview, countMemoryTopics } from './overview.js';
 import { listPersonalMemoryVersions, readPersonalMemory, writePersonalMemory } from './personal.js';

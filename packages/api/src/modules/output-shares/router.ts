@@ -13,7 +13,8 @@ import type { OutputFile, OutputShare, PublicOutputShare } from '@agentport/shar
 import { implement } from '@orpc/server';
 import { actorOf, authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { agentSlug, previewText, readWorkspaceOutput } from '../../lib/outputs.js';
+import { agentSlug } from '../../lib/agent-slug.js';
+import { previewText, readWorkspaceOutput } from '../../lib/outputs.js';
 import { CONVERSATION_MISSING } from '../chat/access.js';
 import { bearerToken, tokenMatches } from '../servers/bearer.js';
 

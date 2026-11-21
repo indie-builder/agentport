@@ -1,20 +1,9 @@
-import { listOutputFiles, notFound, readOutputFile } from '@agentport/core';
-import { type Database, repo } from '@agentport/db';
+import { listOutputFiles, readOutputFile } from '@agentport/core';
 import type { OutputFile } from '@agentport/shared';
 
 const PREVIEW_MAX_BYTES = 1024 * 1024;
 
 type WorkspaceContext = { config: { WORKSPACES_DIR: string } };
-
-export function agentSlug(db: Database, agentId: string): Promise<string | null> {
-  return repo.agents.findAgentSlug(db, agentId);
-}
-
-export async function requireAgentSlug(db: Database, agentId: string): Promise<string> {
-  const slug = await agentSlug(db, agentId);
-  if (slug === null) notFound('agent');
-  return slug;
-}
 
 export function readWorkspaceOutput(
   context: WorkspaceContext,
