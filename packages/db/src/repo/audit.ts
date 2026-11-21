@@ -17,6 +17,7 @@ export interface AuditEvent {
   action: string;
   target?: string;
   input?: unknown;
+  detail?: unknown;
   status: AuditStatus;
   durationMs?: number;
   requestId?: string;
@@ -53,24 +54,41 @@ interface AuditHashMaterial {
   durationMs: number | null;
   requestId: string | null;
   createdAt: Date;
+  detail?: unknown;
+}
+
+function canonicalJson(value: unknown): string {
+  const normalize = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(normalize);
+    if (v !== null && typeof v === 'object') {
+      return Object.fromEntries(
+        Object.keys(v)
+          .sort()
+          .map((key) => [key, normalize((v as Record<string, unknown>)[key])]),
+      );
+    }
+    return v;
+  };
+  return JSON.stringify(normalize(value));
 }
 
 function chainHash(row: AuditHashMaterial): string {
+  const base = [
+    row.prevHash,
+    row.id,
+    row.actor,
+    row.actorKind,
+    row.subjectBusinessId,
+    row.action,
+    row.target,
+    row.inputDigest,
+    row.status,
+    row.durationMs,
+    row.requestId,
+    row.createdAt.toISOString(),
+  ];
   return sha256Hex(
-    JSON.stringify([
-      row.prevHash,
-      row.id,
-      row.actor,
-      row.actorKind,
-      row.subjectBusinessId,
-      row.action,
-      row.target,
-      row.inputDigest,
-      row.status,
-      row.durationMs,
-      row.requestId,
-      row.createdAt.toISOString(),
-    ]),
+    JSON.stringify(row.detail == null ? base : [2, ...base, canonicalJson(row.detail)]),
   );
 }
 
@@ -83,6 +101,7 @@ export async function writeAuditInTx(tx: Transaction, event: AuditEvent): Promis
     action: event.action,
     target: event.target ?? null,
     inputDigest: digest(event.input),
+    detail: event.detail ?? null,
     status: event.status,
     durationMs: event.durationMs ?? null,
     requestId: event.requestId ?? null,
@@ -161,6 +180,7 @@ export async function verifyAuditChain(
       action: auditLog.action,
       target: auditLog.target,
       inputDigest: auditLog.inputDigest,
+      detail: auditLog.detail,
       status: auditLog.status,
       durationMs: auditLog.durationMs,
       requestId: auditLog.requestId,
@@ -222,6 +242,7 @@ export interface AuditEntry {
   durationMs: number | null;
   requestId: string | null;
   inputDigest: string | null;
+  detail: unknown;
   createdAt: Date;
   chainSeq: number;
   prevHash: string | null;
@@ -239,6 +260,7 @@ const columns = {
   durationMs: auditLog.durationMs,
   requestId: auditLog.requestId,
   inputDigest: auditLog.inputDigest,
+  detail: auditLog.detail,
   createdAt: auditLog.createdAt,
   chainSeq: auditLog.chainSeq,
   prevHash: auditLog.prevHash,

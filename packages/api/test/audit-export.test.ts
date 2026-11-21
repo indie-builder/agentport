@@ -181,6 +181,7 @@ describe.skipIf(!ready)('audit export', () => {
         durationMs: 42,
         requestId: 'req-1',
         inputDigest: 'a'.repeat(32),
+        detail: null,
         createdAt: expect.any(String),
       },
     ]);

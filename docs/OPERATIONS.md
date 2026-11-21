@@ -791,7 +791,7 @@ GRANT SELECT (id, name, department) ON TABLE warehouse.employees TO wren_reader;
 
 - **enrich 陈旧提案**：worker 每 5 分钟对账一次，`generating` 提案超过 15 分钟未更新会被置为 `failed`（`生成中断或超时`）；任务 `attempts: 1` 不提供自动重试，回收后需重新发起提案。
 - **超时**：查询 30 秒、连接测试 15 秒、generate-mdl 60 秒、构建 worker 5 分钟、运行时 `wren context build` 180 秒、enrich 5 分钟。超时按失败处理，不自动重试。
-- **审计留存**：`data_domain_query_logs` 不在每日维护清理范围内，随数据域删除级联删除；`audit_log` 不参与清理。查询日志固定保留明文 SQL 前 500 字符，当前没有可调截断配置。审计链可用 `GET /api/audit/verify`（权限 `audit.read`）校验；审计导出 `GET /api/audit/export` 只含审计条目元数据与 `inputDigest`，不含原始输入。
+- **审计留存**：`data_domain_query_logs` 不在每日维护清理范围内，随数据域删除级联删除；`audit_log` 不参与清理。查询日志固定保留明文 SQL 前 500 字符，当前没有可调截断配置。审计链可用 `GET /api/audit/verify`（权限 `audit.read`）校验；审计导出 `GET /api/audit/export` 只含审计条目元数据、`inputDigest` 与可读 `detail`（如有），不含原始输入。
 - **凭据暴露面**：连接测试由调用方直接提交明文 `connection`，api 不做解密、原样转给运行时；查询、结构反射与版本构建则解密已存储的加密凭据（api 或构建 worker 内）。两种路径下凭据都明文经过内部 HTTP；运行时无鉴权，网络边界就是安全边界。
 - **CLAC / MDL schema**：CLAC 表达力有限，必要时用 10.4 的列授权；`mdl.schema.json` 的 threshold 定义与运行时实际行为不一致，按运行时字符串形式处理。
 - **模型费用**：enrich 的 `maxBudgetUsd` 是估算停止阈值（约 0.5 美元），达到估算即停止，实际费用可能超出该值；重试与新提案会重复计费。模型凭据沿用 worker 配置的 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL`。
