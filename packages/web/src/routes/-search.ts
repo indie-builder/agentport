@@ -1,6 +1,7 @@
 import {
   AGENT_ROLES,
   auditActorKindSchema,
+  auditStatusSchema,
   contentPolicyActionSchema,
   dataDomainQueryLogStatusSchema,
   knowledgeBaseStatusSchema,
@@ -106,7 +107,7 @@ export const rolesSearchSchema = z.object({
 
 export const auditSearchSchema = z.object({
   action: z.string().optional().catch(undefined),
-  status: z.enum(['ok', 'error', 'denied']).optional().catch(undefined),
+  status: auditStatusSchema.optional().catch(undefined),
   target: z.string().optional().catch(undefined),
   actor: z.string().optional().catch(undefined),
   actorKind: auditActorKindSchema.optional().catch(undefined),

@@ -1,4 +1,4 @@
-import { utcWindowStart } from '@agentport/shared';
+import { auditStatusSchema, utcWindowStart } from '@agentport/shared';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Download, EllipsisVertical, RefreshCw, ShieldCheck } from 'lucide-react';
 import { Fragment, useState } from 'react';
@@ -47,9 +47,10 @@ const actorKindLabel: Record<AuditEntry['actorKind'], string> = {
 
 const statusOptions: Array<{ value: AuditStatus | 'all'; label: string }> = [
   { value: 'all', label: '全部状态' },
-  { value: 'ok', label: '成功' },
-  { value: 'error', label: '错误' },
-  { value: 'denied', label: '拒绝' },
+  ...auditStatusSchema.options.map((value) => ({
+    value,
+    label: auditStatusLabel[value],
+  })),
 ];
 
 const actorKindOptions: Array<{ value: AuditEntry['actorKind'] | 'all'; label: string }> = [
