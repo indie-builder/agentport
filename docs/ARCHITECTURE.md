@@ -2,6 +2,19 @@
 
 > 本文描述当前代码的实际结构。需求背景与选型理由见 [PROJECT-BRIEF.md](PROJECT-BRIEF.md)；部署与排障见 [OPERATIONS.md](OPERATIONS.md)。
 
+## 目录
+
+| 章节 | 主题 |
+|---|---|
+| [1. 分层](#1-分层) | 包职责、依赖方向、页面地图与 API 组织 |
+| [2. 运行时拓扑](#2-运行时拓扑) | 进程、Redis 队列与命名运行环境 |
+| [3. 一次对话的数据流](#3-一次对话的数据流) | SSE 事件、沙盒生命周期与成果链路 |
+| [4. HTTP → MCP、平台 → MCP 与内置知识 MCP](#4-http--mcp平台--mcp-与内置知识-mcp) | 三种 MCP 入口与信任边界 |
+| [5. 工作区文件模型](#5-工作区文件模型) | 官方文件、记忆与专家包 |
+| [6. 知识库运行时](#6-知识库运行时) | 存储、摄取检索、来源与 Wiki |
+| [7. 关键设计决策](#7-关键设计决策) | 取舍与边界 |
+| [8. 账户、业务身份与权限](#8-账户业务身份与权限2026-10-31-已由-pr-129-合入-main) | 身份、角色与数据隔离 |
+
 ## 1. 分层
 
 代码按依赖方向分层，进程按部署单元拆分。层只能向下依赖。
@@ -778,7 +791,7 @@ worker 在 run 完成时传 `dedupeKey: aud_<runId 去掉前缀>`，因此 BullM
 runner 在 stdin 边界用 `@agentport/shared` 的 zod schema 校验任务（`agentRunJobSchema`），所以该包是
 **镜像的运行时依赖**。镜像不再从宿主复制 `dist` 或维护独立 manifest：
 
-- 根 Dockerfile 基于 `node:24-alpine` 并复制 Bun 1.4.5 二进制；build stage 用 `bun install --frozen-lockfile` 安装 workspace 依赖，再执行 `bun run build`。
+- 根 Dockerfile 基于 `node:24-alpine` 并复制 Bun 二进制（Bun 版本以根 `Dockerfile` 的 `FROM oven/bun:...` 镜像 tag/digest 与根 `package.json` 的 `packageManager` 为准，依赖以 `bun.lock` 为准）；build stage 用 `bun install --frozen-lockfile` 安装 workspace 依赖，再执行 `bun run build`。
 - `runtime` target 用 `bun install --production --frozen-lockfile --filter @agentport/api --filter @agentport/worker` 安装生产依赖，再复制各包的 `dist`；容器入口是 `bun packages/api/dist/index.js` 与 `bun packages/worker/dist/index.js`。
 - `sandbox` target 单独安装 `@agentport/sandbox` 的生产依赖并复制 sandbox 与 shared 的 `dist`，验证 `dist/runner.js` 与 Agent SDK 原生 CLI 可执行；`git` 仅为官方插件市场安装保留，`poppler-utils` 供官方长 PDF 分页读取，`bash` 是官方 CLI 执行 Bash 工具所需的真实 shell（缺失会报 `No suitable shell found`）。
 - 命名运行环境以该 target 的本地镜像为基座：构建时只发送冻结 Dockerfile，基座固定为 image ID 派生的不可变 tag，产物是独立版本、默认复用 BuildKit 缓存；`docker-cli`/`buildx` 只装进 worker 的 `runtime` target，不进沙盒基座。
