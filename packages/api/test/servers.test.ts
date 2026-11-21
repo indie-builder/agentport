@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { SECRET_MASK, type Server } from '@agentport/shared';
 import { buildApp } from '../src/app.js';
 import {
@@ -485,6 +486,70 @@ describe.skipIf(!ready)('servers', () => {
       payload: { description: 'second', expectedUpdatedAt: server.updatedAt },
     });
     expectProblem(stale, 'CONFLICT_STALE');
+  });
+
+  it('audits approvalMode changes with from/to only when the value changes', async () => {
+    const name = unique('approval-audit');
+    created.push(name);
+    const server = (
+      await post(name, { kind: 'generated', baseUrl: 'https://jsonplaceholder.typicode.com' })
+    ).json<Server>();
+    const toolName = unique('tool');
+    const createdTool = await request(app, {
+      method: 'POST',
+      url: `/api/servers/${server.id}/tools`,
+      headers: auth(),
+      payload: {
+        name: toolName,
+        method: 'GET',
+        pathTemplate: '/users/{id}',
+        inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
+        paramsIn: 'query',
+        approvalMode: 'allow',
+      },
+    });
+    expect(createdTool.statusCode, createdTool.body).toBe(201);
+    const tool = createdTool.json<{ id: string }>();
+
+    const patch = (payload: Record<string, unknown>) =>
+      request(app, {
+        method: 'PATCH',
+        url: `/api/servers/${server.id}/tools/${tool.id}`,
+        headers: auth(),
+        payload,
+      });
+
+    const changed = await patch({ approvalMode: 'ask' });
+    expect(changed.statusCode, changed.body).toBe(200);
+    const rows = await app.client.unsafe<
+      { action: string; target: string; input_digest: string | null }[]
+    >(
+      `select action, target, input_digest from audit_log
+       where action in ('server.tool.updated', 'server.tool.approval_mode.changed') and target = $1
+       order by chain_seq`,
+      [server.id],
+    );
+    expect(rows.map((row) => row.action)).toEqual([
+      'server.tool.updated',
+      'server.tool.approval_mode.changed',
+    ]);
+    expect(rows[1]).toMatchObject({ target: server.id });
+    expect(rows[1]?.input_digest).toBe(
+      createHash('sha256')
+        .update(JSON.stringify({ toolId: tool.id, toolName, from: 'allow', to: 'ask' }))
+        .digest('hex')
+        .slice(0, 32),
+    );
+
+    const same = await patch({ approvalMode: 'ask' });
+    expect(same.statusCode, same.body).toBe(200);
+    const description = await patch({ description: 'no policy change' });
+    expect(description.statusCode, description.body).toBe(200);
+    const count = await app.client.unsafe<{ count: number }[]>(
+      "select count(*)::int as count from audit_log where action = 'server.tool.approval_mode.changed' and target = $1",
+      [server.id],
+    );
+    expect(count[0]?.count).toBe(1);
   });
 
   it('DELETE removes the server and returns 404 afterwards', async () => {
