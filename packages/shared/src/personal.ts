@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { accountNameSchema, permissionGrantSchema, roleSummarySchema } from './access.js';
 import { runTriggerSchema } from './ops.js';
 import { outputShareSchema } from './outputs.js';
+import { PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX } from './pagination.js';
 import { runStatusSchema } from './run-state.js';
 import { runListItemSchema } from './schemas.js';
 
@@ -101,10 +102,14 @@ export const personalRunListSchema = z.object({
 
 export type PersonalRunList = z.infer<typeof personalRunListSchema>;
 
+const personalPageFields = {
+  cursor: z.string().min(1).max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(PAGE_LIMIT_MAX).default(PAGE_LIMIT_DEFAULT),
+};
+
 export const personalShareListQuerySchema = z
   .object({
-    cursor: z.string().min(1).max(200).optional(),
-    limit: z.coerce.number().int().min(1).max(100).default(50),
+    ...personalPageFields,
   })
   .strict();
 
@@ -120,8 +125,7 @@ export const personalRunListQuerySchema = z
     agentId: z.string().min(1).optional(),
     status: runStatusSchema.optional(),
     trigger: runTriggerSchema.optional(),
-    cursor: z.string().min(1).max(200).optional(),
-    limit: z.coerce.number().int().min(1).max(100).default(50),
+    ...personalPageFields,
   })
   .strict();
 
@@ -150,7 +154,7 @@ export type PersonalRunExport = z.infer<typeof personalRunExportSchema>;
 export const personalOutputListQuerySchema = z
   .object({
     q: z.string().trim().max(128).optional(),
-    limit: z.coerce.number().int().min(1).max(100).default(50),
+    limit: personalPageFields.limit,
   })
   .strict();
 
