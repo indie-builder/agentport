@@ -266,6 +266,8 @@ const documentQuery = pageQuery.extend({
   tag: z.string().optional(),
   status: knowledgeDocumentStatusSchema.optional(),
   q: z.string().max(200).optional(),
+  sort: z.enum(['updated', 'created', 'title']).optional(),
+  order: z.enum(['asc', 'desc']).optional(),
 });
 
 const documentPatchSchema = z.object({
@@ -892,6 +894,18 @@ const documentsContract = {
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
     .input(z.object({ params: documentParams, query: pageQuery }))
     .output(pageOf(knowledgeDocumentVersionSchema)),
+  diff: contractProcedure
+    .route({ method: 'GET', path: '/knowledge/documents/{documentId}/diff' })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
+    .input(z.object({ params: documentParams, query: wikiDiffQuery }))
+    .output(
+      z.object({
+        fromVersionId: z.string(),
+        toVersionId: z.string(),
+        addedLines: z.array(z.string()),
+        removedLines: z.array(z.string()),
+      }),
+    ),
   rollback: contractProcedure
     .route({ method: 'POST', path: '/knowledge/documents/{documentId}/rollback' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.publish' } })

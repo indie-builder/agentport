@@ -236,6 +236,13 @@ export type KnowledgeWikiLinks = KnowledgeWikiLinksResult;
 
 export type KnowledgeWikiDiff = KnowledgeWikiVersionDiff;
 
+export interface KnowledgeDocumentDiff {
+  fromVersionId: string;
+  toVersionId: string;
+  addedLines: string[];
+  removedLines: string[];
+}
+
 /** 连接来源类型直接从 shared 输入契约派生，新增 provider 不再手改 wire 枚举。 */
 export type KnowledgeSourceType = Exclude<
   KnowledgeSourceInput['type'],
@@ -490,6 +497,12 @@ export default {
       { params: { documentId }, query: cursor === undefined ? {} : { cursor } },
       clientOptions(signal),
     ),
+  knowledgeDocumentDiff: (
+    documentId: string,
+    query: { fromVersionId: string; toVersionId: string },
+    signal?: AbortSignal,
+  ): Promise<KnowledgeDocumentDiff> =>
+    rpc.knowledge.documents.diff({ params: { documentId }, query }, clientOptions(signal)),
   rollbackKnowledgeDocument: (
     documentId: string,
     input: { versionId: string; expectedVersionId: string | null },
@@ -797,6 +810,12 @@ export default {
     rpc.knowledge.wiki.publish({ params: { pageId }, body: { versionId } }),
   exportKnowledgeBase: (baseId: string): Promise<Blob> =>
     nativeRequest(`/knowledge/bases/${baseId}/export`, { responseType: 'blob' }),
+  downloadKnowledgeDocuments: (baseId: string, documentIds: string[]): Promise<Blob> =>
+    nativeRequest(`/knowledge/bases/${baseId}/documents/download`, {
+      method: 'POST',
+      body: { documentIds },
+      responseType: 'blob',
+    }),
   importKnowledgeBase: (archive: Blob): Promise<KnowledgePackageImportResult> =>
     nativeRequest('/knowledge/bases/import', { method: 'POST', body: archive }),
   knowledgeModelProfiles: async (): Promise<KnowledgeModelProfile[]> =>

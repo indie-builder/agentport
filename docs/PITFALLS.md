@@ -796,3 +796,9 @@
 - **现象**：把 429/5xx/timeout 重试加进 `packages/core/src/knowledge-models.ts` 后，API 搜索的 embedding 故障要等 3 次指数退避才降级为关键词，查询 latency 与相关测试耗时大幅上升；BullMQ 队列重试用例也观察不到重投。
 - **原因**：core 的模型客户端同时服务 worker 知识摄取与 API 检索。摄取重试是为避免整任务重跑 Docling/OCR/embedding；检索需要失败后立即降级，两者策略不同。
 - **规避**：请求级重试放在 worker `packages/worker/src/knowledge/ingestion.ts` 的 `withModelRetry`，只包装 `embed`/`embedImage`，仅重试 timeout/rate_limit/unavailable，最多 3 次并透传 `AbortSignal`；core 保持单次 HTTP 与失败分类。不要再把重试移回 core。
+
+## 归档：fflate `zipSync` 会把条目复制进普通对象，`__proto__` 文件名被吞
+
+- **现象**：知识库批量下载/打包时，某个文档原件文件名恰好是 `__proto__`，生成的 ZIP 里没有这个文件，但 `zipSync` 正常返回、不报错。
+- **原因**：即使入口用 `Object.create(null)` 建条目表，`fflate` 的 `zipSync` 内部 `fltn` 仍把条目复制进一个普通对象 `r`；`r['__proto__'] = bytes` 触发原型 setter，只改原型、不落为自有属性，条目因此消失。
+- **规避**：组装冲突名前把文件名规整为安全名（`.`/`..`→`document`，Windows 保留名加前缀，`__proto__` 改名），并按小写去重；不要只依赖空原型对象，`fflate` 内部的普通对象复制仍会丢 `__proto__`。

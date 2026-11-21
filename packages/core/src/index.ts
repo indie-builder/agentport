@@ -49,6 +49,7 @@ export {
   type ParsedImage,
   splitLines,
 } from './knowledge-chunking.js';
+export { diffLines, diffLinesOrdered } from './knowledge-diff.js';
 export {
   type AsrProfile,
   type AudioTranscript,

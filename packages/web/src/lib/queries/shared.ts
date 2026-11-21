@@ -137,6 +137,8 @@ export const knowledgeKeys = {
   documents: (baseId: string) => ['knowledge', 'documents', baseId] as const,
   document: (documentId: string | null) => ['knowledge', 'document', documentId] as const,
   documentVersions: (documentId: string) => ['knowledge', 'document-versions', documentId] as const,
+  documentDiff: (documentId: string, fromVersionId: string, toVersionId: string) =>
+    ['knowledge', 'document-diff', documentId, fromVersionId, toVersionId] as const,
   manual: (documentId: string) => ['knowledge', 'manual', documentId] as const,
   faqs: (baseId: string) => ['knowledge', 'faqs', baseId] as const,
   faq: (documentId: string) => ['knowledge', 'faq', documentId] as const,
