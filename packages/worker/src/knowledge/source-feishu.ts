@@ -43,6 +43,49 @@ for (const [extension, mime] of Object.entries({
   EXTENSION_BY_MIME[mime] ??= extension.slice(1);
 }
 
+type FeishuEmit =
+  | {
+      kind: 'item';
+      title: string;
+      path: string;
+      sourceUrl: string;
+      content: string;
+      bytes?: Uint8Array;
+      mimeType: string;
+    }
+  | { kind: 'failure'; failure: SourceFailure };
+
+async function emitFeishuItem(input: {
+  externalId: string;
+  baseTitle: string;
+  items: SourceItem[];
+  failures: SourceFailure[];
+  signal: AbortSignal | undefined;
+  load: () => Promise<FeishuEmit>;
+}): Promise<'continue' | 'stop'> {
+  try {
+    const loaded = await input.load();
+    if (loaded.kind === 'failure') {
+      input.failures.push(loaded.failure);
+      return 'stop';
+    }
+    input.items.push({
+      externalId: input.externalId,
+      title: loaded.title,
+      path: loaded.path,
+      sourceUrl: loaded.sourceUrl,
+      content: loaded.content,
+      ...(loaded.bytes ? { bytes: loaded.bytes } : {}),
+      mimeType: loaded.mimeType,
+    });
+    return 'continue';
+  } catch (err) {
+    if (err instanceof SourceAuthError || input.signal?.aborted) throw err;
+    input.failures.push(failureOf(input.externalId, input.baseTitle, err, true));
+    return 'continue';
+  }
+}
+
 function driveFileMime(fileName: string, contentType: string | null): string {
   return (
     mimeForExtension(extensionWithDot(fileName)) ??
@@ -797,67 +840,79 @@ export async function readFeishu(
       const sourceUrl = file.url ?? `${wikiWebBase(base).docx}/${file.token}`;
       const exportKind = EXPORT_KINDS[file.type];
       if (exportFiles && exportKind) {
-        try {
-          const exported = await exportFeishuFile(
-            auth,
-            file.token,
-            file.type,
-            signal,
-            `feishu drive ${file.token}`,
-          );
-          const title = titleWithExtension(baseTitle, exported.extension);
-          items.push({
-            externalId,
-            title,
-            path: uniquePath([...prefix, title].join('/'), usedPaths, file.token),
-            sourceUrl,
-            content: '',
-            bytes: exported.bytes,
-            mimeType: exported.mimeType,
-          });
-        } catch (err) {
-          if (err instanceof SourceAuthError || signal?.aborted) throw err;
-          failures.push(failureOf(externalId, baseTitle, err, true));
-        }
+        await emitFeishuItem({
+          externalId,
+          baseTitle,
+          items,
+          failures,
+          signal,
+          load: async () => {
+            const exported = await exportFeishuFile(
+              auth,
+              file.token,
+              file.type,
+              signal,
+              `feishu drive ${file.token}`,
+            );
+            const title = titleWithExtension(baseTitle, exported.extension);
+            return {
+              kind: 'item',
+              title,
+              path: uniquePath([...prefix, title].join('/'), usedPaths, file.token),
+              sourceUrl,
+              content: '',
+              bytes: exported.bytes,
+              mimeType: exported.mimeType,
+            };
+          },
+        });
         return;
       }
       if (file.type === 'docx') {
-        try {
-          const blocks = await readDocxBlocks(auth, file.token);
-          items.push({
-            externalId,
-            title: baseTitle,
-            path: uniquePath([...prefix, `${baseTitle}.md`].join('/'), usedPaths, file.token),
-            sourceUrl,
-            content: docxToMarkdown(blocks),
-            mimeType: 'text/markdown',
-          });
-        } catch (err) {
-          if (err instanceof SourceAuthError || signal?.aborted) throw err;
-          failures.push(failureOf(externalId, baseTitle, err, true));
-        }
+        await emitFeishuItem({
+          externalId,
+          baseTitle,
+          items,
+          failures,
+          signal,
+          load: async () => {
+            const blocks = await readDocxBlocks(auth, file.token);
+            return {
+              kind: 'item',
+              title: baseTitle,
+              path: uniquePath([...prefix, `${baseTitle}.md`].join('/'), usedPaths, file.token),
+              sourceUrl,
+              content: docxToMarkdown(blocks),
+              mimeType: 'text/markdown',
+            };
+          },
+        });
         return;
       }
       if (file.type === 'file') {
-        try {
-          const response = await fetchChecked(
-            `${base}/open-apis/drive/v1/files/${encodeURIComponent(file.token)}/download`,
-            { ...feishuFetchOptions(auth), authFailure: 'item' },
-          );
-          const contentType = response.headers.get('content-type');
-          items.push({
-            externalId,
-            title: baseTitle,
-            path: uniquePath([...prefix, baseTitle].join('/'), usedPaths, file.token),
-            sourceUrl,
-            content: '',
-            bytes: await readBytesCapped(response, `feishu drive file ${file.name}`),
-            mimeType: driveFileMime(file.name, contentType),
-          });
-        } catch (err) {
-          if (err instanceof SourceAuthError || signal?.aborted) throw err;
-          failures.push(failureOf(externalId, baseTitle, err, true));
-        }
+        await emitFeishuItem({
+          externalId,
+          baseTitle,
+          items,
+          failures,
+          signal,
+          load: async () => {
+            const response = await fetchChecked(
+              `${base}/open-apis/drive/v1/files/${encodeURIComponent(file.token)}/download`,
+              { ...feishuFetchOptions(auth), authFailure: 'item' },
+            );
+            const contentType = response.headers.get('content-type');
+            return {
+              kind: 'item',
+              title: baseTitle,
+              path: uniquePath([...prefix, baseTitle].join('/'), usedPaths, file.token),
+              sourceUrl,
+              content: '',
+              bytes: await readBytesCapped(response, `feishu drive file ${file.name}`),
+              mimeType: driveFileMime(file.name, contentType),
+            };
+          },
+        });
         return;
       }
       failures.push(
@@ -874,88 +929,117 @@ export async function readFeishu(
       const externalId = `${namespace}:wiki:${node.node_token}`;
       const exportKind = EXPORT_KINDS[node.obj_type];
       if (exportFiles && exportKind) {
-        try {
-          const exported = await exportFeishuFile(
-            auth,
-            node.obj_token,
-            node.obj_type,
-            signal,
-            `feishu wiki ${node.node_token}`,
-          );
-          const title = titleWithExtension(baseTitle, exported.extension);
-          items.push({
-            externalId,
-            title,
-            path: uniquePath([...prefix, title].join('/'), usedPaths, node.node_token),
-            sourceUrl: nodeLinks(node),
-            content: '',
-            bytes: exported.bytes,
-            mimeType: exported.mimeType,
-          });
-        } catch (err) {
-          if (err instanceof SourceAuthError || signal?.aborted) throw err;
-          failures.push(failureOf(externalId, baseTitle, err, true));
-        }
+        await emitFeishuItem({
+          externalId,
+          baseTitle,
+          items,
+          failures,
+          signal,
+          load: async () => {
+            const exported = await exportFeishuFile(
+              auth,
+              node.obj_token,
+              node.obj_type,
+              signal,
+              `feishu wiki ${node.node_token}`,
+            );
+            const title = titleWithExtension(baseTitle, exported.extension);
+            return {
+              kind: 'item',
+              title,
+              path: uniquePath([...prefix, title].join('/'), usedPaths, node.node_token),
+              sourceUrl: nodeLinks(node),
+              content: '',
+              bytes: exported.bytes,
+              mimeType: exported.mimeType,
+            };
+          },
+        });
       } else if (exportFiles && node.obj_type === 'file') {
-        try {
-          const response = await fetchChecked(
-            `${base}/open-apis/drive/v1/files/${encodeURIComponent(node.obj_token)}/download`,
-            { ...feishuFetchOptions(auth), authFailure: 'item' },
-          );
-          const downloadedName = dispositionFilename(response.headers.get('content-disposition'));
-          const metadata = wikiDownloadFormat(downloadedName, response.headers.get('content-type'));
-          if (metadata === 'conflict') {
-            failures.push(
-              failureOf(
-                externalId,
-                baseTitle,
-                new Error(`feishu wiki file ${node.node_token} download name and type disagree`),
-                false,
-              ),
-            );
-            return;
-          }
-          const format = metadata ?? titleBinaryFormat(baseTitle);
-          if (!format) {
-            failures.push(
-              failureOf(
-                externalId,
-                baseTitle,
-                new Error(`feishu wiki file ${node.node_token} has no trustworthy download format`),
-                false,
-              ),
-            );
-            return;
-          }
-          const title = withFormatExtension(baseTitle, format.extension);
-          items.push({
+        if (
+          (await emitFeishuItem({
             externalId,
-            title,
-            path: uniquePath([...prefix, title].join('/'), usedPaths, node.node_token),
-            sourceUrl: nodeLinks(node),
-            content: '',
-            bytes: await readBytesCapped(response, `feishu wiki file ${node.node_token}`),
-            mimeType: format.mimeType,
-          });
-        } catch (err) {
-          if (err instanceof SourceAuthError || signal?.aborted) throw err;
-          failures.push(failureOf(externalId, baseTitle, err, true));
+            baseTitle,
+            items,
+            failures,
+            signal,
+            load: async () => {
+              const response = await fetchChecked(
+                `${base}/open-apis/drive/v1/files/${encodeURIComponent(node.obj_token)}/download`,
+                { ...feishuFetchOptions(auth), authFailure: 'item' },
+              );
+              const downloadedName = dispositionFilename(
+                response.headers.get('content-disposition'),
+              );
+              const metadata = wikiDownloadFormat(
+                downloadedName,
+                response.headers.get('content-type'),
+              );
+              if (metadata === 'conflict') {
+                return {
+                  kind: 'failure',
+                  failure: failureOf(
+                    externalId,
+                    baseTitle,
+                    new Error(
+                      `feishu wiki file ${node.node_token} download name and type disagree`,
+                    ),
+                    false,
+                  ),
+                };
+              }
+              const format = metadata ?? titleBinaryFormat(baseTitle);
+              if (!format) {
+                return {
+                  kind: 'failure',
+                  failure: failureOf(
+                    externalId,
+                    baseTitle,
+                    new Error(
+                      `feishu wiki file ${node.node_token} has no trustworthy download format`,
+                    ),
+                    false,
+                  ),
+                };
+              }
+              const title = withFormatExtension(baseTitle, format.extension);
+              return {
+                kind: 'item',
+                title,
+                path: uniquePath([...prefix, title].join('/'), usedPaths, node.node_token),
+                sourceUrl: nodeLinks(node),
+                content: '',
+                bytes: await readBytesCapped(response, `feishu wiki file ${node.node_token}`),
+                mimeType: format.mimeType,
+              };
+            },
+          })) === 'stop'
+        ) {
+          return;
         }
       } else if (!exportFiles && node.obj_type === 'docx') {
-        try {
-          const blocks = await readDocxBlocks(auth, node.obj_token);
-          items.push({
-            externalId,
-            title: baseTitle,
-            path: uniquePath([...prefix, `${baseTitle}.md`].join('/'), usedPaths, node.node_token),
-            sourceUrl: nodeLinks(node),
-            content: docxToMarkdown(blocks),
-            mimeType: 'text/markdown',
-          });
-        } catch (err) {
-          if (err instanceof SourceAuthError || signal?.aborted) throw err;
-          failures.push(failureOf(externalId, baseTitle, err, true));
-        }
+        await emitFeishuItem({
+          externalId,
+          baseTitle,
+          items,
+          failures,
+          signal,
+          load: async () => {
+            const blocks = await readDocxBlocks(auth, node.obj_token);
+            return {
+              kind: 'item',
+              title: baseTitle,
+              path: uniquePath(
+                [...prefix, `${baseTitle}.md`].join('/'),
+                usedPaths,
+                node.node_token,
+              ),
+              sourceUrl: nodeLinks(node),
+              content: docxToMarkdown(blocks),
+              mimeType: 'text/markdown',
+            };
+          },
+        });
       } else {
         failures.push(
           failureOf(
