@@ -8,11 +8,11 @@
 
 | Plan | Title | Priority | Effort | Risk | Depends on | Status |
 |------|-------|----------|--------|------|------------|--------|
-| 005 | 上限化 worker 对沙盒可控数据的读取（产出 / 图片解码 / fork 转写） | P1 | M | MED | — | TODO |
-| 006 | 分页游标携带排序键，消除重复页与 runs 游标 400 | P1 | M | LOW | — | TODO |
-| 007 | 本地 CI 先 typecheck 后 build，消除两个 `tsc -b` 并发写 | P1 | S | LOW | — | TODO |
-| 008 | 首次入库失败后允许重解析手工文档 | P1 | S | LOW | — | IN PROGRESS |
-| 009 | FAQ 导入对话框改为批量取数，消除逐条请求风暴 | P2 | M | MED | — | TODO |
+| 005 | 上限化 worker 对沙盒可控数据的读取（产出 / 图片解码 / fork 转写） | P1 | M | MED | — | DONE |
+| 006 | 分页游标携带排序键，消除重复页与 runs 游标 400 | P1 | M | LOW | — | DONE |
+| 007 | 本地 CI 先 typecheck 后 build，消除两个 `tsc -b` 并发写 | P1 | S | LOW | — | DONE |
+| 008 | 首次入库失败后允许重解析手工文档 | P1 | S | LOW | — | DONE |
+| 009 | FAQ 导入对话框改为批量取数，消除逐条请求风暴 | P2 | M | MED | — | DONE |
 
 第二批依赖说明：
 
