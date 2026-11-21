@@ -65,7 +65,7 @@
 ## 4. 本批交付
 
 - **文档列表排序**：`GET /knowledge/bases/{id}/documents` 增加 `sort`（updated/created/title）与 `order`（asc/desc），走 keyset 元组分页，跨页无重无漏；默认保持 created 降序。UI 在文档页增加排序控件。
-- **勾选批量下载原件**：原生 `POST /knowledge/bases/{id}/documents/download`，按 `{documentIds}` 打包当前版本原件为 ZIP；逐份校验归属（跨库/不存在 404），同名文件追加 ` (n)` 去重，累计原件上限 256 MiB。UI 在文档页批量操作栏增加「下载」。
+- **勾选批量下载原件**：原生 `POST /knowledge/bases/{id}/documents/download`，按 `{documentIds}` 打包当前版本原件为 ZIP；逐份校验归属（跨库/不存在 404），同名文件追加 ` (n)` 去重，累计原件上限 64 MiB。UI 在文档页批量操作栏增加「下载」。
 - **文档版本改动前后对比**：`GET /knowledge/documents/{documentId}/diff?fromVersionId&toVersionId`，复用文档版本与共享行差异算法（`packages/core/src/knowledge-diff.ts`，同时让 Wiki diff 复用同一实现）。UI 在文档检查器的版本区增加「对比版本」。
 - 文档修正：`docs/ARCHITECTURE.md` §6.3 的知识库授权描述已从「不按对象做跨用户范围授权」更正为实际的对象级授权（`authorizeResourceAccess` + `ownerBusinessId` + 范围）。
 
