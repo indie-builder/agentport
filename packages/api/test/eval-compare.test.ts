@@ -72,6 +72,7 @@ describe.skipIf(!ready)('eval run comparison', () => {
       name,
       prompt,
       expectation,
+      judgeMode: 'contains',
       createdBy: ADMIN_BUSINESS_ID,
     });
     return { id: row.id, name, prompt, expectation, judgeMode: 'contains' };

@@ -24,7 +24,7 @@ import { eq } from 'drizzle-orm';
 import { Cause, Effect, Result } from 'effect';
 import type { Logger } from 'pino';
 import { z } from 'zod';
-import { checkOutboundPolicy, checkRunPromptPolicy } from './content-policy.js';
+import { checkRunPromptPolicy } from './content-policy.js';
 import { hermeticQueryOptions, runOneShotSdkQuery } from './one-shot-sdk.js';
 import { loadUserAgentAccess } from './runs/run-access.js';
 
@@ -42,7 +42,6 @@ export interface GradeDeps {
   anthropicBaseUrl: string | undefined;
   queryFn?: JudgeQueryFn;
   signal?: AbortSignal;
-  sanitizeOutbound?: (text: string) => Promise<{ blocked: boolean; text: string }>;
 }
 
 export interface GradeInput {
@@ -54,6 +53,8 @@ export interface GradeInput {
 
 const JUDGE_TEXT_LIMIT = 12_000;
 const JUDGE_TIMEOUT_MS = 60_000;
+const LLM_JUDGE_OUTBOUND_POLICY_REASON =
+  '该专家配置了出站内容策略，LLM 判分暂不可用，请改用 contains 判分';
 
 const judgeVerdictSchema = z.object({ pass: z.boolean(), reason: z.string() });
 
@@ -108,11 +109,6 @@ export async function gradeCase(
   }
   const model = deps.model;
   const judgePrompt = buildJudgePrompt(input);
-  const sanitized =
-    deps.sanitizeOutbound === undefined ? undefined : await deps.sanitizeOutbound(judgePrompt);
-  if (sanitized?.blocked === true) {
-    return { passed: false, reason: '评判内容被出站安全策略拦截' };
-  }
   const cwd = join(deps.knowledgeDir, 'eval-judge-sdk', randomUUID());
   await mkdir(cwd, { recursive: true, mode: 0o700 });
   const captured: { reply: string | null } = { reply: null };
@@ -123,7 +119,7 @@ export async function gradeCase(
     cwd,
     create: (controller) =>
       queryFn({
-        prompt: sanitized?.text ?? judgePrompt,
+        prompt: judgePrompt,
         options: hermeticQueryOptions({
           model,
           cwd,
@@ -138,7 +134,8 @@ export async function gradeCase(
       if (text !== '') captured.reply = text;
     },
   });
-  if (outcome.status === 'aborted') return { passed: false, reason: '评判已取消' };
+  if (outcome.status === 'aborted')
+    return { passed: false, reason: deps.signal?.aborted === true ? '评判已取消' : '评判超时' };
   if (outcome.status === 'no_result') return { passed: false, reason: '评判模型没有返回结果' };
   if (outcome.status === 'failure')
     return { passed: false, reason: `评判失败：${outcome.message}` };
@@ -449,38 +446,35 @@ export async function executeEvalRun(input: {
           );
           if (Result.isSuccess(runResult)) {
             output = runResult.success.output;
-            const caseDeps: GradeDeps = {
-              ...gradeDeps,
-              sanitizeOutbound: async (text) => {
-                const outbound = await checkOutboundPolicy(db, logger, {
-                  agentId: evalRun.agentId,
-                  runId: runContext.runId ?? evalRunId,
-                  text: JSON.stringify({ prompt: text }),
-                  sourceId: evalRunId,
-                  originalText: text,
-                });
-                if (outbound.blocked) return outbound;
-                const { prompt } = JSON.parse(outbound.text) as { prompt: string };
-                return { blocked: false, text: redactSecrets(prompt) };
-              },
-            };
-            const graded = yield* Effect.result(
-              Effect.tryPromise({
-                try: () =>
-                  gradeCase(caseDeps, {
-                    prompt: testCase.prompt,
-                    output,
-                    expectation: testCase.expectation,
-                    judgeMode: testCase.judgeMode,
-                  }),
-                catch: (cause) => new Error(errorMessage(cause)),
-              }),
-            );
-            if (Result.isSuccess(graded)) {
-              ok = graded.success.passed;
-              judgeReason = graded.success.reason;
+            if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
+              return;
+            const outboundPolicies =
+              testCase.judgeMode === 'llm'
+                ? (yield* dbQuery(() =>
+                    repo.security.listEnabledContentPolicies(db, evalRun.agentId),
+                  )).filter((policy) => policy.direction === 'outbound')
+                : [];
+            if (outboundPolicies.length > 0) {
+              judgeReason = LLM_JUDGE_OUTBOUND_POLICY_REASON;
             } else {
-              judgeReason = `评判出错：${redactSecrets(errorMessage(graded.failure))}`;
+              const graded = yield* Effect.result(
+                Effect.tryPromise({
+                  try: () =>
+                    gradeCase(gradeDeps, {
+                      prompt: testCase.prompt,
+                      output,
+                      expectation: testCase.expectation,
+                      judgeMode: testCase.judgeMode,
+                    }),
+                  catch: (cause) => new Error(errorMessage(cause)),
+                }),
+              );
+              if (Result.isSuccess(graded)) {
+                ok = graded.success.passed;
+                judgeReason = graded.success.reason;
+              } else {
+                judgeReason = `评判出错：${errorMessage(graded.failure)}`;
+              }
             }
           } else {
             output =
@@ -501,7 +495,7 @@ export async function executeEvalRun(input: {
                 runId: runContext.runId,
                 passed: ok,
                 output,
-                judgeReason,
+                judgeReason: judgeReason === null ? null : redactSecrets(judgeReason),
                 caseSnapshot: {
                   id: testCase.id,
                   name: testCase.name,

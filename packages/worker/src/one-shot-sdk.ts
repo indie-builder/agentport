@@ -70,6 +70,9 @@ export async function runOneShotSdkQuery(opts: {
     if (!sawResult) return { status: 'no_result' };
     if (failure !== null) return { status: 'failure', message: failure };
     return { status: 'success' };
+  } catch (err) {
+    if (opts.signal.aborted || controller.signal.aborted) return { status: 'aborted' };
+    throw err;
   } finally {
     opts.signal.removeEventListener('abort', onAbort);
     // 先停 CLI 再删目录：只 abort 时 CLI 退出较慢，会在删除后重建 projects/*.jsonl。

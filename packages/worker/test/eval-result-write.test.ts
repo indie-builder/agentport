@@ -39,8 +39,10 @@ mock.module('bullmq', () => ({
 }));
 
 let judgeError = 'judge unavailable';
+let judgeCalls = 0;
 mock.module('@anthropic-ai/claude-agent-sdk', () => ({
   query: () => {
+    judgeCalls += 1;
     throw new Error(judgeError);
   },
 }));
@@ -84,7 +86,11 @@ async function seed(cases: CaseInput[]) {
     createdBy: evalBusinessId,
     ownerBusinessId: evalBusinessId,
   });
-  const snapshot = cases.map((testCase) => ({ id: newId('evalCase'), ...testCase }));
+  const snapshot = cases.map((testCase) => ({
+    id: newId('evalCase'),
+    ...testCase,
+    judgeMode: testCase.judgeMode ?? 'contains',
+  }));
   await db
     .insert(schema.evalCases)
     .values(snapshot.map((testCase) => ({ ...testCase, agentId, createdBy: evalBusinessId })));
@@ -98,6 +104,19 @@ async function seed(cases: CaseInput[]) {
     createdBy: evalBusinessId,
   });
   return { agentId, evalRunId, snapshot };
+}
+
+async function addPolicy(agentId: string, direction: 'inbound' | 'outbound') {
+  await db.insert(schema.contentPolicies).values({
+    id: newId('contentPolicy'),
+    name: `eval-${direction}`,
+    direction,
+    action: 'block',
+    matchType: 'keyword',
+    pattern: 'nothing-matches',
+    agentId,
+    createdBy: evalBusinessId,
+  });
 }
 
 async function completeRun(data: { runId: string; conversationId: string; prompt: string }) {
@@ -142,6 +161,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
   beforeEach(() => {
     logs.length = 0;
     judgeError = 'judge unavailable';
+    judgeCalls = 0;
     mocks.queueAdd.mockReset();
     mocks.waitUntilFinished.mockReset().mockResolvedValue(undefined);
     mocks.queueAdd.mockImplementation(async (_name, data) => {
@@ -288,6 +308,60 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     expect(result?.passed).toBe(false);
     expect(result?.judgeReason ?? '').toContain('评判出错');
     expect(result?.judgeReason ?? '').not.toContain(secret);
+    expect(judgeCalls).toBe(1);
+  });
+
+  it('skips the llm judge without sending anything when the expert has an outbound policy', async () => {
+    const { agentId, evalRunId } = await seed([
+      {
+        name: 'outbound-guarded',
+        prompt: 'prompt-guarded',
+        expectation: 'reply:prompt-guarded',
+        judgeMode: 'llm',
+      },
+    ]);
+    await addPolicy(agentId, 'outbound');
+
+    await executeEvalRun({
+      db,
+      logger,
+      redisUrl: 'redis://unused',
+      evalRunId,
+      judgeConfig: { knowledgeDir: tmpdir(), evalJudgeModel: 'judge-test' },
+    });
+
+    const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
+    expect(judgeCalls).toBe(0);
+    expect(detail?.results[0]).toMatchObject({
+      passed: false,
+      output: 'reply:prompt-guarded',
+      judgeReason: '该专家配置了出站内容策略，LLM 判分暂不可用，请改用 contains 判分',
+    });
+  });
+
+  it('runs the llm judge when only inbound policies are enabled', async () => {
+    const { agentId, evalRunId } = await seed([
+      {
+        name: 'inbound-only',
+        prompt: 'prompt-inbound',
+        expectation: 'reply:prompt-inbound',
+        judgeMode: 'llm',
+      },
+    ]);
+    await addPolicy(agentId, 'inbound');
+
+    await executeEvalRun({
+      db,
+      logger,
+      redisUrl: 'redis://unused',
+      evalRunId,
+      judgeConfig: { knowledgeDir: tmpdir(), evalJudgeModel: 'judge-test' },
+    });
+
+    expect(judgeCalls).toBe(1);
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.results[0]?.judgeReason).toContain(
+      '评判出错',
+    );
   });
 
   it('waits for a delegated child memory lock before admitting the eval case run', async () => {
