@@ -327,6 +327,7 @@ function baseHandlers() {
       HttpResponse.json({ items: [], nextCursor: null }),
     ),
     http.get('/api/knowledge/jobs', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.post('/api/knowledge/faqs/drafts', () => HttpResponse.json([])),
     http.get('/api/knowledge/model-profiles', () => HttpResponse.json([])),
     http.get('/api/knowledge/documents/:documentId/versions', () =>
       HttpResponse.json({ items: [], nextCursor: null }),
@@ -340,6 +341,34 @@ function faqListHandler(items: unknown[]) {
   return http.get('/api/knowledge/bases/kb_1/faqs', () =>
     HttpResponse.json({ items, nextCursor: null }),
   );
+}
+
+function faqDraftsHandler(
+  draftFor: (documentId: string) => unknown | null | Promise<unknown | null>,
+) {
+  return http.post('/api/knowledge/faqs/drafts', async ({ request }) => {
+    const body = (await request.json()) as { documentIds: string[] };
+    return HttpResponse.json(
+      await Promise.all(
+        body.documentIds.map(async (documentId) => ({
+          documentId,
+          draft: await draftFor(documentId),
+        })),
+      ),
+    );
+  });
+}
+
+function jobsListHandler(items: () => KnowledgeJob[]) {
+  return http.get('/api/knowledge/jobs', ({ request }) => {
+    const requested = [...new URL(request.url).searchParams].flatMap(([key, value]) =>
+      /^ids\[\d+\]$/.test(key) ? [value] : [],
+    );
+    return HttpResponse.json({
+      items: requested.length === 0 ? items() : items().filter((job) => requested.includes(job.id)),
+      nextCursor: null,
+    });
+  });
 }
 
 describe('FAQ 叶权限入口', () => {
@@ -463,9 +492,15 @@ describe('FAQ 叶权限入口', () => {
           },
         }),
       ),
-      http.get('/api/knowledge/jobs/kjob_failed', () =>
-        HttpResponse.json(job('failed', 'kjob_failed')),
+      faqDraftsHandler((documentId) =>
+        documentId === 'kdoc_faq'
+          ? {
+              ...faqDraftVersion,
+              metadata: { publication: 'draft', indexingJobId: 'kjob_failed' },
+            }
+          : null,
       ),
+      jobsListHandler(() => [job('failed', 'kjob_failed')]),
     );
     await mount('/knowledge/kb_1', { panel: 'faqs' });
     await click(button('发布草稿'));
@@ -734,13 +769,11 @@ describe('FAQ import batch recovery', () => {
     };
     server.use(
       faqListHandler(importedSummaries),
-      http.get('/api/knowledge/faqs/kdoc_a', () => HttpResponse.json(detailFor('kdoc_a'))),
-      http.get('/api/knowledge/faqs/kdoc_b', () => HttpResponse.json(detailFor('kdoc_b'))),
-      http.get('/api/knowledge/jobs/:jobId', ({ params }) => {
-        const id = String(params.jobId);
-        const status = statusById[id] ?? 'succeeded';
-        return HttpResponse.json(job(status, id));
+      faqDraftsHandler((documentId) => {
+        if (documentId !== 'kdoc_a' && documentId !== 'kdoc_b') return null;
+        return detailFor(documentId).draftVersion;
       }),
+      jobsListHandler(() => Object.entries(statusById).map(([id, status]) => job(status, id))),
       http.post('/api/knowledge/jobs/:jobId/retry', ({ params }) => {
         const failedJobId = String(params.jobId);
         const documentId = Object.keys(jobByDocument).find(
@@ -778,7 +811,9 @@ describe('FAQ import batch recovery', () => {
     await waitFor(() => importer.textContent?.includes('有索引任务失败') === true);
     expect(maybeButton('重试失败索引', importer)).toBeUndefined();
     expect(maybeButton('发布批次 2 条 FAQ', importer)).toBeUndefined();
-    expect(calls.some((call) => call.method === 'POST')).toBe(false);
+    expect(
+      calls.filter((call) => call.method === 'POST' && call.path !== '/api/knowledge/faqs/drafts'),
+    ).toEqual([]);
   });
 
   it('仅发布用户可恢复已完成索引批次并提交发布，不提供导入或索引重试', async () => {
@@ -798,6 +833,11 @@ describe('FAQ import batch recovery', () => {
     await click(button('批次发布'));
     const publisher = dialog('批次发布 FAQ');
     await waitFor(() => maybeButton('发布批次 2 条 FAQ', publisher)?.disabled === false);
+    const jobRequestIds = calls
+      .filter((call) => call.method === 'GET' && call.path.startsWith('/api/knowledge/jobs?'))
+      .flatMap((call) => [...new URL(call.path, 'http://localhost').searchParams])
+      .flatMap(([key, value]) => (/^ids\[\d+\]$/.test(key) ? [value] : []));
+    expect(jobRequestIds).toEqual(expect.arrayContaining(['kjob_a', 'kjob_b']));
     expect(publisher.textContent).toContain('继续未完成批次');
     expect(publisher.textContent).toContain('索引已完成，可整批发布');
     expect(maybeButton('预览', publisher)).toBeUndefined();
@@ -806,7 +846,9 @@ describe('FAQ import batch recovery', () => {
     expect(publisher.querySelector('#faq-import-content')).toBeNull();
     expect(publisher.querySelector('#faq-import-file')).toBeNull();
     await click(button('发布批次 2 条 FAQ', publisher));
-    const posts = calls.filter((call) => call.method === 'POST');
+    const posts = calls.filter(
+      (call) => call.method === 'POST' && call.path !== '/api/knowledge/faqs/drafts',
+    );
     expect(posts).toHaveLength(1);
     expect(posts[0]?.path).toBe('/api/knowledge/bases/kb_1/faqs/batch');
     expect(posts[0]?.body).toEqual({
@@ -876,6 +918,8 @@ describe('FAQ import batch recovery', () => {
   it('refuses to announce a batch from a partial FAQ list and recovers after retrying the page', async () => {
     baseHandlers();
     let secondPageFails = true;
+    const draftCalls = () =>
+      calls.filter((call) => call.method === 'POST' && call.path === '/api/knowledge/faqs/drafts');
     server.use(
       http.get('/api/knowledge/bases/kb_1/faqs', ({ request }) => {
         const cursor = new URL(request.url).searchParams.get('cursor');
@@ -885,33 +929,45 @@ describe('FAQ import batch recovery', () => {
         if (secondPageFails) return HttpResponse.json({ message: 'boom' }, { status: 500 });
         return HttpResponse.json({ items: [importedSummaries[1]], nextCursor: null });
       }),
-      http.get('/api/knowledge/faqs/kdoc_a', () => HttpResponse.json(importedVersions.kdoc_a)),
-      http.get('/api/knowledge/faqs/kdoc_b', () => HttpResponse.json(importedVersions.kdoc_b)),
-      http.get('/api/knowledge/jobs/:jobId', ({ params }) =>
-        HttpResponse.json(job('succeeded', String(params.jobId))),
-      ),
+      faqDraftsHandler((documentId) => {
+        if (documentId !== 'kdoc_a' && documentId !== 'kdoc_b') return null;
+        return importedVersions[documentId].draftVersion;
+      }),
+      jobsListHandler(() => [job('succeeded', 'kjob_a'), job('succeeded', 'kjob_b')]),
     );
     await mount('/knowledge/kb_1', { panel: 'faqs' });
     await click(button('导入'));
     const importer = dialog('导入 FAQ');
-    await waitFor(() => importer.textContent?.includes('继续未完成批次') === true);
+    await waitFor(() => importer.textContent?.includes('未能完整读取现有 FAQ') === true);
+    expect(importer.textContent).not.toContain('继续未完成批次');
     expect(importer.textContent).not.toContain('索引已完成，可整批发布');
     expect(maybeButton('发布批次 2 条 FAQ', importer)).toBeUndefined();
+    expect(draftCalls()).toHaveLength(0);
 
     secondPageFails = false;
     await click(button('重试读取列表', importer));
     await waitFor(() => importer.textContent?.includes('索引已完成，可整批发布') === true);
     expect(importer.textContent).toContain('2 条');
     expect(button('发布批次 2 条 FAQ', importer).disabled).toBe(false);
+    expect(draftCalls()).toHaveLength(1);
   });
 
   it('treats a cached detail with a failed refetch as incomplete and recovers after retrying it', async () => {
     recoveryHandlers({ kjob_a: 'succeeded', kjob_b: 'succeeded' });
     let detailFails = false;
     server.use(
-      http.get('/api/knowledge/faqs/kdoc_b', () => {
+      http.post('/api/knowledge/faqs/drafts', async ({ request }) => {
         if (detailFails) return HttpResponse.json({ message: 'boom' }, { status: 500 });
-        return HttpResponse.json(importedVersions.kdoc_b);
+        const body = (await request.json()) as { documentIds: string[] };
+        return HttpResponse.json(
+          body.documentIds.map((documentId) => ({
+            documentId,
+            draft:
+              documentId === 'kdoc_a' || documentId === 'kdoc_b'
+                ? importedVersions[documentId].draftVersion
+                : null,
+          })),
+        );
       }),
     );
     const mounted = await mount('/knowledge/kb_1', { panel: 'faqs' });
@@ -921,7 +977,7 @@ describe('FAQ import batch recovery', () => {
 
     detailFails = true;
     await act(async () => {
-      await mounted.client.invalidateQueries({ queryKey: ['knowledge', 'faq', 'kdoc_b'] });
+      await mounted.client.invalidateQueries({ queryKey: ['knowledge', 'faq-drafts'] });
     });
     await flush();
     expect(importer.textContent).not.toContain('索引已完成，可整批发布');
@@ -955,10 +1011,8 @@ describe('FAQ import batch recovery', () => {
     };
     server.use(
       faqListHandler([{ ...pinned.document, faq }]),
-      http.get('/api/knowledge/faqs/kdoc_b', () => HttpResponse.json(pinned)),
-      http.get('/api/knowledge/jobs/:jobId', ({ params }) =>
-        HttpResponse.json(job('succeeded', String(params.jobId))),
-      ),
+      faqDraftsHandler((documentId) => (documentId === 'kdoc_b' ? pinned.draftVersion : null)),
+      jobsListHandler(() => [job('succeeded', 'kjob_b')]),
       http.post('/api/knowledge/bases/kb_1/faqs/batch', () =>
         HttpResponse.json(
           {
@@ -1004,18 +1058,24 @@ describe('FAQ import batch recovery', () => {
       releaseDetail = resolve;
     });
     server.use(
-      http.get('/api/knowledge/faqs/kdoc_b', async () => {
+      http.post('/api/knowledge/faqs/drafts', async ({ request }) => {
         if (blockDetail) await detailGate;
-        return HttpResponse.json({
-          ...importedVersions.kdoc_b,
-          draftVersion: {
-            ...importedVersions.kdoc_b.draftVersion,
-            metadata: {
-              ...importedVersions.kdoc_b.draftVersion.metadata,
-              faqImportJobId: retried ? 'kjob_retry_kdoc_b' : 'kjob_b',
-            },
-          },
-        });
+        const body = (await request.json()) as { documentIds: string[] };
+        return HttpResponse.json(
+          body.documentIds.map((documentId) => ({
+            documentId,
+            draft:
+              documentId === 'kdoc_a'
+                ? importedVersions.kdoc_a.draftVersion
+                : {
+                    ...importedVersions.kdoc_b.draftVersion,
+                    metadata: {
+                      ...importedVersions.kdoc_b.draftVersion.metadata,
+                      faqImportJobId: retried ? 'kjob_retry_kdoc_b' : 'kjob_b',
+                    },
+                  },
+          })),
+        );
       }),
       http.post('/api/knowledge/jobs/:jobId/retry', () => {
         retried = true;
@@ -1074,7 +1134,6 @@ describe('FAQ committed import publish readiness', () => {
     currentVersionId: 'kdv_m_pub',
     tags: [],
   };
-  const publishedVersion = { ...faqPublishedVersion, id: 'kdv_m_pub', documentId: 'kdoc_m' };
   const oldDraft = {
     ...faqDraftVersion,
     id: 'kdv_m_old',
@@ -1095,12 +1154,6 @@ describe('FAQ committed import publish readiness', () => {
       },
       faqImportJobId: 'kjob_m',
     },
-  };
-  const oldDetail = {
-    document: mergedDocument,
-    draftVersion: oldDraft,
-    publishedVersion,
-    faq,
   };
   const importResponse = {
     dryRun: false,
@@ -1134,23 +1187,26 @@ describe('FAQ committed import publish readiness', () => {
     let detailReads = 0;
     let detailFails = false;
     let freshDraft = false;
+    let dropDraft = false;
     const batchCalls = () =>
       calls.filter(
         (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/faqs/batch',
       );
     server.use(
       faqListHandler([{ ...mergedDocument, faq }]),
-      http.get('/api/knowledge/faqs/kdoc_m', () => {
+      http.post('/api/knowledge/faqs/drafts', async ({ request }) => {
         detailReads += 1;
         if (detailFails) return HttpResponse.json({ message: 'boom' }, { status: 500 });
-        return HttpResponse.json({
-          ...oldDetail,
-          draftVersion: freshDraft ? newDraft : oldDraft,
-        });
+        const body = (await request.json()) as { documentIds: string[] };
+        const documentIds = dropDraft ? [] : body.documentIds;
+        return HttpResponse.json(
+          documentIds.map((documentId) => ({
+            documentId,
+            draft: freshDraft ? newDraft : oldDraft,
+          })),
+        );
       }),
-      http.get('/api/knowledge/jobs/:jobId', ({ params }) =>
-        HttpResponse.json(job('succeeded', String(params.jobId))),
-      ),
+      jobsListHandler(() => [job('succeeded', 'kjob_m')]),
       http.post('/api/knowledge/bases/kb_1/faqs/import', async ({ request }) => {
         const body = (await request.json()) as { dryRun: boolean };
         return HttpResponse.json({
@@ -1166,7 +1222,7 @@ describe('FAQ committed import publish readiness', () => {
         });
       }),
     );
-    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    const mounted = await mount('/knowledge/kb_1', { panel: 'faqs' });
     await click(button('导入'));
     const importer = dialog('导入 FAQ');
     await waitFor(() => detailReads === 1);
@@ -1189,6 +1245,20 @@ describe('FAQ committed import publish readiness', () => {
     freshDraft = true;
     await click(button('重试读取 1 条草稿版本', importer));
     await waitFor(() => maybeButton('发布本批 1 条 FAQ', importer)?.disabled === false);
+
+    const readsBeforeMissing = detailReads;
+    dropDraft = true;
+    await act(async () => {
+      await mounted.client.invalidateQueries({ queryKey: ['knowledge', 'faq-drafts'] });
+    });
+    await flush();
+    expect(importer.textContent).toContain('草稿版本读取失败');
+    expect(button('发布本批 1 条 FAQ', importer).disabled).toBe(true);
+    dropDraft = false;
+    await click(button('重试读取 1 条草稿版本', importer));
+    await waitFor(() => maybeButton('发布本批 1 条 FAQ', importer)?.disabled === false);
+    expect(detailReads).toBeGreaterThan(readsBeforeMissing);
+
     await click(button('发布本批 1 条 FAQ', importer));
     expect(batchCalls().at(-1)?.body).toEqual({
       action: 'publish',
@@ -1206,12 +1276,8 @@ describe('FAQ committed import publish readiness', () => {
       );
     server.use(
       faqListHandler([{ ...mergedDocument, faq }]),
-      http.get('/api/knowledge/faqs/kdoc_m', () => HttpResponse.json(oldDetail)),
-      http.get('/api/knowledge/jobs/:jobId', ({ params }) =>
-        jobMissing
-          ? HttpResponse.json({ code: 'NOT_FOUND', message: '任务不存在' }, { status: 404 })
-          : HttpResponse.json(job('succeeded', String(params.jobId))),
-      ),
+      faqDraftsHandler((documentId) => (documentId === 'kdoc_m' ? oldDraft : null)),
+      jobsListHandler(() => (jobMissing ? [] : [job('succeeded', 'kjob_m')])),
       http.post('/api/knowledge/bases/kb_1/faqs/import', async ({ request }) => {
         const body = (await request.json()) as { dryRun: boolean };
         return HttpResponse.json({
@@ -1235,7 +1301,9 @@ describe('FAQ committed import publish readiness', () => {
 
     jobMissing = true;
     await act(async () => {
-      await mounted.client.invalidateQueries({ queryKey: ['knowledge', 'job', 'kjob_m'] });
+      await mounted.client.invalidateQueries({
+        queryKey: ['knowledge', 'jobs', 'batch', 'kb_1', 'kjob_m'],
+      });
     });
     await flush();
     expect(importer.textContent).toContain('索引任务记录已被清理');

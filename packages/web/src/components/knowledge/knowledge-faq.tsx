@@ -18,9 +18,10 @@ import { downloadBlob } from '../../lib/browser-files.js';
 import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import {
-  isMissingJob,
   isTerminalKnowledgeJob,
   knowledgeKeys,
+  summarizeFaqDrafts,
+  summarizeFaqJobs,
   useCreateKnowledgeFaq,
   useDeleteKnowledgeFaq,
   useDrainPages,
@@ -28,7 +29,7 @@ import {
   useImportKnowledgeFaqs,
   useKnowledgeDocumentVersions,
   useKnowledgeFaq,
-  useKnowledgeFaqDraftVersions,
+  useKnowledgeFaqDrafts,
   useKnowledgeFaqImportJobs,
   useKnowledgeFaqs,
   useKnowledgeFaqTest,
@@ -633,11 +634,16 @@ interface RecoveredBatch {
   newestAt: string;
 }
 
-function recoverBatches(details: Array<KnowledgeFaqDetail | undefined>): RecoveredBatch[] {
+type FaqDraftVersion = NonNullable<KnowledgeFaqDetail['draftVersion']>;
+
+function recoverBatches(
+  drafts: Array<{ documentId: string; draft: FaqDraftVersion | null }>,
+  items: ReadonlyMap<string, KnowledgeFaqSummary>,
+): RecoveredBatch[] {
   const groups = new Map<string, RecoveredBatch>();
-  for (const detail of details) {
-    const draft = detail?.draftVersion;
-    if (!detail || !draft) continue;
+  for (const { documentId, draft } of drafts) {
+    const item = items.get(documentId);
+    if (!item || !draft) continue;
     const parsed = knowledgeFaqImportMetadataSchema.safeParse(draft.metadata.faqImport);
     if (!parsed.success) continue;
     const group = groups.get(parsed.data.batchId) ?? {
@@ -647,8 +653,8 @@ function recoverBatches(details: Array<KnowledgeFaqDetail | undefined>): Recover
       newestAt: '',
     };
     group.members.push({
-      documentId: detail.document.id,
-      title: detail.document.title,
+      documentId,
+      title: item.title,
       versionId: draft.id,
       expectedVersionId: parsed.data.expectedVersionId,
       jobId: readString(draft.metadata, 'faqImportJobId'),
@@ -683,10 +689,7 @@ function FaqImportDialog({
   const existingItems = existing.data?.pages.flatMap((page) => page.items) ?? [];
   const existingCount = existingItems.length;
   const existingComplete =
-    existing.isSuccess &&
-    !existing.isError &&
-    !existing.hasNextPage &&
-    !existing.isFetchingNextPage;
+    existing.isSuccess && !existing.isError && !existing.hasNextPage && !existing.isFetching;
   const [format, setFormat] = useState<FaqImportFormat>('json');
   const [content, setContent] = useState('');
   const [mode, setMode] = useState<'append' | 'replace'>('append');
@@ -696,15 +699,20 @@ function FaqImportDialog({
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const faqIds = existingItems.map((item) => item.id);
-  const faqDetails = useKnowledgeFaqDraftVersions(faqIds, faqIds.length > 0);
-  const detailsComplete =
-    faqIds.length > 0 &&
-    faqDetails.every((query) => query.isSuccess && !query.isError && !query.isFetching);
-  const detailErrorCount = faqDetails.filter((query) => query.isError).length;
-  const detailsRetrying = faqDetails.some((query) => query.isError && query.isFetching);
-  const recoveryReadReady = existingComplete && detailsComplete;
-  const recovered = recoverBatches(faqDetails.map((query) => query.data))[0] ?? null;
+  const { chunkIds: draftChunkIds, results: draftQueries } = useKnowledgeFaqDrafts(
+    existingItems.map((item) => item.id),
+    existingComplete && existingItems.length > 0,
+  );
+  const draftSummary = summarizeFaqDrafts(draftQueries, draftChunkIds);
+  const detailErrorCount = draftSummary.errorCount + draftSummary.missing.size;
+  const detailsRetrying = draftSummary.retrying;
+  const recoveryReadReady = existingComplete && draftSummary.complete;
+  const existingById = new Map(existingItems.map((item) => [item.id, item]));
+  const recovered =
+    recoverBatches(
+      [...draftSummary.byDocumentId].map(([documentId, draft]) => ({ documentId, draft })),
+      existingById,
+    )[0] ?? null;
   const recoveredMembers = recovered?.members ?? [];
   const client = useQueryClient();
   const retryJob = useRetryKnowledgeJob(baseId);
@@ -715,19 +723,15 @@ function FaqImportDialog({
   const recoveredJobIds = [
     ...new Set(recoveredMembers.flatMap((member) => (member.jobId === null ? [] : [member.jobId]))),
   ];
-  const recoveredJobs = useKnowledgeFaqImportJobs(recoveredJobIds);
-  const recoveredJobsMissing = recoveredJobs.some((query) => isMissingJob(query.error));
-  const recoveredMissingIds = new Set(
-    recoveredJobs.flatMap((query, index) =>
-      isMissingJob(query.error) ? [recoveredJobIds[index]] : [],
-    ),
+  const { chunkIds: recoveredJobChunks, results: recoveredJobQueries } = useKnowledgeFaqImportJobs(
+    baseId,
+    recoveredJobIds,
   );
-  const recoveredJobError = recoveredJobs.some(
-    (query) => query.isError && !isMissingJob(query.error),
-  );
-  const recoveredStatus = new Map(
-    recoveredJobs.map((query, index) => [recoveredJobIds[index], query.data?.status]),
-  );
+  const recoveredJobs = summarizeFaqJobs(recoveredJobQueries, recoveredJobChunks);
+  const recoveredJobsMissing = recoveredJobs.missing.size > 0;
+  const recoveredMissingIds = recoveredJobs.missing;
+  const recoveredJobError = recoveredJobs.error;
+  const recoveredStatus = recoveredJobs.statuses;
   const retryTargets = recoveredMembers.flatMap((member) => {
     const jobId = member.jobId;
     const status = jobId === null ? undefined : recoveredStatus.get(jobId);
@@ -773,31 +777,35 @@ function FaqImportDialog({
   const jobIds = [
     ...new Set(publishable.flatMap((result) => (result.jobId === undefined ? [] : [result.jobId]))),
   ];
-  const jobs = useKnowledgeFaqImportJobs(jobIds);
-  const jobsMissing = jobs.some((job) => isMissingJob(job.error));
-  const jobsReadError = jobs.some((job) => job.isError && !isMissingJob(job.error));
-  const jobsRetrying = jobs.some((job) => job.isError && job.isFetching);
+  const { chunkIds: jobChunks, results: jobQueries } = useKnowledgeFaqImportJobs(baseId, jobIds);
+  const jobSummary = summarizeFaqJobs(jobQueries, jobChunks);
+  const jobsMissing = jobSummary.missing.size > 0;
+  const jobsReadError = jobSummary.error;
+  const jobsRetrying = jobSummary.retrying;
   const jobsSettled =
-    jobs.length > 0 &&
-    jobs.every((job) => isMissingJob(job.error) || isTerminalKnowledgeJob(job.data?.status));
+    jobIds.length > 0 &&
+    jobIds.every(
+      (id) => jobSummary.missing.has(id) || isTerminalKnowledgeJob(jobSummary.statuses.get(id)),
+    );
   const jobsOk =
     !jobsReadError &&
     !jobsMissing &&
     jobsSettled &&
-    jobs.every((job) => job.data?.status === 'succeeded');
+    jobIds.every((id) => jobSummary.statuses.get(id) === 'succeeded');
   const documentIds = jobsOk
     ? publishable.flatMap((result) => (result.documentId === undefined ? [] : [result.documentId]))
     : [];
-  const details = useKnowledgeFaqDraftVersions(documentIds, jobsOk);
-  const committedDetailsComplete =
-    documentIds.length > 0 &&
-    details.every((detail) => detail.isSuccess && !detail.isError && !detail.isFetching);
-  const committedDetailErrorCount = details.filter((detail) => detail.isError).length;
-  const committedDetailsRetrying = details.some((detail) => detail.isError && detail.isFetching);
-  const publishItems = details.flatMap((detail, index) => {
-    const draft = detail.data?.draftVersion;
-    const result = publishable[index];
-    if (!draft || !result?.documentId) return [];
+  const { chunkIds: committedDraftChunkIds, results: committedDraftQueries } =
+    useKnowledgeFaqDrafts(documentIds, jobsOk);
+  const committedDraftSummary = summarizeFaqDrafts(committedDraftQueries, committedDraftChunkIds);
+  const committedDetailsComplete = documentIds.length > 0 && committedDraftSummary.complete;
+  const committedDetailErrorCount =
+    committedDraftSummary.errorCount + committedDraftSummary.missing.size;
+  const committedDetailsRetrying = committedDraftSummary.retrying;
+  const publishItems = publishable.flatMap((result) => {
+    if (result.documentId === undefined) return [];
+    const draft = committedDraftSummary.byDocumentId.get(result.documentId);
+    if (!draft) return [];
     return [
       {
         documentId: result.documentId,
@@ -814,7 +822,9 @@ function FaqImportDialog({
   const jobsPending =
     committed !== null &&
     !jobsReadError &&
-    jobs.some((job) => !job.isError && !isTerminalKnowledgeJob(job.data?.status));
+    jobIds.some(
+      (id) => !jobSummary.missing.has(id) && !isTerminalKnowledgeJob(jobSummary.statuses.get(id)),
+    );
   const pending =
     importer.isPending ||
     publisher.isPending ||
@@ -823,7 +833,9 @@ function FaqImportDialog({
     retryJob.isPending;
   const locked = pending || committed !== null || published;
   const guard = useDraftGuard(content !== '' && !published, pending, onClose);
-  const failedJob = jobs.find((job) => job.data?.status === 'failed')?.data;
+  const failedJob = jobQueries
+    .flatMap((query) => query.data?.items ?? [])
+    .find((job) => job.status === 'failed');
 
   const resetPreview = (): void => {
     setPreview(null);
@@ -866,6 +878,7 @@ function FaqImportDialog({
         await retryJob.mutateAsync(target.jobId);
         setRetryingFrom((current) => ({ ...current, [target.documentId]: target.jobId }));
         void client.invalidateQueries({ queryKey: knowledgeKeys.faq(target.documentId) });
+        void client.invalidateQueries({ queryKey: ['knowledge', 'faq-drafts'] });
       } catch (reason) {
         setError(errorMessage(reason));
         return;
@@ -879,27 +892,30 @@ function FaqImportDialog({
   };
 
   const retryDetails = (): void => {
-    for (const query of faqDetails) {
+    for (const query of draftQueries) {
       if (query.isError) void query.refetch();
     }
+    if (draftSummary.missing.size > 0) retryList();
   };
 
   const retryRecoveredJobs = (): void => {
-    for (const query of recoveredJobs) {
+    for (const query of recoveredJobQueries) {
       if (query.isError) void query.refetch();
     }
   };
 
   const retryCommittedJobs = (): void => {
-    for (const query of jobs) {
+    for (const query of jobQueries) {
       if (query.isError) void query.refetch();
     }
   };
 
   const retryCommittedDetails = (): void => {
-    for (const detail of details) {
-      if (detail.isError) void detail.refetch();
-    }
+    committedDraftQueries.forEach((query, index) => {
+      const ids = committedDraftChunkIds[index] ?? [];
+      const missed = ids.some((id) => committedDraftSummary.missing.has(id));
+      if (query.isError || missed) void query.refetch();
+    });
   };
 
   const publishRecovered = (): void => {
@@ -1255,7 +1271,7 @@ function FaqImportDialog({
                 </span>
               ) : (
                 <span className="text-xs text-muted-foreground">
-                  {jobsPending || jobs.length === 0
+                  {jobsPending || jobIds.length === 0
                     ? '等待索引任务完成…'
                     : canPublish
                       ? '索引已完成，确认后整批发布。'
@@ -2075,9 +2091,13 @@ function FaqPublishDialog({
         readString(draft.metadata, 'faqImportJobId'));
   const [retriedJobId, setRetriedJobId] = useState<string | null>(null);
   const jobId = retriedJobId ?? draftJobId;
-  const jobs = useKnowledgeFaqImportJobs(jobId === null ? [] : [jobId]);
-  const jobMissing = jobs.some((job) => isMissingJob(job.error));
-  const jobStatus = jobId === null ? undefined : jobs[0]?.data?.status;
+  const { chunkIds: jobChunks, results: jobQueries } = useKnowledgeFaqImportJobs(
+    baseId,
+    jobId === null ? [] : [jobId],
+  );
+  const jobSummary = summarizeFaqJobs(jobQueries, jobChunks);
+  const jobMissing = jobSummary.missing.size > 0;
+  const jobStatus = jobId === null ? undefined : jobSummary.statuses.get(jobId);
   const importDraft =
     draft != null &&
     draft.metadata.faqImport !== undefined &&

@@ -377,7 +377,39 @@ describe('knowledge FAQ management', () => {
         HttpResponse.json({ items: [faqSummary], nextCursor: null }),
       ),
       http.get('/api/knowledge/faqs/kdoc_faq', () => HttpResponse.json(faqDetail)),
-      http.get('/api/knowledge/faqs/kdoc_new', () => HttpResponse.json(importedDetail)),
+      http.post('/api/knowledge/faqs/drafts', async ({ request }) => {
+        const body = (await request.json()) as { documentIds: string[] };
+        return HttpResponse.json(
+          body.documentIds.map((documentId) => ({
+            documentId,
+            draft:
+              documentId === 'kdoc_new'
+                ? importedDetail.draftVersion
+                : documentId === 'kdoc_faq'
+                  ? faqDetail.draftVersion
+                  : null,
+          })),
+        );
+      }),
+      http.get('/api/knowledge/jobs', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 'kjob_import',
+              type: 'ingest',
+              status: 'succeeded',
+              step: null,
+              progress: 100,
+              attempts: 1,
+              error: null,
+              createdAt: '2026-01-01T00:00:00Z',
+              startedAt: '2026-01-01T00:00:00Z',
+              endedAt: '2026-01-01T00:01:00Z',
+            },
+          ],
+          nextCursor: null,
+        }),
+      ),
       http.put('/api/knowledge/faqs/kdoc_faq', () =>
         HttpResponse.json({ documentId: 'kdoc_faq', jobId: 'kjob_faq' }),
       ),
@@ -433,20 +465,6 @@ describe('knowledge FAQ management', () => {
       }),
       http.post('/api/knowledge/bases/kb_1/faqs/batch', () =>
         HttpResponse.json({ results: [{ documentId: 'kdoc_new', status: 'succeeded' }] }),
-      ),
-      http.get('/api/knowledge/jobs/kjob_import', () =>
-        HttpResponse.json({
-          id: 'kjob_import',
-          type: 'ingest',
-          status: 'succeeded',
-          step: null,
-          progress: 100,
-          attempts: 1,
-          error: null,
-          createdAt: '2026-01-01T00:00:00Z',
-          startedAt: '2026-01-01T00:00:00Z',
-          endedAt: '2026-01-01T00:01:00Z',
-        }),
       ),
       http.get(
         '/api/knowledge/bases/kb_1/faqs/export',

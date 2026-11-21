@@ -42,16 +42,18 @@ export async function listJobs(
     baseId?: string | undefined;
     documentId?: string | undefined;
     status?: KnowledgeJob['status'] | undefined;
+    ids?: string[] | undefined;
   },
   access?: ResourceAccessFilter,
 ) {
-  const { baseId, documentId, status, ...rest } = query;
+  const { baseId, documentId, status, ids, ...rest } = query;
   const page = requireCursorPage(
     await repo.knowledge.listJobs(deps.db, {
       ...pageOptions(rest),
       ...(baseId === undefined ? {} : { baseId }),
       ...(documentId === undefined ? {} : { documentId }),
       ...(status === undefined ? {} : { status }),
+      ...(ids === undefined ? {} : { ids }),
       ...(access === undefined ? {} : { access }),
     }),
   );

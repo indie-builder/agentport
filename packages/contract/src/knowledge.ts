@@ -554,6 +554,7 @@ const jobQuery = pageQuerySchema.extend({
   baseId: z.string().optional(),
   documentId: z.string().optional(),
   status: knowledgeJobStatusSchema.optional(),
+  ids: z.array(z.string().min(1)).max(200).optional(),
 });
 
 const batchResultSchema = z.array(
@@ -1145,6 +1146,22 @@ const wikiContract = {
 };
 
 const faqsContract = {
+  drafts: contractProcedure
+    .route({ method: 'POST', path: '/knowledge/faqs/drafts' })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
+    .input(
+      z.object({
+        body: z.object({ documentIds: z.array(z.string().min(1)).min(1).max(200) }),
+      }),
+    )
+    .output(
+      z.array(
+        z.object({
+          documentId: z.string(),
+          draft: knowledgeFaqVersionSchema.nullable(),
+        }),
+      ),
+    ),
   remove: contractProcedure
     .route({ method: 'DELETE', path: '/knowledge/faqs/{documentId}', successStatus: 204 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
