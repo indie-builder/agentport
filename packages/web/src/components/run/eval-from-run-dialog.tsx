@@ -1,3 +1,4 @@
+import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import { shortId } from '../../lib/format.js';
@@ -12,7 +13,20 @@ import { Checkbox } from '../ui/checkbox.js';
 import { Dialog } from '../ui/dialog.js';
 import { Field, FieldError, FieldGroup, FieldLabel } from '../ui/field.js';
 import { Input } from '../ui/input.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select.js';
 import { Textarea } from '../ui/textarea.js';
+
+const judgeOptions = [
+  { value: 'contains', label: '包含匹配' },
+  { value: 'llm', label: 'LLM 评判' },
+];
 
 const evalFromRunSchema = z.object({
   name: z.string().trim().min(1, '名称需要填写。').max(128, '名称不能超过 128 字。'),
@@ -21,6 +35,7 @@ const evalFromRunSchema = z.object({
     .trim()
     .min(1, '期望答案需要人工填写。')
     .max(5_000, '期望答案不能超过 5,000 字。'),
+  judgeMode: z.enum(['contains', 'llm']),
   confirmed: z.boolean().refine((value) => value, { message: '请确认已人工核对期望答案。' }),
 });
 
@@ -41,10 +56,12 @@ export function EvalFromRunDialog({
   const create = useCreateEvalCaseFromRun();
   const defaultName = (conversationTitle.trim() || `运行 ${shortId(runId)}`).slice(0, 128);
   const form = useZodForm(evalFromRunSchema, {
-    defaultValues: { name: defaultName, expectation: '', confirmed: false },
+    defaultValues: { name: defaultName, expectation: '', judgeMode: 'contains', confirmed: false },
   });
   const { errors } = form.formState;
+  const control = form.control;
   const confirmed = form.watch('confirmed');
+  const judgeMode = form.watch('judgeMode');
   const pending = create.isPending;
   const guard = useDraftGuard(form.formState.isDirty, pending, dialog.close);
   const formId = `eval-from-run-${runId}`;
@@ -56,6 +73,7 @@ export function EvalFromRunDialog({
         runId,
         name: values.name,
         expectation: values.expectation,
+        judgeMode: values.judgeMode,
         confirmed: true,
         ...(feedbackId === undefined ? {} : { feedbackId }),
       },
@@ -118,13 +136,47 @@ export function EvalFromRunDialog({
                 className="max-h-40 overflow-y-auto bg-sunken text-muted-foreground"
               />
             </Field>
+            <Field className="gap-1.5" data-disabled={pending}>
+              <FieldLabel htmlFor={`${formId}-judge-mode`}>判分方式</FieldLabel>
+              <Controller
+                control={control}
+                name="judgeMode"
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    onValueChange={(next) => {
+                      if (next !== null) field.onChange(next);
+                    }}
+                    items={judgeOptions}
+                    disabled={pending}
+                  >
+                    <SelectTrigger
+                      id={`${formId}-judge-mode`}
+                      ref={field.ref}
+                      onBlur={field.onBlur}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {judgeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Field>
             <Field
               className="gap-1.5"
               data-invalid={Boolean(errors.expectation)}
               data-disabled={pending}
             >
               <FieldLabel htmlFor={`${formId}-expectation`}>
-                期望答案 <RequiredMark />
+                {judgeMode === 'llm' ? '评判标准' : '期望答案'} <RequiredMark />
               </FieldLabel>
               <Textarea
                 {...form.register('expectation')}
@@ -135,7 +187,11 @@ export function EvalFromRunDialog({
                 rows={5}
                 aria-invalid={Boolean(errors.expectation)}
                 aria-describedby={errors.expectation ? `${formId}-expectation-error` : undefined}
-                placeholder="输出中应出现的文本（不区分大小写）"
+                placeholder={
+                  judgeMode === 'llm'
+                    ? 'LLM 判定通过的条件，例如：必须说明无法确认并拒绝编造'
+                    : '输出中应出现的文本（不区分大小写）'
+                }
               />
               <FieldError id={`${formId}-expectation-error`}>
                 {errors.expectation?.message}

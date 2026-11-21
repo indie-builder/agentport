@@ -2,6 +2,7 @@ import {
   evalCaseFieldsSchema,
   evalComparisonSchema,
   evalDatasetSchema,
+  evalJudgeModeSchema,
   evalRunDetailSchema,
   evalRunListQuerySchema,
   evalRunPageSchema,
@@ -16,16 +17,17 @@ export const evalCaseSchema = z.object({
   name: z.string(),
   prompt: z.string(),
   expectation: z.string(),
+  judgeMode: evalJudgeModeSchema,
   createdBy: z.string(),
   createdAt: z.iso.datetime(),
 });
 
 export const createEvalCaseSchema = evalCaseFieldsSchema.extend({ agentId: z.string().min(1) });
 
-export const patchEvalCaseSchema = createEvalCaseSchema
-  .omit({ agentId: true })
-  .partial()
-  .extend({ expectation: evalCaseFieldsSchema.shape.expectation.removeDefault().optional() });
+export const patchEvalCaseSchema = createEvalCaseSchema.omit({ agentId: true }).partial().extend({
+  expectation: evalCaseFieldsSchema.shape.expectation.removeDefault().optional(),
+  judgeMode: evalJudgeModeSchema.optional(),
+});
 
 export const evalDatasetImportResultSchema = z.object({
   imported: z.number().int().nonnegative(),
@@ -77,6 +79,7 @@ export const evalContract = {
             runId: z.string().min(1),
             name: z.string().trim().min(1).max(128).optional(),
             expectation: z.string().trim().min(1).max(5000),
+            judgeMode: evalJudgeModeSchema.default('contains'),
             confirmed: z.literal(true),
             feedbackId: z.string().min(1).max(200).optional(),
           }),

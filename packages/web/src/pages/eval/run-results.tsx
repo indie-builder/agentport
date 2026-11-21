@@ -228,6 +228,14 @@ export function EvalRunResults({ id }: { id: string }) {
                   copyLabel="复制输出"
                 />
               </div>
+              {result.judgeReason ? (
+                <div className="mt-2">
+                  <div className="text-xs text-muted-foreground">评判理由</div>
+                  <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                    {result.judgeReason}
+                  </p>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>

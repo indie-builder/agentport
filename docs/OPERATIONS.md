@@ -488,6 +488,7 @@ bun run --filter @agentport/worker maintenance
 - 评估历史「比较运行」选择同专家两个终态批次，按结果快照中的用例ID对齐；仅在两边都有快照且prompt/expectation相同时显示改善/退步。输入变更、旧记录或重复身份另标；单边无结果也可能是批次未执行完成，不代表用例增删。专家配置未固定，比较不等于完整可复现。
 - 评估页「停止后续用例」将批次置为cancelled并保留已有结果；重复请求幂等，晚到进度/完成不能覆盖。当前用例可能仍执行至完成或超时并产生费用，停止不等同于即时终止沙盒，不提供恢复。迁移0023扩展eval_runs状态约束。
 - 评估提交时冻结本次用例数组与total；worker按冻结的提示词/期望执行，结果保留原文，后续编辑或删除用例不会改写新批次历史。迁移0022新增eval_runs/eval_results的case_snapshot列；旧记录不回填，专家配置/技能/连接器仍未冻结。
+- 评测用例支持用例级判分方式：`contains`（默认，子串包含）或 `llm`（一次受治理 SDK 调用按评判标准判断并记录理由）。llm 模型取 `EVAL_JUDGE_MODEL`，未配置时回退 `KNOWLEDGE_SUMMARY_MODEL`；两者都未配置时该用例判为不通过并记录原因。迁移 `0100` 新增 `eval_cases.judge_mode` 与 `eval_results.judge_reason`。
 - 评估批次列表 `GET /api/eval/runs?agentId=&cursor=&limit=` 返回 `{items,nextCursor}`：`limit` 默认 50、最大 100，游标取当前页末条 ID，按 `(created_at,id)` 倒序排他翻页；游标不属于当前筛选范围（不存在或跨专家）返回 400 `INVALID_INPUT`。列表 SQL 只投影摘要列；迁移 `0037` 用 `(agent_id,created_at,id)` 与 `(created_at,id)` 复合索引支持按专家或全局倒序分页，替换冗余的专家单列索引。详情仍按单批次读取，不参与列表分页。
 - `/chat?agent=<id>&conversation=<id>`保留专家和会话选择；刷新、前进后退恢复已保存历史，服务端会话归属优先于链接中的专家参数。新建会话清除conversation，首次发送获id后replace写入URL；链接本身不创建运行、不恢复SDK会话。浏览其他历史只关闭客户端事件流，不等同取消服务端运行；离开后的迟到提交响应不会把界面拉回，运行结束后会刷新会话及历史列表缓存。
 - 对话历史的操作菜单支持重命名持久化会话：标题去除首尾空白、1–128字符；只更新标题，不修改消息、归属或最近消息时间。脏草稿退出须确认，提交中不可关闭。

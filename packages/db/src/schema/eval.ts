@@ -24,10 +24,16 @@ export const evalCases = pgTable(
     name: text('name').notNull(),
     prompt: text('prompt').notNull(),
     expectation: text('expectation').notNull().default(''),
+    judgeMode: text('judge_mode', { enum: ['contains', 'llm'] })
+      .notNull()
+      .default('contains'),
     createdBy: text('created_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('eval_cases_agent_idx').on(t.agentId)],
+  (t) => [
+    index('eval_cases_agent_idx').on(t.agentId),
+    check('eval_cases_judge_mode_check', sql`${t.judgeMode} in ('contains', 'llm')`),
+  ],
 );
 
 export type EvalCaseSnapshot = {
@@ -35,6 +41,7 @@ export type EvalCaseSnapshot = {
   name: string;
   prompt: string;
   expectation: string;
+  judgeMode: 'contains' | 'llm';
 };
 
 export const evalRuns = pgTable(
@@ -86,6 +93,7 @@ export const evalResults = pgTable(
     runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     passed: boolean('passed').notNull(),
     output: text('output').notNull().default(''),
+    judgeReason: text('judge_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

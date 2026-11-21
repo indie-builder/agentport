@@ -18,6 +18,7 @@ function toEvalCase(row: repo.evalRepo.EvalCase) {
     name: row.name,
     prompt: row.prompt,
     expectation: row.expectation,
+    judgeMode: row.judgeMode,
     createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
   };
@@ -99,6 +100,7 @@ export const evalRouter = os.router({
           name,
           prompt: prompt.slice(0, 20_000),
           expectation: input.body.expectation,
+          judgeMode: input.body.judgeMode,
           createdBy: businessId,
         });
         if (feedbackId !== undefined) {

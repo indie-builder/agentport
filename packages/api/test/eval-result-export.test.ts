@@ -30,6 +30,7 @@ interface ResultBody {
   expectation: string;
   passed: boolean;
   output: string;
+  judgeReason: string | null;
   runId: string | null;
 }
 
@@ -188,6 +189,7 @@ describe.skipIf(!ready)('eval result export', () => {
     expect(Object.keys(body.results[0] ?? {}).sort()).toEqual([
       'caseId',
       'expectation',
+      'judgeReason',
       'name',
       'output',
       'passed',

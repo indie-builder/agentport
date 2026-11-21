@@ -22,6 +22,7 @@ interface SnapshotCase {
   name: string;
   prompt: string;
   expectation: string;
+  judgeMode: 'contains' | 'llm';
 }
 
 interface EvalResultBody {
@@ -76,7 +77,13 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
   }
 
   function picked(row: SnapshotCase): SnapshotCase {
-    return { id: row.id, name: row.name, prompt: row.prompt, expectation: row.expectation };
+    return {
+      id: row.id,
+      name: row.name,
+      prompt: row.prompt,
+      expectation: row.expectation,
+      judgeMode: row.judgeMode,
+    };
   }
 
   async function submitRun(agentId: string): Promise<string> {

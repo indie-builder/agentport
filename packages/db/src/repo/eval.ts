@@ -32,6 +32,7 @@ export interface EvalCaseInput {
   name: string;
   prompt: string;
   expectation: string;
+  judgeMode: 'contains' | 'llm';
   createdBy: string;
 }
 
@@ -39,6 +40,7 @@ export interface EvalCasePatch {
   name?: string | undefined;
   prompt?: string | undefined;
   expectation?: string | undefined;
+  judgeMode?: 'contains' | 'llm' | undefined;
 }
 
 export async function listCases(
@@ -216,6 +218,7 @@ export interface EvalResultRow {
   expectation: string;
   passed: boolean;
   output: string;
+  judgeReason: string | null;
   runId: string | null;
 }
 
@@ -250,6 +253,7 @@ export async function addResult(
     runId: string | null;
     passed: boolean;
     output: string;
+    judgeReason?: string | null;
   },
   options: { recordProgress?: boolean } = {},
 ): Promise<void> {
@@ -304,6 +308,7 @@ function toPublicResult(row: StoredEvalResult): EvalResultRow {
     expectation: row.expectation,
     passed: row.passed,
     output: row.output,
+    judgeReason: row.judgeReason,
     runId: row.runId,
   };
 }
@@ -323,6 +328,7 @@ async function selectRunResults(
       expectation: sql<string>`coalesce(${evalResults.caseSnapshot}->>'expectation', ${evalCases.expectation}, '')`,
       passed: evalResults.passed,
       output: evalResults.output,
+      judgeReason: evalResults.judgeReason,
       runId: evalResults.runId,
     })
     .from(evalResults)
