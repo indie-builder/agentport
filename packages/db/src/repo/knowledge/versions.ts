@@ -4,7 +4,7 @@ import {
   knowledgeBaseSettingsSchema,
   knowledgeJobPayloadSchema,
 } from '@agentport/shared';
-import { and, desc, eq, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
 import {
@@ -171,6 +171,18 @@ export async function getVersion(db: Database, id: string): Promise<KnowledgeVer
     .where(eq(knowledgeDocumentVersions.id, id))
     .limit(1);
   return row ?? null;
+}
+
+export async function getVersionsByIds(
+  db: Database,
+  ids: string[],
+): Promise<Map<string, KnowledgeVersionRow>> {
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .select()
+    .from(knowledgeDocumentVersions)
+    .where(inArray(knowledgeDocumentVersions.id, ids));
+  return new Map(rows.map((row) => [row.id, row]));
 }
 
 export interface PublishGuard {

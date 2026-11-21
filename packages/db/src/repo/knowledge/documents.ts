@@ -64,6 +64,18 @@ export async function getDocument(db: Database, id: string): Promise<KnowledgeDo
   return row ?? null;
 }
 
+export async function getDocumentsByIds(
+  db: Database,
+  ids: string[],
+): Promise<Map<string, KnowledgeDocumentRow>> {
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .select()
+    .from(knowledgeDocuments)
+    .where(inArray(knowledgeDocuments.id, ids));
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
 export async function isDocumentReadable(db: Database, id: string): Promise<boolean> {
   const [row] = await db
     .select({ id: knowledgeDocuments.id })
