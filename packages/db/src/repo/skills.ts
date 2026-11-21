@@ -1,6 +1,6 @@
 import { AppError, fail, type SkillProvenance } from '@agentport/core';
 import { findSkillResourcePathConflict, type ResourceAccessFilter } from '@agentport/shared';
-import { and, asc, count, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, type SQL } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentSkills, skillFiles, skills } from '../schema.js';
@@ -51,19 +51,21 @@ export async function listSkills(
     cursor?: string | undefined;
   },
 ): Promise<CursorPage<SkillWithAgentCount> | null> {
-  return keysetPage(db, {
+  const page = await keysetPage(db, {
     table: skills,
     column: skills.name,
     direction: 'asc',
     limit: options.limit,
     cursor: options.cursor,
+    valueCursor: (row: { cursorValue: string }) => row.cursorValue,
+    cursorKind: 'text',
     where: [
       options.access === undefined
         ? undefined
         : resourceScopeWhere(options.access, skills.id, skills.ownerBusinessId),
       options.status === undefined ? undefined : eq(skills.status, options.status),
     ],
-    load: ({ where, limit }) =>
+    load: ({ where, limit }: { where: SQL | undefined; limit: number }) =>
       db
         .select({
           id: skills.id,
@@ -83,6 +85,7 @@ export async function listSkills(
           reviewNote: skills.reviewNote,
           createdAt: skills.createdAt,
           updatedAt: skills.updatedAt,
+          cursorValue: skills.name,
           agentCount: count(agentSkills.agentId),
         })
         .from(skills)
@@ -92,6 +95,11 @@ export async function listSkills(
         .orderBy(asc(skills.name), asc(skills.id))
         .limit(limit),
   });
+  if (page === null) return null;
+  return {
+    items: page.items.map(({ cursorValue, ...row }) => row),
+    nextCursor: page.nextCursor,
+  };
 }
 
 export async function getSkill(db: Database, id: string): Promise<SkillRow | null> {

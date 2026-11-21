@@ -1,11 +1,11 @@
 import { AppError, fail } from '@agentport/core';
 import type { AccessFilter, ExecutionSubject } from '@agentport/shared';
 import { ACTIVE_RUN_STATUSES } from '@agentport/shared';
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { agentRuns, agents, conversations, messages } from '../../schema.js';
 import { lockAgentBindings } from '../locks.js';
-import { type CursorPage, keysetPage } from '../pagination.js';
+import { type CursorPage, cursorValueSql, keysetPage } from '../pagination.js';
 import { conversationAccessWhere, conversationSubject } from './shared.js';
 
 export type Conversation = typeof conversations.$inferSelect;
@@ -293,8 +293,10 @@ export async function listConversations(
     cursor: options.cursor,
     limit: options.limit ?? 50,
     column: conversations.lastMessageAt,
+    valueCursor: (row: { cursorValue: string }) => row.cursorValue,
+    cursorKind: 'timestamp',
     where: [agentFilter, conversationAccessWhere(options.access), isNull(conversations.channelId)],
-    load: ({ where, limit }) => {
+    load: ({ where, limit }: { where: SQL | undefined; limit: number }) => {
       const page = db
         .select({
           id: conversations.id,
@@ -302,6 +304,7 @@ export async function listConversations(
           agentName: agents.name,
           title: conversations.title,
           createdAt: conversations.createdAt,
+          cursorValue: cursorValueSql(conversations.lastMessageAt).as('cursorValue'),
         })
         .from(conversations)
         .innerJoin(agents, eq(agents.id, conversations.agentId))
@@ -329,6 +332,7 @@ export async function listConversations(
           agentName: page.agentName,
           title: page.title,
           createdAt: page.createdAt,
+          cursorValue: page.cursorValue,
           lastRole: last.role,
           lastText: last.text,
           lastCreatedAt: last.createdAt,
@@ -340,7 +344,7 @@ export async function listConversations(
   if (result === null) return null;
 
   return {
-    items: result.items.map(({ lastRole, lastText, lastCreatedAt, ...row }) => ({
+    items: result.items.map(({ cursorValue, lastRole, lastText, lastCreatedAt, ...row }) => ({
       ...row,
       updatedAt: lastCreatedAt ?? row.createdAt,
       lastMessage:

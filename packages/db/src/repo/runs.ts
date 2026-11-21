@@ -169,17 +169,18 @@ export async function listRuns(
     const cursorStartedAt = parts?.[0];
     const anchorId = parts?.[1];
     if (cursorStartedAt === undefined || anchorId === undefined) return null;
+    if (cursorStartedAt !== '' && Number.isNaN(new Date(cursorStartedAt).getTime())) return null;
     const [anchor] = await db
-      .select({ id: agentRuns.id, startedAt: runStartedAtCursor })
+      .select({ id: agentRuns.id })
       .from(agentRuns)
       .where(and(...filters, eq(agentRuns.id, anchorId)))
       .limit(1);
-    if (!anchor || (anchor.startedAt ?? '') !== cursorStartedAt) return null;
-    if (anchor.startedAt === null) {
+    if (!anchor) return null;
+    if (cursorStartedAt === '') {
       filters.push(sql`(${agentRuns.startedAt} is null and ${agentRuns.id} < ${anchorId})`);
     } else {
       filters.push(
-        sql`(${agentRuns.startedAt} is null or (${agentRuns.startedAt}, ${agentRuns.id}) < (${anchor.startedAt}::timestamptz, ${anchorId}))`,
+        sql`(${agentRuns.startedAt} is null or (${agentRuns.startedAt}, ${agentRuns.id}) < (${cursorStartedAt}::timestamptz, ${anchorId}))`,
       );
     }
   }

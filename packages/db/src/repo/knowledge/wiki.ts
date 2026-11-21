@@ -3,7 +3,7 @@ import { and, desc, eq, exists, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeWikiPages, knowledgeWikiSources, knowledgeWikiVersions } from '../../schema.js';
-import { keysetPage } from '../pagination.js';
+import { cursorValueSql, keysetPage } from '../pagination.js';
 import {
   type KnowledgeWikiPageRow,
   type KnowledgeWikiVersionRow,
@@ -312,13 +312,16 @@ export async function listReadableWikiPages(
     cursor: options.cursor,
     limit: pageLimit(options),
     column: knowledgeWikiPages.updatedAt,
+    valueCursor: (row: { cursorValue: string }) => row.cursorValue,
+    cursorKind: 'timestamp',
     where: [readableWikiPageSql('knowledge_wiki_pages', baseId), exists(currentVersion)],
-    load: ({ where, limit }) =>
+    load: ({ where, limit }: { where: SQL | undefined; limit: number }) =>
       db
         .select({
           id: knowledgeWikiPages.id,
           page: knowledgeWikiPages,
           version: knowledgeWikiVersions,
+          cursorValue: cursorValueSql(knowledgeWikiPages.updatedAt),
         })
         .from(knowledgeWikiPages)
         .innerJoin(

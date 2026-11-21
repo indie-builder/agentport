@@ -29,33 +29,6 @@ function normalizedMessageTextSql(): SQL<string | null> {
   return normalizeWhitespaceSql(messageTextSql());
 }
 
-/**
- * 游标是服务端生成的不透明串；格式不对说明调用方拼错，按输入错误返回。
- */
-function decodeSearchCursor(raw: string): string | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== 'object' || parsed === null) {
-    return null;
-  }
-  const { at, id } = parsed as { at?: unknown; id?: unknown };
-  if (typeof at !== 'string' || typeof id !== 'string' || at === '' || id === '') {
-    return null;
-  }
-  if (Number.isNaN(new Date(at).getTime())) return null;
-  return id;
-}
-
-function encodeSearchCursor(row: { cursorAt: string; id: string }): string {
-  return Buffer.from(JSON.stringify({ at: row.cursorAt, id: row.id }), 'utf8').toString(
-    'base64url',
-  );
-}
-
 export interface ConversationSearchOptions {
   q: string;
   agentId?: string | undefined;
@@ -94,8 +67,6 @@ export async function searchConversations(
   db: Database,
   options: ConversationSearchOptions,
 ): Promise<{ items: ConversationSearchRow[]; nextBefore: string | null } | null> {
-  const cursor = options.before === undefined ? null : decodeSearchCursor(options.before);
-  if (options.before !== undefined && cursor === null) return null;
   const agentFilter =
     options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId);
   const needle =
@@ -119,16 +90,18 @@ export async function searchConversations(
   )`;
   const result = await keysetPage(db, {
     table: conversations,
-    cursor,
+    cursor: options.before,
     limit: options.limit,
     column: conversations.lastMessageAt,
+    valueCursor: (row: { cursorAt: string }) => row.cursorAt,
+    cursorKind: 'timestamp',
     where: [
       agentFilter,
       conversationAccessWhere(options.access),
       isNull(conversations.channelId),
       matchFilter,
     ],
-    load: ({ where, limit }) =>
+    load: ({ where, limit }: { where: SQL | undefined; limit: number }) =>
       db
         .select({
           id: conversations.id,
@@ -201,9 +174,8 @@ export async function searchConversations(
       match,
     };
   });
-  const last = page.at(-1);
   return {
     items,
-    nextBefore: result.nextCursor !== null && last !== undefined ? encodeSearchCursor(last) : null,
+    nextBefore: result.nextCursor,
   };
 }

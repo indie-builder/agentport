@@ -6,7 +6,7 @@ import {
   type ChannelRole,
   type MessageAttachment,
 } from '@agentport/shared';
-import { and, asc, count, desc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -20,7 +20,7 @@ import {
   conversations,
 } from '../schema.js';
 import { createChannelWakes } from './channel-wakes.js';
-import { type CursorPage, keysetPage } from './pagination.js';
+import { type CursorPage, cursorValueSql, keysetPage } from './pagination.js';
 
 /** 频道权限只来自真实成员关系；平台范围不能替代成员身份。 */
 export type ChannelSubject = { businessId: string };
@@ -223,14 +223,16 @@ export async function listChannels(
 
   const membership = sql`exists (select 1 from ${channelMembers} where ${channelMembers.channelId} = ${channels.id} and ${channelMembers.businessId} = ${subject.businessId})`;
 
-  return keysetPage(db, {
+  const page = await keysetPage(db, {
     table: channels,
     column: channels.updatedAt,
     direction: 'desc',
     cursor: options.cursor,
     limit: options.limit,
+    valueCursor: (row: { cursorValue: string }) => row.cursorValue,
+    cursorKind: 'timestamp',
     where: [membership],
-    load: async ({ where, limit }) => {
+    load: async ({ where, limit }: { where: SQL | undefined; limit: number }) => {
       const rows = await db
         .select({
           id: channels.id,
@@ -240,6 +242,7 @@ export async function listChannels(
           archivedAt: channels.archivedAt,
           createdAt: channels.createdAt,
           updatedAt: channels.updatedAt,
+          cursorValue: cursorValueSql(channels.updatedAt),
           role: channelMembers.role,
           lastReadSeq: channelMembers.lastReadSeq,
           unreadCount: sql<number>`(
@@ -290,6 +293,7 @@ export async function listChannels(
         unreadCount: row.unreadCount,
         memberCount: row.memberCount,
         agentCount: row.agentCount,
+        cursorValue: row.cursorValue,
         lastMessage:
           row.lastId === null || row.lastSeq === null || row.lastKind === null
             ? null
@@ -305,6 +309,11 @@ export async function listChannels(
       }));
     },
   });
+  if (page === null) return null;
+  return {
+    items: page.items.map(({ cursorValue, ...row }) => row),
+    nextCursor: page.nextCursor,
+  };
 }
 
 export async function createChannel(
