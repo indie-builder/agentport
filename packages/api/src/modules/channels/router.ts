@@ -27,7 +27,7 @@ import { getQueue, type RunSubscription, subscribeChannel } from '../../queue/pr
 import { runQueueHasCapacity } from '../runs/capacity.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
-import { conflict, forbidden, notFound } from './errors.js';
+import { CHANNEL_MEMBER_MISSING, conflict, forbidden, notFound } from './errors.js';
 import { channelsHandoffRouter } from './handoff.js';
 import { publishChannelMessageSafely } from './publish.js';
 import { channelsRunsRouter } from './runs.js';
@@ -505,7 +505,7 @@ const channelsMainRouter = {
       input.params.id,
       input.body.seq,
     );
-    if (result.kind === 'not_found') return notFound('频道不存在或你不是频道成员');
+    if (result.kind === 'not_found') return notFound(CHANNEL_MEMBER_MISSING);
     return { lastReadSeq: result.lastReadSeq };
   }),
 };

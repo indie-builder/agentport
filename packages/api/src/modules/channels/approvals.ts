@@ -6,6 +6,7 @@ import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { toIso } from '../../lib/iso.js';
 import { recheckRunApproval } from '../servers/approval-policy.js';
+import { CHANNEL_MEMBER_MISSING } from './errors.js';
 
 const approvalsRepo = repo.channelApprovals;
 function toItem(item: repo.channelApprovals.ChannelApprovalItem) {
@@ -40,7 +41,7 @@ export const channelsApprovalsRouter = {
       businessId: requireUser(context).businessId,
     });
     if (result.kind === 'not_found') {
-      return fail('NOT_FOUND', '频道不存在或你不是频道成员');
+      return fail('NOT_FOUND', CHANNEL_MEMBER_MISSING);
     }
     return { items: result.items.map(toItem) };
   }),
