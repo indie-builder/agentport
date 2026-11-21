@@ -36,6 +36,8 @@ const testCase: EvalCase = {
   prompt: 'Original prompt',
   expectation: '',
   judgeMode: 'contains',
+  expectedTools: null,
+  forbiddenTools: null,
   createdAt: '2026-10-22T00:00:00Z',
 };
 
@@ -381,6 +383,23 @@ describe('evaluation draft navigation', () => {
         judgeMode: 'contains',
         expectedTools: ['mcp__knowledge__search', 'Read', 'Bash'],
         forbiddenTools: ['Write', 'Bash'],
+      }),
+    );
+  });
+
+  it('leaves an unmodified imported tool assertion untouched when only the name changes', async () => {
+    const update = vi.spyOn(api, 'updateEvalCase').mockResolvedValue(testCase);
+    await mount(true, {
+      testCase: { ...testCase, forbiddenTools: ['Read,Write'] },
+    });
+    await fill('eval-name', 'Renamed case');
+    await click('保存');
+    await vi.waitFor(() =>
+      expect(update).toHaveBeenCalledWith(testCase.id, {
+        name: 'Renamed case',
+        prompt: 'Original prompt',
+        expectation: '',
+        judgeMode: 'contains',
       }),
     );
   });

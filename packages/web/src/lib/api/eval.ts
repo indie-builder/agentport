@@ -21,8 +21,8 @@ export interface EvalCase {
   prompt: string;
   expectation: string;
   judgeMode: EvalJudgeMode;
-  expectedTools?: string[] | null;
-  forbiddenTools?: string[] | null;
+  expectedTools: string[] | null;
+  forbiddenTools: string[] | null;
   createdAt: string;
 }
 
