@@ -116,8 +116,12 @@ export function CaseDialog({
           id: testCase.id,
           input: {
             ...base,
-            expectedTools: form.expectedTools,
-            forbiddenTools: form.forbiddenTools,
+            ...(form.expectedTools.length > 0 || testCase.expectedTools?.length
+              ? { expectedTools: form.expectedTools }
+              : {}),
+            ...(form.forbiddenTools.length > 0 || testCase.forbiddenTools?.length
+              ? { forbiddenTools: form.forbiddenTools }
+              : {}),
           },
         },
         { onSuccess: done, onError: toastError },
