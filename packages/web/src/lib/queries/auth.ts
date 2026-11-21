@@ -1,4 +1,10 @@
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  type QueryClient,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import {
   type Account,
   type AccountPage,
@@ -20,6 +26,11 @@ const authKeys = {
   identities: (agentId: string | null, query: { q?: string; limit?: number; offset?: number }) =>
     ['identities', agentId, query] as const,
 };
+
+function invalidateAccountsAndMe(client: QueryClient) {
+  void client.invalidateQueries({ queryKey: authKeys.accountsAll });
+  void client.invalidateQueries({ queryKey: ME_QUERY_KEY });
+}
 
 export const accountQuery = (query: { q: string; limit: number; offset: number }) =>
   queryOptions<AccountPage>({
@@ -79,10 +90,7 @@ export function useUpdateAccount() {
   return useMutation({
     mutationFn: (vars: { businessId: string; input: { username?: string; name?: string } }) =>
       api.updateAccount(vars.businessId, vars.input),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: authKeys.accountsAll });
-      void client.invalidateQueries({ queryKey: ME_QUERY_KEY });
-    },
+    onSuccess: () => invalidateAccountsAndMe(client),
   });
 }
 
@@ -115,10 +123,7 @@ export function useSetAccountRoles() {
   return useMutation({
     mutationFn: (vars: { businessId: string; roleIds: string[] }) =>
       api.setAccountRoles(vars.businessId, vars.roleIds),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: authKeys.accountsAll });
-      void client.invalidateQueries({ queryKey: ME_QUERY_KEY });
-    },
+    onSuccess: () => invalidateAccountsAndMe(client),
   });
 }
 
