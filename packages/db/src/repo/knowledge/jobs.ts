@@ -45,9 +45,10 @@ export async function getJob(db: Database, id: string): Promise<KnowledgeJobRow 
   return row ?? null;
 }
 
-export async function findActiveIngestJobId(
-  db: Database,
+async function findActiveDocumentJobId(
+  db: DbHandle,
   documentId: string,
+  types: KnowledgeJobRow['type'][],
 ): Promise<string | null> {
   const [row] = await db
     .select({ id: knowledgeJobs.id })
@@ -55,13 +56,27 @@ export async function findActiveIngestJobId(
     .where(
       and(
         eq(knowledgeJobs.documentId, documentId),
-        eq(knowledgeJobs.type, 'ingest'),
+        inArray(knowledgeJobs.type, types),
         inArray(knowledgeJobs.status, ['queued', 'running']),
       ),
     )
     .orderBy(desc(knowledgeJobs.createdAt), desc(knowledgeJobs.id))
     .limit(1);
   return row?.id ?? null;
+}
+
+export async function findActiveIngestJobId(
+  db: DbHandle,
+  documentId: string,
+): Promise<string | null> {
+  return findActiveDocumentJobId(db, documentId, ['ingest']);
+}
+
+export async function findActiveReprocessJobId(
+  db: DbHandle,
+  documentId: string,
+): Promise<string | null> {
+  return findActiveDocumentJobId(db, documentId, ['ingest', 'reindex']);
 }
 
 export interface ListJobsFilter extends PageOptions {

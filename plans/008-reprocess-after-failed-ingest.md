@@ -2,7 +2,7 @@
 
 > **Executor instructions**: 严格按步骤执行；每步先跑验证命令并确认预期结果，再进入下一步。遇到「STOP conditions」立即停止并报告。完成后更新 `plans/README.md` 中本计划的 Status 行（除非派发者声明由他维护索引）。
 >
-> **Drift check（先跑）**: `git diff --stat 90a0ad2c..HEAD -- packages/db/src/repo/knowledge/versions.ts packages/api/src/modules/knowledge/use-cases/documents.ts packages/db/src/repo/knowledge/jobs.ts tests/knowledge.e2e.ts`
+> **Drift check（先跑）**: `git diff --stat 90a0ad2c..HEAD -- packages/db/src/repo/knowledge/versions.ts packages/api/src/modules/knowledge/use-cases/documents.ts packages/db/src/repo/knowledge/jobs.ts`
 > 若有变化，先对照「Current state」；对不上按 STOP 处理。
 
 ## Status
@@ -19,6 +19,8 @@
 手工上传的文档第一次入库失败（解析失败、格式不支持、embedding 服务抖动）时，没有任何版本行落库。`hasUnpublishedDraft` 目前把「manual + document + `currentVersionId === null`」一律当成有未发布草稿，于是「重解析」永远返回 409，而实际上既没有草稿可发布，也没有草稿可放弃。用户只能删除后重新上传。修复后，只有真实存在草稿版本或正在进行的入库任务才阻断重解析；失败的首次入库可以直接重试。
 
 ## Current state
+
+以下为修复前基线。
 
 - `packages/db/src/repo/knowledge/versions.ts:117-133`：
   ```ts
@@ -70,20 +72,25 @@
 | 构建共享包 | `bun run --filter @agentport/shared --filter @agentport/contract --filter @agentport/db --filter @agentport/core build` | exit 0 |
 | 类型检查 | `bun run --filter @agentport/db typecheck`、`--filter @agentport/api typecheck` | exit 0 |
 | 后端套件 | `bun run test -- packages/api/test/knowledge-publishing-integration.test.ts` | 全绿 |
-| e2e | `bun run test:e2e -- tests/knowledge.e2e.ts` | 全绿 |
 | 格式 | `bunx biome check packages/db/src/repo/knowledge/versions.ts packages/api/src/modules/knowledge/use-cases/documents.ts` | 0 error |
 
-> 后端测试需要 Docker PostgreSQL/Redis；e2e 需要栈（见 `docs/OPERATIONS.md`）。
+> 后端测试需要 Docker PostgreSQL/Redis（见 `docs/OPERATIONS.md`）。
 
 ## Scope
 
 **In scope**
 - `packages/db/src/repo/knowledge/versions.ts`
+- `packages/db/src/repo/knowledge/jobs.ts`（活跃任务查询）
+- `packages/db/src/repo/knowledge/chunks.ts`（类型放宽）
 - `packages/api/src/modules/knowledge/use-cases/documents.ts`
-- `tests/knowledge.e2e.ts`（只加一个系统级回归用例）
+- `packages/api/src/modules/knowledge/use-cases/search.ts`（批量重解析入口，与单入口保持一致）
+- `packages/worker/src/knowledge/ingestion.ts`（`runReindex` 跳过错失首次入库的手写文档）
+- `packages/web/src/pages/knowledge/detail/documents-tab.tsx`（重解析入口的状态门槛提示）
+- `packages/api/src/modules/knowledge/use-cases/jobs.ts`（任务重试复用文档锁与活跃任务检查）
+- `packages/api/test/knowledge-management-routes.test.ts`（活跃任务门槛下的既有用例调整）
+- `packages/web/test/knowledge-jobs.test.ts` / `packages/web/test/knowledge-harness.ts`（既有用例适配：文档夹具补齐 `disabledReason`）
 
 **Out of scope**
-- `packages/worker/src/knowledge/ingestion.ts` 的重解析流程。
 - `versions.ts:313` 的 `forbidUnpublishedDraft` 写版本守卫语义（保持“真实草稿才拒绝”）。
 - 新增“放弃草稿”接口（当前没有公开入口；本计划不扩大范围）。
 - 修改 `latestUnpublishedDraft` 的查询。
@@ -118,15 +125,17 @@ export async function hasUnpublishedDraft(
 
 ### Step 2: 在重解析入口加“活跃入库任务”门槛
 
-在 `reprocessDocument` 的草稿检查之后加：
+在 `reprocessDocument` 的事务内、对文档行 `FOR UPDATE` 并重查全部条件后加：
 ```ts
-if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
-  throw new AppError('CONFLICT', '文档有正在进行的入库任务，请稍后重试');
+if ((await repo.knowledge.findActiveReprocessJobId(tx, row.id)) !== null) {
+  throw new AppError('CONFLICT', '文档有正在进行的处理任务，请稍后重试');
 }
 ```
-顺序保持：先草稿（真实草稿优先提示发布/放弃），后活跃任务。不要把这个检查加到 `hasUnpublishedDraft`。
+`findActiveReprocessJobId` 匹配 `type in ('ingest','reindex')` 的活跃任务，避免已有版本的文档连续重解析各建一个 `reindex`；检查必须用事务内的 `tx`，不能改用 `deps.db`。`findActiveIngestJobId` 仍只匹配 `ingest`，供 `manual-documents.ts` 读取待处理入库任务。顺序保持：先草稿（真实草稿优先提示发布/放弃），后活跃任务。不要把这个检查加到 `hasUnpublishedDraft`。
 
-**Verify**: `bun run --filter @agentport/api typecheck` → exit 0；`grep -rn "findActiveIngestJobId" packages/api/src` → 至少 2 处（原有导入路径 + 新增重解析）。
+无版本手写文档（`sourceType='manual'`、`contentKind='document'`、`currentVersionId === null`）只在 `status === 'failed'` 时走 `ingest + publish:'draft'` 的首次恢复分支；其余状态（`pending` / `processing` / `ready`）一律返回 409（文案「文档正在首次入库，请稍后重试」），停用状态由前置检查拦截。其他类型或已有版本的文档通过前置检查后走 `reindex`。
+
+**Verify**: `bun run --filter @agentport/api typecheck` → exit 0；`grep -rn "findActiveReprocessJobId" packages/api/src` → 2 处（重解析与任务重试）；`findActiveIngestJobId` 仍只有 `manual-documents.ts` 一处调用。
 
 ### Step 3: 现有测试回归
 
@@ -134,31 +143,26 @@ if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
 - `bun run test -- packages/api/test/knowledge-publishing-integration.test.ts` → 全绿，尤其是 `:1494` 附近的成功重解析用例。
 - `bun run test -- packages/api/test/knowledge-management-routes.test.ts` → 全绿。
 
-### Step 4: 系统级回归用例
+### Step 4: 覆盖缺口（原 e2e 计划作废）
 
-在 `tests/knowledge.e2e.ts` 增加一个用例，模型参考同文件已有的上传 → 轮询 → 操作流程：
+原计划的 e2e 用例已作废，本轮不新增系统级用例：
 
-1. 创建/使用一个测试知识库。
-2. 上传一个会让首次 ingest 失败的文件（复用现有夹具里已知解析失败的格式；若没有，使用一个内容损坏但声明为受支持 MIME 的文件）。
-3. 轮询 `/api/knowledge/jobs/{id}` 直到 `status === 'failed'`。
-4. 断言文档 `currentVersionId === null`。
-5. `POST /api/knowledge/documents/{id}/reprocess` → 断言 **202** 且返回 `jobId`（修复前为 409）。
-6. 清理测试数据。
-
-**Verify**: `bun run test:e2e -- tests/knowledge.e2e.ts` → 全绿，新用例通过。
+- `tests/knowledge.e2e.ts:169` 已覆盖正常的手工创建文档与任务展示；本轮不新增系统级用例。
+- 既有用例也未覆盖「首次入库失败后重解析」「活跃任务返回 409」「并发重解析只建一条任务」三项。
 
 ## Test plan
 
-- 只新增上述 1 个系统级（e2e）用例；不新增单测/集成测试（仓库规则）。
-- 既有 `knowledge-publishing-integration.test.ts` 的成功重解析与草稿拦截用例必须保持通过，证明没有放宽真实的草稿保护。
-- 若无法稳定构造首次入库失败，STOP：不要改生产代码或放宽断言来凑测试。
+- 不新增测试；回归依赖既有 `knowledge-publishing-integration.test.ts` 与 `knowledge-management-routes.test.ts`。
+- 受影响路径是 `createManualDocument` 创建的 `sourceType='manual'` 文档（text/markdown，`publish: 'draft'`）。`knowledge-publishing-integration.test.ts` 的 `/reprocess` 用例实际针对一条已有版本的声音上传，断言返回 202；草稿拦截与首次失败恢复均无自动化覆盖，属已知覆盖缺口。
+- 既有两个套件的既有断言必须保持通过；它们不覆盖草稿拦截与首次失败恢复，仅用于确认本次收窄没有让既有用例转为失败。
+- 任务重试入口复用同一活跃任务门槛，但仅限单文档：`retryJob` 只在 `(payload.type === 'ingest' || payload.type === 'reindex') && row.documentId !== null` 时于事务内锁定文档并检查活跃任务。`row.documentId === null` 的批量重建（payload 携带 `documentIds`）仍走原 `enqueue` 路径，不做逐文档活跃检查，属已知例外。
 
 ## Done criteria
 
 - [ ] `hasUnpublishedDraft` 中不再出现 `sourceType === 'manual'`。
-- [ ] `reprocessDocument` 在草稿检查后调用 `findActiveIngestJobId`。
+- [ ] `reprocessDocument` 在草稿检查后调用 `findActiveReprocessJobId`。
 - [ ] `grep -rn "hasUnpublishedDraft" packages --include="*.ts"` 仍为 3 个调用点（无新增/删除）。
-- [ ] 两个后端套件 + 新 e2e 用例全绿。
+- [ ] 两个后端套件全绿。
 - [ ] `git status --short` 只含 Scope 内文件。
 - [ ] `plans/README.md` 的 008 行状态已更新。
 
@@ -166,11 +170,11 @@ if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
 
 - `hasUnpublishedDraft` 或 `reprocessDocument` 与「Current state」摘录不符。
 - 发现除 `reprocessDocument` 外还有用户可触发、绕过它的重解析入口。
-- e2e 夹具无法制造「失败且无版本」的首轮入库。
-- 收紧语义后，`knowledge-publishing-integration.test.ts` 中某个期望 409 的用例开始 202；这说明某个合法草稿场景被误放行，先报告，不要改断言。
 
 ## Maintenance notes
 
+- 重解析的检查与建任务在同一事务内并对文档行 `FOR UPDATE`，防止并发重复入队。
+- 事务内锁序为 `knowledge_bases` `FOR KEY SHARE` → `knowledge_documents` `FOR UPDATE`，与删除知识库的级联顺序一致，避免与删除并发时死锁。
 - `hasUnpublishedDraft` 现在严格对应名字：只回答“是否存在未发布草稿”。活跃任务属于调用方判断。
 - 批量重解析复用 `reprocessDocument`，未来新增入口也必须走它。
 - 审查重点：`forbidUnpublishedDraft`（worker 写版本守卫）必须是“真实草稿才拒绝”，否则 ingest 会自锁。

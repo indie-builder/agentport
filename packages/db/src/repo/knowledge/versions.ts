@@ -123,13 +123,6 @@ export async function hasUnpublishedDraft(
     currentVersionId: string | null;
   },
 ): Promise<boolean> {
-  if (
-    document.sourceType === 'manual' &&
-    document.contentKind === 'document' &&
-    document.currentVersionId === null
-  ) {
-    return true;
-  }
   return (await latestUnpublishedDraft(db, document)) !== undefined;
 }
 
