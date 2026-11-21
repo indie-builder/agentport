@@ -1,0 +1,1 @@
+ALTER TABLE "approval_requests" ADD COLUMN "expired_at" timestamp with time zone;

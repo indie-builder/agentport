@@ -320,7 +320,7 @@ M3 给 `approval_requests` 增加 `channel_id`（可空，FK `channels` cascade�
 
 已读语义：用户批准或拒绝私有 run / 频道审批后，服务端按来源键把对应 `approval` 通知标为已读；回答澄清提问后把对应 `question` 通知标为已读。标记失败只记日志，不回滚已完成的审批或回答。其余通知保留未读，直到用户单条或全部标为已读。页面 `/notifications` 提供全部/待办筛选、单条与全部已读、游标分页，侧栏入口显示未读数并按 30 秒轮询更新。
 
-工具审批恢复：worker 通过 shared `SandboxTask` 传递父级与启用子级的 server 名到 ID 映射及本轮 ask 工具快照。sandbox `PreToolUse` 从官方 `.mcp.json` 读取既有 run Bearer token 与 `x-agentport-run-id`，调用 `PUT /tool-approvals/{runId}/{serverId}/{toolName}` 幂等登记，再每 2 秒 GET 同一路径。接口复用 MCP service 边界与限流，只接受绑定该 generated server 的 run token、启用且仍为 ask 的工具；返回 pending/approved/denied/expired/cancelled、approvalId 与 expiresAt。审批按 `(runId, serverId, toolName)` 持久化，首次截止由 `APPROVAL_WAIT_MS`（默认 300 秒）固定，重试不延期。过期由尚未决策行的截止派生，不新增状态列；已有 approved/denied 行语义保持不变，批准记录不因等待截止而撤销。
+工具审批恢复：worker 通过 shared `SandboxTask` 传递父级与启用子级的 server 名到 ID 映射及本轮 ask 工具快照。sandbox `PreToolUse` 从官方 `.mcp.json` 读取既有 run Bearer token 与 `x-agentport-run-id`，调用 `PUT /tool-approvals/{runId}/{serverId}/{toolName}` 幂等登记，再每 2 秒 GET 同一路径。接口复用 MCP service 边界与限流，只接受绑定该 generated server 的 run token、启用且仍为 ask 的工具；返回 pending/approved/denied/expired/cancelled、approvalId 与 expiresAt。审批按 `(runId, serverId, toolName)` 持久化，首次截止由 `APPROVAL_WAIT_MS`（默认 300 秒）固定，重试不延期。过期由尚未决策行的截止派生，ops-alerts 过期核对照写 `expired_at` 供审计与清理滞留「等待审批」通知，不改动执行判定；已有 approved/denied 行语义保持不变，批准记录不因等待截止而撤销。
 
 API 重启只中断当前短请求，runner 对网络错误和 5xx 按 2–5 秒退避，429 遵守 Retry-After，恢复后继续读取同一审批；连续 3 次未收到 HTTP 响应的传输失败，且等待未取消、未超时、审批未过期时，立即按“工具审批服务不可达”拒绝，收到响应后的解析失败仍按原退避继续。批准后 hook 不给权限决策，沿用既有 `allowedTools` / 权限规则；显式禁用仍生效，原 MCP 调用在权限通过后执行；拒绝、过期、取消或 401/403/404 返回 deny。hook 设置 360 秒超时和 `onFailure: 'block'`，回调最多等待 355 秒，并受 run 取消/超时的既有 SIGTERM 约束。服务端不再长等待，执行前仍刷新批准/拒绝与 run 活动状态；绕过 hook 的未批准调用只登记并立即拒绝。
 

@@ -14,6 +14,32 @@ import { version } from './version.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const OPS_ALERT_INTERVAL_MS = 5 * 60 * 1000;
 
+export async function reconcileExpiredApprovals(
+  db: ReturnType<typeof createDb>['db'],
+  logger: Logger,
+  now: Date,
+): Promise<number> {
+  const rows = await repo.runs.expireStaleApprovals(db, now);
+  for (const row of rows) {
+    await repo.audit.writeAudit(db, logger, {
+      actor: 'worker',
+      actorKind: 'service',
+      action: 'agent.run.approval.expired',
+      ...(row.runId === null ? {} : { target: row.runId }),
+      input: { approvalId: row.id, serverId: row.serverId, toolName: row.toolName },
+      status: 'ok',
+    });
+    const sourceId =
+      row.channelId === null
+        ? `approval:${row.runId}:${row.serverId}:${row.toolName}`
+        : `channel-approval:${row.id}`;
+    await repo.notifications.markBySource(db, 'approval', sourceId).catch((err: unknown) => {
+      logger.warn({ err, approvalId: row.id }, 'approval notification cleanup failed');
+    });
+  }
+  return rows.length;
+}
+
 export async function runOpsAlerts(input: {
   db: ReturnType<typeof createDb>['db'];
   logger: Logger;
@@ -162,6 +188,9 @@ export async function runOpsAlerts(input: {
       sourceId: `provider-budget:${provider.id}:${now.toISOString().slice(0, 7)}`,
     });
   }
+  await reconcileExpiredApprovals(input.db, input.logger, now).catch((err) => {
+    input.logger.warn({ err }, 'approval expiry reconcile failed');
+  });
   if (alerts.length === 0) return;
   const recipients = await repo.governance.listAlertRecipientBusinessIds(input.db);
   await Promise.all(
