@@ -67,7 +67,9 @@ import { api } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import {
+  AGENTS_QUERY_KEY,
   meQuery,
+  OVERVIEW_QUERY_KEY,
   useAgentTags,
   useArchiveAgent,
   useDeleteAgent,
@@ -145,7 +147,7 @@ export function AgentsPage() {
         ? await api.importAgentFile(await file.text())
         : await api.importAgent(file, undefined, runtimeEnvironmentId);
       await Promise.all(
-        ['agents', 'servers', 'skills', 'overview'].map((key) =>
+        [AGENTS_QUERY_KEY[0], 'servers', 'skills', OVERVIEW_QUERY_KEY[0]].map((key) =>
           queryClient.invalidateQueries({ queryKey: [key] }),
         ),
       );

@@ -7,6 +7,8 @@ import type {
 } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
+import { AGENTS_QUERY_KEY } from './agents.js';
+import { OVERVIEW_QUERY_KEY } from './overview.js';
 import { useInvalidate } from './shared.js';
 
 const serversQuery = queryOptions<Server[]>({
@@ -47,7 +49,7 @@ export function useUpdateServer() {
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['servers'] });
-      void client.invalidateQueries({ queryKey: ['overview'] });
+      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
     },
   });
 }
@@ -58,7 +60,7 @@ export function useCreateServer() {
     mutationFn: (input: ServerInput) => api.createServer(input),
     onSuccess: () => {
       invalidate('servers');
-      invalidate('overview');
+      invalidate(OVERVIEW_QUERY_KEY[0]);
     },
   });
 }
@@ -80,8 +82,8 @@ export function useDeleteServer() {
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['servers'] });
-      void client.invalidateQueries({ queryKey: ['agents'] });
-      void client.invalidateQueries({ queryKey: ['overview'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
+      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
     },
   });
 }

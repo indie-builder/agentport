@@ -27,6 +27,7 @@ import { isActivePhase, useChatStore } from '../../lib/chat-store.js';
 import { useFormBlocker } from '../../lib/form.js';
 import {
   chatKeys,
+  OVERVIEW_QUERY_KEY,
   useAgents,
   useApproveRun,
   useCancelRun,
@@ -342,7 +343,7 @@ function ChatWorkspace({
       void client.invalidateQueries({ queryKey: chatKeys.conversations() });
       void client.invalidateQueries({ queryKey: chatKeys.conversation(id) });
       void client.invalidateQueries({ queryKey: ['runs'] });
-      void client.invalidateQueries({ queryKey: ['overview'] });
+      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
       if (id === conversationId) setDeletedConversation(id);
       toastSuccess('会话已删除');
     },

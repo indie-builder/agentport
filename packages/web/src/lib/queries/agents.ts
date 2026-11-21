@@ -16,18 +16,22 @@ import {
   type AgentVersionSummary,
   api,
 } from '../api.js';
+import { OVERVIEW_QUERY_KEY } from './overview.js';
 import { useInvalidate } from './shared.js';
 
 const listAgents = api.agents;
 
+export const AGENTS_QUERY_KEY = ['agents'] as const;
+export const AGENT_OPTIONS_QUERY_KEY = ['agent-options'] as const;
+
 export const agentsQuery = queryOptions<AgentSummary[]>({
-  queryKey: ['agents'],
+  queryKey: AGENTS_QUERY_KEY,
   queryFn: () => listAgents(),
 });
 
 const agentsListQuery = (options: AgentListParams) =>
   queryOptions<AgentSummary[]>({
-    queryKey: ['agents', 'list', options],
+    queryKey: [...AGENTS_QUERY_KEY, 'list', options],
     queryFn: () => api.agents(options),
   });
 
@@ -76,7 +80,7 @@ const agentMembersQuery = (id: string | null) =>
   });
 
 const agentOptionsQuery = queryOptions<AgentOptions>({
-  queryKey: ['agent-options'],
+  queryKey: AGENT_OPTIONS_QUERY_KEY,
   queryFn: api.agentOptions,
   staleTime: 60_000,
 });
@@ -117,14 +121,14 @@ export function useSetAgentFavorite() {
     mutationFn: (vars: { id: string; favorite: boolean }) =>
       api.setAgentFavorite(vars.id, vars.favorite),
     onSuccess: (_result, vars) => {
-      client.setQueriesData<AgentSummary[]>({ queryKey: ['agents'] }, (old) =>
+      client.setQueriesData<AgentSummary[]>({ queryKey: AGENTS_QUERY_KEY }, (old) =>
         old?.map((agent) =>
           agent.id === vars.id ? { ...agent, isFavorite: vars.favorite } : agent,
         ),
       );
     },
     onSettled: () => {
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: ['agent-tags'] });
     },
   });
@@ -135,9 +139,9 @@ export function useArchiveAgent() {
   return useMutation({
     mutationFn: (id: string) => api.archiveAgent(id),
     onSuccess: (_agent, id) => {
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: ['agent-tags'] });
-      void client.invalidateQueries({ queryKey: ['overview'] });
+      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
       void client.invalidateQueries({ queryKey: ['agent-detail', id] });
       void client.invalidateQueries({ queryKey: ['agent-access', id] });
     },
@@ -149,9 +153,9 @@ export function useRestoreAgent() {
   return useMutation({
     mutationFn: (id: string) => api.restoreAgent(id),
     onSuccess: (_agent, id) => {
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: ['agent-tags'] });
-      void client.invalidateQueries({ queryKey: ['overview'] });
+      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
       void client.invalidateQueries({ queryKey: ['agent-detail', id] });
       void client.invalidateQueries({ queryKey: ['agent-access', id] });
     },
@@ -221,7 +225,7 @@ export function useSetAgentMember() {
     },
     onSuccess: (_member, vars) => {
       void client.invalidateQueries({ queryKey: ['agent-members', vars.agentId] });
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
     },
   });
 }
@@ -233,7 +237,7 @@ export function useDeleteAgentMember() {
       api.deleteAgentMember(vars.agentId, vars.businessId),
     onSuccess: (_ok, vars) => {
       void client.invalidateQueries({ queryKey: ['agent-members', vars.agentId] });
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
     },
   });
 }
@@ -245,7 +249,7 @@ export function useTransferAgent() {
       api.transferAgent(vars.agentId, vars.ownerBusinessId),
     onSuccess: (agent) => {
       client.setQueryData(['agent-detail', agent.id], agent);
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: ['agent-access', agent.id] });
     },
   });
@@ -287,7 +291,7 @@ export function useRollbackAgent() {
     mutationFn: (vars: { id: string; version: number }) => api.rollbackAgent(vars.id, vars.version),
     onSuccess: (agent, { id }) => {
       if (isAgentDetail(agent)) client.setQueryData(['agent-detail', id], agent);
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: ['agent-versions', id] });
       void client.invalidateQueries({ queryKey: ['agent-files'] });
       void client.invalidateQueries({ queryKey: ['agent-detail', id] });
@@ -302,7 +306,7 @@ export function usePublishAgent() {
     mutationFn: (vars: { id: string; note?: string }) => api.publishAgent(vars.id, vars.note),
     onSuccess: (agent) => {
       if (isAgentDetail(agent)) client.setQueryData(['agent-detail', agent.id], agent);
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: ['agent-detail', agent.id] });
       void client.invalidateQueries({ queryKey: ['agent-versions', agent.id] });
     },
@@ -315,7 +319,7 @@ export function useOfflineAgent() {
     mutationFn: (id: string) => api.offlineAgent(id),
     onSuccess: (agent) => {
       if (isAgentDetail(agent)) client.setQueryData(['agent-detail', agent.id], agent);
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: ['agent-detail', agent.id] });
       void client.invalidateQueries({ queryKey: ['agent-versions', agent.id] });
     },
@@ -335,9 +339,9 @@ export function useCreateAgent() {
   return useMutation({
     mutationFn: (input: AgentInput) => api.createAgent(input),
     onSuccess: () => {
-      invalidate('agents');
+      invalidate(AGENTS_QUERY_KEY[0]);
       invalidate('agent-tags');
-      invalidate('overview');
+      invalidate(OVERVIEW_QUERY_KEY[0]);
     },
   });
 }
@@ -348,9 +352,9 @@ export function useDuplicateAgent() {
     mutationFn: (vars: { id: string; slug: string; name: string }) =>
       api.duplicateAgent(vars.id, { slug: vars.slug, name: vars.name }),
     onSuccess: (agent) => {
-      void client.invalidateQueries({ queryKey: ['agents'] });
-      void client.invalidateQueries({ queryKey: ['overview'] });
-      client.setQueryData(['agents'], (prev: Agent[] | undefined) =>
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
+      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
+      client.setQueryData(AGENTS_QUERY_KEY, (prev: Agent[] | undefined) =>
         prev ? [...prev, agent] : prev,
       );
     },
@@ -363,9 +367,9 @@ export function useUpdateAgent() {
     mutationFn: (vars: { id: string; input: AgentPatch; expectedUpdatedAt?: string }) =>
       api.updateAgent(vars.id, vars.input, vars.expectedUpdatedAt),
     onMutate: async ({ id, input }) => {
-      await client.cancelQueries({ queryKey: ['agents'] });
-      const previous = client.getQueryData<Agent[]>(['agents']);
-      client.setQueryData<Agent[]>(['agents'], (old) =>
+      await client.cancelQueries({ queryKey: AGENTS_QUERY_KEY });
+      const previous = client.getQueryData<Agent[]>(AGENTS_QUERY_KEY);
+      client.setQueryData<Agent[]>(AGENTS_QUERY_KEY, (old) =>
         old?.map((agent) => {
           if (agent.id !== id) return agent;
           const next = { ...agent, ...input };
@@ -378,10 +382,10 @@ export function useUpdateAgent() {
       return { previous };
     },
     onError: (_error, _vars, context) => {
-      if (context?.previous) client.setQueryData(['agents'], context.previous);
+      if (context?.previous) client.setQueryData(AGENTS_QUERY_KEY, context.previous);
     },
     onSettled: (_data, _error, vars) => {
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: ['agent-tags'] });
       void client.invalidateQueries({ queryKey: ['agent-files'] });
       void client.invalidateQueries({ queryKey: ['agent-detail', vars.id] });
@@ -395,13 +399,15 @@ export function useDeleteAgent() {
   return useMutation({
     mutationFn: (id: string) => api.deleteAgent(id),
     onSuccess: (_data, id) => {
-      client.setQueryData<Agent[]>(['agents'], (old) => old?.filter((agent) => agent.id !== id));
+      client.setQueryData<Agent[]>(AGENTS_QUERY_KEY, (old) =>
+        old?.filter((agent) => agent.id !== id),
+      );
       client.removeQueries({ queryKey: ['agent-detail', id], exact: true });
       client.removeQueries({ queryKey: ['agent-access', id], exact: true });
-      void client.invalidateQueries({ queryKey: ['overview'] });
+      void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
     },
     onSettled: () => {
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
     },
   });
 }

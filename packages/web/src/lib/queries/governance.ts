@@ -15,6 +15,7 @@ import type {
 } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { rpc } from '../orpc.js';
+import { AGENTS_QUERY_KEY } from './agents.js';
 
 const governanceKeys = {
   departments: ['governance', 'departments'] as const,
@@ -219,7 +220,7 @@ export function useTransferHandover() {
     onSuccess: () => {
       for (const key of [
         'governance',
-        'agents',
+        AGENTS_QUERY_KEY[0],
         'knowledge',
         'data-domains',
         'skills',
