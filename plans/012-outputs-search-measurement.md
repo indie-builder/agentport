@@ -206,3 +206,27 @@ Stop and report back (do not improvise) if:
 - 本计划刻意不改生产代码：缓存会跳过 `loadManifest` 的 zod 校验与损坏检测，必须先有测量证据和「命中仍校验」的设计，才能单独实施。
 - 若后续做索引表，必须处理历史工作区回填与删除/保留任务的失效。
 - 测量脚本使用临时目录，不要指向真实 `WORKSPACES_DIR`。
+
+## Measurement results
+
+- 日期：2026-11-22
+- HEAD：`32219d3107a8aa7b4029df427ae86c182046292f`（分支 `worktree-improve-1122`；按执行覆盖指令未运行 git 命令，读自 worktree 的 `HEAD` 与 `refs/heads/worktree-improve-1122`）
+- 机器/文件系统：Apple M2 Max（arm64，macOS 27.0.0），APFS（`/dev/disk3s1s1`，`/`），测量目录位于仓库 `tmp/`，磁盘可用约 2.6 TiB
+- 会话 × run × 文件：50 × 20 × 50（`BENCH_CONVERSATIONS` / `BENCH_RUNS` / `BENCH_FILES` 默认值）；每轮解析 1000 个 manifest
+- 单会话 p50 / p95：398.052 ms / 423.910 ms（后两轮 100 个样本合并，nearest-rank；在 50 路并发下测得，包含并发争用）
+- 整轮 p50 / p95：413.457 ms / 466.649 ms（后两轮仅 2 个样本，p50/p95 即较小/较大值；三轮原始值 392.269 / 413.457 / 466.649 ms，极差 1.19 倍，未触发「波动超过 3 倍」STOP）
+- 每轮解析 manifest 数：1000（50 会话 × 20 run，由夹具规模推导；非插桩计数。脚本记录后两轮 `emptyPages = 0`、`truncatedPages = 100`，即每个会话都读到了 manifest）
+- 结论：`optimize` —— 默认规模整轮 p95 = 466.649 ms ≥ 200 ms，命中判定规则第 1 条。
+
+测量方法：`tmp/measure-outputs.ts` 在 `tmp/outputs-bench-<随机>/` 生成合成 manifest（schema 与 `outputManifestSchema` 一致），连续 3 轮对 50 个会话并发调用 `listOutputFiles({ limit: 100 })`，丢弃第 1 轮；脚本结束后删除临时目录。未写入真实工作区或数据库。
+
+补充归因（同一批临时脚本的组件测量，单会话 20 个 manifest，热缓存；用于判断瓶颈在路径校验、`readdir` 还是解析）：
+
+- 顺序 20 次 6 段路径校验（每段 `lstat` + `realpath`）：25.02 ms。`loadManifest` 对每个 manifest 调用两次 `trustedPath`，形状与此吻合，可单独解释单会话约 50 ms。
+- `readdir`（runs 目录）：0.33 ms；20 次 `readFile`：0.73 ms；20 次 `JSON.parse`：0.44 ms；20 次 `outputManifestSchema.safeParse`：6.58 ms（并发）/ 1.22 ms（顺序热身后含 parse）。
+- `realpath(root)` × 20：2.24 ms。
+- 规模敏感性：1 会话 × 20 run 后两轮 51.562 / 75.842 ms；10 会话 × 20 run 为 144.285 / 202.339 ms；50 会话为 413.457 / 466.649 ms。成本随 manifest 总数增长。
+
+因此瓶颈是每个 manifest 重复的路径校验系统调用（`lstat` / `realpath`），不是 `readdir`，也不是 JSON 解析或 zod 校验。
+
+未执行 Step 3：本次执行覆盖指令只允许改动 `tmp/` 与本计划文件，`plans/017-outputs-search-optimization.md` 超出授权范围，留给后续计划拆分。
