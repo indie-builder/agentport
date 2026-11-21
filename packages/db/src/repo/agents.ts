@@ -51,6 +51,7 @@ import {
   assertDefinitionResources,
   getAgentVersion,
   insertAgentVersion,
+  recordPublishedVersion,
   retryOnVersionConflict,
 } from './agent-versions.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
@@ -401,11 +402,7 @@ export async function ensureDefaultAgent(
   if (!definition) throw new Error('default agent definition not found');
   if (definition.resources.runtimeEnvironment === null) return row;
   const version = await insertAgentVersion(tx, id, definition.agent, definition);
-  const [published] = await tx
-    .update(agents)
-    .set({ publishedVersion: version, publishedAt: new Date() })
-    .where(eq(agents.id, id))
-    .returning();
+  const published = await recordPublishedVersion(tx, id, version);
   if (!published) throw new Error('default agent publish returned no row');
   return published;
 }
@@ -429,10 +426,7 @@ export async function publishDefaultAgentIfNeeded(db: Database): Promise<void> {
       live,
       'default environment ready',
     );
-    await tx
-      .update(agents)
-      .set({ publishedVersion: version, publishedAt: new Date() })
-      .where(eq(agents.id, agent.id));
+    await recordPublishedVersion(tx, agent.id, version);
   });
 }
 
@@ -597,7 +591,7 @@ export async function createAgent(
 ): Promise<AgentRow> {
   assertNotReservedSlug(input.slug);
   const id = newId('agent');
-  const [row] = await retryOnVersionConflict(() =>
+  const row = await retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
       if (pluginBindings.length > 0) await lockAgentBindings(tx);
       if (subAgentIds.length > 0) {
@@ -633,11 +627,7 @@ export async function createAgent(
       if (!definition) throw new Error('created agent definition not found');
       await assertDefinitionResources(tx, definition);
       const version = await insertAgentVersion(tx, id, definition.agent, definition);
-      return tx
-        .update(agents)
-        .set({ publishedVersion: version, publishedAt: new Date() })
-        .where(eq(agents.id, id))
-        .returning();
+      return recordPublishedVersion(tx, id, version);
     }),
   );
   if (!row) throw new Error('agent insert returned no row');
@@ -786,11 +776,7 @@ export async function duplicateAgent(
           const definition = await loadLiveDefinition(tx, id);
           if (!definition) throw new Error('duplicated agent definition not found');
           const version = await insertAgentVersion(tx, id, definition.agent, definition);
-          const [published] = await tx
-            .update(agents)
-            .set({ publishedVersion: version, publishedAt: new Date() })
-            .where(eq(agents.id, id))
-            .returning();
+          const published = await recordPublishedVersion(tx, id, version);
           if (!published) throw new Error('duplicated agent not found');
           return toAgent(published, serverIds, skillIds, [], pluginBindings);
         },

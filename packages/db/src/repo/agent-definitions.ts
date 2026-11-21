@@ -16,6 +16,7 @@ import {
   assertDefinitionResources,
   insertAgentVersion,
   latestAgentVersion,
+  publishEnabledVersion,
   retryOnVersionConflict,
 } from './agent-versions.js';
 import {
@@ -66,13 +67,7 @@ export async function publishCurrent(
         definition,
         note ?? '发布',
       );
-      const now = new Date();
-      const [row] = await tx
-        .update(agents)
-        .set({ publishedVersion: version, publishedAt: now, enabled: true, updatedAt: now })
-        .where(eq(agents.id, agentId))
-        .returning();
-      return row ?? null;
+      return publishEnabledVersion(tx, agentId, version);
     }),
   );
 }
@@ -100,13 +95,7 @@ export async function publishDefinition(
       fresh.resources = definition.resources;
       await assertDefinitionResources(tx, fresh);
       const version = await insertAgentVersion(tx, agentId, fresh.agent, fresh, note);
-      const now = new Date();
-      const [row] = await tx
-        .update(agents)
-        .set({ publishedVersion: version, publishedAt: now, enabled: true, updatedAt: now })
-        .where(eq(agents.id, agentId))
-        .returning();
-      return row ?? null;
+      return publishEnabledVersion(tx, agentId, version);
     }),
   );
 }
@@ -118,13 +107,7 @@ export async function markLatestPublishedTx(
   const [agent] = await tx.select().from(agents).where(eq(agents.id, agentId)).for('update');
   if (!agent) return null;
   const version = await latestAgentVersion(tx, agentId);
-  const now = new Date();
-  const [row] = await tx
-    .update(agents)
-    .set({ publishedVersion: version, publishedAt: now, enabled: true, updatedAt: now })
-    .where(eq(agents.id, agentId))
-    .returning();
-  return row ?? null;
+  return publishEnabledVersion(tx, agentId, version);
 }
 
 export async function setAgentEnabled(

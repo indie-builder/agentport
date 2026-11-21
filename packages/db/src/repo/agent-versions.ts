@@ -4,7 +4,7 @@ import type { Agent, AgentDefinition } from '@agentport/shared';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
-import { agentVersions } from '../schema.js';
+import { agents, agentVersions } from '../schema.js';
 import { isPgConstraint } from './pg-errors.js';
 
 export type AgentVersionRow = typeof agentVersions.$inferSelect;
@@ -93,6 +93,33 @@ export async function getAgentVersion(
     .from(agentVersions)
     .where(and(eq(agentVersions.agentId, agentId), eq(agentVersions.version, version)))
     .limit(1);
+  return row ?? null;
+}
+
+export async function recordPublishedVersion(
+  tx: Transaction,
+  agentId: string,
+  version: number,
+): Promise<typeof agents.$inferSelect | null> {
+  const [row] = await tx
+    .update(agents)
+    .set({ publishedVersion: version, publishedAt: new Date() })
+    .where(eq(agents.id, agentId))
+    .returning();
+  return row ?? null;
+}
+
+export async function publishEnabledVersion(
+  tx: Transaction,
+  agentId: string,
+  version: number | null,
+): Promise<typeof agents.$inferSelect | null> {
+  const now = new Date();
+  const [row] = await tx
+    .update(agents)
+    .set({ publishedVersion: version, publishedAt: now, enabled: true, updatedAt: now })
+    .where(eq(agents.id, agentId))
+    .returning();
   return row ?? null;
 }
 
