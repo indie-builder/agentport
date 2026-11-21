@@ -12,6 +12,7 @@ import { newId, repo, schema } from '@agentport/db';
 import type { KnowledgeSearchQuery, KnowledgeSearchResult } from '@agentport/shared';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { searchKnowledge } from '../retrieval.js';
+import { deleteDocument, reprocessDocument, updateDocument } from './documents.js';
 import {
   collectChunks,
   copyVersionImages,
@@ -144,6 +145,12 @@ async function copyDocument(deps: KnowledgeDeps, document: DocumentRow): Promise
     ? await repo.knowledge.getVersion(deps.db, document.currentVersionId)
     : null;
   if (!version) throw new AppError('CONFLICT', '文档还没有成功解析的版本，无法复制');
+  if (
+    document.sourceConnectionId !== null &&
+    !(await repo.knowledge.sourceScopeAllowsDocumentById(deps.db, document.id))
+  ) {
+    throw new AppError('CONFLICT', '来源授权已失效，不能复制该文档');
+  }
   await repo.governance.assertKnowledgeDocumentQuota(deps.db, document.baseId);
   const chunks = await collectChunks(deps.db, version.id);
   const newDocumentId = newId('knowledgeDocument');
@@ -223,6 +230,14 @@ async function copyDocument(deps: KnowledgeDeps, document: DocumentRow): Promise
           .insert(schema.knowledgeDocumentTags)
           .values(rows.map((tag) => ({ documentId: newDocumentId, tagId: tag.id })));
       }
+      await repo.audit.writeAuditInTx(tx, {
+        actor: deps.actor,
+        action: 'knowledge.document.copied',
+        target: newDocumentId,
+        input: { baseId: document.baseId, sourceDocumentId: document.id },
+        status: 'ok',
+        requestId: deps.requestId,
+      });
     });
   } catch (err) {
     await rm(knowledgeDocumentDir(deps.config.KNOWLEDGE_DIR, newDocumentId), {
@@ -231,7 +246,11 @@ async function copyDocument(deps: KnowledgeDeps, document: DocumentRow): Promise
     }).catch(() => undefined);
     throw err;
   }
-  await repo.governance.notifyKnowledgeDocumentQuota(deps.db, document.baseId);
+  await repo.governance
+    .notifyKnowledgeDocumentQuota(deps.db, document.baseId)
+    .catch((err: unknown) =>
+      deps.log.warn({ err, documentId: newDocumentId }, 'knowledge copy quota notification failed'),
+    );
   return newDocumentId;
 }
 
@@ -281,9 +300,7 @@ export async function batchDocuments(
     }
     try {
       if (input.action === 'move') {
-        await repo.knowledge.updateDocument(deps.db, document.id, {
-          folderId: input.folderId ?? null,
-        });
+        await updateDocument(deps, document.id, { folderId: input.folderId ?? null });
         results.push({ documentId, status: 'succeeded' });
       } else if (input.action === 'copy') {
         results.push({
@@ -301,45 +318,19 @@ export async function batchDocuments(
             : input.tagMode === 'remove'
               ? currentNames.filter((name) => !tags.includes(name))
               : [...new Set([...currentNames, ...tags])];
-        await repo.knowledge.reconcileDocumentTags(deps.db, document.id, base.id, names);
+        await updateDocument(deps, document.id, { tags: names });
         results.push({ documentId, status: 'succeeded' });
       } else if (input.action === 'delete') {
-        await repo.knowledge.markWikiStaleByDocument(deps.db, document.id);
-        await repo.knowledge.deleteDocument(deps.db, document.id);
+        await deleteDocument(deps, document.id);
         results.push({ documentId, status: 'succeeded' });
       } else {
-        if (document.status === 'disabled' || document.disabledReason !== null) {
-          throw new AppError('CONFLICT', '文档已停用，不能通过重解析恢复');
-        }
         if (!document.currentVersionId) {
           throw new AppError('CONFLICT', '文档还没有成功解析的版本');
         }
-        if (!input.confirmOverwriteManualChunks) {
-          const edited = await repo.knowledge.countEditedChunks(deps.db, document.currentVersionId);
-          if (edited > 0) {
-            throw new AppError('CONFLICT', `存在 ${edited} 个人工编辑的分块，重解析会丢弃这些修改`);
-          }
-        }
-        const job = await enqueue(
-          deps,
-          {
-            type: 'reindex',
-            baseId: base.id,
-            documentIds: [document.id],
-            chunksOnly: false,
-            confirmOverwriteManualChunks: input.confirmOverwriteManualChunks,
-          },
-          { baseId: base.id, documentId: document.id },
-        );
-        await repo.audit.writeAudit(deps.db, deps.log, {
-          actor: deps.actor,
-          action: 'knowledge.document.reprocessed',
-          target: document.id,
-          input: { baseId: base.id },
-          status: 'ok',
-          requestId: deps.requestId,
+        const job = await reprocessDocument(deps, document.id, {
+          confirmOverwriteManualChunks: input.confirmOverwriteManualChunks,
         });
-        results.push({ documentId, status: 'succeeded', jobId: job.id });
+        results.push({ documentId, status: 'succeeded', jobId: job.jobId });
       }
     } catch (err) {
       results.push({
