@@ -1466,20 +1466,12 @@ async function upsertSourceItem(
     ? item.content
     : Buffer.from(item.content.markdown, 'utf8');
   const contentHash = sha256Hex(data);
-  const existing =
-    (
-      await deps.db
-        .select()
-        .from(schema.knowledgeDocuments)
-        .where(
-          and(
-            eq(schema.knowledgeDocuments.baseId, source.baseId),
-            eq(schema.knowledgeDocuments.sourceType, source.type),
-            eq(schema.knowledgeDocuments.sourceId, item.sourceId),
-          ),
-        )
-        .limit(1)
-    )[0] ?? null;
+  const existing = await repo.knowledge.findSourceDocument(
+    deps.db,
+    source.baseId,
+    source.type,
+    item.sourceId,
+  );
   const keepFull =
     item.completeness === 'summary' && existing?.metadata.contentCompleteness === 'full';
   const metadata = {
@@ -1714,20 +1706,12 @@ export async function runSync(
           continue;
         }
         if (item.deleted === true) {
-          const existing =
-            (
-              await deps.db
-                .select()
-                .from(schema.knowledgeDocuments)
-                .where(
-                  and(
-                    eq(schema.knowledgeDocuments.baseId, source.baseId),
-                    eq(schema.knowledgeDocuments.sourceType, source.type),
-                    eq(schema.knowledgeDocuments.sourceId, item.sourceId),
-                  ),
-                )
-                .limit(1)
-            )[0] ?? null;
+          const existing = await repo.knowledge.findSourceDocument(
+            deps.db,
+            source.baseId,
+            source.type,
+            item.sourceId,
+          );
           if (existing && existing.status !== 'disabled') {
             await repo.knowledge.updateDocument(deps.db, existing.id, {
               status: 'disabled',

@@ -258,17 +258,12 @@ export async function seedKnowledge(ctx: SeedContext): Promise<void> {
   }
 
   for (const spec of DOCUMENTS) {
-    const [existingDocument] = await db
-      .select()
-      .from(schema.knowledgeDocuments)
-      .where(
-        and(
-          eq(schema.knowledgeDocuments.baseId, base.id),
-          eq(schema.knowledgeDocuments.sourceType, 'manual'),
-          eq(schema.knowledgeDocuments.sourceId, spec.sourceId),
-        ),
-      )
-      .limit(1);
+    const existingDocument = await repo.knowledge.findSourceDocument(
+      db,
+      base.id,
+      'manual',
+      spec.sourceId,
+    );
 
     if (existingDocument) {
       log(`知识库文档已存在，跳过：${spec.title}`);
