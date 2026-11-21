@@ -1,5 +1,6 @@
 import { type createDb, type DbHandle, repo, schema } from '@agentport/db';
 import {
+  buildRunWebhookEvent,
   type ChatEvent,
   type RunErrorKind,
   type TerminalRunStatus,
@@ -51,16 +52,8 @@ export async function enqueueRunWebhook(
 ): Promise<void> {
   if (row.initiatedBy === null) return;
   await repo.integrations.enqueueWebhookEvent(input.db, {
-    eventType: input.status === 'succeeded' ? 'run.completed' : 'run.failed',
-    sourceId: `run:${row.id}:${input.status}`,
+    ...buildRunWebhookEvent(input, row),
     ownerBusinessId: row.initiatedBy,
-    payload: JSON.stringify({
-      runId: row.id,
-      agentId: row.agentId,
-      conversationId: row.conversationId,
-      status: input.status,
-      error: input.status === 'succeeded' ? null : (input.error ?? null),
-    }),
   });
 }
 
@@ -81,13 +74,12 @@ async function notifyRunTerminal(
       const schedule = await repo.ops.getSchedule(input.db, scheduleId);
       scheduleRecipient = schedule?.createdBy ?? row.initiatedBy;
       if (scheduleRecipient !== null) {
-        await repo.notifications.createNotification(input.db, {
+        await repo.notifications.createScheduleFailedNotification(input.db, {
           businessId: scheduleRecipient,
-          kind: 'schedule_failed',
+          scheduleId,
+          runId: row.id,
           title: '定时任务运行失败',
           body,
-          link: '/schedules',
-          sourceId: `schedule-failed:${scheduleId}:${row.id}`,
         });
       }
     }

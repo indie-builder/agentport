@@ -1,4 +1,5 @@
 import { type Database, repo, schema } from '@agentport/db';
+import { buildRunWebhookEvent } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 
 export async function failQueuedRunEnqueue(db: Database, runId: string): Promise<boolean> {
@@ -28,16 +29,8 @@ export async function failQueuedRunEnqueue(db: Database, runId: string): Promise
     }
     if (failed.initiatedBy !== null) {
       await repo.integrations.enqueueWebhookEvent(tx, {
-        eventType: 'run.failed',
-        sourceId: `run:${failed.id}:failed`,
+        ...buildRunWebhookEvent({ status: 'failed', error: '消息入队失败，请重新发送。' }, failed),
         ownerBusinessId: failed.initiatedBy,
-        payload: JSON.stringify({
-          runId: failed.id,
-          agentId: failed.agentId,
-          conversationId: failed.conversationId,
-          status: 'failed',
-          error: '消息入队失败，请重新发送。',
-        }),
       });
     }
     return true;

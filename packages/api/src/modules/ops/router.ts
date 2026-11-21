@@ -343,13 +343,12 @@ export const opsRouter = os.router({
         const failed = await failQueuedRunEnqueue(context.db, runId);
         if (failed) {
           await repo.notifications
-            .createNotification(context.db, {
+            .createScheduleFailedNotification(context.db, {
               businessId: schedule.createdBy,
-              kind: 'schedule_failed',
+              scheduleId: schedule.id,
+              runId,
               title: '定时任务重试失败',
               body: `定时任务「${schedule.name}」重试入队失败，请稍后重试`,
-              link: '/schedules',
-              sourceId: `schedule-failed:${schedule.id}:${runId}`,
             })
             .catch((notifyErr: unknown) => {
               context.log.warn(

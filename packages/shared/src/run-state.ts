@@ -21,6 +21,27 @@ export const terminalRunStatusSchema = runStatusSchema.extract([
 
 export type TerminalRunStatus = z.infer<typeof terminalRunStatusSchema>;
 
+export function runWebhookSourceId(runId: string, status: TerminalRunStatus): string {
+  return `run:${runId}:${status}`;
+}
+
+export function buildRunWebhookEvent(
+  input: { status: TerminalRunStatus; error?: string | null | undefined },
+  row: { id: string; agentId: string; conversationId: string },
+) {
+  return {
+    eventType: input.status === 'succeeded' ? 'run.completed' : 'run.failed',
+    sourceId: runWebhookSourceId(row.id, input.status),
+    payload: JSON.stringify({
+      runId: row.id,
+      agentId: row.agentId,
+      conversationId: row.conversationId,
+      status: input.status,
+      error: input.status === 'succeeded' ? null : (input.error ?? null),
+    }),
+  } as const;
+}
+
 export const ACTIVE_RUN_STATUSES = ['queued', 'running'] as const;
 
 export type ActiveRunStatus = (typeof ACTIVE_RUN_STATUSES)[number];
