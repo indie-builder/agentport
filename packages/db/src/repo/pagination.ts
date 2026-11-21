@@ -55,7 +55,15 @@ function decodeValueCursor(raw: string, kind: CursorKind): { v: string; id: stri
   }
   if (typeof parsed !== 'object' || parsed === null) return null;
   const { v, id } = parsed as { v?: unknown; id?: unknown };
-  if (typeof v !== 'string' || typeof id !== 'string' || v === '' || id === '') return null;
+  if (
+    typeof v !== 'string' ||
+    typeof id !== 'string' ||
+    v === '' ||
+    id === '' ||
+    v.includes('\u0000') ||
+    id.includes('\u0000')
+  )
+    return null;
   if (kind === 'timestamp' && !isCanonicalTimestamp(v)) return null;
   return { v, id };
 }
