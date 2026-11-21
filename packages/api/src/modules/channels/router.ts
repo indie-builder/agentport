@@ -1,6 +1,6 @@
 import { channelsContract } from '@agentport/contract/channels';
 import { fail, removeChannelInputs, writeChannelAttachments } from '@agentport/core';
-import { newId, repo } from '@agentport/db';
+import { idSuffix, newId, repo } from '@agentport/db';
 import {
   CHANNEL_MAX_WAKE_AGENTS,
   type Channel,
@@ -491,7 +491,7 @@ const channelsMainRouter = {
             attachmentCount: attachments.length,
             attachmentNames: attachments.map((attachment) => attachment.filename),
           },
-          dedupeKey: `aud_chmsg_${message.id.slice(4)}`,
+          dedupeKey: `aud_chmsg_${idSuffix(message.id)}`,
         });
         await publishChannelMessageSafely(context.log, id, message, { seq: message.seq });
         await dispatchChannelWakes({

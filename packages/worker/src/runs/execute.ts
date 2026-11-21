@@ -10,7 +10,7 @@ import {
 } from '@agentport/core';
 import { runScopedLogger } from '@agentport/core/logger';
 import { resolveWorkspaceMemoryPolicy } from '@agentport/core/workspace-input';
-import { type createDb, repo, schema } from '@agentport/db';
+import { type createDb, idSuffix, repo, schema } from '@agentport/db';
 import {
   type Agent,
   type AgentDefinition,
@@ -344,7 +344,7 @@ export async function runAgentJob(
     action: 'agent.run.started',
     target: runId,
     status: 'ok',
-    dedupeKey: `aud_started_${runId.slice(4)}`,
+    dedupeKey: `aud_started_${idSuffix(runId)}`,
   });
   if (run.channelId !== null) {
     await publishChannelEventSafely(
@@ -1003,7 +1003,7 @@ export async function runAgentJob(
           seq: projectedChannelMessage.seq,
         },
         status: 'ok',
-        dedupeKey: `aud_chmsg_${projectedChannelMessage.id.slice(4)}`,
+        dedupeKey: `aud_chmsg_${idSuffix(projectedChannelMessage.id)}`,
       });
       await publishChannelEventSafely(
         projectedChannelMessage.channelId,
@@ -1137,7 +1137,7 @@ export async function runAgentJob(
       audit: {
         action: 'agent.run.finished',
         status: outcome.status === 'succeeded' ? 'ok' : 'error',
-        dedupeKey: `aud_${runId.slice(4)}`,
+        dedupeKey: `aud_${idSuffix(runId)}`,
         ...(runLatencyMs === null ? {} : { durationMs: runLatencyMs }),
       },
     });
@@ -1167,7 +1167,7 @@ export async function runAgentJob(
         audit: {
           action: 'agent.run.finished',
           status: outcome.status === 'succeeded' ? 'ok' : 'error',
-          dedupeKey: `aud_${runId.slice(4)}`,
+          dedupeKey: `aud_${idSuffix(runId)}`,
           ...(runLatencyMs === null ? {} : { durationMs: runLatencyMs }),
         },
       });

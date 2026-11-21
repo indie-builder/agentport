@@ -10,7 +10,7 @@ import {
   renderPlugin,
 } from '@agentport/core';
 import { createServiceLogger, logEvent } from '@agentport/core/logger';
-import { createDb, plugins as pluginsTable, repo, schema } from '@agentport/db';
+import { createDb, idSuffix, plugins as pluginsTable, repo, schema } from '@agentport/db';
 import {
   ACTIVE_RUN_STATUSES,
   type Agent,
@@ -382,7 +382,7 @@ async function denyQueuedRun(
     audit: {
       action: 'agent.run.denied',
       status: 'error',
-      dedupeKey: `aud_denied_${runId.slice(4)}`,
+      dedupeKey: `aud_denied_${idSuffix(runId)}`,
     },
   });
   if (!won) logger.info({ runId }, 'run no longer queued, access denial skipped');
