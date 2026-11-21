@@ -8,7 +8,7 @@ import {
   useParams,
   useSearch,
 } from '@tanstack/react-router';
-import { Archive, ArchiveRestore, ArrowLeft, Bot, Ellipsis, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, Bot, EllipsisVertical, Trash2 } from 'lucide-react';
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { AgentAvatar } from '../../components/agent/agent-avatar.js';
 import { AgentOverview } from '../../components/agent/agent-overview.js';
@@ -235,16 +235,51 @@ export function AgentDetailPage() {
               <Button variant="outline" onClick={backToList} disabled={pending}>
                 <ArrowLeft data-icon="inline-start" /> 返回列表
               </Button>
-              {canViewRuns ? (
-                <Link
-                  to="/runs"
-                  search={{ agent: agentId }}
-                  className={buttonVariants({ variant: 'outline' })}
+              {canEnable && !canReadConfig ? (
+                <Button
+                  variant="outline"
+                  disabled={pending}
+                  onClick={() =>
+                    toggleEnable.mutate(
+                      { id: agentId, input: { enabled: !current.enabled } },
+                      {
+                        onSuccess: () => {
+                          toastSuccess(current.enabled ? '专家已停用' : '专家已启用');
+                          void summary.refetch();
+                          void access.refetch();
+                        },
+                        onError: toastError,
+                      },
+                    )
+                  }
                 >
-                  查看运行
-                </Link>
+                  {current.enabled ? '停用专家' : '启用专家'}
+                </Button>
               ) : null}
-              {canManageMembers || canTransfer || canDelete ? (
+              {canUse && current.enabled ? (
+                <Link
+                  to="/chat"
+                  search={{ agent: agentId }}
+                  className={buttonVariants()}
+                  disabled={pending}
+                >
+                  开始对话
+                </Link>
+              ) : (
+                <Button
+                  variant="outline"
+                  disabled
+                  aria-describedby={current.enabled ? 'agent-use-denied' : undefined}
+                  title={
+                    current.enabled
+                      ? '当前账户没有使用该专家的权限'
+                      : '专家已停用，启用后才能开始对话'
+                  }
+                >
+                  开始对话
+                </Button>
+              )}
+              {canViewRuns || canManageMembers || canTransfer || canDelete ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
@@ -254,12 +289,17 @@ export function AgentDetailPage() {
                         aria-label="专家管理操作"
                         disabled={pending}
                       >
-                        <Ellipsis />
+                        <EllipsisVertical />
                       </Button>
                     }
                   />
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" className="w-44">
                     <DropdownMenuGroup>
+                      {canViewRuns ? (
+                        <DropdownMenuItem render={<Link to="/runs" search={{ agent: agentId }} />}>
+                          查看运行
+                        </DropdownMenuItem>
+                      ) : null}
                       {canManageMembers ? (
                         <DropdownMenuItem onSelect={() => setMembersOpen(true)}>
                           管理成员
@@ -310,50 +350,6 @@ export function AgentDetailPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : null}
-              {canEnable && !canReadConfig ? (
-                <Button
-                  variant="outline"
-                  disabled={pending}
-                  onClick={() =>
-                    toggleEnable.mutate(
-                      { id: agentId, input: { enabled: !current.enabled } },
-                      {
-                        onSuccess: () => {
-                          toastSuccess(current.enabled ? '专家已停用' : '专家已启用');
-                          void summary.refetch();
-                          void access.refetch();
-                        },
-                        onError: toastError,
-                      },
-                    )
-                  }
-                >
-                  {current.enabled ? '停用专家' : '启用专家'}
-                </Button>
-              ) : null}
-              {canUse && current.enabled ? (
-                <Link
-                  to="/chat"
-                  search={{ agent: agentId }}
-                  className={buttonVariants()}
-                  disabled={pending}
-                >
-                  开始对话
-                </Link>
-              ) : (
-                <Button
-                  variant="outline"
-                  disabled
-                  aria-describedby={current.enabled ? 'agent-use-denied' : undefined}
-                  title={
-                    current.enabled
-                      ? '当前账户没有使用该专家的权限'
-                      : '专家已停用，启用后才能开始对话'
-                  }
-                >
-                  开始对话
-                </Button>
-              )}
             </>
           }
         />

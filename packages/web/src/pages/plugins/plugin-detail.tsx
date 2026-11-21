@@ -7,6 +7,7 @@ import {
   Bot,
   ChevronRight,
   Download,
+  EllipsisVertical,
   Package,
   PanelLeftDashed,
   Plug,
@@ -43,7 +44,13 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '../../components/ui/breadcrumb.js';
-import { Button, buttonVariants } from '../../components/ui/button.js';
+import { Button } from '../../components/ui/button.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../../components/ui/dropdown-menu.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs.js';
 import { can } from '../../lib/access.js';
 import { ApiError, errorMessage } from '../../lib/api.js';
@@ -301,13 +308,21 @@ function PluginDetailContent({
             subtitle={<span title={subtitle}>{subtitle}</span>}
             actions={
               canExport ? (
-                <a
-                  href={`/api/plugins/${plugin.id}/export`}
-                  className={buttonVariants({ variant: 'outline' })}
-                >
-                  <Download data-icon="inline-start" aria-hidden="true" />
-                  导出 ZIP
-                </a>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button variant="ghost" size="icon" aria-label="更多操作">
+                        <EllipsisVertical aria-hidden="true" />
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                    <DropdownMenuItem render={<a href={`/api/plugins/${plugin.id}/export`} />}>
+                      <Download />
+                      导出 ZIP
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               ) : undefined
             }
           />

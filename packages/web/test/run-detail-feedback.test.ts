@@ -82,6 +82,17 @@ function button(label: string): HTMLButtonElement | undefined {
   );
 }
 
+function menuItem(label: string): HTMLElement | undefined {
+  return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (element) => element.textContent?.trim() === label,
+  );
+}
+
+async function openActions() {
+  await act(async () => button('更多操作')?.click());
+  await vi.waitFor(() => expect(document.querySelector('[role="menuitem"]')).not.toBeNull());
+}
+
 async function flush() {
   await act(async () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -241,9 +252,11 @@ describe('run trajectory export', () => {
     vi.spyOn(api, 'run').mockResolvedValue(detail('succeeded', [userStep]));
     vi.spyOn(api, 'exportRun').mockResolvedValue({ format: 'agentport/run-trajectory@1' });
     await mount();
-    await vi.waitFor(() => expect(button('导出轨迹')).not.toBeUndefined());
+    await vi.waitFor(() => expect(button('更多操作')).not.toBeUndefined());
+    await openActions();
+    await vi.waitFor(() => expect(menuItem('导出轨迹')).not.toBeUndefined());
 
-    await act(async () => button('导出轨迹')?.click());
+    await act(async () => menuItem('导出轨迹')?.click());
     await flush();
 
     expect(api.exportRun).toHaveBeenCalledWith('run-1');
@@ -262,7 +275,9 @@ describe('run trajectory export', () => {
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('原问题'));
 
-    expect(button('导出轨迹')).toBeUndefined();
+    await openActions();
+    expect(menuItem('存为技能')).not.toBeUndefined();
+    expect(menuItem('导出轨迹')).toBeUndefined();
   });
 });
 
@@ -276,8 +291,9 @@ describe('save-as-skill visibility', () => {
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('原问题'));
 
-    expect(button('存为技能')).toBeUndefined();
     expect(button('重跑')).not.toBeUndefined();
+    await openActions();
+    expect(menuItem('存为技能')).toBeUndefined();
   });
 
   it('keeps 存为技能 with skills.create while hiding 重跑 without conversations.create', async () => {
@@ -290,7 +306,8 @@ describe('save-as-skill visibility', () => {
     await vi.waitFor(() => expect(host.textContent).toContain('原问题'));
 
     expect(button('重跑')).toBeUndefined();
-    expect(button('存为技能')).not.toBeUndefined();
+    await openActions();
+    expect(menuItem('存为技能')).not.toBeUndefined();
   });
 });
 
@@ -310,7 +327,8 @@ describe('rerun visibility and delivery', () => {
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('Read'));
     expect(button('重跑')).toBeUndefined();
-    expect(button('存为技能')).toBeUndefined();
+    await openActions();
+    expect(menuItem('存为技能')).toBeUndefined();
   });
 
   it('sends once from the same conversation, disables while pending, and navigates on success', async () => {

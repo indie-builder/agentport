@@ -7,7 +7,7 @@ import {
   CirclePlay,
   Copy,
   Download,
-  MoreHorizontal,
+  EllipsisVertical,
   Pencil,
   Pin,
   PinOff,
@@ -162,7 +162,7 @@ function KnowledgeRow({
       <DropdownMenuTrigger
         render={
           <Button ref={triggerRef} variant="ghost" size="icon" aria-label={`操作 ${base.name}`}>
-            <MoreHorizontal />
+            <EllipsisVertical />
           </Button>
         }
       />
@@ -558,7 +558,7 @@ export function KnowledgePage() {
               <DropdownMenuTrigger
                 render={
                   <Button ref={moreTriggerRef} variant="ghost" size="icon" aria-label="更多操作">
-                    <MoreHorizontal aria-hidden="true" />
+                    <EllipsisVertical aria-hidden="true" />
                   </Button>
                 }
               />

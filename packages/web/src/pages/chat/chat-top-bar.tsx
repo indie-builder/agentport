@@ -1,8 +1,8 @@
 import type { AgentSummary } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import {
+  EllipsisVertical,
   GitBranch,
-  MoreHorizontal,
   PanelLeftDashed,
   PanelRightDashed,
   Pencil,
@@ -133,7 +133,7 @@ export function ChatTopBar({
                 disabled={!conversationId || deleting}
                 className="shrink-0 text-muted-foreground hover:text-fg"
               >
-                <MoreHorizontal className="size-4" />
+                <EllipsisVertical className="size-4" />
               </Button>
             }
           />

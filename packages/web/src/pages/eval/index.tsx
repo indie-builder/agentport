@@ -4,8 +4,8 @@ import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   CircleStop,
   Download,
+  EllipsisVertical,
   GitCompare,
-  MoreHorizontal,
   Pencil,
   Play,
   Plus,
@@ -573,7 +573,7 @@ export function EvalPage() {
                           disabled={!effectiveAgentId || importDataset.isPending || exporting}
                           aria-busy={importDataset.isPending || exporting}
                         >
-                          <MoreHorizontal aria-hidden="true" />
+                          <EllipsisVertical aria-hidden="true" />
                         </Button>
                       }
                     />

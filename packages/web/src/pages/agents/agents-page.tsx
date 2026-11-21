@@ -11,9 +11,8 @@ import {
   Archive,
   ArchiveRestore,
   Calendar,
-  Ellipsis,
+  EllipsisVertical,
   IdCard,
-  MoreHorizontal,
   Plus,
   Star,
   Upload,
@@ -248,7 +247,7 @@ export function AgentsPage() {
                         disabled={importing}
                         aria-busy={importing}
                       >
-                        <MoreHorizontal aria-hidden="true" />
+                        <EllipsisVertical aria-hidden="true" />
                       </Button>
                     }
                   />
@@ -613,7 +612,7 @@ export function AgentsPage() {
                                   editorTriggerRef.current = event.currentTarget;
                                 }}
                               >
-                                <Ellipsis />
+                                <EllipsisVertical />
                               </Button>
                             }
                           />

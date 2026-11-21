@@ -1,4 +1,4 @@
-import { KeyRound, MoreHorizontal, Plug, Trash2, Wrench } from 'lucide-react';
+import { EllipsisVertical, KeyRound, Plug, Trash2, Wrench } from 'lucide-react';
 import { useRef } from 'react';
 import { Button } from '../../components/ui/button.js';
 import {
@@ -50,7 +50,7 @@ export function ServerActions({
             size="icon-sm"
             aria-label={`操作 ${displayName}`}
           >
-            <MoreHorizontal />
+            <EllipsisVertical />
           </Button>
         }
       />

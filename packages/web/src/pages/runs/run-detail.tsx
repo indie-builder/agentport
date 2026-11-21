@@ -6,6 +6,8 @@ import {
   CircleStop,
   ClipboardList,
   Download,
+  EllipsisVertical,
+  LoaderCircle,
   RotateCcw,
   Sparkles,
 } from 'lucide-react';
@@ -26,6 +28,13 @@ import {
 } from '../../components/run/run-steps.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../../components/ui/dropdown-menu.js';
 import { can } from '../../lib/access.js';
 import { type ApprovalRequest, api } from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
@@ -173,6 +182,7 @@ export function RunDetailPage() {
   const hasPrompt = run.data?.steps.some((step) => step.kind === 'user') ?? false;
   const cancellable = isActiveRunStatus(run.data?.run.status);
   const terminal = run.data ? !cancellable : false;
+  const moreBusy = draftMutation.isPending || exporting;
 
   const saveAsSkill = (): void => {
     if (!run.data) return;
@@ -234,33 +244,52 @@ export function RunDetailPage() {
                 {rerunMutation.isPending ? '提交中…' : '重跑'}
               </Button>
             ) : null}
-            {terminal && hasPrompt && canSaveAsSkill ? (
-              <Button
-                variant="outline"
-                disabled={draftMutation.isPending}
-                aria-busy={draftMutation.isPending}
-                onClick={saveAsSkill}
-              >
-                <Sparkles data-icon="inline-start" aria-hidden="true" />
-                {draftMutation.isPending ? '生成中…' : '存为技能'}
-              </Button>
-            ) : null}
-            {terminal && hasPrompt && canEval ? (
-              <Button variant="outline" onClick={() => setEvalOpen(true)}>
-                <ClipboardList data-icon="inline-start" aria-hidden="true" />
-                存为评估用例
-              </Button>
-            ) : null}
-            {canExport ? (
-              <Button
-                variant="outline"
-                disabled={exporting}
-                aria-busy={exporting}
-                onClick={() => void exportTrajectory()}
-              >
-                <Download data-icon="inline-start" aria-hidden="true" />
-                {exporting ? '导出中…' : '导出轨迹'}
-              </Button>
+            {(terminal && hasPrompt && canSaveAsSkill) ||
+            (terminal && hasPrompt && canEval) ||
+            canExport ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button variant="ghost" size="icon" aria-label="更多操作" aria-busy={moreBusy}>
+                      {moreBusy ? (
+                        <LoaderCircle className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <EllipsisVertical />
+                      )}
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" sideOffset={4} className="w-48">
+                  <DropdownMenuGroup>
+                    {terminal && hasPrompt && canSaveAsSkill ? (
+                      <DropdownMenuItem
+                        disabled={draftMutation.isPending}
+                        aria-busy={draftMutation.isPending}
+                        onSelect={saveAsSkill}
+                      >
+                        <Sparkles aria-hidden="true" />
+                        {draftMutation.isPending ? '生成中…' : '存为技能'}
+                      </DropdownMenuItem>
+                    ) : null}
+                    {terminal && hasPrompt && canEval ? (
+                      <DropdownMenuItem onSelect={() => setEvalOpen(true)}>
+                        <ClipboardList aria-hidden="true" />
+                        存为评估用例
+                      </DropdownMenuItem>
+                    ) : null}
+                    {canExport ? (
+                      <DropdownMenuItem
+                        disabled={exporting}
+                        aria-busy={exporting}
+                        onSelect={() => void exportTrajectory()}
+                      >
+                        <Download aria-hidden="true" />
+                        {exporting ? '导出中…' : '导出轨迹'}
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : null}
           </>
         ) : undefined

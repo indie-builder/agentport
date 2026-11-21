@@ -5,6 +5,7 @@ import {
   CircleCheck,
   Clock,
   Database,
+  EllipsisVertical,
   LoaderCircle,
   Pencil,
   RotateCcw,
@@ -28,6 +29,12 @@ import { ErrorState, LoadingState } from '../../components/states.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../../components/ui/dropdown-menu.js';
 import { Field, FieldDescription, FieldError, FieldLabel } from '../../components/ui/field.js';
 import {
   Table,
@@ -131,7 +138,7 @@ export function DataDomainDetailPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const directoryInputRef = useRef<HTMLInputElement>(null);
   const editTriggerRef = useRef<HTMLButtonElement>(null);
-  const deleteTriggerRef = useRef<HTMLElement | null>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement>(null);
   const logTriggerRef = useRef<HTMLElement | null>(null);
   const publishTriggerRef = useRef<HTMLElement | null>(null);
   const importDirty = Object.keys(projectFiles).length > 0;
@@ -331,16 +338,30 @@ export function DataDomainDetailPage() {
                   </Button>
                 ) : null}
                 {canDelete ? (
-                  <Button
-                    variant="destructive"
-                    disabled={interacting}
-                    onClick={(event) => {
-                      deleteTriggerRef.current = event.currentTarget;
-                      setConfirmingDelete(true);
-                    }}
-                  >
-                    <Trash2 data-icon="inline-start" /> 删除
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          ref={deleteTriggerRef}
+                          variant="ghost"
+                          size="icon"
+                          aria-label="更多操作"
+                          disabled={interacting}
+                        >
+                          <EllipsisVertical aria-hidden="true" />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                      <DropdownMenuItem
+                        variant="destructive"
+                        disabled={interacting}
+                        onSelect={() => setConfirmingDelete(true)}
+                      >
+                        <Trash2 /> 删除
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 ) : null}
               </>
             ) : undefined

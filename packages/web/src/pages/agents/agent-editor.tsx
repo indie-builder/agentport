@@ -16,7 +16,7 @@ import {
   Check,
   Copy,
   Download,
-  Ellipsis,
+  EllipsisVertical,
   FileCode,
   FileText,
   History,
@@ -1007,7 +1007,7 @@ export function AgentEditor({
                         aria-label="更多操作"
                         disabled={pending}
                       >
-                        <Ellipsis />
+                        <EllipsisVertical />
                       </Button>
                     }
                   />

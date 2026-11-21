@@ -1,6 +1,6 @@
 import { utcWindowStart } from '@agentport/shared';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Download, MoreHorizontal, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Download, EllipsisVertical, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { type DataColumn, DataTable } from '../components/data-table.js';
 import { FilterPopover } from '../components/filter-popover.js';
@@ -304,7 +304,7 @@ export function AuditPage() {
                       aria-label="更多操作"
                       aria-busy={verifying || exporting || exportingCsv}
                     >
-                      <MoreHorizontal aria-hidden="true" />
+                      <EllipsisVertical aria-hidden="true" />
                     </Button>
                   }
                 />

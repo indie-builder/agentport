@@ -6,7 +6,7 @@ import {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearch } from '@tanstack/react-router';
-import { Download, MoreHorizontal, RefreshCw } from 'lucide-react';
+import { Download, EllipsisVertical, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { BusinessIllustration } from '../../components/business-illustration.js';
 import { type DataColumn, DataTable } from '../../components/data-table.js';
@@ -373,7 +373,7 @@ export function RunsPage() {
                   <DropdownMenuTrigger
                     render={
                       <Button variant="ghost" size="icon" aria-label="更多操作">
-                        <MoreHorizontal aria-hidden="true" />
+                        <EllipsisVertical aria-hidden="true" />
                       </Button>
                     }
                   />

@@ -19,6 +19,7 @@ interface ConfirmDialogProps {
   tone?: 'danger' | 'default';
   onConfirm: () => Promise<unknown>;
   onError?: (error: unknown) => void;
+  onCancel?: () => void;
   finalFocus?: ComponentProps<typeof DialogShell>['finalFocus'];
 }
 
@@ -33,6 +34,7 @@ export function ConfirmDialog({
   tone = 'danger',
   onConfirm,
   onError,
+  onCancel,
   finalFocus,
 }: ConfirmDialogProps) {
   const dialog = useDialogClose(onClose, open);
@@ -54,7 +56,7 @@ export function ConfirmDialog({
   return (
     <Dialog
       open={dialog.open}
-      onOpenChange={guardedOpenChange(pending, dialog.close)}
+      onOpenChange={guardedOpenChange(pending, dialog.close, onCancel)}
       onOpenChangeComplete={dialog.onOpenChangeComplete}
     >
       <DialogShell
@@ -78,7 +80,14 @@ export function ConfirmDialog({
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="outline" onClick={dialog.close} disabled={pending}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              onCancel?.();
+              dialog.close();
+            }}
+            disabled={pending}
+          >
             取消
           </Button>
           <Button

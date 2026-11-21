@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   Download,
-  MoreHorizontal,
+  EllipsisVertical,
   PackagePlus,
   Pencil,
   RefreshCw,
@@ -205,7 +205,7 @@ export function PluginsPage() {
                     disabled={importPlugin.isPending}
                     aria-busy={importPlugin.isPending}
                   >
-                    <MoreHorizontal aria-hidden="true" />
+                    <EllipsisVertical aria-hidden="true" />
                   </Button>
                 }
               />
@@ -330,7 +330,7 @@ export function PluginsPage() {
                           actionTriggerRef.current = event.currentTarget;
                         }}
                       >
-                        <MoreHorizontal />
+                        <EllipsisVertical />
                       </Button>
                     }
                   />
@@ -397,7 +397,7 @@ export function PluginsPage() {
                               actionTriggerRef.current = event.currentTarget;
                             }}
                           >
-                            <MoreHorizontal />
+                            <EllipsisVertical />
                           </Button>
                         }
                       />

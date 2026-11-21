@@ -84,10 +84,14 @@ function anchor(selector: string): HTMLAnchorElement {
   return found;
 }
 
-function expectLinkSemantics(element: HTMLAnchorElement, href: string): void {
+function expectLinkSemantics(
+  element: HTMLAnchorElement,
+  href: string,
+  role: string | null = null,
+): void {
   expect(element.tagName).toBe('A');
   expect(element.getAttribute('href')).toBe(href);
-  expect(element.getAttribute('role')).toBeNull();
+  expect(element.getAttribute('role')).toBe(role);
 }
 
 beforeEach(() => {
@@ -148,14 +152,18 @@ describe('download links keep link semantics', () => {
 });
 
 describe('plugin detail links keep link semantics', () => {
-  it('renders back and export as links instead of buttons', () => {
+  it('renders back and export as links instead of buttons', async () => {
     mount(createElement(PluginDetailPage));
 
     expectLinkSemantics(anchor('a[aria-label="返回插件列表"]'), '/plugins');
-    expectLinkSemantics(
-      anchor('a[href="/api/plugins/plugin-1/export"]'),
-      '/api/plugins/plugin-1/export',
+    const more = body().querySelector<HTMLButtonElement>('button[aria-label="更多操作"]');
+    if (!more) throw new Error('Missing 更多操作');
+    await act(async () => more.click());
+    const exportLink = document.querySelector<HTMLAnchorElement>(
+      'a[href="/api/plugins/plugin-1/export"]',
     );
+    if (!exportLink) throw new Error('Missing export link');
+    expectLinkSemantics(exportLink, '/api/plugins/plugin-1/export', 'menuitem');
   });
 });
 

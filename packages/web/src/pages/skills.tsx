@@ -14,7 +14,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import {
   Check,
   Download,
-  MoreHorizontal,
+  EllipsisVertical,
   Pencil,
   Plus,
   Send,
@@ -330,7 +330,7 @@ export function SkillsPage() {
                     disabled={importSkill.isPending}
                     aria-busy={importSkill.isPending}
                   >
-                    <MoreHorizontal aria-hidden="true" />
+                    <EllipsisVertical aria-hidden="true" />
                   </Button>
                 }
               />
@@ -456,7 +456,7 @@ export function SkillsPage() {
                         actionTriggerRef.current = event.currentTarget;
                       }}
                     >
-                      <MoreHorizontal />
+                      <EllipsisVertical />
                     </Button>
                   }
                 />
@@ -550,7 +550,7 @@ export function SkillsPage() {
                               actionTriggerRef.current = event.currentTarget;
                             }}
                           >
-                            <MoreHorizontal />
+                            <EllipsisVertical />
                           </Button>
                         }
                       />
