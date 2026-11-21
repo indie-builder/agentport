@@ -47,6 +47,11 @@ export const channelKeys = {
     ['channel-run-output-blob', channelId, runId, path] as const,
 };
 
+function invalidateChannel(client: QueryClient, id: string) {
+  void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
+  void client.invalidateQueries({ queryKey: channelKeys.all });
+}
+
 const channelQuery = (id: string) =>
   queryOptions<ChannelDetail>({
     queryKey: channelKeys.detail(id),
@@ -129,10 +134,7 @@ export function useUpdateChannel(id: string) {
   return useMutation({
     mutationFn: (input: { name?: string; description?: string | null }) =>
       api.updateChannel(id, input),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
-      void client.invalidateQueries({ queryKey: channelKeys.all });
-    },
+    onSuccess: () => invalidateChannel(client, id),
   });
 }
 
@@ -141,10 +143,7 @@ export function useAddChannelMember(id: string) {
   return useMutation({
     mutationFn: (input: { businessId: string; role: ChannelRole }) =>
       api.addChannelMember(id, input),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
-      void client.invalidateQueries({ queryKey: channelKeys.all });
-    },
+    onSuccess: () => invalidateChannel(client, id),
   });
 }
 
@@ -153,10 +152,7 @@ export function useUpdateChannelMember(id: string) {
   return useMutation({
     mutationFn: (vars: { businessId: string; role: ChannelRole }) =>
       api.updateChannelMember(id, vars.businessId, vars.role),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
-      void client.invalidateQueries({ queryKey: channelKeys.all });
-    },
+    onSuccess: () => invalidateChannel(client, id),
   });
 }
 
@@ -164,10 +160,7 @@ export function useRemoveChannelMember(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (businessId: string) => api.removeChannelMember(id, businessId),
-    onSettled: () => {
-      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
-      void client.invalidateQueries({ queryKey: channelKeys.all });
-    },
+    onSettled: () => invalidateChannel(client, id),
   });
 }
 
@@ -175,10 +168,7 @@ export function useRemoveChannelAgent(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (agentId: string) => api.removeChannelAgent(id, agentId),
-    onSettled: () => {
-      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
-      void client.invalidateQueries({ queryKey: channelKeys.all });
-    },
+    onSettled: () => invalidateChannel(client, id),
   });
 }
 
@@ -186,10 +176,7 @@ export function useDisconnectChannelAgent(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (agentId: string) => api.disconnectChannelAgent(id, agentId),
-    onSettled: () => {
-      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
-      void client.invalidateQueries({ queryKey: channelKeys.all });
-    },
+    onSettled: () => invalidateChannel(client, id),
   });
 }
 
@@ -197,10 +184,7 @@ export function useCloseChannel(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () => api.closeChannel(id),
-    onSettled: () => {
-      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
-      void client.invalidateQueries({ queryKey: channelKeys.all });
-    },
+    onSettled: () => invalidateChannel(client, id),
   });
 }
 
@@ -209,10 +193,7 @@ export function useBindChannelAgent(id: string) {
   return useMutation({
     mutationFn: (input: { agentId: string; autoWakeOnAll?: boolean }) =>
       api.bindChannelAgent(id, input),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
-      void client.invalidateQueries({ queryKey: channelKeys.all });
-    },
+    onSuccess: () => invalidateChannel(client, id),
   });
 }
 
@@ -244,10 +225,7 @@ export function useUpdateChannelAgent(id: string) {
       }
       void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
     },
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
-      void client.invalidateQueries({ queryKey: channelKeys.all });
-    },
+    onSuccess: () => invalidateChannel(client, id),
   });
 }
 
