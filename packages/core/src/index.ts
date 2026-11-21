@@ -33,6 +33,7 @@ export {
 } from './errors.js';
 export { readCappedBytes, readCappedText } from './http-body.js';
 export { inspectKnowledgeAudio } from './knowledge-audio.js';
+export { ensureKnowledgeBlob, writeKnowledgeBlob } from './knowledge-blobs.js';
 export {
   chunkBlocks,
   chunkDocument,
