@@ -44,13 +44,21 @@ interface ModelProxyOptions {
    * 回调：按 token 解析出 run，并确认该 run 仍然有效。
    * token 即 runId（TypeID 含时间戳但不可预测），DB 里存的是它的 sha256。
    */
-  resolveRun: (token: string) => Promise<{ runId: string } | null>;
+  resolveRun: (token: string) => Promise<{
+    runId: string;
+    conversationId?: string;
+    agentId?: string;
+  } | null>;
   checkOutbound?: (input: {
     runId: string;
+    agentId?: string;
     model?: string;
     body: Buffer;
   }) => Promise<{ blocked: boolean; body: Buffer }>;
-  resolveProviders?: (runId: string, model: string | undefined) => Promise<ProviderResolution>;
+  resolveProviders?: (
+    run: { runId: string; conversationId?: string },
+    model: string | undefined,
+  ) => Promise<ProviderResolution>;
   recordProviderServed?: (input: { runId: string; providerId: string }) => Promise<void> | void;
   recordProviderResult?: (input: ProviderAttemptRecord) => Promise<void> | void;
 }
@@ -186,6 +194,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     if (messageRequest && options.checkOutbound) {
       const checked = await options.checkOutbound({
         runId: run.runId,
+        ...(run.agentId === undefined ? {} : { agentId: run.agentId }),
         ...(ctx.model === undefined ? {} : { model: ctx.model }),
         body,
       });
@@ -200,7 +209,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
       }
       body = checked.body;
     }
-    const resolved = await options.resolveProviders?.(run.runId, ctx.model);
+    const resolved = await options.resolveProviders?.(run, ctx.model);
     const attempts: ProxyAttempt[] = resolved?.routed
       ? resolved.blocked
         ? []
