@@ -1,8 +1,6 @@
 import { ERROR_META, type ErrorCode, problemSchema } from '@agentport/shared';
 import { z } from 'zod';
 
-export { problemSchema } from '@agentport/shared';
-
 const errorFor = <const T extends ErrorCode>(code: T) => ({
   status: ERROR_META[code].status,
   data: problemSchema.extend({ code: z.literal(code) }),

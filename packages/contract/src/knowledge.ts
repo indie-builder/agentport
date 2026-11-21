@@ -42,11 +42,12 @@ import {
   knowledgeWikiPageStatusSchema,
   knowledgeWikiVersionDiffSchema,
   pageQuerySchema,
+  problemSchema,
   slugSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
-import { contractErrors, domainErrors, problemSchema } from './errors.js';
+import { contractErrors, domainErrors } from './errors.js';
 
 const folderParams = z.object({ folderId: z.string().min(1) });
 const documentParams = z.object({ documentId: z.string().min(1) });
