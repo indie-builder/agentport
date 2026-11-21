@@ -45,10 +45,10 @@ results.push(
     ? await Promise.all([
         run('openui:check', [['run', 'openui:check']]),
         run('test', [['run', 'test:sharded']]),
-        run('test:web', [['run', 'test:web']]),
       ])
-    : skipped(['openui:check', 'test', 'test:web'])),
+    : skipped(['openui:check', 'test'])),
 );
+results.push(...(built ? [await run('test:web', [['run', 'test:web']])] : skipped(['test:web'])));
 if (process.argv.includes('--e2e')) {
   results.push(...(built ? [await run('e2e', [['run', 'e2e:suite']])] : skipped(['e2e'])));
 }

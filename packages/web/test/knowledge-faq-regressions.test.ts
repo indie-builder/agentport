@@ -513,6 +513,7 @@ describe('FAQ editor state against refetches', () => {
       ),
     );
     const mounted = await mount('/knowledge/kb_1', { panel: 'faqs' });
+    await waitFor(() => maybeButton('编辑') !== undefined);
     await click(button('编辑'));
     const editor = dialog('编辑 FAQ');
     await waitFor(() => document.querySelectorAll('textarea[aria-label^="答案"]').length === 2);
@@ -553,6 +554,7 @@ describe('FAQ editor state against refetches', () => {
       http.get('/api/knowledge/faqs/kdoc_faq', () => HttpResponse.json(faqDetail)),
     );
     await mount('/knowledge/kb_1', { panel: 'faqs' });
+    await waitFor(() => maybeButton('编辑') !== undefined);
     await click(button('编辑'));
     const editor = dialog('编辑 FAQ');
     await waitFor(() => document.querySelectorAll('textarea[aria-label^="答案"]').length === 2);
