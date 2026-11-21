@@ -79,8 +79,8 @@ import { fieldErrors } from '../lib/form.js';
 import { formatCost, formatDuration, formatRelative, formatZonedDateTime } from '../lib/format.js';
 import {
   meQuery,
+  opsKeys,
   scheduleRunsQuery,
-  schedulesQueryKey,
   useAgentsTruncated,
   useExperts,
   useScheduleRuns,
@@ -282,16 +282,16 @@ export function SchedulesPage() {
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const deletedRef = useRef(false);
   const invalidate = (): void => {
-    void client.invalidateQueries({ queryKey: schedulesQueryKey });
+    void client.invalidateQueries({ queryKey: opsKeys.schedules });
   };
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       api.updateSchedule(id, { enabled }),
     onMutate: async (vars) => {
-      await client.cancelQueries({ queryKey: schedulesQueryKey });
-      const prev = client.getQueryData<InfiniteData<CursorPage<Schedule>>>(schedulesQueryKey);
+      await client.cancelQueries({ queryKey: opsKeys.schedules });
+      const prev = client.getQueryData<InfiniteData<CursorPage<Schedule>>>(opsKeys.schedules);
       if (prev) {
-        client.setQueryData<InfiniteData<CursorPage<Schedule>>>(schedulesQueryKey, (old) =>
+        client.setQueryData<InfiniteData<CursorPage<Schedule>>>(opsKeys.schedules, (old) =>
           old
             ? {
                 ...old,
@@ -309,7 +309,7 @@ export function SchedulesPage() {
     },
     onError: (error, _vars, ctx) => {
       if (ctx?.prev !== undefined) {
-        client.setQueryData<InfiniteData<CursorPage<Schedule>>>(schedulesQueryKey, ctx.prev);
+        client.setQueryData<InfiniteData<CursorPage<Schedule>>>(opsKeys.schedules, ctx.prev);
       }
       toastError(error);
     },
@@ -704,7 +704,7 @@ function ScheduleRunsDialog({
     onError: toastError,
     onSettled: () => {
       void client.invalidateQueries({ queryKey: scheduleRunsQuery(schedule.id).queryKey });
-      void client.invalidateQueries({ queryKey: schedulesQueryKey });
+      void client.invalidateQueries({ queryKey: opsKeys.schedules });
     },
   });
   return (
@@ -851,7 +851,7 @@ function ScheduleDialog({
   const watched = watch();
   const dirty = isDirty;
   const invalidate = (): void => {
-    void client.invalidateQueries({ queryKey: schedulesQueryKey });
+    void client.invalidateQueries({ queryKey: opsKeys.schedules });
   };
   const create = useMutation({
     mutationFn: (input: ScheduleInput) => api.createSchedule(input),
@@ -891,9 +891,9 @@ function ScheduleDialog({
     setReloading(true);
     try {
       // throwOnError 是 refetchQueries 的第二个参数，放进 filters 会被忽略并吞掉失败。
-      await client.refetchQueries({ queryKey: schedulesQueryKey }, { throwOnError: true });
+      await client.refetchQueries({ queryKey: opsKeys.schedules }, { throwOnError: true });
       const latest = client
-        .getQueryData<InfiniteData<CursorPage<Schedule>>>(schedulesQueryKey)
+        .getQueryData<InfiniteData<CursorPage<Schedule>>>(opsKeys.schedules)
         ?.pages.flatMap((page) => page.items)
         .find((item) => item.id === schedule.id);
       if (!latest) {
