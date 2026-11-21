@@ -1,6 +1,7 @@
 import type { ModelProvider, ModelProviderCreate, ModelProviderUpdate } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
+import { observabilityKeys } from './observability.js';
 
 const modelProviderKeys = {
   all: ['model-providers'] as const,
@@ -22,7 +23,7 @@ export function useCreateModelProvider() {
     mutationFn: (input: ModelProviderCreate) => api.createModelProvider(input),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: modelProviderKeys.all });
-      void client.invalidateQueries({ queryKey: ['observability'] });
+      void client.invalidateQueries({ queryKey: observabilityKeys.all });
     },
   });
 }
@@ -34,7 +35,7 @@ export function useUpdateModelProvider() {
       api.updateModelProvider(vars.id, vars.input),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: modelProviderKeys.all });
-      void client.invalidateQueries({ queryKey: ['observability'] });
+      void client.invalidateQueries({ queryKey: observabilityKeys.all });
     },
   });
 }
@@ -45,7 +46,7 @@ export function useDeleteModelProvider() {
     mutationFn: (id: string) => api.deleteModelProvider(id),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: modelProviderKeys.all });
-      void client.invalidateQueries({ queryKey: ['observability'] });
+      void client.invalidateQueries({ queryKey: observabilityKeys.all });
     },
   });
 }
@@ -56,7 +57,7 @@ export function useTestModelProvider() {
     mutationFn: (id: string) => api.testModelProvider(id),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: modelProviderKeys.all });
-      void client.invalidateQueries({ queryKey: ['observability'] });
+      void client.invalidateQueries({ queryKey: observabilityKeys.all });
     },
   });
 }

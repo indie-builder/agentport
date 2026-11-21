@@ -2,7 +2,7 @@ import type { ObservabilitySnapshot, SloSettings } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
 
-const observabilityKeys = {
+export const observabilityKeys = {
   all: ['observability'] as const,
   snapshot: (windowMinutes: number) => ['observability', 'snapshot', windowMinutes] as const,
   slo: ['observability', 'slo'] as const,
