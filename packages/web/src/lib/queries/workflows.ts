@@ -7,28 +7,29 @@ import type {
 } from '@agentport/shared';
 import { type QueryClient, queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
+import { agentKeys } from './agents.js';
 
 export const agentRulesQuery = (id: string) =>
   queryOptions<Rule[]>({
-    queryKey: ['agent-rules', id],
+    queryKey: agentKeys.rules(id),
     queryFn: () => api.agentRules(id),
   });
 
 export const agentOutputStylesQuery = (id: string) =>
   queryOptions<OutputStyle[]>({
-    queryKey: ['agent-output-styles', id],
+    queryKey: agentKeys.outputStyles(id),
     queryFn: () => api.agentOutputStyles(id),
   });
 
 export const agentWorkflowsQuery = (id: string) =>
   queryOptions<AgentWorkflow[]>({
-    queryKey: ['agent-workflows', id],
+    queryKey: agentKeys.workflows(id),
     queryFn: () => api.agentWorkflows(id),
   });
 
 function invalidateAgentWorkflows(client: QueryClient, agentId: string): void {
   void client.invalidateQueries({ queryKey: agentWorkflowsQuery(agentId).queryKey });
-  void client.invalidateQueries({ queryKey: ['agent-files', agentId] });
+  void client.invalidateQueries({ queryKey: agentKeys.files(agentId) });
 }
 
 export function useCreateAgentWorkflow() {
@@ -70,13 +71,13 @@ export function useDeleteAgentWorkflow() {
 
 export const agentHooksQuery = (id: string) =>
   queryOptions<AgentHooks>({
-    queryKey: ['agent-hooks', id],
+    queryKey: agentKeys.hooks(id),
     queryFn: () => api.agentHooks(id),
   });
 
 function invalidateAgentHooks(client: QueryClient, agentId: string): void {
   void client.invalidateQueries({ queryKey: agentHooksQuery(agentId).queryKey });
-  void client.invalidateQueries({ queryKey: ['agent-files', agentId] });
+  void client.invalidateQueries({ queryKey: agentKeys.files(agentId) });
 }
 
 export function useWriteAgentHooksSettings() {
