@@ -39,6 +39,9 @@ export function knowledgeEnqueueOptions(jobId: string) {
 
 export const KNOWLEDGE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
+/** 视觉模型会缩放输入，25 MP 足以覆盖文档扫描；该值限制解码内存。 */
+export const KNOWLEDGE_IMAGE_MAX_PIXELS = 25_000_000;
+
 export const KNOWLEDGE_DOCUMENT_MAX_BYTES = 32 * 1024 * 1024;
 
 /** 图片名必须是版本清单里的单段文件名；任何路径分隔符或 `..` 都不接受。 */
