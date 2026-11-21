@@ -37,6 +37,7 @@ export const evalCases = pgTable(
       .default('contains'),
     expectedTools: jsonb('expected_tools').$type<string[]>(),
     forbiddenTools: jsonb('forbidden_tools').$type<string[]>(),
+    sourceRunId: text('source_run_id'),
     createdBy: text('created_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -46,6 +47,7 @@ export const evalCases = pgTable(
       'eval_cases_judge_mode_check',
       sql`${t.judgeMode} in (${sql.raw(evalJudgeModeSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
+    index('eval_cases_source_run_idx').on(t.sourceRunId).where(sql`${t.sourceRunId} is not null`),
   ],
 );
 

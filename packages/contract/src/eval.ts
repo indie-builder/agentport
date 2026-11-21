@@ -90,6 +90,28 @@ export const evalContract = {
       )
       .output(evalCaseSchema)
       .meta({ access: { kind: 'permission', permissionId: 'eval.manage' } }),
+    sampleCandidates: contractProcedure
+      .route({ method: 'GET', path: '/eval/cases/sample-candidates' })
+      .input(
+        z.object({
+          query: z.object({
+            agentId: z.string().min(1),
+            limit: z.coerce.number().int().min(1).max(50).default(10),
+          }),
+        }),
+      )
+      .output(
+        z.array(
+          z.object({
+            runId: z.string(),
+            conversationId: z.string(),
+            title: z.string(),
+            prompt: z.string(),
+            endedAt: z.string(),
+          }),
+        ),
+      )
+      .meta({ access: { kind: 'permission', permissionId: 'eval.read' } }),
   },
   runs: {
     list: contractProcedure

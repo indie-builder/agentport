@@ -103,6 +103,7 @@ export const evalRouter = os.router({
           prompt: prompt.slice(0, 20_000),
           expectation: input.body.expectation,
           judgeMode: input.body.judgeMode,
+          sourceRunId: detail.run.id,
           createdBy: businessId,
         });
         if (feedbackId !== undefined) {
@@ -120,6 +121,20 @@ export const evalRouter = os.router({
         requestId: context.requestId,
       });
       return toEvalCase(row);
+    }),
+    sampleCandidates: os.cases.sampleCandidates.handler(async ({ input, context }) => {
+      await authorizeEvalAgent(context, input.query.agentId, ['eval.read']);
+      const rows = await evalRepo.sampleProductionRuns(context.db, {
+        agentId: input.query.agentId,
+        limit: input.query.limit,
+      });
+      return rows.map((row) => ({
+        runId: row.runId,
+        conversationId: row.conversationId,
+        title: row.title,
+        prompt: row.prompt,
+        endedAt: row.endedAt.toISOString(),
+      }));
     }),
     update: os.cases.update.handler(async ({ input, context }) => {
       const existing = await evalRepo.getCase(context.db, input.params.id);

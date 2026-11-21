@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
@@ -44,12 +45,14 @@ export function EvalFromRunDialog({
   conversationTitle,
   prompt,
   feedbackId,
+  finalFocus,
   onClose: onClosed,
 }: {
   runId: string;
   conversationTitle: string;
   prompt: string;
   feedbackId?: string;
+  finalFocus?: ComponentProps<typeof DialogShell>['finalFocus'];
   onClose: () => void;
 }) {
   const dialog = useDialogClose(onClosed);
@@ -97,6 +100,7 @@ export function EvalFromRunDialog({
         title="新建评估用例"
         description="输入取自本次运行；期望答案需要人工填写。"
         closeDisabled={pending}
+        finalFocus={finalFocus}
         footer={
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={guard.close} disabled={pending}>

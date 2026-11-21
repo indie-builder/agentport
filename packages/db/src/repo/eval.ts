@@ -1,8 +1,17 @@
 import type { AccessFilter, AgentDefinition, AgentResourceVersions } from '@agentport/shared';
-import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
-import { type EvalCaseSnapshot, evalCases, evalResults, evalRuns } from '../schema.js';
+import {
+  agentRuns,
+  conversations,
+  type EvalCaseSnapshot,
+  evalCases,
+  evalResults,
+  evalRuns,
+  runFeedback,
+} from '../schema.js';
 import { maintainedAgentScopeWhere } from './access.js';
+import { getRunUserMessageText } from './chat/messages.js';
 import { keysetBefore, paginate } from './keyset.js';
 
 export type EvalCase = typeof evalCases.$inferSelect;
@@ -35,6 +44,7 @@ export interface EvalCaseInput {
   judgeMode: 'contains' | 'llm';
   expectedTools?: string[] | null | undefined;
   forbiddenTools?: string[] | null | undefined;
+  sourceRunId?: string | null | undefined;
   createdBy: string;
 }
 
@@ -79,6 +89,65 @@ export async function createCase(
     .returning();
   if (!row) throw new Error('eval case insert returned no row');
   return row;
+}
+
+export interface EvalSampleCandidate {
+  runId: string;
+  conversationId: string;
+  title: string;
+  prompt: string;
+  endedAt: Date;
+}
+
+const SAMPLE_WINDOW = 200;
+
+export async function sampleProductionRuns(
+  db: Database,
+  options: { agentId: string; limit: number },
+): Promise<EvalSampleCandidate[]> {
+  const linkedCaseRuns = sql`select ${evalCases.sourceRunId} from ${evalCases} where ${evalCases.sourceRunId} is not null`;
+  const linkedFeedbackRuns = sql`select ${runFeedback.runId} from ${runFeedback} where ${runFeedback.evalCaseId} is not null`;
+  const rows = await db
+    .select({
+      runId: agentRuns.id,
+      conversationId: agentRuns.conversationId,
+      title: conversations.title,
+      endedAt: agentRuns.endedAt,
+    })
+    .from(agentRuns)
+    .innerJoin(conversations, eq(conversations.id, agentRuns.conversationId))
+    .where(
+      and(
+        eq(agentRuns.agentId, options.agentId),
+        eq(agentRuns.status, 'succeeded'),
+        eq(agentRuns.trigger, 'chat'),
+        isNull(agentRuns.evalRunId),
+        isNull(agentRuns.channelId),
+        isNotNull(agentRuns.endedAt),
+        sql`${agentRuns.id} not in (${linkedCaseRuns})`,
+        sql`${agentRuns.id} not in (${linkedFeedbackRuns})`,
+      ),
+    )
+    .orderBy(desc(agentRuns.endedAt))
+    .limit(SAMPLE_WINDOW);
+  const picked = [...rows].sort(() => Math.random() - 0.5).slice(0, options.limit);
+  const candidates = await Promise.all(
+    picked.flatMap((row) => {
+      const { endedAt } = row;
+      return endedAt === null
+        ? []
+        : [
+            getRunUserMessageText(db, row.runId).then((text) => ({
+              runId: row.runId,
+              conversationId: row.conversationId,
+              title: row.title.trim() || `运行 ${row.runId.slice(-8)}`,
+              prompt: text?.trim() ?? '',
+              endedAt,
+            })),
+          ];
+    }),
+  );
+  return candidates.filter((candidate) => candidate.prompt !== '');
 }
 
 export async function updateCase(
