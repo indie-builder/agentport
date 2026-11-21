@@ -202,6 +202,24 @@ export async function claimJob(db: Database, id: string): Promise<KnowledgeJobRo
   });
 }
 
+export async function requeueKnowledgeJob(
+  db: Database,
+  id: string,
+  input: { error?: string; keepStartedAt?: boolean } = {},
+): Promise<boolean> {
+  const rows = await db
+    .update(knowledgeJobs)
+    .set({
+      status: 'queued',
+      ...(input.keepStartedAt === true ? {} : { startedAt: null }),
+      step: null,
+      ...(input.error === undefined ? {} : { error: input.error }),
+    })
+    .where(and(eq(knowledgeJobs.id, id), eq(knowledgeJobs.status, 'running')))
+    .returning({ id: knowledgeJobs.id });
+  return rows.length > 0;
+}
+
 export interface SyncRunResult {
   cursorAfter: Record<string, unknown>;
   stats: KnowledgeSyncRunRow['stats'];
