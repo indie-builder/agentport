@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isRecord } from '@agentport/core/record';
 import { z } from 'zod';
 import { fetchDownload } from './source-download.js';
 import { declaredMime } from './source-formats.js';
@@ -252,9 +253,7 @@ function assertListPage(response: ListResult): void {
 }
 
 function recordOf(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+  return isRecord(value) ? value : undefined;
 }
 
 function extensionFromContentType(contentType: string | null): string {

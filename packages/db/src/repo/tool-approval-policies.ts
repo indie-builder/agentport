@@ -56,15 +56,6 @@ export async function listEnabledForTool(db: DbHandle, input: ToolLookup) {
     .orderBy(asc(toolApprovalPolicies.id));
 }
 
-export async function getById(db: DbHandle, id: string) {
-  const [row] = await db
-    .select()
-    .from(toolApprovalPolicies)
-    .where(eq(toolApprovalPolicies.id, id))
-    .limit(1);
-  return row ?? null;
-}
-
 export async function create(db: Database, input: ToolApprovalPolicyCreate, actor: string) {
   const [row] = await db
     .insert(toolApprovalPolicies)

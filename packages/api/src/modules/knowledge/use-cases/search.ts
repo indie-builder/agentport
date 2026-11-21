@@ -283,8 +283,9 @@ export async function batchDocuments(
     throw new AppError('INVALID_INPUT', '批量标签需要 tags 与 tagMode');
   }
   const results: BatchResult[] = [];
+  const documents = await repo.knowledge.getDocumentsByIds(deps.db, input.documentIds);
   for (const documentId of input.documentIds) {
-    const document = await repo.knowledge.getDocument(deps.db, documentId);
+    const document = documents.get(documentId);
     if (!document) {
       results.push({ documentId, status: 'failed', code: 'NOT_FOUND', message: '文档不存在' });
       continue;
@@ -309,9 +310,13 @@ export async function batchDocuments(
           newDocumentId: await copyDocument(deps, document),
         });
       } else if (input.action === 'tag') {
-        const currentNames =
-          (await repo.knowledge.getDocumentTagNames(deps.db, [document.id])).get(document.id) ?? [];
         const tags = input.tags ?? [];
+        const currentNames =
+          input.tagMode === 'replace'
+            ? []
+            : ((await repo.knowledge.getDocumentTagNames(deps.db, [document.id])).get(
+                document.id,
+              ) ?? []);
         const names =
           input.tagMode === 'replace'
             ? tags

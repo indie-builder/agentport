@@ -149,19 +149,25 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
       const base = await repo.knowledge.getBase(context.db, id);
       if (!base) throw new AppError('NOT_FOUND', '知识库不存在，可能已被删除；请刷新后重试');
 
+      const documents = await repo.knowledge.getDocumentsByIds(context.db, parsed.data.documentIds);
       const downloadable: Array<{ versionId: string }> = [];
+      const versionIds: string[] = [];
       let declaredBytes = 0;
       for (const documentId of parsed.data.documentIds) {
-        const document = await repo.knowledge.getDocument(context.db, documentId);
+        const document = documents.get(documentId);
         if (!document || document.baseId !== id) {
           throw new AppError('NOT_FOUND', '文档不存在或不属于该知识库');
         }
         if (!document.currentVersionId) continue;
         if (document.status === 'disabled' || document.disabledReason !== null) continue;
-        const version = await repo.knowledge.getVersion(context.db, document.currentVersionId);
+        versionIds.push(document.currentVersionId);
+      }
+      const versions = await repo.knowledge.getVersionsByIds(context.db, versionIds);
+      for (const versionId of versionIds) {
+        const version = versions.get(versionId);
         if (!version) continue;
         declaredBytes += version.sizeBytes;
-        downloadable.push({ versionId: document.currentVersionId });
+        downloadable.push({ versionId });
       }
       if (downloadable.length === 0) {
         throw new AppError('INVALID_INPUT', '所选文档没有可下载的原件');

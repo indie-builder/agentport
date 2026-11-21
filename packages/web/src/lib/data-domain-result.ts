@@ -1,3 +1,5 @@
+import { isRecord } from '@agentport/core/record';
+
 export interface DataDomainQueryResult {
   columns: string[];
   rows: unknown[][];
@@ -33,10 +35,6 @@ export interface ScatterPoint {
 }
 
 const RUN_SQL_TOOL = /^mcp__.+__run_sql$/;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function isIdentifierColumn(name: string): boolean {
   const normalized = name.trim().toLowerCase();

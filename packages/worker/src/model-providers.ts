@@ -15,13 +15,15 @@ export async function resolveProviderUpstreams(
   model: string | undefined,
   runId: string,
   envBaseUrl: string,
+  conversationId?: string,
 ): Promise<ProviderResolution> {
-  const conversationId = await repo.runs.getRunConversationId(db, runId);
-  if (conversationId === null) return { routed: true, blocked: true };
+  const resolvedConversationId =
+    conversationId ?? (await repo.runs.getRunConversationId(db, runId));
+  if (resolvedConversationId === null) return { routed: true, blocked: true };
   const [approval, conversation, history] = await Promise.all([
     repo.security.getApprovedPolicyApprovalForRun(db, runId),
-    repo.security.getApprovedPolicyApprovalForConversation(db, conversationId),
-    repo.modelProviders.listHistoricalProviderDestinations(db, conversationId, runId),
+    repo.security.getApprovedPolicyApprovalForConversation(db, resolvedConversationId),
+    repo.modelProviders.listHistoricalProviderDestinations(db, resolvedConversationId, runId),
   ]);
   const destination = (conversation ?? approval ?? history[0])?.destination;
   if (

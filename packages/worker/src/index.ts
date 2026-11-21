@@ -263,12 +263,15 @@ const modelProxy = await startModelProxy({
     const row = await repo.runs.findRunByModelToken(db, hashMcpToken(token));
     return row;
   },
-  checkOutbound: async ({ runId, body }) => {
-    const run = await repo.chat.getRun(db, runId);
-    if (run === null) return { blocked: true, body: Buffer.alloc(0) };
+  checkOutbound: async ({ runId, agentId, body }) => {
+    const effectiveAgentId =
+      agentId ?? (await repo.chat.getRun(db, runId).then((run) => run?.agentId));
+    if (effectiveAgentId === undefined || effectiveAgentId === null) {
+      return { blocked: true, body: Buffer.alloc(0) };
+    }
     const text = body.toString('utf8');
     const checked = await checkOutboundPolicy(db, logger, {
-      agentId: run.agentId,
+      agentId: effectiveAgentId,
       runId,
       text,
       sourceId: runId,
@@ -278,8 +281,15 @@ const modelProxy = await startModelProxy({
       body: checked.text === text ? body : Buffer.from(checked.text),
     };
   },
-  resolveProviders: (runId, model) =>
-    resolveProviderUpstreams(db, config, model, runId, modelProxyUpstream(envUpstream, false)),
+  resolveProviders: (run, model) =>
+    resolveProviderUpstreams(
+      db,
+      config,
+      model,
+      run.runId,
+      modelProxyUpstream(envUpstream, false),
+      run.conversationId,
+    ),
   recordProviderServed: ({ runId, providerId }) =>
     repo.modelProviders.markRunServedProvider(db, runId, providerId),
   recordProviderResult: (result) => repo.modelProviders.recordProviderRequest(db, result),

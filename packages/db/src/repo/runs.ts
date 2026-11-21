@@ -697,13 +697,17 @@ export async function clearRunTokens(db: Database, runId: string): Promise<void>
 export async function findRunByModelToken(
   db: Database,
   tokenHash: string,
-): Promise<{ runId: string } | null> {
+): Promise<{ runId: string; conversationId: string; agentId: string } | null> {
   const [row] = await db
-    .select({ id: agentRuns.id })
+    .select({
+      id: agentRuns.id,
+      conversationId: agentRuns.conversationId,
+      agentId: agentRuns.agentId,
+    })
     .from(agentRuns)
     .where(and(eq(agentRuns.modelTokenHash, tokenHash), eq(agentRuns.status, 'running')))
     .limit(1);
-  return row ? { runId: row.id } : null;
+  return row ? { runId: row.id, conversationId: row.conversationId, agentId: row.agentId } : null;
 }
 
 /**

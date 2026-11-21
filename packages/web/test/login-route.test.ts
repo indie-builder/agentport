@@ -1,9 +1,10 @@
+import type { AuthMe } from '@agentport/shared';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, type Me } from '../src/lib/api.js';
+import { api } from '../src/lib/api.js';
 import { useChatStore } from '../src/lib/chat-store.js';
 import { meQuery, queryClient } from '../src/lib/queries.js';
 import { routeTree } from '../src/routeTree.gen.js';
@@ -99,9 +100,9 @@ afterEach(async () => {
 
 describe('login route session check', () => {
   it('renders the form immediately while the shared session check is still pending', async () => {
-    let settle!: (me: Me) => void;
+    let settle!: (me: AuthMe) => void;
     vi.mocked(api.me).mockReturnValue(
-      new Promise<Me>((resolve) => {
+      new Promise<AuthMe>((resolve) => {
         settle = resolve;
       }),
     );
@@ -214,10 +215,10 @@ describe('login route session check', () => {
     vi.mocked(api.me).mockResolvedValue({ authenticated: false });
     const router = await mount();
 
-    let settle!: (me: Me) => void;
+    let settle!: (me: AuthMe) => void;
     vi.mocked(api.login).mockResolvedValue({ ok: true });
     vi.mocked(api.me).mockReturnValue(
-      new Promise<Me>((resolve) => {
+      new Promise<AuthMe>((resolve) => {
         settle = resolve;
       }),
     );

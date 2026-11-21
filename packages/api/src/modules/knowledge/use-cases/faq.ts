@@ -774,8 +774,14 @@ export async function faqBatch(
     code?: string | undefined;
     message?: string | undefined;
   }> = [];
+  const documents = await repo.knowledge
+    .getDocumentsByIds(
+      deps.db,
+      input.items.map((item) => item.documentId),
+    )
+    .catch(() => new Map<string, repo.knowledge.KnowledgeDocumentRow>());
   for (const item of input.items) {
-    const document = await repo.knowledge.getDocument(deps.db, item.documentId).catch(() => null);
+    const document = documents.get(item.documentId);
     if (!document || document.baseId !== base.id || document.contentKind !== 'faq') {
       results.push({
         documentId: item.documentId,
@@ -790,9 +796,23 @@ export async function faqBatch(
         if (item.versionId === undefined || item.expectedVersionId === undefined) {
           fail('INVALID_INPUT', '发布需要 versionId 与 expectedVersionId');
         }
-        await publishFaqVersion(deps, document, item.versionId, item.expectedVersionId);
+        const updated = await publishFaqVersion(
+          deps,
+          document,
+          item.versionId,
+          item.expectedVersionId,
+        );
+        documents.set(updated.id, updated);
       } else if (input.action === 'delete') {
-        await repo.knowledge.deleteDocument(deps.db, document.id);
+        if (!(await repo.knowledge.deleteDocument(deps.db, document.id))) {
+          results.push({
+            documentId: document.id,
+            status: 'failed',
+            code: 'NOT_FOUND',
+            message: 'FAQ 不存在或不属于该知识库',
+          });
+          continue;
+        }
       } else {
         await setFaqEnabled(deps, document, input.action === 'enable');
       }
