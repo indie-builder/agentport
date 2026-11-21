@@ -1,6 +1,13 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { AppError, isAppError, sha256Hex } from '@agentport/core';
+import {
+  AppError,
+  isAppError,
+  knowledgeDocumentDir,
+  knowledgeVersionDir,
+  knowledgeVersionImagesDir,
+  knowledgeVersionMarkdownPath,
+  sha256Hex,
+} from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import type { KnowledgeSearchQuery, KnowledgeSearchResult } from '@agentport/shared';
 import { and, eq, inArray, sql } from 'drizzle-orm';
@@ -141,17 +148,23 @@ async function copyDocument(deps: KnowledgeDeps, document: DocumentRow): Promise
   const chunks = await collectChunks(deps.db, version.id);
   const newDocumentId = newId('knowledgeDocument');
   const newVersionId = newId('knowledgeVersion');
-  const sourceDir = join(deps.config.KNOWLEDGE_DIR, 'docs', document.id, version.id);
-  const targetDir = join(deps.config.KNOWLEDGE_DIR, 'docs', newDocumentId, newVersionId);
+  const knowledgeDir = deps.config.KNOWLEDGE_DIR;
+  const targetDir = knowledgeVersionDir(knowledgeDir, newDocumentId, newVersionId);
   await mkdir(targetDir, { recursive: true });
   try {
     const markdown =
-      (await readFile(join(sourceDir, 'markdown.md'), 'utf8').catch(() => null)) ??
-      chunks.map((chunk) => chunk.content).join('\n\n');
-    await writeFile(join(targetDir, 'markdown.md'), markdown, 'utf8');
+      (await readFile(
+        knowledgeVersionMarkdownPath(knowledgeDir, document.id, version.id),
+        'utf8',
+      ).catch(() => null)) ?? chunks.map((chunk) => chunk.content).join('\n\n');
+    await writeFile(
+      knowledgeVersionMarkdownPath(knowledgeDir, newDocumentId, newVersionId),
+      markdown,
+      'utf8',
+    );
     await copyVersionImages(
-      join(sourceDir, 'images'),
-      join(targetDir, 'images'),
+      knowledgeVersionImagesDir(knowledgeDir, document.id, version.id),
+      knowledgeVersionImagesDir(knowledgeDir, newDocumentId, newVersionId),
       version.images ?? [],
     );
     const tags =
@@ -212,7 +225,7 @@ async function copyDocument(deps: KnowledgeDeps, document: DocumentRow): Promise
       }
     });
   } catch (err) {
-    await rm(join(deps.config.KNOWLEDGE_DIR, 'docs', newDocumentId), {
+    await rm(knowledgeDocumentDir(deps.config.KNOWLEDGE_DIR, newDocumentId), {
       recursive: true,
       force: true,
     }).catch(() => undefined);

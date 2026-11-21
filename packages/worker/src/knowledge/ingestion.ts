@@ -6,6 +6,13 @@ import {
   embedImages,
   embedTexts,
   KnowledgeModelError,
+  knowledgeBlobPath,
+  knowledgeBlobsRoot,
+  knowledgeDocsRoot,
+  knowledgeVersionDir,
+  knowledgeVersionImagePath,
+  knowledgeVersionImagesDir,
+  knowledgeVersionMarkdownPath,
   segmentForSearch,
   sha256Hex,
 } from '@agentport/core';
@@ -274,17 +281,9 @@ async function ensureJobRunning(
   if (job?.status !== 'running') throw new KnowledgeCancelled();
 }
 
-function blobPath(knowledgeDir: string, sha: string): string {
-  return join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
-}
-
-function versionDir(knowledgeDir: string, documentId: string, versionId: string): string {
-  return join(knowledgeDir, 'docs', documentId, versionId);
-}
-
 async function storeBlob(knowledgeDir: string, data: Buffer): Promise<string> {
   const sha = sha256Hex(data);
-  const target = blobPath(knowledgeDir, sha);
+  const target = knowledgeBlobPath(knowledgeDir, sha);
   const existing = await stat(target).catch(() => null);
   if (existing) return sha;
   await mkdir(dirname(target), { recursive: true });
@@ -305,13 +304,22 @@ async function writeParsed(
   versionId: string,
   parsed: IngestionDocument,
 ): Promise<void> {
-  const dir = versionDir(knowledgeDir, documentId, versionId);
+  const dir = knowledgeVersionDir(knowledgeDir, documentId, versionId);
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, 'markdown.md'), parsed.markdown, 'utf8');
+  await writeFile(
+    knowledgeVersionMarkdownPath(knowledgeDir, documentId, versionId),
+    parsed.markdown,
+    'utf8',
+  );
   if (parsed.images.length === 0) return;
-  const imageDir = join(dir, 'images');
+  const imageDir = knowledgeVersionImagesDir(knowledgeDir, documentId, versionId);
   await mkdir(imageDir, { recursive: true });
-  for (const image of parsed.images) await writeFile(join(imageDir, image.name), image.data);
+  for (const image of parsed.images) {
+    await writeFile(
+      knowledgeVersionImagePath(knowledgeDir, documentId, versionId, image.name),
+      image.data,
+    );
+  }
 }
 
 interface EmbeddingClient {
@@ -1137,7 +1145,7 @@ export async function runIngest(
     await repo.knowledge.updateDocument(deps.db, document.id, { status: 'processing' });
   }
   try {
-    const data = await readFile(blobPath(deps.knowledgeDir, blobSha));
+    const data = await readFile(knowledgeBlobPath(deps.knowledgeDir, blobSha));
     await ingestContent(deps, document, {
       filename: snapshot?.filename ?? filenameOf(document),
       mimeType: snapshot?.mimeType ?? document.mimeType,
@@ -1225,7 +1233,7 @@ async function reembedMissing(
     const mimeType = whitelist.get(image.name);
     if (!mimeType) throw new Error(`图片 ${image.name} 不在版本清单中`);
     const data = await readFile(
-      join(deps.knowledgeDir, 'docs', document.id, versionId, 'images', image.name),
+      knowledgeVersionImagePath(deps.knowledgeDir, document.id, versionId, image.name),
     ).catch(() => null);
     if (!data) throw new Error(`图片 ${image.name} 的文件缺失`);
     const embedding = await client.embedImage(
@@ -1343,7 +1351,7 @@ export async function runReindex(
       if (!document.currentVersionId) {
         await repo.knowledge.updateDocument(deps.db, document.id, { status: 'processing' });
       }
-      const data = await readFile(blobPath(deps.knowledgeDir, document.contentHash));
+      const data = await readFile(knowledgeBlobPath(deps.knowledgeDir, document.contentHash));
       const sourceSnapshot = document.sourceConnectionId
         ? (await repo.knowledge.getSourceReadSnapshot(deps.db, document.sourceConnectionId))
             ?.snapshot
@@ -1868,7 +1876,7 @@ export async function runCleanup(
   const liveVersionIds = new Set(versions.map((row) => row.id));
   const cutoff = Date.now() - BLOB_RETENTION_MS;
 
-  const blobsRoot = join(deps.knowledgeDir, 'blobs');
+  const blobsRoot = knowledgeBlobsRoot(deps.knowledgeDir);
   for (const shard of await readdir(blobsRoot).catch(() => [])) {
     checkAborted(signal);
     for (const name of await readdir(join(blobsRoot, shard)).catch(() => [])) {
@@ -1879,7 +1887,7 @@ export async function runCleanup(
     }
   }
 
-  const docsRoot = join(deps.knowledgeDir, 'docs');
+  const docsRoot = knowledgeDocsRoot(deps.knowledgeDir);
   for (const documentId of await readdir(docsRoot).catch(() => [])) {
     checkAborted(signal);
     for (const versionId of await readdir(join(docsRoot, documentId)).catch(() => [])) {

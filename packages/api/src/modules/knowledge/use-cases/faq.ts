@@ -1,6 +1,12 @@
 import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { AppError, fail, isAppError, sha256Hex } from '@agentport/core';
+import { dirname } from 'node:path';
+import {
+  AppError,
+  fail,
+  isAppError,
+  knowledgeVersionMarkdownPath,
+  sha256Hex,
+} from '@agentport/core';
 import { escapeLike, newId, repo, schema } from '@agentport/db';
 import type {
   KnowledgeDocumentStatus,
@@ -225,12 +231,10 @@ async function writeVersionFiles(
   markdown: string,
   faqJson: string,
 ): Promise<void> {
-  const markdownPath = join(
+  const markdownPath = knowledgeVersionMarkdownPath(
     deps.config.KNOWLEDGE_DIR,
-    'docs',
     documentId,
     versionId,
-    'markdown.md',
   );
   await storeBlob(deps.config.KNOWLEDGE_DIR, Buffer.from(faqJson, 'utf8'));
   await mkdir(dirname(markdownPath), { recursive: true });
