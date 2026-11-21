@@ -56,6 +56,7 @@ const activityActionLabel: Record<string, string> = {
   'knowledge.document.uploaded': '上传文档',
   'knowledge.document.updated': '更新文档',
   'knowledge.document.reprocessed': '重新解析文档',
+  'knowledge.document.copied': '复制文档',
   'knowledge.document.manual_draft_saved': '保存手写文档',
   'knowledge.tag.created': '新建标签',
   'knowledge.tag.renamed': '重命名标签',

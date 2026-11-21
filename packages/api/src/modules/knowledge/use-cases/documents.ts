@@ -12,7 +12,7 @@ import {
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeDocumentStatus } from '@agentport/shared';
 import { KNOWLEDGE_DOCUMENT_MAX_BYTES, knowledgeImageChunkMetadataSchema } from '@agentport/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Config } from '../../../config.js';
 import { isPgCode } from '../../../http/errors.js';
 import { createJob, documentWire, enqueueKnowledgeJobAfterCommit, storeBlob } from '../service.js';
@@ -215,19 +215,6 @@ async function enqueueChunkReindex(
   });
   await enqueueKnowledgeJobAfterCommit(deps.log, job);
   return job.id;
-}
-
-async function sourceScopeAllowsEnable(db: Database, documentId: string): Promise<boolean> {
-  const result = await db.execute<{ ok: boolean }>(sql`
-    select ${repo.knowledge.readableDocumentSql('probe')} as ok
-    from (
-      select d.id, 'ready'::text as status, d.current_version_id, null::text as disabled_reason,
-             d.source_connection_id, d.base_id, d.source_path
-      from knowledge_documents d
-      where d.id = ${documentId}
-    ) probe
-  `);
-  return result[0]?.ok === true;
 }
 
 export async function listDocuments(
@@ -475,7 +462,7 @@ export async function updateDocument(
   if (!current) notFound('文档');
   const { tags, ...patch } = body;
   if (current.status === 'disabled' && patch.status === 'ready' && current.sourceConnectionId) {
-    if (!(await sourceScopeAllowsEnable(deps.db, current.id))) {
+    if (!(await repo.knowledge.sourceScopeAllowsDocumentById(deps.db, current.id))) {
       throw new AppError('CONFLICT', '来源授权已失效，需成功同步重新确认范围后才能启用');
     }
   }
@@ -498,6 +485,9 @@ export async function updateDocument(
       ? []
       : ((await repo.knowledge.getDocumentTagNames(deps.db, [current.id])).get(current.id) ?? []);
   const fields = changedDocumentFields(current, body, currentTags);
+  if (tags !== undefined && patch.status === undefined && fields.length === 0) {
+    return documentWithTags(deps, current);
+  }
   const row = await repo.knowledge.updateDocument(deps.db, current.id, {
     ...patch,
     ...(patch.status === 'disabled' ? { disabledReason: 'manual' } : {}),
