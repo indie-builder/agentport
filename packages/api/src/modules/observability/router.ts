@@ -4,16 +4,7 @@ import { evaluateSloStatuses, type QueueSnapshot, type SloStatus } from '@agentp
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import {
-  getDataDomainBuildQueue,
-  getDataDomainEnrichmentQueue,
-  getEvalQueue,
-  getKnowledgeQueue,
-  getMonitoringQueues,
-  getQueue,
-  getRuntimeEnvironmentBuildQueue,
-} from '../../queue/producer.js';
-import { getScheduleQueue } from '../ops/schedule-sync.js';
+import { getQueues } from '../../queue/catalog.js';
 
 const JOB_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'] as const;
 const QUEUE_CACHE_MS = 5000;
@@ -72,16 +63,7 @@ async function queueSnapshots(redisUrl: string): Promise<QueueSnapshot[]> {
   if (queueCache !== undefined && Date.now() - queueCache.at < QUEUE_CACHE_MS) {
     return queueCache.rows;
   }
-  const queues: QueueLike[] = [
-    getQueue(),
-    getEvalQueue(),
-    getKnowledgeQueue(),
-    getRuntimeEnvironmentBuildQueue(),
-    getDataDomainBuildQueue(),
-    getDataDomainEnrichmentQueue(),
-    ...getMonitoringQueues(),
-    getScheduleQueue(redisUrl),
-  ];
+  const queues: QueueLike[] = getQueues(redisUrl);
   const rows = await Promise.all(queues.map(queueSnapshot));
   queueCache = { at: Date.now(), rows };
   return rows;

@@ -92,7 +92,7 @@ docker compose logs postgres | grep 'duration:'
 
 ## 队列面板 /api/ops/queues
 
-Bull Board 只读面板，覆盖 `agent-runs`、`eval-runs`、`knowledge-jobs`、`runtime-environment-builds`、`schedule-triggers`、`sandbox-probes`、`native-plugins`、`knowledge-sync-triggers`、`maintenance` 九个队列的计数、job 详情与调度器状态。
+Bull Board 只读面板，覆盖 `agent-runs`、`eval-runs`、`knowledge-jobs`、`runtime-environment-builds`、`schedule-triggers`、`sandbox-probes`、`native-plugins`、`knowledge-sync-triggers`、`maintenance`、`data-domain-builds`、`data-domain-enrichments` 十一个队列的计数、job 详情与调度器状态。
 
 访问 `http://<api>/api/ops/queues`，需要登录且具备 `operations.read` 权限，与 `/health/metrics` 相同；未授权返回 `Problem` 形状的 401/403。页面、静态资源与面板内部 JSON 接口都在同一权限校验之后。
 

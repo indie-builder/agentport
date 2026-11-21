@@ -144,7 +144,7 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 - **web 没有独立生产容器**：`WEB_DIST=/app/web`，由 api 静态托管；SPA 路由回退到 `index.html`，`/api`、`/mcp`、`/health` 未命中仍返回 JSON 404。
 - **沙盒由宿主 Docker daemon 启动**：worker 挂载 `/var/run/docker.sock`，容器内外使用同一工作区绝对路径。同一会话短期复用一个容器，空闲 `SANDBOX_IDLE_TIMEOUT_MS`（默认 5 分钟）后回收；试连与 native plugin 动作仍走一次性容器。已发布定义固定运行环境的 `versionId`，容器镜像按该固定版本解析（历史行才读当前线上版本）；运行环境发布/回退不替换存活容器。
 - **沙盒网络模式**：`open` / `proxy` 使用 `bridge`，并加 `--add-host host.docker.internal:host-gateway`；`none` 使用 `--network none`。
-- **Redis 承担四件事**：BullMQ 队列、运行事件流、取消通知、限流计数。BullMQ 连接统一用官方 `createBunRedisClient(new RedisClient(...))`，业务 Redis 直接用 Bun `RedisClient`。9 个队列是 `agent-runs`、`eval-runs`、`knowledge-jobs`、`knowledge-sync-triggers`、`schedule-triggers`、`runtime-environment-builds`、`sandbox-probes`、`native-plugins`、`maintenance`。
+- **Redis 承担四件事**：BullMQ 队列、运行事件流、取消通知、限流计数。BullMQ 连接统一用官方 `createBunRedisClient(new RedisClient(...))`，业务 Redis 直接用 Bun `RedisClient`。11 个队列是 `agent-runs`、`eval-runs`、`knowledge-jobs`、`knowledge-sync-triggers`、`schedule-triggers`、`runtime-environment-builds`、`sandbox-probes`、`native-plugins`、`maintenance`、`data-domain-builds`、`data-domain-enrichments`。
 - **知识存储另挂 `knowledgedata:/knowledge`**：api 与 worker 共卷，原件与解析产物不进数据库、不进工作区。
 
 ### 2.1 命名运行环境

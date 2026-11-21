@@ -13,14 +13,10 @@ import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/
 import type { RequestContext } from '../../http/context.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
 import { getQueue } from '../../queue/producer.js';
+import { getScheduleQueue } from '../../queue/schedule.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
-import {
-  getScheduleQueue,
-  removeScheduler,
-  schedulerNextRun,
-  upsertScheduler,
-} from './schedule-sync.js';
+import { removeScheduler, schedulerNextRun, upsertScheduler } from './schedule-sync.js';
 
 const os = implement(opsContract).$context<RequestContext>();
 const opsRepo = repo.ops;

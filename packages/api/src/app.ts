@@ -11,7 +11,7 @@ import { closeHealth, registerHealthHttp } from './http/health.js';
 import { createSecurity } from './http/security.js';
 import { createAuth } from './modules/auth/better-auth.js';
 import { ensureBootstrap, ensureDefaultAssistant } from './modules/auth/bootstrap.js';
-import { closeScheduleQueue } from './modules/ops/schedule-sync.js';
+import { closeScheduleQueue } from './queue/schedule.js';
 import { registerRoutes } from './routes/index.js';
 import type { AppRuntime } from './types.js';
 

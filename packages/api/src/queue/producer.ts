@@ -7,6 +7,7 @@ import type {
   DataDomainBuildJob,
   DataDomainEnrichmentJob,
   EvalRunJob,
+  MonitoredQueueName,
   RuntimeEnvironmentBuildJob,
 } from '@agentport/shared';
 import {
@@ -19,10 +20,7 @@ import {
   EVAL_RUNS_QUEUE,
   KNOWLEDGE_CANCEL_PAYLOAD,
   KNOWLEDGE_JOBS_QUEUE,
-  KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
   knowledgeCancelKey,
-  MAINTENANCE_QUEUE,
-  NATIVE_PLUGINS_QUEUE,
   parseJsonAs,
   RUN_CANCEL_PAYLOAD,
   RUNS_QUEUE,
@@ -30,19 +28,12 @@ import {
   runCancelKey,
   runEventsConnectionName,
   runStreamKey,
-  SANDBOX_PROBES_QUEUE,
   STREAM_TTL_SECONDS,
 } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
-const MONITORED_QUEUES = [
-  SANDBOX_PROBES_QUEUE,
-  NATIVE_PLUGINS_QUEUE,
-  KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
-  MAINTENANCE_QUEUE,
-] as const;
 
 const READ_PAGE_SIZE = 2;
 
@@ -63,7 +54,7 @@ let knowledgeQueue: Queue<{ jobId: string }> | undefined;
 let runtimeEnvironmentBuildQueue: Queue<RuntimeEnvironmentBuildJob> | undefined;
 let dataDomainBuildQueue: Queue<DataDomainBuildJob> | undefined;
 let dataDomainEnrichmentQueue: Queue<DataDomainEnrichmentJob> | undefined;
-let monitoringQueues: Queue[] | undefined;
+const monitoringQueues = new Map<MonitoredQueueName, Queue>();
 let client: RedisClient | undefined;
 let channelClient: RedisClient | undefined;
 let queueConnection: ReturnType<typeof createBunRedisClient> | undefined;
@@ -130,16 +121,17 @@ export function getDataDomainEnrichmentQueue(): Queue<DataDomainEnrichmentJob> {
   return dataDomainEnrichmentQueue;
 }
 
-export function getMonitoringQueues(): Queue[] {
-  monitoringQueues ??= MONITORED_QUEUES.map((name) => {
-    const monitored = new Queue(name, {
+export function getMonitoringQueue(name: MonitoredQueueName): Queue {
+  let monitored = monitoringQueues.get(name);
+  if (!monitored) {
+    monitored = new Queue(name, {
       connection: getQueueConnection(),
       skipMetasUpdate: true,
     });
     monitored.on('error', logRedisError);
-    return monitored;
-  });
-  return monitoringQueues;
+    monitoringQueues.set(name, monitored);
+  }
+  return monitored;
 }
 
 function getClient(): RedisClient {
@@ -385,7 +377,7 @@ export async function closeProducer(): Promise<void> {
     runtimeEnvironmentBuildQueue,
     dataDomainBuildQueue,
     dataDomainEnrichmentQueue,
-    monitoringQueues,
+    [...monitoringQueues.values()],
     client,
   ] as const;
   queue = undefined;
@@ -394,7 +386,7 @@ export async function closeProducer(): Promise<void> {
   runtimeEnvironmentBuildQueue = undefined;
   dataDomainBuildQueue = undefined;
   dataDomainEnrichmentQueue = undefined;
-  monitoringQueues = undefined;
+  monitoringQueues.clear();
   client = undefined;
   await Promise.allSettled([
     closing[0]?.close(),
@@ -403,7 +395,7 @@ export async function closeProducer(): Promise<void> {
     closing[3]?.close(),
     closing[4]?.close(),
     closing[5]?.close(),
-    ...(closing[6] ?? []).map((monitored) => monitored.close()),
+    ...closing[6].map((monitored) => monitored.close()),
     ...[...subscriptions.values()].map((close) => close()),
   ]);
   if (closing[7]) closing[7].onclose = () => undefined;
