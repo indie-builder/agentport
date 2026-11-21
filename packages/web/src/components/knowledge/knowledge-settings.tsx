@@ -503,6 +503,15 @@ export function KnowledgeSettingsDialog({
               />
               <FieldLabel htmlFor="knowledge-settings-auto-summary">摄取后自动生成摘要</FieldLabel>
             </Field>
+            <Field orientation="horizontal" className="items-center gap-2">
+              <Checkbox
+                id="knowledge-settings-auto-tag"
+                checked={settings.autoTag ?? false}
+                disabled={pending}
+                onCheckedChange={(checked) => setSettings({ ...settings, autoTag: checked })}
+              />
+              <FieldLabel htmlFor="knowledge-settings-auto-tag">摄取后自动生成标签</FieldLabel>
+            </Field>
             <FieldDescription className="-mt-2">
               需 worker 配置摘要模型（KNOWLEDGE_SUMMARY_MODEL）后生效。
             </FieldDescription>
