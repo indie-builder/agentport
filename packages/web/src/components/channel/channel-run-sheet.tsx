@@ -15,7 +15,7 @@ import {
 } from '../../lib/format.js';
 import { outputPreviewKind } from '../../lib/output-preview.js';
 import {
-  channelRunOutputsQueryKey,
+  channelKeys,
   meQuery,
   useChannelRunDetail,
   useChannelRunOutputBlob,
@@ -101,7 +101,7 @@ function ChannelRunSheetContent({
   useEffect(() => {
     if (previousActive.current && !active) {
       void client.invalidateQueries({
-        queryKey: channelRunOutputsQueryKey(channelId, runId),
+        queryKey: channelKeys.runOutputs(channelId, runId),
       });
     }
     previousActive.current = active;
