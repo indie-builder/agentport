@@ -493,7 +493,7 @@ async function requestAutoSummary(
   const versionId = document.currentVersionId;
   if (!versionId) return;
   const pending = await deps.db
-    .select({ id: schema.knowledgeJobs.id })
+    .select({ payload: schema.knowledgeJobs.payload })
     .from(schema.knowledgeJobs)
     .where(
       and(
@@ -501,24 +501,52 @@ async function requestAutoSummary(
         eq(schema.knowledgeJobs.type, 'summary'),
         inArray(schema.knowledgeJobs.status, ['queued', 'running']),
       ),
-    )
-    .limit(1);
-  if (pending.length > 0) return;
-  const job = await repo.knowledge.createJob(deps.db, {
-    type: 'summary',
-    baseId: base.id,
-    documentId: document.id,
-    sourceId: null,
-    payload: {
+    );
+  const alreadyQueued = pending.some((row) => {
+    const parsed = knowledgeJobPayloadSchema.safeParse(row.payload);
+    return parsed.success && parsed.data.type === 'summary' && parsed.data.versionId === versionId;
+  });
+  if (alreadyQueued) return;
+  const job = await deps.db.transaction(async (tx) => {
+    const begun = await repo.knowledge.beginDocumentSummary(
+      tx,
+      document.id,
+      versionId,
+      'pending',
+      versionId,
+    );
+    if (!begun) return null;
+    return repo.knowledge.createJob(tx, {
       type: 'summary',
       baseId: base.id,
       documentId: document.id,
-      versionId,
-    },
+      sourceId: null,
+      payload: {
+        type: 'summary',
+        baseId: base.id,
+        documentId: document.id,
+        versionId,
+      },
+    });
   });
+  if (!job) return;
   try {
     await deps.onSummaryJobs({ baseId: base.id, jobIds: [job.id] });
   } catch (err) {
+    await repo.knowledge
+      .setDocumentSummary(
+        deps.db,
+        document.id,
+        {
+          summaryStatus: 'none',
+          summaryVersionId: versionId,
+          summary: null,
+          summaryGeneratedAt: null,
+          summaryError: null,
+        },
+        versionId,
+      )
+      .catch(() => undefined);
     deps.logger.warn(
       { err, baseId: base.id, jobIds: [job.id] },
       'summary job enqueue failed; awaiting reconcile',

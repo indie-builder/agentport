@@ -148,12 +148,30 @@ async function writeBlob(data: Buffer): Promise<string> {
   return sha;
 }
 
-async function startIngestForNewDocument(
+async function startIngest(
   baseId: string,
+  documentId: string,
   body: string,
 ): Promise<{ jobId: string; documentId: string; job: Parameters<typeof runIngest>[1] }> {
   const data = Buffer.from(body, 'utf8');
   const sha = await writeBlob(data);
+  await repo.knowledge.updateDocument(db, documentId, { contentHash: sha });
+  const job = await repo.knowledge.createJob(db, {
+    type: 'ingest',
+    baseId,
+    documentId,
+    sourceId: null,
+    payload: { type: 'ingest', documentId },
+  });
+  const claimed = await repo.knowledge.claimJob(db, job.id);
+  if (!claimed) throw new Error('job not claimed');
+  return { jobId: job.id, documentId, job: claimed };
+}
+
+async function startIngestForNewDocument(
+  baseId: string,
+  body: string,
+): Promise<{ jobId: string; documentId: string; job: Parameters<typeof runIngest>[1] }> {
   const document = await repo.knowledge.createDocument(db, {
     baseId,
     folderId: null,
@@ -163,20 +181,10 @@ async function startIngestForNewDocument(
     sourceUrl: null,
     sourcePath: null,
     mimeType: 'text/markdown',
-    sizeBytes: data.length,
+    sizeBytes: Buffer.byteLength(body),
     metadata: { originalFilename: 'doc.md' },
   });
-  await repo.knowledge.updateDocument(db, document.id, { contentHash: sha });
-  const job = await repo.knowledge.createJob(db, {
-    type: 'ingest',
-    baseId,
-    documentId: document.id,
-    sourceId: null,
-    payload: { type: 'ingest', documentId: document.id },
-  });
-  const claimed = await repo.knowledge.claimJob(db, job.id);
-  if (!claimed) throw new Error('job not claimed');
-  return { jobId: job.id, documentId: document.id, job: claimed };
+  return startIngest(baseId, document.id, body);
 }
 
 async function summaryJobs(baseId: string) {
@@ -207,7 +215,41 @@ describe('ingestion → auto summary', () => {
       versionId: document?.currentVersionId,
     });
     expect(jobs[0]?.payload.versionId).toBeString();
+    expect(document?.summaryStatus).toBe('pending');
+    expect(document?.summaryVersionId).toBe(document?.currentVersionId);
     expect(fixtureBase.notified).toEqual([{ baseId: fixtureBase.baseId, jobIds: [jobs[0]?.id] }]);
+  });
+
+  it('enqueues a summary job for a new version while the previous summary is still queued', async () => {
+    const fixtureBase = await makeBase({ autoSummary: true });
+    const first = await startIngestForNewDocument(fixtureBase.baseId, '# 认证\n\n旧正文。');
+    await runIngest(fixtureBase.deps, first.job, new AbortController().signal);
+    const firstVersionId = (await repo.knowledge.getDocument(db, first.documentId))
+      ?.currentVersionId;
+    expect(firstVersionId).toBeString();
+    expect(await summaryJobs(fixtureBase.baseId)).toHaveLength(1);
+
+    const second = await startIngest(fixtureBase.baseId, first.documentId, '# 认证\n\n新正文。');
+    await runIngest(fixtureBase.deps, second.job, new AbortController().signal);
+
+    const document = await repo.knowledge.getDocument(db, first.documentId);
+    expect(document?.currentVersionId).toBeString();
+    expect(document?.currentVersionId).not.toBe(firstVersionId);
+    const jobs = await summaryJobs(fixtureBase.baseId);
+    expect(jobs).toHaveLength(2);
+    expect(jobs.map((job) => job.payload.versionId).toSorted()).toEqual(
+      [firstVersionId, document?.currentVersionId].toSorted(),
+    );
+    const firstJob = jobs.find((job) => job.payload.versionId === firstVersionId);
+    const currentJob = jobs.find((job) => job.payload.versionId === document?.currentVersionId);
+    expect(firstJob?.status).toBe('queued');
+    expect(currentJob?.status).toBe('queued');
+    expect(fixtureBase.notified).toEqual([
+      { baseId: fixtureBase.baseId, jobIds: [firstJob?.id] },
+      { baseId: fixtureBase.baseId, jobIds: [currentJob?.id] },
+    ]);
+    expect(document?.summaryStatus).toBe('pending');
+    expect(document?.summaryVersionId).toBe(document?.currentVersionId);
   });
 
   it('does not enqueue when autoSummary is off', async () => {

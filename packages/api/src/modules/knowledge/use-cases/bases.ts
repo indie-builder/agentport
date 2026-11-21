@@ -1,6 +1,10 @@
 import { AppError, chunkBlocks, markdownBlocks } from '@agentport/core';
 import { repo } from '@agentport/db';
-import type { KnowledgeBaseSettings, ResourceAccessFilter } from '@agentport/shared';
+import type {
+  KnowledgeBaseSettings,
+  KnowledgeImageProcessingPatch,
+  ResourceAccessFilter,
+} from '@agentport/shared';
 import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
@@ -160,7 +164,7 @@ type UpdateBaseBody = {
         chunkOverlap?: number | undefined;
         wikiAutoUpdate?: boolean | undefined;
         autoSummary?: boolean | undefined;
-        imageProcessing?: Partial<KnowledgeBaseSettings['imageProcessing']> | undefined;
+        imageProcessing?: KnowledgeImageProcessingPatch | undefined;
       }
     | undefined;
 };

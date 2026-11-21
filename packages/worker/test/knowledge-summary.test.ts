@@ -279,7 +279,7 @@ describe('runKnowledgeSummary', () => {
     expect(captured).toHaveLength(0);
   });
 
-  it('fails instead of writing onto the new version when the payload version is stale', async () => {
+  it('keeps the new version pending when the payload version is stale', async () => {
     const seeded = await makeDocument('旧版本正文。');
     const document = await repo.knowledge.getDocument(db, seeded.documentId);
     if (!document) throw new Error('document missing');
@@ -297,6 +297,7 @@ describe('runKnowledgeSummary', () => {
       embeddingProfileId: seeded.profileId,
     });
     await repo.knowledge.setCurrentVersion(db, document.id, next.id);
+    await repo.knowledge.beginDocumentSummary(db, document.id, next.id, 'pending');
     const captured: Captured[] = [];
 
     await expect(
@@ -309,13 +310,13 @@ describe('runKnowledgeSummary', () => {
     const row = await repo.knowledge.getDocument(db, seeded.documentId);
     if (!row) throw new Error('document missing');
     expect(row.currentVersionId).toBe(next.id);
-    expect(row.summaryVersionId).toBe(seeded.versionId);
-    expect(row.summaryStatus).toBe('failed');
+    expect(row.summaryVersionId).toBe(next.id);
+    expect(row.summaryStatus).toBe('pending');
     expect(row.summary).toBeNull();
-    expect(row.summaryError).toContain('文档版本已变化');
+    expect(row.summaryError).toBeNull();
     expect(visibleDocumentSummary(row)).toEqual({
       summary: null,
-      summaryStatus: 'none',
+      summaryStatus: 'pending',
       summaryGeneratedAt: null,
       summaryError: null,
     });

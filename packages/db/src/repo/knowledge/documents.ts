@@ -159,11 +159,19 @@ export async function setDocumentSummary(
   db: DbHandle,
   id: string,
   patch: DocumentSummaryPatch,
+  expectedVersionId?: string,
 ): Promise<KnowledgeDocumentRow | null> {
   const [row] = await db
     .update(knowledgeDocuments)
     .set({ ...patch, updatedAt: new Date() })
-    .where(eq(knowledgeDocuments.id, id))
+    .where(
+      expectedVersionId === undefined
+        ? eq(knowledgeDocuments.id, id)
+        : and(
+            eq(knowledgeDocuments.id, id),
+            eq(knowledgeDocuments.currentVersionId, expectedVersionId),
+          ),
+    )
     .returning();
   return row ?? null;
 }
@@ -173,35 +181,47 @@ export async function beginDocumentSummary(
   documentId: string,
   versionId: string,
   status: 'pending' | 'generating',
+  expectedVersionId?: string,
 ): Promise<KnowledgeDocumentRow | null> {
-  return setDocumentSummary(db, documentId, {
-    summaryStatus: status,
-    summaryVersionId: versionId,
-    summary: null,
-    summaryGeneratedAt: null,
-    summaryError: null,
-  });
+  return setDocumentSummary(
+    db,
+    documentId,
+    {
+      summaryStatus: status,
+      summaryVersionId: versionId,
+      summary: null,
+      summaryGeneratedAt: null,
+      summaryError: null,
+    },
+    expectedVersionId,
+  );
 }
 
 export async function failDocumentSummary(
   db: DbHandle,
   documentId: string,
   message: string,
+  expectedVersionId?: string,
 ): Promise<void> {
-  const [document] = await db
-    .select()
-    .from(knowledgeDocuments)
-    .where(eq(knowledgeDocuments.id, documentId))
-    .limit(1);
-  if (!document) return;
-  if (document.summaryStatus !== 'pending' && document.summaryStatus !== 'generating') return;
-  await setDocumentSummary(db, documentId, {
-    summaryStatus: 'failed',
-    summaryVersionId: document.summaryVersionId ?? document.currentVersionId,
-    summary: null,
-    summaryGeneratedAt: null,
-    summaryError: message,
-  });
+  await db
+    .update(knowledgeDocuments)
+    .set({
+      summaryStatus: 'failed',
+      summaryVersionId: sql`coalesce(${knowledgeDocuments.summaryVersionId}, ${knowledgeDocuments.currentVersionId})`,
+      summary: null,
+      summaryGeneratedAt: null,
+      summaryError: message,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(knowledgeDocuments.id, documentId),
+        inArray(knowledgeDocuments.summaryStatus, ['pending', 'generating']),
+        ...(expectedVersionId === undefined
+          ? []
+          : [eq(knowledgeDocuments.summaryVersionId, expectedVersionId)]),
+      ),
+    );
 }
 
 export async function settleProcessingDocument(db: Database, documentId: string): Promise<void> {

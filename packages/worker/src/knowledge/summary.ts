@@ -56,13 +56,18 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
   const versionId = payload.versionId;
 
   const fail = async (message: string): Promise<never> => {
-    await repo.knowledge.setDocumentSummary(db, document.id, {
-      summaryStatus: 'failed',
-      summaryVersionId: versionId,
-      summary: null,
-      summaryGeneratedAt: null,
-      summaryError: message,
-    });
+    await repo.knowledge.setDocumentSummary(
+      db,
+      document.id,
+      {
+        summaryStatus: 'failed',
+        summaryVersionId: versionId,
+        summary: null,
+        summaryGeneratedAt: null,
+        summaryError: message,
+      },
+      versionId,
+    );
     throw new Error(message);
   };
 
@@ -80,7 +85,7 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
   try {
     const content = await repo.knowledge.readVersionText(db, versionId, CONTENT_LIMIT);
     if (content === '') throw new Error('文档当前版本没有可用正文');
-    await repo.knowledge.beginDocumentSummary(db, document.id, versionId, 'generating');
+    await repo.knowledge.beginDocumentSummary(db, document.id, versionId, 'generating', versionId);
     const cwd = join(deps.config.KNOWLEDGE_DIR, 'summary-sdk', job.id);
     await mkdir(cwd, { recursive: true, mode: 0o700 });
     const queryFn = deps.queryFn ?? query;
@@ -108,34 +113,49 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
     if (outcome.status === 'failure') throw new Error(outcome.message);
     if (summary === null) throw new Error('SDK 没有返回摘要内容');
 
-    await repo.knowledge.setDocumentSummary(db, document.id, {
-      summary,
-      summaryStatus: 'ready',
-      summaryVersionId: versionId,
-      summaryGeneratedAt: new Date(),
-      summaryError: null,
-    });
+    await repo.knowledge.setDocumentSummary(
+      db,
+      document.id,
+      {
+        summary,
+        summaryStatus: 'ready',
+        summaryVersionId: versionId,
+        summaryGeneratedAt: new Date(),
+        summaryError: null,
+      },
+      versionId,
+    );
   } catch (err) {
     if (signal.aborted || err instanceof KnowledgeCancelled) {
       await repo.knowledge
-        .setDocumentSummary(db, document.id, {
-          summaryStatus: 'failed',
-          summaryVersionId: versionId,
-          summary: null,
-          summaryGeneratedAt: null,
-          summaryError: '摘要生成已取消',
-        })
+        .setDocumentSummary(
+          db,
+          document.id,
+          {
+            summaryStatus: 'failed',
+            summaryVersionId: versionId,
+            summary: null,
+            summaryGeneratedAt: null,
+            summaryError: '摘要生成已取消',
+          },
+          versionId,
+        )
         .catch(() => undefined);
       throw new KnowledgeCancelled();
     }
     await repo.knowledge
-      .setDocumentSummary(db, document.id, {
-        summaryStatus: 'failed',
-        summaryVersionId: versionId,
-        summary: null,
-        summaryGeneratedAt: null,
-        summaryError: errorText(err).slice(0, 500),
-      })
+      .setDocumentSummary(
+        db,
+        document.id,
+        {
+          summaryStatus: 'failed',
+          summaryVersionId: versionId,
+          summary: null,
+          summaryGeneratedAt: null,
+          summaryError: errorText(err).slice(0, 500),
+        },
+        versionId,
+      )
       .catch(() => undefined);
     throw err;
   }

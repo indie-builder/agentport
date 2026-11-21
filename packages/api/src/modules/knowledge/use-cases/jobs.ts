@@ -145,7 +145,13 @@ export async function cancelJob(deps: KnowledgeDeps, row: JobRow) {
     });
     if (cancelled) {
       if (cancelled.type === 'summary' && cancelled.documentId !== null) {
-        await repo.knowledge.failDocumentSummary(deps.db, cancelled.documentId, '摘要生成已取消');
+        const payload = knowledgeJobPayloadSchema.safeParse(cancelled.payload);
+        await repo.knowledge.failDocumentSummary(
+          deps.db,
+          cancelled.documentId,
+          '摘要生成已取消',
+          payload.success && payload.data.type === 'summary' ? payload.data.versionId : undefined,
+        );
       }
       return toJob(cancelled);
     }

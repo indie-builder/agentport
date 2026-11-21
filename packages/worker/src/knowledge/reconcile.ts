@@ -4,6 +4,7 @@ import {
   KNOWLEDGE_JOBS_QUEUE,
   type KnowledgeJobQueuePayload,
   knowledgeEnqueueOptions,
+  knowledgeJobPayloadSchema,
 } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
@@ -78,8 +79,16 @@ export async function reconcileKnowledgeJobs(
         if (finished) {
           failed += 1;
           if (row.type === 'summary' && row.documentId !== null) {
+            const payload = knowledgeJobPayloadSchema.safeParse(row.payload);
             await repo.knowledge
-              .failDocumentSummary(db, row.documentId, error)
+              .failDocumentSummary(
+                db,
+                row.documentId,
+                error,
+                payload.success && payload.data.type === 'summary'
+                  ? payload.data.versionId
+                  : undefined,
+              )
               .catch((err: unknown) => {
                 logger.warn(
                   { err, documentId: row.documentId },

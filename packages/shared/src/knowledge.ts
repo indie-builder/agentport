@@ -108,6 +108,21 @@ export const knowledgeImageProcessingSchema = z
 
 export type KnowledgeImageProcessing = z.infer<typeof knowledgeImageProcessingSchema>;
 
+const imageProcessingShape = knowledgeImageProcessingSchema.shape;
+
+export const knowledgeImageProcessingPatchSchema = z.object({
+  enabled: imageProcessingShape.enabled.unwrap().optional(),
+  model: imageProcessingShape.model.unwrap().optional(),
+  ocrEnabled: imageProcessingShape.ocrEnabled.unwrap().optional(),
+  captionEnabled: imageProcessingShape.captionEnabled.unwrap().optional(),
+  descriptionLanguage: imageProcessingShape.descriptionLanguage.unwrap().optional(),
+  customInstructions: imageProcessingShape.customInstructions.unwrap().optional(),
+  imageVectorEnabled: imageProcessingShape.imageVectorEnabled.unwrap().optional(),
+  imageVectorMinScore: imageProcessingShape.imageVectorMinScore.unwrap().optional(),
+});
+
+export type KnowledgeImageProcessingPatch = z.infer<typeof knowledgeImageProcessingPatchSchema>;
+
 export const knowledgeBaseSettingsSchema = z.object({
   chunkTokens: z.number().int().min(200).max(4000),
   chunkOverlap: z.number().int().min(0).max(1000),
