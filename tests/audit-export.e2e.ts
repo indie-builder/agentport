@@ -106,6 +106,7 @@ test('target filter narrows the list and the export', { session: 'admin' }, asyn
       'actorKind',
       'createdAt',
       'detail',
+      'detailType',
       'durationMs',
       'id',
       'inputDigest',

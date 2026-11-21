@@ -22,6 +22,7 @@ export function toItem(row: AuditRow) {
     requestId: row.requestId,
     inputDigest: row.inputDigest,
     detail: row.detail,
+    detailType: row.detailType,
     createdAt: row.createdAt.toISOString(),
   };
 }

@@ -255,6 +255,7 @@ export interface AuditEntry {
   requestId: string | null;
   inputDigest: string | null;
   detail: Record<string, string> | null;
+  detailType: string | null;
   createdAt: Date;
   chainSeq: number;
   prevHash: string | null;
@@ -273,6 +274,7 @@ const columns = {
   requestId: auditLog.requestId,
   inputDigest: auditLog.inputDigest,
   detail: auditLog.detail,
+  detailType: sql<string | null>`jsonb_typeof(${auditLog.detail})`,
   createdAt: auditLog.createdAt,
   chainSeq: auditLog.chainSeq,
   prevHash: auditLog.prevHash,
