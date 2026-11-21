@@ -24,11 +24,13 @@ const GOVERNANCE_PAGE_SIZE = 50;
 const governanceKeys = {
   departments: ['governance', 'departments'] as const,
   budgets: ['governance', 'budgets'] as const,
+  grantsAll: ['governance', 'grants'] as const,
   grants: (resourceKind: ResourceKind, resourceId: string) =>
     ['governance', 'grants', resourceKind, resourceId] as const,
   resources: (resourceKind: ResourceKind, q: string) =>
     ['governance', 'resources', resourceKind, q] as const,
   identities: (q: string) => ['governance', 'identities', q] as const,
+  handoverAll: ['governance', 'handover'] as const,
   handover: (businessId: string) => ['governance', 'handover', businessId] as const,
   cost: (days: number, groupBy: CostGroupBy) => ['governance', 'cost', days, groupBy] as const,
   alerts: ['governance', 'alerts'] as const,
@@ -165,7 +167,7 @@ export function useUpdateDepartment() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: governanceKeys.departments });
       void client.invalidateQueries({ queryKey: governanceKeys.budgets });
-      void client.invalidateQueries({ queryKey: ['governance', 'handover'] });
+      void client.invalidateQueries({ queryKey: governanceKeys.handoverAll });
     },
   });
 }
@@ -177,7 +179,7 @@ export function useDeleteDepartment() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: governanceKeys.departments });
       void client.invalidateQueries({ queryKey: governanceKeys.budgets });
-      void client.invalidateQueries({ queryKey: ['governance', 'handover'] });
+      void client.invalidateQueries({ queryKey: governanceKeys.handoverAll });
     },
   });
 }
@@ -192,7 +194,7 @@ export function useSetDepartmentMembers() {
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: governanceKeys.departments });
-      void client.invalidateQueries({ queryKey: ['governance', 'handover'] });
+      void client.invalidateQueries({ queryKey: governanceKeys.handoverAll });
     },
   });
 }
@@ -218,7 +220,7 @@ export function useUpsertResourceGrant() {
   return useMutation({
     mutationFn: (input: ResourceGrantInput) =>
       rpc.governance.resourceGrants.upsert({ body: input }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['governance', 'grants'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: governanceKeys.grantsAll }),
   });
 }
 
@@ -233,7 +235,7 @@ export function useDeleteResourceGrant() {
           businessId: vars.businessId,
         },
       }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['governance', 'grants'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: governanceKeys.grantsAll }),
   });
 }
 
