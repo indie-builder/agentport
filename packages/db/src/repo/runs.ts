@@ -653,6 +653,41 @@ export async function getApprovalRequest(
   return row ?? null;
 }
 
+export async function expireStaleApprovals(
+  db: DbHandle,
+  now: Date,
+): Promise<
+  Array<{
+    id: string;
+    runId: string | null;
+    serverId: string;
+    toolName: string;
+    conversationId: string | null;
+    channelId: string | null;
+  }>
+> {
+  return db
+    .update(approvalRequests)
+    .set({ expiredAt: now })
+    .where(
+      and(
+        isNull(approvalRequests.approvedAt),
+        isNull(approvalRequests.deniedAt),
+        isNull(approvalRequests.expiredAt),
+        isNotNull(approvalRequests.expiresAt),
+        lte(approvalRequests.expiresAt, now),
+      ),
+    )
+    .returning({
+      id: approvalRequests.id,
+      runId: approvalRequests.runId,
+      serverId: approvalRequests.serverId,
+      toolName: approvalRequests.toolName,
+      conversationId: approvalRequests.conversationId,
+      channelId: approvalRequests.channelId,
+    });
+}
+
 export async function getApprovedToolNames(
   db: Database,
   runId: string,
