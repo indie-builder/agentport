@@ -551,6 +551,9 @@ export async function reprocessDocument(
   if (await repo.knowledge.hasUnpublishedDraft(deps.db, row)) {
     throw new AppError('CONFLICT', '文档存在未发布的草稿，请先发布或放弃草稿后再重解析');
   }
+  if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
+    throw new AppError('CONFLICT', '文档有正在进行的入库任务，请稍后重试');
+  }
   if (row.currentVersionId) {
     const manualChunkCount = await repo.knowledge.countEditedChunks(deps.db, row.currentVersionId);
     if (manualChunkCount > 0 && !body.confirmOverwriteManualChunks) {
