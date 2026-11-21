@@ -41,7 +41,7 @@ export async function reconcileExpiredApprovals(
   return rows.length;
 }
 
-export async function runOpsAlerts(input: {
+async function runOpsAlerts(input: {
   db: ReturnType<typeof createDb>['db'];
   logger: Logger;
   redisUrl: string;
