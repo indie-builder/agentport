@@ -1,6 +1,6 @@
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { sha256Hex } from '@agentport/core';
+import { sha256Hex, visibleDocumentSummary } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import { knowledgeEnqueueOptions } from '@agentport/shared';
@@ -13,8 +13,6 @@ type JobDb = Parameters<typeof repo.knowledge.createJob>[0];
 export type KnowledgeDocumentRow = typeof schema.knowledgeDocuments.$inferSelect;
 
 export function documentWire(row: KnowledgeDocumentRow, tags: string[]) {
-  const summaryActive =
-    row.currentVersionId !== null && row.summaryVersionId === row.currentVersionId;
   return {
     id: row.id,
     baseId: row.baseId,
@@ -30,10 +28,7 @@ export function documentWire(row: KnowledgeDocumentRow, tags: string[]) {
     disabledReason: row.disabledReason,
     sourceConnectionId: row.sourceConnectionId,
     currentVersionId: row.currentVersionId,
-    summary: summaryActive ? row.summary : null,
-    summaryStatus: summaryActive ? row.summaryStatus : ('none' as const),
-    summaryGeneratedAt: summaryActive ? (row.summaryGeneratedAt?.toISOString() ?? null) : null,
-    summaryError: summaryActive ? row.summaryError : null,
+    ...visibleDocumentSummary(row),
     tags,
     lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),

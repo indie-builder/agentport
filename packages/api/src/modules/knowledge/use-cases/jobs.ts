@@ -143,7 +143,12 @@ export async function cancelJob(deps: KnowledgeDeps, row: JobRow) {
       status: 'cancelled',
       error: 'cancelled',
     });
-    if (cancelled) return toJob(cancelled);
+    if (cancelled) {
+      if (cancelled.type === 'summary' && cancelled.documentId !== null) {
+        await repo.knowledge.failDocumentSummary(deps.db, cancelled.documentId, '摘要生成已取消');
+      }
+      return toJob(cancelled);
+    }
     const claimed = await repo.knowledge.getJob(deps.db, row.id);
     if (claimed?.status !== 'running') {
       throw new AppError('CONFLICT', '任务已结束，无法取消');

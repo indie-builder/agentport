@@ -406,6 +406,8 @@ export async function generateDocumentSummary(deps: KnowledgeDeps, documentId: s
     await repo.knowledge.setDocumentSummary(tx, document.id, {
       summaryStatus: 'pending',
       summaryVersionId: versionId,
+      summary: null,
+      summaryGeneratedAt: null,
       summaryError: null,
     });
     return createJob(tx, {

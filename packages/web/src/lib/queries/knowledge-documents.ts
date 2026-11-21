@@ -430,10 +430,12 @@ export function useGenerateKnowledgeDocumentSummary(baseId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (documentId: string) => api.generateKnowledgeDocumentSummary(documentId),
-    onSuccess: (_data, documentId) => {
-      void client.invalidateQueries({ queryKey: knowledgeKeys.document(documentId) });
-      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
-      void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
+    onSuccess: async (_data, documentId) => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: knowledgeKeys.document(documentId) }),
+        client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) }),
+        client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) }),
+      ]);
     },
   });
 }

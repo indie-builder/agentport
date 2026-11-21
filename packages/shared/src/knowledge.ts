@@ -407,6 +407,8 @@ export const knowledgeDocumentSummaryStatusSchema = z.enum([
   'failed',
 ]);
 
+export type KnowledgeDocumentSummaryStatus = z.infer<typeof knowledgeDocumentSummaryStatusSchema>;
+
 export const knowledgeDocumentSchema = z.object({
   id: z.string(),
   baseId: z.string(),

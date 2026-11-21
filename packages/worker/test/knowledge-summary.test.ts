@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { visibleDocumentSummary } from '@agentport/core';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { runKnowledgeSummary, type SummaryQueryFn } from '../src/knowledge/summary.js';
@@ -188,11 +189,18 @@ describe('runKnowledgeSummary', () => {
     );
 
     const row = await repo.knowledge.getDocument(db, seeded.documentId);
-    expect(row?.summary).toBe('这是摘要。');
-    expect(row?.summaryStatus).toBe('ready');
-    expect(row?.summaryVersionId).toBe(seeded.versionId);
-    expect(row?.summaryGeneratedAt).toBeInstanceOf(Date);
-    expect(row?.summaryError).toBeNull();
+    if (!row) throw new Error('document missing');
+    expect(row.summary).toBe('这是摘要。');
+    expect(row.summaryStatus).toBe('ready');
+    expect(row.summaryVersionId).toBe(seeded.versionId);
+    expect(row.summaryGeneratedAt).toBeInstanceOf(Date);
+    expect(row.summaryError).toBeNull();
+    expect(visibleDocumentSummary(row)).toEqual({
+      summary: '这是摘要。',
+      summaryStatus: 'ready',
+      summaryGeneratedAt: expect.any(String),
+      summaryError: null,
+    });
     expect(captured).toHaveLength(1);
     expect(captured[0]?.options).toMatchObject({
       model: 'summary-test-model',
@@ -215,9 +223,17 @@ describe('runKnowledgeSummary', () => {
     ).rejects.toThrow('模型调用失败');
 
     const row = await repo.knowledge.getDocument(db, seeded.documentId);
-    expect(row?.summaryStatus).toBe('failed');
-    expect(row?.summaryVersionId).toBe(seeded.versionId);
-    expect(row?.summaryError).toContain('模型调用失败');
+    if (!row) throw new Error('document missing');
+    expect(row.summaryStatus).toBe('failed');
+    expect(row.summaryVersionId).toBe(seeded.versionId);
+    expect(row.summary).toBeNull();
+    expect(row.summaryGeneratedAt).toBeNull();
+    expect(visibleDocumentSummary(row)).toMatchObject({
+      summary: null,
+      summaryStatus: 'failed',
+      summaryGeneratedAt: null,
+      summaryError: expect.stringContaining('模型调用失败'),
+    });
   });
 
   it('marks the document failed when the summary model is not configured', async () => {
@@ -232,11 +248,15 @@ describe('runKnowledgeSummary', () => {
     ).rejects.toThrow('摘要模型未配置');
 
     const row = await repo.knowledge.getDocument(db, seeded.documentId);
-    expect(row?.summaryStatus).toBe('failed');
-    expect(row?.summaryError).toContain('KNOWLEDGE_SUMMARY_MODEL');
+    if (!row) throw new Error('document missing');
+    expect(visibleDocumentSummary(row)).toMatchObject({
+      summary: null,
+      summaryStatus: 'failed',
+      summaryError: expect.stringContaining('KNOWLEDGE_SUMMARY_MODEL'),
+    });
   });
 
-  it('binds the summary to the generated version when a newer version becomes current', async () => {
+  it('does not expose the previous version summary after the current version changes', async () => {
     const seeded = await makeDocument('旧版本正文。');
     await runKnowledgeSummary(
       await startSummaryJob(seeded.documentId),
@@ -244,6 +264,7 @@ describe('runKnowledgeSummary', () => {
     );
     const document = await repo.knowledge.getDocument(db, seeded.documentId);
     if (!document) throw new Error('document missing');
+    expect(visibleDocumentSummary(document)).toMatchObject({ summary: '旧版本摘要' });
     const next = await repo.knowledge.createVersion(db, {
       documentId: document.id,
       blobSha256: 'c'.repeat(64),
@@ -260,8 +281,64 @@ describe('runKnowledgeSummary', () => {
     await repo.knowledge.setCurrentVersion(db, document.id, next.id);
 
     const row = await repo.knowledge.getDocument(db, seeded.documentId);
-    expect(row?.currentVersionId).toBe(next.id);
-    expect(row?.summaryVersionId).toBe(seeded.versionId);
-    expect(row?.summaryVersionId).not.toBe(row?.currentVersionId);
+    if (!row) throw new Error('document missing');
+    expect(row.currentVersionId).toBe(next.id);
+    expect(row.summaryVersionId).toBe(seeded.versionId);
+    expect(visibleDocumentSummary(row)).toEqual({
+      summary: null,
+      summaryStatus: 'none',
+      summaryGeneratedAt: null,
+      summaryError: null,
+    });
+  });
+
+  it('drops the old summary text when the new version starts pending or fails', async () => {
+    const seeded = await makeDocument('旧版本正文。');
+    await runKnowledgeSummary(
+      await startSummaryJob(seeded.documentId),
+      deps(successQuery('旧版本摘要', [])),
+    );
+    const document = await repo.knowledge.getDocument(db, seeded.documentId);
+    if (!document) throw new Error('document missing');
+    const next = await repo.knowledge.createVersion(db, {
+      documentId: document.id,
+      blobSha256: 'e'.repeat(64),
+      markdownSha256: 'f'.repeat(64),
+      originalFilename: 'summary.md',
+      mimeType: 'text/markdown',
+      sizeBytes: 6,
+      sourceRevision: null,
+      parseStatus: 'parsed',
+      pageMap: [],
+      images: [],
+      embeddingProfileId: seeded.profileId,
+    });
+    await repo.knowledge.setCurrentVersion(db, document.id, next.id);
+
+    await repo.knowledge.setDocumentSummary(db, document.id, {
+      summaryStatus: 'pending',
+      summaryVersionId: next.id,
+      summary: null,
+      summaryGeneratedAt: null,
+      summaryError: null,
+    });
+    const pending = await repo.knowledge.getDocument(db, seeded.documentId);
+    if (!pending) throw new Error('document missing');
+    expect(visibleDocumentSummary(pending)).toEqual({
+      summary: null,
+      summaryStatus: 'pending',
+      summaryGeneratedAt: null,
+      summaryError: null,
+    });
+
+    await repo.knowledge.failDocumentSummary(db, document.id, '新版本生成失败');
+    const failed = await repo.knowledge.getDocument(db, seeded.documentId);
+    if (!failed) throw new Error('document missing');
+    expect(visibleDocumentSummary(failed)).toMatchObject({
+      summary: null,
+      summaryStatus: 'failed',
+      summaryGeneratedAt: null,
+      summaryError: '新版本生成失败',
+    });
   });
 });

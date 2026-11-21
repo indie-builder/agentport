@@ -164,6 +164,7 @@ export function DocumentViewer({
     (audioMetadata?.success !== true || audioMetadata.data.segments.length === 0);
   const summaryBusy =
     document.summaryStatus === 'pending' || document.summaryStatus === 'generating';
+  const summaryVersion = versionId !== null && versionId === document.currentVersionId;
 
   return (
     <>
@@ -344,7 +345,7 @@ export function DocumentViewer({
                 </a>
               ) : null}
 
-              {isCurrent ? (
+              {summaryVersion ? (
                 <PageSection title="摘要">
                   {document.summaryStatus === 'pending' ||
                   document.summaryStatus === 'generating' ? (

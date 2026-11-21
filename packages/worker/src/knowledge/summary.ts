@@ -59,6 +59,8 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
     await repo.knowledge.setDocumentSummary(db, document.id, {
       summaryStatus: 'failed',
       summaryVersionId: versionId,
+      summary: null,
+      summaryGeneratedAt: null,
       summaryError: message,
     });
     throw new Error(message);
@@ -73,6 +75,8 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
   await repo.knowledge.setDocumentSummary(db, document.id, {
     summaryStatus: 'generating',
     summaryVersionId: versionId,
+    summary: null,
+    summaryGeneratedAt: null,
     summaryError: null,
   });
 
@@ -118,6 +122,8 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
         .setDocumentSummary(db, document.id, {
           summaryStatus: 'failed',
           summaryVersionId: versionId,
+          summary: null,
+          summaryGeneratedAt: null,
           summaryError: '摘要生成已取消',
         })
         .catch(() => undefined);
@@ -127,6 +133,8 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
       .setDocumentSummary(db, document.id, {
         summaryStatus: 'failed',
         summaryVersionId: versionId,
+        summary: null,
+        summaryGeneratedAt: null,
         summaryError: errorText(err).slice(0, 500),
       })
       .catch(() => undefined);

@@ -159,6 +159,26 @@ export async function setDocumentSummary(
   return row ?? null;
 }
 
+export async function failDocumentSummary(
+  db: DbHandle,
+  documentId: string,
+  message: string,
+): Promise<void> {
+  const [document] = await db
+    .select()
+    .from(knowledgeDocuments)
+    .where(eq(knowledgeDocuments.id, documentId))
+    .limit(1);
+  if (!document) return;
+  await setDocumentSummary(db, documentId, {
+    summaryStatus: 'failed',
+    summaryVersionId: document.summaryVersionId ?? document.currentVersionId,
+    summary: null,
+    summaryGeneratedAt: null,
+    summaryError: message,
+  });
+}
+
 export async function settleProcessingDocument(db: Database, documentId: string): Promise<void> {
   await db
     .update(knowledgeDocuments)
