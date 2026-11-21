@@ -880,14 +880,23 @@ interface SandboxProvider {
 | 队列 | 用途 | 并发 | 重试 |
 |---|---|---|---|
 | `agent-runs` | 一次对话运行 | `AGENT_MAX_CONCURRENT`（默认 2） | `attempts: 2` + 指数退避；业务失败不重试 |
-| `maintenance` | 版本/运行/孤立消息/频道消息清理 | 1 | 每日 repeatable job |
+| `eval-runs` | 评估跑批 | 1 | 不自动重试 |
+| `knowledge-jobs` | 知识摄取、同步、清理与重建 | 2 | `attempts: 3` + 指数退避 |
+| `knowledge-sync-triggers` | 定时同步轻触发（只带 sourceId） | 1 | `attempts: 3` + 指数退避 |
+| `schedule-triggers` | 定时任务触发 | 1 | `attempts: 3` + 指数退避 |
+| `runtime-environment-builds` | 命名运行环境构建 | 1 | 不自动重试 |
+| `sandbox-probes` | stdio MCP server 连接测试 | `AGENT_MAX_CONCURRENT`（默认 2） | 不自动重试 |
+| `native-plugins` | 原生插件安装与读取 | 1 | 不自动重试 |
+| `maintenance` | 版本/运行/孤立消息/频道消息清理与运维告警 | 1 | 每日与周期 repeatable job |
+| `data-domain-builds` | 数据域版本构建 | 1 | 不自动重试 |
+| `data-domain-enrichments` | 数据域 enrich 提案 | 1 | 不自动重试 |
 
-「测试连接」在 API 进程内直接执行（5 秒超时），不走队列。
+stdio MCP server 的「测试连接」由 API 投递到 `sandbox-probes` 队列、worker 在一次性沙盒内执行：5 秒超时按单个 MCP 请求计，`connect()` 先启动 transport 再完成初始化握手；`listTools()` 不带 cursor 时自动翻页聚合，每一页各有自己的 5 秒，因此整个调用可能超过 5 秒。worker 侧另有两个预算：最多等 10 秒让沙盒启动，再最多等 10 秒拿回执行结果。API 最多等待 25 秒拿队列结果，这是队列等待预算；拿到结果或超时后关闭队列与 Redis 连接，完成资源清理。http / generated 连接仍在 API 进程内执行。
 
 要点：
 
-- Job id 使用 `runId`，天然幂等。
-- 每个 job 带 `agentId / conversationId / runId`，日志与审计统一按 `runId` 关联。
+- `agent-runs` 的 job id 使用 `runId`；同一队列内相同 `jobId` 只在对应 job 仍存在时去重，job 被移除后同一 ID 可以再次入队。`eval-runs` 的 payload 与 job id 都使用 `evalRunId`。
+- `agent-runs` 的每个 job 带 `agentId / conversationId / runId`，日志与审计统一按 `runId` 关联；`eval-runs` 只带 `evalRunId`。
 - `agent-runs` 的 worker 与 API 分开部署（同一镜像、不同入口），可以独立扩缩容。
 - 取消用 `job.remove()` + 通过 Redis pub/sub 通知 worker 终止子进程（SDK 的 `abortController`）。
 

@@ -30,6 +30,7 @@ export * from './params.js';
 export * from './personal.js';
 export * from './plugin.js';
 export * from './questions.js';
+export * from './queue-registry.js';
 export * from './redact.js';
 export * from './run-feedback.js';
 export * from './run-state.js';

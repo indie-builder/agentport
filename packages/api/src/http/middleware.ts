@@ -1,12 +1,9 @@
 import type { RouteAccess } from '@agentport/contract/access';
 import type { MiddlewareHandler } from 'hono';
+import { assertNever } from '../lib/assert-never.js';
 import { authenticate } from '../modules/auth/session.js';
 import { requirePermission, requireUser } from './access.js';
 import type { HttpEnv, RequestContext } from './context.js';
-
-function assertNever(value: never): never {
-  throw new Error(`unhandled access kind: ${JSON.stringify(value)}`);
-}
 
 export async function enforceAccess(context: RequestContext, access: RouteAccess): Promise<void> {
   switch (access.kind) {

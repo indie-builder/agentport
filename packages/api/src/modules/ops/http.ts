@@ -5,28 +5,16 @@ import { type Context, Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import type { AppContext, HttpEnv } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
-import {
-  getEvalQueue,
-  getKnowledgeQueue,
-  getMonitoringQueues,
-  getQueue,
-  getRuntimeEnvironmentBuildQueue,
-} from '../../queue/producer.js';
-import { getScheduleQueue } from './schedule-sync.js';
+import { getQueues } from '../../queue/catalog.js';
 
 const BASE_PATH = '/api/ops/queues';
 
 function createBoard(context: AppContext): Hono<HttpEnv> {
   const serverAdapter = new HonoAdapter(serveStatic).setBasePath(BASE_PATH);
   createBullBoard({
-    queues: [
-      getQueue(),
-      getEvalQueue(),
-      getKnowledgeQueue(),
-      getRuntimeEnvironmentBuildQueue(),
-      getScheduleQueue(context.config.REDIS_URL),
-      ...getMonitoringQueues(),
-    ].map((queue) => new BullMQAdapter(queue, { readOnlyMode: true })),
+    queues: getQueues(context.config.REDIS_URL).map(
+      (queue) => new BullMQAdapter(queue, { readOnlyMode: true }),
+    ),
     serverAdapter,
   });
   return new Hono<HttpEnv>({ strict: false })

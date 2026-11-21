@@ -14,16 +14,16 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { SCHEDULE_TRIGGERS_QUEUE, type ScheduleTriggerJob } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
-import * as scheduleSyncModule from '../src/modules/ops/schedule-sync.js';
+import * as scheduleQueueModule from '../src/queue/schedule.js';
 
-const realScheduleSync = { ...scheduleSyncModule };
+const realScheduleQueue = { ...scheduleQueueModule };
 
 const state = {
   queue: undefined as unknown as Queue<ScheduleTriggerJob>,
 };
 
-mock.module('../src/modules/ops/schedule-sync.js', () => ({
-  ...realScheduleSync,
+mock.module('../src/queue/schedule.js', () => ({
+  ...realScheduleQueue,
   getScheduleQueue: () => state.queue,
 }));
 
