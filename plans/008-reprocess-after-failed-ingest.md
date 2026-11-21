@@ -70,17 +70,15 @@
 | 构建共享包 | `bun run --filter @agentport/shared --filter @agentport/contract --filter @agentport/db --filter @agentport/core build` | exit 0 |
 | 类型检查 | `bun run --filter @agentport/db typecheck`、`--filter @agentport/api typecheck` | exit 0 |
 | 后端套件 | `bun run test -- packages/api/test/knowledge-publishing-integration.test.ts` | 全绿 |
-| e2e | `bun run test:e2e -- tests/knowledge.e2e.ts` | 全绿 |
 | 格式 | `bunx biome check packages/db/src/repo/knowledge/versions.ts packages/api/src/modules/knowledge/use-cases/documents.ts` | 0 error |
 
-> 后端测试需要 Docker PostgreSQL/Redis；e2e 需要栈（见 `docs/OPERATIONS.md`）。
+> 后端测试需要 Docker PostgreSQL/Redis（见 `docs/OPERATIONS.md`）。
 
 ## Scope
 
 **In scope**
 - `packages/db/src/repo/knowledge/versions.ts`
 - `packages/api/src/modules/knowledge/use-cases/documents.ts`
-- `tests/knowledge.e2e.ts`（只加一个系统级回归用例）
 
 **Out of scope**
 - `packages/worker/src/knowledge/ingestion.ts` 的重解析流程。
@@ -134,22 +132,9 @@ if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
 - `bun run test -- packages/api/test/knowledge-publishing-integration.test.ts` → 全绿，尤其是 `:1494` 附近的成功重解析用例。
 - `bun run test -- packages/api/test/knowledge-management-routes.test.ts` → 全绿。
 
-### Step 4: 系统级回归用例
-
-在 `tests/knowledge.e2e.ts` 增加一个用例，模型参考同文件已有的上传 → 轮询 → 操作流程：
-
-1. 创建/使用一个测试知识库。
-2. 上传一个会让首次 ingest 失败的文件（复用现有夹具里已知解析失败的格式；若没有，使用一个内容损坏但声明为受支持 MIME 的文件）。
-3. 轮询 `/api/knowledge/jobs/{id}` 直到 `status === 'failed'`。
-4. 断言文档 `currentVersionId === null`。
-5. `POST /api/knowledge/documents/{id}/reprocess` → 断言 **202** 且返回 `jobId`（修复前为 409）。
-6. 清理测试数据。
-
-**Verify**: `bun run test:e2e -- tests/knowledge.e2e.ts` → 全绿，新用例通过。
-
 ## Test plan
 
-- 受影响路径是 `createManualDocument` 创建的 `sourceType='manual'` 文档（text/markdown，`publish: 'draft'`）。当前 e2e 夹具只能通过上传路径（`sourceType='upload'`）制造首次入库失败，而该路径不受被移除的谓词覆盖，无法构成回归证据。因此不新增 manual 路径的自动化回归用例；覆盖依赖既有 `knowledge-publishing-integration.test.ts` 的草稿保护用例，以及改动谓词的 typecheck。
+- 受影响路径是 `createManualDocument` 创建的 `sourceType='manual'` 文档（text/markdown，`publish: 'draft'`）。既有 `knowledge-publishing-integration.test.ts` 的重解析用例针对的是一条已有版本的声音上传（audio upload），不覆盖被移除的 manual 首轮失败放行路径。因此 manual 路径没有自动化回归用例，覆盖依赖 typecheck 与既有套件。
 - 既有 `knowledge-publishing-integration.test.ts` 的成功重解析与草稿拦截用例必须保持通过，证明没有放宽真实的草稿保护。
 
 ## Done criteria
@@ -165,7 +150,6 @@ if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
 
 - `hasUnpublishedDraft` 或 `reprocessDocument` 与「Current state」摘录不符。
 - 发现除 `reprocessDocument` 外还有用户可触发、绕过它的重解析入口。
-- e2e 夹具无法制造「失败且无版本」的首轮入库。
 - 收紧语义后，`knowledge-publishing-integration.test.ts` 中某个期望 409 的用例开始 202；这说明某个合法草稿场景被误放行，先报告，不要改断言。
 
 ## Maintenance notes

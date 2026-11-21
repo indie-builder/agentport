@@ -686,7 +686,8 @@ export function DocumentsTab({
                                 <FolderOpen /> 移动 / 标注
                               </DropdownMenuItem>
                             ) : null}
-                            {caps.execute && document.currentVersionId !== null ? (
+                            {caps.execute &&
+                            (document.currentVersionId !== null || document.status === 'failed') ? (
                               <DropdownMenuItem onSelect={() => setConfirmReprocess(document)}>
                                 <RefreshCw /> 重新解析
                               </DropdownMenuItem>

@@ -324,9 +324,6 @@ export async function batchDocuments(
         await deleteDocument(deps, document.id);
         results.push({ documentId, status: 'succeeded' });
       } else {
-        if (!document.currentVersionId) {
-          throw new AppError('CONFLICT', '文档还没有成功解析的版本');
-        }
         const job = await reprocessDocument(deps, document.id, {
           confirmOverwriteManualChunks: input.confirmOverwriteManualChunks,
         });

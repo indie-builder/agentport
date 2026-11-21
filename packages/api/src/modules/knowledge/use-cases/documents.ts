@@ -563,17 +563,35 @@ export async function reprocessDocument(
       );
     }
   }
-  const job = await enqueue(
-    deps,
-    {
+  const firstManualIngest =
+    row.sourceType === 'manual' && row.contentKind === 'document' && row.currentVersionId === null;
+  let payload: Parameters<typeof enqueue>[1];
+  if (firstManualIngest) {
+    const filename = row.metadata.originalFilename;
+    if (row.contentHash === null || typeof filename !== 'string') {
+      throw new AppError('CONFLICT', '文档缺少原始内容，无法重解析；请删除后重新上传');
+    }
+    payload = {
+      type: 'ingest',
+      documentId: row.id,
+      publish: 'draft',
+      input: {
+        blobSha256: row.contentHash,
+        filename,
+        mimeType: row.mimeType,
+        expectedCurrentVersionId: null,
+      },
+    };
+  } else {
+    payload = {
       type: 'reindex',
       baseId: row.baseId,
       documentIds: [row.id],
       chunksOnly: false,
       confirmOverwriteManualChunks: body.confirmOverwriteManualChunks,
-    },
-    { baseId: row.baseId, documentId: row.id },
-  );
+    };
+  }
+  const job = await enqueue(deps, payload, { baseId: row.baseId, documentId: row.id });
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.document.reprocessed',

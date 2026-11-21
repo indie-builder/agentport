@@ -553,7 +553,7 @@ describe('knowledge document to jobs recovery', () => {
     const router = await mount('/knowledge/kb_1');
 
     await openMenu('操作 导入失败');
-    expect(menuLabels().some((label) => label.includes('重新解析'))).toBe(false);
+    expect(menuLabels().some((label) => label.includes('重新解析'))).toBe(true);
     await chooseMenuItem('查看处理记录');
 
     await waitFor(() => router.state.location.search.panel === 'jobs');
