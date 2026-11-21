@@ -8,6 +8,7 @@ import type {
 } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type NativePlugins } from '../api.js';
+import { AGENTS_QUERY_KEY } from './agents.js';
 
 const pluginsQuery = queryOptions<PluginWithAgentCount[]>({
   queryKey: ['plugins'],
@@ -88,7 +89,7 @@ export function useDeletePlugin() {
     mutationFn: (id: string) => api.deletePlugin(id),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['plugins'] });
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
     },
   });
 }

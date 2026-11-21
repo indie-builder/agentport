@@ -9,6 +9,8 @@ import {
   type RoleMatrix,
   type RoleMatrixInput,
 } from '../api.js';
+import { AGENTS_QUERY_KEY } from './agents.js';
+import { ME_QUERY_KEY } from './shared.js';
 
 export const accountQuery = (query: { q: string; limit: number; offset: number }) =>
   queryOptions<AccountPage>({
@@ -70,7 +72,7 @@ export function useUpdateAccount() {
       api.updateAccount(vars.businessId, vars.input),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['accounts'] });
-      void client.invalidateQueries({ queryKey: ['me'] });
+      void client.invalidateQueries({ queryKey: ME_QUERY_KEY });
     },
   });
 }
@@ -106,7 +108,7 @@ export function useSetAccountRoles() {
       api.setAccountRoles(vars.businessId, vars.roleIds),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['accounts'] });
-      void client.invalidateQueries({ queryKey: ['me'] });
+      void client.invalidateQueries({ queryKey: ME_QUERY_KEY });
     },
   });
 }
@@ -117,8 +119,8 @@ export function useSaveRoleMatrix() {
     mutationFn: (input: RoleMatrixInput) => api.saveRoles(input),
     onSuccess: (matrix) => {
       client.setQueryData(roleMatrixQuery.queryKey, matrix);
-      void client.invalidateQueries({ queryKey: ['me'] });
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: ME_QUERY_KEY });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
     },
   });
 }

@@ -14,8 +14,10 @@ export const queryClient = new QueryClient({
   },
 });
 
+export const ME_QUERY_KEY = ['me'] as const;
+
 export const meQuery = queryOptions<AuthMe>({
-  queryKey: ['me'],
+  queryKey: ME_QUERY_KEY,
   queryFn: async () => {
     const identity = await api.me();
     if (identity.authenticated) {

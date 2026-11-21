@@ -8,6 +8,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import { ApiError, api } from '../api.js';
 import { toast, toastError, toastSuccess } from '../toast.js';
 import { useDebouncedValue } from '../use-debounced-value.js';
+import { AGENT_OPTIONS_QUERY_KEY, AGENTS_QUERY_KEY } from './agents.js';
 
 const skillsQuery = queryOptions<SkillWithAgentCount[]>({
   queryKey: ['skills'],
@@ -90,7 +91,7 @@ export function useSubmitSkill() {
     mutationFn: (id: string) => api.submitSkill(id),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['skills'] });
-      void client.invalidateQueries({ queryKey: ['agent-options'] });
+      void client.invalidateQueries({ queryKey: AGENT_OPTIONS_QUERY_KEY });
     },
   });
 }
@@ -101,7 +102,7 @@ export function useApproveSkill() {
     mutationFn: (id: string) => api.approveSkill(id),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['skills'] });
-      void client.invalidateQueries({ queryKey: ['agent-options'] });
+      void client.invalidateQueries({ queryKey: AGENT_OPTIONS_QUERY_KEY });
     },
   });
 }
@@ -112,7 +113,7 @@ export function useRejectSkill() {
     mutationFn: (vars: { id: string; note: string }) => api.rejectSkill(vars.id, vars.note),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['skills'] });
-      void client.invalidateQueries({ queryKey: ['agent-options'] });
+      void client.invalidateQueries({ queryKey: AGENT_OPTIONS_QUERY_KEY });
     },
   });
 }
@@ -123,7 +124,7 @@ export function useDeleteSkill() {
     mutationFn: (id: string) => api.deleteSkill(id),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['skills'] });
-      void client.invalidateQueries({ queryKey: ['agents'] });
+      void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
     },
   });
 }
