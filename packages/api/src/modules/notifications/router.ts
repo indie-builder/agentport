@@ -4,7 +4,7 @@ import { repo } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 
 const notificationsRepo = repo.notifications;
@@ -30,7 +30,7 @@ export const notificationsRouter = os.router({
       await notificationsRepo.listNotifications(context.db, {
         businessId,
         unreadOnly: input.query.unreadOnly,
-        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        ...cursorOption(input.query.cursor),
         limit: input.query.limit,
       }),
     );

@@ -2,7 +2,7 @@ import { AppError } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
-import { requireCursorPage } from '../../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../../http/pagination.js';
 import { type KnowledgeDeps, notFound } from './shared.js';
 
 type FolderRow = NonNullable<
@@ -34,7 +34,7 @@ export async function listFolders(deps: KnowledgeDeps, id: string) {
     const page = requireCursorPage(
       await repo.knowledge.listFolders(deps.db, id, {
         limit: 200,
-        ...(cursor === undefined ? {} : { cursor }),
+        ...cursorOption(cursor),
       }),
     );
     folders.push(...page.items);

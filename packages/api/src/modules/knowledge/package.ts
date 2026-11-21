@@ -36,7 +36,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { zipSync } from 'fflate';
 import { z } from 'zod';
 import { isPgCode } from '../../http/errors.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import {
   assertPackagePath,
   decodeZipEntries,
@@ -466,9 +466,7 @@ async function collectPages<T extends { id: string }>(
   const items: T[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const page = requireCursorPage(
-      await fetchPage({ limit: 200, ...(cursor === undefined ? {} : { cursor }) }),
-    );
+    const page = requireCursorPage(await fetchPage({ limit: 200, ...cursorOption(cursor) }));
     items.push(...page.items);
     if (page.nextCursor === null || page.nextCursor === cursor) return items;
     cursor = page.nextCursor;

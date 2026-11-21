@@ -7,7 +7,7 @@ import type { Logger } from 'pino';
 import type { Config } from '../../../config.js';
 import { actorOf, requireUser } from '../../../http/access.js';
 import type { RequestContext } from '../../../http/context.js';
-import { requireCursorPage } from '../../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../../http/pagination.js';
 import {
   createJob,
   enqueueKnowledgeJobAfterCommit,
@@ -34,8 +34,6 @@ export function depsOf(context: RequestContext): KnowledgeDeps {
   };
 }
 
-export type PageQuery = { cursor?: string | undefined; limit?: number | undefined };
-
 export type DocumentRow = KnowledgeDocumentRow;
 
 export type VersionRow = typeof schema.knowledgeDocumentVersions.$inferSelect;
@@ -46,13 +44,6 @@ export function assertBodyBytes(value: string, limit: number): void {
   if (Buffer.byteLength(value, 'utf8') > limit) {
     throw new AppError('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试');
   }
-}
-
-export function pageOptions(query: PageQuery): { cursor?: string; limit?: number } {
-  return {
-    ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
-    ...(query.limit === undefined ? {} : { limit: query.limit }),
-  };
 }
 
 export function notFoundMessage(what: string): string {
@@ -75,7 +66,7 @@ export async function collectChunks(db: Database, versionId: string): Promise<Fu
     const page = requireCursorPage(
       await repo.knowledge.listChunks(db, versionId, {
         limit: 200,
-        ...(cursor === undefined ? {} : { cursor }),
+        ...cursorOption(cursor),
       }),
     );
     items.push(...page.items);

@@ -11,7 +11,7 @@ import {
   resourceAccessFilter,
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { requestRuntimeEnvironmentBuild } from './use-cases.js';
 
 const os = implement(runtimeEnvironmentsContract).$context<RequestContext>();
@@ -53,7 +53,7 @@ export const runtimeEnvironmentsRouter = os.router({
     return requireCursorPage(
       await envs.listRuntimeEnvironmentPage(context.db, {
         access,
-        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        ...cursorOption(input.query.cursor),
         limit: input.query.limit,
       }),
     );

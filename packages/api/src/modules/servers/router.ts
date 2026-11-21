@@ -26,7 +26,7 @@ import {
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode, rethrowConflict } from '../../http/errors.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { checkOutboundToolArgs } from '../security/outbound-policy.js';
 import { connectorCatalog } from './connector-catalog-data.js';
 import { buildGeneratedServer } from './generated.js';
@@ -79,7 +79,7 @@ export const serversRouter = os.router({
     return requireCursorPage(
       await repo.listServerPage(context.db, context.config.APP_SECRET_KEY, {
         access,
-        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        ...cursorOption(input.query.cursor),
         limit: input.query.limit,
       }),
     );

@@ -5,7 +5,7 @@ import { utcWindowStart } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 import { auditShareRevoked, toOutputShare } from '../output-shares/router.js';
 import { collectPersonalOutputs } from '../search/outputs.js';
@@ -20,7 +20,7 @@ export const personalRouter = os.router({
     const page = requireCursorPage(
       await repo.outputShares.listActiveOwnedBy(context.db, {
         businessId: requireUser(context).businessId,
-        ...(cursor === undefined ? {} : { cursor }),
+        ...cursorOption(cursor),
         limit,
       }),
     );
@@ -80,7 +80,7 @@ export const personalRouter = os.router({
         ...(agentId === undefined ? {} : { agentId }),
         ...(status === undefined ? {} : { status }),
         ...(trigger === undefined ? {} : { trigger }),
-        ...(cursor === undefined ? {} : { cursor }),
+        ...cursorOption(cursor),
         limit,
       }),
     );
@@ -136,7 +136,7 @@ export const personalRouter = os.router({
     const page = requireCursorPage(
       await repo.chat.listConversations(context.db, {
         ...(agentId === undefined ? {} : { agentId }),
-        ...(cursor === undefined ? {} : { cursor }),
+        ...cursorOption(cursor),
         limit,
         access: { businessId: requireUser(context).businessId, scopes: ['own_data'] },
       }),

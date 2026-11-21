@@ -6,7 +6,7 @@ import { implement } from '@orpc/server';
 import { and, eq } from 'drizzle-orm';
 import { authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { requireAgentSlug } from '../../lib/outputs.js';
 import { writeMemoryTarget } from './changes.js';
 import { buildMemoryAssembly, buildMemoryOverview, countMemoryTopics } from './overview.js';
@@ -37,7 +37,7 @@ export const memoryRouter = os.router({
     const { limit, cursor } = input.query;
     return listPersonalMemoryVersions(context.db, requireUser(context).businessId, {
       limit,
-      ...(cursor === undefined ? {} : { cursor }),
+      ...cursorOption(cursor),
     });
   }),
   agentFileVersions: os.agentFileVersions.handler(async ({ input, context }) => {
@@ -56,7 +56,7 @@ export const memoryRouter = os.router({
         name: input.params.name,
         includeIndexChanges: input.params.name === INDEX_FILE_NAME,
         limit,
-        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        ...cursorOption(input.query.cursor),
       }),
     );
     return {
@@ -79,7 +79,7 @@ export const memoryRouter = os.router({
         kind: 'agent_rule',
         slug: input.params.slug,
         limit,
-        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        ...cursorOption(input.query.cursor),
       }),
     );
     return {

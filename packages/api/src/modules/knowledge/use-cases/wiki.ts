@@ -3,9 +3,9 @@ import { type Database, repo, schema } from '@agentport/db';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { z } from 'zod';
-import { requireCursorPage } from '../../../http/pagination.js';
+import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
 import { createJob, enqueueKnowledgeJobAfterCommit, storeBlob } from '../service.js';
-import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
+import { type KnowledgeDeps, notFound } from './shared.js';
 
 type WikiPageRow = typeof schema.knowledgeWikiPages.$inferSelect;
 

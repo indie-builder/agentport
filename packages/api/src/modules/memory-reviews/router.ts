@@ -21,7 +21,7 @@ import { implement } from '@orpc/server';
 import { actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { requireAgentSlug } from '../../lib/outputs.js';
 import { listMemoryFiles } from '../agents/memory-files.js';
 import {
@@ -529,7 +529,7 @@ export const memoryReviewsRouter = os.router({
         limit,
         ...(conversationId === undefined ? {} : { conversationId }),
         ...(agentId === undefined ? {} : { agentId }),
-        ...(cursor === undefined ? {} : { cursor }),
+        ...cursorOption(cursor),
       }),
     );
     const items = await Promise.all(

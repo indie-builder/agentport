@@ -10,7 +10,7 @@ import {
   resourceAccessFilter,
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import {
   deleteDataDomainServer,
   enqueueDataDomainBuild,
@@ -346,7 +346,7 @@ export const dataDomainsRouter = os.router({
       await domains.listDataDomainQueryLogs(context.db, {
         dataDomainId: input.params.id,
         limit,
-        ...(cursor === undefined ? {} : { cursor }),
+        ...cursorOption(cursor),
         ...(status === undefined ? {} : { status }),
         ...(runId === undefined ? {} : { runId }),
       }),
@@ -362,7 +362,7 @@ export const dataDomainsRouter = os.router({
       await domains.listDataDomainQueryApprovals(context.db, {
         dataDomainId: input.params.id,
         limit,
-        ...(cursor === undefined ? {} : { cursor }),
+        ...cursorOption(cursor),
         ...(status === undefined ? {} : { status }),
       }),
     );

@@ -19,7 +19,12 @@ import {
 import { and, eq } from 'drizzle-orm';
 import type { Config } from '../../../config.js';
 import { isPgCode } from '../../../http/errors.js';
-import { invalidCursor, requireCursorPage } from '../../../http/pagination.js';
+import {
+  invalidCursor,
+  type PageQuery,
+  pageOptions,
+  requireCursorPage,
+} from '../../../http/pagination.js';
 import { createJob, documentWire, enqueueKnowledgeJobAfterCommit, storeBlob } from '../service.js';
 import { getVersionMarkdown } from './binary.js';
 import {
@@ -31,8 +36,6 @@ import {
   fileTitle,
   type KnowledgeDeps,
   notFound,
-  type PageQuery,
-  pageOptions,
   type VersionRow,
 } from './shared.js';
 

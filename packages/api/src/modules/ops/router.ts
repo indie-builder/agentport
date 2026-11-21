@@ -11,7 +11,7 @@ import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
 import { toIso } from '../../lib/iso.js';
 import { getQueue } from '../../queue/producer.js';
@@ -145,7 +145,7 @@ export const opsRouter = os.router({
       const page = requireCursorPage(
         await opsRepo.listSchedules(context.db, {
           access: accessFilter(context, 'schedules.read'),
-          ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+          ...cursorOption(input.query.cursor),
           limit: input.query.limit,
         }),
       );

@@ -21,7 +21,7 @@ import { actorOf, authorize, authorizeObject, requireUser } from '../../http/acc
 import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { beginSse } from '../../http/sse.js';
 import { getQueue, type RunSubscription, subscribeChannel } from '../../queue/producer.js';
 import { runQueueHasCapacity } from '../runs/capacity.js';
@@ -169,7 +169,7 @@ const channelsMainRouter = {
   list: os.list.handler(async ({ input, context }) => {
     const page = requireCursorPage(
       await channelRepo.listChannels(context.db, subjectFor(context), {
-        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        ...cursorOption(input.query.cursor),
         limit: input.query.limit,
       }),
     );
