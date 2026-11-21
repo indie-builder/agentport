@@ -1,5 +1,5 @@
 import { runtimeEnvironmentsContract } from '@agentport/contract/runtime-environments';
-import { fail } from '@agentport/core';
+import { fail, NOT_FOUND_MESSAGES } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { PermissionId, ResourceAccessLevel } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -17,9 +17,6 @@ import { requestRuntimeEnvironmentBuild } from './use-cases.js';
 const os = implement(runtimeEnvironmentsContract).$context<RequestContext>();
 const envs = repo.runtimeEnvironments;
 
-const notFoundMessage = '运行环境不存在，可能已被删除；请刷新后重试';
-const versionNotFoundMessage = '该构建版本不存在，可能已被清理；请刷新版本列表';
-
 async function authorizedEnvironment(
   context: RequestContext,
   id: string,
@@ -27,7 +24,7 @@ async function authorizedEnvironment(
   level: ResourceAccessLevel,
 ): Promise<repo.runtimeEnvironments.RuntimeEnvironmentRow> {
   const row = await envs.getRuntimeEnvironmentRow(context.db, id);
-  if (!row) fail('NOT_FOUND', notFoundMessage);
+  if (!row) fail('NOT_FOUND', NOT_FOUND_MESSAGES.runtimeEnvironment);
   await authorizeResourceAccess(
     context,
     permissionId,
@@ -37,7 +34,7 @@ async function authorizedEnvironment(
       ownerBusinessId: row.ownerBusinessId,
       level,
     },
-    notFoundMessage,
+    NOT_FOUND_MESSAGES.runtimeEnvironment,
   );
   return row;
 }
@@ -90,7 +87,7 @@ export const runtimeEnvironmentsRouter = os.router({
   update: os.update.handler(async ({ input, context }) => {
     await authorizedEnvironment(context, input.params.id, 'runtime_environments.update', 'manage');
     const env = await envs.updateRuntimeEnvironment(context.db, input.params.id, input.body);
-    if (!env) fail('NOT_FOUND', notFoundMessage);
+    if (!env) fail('NOT_FOUND', NOT_FOUND_MESSAGES.runtimeEnvironment);
     await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'runtime_environment.updated',
@@ -105,7 +102,7 @@ export const runtimeEnvironmentsRouter = os.router({
   remove: os.remove.handler(async ({ input, context }) => {
     await authorizedEnvironment(context, input.params.id, 'runtime_environments.delete', 'manage');
     const ok = await envs.deleteRuntimeEnvironment(context.db, input.params.id);
-    if (!ok) fail('NOT_FOUND', notFoundMessage);
+    if (!ok) fail('NOT_FOUND', NOT_FOUND_MESSAGES.runtimeEnvironment);
     await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'runtime_environment.deleted',
@@ -129,7 +126,7 @@ export const runtimeEnvironmentsRouter = os.router({
       context.log,
       input.params.id,
     );
-    if (!version) fail('NOT_FOUND', notFoundMessage);
+    if (!version) fail('NOT_FOUND', NOT_FOUND_MESSAGES.runtimeEnvironment);
     await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'runtime_environment.build.requested',
@@ -148,7 +145,7 @@ export const runtimeEnvironmentsRouter = os.router({
       input.params.id,
       input.params.versionId,
     );
-    if (!version) fail('NOT_FOUND', versionNotFoundMessage);
+    if (!version) fail('NOT_FOUND', NOT_FOUND_MESSAGES.runtimeEnvironmentVersion);
     return version;
   }),
 
@@ -159,7 +156,7 @@ export const runtimeEnvironmentsRouter = os.router({
       input.params.id,
       input.body.versionId,
     );
-    if (!env) fail('NOT_FOUND', notFoundMessage);
+    if (!env) fail('NOT_FOUND', NOT_FOUND_MESSAGES.runtimeEnvironment);
     await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'runtime_environment.published',

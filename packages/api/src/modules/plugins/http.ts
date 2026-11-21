@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { fail, NOT_FOUND_MESSAGES } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { idParams, PLUGIN_ZIP_MAX_BYTES, slugSchema } from '@agentport/shared';
 import type { Hono } from 'hono';
@@ -79,12 +79,12 @@ export function registerPluginsHttp(app: Hono<HttpEnv>): void {
       const context = requestContext(c);
       const { id } = idParams.parse(c.req.param());
       const row = await repo.plugins.getPlugin(context.db, id);
-      if (!row) fail('NOT_FOUND', '插件不存在，可能已被删除；请刷新后重试');
+      if (!row) fail('NOT_FOUND', NOT_FOUND_MESSAGES.plugin);
       await authorizeResourceAccess(
         context,
         'plugins.export',
         { kind: 'plugin', resourceId: row.id, ownerBusinessId: row.ownerBusinessId, level: 'read' },
-        '插件不存在，可能已被删除；请刷新后重试',
+        NOT_FOUND_MESSAGES.plugin,
       );
       const files = await repo.plugins.listPluginFiles(context.db, row.id);
       return attachmentResponse(

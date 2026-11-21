@@ -1,5 +1,11 @@
 import { serversContract } from '@agentport/contract/servers';
-import { fail, isAppError, parseMcpJson, parseOpenApiDocument } from '@agentport/core';
+import {
+  fail,
+  isAppError,
+  NOT_FOUND_MESSAGES,
+  parseMcpJson,
+  parseOpenApiDocument,
+} from '@agentport/core';
 import { assertSafeUrl, assertServerEndpoint } from '@agentport/core/net-guard';
 import { repo as dbRepo } from '@agentport/db';
 import {
@@ -39,14 +45,10 @@ import { testConnection } from './test-connection.js';
 const writeAudit = dbRepo.audit.writeAudit;
 const IMPORT_WARNINGS = ['仅导入连接配置；未测试连接或执行命令，请检查后再使用。'];
 
-const serverNotFoundMessage = 'MCP Server 不存在，可能已被删除；请刷新后重试';
 const serverNameConflictMessage = '该名称已被其他 MCP Server 占用，请换一个';
 
 function notFound(what: 'server' | 'tool'): never {
-  fail(
-    'NOT_FOUND',
-    what === 'server' ? serverNotFoundMessage : '该工具不存在，可能已被删除；请刷新后重试',
-  );
+  fail('NOT_FOUND', NOT_FOUND_MESSAGES[what]);
 }
 
 async function authorizedServer(
@@ -66,7 +68,7 @@ async function authorizedServer(
       ownerBusinessId: row.ownerBusinessId,
       level,
     },
-    serverNotFoundMessage,
+    NOT_FOUND_MESSAGES.server,
   );
   return row;
 }
@@ -275,7 +277,7 @@ export const serversRouter = os.router({
         context.db,
         runtimeEnvironmentId,
       );
-      if (!env) return fail('NOT_FOUND', '运行环境不存在，可能已被删除；请刷新后重试');
+      if (!env) return fail('NOT_FOUND', NOT_FOUND_MESSAGES.runtimeEnvironment);
       await authorizeResourceAccess(
         context,
         'runtime_environments.read',
@@ -285,7 +287,7 @@ export const serversRouter = os.router({
           ownerBusinessId: env.ownerBusinessId,
           level: 'read',
         },
-        '运行环境不存在，可能已被删除；请刷新后重试',
+        NOT_FOUND_MESSAGES.runtimeEnvironment,
       );
     }
     const result: ServerTestResult & { stderr?: string } =
@@ -349,7 +351,7 @@ export const serversRouter = os.router({
           ownerBusinessId: row.ownerBusinessId,
           level: 'read',
         },
-        serverNotFoundMessage,
+        NOT_FOUND_MESSAGES.server,
       );
       return repo.listTools(context.db, input.params.id);
     }),

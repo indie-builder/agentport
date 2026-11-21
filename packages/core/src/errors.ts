@@ -55,6 +55,14 @@ export const NOT_FOUND_MESSAGES = {
   conversation: '会话不存在，可能已被删除；请刷新后重试',
   run: '运行记录不存在，可能已被清理；请刷新后重试',
   approval: '审批记录不存在，可能已被处理或失效；请刷新后重试',
+  workflow: '工作流不存在，可能已被删除；请刷新后重试',
+  skill: '技能不存在，可能已被删除；请刷新后重试',
+  plugin: '插件不存在，可能已被删除；请刷新后重试',
+  runtimeEnvironment: '运行环境不存在，可能已被删除；请刷新后重试',
+  runtimeEnvironmentVersion: '该构建版本不存在，可能已被清理；请刷新版本列表',
+  dataDomain: '数据域不存在，可能已被删除；请刷新后重试',
+  server: 'MCP Server 不存在，可能已被删除；请刷新后重试',
+  tool: '该工具不存在，可能已被删除；请刷新后重试',
 } as const;
 export type NotFoundResource = keyof typeof NOT_FOUND_MESSAGES;
 

@@ -1,5 +1,5 @@
 import { pluginsContract } from '@agentport/contract/plugins';
-import { fail } from '@agentport/core';
+import { fail, NOT_FOUND_MESSAGES } from '@agentport/core';
 import { repo as pluginRepo } from '@agentport/db';
 import type {
   NativeInstalledPlugin,
@@ -22,9 +22,6 @@ import { runNativePluginAction } from './native.js';
 import { adoptNativePlugin, reusedPlugin } from './use-cases.js';
 
 const repo = pluginRepo.plugins;
-function notFound() {
-  return fail('NOT_FOUND', '插件不存在，可能已被删除；请刷新后重试');
-}
 async function requirePlugin(
   context: RequestContext,
   id: string,
@@ -32,12 +29,12 @@ async function requirePlugin(
   level: ResourceAccessLevel,
 ) {
   const row = await repo.getPlugin(context.db, id);
-  if (!row) return notFound();
+  if (!row) return fail('NOT_FOUND', NOT_FOUND_MESSAGES.plugin);
   await authorizeResourceAccess(
     context,
     permissionId,
     { kind: 'plugin', resourceId: row.id, ownerBusinessId: row.ownerBusinessId, level },
-    '插件不存在，可能已被删除；请刷新后重试',
+    NOT_FOUND_MESSAGES.plugin,
   );
   return row;
 }
@@ -128,7 +125,7 @@ export const pluginsRouter = os.router({
           ownerBusinessId: existing.ownerBusinessId,
           level: 'read',
         },
-        '插件不存在，可能已被删除；请刷新后重试',
+        NOT_FOUND_MESSAGES.plugin,
       );
       return { status: 200, body: await reusedPlugin(context.db, existing) };
     }
@@ -162,7 +159,7 @@ export const pluginsRouter = os.router({
     const { id } = routeInput.params;
     await requirePlugin(context, id, 'plugins.read', 'read');
     const row = await repo.getPluginWithAgentCount(context.db, id);
-    if (row === null) return notFound();
+    if (row === null) return fail('NOT_FOUND', NOT_FOUND_MESSAGES.plugin);
     const files = await pluginFiles(context.db, row.id);
     return { ...toApi(row, files), agentCount: row.agentCount };
   }),
@@ -180,7 +177,7 @@ export const pluginsRouter = os.router({
         },
         expectedUpdatedAt === undefined ? undefined : new Date(expectedUpdatedAt),
       );
-      if (row === null) return notFound();
+      if (row === null) return fail('NOT_FOUND', NOT_FOUND_MESSAGES.plugin);
       await pluginRepo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'plugin.updated',
@@ -208,7 +205,7 @@ export const pluginsRouter = os.router({
   delete: os.delete.handler(async ({ context, input: routeInput }) => {
     await requirePlugin(context, routeInput.params.id, 'plugins.delete', 'manage');
     const deleted = await repo.deletePlugin(context.db, routeInput.params.id);
-    if (!deleted) return notFound();
+    if (!deleted) return fail('NOT_FOUND', NOT_FOUND_MESSAGES.plugin);
     await pluginRepo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
       action: 'plugin.deleted',
