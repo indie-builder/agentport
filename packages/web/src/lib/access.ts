@@ -319,7 +319,7 @@ export const ROUTE_META: Readonly<Record<string, MenuItem>> = {
   '/_shell/$': { to: '/', label: '页面不存在', icon: CircleAlert, permissionIds: [] },
 };
 
-export type PermissionTreeLeaf = PermissionDefinition;
+type PermissionTreeLeaf = PermissionDefinition;
 
 export type PermissionTreeGroup = {
   key: string;

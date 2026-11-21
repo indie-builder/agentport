@@ -13,7 +13,7 @@ export interface DemoAgent {
   name: string;
 }
 
-export interface DemoRun {
+interface DemoRun {
   conversationId: string;
   runId: string;
 }

@@ -51,14 +51,41 @@
 - **桌面首次用户 QA 后续项（2026-10-28）**：会话有消息后缺少当前专家身份、会话标题为首条消息截断、资源导航名称过长、空会话操作禁用提示、停止无输出后仍显示“等待回复”、专家下拉退场残影需实测归因。共享库机器名专家是数据环境因素，不自动改名。首轮与复跑证据见任务记录，移动端按用户明确要求排除。
 
 7. ✅ **清死代码与无效配置（2026-10-24 完成）**
-   - 删除 `components/ui/{input-group,popover,table,message}.tsx` 中无外部引用的具名导出：`InputGroupText`/`InputGroupTextarea`、`PopoverHeader`/`PopoverTitle`/`PopoverDescription`、`TableFooter`/`TableCaption`、`MessageAvatar`/`MessageHeader`/`MessageFooter`（连同定义与随之未使用的 import），净删 123 行。
+   - 删除 `components/ui/{input-group,popover,table,message}.tsx` 中无外部引用的具名导出：`InputGroupText`/`InputGroupTextarea`、`PopoverHeader`/`PopoverTitle`/`PopoverDescription`、`TableFooter`/`TableCaption`、`MessageAvatar`/`MessageHeader`/`MessageFooter`（连同定义与随之未使用的 import），净删 123 行。（历史记录：`MessageAvatar`/`MessageHeader`/`MessageFooter` 已于 2026-11-22 再次删除；`InputGroupTextarea` 仍存在，由 `components/chat/chat-thread/composer.tsx` 使用；本条仅代表当时删除状态。）
    - 删除 `docs/OPERATIONS.md` 中幻影配置 `AGENT_DEFAULT_MODEL`、`AGENT_MAX_BUDGET_USD`（`packages/api/src/config.ts` schema 从未解析，文档“仅校验”说法有误）。
    - 验证：`bun run typecheck` 全过；`bun run test` 971/971（当时入口）；web 254/254；`biome check packages/*/src packages/*/test` 0 error；`bun run build` 全过。
 8. **低优先/可延后**（已逐项复核；2026-10-24）
    - ✅ **分支 UI 支持从任意已持久化用户消息分支（2026-10-24 完成）**：每条用户消息下方常显图标按钮，走 API `fromMessageId`；`ChatItem` 用户项新增 `messageId`（`id` 是合成 `${message.id}:0`，不可作锚点）；运行详情重建步骤（空 `conversationId`）不带锚点、不显示按钮；新发/流式消息无持久化 id 不显示入口。验证：web 257/257、全量 974/974、320px 无横向溢出，浏览器实测点第一条消息分支后新会话 `branch_of_message_id=msg_vb_u1` 且仅复制 1 条消息。
    - ✅ **overview 查询合并（已完成，`f733d08`，2026-10-25）**：`/api/overview` 由 6 条 SQL 合并为 3 条并行查询；counts（servers/agents/running/runs）并成一条，另两条为智能体聚合与最近 20 条运行。
-   - **列表分页**：当前数据量下单页返回可接受，保持延后。
+   - ✅ **列表分页**（2026-11-22 核实已落地）：统一契约见 [PAGINATION.md](PAGINATION.md)，`05e5221e` 已合并。
    - **SDK 层子智能体深度硬限制**：SDK 本身不提供深度参数；单层约束已由 API 父子校验 + 子智能体 `disallowedTools` 含 `Agent` 保证，硬限需自研，保持延后。
+
+## 规划候选（来自原实施计划，2026-11-22 并入）
+
+> 原实施计划目录已删除。001–003 已完成并合入（#396 `46d043f3`、#397 `555cd699`、#398 `c7383a0d`）；004 暂缓。以下保留仍需查阅的内容。
+
+### 暂缓：生成式 MCP 长期 token 加密/哈希存储（原 plan 004）
+
+- **暂缓理由**：Phase 0 调查确认沙盒 `.mcp.json` 用按 run 的短期 token（`packages/worker/src/index.ts:157-158`），长期 `config.mcpToken` 只服务平台自测与文档所述的外部 Host 回退；仓库内无外部 Host 实际使用证据，且 D-21「暂不对外」、DB 绑 loopback、单机部署。改造需迁移约 10 个直接 `select config->>'mcpToken'` 的测试并写回填脚本，风险/成本高于现实收益。
+- **重启条件**：确认有外部 Host 在使用长期 token，或备份会离开本机。
+- **重启后先做**：Phase 0 只读复核全部 `config.mcpToken` 读写点与外部 Host 使用结论；再在方案 A（仅加密落库，`mcpTokenEncrypted`）与方案 B（哈希校验 + 加密取回，与分享 token 一致）之间取得维护者明确选择。**未确认前不得修改存储与鉴权路径。**
+- **STOP 条件**：在 `packages/worker` 或 `packages/core` 发现读 `config.mcpToken`（说明沙盒路径也依赖它）；回填脚本无法确定目标库/密钥来源，或目标库非本次隔离实例；测试改动需要放宽鉴权或删除断言才能变绿。
+- **维护备注**：若 D-21 翻转为对外或引入外部 Host，需重新评估长期 token 的加密存储与轮换策略，并与按 agent 发 token 方案对齐。
+
+### 已列入但尚未建计划的候选（后续按需）
+
+- 性能测量候选：运行详情无界 + 2s 轮询；记忆审核列表整段读会话（**既有审计称实测非问题，须先复测**）；`listServers` 每次解密全部 secret；knowledge 包导入请求内同步 CPU。
+- 安全候选：OpenUI 来源链接 scheme 白名单（需先核对 React/CSP 处理 `javascript:`）；知识图片内联返回且接受 SVG。
+- 一致性/技术债：三个超大前端文件（agent-editor / knowledge-faq / memory-review）。
+- DX/文档：src 范围 Biome 39 error（26 为可自动修的 organizeImports）；`DECISIONS-PENDING.md` D-15 与 `PROJECT-BRIEF §9.4` 关于 `@bull-board/*` 的表述已过时（代码与 `OBSERVABILITY.md` 已接入 `/api/ops/queues`）。
+
+### 已考虑并否决（勿再报）
+
+- **数据表格列设置「移动错列」**：误读——`reorderColumns()` 自身过滤 `locked` 列，索引空间与 `draggable` 一致，无 bug。
+- **限流 Redis 重连→503**：未验证 Bun 客户端重连语义，不建议擅自 fail-open。
+- **compose 弱口令 / API 监听 `0.0.0.0:3000`**：DB/Redis 已绑 loopback（见 `docs/SECURITY.md` C1）；API 监听边界属单机本地部署，未要求改监听或轮换。
+- **空 slug 清理 `rm`、知识 blob 入队失败泄漏、重试消息 ID 变动**：仅代码模式、缺实际误删/可见性证据，降级为待测候选，不再单列。
+- 全局 `Bun.serve({ idleTimeout: 0 })` 与频道 SSE 逐事件鉴权已在 `docs/PITFALLS.md` 记录，非缺陷，不在此重复。
 
 ---
 

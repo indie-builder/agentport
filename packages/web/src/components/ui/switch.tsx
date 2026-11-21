@@ -1,8 +1,8 @@
 'use client';
 
 import { Switch as SwitchPrimitive, SwitchThumb } from '@ui-sdk/react/switch';
-import { cn } from 'cn';
 import type { ComponentProps } from 'react';
+import { cn } from '@/lib/cn';
 
 type SwitchProps = ComponentProps<typeof SwitchPrimitive> & {
   size?: 'sm' | 'default';

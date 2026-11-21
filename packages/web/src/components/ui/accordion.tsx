@@ -5,9 +5,9 @@ import {
   Accordion as AccordionPrimitive,
   AccordionTrigger as AccordionTriggerPrimitive,
 } from '@ui-sdk/react/accordion';
-import { cn } from 'cn';
 import { ChevronDownIcon } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
+import { cn } from '@/lib/cn';
 
 function Accordion({ className, ...props }: ComponentProps<typeof AccordionPrimitive>) {
   return <AccordionPrimitive className={cn('flex w-full flex-col', className)} {...props} />;

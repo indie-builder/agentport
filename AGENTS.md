@@ -119,7 +119,7 @@
 
 ## 交付
 
-- 开发任务的提交、推送、PR 与合并授权，以及交付完成判据，唯一来源见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md) §2-6/§2-7。CI 为本地验证 `bun run ci`（lint/typecheck/build 并行，build 通过后并行 openui:check/test/test:web；`bun run ci:e2e` 追加 e2e），不使用 GitHub CI；发布工作流 `release.yml` 独立保留。按改动范围本地验证，不固定跑全套。用户要求提交/合并时不等待 CI、不自动开启 PR 监控或冷却等待；仅在用户明确要求时监控。
+- 开发任务的提交、推送、PR 与合并授权，以及交付完成判据，唯一来源见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md) §2-6/§2-7。CI 为本地验证 `bun run ci`（lint/typecheck/build 并行，build 通过后 `openui:check` 与 `test:sharded` 并行，再串行 `test:web`；`bun run ci:e2e` 追加 e2e），不使用 GitHub CI；发布工作流 `release.yml` 独立保留。按改动范围本地验证，不固定跑全套。用户要求提交/合并时不等待 CI、不自动开启 PR 监控或冷却等待；仅在用户明确要求时监控。
 - 每个能力都要有可执行的验证命令与真实结果，不以「应该能跑」代替。
 - UI 改动按 [packages/web/AGENTS.md](packages/web/AGENTS.md) 的「UI 验收」执行：真实渲染 + 多视口截图，不以 typecheck/build 代替。
 - 并发/安全相关改动必须附测试或实测记录。

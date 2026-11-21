@@ -28,7 +28,6 @@ const envSchema = z
     ADMIN_PASSWORD: z.string().min(1).max(128),
     JWT_SECRET: z.string().min(32),
     CORS_ORIGINS: z.string().default('http://localhost:5173'),
-    AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
     APPROVAL_WAIT_MS: z.coerce.number().int().nonnegative().default(300_000),
     SANDBOX_IMAGE: z.string().min(1).default('agentport/sandbox:dev'),
     WORKSPACES_DIR: z.string().min(1).default('./data/workspaces'),

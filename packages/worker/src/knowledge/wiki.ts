@@ -21,7 +21,7 @@ type JobRow = typeof schema.knowledgeJobs.$inferSelect;
 type WikiGeneratePayload = Extract<KnowledgeJobPayload, { type: 'wiki_generate' }>;
 
 const WIKI_TOOL_NAMES = ['wiki_search', 'wiki_read', 'wiki_save_draft'] as const;
-export const WIKI_ALLOWED_TOOLS = WIKI_TOOL_NAMES.map((name) => `mcp__knowledge__${name}`);
+const WIKI_ALLOWED_TOOLS = WIKI_TOOL_NAMES.map((name) => `mcp__knowledge__${name}`);
 
 const READ_LIMIT = 20_000;
 const QUOTE_LIMIT = 1200;

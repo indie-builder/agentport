@@ -1,6 +1,6 @@
-import { cn } from 'cn';
 import { ChevronRightIcon } from 'lucide-react';
 import type * as React from 'react';
+import { cn } from '@/lib/cn';
 
 function Breadcrumb({ className, ...props }: React.ComponentProps<'nav'>) {
   return (

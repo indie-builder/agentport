@@ -5,12 +5,11 @@ import type {
   SkillInput,
   SkillWithAgentCount,
 } from '@agentport/shared';
+import type { ApiClient } from '../orpc.js';
 import { rpc } from '../orpc.js';
+import type { ApiOutput } from './shared.js';
 
-export interface SkillImportResult {
-  skill: Skill;
-  warnings: string[];
-}
+export type SkillImportResult = ApiOutput<ApiClient['skills']['importFile']>;
 
 export default {
   skills: (

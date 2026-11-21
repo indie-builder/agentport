@@ -15,7 +15,7 @@ import { materializeWorkspace } from '../workspace-files.js';
 
 type Db = ReturnType<typeof createDb>['db'];
 type AgentRow = typeof schema.agents.$inferSelect;
-export type SubAgentRow = AgentRow & { skills?: WorkspaceSkill[] };
+type SubAgentRow = AgentRow & { skills?: WorkspaceSkill[] };
 
 export type WorkspaceAssemblyInput = {
   agent: AgentRow & { serverNames: string[] };

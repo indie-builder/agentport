@@ -8,10 +8,10 @@ import {
   Carousel as CarouselPrimitive,
   CarouselViewport as CarouselViewportPrimitive,
 } from '@ui-sdk/react/carousel';
-import { cn } from 'cn';
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/cn';
 
 function Carousel({ className, ...props }: ComponentProps<typeof CarouselPrimitive>) {
   return (

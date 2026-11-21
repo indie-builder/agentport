@@ -1,4 +1,3 @@
-import { cn } from 'cn';
 import {
   type ComponentType,
   type CSSProperties,
@@ -35,6 +34,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { cn } from '@/lib/cn';
 import {
   Collapsible,
   CollapsibleContent,

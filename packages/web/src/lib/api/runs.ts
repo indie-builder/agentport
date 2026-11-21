@@ -18,7 +18,6 @@ import { clientOptions, nativeRequest } from './shared.js';
 
 export type {
   RunDetail,
-  RunFeedback,
   RunFeedbackList,
   RunListItem,
   RunStatus,

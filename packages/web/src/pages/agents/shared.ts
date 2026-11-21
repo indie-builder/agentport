@@ -119,7 +119,7 @@ export function toolLines(text: string): string[] {
     .filter(Boolean);
 }
 
-export function tagList(text: string): string[] {
+function tagList(text: string): string[] {
   return text
     .split(/[,，、]/)
     .map((tag) => tag.trim())
@@ -245,7 +245,7 @@ const TAB_PERMISSIONS: Record<TabId, readonly PermissionId[] | null> = {
   files: ['agents.files.read'],
 };
 
-export const INSTRUCTION_PERMISSIONS: Record<AgentInstruction, PermissionId> = {
+const INSTRUCTION_PERMISSIONS: Record<AgentInstruction, PermissionId> = {
   rules: 'agents.rules.read',
   styles: 'agents.styles.read',
   workflows: 'agents.workflows.read',

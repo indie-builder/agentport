@@ -1,31 +1,15 @@
+import type { HealthMetrics } from '@agentport/shared';
 import { RedisClient, version } from 'bun';
 import { sql } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import type { Logger } from 'pino';
+import { jobCounts } from '../queue/metrics.js';
 import { getKnowledgeQueue, getQueue } from '../queue/producer.js';
 import { type AppContext, type HttpEnv, requestContext } from './context.js';
 import { access } from './middleware.js';
 
-interface QueueCounts {
-  waiting: number;
-  active: number;
-  completed: number;
-  failed: number;
-  delayed: number;
-  oldestWaitingMs: number | null;
-}
-
-export interface HealthMetrics {
-  process: { uptimeSeconds: number; memoryRssBytes: number; bunVersion: string };
-  queue: QueueCounts | null;
-  knowledgeQueue: QueueCounts | null;
-  db: { connected: boolean; pingMs: number | null; maxConnections: number | null };
-  redis: { pingMs: number } | null;
-}
-
 const CHECK_TIMEOUT_MS = 1_500;
 const WAITING_TIMEOUT_MS = 1_000;
-const JOB_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'] as const;
 
 let redisClient: RedisClient | null = null;
 
@@ -44,36 +28,14 @@ async function attempt<T>(log: Logger, name: string, fn: () => Promise<T>): Prom
   }
 }
 
-async function jobCounts(queue: {
-  getJobCounts: (...states: typeof JOB_STATES) => Promise<Record<string, number>>;
-  getWaiting: (start: number, end: number) => Promise<{ timestamp: number }[]>;
-}): Promise<QueueCounts> {
-  let waitingTimer: NodeJS.Timeout | undefined;
-  const [counts, waiting] = await Promise.all([
-    queue.getJobCounts(...JOB_STATES),
-    Promise.race([
-      queue.getWaiting(0, 0),
-      new Promise<{ timestamp: number }[]>((resolve) => {
-        waitingTimer = setTimeout(() => resolve([]), WAITING_TIMEOUT_MS).unref();
-      }),
-    ])
-      .catch(() => [])
-      .finally(() => clearTimeout(waitingTimer)),
-  ]);
-  return {
-    waiting: counts.waiting ?? 0,
-    active: counts.active ?? 0,
-    completed: counts.completed ?? 0,
-    failed: counts.failed ?? 0,
-    delayed: counts.delayed ?? 0,
-    oldestWaitingMs: waiting[0] === undefined ? null : Date.now() - waiting[0].timestamp,
-  };
-}
-
 async function collectMetrics(deps: AppContext): Promise<HealthMetrics> {
   const [queue, knowledgeQueue, redisPing, dbPing] = await Promise.all([
-    attempt(deps.log, 'queue', () => jobCounts(getQueue())),
-    attempt(deps.log, 'knowledge queue', () => jobCounts(getKnowledgeQueue())),
+    attempt(deps.log, 'queue', () =>
+      jobCounts(getQueue(), { waitingTimeoutMs: WAITING_TIMEOUT_MS }),
+    ),
+    attempt(deps.log, 'knowledge queue', () =>
+      jobCounts(getKnowledgeQueue(), { waitingTimeoutMs: WAITING_TIMEOUT_MS }),
+    ),
     attempt(deps.log, 'redis', async () => ({ pingMs: await pingRedis(deps) })),
     attempt(deps.log, 'postgres', async () => {
       const started = performance.now();

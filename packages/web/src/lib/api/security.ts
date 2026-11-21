@@ -1,41 +1,34 @@
 import type {
   ContentPolicy,
-  ContentPolicyAction,
   ContentPolicyCreate,
   ContentPolicyUpdate,
   PolicyApproval,
   PolicyApprovalDecision,
-  PolicyApprovalStatus,
-  PolicyEvent,
-  PolicySourceKind,
   ViolationCase,
-  ViolationCaseStatus,
   ViolationCaseUpdate,
 } from '@agentport/shared';
+import type { ApiClient } from '../orpc.js';
 import { rpc } from '../orpc.js';
+import type { ApiOutput } from './shared.js';
 
-export interface SecurityEventQuery {
-  sourceKind?: PolicySourceKind;
-  action?: ContentPolicyAction;
-  limit?: number;
-  cursor?: string;
-}
+export type SecurityEventQuery = Omit<
+  Parameters<ApiClient['security']['events']['list']>[0]['query'],
+  'limit'
+> & { limit?: number };
 
-export interface SecurityApprovalQuery {
-  status?: PolicyApprovalStatus;
-  limit?: number;
-  cursor?: string;
-}
+type SecurityApprovalQuery = Omit<
+  Parameters<ApiClient['security']['approvals']['list']>[0]['query'],
+  'limit'
+> & { limit?: number };
 
-export interface SecurityViolationQuery {
-  status?: ViolationCaseStatus;
-  limit?: number;
-  cursor?: string;
-}
+type SecurityViolationQuery = Omit<
+  Parameters<ApiClient['security']['violations']['list']>[0]['query'],
+  'limit'
+> & { limit?: number };
 
-export type SecurityEventPage = { items: PolicyEvent[]; nextCursor: string | null };
-export type SecurityApprovalPage = { items: PolicyApproval[]; nextCursor: string | null };
-export type SecurityViolationPage = { items: ViolationCase[]; nextCursor: string | null };
+type SecurityEventPage = ApiOutput<ApiClient['security']['events']['list']>;
+type SecurityApprovalPage = ApiOutput<ApiClient['security']['approvals']['list']>;
+type SecurityViolationPage = ApiOutput<ApiClient['security']['violations']['list']>;
 
 export default {
   securityPolicies: (): Promise<ContentPolicy[]> => rpc.security.policies.list(),

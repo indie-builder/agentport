@@ -34,8 +34,8 @@ export type {
   DataDomainVersionDetail,
 };
 
-export type DataDomainPage = DataDomainList;
-export type DataDomainQueryLogPage = DataDomainQueryLogList;
+type DataDomainPage = DataDomainList;
+type DataDomainQueryLogPage = DataDomainQueryLogList;
 export type DataDomainQueryApprovalPage = DataDomainQueryApprovalList;
 
 export default {

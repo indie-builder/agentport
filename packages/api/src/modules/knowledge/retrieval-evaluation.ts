@@ -6,7 +6,7 @@ import type {
   KnowledgeTarget,
 } from '@agentport/shared';
 
-export const EVALUATION_MAX_CASES = 100;
+const EVALUATION_MAX_CASES = 100;
 export const EVALUATION_MAX_BYTES = 1024 * 1024;
 
 export interface RetrievalEvaluationCase {
@@ -15,7 +15,7 @@ export interface RetrievalEvaluationCase {
   expectedChunkIds?: string[] | undefined;
 }
 
-export interface RetrievalEvaluationCaseResult {
+interface RetrievalEvaluationCaseResult {
   q: string;
   hit: boolean;
   recallAtK: number;

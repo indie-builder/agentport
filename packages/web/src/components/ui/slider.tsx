@@ -8,8 +8,8 @@ import {
   Slider as SliderPrimitive,
   SliderTrack,
 } from '@ui-sdk/react/slider';
-import { cn } from 'cn';
 import type { ComponentProps } from 'react';
+import { cn } from '@/lib/cn';
 
 const slider = sliderPrimitive as typeof sliderPrimitive &
   Required<Pick<Primitive, 'options' | 'slots'>>;

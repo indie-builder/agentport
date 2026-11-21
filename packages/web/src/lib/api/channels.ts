@@ -11,7 +11,6 @@ import type {
   channelMessageInputSchema,
   PublicQuestionResponse,
   PublicRunQuestion,
-  RunStatus,
 } from '@agentport/shared';
 import type { z } from 'zod';
 import type { ApiClient } from '../orpc.js';
@@ -19,18 +18,12 @@ import { rpc } from '../orpc.js';
 import type { ApiOutput } from './shared.js';
 import { clientOptions, nativeRequest } from './shared.js';
 
-export type ChannelMessageInput = z.input<typeof channelMessageInputSchema>;
+type ChannelMessageInput = z.input<typeof channelMessageInputSchema>;
 
 export type ChannelHandoffInput = z.input<typeof channelHandoffInputSchema>;
 
 /** 频道活动 run：只有 queued/running；状态来自 DB，不是 SSE 快照。 */
-export interface ChannelActiveRun {
-  runId: string;
-  agentId: string;
-  status: RunStatus;
-  initiatedBy: string | null;
-  startedAt: string | null;
-}
+export type ChannelActiveRun = ApiOutput<ApiClient['channels']['activeRuns']>['items'][number];
 
 export type ChannelApproval = ApiOutput<ApiClient['channels']['approve']>;
 
@@ -38,7 +31,7 @@ export type ChannelRunDetail = ApiOutput<ApiClient['channels']['runDetail']>;
 
 export type ChannelRunQuestions = ApiOutput<ApiClient['channels']['runQuestions']>;
 
-export type ChannelRunOutputs = ApiOutput<ApiClient['channels']['runOutputs']>;
+type ChannelRunOutputs = ApiOutput<ApiClient['channels']['runOutputs']>;
 
 export type ChannelRunOutputContent = ApiOutput<ApiClient['channels']['runOutputContent']>;
 

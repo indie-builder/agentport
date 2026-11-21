@@ -11,7 +11,7 @@ import { auditToolPolicyDenial, createApprovalEvaluator } from './approval-polic
 import { requestToolApproval } from './approvals.js';
 import { bearerToken, tokenMatches } from './bearer.js';
 import { buildGeneratedServer } from './generated.js';
-import { getServerRow, listTools, str, toApiServer } from './repo.js';
+import { listTools, str, toApiServer } from './repo.js';
 import { decryptSecrets } from './secrets.js';
 
 export async function validRunToken(
@@ -34,7 +34,7 @@ export async function validRunToken(
 function handlerFor(app: AppContext, serverId: string, runId: string | null): McpHttpHandler {
   return createMcpHandler(
     async () => {
-      const row = await getServerRow(app.db, serverId);
+      const row = await repo.servers.getServer(app.db, serverId);
       if (!row) throw new Error('连接器已不存在');
       const snapshot =
         runId === null ? null : await repo.runs.getRunServerSnapshot(app.db, runId, serverId);
@@ -98,7 +98,7 @@ export async function serverMcpResponse(
   context: RequestContext,
   serverId: string,
 ): Promise<Response> {
-  const row = await getServerRow(context.db, serverId);
+  const row = await repo.servers.getServer(context.db, serverId);
   const runId = request.headers.get('x-agentport-run-id');
   const token = bearerToken(request.headers.get('authorization') ?? undefined);
   if (row?.kind === 'knowledge') {
