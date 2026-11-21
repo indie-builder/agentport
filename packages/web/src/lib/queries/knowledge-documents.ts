@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { api, type KnowledgeBaseInput, type KnowledgeBatchInput } from '../api.js';
 import {
@@ -337,6 +337,20 @@ export function useKnowledgeMarkdown(versionId: string | null) {
   });
 }
 
+function invalidateChunkData(client: QueryClient, baseId: string, documentId: string) {
+  void client.invalidateQueries({ queryKey: knowledgeKeys.chunksOfDocument(documentId) });
+  void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
+  void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+}
+
+function invalidateGeneratedDocument(client: QueryClient, baseId: string, documentId: string) {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: knowledgeKeys.document(documentId) }),
+    client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) }),
+    client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) }),
+  ]);
+}
+
 export function useUpdateKnowledgeChunk(
   baseId: string,
   documentId: string,
@@ -357,9 +371,7 @@ export function useUpdateKnowledgeChunk(
         expectedVersionId: versionId ?? '',
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: knowledgeKeys.chunksOfDocument(documentId) });
-      void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
-      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+      invalidateChunkData(client, baseId, documentId);
       void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
     },
   });
@@ -378,9 +390,7 @@ export function useCreateKnowledgeChunk(
         expectedVersionId: versionId ?? '',
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: knowledgeKeys.chunksOfDocument(documentId) });
-      void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
-      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
+      invalidateChunkData(client, baseId, documentId);
       void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
     },
   });
@@ -394,11 +404,7 @@ export function useDeleteKnowledgeChunk(
   const client = useQueryClient();
   return useMutation({
     mutationFn: (chunkId: string) => api.deleteKnowledgeChunk(chunkId, versionId ?? ''),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: knowledgeKeys.chunksOfDocument(documentId) });
-      void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
-      void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
-    },
+    onSuccess: () => invalidateChunkData(client, baseId, documentId),
   });
 }
 
@@ -418,11 +424,7 @@ export function useGenerateKnowledgeDocumentSummary(baseId: string) {
   return useMutation({
     mutationFn: (documentId: string) => api.generateKnowledgeDocumentSummary(documentId),
     onSuccess: async (_data, documentId) => {
-      await Promise.all([
-        client.invalidateQueries({ queryKey: knowledgeKeys.document(documentId) }),
-        client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) }),
-        client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) }),
-      ]);
+      await invalidateGeneratedDocument(client, baseId, documentId);
     },
   });
 }
@@ -432,11 +434,7 @@ export function useGenerateKnowledgeDocumentTags(baseId: string) {
   return useMutation({
     mutationFn: (documentId: string) => api.generateKnowledgeDocumentTags(documentId),
     onSuccess: async (_data, documentId) => {
-      await Promise.all([
-        client.invalidateQueries({ queryKey: knowledgeKeys.document(documentId) }),
-        client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) }),
-        client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) }),
-      ]);
+      await invalidateGeneratedDocument(client, baseId, documentId);
     },
   });
 }
