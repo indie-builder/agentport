@@ -194,6 +194,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const page = await createPage();
     const cases = [
       ['GET', `/api/knowledge/bases/${baseId}/wiki-pages`, undefined],
+      ['GET', `/api/knowledge/bases/${baseId}/wiki-graph`, undefined],
       ['POST', `/api/knowledge/bases/${baseId}/wiki-pages`, { slug: 'anon', title: '匿名' }],
       ['GET', `/api/knowledge/wiki-pages/${page.id}`, undefined],
       ['GET', `/api/knowledge/wiki-pages/${page.id}/versions`, undefined],
@@ -1362,6 +1363,113 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(rejected.statusCode, rejected.body).toBe(400);
     expect(rejected.json<{ code: string }>().code).toBe('INVALID_INPUT');
+  });
+
+  async function setMarkdown(pageId: string, markdown: string) {
+    const res = await request(app, {
+      method: 'PATCH',
+      url: `/api/knowledge/wiki-pages/${pageId}`,
+      headers: { cookie },
+      payload: { markdown },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+  }
+
+  it('wiki graph 只连接本 base 最新版本页面，忽略外部链接、重复链接与自环', async () => {
+    const graphBase = await createBase(await createProfile());
+    const a = await createWikiPageInBase(graphBase, 'graph-a', '页面 A');
+    const b = await createWikiPageInBase(graphBase, 'graph-b', '页面 B');
+    const c = await createWikiPageInBase(graphBase, 'graph-c', '页面 C');
+    const foreign = await createWikiPageInBase(otherBaseId, 'graph-a', '外库同名页面');
+    const foreignOnly = await createWikiPageInBase(otherBaseId, 'graph-external', '仅外库页面');
+
+    await setMarkdown(
+      a,
+      ['[[graph-b]]', '[[graph-b#section|别名]]', '[[graph-a]]', '[[missing-page]]'].join('\n'),
+    );
+    await setMarkdown(b, '[[graph-c]]');
+    await setMarkdown(c, '[[graph-external]]');
+
+    const fetchGraph = async () => {
+      const res = await request(app, {
+        method: 'GET',
+        url: `/api/knowledge/bases/${graphBase}/wiki-graph`,
+        headers: { cookie },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      return res.json<{
+        nodes: Array<{ id: string; slug: string; title: string }>;
+        edges: Array<{ from: string; to: string }>;
+        truncated: boolean;
+      }>();
+    };
+
+    const body = await fetchGraph();
+    expect(body.truncated).toBe(false);
+    expect(body.nodes.map((node) => node.id).sort()).toEqual([a, b, c].sort());
+    expect(body.nodes.map((node) => [node.slug, node.title])).toEqual(
+      expect.arrayContaining([
+        ['graph-a', '页面 A'],
+        ['graph-b', '页面 B'],
+        ['graph-c', '页面 C'],
+      ]),
+    );
+    expect(body.edges).toHaveLength(2);
+    expect(body.edges).toEqual(
+      expect.arrayContaining([
+        { from: a, to: b },
+        { from: b, to: c },
+      ]),
+    );
+    expect(body.nodes.some((node) => node.id === foreign)).toBe(false);
+    expect(body.edges.some((edge) => edge.from === foreignOnly || edge.to === foreignOnly)).toBe(
+      false,
+    );
+
+    await setMarkdown(a, '[[graph-c]]');
+    const latest = await fetchGraph();
+    expect(latest.edges).toHaveLength(2);
+    expect(latest.edges).toEqual(
+      expect.arrayContaining([
+        { from: a, to: c },
+        { from: b, to: c },
+      ]),
+    );
+    expect(latest.edges.some((edge) => edge.from === a && edge.to === b)).toBe(false);
+
+    const emptyBase = await createBase(await createProfile());
+    const empty = await request(app, {
+      method: 'GET',
+      url: `/api/knowledge/bases/${emptyBase}/wiki-graph`,
+      headers: { cookie },
+    });
+    expect(empty.statusCode, empty.body).toBe(200);
+    expect(empty.json()).toEqual({ nodes: [], edges: [], truncated: false });
+  });
+
+  it('wiki graph 超过 300 个页面时只返回前 300 个并标记 truncated', async () => {
+    const graphBase = await createBase(await createProfile());
+    const prefix = `${unique('kwp_graph')}-`;
+    await app.client.unsafe(
+      `insert into knowledge_wiki_pages (id, base_id, slug, title)
+       select $1 || n::text, $2, 'graph-' || n::text, '页面 ' || n::text
+       from generate_series(1, 301) as n`,
+      [prefix, graphBase],
+    );
+    const res = await request(app, {
+      method: 'GET',
+      url: `/api/knowledge/bases/${graphBase}/wiki-graph`,
+      headers: { cookie },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json<{
+      nodes: Array<{ id: string }>;
+      edges: Array<{ from: string; to: string }>;
+      truncated: boolean;
+    }>();
+    expect(body.nodes).toHaveLength(300);
+    expect(body.edges).toEqual([]);
+    expect(body.truncated).toBe(true);
   });
 
   it('links 从 Markdown AST 推导，代码块不算链接，坏链接返回 null 目标', async () => {

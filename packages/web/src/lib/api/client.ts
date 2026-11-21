@@ -377,6 +377,7 @@ export const api = {
   createKnowledgeWikiPage: knowledge.createKnowledgeWikiPage,
   updateKnowledgeWikiPage: knowledge.updateKnowledgeWikiPage,
   knowledgeWikiLinks: knowledge.knowledgeWikiLinks,
+  knowledgeWikiGraph: knowledge.knowledgeWikiGraph,
   knowledgeWikiDiff: knowledge.knowledgeWikiDiff,
   generateKnowledgeWikiPage: knowledge.generateKnowledgeWikiPage,
   rollbackKnowledgeWikiPage: knowledge.rollbackKnowledgeWikiPage,

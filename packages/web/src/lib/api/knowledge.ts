@@ -16,6 +16,7 @@ import type {
   KnowledgeSourceInput,
   KnowledgeSyncItem,
   KnowledgeTarget,
+  KnowledgeWikiGraph,
   KnowledgeWikiLinksResult,
   KnowledgeWikiVersionDiff,
 } from '@agentport/shared';
@@ -233,6 +234,8 @@ export type KnowledgeChunkPreview = ApiOutput<ApiClient['knowledge']['bases']['c
 export type KnowledgeSearchResponse = KnowledgeSearchResult;
 
 export type KnowledgeWikiLinks = KnowledgeWikiLinksResult;
+
+export type { KnowledgeWikiGraph };
 
 export type KnowledgeWikiDiff = KnowledgeWikiVersionDiff;
 
@@ -798,6 +801,8 @@ export default {
     rpc.knowledge.wiki.update({ params: { pageId }, body: patch }),
   knowledgeWikiLinks: (pageId: string): Promise<KnowledgeWikiLinks> =>
     rpc.knowledge.wiki.links({ params: { pageId } }),
+  knowledgeWikiGraph: (baseId: string): Promise<KnowledgeWikiGraph> =>
+    rpc.knowledge.bases.wikiGraph({ params: { id: baseId } }),
   knowledgeWikiDiff: (
     pageId: string,
     fromVersionId: string,
