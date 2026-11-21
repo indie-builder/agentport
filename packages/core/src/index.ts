@@ -81,11 +81,7 @@ export {
   parseOutputStyleMd,
   parseRuleMd,
 } from './official-files.js';
-export {
-  type ImportedHttpTool,
-  type ParsedOpenApi,
-  parseOpenApiDocument,
-} from './openapi.js';
+export { parseOpenApiDocument } from './openapi.js';
 export { resolveOpenUiResponse } from './openui-response.js';
 export {
   captureOutputDraft,
@@ -118,10 +114,7 @@ export {
 export { buildSkillDraft } from './skill-draft.js';
 export { type ParsedSkill, parseSkillMd, type SkillProvenance } from './skill-md.js';
 export {
-  type ApprovalContext,
-  type ApprovalDecision,
   type ApprovalMode,
-  type ApprovalRuleSelector,
   evaluateToolApproval,
 } from './tool-approval-policy.js';
 export { parseWorkflowMeta } from './workflow-file.js';
