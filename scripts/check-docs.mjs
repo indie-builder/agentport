@@ -3,7 +3,12 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 const root = resolve(import.meta.dir, '..');
 const glob = new Bun.Glob('packages/*/AGENTS.md');
-const sources = ['AGENTS.md', 'docs/README.md', ...[...glob.scanSync({ cwd: root })].sort()];
+const sources = [
+  'AGENTS.md',
+  'docs/README.md',
+  'docs/ARCHITECTURE.md',
+  ...[...glob.scanSync({ cwd: root })].sort(),
+];
 
 const slug = (text) =>
   text

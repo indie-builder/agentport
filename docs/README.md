@@ -6,6 +6,7 @@
 
 | 任务 | 唯一权威文档 | 命令 |
 |---|---|---|
+| 定位前端页面 / 代码位置 | [ARCHITECTURE.md §1.1 前端页面地图](ARCHITECTURE.md#11-前端页面地图)（页面与目录）；[§1.3 API 组织与 HTTP 契约](ARCHITECTURE.md#13-api-组织与-http-契约)（API/db 文件角色）；依赖源码位置见 §1 | — |
 | 改导航 / 信息架构 | [PROJECT-BRIEF.md §17.2](PROJECT-BRIEF.md#172-导航) | `bun run dev` |
 | 改布局 / 页面几何 | [DESIGN-SYSTEM.md §9](DESIGN-SYSTEM.md#全站页面布局契约) | `bun run dev` |
 | 改视觉 / 组件外观 | [packages/web/DESIGN.md](../packages/web/DESIGN.md) | `bun run dev` |
