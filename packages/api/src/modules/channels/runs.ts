@@ -8,7 +8,12 @@ import type { RequestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { invalidCursor } from '../../http/pagination.js';
 import { agentSlug } from '../../lib/agent-slug.js';
-import { listWorkspaceOutputs, previewText, readWorkspaceOutput } from '../../lib/outputs.js';
+import {
+  listWorkspaceOutputs,
+  OUTPUT_MISSING_MESSAGE,
+  previewText,
+  readWorkspaceOutput,
+} from '../../lib/outputs.js';
 import { toRunDetail } from '../runs/events.js';
 import { answerRunQuestion } from '../runs/questions.js';
 
@@ -44,7 +49,7 @@ async function readOutput(
   path: string,
 ): Promise<{ file: OutputFile; data: Buffer }> {
   const slug = await agentSlug(context.db, agentId);
-  if (slug === null) return fail('NOT_FOUND', '成果文件不存在，可能已被清理');
+  if (slug === null) return fail('NOT_FOUND', OUTPUT_MISSING_MESSAGE);
   try {
     return await readWorkspaceOutput(context, {
       slug,
@@ -54,7 +59,7 @@ async function readOutput(
     });
   } catch (err) {
     if (isAppError(err) && err.code === 'NOT_FOUND') {
-      return fail('NOT_FOUND', '成果文件不存在，可能已被清理');
+      return fail('NOT_FOUND', OUTPUT_MISSING_MESSAGE);
     }
     if (isAppError(err) && err.code === 'INVALID_INPUT') {
       return fail('INVALID_INPUT', '所选成果路径不合法；请刷新成果列表后重试');
