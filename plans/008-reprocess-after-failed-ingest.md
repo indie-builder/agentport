@@ -149,16 +149,15 @@ if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
 
 ## Test plan
 
-- 只新增上述 1 个系统级（e2e）用例；不新增单测/集成测试（仓库规则）。
+- 受影响路径是 `createManualDocument` 创建的 `sourceType='manual'` 文档（text/markdown，`publish: 'draft'`）。当前 e2e 夹具只能通过上传路径（`sourceType='upload'`）制造首次入库失败，而该路径不受被移除的谓词覆盖，无法构成回归证据。因此不新增 manual 路径的自动化回归用例；覆盖依赖既有 `knowledge-publishing-integration.test.ts` 的草稿保护用例，以及改动谓词的 typecheck。
 - 既有 `knowledge-publishing-integration.test.ts` 的成功重解析与草稿拦截用例必须保持通过，证明没有放宽真实的草稿保护。
-- 若无法稳定构造首次入库失败，STOP：不要改生产代码或放宽断言来凑测试。
 
 ## Done criteria
 
 - [ ] `hasUnpublishedDraft` 中不再出现 `sourceType === 'manual'`。
 - [ ] `reprocessDocument` 在草稿检查后调用 `findActiveIngestJobId`。
 - [ ] `grep -rn "hasUnpublishedDraft" packages --include="*.ts"` 仍为 3 个调用点（无新增/删除）。
-- [ ] 两个后端套件 + 新 e2e 用例全绿。
+- [ ] 两个后端套件全绿。
 - [ ] `git status --short` 只含 Scope 内文件。
 - [ ] `plans/README.md` 的 008 行状态已更新。
 
