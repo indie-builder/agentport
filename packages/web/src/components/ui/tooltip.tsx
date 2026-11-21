@@ -6,8 +6,8 @@ import {
   TooltipContent as TooltipContentPrimitive,
   TooltipTrigger,
 } from '@ui-sdk/react/tooltip';
-import { cn } from 'cn';
 import type { ComponentProps, ReactNode } from 'react';
+import { cn } from '@/lib/cn';
 
 type TooltipContentProps = Omit<
   ComponentProps<typeof TooltipContentPrimitive>,

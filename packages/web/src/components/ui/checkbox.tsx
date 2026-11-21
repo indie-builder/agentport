@@ -1,7 +1,7 @@
 import { CheckboxIndicator, Checkbox as CheckboxPrimitive } from '@ui-sdk/react/checkbox';
-import { cn } from 'cn';
 import { CheckIcon } from 'lucide-react';
 import type { ComponentProps } from 'react';
+import { cn } from '@/lib/cn';
 
 type CheckboxProps = Omit<
   ComponentProps<typeof CheckboxPrimitive>,

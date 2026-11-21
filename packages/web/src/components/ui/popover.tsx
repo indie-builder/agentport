@@ -5,8 +5,8 @@ import {
   PopoverContent as PopoverContentPrimitive,
   PopoverTrigger,
 } from '@ui-sdk/react/popover';
-import { cn } from 'cn';
 import type { ComponentProps } from 'react';
+import { cn } from '@/lib/cn';
 
 type PopoverContentProps = Omit<ComponentProps<typeof PopoverContentPrimitive>, 'className'> & {
   className?: string | undefined;

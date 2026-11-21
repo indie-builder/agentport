@@ -3,10 +3,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { AppError, fail } from '@agentport/core';
 import { type CursorPage, type Database, newId, repo, schema } from '@agentport/db';
 import type {
-  AccessFilter,
   ApiTool,
   ApiToolInput,
-  ResolvedRuntimeEnvironment,
   ResourceAccessFilter,
   Server,
   ServerInput,
@@ -20,18 +18,8 @@ export function str(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-export function strArray(value: unknown): string[] {
+function strArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
-}
-
-export async function recordTestResult(
-  db: Db,
-  id: string,
-  ok: boolean,
-  toolCount: number | null,
-  runtimeEnvironment: ResolvedRuntimeEnvironment | null,
-): Promise<void> {
-  await repo.servers.recordTestResult(db, id, ok, toolCount, runtimeEnvironment);
 }
 
 export function toApiServer(row: repo.servers.ServerRow, keyB64url: string): Server {
@@ -127,10 +115,6 @@ export async function listServerPage(
     items: page.items.map((row) => maskServer(toApiServer(row, key))),
     nextCursor: page.nextCursor,
   };
-}
-
-export async function getServerRow(db: Db, id: string): Promise<repo.servers.ServerRow | null> {
-  return repo.servers.getServer(db, id);
 }
 
 export async function getServer(db: Db, id: string, key: string): Promise<Server | null> {
@@ -317,22 +301,6 @@ export async function updateServer(
   });
 }
 
-export async function deleteServer(db: Db, id: string): Promise<boolean> {
-  return repo.servers.deleteServer(db, id);
-}
-
-export async function listServerBoundAgents(
-  db: Db,
-  serverId: string,
-  access: AccessFilter,
-): Promise<{ agents: Array<{ id: string; name: string }>; hiddenCount: number }> {
-  return repo.agents.listServerBoundAgents(db, serverId, access);
-}
-
-export async function countApiTools(db: Db, serverId: string): Promise<number> {
-  return repo.servers.countApiTools(db, serverId);
-}
-
 function toApiTool(row: repo.servers.ApiToolRow): ApiTool {
   return {
     id: row.id,
@@ -387,10 +355,6 @@ export async function updateTool(
 ): Promise<ApiTool | null> {
   const row = await repo.servers.updateApiTool(db, serverId, toolId, patch);
   return row ? toApiTool(row) : null;
-}
-
-export async function deleteTool(db: Db, serverId: string, toolId: string): Promise<boolean> {
-  return repo.servers.deleteApiTool(db, serverId, toolId);
 }
 
 export async function getMcpToken(db: Db, id: string): Promise<string | null> {

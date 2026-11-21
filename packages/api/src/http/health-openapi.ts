@@ -4,13 +4,14 @@ const queueCounts = {
   anyOf: [
     {
       type: 'object',
-      required: ['waiting', 'active', 'completed', 'failed', 'delayed'],
+      required: ['waiting', 'active', 'completed', 'failed', 'delayed', 'oldestWaitingMs'],
       properties: {
         waiting: { type: 'integer' },
         active: { type: 'integer' },
         completed: { type: 'integer' },
         failed: { type: 'integer' },
         delayed: { type: 'integer' },
+        oldestWaitingMs: { anyOf: [{ type: 'integer' }, { enum: [null] }] },
       },
     },
     { enum: [null] },

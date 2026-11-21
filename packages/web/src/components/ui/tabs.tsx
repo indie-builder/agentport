@@ -5,8 +5,8 @@ import {
   TabsTab,
 } from '@ui-sdk/react/tabs';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { cn } from 'cn';
 import type { ComponentProps, ReactNode } from 'react';
+import { cn } from '@/lib/cn';
 
 type TabsProps<T extends string = string> = {
   value?: T | null | undefined;
@@ -104,4 +104,4 @@ function TabsContent({ className, ...props }: TabsContentProps) {
   );
 }
 
-export { Tabs, TabsContent, TabsList, TabsTrigger, tabsListVariants };
+export { Tabs, TabsContent, TabsList, TabsTrigger };

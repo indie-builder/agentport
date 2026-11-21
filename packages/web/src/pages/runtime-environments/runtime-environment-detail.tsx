@@ -4,16 +4,7 @@ import type {
 } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import {
-  CircleAlert,
-  CircleCheck,
-  Clock,
-  EllipsisVertical,
-  Hammer,
-  LoaderCircle,
-  RotateCcw,
-  Trash2,
-} from 'lucide-react';
+import { EllipsisVertical, Hammer, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { BackLink } from '../../components/back-link.js';
@@ -29,6 +20,7 @@ import {
   PageTopbar,
 } from '../../components/page.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
+import { BuildStatusLabel } from '../../components/status-badge.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
@@ -75,16 +67,6 @@ import { useZodForm } from '../../lib/use-zod-form.js';
 
 type BuildStatus = RuntimeEnvironmentVersionStatus;
 
-const statusMeta: Record<
-  BuildStatus,
-  { label: string; icon: typeof CircleCheck; className: string }
-> = {
-  queued: { label: '排队中', icon: Clock, className: 'text-muted-foreground' },
-  building: { label: '构建中', icon: LoaderCircle, className: 'text-fg' },
-  ready: { label: '就绪', icon: CircleCheck, className: 'text-success' },
-  failed: { label: '失败', icon: CircleAlert, className: 'text-danger' },
-};
-
 const statusOptions = [
   { value: 'all', label: '全部状态' },
   { value: 'queued', label: '排队中' },
@@ -92,20 +74,6 @@ const statusOptions = [
   { value: 'ready', label: '就绪' },
   { value: 'failed', label: '失败' },
 ];
-
-function StatusLabel({ status }: { status: BuildStatus }) {
-  const meta = statusMeta[status];
-  const Icon = meta.icon;
-  return (
-    <span className={`flex items-center gap-1.5 ${meta.className}`}>
-      <Icon
-        className={status === 'building' ? 'size-3.5 animate-spin' : 'size-3.5'}
-        aria-hidden="true"
-      />
-      {meta.label}
-    </span>
-  );
-}
 
 const runtimeEnvironmentFormSchema = z.object({
   name: z.string().superRefine((value, ctx) => {
@@ -438,7 +406,7 @@ export function RuntimeEnvironmentDetailPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <StatusLabel status={version.status} />
+                        <BuildStatusLabel status={version.status} />
                       </TableCell>
                       <TableCell>
                         {version.imageId ? (
@@ -515,7 +483,7 @@ export function RuntimeEnvironmentDetailPage() {
                 <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
                   <dt className="text-muted-foreground">状态</dt>
                   <dd>
-                    <StatusLabel status={selectedVersion.data.status} />
+                    <BuildStatusLabel status={selectedVersion.data.status} />
                   </dd>
                   <dt className="text-muted-foreground">版本 ID</dt>
                   <dd className="min-w-0 font-mono text-fg [overflow-wrap:anywhere]">

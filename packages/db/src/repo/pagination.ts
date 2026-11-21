@@ -1,13 +1,11 @@
+import type { CursorPage } from '@agentport/shared';
 import { and, eq, gt, lt, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn, AnyPgTable } from 'drizzle-orm/pg-core';
 import type { DbHandle } from '../client.js';
 
-export type KeysetTable = AnyPgTable & { id: AnyPgColumn };
+export type { CursorPage };
 
-export interface CursorPage<T> {
-  items: T[];
-  nextCursor: string | null;
-}
+export type KeysetTable = AnyPgTable & { id: AnyPgColumn };
 
 export function keysetBound(
   table: KeysetTable,

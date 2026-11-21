@@ -8,14 +8,16 @@ import type {
   EvalRunPage as SharedEvalRunPage,
   EvalRunStatus as SharedEvalRunStatus,
 } from '@agentport/shared';
+import type { ApiClient } from '../orpc.js';
 import { rpc } from '../orpc.js';
+import type { ApiOutput } from './shared.js';
 import { clientOptions, nativeRequest } from './shared.js';
 
 export type EvalRunStatus = SharedEvalRunStatus;
 
 export type EvalTarget = 'published' | 'draft';
 
-export type EvalJudgeMode = SharedEvalJudgeMode;
+type EvalJudgeMode = SharedEvalJudgeMode;
 
 export interface EvalCase {
   id: string;
@@ -50,13 +52,7 @@ export interface EvalCaseFromRunInput {
   feedbackId?: string;
 }
 
-export interface EvalSampleCandidate {
-  runId: string;
-  conversationId: string;
-  title: string;
-  prompt: string;
-  endedAt: string;
-}
+export type EvalSampleCandidate = ApiOutput<ApiClient['eval']['cases']['sampleCandidates']>[number];
 
 export interface EvalRun {
   id: string;
@@ -72,17 +68,7 @@ export interface EvalRun {
 
 export type EvalRunPage = SharedEvalRunPage;
 
-export interface EvalResult {
-  /** 用例或运行被清理后置空，历史结果仍然保留。 */
-  caseId: string | null;
-  name: string;
-  prompt: string;
-  expectation: string;
-  passed: boolean;
-  output: string;
-  judgeReason: string | null;
-  runId: string | null;
-}
+export type EvalResult = ApiOutput<ApiClient['eval']['runs']['detail']>['results'][number];
 
 export interface EvalRunDetail {
   evalRun: EvalRun;

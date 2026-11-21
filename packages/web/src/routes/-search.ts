@@ -24,12 +24,12 @@ import {
   memoryViews,
 } from '../lib/detail-tabs.js';
 
-export const resourceSearchSchema = z.object({
+const resourceSearchSchema = z.object({
   q: z.string().optional().catch(undefined),
   sort: z.enum(['newest', 'name']).optional().catch(undefined),
 });
 
-export const listViewSchema = z.enum(['table', 'cards']).optional().catch(undefined);
+const listViewSchema = z.enum(['table', 'cards']).optional().catch(undefined);
 
 export const serversSearchSchema = resourceSearchSchema.extend({
   kind: z.enum(['stdio', 'http', 'generated', 'data_domain']).optional().catch(undefined),

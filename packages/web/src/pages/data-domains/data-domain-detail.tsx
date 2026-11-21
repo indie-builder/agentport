@@ -1,18 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import {
-  CircleAlert,
-  CircleCheck,
-  Clock,
-  Database,
-  EllipsisVertical,
-  LoaderCircle,
-  Pencil,
-  RotateCcw,
-  Trash2,
-  Upload,
-  X,
-} from 'lucide-react';
+import { Database, EllipsisVertical, Pencil, RotateCcw, Trash2, Upload, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackLink } from '../../components/back-link.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
@@ -26,6 +14,7 @@ import {
   PageTopbar,
 } from '../../components/page.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
+import { BuildStatusLabel } from '../../components/status-badge.js';
 import { Badge } from '../../components/ui/badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
 import { Dialog } from '../../components/ui/dialog.js';
@@ -70,32 +59,6 @@ import { DataDomainEnrichment } from './data-domain-enrichment.js';
 import { DataDomainFormDialog } from './data-domain-form-dialog.js';
 import { DataDomainIdentities } from './data-domain-identities.js';
 import { DataDomainQueryLogs } from './data-domain-query-logs.js';
-
-type BuildStatus = DataDomainVersion['status'];
-
-const statusMeta: Record<
-  BuildStatus,
-  { label: string; icon: typeof CircleCheck; className: string }
-> = {
-  queued: { label: '排队中', icon: Clock, className: 'text-muted-foreground' },
-  building: { label: '构建中', icon: LoaderCircle, className: 'text-fg' },
-  ready: { label: '就绪', icon: CircleCheck, className: 'text-success' },
-  failed: { label: '失败', icon: CircleAlert, className: 'text-danger' },
-};
-
-function StatusLabel({ status }: { status: BuildStatus }) {
-  const meta = statusMeta[status];
-  const Icon = meta.icon;
-  return (
-    <span className={`flex items-center gap-1.5 ${meta.className}`}>
-      <Icon
-        className={status === 'building' ? 'size-3.5 animate-spin' : 'size-3.5'}
-        aria-hidden="true"
-      />
-      {meta.label}
-    </span>
-  );
-}
 
 const buildFileAccept = '.json,.yaml,.yml,.txt,.md,.csv,.toml,.sql';
 const importFileMaxBytes = 512 * 1024;
@@ -456,7 +419,7 @@ export function DataDomainDetailPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <StatusLabel status={version.status} />
+                        <BuildStatusLabel status={version.status} />
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {formatRelative(version.updatedAt)}
@@ -650,7 +613,7 @@ export function DataDomainDetailPage() {
                 <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
                   <dt className="text-muted-foreground">状态</dt>
                   <dd>
-                    <StatusLabel status={selectedVersion.data.status} />
+                    <BuildStatusLabel status={selectedVersion.data.status} />
                   </dd>
                   <dt className="text-muted-foreground">版本 ID</dt>
                   <dd className="min-w-0 font-mono text-fg [overflow-wrap:anywhere]">

@@ -46,6 +46,6 @@
 
 ## 历史评审（只读参考，非当前契约）
 
-> 下列文档保留当时的评审与约定，不再约束当前代码；当前结构与契约以 [ARCHITECTURE.md](ARCHITECTURE.md) 和现有代码为准，`tasks/` 下文档仅作历史参考。
+> 下列文档保留当时的评审与约定，不再约束当前代码；当前结构与契约以 [ARCHITECTURE.md](ARCHITECTURE.md) 和现有代码为准。
 
 [IMPL-CONTRACTS.md](archive/IMPL-CONTRACTS.md)、[EFFECT.md](archive/EFFECT.md)、[BASE-FIRST.md](archive/BASE-FIRST.md)、[BASE-UI-REVIEW.md](archive/BASE-UI-REVIEW.md)、[STACK-COMPLIANCE-LOOP.md](archive/STACK-COMPLIANCE-LOOP.md)、[UI-REDESIGN.md](archive/UI-REDESIGN.md)、[UI-UX-REVIEW.md](archive/UI-UX-REVIEW.md)、[UI-LAYOUT-REVIEW.md](archive/UI-LAYOUT-REVIEW.md)、[SUBAGENTS-VERIFICATION.md](archive/SUBAGENTS-VERIFICATION.md)

@@ -54,7 +54,7 @@ import { storeBlob as storeDocumentBlob, supportsImageVectors } from './service.
 
 type Db = Database;
 
-export const KNOWLEDGE_PACKAGE_FORMAT = 'pace/knowledge@1';
+const KNOWLEDGE_PACKAGE_FORMAT = 'pace/knowledge@1';
 export const KNOWLEDGE_PACKAGE_MAX_BYTES = 64 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 128 * 1024 * 1024;
 const MAX_ORIGINAL_BYTES = 32 * 1024 * 1024;

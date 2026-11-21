@@ -2,7 +2,6 @@ import type {
   Agent,
   AgentAccess,
   AgentBudgetStatus,
-  AgentDefinition,
   AgentHookFile,
   AgentHooks,
   AgentInput,
@@ -18,12 +17,12 @@ import { rpc } from '../orpc.js';
 import type { ApiOutput } from './shared.js';
 import { clientOptions, nativeRequest } from './shared.js';
 
-export type { AgentAccess, AgentMember } from '@agentport/shared';
+export type { AgentAccess } from '@agentport/shared';
 
 export type AgentFiles = WorkspaceFiles;
 
 /** 导入官方目录包后新建/复用的资源；正文在文件里，这里只回名称供提示。 */
-export interface AgentImportResult {
+interface AgentImportResult {
   agent: Agent;
   createdServers: string[];
   reusedServers: string[];
@@ -32,7 +31,7 @@ export interface AgentImportResult {
   warnings: string[];
 }
 
-export type AgentOptions = ApiOutput<ApiClient['agents']['options']>;
+type AgentOptions = ApiOutput<ApiClient['agents']['options']>;
 
 export type AgentListParams = Parameters<ApiClient['agents']['list']>[0]['query'];
 
@@ -40,25 +39,11 @@ export type AgentSummary = ApiOutput<ApiClient['agents']['list']>['items'][numbe
 
 export type AgentWriteResult = ApiOutput<ApiClient['agents']['update']>;
 
-export interface AgentMemberList {
-  ownerBusinessId: string;
-  members: AgentMember[];
-}
+export type AgentMemberList = ApiOutput<ApiClient['agents']['members']>;
 
-export interface AgentVersionSummary {
-  id: string;
-  version: number;
-  note: string | null;
-  createdAt: string;
-}
+export type AgentVersionSummary = ApiOutput<ApiClient['agents']['versions']>[number];
 
-export interface AgentVersionDetail {
-  version: number;
-  snapshot: Agent;
-  definition: AgentDefinition | null;
-  definitionState: 'available' | 'forbidden' | 'legacy';
-  createdAt: string;
-}
+export type AgentVersionDetail = ApiOutput<ApiClient['agents']['version']>;
 
 export default {
   agents: (params: AgentListParams, signal?: AbortSignal): Promise<CursorPage<AgentSummary>> =>

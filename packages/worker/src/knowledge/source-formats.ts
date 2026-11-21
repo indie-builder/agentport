@@ -1,4 +1,4 @@
-export const TEXT_MIME_BY_EXTENSION: Record<string, string> = {
+const TEXT_MIME_BY_EXTENSION: Record<string, string> = {
   '.md': 'text/markdown',
   '.markdown': 'text/markdown',
   '.mdx': 'text/markdown',

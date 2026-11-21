@@ -1,15 +1,6 @@
-export interface HealthMetrics {
-  process: { uptimeSeconds: number; memoryRssBytes: number; bunVersion: string };
-  queue: {
-    waiting: number;
-    active: number;
-    completed: number;
-    failed: number;
-    delayed: number;
-  } | null;
-  db: { connected: boolean; pingMs: number | null; maxConnections: number | null };
-  redis: { pingMs: number } | null;
-}
+import type { HealthMetrics } from '@agentport/shared';
+
+export type { HealthMetrics };
 
 export interface HealthLive {
   status: string;

@@ -36,16 +36,11 @@ export type {
   KnowledgeChunk,
   KnowledgeDocumentVersion,
   KnowledgeFaq,
-  KnowledgeFaqImportInput,
   KnowledgeFaqImportResponse,
-  KnowledgeJob,
   KnowledgeLocator,
-  KnowledgeSearchDiagnostics,
   KnowledgeSearchDirectAnswer,
   KnowledgeSearchHit,
   KnowledgeSearchScores,
-  KnowledgeSearchWarning,
-  KnowledgeSyncItem,
 } from '@agentport/shared';
 
 function boolParam(value: boolean): 'true' | 'false' {
@@ -58,7 +53,7 @@ function isFaqBatchBody(
   return Array.isArray((value as { results?: unknown }).results);
 }
 
-export interface KnowledgePage<T> {
+interface KnowledgePage<T> {
   items: T[];
   nextCursor: string | null;
 }
@@ -77,7 +72,7 @@ export interface KnowledgeBaseInput {
   };
 }
 
-export interface KnowledgeBasePatch {
+interface KnowledgeBasePatch {
   name?: string;
   description?: string;
   status?: KnowledgeBaseStatus;
@@ -96,7 +91,7 @@ export interface KnowledgeFolder {
   createdAt: string;
 }
 
-export interface KnowledgeChunkWriteResult {
+interface KnowledgeChunkWriteResult {
   document: KnowledgeDocument;
   chunk: KnowledgeChunk | null;
   jobId: string | null;
@@ -131,7 +126,7 @@ export interface KnowledgeSearchOptions {
 }
 
 /** FAQ wire 是文档投影：列表只回 title/status/tags，详情另带两个版本。 */
-export type KnowledgeFaqDocument = Omit<
+type KnowledgeFaqDocument = Omit<
   Pick<
     KnowledgeDocument,
     | 'id'
@@ -149,7 +144,7 @@ export type KnowledgeFaqDocument = Omit<
   'contentKind' | 'disabledReason'
 > & { contentKind: string; disabledReason: string | null };
 
-export type KnowledgeFaqVersion = Pick<
+type KnowledgeFaqVersion = Pick<
   KnowledgeDocumentVersion,
   | 'id'
   | 'documentId'
@@ -217,7 +212,7 @@ export interface KnowledgeRetrievalEvaluationInput {
   minVectorScore?: number;
 }
 
-export interface KnowledgeRetrievalEvaluationReport {
+interface KnowledgeRetrievalEvaluationReport {
   recallAtK: number;
   mrr: number;
   chunkRecallAtK: number | null;
@@ -235,11 +230,11 @@ export interface KnowledgeRetrievalEvaluationReport {
 
 export type KnowledgeManualDraft = ApiOutput<ApiClient['knowledge']['documents']['manual']>;
 
-export type KnowledgeChunkPreview = ApiOutput<ApiClient['knowledge']['bases']['chunkPreview']>;
+type KnowledgeChunkPreview = ApiOutput<ApiClient['knowledge']['bases']['chunkPreview']>;
 
 export type KnowledgeSearchResponse = KnowledgeSearchResult;
 
-export type KnowledgeWikiLinks = KnowledgeWikiLinksResult;
+type KnowledgeWikiLinks = KnowledgeWikiLinksResult;
 
 export type { KnowledgeWikiGraph };
 
@@ -253,14 +248,11 @@ export interface KnowledgeDocumentDiff {
 }
 
 /** 连接来源类型直接从 shared 输入契约派生，新增 provider 不再手改 wire 枚举。 */
-export type KnowledgeSourceType = Exclude<
-  KnowledgeSourceInput['type'],
-  'upload' | 'url' | 'manual'
->;
+type KnowledgeSourceType = Exclude<KnowledgeSourceInput['type'], 'upload' | 'url' | 'manual'>;
 
-export type KnowledgeSourceRangeKind = KnowledgeSourceInput['ranges'][number]['kind'];
+type KnowledgeSourceRangeKind = KnowledgeSourceInput['ranges'][number]['kind'];
 
-export interface KnowledgeSourceRange {
+interface KnowledgeSourceRange {
   id: string;
   kind: KnowledgeSourceRangeKind;
   externalId: string;
@@ -286,7 +278,7 @@ export interface KnowledgeSource {
   ranges: KnowledgeSourceRange[];
 }
 
-export interface KnowledgeSyncRun {
+interface KnowledgeSyncRun {
   id: string;
   sourceId: string;
   status: KnowledgeJob['status'];
@@ -319,7 +311,7 @@ export interface KnowledgeVersionImage {
 }
 
 /** 版本详情：只含 UI 展示所需元数据，不含 blob 地址与磁盘路径。 */
-export interface KnowledgeVersionDetails {
+interface KnowledgeVersionDetails {
   id: string;
   documentId: string;
   version: number;
@@ -364,7 +356,7 @@ export interface KnowledgeModelProfile {
   updatedAt: string;
 }
 
-export interface KnowledgePackageImportResult {
+interface KnowledgePackageImportResult {
   baseId: string;
   serverId: string;
   counts: {

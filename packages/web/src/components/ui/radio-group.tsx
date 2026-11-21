@@ -3,8 +3,8 @@ import {
   RadioIndicator,
   Radio as RadioPrimitive,
 } from '@ui-sdk/react/radio';
-import { cn } from 'cn';
 import type { ComponentProps } from 'react';
+import { cn } from '@/lib/cn';
 
 type RadioGroupProps = Omit<ComponentProps<typeof RadioGroupPrimitive>, 'onValueChange'> & {
   onValueChange?: ((value: string) => void) | undefined;

@@ -3,28 +3,15 @@ import { rpc } from '../orpc.js';
 import type { ApiOutput } from './shared.js';
 import { clientOptions, nativeRequest } from './shared.js';
 
-export type AuditEntry = ApiOutput<ApiClient['audit']['list']>['items'][number];
+export type AuditList = ApiOutput<ApiClient['audit']['list']>;
+
+export type AuditEntry = AuditList['items'][number];
 
 export type AuditStatus = AuditEntry['status'];
 
-export interface AuditQuery {
-  action?: string;
-  status?: AuditStatus;
-  target?: string;
-  actor?: string;
-  actorKind?: AuditEntry['actorKind'];
-  since?: string;
+export type AuditQuery = Omit<Parameters<ApiClient['audit']['list']>[0]['query'], 'limit'> & {
   limit?: number;
-  /** ISO 时间戳；与 cursor 相互独立，由调用方自行选择。 */
-  before?: string;
-  /** 上一页最后一条的 id；同毫秒并列时用 id 继续翻页。 */
-  cursor?: string;
-}
-
-export interface AuditList {
-  items: AuditEntry[];
-  nextCursor: string | null;
-}
+};
 
 export default {
   audit: (query: AuditQuery = {}, signal?: AbortSignal): Promise<AuditList> =>

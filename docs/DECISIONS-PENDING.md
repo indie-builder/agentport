@@ -16,11 +16,15 @@
 
 ---
 
-## D-2 ✅ 评估判定的方式
+## D-2 ✅ 评估判定的方式 — 已被当前实现取代
 
-**决定（按 A）**：`expectation` 非空时检查输出是否包含该字符串（大小写不敏感）；为空则能产出文本即通过。不做 LLM judge。
+**状态**：**原决定已不成立（LLM 判分已实现）**。本节保留历史记录，当前行为以现行实现为准。
 
-**影响面**：`packages/api/src/features/eval/routes.ts` 的 `judge()`。
+**当时决定（按 A）**：`expectation` 非空时检查输出是否包含该字符串（大小写不敏感）；为空则能产出文本即通过。不做 LLM judge。
+
+**当前实现**：用例判分方式由 `judgeMode` 选择：`contains`（默认，子串包含）或 `llm`（一次受治理 SDK 调用，按评判标准判断并记录理由）。契约见 `packages/shared/src/schemas.ts` 的 `evalJudgeModeSchema` 与 `packages/contract/src/eval.ts` 的 `judgeMode`；worker 实现在 `packages/worker/src/eval-runner.ts`；Web 选择器在 `packages/web/src/pages/eval/case-dialog.tsx`。
+
+**影响面**：`packages/worker/src/eval-runner.ts`。
 
 ---
 
@@ -36,7 +40,7 @@
 
 **边界**：不恢复已经发出的工具调用，也不恢复已经退出的 runner；不引入第二套执行底座。
 
-**影响面**：`packages/api/src/features/servers/generated.ts`、`mcp-endpoint.ts`、`packages/api/src/features/runs/routes.ts`、`approval_requests` 表。
+**影响面**：`packages/api/src/modules/servers/generated.ts`、`packages/api/src/modules/servers/mcp-endpoint.ts`、`packages/api/src/modules/runs/router.ts`、`approval_requests` 表。
 
 ---
 
@@ -76,7 +80,7 @@
 
 **决定（按 B）**：只做「主智能体 → 子智能体」单层委派，子智能体由平台定义（`agents.parent_id`）；有子智能体时才放行 `Agent`/`TaskStop`。不做编排 DSL。
 
-**影响面**：`packages/api/src/features/agents/routes.ts`、`packages/core/src/workspace.ts`、`packages/sandbox/src/runner.ts`。
+**影响面**：`packages/api/src/modules/agents/router.ts`、`packages/core/src/workspace.ts`、`packages/sandbox/src/runner.ts`。
 
 ---
 
@@ -227,7 +231,7 @@
 
 **已知边界**：`default` 可通过 `canUseTool` 把原生 AskUserQuestion 转成用户输入，等待用户回答后同一次运行继续；其他未预批准的工具仍按拒绝处理。原生提问接入正在实施与验收，见D-68；MCP副作用审批继续独立执行，不承诺通用SDK工具审批宿主。
 
-**影响面**：`packages/api/src/features/agents/routes.ts`、`packages/shared/src/agent.ts`。
+**影响面**：`packages/api/src/modules/agents/router.ts`、`packages/shared/src/agent.ts`。
 
 ---
 

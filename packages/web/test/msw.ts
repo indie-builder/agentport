@@ -1,7 +1,7 @@
 import { setupServer } from 'msw/node';
 import { expect } from 'vitest';
 
-export interface RecordedCall {
+interface RecordedCall {
   method: string;
   path: string;
   body: unknown;
