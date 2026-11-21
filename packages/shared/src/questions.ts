@@ -82,13 +82,18 @@ export const questionResponseSchema = z.union([
 
 export type QuestionResponse = z.infer<typeof questionResponseSchema>;
 
-const questionIndexSchema = z.string().regex(/^[0-3]$/);
+const questionIndexSchema = z.string().regex(new RegExp(`^[0-${QUESTION_LIMITS.questions - 1}]$`));
 /** HTTP 表单只传自由文本和稳定选项序号；SDK stdin 仍用 QuestionResponse。 */
 export const publicQuestionResponseSchema = z.union([
   z
     .object({
       answers: z.record(questionIndexSchema, nonBlank(QUESTION_LIMITS.answer)),
-      choices: z.record(questionIndexSchema, z.array(questionIndexSchema).min(1).max(4)).optional(),
+      choices: z
+        .record(
+          questionIndexSchema,
+          z.array(questionIndexSchema).min(1).max(QUESTION_LIMITS.options),
+        )
+        .optional(),
     })
     .strict()
     .refine((response) => JSON.stringify(response).length <= QUESTION_LIMITS.responseBytes, {

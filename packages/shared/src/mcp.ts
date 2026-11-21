@@ -30,7 +30,7 @@ export function maskSecret(value: string | null | undefined): string {
 export function maskUrlCredentials(value: string): string {
   const url = parseUrl(value);
   if (!url) return '[无效URL]';
-  if (!url.username && !url.password) return value;
+  if (!hasEmbeddedCredentials(url)) return value;
   if (url.username) url.username = SECRET_MASK;
   if (url.password) url.password = SECRET_MASK;
   return url.toString();
