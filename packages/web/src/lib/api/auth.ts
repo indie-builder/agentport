@@ -11,8 +11,6 @@ export type {
   RoleMatrixInput,
 } from '@agentport/shared';
 
-export type Me = AuthMe;
-
 export type AccountPage = ApiOutput<ApiClient['auth']['accounts']['list']>;
 
 export type IdentityPage = ApiOutput<ApiClient['agents']['identities']>;

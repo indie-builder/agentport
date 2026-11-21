@@ -76,17 +76,6 @@ function rethrowSlugConflict(err: unknown): never {
   throw err;
 }
 
-export async function listDataDomains(
-  db: DbHandle,
-  access?: ResourceAccessFilter,
-): Promise<DataDomainRow[]> {
-  const scope =
-    access === undefined
-      ? undefined
-      : resourceScopeWhere(access, dataDomains.id, dataDomains.ownerBusinessId);
-  return dataDomainRows(db, scope);
-}
-
 function dataDomainRows(db: DbHandle, where: SQL | undefined) {
   return db
     .select()
