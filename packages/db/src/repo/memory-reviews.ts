@@ -110,6 +110,10 @@ export async function find(db: Database, runId: string): Promise<MemoryReviewRow
   return row ?? null;
 }
 
+export async function deleteByRunId(db: DbHandle, runId: string): Promise<void> {
+  await db.delete(memoryReviews).where(eq(memoryReviews.runId, runId));
+}
+
 export async function findByRequest(
   db: Database,
   businessId: string,

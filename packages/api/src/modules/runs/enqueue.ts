@@ -2,7 +2,11 @@ import { type Database, repo, schema } from '@agentport/db';
 import { buildRunWebhookEvent } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 
-export async function failQueuedRunEnqueue(db: Database, runId: string): Promise<boolean> {
+export async function failQueuedRunEnqueue(
+  db: Database,
+  runId: string,
+  options?: { deleteMemoryReview?: boolean },
+): Promise<boolean> {
   return db.transaction(async (tx) => {
     const [failed] = await tx
       .update(schema.agentRuns)
@@ -32,6 +36,9 @@ export async function failQueuedRunEnqueue(db: Database, runId: string): Promise
         ...buildRunWebhookEvent({ status: 'failed', error: '消息入队失败，请重新发送。' }, failed),
         ownerBusinessId: failed.initiatedBy,
       });
+    }
+    if (options?.deleteMemoryReview === true) {
+      await repo.memoryReviews.deleteByRunId(tx, runId);
     }
     return true;
   });

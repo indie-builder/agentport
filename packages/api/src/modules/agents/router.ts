@@ -4,7 +4,6 @@ import { repo as allRepo, plugins as pluginsTable, schema } from '@agentport/db'
 import {
   AGENT_HOOK_FILE_LIMIT,
   type AgentDefinition,
-  RUN_QUEUE_MAX_WAITING,
   runEnqueueOptions,
   utcMonthStart,
 } from '@agentport/shared';
@@ -26,6 +25,7 @@ import {
   withMemoryTargetLock,
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
+import { runQueueHasCapacity } from '../runs/capacity.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
 import { authorizeAgent, authorizedAgent } from './access.js';
@@ -608,7 +608,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
     const definition = await allRepo.agentDefinitions.loadLiveDefinition(context.db, current.id);
     if (!definition) return notFound('agent');
     await validateDefinition(context, current, definition);
-    if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
+    if (!(await runQueueHasCapacity())) {
       return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
     }
     const { prompt: submittedPrompt } = routeInput.body;
