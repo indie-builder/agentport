@@ -183,7 +183,7 @@ describe('OpenUiBlock', () => {
     );
     // Recharts 在 jsdom 里量不到尺寸，只画容器；断言系列配置进了颜色变量。
     expect(host.querySelector('[data-chart]')).toBeTruthy();
-    expect(host.textContent).toContain('--color-收入: var(--color-chart-runs)');
+    expect(host.textContent).toContain('--color-s0: var(--color-chart-runs)');
     expect(host.querySelectorAll('[data-chart]')).toHaveLength(1);
   });
 

@@ -134,6 +134,7 @@ function buildConfig(series: SeriesEntry[], icons: readonly ComponentType[]): Ch
 **In scope**:
 - `packages/web/src/openui/components/charts.tsx`
 - `packages/web/src/components/ui/chart.tsx`
+- `packages/web/test/openui-renderer.test.ts`（只把既有断言 `--color-收入` 更新为内部键 `--color-s0`）
 
 **Out of scope**:
 - 其他 `ChartContainer` 调用方与图表配色 — 键名已安全，颜色是内部值。

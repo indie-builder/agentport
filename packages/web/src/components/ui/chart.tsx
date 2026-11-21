@@ -76,8 +76,12 @@ function ChartContainer({
   );
 }
 
+const SAFE_CHART_KEY = /^[A-Za-z0-9_-]+$/;
+
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
-  const colorConfig = Object.entries(config).filter(([, config]) => config.theme ?? config.color);
+  const colorConfig = Object.entries(config).filter(
+    ([key, config]) => SAFE_CHART_KEY.test(key) && (config.theme ?? config.color),
+  );
 
   if (!colorConfig.length) {
     return null;
@@ -120,6 +124,7 @@ function ChartTooltipContent({
   formatter,
   color,
   nameKey,
+  nameFormatter,
   labelKey,
   style,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
@@ -128,6 +133,7 @@ function ChartTooltipContent({
     hideIndicator?: boolean;
     indicator?: 'line' | 'dot' | 'dashed';
     nameKey?: string;
+    nameFormatter?: (name: string) => string;
     labelKey?: string;
   } & Omit<
     RechartsPrimitive.DefaultTooltipContentProps<TooltipValueType, TooltipNameType>,
@@ -227,7 +233,9 @@ function ChartTooltipContent({
                       <div className="grid gap-1.5">
                         {nestLabel ? tooltipLabel : null}
                         <span className="text-muted-foreground">
-                          {itemConfig?.label ?? item.name}
+                          {nameFormatter
+                            ? nameFormatter(`${item.name ?? ''}`)
+                            : (itemConfig?.label ?? item.name)}
                         </span>
                       </div>
                       {item.value != null && (

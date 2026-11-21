@@ -17,6 +17,7 @@ import {
   Bar,
   CartesianGrid,
   Cell,
+  type LegendPayload,
   Line,
   Pie,
   PolarAngleAxis,
@@ -149,7 +150,7 @@ function useLegendIcons(count: number, kind: 'line' | 'fill'): ComponentType[] {
 }
 
 type SeriesInput = { category: string; values: (number | null)[] };
-type SeriesEntry = SeriesInput & { key: string; label: string };
+type SeriesEntry = SeriesInput & { key: string; label: string; sortKey: string };
 
 function finiteValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -160,13 +161,14 @@ function seriesFrom(input: unknown[]): SeriesEntry[] {
   return input
     .map((node) => childProps<SeriesInput>(node))
     .filter((series): series is SeriesInput => !!series && typeof series.category === 'string')
-    .map((series) => {
+    .map((series, index) => {
       const count = (occurrences.get(series.category) ?? 0) + 1;
       occurrences.set(series.category, count);
       return {
         category: series.category,
         label: count === 1 ? series.category : `${series.category} (${count})`,
-        key: count === 1 ? series.category : `${series.category}·${count}`,
+        sortKey: count === 1 ? series.category : `${series.category}·${count}`,
+        key: `s${index}`,
         values: asArray(series.values ?? []).map(finiteValue),
       };
     });
@@ -193,6 +195,20 @@ function buildConfig(series: SeriesEntry[], icons: readonly ComponentType[]): Ch
   );
 }
 
+function legendItemSorter(config: ChartConfig, series: SeriesEntry[] = []) {
+  const sortKeys = new Map(series.map((item) => [item.key, item.sortKey]));
+  return (item: LegendPayload) => {
+    const dataKey = typeof item.dataKey === 'string' ? item.dataKey : undefined;
+    const value = `${item.value ?? ''}`;
+    const key = dataKey ?? value;
+    return (
+      sortKeys.get(key) ??
+      sortKeys.get(value) ??
+      `${config[key]?.label ?? config[value]?.label ?? item.value ?? ''}`
+    );
+  };
+}
+
 function hasData(labels: string[], series: SeriesEntry[]): boolean {
   return (
     labels.length > 0 &&
@@ -212,7 +228,7 @@ function buildSlices(labels: string[], values: unknown[]): SliceInput[] {
       return {
         category,
         label: count === 1 ? category : `${category} (${count})`,
-        key: count === 1 ? category : `${category}·${count}`,
+        key: `s${index}`,
         value: finiteValue(values[index]),
       };
     })
@@ -288,6 +304,7 @@ function fixedTooltipStyle(
 function FixedTooltipContent({
   coordinate,
   className,
+  label,
   ...props
 }: React.ComponentProps<typeof ChartTooltipContent> & {
   coordinate?: { x?: number; y?: number } | undefined;
@@ -296,6 +313,8 @@ function FixedTooltipContent({
   return (
     <ChartTooltipContent
       {...props}
+      label={label}
+      {...(typeof label === 'string' ? { labelFormatter: () => label } : {})}
       className={cn('min-w-0', className)}
       style={fixedTooltipStyle(frame?.anchor.current ?? null, coordinate)}
     />
@@ -497,7 +516,10 @@ export function BarChartRenderer({
           <YAxis width="auto" {...AXIS_PROPS} />
           <ChartTooltipPortal content={<FixedTooltipContent />} />
           {series.length > 1 ? (
-            <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />} />
+            <ChartLegend
+              itemSorter={legendItemSorter(config, series)}
+              content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />}
+            />
           ) : null}
           {series.map((item, index) => (
             <Bar
@@ -544,7 +566,10 @@ export function LineChartRenderer({
           <YAxis width="auto" {...AXIS_PROPS} />
           <ChartTooltipPortal content={<FixedTooltipContent />} />
           {series.length > 1 ? (
-            <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />} />
+            <ChartLegend
+              itemSorter={legendItemSorter(config, series)}
+              content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />}
+            />
           ) : null}
           {series.map((item, index) => (
             <Line
@@ -594,7 +619,10 @@ export function AreaChartRenderer({
           <YAxis width="auto" {...AXIS_PROPS} />
           <ChartTooltipPortal content={<FixedTooltipContent />} />
           {series.length > 1 ? (
-            <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />} />
+            <ChartLegend
+              itemSorter={legendItemSorter(config, series)}
+              content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />}
+            />
           ) : null}
           {series.map((item, index) => (
             <Area
@@ -651,7 +679,10 @@ export function HorizontalBarChartRenderer({
           <YAxis type="category" dataKey="category" width="auto" {...AXIS_PROPS} />
           <ChartTooltipPortal content={<FixedTooltipContent />} />
           {series.length > 1 ? (
-            <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />} />
+            <ChartLegend
+              itemSorter={legendItemSorter(config, series)}
+              content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />}
+            />
           ) : null}
           {series.map((item, index) => (
             <Bar
@@ -690,7 +721,10 @@ export function RadarChartRenderer({ props }: RenderProps<XYProps>) {
           <PolarRadiusAxis tick={false} axisLine={false} />
           <ChartTooltipPortal content={<FixedTooltipContent />} />
           {series.length > 1 ? (
-            <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />} />
+            <ChartLegend
+              itemSorter={legendItemSorter(config, series)}
+              content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />}
+            />
           ) : null}
           {series.map((item, index) => (
             <Radar
@@ -760,6 +794,7 @@ export function PieChartRenderer({
             ))}
           </Pie>
           <ChartLegend
+            itemSorter={legendItemSorter(config)}
             content={<ChartLegendContent nameKey="key" className="flex-wrap gap-x-4 gap-y-1" />}
           />
         </RechartsPieChart>
@@ -879,7 +914,7 @@ export function ScatterChartRenderer({
   if (datasets.length === 0) return null;
   const config: ChartConfig = Object.fromEntries(
     datasets.map((dataset, index) => [
-      dataset.name || `series-${index}`,
+      `s${index}`,
       {
         label: dataset.name || `series-${index}`,
         color: seriesTone(index),
@@ -931,20 +966,28 @@ export function ScatterChartRenderer({
             {...AXIS_PROPS}
             {...(props.yLabel ? { name: props.yLabel } : {})}
           />
-          <ChartTooltipPortal content={<FixedTooltipContent hideLabel />} />
+          <ChartTooltipPortal
+            content={<FixedTooltipContent hideLabel nameFormatter={(name) => name} />}
+          />
           {datasets.length > 1 ? (
-            <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />} />
-          ) : null}
-          {datasets.map((dataset, index) => (
-            <Scatter
-              key={dataset.name || index}
-              name={dataset.name || `series-${index}`}
-              data={dataset.data}
-              fill={seriesTone(index)}
-              shape={SCATTER_SHAPES[index % SCATTER_SHAPES.length] ?? 'circle'}
-              isAnimationActive={false}
+            <ChartLegend
+              itemSorter={legendItemSorter(config)}
+              content={<ChartLegendContent nameKey="value" className="flex-wrap gap-x-4 gap-y-1" />}
             />
-          ))}
+          ) : null}
+          {datasets.map((dataset, index) => {
+            const seriesKey = `s${index}`;
+            return (
+              <Scatter
+                key={seriesKey}
+                name={seriesKey}
+                data={dataset.data}
+                fill={seriesTone(index)}
+                shape={SCATTER_SHAPES[index % SCATTER_SHAPES.length] ?? 'circle'}
+                isAnimationActive={false}
+              />
+            );
+          })}
         </RechartsScatterChart>
       </ChartContainer>
     </ChartFrame>
