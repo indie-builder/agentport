@@ -14,7 +14,7 @@ import {
   knowledgeReadInputSchema,
   knowledgeSearchQuerySchema,
 } from '@agentport/shared';
-import type { CallToolResult, McpHttpHandler } from '@modelcontextprotocol/server';
+import type { CallToolResult, JsonSchemaType, McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler, fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -25,7 +25,18 @@ import {
 } from './read-image.js';
 import { QUOTE_LIMIT, type SearchKnowledgeResult, searchKnowledge } from './retrieval.js';
 
-const baseIdArg = z.object({ baseId: z.string().optional() });
+const baseIdArg = z.object({
+  baseId: z
+    .string()
+    .optional()
+    .describe('Must be the bound knowledge base ID; other bases are rejected.'),
+});
+
+function toolInput(schema: z.ZodObject) {
+  return fromJsonSchema<Record<string, unknown>>(
+    z.toJSONSchema(schema, { io: 'input' }) as unknown as JsonSchemaType,
+  );
+}
 
 class KnowledgeReadError extends Error {
   constructor(
@@ -438,72 +449,10 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
       'knowledge_search',
       {
         description:
-          'Search the knowledge base bound to this connection and return cited chunks. Use it for factual questions the bound documents, FAQs or wiki pages may answer; it cannot reach any other base. Results carry hits with citations, a degraded flag and warnings when retrieval fell back, and directAnswer when an FAQ answers directly. Parameters: q is the query; kinds limits the sources; limit caps hits; folders and tags narrow the scope; rerank reorders by relevance; minVectorScore sets the minimum similarity for text-vector recall (keyword hits and the separate image-vector path are unaffected); onlyRecommended restricts FAQ hits to recommended entries; faqPriority also enables directAnswer and places FAQ hits first; faqDirectAnswerThreshold sets the raw-question cosine threshold for directAnswer.',
-        inputSchema: fromJsonSchema<Record<string, unknown>>({
-          type: 'object',
-          properties: {
-            q: {
-              type: 'string',
-              minLength: 1,
-              maxLength: 500,
-              description: 'Query text (required, 1–500 characters).',
-            },
-            kinds: {
-              type: 'array',
-              items: { type: 'string', enum: ['document', 'faq', 'wiki'] },
-              description: 'Source kinds to search; omit to include document, FAQ and wiki.',
-            },
-            limit: {
-              type: 'integer',
-              minimum: 1,
-              maximum: 50,
-              description: 'Maximum number of hits (1–50, default 10).',
-            },
-            folders: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Restrict the search to these folders.',
-            },
-            tags: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Return only entries carrying these tags.',
-            },
-            rerank: {
-              type: 'boolean',
-              description: 'Reorder hits with the rerank model (default true).',
-            },
-            minVectorScore: {
-              type: 'number',
-              minimum: -1,
-              maximum: 1,
-              description:
-                'Minimum similarity for text-vector recall; keyword hits and the image-vector path are unaffected (default 0.3).',
-            },
-            onlyRecommended: {
-              type: 'boolean',
-              description:
-                'Keep only recommended FAQ entries; documents and wiki pages are unaffected.',
-            },
-            faqPriority: {
-              type: 'boolean',
-              description:
-                'Place FAQ hits before other results and enable directAnswer when retrieval is not degraded (default false).',
-            },
-            faqDirectAnswerThreshold: {
-              type: 'number',
-              minimum: -1,
-              maximum: 1,
-              description:
-                'Raw-question cosine threshold for directAnswer; directAnswer also requires faqPriority=true and non-degraded retrieval (default 0.9).',
-            },
-            baseId: {
-              type: 'string',
-              description: 'Must be the bound knowledge base ID; other bases are rejected.',
-            },
-          },
-          required: ['q'],
-        } as Parameters<typeof fromJsonSchema>[0]),
+          'Search the knowledge base bound to this connection and return cited chunks. Use it for factual questions the bound documents, FAQs or wiki pages may answer; it cannot reach any other base. Results carry hits with citations, a degraded flag and warnings when retrieval fell back, and directAnswer when an FAQ answers directly.',
+        inputSchema: toolInput(
+          knowledgeSearchQuerySchema.omit({ diagnostics: true }).extend(baseIdArg.shape),
+        ),
       },
       async (args, ctx) => {
         const denied = guard(args);
@@ -528,43 +477,7 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
       {
         description:
           'Read the current readable version of one document, FAQ or published wiki page as markdown. Use it when a search hit is not enough. Long content is paged with offset (Unicode code-point index) and limit; the result carries nextOffset while more remains. Only targets readable from the bound base can be read; anything else fails with an error.',
-        inputSchema: fromJsonSchema<Record<string, unknown>>({
-          type: 'object',
-          properties: {
-            target: {
-              type: 'object',
-              description:
-                'Target to read; kind is document, faq or wiki and id comes from search/list results.',
-              properties: {
-                kind: {
-                  type: 'string',
-                  enum: ['document', 'faq', 'wiki'],
-                  description: 'Target kind.',
-                },
-                id: { type: 'string', description: 'Target ID.' },
-              },
-              required: ['kind', 'id'],
-            },
-            versionId: {
-              type: 'string',
-              description:
-                'Must equal the current effective version, otherwise VERSION_NOT_CURRENT is returned; omit to read the current effective version.',
-            },
-            offset: {
-              type: 'integer',
-              minimum: 0,
-              description: 'Start position (Unicode code-point index).',
-            },
-            limit: {
-              type: 'integer',
-              minimum: 1,
-              maximum: 20_000,
-              description: 'Maximum characters to return (1–20000).',
-            },
-            baseId: { type: 'string', description: 'Must be the bound knowledge base ID.' },
-          },
-          required: ['target'],
-        } as Parameters<typeof fromJsonSchema>[0]),
+        inputSchema: toolInput(knowledgeReadInputSchema.extend(baseIdArg.shape)),
       },
       async (args) => {
         const denied = guard(args);
@@ -585,27 +498,7 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
       {
         description:
           'List readable documents, FAQs and published wiki pages in the knowledge base bound to this connection. Use it to discover what exists before searching, or to find IDs for knowledge_read. Filter by kinds; page with cursor and limit. A disabled base fails with BASE_DISABLED, and another base ID is rejected.',
-        inputSchema: fromJsonSchema<Record<string, unknown>>({
-          type: 'object',
-          properties: {
-            kinds: {
-              type: 'array',
-              items: { type: 'string', enum: ['document', 'faq', 'wiki'] },
-              description: 'Source kinds to list; omit to include document, FAQ and wiki.',
-            },
-            cursor: {
-              type: 'string',
-              description: 'Cursor from the previous page; omit for the first page.',
-            },
-            limit: {
-              type: 'integer',
-              minimum: 1,
-              maximum: 50,
-              description: 'Maximum items per page (1–50).',
-            },
-            baseId: { type: 'string', description: 'Must be the bound knowledge base ID.' },
-          },
-        } as Parameters<typeof fromJsonSchema>[0]),
+        inputSchema: toolInput(knowledgeListInputSchema.extend(baseIdArg.shape)),
       },
       async (args) => {
         const denied = guard(args);
@@ -627,22 +520,7 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
         {
           description:
             'Read one image hit returned by knowledge_search. format=description (default) returns the stored OCR/caption text as JSON; format=image returns the original image plus its JSON metadata for vision models. chunkId must come from a prior search hit. Only available when image processing is enabled on the base; invalid parameters fail with an error.',
-          inputSchema: fromJsonSchema<Record<string, unknown>>({
-            type: 'object',
-            properties: {
-              chunkId: {
-                type: 'string',
-                description: 'Image chunk ID from a prior knowledge_search hit.',
-              },
-              format: {
-                type: 'string',
-                description:
-                  'description (default) returns text; image returns the original image.',
-              },
-              baseId: { type: 'string', description: 'Must be the bound knowledge base ID.' },
-            },
-            required: ['chunkId'],
-          } as Parameters<typeof fromJsonSchema>[0]),
+          inputSchema: toolInput(knowledgeReadImageInputSchema.extend(baseIdArg.shape)),
         },
         async (args, ctx) => {
           const denied = guard(args);
