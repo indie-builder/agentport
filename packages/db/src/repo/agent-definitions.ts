@@ -41,6 +41,16 @@ export async function recordDraftVersionTx(
   return insertAgentVersion(tx, agentId, definition.agent, definition, note);
 }
 
+async function lockPublishTarget(tx: Transaction, agentId: string): Promise<AgentRow | null> {
+  await lockAgentBindings(tx);
+  const [agent] = await tx.select().from(agents).where(eq(agents.id, agentId)).for('update');
+  if (!agent) return null;
+  if (agent.enabled === false) {
+    await assertAgentsIdle(tx, agent.parentId === null ? [agent.id] : [agent.id, agent.parentId]);
+  }
+  return agent;
+}
+
 export async function publishCurrent(
   db: DbHandle,
   agentId: string,
@@ -48,15 +58,7 @@ export async function publishCurrent(
 ): Promise<AgentRow | null> {
   return retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
-      await lockAgentBindings(tx);
-      const [agent] = await tx.select().from(agents).where(eq(agents.id, agentId)).for('update');
-      if (!agent) return null;
-      if (agent.enabled === false) {
-        await assertAgentsIdle(
-          tx,
-          agent.parentId === null ? [agent.id] : [agent.id, agent.parentId],
-        );
-      }
+      if ((await lockPublishTarget(tx, agentId)) === null) return null;
       const definition = await loadLiveDefinition(tx, agentId);
       if (!definition) return null;
       await assertDefinitionResources(tx, definition);
@@ -80,15 +82,8 @@ export async function publishDefinition(
 ): Promise<AgentRow | null> {
   return retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
-      await lockAgentBindings(tx);
-      const [agent] = await tx.select().from(agents).where(eq(agents.id, agentId)).for('update');
+      const agent = await lockPublishTarget(tx, agentId);
       if (!agent) return null;
-      if (agent.enabled === false) {
-        await assertAgentsIdle(
-          tx,
-          agent.parentId === null ? [agent.id] : [agent.id, agent.parentId],
-        );
-      }
       await applyDefinition(tx, agent, definition);
       const fresh = await loadLiveDefinition(tx, agentId);
       if (!fresh) return null;
