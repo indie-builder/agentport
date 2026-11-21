@@ -24,7 +24,7 @@ import {
   slugSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
-import { fail } from './errors.js';
+import { fail, INVALID_CURSOR_MESSAGE } from './errors.js';
 import { pathSegmentsProblem } from './path-segments.js';
 
 const CONVERSATION_OUTPUTS = 'conversation-outputs';
@@ -678,7 +678,7 @@ function decodeCursor(value: string): Cursor {
   } catch {
     // 落到统一的游标错误。
   }
-  fail('INVALID_INPUT', '分页游标无效，请刷新后重试', { path: '/cursor' });
+  fail('INVALID_INPUT', INVALID_CURSOR_MESSAGE, { path: '/cursor' });
 }
 
 function afterCursor(item: OutputFile, cursor: Cursor): boolean {
@@ -721,7 +721,7 @@ export async function listOutputFiles(input: ListOutputFilesInput): Promise<Outp
     }
   }
   if (!cursorFound) {
-    fail('INVALID_INPUT', '分页游标无效，请刷新后重试', { path: '/cursor' });
+    fail('INVALID_INPUT', INVALID_CURSOR_MESSAGE, { path: '/cursor' });
   }
 
   const page = items.slice(0, input.limit);

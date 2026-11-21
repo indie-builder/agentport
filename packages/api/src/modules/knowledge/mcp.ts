@@ -1,3 +1,4 @@
+import { INVALID_CURSOR_MESSAGE } from '@agentport/core';
 import { type Database, isCanonicalTimestamp, repo } from '@agentport/db';
 import type {
   KnowledgeListInput,
@@ -347,7 +348,7 @@ function decodeCursor(value: string | undefined): ListCursor | null {
     )
       return cursor as ListCursor;
   }
-  throw new KnowledgeReadError('INVALID_INPUT', '分页游标无效，请刷新后重试');
+  throw new KnowledgeReadError('INVALID_INPUT', INVALID_CURSOR_MESSAGE);
 }
 /** 原始 SQL 的 timestamptz 在不同驱动下可能是 Date 或字符串，统一成 ISO。 */
 function timestampOf(value: Date | string): string {
@@ -389,7 +390,7 @@ async function listReadable(
     const [anchor] = await db.execute<{ id: string }>(sql`
       select id from (${union}) items where id = ${cursor.id} and kind = ${cursor.kind} limit 1
     `);
-    if (!anchor) throw new KnowledgeReadError('INVALID_INPUT', '分页游标无效，请刷新后重试');
+    if (!anchor) throw new KnowledgeReadError('INVALID_INPUT', INVALID_CURSOR_MESSAGE);
   }
   const after = cursor
     ? sql`where (updated_at, id, kind) < (${cursor.updatedAt}::timestamptz, ${cursor.id}, ${cursor.kind})`
