@@ -1,6 +1,50 @@
 # Implementation Plans
 
-第二批 005–009 生成于 2026-11-22（基线 `90a0ad2c`）。执行前请读完整份计划，遵守其 STOP 条件，完成后更新本表状态。
+第三批 010–016 生成于 2026-11-22（基线 `321cf491`）。执行前请读完整份计划，遵守其 STOP 条件，完成后更新本表状态。
+
+## 第三批（2026-11-22）
+
+基线 `321cf491`。推荐顺序：010（安全，S）→ 015（收敛，S）→ 016（死代码，S）→ 013（知识批量，S）→ 014（wake 幂等，S）→ 011（模型代理查询合并，S）→ 012（测量，S）。除 011 与 012 都触及产出/模型路径外，其余互不共享文件，可并行。
+
+> 范围状态：010 可直接执行；011–016 的计划已写好，但用户未明确确认是否全部纳入本轮，状态标为「待确认」，确认前不派发、不提交。
+
+| Plan | Title | Priority | Effort | Risk | Depends on | Status |
+|------|-------|----------|--------|------|------------|--------|
+| 010 | 用内部系列键承载图表数据与样式，阻断类别名进入 CSS | P1 | S | LOW | — | TODO |
+| 011 | 合并模型代理每次调用中重复的 run 查询 | P1 | S | MED | — | 待确认 |
+| 012 | 测量产出搜索的 manifest 扫描成本，再决定是否优化 | P2 | S | LOW | — | 待确认 |
+| 013 | 知识批量操作改为批量取数，消除逐条查询 | P1 | S | LOW | — | 待确认 |
+| 014 | 频道 wake 通知按 CAS 结果发布，消除重复系统消息 | P2 | S | MED | — | 待确认 |
+| 015 | 收敛 readCapped 语义、isRecord 副本与环境变量文档 | P2 | S | LOW | — | 待确认 |
+| 016 | 删除生产不可达的导出与只测到自身的测试 | P3 | S | MED | — | 待确认 |
+
+第三批依赖说明：
+
+- 010 改 `openui/components/charts.tsx` 与 `ui/chart.tsx`：源头改用内部系列键，样式入口再加安全键名过滤；`openui-chart-ui.test.ts` 覆盖中文类别与重复系列名。
+- 011 只合并重复查询；预算、审批目的地、内容策略、端点校验与凭证解密保持每请求执行。
+- 012 只做本地测量并给出结论，不改生产代码；若判定需要优化，再另写 017，缓存命中必须仍能发现 manifest 损坏与路径变化。
+- 013 跨 db + api，用现有知识库套件验证；内容读取保留逐次累计的 64MiB 实际字节上限。
+- 014 选择「CAS 胜者才通知」，语义从至少一次变为至多一次；评审需确认这个取舍。
+- 015 的 `readCapped` 截断选项要保持 `generated.ts` 现有静默截断行为，不能改成抛错。
+- 016 删除测试专用导出；逐块检查断言，保留造数据/验证其他行为的测试；任何符号出现非测试调用方都必须 STOP。
+
+## 第三批审计：已核实但不立项（勿再报）
+
+- **E2E 明文管理员默认凭据**（`e2e.config.ts:51`、`scripts/e2e-channel.ts:67`）：`docs/OPERATIONS.md:703` 已写明这是本地 E2E 默认值及覆盖方式，属测试夹具约定，不是部署凭据。
+- **`ci:e2e` 不包含 execution/channels/governance/model-security-ops**：这些套件需要专属隔离栈，`docs/OPERATIONS.md` 已分列入口；并入会加重本地 CI，与项目偏好冲突。
+- **catch-up jobId 固定导致 3 次 claim 前失败后不再重试**（`packages/worker/src/scheduling/scheduler.ts:366-376`）：需要连续 3 次 claim 前失败，低频边界，暂不立项。
+- **knowledge/data_domain run token 不检查 run 状态**（`packages/api/src/modules/servers/mcp-endpoint.ts:22-31`）：需要 token 外泄加崩溃/清理失败，属理论纵深防护，暂不立项。
+- **3000 行硬门 vs 文档 500 行软上限**（`scripts/check-file-lines.mjs:4`、`docs/ARCHITECTURE.md:112`）：软上限与硬门互补，不算缺陷。
+- **测试中的固定 sleep**（`packages/api/test/channels-resilience.test.ts:304` 等）：无真实 flake 证据，暂不立项。
+- **未审计范围**：`packages/sandbox` 运行时内部与 Docker 生命周期、依赖公告（`bun audit` 因镜像 registry 404 未完成）、真实性能测量与 EXPLAIN。
+
+## 第三批审计：已核实但未建计划（按需再排）
+
+- 性能：消息搜索用 `strpos(lower(regexp_replace(...)))` 且无表达式/GIN 索引（`packages/db/src/repo/chat/search.ts:76-90`，需先 EXPLAIN 实测）。
+- 技术债：知识 blob 存储两份实现且已漂移（`api/src/modules/knowledge/service.ts:127`、`worker/src/knowledge/ingestion.ts:284`）。
+- 文档：`docs/ARCHITECTURE.md:115` 说 SQL 只在 `@agentport/db`，与 api/worker 模块内直写 SQL 的现状及 `packages/db/AGENTS.md` 冲突，需要维护者选择改文档还是迁查询。
+- 并发：审批决策事务持 `agent_runs FOR UPDATE` 期间等待 Redis（`packages/api/src/modules/servers/approval-policy.ts:146`、`packages/db/src/repo/channel-approvals.ts:144-162`、`runs.ts:934`），会改变「取消优先」语义，需单独设计。
+- 方向：在线 + 轨迹评估（C3）、审计合规增强（C2）、记忆子系统三个未闭环缺口（嵌套主题文件可见性、SDK 直写不进账本、手工编辑缺旧稿基线）。自动进化已在 `docs/research/capability-comparison-2026-11-14.md` 明确不做。
 
 ## 第二批（2026-11-22）
 
