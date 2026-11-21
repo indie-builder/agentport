@@ -1,8 +1,11 @@
-import { adminPageQuerySchema, auditActorKindSchema, cursorPageSchema } from '@agentport/shared';
+import {
+  adminPageQuerySchema,
+  auditActorKindSchema,
+  auditStatusSchema,
+  cursorPageSchema,
+} from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
-
-export const auditStatusSchema = z.enum(['ok', 'error', 'denied']);
 
 export const auditQuerySchema = adminPageQuerySchema.extend({
   action: z.string().trim().max(100).optional(),

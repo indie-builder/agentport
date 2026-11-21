@@ -1,6 +1,6 @@
 import { auditContract } from '@agentport/contract/audit';
 import { repo } from '@agentport/db';
-import type { AuditActorKind } from '@agentport/shared';
+import type { AuditActorKind, AuditStatus } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { RequestContext } from '../../http/context.js';
 import { requireCursorPage } from '../../http/pagination.js';
@@ -27,7 +27,7 @@ export function toItem(row: repo.audit.AuditEntry) {
 
 type AuditQueryParams = {
   action?: string | undefined;
-  status?: 'ok' | 'error' | 'denied' | undefined;
+  status?: AuditStatus | undefined;
   target?: string | undefined;
   actor?: string | undefined;
   actorKind?: AuditActorKind | undefined;

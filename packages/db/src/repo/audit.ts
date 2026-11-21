@@ -1,14 +1,12 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson, sha256Hex } from '@agentport/core';
-import type { AuditActorKind } from '@agentport/shared';
+import type { AuditActorKind, AuditStatus } from '@agentport/shared';
 import { and, asc, desc, eq, gt, gte, isNotNull, like, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
 import { escapeLike } from './knowledge/shared.js';
 import { keysetBound, keysetPage } from './pagination.js';
-
-export type AuditStatus = 'ok' | 'error' | 'denied';
 
 export interface AuditEvent {
   actor?: string;

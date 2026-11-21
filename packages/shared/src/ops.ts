@@ -6,6 +6,9 @@ export const MAINTENANCE_QUEUE = 'maintenance';
 export const auditActorKindSchema = z.enum(['user', 'service', 'anonymous', 'agent']);
 export type AuditActorKind = z.infer<typeof auditActorKindSchema>;
 
+export const auditStatusSchema = z.enum(['ok', 'error', 'denied']);
+export type AuditStatus = z.infer<typeof auditStatusSchema>;
+
 export const scheduleMissedPolicySchema = z.enum(['skip', 'run_once']);
 export type ScheduleMissedPolicy = z.infer<typeof scheduleMissedPolicySchema>;
 
