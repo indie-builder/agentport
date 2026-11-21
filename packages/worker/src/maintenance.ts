@@ -1,6 +1,5 @@
 import { pathToFileURL } from 'node:url';
 import { outputMessageAnchors, removeChannelInputs } from '@agentport/core';
-import { createServiceLogger } from '@agentport/core/logger';
 import { createDb, repo, schema } from '@agentport/db';
 import {
   DEFAULT_JOB_RETENTION,
@@ -13,7 +12,7 @@ import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { loadConfig } from './config.js';
-import { version } from './version.js';
+import { createWorkerLogger } from './logger.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const OPS_ALERT_INTERVAL_MS = 5 * 60 * 1000;
@@ -359,12 +358,7 @@ export async function startMaintenanceWorker(input: {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const config = loadConfig();
-  const logger = createServiceLogger({
-    service: 'worker',
-    env: config.NODE_ENV,
-    version,
-    level: config.LOG_LEVEL,
-  });
+  const logger = createWorkerLogger(config);
   const { db, client } = createDb(config.DATABASE_URL);
   try {
     await runMaintenance(

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hashMcpToken } from '@agentport/core';
-import { createServiceLogger, logEvent } from '@agentport/core/logger';
+import { logEvent } from '@agentport/core/logger';
 import { type Database, repo, schema } from '@agentport/db';
 import {
   AGENT_MEMORY_MAX_BYTES,
@@ -32,12 +32,12 @@ import type { Logger } from 'pino';
 import { z } from 'zod';
 import { type Config, loadConfig } from '../config.js';
 import { checkOutboundPolicy } from '../content-policy.js';
+import { createWorkerLogger } from '../logger.js';
 import { resolveProviderUpstreams } from '../model-providers.js';
 import type { ModelProxy } from '../model-proxy.js';
 import { hermeticQueryOptions } from '../one-shot-sdk.js';
 import { claimRunTerminal, notifyRunTerminal } from '../runs/run-finish.js';
 import { modelProxyUpstream, sdkEnv } from '../upstream.js';
-import { version } from '../version.js';
 
 /** 测试可替换 query；真实运行时直接用官方实现。 */
 export type MemoryReviewQueryFn = (params: {
@@ -424,14 +424,7 @@ export async function executeMemoryReview(
         snapshot,
       });
       const config = deps.config ?? loadConfig();
-      const logger =
-        deps.logger ??
-        createServiceLogger({
-          service: 'worker',
-          env: config.NODE_ENV,
-          version,
-          level: config.LOG_LEVEL,
-        });
+      const logger = deps.logger ?? createWorkerLogger(config);
       const originalText = prompt;
       let outboundText = JSON.stringify(prompt);
       for (const agentId of new Set([run.agentId, ...sources.map((source) => source.agentId)])) {
