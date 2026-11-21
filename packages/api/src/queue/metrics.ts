@@ -1,6 +1,6 @@
 import type { QueueCounts } from '@agentport/shared';
 
-export const JOB_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'] as const;
+const JOB_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'] as const;
 
 interface QueueLike {
   getJobCounts: (...states: (typeof JOB_STATES)[number][]) => Promise<Record<string, number>>;
