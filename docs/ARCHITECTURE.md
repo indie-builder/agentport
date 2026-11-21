@@ -54,6 +54,8 @@
 
 进程之间只通过 PostgreSQL、Redis、HTTP 通信，不共享内存对象。
 
+仓库根 `node_modules` 只含根依赖；workspace 依赖在 `packages/<pkg>/node_modules/`，Bun 安装在 `node_modules/.bun/`（目录名含包名、版本与解析后缀）；读依赖源码从 `packages/<pkg>/node_modules/<name>` 的真实路径进入，`bun pm ls` 查看实际解析结果。
+
 - `db` 根入口导出 `Transaction` / `DbHandle`：读取与普通写入接受 `DbHandle`，外层事务入口与使用 `$client` 的方法保留 `Database`；`BOOTSTRAP_ID` 由 `repo.access` 拥有。
 - 容器挂载路径常量统一由 `shared/sandbox-paths.ts` 导出（`/mnt/outputs`、`/mnt/inputs`、`/home/node/.claude`、`/mnt/agent-memory`、`/mnt/user`、`/workspace/.claude/agent-memory`）；Dockerfile 仍保留字面值。
 - 内置工具的默认禁用集合与可按配置启用的四个工具名由 `shared/agent.ts` 拥有；core / sandbox 保留各自的文件工具与 hook 差异。
@@ -63,16 +65,16 @@
 
 ### 1.1 前端页面地图
 
-`packages/web/src/pages/` 下 `agents/` 与 `knowledge-detail/` 已按视图拆成目录（`agents/agent-editor.tsx` 仍约 2350 行，是单个 hook 密集的大组件，暂未再拆）；其余单文件仍过千行的有 `servers` 2441、`chat` 1713、`eval` 1289、`knowledge` 1194、`channel` 1181、`roles` 1180、`ops` 1140、`accounts` 1124、`skills` 1103，进文件前先看这张表定位，不要整文件读。
+`packages/web/src/pages/` 的页面与目录如下。本表只用于定位，文件大小会变，进文件前先 `wc -l` 确认，不要整文件读。
 
 | 页面 | 职责 | 会碰到的共享件 |
 |---|---|---|
-| `agents/`（`index.tsx` 桶导出 `AgentsPage`/`AgentDetailPage`；`agents-page`、`agent-detail-page`、`agent-editor`、`version-history`、`create-agent-dialog`、`shared` 等） | 专家/智能体：列表、配置表单、版本历史、文件视图 | `page.tsx`、`agent/agent-avatar.tsx`、`resource-page.tsx`、`dialog-shell.tsx`；目录内 `shared.ts` |
-| `chat.tsx` | 对话三栏：会话列表、消息流、右侧产出；SSE 生命周期 | `agent/agent-avatar.tsx`、`chat/openui-message.tsx`、`code-block.tsx`、`motion-collapsible.tsx`、`knowledge/knowledge-citations.tsx` |
-| `knowledge-detail/`（`index.tsx` 桶导出 `KnowledgeDetailPage`；`knowledge-detail-page`、`documents-tab`、`sources-tab`、`jobs-tab`、`document-*`/`source-*` 等组件、`shared` 等） | 单个知识库：文档、来源、Wiki、检索调试 | `knowledge/knowledge-citations.tsx`、`source-editor.tsx`、`markdown.tsx`、`filter-select.tsx`；目录内 `shared.ts` |
-| `servers.tsx` | 连接器：MCP/stdio/生成式 server、工具目录、测试连接 | `resource-page.tsx`、`dialog-shell.tsx`、`filter-select.tsx`、`source-editor.tsx` |
-| `eval.tsx` | 评估：数据集、跑批、结果对比 | `data-table.tsx`、`dialog-shell.tsx` |
-| 其余（`skills`、`plugins`、`runtime-environments`、`ops`、`overview`、`audit`、`runs`、`status`、`memory-panel`、`knowledge`、`notifications`、`search`、`personal-profile`、`personal-memory`、`personal-security`、`personal-shares`、`personal-usage`、`personal-work`） | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`，`knowledge` 用 `knowledge/knowledge-settings.tsx`，个人模块各页沿用标准 Page/表格/Dialog 并共用 `personal-profile.tsx` 的个人导航外壳 | 同上，优先复用而不是新写 |
+| [agents/](../packages/web/src/pages/agents/)（`index.tsx` 桶导出 `AgentsPage`/`AgentDetailPage`；`agents-page`、`agent-detail-page`、`agent-editor`、`version-history`、`create-agent-dialog`、`shared` 等） | 专家/智能体：列表、配置表单、版本历史、文件视图 | `page.tsx`、`agent/agent-avatar.tsx`、`dialog-shell.tsx`；目录内 `shared.ts` |
+| [chat/](../packages/web/src/pages/chat/)（`index.tsx` 导出 `ChatPage`；`chat-column`、`history-panel`、`history-header`、`welcome-state`、`rename-dialog` 等） | 对话三栏：会话列表、消息流、右侧产出；SSE 生命周期 | `agent/agent-avatar.tsx`、`chat/openui-message.tsx`、`code-block.tsx`、`motion-collapsible.tsx`、`knowledge/knowledge-citations.tsx` |
+| [knowledge/](../packages/web/src/pages/knowledge/)（`index.tsx` 导出 `KnowledgePage`；[detail/](../packages/web/src/pages/knowledge/detail/) 导出 `KnowledgeDetailPage`，含 `documents-tab`、`sources-tab`、`jobs-tab`、`document-*`/`source-*` 等组件、`shared` 等） | 知识库：列表与单个知识库的文档、来源、Wiki、检索调试 | `knowledge/knowledge-citations.tsx`、`knowledge/knowledge-settings.tsx`、`source-editor.tsx`、`markdown.tsx`、`filter-select.tsx`；目录内 `shared.ts` |
+| [servers/](../packages/web/src/pages/servers/)（`index.tsx` 导出 `ServersPage`；连接、工具目录、测试环境等对话框与 `shared`） | 连接器：MCP/stdio/生成式 server、工具目录、测试连接 | `resource-page.tsx`、`dialog-shell.tsx`、`filter-select.tsx`、`source-editor.tsx` |
+| [eval/](../packages/web/src/pages/eval/)（`index.tsx` 导出 `EvalPage`；`case-dialog`、`compare-dialog`、`compare-side`、`run-results`、`pass-rate-chart` 等） | 评估：数据集、跑批、结果对比 | `data-table.tsx`、`dialog-shell.tsx` |
+| 其余：[accounts.tsx](../packages/web/src/pages/accounts.tsx)、[audit.tsx](../packages/web/src/pages/audit.tsx)、[channels/](../packages/web/src/pages/channels/)、[data-domains/](../packages/web/src/pages/data-domains/)、[governance.tsx](../packages/web/src/pages/governance.tsx)、[integrations.tsx](../packages/web/src/pages/integrations.tsx)、[login.tsx](../packages/web/src/pages/login.tsx)、[models.tsx](../packages/web/src/pages/models.tsx)、[not-found.tsx](../packages/web/src/pages/not-found.tsx)、[notifications.tsx](../packages/web/src/pages/notifications.tsx)、[observability.tsx](../packages/web/src/pages/observability.tsx)、[ops.tsx](../packages/web/src/pages/ops.tsx)、[overview-trend-chart.tsx](../packages/web/src/pages/overview-trend-chart.tsx)、[overview.tsx](../packages/web/src/pages/overview.tsx)、[personal/](../packages/web/src/pages/personal/)、[plugins/](../packages/web/src/pages/plugins/)、[roles.tsx](../packages/web/src/pages/roles.tsx)、[runs/](../packages/web/src/pages/runs/)、[runtime-environments/](../packages/web/src/pages/runtime-environments/)、[search.tsx](../packages/web/src/pages/search.tsx)、[security.tsx](../packages/web/src/pages/security.tsx)、[skills.tsx](../packages/web/src/pages/skills.tsx)、[status.tsx](../packages/web/src/pages/status.tsx) | 各资源页，多数是列表 + 详情/表单；`runs`/`audit`/`overview` 用 `data-table.tsx`；个人模块各页沿用标准 Page/表格/Dialog 并共用个人导航外壳 | 同上，优先复用而不是新写 |
 
 `notifications` 是全局「通知与待办」页：侧栏入口带未读徽标，页内提供全部/待办（未读）筛选、单条与全部标为已读、游标分页；服务端只按当前 `businessId` 返回本人通知。页面骨架统一走 `components/page.tsx`（`Page`/`PageHeader`/`PageToolbar`/`PageSection`）；每个渲染状态恰好一个 `h1`。共享状态在 `lib/`（`api.ts`、`queries.ts`），路由表由 `routes/` 生成到 `routeTree.gen.ts`。业务组件按域收进 `components/<域>/`（`knowledge`、`memory`、`run`、`channel`、`plugin`、`agent`、`chat`、`media`），泛用组件留在 `components/` 根，`components/ui/` 为无样式原语。
 
@@ -104,6 +106,8 @@ packages/api/src/routes/index.ts      把契约 router 挂到 /api
 | `http.ts` | 原生 HTTP 边界：auth、MCP、SSE、文件与 ZIP |
 | `access.ts` | 域内对象级授权 |
 | `write.ts` / `api.ts` / `service.ts` | 命名并存的辅助文件，职责不同：`agents/write.ts` 只做输入→写入映射；`api.ts` 兼做 row↔wire 投影与写入映射；`knowledge/service.ts` 还承载 blob 存储与队列副作用；其他映射位置包括 `servers/repo.ts.toApiServer` 与 `agents/use-cases.ts.toWrite` |
+
+`packages/db/src/schema/` 按域拆文件（如 `knowledge-bases.ts`、`knowledge-documents.ts`、`knowledge-wiki.ts`），`packages/db/src/repo/` 混合按域单文件与目录（如 `repo/knowledge.ts` 与 `repo/knowledge/*.ts`）。定位文件用 `rg --files packages/db/src` 或 `ls`，不要假设存在单一聚合文件。
 
 单文件软上限约 500 行；超出时按子域拆分为目录并用 `index.ts`/同名 barrel 保持对外入口不变。
 

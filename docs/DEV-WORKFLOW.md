@@ -34,6 +34,7 @@
    新建任务时先 `git fetch origin main`。worktree 位置固定为主 checkout 的 `.claude/worktrees/<任务 slug>`（绝对路径 `<主 checkout>/.claude/worktrees/<slug>`）；默认用 `EnterWorktree`，手动执行时同样是 `git worktree add <主 checkout>/.claude/worktrees/<slug> -b <branch> origin/main`，起点为刚 fetch 的 `origin/main`（用 `EnterWorktree` 时同样核对其起点）。主 checkout 指仓库主目录本身，**不是当前任务 worktree**；新树不建在仓库同级，也不建在当前或其他任何已有**任务 worktree** 内部——现有旧位置属历史，不重构也不照抄。本地 main 不是最新，旧 worktree 也不是，二者都不作对齐依据。名字用 ASCII slug（如 `log-to-file`），工具不接受中文名。
    主 checkout 默认不改动、保持干净，任务产出只在 worktree。
    **主会话先进入目标任务树再派发代码执行**；子代理 `isolation: worktree` 只是额外隔离，不能替代这一步，且额外隔离树同样落在固定位置、禁止套娃。
+   树内尽量用单条普通命令：不用 `eval`，不把 heredoc 或脚本并进复合命令；git 一律写 `/usr/bin/git <args>`。被拒绝时按 `docs/PITFALLS.md`「worktree 里两类命令会被拒绝」处理。
    进树后记录一次绝对路径、`git rev-parse HEAD` 与 `git status`：已有未提交差异原地写明归属（他人/未完成），不顺手提交、还原或覆盖。这是开工时的一次性记录，后续不反复查全局 status，也不为核对额外加流程；所有动手只在本 worktree 内，子代理保持并行。
    **完成判据**：主会话已位于目标 worktree（`<主 checkout>/.claude/worktrees/<slug>`）；新建时 HEAD 与声明的起点一致（默认刚 fetch 的 `origin/main`，偏离时已注明原因），续做时保留原基线与恢复上下文、HEAD 可包含本任务后续提交；初始差异归属已记入当前对话或原生待办，产出不落到主 checkout。
 

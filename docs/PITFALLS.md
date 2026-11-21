@@ -10,6 +10,7 @@
 |---|---|
 | UI 卡片、间距与视觉 | UI：全站减重把已选定的卡片深度一并压平；实现：对齐/间距类改动没量实际坐标就宣布完成；UI 验证：类名和采样时序不能代替真实几何与性能；实现：按截图和记忆猜参考 UI 的交互与状态 |
 | worktree 与依赖安装 | 复制到 worktree 的 `.env` 可能比刚确认的配置旧；多个 worktree 同时跑全栈 compose 会互相踩；EnterWorktree 的 name 只接受 ASCII slug；实现：新 worktree 不一定基于最新 `origin/main`；迁移：删依赖后旧 `node_modules` 残留会掩盖未迁移的测试与 E2E |
+| 检索失败 / 命令被拒 | 未加引号的 glob 让检索命令整条失败；worktree 里两类命令会被拒绝 |
 | 数据库与迁移 | 数据库：迁移账本漂移或共享库已有列时不要手改账本；迁移台账与仓库 journal 不一致，所有登录 500；数据库：新增运行触发值要同步扩展 CHECK 约束；数据库：Drizzle `sql` 模板里的 JS 数组会展开成多个占位符 |
 | 沙盒与镜像 | 测试：陈旧沙盒镜像让 strict schema 拒绝新字段；镜像：官方 CLI 的 Bash 工具需要真正的 bash/zsh，busybox sh 不够；运行：运行环境的 base image 由 API 入队冻结，API 与 worker 必须同 `SANDBOX_IMAGE`；镜像：恢复旧镜像 ID 不等于它能被当前 worker 执行 |
 | 测试与 E2E | 测试：全量并行时偶发 401，根因是登录后会话没落库；测试：全量并行时不同文件每轮随机失败，根因是跨文件共享的测试身份与信道；测试：E2E session 只保存登录，不会替你打开页面；测试：精简文案后要同步真实端到端定位器 |
@@ -83,9 +84,15 @@
 
 ## worktree 里两类命令会被拒绝，原因不同
 
-- **现象**：worktree 会话里出现两种拒绝。①「runs rtk with a git command among its operands … Refusing to run it」；②「this command is too complex to verify that it stays inside the worktree … Split it into plain, separate commands」。
-- **原因**：①是 `rtk hook claude` 把 `git` 包成 rtk 调用，命令里看不出实际执行的是哪个 git；②是 worktree 隔离守卫无法静态解析该命令，例如「建目录 + heredoc」写在同一行（`mkdir -p X && cat > X/a.mjs <<'EOF'`）。实测单独 `mkdir -p X`、单独 heredoc、`mkdir && echo`、`until [ -n "$(…)" ]` 都可通过，所以②不覆盖所有复合命令。
-- **规避**：git 用 `/usr/bin/git <args>` 直接调用，不要混进复合命令；写临时脚本时先把 `mkdir` 和 heredoc 分成两次调用。遇到其它拒绝先按报错原文区分是 rtk 还是 worktree 守卫，不要一律归因 RTK。
+- **现象**：worktree 会话里有两类拒绝。①「runs rtk with a git command among its operands … Refusing to run it」。② worktree 隔离守卫，原文有两种：(a)「this command is too complex to verify that it stays inside the worktree … Split it into plain, separate commands」，含 `names git in a form` 的变体属同一措辞；(b)「runs a string through eval, which can't be verified … Run git directly with literal arguments」。
+- **原因**：①是 `rtk` 把 git 包成 rtk 调用。②(a) 是守卫无法静态核实命令，例如把 `mkdir` 和 heredoc 写在同一行；实测单独 `mkdir -p X`、单独 heredoc、`mkdir && echo`、`until [ -n "$(…)" ]` 可通过。②(b) 是对字面 token `eval` 的文本匹配：实测 `ls packages/web/src/pages/eval/`、`echo eval` 被拒，`ls packages/web/src/pages`、`ls -d packages/web/src/pages/*/pass-rate-chart.tsx` 通过。
+- **规避**：git 用 `/usr/bin/git <args>`；尽量每次调用只发一条普通命令；不要写下字面 token `eval`，从父目录执行，或用不含该字符串的通配/相对路径；同一字面写法不要重试；按报错原文区分 rtk 与 worktree 守卫。
+
+## 未加引号的 glob 让检索命令整条失败
+
+- **现象**：检索命令整条失败并报 `(eval):1: no matches found: --include=*.ts`，换成 `--include=*.tsx`、`compose*.yml` 等同样报错，即使目标文件确实存在。
+- **原因**：zsh 在命令执行前先展开未加引号的 glob；当前目录没有匹配项时直接中止整条命令，后面的 `grep`/`rg` 根本没运行。十次会话里 `--include=*.ts` 报错出现 188 次。
+- **规避**：给 glob 加引号（`--include='*.ts'`），或改用 ripgrep 自己的过滤参数（`rg -n PATTERN <path> -g '*.ts'`）；同一种未加引号的写法不要重试。
 
 ## 测试：队列消费者检查要看库号和队列名，不能只看实例
 
