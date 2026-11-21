@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import type { KnowledgeSource } from '../../../lib/api.js';
 
-/** 按叶权限控制每个主操作、行菜单与子编辑器；展示与否只由这里决定。 */
 export type KnowledgeCaps = {
   content: boolean;
   sources: boolean;
@@ -26,7 +25,6 @@ export type KnowledgeCaps = {
   export: boolean;
 };
 
-/** 来源类型以 shared 的输入契约为准，与 api.ts 的 wire 类型保持一致。 */
 export type SourceType = KnowledgeSourceInput['type'];
 
 type SourceProviderMeta = {
@@ -92,7 +90,6 @@ export const sourceProviders: Array<{ type: SourceType } & SourceProviderMeta> =
   Object.keys(sourceProviderMeta) as SourceType[]
 ).map((type) => ({ type, ...sourceProviderMeta[type] }));
 
-/** 未知类型显式标注，不回落到某个具体 provider 误导用户。 */
 export function sourceProvider(type: SourceType): (typeof sourceProviders)[number] {
   return (
     sourceProviders.find((provider) => provider.type === type) ?? {
@@ -125,7 +122,6 @@ type CredentialKey =
   | 'clientSecret'
   | 'appPassword';
 
-/** 凭证只写不读：留空提交不发 secrets，避免把已存密钥覆盖成空串。 */
 export function credentialField(
   type: SourceType,
   authMode: AuthMode,
@@ -183,15 +179,12 @@ export const emptySourceFields: SourceFieldState = {
 type SourceFieldSpec = {
   key: SourceFieldKey;
   label: string;
-  /** 连接身份字段：创建后不可改，编辑时只读，避免旧凭证被带到新站点。 */
   identity?: boolean;
   required?: boolean | ((authMode: AuthMode) => boolean);
-  /** 仅在该认证模式显示（Confluence 条件字段）。 */
   visible?: (authMode: AuthMode) => boolean;
   placeholder?: string;
 };
 
-/** 新增来源的连接字段集中在这里，按类型渲染，不为每个 provider 复制一套表单。 */
 export const sourceFieldSpecs: Partial<Record<SourceType, SourceFieldSpec[]>> = {
   lark_wiki: [{ key: 'appId', label: 'App ID', identity: true }],
   lark_drive: [{ key: 'appId', label: 'App ID', identity: true }],
@@ -249,7 +242,6 @@ export function sourceFieldId(key: SourceFieldKey): string {
   return `source-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
 }
 
-/** Seafile 只有精确的 / 表示全库；其余输入按库内相对目录保存。 */
 function normalizeSeafilePaths(paths: string[]): string[] {
   if (paths.some((path) => path.trim() === '/')) return [];
   return paths.map((path) => path.trim().replace(/^\/+|\/+$/g, ''));
@@ -261,10 +253,6 @@ function seafilePathInvalid(paths: string[]): boolean {
   );
 }
 
-/**
- * //、/// 或空串 normalize 后为空；它们不是全库，必须按字段错误拦下，
- * 否则过滤成空数组会被后端当成全库而静默放大同步范围。
- */
 export function seafilePathIssue(paths: string[]): string | null {
   if (paths.some((path) => path.trim() === '/')) return null;
   if (paths.length === 0 || paths.some((path) => path.trim().replace(/^\/+|\/+$/g, '') === '')) {
@@ -276,14 +264,12 @@ export function seafilePathIssue(paths: string[]): string | null {
   return null;
 }
 
-/** clientId 只用于列表 key；已有范围沿用服务端 id，保证 key 稳定、删行不串焦点。 */
 export type RangeKind = KnowledgeSourceInput['ranges'][number]['kind'];
 export type RangeDraft = Omit<KnowledgeSourceInput['ranges'][number], 'kind'> & {
   clientId: string;
   kind: RangeKind;
 };
 
-/** 提交前去掉 clientId，不把本地 key 混进来源 config。 */
 export function toRangeInput({ clientId: _clientId, ...range }: RangeDraft) {
   return {
     ...range,
@@ -351,20 +337,17 @@ export function rangeExternalLabel(kind: RangeKind): string {
   }[kind];
 }
 
-/** 空范围行；clientId 在创建时生成一次，后续 render 不变。 */
 export function newRangeDraft(kind: RangeKind): RangeDraft {
   return {
     clientId: crypto.randomUUID(),
     kind,
     externalId: '',
     ref: null,
-    // Seafile 新行显式以 / 表示全库；清空输入不被当成全库。
     paths: kind === 'seafile_repo' ? ['/'] : [],
     enabled: true,
   };
 }
 
-/** 至少一个范围，且至少一个启用；空行也算缺 ID。 */
 export function rangeIssue(type: SourceType, ranges: RangeDraft[]): string | null {
   if (ranges.length === 0) return '至少需要一个范围';
   if (ranges.some((range) => range.externalId.trim() === '')) return '每个范围都需要外部 ID';
@@ -388,7 +371,6 @@ export function rangeIssue(type: SourceType, ranges: RangeDraft[]): string | nul
   return null;
 }
 
-/** 列表行的目标摘要：仓库@ref / 来源范围 / Feed，并带上 cron。 */
 export function sourceTargetSummary(source: KnowledgeSource): string {
   const summary = source.ranges
     .map((range) => {
@@ -406,7 +388,6 @@ export function sourceTargetSummary(source: KnowledgeSource): string {
   return source.syncCron ? `${summary} · cron ${source.syncCron}` : summary;
 }
 
-/** 已有来源的 config 只读展示：缺省或非字符串一律按空值处理。 */
 export function configString(source: KnowledgeSource | undefined, key: string): string {
   const value = source?.config[key];
   return typeof value === 'string' ? value : '';

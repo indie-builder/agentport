@@ -14,7 +14,6 @@ import {
   unique,
 } from './helpers.js';
 
-// 直接落库构造已收口的跑批：不入队，就不需要 worker 空闲。
 const ready = await infraReady;
 
 interface Snapshot {
@@ -77,7 +76,6 @@ describe.skipIf(!ready)('eval run comparison', () => {
     return { id: row.id, name, prompt, expectation };
   }
 
-  /** 已收口的跑批；status 只允许终态，running 留给专门的拒绝用例。 */
   async function newRun(
     agentId: string,
     options: { status?: 'succeeded' | 'failed'; cases?: Snapshot[] } = {},
@@ -130,7 +128,6 @@ describe.skipIf(!ready)('eval run comparison', () => {
     return res.json<{ baseRun: { id: string }; headRun: { id: string }; rows: ComparisonRow[] }>();
   }
 
-  /** 一条用例、两侧各一个结果的最小对比。 */
   async function pair(options: {
     basePassed: boolean;
     headPassed: boolean;
@@ -242,7 +239,6 @@ describe.skipIf(!ready)('eval run comparison', () => {
     await record(base, { caseId: kase.id, snapshot: kase, passed: false });
     await record(head, { caseId: kase.id, snapshot: kase, passed: true });
 
-    // 删源用例后两个结果的 case_id 都置空，快照里的 id 仍能把它们对齐。
     await repo.evalRepo.deleteCase(app.db, kase.id);
     const body = await comparison(base, head);
     expect(body.rows).toHaveLength(1);
@@ -313,7 +309,6 @@ describe.skipIf(!ready)('eval run comparison', () => {
     const base = await newRun(agent.id);
     const head = await newRun(agent.id);
     await record(base, { caseId: kase.id, snapshot: kase, passed: true });
-    // case_id 为空的重复结果不受唯一键约束，快照 id 却相同。
     for (const passed of [true, false]) {
       await app.client.unsafe(
         'insert into eval_results (id, eval_run_id, case_snapshot, passed, output) values ($1, $2, $3, $4, $5)',

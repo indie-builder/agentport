@@ -118,7 +118,6 @@ describe('OverviewCard metric slot', () => {
     expect(host.textContent).toContain('2.5%');
     expect(host.textContent).toContain('2,370+');
     expect(host.textContent).toContain('across the city');
-    // 顶槽不能被底槽替换或丢弃。
     expect(host.textContent).toContain('Annual Visitors');
     expect(host.textContent).toContain('Museums');
   });
@@ -204,8 +203,6 @@ describe('CardBlock carousel', () => {
     );
     const items = [...host.querySelectorAll<HTMLElement>('[data-slot="carousel-item"]')];
     expect(items.length).toBe(2);
-    // 盒模型：轨道 gap 与卡宽共用 --openui-card-gap，默认 3 个 spacing 单位；
-    // 两列各让出半个 gap，两张 50%+50%-gap 加一个 gap 正好铺满轨道。
     expect(items[0]?.className).toContain('basis-4/5');
     expect(items[0]?.className).toContain(
       '@min-[481px]:basis-[calc((100%_-_var(--openui-card-gap))/2)]',
@@ -303,7 +300,6 @@ describe('CardBlock carousel', () => {
     expect(items.length).toBe(2);
     expect(track()?.style.gap).toBe('20px');
     expect(track()?.style.getPropertyValue('--openui-card-gap')).toBe('20px');
-    // 卡宽公式引用同一变量，自定义 gap 下两张卡加一个 gap 仍正好铺满轨道。
     expect(items[0]?.className).toContain(
       '@min-[481px]:basis-[calc((100%_-_var(--openui-card-gap))/2)]',
     );

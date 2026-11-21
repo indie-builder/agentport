@@ -55,13 +55,10 @@ export async function assertNoActiveRun(db: Database, agentId: string): Promise<
 export interface MemoryTargetState {
   content: string | null;
   globs: string | null;
-  /** 主题文件的伴随索引；personal、规则与 MEMORY.md 自身为 null。 */
   index: MemoryContentSnapshot['index'];
-  /** 仅个人记忆使用：写入时作为乐观锁版本号。 */
   revision?: number;
 }
 
-/** 三类目标当前内容的唯一读取口径；主题同时读取同专家的 MEMORY.md。 */
 export async function readMemoryTarget(
   db: Database,
   workspacesDir: string,
@@ -104,7 +101,6 @@ export function memorySnapshot(
   };
 }
 
-/** 比较时把「缺失规则的 globs」按空字符串处理，与审核快照同一表示。 */
 function sameIndex(
   before: MemoryContentSnapshot['index'],
   after: MemoryContentSnapshot['index'],
@@ -130,7 +126,6 @@ function fileContent(
   return snapshot.index?.content ?? null;
 }
 
-/** 实际会变化的文件；主题与 MEMORY.md 最多两个，顺序固定为目标文件在前。 */
 function changedFiles(
   target: MemoryReviewTarget,
   before: MemoryContentSnapshot,
@@ -152,7 +147,6 @@ function decodeBase64(value: string | null): string | null {
   return value === null ? null : Buffer.from(value, 'base64').toString('utf8');
 }
 
-/** 整段记忆写入（检查、文件/规则、账本、审核决定）共用同一把目标会话锁。 */
 export function withMemoryTargetLock<T>(
   client: SQL,
   target: MemoryReviewTarget,
@@ -170,7 +164,6 @@ export interface WriteMemoryTargetBase {
   workspacesDir: string;
   businessId: string;
   target: MemoryReviewTarget;
-  /** 审核/回滚要求目标仍是该快照；手工编辑不传，按锁内当前内容记录 before。 */
   before?: MemoryContentSnapshot;
   sourceReviewRunId?: string | null;
   reversesChangeId?: string | null;
@@ -180,7 +173,6 @@ export interface WriteMemoryTargetBase {
 export type WriteMemoryTargetInput = WriteMemoryTargetBase &
   (
     | { after: MemoryContentSnapshot; manualContent?: never }
-    /** 手工 PUT/DELETE 的正文意图；null 表示删除。after 在日志恢复并重读当前文件后计算。 */
     | { after?: never; manualContent: string | null }
   );
 
@@ -232,7 +224,6 @@ async function discardJournalQuietly(
   }
 }
 
-/** 审核已 applied 时日志只剩清理价值；删除失败不能影响已提交的结果。 */
 export async function discardReviewWriteJournal(
   db: Database,
   workspacesDir: string,
@@ -262,7 +253,6 @@ async function currentFileHashes(
   return hashes;
 }
 
-/** 每个文件都只认日志的显式哈希，任何第三方内容都返回冲突。 */
 function journalState(entry: MemoryJournalEntry, hashes: Map<string, string | null>): JournalState {
   let before = 0;
   let after = 0;
@@ -277,7 +267,6 @@ function journalState(entry: MemoryJournalEntry, hashes: Map<string, string | nu
   return 'mixed';
 }
 
-/** 把本次写入涉及的文件恢复到日志记录的原始字节；不存在则删除。 */
 async function restoreJournalFiles(
   workspacesDir: string,
   slug: string,
@@ -314,7 +303,6 @@ function assertJournalMatchesSnapshot(
   }
 }
 
-/** 文件已全部落到 after：按日志类型补完账本（审核/回滚）或补记手工版本。 */
 async function finalizeJournalEntry(
   db: Database,
   workspacesDir: string,
@@ -397,7 +385,6 @@ async function finalizeJournalEntry(
     );
   }
 
-  // manual：先按预分配的操作 ID 认已提交账本，不按内容猜同一操作。
   const existing = await repo.memoryChanges.find(db, entry.operationId);
   if (existing) return existing;
   const target: AgentMemoryTarget = entry.target;
@@ -437,10 +424,6 @@ interface SettledJournal {
   change: repo.memoryChanges.MemoryChangeRow | null;
 }
 
-/**
- * 已提交日志只剩清理价值：先按稳定操作身份认账，不读写文件。
- * null 表示尚未提交，仍需按文件哈希恢复或阻断后续写入。
- */
 async function settledJournal(
   db: Database,
   entry: MemoryJournalEntry,
@@ -461,11 +444,6 @@ async function settledJournal(
   return change ? { change } : null;
 }
 
-/**
- * 锁内先处理该专家所有残留写入日志：
- * 全部仍是 before → 写从未生效，丢弃；混合 → 先恢复原字节；
- * 全部是 after → 按审核/回滚/手工补完账本。冲突则不覆盖外部编辑。
- */
 async function resolveJournalsForWrite(
   db: Database,
   workspacesDir: string,
@@ -476,15 +454,12 @@ async function resolveJournalsForWrite(
 ): Promise<repo.memoryChanges.MemoryChangeRow | null> {
   let resolved: repo.memoryChanges.MemoryChangeRow | null = null;
   for (const entry of await listMemoryJournals(workspacesDir, slug)) {
-    // 只有同一操作类型的日志才算「本次操作」：回滚的 operationId 是被撤销变更的 ID，
-    // 不能因此把该手工变更的残留日志当成回滚自己的已提交记录。
     const own =
       ownOperationId !== undefined &&
       entry.operationId === ownOperationId &&
       entry.operation === operation;
     const settled = await settledJournal(db, entry);
     if (settled) {
-      // 已提交：就算 SDK 之后改了文件，也只清日志，不恢复、不补账、不阻断后续。
       await discardJournalQuietly(workspacesDir, slug, entry.operationId, logger);
       if (own && settled.change) resolved = settled.change;
       continue;
@@ -493,8 +468,6 @@ async function resolveJournalsForWrite(
     if (state === 'conflict') {
       fail('CONFLICT', '目标记忆文件已被修改，存在未完成的写入，请重新生成或重试原操作');
     }
-    // 索引是共享资源：其它操作的已落盘/半落盘写入只能由原操作恢复，
-    // 不能借手工保存、回滚或另一次审核覆盖。手工写入之间可以收敛。
     if (
       !own &&
       state !== 'all-before' &&
@@ -517,17 +490,12 @@ async function resolveJournalsForWrite(
       continue;
     }
     const change = await finalizeJournalEntry(db, workspacesDir, slug, entry);
-    // 账本已提交：日志只剩清理价值，删除失败不能把成功改写成 500。
     await discardJournalQuietly(workspacesDir, slug, entry.operationId, logger);
     if (own) resolved = change;
   }
   return resolved;
 }
 
-/**
- * 拒绝前的显式证据检查：本审核没有已落盘的文件变更才能拒绝。
- * 其他操作的残留写入占用共享索引时同样返回冲突，不允许绕过。
- */
 export async function assertNoPendingReviewWrite(
   db: Database,
   workspacesDir: string,
@@ -552,7 +520,6 @@ export async function assertNoPendingReviewWrite(
   }
 }
 
-/** 手工保存同内容：同一文件的最近一次已应用变更 after 与当前一致才不重复记账。 */
 async function recordManualSameContent(
   db: Database,
   input: WriteMemoryTargetInput,
@@ -566,7 +533,6 @@ async function recordManualSameContent(
     includeIndexChanges: target.name === INDEX_FILE_NAME,
     limit: 1,
   });
-  // MEMORY.md 的最近记录可能是以主题为 target 的变更：它的 after.index.content 才是 MEMORY 正文。
   const latestTarget = latest?.target;
   const latestIndexContent =
     latestTarget?.kind === 'agent_memory' && latestTarget.name === INDEX_FILE_NAME
@@ -587,7 +553,6 @@ async function recordManualSameContent(
   });
 }
 
-/** 所有候选文件在第一次写入前完成限额校验；超限整次拒绝，不截断。 */
 function assertCandidateLimits(
   target: AgentMemoryTarget,
   after: MemoryContentSnapshot,
@@ -607,10 +572,6 @@ function assertCandidateLimits(
   }
 }
 
-/**
- * 新建主题（非 MEMORY.md）时校验策略上限：人工 PUT、提案采纳与回滚共用同一入口，不重复校验。
- * 停用只拒绝新的记忆提案，不阻止手工编辑，因此这里只看主题数量。
- */
 export async function assertTopicCapacity(
   db: Database,
   workspacesDir: string,
@@ -624,7 +585,6 @@ export async function assertTopicCapacity(
   }
 }
 
-/** 专家记忆的双文件写入：日志先落盘，目标与索引依次 rename，账本提交后删日志。 */
 async function writeAgentMemoryTarget(
   db: Database,
   input: WriteMemoryTargetInput,
@@ -640,7 +600,6 @@ async function writeAgentMemoryTarget(
     : input.reversesChangeId
       ? ('rollback' as const)
       : ('manual' as const);
-  // 手工写入在写日志前先分配最终账本 ID，日志与账本使用同一稳定身份。
   const operationId = input.sourceReviewRunId ?? input.reversesChangeId ?? newId('memoryChange');
   const ordered = [...new Set([target.name, INDEX_FILE_NAME])].filter((name) =>
     changed.includes(name),
@@ -698,7 +657,6 @@ async function writeAgentMemoryTarget(
         operation === 'manual' ? operationId : undefined,
       ),
     );
-    // 账本与审核决定已提交：日志只剩清理价值，失败也不能影响已提交的结果。
     await discardJournalQuietly(input.workspacesDir, slug, operationId, input.logger);
     return change;
   } catch (error) {
@@ -706,7 +664,6 @@ async function writeAgentMemoryTarget(
       await restoreJournalFiles(input.workspacesDir, slug, entry);
       await discardJournalQuietly(input.workspacesDir, slug, operationId, input.logger);
     } catch (restoreError) {
-      // 日志保留到下一次写入按显式证据恢复；错误本身保持可诊断。
       throw new AggregateError(
         [error, restoreError],
         'memory write failed and the original files could not be restored; journal kept',
@@ -716,11 +673,6 @@ async function writeAgentMemoryTarget(
   }
 }
 
-/**
- * 锁内写入：专家记忆文件先原子落盘、再提交账本与审核决定；
- * 规则写入与账本同事务。审核删除/采纳只在同一把锁里发生，不再有 prepared 中间态。
- * 调用方必须已持有该目标的会话锁。
- */
 export async function writeMemoryTargetLocked(
   db: Database,
   input: WriteMemoryTargetInput,
@@ -769,7 +721,6 @@ export async function writeMemoryTargetLocked(
     await readMemoryTarget(db, input.workspacesDir, target, input.businessId),
     target,
   );
-  // 手工写入的 after 必须基于日志恢复后的当前快照计算，不能沿用路由打开锁时读到的旧索引。
   const after: MemoryContentSnapshot =
     input.manualContent === undefined
       ? input.after
@@ -782,18 +733,15 @@ export async function writeMemoryTargetLocked(
       input.before === undefined
         ? changedFiles(target, current, after)
         : changedFiles(target, input.before, after);
-    // 只有「原本不存在、现在写入正文」才算新建主题；修改与删除不受上限影响。
     if (target.name !== INDEX_FILE_NAME && current.content === null && after.content !== null) {
       await assertTopicCapacity(db, input.workspacesDir, slug, target.agentId);
     }
-    // 同内容 PUT 仍会把当前索引作为候选；DELETE 不改索引，不因已有超限索引失败。
     if (input.manualContent !== undefined) {
       assertCandidateLimits(target, after, input.manualContent === null ? [] : [INDEX_FILE_NAME]);
     }
     const partial = input.reversesChangeId !== undefined;
     if (input.before !== undefined) {
       if (partial) {
-        // 回滚只校验并写回本次变更真正改过的文件；无关的后续索引变化不阻断主题回滚。
         for (const name of changed) {
           const expected = fileContent(target, input.before, name);
           const actual = fileContent(target, current, name);
@@ -834,7 +782,6 @@ export async function writeMemoryTargetLocked(
   );
 }
 
-/** 回滚入口：自己取锁；审核采纳需要先检查决定，所以直接使用 withMemoryTargetLock。 */
 export async function writeMemoryTarget(
   db: Database,
   input: WriteMemoryTargetInput & { client: SQL },

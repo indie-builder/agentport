@@ -103,7 +103,6 @@ const CHILD_MD = (child: ChildSpec, serverNames: string[]) =>
       allowedTools: child.allowedTools ?? [],
       disallowedTools: child.disallowedTools ?? [],
       timeoutMs: child.timeoutMs ?? 600_000,
-      // 子级 MCP 绑定走官方 mcpServers（根 .mcp.json 里的名字）。
       serverNames: child.serverNames ?? [],
     },
     servers: serverNames.map((name) => ({

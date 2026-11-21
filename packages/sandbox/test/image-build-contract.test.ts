@@ -14,12 +14,10 @@ describe('build context and sandbox image', () => {
     const dockerfile = read('Dockerfile');
     const stages = [...dockerfile.matchAll(/^FROM\s+\S+\s+AS\s+(\S+)/gm)].map((match) => match[1]);
     expect(stages).toContain('sandbox');
-    // docker build . must keep producing the api/worker image; sandbox needs --target.
     expect(stages.at(-1)).toBe('runtime');
     expect(dockerfile).toContain(
       'bun install --production --frozen-lockfile --filter @agentport/sandbox',
     );
-    // Worker reuses the image with an explicit supervisor entrypoint, but the default stays runner.
     expect(dockerfile).toContain('test -f dist/session-supervisor.js');
     expect(dockerfile).toContain('ENTRYPOINT ["bun", "dist/runner.js"]');
   });
@@ -79,7 +77,6 @@ describe('build context and sandbox image', () => {
     );
     // 官方 CLI 只认 PATH 上的 bash/zsh，缺了会 "No suitable shell found"。
     expect(sandboxStage).toContain('apk add --no-cache git poppler-utils bash');
-    // 构建期必须确认拿到的是真实 GNU bash，而不是 busybox 包装。
     expect(sandboxStage).toContain('command -v bash');
     expect(sandboxStage).toContain("bash --version | grep -q 'GNU bash'");
     expect(sandboxStage).toContain('command -v pdftoppm');
@@ -104,7 +101,6 @@ describe('build context and sandbox image', () => {
     const up = read('scripts/up.sh');
     expect(up).toContain('--wait');
     expect(up).not.toContain('docker compose ps --format');
-    // One-shot migrate must be removed first so every up run re-applies it.
     expect(up).toContain('rm -sf migrate');
   });
 });

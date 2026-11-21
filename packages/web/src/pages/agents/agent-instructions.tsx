@@ -31,10 +31,6 @@ const instructionPanels: Record<AgentInstruction, ComponentType<InstructionPanel
   hooks: HooksPanel,
 };
 
-/**
- * 「指令」任务：项目规则、输出风格与工作流共用一张卡片，分段只在可读项不止一个时出现。
- * 分段切换会卸载另一个面板，所以带草稿时先确认；脏与在途状态继续回传给任务级保护。
- */
 export function AgentInstructions({
   agentId,
   permissions,

@@ -118,7 +118,6 @@ describe('yuque repo range', () => {
       '<h1>Doc 102</h1><p>HTML body</p>',
     );
 
-    // slug 从 original 改成 renamed 不改变数字身份。
     const renamed = snapshot.items[2];
     expect(renamed?.externalId).toBe('yuque:doc:103');
     expect(renamed?.sourceUrl).toBe(`${BASE}/team/manual/renamed`);

@@ -38,8 +38,6 @@ import {
 
 const FAQ_IMPORT_BODY_LIMIT = 3 * 1024 * 1024;
 
-// ---- FAQ ------------------------------------------------------------------
-
 function faqMarkdown(faq: KnowledgeFaq): string {
   return [`# ${faq.question}`, ...faq.answers.filter((answer) => answer.trim().length > 0)].join(
     '\n\n',

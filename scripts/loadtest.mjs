@@ -1,8 +1,4 @@
 #!/usr/bin/env bun
-// 并发与负载测试。只创建 slug 以 loadtest- 开头的数据，开始与结束各清理一次。
-// 用法：bun scripts/loadtest.mjs
-// 环境变量：BASE_URL（默认 http://localhost:3000）、ADMIN_USER、ADMIN_PASSWORD。
-// 可选：PLATFORM_MCP_TOKEN（MCP 测试）、DATABASE_URL（清理；默认读 .env）。
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { readdir, rm } from 'node:fs/promises';
@@ -30,7 +26,6 @@ if (!ADMIN_PASSWORD) {
   process.exit(1);
 }
 
-// 百分位实现的自检；脚本本身没有测试框架。
 assert.equal(pct([1, 2, 3, 4], 0.5), 2.5);
 assert.ok(Math.abs(pct([1, 2, 3, 4], 0.95) - 3.85) < 1e-9);
 
@@ -163,7 +158,6 @@ function createSampler(cookie, intervalMs = 100) {
         peakQueue.active = Math.max(peakQueue.active, metrics.queue.active ?? 0);
       }
     } catch {
-      // 指标端点偶发失败不能打断压测。
     } finally {
       busy = false;
     }
@@ -186,7 +180,6 @@ function createSampler(cookie, intervalMs = 100) {
   };
 }
 
-// ---- DB 清理：只用 slug 前缀圈定自己创建的数据 ----
 const hasDb = Boolean(DATABASE_URL);
 const CLEANUP_SQL = [
   `delete from audit_log where target in (
@@ -216,7 +209,6 @@ async function cleanup(label) {
       const result = await client.unsafe(sql);
       counts[table] = (counts[table] ?? 0) + result.count;
     }
-    // 与 api/worker/种子一致：相对 WORKSPACES_DIR 按仓库根解析。
     const workspacesValue = process.env.WORKSPACES_DIR ?? './data/workspaces';
     const workspaces = isAbsolute(workspacesValue) ? workspacesValue : join(ROOT, workspacesValue);
     if (existsSync(workspaces)) {
@@ -264,7 +256,6 @@ async function login() {
   return token;
 }
 
-// ---- 1. 读接口并发 ----
 async function readTest(cookie) {
   const results = [];
   for (const path of ['/api/overview', '/api/runs', '/api/agents']) {
@@ -286,7 +277,6 @@ async function readTest(cookie) {
   return results;
 }
 
-// ---- 1b. 读接口加压：找拐点 ----
 async function rampTest(cookie) {
   const results = [];
   for (const concurrency of [100, 200]) {
@@ -308,7 +298,6 @@ async function rampTest(cookie) {
       results.push(summarize(`GET ${path} x${concurrency}`, samples, rss, startedAt));
     }
   }
-  // 单查询接口做对照：若它在大并发下仍低，说明瓶颈是查询数 × 连接池，而不是 Node CPU。
   for (const path of ['/health/live', '/api/runs']) {
     const concurrency = 200;
     const samples = [];
@@ -329,7 +318,6 @@ async function rampTest(cookie) {
   return results;
 }
 
-// ---- 2. 写接口并发 ----
 async function writeTest(cookie) {
   const body = (index) => ({
     slug: `${PREFIX}${RUN_ID}-skill-${index}`,
@@ -348,7 +336,6 @@ async function writeTest(cookie) {
   const rss = await sampler.stop();
   const summary = summarize('POST /api/skills', samples, rss, startedAt);
   const ids = samples.filter((sample) => sample.ok).map((sample) => JSON.parse(sample.result.text).id);
-  // 测试数据立刻删除；DELETE 不计入写延迟。
   const deleted = await Promise.all(
     ids.map((id) => request('DELETE', `/api/skills/${id}`, { headers: { Cookie: cookie } }).then((res) => res.status).catch(() => 0)),
   );
@@ -356,7 +343,6 @@ async function writeTest(cookie) {
   return summary;
 }
 
-// ---- 3. SSE 并发 ----
 function sse(path, cookie, timeoutMs) {
   const url = new URL(path, BASE_URL);
   return new Promise((resolve) => {
@@ -418,7 +404,6 @@ async function sseTest(cookie, agentId) {
   );
   const rss = await sampler.stop();
 
-  // 等 run 结束，确保下一项测试不受残留容器/队列影响。
   let status = 'queued';
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
@@ -452,7 +437,6 @@ async function sseTest(cookie, agentId) {
   return summary;
 }
 
-// ---- 4. MCP 端点 ----
 async function mcpTest(cookie) {
   if (!PLATFORM_MCP_TOKEN) return { skipped: 'PLATFORM_MCP_TOKEN 未设置' };
   const sampler = createSampler(cookie, 100);
@@ -480,10 +464,8 @@ async function mcpTest(cookie) {
   return summarize('POST /mcp tools/list', samples, rss, startedAt);
 }
 
-// ---- 5. 队列 ----
 async function queueTest(cookie, agentId, chatBudget) {
   if (!chatBudget) return { skipped: 'SSE 测试跳过，未获得 chat 限流预算' };
-  // /api/chat 限 20 次/分钟；上一次运行（或 SSE 测试）的请求可能还在同一窗口。
   if (chatBudget.remaining < 10) {
     const waitMs = (chatBudget.resetSeconds + 1) * 1000;
     console.log(`等待 chat 限流窗口重置（${waitMs}ms，剩余 ${chatBudget.remaining}/20）...`);
@@ -565,7 +547,6 @@ async function queueTest(cookie, agentId, chatBudget) {
     }
   }
   const rss = await sampler.stop();
-  // 未结束的 run 主动取消，避免留下容器。
   for (const post of accepted) {
     if (!['succeeded', 'failed', 'cancelled', 'timeout'].includes(states.get(post.runId)?.status)) {
       await request('POST', `/api/chat/${post.runId}/cancel`, { headers: { Cookie: cookie } }).catch(() => undefined);

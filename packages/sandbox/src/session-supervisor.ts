@@ -21,16 +21,12 @@ import {
 interface SupervisorOptions {
   stdin: Readable;
   stdout: Writable;
-  /** 测试注入；生产固定为同目录的 runner.js。 */
   runnerPath?: string;
-  /** 停止残留进程的 SIGTERM 宽限；默认 5s。 */
   graceMs?: number;
-  /** EOF 之外的中断入口（bootstrap 的 SIGTERM/SIGINT）。 */
   signal?: AbortSignal;
 }
 
 const DEFAULT_GRACE_MS = 5_000;
-/** runner 已退出但任务写入回调还没回来时，最多等这么久再判定启动失败。 */
 const START_DECISION_MS = 1_000;
 const POLL_MS = 50;
 
@@ -47,7 +43,6 @@ interface ActiveRun {
   startError?: string;
   cancelling: boolean;
   exited: boolean;
-  /** root 进程 exit（不等后代释放 stdio）。 */
   rootExit: Promise<RunExit>;
   startDecision: Promise<void>;
   pumpDone: Promise<void>;
@@ -68,11 +63,9 @@ type StartInput = Extract<SupervisorInput, { type: 'start' }>;
 
 interface NdjsonReaderOptions {
   signal?: AbortSignal | undefined;
-  /** 单行超限时回调一次；该行被丢弃，下一行照常解析。 */
   onOverflow?: ((maxBytes: number) => void) | undefined;
 }
 
-/** 按行切分 NDJSON，并对单行做字节上限；超限行整行丢弃并上报，读流继续解析下一行。 */
 class NdjsonReader {
   private readonly lines: string[] = [];
   private pending = '';
@@ -130,7 +123,6 @@ class NdjsonReader {
       const piece = chunk.slice(start, newline);
       start = newline + 1;
       if (this.discarding) {
-        // 丢弃超限行的剩余部分，直到换行。
         this.discarding = false;
         this.pending = '';
         this.pendingBytes = 0;
@@ -264,7 +256,6 @@ class Supervisor {
     const child = spawn(process.execPath, [this.runnerPath], {
       detached: true,
       stdio: ['pipe', 'pipe', 'pipe'],
-      // 只叠加本轮 env；supervisor 自己不生成任何模型 token。
       env: { ...process.env, ...input.env },
     });
 
@@ -340,7 +331,6 @@ class Supervisor {
 
   private async finalize(run: ActiveRun, decideStart: (error?: string) => void): Promise<void> {
     const exit = await run.rootExit;
-    // 让写回调有机会先给出 started；否则明确判定写入失败。
     await Promise.race([run.startDecision, delay(START_DECISION_MS)]);
     decideStart(run.startError ?? 'runner exited before accepting the task');
     if (!run.started) {
@@ -348,23 +338,19 @@ class Supervisor {
       if (!run.exited) {
         try {
           run.child.kill('SIGTERM');
-        } catch {
-          // 已退出。
-        }
+        } catch {}
       }
       this.reject(run.runId, 'SPAWN_FAILED', run.startError ?? 'runner failed to start');
       this.clear(run);
       return;
     }
 
-    // root exit 先到：先停后代，再等 stdout 排空，保证最后一条事件一定在 settled 之前。
     let settlement = await settleRun(run.child.pid, this.graceMs, exit);
     const drained = await Promise.race([
       run.pumpDone.then(() => true),
       delay(this.graceMs).then(() => false),
     ]);
     if (!drained) {
-      // 还有进程占着管道但无法确认来源（如非 Linux 的 detached 后代）；不能永等。
       run.outputReader?.close();
       run.child.stdout?.destroy();
       run.child.stderr?.destroy();
@@ -400,16 +386,13 @@ class Supervisor {
     this.clear(run);
   }
 
-  /** stdout 单行超限：停止转发后续事件（包括成功收尾），按本轮失败收尾。 */
   private outputOverflow(run: ActiveRun): void {
     if (run.outputError !== undefined) return;
     run.outputError = `runner output line exceeds ${SUPERVISOR_INPUT_MAX_BYTES} bytes`;
     run.outputReader?.close();
     try {
       run.child.kill('SIGTERM');
-    } catch {
-      // 已退出。
-    }
+    } catch {}
     setTimeout(() => {
       if (!run.exited) signalGroup(run.child.pid, 'SIGKILL');
     }, this.graceMs).unref();
@@ -440,14 +423,11 @@ class Supervisor {
   }
 
   private cancel(run: ActiveRun): void {
-    // 取消幂等：重复 cancel 不再发信号，也不产生额外输出。
     if (run.cancelling || run.exited) return;
     run.cancelling = true;
     try {
       run.child.kill('SIGTERM');
-    } catch {
-      // 进程已经退出；close 回调会收尾。
-    }
+    } catch {}
   }
 
   private forward(run: ActiveRun, command: SandboxInputCommand): void {
@@ -463,7 +443,6 @@ class Supervisor {
     });
   }
 
-  /** EOF/SIGTERM：终止当前 run，等同一套 finalize（含输出排空）完成后再让进程退出。 */
   private async shutdownActive(): Promise<void> {
     const run = this.active;
     if (run === undefined) return;
@@ -471,9 +450,7 @@ class Supervisor {
       run.cancelling = true;
       try {
         run.child.kill('SIGTERM');
-      } catch {
-        // 已退出。
-      }
+      } catch {}
       await Promise.race([run.rootExit, delay(this.graceMs)]);
       if (!run.exited) signalGroup(run.child.pid, 'SIGKILL');
       await run.rootExit;
@@ -603,9 +580,7 @@ function signalStop(rootPid: number, pids: number[], signal: NodeJS.Signals): vo
     if (pid <= 1 || pid === process.pid) continue;
     try {
       process.kill(pid, signal);
-    } catch {
-      // 已退出。
-    }
+    } catch {}
   }
 }
 
@@ -613,16 +588,13 @@ function signalGroup(pid: number | undefined, signal: NodeJS.Signals): void {
   if (pid === undefined || pid <= 1 || pid === process.pid) return;
   try {
     process.kill(-pid, signal);
-  } catch {
-    // 进程组已消失。
-  }
+  } catch {}
 }
 
 export function runSupervisor(options: SupervisorOptions): Promise<void> {
   return new Supervisor(options).run();
 }
 
-/** 生产入口：stdin 读到 EOF 或收到 SIGTERM 后收尾退出，交给容器 --rm 回收。 */
 function isEntryPoint(): boolean {
   const entry = process.argv[1];
   if (entry === undefined) return false;

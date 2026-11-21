@@ -16,7 +16,6 @@ export interface CloseSessionSandboxesInput {
   targets: readonly SessionCleanupTarget[];
   redisUrl: string;
   timeoutMs?: number;
-  /** 默认是部署内唯一信道；测试用独立后缀隔离共享 Redis 上的并行进程。 */
   requestChannel?: string;
 }
 
@@ -27,7 +26,6 @@ function normalizeTargets(targets: readonly SessionCleanupTarget[]): SessionClea
     for (const id of target.sandboxIds) ids.add(id);
     byConversation.set(target.conversationId, ids);
   }
-  // 按会话合并去重；同一容器被多轮运行复用也只关闭一次。
   return [...byConversation].map(([conversationId, ids]) => ({
     conversationId,
     sandboxIds: [...ids].sort(),
@@ -38,11 +36,6 @@ function unavailable(message: string, cause?: unknown): AppError {
   return new AppError('SERVICE_UNAVAILABLE', message, { cause });
 }
 
-/**
- * 删除流程的事务外关闭确认：向现有 worker 发一次有限请求，只有全部目标确认销毁才返回。
- * 连接、订阅、发送与 ACK 共用同一个从建立连接前开始的截止时间；超时、worker 不在线、
- * ACK 失败都抛可重试的 503，调用方不进入 tx B，目录与实体保留。
- */
 export async function closeSessionSandboxes(input: CloseSessionSandboxesInput): Promise<void> {
   const targets = normalizeTargets(input.targets);
   if (targets.length === 0) return;
@@ -63,7 +56,6 @@ export async function closeSessionSandboxes(input: CloseSessionSandboxesInput): 
   });
 
   let timer: NodeJS.Timeout | undefined;
-  // 订阅与 ACK 继续在后台完成时也必须被观察到，超时后由 finally 断开连接。
   const exchange = (async () => {
     const { promise: ackPromise, resolve } = Promise.withResolvers<SessionCleanupAck>();
     await subscriber.subscribe(channel, (payload, received) => {

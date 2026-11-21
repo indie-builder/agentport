@@ -20,7 +20,6 @@ type WikiPageRow = typeof schema.knowledgeWikiPages.$inferSelect;
 type JobRow = typeof schema.knowledgeJobs.$inferSelect;
 type WikiGeneratePayload = Extract<KnowledgeJobPayload, { type: 'wiki_generate' }>;
 
-/** 与契约 §6.6 固定：进程内工具名与 allowedTools 一一对应。 */
 const WIKI_TOOL_NAMES = ['wiki_search', 'wiki_read', 'wiki_save_draft'] as const;
 export const WIKI_ALLOWED_TOOLS = WIKI_TOOL_NAMES.map((name) => `mcp__knowledge__${name}`);
 
@@ -153,7 +152,6 @@ async function readDocument(
   baseId: string,
   documentId: string,
 ) {
-  // 与检索/读取共用来源授权判定：撤权、范围失效或人工停用后不能再被 Wiki 消费。
   const document = await repo.knowledge.getReadableDocument(db, baseId, documentId);
   if (!document?.currentVersionId) return null;
   const markdown = await readFile(
@@ -172,10 +170,6 @@ async function readDocument(
   };
 }
 
-/**
- * 引用必须落在此库当前版本、启用且 ready 的 chunk 上；范围外的 id 直接拒绝。
- * Wiki 内部索引不是授权来源：引用它会让撤权后的派生内容再被当证据。
- */
 async function validateSourceChunks(
   db: Database,
   baseId: string,
@@ -234,10 +228,6 @@ function buildPrompt(input: {
   return lines.join('\n');
 }
 
-/**
- * Wiki 生成：独立 knowledge_jobs 行，不建 agent_runs、不写工作区。
- * 这里只负责生成与保存草稿；终态（succeeded/failed/cancelled）由队列统一写入。
- */
 export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Promise<void> {
   const { db, signal } = deps;
   if (signal.aborted) throw new KnowledgeCancelled();
@@ -252,18 +242,15 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
   const page = await resolvePage(db, payload);
   const knowledgeDir = deps.config.KNOWLEDGE_DIR;
   const allowedDocumentIds = payload.sourceDocumentIds ?? [];
-  // 每次生成一个独立 cwd（同时是 HOME/CLAUDE_CONFIG_DIR）；任务结束即删除，不留会话文件。
   const cwd = join(knowledgeDir, 'wiki-sdk', job.id);
 
   try {
     const savedVersions: string[] = [];
     const save = async (input: { markdown: string; sourceChunkIds: string[] }) => {
       if (signal.aborted) throw new KnowledgeCancelled();
-      // 模型草稿必须带可撤权来源：空来源一旦发布就再也追不回授权。
       if (input.sourceChunkIds.length === 0) {
         throw new Error('MODEL_SOURCE_REQUIRED: 模型草稿必须引用至少一个来源 chunk');
       }
-      // 取消后 API 可能已把行改成终态；不再写入草稿。
       const current = await repo.knowledge.getJob(db, job.id);
       if (current?.status !== 'running') throw new Error('任务已结束，拒绝写入草稿');
       const chunks = await validateSourceChunks(
@@ -363,7 +350,6 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
     if (outcome.status === 'aborted') throw new KnowledgeCancelled();
     if (outcome.status === 'no_result') throw new Error('SDK 没有返回结果');
     if (outcome.status === 'failure') throw new Error(outcome.message);
-    // SDK 成功但没有草稿不能算成功：否则页面状态与用户预期不符。
     if (savedVersions.length === 0) throw new Error('模型没有保存任何草稿');
   } catch (err) {
     if (signal.aborted || err instanceof KnowledgeCancelled) {

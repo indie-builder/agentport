@@ -295,7 +295,6 @@ describe('plugin zip import', () => {
       to: '/plugins/$pluginId',
       params: { pluginId: 'plugin' },
     });
-    // 只是压入详情页，返回时列表仍保留原筛选。
     expect(state.navigate.at(-1)?.search).toBeUndefined();
   });
 });

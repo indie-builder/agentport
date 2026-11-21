@@ -79,9 +79,7 @@ describe('every contract component renders content', () => {
     // Carousel 依赖布局测量与观察器，jsdom 下可能抛错，别让一次失败污染后续用例。
     try {
       await act(async () => root.unmount());
-    } catch {
-      // 清理失败不影响断言结论。
-    }
+    } catch {}
     host.remove();
     vi.unstubAllGlobals();
   });
@@ -90,8 +88,6 @@ describe('every contract component renders content', () => {
 
   it('registers every contract component as sample, nested-only or specialized', () => {
     // 升级护栏：官方新增组件时，它既没有样例，也不在嵌套豁免/专项登记里，这条会红。
-    // 只检查登记，不检查专项测试文件是否真的存在或覆盖；nestedInteractive
-    // 只表示「嵌套且有交互、尚无行为证据」，不参与这里的齐全性判断。
     const malformed = Object.entries(SAMPLES)
       .filter(([, sample]) => !Array.isArray(sample.program) || typeof sample.expect !== 'string')
       .map(([name]) => name);
@@ -120,7 +116,6 @@ describe('every contract component renders content', () => {
         if (sample.expect !== '') {
           expect(localHost.textContent, `${name} 没有渲染出预期内容`).toContain(sample.expect);
         }
-        // 无论内容是否为空，都不能抛错或渲染成完全空白（Separator/Icon 允许无文本）。
         expect(localHost.innerHTML.length, `${name} 渲染为空`).toBeGreaterThan(0);
       } finally {
         try {

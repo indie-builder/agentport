@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useFormBlocker } from '../lib/form.js';
 import { ConfirmDialog } from './confirm-dialog.js';
 
-/** 弹层草稿保护：dirty 关闭先确认，pending 期间禁止关闭与路由离开。 */
 export function useDraftGuard(dirty: boolean, pending: boolean, onClose: () => void) {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const blocker = useFormBlocker(dirty, pending);
@@ -10,7 +9,6 @@ export function useDraftGuard(dirty: boolean, pending: boolean, onClose: () => v
   useEffect(() => {
     blockerRef.current = blocker;
   }, [blocker]);
-  // 关闭会卸载编辑器并摘掉 blocker：先取消期间被拦下的离开，否则其 resolver 永远挂着。
   const finish = (): void => {
     blockerRef.current.reset?.();
     onClose();

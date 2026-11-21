@@ -4,16 +4,13 @@ import type { Database } from '../client.js';
 import { newId } from '../id.js';
 import { agentServers, agents, apiTools, approvalRequests, messages, servers } from '../schema.js';
 
-/** API 与 worker 共用的工具目录行；两边从同一处读出，提示词与实际可调用集合不会漂移。 */
 export interface OpenUiToolRow {
   serverId: string;
   serverName: string;
   kind: 'http' | 'generated';
-  /** 原生 MCP 工具名；OpenUI 程序里的 Query()/Mutation() 用它。 */
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  /** allow 直接执行；ask 调用前需要在会话里批准；deny 直接拒绝；只有 generated 工具声明了它。 */
   approvalMode: 'allow' | 'ask' | 'deny';
 }
 
@@ -36,7 +33,6 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
     .where(eq(agents.id, agentId))
     .limit(1);
   if (!agent) return [];
-  // 只有 mcp__ 规则参与：文件工具规则不描述 MCP 工具。
   const allow = agent.allowedTools.filter((rule) => rule.startsWith('mcp__'));
   const deny = agent.disallowedTools.filter((rule) => rule.startsWith('mcp__'));
 
@@ -54,8 +50,6 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
     )
     .orderBy(asc(servers.name), asc(servers.id));
 
-  // http server 的工具目录来自最近一次「测试连接」（servers.config.toolCatalog）：
-  // worker 渲染提示词时无法连 MCP，两侧只能共用这一份快照。
   const generatedIds = rows.filter((row) => row.kind === 'generated').map((row) => row.serverId);
   const generatedTools =
     generatedIds.length === 0
@@ -75,7 +69,6 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
 
   const out: OpenUiToolRow[] = [];
   for (const server of rows) {
-    // 查询已限定 http/generated；白名单收窄同时挡掉 stdio/knowledge（知识库只读 MCP，不进 OpenUI 工具目录）。
     if (server.kind !== 'http' && server.kind !== 'generated') continue;
     const tools =
       server.kind === 'generated'
@@ -106,7 +99,6 @@ export async function listOpenUiTools(db: Database, agentId: string): Promise<Op
   return out;
 }
 
-/** `servers.config.toolCatalog` 是不可信 jsonb：形状不对就当没有目录。 */
 function readHttpCatalog(config: Record<string, unknown>): Array<{
   name: string;
   description: string;
@@ -133,7 +125,6 @@ function readHttpCatalog(config: Record<string, unknown>): Array<{
   });
 }
 
-/** 记住 http server 上列出的工具：worker 渲染提示词时无法连 MCP。 */
 export async function cacheServerToolCatalog(
   db: Database,
   serverId: string,
@@ -144,7 +135,6 @@ export async function cacheServerToolCatalog(
     inputSchema?: Record<string, unknown> | undefined;
   }>,
 ): Promise<void> {
-  // 只留目录需要的三个字段：title 等展示字段不进提示词，也避免快照无谓增长。
   const catalog = tools.map((tool) => ({
     name: tool.name,
     description: tool.description ?? '',
@@ -158,7 +148,6 @@ export async function cacheServerToolCatalog(
     .where(eq(servers.id, serverId));
 }
 
-/** 消息归属校验；不通过 repo/chat 聚合是因为那一处由会话读路径独占。 */
 export async function getMessageInConversation(
   db: Database,
   conversationId: string,
@@ -212,7 +201,6 @@ export async function patchMessageUiState(
         true
       )`,
     })
-    // 只允许生成式 UI 的助手消息：用户消息与其他格式没有可挂的状态。
     .where(
       and(
         eq(messages.id, messageId),
@@ -228,7 +216,6 @@ export async function patchMessageUiState(
 export interface OpenUiApproval {
   id: string;
   approvedAt: Date | null;
-  /** 会话级批准的有效期；null 只出现在未批准或旧数据上，一律视为未批准。 */
   authorizationExpiresAt: Date | null;
 }
 
@@ -265,11 +252,9 @@ export async function requestOpenUiApproval(
       targetWhere: isNull(approvalRequests.runId),
       set: {
         messageId: input.messageId,
-        // 过期的批准要变回待批：清掉批准时间与有效期，重新走一次审批。
         approvedAt: null,
         authorizationExpiresAt: null,
       },
-      // null 有效期也视为过期：旧数据不能变成永久批准。
       setWhere: sql`${approvalRequests.approvedAt} is null or ${approvalRequests.authorizationExpiresAt} is null or ${approvalRequests.authorizationExpiresAt} < now()`,
     })
     .returning({
@@ -310,7 +295,6 @@ export async function approveOpenUiApproval(
 ): Promise<OpenUiApproval | null> {
   const [row] = await db
     .update(approvalRequests)
-    // 条件在 UPDATE 里判定：并发重复批准时只有一个请求真正写入有效期。
     .set({
       approvedAt: sql`now()`,
       authorizationExpiresAt: sql`now() + interval '8 hours'`,
@@ -330,7 +314,6 @@ export async function approveOpenUiApproval(
     });
   if (row) return row;
 
-  // 没有更新到：不存在/不属于本会话，或已经批准过。用数据库时钟判断是否仍有效。
   const [existing] = await db
     .select({
       id: approvalRequests.id,
@@ -381,7 +364,6 @@ export async function getOpenUiApproval(
         eq(approvalRequests.serverId, serverId),
         eq(approvalRequests.toolName, toolName),
         isNull(approvalRequests.runId),
-        // 过期或没有有效期的批准视同未批准：调用方会重新落一条待批记录。
         gt(approvalRequests.authorizationExpiresAt, sql`now()`),
       ),
     )

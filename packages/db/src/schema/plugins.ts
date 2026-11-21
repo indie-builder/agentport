@@ -9,16 +9,12 @@ export const plugins = pgTable(
   'plugins',
   {
     id: text('id').primaryKey(),
-    /** 工作区目录名 `.claude/plugins/<slug>/`。 */
     slug: text('slug').notNull(),
-    /** manifest 的 name；缺 manifest 时取 slug。 */
     runtimeName: text('runtime_name').notNull(),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     version: text('version').notNull().default(''),
-    /** 解析出的组件清单，供列表与详情展示，避免每次重扫文件。 */
     manifest: jsonb('manifest').$type<Record<string, unknown>>().notNull().default({}),
-    /** 原生市场来源 `name@marketplace`；ZIP 导入为 null。 */
     sourceId: text('source_id'),
     ownerBusinessId: text('owner_business_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -32,7 +28,6 @@ export const plugins = pgTable(
   ],
 );
 
-/** 插件目录树；path 是相对插件根的安全相对路径。 */
 export const pluginFiles = pgTable(
   'plugin_files',
   {
@@ -42,7 +37,6 @@ export const pluginFiles = pgTable(
       .references(() => plugins.id, { onDelete: 'cascade' }),
     path: text('path').notNull(),
     content: text('content').notNull().default(''),
-    /** 保留 Unix 可执行位：插件 hooks 常直接执行 scripts/*.sh。 */
     executable: boolean('executable').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

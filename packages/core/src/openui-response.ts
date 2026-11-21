@@ -19,7 +19,6 @@ import librarySpec from './generated/openui.spec.json' with { type: 'json' };
 
 const parser = createParser(librarySpec.schema, librarySpec.root);
 
-/** 程序能否独立渲染：有根节点、已写完、无校验错误、没有引用未定义语句。 */
 function parsesComplete(program: string): boolean {
   if (program.trim() === '') return false;
   return isComplete(parser.parse(program));
@@ -30,7 +29,6 @@ function isComplete(result: ParseResult): boolean {
     result.root !== null &&
     result.meta.incomplete !== true &&
     result.meta.errors.length === 0 &&
-    // 解析器会把未定义引用当 null 丢弃；有它就不是完整界面。
     result.meta.unresolved.length === 0
   );
 }
@@ -47,7 +45,6 @@ interface OpenUiResolution {
   diagnostics: OpenUiDiagnostic[];
 }
 
-/** 围栏语言与 shared 分段器一致，保证重建结果能被再次切分。 */
 function fence(program: string): string {
   return `\`\`\`openui-lang\n${program}\n\`\`\``;
 }
@@ -76,13 +73,11 @@ export function resolveOpenUiResponseDetailed(
     const patch = segment.text;
     covered.add(blockKey);
 
-    // 显式空围栏 = 删除声明；整段（含围栏）不进入快照。
     if (patch.trim() === '') continue;
 
     const base = baseline.get(blockKey);
 
     if (parsesComplete(patch)) {
-      // 完整程序（含全新一轮的界面）不需要基线。
       parts.push(fence(patch));
       continue;
     }
@@ -122,7 +117,6 @@ export function resolveOpenUiResponseDetailed(
     parts.push(fence(merged));
   }
 
-  // 未提 UI 段保留：追加在末尾，保持上一轮的 sN 顺序与各自的完整程序。
   for (const [blockKey, program] of baseline) {
     if (covered.has(blockKey)) continue;
     parts.push(fence(program.trim()));
@@ -144,7 +138,6 @@ function joinParts(parts: string[]): string {
     .join('\n\n');
 }
 
-/** 固定契约：返回合并后的完整混合文本；诊断走 `resolveOpenUiResponseDetailed`。 */
 export function resolveOpenUiResponse(previous: string, response: string): string {
   return resolveOpenUiResponseDetailed(previous, response).text;
 }

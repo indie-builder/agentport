@@ -1,4 +1,3 @@
-/** `.mcp.json` 中的单个条目。 */
 export type McpJsonEntry =
   | { command: string; args: string[]; env: Record<string, string> }
   | {

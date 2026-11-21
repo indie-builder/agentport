@@ -189,7 +189,6 @@ describe('knowledge detail business line', () => {
     expect(findButton('使用此库的专家')).toBeDefined();
     expect(findButton('编辑信息')).toBeDefined();
     expect(findButton('设置')).toBeDefined();
-    // 页头操作与默认按钮同高（32px），不再用更矮的 sm。
     expect(findButton('使用此库的专家')?.className).toContain('h-8');
     expect(findButton('使用此库的专家')?.className).not.toContain('h-7');
     expect(findButton('编辑信息')?.className).toContain('h-8');
@@ -412,7 +411,6 @@ describe('knowledge expert usage', () => {
     );
     await mount('/knowledge/kb_1');
 
-    // 首屏不发专家请求，关系只在打开弹层时查询。
     expect(calls.some((item) => item.path === '/api/agents')).toBe(false);
     await click(button('使用此库的专家'));
     await waitFor(() => document.body.textContent?.includes('文档专家') === true);
@@ -423,11 +421,9 @@ describe('knowledge expert usage', () => {
     );
     expect(link?.textContent).toContain('文档专家');
     expect(document.body.textContent).not.toContain('没有被任何专家使用');
-    // 已经有人使用时也能直接去选别的专家，而不是只能看当前绑定。
     expect(document.querySelector<HTMLAnchorElement>('a[href="/agents"]')?.textContent).toContain(
       '选择其他专家',
     );
-    // 单请求取列表之外不逐个查专家详情或权限，也绝不把摘要缺 serverIds 当成未绑定。
     expect(calls.filter((item) => item.path.startsWith('/api/agents/'))).toEqual([]);
   });
 
@@ -543,7 +539,6 @@ describe('knowledge document to jobs recovery', () => {
 
     await click(button('FAQ'));
     await waitFor(() => router.state.location.search.panel === 'faqs');
-    // 离开处理记录时清掉文档过滤，FAQ 分区按自己的列表工作。
     expect(router.state.location.search.document).toBeUndefined();
     expect(findButton('新建 FAQ')).toBeDefined();
     expect(document.body.textContent).toContain('如何备份？');
@@ -552,7 +547,6 @@ describe('knowledge document to jobs recovery', () => {
 
 describe('knowledge jobs pagination', () => {
   it('offers clearing the filter or re-uploading when a filtered document has no job', async () => {
-    // 首次上传就失败、没有版本的文档没有「重新解析」路径，空态不能暗示它存在。
     baseHandlers();
     server.use(
       http.get('/api/knowledge/bases/kb_1/documents', () =>
@@ -599,7 +593,6 @@ describe('knowledge jobs pagination', () => {
     );
     expect(heads.some((item) => item.includes('min-w-56'))).toBe(true);
     expect(heads.some((item) => item.includes('min-w-60'))).toBe(true);
-    // 对象与错误文本允许换行，保留 title 作为完整内容兜底。
     const reason = document.querySelector<HTMLElement>(`[title="${error}"]`);
     expect(reason?.textContent).toBe(error);
     expect(reason?.className).not.toContain('truncate');
@@ -706,7 +699,6 @@ describe('knowledge job targets', () => {
 
     await click(button('处理记录'));
     await waitFor(() => router.state.location.search.panel === 'jobs');
-    // 从文档跳到处理记录保留文档过滤，先清掉才能看到来源任务。
     await click(button('查看全部处理记录'));
     await waitFor(() => router.state.location.search.document === undefined);
 

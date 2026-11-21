@@ -426,7 +426,6 @@ describe('evaluation run URL state', () => {
     await actWaitFor(() => expect(router.state.location.search.run).toBeUndefined());
     expect(router.state.location.pathname).toBe('/eval');
     expect(container.textContent).toContain('通过 / 总数');
-    // 行内展开已移除：清掉 URL 后旧结果不应从表格里重新冒出来。
     expect(container.textContent).not.toContain('History result');
   });
 

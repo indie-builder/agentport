@@ -31,8 +31,6 @@ test('smoke: generated server, tool, connection test, agent files', { session: '
     await browser.locator('input[id^="tool-name-"]').fill('get-user');
     await browser.locator('input[id^="tool-path-"]').fill('/users/{id}');
     await browser.locator('input[id^="tool-desc-"]').fill('fetch a user by id');
-    // 路径里的 {id} 必须在 inputSchema.properties 中有同名属性，否则表单会拦下。
-    // CodeMirror 只认键盘事件：选中全部再逐字输入，不能直接写 DOM。
     const schema = screen.getByLabel('inputSchema (JSON)');
     await schema.focus();
     await schema.press('ControlOrMeta+a');

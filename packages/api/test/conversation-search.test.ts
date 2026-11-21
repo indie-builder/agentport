@@ -403,7 +403,6 @@ describe.skipIf(!ready)('conversation search', () => {
     expect(first.items.map((entry) => entry.id)).toEqual(ids.slice(0, 50));
     expect(first.items.every((entry) => entry.match?.kind === 'message')).toBe(true);
     expect(first.nextCursor).toEqual(expect.any(String));
-    // 小型代表性数据：只约束上限，真实耗时写进测试输出供报告引用。
     expect(elapsedMs).toBeLessThan(2_000);
     console.log(`conversation search first page over 55 matches: ${elapsedMs.toFixed(1)}ms`);
 

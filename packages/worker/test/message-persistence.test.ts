@@ -9,11 +9,6 @@ import { waitFor } from './fixtures/native-test.js';
 
 const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta.url);
 
-/**
- * persistRunMessages 必须在 run 仍为 running 时才能写：取消抢先、终态已写、
- * 重试重放、以及 agent 删除都必须让它整笔跳过，不能留下迟到的输出。
- * 这里用真实 Postgres 行锁构造竞争，不 mock 任何锁行为。
- */
 const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 const ready = await client.unsafe('select 1').then(
   () => true,
@@ -65,7 +60,6 @@ async function seedRun(input: Fixture, status?: (typeof TERMINAL)[number]): Prom
     agentId: input.agentId,
     subject: userSubject,
   });
-  // 不传 status 即进入 running：这是 persistRunMessages 唯一允许写入的状态。
   await db
     .update(schema.agentRuns)
     .set({
@@ -92,17 +86,14 @@ function persist(
   events: ChatEvent[],
   overrides: Partial<Fixture> = {},
 ): Promise<boolean> {
-  return (
-    messages
-      .persistRunMessages(db, {
-        agentId: overrides.agentId ?? fixture.agentId,
-        conversationId: overrides.conversationId ?? fixture.conversationId,
-        runId,
-        events,
-      })
-      // 这些用例只关心「有没有写进去」；落库消息 id 由 openui 相关用例覆盖。
-      .then((result) => result.written)
-  );
+  return messages
+    .persistRunMessages(db, {
+      agentId: overrides.agentId ?? fixture.agentId,
+      conversationId: overrides.conversationId ?? fixture.conversationId,
+      runId,
+      events,
+    })
+    .then((result) => result.written);
 }
 
 const text = (value: string): ChatEvent => ({ type: 'assistant_text', text: value });
@@ -160,7 +151,6 @@ async function waitersBehind(pid: number): Promise<number> {
 /** pool.connect 有回调重载，ReturnType 取不到 PoolClient；锁场景只用 query。 */
 type LockClient = { unsafe: (sql: string, values?: unknown[]) => Promise<unknown> };
 
-/** 独占一个连接跑锁场景；断言失败时也回滚，避免悬挂事务挡住级联清理。 */
 async function withLockedTx(
   run: (client: LockClient, pid: number) => Promise<void>,
 ): Promise<void> {
@@ -237,7 +227,6 @@ describe.skipIf(!ready)('buildMessageRows keeps assistant block identity', () =>
       },
     ]);
 
-    // 工具卡片本身保持原样，快照只挂在结果行上。
     expect(rows[0]?.content).toEqual({
       type: 'tool_use',
       id: 'tu1',
@@ -303,7 +292,6 @@ describe.skipIf(!ready)('buildMessageRows keeps assistant block identity', () =>
       { type: 'tool_input', toolUseId: 'tu-q', json: '{"questions":[]}' },
       { type: 'question_updated', question: publicQuestionFor() },
       { type: 'tool_result', toolUseId: 'tu-q', content: 'answered' },
-      // 收尾阶段才写入的最终快照排在 tool_result 之后，也必须覆盖 pending。
       {
         type: 'question_updated',
         question: publicQuestionFor({
@@ -314,7 +302,6 @@ describe.skipIf(!ready)('buildMessageRows keeps assistant block identity', () =>
       },
     ]);
 
-    // 两份快照只留最新一份，答案与问题同样脱敏。
     const question = questionOf(rows[0]);
     expect(question).toMatchObject({
       status: 'answered',
@@ -362,7 +349,6 @@ describe.skipIf(!ready)('buildMessageRows keeps assistant block identity', () =>
 
 describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
   afterAll(async () => {
-    // 删 agent 级联清掉会话、run、消息；被测试删除的 agent 已是 no-op。
     await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
     await db.delete(schema.channels).where(inArray(schema.channels.id, channelIds));
     await client.close();
@@ -696,7 +682,6 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
       ],
     });
 
-    // 前端要靠这些 id 回填流式项，长度与块序号必须与落库行一致。
     expect(result.written).toBe(true);
     expect(result.messages.map((m) => m.blockIndex)).toEqual([0, 1]);
     const rows = await db
@@ -730,7 +715,6 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     expect(
       rows.filter((row) => row.role === 'assistant').every((r) => r.uiFormat === 'openui'),
     ).toBe(true);
-    // 用户消息保持准入时的默认值，不被本轮开关覆盖。
     expect(rows.find((row) => row.role === 'user')?.uiFormat).toBe('markdown');
   });
 
@@ -750,7 +734,6 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
     const output = await outputOf(runId);
     expect(output).toHaveLength(3);
     expect(output[0]?.text).toBe('key sk-a***');
-    // 重放只删本 run 的输出；用户消息带同一个 run_id，必须保留且不重复。
     expect(await userCount(runId)).toBe(1);
   });
 
@@ -935,7 +918,6 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
   it('persists the messages collected before a byte overflow without choking on a huge token', async () => {
     const fixture = await newFixture();
     const runId = await seedRun(fixture);
-    // runner 的 32MiB 落库额度最多保留 4 条 7MB 消息；它们必须能真正写进库。
     const chunk = 'x'.repeat(7_000_000);
     const events = [0, 1, 2, 3].map((blockIndex) => ({
       type: 'assistant_text' as const,
@@ -1032,7 +1014,6 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
       await waitFor(async () => expect(await waitersBehind(lockerPid)).toBe(2));
 
       await locker.unsafe('commit');
-      // flush 先拿到 run 行锁时状态仍是 running：这条断言证明它排在 cancel 之前。
       await expect(flushing).resolves.toBe(true);
       expect(await cancelling).not.toBeNull();
     });
@@ -1053,7 +1034,6 @@ describe.skipIf(!ready)('persistRunMessages fence and lock order', () => {
       const flushing = persist(fixture, runId, [text('late output')]);
       await waitFor(async () => expect(await waitersBehind(lockerPid)).toBe(1));
 
-      // flush 还被 agent 锁挡住，尚未轮到 conversation 锁；删除因此不会反向等待。
       const unlocked = await client.unsafe(
         'select id from conversations where id = $1 for update nowait',
         [fixture.conversationId],

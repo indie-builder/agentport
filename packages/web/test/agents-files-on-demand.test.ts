@@ -18,7 +18,6 @@ import { allAccessMe } from './me-fixture.js';
 
 const state = vi.hoisted(() => ({ agent: null as Agent | null }));
 
-// 其余数据源保持桩，只让 useAgentFiles 走真实查询，才能看到 enabled 的实际效果。
 vi.mock('../src/lib/queries.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/queries.js')>();
   return {
@@ -110,7 +109,6 @@ async function click(element: HTMLElement): Promise<void> {
 }
 
 async function renderEditor(): Promise<void> {
-  // 任务状态唯一来源是 URL，用真实 Router 才能验证「点开文件与版本才请求」这条契约。
   const rootRoute = createRootRoute({ component: Outlet });
   const shell = createRoute({ getParentRoute: () => rootRoute, id: '_shell', component: Outlet });
   const detail = createRoute({
@@ -163,7 +161,6 @@ beforeEach(() => {
     value: vi.fn(),
   });
   agentFiles = vi.spyOn(api, 'agentFiles').mockResolvedValue(files);
-  // 默认落在概览：概览按权限读取记忆、规则、风格与运行，这里给空数据。
   vi.spyOn(api, 'agentMemoryOverview').mockResolvedValue({
     policy: {
       enabled: true,

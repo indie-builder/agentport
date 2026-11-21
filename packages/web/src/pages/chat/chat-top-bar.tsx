@@ -22,10 +22,6 @@ import {
 import { can } from '../../lib/access.js';
 import { meQuery } from '../../lib/queries.js';
 
-/**
- * 唯一 56px 消息列头部：历史／消息／成果三栏从工作区顶部并排。
- * 历史展开时搜索与专家选择交给历史面板，收起后回到这里；成果只切换自己的面板。
- */
 export function ChatTopBar({
   title,
   conversationId,
@@ -51,7 +47,6 @@ export function ChatTopBar({
   deleting: boolean;
   agent: AgentSummary | null;
   agentOptions: Array<{ value: string; label: string; agent?: AgentSummary }>;
-  /** 桌面历史展开或窄屏抽屉打开时，专家选择交给历史头部。 */
   showAgentPicker: boolean;
   onSwitchAgent: (id: string | null) => void;
   historyVisible: boolean;
@@ -73,7 +68,6 @@ export function ChatTopBar({
   const canCreate = can(me.data, 'conversations.create');
   return (
     <div className="flex h-14 shrink-0 items-center gap-2 px-6">
-      {/* 会话内的面板开关比导航折叠更轻：虚线面板图标，保持 32px 点击区与同一中心线。 */}
       <Button
         variant="ghost"
         size="icon"
@@ -86,7 +80,6 @@ export function ChatTopBar({
       >
         <PanelLeftDashed />
       </Button>
-      {/* 历史展开时搜索入口只在历史面板里，头部不再保留第二个触发器。 */}
       {historyVisible ? null : (
         <Button
           variant="ghost"

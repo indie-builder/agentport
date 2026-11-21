@@ -1,11 +1,5 @@
 import type { ConnectorCatalogItem } from '@agentport/shared';
 
-/**
- * 策划的连接器目录（非实时 registry）。仅用于「浏览 → 预填创建表单」。
- * 每条记录 sourceUrl 与 reviewedAt；新增/更新条目必须人工核对官方文档，
- * 绝不在此写入任何密钥值，也不在浏览/选择时执行任何命令。
- * 发布前请复核来源与 endpoint，并保留"Curated"标识。
- */
 const REVIEWED_AT = '2026-10-23';
 
 export const connectorCatalog: ConnectorCatalogItem[] = [

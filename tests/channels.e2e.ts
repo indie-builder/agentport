@@ -9,13 +9,6 @@ import { browserFetch } from './support/browser-api.js';
 import { OUTPUT_WRITE_MARKER } from './support/execution-stack.js';
 import { fixture as runFixture } from './support/fixture.js';
 
-/**
- * 频道模式浏览器回归：真实页面、真实 API/worker/Docker 沙盒，模型端点由
- * `scripts/e2e-channel.ts` 的本地假 SSE 承接。数据经 UI 或同源 API 创建，
- * 需要精确时间线的场景（审批）直写 fixture，与 run-cancel 用例一致。
- *
- * 入口：`bun run e2e:channel:ui`（起隔离栈 → 跑本文件 → 清理）。
- */
 const REPLY_PREFIX = 'E2E-CHANNEL-REPLY';
 const SLOW_MARKER = 'E2E-CHANNEL-SLOW';
 const SLOW_PARTIAL = 'E2E-CHANNEL-SLOW-PARTIAL';
@@ -45,7 +38,6 @@ interface Created {
 
 const created: Created = { channels: [], agents: [], accounts: [], servers: [] };
 
-/** 只删本文件建的频道/智能体/账户/连接器；成员、绑定、消息、run、审批随外键级联。 */
 test.afterEach(async () => {
   await runFixture('channels', 'cleanup', created);
   created.channels.length = 0;
@@ -202,7 +194,6 @@ function channelIdFromUrl(url: string): string {
   return id;
 }
 
-/** 输入 @ 后从补全菜单选中智能体，再把正文追加到提及后面并发送。 */
 async function sendMention(screen: Screen, agentName: string, text: string): Promise<void> {
   const composer = screen.getByRole('textbox', '消息');
   await composer.fill('@');
@@ -314,7 +305,6 @@ test('a message without @ does not wake an agent', { session: 'admin' }, async (
   await screen.getByRole('button', '发送消息').tap();
 
   await expect(screen.getByText(body)).toBeVisible();
-  // 给可能的误入队留出窗口，再确认没有 run。
   await new Promise((resolve) => setTimeout(resolve, 3_000));
   const rows = await runFixture('channels', 'runCount', channel.id);
   expect(rows[0]?.count).toBe('0');
@@ -789,7 +779,6 @@ test('steers a running channel run without creating a second run', {
   await app.open(`/channels/${channel.id}`);
   const suffix = uniqueSuffix();
   await sendMention(screen, agent.name, `${SLOW_MARKER} 运行中追加 ${suffix}`);
-  // 慢响应写的是已落库回复，不能只等页面流式片段；以 run 真实状态确认仍在运行。
   await expect
     .poll(async () => (await latestRunStatus(channel.id)) ?? 'missing', { timeout: 90_000 })
     .toBe('running');
@@ -899,7 +888,6 @@ test('shows unread from another member and clears it after reading', { session: 
 
   await row.tap();
   await expect(screen.getByText(/E2E 未读消息/)).toBeVisible({ timeout: 30_000 });
-  // 已读游标靠可见消息列表推进（频道设 scrollPreviousItemPeek=0），这里等它归零。
   await expect
     .poll(
       async () => {

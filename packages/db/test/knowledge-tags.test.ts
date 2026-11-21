@@ -73,7 +73,6 @@ async function seedBase(): Promise<string> {
   return base.id;
 }
 
-/** spy 保留真实执行，只统计 Drizzle 经由 pool 发出的 SQL 条数。 */
 async function queriesWhile<T>(run: () => Promise<T>): Promise<{ value: T; queries: number }> {
   const spy = spyOn(client, 'unsafe');
   try {
@@ -119,7 +118,6 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
     const { value: rows, queries } = await queriesWhile(() =>
       knowledge.upsertTags(db, baseId, ['new-1', 'old-2', 'new-2', 'old-1']),
     );
-    // 一次批量插入，命中旧行后一次补查。
     expect(queries).toBe(2);
     expect(rows.map((row) => row.name)).toEqual(['new-1', 'old-2', 'new-2', 'old-1']);
     expect(rows[1]?.id).toBe(oldIds.get('old-2'));
@@ -170,7 +168,6 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
     const baseId = await seedBase();
     for (const size of [501, 1100]) {
       const names = Array.from({ length: size }, (_, index) => `bulk-${size}-${index}`);
-      // 预置首批、中段、批界、末位标签，覆盖跨批已存在行的复用。
       const existingIndexes = [...new Set([0, Math.floor(size / 2), 499, size - 1])];
       const existing = await knowledge.upsertTags(
         db,
@@ -187,7 +184,6 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
         expect(rows[index]?.id).toBe(existingIds.get(names[index] as string));
       }
       expect(new Set(rows.map((row) => row.id)).size).toBe(size);
-      // 每批一次插入，存在旧行时统一补查一次。
       expect(queries).toBe(Math.ceil(size / 500) + 1);
     }
     const rows = await client.unsafe<{ n: number; unique_names: number }[]>(

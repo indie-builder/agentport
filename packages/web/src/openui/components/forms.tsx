@@ -52,10 +52,6 @@ import { childProps, isActionPlan, type RenderProps } from './shared.js';
 
 type Rules = Record<string, string | number | boolean | undefined>;
 
-/**
- * FormControl 向控件下发的接线：DOM id 用 instance 级 useId，
- * 同一条消息的两个 UI 段出现同名字段也不会撞 id。
- */
 interface FieldWiring {
   controlId: string;
   labelId: string;
@@ -64,25 +60,21 @@ interface FieldWiring {
 
 const FieldWiringContext = createContext<FieldWiring | null>(null);
 
-/** 标签能真正指向的控件（可点击标签聚焦）；分组控件改用 aria-labelledby。 */
 const LABELABLE_INPUTS = new Set(['Input', 'TextArea', 'Select', 'DatePicker']);
 
 function inputTypeName(input: unknown): string | undefined {
   return (input as { typeName?: string } | null | undefined)?.typeName;
 }
 
-/** 标签 / 提示 / 错误在控件上的投影；脱离 FormControl 时不产生多余属性。 */
 function useFieldWiring() {
   return useContext(FieldWiringContext);
 }
 
-/** 把 schema 的 rules 对象登记进官方校验上下文；字段卸载时注销。 */
 function useFieldRules(name: string, rules: Rules | undefined, getValue: () => unknown) {
   const validation = useFormValidation();
   const streaming = useIsStreaming();
   const parsed = useMemo(() => parseStructuredRules(rules), [rules]);
   const hasRules = parsed.length > 0;
-  // 校验时机由提交按钮决定，读的必须是「当前值」，不能是登记那一刻的快照。
   const getter = useRef(getValue);
   getter.current = getValue;
 
@@ -133,7 +125,6 @@ function useField(
   };
 }
 
-/** 分组控件（多选、单选、卡片）用 fieldset 承接 FormControl 的标签、提示与 invalid。 */
 function RangeGroup({
   labelledBy,
   describedBy,
@@ -158,8 +149,6 @@ function RangeGroup({
     </fieldset>
   );
 }
-
-// ─── Text inputs ─────────────────────────────────────────────────────────────
 
 export function InputRenderer({
   props,
@@ -219,8 +208,6 @@ export function LabelRenderer({ props }: RenderProps<{ text: string }>) {
   return <span className="text-sm font-medium text-fg">{props.text}</span>;
 }
 
-// ─── Select ──────────────────────────────────────────────────────────────────
-
 export function SelectRenderer({
   props,
 }: RenderProps<{
@@ -270,8 +257,6 @@ export function SelectRenderer({
 export function SelectItemRenderer() {
   return null;
 }
-
-// ─── DatePicker ──────────────────────────────────────────────────────────────
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -356,8 +341,6 @@ export function DatePickerRenderer({
   );
 }
 
-// ─── Slider ──────────────────────────────────────────────────────────────────
-
 export function SliderRenderer({
   props,
 }: RenderProps<{
@@ -402,8 +385,6 @@ export function SliderRenderer({
     </div>
   );
 }
-
-// ─── Selection groups ────────────────────────────────────────────────────────
 
 export function CheckBoxGroupRenderer({
   props,
@@ -542,7 +523,6 @@ export function SwitchGroupRenderer({
   value?: Record<string, unknown>;
 }>) {
   const field = useField(props.name, props.value, undefined);
-  // 同一消息的两段可以有同名 SwitchGroup；条目 id 必须按实例生成。
   const groupId = useId();
   const items = (props.items ?? [])
     .map((item) =>
@@ -598,7 +578,6 @@ export function SwitchItemRenderer() {
   return null;
 }
 
-/** Chips 与 OptionCards 共用的多选 / 单选状态。 */
 function useSelectionField(
   name: string,
   type: 'single' | 'multiple',
@@ -811,8 +790,6 @@ export function OptionCardRenderer() {
   return null;
 }
 
-// ─── Form ────────────────────────────────────────────────────────────────────
-
 export function FormRenderer({
   props,
   renderNode,
@@ -841,10 +818,8 @@ export function FormControlRenderer({
   const fieldName = inputProps?.name;
   const error = fieldName ? validation?.errors[fieldName] : undefined;
   const required = inputProps?.rules?.required === true;
-  // 同一消息可以有多个 UI 段、每段都有自己的 Form；id 必须按实例生成，不能只用字段名。
   const controlId = useId();
   const labelId = `${controlId}-label`;
-  // 提示与错误各自成一行的位置固定：出错时 hint 仍保留格式/约束信息，不因错误消失。
   const hintId = props.hint ? `${controlId}-hint` : undefined;
   const errorId = error ? `${controlId}-error` : undefined;
   const labelable = LABELABLE_INPUTS.has(inputTypeName(props.input) ?? '');
@@ -954,7 +929,6 @@ export function ButtonRenderer({
       }
       disabled={streaming}
       onClick={() => {
-        // 只有主按钮的提交类动作承担表单语义：校验不过就地显示错误，不发消息。
         if (
           variant === 'primary' &&
           validation &&

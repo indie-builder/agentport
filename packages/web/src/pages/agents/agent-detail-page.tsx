@@ -62,7 +62,6 @@ import {
   type TabId,
 } from './shared.js';
 
-/** 专家页只认 /access 的已求值权限；摘要与配置分别取，普通使用者不拉配置正文。 */
 export function AgentDetailPage() {
   const params = useParams({ from: '/_shell/agents/$agentId' });
   const navigate = useNavigate();
@@ -80,18 +79,15 @@ export function AgentDetailPage() {
   const search = useSearch({ from: '/_shell/agents/$agentId' });
   const [editorPending, setEditorPending] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  // 删除成功会卸载受限页签；父层保存子层最新 blocker reset，先结算被拦下的离开再返回列表。
   const settleBlockedNavigation = useRef<(() => void) | null>(null);
   const [membersOpen, setMembersOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
-  // 删除请求在途时编辑、离开与刷新都要先等它结束；失败则保留草稿供重试。
   const pending =
     editorPending ||
     remove.isPending ||
     archive.isPending ||
     restore.isPending ||
     toggleEnable.isPending;
-  // 导入后随导航状态带过来的一次性提示；展示关闭后从本地状态清空。
   const [warnings, setWarnings] = useState<string[]>(() => {
     const state = location.state as { importWarnings?: string[] } | undefined;
     return state?.importWarnings ?? [];
@@ -103,14 +99,11 @@ export function AgentDetailPage() {
     void navigate({ href: backTo });
   };
 
-  // 列表只给摘要；配置正文只能来自单独的详情请求，不能把摘要当完整 Agent 用。
   const full = canReadConfig ? (detail.data ?? null) : null;
   const current = full ?? summary.data;
   const loading = summary.isPending || access.isPending || (canReadConfig && detail.isPending);
   const failed = summary.isError || access.isError || (canReadConfig && detail.isError);
 
-  // 删除成功后先结算删除期间被拦下的离开，再卸载编辑器与确认框并返回列表；
-  // 否则子层卸载后旧 blocker 的导航 Promise 永久挂起。
   useEffect(() => {
     if (!remove.isSuccess) return;
     settleBlockedNavigation.current?.();
@@ -130,7 +123,6 @@ export function AgentDetailPage() {
     );
   }
 
-  // access 未返回前先保持加载态，避免把管理员短暂当成只能使用的普通用户。
   if (!current || access.isPending) {
     if (loading) {
       return (
@@ -214,7 +206,6 @@ export function AgentDetailPage() {
     full?.deletedAt != null;
   const canViewRuns = can(me.data, 'runs.read');
   const roleLabel = current.role?.trim() || '通用助手';
-  // 配置任务已由工具栏承载删除；页头只在工具栏确实渲染（详情已就绪）时让出入口。
   const configTabActive =
     full !== null && canReadConfig && activeAgentTab(search.tab, permissions) === 'config';
   const deleteInHeader = canDelete && !configTabActive;
@@ -319,7 +310,6 @@ export function AgentDetailPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : null}
-              {/* 没有配置读取权时也要能独立启停：不渲染配置表单，只发 enabled 字段。 */}
               {canEnable && !canReadConfig ? (
                 <Button
                   variant="outline"
@@ -466,12 +456,10 @@ function RestrictedAgentTabs({
   const [childDirty, setChildDirty] = useState(false);
   const [childPending, setChildPending] = useState(false);
   const pending = childPending || externalPending;
-  // 子面板已确认放弃草稿的切换，路由 blocker 不再重复确认。
   const confirmedChildSwitch = useRef<{
     instruction: AgentInstruction | undefined;
     view: MemoryView | undefined;
   } | null>(null);
-  // 只把子面板的真实在途状态回报给页头；父级操作锁不会回传，避免自锁。
   useEffect(() => {
     onPendingChange(childPending);
     return () => onPendingChange(false);
@@ -490,7 +478,6 @@ function RestrictedAgentTabs({
     permissions,
     isSubAgent,
   );
-  // 旧书签 tab=rules|styles 改写为 instructions + instruction，replace 不堆历史。
   useEffect(() => {
     const legacy = asInstruction(search.tab);
     if (!legacy) return;
@@ -507,13 +494,11 @@ function RestrictedAgentTabs({
       if (current.pathname === next.pathname) {
         const currentTab = permittedTab('tab' in current.search ? current.search.tab : undefined);
         const nextTab = permittedTab('tab' in next.search ? next.search.tab : undefined);
-        // 文件、usageDays 等不卸载面板的变化直接放行。
         if (currentTab === nextTab) {
           const ci = 'instruction' in current.search ? current.search.instruction : undefined;
           const ni = 'instruction' in next.search ? next.search.instruction : undefined;
           const cv = 'view' in current.search ? current.search.view : undefined;
           const nv = 'view' in next.search ? next.search.view : undefined;
-          // instruction/view 变化会卸载子面板，草稿随之丢失。
           if (ci === ni && cv === nv) return false;
           const confirmed = confirmedChildSwitch.current;
           if (confirmed && confirmed.instruction === ni && confirmed.view === nv) return false;
@@ -529,7 +514,6 @@ function RestrictedAgentTabs({
   useEffect(() => {
     confirmedChildSwitch.current = null;
   }, [instruction, search.view]);
-  // 父层拥有卸载权：登记最新 reset，卸载后仍能结算被拦下的导航，不依赖卸载清理。
   useEffect(() => {
     settleNavigationRef.current = () => blocker.reset?.();
   }, [blocker, settleNavigationRef]);

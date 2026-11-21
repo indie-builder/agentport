@@ -2,12 +2,6 @@ import { errorText } from '@agentport/shared';
 import type { CreateMcpHandlerOptions, McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler, fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 
-/**
- * 把平台内的智能体暴露成 MCP 工具，供其他 Host（Claude Code、其他智能体）调用。
- *
- * 每次调用创建一个 run、等待其终态，然后返回最终 assistant 文本。
- * 这是「平台即工具」的能力：智能体从被使用变为可被组合。
- */
 export interface AgentToolSpec {
   slug: string;
   name: string;
@@ -15,7 +9,6 @@ export interface AgentToolSpec {
 }
 
 export interface AgentInvoker {
-  /** 执行一次智能体，返回最终文本；失败抛错。signal 中止时不得启动或需终止已创建的 run。 */
   invoke(input: {
     slug: string;
     prompt: string;
@@ -78,7 +71,6 @@ export function buildAgentServer(specs: AgentToolSpec[], invoker: AgentInvoker):
   return server;
 }
 
-/** 平台对外 MCP 端点的 Bearer token；单管理员场景下由环境变量提供。 */
 export function platformMcpToken(env: NodeJS.ProcessEnv): string | null {
   const token = env.PLATFORM_MCP_TOKEN;
   return token && token.length >= 16 ? token : null;

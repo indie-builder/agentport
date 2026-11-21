@@ -44,7 +44,6 @@ describe.skipIf(!ready)('knowledge base activity', () => {
 
   afterEach(async () => {
     if (baseIds.length > 0) {
-      // 知识库 server 是独立行；删 server 会级联删库，避免留下 kb-<slug> 名称占用。
       await app.client.unsafe(
         "delete from servers where kind = 'knowledge' and config->>'knowledgeBaseId' = any($1::text[])",
         [app.client.array(baseIds, 'TEXT')],
@@ -167,12 +166,10 @@ describe.skipIf(!ready)('knowledge base activity', () => {
 
   it('feeds base, document and tag events newest first with their target kind', async () => {
     const baseId = await createBase();
-    // 文档与标签的审计 target 是自身 id，活动流按库归属回连，不是直接命中 baseId。
     const documentId = await uploadDocument(baseId);
     const tag = await createTag(baseId, '流程');
     expect((await renameTag(tag.id, '流程规范')).statusCode).toBe(200);
 
-    // 新建标签与重命名常在同一个请求序列里前后脚发生，先把四条事件的时间固定下来。
     await app.client.unsafe(
       "update audit_log set created_at = '2026-01-01T00:00:00Z'::timestamptz where action = 'knowledge.base.created' and target = $1",
       [baseId],
@@ -204,7 +201,6 @@ describe.skipIf(!ready)('knowledge base activity', () => {
     expect(page.items.every((item) => item.actor.length > 0)).toBe(true);
     expect(page.nextCursor).toBeNull();
 
-    // 真实时间倒序，不依赖 id 或插入顺序。
     const times = page.items.map((item) => Date.parse(item.createdAt));
     expect(times).toEqual([...times].sort((left, right) => right - left));
   });
@@ -215,7 +211,6 @@ describe.skipIf(!ready)('knowledge base activity', () => {
     const tag = await createTag(baseId, '规范');
     expect((await renameTag(tag.id, '规范 V2')).statusCode).toBe(200);
 
-    // 请求间隔可能落在同一微秒内，先把四条审计的时间固定下来，游标断言才有确定顺序。
     await app.client.unsafe(
       "update audit_log set created_at = '2026-01-01T00:00:00Z'::timestamptz where action = 'knowledge.base.created' and target = $1",
       [baseId],
@@ -254,14 +249,12 @@ describe.skipIf(!ready)('knowledge base activity', () => {
 
   it('records a base update before the earlier creation, and skips an empty patch', async () => {
     const baseId = await createBase();
-    // 创建与改名可能落在同一微秒内，先把创建事件固定到更早的时间，倒序断言才确定。
     await app.client.unsafe(
       "update audit_log set created_at = '2026-01-01T00:00:00Z'::timestamptz where action = 'knowledge.base.created' and target = $1",
       [baseId],
     );
 
     expect((await patchBase(baseId, {})).statusCode).toBe(200);
-    // 空 patch 没有任何字段变更，不该凭空多出一条「更新知识库」。
     expect((await activity(baseId)).json<ActivityPage>().items.map((item) => item.action)).toEqual([
       'knowledge.base.created',
     ]);
@@ -276,8 +269,6 @@ describe.skipIf(!ready)('knowledge base activity', () => {
       ['knowledge.base.created', 'base'],
     ]);
 
-    // 审计只落 input 摘要（不存原文），换个库、换个名字、只改同一个字段时摘要应当一致，
-    // 说明 input 里记的是字段名列表而不是具体值。
     const digestOf = async (target: string) => {
       const rows = await app.client.unsafe<{ input_digest: string | null }[]>(
         "select input_digest from audit_log where action = 'knowledge.base.updated' and target = $1",
@@ -291,7 +282,6 @@ describe.skipIf(!ready)('knowledge base activity', () => {
     expect((await patchBase(otherBaseId, { name: '另一个名字' })).statusCode).toBe(200);
     expect(await digestOf(otherBaseId)).toBe(await digestOf(baseId));
 
-    // 改的是另一个字段，字段名列表不同，摘要随之变化。
     expect((await patchBase(otherBaseId, { description: '新的描述' })).statusCode).toBe(200);
     const digests = await app.client.unsafe<{ input_digest: string | null }[]>(
       `select input_digest from audit_log
@@ -310,7 +300,6 @@ describe.skipIf(!ready)('knowledge base activity', () => {
     const actionsOf = async () =>
       (await activity(baseId)).json<ActivityPage>().items.map((item) => item.action);
 
-    // 空 patch 与提交原值都不算变更，不能凭空多出一条「更新文档」。
     expect((await patchDocument(documentId, {})).statusCode).toBe(200);
     expect(await actionsOf()).not.toContain('knowledge.document.updated');
 
@@ -318,7 +307,6 @@ describe.skipIf(!ready)('knowledge base activity', () => {
     expect(patched.statusCode, patched.body).toBe(200);
     expect(patched.json<{ title: string }>().title).toBe('改过的标题');
 
-    // 再提交同一个标题仍然没有字段变更。
     expect((await patchDocument(documentId, { title: '改过的标题' })).statusCode).toBe(200);
 
     const page = (await activity(baseId)).json<ActivityPage>();
@@ -326,7 +314,6 @@ describe.skipIf(!ready)('knowledge base activity', () => {
     expect(updated).toHaveLength(1);
     expect(updated[0]?.targetKind).toBe('document');
 
-    // 审计只落 input 摘要，不存原文。
     const digests = await app.client.unsafe<{ input_digest: string | null }[]>(
       "select input_digest from audit_log where action = 'knowledge.document.updated' and target = $1",
       [documentId],
@@ -354,7 +341,6 @@ describe.skipIf(!ready)('knowledge base activity', () => {
     expect(await entries()).toContainEqual(['knowledge.base.rebuilt', 'base']);
     expect(await entries()).toContainEqual(['knowledge.tag.created', 'tag']);
 
-    // 删除类事件的 target 行没了，活动流的 exists 回连必然落空：审计照写，只是不进活动流。
     expect((await deleteTag(tag.id)).statusCode).toBe(204);
     expect(await entries()).not.toContainEqual(['knowledge.tag.deleted', 'tag']);
     const auditRows = await app.client.unsafe<{ id: string }[]>(
@@ -410,7 +396,6 @@ describe.skipIf(!ready)('knowledge base activity', () => {
       'knowledge.document.uploaded',
     );
 
-    // 只有 read：活动流能读，但同一账号改信息被拒，说明入口没有顺带要求 update。
     expectProblem(
       await request(app, {
         method: 'PATCH',

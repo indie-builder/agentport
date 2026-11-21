@@ -14,13 +14,6 @@ import {
 } from '@openuidev/lang-core';
 import { waitFor } from './fixtures/wait-for.js';
 
-/**
- * 原生绑定语义必须真的能跑：`reactive()` 标记的字段写入 `$变量` 后，
- * 依赖该变量的 Query 要按新参数重新执行。
- *
- * 这里用 lang-core 的 store/queryManager 复现渲染器的调用顺序，
- * 验证的是 shared 定义（而不是浏览器组件）提供的绑定能力。
- */
 const reactive = <T extends object>(schema: T): T => {
   markReactive(schema);
   return schema;
@@ -36,7 +29,6 @@ const PROGRAM = [
   'tickets = Query("list_tickets", { status: $status }, { rows: [] })',
 ].join('\n');
 
-/** 复现渲染器的求值顺序：Query 的 toolName/args 都基于当前 store 快照求值。 */
 function queryNodes(result: ParseResult, ctx: EvaluationContext) {
   return result.queryStatements.map((statement) => ({
     statementId: statement.statementId,
@@ -73,7 +65,6 @@ describe('reactive bindings drive Query re-execution', () => {
     await waitFor(() => expect(callTool).toHaveBeenCalledTimes(1));
     expect(callTool).toHaveBeenLastCalledWith('list_tickets', { status: 'open' });
 
-    // 用户改了 Select/Input：store 里写入新的 $status，渲染器会重新求值并调用 evaluateQueries。
     store.set('$status', 'closed');
     manager.evaluateQueries(queryNodes(result, ctx()));
     await waitFor(() => expect(callTool).toHaveBeenCalledTimes(2));

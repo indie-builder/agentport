@@ -7,11 +7,9 @@ interface Reply {
   exitCode: number;
   stdout?: string;
   stderr?: string;
-  /** 不自动结束：用例自己 close，模拟慢 pull/create。 */
   holdOpen?: boolean;
 }
 
-// 只验证 docker CLI 参数与生命周期；容器真跑由 sandbox 镜像测试覆盖。
 const state = (() => ({
   commands: [] as string[][],
   kills: [] as string[][],
@@ -141,7 +139,6 @@ describe('docker sandbox provider', () => {
     expect(args).toContain('-i');
     expect(args).toContain('pace-run');
     expect(state.commands).toContainEqual(['docker', 'start', '-ai', 'pace-run']);
-    // create 阶段不启动容器：只有 start 负责前台附着。
     expect(state.commands.some((command) => command[1] === 'run')).toBe(false);
     expect(sandbox.id).toBe('pace-run');
   });
@@ -168,7 +165,6 @@ describe('docker sandbox provider', () => {
     const command = args.join(' ');
     expect(command).toContain('-v /tmp/workspace:/workspace:ro');
     expect(command).toContain('-v /host/runs/run_1:/mnt/outputs:rw');
-    // 显式只读挂载才会加 :ro；交付目录不能被当成定义目录。
     expect(command).not.toContain('/mnt/outputs:ro');
   });
 
@@ -260,7 +256,6 @@ describe('docker sandbox provider', () => {
     const controller = new AbortController();
     const creating = provider.create(createOptions({ signal: controller.signal }));
     await waitFor(() => expect(state.children.pull?.length).toBe(1));
-    // 旧实现按 1s 猜测容器何时出现；取消必须与这个猜测无关。
     await new Promise((resolve) => setTimeout(resolve, 1_100));
 
     controller.abort();
@@ -324,7 +319,6 @@ describe('docker sandbox provider', () => {
     expect(state.commands.some((command) => command[1] === 'start')).toBe(false);
     expect(state.commands).toContainEqual(['docker', 'rm', '-f', 'pace-slow']);
 
-    // rm 成功即已不再跟踪。
     state.commands = [];
     await provider.destroyAll();
     expect(state.commands).toEqual([]);
@@ -356,7 +350,6 @@ describe('docker sandbox provider', () => {
     await expect(provider.destroy(sandbox)).resolves.toBeUndefined();
     expect(inspections).toBe(3);
 
-    // 确认删除完成才移出跟踪。
     state.commands = [];
     await provider.destroyAll();
     expect(state.commands).toEqual([]);
@@ -377,7 +370,6 @@ describe('docker sandbox provider', () => {
       if (args[0] === 'container') return { exitCode: 0, stdout: 'pace-stuck\n' };
       return { exitCode: 0 };
     };
-    // 有限超时：第一次取 deadline，第二次进入轮询，之后时间越界退出。
     const start = Date.now();
     let clockCalls = 0;
     const clock = spyOn(Date, 'now').mockImplementation(() =>
@@ -390,7 +382,6 @@ describe('docker sandbox provider', () => {
       clock.mockRestore();
     }
 
-    // 删除未确认：保留跟踪，shutdown 还能再试。
     state.reply = () => ({ exitCode: 0 });
     state.commands = [];
     await provider.destroyAll();
@@ -432,13 +423,11 @@ describe('docker sandbox provider', () => {
         : { exitCode: 1, stderr: 'Error: No such object: pace-run' };
 
     await expect(provider.destroy(sandbox)).resolves.toBeUndefined();
-    // stop 报不存在后仍要 rm：missing 才是“已删除”的证据。
     expect(state.commands).toEqual([
       ['docker', 'stop', '--time', '5', 'pace-run'],
       ['docker', 'rm', '-f', 'pace-run'],
     ]);
 
-    // 已确认清理的容器不再跟踪。
     state.commands = [];
     await provider.destroyAll();
     expect(state.commands).toEqual([]);
@@ -456,7 +445,6 @@ describe('docker sandbox provider', () => {
     await expect(provider.destroy(sandbox)).rejects.toThrow(/rm/);
     expect(state.commands.map(([, command]) => command)).toEqual(['stop', 'rm']);
 
-    // 失败项留在 running 里，shutdown 时还能再试一次；再次失败仍要报出来。
     state.commands = [];
     await expect(provider.destroyAll()).rejects.toMatchObject({
       name: 'AggregateError',
@@ -472,7 +460,6 @@ describe('docker sandbox provider', () => {
       'spawn docker failed',
     );
 
-    // 创建成功后的失败由 create 自己收尾：普通错误不携带待清理容器。
     expect(state.commands).toContainEqual(['docker', 'rm', '-f', 'pace-start-fail']);
     state.commands = [];
     state.reply = () => ({ exitCode: 0 });
@@ -493,7 +480,6 @@ describe('docker sandbox provider', () => {
       },
     );
 
-    // 清理失败仍保留跟踪：shutdown 再试 stop 0 + rm。
     state.commands = [];
     state.reply = () => ({ exitCode: 0 });
     await expect(provider.destroyAll()).resolves.toBeUndefined();
@@ -512,7 +498,6 @@ describe('docker sandbox provider', () => {
       /docker create pace-create-fail failed/,
     );
 
-    // 没有容器被创建：不留下任何待清理项。
     state.commands = [];
     await expect(provider.destroyAll()).resolves.toBeUndefined();
     expect(state.commands).toEqual([]);
@@ -538,7 +523,6 @@ describe('docker sandbox provider', () => {
       sandboxId: 'pace-abort-rm',
     });
 
-    // 清理失败不能丢弃跟踪；shutdown 用 stop 0 + rm 再试。
     state.commands = [];
     state.reply = () => ({ exitCode: 0 });
     await expect(provider.destroyAll()).resolves.toBeUndefined();
@@ -608,7 +592,6 @@ describe('docker sandbox provider', () => {
       message: expect.stringContaining('pace-run'),
     });
 
-    // 失败项保留跟踪：下一次清理重试成功。
     state.commands = [];
     state.reply = () => ({ exitCode: 0 });
     await expect(provider.destroyAll()).resolves.toBeUndefined();

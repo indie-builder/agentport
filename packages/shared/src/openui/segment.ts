@@ -58,7 +58,6 @@ export function segmentOpenUi(text: string, streaming = false): OpenUiSegment[] 
 
   const flushMarkdown = (end: number) => {
     if (end <= markdownStart) return;
-    // 纯空白段也保留：围栏之间的空行属于 Markdown，吞掉会改变排版。
     const value = text.slice(markdownStart, end);
     if (value !== '') segments.push({ kind: 'markdown', text: value, start: markdownStart, end });
   };
@@ -71,7 +70,6 @@ export function segmentOpenUi(text: string, streaming = false): OpenUiSegment[] 
 
     const lang = open[1] ?? '';
     if (!OPENUI_LANG.test(lang)) {
-      // 外层是别的语言围栏：跳到它自己的关闭处，里面的 openui 围栏只是内容。
       let close = index + 1;
       while (close < lines.length && !FENCE_CLOSE.test(lines[close]?.body ?? '')) close += 1;
       index = close;

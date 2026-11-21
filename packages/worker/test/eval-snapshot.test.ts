@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Database } from '@agentport/db';
 
-/**
- * 跑批开始时的用例快照契约：有快照就绝不再读活用例表。
- * 只 mock repo/bullmq 这一层边界，断言 worker 的输入与写回内容。
- */
 const mocks = (() => {
   const noop = () => undefined;
   return {
@@ -142,7 +138,6 @@ describe('executeEvalRun case snapshot', () => {
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
     expect(mocks.evalRepo.listCases).not.toHaveBeenCalled();
-    // 喂给 run job 的 prompt 与 judge 用的 expectation 都来自快照。
     expect(mocks.queueAdd.mock.calls.map((call) => call[1].prompt)).toEqual([
       'prompt-alpha',
       'prompt-beta',
@@ -160,15 +155,12 @@ describe('executeEvalRun case snapshot', () => {
       passed: true,
       caseSnapshot: snapshot[1],
     });
-    // 总数按快照长度收敛，而不是重读后的活用例。
     expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
       status: 'succeeded',
       passed: 2,
       error: null,
     });
-    // 超时仍取当前 agent 配置，不随快照冻结。
     expect(mocks.waitUntilFinished).toHaveBeenCalledWith(expect.anything(), 5_000);
-    // 执行主体只取 evalRuns.createdBy，不来自 job。
     expect(mocks.chat.admitChatRun).toHaveBeenCalledWith(
       db,
       expect.objectContaining({
@@ -187,7 +179,6 @@ describe('executeEvalRun case snapshot', () => {
 
     expect(mocks.evalRepo.listCases).not.toHaveBeenCalled();
     expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(1);
-    // 原用例字段随结果写回，报告不依赖仍然存在的 eval_cases 行。
     expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
       caseId: 'evalCase-deleted',
       caseSnapshot: snapshot[0],
@@ -221,7 +212,6 @@ describe('executeEvalRun case snapshot', () => {
       { id: 'evalCase-b', name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
     ];
     runWith(snapshot, { alpha: 'answer alpha-ok', beta: 'answer beta-ok' });
-    // 调用顺序：初次读取、认领后、alpha 前后各一次、beta 前、收口前。
     const running = {
       status: 'running',
       agentId,
@@ -244,7 +234,6 @@ describe('executeEvalRun case snapshot', () => {
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    // 取消前已跑完的 case 保留结果，之后不再入队、写结果或收口。
     expect(mocks.queueAdd).toHaveBeenCalledTimes(1);
     expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(1);
     expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
@@ -267,7 +256,6 @@ describe('executeEvalRun case snapshot', () => {
       createdBy: evalBusinessId,
       caseSnapshot: snapshot,
     };
-    // 调用顺序：初次读取、认领后、alpha 前、alpha 跑完后、收口前。
     mocks.evalRepo.getEvalRun
       .mockResolvedValueOnce(running)
       .mockResolvedValueOnce(running)
@@ -442,7 +430,6 @@ describe('executeEvalRun case snapshot', () => {
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    // 第二条结果落库失败后不再跑第三条，也不把失败条算进 passed。
     expect(mocks.queueAdd).toHaveBeenCalledTimes(2);
     expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(2);
     expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {

@@ -43,7 +43,6 @@ mock.module('@agentport/db', () => ({
   },
 }));
 
-// 进程级守卫会把测试里任何未处理异常变成 process.exit；这里只验证 worker 分流。
 const coreActual = await import('@agentport/core');
 mock.module('@agentport/core', () => ({ ...coreActual, installProcessGuards: () => undefined }));
 
@@ -153,7 +152,6 @@ mock.module('../src/model-proxy.js', () => ({
   startModelProxy: async () => null,
 }));
 
-// 本套件要往全局角色矩阵写测试身份；独享库避免与 roles/agents 套件并行时互相删除角色。
 const isolated = await createIsolatedDatabase('worker_memory_review');
 if (isolated !== null) process.env.DATABASE_URL = isolated.url;
 const dbHandle = createDb(isolated?.url ?? '');
@@ -195,12 +193,10 @@ type SeedMessage = { role: 'user' | 'assistant'; text: string };
 async function seed(
   input: {
     messages: SeedMessage[];
-    /** 额外的会话来源；同一次审核会一起交给模型对照目标正文。 */
     moreSources?: SeedMessage[][];
     target?: unknown;
     instruction?: string;
     before?: MemoryContentSnapshot;
-    /** 首个会话的取材窗口；按下标指定，落库时转换成消息 id。 */
     window?: { fromIndex?: number; throughIndex?: number };
   },
   options: { status?: 'queued' | 'running' } = {},
@@ -244,7 +240,6 @@ async function seed(
     };
   });
   const runId = newId('run');
-  // repo.chat.createRun 的 trigger 类型暂未包含 review，这里按真实行形状落库。
   await db.insert(schema.agentRuns).values({
     id: runId,
     conversationId: first.conversationId,
@@ -320,7 +315,6 @@ beforeAll(async () => {
     name: 'memory review',
     email: `memory-review-${userId.slice(4)}@test.local`,
   });
-  // 排队 run 启动前会按 DB 复核 agents.use / personal_memory.review，身份必须带真实授权。
   await db.insert(schema.roles).values({ id: roleId, name: 'memory review' });
   await db.insert(schema.rolePermissions).values([
     { roleId, permissionId: 'agents.use', scope: 'authorized_agents' },
@@ -343,13 +337,11 @@ beforeAll(async () => {
 afterAll(async () => {
   if (ready) {
     await db.delete(schema.authUsers).where(eq(schema.authUsers.id, userId));
-    // model_agent_id 是 RESTRICT：先删审核行再删专家。
     await db.delete(schema.memoryReviews).where(eq(schema.memoryReviews.modelAgentId, agentId));
     await db.delete(schema.agents).where(eq(schema.agents.id, agentId));
     await db.delete(schema.userRoles).where(eq(schema.userRoles.businessId, businessId));
     await db.delete(schema.roles).where(eq(schema.roles.id, roleId));
   }
-  // isolated-db 已在建库/迁移后结束自己的连接，重复 end 只忽略这一次收尾错误。
   for (const handle of mocks.dbHandles) await handle.client.close().catch(() => undefined);
   await isolated?.close();
 });
@@ -1174,7 +1166,6 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
       );
       await startedPromise;
       shutdown.abort();
-      // 关停已发生，再跨过 timeoutMs；首个原因不能被随后的 deadline 覆盖。
       await new Promise((resolve) => setTimeout(resolve, 120));
       await execution;
     } finally {
@@ -1254,7 +1245,6 @@ describe.skipIf(!ready)('worker trigger routing', () => {
     const sigterm = new Set(process.listeners('SIGTERM'));
     const sigint = new Set(process.listeners('SIGINT'));
     await import('../src/index.js');
-    // 测试进程不接管真实关停信号。
     for (const listener of process.listeners('SIGTERM')) {
       if (!sigterm.has(listener)) process.off('SIGTERM', listener);
     }

@@ -4,7 +4,6 @@ import { isMap, parseDocument } from 'yaml';
 interface PluginMarkdown {
   name: string;
   description: string;
-  /** 去掉 frontmatter 后的正文；frontmatter 畸形时是完整原文。 */
   body: string;
   issue?: string;
 }

@@ -332,7 +332,6 @@ describe('evaluation run detail refresh feedback', () => {
     expect(button('导出结果').disabled).toBe(true);
 
     await click('重试');
-    // 重试进行中：旧结果与提示都还在，不提前清空。
     expect(container.textContent).toContain('刷新失败，内容仍是上次结果');
     expect(container.textContent).toContain('Result One');
     expect((container.querySelector('pre')?.textContent ?? '').length).toBeGreaterThan(64 * 1024);
@@ -465,7 +464,6 @@ describe('evaluation start blocked by a running batch', () => {
 
     await click('停止后续用例');
     await flush();
-    // 停止请求已成功，但列表仍报告 running：启动继续禁用。
     expect(container.textContent).toContain('运行中');
     expect(button('运行评估').disabled).toBe(true);
     expect(container.textContent).toContain('已有评估正在运行，请等待结束或先停止');

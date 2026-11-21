@@ -7,7 +7,6 @@ import * as servers from '../src/repo/servers.js';
 import { schema } from '../src/schema.js';
 
 const { client } = createDb(process.env.DATABASE_URL ?? '');
-// 事务走独立连接，client.unsafe 探针看不到 BEGIN/COMMIT，必须用 Drizzle logger。
 const logged: string[] = [];
 const db = drizzle(client, { schema, logger: { logQuery: (query) => logged.push(query) } });
 const ready = await client.unsafe('select 1').then(

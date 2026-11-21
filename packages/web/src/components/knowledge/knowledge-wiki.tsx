@@ -85,7 +85,6 @@ function wikiTreePages(pages: WikiPageSummary[]): Array<{ page: WikiPageSummary;
     }
   };
   walk(null, 0);
-  // 坏父级或残留循环不吞页面：未挂到树上的仍以顶层行展示。
   for (const page of pages) {
     if (!seen.has(page.id)) rows.push({ page, depth: 0 });
   }
@@ -106,7 +105,6 @@ export function WikiTab({
   const pages = useKnowledgeWikiPages(baseId);
   useDrainPages(pages);
   const [creating, setCreating] = useState(false);
-  // 等弹层卸载、blocker 注销后再选中新页面，避免导航被创建弹层的旧 dirty/pending 拦下。
   const [createdPage, setCreatedPage] = useState<string | null>(null);
   useEffect(() => {
     if (creating || createdPage === null) return;
@@ -246,18 +244,14 @@ function WikiPageEditor({
   const versions = [...(page?.versions ?? []), ...olderVersions];
   const currentVersion = versions.find((version) => version.id === page?.currentVersionId);
   const hasCurrent = page?.currentVersionId !== null && page?.currentVersionId !== undefined;
-  // 有 currentVersionId 时只显示该版本；当前版本落在更早分页时先读取，绝不把 versions[0] 当成当前。
   const displayVersion = currentVersion ?? (hasCurrent ? undefined : versions[0]);
-  // 首屏游标只在还没请求过更早版本时用；之后由 olderVersions 自己的游标接管。
   const nextCursor = olderCursor === undefined ? page?.nextCursor : olderCursor;
   const currentOutsidePage =
     hasCurrent && currentVersion === undefined && nextCursor !== null && nextCursor !== undefined;
-  // 只跟本次提交返回的任务，其他页面的生成任务不会显示在这里。
   const generateJob = generateJobId
     ? jobs.data?.find((job) => job.id === generateJobId)
     : undefined;
 
-  // 任务跨过终态时失效当前页面与列表，只做一次；轮询本身不触发失效。
   useEffect(() => {
     if (!generateJob || !generateJobId || settledJobRef.current === generateJobId) return;
     if (
@@ -273,7 +267,6 @@ function WikiPageEditor({
     void client.invalidateQueries({ queryKey: knowledgeKeys.wikiLinks(pageId) });
   }, [baseId, client, generateJob, generateJobId, pageId]);
 
-  // 当前发布版本被新版本挤出第一页时自动往下取，直到读到它或版本列表结束。
   useEffect(() => {
     if (!currentOutsidePage || nextCursor === null || nextCursor === undefined) return;
     if (loadOlder.isPending || loadOlder.isError) return;
@@ -290,7 +283,6 @@ function WikiPageEditor({
   }, [currentOutsidePage, loadOlder, nextCursor, pageId]);
 
   if (detail.isPending) return <LoadingState rows={4} />;
-  // 已有页面数据时，刷新失败不能整块替换编辑器，否则会丢掉正在编辑的草稿。
   if (!page) {
     if (detail.isError) {
       return <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
@@ -376,7 +368,6 @@ function WikiPageEditor({
                     {
                       onSuccess: (result) => {
                         setGenerateJobId(result.jobId);
-                        // Pick up the new job once so its polling starts; terminal handling comes from the job status.
                         void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
                         toastSuccess('已提交生成任务');
                       },
@@ -699,7 +690,6 @@ function WikiOrganizeDialog({
   });
   const { isDirty } = formState;
   const positionValue = watch('position');
-  // 组织保存比对最新真实版本；currentVersionId 可能停在已发布旧版，不能当并发基线。
   const [expectedVersion] = useState(() => page.versions[0]?.id ?? null);
   const [error, setError] = useState<string | null>(null);
   const pending = save.isPending;
@@ -707,7 +697,6 @@ function WikiOrganizeDialog({
   const invalidPosition = !Number.isInteger(parsedPosition) || parsedPosition < 0;
   const dirty = isDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
-  // 不能把页面挂到自己或后代下；后端也会拒绝，这里先减少明显无效选项。
   const descendants = new Set<string>();
   const collect = (id: string): void => {
     descendants.add(id);
@@ -906,7 +895,6 @@ function ErrorText({ children }: { children: string }) {
   );
 }
 
-/** 人工改动只写草稿版本；发布在版本列表里显式确认，不隐式改线上。 */
 function WikiMarkdownDialog({
   baseId,
   pageId,
@@ -917,7 +905,6 @@ function WikiMarkdownDialog({
 }: {
   baseId: string;
   pageId: string;
-  /** 打开编辑器时锁定的最新版本；null 表示新页面还没有版本，保存时创建首稿。 */
   expectedVersion: string | null;
   markdown: string;
   onClose: () => void;
@@ -957,7 +944,6 @@ function WikiMarkdownDialog({
                     guard.finish();
                   },
                   onError: (reason) => {
-                    // 保留草稿；别人已发布新版本时由用户确认后再重新加载。
                     setError(errorMessage(reason));
                   },
                 },

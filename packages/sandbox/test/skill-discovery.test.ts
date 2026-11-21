@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
-// 真实 CLI 的启动开销小，15s 足够覆盖冷启动；不因单次慢而放宽全部测试。
 const TIMEOUT = 15_000;
 
 const require = createRequire(import.meta.url);
@@ -36,10 +35,6 @@ const nativeCli = hasNativeCli();
 
 const SKILL = 'bound-skill';
 
-/**
- * 只做初始化，不产生模型请求：prompt 是永远不 yield 的异步生成器，
- * initializationResult() 触发的是 CLI 的 control initialize，拿到的是真实技能列表。
- */
 async function discover(
   withSkill = true,
 ): Promise<{ version: string | undefined; commands: string[] }> {
@@ -108,7 +103,6 @@ async function discover(
       const commands = (await session.supportedCommands()).map((command) => command.name);
       return { version: init.claude_code_version, commands };
     } finally {
-      // CLI 退出前仍可能写状态文件，必须等 close 后再清理目录。
       session.close();
       release();
       await closed;

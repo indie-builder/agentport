@@ -27,11 +27,9 @@ import { createIsolatedDatabase } from './isolated-db.js';
 
 const sha256Of = (data: Buffer): string => createHash('sha256').update(data).digest('hex');
 
-// 套件写入大量知识库数据：独享随机库，不能复用当前共享库中的迁移和行。
 const isolated = await createIsolatedDatabase('worker_knowledge_ingestion');
 const ready = isolated !== null;
 if (isolated) process.env.DATABASE_URL = isolated.url;
-// 库不可用时整套用例 skip：不建默认连接池，afterAll 按实际初始化关闭。
 let dbHandle: ReturnType<typeof createDb> | undefined;
 let db: ReturnType<typeof createDb>['db'];
 const quiet = {
@@ -55,7 +53,6 @@ const chunkStub = (markdown: string): ChunkDraft[] =>
       pageTo: null,
     }));
 
-// 真实本地 HTTP fixture：embedding/rerank 的协议与失败分类都在这里走真网络。
 let fixture: Server;
 let fixtureUrl = '';
 let embeddingBehaviour: { status: number; body?: unknown; delayMs?: number } = { status: 200 };
@@ -117,7 +114,6 @@ beforeAll(async () => {
       if (req.url === '/embed') {
         const parsed = JSON.parse(raw) as { texts?: string[]; images?: string[] };
         cohereCalls.push(parsed);
-        // 只让图片请求失败：文字向量必须仍可写入，才是真正「向量降级」。
         const failing = parsed.images !== undefined ? embeddingBehaviour : { status: 200 };
         if (failing.delayMs) {
           setTimeout(() => respond(failing.status, failing.body ?? {}), failing.delayMs);
@@ -166,7 +162,6 @@ afterEach(async () => {
 
 const suffix = (): string => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-/** 44 字节 WAV 头足以通过入口容器识别；转录由本地假 HTTP 端点返回固定时码。 */
 function wavBytes(): Buffer {
   const buffer = Buffer.alloc(44);
   buffer.write('RIFF', 0, 'ascii');
@@ -383,7 +378,6 @@ describe.skipIf(!ready)('runIngest', () => {
       KnowledgeCancelled,
     );
     const document = await repo.knowledge.getDocument(db, documentId);
-    // 首次摄取没有可回退的版本：取消后必须落 failed，不能永久停在 processing。
     expect(document?.status).toBe('failed');
     expect(document?.currentVersionId).toBeNull();
     const versions = await repo.knowledge.listVersions(db, documentId);
@@ -446,7 +440,6 @@ describe.skipIf(!ready)('runIngest', () => {
     const oldVersionId = before?.currentVersionId ?? '';
     expect(oldVersionId).not.toBe('');
 
-    // 新原件 + 新 job；在真正 await 的 chunk 插入过程中触发 abort。
     const { mkdir, writeFile } = await import('node:fs/promises');
     const data = Buffer.from('# 新标题\n\n新的正文。', 'utf8');
     const sha = createHash('sha256').update(data).digest('hex');
@@ -463,7 +456,6 @@ describe.skipIf(!ready)('runIngest', () => {
     await repo.knowledge.claimJob(db, job.id);
     const claimed = await repo.knowledge.getJob(db, job.id);
     if (!claimed) throw new Error('job missing');
-    // 归因：还源 DB 确认失败确在切版前由 abort 触发，而不是被守卫的其它条件拒绝。
     let inserted = false;
     const signalForCall = new AbortController();
     const depsForCall: KnowledgeDeps = {
@@ -472,7 +464,6 @@ describe.skipIf(!ready)('runIngest', () => {
         get(target, prop) {
           if (prop === 'insert') {
             return (table: Parameters<typeof target.insert>[0]) => {
-              // 只拦 chunk 插入：createVersion 现在也走 db.insert，拦全部会在创建版本时就 abort。
               if (table === schema.knowledgeChunks) {
                 inserted = true;
                 signalForCall.abort();
@@ -490,7 +481,6 @@ describe.skipIf(!ready)('runIngest', () => {
     );
     expect(signalForCall.signal.aborted).toBe(true);
     expect(inserted).toBe(true);
-    // abort 发生在 chunk 插入之后：守卫之前就已观察，绝不能再切版。
     const versions = await repo.knowledge.listVersions(db, first.documentId);
     const newVersion = versions.items.find((version) => version.id !== oldVersionId);
     expect(newVersion).toBeDefined();
@@ -533,13 +523,11 @@ describe.skipIf(!ready)('runIngest', () => {
       KnowledgeCancelled,
     );
     expect(inserted).toBe(true);
-    // 草稿不能因为落块完成就正常返回让队列标记 succeeded。
     const document = await repo.knowledge.getDocument(db, documentId);
     expect(document?.currentVersionId).toBeNull();
     expect(document?.status).toBe('failed');
     const versions = await repo.knowledge.listVersions(db, documentId);
     expect(versions.items).toHaveLength(1);
-    // 发布侧据此只接受成功任务；worker 只负责把草稿与本次 job 绑定。
     expect(versions.items[0]?.metadata).toMatchObject({
       publication: 'draft',
       indexingJobId: jobId,
@@ -573,8 +561,6 @@ describe.skipIf(!ready)('runIngest', () => {
     const claimed = await repo.knowledge.getJob(db, job.id);
     if (!claimed) throw new Error('job missing');
 
-    // 切版事务第二次 SELECT（读库配置）发出时取消：此时事务入口的 abort 检查已经过去，
-    // 取消恰好落在 job/base 两次读取之间，正是守卫必须在 update 前再看一次 signal 的窗口。
     type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
     const controller = new AbortController();
     let baseReadStarted = false;
@@ -610,7 +596,6 @@ describe.skipIf(!ready)('runIngest', () => {
     );
     expect(baseReadStarted).toBe(true);
     expect(controller.signal.aborted).toBe(true);
-    // 旧实现只在事务入口看一次 signal：这里会切版；新守卫必须保持旧 currentVersionId。
     const after = await repo.knowledge.getDocument(db, first.documentId);
     expect(after?.currentVersionId).toBe(oldVersionId);
     expect(after?.status).toBe('ready');
@@ -621,12 +606,11 @@ describe.skipIf(!ready)('runIngest', () => {
     const { documentId, jobId } = await makeUploadedDocument(fixtureBase);
     const job = await repo.knowledge.getJob(db, jobId);
     if (!job) throw new Error('job missing');
-    // 解析桩模拟 Docling 长请求：只有收到 abort 才结束，否则永远挂起。
     let seen: AbortSignal | undefined;
     fixtureBase.deps.parse = ({ signal }) =>
       new Promise((_resolve, reject) => {
         seen = signal;
-        if (!signal) return; // 未传 signal 时永远挂起，正是要修的缺陷
+        if (!signal) return;
         if (signal.aborted) return reject(new Error('aborted'));
         signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
       });
@@ -657,7 +641,6 @@ const imageSettings = (patch: Partial<KnowledgeBaseSettings['imageProcessing']> 
   ...patch,
 });
 
-/** 每张图各做 OCR/caption 两次 query；按 action 指令返回内容或抛错。 */
 function fakeImageQuery(
   outcome: Array<{ ocr?: string | null; caption?: string | null; error?: string }>,
   seen: Array<{ prompt: string; options: Options }> = [],
@@ -665,7 +648,6 @@ function fakeImageQuery(
   return ((params: { prompt: string | AsyncIterable<SDKUserMessage>; options: Options }) => {
     async function* run(): AsyncGenerator<SDKMessage, void> {
       if (typeof params.prompt === 'string') return;
-      // 从真实 prompt 里取文字指令，判断这是 OCR 还是 caption 动作。
       let prompt = '';
       for await (const message of params.prompt) {
         const content = message.message.content;
@@ -730,7 +712,6 @@ describe.skipIf(!ready)('runIngest image processing', () => {
   it('indexes an uploaded PNG through the same images path and writes OCR/caption chunks', async () => {
     const fixtureBase = await makeBase();
     await enableImages(fixtureBase);
-    // 真实 parser 负责图片 magic 校验与 ParsedDocument.images 投影。
     fixtureBase.deps.parse = (input) => createParsingAdapter().parse(input);
     const { documentId, jobId } = await makeImageDocument(
       fixtureBase,
@@ -776,7 +757,6 @@ describe.skipIf(!ready)('runIngest image processing', () => {
       mimeType: 'image/png',
       page: 1,
     });
-    // 原图与版本清单同一条磁盘路径，读图/下载共用。
     expect(
       await stat(
         join(
@@ -879,10 +859,8 @@ describe.skipIf(!ready)('runIngest image processing', () => {
     );
     expect(vectors).toHaveLength(1);
     expect(vectors[0]?.embedding?.length).toBe(1024);
-    // vector chunk 只做图片向量检索，不进关键词索引。
     expect(vectors[0]?.searchText).toBe('');
 
-    // 向量失败只降级描述检索并记 warning，整版仍可发布。
     const second = await makeBase({
       embeddingProtocol: 'cohere_v2',
       model: 'embed-v4.0',
@@ -956,13 +934,11 @@ describe.skipIf(!ready)('runIngest image processing', () => {
       mimeType: 'image/png',
       page: 1,
     });
-    // 降级的 vector 草稿不能再次进入文字 embedding，否则就把它当成普通文本了。
     const textInputs = cohereCalls
       .filter((call) => Array.isArray(call.texts))
       .flatMap((call) => call.texts as string[]);
     expect(textInputs.filter((text) => text === '一张发票照片')).toHaveLength(1);
 
-    // 上游恢复后，chunksOnly 从原图补建 vector，且不再调用视觉生成。
     embeddingBehaviour = { status: 200 };
     cohereCalls = [];
     const queriesBefore = imageQueries;
@@ -998,7 +974,6 @@ describe.skipIf(!ready)('runIngest image processing', () => {
     );
     const base = await repo.knowledge.getBase(db, fixtureBase.baseId);
     if (!base) throw new Error('base missing');
-    // 生成期间管理员改了图片处理配置：发布前必须重核，不用旧配置覆盖新决定。
     const inner = fakeImageQuery([{ ocr: 'a' }, { caption: 'b' }]);
     let changed = false;
     fixtureBase.deps.imageQueryFn = (params) => {
@@ -1032,7 +1007,6 @@ describe.skipIf(!ready)('runReindex', () => {
     const before = await repo.knowledge.getDocument(db, documentId);
     expect(before?.currentVersionId).not.toBeNull();
 
-    // 400 是永久性的 bad_response：单文档失败继续汇总，不触发队列重试。
     embeddingBehaviour = { status: 400, body: { error: 'bad request' } };
     const job = await repo.knowledge.createJob(db, {
       type: 'reindex',
@@ -1072,7 +1046,6 @@ describe.skipIf(!ready)('runReindex', () => {
     const claimed = await repo.knowledge.getJob(db, job.id);
     if (!claimed) throw new Error('job missing');
 
-    // 临时错误保持原始类型，队列现有的分类器才会重试。
     await expect(
       runReindex(fixtureBase.deps, claimed, new AbortController().signal),
     ).rejects.toBeInstanceOf(KnowledgeModelError);
@@ -1123,7 +1096,6 @@ describe.skipIf(!ready)('runReindex', () => {
 
     const after = await repo.knowledge.listChunks(db, versionId);
     expect(after.items.every((chunk) => chunk.embedding?.length === 1024)).toBe(true);
-    // 图片向量来自原图字节（经版本清单白名单读取），不是把 caption 当图片向量。
     expect(cohereCalls.some((call) => Array.isArray(call.images))).toBe(true);
     expect(cohereCalls.some((call) => Array.isArray(call.texts))).toBe(true);
   });
@@ -1141,7 +1113,6 @@ describe.skipIf(!ready)('runReindex', () => {
       await repo.knowledge.patchChunk(db, chunk.id, { embedding: null });
     }
 
-    // 库切到另一个同维 profile；旧版本仍是 A，chunksOnly 不能把 B 向量写进 A 版本。
     const other = await makeBase();
     await repo.knowledge.updateBase(db, fixtureBase.baseId, {
       embeddingProfileId: other.profileId,
@@ -1215,7 +1186,6 @@ describe.skipIf(!ready)('knowledge audio ingestion', () => {
       fixtureBase,
       wavBytes(),
       {
-        // 外来 versionMetadata 不能覆盖 worker 生成的转录事实。
         versionMetadata: {
           audio: {
             protocol: 'openai_transcriptions',
@@ -1255,7 +1225,6 @@ describe.skipIf(!ready)('knowledge audio ingestion', () => {
 
     const chunks = await repo.knowledge.listChunks(db, versionId);
     expect(chunks.items).toHaveLength(1);
-    // 三个段合并成一个 chunk：时间取全段 min/max，合并块不冒充单段 ref。
     expect(chunks.items[0]?.locator).toEqual({
       startOffset: 0,
       endOffset: 18,
@@ -1291,7 +1260,6 @@ describe.skipIf(!ready)('knowledge audio ingestion', () => {
   it('keeps ordinary documents independent of ASR availability', async () => {
     const fixtureBase = await makeBase();
     const profile = await bindAsr(fixtureBase);
-    // 绑定存在但 profile 被停用：普通文档照常摄取，不读取/依赖 ASR。
     await db
       .update(schema.knowledgeModelProfiles)
       .set({ enabled: false })
@@ -1323,7 +1291,6 @@ describe.skipIf(!ready)('knowledge audio ingestion', () => {
     const before = await repo.knowledge.getDocument(db, documentId);
     const versionCount = (await repo.knowledge.listVersions(db, documentId)).items.length;
 
-    // 转录返回后、发布前管理员切换了绑定：旧任务结果不能上线。
     const replacement = await makeAsrProfile();
     const inner = fixtureBase.deps.parse;
     fixtureBase.deps.parse = async (input) => {
@@ -1419,7 +1386,6 @@ describe.skipIf(!ready)('knowledge audio ingestion', () => {
   });
 });
 
-/** 仓库列表接口单页上限 200；用例必须超过一页才能证明后端会翻页。 */
 const OVER_PAGE = 250;
 
 async function allChunks(versionId: string) {
@@ -1444,7 +1410,6 @@ async function seedDocuments(
   values: {
     sourceType?: DocumentSourceType;
     sourceId?: (index: number) => string | null;
-    /** 来源归属以该列（而不是 metadata）为准。 */
     sourceConnectionId?: string | null;
     metadata?: Record<string, unknown> | ((index: number) => Record<string, unknown>);
     contentHash?: string;
@@ -1633,7 +1598,6 @@ describe.skipIf(!ready)('runSync', () => {
     });
     const created = await repo.knowledge.createSyncJob(db, source.id);
     if (created.status !== 'created') throw new Error(`sync pair not created: ${created.status}`);
-    // 暂停来源仍要覆盖 runSync 的取消分支：先用真实创建事务拿到 pair，再停用。
     if (options.status) {
       await repo.knowledge.updateSource(db, source.id, { status: options.status });
     }
@@ -1641,7 +1605,6 @@ describe.skipIf(!ready)('runSync', () => {
     return { sourceId: source.id, syncRunId: created.run.id, jobId: created.job.id };
   }
 
-  /** 成功同步必须经过队列的终态 seam：run、source 摘要与游标一次原子提交。 */
   async function runSyncToSuccess(
     deps: Fixture['deps'],
     job: Parameters<typeof runSync>[1],
@@ -1650,7 +1613,6 @@ describe.skipIf(!ready)('runSync', () => {
     await repo.knowledge.finishJob(db, job.id, { status: 'succeeded', result });
   }
 
-  /** 同一来源的下一轮同步必须先让上一轮进入终态。 */
   async function nextSync(sourceId: string) {
     const created = await repo.knowledge.createSyncJob(db, sourceId);
     if (created.status !== 'created') throw new Error(`sync pair not created: ${created.status}`);
@@ -1671,7 +1633,6 @@ describe.skipIf(!ready)('runSync', () => {
       syncRunId,
       jobId: syncJobId,
     } = await makeSource(fixtureBase, failingConnector);
-    // 让该已就绪文档归到本来源名下，验证失败时不会被批量 disable。
     await repo.knowledge.updateDocument(db, documentId, {
       metadata: { knowledgeSourceId: sourceId, originalFilename: 'doc.md' },
     });
@@ -1687,7 +1648,6 @@ describe.skipIf(!ready)('runSync', () => {
     const run = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
       (item) => item.id === syncRunId,
     );
-    // 终态由队列的 finish 统一写；摄取本身只重抛原错，不能抢先写 failed。
     expect(run?.status).toBe('running');
     expect(run?.endedAt).toBeNull();
     const source = await repo.knowledge.getSource(db, sourceId);
@@ -1707,7 +1667,6 @@ describe.skipIf(!ready)('runSync', () => {
         await onCheckpoint({}, { complete: true });
       },
     };
-    // 推导删除只对完整枚举来源成立；feed 是滚动窗口，必须再确认一次不能误删。
     const { sourceId, jobId: syncJobId } = await makeSource(fixtureBase, emptyConnector, {
       type: 'gitlab',
     });
@@ -1723,7 +1682,6 @@ describe.skipIf(!ready)('runSync', () => {
 
     const document = await repo.knowledge.getDocument(db, documentId);
     expect(document?.status).toBe('disabled');
-    // 只 disable，不物理删除。
     expect(document).not.toBeNull();
   });
 
@@ -1753,7 +1711,6 @@ describe.skipIf(!ready)('runSync', () => {
       ],
     });
     fixtureBase.deps.connectors = { ...fixtureBase.deps.connectors, gitlab: emptyConnector };
-    // 全部归本来源且都不在列举结果里：任何未翻到的页都会漏掉 disable。
     const documentIds = await seedDocuments(fixtureBase, OVER_PAGE, {
       status: 'ready',
       sourceType: 'upload',
@@ -1805,7 +1762,6 @@ describe.skipIf(!ready)('runSync', () => {
       type: 'gitlab',
     });
 
-    // 210 个本来源 ready 文档跨两页；0/1 在列举结果里，其余应被推导删除。
     const createdAtBase = Date.now() - 60 * 60 * 1000;
     const currentIds = await seedDocuments(fixtureBase, 210, {
       status: 'ready',
@@ -1874,7 +1830,6 @@ describe.skipIf(!ready)('runSync', () => {
       documentId: wikiDocumentId,
       stale: false,
     });
-    // 只有已发布页会转 stale；这里先进入发布态再验证来源撤权联动。
     await db
       .update(schema.knowledgeWikiPages)
       .set({ status: 'published' })
@@ -1904,8 +1859,6 @@ describe.skipIf(!ready)('runSync', () => {
       spy.mockRestore();
     }
 
-    // 真正下推到 SQL 的取数：两页合计 210 行（每页多取 1 行探测下一页），
-    // 而不是整库 244 个 ready 文档。旧实现这里会是 201 + 43。
     expect(documentCalls).toHaveLength(2);
     for (const call of documentCalls) {
       expect(call.text).toContain('source_connection_id');
@@ -1924,7 +1877,6 @@ describe.skipIf(!ready)('runSync', () => {
     for (const id of currentIds.slice(0, 2)) {
       expect(byId.get(id)?.status).toBe('ready');
     }
-    // 208 个本来源缺失文档全部停用，包括第一页与第二页的行。
     for (const id of currentIds.slice(2)) {
       expect(byId.get(id)?.status).toBe('disabled');
     }
@@ -1988,14 +1940,12 @@ describe.skipIf(!ready)('runSync', () => {
     await runSyncToSuccess(fixtureBase.deps, first);
     expect(await documentsOfType(fixtureBase, 'gitlab')).toHaveLength(2);
 
-    // 第二次返回完全相同的条目：文档一个都不能被 disable。
     const { job: claimed } = await nextSync(sourceId);
     await runSyncToSuccess(fixtureBase.deps, claimed);
 
     const documents = await documentsOfType(fixtureBase, 'gitlab');
     expect(documents.map((doc) => doc.status).sort()).toEqual(['ready', 'ready']);
 
-    // 第三次少了一个：只有缺失的那个被 disable。
     listed = ['item-1'];
     const { job: thirdClaimed } = await nextSync(sourceId);
     await runSyncToSuccess(fixtureBase.deps, thirdClaimed);
@@ -2092,7 +2042,6 @@ describe.skipIf(!ready)('runSync', () => {
     );
 
     const source = await repo.knowledge.getSource(db, sourceId);
-    // 任一 range 失败都不推进来源游标。
     expect(source?.cursor).toEqual({});
     const run = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
       (item) => item.id === syncRunId,
@@ -2121,7 +2070,6 @@ describe.skipIf(!ready)('runSync', () => {
     const run = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
       (item) => item.id === syncRunId,
     );
-    // SIGTERM 会让队列把 job 退回 queued：这里抢先写 cancelled 会与重试冲突。
     expect(run?.status).toBe('running');
     expect(run?.endedAt).toBeNull();
     const source = await repo.knowledge.getSource(db, sourceId);
@@ -2153,7 +2101,6 @@ describe.skipIf(!ready)('runSync', () => {
     const run = (await repo.knowledge.listSyncRuns(db, job.sourceId ?? '')).items.find(
       (item) => item.id === syncRunId,
     );
-    // 跳过不是摄取层能定的终态：队列据 KnowledgeCancelled 写 cancelled。
     expect(run?.status).toBe('running');
     expect(run?.endedAt).toBeNull();
     expect(source?.lastSyncAt).toBeNull();
@@ -2188,7 +2135,6 @@ describe.skipIf(!ready)('runSync', () => {
       slug: `auth-${document.id}`,
       title: '认证',
     });
-    // 先有一次已发布版本，来源失权才应把页面标 stale；未发布草稿保持 draft。
     await repo.knowledge.saveWikiVersion(db, page.id, {
       markdown: '# 认证',
       sourceChunkIds: [],
@@ -2200,13 +2146,11 @@ describe.skipIf(!ready)('runSync', () => {
       documentId: document.id,
       stale: false,
     });
-    // saveWikiVersion 只追加草稿；撤权联动只对已发布页生效。
     await db
       .update(schema.knowledgeWikiPages)
       .set({ status: 'published' })
       .where(eq(schema.knowledgeWikiPages.id, page.id));
 
-    // 临时故障（超时/限流）不撤权，来源继续 active、文档继续可读。
     failure = new Error('network timeout');
     const transientJob = (await nextSync(first.sourceId)).job;
     await expect(
@@ -2215,9 +2159,7 @@ describe.skipIf(!ready)('runSync', () => {
     expect((await repo.knowledge.getSource(db, first.sourceId))?.status).toBe('active');
     expect((await repo.knowledge.getDocument(db, document.id))?.status).toBe('ready');
 
-    // 明确鉴权失败：来源停用、旧文档退出检索/read、Wiki 引用显式 stale。
     failure = new SourceAuthError('HTTP 401 from https://gitlab.example.com');
-    // 重试耗尽才进入下一次新同步；先按真实终态收掉上一轮。
     await repo.knowledge.finishJob(db, transientJob.id, {
       status: 'failed',
       error: 'network timeout',
@@ -2266,7 +2208,6 @@ describe.skipIf(!ready)('runSync', () => {
           title: 'boom',
           mimeType: '',
           revision: 'boom',
-          // 空 markdown 会在摄取时抛错，模拟单个条目解析/写入失败。
           content: { markdown: '   ' },
         };
         await onCheckpoint({ range: { version: 1 } }, { complete: true });
@@ -2284,7 +2225,6 @@ describe.skipIf(!ready)('runSync', () => {
     const run = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
       (item) => item.id === syncRunId,
     );
-    // 单个条目的永久失败由队列 finish 收成 failed；摄取层只汇总后抛错。
     expect(run?.status).toBe('running');
     expect(run?.endedAt).toBeNull();
     const source = await repo.knowledge.getSource(db, sourceId);
@@ -2313,7 +2253,6 @@ describe.skipIf(!ready)('runSync', () => {
     };
     const { syncRunId, jobId } = await makeSource(fixtureBase, connector, { type: 'gitlab' });
     runId = syncRunId;
-    // 人为制造「job 仍活动但 run 已终态」的坏数据：重试不得把它改回 running。
     const priorEndedAt = new Date(Date.now() - 60_000);
     await db
       .update(schema.knowledgeSyncRuns)
@@ -2329,7 +2268,6 @@ describe.skipIf(!ready)('runSync', () => {
       (item) => item.id === syncRunId,
     );
     expect(run).toMatchObject({ status: 'failed', error: 'prior attempt', endedAt: priorEndedAt });
-    // 终态 run 不能与活动 job 一起提交；finishJob 回滚，job 保持 running 交给对账。
     await expect(
       repo.knowledge.finishJob(db, job.id, { status: 'succeeded', result }),
     ).rejects.toThrow('sync run');
@@ -2358,7 +2296,6 @@ describe.skipIf(!ready)('runSync', () => {
     const connector: KnowledgeConnector = {
       async *sync() {
         yield item('ok', { markdown: '# ok' });
-        // Buffer 内容才会走 deps.parse；markdown 对象由连接器直接给出。
         yield item('transient', Buffer.from('# TRANSIENT', 'utf8'));
       },
     };
@@ -2368,17 +2305,14 @@ describe.skipIf(!ready)('runSync', () => {
     const job = await repo.knowledge.getJob(db, jobId);
     if (!job) throw new Error('job missing');
 
-    // 临时解析错误保持原类型，队列现有的分类器才会重试。
     await expect(
       runSync(fixtureBase.deps, job, new AbortController().signal),
     ).rejects.toBeInstanceOf(KnowledgeParseError);
     const firstRun = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(
       (entry) => entry.id === syncRunId,
     );
-    // 临时错误可重试：run 必须保持 running，不能抢先写 failed，否则重试期间 UI 显示已结束。
     expect(firstRun?.status).toBe('running');
     expect(firstRun?.endedAt).toBeNull();
-    // 游标不推进，重试仍从同一检查点开始。
     expect((await repo.knowledge.getSource(db, sourceId))?.cursor).toEqual({});
 
     parserDown = false;
@@ -2388,7 +2322,6 @@ describe.skipIf(!ready)('runSync', () => {
     const ok = documents.find((document) => document.sourceId === 'ok');
     const transient = documents.find((document) => document.sourceId === 'transient');
     if (!ok || !transient) throw new Error('documents missing');
-    // 重试会重新列举 ok，但内容未变时只更新元数据，不再产生第二个版本。
     expect((await repo.knowledge.listVersions(db, ok.id)).items).toHaveLength(1);
     expect((await repo.knowledge.listVersions(db, transient.id)).items).toHaveLength(1);
     const retriedRun = (await repo.knowledge.listSyncRuns(db, sourceId)).items.find(

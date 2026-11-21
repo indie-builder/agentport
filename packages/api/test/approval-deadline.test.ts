@@ -9,10 +9,8 @@ type ToolHandler = (
   ctx: { mcpReq: { signal: AbortSignal } },
 ) => Promise<CallToolResult>;
 
-/** handler 读取 ctx.mcpReq.signal：测试补一个不会中止的 signal。 */
 const ctx = { mcpReq: { signal: new AbortController().signal } };
 
-// MCP 边界 mock：捕获 registerTool 的回调，直接驱动真实的 handler 逻辑。
 const mcp = { handlers: new Map<string, ToolHandler>() };
 
 mock.module('@modelcontextprotocol/server', () => ({

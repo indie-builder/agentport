@@ -163,7 +163,6 @@ describe('run detail navigation', () => {
     const back = host.querySelector<HTMLAnchorElement>('a[aria-label="返回来源"]');
     expect(back?.getAttribute('href')).toBe('/runs?agent=agent-a&status=failed&view=table');
 
-    // 选中步骤只改 step，来源 URL 仍在 URL 里。
     const steps = host.querySelectorAll<HTMLButtonElement>('ol button');
     await act(async () => steps[1]?.click());
     expect(router.state.location.search).toMatchObject({

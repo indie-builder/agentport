@@ -85,7 +85,6 @@ async function mount(search = ''): Promise<void> {
   await flush();
 }
 
-/** 展开按钮的名称随状态在「展开/收起 <业务名>」间切换，按主键关联的面板取当前按钮。 */
 function toggle(id: string): HTMLButtonElement {
   const found = [...container.querySelectorAll<HTMLButtonElement>('button[data-row]')].find(
     (button) => button.getAttribute('aria-controls')?.endsWith(`-row-panel-${id}`),
@@ -361,7 +360,6 @@ describe('audit row details', () => {
     await mount();
     await waitFor(() => expect(toggle('audit_aaa')).not.toBeUndefined());
 
-    // 原生 button + aria-expanded/aria-controls 是键盘可操作的基础，不在此断言读屏。
     const trigger = toggle('audit_aaa');
     expect(trigger.getAttribute('aria-label')).toBe(rowActionLabel('展开', entry('audit_aaa')));
     expect(trigger.tagName).toBe('BUTTON');
@@ -419,7 +417,6 @@ describe('audit row details', () => {
     expect(detailValue(panelOf('audit_aaa'), '操作者')).toBe('admin');
 
     await typeAction('auth.');
-    // 防抖 300ms 后才换查询键；在 act 内推进真实定时器，避免更新落在 React 之外。
     await act(async () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 400));
     });

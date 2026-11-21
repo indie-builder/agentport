@@ -26,8 +26,6 @@ describe('isSafeOpenUrl', () => {
   });
 });
 
-// ─── 渲染 ─────────────────────────────────────────────────────────────────────
-
 let host: HTMLDivElement;
 let root: Root;
 
@@ -114,7 +112,6 @@ describe('OpenUiBlock', () => {
     expect(submit).toBeTruthy();
     await act(async () => submit?.click());
     expect(host.textContent).toContain('This field is required');
-    // 校验失败不发动作：没有新的回调可断言，但错误必须就地出现。
     expect(host.querySelector('[role="alert"]')).toBeTruthy();
   });
 
@@ -187,7 +184,6 @@ describe('OpenUiBlock', () => {
     // Recharts 在 jsdom 里量不到尺寸，只画容器；断言系列配置进了颜色变量。
     expect(host.querySelector('[data-chart]')).toBeTruthy();
     expect(host.textContent).toContain('--color-收入: var(--color-chart-runs)');
-    // 无数据图表不占位。
     expect(host.querySelectorAll('[data-chart]')).toHaveLength(1);
   });
 
@@ -242,7 +238,6 @@ describe('OpenUiBlock', () => {
     expect(host.textContent).toContain('徒步');
     expect(host.textContent).toContain('轻松');
     expect(host.textContent).toContain('Select date...');
-    // 只允许一个 primary 提交按钮。
     expect(
       [...host.querySelectorAll('button')].filter((b) => b.textContent === '保存'),
     ).toHaveLength(1);

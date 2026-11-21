@@ -16,7 +16,6 @@ import {
 } from './helpers.js';
 
 const ready = await infraReady;
-/** 与仓储里的绑定锁同一个键：测试先占住它，两个写请求才会一起排队。 */
 const BINDING_LOCK = "select pg_advisory_xact_lock(hashtext('agentport.subagent-bindings'))";
 
 describe.skipIf(!ready)('sub-agent binding concurrency', () => {
@@ -70,7 +69,6 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
     return res.json<Array<{ version: number }>>().map((row) => row.version);
   };
 
-  /** 占住全局绑定锁和目标行锁，等两个请求都进入 pg 等待图再放行。 */
   const race = async (
     lockRowId: string,
     start: () => Promise<[TestResponse, TestResponse]>,
@@ -218,7 +216,6 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
     }
   });
 
-  /** 外部连接执行到一半的语句，卡在 holder 后面；同时验明卡的是哪条 SQL。 */
   const blockedOn = async (holder: number, pattern: RegExp): Promise<boolean> => {
     const rows = await app.client.unsafe<{ query: string }[]>(
       `select a.query from pg_stat_activity a
@@ -256,11 +253,9 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
     try {
       await client.unsafe('begin');
       const pid = await backendPid(client);
-      // 只锁父行、不拿 advisory 锁：请求必须走完仓储校验才会停在这里。
       await client.unsafe('select id from agents where id = $1 for update', [parent.id]);
 
       pending = patch(parent.id, { subAgentIds: [child.id], name: 'renamed-during-delete' });
-      // 卡在父行 UPDATE 上，证明绑定校验已通过、已经进入写事务。
       const reached = await waitFor(() => blockedOn(pid, /^update "agents"/));
       expect(reached, 'patch never reached the parent row update').toBe(true);
 
@@ -294,7 +289,6 @@ describe.skipIf(!ready)('sub-agent binding concurrency', () => {
     try {
       await client.unsafe('begin');
       const pid = await backendPid(client);
-      // 未提交的同 slug 行把请求的 INSERT 挡在唯一索引上，但请求先完成校验。
       await client.unsafe(
         `insert into agents (id, slug, name, model, system_prompt_md, created_by, owner_business_id) values ($1, $2, $3, $4, '', 'bootstrap-admin', 'bootstrap-admin')`,
         [unique('reservation'), slug, `Reservation ${slug}`, 'claude-sonnet-5-5'],

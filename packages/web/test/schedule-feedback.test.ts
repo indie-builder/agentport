@@ -74,7 +74,6 @@ async function mount() {
   });
   window.history.replaceState(null, '', '/schedules');
   history = createBrowserHistory();
-  // 包装真实注册，捕获 useBlocker 交给 history 的 Promise，观察它最终 resolve 什么。
   const block = history.block.bind(history);
   vi.spyOn(history, 'block').mockImplementation((blocker) =>
     block({
@@ -268,7 +267,6 @@ describe('schedule draft navigation', () => {
     expect(document.body.textContent).toContain('放弃未保存的更改？');
     expect(router.state.location.pathname).toBe('/schedules');
     await click('取消');
-    // 被拦下的导航在取消后不会落定（history 直接丢弃这次 push），不能再 await 它。
     expect(router.state.location.pathname).toBe('/schedules');
     expect((document.getElementById('schedule-name') as HTMLInputElement).value).toBe(
       'Unsaved name',
@@ -328,12 +326,10 @@ describe('schedule draft navigation', () => {
     expect(button('放弃并离开').disabled).toBe(true);
     expect(router.state.location.pathname).toBe('/schedules');
 
-    // 不点取消：保存成功时 finish 必须亲自结算被拦下的导航。
     await act(async () => {
       finish();
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     });
-    // 未结算时用哨兵值立刻断言，避免把悬挂的 Promise 拖成超时。
     await expect(
       Promise.race([
         blockedNavigations[0],
@@ -379,7 +375,6 @@ describe('schedule dialog fields and payload', () => {
     expect(groupOf(missedPolicy)).toBe(groupOf(frequency));
     expect(groupOf(enabled)).toBe(groupOf(frequency));
 
-    // 主编辑区先于执行条件，键盘与读屏顺序和视觉左右一致。
     const order = [...document.querySelectorAll('[data-slot="field"]')]
       .map((element) => element.querySelector('input[id], textarea[id], button[id]')?.id)
       .filter(Boolean);
@@ -650,7 +645,6 @@ describe('schedule dialog fields and payload', () => {
     await click('编辑 Morning report');
     await selectOption('schedule-frequency', '自定义 cron');
 
-    // 还没回到原来的模式，仍是未保存改动。
     await click('取消');
     const confirm = dialogByTitle('放弃未保存的更改？');
     if (!confirm) throw new Error('Missing discard confirm');
@@ -810,7 +804,6 @@ describe('schedule dialog fields and payload', () => {
     );
     expect(document.getElementById('schedule-prompt-error')?.textContent).toContain('不能为空');
     expect(document.getElementById('schedule-agent-error')?.textContent).toContain('不能为空');
-    // 默认每天 09:00 已满足频率条件；未显示的自定义 cron 不参与本次校验。
     expect(document.getElementById('schedule-cron')).toBeNull();
     const firstInvalid = document.querySelector<HTMLElement>('[aria-invalid="true"]');
     expect(firstInvalid).not.toBeNull();
@@ -871,7 +864,6 @@ describe('schedule delete focus', () => {
     await act(async () => rowDelete.focus());
     await click('删除 Morning report');
     await click('删除');
-    // 失败时确认框保持打开并给出错误；取消后列表与触发按钮都还在。
     await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
     expect(document.body.textContent).toContain('删除定时任务');
     await click('取消');
@@ -901,7 +893,6 @@ describe('schedule row mutation locking', () => {
     await mount();
     await clickElement(rowSwitch('暂停 Morning report'));
 
-    // 共用一个 mutation 时不能只锁最新 variables 那一行：其余行也必须停用。
     await vi.waitFor(() => expect(switchDisabled('暂停 Evening digest')).toBe(true));
     expect(switchDisabled('启用 Morning report')).toBe(true);
     expect(button('编辑 Evening digest').disabled).toBe(true);

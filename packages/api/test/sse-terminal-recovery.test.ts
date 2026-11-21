@@ -123,7 +123,6 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
     const sse = await openSse(runId);
     const started = Date.now();
 
-    // 不走 worker / 模型：只把终态写进数据库，事件流保持静默。
     await setTerminal(runId);
     const { text, closed } = await sse.readUntilClosed(5_000);
 
@@ -148,7 +147,6 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
 
   it('marks terminal_missing when the stream only has partial events', async () => {
     const runId = await seed();
-    // worker 已经发过部分事件，但没能发出 run_finished：订阅能回放到半段输出。
     await publishRun(runId, { type: 'text_delta', text: 'partial answer' });
     await setTerminal(runId);
     const sse = await openSse(runId);
@@ -176,7 +174,6 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
     const sse = await openSse(runId);
     expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 1)).toBe(true);
 
-    // 模拟保留期清理：只删本用例自己的 run 行。
     await app.client.unsafe('delete from agent_runs where id = $1', [runId]);
     const started = Date.now();
     const { text, closed } = await sse.readUntilClosed(5_000);

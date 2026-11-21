@@ -8,10 +8,6 @@ import {
 } from 'streamdown';
 import { cn } from '../lib/cn.js';
 
-/**
- * Shiki 的 css-variables 主题：颜色全部落在 styles.css 的 --shiki-* 变量上，
- * 高亮配色（含中性主色关键字）只由主题令牌决定。
- */
 function grayscaleTheme(name: string): ThemeInput {
   const token = (key: string) => `var(--shiki-${key})`;
   return {
@@ -109,8 +105,6 @@ const SHIKI_THEMES: [ThemeInput, ThemeInput] = [
 ];
 const PLUGINS = { code };
 
-// H3–H6 固定 14px 在大字号容器（TextContent large 的 16px 正文）里会倒挂。
-// 1em 下限跟随父级字号；默认 14px 正文下仍是原档位。
 const SUBHEADING_STYLE: CSSProperties = { fontSize: 'max(1em, var(--text-base))' };
 
 const heading = (
@@ -128,10 +122,6 @@ const heading = (
 
 /** 外链新开页并补齐 noopener；Streamdown 默认只给 noreferrer。 */
 const components: Components = {
-  // 消息内标题整体下移一级：页面本身已有 h1，不能再出现第二个 h1。
-  // 正文只有一级（base 14px），任何标题都不小于它：H1 18、H2 16 靠字号递进，
-  // H3–H6 收成一级 14/600，靠字重区分。小于正文的标题会比它概括的内容还弱。
-  // 标题不写 text-fg：颜色跟随所在容器，Callout 与 TextContent 的语义色才能生效。
   h1: heading('h2', 'mt-5 mb-2 text-xl font-semibold'),
   h2: heading('h3', 'mt-4 mb-2 text-lg font-semibold'),
   h3: heading('h4', 'mt-3.5 mb-1.5 text-base font-semibold', SUBHEADING_STYLE),
@@ -163,10 +153,8 @@ const components: Components = {
 
 const CODE_BLOCK_CLASS =
   '[&_[data-streamdown=inline-code]]:bg-code [&_[data-streamdown=code-block]]:rounded-card [&_[data-streamdown=code-block]]:border-white/10 [&_[data-streamdown=code-block]]:bg-[var(--color-code-block)] [&_[data-streamdown=code-block]]:text-[var(--color-code-block-fg)] [&_[data-streamdown=code-block-body]]:border-white/10 [&_[data-streamdown=code-block-body]]:bg-transparent';
-// 单换行保留：模型常按行生成纯文本，折叠成空格会改变原意（与旧的纯文本路径一致）。
 const PARAGRAPH_CLASS = '[&_p]:whitespace-pre-wrap';
 const BODY_CLASS = `min-w-0 text-base text-fg ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;
-// 父级决定字号与颜色：OpenUI 的 TextContent/Callout 等容器自己带排版。
 const INHERIT_CLASS = `min-w-0 ${PARAGRAPH_CLASS} ${CODE_BLOCK_CLASS}`;
 
 type MarkdownNode = {
@@ -177,7 +165,6 @@ type MarkdownNode = {
   children?: MarkdownNode[];
 };
 
-/** 移除 raw 后，remark 阶段把 HTML 节点换成文本，HTML 只作为字面量出现。 */
 const htmlAsText = () => (tree: MarkdownNode) => {
   const walk = (nodes: MarkdownNode[]) => {
     for (let index = 0; index < nodes.length; index += 1) {
@@ -195,7 +182,6 @@ const htmlAsText = () => (tree: MarkdownNode) => {
 
 type RehypePlugins = NonNullable<Parameters<typeof Streamdown>[0]['rehypePlugins']>;
 type RehypeTuple = Extract<RehypePlugins[number], readonly unknown[]>;
-/** 静态正文：移除 raw 与 undoubleClobberPrefix，sanitize 关闭 clobberPrefix，保留 harden。 */
 const STATIC_REHYPE_PLUGINS: RehypePlugins = Object.entries(defaultRehypePlugins)
   .filter(([name]) => name !== 'raw' && name !== 'undoubleClobberPrefix')
   .map(([name, plugin]) => {
@@ -211,18 +197,14 @@ const LINK_CLASS =
 
 /** 本地文件链接的 fragment 前缀；harden 放行纯 fragment，且不会改写其中的路径。 */
 const PLUGIN_FILE_PREFIX = '#plugin-file=';
-/** 任何带 scheme 的地址（http:/mailto:/javascript: 等）都不属于本地文件。 */
 const URL_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
 export interface MarkdownFileLinks {
-  /** 当前 Markdown 文件路径，相对链接以它所在目录为基准。 */
   from: string;
-  /** 插件内真实存在的文件路径；只有命中这里的链接才可点击。 */
   files: ReadonlySet<string>;
   onSelect: (path: string) => void;
 }
 
-/** `./`、`../` 与裸路径按当前目录解析一次，`/` 按插件根；其余越界或不存在返回 undefined。 */
 function resolvePluginFile(
   from: string,
   href: string,
@@ -265,7 +247,6 @@ function pluginFilePath(href: string): string | undefined {
  */
 const rewriteLinks = (options: { from: string; files: string[] }) => (tree: MarkdownNode) => {
   const files = new Set(options.files);
-  /** 改写单个地址：外链原样（协议相对补全），本地文件换成 token，不可点击返回 undefined。 */
   const rewriteUrl = (url: string): string | undefined => {
     if (url.startsWith('//')) {
       // harden 会把协议相对地址塌成本地路径；显式补成外链。
@@ -275,7 +256,6 @@ const rewriteLinks = (options: { from: string; files: string[] }) => (tree: Mark
     const path = resolvePluginFile(options.from, url, files);
     return path === undefined ? undefined : `${PLUGIN_FILE_PREFIX}${encodeURIComponent(path)}`;
   };
-  // definition 可以出现在文档任意位置，先整体收集；identifier 已由解析器规范化，按库的惯例忽略大小写。
   const definitions = new Map<string, string | undefined>();
   const collect = (nodes: MarkdownNode[]) => {
     for (const node of nodes) {
@@ -294,14 +274,12 @@ const rewriteLinks = (options: { from: string; files: string[] }) => (tree: Mark
       if (node.type === 'link') {
         const url = rewriteUrl(node.url ?? '');
         if (url === undefined) {
-          // 没有对应真实文件的本地链接退回文字，不交给 harden 误判成本地路由。
           nodes.splice(index, 1, ...(node.children ?? []));
         } else {
           nodes[index] = { ...node, url };
         }
       } else if (node.type === 'linkReference') {
         const identifier = String(node.identifier).toUpperCase();
-        // 无 definition 的引用保持原样，交给 to-hast 按字面输出；目标不存在的退回文字。
         if (definitions.has(identifier)) {
           const url = definitions.get(identifier);
           if (url === undefined) {
@@ -322,14 +300,12 @@ function isSafeExternal(href: string): boolean {
   return /^(https?:|mailto:)/i.test(href) || href.startsWith('//');
 }
 
-/** 静态正文的链接：只打开安全外链、页内 fragment 或插件内真实文件，其余按文字呈现。 */
 const staticAnchor =
   (fileLinks?: MarkdownFileLinks) =>
   ({ href, children, node: _node, ...props }: ComponentProps<'a'> & { node?: unknown }) => {
     const url = href ?? '';
     const path = pluginFilePath(url);
     if (path !== undefined) {
-      // token 也可能来自正文直接书写，只有白名单里的真实文件才可点击。
       if (fileLinks === undefined || !fileLinks.files.has(path)) {
         return <span className={cn(LINK_CLASS, 'text-fg')}>{children}</span>;
       }
@@ -364,24 +340,13 @@ function staticComponents(fileLinks?: MarkdownFileLinks): Components {
 
 export interface MarkdownProps {
   text: string;
-  /** 真实流式状态：开 remend 补齐半截语法，并禁用代码/表格的复制按钮。 */
   streaming?: boolean;
   className?: string;
-  /** `body`（默认）承载 14/22 阅读正文；`inherit` 完全沿用父级字号与颜色。 */
   presentation?: 'body' | 'inherit';
-  /** 只读文件正文：静态解析、HTML 字面量、链接不落到不存在的应用路由。 */
   staticContent?: boolean;
   fileLinks?: MarkdownFileLinks;
 }
 
-/**
- * 助手文本始终走同一棵 Streamdown 树：从纯文本到插入粗体、列表、代码块都只更新块内容，
- * 不会在“现在是 Markdown 了吗”之间整段换根。半截语法由 Streamdown/remend 自行补齐。
- *
- * streaming 时增量更新走 useDeferredValue：每个 delta 仍是一次真实输入，
- * 但低优先级渲染可以合并掉中间帧，避免高频事件逐个同步跑完整解析。
- * 这不会减少总解析量，只把每次事件的同步阻塞让给调度器；结束态立即用原 text。
- */
 export const Markdown = memo(function Markdown({
   text,
   streaming = false,

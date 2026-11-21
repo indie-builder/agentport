@@ -18,11 +18,6 @@ import * as scheduleSyncModule from '../src/modules/ops/schedule-sync.js';
 
 const realScheduleSync = { ...scheduleSyncModule };
 
-/**
- * 只替换队列获取这一个既有边界：注入带私有 prefix 的真队列，
- * 让测试写入的 scheduler 不落到开发/其它套件的 `schedule-triggers` 键上。
- * 其余同步函数与 Fastify schema 都走真实实现。
- */
 const state = {
   queue: undefined as unknown as Queue<ScheduleTriggerJob>,
 };
@@ -61,7 +56,6 @@ describe.skipIf(!ready)('schedule routes', () => {
   let agentSlug: string;
   const scheduleIds: string[] = [];
 
-  /** 自定义 repeatStrategy 让 pending job 在秒级到期，不用等真实的 5/10 分钟窗口。 */
   async function createSchedule(overrides: Record<string, unknown> = {}): Promise<ScheduleBody> {
     const response = await request(app, {
       method: 'POST',
@@ -171,7 +165,6 @@ describe.skipIf(!ready)('schedule routes', () => {
   );
 
   it('keeps the pending job and next when only name/prompt/enabled=true are saved', async () => {
-    // 先让下一次触发在 1.5s 后：随后 sleep 到逾期，模拟 worker 停机时的积压 pending job。
     nextFromStrategy = () => Date.now() + 1_500;
     const created = await createSchedule();
     const before = await queue.getJobScheduler(created.id);
@@ -180,7 +173,6 @@ describe.skipIf(!ready)('schedule routes', () => {
     expect(pending?.id).toBe(`repeat:${created.id}:${before?.next}`);
 
     await delay(1_700);
-    // 若被错误地 upsert，就会用这个更晚的时间重算 next，旧 job 同时被删除。
     nextFromStrategy = () => Date.now() + 3_600_000;
 
     const body = await patchSchedule(created.id, {

@@ -3,11 +3,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenUiBlock } from '../src/openui/renderer.js';
 
-/**
- * Select / TextArea 的真实提交链路：必填拦截、值进入 formState、
- * 空串覆盖字面量初值、原始快照卸载后恢复、流式期间不可操作。
- */
-
 let host: HTMLDivElement;
 let root: Root;
 
@@ -97,7 +92,6 @@ async function type(value: string) {
   });
 }
 
-/** 恢复快照要换一个全新的根，跟真实消息重新挂载一致。 */
 async function remount(
   program: string,
   initialState: Record<string, unknown>,

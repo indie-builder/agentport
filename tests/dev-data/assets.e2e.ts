@@ -11,12 +11,6 @@ import {
 } from '../support/business-dataset.js';
 import { resolveOwnership } from '../support/dataset-ownership.js';
 
-/**
- * 青禾演示资产组：连接器、工具、技能、本地插件与演示账户。
- * 只通过真实 UI 创建；API 仅用于同源读取、轮询和冲突判断。
- * 专项命令：bun run dev:data / bun run dev:data:verify（必须设置 E2E_APP_URL）。
- */
-
 const DISPLAY = '【青禾演示】';
 const USER_API_SERVER = 'devdata-qinghe-v1-users-api';
 const LEGACY_SERVER = 'devdata-qinghe-v1-legacy-mcp';
@@ -37,7 +31,6 @@ const legacyServer = {
   name: LEGACY_SERVER,
   kind: 'http' as const,
   description: `${DISPLAY}故意失效的旧 CRM MCP（演示失败态）`,
-  // 公开地址可达，但不是 MCP 端点：真实试连会失败，不引入假服务。
   url: 'https://jsonplaceholder.typicode.com/legacy-mcp',
 };
 const tools = [
@@ -526,7 +519,6 @@ async function ensureConnectionState(
     }
     return;
   }
-  // 只补本数据集刚创建、还没有试连结果的连接器；已有终态被改动时停止，不覆盖。
   if (current.lastTestOk !== null && current.lastTestOk !== undefined) {
     fail(`连接器 ${spec.name} 的试连结果已被改为 ${current.lastTestOk}，不覆盖`);
   }
@@ -580,7 +572,6 @@ async function addToolViaUi(
   await schema.press('ControlOrMeta+a');
   await schema.pressSequentially(spec.schema);
   await dialog.getByRole('button', { name: '添加', exact: true }).tap();
-  // 连续添加时旧 toast 仍在，按工具行断言，避免取到上一条“工具已添加”。
   await expect(
     dialog.getByRole('checkbox', `启用工具 ${spec.name}`, { exact: true }),
   ).toBeVisible();
@@ -788,7 +779,6 @@ async function ensureSkill(
     detail.description !== spec.description ||
     detail.body !== spec.body
   ) {
-    // 已归属技能的任何正文差异都视为开发者修改，停止且不重写。
     fail(`技能 ${spec.slug} 的内容与数据集定义不一致`);
   }
 
@@ -934,7 +924,6 @@ async function ensureAccount(
   let existing = rows.find((account) => account.businessId === spec.businessId);
   let record = manifest.accounts.find((item) => item.businessId === spec.businessId);
   if (!existing) {
-    // 已归属账户被删除后重建会进入 better-auth 的恢复分支，需要人工确认，不自动处理。
     if (record) fail(`账户 ${spec.businessId} 已被删除或认证资料被移除`);
     await createAccountViaUi(ctx, spec);
     rows = await poll(
@@ -968,7 +957,6 @@ test('assets build: connectors, tools, skills, plugin, accounts', {
   tags: ['build'],
 }, async ({ app, screen, browser }) => {
   test.skip(process.env.E2E_DEV_DATA !== '1', '仅由 bun run dev:data 启用');
-  // 同源 API 读取走 browser.evaluate，必须先打开页面，不能只靠后面的 app.open。
   await app.open('/');
   const ctx: Ctx = { app, screen, browser };
   const manifest = await loadManifest();

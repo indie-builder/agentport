@@ -43,7 +43,6 @@ describe.skipIf(!ready)('roles', () => {
     return res.json<Matrix>();
   };
 
-  /** 构造必然失效的 revision；并行写也不会命中。 */
   const putRaw = (expectedRevision: number, roles: unknown[]) =>
     request(app, {
       method: 'PUT',
@@ -52,7 +51,6 @@ describe.skipIf(!ready)('roles', () => {
       payload: { expectedRevision, roles },
     });
 
-  /** 遇到并行 revision 变化时重读重试，仍断言目标校验错误。 */
   const expectInvalid = async (
     build: (matrix: Matrix) => unknown[],
     code: 'INVALID_INPUT' | 'CONFLICT',
@@ -70,7 +68,6 @@ describe.skipIf(!ready)('roles', () => {
   it('exposes the four system roles and the shared permission catalog', async () => {
     const matrix = await getMatrix();
     expect(matrix.revision).toBeGreaterThanOrEqual(0);
-    // 并行套件可能留下自定义角色；这里只认系统角色集合。
     expect(
       matrix.roles
         .map((role) => role.systemKey)

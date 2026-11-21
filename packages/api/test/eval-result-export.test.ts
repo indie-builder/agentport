@@ -14,7 +14,6 @@ import {
   unique,
 } from './helpers.js';
 
-// 直接落库构造已收口的跑批：不入队，不需要 worker 空闲。
 const ready = await infraReady;
 
 interface Snapshot {
@@ -295,7 +294,6 @@ describe.skipIf(!ready)('eval result export', () => {
     );
 
     expectProblem(await exportRun(SEEDED_RUN_ID), 'CONFLICT');
-    // 501 条结果里没有一条是截断后发出的。
     const rows = await app.client.unsafe<{ n: number }[]>(
       'select count(*)::int as n from eval_results where eval_run_id = $1',
       [SEEDED_RUN_ID],

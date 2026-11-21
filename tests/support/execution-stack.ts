@@ -24,9 +24,7 @@ function optionalStringField(input: unknown, key: string): string | undefined {
   return value;
 }
 
-/** 假模型在整段对话含此标记且有 run_sql 工具时，发起一次真实工具调用。 */
 export const DATA_DOMAIN_TOOL_MARKER = 'E2E-DD-TOOL';
-/** 两个用户使用同一条 SQL，行与列由真实 WrenEngine 按身份过滤。 */
 export const DATA_DOMAIN_SQL = 'select * from employees order by id';
 export const OUTPUT_WRITE_MARKER = 'E2E-OUTPUT-WRITE';
 export const FEEDBACK_BAD_MARKER = 'E2E-FEEDBACK-BAD';

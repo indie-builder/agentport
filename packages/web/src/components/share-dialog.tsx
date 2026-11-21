@@ -14,10 +14,6 @@ function fullUrl(urlPath: string): string {
   return `${window.location.origin}${urlPath}`;
 }
 
-/**
- * 选中版本的固定分享：链接内容锁定在创建时快照，之后更新同一路径不会改变已发出的链接。
- * 展示路径与版本时间，已有分享按创建时间倒序列出（含撤销状态）。
- */
 export function ShareDialog({
   conversationId,
   runId,

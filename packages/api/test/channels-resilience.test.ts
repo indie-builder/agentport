@@ -299,7 +299,6 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
       ].join('\r\n'),
     );
 
-    // Slow consumer: do not read for a while so the server's cached page fills the socket buffer.
     await Bun.sleep(300);
     const removed = await call('DELETE', `/api/channels/${value.id}/members/${member.businessId}`);
     expect(removed.statusCode, removed.body).toBe(204);

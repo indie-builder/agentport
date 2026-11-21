@@ -14,20 +14,16 @@ import { Converter } from 'opencc-js';
 import type { z } from 'zod';
 import { decodeZipEntries, inspectZipEntries, type ZipReadLimits } from '../agents/package-zip.js';
 
-/** 批量导入/导出上限：完整处理或明确报错，不静默截断。 */
 const FAQ_MAX_ITEMS = 500;
 export const FAQ_MAX_BYTES = 2 * 1024 * 1024;
-/** xlsx 实际解压总字节上限（含 XML/共享字符串），解析前按中央目录与实际输出双重校验。 */
 export const FAQ_MAX_XLSX_DECOMPRESSED_BYTES = 32 * 1024 * 1024;
 
-/** 与知识包共用中央目录校验和实际解压上限，不信本地头或完整 load 后的声明。 */
 const FAQ_XLSX_ZIP_LIMITS: ZipReadLimits = {
   maxEntries: 100,
   maxUncompressedBytes: FAQ_MAX_XLSX_DECOMPRESSED_BYTES,
 };
 const { Workbook } = ExcelJS;
 
-/** 契约：answerStrategy/isRecommended 由 shared 的 KnowledgeFaq 承载。 */
 export type FaqEntry = KnowledgeFaq;
 export type FaqTransferEntry = KnowledgeFaqTransferEntry;
 export type FaqImportIssue = KnowledgeFaqImportIssue;
@@ -95,18 +91,12 @@ export interface FaqImportPlan {
 }
 
 const URL_PATTERN = /(?:https?:\/\/|www\.)\S+/gi;
-// 只去掉首尾标点；中间标点是问题的语义，不能被归一化掉。
 const BOUNDARY_PUNCTUATION =
   /^[\s?.!,;:'"()[\]{}<>，。！？；：、（）【】《》“”‘’]+|[\s?.!,;:'"()[\]{}<>，。！？；：、（）【】《》“”‘’]+$/g;
 const HAN_SPACE = /(?<=\p{Script=Han})\s+(?=\p{Script=Han})/gu;
 
 const toSimplified = Converter({ from: 't', to: 'cn' });
 
-/**
- * FAQ 问题归一化：仅用于「规范化后完全相同」的反例排除与重名检测，
- * 不做同义词、分词或向量比较。
- * 顺序照契约：trim → 去 URL → 小写 → 繁转简 → 去首尾标点 → 全角转半角 → 中文间去空格。
- */
 export function normalizeFaqQuestion(value: string): string {
   return toSimplified(value.trim().replace(URL_PATTERN, ' ').toLowerCase())
     .replace(BOUNDARY_PUNCTUATION, '')
@@ -116,11 +106,6 @@ export function normalizeFaqQuestion(value: string): string {
     .trim();
 }
 
-/**
- * 内容哈希：数组顺序不影响结果，运营标记不计入。
- * 问句按归一化后比较，繁简/全角/URL/空白差异不算内容变化；答案保持本轮契约。
- * append 的「同一内容已存在」判断与去重都以它为准。
- */
 export function faqContentHash(faq: FaqEntry): string {
   const sortedUnique = (values: string[]): string[] =>
     [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))].sort();
@@ -183,7 +168,6 @@ function parseStringArray(
   return parsed as string[];
 }
 
-/** 单条 FAQ 入口清洗：trim/去空、去重、剔除与正向问重叠的反例；返回可入库条目。 */
 export function normalizeFaqEntry(input: unknown): {
   entry: FaqTransferEntry | null;
   issues: FaqImportIssue[];
@@ -206,7 +190,6 @@ export function normalizeFaqEntry(input: unknown): {
     answers: [],
   };
   for (const field of ['similarQuestions', 'negativeQuestions', 'answers'] as const) {
-    // 省略可选数组等同显式 []（与 shared/CRUD 契约一致）；answers 仍要求显式给出。
     const value = raw[field] === undefined && field !== 'answers' ? [] : raw[field];
     const parsed = parseStringArray(value, field, issues);
     if (parsed === null) continue;
@@ -380,7 +363,6 @@ function assertParsedTotalBytes(parsed: FaqParsedRow[]): void {
   }
 }
 
-/** 文件级失败直接抛错；行级问题保留在 parsed rows 中由导入结果逐行说明。 */
 export async function parseFaqImport(input: {
   format: FaqImportFormat;
   content: string;
@@ -460,14 +442,12 @@ function parseCsvRows(content: string): RawRow[] {
   return records.map((record, index) => ({ row: index + 1, value: record }));
 }
 
-/** 中央目录校验结构/声明上限，再按同一边界实际解压；不接收本地头或事后 load 的尺寸。 */
 function assertXlsxArchive(data: Buffer): void {
   try {
     inspectZipEntries(data, FAQ_XLSX_ZIP_LIMITS);
     decodeZipEntries(data, FAQ_XLSX_ZIP_LIMITS);
   } catch (err) {
     if (isAppError(err)) {
-      // 知识包解析把容量超限报成 INVALID_INPUT；FAQ 导入对外保持 413 语义。
       if (err.message.includes('解压后总大小')) {
         fail('PAYLOAD_TOO_LARGE', 'FAQ xlsx 解压后超过 32MiB 上限');
       }
@@ -556,7 +536,6 @@ async function parseXlsxRows(content: string): Promise<RawRow[]> {
       if (cell.text.trim().length > 0) nonEmpty = true;
       value[column] = cell.text;
     }
-    // 空行不是数据行，不计入 500 行上限。
     if (!nonEmpty && problems.length === 0) continue;
     if (problems.length > 0) value.__problems = problems;
     rows.push({ row: rows.length + 1, value });
@@ -605,10 +584,6 @@ function mergeSimilarAndNegative(
   };
 }
 
-/**
- * append/replace 的统一计划：判重、合并、逐行结果与统计都在这里。
- * 不写 DB、不调用 embedding；真实导入与 dryRun 共用同一份计划。
- */
 export function planFaqImport(input: {
   mode: FaqImportMode;
   rows: FaqParsedRow[];
@@ -740,7 +715,6 @@ export function planFaqImport(input: {
   return { counts, results, drafts };
 }
 
-/** 批次标识不是业务实体，只用于把一次导入的版本串起来。 */
 export function newFaqImportBatchId(): string {
   return `kfib_${randomUUID()}`;
 }
@@ -749,7 +723,6 @@ function csvCell(value: string): string {
   return /[",\r\n]|^\s|\s$/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
-/** 导出与导入同形状：JSON 为 {items}，CSV 固定七列，可原样往返。 */
 export function serializeFaqExport(format: 'json' | 'csv', items: FaqTransferEntry[]): string {
   if (items.length > FAQ_MAX_ITEMS) {
     fail('PAYLOAD_TOO_LARGE', `FAQ 导出最多 ${FAQ_MAX_ITEMS} 条，请缩小范围`);

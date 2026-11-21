@@ -363,12 +363,10 @@ describe('knowledge source editing', () => {
     await mount('/knowledge/kb_1', { panel: 'sources' });
     await click(button('新建来源'));
     const creator = dialog('新建来源');
-    // 连接 + 范围 + 计划三块并排时 560px 太挤，与定时任务弹窗同宽。
     expect(creator.classList.contains('max-w-190')).toBe(true);
     for (const label of ['GitHub', 'GitLab', '飞书知识库', '飞书云盘', 'RSS']) {
       expect(creator.textContent).toContain(label);
     }
-    // 选择前不显示任何配置字段。
     expect(creator.querySelector('#source-name')).toBeNull();
 
     await click(sourceChoice('GitHub', creator));
@@ -416,10 +414,8 @@ describe('knowledge source editing', () => {
     await click(button('更换来源', creator));
     await click(button('放弃并切换', dialog('放弃未保存的更改？')));
     await click(sourceChoice('GitLab', creator));
-    // GitHub PAT / Enterprise 地址不能带进 GitLab。
     expect((document.getElementById('knowledge-source-secret') as HTMLInputElement).value).toBe('');
     expect((document.getElementById('source-gitlab-url') as HTMLInputElement).value).toBe('');
-    // 名称与已选类型保留，步进仍在配置页。
     expect((document.getElementById('source-name') as HTMLInputElement).value).toBe('仓库');
     expect(document.getElementById('source-range-0-external')).toBeTruthy();
 
@@ -438,7 +434,6 @@ describe('knowledge source editing', () => {
     expect((editor.querySelector('#source-gitlab-url') as HTMLInputElement).value).toBe(
       'https://gitlab.example.com',
     );
-    // 编辑不经过类型选择，避免把已有来源改成另一种类型。
     expect(
       [...editor.querySelectorAll('button')].some((item) => item.textContent?.includes('飞书云盘')),
     ).toBe(false);
@@ -485,7 +480,6 @@ describe('knowledge source editing', () => {
       },
       secrets: { token: 'ghp_x' },
     });
-    // GitHub 的 ref 属于每个 range，多仓库时不能把第一条写进公共 config。
     expect(body?.config).not.toHaveProperty('ref');
   });
 
@@ -656,7 +650,6 @@ describe('knowledge package export and import', () => {
       __blob: 'application/zip',
     });
     expect(uploaded).toBe('zip');
-    // 文件留在页面上，说明原因并可原地重试。
     expect(document.body.textContent).toContain('知识包没有导入');
     expect(document.body.textContent).toContain('缺少 embedding 模型 profile');
     expect(button('重试')).toBeDefined();
@@ -772,7 +765,6 @@ describe('knowledge request transport', () => {
       controller.abort();
       await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     } finally {
-      // 让被取消的 handler 及时结束，不留下挂起的 promise 或计时器。
       release();
     }
   });

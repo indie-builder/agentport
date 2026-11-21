@@ -5,20 +5,6 @@ import { expect, type Screen } from 'e2e';
 import { browserFetch } from './support/browser-api.js';
 import { fixture as runFixture } from './support/fixture.js';
 
-/**
- * 频道真实业务回归：真实 agentport 库、真实 Redis 逻辑库 3、真实模型网关。
- * 数据不清理：频道与消息就是本轮业务产物，报告里给可回滚 SQL。
- *
- * 运行前提（环境变量）：E2E_DATABASE_URL、E2E_APP_URL、E2E_ADMIN_USER、E2E_ADMIN_PASSWORD。
- * API 用独立端口并以 WEB_DIST 托管已构建的 packages/web/dist；worker 独立进程且与 API
- * 共用同一 REDIS_URL（本文件按 db 3 隔离）。如果真实库的默认运行环境仍指向缺少
- * `dist/session-supervisor.js` 的旧沙盒镜像，run 会以 infra 失败；需要临时把默认运行
- * 环境线上版本指向当前 `agentport/sandbox:dev`，跑完恢复原指针。
- *
- * 智能体用库里已启用的真实行：`我的分身`（业务名）与 `QA怀疑者复跑20261028-1124`
- * （唯一另一个模型可用的已启用行；另一个业务名 `Knowledge expert` 的模型 `test`
- * 在真实网关返回 404）。
- */
 const BASE_URL = process.env.E2E_APP_URL ?? 'http://127.0.0.1:3401';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -61,13 +47,11 @@ interface State {
   firstRunId: string;
   firstReply: string;
   firstReplyId: string;
-  /** 第一个智能体回复里的可检索片段，用来证明它真的被注入第二个 lane。 */
   firstReplyFragment: string;
   firstHumanSeq: number;
   firstReplySeq: number;
   secondRunId: string;
   secondReply: string;
-  /** 第二个 lane 首条用户消息的完整注入原文。 */
   injectedContextText: string;
   contextMessageId: string;
   cancelRunIds: string[];
@@ -158,7 +142,6 @@ async function browserAs(
   await loginAs(browser, account);
 }
 
-/** 让服务端按真实入口建账户；roleIds 显式指定平台「用户」角色。 */
 async function createAccount(
   suffix: string,
   tag: string,
@@ -222,8 +205,6 @@ async function ensureState(): Promise<State> {
   const secondary = agents.find((agent) => agent.id !== primary.id);
   assert(secondary !== undefined, '第二个智能体存在');
 
-  // 新同事默认看不到别人名下的智能体；由负责人（admin）把这两个智能体授权给
-  // 产品经理与运营使用，模拟真实的团队共享，而不是复制或改动智能体定义。
   for (const agent of agents) {
     for (const account of [pm, ops]) {
       const granted = await nodeApi(
@@ -280,7 +261,6 @@ function channelIdFromUrl(url: string): string {
   return id;
 }
 
-/** 输入 @ 后从补全菜单选中智能体，再把正文追加到提及后面并发送。 */
 async function sendMention(screen: Screen, agentName: string, text: string): Promise<void> {
   const composer = screen.getByRole('textbox', '消息');
   await composer.fill('@');
@@ -297,7 +277,6 @@ function messageItemById(browser: Browser, id: string) {
 }
 
 function replyPrefix(reply: string): string {
-  // 取最长的连续文本段：跨过 Markdown 标记后仍能在页面文本节点里原样匹配。
   const runs =
     reply.match(/[\p{Script=Han}A-Za-z0-9，。！？：；、“”‘’（）()·%.,:;!?\-_/]+/gu) ?? [];
   const longest = runs
@@ -307,7 +286,6 @@ function replyPrefix(reply: string): string {
   return (longest ?? reply.replace(/\s+/g, '')).slice(0, 30);
 }
 
-/** 模型表示「读不到频道」的常见措辞；只在同一句提到频道/上下文时才算命中。 */
 function readFailureEvidence(reply: string): string[] {
   const markers =
     /读不到|拿不到|看不到|没有历史对话|没有(?:访问|读取|获取)|无法(?:读取|访问|查看)/g;
@@ -322,7 +300,6 @@ function readFailureEvidence(reply: string): string[] {
   return [...new Set(evidence)];
 }
 
-/** 该 run 在 lane 里的用户消息正文（频道注入会拼在触发消息前面）。 */
 async function laneUserMessages(runId: string): Promise<string[]> {
   return runFixture('channels-business', 'laneUserMessages', runId);
 }
@@ -443,7 +420,6 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     });
     console.log(`  运行已开始：${Date.now() - started}ms`);
 
-    // 运行中由运营补一条不带 @ 的上下文：必须进入时间线，但不能唤醒任何智能体。
     const context = `补充上下文 ${ctx.suffix}：上周拉新渠道里，内容合作带来的线索占比最高，但首单转化偏低；客服响应时长是另一个已知问题。`;
     const runsBefore = await runFixture('channels-business', 'runCount', ctx.channelId);
     const posted = await nodeApi<{ id: string; seq: number }>(
@@ -545,7 +521,6 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     expect(Number(reply.seq)).toBeGreaterThan(Number(trigger.seq));
     ctx.secondReply = reply.body;
 
-    // DB 硬断言：第二个 lane 的首条用户消息确实带上了第一个智能体的结论。
     const lane = await laneUserMessages(ctx.secondRunId);
     expect(lane.length).toBe(1);
     const injected = lane[0] ?? '';
@@ -580,7 +555,6 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     );
     console.log(`  注入原文：${injected.slice(0, 900).replaceAll('\n', '⏎')}…`);
 
-    // 产品层软断言：回复不应再表示读不到频道。
     const readFailures = readFailureEvidence(ctx.secondReply);
     assert(
       readFailures.length === 0,
@@ -681,7 +655,6 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
       agentId: ctx.agents[0].id,
     });
     expect(deniedBind.status).toBe(403);
-    // 观察者本来也没有这两个智能体的使用授权，绑定下拉不会出现；记录 UI 状态供报告核对。
     const manageControls = await screen.getByLabel('选择要绑定的智能体').count();
     console.log(
       `  只读断言通过；API 发言 ${denied.status}；API 绑定智能体 ${deniedBind.status}；可见绑定控件 ${manageControls}`,

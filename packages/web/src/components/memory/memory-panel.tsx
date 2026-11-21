@@ -46,7 +46,6 @@ interface DraftCallbacks {
   onPendingChange?: (pending: boolean) => void;
 }
 
-/** 记忆写入同时影响文件列表、所选或索引正文以及这次写入的版本。 */
 function invalidateAgentMemoryQueries(
   client: ReturnType<typeof useQueryClient>,
   agentId: string,
@@ -57,7 +56,6 @@ function invalidateAgentMemoryQueries(
   void client.invalidateQueries({ queryKey: ['memory-reviews'] });
 }
 
-/** MEMORY.md 的历史包含只改主题正文、实际变化在伴随索引里的记录。 */
 function changeAfterContent(change: MemoryChange, name: string): string | null {
   if (change.target.kind !== 'agent_memory' || change.target.name === name) {
     return change.after.content;
@@ -69,7 +67,6 @@ function changeIndexChanged(change: MemoryChange): boolean {
   return (change.before.index?.content ?? null) !== (change.after.index?.content ?? null);
 }
 
-/** 摘要取实际变化的行：索引变更常追加在末尾，不能只显示未变的标题行。 */
 function changePreview(change: MemoryChange, name: string): string {
   const content = changeAfterContent(change, name) ?? '';
   if (change.target.kind !== 'agent_memory' || change.target.name === name) {
@@ -80,7 +77,6 @@ function changePreview(change: MemoryChange, name: string): string {
   return (changed ?? content.trim().split('\n')[0] ?? '').trim();
 }
 
-/** 一次变更实际涉及的文件：主题正文，以及变化了的伴随索引。 */
 function changeFiles(
   change: MemoryChange,
 ): { key: string; label: string; content: string | null }[] {
@@ -105,7 +101,6 @@ function changeFiles(
   return files;
 }
 
-/** 新建主题的回滚会删除该主题；不能只说恢复 MEMORY.md。 */
 function rollbackImpact(change: MemoryChange): string {
   if (change.target.kind !== 'agent_memory') return '恢复此前的保存内容。';
   const name = change.target.name;
@@ -118,7 +113,6 @@ function rollbackImpact(change: MemoryChange): string {
   return `恢复「${name}」此前的正文${indexText}。`;
 }
 
-/** 从专家记忆进入按该专家筛选的个人记忆提案。 */
 function MemoryReviewLink({ agentId }: { agentId: string }) {
   const query = new URLSearchParams({ agent: agentId });
   return (
@@ -133,11 +127,6 @@ function MemoryReviewLink({ agentId }: { agentId: string }) {
   );
 }
 
-/**
- * 专家记忆页签：概览（默认）/ 文件 / 策略三个子视图。
- * 子视图由路由 search 承载，刷新、后退与复制链接都直达当前视图；
- * 文件与策略的草稿都计入 dirty，切换前统一确认放弃。
- */
 export function MemoryPanel({
   agentId,
   canWrite = true,
@@ -148,7 +137,6 @@ export function MemoryPanel({
 }: {
   agentId: string;
   canWrite?: boolean;
-  /** 受控子视图；未传时退回组件内状态，便于单独挂载。 */
   view?: MemoryView | undefined;
   onViewChange?: ((next: MemoryView) => void) | undefined;
 } & DraftCallbacks) {
@@ -162,7 +150,6 @@ export function MemoryPanel({
   const dirty = filesDirty || policyDirty;
   const pending = filesPending || policyPending;
 
-  // 路由离开与任务切换仍由父级用合并后的状态统一保护。
   useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   const applyView = (next: MemoryView): void => {
@@ -192,7 +179,6 @@ export function MemoryPanel({
               value={item.id}
               aria-disabled={pending}
               title={pending ? '正在保存，稍后可切换' : undefined}
-              // 共享原语对 aria-disabled 关掉指针事件；这里要保留 title 提示，只禁用动作。
               className={
                 pending
                   ? 'cursor-not-allowed hover:text-muted-foreground aria-disabled:pointer-events-auto'
@@ -240,7 +226,6 @@ export function MemoryPanel({
   );
 }
 
-/** 浏览/编辑 Claude Code 原生 auto-memory：MEMORY.md 索引 + 主题 Markdown。 */
 function MemoryFilesPanel({
   agentId,
   canWrite = true,
@@ -258,7 +243,6 @@ function MemoryFilesPanel({
   const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
   const [pendingCreate, setPendingCreate] = useState(false);
   const files = memory.data?.files ?? [];
-  // 选中项被删除或尚未确定时回落到 MEMORY.md。
   const active = files.some((file) => file.name === selected)
     ? selected
     : (files.find((file) => file.name === 'MEMORY.md')?.name ?? files[0]?.name ?? null);
@@ -286,10 +270,8 @@ function MemoryFilesPanel({
     },
   });
 
-  // 创建中的文件名也属于离开会丢失的输入；创建请求同样要锁住切换与离开。
   const dirty = editorDirty || (creating && name.trim() !== '');
   const pending = editorPending || remove.isPending || create.isPending;
-  // 路由离开与任务切换由父级用合并后的状态统一保护。
   useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   const submitNewFile = (event: React.FormEvent): void => {
@@ -544,7 +526,6 @@ function MemoryFileEditor({
     mutationFn: () => api.writeAgentMemoryFile(agentId, name, content),
     onSuccess: (next) => {
       client.setQueryData(agentMemoryFileQuery(agentId, name).queryKey, next);
-      // 已提交的草稿要清掉，后续外部刷新才能显示服务端新正文。
       setDraft(null);
       invalidateAgentMemoryQueries(client, agentId);
       toastSuccess('记忆已保存');
@@ -576,7 +557,6 @@ function MemoryFileEditor({
     save.mutate();
   };
 
-  // 父级需要用脏状态拦截切换文件与路由离开。
   useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
   if (file.isPending) return <LoadingState rows={4} />;
@@ -744,7 +724,6 @@ type RuleAction =
   | { type: 'create' }
   | { type: 'delete'; slug: string };
 
-/** 项目规则：编辑 `.claude/rules/<slug>.md`，可选路径作用域（globs）。 */
 export function RulesPanel({
   agentId,
   canWrite = true,
@@ -754,7 +733,6 @@ export function RulesPanel({
   const client = useQueryClient();
   const rules = useQuery(agentRulesQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
-  // 默认选中只做一次：之后的删除、新建与用户切换都按原逻辑处理。
   const autoSelected = useRef(false);
   const [creating, setCreating] = useState(false);
   const [slug, setSlug] = useState('');
@@ -828,15 +806,12 @@ export function RulesPanel({
   const guard = (action: RuleAction): void => {
     if (pending) return;
     if (action.type !== 'open' && !canWrite) return;
-    // 删除始终二次确认；其余动作只有当前草稿会丢时才确认。
     if (dirty || action.type === 'delete') setConfirming(action);
     else apply(action);
   };
 
   useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
-  // 列表就绪但还没有选中项、也不在新建时，默认打开第一条；
-  // 有选中项或草稿时不会覆盖，避免抢走正在编辑的内容。
   useEffect(() => {
     if (autoSelected.current || rules.data === undefined) return;
     autoSelected.current = true;
@@ -1021,7 +996,6 @@ export function RulesPanel({
           if (!canWrite) return;
           const action = confirming;
           if (action?.type === 'delete') {
-            // 删除成功后再关确认框；失败保留草稿，错误由 ConfirmDialog 统一提示。
             await remove.mutateAsync(action.slug);
             setConfirming(null);
           } else {
@@ -1039,7 +1013,6 @@ type StyleAction =
   | { type: 'create' }
   | { type: 'delete'; slug: string };
 
-/** 自定义输出风格：选中项经 settings.outputStyle 生效。 */
 export function OutputStylesPanel({
   agentId,
   canWrite = true,
@@ -1049,7 +1022,6 @@ export function OutputStylesPanel({
   const client = useQueryClient();
   const styles = useQuery(agentOutputStylesQuery(agentId));
   const [selected, setSelected] = useState<string | null>(null);
-  // 默认选中只做一次：之后的删除、新建与用户切换都按原逻辑处理。
   const autoSelected = useRef(false);
   const [creating, setCreating] = useState(false);
   const [slug, setSlug] = useState('');
@@ -1160,7 +1132,6 @@ export function OutputStylesPanel({
 
   const guard = (action: StyleAction): void => {
     if (pending) return;
-    // 只读仍可浏览风格，但不能新建、删除或取消启用。
     if (action.type !== 'open' && !canWrite) return;
     if (dirty) setConfirming(action);
     else apply(action);
@@ -1168,8 +1139,6 @@ export function OutputStylesPanel({
 
   useEditStateNotify(dirty, pending, onDirtyChange, onPendingChange);
 
-  // 列表就绪但还没有选中项、也不在新建时，默认打开第一条；
-  // 有选中项或草稿时不会覆盖，避免抢走正在编辑的内容。
   useEffect(() => {
     if (autoSelected.current || styles.data === undefined) return;
     autoSelected.current = true;

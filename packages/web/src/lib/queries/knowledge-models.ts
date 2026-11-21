@@ -10,7 +10,6 @@ export function useKnowledgeModelProfiles() {
   });
 }
 
-/** 创建/设置页只需要选择项；这个视图对 knowledge.read 开放，不要求管理权限。 */
 export function useKnowledgeModelProfileSelections() {
   return useQuery({
     queryKey: knowledgeKeys.profileSelections,
@@ -19,7 +18,6 @@ export function useKnowledgeModelProfileSelections() {
   });
 }
 
-/** 知识库必须绑定 embedding profile；首次使用时在新建弹层里就地创建。 */
 export function useCreateKnowledgeModelProfile() {
   const client = useQueryClient();
   return useMutation({

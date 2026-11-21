@@ -44,7 +44,6 @@ vi.mock('@tanstack/react-router', () => ({
 
 const state = vi.hoisted(() => ({
   saving: false,
-  // 编辑器用例针对配置任务；概览的默认落点由页面级用例覆盖。
   search: { tab: 'config' } as Record<string, string | undefined>,
 }));
 vi.mock('../src/lib/queries.js', async (original) => {
@@ -170,7 +169,6 @@ function client() {
   return result;
 }
 
-// React owns state and rerenders; inspect the page's public control/event contracts without a DOM.
 function inspect(
   queryClient: QueryClient,
   render: () => ReactNode,
@@ -195,7 +193,6 @@ function editor() {
     onDeleteRequest: () => {},
   });
 }
-// 三栏布局一次只挂载一个分区：探针先点中栏的分区按钮把它切出来。
 function selectSection(tree: Element[], label: string) {
   const item = tree.find(
     (node) => typeof node.props.onClick === 'function' && flatText(node).includes(label),
@@ -260,7 +257,6 @@ describe('resource async state regressions', () => {
           return true;
         }
         if (pass === 1) {
-          // ZIP 先确认目标环境；确认后才进入导入中状态。
           const confirm = required(
             tree,
             (node) =>

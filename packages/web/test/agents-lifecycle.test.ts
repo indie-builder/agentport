@@ -68,15 +68,12 @@ async function flush() {
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
 }
-/** 导航是异步的：轮询直到谓词成立，避免固定 flush 撞上还没渲染的页面。 */
 async function waitFor<T>(probe: () => T, tries = 40): Promise<T> {
   for (let i = 0; i < tries; i += 1) {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 页面切换过程中元素还没挂载，继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -99,7 +96,6 @@ function tab(text: string): HTMLElement {
   if (!element) throw new Error(`Missing tab: ${text}`);
   return element;
 }
-/** 详情页默认落在概览；配置相关的断言先切到配置任务。 */
 async function openConfig() {
   await click(link('Expert'));
   await waitFor(() => tab('配置'));
@@ -192,7 +188,6 @@ async function mount() {
   await flush();
   return router;
 }
-/** 详情页的完整配置来自独立详情查询；摘要与详情都指向同一个 fixture。 */
 function useAgentAs(current: Agent): void {
   vi.mocked(api.agents).mockResolvedValue([current]);
   vi.mocked(api.agent).mockResolvedValue(current);
@@ -200,7 +195,6 @@ function useAgentAs(current: Agent): void {
   client.setQueryData(['agent-detail', current.id], current);
 }
 async function mountAgentProbe(id: string) {
-  // 与真实详情页一样只读取 data；提交计数放在 effect 里，只统计 React 真正提交的渲染。
   const snapshot: { commits: number; data: Agent | null | undefined } = {
     commits: 0,
     data: undefined,
@@ -300,7 +294,6 @@ beforeEach(() => {
     lastRunStartTime: null,
     daily: [],
   });
-  // 默认落在概览：这几项按权限发请求，统一给空数据，避免走真实 fetch 桩。
   vi.spyOn(api, 'agentMemoryOverview').mockResolvedValue({
     policy: {
       enabled: true,
@@ -601,7 +594,6 @@ describe('expert creation lifecycle', () => {
 
   it('initializes twin defaults cleanly and protects edited working background', async () => {
     const router = await mount();
-    // 数字分身是角色选项：从角色筛选新建时预填该角色，而不是另开一张入口卡。
     await act(async () => router.navigate({ to: '/agents', search: { role: '数字分身' } }));
     await flush();
     await click(button('新建专家'));
@@ -1062,7 +1054,6 @@ describe('expert file tool permissions', () => {
     await waitFor(() => document.getElementById('agent-permissions'));
     return document.getElementById('agent-permissions') as HTMLElement;
   }
-  // 真实重载：卸载组件并清空查询缓存，重新 mount 后只能从持久化 store 恢复。
   async function remount(): Promise<void> {
     await act(async () => root.unmount());
     history?.destroy();
@@ -1129,7 +1120,6 @@ describe('expert file tool permissions', () => {
         ]),
       ];
       const allowPathRules = [`${tool}(/target/**)`, 'Edit(/docs/**)'];
-      // 模拟真实存储：保存写入 store，请求始终返回 store，重载后也只能读到它。
       const store = {
         current: {
           ...agent,
@@ -1138,7 +1128,6 @@ describe('expert file tool permissions', () => {
           disallowedTools: originalRules,
         },
       };
-      // agentsQuery 在模块加载时已捕获原始 api.agents，只有 fetch 层能影响重载读取。
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
         const path = new URL(
           input instanceof Request ? input.url : String(input),
@@ -1148,7 +1137,6 @@ describe('expert file tool permissions', () => {
         if (path === '/api/runtime-environments') {
           return Response.json([defaultEnvironment, namedEnvironment]);
         }
-        // 知识库是分页对象，其它绑定来源是数组。
         if (path?.startsWith('/api/knowledge/bases')) {
           return Response.json({ items: [], nextCursor: null });
         }
@@ -1169,7 +1157,6 @@ describe('expert file tool permissions', () => {
 
       await mount();
       const section = await openPermissions();
-      // Edit(path) 对 Write 的覆盖与 Write(path) 的语义都不由平台判断，只原样保留。
       expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('true');
       expect(section.textContent).toContain(
         scope === 'child' ? '自定义允许项不扩大文件范围' : '文件工具的自定义允许项不扩大平台范围',
@@ -1183,11 +1170,9 @@ describe('expert file tool permissions', () => {
       expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('false');
       await click(button('保存草稿'));
       await waitFor(() => update.mock.calls.length === 1, 10);
-      // 关闭只删裸 allow，文件路径 allow 原样保留，不替用户改配置。
       expect(update.mock.calls[0]?.[1].allowedTools).toEqual(['Bash', ...allowPathRules]);
       expect(update.mock.calls[0]?.[1].disallowedTools).toEqual([...originalRules, tool]);
 
-      // 重新进入表单必须从 store 恢复禁用状态，而不是沿用乐观缓存或上一次渲染。
       await remount();
       let reopened = await openPermissions();
       expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('false');
@@ -1198,8 +1183,6 @@ describe('expert file tool permissions', () => {
       expect(toolToggle(tool).getAttribute('aria-pressed')).toBe('true');
       await click(button('保存草稿'));
       await waitFor(() => update.mock.calls.length === 2, 10);
-      // 恢复不写回裸 allow：未变的 allowedTools 不进入 PATCH，服务端合并不重写路径 allow；
-      // 只删裸 deny，路径 deny、未知语义规则或其它工具规则都保留。
       expect(update.mock.calls[1]?.[1].allowedTools).toBeUndefined();
       expect(store.current.allowedTools).toEqual(['Bash', ...allowPathRules]);
       expect(update.mock.calls[1]?.[1].disallowedTools).toEqual(originalRules);
@@ -1356,7 +1339,6 @@ describe('expert deletion lifecycle', () => {
     await click(menuItem('删除专家'));
     await click(button('删除', dialog('删除专家「Expert」')));
 
-    // 服务端未确认前：详情仍在、草稿还在，编辑/离开/刷新都被锁住。
     expect(field().value).toBe('Draft kept');
     expect(field().disabled).toBe(true);
     expect(button('返回列表').disabled).toBe(true);
@@ -1385,7 +1367,6 @@ describe('expert deletion lifecycle', () => {
     await mount();
     await openConfig();
 
-    // 配置任务由工具栏承载删除，页头菜单不再重复。
     await click(button('专家管理操作'));
     await waitFor(() => menuItem('管理成员'));
     expect(
@@ -1409,7 +1390,6 @@ describe('expert deletion lifecycle', () => {
     await click(link('Expert'));
     await waitFor(() => button('专家管理操作'));
 
-    // 工具栏因详情缺失而不渲染时，页头必须保留唯一的删除入口。
     await click(button('专家管理操作'));
     await waitFor(() => menuItem('删除专家'));
   });
@@ -1442,7 +1422,6 @@ describe('expert same-page task guard', () => {
     const router = await mount();
     await openConfig();
     await editName('Main draft');
-    // 直接 push 一个不同 tab 的同 pathname 记录，才能用 history.back 触发 POP。
     await act(async () => {
       await router.navigate({
         to: '/agents/$agentId',
@@ -1649,7 +1628,6 @@ describe('expert review details', () => {
         pluginBindings: [{ pluginId: 'plugin-1', allowHooks: false, allowMcp: true }],
         updatedAt: '2026-02-01T00:00:00Z',
       },
-      // hooks 授权被回滚掉，MCP 授权原样保留。
       restored: (): void => {
         expect(
           document

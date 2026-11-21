@@ -8,7 +8,6 @@ import type { useChatStream } from '../../../lib/use-chat-stream.js';
 import { ErrorState } from '../../states.js';
 import { Button } from '../../ui/button.js';
 
-/** 本轮起点：最后一条用户消息之后才算，历史轮次不参与轮数与状态判断。 */
 function currentRunItems(items: ChatItem[]): ChatItem[] {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     if (items[index]?.kind === 'user') return items.slice(index + 1);

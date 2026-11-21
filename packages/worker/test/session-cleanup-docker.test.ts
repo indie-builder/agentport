@@ -24,18 +24,12 @@ import { SessionSandboxes } from '../src/sandbox/sessions.js';
 import { type IsolatedRedis, startRedisContainer, stopRedisContainer } from './global-setup.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
-/**
- * 真实 Docker 的删除关闭验收：idle supervisor → tx A → 事务外关闭请求 → 确认后才进入 tx B 删行。
- * 只使用独占临时目录、独立数据库与假 secret；镜像基于本机 agentport/sandbox:dev 与本轮源码构建，不联网。
- */
 const BASE_IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const IMAGE_TAG = `session-cleanup-lifecycle-test-${randomUUID().slice(0, 8)}`;
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
-// 新编排使用生产默认信道；独占 Redis 才能与其他套件的默认信道测试并行。
 let REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:1/9';
 let isolatedRedis: IsolatedRedis | null = null;
 const REQUEST_CHANNEL = SESSION_CLEANUP_REQUEST_CHANNEL;
-// 删除使用全局绑定锁；独占库避免同轮其他套件的 10s ACK 窗口把取锁预算耗光。
 const isolatedDb = await createIsolatedDatabase(
   'worker_session_cleanup_docker',
   process.env.DATABASE_URL ?? '',
@@ -115,7 +109,6 @@ async function requestClose(targets: SessionCleanupTarget[]): Promise<void> {
 
 let buildContext = '';
 
-/** 从当前源码构建一次性派生镜像；不拉取、不复用旧 dist 而不校验构建结果。 */
 async function buildTestImage(): Promise<void> {
   const compiled = spawnSync(
     'bun',
@@ -177,7 +170,6 @@ async function setup(failDestroy = false): Promise<Incident> {
     sessionsDir: join(root, 'sessions'),
   };
   await Promise.all(Object.values(dirs).map((dir) => mkdir(dir, { recursive: true })));
-  // 假 secret 只用于证明目录在确认关闭后才被回收；内容不是任何真实凭据。
   const secretsDir = join(dirs.workspaceDir, '.claude');
   await mkdir(secretsDir, { recursive: true });
   await writeFile(
@@ -305,10 +297,8 @@ describe.skipIf(!dockerReady || !imageReady || !dbReady)('session cleanup real d
 
     await expect(deleteWithClose(incident)).resolves.toBe(true);
 
-    // 关闭确认成功后才会走到删行与目录回收；顺序由事务决定，这里核对最终结果。
     expect(containerExists(incident.sandboxId)).toBe(false);
     expect(await repo.chat.getConversation(db, incident.conversationId)).toBeNull();
-    // ACK 丢失后的重试/重复请求：容器已不存在必须按成功处理，不能拖住下一次删除。
     await expect(
       requestClose([{ conversationId: incident.conversationId, sandboxIds: [incident.sandboxId] }]),
     ).resolves.toBeUndefined();
@@ -337,7 +327,6 @@ describe.skipIf(!dockerReady || !imageReady || !dbReady)('session cleanup real d
     const incident = await setup();
     const { sandboxId } = incident;
 
-    // 模拟 worker 重启：先停掉原信道，新 manager 没有任何会话条目，只能按落库的容器名清理。
     await incident.manager.close();
     const restarted = new SessionSandboxes({
       provider: incident.provider,
@@ -362,11 +351,9 @@ describe.skipIf(!dockerReady || !imageReady || !dbReady)('session cleanup real d
       expect(await readFile(join(incident.secretsDir, '.mcp.json'), 'utf8')).toContain(
         'fake-not-real',
       );
-      // 走完整删除编排：新 worker 先按 persisted ID 关容器，API 确认后才删 DB 行。
       await expect(deleteWithClose(incident)).resolves.toBe(true);
       expect(containerExists(sandboxId)).toBe(false);
       expect(await repo.chat.getConversation(db, incident.conversationId)).toBeNull();
-      // 编排返回后才回收目录；用真实文件系统确认路径确实移除，而不是只补 mock。
       await rm(incident.root, { recursive: true, force: true });
       await expect(access(incident.root)).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {

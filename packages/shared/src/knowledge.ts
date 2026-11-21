@@ -29,7 +29,6 @@ export function knowledgeEnqueueOptions(jobId: string) {
   };
 }
 
-/** 官方视觉输入单图上限 5MB；按二进制字节计，base64 膨胀不算在内。 */
 export const KNOWLEDGE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 export const KNOWLEDGE_DOCUMENT_MAX_BYTES = 32 * 1024 * 1024;
@@ -171,11 +170,6 @@ export const knowledgeSourceConfigTypeSchema = knowledgeSourceTypeSchema.exclude
 
 export type KnowledgeSourceConfigType = z.infer<typeof knowledgeSourceConfigTypeSchema>;
 
-/**
- * 新增来源的 range externalId 入口上限。worker 把文档写成
- * `<connectionId>:<leaf externalId>`，连接 ID 固定 31 字符，ZIP 清单上限 500；
- * 这里按 provider 实际 ID 空间收紧，给连接与叶前缀留出余量，超长直接拒绝而非截断。
- */
 export const knowledgeSourceRangeExternalIdMax = {
   lark_wiki: 128,
   lark_drive: 128,
@@ -495,14 +489,12 @@ export const knowledgeSearchQuerySchema = z.object({
   tags: z.array(z.string()).default([]),
   limit: z.number().int().min(1).max(50).default(10),
   rerank: z.boolean().default(true),
-  /** 文本向量相似度门槛；0.3 是可配置初值，不是已校准的质量保证。 */
   minVectorScore: z.number().min(-1).max(1).default(0.3),
   diagnostics: z.boolean().default(false),
   /** 只筛选 FAQ，不排除可推荐条目；文档/Wiki 不受影响。 */
   onlyRecommended: z.boolean().default(false),
   /** FAQ 组排到普通结果前；默认不改变既有混合排序。 */
   faqPriority: z.boolean().default(false),
-  /** directAnswer 的原始问题 cosine 门槛；0.9 是待数据校准的初值。 */
   faqDirectAnswerThreshold: z.number().min(-1).max(1).default(0.9),
 });
 

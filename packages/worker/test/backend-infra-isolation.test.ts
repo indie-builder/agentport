@@ -31,7 +31,6 @@ async function cleanup(): Promise<void> {
   }
 }
 
-// 先注册清理，再逐个持有资源；第二个创建失败时也能回收第一个。
 afterAll(cleanup);
 
 try {
@@ -162,7 +161,6 @@ describe.skipIf(!ready)('global setup lifecycle', () => {
       await infra.close();
     }
     expect(await databaseExists(name)).toBe(false);
-    // 清理幂等：成功后才标记关闭，重复 teardown 不再操作资源。
     await expect(infra.close()).resolves.toBeUndefined();
   });
 });
@@ -213,7 +211,6 @@ describe.skipIf(!redisReady)('isolated redis sessions', () => {
 
 describe('redis container cleanup', () => {
   it('reports a failed removal and keeps the handle retryable', async () => {
-    // 以非法名字让 docker rm 返回非零，不触碰任何真实容器。
     const missing: IsolatedRedis = {
       name: '--invalid-container',
       url: 'redis://127.0.0.1:1/9',

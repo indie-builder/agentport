@@ -222,7 +222,6 @@ describe.skipIf(!ready)('checkQueuedRunAccess re-checks the DB source per trigge
       await checkQueuedRunAccess(db, { ...queued('schedule'), runId: newId('run') }),
     ).toMatchObject({ reason: 'permission_denied' });
 
-    // 即使恢复授权，库里的执行主体与 run 主体不一致也必须拒绝。
     await db
       .insert(schema.rolePermissions)
       .values({ roleId, permissionId: 'schedules.manage', scope: 'maintained_agents' });
@@ -288,7 +287,6 @@ describe.skipIf(!ready)('checkQueuedRunAccess re-checks the DB source per trigge
       reason: 'permission_denied',
     });
 
-    // 平台范围也能覆盖本人的个人数据；own_data 是本人对象的最小授权。
     await db
       .insert(schema.rolePermissions)
       .values({ roleId, permissionId: 'personal_memory.review', scope: 'own_data' });
@@ -323,7 +321,6 @@ describe.skipIf(!ready)('checkQueuedRunAccess re-checks the DB source per trigge
     });
 
     expect(await checkQueuedRunAccess(db, run)).toBeNull();
-    // 同一组无授权下 chat 仍按原规则拒绝：频道放行没有改写其它触发。
     expect(await checkQueuedRunAccess(db, queued('chat'))).toMatchObject({
       reason: 'permission_denied',
     });

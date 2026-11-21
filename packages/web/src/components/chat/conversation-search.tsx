@@ -27,10 +27,6 @@ import {
 
 const LIMIT = 20;
 
-/**
- * 全局会话搜索浮层：历史面板与聊天头部的收起入口共用同一实例。
- * 列表由服务端检索（标题 / ID / 正文），空 q 返回最近会话；本地不再二次过滤。
- */
 export function ConversationSearch({
   open,
   onOpenChange,
@@ -54,8 +50,6 @@ export function ConversationSearch({
     () => searchConversationsOptions({ ...(q ? { q } : {}), limit: LIMIT }),
     [q],
   );
-  // 换查询时取消上一轮请求：旧结果即使晚到也不能替换当前列表。
-  // 只在 key 真正变化时取消，StrictMode 的挂载重放不会掐掉首次请求。
   const previousOptions = useRef(options);
   useEffect(() => {
     const previous = previousOptions.current;
@@ -72,7 +66,6 @@ export function ConversationSearch({
   );
   const nextCursor = search.data?.pages.at(-1)?.nextCursor ?? null;
   const firstLoad = search.isPending && items.length === 0;
-  // 已有缓存时重取失败也要报错并提供重试，但保留旧列表；下页失败交给按钮自己提示。
   const showError = search.isError && !search.isFetchNextPageError && !firstLoad;
 
   const clear = (): void => {

@@ -46,7 +46,6 @@ function rootReadme(files: PluginFileInput[]): PluginFileInput | undefined {
   return files.find((file) => /^readme\.md$/i.test(file.path));
 }
 
-/** 浏览文件与失效选择的默认文件：根 README、排序首个技能 SKILL.md、排序后的第一个真实文件。 */
 function defaultFile(files: PluginFileInput[]): PluginFileInput | undefined {
   const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
   return (
@@ -60,7 +59,6 @@ function firstHeading(body: string): string | undefined {
   return /^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/m.exec(body)?.[1]?.trim();
 }
 
-/** 主页面已有插件名 h1；README 开头重复同名标题时去掉这一行，正文其余不动。 */
 function readmeForPage(file: PluginFileInput, name: string): PluginFileInput {
   const parsed = readPluginMarkdown(file.content, pluginFileTitle(file.path));
   if (parsed.issue !== undefined) return file;
@@ -77,7 +75,6 @@ interface DetailSearch {
   mode?: Mode | undefined;
 }
 
-/** URL 只带真实存在的状态键；默认 tab 由读取端补，不写入历史。 */
 function detailSearch({ tab, file, mode }: DetailSearch): DetailSearch {
   return { tab, ...(file === undefined ? {} : { file }), ...(mode === undefined ? {} : { mode }) };
 }
@@ -142,7 +139,6 @@ export function PluginDetailPage() {
       file={search.file}
       mode={search.mode}
       onNavigate={(next) => {
-        // 主页面常驻，两个面板只换 URL，不能把页面滚动位置清掉。
         void navigate({
           to: '/plugins/$pluginId',
           params: { pluginId },
@@ -168,7 +164,6 @@ function PluginDetailContent({
   plugin: Plugin;
   tab: Tab;
   file: string | undefined;
-  /** URL 里原样的模式：简介切换按原值保留，不替用户补默认值。 */
   mode: Mode | undefined;
   onNavigate: (next: DetailSearch) => void;
   refetchError: unknown;
@@ -182,7 +177,6 @@ function PluginDetailContent({
       {plugin.description}
     </p>
   ) : null;
-  // 面板只在首次进入后渲染正文，避免两套文档同时存在；之后 keepMounted 常驻以保留阅读位置。
   const [introVisited, setIntroVisited] = useState(tab === 'intro');
   if (tab === 'intro' && !introVisited) setIntroVisited(true);
   const [contentVisited, setContentVisited] = useState(tab === 'content');
@@ -196,7 +190,6 @@ function PluginDetailContent({
   };
   const changeTab = (next: Tab): void => {
     if (next === 'intro') {
-      // 回简介保留已选文件与模式，再切回内容直接恢复上次阅读位置。
       onNavigate({ tab: 'intro', file, mode });
       return;
     }
@@ -344,7 +337,6 @@ function PluginContent({
     ? readPluginMarkdown(selected.content, pluginFileTitle(selected.path))
     : undefined;
   const heading = parsed === undefined ? undefined : firstHeading(parsed.body);
-  // 正文首标题与语义名相同时不再重复；缺省名只是路径占位，也不算语义标题。
   const showTitle =
     parsed !== undefined &&
     heading !== parsed.name &&
@@ -481,7 +473,6 @@ function PluginContent({
                   files={plugin.files}
                   {...(selectedPath === undefined ? {} : { selectedPath })}
                   onSelect={(path) => {
-                    // 收起后文件行会卸载，焦点先回到仍可见的「文件」按钮。
                     setFilesOpen(false);
                     filesButton.current?.focus();
                     onSelectFile(path);

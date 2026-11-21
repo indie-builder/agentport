@@ -14,26 +14,19 @@ import {
   pageLimit,
 } from './shared.js';
 
-// ---------------------------------------------------------------------------
-// 知识库
-
 export interface CreateBaseInput {
   slug: string;
   name: string;
   description: string;
-  /** 内置 knowledge server；由 API 的 ensureKnowledgeServer 先建后用。 */
   serverId: string;
   embeddingProfileId: string;
   rerankProfileId: string | null;
-  /** 绑定音频转录模型时必须存在、kind=asr 且启用；null 表示关闭。 */
   asrProfileId?: string | null | undefined;
-  /** 省略时按表默认 active；复制已有库时沿用源库状态。 */
   status?: 'active' | 'disabled' | undefined;
   settings: KnowledgeBaseSettings;
   ownerBusinessId?: string | undefined;
 }
 
-/** ASR 绑定与 embedding/rerank 同一条规则：换绑只能指向存在、类型正确且启用的 profile。 */
 async function assertUsableAsrProfile(db: DbHandle, profileId: string): Promise<void> {
   const [profile] = await db
     .select({
@@ -123,7 +116,6 @@ export async function deleteBase(db: Database, id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-/** 个人置顶的知识库 ID，按置顶时间倒序；列表用它把置顶组排到最前。 */
 export async function listPinnedBaseIds(db: Database, businessId: string): Promise<string[]> {
   const rows = await db
     .select({ baseId: knowledgeBasePins.baseId })
@@ -149,7 +141,6 @@ export async function setBasePin(
     .where(and(eq(knowledgeBasePins.businessId, businessId), eq(knowledgeBasePins.baseId, baseId)));
 }
 
-/** 复制知识库时按唯一索引判占用；最终仍由 knowledge_bases_slug_idx 裁决并发冲突。 */
 export async function baseSlugExists(db: Database, slug: string): Promise<boolean> {
   const [row] = await db
     .select({ id: knowledgeBases.id })

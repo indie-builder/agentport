@@ -3,7 +3,6 @@ import { ErrorState, InlineEmpty, LoadingState } from '../../components/states.j
 import type { useAgentFiles } from '../../lib/queries.js';
 import type { FileEntry } from './shared.js';
 
-/** 文件与版本来自上次保存；编辑中的草稿在内联预览里。文件切换由外层的三栏布局承载。 */
 export function FilesPreview({
   entry,
   dirty,

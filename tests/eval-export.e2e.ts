@@ -109,7 +109,6 @@ test('eval dataset export downloads the seeded golden file', { session: 'admin' 
         },
       ]),
     );
-    // 导出完成后操作菜单恢复可用，页面仍在评估页。
     await expect(screen.getByRole('button', '用例更多操作', { exact: true })).toBeEnabled();
     await screen.getByRole('button', '用例更多操作', { exact: true }).tap();
     await expect(screen.getByRole('menuitem', '导出 JSON', { exact: true })).toBeEnabled();
@@ -227,7 +226,6 @@ test('oversize eval result export reports the error and stays on the page', {
     await exportButton.tap();
 
     await expect(screen.getByText('结果超过 500 条', { exact: false }).first()).toBeVisible();
-    // 失败不导航、不留在导出中状态。
     await expect(browser).toHaveURL(/\/eval\?agent=/);
     await expect(screen.getByRole('heading', '评估', { exact: true })).toBeVisible();
     await expect(exportButton).toBeEnabled();

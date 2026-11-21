@@ -19,7 +19,6 @@ import {
 
 const ready = await infraReady;
 
-/** 与 repo 一致的内容 ID 形状；resolveOnline 只认非空 image_id。 */
 function imageId(seed: string): string {
   return `sha256:${seed.repeat(64).slice(0, 64)}`;
 }
@@ -40,7 +39,6 @@ describe.skipIf(!ready)('runtime environments', () => {
       if (app) {
         await cleanup(app, { agentSlugs });
         if (envIds.length > 0) {
-          // 复合外键：先清线上指针，再删版本，最后删环境。
           await app.client.unsafe(
             'update runtime_environments set online_version_id = null where id = any($1::text[])',
             [app.client.array(envIds, 'TEXT')],
@@ -169,7 +167,6 @@ describe.skipIf(!ready)('runtime environments', () => {
       error: null,
     });
 
-    // 草稿后续修改不影响已经冻结的版本快照。
     await request(app, {
       method: 'PATCH',
       url: `/api/runtime-environments/${env.id}`,
@@ -190,7 +187,6 @@ describe.skipIf(!ready)('runtime environments', () => {
       dockerfile: 'FROM base:v1\nRUN echo one\n',
     });
 
-    // 构建成功只产生 ready 版本，不改线上指针。
     const beforePublish = await request(app, {
       method: 'GET',
       url: `/api/runtime-environments/${env.id}`,
@@ -227,7 +223,6 @@ describe.skipIf(!ready)('runtime environments', () => {
     expect((await publish(env.id, second.id)).json<RuntimeEnvironment>().onlineVersionId).toBe(
       second.id,
     );
-    // 回退：把指针移回旧版本，版本历史保持不变。
     expect((await publish(env.id, first.id)).json<RuntimeEnvironment>().onlineVersionId).toBe(
       first.id,
     );
@@ -248,9 +243,7 @@ describe.skipIf(!ready)('runtime environments', () => {
       [failedVersion.id],
     );
 
-    // 失败构建永远不能上线。
     expectProblem(await publish(envB.id, failedVersion.id), 'CONFLICT');
-    // 跨环境版本不能挂到别的环境上。
     expectProblem(await publish(envA.id, failedVersion.id), 'NOT_FOUND');
 
     const envAfter = await request(app, {
@@ -381,7 +374,6 @@ describe.skipIf(!ready)('runtime environments', () => {
     expectProblem(res, 'SERVICE_UNAVAILABLE');
     expect(res.body).not.toContain('redis://');
 
-    // 不能留下永远 queued 的假构建。
     const versions = await request(app, {
       method: 'GET',
       url: `/api/runtime-environments/${env.id}/versions`,

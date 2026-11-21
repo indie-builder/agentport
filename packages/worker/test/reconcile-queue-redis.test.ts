@@ -14,16 +14,13 @@ const { agentOwnership, conversationSubject, runSubjectFields } = testAccess(imp
 
 const publishRun = mock<() => Promise<void>>().mockResolvedValue(undefined);
 
-// 事件通道用假 publishRun：单测只验证补发内容，避免往真实 run stream 写数据。
 const runnerClientActual = await import('../src/runner-client.js');
 mock.module('../src/runner-client.js', () => ({ ...runnerClientActual, publishRun }));
 
 const { LOST_RUN_ERROR, reconcileOrphanedRuns } = await import('../src/scheduling/reconcile.js');
 
 const AGENT_TIMEOUT_MS = 10_000;
-/** 超过 timeout + 5 分钟宽限期，必定被当成孤儿。 */
 const STALE_MS = 15 * 60_000;
-/** 超过短超时 agent 的截止线，但在长超时 agent 的截止线内。 */
 const BETWEEN_CUTOFFS_MS = AGENT_TIMEOUT_MS + 5 * 60_000 + 60_000;
 const LONG_TIMEOUT_MS = 60 * 60_000;
 
@@ -42,7 +39,6 @@ async function probeInfra(): Promise<boolean> {
   }
 }
 
-// 全表对账必须只看本次套件的数据：独享随机库，不能落到当前共享库。
 const isolated = await createIsolatedDatabase('worker_reconcile_queue');
 if (isolated) process.env.DATABASE_URL = isolated.url;
 const ready = isolated !== null && (await probeInfra());
@@ -74,7 +70,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
   beforeAll(async () => {
     dbHandle = createDb(isolated?.url ?? '');
     db = dbHandle.db;
-    // 队列名按测试唯一：真实 worker 只消费 agent-runs，不会把这里的 job 跑掉。
     queueRedis = bunRedisConnection(process.env.REDIS_URL ?? '');
     queue = new Queue<AgentRunJob>(`reconcile-${randomUUID()}`, {
       connection: queueRedis.connection,
@@ -109,7 +104,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       prompt: 'reconcile test',
     });
     waitingJob = await queue.add('run', data(runWaiting), { jobId: runWaiting });
-    // 未来的延迟任务同样是有效工作，不能因为 DB 里还 queued 就被收敛。
     delayedJob = await queue.add('run', data(runDelayed), { jobId: runDelayed, delay: 60_000 });
   });
 
@@ -134,7 +128,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
 
   it('fails only the stale queued run whose job is gone', async () => {
     const reconciled = await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, queue, cleanup);
-    // 随机库内只有本用例的三条 run，收敛数必须是 1，不能被别的套件/进程影响。
     expect(reconciled).toBe(1);
 
     const rows = await db
@@ -154,7 +147,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     });
     expect(byId.get(runMissing)?.endedAt).not.toBeNull();
 
-    // waiting 任务的 run 和延迟到未来的 run 都仍有真实 job，必须原样保留。
     expect(byId.get(runWaiting)).toMatchObject({ status: 'queued', error: null });
     expect(byId.get(runDelayed)).toMatchObject({ status: 'queued', error: null });
 
@@ -164,7 +156,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     await expect(waitingJob.getState()).resolves.toBe('waiting');
     await expect(delayedJob.getState()).resolves.toBe('delayed');
 
-    // DB 先落终态，再补发唯一一条 run_finished。
     expect(publishRun).toHaveBeenCalledTimes(1);
     expect(publishRun).toHaveBeenCalledWith(
       runMissing,
@@ -188,7 +179,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     offline.on('error', () => undefined);
     const started = Date.now();
     try {
-      // 随机库内没有其他陈旧行：Redis 不可用时一条都不该收敛。
       expect(await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, offline, cleanup)).toBe(0);
       expect(Date.now() - started).toBeGreaterThanOrEqual(19_000);
       expect(Date.now() - started).toBeLessThan(27_000);
@@ -212,7 +202,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
   it('fails a stale running run even when the queue has no job for it', async () => {
     const runRunning = newId('run');
     const agentRunning = newId('agent');
-    // 只有 running 路径按 agent 超时判断：该 agent 显式短超时，运行时间超过它的截止线。
     await db.insert(schema.agents).values({
       id: agentRunning,
       slug: `reconcile-${agentRunning.slice(4, 12)}`,
@@ -372,7 +361,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       { runId: runActive, agentId: agentActive, conversationId, prompt: 'active' },
       { jobId: runActive },
     );
-    // 前面用例的 queued 行也在这个库里：给它们同样的 job 身份，避免被本用例的对账误判为孤儿。
     const mirrorWaiting = await activeQueue.add(
       'run',
       { runId: runWaiting, agentId, conversationId, prompt: 'mirror' },
@@ -386,7 +374,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
 
     try {
       await reachedActive;
-      // timeout 被改短也不影响仍在 active 的 job：必须先看到终态才收敛。
       expect(await reconcileOrphanedRuns(db, logger, AGENT_TIMEOUT_MS, activeQueue, cleanup)).toBe(
         0,
       );

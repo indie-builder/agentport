@@ -126,7 +126,6 @@ describe('useKnowledgeJobs', () => {
     await mount(createElement(Probe));
     await vi.waitFor(() => expect(latest?.data?.length).toBe(1));
 
-    // 旧调用方式：data 仍是数组，可以直接 find。
     expect(latest?.data?.find((item) => item.id === 'kjob_1')?.id).toBe('kjob_1');
     expect(latest?.hasNextPage).toBe(true);
 

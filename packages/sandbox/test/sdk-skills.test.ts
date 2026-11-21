@@ -3,9 +3,6 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// 装好的 SDK 会 fork 一个 Claude Code 子进程；这里只把那个子进程换成假 Node 脚本，
-// SDK 模块本身走真实代码，断言的是真实的 argv 与 initialize 控制帧，而不是中间层参数。
-// shortcoming: 只覆盖 CLI 边界；模型调用、技能发现与 Skill 工具执行都在子进程侧，未验证。
 const dirs: string[] = [];
 
 afterAll(async () => {

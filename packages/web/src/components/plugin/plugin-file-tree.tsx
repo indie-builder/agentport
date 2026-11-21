@@ -19,10 +19,8 @@ interface FolderNode {
   files: PluginFileInput[];
 }
 
-/** 根下默认展开这两个目录；更深的层级跟随当前选中文件展开。 */
 const DEFAULT_OPEN = ['skills', 'agents'];
 
-/** 技能目录的入口文件先行，其余仍是目录先于文件。 */
 const ENTRY_FILE = 'SKILL.md';
 
 const ROW_CLASS =
@@ -153,10 +151,6 @@ function FileTreeRows({
   });
 }
 
-/**
- * 真实插件路径的只读文件树。选中文件由调用方从 URL 传入；展开状态由树维护，
- * 选中路径变化时自动展开全部祖先，避免深文件需要用户自己找。
- */
 export function PluginFileTree({
   files,
   selectedPath,

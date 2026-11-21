@@ -33,7 +33,6 @@ export type KnowledgeWikiPageRow = typeof knowledgeWikiPages.$inferSelect;
 export type KnowledgeWikiVersionRow = typeof knowledgeWikiVersions.$inferSelect;
 export type KnowledgeModelProfileRow = typeof knowledgeModelProfiles.$inferSelect;
 
-/** 一次成功读取看到的来源授权；凭证只保留密文，仅在内存中传递。 */
 export type SourceReadSnapshot = {
   sourceId: string;
   baseId: string;
@@ -65,7 +64,6 @@ export function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
 }
 
-/** 列表统一按 (created_at, id) 倒序，游标是上一页最后一行 id。 */
 export function pageLimit(options: PageOptions): number {
   return Math.min(Math.max(options.limit ?? 50, 1), 200);
 }
@@ -116,7 +114,6 @@ function sourceScopeSql(document: {
   )`;
 }
 
-/** 发布前只核对来源/范围授权；文档自身的 ready/current 由发布动作建立。 */
 export async function sourceScopeAllowsDocument(
   db: DbHandle,
   document: KnowledgeDocumentRow,
@@ -225,7 +222,6 @@ export async function usableSourceChunks(
         eq(knowledgeChunks.baseId, page.baseId),
         inArray(knowledgeChunks.id, [...wanted]),
         eq(knowledgeChunks.enabled, true),
-        // Wiki 内部索引不是可授权来源；引用它会把撤权递归洗成新的可见内容。
         sql`${knowledgeDocuments.contentKind} <> 'wiki'`,
         readableDocumentSql('knowledge_documents'),
         eq(knowledgeChunks.versionId, knowledgeDocuments.currentVersionId),
@@ -233,10 +229,6 @@ export async function usableSourceChunks(
     );
   return { usable: rows, unusable: wanted.size - rows.length };
 }
-/**
- * 与范围撤权统一锁序：先来源、再文档、最后 Wiki 页/关联。
- * 撤权事务按 source -> document -> wiki page -> sources 表写，这里在取完前两级后重核来源。
- */
 export async function lockWikiSourceScope(
   tx: Transaction,
   baseId: string,
@@ -288,7 +280,6 @@ export async function markWikiStaleByDocumentsTx(
     .where(inArray(knowledgeWikiSources.documentId, documentIds));
   const pageIds = [...new Set(linked.map((row) => row.pageId))].sort();
   if (pageIds.length === 0) return 0;
-  // 与 Wiki 发布统一：先按 page ID 全局排序一次取锁，再写来源关联，避免交叉引用反向加锁死锁。
   const locked = await tx
     .select({ id: knowledgeWikiPages.id, status: knowledgeWikiPages.status })
     .from(knowledgeWikiPages)

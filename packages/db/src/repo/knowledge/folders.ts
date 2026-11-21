@@ -12,9 +12,6 @@ import {
   pageLimit,
 } from './shared.js';
 
-// ---------------------------------------------------------------------------
-// 文件夹 / 标签
-
 export async function createFolder(
   db: Database,
   input: { baseId: string; parentId: string | null; name: string; path: string },
@@ -53,7 +50,6 @@ export async function getFolder(db: DbHandle, id: string): Promise<KnowledgeFold
   return row ?? null;
 }
 
-/** 改名或移动后整棵子树的物化路径一起重写；路径唯一冲突交给 409。 */
 async function rewriteFolderPath(
   tx: Transaction,
   folder: KnowledgeFolderRow,
@@ -86,7 +82,6 @@ async function rewriteFolderPath(
   return row;
 }
 
-/** 改名与移动合并为一次事务：只写最终 path，冲突时整棵子树都不会留下中间状态。 */
 export async function updateFolder(
   db: Database,
   id: string,

@@ -30,7 +30,6 @@ describe.skipIf(!ready)('knowledge tag routes', () => {
 
   afterEach(async () => {
     if (baseIds.length > 0) {
-      // 知识库 server 是独立行；删 server 会级联删库，避免留下 kb-<slug> 名称占用。
       await app.client.unsafe(
         "delete from servers where kind = 'knowledge' and config->>'knowledgeBaseId' = any($1::text[])",
         [app.client.array(baseIds, 'TEXT')],

@@ -17,7 +17,6 @@ import type { SessionSandboxLease } from '../src/sandbox/sessions.js';
 import { probeBunRedis } from './fixtures/bun-redis.js';
 import { waitFor } from './fixtures/native-test.js';
 
-// 取消订阅是每个 run 的前置：必须指向本轮测试的独享 Redis，而不是开发实例。
 configureRunnerClient(process.env.REDIS_URL ?? 'redis://127.0.0.1:1/9');
 
 async function probeRedis(): Promise<boolean> {
@@ -81,7 +80,6 @@ interface Store {
   closeCalls: Array<{ reason: string; requestId?: string }>;
 }
 
-/** 与 repo.questions 同语义的内存桩；回答由用例显式写入，模拟 API 响应。 */
 function questionStore(runId: string): Store {
   const rows = new Map<string, RunQuestion>();
   const requested: Store['requested'] = [];
@@ -131,9 +129,7 @@ function questionStore(runId: string): Store {
 interface RunOptions {
   store?: Store;
   timeoutMs?: number;
-  /** 模拟创建容器耗时：期限只能在创建完成、容器实际开始时起算。 */
   createDelayMs?: number;
-  /** 收到 stdin 命令时回调（任务行除外）。 */
   onCommand?: (command: Record<string, unknown>, child: FakeChild) => void;
 }
 
@@ -218,7 +214,6 @@ interface NativeSecretsRun {
   originalQuestion: string;
 }
 
-/** 原生问题、工具入参、工具结果、助手文本和错误都带着同一个凭证。 */
 async function runWithNativeSecrets(): Promise<NativeSecretsRun> {
   const runId = `run-native-${randomUUID()}`;
   const store = questionStore(runId);
@@ -300,7 +295,6 @@ describe('runInSandbox question flow', () => {
       runId,
       (sandbox) => {
         sandbox.stdout.write(questionRequestLine(requestId));
-        // API 在问题落库后写入答案；poll 在 500ms 内把它带回沙盒。
         const timer = setInterval(() => {
           const question = store.rows.get(requestId);
           if (question === undefined) return;
@@ -338,12 +332,10 @@ describe('runInSandbox question flow', () => {
     expect(store.requested).toMatchObject([
       { requestId, toolUseId: `tool-${requestId}`, questions },
     ]);
-    // 第一条是任务；回答只回当前工具的一次 stdin 命令，答案保持原始值。
     const commands = child.writes
       .map((line) => JSON.parse(line) as Record<string, unknown>)
       .filter((command) => command.type !== undefined);
     expect(commands).toEqual([{ type: 'question_response', requestId, response: { answers } }]);
-    // pending 与 answered 两份快照都进持久化事件；历史取最新一份。
     const snapshots = outcome.events.filter((event) => event.type === 'question_updated');
     expect(snapshots.at(0)).toMatchObject({
       type: 'question_updated',
@@ -427,7 +419,6 @@ describe('runInSandbox question flow', () => {
   it('redacts every native text field before persistence while keeping SDK stdin raw', async () => {
     const { outcome, child, store, secret, originalQuestion } = await runWithNativeSecrets();
 
-    // 库里的原问题与原答案、发给 SDK 的回答都保持原文。
     expect(store.rows.get('native-secrets')?.answers).toEqual({ [originalQuestion]: secret });
     expect(child.writes.map((line) => JSON.parse(line))).toContainEqual({
       type: 'question_response',
@@ -435,12 +426,10 @@ describe('runInSandbox question flow', () => {
       response: { answers: { [originalQuestion]: secret } },
     });
 
-    // 落库/发布共享同一个事件对象：这里覆盖持久化事件，发布流由下一条用例直接核对。
     expect(JSON.stringify(outcome.events)).not.toContain(secret);
     const input = outcome.events.find((event) => event.type === 'tool_input');
     expect(input?.type).toBe('tool_input');
     if (input?.type === 'tool_input') {
-      // JSON 语法必须保持完整：脱敏不能吞掉字符串的结束引号。
       const parsed = JSON.parse(input.json) as {
         questions: Array<{ question: string; options: Array<{ label: string }> }>;
       };
@@ -478,7 +467,6 @@ describe('runInSandbox question flow', () => {
       });
     };
     try {
-      // 发布是异步的：等到最后的瞬时事件 error 入流，再核对全部事件。
       await waitFor(
         async () => expect((await payloads()).join('').includes('"type":"error"')).toBe(true),
         { timeout: 3_000 },
@@ -532,7 +520,6 @@ describe('runInSandbox question flow', () => {
     expect(outcome.status).toBe('succeeded');
     const [requested] = store.requested;
     expect(requested).toBeDefined();
-    // 期限 = 容器实际开始 + 整体 timeout；创建耗时不能挤占问答时间。
     expect(requested?.expiresAt.getTime()).toBeGreaterThanOrEqual(createdAt + timeoutMs);
     expect(requested?.expiresAt.getTime()).toBeLessThan(createdAt + timeoutMs + 300);
   });
@@ -549,7 +536,6 @@ describe('runInSandbox question flow', () => {
       runId,
       (sandbox) => {
         sandbox.stdout.write(questionRequestLine('req-1'));
-        // 不结束：轮询失败必须自己终止，不能等整体 timeout。
       },
       { store, timeoutMs: 1_200 },
     );
@@ -591,7 +577,6 @@ describe('runInSandbox question flow', () => {
       response: { decline: true },
     });
     expect(outcome.events.some((event) => event.type === 'question_updated')).toBe(false);
-    // 落库错误不吞：成功终态也带上显式说明。
     expect(outcome.error).toMatch(/问题记录失败：db down/);
   });
 
@@ -604,7 +589,6 @@ describe('runInSandbox question flow', () => {
       runId,
       (sandbox) => {
         sandbox.stdout.write(questionRequestLine(requestId));
-        // 不结束：让整体 timeout 收尾。
       },
       { store, timeoutMs: 40 },
     );
@@ -653,14 +637,12 @@ describe('runInSandbox question flow', () => {
       },
     );
 
-    // 问题落库还没完成时 run_finished 已到：结果必须等写入排空后才能返回。
     await new Promise((resolve) => setTimeout(resolve, 30));
     resolveRequest?.();
     const { outcome } = await running;
 
     expect(outcome.status).toBe('succeeded');
     expect(outcome.events.some((event) => event.type === 'question_updated')).toBe(true);
-    // 未回答的 pending 在收尾时关闭，而不是留一张永远 pending 的卡片。
     expect(store.rows.get(requestId)?.status).toBe('closed');
   });
 
@@ -702,8 +684,6 @@ describe('runInSandbox question flow', () => {
       { store },
     );
 
-    // 1999 条文本 + 1 条 pending 快照占满额度；settle 追加的关闭快照触发溢出，
-    // 成功转失败必须在 settle 之后完成，不能先按成功收尾。
     expect(outcome.status).toBe('failed');
     expect(outcome.error).toMatch(/保存上限/);
     expect(outcome.failure).toMatchObject({ reason: 'agent' });
@@ -713,7 +693,6 @@ describe('runInSandbox question flow', () => {
       type: 'error',
       message: expect.stringMatching(/保存上限/),
     });
-    // 额度内的 pending 快照留下，settle 的关闭快照被裁掉：问题快照与文本共用同一预算。
     expect(outcome.events.filter((event) => event.type === 'question_updated')).toHaveLength(1);
   });
 });

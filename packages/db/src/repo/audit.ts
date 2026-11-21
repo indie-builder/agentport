@@ -11,9 +11,7 @@ export type AuditStatus = 'ok' | 'error' | 'denied';
 
 export interface AuditEvent {
   actor?: string;
-  /** user 的 actor 是 businessId；service/anonymous 使用明确标识。 */
   actorKind?: 'user' | 'service' | 'anonymous' | 'agent';
-  /** 跨用户读取时的目标业务身份。 */
   subjectBusinessId?: string;
   action: string;
   target?: string;
@@ -28,12 +26,10 @@ export interface AuditEvent {
   dedupeKey?: string;
 }
 
-/** API 传 FastifyBaseLogger，worker 传 pino Logger；两者结构上都满足。 */
 interface WarnLogger {
   warn: (obj: object, msg: string) => void;
 }
 
-/** 只记录摘要，不落原文：审计表要长期保留，原文可能含用户数据。 */
 function digest(input: unknown): string | null {
   if (input === undefined || input === null) return null;
   try {
@@ -58,7 +54,6 @@ interface AuditHashMaterial {
   createdAt: Date;
 }
 
-// 字段顺序即哈希协议：校验端与写入端必须共用这一处。
 function chainHash(row: AuditHashMaterial): string {
   return sha256Hex(
     JSON.stringify([
@@ -92,7 +87,6 @@ export async function writeAuditInTx(tx: Transaction, event: AuditEvent): Promis
     requestId: event.requestId ?? null,
     createdAt: new Date(),
   };
-  // 事务级 advisory lock 把「读上一条 hash + 插入」串行化，并发写入不会分成两叉。
   await tx.execute(sql`select pg_advisory_xact_lock(781236)`);
   const [last] = await tx
     .select({ hash: auditLog.hash })
@@ -102,7 +96,6 @@ export async function writeAuditInTx(tx: Transaction, event: AuditEvent): Promis
     .limit(1);
   const chained = { ...row, prevHash: last?.hash ?? null };
   const values = { ...chained, hash: chainHash(chained) };
-  // 有幂等键时不覆盖已有行：重试只是重复上报同一件事。
   await (event.dedupeKey
     ? tx.insert(auditLog).values(values).onConflictDoNothing()
     : tx.insert(auditLog).values(values));
@@ -137,7 +130,6 @@ export async function verifyAuditChain(
   opts: { afterSeq?: number; limit?: number } = {},
 ): Promise<AuditChainVerification> {
   const limit = Math.min(Math.max(opts.limit ?? 1000, 1), 5000);
-  // 0 或省略视作从创世开始；游标行被删时不能当作链尾成功。
   const afterSeq = opts.afterSeq != null && opts.afterSeq > 0 ? opts.afterSeq : 0;
   let expectedPrev: string | null = null;
   if (afterSeq > 0) {
@@ -205,18 +197,14 @@ export async function verifyAuditChain(
 }
 
 export interface AuditQuery {
-  /** 动作前缀，例如 `auth.login`。 */
   action?: string;
   status?: AuditStatus;
-  /** 精确匹配资源 ID。 */
   target?: string;
   actor?: string;
   actorKind?: 'user' | 'service' | 'anonymous' | 'agent';
   since?: Date;
   limit?: number;
-  /** 独立时间范围：只取该时间之前的事件。 */
   before?: Date;
-  /** 分页时间戳由记录ID在库内读取，保留微秒精度。 */
   beforeId?: string;
   afterSeq?: number;
   order?: 'asc' | 'desc';
@@ -239,7 +227,6 @@ export interface AuditEntry {
   hash: string | null;
 }
 
-// 选择字段而不是 select()：输入只以 digest 存在，这里更不会把任何原文带出去。
 const columns = {
   id: auditLog.id,
   actor: auditLog.actor,
@@ -258,7 +245,6 @@ const columns = {
 };
 
 export async function listAudit(db: Database, query: AuditQuery = {}): Promise<AuditEntry[]> {
-  // 只保证非负；上限由各调用方按自己的契约检查，避免把超限探测悄悄截断。
   const limit = Math.min(Math.max(query.limit ?? 100, 1), 1001);
   const filters: SQL[] = [];
   if (query.action) {
@@ -269,7 +255,6 @@ export async function listAudit(db: Database, query: AuditQuery = {}): Promise<A
   if (query.actor) filters.push(eq(auditLog.actor, query.actor));
   if (query.actorKind) filters.push(eq(auditLog.actorKind, query.actorKind));
   if (query.since) filters.push(gte(auditLog.createdAt, query.since));
-  // 时间戳游标用严格小于：调用方明确要求按时间筛选时，并列行由 beforeId 处理。
   if (query.before) filters.push(lt(auditLog.createdAt, query.before));
   if (query.beforeId) {
     filters.push(keysetBefore(auditLog, query.beforeId));

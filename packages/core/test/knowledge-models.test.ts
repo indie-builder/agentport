@@ -220,7 +220,6 @@ describe('embedTexts with cohere_v2', () => {
     await embedTexts(openai, ['a'], undefined, 'search_query');
 
     expect(lastEmbedRequest?.url).toBe('/embeddings');
-    // 旧请求体没有 input_type/output_dimension 等 Cohere 字段。
     expect(lastEmbedRequest?.body).toEqual({ model: 'text-embedding-3-small', input: ['a'] });
   });
 

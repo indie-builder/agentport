@@ -212,7 +212,6 @@ describe('conversation drafts', () => {
     await type('draft in A');
     expect(savedDrafts()).toEqual({ 'conversation-a': 'draft in A' });
 
-    // 刷新等价于内存状态清空后按 URL 重新载入会话。
     await act(async () => root.unmount());
     useChatStore.setState({ conversationId: null, input: '', items: [] });
     root = createRoot(host);
@@ -302,7 +301,6 @@ describe('conversation drafts', () => {
     await type('draft in A');
     await send();
 
-    // 发送尚未被接受：输入框先清空，但原稿仍留在 A 的槽里，失败后才能还回来。
     expect(message().value).toBe('');
     expect(savedDrafts()).toEqual({ 'conversation-a': 'draft in A' });
 
@@ -388,7 +386,6 @@ describe('conversation drafts', () => {
     await mount();
     await type('unsent before reload');
     await send();
-    // 刷新后仍停在同一会话 URL；静置着等待被接受的请求随着页面一起消失。
 
     await reload();
     await mount('/chat?agent=agent-a&conversation=conversation-a');
@@ -403,7 +400,6 @@ describe('conversation drafts', () => {
     await type('welcome draft');
     await send();
 
-    // 真刷新会重新初始化 store 模块；新会话没有 URL 会话 id，只能靠模块初始化读空槽。
     await reload();
     vi.resetModules();
     const fresh = await import('../src/lib/chat-store.js');

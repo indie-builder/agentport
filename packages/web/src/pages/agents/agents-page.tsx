@@ -93,7 +93,6 @@ export function AgentsPage() {
   const search = useSearch({ from: '/_shell/agents/' });
   const query = search.q ?? '';
   const sort = search.order === 'recent' ? 'recent' : (search.sort ?? 'newest');
-  // 默认只发现已启用的专家；「全部」需要显式写进 URL，不另造页面状态。
   const status = search.status ?? 'enabled';
   const role = search.role ?? '';
   const lifecycle = search.lifecycle ?? 'active';
@@ -152,7 +151,6 @@ export function AgentsPage() {
       );
       const suffix = result.warnings.length > 0 ? `，${result.warnings.length} 条提示` : '';
       toastSuccess(`已导入「${result.agent.name}」${suffix}`);
-      // 导入提示随路由状态带到配置页，在那边一次性展示后清掉。
       void navigate({
         to: '/agents/$agentId',
         params: { agentId: result.agent.id },
@@ -198,7 +196,6 @@ export function AgentsPage() {
     });
   };
 
-  // 工牌从当前列表缓存派生，切换专家后不会停留在旧资料上。
   const badgeAgent = badgeId
     ? ((agents.data ?? []).find((agent) => agent.id === badgeId) ?? null)
     : null;
@@ -219,7 +216,6 @@ export function AgentsPage() {
                   const file = event.target.files?.[0];
                   event.target.value = '';
                   if (!file) return;
-                  // agent.md 沿用原语义直接导入；ZIP 先确认环境映射，取消不执行。
                   if (file.name.toLowerCase().endsWith('.md')) void importFile(file);
                   else setPendingImport(file);
                 }}
@@ -438,7 +434,6 @@ export function AgentsPage() {
                   onClick={() =>
                     void navigate({
                       to: '/agents',
-                      // 默认隐式按「已启用」筛选；清除必须显式回到全部，否则只剩停用专家时仍是空列表。
                       search: {
                         ...search,
                         q: undefined,
@@ -929,7 +924,6 @@ function formatLastUsed(value: string | null | undefined): string | null {
   return Number.isNaN(date.getTime()) ? null : lastUsedFormatter.format(date);
 }
 
-/** 工牌只读取列表摘要里已授权的字段，不拉详情、提示词或成员资料。 */
 function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
   const role = agent.role?.trim() || '通用助手';
   const createdAt = badgeCreatedAt(agent.createdAt);
@@ -963,7 +957,6 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
       </div>
       <div className="pointer-events-auto flex min-h-0 w-full flex-1 items-start justify-center overflow-y-auto overscroll-contain px-6 pt-1.5 pb-8">
         <div className="relative z-0 flex min-h-[480px] w-full max-w-[360px] flex-col gap-5 rounded-[24px] border border-line bg-surface p-6 shadow-sm">
-          {/* 卡套插槽，与上方金属夹相接。 */}
           <div
             aria-hidden="true"
             className="absolute -top-1.5 left-1/2 h-3 w-24 -translate-x-1/2 rounded-full border border-line bg-sunken"

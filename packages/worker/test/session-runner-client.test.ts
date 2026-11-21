@@ -50,7 +50,6 @@ const task = {
   maxBudgetUsd: 1,
   userMessageUuid: '11111111-2222-4333-8444-555555555555',
 };
-/** 真 provider 的清理失败类型：带 sandbox id 与原始 cause。 */
 function cleanupFailure(
   sandboxId: string,
   cause = new Error('docker rm failed'),
@@ -129,7 +128,6 @@ describe('subscription preparation cancellation', () => {
         it(`${entry}: ${stop} interrupts pending ${pending} and removes its listener`, async () => {
           jest.useFakeTimers();
           redisMock[pending].mockImplementationOnce(() => new Promise(() => undefined));
-          // Unsubscribe must not make shutdown depend on the same disconnected Redis.
           redisMock.unsubscribe.mockImplementationOnce(
             async (channel: string, listener: unknown) => {
               cancelHandlers.get(channel)?.delete(listener);
@@ -449,13 +447,11 @@ describe('session acquire cancellation and budget', () => {
       await advanceTimersByTimeAsync(30_000);
       expect(received?.aborted).toBe(true);
       await advanceTimersByTimeAsync(0);
-      // provider 仍在清理：预算到点后必须等它真正收尾，不能先返回。
       expect(settled).toBe(false);
       rejectAcquire(cleanup);
       await expect(running).rejects.toMatchObject({
         reason: 'infra',
         message: expect.stringContaining('timed out'),
-        // 清理失败的真实类型保留在 cause 里，调用方仍能拿到容器 id。
         cause: cleanup,
       });
     } finally {
@@ -819,7 +815,6 @@ describe('session runner client', () => {
     expect(release).toHaveBeenCalledWith({ reuse: false });
     expect(outcome.settlement.state).toBe('unconfirmed');
     expect(outcome.cleanupError).toBe(cleanup.message);
-    // 容器 id 在 cause 链里，index 才能继续按 id 清理。
     expect(outcome.failure?.cause).toBe(cleanup);
     expect(outcome.failure?.cause).toMatchObject({ sandboxId: 'session-container' });
     expect(isRetryable(outcome)).toBe(false);

@@ -10,7 +10,6 @@ import {
   resolveNativeCli,
 } from '../src/native-plugins.js';
 
-// 真实 CLI 的启动开销小，30s 足够覆盖冷启动与本地 marketplace 安装。
 const TIMEOUT = 30_000;
 
 const require = createRequire(import.meta.url);
@@ -37,7 +36,6 @@ function hasNativeCli(): boolean {
 
 const nativeCli = hasNativeCli();
 
-/** 本地官方 marketplace fixture；生产输入不允许本地路径，这里只做真实 CLI 验证。 */
 async function marketFixture(root: string): Promise<string> {
   const market = join(root, 'market');
   const plugin = join(market, 'plugins', 'demo');
@@ -84,7 +82,6 @@ describe('real CLI native plugin install', () => {
         if (!installed.ok || !('files' in installed)) throw new Error('expected snapshot');
         expect(installed.files.find((file) => file.path === 'hooks/run.sh')?.executable).toBe(true);
 
-        // 第二次不再安装：删掉市场来源后 list/read 仍须从缓存返回。
         await rm(market, { recursive: true, force: true });
         expect(await listNativePlugins(options)).toEqual({
           ok: true,

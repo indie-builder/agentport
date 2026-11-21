@@ -61,10 +61,6 @@ type SnapshotMessage = {
 
 class MemoryReviewCancelled extends Error {}
 
-/**
- * 审核素材只来自已落库的会话消息：消息 id 与原文是后续证据校验的唯一依据，
- * 队列里的 prompt 不参与内容生成。
- */
 async function loadSnapshot(
   db: Database,
   sources: MemoryReviewSource[],
@@ -211,7 +207,6 @@ function validateEvidence(
   }
 }
 
-/** 入口处拒绝超限提案，不截断；伴随索引也要按 MEMORY.md 同一限额校验。 */
 function validateProposalSize(
   target: MemoryReviewTarget,
   before: MemoryContentSnapshot,
@@ -278,10 +273,6 @@ async function finishRun(
   await notifyRunOutcome({ db, logger, runId, status, error });
 }
 
-/**
- * 订阅与聊天相同的取消频道；订阅完成前发布过的取消由 EXISTS 补查兜住。
- * 连接失败直接让审核失败，不能在没有取消通道的情况下继续付费调用。
- */
 async function watchCancel(
   redisUrl: string,
   runId: string,
@@ -319,10 +310,6 @@ async function watchCancel(
   }
 }
 
-/**
- * 记忆审核运行：只读会话快照，产出提案写回 memory_reviews，不进入聊天沙盒、
- * 不追加消息、不写工作区或成果。终态与花费在本函数内落库。
- */
 export async function executeMemoryReview(
   db: Database,
   input: { runId: string; redisUrl: string; signal: AbortSignal },
@@ -348,7 +335,6 @@ export async function executeMemoryReview(
   if (run.trigger !== 'review') throw new Error(`run ${input.runId} 不是记忆审核`);
 
   const controller = new AbortController();
-  /** 终止原因只记第一次：关停、用户取消与超时竞争时，先发生的那个决定终态。 */
   let termination: 'cancel' | 'shutdown' | 'timeout' | null = null;
   let timeout: NodeJS.Timeout | undefined;
   const terminate = (cause: Exclude<typeof termination, null>) => {
@@ -429,7 +415,6 @@ export async function executeMemoryReview(
       unwatch = await watchCancel(input.redisUrl, input.runId, () => terminate('cancel'));
       if (controller.signal.aborted) throw new MemoryReviewCancelled();
 
-      // 与普通 run 共用智能体 timeoutMs；超时 abort 后仍走 finally 等 SDK 退出并清临时目录。
       timeout = setTimeout(() => terminate('timeout'), timeoutMs);
       timeout.unref();
 
@@ -540,7 +525,6 @@ export async function executeMemoryReview(
       const stored = await repo.memoryReviews.updateProposal(db, input.runId, parsed.data);
       if (!stored) throw new Error('记忆审核记录不存在，提案未保存');
     } catch (err) {
-      // 超时、用户取消与 worker 关停都通过 abort 到达这里，按第一次终止原因收尾。
       const message = errorText(err);
       const cancelled =
         termination === 'cancel' ||

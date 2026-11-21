@@ -17,7 +17,6 @@ function invalid(message: string, path = '/skillMd'): never {
   fail('INVALID_INPUT', message, { path });
 }
 
-/** 解析用的 mapAsMap 会把嵌套映射也变成 Map；metadata 要转回普通对象才能写回 JSON/YAML。 */
 function plainValue(value: unknown, keyPath: string): unknown {
   if (value instanceof Map) {
     return Object.fromEntries(
@@ -57,7 +56,6 @@ function provenanceOf(fields: Map<string, unknown>): SkillProvenance {
 }
 
 function fieldOf(path: PropertyKey | undefined): string {
-  // slug 由 frontmatter 的 name 推导，报错时仍指向用户写的字段。
   const field = String(path ?? 'name');
   return field === 'slug' ? 'name' : field;
 }
@@ -94,7 +92,6 @@ export function parseSkillMd(
     invalid(`SKILL.md 的 ${field} 无效：${issue?.message ?? '字段不合法'}`, `/${field}`);
   }
 
-  // 逐字段取而非展开 parsed.data：可选来源字段展开后会带上 undefined，与 exactOptionalPropertyTypes 冲突。
   return {
     skill: {
       slug: parsed.data.slug,

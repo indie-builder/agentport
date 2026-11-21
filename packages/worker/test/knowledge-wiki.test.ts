@@ -84,7 +84,6 @@ type ToolHandler = (
   args: unknown,
 ) => Promise<{ isError?: boolean; content?: Array<{ text: string }> }>;
 
-/** 从 SDK 实际注册的 in-process server 里取工具；只调用真实 handler，不复制逻辑。 */
 function toolsOf(options: Options): Record<string, ToolHandler> {
   const server = options.mcpServers?.knowledge as unknown as {
     instance: {
@@ -105,7 +104,6 @@ function mustTool(tools: Record<string, ToolHandler>, name: string): ToolHandler
   return handler;
 }
 
-/** 假 query：拿到真实注册的工具后按脚本调用，最后给一条成功 result。 */
 function fakeQuery(
   script: (tools: Record<string, ToolHandler>, options: Options) => Promise<void>,
 ): WikiQueryFn {
@@ -178,7 +176,6 @@ async function seedChunk(
   return { documentId, versionId: version.id, chunkId: chunk.id };
 }
 
-/** 给同一文档追加新版本并切换 current；旧版本 chunk 留在库里用于验证失效判定。 */
 async function addDocumentVersion(baseId: string, documentId: string, markdown: string) {
   const version = await repo.knowledge.createVersion(db, {
     documentId,
@@ -289,23 +286,18 @@ describe('runWikiGenerate', () => {
       persistSession: false,
     });
     expect(seen?.settings).toMatchObject({ autoMemoryEnabled: false });
-    // cwd/HOME 都在知识目录下：不读 worker 项目文件，也不写宿主私有目录。
     expect(seen?.cwd?.startsWith(join(knowledgeDir, 'wiki-sdk'))).toBe(true);
     expect(seen?.env?.HOME).toBe(seen?.cwd);
     expect(seen?.env?.CLAUDE_CONFIG_DIR).toBe(seen?.cwd);
-    // 主密钥与数据库串绝不能进入子进程 env。
     expect(seen?.env).not.toHaveProperty('DATABASE_URL');
     expect(seen?.env).not.toHaveProperty('APP_SECRET_KEY');
     expect(seen?.env).not.toHaveProperty('REDIS_URL');
 
     const job = await mustGetJob(jobId);
-    // 终态由队列统一写入：生成器只负责执行与保存。
     expect(job.status).toBe('running');
     const after = await repo.knowledge.getWikiPage(db, page.id);
     expect(after?.status).toBe('draft');
-    // 生成只追加草稿，线上指针保持为空，发布由管理端显式触发。
     expect(after?.currentVersionId).toBeNull();
-    // 会话目录按 job 隔离且不残留。
     const cwd = seen?.cwd ?? '';
     expect(await stat(cwd).catch(() => null)).toBeNull();
   });
@@ -409,13 +401,11 @@ describe('runWikiGenerate', () => {
       }),
     );
 
-    // 范围约束对检索同样生效，而不只是 prompt 措辞。
     expect((searchHits as Array<{ documentId: string }>).map((hit) => hit.documentId)).toEqual([
       inScope.documentId,
     ]);
     const versions = await repo.knowledge.listWikiVersions(db, page.id);
     expect(versions.items).toHaveLength(1);
-    // 草稿只保存经过校验的来源快照；来源账本在显式发布时才写入。
     expect(versions.items[0]?.sourceChunkIds).toEqual([inScope.chunkId]);
   });
 
@@ -439,7 +429,6 @@ describe('runWikiGenerate', () => {
       ),
     ).rejects.toThrow('模型没有保存任何草稿');
 
-    // 工具边界直接拒绝空来源，不能报 saved:true 再留给发布时才发现。
     expect(empty?.isError).toBe(true);
     expect(missing?.isError).toBe(true);
     expect((await repo.knowledge.listWikiVersions(db, page.id)).items).toHaveLength(0);
@@ -506,7 +495,6 @@ describe('runWikiGenerate', () => {
       ),
     ).rejects.toThrow('模型没有保存任何草稿');
 
-    // D -> A 撤权后，A 的内部索引不能经 search/read/来源引用再绕回生成输入。
     expect(searchHits).toEqual([]);
     expect(readResult?.isError).toBe(true);
     expect(saveResult?.isError).toBe(true);
@@ -590,7 +578,6 @@ describe('runWikiGenerate', () => {
     const after = await repo.knowledge.getWikiPage(db, page.id);
     expect(after?.currentVersionId).toBe(published?.id);
     expect(after?.status).toBe('published');
-    // 收尾被 await 过，且退出时写出的会话文件在收尾之后才被删除。
     expect(cleanupFinished).toBe(true);
     expect(await stat(cwd).catch(() => null)).toBeNull();
   });

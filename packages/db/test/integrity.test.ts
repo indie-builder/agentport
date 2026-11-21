@@ -74,7 +74,6 @@ describe.skipIf(!ready)('history integrity', () => {
     const [copy] = await chat.listMessages(db, branchId);
     expect(copy?.createdAt).toEqual(at);
     expect(copy?.runId).toBeNull();
-    // 分支会话记下来源 session 与分叉点：首轮运行据此 fork，而不是拼文本历史。
     expect((await chat.getConversation(db, branchId))?.sdkSessionId).toBe(
       '66666666-7777-4888-8999-000000000000',
     );
@@ -127,7 +126,6 @@ describe.skipIf(!ready)('history integrity', () => {
       subject: testSubject,
     });
     if (!branched) throw new Error('branchConversation returned null');
-    // 映射只含被复制的历史消息，且新 id 全部指向分支里的真实行。
     expect(Object.keys(branched.messageIds).sort()).toEqual(source.map((row) => row.id).sort());
     const copies = await chat.listMessages(db, branchId);
     expect(copies.map((row) => row.id).sort()).toEqual(Object.values(branched.messageIds).sort());
@@ -158,7 +156,6 @@ describe.skipIf(!ready)('history integrity', () => {
       runId,
       sdkMessageUuid: '11111111-2222-4333-8444-555555555555',
     });
-    // 分支前还看不到 SDK 状态；运行收尾才写入。
     expect(await chat.getConversationSdkState(db, conv)).toEqual({
       sdkSessionId: null,
       forkFromSdkMessageUuid: null,
@@ -174,7 +171,6 @@ describe.skipIf(!ready)('history integrity', () => {
         },
       ],
     });
-    // uuid 重映射与 session 同事务写入；分叉点收尾清空。
     expect(await chat.getConversationSdkState(db, conv)).toEqual({
       sdkSessionId: '66666666-7777-4888-8999-000000000000',
       forkFromSdkMessageUuid: null,
@@ -235,7 +231,6 @@ describe.skipIf(!ready)('history integrity', () => {
     }));
     await chat.insertMessages(db, sourceRows);
 
-    // 标记消息落在第 501 条，让触发失败发生在第二批插入而不是第一批。
     await client.unsafe(`
       create or replace function messages_branch_rollback_probe() returns trigger
       language plpgsql as $$
@@ -271,7 +266,6 @@ describe.skipIf(!ready)('history integrity', () => {
     );
     expect(leftovers[0]).toEqual({ conversations: '0', messages: '0' });
 
-    // 源会话不受影响：消息完整、SDK 状态未变。
     const sourceAfter = await chat.listMessages(db, conv);
     expect(sourceAfter.map((row) => row.id)).toEqual(sourceRows.map((row) => row.id));
     expect(sourceAfter[500]?.content).toEqual({ text: marker });

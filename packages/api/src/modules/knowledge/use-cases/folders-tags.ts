@@ -23,8 +23,6 @@ function toTag(row: TagRow) {
   return { ...row, createdAt: row.createdAt.toISOString() };
 }
 
-// ---- folders / tags -------------------------------------------------------
-
 export async function listFolders(deps: KnowledgeDeps, id: string) {
   if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
   const folders: FolderRow[] = [];
@@ -97,7 +95,6 @@ export async function listTags(deps: KnowledgeDeps, id: string) {
 
 export async function createTag(deps: KnowledgeDeps, id: string, name: string) {
   if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
-  // upsertTag 幂等：同名标签重复 POST 不算新建，直接返回原行，免得活动流里多一条假创建。
   const existing = await repo.knowledge.findTagByName(deps.db, id, name);
   if (existing) return toTag(existing);
   const row = await repo.knowledge.upsertTag(deps.db, id, name);
@@ -132,7 +129,6 @@ export async function renameTag(deps: KnowledgeDeps, tagId: string, name: string
 }
 
 export async function deleteTag(deps: KnowledgeDeps, tagId: string): Promise<void> {
-  // 删除后标签行随之消失，审计要留 baseId 归属，只能在删前读一次。
   const [tag] = await deps.db
     .select({ baseId: schema.knowledgeTags.baseId })
     .from(schema.knowledgeTags)

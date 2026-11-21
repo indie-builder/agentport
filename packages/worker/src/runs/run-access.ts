@@ -30,10 +30,6 @@ export function runExecutionSubject(row: {
   return null;
 }
 
-/**
- * worker 开跑前用 DB 实时数据重查：认证账户仍活跃，且每个所需权限叶都有匹配该专家的范围。
- * 不降级成 system/admin；服务主体不调用本函数。返回 grants 供调用方按同一组授权收紧查询。
- */
 export async function loadUserAgentAccess(
   db: Database,
   input: {
@@ -76,10 +72,6 @@ export async function checkUserAgentAccess(
   return (await loadUserAgentAccess(db, input)).denial;
 }
 
-/**
- * own_data/platform 对象叶：只有对象归属本人或平台范围才通过。
- * 不能用 agentPermissionAllows：它按专家关系判定，而个人数据的对象拥有者是 businessId。
- */
 function objectPermissionAllows(
   grants: readonly PermissionGrant[],
   permissionId: PermissionGrant['permissionId'],
@@ -115,10 +107,6 @@ export async function checkQueuedAgentActive(
 const QUEUED_DENIED = '当前账户没有该操作的权限，运行未启动';
 const QUEUED_SOURCE_MISMATCH = '运行来源与数据库记录不一致，未启动';
 
-/**
- * 排队 run 启动前的实时复核：账户、agents.use 之外还要按 DB 里的 run.trigger 复核具体动作。
- * 来源与主体一律从 run 行及关联 DB 记录读取，不信任 job 字段，也不降级成 system/admin。
- */
 export async function checkQueuedRunAccess(
   db: Database,
   run: {
@@ -142,7 +130,6 @@ export async function checkQueuedRunAccess(
     message: QUEUED_DENIED,
   });
   if (relation.inactive) return denied();
-  // 频道成员资格就是频道 lane 的授权来源：不再要求平台的 agents.use 专家范围。
   if (
     run.trigger !== 'channel' &&
     !agentPermissionAllows(access.grants, 'agents.use', relation, run.businessId)
@@ -218,7 +205,6 @@ export async function checkQueuedRunAccess(
       return null;
     }
     case 'schedule': {
-      // 没有 run→schedule 外键：用「专家 + DB 执行主体」确认这次触发确实来自该用户的定时任务。
       const [schedule] = await db
         .select({ id: schema.agentSchedules.id })
         .from(schema.agentSchedules)

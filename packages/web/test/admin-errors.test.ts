@@ -12,7 +12,6 @@ const state = vi.hoisted(() => ({
 
 vi.mock('@tanstack/react-router', async () => {
   const { evalSearchSchema } = await import('../src/routes/-search.js');
-  // 运行结果由 URL 的 run 选中：按真实 schema 造 search，不另造选中状态。
   const evalSearch = evalSearchSchema.parse({ run: 'eval-1' });
   return {
     useNavigate: () => vi.fn(),
@@ -23,7 +22,6 @@ vi.mock('@tanstack/react-router', async () => {
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ isFetchedAfterMount: true, isSuccess: true, data: { authenticated: false } }),
   useMutation: ({ onError }: { onError: (error: Error) => void }) => {
-    // Deliver the mutation outcome; React owns the resulting render and state update.
     if (state.loginError) {
       const error = state.loginError;
       state.loginError = null;

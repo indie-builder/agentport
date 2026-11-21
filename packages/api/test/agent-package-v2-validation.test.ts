@@ -167,12 +167,10 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
       '/outside.md',
       'references/./api.md',
       'references//api.md',
-      // ZIP 允许空格，单路径 schema 不允许：导入与 CRUD/导出的规则必须一致。
       'references/a b.md',
     ].map((paths) => ({
       label: `unsafe skill resource paths ${paths}`,
       build: ({ spec, skill }: Fixture) => {
-        // 直接构造归档：这些路径连合法的 ZIP 打包函数都不会接受。
         const files = unzipPackage(packageZip(spec));
         const base = `.claude/skills/${skill}/`;
         const extra = paths
@@ -354,7 +352,6 @@ describe.skipIf(!ready)('agent package validation (official files)', () => {
     );
     expect(files.get('CLAUDE.md')).toContain('Canonical prompt.');
     const sidecarText = files.get(AGENT_PACKAGE_SIDECAR) ?? '';
-    // 子定义的规则/风格没有官方存放位置，只能作为平台元数据留在侧车；正文本身不复制。
     for (const body of [
       'Canonical prompt.',
       'Canonical rule.',

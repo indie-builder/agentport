@@ -117,7 +117,6 @@ export function useSaveRoleMatrix() {
     mutationFn: (input: RoleMatrixInput) => api.saveRoles(input),
     onSuccess: (matrix) => {
       client.setQueryData(roleMatrixQuery.queryKey, matrix);
-      // 角色改变会影响当前用户的 grants 与所有按权限过滤的列表。
       void client.invalidateQueries({ queryKey: ['me'] });
       void client.invalidateQueries({ queryKey: ['agents'] });
     },

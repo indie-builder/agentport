@@ -15,7 +15,6 @@ import {
   unique,
 } from './helpers.js';
 
-// 提交评估会入队；有活跃 worker 时 job 会被立刻消费，断言只能看到原始用例。
 const ready = (await infraReady) && (await queueIdle);
 
 interface SnapshotCase {
@@ -76,7 +75,6 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
     return res.json<SnapshotCase>();
   }
 
-  /** 只保留快照里的四个字段，响应里的 agentId/createdAt 不参与比较。 */
   function picked(row: SnapshotCase): SnapshotCase {
     return { id: row.id, name: row.name, prompt: row.prompt, expectation: row.expectation };
   }
@@ -91,7 +89,6 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
     expect(res.statusCode, res.body).toBe(202);
     const { evalRunId } = res.json<{ evalRunId: string }>();
     submittedRuns.push(evalRunId);
-    // 移除自己的 job：测试不跑批，worker 停着也不会被突发消费。
     const job = await getEvalQueue().getJob(evalRunId);
     if (!job) throw new Error('eval job was not enqueued');
     await job.remove();
@@ -184,7 +181,6 @@ describe.skipIf(!ready)('eval run case snapshots', () => {
       output: 'ok',
       caseSnapshot: picked(alpha),
     });
-    // 源用例已删除：外键置 NULL，快照独立保留。
     await repo.evalRepo.addResult(app.db, {
       id: newId('evalResult'),
       evalRunId: runId,

@@ -1,10 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 
-/**
- * useAudit 的分页配置测试：直接调用真实 hook，捕获它交给 useInfiniteQuery 的配置，
- * 再用真实数据形状求值 queryFn / getNextPageParam，不另写一份判定逻辑。
- */
-
 const mocks = vi.hoisted(() => ({
   useQuery: vi.fn(),
   useMutation: vi.fn(),
@@ -41,7 +36,6 @@ interface AuditOptions {
   ) => string | undefined;
 }
 
-// biome 只允许 hook 在 hook/组件里调用，因此测试助手按 hook 命名。
 function useQueryOptions(query = {}): AuditOptions {
   mocks.useInfiniteQuery.mockReturnValue({ data: undefined });
   useAudit(query);

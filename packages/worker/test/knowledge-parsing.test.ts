@@ -13,7 +13,6 @@ const fixture = (name: string): Buffer =>
   readFileSync(new URL(`./fixtures/knowledge-parsing/${name}`, import.meta.url));
 const fixtureBytes = (name: string): Uint8Array => new Uint8Array(fixture(name));
 
-/** Docling fixtures are served by a real HTTP server so the request shape is exercised for real. */
 let server: ReturnType<typeof createServer>;
 let parserUrl: string;
 let captured: Array<{ path: string; headers: IncomingMessage['headers']; body: Buffer }> = [];
@@ -422,7 +421,6 @@ describe('parseDocument standalone images', () => {
       expect(parsed.images[0]?.mimeType).toBe(mimeType);
       expect(parsed.images[0]?.page).toBe(1);
       expect(Buffer.from(parsed.images[0]?.data ?? [])).toEqual(bytes);
-      // 独立图片同样产出安全相对引用，走与 Docling 图一致的后处理。
       expect(parsed.markdown).toBe(
         `![${parsed.images[0]?.name}](images/${parsed.images[0]?.name})`,
       );
@@ -431,7 +429,6 @@ describe('parseDocument standalone images', () => {
   }
 
   it('rejects a truncated standalone image instead of releasing it to the vision model', async () => {
-    // 只有 magic 头的截断文件曾经被标成 real image 并成功发布；现在必须在入口失败。
     for (const [extension, bytes, mimeType] of [
       ['png', TINY_PNG.subarray(0, TINY_PNG.length - 8), 'image/png'],
       ['jpg', Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]), 'image/jpeg'],
@@ -526,7 +523,6 @@ describe('parseDocument Docling', () => {
       { page: 'unknown', ref: '#/texts/1' },
       { page: 8, bbox: { l: 0, t: 0, r: 5, b: 5 }, ref: '#/tables/0' },
     ]);
-    // 真实原文偏移一并保留，不再只靠 page/bbox。
     for (const block of parsed.blocks) {
       expect(block.locator.startOffset).toEqual(expect.any(Number));
       expect(block.locator.endOffset).toEqual(expect.any(Number));
@@ -567,7 +563,6 @@ describe('parseDocument Docling', () => {
     expect(contents).toContain(['| 环境 | 地址 |', '| --- | --- |', '| 测试 | dev |'].join('\n'));
     expect(contents).toContain('> 引用块只在 Markdown 里');
     expect(contents).not.toContain('# 报表');
-    // The JSON title already set the breadcrumb; the markdown-only table has no page of its own.
     expect(parsed.blocks.find((block) => block.content.startsWith('|'))?.heading).toBe(
       '报表 > 环境',
     );
@@ -586,7 +581,6 @@ describe('parseDocument Docling', () => {
       parserUrl: `${parserUrl}/dedup`,
     });
 
-    // 正文保留 Markdown 原样；同一 occurrence 只补 JSON 的来源信息，不重复索引。
     expect(parsed.blocks.map((block) => [block.content, block.locator.page])).toEqual([
       ['段落一。', 1],
       ['````ts\nconst a = 1;\n````', 2],
@@ -706,7 +700,6 @@ describe('parseDocument Docling', () => {
     const [image] = parsed.images;
     if (!image) throw new Error('picture fixture lost its image');
     expect(Buffer.from(image.data).subarray(0, 4)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-    // 图片不在 markdown 里，不产生字符区间；只有正文块给出页码。远程 URI 与缺页图片都被丢弃。
     expect(parsed.pageMap).toEqual([
       {
         page: 1,
@@ -751,7 +744,6 @@ describe('parseDocument Docling', () => {
       parserUrl: `${parserUrl}/embedded-images`,
     });
 
-    // 归一后的最终 md：data URI 换成落盘引用，图片之后的正文保持独立。
     expect(parsed.markdown).toBe(
       ['# 图册', '', '正文。', '', '![image-1.png](images/image-1.png)', '', '图片之后。', ''].join(
         '\n',
@@ -759,7 +751,6 @@ describe('parseDocument Docling', () => {
     );
     expect(parsed.markdown).not.toContain('base64');
     expect(parsed.blocks.every((block) => !block.content.includes('base64'))).toBe(true);
-    // 偏移必须按归一后的文本计算：图片前后两页都要落在最终 md 的精确切片上。
     expect(parsed.pageMap).toEqual([
       {
         page: 1,
@@ -806,7 +797,6 @@ describe('parseDocument Docling', () => {
     ];
     expect(parsed.pageMap).toEqual(expected);
     expect(parsed.images).toEqual([]);
-    // 标题和未匹配段落没有可靠页码，不得出现在页码表里。
     expect(parsed.pageMap).toHaveLength(2);
   });
 
@@ -818,7 +808,6 @@ describe('parseDocument Docling', () => {
       parserUrl: `${parserUrl}/aligned-table-ocr`,
     });
 
-    // 最终文本保留官方对齐表格、图片引用与只存在于 Markdown 的正文。
     expect(parsed.markdown).toContain(
       [
         '| Metric   |   Value | Unit   |',
@@ -829,11 +818,9 @@ describe('parseDocument Docling', () => {
     expect(parsed.markdown).toContain('![image-1.png](images/image-1.png)');
     expect(parsed.markdown).toContain('Markdown-only paragraph with ticket 1234.');
     expect(parsed.images.map((image) => [image.name, image.page])).toEqual([['image-1.png', 1]]);
-    // JSON 角标 OCR "1" 保留为块，但没有可认领的原文位置。
     expect(parsed.blocks.find((block) => block.content === '1')?.locator).toMatchObject({
       page: 1,
     });
-    // 短 OCR 文本没有可认领的原文位置，不能被裸 indexOf 定位到 "1234" 里。
     expect(
       parsed.blocks.find((block) => block.content === '1')?.locator.startOffset,
     ).toBeUndefined();
@@ -846,7 +833,6 @@ describe('parseDocument Docling', () => {
       startOffset: tableStart,
       endOffset: tableEnd,
     });
-    // 页码表按原文顺序、区间有效且互不重叠。
     for (const [index, range] of parsed.pageMap.entries()) {
       expect(range.startOffset).toBeGreaterThanOrEqual(0);
       expect(range.endOffset).toBeGreaterThan(range.startOffset);
@@ -854,7 +840,6 @@ describe('parseDocument Docling', () => {
       const previous = parsed.pageMap[index - 1];
       if (previous) expect(range.startOffset).toBeGreaterThanOrEqual(previous.endOffset);
     }
-    // 表格区间独占它覆盖的原文，其它页不得侵入；第 1 页的 "1" 也不能落进 "1234"。
     expect(
       parsed.pageMap.filter(
         (range) =>
@@ -899,7 +884,6 @@ describe('parseDocument Docling', () => {
       parserUrl: `${parserUrl}/crlf-lines`,
     });
 
-    // JSON 用 LF 拼出 "Alpha\nBeta"，原文是 CRLF；区间必须落在真实来源上，不编造。
     expect(parsed.markdown).toBe('Alpha\r\nBeta tail.');
     expect(parsed.pageMap).toEqual([
       { page: 3, startOffset: 0, endOffset: 'Alpha\r\nBeta'.length },
@@ -932,7 +916,6 @@ describe('parseDocument Docling', () => {
       parserUrl: `${parserUrl}/heading-only`,
     });
 
-    // Parent/First 一直没等到正文：保留为内容块；Second 由正文承接，只做面包屑且不重复。
     expect(parsed.blocks.map((block) => [block.content, block.locator.page])).toEqual([
       ['Parent', 1],
       ['First', 2],
@@ -1182,7 +1165,6 @@ describe('chunkDocument', () => {
     const chunks = chunkDocument(parsed, { chunkSize: 100, chunkOverlap: 10 });
 
     expect(chunks.every((chunk) => chunk.content.length > 0)).toBe(true);
-    // Removing each chunk's known overlap must rebuild the block exactly: no dropped tail.
     const rebuilt = chunks
       .map((chunk, index) => (index === 0 ? chunk.content : chunk.content.slice(10)))
       .join('');

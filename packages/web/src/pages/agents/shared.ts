@@ -35,7 +35,6 @@ const badgeTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
   timeZoneName: 'short',
 });
 
-/** 工牌只展示真实的创建时间；缺失或无法解析时明确写「未记录」。 */
 export function badgeCreatedAt(value: string | undefined): { label: string; iso: string | null } {
   if (!value) return { label: '未记录', iso: null };
   const date = new Date(value);
@@ -113,7 +112,6 @@ export function isFileTool(tool: string): tool is (typeof FILE_TOOLS)[number] {
   return FILE_TOOLS.includes(tool as (typeof FILE_TOOLS)[number]);
 }
 
-/** 每行一个工具名；空白行忽略，中间空白行不会把未完成的草稿规范化掉。 */
 export function toolLines(text: string): string[] {
   return text
     .split('\n')
@@ -128,10 +126,6 @@ export function tagList(text: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * 表单里保留原始文本：工具列表在输入过程中可能还不合法，
- * 但 RHF 必须能存住这份中间草稿，提交时才解析成 AgentInput。
- */
 export type AgentDraft = Omit<AgentInput, 'allowedTools' | 'tags'> & {
   allowedTools: string;
   tags: string;
@@ -238,10 +232,6 @@ export const duplicateFormSchema = agentDuplicateInputSchema.extend({
 export type SectionId = AgentSection;
 export type TabId = AgentTab;
 
-/**
- * 概览没有权限叶，所有能打开该专家的人都可见；「指令」页只要规则、输出风格或工作流之一可读即可进入。
- * 内层分段再按各自权限决定渲染哪一项。
- */
 const TAB_PERMISSIONS: Record<TabId, readonly PermissionId[] | null> = {
   overview: null,
   config: ['agents.config.read'],
@@ -273,13 +263,11 @@ export function asInstruction(value: unknown): AgentInstruction | undefined {
     : undefined;
 }
 
-/** 旧书签的 rules / styles 指向合并后的「指令」页。 */
 export function normalizeTab(value: unknown): TabId | undefined {
   if (asInstruction(value)) return 'instructions';
   return tabItems.some((item) => item.id === value) ? (value as TabId) : undefined;
 }
 
-/** URL 里的任务可能没有读权限，回落到第一个可读任务，页面与页头共用同一判定。 */
 export function activeAgentTab(value: unknown, permissions: readonly PermissionId[]): TabId {
   const available = tabItems.filter((item) => canOpenTab(item.id, permissions));
   const requested = normalizeTab(value) ?? available[0]?.id ?? 'overview';
@@ -288,7 +276,6 @@ export function activeAgentTab(value: unknown, permissions: readonly PermissionI
     : (available[0]?.id ?? 'overview');
 }
 
-/** 工作流与 hooks 是 project 级能力，子智能体只能使用有读权的规则与输出风格。 */
 export function availableInstructions(
   permissions: readonly PermissionId[],
   isSubAgent: boolean,
@@ -300,7 +287,6 @@ export function availableInstructions(
   );
 }
 
-/** 指令分段只保留有读权的一项；URL 值失效时回落到第一个可读项。 */
 export function activeInstruction(
   value: unknown,
   permissions: readonly PermissionId[],
@@ -311,7 +297,6 @@ export function activeInstruction(
   return available.some((item) => item.id === requested) ? requested : available[0]?.id;
 }
 
-/** 普通连接器与知识库共用一个 serverIds：只替换知识库那部分，其余绑定原样保留。 */
 export function mergeKnowledgeIds(
   current: string[],
   knowledgeIds: Set<string>,
@@ -369,14 +354,12 @@ export const errorSections = Object.fromEntries(
 ) as Partial<Record<keyof AgentInput, SectionId>>;
 export type FileEntry = { id: string; path: string; group: string; content: string };
 
-/** 加载中或失败时也保留根文件入口，文件与版本视图和重试界面才始终可达。 */
 export const baseFileEntries: FileEntry[] = [
   { id: '.mcp.json', path: '.mcp.json', group: '根文件', content: '' },
   { id: 'CLAUDE.md', path: 'CLAUDE.md', group: '根文件', content: '' },
   { id: 'preview:agent-md', path: 'agent md', group: '根文件', content: '' },
 ];
 
-/** 文件与版本视图的唯一清单来源：group 只承载导航结构，id 用作稳定选择键。 */
 export function listWorkspaceFiles(files: AgentFiles): FileEntry[] {
   return [
     { id: '.mcp.json', path: '.mcp.json', group: '根文件', content: files.mcpJson },

@@ -93,7 +93,6 @@ describe('agent invoker cancellable wait', () => {
     });
     pending.catch(() => undefined);
 
-    // 先让调用进入 2 秒轮询睡眠，再取消；旧实现会等到睡眠结束才处理。
     await new Promise((resolve) => setTimeout(resolve, 100));
     const abortedAt = performance.now();
     controller.abort();
@@ -101,7 +100,6 @@ describe('agent invoker cancellable wait', () => {
     const err = await rejectionOf(pending);
     expect(err.code).toBe('UPSTREAM_FAILED');
     expect(err.message).toBe('agent run cancelled');
-    // 两个维度都报告：取消延迟与取消后是否还多读了一次 run。
     expect(performance.now() - abortedAt).toBeLessThan(500);
     expect(state.getRunCalls).toBe(0);
     expect(state.cancelCalls).toBe(1);

@@ -249,7 +249,6 @@ export async function finalizeRun(input: {
       .set({
         status: input.event.status,
         endedAt: new Date(),
-        // 接管 pendingFinish 时保留交接时保存的 error/errorKind（比 wire 分类更精确）。
         ...input.values,
         ...(input.pending === 'required' ? { pendingFinish: null } : {}),
       })
@@ -329,7 +328,6 @@ export async function finalizeRun(input: {
       );
     }
   }
-  // 频道终态只在 CAS 胜出后发一次；失败只记日志，不回滚也不触发重试。
   if (row.channelId !== null) {
     await publishChannelEventSafely(
       row.channelId,
@@ -367,10 +365,6 @@ export async function publishRunFinished(input: {
   });
 }
 
-/**
- * 停稳未确认时只交接终态：状态保持 running、endedAt 仍为 NULL，业务占用继续有效。
- * 等 reconcile 确认容器已销毁后再落终态并发布这一条原事件。
- */
 export async function handOffPendingFinish(input: {
   db: Db;
   logger: Logger;

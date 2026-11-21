@@ -35,14 +35,12 @@ export const knowledgeSources = pgTable(
     }).notNull(),
     name: text('name').notNull(),
     config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
-    /** AES-256-GCM，复用 core 的 encryptSecrets。 */
     secretsEncrypted: text('secrets_encrypted'),
     status: text('status', {
       enum: ['active', 'paused', 'auth_error', 'disabled'],
     })
       .notNull()
       .default('active'),
-    /** 5 段 cron（UTC）；null 表示不自动同步。 */
     syncCron: text('sync_cron'),
     cursor: jsonb('cursor').$type<Record<string, unknown>>().notNull().default({}),
     lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
@@ -83,7 +81,6 @@ export const knowledgeSourceRanges = pgTable(
     enabled: boolean('enabled').notNull().default(true),
   },
   (t) => [
-    // ref 可空，coalesce 成 '' 才能参与唯一约束。
     uniqueIndex('knowledge_source_ranges_scope_idx').on(
       t.sourceId,
       t.kind,
@@ -97,7 +94,6 @@ export const knowledgeSourceRanges = pgTable(
   ],
 );
 
-/** 外部条目实际命中的范围；同一文档可属于多个重叠范围。范围删除级联移除归属。 */
 export const knowledgeDocumentSourceRanges = pgTable(
   'knowledge_document_source_ranges',
   {
@@ -152,7 +148,6 @@ export const knowledgeSyncRuns = pgTable(
   ],
 );
 
-/** 逐项同步失败/跳过：只存状态与错误，不存凭证或正文。 */
 export const knowledgeSyncItems = pgTable(
   'knowledge_sync_items',
   {
@@ -182,7 +177,6 @@ export const knowledgeSyncItems = pgTable(
   ],
 );
 
-/** 任务账本；BullMQ jobId = 本表 id，worker 只认领 queued 行。 */
 export const knowledgeJobs = pgTable(
   'knowledge_jobs',
   {
@@ -204,7 +198,6 @@ export const knowledgeJobs = pgTable(
     progress: integer('progress').notNull().default(0),
     attempts: integer('attempts').notNull().default(0),
     error: text('error'),
-    /** source_probe 的逐范围结果；普通任务为 null。 */
     result: jsonb('result').$type<KnowledgeSourceProbeResult>(),
     payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

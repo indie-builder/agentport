@@ -3,8 +3,6 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-/** 安装请求在途时页面被卸载，结果仍由 mutation 自己落到 toast 与缓存。 */
-
 const mocks = vi.hoisted(() => ({ installMarketSkill: vi.fn() }));
 
 vi.mock('../src/lib/api.js', async (original) => {

@@ -1,10 +1,6 @@
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 
-/**
- * 多模态验收：只读现有多模态联调实例里由 worker 处理完成的种子，不伪造索引、不调用模型。
- * 重点证明图片命中在引用弹窗里以鉴权 Blob URL 真实解码（naturalWidth > 0），而不是仅有 img 元素。
- */
 const skipUnlessMultimodalRuntime =
   process.env.E2E_KNOWLEDGE_MULTIMODAL === '1'
     ? false
@@ -25,7 +21,6 @@ test('multimodal hit renders the authenticated blob image and its quote', {
   await screen.getByRole('tab', '检索测试', { exact: true }).tap();
   await screen.getByRole('searchbox', '检索知识库').fill(SEARCH_TERM);
   await screen.getByRole('button', '检索', { exact: true }).tap();
-  // 同一张图会有 OCR 与描述两条命中，取第一条带引用的即可。
   await browser
     .locator('li')
     .filter({ hasText: SEARCH_TERM })
@@ -40,7 +35,6 @@ test('multimodal hit renders the authenticated blob image and its quote', {
 
   const image = browser.locator('[role="dialog"] img').first();
   await expect(image).toBeVisible();
-  // 可见不等于已解码：按官方 evaluate 在页面里真实读 naturalWidth 与 Blob URL。
   await expect
     .poll(
       () =>

@@ -47,7 +47,6 @@ beforeEach(async () => {
     conversationId: 'conversation-1',
     runId: 'run-1',
   };
-  // 宿主挂载根是同一棵树在 docker daemon 侧的真实路径（两个目录不再是同一字符串）。
   await mkdir(hostRoot, { recursive: true });
   await symlink(hostRoot, identity.workspacesDir);
 });
@@ -58,7 +57,6 @@ afterEach(async () => {
 const conversationDir = () =>
   join(identity.workspacesDir, identity.slug, 'conversation-outputs', identity.conversationId);
 
-/** 上一轮已发布快照：直接按 core 的目录约定落盘。 */
 async function publishedSnapshot(runId: string, files: Record<string, string>): Promise<void> {
   const dir = join(conversationDir(), 'runs', runId);
   await mkdir(join(dir, 'files'), { recursive: true });
@@ -315,7 +313,6 @@ describe('publishing run outputs', () => {
     expect(retrying.published).toBe(false);
     expect(retrying.problem).toContain('重试');
 
-    // 重试成功后发布一次；再次调用不会新增版本，也不会清掉已发布内容。
     await writeFile(join(hostPath, 'note.md'), '# 完成');
     await publishRunOutputsIfSettled(identity, {
       status: 'succeeded',
@@ -340,7 +337,6 @@ describe('publishing run outputs', () => {
 
   it('keeps the same-run snapshot untouched after the draft is gone', async () => {
     await publishedSnapshot('run-1', { 'note.md': '# 旧版' });
-    // 草稿准备复制上一版后，本轮发布冲突：已存在同 run 快照时保留原快照。
     const { hostPath } = await prepareRunOutputs({ ...identity, runId: 'run-2' });
     await writeFile(join(hostPath, 'note.md'), '# 新版');
     await publishRunOutputsIfSettled(
@@ -361,7 +357,6 @@ describe('publishing run outputs', () => {
     await publishedSnapshot('run-1', { 'a.md': 'a1', 'b.md': 'b1', 'c.md': 'c1' });
     await publishedSnapshot('run-2', { 'a.md': 'a2', 'b.md': 'b2', 'c.md': 'c2' });
 
-    // 用户选择 v1 的 b.md：只有 b 回到 v1，a 仍是最新版。
     const { hostPath } = await prepareRunOutputs({
       ...identity,
       runId: 'run-3',
@@ -401,7 +396,6 @@ describe('publishing run outputs', () => {
   });
 
   it('keeps files written in cancelled, timed-out and failed runs', async () => {
-    // 每轮都是完整快照：本轮文件必须在内，上一轮的文件作为基线继续存在。
     const seen: string[] = [];
     for (const status of ['cancelled', 'timeout', 'failed'] as const) {
       const runIdentity = { ...identity, runId: `run-${status}` };
@@ -420,7 +414,6 @@ describe('publishing run outputs', () => {
       expect(manifest.status).toBe(status);
       const files = manifest.files as Array<{ path: string; changed: boolean }>;
       expect(files.map((file) => file.path).sort()).toEqual([...seen].sort());
-      // 只有本轮写下的那个文件是 changed，列表据此只展示新产出。
       expect(files.filter((file) => file.changed).map((file) => file.path)).toEqual([
         `${status}.md`,
       ]);
@@ -488,7 +481,6 @@ describe('run message boundary', () => {
         runId,
       });
 
-      // 只有工具消息的轮次没有任何助手文本；边界仍必须是真实消息 id，不能回落到用户消息。
       expect(await lastMessageIdOfRun(db, runId)).toBe(toolMessageId);
     },
   );

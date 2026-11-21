@@ -159,7 +159,6 @@ describe('knowledge document inspection', () => {
     expect(viewer.textContent).toContain('第二篇正文。');
     expect(viewer.querySelector('[aria-current="true"]')?.textContent).toContain('部署流程');
 
-    // 换文档后先看到新文档的复制动作，再复制新正文。
     const switchedCopy = viewer.querySelector<HTMLButtonElement>(
       'button[aria-label="复制 部署流程"]',
     );
@@ -557,7 +556,6 @@ describe('knowledge document metadata', () => {
       let blocked: Promise<unknown> | undefined;
       await act(async () => {
         blocked = router.navigate({ to: '/knowledge/' });
-        // 被拦的导航在界面上只表现为确认框；保存成功后会随编辑器一起被取消。
         void blocked.catch(() => undefined);
       });
       expect(dialog('放弃未保存的更改？')).toBeDefined();
@@ -657,7 +655,6 @@ describe('knowledge manual and url import', () => {
         'true',
     );
 
-    // 真实 Query：缓存 data 仍在，后台刷新失败后 status 变 error。
     server.use(
       http.get('/api/knowledge/bases/kb_1', () =>
         HttpResponse.json({ code: 'INTERNAL', message: '知识库刷新失败' }, { status: 500 }),
@@ -724,7 +721,6 @@ describe('knowledge document viewer', () => {
       ),
     );
     await mount('/knowledge/kb_1');
-    // 文档列表按需轮询，等待首屏数据落定再打开查看器。
     for (
       let attempt = 0;
       attempt < 20 &&
@@ -739,7 +735,6 @@ describe('knowledge document viewer', () => {
     const viewer = dialog('上线流程');
     expect(viewer.textContent).toContain('还没有解析完成的版本');
     expect(viewer.textContent).toContain('还没有分块');
-    // 禁用的查询永远停在 pending：没有版本时不能把骨架当成真实加载。
     expect(viewer.querySelector('[aria-label="加载中"]')).toBeNull();
     expect(
       calls.some((item) => item.path.startsWith('/api/knowledge/documents/kdoc_1/chunks')),
@@ -824,7 +819,6 @@ describe('knowledge document viewer', () => {
     const viewer = dialog('上线流程');
     expect(viewer.textContent).toContain('解析后的正文');
     expect(viewer.textContent).toContain('发布前需要产品与研发双方确认。');
-    // 列表暂时不含当前文档时，目录仍保留当前快照并标出当前位置，不显示“没有文档”。
     const nav = viewer.querySelector('nav[aria-label="知识文档"]');
     const current = nav?.querySelector('[aria-current="true"]');
     expect(current?.textContent).toContain('上线流程');
@@ -944,7 +938,6 @@ describe('knowledge document upload', () => {
       Object.defineProperty(input, 'files', { value: [good, bad], configurable: true });
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    // FileReader 读完两个文件后才发请求：按请求条件等待。
     await waitFor(
       () =>
         calls.filter(
@@ -980,7 +973,6 @@ describe('knowledge document upload', () => {
       Object.defineProperty(input, 'files', { value: [nested], configurable: true });
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    // 等 FileReader 落定并发出上传请求，再读请求体。
     await waitFor(
       () =>
         calls.filter(
@@ -992,7 +984,6 @@ describe('knowledge document upload', () => {
     const body = calls.find(
       (item) => item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',
     )?.body as { filename: string; relativePath?: string; title?: string } | undefined;
-    // 相对路径交给后端建真实目录；不再把路径写进标题。
     expect(body?.filename).toBe('docs/spec.txt');
     expect(body?.relativePath).toBe('docs/spec.txt');
     expect(body?.title).toBeUndefined();
@@ -1036,7 +1027,6 @@ describe('knowledge version images', () => {
     for (const name of ['%E7%99%BD%E5%9B%BE%201.png', 'chart.png']) {
       server.use(
         http.get(`/api/knowledge/versions/kdv_1/images/${name}`, async () => {
-          // 两张图都挂载后按 DOM 顺序取对象 URL；让第二张稍后返回，保持映射稳定。
           if (name === 'chart.png') await delay(20);
           return new HttpResponse(Uint8Array.from([1, 2, 3]), {
             headers: { 'content-type': 'image/png' },

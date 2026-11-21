@@ -18,23 +18,12 @@ export interface DockerSandboxOptions {
   closing?: AbortSignal;
 }
 
-/**
- * 网络取舍：契约里的 `--network none` 会让沙盒连不上模型 API 与平台 /mcp 端点
- * （HTTP MCP server 也全部失效），所以网络模式改为可配置：
- * - open/proxy：bridge + host.docker.internal（容器内访问宿主 API / 模型代理）
- * - none：真正断网，启动时 worker 会显式警告
- * 默认 bridge 而不是 host：macOS 上 host 是 Docker 的特殊值，bridge 两端都可用。
- * proxy 模式同样是 bridge，出口由沙盒内 HTTPS_PROXY 指向宿主代理（单机妥协，
- * 代理不强制时容器仍可直连；需要硬隔离时用 none 或上出站网关）。
- */
 function network(egress: DockerSandboxOptions['egress']): string {
   return egress === 'none' ? 'none' : 'bridge';
 }
 
-/** 给容器留 5s 自行退出；容器内 runner 已收到 SIGTERM。 */
 const STOP_GRACE_SECONDS = '5';
 const CLEANUP_TIMEOUT_MS = 10_000;
-/** 等待 --rm 自动删除完成时的 inspect 轮询间隔。 */
 const REMOVAL_POLL_MS = 100;
 
 function abortError(): Error {
@@ -112,7 +101,6 @@ function removalInProgress(stderr: string): boolean {
   return /removal of container .* is already in progress/i.test(stderr);
 }
 
-/** 读取本地镜像的实际 ID；镜像不存在返回 null，daemon 错误照常抛出。 */
 export async function resolveLocalImageId(image: string): Promise<string | null> {
   const inspected = await runDockerCommand(
     ['image', 'inspect', '--format', '{{.Id}}', image],
@@ -151,9 +139,7 @@ function readOnlyArgs(extraMounts: SandboxCreateOptions['extraMounts']): string[
 
 export class DockerSandboxProvider implements SandboxProvider {
   private readonly options: DockerSandboxOptions;
-  /** 运行中的容器名，SIGTERM 兜底清理用。 */
   private readonly running = new Set<string>();
-  /** 进行中的创建；shutdown 必须等它们按取消语义收尾，不能直接抛下。 */
   private readonly pending = new Set<Promise<unknown>>();
   private readonly closed = new AbortController();
 
@@ -191,8 +177,6 @@ export class DockerSandboxProvider implements SandboxProvider {
     await this.ensureImage(options.image, signal);
     if (signal.aborted) throw abortError();
 
-    // 拆成 create + start -ai：create 完成即拿到容器，取消时才能 rm 而不启动。
-    // --rm 仍负责正常退出的清理；--pull=never 保证这里不会再隐式拉镜像。
     const args = [
       'create',
       '--pull=never',
@@ -209,7 +193,6 @@ export class DockerSandboxProvider implements SandboxProvider {
       String(this.options.cpus),
       '--pids-limit',
       String(this.options.pids),
-      // 自定义运行环境镜像也必须以非 root 运行，并从固定工作目录启动。
       '--user',
       '1000:1000',
       '--workdir',
@@ -229,18 +212,14 @@ export class DockerSandboxProvider implements SandboxProvider {
       options.image,
       ...(options.command ?? []),
     ];
-    // create 已交给 daemon，不能再按客户端超时杀掉 CLI：那样 daemon 晚到的
-    // 创建会无人跟踪。创建预算由上层 signal 决定，这里只等真实结果。
     const created = await runDockerCommand(args);
     if (!created.ok) throw new Error(`docker create ${name} failed${errorDetail(created.stderr)}`);
     this.running.add(name);
 
     if (signal.aborted) {
-      // 请求已交给 daemon：等它创建完成后直接删，绝不 start；不杀客户端冒充清理。
       try {
         await this.removeContainer(name);
       } catch (err) {
-        // 清理失败时保留跟踪，交给 shutdown 重试；不能假装已经取消干净。
         throw new SandboxCleanupError(name, `docker rm -f ${name} failed after create abort`, err);
       }
       this.running.delete(name);
@@ -256,7 +235,6 @@ export class DockerSandboxProvider implements SandboxProvider {
         child.once('error', reject);
       });
     } catch (err) {
-      // 进程没起来：容器已经存在，必须在这里收尾；失败才携带 id 交给上层清理。
       try {
         await this.removeContainer(name);
       } catch (cleanupErr) {
@@ -276,22 +254,15 @@ export class DockerSandboxProvider implements SandboxProvider {
     try {
       await this.destroyById(sandbox.id);
     } finally {
-      // 容器已停，start -ai 客户端若仍未退出则直接结束，避免 worker 等它。
       sandbox.child.kill('SIGKILL');
     }
   }
 
   async destroyById(id: string): Promise<void> {
-    // --rm 负责正常退出的清理；还在运行的容器先给 5s 优雅停止，失败再强删。
     await this.stopAndRemove(id);
-    // 确认停止/删除后才移出跟踪；失败项留给 destroyAll 重试。
     this.running.delete(id);
   }
 
-  /**
-   * 关闭兜底：先禁止新建并取消拉取，等进行中的创建收尾，再清理所有沙盒容器。
-   * 单项失败继续清理其余项，最后用含容器 id 的 AggregateError 抛出。
-   */
   async destroyAll(): Promise<void> {
     this.closed.abort();
     await Promise.allSettled([...this.pending]);
@@ -304,7 +275,6 @@ export class DockerSandboxProvider implements SandboxProvider {
       if (result.status === 'fulfilled') {
         if (id !== undefined) this.running.delete(id);
       } else {
-        // 失败项留在 running 里，下一次清理还能再试。
         failures.push(new Error(`sandbox ${String(id)} cleanup failed`, { cause: result.reason }));
       }
     });
@@ -313,14 +283,9 @@ export class DockerSandboxProvider implements SandboxProvider {
     }
   }
 
-  /**
-   * 确保镜像本地存在；缺失且不是不可变 ID 时拉取。
-   * 创建容器前与首次启动登记默认环境共用这一条路径，不另造拉取逻辑。
-   */
   async ensureImage(image: string, signal: AbortSignal): Promise<void> {
     const inspected = await runDockerCommand(['image', 'inspect', image], CLEANUP_TIMEOUT_MS);
     if (inspected.ok) return;
-    // 明确不存在才拉；daemon 不可达等其他错误直接抛出，不伪装成拉取失败。
     if (!inspected.missing) {
       throw new Error(`docker image inspect ${image} failed${errorDetail(inspected.stderr)}`);
     }
@@ -332,7 +297,6 @@ export class DockerSandboxProvider implements SandboxProvider {
     await this.pullImage(image, signal);
   }
 
-  /** 可取消的拉取：abort 时结束 CLI；拉取未完成就取消则不进入 create。 */
   private pullImage(image: string, signal: AbortSignal): Promise<void> {
     return new Promise<void>((resolvePull, reject) => {
       const proc = spawn('docker', ['pull', image], { stdio: ['ignore', 'ignore', 'pipe'] });

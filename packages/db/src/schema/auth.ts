@@ -10,9 +10,7 @@ export const authUsers = pgTable(
     emailVerified: boolean('email_verified').notNull().default(false),
     image: text('image'),
     username: text('username'),
-    /** 稳定业务身份；技术 ID 每次重建都变，业务关联只认这一列。 */
     businessId: text('business_id').notNull(),
-    /** 停用账户：拒绝登录与鉴权，撤销现有会话；删除认证资料不置位。 */
     disabled: boolean('disabled').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

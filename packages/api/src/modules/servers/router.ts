@@ -492,7 +492,6 @@ export const serversRouter = os.router({
           durationMs: Date.now() - startedAt,
         };
       } finally {
-        // 只记录结果摘要：参数、解密头与响应体可能含敏感数据，不进审计。
         await writeAudit(context.db, context.log, {
           actor: actorOf(context),
           action: 'server.tools.test-invoked',

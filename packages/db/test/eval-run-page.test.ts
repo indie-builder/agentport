@@ -83,7 +83,6 @@ describe.skipIf(!ready)('eval run list pagination', () => {
       totals.push(...result.items.map((row) => row.total));
       cursor = result.nextCursor ?? undefined;
     }
-    // 同一毫秒内靠 id 倒序补齐，不同微秒不会被截断成同一时间。
     expect(totals).toEqual([4, 3, 2, 1]);
     expect(cursor).toBeUndefined();
   });
@@ -91,7 +90,6 @@ describe.skipIf(!ready)('eval run list pagination', () => {
   it('returns only summary columns and reads one extra row to detect the next page', async () => {
     const page = await evalRepo.listRuns(db, { agentId, limit: 2, access });
     expect(page?.items.map((row) => row.total)).toEqual([4, 3]);
-    // 下一页游标是本次返回的最后一条，不是多读出来的那条。
     expect(page?.nextCursor).toBe(`${base}-same-z`);
     expect(Object.keys(page?.items[0] ?? {}).sort()).toEqual([
       'agentId',
@@ -116,7 +114,6 @@ describe.skipIf(!ready)('eval run list pagination', () => {
     expect(
       await evalRepo.listRuns(db, { agentId, limit: 10, cursor: `${base}-other`, access }),
     ).toBeNull();
-    // 不筛智能体时，任何已存在的游标都能继续翻页。
     const unfiltered = await evalRepo.listRuns(db, {
       limit: 10,
       cursor: `${base}-other`,

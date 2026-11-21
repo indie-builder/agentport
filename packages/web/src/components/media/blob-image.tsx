@@ -27,7 +27,6 @@ export function BlobImage({
     return () => URL.revokeObjectURL(url);
   }, [blob]);
 
-  // 换 blob 到 effect 执行之间 source 仍是上一张图：只认同一个 blob，绝不先显示旧图。
   const active = source !== null && source.blob === blob ? source : null;
   const loading = active === null || state === 'loading';
 

@@ -16,7 +16,6 @@ export interface AgentVersionSummary {
   createdAt: string;
 }
 
-/** 事务内写入快照；版本号靠 (agent_id, version) 唯一约束兜底并发。 */
 export async function insertAgentVersion(
   tx: Transaction,
   agentId: string,
@@ -53,7 +52,6 @@ export async function retryOnVersionConflict<T>(run: () => Promise<T>): Promise<
       return await run();
     } catch (retryErr) {
       if (!isVersionConflict(retryErr)) throw retryErr;
-      // 版本冲突可重试：调用方重新读最新版本再写。
       throw new AppError('CONFLICT', 'agent version conflict, retry later', { retryable: true });
     }
   }

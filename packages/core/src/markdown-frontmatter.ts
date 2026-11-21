@@ -10,10 +10,8 @@ export function splitHeading(body: string): { body: string; displayName?: string
   return { body: lines.join('\n'), displayName: heading[1].trim() };
 }
 
-/** 与 API 导入路由、官方 SKILL.md 的 128 KiB 上限一致（按 UTF-8 字节）。 */
 const MAX_BYTES = 131_072;
 
-/** SKILL.md 与智能体定义共用的 frontmatter 解析：BOM、字节上限、YAML 映射与锚点限制。 */
 export function parseMarkdownFrontmatter(
   content: string,
   label: string,
@@ -72,7 +70,6 @@ export function parseMarkdownFrontmatter(
     invalid(`${label} 不支持 YAML 锚点或别名`);
   }
 
-  // maxAliasCount: 0 是纵深防御；锚点与别名已在上面拒绝。
   const fields = doc.toJS({ mapAsMap: true, maxAliasCount: 0 }) as Map<unknown, unknown>;
   for (const key of fields.keys()) {
     if (typeof key !== 'string') invalid(`${label} 的 frontmatter 键必须是字符串`);

@@ -37,7 +37,6 @@ const DEFAULT_MIN_VECTOR_SCORE = 0.3;
 const ALL_KINDS = ['document', 'faq', 'wiki'] as const;
 type SearchKind = (typeof ALL_KINDS)[number];
 
-/** 新 wire 的三类可检索对象；query 里缺省时按全类型处理，兼容旧调用方。 */
 type SearchQuery = Omit<
   KnowledgeSearchQuery,
   | 'kinds'
@@ -50,7 +49,6 @@ type SearchQuery = Omit<
   kinds?: readonly SearchKind[];
   minVectorScore?: number;
   diagnostics?: boolean;
-  // 未显式传入时用 false/false/0.9，便于内部调用与测试省略默认值。
   onlyRecommended?: boolean;
   faqPriority?: boolean;
   faqDirectAnswerThreshold?: number;
@@ -61,7 +59,6 @@ export type { KnowledgeSearchWarning };
 export type SearchKnowledgeResult = KnowledgeSearchResult;
 
 export interface SearchKnowledgeOptions {
-  /** 解密 profile apiKey 用；与 worker 共用 APP_SECRET_KEY。 */
   secretKey: string;
   signal?: AbortSignal;
 }
@@ -70,7 +67,6 @@ interface SearchScope {
   baseId: string;
   query: SearchQuery;
   imageProcessingEnabled: boolean;
-  /** 只召回该 profile 生成的版本向量，避免换库后混空间。 */
   profileId: string;
 }
 
@@ -104,7 +100,6 @@ interface Candidate {
   vector: number | null;
 }
 
-/** Wiki 可消费条件：页面可读，且索引版本追上线指针；别名由本文件固定传入。 */
 function wikiReadableFilter(baseId: string): ReturnType<typeof sql> {
   return sql`exists (
     select 1 from knowledge_wiki_pages p
@@ -114,7 +109,6 @@ function wikiReadableFilter(baseId: string): ReturnType<typeof sql> {
   )`;
 }
 
-/** 文件夹/标签过滤；Wiki 索引文档不看自己的目录，改查其来源文档。 */
 function folderTagFilter(alias: string, query: SearchQuery): ReturnType<typeof sql> {
   const a = sql.raw(alias);
   const folders =
@@ -136,7 +130,6 @@ function folderTagFilter(alias: string, query: SearchQuery): ReturnType<typeof s
   return sql`${folders} ${tags}`;
 }
 
-/** 契约 §4.6：旧版本、禁用 chunk、非 ready 文档都不召回；文件夹/标签是附加过滤。 */
 function scopeFilter(scope: SearchScope) {
   const { baseId, query } = scope;
   const kinds = query.kinds ?? ALL_KINDS;
@@ -145,7 +138,6 @@ function scopeFilter(scope: SearchScope) {
     sql`, `,
   );
   const hasFilters = query.folders.length > 0 || query.tags.length > 0;
-  // Wiki 默认不受文档目录/标签影响；带过滤时要求来源中至少一个文档满足。
   const wikiSourceFilters = hasFilters
     ? sql`and exists (
         select 1 from knowledge_wiki_sources wf
@@ -154,7 +146,6 @@ function scopeFilter(scope: SearchScope) {
           ${folderTagFilter('df', query)}
       )`
     : sql``;
-  // 图片处理关闭时隐藏图片语义 chunk；普通正文不受影响。
   const images = scope.imageProcessingEnabled ? sql`` : sql`and c.metadata -> 'image' is null`;
   return sql`c.base_id = ${baseId}
     and c.enabled
@@ -191,10 +182,6 @@ async function keywordSearch(db: Db, scope: SearchScope, segmented: string): Pro
   return z.array(searchRowSchema).parse(result);
 }
 
-/**
- * 文本向量路：只召回当前 profile 生成的版本，且排除图片 vector 子块。
- * 相似度门槛在融合前生效，关键词结果不受影响；ORDER BY 直接用距离保持 pgvector 索引。
- */
 async function vectorSearch(
   db: Db,
   scope: SearchScope,
@@ -218,7 +205,6 @@ async function vectorSearch(
   return z.array(searchRowSchema).parse(result);
 }
 
-/** 图片向量单路：同空间文本查询，按 imageVectorMinScore 过滤，不冒充文字命中。 */
 async function imageVectorSearch(
   db: Db,
   scope: SearchScope,
@@ -259,7 +245,6 @@ async function loadFaqData(db: Db, versionIds: string[]): Promise<Map<string, Fa
   return new Map(result.flatMap((row) => (row.faq === null ? [] : [[row.id, row.faq] as const])));
 }
 
-/** 反例归一化复用 F 的 faq.ts，保证查询、入库判重与反例排除是同一套规则。 */
 function negativeIndex(faq: Map<string, FaqData>): Map<string, Set<string>> {
   const negatives = new Map<string, Set<string>>();
   for (const [versionId, data] of faq) {
@@ -271,11 +256,6 @@ function negativeIndex(faq: Map<string, FaqData>): Map<string, Set<string>> {
   return negatives;
 }
 
-/**
- * FAQ 反例只排除候选，不作为正向命中：查询与任一反例归一化相等时排除该 FAQ。
- * 反例不生成索引块，排除只依赖版本 negativeQuestions；onlyRecommended 只筛 FAQ，
- * 文档/Wiki 不受影响，缺省推荐标记按 true。
- */
 function filterFaqCandidates(
   candidates: Candidate[],
   faq: Map<string, FaqData>,
@@ -294,7 +274,6 @@ function filterFaqCandidates(
   });
 }
 
-/** 同一 FAQ 文档只保留最终排名最高的一条，避免标准问与相似问重复占位。 */
 function dedupeFaqDocuments(candidates: Candidate[]): Candidate[] {
   const seen = new Set<string>();
   return candidates.filter(({ row }) => {
@@ -305,17 +284,12 @@ function dedupeFaqDocuments(candidates: Candidate[]): Candidate[] {
   });
 }
 
-/** faqPriority 只把 FAQ 组提前，组内保持最终分数顺序；默认顺序不变。 */
 function faqFirst(candidates: Candidate[]): Candidate[] {
   const faqs = candidates.filter(({ row }) => row.content_kind === 'faq');
   if (faqs.length === 0 || faqs.length === candidates.length) return candidates;
   return [...faqs, ...candidates.filter(({ row }) => row.content_kind !== 'faq')];
 }
 
-/**
- * 父上下文只由当前版本仍 enabled 的叶子块重建，不读父块存储正文：
- * 禁用/编辑/删除子块后父块旧内容不能通过命中泄漏；FAQ 的响应正文是完整答案。
- */
 async function loadParents(db: Db, hits: SearchRow[]): Promise<Map<string, string>> {
   const wanted = hits.filter((row) => row.parent_ordinal !== null && row.content_kind !== 'faq');
   if (wanted.length === 0) return new Map();
@@ -368,7 +342,6 @@ function answerStrategyOf(data: FaqData): 'all' | 'random' {
   return data.answerStrategy === 'random' ? 'random' : 'all';
 }
 
-/** 随机策略每次 search 每条 FAQ 等概率选一项；all 永远按存储顺序返回完整答案。 */
 function quoteOf(row: SearchRow, faq: Map<string, FaqData>, answersOf: FaqAnswers): string {
   const data = row.content_kind === 'faq' ? faq.get(row.version_id) : undefined;
   if (!data) return Array.from(row.content).slice(0, QUOTE_LIMIT).join('');
@@ -390,7 +363,6 @@ function faqInfoOf(
   if (row.content_kind !== 'faq') return null;
   const data = faq.get(row.version_id);
   if (!data) return null;
-  // 召回的是正问叶子块：questionKind/matchedQuestion 由入库写入，不再读旧 faqRole。
   return {
     answers: answersOf(row.version_id, data),
     answerStrategy: answerStrategyOf(data),
@@ -401,7 +373,6 @@ function faqInfoOf(
   };
 }
 
-/** 子块命中时给出同父上下文；FAQ 的响应正文与本次 answers 选择保持一致。 */
 function parentContentOf(
   row: SearchRow,
   parents: Map<string, string>,
@@ -453,10 +424,6 @@ function hitOf(
   };
 }
 
-/**
- * directAnswer 只取最终返回 FAQ 的原始问题向量 cosine，绝不用 RRF/rerank 冒充；
- * 并列按 documentId，embedding 不可用时自然没有 cosine 因而返回 null。
- */
 function selectDirectAnswer(
   hits: KnowledgeSearchHit[],
   threshold: number,
@@ -487,7 +454,6 @@ function selectDirectAnswer(
   return best;
 }
 
-/** RRF：每路各取 top 50，融合后取前 30，再交给 rerank 决定最终顺序。 */
 function fuse(paths: SearchRow[][]): Candidate[] {
   const merged = new Map<string, Candidate>();
   paths.forEach((rows, pathIndex) => {
@@ -507,7 +473,6 @@ function fuse(paths: SearchRow[][]): Candidate[] {
   return [...merged.values()].sort((a, b) => b.rrf - a.rrf).slice(0, FUSED);
 }
 
-/** 已发布但索引尚未追上线指针的页面数；用于 MCP/管理的可见告警。 */
 async function countPendingWikiIndex(db: Db, baseId: string): Promise<number> {
   const result = await db.execute<{ count: number }>(sql`
     select count(*)::int as count
@@ -527,10 +492,6 @@ async function countPendingWikiIndex(db: Db, baseId: string): Promise<number> {
   return result[0]?.count ?? 0;
 }
 
-/**
- * 关键词 + 向量双路召回，RRF 融合后按 base 的 rerank profile 重排。
- * embedding 路径任何一步失败都只降级为关键词结果，并带 warnings，不把整次检索变成错误。
- */
 export async function searchKnowledge(
   db: Db,
   baseId: string,
@@ -540,10 +501,8 @@ export async function searchKnowledge(
   const startedAt = Date.now();
   const base = await repo.knowledge.getBase(db, baseId);
   if (!base) throw new AppError('NOT_FOUND', '知识库不存在，可能已被删除');
-  // 停库即时生效：管理端 REST 与 MCP 都不能再从这里召回，历史引用由各自读路径判断。
   if (base.status !== 'active') throw new AppError('CONFLICT', '知识库已禁用');
 
-  // 直接写库的旧行可能没有 imageProcessing；按关闭处理，不猜默认值。
   const imageProcessing = base.settings.imageProcessing;
   const scope: SearchScope = {
     baseId,
@@ -555,7 +514,6 @@ export async function searchKnowledge(
   const warnings: KnowledgeSearchWarning[] = [];
   const segmented = segmentForSearch(query.q);
   const keyword = await keywordSearch(db, scope, segmented).catch((err: unknown) => {
-    // 关键词查询失败是真实故障（SQL/连接），不能悄悄变成「无结果」。
     throw new AppError('INTERNAL_ERROR', '关键词检索失败', { cause: err });
   });
 
@@ -596,7 +554,6 @@ export async function searchKnowledge(
           imageProcessing.enabled &&
           supportsImageVectors(embeddingProfile)
         ) {
-          // 图片向量是附加路：失败只丢这一路，不把已成功的文本向量标成 degraded。
           imageVector = await imageVectorSearch(
             db,
             scope,
@@ -622,7 +579,6 @@ export async function searchKnowledge(
       fused.filter(({ row }) => row.content_kind === 'faq').map(({ row }) => row.version_id),
     ),
   ]);
-  // 反例/推荐过滤在融合之后、rerank 之前：既不进正向排名，也保持候选预算一致。
   const negatives = negativeIndex(faq);
   const candidates = filterFaqCandidates(
     fused,
@@ -635,7 +591,6 @@ export async function searchKnowledge(
   const answersOf: FaqAnswers = (versionId, data) => {
     const cached = selectedAnswers.get(versionId);
     if (cached) return cached;
-    // 随机只影响本次展示，绝不写回版本；答案数为 1 时无需抽样。
     const picked = data.answers[randomInt(Math.max(data.answers.length, 1))];
     const chosen =
       answerStrategyOf(data) === 'random' && data.answers.length > 1 && picked !== undefined
@@ -670,7 +625,6 @@ export async function searchKnowledge(
             candidates.map(({ row }) => row.content),
             options.signal,
           );
-          // 只有完整、索引合法的响应才替换顺序；任何失败都保留完整 RRF 列表。
           const scoresByChunk = new Map<string, number>(
             scores.map((entry) => {
               const candidate = candidates[entry.index];
@@ -710,7 +664,6 @@ export async function searchKnowledge(
     }
   }
 
-  // 去重与 FAQ 优先都基于最终排名；同文档只保留 score 最高的一条。
   ordered = dedupeFaqDocuments(ordered);
   if (query.faqPriority === true) ordered = faqFirst(ordered);
 

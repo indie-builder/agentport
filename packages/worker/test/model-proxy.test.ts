@@ -49,7 +49,6 @@ async function startProxy(upstreamPort: number): Promise<number> {
   return Number(new URL(proxy.url).port);
 }
 
-/** 发一个带合法 token 的请求；返回的 ClientRequest 由调用方 end/destroy。 */
 function proxyRequest(port: number) {
   const req = request({
     host: '127.0.0.1',
@@ -61,9 +60,7 @@ function proxyRequest(port: number) {
       'content-type': 'application/json',
     },
   });
-  req.on('error', () => {
-    // 提前断连的用例会主动销毁连接，忽略客户端侧的错误事件。
-  });
+  req.on('error', () => {});
   return req;
 }
 
@@ -126,10 +123,7 @@ describe('model proxy streaming', () => {
 
     const upstream = createServer((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.on('error', () => {
-        // 客户端中断后上游写会失败，这里只记录已刷出的字节数。
-      });
-      // 上游是快生产者：故意不等待 write 的返回值，代理必须自己施加背压。
+      res.on('error', () => {});
       for (let i = 0; i < TOTAL_CHUNKS; i += 1) {
         res.write(CHUNK, () => {
           flushedBytes += CHUNK.length;
@@ -148,7 +142,6 @@ describe('model proxy streaming', () => {
 
     const downstream = await response;
     downstream.on('error', () => {});
-    // 下游暂停读取：没有背压时代理会把上游 64MB 全部读进内存。
     downstream.pause();
 
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 1200));
@@ -159,7 +152,6 @@ describe('model proxy streaming', () => {
     downstream.destroy();
 
     expect(flushedWhilePaused).toBeLessThan(TOTAL_CHUNKS * CHUNK.length);
-    // 暂停后上游应基本停在原处，而不是继续被代理抽干。
     expect(flushedLater - flushedWhilePaused).toBeLessThan(4 * CHUNK.length);
   }, 20_000);
 
@@ -170,7 +162,6 @@ describe('model proxy streaming', () => {
     const upstream = createServer((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.write('data: first\n\n');
-      // 客户端断开时代理应取消上游；没有取消时这里不会触发。
       res.on('close', () => {
         aborted = !res.writableEnded;
         upstreamClosed.resolve();

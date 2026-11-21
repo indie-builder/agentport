@@ -13,7 +13,6 @@ function runSubject(subject: ExecutionSubject) {
 export type AgentRun = typeof agentRuns.$inferSelect;
 export type RunStatus = NonNullable<typeof agentRuns.$inferInsert.status>;
 
-/** 只更新我关心的字段；worker 也可复用。 */
 export interface RunPatch {
   status?: RunStatus;
   sessionId?: string | null;
@@ -25,17 +24,11 @@ export interface RunPatch {
   turns?: number | null;
 }
 
-/**
- * 准入时从 DB 读出的续聊状态。worker 只拿 job 里的 id，用它决定
- * 本次是空会话、resume 还是先 fork 再 resume。
- */
 export interface ConversationSdkState {
   sdkSessionId: string | null;
-  /** 分支建立时记录的待分叉历史点；非空表示本轮必须先 fork。 */
   forkFromSdkMessageUuid: string | null;
 }
 
-/** 一组 run 的读数：会话历史里每条回复都按 run_id 回填同一行读数。 */
 export interface RunMetricsRow {
   id: string;
   status: RunStatus;
@@ -48,7 +41,6 @@ export interface RunMetricsRow {
   endedAt: Date | null;
 }
 
-/** 历史消息只带 run_id，读数要按 id 批量取，不能逐条查。 */
 export async function listRunMetrics(db: Database, runIds: string[]): Promise<RunMetricsRow[]> {
   if (runIds.length === 0) return [];
   return db
@@ -134,13 +126,11 @@ export async function createRun(
   return row;
 }
 
-/** 运行收尾：同一事务里更新会话的 SDK 状态并重映射消息 uuid（fork 会换 uuid）。 */
 export async function saveSdkState(
   db: DbHandle,
   input: {
     conversationId: string;
     sdkSessionId: string;
-    /** fork 前的旧 uuid → 新 uuid；非 fork 轮为空。 */
     uuidMap?: Array<{ from: string; to: string }>;
   },
 ): Promise<void> {

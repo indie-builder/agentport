@@ -347,7 +347,6 @@ describe.skipIf(!ready)('knowledge model profile selection', () => {
       enabled: true,
       supportsImageVectors: true,
     });
-    // 停用项仍要回显，但能力按 enabled 计算为 false。
     expect(byId.get(profiles.disabledCapable.id)).toMatchObject({
       enabled: false,
       supportsImageVectors: false,

@@ -14,11 +14,6 @@ export function stepName(step: RunStep): string {
   return step.kind === 'user' ? '用户消息' : '助手回复';
 }
 
-/**
- * 工具步骤对应的提问：以该 run 的提问列表为准（回答状态会变化）。
- * 运行步骤可能只保留工具参数，因此再按 toolUseId 对齐；历史快照作兜底。
- * 运行结束后提问不会再有新状态，以落库的最终快照为准，避免接口旧 pending 或 404。
- */
 export function questionForStep(
   step: RunStep,
   questionsByToolUseId: ReadonlyMap<string, PublicRunQuestion>,

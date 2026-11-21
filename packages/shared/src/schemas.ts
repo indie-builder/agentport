@@ -5,13 +5,6 @@ import { publicRunQuestionSchema } from './questions.js';
 import { runErrorKindSchema, runStatusSchema } from './run-state.js';
 import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
 
-/**
- * 前端真正解析的响应形状。路由声明 `response` 后，Fastify 会按 schema 序列化：
- * 漏声明的字段会被静默丢弃，多余字段同样被丢弃，类型不符则 500 RESPONSE_INVALID。
- * 只覆盖前端消费的端点，不追求覆盖全部路由。
- */
-
-/** /api/runs 列表项；costUsd 是 numeric，pg 驱动返回字符串。 */
 export const runListItemSchema = z.object({
   id: z.string(),
   agentId: z.string(),
@@ -74,7 +67,6 @@ export const runDetailSchema = z.object({
     sandboxId: z.string().nullable(),
     /** 容器实际使用的身份；尚未创建容器（queued）时为 null。 */
     runtimeEnvironment: resolvedRuntimeEnvironmentSchema.nullable(),
-    // optional：db 的 runColumns 尚未取该列，缺失时响应序列化不能失败。
     errorKind: runErrorKindSchema.nullable().optional(),
   }),
   steps: z.array(runStepSchema),

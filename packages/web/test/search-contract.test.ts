@@ -71,7 +71,6 @@ describe('shared search contract', () => {
       head: 'evalRun_head',
     });
 
-    // 空 ID 不能表达“选中”，按未选中处理，避免用空参数请求详情。
     expect(evalSearchSchema.parse({ run: '', base: '', head: '' })).toEqual({});
     expect(evalSearchSchema.parse({ unknown: 'x' })).toEqual({});
   });

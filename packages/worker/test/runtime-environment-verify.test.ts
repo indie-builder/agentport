@@ -15,7 +15,6 @@ interface Reply {
   onStart?: () => void;
 }
 
-/** 只替换子进程；命令参数、管道与关闭语义与真实 docker CLI 一致。 */
 function fakeDocker(respond: (args: string[]) => Reply): {
   spawn: SpawnFn;
   commands: string[][];
@@ -131,7 +130,6 @@ describe('verifyRuntimeEnvironmentImage', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    // 200k 单行输出不能整段进错误摘要；限长后仍保留最尾部的原因。
     expect(result.error.endsWith(tail)).toBe(true);
     expect(result.error.length).toBeLessThanOrEqual('产物验证失败: '.length + '…'.length + 1_000);
     expect(result.error).not.toContain('x'.repeat(2_000));

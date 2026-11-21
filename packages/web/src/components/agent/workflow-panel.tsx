@@ -24,7 +24,6 @@ type WorkflowAction =
   | { type: 'create' }
   | { type: 'delete'; workflow: AgentWorkflow };
 
-/** 工作流：编辑 `.claude/workflows/<slug>.js`；名称与描述由脚本内的 meta 解析。 */
 export function WorkflowsPanel({
   agentId,
   canWrite = true,

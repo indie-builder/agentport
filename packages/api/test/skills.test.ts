@@ -96,7 +96,6 @@ describe.skipIf(!ready)('skills', () => {
       'attachment; filename="SKILL.md"; filename*=UTF-8\'\'SKILL.md',
     );
 
-    // 期望值手写：正文只去外层空白，内部 CRLF 与 Unicode 原样保留。
     const expected = [
       '---',
       `name: "${slug}"`,
@@ -110,7 +109,6 @@ describe.skipIf(!ready)('skills', () => {
     ].join('\n');
     expect(res.body).toBe(expected);
 
-    // 同一技能绑定到智能体后，预览里的内容必须与下载逐字节相同。
     const agent = await newAgent([skill.id]);
     const preview = await request(app, {
       method: 'GET',
@@ -123,7 +121,6 @@ describe.skipIf(!ready)('skills', () => {
     expect(rendered?.content).toBe(res.body);
     expect(rendered?.content).toContain('# Unicode Playbook');
     expect(rendered?.content).toContain('第一行：你好，世界 🌏');
-    // CLAUDE.md 按 slug + 压平后的描述列出技能。
     expect(files.claudeMd).toContain(`- \`${slug}\`：Handles "quoted" paths and CRLF bodies`);
   });
 
@@ -369,7 +366,6 @@ describe.skipIf(!ready)('skills', () => {
       '# No frontmatter\n\nJust markdown.',
       '---\nname: Bad Slug\ndescription: invalid slug\n---\n\n# Bad',
       `---\nname: ${unique('import-no-desc')}\n---\n\n# Missing description`,
-      // 超过 128 KiB 上限前，内容本身仍是合法 SKILL.md。
       `${skillMd(tooBigSlug)}\n${'x'.repeat(131_072)}`,
     ];
     for (const markdown of cases) {
@@ -451,7 +447,6 @@ describe.skipIf(!ready)('skills', () => {
     expect(loaded.statusCode, loaded.body).toBe(200);
     expect(loaded.json<Skill>()).toMatchObject(provenance);
 
-    // null 表示显式清空：读回来三个键都要消失，而不是变成 null。
     const cleared = await request(app, {
       method: 'PATCH',
       url: `/api/skills/${skill.id}`,
@@ -500,7 +495,6 @@ describe.skipIf(!ready)('skills', () => {
     expect(loaded.statusCode, loaded.body).toBe(200);
     expect(loaded.json<Skill>()).toMatchObject(expected);
 
-    // 未写 provenance 时 DB 的 NULL / 空 metadata 不应作为无意义字段出现在 API 里。
     const plainSlug = unique('import-no-meta');
     createdSkills.push(plainSlug);
     const plain = await importSkill(skillMd(plainSlug));

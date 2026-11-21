@@ -123,7 +123,6 @@ export function ServersPage() {
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
-  // 弹层关闭后焦点回到真正打开它的控件，而不是统一回到「新建」。
   const triggerRef = useRef<HTMLElement | null>(null);
   const focusTrigger = (): HTMLElement | null =>
     triggerRef.current?.isConnected
@@ -132,13 +131,10 @@ export function ServersPage() {
 
   const catalogTest = catalogServer ? tested.get(catalogServer.id) : undefined;
   const all = servers.data ?? [];
-  // 环境列表不可用时不允许确认：默认项只是占位，无法核对上次实际环境。
-  // 有缓存时刷新失败同样算不可用：缓存可能已经过时，先重试再测。
   const environmentList = environments.data ?? [];
   const environmentsLoading = environments.isFetching && environments.data === undefined;
   const environmentsError = environments.isError ? environments.error : null;
 
-  // 目录条目的 name 是人类可读名；已登记的 server 只有 slug 作为 name。
   const catalogNames = useMemo(
     () => new Map((catalog.data ?? []).map((item) => [item.slug, item.name])),
     [catalog.data],
@@ -201,7 +197,6 @@ export function ServersPage() {
 
   const runTest = (server: Server, environmentId: string | null = null): void => {
     if (test.isPending) return;
-    // 只有 stdio 在沙盒里执行；HTTP/generated 由平台直连，不能带运行环境。
     const runtimeEnvironmentId = server.kind === 'stdio' ? environmentId : null;
     test.mutate(
       {
@@ -718,7 +713,6 @@ export function ServersPage() {
               next.delete(saved.id);
               return next;
             });
-            // 新建的 generated server 还没有工具；直接进入工具编辑，避免回到列表后无从下手。
             if (created && saved.kind === 'generated') setToolServer(saved);
           }}
         />

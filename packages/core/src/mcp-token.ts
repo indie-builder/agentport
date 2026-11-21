@@ -8,7 +8,6 @@ import { createHash } from 'node:crypto';
 export const WORKSPACE_FILE_MODE = 0o600;
 export const WORKSPACE_DIR_MODE = 0o700;
 
-/** sha256(base64url)：DB 只存 hash，泄露的库不能直接拿来调 MCP。 */
 export function hashMcpToken(token: string): string {
   return createHash('sha256').update(token).digest('base64url');
 }

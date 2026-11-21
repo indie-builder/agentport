@@ -52,7 +52,6 @@ describe.skipIf(!ready)('eval run list pagination', () => {
       await createAgent(app, cookie, { slug: unique('eval-page'), track: createdAgents })
     ).json<Agent>();
 
-  // 直接落已收口的跑批：同一智能体只允许一个 running，且原始 SQL 才能控制微秒时间。
   const seedRun = async (agentId: string, createdAt: string, total: number, error?: string) => {
     const id = newId('evalRun');
     await app.client.unsafe(
@@ -146,7 +145,6 @@ describe.skipIf(!ready)('eval run list pagination', () => {
     });
     expectProblem(zero, 'INVALID_INPUT');
 
-    // 没有 agent 筛选时，别的智能体的游标也是合法游标。
     const unfiltered = await request(app, {
       method: 'GET',
       url: `/api/eval/runs?cursor=${otherRun}&limit=100`,

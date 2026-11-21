@@ -24,7 +24,6 @@ import { meQuery, usePersonalSessions, useUpdatePersonalProfile } from '../../li
 import { toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 
-// 短字段统一 448px；横向标签列 96px，值列与表单、提交按钮共用同一轴线。
 const FIELD_VALUE = 'flex w-full min-w-0 max-w-112 flex-1 flex-col gap-1.5';
 
 export function PersonalProfilePage() {

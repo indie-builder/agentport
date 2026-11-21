@@ -18,7 +18,6 @@ export function mergeChannelMessages(
   );
 }
 
-/** 光标前正在输入的 @ 片段；@ 前必须是空白，避免把邮箱当提及。 */
 export function mentionQueryAt(
   text: string,
   caret: number,
@@ -32,7 +31,6 @@ export function mentionQueryAt(
   return { start, query };
 }
 
-/** 用选中的智能体替换光标前的 @ 片段，并把光标放到插入文本之后。 */
 export function applyMention(
   text: string,
   caret: number,
@@ -47,7 +45,6 @@ export function applyMention(
   };
 }
 
-/** 文本里已删掉的 @ 名称不再作为 mentions 发送，避免误唤醒智能体。 */
 export function pruneMentions(
   text: string,
   selected: readonly { agentId: string; name: string }[],
@@ -72,10 +69,6 @@ export function pruneMentions(
   return selected.filter((item) => mentioned.has(item.agentId)).map((item) => item.agentId);
 }
 
-/**
- * 可见性按轮上报，而时间线把「用户消息」与随后连续的非用户回复各归一轮；
- * 一轮可见即整轮算读到，返回其中已落库消息的最大 seq。
- */
 export function visibleReadSeq(
   items: readonly ChatItem[],
   visibleIds: readonly string[],

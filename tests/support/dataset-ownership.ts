@@ -3,10 +3,6 @@ type OwnershipResolution<T> =
   | { kind: 'create' }
   | { kind: 'conflict'; message: string };
 
-/**
- * manifest 归属判定：只有带正确 ID 且名称未变的记录可复用。
- * 已归属但丢失/改名、未归属却同名，都按冲突停止，不重建也不覆盖。
- */
 export function resolveOwnership<T>(input: {
   dataset: string;
   label: string;

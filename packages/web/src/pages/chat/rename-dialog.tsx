@@ -11,14 +11,9 @@ import { Input } from '../../components/ui/input.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { fieldErrors } from '../../lib/form.js';
 
-/**
- * 重命名草稿的离开保护。同页只换成果（agent/conversation 不变）不会卸载对话框，
- * 其余换会话、换专家、跨页与刷新一律拦下；保存中也不放行。
- */
 export function useRenameBlocker(dirty: boolean, pending: boolean) {
   const blocker = useBlocker({
     shouldBlockFn: ({ current, next }) => {
-      // 只改成果选择不算离开：对话框与草稿都还在。
       const sameSession =
         current.pathname === next.pathname &&
         'agent' in current.search &&
@@ -35,7 +30,6 @@ export function useRenameBlocker(dirty: boolean, pending: boolean) {
   });
   return {
     ...blocker,
-    // 保存中不提供离开确认，等请求结算后再放行。
     proceed: () => {
       if (!pending) blocker.proceed?.();
     },
@@ -64,13 +58,11 @@ export function RenameDialog({
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  // 保存按钮在无效时禁用，所以错误要随输入即时给出，而不是只在提交后出现。
   const parsed = conversationRenameSchema.safeParse({ title });
   const error = parsed.success
     ? null
     : (fieldErrors(parsed.error.issues).title ?? '请检查标题后重试');
   const saveDisabled = !parsed.success || !dirty || pending;
-  // 未改动、无效或请求中都不能提交；脏时关闭先确认，请求中一律不关。
   const close = (): void => {
     if (pending) return;
     if (dirty) {
@@ -145,7 +137,6 @@ export function RenameDialog({
           onConfirm={async () => {
             if (pending) return;
             if (leaving) {
-              // 同页换会话不会卸载工作区：放弃后先收起对话框，再放行导航。
               dialog.finish(() => {
                 onClosed();
                 blocker.proceed();

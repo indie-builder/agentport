@@ -97,7 +97,6 @@ import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 
 const baseFormSchema = z.object({
-  // 留空表示按名称自动生成；显式填写时仍沿用原有格式约束。
   slug: z
     .string()
     .trim()
@@ -118,14 +117,12 @@ const baseFormSchema = z.object({
 
 type BaseForm = z.infer<typeof baseFormSchema>;
 
-/** 启停状态筛选：缺省即全部，选项值与 URL 的 status 一一对应。 */
 const statusFilterOptions = [
   { value: 'all', label: '全部状态' },
   { value: 'active', label: '启用' },
   { value: 'disabled', label: '停用' },
 ];
 
-/** 列表只返回 base 本身；文档数在详情页看，不在行上为每个库多拉一页文档。 */
 function KnowledgeRow({
   base,
   pinned,
@@ -171,7 +168,6 @@ function KnowledgeRow({
       />
       <DropdownMenuContent align="end" sideOffset={4} className="w-40">
         <DropdownMenuGroup>
-          {/* 置顶是个人偏好：所有能读知识库的人都能切换，不看 update 权限。 */}
           <DropdownMenuItem disabled={pinPending} onSelect={onTogglePin}>
             {pinned ? <PinOff /> : <Pin />}
             {pinned ? '取消置顶' : '置顶'}
@@ -270,7 +266,6 @@ function KnowledgeRow({
   }
   return (
     <li className="relative min-w-0 transition-colors duration-150 ease-out-soft hover:bg-hover">
-      {/* 覆盖整行的可点击入口；操作菜单用 z-10 保持在它之上。 */}
       <Link
         to="/knowledge/$baseId"
         params={{ baseId: base.id }}
@@ -281,7 +276,6 @@ function KnowledgeRow({
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-w-0 items-center gap-2">
             {pinned ? (
-              // 置顶只给图标，不加可见文字；title 提供悬停说明。
               <span className="flex shrink-0 items-center" title="已置顶">
                 <Pin className="size-3.5 text-muted-foreground" aria-hidden="true" />
               </span>
@@ -334,12 +328,9 @@ export function KnowledgePage() {
   };
   const bases = useKnowledgeBases();
   const baseItems = bases.data ?? [];
-  // 置顶是个人偏好：读取失败时静默按全部未置顶处理，不打断列表也不 toast。
   const pins = useKnowledgeBasePins();
   const pinnedIds = new Set(pins.data?.baseIds ?? []);
   const setPin = useSetKnowledgeBasePin();
-  // 知识库是小型集合：一次取完剩余分页（每页 50，仅取元数据），
-  // 这样「共 N 个」是真实总数，本地搜索也覆盖整库，而不是假装首屏就是全部。
   const { hasNextPage, isFetchNextPageError, fetchNextPage } = bases;
   useDrainPages(bases);
   const agents = useAgents();
@@ -361,9 +352,7 @@ export function KnowledgePage() {
     documents: number;
     wikiPages: number;
   } | null>(null);
-  // 创建成功的弹层卸载、blocker 注销后才导航：同一 tick 内跳转仍会被旧的 dirty/pending 拦下。
   const [createdBaseId, setCreatedBaseId] = useState<string | null>(null);
-  // 复制同理：弹层先关闭（结算 blocker），下一轮再进入新库。
   const [duplicatedBaseId, setDuplicatedBaseId] = useState<string | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
@@ -387,7 +376,6 @@ export function KnowledgePage() {
   const download = (base: KnowledgeBase): void => {
     exporter.mutate(base.id, {
       onSuccess: async (blob) => {
-        // 导出就是整库 ZIP；扩展名由浏览器按名称落盘。
         downloadBlob(blob, `${base.slug}.zip`);
         toastSuccess(`已导出「${base.name}」`);
       },
@@ -409,12 +397,10 @@ export function KnowledgePage() {
           `知识库已导入：${result.counts.documents} 个文档、${result.counts.wikiPages} 个 Wiki 页面`,
         );
       },
-      // 缺同名 profile 是 409，可恢复：留住文件并提供重试，不要求用户重新选。
       onError: (error) => setFailedImport({ file, message: errorMessage(error) }),
     });
   };
 
-  // 置顶项整体排在前面，组内继续沿用当前排序规则。
   const compareBases = (a: KnowledgeBase, b: KnowledgeBase): number => compareBySort(a, b, sort);
   const visible = baseItems
     .filter((base) => status === undefined || base.status === status)
@@ -482,7 +468,6 @@ export function KnowledgePage() {
       />
     ));
 
-  // 关键词只换当前地址（不新增历史）；筛选与排序 push，便于后退回到上一组条件。
   const setSearch = (
     patch: {
       q?: string | undefined;
@@ -504,7 +489,6 @@ export function KnowledgePage() {
     });
   };
 
-  // 四种状态互斥：首屏加载、首屏失败、真空库、筛选无结果；刷新失败只加提示，不替换已有数据。
   const initialPending = bases.isPending && baseItems.length === 0;
   const initialError = bases.isError && baseItems.length === 0;
   const emptyNoFilter = !bases.isPending && !bases.isError && baseItems.length === 0;
@@ -543,7 +527,6 @@ export function KnowledgePage() {
       }
       activeFilterCount={status === undefined ? 0 : 1}
       leadingFilters={
-        // 搜索在已加载的库里本地过滤；还有更多时直接显示加载入口，避免被当成全库搜索。
         query.trim() !== '' && hasNextPage ? (
           <span className="text-xs text-muted-foreground">
             仅搜索已加载的 {baseItems.length} 个
@@ -831,24 +814,20 @@ function CreateBaseDialog({
   const pending = create.isPending || profilePending;
   const dirty = form.formState.isDirty || profileDirty;
   const guard = useDraftGuard(dirty, pending, onClose);
-  // 加载失败时不能把「没拿到」当成「没有 profile」。
   const missingProfiles = profiles.isSuccess && embedding.length === 0;
   const onlyEmbedding = embedding.length === 1 ? embedding[0] : undefined;
 
-  // 唯一可用时自动选中；已有值（用户选的或先前写入的）一律不覆盖。
   useEffect(() => {
     if (!onlyEmbedding || form.getValues('embeddingProfileId') !== '') return;
     form.setValue('embeddingProfileId', onlyEmbedding.id, { shouldValidate: true });
   }, [onlyEmbedding, form]);
 
-  // 高级字段挂载在折叠面板里：校验失败先展开，再聚焦到第一个出错字段。
   useEffect(() => {
     if (!errors.slug && !errors.embeddingProfileId && !errors.chunkTokens && !errors.chunkOverlap)
       return;
     setAdvancedOpen(true);
   }, [errors.slug, errors.embeddingProfileId, errors.chunkTokens, errors.chunkOverlap]);
 
-  // 没有可用模型时创建按钮不可用，必须把原因和补建入口露出来。
   useEffect(() => {
     if (missingProfiles || profiles.isError) setAdvancedOpen(true);
   }, [missingProfiles, profiles.isError]);
@@ -884,7 +863,6 @@ function CreateBaseDialog({
       form.setError('chunkOverlap', { message: '需为 0–1000 的整数' });
       return;
     }
-    // 与专家创建同一条规则：显式 slug 优先，否则按名称规范化；纯中文规范化为空时用随机后缀。
     const generatedSlug = slugFromName(values.name);
     const slug = values.slug || generatedSlug || `kb-${crypto.randomUUID().slice(0, 8)}`;
     create.mutate(
@@ -1033,7 +1011,6 @@ function CreateBaseDialog({
                 {missingProfiles && canManageModels ? (
                   <NewEmbeddingProfile
                     onCreated={(profile) => {
-                      // 列表刷新会先卸载子表单，它再也回报不了 pending/dirty，外层在这里结算。
                       setProfilePending(false);
                       setProfileDirty(false);
                       form.setValue('embeddingProfileId', profile.id, { shouldValidate: true });
@@ -1207,7 +1184,6 @@ function CreateBaseDialog({
   );
 }
 
-/** 首次使用没有可用 profile 时，建库表单里直接补一个 embedding profile。 */
 function NewEmbeddingProfile({
   onCreated,
   onDirtyChange,
@@ -1242,7 +1218,6 @@ function NewEmbeddingProfile({
     } catch (error) {
       toastError(error);
     } finally {
-      // 列表刷新可能先卸载子表单，pending 只能由仍存活的异步延续结算。
       onPendingChange(false);
     }
   };

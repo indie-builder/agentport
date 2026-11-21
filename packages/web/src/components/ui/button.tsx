@@ -44,8 +44,6 @@ const buttonVariantStyles = cva(
   },
 );
 
-// Link 等场景把 helper 直接当 className 用，不经过 Button 的 cn；这里先合并，
-// 保证调用方追加的 className 也按 Tailwind 冲突规则覆盖基础样式与变体。
 const buttonVariants = (props?: Parameters<typeof buttonVariantStyles>[0]) =>
   cn(buttonVariantStyles(props));
 

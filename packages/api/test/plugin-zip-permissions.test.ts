@@ -124,7 +124,6 @@ describe.skipIf(!ready)('plugin ZIP executable permissions', () => {
     const exported = await requestZip(app, 'GET', `/api/plugins/${plugin.id}/export`, cookie);
     expect(exported.statusCode, exported.body).toBe(200);
 
-    // 导出包沿用原 manifest 名称；删掉原行后同 slug 再导入，才能验证真实往返。
     const deleted = await request(app, {
       method: 'DELETE',
       url: `/api/plugins/${plugin.id}`,
@@ -165,7 +164,6 @@ describe.skipIf(!ready)('plugin ZIP executable permissions', () => {
       for (const file of rendered.files) {
         const target = join(root, file.path);
         await mkdir(dirname(target), { recursive: true, mode: WORKSPACE_DIR_MODE });
-        // 与 worker writeWorkspace 的插件写入规则一致（该函数未导出）。
         await writeFile(target, file.content, {
           mode: file.executable ? WORKSPACE_DIR_MODE : WORKSPACE_FILE_MODE,
         });

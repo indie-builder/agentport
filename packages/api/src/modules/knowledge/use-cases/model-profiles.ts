@@ -78,8 +78,6 @@ function imageCapabilityProblem(input: {
   return null;
 }
 
-// ---- model profiles -------------------------------------------------------
-
 export async function listModelProfiles(deps: KnowledgeDeps, view: 'selection' | undefined) {
   const rows = await repo.knowledge.listModelProfiles(deps.db);
   if (view !== 'selection') return rows.map(toProfile);

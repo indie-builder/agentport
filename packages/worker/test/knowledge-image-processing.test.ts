@@ -40,7 +40,6 @@ type Captured = {
   options: Options;
 };
 
-/** 每次 query 记下真实 prompt/options，并按调用顺序给出结果或抛错。 */
 function fakeQuery(
   outcome: Array<{ text?: string; error?: string }>,
   captured: Captured[],
@@ -134,7 +133,6 @@ describe('describeKnowledgeImage', () => {
         data: TINY_PNG.toString('base64'),
       },
     });
-    // 临时 cwd 已清理，不留会话目录。
     expect(existsSync(captured[0]?.options.cwd ?? '')).toBe(false);
   });
 
@@ -268,7 +266,6 @@ describe('describeKnowledgeImage', () => {
       },
       { queryFn },
     );
-    // 等 query 真正开始（signal 已挂上监听）再取消。
     await new Promise((resolve) => setTimeout(resolve, 20));
     controller.abort();
     await expect(pending).rejects.toThrow(/取消/);

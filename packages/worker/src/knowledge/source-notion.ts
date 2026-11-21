@@ -14,10 +14,6 @@ import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import { parseInitialCursor, snapshotOf } from './source-utils.js';
 
-/**
- * Notion 来源：页面正文走官方原生 Markdown，块接口只负责发现子页面/子数据库与附件。
- * 不在来源层重写一套块渲染器；properties 与正文同时保留，截断/未知块明确失败。
- */
 const NOTION_API = 'https://api.notion.com';
 const NOTION_VERSION = '2026-03-11';
 const MAX_PAGES = 1000;
@@ -210,7 +206,6 @@ const EXTENSION_BY_MIME: Record<string, string> = Object.fromEntries(
   ),
 );
 
-/** 扩展名优先：下载响应头常缺失或误报文本，不能拿它覆盖真实原件类型。 */
 function mimeForName(name: string, contentType: string | null): string {
   const byExtension =
     BINARY_MIME_BY_EXTENSION[extensionWithDot(name)] ??
@@ -252,9 +247,7 @@ function fileNameFromUrl(raw: string): string {
     let decoded = last;
     try {
       decoded = decodeURIComponent(last);
-    } catch {
-      // 保留原始段，后面还会过 sanitize。
-    }
+    } catch {}
     return sanitizeSegment(decoded, 'attachment');
   } catch {
     return 'attachment';
@@ -307,7 +300,6 @@ function notionBase(config: SourceConfig): string {
 
 const failureOf = makeSourceFailure((err) => err instanceof TruncatedError);
 
-/** 调用方取消不能被降级成单项失败：整轮读取必须立即结束。 */
 function rethrowAbort(err: unknown, signal: AbortSignal | undefined): void {
   if (signal?.aborted === true) throw signal.reason ?? err;
 }
@@ -316,7 +308,6 @@ function richTextPlain(items: readonly { plain_text?: string | undefined }[] | u
   return (items ?? []).map((item) => item.plain_text ?? '').join('');
 }
 
-/** rollup.array 的条目就是无 property ID 的类型值，复用同一序列化逻辑保留真实值。 */
 function rollupArrayValues(items: readonly unknown[]): string {
   return items
     .map((item) =>
@@ -394,7 +385,6 @@ function propertyValue(property: Property): string {
       return rollup.date?.start ?? '';
     }
     default:
-      // 未支持的属性类型不伪造内容；正文仍来自官方 Markdown。
       return '';
   }
 }
@@ -463,7 +453,6 @@ async function completePaginatedProperty(
       values.push(value);
     }
     if (!response.has_more) {
-      // 内联有值而终页为空是矛盾响应，不能当成空属性静默覆盖。
       if (values.length === 0 && Array.isArray(inline) && inline.length > 0) {
         throw new Error(`notion property ${name} on ${pageId} returned no items`);
       }
@@ -527,7 +516,6 @@ function isExpiredFile(file: FileObject): boolean {
   return Number.isFinite(time) && time <= Date.now();
 }
 
-/** fetchChecked 在 authFailure 'item' 下把 401/403 抛成普通错误；仅这两类可重取签名 URL。 */
 function isExpiredAuthError(err: unknown): boolean {
   return err instanceof Error && /^HTTP (401|403) /.test(err.message);
 }
@@ -570,7 +558,6 @@ async function listBlockChildren(ctx: NotionContext, blockId: string): Promise<B
   throw new TruncatedError(`notion block pagination for ${blockId} exceeded ${MAX_PAGES} pages`);
 }
 
-/** 递归发现后代块；child_page/child_database 由调用方单独遍历，不在这里展开。 */
 async function collectBlocks(ctx: NotionContext, rootId: string): Promise<Block[]> {
   const result: Block[] = [];
   const pending = [rootId];
@@ -855,7 +842,6 @@ async function walkPage(
     try {
       page = await fetchPage(ctx, pageId);
     } catch (err) {
-      // 根失联不是空根：404/403 直接失败，不能变成“空全集 + complete”。
       if (err instanceof SourceAuthError || options.root) throw err;
       rethrowAbort(err, ctx.signal);
       ctx.failures.push(failureOf(externalId, pageId, err, true));
@@ -1019,7 +1005,6 @@ export async function readNotion(
   return snapshotOf(ctx.items, ctx.failures, previous);
 }
 
-/** 只核选定对象的 metadata；不遍历、不推进游标、不下载附件。 */
 export async function probeNotion(
   config: SourceConfig,
   signal: AbortSignal | undefined,

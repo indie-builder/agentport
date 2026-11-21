@@ -17,10 +17,8 @@ import {
   waitFor,
 } from './helpers.js';
 
-// 队列里有真实消费者时 job 会被 worker 抢走，取消语义就测不到了。
 const ready = (await infraReady) && (await queueIdle);
 
-/** 所有挂起都有界；vitest 的 20s 兜底不算可读的失败原因。 */
 async function settledWithin(promise: Promise<void>, ms: number): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<boolean>((resolve) => {
@@ -48,7 +46,6 @@ describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', 
   });
 
   afterAll(async () => {
-    // 先清队列里本次留下的 job，再删库行；Redis 键只碰本文件创建的 run。
     for (const runId of runIds) {
       await getQueue()
         .getJob(runId)
@@ -77,7 +74,6 @@ describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', 
     return rows[0]?.status;
   };
 
-  /** 等到本次 agent 的 run 建好并真实入队；返回 runId。 */
   const awaitQueuedJob = async (agentId: string): Promise<string> => {
     const found = await waitFor(async () => {
       const id = await ownRun(agentId);
@@ -91,7 +87,6 @@ describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', 
     return runId;
   };
 
-  // timeoutMs 让旧实现（不响应 signal）在 8s 内以 timeout 失败，而不是挂到 vitest 超时。
   it('publishes the cancel signal and keeps the job when a claimed run is aborted', {
     timeout: 15_000,
   }, async () => {
@@ -109,7 +104,6 @@ describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', 
     pending.catch(() => undefined);
 
     const runId = await awaitQueuedJob(agent.id);
-    // 模拟 worker 已领取：真实路径会启动沙盒与模型，这里只推进状态。
     await repo.chat.updateRun(app.db, runId, { status: 'running', startedAt: new Date() });
 
     const channel = runCancelKey(runId);
@@ -117,7 +111,6 @@ describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', 
     try {
       let received: string | undefined;
       const signalled = Promise.withResolvers<void>();
-      // 先等 SUBSCRIBE ack 再 abort，否则早到的 cancel 会被 pub/sub 丢掉。
       await subscriber.subscribe(channel, (message, incoming) => {
         if (incoming !== channel) return;
         received = message;
@@ -132,9 +125,7 @@ describe.skipIf(!ready)('platform agent tools: abort signals reach the worker', 
       subscriber.close();
     }
     expect(await redis.get(channel)).toBe(RUN_CANCEL_PAYLOAD);
-    // 只发信号：终态要等 worker 停稳容器、写完消息与成果快照后自己落库。
     expect(await statusOf(runId)).toBe('running');
-    // running 已被领取，清 job 是 worker 的职责；取消只应发信号。
     expect(await getQueue().getJob(runId)).toBeDefined();
   });
 

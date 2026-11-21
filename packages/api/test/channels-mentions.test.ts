@@ -159,7 +159,6 @@ describe.skipIf(!ready)('channel mentions', () => {
     return result;
   };
 
-  // 复用 worker 的真实落库/频道投影路径，不手写等价写入。
   const finishRunWithReply = async (run: RunRow, agentId: string, text: string) => {
     await app.client.unsafe(
       "update agent_runs set status = 'running', started_at = now() where id = $1",
@@ -222,7 +221,6 @@ describe.skipIf(!ready)('channel mentions', () => {
     );
     expect(binding[0]?.conversation_id).toBe(run.conversation_id);
 
-    // 释放 lane 后由第二个成员继续，验证同一 (channel, agent) 只复用一个会话。
     await app.client.unsafe(
       "update agent_runs set status = 'succeeded', ended_at = now() where id = $1",
       [run.id],
@@ -327,7 +325,6 @@ describe.skipIf(!ready)('channel mentions', () => {
       { body: 'mention all full', mentionAll: true },
     ];
     try {
-      // 普通非成员与平台管理员都不能借 @ 进入队列容量分支。
       for (const cookie of [member.cookie, adminCookie]) {
         for (const payload of mentionPayloads) {
           const res = await post(channel.id, cookie, payload);
@@ -344,7 +341,6 @@ describe.skipIf(!ready)('channel mentions', () => {
       }
       expect(waiting).not.toHaveBeenCalled();
 
-      // 真实成员保留原行为：队列满时 503，并且确实访问了队列。
       const full = await post(channel.id, owner.cookie, mentionPayload);
       expect(full.statusCode, full.body).toBe(503);
       expect(full.json<{ code: string }>().code).toBe('SERVICE_UNAVAILABLE');

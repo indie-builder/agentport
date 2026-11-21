@@ -27,15 +27,6 @@ import {
 import { fail } from './errors.js';
 import { pathSegmentsProblem } from './path-segments.js';
 
-/**
- * 会话输入的单一存储实现。
- *
- * `WORKSPACES_DIR/<slug>/conversation-inputs/<conversationId>/<attachmentId><ext>`
- *
- * 目录只由配置根、slug、conversationId 与服务端 uuid 组成；用户文件名只作显示。
- * 客户端提供的 base64、扩展名与字节都不可信，入口一次校验完再落盘。
- */
-
 const INPUTS_DIR = 'conversation-inputs';
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -76,7 +67,6 @@ function isControl(code: number): boolean {
   return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
 }
 
-/** 显示名去控制字符与路径分隔符、去首尾空白；保留 Unicode。 */
 function cleanFilename(raw: string): string {
   const kept = Array.from(raw).filter((ch) => {
     if (ch === '/' || ch === '\\') return false;
@@ -93,7 +83,6 @@ function sanitizeFilename(raw: string): string {
   return trimmed;
 }
 
-/** 按码点截到 120；在映射扩展名之后截，长文件名仍能识别类型。 */
 function truncateFilename(value: string): string {
   return Array.from(value).slice(0, ATTACHMENT_LIMITS.filenameChars).join('');
 }
@@ -113,7 +102,6 @@ function hasPrefix(data: Buffer, signature: readonly number[]): boolean {
   return data.length >= signature.length && signature.every((byte, index) => data[index] === byte);
 }
 
-/** 扩展名声明什么类型，字节就必须是什么类型；文本另要求合法 UTF-8 且无 NUL。 */
 function contentProblem(mimeType: AttachmentMimeType, data: Buffer): string | null {
   switch (mimeType) {
     case 'image/png':
@@ -168,7 +156,6 @@ function decodeBase64(value: string, filename: string): Buffer {
   return data;
 }
 
-/** 单个附件入口校验：显示名、规范类型、base64、真实大小与文件签名。 */
 export function decodeAttachmentInput(input: ChatAttachmentInput): DecodedConversationAttachment {
   const safeFilename = sanitizeFilename(input.filename);
   const filename = truncateFilename(safeFilename);
@@ -204,10 +191,6 @@ export function decodeAttachmentInput(input: ChatAttachmentInput): DecodedConver
   };
 }
 
-/**
- * 逻辑路径是配置根下的同一组相对段；以根的物理路径为信任起点，
- * 访问路径上每个已存在组件都不能是符号链接，且 realpath 仍在根内。
- */
 async function trustedPath(
   input: { root: string },
   segments: string[],
@@ -259,14 +242,12 @@ async function existingDirectory(
 }
 
 async function preparePath(root: string, segments: string[], label: string): Promise<string> {
-  // 首次写入时根可能还不存在；只有写入路径创建根，读取路径保持不隐式创建。
   await mkdir(resolve(root), { recursive: true, mode: 0o700 });
   await trustedPath({ root }, segments, label);
   const dir = join(resolve(root), ...segments);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await chmod(join(resolve(root), ...segments.slice(0, -1)), 0o700);
   await chmod(dir, 0o700);
-  // mkdir 之后复查一次：已存在的中间目录若是软链，这时候必须拒绝。
   await trustedPath({ root }, segments, label);
   return dir;
 }
@@ -433,7 +414,6 @@ export async function copyConversationInputs(input: CopyConversationInputsInput)
     if (dot > 0) byId.set(entry.name.slice(0, dot), entry.name);
   }
 
-  // 先把源文件全部读齐；任何缺失都在创建目标目录前失败。
   const files: Array<{ name: string; data: Buffer }> = [];
   for (const id of ids) {
     const name = byId.get(id);

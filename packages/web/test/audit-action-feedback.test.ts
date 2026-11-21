@@ -166,9 +166,7 @@ async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 懒加载的编辑器与查询还没挂载，继续等下一帧。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -331,7 +329,6 @@ describe('permission feedback stays visible and the action stays disabled', () =
 
   it('explains why rollback waits for the dirty memory draft and keeps it disabled', async () => {
     await mount(createElement(MemoryPanel, { agentId: 'agent-1' }));
-    // 记忆页签默认落在概览，回滚入口在「文件」子视图。
     await act(async () => buttonByVisibleText('文件').click());
     await flush();
 

@@ -35,7 +35,6 @@ export interface KnowledgeCitation {
   chunkId: string;
   target: { kind: KnowledgeContentKind; id: string };
   targetVersionId: string;
-  /** 兼容旧 trace：没有 target 的检索命中按文档处理。 */
   versionId: string;
   title: string;
   heading: string | null;
@@ -141,10 +140,6 @@ function targetField(value: unknown): { kind: KnowledgeContentKind; id: string }
   return null;
 }
 
-/**
- * MCP 结果按工具名解析；服务端四种知识工具都写 JSON 文本。
- * 解析失败返回 null，工具错误文本不会被当成引用。
- */
 function parseKnowledgeToolResult(
   name: string,
   result: string | undefined,
@@ -229,7 +224,6 @@ function parseKnowledgeToolResult(
   };
 }
 
-/** 对话读数需要来源数量：四类工具都按可点开的引用计数，列表按条目计数。 */
 export function knowledgeHitsFromTool(
   name: string,
   result: string | undefined,
@@ -280,7 +274,6 @@ export function knowledgeHitsFromTool(
   }));
 }
 
-/** 外部来源只允许 http/https：javascript: 等协议在这里直接丢弃，不做成可点击链接。 */
 function safeSourceUrl(value: string | null): string | null {
   if (value === null) return null;
   try {
@@ -294,7 +287,6 @@ function safeSourceUrl(value: string | null): string | null {
 export function citationPageLabel(citation: KnowledgeCitation): string | null {
   const locator = locatorLabel(citation.locator);
   if (locator !== null) return locator;
-  // 图片命中的页码以图片自身为准；文本命中仍用分块页范围。
   if (citation.image !== null && citation.image.page !== null)
     return `第 ${citation.image.page} 页`;
   if (citation.pageFrom === null) return null;
@@ -344,7 +336,6 @@ function CitationList({
   );
 }
 
-/** 已保存的工具结果带引用时，在 trace 中给出可点开的来源；普通 Markdown 不做处理。 */
 export function KnowledgeCitations({ name, result }: { name: string; result: string | undefined }) {
   const parsed = parseKnowledgeToolResult(name, result);
   const [cited, setCited] = useState<KnowledgeCitation | null>(null);
@@ -498,10 +489,6 @@ export function KnowledgeImage({
   return null;
 }
 
-/**
- * 解析正文里的图片引用指向版本图片端点，Markdown 组件不会带鉴权取图，只会渲染占位。
- * 这些图已经在上方按原图独立展示，正文里去掉重复引用（只动知识库生成的 images/ 路径）。
- */
 export function stripImageReferences(markdown: string): string {
   return markdown.replace(/!\[[^\]]*\]\(images\/[^)\s]*\)\s*/g, '');
 }
@@ -540,7 +527,6 @@ function CitationMeta({ citation }: { citation: KnowledgeCitation }) {
   );
 }
 
-/** 图片命中只展示版本原图；文档正文才需要判断 PDF 或 Markdown。 */
 function CitationBody({ citation }: { citation: KnowledgeCitation }) {
   if (citation.image !== null) {
     return (
@@ -555,7 +541,6 @@ function CitationBody({ citation }: { citation: KnowledgeCitation }) {
   return <DocumentCitationBody citation={citation} />;
 }
 
-/** 文档命中：解析正文为首选；PDF 复用 BlobPdf，其余走 Markdown。 */
 function DocumentCitationBody({ citation }: { citation: KnowledgeCitation }) {
   const versionId = citation.targetVersionId;
   const markdown = useKnowledgeMarkdown(versionId);
@@ -599,7 +584,6 @@ function ErrorText({ children }: { children: string }) {
   );
 }
 
-/** 版本历史按游标分页：引用按 ID 逐页读到目标版本或读到末尾，不换用当前版本。 */
 async function findPagedVersion<T extends { id: string }>(
   load: (cursor: string | undefined) => Promise<{ items: T[]; nextCursor: string | null }>,
   versionId: string,
@@ -618,7 +602,6 @@ async function findPagedVersion<T extends { id: string }>(
 
 function FaqCitationBody({ documentId, versionId }: { documentId: string; versionId: string }) {
   const detail = useKnowledgeFaq(documentId);
-  // FAQ 详情只带当前发布版与最新草稿；历史引用必须从完整版本历史精确读取。
   const knownVersion =
     detail.data === undefined
       ? undefined
@@ -679,7 +662,6 @@ function WikiCitationBody({ pageId, versionId }: { pageId: string; versionId: st
   return <Markdown text={exact.data.markdown} />;
 }
 
-/** 管理检索、聊天引用与 FAQ 命中测试共用的引用查看器。 */
 export function KnowledgeHitDialog({
   citation,
   onClose: onClosed,

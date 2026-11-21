@@ -2,7 +2,6 @@ import { animate } from 'motion/mini';
 import type { MouseEvent } from 'react';
 import { cn } from '../lib/cn.js';
 
-/** 品牌图层使用固定占位，切换图片不改变导航或表单布局。 */
 export function BrandMark({ className }: { className?: string }) {
   return (
     <img
@@ -60,7 +59,6 @@ export async function animateBrand(event: MouseEvent<HTMLElement>) {
   transitioning.add(image);
   const next = new Image();
   try {
-    // 先解码下一张，避免转场中等待图片加载而闪白。
     next.src = nextSource;
     await next.decode();
     if (!image.isConnected) return;

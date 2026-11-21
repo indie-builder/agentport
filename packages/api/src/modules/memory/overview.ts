@@ -22,20 +22,16 @@ import { asc, eq } from 'drizzle-orm';
 import { listMemoryFiles, readMemoryFile } from '../agents/memory-files.js';
 import { readPersonalMemory } from './personal.js';
 
-/** 索引行数/大小的预警线：行数 90%，大小 22 KiB（低于 25 KiB 硬上限约 12%）。 */
 const INDEX_LINES_NEAR = Math.ceil(AGENT_MEMORY_MAX_LINES * 0.9);
 const INDEX_BYTES_NEAR = 22 * 1024;
-/** 账本与文件时间戳的容忍差：平台写入与文件 mtime 不要求完全相等。 */
 const UNACCOUNTED_TOLERANCE_MS = 60_000;
 const RECENT_CHANGE_LIMIT = 5;
-/** 最近变更摘要只展示首个非空行的前 120 个字符。 */
 const RECENT_CHANGE_SUMMARY_CHARS = 120;
 
 function utf8Bytes(content: string | null): number {
   return content === null ? 0 : Buffer.byteLength(content, 'utf8');
 }
 
-/** 个人记忆上限按 Unicode 码点计，概览沿用同一口径。 */
 function charCount(content: string): number {
   return [...content].length;
 }
@@ -44,7 +40,6 @@ function topicsOf(files: MemoryFile[]): MemoryFile[] {
   return files.filter((file) => file.name !== INDEX_FILE_NAME);
 }
 
-/** 主题文件（非 MEMORY.md）数量；记忆策略上限与提案入口共用这一口径。 */
 export async function countMemoryTopics(workspacesDir: string, slug: string): Promise<number> {
   return topicsOf((await listMemoryFiles(workspacesDir, slug)).files).length;
 }
@@ -58,7 +53,6 @@ function namedList(names: string[], limit = 3): string {
   return names.length > limit ? `${listed} 等 ${names.length} 个` : listed;
 }
 
-/** 行数与字节两组预警同时命中时只保留更严重的一条，避免同一问题刷两条。 */
 function indexSizeHealth(lines: number, bytes: number): MemoryHealth[] {
   const linesEntry: MemoryHealth | null =
     lines >= AGENT_MEMORY_MAX_LINES
@@ -107,10 +101,8 @@ interface HealthInput {
   unaccounted: number;
 }
 
-/** 健康提示顺序固定；全部由已有数据算出，不做任何推测性判断。 */
 function buildHealth(input: HealthInput): MemoryHealth[] {
   const { policy, index, topics, personalChars, unaccounted } = input;
-  // 停用只影响主会话记忆：索引与主题的加载类提示不再适用，子智能体记忆不受影响。
   if (!policy.enabled) {
     return [
       {
@@ -190,10 +182,6 @@ function buildHealth(input: HealthInput): MemoryHealth[] {
   return health;
 }
 
-/**
- * 未记账文件：按每个文件最近一次平台写入时间与 mtime 比较；SDK 原生写入不进账本，
- * 因此晚于最近一次记账超过容忍差即为未记账。从未记账的文件同样计入。
- */
 function unaccountedFiles(files: MemoryFile[], latest: Map<string, Date>): string[] {
   return files
     .filter((file) => {
@@ -205,7 +193,6 @@ function unaccountedFiles(files: MemoryFile[], latest: Map<string, Date>): strin
     .map((file) => file.name);
 }
 
-/** 最近变更只回轻量投影：变更后正文的首个非空行去掉 Markdown 标题符号，截断到 120 个字符。 */
 function recentChange(
   row: repo.memoryChanges.MemoryChangeRow,
 ): AgentMemoryOverview['recentChanges'][number] {
@@ -241,7 +228,6 @@ export async function buildMemoryOverview(input: MemoryReadInput): Promise<Agent
   const topics = topicsOf(files);
   const lines = indexContent === null ? 0 : countMemoryLines(indexContent);
   const bytes = utf8Bytes(indexContent);
-  // 没有索引时所有主题都不可达，但根因是缺索引，不重复报「未链接」。
   const unlinked =
     indexContent === null
       ? []
@@ -305,7 +291,6 @@ export async function buildMemoryOverview(input: MemoryReadInput): Promise<Agent
   };
 }
 
-/** 运行期装配：personal → index → rules（按 slug） → topics（按名称）；只描述不改文件。 */
 export async function buildMemoryAssembly(input: MemoryReadInput): Promise<AgentMemoryAssembly> {
   const { db, workspacesDir, agentId, slug, businessId } = input;
   const policy = await resolvePolicy(db, agentId);
@@ -325,7 +310,6 @@ export async function buildMemoryAssembly(input: MemoryReadInput): Promise<Agent
     .orderBy(asc(schema.agentRules.slug));
   const personalChars = charCount((await readPersonalMemory(db, businessId)).content);
 
-  // 个人记忆由 injectPersonalMemory 独立控制：专家记忆停用不代表个人记忆不投影。
   const personalSkipped = !policy.injectPersonalMemory
     ? '策略未注入个人记忆'
     : personalChars === 0
@@ -336,7 +320,6 @@ export async function buildMemoryAssembly(input: MemoryReadInput): Promise<Agent
     : indexContent === null
       ? '还没有 MEMORY.md 索引'
       : null;
-  // 项目规则只由 injectRules 决定：运行期不读 enabled，停用记忆不影响规则渲染。
   const rulesSkipped = policy.injectRules ? null : '该专家运行时不渲染项目规则';
   const topicsSkipped = !policy.enabled ? '专家记忆已停用' : null;
 

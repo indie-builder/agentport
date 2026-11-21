@@ -3,11 +3,6 @@ import { AppError } from '@agentport/core';
 import { zipSync } from 'fflate';
 import { decodePackage } from '../src/modules/agents/package-zip.js';
 
-/**
- * ZIP 结构专项：EOCD 的本盘/总条目数必须一致，注释里的伪签名不能影响 EOCD 定位，
- * 解压后的大小必须与中央目录完全一致。
- */
-
 const SIGNATURE_EOCD = 0x06054b50;
 
 /** fflate 打包不带注释，EOCD 固定在最后 22 字节。 */
@@ -21,7 +16,6 @@ const eocdOffset = (archive: Buffer): number => {
 
 const centralOffset = (archive: Buffer): number => archive.readUInt32LE(eocdOffset(archive) + 16);
 
-/** 默认 level 0 让压缩后大小等于内容长度，便于手改中央目录字段。 */
 const makeZip = (files: Record<string, string>, level: 0 | 6 = 0): Buffer => {
   const encoder = new TextEncoder();
   const entries: Record<string, Uint8Array> = {};
@@ -210,7 +204,6 @@ describe('agent package ZIP structure', () => {
   });
 
   it('rejects a directory-named central entry whose local header is a file', () => {
-    // 中央目录名以 / 结尾会被当成目录跳过；本地头却写着同名文件，解压器按本地名读数据。
     const archive = makeZip({ 'sheet1.xm/': 'hidden' });
     const local = localOffset(archive);
     const nameLength = localHeaderNameLength(archive, local);
@@ -227,7 +220,6 @@ describe('agent package ZIP structure', () => {
     expect(declaredError.code).toBe('INVALID_INPUT');
     expect(declaredError.message).toContain('目录');
 
-    // 中央和本地都把原大小改成 0，但压缩数据仍解出内容。
     const hidden = makeZip({ 'data/': 'x'.repeat(1024) }, 6);
     hidden.writeUInt32LE(0, centralOffset(hidden) + 24);
     hidden.writeUInt32LE(0, localOffset(hidden) + 22);

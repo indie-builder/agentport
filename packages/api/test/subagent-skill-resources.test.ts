@@ -97,7 +97,6 @@ describe.skipIf(!ready)('subagent skill resources in workspace previews', () => 
     expect(files.agentMd).not.toContain(`skills: ["${slug}"]`);
     expect(files.claudeMd).not.toContain(`\`${slug}\``);
 
-    // 根和子同时绑定时只渲染一份；根绑定不能因子智能体停用而丢失资源。
     const bound = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${parent.id}`,

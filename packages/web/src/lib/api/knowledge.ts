@@ -369,7 +369,6 @@ export interface KnowledgePackageImportResult {
 }
 
 export default {
-  // ---- 知识库 -------------------------------------------------------------
   knowledgeBases: (
     query: { cursor?: string; limit?: number } = {},
     signal?: AbortSignal,
@@ -384,7 +383,6 @@ export default {
     rpc.knowledge.bases.setPin({ params: { id: baseId }, body: { pinned } }),
   knowledgeBaseSummary: (id: string, signal?: AbortSignal): Promise<KnowledgeBaseSummary> =>
     rpc.knowledge.bases.summary({ params: { id } }, clientOptions(signal)),
-  // 概览的活动流只读最近一页；20 条足够覆盖一次会话内产生的动作。
   knowledgeBaseActivity: (
     id: string,
     cursor?: string,
@@ -667,7 +665,6 @@ export default {
     query: { cursor?: string; status?: 'failed' | 'skipped' } = {},
   ): Promise<KnowledgePage<KnowledgeSyncItem>> =>
     rpc.knowledge.sources.runItems({ params: { sourceId, syncRunId }, query }),
-  // FAQ：与文档共用版本/发布/启停，不新增执行引擎。
   knowledgeFaqs: (
     baseId: string,
     query: Omit<

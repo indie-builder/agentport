@@ -34,7 +34,6 @@ function contentAttributes({ id, label, describedBy, invalid, disabled }: Conten
   return attrs;
 }
 
-// 颜色全部走 styles.css 的 @theme 变量；焦点由外层容器的边框表达，编辑器本身不画轮廓。
 const editorTheme = EditorView.theme({
   '&': { color: 'var(--color-fg)', backgroundColor: 'transparent' },
   '&.cm-focused': { outline: 'none' },
@@ -43,7 +42,6 @@ const editorTheme = EditorView.theme({
     padding: '0.5rem 0.625rem',
     caretColor: 'var(--color-fg)',
     minHeight: '4rem',
-    // 冲突时压过全局 :focus-visible 轮廓；焦点信号只留外层容器的边框。
     outline: 'none',
   },
   '.cm-gutters': {
@@ -75,12 +73,10 @@ const editorTheme = EditorView.theme({
   },
   '.cm-panel.cm-search .cm-textfield': {
     padding: '0.125rem 0.375rem',
-    // 输入家族默认浅线；按钮与复选框仍用各自原生焦点。
     border: '1px solid var(--color-input)',
   },
   '.cm-panel.cm-search .cm-textfield:focus-visible': {
     borderColor: 'var(--color-input-focus)',
-    // 与输入家族一致：焦点只由浅线加深表达，不叠加全局 2px 轮廓。
     outline: 'none',
   },
   '.cm-panel.cm-search button': { border: '1px solid var(--color-line)' },
@@ -112,7 +108,6 @@ const phrases = EditorState.phrases.of({
   go: '跳转',
 });
 
-/** CodeMirror 内核。由 SourceEditor 按需加载，不直接对外。 */
 export function SourceEditorInner({
   value,
   onChange,
@@ -127,7 +122,6 @@ export function SourceEditorInner({
 }: InnerProps) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  // 外部同步触发的 dispatch 不应回传 onChange，否则父组件会被自己的值再唤醒一次。
   const syncing = useRef(false);
   const handlers = useRef({ onChange, onBlur });
   useEffect(() => {
@@ -145,10 +139,8 @@ export function SourceEditorInner({
     () => ({ id, label: ariaLabel, describedBy: ariaDescribedBy, invalid: ariaInvalid, disabled }),
     [id, ariaLabel, ariaDescribedBy, ariaInvalid, disabled],
   );
-  // 只用于首帧创建；后续变化由 reconfigure 生效。
   const [initial] = useState(() => ({ value, disabled, readOnly, language, aria }));
 
-  // 在绘制前建好编辑器，避免换掉 Suspense 回退时闪一帧空白。
   useLayoutEffect(() => {
     const parent = host.current;
     if (!parent) return;
@@ -201,7 +193,6 @@ export function SourceEditorInner({
     try {
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: value },
-        // 外部重置不是用户编辑，不进入撤销栈。
         annotations: Transaction.addToHistory.of(false),
       });
     } finally {

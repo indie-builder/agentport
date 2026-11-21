@@ -10,25 +10,21 @@ import type { AppRuntime } from '../src/types.js';
 import { contextApp } from './hono-app.js';
 import { listen, type TestServer } from './server.js';
 
-// 每次运行建独立库：只验证取消路径，也能并跑多条回归。
 const isolated = await createIsolatedDatabase(
   'api_agent_tools_cancel_http',
   process.env.DATABASE_URL ?? '',
 );
 if (isolated) process.env.DATABASE_URL = isolated.url;
 
-// helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
 const helpers = await import('./helpers.js');
 const { cleanup, createAgent, loginCookie, startApp, unique, waitFor } = helpers;
 const ready = await helpers.infraReady;
 // skipIf 的 describe 不跑 hook；Redis 缺失时这里回收自己刚建的库。
 if (!ready && isolated) await isolated.close();
 
-/** 平台端点在注册时直接读 process.env，必须先于 buildApp 设置。 */
 const PLATFORM_TOKEN = 'cancel-platform-token-0123456789';
 process.env.PLATFORM_MCP_TOKEN = PLATFORM_TOKEN;
 
-/** 任何挂起都必须有界，不能等 vitest 20s 兜底。 */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   promise.catch(() => undefined);
   return Promise.race([
@@ -46,11 +42,6 @@ interface Call {
   prompt: string;
 }
 
-/**
- * 桩执行器照真实 invoker 的语义落 run、入队，然后挂起；
- * 收到中止就取消 run、清掉队列 job 再抛错。
- * 端点的责任只是把客户端的 signal 传到这里。
- */
 function stubInvoker(app: { db: AppRuntime['db'] }, agentId: string) {
   const calls: Call[] = [];
   const pending = new Set<() => void>();
@@ -88,7 +79,6 @@ function stubInvoker(app: { db: AppRuntime['db'] }, agentId: string) {
         };
         if (signal.aborted) return onAbort();
         signal.addEventListener('abort', onAbort, { once: true });
-        // 非取消路径由用例显式放行，避免断言依赖真实 worker。
         pending.add(() => {
           signal.removeEventListener('abort', onAbort);
           resolve();
@@ -133,7 +123,6 @@ describe.skipIf(!(ready && isolated))('platform MCP over real HTTP: cancellation
     );
     return rows[0]?.status;
   };
-  /** 等下一次 invoke 真的进到桩里；只按总数等待会拿到上一个用例的调用。 */
   const nextCall = async (): Promise<Call> => {
     const index = stub.calls.length;
     expect(await waitFor(() => stub.calls.length > index, 5_000)).toBe(true);
@@ -209,10 +198,8 @@ describe.skipIf(!(ready && isolated))('platform MCP over real HTTP: cancellation
 
       await withTimeout(client.close(), 5_000, 'client.close');
 
-      // HTTP 断开 → toNodeHandler 中止 fetch → ctx.mcpReq.signal 中止。
       expect(await withTimeout(settled, 5_000, '断开后结算')).toBe('rejected');
       expect(await waitFor(() => call.signal.aborted, 5_000)).toBe(true);
-      // 取消先把 DB 落成 cancelled，再清 job；DB 终态可见不代表 remove 已完成。
       expect(
         await waitFor(async () => (await getQueue().getJob(call.runId)) === undefined, 5_000),
       ).toBe(true);
@@ -243,7 +230,6 @@ describe.skipIf(!(ready && isolated))('platform MCP over real HTTP: cancellation
       const call = await nextCall();
       controller.abort();
       expect(await withTimeout(settled, 5_000, '客户端中止后结算')).toBe('rejected');
-      // 给取消通知留出送达时间，再确认它确实没有落到正在执行的那个实例上。
       await new Promise((resolve) => setTimeout(resolve, 300));
       expect(call.signal.aborted).toBe(false);
       expect(await runStatus(call.runId)).toBe('queued');

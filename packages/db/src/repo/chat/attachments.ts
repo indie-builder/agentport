@@ -28,7 +28,6 @@ export async function findConversationAttachment(
   );
 }
 
-/** 分支复制用：一批来源消息实际引用的附件 id，去重后保持首次出现顺序。 */
 export async function attachmentIdsForMessages(
   db: Database,
   messageIds: string[],

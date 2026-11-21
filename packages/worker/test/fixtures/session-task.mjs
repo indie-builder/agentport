@@ -1,13 +1,3 @@
-/**
- * 会话沙盒真实 Docker 测试用的 runner 替身。
- *
- * 只验证「进程是否停止、容器与 /tmp 是否跨 run 保留」，不模拟 Agent SDK：
- * - 正常任务：读第一行 SandboxTask，发合法的 assistant_text + run_finished 后退出。
- * - `fixture:long` 任务：持续写 /tmp progress，直到收到取消信号/命令。
- * - 每个进程都把状态写进 /home/node/.claude（会话持久挂载）和 /tmp（容器内保留）。
- *
- * stdin 首行可能是裸 SandboxTask，也可能是 supervisor 包了一层的 { task }，两者都接受。
- */
 import { spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 
@@ -15,13 +5,11 @@ const SCRATCH = '/tmp/session-fixture';
 const PROGRESS = `${SCRATCH}/progress`;
 const CANCELLED = `${SCRATCH}/cancelled`;
 const PERSIST = '/home/node/.claude/session-fixture.json';
-/** 孤儿模式：runner 退出后仍留在容器里的两个子进程各自的心跳与 SIGTERM 记录。 */
 const ORPHAN_PROGRESS = `${SCRATCH}/orphan-progress`;
 const ORPHAN_STOP = `${SCRATCH}/orphan-stop.json`;
 const GROUP_PROGRESS = `${SCRATCH}/group-progress`;
 const GROUP_STOP = `${SCRATCH}/group-stop.json`;
 const ORPHAN_META = `${SCRATCH}/orphan.json`;
-/** 忙碌模式：写到宿主挂载的 outputs，容器被回收后仍能观察是否还在写。 */
 const BUSY_PROGRESS = '/mnt/outputs/session-busy-progress';
 const BUSY_PROGRESS_TMP = `${BUSY_PROGRESS}.tmp`;
 const LONG = 'fixture:long';
@@ -45,7 +33,6 @@ function writePersist(state) {
   try {
     writeFileSync(PERSIST, JSON.stringify(state));
   } catch (error) {
-    // 没有会话挂载时 /home/node/.claude 是 tmpfs；用例要靠宿主文件断言隔离，写失败要留痕。
     process.stderr.write(`[fixture] persist failed: ${error.message}\n`);
   }
 }
@@ -108,7 +95,6 @@ function beat() {
   tick += 1;
   writeFileSync(progress, JSON.stringify({ pid: process.pid, ppid: ppid(), tick, at: Date.now() }));
 }
-// 父进程把首次心跳当作 ready 并可能立刻 SIGTERM；监听必须先于第一次 beat 注册。
 process.once('SIGTERM', () => {
   try {
     writeFileSync(stop, JSON.stringify({ pid: process.pid, ppid: ppid(), tick, at: Date.now() }));
@@ -120,7 +106,6 @@ setInterval(beat, 15);
 `;
 }
 
-/** busy 模式：runner 保持存活并持续写宿主 outputs，直到 supervisor 因 EOF 终止它。 */
 function startBusy() {
   let tick = 0;
   const beat = () => {
@@ -240,12 +225,10 @@ function shutdown(reason) {
   try {
     writeFileSync(CANCELLED, JSON.stringify({ reason, at: Date.now() }));
   } catch {
-    // 取消标记写不下时仍要退出，避免把容器留在运行中。
   }
   emit({ type: 'run_finished', status: 'cancelled', failureKind: 'cancelled' }, () =>
     process.exit(0),
   );
-  // 兜底：stdout 背压时不能把取消后的进程一直挂着。
   setTimeout(() => process.exit(0), 250).unref();
 }
 

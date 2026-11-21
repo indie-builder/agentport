@@ -9,7 +9,6 @@ import { conversationAccessWhere, conversationSubject } from './shared.js';
 
 export type Conversation = typeof conversations.$inferSelect;
 
-// id 由调用方生成（TypeID），db 层只负责持久化。
 export async function agentExists(db: Database, agentId: string): Promise<boolean> {
   const rows = await db
     .select({ id: agents.id })
@@ -35,7 +34,6 @@ export async function createConversation(
     agentId: string;
     title: string;
     subject: ExecutionSubject;
-    /** 非空表示频道 agent lane；私有对话不传。 */
     channelId?: string;
     providerDestination?: string | null;
   },
@@ -55,7 +53,6 @@ export async function createConversation(
   return row;
 }
 
-/** 只改标题：lastMessageAt 由 messages 触发器维护，这里不动。 */
 export async function renameConversation(
   db: Database,
   input: { id: string; title: string; access: AccessFilter },
@@ -103,7 +100,6 @@ export async function getConversation(
   return row ?? null;
 }
 
-/** 删除前关闭的目标：会话身份与它落库过的容器名（同一容器复用时去重）。 */
 export interface ConversationSandboxTarget {
   conversationId: string;
   sandboxIds: string[];
@@ -111,7 +107,6 @@ export interface ConversationSandboxTarget {
 
 export interface ConversationDeletionInput {
   id: string;
-  /** conversations.delete 的范围；own_data 只匹配本人创建的会话。 */
   access: AccessFilter;
 }
 
@@ -120,7 +115,6 @@ export interface ConversationDeletionSnapshot {
   agentId: string;
   agentSlug: string;
   createdBy: string | null;
-  /** 即使 sandboxIds=[] 也保留会话身份，事务外据此等待关闭确认。 */
   targets: ConversationSandboxTarget[];
 }
 
@@ -151,10 +145,6 @@ export async function deleteConversation(
   });
 }
 
-/**
- * 锁序与 admitChatRun 一致（agents key share → conversations update），否则外键检查会和准入死锁。
- * A/B 都先取绑定锁，再按主体范围重查；目标集合与身份变化由调用方据此拒绝。
- */
 async function readConversationDeletionSnapshot(
   tx: Transaction,
   input: ConversationDeletionInput,
@@ -291,15 +281,12 @@ export async function listOwnConversationsWithAgent(
     .limit(limit);
 }
 
-/** 会话列表：updatedAt 取最后一条消息时间，无消息时退回创建时间。 */
 export async function listConversations(
   db: Database,
   options: { agentId?: string; limit?: number; access: AccessFilter },
 ): Promise<ConversationSummary[]> {
   const agentFilter =
     options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId);
-  // 先按 last_message_at 取一页会话（由 messages 触发器维护），lateral 只对这几行求最后一条消息。
-  // 直接 lateral + orderBy 会把子查询跑遍全表（N 个会话 × messages 扫描）。
   const page = db
     .select({
       id: conversations.id,
@@ -320,7 +307,6 @@ export async function listConversations(
   const last = db
     .select({
       role: messages.role,
-      // 列表不需要完整消息体；只取文本并截断，避免把大 jsonb 带进列表响应。
       text: sql<string | null>`left(${messages.content}->>'text', 280)`.as('text'),
       createdAt: messages.createdAt,
     })
@@ -330,7 +316,6 @@ export async function listConversations(
     .limit(1)
     .as('last_message');
 
-  // 行的顺序已由 page 的子查询确定，外层不再排序。
   const rows = await db
     .select({
       id: page.id,

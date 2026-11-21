@@ -29,10 +29,6 @@ export interface Sandbox {
   child: ChildProcessWithoutNullStreams;
 }
 
-/**
- * 创建路径失败且容器可能残留时抛出：调用方按 sandboxId 继续清理，不能把它当成普通失败。
- * 普通错误（含 busy）保证本次创建没有待清理容器。
- */
 export class SandboxCleanupError extends Error {
   readonly sandboxId: string;
 
@@ -43,10 +39,6 @@ export class SandboxCleanupError extends Error {
   }
 }
 
-/**
- * 业务代码只依赖这个接口；换 microsandbox 时只新增实现。
- * create 返回时容器已 start 并附着；进程错误通过 child 的 error/close 事件暴露。
- */
 export interface SandboxProvider {
   create(options: SandboxCreateOptions): Promise<Sandbox>;
   destroy(sandbox: Sandbox): Promise<void>;

@@ -61,7 +61,6 @@ function PolicyForm({
   const pending = save.isPending;
   const disabled = pending || !canWrite;
 
-  // 策略被外部刷新时只在没有草稿的情况下重设基线，避免覆盖未保存修改。
   const policyRef = useRef(policy);
   useEffect(() => {
     if (policyRef.current === policy) return;
@@ -86,7 +85,6 @@ function PolicyForm({
   });
 
   return (
-    // 校验统一走 zod：不让浏览器原生 min/max 静默拦下提交、却不显示字段错误。
     <form className="flex flex-col gap-5" noValidate onSubmit={submit}>
       <FieldGroup className="gap-5">
         <Field orientation="horizontal" className="items-start gap-3" data-disabled={disabled}>
@@ -233,7 +231,6 @@ function PolicyForm({
         </Field>
       </FieldGroup>
 
-      {/* 只读时没有可提交的动作，不渲染保存按钮。 */}
       {canWrite ? (
         <div className="flex justify-end">
           <Button type="submit" disabled={disabled || !dirty} aria-busy={pending}>
@@ -245,7 +242,6 @@ function PolicyForm({
   );
 }
 
-/** 专家记忆策略：运行期挂载、写入方式、个人记忆/规则注入与主题上限。 */
 export function MemoryPolicyPanel({
   agentId,
   canWrite = true,

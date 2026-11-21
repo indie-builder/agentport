@@ -20,7 +20,6 @@ describe.skipIf(!ready)('knowledge server is owned by the knowledge lifecycle', 
        on conflict (id) do nothing`,
       [serverId, 'kb-guard-test', JSON.stringify({ knowledgeBaseId: 'kb_missing' })],
     );
-    // 带加密 env 的普通连接器：列表必须能用同一密钥解密，否则 GET 会 500。
     const name = unique('guard-plain');
     serverNames.push(name);
     const created = await request(app, {

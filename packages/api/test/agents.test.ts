@@ -24,10 +24,6 @@ interface WorkspaceFiles {
   subAgents: Array<{ slug: string; content: string }>;
 }
 
-/**
- * RBAC 下每次 PATCH 必须先读目标对象做对象范围判定，这属于必需的授权读取；
- * 这里只验证行为，不再把「普通字段不预读」当作契约。
- */
 describe.skipIf(!ready)('agents', () => {
   let app: TestApp;
   let cookie: string;
@@ -61,7 +57,6 @@ describe.skipIf(!ready)('agents', () => {
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
-    // 删除路由在事务内等待 worker 关闭确认；测试进程注册真实信道处理器。
     sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
   });
 
@@ -69,7 +64,6 @@ describe.skipIf(!ready)('agents', () => {
     await sessions.close();
     await cleanup(app, { agentSlugs: createdAgents, serverNames: createdServers });
     for (const id of createdEnvironments) {
-      // 先断开线上指针，复合外键才允许删除版本。
       await app.client.unsafe(
         'update runtime_environments set online_version_id = null where id = $1',
         [id],
@@ -119,7 +113,6 @@ describe.skipIf(!ready)('agents', () => {
     const agent = created.json<Agent>();
     expect(agent.role).toBe('前端工程师');
 
-    // 列表摘要只含业务字段；岗位等配置必须在详情里读。
     const list = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(list.statusCode, list.body).toBe(200);
     const summary = list
@@ -306,7 +299,6 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(expectProblem(rolledBack, 'INVALID_INPUT').message).toContain('运行环境');
 
-    // 不能悄悄回落默认环境：拒绝后当前绑定保持不变。
     const detail = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}`,
@@ -338,7 +330,6 @@ describe.skipIf(!ready)('agents', () => {
 
     const list = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(list.statusCode, list.body).toBe(200);
-    // 摘要与详情都带岗位文本；历史值原样保留。
     const summary = list.json<Array<Record<string, unknown>>>().find((item) => item.id === id);
     expect(summary).toMatchObject({ id, name: 'Legacy role agent', role, parentId: null });
 
@@ -411,7 +402,6 @@ describe.skipIf(!ready)('agents', () => {
   });
 
   it('rejects permissionMode auto but accepts default', async () => {
-    // auto 依赖模型分类器，平台无法审计；default 可直接透传（D-20）。
     const rejected = await request(app, {
       method: 'POST',
       url: '/api/agents',
@@ -433,7 +423,6 @@ describe.skipIf(!ready)('agents', () => {
   });
 
   it('rejects a reference to a missing server as INVALID_REFERENCE, not 500', async () => {
-    // agent_servers.server_id 的外键失败（23503）由 isPgCode 沿 drizzle 的 cause 链识别。
     const slug = unique('bad-ref');
     createdAgents.push(slug);
     const res = await newAgent(slug, ['srv_missing'], 400);
@@ -505,7 +494,6 @@ describe.skipIf(!ready)('agents', () => {
       updatedAt: changed.json<Agent>().updatedAt,
     });
 
-    // null 是合法的「清除回未配置」，与 undefined（不动）语义不同。
     const cleared = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
@@ -560,7 +548,6 @@ describe.skipIf(!ready)('agents', () => {
     });
     expectProblem(slugChange, 'INVALID_INPUT');
 
-    // 旧行不存在时特殊字段也直接 404；slug 冲突校验不能抢先。
     for (const payload of [
       { slug: unique('missing-slug') },
       { subAgentIds: [] },
@@ -601,11 +588,9 @@ describe.skipIf(!ready)('agents', () => {
     expect(Object.keys(mcp.mcpServers)).toEqual([server.name]);
     expect(mcp.mcpServers[server.name]?.type).toBe('http');
     expect(mcp.mcpServers[server.name]?.url).toContain(`/mcp/${server.id}`);
-    // 预览不返回明文 mcpToken：Authorization 省略，并注明运行时注入。
     expect(mcp.mcpServers[server.name]?.headers.Authorization).toBeUndefined();
     expect(mcp.mcpServers[server.name]?._note).toContain('运行时注入');
 
-    // reveal=1 也不返回明文，只要求响应不被缓存。
     const reveal = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/files?reveal=1`,
@@ -718,7 +703,6 @@ describe.skipIf(!ready)('agents', () => {
     expect(before.claudeMd).not.toContain(`mcp__${second.name}__`);
     expect(before.claudeMd.split('## 生成式 UI')).toHaveLength(2);
 
-    // 换绑后预览必须立即反映新 server：旧名字消失、新名字出现，生成段仍是 1 份。
     const rebind = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
@@ -837,7 +821,6 @@ describe.skipIf(!ready)('agents', () => {
     expect(body.subAgents.map((sub) => sub.slug)).toEqual([childSlug]);
     expect(body.claudeMd).toContain(childSlug);
     expect(body.agentMd).toContain('Agent');
-    // 子智能体文件不放行 Agent（只有一层），也不写 tools（否则 SDK 派生时 MCP 工具解析为空）。
     expect(body.subAgents[0]?.content).toContain('"Agent"');
     expect(body.subAgents[0]?.content).not.toContain('tools: [');
   });
@@ -862,7 +845,6 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(first.statusCode).toBe(200);
 
-    // b 已经是 a 的子智能体，不能再被 c 委派，也不能自己再委派。
     const c = (await newAgent(unique('cycle-c'))).json<Agent>();
     const second = await request(app, {
       method: 'PATCH',
@@ -903,7 +885,6 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(style.statusCode, style.body).toBe(200);
 
-    // 非默认配置也要被克隆，避免默认值相等掩盖漏拷。
     const configured = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${source.id}`,
@@ -968,7 +949,6 @@ describe.skipIf(!ready)('agents', () => {
       }),
     ]);
     expect(copyStyles[0]?.id).not.toBe(sourceStylesBefore[0]?.id);
-    // 源智能体的规则与风格不能被改动。
     expect(await getRules(source.id)).toEqual(sourceRulesBefore);
     expect(await getStyles(source.id)).toEqual(sourceStylesBefore);
 

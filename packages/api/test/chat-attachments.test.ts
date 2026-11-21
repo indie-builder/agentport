@@ -18,7 +18,6 @@ import {
 } from './helpers.js';
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
-// 有 worker 消费时 queued run 会被真实执行，准入/清理断言失去意义。
 const ready = (await infraReady) && (await queueIdle);
 
 const attachment = (filename: string, content = 'hello attachment') => ({
@@ -101,7 +100,6 @@ describe.skipIf(!ready)('chat attachments', () => {
     }>();
     runIds.push(runId);
 
-    // 202 直接带回刚发送消息的附件元数据；只有展示所需字段，绝不含字节或宿主路径。
     expect(attachments).toHaveLength(1);
     expect(attachments[0]).toMatchObject({
       filename: 'notes.md',
@@ -234,7 +232,6 @@ describe.skipIf(!ready)('chat attachments', () => {
     const before = await filesIn(inputsDir(agent.slug, conversationId));
     expect(before).toHaveLength(1);
 
-    // queued run 让下一次准入返回 CONFLICT；文件在此之前已经写入。
     const blocked = await post({
       agentId: agent.id,
       conversationId,
@@ -255,7 +252,6 @@ describe.skipIf(!ready)('chat attachments', () => {
 
   it('deletes the new conversation and files when admission fails', async () => {
     const agent = await newAgent();
-    // 只对本用例的消息失败：messages 表是全库共享的，不能影响并行文件。
     const marker = unique('attach-admission-fail');
     await app.client.unsafe(`
       create or replace function messages_attachment_admission_probe() returns trigger
@@ -404,7 +400,6 @@ describe.skipIf(!ready)('chat attachments', () => {
       '66666666-7777-4888-8999-000000000000',
       conversationId,
     ]);
-    // branch 先复制 transcript 目录；空目录即可满足这次分支的运行路径。
     await mkdir(join(testConfig().WORKSPACES_DIR, agent.slug, 'sdk-sessions', conversationId), {
       recursive: true,
     });
@@ -460,7 +455,6 @@ describe.skipIf(!ready)('chat attachments', () => {
       '77777777-8888-4999-8aaa-bbbbbbbbbbbb',
       conversationId,
     ]);
-    // transcript 目录存在时 cp 才可能成功，让失败点落在附件复制。
     await mkdir(join(testConfig().WORKSPACES_DIR, agent.slug, 'sdk-sessions', conversationId), {
       recursive: true,
     });
@@ -490,7 +484,6 @@ describe.skipIf(!ready)('chat attachments', () => {
     const { runId, conversationId } = created.json<{ runId: string; conversationId: string }>();
     runIds.push(runId);
     await finishRun(runId);
-    // pruneRuns 会删除 run；messages.run_id 由外键置空，消息与附件必须保留。
     await app.client.unsafe('delete from agent_runs where id = $1', [runId]);
 
     const saved = await detail(conversationId);

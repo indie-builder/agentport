@@ -19,12 +19,8 @@ import { createJob } from './jobs.js';
 import type { KnowledgeDocumentRow } from './shared.js';
 import { type CreateVersionInput, createVersion } from './versions.js';
 
-// ---------------------------------------------------------------------------
-// FAQ 批次导入
-
 const FAQ_IMPORT_MAX_ITEMS = 500;
 
-/** 规划时读取的两版指针快照；事务锁定后逐项复核。 */
 function sameFaqState(a: KnowledgeFaqImportState, b: KnowledgeFaqImportState): boolean {
   return (
     a.currentVersionId === b.currentVersionId &&
@@ -33,7 +29,6 @@ function sameFaqState(a: KnowledgeFaqImportState, b: KnowledgeFaqImportState): b
   );
 }
 
-/** excludeBatchId 用于批发布时忽略本批刚建的草稿，对比旧集合是否被外部改动。 */
 async function faqStateSnapshot(
   tx: Transaction,
   baseId: string,
@@ -74,16 +69,13 @@ async function faqStateSnapshot(
 
 export interface FaqImportDraftInput {
   operation: 'add' | 'merge';
-  /** add 为预分配文档 ID，merge 为已有文档 ID。 */
   documentId: string;
   faq: KnowledgeFaq;
   enabled: boolean;
-  /** F 已按内容寻址写完整的版本文件；repo 不读写文件、不调用模型。 */
   version: Omit<
     CreateVersionInput,
     'documentId' | 'origin' | 'parentVersionId' | 'metadata' | 'faq' | 'embeddingProfileId'
   > & { id: string };
-  /** 仅 add 使用；默认取标准问。 */
   title?: string;
   folderId?: string | null;
 }
@@ -92,7 +84,6 @@ export interface SaveFaqImportDraftsInput {
   baseId: string;
   importBatchId: string;
   mode: KnowledgeFaqImportMode;
-  /** 本次读取并将修改/替换的文档两版指针；任一变化整批 409。 */
   expectedState: KnowledgeFaqImportState[];
   drafts: FaqImportDraftInput[];
 }
@@ -127,7 +118,6 @@ export async function saveFaqImportDrafts(
       throw new AppError('INVALID_INPUT', '导入批次存在重复 FAQ 文档');
     }
 
-    // 全库 FAQ 文档按 ID 排序加锁，避免与另一批导入交叉写入。
     const existingDocs = await tx
       .select()
       .from(knowledgeDocuments)
@@ -156,7 +146,6 @@ export async function saveFaqImportDrafts(
       if (snapshot.length > FAQ_IMPORT_MAX_ITEMS) {
         throw new AppError('CONFLICT', `旧 FAQ 超过 ${FAQ_IMPORT_MAX_ITEMS} 条，无法整批替换`);
       }
-      // replace 会替换整个旧集合，expectedState 必须覆盖当时的全部旧 FAQ。
       const expectedIds = new Set(
         input.expectedState.map((state) => state.documentId).filter((id) => !addIds.has(id)),
       );
@@ -215,7 +204,6 @@ export async function saveFaqImportDrafts(
         batchId: input.importBatchId,
         mode: input.mode,
         enabled: draft.enabled,
-        // 锁定保存时的线上版本，而不是合并草稿的 parent（可能是未发布草稿）。
         expectedVersionId,
         ...(replaceTargets === undefined ? {} : { replaceTargets }),
       };
@@ -225,7 +213,6 @@ export async function saveFaqImportDrafts(
         documentId: draft.documentId,
         origin: 'faq',
         parentVersionId,
-        // jobId 与契约规定的 faqImport 形状分开存，批发布据此核索引任务。
         metadata: { publication: 'draft', faqImport, faqImportJobId: job.id },
         faq: draft.faq,
         embeddingProfileId: base.embeddingProfileId,
@@ -243,7 +230,6 @@ export async function saveFaqImportDrafts(
 export interface PublishFaqImportInput {
   baseId: string;
   importBatchId: string;
-  /** 本批全部非 skipped 条目，不能分片。 */
   items: Array<{ documentId: string; versionId: string; expectedVersionId: string | null }>;
 }
 
@@ -269,7 +255,6 @@ export async function publishFaqImport(
       .where(eq(knowledgeBases.id, input.baseId))
       .limit(1);
     if (!base) throw new AppError('NOT_FOUND', '知识库不存在，可能已被删除');
-    // 整批发布前先核库可用与模型空间；失配时不进入任何指针切换或 replace 删除。
     if (base.status !== 'active') {
       throw new AppError('CONFLICT', '知识库已停用，不能发布 FAQ 批次');
     }
@@ -320,7 +305,6 @@ export async function publishFaqImport(
       if (!document || !version || version.documentId !== item.documentId) {
         throw new AppError('NOT_FOUND', 'FAQ 草稿版本不存在或不属于该文档');
       }
-      // 草稿建好后库可能换过 embedding 空间；混空间发布会让新指针与索引不兼容。
       if (version.embeddingProfileId !== base.embeddingProfileId) {
         throw new AppError('CONFLICT', 'FAQ 草稿与知识库 embedding 模型不一致，请重新导入');
       }
@@ -331,7 +315,6 @@ export async function publishFaqImport(
         throw new AppError('CONFLICT', 'FAQ 版本不属于该导入批次');
       }
       const metadata = parsed.data;
-      // 提交值必须等于保存草稿时锁定的版本，不能借当前指针或 parent 重新猜。
       if (metadata.expectedVersionId !== item.expectedVersionId) {
         throw new AppError('CONFLICT_STALE', 'FAQ 保存时的线上版本已变化，请刷新后重试');
       }
@@ -342,8 +325,6 @@ export async function publishFaqImport(
       if (replaceTargets === undefined && metadata.replaceTargets !== undefined) {
         replaceTargets = metadata.replaceTargets;
       }
-      // 重试会新建任务而不改版本绑定：只看本版本最近一次 ingest 任务，
-      // 不借其他版本的成功任务，也不在重试仍未完成时发布。
       const [job] = await tx
         .select({ status: knowledgeJobs.status })
         .from(knowledgeJobs)
@@ -457,7 +438,6 @@ export async function publishFaqImport(
         .update(knowledgeDocuments)
         .set({
           currentVersionId: item.versionId,
-          // 切指针同时更新正文指纹，避免沿用上一版 contentHash。
           contentHash: version.blobSha256,
           status: enabled ? 'ready' : 'disabled',
           disabledReason: enabled ? null : 'manual',

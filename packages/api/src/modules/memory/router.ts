@@ -175,7 +175,6 @@ export const memoryRouter = os.router({
       actor: requireUser(context).businessId,
       action: 'agent.memory.policy.updated',
       target: input.params.id,
-      // 只记录策略字段的前后值，不落任何记忆正文。
       input: {
         agentId: input.params.id,
         before: current,

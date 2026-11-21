@@ -1,9 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-/**
- * wiki_generate 必须由队列分派到 runWikiGenerate，而不是落到摄取分派里抛错。
- * 这里只验证分派选择，真实生成行为由 knowledge-wiki.test.ts 覆盖。
- */
 const runWikiGenerate = mock(async () => undefined);
 const runKnowledgeJob = mock(async () => undefined);
 

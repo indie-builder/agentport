@@ -10,11 +10,9 @@ export const skills = pgTable(
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     body: text('body').notNull().default(''),
-    /** SKILL.md frontmatter 的来源描述字段，导入/安装时原样保留。 */
     license: text('license'),
     compatibility: text('compatibility'),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
-    /** skills.sh 来源 `owner/repo/skill`；内部自建为 null。 */
     sourceId: text('source_id'),
     ownerBusinessId: text('owner_business_id'),
     status: text('status').$type<Skill['status']>().notNull().default('published'),
@@ -45,7 +43,6 @@ export const skillFiles = pgTable(
     skillId: text('skill_id')
       .notNull()
       .references(() => skills.id, { onDelete: 'cascade' }),
-    /** 相对技能目录的路径，如 `scripts/run.sh`、`references/api.md`。 */
     path: text('path').notNull(),
     content: text('content').notNull().default(''),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

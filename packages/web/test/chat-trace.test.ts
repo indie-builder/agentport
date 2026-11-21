@@ -8,7 +8,6 @@ import type { ApprovalRequest } from '../src/lib/api.js';
 import { type ChatItem, historyToItems } from '../src/lib/chat-state.js';
 import type { RunMetrics } from '../src/lib/chat-store.js';
 
-// 读数行里有「查看详情」链接；这里只验证可见性，不需要真实路由上下文。
 vi.mock('@tanstack/react-router', async (original) => {
   const actual = await original<typeof import('@tanstack/react-router')>();
   const { createElement } = await import('react');
@@ -158,7 +157,6 @@ describe('per-turn execution trace', () => {
     expect(html).not.toContain('NormalTool');
     expect(html.match(/FailedTool/g)).toHaveLength(1);
     expect(html.match(/MissingTool/g)).toHaveLength(1);
-    // 状态文字同时给读屏与视觉各一份，工具项本身只出现一次。
     expect(html).toContain('未收到结果');
     expect(html.match(/选哪个方案？/g)).toHaveLength(1);
     expect(html).not.toContain('AskUserQuestion');
@@ -177,7 +175,6 @@ describe('per-turn execution trace', () => {
     expect(html.match(/TaskTool/g)).toHaveLength(1);
     expect(html.match(/ChildTool/g)).toHaveLength(1);
     expect(html).toContain('未收到结果');
-    // 无待处理子调用时，父组与子调用一起收进执行过程。
     const quiet = pane([
       tool('batch', 'BatchTool', done),
       tool('batch-child', 'BatchChild', { ...done, parentToolUseId: 'batch' }),
@@ -224,7 +221,6 @@ describe('per-turn execution trace', () => {
       { approvalItems: [approval('ap-1', 'B')] },
     );
 
-    // 历史成功留在自己的执行过程里，当前待批单独成行并承载唯一一张审批卡。
     expect(html.match(/执行过程/g)).toHaveLength(1);
     expect(html.match(/mcp__B__write/g)).toHaveLength(1);
     expect(html.match(/aria-label="批准 B \/ write"/g)).toHaveLength(1);

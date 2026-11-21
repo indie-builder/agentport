@@ -147,7 +147,6 @@ describe('条形与折线规格', () => {
     expect(widths).toHaveLength(3);
     expect(Math.max(...widths)).toBeLessThanOrEqual(24);
     const first = host.querySelector('.recharts-bar-rectangle path');
-    // 竖直条只在顶部两个角圆角，底部贴住基线。
     expect(first?.getAttribute('d')).toContain('A 4,4');
   });
 
@@ -169,8 +168,6 @@ describe('条形与折线规格', () => {
     ]);
     const path = host.querySelector('.recharts-line-curve');
     expect(path?.getAttribute('stroke-width')).toBe('2');
-    // 只有两个月有点：一段折线、一个 M、一条连接；缺失的三/四月没有补成 0 值
-    // （补零会多出两个顶点并落回基线）。
     const d = path?.getAttribute('d') ?? '';
     expect((d.match(/M/g) ?? []).length).toBe(1);
     expect((d.match(/L/g) ?? []).length).toBe(1);
@@ -220,9 +217,7 @@ describe('多系列可区分', () => {
     for (let index = 0; index < 10; index += 1) {
       expect(legend?.textContent).toContain(`系列${index}`);
     }
-    // legend 图标与线型一致，不只靠灰度；按真实系列数生成，不靠固定 12 个模循环。
     expect(legend?.querySelectorAll('svg')).toHaveLength(10);
-    // 图标 viewBox 与虚线周期同长，12px 画布里能看到整段 dash + gap，而不是被截成实线。
     const icons = [...(legend?.querySelectorAll('svg') ?? [])];
     expect(icons.map((icon) => icon.getAttribute('viewBox'))).toEqual([
       '0 0 12 12',
@@ -245,7 +240,6 @@ describe('多系列可区分', () => {
       'c = LineChart(["一月", "二月", "三月", "四月", "五月"], [Series("收入", [1, 2, null, 4, 5])], "linear")',
     ]);
     const d = host.querySelector('.recharts-line-curve')?.getAttribute('d') ?? '';
-    // 前后各一段 M，缺口两侧没有 L 连接。
     expect((d.match(/M/g) ?? []).length).toBe(2);
     expect(d).not.toContain('null');
     const table = await openDataView();
@@ -264,9 +258,7 @@ describe('多系列可区分', () => {
     const fills = [...host.querySelectorAll('.recharts-bar-rectangle path')].map((path) =>
       path.getAttribute('fill'),
     );
-    // 每个系列一个 pattern，11 条互不相同。
     expect(new Set(fills).size).toBe(11);
-    // 只数柱体所在的图表面，legend 图标自带同规格的 pattern。
     const defines = [...host.querySelectorAll('svg.recharts-surface pattern')];
     expect(defines).toHaveLength(11);
     const first = defines[0];
@@ -275,7 +267,6 @@ describe('多系列可区分', () => {
       last?.getAttribute('patternTransform'),
     );
     expect(first?.getAttribute('width')).not.toBe(last?.getAttribute('width'));
-    // legend 图标用同一套 pattern 参数，不再画与实际纹理无关的斜纹（legend 顺序由 Recharts 定）。
     const legendPatterns = [...(legend?.querySelectorAll('pattern') ?? [])];
     expect(legendPatterns).toHaveLength(10);
     const sort = (list: (string | null)[]) => [...list].sort();
@@ -285,7 +276,6 @@ describe('多系列可区分', () => {
     expect(sort(legendPatterns.map((icon) => icon.getAttribute('width')))).toEqual(
       sort(defines.slice(1).map((item) => item.getAttribute('width'))),
     );
-    // 第 1 个系列保持纯实色。
     expect(fills[0]?.startsWith('url(#')).toBe(false);
     expect(fills[10]?.startsWith('url(#')).toBe(true);
   });
@@ -365,7 +355,6 @@ describe('tooltip', () => {
       'root = Card([c])',
       'c = BarChart(["一月", "二月"], [Series("收入", [3, 4])], "grouped")',
     ]);
-    // 图表内部不再渲染 tooltip 层，避免 content-visibility 裁剪。
     expect(host.querySelector('.recharts-tooltip-wrapper')).toBeNull();
     const surface = host.querySelector('svg.recharts-surface') as SVGElement;
     await act(async () => {
@@ -382,10 +371,8 @@ describe('tooltip', () => {
     const style = (content as HTMLElement).style;
     expect(style.position).toBe('fixed');
     expect(style.pointerEvents).toBe('none');
-    // 覆盖共享 tooltip 的 min-w-32，窄视口时以 maxWidth 为准。
     expect((content as HTMLElement).className).toContain('min-w-0');
     expect(style.left === '' && style.right === '').toBe(false);
-    // 限制在翻转方向的可用宽度内，长值不被视口裁掉。
     expect(Number.parseFloat(style.maxWidth)).toBeGreaterThan(0);
     expect(Number.parseFloat(style.maxWidth)).toBeLessThanOrEqual(288);
     expect(style.overflowWrap).toBe('anywhere');

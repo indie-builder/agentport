@@ -42,7 +42,6 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
       await app.client.unsafe('delete from agents where runtime_environment_id = any($1::text[])', [
         app.client.array(environmentIds, 'TEXT'),
       ]);
-      // 先断开线上指针，复合外键才允许删除版本。
       await app.client.unsafe(
         'update runtime_environments set online_version_id = null where id = any($1::text[])',
         [app.client.array(environmentIds, 'TEXT')],
@@ -58,7 +57,6 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
     await app.close();
   });
 
-  /** 直接落一个已发布环境：导入/绑定只需要环境行与可解析的线上版本。 */
   const createEnvironment = async (
     withOnlineVersion = true,
   ): Promise<{ id: string; name: string }> => {
@@ -123,7 +121,6 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
     agent: { slug: string; runtimeEnvironmentName?: string };
   } => JSON.parse(files.get(AGENT_PACKAGE_SIDECAR) ?? '{}');
 
-  /** 导入会占用包 slug，重复时改用 slug-2 等；只数这一族，避免并行套件新增的智能体干扰全表计数。 */
   const countPackageAgents = async (slug: string): Promise<number> => {
     const rows = await app.client.unsafe<{ count: string }[]>(
       'select count(*) from agents where slug = $1 or slug like $2',
@@ -139,7 +136,6 @@ describe.skipIf(!ready)('agent package runtime environment binding', () => {
     const files = await exportFiles(agent.id);
     const sidecar = sidecarOf(files);
     expect(sidecar.agent.runtimeEnvironmentName).toBe(environment.name);
-    // 镜像与版本历史不随包导出。
     const contents = [...files.values()].join('\n');
     expect(contents).not.toContain(environment.id);
     expect(contents).not.toContain(IMAGE_ID);

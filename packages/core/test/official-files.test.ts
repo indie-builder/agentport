@@ -76,7 +76,6 @@ describe('official workspace file parsing', () => {
     for (const scope of ['user', 'local']) {
       const error = expectInvalid(() => parseChildAgentMd(withMemory(scope), '/x'), '/x/memory');
       expect(error.message).toContain('project');
-      // 拒绝原因是未纳入平台挂载与导出契约，而不是目录位于工作区之外。
       expect(error.message).toContain('挂载与导出契约');
     }
   });
@@ -98,7 +97,6 @@ describe('official workspace file parsing', () => {
     ).toEqual({ slug: 'r', content: 'Do it.', globs: '' });
     const withGlobs = renderRuleMd({ slug: 'r', content: 'Do it.', globs: 'src/**,test/**' });
     expect(parseRuleMd(withGlobs, 'r', '/r').globs).toBe('src/**, test/**');
-    // 纯 Markdown 规则没有 frontmatter，正文就是全文。
     expect(parseRuleMd('# Rule\n\nKeep it.', 'plain', '/p')).toEqual({
       slug: 'plain',
       content: '# Rule\n\nKeep it.',
@@ -221,7 +219,6 @@ describe('generated suffix round-trips user prose verbatim', () => {
   });
 
   it('keeps OpenUI tool descriptions from masquerading as generated boundaries', () => {
-    // 工具描述是外来多行文本，可能恰好含独占边界行；读取端只认渲染器自己的终端后缀。
     for (const description of [
       `工具说明\n${START}\n后续说明`,
       `工具说明\n${END}\n后续说明`,

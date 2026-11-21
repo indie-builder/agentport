@@ -197,7 +197,6 @@ describe('session cleanup channel', () => {
     await expect(channel.close(80)).rejects.toThrow(/drain exceeded/);
     expect(closes).toHaveBeenCalledTimes(2);
 
-    // 放行后迟到 ACK 不能复活已超时的关闭，也不会留下新连接。
     release();
     await expect(pending).resolves.toMatchObject({ ok: true });
   });

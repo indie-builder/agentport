@@ -75,7 +75,6 @@ async function draftIndexJobAllowsVersionTx(
   );
 }
 export interface CreateVersionInput {
-  /** COW 等调用方可预分配，保证文件先按该 ID 写完整；缺省由仓储生成。 */
   id?: string;
   documentId: string;
   blobSha256: string;
@@ -122,23 +121,14 @@ export async function getVersion(db: Database, id: string): Promise<KnowledgeVer
   return row ?? null;
 }
 
-/** 发布守卫：摄取开始时记下的任务与库快照，切版事务内再核一次。 */
 export interface PublishGuard {
   jobId: string;
   baseId: string;
   embeddingProfileId: string;
-  /** 启动时解析后的 imageProcessing JSON；库配置变了就不发布。 */
   imageProcessingJson: string;
-  /** 启动时看到的当前版本；期间有人切版就拒绝，避免覆盖并发结果。 */
   expectedCurrentVersionId: string | null;
-  /**
-   * 仅音频摄取设置：执行时使用的 ASR profile ID。
-   * 发布前库的 asrProfileId 被关闭/切换时拒绝，旧任务结果不能上线。
-   */
   asrProfileId?: string | null | undefined;
-  /** 外部来源版本必须带读取快照；锁内重核来源配置、密文与范围。 */
   sourceSnapshot?: SourceReadSnapshot | undefined;
-  /** 运行中取消只走 Redis abort；已观察到的 abort 在事务内也拦一次。 */
   isAborted?: (() => boolean) | undefined;
 }
 
@@ -170,7 +160,6 @@ export async function setCurrentVersion(
       .where(eq(knowledgeDocumentVersions.id, versionId))
       .limit(1);
     if (version?.documentId !== documentId) return null;
-    // Wiki 发布先锁来源/来源文档，再锁页面，最后更新内部索引文档；切版必须同序。
     const [preview] = await tx
       .select({
         sourceConnectionId: knowledgeDocuments.sourceConnectionId,
@@ -220,7 +209,6 @@ export async function setCurrentVersion(
         .where(eq(knowledgeSources.id, preview.sourceConnectionId))
         .for('share');
     }
-    // 外部同步发布不得退回无快照路径；快照在来源锁内重核，失效即零写返回。
     if (guard?.sourceSnapshot) {
       if (preview.sourceConnectionId !== guard.sourceSnapshot.sourceId) return null;
       if (!(await sourceSnapshotMatchesTx(tx, guard.sourceSnapshot))) return null;
@@ -248,15 +236,12 @@ export async function setCurrentVersion(
     if (options !== undefined && document.currentVersionId !== options.expectedCurrentVersionId) {
       return null;
     }
-    // 批次导入的草稿只能走 publishFaqImport 整批发布，逐条切版会破坏 replace 原子性；
-    // 已正式发布的批次历史与普通发布版一样可回退。
     if (
       version.metadata?.faqImport !== undefined &&
       version.metadata?.publication !== 'published'
     ) {
       return null;
     }
-    // 普通草稿必须关联本版本自己的成功索引任务，不能借另一成功任务上线。
     if (
       version.metadata?.publication === 'draft' &&
       !(await draftIndexJobAllowsVersionTx(tx, document, version))
@@ -274,9 +259,7 @@ export async function setCurrentVersion(
       .from(knowledgeBases)
       .where(eq(knowledgeBases.id, document.baseId))
       .limit(1);
-    // 不同模型空间的版本不能直接发布/回退，必须重建。
     if (!base || base.embeddingProfileId !== version.embeddingProfileId) return null;
-    // 只对本次音频生效：没有 asrProfileId 的普通文档不依赖 ASR 可用性。
     if (guard?.asrProfileId !== undefined && (base.asrProfileId ?? null) !== guard.asrProfileId) {
       return null;
     }
@@ -297,10 +280,8 @@ export async function setCurrentVersion(
       ) {
         return null;
       }
-      // 两次 await 期间可能收到取消；写在切版前，避免已取消任务发布新版本。
       if (guard.isAborted?.()) return null;
     }
-    // 只把草稿标记翻成已发布；无标记版本本就从未暴露为草稿，保持原 metadata。
     await tx
       .update(knowledgeDocumentVersions)
       .set({
@@ -332,7 +313,6 @@ export async function activateDocumentVersion(
   input: { documentId: string; versionId: string; expectedVersionId: string | null },
 ): Promise<KnowledgeDocumentRow> {
   return db.transaction(async (tx) => {
-    // 与来源范围调整统一锁序：先来源共享锁，再文档行锁。
     const [preview] = await tx
       .select({ sourceConnectionId: knowledgeDocuments.sourceConnectionId })
       .from(knowledgeDocuments)
@@ -371,7 +351,6 @@ export async function activateDocumentVersion(
     if (version?.documentId !== input.documentId) {
       throw new AppError('NOT_FOUND', '版本文档不属于该文档');
     }
-    // 批次导入草稿只能走 publishFaqImport 整批发布；普通手写草稿仍可显式发布。
     if (version.metadata.faqImport !== undefined && version.metadata.publication !== 'published') {
       throw new AppError('CONFLICT', '该 FAQ 草稿尚未正式批发布，不能逐条上线');
     }
@@ -387,15 +366,12 @@ export async function activateDocumentVersion(
       .from(knowledgeBases)
       .where(eq(knowledgeBases.id, document.baseId))
       .limit(1);
-    // 不同模型空间的旧版本不能直接回退：向量与当前检索空间不兼容。
     if (!base || base.embeddingProfileId !== version.embeddingProfileId) {
       throw new AppError('CONFLICT', '版本来自不同的 embedding 模型空间，请重建后再回退');
     }
-    // 来源撤权后回退同样拒绝，不能靠切旧指针绕过范围/路径授权。
     if (!(await sourceScopeAllowsDocument(tx, document))) {
       throw new AppError('CONFLICT', '来源权限已失效，不能切换到该版本');
     }
-    // 回退也是发布：只翻转草稿标记，无标记版本已有发布事实。
     await tx
       .update(knowledgeDocumentVersions)
       .set({
@@ -444,7 +420,6 @@ export async function listVersions(
   return paginate(rows, limit);
 }
 
-/** 版本列表：复用 listVersions，并标出哪一版是当前可读版。 */
 export async function listDocumentVersions(
   db: Database,
   documentId: string,

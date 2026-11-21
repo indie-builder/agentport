@@ -25,13 +25,11 @@ describe('session supervisor protocol', () => {
     });
 
     expect(parsed).toMatchObject({ type: 'start', runId: 'run-1', env: { RUN_TOKEN: 'secret' } });
-    // Defaults come from the one shared task schema, not a supervisor copy.
     expect(parsed.type === 'start' && parsed.task.mcpServers).toEqual([]);
     expect(parsed.type === 'start' && parsed.task.plugins).toEqual([]);
   });
 
   it('types the send shape with defaults optional and the parsed shape required', () => {
-    // 宿主用 input 形状发帧；defaults 由 supervisor 解析补齐，发送方可以省略。
     const frame: SupervisorInputFrame = { type: 'start', runId: 'r', task, env: {} };
     expect(frame.type).toBe('start');
 
@@ -65,7 +63,6 @@ describe('session supervisor protocol', () => {
       supervisorInputSchema.safeParse({ type: 'start', runId: 'r', task, env: { RUN_TOKEN: 1 } })
         .success,
     ).toBe(false);
-    // The task itself is still validated by sandboxTaskSchema.
     expect(
       supervisorInputSchema.safeParse({
         type: 'start',

@@ -3,14 +3,12 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:cr
 const IV_LEN = 12;
 const TAG_LEN = 16;
 
-/** 从 APP_SECRET_KEY 派生固定 32 字节数据密钥；密钥格式变化时必须保持同一 info。 */
 function deriveKey(keyB64url: string): Buffer {
   return Buffer.from(
     hkdfSync('sha256', Buffer.from(keyB64url, 'utf8'), Buffer.alloc(0), 'agentport:secrets:v1', 32),
   );
 }
 
-/** 输出 base64url(iv || tag || ciphertext)，可直接存 text 列。 */
 export function encryptSecrets(obj: Record<string, string>, keyB64url: string): string {
   const iv = randomBytes(IV_LEN);
   const cipher = createCipheriv('aes-256-gcm', deriveKey(keyB64url), iv);
