@@ -1,13 +1,17 @@
 import type {
   KnowledgeJob,
+  KnowledgeJobType,
   KnowledgeSourceConfigType,
   KnowledgeSourceProbeResult,
   KnowledgeSourceRangeKind,
+  KnowledgeSyncItem,
 } from '@agentport/shared';
 import {
   knowledgeJobStatusSchema,
+  knowledgeJobTypeSchema,
   knowledgeSourceConfigTypeSchema,
   knowledgeSourceRangeKindSchema,
+  knowledgeSyncItemStatusSchema,
 } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
@@ -58,7 +62,7 @@ export const knowledgeSources = pgTable(
     index('knowledge_sources_base_idx').on(t.baseId),
     check(
       'knowledge_sources_type_check',
-      sql`${t.type} in ('feishu_wiki', 'feishu_drive', 'gitlab', 'github', 'feed', 'lark_wiki', 'lark_drive', 'notion', 'confluence', 'yuque', 'dingtalk', 'ima', 'seafile', 'nextcloud')`,
+      sql`${t.type} in (${sql.raw(knowledgeSourceConfigTypeSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'knowledge_sources_status_check',
@@ -94,7 +98,7 @@ export const knowledgeSourceRanges = pgTable(
     ),
     check(
       'knowledge_source_ranges_kind_check',
-      sql`${t.kind} in ('wiki_space', 'wiki_node', 'drive_folder', 'gitlab_project', 'github_repo', 'feed', 'notion_page', 'notion_database', 'notion_data_source', 'confluence_space', 'confluence_page', 'yuque_repo', 'dingtalk_workspace', 'dingtalk_node', 'ima_kb', 'seafile_repo', 'nextcloud_path')`,
+      sql`${t.kind} in (${sql.raw(knowledgeSourceRangeKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );
@@ -171,7 +175,12 @@ export const knowledgeSyncItems = pgTable(
     documentId: text('document_id').references(() => knowledgeDocuments.id, {
       onDelete: 'set null',
     }),
-    status: text('status', { enum: ['failed', 'skipped'] }).notNull(),
+    status: text('status', {
+      enum: knowledgeSyncItemStatusSchema.options as [
+        KnowledgeSyncItem['status'],
+        ...KnowledgeSyncItem['status'][],
+      ],
+    }).notNull(),
     code: text('code').notNull(),
     message: text('message').notNull().default(''),
     retryable: boolean('retryable').notNull().default(false),
@@ -180,7 +189,10 @@ export const knowledgeSyncItems = pgTable(
   (t) => [
     index('knowledge_sync_items_run_idx').on(t.syncRunId, t.createdAt),
     index('knowledge_sync_items_source_idx').on(t.sourceId, t.createdAt),
-    check('knowledge_sync_items_status_check', sql`${t.status} in ('failed', 'skipped')`),
+    check(
+      'knowledge_sync_items_status_check',
+      sql`${t.status} in (${sql.raw(knowledgeSyncItemStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     check('knowledge_sync_items_message_check', sql`char_length(${t.message}) <= 500`),
   ],
 );
@@ -190,16 +202,7 @@ export const knowledgeJobs = pgTable(
   {
     id: text('id').primaryKey(),
     type: text('type', {
-      enum: [
-        'ingest',
-        'reindex',
-        'sync',
-        'source_probe',
-        'wiki_generate',
-        'summary',
-        'tag_generate',
-        'cleanup',
-      ],
+      enum: knowledgeJobTypeSchema.options as [KnowledgeJobType, ...KnowledgeJobType[]],
     }).notNull(),
     baseId: text('base_id').references(() => knowledgeBases.id, { onDelete: 'cascade' }),
     documentId: text('document_id').references(() => knowledgeDocuments.id, {
@@ -230,7 +233,7 @@ export const knowledgeJobs = pgTable(
     index('knowledge_jobs_document_idx').on(t.documentId),
     check(
       'knowledge_jobs_type_check',
-      sql`${t.type} in ('ingest', 'reindex', 'sync', 'source_probe', 'wiki_generate', 'summary', 'tag_generate', 'cleanup')`,
+      sql`${t.type} in (${sql.raw(knowledgeJobTypeSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'knowledge_jobs_status_check',

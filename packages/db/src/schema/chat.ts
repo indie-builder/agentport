@@ -1,12 +1,19 @@
 import type {
   AgentDefinition,
+  ChannelRole,
   ChatEvent,
   MessageAttachment,
   RunErrorKind,
   RunStatus,
   RunTrigger,
 } from '@agentport/shared';
-import { runErrorKindSchema, runStatusSchema, runTriggerSchema } from '@agentport/shared';
+import {
+  channelRoleSchema,
+  runErrorKindSchema,
+  runStatusSchema,
+  runTriggerSchema,
+  uiFormatSchema,
+} from '@agentport/shared';
 import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -78,7 +85,14 @@ export const messages = pgTable(
     role: text('role').notNull(),
     senderBusinessId: text('sender_business_id'),
     content: jsonb('content').$type<unknown>().notNull(),
-    uiFormat: text('ui_format').notNull().default('markdown'),
+    uiFormat: text('ui_format', {
+      enum: uiFormatSchema.options as [
+        (typeof uiFormatSchema.options)[number],
+        ...(typeof uiFormatSchema.options)[number][],
+      ],
+    })
+      .notNull()
+      .default('markdown'),
     uiProgram: text('ui_program'),
     uiState: jsonb('ui_state').$type<unknown>(),
     runId: text('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
@@ -93,7 +107,10 @@ export const messages = pgTable(
     index('messages_run_idx').on(t.runId),
     index('messages_sender_idx').on(t.senderBusinessId),
     check('messages_role_check', sql`${t.role} in ('user', 'assistant', 'tool')`),
-    check('messages_ui_format_check', sql`${t.uiFormat} in ('markdown', 'openui')`),
+    check(
+      'messages_ui_format_check',
+      sql`${t.uiFormat} in (${sql.raw(uiFormatSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
   ],
 );
 
@@ -114,7 +131,9 @@ export const channelMembers = pgTable(
       .notNull()
       .references(() => channels.id, { onDelete: 'cascade' }),
     businessId: text('business_id').notNull(),
-    role: text('role', { enum: ['owner', 'admin', 'member', 'viewer'] })
+    role: text('role', {
+      enum: channelRoleSchema.options as [ChannelRole, ...ChannelRole[]],
+    })
       .notNull()
       .default('member'),
     lastReadSeq: bigint('last_read_seq', { mode: 'number' }).notNull().default(0),
@@ -123,7 +142,10 @@ export const channelMembers = pgTable(
   (t) => [
     primaryKey({ name: 'channel_members_pk', columns: [t.channelId, t.businessId] }),
     index('channel_members_business_idx').on(t.businessId),
-    check('channel_members_role_check', sql`${t.role} in ('owner', 'admin', 'member', 'viewer')`),
+    check(
+      'channel_members_role_check',
+      sql`${t.role} in (${sql.raw(channelRoleSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     check('channel_members_last_read_seq_check', sql`${t.lastReadSeq} >= 0`),
   ],
 );
