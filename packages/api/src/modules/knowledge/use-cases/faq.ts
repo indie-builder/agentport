@@ -42,8 +42,8 @@ import {
 } from '../service.js';
 import {
   assertBodyBytes,
+  assertFolderInBase,
   type DocumentRow,
-  folderIssue,
   type KnowledgeDeps,
   notFound,
   type VersionRow,
@@ -567,9 +567,7 @@ export async function createFaq(
   },
 ) {
   const base = await activeFaqBase(deps, id);
-  if (await folderIssue(deps, base.id, body.folderId)) {
-    throw new AppError('INVALID_INPUT', '文件夹不存在或属于其他知识库');
-  }
+  await assertFolderInBase(deps, base.id, body.folderId);
   const cleaned = cleanFaqInput(body.faq);
   await assertNoPositiveConflict(deps, base.id, cleaned.faq);
   const result = await createFaqDraft(deps, {
@@ -692,9 +690,7 @@ export async function updateFaq(
   if (expectedVersionId !== body.expectedVersionId) {
     throw new AppError('CONFLICT_STALE', 'FAQ 已被修改，请刷新后重试');
   }
-  if (await folderIssue(deps, base.id, body.folderId ?? document.folderId)) {
-    throw new AppError('INVALID_INPUT', '文件夹不存在或属于其他知识库');
-  }
+  await assertFolderInBase(deps, base.id, body.folderId ?? document.folderId);
   const cleaned = cleanFaqInput(body.faq);
   await assertNoPositiveConflict(deps, base.id, cleaned.faq, { ignoreDocumentId: document.id });
   const result = await writeFaqVersion(deps, {

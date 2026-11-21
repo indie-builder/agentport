@@ -13,10 +13,10 @@ import { requireCursorPage } from '../../../http/pagination.js';
 import { createJob, documentWire, enqueueKnowledgeJobAfterCommit, storeBlob } from '../service.js';
 import {
   assertBodyBytes,
+  assertFolderInBase,
   type DocumentRow,
   enqueue,
   fileTitle,
-  folderIssue,
   type KnowledgeDeps,
   notFound,
 } from './shared.js';
@@ -329,9 +329,7 @@ export async function createManualDocument(
   },
 ) {
   const base = await loadActiveBase(deps, id);
-  if (await folderIssue(deps, base.id, body.folderId)) {
-    throw new AppError('INVALID_INPUT', '文件夹不存在或属于其他知识库');
-  }
+  await assertFolderInBase(deps, base.id, body.folderId);
   assertBodyBytes(body.content, MANUAL_BODY_LIMIT);
   return importDocument(deps, {
     baseId: base.id,
@@ -353,9 +351,7 @@ export async function createUrlDocument(
   body: { url: string; title?: string | undefined; folderId: string | null },
 ) {
   const base = await loadActiveBase(deps, id);
-  if (await folderIssue(deps, base.id, body.folderId)) {
-    throw new AppError('INVALID_INPUT', '文件夹不存在或属于其他知识库');
-  }
+  await assertFolderInBase(deps, base.id, body.folderId);
   const sourceUrl = new URL(body.url).href;
   await assertSafeUrl(sourceUrl, deps.config.NODE_ENV);
   const fetched = await fetchSource(sourceUrl);

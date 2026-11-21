@@ -113,8 +113,20 @@ export async function enqueue(
   return job;
 }
 
-export async function folderIssue(deps: KnowledgeDeps, baseId: string, folderId: string | null) {
+async function folderIssue(deps: KnowledgeDeps, baseId: string, folderId: string | null) {
   if (!folderId) return false;
   const folder = await repo.knowledge.getFolder(deps.db, folderId);
   return !folder || folder.baseId !== baseId;
+}
+
+const FOLDER_MISSING_MESSAGE = '文件夹不存在或属于其他知识库';
+
+export async function assertFolderInBase(
+  deps: KnowledgeDeps,
+  baseId: string,
+  folderId: string | null,
+): Promise<void> {
+  if (await folderIssue(deps, baseId, folderId)) {
+    throw new AppError('INVALID_INPUT', FOLDER_MISSING_MESSAGE);
+  }
 }

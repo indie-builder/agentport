@@ -14,6 +14,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { searchKnowledge } from '../retrieval.js';
 import { deleteDocument, reprocessDocument, updateDocument } from './documents.js';
 import {
+  assertFolderInBase,
   collectChunks,
   copyVersionImages,
   type DocumentRow,
@@ -273,10 +274,7 @@ export async function batchDocuments(
       throw new AppError('INVALID_INPUT', '移动文档需要 folderId（根目录传 null）');
     }
     if (input.folderId !== null) {
-      const folder = await repo.knowledge.getFolder(deps.db, input.folderId);
-      if (!folder || folder.baseId !== base.id) {
-        throw new AppError('INVALID_INPUT', '文件夹不存在或属于其他知识库');
-      }
+      await assertFolderInBase(deps, base.id, input.folderId);
     }
   }
   if (input.action === 'tag' && (!input.tags || !input.tagMode)) {

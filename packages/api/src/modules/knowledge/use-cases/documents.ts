@@ -29,6 +29,7 @@ import { createJob, documentWire, enqueueKnowledgeJobAfterCommit, storeBlob } fr
 import { getVersionMarkdown } from './binary.js';
 import {
   assertBodyBytes,
+  assertFolderInBase,
   collectChunks,
   copyVersionImages,
   type DocumentRow,
@@ -363,10 +364,7 @@ export async function uploadDocument(
   }
   const mimeType = audio?.mimeType ?? body.mimeType;
   if (body.folderId) {
-    const folder = await repo.knowledge.getFolder(deps.db, body.folderId);
-    if (!folder || folder.baseId !== base.id) {
-      throw new AppError('INVALID_INPUT', '文件夹不存在或属于其他知识库');
-    }
+    await assertFolderInBase(deps, base.id, body.folderId);
   }
   let folderId = body.folderId;
   let title = body.title ?? fileTitle(body.filename);
@@ -512,10 +510,7 @@ export async function updateDocument(
     }
   }
   if (patch.folderId) {
-    const folder = await repo.knowledge.getFolder(deps.db, patch.folderId);
-    if (!folder || folder.baseId !== current.baseId) {
-      throw new AppError('INVALID_INPUT', '文件夹不存在或属于其他知识库');
-    }
+    await assertFolderInBase(deps, current.baseId, patch.folderId);
   }
   if (current.status === 'disabled' && patch.status === 'ready') {
     const chunks = current.currentVersionId
