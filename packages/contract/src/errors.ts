@@ -2,6 +2,8 @@ import { type ErrorCode, errorCode, problemSchema } from '@agentport/shared';
 
 export { problemSchema } from '@agentport/shared';
 
+type ContractError = { status: number; data: typeof problemSchema };
+
 export const contractErrors = {
   INVALID_INPUT: { status: errorCode.INVALID_INPUT, data: problemSchema },
   UNAUTHORIZED: { status: errorCode.UNAUTHORIZED, data: problemSchema },
@@ -16,7 +18,26 @@ export const contractErrors = {
   RESPONSE_INVALID: { status: errorCode.RESPONSE_INVALID, data: problemSchema },
   SERVICE_UNAVAILABLE: { status: errorCode.SERVICE_UNAVAILABLE, data: problemSchema },
   UPSTREAM_FAILED: { status: errorCode.UPSTREAM_FAILED, data: problemSchema },
-};
+} satisfies Record<string, ContractError>;
+
+type ContractErrorCode = keyof typeof contractErrors;
+type DomainErrorCode =
+  | 'INVALID_URL'
+  | 'INVALID_REFERENCE'
+  | 'AGENT_DISABLED'
+  | 'AGENT_BUDGET_EXCEEDED'
+  | 'BUDGET_EXCEEDED'
+  | 'CONTENT_BLOCKED'
+  | 'CONTENT_APPROVAL_REQUIRED'
+  | 'EVAL_RUN_IN_PROGRESS'
+  | 'BASE_MISMATCH'
+  | 'BASE_DISABLED'
+  | 'DOCUMENT_NOT_FOUND'
+  | 'WIKI_NOT_FOUND'
+  | 'VERSION_NOT_CURRENT';
+type MissingErrorCodes = Exclude<ErrorCode, ContractErrorCode | DomainErrorCode>;
+type AssertNoMissingErrorCodes<T extends never> = T;
+type _ErrorsCoverage = AssertNoMissingErrorCodes<MissingErrorCodes>;
 
 const defaultErrorCodes = [
   'INVALID_INPUT',

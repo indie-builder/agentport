@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { slugSchema } from './params.js';
 import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
-import { parseUrl } from './url.js';
+import { hasEmbeddedCredentials, parseUrl } from './url.js';
 
 /** 用户配置的 MCP Server；密钥字段在 API 层加密，返回时脱敏。 */
 export const serverKindSchema = z.enum(['stdio', 'http', 'generated', 'knowledge', 'data_domain']);
@@ -121,7 +121,7 @@ export const httpUrlSchema = z
   .refine((value) => /^https?:\/\//i.test(value), '仅支持 http/https 地址')
   .refine((value) => {
     const url = parseUrl(value);
-    return url !== null && !url.username && !url.password;
+    return url !== null && !hasEmbeddedCredentials(url);
   }, 'URL不能包含账号密码，请通过加密headers配置凭证');
 
 export const httpServerSchema = z.object({

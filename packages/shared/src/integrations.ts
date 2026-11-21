@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ATTACHMENT_LIMITS } from './attachments.js';
 import { runTriggerSchema } from './ops.js';
 import { runStatusSchema } from './run-state.js';
+import { hasEmbeddedCredentials, parseUrl } from './url.js';
 import { utf8Bytes } from './utf8.js';
 
 const messageSchema = z
@@ -64,17 +65,16 @@ export const webhookEndpointSchema = z.object({
 });
 export type WebhookEndpoint = z.infer<typeof webhookEndpointSchema>;
 
-const httpUrlSchema = z
-  .string()
-  .url('请输入合法的 URL')
-  .refine((value) => /^https?:\/\//.test(value), 'URL 必须使用 http 或 https');
-
 export const webhookEndpointCreateInputSchema = z
   .object({
     name: z.string().trim().min(1).max(100),
     direction: webhookDirectionSchema,
     agentId: z.string().min(1).optional(),
-    url: httpUrlSchema.optional(),
+    url: z
+      .string()
+      .trim()
+      .overwrite((value) => value.replace(/[\t\n\r]/g, ''))
+      .optional(),
     events: z.array(webhookEventTypeSchema).optional(),
   })
   .strict()
@@ -93,6 +93,21 @@ export const webhookEndpointCreateInputSchema = z
     }
     if (!input.url) {
       ctx.addIssue({ code: 'custom', path: ['url'], message: '出站端点必须配置 URL' });
+    } else {
+      const parsed = parseUrl(input.url);
+      if (!parsed) {
+        ctx.addIssue({ code: 'custom', path: ['url'], message: '请输入合法的 URL' });
+      } else if (!/^https?:$/.test(parsed.protocol)) {
+        ctx.addIssue({ code: 'custom', path: ['url'], message: 'URL 必须使用 http 或 https' });
+      } else if (!/^https?:\/\//.test(input.url) || parsed.hostname === '') {
+        ctx.addIssue({ code: 'custom', path: ['url'], message: '请输入合法的 URL' });
+      } else if (hasEmbeddedCredentials(parsed)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['url'],
+          message: 'Webhook URL 不能包含账号密码，请移除 URL 中的用户名或密码',
+        });
+      }
     }
     if (!input.events || input.events.length === 0) {
       ctx.addIssue({ code: 'custom', path: ['events'], message: '至少订阅一个事件' });
