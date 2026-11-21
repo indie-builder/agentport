@@ -154,15 +154,17 @@ async function makeDocument(
   return { documentId: document.id, versionId: version.id, profileId };
 }
 
-async function startSummaryJob(documentId: string) {
+async function startSummaryJob(documentId: string, payloadVersionId?: string) {
   const document = await repo.knowledge.getDocument(db, documentId);
   if (!document) throw new Error('document missing');
+  const versionId = payloadVersionId ?? document.currentVersionId;
+  if (versionId === null) throw new Error('document has no current version');
   const job = await repo.knowledge.createJob(db, {
     type: 'summary',
     baseId: document.baseId,
     documentId,
     sourceId: null,
-    payload: { type: 'summary', baseId: document.baseId, documentId },
+    payload: { type: 'summary', baseId: document.baseId, documentId, versionId },
   });
   const claimed = await repo.knowledge.claimJob(db, job.id);
   if (!claimed) throw new Error('job not claimed');
@@ -254,6 +256,70 @@ describe('runKnowledgeSummary', () => {
       summaryStatus: 'failed',
       summaryError: expect.stringContaining('KNOWLEDGE_SUMMARY_MODEL'),
     });
+  });
+
+  it('marks failed without calling the model when the document is not readable', async () => {
+    const seeded = await makeDocument('正文。');
+    await repo.knowledge.updateDocument(db, seeded.documentId, { status: 'failed' });
+    const captured: Captured[] = [];
+
+    await expect(
+      runKnowledgeSummary(
+        await startSummaryJob(seeded.documentId),
+        deps(successQuery('不应生成的摘要', captured)),
+      ),
+    ).rejects.toThrow('文档当前不可读');
+
+    const row = await repo.knowledge.getDocument(db, seeded.documentId);
+    if (!row) throw new Error('document missing');
+    expect(row.summaryStatus).toBe('failed');
+    expect(row.summaryVersionId).toBe(seeded.versionId);
+    expect(row.summary).toBeNull();
+    expect(row.summaryError).toContain('文档当前不可读');
+    expect(captured).toHaveLength(0);
+  });
+
+  it('fails instead of writing onto the new version when the payload version is stale', async () => {
+    const seeded = await makeDocument('旧版本正文。');
+    const document = await repo.knowledge.getDocument(db, seeded.documentId);
+    if (!document) throw new Error('document missing');
+    const next = await repo.knowledge.createVersion(db, {
+      documentId: document.id,
+      blobSha256: '1'.repeat(64),
+      markdownSha256: '2'.repeat(64),
+      originalFilename: 'summary.md',
+      mimeType: 'text/markdown',
+      sizeBytes: 6,
+      sourceRevision: null,
+      parseStatus: 'parsed',
+      pageMap: [],
+      images: [],
+      embeddingProfileId: seeded.profileId,
+    });
+    await repo.knowledge.setCurrentVersion(db, document.id, next.id);
+    const captured: Captured[] = [];
+
+    await expect(
+      runKnowledgeSummary(
+        await startSummaryJob(seeded.documentId, seeded.versionId),
+        deps(successQuery('不应生成的摘要', captured)),
+      ),
+    ).rejects.toThrow('文档版本已变化');
+
+    const row = await repo.knowledge.getDocument(db, seeded.documentId);
+    if (!row) throw new Error('document missing');
+    expect(row.currentVersionId).toBe(next.id);
+    expect(row.summaryVersionId).toBe(seeded.versionId);
+    expect(row.summaryStatus).toBe('failed');
+    expect(row.summary).toBeNull();
+    expect(row.summaryError).toContain('文档版本已变化');
+    expect(visibleDocumentSummary(row)).toEqual({
+      summary: null,
+      summaryStatus: 'none',
+      summaryGeneratedAt: null,
+      summaryError: null,
+    });
+    expect(captured).toHaveLength(0);
   });
 
   it('does not expose the previous version summary after the current version changes', async () => {

@@ -51,6 +51,15 @@ export async function getDocument(db: Database, id: string): Promise<KnowledgeDo
   return row ?? null;
 }
 
+export async function isDocumentReadable(db: Database, id: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: knowledgeDocuments.id })
+    .from(knowledgeDocuments)
+    .where(and(eq(knowledgeDocuments.id, id), readableDocumentSql('knowledge_documents')))
+    .limit(1);
+  return row !== undefined;
+}
+
 export interface ListDocumentsFilter extends PageOptions {
   baseId: string;
   folderId?: string | null;

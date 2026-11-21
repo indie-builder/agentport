@@ -407,7 +407,12 @@ export async function generateDocumentSummary(deps: KnowledgeDeps, documentId: s
     return createJob(tx, {
       baseId: document.baseId,
       documentId: document.id,
-      payload: { type: 'summary', baseId: document.baseId, documentId: document.id },
+      payload: {
+        type: 'summary',
+        baseId: document.baseId,
+        documentId: document.id,
+        versionId,
+      },
     });
   });
   await enqueueKnowledgeJob(job);

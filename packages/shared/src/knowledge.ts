@@ -950,7 +950,12 @@ export const knowledgeJobPayloadSchema = z.discriminatedUnion('type', [
     instruction: z.string().optional(),
     sourceDocumentIds: z.array(z.string()).optional(),
   }),
-  z.object({ type: z.literal('summary'), baseId: z.string(), documentId: z.string() }),
+  z.object({
+    type: z.literal('summary'),
+    baseId: z.string(),
+    documentId: z.string(),
+    versionId: z.string(),
+  }),
   z.object({ type: z.literal('cleanup'), baseId: z.string().optional() }),
 ]);
 

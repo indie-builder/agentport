@@ -52,8 +52,8 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
   if (document.status === 'disabled' || document.disabledReason !== null) {
     throw new Error('文档已停用，不能生成摘要');
   }
-  const versionId = document.currentVersionId;
-  if (!versionId) throw new Error('文档还没有可用版本，不能生成摘要');
+  if (!document.currentVersionId) throw new Error('文档还没有可用版本，不能生成摘要');
+  const versionId = payload.versionId;
 
   const fail = async (message: string): Promise<never> => {
     await repo.knowledge.setDocumentSummary(db, document.id, {
@@ -65,6 +65,13 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
     });
     throw new Error(message);
   };
+
+  if (!(await repo.knowledge.isDocumentReadable(db, document.id))) {
+    return fail('文档当前不可读（来源未授权或不在范围）');
+  }
+  if (document.currentVersionId !== payload.versionId) {
+    return fail('文档版本已变化，请重新生成');
+  }
 
   const model = deps.config.KNOWLEDGE_SUMMARY_MODEL;
   if (!model) return fail('摘要模型未配置(KNOWLEDGE_SUMMARY_MODEL)');

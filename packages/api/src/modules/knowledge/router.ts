@@ -1,5 +1,6 @@
 import { type KnowledgeContract, knowledgeContract } from '@agentport/contract/knowledge';
 
+import { AppError } from '@agentport/core';
 import type { KnowledgeFaqImportResult } from '@agentport/shared';
 import { implement, ORPCError, type Router } from '@orpc/server';
 import { requirePermission, resourceAccessFilter } from '../../http/access.js';
@@ -504,6 +505,13 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     retry: os.jobs.retry.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.execute');
       const job = await authorizeJob(context, input.params.jobId, 'knowledge.execute', 'read');
+      if (job.type === 'summary') {
+        await requirePermission(context, 'knowledge.content.manage');
+        if (job.documentId === null) {
+          throw new AppError('CONFLICT', '摘要任务缺少目标文档，无法重试');
+        }
+        await authorizeDocument(context, job.documentId, 'knowledge.content.manage', 'manage');
+      }
       return useCases.retryJob(depsOf(context), job);
     }),
     cancel: os.jobs.cancel.handler(async ({ input, context }) => {
