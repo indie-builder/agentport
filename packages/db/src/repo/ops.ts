@@ -2,6 +2,7 @@ import { fail, isAppError } from '@agentport/core';
 import {
   ACTIVE_RUN_STATUSES,
   type AccessFilter,
+  FAILED_RUN_STATUSES,
   RETENTION_DEFAULTS,
   type RetentionUpdate,
 } from '@agentport/shared';
@@ -420,7 +421,7 @@ export async function listRecentFailedRuns(db: Database, limit = 20) {
     })
     .from(agentRuns)
     .leftJoin(agents, eq(agents.id, agentRuns.agentId))
-    .where(inArray(agentRuns.status, ['failed', 'timeout']))
+    .where(inArray(agentRuns.status, [...FAILED_RUN_STATUSES]))
     .orderBy(desc(agentRuns.endedAt))
     .limit(limit);
 }
@@ -434,7 +435,7 @@ export async function agentStats(db: Database, agentId: string, since: Date) {
       .select({
         runCount: sql<number>`count(*)::int`,
         running: sql<number>`count(*) filter (where ${agentRuns.status} = 'running')::int`,
-        failed: sql<number>`count(*) filter (where ${agentRuns.status} in ('failed','timeout'))::int`,
+        failed: sql<number>`count(*) filter (where ${inArray(agentRuns.status, [...FAILED_RUN_STATUSES])})::int`,
         succeeded: sql<number>`count(*) filter (where ${agentRuns.status} = 'succeeded')::int`,
         totalCost: sql<number>`coalesce(sum(${agentRuns.costUsd}), 0)::float`,
         totalTokens: sql<number>`coalesce(sum(coalesce(${agentRuns.inputTokens},0)::bigint + coalesce(${agentRuns.outputTokens},0)::bigint), 0)::float8`,

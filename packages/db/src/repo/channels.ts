@@ -78,7 +78,7 @@ export type ChannelDetail = {
 
 type NotFound = { kind: 'not_found'; target: 'channel' | 'member' | 'account' | 'agent' };
 
-function allows(role: ChannelRole | null, action: 'read' | 'post' | 'manage') {
+export function allows(role: ChannelRole | null, action: 'read' | 'post' | 'manage') {
   if (role === null) return false;
   if (action === 'read') return true;
   if (action === 'post') return role !== 'viewer';

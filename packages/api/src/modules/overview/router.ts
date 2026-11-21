@@ -1,8 +1,8 @@
 import { overviewContract } from '@agentport/contract/overview';
 import { schema } from '@agentport/db';
-import { utcWindowStart } from '@agentport/shared';
+import { FAILED_RUN_STATUSES, utcWindowStart } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { accessFilter } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 
@@ -36,7 +36,7 @@ export const overviewRouter = os.router({
       runCount: sql<number>`count(${schema.agentRuns.id})::int`.as('run_count'),
       totalCost: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}), 0)::float`.as('total_cost'),
       errorRate: sql<number>`coalesce(
-          count(*) filter (where ${schema.agentRuns.status} in ('failed','timeout'))::float
+          count(*) filter (where ${inArray(schema.agentRuns.status, [...FAILED_RUN_STATUSES])})::float
           / nullif(count(${schema.agentRuns.id}), 0), 0)::float`.as('error_rate'),
       latencyP50: sql<
         number | null
@@ -106,7 +106,7 @@ export const overviewRouter = os.router({
             : sql<number>`(select count(*)::int from ${schema.agents} where ${schema.agents.isDefault} = false)`,
           running: sql<number>`count(*) filter (where ${schema.agentRuns.status} = 'running')::int`,
           total: sql<number>`count(*) filter (where ${inWindow})::int`,
-          failed: sql<number>`count(*) filter (where ${inWindow} and ${schema.agentRuns.status} in ('failed','timeout'))::int`,
+          failed: sql<number>`count(*) filter (where ${inWindow} and ${inArray(schema.agentRuns.status, [...FAILED_RUN_STATUSES])})::int`,
           tokens: sql<number>`coalesce(sum(coalesce(${schema.agentRuns.inputTokens},0)::bigint + coalesce(${schema.agentRuns.outputTokens},0)::bigint) filter (where ${inWindow}), 0)::float8`,
           cost: sql<number>`coalesce(sum(${schema.agentRuns.costUsd}) filter (where ${inWindow}), 0)::float`,
           avgLatency: sql<
@@ -182,7 +182,10 @@ export const overviewRouter = os.router({
       select
         to_char(d.day, 'YYYY-MM-DD') as date,
         count(r.id)::int as runs,
-        count(r.id) filter (where r.status in ('failed', 'timeout'))::int as failed,
+        count(r.id) filter (where r.status in (${sql.join(
+          FAILED_RUN_STATUSES.map((status) => sql`${status}`),
+          sql`, `,
+        )}))::int as failed,
         coalesce(sum(r.cost_usd), 0)::float as "costUsd",
         coalesce(
           sum(coalesce(r.input_tokens, 0)::bigint + coalesce(r.output_tokens, 0)::bigint), 0

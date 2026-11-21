@@ -1,5 +1,6 @@
 import { AppError } from '@agentport/core';
 import {
+  ACTIVE_RUN_STATUSES,
   DEFAULT_RUNTIME_DOCKERFILE,
   DEFAULT_RUNTIME_ENVIRONMENT_NAME,
   type ResolvedRuntimeEnvironment,
@@ -194,7 +195,10 @@ async function hasFixedEnvironmentReferences(db: DbHandle, id: string): Promise<
       from agent_runs r
       left join agent_versions av
         on av.agent_id = r.agent_id and av.version = r.agent_version
-      where r.status in ('queued', 'running')
+      where r.status in (${sql.join(
+        ACTIVE_RUN_STATUSES.map((status) => sql`${status}`),
+        sql`, `,
+      )})
         and (
           r.runtime_environment_id = ${id}
           or coalesce(r.definition_snapshot, av.definition)->'resources'->'runtimeEnvironment'->>'id' = ${id}
