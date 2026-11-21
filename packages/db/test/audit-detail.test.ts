@@ -96,6 +96,26 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
     });
   });
 
+  it('treats JSON-null and non-object detail as no detail', async () => {
+    const target = `audit-invalid-detail-${randomUUID()}`;
+    const cases: Array<[string, unknown]> = [
+      [`audit-nan-${randomUUID()}`, Number.NaN],
+      [`audit-infinity-${randomUUID()}`, Number.POSITIVE_INFINITY],
+      [`audit-string-${randomUUID()}`, '123'],
+      [`audit-tojson-${randomUUID()}`, { toJSON: () => null }],
+    ];
+    for (const [id, detail] of cases) {
+      await write({ dedupeKey: id, action: 'audit.detail.invalid', target, status: 'ok', detail });
+    }
+
+    for (const [id] of cases) {
+      const row = await rowById(id);
+      expect(row.detail).toBeNull();
+      expect(row.hash).toBe(legacyHash(row));
+    }
+    expect((await audit.verifyAuditChain(db)).ok).toBe(true);
+  });
+
   it('detects tampering with a row that has no detail', async () => {
     const target = `audit-tamper-plain-${randomUUID()}`;
     const id = `audit-plain-${randomUUID()}`;

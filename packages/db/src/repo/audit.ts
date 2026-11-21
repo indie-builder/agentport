@@ -41,6 +41,13 @@ function digest(input: unknown): string | null {
   }
 }
 
+function detailValue(value: unknown): Record<string, unknown> | null {
+  if (value === null || value === undefined) return null;
+  const parsed: unknown = JSON.parse(JSON.stringify(value) ?? 'null');
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
+}
+
 interface AuditHashMaterial {
   prevHash: string | null;
   id: string;
@@ -101,7 +108,7 @@ export async function writeAuditInTx(tx: Transaction, event: AuditEvent): Promis
     action: event.action,
     target: event.target ?? null,
     inputDigest: digest(event.input),
-    detail: event.detail ?? null,
+    detail: detailValue(event.detail),
     status: event.status,
     durationMs: event.durationMs ?? null,
     requestId: event.requestId ?? null,
