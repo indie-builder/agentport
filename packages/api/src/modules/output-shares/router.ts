@@ -14,7 +14,7 @@ import { implement } from '@orpc/server';
 import { actorOf, authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { agentSlug } from '../../lib/agent-slug.js';
-import { previewText, readWorkspaceOutput } from '../../lib/outputs.js';
+import { OUTPUT_MISSING_MESSAGE, previewText, readWorkspaceOutput } from '../../lib/outputs.js';
 import { CONVERSATION_MISSING } from '../chat/access.js';
 import { bearerToken, tokenMatches } from '../servers/bearer.js';
 
@@ -115,7 +115,7 @@ export const outputSharesRouter = os.router({
       fail('FORBIDDEN', '该会话读取过数据域治理数据，其成果不支持公开分享');
     }
     const slug = await agentSlug(context.db, conversation.agentId);
-    if (slug === null) fail('NOT_FOUND', '成果文件不存在，可能已被清理');
+    if (slug === null) fail('NOT_FOUND', OUTPUT_MISSING_MESSAGE);
 
     let file: OutputFile;
     let data: Buffer;

@@ -20,6 +20,7 @@ import { invalidCursor } from '../../http/pagination.js';
 import { agentSlug } from '../../lib/agent-slug.js';
 import {
   listWorkspaceOutputs,
+  OUTPUT_MISSING_MESSAGE,
   previewText,
   readWorkspaceOutput,
   safeMediaType,
@@ -95,7 +96,7 @@ export const chatOutputsRouter = {
   output: os.output.handler(async ({ input, context }) => {
     const conversation = await loadReadableConversation(context, input.params.id);
     const slug = await agentSlug(context.db, conversation.agentId);
-    if (slug === null) return fail('NOT_FOUND', '成果文件不存在，可能已被清理');
+    if (slug === null) return fail('NOT_FOUND', OUTPUT_MISSING_MESSAGE);
     try {
       const { file } = await readWorkspaceOutput(context, {
         slug,
@@ -122,7 +123,7 @@ async function readRequestedOutput(c: HttpContext) {
   );
   const conversation = await loadReadableConversation(context, input.params.id);
   const slug = await agentSlug(context.db, conversation.agentId);
-  if (slug === null) fail('NOT_FOUND', '成果文件不存在，可能已被清理');
+  if (slug === null) fail('NOT_FOUND', OUTPUT_MISSING_MESSAGE);
   return readWorkspaceOutput(context, {
     slug,
     conversationId: conversation.id,
