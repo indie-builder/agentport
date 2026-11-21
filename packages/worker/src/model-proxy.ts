@@ -5,24 +5,10 @@ import type { repo } from '@agentport/db';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 
-/**
- * 模型凭证代理（D-17）。
- *
- * 沙盒里的任何进程都能读到容器 env。把真实模型密钥放进去，等于把长期凭证
- * 交给模型可以执行的代码。这里改成：
- * - 真实密钥只存在于 worker 进程内存；
- * - 沙盒拿到 `MODEL_PROXY_URL` 与按 run 签发的短期 token；
- * - 请求由 worker 转发到上游，并在转发时注入真实凭证。
- *
- * 只转发白名单路径：代理一旦能转发任意 URL，就会变成开放代理，
- * 沙盒可以借它访问内网而绕过 SSRF 防护。
- */
-
 const MESSAGE_PATH = '/v1/messages';
 const MODELS_PATH = '/v1/models';
 const MESSAGE_PATHS = new Set([MESSAGE_PATH, `${MESSAGE_PATH}/count_tokens`]);
 const modelRequestSchema = z.object({ model: z.string() });
-/** 单次请求体上限；模型请求可能带大段上下文，但不能无限。 */
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const MAX_SSE_PREFIX_BYTES = 32 * 1024 * 1024;
 const UPSTREAM_START_TIMEOUT_MS = 60_000;
@@ -80,7 +66,6 @@ export interface ModelProxy {
   close: () => Promise<void>;
 }
 
-/** 单个请求的日志上下文：成功、失败、token 拒绝都带同一组字段。 */
 interface ProxyRequestContext {
   runId?: string | undefined;
   model?: string | undefined;
@@ -131,11 +116,9 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
   const upstream = new URL(upstreamBaseUrl);
 
   const server = createServer((req, res) => {
-    // 每个请求一行上下文，错误路径也能带上 runId / model，不再只剩一条堆栈。
     const ctx: ProxyRequestContext = {};
     void handle(req, res, ctx).catch((err: unknown) => {
       logger.error({ err, ...ctx }, 'model proxy request failed');
-      // 客户端已断开时不能再写响应，否则会再抛一次 stream destroyed。
       if (res.destroyed || res.writableEnded) return;
       if (!res.headersSent) {
         res.writeHead(500, { 'content-type': 'application/json' });
@@ -168,7 +151,6 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
 
     const token = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
     if (!token) {
-      // token 本身不落日志；这里只记「没带凭证」这一事实。
       logger.warn({ path: url.pathname, status: 401 }, 'model proxy rejected token: missing');
       res.writeHead(401, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: { type: 'unauthorized', message: 'missing token' } }));
@@ -177,7 +159,6 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
 
     const run = await options.resolveRun(token);
     if (!run || !activeRuns.has(run.runId)) {
-      // 已结束 / 未签发的 run token：沙盒仍在发请求时，这条日志就是唯一线索。
       logger.warn(
         { path: url.pathname, status: 401, ...(run ? { runId: run.runId } : {}) },
         'model proxy rejected token: invalid or revoked',
@@ -249,7 +230,6 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     }
 
     if (res.destroyed) return;
-    // 下游提前断开时中止上游 fetch，否则它会继续把整段响应读完。
     const abort = new AbortController();
     const abortIfUnfinished = () => {
       if (!res.writableFinished) abort.abort();
@@ -468,7 +448,6 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
         if (upstreamBody) {
           let upstreamFailed = false;
           try {
-            // 流式（SSE）必须边读边写；pipeline 负责背压，下游慢时暂停读上游并取消 reader。
             await pipeline(async function* () {
               try {
                 yield* prefix;
@@ -528,7 +507,6 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
       res.writeHead(502, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: { type: 'proxy_error', message: 'proxy failed' } }));
     } catch (err) {
-      // 下游已主动断开：没有响应可写，也不属于代理故障。
       if (!abort.signal.aborted) throw err;
     } finally {
       res.off('close', abortIfUnfinished);
@@ -541,7 +519,6 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
   });
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
-  // compose 里这个端口会发布到宿主，所以沙盒侧永远用 host.docker.internal。
   const url = `http://host.docker.internal:${port}`;
   const localUrl = `http://127.0.0.1:${port}`;
   logger.info({ url, upstream: upstream.origin }, 'model proxy listening');

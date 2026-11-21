@@ -72,10 +72,6 @@ interface SandboxRunInput {
   instructions?: SandboxInstructionCallbacks;
 }
 
-/**
- * 可重试 = 停稳已确认 + 基础设施瞬时故障；业务失败不重试。
- * 停稳未确认时容器可能还在执行副作用，重跑会重复计费与写文件。
- */
 export function isRetryable(outcome: SandboxRunOutcome): boolean {
   return (
     outcome.settlement.state === 'stopped' &&
@@ -105,12 +101,9 @@ export interface SandboxRunOutcome {
   events: ChatEvent[];
 }
 
-/** 落库被截断时不能回报成功：SDK 会话完整而历史只剩部分，刷新后会对不上。 */
 const PERSIST_OVERFLOW_MESSAGE = '完整输出超过保存上限，已保存部分结果';
-/** 失败时保留的 stderr 上限：2KB 常常只剩最后一行，16KB 才能看到启动错误。 */
 const STDERR_KEEP_CHARS = 16 * 1024;
 
-/** 落库需要的完整事件；text_delta 与块边界只用于展示。 */
 function isPersistable(event: ChatEvent): boolean {
   return (
     event.type === 'assistant_text' ||
@@ -121,16 +114,10 @@ function isPersistable(event: ChatEvent): boolean {
   );
 }
 
-/**
- * run 内稳定的文本块身份。`blockIndex` 会被 SDK 的后续消息重用（每条 assistant 消息都从 0 起），
- * 每帧 `sdkUuid` 又各不相同，二者都不能当段身份；这里按块边界发号。
- * `assistant_text` 只有完整消息里的 `blockIndex`，用「最近开启且未关闭」的块对齐。
- */
 export function createStreamBlockIds(): (event: ChatEvent) => ChatEvent {
   const open = new Map<string, string>();
   const lastOpen = new Map<string, string>();
   let issued = 0;
-  // 全局单调：主线程与子智能体可能同时用 blockIndex 0，身份必须在整个 run 内唯一。
   const next = (): string => `b${issued++}`;
   const slot = (parentToolUseId: string | undefined, blockIndex: number) =>
     `${parentToolUseId ?? ''}:${blockIndex}`;
@@ -153,10 +140,8 @@ export function createStreamBlockIds(): (event: ChatEvent) => ChatEvent {
     }
     if (event.type !== 'text_delta' && event.type !== 'assistant_text') return event;
     if (event.blockIndex === undefined) {
-      // 旧 runner 不带块序号：整条消息一段。不能用 sdkUuid，text_delta 上的是每帧都变的 uuid。
       const key = `legacy:${parentToolUseId ?? ''}`;
       const id = open.get(key) ?? next();
-      // 完整消息到达即封口，下一条消息重新起号。
       if (event.type === 'assistant_text') open.delete(key);
       else open.set(key, id);
       return { ...event, streamBlockId: id };
@@ -166,8 +151,6 @@ export function createStreamBlockIds(): (event: ChatEvent) => ChatEvent {
       lastOpen.get(slot(parentToolUseId, event.blockIndex)) ??
       next();
     if (event.type === 'assistant_text') {
-      // 完整块即消费完这一段：没有块边界的子智能体下一条消息会重用同号，
-      // 必须封口 lastOpen 另起身份；stop 稍后到达，仍从 open 里取同一个 id。
       lastOpen.delete(slot(parentToolUseId, event.blockIndex));
     } else {
       lastOpen.set(slot(parentToolUseId, event.blockIndex), id);
@@ -182,7 +165,6 @@ interface StderrTap {
   dropped: number;
 }
 
-/** 收尾时 runner-client 需要把未决问题一起关闭；handle 在 effect 内注入。 */
 interface QuestionHandle {
   settle?: (reason: string) => Promise<void>;
   error?: () => string | undefined;
@@ -190,16 +172,8 @@ interface QuestionHandle {
   persistOverflowed?: () => boolean;
 }
 
-/** 答案由 API 写入 DB；宿主每 500ms 看一次，只有自己这次 attempt 的 pending 才回写 stdin。 */
 const QUESTION_POLL_MS = 500;
 
-/**
- * 提问的宿主侧状态机：
- * - question_requested 先落库，再推 question_updated；
- * - 答案由 API 写库，轮询只负责把 answered/declined 写回当前沙盒的 stdin，一次且仅一次；
- * - 游走在两端的迟到/重复答案不会命中断言之外的 pending；
- * - 收尾必须等异步落库排空，然后关闭所有未决卡片。
- */
 function createQuestionRuntime(input: {
   runId: string;
   callbacks: SandboxQuestionCallbacks | undefined;
@@ -236,14 +210,12 @@ function createQuestionRuntime(input: {
     if (sent.has(question.requestId)) return;
     sent.add(question.requestId);
     pending.delete(question.requestId);
-    // 给模型的答案必须是库里的原值；展示用的脱敏只发生在 record()。
     const response: QuestionResponse =
       question.status === 'answered' && question.answers !== null
         ? { answers: question.answers }
         : { decline: true };
     write?.({ type: 'question_response', requestId: question.requestId, response });
   };
-  /** 明确拒绝所有 pending 并清空，避免 SDK 一直等一个不会到来的回答。 */
   const denyAll = (): void => {
     for (const requestId of [...pending.keys()]) {
       if (sent.has(requestId)) continue;
@@ -271,7 +243,6 @@ function createQuestionRuntime(input: {
             items = await callbacks.list();
           } catch (err) {
             const detail = fail(err, 'failed to poll questions');
-            // 明确拒绝所有 pending，再终止 run；否则 SDK 会空等到整体超时。
             stopped = true;
             denyAll();
             input.abort(detail);
@@ -296,7 +267,6 @@ function createQuestionRuntime(input: {
   return {
     handle(event) {
       if (event.type === 'question_requested') {
-        // 收尾开始后不再接受新问题：否则会在 close 之后又落一行 pending。
         if (stopped) return true;
         sawQuestions = true;
         const { requestId, toolUseId, questions } = event;
@@ -304,7 +274,6 @@ function createQuestionRuntime(input: {
           const callbacks = input.callbacks;
           if (callbacks === undefined) {
             fail(new Error('question store is not configured'), 'question store unavailable');
-            // fail closed：不让工具无限等一个无法持久化的回答。
             write?.({ type: 'question_response', requestId, response: { decline: true } });
             return;
           }
@@ -347,14 +316,12 @@ function createQuestionRuntime(input: {
     async settle(reason) {
       if (!sawQuestions) return;
       stopped = true;
-      // 先等所有异步写库完成，run_finished 不能越过它们。
       await chain;
       if (polling !== undefined) await polling;
       const callbacks = input.callbacks;
       if (callbacks === undefined) return;
       try {
         for (const question of await callbacks.close(reason)) record(question);
-        // 回答可能发生在最后一次轮询与收尾之间：刷新最终快照再落历史。
         for (const question of await callbacks.list()) record(question);
       } catch (err) {
         fail(err, 'failed to settle pending questions');
@@ -465,7 +432,6 @@ function appendStderr(tap: StderrTap, chunk: string): void {
   }
 }
 
-/** 脱敏后取尾部；截断时必须说明「前面还有」，否则读者会以为这就是全部。 */
 function stderrExcerpt(tap: StderrTap, max: number): string {
   const body = redactSecrets(tap.text.slice(-max).trim());
   if (!body) return '';
@@ -493,7 +459,6 @@ function getPublisher(logger: Logger): RedisClient {
   return publisher;
 }
 
-/** 与 API 的订阅共用同一频道；这里只关心 cancel 消息。 */
 function getCancelSubscriber(logger: Logger): RedisClient {
   if (!cancelSubscriber) {
     cancelSubscriber = new RedisClient(redisUrl);
@@ -532,7 +497,6 @@ export async function clearRunCancel(runId: string, logger: Logger): Promise<voi
   await getPublisher(logger).send('DEL', [runCancelKey(runId)]);
 }
 
-/** 频道事件只是唤醒信号：Redis 黑洞时必须有界返回，不能拖住 run 收尾。 */
 const CHANNEL_PUBLISH_TIMEOUT_MS = 2_000;
 
 function withPublishTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -567,7 +531,6 @@ export async function closeRunnerClient(): Promise<void> {
   closing[1]?.close();
 }
 
-/** acquire 的总预算；超时后仍要等 provider 清理完，不能先返回留下未知容器。 */
 const ACQUIRE_BUDGET_MS = 30_000;
 
 /** 订阅先于 acquire，拉取镜像与 supervisor ready 同样可取消且有界。 */
@@ -587,7 +550,6 @@ export async function acquireSessionSandbox(input: {
           Deferred.doneUnsafe(cancelled, Exit.succeed(undefined));
           aborter.abort();
         };
-        // 订阅与创建共用一个预算，避免准备阶段把 30s 翻倍。
         const deadline = Date.now() + ACQUIRE_BUDGET_MS;
         const prepared = yield* Effect.result(
           Effect.raceAllFirst([
@@ -628,10 +590,6 @@ export async function acquireSessionSandbox(input: {
   );
 }
 
-/**
- * 取消/超时只负责 abort；provider 契约要求它清理完容器再 reject。
- * 这里必须等到真正收尾：提前返回会让调用方以为没有遗留容器。
- */
 async function acquireLease(input: {
   manager: Pick<SessionSandboxes, 'acquire'>;
   spec: SessionSandboxSpec;
@@ -651,7 +609,6 @@ async function acquireLease(input: {
       lease = await input.manager.acquire(input.spec, input.aborter.signal, input.runId);
     } catch (err) {
       const cancelled = input.cancelled();
-      // 原始错误（含 provider 的 SandboxCleanupError）保留在 cause 链里，index 才能按 id 继续清理。
       if (err instanceof RunFailure && !timedOut && !cancelled) throw err;
       throw new RunFailure(
         !timedOut && cancelled ? 'cancelled' : 'infra',
@@ -664,7 +621,6 @@ async function acquireLease(input: {
       );
     }
     if (!timedOut && !input.cancelled()) return lease;
-    // provider 忽略了取消仍迟到返回：所有权已经在这里，必须释放（销毁）后再报告。
     const reason = timedOut ? 'infra' : 'cancelled';
     const message = timedOut
       ? `sandbox acquire timed out after ${ACQUIRE_BUDGET_MS}ms`
@@ -672,7 +628,6 @@ async function acquireLease(input: {
     try {
       await lease.release({ reuse: false });
     } catch (cleanupError) {
-      // 释放失败必须带容器 id，index 才能按 id 继续清理；普通错误没有 id，用 lease 自身的补上。
       throw new RunFailure(
         reason,
         message,
@@ -688,11 +643,9 @@ async function acquireLease(input: {
 }
 
 export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOutcome> {
-  // 正常 lease 留给调用方发布后释放；异常执行必须先销毁再允许捕获文件。
   const questions: QuestionHandle = {};
   let outcome = await Effect.runPromise(
     Effect.scoped(runInSandboxEffect(input, questions)).pipe(
-      // 订阅取消频道失败属于基础设施故障：交给 BullMQ 重试，而不是伪装成 agent 失败。
       Effect.catch((failure) =>
         Effect.succeed<SandboxRunOutcome>({
           status: 'failed',
@@ -706,9 +659,7 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
     ),
   );
   if (questions.settle !== undefined) {
-    // 先把未决问题按终态关闭并等落库排空，再让调用方发布 run_finished。
     await questions.settle(outcome.status === 'succeeded' ? 'finished' : outcome.status);
-    // settle 追加的问题快照也可能撑破预算；成功改判失败必须等它结束才最终成立。
     if (outcome.status === 'succeeded' && questions.persistOverflowed?.() === true) {
       outcome = {
         ...outcome,
@@ -719,7 +670,6 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
     }
     const failure = questions.error?.();
     if (failure !== undefined) {
-      // 落库失败不能吞：运行结果里必须能看见，但不改写已经确定的终态。
       outcome = {
         ...outcome,
         error: `${outcome.error ?? outcome.status}；问题记录失败：${failure}`,
@@ -749,7 +699,6 @@ export async function runInSandbox(input: SandboxRunInput): Promise<SandboxRunOu
         leaseReleased: true,
         settlement: { state: 'unconfirmed', error },
         cleanupError: error,
-        // provider 的 SandboxCleanupError 带容器 id；保留在 cause 链里，index 才能按 id 继续清理。
         ...(outcome.failure === undefined
           ? {}
           : { failure: new RunFailure(outcome.failure.reason, outcome.failure.message, err) }),
@@ -782,17 +731,12 @@ function runInSandboxEffect(
     let persistOverflowed = false;
     const assignStreamBlockId = createStreamBlockIds();
 
-    // 同一连接上的命令按序排队；不 await 也能保证事件顺序。
     const publish = (event: ChatEvent): void => {
       void publishRun(runId, event, logger).catch((err: unknown) => {
         logger.warn({ err, runId }, 'publish failed');
       });
     };
 
-    /**
-     * 落库与问题快照共用同一额度，按最终对外事件 JSON 的 UTF-8 字节计数。
-     * 额度用尽只发非终端提示：API 把 error 当终态收尾 SSE，会让后续完整消息送不到前端。
-     */
     const acceptPersisted = (publicEvent: ChatEvent): void => {
       if (persistOverflowed) return;
       const eventBytes = Buffer.byteLength(JSON.stringify(publicEvent));
@@ -805,7 +749,6 @@ function runInSandboxEffect(
           { runId, events: events.length, persistedBytes },
           'sandbox persisted event stream overflowed',
         );
-        // 内部 error 仍然保留，供最终判失败与落库截断识别；不对外发布。
         events.push({ type: 'error', message: PERSIST_OVERFLOW_MESSAGE });
         publish({ type: 'replay_truncated', reason: 'budget' });
         return;
@@ -820,7 +763,6 @@ function runInSandboxEffect(
       runId,
       callbacks: input.questions,
       logger,
-      // 问题快照不绕过落库预算，否则会挤掉同一轮里的完整消息。
       record: acceptPersisted,
       abort: (message) => Deferred.doneUnsafe(questionFailed, Exit.succeed(message)),
     });
@@ -838,22 +780,17 @@ function runInSandboxEffect(
     const onEvent = (parsed: ChatEvent): void => {
       const line = JSON.stringify(parsed);
       const bytes = Buffer.byteLength(line);
-      // 行上限复用 supervisor 的 8MiB：runner 单块 1MiB 最坏被转义成 6 倍，两个上限要一起改。
       if (bytes > SUPERVISOR_INPUT_MAX_BYTES) {
         logger.warn({ runId }, 'sandbox event line exceeded the 8MiB cap, dropped');
         return;
       }
-      // 流式增量先补运行内稳定块身份，再分发给页面与落库。
       const event = assignStreamBlockId(parsed);
 
-      // runner 的提问事件只用于落库/回写，不直接进 SSE（对外只发 question_updated）。
       if (questionRuntime.handle(event)) return;
 
-      // 对外只公开脱敏后的事件；问题投影已在 record() 完成，不能二次处理。
       const publicEvent = redactChatEvent(event);
 
       if (publicEvent.type === 'run_finished') {
-        // 只记下终态，由调用方统一发布，保证每个 run 恰好一条。
         instructionRuntime.stop();
         reportedStatus = publicEvent.status;
         reportedCost = publicEvent.costUsd;
@@ -871,7 +808,6 @@ function runInSandboxEffect(
         return;
       }
 
-      // 瞬时展示有独立额度：截断增量不能影响上面的完整消息落库。
       if (transientOverflowed) return;
       const eventBytes = Buffer.byteLength(JSON.stringify(publicEvent));
       if (
@@ -883,7 +819,6 @@ function runInSandboxEffect(
           { runId, events: transientEvents, eventBytes: transientBytes },
           'sandbox event stream overflowed',
         );
-        // 非终端提示：后续完整消息仍要能送达。
         publish({ type: 'replay_truncated', reason: 'budget' });
         return;
       }
@@ -985,7 +920,6 @@ function runInSandboxEffect(
     let settlement: ExecutionSettlement;
     if (result.kind === 'done') settlement = result.settlement;
     else {
-      // 取消期间仍接收 init/result，停稳 ACK 后再读取 session 与费用。
       settlement = yield* Effect.promise(async () => {
         try {
           const cancelled = await activeExecution.cancel();
@@ -1057,7 +991,6 @@ function runInSandboxEffect(
       };
     }
     if (reportedStatus !== 'succeeded') {
-      // runner 自己报了失败：SDK 的 stderr 往往有更具体的那一行。
       const suffix = stderrExcerpt(stderrTap, STDERR_KEEP_CHARS);
       if (suffix) {
         logger.warn(
@@ -1066,7 +999,6 @@ function runInSandboxEffect(
         );
       }
     }
-    // 落库被截断时把成功改判为失败；已有的非成功终态（取消/超时/失败）优先，不覆盖。
     const persistFailure =
       persistOverflowed && reportedStatus === 'succeeded'
         ? new RunFailure('agent', PERSIST_OVERFLOW_MESSAGE)
@@ -1090,7 +1022,6 @@ function runInSandboxEffect(
   });
 }
 
-/** 先注册清理再等待 Redis；未完成的命令由 Effect 中断，释放不等待断连的连接。 */
 function subscribeCancel(
   runId: string,
   logger: Logger,
@@ -1117,7 +1048,6 @@ function subscribeCancel(
           handlers?.delete(handler);
           if (handlers?.size === 0) cancelHandlers.delete(channel);
           signal?.removeEventListener('abort', onCancel);
-          // 同一连接按序发送 UNSUBSCRIBE，不能等它的 ACK 把 shutdown 再次挂住。
           void Promise.resolve()
             .then(() => redis.unsubscribe(channel, handler))
             .catch((err: unknown) => {
@@ -1129,7 +1059,6 @@ function subscribeCancel(
       try: () => redis.subscribe(channel, handler),
       catch: (err) => new RunFailure('infra', errorText(err)),
     });
-    // 订阅连接不能执行 EXISTS；独立 effect 保证中断后不再发补查。
     const exists = yield* Effect.tryPromise({
       try: () => getPublisher(logger).exists(channel),
       catch: (err) => new RunFailure('infra', errorText(err)),

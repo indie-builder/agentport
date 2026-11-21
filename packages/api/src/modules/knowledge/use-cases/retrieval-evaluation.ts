@@ -9,8 +9,6 @@ import {
 } from '../retrieval-evaluation.js';
 import { type KnowledgeDeps, notFound } from './shared.js';
 
-// ---- retrieval evaluation -------------------------------------------------
-
 export async function evaluateBase(
   deps: KnowledgeDeps,
   id: string,

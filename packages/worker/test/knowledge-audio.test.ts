@@ -61,7 +61,6 @@ describe('parseKnowledgeAudio', () => {
     expect(parsed.markdown).toBe('第一段。\n换行保留。\n\n重复句\n\n重复句 😀');
     expect(parsed.images).toEqual([]);
     expect(parsed.pageMap).toEqual([]);
-    // 重复句各自按拼接位置独立计偏移；空白段不产块且不改变上游下标。
     expect(parsed.blocks).toEqual([
       {
         content: '第一段。\n换行保留。',

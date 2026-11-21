@@ -39,7 +39,6 @@ export const chatRequestSchema = z
   .object({
     agentId: z.string().optional(),
     conversationId: z.string().optional(),
-    // 沙盒把 prompt 走 stdin，超大输入会拖垮 worker；按 UTF-8 字节统一限制为 64KiB。
     message: z
       .string()
       .refine(
@@ -61,7 +60,6 @@ export const chatRequestSchema = z
      */
     output: outputRefSchema.optional(),
   })
-  // 字段名拼错必须报错：这条请求体曾因 strip 模式静默丢掉动作值。
   .strict()
   // 正文与附件至少一项；附件与 openuiAction 的互斥需要 API 结合动作语义判断。
   .refine(

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# backup.sh / restore.sh 的共享实现：Postgres 客户端选择、工作区定位与交换、
-# 归档格式校验。调用方需先设置 ROOT 再 source 本文件。
 
 : "${ROOT:?ROOT must be set before sourcing backup-lib.sh}"
 
@@ -12,7 +10,6 @@ BACKUP_DIR="${BACKUP_DIR:-$ROOT/backups}"
 BACKUP_ENV_FILE="${BACKUP_ENV_FILE:-$ROOT/.env}"
 PG_CLIENT="${PG_CLIENT:-auto}"
 WORKSPACES_CONTAINER_DIR="${WORKSPACES_CONTAINER_DIR:-/workspaces}"
-# 恢复端的资源上限：归档解压总量 / 单个文件（ulimit -f 由 restore.sh 设置）。
 MAX_ENV_BYTES=1048576
 MAX_RESTORE_BYTES="${MAX_RESTORE_BYTES:-21474836480}"
 
@@ -34,12 +31,9 @@ workspace_file_count() {
   find "$1" -type f | wc -l | tr -d ' '
 }
 
-# 工作区内容指纹：按相对路径排序后逐文件拼接 "路径\0内容\0" 再哈希。
-# 只比文件数与总字节无法发现「同样大小、内容被替换」的归档。
 workspaces_sha256() {
   local dir="$1" tmp sum
   tmp="$(mktemp "${TMPDIR:-/tmp}/ws-sha.XXXXXX")"
-  # 不用 trap RETURN：本文件被 source，会覆盖调用方（backup/restore）的 EXIT trap。
   ( cd "$dir" && find . -type f -print0 | sort -z | while IFS= read -r -d '' f; do
       printf '%s\0' "${f#./}"
       cat "$f"
@@ -55,7 +49,6 @@ file_bytes() { wc -c <"$1" | tr -d ' '; }
 database_url_from_env_file() {
   local file="${1:-${BACKUP_ENV_FILE:-$ROOT/.env}}" raw url sq_char="'"
   raw="$(sed -n 's/^DATABASE_URL=//p' "$file" | tail -n 1)"
-  # restore.sh 的最小引导 env 用单引号 + '\'' 转义；只对这种生成格式反解，普通配置保持原读法。
   case "$raw" in
     \'*\' )
       url="${raw#\'}"
@@ -75,9 +68,6 @@ database_url_from_env_file() {
 compose() { docker compose -f "$ROOT/docker-compose.yml" "$@"; }
 compose_available() { command -v docker >/dev/null 2>&1 && compose version >/dev/null 2>&1; }
 
-# ── Postgres 客户端 ─────────────────────────────────────────────
-# 宿主客户端旧于服务器（或干脆没装）时改走 compose 的 postgres 容器。
-# PG_CLIENT=host 强制宿主（连外部库时用），=container 强制容器。
 _host_major() {
   command -v "$1" >/dev/null 2>&1 || return 1
   "$1" --version 2>/dev/null | grep -oE '[0-9]+' | head -1
@@ -119,7 +109,6 @@ _pg_backends_once() {
     "$DATABASE_URL" | tr -d '[:space:]'
 }
 
-# 宿主客户端可能装得到、却连不上只有容器内才解析的主机名；auto 模式下退到容器。
 pg_client_backends() {
   local out
   if out="$(_pg_backends_once)"; then
@@ -132,16 +121,12 @@ pg_client_backends() {
   _pg_backends_once
 }
 
-# ── 工作区定位 ─────────────────────────────────────────────────
-# WS_MODE: host（宿主目录）/ exec（容器在跑，docker compose exec 读）/
-#          run（一次性容器，停止状态也能读/写卷）。
 WS_MODE=''
 WS_PATH=''
 WS_SERVICE=''
 
 _compose_running_service() {
   local svc
-  # 优先 api：它只挂 workspaces 卷，不带 docker.sock。
   for svc in api worker; do
     if compose ps --status running -q "$svc" 2>/dev/null | grep -q .; then
       printf '%s' "$svc"
@@ -167,7 +152,6 @@ process.stdin.on("data", (d) => (s += d)).on("end", () => {
 '
 }
 
-# 备份只接受已存在的源；恢复允许目标目录/卷还不存在。
 resolve_workspaces() {
   local allow_create="${1:-0}" cand vol mount
 
@@ -213,8 +197,6 @@ resolve_workspaces() {
     fi
   fi
 
-  # 宿主直跑（bun run dev）时的 WORKSPACES_DIR；放在 compose 探测之后，
-  # 避免 .env 里的 ./data/workspaces 抢走 compose 命名卷的数据。
   for cand in "${WORKSPACES_DIR:-}" "$ROOT/data/workspaces"; do
     [ -n "$cand" ] || continue
     if [ -d "$cand" ]; then
@@ -250,16 +232,12 @@ ws_tar_out() {
   esac
 }
 
-# 解出工作区并剪掉派生内容：顶层 <slug>/run_* 与试连挂载点 sandbox-probes。
-# 在宿主完成，避免依赖容器内 find 的可用性。
 prune_workspaces() {
   local dir="$1"
   find "$dir" -mindepth 2 -maxdepth 2 -type d -name 'run_*' -exec rm -rf {} + 2>/dev/null || true
   rm -rf "$dir/sandbox-probes"
 }
 
-# 在目标工作区内做“先暂存、再按顶层目录整体换入”的恢复；run_* 原样保留。
-# 一次实现同时给宿主和容器用（容器里由 sh 执行）。
 ws_swap_script() {
   cat <<'SH'
 set -eu
@@ -270,15 +248,10 @@ ok=0
 fail() {
   ok=1
   echo "workspace swap failed: $1" >&2
-  # 回滚：先撤已换入的新项，再放回旧项。顺序不能反 —— 新项还在时回搬同名旧目录
-  # 会嵌进新目录（blobs/blobs/old），随后的清理会把唯一旧副本一起删掉。
-  # 也绝不把线上目录移进 staging：cp -a 失败时那里已有同名目录。
   kept=''
   if [ -f "$staging/.swapped" ]; then
     while IFS= read -r name; do
       [ -n "$name" ] || continue
-      # run_* 已从 holding 搬进新目录的，先搬回 holding 再删新目录：安全副本不含 run_*，
-      # 它们没有第二份。
       bad=0
       if [ -d "$holding/$name" ]; then
         for run in "$ROOT/$name"/run_*; do
@@ -295,7 +268,6 @@ fail() {
     [ ! -e "$ROOT/$name" ] && mv "$old" "$ROOT/$name" 2>/dev/null || kept="$kept $old"
   done
   rm -rf "$staging"
-  # 旧内容没能完全放回时保留 holding：这是回滚后仅存的旧副本。
   if [ -n "$kept" ]; then
     echo "workspace swap rollback incomplete; old files kept in:$kept" >&2
     exit 1
@@ -332,10 +304,6 @@ for old in "$holding"/*; do
     break
   done
   [ "$has_run" = 1 ] || continue
-  # 备份排除了 run_*，安全副本里也没有第二份；恢复较旧备份时当前专家目录可能不在
-  # 备份里，目标父目录不存在，必须按需重建后搬回。其余旧内容仍按 restore 语义替换。
-  # 按需新建的目录也进回滚清单，回滚时才能先把已搬入的 run_* 还回 holding，
-  # 再整体恢复原目录，而不是把 run_* 散落在新建目录里。
   if [ ! -e "$ROOT/$name" ]; then
     mkdir -p "$ROOT/$name"
     printf '%s\n' "$name" >>"$staging/.swapped"
@@ -350,7 +318,6 @@ ok=1
 SH
 }
 
-# ws_swap 只接管整棵目标树；目标目录由调用方决定（默认工作区或 --target-workspaces）。
 ws_swap() {
   local src="$1" script ts
   script="$(ws_swap_script)"
@@ -374,7 +341,6 @@ ws_swap() {
   esac
 }
 
-# 知识库与工作区同一套暂存/换入/回滚；容器卷靠一次性容器执行脚本。
 knowledge_swap() {
   local src="$1" dest="$2" script ts src_abs
   script="$(ws_swap_script)"
@@ -397,14 +363,6 @@ knowledge_swap() {
   esac
 }
 
-# ── 知识库目录 ─────────────────────────────────────────────────
-# 原件 blob 与解析产物。宿主直跑时是 KNOWLEDGE_DIR；compose 部署把它挂成
-# knowledgedata 命名卷。宿主读不到卷目录（macOS Docker Desktop）时，与工作区
-# 一样改用 docker compose exec/run 在容器里读写，不假定卷路径在宿主可见。
-# 顺序：BACKUP_KNOWLEDGE_DIR > compose 卷 > KNOWLEDGE_DIR 环境变量 > .env 的
-# KNOWLEDGE_DIR（默认 ./data/knowledge）。环境变量只是应用配置，compose 部署里
-# 它被覆盖成 /knowledge，不能让宿主残留目录抢走卷里的数据。
-# 卷已存在却读不到时必须失败：那是已配置的数据，不是「没有知识库」。
 KN_MODE=''
 KN_PATH=''
 KN_SERVICE=''
@@ -452,7 +410,6 @@ resolve_knowledge() {
   KN_PATH="$cand"
 }
 
-# 容器里数文件：find 失败必须让整条命令失败，不能被 wc 的 0 吞掉。
 _kn_count_script() {
   printf '%s' "if [ ! -d '$KNOWLEDGE_CONTAINER_DIR' ]; then echo 0; exit 0; fi
 t=\$(mktemp) || exit 1
@@ -461,8 +418,6 @@ wc -l <\"\$t\"
 rm -f \"\$t\""
 }
 
-# 知识库文件数：目录不存在算 0；真正的读取失败返回非零，调用方必须中止，
-# 不能把「卷已配置但读不到」伪装成「没有知识库」。
 knowledge_file_count() {
   local out list
   case "$KN_MODE" in
@@ -488,7 +443,6 @@ knowledge_file_count() {
 }
 
 knowledge_tar_out() {
-  # 与工作区一致：中断的恢复留下的 .restore-* 临时目录不是数据。
   case "$KN_MODE" in
     host) tar -C "$KN_PATH" -cf - --exclude='./.restore-*' . ;;
     exec)
@@ -504,9 +458,6 @@ knowledge_tar_out() {
   esac
 }
 
-# ── 归档校验（真实信任边界）───────────────────────────────────
-# 只接受本格式：manifest.json / database.dump / env / workspaces/**；
-# 拒绝绝对路径、..、控制字符、重复成员、符号链接/硬链接/设备文件。
 normalize_member() {
   local name="$1"
   case "$name" in /*) return 1 ;; esac
@@ -543,7 +494,6 @@ const num = (v) => (Number.isInteger(v) && v >= 0 ? String(v) : "");
 const db = m.database || {};
 const env = m.env || {};
 const ws = m.workspaces || {};
-// knowledge: 缺失（旧归档）或 null 都表示没有知识库；对象表示有内容。
 const kn = m.knowledge === null || m.knowledge === undefined ? null : m.knowledge;
 const knFlag = m.knowledge === undefined ? "" : kn === null ? "0" : "1";
 const k = kn || {};
@@ -553,8 +503,6 @@ process.stdout.write(
 ' "$1"
 }
 
-# 归档清单：只记录格式版本与校验值，不写 DATABASE_URL 或任何秘密。
-# knowledge 传空串表示本次没有知识库内容，清单写 null。
 write_manifest() {
   local file="$1" db="$2" envfile="$3" ws="$4" safety="${5:-}" kn="${6:-}"
   SAFETY_OF="$safety" bun -e '
@@ -629,7 +577,6 @@ validate_archive() {
     log "archive is empty: $archive"
     return 1
   fi
-  # 任何非普通文件/目录的成员（l/h/b/c/p/s）一律拒绝：恢复不使用链接，也不跟随后来的写入。
   if grep -Ev '^[-d]$' "$types" >/dev/null 2>&1; then
     rm -f "$list" "$types" "$norm" "$manifest"
     log "archive rejected: contains symlink, hardlink or special file"
@@ -697,7 +644,6 @@ validate_archive() {
     }
   else
     M_KN_SHA=''; M_KN_FILES=''; M_KN_BYTES=0
-    # knowledge 可选：清单说没有（或旧格式没有该字段）时归档里也不该出现。
     [ "$has_kn" = 0 ] || {
       log "archive rejected: archive contains knowledge/ but the manifest has none"
       return 1
@@ -714,7 +660,6 @@ validate_archive() {
   return 0
 }
 
-# 目录内容指纹（工作区与知识库共用）：文件数 + 总字节 + 路径/内容有序哈希。
 verify_dir() {
   local dir="$1" files="$2" bytes="$3" sha="$4" label="$5" total
   [ "$(workspace_file_count "$dir")" = "$files" ] || {
@@ -732,7 +677,6 @@ verify_dir() {
   }
 }
 
-# 解压后逐项核对 manifest，防截断/替换。
 verify_tree() {
   local stage="$1" db="$1/database.dump" env="$1/env" ws="$1/workspaces" kn="$1/knowledge"
   [ -f "$db" ] && [ -f "$env" ] && [ -d "$ws" ] || {

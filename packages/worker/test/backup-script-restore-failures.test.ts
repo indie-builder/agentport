@@ -25,7 +25,6 @@ describe('restore.sh', () => {
     return { dir, target, targetEnv };
   }
 
-  // 目标库哨兵只在配置中止用例里用来证明「没有发生写库」；多数脚本用例仍用 stub。
   const realDatabaseUrl = process.env.DATABASE_URL ?? '';
   const hasRealDatabase =
     realDatabaseUrl !== '' && !realDatabaseUrl.includes('backend_infra_unavailable');
@@ -75,7 +74,6 @@ describe('restore.sh', () => {
           BACKUP_ENV_FILE: empty,
         });
         expect(stderr).toContain('config is empty or unreadable');
-        // 不是只看返回值：真正的目标库仍必须保有哨兵，且没有任何 --dbname 恢复调用。
         expect(await suite.restoreTargets()).toEqual([]);
         const rows = await client.unsafe('select note from restore_sentinel where id = 1');
         expect(rows).toEqual([{ note: 'keep' }]);
@@ -105,7 +103,6 @@ describe('restore.sh', () => {
     });
     expect(stderr).toContain('workspace swap failed');
 
-    // 第一个 run 都没搬成功：整个旧目录必须回到原路径，holding 不残留。
     expect(await readFile(join(liveOnly, 'run_live09', 'keep.txt'), 'utf8')).toBe('live-run\n');
     expect(await readFile(join(liveOnly, 'sessions', 'transcript.jsonl'), 'utf8')).toBe(
       '{"old":1}\n',
@@ -137,10 +134,8 @@ describe('restore.sh', () => {
     });
     expect(stderr).toContain('workspace swap failed');
 
-    // 第一个 run 已搬进按需新建的目录、第二个失败：两者都要完整回到线上目录。
     expect(await readFile(join(liveOnly, 'run_aaa', 'a.txt'), 'utf8')).toBe('first-run\n');
     expect(await readFile(join(liveOnly, 'run_bbb', 'b.txt'), 'utf8')).toBe('second-run\n');
-    // 持久目录与备份专家的 run 也按原样回滚，而不是把 run 散落在新建目录里。
     expect(await readFile(join(liveOnly, 'sessions', 'transcript.jsonl'), 'utf8')).toBe(
       '{"old":1}\n',
     );
@@ -227,9 +222,7 @@ describe('restore.sh', () => {
       RESTORE_ENV_TARGET: targetEnv,
     });
     expect(stderr).toContain('rolled back');
-    // 文件只在数据库成功后换入，失败时原样保留。
     expect(await readdir(target)).toEqual([]);
-    // 配置也不该在数据库失败时被替换。
     expect(await readFile(targetEnv, 'utf8')).toBe('DATABASE_URL=postgres://target/only\n');
   });
 
@@ -288,7 +281,6 @@ describe('restore.sh', () => {
     expect(stderr).toContain('knowledge/ but the manifest has none');
   });
 
-  // 换入第二个顶层目录失败：已换入的新目录必须撤掉，旧目录回到原路径而不是嵌进新目录。
   it('rolls back swapped entries when a later entry fails to move in', async () => {
     await suite.defaultStubs();
     await suite.seedKnowledge();
@@ -318,7 +310,6 @@ describe('restore.sh', () => {
     });
     expect(stderr).toContain('workspace swap failed');
 
-    // 旧数据回到 DB 引用的原路径，层级没有被新目录套住。
     expect(await readFile(join(suite.env.knowledge, 'blobs', 'old', 'old.bin'), 'utf8')).toBe(
       'old-blob\n',
     );
@@ -330,13 +321,11 @@ describe('restore.sh', () => {
     );
     expect(await readdir(join(suite.env.knowledge, 'blobs'))).toEqual(['old']);
     expect(await readdir(join(suite.env.knowledge, 'docs'))).toEqual(['old']);
-    // 已换入的新内容撤掉，临时目录不残留。
     expect(
       (await readdir(suite.env.knowledge)).filter((name) => name.startsWith('.restore-')),
     ).toEqual([]);
   });
 
-  // 换入失败后旧目录回搬也失败：holding 是唯一副本，必须保留并指明确切位置。
   it('keeps the holding directory when rollback itself fails to restore', async () => {
     await suite.defaultStubs();
     await suite.seedKnowledge();
@@ -368,7 +357,6 @@ describe('restore.sh', () => {
     });
     expect(stderr).toContain('workspace swap failed');
 
-    // 新内容不得留在线上，旧副本留在 holding 并报出路径。
     expect(await readdir(join(suite.env.knowledge, 'blobs')).catch(() => [])).toEqual([]);
     expect(await readFile(join(suite.env.knowledge, 'docs', 'old', 'old.md'), 'utf8')).toBe(
       'old-doc\n',

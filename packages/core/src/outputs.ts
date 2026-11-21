@@ -16,17 +16,6 @@ import { z } from 'zod';
 import { fail } from './errors.js';
 import { pathSegmentsProblem } from './path-segments.js';
 
-/**
- * 会话运行产出的单一存储实现。
- *
- * `WORKSPACES_DIR/<slug>/conversation-outputs/<conversationId>/`
- *   `drafts/<runId>/`  本轮可写草稿（沙盒唯一可写挂载）
- *   `runs/<runId>/`    已发布不可变快照：`manifest.json` + `files/**`
- *
- * 草稿旁的 `drafts/<runId>.base` 记录本轮从哪一版复制而来：publish 用它判断
- * changed 与「无变化不重复发布」。放在挂载目录之外，沙盒无法改写。
- */
-
 const CONVERSATION_OUTPUTS = 'conversation-outputs';
 const DRAFTS = 'drafts';
 const RUNS = 'runs';
@@ -111,12 +100,6 @@ interface ConversationIdentity {
   conversationId: string;
 }
 
-/**
- * 逻辑路径是配置根下的同一组相对段（worker 据此换算挂载路径）；
- * 校验以配置根的物理路径为信任起点：访问路径上每个已存在组件都不能是符号链接，
- * 且 realpath 仍在根内。只检查最终文件挡不住中间目录软链到外部。
- * 缺失的尾部组件由调用方创建，更深的组件此时不可能存在。
- */
 async function trustedPath(
   identity: ConversationIdentity,
   segments: string[],
@@ -142,10 +125,6 @@ export function sha256Hex(data: Buffer | string): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
-/**
- * 排序与游标必须用同一种比较：`localeCompare` 与代码单元比较对数字/大小写/非 ASCII 的
- * 结果不同，混用会让翻页漏项或重复。这里统一按代码单元。
- */
 function compareText(a: string, b: string): number {
   if (a === b) return 0;
   return a < b ? -1 : 1;
@@ -165,10 +144,6 @@ function fileOf(manifest: OutputManifest, file: OutputManifest['files'][number])
   };
 }
 
-/**
- * 快照文件只按 manifest 解析；损坏或手改的 manifest 一律拒绝，不猜内容。
- * 这是平台自己写出的索引，损坏属于服务端状态问题，不用 INVALID_INPUT 冒充调用方输入错误。
- */
 async function loadManifest(
   identity: ConversationIdentity,
   runId: string,
@@ -197,7 +172,6 @@ async function loadManifest(
   return parsed.data;
 }
 
-/** 已发布版本，最新在前：createdAt 相同（同毫秒）时用 runId 稳定排序。 */
 async function publishedVersions(
   identity: ConversationIdentity,
 ): Promise<Array<{ runId: string; manifest: OutputManifest }>> {
@@ -237,7 +211,6 @@ async function latestVersion(identity: ConversationIdentity): Promise<OutputMani
   return (await publishedVersions(identity))[0]?.manifest ?? null;
 }
 
-/** 读一个普通文件；软/硬链接一律拒绝。 */
 async function readRegularFile(
   identity: ConversationIdentity,
   full: string,
@@ -255,7 +228,6 @@ async function readRegularFile(
   return readFile(full);
 }
 
-/** 列出草稿中的全部文件，路径按字典序，便于稳定 manifest。 */
 async function draftEntries(
   identity: ConversationIdentity,
   dir: string,
@@ -277,7 +249,6 @@ async function draftEntries(
   return files.sort((a, b) => compareText(a.path, b.path));
 }
 
-/** 复制快照内容，只按 manifest 成员读取，快照目录里多出来的东西不进入草稿。 */
 async function copySnapshot(
   identity: ConversationIdentity,
   manifest: OutputManifest,
@@ -306,7 +277,6 @@ async function removeQuietly(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true });
 }
 
-/** 草稿与它的基线记录一起丢弃；重复调用无副作用。 */
 async function discardDraft(conversationRoot: string, runId: string): Promise<void> {
   await removeQuietly(join(conversationRoot, DRAFTS, runId));
   await removeQuietly(baseFileOf(conversationRoot, runId));
@@ -324,7 +294,6 @@ async function blockedDraftPath(input: OutputDraftIdentity): Promise<string> {
   );
 }
 
-/** 标记放在挂载目录之外，BullMQ 重试复用草稿时仍能看到未停稳状态。 */
 export async function setOutputDraftBlocked(
   input: OutputDraftIdentity,
   problem: string | null,
@@ -398,8 +367,6 @@ export async function prepareOutputDraft(input: PrepareOutputDraftInput): Promis
     fail('NOT_FOUND', '所选产出快照不存在', { path: `/${input.sourceRunId}` });
   }
 
-  // 先写临时目录再改名：半途失败的复制不会留下一个看起来可用的草稿。
-  // 基线记录先落盘，避免出现「草稿在、基线丢」而被当成首版全量变化。
   const staging = join(conversationRoot, DRAFTS, `.tmp-${runId}-${randomUUID()}`);
   await mkdir(staging, { recursive: true });
   try {
@@ -418,7 +385,6 @@ export async function prepareOutputDraft(input: PrepareOutputDraftInput): Promis
     await writeFile(baseFile, baseline?.runId ?? '');
     await rename(staging, draftDir);
   } catch (error) {
-    // 只回收自己写的临时目录与基线标记，不动可能由别处建出的草稿。
     await removeQuietly(staging);
     await removeQuietly(baseFileOf(conversationRoot, runId));
     throw error;
@@ -479,7 +445,6 @@ export async function captureOutputDraft(input: {
       if (existing.isSymbolicLink() || !existing.isDirectory()) {
         fail('INVALID_INPUT', '产出草稿目录非法', { path: `/${runId}` });
       }
-      // 同目录改名备份：换入失败时把原草稿放回去，不能先删后写。
       previous = join(conversationRoot, DRAFTS, `.tmp-${runId}-${randomUUID()}`);
       await rename(draftDir, previous);
     }
@@ -518,7 +483,6 @@ export async function publishOutputSnapshot(input: PublishOutputSnapshotInput): 
     if (hasErrorCode(error, 'ENOENT')) return null;
     throw error;
   });
-  // 本轮没有可写挂载或草稿已被处理：没有产出可发布。
   if (draftInfo === null) return;
   if (draftInfo.isSymbolicLink() || !draftInfo.isDirectory()) {
     fail('INVALID_INPUT', '产出草稿目录非法', { path: `/${runId}` });
@@ -558,7 +522,6 @@ export async function publishOutputSnapshot(input: PublishOutputSnapshotInput): 
     await discardDraft(conversationRoot, runId);
     return;
   }
-  // 当前模型没有删除工具，不支持多文件中的单文件删除；空快照仍保存已清空的状态。
   const baseFiles = new Map(base?.files.map((file) => [file.path, file]) ?? []);
   const manifestFiles = files.map((file) => {
     const previous = baseFiles.get(file.path);
@@ -617,7 +580,6 @@ interface ListOutputFilesInput {
   slug: string;
   conversationId: string;
   limit: number;
-  /** 上一页返回的 `nextCursor`。 */
   before?: string;
   runId?: string;
 }
@@ -648,7 +610,6 @@ function decodeCursor(value: string): Cursor {
   fail('INVALID_INPUT', '分页游标无效', { path: '/before' });
 }
 
-/** 游标之后（更旧）的项；同毫秒版本再按 runId、路径排序，不遗漏也不重复。 */
 function afterCursor(item: OutputFile, cursor: Cursor): boolean {
   if (item.createdAt !== cursor.createdAt) return compareText(item.createdAt, cursor.createdAt) < 0;
   if (item.runId !== cursor.runId) return compareText(item.runId, cursor.runId) < 0;

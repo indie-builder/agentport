@@ -23,7 +23,6 @@ import { createParsingAdapter } from '../src/knowledge/parsing-adapter.js';
 import { SourceAuthError } from '../src/knowledge/sources.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
-// 回归套件写入知识库文档、版本与 chunk：独享随机库，避免与其它文件互相收敛。
 const isolated = await createIsolatedDatabase('worker_knowledge_integrity');
 const ready = isolated !== null;
 if (isolated) process.env.DATABASE_URL = isolated.url;
@@ -50,7 +49,6 @@ const chunkStub = (markdown: string): ChunkDraft[] =>
       pageTo: null,
     }));
 
-// 本地 fixture：embedding 协议与 feed/全文两个 HTTP 页面都走真实网络。
 let fixture: Server;
 let fixtureUrl = '';
 let articleFails = false;
@@ -159,7 +157,6 @@ async function makeBase(): Promise<Fixture> {
     endpointUrl: fixtureUrl,
     model: 'test-embed',
     dimensions: 1024,
-    // 不加密：检索入口按 APP_SECRET_KEY 解密，空值才走真实关键词/向量路径。
     secretsEncrypted: null,
     enabled: true,
   });
@@ -279,7 +276,6 @@ async function currentChunks(documentId: string) {
   return (await repo.knowledge.listChunks(db, document.currentVersionId)).items;
 }
 
-/** 按 worker 的寻址规则写原件，再把 hash 记到文档上，模拟 API 已完成上传。 */
 async function writeBlob(content: Buffer): Promise<string> {
   const sha = createHash('sha256').update(content).digest('hex');
   const target = join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
@@ -340,7 +336,6 @@ async function seedFaqDocument(
   const blob = await writeBlob(faqJson);
   const versionId = newId('knowledgeVersion');
   const originalFilename = `${faq.question}.faq.json`;
-  // 与 API 草稿流程一致：版本关联本任务的不可变输入快照，发布时由 repo 核对。
   const job = await repo.knowledge.createJob(db, {
     type: 'ingest',
     baseId: fixtureBase.baseId,
@@ -380,7 +375,6 @@ async function seedFaqDocument(
   return { documentId: document.id, versionId, jobId: job.id };
 }
 
-/** 运行已落的 FAQ 摄取任务，不改任务终态；发布前由调用方按需 finishJob。 */
 async function indexSeededFaq(fixtureBase: Fixture, seeded: { jobId: string }): Promise<void> {
   await repo.knowledge.claimJob(db, seeded.jobId);
   const claimed = await repo.knowledge.getJob(db, seeded.jobId);
@@ -464,13 +458,11 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     );
     expect(baseline.hits.map((hit) => hit.documentId)).toContain(active.id);
 
-    // 来源失权：runSync 撤权并把旧文档置 disabled。
     failure = new SourceAuthError('HTTP 401 from https://example.com');
     await expect(runSyncJob(fixtureBase, sourceId)).rejects.toBeInstanceOf(SourceAuthError);
     const revoked = await repo.knowledge.getDocument(db, active.id);
     expect(revoked?.status).toBe('disabled');
 
-    // 整库 full rebuild 不能把已撤权文档重新发布成 ready。
     await runReindexJob(fixtureBase);
 
     const after = await repo.knowledge.getDocument(db, active.id);
@@ -507,14 +499,12 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
       editedByUser: true,
     });
 
-    // 外部源只新增后续段落，没有触碰人工修订的那一段。
     content = '# Alpha\n\nalpha paragraph one\n\nbeta paragraph two\n\ngamma paragraph three';
     const second = await runSyncJob(fixtureBase, sourceId);
 
     const after = await currentChunks(document.id);
     const preserved = after.find((chunk) => chunk.content === 'manual alpha paragraph one');
     expect(preserved?.editedByUser).toBe(true);
-    // 冲突要逐项可见，而不是静默跳过。
     const items = await repo.knowledge.listSyncItems(db, second.syncRunId, { status: 'skipped' });
     expect(items.items).toEqual([
       expect.objectContaining({ code: 'manual_edit_conflict', documentId: document.id }),
@@ -564,7 +554,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     const fullVersion = await repo.knowledge.getVersion(db, document.currentVersionId ?? '');
     expect(fullVersion?.metadata.contentCompleteness).toBe('full');
 
-    // 全文页暂时不可用：连接器会回退到 feed 摘要；已有全文不能被摘要替换。
     articleFails = true;
     await runSyncJob(fixtureBase, sourceId);
 
@@ -597,7 +586,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     expect((await repo.knowledge.getDocument(db, document.id))?.status).toBe('disabled');
 
     failure = null;
-    // 修好凭证后由管理员重新启用来源，下一次成功同步才重新证明权限。
     await repo.knowledge.updateSource(db, sourceId, { status: 'active' });
     await runSyncJob(fixtureBase, sourceId);
     const revived = await repo.knowledge.getDocument(db, document.id);
@@ -616,7 +604,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     let changeConfig: (() => Promise<void>) | null = null;
     const connector: KnowledgeConnector = {
       async *sync({ onCheckpoint }) {
-        // 连接器读到旧 config 后、返回条目前，管理员改了来源配置。
         await changeConfig?.();
         yield item('# Alpha\n\nalpha must not publish');
         await onCheckpoint({}, { complete: true });
@@ -749,7 +736,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     const fullHash = document.contentHash;
     expect(document.metadata.contentCompleteness).toBe('full');
 
-    // 摘要恰好等于全文：同 hash 分支也只能更新标题/路径，不能把 full 改为 summary。
     next = { content: 'full text alpha marker', completeness: 'summary' };
     await runSyncJob(fixtureBase, sourceId);
     const afterSummary = await repo.knowledge.getDocument(db, document.id);
@@ -760,7 +746,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
       'full',
     );
 
-    // 下一轮摘要内容不同：仍被上面保住的 full 标记挡住，不能覆盖线上全文。
     next = { content: 'new summary marker', completeness: 'summary' };
     await runSyncJob(fixtureBase, sourceId);
     const afterLater = await repo.knowledge.getDocument(db, document.id);
@@ -785,7 +770,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     const { documentId, versionId } = seeded;
     await indexSeededFaq(fixtureBase, seeded);
 
-    // 保存草稿不改变线上指针。
     expect((await repo.knowledge.getDocument(db, documentId))?.currentVersionId).toBeNull();
     const chunks = (await repo.knowledge.listChunks(db, versionId)).items;
     const parent = chunks.find((chunk) => chunk.indexRole === 'parent');
@@ -798,11 +782,9 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
       questionKind: 'similar',
       matchedQuestion: '认证方式',
     });
-    // 反例只供检索归一化排除，绝不生成任何正向索引块。
     expect(chunks.find((chunk) => chunk.content === '如何退款？')).toBeUndefined();
     expect(chunks.find((chunk) => chunk.content === '认证方式')?.embedding).not.toBeNull();
     expect(chunks.filter((chunk) => chunk.indexRole === 'leaf')).toHaveLength(2);
-    // 摄取只按 job 指定的原始版本建块，不就地改写版本的 faq 数据。
     expect((await repo.knowledge.getVersion(db, versionId))?.faq).toEqual(faq);
 
     await repo.knowledge.finishJob(db, seeded.jobId, { status: 'succeeded' });
@@ -848,7 +830,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     expect(rebuiltDocument?.status).toBe('ready');
     expect(rebuiltDocument?.currentVersionId).not.toBe(versionId);
     const rebuilt = await repo.knowledge.getVersion(db, rebuiltDocument?.currentVersionId ?? '');
-    // 完整 FAQ 语义必须跟着新版本，不能退化成 faq=null 的普通 JSON 正文。
     expect(rebuilt?.faq).toEqual(faq);
     const versions = await repo.knowledge.listVersions(db, documentId);
     expect(versions.items.map((row) => row.id)).toContain(versionId);
@@ -878,7 +859,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
         ?.currentVersionId,
     ).toBe(rebuilt?.id);
 
-    // 人工编辑未确认时保留当前版本；确认后才允许再次重建。
     const editedChunk = chunks.find((chunk) => chunk.indexRole === 'leaf');
     if (!editedChunk) throw new Error('faq leaf missing');
     await db
@@ -896,7 +876,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
       rebuilt?.id,
     );
 
-    // 只有未发布草稿的 FAQ 不会被重建自动推上线。
     const draftOnly = await seedFaqDocument(fixtureBase, { ...faq, question: '只有草稿？' });
     await runReindexJob(fixtureBase, { documentIds: [draftOnly.documentId] });
     expect(
@@ -970,7 +949,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
       const claimed = await repo.knowledge.getJob(db, seeded.jobId);
       if (!claimed) throw new Error('ingest job missing');
 
-      // 覆盖 DB 守卫观察到取消并回滚，以及提交前最后检查之后收到取消的窗口。
       type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
       const controller = new AbortController();
       const depsForCall: KnowledgeDeps = {
@@ -1007,7 +985,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     fixtureBase.deps.chunkMarkdown = adapter.chunkMarkdown;
     const connector: KnowledgeConnector = {
       async *sync() {
-        // 两段都超过 400 字符块预算，才会在同一标题下生成多个 leaf 与一个 parent。
         yield item(`# Alpha\n\nfirst ${'a'.repeat(450)}\n\nsecond ${'b'.repeat(450)}`);
         yield* [];
       },
@@ -1110,14 +1087,11 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
         sizeBytes: existing.sizeBytes,
         metadata: existing.metadata,
       });
-      // 测试前置的 ready 状态没有真实 current 版本，授权入口会按无版本置 processing；
-      // 这里恢复成 ready 以验证同步不会因不支持项改动旧文档。
       await repo.knowledge.updateDocument(db, existing.id, { status: 'ready' });
     }
 
     const { syncRunId } = await runSyncJob(fixtureBase, sourceId);
 
-    // 单项不支持不阻断游标推进；但本轮不完整，不能据此推导删除。
     expect((await repo.knowledge.getSource(db, sourceId))?.cursor).toEqual({ version: 1 });
     expect((await repo.knowledge.getDocument(db, existing.id))?.status).toBe('ready');
     const items = await repo.knowledge.listSyncItems(db, syncRunId);
@@ -1398,7 +1372,6 @@ describe.skipIf(!ready)('knowledge integrity regressions', () => {
     await repo.knowledge.claimJob(db, job.id);
     const claimed = await repo.knowledge.getJob(db, job.id);
     if (!claimed) throw new Error('ingest job missing');
-    // 处理期间来源撤权：解析失败前先把文档置为不可读，旧状态快照不能把它写回 ready。
     fixtureBase.deps.parse = async () => {
       await repo.knowledge.updateDocument(db, document.id, {
         status: 'disabled',

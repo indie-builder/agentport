@@ -6,10 +6,6 @@ import {
   InputGroupInput,
 } from './ui/input-group.js';
 
-/**
- * 项目自定义层：带图标与清除按钮的搜索框。
- * 独立于底座文件，底座重装不受影响。
- */
 export function SearchInput({
   value,
   onChange,
@@ -17,6 +13,7 @@ export function SearchInput({
   label,
   className,
   inputId,
+  maxLength,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -24,6 +21,7 @@ export function SearchInput({
   label: string;
   className?: string;
   inputId?: string;
+  maxLength?: number;
 }) {
   return (
     <InputGroup className={className}>
@@ -33,6 +31,7 @@ export function SearchInput({
         aria-label={label}
         value={value}
         placeholder={placeholder}
+        maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
         className="[&::-webkit-search-cancel-button]:hidden"
       />

@@ -104,7 +104,6 @@ describe.skipIf(!ready)('native plugin routes', () => {
     pluginIds.push(created.plugin.id);
     expect(created.reused).toBe(false);
     expect(created.plugin.sourceId).toBe(sourceId);
-    // 普通支持文件保留，而非只留白名单组件。
     expect(created.plugin.files.map((file) => file.path)).toContain('LICENSE');
     expect(calls).toEqual([{ action: 'install', marketplace: 'owner/repo', plugin: local }]);
 
@@ -214,7 +213,6 @@ describe.skipIf(!ready)('native plugin routes', () => {
       headers: auth(),
     });
     expect(list.statusCode, list.body).toBe(200);
-    // 同名不同市场是不同来源；同 ID 的不同版本重复项保持原序，命中按完整 ID 判定。
     expect(list.json()).toEqual({
       installed: [
         { pluginId: importedId, version: '2.0.0', imported: true },
@@ -299,7 +297,6 @@ describe.skipIf(!ready)('native plugin routes', () => {
 
   it('does not reuse a different source whose runtime name collides', async () => {
     const local = unique('collision');
-    // 占住 runtime name，模拟 ZIP 导入或其他市场已有同名插件。
     const existing = await request(app, {
       method: 'POST',
       url: `/api/plugins/import?slug=${encodeURIComponent(local)}`,

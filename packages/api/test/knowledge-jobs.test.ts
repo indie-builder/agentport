@@ -332,7 +332,6 @@ describe.skipIf(!ready)('knowledge job projections', () => {
   });
 });
 
-// 排队取消与认领的竞争必须在独享库上按真实行锁顺序验证，不能靠 sleep 猜时序。
 const raceDatabase = await createIsolatedDatabase(
   'api_knowledge_cancel_race',
   process.env.DATABASE_URL ?? '',
@@ -502,7 +501,6 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
     const redis = new RedisClient(redisUrl);
     let released = false;
     try {
-      // 锁住 sync run：claim 先成功锁住 job（尚未提交），再卡在 run；API 的 CAS 只能等 claim 提交。
       await locker.unsafe('begin');
       await locker.unsafe('select 1 from knowledge_sync_runs where id = $1 for update', [runId]);
       await queue.add('knowledge', { jobId }, knowledgeEnqueueOptions(jobId));
@@ -513,14 +511,12 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
         url: `/api/knowledge/jobs/${jobId}/cancel`,
         headers: { cookie },
       });
-      // 第二个等锁事件证明 API 已读到 queued 并进入 finishJob 的 CAS UPDATE。
       await waitForWaitingRowLocks(2);
       await locker.unsafe('rollback');
       released = true;
 
       const cancelResponse = await cancelPromise;
       expect(cancelResponse.statusCode, cancelResponse.body).toBe(200);
-      // 输给认领时不能写终态：返回 claimed 的 running 行并只发 cancel 信号。
       expect(cancelResponse.json<Record<string, unknown>>()).toMatchObject({ status: 'running' });
       expect(await redis.get(knowledgeCancelKey(jobId))).toBe('1');
       expect((await repo.knowledge.getJob(app.db, jobId))?.status).toBe('running');

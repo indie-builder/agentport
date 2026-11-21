@@ -40,7 +40,6 @@ describe.skipIf(!ready)('approval lifecycle', () => {
     await app.close();
   });
 
-  /** 走真实 repo：会话 + run + 一条待批准请求，run 状态由用例给定。 */
   const seed = async (
     status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timeout',
   ) => {
@@ -150,7 +149,6 @@ describe.skipIf(!ready)('approval lifecycle', () => {
 
   it('waits on the run row lock before deciding approval', async () => {
     const { runId, requestId, toolName } = await seed('running');
-    // 独立连接持有未提交的状态变更，模拟 cancel / worker 的并发写入。
     const locker = await app.client.reserve();
     let settled = false;
     try {

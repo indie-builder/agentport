@@ -67,7 +67,6 @@ describe('toStep', () => {
       at: at.toISOString(),
       name: 'get_user',
       toolUseId: 't1',
-      // result 单独放 result；content 留给调用参数，由 mergeToolSteps 合并。
       content: null,
       result: '{"id":1}',
       parentToolUseId: null,

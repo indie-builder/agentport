@@ -5,11 +5,6 @@ import { testAccess } from './fixtures/access.js';
 
 const { agentOwnership, conversationSubject, userSubject } = testAccess(import.meta.url);
 
-/**
- * 第 9 轮把认领条件收紧成「只认 queued」。回归审计发现这会让重试失效：
- * 可重试失败抛错时行仍是 running，下一次投递被自己的守卫跳过。
- * 这里锁住「重试前必须把行改回 queued」这条契约。
- */
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
 const agentId = newId('agent');
@@ -58,7 +53,6 @@ describe('run claim and retry contract', () => {
     const runId = newId('run');
     await repo.chat.createRun(db, { id: runId, conversationId, agentId, subject: userSubject });
     expect(await claim(runId)).toBe(1);
-    // 第二次认领必须失败：这是 BullMQ 重复投递时的保护。
     expect(await claim(runId)).toBe(0);
   });
 
@@ -66,7 +60,6 @@ describe('run claim and retry contract', () => {
     const runId = newId('run');
     await repo.chat.createRun(db, { id: runId, conversationId, agentId, subject: userSubject });
     expect(await claim(runId)).toBe(1);
-    // 模拟可重试失败：先回 queued 再抛错。
     expect(await requeue(runId)).toBe(1);
     expect(await claim(runId)).toBe(1);
   });

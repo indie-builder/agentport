@@ -51,7 +51,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       expect(finishedEvent(result.events)?.status).toBe('succeeded');
       const bash = toolCalls(result.events).filter((call) => call.name === 'Bash');
       expect(bash).toHaveLength(1);
-      // 父级自己的调用没有 parent_tool_use_id。
       expect(bash[0]?.parentToolUseId).toBeUndefined();
       expect(bash[0]?.result).toContain('WORKSPACE_READONLY');
       expect(readIfExists(join(spec.outputsDir, outputName))).toBe('ok');

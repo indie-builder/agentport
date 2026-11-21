@@ -217,7 +217,6 @@ describe.skipIf(!ready)('channels', () => {
       expect(res.statusCode, `${method} ${url}: ${res.body}`).toBe(404);
     }
 
-    // 先由成员绑定，确认平台管理员随后也不能删除别人的绑定。
     expect(
       (
         await call('POST', `/api/channels/${channel.id}/agents`, owner.cookie, {
@@ -522,7 +521,6 @@ describe.skipIf(!ready)('channels', () => {
       canUse: true,
       canMaintain: false,
     });
-    // 成员本人可用该专家，才能把 403 归因到频道角色而不是专家可用性。
     await setAgentMember(app, adminCookie, forbiddenAgent.id, member.businessId, {
       canUse: true,
       canMaintain: false,
@@ -610,7 +608,6 @@ describe.skipIf(!ready)('channels', () => {
       await createAgent(app, adminCookie, { slug: unique('channel-agent'), track: agentSlugs })
     ).json<Agent>();
     const channel = await createChannel();
-    // 真实账号：没有任何角色，因此没有 agents.use 叶；默认 user 带该叶会掩盖顺序问题。
     const noGrant = await createTestAccount(app, adminCookie, { systemKeys: [] });
     noGrantBusinessIds.push(noGrant.businessId);
 

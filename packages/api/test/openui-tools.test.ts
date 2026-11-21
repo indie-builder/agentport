@@ -31,7 +31,6 @@ describe.skipIf(!ready)('openui tools', () => {
   let app: TestApp;
   let cookie: string;
   let upstreamUrl: string;
-  /** 真实 MCP 上游：覆盖 structuredContent、多 text 块与 isError 三种返回形状。 */
   let mcpUrl: string;
   const mcpHandler = createMcpHandler(() => {
     const server = new McpServer({ name: 'openui-fixture', version: '1.0.0' });
@@ -106,7 +105,6 @@ describe.skipIf(!ready)('openui tools', () => {
 
   const auth = () => ({ cookie });
 
-  /** 主助手的真实生成式 UI 消息：s0 是一个完整 root，来源校验必须以它为准。 */
   const appendUiMessage = async (
     conversationId: string,
     options: {
@@ -135,7 +133,6 @@ describe.skipIf(!ready)('openui tools', () => {
     return message.id;
   };
 
-  /** generated server + 两个工具：一个普通、一个需要批准。 */
   const seedAgent = async () => {
     const server = await createApiServer(app, cookie, {
       name: unique('oui-tool-srv'),
@@ -221,8 +218,6 @@ describe.skipIf(!ready)('openui tools', () => {
     );
   });
 
-  // Mutation 会执行写操作：来源必须真的是主助手消息里存在的 UI 段，否则用户消息或
-  // 子智能体消息上的伪造 blockKey 也能触发。
   it.each([
     ['a user message', { role: 'user' }, 'INVALID_INPUT'],
     ['a markdown assistant message', { uiFormat: 'markdown' }, 'INVALID_INPUT'],
@@ -260,7 +255,6 @@ describe.skipIf(!ready)('openui tools', () => {
     const { agent, conversationId, messageId } = await seedAgent();
     const name = unique('oui-kb');
     const serverId = newId('server');
-    // knowledge 连接由平台内置，用户 CRUD 不暴露；直接落库模拟已存在的绑定。
     await app.client.unsafe(
       `insert into servers (id, name, kind, config)
        values ($1, $2, 'knowledge', '{"knowledgeBaseId":"kb-test"}'::jsonb)`,
@@ -272,7 +266,6 @@ describe.skipIf(!ready)('openui tools', () => {
       serverId,
     ]);
 
-    // 即便动作伪造 mcp__<knowledge>__<tool>，也必须在目录层被拒，不能落进 HTTP fetch 分支。
     expectProblem(
       await callTool(conversationId, `mcp__${name}__search`, { messageId }),
       'FORBIDDEN',
@@ -303,7 +296,6 @@ describe.skipIf(!ready)('openui tools', () => {
 
   it('returns INVALID_INPUT instead of 500 when the tool inputSchema is invalid', async () => {
     const { conversationId, messageId, server } = await seedAgent();
-    // 目录里的 JSON Schema 是不可信数据：写坏的 schema 是输入问题，不是服务端故障。
     await app.client.unsafe(
       `update api_tools set input_schema = '{"type":"object","properties":{"id":{"type":"nonsense"}}}'::jsonb
        where server_id = $1 and name = 'get-user'`,
@@ -343,7 +335,6 @@ describe.skipIf(!ready)('openui tools', () => {
     expect(pending.status).toBe('approval_required');
     expect(pending.approvalId.startsWith('apr_')).toBe(true);
 
-    // 重复调用复用同一条待批记录，不堆积。
     const second = await callTool(conversationId, toolName, { messageId });
     expect(second.json<{ approvalId: string }>().approvalId).toBe(pending.approvalId);
 
@@ -355,7 +346,6 @@ describe.skipIf(!ready)('openui tools', () => {
     expect(approve.statusCode, approve.body).toBe(200);
     const approved = approve.json<{ approvedAt: string | null; expiresAt: string | null }>();
     expect(approved.approvedAt).toEqual(expect.any(String));
-    // 批准有时效：8 小时后过期，前端据此展示剩余时间。
     expect(approved.expiresAt).toEqual(expect.any(String));
     expect(Date.parse(approved.expiresAt ?? '') - Date.parse(approved.approvedAt ?? '')).toBe(
       8 * 60 * 60 * 1000,
@@ -382,7 +372,6 @@ describe.skipIf(!ready)('openui tools', () => {
     const first = await approve();
     expect(first.statusCode, first.body).toBe(200);
     expect(first.json<{ expiresAt: string }>().expiresAt).toEqual(expect.any(String));
-    // 把有效期压到 1 小时后：重放不能再把它推回 8 小时。
     await app.db.execute(sql`
       update approval_requests
       set approved_at = now() - interval '7 hours', authorization_expires_at = now() + interval '1 hour'
@@ -421,14 +410,12 @@ describe.skipIf(!ready)('openui tools', () => {
     });
     expect((await callTool(conversationId, toolName, { messageId })).statusCode).toBe(200);
 
-    // 把批准时间挪到有效期之外：下一次调用必须重新走审批，不能永久放行。
     await app.db.execute(sql`
       update approval_requests
       set authorization_expires_at = now() - interval '1 minute'
       where id = ${pending.approvalId}
     `);
 
-    // 过期行不能直接批准，也不能被这次请求顺手复活。
     const stale = await request(app, {
       method: 'POST',
       url: `/api/chat/${conversationId}/openui/approvals/${pending.approvalId}/approve`,
@@ -445,7 +432,6 @@ describe.skipIf(!ready)('openui tools', () => {
     expect(again.statusCode, again.body).toBe(202);
     expect(again.json<{ status: string }>().status).toBe('approval_required');
 
-    // 重新发起工具调用会把该行重置为待批，此后才允许批准。
     const reRequested = (await callTool(conversationId, toolName, { messageId })).json<{
       approvalId: string;
       status: string;
@@ -471,7 +457,6 @@ describe.skipIf(!ready)('openui tools', () => {
     const pending = (await callTool(conversationId, toolName, { messageId })).json<{
       approvalId: string;
     }>();
-    // 旧数据/手工写入的「已批准但没有有效期」：必须视同未批准。
     await app.db.execute(sql`
       update approval_requests
       set approved_at = now(), authorization_expires_at = null
@@ -482,7 +467,6 @@ describe.skipIf(!ready)('openui tools', () => {
     expect(again.statusCode, again.body).toBe(202);
     expect(again.json<{ status: string }>().status).toBe('approval_required');
 
-    // 重新走一次审批后，旧行会被清成待批，不会继续复用 null 有效期。
     const row = await app.client.unsafe<
       { approved_at: Date | null; authorization_expires_at: Date | null }[]
     >('select approved_at, authorization_expires_at from approval_requests where id = $1', [
@@ -526,7 +510,6 @@ describe.skipIf(!ready)('openui tools', () => {
   });
 
   it('keeps approvals scoped to one conversation', async () => {
-    // 同一个 server/工具、两个会话：批准不能跨会话复用。
     const shared = await seedAgent();
     const otherConversation = newId('conversation');
     await repo.chat.createConversation(app.db, {
@@ -602,7 +585,6 @@ describe.skipIf(!ready)('openui tools', () => {
     });
     expect(removed.statusCode, removed.body).toBe(200);
 
-    // 目录仍含该工具，但 agents.use 已失效：历史消息不能成为绕过授权的入口。
     expectProblem(await call(), 'NOT_FOUND');
   });
 
@@ -649,10 +631,8 @@ describe.skipIf(!ready)('openui tools', () => {
         headers: { cookie: approvalCookie },
       });
 
-    // 只有重命名权限不能批准工具：403 是功能级拒绝，不是会话范围问题。
     expectProblem(await approveAs(approver.cookie), 'FORBIDDEN');
 
-    // 有 runs.approve 但不是会话本人：own_data 范围不匹配，按不存在处理。
     const outsider = await createTestAccount(app, cookie, { systemKeys: ['user'] });
     expectProblem(await approveAs(outsider.cookie), 'NOT_FOUND');
 
@@ -668,8 +648,6 @@ describe.skipIf(!ready)('openui tools', () => {
   });
 
   it('calls tools on an http MCP server using the cached catalog', async () => {
-    // 真实 MCP 上游：平台自身的 /mcp 端点挂一个 generated server 就够用，
-    // 再用它注册成 http server，验证 StreamableHTTP 分支与目录快照。
     const name = unique('oui-http');
     serverNames.push(name);
     const created = await request(app, {
@@ -715,7 +693,6 @@ describe.skipIf(!ready)('openui tools', () => {
     });
     expect(httpServer.statusCode, httpServer.body).toBe(201);
 
-    // 目录快照：真实调用走 test 按钮，成功即写入 servers.config.toolCatalog。
     const tested = await request(app, {
       method: 'POST',
       url: `/api/servers/${httpServer.json<{ id: string }>().id}/test`,
@@ -749,7 +726,6 @@ describe.skipIf(!ready)('openui tools', () => {
     await mcpServer.close();
   });
 
-  /** 直接把 fixture MCP 上游注册成 http server，并缓存它的工具目录。 */
   const seedHttpServer = async (): Promise<{
     server: Server;
     conversationId: string;

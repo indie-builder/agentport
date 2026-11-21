@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { fail } from './errors.js';
 import { isRecord } from './record.js';
 
-/** `.mcp.json` 允许的最大字节数，与请求体上限一致。 */
 const MCP_JSON_MAX_BYTES = 1_048_576;
 const MCP_JSON_MAX_SERVERS = 100;
 
@@ -18,7 +17,6 @@ const stdioEntrySchema = z.strictObject({
   env: z.record(plainString, plainString).default({}),
 });
 
-/** 用户名/密码无法由 `.mcp.json` 安全落盘；凭据应走 headers。 */
 const httpUrl = httpUrlSchema.refine((value) => !value.includes('${'), '不支持模板占位符');
 
 const httpEntrySchema = z.strictObject({
@@ -27,7 +25,6 @@ const httpEntrySchema = z.strictObject({
   headers: z.record(plainString, plainString).default({}),
 });
 
-/** 只保留 schema 字段名，env/headers 的自定义键名与用户值都不进错误消息。 */
 const ENTRY_FIELDS = new Set(['type', 'command', 'args', 'env', 'url', 'headers']);
 
 function fieldPath(path: PropertyKey[]): string {
@@ -39,13 +36,11 @@ function fieldPath(path: PropertyKey[]): string {
   return parts.join('.') || '条目';
 }
 
-/** 未知字段名可以回显给用户，但要先排除可能夹带模板或超长的名字。 */
 function safeNames(keys: string[]): string {
   const names = keys.filter((key) => /^[\w.-]{1,64}$/.test(key));
   return names.length > 0 ? names.join('、') : '（已省略）';
 }
 
-/** zod 的内置 message 是英文且可能拼接输入片段；这里只按错误类别生成文案。 */
 function describeIssue(issue: z.core.$ZodIssue): string {
   const field = fieldPath(issue.path);
   switch (issue.code) {
@@ -91,7 +86,6 @@ function parseEntry(name: string, entry: Record<string, unknown>): ServerInput {
     invalid(`「${name}」配置不合法：${parsed.error.issues.map(describeIssue).join('；')}`);
   }
 
-  // 形状由 entry schema 保证；这里再过一遍共享契约，避免两处定义漂移。
   const input = serverInputSchema.safeParse({
     ...parsed.data,
     name,

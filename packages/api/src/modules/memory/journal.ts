@@ -9,10 +9,6 @@ import { withMemoryJournalDir } from '../agents/memory-files.js';
 
 export type AgentMemoryTarget = Extract<MemoryReviewTarget, { kind: 'agent_memory' }>;
 
-/**
- * 两条文件上限合计 200000 + 25KB，journal 还要保存恢复用的原始字节（base64 约 4/3）；
- * 保留一倍余量，合法主题不会被日志自己的限额挡住。
- */
 const MAX_JOURNAL_BYTES = 512 * 1024;
 const operationIdPattern = /^[A-Za-z0-9_-]{1,128}$/;
 const sha256Pattern = /^[a-f0-9]{64}$/;
@@ -20,10 +16,8 @@ const sha256Pattern = /^[a-f0-9]{64}$/;
 const journalFileSchema = z
   .object({
     name: memoryFileNameSchema,
-    /** null 表示该文件当时不存在。 */
     beforeSha256: z.string().regex(sha256Pattern).nullable(),
     afterSha256: z.string().regex(sha256Pattern).nullable(),
-    /** 恢复用原始字节；null 表示恢复时应删除该文件。 */
     beforeBase64: z.string().nullable(),
   })
   .strict();
@@ -31,7 +25,6 @@ const journalFileSchema = z
 const journalSchema = z
   .object({
     operation: z.enum(['review', 'rollback', 'manual']),
-    /** 审核 run ID、回滚的变更 ID 或手工写入的随机 ID，同时也是日志文件名。 */
     operationId: z.string().regex(operationIdPattern),
     businessId: z.string().min(1),
     target: z
@@ -47,7 +40,6 @@ const journalSchema = z
 
 export type MemoryJournalEntry = z.infer<typeof journalSchema>;
 
-/** 缺失文件用 null 参与比较，与空文件区分开。 */
 export function memorySha256(content: string | null): string | null {
   return content === null ? null : sha256Hex(content);
 }
@@ -88,10 +80,6 @@ async function readJournalFile(dir: string, operationId: string): Promise<Memory
   return entry.data;
 }
 
-/**
- * 扫描该专家全部日志：其它目标的有效记录原样返回，损坏记录直接报错。
- * 索引是共享资源，调用方据此判断是否还有未完成的写入。
- */
 export async function listMemoryJournals(
   workspacesDir: string,
   slug: string,
@@ -120,7 +108,6 @@ export function journalMatchesTarget(
   return entry.target.agentId === target.agentId && entry.target.name === target.name;
 }
 
-/** 锁内、rename 前写入；失败时调用方必须停止写文件。 */
 export async function writeMemoryJournal(
   workspacesDir: string,
   slug: string,
@@ -132,7 +119,6 @@ export async function writeMemoryJournal(
   }
   const name = journalName(entry.operationId);
   await withMemoryJournalDir(workspacesDir, slug, true, async (dir) => {
-    // 目录可能是上次遗留或外部预建的：强制收紧到 0700。
     await chmod(dir, 0o700);
     const temp = join(dir, `.${name}.${randomUUID()}.tmp`);
     let handle: Awaited<ReturnType<typeof open>> | undefined;

@@ -145,7 +145,6 @@ function mount(): void {
   act(() => root?.render(page()));
 }
 
-/** 模拟路由器在 navigate 后重新渲染同一页面。 */
 function rerender(): void {
   act(() => root?.render(page()));
 }
@@ -175,7 +174,6 @@ async function click(element: HTMLElement): Promise<void> {
   await act(async () => element.click());
 }
 
-/** Markdown 解析在静态模式下异步完成，等一拍再断言。 */
 async function flush(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -205,21 +203,18 @@ function scroller(scope: Element = panel('content')): HTMLElement {
   return found;
 }
 
-/** 目录树与正文同属内容面板，但在不同滚动容器里。 */
 function tree(): HTMLElement {
   const found = panel('content').querySelector<HTMLElement>('[role="tree"][aria-label="插件文件"]');
   if (!found) throw new Error('Missing file tree');
   return found;
 }
 
-/** 真实目录树里的文件行，按完整路径定位，不依赖展开状态。 */
 function fileRow(path: string, scope: Element = body()): HTMLElement {
   const row = scope.querySelector<HTMLElement>(`[data-slot="tree-label"][title="${path}"]`);
   if (!row) throw new Error(`Missing file row: ${path}`);
   return row;
 }
 
-/** 树默认只展开部分目录；逐层点开所有未展开目录，验证全部真实文件可达。 */
 async function expandAll(scope: ParentNode): Promise<void> {
   for (let guard = 0; guard < 20; guard += 1) {
     const collapsed = [
@@ -374,7 +369,6 @@ describe('plugin detail', () => {
     if (!link) throw new Error('Missing in-page README link');
     await click(link);
     rerender();
-    // 显式选新文件回到阅读模式，不继承上一次的源码开关。
     expect(state.search).toEqual({ tab: 'content', file: 'skills/alpha/SKILL.md' });
     expect(tab('content').getAttribute('aria-selected')).toBe('true');
     expect(current()).toBe('skills/alpha/SKILL.md');
@@ -458,7 +452,6 @@ describe('plugin detail', () => {
     mount();
     expect(panel('content').textContent).toContain('找不到这个文件');
     expect(current()).toBe('README.md');
-    // 不通过 effect 回写 URL，避免渲染循环。
     expect(state.navCalls).toHaveLength(0);
   });
 
@@ -529,7 +522,6 @@ describe('plugin detail', () => {
     expect(panel('intro').querySelector('aside')).toBeNull();
     expect(panel('intro').textContent).not.toContain('来源');
     expect(body().querySelectorAll('h1')).toHaveLength(1);
-    // 简介没有内容时，用真实按钮给下一步，不要求用户自己找页签。
     const next = button('查看插件内容', panel('intro'));
     expect(next.tagName).toBe('BUTTON');
     await click(next);
@@ -568,7 +560,6 @@ describe('plugin detail', () => {
       );
     });
     expect(document.activeElement).toBe(tab('content'));
-    // 默认 activateOnFocus=false：方向键只移动焦点，不切换面板。
     expect(tab('intro').getAttribute('aria-selected')).toBe('true');
     // 原生 button 的 Enter 由浏览器触发 click；jsdom 不模拟它，这里走组件的 Space 路径。
     await act(async () => {
@@ -585,7 +576,6 @@ describe('plugin detail', () => {
     state.search = { tab: 'content', file: 'README.md' };
     mount();
     const content = panel('content');
-    // 窄屏默认只给阅读正文，目录收在「文件」按钮后。
     expect(content.querySelector('[data-slot="tree-label"][title="scripts/run.sh"]')).toBeNull();
     await click(button('文件', content));
     await expandAll(content);
@@ -593,7 +583,6 @@ describe('plugin detail', () => {
     rerender();
     expect(state.search).toEqual({ tab: 'content', file: 'scripts/run.sh' });
     expect(scroller().textContent).toContain('SCRIPT-TOKEN');
-    // 收起后隐藏的文件行不能拿走焦点。
     expect(content.querySelector('[data-slot="tree-label"][title="scripts/run.sh"]')).toBeNull();
     expect(document.activeElement).toBe(button('文件', content));
     expect(content.querySelector('h1')).toBeNull();
@@ -616,7 +605,6 @@ describe('plugin detail', () => {
     await expandAll(tree());
     await click(fileRow('agents/review/api-reviewer.md', tree()));
     rerender();
-    // 换文件后应看到新文件的复制动作，而不是上一个文件留下的「已复制」。
     const switched = body().querySelector<HTMLButtonElement>(
       'button[aria-label="复制 agents/review/api-reviewer.md"]',
     );
@@ -677,7 +665,6 @@ describe('plugin detail', () => {
 
     await click(button('源码', scrollerEl));
     rerender();
-    // 同一文件只换渲染方式，DOM 不被替换。
     expect(scroller()).toBe(scrollerEl);
     expect(scroller().scrollTop).toBe(240);
 

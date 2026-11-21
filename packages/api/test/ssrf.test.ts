@@ -21,7 +21,6 @@ beforeEach(() => {
 });
 
 describe('IPv4 private ranges', () => {
-  // 每个网段都取 CIDR 首尾，外加紧邻网段外侧的可用地址。
   const ranges = [
     { cidr: '0.0.0.0/8', blocked: ['0.0.0.0', '0.255.255.255'], allowed: ['1.0.0.0'] },
     {
@@ -91,7 +90,6 @@ describe('IPv4 private ranges', () => {
     },
     {
       cidr: '240.0.0.0/4',
-      // 255.255.255.255 属于 240/4，不需要单独的精确匹配。
       blocked: ['240.0.0.0', '255.255.255.255'],
       allowed: ['223.255.255.255'],
     },
@@ -119,7 +117,6 @@ describe('IPv6 private ranges', () => {
     else await expectBlocked(url);
   });
 
-  // ULA 是 fc00::/7，link-local 是 fe80::/10；两侧紧邻地址不属于任何私网段。
   it.each([
     ['ULA first', 'fc00::', false],
     ['ULA last', 'fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', false],
@@ -138,8 +135,6 @@ describe('IPv6 private ranges', () => {
 });
 
 describe('IPv4 private ranges embedded in IPv6', () => {
-  // 与上方 IPv4 表同一批网段，取首尾和紧邻公共地址，分别写成 IPv4-mapped 与
-  // NAT64（64:ff9b::/96）字面量。IPv4 四字节按十六进制手工换算，不调用生产解析。
   const embedded = [
     {
       cidr: '0.0.0.0/8',
@@ -283,7 +278,6 @@ describe('DNS resolution', () => {
     await expectBlocked('http://mapped.example/');
   });
 
-  // DNS 可能返回完全展开的写法，不能只识别 "::ffff:a.b.c.d" 压缩形式。
   it('rejects a fully expanded mapped private address returned by DNS', async () => {
     dns.lookup.mockResolvedValue([{ address: '0:0:0:0:0:ffff:7f00:1', family: 6 }]);
     await expectBlocked('http://expanded-mapped.example/');
@@ -294,8 +288,6 @@ describe('DNS resolution', () => {
     await expectAllowed('http://expanded-mapped-public.example/');
   });
 
-  // Node 原生解析与旧手写解析在特殊 DNS 表示上存在差异：展开的 mapped/NAT64 公共地址旧实现
-  // 误拒、带 zone 的 mapped 私网旧实现误放。此处只固化当前行为，不为旧行为加兼容层。
   it.each([
     ['expanded mapped public', '0:0:0:0:0:ffff:8.8.8.8', true],
     ['NAT64 public', '64:ff9b::8.8.8.8', true],

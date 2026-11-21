@@ -34,8 +34,6 @@ function toJob(
   };
 }
 
-// ---- jobs -----------------------------------------------------------------
-
 export async function listJobs(
   deps: KnowledgeDeps,
   query: PageQuery & {

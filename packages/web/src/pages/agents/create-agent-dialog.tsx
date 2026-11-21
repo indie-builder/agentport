@@ -70,7 +70,6 @@ export function CreateAgentDialog({
       name: initialRole === '数字分身' ? '我的分身' : '',
     }),
   });
-  // defaultValues 覆盖全部字段；把 schema 输入的可选类型收敛回完整草稿。
   const control = rhf.control as unknown as Control<AgentDraft, unknown, AgentDraft>;
   const errors = rhf.formState.errors;
   const roleField = useController({ control, name: 'role' }).field;
@@ -108,7 +107,6 @@ export function CreateAgentDialog({
       });
     },
     (invalid) => {
-      // 标识或模型出错时展开高级设置，错误字段才看得见。
       if (invalid.model || invalid.slug) setAdvancedOpen(true);
     },
   );
@@ -280,7 +278,6 @@ export function CreateAgentDialog({
               disabled={create.isPending}
               id="new-agent-prompt"
               rows={6}
-              // Keep compact monospace code text instead of the base prose typography.
               className="font-mono text-xs"
             />
           </Field>
@@ -306,7 +303,6 @@ export function CreateAgentDialog({
               <div className="flex flex-col gap-3 border-t p-3">
                 <Field data-disabled={create.isPending} className="gap-1.5">
                   <FieldLabel htmlFor="new-agent-model">模型</FieldLabel>
-                  {/* 网关模型名不是白名单：输入任意 ID，建议值只做补全。 */}
                   <Input
                     {...rhf.register('model')}
                     disabled={create.isPending}
@@ -331,7 +327,6 @@ export function CreateAgentDialog({
                     disabled={create.isPending}
                     id="new-agent-slug"
                     placeholder="support-bot"
-                    // Keep monospace for the technical slug instead of the base sans-serif input.
                     className="font-mono"
                     aria-invalid={Boolean(errors.slug)}
                     aria-describedby={errors.slug ? 'new-agent-slug-error' : 'new-agent-slug-hint'}
@@ -397,7 +392,6 @@ export function DuplicateAgentDialog({
   const [created, setCreated] = useState<Agent | null>(null);
   const dirty = rhf.formState.isDirty;
   const blocker = useFormBlocker(!created && dirty, !created && duplicate.isPending);
-  // 先落成功状态再离开：blocker 下一次渲染才释放，直接 navigate 会被拦下。
   useEffect(() => {
     if (!created) return;
     dialog.finish(() => {

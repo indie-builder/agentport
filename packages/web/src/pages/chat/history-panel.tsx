@@ -41,7 +41,6 @@ export function HistoryPanel({
   onOpenSearch: (trigger: HTMLElement) => void;
   onRename: (conversation: HistoryEntry, trigger: HTMLElement) => void;
 }) {
-  // 同一时刻只开一个菜单：触发器的 DOM 身份在点击时记下，菜单项卸载后仍能把焦点交还。
   const menuTriggerRef = useRef<HTMLElement | null>(null);
   return (
     <>
@@ -68,7 +67,6 @@ export function HistoryPanel({
                 variant="ghost"
                 aria-current={conversation.id === conversationId ? 'true' : undefined}
                 onClick={() => onOpen(conversation.id)}
-                // Keep normal-weight history text, muted inactive labels, and the translucent row hover.
                 className={cn(
                   'h-auto w-full min-w-0 flex-col items-start gap-0 whitespace-normal px-2.5 py-2 pr-8 text-left font-normal',
                   conversation.id === conversationId

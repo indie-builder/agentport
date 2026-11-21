@@ -37,7 +37,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   let runId = '';
   let runToken = '';
 
-  // embedding 上游固定失败：检索降级为关键词，不依赖向量 fixture。
   const embedFix = createServer((_req, res) => {
     res.writeHead(500, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: 'off' }));
@@ -80,7 +79,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     return base;
   }
 
-  /** 直接落 ready 文档：MCP 读路径只依赖 DB 当前版本与磁盘 markdown。 */
   async function seedDocument(
     targetBaseId: string,
     profileId: string,
@@ -114,7 +112,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     return { documentId, versionId };
   }
 
-  /** 直接落发布/草稿 Wiki 页面：读路径只认 published + 当前线上版本。 */
   async function seedWikiPage(input: { published: boolean; markdown?: string }) {
     const pageId = `kwp_${randomBytes(6).toString('hex')}`;
     const versionId = `kwv_${pageId.slice(4)}`;
@@ -160,7 +157,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     }
   }
 
-  /** 直接发一次 JSON-RPC initialize；保留原始响应以便断言状态码与鉴权头。 */
   function mcpPost(targetServerId: string, headers: Record<string, string> = {}) {
     return fetch(`${baseUrl}/mcp/${targetServerId}`, {
       method: 'POST',
@@ -178,7 +174,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     });
   }
 
-  /** 按绑定形态造 run：自己的绑定、禁用的直接子级、或完全不绑定。 */
   async function seedAuthRun(bind: 'self' | 'disabled-child' | 'none') {
     const slug = unique('kb-auth');
     const agentId = newId('agent');
@@ -287,7 +282,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     });
     expect(wrong.status).toBe(401);
 
-    // 另一个 knowledge server：run 只绑定了 A，用 A 的 token 访问 B 也必须拒绝。
     const other = await createBase(embeddingId);
     const otherRes = await mcpPost(other.serverId, {
       authorization: `Bearer ${runToken}`,
@@ -309,7 +303,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     expect(expiredRes.status).toBe(401);
     expect(expiredRes.headers.get('www-authenticate')).toBe('Bearer realm="agentport-mcp"');
 
-    // run 结束后 token 被清空：即使 header 里还带着旧 token 也不能再用。
     const cleared = await seedAuthRun('self');
     await app.client.unsafe(
       'update agent_runs set mcp_token_hash = null, mcp_token_expires_at = null where id = $1',
@@ -356,7 +349,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     try {
       await client.connect(transport);
       const { tools } = await client.listTools();
-      // 图片处理默认关闭：读图工具不暴露，普通工具不变。
       expect(tools.map((t) => t.name).sort()).toEqual([
         'knowledge_list',
         'knowledge_read',
@@ -377,12 +369,10 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     expect(parsed.hits.length).toBeGreaterThan(0);
     expect(parsed.hits[0]?.quote).toContain('令牌');
     expect(parsed.hits[0]?.target.kind).toBe('document');
-    // embedding 上游固定失败：降级与 warnings 必须完整返回。
     expect(parsed.degraded).toBe(true);
     expect(parsed.warnings.map((warning) => warning.code)).toContain('embedding_unavailable');
     expect(parsed.diagnostics).toBeUndefined();
 
-    // diagnostics 只属于管理 REST：即使模型显式传 true 也不返回候选。
     const diagnosed = await toolCall('knowledge_search', { q: '令牌', diagnostics: true });
     expect(JSON.parse(diagnosed.text).diagnostics).toBeUndefined();
 
@@ -602,7 +592,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
       matchedQuestion: '重置密码',
       questionKind: 'standard',
     });
-    // embedding fixture 固定失败：关键词命中不产生 cosine，directAnswer 必须为 null。
     expect(body.degraded).toBe(true);
     expect(body.directAnswer).toBeNull();
 
@@ -668,7 +657,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
       if (body.nextOffset === null) break;
       offset = body.nextOffset;
     }
-    // read 永远返回完整答案，不做 random 抽样。
     expect(pages.join('')).toBe(expected);
   });
 
@@ -829,7 +817,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   });
 
   it('stops recalling a deleted document', async () => {
-    // 前面的用例已在同一库留下含「令牌」的文档，先全部清掉再验证。
     await app.client.unsafe('delete from knowledge_documents where base_id = $1', [baseId]);
     const { documentId } = await seedDocument(baseId, embeddingId, '唯一 召回 词');
     const before = await toolCall('knowledge_search', { q: '召回' });
@@ -840,7 +827,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   });
 
   it('pages targets sharing one microsecond timestamp without skipping any', async () => {
-    // 同一事务创建的 document/faq/wiki 共享微秒时间；cursor 不能丢精度。
     await app.client.unsafe('delete from knowledge_documents where base_id = $1', [baseId]);
     await app.client.unsafe('delete from knowledge_wiki_pages where base_id = $1', [baseId]);
     const stamp = '2026-01-01T12:00:00.123456Z';
@@ -903,13 +889,11 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
       if (body.nextCursor === null) break;
       cursor = body.nextCursor;
     }
-    // 时间相同则按 id 倒序：kwp_c、kdoc_b、kdoc_a 全部出现且不重复。
     expect(listed.map((item) => item.target)).toEqual([
       { kind: 'wiki', id: 'kwp_c' },
       { kind: 'faq', id: 'kdoc_b' },
       { kind: 'document', id: 'kdoc_a' },
     ]);
-    // 展示仍用 ISO，分页键的微秒精度不外泄。
     expect(listed[0]?.updatedAt).toBe('2026-01-01T12:00:00.123Z');
   });
 });

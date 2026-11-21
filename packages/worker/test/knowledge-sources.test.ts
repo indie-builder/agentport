@@ -61,13 +61,11 @@ async function startHoldingServer(status: number): Promise<{
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
-        // 客户端未取消时兜底断开，保证测试清理有界。
         server.closeAllConnections();
       }),
   };
 }
 
-/** Bounded wait so a leaked connection fails the test instead of hanging the suite. */
 async function within(ms: number, promise: Promise<void>, message: string): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -701,7 +699,6 @@ async function handleArticle(request: IncomingMessage, response: ServerResponse)
     return;
   }
   if (url.pathname === '/articles/binary') {
-    // 二进制页面不能被当成文本解码后拼进 markdown。
     response.writeHead(200, { 'content-type': 'application/pdf' });
     response.end(Buffer.from([0x25, 0x50, 0x44, 0x46, 0xff, 0xfe]));
     return;
@@ -817,7 +814,6 @@ describe('validateSourceUrl', () => {
     await expect(
       validateSourceUrl(`${mainUrl}/x`, { trustedHosts: [`127.0.0.1:${port}`] }),
     ).resolves.toBeInstanceOf(URL);
-    // 端口不同或写法模糊（只写主机名、带路径）都不放行。
     await expect(
       validateSourceUrl(`${mainUrl}/x`, { trustedHosts: ['127.0.0.1'] }),
     ).rejects.toThrow(/private address/);
@@ -843,7 +839,6 @@ describe('RSS/Atom/JSON sources', () => {
   it('parses RSS, prefers article full text, falls back to feed content, and scopes credentials', async () => {
     const snapshot = await readSource(rssConfig(`${mainUrl}/rss`));
 
-    // A feed only shows a recent window: it must never authorise deletion derivation.
     expect(snapshot.complete).toBe(false);
     expect(snapshot.items).toHaveLength(2);
 
@@ -920,7 +915,6 @@ describe('RSS/Atom/JSON sources', () => {
   it('keeps binary article responses out of the markdown body', async () => {
     const snapshot = await readSource(rssConfig(`${mainUrl}/feed-binary`));
     const item = snapshot.items[0];
-    // 二进制页面被跳过，回退到 feed 自带的摘要文本。
     expect(item?.content).toBe('Feed summary for binary');
     expect(item?.content).not.toContain('%PDF');
   });
@@ -971,7 +965,6 @@ describe('RSS/Atom/JSON sources', () => {
     expect(rdf.items[0]?.content).toBe('RDF summary');
 
     const atom = await readSource(rssConfig(`${mainUrl}/atom-links`));
-    // The entry without id and title is skipped; the alternate link wins over self.
     expect(atom.items).toHaveLength(1);
     expect(atom.items[0]?.sourceUrl).toBe(`${articleBase}/articles/missing`);
     expect(atom.items[0]?.content).toBe('Atom links summary');
@@ -986,7 +979,6 @@ describe('RSS/Atom/JSON sources', () => {
 
   it('surfaces feed HTTP errors and rejects unknown cursors', async () => {
     await expect(readSource(rssConfig(`${mainUrl}/unauthorized-feed`))).rejects.toThrow(/401/);
-    // The DB cursor column defaults to {}; that must mean "first sync", not a parse error.
     const first = await readSource(rssConfig(`${mainUrl}/rss`), {});
     expect(cursorOf(first).initial).toBe(true);
     await expect(readSource(rssConfig(`${mainUrl}/rss`), { nonsense: true })).rejects.toThrow(
@@ -998,7 +990,6 @@ describe('RSS/Atom/JSON sources', () => {
 describe('HTTP failure responses', () => {
   it.each([
     { status: 401, auth: true },
-    // A 403 body that cannot be read fully must not revoke credentials.
     { status: 403, auth: false },
     { status: 429, auth: false },
     { status: 500, auth: false },
@@ -1111,16 +1102,13 @@ describe('GitHub source', () => {
     expect(file?.sourceUrl).toBe(`${mainUrl}/octo/proj/blob/trunk/docs/a.md`);
     expect(file?.externalId).toBe(`github:${mainUrl}/github/api/v3:1001:trunk:docs/a.md`);
 
-    // URL 中含保留字符的文件名按段编码，链接可用但 externalId/path 保留原文。
     const faq = snapshot.items.find((item) => item.path === 'docs/FAQ#setup.md');
     expect(faq?.content).toBe('# FAQ setup\n');
     expect(faq?.sourceUrl).toBe(`${mainUrl}/octo/proj/blob/trunk/docs/FAQ%23setup.md`);
     expect(faq?.externalId).toBe(`github:${mainUrl}/github/api/v3:1001:trunk:docs/FAQ#setup.md`);
 
-    // 空文件也要覆盖旧正文，而不是保留上一次内容。
     const empty = snapshot.items.find((item) => item.path === 'docs/empty.txt');
     expect(empty?.content).toBe('# docs/empty.txt\n');
-    // 二进制原件以字节形式进入解析链路，不在来源层解码。
     const image = snapshot.items.find((item) => item.path === 'docs/image.png');
     expect(image?.mimeType).toBe('image/png');
     expect(image?.bytes).toBeDefined();
@@ -1279,7 +1267,6 @@ describe('Feishu source', () => {
       'notes.md',
     ]);
     const notes = snapshot.items.find((item) => item.path === 'notes.md');
-    // 文本文件也保留原件字节，由本地解析器按 MIME/扩展名分派，不在来源层直接当 Markdown。
     expect(notes?.content).toBe('');
     expect(Buffer.from(notes?.bytes ?? []).toString('utf8')).toContain('hello from txt');
     expect(notes?.mimeType).toBe('text/markdown');
@@ -1302,7 +1289,6 @@ describe('Feishu source', () => {
 
     resetState();
     state.feishuUnsupported = true;
-    // 不支持的单项记失败继续读其它条目，不再让整轮枚举抛错。
     const unsupported = await readSource(feishuConfig());
     expect(unsupported.complete).toBe(false);
     expect(unsupported.items.some((item) => item.externalId === 'feishu:wiki:nod1')).toBe(true);
@@ -1325,7 +1311,6 @@ describe('Feishu source', () => {
     await expect(probeSource(feishuDriveConfig())).resolves.toBeUndefined();
 
     resetState();
-    // wiki fixture 的首屏固定 has_more=true 且带 next page token。
     await expect(probeSource(feishuConfig())).resolves.toBeUndefined();
   });
 
@@ -1365,7 +1350,6 @@ describe('Feishu source', () => {
     state.gitlabForbidden = true;
     await expect(readSource(gitlabConfig())).rejects.toBeInstanceOf(SourceAuthError);
 
-    // 服务端故障与限流不是撤权，不能触发停源。
     resetState();
     state.gitlabTreeError = true;
     await expect(readSource(gitlabConfig())).rejects.not.toBeInstanceOf(SourceAuthError);

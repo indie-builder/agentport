@@ -61,7 +61,6 @@ export function snapshotToSkill(
   }
 
   if (skillMd === null) fail('INVALID_INPUT', '市场技能缺少 SKILL.md，无法安装');
-  // frontmatter 的 license/compatibility/metadata 原样保留，安装后导出与运行时仍写回。
   const { skill } = parseSkillMd(skillMd, { slug });
   return { skill, files, warnings };
 }

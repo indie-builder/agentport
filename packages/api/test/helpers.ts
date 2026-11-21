@@ -142,7 +142,6 @@ export function requestZip(
 /** 默认管理员账户的稳定业务 ID；直接落库的测试夹具用工位一致的主体。 */
 export const ADMIN_BUSINESS_ID = BOOTSTRAP_ADMIN_BUSINESS_ID;
 
-// 每个测试文件独立后缀：并行执行时名称不会互相冲突，也不需要全局清理。
 const SUFFIX = randomBytes(4).toString('hex');
 let counter = 0;
 
@@ -159,7 +158,6 @@ export function testConfig(overrides: Partial<Record<string, string>> = {}): Con
   return loadConfig({ ...process.env, ...overrides });
 }
 
-/** Postgres 与 Redis 都可用才跑集成测试；否则整个 describe 跳过。 */
 async function probeInfra(config: Config): Promise<boolean> {
   const { client } = createDb(config.DATABASE_URL);
   const redis = new RedisClient(config.REDIS_URL, {
@@ -179,10 +177,6 @@ async function probeInfra(config: Config): Promise<boolean> {
   }
 }
 
-/**
- * 队列里有活跃消费者会让集成测试的 run 被真实 worker 跑掉，导致状态断言失败。
- * 这里检测 agent-runs 是否有 active/waiting 的 worker，有则提示。
- */
 async function probeQueueIdle(redisUrl: string): Promise<boolean> {
   const redis = new RedisClient(redisUrl, { connectionTimeout: 1_000, autoReconnect: false });
   redis.onclose = () => undefined;
@@ -474,11 +468,6 @@ export async function eventFollowerCount(redis: RedisClient, runId: string): Pro
  */
 export const MEMORY_TEST_LOCK = 'agentport.memory-tests';
 
-/**
- * 在独立连接上取锁；返回的函数恢复连接设置、解锁并归还连接。
- * 等锁不受 statement_timeout 限制，但连接归还池后会继续被同进程复用，
- * 因此释放前必须把原来的 statement_timeout 还回去，否则后续查询失去超时保护。
- */
 export async function acquireMemoryLock(client: TestApp['client']): Promise<() => Promise<void>> {
   const reserved = await client.reserve();
   let originalTimeout: string | undefined;
@@ -491,7 +480,6 @@ export async function acquireMemoryLock(client: TestApp['client']): Promise<() =
     await reserved.unsafe('set statement_timeout = 0');
     await reserved.unsafe('select pg_advisory_lock(hashtext($1))', [MEMORY_TEST_LOCK]);
   } catch (err) {
-    // 取锁失败也必须归还连接，且尽量把超时设置还原，避免污染连接池。
     if (originalTimeout !== undefined) {
       await reserved
         .unsafe('select set_config($1, $2, false)', ['statement_timeout', originalTimeout])
@@ -502,7 +490,6 @@ export async function acquireMemoryLock(client: TestApp['client']): Promise<() =
   }
   return async () => {
     try {
-      // 先还原超时再解锁：解锁本身很快，不会撞上恢复后的上限。
       await reserved.unsafe('select set_config($1, $2, false)', [
         'statement_timeout',
         originalTimeout,

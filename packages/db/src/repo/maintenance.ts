@@ -1,4 +1,5 @@
 import { fail } from '@agentport/core';
+import { ACTIVE_RUN_STATUSES, TERMINAL_RUN_STATUSES } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import {
@@ -10,20 +11,26 @@ import {
   messages,
 } from '../schema.js';
 
+const ACTIVE_STATUSES = sql.join(
+  ACTIVE_RUN_STATUSES.map((status) => sql`${status}`),
+  sql`, `,
+);
+const TERMINAL_STATUSES = sql.join(
+  TERMINAL_RUN_STATUSES.map((status) => sql`${status}`),
+  sql`, `,
+);
+
 export interface PruneRunsResult {
   runs: number;
   messages: number;
 }
 
 export interface PruneOptions {
-  /** 已发布成果 manifest 引用的消息；detach 与 delete 都显式排除。 */
   retainedMessageIds?: string[];
 }
 
-// 0 或负数会让截止时间落在未来，必须挡住；维护任务只在配置合法时运行。
 function positive(value: number, name: string): number {
   if (!Number.isInteger(value) || value < 1) {
-    // 配置错误属于启动期输入问题：尽早失败，比运行期把负数当 0 用安全。
     fail('INVALID_INPUT', `${name} must be a positive integer, got ${value}`);
   }
   return value;
@@ -54,7 +61,7 @@ export async function pruneAgentVersions(db: Database, keepPerAgent: number): Pr
         select 1 from ${agentRuns} r
         where r.agent_id = ${agentVersions.agentId}
           and r.agent_version = ${agentVersions.version}
-          and r.status in ('queued', 'running')
+          and r.status in (${ACTIVE_STATUSES})
       )
       and not exists (
         select 1
@@ -69,7 +76,7 @@ export async function pruneAgentVersions(db: Database, keepPerAgent: number): Pr
       )
       and not exists (
         select 1 from ${agentRuns} r
-        where r.status in ('queued', 'running')
+        where r.status in (${ACTIVE_STATUSES})
           and r.definition_snapshot->'resources'->'subAgents' @> jsonb_build_array(
             jsonb_build_object(
               'id', ${agentVersions.agentId},
@@ -82,7 +89,7 @@ export async function pruneAgentVersions(db: Database, keepPerAgent: number): Pr
         from ${agentRuns} r
         join ${agentVersions} parent
           on parent.agent_id = r.agent_id and parent.version = r.agent_version
-        where r.status in ('queued', 'running')
+        where r.status in (${ACTIVE_STATUSES})
           and parent.definition->'resources'->'subAgents' @> jsonb_build_array(
             jsonb_build_object(
               'id', ${agentVersions.agentId},
@@ -117,7 +124,7 @@ export async function pruneRuns(
     with doomed as (
       select ${agentRuns.id} as id
       from ${agentRuns}
-      where ${agentRuns.status} in ('succeeded', 'failed', 'cancelled', 'timeout')
+      where ${agentRuns.status} in (${TERMINAL_STATUSES})
         and (
           ${agentRuns.startedAt} is null
           or ${agentRuns.startedAt} < date_trunc('month', now(), 'UTC')

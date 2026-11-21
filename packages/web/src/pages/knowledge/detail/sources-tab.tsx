@@ -68,8 +68,6 @@ export function SourcesTab({
   const [syncJobs, setSyncJobs] = useState<Array<{ id: string; sourceId: string }>>([]);
   const [probeJobs, setProbeJobs] = useState<Record<string, string>>({});
   const settledJobs = useRef(new Set<string>());
-  // 自动 Wiki、批量上传等任务会把刚提交的同步任务挤出任务列表前 50 条，只看列表会永远等不到终态。
-  // 列表里缺失的任务改用 GET jobs/:id 定向轮询，终态后与列表中的任务走同一套失效。
   const missingSyncJobs = syncJobs.filter(
     (entry) =>
       !settledJobs.current.has(entry.id) && !jobs.data?.some((item) => item.id === entry.id),
@@ -84,7 +82,6 @@ export function SourcesTab({
     if (job) knownSyncJobs.set(entry.id, job);
   });
 
-  // 任务随来源一起被删时 404：停止跟踪并提示刷新，不把缺失当完成，也不无限轮询。
   useEffect(() => {
     const gone = missingSyncJobs.filter((entry, index) => {
       if (settledJobs.current.has(entry.id)) return false;
@@ -98,7 +95,6 @@ export function SourcesTab({
     toast.warning('同步任务已不存在，可能来源已删除；请刷新来源列表');
   }, [missingSyncJobs, syncJobDetails]);
 
-  // 同步任务跨过终态时在页面内失效一次受影响的查询；任务列表本身继续轮询。
   useEffect(() => {
     if (syncJobs.length === 0) return;
     const finished = syncJobs.filter((entry) => {
@@ -134,8 +130,7 @@ export function SourcesTab({
             ? '加载中…'
             : sources.isError
               ? '数量不可用'
-              : // 分页已自动取完，这里的数量就是全部来源。
-                `${sources.data?.length ?? 0} 个来源`}
+              : `${sources.data?.length ?? 0} 个来源`}
         </span>
         {caps.sources ? (
           <Button className="ml-auto" onClick={() => setCreating(true)}>

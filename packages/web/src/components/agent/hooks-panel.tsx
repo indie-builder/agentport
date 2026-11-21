@@ -43,7 +43,6 @@ type HooksAction =
   | { type: 'create' }
   | { type: 'delete'; file: AgentHookFile };
 
-/** 文件型 hooks：编辑 `.claude/settings.json` 的 `hooks` 与 `.claude/hooks/**` 脚本。 */
 export function HooksPanel({
   agentId,
   canWrite = true,

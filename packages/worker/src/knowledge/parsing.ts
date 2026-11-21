@@ -21,7 +21,6 @@ import TurndownService from 'turndown';
 import { z } from 'zod';
 import { assertUsableImage } from './image-processing.js';
 
-// 结构感知分块与解析错误类型只有 core 一份实现；worker 保持同名导出口，调用方不变。
 export type { ParsedBlock, ParsedDocument, ParsedImage } from '@agentport/core';
 export {
   chunkDocument,
@@ -38,7 +37,6 @@ function startsWith(bytes: Uint8Array, signature: number[], offset = 0): boolean
 
 const ascii = (text: string): number[] => [...text].map((char) => char.charCodeAt(0));
 
-/** 真实 magic 决定格式；上传声明的 MIME 只用于一致性校验，不单独采信。 */
 function sniffImage(bytes: Uint8Array): { mimeType: string; extension: string } | null {
   if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
     return { mimeType: 'image/png', extension: 'png' };
@@ -67,7 +65,6 @@ function imageDocument(
   };
 }
 
-// OCR on large scans is slow; a silent hang would pin a job forever.
 const DOCLING_TIMEOUT_MS = 10 * 60 * 1000;
 
 function detectFormat(filename: string, mimeType: string): Format {
@@ -410,7 +407,6 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-/** Tables/code can be rendered differently by md vs json; compare their cells/content instead. */
 function fingerprint(content: string): string {
   if (isTableBlock(content)) {
     return JSON.stringify(
@@ -436,7 +432,6 @@ function fingerprint(content: string): string {
   return normalizeText(content);
 }
 
-/** Walks body refs (descending into groups) so blocks keep the document's reading order. */
 function orderedRefs(json: DoclingJson, includeUnreferenced = true): string[] {
   const refs: string[] = [];
   const visit = (children: Array<{ $ref: string }>, depth = 0) => {
@@ -529,7 +524,6 @@ function doclingBlocks(json: DoclingJson): ParsedBlock[] {
 
 const DATA_URI = /^data:([a-z0-9.+/-]+);base64,([a-z0-9+/=\s]+)$/i;
 
-/** 只接受响应内嵌的 data URI；远程 URL 一律不读，避免解析器替我们发起任意出站请求。 */
 function doclingImages(json: DoclingJson): Array<{ image: ParsedImage; payload: string }> {
   const images: Array<{ image: ParsedImage; payload: string }> = [];
   for (const [index, picture] of json.pictures.entries()) {
@@ -552,12 +546,10 @@ function doclingImages(json: DoclingJson): Array<{ image: ParsedImage; payload: 
 
 const MARKDOWN_DATA_IMAGE = /!\[[^\]]*\]\(data:[^,)]*,([a-z0-9+/=\s]+)\)/gi;
 
-/** embedded 模式下 md 与 json 内嵌同一张 data URI 图；md 里的 base64 不能进分块文本。 */
 function normalizeEmbeddedImages(
   markdown: string,
   images: Array<{ image: ParsedImage; payload: string }>,
 ): string {
-  // 按 base64 内容而不是整个 URI 匹配：两条导出路径的 URI 前缀可能不同，图片字节才是同一张。
   const byPayload = new Map(images.map(({ image, payload }) => [payload, image.name]));
   return markdown.replace(MARKDOWN_DATA_IMAGE, (_whole, payload: string) => {
     const name = byPayload.get(payload.replace(/\s+/g, ''));
@@ -579,7 +571,6 @@ type MarkdownRegion = SourceRange & {
   claims: Array<SourceRange & { locator: ParsedBlock['locator'] }>;
 };
 
-/** 短 OCR 文本只能匹配独立单词，不能把 "1" 定位到 "1234" 里。 */
 function hasWordBoundary(text: string, start: number, end: number, needle: string): boolean {
   const isWord = (char: string | undefined) => char !== undefined && /[\p{L}\p{N}_]/u.test(char);
   return (
@@ -587,7 +578,6 @@ function hasWordBoundary(text: string, start: number, end: number, needle: strin
   );
 }
 
-/** 显示字符与 UTF-16 原文区间一起生成；格式边界归属其首尾字符，正文始终取原文。 */
 function markdownDisplaySource(content: string, sourceStart = 0): DisplaySource {
   const tree = fromMarkdown(content);
   const display: DisplaySource = { text: '', ranges: [] };
@@ -652,7 +642,6 @@ function markdownDisplaySource(content: string, sourceStart = 0): DisplaySource 
           });
         index += decoded.length;
       }
-      // inlineCode 的显示值不含反引号；整个节点位置可靠，内部不冒充逐字源码。
       if (node.type === 'inlineCode') {
         append(value, []);
       } else append(value, ranges);
@@ -710,7 +699,6 @@ function markdownRegions(markdown: string): MarkdownRegion[] {
   );
 }
 
-/** 整段和段内只搜索同一份显示文本，认领范围只从对应的源码映射取得。 */
 function locateBlock(region: MarkdownRegion, content: string): SourceRange | null {
   const needle = normalizeText(content);
   if (needle === '') return null;
@@ -728,7 +716,6 @@ function locateBlock(region: MarkdownRegion, content: string): SourceRange | nul
   return null;
 }
 
-/** 每个 JSON 项只映射一次 occurrence；正文、行号与 pageMap 都消费这一份映射。 */
 function anchorParsedBlocks(
   blocks: ParsedBlock[],
   markdown: string,
@@ -759,7 +746,6 @@ function anchorParsedBlocks(
       matched = true;
       break;
     }
-    // JSON 独有的 OCR/代码仍可检索，但没有证据把它安放进某个原文字符区间。
     if (!matched) unlocated.push(block);
   }
 
@@ -935,7 +921,6 @@ async function parseWithDocling(input: {
   }
   const finalMarkdown =
     markdown !== '' ? markdown : blocks.map((block) => block.content).join('\n\n');
-  // 没有官方 Markdown 时，拼接位置本来就已知；不再把 JSON 正文当成 Markdown 语法重解析。
   if (markdown === '') {
     let cursor = 0;
     const pageMap: PageRange[] = [];
@@ -981,7 +966,6 @@ export async function parseDocument(input: {
   signal?: AbortSignal;
 }): Promise<ParsedDocument> {
   if (input.signal?.aborted) throw new KnowledgeParseError('aborted', '解析已取消');
-  // 独立图片按真实 magic 识别，声明的 MIME 只做一致性校验；不一致直接拒绝。
   const sniffed = sniffImage(input.bytes);
   if (sniffed) {
     const declared = (input.mimeType.split(';')[0] ?? '').trim().toLowerCase();
@@ -992,7 +976,6 @@ export async function parseDocument(input: {
         `图片声明为 ${declared}，实际内容是 ${sniffed.mimeType}`,
       );
     }
-    // magic 只说明文件声明自己是什么；真正解码一次，截断/超限的图不进收费的视觉调用。
     await assertUsableImage({ mimeType: sniffed.mimeType, data: input.bytes }).catch(
       (err: unknown) => {
         throw new KnowledgeParseError('invalid_input', errorText(err));
@@ -1002,7 +985,6 @@ export async function parseDocument(input: {
   }
   const declaredMime = (input.mimeType.split(';')[0] ?? '').trim().toLowerCase();
   if (declaredMime.startsWith('image/') && !input.parserUrl) {
-    // 没有 Docling 时声明图片但 magic 不认识：明确不支持，不把原字节伪标 PNG。
     throw new KnowledgeParseError(
       'unsupported',
       `${input.filename}（${input.mimeType}）不是受支持的图片格式（PNG/JPEG/GIF/WebP）`,

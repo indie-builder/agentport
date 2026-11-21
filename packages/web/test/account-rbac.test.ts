@@ -46,7 +46,6 @@ const CATALOG: PermissionDefinition[] = [
     scopes: ['maintained_agents', 'owned_agents', 'platform'],
   },
   {
-    // 真实共享依赖：保存时要求同时授权 agents.config.read。
     id: 'agents.config.update',
     label: '修改配置',
     treePath: ['专家', '配置'],
@@ -150,9 +149,7 @@ async function waitFor<T>(probe: () => T, tries = 50): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 页面切换过程中继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -219,7 +216,6 @@ function dialog(titlePrefix: string): HTMLElement {
   return element;
 }
 
-/** 详情默认落在概览；配置相关断言先切到配置任务。 */
 async function openAgentConfig(): Promise<void> {
   await waitFor(() => maybeButton('配置'));
   await click(button('配置'));
@@ -528,7 +524,6 @@ describe('专家配置权限拆分', () => {
       string,
       unknown
     >;
-    // 未变化的配置、绑定与启停字段不随改名提交。
     expect(body).toEqual({ name: '新名字', expectedUpdatedAt: '2026-01-01T00:00:00Z' });
   });
 
@@ -604,7 +599,6 @@ describe('角色权限矩阵', () => {
     route('GET', /^\/api\/roles$/, () => json(current));
   });
 
-  // 服务端回包带真实 id/systemKey；保存载荷本身不含 systemKey，不能直接回显 request body。
   function persistSave(call: Call): Response {
     const payload = call.body as RoleMatrixInput;
     const roles: Role[] = payload.roles.map((role, index) => {
@@ -718,7 +712,6 @@ describe('角色权限矩阵', () => {
 
     await click(cell('成员', '使用专家'));
     expect(cell('成员', '专家').getAttribute('aria-checked')).toBe('mixed');
-    // 其他角色列的授权不受影响。
     expect(cell('管理员', '查看专家').getAttribute('aria-checked')).toBe('true');
   });
 
@@ -823,7 +816,6 @@ describe('角色权限矩阵', () => {
     ]);
     expect(toastSuccess).toHaveBeenCalledWith('角色矩阵已保存');
 
-    // 服务端回包保留 systemKey，保存后管理员角色仍是只读的。
     const settings = await openSettings('管理员');
     expect(maybeButton('删除角色 管理员', settings)).toBeNull();
     await click(button('完成', settings));
@@ -857,7 +849,6 @@ describe('角色权限矩阵', () => {
     await click(button('删除', confirmation as HTMLElement));
     await waitFor(() => !maybeButton('设置角色 成员'));
 
-    // 删掉前一个角色后，审计员的列与设置仍按自己的字段取值。
     expect(cell('审计员', '查看账户').getAttribute('aria-checked')).toBe('true');
     expect(cell('审计员', '使用专家').getAttribute('aria-checked')).toBe('false');
     expect(cell('管理员', '查看专家').getAttribute('aria-checked')).toBe('true');
@@ -908,7 +899,6 @@ describe('角色权限矩阵', () => {
     expect(changed()).toBe('false');
     expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('true');
 
-    // reset 后的基线仍能打开已授权叶的范围，并重新把范围改动标成未保存。
     const settings = await openSettings('成员');
     expect(settings.querySelector('[aria-label="成员：查看配置 授权范围"]')).not.toBeNull();
     await click(scopeToggle('成员', '查看配置', '全平台'));
@@ -938,7 +928,6 @@ describe('角色权限矩阵', () => {
     );
     expect(calls.some((call) => call.method === 'PUT')).toBe(false);
 
-    // 补齐依赖后同一份草稿可以保存。
     await click(cell('成员', '查看配置'));
     await saveAndConfirm();
     const body = bodyOf('/api/roles', 'PUT') as RoleMatrixInput;
@@ -960,7 +949,6 @@ describe('角色权限矩阵', () => {
   });
 
   it('搜索时父级批量禁用，授权叶范围仍可编辑，清空后恢复整棵子树', async () => {
-    // 使用专家在搜索“查看专家”时被隐藏，用非默认 scope 验证批量不会改写隐藏叶。
     const member = current.roles[1];
     if (!member) throw new Error('Missing member role');
     member.grants = [{ permissionId: 'agents.use', scope: 'platform' }];
@@ -972,11 +960,9 @@ describe('角色权限矩阵', () => {
     expect(maybeCell('成员', '使用专家')).toBeNull();
     expect(maybeCell('成员', '查看配置')).toBeNull();
 
-    // 点击禁用的父级不会改动任何叶，包括当前被隐藏的叶。
     await click(cell('成员', '专家'));
     expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('false');
 
-    // 可见叶在搜索期间仍可勾选，已授权叶的范围可在设置里编辑。
     await click(cell('成员', '查看专家'));
     expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
     const settings = await openSettings('成员');
@@ -988,7 +974,6 @@ describe('角色权限矩阵', () => {
 
     await type(searchInput(), '');
 
-    // 隐藏叶的授权与 scope 保持不动，父级三态按整棵子树重算。
     expect(cell('成员', '使用专家').getAttribute('aria-checked')).toBe('true');
     const hidden = await openSettings('成员');
     expect(scopeToggle('成员', '使用专家', '全平台').getAttribute('aria-pressed')).toBe('true');
@@ -996,7 +981,6 @@ describe('角色权限矩阵', () => {
     expect(cell('成员', '查看配置').getAttribute('aria-checked')).toBe('false');
     expect(cell('成员', '专家').getAttribute('aria-checked')).toBe('mixed');
 
-    // 重新启用的父级恢复整棵子树批量勾选，已有 scope 不被默认值覆盖。
     expect(isDisabled(cell('成员', '专家'))).toBe(false);
     await click(cell('成员', '专家'));
     expect(cell('成员', '查看专家').getAttribute('aria-checked')).toBe('true');
@@ -1093,7 +1077,6 @@ describe('角色权限矩阵', () => {
     await openRoles();
     await click(cell('成员', '查看专家'));
 
-    // 打开/关闭角色设置与权限搜索只改本地草稿，不算离开页面。
     const settings = await openSettings('成员');
     await type(roleNameInput(settings), '审计员');
     await click(button('完成', settings));

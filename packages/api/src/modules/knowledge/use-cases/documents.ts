@@ -229,8 +229,6 @@ async function sourceScopeAllowsEnable(db: Database, documentId: string): Promis
   return result[0]?.ok === true;
 }
 
-// ---- documents ------------------------------------------------------------
-
 export async function listDocuments(
   deps: KnowledgeDeps,
   id: string,
@@ -261,6 +259,31 @@ export async function listDocuments(
   );
   return {
     items: page.items.map((row) => documentWire(row, tags.get(row.id) ?? [])),
+    nextCursor: page.nextCursor,
+  };
+}
+
+export async function listImageAssets(
+  deps: KnowledgeDeps,
+  id: string,
+  query: PageQuery & { q?: string | undefined },
+) {
+  const page = await repo.knowledge.listImageAssets(deps.db, id, {
+    ...pageOptions(query),
+    ...(query.q === undefined ? {} : { q: query.q }),
+  });
+  return {
+    items: page.items.map((row) => ({
+      documentId: row.documentId,
+      documentTitle: row.documentTitle,
+      versionId: row.versionId,
+      name: row.name,
+      mimeType: row.mimeType,
+      page: row.page,
+      caption: row.caption,
+      ocrText: row.ocrText,
+      createdAt: row.createdAt.toISOString(),
+    })),
     nextCursor: page.nextCursor,
   };
 }
@@ -384,10 +407,6 @@ function sameTagSet(left: string[], right: string[]): boolean {
   return a.length === b.length && a.every((name, index) => name === b[index]);
 }
 
-/**
- * 与知识库一致：审计只记被改动的字段名，不记值；空 patch 或提交原值都不算变更，
- * 免得活动流里出现「更新文档」却没有实际改动。
- */
 function changedDocumentFields(
   current: DocumentRow,
   body: UpdateDocumentBody,

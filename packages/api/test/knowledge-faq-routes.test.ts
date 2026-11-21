@@ -97,7 +97,6 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     return res.json<Detail>();
   }
 
-  /** 模拟 worker 索引结果：写入 leaf、把 job 标成功，再允许批发布。 */
   async function finishFaqJob(documentId: string, versionId?: string, jobId?: string) {
     const body = await detail(documentId);
     const draftVersionId = versionId || body.draftVersion?.id;
@@ -246,7 +245,6 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       'select payload from knowledge_jobs where document_id = $1 order by created_at desc limit 1',
       [documentId],
     );
-    // 更新必须创建指向新草稿版本的任务，不能只让 worker 取 latest。
     expect(updateJob[0]?.payload.versionId).toBe(versionId);
     await finishFaqJob(documentId, versionId);
     const publish = await request(app, {
@@ -309,7 +307,6 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     const versionId = draft.draftVersion?.id ?? '';
     expect(versionId).toBeTruthy();
 
-    // 失败任务会留下 partial chunks：有块但 job 未成功时仍拒绝发布。
     await app.client.unsafe(
       `insert into knowledge_chunks
          (id, base_id, document_id, version_id, ordinal, kind, content, search_text, metadata)
@@ -364,7 +361,6 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     const versionId = draft.draftVersion?.id ?? '';
     await finishFaqJob(documentId, versionId, jobId);
 
-    // 借另一篇 FAQ 的成功任务：任务归属不同文档，不能给本版本上线。
     const other = await createFaq(baseId, faqB);
     const otherBody = other.json<{ documentId: string; jobId: string }>();
     const otherDraft = await detail(otherBody.documentId);
@@ -383,7 +379,6 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     });
     expect(foreign.statusCode, foreign.body).toBe(409);
 
-    // 任务归属正确但输入快照与版本不一致，同样拒绝。
     await app.client.unsafe(
       `update knowledge_document_versions
          set metadata = metadata || jsonb_build_object('indexingJobId', $2::text)
@@ -465,7 +460,6 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       { documentId: items[0]?.documentId, status: 'succeeded' },
       { documentId: items[1]?.documentId, status: 'succeeded' },
     ]);
-    // enabled=false 的导入条目发布后立即停用，不参与检索。
     expect((await detail(items[1]?.documentId ?? '')).document).toMatchObject({
       status: 'disabled',
       disabledReason: 'manual',
@@ -480,7 +474,6 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
     expect(JSON.parse(publishedExport.body).items).toEqual(expect.arrayContaining([itemA, itemB]));
     expect(JSON.parse(publishedExport.body).items).toHaveLength(2);
 
-    // 同一内容再次 append：全部 skipped，不产生新草稿。
     const repeated = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/faqs/import`,
@@ -914,7 +907,6 @@ describe.skipIf(!ready)('knowledge FAQ routes', () => {
       payload: { enabled: false },
     });
     expect(disabled.statusCode, disabled.body).toBe(200);
-    // 模拟发布路径只改指针、没把 metadata 改成 published 的情况：仍以真实指针为准。
     await app.client.unsafe(
       `update knowledge_document_versions set metadata = metadata || '{"publication":"draft"}'::jsonb where id = $1`,
       [versionId],

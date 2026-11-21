@@ -127,7 +127,6 @@ describe('overview retained run history', () => {
       expect(host.querySelector('[title="run_retained"]')).not.toBeNull();
       expect(host.textContent).not.toContain('开始配置');
       if (status === 'failed') {
-        // 失败运行仍可从「最近运行」的状态与错误标记辨认；详情入口在「需要处理」。
         expect(host.querySelector('table[aria-label="最近运行"]')?.textContent).toContain('失败');
         expect(host.querySelector('[title="Retained execution failed"]')).not.toBeNull();
       }
@@ -166,8 +165,6 @@ describe('overview retained run history', () => {
   });
 
   it('reports loading without declaring an empty platform', async () => {
-    // overviewQuery 在模块加载时已捕获 api.overview，spyOn(api, 'overview') 拦不住；
-    // 从网络边界固定为永不响应，保证断言时查询仍在 pending。
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => {}));
     client.removeQueries({ queryKey: ['overview'] });
     await mount();
@@ -179,7 +176,6 @@ describe('overview retained run history', () => {
     const servers = vi.spyOn(api, 'servers').mockResolvedValue([]);
     const agents = vi.spyOn(api, 'agents').mockResolvedValue([]);
     const runs = vi.spyOn(api, 'runs').mockResolvedValue({ items: [] });
-    // 清掉预置缓存：页面若仍在请求列表接口，spy 会收到调用，而不是命中缓存。
     client.removeQueries({ queryKey: ['servers'] });
     client.removeQueries({ queryKey: ['agents'] });
     client.removeQueries({ queryKey: ['runs'] });

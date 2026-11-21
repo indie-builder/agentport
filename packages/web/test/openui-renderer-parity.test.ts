@@ -5,31 +5,6 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenUiBlock } from '../src/openui/renderer.js';
 
-/**
- * 「官方 vs 本地」差分渲染：同一 OpenUI Lang 程序、同一 initialState，分别交给
- * 官方 Renderer + openuiChatLibrary 与本项目 OpenUiBlock，比较归一量。
- *
- * 只比归一量，不比 DOM 结构：两端根节点、role、包裹层级本来就不同。
- * 每个用例各自独立 root 并卸载；同一 root 连续渲染官方程序会抛 “Should not already be working”。
- *
- * 首轮运行结果（11 条用例）分类：
- *   [已知分歧已固化] DatePicker range + ISO 字符串 initialState：官方 formatDateRange 直接调
- *     `from.toDateString()`，字符串上没有这个方法 → 抛错，整个 FormControl 被错误边界吞成空白。
- *     官方持久化的 range 值是 Date 对象，本项目持久化的是 ISO 字符串；同一份历史快照喂给官方会崩。
- *     用例「官方 range 快照要求 Date，本项目用 ISO 字符串（已知分歧）」把两端行为都断言下来，
- *     官方将来接受字符串时该用例会翻转为失败，提醒重新评估。
- *   [两侧不可比] EditableTable 单元格：本地是可编辑 `<input>`（值在 DOM property），官方是只读
- *     `<span>`（值在 textContent）。`inputs` facet 在官方侧恒为空数组，故改用 cells（单元格可读值），
- *     本地取 input.value、官方取 td 文本；不是放宽断言，而是换了一个两端都有意义的归一量。
- *   [已消解] DatePicker range 展示层：两端都改用各自原生的持久化形状（官方 Date、本地 ISO）后，
- *     文本里的日期集合一致，说明展示语义对齐、只有快照形状不同。
- *   其余 9 条（文本、勾选×2、开关、单选、单选日期、滑块、页签、表格）首轮即零差异。
- *   归一量 facet：文本 text（日期再经 firstDay / days 归一成 YYYY-MM-DD）、
- *   aria-checked / aria-selected / aria-valuenow、inputValues（可编辑表格，官方侧回退到 cells）。
- *   未纳入：图表（jsdom 无 canvas）、Carousel（尚未覆盖，需要浏览器环境或专门归一量）、
- *   Image/Icon/Separator（无文本）。
- */
-
 interface Diagnostic {
   source: string;
   code: string;
@@ -44,7 +19,6 @@ interface Mounted {
   diagnostics: Diagnostic[];
 }
 
-/** 本用例已挂载的实例；断言读完再统一卸载。 */
 let mounted: Mounted[] = [];
 
 beforeEach(() => {
@@ -125,7 +99,6 @@ const official = async (program: string, initialState?: State): Promise<Mounted>
 const local = (program: string, initialState?: State): Promise<Mounted> =>
   mount(createElement(OpenUiBlock, { program, ...(initialState ? { initialState } : {}) }));
 
-/** 正常程序只允许 warning（仍能渲染），任何 error 级诊断都算失败。 */
 const expectNoErrors = (entry: Mounted): void => {
   expect(entry.diagnostics.filter((item) => item.severity !== 'warning')).toEqual([]);
 };
@@ -143,8 +116,6 @@ async function pair(
   expectNoErrors(b);
   run(a.host, b.host);
 }
-
-/* ─── 归一量 ─────────────────────────────────────────────────────────────── */
 
 const text = (root: Element): string => (root.textContent ?? '').replace(/\s+/g, ' ').trim();
 
@@ -178,7 +149,6 @@ function firstDay(root: Element): string | null {
   return Number.isNaN(parsed.getTime()) ? null : toIso(parsed);
 }
 
-/** 区间：两端文本里出现的日期集合，各自归一成 YYYY-MM-DD 后排序。 */
 function days(root: Element): string[] {
   const raw = text(root);
   const found = new Set<string>(raw.match(ISO) ?? []);
@@ -188,8 +158,6 @@ function days(root: Element): string[] {
   }
   return [...found].sort();
 }
-
-/* ─── 程序 ───────────────────────────────────────────────────────────────── */
 
 const form = (...lines: string[]) =>
   [
@@ -257,8 +225,6 @@ const tableState: State = {
     },
   },
 };
-
-/* ─── 用例 ───────────────────────────────────────────────────────────────── */
 
 describe('官方 vs 本地差分渲染', () => {
   it('TextContent 文本一致', async () => {

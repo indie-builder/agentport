@@ -23,7 +23,6 @@ export function toApi(row: WorkflowRow): AgentWorkflow {
   };
 }
 
-/** meta 是 name/description 的唯一来源，客户端提交的同名字段不参与写入。 */
 export function toWorkflowWrite(slug: string, content: string) {
   const meta = parseWorkflowMeta(content);
   return agentWorkflowInputSchema.parse({ slug, ...meta, content });

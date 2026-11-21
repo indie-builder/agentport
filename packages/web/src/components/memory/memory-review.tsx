@@ -77,7 +77,6 @@ const MAX_SOURCES = 10;
 
 type TargetKind = MemoryReviewTarget['kind'];
 
-/** 列表视图只描述当前已加载记录的处理阶段，不冒充全局数量。 */
 export type MemoryReviewView = 'pending' | 'generating' | 'aborted' | 'done';
 
 const reviewViewOptions = [
@@ -96,7 +95,6 @@ const allTargetKindOptions = [
 
 const NEW_MEMORY_CHOICE = '__new__';
 
-/** 审核要通读长文：源码按可用宽度换行并断开长 token，不让每列各自横向滚动。 */
 const REVIEW_CODE_CLASS =
   'min-w-0 [&_code>span]:min-w-0 [&_code>span>span]:min-w-0 [&_code>span>span]:whitespace-pre-wrap [&_code>span>span]:break-words [&_code>span>span]:[overflow-wrap:anywhere]';
 
@@ -118,7 +116,6 @@ function targetDisplay(
   return { label: '专家规则', detail: `${agentName} / ${target.slug}`, shared: true };
 }
 
-/** 文件名可以省略 .md；最终提交值仍由 shared schema 校验。 */
 function memoryFileNameOf(value: string): string {
   const trimmed = value.trim();
   return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
@@ -137,7 +134,6 @@ function reviewHasChanges(review: MemoryReview): boolean {
   );
 }
 
-/** 无需变更的提案不需要用户动作，归入已处理，避免占住待审核。 */
 function reviewViewOf(review: MemoryReview): MemoryReviewView {
   if (review.status === 'queued' || review.status === 'running') return 'generating';
   if (review.status !== 'succeeded') return 'aborted';
@@ -196,15 +192,12 @@ export function MemoryReviews({
   title?: string;
   agentId: string | null;
   onAgentChange: (next: string | null) => void;
-  /** 创建、拒绝、重新生成与取消生成。 */
   canReview?: boolean;
-  /** 采纳与回滚。 */
   canWrite?: boolean;
   canReadConversations?: boolean;
   canReadAgents?: boolean;
   runId: string | null;
   onRunChange: (next: string | null) => void;
-  /** 新建流程是否由 URL 打开；关闭时同步移除，刷新与后退保持同一视图。 */
   createRequested: boolean;
   onCreateRequestedChange: (next: boolean) => void;
   stage: MemoryReviewView | null;
@@ -215,7 +208,6 @@ export function MemoryReviews({
   const me = useQuery(meQuery);
   const agents = useQuery({ ...agentsQuery, enabled: canReadAgents });
   const reviews = useMemoryReviews(agentId);
-  // 专家目标由各自的读/写叶门控；个人目标沿用页面级的个人记忆权限。
   const canUseAgents = can(me.data, 'agents.use');
   const canReadAgentMemory = can(me.data, 'agents.memory.read');
   const canWriteAgentMemory = can(me.data, 'agents.memory.write');
@@ -229,12 +221,10 @@ export function MemoryReviews({
     (target.kind === 'agent_memory' ? canWriteAgentMemory : canWriteAgentRules);
   const canUseAgentMemoryTarget = canReadAgentMemory && canWriteAgentMemory;
   const canUseAgentRuleTarget = canReadAgentRules && canWriteAgentRules;
-  // 种子只在本次打开中有效，不参与渲染时序；URL 才是弹层生命周期的唯一来源。
   const createSeedRef = useRef<MemoryReview | null>(null);
   const detailDialog = useDialogClose(() => onRunChange(null), runId !== null);
   const [detailPending, setDetailPending] = useState(false);
   const [detailErrors, setDetailErrors] = useState<Record<string, string | null>>({});
-  // 详情操作在途时，浏览器后退/刷新不能把请求丢下；结算后取消被拦下的导航。
   const pendingBlocker = useFormBlocker(false, detailPending);
   const pendingBlockerRef = useRef(pendingBlocker);
   pendingBlockerRef.current = pendingBlocker;
@@ -251,11 +241,9 @@ export function MemoryReviews({
   const detailTrigger = useRef<HTMLElement | null>(null);
   const items = reviews.data?.pages.flatMap((page) => page.items) ?? [];
   const listedDetail = items.find((item) => item.runId === runId) ?? null;
-  // 链接里的提案不在当前页列表时，用既有详情接口按 run 取；未知 id 返回统一错误态。
   const fetchedDetail = useMemoryReview(runId !== null && listedDetail === null ? runId : null);
   const detail = listedDetail ?? (fetchedDetail.data?.runId === runId ? fetchedDetail.data : null);
   const canCreate = canReview && canReadConversations && canReadAgents && canUseAgents;
-  // 等专家目录就绪再挂载弹层：否则默认来源专家按空数组初始化成 ''，下拉会空白且会话退化成全部专家。
   const creating = canCreate && createRequested && agents.data !== undefined;
   const agentOptions = [
     { value: '', label: '全部专家' },
@@ -270,7 +258,6 @@ export function MemoryReviews({
         reviewViewPriority[reviewViewOf(left)] - reviewViewPriority[reviewViewOf(right)],
     );
 
-  // 采用过的提案是否已被撤销，只看目标自己的变更账本，不依赖本次会话的本地状态。
   const appliedTargets = [
     ...new Map(
       [...items, ...(detail ? [detail] : [])]
@@ -752,7 +739,6 @@ function CreateMemoryReviewDialog({
   const [instruction, setInstruction] = useState(initial.instruction);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [fieldErrors, setFieldErrors] = useState<CreateFieldErrors>({});
-  // 关闭阶段先把 dirty 置为 false，再让 URL 变化；否则自己的 blocker 会拦住关闭。
   const [phase, setPhase] = useState<ComposerPhase>('editing');
   const idempotency = useRef<{ fingerprint: string; key: string } | null>(null);
   const sourcesBoxRef = useRef<HTMLDivElement>(null);
@@ -789,7 +775,6 @@ function CreateMemoryReviewDialog({
   const ruleOptions = baseRuleOptions.some((option) => option.value === ruleChoice)
     ? baseRuleOptions
     : [{ value: ruleChoice, label: ruleChoice }, ...baseRuleOptions];
-  // 已存在的主题在前，MEMORY.md 始终可选；候选文件尚不存在时同样允许创建。
   const memoryFileNames = [
     INDEX_FILE_NAME,
     ...(memory.data?.files ?? [])
@@ -842,9 +827,7 @@ function CreateMemoryReviewDialog({
     instructionLength > INSTRUCTION_MAX_CHARS
       ? `最多 ${INSTRUCTION_MAX_CHARS} 个字符，请精简后再提交。`
       : fieldErrors.instruction;
-  // 关闭表单和路由离开共用同一份放弃确认；pending 时 proceed 会被 useFormBlocker 拦下。
   const blocker = useFormBlocker(dirty, create.isPending);
-  // 提交成功的回调可能是旧的闭包，用 ref 拿最新的 blocker 才能取消已被拦下的导航。
   const latestBlocker = useRef(blocker);
   latestBlocker.current = blocker;
   const leaving = blocker.status === 'blocked';
@@ -865,7 +848,6 @@ function CreateMemoryReviewDialog({
   const changeTargetKind = (next: TargetKind): void => {
     setTargetKind(next);
     setFieldErrors({});
-    // 来源专家与目标专家是两件事；换目标不改变已选来源。
     setRuleChoice('__new__');
     setNewRuleSlug('');
     setMemoryChoice(INDEX_FILE_NAME);
@@ -983,7 +965,6 @@ function CreateMemoryReviewDialog({
       sources: sources.map((source) => ({ conversationId: source.conversationId })),
       instruction,
     };
-    // 同一份输入的重试必须复用同一键；只有输入变化或重新开始才生成新键。
     const fingerprint = JSON.stringify(input);
     let attempt = idempotency.current;
     if (attempt?.fingerprint !== fingerprint) {
@@ -995,7 +976,6 @@ function CreateMemoryReviewDialog({
       {
         onSuccess: () => {
           toastSuccess('已发起记忆提案');
-          // 关闭会卸载 blocker，先取消被拦下的返回导航，避免地址栏与路由停在不同的地址。
           if (latestBlocker.current.status === 'blocked') latestBlocker.current.reset?.();
           setPhase('closing');
         },
@@ -1016,7 +996,6 @@ function CreateMemoryReviewDialog({
           className="flex flex-col gap-5"
           onSubmit={(event) => {
             event.preventDefault();
-            // 前两步的 Enter 只推进；生成必须由第 3 步明确的提交意图发起。
             if (step < 3) {
               goNext();
               return;
@@ -1517,7 +1496,6 @@ function CreateMemoryReviewDialog({
               <Button
                 type="button"
                 onClick={(event) => {
-                  // 浏览器在事件派发后才执行默认动作；React 可能已把同一位置复用成 submit。
                   event.preventDefault();
                   goNext();
                 }}
@@ -1604,7 +1582,6 @@ function MemoryReviewDetail({
   canReview: boolean;
   canWrite: boolean;
   canUseAgents: boolean;
-  /** 当前目标专家对应的读/写叶；个人目标恒为真。 */
   canReadTarget: boolean;
   canWriteTarget: boolean;
   canReadConversations: boolean;
@@ -1619,7 +1596,6 @@ function MemoryReviewDetail({
   const cancel = useCancelMemoryReview();
   const rollback = useRollbackMemoryChange();
   const target = targetDisplay(review.target, agents);
-  // 采纳后目标就是新内容；拒绝时目标未变，链接文案必须说明看的是“当前”内容。
   const targetLinkLabel =
     review.target.kind === 'personal'
       ? review.decision === 'rejected'
@@ -1651,7 +1627,6 @@ function MemoryReviewDetail({
   const succeeded = review.status === 'succeeded';
   const candidate = review.proposal?.proposedContent ?? null;
   const hasChanges = reviewHasChanges(review);
-  // 无变化时没有可对比的两栏；只把当前内容作为一次独立阅读展示。
   const noChanges = succeeded && !hasChanges;
   const currentContent = review.before.content;
   const after = review.proposal
@@ -1663,7 +1638,6 @@ function MemoryReviewDetail({
     after.index.content !== review.before.index.content;
   const failed = !active && !succeeded;
   const pending = apply.isPending || reject.isPending || cancel.isPending || rollback.isPending;
-  // 专家目标的读/写叶与后端一致：采纳/拒绝需要读+写，回滚只需写。
   const canActOnTarget = canReadTarget && canWriteTarget;
 
   useEffect(() => onPendingChange(pending), [pending, onPendingChange]);
@@ -1851,7 +1825,6 @@ function MemoryReviewDetail({
                   search={{ conversation: source.conversationId }}
                   aria-disabled={pending || undefined}
                   onClick={(event) => {
-                    // 保留链接语义；在途操作结算前只阻止离开，不伪造一次导航。
                     if (pending) event.preventDefault();
                   }}
                   className={

@@ -58,7 +58,6 @@ export function ToolEditorDialog({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const testingTrigger = useRef<HTMLElement | null>(null);
   const switching = useRef(false);
-  // 表单是弹层里唯一未保存的内容：关闭与「取消编辑」都走同一道确认。
   const [formDirty, setFormDirty] = useState(false);
   const [formPending, setFormPending] = useState(false);
   const [discard, setDiscard] = useState<{ run: () => void } | null>(null);
@@ -97,7 +96,6 @@ export function ToolEditorDialog({
     setBatchRunning(true);
     let updated = 0;
     try {
-      // 契约限制单次最多 200 个，分批串行提交并累计结果。
       for (let i = 0; i < selectedIds.length; i += 200) {
         const data = await batchSet.mutateAsync({
           toolIds: selectedIds.slice(i, i + 200),
@@ -136,7 +134,6 @@ export function ToolEditorDialog({
       onOpenChangeComplete={dialog.onOpenChangeComplete}
       onOpenChange={(next, details) => {
         if (next) return;
-        // 未保存或请求中时由页面决定是否关闭，先撤销这次关闭请求。
         if (formDirty || busy) details.cancel();
         guarded(onClose);
       }}
@@ -250,11 +247,9 @@ export function ToolEditorDialog({
                           {tool.method}
                         </span>
                       </TableCell>
-                      {/* Keep paths compact and monospaced beside tool metadata. */}
                       <TableCell className="font-mono text-2xs text-muted-foreground">
                         {tool.pathTemplate}
                       </TableCell>
-                      {/* Keep parameter placement subordinate to the tool name. */}
                       <TableCell className="text-2xs text-muted-foreground">
                         {tool.paramsIn}
                       </TableCell>

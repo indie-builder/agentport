@@ -80,7 +80,6 @@ describe('inspectKnowledgeAudio formats', () => {
   });
 
   it('recognizes a header that is valid but whose payload is truncated', async () => {
-    // 格式识别只证明容器头成立；截断的负载仍可能在转录端返回 400。
     await expect(inspectFixture('truncated.wav', 'audio/wav')).resolves.toMatchObject({
       format: 'wav',
     });

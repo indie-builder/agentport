@@ -18,7 +18,6 @@ export type BusinessIllustrationName =
   | 'sharing'
   | 'not-found';
 
-/** 空态装饰图：固定尺寸、无文字，不参与可访问名称与交互。 */
 export function BusinessIllustration({
   name,
   size = 'standard',

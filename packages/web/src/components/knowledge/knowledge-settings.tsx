@@ -47,7 +47,6 @@ const FAILURE_TEXT: Record<string, string> = {
   bad_response: '端点响应不符合 embedding/rerank/ASR 格式',
 };
 
-/** 预览样本自带标题、列表与表格，便于一眼看出标题面包屑、段落合并与整表保留。 */
 const PREVIEW_SAMPLE = `# 发布流程
 
 上线前需要完成以下检查，确认无误后再通知值班同学执行发布。
@@ -76,7 +75,6 @@ function previewExcerpt(content: string): string {
     : content;
 }
 
-/** 分块参数的表单校验；保存与预览共用同一份边界与文案。 */
 function chunkSettingErrors(
   chunkTokens: string,
   chunkOverlap: string,
@@ -97,7 +95,6 @@ function chunkSettingErrors(
   return next;
 }
 
-/** 库级设置：分块参数、Wiki 自动更新、重排 profile，以及整库重建入口。 */
 export function KnowledgeSettingsDialog({
   base,
   onClose: onClosed,
@@ -112,10 +109,8 @@ export function KnowledgeSettingsDialog({
   const update = useUpdateKnowledgeBase();
   const profiles = useKnowledgeModelProfileSelections();
   const me = useQuery(meQuery);
-  // 保存设置只需要 knowledge.update；重建会调用模型处理，单独要求 knowledge.execute。
   const canExecute = can(me.data, 'knowledge.execute');
   const client = useQueryClient();
-  // 历史库的 wire 可能还没有图片设置；按共享 schema 的默认值补齐，避免读写 undefined。
   const [settings, setSettings] = useState<KnowledgeBaseSettings>(() => ({
     ...base.settings,
     imageProcessing: base.settings.imageProcessing ?? knowledgeImageProcessingSchema.parse({}),
@@ -172,24 +167,19 @@ export function KnowledgeSettingsDialog({
     (profile) =>
       profile.kind === 'rerank' && (profile.enabled || profile.id === base.rerankProfileId),
   );
-  // 已绑定但停用的 ASR 仍保留在选项里，避免把停用静默换成别的模型。
   const asr = (profiles.data ?? []).filter(
     (profile) => profile.kind === 'asr' && (profile.enabled || profile.id === base.asrProfileId),
   );
-  // 图片向量能力跟随当前所选 profile；历史库绑定的停用 profile 仍可能出现在列表里。
   const selectedEmbedding = (profiles.data ?? []).find(
     (profile) => profile.kind === 'embedding' && profile.id === embeddingProfileId,
   );
   const imageVectorsAvailable = selectedEmbedding?.supportsImageVectors === true;
-  // profile 列表拿到之前不下结论，避免把「未加载」当成「不支持」而误拦保存。
   const imageVectorsBlocked = profiles.isSuccess && !imageVectorsAvailable;
   const image = settings.imageProcessing;
   const patchImage = (next: Partial<KnowledgeBaseSettings['imageProcessing']>): void =>
     setSettings({ ...settings, imageProcessing: { ...image, ...next } });
-  // 失败时不再展示上一次的结果，避免把旧预览当成这次的切分。
   const previewResult = preview.isError ? null : (preview.data ?? null);
 
-  // 预览用表单里的当前值，未保存也能先看切分结果；纯计算，不改库也不清空草稿。
   const runPreview = (): void => {
     const chunkIssues = chunkSettingErrors(chunkTokens, chunkOverlap);
     const otherErrors = { ...errors };
@@ -232,7 +222,6 @@ export function KnowledgeSettingsDialog({
       {
         baseId: base.id,
         patch: {
-          // 只发送真正换绑的 profile；未换绑时保留后端当前的绑定不变。
           ...(embeddingProfileId === base.embeddingProfileId ? {} : { embeddingProfileId }),
           rerankProfileId: rerankProfileId === 'none' ? null : rerankProfileId,
           asrProfileId: asrProfileId === 'none' ? null : asrProfileId,
@@ -718,7 +707,6 @@ export function KnowledgeSettingsDialog({
   );
 }
 
-/** 列表 toolbar 入口：知识库依赖的 embedding/rerank profile 都在这里增改删测。 */
 export function KnowledgeProfilesDialog({
   onClose: onClosed,
   finalFocus,
@@ -733,7 +721,6 @@ export function KnowledgeProfilesDialog({
   const [editing, setEditing] = useState<KnowledgeModelProfile | 'new' | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeModelProfile | null>(null);
   const [results, setResults] = useState<Record<string, string>>({});
-  // 内联表单的草稿与保存状态提升到外层：关闭弹层、切换编辑对象都要先确认。
   const [formDirty, setFormDirty] = useState(false);
   const [formPending, setFormPending] = useState(false);
   const [confirmSwitch, setConfirmSwitch] = useState<(() => void) | null>(null);
@@ -793,7 +780,6 @@ export function KnowledgeProfilesDialog({
                 profile={editing === 'new' ? null : editing}
                 onCancel={() => requestEditing(null)}
                 onSaved={() => {
-                  // 保存成功会卸载表单，它的 finally 再也传不回 pending，必须在外层先解锁。
                   setFormPending(false);
                   setFormDirty(false);
                   setEditing(null);

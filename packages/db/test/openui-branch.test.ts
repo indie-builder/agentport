@@ -2,10 +2,6 @@ import { afterAll, describe, expect, it } from 'bun:test';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { eq, inArray } from 'drizzle-orm';
 
-/**
- * 分支复制的是已合并的 canonical 程序与段状态。blockKey 是段序号（s0/s1），
- * 与消息 id 无关，所以新消息 id 下无需重写 key。
- */
 const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 const ready = await client.unsafe('select 1').then(
   () => true,
@@ -74,7 +70,6 @@ describe.skipIf(!ready)('branch copies OpenUI snapshots', () => {
     expect(copy?.id).not.toBe(sourceId);
     expect(copy?.uiFormat).toBe('openui');
     expect(copy?.uiProgram).toBe(PROGRAM);
-    // copy 的 state 原样保留：sN 是段序号，不需要按新消息 id 重映射。
     expect(copy?.uiState).toEqual(STATE);
   });
 });

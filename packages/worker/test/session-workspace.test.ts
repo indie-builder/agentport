@@ -97,7 +97,6 @@ describe('stable session workspace', () => {
     await writeFile(join(source, '.mcp.json'), 'first-token');
     await refreshSessionDirectory(source, paths.workspaceDir, { preserveMemoryMount: true });
 
-    // 来源即使带了同名记忆目录也不得覆盖挂载子树。
     await rm(join(source, '.claude/skills/old'), { recursive: true });
     await mkdir(join(source, '.claude/agent-memory/child'), { recursive: true });
     await writeFile(join(source, '.claude/agent-memory/child/MEMORY.md'), 'from-source');
@@ -124,7 +123,6 @@ describe('stable session workspace', () => {
       slug: 'demo',
       conversationId: 'conversation-1',
     });
-    // 产出目录没有挂载根，`.claude/agent-memory` 只是用户文件，必须随来源整棵复制。
     const source = join(root, 'rendered-outputs');
     await mkdir(join(source, '.claude/agent-memory'), { recursive: true });
     await writeFile(join(source, '.claude/agent-memory/note.md'), 'first');
@@ -134,7 +132,6 @@ describe('stable session workspace', () => {
       'first',
     );
 
-    // 下一版本要覆盖同名目录里的旧内容。
     await writeFile(join(source, '.claude/agent-memory/note.md'), 'second');
     await writeFile(join(source, 'report.md'), 'two');
     await refreshSessionDirectory(source, paths.outputsDir);
@@ -143,7 +140,6 @@ describe('stable session workspace', () => {
     );
     expect(await readFile(join(paths.outputsDir, 'report.md'), 'utf8')).toBe('two');
 
-    // 来源删除后目标同步删除，不保留上一版残留。
     await rm(join(source, '.claude'), { recursive: true });
     await refreshSessionDirectory(source, paths.outputsDir);
     await expect(lstat(join(paths.outputsDir, '.claude'))).rejects.toThrow(/ENOENT/);

@@ -127,9 +127,7 @@ async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 路由或懒加载还没落地，继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -197,13 +195,11 @@ async function typeInto(id: string, value: string) {
   await flush();
 }
 
-/** 记忆页签默认落在概览；文件编辑器在「文件」子视图。 */
 async function openMemoryFiles() {
   await click(tab('文件'));
   await waitFor(() => editorView('memory-content'));
 }
 
-/** 「项目规则 / 输出风格」已并入「指令」页，用指令任务进入。 */
 async function openInstructions() {
   await click(tab('指令'));
 }
@@ -389,7 +385,6 @@ describe('restricted expert task navigation', () => {
     const router = await mount();
     await openMemoryFiles();
 
-    // 直接记录 blockerFn 返回的 Promise：后续返回列表的导航可能完成 navigate Promise，掩盖这里。
     let blockerSettled = false;
     const realBlock = history.block.bind(history);
     history.block = (blocker) =>
@@ -409,7 +404,6 @@ describe('restricted expert task navigation', () => {
     await click(button('删除', dialog('删除专家「Expert」')));
     expect(button('返回列表').disabled).toBe(true);
 
-    // 删除在途时离开被拦下；不取消，等删除成功。
     const navigation = router.navigate({ to: '/away' });
     await flush();
     expect(dialog('当前操作尚未完成')).toBeDefined();
@@ -476,7 +470,6 @@ describe('restricted expert task navigation', () => {
     client.setQueryData(['agents'], [agent]);
     const fallbackRouter = await mount(['/agents/expert?tab=config']);
     await waitFor(() => tab('概览'));
-    // 没有配置读权：配置任务不出现在页签里，正文也不会加载配置。
     expect(
       [...document.querySelectorAll<HTMLElement>('[role="tab"]')].map((item) =>
         item.textContent?.trim(),

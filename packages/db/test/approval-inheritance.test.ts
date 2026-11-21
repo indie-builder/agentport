@@ -53,7 +53,6 @@ async function newConversation(agentId: string): Promise<string> {
 }
 
 async function newRun(conversationId: string, agentId: string): Promise<string> {
-  // TypeID 时间戳是毫秒级，同一毫秒内的 id 顺序随机；这里保证上一轮/本轮的先后稳定。
   await new Promise((resolve) => setTimeout(resolve, 2));
   const id = newId('run');
   await chat.createRun(db, {

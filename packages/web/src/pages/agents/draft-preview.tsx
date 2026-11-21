@@ -1,4 +1,3 @@
-// 只引用纯函数子路径：core 根入口还导出 node:crypto 相关模块，浏览器不能加载。
 import type { McpJsonEntry } from '@agentport/core/tools';
 import { renderWorkspace, type WorkspaceFiles } from '@agentport/core/workspace';
 import { type AgentInput, knowledgeMcpEntry, type Server } from '@agentport/shared';
@@ -57,7 +56,6 @@ const previewFieldNames = [
   'disallowedTools',
 ] as const;
 
-/** 草稿预览：折叠在表单里；展开后才挂载渲染，内容随表单实时变化。 */
 export function DraftPreview({
   title,
   view,
@@ -76,7 +74,6 @@ export function DraftPreview({
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
 
-  // Collapsible is unstyled; keep the draft border, 8px corners, and compact muted trigger.
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="rounded-item border">
       <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-1.5 rounded-item px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -117,7 +114,6 @@ export function DraftPreview({
   );
 }
 
-/** 预览正文只在展开时存在：局部订阅草稿字段，避免每次按键重算整页。 */
 function DraftPreviewBody({
   view,
   control,
@@ -183,13 +179,6 @@ function previewFileDraft(draft: WorkspaceFiles, slug: string): string {
   ].join('\n');
 }
 
-/**
- * 草稿预览直接调用 core 的渲染函数——不复制实现。
- *
- * 之前这里有一份「同构」副本，结果 core 新增「等待规则」与子智能体表格后
- * 副本没有跟上，预览与真实落盘内容出现差异，正好违背「配置即契约」。
- * core/workspace.ts 是纯函数、无 Node 依赖，浏览器可直接用。
- */
 function draftFiles(
   draft: DraftPreviewInput,
   servers: Server[],
@@ -209,7 +198,6 @@ function draftFiles(
       allowedTools: draft.allowedTools,
       disallowedTools: draft.disallowedTools,
     },
-    // 预览只给键名：真实密钥永不出现在这里。
     servers: servers.map((server) => ({
       name: server.name,
       entry: previewEntry(server),
@@ -221,10 +209,8 @@ function draftFiles(
   });
 }
 
-/** `.mcp.json` 预览条目：密钥替换为占位符。 */
 function previewEntry(server: Server): McpJsonEntry {
   if (server.kind === 'knowledge' || server.kind === 'data_domain') {
-    // 与运行时同一构造器：地址由平台拼，凭证按 run 注入，草稿里只留占位。
     return knowledgeMcpEntry({
       apiUrl: '<平台>',
       serverId: server.id,

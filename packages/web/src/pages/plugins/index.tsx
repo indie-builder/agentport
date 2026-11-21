@@ -79,7 +79,6 @@ const pluginCapabilitySummary = (plugin: PluginWithAgentCount): string => {
 const pluginFormSchema = pluginInputSchema.pick({ slug: true, name: true, description: true });
 
 const installFormSchema = nativePluginInstallInputSchema.extend({
-  // 表单里空字符串代表「不指定」，提交前再省略。
   slug: slugSchema.or(z.literal('')),
 });
 
@@ -129,7 +128,6 @@ export function PluginsPage() {
       toastError(new Error('插件包不能超过 4 MB，请精简后重试。'));
       return;
     }
-    // slug 取压缩包文件名，与官方插件目录命名一致。
     const slug = file.name
       .replace(/\.zip$/i, '')
       .toLowerCase()
@@ -144,7 +142,6 @@ export function PluginsPage() {
       const result = await importPlugin.mutateAsync({ file, slug });
       toastSuccess(`已导入「${result.plugin.name}」`);
       for (const warning of result.warnings) toast.warning(warning);
-      // 当前搜索/排序可能正好把新插件藏起来；压入详情页，返回时列表仍带原筛选。
       await navigate({ to: '/plugins/$pluginId', params: { pluginId: result.plugin.id } });
     } catch (error) {
       toastError(error);
@@ -487,7 +484,6 @@ function InstallPluginDialog({
   const install = useInstallNativePlugin();
   const importNative = useImportNativePlugin();
   const [tab, setTab] = useState<'market' | 'installed'>('market');
-  // 批量安装时不关弹层：把每次结果的插件 ID 留在这里，直接给出打开详情的入口。
   const [results, setResults] = useState<Array<{ id: string; name: string }>>([]);
   const remember = (plugin: { id: string; name: string }): void => {
     setResults((previous) =>
@@ -522,7 +518,6 @@ function InstallPluginDialog({
     );
   });
 
-  // 已下载但还没入库的插件只需纳入，不重新走市场安装。
   const addToLibrary = (pluginId: string): void => {
     if (pending) return;
     importNative.mutate(
@@ -754,7 +749,6 @@ export function PluginDialog({
 
   const submit = form.handleSubmit((values) => {
     if (pending) return;
-    // slug 由导入时的文件名决定，不可改；PATCH 只接受可编辑的两项。
     update.mutate(
       {
         id: plugin.id,

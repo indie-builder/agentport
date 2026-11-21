@@ -38,7 +38,6 @@ const stateVariant = {
   pending: 'default',
   ok: 'success',
   warn: 'warn',
-  // 未知状态沿用失败色：视觉不变，只把「不可用」改成不编造原因的「未知」。
   unknown: 'danger',
   error: 'danger',
 } as const satisfies Record<CheckState, 'default' | 'success' | 'warn' | 'danger'>;
@@ -83,7 +82,6 @@ function Reason({ tone = 'danger', children }: { tone?: 'warn' | 'danger'; child
   );
 }
 
-/** 整个指标端点的结果不可知：不写零值，也不替用户断定是哪个依赖故障。 */
 function Unknown() {
   return <div className="text-sm text-muted-foreground">未知</div>;
 }
@@ -270,7 +268,6 @@ function SmokeChecklist() {
 export function StatusPage() {
   const live = useQuery(healthLiveQuery);
   const ready = useQuery(healthReadyQuery);
-  // 与概览页共用缓存键与判定；状态页只是刷新粒度更细。
   const metrics = useQuery({
     ...healthMetricsQuery,
     refetchInterval: 10_000,

@@ -16,6 +16,7 @@ import {
   formatDuration,
   formatPercent,
   formatTokens,
+  runTriggerLabel,
 } from '../../lib/format.js';
 import {
   agentMemoryOverviewQuery,
@@ -37,7 +38,6 @@ import { Skeleton } from '../ui/skeleton.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip.js';
 
-/** 概览只需要摘要的一部分；完整配置另行传入，没有配置读权时保持 null。 */
 type OverviewSummary = Pick<AgentSummary, 'description' | 'enabled'> & {
   updatedAt?: string | undefined;
 };
@@ -48,15 +48,6 @@ export type AgentOverviewTarget = {
   instruction?: AgentInstruction | undefined;
   section?: AgentSection | undefined;
   view?: MemoryView | undefined;
-};
-
-const TRIGGER_LABEL: Record<string, string> = {
-  chat: '对话',
-  mcp: '连接器',
-  schedule: '定时任务',
-  event: '事件',
-  review: '记忆提案',
-  channel: '频道',
 };
 
 const BUDGET_STATE_LABEL = {
@@ -81,7 +72,6 @@ function fillDailyGaps(daily: { day: string; runs: number; cost: number }[]) {
   });
 }
 
-/** 概览只报最差一档，逐条细节留在专家记忆页。 */
 function worstHealth(items: readonly MemoryHealth[]): MemoryHealth['level'] | null {
   if (items.some((item) => item.level === 'danger')) return 'danger';
   if (items.some((item) => item.level === 'warn')) return 'warn';
@@ -149,10 +139,6 @@ function LinkRow({
   );
 }
 
-/**
- * 专家概览：用途、能力、知识状态与最近运行。
- * 所有区块只读已有查询结果，按权限逐项请求；没有数据的行整条省略，不补 0。
- */
 export function AgentOverview({
   agentId,
   agent,
@@ -165,10 +151,8 @@ export function AgentOverview({
 }: {
   agentId: string;
   agent: OverviewSummary;
-  /** 完整配置；只有 `agents.config.read` 时才有。 */
   config: Agent | null;
   permissions: readonly PermissionId[];
-  /** 知识库目录来自全局 `knowledge.read`，不在专家的权限求值结果里。 */
   canReadKnowledge?: boolean;
   canViewRuns: boolean;
   usageDays?: number | undefined;
@@ -179,7 +163,6 @@ export function AgentOverview({
   const canReadMemory = allow('agents.memory.read');
   const canReadRules = allow('agents.rules.read');
   const canReadStyles = allow('agents.styles.read');
-  // 没有任何读权时，「去配置」会是一个打不开的动作，说明改为一句权限边界。
   const hasReadGrant =
     canReadConfig || canReadMemory || canReadRules || canReadStyles || allow('agents.files.read');
 
@@ -200,8 +183,6 @@ export function AgentOverview({
   const maxDailyRuns = Math.max(1, ...daily.map((day) => day.runs));
   const runs = useRuns({ agentId, limit: RECENT_RUN_LIMIT }, canViewRuns);
 
-  // 概览只区分「连接器 / 知识库」，需要知识库目录才能把绑定拆开；
-  // 读不到目录时「连接器」退回绑定总数，不猜测哪些 server 属于知识库。
   const knowledgeServerIds = new Set((knowledge.data ?? []).map((base) => base.serverId));
   const knowledgeBound = config
     ? config.serverIds.filter((id) => knowledgeServerIds.has(id)).length
@@ -297,7 +278,6 @@ export function AgentOverview({
       <PageSection
         divided={false}
         title="用途"
-        // 身份与描述都归「配置 · 身份」，入口常驻，不依赖描述是否为空。
         actions={
           canReadConfig ? (
             <Button
@@ -573,7 +553,7 @@ export function AgentOverview({
                           {formatDateTime(run.startedAt)}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {run.trigger ? (TRIGGER_LABEL[run.trigger] ?? run.trigger) : '—'}
+                          {run.trigger ? runTriggerLabel[run.trigger] : '—'}
                         </TableCell>
                         <TableCell>
                           <RunStatusBadge status={run.status} />

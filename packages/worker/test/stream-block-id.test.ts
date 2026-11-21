@@ -27,7 +27,6 @@ describe('createStreamBlockIds', () => {
   });
 
   it('issues a new id when the next SDK message reuses blockIndex 0 without a close', () => {
-    // 工具调用之间的两段文本：SDK 是两条 assistant 消息，blockIndex 都是 0，且不一定发 stop。
     const events = feed([
       { type: 'assistant_block_start', blockIndex: 0, kind: 'text', sdkUuid: 'msg-1' },
       { type: 'text_delta', text: '第一段', blockIndex: 0, sdkUuid: 'frame-1' },
@@ -64,7 +63,6 @@ describe('createStreamBlockIds', () => {
   });
 
   it('falls back to block boundaries when the runner sends no start event', () => {
-    // 旧 runner：只有 delta、没有 block_start；第一次 delta 起号，后续复用。
     const events = feed([
       { type: 'text_delta', text: 'a', blockIndex: 0 },
       { type: 'text_delta', text: 'b', blockIndex: 0 },
@@ -78,8 +76,6 @@ describe('createStreamBlockIds', () => {
   });
 
   it('starts a new id for each unbounded complete block of the same parent', () => {
-    // 子智能体只有完整消息、没有 delta 也没有 block 边界：同 parent/index 0 连着两条，
-    // 每条的 assistant_text 都要封口，不能复用 b0。
     const events = feed([
       {
         type: 'assistant_text',
@@ -101,7 +97,6 @@ describe('createStreamBlockIds', () => {
   });
 
   it('gives a delta, its completed text and the following stop one identity per message', () => {
-    // 真实顺序：完整 assistant 消息在 content_block_stop 之前到达。
     const events = feed([
       { type: 'assistant_block_start', blockIndex: 0, kind: 'text' },
       { type: 'text_delta', text: 'a', blockIndex: 0 },
@@ -123,7 +118,6 @@ describe('createStreamBlockIds', () => {
   });
 
   it('starts a new id per message when the runner sends no block index at all', () => {
-    // 每帧 sdkUuid 都变，不能当消息身份；完整消息到达才算一段结束。
     const events = feed([
       { type: 'text_delta', text: 'a', sdkUuid: 'frame-1' },
       { type: 'text_delta', text: 'b', sdkUuid: 'frame-2' },

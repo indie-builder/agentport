@@ -58,7 +58,6 @@ describe('knowledge polling window', () => {
   it('uses the per-type timeout so a long ingest is not cut off at ten minutes', async () => {
     const { knowledgeShouldPoll } = await import('../src/lib/queries.js');
     const twentyMinutesAgo = new Date(Date.now() - 20 * 60_000).toISOString();
-    // ingest 硬超时 30 分钟：20 分钟时仍在合法窗口内。
     expect(
       knowledgeShouldPoll([
         {
@@ -69,7 +68,6 @@ describe('knowledge polling window', () => {
         },
       ]),
     ).toBe(true);
-    // wiki_generate 硬超时 15 分钟：20 分钟时已不可能还在跑。
     expect(
       knowledgeShouldPoll([
         {
@@ -117,7 +115,6 @@ describe('knowledge library list', () => {
       .querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]')
       ?.closest<HTMLElement>('li');
     const link = row?.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]');
-    // 覆盖整卡：入口铺满卡片，描述也在点击范围内，而不是只有标题可点。
     expect(link?.closest('li')).toBe(row);
     expect(link?.className).toContain('absolute');
     expect(link?.className).toContain('inset-0');
@@ -157,7 +154,6 @@ describe('knowledge library list', () => {
     expect(router.state.location.search).toMatchObject({ status: 'active' });
     expect(document.body.textContent).toContain('产品手册');
     expect(document.body.textContent).not.toContain('研发手册');
-    // 数量按过滤后的可见项计。
     expect(document.body.textContent).toContain('共 1 个知识库');
 
     await openStatusFilter('停用');
@@ -166,12 +162,10 @@ describe('knowledge library list', () => {
     expect(document.body.textContent).not.toContain('产品手册');
     expect(document.body.textContent).toContain('共 1 个知识库');
 
-    // 回到全部状态：URL 不再带 status，列表恢复完整。
     await openStatusFilter('全部状态');
     expect(router.state.location.search.status).toBeUndefined();
     expect(document.body.textContent).toContain('共 2 个知识库');
 
-    // 关键词与状态同时无结果时，清除筛选把两者一起清空。
     await openStatusFilter('停用');
     await act(async () => {
       const input = document.querySelector<HTMLInputElement>('input[aria-label="搜索知识库"]');
@@ -248,7 +242,6 @@ describe('knowledge base pins', () => {
     );
     await mount('/knowledge');
 
-    // 默认按创建时间倒序，置顶图标不出现。
     expect(rowNames()).toEqual(['研发手册', '产品手册']);
     expect(document.querySelector('[title="已置顶"]')).toBeNull();
 
@@ -259,7 +252,6 @@ describe('knowledge base pins', () => {
     expect(rowNames()).toEqual(['产品手册', '研发手册']);
     expect(document.querySelector('[title="已置顶"]')).not.toBeNull();
 
-    // 菜单在置顶后重新打开时已经变成「取消置顶」，再点一次恢复原顺序。
     await openMenu('操作 产品手册');
     await chooseMenuItem('取消置顶');
     expect(lastPinBody()).toEqual({ pinned: false });
@@ -539,7 +531,6 @@ describe('knowledge pagination', () => {
 
 describe('msw request body capture', () => {
   it('waits for a delayed request body and fails on a read error', async () => {
-    // 流式 fetch 在 body 发送完前不会触发 request:start，这里直接发事件以控制读取时机。
     let release!: () => void;
     const released = new Promise<void>((resolve) => {
       release = resolve;
@@ -558,7 +549,6 @@ describe('msw request body capture', () => {
       duplex: 'half',
     } as RequestInit);
     server.events.emit({ type: 'request:start', request: delayed } as never);
-    // 未等 body 读完时这里就是 undefined；负向断言不能靠「看起来没有」通过。
     expect(calls[0]?.body).toBeUndefined();
     release();
     await msw.waitForRequests();
@@ -641,14 +631,12 @@ describe('msw cleanup fault injection', () => {
     const { root: mountedRoot, host: mountedHost } = mountState;
     await act(async () => mountedRoot.render(createElement('p', null, 'mounted')));
     expect(mountedHost.childNodes).toHaveLength(1);
-    // cleanup 会先清空 root，回调必须用快照才能真正卸载；先卸载再抛错只替代「unmount 抛出」信号。
     await expect(
       cleanup(async () => {
         await act(async () => mountedRoot.unmount());
         throw new Error('unmount failed');
       }),
     ).rejects.toThrow('unmount failed');
-    // host.remove() 只摘节点不清空子树：子节点消失才是 React root 真卸载的证据。
     expect(mountedHost.childNodes).toHaveLength(0);
     expectRestored();
   });

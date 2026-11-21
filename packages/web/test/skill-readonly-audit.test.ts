@@ -73,9 +73,7 @@ async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 懒加载的编辑器还没挂上，继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -258,7 +256,6 @@ describe('skill definition readonly audit', () => {
     expect(document.body.textContent).toContain('查看「Demo」');
     expect(buttonOrUndefined('保存')).toBeUndefined();
 
-    // 权限已失去时，即使表单被直接提交也不能发请求。
     await submitForm();
     expect(api.updateSkill).not.toHaveBeenCalled();
   });
@@ -335,7 +332,6 @@ describe('skill support file permissions', () => {
 
     await setMe(meWith('skills.read', 'skills.files.write'));
 
-    // 编辑器保持挂载但不再渲染正文；撤权期间不发起新的读取。
     expect(document.getElementById('skill-file-content')).toBeNull();
     expect(document.getElementById('skill-file-path')).toBeNull();
     expect(document.body.textContent).not.toContain('支持文件');
@@ -348,7 +344,6 @@ describe('skill support file permissions', () => {
     expect(await waitFor(() => byLabel('编辑支持文件 notes.md'))).toBeDefined();
     expect(api.skillFiles).toHaveBeenCalledOnce();
 
-    // 草稿仍是父层 dirty，关闭需要确认。
     await click(button('关闭'));
     expect(document.body.textContent).toContain('放弃未保存的更改？');
   });
@@ -361,7 +356,6 @@ describe('skill support file permissions', () => {
       .mockResolvedValueOnce([supportFile])
       .mockReturnValueOnce(refresh.promise);
     vi.mocked(api.writeSkillFile).mockReturnValueOnce(saving.promise);
-    // 生产默认 staleTime 为 5s：不标脏的话，刚恢复权限的缓存仍算新鲜。
     await mount(meWith('skills.read', 'skills.files.read', 'skills.files.write'), 5_000);
     await openSkill();
     await click(await waitFor(() => byLabel('编辑支持文件 notes.md')));
@@ -376,14 +370,12 @@ describe('skill support file permissions', () => {
     await act(async () => saving.resolve(updatedFile));
     await flush();
 
-    // 保存跨越撤权：成功结算并写回列表，但隐藏期间不补读。
     expect(button('关闭').disabled).toBe(false);
     expect(api.skillFiles).toHaveBeenCalledOnce();
 
     await setMe(meWith('skills.read', 'skills.files.read', 'skills.files.write'));
     await waitFor(() => api.skillFiles.mock.calls.length === 2);
 
-    // 刷新还挂着也必须立即重选到保存后的正文，而不是撤权前的旧缓存。
     await click(await waitFor(() => byLabel('编辑支持文件 notes.md')));
     expect(editorView('skill-file-content').state.doc.toString()).toBe('after save');
 
@@ -423,25 +415,21 @@ describe('skill support file permissions', () => {
     await act(async () => saving.resolve(savedFile));
     await flush();
 
-    // 子编辑器仍存活：即使正文被隐藏，在途保存也把 pending 结算回父层，且不主动 refetch。
     expect(button('关闭').disabled).toBe(false);
     expect(api.skillFiles).toHaveBeenCalledOnce();
 
     await setMe(meWith('skills.read', 'skills.files.read', 'skills.files.write'));
-    // 刷新还挂着：新增文件已按写入结果写回列表，可立即选中。
     expect(await waitFor(() => byLabelOrUndefined('编辑支持文件 scripts/run.sh'))).toBeDefined();
     await act(async () => refresh.resolve([savedFile]));
     await flush();
     await waitFor(() => editorView('skill-file-content'));
 
-    // 恢复权限后可继续编辑并再次保存。
     await typeInput('skill-file-path', 'scripts/again.sh');
     await replaceContent('skill-file-content', 'echo again');
     await click(button('添加文件'));
     await waitFor(() => vi.mocked(api.writeSkillFile).mock.calls.length === 2);
     expect(api.writeSkillFile).toHaveBeenLastCalledWith('skill', 'scripts/again.sh', 'echo again');
 
-    // 恢复后的草稿仍然拦住关闭，不会因为权限变化丢失。
     await typeInput('skill-file-path', 'scripts/draft.sh');
     await click(button('关闭'));
     expect(document.body.textContent).toContain('放弃未保存的更改？');
@@ -469,7 +457,6 @@ describe('skill support file permissions', () => {
     await setMe(meWith('skills.read', 'skills.files.read', 'skills.files.write'));
     await waitFor(() => api.skillFiles.mock.calls.length === 2);
 
-    // 刷新还挂着：删除事实已写回列表，恢复 read 后不能选到已删文件。
     expect(byLabelOrUndefined('编辑支持文件 notes.md')).toBeUndefined();
 
     await act(async () => refresh.resolve([]));

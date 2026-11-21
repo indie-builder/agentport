@@ -30,13 +30,11 @@ const TRIGGER_MISSED_GRACE_MS = 60_000;
 
 type Db = ReturnType<typeof createDb>['db'];
 
-/** runner 侧只用到这两个方法；测试用同一个形状的假队列，不碰真实 Redis。 */
 interface RunsQueueLike {
   getWaitingCount: () => Promise<number>;
   add: (name: 'run', data: AgentRunJob, opts: { jobId: string }) => Promise<unknown>;
 }
 
-/** BullMQ Job 在本模块用到的部分：data 可在建运行前先落盘。 */
 export interface ScheduleTriggerJobLike {
   data: ScheduleTriggerJob;
   /** Job Scheduler 每轮写入的计划触发时刻；job.timestamp 是创建时刻，不能当触发时刻。 */
@@ -47,7 +45,6 @@ export interface ScheduleTriggerJobLike {
 type ScheduleTriggerOutcome = 'fired' | 'skipped' | 'duplicate' | 'failed';
 
 interface ScheduleScheduler {
-  /** 读库对账：补齐缺失/变化者，删除库里已不存在的孤儿。 */
   sync: () => Promise<void>;
   close: () => Promise<void>;
 }
@@ -116,7 +113,6 @@ async function failScheduleRun(
   });
 }
 
-/** 提交后的入队最多重试 3 次；最终失败只动仍 queued 的运行。 */
 async function enqueueRun(
   db: Db,
   logger: Logger,
@@ -166,10 +162,6 @@ async function enqueueRun(
   return false;
 }
 
-/**
- * 一次定时触发：先重读库（陈旧快照不能复活已禁用/删除项），预生成 id 落盘到 job.data，
- * 再由条件更新认领（last_run_at < 本轮计划时刻 prevMillis），最后提交后入队。
- */
 export async function processScheduleTrigger(
   input: { db: Db; logger: Logger; runsQueue: RunsQueueLike },
   job: ScheduleTriggerJobLike,
@@ -200,7 +192,6 @@ export async function processScheduleTrigger(
     });
     return 'skipped';
   }
-  // 触发时按 DB 实时身份与授权重查：创建后撤权/停用不再启动，也不降级成管理员。
   const denial = await checkUserAgentAccess(input.db, {
     businessId: schedule.executeAsBusinessId,
     agentId: schedule.agentId,
@@ -273,7 +264,6 @@ export async function processScheduleTrigger(
   }
 
   if (existing !== null) {
-    // 入队耗尽把运行标成 failed(infra)：重投时重新排队补投，避免触发永久丢失。
     if (retryingFailed || prompt !== originalPrompt) {
       const ready = await input.db.transaction(async (tx) => {
         if (retryingFailed) {
@@ -291,7 +281,6 @@ export async function processScheduleTrigger(
       });
       if (!ready) return 'duplicate';
     }
-    // 上次已建好运行但没入队：补投即可，不再新建。
     const enqueued = await enqueueRun(
       input.db,
       input.logger,
@@ -310,7 +299,6 @@ export async function processScheduleTrigger(
   const runId = data.runId ?? newId('run');
   const conversationId = data.conversationId ?? newId('conversation');
   const messageId = data.messageId ?? newId('message');
-  // 先落盘再建运行：崩溃后重投能靠 runId 识别已创建的运行。
   await job.updateData({ ...data, runId, conversationId, messageId });
 
   const claim = await repo.ops.claimScheduleTrigger(input.db, {
@@ -430,7 +418,6 @@ export function startScheduleScheduler(input: {
     sync,
     close: async () => {
       await stopTicker();
-      // 等 inflight 的触发跑完；scheduler 本身保留，下次启动按库对账。
       await worker.close();
       await runsQueue.close();
       await queue.close();

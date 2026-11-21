@@ -1,9 +1,5 @@
 import { describe, expect, it, mock, spyOn } from 'bun:test';
 
-/**
- * probe 的 schema、目录裁剪与 close 语义全走真实代码，只 mock MCP 传输边界：
- * 不 spawn 子进程，只断言 stdin 任务、stdio env 与结果行。
- */
 const io = (() => {
   const noop = () => undefined;
   return {

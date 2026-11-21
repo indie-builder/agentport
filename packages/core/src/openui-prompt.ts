@@ -8,15 +8,6 @@ import {
 import { LRUCache } from 'lru-cache';
 import spec from './generated/openui.spec.json' with { type: 'json' };
 
-/**
- * 服务端提示词只读官方 CLI 生成的 LibrarySpec（`packages/core/src/generated/openui.spec.json`）。
- * spec 由 `bun run openui:spec` 从**真实的浏览器库**（`packages/web/src/openui/library.tsx`）导出，
- * 因此提示词里的签名、默认值与分组和前端实际渲染的是同一份契约，不存在第二套定义。
- *
- * 主构建不调用 web → core：生成物是提交进仓库的静态文件，构建只读。
- */
-
-/** 提示词只随工具目录变化：按工具名+schema+描述缓存，避免每个 run 重算整段。 */
 const cache = new LRUCache<string, string>({ max: 32 });
 
 /** lang-core 的 ToolSpec 要求 outputSchema；平台侧可以没有，用 object 占位以保留入参签名。 */

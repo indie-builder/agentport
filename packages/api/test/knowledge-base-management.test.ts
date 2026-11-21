@@ -32,7 +32,6 @@ describe.skipIf(!ready)('knowledge base management', () => {
 
   afterEach(async () => {
     if (baseIds.length > 0) {
-      // 知识库 server 是独立行；删 server 会级联删库，避免留下 kb-<slug> 名称占用。
       await app.client.unsafe(
         "delete from servers where kind = 'knowledge' and config->>'knowledgeBaseId' = any($1::text[])",
         [app.client.array(baseIds, 'TEXT')],
@@ -186,7 +185,6 @@ describe.skipIf(!ready)('knowledge base management', () => {
       sourceId: null,
       payload: { type: 'cleanup', baseId: empty.id },
     });
-    // 让两条任务的 created_at 有确定先后，避免同毫秒排序不稳。
     await app.client.unsafe(
       "update knowledge_jobs set created_at = created_at - interval '1 hour' where id = $1",
       [older.id],
@@ -216,7 +214,6 @@ describe.skipIf(!ready)('knowledge base management', () => {
       tags: 1,
     });
     expect(body.lastJob).toMatchObject({ id: latest.id, type: 'reindex', status: 'queued' });
-    // 未开始/未结束的任务没有起止时间，updatedAt 回落到 createdAt。
     expect(body.lastJob?.updatedAt).toBe(body.lastJob?.createdAt);
   });
 
@@ -235,7 +232,6 @@ describe.skipIf(!ready)('knowledge base management', () => {
       slug: unique('page'),
       title: '页面',
     });
-    // Wiki 页在 documents 里有一行 content_kind='wiki' 的检索索引，不能被算进文档数。
     await seedDocument(target.id, 'wiki');
 
     const res = await summary(target.id);
@@ -320,7 +316,6 @@ describe.skipIf(!ready)('knowledge base management', () => {
     expect(firstRes.statusCode, firstRes.body).toBe(201);
     expect(firstRes.json<KnowledgeBase>().slug).toBe(taken);
 
-    // 显式 slug 被占用时不做自动后缀，createBase 的唯一索引冲突映射成 CONFLICT。
     expectProblem(await duplicate(source.id, { slug: taken }), 'CONFLICT');
   });
 

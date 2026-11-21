@@ -36,7 +36,6 @@ interface Reply {
   stdout?: string;
   stderr?: string;
   code?: number;
-  /** 不自动结束：用例靠 abort 触发 kill 后的 close。 */
   holdOpen?: boolean;
   onStart?: () => void;
 }
@@ -47,11 +46,9 @@ type FakeChild = EventEmitter & {
   kill: (signal?: NodeJS.Signals) => boolean;
 };
 
-/** 只替换子进程；命令参数、管道与关闭语义与真实 docker CLI 一致。 */
 function fakeDocker(respond: (args: string[]) => Reply): {
   spawn: SpawnFn;
   commands: string[][];
-  /** buildx 的回复（含 --iidfile 写入）就绪时 resolve；真实 fs 之后的 spawn 不能靠数事件循环轮次等。 */
   buildxStarted: Promise<FakeChild>;
 } {
   const commands: string[][] = [];
@@ -191,11 +188,9 @@ describe('executeRuntimeEnvironmentBuild', () => {
     );
     expect(build?.[build.indexOf('--tag') + 1]).toBe('repo/sandbox:runtime-env-ver_test');
 
-    // 基座解析成 ID 后固定到不可变 tag，避免 tag 指针变化影响构建。
     const tag = fake.commands.find((args) => args[0] === 'tag');
     expect(tag).toEqual(['tag', BASE_ID, 'repo/sandbox:runtime-base-bbbbbbbbbbbb']);
 
-    // 构建上下文里只有 Dockerfile，没有仓库、工作区或 env。
     expect(contexts).toHaveLength(1);
     expect(contexts[0]?.files).toEqual(['Dockerfile']);
     expect(contexts[0]?.dockerfile).toBe(DOCKERFILE);
@@ -343,7 +338,6 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
   });
 
   it('日志落库同步抛错后，后续输出仍会落库', async () => {
-    // 修复前 flush 会停在已完成的 drain 上死循环：先断言迟到日志，再关闭进程收尾。
     jest.useFakeTimers();
     try {
       const fake = fakeDocker(dockerResponder({ build: { holdOpen: true } }));
@@ -351,7 +345,6 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
       let attempts = 0;
       store.appendBuildLog = (versionId, chunk) => {
         attempts += 1;
-        // 真实 repo 失败是异步拒绝；这里模拟同步抛出，覆盖 finally 早于 draining 赋值的情况。
         if (attempts === 1) throw new Error('db down');
         calls.logs.push({ versionId, chunk });
         return Promise.resolve();
@@ -366,7 +359,6 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
       const running = handler({
         data: { versionId: 'ver_test' },
       } as Job<RuntimeEnvironmentBuildJob>);
-      // spawn buildx 前有真实 fs（mkdtemp/writeFile），等 fake spawn 的信号而不是数事件循环轮次。
       const buildChild = await Promise.race([
         fake.buildxStarted,
         running.then(() => {
@@ -435,7 +427,6 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
   });
 
   it('空闲刷新窗口后到达的日志仍落库，收尾 flush 能结束', async () => {
-    // 只假 timers：fake docker 的 queueMicrotask 与流回调保持真实，避免测试自己制造死循环。
     jest.useFakeTimers();
     try {
       const fake = fakeDocker(dockerResponder({ build: { holdOpen: true } }));
@@ -457,9 +448,7 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
         }),
       ]);
 
-      // 先排空已到达的输出，再让下一次刷新在 pending 为空时执行。
       await advanceTimersByTimeAsync(1_000);
-      // 空 pending 的定时刷新：这里曾留下已完成的 drain Promise，后续日志再也落不了库。
       await advanceTimersByTimeAsync(1_000);
       buildChild.stdout.write('late-step\n');
       await new Promise((resolve) => setImmediate(resolve));

@@ -3,11 +3,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenUiBlock } from '../src/openui/renderer.js';
 
-/**
- * 表单控件与官方组合语义的回归：日期按钮必须真的打开日历、纯日期按本地年月日
- * 往返，复选/开关在提交或写回时带上全部条目（含 defaultChecked 与显式 false）。
- */
-
 let host: HTMLDivElement;
 let root: Root;
 
@@ -94,7 +89,6 @@ describe('DatePicker', () => {
 
     expect(onAction.mock.calls.at(-1)?.[0]?.formState?.booking?.when?.value).toBe(targetIso);
 
-    // 恢复快照后同一个日期仍处于选中态。
     await act(async () => root.unmount());
     root = createRoot(host);
     await render(
@@ -233,7 +227,6 @@ describe('selection groups', () => {
       swim: true,
     });
 
-    // 关掉一个开关后提交，显式 false 不能被丢掉。
     await click(boxes()[1]);
     await click(byText('提交'));
     expect(onAction.mock.calls.at(-1)?.[0]?.formState?.booking?.hobbies?.value).toEqual({
@@ -258,7 +251,6 @@ describe('selection groups', () => {
     expect(switches.map((item) => item.getAttribute('aria-checked'))).toEqual(['true', 'false']);
 
     await click(switches[1]);
-    // 状态写回按块防抖 400ms，等它落盘。
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
     });

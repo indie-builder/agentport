@@ -40,7 +40,6 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
   beforeAll(async () => {
     app = await startApp();
     cookie = await loginCookie(app);
-    // SSE 需要真实 HTTP 连接，inject 无法模拟客户端中途断开。
     server = await listen(app);
     baseUrl = server.url;
     redis = new RedisClient(testConfig().REDIS_URL);
@@ -112,7 +111,6 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     const reader = res.body?.getReader();
     if (!reader) throw new Error('SSE response has no body');
     const decoder = new TextDecoder();
-    // 第一条是 retry: 行，消费掉后再等下一条事件。
     await reader.read();
     return {
       abort: async () => {
@@ -128,9 +126,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       keepAlive: async () => {
         try {
           await reader.read();
-        } catch {
-          // 已关闭。
-        }
+        } catch {}
       },
     };
   };
@@ -140,9 +136,6 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     const runId = await createRun(agent, 'abort me');
     runIds.push(runId);
 
-    // 断开发生在 subscribe 完成前后，覆盖订阅建立过程中的每个时间窗。
-    // 每次请求独立、留出间隔：并行 abort 会让服务端在另一请求的 subscribe 完成前就 close，
-    // 反而绕开泄漏窗口。
     for (const abortAfterMs of [0, 2, 4, 6, 8]) {
       for (let i = 0; i < 10; i += 1) {
         const controller = new AbortController();
@@ -159,7 +152,6 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     }
 
     expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 0)).toBe(true);
-    // 服务端仍能处理新请求，说明断开路径没有把连接池或事件循环拖死。
     const health = await request(app, { method: 'GET', url: '/health/live' });
     expect(health.statusCode).toBe(200);
   });
@@ -171,16 +163,13 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
 
     const first = await openSse(runId);
     const second = await openSse(runId);
-    // 每个订阅独立连接；按连接名统计跟随者。
     expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 2)).toBe(true);
 
     await first.abort();
-    // 连接断开是异步的；给服务端一个事件循环窗口。
     await delay(300);
     expect(await eventFollowerCount(redis, runId)).toBe(1);
 
     await publishRun(runId, { type: 'text_delta', text: 'still-here' });
-    // SSE 可能分多个 chunk 到达；读到目标文本或超时为止。
     let received = '';
     for (let i = 0; i < 6 && !received.includes('still-here'); i += 1) {
       received += await second.next();
@@ -336,7 +325,6 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     );
     expect(unchanged[0]?.count).toBe(0);
 
-    // 伪造一条 pending 记录（模拟工具被拒后的状态），批准才会成功。
     await app.client.unsafe(
       'insert into approval_requests (id, run_id, server_id, tool_name) values ($1, $2, $3, $4)',
       [unique('apr'), runId, server.id, toolName],
@@ -353,7 +341,6 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       toolName,
     });
 
-    // 同 run 的另一 server 不能复用这次批准。
     const otherServer = await createGeneratedServer();
     const crossServer = await request(app, {
       method: 'POST',

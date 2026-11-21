@@ -107,7 +107,6 @@ describe.skipIf(!ready)('eval dataset files', () => {
       payload: { agentId, ...input },
     });
 
-  /** 直接落库超过上限的用例，避免为造数据跑 500 次请求。 */
   const seedCases = (agentId: string, count: number, prompt?: string) =>
     app.client.unsafe(
       `insert into eval_cases (id, agent_id, name, prompt, expectation, created_by)
@@ -129,7 +128,6 @@ describe.skipIf(!ready)('eval dataset files', () => {
   });
 
   it('returns NOT_FOUND for an unknown agent on every endpoint', async () => {
-    // 用合法 TypeID 形态的不存在 agent，确保走到对象授权而不是 ID 解析。
     const missing = newId('agent');
     expectProblem(await exportCases(missing), 'NOT_FOUND');
     expectProblem(await importCases(missing, dataset([])), 'NOT_FOUND');
@@ -143,7 +141,6 @@ describe.skipIf(!ready)('eval dataset files', () => {
   it('does not distinguish a hidden agent from a missing one', async () => {
     const hidden = await newAgent();
     const missing = newId('agent');
-    // maintainer 有 eval 范围权限，但不是该智能体的负责人或成员。
     const maintainer = await createTestAccount(app, cookie, { systemKeys: ['maintainer'] });
 
     const requestsFor = (agentId: string) => [
@@ -409,7 +406,6 @@ describe.skipIf(!ready)('eval dataset files', () => {
       skipped: 0,
       warnings: [],
     });
-    // 还原证据：后续请求复用池 client 时不能再写入旧的 captured 数组。
     expect(captured).toHaveLength(1);
   });
 

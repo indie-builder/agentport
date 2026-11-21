@@ -95,7 +95,6 @@ async function mount(path: string, me: AuthMe): Promise<void> {
 }
 
 function rows(): HTMLTableRowElement[] {
-  // 展开详情会为每行多渲染一个面板行；只取带行操作按钮的数据行。
   return [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].filter((row) =>
     row.querySelector('button[data-row]'),
   );
@@ -163,7 +162,6 @@ describe('使用记录的任务视角', () => {
     await mount('/personal/usage?view=table', me);
     await vi.waitFor(() => expect(rows()).toHaveLength(2));
 
-    // 末尾空表头是列设置操作列。
     expect(headers()).toEqual(['专家', '来源', '状态', '时间', '去向', '']);
 
     const first = rows()[0];

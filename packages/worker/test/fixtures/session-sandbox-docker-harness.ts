@@ -10,17 +10,9 @@ import { DockerSandboxProvider } from '../../src/sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from '../../src/sandbox/provider.js';
 import { SessionSandboxes, type SessionSandboxSpec } from '../../src/sandbox/sessions.js';
 
-/**
- * 真实 Docker 的会话沙盒生命周期验收：不 mock docker、不拉镜像、不调模型。
- * runner 由 fixture/session-task.mjs 顶替，只验证进程停止与容器/挂载保留行为。
- * 每次运行都从当前 shared/sandbox 源码编译到本次独占的临时构建目录（绝不复用
- * packages/<pkg>/dist），再基于本机 sandbox:dev 构建一次性派生镜像并在结束时删除。
- * 镜像缺失时明确失败，不联网 pull；派生 tag 随机且测试结束删除，不覆盖共享镜像。
- */
 const BASE_IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const REPO_ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
 const FIXTURE = join(REPO_ROOT, 'packages/worker/test/fixtures/session-task.mjs');
-/** 容器内观测点；busy 的进展写到宿主 outputs 挂载，容器消失后仍可读取。 */
 const ORPHAN_META = '/tmp/session-fixture/orphan.json';
 const ORPHAN_PROGRESS = '/tmp/session-fixture/orphan-progress';
 const ORPHAN_STOP = '/tmp/session-fixture/orphan-stop.json';
@@ -34,7 +26,6 @@ interface CleanupEvidence {
   [key: string]: unknown;
 }
 
-/** 只记录真实 provider 创建的 Sandbox.child，destroy 仍走真实实现。 */
 class RecordingProvider implements SandboxProvider {
   readonly children: Sandbox['child'][] = [];
 
@@ -55,7 +46,6 @@ class RecordingProvider implements SandboxProvider {
   }
 }
 
-/** 第一次 destroy 拒绝且不触碰真实容器，用来验证 cleanup 的重试路径。 */
 class RejectFirstDestroyProvider implements SandboxProvider {
   private rejected = false;
 
@@ -104,7 +94,6 @@ function containerExists(id: string): boolean {
   return docker(['inspect', id]).status === 0;
 }
 
-/** 容器内命令的输出；容器已删除或命令失败返回 null，供 waitFor 轮询。 */
 function inContainer(id: string, command: string[]): string | null {
   const result = docker(['exec', id, ...command]);
   return result.status === 0 ? result.stdout : null;
@@ -124,9 +113,7 @@ async function waitFor<T>(
     try {
       const value = await check();
       if (value !== null && value !== false) return value;
-    } catch {
-      // 容器/文件尚未就绪，继续等。
-    }
+    } catch {}
     if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`);
     await delay(25);
   }
@@ -185,9 +172,7 @@ async function dispose(current: Incident | null): Promise<void> {
   if (current === null) return;
   try {
     await current.sessions.close();
-  } catch {
-    // 用例失败时 close 可能已经报过；下面仍按 id 兜底清理本用例容器。
-  }
+  } catch {}
   for (const id of current.ids) docker(['rm', '-f', id]);
   await rm(current.root, { recursive: true, force: true });
 }
@@ -222,11 +207,6 @@ function artifact(path: string) {
   };
 }
 
-/**
- * 每次运行都从当前 shared/sandbox 源码在独占临时目录编译，绝不复用 packages/<pkg>/dist。
- * 临时 tsconfig 只覆盖 outDir/tsBuildInfoFile，并把 @agentport/shared 指向本次构建的
- * 声明文件；项目引用与 tsc -b 仍由工作区工具链负责，产物不会写进共享 dist。
- */
 async function compileCurrentSources(context: string, sourceEvidenceFile: string): Promise<void> {
   const sources = {
     shared: join(REPO_ROOT, 'packages/shared/src'),
@@ -260,7 +240,6 @@ async function compileCurrentSources(context: string, sourceEvidenceFile: string
         compilerOptions: {
           outDir: outputs.sandbox,
           tsBuildInfoFile: join(context, 'sandbox.tsbuildinfo'),
-          // sandbox 源码里的 bare import 在容器运行时解析；编译期用本次 shared 产物。
           paths: { '@agentport/shared': [join(outputs.shared, 'index.d.ts')] },
         },
         references: [{ path: sharedConfig }],
@@ -341,7 +320,6 @@ async function buildTestImage(
       '',
     ].join('\n'),
   );
-  // --pull=false + --network none：只用本机 base 与 COPY，离线构建，绝不联网取镜像。
   const build = docker(
     ['build', '--pull=false', '--network', 'none', '-t', imageTag, context],
     120_000,
@@ -393,7 +371,6 @@ export function createSessionSandboxDockerSuite() {
         agentId: `agent-${randomUUID()}`,
         conversationId: randomUUID(),
         runtimeEnvironmentId: null,
-        // 这套用例的任务按默认策略（native_auto）起步，记忆挂载保持可写，与运行期设置一致。
         memoryWritable: true,
         ...dirs,
       },

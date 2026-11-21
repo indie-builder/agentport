@@ -81,7 +81,6 @@ describe('agent invoker cancellable wait', () => {
     });
     pending.catch(() => undefined);
 
-    // 先让调用进入 2 秒轮询睡眠，再取消；旧实现会等到睡眠结束才处理。
     await new Promise((resolve) => setTimeout(resolve, 100));
     const abortedAt = performance.now();
     controller.abort();

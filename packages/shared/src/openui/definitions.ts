@@ -71,7 +71,6 @@ export function createOpenUiDefinitions<C>(
       component: renderers[name] as C,
     });
 
-  // ── 内容 ────────────────────────────────────────────────────────────────────
   const Icon = def(
     'Icon',
     z.object({
@@ -138,7 +137,6 @@ export function createOpenUiDefinitions<C>(
     }),
   );
 
-  // ── 图表 ────────────────────────────────────────────────────────────────────
   const Series = def('Series', z.object({ category: z.string(), values: z.array(z.number()) }));
   const chart2D = <V extends string>(variants: readonly [V, ...V[]]) =>
     z.object({
@@ -198,7 +196,6 @@ export function createOpenUiDefinitions<C>(
     }),
   );
 
-  // ── 表格与数据展示 ──────────────────────────────────────────────────────────
   const Col = def(
     'Col',
     z.object({
@@ -222,7 +219,6 @@ export function createOpenUiDefinitions<C>(
     }),
   );
 
-  // ── 按钮 ────────────────────────────────────────────────────────────────────
   const Button = def(
     'Button',
     z.object({
@@ -271,7 +267,6 @@ export function createOpenUiDefinitions<C>(
   const FollowUpItem = def('FollowUpItem', z.object({ text: z.string() }));
   const FollowUpBlock = def('FollowUpBlock', z.object({ items: z.array(FollowUpItem.ref) }));
 
-  // ── 表单控件 ────────────────────────────────────────────────────────────────
   const Input = def(
     'Input',
     z.object({
@@ -342,7 +337,6 @@ export function createOpenUiDefinitions<C>(
       name: z.string(),
       items: z.array(CheckBoxItem.ref),
       rules,
-      // 值类型必须保留；反编译成 z.unknown() 会让复选框字典丢掉布尔语义。
       value: kit.reactive(z.record(z.string(), z.boolean()).optional()),
     }),
   );
@@ -444,7 +438,6 @@ export function createOpenUiDefinitions<C>(
     }),
   );
 
-  // ── 其它布局 ────────────────────────────────────────────────────────────────
   const StepsItem = def('StepsItem', z.object({ title: z.string(), details: z.string() }));
   const Steps = def('Steps', z.object({ items: z.array(StepsItem.ref) }));
   const InlineHeader = def(
@@ -493,7 +486,6 @@ export function createOpenUiDefinitions<C>(
   );
   const Label = def('Label', z.object({ text: z.string() }));
 
-  // ── 卡片内联元素 ────────────────────────────────────────────────────────────
   const inlineText = () =>
     z.object({
       variant: z.enum(['text', 'number']).default('text'),
@@ -554,7 +546,6 @@ export function createOpenUiDefinitions<C>(
     }),
   );
 
-  // ── 卡片块：2 件起，同块结构一致 ────────────────────────────────────────────
   const cardBlock = (items: AnySchema) =>
     z.object({
       items,
@@ -653,7 +644,6 @@ export function createOpenUiDefinitions<C>(
   );
   const VisualCardBlock = def('VisualCardBlock', cardBlock(z.array(VisualCardItem.ref).min(2)));
 
-  // ── 对话容器 ────────────────────────────────────────────────────────────────
   // 嵌套内容联合：不含 SectionBlock（它自身不能嵌套），但含列表与后续建议。
   const nestedContent = [
     TextContent.ref,

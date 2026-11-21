@@ -239,7 +239,6 @@ function deferred<T>() {
 
 type ProfileFixture = typeof embeddingProfile | typeof rerankProfile;
 
-/** 选择投影与后端同规则；创建页只需要 id/name/kind/enabled，不拿管理字段。 */
 function selectionOf(profile: ProfileFixture) {
   return {
     id: profile.id,
@@ -281,7 +280,6 @@ function listHandlers(profiles: ProfileFixture[]) {
   );
 }
 
-/** 创建成功会直接进详情文档页；这些查询必须真实可答，避免把未配置路由当成通过。 */
 function detailHandlers() {
   server.use(
     http.get('/api/knowledge/bases/kb_new', () => HttpResponse.json(createdBase)),
@@ -317,7 +315,6 @@ describe('knowledge create flow', () => {
     await act(async () => profiles.resolve([embeddingProfile]));
     await waitFor(() => (creator.textContent ?? '').includes('bge-m3'));
 
-    // 自动默认在高级设置里静默完成，不主动展开或制造用户改动。
     expect(advancedPanel()?.hasAttribute('hidden')).toBe(true);
     await click(button('取消', creator));
     expect(dialogShown('新建知识库')).toBe(false);
@@ -388,7 +385,6 @@ describe('knowledge create flow', () => {
     await click(button('创建', creator));
     expect(createPost()).toBeUndefined();
 
-    // 缺少必要选择时自动展开高级设置并聚焦选择框，用户无需自己找。
     await waitFor(() => advancedPanel()?.hasAttribute('hidden') === false);
     const embedding = document.getElementById('knowledge-embedding');
     expect(embedding?.getAttribute('aria-invalid')).toBe('true');
@@ -483,7 +479,6 @@ describe('knowledge create flow', () => {
     await mount('/knowledge');
     await click(button('新建知识库'));
     const creator = dialog('新建知识库');
-    // 创建设置只需要读权限：不能为了拿可选模型去请求管理列表。
     expect(profileCalls().map((item) => item.path)).toContain(
       '/api/knowledge/model-profiles?view=selection',
     );

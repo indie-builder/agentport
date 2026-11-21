@@ -27,11 +27,6 @@ const SDK_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/w
 /** IEND 块固定为 12 字节：长度 0（前 4 字节）+ 名称 + 固定 CRC；只看尾部 8 字节。 */
 const PNG_IEND_TAIL = 'IEND\xaeB\x60\x82';
 
-/**
- * 视觉调用前的实际校验：SDK 只按 MIME 收图，坏图到这里才失败最贵。
- * sharp 是项目里唯一成熟的四格式解码器（PNG/JPEG/GIF/WebP 全量解到 raw），
- * 截断文件在这里抛错；尺寸上限由 sharp 的 limitInputPixels 兜底。
- */
 export async function assertUsableImage(input: {
   mimeType: string;
   data: Uint8Array;
@@ -67,10 +62,6 @@ type ImageQueryFn = (params: {
 
 export type { ImageQueryFn };
 
-/**
- * 一次 query 只做一个动作：text + base64 图 → structured_output {text}。
- * 单动作失败只记 warning 并返回 null，由调用方决定整图是否可发布。
- */
 async function runAction(input: {
   action: 'ocr' | 'caption';
   instruction: string;

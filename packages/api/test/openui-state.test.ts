@@ -14,10 +14,8 @@ import {
   unique,
 } from './helpers.js';
 
-// 直接写 repo：不经过 /api/chat，避免依赖 worker 空闲。
 const ready = await infraReady;
 
-/** n 个独立 OpenUI 段；blockKey 只按 UI 段计数（s0、s1…），Markdown 不占号。 */
 function uiText(segments: number): string {
   return Array.from(
     { length: segments },
@@ -52,10 +50,8 @@ describe.skipIf(!ready)('openui state', () => {
     options: {
       role?: 'assistant' | 'user';
       uiFormat?: 'markdown' | 'openui';
-      /** 真实 UI 段数量；状态键只能是这些段对应的 s0…sN。 */
       segments?: number;
       parentToolUseId?: string;
-      /** 落库的合并程序；缺省回退到原始文本。 */
       uiProgram?: string | null;
     } = {},
   ) => {
@@ -83,7 +79,6 @@ describe.skipIf(!ready)('openui state', () => {
       role: options.role ?? 'assistant',
       content,
     });
-    // 状态只挂在生成式 UI 的助手消息上；appendMessage 不暴露这两个渲染字段，夹具直接补齐。
     await app.client.unsafe('update messages set ui_format = $2, ui_program = $3 where id = $1', [
       message.id,
       options.uiFormat ?? 'openui',
@@ -151,7 +146,6 @@ describe.skipIf(!ready)('openui state', () => {
   });
 
   it('rejects a message produced inside a sub-agent', async () => {
-    // 子智能体的文本不是主助手回复：没有可恢复的顶层界面。
     const child = await seed({ parentToolUseId: 'toolu_parent' });
     const res = await put(child.conversationId, child.messageId, {
       blockKey: 's0',
@@ -172,7 +166,6 @@ describe.skipIf(!ready)('openui state', () => {
 
   it('only accepts the blockKey of a real UI segment', async () => {
     const { conversationId, messageId } = await seed({ segments: 2 });
-    // 任意自造键、越界段号都不存在；只能是 s0 / s1。
     for (const blockKey of ['b1', 'msg_1:0', 's2', 's-1', 'S0']) {
       expectProblem(
         await put(conversationId, messageId, { blockKey, state: { a: 1 } }),
@@ -183,7 +176,6 @@ describe.skipIf(!ready)('openui state', () => {
   });
 
   it('uses the stored program instead of the raw text when deciding segments', async () => {
-    // 合并后的程序只有一段，原文有两段：以落库快照为准，s1 不存在。
     const { conversationId, messageId } = await seed({
       segments: 2,
       uiProgram: uiText(1),
@@ -241,7 +233,6 @@ describe.skipIf(!ready)('openui state', () => {
   });
 
   it('keeps both blocks when different blockKeys are written concurrently', async () => {
-    // 两个请求都先读到同一份旧快照；读改写实现会让后到的覆盖先到的。
     const { conversationId, messageId } = await seed({ segments: 8 });
     await Promise.all(
       Array.from({ length: 8 }, (_unused, index) =>
@@ -256,7 +247,6 @@ describe.skipIf(!ready)('openui state', () => {
 
   it('replaces an invalid stored envelope instead of leaking it', async () => {
     const { conversationId, messageId } = await seed();
-    // 历史版本/手工写入的脏数据：形状不符时按空快照重来，不把原文回给前端。
     await app.client.unsafe('update messages set ui_state = $2::jsonb where id = $1', [
       messageId,
       JSON.stringify({ version: 2, blocks: ['nope'] }),
@@ -282,7 +272,6 @@ describe.skipIf(!ready)('openui state', () => {
       [messageId],
     );
     expect(res).toHaveLength(1);
-    // 只存摘要：原文（含用户输入）不进审计表。
     expect(res[0]?.input_digest).not.toBeNull();
   });
 });

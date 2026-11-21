@@ -64,7 +64,6 @@ export async function ensureSessionWorkspace(input: {
   const subAgentMemoryDirs = [...(input.subAgentSlugs ?? [])]
     .sort()
     .map((slug) => ({ slug, memoryDir: join(input.workspacesDir, slug, 'agent-memory') }));
-  // 父目录同样拒绝链接；挂载路径不能借父目录跳出该智能体。
   const dirs = [
     agent,
     join(agent, 'session-sandboxes'),
@@ -78,7 +77,6 @@ export async function ensureSessionWorkspace(input: {
     paths.sessionsDir,
     ...(personalDir === undefined ? [] : [join(input.workspacesDir, '_users'), personalDir]),
   ];
-  // 宿主记忆目录与工作区里的挂载点都要先建好；刷新时保留这棵子树，避免换掉挂载根 inode。
   for (const { slug, memoryDir } of subAgentMemoryDirs) {
     dirs.push(
       join(input.workspacesDir, slug),
@@ -98,10 +96,6 @@ export async function ensureSessionWorkspace(input: {
   return { ...paths, subAgentMemoryDirs };
 }
 
-/**
- * 每次运行重建 `.claude/rules`：先删旧目录，空数组时不再创建。
- * 关闭规则注入后不能留下上一轮的文件，否则 SDK 仍会按 project source 加载。
- */
 export async function writeRulesDirectory(
   rulesDir: string,
   rules: ReadonlyArray<{ slug: string; content: string }>,
@@ -117,13 +111,6 @@ export async function writeRulesDirectory(
   }
 }
 
-/**
- * 先检查完整来源，保持已挂载根的 inode；容器只能在独占 lease 中观察这次更新。
- * `preserveMemoryMount` 只给工作区定义使用：`.claude/agent-memory` 是子智能体记忆的挂载根
- * （可写性由记忆策略决定，只读时仍是挂载根），保留它和 `.claude` 的 inode，其他定义照常整棵替换；
- * 来源里同名的记忆目录也不得覆盖挂载子树。产出没有挂载根，默认按普通目录整棵替换
- * （含同名的 `.claude/agent-memory`）。
- */
 export async function refreshSessionDirectory(
   source: string,
   target: string,
@@ -141,7 +128,6 @@ export async function refreshSessionDirectory(
   if (!destination.isDirectory() || destination.isSymbolicLink())
     throw new Error(`Session target must be a real directory: ${target}`);
 
-  // 整棵替换：清掉目标旧内容后逐项复制；skip 用于保留挂载根所在的那一层。
   const replace = async (from: string, to: string, skip?: string): Promise<void> => {
     for (const name of await readdir(to)) {
       if (name === skip) continue;
@@ -172,7 +158,6 @@ export async function refreshSessionDirectory(
 
   await replace(source, target, '.claude');
 
-  // 两边都没有 .claude 时不要凭空创建。
   if (sourceClaudeInfo === null && targetClaudeInfo === null) return;
 
   const preservedMemory = join(targetClaude, 'agent-memory');

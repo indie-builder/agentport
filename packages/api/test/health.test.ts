@@ -22,7 +22,6 @@ describe.skipIf(!ready)('health', () => {
   });
 
   it('GET /health/ready returns 503 when Redis is unreachable', async () => {
-    // 端口 1 上不会有 Redis；探测有 1.5s 超时，比默认 testTimeout 短。
     const broken = await buildApp({ ...testConfig(), REDIS_URL: 'redis://127.0.0.1:1' });
     try {
       const res = await request(broken, { method: 'GET', url: '/health/ready' });

@@ -32,14 +32,12 @@ describe('memory policy', () => {
   it('falls back to the defaults for missing or invalid values', () => {
     expect(resolveMemoryPolicy(undefined)).toEqual(DEFAULT_MEMORY_POLICY);
     expect(resolveMemoryPolicy(null)).toEqual(DEFAULT_MEMORY_POLICY);
-    // 只校验失败的部分不生效，整体回落默认值，避免半套策略进入运行期。
     expect(resolveMemoryPolicy({ topicLimit: 2 })).toEqual(DEFAULT_MEMORY_POLICY);
     expect(resolveMemoryPolicy({ topicLimit: 49 })).toEqual(DEFAULT_MEMORY_POLICY);
     expect(resolveMemoryPolicy({ topicLimit: 3.5 })).toEqual(DEFAULT_MEMORY_POLICY);
     expect(resolveMemoryPolicy({ writeMode: 'read_only' })).toEqual(DEFAULT_MEMORY_POLICY);
     expect(resolveMemoryPolicy({ enabled: 'yes' })).toEqual(DEFAULT_MEMORY_POLICY);
     expect(resolveMemoryPolicy('native_auto')).toEqual(DEFAULT_MEMORY_POLICY);
-    // strict：未知字段同样视为非法，不静默忽略。
     expect(resolveMemoryPolicy({ unknown: true })).toEqual(DEFAULT_MEMORY_POLICY);
   });
 });

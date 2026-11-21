@@ -11,12 +11,10 @@ import { QUOTE_LIMIT } from './retrieval.js';
 
 export interface KnowledgeServerInput {
   db: Database;
-  /** server.config.knowledgeBaseId：工具只能看这一库。 */
   baseId: string;
   serverId: string;
   runId: string;
   secretKey: string;
-  /** 与 worker 共享的解析产物根目录。 */
   knowledgeDir: string;
   signal?: AbortSignal | undefined;
 }
@@ -34,10 +32,6 @@ export class KnowledgeReadImageError extends Error {
   }
 }
 
-/**
- * MCP `knowledge_read_image`：chunk → 当前版本图片清单的授权读取。
- * 不接受任意 name/path/URL；禁用库/文档、非当前版本、来源撤权都即时失效。
- */
 export async function readKnowledgeImage(
   input: KnowledgeServerInput,
   args: KnowledgeReadImageInput,
@@ -63,7 +57,6 @@ export async function readKnowledgeImage(
   ) {
     throw new KnowledgeReadImageError('CHUNK_NOT_FOUND', '图片分块不存在或不可读');
   }
-  // 与 read/list 共用同一来源授权判定；Wiki 内部索引文档不能绕过 target 直接读图。
   const document = await repo.knowledge.getReadableDocument(
     input.db,
     input.baseId,
@@ -101,7 +94,6 @@ export async function readKnowledgeImage(
       locator: chunk.locator,
       parentContent: null,
       sourceUrl: document.sourceUrl,
-      // 直接读图不经过检索排序，不给它编一个相关性分数。
       score: 0,
       scoreKind: 'rrf',
       scores: { keyword: null, vector: null, rrf: 0, rerank: null },

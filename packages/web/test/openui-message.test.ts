@@ -12,7 +12,6 @@ const chunkGate = vi.hoisted(() => {
   });
   return { promise, release: () => release() };
 });
-// 暴露最新一次渲染收到的 onInvalid，用来模拟「旧程序迟到的回调」；mounts 记录渲染器挂载次数。
 const bridge = vi.hoisted(() => ({
   onInvalid: undefined as undefined | ((program: string) => void),
   mounts: 0,
@@ -49,7 +48,6 @@ const INVALID_B = fence(['仍然不是程序']);
 const VALID_A = fence(['root = Card([t])', 't = TextContent("已完成")']);
 const VALID_B = fence(['root = Card([t])', 't = TextContent("修复后")']);
 
-/** 只有提示文案不同：有效程序更新时表单实例必须保留。 */
 const formProgram = (note: string) =>
   fence([
     'root = Card([note, form])',
@@ -117,7 +115,6 @@ describe('AssistantText', () => {
     await render(FENCED, true, true);
     expect(host.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     expect(host.querySelector('[role="status"]')?.getAttribute('aria-busy')).toBe('true');
-    // 等待态不能把程序源码当成正文闪出来。
     expect(host.textContent).not.toContain('root = Card');
     expect(host.textContent).not.toContain('openui-lang');
   });
@@ -132,7 +129,6 @@ describe('AssistantText', () => {
 
   it('keeps prose outside the fence as Markdown', async () => {
     await render(FENCED, true, true);
-    // 围栏前的「好的：」仍显示，说明分段渲染而不是整段丢弃。
     expect(host.textContent).toContain('好的');
     await settle();
     expect(host.textContent).toContain('已完成');
@@ -167,12 +163,10 @@ describe('AssistantText', () => {
   it('recovers when the same block later receives a valid program', async () => {
     await render(INVALID_A, true, false);
     await settle();
-    // 先确认已经回退成源码，恢复才算数。
     expect(host.textContent).toContain('这不是程序');
 
     await render(VALID_A, true, false);
     await settle();
-    // 回退态显示整段源码；真正渲染时不会出现程序文本。
     expect(host.textContent).toContain('已完成');
     expect(host.textContent).not.toContain('root = Card');
     expect(host.textContent).not.toContain('这不是程序');
@@ -204,9 +198,6 @@ describe('AssistantText', () => {
     await settle();
     expect(host.textContent).not.toContain('root = Card');
 
-    // 渲染器把回调存进 ref：旧程序的迟到报告会打到当前回调上，
-    // 标记必须按上报的 program 判断，不能把新快照打回源码。
-    // 真实回调收到的是围栏内的裸 program，不带 fence。
     await act(async () => bridge.onInvalid?.('这不是程序'));
     await settle();
     expect(host.textContent).toContain('已完成');
@@ -219,7 +210,6 @@ describe('AssistantText', () => {
     await settle();
     expect(host.textContent).toContain('这不是程序');
 
-    // 原始 text 不变，稳定态改用落库后的完整程序。
     await render(INVALID_A, true, false, undefined, VALID_A);
     await settle();
     expect(host.textContent).toContain('已完成');
@@ -253,7 +243,6 @@ describe('AssistantText', () => {
     await render(formProgram('第二版'), true, false);
     await settle();
     expect(host.textContent).toContain('第二版');
-    // 有效表单不能因为程序更新重挂而丢掉用户已经填的内容。
     expect(host.querySelector<HTMLInputElement>('input[name="fullName"]')?.value).toBe('张三');
   });
 });

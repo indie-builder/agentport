@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import { markdownBlocks } from '../src/knowledge/parsing.js';
 import { createParsingAdapter } from '../src/knowledge/parsing-adapter.js';
 
-// 这是数据丢失的独立回归：没有正文承接的标题必须作为 content 进入分块，不能只落 breadcrumb。
 const adapter = createParsingAdapter();
 
 const chunk = (markdown: string, pageMap: Parameters<typeof adapter.chunkMarkdown>[1] = []) =>
@@ -40,7 +39,6 @@ describe('标题无正文时的 content 承接', () => {
     });
     const headingBlocks = blocks.filter((block) => block.content.includes('尾部😀'));
     expect(headingBlocks).toHaveLength(1);
-    // 只有末尾那个标题没有正文承接；它对应的区间必须在正文之后，且只覆盖标题文字。
     const tail = markdown.indexOf('正文') + '正文'.length;
     const tailSpan = spans[blocks.indexOf(headingBlocks[0] as (typeof blocks)[number])];
     expect(tailSpan).toBeDefined();

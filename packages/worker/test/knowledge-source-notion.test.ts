@@ -113,7 +113,6 @@ function downloadCalls(): Call[] {
   });
 }
 
-/** Shared page-only route table for a root page with a child, a file, an image and a file_upload. */
 function standardPages(options: { forbidReport?: boolean } = {}): Handler {
   const root = load('page-root.json');
   const child = load('page-child.json');
@@ -219,7 +218,6 @@ describe('notion page range', () => {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     );
 
-    // 分页第二页与嵌套块都被读取。
     expect(
       calls.some(
         (call) =>

@@ -32,6 +32,7 @@ import {
   auditStatusVariant,
   formatDateTime,
   formatDuration,
+  timeRangeOptions,
 } from '../lib/format.js';
 import { useAudit } from '../lib/queries.js';
 import { toastError, toastSuccess } from '../lib/toast.js';
@@ -49,13 +50,6 @@ const statusOptions: Array<{ value: AuditStatus | 'all'; label: string }> = [
   { value: 'ok', label: '成功' },
   { value: 'error', label: '错误' },
   { value: 'denied', label: '拒绝' },
-];
-
-const rangeOptions = [
-  { value: 'all', label: '全部时间' },
-  { value: '7', label: '近 7 天' },
-  { value: '30', label: '近 30 天' },
-  { value: '90', label: '近 90 天' },
 ];
 
 const actorKindOptions: Array<{ value: AuditEntry['actorKind'] | 'all'; label: string }> = [
@@ -150,7 +144,6 @@ function buildAuditQuery(values: {
   };
 }
 
-/** 只展示接口已有的字段；输入原文本就不落库，摘要为空时如实给「—」。 */
 function auditDetails(row: AuditEntry) {
   return (
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
@@ -216,7 +209,6 @@ export function AuditPage() {
   const exportAudit = async (): Promise<void> => {
     setExporting(true);
     try {
-      // 与表格使用同一份已生效的筛选值，避免刚输入就导出时导出旧条件。
       const data = await api.exportAudit(query);
       downloadJson(data, 'audit.json');
     } catch (error) {
@@ -431,7 +423,7 @@ export function AuditPage() {
                   },
                 })
               }
-              options={rangeOptions}
+              options={timeRangeOptions}
               label="按时间范围过滤"
               className="w-full"
             />

@@ -152,7 +152,6 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
     const baseId = await seedBase();
     for (const size of [501, 1100]) {
       const names = Array.from({ length: size }, (_, index) => `bulk-${size}-${index}`);
-      // 预置首批、中段、批界、末位标签，覆盖跨批已存在行的复用。
       const existingIndexes = [...new Set([0, Math.floor(size / 2), 499, size - 1])];
       const existing = await knowledge.upsertTags(
         db,

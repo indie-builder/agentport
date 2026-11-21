@@ -2,14 +2,12 @@ import { describe, expect, it, mock, spyOn } from 'bun:test';
 import * as fsActual from 'node:fs/promises';
 import type { Options } from '@anthropic-ai/claude-agent-sdk';
 
-// 外部 I/O 只有 SDK 与 stdin/stdout；runner 的 schema、选项组装和事件编码全走真实代码。
 const io = (() => {
   const stdin: string[] = [];
   const waiters: Array<(line: string | null) => void> = [];
   let stdinClosed = false;
   return {
     stdin,
-    /** 读取任务行之后的下一条 stdin 命令；EOF 返回 null。 */
     readLine(): Promise<string | null> {
       const line = stdin.shift();
       if (line !== undefined) return Promise.resolve(line);
@@ -32,14 +30,10 @@ const io = (() => {
     },
     options: undefined as Record<string, unknown> | undefined,
     forkCalls: [] as Array<{ sessionId: string; upToMessageId?: string }>,
-    /** 挂载目录里实际存在的 session（含 fork 产物）。 */
     sessions: new Set<string>(),
-    /** 自定义 SDK 消息序列；为 null 时用默认的单文本块回合。 */
     messages: null as unknown[] | null,
-    /** init 消息里报告已加载的插件；undefined 表示按任务里的 path 全部加载。 */
     initPlugins: undefined as Array<{ name: string; path: string }> | undefined,
     pluginErrors: undefined as Array<{ plugin: string; type: string; message: string }> | undefined,
-    /** 模拟一次 SDK 工具审批/提问；respond 在回调登记后写入 stdin。 */
     ask: undefined as
       | {
           toolName: string;
@@ -51,11 +45,9 @@ const io = (() => {
         }
       | undefined,
     askResults: [] as unknown[],
-    /** 在 init 之后中止 query，模拟用户取消。 */
     abort: false,
     abortWithResult: false,
     throwAfterMessages: false,
-    /** query.close() 是否被显式调用。 */
     closed: false,
   };
 })();
@@ -72,7 +64,6 @@ mock.module('node:readline', () => ({
   }),
 }));
 
-// transcript 目录用真实文件系统语义太重；这里只回答「会话是否存在」。
 mock.module('node:fs/promises', () => ({
   ...fsActual,
   readdir: async () => ['workspace'],
@@ -101,7 +92,6 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
         path: plugin.path,
       }));
     const stream = (async function* () {
-      // 复现 SDK 在运行中调用 canUseTool；respond 在回调登记 pending 之后写入答案。
       if (io.ask !== undefined) {
         const canUseTool = options.canUseTool as
           | ((
@@ -141,7 +131,6 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
         ...(io.pluginErrors === undefined ? {} : { plugin_errors: io.pluginErrors }),
       };
       if (io.abort) {
-        // 用户取消：SDK 的 query 以异常结束，可能来不及发 result。
         (options.abortController as AbortController).abort();
         throw new Error('aborted by test');
       }
@@ -225,7 +214,6 @@ async function run(
   io.abortWithResult = init.abortWithResult ?? false;
   io.throwAfterMessages = init.throwAfterMessages ?? false;
   io.closed = false;
-  // runner 每个用例重新导入；容器 env 只在这一轮生效，结束后恢复。
   const previousTrigger = process.env.PACE_RUN_TRIGGER;
   if (init.channel === true) process.env.PACE_RUN_TRIGGER = 'channel';
   else delete process.env.PACE_RUN_TRIGGER;
@@ -339,7 +327,6 @@ describe('runner task wiring', () => {
     expect(options.settings).not.toHaveProperty('autoMemoryDirectory');
     expect(options.allowedTools).toContain('Read(//mnt/agent-memory/**)');
     expect(options.allowedTools).not.toContain('Edit(//mnt/agent-memory/**)');
-    // 个人记忆是独立开关，默认仍安装 hook。
     expect(options.hooks?.UserPromptSubmit).toHaveLength(1);
   });
 
@@ -355,7 +342,6 @@ describe('runner task wiring', () => {
     await run({ memoryPolicy: { injectPersonalMemory: false } });
     const options = io.options as Options;
     expect(options.hooks?.UserPromptSubmit).toBeUndefined();
-    // 专家记忆不受个人记忆开关影响。
     expect(options.settings).toMatchObject({
       autoMemoryEnabled: true,
       autoMemoryDirectory: '/mnt/agent-memory',
@@ -399,7 +385,6 @@ describe('runner task wiring', () => {
       { sessionId: 'source-session', upToMessageId: '22222222-3333-4444-8555-666666666666' },
     ]);
     expect(io.options?.resume).toBe('forked-session');
-    // uuid 映射由宿主从 transcript 的 forkedFrom 计算，事件只带新会话 id。
     expect(events).toContainEqual({
       type: 'session_forked',
       sessionId: 'forked-session',
@@ -470,16 +455,13 @@ describe('runner task wiring', () => {
     await run({});
     const options = io.options as Options;
 
-    // 交付目录是独立挂载：cwd 仍是只读的 /workspace，也没有被当作可写配置目录加载。
     expect(options.cwd).toBe('/workspace');
     expect(options).not.toHaveProperty('additionalDirectories');
     expect(options.allowedTools).toEqual(
       expect.arrayContaining(['Read(//mnt/outputs/**)', 'Edit(//mnt/outputs/**)']),
     );
-    // 附件目录只读：主会话可用原生 Read 读取，不能写。
     expect(options.allowedTools).toContain('Read(//mnt/inputs/**)');
     expect(options.allowedTools).not.toContain('Edit(//mnt/inputs/**)');
-    // 记忆仍只允许 Markdown（hook 逐次校验），产出目录不限类型。
     expect(options.allowedTools).toContain('Read(//mnt/agent-memory/**)');
     expect(options.allowedTools).toContain('Bash');
     expect(options.disallowedTools).not.toContain('Bash');
@@ -541,7 +523,6 @@ describe('runner task wiring', () => {
         't',
         { signal: new AbortController().signal },
       );
-    // 定义目录不在任何可写根下；子智能体即使指向合法目录也被拒绝。
     for (const tool of ['Read', 'Write', 'Edit']) {
       expect(await call(tool, '/workspace/CLAUDE.md')).toMatchObject({
         hookSpecificOutput: { permissionDecision: 'deny' },
@@ -550,7 +531,6 @@ describe('runner task wiring', () => {
         hookSpecificOutput: { permissionDecision: 'deny' },
       });
     }
-    // 非文件工具不在 hook 的边界内：Bash 由 allowedTools 默认放行。
     expect(await call('Bash', '/mnt/outputs/report.md')).toEqual({});
   });
 
@@ -575,8 +555,6 @@ describe('runner task wiring', () => {
     const options = io.options as Options;
     expect(options.allowedTools).toContain('mcp__root-mcp__*');
     expect(options.allowedTools).not.toContain('mcp__child-mcp__*');
-    // 会话级 deny 会连带移除子智能体自己的工具（子级继承会话权限），
-    // 父级误调用交给 PreToolUse 边界 hook 拒绝。
     expect(options.disallowedTools).not.toContain('mcp__child-mcp');
   });
 
@@ -610,9 +588,7 @@ describe('runner task wiring', () => {
 
     expect(options.plugins).toEqual([{ type: 'local', path: '/workspace/.claude/plugins/demo' }]);
     expect(options.skills).toEqual(['demo-skill', 'demo.plugin:review']);
-    // 插件 server 的 scoped 名非 [A-Za-z0-9_-] 字符替换成 _。
     expect(options.allowedTools).toContain('mcp__plugin_demo_plugin_fs_main__*');
-    // 有插件子智能体时才放行 Agent。
     expect(options.allowedTools).not.toContain('Agent');
     expect(options.disallowedTools).toContain('Agent');
   });
@@ -758,7 +734,6 @@ describe('native clarification questions', () => {
       toolUseId: 'tool-1',
       questions,
     });
-    // 回答后继续同一次运行，不新起 run，也不发关闭事件。
     expect(events.filter((event) => event.type === 'question_closed')).toEqual([]);
     expect(events.at(-1)).toMatchObject({ type: 'run_finished', status: 'succeeded' });
   });
@@ -887,7 +862,6 @@ describe('assistant block streaming', () => {
     ];
   }
 
-  /** 带真实 API 用量的完整 assistant 消息；同一 id 的多个块共享快照。 */
   function usageAssistant(
     id: string,
     input: number,
@@ -941,7 +915,6 @@ describe('assistant block streaming', () => {
       { type: 'text_delta', text: 'part', blockIndex: 0, sdkUuid: SDK_UUID },
       { type: 'text_delta', text: 'second', blockIndex: 2, sdkUuid: SDK_UUID },
     ]);
-    // 落库用整块文本：只有文本块产生 assistant_text，各自带自己的 blockIndex。
     expect(streamed.filter((event) => event.type === 'assistant_text')).toEqual([
       { type: 'assistant_text', text: 'first part', blockIndex: 0, sdkUuid: SDK_UUID },
       { type: 'assistant_text', text: 'second', blockIndex: 2, sdkUuid: SDK_UUID },
@@ -1409,7 +1382,6 @@ describe('TodoWrite todo snapshots', () => {
       ...result,
     ]);
 
-    // 省略 todos：宿主保留上一份已确认清单，不拿截断内容冒充完整快照。
     expect(toolResultOf(events)).toEqual({
       type: 'tool_result',
       toolUseId: TODO_ID,

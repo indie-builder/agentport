@@ -20,7 +20,6 @@ import { createParsingAdapter } from '../src/knowledge/parsing-adapter.js';
 import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
-// 全链路写入 documents/versions/chunks：独享随机库，避免和其它源同步套件互相收敛。
 const isolated = await createIsolatedDatabase('worker_knowledge_source_expansion');
 const ready = isolated !== null;
 if (isolated) process.env.DATABASE_URL = isolated.url;
@@ -84,7 +83,6 @@ beforeEach(() => {
         body: request.body,
       };
       calls.push(call);
-      // 摄取/检索都要真实走 embedding 协议；向量固定 1024 维，避免命中不存在的上游。
       if (url.origin === EMBED_ORIGIN && url.pathname === '/embeddings') {
         const parsed = JSON.parse(String(request.body ?? '{}')) as { input?: string[] };
         return json({
@@ -529,7 +527,6 @@ describe.skipIf(!ready)('knowledge source expansion public chain', () => {
     const childVersionId = child.currentVersionId;
 
     mode.value = 'partial';
-    // 未知/不完整枚举记为不可重试 skipped，整轮仍结束但 complete=false，不能据此撤旧。
     await runSyncJob(fixtureBase, sourceId);
 
     const after = await repo.knowledge.getDocument(db, child.id);

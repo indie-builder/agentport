@@ -1,4 +1,3 @@
-/** 知识库 embedding/rerank/ASR 客户端；失败分类是任务重试策略的唯一依据。 */
 import { z } from 'zod';
 import { fail } from './errors.js';
 import { type KnowledgeAudioFormat, knowledgeAudioFromMime } from './knowledge-audio.js';
@@ -10,9 +9,7 @@ export interface EmbeddingProfile {
   model: string;
   apiKey?: string;
   dimensions: 1024;
-  /** 缺省按现有 OpenAI 兼容协议，不影响旧调用方。 */
   embeddingProtocol?: EmbeddingProtocol;
-  /** 仅 cohere_v2 + embed-v4.0 可开启；普通文本向量不受影响。 */
   imageInputEnabled?: boolean;
 }
 
@@ -65,7 +62,6 @@ function classifyStatus(status: number): KnowledgeModelFailureKind {
   return 'bad_response';
 }
 
-/** 响应体只用于定位，最多留 200 字符，绝不把整段响应写进日志。 */
 function excerpt(body: string): string {
   return body.slice(0, 200).replace(/\s+/g, ' ');
 }
@@ -76,7 +72,6 @@ function classifyFetchFailure(
   timeout: AbortSignal,
   signal: AbortSignal | undefined,
 ): never {
-  // 调用方取消是控制流，不是模型故障；必须优先于请求超时判断。
   if (signal?.aborted) throw err;
   if (timeout.aborted) throw new KnowledgeModelError('timeout', `请求超时: ${url}`);
   if (err instanceof Error && (err as Error & { code?: unknown }).code === 'UnexpectedRedirect') {
@@ -99,7 +94,6 @@ async function readJsonResponse(
   }
   let body: string;
   try {
-    // 先读完 body 再解析：读失败是传输故障，不能和完整 JSON 的语法错误混为一类。
     body = await response.text();
   } catch (err) {
     classifyFetchFailure(err, url, timeout, signal);
@@ -123,7 +117,6 @@ async function postWithTimeout(
   try {
     response = await fetch(url, {
       method: 'POST',
-      // 凭证随请求头走；重定向到另一个 origin 会把凭证暴露给不可信主机。
       redirect: 'error',
       headers: init.headers,
       body: init.body,
@@ -155,7 +148,6 @@ async function postJson(
   );
 }
 
-/** 响应是信任边界：index 必须唯一、在输入范围内，分数/向量值必须是有限数。 */
 function badResponse(message: string): KnowledgeModelError {
   return new KnowledgeModelError('bad_response', message);
 }
@@ -174,7 +166,6 @@ function indexGuard(count: number): (index: number) => void {
 const embeddingResponseSchema = z.object({
   data: z.array(
     z.object({
-      // 兼容省略 index 的实现：缺失时按数组位置恢复顺序。
       index: z.number().finite().optional(),
       embedding: z.array(z.number().finite()),
     }),
@@ -197,7 +188,6 @@ const cohereEmbeddingResponseSchema = z.object({
   }),
 });
 
-/** 一次请求的向量集合：条数、有限值与维度都在入口之外校验，不静默截断。 */
 function checkVectors(
   vectors: number[][],
   expected: { count: number; dimensions: number },
@@ -321,7 +311,6 @@ export async function rerankDocuments(
   if (!parsed.success) {
     throw badResponse(`rerank 响应不合法: ${parsed.error.issues[0]?.message ?? 'unknown'}`);
   }
-  // 部分结果也是坏响应：调用方无法判断未返回的候选该排第几，只能整体退回 RRF。
   if (parsed.data.results.length !== documents.length) {
     throw badResponse(`rerank 返回 ${parsed.data.results.length} 条，期望 ${documents.length}`);
   }
@@ -357,7 +346,6 @@ function toMilliseconds(seconds: number, label: string): number {
   return milliseconds;
 }
 
-/** multipart 文件名必须是单段、无控制字符，并使用真实格式后缀。 */
 function multipartFilename(filename: string, format: KnowledgeAudioFormat): string {
   const base = [...(filename.split(/[\\/]/).pop() ?? '')]
     .filter((char) => char >= ' ' && char !== '\x7f' && char !== '"')
@@ -367,7 +355,6 @@ function multipartFilename(filename: string, format: KnowledgeAudioFormat): stri
   return `${stem}.${format}`;
 }
 
-/** 原生 FormData 自带 boundary；不手写 content-type，也不补 endpoint 路径。 */
 async function postMultipart(
   url: string,
   form: FormData,

@@ -35,10 +35,6 @@
   --color-avatar-5: #8a5a2e;
   --color-avatar-6: #3f6563;
 
-  /*
-   * 线与文本：分隔线只做分组，边线取 CDS alpha 阶梯。
-   * 浅边线对白低于 3:1，是用户已接受的视觉限制（见 DESIGN-SYSTEM §2.4）。
-   */
   --color-line: rgba(0, 0, 0, 0.10);
   --color-line-strong: rgba(0, 0, 0, 0.20);
   --color-fg: #202b2e;
@@ -49,13 +45,8 @@
    */
   --color-muted: var(--color-sunken);
   --color-subtle: #898781;
-  /*
-   * 复选框/单选框的未选边界与输入边框共用一个 alpha 档，
-   * 比发丝边更重，保证在白底与选中底上仍可见。
-   */
   --color-control-boundary: rgba(0, 0, 0, 0.35);
 
-  /* 数据主线保留独立蓝，不参与导航与按钮；失败保留结果状态色。 */
   --color-chart-runs: #2a78d6;
   --color-chart-failed: var(--color-danger);
 
@@ -64,8 +55,6 @@
 
   --color-ink: var(--color-fg);
 
-  /* 状态：只用于小面积 */
-  /* 成功色需同时满足表面、画布、选中底上的文字对比度。 */
   --color-success: #187646;
   --color-success-soft: #e9f3ec;
   --color-warning: #8a5600;
@@ -73,7 +62,6 @@
   --color-danger: #b42318;
   --color-danger-soft: #fcebe9;
 
-  /* 代码：中性浅底与分隔线 */
   --color-code: #f6f6f6;
   --color-code-block: #0d0d0c;
   --color-code-block-fg: #e6e6e4;
@@ -89,11 +77,10 @@
   --color-scrollbar-thumb: rgb(0 0 0 / 0.16);
   --color-scrollbar-thumb-hover: rgb(60 55 52 / 0.32);
 
-  /* 圆角：CDS 矩阵（卡片 12 / 控件 8 / 标签 6 / Composer 20） */
   --radius-card: 12px;
-  --radius-item: 8px; /* 会话条目、新建会话 */
-  --radius-icon: 8px; /* 图标按钮、logo、折叠按钮 */
-  --radius-tag: 6px; /* 小标签、侧栏图标底 */
+  --radius-item: 8px;
+  --radius-icon: 8px;
+  --radius-tag: 6px;
   --radius-pill: 9999px;
   --radius-bubble: 12px;
   --radius-composer: 14px;
@@ -105,20 +92,18 @@
    * --radius 是 shadcn 的基础变量，保留供底座组件与 Tailwind 圆角工具映射使用。
    */
   --radius: var(--radius-item);
-  --radius-sm: var(--radius-tag); /* 小标签 */
-  --radius-md: var(--radius-icon); /* 图标按钮、小号控件、Tab */
-  --radius-lg: var(--radius-item); /* 常规按钮、输入框、Tab 列表 */
-  --radius-xl: var(--radius-card); /* 卡片与弹层容器 */
+  --radius-sm: var(--radius-tag);
+  --radius-md: var(--radius-icon);
+  --radius-lg: var(--radius-item);
+  --radius-xl: var(--radius-card);
   /* 底座 Badge 用 rounded-4xl；项目里它是最小的标签圆角，不是最大。 */
-  --radius-4xl: var(--radius-tag); /* Badge 小标签 */
+  --radius-4xl: var(--radius-tag);
 
-  /* 侧栏：224 展开 / 48 收起，过渡 160ms */
   --sidebar-width: 224px;
   --sidebar-collapsed: 48px;
   --sidebar-pad: 16px 8px;
   --sidebar-pad-collapsed: 16px 8px;
 
-  /* CDS 动效曲线与时长；--ease-out-soft 对齐参考 ease-swift，是交互/悬停主曲线；--btn-spring 是 15 阶物理弹簧。 */
   --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out: cubic-bezier(0.165, 0.84, 0.44, 1);
   --ease-overshoot: cubic-bezier(0.34, 1.3, 0.64, 1);
@@ -130,7 +115,6 @@
   --font-sans: "anthropic-sans", "AnthropicSans", "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", "PingFang SC", "PingFang TC", "Hiragino Sans", sans-serif;
   --font-mono: "anthropic-mono", "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* 字号阶梯：每档至少差 1px 且语义唯一，不做视觉上分不出的相邻尺寸。 */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
   --text-xs: 0.75rem;
@@ -140,9 +124,7 @@
   --text-base: 0.875rem;
   --text-base--line-height: 1.375rem;
   --text-md: 0.9375rem;
-  /* 26px ≈ 1.73：运行详情等阅读正文需要比控件更松的行高。 */
   --text-md--line-height: 1.625rem;
-  /* 16px：普通页面 h1 与 Markdown H2 共用同一档。 */
   --text-lg: 1rem;
   --text-lg--line-height: 1.5rem;
   --text-xl: 1.125rem;
@@ -152,10 +134,6 @@
   --text-3xl: 1.5rem;
   --text-3xl--line-height: 2rem;
 
-  /*
-   * shadcn 原语映射到统一的语义令牌。
-   * 组件保持库的原始类名，外观仍由这里决定——不要在组件里改色值。
-   */
   --color-background: var(--color-surface);
   --color-foreground: var(--color-fg);
   --color-popover: var(--color-surface);
@@ -172,16 +150,10 @@
   --color-destructive: var(--color-danger);
   --color-destructive-foreground: #ffffff;
   --color-border: var(--color-line);
-  /*
-   * 输入家族：默认边线等同 line；普通输入族聚焦改用中性暖灰 subtle #898781（无光晕，对白 3.59:1），
-   * SourceEditor / CodeMirror 沿用中性 input-focus（line / input-focus 对白仅 1.25 / 1.88:1，不达 3:1）；
-   * 不新增 input hover；Input / Textarea / Select 错误态静止与聚焦都只保留单条 danger 边线。
-   */
   --color-input: var(--color-line);
   --color-input-focus: #bdbdbd;
   --color-ring: var(--color-fg);
 
-  /* 浮层共享 CDS 双环 popover 阴影；不加彩色光晕。 */
   --shadow-overlay: 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
   --shadow-2xs: 0 1px 1px rgba(0, 0, 0, 0.04);
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 2px 8px 0 rgba(0, 0, 0, 0.08);
@@ -365,10 +337,6 @@
     }
   }
 
-  /*
-   * 「新建专家」卡的插画扇形：六张角色插画叠在卡片中央，悬停/聚焦时按次序
-   * 向两侧展开。取自参考实现的排布与展开角度，配色改用项目令牌。
-   */
   .agent-create-fan {
     position: relative;
     display: flex;
@@ -566,7 +534,6 @@
     height: 3px;
     border-radius: 50%;
     background: var(--color-fg);
-    /* 静止态可见：reduced-motion 下动画结束后回到这里，避免指示点整组消失。 */
     opacity: 1;
     animation: quiet-dot 1.9s var(--ease-pulse) infinite;
   }

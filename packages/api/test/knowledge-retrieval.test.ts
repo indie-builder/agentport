@@ -7,7 +7,6 @@ import { searchKnowledge } from '../src/modules/knowledge/retrieval.js';
 const SECRET_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';
 const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 
-// 真实本地 HTTP fixture：embedding 走 OpenAI 兼容 /embeddings。
 let fixture: Server;
 let fixtureUrl = '';
 let embeddingMode: 'ok' | 'fail' = 'ok';
@@ -15,14 +14,12 @@ let rerankMode: 'ok' | 'fail' | 'partial' = 'ok';
 let embeddingCalls = 0;
 
 function vectorFor(text: string): number[] {
-  // 第一个维度编码「主题」：包含 token 的文本落在正方向，其余接近 0。
   const vector = Array.from({ length: 1024 }, () => 0);
   vector[0] = text.includes('token') || text.includes('令牌') ? 1 : 0.01;
   vector[1] = text.includes('backup') ? 1 : 0.01;
   return vector;
 }
 
-/** 与 vectorFor('令牌') 的 cosine 近似为给定值，用于 directAnswer 门槛测试。 */
 function vectorAt(cosine: number): number[] {
   const vector = Array.from({ length: 1024 }, () => 0);
   vector[0] = cosine;
@@ -46,7 +43,6 @@ beforeAll(async () => {
       if (req.url === '/rerank') {
         if (rerankMode === 'fail') return respond(500, { error: 'boom' });
         const { documents } = JSON.parse(raw) as { documents: string[] };
-        // 倒序打分；partial 只回第一条，用于验证「部分结果=失败」。
         const results = documents
           .map((_document, index) => ({ index, score: documents.length - index }))
           .slice(0, rerankMode === 'partial' ? 0 : documents.length);
@@ -273,7 +269,6 @@ describe('searchKnowledge', () => {
 
   it('rerank 不可用时保留融合顺序而不是报错', async () => {
     const query = { q: '令牌', folders: [], tags: [], limit: 10, rerank: true };
-    // fixture 没有 /rerank，走 bad_response 分支。
     const result = await searchKnowledge(db, baseId, query, { secretKey: SECRET_KEY });
     expect(result.degraded).toBe(false);
     expect(result.hits[0]?.title).toBe('令牌文档');
@@ -315,7 +310,6 @@ describe('searchKnowledge', () => {
         { content: '令牌旧版本', searchText: '令牌 旧 版本', embedding: vectorFor('token') },
       ],
     });
-    // 再建一个版本并切成当前版本，旧版本 chunk 必须掉出召回。
     const newer = await repo.knowledge.createVersion(db, {
       documentId: old.document.id,
       blobSha256: 'c'.repeat(64),
@@ -434,7 +428,6 @@ describe('searchKnowledge', () => {
         {
           content: '令牌低频相似',
           searchText: '令牌 低频 相似',
-          // 与查询向量近似正交，低于默认 0.3。
           embedding: vectorFor('backup'),
         },
       ],
@@ -618,7 +611,6 @@ describe('searchKnowledge', () => {
     const faqHits = result.hits.filter(
       (entry) => entry.target.kind === 'faq' && entry.target.id === faq.document.id,
     );
-    // 标准问与相似问同属一份 FAQ，只保留排名最高的一条。
     expect(faqHits).toHaveLength(1);
     const hit = faqHits[0]!;
     expect(hit.faq?.answers).toEqual(['打开设置页面重置。', '联系管理员重置。']);
@@ -699,7 +691,6 @@ describe('searchKnowledge', () => {
       const hit = result.hits.find((entry) => entry.target.id === faq.document.id);
       expect(hit?.faq?.answerStrategy).toBe('random');
       expect(hit?.faq?.answers).toHaveLength(1);
-      // 父上下文也不得泄露未抽中的答案。
       expect(hit?.parentContent).toBe(hit?.faq?.answers[0]);
       expect(answers).toContain(hit?.faq?.answers[0]);
       seen.add(hit!.faq!.answers[0]!);
@@ -853,7 +844,6 @@ describe('searchKnowledge', () => {
     ).toBeGreaterThan(0.3);
     expect(below.directAnswer).toBeNull();
 
-    // 同一原始 cosine 在较低门槛下可用，证明门槛比较的是 cosine 而不是 RRF。
     const above = await searchKnowledge(
       db,
       baseId,
@@ -982,7 +972,6 @@ describe('searchKnowledge', () => {
       { secretKey: SECRET_KEY },
     );
     const hit = result.hits.find((entry) => entry.documentId === document.id);
-    // 父上下文只由仍启用的子块重建，不直接回显父块存储正文。
     expect(hit?.parentContent).toBe('子块正文：先轮换再撤销');
     expect(hit?.locator).toEqual({ pageFrom: 2, lineFrom: 10 });
     expect(result.hits.every((entry) => entry.target.kind === 'document')).toBe(true);
@@ -1035,7 +1024,6 @@ describe('searchKnowledge', () => {
     expect(wikiHit?.targetVersionId).toBe(published?.id);
     expect(wikiHit?.documentId).not.toBe(page.id);
 
-    // Wiki 默认不受自己的目录/标签影响；带过滤时看来源文档。
     const matchingFolder = await repo.knowledge.createFolder(db, {
       baseId,
       parentId: null,
@@ -1080,7 +1068,6 @@ describe('searchKnowledge', () => {
     );
     expect(byOtherTag.hits.some((entry) => entry.target.id === page.id)).toBe(false);
 
-    // 线上指针前进但索引未追上：旧索引不召回，并给出 pending 警告。
     const next = await repo.knowledge.saveWikiVersion(db, page.id, {
       markdown: '线上 Wiki 新正文',
       sourceChunkIds: [chunk[0]!.id],
@@ -1097,7 +1084,6 @@ describe('searchKnowledge', () => {
     expect(stale.hits.some((entry) => entry.target.id === page.id)).toBe(false);
     expect(stale.warnings.map((warning) => warning.code)).toContain('wiki_index_pending');
 
-    // 来源撤权后，即使索引仍指向线上版本也不能召回。
     await repo.knowledge.updateDocument(db, source.document.id, {
       status: 'disabled',
       disabledReason: 'manual',
@@ -1148,7 +1134,6 @@ describe('searchKnowledge', () => {
       sql`insert into knowledge_document_source_ranges (document_id, range_id)
           values (${document.document.id}, ${range!.id})`,
     );
-    // 来源文档先证明范围归属，再切当前版本（发布守卫会拒绝无归属的外部文档）。
     await repo.knowledge.setCurrentVersion(db, document.document.id, document.version.id);
     const before = await searchKnowledge(
       db,

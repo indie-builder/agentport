@@ -27,7 +27,6 @@ describe.skipIf(!ready)('eval run cancellation', () => {
   });
 
   afterAll(async () => {
-    // 审计没有外键，目标行随 agent 级联删除后仍需显式清理。
     if (evalRunIds.length > 0) {
       await app.client.unsafe('delete from audit_log where target = any($1::text[])', [
         app.client.array(evalRunIds, 'TEXT'),
@@ -37,7 +36,6 @@ describe.skipIf(!ready)('eval run cancellation', () => {
     await app.close();
   });
 
-  /** 直接落一条 running 跑批，不入队：没有 job，worker 不会消费。 */
   const seedRun = async () => {
     const agent = (
       await createAgent(app, cookie, { slug: unique('eval-cancel'), track: createdAgents })
@@ -99,7 +97,6 @@ describe.skipIf(!ready)('eval run cancellation', () => {
 
     const audits = await cancelAudits(run.id);
     expect(audits).toHaveLength(1);
-    // 审计不落用例提示词：只有摘要位，且本次没有 input。
     expect(audits[0]).toMatchObject({ input_digest: null });
   });
 
@@ -197,7 +194,6 @@ describe.skipIf(!ready)('eval run cancellation', () => {
 
   it('ignores late finish, progress and claim while keeping recorded results', async () => {
     const { run, evalCase, caseSnapshot } = await seedRun();
-    // 取消前已写下的结果属于这次跑批，取消不该抹掉它。
     await repo.evalRepo.addResult(
       app.db,
       {
@@ -214,7 +210,6 @@ describe.skipIf(!ready)('eval run cancellation', () => {
 
     expect((await cancel(run.id)).statusCode).toBe(202);
 
-    // worker 晚到的收口与进度写入都必须被 running 条件挡住。
     await repo.evalRepo.finishEvalRun(app.db, run.id, { status: 'failed', passed: 0 });
     await repo.evalRepo.updateProgress(app.db, run.id, 9);
     expect(await repo.evalRepo.claimEvalRun(app.db, run.id)).toBe(false);

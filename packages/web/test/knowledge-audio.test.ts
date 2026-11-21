@@ -87,7 +87,6 @@ function profileSelection(profile: { id: string; name: string; kind: string; ena
   };
 }
 
-/** `/model-profiles` 按 view=selection 返回安全的精简选择项，管理视图才返回完整 profile。 */
 function profilesHandler(
   profiles: Array<{
     id: string;
@@ -425,7 +424,6 @@ describe('knowledge audio base binding', () => {
       http.post('/api/knowledge/bases', () =>
         HttpResponse.json({ ...base, id: 'kb_new', slug: 'new-base', name: '新库' }),
       ),
-      // 创建成功后主 #132 会直接进入详情，详情查询也要有对应 handler。
       http.get('/api/knowledge/bases/kb_new', () =>
         HttpResponse.json({ ...base, id: 'kb_new', slug: 'new-base', name: '新库' }),
       ),
@@ -438,21 +436,18 @@ describe('knowledge audio base binding', () => {
     await mountRoute('/knowledge');
     await click(button('新建知识库'));
     const creator = dialog('新建知识库');
-    // 主 #132 的建库弹层把模型与分块参数收进高级设置。
     await click(button('高级设置', creator));
     const asrSelect = document.getElementById('knowledge-asr');
     expect(asrSelect).not.toBeNull();
     await chooseOption('knowledge-asr', 'whisper-1');
     expect(asrSelect?.textContent).toContain('whisper-1');
 
-    // 只改音频转录也算草稿，取消要先确认。
     await click(button('取消', creator));
     expect(dialog('放弃未保存的更改？')).toBeDefined();
     await click(button('取消', dialog('放弃未保存的更改？')));
 
     await fill('knowledge-name', '新库');
     await fill('knowledge-slug', 'new-base');
-    // 只有一个启用的 embedding 时是只读展示，不渲染可选控件。
     expect(document.getElementById('knowledge-embedding')).toBeNull();
     expect(creator.textContent).toContain('bge-m3');
     expect(calls.some((item) => item.path === '/api/knowledge/model-profiles?view=selection')).toBe(
@@ -592,7 +587,6 @@ describe('knowledge audio upload', () => {
       'input[aria-label="选择要上传的文件夹"]',
     );
     if (!input || !folderInput) throw new Error('Missing upload inputs');
-    // 通用入口不能收窄成音频；DOM 上没有 accept 说明 PDF/Markdown 等格式仍可选。
     expect(input.getAttribute('accept')).toBeNull();
     expect(folderInput.getAttribute('accept')).toBeNull();
 

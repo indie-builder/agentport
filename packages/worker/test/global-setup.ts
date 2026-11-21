@@ -3,10 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { connect } from 'node:net';
 import { type BackendInfra, createIsolatedDatabase } from './isolated-db.js';
 
-// 与 docker-compose.yml 的 redis 使用同一 tag+digest；CI 预拉取的就是这个 tag。
 const REDIS_IMAGE =
   'redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537';
-/** 私有实例内部的分区；对外仍沿用测试约定的 db 9。 */
 const REDIS_DB = 9;
 const CONTAINER_PREFIX = 'backend_test_redis';
 const UNAVAILABLE: BackendInfra = {
@@ -50,7 +48,6 @@ function dockerError(result: DockerResult): string {
   return firstLine(result.stderr) || `exit ${result.code}`;
 }
 
-/** 只有 CLI/守护进程不可用时才算基础设施缺失；镜像缺失等配置错误继续抛出。 */
 function dockerUnavailable(result: DockerResult): boolean {
   return (
     result.code === -1 ||
@@ -69,7 +66,6 @@ async function removeContainer(name: string): Promise<void> {
   }
 }
 
-/** 清理失败时同时保留原始错误与清理错误，并让调用方拿回重试机会。 */
 async function discardContainer(name: string, original: Error): Promise<never> {
   try {
     await removeContainer(name);
@@ -98,11 +94,6 @@ function waitForPort(port: number): Promise<boolean> {
   });
 }
 
-/**
- * 每轮测试独享一个临时 Redis 容器：复用已缓存镜像，Docker 分配 loopback 随机端口，
- * 关闭持久化，结束时只按本次返回的容器名删除。Docker 不可用返回 null，由调用方
- * 发布不可连地址让依赖 Redis 的套件跳过，绝不回落到共享 Redis。
- */
 export async function startRedisContainer(): Promise<IsolatedRedis | null> {
   const name = `${CONTAINER_PREFIX}_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
   // create 与 start 分开：run 非零退出时容器可能已创建，唯一名字保证失败也只清本轮容器。
@@ -208,7 +199,6 @@ export default async function setup(): Promise<{
       const failures = results.flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : [],
       );
-      // 清理后仍缺基础设施就以非零退出：套件跳过不等于通过。
       if (missing.length > 0) {
         const missingError = new Error(
           `backend tests: missing infrastructure (${missing.join(', ')}); dependent suites were skipped, not passed`,

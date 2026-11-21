@@ -18,7 +18,6 @@ import type { Sandbox, SandboxCreateOptions } from '../src/sandbox/provider.js';
 import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { waitFor } from './fixtures/native-test.js';
 
-/** registerNativePlugins 自建 provider；用可控替身覆盖 create/destroyAll。 */
 const docker = (() => ({
   createImpl: mock<(options: SandboxCreateOptions) => Promise<Sandbox>>(),
   destroy: mock(async (_sandbox: Sandbox) => undefined),
@@ -56,7 +55,6 @@ interface FakeProvider {
   provider: NativePluginsDeps['provider'];
 }
 
-/** behavior 决定容器如何响应任务；child 由用例自己驱动 stdout/stderr/close。 */
 function fakeProvider(behavior: () => FakeChild): FakeProvider {
   const options: SandboxCreateOptions[] = [];
   const destroyed: string[] = [];
@@ -101,7 +99,6 @@ function deps(provider: FakeProvider['provider'], timeoutMs?: number): NativePlu
   };
 }
 
-/** 容器收到任务后写一行结果并退出。 */
 function respondingChild(line: unknown, stderr = ''): FakeChild {
   const child = new FakeChild();
   child.stdin.write = (() => {
@@ -119,9 +116,6 @@ function hangingChild(): FakeChild {
   return child;
 }
 
-/**
- * close 用独立 Redis db：worker 容器在 db 0 消费同一个队列名，共用会让真实安装抢走任务。
- */
 const redisUrl = (() => {
   const url = new URL(process.env.REDIS_URL ?? 'redis://127.0.0.1:6379');
   url.pathname = '/1';
@@ -139,7 +133,6 @@ function config(): Config {
   });
 }
 
-/** 等消费者真正拿到 job：create 被调用即表示任务已在跑。 */
 async function waitForCreate(): Promise<void> {
   await waitFor(() => expect(docker.createImpl).toHaveBeenCalled(), { timeout: 10_000 });
 }
@@ -227,7 +220,6 @@ describe('runNativePluginAction', () => {
       image: RUNTIME.imageId,
       entrypoint: 'bun',
       command: ['dist/native-plugins.js'],
-      // 安装不调用模型：容器里只有可写的 HOME/TMPDIR，没有任何平台密钥。
       env: { HOME: '/tmp', TMPDIR: '/tmp' },
       workspaceDir: join(workspacesDir, 'native-plugin-actions'),
     });
@@ -237,7 +229,6 @@ describe('runNativePluginAction', () => {
         containerPath: '/mnt/plugin-cache',
       },
     ]);
-    // 正常完成的动作不能触发取消。
     expect(options?.signal?.aborted).toBe(false);
     expect(fake.destroyed).toEqual(['native-plugin-fake']);
   });
@@ -281,7 +272,6 @@ describe('runNativePluginAction', () => {
 
     expect(result).toEqual({ ok: false, error: '沙盒动作超时（30ms）' });
     expect(fake.destroyed).toEqual(['native-plugin-fake']);
-    // 总预算用完也要取消这次创建，冷拉取不能继续。
     expect(fake.options[0]?.signal?.aborted).toBe(true);
   });
 
@@ -340,7 +330,6 @@ describe('runNativePluginAction', () => {
       },
       destroy: async () => undefined,
     };
-    // provider 先于动作注册 closing 监听：关停时 create 的拒绝先于 done 落地。
     closing.signal.addEventListener(
       'abort',
       () => rejectCreate?.(new Error('sandbox create aborted')),
@@ -387,7 +376,6 @@ describe('runNativePluginAction', () => {
 
     captured.resolve?.({ id: 'native-plugin-late', child } as unknown as Sandbox);
     await waitFor(() => expect(destroyed).toEqual(['native-plugin-late']));
-    // 停止语义归 provider；这里不能杀进程，清理失败也必须带上下文告警。
     expect(child.signals).toEqual([]);
     expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -431,7 +419,6 @@ describe('registerNativePlugins close', () => {
   afterAll(obliterateQueue);
 
   beforeEach(() => {
-    // clearAllMocks 保留实现；上面两个用例各自 set 了 createImpl。
     mock.clearAllMocks();
   });
 
@@ -451,7 +438,6 @@ describe('registerNativePlugins close', () => {
     const finishedAtDestroy: boolean[] = [];
     docker.destroyAll.mockImplementation(async () => {
       finishedAtDestroy.push(jobFinished);
-      // docker rm -f 后容器立刻退出，这是 close 能快速返回的前提。
       child.emit('close', 137, 'SIGKILL');
     });
     const queue = await enqueueInstall();
@@ -460,7 +446,6 @@ describe('registerNativePlugins close', () => {
       await waitForCreate();
       await handle.close();
 
-      // 先停新任务、再销毁容器：销毁发生时安装任务还在跑，close 未被安装预算拖住。
       expect(finishedAtDestroy).toEqual([false]);
       expect(docker.destroyAll).toHaveBeenCalledTimes(1);
       expect(child.signals).toContain('SIGKILL');
@@ -495,10 +480,8 @@ describe('registerNativePlugins close', () => {
     const handle = await registerNativePlugins(config(), async () => RUNTIME);
     try {
       await waitForCreate();
-      // create 未完成时 destroyAll 清不到容器，close 必须自行返回而不是等满安装预算。
       await handle.close();
 
-      // 迟到的容器由 provider 销毁，native-plugins 不再直接杀进程。
       const child = hangingChild();
       resolveCreate({ id: 'native-plugin-late', child } as unknown as Sandbox);
       await waitFor(() => expect(docker.destroy).toHaveBeenCalledTimes(1));

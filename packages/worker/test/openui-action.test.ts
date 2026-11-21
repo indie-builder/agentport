@@ -40,7 +40,6 @@ describe('promptWithOpenUiAction', () => {
       ],
       'fallback',
     );
-    // 入口已按 64KB 拒绝超限动作；这里再截断会让模型读到半份上下文。
     expect(prompt).not.toContain('已省略');
     const json = JSON.parse(prompt.slice(prompt.indexOf('[openui_action] ') + 16));
     expect(json).toEqual({ context: { blob: 'x'.repeat(20_000) } });

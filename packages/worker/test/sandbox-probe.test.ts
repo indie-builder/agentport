@@ -21,7 +21,6 @@ import type { ProbeSandboxOptions, SandboxProbeDeps } from '../src/sandbox-probe
 import { bunRedisConnection } from './fixtures/bun-redis.js';
 import { waitFor } from './fixtures/native-test.js';
 
-/** registerSandboxProbe 自建 provider；close 用例用替身覆盖 destroyAll。 */
 const docker = (() => ({ destroyAll: mock(async () => undefined) }))();
 
 const dockerActual = await import('../src/sandbox/docker.js');
@@ -79,7 +78,6 @@ interface FakeProvider {
   provider: SandboxProbeDeps['provider'];
 }
 
-/** behavior 决定容器如何响应任务；child 由用例自己驱动 stdout/stderr/close。 */
 function fakeProvider(behavior: () => FakeChild): FakeProvider {
   const options: ProbeSandboxOptions[] = [];
   const destroyed: string[] = [];
@@ -125,7 +123,6 @@ function deps(provider: FakeProvider['provider']): SandboxProbeDeps {
   };
 }
 
-/** 容器收到任务后写一行结果并退出。 */
 function respondingChild(line: unknown, stderr = ''): FakeChild {
   const child = new FakeChild();
   child.stdin.write = (() => {
@@ -172,12 +169,10 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
       image: RUNTIME.imageId,
       entrypoint: 'bun',
       command: ['dist/probe.js'],
-      // 试连不调用模型：容器里不能出现任何模型凭证，只给一个可写的 HOME。
       env: { HOME: '/tmp' },
     });
     expect(Object.keys(options?.env ?? {}).some((key) => key.startsWith('ANTHROPIC'))).toBe(false);
     expect(options?.workspaceDir).toBe(join(workspacesDir, 'sandbox-probes'));
-    // 正常完成的试连不能触发取消，否则 provider 会把已启动的容器当成被放弃。
     expect(options?.signal?.aborted).toBe(false);
   });
 
@@ -259,7 +254,6 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     expect(result.error).toMatch(/连接测试超时（30ms）/);
     expect(result.durationMs).toBeLessThan(SANDBOX_PROBE_STARTUP_TIMEOUT_MS);
     expect(fake.destroyed).toEqual(['probe-fake']);
-    // 总预算用完也要取消这次创建，冷拉取不能继续。
     expect(fake.options[0]?.signal?.aborted).toBe(true);
   });
 
@@ -341,16 +335,12 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     const result = await runSandboxProbe({ ...deps(provider), logger }, serverId, 220);
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/启动超时/);
-    // 启动预算用完必须取消 provider.create，否则冷拉取会在超时后继续。
     expect(captured.signal?.aborted).toBe(true);
 
-    // 迟到的容器必须交给 provider 销毁，不能因为超时先返回就泄漏。
     captured.resolve?.({ id: 'late-sandbox', child } as unknown as Sandbox);
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(destroyed).toEqual(['late-sandbox']);
-    // 停止语义统一在 provider 里，probe 不再直接给 docker 客户端发信号。
     expect(child.signals).toEqual([]);
-    // 清理失败不能吞掉：带 err、serverId 与容器 id 记一条 warning。
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toMatchObject({ serverId, sandboxId: 'late-sandbox' });
     expect(warn.mock.calls[0]?.[0]).toHaveProperty('err');
@@ -396,7 +386,6 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
       },
       destroy: async () => undefined,
     };
-    // provider 先于试连注册 closing 监听：关停时 create 的拒绝先于 done 落地。
     closing.signal.addEventListener(
       'abort',
       () => rejectCreate?.(new Error('sandbox create aborted')),
@@ -425,7 +414,6 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     const startedPromise = new Promise<void>((resolve) => {
       started = resolve;
     });
-    // stdin.write 在结果监听挂好后发生，用它确认试连已进入等待。
     child.stdin.write = (() => {
       started();
       return true;
@@ -466,7 +454,6 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
   });
 });
 
-/** close 用独立 Redis db：与 worker 的 probe 队列隔离，避免抢走真实任务。 */
 const redisUrl = (() => {
   const url = new URL(process.env.REDIS_URL ?? 'redis://127.0.0.1:6379');
   url.pathname = '/1';

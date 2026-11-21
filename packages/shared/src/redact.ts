@@ -6,7 +6,6 @@ function mask(secret: string): string {
   return secret.length > 4 ? `${secret.slice(0, 4)}***` : '***';
 }
 
-// 有界 lookahead 保住长度阈值，+ 避免数 MB 连续串耗尽 V8 回溯栈。
 const BEARER = /(\bBearer\s+)(?=[A-Za-z0-9._~+/=-]{8})([A-Za-z0-9._~+/=-]+)/gi;
 const PROVIDER_KEY = /\b(?:sk-|ghp_)[A-Za-z0-9_-]+/g;
 const ASSIGNMENT =
@@ -40,7 +39,6 @@ export function redactJson(json: string): string {
   try {
     return JSON.stringify(redactJsonValue(JSON.parse(json)));
   } catch {
-    // 截断的入参本来就不是合法 JSON，退回文本脱敏。
     return redactSecrets(json);
   }
 }

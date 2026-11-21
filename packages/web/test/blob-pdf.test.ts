@@ -36,7 +36,6 @@ function deferredHeader() {
   return { promise, resolve };
 }
 
-/** 前 5 字节读取可被测试挂起，其余切片仍是真实 Blob。 */
 class DeferredHeaderBlob extends Blob {
   constructor(
     text: string,

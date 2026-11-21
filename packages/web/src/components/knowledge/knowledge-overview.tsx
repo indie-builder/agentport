@@ -34,7 +34,6 @@ function ConfigItem({
   );
 }
 
-/** 汇总只带字符串类型；未知类型如实显示原值，不猜成某个已知任务。 */
 function jobTypeName(type: string): string {
   return jobTypeLabel[type as keyof typeof jobTypeLabel] ?? type;
 }
@@ -48,7 +47,6 @@ function CountItem({ label, count }: { label: string; count: number }) {
   );
 }
 
-/** 活动名只映射真实写入过的动作；未知动作原样显示，不猜中文名。 */
 const activityActionLabel: Record<string, string> = {
   'knowledge.base.created': '创建知识库',
   'knowledge.base.updated': '更新知识库',
@@ -66,7 +64,6 @@ const activityActionLabel: Record<string, string> = {
 };
 
 function activityActionName(action: string): string {
-  // 各来源的文档导入写作 `knowledge.document.<sourceType>_imported`，同一件事用同一个名字。
   if (action.startsWith('knowledge.document.') && action.endsWith('_imported')) return '导入文档';
   return activityActionLabel[action] ?? action;
 }
@@ -90,10 +87,6 @@ function ActivityRow({ entry }: { entry: KnowledgeBaseActivityItem }) {
   );
 }
 
-/**
- * 概览只做查看与少量入口：配置、内容计数、使用此库的专家、最近活动。
- * 模型名与计数都来自真实接口，读不到时如实标注，不猜默认值。
- */
 export function KnowledgeOverview({
   base,
   canCreate,
@@ -118,7 +111,6 @@ export function KnowledgeOverview({
   const [duplicatedBaseId, setDuplicatedBaseId] = useState<string | null>(null);
   const copyButtonRef = useRef<HTMLButtonElement>(null);
 
-  // 弹层卸载、blocker 结算后再离开当前库。
   useEffect(() => {
     if (duplicating || duplicatedBaseId === null) return;
     setDuplicatedBaseId(null);
@@ -134,14 +126,12 @@ export function KnowledgeOverview({
 
   const image = base.settings.imageProcessing;
   const lastJob = summary.data?.lastJob ?? null;
-  // 三种内容都为 0 才是真正的空库：来源与文件夹只承载内容，不单独算有内容。
   const emptyContent =
     summary.data !== undefined &&
     summary.data.documents === 0 &&
     summary.data.faqs === 0 &&
     summary.data.wikiPages === 0;
 
-  // 没有活动时整块不渲染，不留「暂无」占位。
   const activityBody = activity.isPending ? (
     <LoadingState rows={2} />
   ) : activity.isError ? (
@@ -234,7 +224,6 @@ export function KnowledgeOverview({
               <CountItem label="文件夹" count={summary.data.folders} />
               <CountItem label="标签" count={summary.data.tags} />
             </dl>
-            {/* 空库下一步只有真能上传的人才看得到：否则是点了必被拒的入口。 */}
             {emptyContent && canUpload ? (
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-sm text-fg">这个库还没有内容</span>

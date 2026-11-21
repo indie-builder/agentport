@@ -189,7 +189,6 @@ describe.skipIf(!ready)('run questions repo', () => {
     const mapped = Object.fromEntries(
       longQuestions.map((item) => [item.question, `A, ${freeText}`]),
     );
-    // 逐题 1,903 字符合法，但原问题键映射后整体载荷超过 SDK stdin 上限。
     expect(JSON.stringify(mapped).length).toBeGreaterThan(QUESTION_LIMITS.responseBytes);
 
     await expect(

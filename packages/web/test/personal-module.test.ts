@@ -280,7 +280,6 @@ describe('个人资料', () => {
     await vi.waitFor(() => expect(host.textContent).toContain('当前设备'));
     expect(host.textContent).toContain('user-1');
     expect(host.textContent).toContain(formatDateTime(sessionCurrent.updatedAt));
-    // 未修改时取消与保存同步禁用，消除视觉倒挂；登录安全链接具可见下划线与箭头。
     expect(button('取消').disabled).toBe(true);
     expect(button('保存').disabled).toBe(true);
     const securityLink = host.querySelector<HTMLAnchorElement>('a[href="/personal/security"]');
@@ -337,7 +336,6 @@ describe('账号安全', () => {
     expect(lists).toHaveLength(2);
     expect(lists[0]?.textContent).toContain(formatDateTime(sessionCurrent.updatedAt));
     expect(lists[1]?.textContent).toContain(formatDateTime(sessionOther.updatedAt));
-    // 主行只保留最近活动与 IP，用户名代理和登录/到期在会话详情里。
     expect(host.textContent).not.toContain('Chrome on macOS');
     expect(host.textContent).not.toContain(formatDateTime(sessionCurrent.createdAt));
 
@@ -488,7 +486,6 @@ describe('账号安全', () => {
       expect(dialog?.textContent).toContain('当前登录状态已过期，请重新登录后再撤销这次会话。');
       expect(maybeButton('重新登录', dialog ?? document)).not.toBeNull();
     });
-    // 鲜度分支不能把仍在展示错误的确认框卸载掉。
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
@@ -525,7 +522,6 @@ describe('账号安全', () => {
     expect(otherCard.textContent).toContain(formatDateTime(sessionOther.updatedAt));
     expect(otherCard.textContent).toContain('127.0.0.1');
 
-    // 刷新位于页头 actions；卡片视图各会话分组不叠顶部分隔线；详情触发器带展开箭头；撤销用危险样式。
     const header = host.querySelector('[data-slot="page-header"]');
     expect(header?.contains(button('刷新', host))).toBe(true);
     const groupSections = [...host.querySelectorAll('[data-slot="page-section"]')];
@@ -727,7 +723,6 @@ describe('我的分享', () => {
     await click(button('展开来源'));
     expect(maybeButton('收起来源')).not.toBeNull();
     expect(button('收起来源').getAttribute('aria-expanded')).toBe('true');
-    // 展开后同一个标题节点仍在，且只有一份。
     expect(host.textContent?.match(/季度总结/g)).toHaveLength(1);
     const source = host.querySelector<HTMLAnchorElement>('a[href^="/chat?"]');
     expect(source?.getAttribute('href')).toBe('/chat?agent=agent-a&conversation=conv-1');
@@ -969,7 +964,6 @@ describe('会话与成果', () => {
     expect(host.textContent).toContain('定时: 每日早报汇总');
     expect(host.textContent).not.toContain('reports/spec.md');
 
-    // 按来源筛选：定时任务
     await click(button('按来源筛选会话', host));
     const scheduledOption = await vi.waitFor(() => {
       const match = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
@@ -986,7 +980,6 @@ describe('会话与成果', () => {
     expect(host.textContent).toContain('定时: 每日早报汇总');
     expect(host.textContent).not.toContain('需求评审整理');
 
-    // 按关键词过滤会话：无匹配时显示事实空态与清除筛选
     const convSearch = host.querySelector<HTMLInputElement>('input[aria-label="搜索会话"]');
     if (!convSearch) throw new Error('Missing conversation search input');
     await act(async () => {
@@ -1002,7 +995,6 @@ describe('会话与成果', () => {
     await click(button('清除筛选', host));
     await vi.waitFor(() => expect(host.textContent).toContain('共 2 条会话'));
 
-    // 切换到成果视图
     await click(workTab('成果'));
     await vi.waitFor(() =>
       expect((router.state.location.search as { tab?: string }).tab).toBe('outputs'),

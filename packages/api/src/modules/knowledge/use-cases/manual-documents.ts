@@ -106,8 +106,6 @@ async function fetchSource(rawUrl: string): Promise<{
   return { data, mimeType, filename };
 }
 
-// ---- manual documents -----------------------------------------------------
-
 async function manualDocument(deps: KnowledgeDeps, documentId: string) {
   const document = await repo.knowledge.getDocument(deps.db, documentId);
   if (!document) notFound('文档');

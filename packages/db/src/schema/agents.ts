@@ -26,19 +26,16 @@ export const agents = pgTable(
     id: text('id').primaryKey(),
     slug: text('slug').notNull(),
     name: text('name').notNull(),
-    /** 角色/岗位仅用于列表与详情展示。 */
     role: text('role').notNull().default('通用助手'),
     model: text('model').notNull(),
     description: text('description').notNull().default(''),
     systemPromptMd: text('system_prompt_md').notNull().default(''),
-    /** [] 继承所有已绑定 MCP server 的工具；非空为显式自动批准规则，禁用用 disallowedTools。 */
     allowedTools: jsonb('allowed_tools').$type<string[]>().notNull().default([]),
     disallowedTools: jsonb('disallowed_tools').$type<string[]>().notNull().default([]),
     permissionMode: text('permission_mode')
       .$type<AgentInput['permissionMode']>()
       .notNull()
       .default('default'),
-    /** 助手回复格式：markdown 或生成式 UI（OpenUI Lang 围栏）。 */
     uiFormat: text('ui_format').$type<AgentInput['uiFormat']>().notNull().default('markdown'),
     effort: text('effort').$type<NonNullable<AgentInput['effort']>>(),
     enabled: boolean('enabled').notNull().default(true),
@@ -55,16 +52,12 @@ export const agents = pgTable(
       .notNull()
       .default('0.800'),
     timeoutMs: integer('timeout_ms').notNull().default(600_000),
-    /** 业务身份；创建后不变，不引用可删除的 authUsers。 */
     createdBy: text('created_by').notNull(),
-    /** 当前负责人；成员授权与转交都看它。 */
     ownerBusinessId: text('owner_business_id').notNull(),
     isDefault: boolean('is_default').notNull().default(false),
-    /** 单层委派：非空表示自己是某个主智能体的子智能体。 */
     parentId: text('parent_id').references((): AnyPgColumn => agents.id, {
       onDelete: 'restrict',
     }),
-    /** 绑定的命名运行环境；null 表示平台默认环境。 */
     runtimeEnvironmentId: text('runtime_environment_id').references(
       (): AnyPgColumn => runtimeEnvironments.id,
       { onDelete: 'restrict' },
@@ -132,7 +125,6 @@ export const agentSkills = pgTable(
   },
   (t) => [
     uniqueIndex('agent_skills_pk').on(t.agentId, t.skillId),
-    // agent_skills_pk 只覆盖 (agent_id, skill_id)：删除 skill 或按 skill 反查要单独一条。
     index('agent_skills_skill_idx').on(t.skillId),
   ],
 );
@@ -150,7 +142,6 @@ export const agentPlugins = pgTable(
     pluginId: text('plugin_id')
       .notNull()
       .references(() => plugins.id, { onDelete: 'cascade' }),
-    /** hooks / MCP 默认关闭；管理员逐项授权后才随插件加载。 */
     allowHooks: boolean('allow_hooks').notNull().default(false),
     allowMcp: boolean('allow_mcp').notNull().default(false),
   },
@@ -173,7 +164,6 @@ export const agentRules = pgTable(
       .references(() => agents.id, { onDelete: 'cascade' }),
     slug: text('slug').notNull(),
     content: text('content').notNull().default(''),
-    /** 路径作用域（逗号分隔的 glob）；空表示对所有文件生效。 */
     globs: text('globs').notNull().default(''),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -205,7 +195,6 @@ export const agentOutputStyles = pgTable(
   },
   (t) => [
     uniqueIndex('agent_output_styles_agent_slug_idx').on(t.agentId, t.slug),
-    // 每个智能体至多一个选中风格。
     uniqueIndex('agent_output_styles_selected_idx').on(t.agentId).where(eq(t.isSelected, true)),
   ],
 );
@@ -265,7 +254,6 @@ export const agentServers = pgTable(
   },
   (t) => [
     uniqueIndex('agent_servers_pk').on(t.agentId, t.serverId),
-    // 同上：server 级联删除与按 server 反查需要 server_id 前导索引。
     index('agent_servers_server_idx').on(t.serverId),
   ],
 );
@@ -278,7 +266,6 @@ export const agentVersions = pgTable(
       .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
     version: integer('version').notNull(),
-    /** 写入时的完整 Agent 配置，含 serverIds / skillIds。 */
     snapshot: jsonb('snapshot').$type<Agent>().notNull(),
     definition: jsonb('definition').$type<AgentDefinition>(),
     note: text('note'),

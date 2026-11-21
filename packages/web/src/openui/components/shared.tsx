@@ -20,7 +20,6 @@ export interface RenderProps<P> {
   statementId?: string;
 }
 
-/** 读取子元素节点的 props；用于父组件从 Col / TabItem 这类虚拟组件取数据。 */
 export function childProps<T = Record<string, unknown>>(node: unknown): T | undefined {
   if (typeof node !== 'object' || node === null) return undefined;
   const candidate = node as { type?: unknown; props?: unknown };
@@ -84,7 +83,6 @@ const TEXT_SIZES = {
 
 export type TextSize = keyof typeof TEXT_SIZES;
 
-/** `Text` / `BoldText` / `IconText` 共用的值 + 副文本排版。 */
 export function ValueText({
   value,
   subtext,
@@ -132,7 +130,6 @@ export function ValueText({
   );
 }
 
-/** `subtextVariant: "metric"` 时，正负号决定语义色。 */
 export function metricTone(subtext: string | undefined): 'neutral' | 'positive' | 'negative' {
   if (!subtext) return 'neutral';
   if (subtext.startsWith('+')) return 'positive';
@@ -163,8 +160,6 @@ export function CardBlockGrid({
   const gapStyle =
     gap === undefined ? undefined : { gap: typeof gap === 'number' ? `${gap}px` : gap };
   if (layout === 'carousel') {
-    // 间距只放在轨道 gap 上：item 带内距会把 12px 算进 basis，可见卡宽短一截。
-    // 两列时各让出半个 gap，两张加一个 gap 正好铺满轨道，不裁第二张；gap 走自定义属性，由轨道与卡宽共用。
     const gapValue =
       gap === undefined ? 'calc(var(--spacing) * 3)' : typeof gap === 'number' ? `${gap}px` : gap;
     const trackStyle = { '--openui-card-gap': gapValue, gap: gapValue } as CSSProperties;
@@ -190,7 +185,6 @@ export function CardBlockGrid({
             ))}
           </CarouselContent>
         </CarouselViewport>
-        {/* 官方把按钮放在轨道两侧，728px 轴线里会溢出；这里留在下方操作行。 */}
         <div className="mt-2 flex items-center justify-end gap-1">
           <CarouselPrevious className="static inset-auto translate-y-0 rounded-icon" />
           <CarouselNext className="static inset-auto translate-y-0 rounded-icon" />
@@ -206,7 +200,6 @@ export function CardBlockGrid({
           responsive
             ? cn(
                 'grid-cols-1 @min-[481px]:grid-cols-2',
-                // 2/3/5 张时奇数末张跨满两列；4 张保持 2×2，不制造半空行。
                 count % 2 === 1 && count > 1 && '@min-[481px]:[&>*:last-child]:col-span-2',
               )
             : count > 1
@@ -240,7 +233,6 @@ export function BlockCard({
     'bg-surface',
   );
   if (!clickable) return <div className={base}>{children}</div>;
-  // 卡片内可能已有真实按钮（CompositeCardItem footer）或链接：它自己的动作不能连带触发块级动作。
   const fromInnerControl = (target: EventTarget) =>
     target instanceof Element && target.closest('button, a, input, textarea, select') !== null;
   return (

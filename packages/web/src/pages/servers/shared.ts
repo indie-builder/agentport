@@ -31,7 +31,6 @@ export const kindMeta: Record<Server['kind'], { label: string; newHint: string }
   },
 };
 
-/** 本次页面会话的最近一次试连结果；刷新后只剩 server.lastTest* 持久化字段。 */
 export interface LastTest {
   at: string;
   result: ServerTestResult;

@@ -1,8 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-// 项目契约的按需检查（不接 CI、不装钩子）：只放零误报的机械规则。
-// 判断类规则交给 Opus review，不在这里。
 
 const ROOT = process.cwd();
 const problems = [];
@@ -24,14 +22,12 @@ const read = (p) => readFileSync(p, 'utf8');
 const webFiles = walk(join(ROOT, 'packages/web/src'), /\.(ts|tsx)$/);
 const apiFiles = walk(join(ROOT, 'packages/api/src'), /\.(ts|tsx)$/);
 
-// A. Radix 已整体移除，不得重新引入。
 for (const file of webFiles) {
   if (/from ['"]@radix-ui\//.test(read(file))) {
     problems.push(`${rel(file)}: 引入 @radix-ui（项目规定用 Base UI）`);
   }
 }
 
-// B. Fastify handler 不得对 request 自行 safeParse（校验应在 schema 里）。
 for (const file of apiFiles) {
   const src = read(file);
   const re = /request\.(body|params|query|querystring)\.safeParse/g;
@@ -41,8 +37,6 @@ for (const file of apiFiles) {
   }
 }
 
-// C. lucide 图标由 App.tsx 的 LucideProvider 统一设 strokeWidth/size，组件里不得逐个传。
-//    只匹配从 lucide-react 导入的组件名，避免误伤 recharts 的 <Area strokeWidth>。
 const iconRe = /import\s*\{([^}]*)\}\s*from\s*['"]lucide-react['"]/;
 for (const file of webFiles) {
   if (file.endsWith('App.tsx')) continue;
@@ -64,7 +58,6 @@ for (const file of webFiles) {
   }
 }
 
-// D. 禁止硬编码十六进制色值；styles.css 的令牌与 vendored shadcn 原语（components/ui）除外。
 const hexRe = /#[0-9a-fA-F]{3,8}\b/g;
 for (const file of webFiles) {
   if (file.includes('/components/ui/')) continue;

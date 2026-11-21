@@ -42,10 +42,6 @@ interface QuestionResponder {
   error: unknown;
 }
 
-/**
- * 服务端已把选项投影成稳定的 value（原数组序号）；这里只回传 value 与自由文本。
- * 「其他」未勾选时即使还留着隐藏输入值也不能带进回答。
- */
 function answerOf(
   question: PublicQuestion,
   draft: AnswerDraft,
@@ -68,7 +64,6 @@ function statusHeading(question: PublicRunQuestion, live: boolean, expired: bool
   return statusLabel[question.status];
 }
 
-/** 已回答 / 拒绝 / 关闭、过期以及离开实时运行后的只读快照；不提供任何回答入口。 */
 function ReadOnlyQuestion({
   question,
   live,
@@ -116,10 +111,6 @@ function ReadOnlyQuestion({
   );
 }
 
-/**
- * 官方 AskUserQuestion 的宿主表单：chat 工具位与运行详情共用。
- * `live` 由所在页面判断（当前运行仍在进行），终态或历史快照只读。
- */
 export function RunQuestionCard({
   question,
   live,
@@ -141,7 +132,6 @@ export function RunQuestionCard({
     questionPhase({ status: question.status, expiresAt: new Date(deadline) }, new Date(now)) ===
     'expired';
 
-  // 打开的表单跨过期限也要立即变成只读，不依赖 worker 到时关闭记录。
   useEffect(() => {
     if (!Number.isFinite(deadline)) return;
     let timer: ReturnType<typeof setTimeout>;

@@ -29,14 +29,10 @@ import {
 
 const ready = await infraReady;
 
-// 故障注入只影响本文件的写入投影；其他 fs 操作继续走真实实现。
 const fsFaults = {
   failRename: false,
-  /** 第 N 次 rename 失败（1 起算）；0 表示不按次数失败。 */
   failRenameAt: 0,
-  /** 第 N 次 rename 暂停；0 表示任意一次都暂停。 */
   gateAt: 0,
-  /** 日志清理阶段的 unlink 失败：已提交的账本不能被改写成 500。 */
   failUnlink: false,
   renameCalls: 0,
   gate: null as null | { entered: () => void; release: Promise<void> },
@@ -69,7 +65,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// 三个记忆测试文件共用同一把会话级 advisory 锁（见 helpers.acquireMemoryLock）。
 interface AgentRef {
   id: string;
   slug: string;
@@ -170,7 +165,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     text: string,
   ): Promise<string> {
     const id = unique('review-msg');
-    // 显式递增时间，避免同一毫秒内插入时按 id 排序打乱起止边界。
     const createdAt = new Date(Date.now() + messageSeq++ * 1000);
     await app.client.unsafe(
       'insert into messages (id, conversation_id, role, content, created_at) values ($1, $2, $3, $4::jsonb, $5)',
@@ -279,7 +273,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     });
   }
 
-  /** 账本已提交但清日志失败：合法日志与已提交行使用同一稳定身份。 */
   async function writeCommittedManualJournal(agent: AgentRef, changeId: string, content: string) {
     await writeMemoryJournal(root, agent.slug, {
       operation: 'manual',
@@ -421,10 +414,8 @@ describe.skipIf(!ready)('memory reviews', () => {
         payload,
       });
 
-    // 不带 scope 时保留既有平台授权语义。
     expect((await postReview(body, key)).statusCode).toBe(202);
 
-    // 相同幂等键也不能跳过 own 校验：管理员选择他人来源一律按不存在处理。
     expectProblem(await scoped('own', body, key), 'NOT_FOUND');
 
     const ownBody = reviewBody({
@@ -565,7 +556,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     });
     expect(saved.statusCode, saved.body).toBe(200);
 
-    // 规则由 injectRules 独立控制，停用记忆不该连带拒绝规则提案。
     const rule = await postReview(
       reviewBody({
         modelAgentId: agent.id,
@@ -575,7 +565,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     );
     expect(rule.statusCode, rule.body).toBe(202);
 
-    // 记忆提案仍按停用策略拒绝。
     const memory = await postReview(
       reviewBody({
         modelAgentId: agent.id,
@@ -755,7 +744,6 @@ describe.skipIf(!ready)('memory reviews', () => {
   it('applies a proposal to personal memory, agent memory, and an agent rule', async () => {
     const model = await newAgent();
 
-    // 个人记忆：写入 CLAUDE.md、推进 revision，并记录来源运行。
     const personalConversation = await newConversation(model.id);
     const personalMessage = await seedMessage(personalConversation, 'user', '回答先给结论');
     const personalReview = await postReview(
@@ -797,7 +785,6 @@ describe.skipIf(!ready)('memory reviews', () => {
       appliedChangeId: personalChange.id,
     });
 
-    // 专家记忆：写官方 MEMORY.md。
     const memoryAgent = await newAgent();
     const memoryConversation = await newConversation(memoryAgent.id);
     const memoryMessage = await seedMessage(memoryConversation, 'user', '记住这个约定');
@@ -828,7 +815,6 @@ describe.skipIf(!ready)('memory reviews', () => {
       '# 约定\n',
     );
 
-    // 规则：复用规则写入，并保留审核时的 globs。
     const ruleAgent = await newAgent();
     await repo.rules.upsertRule(app.db, ruleAgent.id, {
       slug: 'style',
@@ -879,7 +865,6 @@ describe.skipIf(!ready)('memory reviews', () => {
       return { runId, response: await applyReview(runId) };
     }
 
-    // 200 行是索引上限，边界值可采纳。
     const atLimit = Array.from(
       { length: AGENT_MEMORY_MAX_LINES },
       (_, index) => `- [主题 ${index}](topic-${index}.md)`,
@@ -1047,7 +1032,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     );
     expect(rulesAfterReject[0]?.count).toBe(0);
 
-    // 绕过入口直接改库：apply 必须重新校验，不能写规则行。
     const created = await postReview(
       reviewBody({
         modelAgentId: agent.id,
@@ -1094,7 +1078,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     const runId = created.json<{ runId: string }>().runId;
     await completeReview(runId, '新规则正文', { messageId, quote: '新规则' });
 
-    // 正文没变、只改适用范围：基线也必须比较 globs。
     await repo.rules.upsertRule(app.db, target.id, {
       slug: 'style',
       content: '旧规则',
@@ -1228,7 +1211,6 @@ describe.skipIf(!ready)('memory reviews', () => {
   it('leaves the review pending when the file projection fails and succeeds on retry', async () => {
     const { agent, runId } = await reviewForMemory('记住这个约定');
 
-    // 第 1 次 rename 写日志，第 2 次才是 MEMORY.md 投影。
     fsFaults.failRenameAt = 2;
     const failed = await applyReview(runId);
     fsFaults.failRenameAt = 0;
@@ -1249,7 +1231,6 @@ describe.skipIf(!ready)('memory reviews', () => {
   it('restores the original file when the change transaction fails after the rename', async () => {
     const { agent, runId } = await reviewForMemory('记住这个约定');
 
-    // 文件先落盘、账本事务失败：同一把锁内把原文件（这里是不存在）恢复回去。
     const spy = spyOn(app.db, 'transaction').mockRejectedValueOnce(
       new Error('injected database commit failure') as never,
     );
@@ -1289,7 +1270,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     const runId = created.json<{ runId: string }>().runId;
     await completeReview(runId, '# 约定\n', { messageId, quote: '记住这个约定' });
 
-    // 准备原文件占第 1 次 rename；第 2 次写日志、第 3 次落提案、第 4 次恢复原文件时失败。
     fsFaults.failRenameAt = 4;
     const spy = spyOn(app.db, 'transaction').mockRejectedValueOnce(
       new Error('injected database commit failure') as never,
@@ -1310,14 +1290,12 @@ describe.skipIf(!ready)('memory reviews', () => {
     });
     expect(await reviewChangeCount(runId)).toBe(0);
 
-    // 文件可能已生效：不能把审核改成 rejected。
     const rejected = await rejectReview(runId);
     expectProblem(rejected, 'CONFLICT');
     expect(rejected.json<{ message: string }>().message).toBe(
       '目标写入未完成，请先重试采用或重新生成',
     );
 
-    // 重试按日志与 after 哈希恢复，只补记一次。
     const retried = await applyReview(runId);
     expect(retried.statusCode, retried.body).toBe(200);
     const changeId = retried.json<{ id: string }>().id;
@@ -1337,7 +1315,6 @@ describe.skipIf(!ready)('memory reviews', () => {
   it('does not infer a prior write from memory content equal to the proposal', async () => {
     const { agent, runId } = await reviewForMemory('记住这个约定');
 
-    // 手工写入与提案相同的内容：没有日志，不能当成上次 apply 已落盘。
     const manual = await request(app, {
       method: 'PUT',
       url: `/api/agents/${agent.id}/memory/MEMORY.md`,
@@ -1348,7 +1325,6 @@ describe.skipIf(!ready)('memory reviews', () => {
 
     expectProblem(await applyReview(runId), 'CONFLICT_STALE');
     expect(await reviewChangeCount(runId)).toBe(0);
-    // 没有写入日志就不能认定内容已生效：拒绝照常允许，且不改写文件。
     const rejected = await rejectReview(runId);
     expect(rejected.statusCode, rejected.body).toBe(200);
     expect(rejected.json()).toMatchObject({ decision: 'rejected' });
@@ -1370,7 +1346,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     const runId = created.json<{ runId: string }>().runId;
     await completeReview(runId, '# 约定\n', { messageId, quote: '记住这个约定' });
 
-    // 基线、当前文件、提案三者相同，但从未 apply：拒绝成功且文件保持原样。
     const rejected = await rejectReview(runId);
     expect(rejected.statusCode, rejected.body).toBe(200);
     expect(rejected.json()).toMatchObject({ decision: 'rejected' });
@@ -1385,7 +1360,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(applied.statusCode, applied.body).toBe(200);
     expect(await journalExists(agent, runId)).toBe(false);
 
-    // 提交成功但进程在删日志前退出：重复采纳仍要清掉残留。
     await writeMemoryJournal(root, agent.slug, {
       operation: 'review',
       operationId: runId,
@@ -1410,7 +1384,6 @@ describe.skipIf(!ready)('memory reviews', () => {
 
   it('returns the committed change when journal cleanup fails after an all-after apply retry', async () => {
     const { agent, runId } = await reviewForMemory('记住这个约定');
-    // 文件已落盘、账本未提交：重试按日志补账后，日志 unlink 失败不能推翻成功。
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', '# 约定\n');
     await writeMemoryJournal(root, agent.slug, {
       operation: 'review',
@@ -1440,7 +1413,6 @@ describe.skipIf(!ready)('memory reviews', () => {
       decision: 'applied',
       appliedChangeId: applied.json<{ id: string }>().id,
     });
-    // 删除失败，日志留待下次清理；账本仍只有一条。
     expect(await journalExists(agent, runId)).toBe(true);
   });
 
@@ -1454,7 +1426,6 @@ describe.skipIf(!ready)('memory reviews', () => {
       before: { content: '旧内容', globs: null, index: null },
       after: { content: '新内容', globs: null, index: null },
     });
-    // 回滚目标文件已落盘（旧内容），账本未提交。
     await writeMemoryJournal(root, agent.slug, {
       operation: 'rollback',
       operationId: change.id,
@@ -1502,7 +1473,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     const runId = created.json<{ runId: string }>().runId;
     await completeReview(runId, '# 约定\n', { messageId, quote: '记住这个约定' });
 
-    // 日志已写、rename 前进程退出：文件仍是基线，写入从未生效。
     await writeMemoryJournal(root, agent.slug, {
       operation: 'review',
       operationId: runId,
@@ -1564,7 +1534,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(saved.statusCode, saved.body).toBe(200);
     expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe('# 手工\n');
     expect(await journalExists(agent, runId)).toBe(false);
-    // 审核仍是 pending；文件已被手工改动，之后采纳按基线不匹配拒绝。
     expect((await getReview(runId)).json()).toMatchObject({ decision: 'pending' });
     expectProblem(await applyReview(runId), 'CONFLICT_STALE');
   });
@@ -1632,7 +1601,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     const runId = created.json<{ runId: string }>().runId;
     await completeReview(runId, '# 约定\n', { messageId, quote: '记住这个约定' });
 
-    // 日志已写、文件已替换但账本未提交（模拟进程在提交前退出）：内容可能已生效。
     await writeMemoryJournal(root, agent.slug, {
       operation: 'review',
       operationId: runId,
@@ -1668,7 +1636,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     });
     expectProblem(removed, 'CONFLICT');
 
-    // 同目标的回滚同样被未完成日志挡住。
     const change = await repo.memoryChanges.insert(app.db, {
       businessId: ADMIN_BUSINESS_ID,
       agentId: agent.id,
@@ -1681,7 +1648,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe('# 约定\n');
     expect(await journalExists(agent, runId)).toBe(true);
 
-    // 之后重试原审核按日志分支继续，只补记账本并清日志。
     const retried = await applyReview(runId);
     expect(retried.statusCode, retried.body).toBe(200);
     expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe('# 约定\n');
@@ -1710,7 +1676,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     const runId = created.json<{ runId: string }>().runId;
     await completeReview(runId, '新规则正文', { messageId, quote: '新规则' });
 
-    // 规则没有文件窗口；绕过账本直接把正文改成提案内容也不会留下写入日志。
     await repo.rules.upsertRule(app.db, target.id, {
       slug: 'style',
       content: '新规则正文',
@@ -1737,7 +1702,6 @@ describe.skipIf(!ready)('memory reviews', () => {
       release = resolve;
     });
     fsFaults.gate = { entered, release: releasePromise };
-    // 第 1 次 rename 写日志，暂停在第 2 次 MEMORY.md 投影上。
     fsFaults.gateAt = 2;
 
     let applied: Awaited<ReturnType<typeof applyReview>> | undefined;
@@ -1746,7 +1710,6 @@ describe.skipIf(!ready)('memory reviews', () => {
       const applyPromise = applyReview(runId);
       await enteredPromise;
 
-      // 版本列表只读，不取目标锁，不会被正在进行的 apply 挡住。
       expect(
         await Promise.race([
           request(app, {
@@ -1825,7 +1788,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     return { agent, model, runId, messageId };
   }
 
-  /** 先落好目标文件再创建审核：before 快照固定在这些真实文件上。 */
   async function themeReviewWithFiles(
     name: string,
     files: Record<string, string>,
@@ -1891,7 +1853,6 @@ describe.skipIf(!ready)('memory reviews', () => {
       headers: auth(),
     });
     expect(themeVersions.json()).toMatchObject({ items: [{ id: change.id }] });
-    // 改变伴随索引的主题变更也出现在 MEMORY.md 历史里。
     const indexVersions = await request(app, {
       method: 'GET',
       url: `/api/agents/${agent.id}/memory/MEMORY.md/versions`,
@@ -1937,7 +1898,6 @@ describe.skipIf(!ready)('memory reviews', () => {
   it('restores both files when the index write or the ledger commit fails', async () => {
     const { agent, runId } = await themeReview('deploy.md', 'body');
 
-    // 第 1 次 rename 写日志，第 2 次主题，第 3 次 MEMORY.md。
     fsFaults.failRenameAt = 3;
     const failed = await applyReview(runId);
     fsFaults.failRenameAt = 0;
@@ -1976,7 +1936,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     const indexAfter = '# 索引\n- [deploy.md](deploy.md)\n';
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', indexBefore);
 
-    // 创建审核时索引尚不存在；这里把基线改成手动写入的索引后再模拟半落盘。
     await app.client.unsafe('update memory_reviews set before = $2::jsonb where run_id = $1', [
       runId,
       JSON.stringify({ content: null, globs: null, index: { content: indexBefore } }),
@@ -2001,7 +1960,6 @@ describe.skipIf(!ready)('memory reviews', () => {
         },
       ],
     });
-    // 只写了索引，主题仍是基线：混合状态必须先恢复原字节再重写。
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', indexAfter);
     const applied = await applyReview(runId);
     expect(applied.statusCode, applied.body).toBe(200);
@@ -2010,7 +1968,6 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(await reviewChangeCount(runId)).toBe(1);
     expect(await journalExists(agent, runId)).toBe(false);
 
-    // 全部文件已落到 after、只差账本：重试只补记一次。
     const second = await themeReview('ops.md', 'ops');
     const opsIndexBefore = indexAfter;
     const opsIndexAfter = `${indexAfter}- [ops.md](ops.md)\n`;

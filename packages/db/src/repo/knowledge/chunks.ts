@@ -11,12 +11,14 @@ import {
 } from '../../schema.js';
 import { paginate } from '../keyset.js';
 import {
+  escapeLike,
   INSERT_CHUNK,
   type KnowledgeChunkRow,
   type KnowledgeDocumentRow,
   type Page,
   type PageOptions,
   pageLimit,
+  readableDocumentSql,
 } from './shared.js';
 import { type CreateVersionInput, createVersion } from './versions.js';
 import { markWikiStaleByDocument } from './wiki.js';
@@ -140,7 +142,6 @@ export async function replaceChunks(
 function chunkPageFilters(versionId: string, options: PageOptions): SQL[] {
   const filters: SQL[] = [eq(knowledgeChunks.versionId, versionId)];
   if (options.cursor) {
-    // 按 ordinal 排序，游标行用 id 反查序号。
     filters.push(sql`(${knowledgeChunks.ordinal}, ${knowledgeChunks.id}) > (
       select b.ordinal, b.id from ${knowledgeChunks} b where b.id = ${options.cursor}
     )`);
@@ -163,7 +164,6 @@ export async function listChunks(
   return paginate(rows, limit);
 }
 
-/** 展示与导出只需要元数据：显式投影，避免把 1024 维向量读出来。 */
 const chunkSummaryColumns = {
   id: knowledgeChunks.id,
   documentId: knowledgeChunks.documentId,
@@ -200,6 +200,193 @@ export async function listChunkSummaries(
   return paginate(rows, limit);
 }
 
+export interface ImageAssetRow {
+  documentId: string;
+  documentTitle: string;
+  versionId: string;
+  name: string;
+  mimeType: string;
+  page: number | null;
+  caption: string | null;
+  ocrText: string | null;
+  createdAt: Date;
+}
+
+export interface ListImageAssetsFilter extends PageOptions {
+  q?: string;
+}
+
+interface ImageAssetQueryRow {
+  document_id: string;
+  document_title: string;
+  version_id: string;
+  name: string;
+  mime_type: string;
+  page: string | null;
+  caption: string | null;
+  ocr_text: string | null;
+  updated_at: Date | string;
+  updated_at_cursor: string;
+}
+
+const IMAGE_CURSOR_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{6})Z$/u;
+
+function isUtcTimestamp(value: string): boolean {
+  const match = IMAGE_CURSOR_TIMESTAMP.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const millis = Math.floor(Number(match[7]) / 1000);
+  if (year < 1) return false;
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(hour, minute, second, millis);
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day &&
+    date.getUTCHours() === hour &&
+    date.getUTCMinutes() === minute &&
+    date.getUTCSeconds() === second &&
+    date.getUTCMilliseconds() === millis
+  );
+}
+
+function toPageNumber(value: string | null): number | null {
+  if (value === null || !/^-?[0-9]+$/u.test(value)) return null;
+  const page = Number(value);
+  return Number.isSafeInteger(page) ? page : null;
+}
+
+function encodeImageCursor(row: ImageAssetQueryRow): string {
+  return Buffer.from(
+    JSON.stringify({ u: row.updated_at_cursor, d: row.document_id, n: row.name }),
+    'utf8',
+  ).toString('base64url');
+}
+
+function decodeImageCursor(raw: string): { u: string; d: string; n: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+  } catch {
+    throw new AppError('INVALID_INPUT', '分页游标无效');
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new AppError('INVALID_INPUT', '分页游标无效');
+  }
+  const { u, d, n } = parsed as { u?: unknown; d?: unknown; n?: unknown };
+  if (
+    typeof u !== 'string' ||
+    !isUtcTimestamp(u) ||
+    typeof d !== 'string' ||
+    d === '' ||
+    typeof n !== 'string' ||
+    n === ''
+  ) {
+    throw new AppError('INVALID_INPUT', '分页游标无效');
+  }
+  return { u, d, n };
+}
+
+export async function listImageAssets(
+  db: Database,
+  baseId: string,
+  filter: ListImageAssetsFilter = {},
+): Promise<Page<ImageAssetRow>> {
+  const limit = pageLimit(filter);
+  const cursor = filter.cursor ? decodeImageCursor(filter.cursor) : null;
+  const cursorFilter = cursor
+    ? sql`and (d.updated_at, d.id, img->>'name') < (
+        ${cursor.u}::timestamptz, ${cursor.d}::text, ${cursor.n}::text
+      )`
+    : sql``;
+  const qFilter = filter.q
+    ? sql`where (
+        x.name ilike ${`%${escapeLike(filter.q)}%`}
+        or x.caption ilike ${`%${escapeLike(filter.q)}%`}
+        or x.ocr_text ilike ${`%${escapeLike(filter.q)}%`}
+      )`
+    : sql``;
+  const rows = (await db.execute(sql`
+    select
+      x.document_id,
+      x.document_title,
+      x.version_id,
+      x.name,
+      x.mime_type,
+      x.page,
+      x.caption,
+      x.ocr_text,
+      x.updated_at,
+      x.updated_at_cursor
+    from (
+      select
+        d.id as document_id,
+        d.title as document_title,
+        v.id as version_id,
+        img->>'name' as name,
+        img->>'mimeType' as mime_type,
+        img->>'page' as page,
+        (
+          select string_agg(c.content, E'\\n' order by c.ordinal)
+          from knowledge_chunks c
+          where c.version_id = v.id
+            and c.kind = 'image'
+            and c.enabled
+            and c.metadata->'image'->>'name' = img->>'name'
+            and c.metadata->>'imageRole' = 'caption'
+        ) as caption,
+        (
+          select string_agg(c.content, E'\\n' order by c.ordinal)
+          from knowledge_chunks c
+          where c.version_id = v.id
+            and c.kind = 'image'
+            and c.enabled
+            and c.metadata->'image'->>'name' = img->>'name'
+            and c.metadata->>'imageRole' = 'ocr'
+        ) as ocr_text,
+        d.updated_at as updated_at,
+        to_char(
+          d.updated_at at time zone 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        ) as updated_at_cursor
+      from knowledge_documents d
+      join knowledge_document_versions v
+        on v.id = d.current_version_id and v.document_id = d.id
+      cross join lateral jsonb_array_elements(v.images) as img
+      where d.base_id = ${baseId}
+        and d.content_kind = 'document'
+        and ${readableDocumentSql('d')}
+        ${cursorFilter}
+    ) x
+    ${qFilter}
+    order by x.updated_at desc, x.document_id desc, x.name desc
+    limit ${limit + 1}
+  `)) as ImageAssetQueryRow[];
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const last = page.at(-1);
+  return {
+    items: page.map((row) => ({
+      documentId: row.document_id,
+      documentTitle: row.document_title,
+      versionId: row.version_id,
+      name: row.name,
+      mimeType: row.mime_type,
+      page: toPageNumber(row.page),
+      caption: row.caption,
+      ocrText: row.ocr_text,
+      createdAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    })),
+    nextCursor: hasMore && last ? encodeImageCursor(last) : null,
+  };
+}
+
 /** 人工编辑总数取整版聚合，不能靠分页首页推断（>200 条时会漏）。 */
 export async function countEditedChunks(db: Database, versionId: string): Promise<number> {
   const [row] = await db
@@ -208,7 +395,6 @@ export async function countEditedChunks(db: Database, versionId: string): Promis
     .where(and(eq(knowledgeChunks.versionId, versionId), eq(knowledgeChunks.editedByUser, true)));
   const editedCount = row?.count ?? 0;
   if (editedCount > 0) return editedCount;
-  // 删除后版本里已没有可标记的叶块；版本级 manualChanges 仍证明人工改过，不能被同步覆盖。
   const [version] = await db
     .select({ metadata: knowledgeDocumentVersions.metadata })
     .from(knowledgeDocumentVersions)
@@ -248,7 +434,6 @@ export async function patchChunk(
 export type DocumentChunkMutation =
   | {
       type: 'add';
-      /** 新增分块不接受 page/locator/父块定位，服务端固定为人工 leaf 块。 */
       chunk: Omit<
         NewChunk,
         | 'ordinal'
@@ -311,7 +496,6 @@ function seedFromChunk(chunk: KnowledgeChunkRow): ChunkSeed {
   };
 }
 
-/** 人工改稿的定位不再指向原件；保留 originalChunkId 仅供追溯。 */
 function editedMetadata(chunk: KnowledgeChunkRow): Record<string, unknown> {
   const metadata: Record<string, unknown> = { ...chunk.metadata, originalChunkId: chunk.id };
   delete metadata.image;
@@ -319,10 +503,6 @@ function editedMetadata(chunk: KnowledgeChunkRow): Record<string, unknown> {
   return metadata;
 }
 
-/**
- * 人工派生版仍保留音频来源快照（protocol/profileName/model/durationMs），
- * 但旧全文偏移已不适用，必须清空 segments。
- */
 function manualVersionMetadata(
   metadata: Record<string, unknown> | undefined,
   parentMetadata: Record<string, unknown> | undefined,
@@ -332,7 +512,6 @@ function manualVersionMetadata(
   return { ...metadata, audio: { ...(audio as Record<string, unknown>), segments: [] } };
 }
 
-/** 删除/启停后可能没有 editedByUser 叶块，版本级事实供同步冲突判断。 */
 function manualChangeMetadata(
   metadata: Record<string, unknown> | undefined,
   chunkId: string,
@@ -438,7 +617,6 @@ export async function editDocumentChunks(
       editedOrdinal = seeds.length - 1;
     }
 
-    // 父块按序号引用同版本中的另一块；克隆时重映射到新的连续序号。
     const ordinalMap = new Map(seeds.map((seed, index) => [seed.sourceOrdinal, index] as const));
     const newChunks: NewChunk[] = seeds.map((seed, index) => ({
       ordinal: index,

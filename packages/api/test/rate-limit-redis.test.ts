@@ -24,7 +24,6 @@ describe('rate-limit Redis outage', () => {
 
     expect(res.statusCode, res.body).toBe(503);
     expect(res.json()).toMatchObject({ code: 'SERVICE_UNAVAILABLE', retryable: true });
-    // 命令超时 3s + 建连开销；没有上界时这里会一直挂到 vitest 的 20s 超时。
     expect(elapsed).toBeLessThan(6_000);
   });
 });

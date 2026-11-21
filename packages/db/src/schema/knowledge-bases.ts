@@ -14,9 +14,6 @@ import {
 } from 'drizzle-orm/pg-core';
 import { servers } from './servers.js';
 
-/**
- * 模型端点（embedding/rerank）。API 只回 hasSecret；worker 用 decryptSecrets 取密钥。
- */
 export const knowledgeModelProfiles = pgTable(
   'knowledge_model_profiles',
   {
@@ -25,15 +22,11 @@ export const knowledgeModelProfiles = pgTable(
     name: text('name').notNull(),
     endpointUrl: text('endpoint_url').notNull(),
     model: text('model').notNull(),
-    /** embedding 固定 1024 维；rerank/asr 为 null。 */
     dimensions: integer('dimensions'),
-    /** 文本/图片共用同一模型的向量协议；rerank/asr 行保持默认 openai。 */
     embeddingProtocol: text('embedding_protocol', { enum: ['openai', 'cohere_v2'] })
       .notNull()
       .default('openai'),
-    /** 只有 cohere_v2 + embed-v4.0 才能开启，见下方 check。 */
     imageInputEnabled: boolean('image_input_enabled').notNull().default(false),
-    /** AES-256-GCM；API 永不回传密文。 */
     secretsEncrypted: text('secrets_encrypted'),
     enabled: boolean('enabled').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -80,7 +73,6 @@ export const knowledgeBases = pgTable(
     rerankProfileId: text('rerank_profile_id').references(() => knowledgeModelProfiles.id, {
       onDelete: 'set null',
     }),
-    /** 音频转录模型；null 表示未启用 ASR。被引用时禁止删除 profile。 */
     asrProfileId: text('asr_profile_id').references(() => knowledgeModelProfiles.id, {
       onDelete: 'restrict',
     }),
@@ -97,10 +89,6 @@ export const knowledgeBases = pgTable(
   ],
 );
 
-/**
- * 知识库置顶：个人偏好，按 businessId 维度记录；知识库删除时级联清理。
- * 复合唯一索引即联合主键，重复置顶由 unique 冲突吃掉，不依赖额外去重。
- */
 export const knowledgeBasePins = pgTable(
   'knowledge_base_pins',
   {
@@ -127,7 +115,6 @@ export const knowledgeFolders = pgTable(
       onDelete: 'cascade',
     }),
     name: text('name').notNull(),
-    /** 物化路径，如 `/a/b`；改名/移动时整棵子树重写。 */
     path: text('path').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

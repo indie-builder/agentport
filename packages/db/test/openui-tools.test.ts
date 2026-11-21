@@ -41,7 +41,6 @@ async function newServer(kind: 'stdio' | 'http' | 'generated' | 'knowledge', nam
         : kind === 'http'
           ? {
               url: 'https://example.com/mcp',
-              // worker 渲染提示词时无法连 MCP：目录来自最近一次测试连接的快照。
               toolCatalog: [
                 {
                   name: 'search',
@@ -87,7 +86,6 @@ async function addGeneratedTool(
 
 describe.skipIf(!ready)('listOpenUiTools', () => {
   afterAll(async () => {
-    // agents 级联清 binding；servers 级联清 api_tools。
     if (agentIds.length > 0) {
       await db.delete(schema.agents).where(inArray(schema.agents.id, agentIds));
     }
@@ -177,7 +175,6 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
     const emptyGenId = await newServer('generated', emptyGenName);
     const lastGenId = await newServer('generated', lastGenName);
 
-    // 反序插入：输出仍按工具名排序，且各 server 的工具不能串组。
     await addGeneratedTool(firstGenId, 'gamma');
     await addGeneratedTool(firstGenId, 'beta');
     await addGeneratedTool(firstGenId, 'alpha');
@@ -295,14 +292,13 @@ describe.skipIf(!ready)('listOpenUiTools', () => {
     const agentId = await newAgent();
     const name = `oui-cache-${agentId.slice(4)}`;
     const serverId = await newServer('stdio', name);
-    // 先登记成 http：cacheServerToolCatalog 只写 config，不改 kind。
     await db.update(schema.servers).set({ kind: 'http' }).where(eq(schema.servers.id, serverId));
     await bind(agentId, serverId);
 
     await repo.openui.cacheServerToolCatalog(db, serverId, [
       {
         name: 'lookup',
-        title: 'Lookup', // 展示字段不进快照
+        title: 'Lookup',
         description: 'look something up',
         inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
       },

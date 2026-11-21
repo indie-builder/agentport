@@ -28,13 +28,11 @@ import { describeKnowledgeImage, type ImageQueryFn } from './image-processing.js
 import { KnowledgeParseError, type ParsedDocument, type ParsedImage } from './parsing.js';
 import { SourceAuthError } from './sources.js';
 
-// 契约 §6.3：解析/分块与来源适配由 sources.ts / parsing.ts 实现，本模块只依赖这些形状。
 type KnowledgeDocumentRow = typeof schema.knowledgeDocuments.$inferSelect;
 type KnowledgeJobRow = typeof schema.knowledgeJobs.$inferSelect;
 type KnowledgeSourceRow = typeof schema.knowledgeSources.$inferSelect;
 type KnowledgeBaseRow = typeof schema.knowledgeBases.$inferSelect;
 
-/** 自动建的唯一索引页；后续文档复用同一页，不按文档各建一页。 */
 const OVERVIEW_SLUG = 'overview';
 const OVERVIEW_TITLE = '知识库概览';
 const OVERVIEW_INSTRUCTION =
@@ -169,16 +167,13 @@ const MODEL_CONCURRENCY = 2;
 const SYNC_CHECKPOINT_ITEMS = 50;
 const SYNC_CHECKPOINT_MS = 30_000;
 const BLOB_RETENTION_MS = 24 * 60 * 60 * 1000;
-/** 仓库列表单页上限就是 200；分页循环按此翻到末尾，不能只取首页。 */
 const LIST_PAGE_SIZE = 200;
 
-/** timeout/rate_limit/unavailable 值得重试；auth 与 bad_response 重试也不会变好。 */
 const RETRYABLE = new Set(['timeout', 'rate_limit', 'unavailable']);
 
 const MODEL_RETRY_ATTEMPTS = 3;
 const MODEL_RETRY_BASE_DELAY_MS = 1_000;
 
-/** 解析服务的临时故障可重试；格式不支持、输入非法与部分成功不重试。 */
 const RETRYABLE_PARSE = new Set([
   'parser_unavailable',
   'upstream_http',
@@ -227,10 +222,8 @@ export class KnowledgeCancelled extends Error {
   }
 }
 
-/** 版本与库 profile 不同一：补缺失向量会把新模型向量混进旧版本，只能完整重建。 */
 class KnowledgeProfileMismatch extends Error {}
 
-/** 来源配置/范围在读取后被改：本轮立即中止，旧内容与游标保持不动。 */
 class SourceSnapshotStale extends Error {}
 
 function checkAborted(signal: AbortSignal): void {
@@ -268,10 +261,6 @@ async function runBounded<T, R>(
   return settled.map((result) => (result as PromiseFulfilledResult<R>).value);
 }
 
-/**
- * 落块后取消可能还在 Redis 轮询窗口里，signal 未必已 abort；
- * 任务行已不是 running 时同样不能把这次结果当成功。
- */
 async function ensureJobRunning(
   deps: KnowledgeDeps,
   jobId: string,
@@ -282,9 +271,6 @@ async function ensureJobRunning(
   if (job?.status !== 'running') throw new KnowledgeCancelled();
 }
 
-// ---------------------------------------------------------------------------
-// 存储布局（契约 §3）
-
 function blobPath(knowledgeDir: string, sha: string): string {
   return join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
 }
@@ -293,7 +279,6 @@ function versionDir(knowledgeDir: string, documentId: string, versionId: string)
   return join(knowledgeDir, 'docs', documentId, versionId);
 }
 
-/** 先写临时文件再原子 rename；同内容复用同一 blob。 */
 async function storeBlob(knowledgeDir: string, data: Buffer): Promise<string> {
   const sha = sha256Hex(data);
   const target = blobPath(knowledgeDir, sha);
@@ -326,12 +311,8 @@ async function writeParsed(
   for (const image of parsed.images) await writeFile(join(imageDir, image.name), image.data);
 }
 
-// ---------------------------------------------------------------------------
-// embedding
-
 interface EmbeddingClient {
   profileId: string;
-  /** 同空间图片向量能力：cohere_v2 + embed-v4.0 + profile 显式开启。 */
   imageVectors: boolean;
   embed: (texts: string[], signal?: AbortSignal) => Promise<number[][]>;
   embedImage: (
@@ -399,21 +380,11 @@ async function setStep(
     .where(and(eq(schema.knowledgeJobs.id, jobId), eq(schema.knowledgeJobs.status, 'running')));
 }
 
-// ---------------------------------------------------------------------------
-// 单文档摄取：解析 → 分块 → embedding → 落版本与 chunk → 原子切版本
-
-/**
- * 版本切换成功后联动 Wiki：关联页先标 stale（已发布内容与 currentVersionId 不动），
- * 仅当 wikiAutoUpdate 开启且注入了队列回调时才投递 wiki_generate 草稿任务；
- * 没有回调就只标 stale 并记 warn，不假装自动更新已触发。
- * 首个文档且库里还没有任何 Wiki 页时才建唯一索引页，之后复用，不按文档各建一页。
- */
 async function linkWikiAfterIngest(
   deps: KnowledgeDeps,
   base: KnowledgeBaseRow,
   document: KnowledgeDocumentRow,
 ): Promise<void> {
-  // Wiki 索引文档不能反过来生成 Wiki，避免递归；FAQ 也不参与文档联动。
   if (document.contentKind !== 'document') return;
   const linked = await deps.db
     .select({ pageId: schema.knowledgeWikiSources.pageId })
@@ -446,7 +417,6 @@ async function linkWikiAfterIngest(
   let overview = await findOverview();
   if (!overview) {
     const anyPage = await repo.knowledge.listWikiPages(deps.db, base.id, { limit: 1 });
-    // 首文档才自动建索引页；并发摄取撞唯一索引时读回既有的那一页。
     if (anyPage.items.length === 0) {
       overview = await repo.knowledge
         .createWikiPage(deps.db, { baseId: base.id, slug: OVERVIEW_SLUG, title: OVERVIEW_TITLE })
@@ -503,7 +473,6 @@ async function linkWikiAfterIngest(
   try {
     await deps.onWikiUpdate({ baseId: base.id, jobIds });
   } catch (err) {
-    // 行已落库为 queued；对账会把它重新投递，不因此让已成功的摄取整体失败或重建版本。
     deps.logger.warn(
       { err, baseId: base.id, jobIds },
       'wiki job enqueue failed; awaiting reconcile',
@@ -515,11 +484,6 @@ function imageRefOf(image: ParsedImage) {
   return { name: image.name, mimeType: image.mimeType, page: image.page };
 }
 
-/**
- * 图片后处理：每张图按启用的动作各自 query，OCR/caption 分别成为可检索的 kind:image chunk，
- * 同一个可读描述再参与文字向量；全部通过后才追加 opt-in 的图片向量 chunk。
- * 双动作都无产出时抛错让整版不发布；单动作失败/向量失败只记 warning。
- */
 async function imageDrafts(
   deps: KnowledgeDeps,
   client: EmbeddingClient,
@@ -549,7 +513,6 @@ async function imageDrafts(
     const own = [...described.warnings];
     if (vectorWarning) own.push(vectorWarning);
     if (described.ocr === null && described.caption === null) {
-      // 失败占位不能当正文索引：整版不发布，旧版本继续可查。
       throw new Error(`图片 ${image.name} 没有可用的 OCR 或描述：${own.join('; ')}`);
     }
     const ownDrafts: ChunkDraft[] = [];
@@ -592,14 +555,11 @@ async function imageDrafts(
           pageTo: image.page,
           locator: { pageFrom: image.page, pageTo: image.page },
           metadata: metadata('vector'),
-          // 图片向量是几何距离，不进关键词索引，避免把描述当文字排名。
           searchText: '',
           embedding,
         });
       } catch (err) {
         if (taskSignal.aborted) throw err;
-        // 保留 vector 草稿身份（描述、metadata、searchText 为空、embedding:null），
-        // 让 chunksOnly 能按原图补向量；它不进文字 embedding，也不参与关键词索引。
         ownDrafts.push({
           kind: 'image',
           heading: null,
@@ -625,10 +585,6 @@ async function imageDrafts(
   return { drafts, warnings };
 }
 
-/**
- * 同一标题下的多个 leaf 归到一个 parent：parent 只作展开上下文，不生成向量、不参与排名。
- * 只有带标题（真实结构边界）且含多个 leaf 的组才建 parent，避免整篇无标题文档变成一个巨型上下文。
- */
 function withParentChunks(drafts: ChunkDraft[]): ChunkDraft[] {
   const groups: Array<{ heading: string | null; image: boolean; indexes: number[] }> = [];
   for (const [index, draft] of drafts.entries()) {
@@ -671,7 +627,6 @@ function withParentChunks(drafts: ChunkDraft[]): ChunkDraft[] {
   return output;
 }
 
-/** FAQ 标准问/相似问建立 leaf、答案作为 parent；反例不生成正向索引块。 */
 async function buildFaqChunks(
   deps: KnowledgeDeps,
   document: KnowledgeDocumentRow,
@@ -751,7 +706,6 @@ async function buildFaqChunks(
   }));
 }
 
-/** API 草稿只替换本任务绑定的索引，不切发布指针；取消错误交给队列写 cancelled。 */
 async function ingestFaqVersion(
   deps: KnowledgeDeps,
   document: KnowledgeDocumentRow,
@@ -777,10 +731,6 @@ async function ingestFaqVersion(
   await ensureJobRunning(deps, jobId, signal);
 }
 
-/**
- * 只读取绑定且启用的 ASR profile；停用/类型不符时不在这里抛错，
- * 普通文档不依赖 ASR，真正的音频分支会在适配器入口明确失败。
- */
 async function resolveAsrProfile(
   deps: KnowledgeDeps,
   base: KnowledgeBaseRow,
@@ -810,15 +760,10 @@ async function ingestContent(
     data: Buffer;
     markdown?: string | undefined;
     sourceRevision: string | null;
-    /** 版本来源：外部同步、上传/手写、FAQ 或 Wiki 索引。 */
     origin: 'source' | 'manual' | 'faq' | 'wiki';
-    /** 版本级元数据（如 contentCompleteness）；不承载来源授权真相。 */
     versionMetadata?: Record<string, unknown>;
-    /** draft 只生成草稿版本，不切换线上指针；缺省沿用自动原子发布。 */
     publish?: 'draft' | 'automatic';
-    /** 普通文档用任务快照；Wiki 用执行时索引指针，并在切版事务内重核页面发布版。 */
     expectedCurrentVersionId: string | null;
-    /** 外部来源必须带本次读取的来源快照；发布守卫在锁内重核配置、密文与范围。 */
     sourceSnapshot?: repo.knowledge.SourceReadSnapshot | undefined;
     signal: AbortSignal;
     jobId: string;
@@ -834,7 +779,6 @@ async function ingestContent(
   const blobSha = await storeBlob(deps.knowledgeDir, input.data);
   await setStep(deps, input.jobId, 'parsing', 10);
   const audio = input.markdown === undefined ? await resolveAsrProfile(deps, base) : undefined;
-  // 解析器被 abort 时抛的是上游错误；这里统一归成取消，避免被当成可重试的解析失败。
   const parsed: IngestionDocument =
     input.markdown === undefined
       ? await deps
@@ -870,7 +814,6 @@ async function ingestContent(
   const imageDraftList: ChunkDraft[] = [];
   if (parsed.images.length > 0) {
     if (!settings.imageProcessing.enabled) {
-      // 关闭图片处理时普通文档照旧解析/索引/供图；只有独立图片必须显式开启。
       if (document.mimeType.startsWith('image/')) {
         throw new Error('图片处理未启用：请先在知识库设置中开启图片处理并选择视觉模型');
       }
@@ -889,8 +832,6 @@ async function ingestContent(
   }
   const allDrafts = [...drafts, ...imageDraftList];
   await setStep(deps, input.jobId, 'embedding', 30);
-  // 图片 vector 的向量已单独生成；文字 embedding 只覆盖其余 draft，不把图向量当文本。
-  // 降级的 vector 草稿（embedding:null）同样排除，留待 chunksOnly 按原图补。
   const textual = allDrafts
     .map((draft, index) => ({ draft, index }))
     .filter(
@@ -912,7 +853,6 @@ async function ingestContent(
     embeddings[entry.index] = vectors[position] ?? null;
   }
   checkAborted(input.signal);
-  // 发布前重核：库停用或图片处理配置变化时不用旧配置覆盖新决定，明确要求重试。
   const latest = await repo.knowledge.getBase(deps.db, document.baseId);
   if (latest?.status !== 'active') throw new Error('知识库已停用，未发布本次结果');
   if (
@@ -922,7 +862,6 @@ async function ingestContent(
   ) {
     throw new Error('知识库配置已变化，请重试本次摄取');
   }
-  // 音频转录期间绑定被关闭/切换：旧任务结果不能上线，旧版本继续保留。
   if (parsed.audio && (latest.asrProfileId ?? null) !== (base.asrProfileId ?? null)) {
     throw new Error('知识库音频转录配置已变化，请重试本次摄取');
   }
@@ -939,7 +878,6 @@ async function ingestContent(
     parentVersionId: input.expectedCurrentVersionId,
     metadata: {
       ...(input.versionMetadata ?? {}),
-      // worker 生成的转录事实放在外来 metadata 之后，外部输入不得覆盖。
       ...(parsed.audio ? { audio: parsed.audio } : {}),
       ...(draft ? { publication: 'draft' as const, indexingJobId: input.jobId } : {}),
     },
@@ -978,11 +916,8 @@ async function ingestContent(
       ...(draft.metadata ? { metadata: draft.metadata } : {}),
     })),
   });
-  // 运行中取消只走 Redis abort（job 行仍是 running），所以切版前必须先看 signal；
-  // 事务内的 guard 再核对任务未被收尾、库仍 active、profile 与配置未变、当前指针未被并发切换。
   await ensureJobRunning(deps, input.jobId, input.signal);
   if (draft) {
-    // 草稿只落版本与索引，线上指针和已发布正文保持不动；无发布版时文档仍是 pending。
     await settleDocumentStatus(deps, document, document.currentVersionId ? 'ready' : 'pending');
     checkAborted(input.signal);
     return version.id;
@@ -1001,7 +936,6 @@ async function ingestContent(
   await repo.knowledge.updateDocument(deps.db, document.id, {
     lastSyncedAt: new Date(),
   });
-  // 只有成功切版本才推进 Wiki；失败/取消在上面的异常路径返回，不会走到这里。
   await linkWikiAfterIngest(deps, base, document);
   return version.id;
 }
@@ -1012,10 +946,6 @@ function requirePayload(job: KnowledgeJobRow) {
   return parsed.data;
 }
 
-/**
- * 失败/草稿收尾只恢复状态，绝不把处理期间被撤权/停用（disabledReason 非空）的文档复活。
- * 用启动时版本做条件更新，避免旧任务覆盖新版本状态或与来源撤权并发时覆盖新状态。
- */
 async function settleDocumentStatus(
   deps: KnowledgeDeps,
   document: KnowledgeDocumentRow,
@@ -1047,9 +977,6 @@ function originOf(document: KnowledgeDocumentRow): 'source' | 'manual' | 'faq' |
   return document.sourceConnectionId === null ? 'manual' : 'source';
 }
 
-// ---------------------------------------------------------------------------
-// runIngest：原件由 API 写入 blob 并记录 contentHash。
-
 export async function runIngest(
   deps: KnowledgeDeps,
   job: KnowledgeJobRow,
@@ -1059,22 +986,17 @@ export async function runIngest(
   if (payload.type !== 'ingest') throw new Error('job 类型不是 ingest');
   const document = await repo.knowledge.getDocument(deps.db, payload.documentId);
   if (!document) throw new Error('文档不存在，可能已被删除');
-  // FAQ 版本由 API 预落库并写 blob；这里只按 job 指定版本补问题 leaf/答案 parent，
-  // 不解析 JSON、不切发布指针；版本原有的 faq 数据只读不改。
   if (document.contentKind === 'faq') {
     try {
       if (!payload.versionId) throw new Error('FAQ ingest job 缺少 versionId');
       await ingestFaqVersion(deps, document, job.id, payload.versionId, signal);
     } catch (err) {
-      // 尚无发布版的 FAQ 草稿失败后仍是 pending，不能伪装成可读的 ready，也不能复活已停用文档。
       await settleDocumentStatus(deps, document, document.currentVersionId ? 'ready' : 'pending');
       throw err;
     }
     return;
   }
   if (document.status === 'disabled' || document.disabledReason !== null) return;
-  // 手写草稿/上传/URL 都可能带输入快照；有快照时只消费快照，不再读运行时可变的 document。
-  // 上传/URL 的初始导入没有快照，此时文档自身的 contentHash 就是本次合法输入。
   const snapshot = payload.input;
   const blobSha = snapshot?.blobSha256 ?? document.contentHash;
   if (!blobSha) throw new Error('文档没有已上传的原件');
@@ -1084,7 +1006,6 @@ export async function runIngest(
       : snapshot
         ? snapshot.expectedCurrentVersionId
         : document.currentVersionId;
-  // 已有当前版本的文档在摄取期间保持原状态：失败时旧版本必须继续可查。
   if (!document.currentVersionId) {
     await repo.knowledge.updateDocument(deps.db, document.id, { status: 'processing' });
   }
@@ -1103,16 +1024,11 @@ export async function runIngest(
       jobId: job.id,
     });
   } catch (err) {
-    // 取消也要收尾：首次摄取无旧版本可回退，留着 processing 会永久卡住。
     await settleDocumentStatus(deps, document, document.currentVersionId ? 'ready' : 'failed');
     throw err;
   }
 }
 
-// ---------------------------------------------------------------------------
-// runReindex：chunksOnly 只补缺失向量；否则每个文档新建版本，失败保留旧版本。
-
-/** 列表接口单页最多 200 条；按 nextCursor 翻到末尾，漏页会让重建/删除传播静默不完整。 */
 async function listAllPages<T>(
   fetchPage: (cursor: string | null) => Promise<{ items: T[]; nextCursor: string | null }>,
 ): Promise<T[]> {
@@ -1135,7 +1051,6 @@ async function reembedMissing(
   if (!versionId) throw new Error('文档没有当前版本');
   const base = await repo.knowledge.getBase(deps.db, document.baseId);
   if (!base) throw new Error('知识库不存在');
-  // 版本 profile 必须与库当前 profile 一致：同维度不等于同空间，混写会污染整版。
   const version = await repo.knowledge.getVersion(deps.db, versionId);
   if (!version) throw new Error('文档当前版本不存在');
   if (version.embeddingProfileId !== base.embeddingProfileId) {
@@ -1152,7 +1067,6 @@ async function reembedMissing(
     const image = knowledgeImageChunkMetadataSchema.safeParse(chunk.metadata);
     return image.success ? image.data : null;
   };
-  // 图片处理已停用时图片语义 chunk 本来就不参与检索，不补其向量；父块只作上下文，永不排名。
   const candidates = chunks.filter(
     (chunk) =>
       chunk.embedding === null &&
@@ -1178,7 +1092,6 @@ async function reembedMissing(
   if (!client.imageVectors) {
     throw new Error('当前 embedding profile 不支持图片向量，无法补齐 vector 分块');
   }
-  // 只读版本清单里的原图：name 必须精确匹配，绝不按 chunk 内容拼路径。
   const whitelist = new Map((version.images ?? []).map((image) => [image.name, image.mimeType]));
   for (const { chunk, image } of vectorChunks) {
     checkAborted(signal);
@@ -1196,11 +1109,6 @@ async function reembedMissing(
   }
 }
 
-/**
- * FAQ 完整重建：以已发布版本快照建新版本，按库当前 profile 重算问题向量，
- * 再走 reindex 的自动发布守卫切指针；旧版本与线上指针在失败/取消时保持不动。
- * 不走导入批次发布，也不从 document.contentHash 当普通正文解析。
- */
 async function rebuildFaqDocument(
   deps: KnowledgeDeps,
   document: KnowledgeDocumentRow,
@@ -1231,7 +1139,6 @@ async function rebuildFaqDocument(
     embeddingProfileId: base.embeddingProfileId,
   });
   const chunks = await buildFaqChunks(deps, document, jobId, version.id, signal);
-  // 重建只向刚分配的新版本写入，已发布快照及其分块始终不可变。
   await repo.knowledge.insertChunks(deps.db, {
     baseId: document.baseId,
     documentId: document.id,
@@ -1275,7 +1182,6 @@ export async function runReindex(
       );
 
   let failed = 0;
-  // 全量重建/重解析只有显式确认才允许覆盖人工编辑；chunksOnly 补向量不重写正文。
   const confirmOverwriteManualChunks = payload.confirmOverwriteManualChunks;
   for (const [index, document] of documents.entries()) {
     checkAborted(signal);
@@ -1284,7 +1190,6 @@ export async function runReindex(
         await reembedMissing(deps, document, signal);
         continue;
       }
-      // 撤权/停用的文档不能靠整库重建复活；恢复必须由后续成功同步重新证明权限。
       if (document.status === 'disabled' || document.disabledReason !== null) {
         deps.logger.warn({ documentId: document.id }, 'reindex skipped disabled document');
         continue;
@@ -1303,18 +1208,15 @@ export async function runReindex(
         );
         continue;
       }
-      // FAQ 没有普通正文可重解析：按已发布快照重建问答索引，否则会丢掉 FAQ 语义。
       if (document.contentKind === 'faq') {
         await rebuildFaqDocument(deps, document, job.id, signal);
         continue;
       }
       if (!document.contentHash) throw new Error('文档没有已上传的原件');
-      // 已有当前版本时状态不动：检索条件要求 ready，重建失败不能让旧版本掉出召回。
       if (!document.currentVersionId) {
         await repo.knowledge.updateDocument(deps.db, document.id, { status: 'processing' });
       }
       const data = await readFile(blobPath(deps.knowledgeDir, document.contentHash));
-      // 来源文档重建也要证明当前来源/范围仍授权；快照在切版事务内再核一次。
       const sourceSnapshot = document.sourceConnectionId
         ? (await repo.knowledge.getSourceReadSnapshot(deps.db, document.sourceConnectionId))
             ?.snapshot
@@ -1328,7 +1230,6 @@ export async function runReindex(
         `reindex:${index + 1}/${documents.length}`,
         Math.round((index / documents.length) * 100),
       );
-      // Wiki 身份只继承当前索引版本；document.metadata 可能已指向尚未索引的新发布版。
       const indexedWikiVersion =
         document.contentKind === 'wiki' && document.currentVersionId
           ? await repo.knowledge.getVersion(deps.db, document.currentVersionId)
@@ -1356,26 +1257,19 @@ export async function runReindex(
         jobId: job.id,
       });
     } catch (err) {
-      // 取消/超时/配置失配也要收尾：无当前版本的文档已置 processing，不收尾会永久卡住。
       if (!document.currentVersionId) {
         await settleDocumentStatus(deps, document, 'failed');
       }
       if (err instanceof KnowledgeCancelled) throw err;
-      // profile 不匹配是整库配置问题，逐个吞掉只会让每个文档都静默失败。
       if (err instanceof KnowledgeProfileMismatch) throw err;
       failed += 1;
       deps.logger.warn({ err, documentId: document.id }, 'reindex document failed');
-      // 临时模型/解析故障保持原类型，交给队列现有分类器重试；永久失败继续汇总。
       if (isRetryableKnowledgeError(err)) throw err;
     }
   }
   if (failed > 0) throw new Error(`${failed} 个文档重建失败，旧版本保留`);
 }
 
-// ---------------------------------------------------------------------------
-// runSync：检查点只写 sync run；来源游标只在成功后推进。列举失败绝不批量 disable。
-
-/** 已有当前版本是否含人工编辑；后台覆盖解析文本前必须核对。 */
 async function hasManualEdits(
   deps: KnowledgeDeps,
   document: KnowledgeDocumentRow,
@@ -1384,12 +1278,10 @@ async function hasManualEdits(
   return (await repo.knowledge.countEditedChunks(deps.db, document.currentVersionId)) > 0;
 }
 
-/** 最新版本是未发布的草稿：重建会读取草稿 contentHash，未经确认不得把它推上线。 */
 async function hasUnpublishedDraft(
   deps: KnowledgeDeps,
   document: KnowledgeDocumentRow,
 ): Promise<boolean> {
-  // 普通上传/来源文档的 ingest 一律自动发布，不存在草稿版本，省掉每篇一次的版本查询。
   if (document.contentKind === 'document' && document.sourceType !== 'manual') return false;
   const latest = await repo.knowledge.listVersions(deps.db, document.id, { limit: 1 });
   const version = latest.items[0];
@@ -1428,7 +1320,6 @@ async function upsertSourceItem(
         )
         .limit(1)
     )[0] ?? null;
-  // 全文永不自动降摘要：任何 metadata/hash 分支之前就固定这条规则，同 hash 也不例外。
   const keepFull =
     item.completeness === 'summary' && existing?.metadata.contentCompleteness === 'full';
   const metadata = {
@@ -1462,7 +1353,6 @@ async function upsertSourceItem(
       metadata,
     }));
   if (creating) await repo.governance.notifyKnowledgeDocumentQuota(deps.db, source.baseId);
-  // 授权恢复、实际范围归属与 patch 同事务；快照失效时零写返回，本轮不得继续发布。
   const authorized = await repo.knowledge.setDocumentSourceRanges(
     deps.db,
     document.id,
@@ -1473,7 +1363,6 @@ async function upsertSourceItem(
   if (!authorized) throw new SourceSnapshotStale('来源配置已变化，本轮同步中止');
 
   if (existing?.contentHash === contentHash) return false;
-  // Feed 全文抓取失败只拿到摘要：已有全文必须保留，不能自动降级。
   if (existing && keepFull) {
     deps.logger.warn(
       { sourceId: source.id, itemId: item.sourceId, documentId: existing.id },
@@ -1500,7 +1389,6 @@ async function upsertSourceItem(
     });
     return false;
   }
-  // 后台同步绝不覆盖人工编辑：保留旧版本，逐项冲突交给来源运行明细呈现。
   if (existing && (await hasManualEdits(deps, authorized))) {
     deps.logger.warn(
       { sourceId: source.id, itemId: item.sourceId, documentId: existing.id },
@@ -1540,10 +1428,6 @@ async function upsertSourceItem(
   return existing === null || existing.status === 'disabled';
 }
 
-/**
- * 删除只来自两处：来源显式报 deleted，或「完整枚举后没再看到该 ID」的推导。
- * 范围严格限定在本 source 名下的文档，且仅 disable，不物理删除。
- */
 async function disableStaleDocuments(
   deps: KnowledgeDeps,
   source: KnowledgeSourceRow,
@@ -1573,10 +1457,8 @@ async function disableStaleDocuments(
   return disabled;
 }
 
-/** 非 active 来源（paused/disabled/auth_error）不同步：只把 run 记成 cancelled，不动游标与文档。 */
 const SYNCABLE = new Set(['active']);
 
-/** 同步执行的最终结果；终态由队列通过 finishJob 原子提交。 */
 export interface SyncRunResult {
   cursorAfter: Record<string, unknown>;
   stats: {
@@ -1599,7 +1481,6 @@ export async function runSync(
   if (!read) throw new Error('来源不存在，可能已被删除');
   const { source, snapshot } = read;
   if (!SYNCABLE.has(source.status)) {
-    // 终态由队列按 KnowledgeCancelled 写 cancelled，这里只表示本次不执行。
     throw new KnowledgeCancelled();
   }
   const connector = deps.connectors[source.type];
@@ -1607,7 +1488,6 @@ export async function runSync(
   const ranges = snapshot.ranges.filter((range) => range.enabled);
   if (ranges.length === 0) throw new Error('来源没有启用的范围');
 
-  // connector 的配置、解密输入与范围都只消费同一份读取快照，避免运行中改来源后混用新旧值。
   const secrets = snapshot.secretsEncrypted ? deps.decrypt(snapshot.secretsEncrypted) : {};
   const network: ConnectorNetwork | undefined =
     deps.trustedHosts?.length || deps.allowLoopback === true
@@ -1618,11 +1498,8 @@ export async function runSync(
       : undefined;
   const stats = { listed: 0, created: 0, updated: 0, disabled: 0, failed: 0 };
   const seen = new Set<string>();
-  // 同一外部条目可能落在多个范围：按本轮实际命中的范围合并，不把所有范围挂给所有条目。
   const rangeIdsByItem = new Map<string, Set<string>>();
-  // 默认不完整：连接器必须显式给一个 complete 检查点，删除推导才允许发生。
   let complete = false;
-  // 任何单项失败/跳过（含不可重试）都不能证明完整枚举，删除推导必须关闭。
   let hadItemIssues = false;
   let cursorAfter: Record<string, unknown> = source.cursor;
   let lastCheckpoint = Date.now();
@@ -1660,7 +1537,6 @@ export async function runSync(
       stats.listed += 1;
       try {
         if (item.failure) {
-          // 不可重试的不支持项记为 skipped 并继续推进；可重试失败仍让整轮失败等下一轮。
           hadItemIssues = true;
           if (item.failure.retryable) stats.failed += 1;
           deps.logger.warn(
@@ -1681,7 +1557,6 @@ export async function runSync(
           continue;
         }
         if (item.deleted === true) {
-          // 显式删除是来源主动陈述，不看 complete；滚动窗口的"缺失"才需要完整枚举。
           const existing =
             (
               await deps.db
@@ -1708,7 +1583,6 @@ export async function runSync(
         }
         seen.add(item.sourceId);
         const rangeIds = rangeIdsByItem.get(item.sourceId) ?? new Set<string>();
-        // 单个范围的来源即使连接器未逐项标注，归属也没有歧义。
         const fallbackRange = ranges.length === 1 ? ranges[0] : undefined;
         const rangeId = item.rangeId ?? fallbackRange?.id;
         if (rangeId) rangeIds.add(rangeId);
@@ -1726,7 +1600,6 @@ export async function runSync(
         if (created) stats.created += 1;
         else stats.updated += 1;
       } catch (err) {
-        // 凭证失权或来源快照失效：单条失败不能让本轮继续，否则来源会一直 active 反复失败。
         if (
           err instanceof KnowledgeCancelled ||
           err instanceof SourceAuthError ||
@@ -1748,7 +1621,6 @@ export async function runSync(
           message: describeKnowledgeError(err),
           retryable: isRetryableKnowledgeError(err),
         });
-        // 临时模型/解析故障保持原类型，交给队列现有分类器重试；永久失败继续汇总。
         if (isRetryableKnowledgeError(err)) throw err;
       }
       if (
@@ -1760,8 +1632,6 @@ export async function runSync(
     }
   } catch (err) {
     if (err instanceof KnowledgeCancelled) throw err;
-    // 明确失权（401/403/已知飞书鉴权码）才撤权：停源 + 旧文档退出检索与 read + Wiki 显式 stale。
-    // 网络、限流、超时等临时故障保持 active，可继续重试。
     const authError = err instanceof SourceAuthError;
     if (authError || (err instanceof KnowledgeModelError && err.kind === 'auth')) {
       try {
@@ -1772,26 +1642,19 @@ export async function runSync(
         }
       }
     }
-    // job 与 sync run 的终态统一由队列写；这里保留游标与旧版本，原样抛错给队列分类。
     throw err;
   }
 
-  // 单文档失败：本轮不算成功，游标停在上一次成功的位置；下轮会重新读到它。
   if (stats.failed > 0) {
     throw new Error(`${stats.failed} 个条目同步失败，游标未推进`);
   }
 
-  // 只有完整枚举（含所有 range、无单文档失败）才能推导「缺失即删除」。
-  // 显式 deleted 已在循环内处理；这里只处理未出现在本次枚举里的旧文档。
   if (snapshot.config.syncDeletions === true && complete) {
     stats.disabled += await disableStaleDocuments(deps, source, seen, signal);
   }
 
   return { cursorAfter, stats };
 }
-
-// ---------------------------------------------------------------------------
-// runSourceProbe：只读远程凭证与范围首项；不导入条目，不推进游标。
 
 export async function runSourceProbe(
   deps: KnowledgeDeps,
@@ -1806,7 +1669,6 @@ export async function runSourceProbe(
   const connector = deps.connectors[source.type];
   if (!connector?.probe) throw new Error(`不支持的来源类型 ${source.type}`);
   const ranges = snapshot.ranges.filter((range) => range.enabled);
-  // 没有启用范围就没有可核验的远程权限；空 checks 的 every 会伪造成 ok=true。
   if (ranges.length === 0) throw new Error('来源没有启用的范围，无法探测');
   const secrets = snapshot.secretsEncrypted ? deps.decrypt(snapshot.secretsEncrypted) : {};
   const network: ConnectorNetwork | undefined =
@@ -1846,9 +1708,6 @@ export async function runSourceProbe(
   }
   return { ok: checks.every((check) => check.ok), checks };
 }
-
-// ---------------------------------------------------------------------------
-// runCleanup：只删无版本引用（含待处理文档的 contentHash 原件）且超过 24h 的 blob 与解析目录。
 
 export async function runCleanup(
   deps: KnowledgeDeps,
@@ -1904,9 +1763,6 @@ export async function runCleanup(
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// 已认领 job 的分发
 
 export type KnowledgeJobResult = Pick<repo.knowledge.FinishJobInput, 'result' | 'probeResult'>;
 

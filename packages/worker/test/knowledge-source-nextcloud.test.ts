@@ -58,7 +58,6 @@ function response(href: string, property: string, status = 200): string {
   );
 }
 
-/** Required properties succeed while an optional property is explicitly absent. */
 function optionalMissing(value: string, property: string): string {
   return (
     `<x:response><x:href>${value}</x:href>` +

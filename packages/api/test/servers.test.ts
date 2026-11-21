@@ -126,12 +126,10 @@ describe.skipIf(!ready)('servers', () => {
     });
     expect(shown.statusCode).toBe(200);
     expect(shown.json()).toEqual({
-      // GET 只回掩码，字段名与 rotate 的明文 token 区分。
       maskedToken: SECRET_MASK,
       endpoint: expect.stringContaining(`/mcp/${server.id}`),
     });
 
-    // 轮换接口是唯一返回明文的地方；再轮换一次，前一个 token 应失效。
     const rotate = () =>
       request(app, {
         method: 'POST',
@@ -149,7 +147,6 @@ describe.skipIf(!ready)('servers', () => {
     const list = await request(app, { method: 'GET', url: '/api/servers', headers: auth() });
     expect(list.body).not.toContain(newToken);
 
-    // 旧 token 失效，新 token 通过鉴权。
     const probe = (token: string) =>
       request(app, {
         method: 'POST',
@@ -188,7 +185,6 @@ describe.skipIf(!ready)('servers', () => {
   });
 
   it('rejects a private address in production and allows public addresses', async () => {
-    // 只换 NODE_ENV，其余配置沿用测试环境；app.inject 直接带 cookie，Secure 不影响。
     const prodApp = await buildApp({ ...testConfig(), NODE_ENV: 'production' });
     try {
       const res = await request(prodApp, {
@@ -210,7 +206,6 @@ describe.skipIf(!ready)('servers', () => {
       });
       expect(ok.statusCode).toBe(201);
 
-      // PATCH 同样按库里的 kind 复查新地址。
       const patched = await request(prodApp, {
         method: 'PATCH',
         url: `/api/servers/${ok.json<Server>().id}`,
@@ -281,7 +276,6 @@ describe.skipIf(!ready)('servers', () => {
       payload: { pathTemplate: '/users/{id}/posts', description: 'posts by user' },
     });
     expect(patched.statusCode).toBe(200);
-    // 同一 id：编辑不能换掉工具，否则运行中的审批与外键会断。
     expect(patched.json<{ id: string; pathTemplate: string }>()).toMatchObject({
       id: tool.id,
       pathTemplate: '/users/{id}/posts',
@@ -396,17 +390,13 @@ describe.skipIf(!ready)('servers', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual([]);
 
-      // 存在性/授权判断只投影 id 与 owner；config/secretsEncrypted 不参与传输和解码。
       const serverQueries = probe.queries.filter(isServerQuery);
       expect(serverQueries).toHaveLength(1);
       const existence = serverQueries[0] ?? '';
       expect(isIdOnlyServerQuery(existence)).toBe(true);
       expect(readsServerSecrets(existence)).toBe(false);
-      // 空目录仍会查一次工具表。
       expect(probe.queries.filter(isToolQuery)).toHaveLength(1);
 
-      // 正对照：同一条捕获通道能识别整行查询里的 config/secrets，
-      // 证明上面的否定断言不是因为匹配器永远为假。
       await app.client.unsafe('select "config", "secrets_encrypted" from "servers" where id = $1', [
         server.id,
       ]);
@@ -432,7 +422,6 @@ describe.skipIf(!ready)('servers', () => {
       expect(serverQueries).toHaveLength(1);
       expect(isIdOnlyServerQuery(serverQueries[0] ?? '')).toBe(true);
       expect(readsServerSecrets(serverQueries[0] ?? '')).toBe(false);
-      // 未知 id 在存在性检查处返回，不能再查工具目录。
       expect(probe.queries.filter(isToolQuery)).toHaveLength(0);
     } finally {
       probe.restore();

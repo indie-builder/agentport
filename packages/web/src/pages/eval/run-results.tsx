@@ -22,7 +22,6 @@ export function EvalRunResults({ id }: { id: string }) {
   const [exportingCsv, setExportingCsv] = useState(false);
   const onlyFailed = search.failedOnly === '1';
 
-  // 只有从没拿到过详情时才整块报错；后台轮询/手动刷新失败要保留已有结果树。
   if (detail.isPending) return <LoadingState rows={2} />;
   if (!detail.data) {
     const missing = detail.error instanceof ApiError && detail.error.status === 404;
@@ -185,7 +184,6 @@ export function EvalRunResults({ id }: { id: string }) {
         <ul>
           {visibleResults.map((result) => (
             <li
-              // 用例被删除后 caseId 为 null：退回「名称 + 提示词」，两者相同即同一条用例。
               key={result.caseId ?? `${result.name}\u0000${result.prompt}`}
               className="border-b py-4 last:border-b-0 last:pb-0"
             >

@@ -7,10 +7,6 @@ import { eq, inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { createIsolatedDatabase } from './isolated-db.js';
 
-/**
- * 结果持久化跑批的真实数据库契约：只用随机隔离库证明 repo 事务与批次收口，
- * 队列仍用 mock（不在本套件启动真实 worker / 模型）。
- */
 const mocks = {
   queueAdd: mock(),
   waitUntilReady: mock(async () => undefined),
@@ -91,7 +87,6 @@ async function seed(cases: CaseInput[]) {
   return { agentId, evalRunId, snapshot };
 }
 
-/** mock 队列的消费者：把子 run 收敛为 succeeded，并写入一条可判定的 assistant 消息。 */
 async function completeRun(data: { runId: string; conversationId: string; prompt: string }) {
   await db
     .update(schema.agentRuns)
@@ -105,7 +100,6 @@ async function completeRun(data: { runId: string; conversationId: string; prompt
   });
 }
 
-/** 数据库异常原文含 SQL 与参数；公开输出不得出现这些片段或注入的 secret。 */
 function expectNoSqlLeak(text: string, secret: string): void {
   expect(text).not.toContain(secret);
   expect(text).not.toMatch(/Failed query/i);
@@ -115,7 +109,6 @@ function expectNoSqlLeak(text: string, secret: string): void {
 
 describe.skipIf(isolated === null)('eval result persistence against a real database', () => {
   beforeAll(async () => {
-    // 定向故障：只有 name=fault 的结果插入失败，其他用例仍走真实 repo 事务。
     await dbHandle.client.unsafe(`
       create or replace function eval_result_write_fault() returns trigger language plpgsql as $fn$
       begin
@@ -192,9 +185,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
 
     const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
     expect(detail?.evalRun.status).toBe('failed');
-    // 只有第一条真正落库，passed 不能把失败的那条算进去。
     expect(detail?.evalRun.passed).toBe(1);
-    // 数据库错误原文（含 SQL 与参数）不能进入 eval_runs.error 或 worker 日志。
     expect(detail?.evalRun.error).toBe(EVAL_FAILURE_PUBLIC_MESSAGE);
     expect(detail?.evalRun.error).not.toContain(RESULT_SECRET);
     expect(detail?.evalRun.error).not.toMatch(/Failed query|params:|eval_results/);
@@ -202,7 +193,6 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     expect(logs.join('\n')).not.toMatch(/Failed query|params:/);
     expect(detail?.results).toHaveLength(1);
     expect(detail?.results[0]).toMatchObject({ name: 'ok', passed: true });
-    // 写失败后不再执行第三条。
     expect(mocks.queueAdd).toHaveBeenCalledTimes(2);
   });
 
@@ -235,13 +225,11 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       await dbHandle.client.unsafe(`drop function if exists ${functionName}()`);
     }
 
-    // 用例在准入写入时失败，没走到队列。
     expect(mocks.queueAdd).not.toHaveBeenCalled();
     const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
     expect(detail?.evalRun).toMatchObject({ status: 'failed', passed: 0, error: null });
     expect(detail?.results).toHaveLength(1);
     const output = detail?.results[0]?.output ?? '';
-    // 数据库异常原文（SQL、参数与注入 secret）不能成为公开的用例输出。
     expect(output).toBe(EVAL_FAILURE_PUBLIC_MESSAGE);
     expectNoSqlLeak(output, secret);
   });
@@ -318,7 +306,6 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       for each row execute function ${functionName}()
     `);
     try {
-      // 原始错误仍抛给 BullMQ，不能被收口吞掉；secret 在 PG cause 链里。
       let thrown: unknown;
       await expect(
         runEvalJob({ db, logger, redisUrl: 'redis://unused', job: { data: { evalRunId } } }).catch(
@@ -373,7 +360,6 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
 
     await runEvalJob({ db, logger, redisUrl: 'redis://unused', job: { data: { evalRunId } } });
 
-    // 不重跑、不预占：没有新的 case 子 run，已落库的结果与 passed 原样保留，租约保持 running。
     expect(mocks.queueAdd).not.toHaveBeenCalled();
     const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
     expect(detail?.evalRun).toMatchObject({ status: 'running', passed: 1, error: null });
@@ -428,7 +414,6 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
       job: { data: { evalRunId } },
       error: new Error('late failure'),
     });
-    // 迟到的用例结果不能推进 passed，也不能再写入结果行。
     await repo.evalRepo.addResult(
       db,
       {

@@ -34,7 +34,6 @@ import {
   userRoles,
 } from '../src/schema.js';
 
-// 默认角色名称与 systemKey 全局唯一：与其它套件共用库会互相撞种子，必须独享一个库。
 const isolated = await createIsolatedDatabase('db_access', process.env.DATABASE_URL ?? '');
 const url =
   isolated?.url ?? process.env.DATABASE_URL ?? 'postgres://unreachable@127.0.0.1:1/unavailable';
@@ -121,10 +120,6 @@ async function activeAdminIds(): Promise<string[]> {
   return rows.map((row) => row.businessId).sort();
 }
 
-/**
- * 第一条变更在事务里拿锁后挂起，第二条从另一连接尝试；此时第一条尚未提交。
- * 没有共享锁时第二条会读到旧状态并同时成功，因此该用例能稳定暴露竞态。
- */
 async function overlapAdminMutations(
   first: (tx: Transaction) => Promise<unknown>,
   second: () => Promise<unknown>,
@@ -263,21 +258,18 @@ describe('permission catalog', () => {
   });
 
   it('requires read grants to cover the write object scope', () => {
-    // 读 W 只覆盖负责人，不覆盖维护范围。
     expect(
       validateGrants([
         { permissionId: 'agents.config.update', scope: 'maintained_agents' },
         { permissionId: 'agents.config.read', scope: 'owned_agents' },
       ]),
     ).toContain('agents.config.read');
-    // 维护范围包含负责人范围，读 M 可以覆盖写 W。
     expect(
       validateGrants([
         { permissionId: 'agents.config.update', scope: 'owned_agents' },
         { permissionId: 'agents.config.read', scope: 'maintained_agents' },
       ]),
     ).toBeNull();
-    // 负责人同时被授权，读 A 同样覆盖写 W（默认负责人角色正是这样通过校验）。
     expect(
       validateGrants([
         { permissionId: 'agents.bindings.manage', scope: 'owned_agents' },
@@ -290,7 +282,6 @@ describe('permission catalog', () => {
         { permissionId: 'agents.config.read', scope: 'platform' },
       ]),
     ).toBeNull();
-    // 更窄的读范围不能放大全平台写范围。
     expect(
       validateGrants([
         { permissionId: 'agents.config.update', scope: 'platform' },
@@ -333,7 +324,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
   });
 
   afterAll(async () => {
-    // 隔离库每轮重建：先断连接，再删本套件创建的库。
     try {
       await client.close();
     } finally {
@@ -386,7 +376,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
       0,
     );
 
-    // 业务记录和离线身份授权不随认证资料删除。
     expect(await db.select().from(agents).where(eq(agents.id, agentId))).toHaveLength(1);
     expect(
       await db.select().from(conversations).where(eq(conversations.id, conversationId)),
@@ -408,7 +397,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
         .where(eq(userRoles.businessId, businessId)),
     ).toEqual(rolesBefore);
 
-    // 有历史但不声明恢复：拒绝，不能悄悄当新人员。
     await expect(
       accounts.createAccount(db, {
         businessId,
@@ -438,7 +426,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
     const identity = await accounts.getIdentity(db, businessId);
     expect(identity).toEqual({ businessId, name: '重建', accountActive: true });
 
-    // restore:true 但没有任何历史：409，不创建空身份。
     await expect(
       accounts.createAccount(db, {
         businessId: bid('missing-history'),
@@ -449,7 +436,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
 
-    // 旧技术 ID 永不复用：删除后重建的 user/account ID 都是新的随机值。
     expect(rebuiltUserId).not.toBe(firstUserId);
   });
 
@@ -500,7 +486,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
 
     const disabled = await accounts.setAccountStatus(db, businessId, 'disabled');
     expect(disabled?.status).toBe('disabled');
-    // 列表包含停用账户，不能只剩 active。
     const listedWhileDisabled = await accounts.listAccounts(db, {
       q: businessId,
       limit: 10,
@@ -508,7 +493,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
     });
     expect(listedWhileDisabled.total).toBe(1);
     expect(listedWhileDisabled.items[0]?.status).toBe('disabled');
-    // 无搜索词时同样包含停用账户。
     const unfiltered = await accounts.listAccounts(db, { limit: 100, offset: 0 });
     expect(unfiltered.items.some((item) => item.businessId === businessId)).toBe(true);
     expect(
@@ -567,7 +551,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
       scopes: ['maintained_agents'],
     });
     expect(maintainerRows.map((row) => row.id)).toContain(agentId);
-    // maintainer 没有 W 范围，不能因为维护关系拿到负责人级别。
     expect(
       await agentRepo.listAgents(db, { businessId: maintainerId, scopes: ['owned_agents'] }),
     ).toEqual([]);
@@ -621,12 +604,10 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
     expect(saved.revision).toBe(before.revision + 1);
     expect(saved.roles.some((role) => role.name === `自定义-${suffix}`)).toBe(true);
 
-    // 旧 revision 再保存：409，且不产生半写入。
     await expect(
       access.replaceRoleMatrix(db, { expectedRevision: before.revision, roles: input }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
 
-    // 省略自定义角色即删除；admin 被省略也保留且矩阵不被改写。
     const current = await access.getRoleMatrix(db);
     const withoutCustom = current.roles
       .filter((role) => role.name !== `自定义-${suffix}`)
@@ -640,7 +621,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
     const keptAdmin = next.roles.find((role) => role.systemKey === 'admin');
     expect(keptAdmin?.grants).toHaveLength(PERMISSIONS.length);
 
-    // 最后管理员：移除角色、停用、删除都在同一事务守卫内被拒绝。
     await expect(access.setUserRoles(db, adminBusinessId, [])).rejects.toMatchObject({
       code: 'CONFLICT',
     });
@@ -655,14 +635,12 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
   it('keeps at least one active admin when concurrent mutations would remove all', async () => {
     const a = await createAdmin('race-a');
     const b = await createAdmin('race-b');
-    // 前面的用例可能留下其它管理员；只保留 A、B，计数才有判别力。
     for (const other of (await activeAdminIds()).filter((id) => id !== a && id !== b)) {
       await access.setUserRoles(db, other, []);
     }
     expect(await activeAdminIds()).toEqual([a, b].sort());
     const secondConnection = createDb(isolated?.url ?? url);
     try {
-      // 停用 A 与删除 B 同时进行：先拿锁的事务提交后，另一条必须看到结果并拒绝。
       const firstRound = await overlapAdminMutations(
         (tx) => accounts.setAccountStatus(tx, a, 'disabled'),
         () => accounts.deleteAccount(secondConnection.db, b),
@@ -673,7 +651,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
       const survivor = survivors[0];
       if (!survivor) throw new Error('expected one active admin');
 
-      // 撤掉 C 的管理员角色与停用现存管理员交错，同样只能成功一项。
       const c = await createAdmin('race-c');
       const secondRound = await overlapAdminMutations(
         (tx) => access.setUserRoles(tx, c, [roleId('user')]),
@@ -734,7 +711,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
     const a = created.roles.find((role) => role.name === `occupied-a-${suffix}`);
     if (!a) throw new Error('expected occupied-a role');
 
-    // 用户合法占用 A 的临时名位置。
     const occupiedName = `__pending_${a.id}`;
     const withOccupied = await access.replaceRoleMatrix(db, {
       expectedRevision: created.revision,

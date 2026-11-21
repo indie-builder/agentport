@@ -233,7 +233,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(res.rawPayload.byteLength).toBeLessThanOrEqual(AGENT_PACKAGE_MAX_BYTES);
 
     const files = unzipPackage(res.rawPayload);
-    // 正文只在官方文件里；侧车不带 prompt / 技能正文。
     expect(files.get('CLAUDE.md')).toContain(prompt);
     expect(files.get(`.claude/skills/${skillSlug}/SKILL.md`)).toContain('# 步骤');
     const sidecarText = files.get(AGENT_PACKAGE_SIDECAR) ?? '';
@@ -301,8 +300,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     createdAgents.push(slug);
     createdSkills.push(skillSlug);
     const created = await createAgent(app, cookie, { slug, track: createdAgents });
-    // 随机内容不可压缩：官方文件合起来真实超过 1 MiB，才能验证导出端拒绝而不是截断。
-    // 单个请求仍低于 1 MiB 的 JSON 上限，所以只能由导出端拦截。
     const skill = await request(app, {
       method: 'POST',
       url: '/api/skills',
@@ -413,7 +410,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
         agent: {
           slug: badSlug,
           name: badSlug,
-          // 绕过类型：构造历史岗位值，导入必须拒绝。
           role: '历史自定义岗位' as '通用助手',
         },
       }),
@@ -576,10 +572,8 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       expectProblem(res, 'INVALID_INPUT');
     }
 
-    // 声明解压后超大：不真正解压就拒绝。
     const bomb = rawZip([{ name: 'CLAUDE.md' }]);
     const original = bomb.indexOf('CLAUDE.md');
-    // 把中央目录里的原始大小改成 0x00ffffff，模拟 zip bomb 声明。
     const central = bomb.lastIndexOf('PK\x01\x02');
     bomb.writeUInt32LE(0x00ffffff, central + 24);
     expect(original).toBeGreaterThan(0);
@@ -593,7 +587,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       agent: { slug: 'ignored', name: 'Plain official dir', systemPrompt: 'Plain prompt.' },
       omitSidecar: true,
     });
-    // 侧车缺失时连接器绑定无法推断：带 .mcp.json 条目的目录必须明确拒绝。
     const withMcp = {
       ...files,
       '.mcp.json': JSON.stringify({
@@ -689,7 +682,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       sortByName(tools).map(portable),
     );
 
-    // mcpToken 与加密列里的值都不能写入导出包。
     const tokenRow = await app.client.unsafe<{ token: string | null }[]>(
       "select config->>'mcpToken' as token from servers where name = $1",
       [sourceName],
@@ -702,7 +694,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(rawFiles).not.toContain(sourceToken);
     expect(rawFiles).not.toContain(secretValue);
 
-    // 目标实例换新名字，工具定义仍在包里。
     sourceEntry.name = importedName;
     exported.agent.slug = importedSlug;
     exported.agent.name = `Imported ${importedSlug}`;
@@ -740,7 +731,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       expect(sourceToolIds.has(tool.id)).toBe(false);
     }
 
-    // 导入必须生成新的 mcpToken，且响应里不能出现任何 token。
     const importedTokenRow = await app.client.unsafe<{ token: string | null }[]>(
       "select config->>'mcpToken' as token from servers where name = $1",
       [importedName],
@@ -910,7 +900,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
         }),
       );
 
-    // 同值不同键序（JSONB 会重排键）不算来源漂移。
     const same = await importWith(slug, [
       'license: MIT',
       'compatibility: claude-code',
@@ -927,7 +916,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(drift.statusCode, drift.body).toBe(201);
     const body = drift.json<AgentImportResult>();
     expect(body.createdSkills).toEqual([]);
-    // 只有来源字段不同：内容警告不出现，来源警告出现。
     expect(body.warnings.some((w) => w.includes('内容与导入包不同'))).toBe(false);
     expect(body.warnings.some((w) => w.includes('来源信息与导入包不同'))).toBe(true);
 
@@ -965,7 +953,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
             files: [{ path: 'notes.md', content: 'first-original' }],
           },
           {
-            // 与 first 的原文件相同：若两个技能共用/交换已有文件桶，警告集合会偏离预期。
             slug: secondSlug,
             name: 'Second',
             description: 'shared path',
@@ -1151,7 +1138,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(source.statusCode, source.body).toBe(201);
     const sourceResult = source.json<AgentImportResult>();
 
-    // 学习内容属于运行期产物；包只携带定义，不复制记忆正文。
     const memoryDir = join(testConfig().WORKSPACES_DIR, childSlug, 'agent-memory');
     await mkdir(memoryDir, { recursive: true });
     await writeFile(join(memoryDir, 'MEMORY.md'), 'LEARNED-SECRET-CONTENT');
@@ -1192,7 +1178,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       ],
     });
 
-    // 目标实例：改根 slug，导出包里的子定义随根一起迁移。
     const copy = new Map(files);
     exported.agent.slug = targetSlug;
     exported.agent.name = 'Imported root';
@@ -1218,7 +1203,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(roundTrip.get('.claude/output-styles/brief.md')).toBe(
       files.get('.claude/output-styles/brief.md'),
     );
-    // 导入忽略 env，导出端按自己的必需项重新生成，往返后内容一致。
     expect(roundTrip.get('.claude/settings.json')).toBe(files.get('.claude/settings.json'));
     expect(roundTrip.get(`.claude/skills/${skillSlug}/references/guide.md`)).toBe('# Guide');
     const roundTripSidecar = sidecarOf(roundTrip);
@@ -1266,7 +1250,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
 
     const files = await exportFiles(sourceAgent.id);
     const exportedClaude = files.get('CLAUDE.md') ?? '';
-    // 生成段只出现一次，并由专属标记包住；普通标题不再是边界。
     expect(exportedClaude.split('## 生成式 UI')).toHaveLength(2);
     expect(exportedClaude.split('## 工具使用')).toHaveLength(2);
     expect(exportedClaude).toContain(prompt);
@@ -1282,7 +1265,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(imported.statusCode, imported.body).toBe(201);
     const result = imported.json<AgentImportResult>();
     createdAgents.push(result.agent.slug);
-    // 生成段属于渲染产物，不能回流成用户 systemPrompt。
     expect(result.agent.uiFormat).toBe('openui');
     expect(result.agent.systemPrompt).toBe(prompt);
     expect(result.agent.systemPrompt).not.toContain('## 生成式 UI');
@@ -1366,7 +1348,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       childPrompt,
     );
 
-    // 只改根 slug；子级同名冲突会改名，所以不逐字比较整份文件，而是核对正文与生成段次数。
     const copy = new Map(files);
     const exported = sidecarOf(copy);
     exported.agent.slug = targetSlug;
@@ -1378,11 +1359,9 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const result = imported.json<AgentImportResult>();
     createdAgents.push(...result.createdSubAgents);
     expect(result.agent.systemPrompt).toBe(rootPrompt);
-    // 独立运行超时是实体配置：父子不同值经包往返仍各自保留。
     expect(result.agent.timeoutMs).toBe(456_000);
 
     const importedChildSlug = result.createdSubAgents[0] ?? '';
-    // 列表只返回摘要，正文要按实体 id 读取。
     const childRow = await app.client.unsafe<{ id: string }[]>(
       'select id from agents where slug = $1',
       [importedChildSlug],
@@ -1399,7 +1378,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
 
     const reexported = await exportFiles(result.agent.id);
     const reexportedClaude = reexported.get('CLAUDE.md') ?? '';
-    // 没有回流、没有重复生成段：正文仍是原提示，生成段仍只追加一次。
     expect(reexportedClaude).not.toBe('');
     expect(reexportedClaude.split(START)).toHaveLength(3);
     expect(reexportedClaude.split(END)).toHaveLength(3);
@@ -1425,7 +1403,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     });
     expect(toOpenUi.statusCode, toOpenUi.body).toBe(200);
 
-    // 当前版本是 openui；回滚到仍为 markdown 的 v1 必须显式变回 markdown。
     const back = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/rollback`,
@@ -1454,7 +1431,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(copy.statusCode, copy.body).toBe(201);
     expect(copy.json<Agent>().uiFormat).toBe('openui');
 
-    // 回到 openui 版本（v2 = 第一次 PATCH 后），回滚后导出仍是生成式 UI。
     const restored = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/rollback`,
@@ -1516,7 +1492,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const result = imported.json<AgentImportResult>();
     createdAgents.push(result.agent.slug);
 
-    // 预览与运行时同源：换绑后的 server 名与工具名必须出现在新智能体的提示词里。
     const preview = await request(app, {
       method: 'GET',
       url: `/api/agents/${result.agent.id}/files`,
@@ -1668,11 +1643,9 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       { label: 'case-folded duplicate', paths: ['references/A.md', 'references/a.md'] },
       { label: 'ancestor first', paths: ['refs/A', 'refs/a/child.md'] },
       { label: 'descendant first', paths: ['refs/a/child.md', 'refs/A'] },
-      // ZIP 编码本身拒绝空段/./..：这些坏路径在编码阶段就会失败，schema 在同一入口给出相同的 INVALID_INPUT。
       { label: 'empty segment', paths: ['a//b.md'] },
       { label: 'dot segment', paths: ['./refs/a.md'] },
       { label: 'parent segment', paths: ['refs/../a.md'] },
-      // 空格在 ZIP 中合法，只有单路径 schema 拒绝：导出必须与导入/CRUD 用同一套规则。
       { label: 'non-canonical characters', paths: ['references/a b.md'] },
     ];
     for (const [index, item] of collisionCases.entries()) {
@@ -1727,7 +1700,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     await insertRules(50);
     expect((await exportAgent(root.id)).statusCode).toBe(200);
 
-    // 导入端同一套上限：51 条规则直接拒绝，且不落库。
     const importSlug = unique('pkg-limits-import');
     createdAgents.push(importSlug);
     const res = await importZip(
@@ -1774,7 +1746,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     const sidecar = sidecarOf(files);
     const entry = sidecar.servers.find((item) => item.name === serverName);
     if (entry?.kind !== 'generated') throw new Error('export missing generated server');
-    // 同名 server 被复用时，包里的工具不能被合并进去。
     entry.tools = [...(entry.tools ?? []), makeTool({ name: 'incoming', pathTemplate: '/new' })];
     sidecar.agent.slug = importedSlug;
     const res = await importZip(
@@ -1879,7 +1850,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
           },
         ],
       });
-    // 不压缩打包时包体随内容线性增长；先量一次，再补齐到精确上限。
     const probe = build(100_000);
     const exact = build(100_000 + AGENT_PACKAGE_MAX_BYTES - probe.byteLength);
     expect(exact.byteLength).toBe(AGENT_PACKAGE_MAX_BYTES);
@@ -1906,7 +1876,6 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
     expect(JSON.parse(settings)).toEqual({
       env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', CLAUDE_CODE_ENABLE_TASKS: '0' },
     });
-    // 沙盒专有的后台任务与委派深度限制不随定义包迁移。
     expect(settings).not.toContain('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS');
     expect(settings).not.toContain('CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH');
   });

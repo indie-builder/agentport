@@ -91,7 +91,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const messages = fake.messageRequests();
       expect(messages).toHaveLength(2);
       expect(messages[0]?.body).toBeDefined();
-      // 第二轮请求必须带着宿主持久 session 里的第一轮历史，而不是重新开始。
       expect(JSON.stringify(messages[1]?.body)).toContain('ORANGE-731');
       expect(JSON.stringify(messages[1]?.body)).toContain('REPLY:第一轮：请记住暗号 ORANGE-731');
       expect(new Set(fake.requests.map((request) => request.path))).toEqual(

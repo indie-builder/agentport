@@ -22,8 +22,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/ta
 import { cn } from '../../lib/cn.js';
 import { asArray, childProps, metricTone, type RenderProps, ValueText } from './shared.js';
 
-// ─── Icon ────────────────────────────────────────────────────────────────────
-
 /** lucide 只导出 PascalCase 命名；模型给的是 kebab-case 或任意大小写。 */
 function toPascalCase(name: string): string {
   return name
@@ -65,8 +63,6 @@ export function IconRenderer({ props }: RenderProps<{ name: string; category?: s
   if (!Icon) return null;
   return <Icon aria-hidden="true" />;
 }
-
-// ─── Text primitives ─────────────────────────────────────────────────────────
 
 type TextSize = 'xs' | 'sm' | 'md' | 'lg';
 
@@ -159,8 +155,6 @@ export function IconTextRenderer({
   );
 }
 
-// ─── Card shell ──────────────────────────────────────────────────────────────
-
 function SourceStrip({
   sources,
 }: {
@@ -235,8 +229,6 @@ export function InlineHeaderRenderer({
   );
 }
 
-// ─── Tabs / Accordion / Sections ─────────────────────────────────────────────
-
 export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown[] }>) {
   const items = (props.items ?? []).filter((item) => childProps(item) !== undefined);
   const values = items.map((item, index) => String(childProps(item)?.value ?? index));
@@ -245,7 +237,6 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
   const touched = useRef(false);
   const previousCount = useRef(0);
 
-  // 流式期间自动跟随新出现的页签；用户点过之后就不再抢焦点。
   useEffect(() => {
     if (items.length === 0) return;
     const grew = items.length > previousCount.current;
@@ -297,7 +288,6 @@ export function AccordionRenderer({ props, renderNode }: RenderProps<{ items: un
   const touched = useRef(false);
   const previousCount = useRef(0);
 
-  // 只在折叠项数量变化时自动展开最新的一项；用户手动开合后不再干预。
   useEffect(() => {
     if (items.length === 0) return;
     const grew = items.length > previousCount.current;
@@ -340,7 +330,6 @@ export function SectionBlockRenderer({
   const sections = (props.sections ?? []).filter((item) => childProps(item) !== undefined);
   if (sections.length === 0) return null;
   if (props.isFoldable === false) {
-    // 展开式分区：标题与内容靠间距分组，不再叠一层折叠语义。
     return (
       <div className="flex min-w-0 flex-col gap-4">
         {sections.map((section, index) => (
@@ -361,8 +350,6 @@ export function SectionBlockRenderer({
     />
   );
 }
-
-// ─── Steps / Carousel ────────────────────────────────────────────────────────
 
 export function StepsRenderer({ props, renderNode }: RenderProps<{ items: unknown[] }>) {
   const items = (props.items ?? []).filter((item) => childProps(item) !== undefined);
@@ -398,7 +385,6 @@ export function CarouselRenderer({
   const slides = (props.children ?? []).filter((slide) => Array.isArray(slide));
   if (slides.length === 0) return null;
   return (
-    // 官方把翻页按钮放在轨道两侧，聊天 728px 轴线里会溢出；这里移到下方操作行。
     <Carousel aria-label="内容轮播" align="start" className="@container min-w-0">
       <CarouselViewport>
         <CarouselContent className="ml-0 py-2">
@@ -426,8 +412,6 @@ export function CarouselRenderer({
     </Carousel>
   );
 }
-
-// ─── Lists / follow-ups ──────────────────────────────────────────────────────
 
 export function ListRenderer({
   props,
@@ -527,8 +511,6 @@ export function FollowUpBlockRenderer({ props }: RenderProps<{ items: unknown[] 
     </div>
   );
 }
-
-// ─── Data display ────────────────────────────────────────────────────────────
 
 export function SeparatorRenderer({
   props,

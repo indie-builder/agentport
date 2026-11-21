@@ -42,7 +42,6 @@ const pluginColumns = {
   updatedAt: plugins.updatedAt,
 };
 
-/** 列表附带绑定的智能体数量；分组依据是主键，其余列在 PG 中函数依赖于它。 */
 export async function listPlugins(
   db: Database,
   access?: ResourceAccessFilter,
@@ -73,7 +72,6 @@ export async function getPluginBySourceId(
   return row ?? null;
 }
 
-/** 列表页只关心是否已入库：一次投影 sourceId，不取整行。 */
 export async function getImportedPluginSourceIds(
   db: Database,
   sourceIds: string[],
@@ -180,7 +178,6 @@ export async function listPluginFiles(db: Database, pluginId: string): Promise<P
     .orderBy(asc(pluginFiles.path), asc(pluginFiles.id));
 }
 
-/** 一次取回多个插件的文件（worker 一次运行要把所有已绑定插件铺进工作区）。 */
 export async function getPluginFilesByPluginIds(
   db: DbHandle,
   pluginIds: string[],

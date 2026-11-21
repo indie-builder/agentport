@@ -190,7 +190,6 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     });
     expect(created.statusCode, created.body).toBe(202);
     const documentId = created.json<{ documentId: string }>().documentId;
-    // 模拟排队后失败：没有版本，只有 original blob 与 contentHash。
     await app.client.unsafe("update knowledge_documents set status = 'failed' where id = $1", [
       documentId,
     ]);
@@ -208,7 +207,6 @@ describe.skipIf(!ready)('knowledge package regressions', () => {
     const pending = exported.pending as { originalPath: string };
     const files = unzipSync(new Uint8Array(archive));
     expect(Buffer.from(files[pending.originalPath]!)).toEqual(bytes);
-    // 运行态批次身份不进入包。
     expect(archive.includes('faqImportJobId')).toBe(false);
     expect(archive.includes('faqImport')).toBe(false);
 

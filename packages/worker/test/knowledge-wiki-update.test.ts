@@ -13,10 +13,6 @@ import {
   type WikiUpdateInput,
 } from '../src/knowledge/ingestion.js';
 
-/**
- * 摄取成功后的 Wiki 联动：真实 DB + 真实 HTTP embedding fixture；
- * 只有队列边界用假回调，避免测试自己开第二个 Redis singleton。
- */
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
 
@@ -92,7 +88,6 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   if (baseIds.length > 0) {
-    // delete cascade 掉 wiki 页/版本/来源、job、文档与 chunk。
     await dbHandle.client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
       dbHandle.client.array(baseIds, 'TEXT'),
     ]);
@@ -161,7 +156,6 @@ async function writeBlob(data: Buffer): Promise<string> {
   return sha;
 }
 
-/** 已就绪文档：当前版本 + 一个可引用 chunk。 */
 async function seedReadyDocument(
   baseId: string,
   markdown = '# 认证\n\n旧内容：令牌有效期 30 天。',
@@ -214,7 +208,6 @@ async function seedReadyDocument(
   return { documentId, versionId: version.id, chunkId: chunk.id };
 }
 
-/** 手动发布一页，并把页面来源指向给定 chunk（页面因此与文档关联）。 */
 async function publishLinkedPage(
   baseId: string,
   source: { documentId: string; versionId: string; chunkId: string },
@@ -236,7 +229,6 @@ async function publishLinkedPage(
   return { pageId: page.id, versionId: version.id };
 }
 
-/** 新内容作为下一次 ingest：写 blob、更新 contentHash、建并认领 job。 */
 async function startIngest(
   documentId: string,
   body: string,
@@ -283,7 +275,6 @@ describe('ingestion → wiki linkage', () => {
     await runIngest(fixtureBase.deps, document, new AbortController().signal);
 
     const after = await repo.knowledge.getWikiPage(db, page.pageId);
-    // 已发布内容与页面指针不动，只提示需要复核。
     expect(after?.status).toBe('stale');
     expect(after?.currentVersionId).toBe(page.versionId);
 
@@ -298,7 +289,6 @@ describe('ingestion → wiki linkage', () => {
       baseId: fixtureBase.baseId,
       pageId: page.pageId,
     });
-    // 新版本已切换，旧 chunk 仍保留历史引用。
     const updated = await repo.knowledge.getDocument(db, seeded.documentId);
     expect(updated?.currentVersionId).not.toBe(seeded.versionId);
     expect(await repo.knowledge.listChunks(db, seeded.versionId)).toMatchObject({
@@ -377,7 +367,6 @@ describe('ingestion → wiki linkage', () => {
     expect(pagesAfterFirst.items).toHaveLength(1);
     expect(pagesAfterFirst.items[0]?.slug).toBe('overview');
     const overviewId = pagesAfterFirst.items[0]?.id;
-    // 上一轮索引任务已结束，才允许为同一页再投一次草稿任务。
     await db
       .update(schema.knowledgeJobs)
       .set({ status: 'succeeded', endedAt: new Date() })
@@ -397,7 +386,6 @@ describe('ingestion → wiki linkage', () => {
     const fixtureBase = await makeBase({ wikiAutoUpdate: true });
     const seeded = await seedReadyDocument(fixtureBase.baseId);
     const firstPage = await publishLinkedPage(fixtureBase.baseId, seeded, '认证');
-    // 第二个页面同样引用该文档（不同 chunk 行）：只应各收到一个任务。
     await db.insert(schema.knowledgeWikiSources).values({
       pageId: (
         await repo.knowledge.createWikiPage(db, {
@@ -415,7 +403,6 @@ describe('ingestion → wiki linkage', () => {
     await runIngest(fixtureBase.deps, first.document, new AbortController().signal);
     expect(fixtureBase.notified[0]?.jobIds).toHaveLength(2);
 
-    // 任务仍在 queued：再次摄取同一文档不得给同一页再塞一个任务。
     const second = await startIngest(seeded.documentId, '# 认证\n\n第二次更新。');
     await runIngest(fixtureBase.deps, second.document, new AbortController().signal);
 
@@ -425,7 +412,6 @@ describe('ingestion → wiki linkage', () => {
   });
 });
 
-/** 全新文档（无当前版本）走第一次摄取。 */
 async function startIngestForNewDocument(
   baseId: string,
   body: string,

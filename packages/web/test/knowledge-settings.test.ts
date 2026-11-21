@@ -132,7 +132,6 @@ const { server, calls } = msw;
 
 type ProfileFixture = typeof embeddingProfile | typeof cohereProfile | typeof rerankProfile;
 
-/** 选择投影与后端同一规则：停用、非 Cohere v2、非 embed-v4.0 或未开图片输入都不支持图片向量。 */
 function selectionOf(profile: ProfileFixture) {
   return {
     id: profile.id,
@@ -148,7 +147,6 @@ function selectionOf(profile: ProfileFixture) {
   };
 }
 
-/** 管理列表与选择投影是同一 URL 的两个形状；测试严格按 view 区分，避免用超集掩盖选择请求。 */
 function profilesHandler(profiles: ProfileFixture[]) {
   return http.get('/api/knowledge/model-profiles', ({ request }) => {
     const view = new URL(request.url).searchParams.get('view');
@@ -170,7 +168,6 @@ afterAll(() => msw.close());
 
 beforeEach(() => {
   msw.reset();
-  // 设置弹层内部读取 me 决定是否显示重建入口；默认给全量权限身份。
   server.use(http.get('/api/auth/me', () => HttpResponse.json(allAccessMe)));
   vi.mocked(toastError).mockClear();
   vi.mocked(toastSuccess).mockClear();
@@ -221,7 +218,6 @@ async function mount(element: ReactElement) {
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
-  // 弹层会注册路由离开保护，必须挂在真实 router 上下文里。
   const rootRoute = createRootRoute({ component: () => element });
   const router = createRouter({
     routeTree: rootRoute,
@@ -390,7 +386,6 @@ describe('knowledge base settings', () => {
     await selectOption('knowledge-settings-embedding', 'embed-v4.0');
     expect(document.body.textContent).toContain('保存后立即切换检索模型');
     expect(document.body.textContent).toContain('已有文档需重建后恢复向量检索');
-    // 图片向量能力按新选择的 profile 判定，而不是旧绑定。
     expect(
       (document.getElementById('knowledge-settings-image-vector') as HTMLButtonElement).disabled,
     ).toBe(false);
@@ -409,7 +404,6 @@ describe('knowledge base settings', () => {
     );
     await mountSettings(cohereVectorBase);
     await selectOption('knowledge-settings-embedding', 'bge-m3');
-    // 已勾选的开关不能因能力不足被禁用，否则用户无法关闭它。
     const vector = document.getElementById('knowledge-settings-image-vector') as HTMLButtonElement;
     expect(vector.disabled).toBe(false);
     await click(button('保存设置'));
@@ -520,7 +514,6 @@ describe('knowledge base settings', () => {
       http.post('/api/knowledge/bases/kb_1/rebuild', () => HttpResponse.json({ jobId: 'kjob_9' })),
     );
     await mountSettings();
-    // 常态说明与确认框描述同一后果：逐文档切换新版本，手改内容不进新版本，失败文档保留原版本、已成功的不回滚。
     const rebuildDialog = dialog('知识库设置');
     expect(rebuildDialog.textContent).toContain('逐文档从原件生成并切换新版本');
     expect(rebuildDialog.textContent).toContain('人工分块修改与未发布的草稿都不会带入');
@@ -548,7 +541,6 @@ describe('knowledge base settings', () => {
       profilesHandler([embeddingProfile, rerankProfile]),
     );
     await mountSettings();
-    // knowledge.update 只允许保存设置，不隐含执行权。
     expect(document.body.textContent).not.toContain('重建全部索引');
     expect(button('保存设置')).toBeDefined();
   });
@@ -566,7 +558,6 @@ describe('knowledge base settings', () => {
     const disabledEmbedding = { ...embeddingProfile, name: '旧 embedding', enabled: false };
     server.use(profilesHandler([disabledEmbedding, cohereProfile, rerankProfile]));
     await mountSettings();
-    // 当前绑定项停用也必须回显，不能显示空值误导用户。
     expect(document.getElementById('knowledge-settings-embedding')?.textContent).toContain(
       '旧 embedding',
     );
@@ -614,10 +605,8 @@ describe('knowledge settings chunk preview', () => {
     const body = previewCalls()[0]?.body as
       | { sample: string; chunkTokens: number; chunkOverlap: number }
       | undefined;
-    // 预览用表单里的当前值，不依赖已保存设置。
     expect(body).toMatchObject({ chunkTokens: 1000, chunkOverlap: 150 });
     expect(body?.sample).toContain('值班分工');
-    // 预览不写库：没有触发设置保存。
     expect(
       calls.some((item) => item.method === 'PATCH' && item.path === '/api/knowledge/bases/kb_1'),
     ).toBe(false);
@@ -651,7 +640,6 @@ describe('knowledge settings chunk preview', () => {
     expect(
       (document.getElementById('knowledge-settings-chunk-overlap') as HTMLInputElement).value,
     ).toBe('90');
-    // 失败后仍可保存同一份草稿。
     expect(button('保存设置').disabled).toBe(false);
   });
 
@@ -662,7 +650,6 @@ describe('knowledge settings chunk preview', () => {
     await fill('knowledge-settings-chunk-overlap', '900');
     await fill('knowledge-settings-chunk-tokens', '800');
     await click(button('预览'));
-    // 预览与保存同一份边界：重叠不小于长度时不发请求，沿用字段错误。
     expect(previewCalls().length).toBe(0);
     expect(document.body.textContent).toContain('分块重叠需为 0 到小于分块长度的整数');
   });
@@ -716,7 +703,6 @@ describe('knowledge model profile draft protection', () => {
   it('asks before discarding a dirty profile edit on cancel or switch', async () => {
     server.use(profilesHandler([embeddingProfile, rerankProfile]));
     await mountProfiles();
-    // 管理弹层仍用原管理请求，不能消费选择投影而丢失编辑字段。
     expect(profileCalls().map((item) => item.path)).toContain('/api/knowledge/model-profiles');
     expect(profileCalls().some((item) => item.path.includes('view=selection'))).toBe(false);
     await click(button('编辑'));
@@ -780,7 +766,6 @@ describe('knowledge model profile draft protection', () => {
     await click(button('编辑'));
     await fill('knowledge-profile-model', 'bge-m3-v2');
     await click(button('保存'));
-    // 保存成功后表单卸载，外层 pending 必须已解锁，否则关闭与新增会永久不可用。
     expect(button('关闭').disabled).toBe(false);
     expect(button('新增 profile').disabled).toBe(false);
     await click(button('关闭'));
@@ -841,13 +826,11 @@ describe('knowledge model profiles', () => {
     expect(testButtons()[0]?.disabled).toBe(true);
     expect(testButtons()[1]?.disabled).toBe(true);
 
-    // 后发的 rerank 先完成，先发的 embedding 仍在途。
     await act(async () => rerankRequest.resolve());
     await flush();
     expect(testButtons()[0]?.disabled).toBe(true);
     expect(testButtons()[1]?.disabled).toBe(false);
 
-    // 先发的 embedding 随后以 HTTP 错误完成并走 catch，不能覆盖 rerank 的结果。
     await act(async () => embedRequest.resolve());
     await flush();
 

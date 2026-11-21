@@ -27,7 +27,6 @@ export function EvalPassRateChart({ runs }: { runs: EvalRun[] }) {
     ratePct: { label: '通过率', color: 'var(--color-chart-runs)' },
   } satisfies ChartConfig;
   return (
-    // 图表仅视觉展示，读屏改走下方同源运行历史表。
     <div aria-hidden="true" className="mb-3">
       <ChartContainer config={config} className="aspect-auto h-48 w-full">
         <LineChart

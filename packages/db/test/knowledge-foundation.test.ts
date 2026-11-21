@@ -226,7 +226,6 @@ async function finishFaqJob(jobId: string): Promise<void> {
   await knowledge.finishJob(db, jobId, { status: 'succeeded' });
 }
 
-/** 生产草稿由 draft ingest 任务建版本；测试也走真实任务，不伪造空关联。 */
 async function draftVersionWithJob(
   baseId: string,
   document: knowledge.KnowledgeDocumentRow,
@@ -361,7 +360,6 @@ async function linkWikiSource(pageId: string, chunk: knowledge.KnowledgeChunkRow
   });
 }
 
-/** 等真实 PG 进入锁等待：返回被指定 blocker 阻塞的后端，不用固定 sleep 猜时序。 */
 async function waitForBlockedBackends(
   blockerPid: number | number[],
   expected: number,
@@ -591,7 +589,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       sourceConnectionId: source.id,
     });
     await attachSourceRanges(onlyFirst.document, source.id, [firstRange.id]);
-    // setCurrentVersion 需在归属写入后重新走一次：先删后建会保留旧状态。
     await knowledge.setCurrentVersion(db, onlyFirst.document.id, onlyFirst.version.id);
 
     const overlap = await seedDocument(baseId, {
@@ -615,7 +612,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       mimeType: 'text/markdown',
       sizeBytes: 1,
     });
-    // 条目路径未被所选范围覆盖时拒绝归属，绝不先挂上再指望授权查询兜底。
     await expect(attachSourceRanges(pathMiss, source.id, [secondRange.id])).rejects.toMatchObject({
       code: 'INVALID_INPUT',
     });
@@ -648,7 +644,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
 
     expect(await knowledge.getReadableDocument(db, baseId, onlyFirst.document.id)).not.toBeNull();
     expect(await knowledge.getReadableDocument(db, baseId, overlap.document.id)).not.toBeNull();
-    // 路径不在 range paths 内时本地即可证明越界。
     expect(await knowledge.getReadableDocument(db, baseId, pathMiss.id)).toBeNull();
 
     const page = await knowledge.createWikiPage(db, {
@@ -694,7 +689,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(await knowledge.getReadableDocument(db, baseId, onlyFirst.document.id)).toBeNull();
     expect((await knowledge.getWikiPage(db, page.id))?.status).toBe('stale');
 
-    // 来源停用/认证失败同样不可读；恢复只能靠新的成功同步重新证明。
     await knowledge.replaceSourceScope(db, source.id, { status: 'auth_error' });
     expect(await knowledge.getReadableDocument(db, baseId, overlap.document.id)).toBeNull();
     expect((await knowledge.getDocument(db, overlap.document.id))?.disabledReason).toBe('remote');
@@ -757,7 +751,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       }),
     ).toBeNull();
 
-    // 跨文档版本拒绝，即使不带守卫。
     const other = await seedDocument(baseId, { chunks: [{ content: 'other' }] });
     expect(
       await knowledge.setCurrentVersion(db, seeded.document.id, other.version.id, {
@@ -788,7 +781,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(rolledBack.currentVersionId).toBe(seeded.version.id);
     expect(rolledBack.status).toBe('ready');
 
-    // 不同 embedding 模型空间的版本不能回退，必须重建。
     const otherProfile = await knowledge.createModelProfile(db, {
       kind: 'embedding',
       name: `foundation-other-${suffix()}`,
@@ -811,7 +803,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
 
-    // 来源失权时任何发布都拒绝。
     await knowledge.replaceSourceScope(db, source.id, { status: 'disabled' });
     const fourth = await knowledge.createVersion(db, versionInput(seeded.document.id));
     expect(
@@ -822,7 +813,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     ).toBeNull();
     expect(await knowledge.setCurrentVersion(db, seeded.document.id, fourth.id)).toBeNull();
 
-    // 人工停用的文档不能靠发布恢复。
     const manualDoc = await seedDocument(baseId, { chunks: [{ content: 'manual' }] });
     await knowledge.updateDocument(db, manualDoc.document.id, {
       status: 'disabled',
@@ -897,7 +887,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(newChunks.items[1]?.parentOrdinal).toBe(0);
     expect(newChunks.items[0]?.locator).toEqual(locator);
 
-    // 纯 enabled 修改保留定位，也不把块标成人工改正文。
     const newRoot = newChunks.items.find((chunk) => chunk.content === 'root');
     if (!newRoot) throw new Error('new root missing');
     const toggled = await knowledge.editDocumentChunks(db, {
@@ -918,7 +907,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       editedByUser: false,
     });
 
-    // 删除父块后子块保留内容，但父序号失效置空；旧版本仍完整。
     if (!toggledRoot) throw new Error('toggled root missing');
     const deleted = await knowledge.editDocumentChunks(db, {
       documentId: seeded.document.id,
@@ -1036,7 +1024,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     });
     expect(structured).toMatchObject({ parentId: page.id, position: 3 });
 
-    // 结构与正文同事务：expectedVersion 失配时标题也不得先落库。
     const withStructure = await knowledge.saveWikiDraft(db, page.id, {
       markdown: 'a\nb\nc',
       sourceChunkIds: [sourceChunk.id],
@@ -1068,7 +1055,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       }),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
 
-    // 来源文档撤权后不可读，并且引用它的草稿不能发布。
     await knowledge.updateDocument(db, sourceDoc.document.id, {
       status: 'disabled',
       disabledReason: 'manual',
@@ -1146,7 +1132,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     ]);
     expect(third.nextCursor).toBeNull();
 
-    // 首项即最新版本，直接拿它当 expectedVersion 不应 409。
     const latestId = first.items[0]?.id;
     if (!latestId) throw new Error('latest version missing');
     const updated = await knowledge.updateWikiPageStructure(db, page.id, {
@@ -1155,7 +1140,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     });
     expect(updated?.position).toBe(4);
 
-    // 其他页面的游标不能借来翻页，按未知游标语义返回空页。
     const crossed = await knowledge.listWikiVersions(db, page.id, {
       limit: 1,
       cursor: foreign,
@@ -1226,7 +1210,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     const listed = await knowledge.listSyncItems(db, run.id, { status: 'failed' });
     expect(listed.items.map((row) => row.id)).toEqual([item.id]);
 
-    // 外部来源 paused 仍可读；来源删除后立即不可读。
     const { source: source2, ranges } = await seedSource(baseId, [
       { kind: 'gitlab_project', externalId: 'paused' },
     ]);
@@ -1313,12 +1296,9 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       publication: 'draft',
       faqImport: { batchId: 'kfimp_replace', mode: 'replace' },
     });
-    // 旧集合在草稿就绪前完整保留。
     expect(await knowledge.getDocument(db, oldDoc.document.id)).not.toBeNull();
-    // 批次草稿不能逐条手工发布。
     expect(await knowledge.setCurrentVersion(db, newDocumentId, newVersion.id)).toBeNull();
 
-    // 快照变化时整批拒绝，不留下第二份草稿。
     const staleState = expectedState[0];
     if (!staleState) throw new Error('expected state missing');
     const rejectedDocumentId = newId('knowledgeDocument');
@@ -1374,7 +1354,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       currentVersionId: newVersion.id,
       status: 'ready',
     });
-    // replace 显式发布成功后才删除旧集合。
     expect(await knowledge.getDocument(db, oldDoc.document.id)).toBeNull();
   });
 
@@ -1423,7 +1402,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
         },
       ],
     });
-    // 草稿保存不移动线上指针。
     expect((await knowledge.getDocument(db, seeded.document.id))?.currentVersionId).toBe(
       seeded.version.id,
     );
@@ -1485,7 +1463,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       origin: 'faq',
       chunks: [{ content: faq.question, indexRole: 'parent' }],
     });
-    // P0 是历史版本，P1 为导入时的线上版本。
     const p1 = await knowledge.createVersion(
       db,
       versionInput(seeded.document.id, { faq, origin: 'faq' }),
@@ -1548,7 +1525,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       ],
     });
 
-    // 导入后回退到 P0；持久 expected 仍是 P1。
     await knowledge.activateDocumentVersion(db, {
       documentId: seeded.document.id,
       versionId: seeded.version.id,
@@ -1560,13 +1536,11 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
         importBatchId: 'kfimp_expected_rollback',
         items: [{ documentId: seeded.document.id, versionId: mergeVersion.id, expectedVersionId }],
       });
-    // 提交 P1 与当前线上版本不符；误提交 P0 与持久 expected 不符。两者都必须整批拒绝。
     await expect(publish(p1.id)()).rejects.toMatchObject({ code: 'CONFLICT_STALE' });
     await expect(publish(seeded.version.id)()).rejects.toMatchObject({
       code: 'CONFLICT_STALE',
     });
 
-    // 回到 P1 后可正常整批发布。
     await knowledge.activateDocumentVersion(db, {
       documentId: seeded.document.id,
       versionId: p1.id,
@@ -1611,7 +1585,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       expectedVersionId: null,
     });
 
-    // 页面存在未发布草稿时，合并草稿 parent 指向它，但 expected 仍取线上版本。
     const seeded = await seedDocument(baseId, {
       contentKind: 'faq',
       faq,
@@ -1740,12 +1713,10 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
           items: [{ documentId, versionId, expectedVersionId }],
         });
 
-    // 原任务 failed 时不能发布。
     await expect(publish(version.id, 'kfimp_retry', null)()).rejects.toMatchObject({
       code: 'CONFLICT',
     });
 
-    // 另一版本的成功任务不能替本版本开门。
     const otherVersion = faqDraftVersion();
     const otherJob = await knowledge.createJob(db, {
       type: 'ingest',
@@ -1760,7 +1731,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       code: 'CONFLICT',
     });
 
-    // 同版本重试还没跑完时也不能发布。
     const retry = await knowledge.createJob(db, {
       type: 'ingest',
       baseId,
@@ -1778,7 +1748,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       currentVersionId: version.id,
     });
 
-    // 取消后重试成功同理：取消的旧任务不会挡住新任务。
     const current = await knowledge.getDocument(db, documentId);
     if (!current) throw new Error('document missing');
     const nextVersion = faqDraftVersion();
@@ -1888,12 +1857,10 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     });
     expect((await knowledge.getVersion(db, version.id))?.metadata.publication).toBe('published');
 
-    // 已发布批次版本即便仍是当前版，也能经通用入口重放。
     expect((await knowledge.setCurrentVersion(db, documentId, version.id))?.currentVersionId).toBe(
       version.id,
     );
 
-    // 历史版本可切回；未发布批草稿仍不能绕过整批发布。
     const next = await knowledge.createVersion(db, versionInput(documentId));
     await knowledge.setCurrentVersion(db, documentId, next.id);
     expect((await knowledge.setCurrentVersion(db, documentId, version.id))?.currentVersionId).toBe(
@@ -1927,7 +1894,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     });
     expect(await knowledge.setCurrentVersion(db, documentId, draft.id)).toBeNull();
 
-    // profile 校验不因“已发布批次”放宽。
     const otherProfile = await knowledge.createModelProfile(db, {
       kind: 'embedding',
       name: `faq-generic-${suffix()}`,
@@ -1945,7 +1911,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
   it('发布标记持久化，FAQ 批次草稿不能逐条激活', async () => {
     const baseId = await seedBase();
     const seeded = await seedDocument(baseId, { chunks: [{ content: 'v1' }] });
-    // 普通手写草稿的显式发布走同一入口，发布后立即获得持久标记。
     const { version: draft } = await draftVersionWithJob(baseId, seeded.document, {
       parentVersionId: seeded.version.id,
     });
@@ -1957,7 +1922,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(activated.currentVersionId).toBe(draft.id);
     expect((await knowledge.getVersion(db, draft.id))?.metadata.publication).toBe('published');
 
-    // 原子发布同样把草稿标记翻成已发布；之后它不再是待发布草稿。
     const { version: draftTwo } = await draftVersionWithJob(baseId, seeded.document, {
       parentVersionId: draft.id,
     });
@@ -1999,7 +1963,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     });
     const job = await knowledge.getJob(db, saved.items[0]?.jobId ?? '');
     expect(job?.payload).toMatchObject({ type: 'ingest', versionId: faqVersion.id });
-    // 批次草稿未正式批发布前，回退入口也不能逐条上线。
     await expect(
       knowledge.activateDocumentVersion(db, {
         documentId: faqDocumentId,
@@ -2035,7 +1998,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       items: [{ documentId: faqDocumentId, versionId: faqVersion.id, expectedVersionId: null }],
     });
     expect((await knowledge.getVersion(db, faqVersion.id))?.metadata.publication).toBe('published');
-    // 已正式批发布的历史 FAQ 版本仍可显式回退。
     const faqNext = await knowledge.createVersion(db, versionInput(faqDocumentId));
     await knowledge.setCurrentVersion(db, faqDocumentId, faqNext.id);
     const faqRollback = await knowledge.activateDocumentVersion(db, {
@@ -2064,7 +2026,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     expect(await knowledge.countEditedChunks(db, afterDelete)).toBe(1);
     const remaining = await knowledge.listChunkSummaries(db, afterDelete);
     expect(remaining.items.map((chunk) => chunk.content)).toEqual(['keep']);
-    // 未改动正文的叶块不能被顺手标成人工编辑。
     expect(remaining.items[0]?.editedByUser).toBe(false);
     expect((await knowledge.getVersion(db, afterDelete))?.metadata.manualChanges).toMatchObject({
       [remove.id]: 'deleted',
@@ -2116,7 +2077,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     await expect(knowledge.publishWikiVersion(db, page.id, sdkEmpty.id)).rejects.toMatchObject({
       code: 'CONFLICT',
     });
-    // 回退不能把 SDK 空来源洗成人工版本后发布。
     await expect(knowledge.rollbackWikiPage(db, page.id, sdkEmpty.id)).rejects.toMatchObject({
       code: 'CONFLICT',
     });
@@ -2279,7 +2239,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     });
     if (!draft) throw new Error('draft missing');
 
-    // 1) 发布必须先等来源锁：范围撤权持有来源行锁时，发布不得抢在它前面动页面。
     const gate = await client.reserve();
     let publishing: Promise<unknown> | null = null;
     let revoking: Promise<unknown> | null = null;
@@ -2305,7 +2264,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
           },
         ],
       });
-      // 排在后面的撤权可能被前一个等待者 soft-block，因此以任一 blocker 判断它确实阻塞。
       await waitForBlockedBackends([gatePid, publishPid], 1, [publishPid]);
       await gate.unsafe('commit');
       committed = true;
@@ -2318,7 +2276,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       await Promise.allSettled([publishing, revoking]);
     }
 
-    // 2) 撤权在锁住 Wiki 页之后才写来源关联；持页锁时不能已持有 wiki_sources 行锁。
     const pageGate = await client.reserve();
     let revokeOnly: Promise<unknown> | null = null;
     let pageCommitted = false;
@@ -2403,7 +2360,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       if (!draft) throw new Error('draft missing');
       await knowledge.publishWikiVersion(db, pageId, draft.id);
     };
-    // source A 的文档按 ID 先高页后低页，source B 相反；逐文档加锁会形成反向锁环。
     await linkPage(
       highPage.id,
       [aDocs[0]?.chunk, bDocs[1]?.chunk].filter((chunk) => chunk !== undefined),
@@ -2429,7 +2385,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       revokeA = knowledge.replaceSourceScope(db, sourceA.source.id, { ranges: [] });
       const [blockedPid] = await waitForBlockedBackends(gatePid, 1);
       if (blockedPid === undefined) throw new Error('blocked pid missing');
-      // 必须从全局最小页 ID 开始等锁：等待最小页时，本事务不能已经持有高页（旧实现会）。
       const probeHighPage = await client
         .unsafe('select id from knowledge_wiki_pages where id = $1 for update nowait', [
           highPage.id,
@@ -2520,7 +2475,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       });
     };
 
-    // 旧 config：membership 与自动发布都零写。
     await knowledge.updateSource(db, source.id, { config: { repo: 'changed' } });
     expect(
       await knowledge.setDocumentSourceRanges(db, seeded.document.id, [range.id], readSnapshot, {
@@ -2532,7 +2486,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     await expectOnlineUnchanged();
     await knowledge.updateSource(db, source.id, { config: {} });
 
-    // 旧凭证密文：不解密比较，密文原值变化即失效。
     await knowledge.updateSource(db, source.id, { secretsEncrypted: 'encrypted-v2' });
     expect(
       await knowledge.setDocumentSourceRanges(
@@ -2547,7 +2500,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     await expectOnlineUnchanged();
     await knowledge.updateSource(db, source.id, { secretsEncrypted: null });
 
-    // 同 ID 范围改 paths：按范围实际字段比较，不因 ID 未变放行。
     await knowledge.replaceRanges(db, source.id, [
       {
         kind: 'gitlab_project',
@@ -2592,7 +2544,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       contentHash: second.blobSha256,
     });
 
-    // 范围撤权后回退旧版本同样拒绝，线上指针保持最新成功发布。
     await knowledge.replaceRanges(db, source.id, [
       {
         kind: 'gitlab_project',
@@ -2623,7 +2574,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
         expectedVersionId: seeded.version.id,
       });
 
-    // 缺关联：既不能显式激活，也不能经自动发布绕过。
     const unlinked = await knowledge.createVersion(
       db,
       versionInput(document.id, { metadata: { publication: 'draft' } }),
@@ -2631,7 +2581,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     await expect(activate(unlinked.id)).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(await knowledge.setCurrentVersion(db, document.id, unlinked.id)).toBeNull();
 
-    // 其它文档的成功任务不能冒充。
     const other = await seedDocument(baseId, { chunks: [{ content: 'other' }] });
     const { job: otherJob } = await draftVersionWithJob(baseId, other.document);
     const foreign = await knowledge.createVersion(
@@ -2643,14 +2592,12 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     );
     await expect(activate(foreign.id)).rejects.toMatchObject({ code: 'CONFLICT' });
 
-    // 已取消的任务不能发布。
     const cancelled = await draftVersionWithJob(baseId, document, {
       parentVersionId: seeded.version.id,
       jobStatus: 'cancelled',
     });
     await expect(activate(cancelled.version.id)).rejects.toMatchObject({ code: 'CONFLICT' });
 
-    // 成功任务但输入不是该版本（指纹/文件名不同）。
     const { job } = await draftVersionWithJob(baseId, document, {
       parentVersionId: seeded.version.id,
     });
@@ -2665,7 +2612,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
     );
     await expect(activate(mismatched.id)).rejects.toMatchObject({ code: 'CONFLICT' });
 
-    // 匹配的成功任务可以发布，指针与 contentHash 同事务更新。
     const matched = await draftVersionWithJob(baseId, document, {
       parentVersionId: seeded.version.id,
     });
@@ -2803,7 +2749,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       asrProfileId: null,
     });
 
-    // 创建入口与更新同一条规则。
     const server = await servers.createServer(db, {
       name: `foundation-asr-${suffix()}`,
       kind: 'knowledge' as never,
@@ -2879,7 +2824,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       }),
     ).toBeNull();
 
-    // 普通文档的守卫不带 asrProfileId，不受当前 ASR 配置影响。
     const fifth = await knowledge.createVersion(db, versionInput(seeded.document.id));
     expect(
       await knowledge.setCurrentVersion(db, seeded.document.id, fifth.id, {

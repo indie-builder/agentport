@@ -336,7 +336,6 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     expect(rows.run?.status).toBe('running');
     expect(rows.source?.lastSyncStatus).toBeNull();
 
-    // 移除故障后同一提交必须能重试成功，证明失败没有留下半提交状态。
     for (const cleanup of cleanups.splice(0)) await cleanup();
     expect(
       await knowledge.finishJob(db, pair.job.id, { status: 'failed', error: 'boom' }),
@@ -370,7 +369,6 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     expect(rows.run?.status).toBe('running');
     expect(rows.source?.cursor).toEqual({});
 
-    // 移除故障后同一成功提交重试成功，游标与摘要一次落库。
     for (const cleanup of cleanups.splice(0)) await cleanup();
     expect(
       await knowledge.finishJob(db, pair.job.id, {
@@ -426,7 +424,6 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     );
     expect(mismatched).toMatchObject({ status: 'running', source_id: other });
 
-    // 恢复关联后同一终态提交可以成功，证明错配只回滚本次事务。
     await client.unsafe('update knowledge_sync_runs set source_id = $1 where id = $2', [
       sourceId,
       pair.run.id,
@@ -449,7 +446,6 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
       JSON.stringify({ page: 1 }),
       pair.run.id,
     ]);
-    // 与队列 resetToQueued 一致：可重试失败只把 job 退回 queued，不改 run 与检查点。
     await client.unsafe("update knowledge_jobs set status = 'queued' where id = $1", [pair.job.id]);
 
     const reclaimed = await knowledge.claimJob(db, pair.job.id);
@@ -464,7 +460,6 @@ describe.skipIf(!ready)('knowledge sync lifecycle atomicity', () => {
     const pair = await createdPair();
     await knowledge.claimJob(db, pair.job.id);
     await knowledge.finishJob(db, pair.job.id, { status: 'cancelled', error: 'cancelled' });
-    // 人为把 job 退回 queued：认领必须拒绝复活终态 run，并回滚 job 状态。
     await client.unsafe("update knowledge_jobs set status = 'queued' where id = $1", [pair.job.id]);
 
     await expect(knowledge.claimJob(db, pair.job.id)).rejects.toThrow('not active');

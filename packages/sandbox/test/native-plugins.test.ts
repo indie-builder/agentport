@@ -9,10 +9,6 @@ import {
   runNativePluginAction,
 } from '../src/native-plugins.js';
 
-/**
- * fake CLI：用 argv 决定行为，install 时按真实 CLI 的形态在缓存目录写插件。
- * 只替换子进程边界，其余解析、路径校验与快照逻辑都走真实代码。
- */
 const FAKE_CLI = `#!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
@@ -76,7 +72,6 @@ interface CaseOptions {
   cacheRoot: string;
 }
 
-/** 每个用例独立的缓存根；行为开关写进 CLI 会读的配置目录。 */
 async function options(flags: Record<string, unknown> = {}): Promise<CaseOptions> {
   const dir = await mkdtemp(join(root, 'case-'));
   const cacheRoot = join(dir, 'cache-root');

@@ -38,7 +38,6 @@ export interface OutputSelection {
   mode: 'read' | 'source';
 }
 
-/** 列表按发布版本倒序返回；同一路径只展示最新一版，旧版在预览里可选。 */
 function latestByPath(list: OutputList): OutputFile[] {
   const latest = new Map<string, OutputFile>();
   for (const file of list.items) {
@@ -54,7 +53,6 @@ function versionsOf(list: OutputList, path: string): OutputFile[] {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-/** 按倒序位置命名；分页只追加更旧版本，已有标签不因分页改变。 */
 function versionLabel(index: number, createdAt: string): string {
   const position = index === 0 ? '最新' : index === 1 ? '上一版' : `前 ${index} 版`;
   return `${position} · ${formatDateTime(createdAt)}`;
@@ -80,7 +78,6 @@ export function ConversationOutputs({
   const files = useMemo(() => (list ? latestByPath(list) : []), [list]);
   const versions = list && selection ? versionsOf(list, selection.path) : [];
   const meta = versions.find((file) => file.runId === selection?.runId) ?? null;
-  // 列表没覆盖的旧版先问真实元信息；拿到类型前既不猜文本，也不预取正文。
   const fileQuery = useOutputFile(
     conversationId,
     selection?.runId ?? null,
@@ -103,7 +100,6 @@ export function ConversationOutputs({
   );
   const shown = content.data?.file ?? file;
   const shownKind = shown ? outputPreviewKind(shown.mediaType) : kind;
-  // 选中版本在已加载列表里才给位置标签；分页外的旧版只显示真实时间，不编造位置。
   const currentVersion = selection
     ? versions.findIndex((item) => item.runId === selection.runId)
     : -1;

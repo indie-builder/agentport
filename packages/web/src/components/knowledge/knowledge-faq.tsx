@@ -101,7 +101,6 @@ function splitQuestions(value: string): string[] {
     .filter(Boolean);
 }
 
-/** 数组字段的错误挂在 answers[index]，根上只有数组级 refine 的 message。 */
 function indexedErrorMessage(errors: unknown, index: number): string | undefined {
   if (!Array.isArray(errors)) return undefined;
   const entry = errors[index] as { message?: unknown } | undefined;
@@ -119,7 +118,6 @@ function readString(metadata: Record<string, unknown> | undefined, key: string):
   return typeof value === 'string' && value !== '' ? value : null;
 }
 
-// 服务端普通批量操作上限 100 条；超过会整批 400。
 const FAQ_BATCH_LIMIT = 100;
 
 function useBatchKnowledgeFaqs(baseId: string) {
@@ -139,7 +137,6 @@ function faqStatus(
   if (item.status === 'failed') return 'failed';
   if (item.status === 'processing') return 'processing';
   if (item.status === 'disabled') return 'disabled';
-  // pending 只表示还没有线上版本，不是索引中；否则会被误读成“解析中/排队”。
   if (item.status === 'pending') return 'draft';
   return item.currentVersionId ? 'published' : 'draft';
 }
@@ -160,7 +157,6 @@ const faqStatusTone = {
   failed: 'danger',
 } as const;
 
-/** 编辑先取详情：列表只带最新 FAQ 快照，没有草稿/发布版本信息。 */
 function FaqDialog({
   baseId,
   documentId,
@@ -187,7 +183,6 @@ function FaqDialog({
       />
     );
   }
-  // 有缓存就先保住编辑子树：后台 refetch 失败只提示并允许重试，不能把草稿卸载。
   if (detail.data === undefined) {
     if (detail.isPending) {
       return (
@@ -249,7 +244,6 @@ function FaqEditorForm({
   const update = useUpdateKnowledgeFaq(baseId);
   const pending = create.isPending || update.isPending;
   const [error, setError] = useState<string | null>(null);
-  // 正文默认值和 expectedVersionId 必须来自同一个初始快照；refetch 不能只让版本号漂移。
   const [initialDetail] = useState(() => detail);
   const form = useZodForm(faqFormSchema, {
     defaultValues: {
@@ -639,7 +633,6 @@ interface RecoveredBatch {
   newestAt: string;
 }
 
-/** 批次身份只落在草稿版本 metadata；重开对话框时从各 FAQ 详情恢复完整成员。 */
 function recoverBatches(details: Array<KnowledgeFaqDetail | undefined>): RecoveredBatch[] {
   const groups = new Map<string, RecoveredBatch>();
   for (const detail of details) {
@@ -657,7 +650,6 @@ function recoverBatches(details: Array<KnowledgeFaqDetail | undefined>): Recover
       documentId: detail.document.id,
       title: detail.document.title,
       versionId: draft.id,
-      // 发布校验只认导入保存时锁定的线上版本，不能用今天的 current 重新猜。
       expectedVersionId: parsed.data.expectedVersionId,
       jobId: readString(draft.metadata, 'faqImportJobId'),
     });
@@ -690,7 +682,6 @@ function FaqImportDialog({
   useDrainPages(existing);
   const existingItems = existing.data?.pages.flatMap((page) => page.items) ?? [];
   const existingCount = existingItems.length;
-  // 只有全部页读完且无读取错误，才能确定现有 FAQ 与未完成批次的完整成员。
   const existingComplete =
     existing.isSuccess &&
     !existing.isError &&
@@ -717,7 +708,6 @@ function FaqImportDialog({
   const recoveredMembers = recovered?.members ?? [];
   const client = useQueryClient();
   const retryJob = useRetryKnowledgeJob(baseId);
-  // 重试提交后到详情读回新 job 的短暂窗口；新任务 id 的唯一权威仍是草稿 metadata。
   const [retryingFrom, setRetryingFrom] = useState<Record<string, string>>({});
   const retryPending = (member: RecoveredMember): boolean =>
     member.jobId !== null && retryingFrom[member.documentId] === member.jobId;
@@ -764,7 +754,6 @@ function FaqImportDialog({
     recoveredMembers.some(
       (member) => member.jobId !== null && recoveredStatus.get(member.jobId) === undefined,
     );
-  // 读取错误或尚未返回的任务状态都不是“进行中”：只让已知的非终态任务锁窗。
   const recoveredWaiting =
     recovered !== null &&
     recoveryReadReady &&
@@ -800,7 +789,6 @@ function FaqImportDialog({
     ? publishable.flatMap((result) => (result.documentId === undefined ? [] : [result.documentId]))
     : [];
   const details = useKnowledgeFaqDraftVersions(documentIds, jobsOk);
-  // 读取失败时 TanStack 仍保留旧草稿缓存；只有全部详情读成且不在请求中才算可发布。
   const committedDetailsComplete =
     documentIds.length > 0 &&
     details.every((detail) => detail.isSuccess && !detail.isError && !detail.isFetching);
@@ -876,7 +864,6 @@ function FaqImportDialog({
     for (const target of retryTargets) {
       try {
         await retryJob.mutateAsync(target.jobId);
-        // 重试只回传 task id；把草稿详情读回的新 faqImportJobId 作为权威，读完前保持等待。
         setRetryingFrom((current) => ({ ...current, [target.documentId]: target.jobId }));
         void client.invalidateQueries({ queryKey: knowledgeKeys.faq(target.documentId) });
       } catch (reason) {
@@ -1384,7 +1371,6 @@ function FaqTest({ baseId }: { baseId: string }) {
         onSubmit={(event) => {
           event.preventDefault();
           const next = draft.trim();
-          // 同词重复测试时 state 不变；显式 refetch，随机答案才会重新抽一次。
           if (next === term) {
             if (next !== '') void result.refetch();
             return;
@@ -1445,7 +1431,6 @@ function FaqTest({ baseId }: { baseId: string }) {
   );
 }
 
-/** FAQ 是 contentKind=faq 的文档：列表、编辑、发布与启停都复用文档版本语义。 */
 export function FaqTab({
   baseId,
   caps,
@@ -1497,7 +1482,6 @@ export function FaqTab({
     });
   };
   const selectedItems = items.filter((item) => selectedIds.has(item.id));
-  // 筛选变化后已不在当前列表的 FAQ 不再参与批量操作。
   useEffect(() => {
     setSelectedIds((current) => {
       const visible = new Set(items.map((item) => item.id));
@@ -1516,7 +1500,6 @@ export function FaqTab({
     toastError(`${failed.length} 条失败：${failed[0]?.message ?? failed[0]?.code ?? '未知原因'}`);
   };
 
-  // 服务端普通批量操作上限 100 条；按顺序切片，任一批失败都不算整体成功。
   const runBatch = async (
     action: 'enable' | 'disable' | 'delete',
     successText: string,
@@ -1936,7 +1919,6 @@ export function FaqTab({
   );
 }
 
-/** 历史版本以版本自身的 faq 正文为准，不用当前详情兜底。 */
 function FaqHistoryDialog({
   baseId,
   canPublish,
@@ -2068,7 +2050,6 @@ function FaqHistoryDialog({
   );
 }
 
-/** 发布前先读详情：列表不返回草稿版本，不能凭列表猜版本号。 */
 function FaqPublishDialog({
   baseId,
   documentId,
@@ -2087,7 +2068,6 @@ function FaqPublishDialog({
   const retry = useRetryKnowledgeJob(baseId);
   const cached = detail.data;
   const draft = cached?.draftVersion;
-  // 只认这个草稿版本自己的索引任务，不能借更早版本的 succeeded。
   const draftJobId =
     draft === null || draft === undefined
       ? null

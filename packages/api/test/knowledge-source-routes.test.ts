@@ -188,7 +188,6 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     ]);
     expect(JSON.stringify(source)).not.toContain('{{SECRET_ghp_example}}');
 
-    // ref 可空：不填时由 worker 回落到仓库 default branch。
     const noBase = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
@@ -221,7 +220,6 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     });
     expect(missingProject.statusCode, missingProject.body).toBe(400);
 
-    // PATCH 不重建 schema，仍按同一套本地规则拒绝缺 projectId 的配置。
     const badPatch = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
@@ -268,7 +266,6 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     });
     expect(invalid.json<{ requestId: string }>().requestId).toBeTruthy();
 
-    // 非法类型不能落库，worker 读到的仍是创建时的布尔值。
     const untouched = await app.client.unsafe<{ config: Record<string, unknown> }[]>(
       'select config from knowledge_sources where id = $1',
       [sourceId],
@@ -346,7 +343,6 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(created.statusCode, created.body).toBe(201);
     const source = created.json<{ id: string }>();
 
-    // 只改 ranges、不带 config/secrets，也必须走同一套校验。
     const badRepos = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
@@ -381,7 +377,6 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(created.statusCode, created.body).toBe(201);
     const source = created.json<{ id: string }>();
 
-    // 历史数据可能已带非法范围：绕过接口直接落库，验证 test 与部分 PATCH 的行为。
     const legacy = [
       ['krng_a1', 'github_repo', 'octo/..', true],
       ['krng_a2', 'github_repo', 'bad repo/proj', true],
@@ -405,13 +400,11 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     expect(tested.statusCode, tested.body).toBe(400);
     expect(tested.json()).toMatchObject({ code: 'INVALID_INPUT' });
     const message = tested.json<{ message: string }>().message;
-    // 停用的范围不参与校验；其余每个启用的非法范围各给一条明确文案。
     expect(message).toContain('范围 octo/.. 需为 owner/repo');
     expect(message).toContain('范围 bad repo/proj 需为 owner/repo');
     expect(message).toContain('范围 nested/proj/extra 需为 owner/repo');
     expect(message).toContain('范围 octo/wrong-kind 的类型必须是仓库（github_repo）');
 
-    // 只改 name 时不被历史非法范围阻断。
     const renamed = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/sources/${source.id}`,
@@ -460,7 +453,6 @@ describe.skipIf(!ready)('knowledge source routes', () => {
       payload: { type: 'source_probe', sourceId: source.id },
     });
 
-    // 清空 config/凭证后 test 必须报出缺失项，而不是入队一个必然失败的探针。
     const broken = await request(app, {
       method: 'POST',
       url: `/api/knowledge/bases/${baseId}/sources`,
@@ -577,7 +569,6 @@ describe.skipIf(!ready)('knowledge source routes', () => {
     );
     const retryRunId = retryJob[0]!.payload.syncRunId;
     expect(retryRunId).not.toBe(created.syncRunId);
-    // 旧 run 的历史保持原样，不被重试覆写。
     const oldRun = await app.client.unsafe<{ status: string; ended_at: string | null }[]>(
       'select status, ended_at from knowledge_sync_runs where id = $1',
       [created.syncRunId],

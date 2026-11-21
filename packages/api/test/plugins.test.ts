@@ -15,7 +15,6 @@ import {
 } from './helpers.js';
 
 const ready = await infraReady;
-/** 与仓储里的绑定锁同一个键。 */
 const BINDING_LOCK = "select pg_advisory_xact_lock(hashtext('agentport.subagent-bindings'))";
 
 const files = [
@@ -100,7 +99,6 @@ describe.skipIf(!ready)('agent plugin bindings', () => {
       pluginBindings: [{ pluginId: plugin.id, allowHooks: false, allowMcp: false }],
     });
 
-    // 解绑：旧绑定留在 v2 快照里。
     const unbound = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${bound.id}`,
@@ -118,7 +116,6 @@ describe.skipIf(!ready)('agent plugin bindings', () => {
     ).json<Array<{ version: number }>>()[0]?.version;
     expect(latestVersion).toBe(2);
 
-    // 解绑后成为子智能体。
     const parent = await createAgent({ subAgentIds: [bound.id] });
     const versionsBefore = (
       await request(app, {
@@ -128,7 +125,6 @@ describe.skipIf(!ready)('agent plugin bindings', () => {
       })
     ).json<Array<{ version: number }>>();
 
-    // 回滚到带绑定的 v1 必须失败，且关系与配置都不变。
     const rollback = await request(app, {
       method: 'POST',
       url: `/api/agents/${bound.id}/rollback`,
@@ -191,7 +187,6 @@ describe.skipIf(!ready)('agent plugin bindings', () => {
     return pid;
   };
 
-  /** 卡在 holder 后面、正在执行的语句；据此判断事务停在哪一步。 */
   const blockedOn = async (holder: number, pattern: RegExp): Promise<boolean> => {
     const rows = await app.client.unsafe<{ query: string }[]>(
       `select a.query from pg_stat_activity a
@@ -203,7 +198,6 @@ describe.skipIf(!ready)('agent plugin bindings', () => {
     return rows.some((row) => pattern.test(row.query));
   };
 
-  /** 一个没被行锁占住的 agent 行才能 nowait 拿到；否则抛 55P03。 */
   const rowIsFree = async (id: string): Promise<boolean> => {
     const client = await app.client.reserve();
     try {
@@ -221,11 +215,6 @@ describe.skipIf(!ready)('agent plugin bindings', () => {
   const patch = (id: string, payload: Record<string, unknown>) =>
     request(app, { method: 'PATCH', url: `/api/agents/${id}`, headers: auth(), payload });
 
-  /**
-   * 死锁回归：插件绑定事务必须「先 advisory、后 agent 行锁」。
-   * 外部事务占住 advisory，绑定请求就会停在这把锁上；此时 agent 行必须仍然可 nowait 拿到，
-   * 证明它还没先行锁。随后放行，委派事务一起完成，不出现 40P01。
-   */
   it('takes the binding lock before the agent row lock', async () => {
     const plugin = await createPlugin();
     const bound = await createAgent({});
@@ -287,10 +276,6 @@ describe.skipIf(!ready)('agent plugin bindings', () => {
     }
   }, 10_000);
 
-  /**
-   * 克隆会照抄源绑定；旧实现在 FOR SHARE 源行之后才拿 advisory，与「先 advisory 再改行」
-   * 的委派事务互等。这里同样用外部 advisory 占位，证明克隆还没锁源行，放行后正常完成。
-   */
   it('takes the binding lock before locking the duplicate source', async () => {
     const plugin = await createPlugin();
     const source = await createAgent({

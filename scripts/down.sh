@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# 停止整套 compose 服务。默认保留数据卷；--clean 一并删除（数据库与 Redis 数据会丢失）。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

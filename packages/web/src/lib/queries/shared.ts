@@ -16,7 +16,6 @@ export const queryClient = new QueryClient({
 
 export const meQuery = queryOptions<AuthMe>({
   queryKey: ['me'],
-  // 身份确认后再把聊天状态交给受保护页面；同一个人重复 /me 不会清草稿。
   queryFn: async () => {
     const identity = await api.me();
     if (identity.authenticated) {
@@ -28,12 +27,10 @@ export const meQuery = queryOptions<AuthMe>({
   staleTime: 30_000,
 });
 
-/** 只清查询缓存；登录、改密等拿不准身份的时机用它，不能顺手删草稿。 */
 export function clearSessionQueries(client = queryClient): void {
   client.clear();
 }
 
-/** 用户主动退出登录：清查询缓存与聊天状态；401 等隐式过期不走这里。 */
 export async function logoutAccount(): Promise<void> {
   await api.logout().catch(() => undefined);
   clearSessionQueries();
@@ -52,7 +49,6 @@ export function useRefetchWhenRunEnds(identity: string, active: boolean, queryKe
   }, [identity, active, client, queryKey]);
 }
 
-/** 状态只向前走：已回答/已拒答/已关闭的快照不会被迟到的 pending 覆盖。 */
 function mergeRunQuestion(
   previous: PublicRunQuestion,
   incoming: PublicRunQuestion,
@@ -71,7 +67,6 @@ export function withRunQuestion(
   return current === undefined ? items : items.with(index, mergeRunQuestion(current, question));
 }
 
-/** GET 结果与已缓存的较新状态合并，避免在途请求把刚回答的卡片打回待回答。 */
 export function mergeRunQuestions(
   previous: PublicRunQuestion[] | undefined,
   incoming: PublicRunQuestion[],
@@ -93,9 +88,6 @@ export function useInvalidate() {
   return (key: string) => client.invalidateQueries({ queryKey: [key] });
 }
 
-// ---- 知识库 ---------------------------------------------------------------
-
-/** 文档列表拿不到任务类型；按最长的摄取超时兜底，宁可多刷也不提前停。 */
 const KNOWLEDGE_DOCUMENT_WINDOW_MS = 30 * 60_000;
 
 type PollableJob = {
@@ -113,7 +105,6 @@ export function isTerminalKnowledgeJob(status: string | undefined): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
 }
 
-/** 活跃且未超过该类型硬超时（与 worker 的 KNOWLEDGE_JOB_TIMEOUT_MS 一致）；页面用同一函数决定「已停止自动刷新」提示。 */
 export function knowledgeShouldPoll(items: readonly PollableJob[] | undefined): boolean {
   const now = Date.now();
   return (items ?? []).some((item) => {
@@ -135,6 +126,7 @@ export const knowledgeKeys = {
   summary: (id: string) => ['knowledge', 'base-summary', id] as const,
   activity: (id: string) => ['knowledge', 'base-activity', id] as const,
   documents: (baseId: string) => ['knowledge', 'documents', baseId] as const,
+  images: (baseId: string, q: string) => ['knowledge', 'images', baseId, q] as const,
   document: (documentId: string | null) => ['knowledge', 'document', documentId] as const,
   documentVersions: (documentId: string) => ['knowledge', 'document-versions', documentId] as const,
   documentDiff: (documentId: string, fromVersionId: string, toVersionId: string) =>
@@ -168,7 +160,6 @@ export const knowledgeKeys = {
 
 export const KNOWLEDGE_PAGE_SIZE = 50;
 
-/** 小型集合（来源/Wiki/版本）自动取完剩余游标页；失败后停下，交给调用方的显式重试。 */
 export function useDrainPages(query: {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
@@ -181,7 +172,6 @@ export function useDrainPages(query: {
   }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
 }
 
-/** probe 结果落在 job.result；只轮询本次提交的任务，终态后停止。 */
 export const knowledgeJobQuery = (jobId: string | null) =>
   queryOptions({
     queryKey: knowledgeKeys.job(jobId ?? ''),

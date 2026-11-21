@@ -22,7 +22,6 @@ import {
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
 const ready = await infraReady;
-// 删除会持有共享库的绑定锁；独享库避免与同轮其它删除套件的长等待互相超时。
 const isolated = ready ? await createIsolatedDatabase('output_shares') : null;
 
 const sha256 = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
@@ -307,14 +306,12 @@ describe.skipIf(!ready || isolated === null)('output shares', () => {
       'NOT_FOUND',
     );
 
-    // 公开入口只认库内记录的三元组，额外 path 参数不能改变读取目标。
     const sibling = await publicGet(`${base}/content?path=secret.md`, token);
     expect(sibling.statusCode, sibling.body).toBe(200);
     expect(sibling.json<{ content: string }>().content).toBe('# 分享\n');
     const siblingDownload = await publicGet(`${base}/download?path=secret.md`, token);
     expect(siblingDownload.rawPayload.equals(Buffer.from('# 分享\n'))).toBe(true);
 
-    // 三元组被改成兄弟文件或另一运行时，sha256 不再匹配创建值，公开访问一律 404。
     await app.client.unsafe("update output_shares set path = 'secret.md' where id = $1", [
       idOf(share),
     ]);
@@ -384,7 +381,6 @@ describe.skipIf(!ready || isolated === null)('output shares', () => {
     const token = tokenOf(share);
     const base = `/api/public/output-shares/${idOf(share)}`;
 
-    // 只覆盖快照文件、不动 manifest：记录的 sha256 仍指向旧字节。
     const snapshot = join(
       app.config.WORKSPACES_DIR,
       agent.slug,

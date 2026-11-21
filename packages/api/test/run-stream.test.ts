@@ -19,10 +19,6 @@ import { infraReady, testConfig, unique, waitFor } from './helpers.js';
 const ready = await infraReady;
 const logger = { warn: () => undefined, error: () => undefined } as unknown as Logger;
 
-/**
- * 生产者与订阅者必须用同一套键：API 发、worker 写、前端订阅，任何一方漂移都会静默丢事件。
- * 让 API 与 worker 各写一条，再用 shared 的键读回。
- */
 describe.skipIf(!ready)('run stream contract', () => {
   const redis = new RedisClient(testConfig().REDIS_URL);
   const runIds: string[] = [];
@@ -76,7 +72,6 @@ describe.skipIf(!ready)('run stream contract', () => {
     expect(await requestRunCancel(runId)).toBe(true);
     expect(await redis.exists(runCancelKey(runId))).toBe(true);
     expect(await eventCount(runId)).toBe(0);
-    // 键已存在：重复取消不再发通知。
     expect(await requestRunCancel(runId)).toBe(false);
   });
 
@@ -96,7 +91,6 @@ describe.skipIf(!ready)('run stream contract', () => {
     const runId = newRun();
     const total = 1_600;
     for (let i = 0; i < total; i += 1) await publish(runId, `e${i}`);
-    // 旧实现按 MAXLEN ~ 1000 裁掉流头；新契约必须完整保留到预算上限。
     expect(await eventCount(runId)).toBe(total);
 
     const types: string[] = [];
@@ -115,15 +109,12 @@ describe.skipIf(!ready)('run stream contract', () => {
 
   it('replays all 9 escaped tool results beyond 8MiB', async () => {
     const runId = newRun();
-    // runner 默认单字段上限 1MiB。控制字符在 JSON 里转义成 \u00XX（6 字节），
-    // 与普通字符各半，1MiB 字段序列化后约 3.5MiB，正好落在 worker 的 32MiB 落库额度内。
     const content = '\u0001a'.repeat((1024 * 1024) / 2);
     const payloads = Array.from({ length: 9 }, (_, i) =>
       JSON.stringify({ type: 'tool_result', toolUseId: `tool-${i}`, content }),
     );
     const payloadBytes = Buffer.byteLength(payloads[0] ?? '');
     const totalBytes = payloadBytes * payloads.length;
-    // 合法输入：每条字段 1MiB，9 条序列化合计约 31.5MiB，都会写入流。
     expect(Buffer.byteLength(content)).toBe(1024 * 1024);
     expect(totalBytes).toBeGreaterThan(8 * 1024 * 1024);
     expect(totalBytes).toBeLessThan(32 * 1024 * 1024);
@@ -140,7 +131,6 @@ describe.skipIf(!ready)('run stream contract', () => {
         types.push(event.type);
         deliveredBytes += Buffer.byteLength(JSON.stringify(event));
       });
-      // 旧实现只回放最近 8MiB（约 2 条）并补 bytes 截断标记；新契约必须整条流回放。
       expect(types.filter((type) => type === 'replay_truncated')).toHaveLength(0);
       expect(types).toEqual(Array.from({ length: payloads.length }, () => 'tool_result'));
       expect(deliveredBytes).toBeGreaterThan(8 * 1024 * 1024);
@@ -172,7 +162,6 @@ describe.skipIf(!ready)('run stream contract', () => {
       await publishRun(runId, { type: 'text_delta', text: 'e1' });
       expect(await waitFor(() => enteredGate)).toBe(true);
 
-      // 回调被卡住期间继续写入：回放续页与跟读都必须只投递一次。
       await publishRun(runId, { type: 'text_delta', text: 'e2' });
       await publishRun(runId, { type: 'text_delta', text: 'e3' });
       releaseGate();

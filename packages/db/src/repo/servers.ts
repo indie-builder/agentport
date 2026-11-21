@@ -34,10 +34,6 @@ export interface ApiToolWrite {
   approvalMode: 'allow' | 'ask' | 'deny';
 }
 
-/**
- * 工具的可编辑字段。定义类字段（name/method/path/params/schema）与开关类字段
- * 放在同一个 patch 里：编辑工具时前端只发一次 PATCH，不需要先删后建。
- */
 export interface ApiToolPatch {
   name?: string;
   description?: string;
@@ -145,7 +141,6 @@ export async function updateServer(
     })
     .where(where)
     .returning();
-  // 条件更新落空且行还在 = 并发修改；行没了交给路由返回 404。
   if (!row && expectedUpdatedAt !== undefined && (await getServer(db, id))) {
     throw new AppError('CONFLICT_STALE', '配置已被修改，请刷新');
   }
@@ -201,7 +196,6 @@ export async function createApiTool(db: DbHandle, input: ApiToolWrite): Promise<
   return row;
 }
 
-/** 整批写入：单事务保证导入失败时一行都不落库。 */
 export async function createApiTools(
   db: Database,
   serverId: string,

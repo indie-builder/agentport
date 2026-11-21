@@ -716,7 +716,6 @@ describe('FAQ import batch recovery', () => {
 
   function recoveryHandlers(statusById: Record<string, KnowledgeJob['status']>) {
     baseHandlers();
-    // 重试后草稿 metadata 的 faqImportJobId 会持久成新任务；UI 必须读回它，而不是自己记。
     const jobByDocument: Record<string, string> = { kdoc_a: 'kjob_a', kdoc_b: 'kjob_b' };
     const detailFor = (documentId: 'kdoc_a' | 'kdoc_b') => {
       const source = importedVersions[documentId];

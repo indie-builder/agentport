@@ -2,15 +2,6 @@ import { describe, expect, test } from 'bun:test';
 import { segmentOpenUi } from '@agentport/shared';
 import { resolveOpenUiResponse, resolveOpenUiResponseDetailed } from '../src/openui-response.js';
 
-/**
- * 跨轮补丁的合并语义。返回值是这条消息的**完整快照**（worker 原样落库），契约：
- * - 只合并**已完成**、且与上一轮同序号段的完整程序；
- * - 每个 UI 段独立（s0/s1 各自一条基线）；
- * - 完整新程序（有 root）直接生效，不需要基线；
- * - 本轮没提到的旧 UI 段一律保留（追加到末尾、保持 sN 顺序、带原 root），
- *   不重复旧 Markdown；只有显式写出空段才表示删除；
- * - 缺基线、合并后仍不可解析时保留原文并给出诊断，不猜、不静默丢内容。
- */
 const FENCE = (program: string) => `\`\`\`openui-lang\n${program}\n\`\`\``;
 
 const BASE = `上一轮说明。\n\n${FENCE(
@@ -34,7 +25,6 @@ describe('resolveOpenUiResponse', () => {
     expect(program).toContain('新计划');
     expect(program).toContain('title = TextContent("行程")');
     expect(program).not.toContain('原计划');
-    // Markdown 部分原样保留。
     expect(merged.startsWith('补充说明。')).toBe(true);
   });
 
@@ -56,7 +46,6 @@ describe('resolveOpenUiResponse', () => {
   test('a text-only turn keeps the current text and carries the previous UI over', () => {
     const response = 'hello';
     const merged = resolveOpenUiResponse(BASE, response);
-    // 返回值是完整快照：本轮文字在，上一轮的界面仍在，且带自己的 root。
     expect(merged.startsWith('hello')).toBe(true);
     expect(merged).not.toContain('上一轮说明');
     expect(programs(merged)).toHaveLength(1);
@@ -71,7 +60,6 @@ describe('resolveOpenUiResponse', () => {
     const response = `本轮补充。\n\n${FENCE('a = TextContent("第一段更新")')}`;
     const merged = resolveOpenUiResponse(previous, response);
     expect(merged.startsWith('本轮补充。')).toBe(true);
-    // 旧 Markdown 不重复，UI 段按 s0、s1 顺序完整保留。
     expect(merged).not.toContain('中间');
     const [first, second] = programs(merged);
     expect(first).toContain('第一段更新');
@@ -88,7 +76,6 @@ describe('resolveOpenUiResponse', () => {
     expect(programs(withExtra)).toHaveLength(2);
     expect(programs(withExtra)[1]).toContain('要删掉的第二段');
 
-    // 显式空围栏才是删除声明，静默消失不算。
     const explicit = resolveOpenUiResponse(previous, `${response}\n\n${FENCE('')}`);
     expect(programs(explicit)).toHaveLength(1);
     expect(programs(explicit)[0]).toContain('全新界面');
@@ -136,7 +123,6 @@ describe('resolveOpenUiResponse', () => {
 
   test('keeps the original text when the merged program still does not parse', () => {
     const previous = FENCE(['root = Card([a])', 'a = TextContent("旧")'].join('\n'));
-    // 只改 root 引用一个不存在的语句：合并后缺语句，不能当完整程序。
     const response = FENCE('root = Card([missing])');
     const { text, diagnostics } = resolveOpenUiResponseDetailed(previous, response);
     expect(text).toBe(response);

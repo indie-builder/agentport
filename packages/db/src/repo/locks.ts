@@ -4,19 +4,13 @@ import { drizzle } from 'drizzle-orm/bun-sql';
 import type { Database, DatabaseClient } from '../client.js';
 import { agents, schema } from '../schema.js';
 
-/** 事务或连接都可用的最小查询面，避免调用方为了加锁反复 cast。 */
 type LockDb = Pick<Database, 'execute' | 'select'>;
 
 /** 委派、准入、记忆与删除共用的绑定锁键；API 复用同一字符串，不另造键。 */
 export const AGENT_BINDINGS_LOCK_KEY = 'agentport.subagent-bindings';
 
-/** 取锁、解锁与恢复连接设置的服务端上限；不允许为了等锁关闭 statement_timeout。 */
 const CONTROL_QUERY_TIMEOUT = '5s';
 
-/**
- * 控制查询的客户端截止。服务端 statement_timeout 只约束执行，无法覆盖请求/响应
- * 在网络中被黑洞的情形；超时立即销毁连接，避免在失效连接上继续 unlock/恢复。
- */
 const CONTROL_QUERY_TIMEOUT_MS = 5_000;
 
 /**
@@ -27,7 +21,6 @@ export async function lockAgentBindings(db: LockDb): Promise<void> {
   await db.execute(sql`select pg_advisory_xact_lock(hashtext(${AGENT_BINDINGS_LOCK_KEY}))`);
 }
 
-/** 事务级 advisory lock，事务结束自动释放；调用方必须在事务里使用。 */
 async function lockMemoryKey(db: LockDb, key: string): Promise<void> {
   await db.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`);
 }
@@ -126,7 +119,6 @@ export async function withAdvisoryLock<T>(
     }
   };
 
-  /** 控制查询超时/失效：先销毁一次连接，再把失败交给调用方。 */
   const destroyControl = (message: string, cause?: unknown): AppError => {
     broken ??= connectionError(cause);
     releaseOnce(true);
@@ -168,7 +160,6 @@ export async function withAdvisoryLock<T>(
   const setSetting = (name: string, value: string): Promise<unknown> =>
     control('select set_config($1, $2, false)', [name, value]);
 
-  /** 从确认拿锁开始计时；timer 触发时立即销毁连接，并用同一错误打断当前 await。 */
   const startHoldDeadline = (): void => {
     if (holdTimeoutMs === undefined) return;
     holdDeadline = new Promise<never>((_, reject) => {
@@ -195,18 +186,14 @@ export async function withAdvisoryLock<T>(
     lockTimeout = await readSetting('lock_timeout');
     await setSetting('statement_timeout', CONTROL_QUERY_TIMEOUT);
     await setSetting('lock_timeout', CONTROL_QUERY_TIMEOUT);
-    // 与 pg_advisory_xact_lock 共用 hashtext 的单 bigint 键空间。
     await control('select pg_advisory_lock(hashtext($1))', [key]);
     lockHeld = true;
-    // timer 必须从确认拿锁就启动，才能覆盖其后的设置恢复、A/B 与 unlock。
     startHoldDeadline();
-    // 业务查询沿用连接原有的 statement budget；lock_timeout 在退出时恢复。
     await bounded(setSetting('statement_timeout', statementTimeout));
     if (broken !== undefined) throw serviceError('数据库连接在取锁后断开，操作未执行', broken);
 
     callbackStarted = true;
     const callback = Promise.resolve(fn(drizzle(client, { schema })));
-    // 超时竞速离开后回调仍可能在 ACK 等待；销毁连接会让它后续 SQL 失败。
     void callback.catch(() => undefined);
     result = await bounded(callback);
     if (broken !== undefined) throw serviceError('数据库连接在操作期间断开，操作未完成', broken);
@@ -217,7 +204,6 @@ export async function withAdvisoryLock<T>(
         : err;
   }
 
-  // 清理只执行一次；已知连接失效或已因超时销毁时不再 unlock，避免在死连接上等待。
   if (!released) {
     try {
       if (broken !== undefined) {
@@ -259,7 +245,6 @@ export async function withAdvisoryLock<T>(
         ? serviceError('数据库连接在操作期间断开，操作未完成', primaryError)
         : primaryError;
     if (cleanupError !== undefined && thrown instanceof Error) {
-      // 关联清理失败但不覆盖原业务异常；调用方仍能看到真正失败原因。
       Object.defineProperty(thrown, 'cleanupError', {
         value: cleanupError,
         enumerable: false,

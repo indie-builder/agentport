@@ -15,7 +15,6 @@ import { decryptSecrets, encryptSecrets, maskServer, SECRET_MASK } from './secre
 
 type Db = Database;
 
-/** jsonb 里的配置是不可信输入：类型不对就当空值，而不是把 undefined 写进响应。 */
 export function str(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
@@ -24,7 +23,6 @@ export function strArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
-/** 记录一次测试连接结果（连接健康度 + 本次实际环境身份），供列表持久展示。 */
 export async function recordTestResult(
   db: Db,
   id: string,
@@ -35,7 +33,6 @@ export async function recordTestResult(
   await repo.servers.recordTestResult(db, id, ok, toolCount, runtimeEnvironment);
 }
 
-/** DB 行 + 解密后的 env/headers → 共享 Server 形状（仍含明文 secret）。 */
 export function toApiServer(row: repo.servers.ServerRow, keyB64url: string): Server {
   const secrets = row.secretsEncrypted ? decryptSecrets(row.secretsEncrypted, keyB64url) : {};
   const config = row.config;
@@ -83,7 +80,6 @@ export function toApiServer(row: repo.servers.ServerRow, keyB64url: string): Ser
   return { ...base, kind: 'generated', baseUrl: url, headers: secrets };
 }
 
-/** 拆分输入：非敏感字段进 config，env/headers 进加密列。 */
 function splitInput(
   input: ServerInput,
   keyB64url: string,
@@ -104,7 +100,6 @@ function splitInput(
       };
     case 'generated':
       return {
-        // PATCH 时沿用旧 token，否则改个描述就会让已配置的沙盒全部 401。
         config: { baseUrl: input.baseUrl, mcpToken: mcpToken ?? randomToken() },
         secretsEncrypted:
           Object.keys(input.headers).length > 0 ? encryptSecrets(input.headers, keyB64url) : null,
@@ -112,7 +107,6 @@ function splitInput(
   }
 }
 
-/** generated server 的访问令牌：给沙盒/其他 host 用，明文存 config。 */
 function randomToken(): string {
   return randomBytes(32).toString('base64url');
 }
@@ -123,7 +117,6 @@ export async function listServers(
   access?: ResourceAccessFilter,
 ): Promise<Server[]> {
   const rows = await repo.servers.listServers(db, access);
-  // 知识库连接器由知识库生命周期管理，不出现在用户可编辑的连接器列表里。
   return rows
     .filter((row) => row.kind !== 'knowledge')
     .map((row) => maskServer(toApiServer(row, key)));
@@ -138,7 +131,6 @@ export async function getServer(db: Db, id: string, key: string): Promise<Server
   return row ? maskServer(toApiServer(row, key)) : null;
 }
 
-/** 未脱敏版本，仅供服务端内部使用（test / MCP 端点）。 */
 export async function getServerWithSecrets(
   db: Db,
   id: string,
@@ -169,7 +161,6 @@ export async function createServer(
   return maskServer(toApiServer(row, key));
 }
 
-/** 导入返回的最小形状：密钥只回键名，配置原文不出接口。 */
 export interface ImportedServerSummary {
   id: string;
   name: string;
@@ -177,10 +168,6 @@ export interface ImportedServerSummary {
   secretKeys: string[];
 }
 
-/**
- * 批量导入要么全部写入，要么一行都不写；同名预检在事务内完成，
- * 并发下的唯一索引冲突由路由按 23505 映射成 409（事务整体回滚）。
- */
 export async function createServers(
   db: Db,
   inputs: ServerInput[],
@@ -193,7 +180,6 @@ export async function createServers(
       .select({ name: schema.servers.name })
       .from(schema.servers)
       .where(inArray(schema.servers.name, names));
-    // 冲突时连已有的配置差异都不提示，避免在错误响应里带出任何凭据信息。
     if (existing.length > 0) fail('CONFLICT', '已有同名连接器，未导入任何配置');
 
     const rows = inputs.map((input) => {
@@ -222,7 +208,6 @@ export async function createServers(
   });
 }
 
-/** PATCH 是三种 kind 字段的并集：kind 只用于校验不可变，其余按当前 kind 取用。 */
 export interface ServerPatch {
   kind?: ServerInput['kind'] | undefined;
   name?: string | undefined;
@@ -235,7 +220,6 @@ export interface ServerPatch {
   headers?: Record<string, string> | undefined;
 }
 
-/** PATCH 语义：kind 不可变；env/headers 整体替换，值为 '••••' 的键沿用旧值。 */
 function stale(): AppError {
   return new AppError('CONFLICT_STALE', '配置已被修改，请刷新');
 }
@@ -247,12 +231,9 @@ export async function updateServer(
   key: string,
   expectedUpdatedAt?: Date,
 ): Promise<Server | null> {
-  // 整个「读 → 解密合并 → 加密写」放进一个事务并先锁行：否则并发 PATCH
-  // 会用各自的旧快照覆盖对方，rotate 也会把并发改过的 baseUrl 写回去。
   return db.transaction(async (tx) => {
     const row = await repo.servers.lockServer(tx, id);
     if (!row) return null;
-    // 并发编辑：调用方带上首次加载的 updatedAt，不匹配就不写。
     if (
       expectedUpdatedAt !== undefined &&
       row.updatedAt.getTime() !== expectedUpdatedAt.getTime()
@@ -301,7 +282,6 @@ export async function updateServer(
         headers: mergedSecrets(patch.headers, current.headers),
       };
     } else {
-      // 平台托管连接由各自的生命周期管理；路由层已拒绝，这里兜住其他调用方。
       fail('FORBIDDEN', '平台托管连接由所属设置管理');
     }
 
@@ -394,16 +374,13 @@ export async function deleteTool(db: Db, serverId: string, toolId: string): Prom
   return repo.servers.deleteApiTool(db, serverId, toolId);
 }
 
-/** 只读 mcpToken，供测试连接与平台内部使用。 */
 export async function getMcpToken(db: Db, id: string): Promise<string | null> {
   const row = await repo.servers.getServer(db, id);
   const token = row?.config.mcpToken;
   return typeof token === 'string' ? token : null;
 }
 
-/** 重新生成 mcpToken 并返回明文（仅此一次）；旧 token 立即失效。 */
 export async function rotateMcpToken(db: Db, id: string): Promise<string | null> {
-  // token 在锁内生成并写回：与并发 PATCH 串行化，不会出现「PATCH 又写回旧 token」。
   return db.transaction(async (tx) => {
     const row = await repo.servers.lockServer(tx, id);
     if (row?.kind !== 'generated') return null;

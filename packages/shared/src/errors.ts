@@ -24,7 +24,6 @@ export function hasErrorCode(error: unknown, code: string): boolean {
  * 前端与外部 MCP 客户端都可能依赖它。
  */
 export const errorCode = {
-  // 输入与协议
   INVALID_INPUT: 400,
   INVALID_URL: 400,
   INVALID_REFERENCE: 400,
@@ -36,20 +35,17 @@ export const errorCode = {
   PAYLOAD_TOO_LARGE: 413,
   UNSUPPORTED_MEDIA_TYPE: 415,
   RATE_LIMITED: 429,
-  // 资源
   AGENT_DISABLED: 409,
   AGENT_BUDGET_EXCEEDED: 409,
   BUDGET_EXCEEDED: 409,
   CONTENT_BLOCKED: 403,
   CONTENT_APPROVAL_REQUIRED: 409,
   EVAL_RUN_IN_PROGRESS: 409,
-  // 知识库 MCP：固定库与当前可读版本是读取边界
   BASE_MISMATCH: 400,
   BASE_DISABLED: 409,
   DOCUMENT_NOT_FOUND: 404,
   WIKI_NOT_FOUND: 404,
   VERSION_NOT_CURRENT: 409,
-  // 服务端缺陷与依赖
   INTERNAL_ERROR: 500,
   RESPONSE_INVALID: 500,
   SERVICE_UNAVAILABLE: 503,

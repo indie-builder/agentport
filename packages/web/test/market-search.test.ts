@@ -2,8 +2,6 @@ import { act, createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-/** 市场搜索的请求防抖：连续输入只发最后一次，而不是每个字符都打一次 skills.sh。 */
-
 const mocks = vi.hoisted(() => ({
   useQuery: vi.fn(),
   useInfiniteQuery: vi.fn(),
@@ -52,7 +50,6 @@ async function type(value: string): Promise<void> {
 
 function keys(): unknown[][] {
   const calls = mocks.useQuery.mock.calls.map((call) => (call[0] as MarketOptions).queryKey);
-  // 重渲染会重复调用 hook，只保留真正变化的查询键。
   return calls.filter(
     (key, index) => index === 0 || JSON.stringify(key) !== JSON.stringify(calls[index - 1]),
   );
@@ -100,7 +97,6 @@ describe('market search debounce', () => {
     expect(debouncing).toBe(false);
 
     await type('pdf');
-    // 防抖窗口内仍是旧键，页面据此显示加载态而不是旧结果。
     expect(debouncing).toBe(true);
     expect(keys()).toEqual([['market-skills', 'all-time', '']]);
 

@@ -33,10 +33,6 @@ interface RunBody {
   status: string;
 }
 
-/**
- * 真实 PostgreSQL 故障携带 secret 与 SQL 参数，经生产收口后：
- * eval_runs.error 必须是固定公开文案，list/detail/compare/export 的成功响应不得带出原文。
- */
 describe.skipIf(!ready)('eval error redaction', () => {
   let app: TestApp;
   let cookie: string;
@@ -74,7 +70,6 @@ describe.skipIf(!ready)('eval error redaction', () => {
       expectation: 'expectation',
       createdBy: ADMIN_BUSINESS_ID,
     });
-    // 同一 agent 只允许一个 running：先创建并收口 head，再创建本次故障 run。
     const head = await repo.evalRepo.createEvalRun(app.db, {
       id: newId('evalRun'),
       agentId: agent.id,
@@ -125,7 +120,6 @@ describe.skipIf(!ready)('eval error redaction', () => {
 
     expect(fault, 'the injected PostgreSQL failure must really happen').toBeTruthy();
     const raw = new DbError((fault as Error).message, fault);
-    // 证明故障对象确实带着 SQL、参数和 secret，修复必须发生在写入/日志边界。
     expect(raw.message).toContain(secret);
     expect(raw.message).toMatch(/Failed query/);
     expect(raw.message).toMatch(/params:/);
@@ -195,7 +189,6 @@ describe.skipIf(!ready)('eval error redaction', () => {
       expectation: 'expectation',
       createdBy: ADMIN_BUSINESS_ID,
     });
-    // 同一 agent 只允许一个 running：先创建并收口 head，再创建本次故障 run。
     const head = await repo.evalRepo.createEvalRun(app.db, {
       id: newId('evalRun'),
       agentId: agent.id,
@@ -242,7 +235,6 @@ describe.skipIf(!ready)('eval error redaction', () => {
       await app.client.unsafe(`drop function if exists ${functionName}()`);
     }
 
-    // 真实写入边界已把数据库异常原文收敛，持久化输出本身就是公开文案。
     const stored = await app.client.unsafe<{ output: string }[]>(
       'select output from eval_results where eval_run_id = $1',
       [run.id],

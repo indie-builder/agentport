@@ -34,7 +34,6 @@ async function probeInfra(): Promise<boolean> {
 
 const ready = await probeInfra();
 const redisUrl = process.env.REDIS_URL ?? '';
-// 独立前缀：真实 worker 只消费默认前缀的 knowledge-jobs。
 const prefix = `knowledge-reconcile-${randomUUID().slice(0, 8)}`;
 
 describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
@@ -53,7 +52,6 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
   const baseId = newId('knowledgeBase');
   const jobIds: string[] = [];
 
-  /** 与真实 Queue 同形；不消费 job 也不需要连接。 */
   function liveQueue(): KnowledgeQueueLike {
     return {
       getJob: (id) =>
@@ -65,7 +63,6 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
     };
   }
 
-  /** 超过对账宽限期但仍远未到超时：这些行必须参与本轮判断。 */
   const PAST_GRACE = new Date(Date.now() - 10 * 60_000);
 
   async function insertJob(input: {
@@ -136,7 +133,6 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
     await clearTodayCleanup();
   });
 
-  /** cleanup 行 baseId 为 null，无法按库隔离；清掉当天遗留，保证「首次建立」从零开始。 */
   async function clearTodayCleanup(): Promise<void> {
     const now = new Date();
     const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -323,7 +319,6 @@ describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
 
   it('re-enqueues a queued job whose redis entry already finished', async () => {
     const id = await insertJob({ status: 'queued', createdAt: PAST_GRACE });
-    // 用一个必定失败的 worker 把 job 跑到 failed，模拟「Redis 里已有终态条目」。
     const failingRedis = bunRedisConnection(redisUrl);
     const failing = new Worker(
       KNOWLEDGE_JOBS_QUEUE,

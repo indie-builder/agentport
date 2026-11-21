@@ -62,7 +62,6 @@ describe.skipIf(!ready)('knowledge image routes', () => {
     cookie = await loginCookie(app);
     baseId = await createBase();
 
-    // 直接落一条已解析版本：图片 route 只依赖版本行与磁盘图片目录。
     const document = await app.client.unsafe<{ id: string }[]>(
       `insert into knowledge_documents (id, base_id, title, source_type, mime_type, status)
        values ($1, $2, '图册', 'upload', 'application/pdf', 'ready') returning id`,
@@ -105,7 +104,6 @@ describe.skipIf(!ready)('knowledge image routes', () => {
     const imageDir = join(knowledgeDir, 'docs', documentId, versionId, 'images');
     await mkdir(imageDir, { recursive: true });
     await writeFile(join(imageDir, 'image-1.png'), PNG);
-    // 白名单外的文件：就算出现在磁盘上也不能通过 URL 读到。
     await writeFile(join(imageDir, 'secret.png'), Buffer.from('not-whitelisted'));
   });
 
@@ -159,7 +157,6 @@ describe.skipIf(!ready)('knowledge image routes', () => {
   });
 
   it('路径穿越与非常规文件名在 schema 边界被拒绝，不读磁盘', async () => {
-    // `..`/`.` 会被框架先规范化成别的路径（404 未命中）；合法形状但不在白名单也得 404。
     for (const [name, statuses] of [
       ['..%2F..%2Fetc%2Fpasswd', [400]],
       ['..', [400, 404]],

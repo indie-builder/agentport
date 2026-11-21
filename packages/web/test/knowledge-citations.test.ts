@@ -240,7 +240,6 @@ describe('knowledge citations', () => {
     expect(shown?.getAttribute('src')).toBe('blob:image');
     expect(shown?.getAttribute('alt')).toBe('发布前需要产品与研发双方确认。');
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('第 3 页');
-    // 原图已在上面单独展示，正文里同一条 images/ 引用连同占位一起消失。
     expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('image-1.png');
   });
 

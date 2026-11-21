@@ -25,7 +25,6 @@ import {
   PLATFORM_MENU,
   RESOURCE_MENU,
   ROUTE_META,
-  requiredPermissions,
   WORK_MENU,
 } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
@@ -42,7 +41,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip.js';
 
 type NavItem = MenuItem & { navGroup?: 'resources' };
 
-/** 资源入口落到第一个可读资源分类，避免只有连接器权限的人被带到技能页 403。 */
 function resourceHome(me: AuthenticatedMe): string | null {
   return RESOURCE_MENU.find((item) => canAny(me, item.permissionIds))?.to ?? null;
 }
@@ -127,7 +125,6 @@ function SidebarLink({
 }) {
   const activeRoute = useRouterState({ select: (state) => state.matches.at(-1)?.routeId });
   const activeNav = ROUTE_META[activeRoute ?? '']?.to;
-  // 资源入口指向首个可读资源，任一资源路由都算命中这一项；未知路由不命中。
   const active =
     navGroup === 'resources'
       ? activeNav !== undefined && resourceNavTargets.has(activeNav)
@@ -141,7 +138,6 @@ function SidebarLink({
             onClick={onNavigate}
             aria-label={label}
             aria-current={active ? 'page' : undefined}
-            // 归属由 ROUTE_META 判定；Link 自带的路径前缀匹配会把未知路由误判为 active。
             activeOptions={{ exact: true, includeSearch: false }}
             className={cn(
               'relative flex h-8 items-center text-sm transition-colors duration-150 ease-out-soft',
@@ -175,7 +171,6 @@ export function AccessDenied({
   onLogout: () => void;
 }) {
   const client = useQueryClient();
-  // 权限每次请求都从数据库重读，刷新 me 即可生效，不需要重新登录。
   const refresh = (): void => {
     void client.invalidateQueries({ queryKey: meQuery.queryKey });
   };
@@ -228,7 +223,9 @@ export function AppShell() {
   const pageTitle = meta?.label ?? '页面不存在';
   const baseTitle = `${pageTitle} · PACE`;
   // 详情页共用同一个路由模板，固定名称无法区分实体（WCAG 2.4.2），改由页面实际 h1 命名。
-  const isDetailRoute = Boolean(meta && matchedRoute?.includes('$'));
+  const isDetailRoute = Boolean(
+    meta && matchedRoute !== '/_shell/$' && matchedRoute?.includes('$'),
+  );
   const user = authenticated(me.data);
   const home = homePath(me.data);
   const firstOperations = [...OPERATIONS_MENU, ...PLATFORM_MENU].find((item) =>
@@ -279,8 +276,8 @@ export function AppShell() {
       : firstOperations
         ? { to: firstOperations.to, label: '运维', icon: Wrench }
         : null;
-  const required = requiredPermissions(matchedRoute);
-  const allowed = required === null || canAny(me.data, required);
+  const allowed =
+    meta !== undefined && (meta.permissionIds.length === 0 || canAny(me.data, meta.permissionIds));
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() => {
     try {
       const stored = localStorage.getItem(COLLAPSE_KEY);
@@ -303,7 +300,6 @@ export function AppShell() {
   const navigationTrigger = useRef<HTMLButtonElement>(null);
   const reduce = useReducedMotion();
   const locationHref = useRouterState({ select: (state) => state.location.href });
-  // 对话与频道详情占满高度；频道列表仍是普通可滚动页面。
   const immersive = pathname.startsWith('/chat') || /^\/channels\/[^/]+/.test(pathname);
 
   const logout = async (): Promise<void> => {
@@ -313,9 +309,7 @@ export function AppShell() {
 
   useEffect(() => {
     if (!me.data || me.data.authenticated) return;
-    // 路由切换的瞬间可能已经到达登录地址；只跳过真正的 /login，避免把 /login-other 卡住或形成循环。
     if (/^\/login(?:[?#]|$)/.test(locationHref)) return;
-    // 未登录也保留原目标；replace 避免后退回到受保护页面再被弹回。
     void navigate({
       to: '/login',
       search: { returnTo: locationHref },
@@ -331,7 +325,6 @@ export function AppShell() {
     };
     apply();
     if (!isDetailRoute) return;
-    // 认证未就绪时主内容还没挂载，me.isPending 变化后 effect 会重跑并接上观察。
     const main = document.getElementById('main-content');
     if (!main) return;
     const sync = (): void => {
@@ -339,7 +332,6 @@ export function AppShell() {
     };
     sync();
     const observer = new MutationObserver(sync);
-    // 只跟主内容的标题节点，不观察 document.title 自身，避免自触发。
     observer.observe(main, { childList: true, characterData: true, subtree: true });
     return () => observer.disconnect();
   }, [baseTitle, isDetailRoute, pathname, me.isPending]);
@@ -586,7 +578,6 @@ export function AppShell() {
             </div>
           ))}
         </nav>
-        {/* 底部：次级运维入口（或返回工作区）与用户信息。 */}
         <div className="flex flex-col gap-1 pt-4">
           {bottomEntry ? (
             <SidebarLink
@@ -748,7 +739,6 @@ export function AppShell() {
     );
   };
 
-  // 个人资料与安全对所有已登录用户开放，即使没有任何业务权限也不该被挡。
   const selfService = personalContext || /^\/notifications(?:\/|$)/.test(pathname);
   const denied = (!selfService && home === null) || !allowed;
   const content = denied ? (
@@ -778,7 +768,6 @@ export function AppShell() {
           finalFocus={() => navigationTrigger.current}
           showCloseButton={false}
           aria-describedby={undefined}
-          // Keep the project shadow.
           className="w-73.5! max-w-none! gap-0 p-0 shadow-overlay sm:max-w-none! lg:hidden"
         >
           <SheetTitle className="sr-only">导航</SheetTitle>
@@ -788,7 +777,6 @@ export function AppShell() {
                 variant="ghost"
                 size="icon-sm"
                 aria-label="关闭导航"
-                // Keep the subdued close icon and translucent hover instead of the ghost defaults.
                 className="absolute right-3 top-6 z-10 text-muted-foreground hover:bg-sidebar-hover"
               >
                 <X className="size-3" />
@@ -800,10 +788,6 @@ export function AppShell() {
       </Sheet>
 
       <div className="relative isolate flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
-        {/*
-         * 桌面端没有外壳自己的顶栏：参考页白面板里就是页面内容的第一行。
-         * 移动端才需要这一行来放抽屉入口，页面标题由各页的 PageHeader 负责。
-         */}
         <header className="flex h-11 shrink-0 items-center gap-3 px-3 lg:hidden">
           <Button
             variant="ghost"
@@ -811,7 +795,6 @@ export function AppShell() {
             aria-label="打开导航"
             aria-expanded={mobileOpen}
             onClick={() => setMobileOpen(true)}
-            // Keep the 7px icon corners and translucent hover instead of the regular ghost defaults.
             className="-ml-1 rounded-[var(--radius-icon)] p-1.5 hover:bg-hover"
           >
             <Menu aria-hidden="true" />
@@ -822,7 +805,6 @@ export function AppShell() {
           {immersive ? (
             <div className={cn('h-full', denied && 'p-6')}>{content}</div>
           ) : (
-            // 内容区左右 24px、底部 24px；顶部内边距由 PageHeader 自己负责。
             <div className="h-full min-h-0 w-full px-6 pb-6">
               <div className="h-full min-h-0 w-full min-w-0">{content}</div>
             </div>

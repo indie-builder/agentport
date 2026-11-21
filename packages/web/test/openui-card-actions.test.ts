@@ -3,11 +3,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenUiBlock } from '../src/openui/renderer.js';
 
-/**
- * 卡片块与追问条的真实动作载荷：点第二张卡时，块级 @ToAssistant 的原上下文
- * 与选中项字段必须一起到达宿主；未配置动作、流式中都不得派发。
- */
-
 let host: HTMLDivElement;
 let root: Root;
 
@@ -59,10 +54,6 @@ async function click(text: string, selector = '[role="button"]'): Promise<void> 
   await settle(2);
 }
 
-/**
- * 精确文本叶子向上取最近的 BlockCard（shared.tsx 的 rounded-card 容器）。
- * 卡片文本必须恰好等于该文本，避免误取包住整块卡片的 Card 外层。
- */
 function cardByText(text: string): HTMLElement {
   const leaf = [...host.querySelectorAll<HTMLElement>('*')].find(
     (element) => element.childElementCount === 0 && element.textContent === text,
@@ -80,7 +71,6 @@ async function key(text: string, keyName: string): Promise<void> {
   await settle(2);
 }
 
-/** params.context = 原 @ToAssistant 上下文 + 一行 "Selected item: {...}"。 */
 function contextOf(action: { params: { context?: unknown } }): {
   original: string;
   selected: Record<string, unknown>;
@@ -119,7 +109,6 @@ describe('card block selected-item context', () => {
       itemTitle: '第二季度',
       itemBody: '环比增长 8%',
     });
-    // params.context 同时作为顶层 context 交给模型。
     expect(action.context).toBe(action.params.context);
     expect(action.formState).toMatchObject(initialState);
   });
@@ -267,7 +256,6 @@ describe('inactive card blocks', () => {
 
     expect(host.textContent).toContain('第二张');
     expect(host.textContent).toContain('第二项');
-    // 省略与显式 null 都沿用 definition 的「无动作」：既没有可激活角色，也没有焦点停靠点。
     expect(host.querySelector('[role="button"]')).toBeNull();
     expect(host.querySelector('[tabindex="0"]')).toBeNull();
     const card = cardByText('第二张');
@@ -304,7 +292,6 @@ describe('inactive card blocks', () => {
       { onAction, streaming: true },
     );
 
-    // 事件必须落在真实卡片容器上，走和可点时同一条 click/keydown 冒泡路径。
     const card = cardByText('第二项');
     await act(async () => {
       card.click();

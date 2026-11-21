@@ -8,7 +8,6 @@ import { keysetBefore, paginate } from './keyset.js';
 export type EvalCase = typeof evalCases.$inferSelect;
 export type EvalRun = typeof evalRuns.$inferSelect;
 
-/** 列表投影：不读 caseSnapshot / claimedAt，避免把大字段带进分页查询。 */
 export type EvalRunSummary = Pick<
   EvalRun,
   | 'id'
@@ -135,7 +134,6 @@ export async function finishEvalRun(
   id: string,
   result: { status: 'succeeded' | 'failed'; passed: number; error?: string | null },
 ): Promise<void> {
-  // 只收口仍在 running 的跑批：reconciler 已标记 failed 的行不能被晚到的 worker 覆盖。
   await db
     .update(evalRuns)
     .set({ ...result, finishedAt: new Date() })
@@ -181,7 +179,6 @@ export async function listRuns(
   if (accessWhere) filters.push(accessWhere);
   if (options.agentId !== undefined) filters.push(eq(evalRuns.agentId, options.agentId));
   if (options.cursor !== undefined) {
-    // 游标必须落在当前筛选范围内；否则会把别人的历史当成自己的下一页。
     const [cursor] = await db
       .select({ id: evalRuns.id })
       .from(evalRuns)
@@ -212,8 +209,6 @@ export async function listRuns(
   return paginate(rows, options.limit);
 }
 
-/** 同一智能体只允许一个在跑的评估；API 层据此返回 409。 */
-
 export interface EvalResultRow {
   caseId: string | null;
   name: string;
@@ -224,7 +219,6 @@ export interface EvalResultRow {
   runId: string | null;
 }
 
-/** 对比需要判断结果是否带快照；id 与快照只用于配对，不进响应。 */
 interface StoredEvalResult extends EvalResultRow {
   id: string;
   caseSnapshot: EvalCaseSnapshot | null;
@@ -253,7 +247,6 @@ export async function addResult(
     evalRunId: string;
     caseId: string;
     caseSnapshot?: EvalCaseSnapshot;
-    /** 仅在子 run 创建前失败时为 NULL（外键要求）；run 已创建则即使失败也带 runId。 */
     runId: string | null;
     passed: boolean;
     output: string;
@@ -269,7 +262,6 @@ export async function addResult(
         .for('update');
       if (batch?.status !== 'running') return;
     }
-    // key share 锁住源用例，避免快照写入前用例被删（并发 delete 会等本事务提交）。
     const [locked] = await tx
       .select({ id: evalCases.id })
       .from(evalCases)
@@ -283,7 +275,6 @@ export async function addResult(
         caseId: locked ? input.caseId : null,
         caseSnapshot: input.caseSnapshot ?? null,
       })
-      // 重复投递的 job 会重写同一 run/case；唯一键让重试幂等而不是报错。
       .onConflictDoNothing()
       .returning({ id: evalResults.id });
     if (options.recordProgress && inserted.length > 0 && input.passed) {
@@ -317,7 +308,6 @@ function toPublicResult(row: StoredEvalResult): EvalResultRow {
   };
 }
 
-/** 快照优先、源用例兜底；id/snapshot 留给对比配对，不进响应。 */
 async function selectRunResults(
   db: Database,
   runId: string,
@@ -352,7 +342,6 @@ function compareResults(
   baseRows: StoredEvalResult[],
   headRows: StoredEvalResult[],
 ): EvalComparisonRow[] {
-  // 快照 id 在源用例删除后仍稳定；没有快照才退回 caseId；都没有就不配对。
   const keyOf = (row: StoredEvalResult): string | null => row.caseSnapshot?.id ?? row.caseId;
 
   const group = (rows: StoredEvalResult[]) => {
@@ -384,7 +373,6 @@ function compareResults(
   }
   for (const [key, baseGroup] of base.groups) {
     const headGroup = head.groups.get(key) ?? [];
-    // 任一侧有重复，就分不清哪个结果对应哪次执行：逐行标未验证，不互相覆盖。
     if (baseGroup.length > 1 || headGroup.length > 1) {
       for (const result of baseGroup) {
         rows.push({
@@ -423,7 +411,6 @@ function compareResults(
   }
   for (const [key, headGroup] of head.groups) {
     if (base.groups.has(key)) continue;
-    // 头部独有且重复：同样无法确定哪条是这次执行的结果。
     const status = headGroup.length > 1 ? 'unverified' : 'head_only';
     for (const result of headGroup) {
       rows.push({
@@ -445,7 +432,6 @@ function comparePair(
 ): EvalComparisonRow {
   const baseInputs = snapshotInputs(base);
   const headInputs = snapshotInputs(head);
-  // 旧结果没有快照，无法证明两次测的是同一份输入，只能标为未验证。
   if (baseInputs === null || headInputs === null) {
     return { key, status: 'unverified', base: toPublicResult(base), head: toPublicResult(head) };
   }
@@ -465,7 +451,6 @@ function comparePair(
   return { key, status, base: toPublicResult(base), head: toPublicResult(head) };
 }
 
-/** 两侧都必须存在且已收口；路由已做 404/400/409 的前置判断。 */
 export async function getComparison(
   db: Database,
   baseId: string,

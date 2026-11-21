@@ -22,7 +22,6 @@ import {
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
 const ready = await infraReady;
-// 删除会持有共享库的绑定锁；独享库避免与同轮其它删除套件的长等待互相超时。
 const isolated = ready ? await createIsolatedDatabase('agents_access') : null;
 const PASSWORD = 'agent-pass-123';
 
@@ -139,7 +138,6 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     workspaces = await mkdtemp(join(await realpath(tmpdir()), 'agents-access-'));
     app = await startApp({ WORKSPACES_DIR: workspaces, DATABASE_URL: isolated.url });
     sessions = await startSessionCleanupResponder(app, new FakeSessionCloser());
-    // 启动时已完成管理员初始化并播种四个默认角色；登录复用同一结果。
     adminCookie = await loginCookie(app);
     adminBusinessId = (
       await app.client.unsafe<{ business_id: string }[]>(
@@ -252,7 +250,6 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     expect(detail.statusCode, detail.body).toBe(200);
     expect(detail.json<{ systemPrompt: string }>().systemPrompt).toBe('TOP-SECRET-PROMPT');
 
-    // 无关用户列表里看不到；没有配置读取叶的用户连详情入口都不可用。
     const strangerList = await request(app, {
       method: 'GET',
       url: '/api/agents',
@@ -380,7 +377,6 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       expect(denied.json<{ code: string }>().code).toBe('FORBIDDEN');
     }
 
-    // 维护范围可以读取配置、规则、记忆、版本和完整文件。
     for (const url of [
       `/api/agents/${agent.id}`,
       `/api/agents/${agent.id}/rules`,
@@ -461,7 +457,6 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       return account;
     };
 
-    // 维护关系能写，但读取叶只给被授权专家范围，两条不同范围的 grant 不能拼接。
     const cantRead = await makeMaintainer(
       'cant-read',
       await createRole(`cant-read-${randomUUID().slice(0, 6)}`, [
@@ -478,7 +473,6 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expect(readDenied.statusCode, readDenied.body).toBe(404);
 
-    // 读取与依赖都满足，但写叶只给被授权专家范围，维护关系不能写。
     const cantWrite = await makeMaintainer(
       'cant-write',
       await createRole(`cant-write-${randomUUID().slice(0, 6)}`, [
@@ -556,7 +550,6 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       [agent.id, comboSingle.businessId],
     );
 
-    // 同一请求同时带配置与绑定字段：配置叶通过，但缺少绑定叶，整体拒绝且不写部分字段。
     const denied = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
@@ -616,7 +609,6 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     expect(removed.statusCode, removed.body).toBe(200);
     expect(removed.json()).toEqual({ ok: true });
 
-    // 无创建权限的账户不能接任负责人。
     const toViewer = await request(app, {
       method: 'POST',
       url: `/api/agents/${agent.id}/transfer`,
@@ -655,7 +647,6 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       owner_business_id: owner2.businessId,
     });
 
-    // 原负责人失去管理权；新负责人可继续配置。
     const oldOwner = await request(app, {
       method: 'PATCH',
       url: `/api/agents/${agent.id}`,
@@ -736,7 +727,6 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       items: Array<{ businessId: string; name: string; accountActive: boolean }>;
     }>().items;
     expect(items.some((entry) => entry.businessId === maintainer.businessId)).toBe(true);
-    // 停用账户仍可作为历史身份出现，但明确标记为不可用。
     const disabledOwner = seeded.find((businessId) => businessId.startsWith('biz-disabled-owner-'));
     if (disabledOwner !== undefined) {
       expect(items.find((entry) => entry.businessId === disabledOwner)).toMatchObject({

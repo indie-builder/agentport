@@ -58,19 +58,8 @@ import {
 } from '../../components/ui/table.js';
 import { asArray, childProps, type RenderProps } from './shared.js';
 
-/**
- * 图表统一约定（dataviz）：
- * - 灰色只用主题 token 的实色阶梯，系列多于 5 个时叠加纹理/虚线并用 legend 图标标出，
- *   不靠降低透明度区分（浅到 8% 的线在纸白底上看不见）；
- * - 主图默认 256px，schema 显式 height 优先；横向条形按类别和系列数增高，不把标签压扁；
- * - 缺失值是 null，不是 0：断线、空条都保留为真实缺口，数据视图用「—」表达；
- * - 不播放动画：流式每 delta 重渲染会让图形抖动；
- * - 图例、tooltip 复用 ui/chart 的现有实现，不另造一套；tooltip 原生 portal 到 body。
- */
-
 const DEFAULT_CHART_HEIGHT = 256;
 
-/** 首系列映射数据主线 chart-runs，其余 4 档沿用既有中性灰阶；第 2 条系列起每条叠加独立虚线与纹理。 */
 const SERIES_TONES = [
   'var(--color-chart-runs)',
   'color-mix(in srgb, var(--color-fg) 80%, var(--color-surface))',
@@ -83,29 +72,22 @@ function seriesTone(index: number): string {
   return SERIES_TONES[index % SERIES_TONES.length] ?? SERIES_TONES[0];
 }
 
-/** 第 2 个系列起改用纹理/虚线，第 1 条保持纯实色。 */
 function usesTexture(index: number): boolean {
   return index > 0;
 }
 
-/** 每条系列用不同虚线段长，第 11 条与第 1 条即使灰阶相同也不重复。 */
 function seriesDash(index: number): string | undefined {
   return index === 0 ? undefined : `${index + 2} 3`;
 }
 
 const SCATTER_SHAPES = ['circle', 'square', 'triangle', 'diamond', 'cross', 'star', 'wye'] as const;
 
-/** 一整个 dash + gap 周期；legend 按它缩放，长虚线的尾巴不会被 12px 画布看成实线。 */
 function seriesKeyPeriod(index: number): number {
   const dash = seriesDash(index);
   if (!dash) return 12;
   return dash.split(' ').reduce((total, part) => total + Number(part), 0);
 }
 
-/**
- * legend 图标按系列序号同步子/纹理，与线型、条形填充一致——灰度之外的第二识别通道。
- * 用普通渲染函数而不是内建组件，避免在同一位置重复创建组件类型。
- */
 function seriesKeySvg(index: number, kind: 'line' | 'fill', uid: string) {
   const stroke = seriesTone(index);
   if (kind === 'line') {
@@ -152,7 +134,6 @@ function seriesKeySvg(index: number, kind: 'line' | 'fill', uid: string) {
   );
 }
 
-/** ChartConfig.icon 只接受零参组件；按真实系列数生成，useMemo 固定引用。 */
 function useLegendIcons(count: number, kind: 'line' | 'fill'): ComponentType[] {
   const rawId = useId();
   const uid = `openui-legend-${rawId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
@@ -174,7 +155,6 @@ function finiteValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-/** 读子节点数据，同时给重复系列名生成稳定且不互相覆盖的键。 */
 function seriesFrom(input: unknown[]): SeriesEntry[] {
   const occurrences = new Map<string, number>();
   return input
@@ -194,7 +174,6 @@ function seriesFrom(input: unknown[]): SeriesEntry[] {
 
 type ChartRow = { category: string; [key: string]: string | number | null };
 
-/** labels + Series[] → recharts 行数据；缺失值保持 null，图表断线而不是伪造 0。 */
 function buildRows(labels: string[], series: SeriesEntry[]): ChartRow[] {
   return labels.map((label, index) => {
     const row: ChartRow = { category: label };
@@ -244,14 +223,11 @@ function sliceRows(slices: SliceInput[]): ChartRow[] {
   return slices.map((slice) => ({ category: slice.label, value: slice.value }));
 }
 
-/** 单条堆叠只有两端的段朝外圆角，中间段保持方角。 */
 function segmentRadius(position: number, count: number): [number, number, number, number] | 0 {
   if (position === 0) return [4, 0, 0, 4];
   if (position === count - 1) return [0, 4, 4, 0];
   return 0;
 }
-
-// ─── Tooltip portal ──────────────────────────────────────────────────────────
 
 type ChartFrameContextValue = {
   anchor: RefObject<HTMLDivElement | null>;
@@ -287,7 +263,6 @@ function fixedTooltipStyle(
   const gap = 12;
   const edge = 8;
   const fit = (available: number) => Math.max(0, Math.min(288, available));
-  // 贴边翻转并夹到视口内：图表在长消息里滚动到顶部/底部时 tooltip 也不出界。
   if (x > window.innerWidth / 2) {
     const right = Math.max(edge, Math.round(window.innerWidth - x + gap));
     style.right = right;
@@ -306,7 +281,6 @@ function fixedTooltipStyle(
     style.top = top;
     style.maxHeight = Math.max(80, window.innerHeight - top - edge);
   }
-  // 超出部分截在 tooltip 内，完整数据走「数据视图」表格。
   style.overflowY = 'auto';
   return style;
 }
@@ -322,7 +296,6 @@ function FixedTooltipContent({
   return (
     <ChartTooltipContent
       {...props}
-      // 共享 tooltip 的 min-w-32 会在窄视口盖过 maxWidth，这里让宽度只受显式上限约束。
       className={cn('min-w-0', className)}
       style={fixedTooltipStyle(frame?.anchor.current ?? null, coordinate)}
     />
@@ -336,12 +309,9 @@ function ChartTooltipPortal(props: React.ComponentProps<typeof ChartTooltip>) {
 
 function useTooltipPortal(): HTMLElement | null {
   const [portal, setPortal] = useState<HTMLElement | null>(null);
-  // 只在客户端挂载后提供 portal，服务端渲染与无 document 的测试不会碰 body。
   useEffect(() => setPortal(document.body), []);
   return portal;
 }
-
-// ─── Frame & data view ───────────────────────────────────────────────────────
 
 type DataColumn = { key: string; label: string };
 
@@ -350,7 +320,6 @@ function formatCell(value: string | number | null | undefined): string {
   return typeof value === 'number' ? value.toLocaleString() : value;
 }
 
-/** 完整数据视图：默认折叠，键盘可达；图例之外的第二条无色彩识别路径。 */
 function ChartDataView({
   columns,
   rows,
@@ -445,7 +414,6 @@ function useSeriesTexture() {
   );
 }
 
-/** 每个系列一条 pattern：灰阶循环，但间距与角度随序号单调变化，纹理不重复。 */
 function patternStep(index: number): { size: number; angle: number } {
   return { size: 6 + (index % 3) * 2, angle: 45 + index * 15 };
 }
@@ -482,8 +450,6 @@ function chartDataView(series: SeriesEntry[], rows: ChartRow[]) {
     />
   );
 }
-
-// ─── 2D charts ───────────────────────────────────────────────────────────────
 
 type XYProps = {
   labels: string[];
@@ -539,7 +505,6 @@ export function BarChartRenderer({
               dataKey={item.key}
               fill={texture.fill(index)}
               maxBarSize={24}
-              // 堆叠时只在最上层圆角，否则每段都圆角会显得断裂。
               radius={stacked && index !== series.length - 1 ? 0 : [4, 4, 0, 0]}
               {...(stacked ? { stackId: 'stack' } : {})}
               isAnimationActive={false}
@@ -638,7 +603,6 @@ export function AreaChartRenderer({
               dataKey={item.key}
               stroke={seriesTone(index)}
               {...(seriesDash(index) ? { strokeDasharray: seriesDash(index) as string } : {})}
-              // 面积用同一灰阶的低透明度填充，避免多系列互相遮死。
               fill={seriesTone(index)}
               fillOpacity={0.12}
               strokeWidth={2}
@@ -664,7 +628,6 @@ export function HorizontalBarChartRenderer({
   const stacked = props.variant === 'stacked';
   const config = buildConfig(series, icons);
   const rows = buildRows(labels, series);
-  // 横向图的高度随类别数增长；grouped 还要为每个系列留一条位置，标签和数据都不挤。
   const barsHeight = stacked ? 24 : Math.max(24, series.length * 26);
   const rowHeight = Math.max(40, barsHeight + 16);
   const height = props.height ?? Math.max(DEFAULT_CHART_HEIGHT, labels.length * rowHeight + 48);
@@ -746,8 +709,6 @@ export function RadarChartRenderer({ props }: RenderProps<XYProps>) {
     </ChartFrame>
   );
 }
-
-// ─── 1D charts ───────────────────────────────────────────────────────────────
 
 function sliceConfig(slices: SliceInput[], icons: readonly ComponentType[]): ChartConfig {
   return Object.fromEntries(
@@ -859,7 +820,6 @@ export function SingleStackedBarChartRenderer({
     .map((slice, index) => ({ ...slice, index }))
     .filter((slice) => slice.value !== null);
   if (visible.length === 0) return null;
-  // 单条堆叠：全部归到一个 stackId，横条上按灰阶 + 纹理区分占比。
   const row = Object.fromEntries(visible.map((slice) => [slice.key, slice.value as number]));
   return (
     <ChartFrame height={DEFAULT_CHART_HEIGHT} dataView={sliceDataView(slices)}>
@@ -893,8 +853,6 @@ export function SingleStackedBarChartRenderer({
     </ChartFrame>
   );
 }
-
-// ─── Scatter ─────────────────────────────────────────────────────────────────
 
 type ScatterDataset = { name: string; data: Array<{ x: number; y: number; z?: number }> };
 
@@ -993,9 +951,6 @@ export function ScatterChartRenderer({
   );
 }
 
-// ─── Virtual children ────────────────────────────────────────────────────────
-
-/** Series / Slice / Point / ScatterSeries 只承载数据，由父图表读取。 */
 export function SeriesRenderer() {
   return null;
 }

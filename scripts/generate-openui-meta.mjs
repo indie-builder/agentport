@@ -1,10 +1,3 @@
-// 从已安装的官方 @openuidev/react-ui 抽取「非 schema」的元数据：
-// 组件名與注册顺序、官方描述、12 个分组、提示词示例与规则。
-//
-// 组件契约本身以 definitions.ts 的真实 Zod 为唯一来源；这里只搬官方文案，
-// 避免在仓库里手抄示例和规则后与上游漂移。
-//
-// 用法：bun run openui:meta（bun run openui:spec 会先跑它）
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

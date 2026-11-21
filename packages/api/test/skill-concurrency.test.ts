@@ -91,7 +91,6 @@ describe.skipIf(!ready)('skill update concurrency', () => {
     const skill = await createSkill();
     let version = skill.updatedAt;
 
-    // 连续更新之间没有 sleep：时间戳必须单调前进，毫秒截断比较才不会落到同一桶。
     for (let i = 0; i < 5; i += 1) {
       const res = await patch(skill.id, { name: `Round ${i}`, expectedUpdatedAt: version });
       expect(res.statusCode, res.body).toBe(200);
@@ -126,7 +125,6 @@ describe.skipIf(!ready)('skill update concurrency', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json<Skill>().name).toBe('Untracked');
 
-    // 不带版本的更新同样会推进版本，之后旧 token 不再有效。
     const stale = await patch(skill.id, { name: 'Late', expectedUpdatedAt: skill.updatedAt });
     expectProblem(stale, 'CONFLICT_STALE');
   });
@@ -167,7 +165,6 @@ describe.skipIf(!ready)('skill update concurrency', () => {
     const loser = a.statusCode === 200 ? b : a;
     expectProblem(loser, 'CONFLICT_STALE');
 
-    // 库里留下的必须是赢家的内容，而不是输家晚到的写入。
     expect(await get(skill.id)).toMatchObject({ name: winner.json<Skill>().name });
   });
 

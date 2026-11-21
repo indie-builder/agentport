@@ -91,21 +91,16 @@ export interface AgentWrite {
   visibility: AgentRow['visibility'];
   tags: string[];
   maxTurns: number;
-  /** numeric 列以字符串写入，避免浮点误差。 */
   maxBudgetUsd: string;
   monthlyBudgetUsd: string | null;
   budgetAlertRatio: string;
   timeoutMs: number;
-  /** 当前业务身份；创建后不随转交改变。 */
   createdBy: string;
-  /** 当前负责人；新建时等于 createdBy。 */
   ownerBusinessId: string;
   parentId?: string | null;
-  /** 绑定的运行环境；null 表示平台默认环境。 */
   runtimeEnvironmentId?: string | null;
 }
 
-/** DB 行 → 共享 Agent；所有字段映射只在这里做一次。 */
 export function toAgent(
   row: AgentRow,
   serverIds: string[],
@@ -454,10 +449,6 @@ export async function getAgentMemoryPolicy(
   return row ? resolveMemoryPolicy(row.memoryPolicy) : null;
 }
 
-/**
- * 记忆策略单独持久化：不推进 updatedAt，也不写专家版本快照，
- * 避免策略变更被当成配置变更导致编辑冲突。
- */
 export async function updateAgentMemoryPolicy(
   db: DbHandle,
   agentId: string,
@@ -608,7 +599,6 @@ export async function createAgent(
   const id = newId('agent');
   const [row] = await retryOnVersionConflict(() =>
     db.transaction(async (tx) => {
-      // 先拿 advisory 再碰 agents 的行和唯一索引，与 update/duplicate 的先后顺序一致。
       if (pluginBindings.length > 0) await lockAgentBindings(tx);
       if (subAgentIds.length > 0) {
         await lockSubAgentBindings(tx, id, subAgentIds);
@@ -669,8 +659,6 @@ export async function duplicateAgent(
     return await retryOnVersionConflict(() =>
       db.transaction(
         async (tx) => {
-          // 复制会照抄源绑定；先拿 advisory 再读/锁源行，避免与「先 advisory 后改候选行」
-          // 的事务交叉持锁。源有没有绑定要先读才知道，所以直接无条件拿，代价只是一次快锁。
           await lockAgentBindings(tx);
           const [source] = await tx
             .select()
@@ -729,7 +717,6 @@ export async function duplicateAgent(
               createdBy: ownerBusinessId,
               ownerBusinessId,
               parentId: null,
-              // 复制的是环境绑定（不是构建版本）；源环境的版本历史不跟着复制。
               runtimeEnvironmentId: source.runtimeEnvironmentId,
               hooksEnabled: source.hooksEnabled,
               hooksConfig: source.hooksConfig,
@@ -820,7 +807,6 @@ export async function duplicateAgent(
   }
 }
 
-/** 普通编辑不能改归属；转交只走 access.transferAgent。 */
 export type AgentPatch = Partial<Omit<AgentWrite, 'createdBy' | 'ownerBusinessId'>>;
 
 export async function updateAgent(
@@ -862,8 +848,6 @@ export async function updateAgentTx(
   expectedUpdatedAt?: Date,
   pluginBindings?: Agent['pluginBindings'],
 ): Promise<AgentRow | null> {
-  // 锁和复查必须在 UPDATE 之前：拿到锁后再读，读到的才是最终状态。
-  // 会拿行锁的写事务一律先拿 advisory，否则与委派事务交叉持锁（二者都改 agents 行）。
   const changesSet = subAgentIds !== undefined || patch.enabled !== undefined;
   if (changesSet || (pluginBindings?.length ?? 0) > 0) {
     await lockAgentBindings(tx);
@@ -878,7 +862,6 @@ export async function updateAgentTx(
           await assertAgentsIdle(tx, [id, ...previousChildren, ...subAgentIds]);
         }
       }
-      // 启停会改变父专家运行时的活动集合：只查目标与它当前的父专家。
       if (patch.enabled !== undefined && patch.enabled !== current.enabled) {
         await assertAgentsIdle(tx, current.parentId === null ? [id] : [id, current.parentId]);
       }
@@ -897,7 +880,6 @@ export async function updateAgentTx(
     .where(where)
     .returning();
   if (!row) {
-    // 条件更新落空：行还在就是并发修改，行没了交给路由返回 404。
     if (expectedUpdatedAt !== undefined && (await getAgent(tx, id))) {
       throw new AppError('CONFLICT_STALE', '配置已被修改，请刷新');
     }
@@ -1069,7 +1051,6 @@ export async function getResourceOwners(
   }
 }
 
-/** 批量取多个 agent 绑定的 servers：预览、导出与详情避免按行发 SQL。 */
 export async function getBoundServersByAgentIds(
   db: Database,
   agentIds: string[],
@@ -1097,7 +1078,6 @@ export async function getBoundSkills(
   return (await getBoundSkillsByAgentIds(db, [agentId])).get(agentId) ?? [];
 }
 
-/** 批量取多个 agent 绑定的技能：子智能体技能只查一次，不按行发 SQL。 */
 export async function getBoundSkillsByAgentIds(
   db: Database,
   agentIds: string[],

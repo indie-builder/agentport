@@ -25,13 +25,10 @@ import { listen, type TestServer } from './server.js';
 
 const ready = await infraReady;
 
-/** 平台端点在注册时直接读 process.env，必须先于 buildApp 设置。 */
 const PLATFORM_TOKEN = 'capacity-platform-token-0123456789';
 process.env.PLATFORM_MCP_TOKEN = PLATFORM_TOKEN;
 
-/** 失败路径也要在有限时间内返回：旧实现会把第 5 个客户端卡死，不能等 vitest 20s 兜底。 */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  // 超时后原 promise 可能才真正失败：先挂一个 catch，避免它变成 unhandled rejection。
   promise.catch(() => undefined);
   return Promise.race([
     promise,
@@ -47,10 +44,6 @@ interface CallResult {
   content: Array<{ text?: string }>;
 }
 
-/**
- * 旧实现在端点入口用 pLimit(4) 包住整个 MCP 会话：4 个 invoke 挂住后，第 5 个请求
- * 连 initialize 都进不来。这里的前 4 次调用一直占着 invoker，直到用例放行。
- */
 function boundedInvoker(): { invoker: AgentInvoker; release: () => void; calls: () => number } {
   const ADMITTED = 4;
   let calls = 0;
@@ -84,7 +77,6 @@ describe.skipIf(!ready)('MCP capacity: approval requests must not block executio
   const upstream = { close: () => undefined };
 
   beforeAll(async () => {
-    // 等待窗口必须足够长：旧实现下 4 个挂起调用会一直占住整个 MCP 并发名额。
     app = await startApp({ APPROVAL_WAIT_MS: '10000' });
     cookie = await loginCookie(app);
     listener = await listen(app);
@@ -205,7 +197,6 @@ describe.skipIf(!ready)('MCP capacity: approval requests must not block executio
         expect(parked, `run ${runId} 没有进入等待`).toBe(true);
       }
 
-      // 第 5 个 run：连接、列工具、免费调用都必须不受 4 个挂起影响。
       const fifthRunId = runIdsForAgent[4] ?? '';
       const fifth = await withTimeout(connect(fifthRunId), 5_000, '第 5 个客户端连接');
 
@@ -251,7 +242,6 @@ describe.skipIf(!ready)('MCP capacity: approval requests must not block executio
       ).json<{ items: Array<{ expiresAt: string | null; waiting: boolean }> }>().items[0];
       expect(refusedRow).toMatchObject({ expiresAt: expect.any(String), waiting: true });
     } finally {
-      // 结束本用例自己的 run，让挂起的调用立刻以取消结束，再收客户端。
       for (const runId of runIdsForAgent) {
         await repo.chat.cancelRun(app.db, runId).catch(() => undefined);
       }
@@ -298,7 +288,6 @@ describe.skipIf(!ready)('platform MCP: long tool invokes must not block new sess
   afterAll(async () => {
     mock.release();
     if (!app) return;
-    // cleanup 只按 slug 删 agent；audit_log.target 存的是 id，一并删掉自己的行。
     await app.client.unsafe('delete from audit_log where target = $1', [agentId]);
     await cleanup(app, { agentSlugs: createdAgents });
     await platform?.close();
@@ -325,7 +314,6 @@ describe.skipIf(!ready)('platform MCP: long tool invokes must not block new sess
         const client = await withTimeout(connect(i), 5_000, `第 ${i + 1} 个客户端连接`);
         parked.push(withTimeout(invokeOn(client, i), 15_000, `第 ${i + 1} 个调用`));
       }
-      // 4 次 invoke 真的进了挂起分支：旧实现下后续请求会卡在这里。
       expect(await waitFor(() => mock.calls() === 4)).toBe(true);
       const fifth = await withTimeout(connect(4), 5_000, '第 5 个客户端连接');
       const result = await withTimeout(invokeOn(fifth, 4), 5_000, '第 5 个调用完成');

@@ -1,9 +1,5 @@
 import type { KnowledgeAudioMetadata } from '@agentport/shared';
 
-/**
- * 知识库解析产物的纯结构：解析（Docling/本地格式）在 worker 里产生它们，
- * 分块与预览在这里计算，两处共用同一份类型。
- */
 export type ParsedBlock = {
   content: string;
   heading: string;
@@ -49,7 +45,6 @@ export class KnowledgeParseError extends Error {
   }
 }
 
-/** 面包屑标题拼接；空层级不产生空段，Docling 与 Markdown 解析共用。 */
 export function emptyHeading(heading: string[]): string {
   return heading.filter((part) => part !== '').join(' > ');
 }
@@ -62,12 +57,10 @@ export function isFenceStart(value: string): boolean {
   return FENCE.test(value);
 }
 
-/** 围栏起始行的标记（``` 或 ~~~ 及其长度）；解析侧去掉围栏时用同一份语法。 */
 export function fenceStartMarker(line: string): string | null {
   return FENCE.exec(line)?.[1] ?? null;
 }
 
-/** A fence closes only with its own character repeated at least as many times, then whitespace. */
 export function fenceCloser(marker: string): RegExp {
   const char = marker[0] ?? '`';
   return new RegExp(`^\\s*${char}{${marker.length},}\\s*$`);
@@ -78,12 +71,10 @@ export function isTableDelimiterLine(line: string): boolean {
 }
 
 export function isTableBlock(content: string): boolean {
-  // A fenced block is code even when its body shows a table.
   if (isFenceStart(content)) return false;
   return content.split('\n').some(isTableDelimiterLine);
 }
 
-/** Tables/code stay whole for chunking, including GFM tables without outer pipes. */
 function isAtomicBlock(content: string): boolean {
   return isTableBlock(content) || isFenceStart(content);
 }
@@ -105,7 +96,6 @@ export function splitLines(markdown: string): { lines: string[]; offsets: number
   return { lines, offsets };
 }
 
-/** 二分查找偏移所在行号；行首表来自 splitLines，CRLF 的 CR 不会多算一行。 */
 export function lineAtOffset(lineStarts: number[], offset: number): number {
   let low = 0;
   let high = lineStarts.length - 1;
@@ -130,7 +120,6 @@ export function markdownBlocks(
   const { lines, offsets } = splitLines(markdown);
   const blocks: ParsedBlock[] = [];
   const headings: string[] = [];
-  // 标题先挂起，等正文消费成面包屑；被同级/上级标题覆盖或文末仍挂起时转成内容块。
   let pending: Array<{
     level: number;
     title: string;
@@ -142,7 +131,6 @@ export function markdownBlocks(
   let paragraphIndex = 0;
   let paragraphEnd = 0;
 
-  // 块内容整体 trim 过；区间必须对应原文里真正的首尾字符，且跳过 CRLF 的 CR。
   const contentStart = (lineIndex: number) => {
     const line = lines[lineIndex] ?? '';
     return (offsets[lineIndex] ?? 0) + line.length - line.trimStart().length;
@@ -167,13 +155,11 @@ export function markdownBlocks(
     headings[level - 1] = title;
   };
 
-  /** 正文承接挂起标题：它们只是面包屑，不进内容。 */
   const commitPending = () => {
     for (const entry of pending) setHeading(entry.level, entry.title);
     pending = [];
   };
 
-  // 被覆盖的子标题之前，尚无正文的祖先也按阅读顺序保留下来。
   const flushPending = (level: number) => {
     if (!pending.some((entry) => entry.level >= level)) return;
     for (const entry of pending) {
@@ -244,7 +230,6 @@ export function markdownBlocks(
       index += 1;
       continue;
     }
-    // Minimal setext support: only a one-line paragraph followed by its underline.
     const setext = SETEXT.exec(line);
     if (setext && paragraph.length === 1) {
       pushHeading(
@@ -284,7 +269,6 @@ function mergeLocators(blocks: ParsedBlock[]): Record<string, unknown> {
     locator.page = page;
     if (pageTo > page) locator.pageTo = pageTo;
   }
-  // 混入无原文位置的 JSON 内容后，首尾偏移不能代表整个 chunk。
   const located = blocks.every(
     (block) =>
       typeof block.locator.startOffset === 'number' && typeof block.locator.endOffset === 'number',
@@ -303,7 +287,6 @@ function mergeLocators(blocks: ParsedBlock[]): Record<string, unknown> {
     .filter((offset): offset is number => typeof offset === 'number');
   if (located && starts.length > 0) locator.startOffset = Math.min(...starts);
   if (located && ends.length > 0) locator.endOffset = Math.max(...ends);
-  // 只有组成块全都有时码才能给整块时间；部分时间会冒充全块来源。
   const timed = blocks.every(
     (block) =>
       typeof block.locator.timeFromMs === 'number' && typeof block.locator.timeToMs === 'number',
@@ -312,7 +295,6 @@ function mergeLocators(blocks: ParsedBlock[]): Record<string, unknown> {
     locator.timeFromMs = Math.min(...blocks.map((block) => block.locator.timeFromMs as number));
     locator.timeToMs = Math.max(...blocks.map((block) => block.locator.timeToMs as number));
   }
-  // 解析器引用/坐标只对单个块无歧义；合并块不能编造一个共同坐标。
   const only = blocks.length === 1 ? blocks[0]?.locator : undefined;
   if (typeof only?.ref === 'string') locator.ref = only.ref;
   if (only?.bbox !== undefined) locator.bbox = only.bbox;
@@ -320,10 +302,6 @@ function mergeLocators(blocks: ParsedBlock[]): Record<string, unknown> {
   return locator;
 }
 
-/**
- * 把规范化块内容的下标映射回原文 UTF-16 下标：块内容用 LF 拼行，原文可能是 CRLF。
- * 无法逐字对齐时返回 null，调用方就不能把整块区间冒充成分片区间。
- */
 function mapContentOffsets(
   markdown: string,
   start: number,
@@ -354,7 +332,6 @@ function mapContentOffsets(
 const isHighSurrogate = (code: number): boolean => code >= 0xd800 && code <= 0xdbff;
 const isLowSurrogate = (code: number): boolean => code >= 0xdc00 && code <= 0xdfff;
 
-/** 落在代理对中间的下标退到高代理项：end 不切开 emoji，重叠起点也从完整字符开始。 */
 function codePointBoundary(text: string, index: number): number {
   return index > 0 &&
     index < text.length &&
@@ -364,14 +341,12 @@ function codePointBoundary(text: string, index: number): number {
     : index;
 }
 
-/** 已对齐界的下标取完整 code point 宽度；预算小到装不下时靠它保证切块继续前进。 */
 function codePointLength(text: string, index: number): number {
   return isHighSurrogate(text.charCodeAt(index)) && isLowSurrogate(text.charCodeAt(index + 1))
     ? 2
     : 1;
 }
 
-/** 行拆分的表格/代码块不是原文连续片段：保留整表 ref/bbox，但不保留块级文本区间。 */
 function withoutTextRange(block: ParsedBlock): ParsedBlock {
   const locator = { ...block.locator };
   delete locator.startOffset;
@@ -412,7 +387,6 @@ function splitFramedLines(
   return parts;
 }
 
-/** 表格按行拆分时保留列语义，按 maxChars 预算切块并重复表头。 */
 function splitTable(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   const lines = block.content.split('\n');
   const separator = lines[1] !== undefined && isTableDelimiterLine(lines[1]) ? lines[1] : null;
@@ -422,7 +396,6 @@ function splitTable(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   return splitFramedLines(block, maxChars, { head, tail: [], body: rows });
 }
 
-/** 代码块按行拆分时每段都自带完整 fence，保证切块后仍是有效 Markdown。 */
 function splitFence(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   const lines = block.content.split('\n');
   const opener = lines[0] ?? '';
@@ -433,7 +406,6 @@ function splitFence(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   return splitFramedLines(block, maxChars, { head: [opener], tail, body });
 }
 
-/** 超长块先按语义二次切分：表格按行（重复表头）、代码按行（补全 fence）。 */
 function clampChunk(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   if (block.content.length <= maxChars) return [block];
   if (isTableBlock(block.content)) return splitTable(block, maxChars);
@@ -450,12 +422,10 @@ export function chunkBlocks(
   markdown: string,
   options: { chunkSize: number; chunkOverlap: number },
 ): Array<{ content: string; heading: string; locator: Record<string, unknown> }> {
-  // chunkTokens 是字符预算：下限 200 字符，重叠不能吃掉整个预算，否则切块无法前进。
   const maxChars = Math.max(200, options.chunkSize);
   const overlap = Math.max(0, Math.min(options.chunkOverlap, maxChars - 1));
   const rows = blocks.flatMap((block) => clampChunk(block, maxChars));
 
-  // 表格/代码块必须整块独立成 chunk，不能再被跨块合并；连续散文才交给结构感知合并。
   const groups: ParsedBlock[][] = [];
   let atomicGroup = false;
   for (const block of rows) {
@@ -521,7 +491,6 @@ export function chunkDocument(
     while (start < content.length) {
       let end = Math.min(start + chunkSize, content.length);
       end = codePointBoundary(content, end);
-      // 预算装不下开头的整个 code point 时整取，避免 end <= start 卡住。
       if (end <= start) end = start + codePointLength(content, start);
       const chunkLocator: Record<string, unknown> = { ...locator, charStart: start, charEnd: end };
       if (mapped) {
@@ -530,7 +499,6 @@ export function chunkDocument(
         chunkLocator.endOffset = mapped.ends[end - 1] ?? chunkStart;
         chunkLocator.line = lineAtOffset(lineStarts, chunkStart);
       } else if (typeof sourceStart === 'number' || typeof sourceEnd === 'number') {
-        // 内容无法逐字映射到原文时不保留块级区间，避免分片继续指向整段。
         delete chunkLocator.startOffset;
         delete chunkLocator.endOffset;
         delete chunkLocator.line;
@@ -538,7 +506,6 @@ export function chunkDocument(
       chunks.push({ content: content.slice(start, end), heading, locator: chunkLocator });
       if (end === content.length) break;
       const next = codePointBoundary(content, end - chunkOverlap);
-      // 对齐边界可能退回到上一片起点；此时直接取下一个完整字符，始终向前。
       start = next > start ? next : start + codePointLength(content, start);
     }
   };

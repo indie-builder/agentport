@@ -101,7 +101,6 @@ describe.skipIf(!ready)('short delete transactions', () => {
       createdBy: owner,
       targets: [{ conversationId, sandboxIds: ['sandbox-a', 'sandbox-b'] }],
     });
-    // tx A 已提交：事务外等待关闭确认期间实体必须仍可见。
     expect(await chatRepo.getConversation(db, conversationId)).not.toBeNull();
 
     expect(

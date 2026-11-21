@@ -12,7 +12,6 @@ import {
   unique,
 } from './helpers.js';
 
-// MCP invoke 的准入与聊天入口共用事务；有 worker 消费时 run 会被真实执行，状态断言失去意义。
 const ready = (await infraReady) && (await queueIdle);
 
 async function rejectionOf(promise: Promise<unknown>): Promise<{ code?: string; message: string }> {
@@ -122,7 +121,6 @@ describe.skipIf(!ready)('agent invoker admission', () => {
       const err = await rejectionOf(
         createInvoker(app).invoke({ slug: agent.slug, prompt: marker }),
       );
-      // Drizzle 包装了原始错误；能定位到失败语句即可，关键是下面的原子性。
       expect(err.message).toContain('insert into "messages"');
 
       const counts = await app.client.unsafe<

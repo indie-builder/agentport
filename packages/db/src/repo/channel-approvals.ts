@@ -2,7 +2,7 @@ import { ACTIVE_RUN_STATUSES, isActiveRunStatus } from '@agentport/shared';
 import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { agentRuns, approvalRequests, servers } from '../schema.js';
-import { channelMemberRole } from './channels.js';
+import { allows, channelMemberRole } from './channels.js';
 
 export interface ChannelApprovalItem {
   id: string;
@@ -28,12 +28,10 @@ export interface DeniedChannelApproval extends ChannelApprovalItem {
 
 type NotFound = { kind: 'not_found' };
 
-/** 未决审批：活动 run、尚未批准、未过期的频道行。 */
 export async function listChannelApprovals(
   db: Database,
   input: { channelId: string; businessId: string },
 ): Promise<{ kind: 'ok'; items: ChannelApprovalItem[] } | NotFound> {
-  // 频道审批只对真实成员开放；平台管理员非成员时同样按不存在处理。
   if ((await channelMemberRole(db, input.channelId, input.businessId)) === null) {
     return { kind: 'not_found' };
   }
@@ -67,7 +65,6 @@ export async function listChannelApprovals(
     )
     .orderBy(asc(approvalRequests.createdAt), asc(approvalRequests.id));
 
-  // where 已限定两个频道列相等；join 后 runId 也必然存在，这里只做类型收窄。
   return {
     kind: 'ok',
     items: rows.flatMap((row): ChannelApprovalItem[] =>
@@ -104,7 +101,7 @@ async function decideChannelApproval(
   return db.transaction(async (tx) => {
     const role = await channelMemberRole(tx, input.channelId, input.businessId);
     if (role === null) return { kind: 'not_found' };
-    if (role === 'viewer') return { kind: 'forbidden', reason: 'channel_role' };
+    if (!allows(role, 'post')) return { kind: 'forbidden', reason: 'channel_role' };
 
     const [approval] = await tx
       .select({
@@ -139,7 +136,6 @@ async function decideChannelApproval(
       .where(eq(agentRuns.id, approval.runId))
       .limit(1)
       .for('update');
-    // 审批行与 run 必须同属本频道；跨频道 id 一律按不存在处理。
     if (!run || run.channelId !== input.channelId) return { kind: 'not_found' };
     if (role === 'member' && run.initiatedBy !== input.businessId) {
       return { kind: 'forbidden', reason: 'channel_role' };
@@ -185,7 +181,6 @@ async function decideChannelApproval(
       });
     const decidedByBusinessId =
       decision === 'approve' ? decided?.approvedByBusinessId : decided?.deniedByBusinessId;
-    // 锁 run 后仍可能读到旧快照：CAS 落空说明另一事务已决定，按输家处理。
     if (!decided || decided.runId === null || decidedByBusinessId == null) {
       return { kind: 'conflict', reason: 'decided' };
     }

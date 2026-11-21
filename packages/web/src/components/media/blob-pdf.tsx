@@ -41,7 +41,6 @@ export function BlobPdf({
   blob: Blob;
   title: string;
   className?: string;
-  /** 引用页；只改 iframe 片段，不重建对象 URL。 */
   page?: number;
 }) {
   const supported = pdfViewerEnabled();
@@ -75,7 +74,6 @@ export function BlobPdf({
     };
   }, [blob, supported]);
 
-  // 换 blob 后旧 state 立即失效；迟到的 header 结果也必须属于当前 blob 才能使用。
   const current = state !== null && state.blob === blob ? state : null;
 
   if (!supported) return <PdfNotice>{UNSUPPORTED}</PdfNotice>;
@@ -88,7 +86,6 @@ export function BlobPdf({
       </div>
     );
   }
-  // 引用页必须是正整数；无效值回落到不带片段的原 URL。
   const pageNumber = page !== undefined && Number.isInteger(page) && page > 0 ? page : null;
   const src = pageNumber === null ? current.url : `${current.url}#page=${pageNumber}`;
   return <iframe title={title} src={src} className={cn(className)} />;

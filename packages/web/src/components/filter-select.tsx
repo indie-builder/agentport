@@ -9,7 +9,6 @@ import {
 
 type FilterOption = { value: string; label: string };
 
-/** 工具栏筛选下拉：固定 Select 复合结构，调用方只给值、选项、标签和宽度。 */
 export function FilterSelect({
   value,
   onValueChange,

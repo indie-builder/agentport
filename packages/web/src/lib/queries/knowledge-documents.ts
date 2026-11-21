@@ -18,12 +18,10 @@ export function useKnowledgeBases(enabled = true) {
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled,
-    // 调用方（专家绑定等）只关心已加载的库；分页方法仍保留在结果上。
     select: (data) => data.pages.flatMap((page) => page.items),
   });
 }
 
-/** 置顶只影响列表排序，读取失败时页面按未置顶处理，不重试也不打断列表。 */
 export function useKnowledgeBasePins() {
   return useQuery({
     queryKey: knowledgeKeys.pins,
@@ -54,7 +52,6 @@ export function useKnowledgeBaseSummary(id: string) {
     queryKey: knowledgeKeys.summary(id),
     queryFn: ({ signal }) => api.knowledgeBaseSummary(id, signal),
     staleTime: 0,
-    // 最近一条任务仍活跃时刷新计数与任务状态；终态、超过轮询窗口或没有任务时不轮询。
     refetchInterval: (query) =>
       knowledgeShouldPoll(query.state.data?.lastJob ? [query.state.data.lastJob] : [])
         ? 3_000
@@ -62,7 +59,6 @@ export function useKnowledgeBaseSummary(id: string) {
   });
 }
 
-/** 概览只展示最近一页活动，不需要翻页；进入概览时按 staleTime 0 重新取一次。 */
 export function useKnowledgeBaseActivity(id: string) {
   return useQuery({
     queryKey: knowledgeKeys.activity(id),
@@ -79,7 +75,6 @@ export function useCreateKnowledgeBase() {
   });
 }
 
-/** 分块预览是纯计算，不写库也不影响缓存，所以用 mutation 而不是 query。 */
 export function usePreviewKnowledgeChunks(baseId: string) {
   return useMutation({
     mutationFn: (input: { sample: string; chunkTokens?: number; chunkOverlap?: number }) =>
@@ -87,7 +82,6 @@ export function usePreviewKnowledgeChunks(baseId: string) {
   });
 }
 
-/** 复制只复制库与配置；文档、Wiki 与索引留在原库，由服务端决定默认名与 slug 落点。 */
 export function useDuplicateKnowledgeBase() {
   const client = useQueryClient();
   return useMutation({
@@ -126,7 +120,6 @@ export function useKnowledgeFolders(baseId: string) {
   });
 }
 
-/** 文件夹与标签的写操作都会影响文档筛选与列表。 */
 function useKnowledgeStructureInvalidate(baseId: string) {
   const client = useQueryClient();
   return (): void => {
@@ -194,10 +187,6 @@ export function useDeleteKnowledgeTag(baseId: string) {
   });
 }
 
-/**
- * 文档列表按游标翻页：首屏 50 条，其余由「加载更多」显式取。
- * 轮询只看已加载的条目，避免为检查状态把整库都拉下来。
- */
 export function useKnowledgeDocuments(
   baseId: string,
   filter: NonNullable<Parameters<typeof api.knowledgeDocuments>[1]>,
@@ -216,9 +205,26 @@ export function useKnowledgeDocuments(
       ),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
-    // 摄取期间刷新状态；全部稳定或超过轮询窗口后停止。
     refetchInterval: (query) =>
       knowledgeShouldPoll(query.state.data?.pages.flatMap((page) => page.items)) ? 3_000 : false,
+  });
+}
+
+export function useKnowledgeImages(baseId: string, filter: { q: string }) {
+  return useInfiniteQuery({
+    queryKey: knowledgeKeys.images(baseId, filter.q),
+    queryFn: ({ pageParam, signal }) =>
+      api.knowledgeImages(
+        baseId,
+        {
+          ...(filter.q === '' ? {} : { q: filter.q }),
+          limit: KNOWLEDGE_PAGE_SIZE,
+          ...(pageParam === null ? {} : { cursor: pageParam }),
+        },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 }
 
@@ -240,16 +246,13 @@ export function useUploadKnowledgeDocument(baseId: string) {
       api.uploadKnowledgeDocument(baseId, input),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
-      // 目录上传会按 relativePath 创建或复用真实文件夹。
       void client.invalidateQueries({ queryKey: knowledgeKeys.folders(baseId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
-      // 列表用游标分页，拉取过的页数要保持不变才能看到新文档。
       void client.invalidateQueries({ queryKey: knowledgeKeys.bases });
     },
   });
 }
 
-/** 手写正文与 URL 抓取都由服务端建行并入队，成功后与上传同样刷新文档和任务。 */
 function useKnowledgeDocumentImport(baseId: string) {
   const client = useQueryClient();
   return (): void => {
@@ -313,7 +316,6 @@ export function useDeleteKnowledgeDocument(baseId: string) {
   });
 }
 
-/** 分块同样按游标翻页：一个版本的 chunk 可能上千条。 */
 export function useKnowledgeDocumentChunks(documentId: string, versionId: string | null) {
   return useInfiniteQuery({
     queryKey: knowledgeKeys.chunks(documentId, versionId ?? ''),
@@ -339,7 +341,6 @@ export function useKnowledgeVersionDetails(versionId: string | null) {
   });
 }
 
-/** 解析正文按版本缓存：同一版本内容不变。 */
 export function useKnowledgeMarkdown(versionId: string | null) {
   return useQuery({
     queryKey: knowledgeKeys.markdown(versionId ?? ''),
@@ -372,7 +373,6 @@ export function useUpdateKnowledgeChunk(
       void client.invalidateQueries({ queryKey: knowledgeKeys.chunksOfDocument(documentId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.documentVersions(documentId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
-      // 改正文会清空向量并补建，任务列表需要刷新。
       void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
     },
   });
@@ -418,7 +418,6 @@ export function useDeleteKnowledgeChunk(
 export function useReprocessKnowledgeDocument(baseId: string) {
   const client = useQueryClient();
   return useMutation({
-    // 确认框已说明人工分块会丢弃，这里显式覆盖，避免后端一律拒绝。
     mutationFn: (documentId: string) => api.reprocessKnowledgeDocument(documentId, true),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
@@ -446,7 +445,6 @@ export function useDownloadKnowledgeDocuments(baseId: string) {
   });
 }
 
-/** 文档版本是完整历史：对话框内一次取完，切版与回退都读同一列表。 */
 export function useKnowledgeDocumentVersions(documentId: string | null) {
   const query = useInfiniteQuery({
     queryKey: knowledgeKeys.documentVersions(documentId ?? ''),
@@ -554,10 +552,6 @@ export function useBatchKnowledgeDocuments(baseId: string) {
   });
 }
 
-/**
- * 任务按游标翻页；select 仍返回扁平数组，旧的 data?.find 调用不变。
- * queryKey 保留 knowledgeKeys.jobs(baseId) 前缀，重试/取消/同步的前缀失效覆盖所有过滤。
- */
 export function useKnowledgeJobs(baseId: string, filters: { documentId?: string } = {}) {
   return useInfiniteQuery({
     queryKey: [...knowledgeKeys.jobs(baseId), filters],
@@ -573,7 +567,6 @@ export function useKnowledgeJobs(baseId: string, filters: { documentId?: string 
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     select: (data) => data.pages.flatMap((page) => page.items),
-    // 轮询只看已加载的页，过时窗口规则不变。
     refetchInterval: (query) =>
       knowledgeShouldPoll(query.state.data?.pages.flatMap((page) => page.items)) ? 2_000 : false,
   });
@@ -585,7 +578,6 @@ export function useRetryKnowledgeJob(baseId: string) {
     mutationFn: (jobId: string) => api.retryKnowledgeJob(jobId),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
-      // 失败文档重试后状态会回到排队，列表轮询要立刻重新接上。
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
     },
   });

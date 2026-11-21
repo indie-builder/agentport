@@ -4,7 +4,6 @@ import {
   type ChannelDetail,
   type ChannelMember,
   type ChannelMessage,
-  type ChannelRole,
 } from '@agentport/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
@@ -22,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentAvatar, type AgentDisplay } from '../../components/agent/agent-avatar.js';
 import { ChannelHandoffDialog } from '../../components/channel/channel-handoff-dialog.js';
 import { ChannelRunSheet } from '../../components/channel/channel-run-sheet.js';
-import { ChannelSettingsButton } from '../../components/channel/channel-settings.js';
+import { ChannelSettingsButton, ROLE_LABEL } from '../../components/channel/channel-settings.js';
 import { Composer, MessagePane } from '../../components/chat/chat-thread.js';
 import { ConfirmDialog } from '../../components/confirm-dialog.js';
 import { Page, PageBody, PageHeader, PageNote, PageTopbar } from '../../components/page.js';
@@ -62,13 +61,6 @@ import {
 } from '../../lib/queries.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useChannelStream } from '../../lib/use-channel-stream.js';
-
-const ROLE_LABEL: Record<ChannelRole, string> = {
-  owner: '所有者',
-  admin: '管理员',
-  member: '成员',
-  viewer: '只读',
-};
 
 const NO_METRICS: ReadonlyMap<string, RunMetrics> = new Map();
 
@@ -139,12 +131,10 @@ function ChannelWorkspace({
   const client = useQueryClient();
   const user = authenticated(me.data);
   const businessId = user?.user.businessId ?? null;
-  // 频道角色只在本频道的成员行里；平台管理员非成员时为 null。
   const selfMember = channel.members.find((item) => item.businessId === businessId);
   const channelRole = selfMember?.role ?? null;
   const canPost =
     channel.archivedAt === null &&
-    // 发言权以频道角色为准；me 未加载时按不可发处理，避免只读成员闪出输入框。
     (channelRole !== null
       ? channelRole !== 'viewer'
       : me.isSuccess && can(me.data, 'conversations.create'));
@@ -308,7 +298,6 @@ function ChannelWorkspace({
         meta.set(notice, entry);
       }
     }
-    // 落库回复优先：同一 run 的流式正文不再重复显示。
     for (const item of Object.values(stream.streams)) {
       if (persistedRuns.has(item.runId)) continue;
       const anchor: ChatItem =
@@ -342,7 +331,6 @@ function ChannelWorkspace({
 
   const markVisibleRead = useCallback(
     (visibleIds: string[]) => {
-      // 只认已落库消息；乐观项与流式临时项没有真实 seq。
       const seqById = new Map(
         stream.messages
           .filter((message) => !message.id.startsWith('local-'))

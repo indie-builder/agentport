@@ -3,7 +3,6 @@ import { Circle, CircleCheck, ListChecks, LoaderCircle } from 'lucide-react';
 import { memo } from 'react';
 import { cn } from '../../../lib/cn.js';
 
-/** 本轮任务清单：只呈现最后一次确认的快照，停止/失败/成功都不改写步骤状态。 */
 export const TodoProgress = memo(function TodoProgress({ todos }: { todos: ProgressTodo[] }) {
   const completed = todos.filter((todo) => todo.status === 'completed').length;
   return (

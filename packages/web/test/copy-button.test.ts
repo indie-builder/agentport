@@ -72,7 +72,6 @@ describe('CopyButton feedback', () => {
     await act(async () => button.click());
     expect(writeText).toHaveBeenLastCalledWith('B');
 
-    // A 的旧计时器不能在切到 B 后把反馈提前收掉。
     await act(async () => vi.advanceTimersByTime(2000));
     expect(button.getAttribute('aria-label')).toBe('已复制');
     await act(async () => vi.advanceTimersByTime(500));

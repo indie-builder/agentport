@@ -16,10 +16,6 @@ import { agentRuns, channelMessages, channels, conversations, messages } from '.
 import { evalCases } from './eval.js';
 import { servers } from './servers.js';
 
-/**
- * 原生 AskUserQuestion 的运行记录：问题属于一次 run，不是智能体定义。
- * requestId 是 SDK 回调的外部标识，同一 run 内唯一；answers 以问题文本为键。
- */
 export const runQuestions = pgTable(
   'run_questions',
   {
@@ -71,26 +67,16 @@ export const runInstructions = pgTable(
   ],
 );
 
-/**
- * 结构化的工具审批。行在工具被拒绝时由 MCP 端点写入（pending），用户批准或拒绝后置 approved_at / denied_at。
- * (run_id, server_id, tool_name) 唯一，审批因此不会跨 server 复用。
- * 生成式 UI 的工具调用没有 run：这些行 run_id 为空，改挂 conversation_id。
- */
 export const approvalRequests = pgTable(
   'approval_requests',
   {
     id: text('id').primaryKey(),
-    /** 沙盒内调用所属的 run；生成式 UI 的调用没有 run。 */
     runId: text('run_id').references(() => agentRuns.id, { onDelete: 'cascade' }),
-    /** 生成式 UI 调用的会话归属；run 级审批为空。 */
     conversationId: text('conversation_id').references(() => conversations.id, {
       onDelete: 'cascade',
     }),
-    /** 频道内审批所属频道；私有对话为空。 */
     channelId: text('channel_id').references(() => channels.id, { onDelete: 'cascade' }),
-    /** 触发这次调用的助手消息，供 UI 回到原位置展示。 */
     messageId: text('message_id'),
-    /** 审批来源：openui 表示 UI 按钮/工具桥发起。 */
     source: text('source', { enum: ['openui'] }),
     serverId: text('server_id')
       .notNull()
@@ -99,7 +85,6 @@ export const approvalRequests = pgTable(
     argumentsSummary: jsonb('arguments_summary').$type<Record<string, unknown>>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
-    /** 频道内批准人的业务 ID；不是外键，与现有审计列保持同样的纯文本身份。 */
     approvedByBusinessId: text('approved_by_business_id'),
     deniedAt: timestamp('denied_at', { withTimezone: true }),
     deniedByBusinessId: text('denied_by_business_id'),
@@ -112,7 +97,6 @@ export const approvalRequests = pgTable(
       sql`not (${t.approvedAt} is not null and ${t.deniedAt} is not null)`,
     ),
     uniqueIndex('approval_requests_run_server_tool_idx').on(t.runId, t.serverId, t.toolName),
-    // 同一会话对同一 server 工具只保留一条待批/已批记录；run 级行不受影响。
     uniqueIndex('approval_requests_openui_idx')
       .on(t.conversationId, t.serverId, t.toolName)
       .where(sql`${t.runId} is null`),
@@ -120,11 +104,6 @@ export const approvalRequests = pgTable(
   ],
 );
 
-/**
- * 自主工作的定时任务。每行是一个 cron 触发：到点由 worker 经 claimScheduleTrigger
- * 条件推进 lastRunAt 并在同一事务内置会话与 trigger='schedule' 的运行；
- * 多 worker 部署时靠 lastRunAt 的条件更新抢占，避免重复触发。
- */
 export const agentSchedules = pgTable(
   'agent_schedules',
   {
@@ -133,16 +112,13 @@ export const agentSchedules = pgTable(
       .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    /** 创建人；普通编辑不能改执行主体。 */
     createdBy: text('created_by').notNull(),
-    /** 触发时的执行主体；创建时等于 createdBy。 */
     executeAsBusinessId: text('execute_as_business_id').notNull(),
     cron: text('cron').notNull(),
     timezone: text('timezone').notNull().default('Asia/Shanghai'),
     missedPolicy: text('missed_policy', { enum: ['skip', 'run_once'] })
       .notNull()
       .default('skip'),
-    /** 每次触发时作为用户消息发给智能体的提示词。 */
     prompt: text('prompt').notNull(),
     enabled: boolean('enabled').notNull().default(true),
     lastRunAt: timestamp('last_run_at', { withTimezone: true }),

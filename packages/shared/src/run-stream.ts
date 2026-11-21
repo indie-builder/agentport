@@ -7,7 +7,6 @@ export const RUN_CANCEL_PAYLOAD = '1';
 
 export const STREAM_TTL_SECONDS = 3600;
 
-/** At ~40KiB per job this bounds waiting history near 4MiB per queue. */
 export const RUN_QUEUE_MAX_WAITING = 100;
 
 /** 单 run 展示上限：瞬时增量与块边界超出后只停止展示，不占用落库额度。 */

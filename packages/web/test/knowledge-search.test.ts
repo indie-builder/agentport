@@ -63,7 +63,6 @@ describe('knowledge document search debounce', () => {
         input.dispatchEvent(new Event('input', { bubbles: true }));
       });
     }
-    // 输入框立即回显，但请求要等防抖落定。
     expect(input.value).toBe('abc');
     await waitFor(() =>
       calls.some((item) => item.path.includes('/api/knowledge/bases/kb_1/documents?q=abc')),
@@ -100,7 +99,6 @@ describe('knowledge document search debounce', () => {
     await waitFor(() => document.body.textContent?.includes('没有匹配的文档') === true);
 
     await type('');
-    // 清空后的防抖窗口里，搜索结果还没换回全量，不能误报“还没有文档”。
     expect(document.body.textContent).toContain('没有匹配的文档');
     expect(document.body.textContent).not.toContain('还没有文档');
 
@@ -145,7 +143,6 @@ describe('knowledge search cache keys', () => {
     const limits = calls
       .filter((item) => item.path.startsWith('/api/knowledge/bases/kb_1/search?'))
       .map((item) => new URL(item.path, 'http://localhost').searchParams.get('limit'));
-    // limit 不同必须各请求一次；回到 limit 10 命中缓存，不再发请求。
     expect(limits).toEqual(['10', '20']);
   });
 });
@@ -430,7 +427,6 @@ describe('knowledge UX guards', () => {
       http.get('/api/agents', () => HttpResponse.json([])),
     );
     await mount('/knowledge');
-    // 失败分支不再叠一个空态或骨架。
     expect(document.body.textContent).toContain('服务端暂时无法完成请求');
     expect(document.body.textContent).toContain('重试');
     expect(document.body.textContent).not.toContain('还没有知识库');
@@ -623,7 +619,6 @@ describe('knowledge UX guards', () => {
         HttpResponse.json(profileCreated ? [createdProfile] : []),
       ),
       http.post('/api/knowledge/model-profiles', async () => {
-        // 服务端已落库、响应仍在途：另一条真实 GET 能看到新 profile。
         profileCreated = true;
         await request.promise;
         return HttpResponse.json(createdProfile);
@@ -649,7 +644,6 @@ describe('knowledge UX guards', () => {
     await fill('profile-model', 'bge-m3');
     await click(button('创建 embedding profile'));
 
-    // deferred 让 pending 真实渲染：内联表单与父层创建按钮共享同一 pending，关闭也不可用。
     const creating = [...creator.querySelectorAll<HTMLButtonElement>('button')].filter(
       (item) => item.textContent?.trim() === '创建中…',
     );
@@ -657,7 +651,6 @@ describe('knowledge UX guards', () => {
     expect(creating.every((item) => item.disabled)).toBe(true);
     expect(button('关闭').disabled).toBe(true);
 
-    // POST 仍挂起时，另一次真实 GET 已返回新 profile，子表单带着 pending=true 卸载。
     await act(async () => {
       await mountState.client?.invalidateQueries({ queryKey: ['knowledge', 'model-profiles'] });
     });
@@ -669,7 +662,6 @@ describe('knowledge UX guards', () => {
     await flush();
     await waitFor(() => !button('关闭').disabled);
 
-    // 外层必须已结算 pending/dirty，并把正确 profile 回填到建库表单。
     expect(button('创建', creator).disabled).toBe(false);
     await fill('knowledge-name', '新库');
     await fill('knowledge-slug', 'new-base');
@@ -745,7 +737,6 @@ describe('knowledge UX guards', () => {
     createdAt: '',
   };
 
-  /** 走真实文件输入与 FileReader，等到上传请求真正发出。 */
   async function startUpload() {
     await click(button('上传文件'));
     const file = new File(['a'], 'good.txt', { type: 'text/plain' });
@@ -1021,7 +1012,6 @@ describe('knowledge UX guards', () => {
 
   it('polls a sync job pushed out of the latest 50 until it finishes', async () => {
     listHandlers();
-    // 自动 Wiki 等任务占满前 50 条，刚提交的同步任务不在列表里。
     const noise = Array.from({ length: 50 }, (_, index) =>
       wikiJob('succeeded', `kjob_noise_${index}`),
     );
@@ -1058,7 +1048,6 @@ describe('knowledge UX guards', () => {
     const sourceBefore = sourceCalls;
     const runBefore = runCalls;
 
-    // 不手动 invalidate：列表已停止轮询，终态只能由产品自己的定向轮询发现。
     await waitFor(() => detailPolls >= 2, 120);
     await waitFor(() => sourceCalls > sourceBefore, 60);
     expect(runCalls).toBeGreaterThan(runBefore);
@@ -1066,7 +1055,6 @@ describe('knowledge UX guards', () => {
       calls.filter((item) => item.method === 'GET' && item.path === '/api/knowledge/jobs/kjob_sync')
         .length,
     ).toBeGreaterThanOrEqual(2);
-    // 文档面板已切走：查询被标记失效，下次进入会重新拉取。
     const documentQueries =
       mountState.client
         ?.getQueryCache()
@@ -1107,14 +1095,12 @@ describe('knowledge UX guards', () => {
     expect(warning).toHaveBeenCalledWith('同步任务已不存在，可能来源已删除；请刷新来源列表');
     expect(toastError).not.toHaveBeenCalled();
 
-    // 404 不是终态：任务停在失败状态，不伪造完成去失效来源与文档。
     const jobQuery = mountState.client
       ?.getQueryCache()
       .find({ queryKey: ['knowledge', 'job', 'kjob_gone'] });
     expect(jobQuery?.state.status).toBe('error');
     const runBefore = runCalls;
 
-    // 跨过两个 2s 轮询周期仍没有新请求：跟踪已停止。
     for (let tick = 0; tick < 55; tick += 1) await flush();
     expect(detailCalls).toBe(1);
     expect(runCalls).toBe(runBefore);
@@ -1157,7 +1143,6 @@ describe('knowledge UX guards', () => {
     await click(button('立即同步'));
     const runBefore = runCalls;
 
-    // 500 只让当前这次请求重试，轮询继续到真正的终态。
     await waitFor(() => detailCalls >= 3, 120);
     await waitFor(() => runCalls > runBefore, 60);
     expect(warning).not.toHaveBeenCalled();

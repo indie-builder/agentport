@@ -3,6 +3,7 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { agentRuns, channelAgentBindings, channelMembers, channels } from '../schema.js';
 import {
+  allows,
   type ChannelActiveRunRow,
   channelMemberRole,
   lockChannel,
@@ -55,7 +56,6 @@ export async function listActiveRuns(
   return { kind: 'ok', runs: await activeRuns(db, channelId) };
 }
 
-/** 与发消息/准入共用频道行锁：close 与 stop 不会在锁外看到旧归属。 */
 export async function stopRun(
   db: Database,
   businessId: string,
@@ -66,7 +66,7 @@ export async function stopRun(
     if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
     const role = await channelMemberRole(tx, channelId, businessId);
     if (role === null) return { kind: 'not_found', target: 'channel' };
-    if (role === 'viewer') return { kind: 'forbidden', reason: 'channel_role' };
+    if (!allows(role, 'post')) return { kind: 'forbidden', reason: 'channel_role' };
 
     const [run] = await tx
       .select(runColumns())
@@ -74,7 +74,6 @@ export async function stopRun(
       .where(and(eq(agentRuns.id, runId), eq(agentRuns.channelId, channelId)))
       .for('update');
     if (!run) return { kind: 'not_found', target: 'run' };
-    // 普通成员只能停自己触发的那条；owner/admin 可停任意 run。
     if (role === 'member' && run.initiatedBy !== businessId) {
       return { kind: 'forbidden', reason: 'run_owner' };
     }
@@ -96,7 +95,7 @@ export async function disconnectAgent(
     if (!(await lockChannel(tx, channelId))) return { kind: 'not_found', target: 'channel' };
     const role = await channelMemberRole(tx, channelId, businessId);
     if (role === null) return { kind: 'not_found', target: 'channel' };
-    if (role !== 'owner' && role !== 'admin') return { kind: 'forbidden', reason: 'channel_role' };
+    if (!allows(role, 'manage')) return { kind: 'forbidden', reason: 'channel_role' };
 
     const [binding] = await tx
       .select({ agentId: channelAgentBindings.agentId })
@@ -149,7 +148,6 @@ export async function closeChannel(
   });
 }
 
-/** SSE 每次轮询都走这里：成员关系在事务外实时复核，撤权后立即停流。 */
 export async function getChannelRunForMember(
   db: Database,
   businessId: string,

@@ -90,7 +90,6 @@ describe.skipIf(!ready)('agent.md import', () => {
     expect(res.statusCode, res.body).toBe(201);
     const { agent, warnings } = res.json<AgentMdImportResult>();
 
-    // 正文整段保留（含 H1），不做技能式的标题剥离。
     const systemPrompt =
       '# Reviewer\n\nYou review pull requests carefully.\n\n## Rules\n\n1. Read the diff first.';
     expect(agent).toMatchObject({
@@ -179,7 +178,6 @@ describe.skipIf(!ready)('agent.md import', () => {
       expect(res.statusCode, `${label}: ${res.body}`).toBe(400);
       expectProblem(res, 'INVALID_INPUT');
     }
-    // 只断言这些文件里的 slug 没落库：并行测试文件会同时创建其他智能体。
     const listed = await agentSlugs();
     expect(listed.filter((slug) => rejectedSlugs.includes(slug))).toEqual([]);
   });

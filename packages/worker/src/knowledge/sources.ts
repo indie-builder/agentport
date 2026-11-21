@@ -49,11 +49,6 @@ function contentHash(...parts: string[]): string {
   return createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 16);
 }
 
-// ---------------------------------------------------------------------------
-// Feed parsing (feedsmith) and body HTML → markdown (turndown).
-// Content feeds are always text; anything else in the body is left as text.
-// ---------------------------------------------------------------------------
-
 type FeedEntry = { id: string; title: string; link: string; html: string; summary: string };
 
 const turndown = new TurndownService({
@@ -84,7 +79,6 @@ function articleBody(html: string): string {
 }
 
 function feedEntries(source: string): { feedTitle: string; entries: FeedEntry[] } {
-  // parseFeed regex-scans for XML tags, so JSON bodies containing feed markup must bypass it.
   const parsed = source.trimStart().startsWith('{')
     ? { format: 'json' as const, feed: parseJsonFeed(source) }
     : parseFeed(source);
@@ -187,10 +181,8 @@ async function readRss(
     let completeness: 'full' | 'summary' = 'summary';
     if (entry.link) {
       try {
-        // fetchChecked re-validates, including every redirect hop.
         const page = await fetchChecked(entry.link, { ...origins, ...(signal ? { signal } : {}) });
         const pageType = page.headers.get('content-type');
-        // Binary pages are skipped before decoding: UTF-8 would corrupt them.
         if (pageType === null || textContentType(pageType)) {
           body = articleBody(await readCapped(page, 'article'));
           completeness = 'full';
@@ -232,10 +224,6 @@ async function readRss(
     complete: false,
   };
 }
-
-// ---------------------------------------------------------------------------
-// GitLab / GitHub repository files
-// ---------------------------------------------------------------------------
 
 const gitlabProjectSchema = z.object({
   id: z.union([z.string(), z.number()]),
@@ -346,7 +334,6 @@ async function readGitlab(
       let bytes: Uint8Array | undefined;
       if (textMime) {
         content = await fetchText(fileUrl, fetchOptions(), 'gitlab file');
-        // An emptied file must replace the stored body instead of silently keeping it.
         if (content === '') content = `# ${entry.path}\n`;
       } else {
         bytes = await fetchBytes(fileUrl, fetchOptions(), 'gitlab file');
@@ -368,10 +355,6 @@ async function readGitlab(
 
   return snapshotOf(items, failures, previous);
 }
-
-// ---------------------------------------------------------------------------
-// GitHub repository files
-// ---------------------------------------------------------------------------
 
 const GITHUB_DEFAULT_API_BASE = 'https://api.github.com';
 
@@ -401,7 +384,6 @@ const githubConfigSchema = z.object({
 });
 
 function parseGithubProject(value: string): string {
-  // project 直接拼进 API 路径：只接受 GitHub 合法的 owner/repo 字符，避免 `..`、`?`、`#` 改写路径。
   const project = value.trim();
   const [owner, repoName, ...rest] = project.split('/');
   if (
@@ -437,7 +419,6 @@ async function readGithub(
   const base = new URL(
     await validateSourceUrl(config.url.trim() || GITHUB_DEFAULT_API_BASE, origins),
   );
-  // baseUrl 已是 API 根（github.com 或 GHE 的 /api/v3），不再补路径。
   const apiBase = base.href.replace(/\/$/, '');
   const authOrigin = base.origin;
   const fetchOptions = (accept = 'application/vnd.github+json'): FetchOptions => ({
@@ -500,7 +481,6 @@ async function readGithub(
           fetchOptions('application/vnd.github.raw+json'),
           'github file',
         );
-        // An emptied file must replace the stored body instead of silently keeping it.
         if (content === '') content = `# ${entry.path}\n`;
       } else {
         bytes = await fetchBytes(
@@ -527,12 +507,6 @@ async function readGithub(
   return snapshotOf(items, failures, previous);
 }
 
-// ---------------------------------------------------------------------------
-
-/**
- * 远程连通性探测：只核凭证与范围首项，不导入条目、不推进游标。
- * 任何一步失败都抛错，由调用方记入该 range 的检查结果。
- */
 async function probeRss(config: SourceConfig, signal: AbortSignal | undefined): Promise<void> {
   const signalOptions = signalOption(signal);
   const origins = sourceNetworkOptions(config);

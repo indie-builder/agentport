@@ -93,7 +93,6 @@ export function useTestServer() {
       id: string;
       runtimeEnvironmentId?: string | null;
     }): Promise<ServerTestResult> => api.testServer(vars.id, vars.runtimeEnvironmentId),
-    // 后端把最近一次试连身份写进 server；刷新后卡片仍能显示这次实际用的环境。
     onSuccess: () => void client.invalidateQueries({ queryKey: ['servers'] }),
   });
 }
@@ -125,7 +124,6 @@ export function useRotateServerToken(serverId: string) {
   });
 }
 
-/** 批量启停：成功后失效工具列表，勾选状态由调用方清空。 */
 export function useBatchSetToolsEnabled(serverId: string) {
   const invalidate = useInvalidate();
   return useMutation({
@@ -186,7 +184,6 @@ export function useSetToolEnabled(serverId: string) {
   });
 }
 
-/** 编辑工具定义（名称/方法/路径/参数/schema）；与启停分开，互不覆盖。 */
 export function useUpdateTool(serverId: string) {
   const client = useQueryClient();
   return useMutation({

@@ -153,7 +153,6 @@ describe('evaluation run pagination', () => {
       createdAt: new Date(Date.UTC(2026, 9, 22, 0, 0, index)).toISOString(),
       finishedAt: new Date(Date.UTC(2026, 9, 22, 0, 1, index)).toISOString(),
     });
-    // 模拟服务端按 (createdAt, id) 倒序的游标分页，保留插入头部后的真实边界行为。
     const runs: EvalRun[] = Array.from({ length: 60 }, (_, index) => makeRun(index + 1));
     const servePage = async (query: EvalRunsQuery): Promise<EvalRunPage> => {
       const ordered = [...runs].sort(
@@ -179,7 +178,6 @@ describe('evaluation run pagination', () => {
     );
     expect(cache()?.pages.map((page) => page.items.length)).toEqual([50, 10]);
 
-    // 新 run 插到头部：第一页的 50 条边界后移，第二页必须用新边界重新取。
     runs.push(makeRun(61));
     await act(async () => {
       await client.invalidateQueries({ queryKey: ['eval-runs'] });

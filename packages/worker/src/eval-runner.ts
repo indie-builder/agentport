@@ -18,11 +18,9 @@ import { loadUserAgentAccess } from './runs/run-access.js';
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;
 
-/** DB/infra 原文含 SQL 与参数；对外只落固定、可操作的说明。 */
 export const EVAL_FAILURE_PUBLIC_MESSAGE =
   'eval run failed due to a database or infrastructure error; start a new evaluation';
 
-/** 只保留最小的领域中断消息（UnrecoverableError）；其余错误不把原文写进 DB。 */
 export function publicEvalFailureMessage(error: unknown): string {
   return error instanceof UnrecoverableError ? error.message : EVAL_FAILURE_PUBLIC_MESSAGE;
 }
@@ -38,7 +36,6 @@ function errorCodeOf(error: unknown): string | undefined {
   return undefined;
 }
 
-/** 日志诊断：只给错误类型与 PG code，不序列化 message/cause（可能含 SQL 参数）。 */
 export function evalFailureDiagnostics(error: unknown): {
   errorName: string;
   errorCode?: string;
@@ -101,10 +98,6 @@ function assistantText(messages: Awaited<ReturnType<typeof chatRepo.listMessages
     .join('\n\n');
 }
 
-/**
- * 发起一次普通 agent run 并等到终态，返回最终 assistant 文本。
- * run 一旦创建就写入 context：失败路径也要留下可追踪的 runId。
- */
 function runOneCase(
   db: Database,
   redisUrl: string,
@@ -132,8 +125,6 @@ function runOneCase(
     if (prompt === null) {
       return yield* Effect.fail(new UnrecoverableError('内容命中安全策略，评估已停止'));
     }
-    // 评估用例与聊天共用准入：同一事务取绑定锁、锁「发起专家 + enabled 子级」的记忆。
-    // 执行主体显式取 evalRuns.createdBy，不接受 job/client 用户字段。
     const admitted = yield* dbQuery(() =>
       chatRepo.admitChatRun(db, {
         agentId: input.agentId,
@@ -197,7 +188,6 @@ function runOneCase(
   });
 }
 
-/** 串行跑批：单个 case 出错只记录该条失败，不中断后续 case。 */
 export async function executeEvalRun(input: {
   db: Database;
   logger: Logger;
@@ -207,16 +197,13 @@ export async function executeEvalRun(input: {
   const { db, logger, redisUrl, evalRunId } = input;
   const program = Effect.gen(function* () {
     const evalRun = yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId));
-    // 已结束（被取消或被恢复逻辑收敛）的跑批不重跑。
     if (evalRun?.status !== 'running') {
       logger.info({ evalRunId }, 'eval run no longer running, skipping');
       return;
     }
-    // BullMQ 重复投递时只让一个 worker 执行：认领失败说明该批次已经启动过。
     const claimed = yield* dbQuery(() => evalRepo.claimEvalRun(db, evalRunId));
     if (!claimed) {
       const current = yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId));
-      // claimedAt 视作执行方持有的租约：重投只让位，绝不把在跑的批次判失败（死 worker 由 reconcile 兜底）。
       if (current?.status === 'running' && current.claimedAt !== null) {
         logger.info(
           { evalRunId },
@@ -246,7 +233,6 @@ export async function executeEvalRun(input: {
           ))?.definition ?? null));
     if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
 
-    // 执行主体是 evalRuns.createdBy：每次开跑前用 DB 实时账户与授权重查，不降级。
     const { denial, grants } = yield* dbQuery(() =>
       loadUserAgentAccess(db, {
         businessId: evalRun.createdBy,
@@ -274,7 +260,6 @@ export async function executeEvalRun(input: {
       );
       return;
     }
-    // 用例读取仍受当前用户自己的 eval.read 范围约束，不把执行身份当全平台。
     const accessFilter = {
       businessId: evalRun.createdBy,
       scopes: [
@@ -284,7 +269,6 @@ export async function executeEvalRun(input: {
       ],
     };
 
-    // 有快照就只跑快照：跑批期间改了用例也不能改变本次结果；[] 表示零条，不回读。
     const cases =
       evalRun.caseSnapshot ??
       (yield* dbQuery(() => evalRepo.listCases(db, accessFilter, evalRun.agentId)));
@@ -331,7 +315,6 @@ export async function executeEvalRun(input: {
           if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running')
             return;
           if (Result.isSuccess(result)) ok = result.success;
-          // DB 原文含 SQL 与参数，不能作为模型输出公开；其他用例/领域失败仍保留可读原文。
           else
             output =
               result.failure instanceof DbError
@@ -348,7 +331,6 @@ export async function executeEvalRun(input: {
                 runId: runContext.runId,
                 passed: ok,
                 output,
-                // 用例行可能已被删除；报告要能独立于活表还原当时的问题与期望。
                 caseSnapshot: {
                   id: testCase.id,
                   name: testCase.name,
@@ -359,7 +341,6 @@ export async function executeEvalRun(input: {
               { recordProgress: true },
             ),
           );
-          // 只有真正落库成功才计 passed；写失败交给外层 crashed 收尾，避免假成功。
           if (ok) passed += 1;
         }),
       { concurrency: 1 },
@@ -374,7 +355,6 @@ export async function executeEvalRun(input: {
     );
 
     if ((yield* dbQuery(() => evalRepo.getEvalRun(db, evalRunId)))?.status !== 'running') return;
-    // 最终持久化失败必须传播给 processor 收口，不能只记日志后当作成功返回。
     yield* dbQuery(() =>
       evalRepo.finishEvalRun(db, evalRunId, {
         status: crashed === null && passed === cases.length ? 'succeeded' : 'failed',

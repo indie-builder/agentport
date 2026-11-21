@@ -19,7 +19,6 @@ describe('session supervisor protocol', () => {
     });
 
     expect(parsed).toMatchObject({ type: 'start', runId: 'run-1', env: { RUN_TOKEN: 'secret' } });
-    // Defaults come from the one shared task schema, not a supervisor copy.
     expect(parsed.type === 'start' && parsed.task.mcpServers).toEqual([]);
     expect(parsed.type === 'start' && parsed.task.plugins).toEqual([]);
   });
@@ -44,7 +43,6 @@ describe('session supervisor protocol', () => {
       supervisorInputSchema.safeParse({ type: 'start', runId: 'r', task, env: { RUN_TOKEN: 1 } })
         .success,
     ).toBe(false);
-    // The task itself is still validated by sandboxTaskSchema.
     expect(
       supervisorInputSchema.safeParse({
         type: 'start',

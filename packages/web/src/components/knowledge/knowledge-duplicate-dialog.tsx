@@ -20,7 +20,6 @@ const NAME_COPY_SUFFIX = ' 副本';
 const SLUG_MAX = 64;
 const SLUG_COPY_SUFFIX = '-copy';
 
-/** 复用共享 slug 规则的提示文案，前端不另写一份正则。 */
 const SLUG_RULE_MESSAGE =
   slugSchema.safeParse('-').error?.issues[0]?.message ?? '仅允许小写字母、数字、- 和 _';
 
@@ -30,7 +29,6 @@ const duplicateSchema = z.object({
     .trim()
     .min(1, '不能为空，请填写后再保存')
     .max(NAME_MAX, `最多 ${NAME_MAX} 个字符`),
-  // 留空交给服务端自动生成（-copy、-2…），填了才按共享规则校验。
   slug: z
     .string()
     .trim()
@@ -40,7 +38,6 @@ const duplicateSchema = z.object({
 
 type DuplicateForm = z.infer<typeof duplicateSchema>;
 
-/** 复制知识库：只重建库与配置，不带原库的文档、Wiki 与索引。 */
 export function DuplicateBaseDialog({
   base,
   onClose: onClosed,
@@ -57,9 +54,7 @@ export function DuplicateBaseDialog({
   const duplicate = useDuplicateKnowledgeBase();
   const form = useZodForm(duplicateSchema, {
     defaultValues: {
-      // 截断源名让「 副本」后缀完整保留，源名接近上限时也不会一打开就超限。
       name: `${base.name.slice(0, NAME_MAX - NAME_COPY_SUFFIX.length)}${NAME_COPY_SUFFIX}`,
-      // 默认留空：由服务端挑一个没被占用的副本 slug。
       slug: '',
       description: base.description,
     } satisfies DuplicateForm,
@@ -73,7 +68,6 @@ export function DuplicateBaseDialog({
     duplicate.mutate(
       {
         baseId: base.id,
-        // 只有用户明确填了 slug 才传给服务端，空字符串会让自动后缀分支不可达。
         body: {
           name: values.name,
           description: values.description,

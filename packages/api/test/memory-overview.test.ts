@@ -44,7 +44,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
 
   const memoryDir = (slug: string) => join(root, slug, 'agent-memory');
 
-  /** 直接落文件模拟 SDK 原生写入：不经过平台账本，用于派生 unlinked/stale/unaccounted。 */
   const writeFile = async (slug: string, name: string, content: string): Promise<void> => {
     const dir = memoryDir(slug);
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
@@ -71,7 +70,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
       payload: { policy },
     });
 
-  /** 主题 PUT 会按确定规则给索引补链接，断言以真实索引字节为准。 */
   const indexBytesFor = async (agentId: string): Promise<number> => {
     const file = await request(app, {
       url: `/api/agents/${agentId}/memory/MEMORY.md`,
@@ -84,8 +82,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
   beforeAll(async () => {
     root = await fs.mkdtemp(join(await fs.realpath(tmpdir()), 'memory-overview-'));
     app = await startApp({ WORKSPACES_DIR: root });
-    // 本文件写入的记忆账本与个人记忆都以管理员身份为键，与 memory-changes / memory-reviews 共用同一份数据；
-    // 那两个文件会在 beforeEach/afterAll 里按 businessId 清空，必须同一把锁串起来，否则中途被清空。
     releaseLock = await acquireMemoryLock(app.client);
     cookie = await loginCookie(app);
     overviewSlug = unique('memory-overview');
@@ -105,7 +101,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
       id: string;
     }>().id;
 
-    // overview 专家：索引只链接 topic-a，其余主题未链接；topic-d 超过 60 天未更新。
     await writeFile(overviewSlug, 'MEMORY.md', '- [topic-a.md](topic-a.md)\n');
     for (const name of TOPIC_NAMES) {
       await writeFile(overviewSlug, name, `# ${name}\n`);
@@ -113,7 +108,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
     const stale = new Date(Date.now() - 61 * 86_400_000);
     await fs.utimes(join(memoryDir(overviewSlug), 'topic-d.md'), stale, stale);
 
-    // limit 专家：3 个主题 + 规则，用于验证上限与装配。
     for (const name of TOPIC_NAMES.slice(0, 3)) {
       await writeFile(limitSlug, name, `# ${name}\n`);
     }
@@ -124,7 +118,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
       payload: { content: '# 规则\n保持简洁。\n', globs: 'src/**' },
     });
     expect(rule.statusCode, rule.body).toBe(200);
-    // policy 专家通过公开 PUT 建立索引与主题，走平台账本路径。
     const index = await request(app, {
       method: 'PUT',
       url: `/api/agents/${policyId}/memory/MEMORY.md`,
@@ -147,7 +140,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
     });
     expect(policyRule.statusCode, policyRule.body).toBe(200);
 
-    // recent 专家：6 次平台写入，用于验证最近变更只回摘要、真实总数不被 LIMIT 截断。
     for (let index = 1; index <= 6; index += 1) {
       const firstLine = index === 6 ? 'R'.repeat(150) : `# 主题 ${index}`;
       const recent = await request(app, {
@@ -158,7 +150,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
       });
       expect(recent.statusCode, recent.body).toBe(200);
     }
-    // 等锁可能要排在另外两个记忆文件的整套用例之后。
   }, 60_000);
 
   afterAll(async () => {
@@ -182,7 +173,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
   });
 
   it('returns 404 for agents outside the caller scope', async () => {
-    // 有读取/写入权限但不是该专家的成员：范围不符按对象不存在处理，不泄露存在性。
     const outsider = await createTestAccount(app, cookie, { systemKeys: ['maintainer'] });
     expectProblem(
       await request(app, {
@@ -261,7 +251,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
     expect(overview.topics.stale).toEqual(['topic-d.md']);
     expect(overview.rules).toEqual({ count: 0, bytes: 0 });
     expect(overview.personal).toEqual({ chars: 0, maxChars: 9000 });
-    // 五个文件都是直接落盘，账本里没有记录。
     expect(overview.unaccounted.count).toBe(5);
     expect(overview.unaccounted.names).toContain('MEMORY.md');
     expect(overview.recentChanges).toEqual([]);
@@ -281,14 +270,12 @@ describe.skipIf(!ready)('agent memory overview', () => {
     expect(overview.changesTotal).toBe(6);
     expect(overview.recentChanges).toHaveLength(5);
     const latest = overview.recentChanges[0];
-    // 摘要只取变更后正文的首个非空行，并截断到 120 个字符。
     expect(latest).toEqual({
       name: 'recent-6.md',
       createdAt: expect.any(String),
       summary: 'R'.repeat(120),
     });
     expect(Object.keys(latest ?? {}).sort()).toEqual(['createdAt', 'name', 'summary']);
-    // 标题行的 Markdown 符号不进摘要：其余 4 条都以 `# 主题 N` 开头。
     expect(overview.recentChanges.map((change) => change.summary)).toEqual([
       'R'.repeat(120),
       '主题 5',
@@ -297,7 +284,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
       '主题 2',
     ]);
     expect(overview.recentChanges.every((change) => !change.summary.startsWith('#'))).toBe(true);
-    // 正文第二行与 before/after 全文都不出现在投影里。
     expect(response.body).not.toContain('第 6 条变更正文不应回传');
     expect(response.body).not.toContain('"before"');
     expect(overview.unaccounted.count).toBe(0);
@@ -319,7 +305,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
 
     const overview = (await getOverview(agentId)).json<AgentMemoryOverview>();
     const summary = overview.recentChanges[0]?.summary ?? '';
-    // 只影响展示：摘要去掉标题符号，文件正文原样保留。
     expect(summary).toBe('禁用表达');
     expect(summary).not.toContain('#');
     const file = await request(app, {
@@ -343,7 +328,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
     });
     expect(write.statusCode, write.body).toBe(200);
 
-    // 该文件最近一次记账会落到 201 条更新记录之外；按最近 200 条归并会误判为未记账。
     const [agent] = await app.client.unsafe<{ owner_business_id: string }[]>(
       'select owner_business_id from agents where id = $1',
       [agentId],
@@ -415,7 +399,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
         topicLimit: 3,
       },
     });
-    // 策略写入留审计：只记目标与摘要，不落任何记忆正文。
     const [audit] = await app.client.unsafe<
       { action: string; target: string; input_digest: string | null }[]
     >(
@@ -474,8 +457,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
       },
     ]);
     const assembly = (await getAssembly(policyId)).json<AgentMemoryAssembly>();
-    // 个人记忆由 injectPersonalMemory 独立控制：专家记忆停用后仍按 every-run 投影。
-    // 项目规则只由 injectRules 决定：运行期不读 enabled，停用记忆后规则仍照常渲染。
     expect(assembly.blocks.map((block) => [block.trigger, block.reason])).toEqual([
       ['every-run', null],
       ['skipped', '专家记忆已停用'],
@@ -527,7 +508,6 @@ describe.skipIf(!ready)('agent memory overview', () => {
     expectProblem(proposal, 'CONFLICT');
     expect(proposal.json<{ message: string }>().message).toContain('主题数量已达上限 3');
 
-    // 被拒绝的写入不能留下文件。
     await expect(fs.readFile(join(memoryDir(limitSlug), 'fresh.md'), 'utf8')).rejects.toMatchObject(
       { code: 'ENOENT' },
     );

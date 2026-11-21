@@ -36,7 +36,6 @@ const BASE = 'https://api.dingtalk.com';
 const MAX_PAGES = 1000;
 const BLOCK_PAGE_SIZE = 100;
 
-/** 钉钉博客上传文件的可解析格式；其它类型没有本契约内的读取链。 */
 const BINARY_MIME_BY_EXTENSION: Record<string, string> = {
   pdf: 'application/pdf',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -222,7 +221,6 @@ async function listChildren(
     );
     nodes.push(...response.nodes);
     const next = response.nextToken?.trim() ?? '';
-    // 非终止空页说明枚举不完整；继续翻页会把「空页」当成正常终止。
     if (response.nodes.length === 0 && next) {
       throw new Error('dingtalk wiki nodes returned an empty page with a nextToken');
     }
@@ -463,7 +461,6 @@ function renderInlines(value: unknown): string {
         break;
       }
       default:
-        // 未建模的 inline 可能承载正文；继续渲染或猜测都会产出不完整文档。
         throw new ItemError(
           `unsupported dingtalk inline element type ${elementType}`,
           'unsupported_block',
@@ -759,7 +756,6 @@ async function emitNode(
     failures.push(failureOf(externalId, name, err));
   }
 
-  // 文件节点也可能有后代（hasChildren），正文失败也不能漏掉子树。
   if (node.hasChildren === true && !folders.has(node.nodeId)) {
     folders.add(node.nodeId);
     for (const child of await listChildren(auth, node.nodeId, signal)) {
@@ -901,5 +897,4 @@ async function probeNode(auth: Auth, node: Node, signal: AbortSignal | undefined
     await requestDownloadInfo(auth, storage, signal);
     return;
   }
-  // 非文档节点本身不代表凭证/范围不可用；列表已完成即为可用。
 }

@@ -31,13 +31,11 @@ function emit(result: ProbeResult): void {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-/** 客户端 close 失败不能覆盖真正的结果；超时与 close 都过 `finally`。 */
 async function probe(task: { command: string; args: string[]; env: Record<string, string> }) {
   const client = new Client({ name: 'agentport-probe', version: '0.1.0' });
   const transport = new StdioClientTransport({
     command: task.command,
     args: task.args,
-    // 不继承容器环境：被测命令看不到任何平台或镜像注入的变量。
     env: task.env,
     stderr: 'pipe',
   });
@@ -76,7 +74,6 @@ try {
   const tools = limitToolCatalog(listed.tools);
   emit({ ok: true, ...(version ? { serverInfo: version } : {}), tools });
 } catch (err) {
-  // 任何失败都只写一行结果：父进程只看 stdout，进程退出码不携带原因。
   const message = errorText(err);
   log(`probe failed: ${message}`);
   emit({ ok: false, tools: [], error: message });

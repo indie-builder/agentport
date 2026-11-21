@@ -204,7 +204,6 @@ describe('public share page', () => {
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(window.location.hash).toBe('#token-a');
 
-    // 刷新等同于重新挂载：token 仍从地址片段读出，正文请求继续带 bearer token。
     await act(async () => root.unmount());
     root = createRoot(host);
     await mount('share-a', readShareToken());

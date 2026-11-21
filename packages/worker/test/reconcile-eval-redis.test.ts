@@ -10,7 +10,6 @@ import { createIsolatedDatabase } from './isolated-db.js';
 
 const publishRun = mock<() => Promise<void>>().mockResolvedValue(undefined);
 
-// 收敛 evals 本身不发事件，但模块静态导入 runner-client；照既有用例挡掉真实 Redis stream。
 const runnerClientActual = await import('../src/runner-client.js');
 mock.module('../src/runner-client.js', () => ({ ...runnerClientActual, publishRun }));
 
@@ -18,7 +17,6 @@ const { reconcileOrphanedEvalRuns } = await import('../src/scheduling/reconcile.
 
 const STALE_MS = 2 * 60 * 60_000;
 const RUNNING = { status: 'running', error: null, finishedAt: null };
-/** 只在行状态上断言，文案用字面量，避免依赖实现的导出。 */
 const LOST = { status: 'failed', error: 'eval run lost', finishedAt: expect.any(Date) };
 
 async function probeInfra(): Promise<boolean> {
@@ -36,7 +34,6 @@ async function probeInfra(): Promise<boolean> {
   }
 }
 
-// 全表对账必须只看本次套件的数据：独享随机库，不能落到当前共享库。
 const isolated = await createIsolatedDatabase('worker_reconcile_eval');
 if (isolated) process.env.DATABASE_URL = isolated.url;
 const ready = isolated !== null && (await probeInfra());
@@ -61,7 +58,6 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
     close: () => Promise<string>;
   }[] = [];
 
-  /** 每个用例独占队列名：真实 worker 只消费 eval-runs，用例之间也不会互相抢 job。 */
   function makeQueue(): { queue: Queue<EvalRunJob>; jobIds: string[] } {
     const redis = bunRedisConnection(redisUrl);
     const queue = new Queue<EvalRunJob>(`reconcile-eval-${randomUUID()}`, {
@@ -83,7 +79,6 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
       createdBy: 'reconcile-eval-user',
       ownerBusinessId: 'reconcile-eval-user',
     });
-    // 超过 1 小时陈旧线；claimedAt 同老，表示这是长时间跑批而不是从未被认领。
     await db.insert(schema.evalRuns).values({
       id: evalRunId,
       agentId,
@@ -137,10 +132,8 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
     jobIds.push(waiting, delayed);
 
     await queue.add('eval-run', { evalRunId: waiting }, { jobId: waiting });
-    // 未来才执行的延迟任务仍是有效工作，不能因为 DB 里还 running 就被收敛。
     await queue.add('eval-run', { evalRunId: delayed }, { jobId: delayed, delay: 60_000 });
 
-    // 随机库内只有本用例的三条 eval，收敛数必须是 1。
     expect(await reconcileOrphanedEvalRuns(db, logger, queue)).toBe(1);
 
     expect(await statusOf(missing)).toMatchObject(LOST);
@@ -151,7 +144,6 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
     await expect((await queue.getJob(delayed))?.getState()).resolves.toBe('delayed');
     expect(await queue.getJob(missing)).toBeUndefined();
 
-    // 本用例故意让这两行保持 running；结算掉，避免下个用例用新随机队列时把它们当孤儿。
     await db
       .update(schema.evalRuns)
       .set({ status: 'succeeded', finishedAt: new Date() })
@@ -171,7 +163,6 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
       release = resolve;
     });
     const workerRedis = bunRedisConnection(redisUrl);
-    // 唯一的真 worker：只消费这个测试队列，handler 里不接模型也不启沙盒。
     const worker = new Worker<EvalRunJob>(
       queue.name,
       async () => {
@@ -201,7 +192,6 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
       await completed;
       await expect(job.getState()).resolves.toBe('completed');
 
-      // job 已到终态：这一轮才该收敛。
       expect(await reconcileOrphanedEvalRuns(db, logger, queue)).toBe(1);
       expect(await statusOf(evalRunId)).toMatchObject(LOST);
     } finally {

@@ -49,7 +49,6 @@ describe.skipIf(!ready)('publishRun', () => {
       for (let index = 0; index < 1_200; index += 1) {
         await publishRun(runId, { type: 'text_delta', text: String(index) }, logger);
       }
-      // 展示额度由 worker 自己控制；发布端不能再按 MAXLEN 裁掉已接受的事件。
       expect(await redis.xlen(runStreamKey(runId))).toBe(1_200);
     } finally {
       await redis.del(runStreamKey(runId));

@@ -44,11 +44,6 @@ const MONITORED_QUEUES = [
   MAINTENANCE_QUEUE,
 ] as const;
 
-/**
- * 每次 XRANGE/XREAD 的条数上限。首次回放从流头逐页读完，COUNT 2 只限制单页驻留，
- * 不限制整条流；单条事件本身可能超过 8MiB（run_finished 的 canonical），
- * 所以这里不给整轮回放设累计字节或内存上界。
- */
 const READ_PAGE_SIZE = 2;
 
 type StreamEntry = [string, string[]];
@@ -94,7 +89,6 @@ export function getEvalQueue(): Queue<EvalRunJob> {
   return evalQueue;
 }
 
-/** 知识任务独立队列：与聊天 run 分开消费，不占 run 并发、不进运行历史。 */
 export function getKnowledgeQueue(): Queue<{ jobId: string }> {
   if (!knowledgeQueue) {
     knowledgeQueue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
@@ -105,7 +99,6 @@ export function getKnowledgeQueue(): Queue<{ jobId: string }> {
   return knowledgeQueue;
 }
 
-/** 构建任务独立队列：与聊天 run 分开消费，不占运行并发；jobId = versionId。 */
 export function getRuntimeEnvironmentBuildQueue(): Queue<RuntimeEnvironmentBuildJob> {
   if (!runtimeEnvironmentBuildQueue) {
     runtimeEnvironmentBuildQueue = new Queue<RuntimeEnvironmentBuildJob>(
@@ -169,7 +162,6 @@ function getChannelClient(): RedisClient {
   return channelClient;
 }
 
-/** 运行中的知识任务：worker 每秒轮询该键，非空即 abort；键由 worker 收尾时删除。 */
 export async function publishKnowledgeCancel(jobId: string): Promise<void> {
   await getClient().set(
     knowledgeCancelKey(jobId),
@@ -187,7 +179,6 @@ export async function publishRun(runId: string, event: ChatEvent): Promise<void>
   await appendStreamEvent(getClient(), runStreamKey(runId), event);
 }
 
-/** 频道事件只做唤醒；订阅端按 DB 的 seq 补拉，不信任这里的正文。 */
 export async function publishChannelEvent(channelId: string, event: ChannelEvent): Promise<void> {
   const redis = getChannelClient();
   if (!redis.connected) await redis.connect();
@@ -206,11 +197,6 @@ export async function publishChannelMessage(
   });
 }
 
-/**
- * running 运行的取消信号：只发通知，终态由 worker 停止容器、写完消息与产出后落库。
- * 键本身也是信号（worker 订阅后先查一次），`publish` 负责唤醒已订阅的 worker；
- * NX 让重复点击只写一条审计。
- */
 export async function requestRunCancel(runId: string): Promise<boolean> {
   const redis = getClient();
   const key = runCancelKey(runId);
@@ -221,27 +207,16 @@ export async function requestRunCancel(runId: string): Promise<boolean> {
   return setResult !== null;
 }
 
-/** 挂起的工具调用据此在 worker 收尾前就停止等待。 */
 export async function isRunCancelRequested(runId: string): Promise<boolean> {
   return await getClient().exists(runCancelKey(runId));
 }
 
 export interface RunSubscription {
-  /** 从第一条事件开始回放，并在有新事件时继续推送。 */
   close: () => void;
 }
 
-/** 每个订阅独占连接；close() 时断开，避免一条连接的退出影响其他观众。 */
 const subscriptions = new Map<RedisClient, () => void>();
 
-/**
- * 从流头回放并持续跟进：首次回放从 0-0 正序逐页读完（COUNT 2 限制单页驻留），
- * 随后用阻塞 XREAD 从最后一条真实 ID 继续：不用消费组（多观众各自回放），
- * 也不用 `$`（会跳过阻塞前到达的事件）。
- * 回放完成后 subscribeRun 才 resolve，调用方在拿到订阅后补发终态不会截断回放。
- * 回调可以返回 Promise：写端背压时循环会停下等待，而不是在内存里堆事件。
- * 客户端断开时只需 close()（或 abort signal），不删除流（其他客户端还能回放）。
- */
 export async function subscribeRun(
   runId: string,
   cb: (event: ChatEvent) => void | Promise<void>,
@@ -305,7 +280,6 @@ async function subscribeStream<T>(
   const onAbort = (): void => release();
   signal?.addEventListener('abort', onAbort, { once: true });
   const shutdown = () => {
-    // Shutdown must not wait for a stalled viewer to drain.
     void Promise.resolve(cb(shutdownEvent)).catch((err: unknown) => {
       logRedisError(err instanceof Error ? err : new Error(String(err)));
     });

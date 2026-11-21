@@ -29,7 +29,6 @@ describe.skipIf(!ready)('chat admission', () => {
 
   beforeAll(async () => {
     app = await startApp();
-    // 有 worker 消费时等待中的 run 会被真实执行，状态断言失去意义。
     expect(await queueIdle, 'worker must be stopped before chat admission tests').toBe(true);
     cookie = await loginCookie(app);
   });
@@ -214,7 +213,6 @@ describe.skipIf(!ready)('chat admission', () => {
       prompt: 'latest question',
       requestId: expect.any(String),
     });
-    // 续聊身份在准入时就固定：平台生成的 uuid 与用户消息一一对应。
     const [stored] = await app.client
       .unsafe<{ sdk_message_uuid: string }[]>(
         "select sdk_message_uuid from messages where run_id = $1 and role = 'user'",
@@ -280,14 +278,12 @@ describe.skipIf(!ready)('chat admission', () => {
       const own = await locker.unsafe<{ pid: number }[]>('select pg_backend_pid() as pid');
       const lockerPid = own[0]?.pid;
       await locker.unsafe('begin');
-      // 真实停用路径也先拿这把绑定锁；持锁不提交，两条准入会先通过各自的 enabled 预检再停在锁上。
       await locker.unsafe('select pg_advisory_xact_lock(hashtext($1))', [
         'agentport.subagent-bindings',
       ]);
       await locker.unsafe('update agents set enabled = false where id = $1', [agent.id]);
 
       pendingPost = postNewConversation('disabled while waiting');
-      // 共享准入的直接入口没有外层预检，用它证明检查发生在准入锁内。
       pendingAdmission = repo.chat
         .admitChatRun(app.db, {
           agentId: agent.id,
@@ -339,7 +335,6 @@ describe.skipIf(!ready)('chat admission', () => {
     } finally {
       await locker.unsafe('rollback').catch(() => undefined);
       locker.release();
-      // 失败路径下准入可能仍在排队；等它落地再让 cleanup 删 agent。
       await pendingPost;
       await pendingAdmission;
     }
@@ -381,7 +376,6 @@ describe.skipIf(!ready)('chat admission', () => {
       expect(blocked, 'admission must wait on the agent row').toBe(true);
       expect(await runCount(conversationId)).toBe(0);
 
-      // 等待中的准入不得持有会话行锁；否则与 DELETE agents 的级联锁形成环。
       await probe.unsafe('begin');
       await probe.unsafe('select id from conversations where id = $1 for update nowait', [
         conversationId,
@@ -401,7 +395,6 @@ describe.skipIf(!ready)('chat admission', () => {
       locker.release();
       await probe.unsafe('rollback').catch(() => undefined);
       probe.release();
-      // 失败路径下准入可能仍在排队；等它落地再让 cleanup 删 agent。
       await pending;
     }
   });

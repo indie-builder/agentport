@@ -24,14 +24,6 @@ const { EVAL_LOST_ERROR, reconcileOrphanedEvalRuns } = await import(
 type Child = ChildProcess & { stderr: NonNullable<ChildProcess['stderr']> };
 type CaseInput = { name: string; prompt: string; expectation: string };
 
-/**
- * 真实进程退出 / BullMQ 重投 / 失败收口：
- * - 每次运行独享 Redis 容器与独立 PG，避免同轮其它套件消费共享 agent-runs。
- * - 子进程只装配生产 handler（runEvalJob），只替换模型边界。
- * - 覆盖：SIGKILL 后 stalled 重投只让位不判失败、超出 maxStalledCount 的 deferred failure、
- *   failEvalRun 自身 SQL 失败后由 1 小时 reconcile 释放 running 唯一占用。
- */
-
 const isolated = await createIsolatedDatabase('worker_eval_redelivery');
 const redisContainer: IsolatedRedis | null = await startRedisContainer();
 const ready = isolated !== null && redisContainer !== null;
@@ -79,7 +71,6 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     await Promise.allSettled(closers.map((close) => close()));
     closers = [];
     await closeEvalRunQueue();
-    // 独享容器：只清空本轮资源，不影响共享 backendSetup。
     await flushExclusiveRedis();
   });
 
@@ -92,7 +83,6 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
   async function seed(
     cases: CaseInput[],
   ): Promise<{ agentId: string; evalRunId: string; businessId: string }> {
-    // 每个用例独立账户：同一隔离库里重复使用 business_id 会撞 auth user 唯一约束。
     const seedBusinessId = `eval-redelivery-${randomUUID().slice(0, 12)}`;
     const authId = `auth_redelivery_${randomUUID().slice(0, 8)}`;
     const roleId = `role_redelivery_${randomUUID().slice(0, 8)}`;
@@ -194,7 +184,6 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
       stderr += chunk.toString();
     });
     await waitForReady(child, () => stderr);
-    // 第一次投递已经 claim 并完成第一个用例，第二个用例停在模型执行边界。
     const before = await runState(evalRunId);
     expect(before?.evalRun).toMatchObject({ status: 'running', passed: 1 });
     expect(before?.results).toHaveLength(1);
@@ -237,7 +226,6 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     await startClaimedChild(queueName, evalRunId);
     const runIdsBefore = await runIdsFor(agentId);
 
-    // 替代消费者：与生产相同的 handler seam，让真实 stalled 重投落到已持有租约的批次上。
     const failedErrors: unknown[] = [];
     const completed = new Promise<void>((resolve) => {
       const replacementRedis = bunRedisConnection(redisUrl);
@@ -261,21 +249,17 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     });
 
     await completed;
-    // 让可能迟到的 failed 事件有机会进入断言。
     await delay(200);
 
     expect(failedErrors).toEqual([]);
     const after = await runState(evalRunId);
     expect(after?.evalRun).toMatchObject({ status: 'running', passed: 1 });
     expect(after?.evalRun.finishedAt).toBeNull();
-    // 已完成的结果原样保留，未完成用例不合成结果。
     expect(after?.results).toHaveLength(1);
     expect(after?.results[0]).toMatchObject({ passed: true, output: 'first-ok' });
 
-    // 重投没有创建新的 case 子 run。
     expect(await runIdsFor(agentId)).toEqual(runIdsBefore);
 
-    // 死 worker 由 1 小时 reconcile 兜底释放 running 唯一占用。
     await db
       .update(schema.evalRuns)
       .set({ createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000) })
@@ -291,7 +275,6 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     expect(released?.evalRun.finishedAt).not.toBeNull();
     expect(released?.results).toHaveLength(1);
 
-    // 批次已释放，同一个 agent 可以再次发起评估。
     const next = await repo.evalRepo.createEvalRun(db, {
       id: newId('evalRun'),
       agentId,
@@ -351,7 +334,6 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
       replacement.on('error', () => undefined);
       replacement.on('failed', (job, err) => {
         failedError = err;
-        // 与生产 index.ts 相同的 failed 事件兜底；.catch 保证不留 unhandled rejection。
         handleEvalJobFailed({ db, logger, job, error: err })
           .catch(() => undefined)
           .finally(resolve);
@@ -386,7 +368,6 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     const { agentId, evalRunId, businessId } = await seed([
       { name: 'only', prompt: 'only', expectation: 'only-ok' },
     ]);
-    // 模型边界：只替换子 run 的执行结果，不替换 eval 的 claim/finish/fail。
     const runRedis = bunRedisConnection(redisUrl);
     const runWorker = new Worker(
       RUNS_QUEUE,
@@ -474,7 +455,6 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
         });
       });
       await failed;
-      // 让 failed 回调里的 rejection 有机会进入 unhandledRejection。
       await delay(200);
     } finally {
       process.off('unhandledRejection', onUnhandled);
@@ -483,10 +463,8 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     }
 
     expect(unhandled).toEqual([]);
-    // processor 仍抛原始 DB 错误，不被固定公开文案或收口错误替换；secret 在 cause 链里。
     expect((failedError as Error).message).toContain('Failed query');
     expect(inspect(failedError, { depth: 8 })).toContain(finishSecret);
-    // failed 事件再次收口也撞上同一触发器：settleFailure 自己吞掉并只记受控日志。
     expect(settleErrors).toEqual([]);
     expect(logs.join('\n')).toContain('eval run failure settlement failed');
     expect(logs.join('\n')).not.toContain(finishSecret);
@@ -498,7 +476,6 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     expect(stuck?.evalRun.finishedAt).toBeNull();
     expect(stuck?.results).toHaveLength(1);
 
-    // 原 1 小时 queue-probe 对账：不降阈值，只用测试数据把行放到阈值之前。
     await db
       .update(schema.evalRuns)
       .set({ createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000) })

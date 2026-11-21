@@ -239,11 +239,6 @@ function findPicker(tree: Element[], value: string): Element | undefined {
   return tree.find((node) => node.type === Combobox && pickerValues(node).includes(value));
 }
 
-/**
- * 用真实 React 渲染跑页面的元素与事件契约。
- * 表单只由 RHF 驱动后没有本地 setState：visit 在两帧之间运行，返回 true 表示再看下一帧，
- * 可以 await 提交（异步 resolver）后再断言。
- */
 async function inspect(
   render: () => ReactNode,
   visit: (tree: Element[], pass: number) => boolean | undefined | Promise<boolean | undefined>,
@@ -279,7 +274,6 @@ function editor() {
     onDeleteRequest: () => {},
   });
 }
-// 三栏布局一次只挂载一个分区：探针先点中栏的分区按钮把它切出来。
 function selectSection(tree: Element[], label: string) {
   const item = tree.find(
     (node) =>
@@ -325,7 +319,6 @@ beforeEach(() => {
   state.detail = { isPending: false, isError: false };
   state.blockerOptions = [];
   state.blockerStatus = 'idle';
-  // 编辑器用例针对配置任务；概览的默认落点由页面级用例覆盖。
   state.search = { tab: 'config' };
   state.me = undefined;
   vi.clearAllMocks();
@@ -443,14 +436,12 @@ describe('expert editor regressions', () => {
         return true;
       }
       if (pass === 3) {
-        // 保存被拦下：非法文本不丢、也不发请求。
         const form = tree.find((node) => node.type === 'form');
         if (!form) throw new Error('Missing editor form');
         await (form.props.onSubmit as (event: unknown) => Promise<void>)({ preventDefault() {} });
         expect(state.mutate).not.toHaveBeenCalled();
         return true;
       }
-      // 错误落在隐藏分区：保存后先切到第一个出错的分区再聚焦。
       const allowed = tree.find((node) => node.props.id === 'agent-allowed-tools');
       expect(allowed?.props['aria-invalid']).toBe(true);
     });
@@ -533,7 +524,6 @@ describe('expert editor regressions', () => {
 
   it('advances the baseline only to the successfully saved response', async () => {
     state.mutate.mockImplementationOnce((input, callbacks) => {
-      // 服务端把清除后的空值回读为 undefined，而不是 null。
       callbacks.onSuccess({ ...parent, name: input.input.name, updatedAt: '2026-03-01' });
     });
     await inspect(editor, (tree, pass) => {
@@ -599,7 +589,6 @@ describe('expert editor regressions', () => {
     let saved: Agent | undefined;
     state.mutate.mockReset();
     state.mutate.mockImplementationOnce((vars, callbacks) => {
-      // 真实 PATCH 只合并脏字段并回读完整 Agent；这里按同样语义模拟服务端响应。
       saved = { ...configured, ...vars.input, updatedAt: '2026-03-01' };
       callbacks?.onSuccess?.(saved);
     });
@@ -712,7 +701,6 @@ describe('expert editor regressions', () => {
     let saved: Agent | undefined;
     state.mutate.mockReset();
     state.mutate.mockImplementationOnce((vars, callbacks) => {
-      // 未变的环境绑定不随 PATCH 提交，服务端响应回读的仍是原值。
       saved = { ...configured, ...vars.input, updatedAt: '2026-03-01' };
       callbacks?.onSuccess?.(saved);
     });
@@ -772,7 +760,6 @@ describe('expert editor regressions', () => {
     let saved: Agent | undefined;
     state.mutate.mockReset();
     state.mutate.mockImplementationOnce((vars, callbacks) => {
-      // runtimeEnvironmentId 未变时不提交，服务端保留原来的 null。
       saved = { ...parent, ...vars.input, updatedAt: '2026-03-01' };
       callbacks?.onSuccess?.(saved);
     });
@@ -819,7 +806,6 @@ describe('expert editor regressions', () => {
     let saved: Agent | undefined;
     state.mutate.mockReset();
     state.mutate.mockImplementationOnce((vars, callbacks) => {
-      // 加载失败时草稿仍保留原绑定；未改动的绑定不提交，响应回读保持不变。
       saved = { ...bound, ...vars.input, updatedAt: '2026-03-01' };
       callbacks?.onSuccess?.(saved);
     });
@@ -967,7 +953,6 @@ describe('expert editor regressions', () => {
     let saved: Agent | undefined;
     state.mutate.mockReset();
     state.mutate.mockImplementationOnce((vars, callbacks) => {
-      // 子智能体绑定未改动就不提交；服务端合并后仍回读原有绑定。
       saved = { ...parent, ...vars.input, updatedAt: '2026-03-01' };
       callbacks?.onSuccess?.(saved);
     });
@@ -1169,7 +1154,6 @@ describe('expert editor regressions', () => {
     let saved: Agent | undefined;
     state.mutate.mockReset();
     state.mutate.mockImplementationOnce((vars, callbacks) => {
-      // 只改普通连接器时 pluginBindings 未脏、不提交；服务端合并后仍回读原绑定。
       saved = { ...configured, ...vars.input, updatedAt: '2026-03-01' };
       callbacks?.onSuccess?.(saved);
     });

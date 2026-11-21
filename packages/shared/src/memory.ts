@@ -65,7 +65,6 @@ export function resolveMemoryPolicy(value: unknown): MemoryPolicy {
  * API 保存、worker 注入与 web 表单共用这一份。
  */
 export const PERSONAL_MEMORY_MAX_CHARS = 9000;
-/** 异常内容护栏：9000 个字符最坏约 36 KB，超过说明文件异常，读写都拒绝。 */
 export const PERSONAL_MEMORY_MAX_BYTES = 36 * 1024;
 /** 个人偏好投影到宿主与沙盒只读挂载的文件名。 */
 export const PERSONAL_MEMORY_FILENAME = 'CLAUDE.md';
@@ -286,7 +285,6 @@ export const memoryReviewSchema = z.object({
   before: memoryContentSnapshotSchema,
   proposal: memoryReviewProposalSchema.nullable(),
   appliedChangeId: z.string().nullable(),
-  /** numeric 列经 pg 驱动返回字符串，沿用运行列表的表示。 */
   costUsd: z.string().nullable(),
   error: z.string().nullable(),
 });

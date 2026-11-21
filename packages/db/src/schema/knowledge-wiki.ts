@@ -27,7 +27,6 @@ export const knowledgeWikiPages = pgTable(
       .references(() => knowledgeBases.id, { onDelete: 'cascade' }),
     slug: text('slug').notNull(),
     title: text('title').notNull(),
-    /** 主题目录：同库父子；循环由事务内校验拒绝。 */
     parentId: text('parent_id').references((): AnyPgColumn => knowledgeWikiPages.id, {
       onDelete: 'set null',
     }),

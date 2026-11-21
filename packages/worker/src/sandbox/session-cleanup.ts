@@ -13,11 +13,6 @@ import type { Logger } from 'pino';
 import { waitClose } from '../runs/close-wait.js';
 import type { SessionSandboxes } from './sessions.js';
 
-/**
- * 会话删除的内部关闭信道：API 在删除事务之间（事务外、仍持会话锁）发请求，
- * worker 关闭空闲容器后回一条 ACK。只是有限请求/应答，不是队列或第二套运行循环；
- * 请求不带凭据、宿主路径或 Docker 命令。
- */
 interface SessionCleanupChannelOptions {
   redisUrl: string;
   logger: Logger;
@@ -53,7 +48,6 @@ export async function startSessionCleanupChannel(
     try {
       await publisher.publish(sessionCleanupAckChannel(requestId), JSON.stringify(ack));
     } catch (err) {
-      // ACK 发不出去等价于没确认：API 会超时回滚，能安全重试。
       logger.warn({ err, requestId }, 'session cleanup ack publish failed');
     }
   }
@@ -70,7 +64,6 @@ export async function startSessionCleanupChannel(
 
     const errors: string[] = [];
     for (const target of request.targets) {
-      // 长关闭期间请求可能已经过期：不再开始新的目标，已完成的容器不回滚。
       if (Date.now() >= request.deadline) {
         errors.push('request expired during cleanup');
         break;
@@ -102,7 +95,6 @@ export async function startSessionCleanupChannel(
       );
       return;
     }
-    // 入口只校验一次；无法识别的请求不执行也不回 ACK，API 会按超时失败。
     const parsed = sessionCleanupRequestSchema.safeParse(raw);
     if (!parsed.success) {
       logger.warn(
@@ -150,7 +142,6 @@ export async function startSessionCleanupChannel(
         await Promise.race([
           (async () => {
             await subscriber.unsubscribe(requestChannel, listener).catch(() => undefined);
-            // 关停时不打断进行中的关闭确认：它们仍要回 ACK 并保留失败跟踪。
             await Promise.allSettled([...inFlight]);
           })(),
           new Promise<never>((_, reject) => {
@@ -177,11 +168,6 @@ interface CloseSessionRuntimeOptions {
   timeoutMs: number;
 }
 
-/**
- * provider close 的唯一顺序：有界 drain 关闭信道 → 关闭会话沙盒 → destroyAll。
- * 任何一路失败都继续后面的清理，最后抛出（多个失败聚合成 AggregateError），
- * 由 runShutdown 记录并非零退出；不能用 warning 代替失败。
- */
 export async function closeSessionRuntime(options: CloseSessionRuntimeOptions): Promise<void> {
   const failures: unknown[] = [];
   const closing = options.channel.close(options.timeoutMs).catch((err: unknown) => {

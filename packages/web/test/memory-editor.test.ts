@@ -129,9 +129,7 @@ async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 查询或懒加载还没落地，继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -150,7 +148,6 @@ function buttonOrNull(text: string, scope: ParentNode = document): HTMLButtonEle
     (item) => item.textContent?.trim() === text || item.getAttribute('aria-label') === text,
   );
 }
-// 输出风格列表项会带“已启用”后缀，按名称前缀定位。
 function itemButton(name: string): HTMLButtonElement {
   const element = [...document.querySelectorAll<HTMLButtonElement>('button')].find((item) =>
     item.textContent?.trim().startsWith(name),
@@ -197,7 +194,6 @@ function mount(element: ReactElement) {
   act(() => root.render(createElement(QueryClientProvider, { client }, element)));
 }
 
-/** 记忆页签默认落在概览；文件相关用例先切到「文件」子视图。 */
 async function mountFiles(
   props: {
     canWrite?: boolean | undefined;

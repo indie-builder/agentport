@@ -52,7 +52,6 @@ describe.skipIf(!ready)('openapi', () => {
       "script-src 'self' 'unsafe-inline'",
     );
     expect(res.body).toContain('createApiReference');
-    // 页面用同源 URL 取 spec：浏览器请求会带上会话 cookie。
     expect(res.body).toContain('/api/openapi.json');
 
     const spec = await request(app, {

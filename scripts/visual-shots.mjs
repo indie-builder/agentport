@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-// 开发完成后的多视口 UI 截图：默认起隔离临时库 + API/Web，登录、可选种子、截图、打开、清理。
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs';
@@ -43,7 +42,6 @@ Redis 使用已缓存镜像与 loopback 随机端口，API 忽略外部 REDIS_UR
 function fail(message) {
   console.error(`[visual-shots] ${message}`);
   process.exitCode = 1;
-  // 消息带前缀，底部 catch 据此避免重复打印。
   throw new Error(`[visual-shots] ${message}`);
 }
 
@@ -189,7 +187,6 @@ function runPsql(args) {
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    // worktree 的 compose project 可能没落到默认名，回退到主 checkout 起的容器名。
     result = spawnSync('docker', ['exec', 'agentport-postgres-1', 'psql', ...args], {
       cwd: ROOT,
       encoding: 'utf8',
@@ -475,7 +472,6 @@ try {
   console.log('SHOTS_JSON=' + JSON.stringify(shots));
   if (warnings.length > 0) console.log('SEED_WARNINGS=' + JSON.stringify(warnings));
 } finally {
-  // 无人值守脚本：出错也关闭任务空间，避免遗留浏览器页签。
   try {
     await task.finish({ keep: [] });
   } catch (cause) {
@@ -532,7 +528,6 @@ let activeState = null;
 let activeChild = null;
 let cleanedUp = false;
 
-/** 终止本工具以 detached 方式启动的进程组；失败退回到直接杀该 pid，忽略 ESRCH。 */
 function killProcessGroup(pid, signal) {
   try {
     process.kill(-pid, signal);
@@ -547,7 +542,6 @@ function killProcessGroup(pid, signal) {
   }
 }
 
-/** 前台长任务用异步子进程，保证 SIGINT/SIGTERM 不被 spawnSync 阻塞。 */
 function runForeground(command, args, { cwd, env, input, timeoutMs }) {
   return new Promise((resolvePromise, rejectPromise) => {
     // detached 建独立进程组，中断/超时才能连同孙进程一起终止；stdio 仍走管道。
@@ -576,7 +570,6 @@ function runForeground(command, args, { cwd, env, input, timeoutMs }) {
     child.stdin.on('error', () => {
       // 子进程提前退出时写入 stdin 会 EPIPE，结果由 close 处理。
     });
-    // 程序走 stdin，避免命令行参数长度限制；没有输入也必须关闭。
     child.stdin.end(input ?? '');
     child.on('error', (cause) => {
       if (timer) clearTimeout(timer);
@@ -592,11 +585,9 @@ function runForeground(command, args, { cwd, env, input, timeoutMs }) {
 }
 
 function stopActiveChild() {
-  // 中断时先终止前台子进程整组，截图/造数据卡住也能立即进入清理。
   if (activeChild) killProcessGroup(activeChild.pid, 'SIGTERM');
 }
 
-/** 同步清理：信号处理与正常退出共用，避免遗留进程或临时库。 */
 function cleanupAll() {
   if (cleanedUp || !activeOpts || !activeState || activeOpts.keep) return;
   cleanedUp = true;
@@ -636,7 +627,6 @@ process.on('SIGTERM', () => {
   if (activeOpts?.keep) printKeepHint(activeState);
   process.exit(143);
 });
-// 兜底：未捕获异常导致进程退出时也必须清掉服务与临时库。
 process.on('exit', () => cleanupAll());
 
 async function main() {
@@ -676,7 +666,6 @@ async function run(opts, env, state) {
     const baseDbUrl = new URL(env.DATABASE_URL);
     state.dbUser = decodeURIComponent(baseDbUrl.username);
     await startRedis(state);
-    // 随机后缀避免同秒并发跑出同名库。
     const dbName = `pace_visual_${opts.timestamp.replace(/-/g, '')}_${randomBytes(3).toString('hex')}`;
     if (!/^[a-z0-9_]+$/.test(dbName)) fail(`生成的库名不合法：${dbName}`);
 
@@ -687,7 +676,6 @@ async function run(opts, env, state) {
           '\n确认 PostgreSQL 在运行：bun run infra:up 或 docker compose ps',
       );
     }
-    // 只有 CREATE 成功后才登记待删库名，避免失败时误删别人的库。
     state.dbName = dbName;
 
     const tempUrl = new URL(baseDbUrl);
@@ -735,11 +723,9 @@ async function run(opts, env, state) {
     await waitForHealthy(state.services);
   }
 
-  // CORS 白名单是 localhost，不是 127.0.0.1；浏览器统一走 localhost。
   const baseUrl = opts.baseUrl ?? `http://localhost:${WEB_PORT}`;
 
   if (opts.seed === 'dev-data') {
-    // dev:data 通过已起实例的 UI 写数据，必须显式指向本次栈；失败只提示，不阻塞截图。
     const devDataEnv = {
       ...process.env,
       E2E_APP_URL: baseUrl,
@@ -794,12 +780,10 @@ async function run(opts, env, state) {
   }
 }
 
-/** 只终止本工具记录的 detached 进程组；绝不按端口杀未知进程。 */
 function stopServices(services) {
   for (const service of services) {
     if (service.child) killProcessGroup(service.child.pid, 'SIGTERM');
   }
-  // 给 bun run/tsx/vite 一点时间自行退出，再对仍占口的自家进程组补 SIGKILL。
   const waitUntil = Date.now() + 2000;
   while (Date.now() < waitUntil && services.some((service) => isPortListening(service.port))) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
@@ -809,7 +793,6 @@ function stopServices(services) {
       killProcessGroup(service.child.pid, 'SIGKILL');
     }
   }
-  // 端口仍被占用说明是别的进程或尚未释放，只告警，绝不 kill 未知进程。
   for (const service of services) {
     if (isPortListening(service.port)) {
       console.warn(

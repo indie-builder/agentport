@@ -146,7 +146,6 @@ async function type(text: string) {
     message().dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
-// 真实断点切换：只解析本页用到的 min-width 查询，并在跨过阈值时发 change。
 function stubViewport(initialWidth: number) {
   let width = initialWidth;
   const entries = new Map<string, Set<() => void>>();
@@ -249,7 +248,6 @@ it('shows the woodworker only in the conversation welcome state', async () => {
 });
 
 it('fills a suggested task and returns focus to the composer without sending', async () => {
-  // 建议任务只在已选定专家的欢迎态出现：裸 /chat 不替用户挑专家。
   await mount('/chat?agent=agent-a');
   const suggestion = [...host.querySelectorAll('button')].find(
     (button) => button.textContent?.trim() === '制定计划',
@@ -306,7 +304,6 @@ describe('confirmed chat UX defects', () => {
     expect(host.textContent).toContain('Connector refused the request');
     expect(host.querySelector('a[href^="/runs/run-old"]')).not.toBeNull();
     expect(host.textContent).not.toMatch(/0\.0s|0 tok|\$0\.000|NaNs/);
-    // 这次运行没有产出回复，但已经结束：只显示失败原因，不再冒充仍在等待。
     expect(host.textContent).not.toContain('等待回复');
   });
 
@@ -324,7 +321,6 @@ describe('confirmed chat UX defects', () => {
     });
     expect(host.textContent).toContain('notes.md');
 
-    // 走真实请求层：一次性网络失败，再让同一请求成功。
     const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
     vi.stubGlobal('fetch', fetchMock);
     await act(async () => {
@@ -332,12 +328,10 @@ describe('confirmed chat UX defects', () => {
     });
     await flush();
 
-    // 缓存仍在：后台刷新失败不能卸载工作区、清空附件/草稿或丢掉已打开会话。
     expect(host.textContent).toContain('old prompt');
     expect(message().value).toBe('unfinished draft');
     expect(host.textContent).toContain('notes.md');
     expect(useChatStore.getState().pendingAttachments).toHaveLength(1);
-    // 真实刷新错误与重试入口同时可见。
     expect(host.textContent).toContain('专家列表刷新失败，保留当前会话');
 
     fetchMock.mockResolvedValue(
@@ -383,7 +377,6 @@ describe('confirmed chat UX defects', () => {
   ] as const)(
     'keeps feedback for a %s run that has not produced a reply yet',
     async (status, feedback) => {
-      // 历史与运行详情都保持未决，让 store 里的活动运行直接驱动状态行。
       vi.mocked(api.conversation).mockReturnValue(new Promise(() => {}));
       vi.mocked(api.run).mockReturnValue(new Promise(() => {}));
       await act(async () => {
@@ -398,7 +391,6 @@ describe('confirmed chat UX defects', () => {
       });
       await mount('/chat?agent=agent-a&conversation=conversation-a');
       expect(host.textContent).toContain(feedback);
-      // 状态行是运行读数，不是那条终态才该消失的占位文案。
       expect(host.textContent).not.toContain('等待回复…');
     },
   );
@@ -447,7 +439,6 @@ describe('confirmed chat UX defects', () => {
             createdAt: '2026-10-29T00:01:01.000Z',
           },
         ],
-        // 失败/超时运行没有任何助手输出；后续轮次仍带完整读数。
         runMetrics: [
           {
             runId: 'run-a',
@@ -496,7 +487,6 @@ describe('confirmed chat UX defects', () => {
       });
       await mount('/chat?agent=agent-a&conversation=conversation-a');
 
-      // 没有助手输出的终态运行：结果留在它自己的用户轮里，并且常驻可见。
       const oldLink = host.querySelector('a[href^="/runs/run-a"]');
       expect(oldLink).not.toBeNull();
       const oldTurn = oldLink?.closest('[data-message-id]');
@@ -508,18 +498,14 @@ describe('confirmed chat UX defects', () => {
       const oldWrapper = oldLink?.closest('[class*="transition-opacity"]');
       expect(oldWrapper?.className).toContain('opacity-100');
 
-      // 后续轮次的回复与读数只属于自己：不串到旧轮，也不重复。
       const replyTurn = host.querySelector('[data-message-id="message-c:0"]');
       expect(replyTurn?.textContent).toContain('second reply');
       expect(replyTurn?.textContent).not.toContain(errorText);
       expect(host.querySelectorAll('a[href^="/runs/run-a"]')).toHaveLength(1);
-      // 最新轮的读数由运行详情驱动；消息区内只出现一次（输入框上方另有本次运行入口）。
       expect(replyTurn?.querySelectorAll('a[href^="/runs/run-b"]')).toHaveLength(1);
       expect(replyTurn?.textContent).toContain('完成');
-      // 终态运行不再显示仍在等待。
       expect(host.textContent).not.toContain('等待回复');
 
-      // 继续对话时新用户项没有 runId：旧终态仍留在原轮，新的运行反馈照常出现。
       await act(async () => {
         useChatStore
           .getState()
@@ -694,7 +680,6 @@ describe('live terminal outcomes across a follow-up send', () => {
   async function mountWithStalledRefresh() {
     vi.mocked(api.conversation).mockResolvedValue(conversation);
     await mount('/chat?agent=agent-a&conversation=conversation-a');
-    // 背景刷新一直不返回：旧轮读数只能来自终态事件写回的会话详情缓存。
     vi.mocked(api.conversation).mockReturnValue(new Promise(() => {}));
   }
 
@@ -708,7 +693,6 @@ describe('live terminal outcomes across a follow-up send', () => {
       .mockResolvedValueOnce({ runId: 'run-b', conversationId: 'conversation-a' });
 
     await send('first prompt');
-    // 用户气泡在接受时归属本轮：没有助手输出时，终态读数只能挂在它身上。
     expect(useChatStore.getState().items.findLast((item) => item.kind === 'user')).toMatchObject({
       text: 'first prompt',
       runId: 'run-a',
@@ -718,10 +702,8 @@ describe('live terminal outcomes across a follow-up send', () => {
     expect(host.textContent).toContain(error);
 
     await send('second prompt');
-    // 发送会清空最新读数，旧轮原因与链接必须仍从会话详情缓存读到，且不串到新轮。
     expect(useChatStore.getState().lastRun).toBeNull();
     expect(host.textContent).toContain(error);
-    // 已接受但事件流尚未 onopen：首连显示正在连接，等连接打开才进入「等待回复」。
     expect(host.textContent).toContain('正在连接…');
     const oldLink = host.querySelector('a[href^="/runs/run-a"]');
     const oldTurn = oldLink?.closest('[data-message-id]');
@@ -744,7 +726,6 @@ describe('live terminal outcomes across a follow-up send', () => {
     );
     await flush();
 
-    // 新轮回复与读数只属于自己；旧轮失败原因保留且唯一。
     expect(host.textContent).toContain('second reply');
     expect(host.textContent).not.toContain('等待回复');
     const replyTurn = [...host.querySelectorAll('[data-message-id]')].find((element) =>
@@ -754,7 +735,6 @@ describe('live terminal outcomes across a follow-up send', () => {
     expect(replyTurn?.querySelectorAll('a[href^="/runs/run-b"]')).toHaveLength(1);
     expect(replyTurn?.textContent).toContain('完成');
     expect(host.querySelectorAll('a[href^="/runs/run-a"]')).toHaveLength(1);
-    // 输入框上方的「查看本次运行」指向新运行，消息区里只有新轮一条读数链接。
     expect(host.querySelectorAll('a[href^="/runs/run-b"]')).toHaveLength(2);
   });
 
@@ -774,7 +754,6 @@ describe('live terminal outcomes across a follow-up send', () => {
     expect(oldTurn?.textContent).toContain('first prompt');
     expect(oldTurn?.textContent).toContain('已停止');
     expect(oldTurn?.textContent).not.toContain('second prompt');
-    // 取消没有失败原因，读数沿用既有规则默认透明，但链接仍在 DOM 与 Tab 序里。
     expect(runLink()?.getAttribute('href')).toMatch(/^\/runs\/run-b\?backTo=/);
   });
 
@@ -801,7 +780,6 @@ describe('live terminal outcomes across a follow-up send', () => {
     expect(host.textContent).toContain('first reply');
 
     await send('second prompt');
-    // 已完成回复的读数从最新读数换成缓存里的历史读数，仍只出现一次并留在原轮。
     const oldLink = host.querySelector('a[href^="/runs/run-a"]');
     const oldTurn = oldLink?.closest('[data-message-id]');
     expect(oldTurn?.textContent).toContain('first reply');
@@ -916,7 +894,6 @@ describe('chat shell layout', () => {
 
   it('shows the current expert in the chat header without opening history', async () => {
     await mount('/chat?agent=agent-a');
-    // 历史收起时头部直接显示当前专家，不用先展开历史抽屉。
     const welcomePicker = host.querySelector<HTMLButtonElement>('[aria-label^="切换专家"]');
     expect(welcomePicker).not.toBeNull();
     expect(welcomePicker?.textContent).toContain('Expert');
@@ -924,7 +901,6 @@ describe('chat shell layout', () => {
       '未命名会话',
     ]);
 
-    // 抽屉打开后由历史头部承担选择器，聊天头部不再重复一个。
     await act(async () => {
       useChatStore.setState({ historyOpen: true });
     });
@@ -1020,14 +996,12 @@ describe('chat shell layout', () => {
     const router = await mount('/chat?agent=agent-a');
     await type('unfinished draft');
 
-    // 头部属于消息列的 Page：标题、历史开关、搜索与成果入口都随消息列渲染。
     const page = message().closest<HTMLElement>('[data-slot="page"]');
     if (!page) throw new Error('Missing message page');
     expect(host.querySelectorAll('[data-slot="page"]')).toHaveLength(1);
     expect(page.querySelector('h1')?.textContent).toBe('未命名会话');
     expect(page.querySelector('button[aria-label="打开会话成果"]')).not.toBeNull();
 
-    // 收起时唯一选择器在消息头部，不属于任何历史 aside。
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
     const collapsedPicker = host.querySelector<HTMLButtonElement>('[aria-label^="切换专家"]');
     if (!collapsedPicker) throw new Error('Missing expert picker');
@@ -1040,7 +1014,6 @@ describe('chat shell layout', () => {
     if (!toggle) throw new Error('Missing history toggle');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
 
-    // 展开后唯一选择器进入历史头部，与新建会话同排；消息头部不再保留搜索或选择器。
     await act(async () => toggle.click());
     await flush();
     const history = host.querySelector('aside[aria-label="会话历史"]');
@@ -1050,12 +1023,10 @@ describe('chat shell layout', () => {
     expect(expandedPicker.closest('aside')).toBe(history);
     expect(history.querySelector('button[aria-label="新建会话"]')).not.toBeNull();
     expect(host.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
-    // 触发器仍显示头像、名称与 ComboboxTrigger 默认的下箭头。
     expect(expandedPicker.querySelector('img')).not.toBeNull();
     expect(expandedPicker.textContent).toContain('Expert');
     expect(expandedPicker.querySelectorAll('svg.lucide-chevron-down')).toHaveLength(1);
     expect(expandedPicker.getAttribute('aria-expanded')).toBe('false');
-    // 搜索随头部卸载，展开态只在历史面板保留一处入口。
     expect(host.querySelector('button[aria-label="搜索会话"]')).toBeNull();
     expect(history.textContent).toContain('搜索全部会话');
     expect(page.querySelector('h1')?.textContent).toBe('未命名会话');
@@ -1068,7 +1039,6 @@ describe('chat shell layout', () => {
       '未命名会话',
     ]);
 
-    // 再次收起：aside 消失，唯一选择器与搜索回到消息头部。
     await act(async () =>
       host.querySelector<HTMLButtonElement>('button[aria-label="隐藏会话历史"]')?.click(),
     );
@@ -1095,13 +1065,11 @@ describe('chat shell layout', () => {
     const resize = stubViewport(600);
     await mount('/chat?agent=agent-a');
 
-    // 窄屏打开抽屉：选择器在抽屉里，欢迎态不重复。
     await act(async () => useChatStore.setState({ historyOpen: true }));
     await flush();
     expect(document.querySelector('[role="dialog"] [aria-label^="切换专家"]')).not.toBeNull();
     expect(host.querySelector('[aria-label^="切换专家"]')).toBeNull();
 
-    // 放大到 lg：抽屉消失、桌面历史仍折叠，欢迎态必须重新给出选择器。
     await act(async () => resize(1024));
     await flush();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -1113,7 +1081,6 @@ describe('chat shell layout', () => {
       '未命名会话',
     ]);
 
-    // 再缩回窄屏：historyOpen 仍为 true，抽屉恢复，欢迎态选择器让位给抽屉。
     await act(async () => resize(600));
     await flush();
     expect(document.querySelector('[role="dialog"] [aria-label^="切换专家"]')).not.toBeNull();
@@ -1125,7 +1092,6 @@ describe('chat shell layout', () => {
     const resize = stubViewport(1024);
     await mount('/chat?agent=agent-a');
 
-    // 桌面展开历史：唯一选择器在历史头部，顶栏不再重复。
     await act(async () =>
       host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]')?.click(),
     );
@@ -1135,7 +1101,6 @@ describe('chat shell layout', () => {
     expect(history.querySelector('[aria-label^="切换专家"]')?.textContent).toContain('Expert');
     expect(host.querySelectorAll('[aria-label^="切换专家"]')).toHaveLength(1);
 
-    // 缩窄到 lg 以下且 historyOpen=false：没有抽屉，欢迎态必须给出选择器。
     await act(async () => resize(600));
     await flush();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -1146,7 +1111,6 @@ describe('chat shell layout', () => {
       '未命名会话',
     ]);
 
-    // 再放大回去：桌面历史仍保持展开，选择器回到历史头部且恰好一处。
     await act(async () => resize(1024));
     await flush();
     const reopened = host.querySelector('aside[aria-label="会话历史"]');
@@ -1208,7 +1172,6 @@ describe('chat shell layout', () => {
     await flush();
     expect(host.textContent).toContain('old prompt');
 
-    // 历史展开时从历史头部切换专家，顶栏不再保留第二个选择器。
     const history = host.querySelector('aside[aria-label="会话历史"]');
     if (!history) throw new Error('Missing history panel');
     const picker = history.querySelector<HTMLButtonElement>('[aria-label^="切换专家"]');
@@ -1296,7 +1259,6 @@ describe('chat shell layout', () => {
     await mount();
     const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="打开会话成果"]');
     if (!toggle) throw new Error('Missing workspace toggle');
-    // 桌面端按钮带可见文字，不再只是一个无标签图标。
     expect(toggle.textContent).toContain('会话成果');
     expect(toggle.getAttribute('title')).toBe('打开会话成果');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -1309,14 +1271,12 @@ describe('chat shell layout', () => {
     expect(workspace?.textContent).toContain('会话产生的成果会显示在这里');
     expect(workspace?.textContent).not.toContain('当前会话没有成果文件');
     expect(workspace?.textContent).not.toMatch(/\.mcp\.json|CLAUDE\.md/);
-    // 成果打开后头部仍属于消息列：标题、历史开关和成果开关都不进成果面板。
     const page = message().closest<HTMLElement>('[data-slot="page"]');
     if (!page) throw new Error('Missing message page');
     expect(page.contains(workspace)).toBe(false);
     expect(page.querySelector('h1')?.textContent).toBe('未命名会话');
     expect(page.querySelector('button[aria-label="显示会话历史"]')).not.toBeNull();
     expect(page.querySelector('button[aria-label="隐藏会话成果"]')).toBe(toggle);
-    // 工作区与历史是两条独立状态：打开工作区不会把历史也打开。
     expect(useChatStore.getState().historyOpen).toBe(false);
     expect(host.querySelector('aside[aria-label="会话历史"]')).toBeNull();
     expect([...host.querySelectorAll('h1')].map((item) => item.textContent)).toEqual([
@@ -1325,7 +1285,6 @@ describe('chat shell layout', () => {
 
     const hide = host.querySelector<HTMLButtonElement>('button[aria-label="隐藏会话成果"]');
     await act(async () => hide?.click());
-    // 折叠只收起宽度：子树保留，但收起后离开焦点顺序与无障碍树。
     const collapsed = host.querySelector('aside[aria-label="会话成果"]');
     expect(collapsed).not.toBeNull();
     expect(collapsed?.closest('[inert]')).not.toBeNull();
@@ -1365,7 +1324,6 @@ describe('chat shell layout', () => {
     }));
     const router = await mount('/chat?agent=agent-a');
     await type('unfinished draft');
-    // 专家选择在收起的历史面板里，面板打开前不可见：以 URL 上的专家为准。
     const expertBefore = router.state.location.search;
     expect(expertBefore).toMatchObject({ agent: 'agent-a' });
     await act(async () =>
@@ -1437,7 +1395,6 @@ describe('chat focus handoff and history detail reachability', () => {
     expect(links.length).toBeGreaterThanOrEqual(2);
     const oldest = links[0];
     if (!oldest) throw new Error('Missing history detail link');
-    // 隐藏只靠 opacity：链接仍在可访问树与 Tab 序里，聚焦到它时本轮 group-focus-within 显影。
     const wrapper = oldest.closest('[class*="transition-opacity"]');
     expect(wrapper).not.toBeNull();
     expect(wrapper?.className).not.toContain('invisible');
@@ -1464,7 +1421,6 @@ describe('chat focus handoff and history detail reachability', () => {
     });
     await flush();
 
-    // 欢迎态与会话态共用同一个输入节点：不重建、不丢焦点。
     const conversationInput = message();
     expect(conversationInput).toBe(welcomeInput);
     expect(welcomeInput.isConnected).toBe(true);
@@ -1511,7 +1467,6 @@ describe('chat focus handoff and history detail reachability', () => {
     await flush();
 
     expect(vi.mocked(api.sendChat)).toHaveBeenCalledTimes(1);
-    // 输入节点保持挂载，但焦点留在用户最后操作的控制上。
     expect(message()).toBe(input);
     expect(input.isConnected).toBe(true);
     expect(document.activeElement).toBe(toggle);
@@ -1578,7 +1533,6 @@ describe('conversation header menu', () => {
     expect(heading?.getAttribute('title')).toBe('History');
     expect(heading?.className).toContain('truncate');
     expect(heading?.className).not.toContain('max-w-');
-    // 「…」紧跟标题，而不是被推到最右侧。
     expect(heading?.nextElementSibling?.contains(menuButton())).toBe(true);
   });
 
@@ -1626,7 +1580,6 @@ describe('conversation header menu', () => {
     await act(async () => dialogButton('删除会话')?.click());
     await flush();
     expect(remove).toHaveBeenCalledWith('conversation-a');
-    // 请求未完成前不重复发送：确认按钮转 pending、取消禁用。
     expect(dialog()?.querySelector<HTMLButtonElement>('[aria-busy="true"]')?.disabled).toBe(true);
     expect(dialogButton('取消')?.disabled).toBe(true);
     await act(async () => finish());
@@ -1647,7 +1600,6 @@ describe('conversation header menu', () => {
     await act(async () => dialogButton('删除会话')?.click());
     await flush();
     expect(toastError).toHaveBeenCalled();
-    // 失败后确认框仍打开可重试，当前会话与草稿不动。
     expect(dialog()?.textContent).toContain('删除会话？');
     expect(router.state.location.search).toMatchObject({ conversation: 'conversation-a' });
     expect(headerTitle()?.textContent).toBe('History');
@@ -1661,7 +1613,6 @@ describe('conversation header menu', () => {
     const input = await openRename();
     await editTitle(input, 'Renamed draft');
 
-    // 同页只换成果：agent/conversation 没变，不卸载对话框，直接放行。
     await act(async () => {
       await router.navigate({
         to: '/chat',
@@ -1680,7 +1631,6 @@ describe('conversation header menu', () => {
       'Renamed draft',
     );
 
-    // 同页换专家同样会让工作区切走：也要拦下。
     let switching: Promise<void> | undefined;
     await act(async () => {
       switching = router.navigate({
@@ -1695,7 +1645,6 @@ describe('conversation header menu', () => {
     await flush();
     expect(discardDialog()).toBeUndefined();
 
-    // 同页换会话会让工作区切到别的对话：必须拦下。
     await act(async () => {
       switching = router.navigate({
         to: '/chat',
@@ -1706,7 +1655,6 @@ describe('conversation header menu', () => {
     expect(discardDialog()).toBeDefined();
     expect(router.state.location.search).toMatchObject({ conversation: 'conversation-a' });
 
-    // 取消：留在原会话，草稿不丢。被取消的导航不会提交，也不再等它的 promise。
     await act(async () => discardButton('取消')?.click());
     await flush();
     expect(switching).toBeDefined();
@@ -1716,7 +1664,6 @@ describe('conversation header menu', () => {
       'Renamed draft',
     );
 
-    // 放弃并离开：导航放行，对话框一起收起。
     await act(async () => {
       switching = router.navigate({
         to: '/chat',
@@ -1857,12 +1804,10 @@ describe('conversation header menu', () => {
     await flush();
     expect(remove).toHaveBeenCalledWith('conversation-a');
 
-    // 删除中刷新受保护。
     const unload = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(unload);
     expect(unload.defaultPrevented).toBe(true);
 
-    // 删除中离开会被拦下，且不提供离开确认。
     let leaving: Promise<void> | undefined;
     await act(async () => {
       leaving = router.navigate({ to: '/away' }) as Promise<void>;
@@ -1877,7 +1822,6 @@ describe('conversation header menu', () => {
     ].find((button) => button.textContent?.trim() === '放弃并离开');
     expect(leaveButton?.disabled).toBe(true);
 
-    // 删除成功：内部切到新会话不被自身拦住，挂起的离开导航作废。
     await act(async () => finish());
     await flush();
     expect(leaving).toBeDefined();
@@ -1937,7 +1881,6 @@ describe('live run question failures', () => {
     };
     vi.spyOn(api, 'runQuestions').mockRejectedValue(new Error('questions offline'));
     vi.mocked(api.runApprovals).mockResolvedValue({ items: [] });
-    // 历史仍在加载：保留 store 里的实时项，不让历史回填覆盖本轮步骤。
     vi.mocked(api.conversation).mockReturnValue(new Promise(() => {}));
     client
       .getQueryCache()

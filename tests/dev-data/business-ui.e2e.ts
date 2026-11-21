@@ -1,12 +1,3 @@
-/**
- * 业务数据集 UI 验收（business 分片专用）。
- *
- * - verify：只读。核对列表摘要 parentId 契约、真实 UI 子专家选择器显示当前关系，
- *   并在已有 OpenUI 会话里实际渲染 DOM 表格/指标卡，不发起模型请求。
- * - 写验收：仅在显式 E2E_DEV_DATA_UI_WRITE=1 时运行一次，通过真实 UI 解绑再重绑，
- *   恢复原关系；不标 verify，不进入只读验收。
- */
-
 import { readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from '@e2e-dev/web';
@@ -73,7 +64,6 @@ test('business UI verify: sub-agent relationship and OpenUI rendering', {
   const main = must(manifest.entities.agents.main, 'manifest 缺少主专家');
   const sub = must(manifest.entities.agents.sub, 'manifest 缺少子专家');
 
-  // 列表摘要必须带 parentId 与身份字段，前端子专家选择器据此过滤。
   await app.open('/agents');
   const summaries = await api<AgentSummary[]>(browser, '/api/agents');
   const mainSummary = must(
@@ -97,13 +87,11 @@ test('business UI verify: sub-agent relationship and OpenUI rendering', {
     expect(summary).not.toHaveProperty('subAgentIds');
   }
 
-  // 真实 UI：能力页的子专家选择器渲染，并显示当前绑定关系。
   await openCapabilityTab(app, screen, main);
   await expect(screen.getByRole('combobox', '子智能体')).toBeVisible();
   await expect(screen.getByRole('button', { name: `移除 ${sub.name}` })).toBeVisible();
   await app.screenshot('sub-agent-picker');
 
-  // 已有 OpenUI 会话真实渲染 DOM 表格与指标卡；只读打开，不请求模型。
   const conversationId = must(
     manifest.scenarios['openui-board']?.conversationId,
     'manifest 缺少 OpenUI 会话',

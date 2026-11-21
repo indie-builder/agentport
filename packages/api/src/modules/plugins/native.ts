@@ -9,7 +9,6 @@ import {
 import { createBunRedisClient, Queue, QueueEvents } from 'bullmq';
 import { RedisClient } from 'bun';
 
-/** 只依赖 warn 的形状，`request.log` 与 pino 都满足。 */
 export interface NativePluginLogger {
   warn: (obj: object, msg: string) => void;
 }

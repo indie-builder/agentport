@@ -39,7 +39,6 @@ async function directoryPath(handle: FileHandle): Promise<string> {
   throw new Error('Secure memory directory handles are unsupported on this platform');
 }
 
-/** 用固定目录引用逐层打开，防止祖先目录在校验后被换成链接。 */
 async function checkedDir(
   workspacesDir: string,
   slug: string,
@@ -102,7 +101,6 @@ async function withMemoryDir<T>(
   return withSubdir(root, slug, 'agent-memory', create, operation);
 }
 
-/** 专家工作区控制目录：与记忆目录一样逐层拒绝链接，只接受固定目录名。 */
 export function withMemoryJournalDir<T>(
   root: string,
   slug: string,
@@ -201,7 +199,6 @@ export async function readMemoryFile(
     : { name, content: file.data.toString('utf8'), updatedAt: file.updatedAt };
 }
 
-/** 恢复原文件用：避免 UTF-8 解码改变原始字节。 */
 export async function readMemoryFileBytes(
   workspacesDir: string,
   slug: string,
@@ -262,7 +259,6 @@ export async function writeMemoryFile(
   return { name, content, updatedAt };
 }
 
-/** 原样写回之前读到的字节（写入失败时的恢复路径）。 */
 export async function restoreMemoryFile(
   workspacesDir: string,
   slug: string,

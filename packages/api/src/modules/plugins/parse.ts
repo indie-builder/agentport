@@ -2,14 +2,6 @@ import { fail } from '@agentport/core';
 import { pluginFilePathSchema, pluginInputSchema } from '@agentport/shared';
 import { z } from 'zod';
 
-/**
- * 插件根目录的解析：普通支持文件（LICENSE、CHANGELOG、references/、assets/ 等）
- * 原样保存；已知无法在运行时生效的组件（LSP、workflows、monitors、bin、settings 等）
- * 在导入阶段明确拒绝，而不是让运行时出现「加载了但一半不可用」，
- * 或出现「管理员以为关掉却仍生效」。
- */
-
-/** 官方组件里平台尚未支持的顶层目录/文件；其余合法相对路径按支持文件保存。 */
 const UNSUPPORTED_TOP_LEVEL: Record<string, string> = {
   '.lsp.json': 'LSP server 暂不支持',
   lsp: 'LSP server 暂不支持',
@@ -18,7 +10,6 @@ const UNSUPPORTED_TOP_LEVEL: Record<string, string> = {
   bin: 'bin/ 可执行目录暂不支持',
   themes: '主题暂不支持',
   'settings.json': '插件根 settings.json（可用 agent 接管主会话）暂不支持',
-  // 插件根里的 `.claude/` 不是官方组件，settings 却可能接管会话；沿用原来的明确拒绝。
   '.claude': '插件内的 .claude/ 配置暂不支持',
 };
 
@@ -29,14 +20,11 @@ const UNSUPPORTED_MANIFEST_KEYS: Record<string, string> = {
   lspServers: 'LSP server 暂不支持',
   workflows: 'workflows 暂不支持',
   experimental: '实验性组件暂不支持',
-  // 官方 manifest 的 settings 里 `agent` 会接管主会话，与拒绝根 settings.json 同理。
   settings: '插件的 settings 暂不支持（可用 agent 接管主会话）',
-  // 自定义 skills/commands 目录需要加载器理解 manifest 里的路径，平台只按默认目录渲染。
   skills: 'manifest 自定义 skills 目录暂不支持，请使用默认 skills/',
   commands: 'manifest 自定义 commands 目录暂不支持，请使用默认 commands/',
 };
 
-/** package.json 的运行时依赖无法只靠文本快照搬运；有依赖就必须明确拒绝。 */
 const RUNTIME_DEPENDENCY_FIELDS = ['dependencies', 'optionalDependencies'] as const;
 
 const UNSUPPORTED_MCP_PLACEHOLDERS = /\$\{user_config\./;
@@ -82,7 +70,6 @@ function rejectUnsupported(path: string): void {
   if (reason !== undefined) fail('INVALID_INPUT', `插件包含不支持的组件：${reason}`, { path });
 }
 
-/** 根 package.json 只作为支持文件保留；声明运行时依赖时无法只搬文本，明确拒绝。 */
 function assertNoRuntimeDependencies(files: PluginImportFile[]): void {
   const pkg = files.find((file) => file.path === 'package.json');
   if (pkg === undefined) return;
@@ -135,10 +122,6 @@ function parseManifest(files: PluginImportFile[], warnings: string[]): ManifestS
   return parsed as ManifestShape;
 }
 
-/**
- * manifest 的 mcpServers 支持三种写法：内联对象、文件路径、或二者的数组。
- * 目前只支持内联对象；其余写法必须明确拒绝，否则插件「能导入但不生效」。
- */
 function manifestMcpServers(manifest: ManifestShape): string[] {
   const declared = manifest.mcpServers;
   if (declared === undefined) return [];
@@ -191,10 +174,6 @@ function agentNamesOf(files: PluginImportFile[]): string[] {
     .map((file) => file.path.slice('agents/'.length, -'.md'.length));
 }
 
-/**
- * 把插件目录文件整理成可入库的形态：校验路径与不支持的组件、解析 manifest、
- * 汇总组件清单。调用方只负责落库，不执行任何插件内容。
- */
 export function parsePluginFiles(params: {
   files: PluginImportFile[];
   slug: string;
@@ -210,7 +189,6 @@ export function parsePluginFiles(params: {
     assertCleanPath(file.path);
     rejectUnsupported(file.path);
   }
-  // 同一路径不能既是文件又是另一个文件的祖先目录；否则渲染落盘时二者无法共存。
   for (const file of params.files) {
     const segments = file.path.split('/');
     for (let index = 1; index < segments.length; index += 1) {

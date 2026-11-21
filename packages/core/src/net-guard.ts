@@ -32,7 +32,6 @@ export function isLoopbackAddress(ip: string): boolean {
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
-/** 本地 MCP server 开发时必须可用；生产一律走正常检查。 */
 function isDevLocal(host: string, nodeEnv: string | undefined, allowDevLocal: boolean): boolean {
   return allowDevLocal && nodeEnv === 'development' && LOCAL_HOSTS.has(host.toLowerCase());
 }

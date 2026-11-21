@@ -25,7 +25,6 @@ export interface RunOutputsIdentity {
   runId: string;
 }
 
-/** content.output 只在符合 shared 契约时采用；其余形状按「没有选择」处理。 */
 export function selectedOutput(content: unknown): OutputRef | null {
   if (Array.isArray(content)) {
     for (const part of content) {
@@ -39,10 +38,6 @@ export function selectedOutput(content: unknown): OutputRef | null {
   return parsed.success ? parsed.data : null;
 }
 
-/**
- * 用户选择了旧版本文件时，在首条消息里给出草稿里的同一路径。
- * 草稿内容已由 prepareOutputDraft 复制过来，模型改同一路径即可。
- */
 export function promptWithSelectedOutput(prompt: string, output: OutputRef | null): string {
   if (output === null) return prompt;
   return [
@@ -53,10 +48,6 @@ export function promptWithSelectedOutput(prompt: string, output: OutputRef | nul
   ].join('\n');
 }
 
-/**
- * 准备本轮草稿目录并换算成宿主路径：核心按 workspacesDir 组织，
- * docker 需要的是宿主 daemon 能看到的同相对路径。
- */
 export async function prepareRunOutputs(
   input: RunOutputsIdentity & { sourceRunId?: string; sourcePath?: string },
 ): Promise<{ dir: string; hostPath: string }> {
@@ -71,11 +62,6 @@ export async function prepareRunOutputs(
   return { dir, hostPath: toHostWorkspacePath(input, dir) };
 }
 
-/**
- * 不发布快照的原因；返回文案时本轮产出保持草稿状态，不覆盖同 run 的已发布版本。
- * - 容器清理失败：可能还在写，不能把变化中的文件当完整快照；
- * - 还会被 BullMQ 重试：本轮没跑完，重试会在同一草稿上重建。
- */
 export function outputPublishProblem(input: {
   cleanupError?: string;
   retrying: boolean;
@@ -100,7 +86,6 @@ interface PublishRunOutputsInput {
   cleanupError?: string;
 }
 
-/** 本轮真实消息边界：用户消息也在内，只有工具调用的轮次同样有行。 */
 export async function lastMessageIdOfRun(db: Database, runId: string): Promise<string> {
   const [row] = await db
     .select({ id: schema.messages.id })
@@ -112,7 +97,6 @@ export async function lastMessageIdOfRun(db: Database, runId: string): Promise<s
   return row.id;
 }
 
-/** 只用 runner 停稳 ACK 或容器销毁成功作为成果发布证据。 */
 export async function recordOutputSandboxSettlement(
   identity: RunOutputsIdentity,
   outcome: { settlement: ExecutionSettlement },
@@ -123,10 +107,6 @@ export async function recordOutputSandboxSettlement(
   );
 }
 
-/**
- * 容器停稳且不再重试时才发布；否则保留草稿并返回原因。
- * 这里只负责门禁，真正的快照写入交给 core 的单一存储实现。
- */
 export async function publishRunOutputsIfSettled(
   identity: RunOutputsIdentity,
   input: PublishRunOutputsInput,

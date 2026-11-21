@@ -91,7 +91,6 @@ mock.module('@agentport/db', () => ({
   },
 }));
 
-// 进程级守卫会把测试里任何未处理异常变成 process.exit；这里只验证 run 流程。
 const coreActual = await import('@agentport/core');
 mock.module('@agentport/core', () => ({ ...coreActual, installProcessGuards: () => undefined }));
 
@@ -137,7 +136,6 @@ mock.module('../src/sandbox/sessions.js', () => ({
 const runnerClientActual = await import('../src/runner-client.js');
 const actualRunnerClient = { ...runnerClientActual };
 mock.module('../src/runner-client.js', () => {
-  // 保留真实分类，避免测试自证一个恒假的 isRetryable。
   mocks.isRetryable.mockImplementation(actualRunnerClient.isRetryable);
   return {
     ...runnerClientActual,
@@ -323,7 +321,6 @@ describe('run runtime environment identity persistence', () => {
     const sigterm = new Set(process.listeners('SIGTERM'));
     const sigint = new Set(process.listeners('SIGINT'));
     await import('../src/index.js');
-    // 测试进程不接管真实关停信号。
     for (const listener of process.listeners('SIGTERM')) {
       if (!sigterm.has(listener)) process.off('SIGTERM', listener);
     }
@@ -342,7 +339,6 @@ describe('run runtime environment identity persistence', () => {
     mocks.publishChannelEvent.mockReset();
     mocks.publishChannelEvent.mockImplementation(async () => undefined);
     mocks.release.mockResolvedValue(undefined);
-    // 默认放行身份重查；具体拒绝场景在用例里覆盖返回值。
     mocks.checkAccess.mockReset();
     mocks.checkAccess.mockResolvedValue(null);
   });
@@ -425,7 +421,6 @@ describe('run runtime environment identity persistence', () => {
       senderBusinessId: TEST_BUSINESS_ID,
     });
 
-    // 真实故障注入：只让这次 run 的身份 UPDATE 失败，其余更新照常。
     const suffix = runId.replaceAll(/[^a-zA-Z0-9_]/g, '_');
     functionName = `fault_rt_identity_${suffix}`;
     triggerName = `fault_rt_identity_${suffix}`;
@@ -489,7 +484,6 @@ describe('run runtime environment identity persistence', () => {
     const processor = mocks.processors.get(RUNS_QUEUE);
     expect(processor).toBeDefined();
 
-    // 第一次投递：run_started 发布失败，原错误必须抛出，且认领要退回 queued。
     await expect(
       processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
     ).rejects.toThrow('redis unavailable');
@@ -501,7 +495,6 @@ describe('run runtime environment identity persistence', () => {
     expect(run).toMatchObject({ status: 'queued', startedAt: null });
     expect(mocks.run).not.toHaveBeenCalled();
 
-    // 第二次投递：状态是 queued，能真正认领并跑完。
     await processor?.({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
     [run] = await db
       .select()
@@ -517,7 +510,6 @@ describe('run runtime environment identity persistence', () => {
     mocks.run.mockResolvedValue({
       status: 'failed',
       sandboxId: 'sandbox-sdk-empty',
-      // 容器已确认停稳，只是执行本身是基础设施失败：这才是可重试的形态。
       settlement: { state: 'stopped', code: 0, signal: null },
       events: [],
       sessionId: 'sdk-from-failed-attempt',
@@ -546,7 +538,6 @@ describe('run runtime environment identity persistence', () => {
       .mockResolvedValueOnce({
         status: 'failed',
         sandboxId: 'sandbox-sdk-retry',
-        // 容器已确认停稳：基础设施失败可以交给 BullMQ 重试同一 run。
         settlement: { state: 'stopped', code: 0, signal: null },
         events: [],
         sessionId: 'sdk-from-failed-attempt',
@@ -620,7 +611,6 @@ describe('run runtime environment identity persistence', () => {
     const processor = mocks.processors.get(RUNS_QUEUE);
     expect(processor).toBeDefined();
 
-    // 还没拿到 lease：没有遗留容器，infra 失败必须保持可重试，且不能写 pending。
     await expect(
       processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
     ).rejects.toThrow('retryable sandbox failure');
@@ -654,7 +644,6 @@ describe('run runtime environment identity persistence', () => {
     const processor = mocks.processors.get(RUNS_QUEUE);
     expect(processor).toBeDefined();
 
-    // 取消发生在容器创建前：没有需要 reconcile 确认的容器，终态应立即落库。
     await expect(
       processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 3 } }),
     ).resolves.toBeUndefined();
@@ -690,7 +679,6 @@ describe('run runtime environment identity persistence', () => {
     const processor = mocks.processors.get(RUNS_QUEUE);
     expect(processor).toBeDefined();
 
-    // 容器已创建但不能确认删除：交接终态时必须保留它的 id，供 reconcile 按 id 清理。
     await expect(
       processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 3 } }),
     ).resolves.toBeUndefined();
@@ -734,7 +722,6 @@ describe('run runtime environment identity persistence', () => {
     const processor = mocks.processors.get(RUNS_QUEUE);
     expect(processor).toBeDefined();
 
-    // 还有重试额度也不能重跑：停稳未确认时副作用可能仍在发生。
     await processor?.({
       ...fixture.job,
       attemptsMade: 0,
@@ -759,7 +746,6 @@ describe('run runtime environment identity persistence', () => {
       error: expect.stringContaining('cancel not confirmed'),
     });
 
-    // 终态只在 reconcile 确认容器销毁后发布；这里不能提前发或写 finished 审计。
     const finished = mocks.publishRun.mock.calls.filter(
       ([, event]) => (event as { type?: string }).type === 'run_finished',
     );
@@ -792,7 +778,6 @@ describe('run runtime environment identity persistence', () => {
       opts: { attempts: 1 },
     });
 
-    // 不建容器、不执行；排队运行明确失败，由 UI 看到原因。
     expect(mocks.acquire).not.toHaveBeenCalled();
     expect(mocks.run).not.toHaveBeenCalled();
     expect(mocks.checkAccess).toHaveBeenCalledWith(expect.anything(), {
@@ -938,7 +923,6 @@ describe('run runtime environment identity persistence', () => {
     await expect(stat(personalMemoryPath(workdir, userA))).rejects.toThrow(/ENOENT/);
     await expect(stat(personalMemoryPath(workdir, userB))).rejects.toThrow(/ENOENT/);
 
-    // 频道 lane 共享给所有成员，模型输入不能出现任一成员的个人偏好。
     const channelPrompts = mocks.run.mock.calls.map(
       ([input]) => (input as { task: { prompt: string } }).task.prompt,
     );
@@ -1078,7 +1062,6 @@ describe('run runtime environment identity persistence', () => {
     await expect(
       processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
     ).rejects.toThrow('retryable sandbox failure');
-    // 中间轮已落库到私有会话，但不能提前占用频道 seq：已订阅者会漏掉最终正文。
     expect(
       await db
         .select()
@@ -1251,7 +1234,6 @@ describe('run runtime environment identity persistence', () => {
                 start: async ({ onEvent, env }) => {
                   mocks.stdinLines = [JSON.stringify(input.task)];
                   const signals = new Set(process.listeners('SIGTERM'));
-                  // 容器边界：把 worker 交给 sandbox 的 env 原样注入 runner 进程。
                   const previousEnv = { ...process.env };
                   Object.assign(process.env, env);
                   const stdout = spyOn(process.stdout, 'write').mockImplementation((chunk) => {
@@ -1320,7 +1302,6 @@ describe('run runtime environment identity persistence', () => {
       const advances = 'advances' in scenario ? scenario.advances : true;
       expect(binding?.contextSeq).toBe(advances ? trigger.seq : 0);
 
-      // 下一轮准入用真实 repo：游标已推进时不能再注入上一轮已消费的上下文。
       const [nextTrigger] = await db
         .insert(schema.channelMessages)
         .values({
@@ -1352,7 +1333,6 @@ describe('run runtime environment identity persistence', () => {
     });
   }
 
-  /** 频道失败轮与正常轮的 session 边界必须和游标一致，否则下一轮会同时恢复 transcript 并重注入上下文。 */
   async function channelLane(
     label: string,
   ): Promise<Awaited<ReturnType<typeof createRunFixture>> & { channelId: string }> {
@@ -1457,7 +1437,6 @@ describe('run runtime environment identity persistence', () => {
     expect(processor).toBeDefined();
     await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
 
-    // 零用量：游标不推进，session 也不能成为下一轮可恢复的 transcript 边界。
     expect(await conversationSession(fixture.conversationId)).toBeNull();
 
     const next = await admitNextChannelRun(fixture, 'next trigger');
@@ -1472,7 +1451,6 @@ describe('run runtime environment identity persistence', () => {
 
     const task = taskOfCall(1);
     expect(task?.resumeSessionId).toBeUndefined();
-    // 游标未推进，上下文重新注入是正确的；没有 transcript 恢复时最终请求只出现一次。
     expect(occurrences(task?.prompt ?? '', 'unconsumed context')).toBe(1);
     expect(await conversationSession(fixture.conversationId)).toBe('sdk-next-executed');
   });
@@ -1507,7 +1485,6 @@ describe('run runtime environment identity persistence', () => {
     await processor?.({ ...next.job, attemptsMade: 0, opts: { attempts: 1 } });
 
     const task = taskOfCall(1);
-    // 已执行轮恢复 transcript，游标已推进，下一轮不再拼入同一段频道上下文。
     expect(task?.resumeSessionId).toBe('sdk-executed');
     expect(occurrences(task?.prompt ?? '', 'unconsumed context')).toBe(0);
     expect(task?.prompt).toContain('next trigger');

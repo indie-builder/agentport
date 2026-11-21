@@ -78,7 +78,7 @@ export type ChannelDetail = {
 
 type NotFound = { kind: 'not_found'; target: 'channel' | 'member' | 'account' | 'agent' };
 
-function allows(role: ChannelRole | null, action: 'read' | 'post' | 'manage') {
+export function allows(role: ChannelRole | null, action: 'read' | 'post' | 'manage') {
   if (role === null) return false;
   if (action === 'read') return true;
   if (action === 'post') return role !== 'viewer';
@@ -257,7 +257,6 @@ export async function listChannels(
   }));
 }
 
-/** 建频道与 owner 成员同一事务：任何一步失败都不留下半条频道。 */
 export async function createChannel(
   db: DbHandle,
   input: {
@@ -356,7 +355,6 @@ export async function addMember(
   | { kind: 'conflict'; reason: 'member_exists' }
 > {
   return withChannelManage(db, subject, channelId, async (tx, role) => {
-    // owner 授予只看频道 owner；admin 不能借 manage 提升自己人。
     if (input.role === 'owner' && role !== 'owner') {
       return { kind: 'forbidden', reason: 'owner_only' };
     }
@@ -473,7 +471,6 @@ export async function removeMember(
   });
 }
 
-// 先检查频道身份再查 agent 权限，写入时仍在频道行锁内复核。
 export async function getChannelManageAccess(
   db: Database,
   subject: ChannelSubject,
@@ -744,7 +741,6 @@ async function resolveWakeAgents(
   return [...wake];
 }
 
-/** 行锁串行化 bigserial seq 的分配与提交顺序，不靠 max(seq)+1。 */
 export async function postMessage(
   db: DbHandle,
   subject: ChannelSubject,
@@ -788,7 +784,6 @@ export async function postMessage(
         return { kind: 'ok', message: replayed, duplicate: true, wakeAgentIds: [] };
       }
     }
-    // 唤醒会拉起 run：只有真实 owner/admin/member 可以带 @ 发言。
     let wakeAgentIds: string[] = [];
     if ((input.mentions?.length ?? 0) > 0 || input.mentionAll === true) {
       if (role === 'viewer') return { kind: 'forbidden', reason: 'channel_role' };
@@ -833,7 +828,6 @@ export async function postMessage(
       )
       .limit(1);
     if (!existing) throw new Error('channel message conflict without existing row');
-    // 同一个 clientMessageId 已唤醒过一次；重放不能再拉起 run。
     return { kind: 'ok', message: existing, duplicate: true, wakeAgentIds: [] };
   });
 }

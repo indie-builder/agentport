@@ -47,7 +47,6 @@ async function xlsx(items: string[][], extraSheet = false): Promise<string> {
   return Buffer.from(buffer).toString('base64');
 }
 
-/** 只改本地头里的 compressedSize，中央目录保持真实值，复现 local/central 大小不一致。 */
 function patchLocalCompressedSize(archive: Buffer, name: string, size: number): Buffer {
   const output = Buffer.from(archive);
   const signature = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
@@ -129,7 +128,6 @@ describe('FAQ normalization and matching', () => {
   });
 
   it('normalizes every question in the content hash', () => {
-    // 繁简、全角、URL、数组顺序都不算内容变化，相似问与反例同样归一化。
     expect(
       faqContentHash({
         ...faq,

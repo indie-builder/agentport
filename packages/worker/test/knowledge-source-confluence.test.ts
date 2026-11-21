@@ -5,8 +5,6 @@ import type { SourceConfig } from '../src/knowledge/source-types.js';
 import { SourceAuthError } from '../src/knowledge/sources.js';
 import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
-// Scoped tokens use the fixed Atlassian gateway; resolve it to a public address
-// so validateSourceUrl never touches real DNS, while fetch stays fully mocked.
 mock.module('node:dns/promises', () => ({
   lookup: async () => [{ address: '93.184.216.34', family: 4 }],
 }));
@@ -198,8 +196,6 @@ describe('confluence cloud_basic', () => {
       call.url.startsWith(`${SITE}/wiki/rest/api/content/1/child/attachment/att-1/download`),
     );
     expect(gateway?.headers.get('authorization')).toMatch(/^Basic /);
-    // The provider-provided download link is never used, and identity is the
-    // attachment ID rather than the fileId.
     expect(calls.some((call) => call.url.includes('untrusted-download'))).toBe(false);
     expect(calls.some((call) => call.url.includes('file-999'))).toBe(false);
 

@@ -1,8 +1,3 @@
-/**
- * 把一个已完成的运行沉淀成技能草稿（「录制学习」）。纯函数：只读运行步骤，
- * 不执行任何东西、不落盘，由调用方决定是否插入为技能。
- */
-
 interface DraftStep {
   kind: 'user' | 'assistant' | 'tool';
   text?: string;
@@ -16,7 +11,6 @@ interface SkillDraft {
   body: string;
 }
 
-/** 生成合法的技能 slug：小写、仅 [a-z0-9-_]、以字母数字开头、≤64。 */
 export function slugify(value: string, fallback: string): string {
   const cleaned = value
     .toLowerCase()

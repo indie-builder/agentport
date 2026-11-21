@@ -47,7 +47,6 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
   });
 
   afterAll(async () => {
-    // 评估审计的目标是 run id，级联删除带不走。
     if (agentSlugs.length > 0) {
       await app.client.unsafe(
         `delete from audit_log where target in (
@@ -128,7 +127,6 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
     expect(row?.finishedAt).not.toBeNull();
     expect(await requestedAudits(runId)).toBe(0);
 
-    // 失败行已收口，同一 agent 可以重新发起（不是 409）。
     const retry = spyOn(queue, 'add').mockResolvedValueOnce({ id: 'synthetic' } as never);
     try {
       const next = await startRun(agent.id);

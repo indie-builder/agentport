@@ -78,7 +78,6 @@ beforeEach(() => {
   queryClient.clear();
   useChatStore.getState().reset();
   sessionStorage.clear();
-  // 用真实共享客户端跑，但关掉重试，请求次数才能精确断言。
   queryClient.setDefaultOptions({ queries: { retry: false, refetchOnWindowFocus: false } });
   vi.mocked(api.me).mockReset();
   vi.mocked(api.login).mockReset();
@@ -135,7 +134,6 @@ describe('login route session check', () => {
     await submit('secret');
 
     expect(api.login).toHaveBeenCalledWith('admin', 'secret');
-    // 首次检查 + 登录后刷新，各一次；不会因旧缓存重复请求。
     expect(api.me).toHaveBeenCalledTimes(2);
     expect(router.state.location.pathname).toBe(TARGET);
   });

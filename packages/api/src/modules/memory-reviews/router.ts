@@ -274,11 +274,6 @@ async function authorizeReviewTarget(
   );
 }
 
-/**
- * 提案准入：记忆提案本身是允许路径，proposal_only 不拒绝；
- * 只有专家记忆停用（仅限记忆目标，规则由 injectRules 独立控制）、
- * 或新建记忆主题已到数量上限时才返回 409。
- */
 async function assertProposalAllowed(
   context: RequestContext,
   target: MemoryReviewTarget,

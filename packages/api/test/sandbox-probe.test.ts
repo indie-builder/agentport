@@ -27,11 +27,6 @@ const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:55540';
 let connection: ReturnType<typeof createBunRedisClient>;
 const logger = { warn: () => undefined };
 
-/**
- * 端到端只覆盖到队列边界：用真实 BullMQ + 隔离 Redis 起一个假 consumer，
- * 断言 API 只投递 serverId、按 job 返回值回响应。
- * 容器内真正的 stdio 试连由 worker/sandbox 各自的测试覆盖。
- */
 describe.skipIf(!ready)('sandbox probe queue', () => {
   let app: TestApp;
   let adminQueue: Queue<{ serverId: string }> | undefined;
@@ -51,20 +46,16 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
 
   beforeAll(async () => {
     connection = createBunRedisClient(new RedisClient(redisUrl));
-    // 上次运行留下的等待 job 会被新 consumer 先消费，清空后再断言。
     adminQueue = new Queue<{ serverId: string }>(SANDBOX_PROBES_QUEUE, { connection });
     await adminQueue.obliterate({ force: true });
     app = await startApp();
     cookie = await loginCookie(app);
   });
 
-  // 测试超时也要释放 consumer：留在 test body 的 finally 不会在超时后执行，
-  // 遗留 worker 会让后面“无 consumer”用例提前拿到结果；close(true) 不等未完成的 job。
   afterEach(async () => {
     const activeGates = gates.splice(0);
     for (const gate of activeGates) gate.release();
     for (const finish of finishCallbacks.splice(0)) finish();
-    // 并行清理：任一资源关闭慢都不能挡住 worker 的强制关闭。
     await Promise.allSettled([
       ...activeGates.map((gate) => gate.close()),
       ...watches.splice(0).map((watch) => watch.close()),
@@ -126,7 +117,6 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
       headers: { cookie },
     });
     expect(res.statusCode).toBe(200);
-    // 队列里只有 serverId：密钥与配置由 worker 从库里读，不经 Redis。
     expect(seen).toEqual([{ serverId: server.id }]);
     expect(res.json()).toEqual({
       ok: true,
@@ -135,7 +125,6 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
       durationMs: 7,
     });
 
-    // 结果落到连接健康度，列表刷新后仍能看到；没有环境身份的结果记为 null。
     const row = await app.client.unsafe(
       'select last_test_ok, last_tool_count, last_test_runtime_environment from servers where id = $1',
       [server.id],
@@ -203,7 +192,6 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     expect(first.statusCode, first.body).toBe(200);
     expect(first.json()).toMatchObject({ runtimeEnvironment: { environmentId: firstEnv } });
 
-    // 换环境再测：上一次的成功不能被当成当前环境的结果复用。
     const second = await request(app, {
       method: 'POST',
       url: `/api/servers/${server.id}/test`,
@@ -234,7 +222,6 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     });
     startWorker<{ serverId: string; runtimeEnvironmentId?: string }>(async (job) => {
       const id = job.data.runtimeEnvironmentId ?? 'default';
-      // B 故意失败：证明失败结果会覆盖 A 的成功，而不是把 A 的可用性当成当前环境可用。
       if (id === envB) {
         return {
           ok: false,
@@ -360,7 +347,6 @@ describe.skipIf(!ready)('sandbox probe queue', () => {
     expect(result.ok).toBe(false);
     expect(result.tools).toEqual([]);
     expect(result.error).toContain('超时');
-    // Date.now() 有毫秒截断，定时器按 >=300ms 触发时实测可能落在 299。
     expect(result.durationMs).toBeGreaterThanOrEqual(299);
   });
 });

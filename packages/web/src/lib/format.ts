@@ -117,6 +117,25 @@ export const runTriggerLabel: Record<RunTrigger, string> = {
   channel: '频道',
 };
 
+export const timeRangeOptions = [
+  { value: 'all', label: '全部时间' },
+  { value: '7', label: '近 7 天' },
+  { value: '30', label: '近 30 天' },
+  { value: '90', label: '近 90 天' },
+] as const;
+
+export function runtimeEnvironmentOptions(
+  environments: readonly { id: string; name: string; isDefault: boolean }[],
+): { value: string; label: string }[] {
+  const defaultEnvironment = environments.find((environment) => environment.isDefault);
+  return [
+    { value: 'default', label: defaultEnvironment?.name ?? '平台默认环境' },
+    ...environments
+      .filter((environment) => !environment.isDefault)
+      .map((environment) => ({ value: environment.id, label: environment.name })),
+  ];
+}
+
 export const runStatusVariant = {
   queued: 'default',
   running: 'brand',
@@ -129,10 +148,6 @@ export const runStatusVariant = {
   'default' | 'warn' | 'brand' | 'success' | 'danger' | 'outline'
 >;
 
-/**
- * TypeID 形如 run_01m5bv0faceh4v4jtw00eta1sn：后缀是时间有序的随机段。
- * 表格里只保留后缀末 8 位——前缀每个单元格都一样，留着只占宽度。
- */
 export function shortId(id: string): string {
   const underscore = id.indexOf('_');
   const body = underscore > 0 ? id.slice(underscore + 1) : id;

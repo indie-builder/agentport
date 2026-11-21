@@ -10,8 +10,6 @@ import {
 import { BOOTSTRAP_ADMIN_BUSINESS_ID } from '../src/modules/auth/types.js';
 import { getServer, listServers, toApiServer } from '../src/modules/servers/repo.js';
 
-// 只给占位域名一个公网地址，其余域名仍走真实解析，
-// 这样「解析到内网要拒绝」那条用例照常生效。
 const realDns = { ...dnsModule };
 mock.module('node:dns/promises', () => ({
   ...realDns,
@@ -96,7 +94,6 @@ describe('knowledge server read shape', () => {
       kind: 'knowledge',
       config: { knowledgeBaseId: baseId },
     });
-    // 知识连接没有长期 token，读形状里也不能出现。
     expect(JSON.stringify(server)).not.toContain('mcpToken');
   });
 
@@ -129,7 +126,6 @@ describe('knowledge binding in the agent package', () => {
       url: `https://pace.example.com/mcp/${serverId}`,
       secretKeys: [tokenEnv],
     });
-    // 内部 kind、mcpToken 与任何 run token 都不进包。
     const all = Object.values(pkg.files).join('\n');
     expect(all).not.toContain('"kind": "knowledge"');
     expect(all).not.toContain('mcpToken');
@@ -156,7 +152,6 @@ describe('knowledge binding in the agent package', () => {
       servers: Array<{ name: string; url?: string }>;
     };
     for (const server of sidecar.servers) {
-      // 自称知识库但指向内网：只有库自己的 /mcp/:id 才免检。
       if (server.name === knowledgeServerName) server.url = 'http://10.0.0.5:3000/mcp/srv_other';
     }
     const files = new Map(Object.entries(pkg.files));
@@ -177,7 +172,6 @@ describe('knowledge binding in the agent package', () => {
     if (!row) throw new Error('missing agent row');
     const pkg = await buildAgentPackage(handle.db, KEY, selfUrl, row);
     const parsed = parseAgentPackage(new Map(Object.entries(pkg.files)), {});
-    // 生产环境不放行 loopback；只有「已存在的库 + 完全吻合的地址」这一条通道。
     const result = await importAgentPackage(handle.db, parsed, {
       nodeEnv: 'production',
       selfUrl,
@@ -223,7 +217,6 @@ describe('knowledge binding in the agent package', () => {
     createdAgents.push(result.agent.id);
     try {
       expect(result.createdServers).toEqual([renamed]);
-      // 缺凭据必须给出可读 warning，而不是静默漏掉绑定。
       expect(result.warnings.join('\n')).toContain('知识库连接');
       expect(result.agent.serverIds).toHaveLength(1);
       const rows = await handle.client.unsafe<{ kind: string }[]>(

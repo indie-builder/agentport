@@ -238,7 +238,6 @@ describe('authoritative disconnected recovery', () => {
       startedAt: 0,
     });
     stream.hydratedRef.current = 'conversation-a';
-    // 最新页只剩本轮助手消息；本 run 的第一条用户消息在前一页。
     vi.spyOn(api, 'conversation')
       .mockResolvedValueOnce(detail([assistantMessage('m3', 'later')], { nextCursor: 'm3' }))
       .mockResolvedValueOnce(

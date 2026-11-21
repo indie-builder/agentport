@@ -10,8 +10,6 @@ import {
 import { blobPathFor } from '../service.js';
 import { type KnowledgeDeps, notFound } from './shared.js';
 
-// ---- binary / native ------------------------------------------------------
-
 export async function getVersionDetails(deps: KnowledgeDeps, versionId: string) {
   const version = await repo.knowledge.getVersion(deps.db, versionId);
   if (!version) throw new AppError('NOT_FOUND', '版本不存在，可能已被删除');

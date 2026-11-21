@@ -84,7 +84,6 @@ export function FolderDialog({
       {
         onSuccess: (folder) => {
           toastSuccess('文件夹已创建');
-          // 先解除本弹层的离开拦截，再让父级切到新文件夹。
           guard.finish();
           dialog.finish(() => {
             onClosed();
@@ -329,7 +328,6 @@ export function DocumentDialog({
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
   const update = useUpdateKnowledgeDocument(baseId);
-  // 基线取打开时的值，列表轮询刷新文档对象不重置用户草稿。
   const [initial] = useState(() => ({
     title: document.title,
     folderId: document.folderId ?? 'null',

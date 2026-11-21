@@ -23,7 +23,6 @@ function parseArgs(text: string): { args?: Record<string, unknown>; error?: stri
   return { args: value as Record<string, unknown> };
 }
 
-/** 用一组参数直接调用工具，结果留在弹层里方便反复试跑。 */
 export function TestInvokeDialog({
   server,
   tool,

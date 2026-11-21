@@ -56,9 +56,7 @@ async function waitFor<T>(probe: () => T, tries = 40): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 页面还没提交，继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -220,7 +218,6 @@ describe('agent list empty state follows agent permissions', () => {
       host.querySelector<HTMLButtonElement>('button[aria-label="查看 客服专家 工牌"]'),
     );
     if (!trigger) throw new Error('Missing badge trigger');
-    // 创建入口卡不渲染；页头按钮按既有规则仅隐藏。
     expect(host.querySelector('button[aria-label="新建专家"]')).toBeNull();
     expect(host.textContent).not.toContain('创建数字分身');
     await click(trigger);

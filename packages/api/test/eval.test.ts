@@ -14,7 +14,6 @@ import {
   unique,
 } from './helpers.js';
 
-// 有活跃 worker 时会立刻消费评估 job，测试只断言入队，因此必须确保队列空闲。
 const ready = (await infraReady) && (await queueIdle);
 
 describe('judge', () => {
@@ -81,7 +80,6 @@ describe.skipIf(!ready)('eval routes', () => {
     expect(await job.getState()).toBe('waiting');
     expect(job.data).toEqual({ evalRunId });
 
-    // 不真跑：移除排队中的 job，避免残留。
     await job.remove();
   });
 });

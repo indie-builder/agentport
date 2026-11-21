@@ -1,6 +1,5 @@
 import pino, { type Logger } from 'pino';
 
-/** 服务日志的唯一脱敏清单；新增凭证类字段只在这里补一次。 */
 export const LOG_REDACT_PATHS: readonly string[] = [
   'req.headers.authorization',
   'req.headers.cookie',

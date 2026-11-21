@@ -51,7 +51,6 @@ type Trigger = (typeof triggers)[number];
 
 const statuses = runStatusSchema.options;
 
-// 成本按货币保留 4 位小数；Token 是计数，统一用精确整数加千分位，避免同屏混用 k/M 缩写。
 const tokenCountFormatter = new Intl.NumberFormat('zh-CN');
 
 function formatTokenCount(value: number): string {

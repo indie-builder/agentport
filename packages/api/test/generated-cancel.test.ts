@@ -4,11 +4,9 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import { buildGeneratedServer } from '../src/modules/servers/generated.js';
 import { stubGlobal, unstubAllGlobals, waitForAssertion } from './native.js';
 
-/** 工具 handler 的第二个参数：run 取消时 SDK 通过它传 abort signal。 */
 type ToolContext = { mcpReq: { signal: AbortSignal } };
 type ToolHandler = (args: Record<string, unknown>, ctx: ToolContext) => Promise<CallToolResult>;
 
-// MCP 边界 mock：捕获 registerTool 的回调，直接驱动真实的 handler 逻辑。
 const mcp = { handlers: new Map<string, ToolHandler>() };
 
 mock.module('@modelcontextprotocol/server', () => ({
@@ -49,7 +47,6 @@ const baseInput = {
   approvals: [],
 };
 
-/** 取消类结果：不能再落到旧的超时文案，模型要能区分「人取消了」与「等超时了」。 */
 function expectCancelled(result: CallToolResult): void {
   const text = JSON.stringify(result.content);
   expect(result.isError).toBe(true);

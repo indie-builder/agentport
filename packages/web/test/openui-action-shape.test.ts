@@ -1,10 +1,6 @@
 import { openUiActionSchema } from '@agentport/shared';
 import { describe, expect, it } from 'vitest';
 
-/**
- * 实时消息在本轮落库前没有持久化 id。动作必须仍能发出：
- * 表单值本身不依赖来源 id，卡在这里会让「收到 UI 立刻点按钮」直接失败。
- */
 describe('openUiActionSchema', () => {
   it('accepts an action without a persisted message id', () => {
     const parsed = openUiActionSchema.safeParse({

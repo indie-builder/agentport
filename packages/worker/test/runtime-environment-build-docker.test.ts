@@ -2,10 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { executeRuntimeEnvironmentBuild } from '../src/runtime-environments/build.js';
 
-/**
- * 真实 Docker 证据：仅在本机已有基座镜像、且基座含当前产物与 Bash 时运行。
- * 构建产物用本次独占 tag，不覆盖基座。
- */
 const IMAGE =
   process.env.RUNTIME_ENV_BUILD_IMAGE ?? process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 const REQUIRED_ARTIFACTS = [

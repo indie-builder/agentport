@@ -25,13 +25,8 @@ import { runWikiGenerate, type WikiQueryFn } from './wiki.js';
 type KnowledgeJobRow = typeof schema.knowledgeJobs.$inferSelect;
 
 const CANCEL_POLL_MS = 1_000;
-/**
- * 认领后崩溃的 worker 会把行留在 running，BullMQ 随后重投同一个 job。
- * 对账每 5 分钟扫描、宽限 5 分钟；1 分钟后重看一次即可接上退回的 queued。
- */
 const REDELIVERY_DELAY_MS = 60_000;
 
-/** 分派所需依赖；队列与测试共用同一份判定。 */
 interface DispatchDeps extends KnowledgeDeps {
   knowledgeDir: string;
   wikiModel?: string | undefined;
@@ -40,10 +35,6 @@ interface DispatchDeps extends KnowledgeDeps {
   queryFn?: WikiQueryFn;
 }
 
-/**
- * 按任务类型分派：wiki_generate 走 SDK 生成器，其余走摄取链。
- * 两者都只负责执行并返回 sync 结果；终态统一由 DB 仓库的 finishJob 原子提交。
- */
 export async function dispatchKnowledgeJob(
   job: KnowledgeJobRow,
   deps: DispatchDeps,
@@ -89,10 +80,6 @@ interface KnowledgeWorkerConfig {
   connectors?: KnowledgeDeps['connectors'] | undefined;
 }
 
-/**
- * 独立队列：与聊天 run 分开消费，知识任务不占 run 并发、不出现在运行历史。
- * 返回 close 供进程收尾；调度与对账分别由 scheduler.ts / reconcile.ts 启动。
- */
 export async function startKnowledgeWorker(
   config: KnowledgeWorkerConfig,
 ): Promise<{ close: () => Promise<void> }> {
@@ -125,7 +112,6 @@ export async function startKnowledgeWorker(
   };
   const scanner = new RedisClient(config.redisUrl);
   scanner.onclose = (err) => config.logger.warn({ err }, 'knowledge cancel watch error');
-  // 关闭时 abort 活跃任务；否则 worker.close() 会等满任务超时（最长 2h）。
   const activeJobs = new Set<AbortController>();
   let closing = false;
 
@@ -140,7 +126,6 @@ export async function startKnowledgeWorker(
     KNOWLEDGE_JOBS_QUEUE,
     async (job: Job<{ jobId: string }>, token?: string) => {
       const row = await repo.knowledge.claimJob(config.db, job.data.jobId);
-      // 条件认领：重复投递、已取消或已完成时这里拿不到行。
       if (!row) {
         // 行仍是 running：崩溃 worker 已认领过，BullMQ 把同一个 job 重投了。
         // 直接返回会把它记 completed，任务再也不会执行；官方延后交还执行权，
@@ -161,7 +146,6 @@ export async function startKnowledgeWorker(
         controller.abort();
       }, KNOWLEDGE_JOB_TIMEOUT_MS[row.type]);
       const cancelWatch = setInterval(() => {
-        // 运行中取消走 Redis 键；任务已取消后 API 不再写 job 行。
         void scanner
           .get(knowledgeCancelKey(row.id))
           .then((value) => {
@@ -175,7 +159,6 @@ export async function startKnowledgeWorker(
         const pendingCancel = (await scanner.get(knowledgeCancelKey(row.id))) !== null;
         if (closing || pendingCancel || controller.signal.aborted) throw new KnowledgeCancelled();
         const result = await dispatchKnowledgeJob(row, { ...dispatch, signal: controller.signal });
-        // 先读 cancel key 再判断 signal：读取期间 timeout/关闭/轮询触发的 abort 也必须算取消。
         const cancelRequested = (await scanner.get(knowledgeCancelKey(row.id))) !== null;
         if (cancelRequested || controller.signal.aborted) {
           throw new KnowledgeCancelled();
@@ -186,7 +169,6 @@ export async function startKnowledgeWorker(
         });
       } catch (err) {
         if (closing) {
-          // SIGTERM 中断不是用户取消，也不能算成功：退回 queued 并让 BullMQ 重试。
           await resetToQueued(config.db, row.id, 'worker shutting down');
           throw err;
         }
@@ -200,8 +182,6 @@ export async function startKnowledgeWorker(
         const error = describeKnowledgeError(err);
         const lastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
         if (isRetryableKnowledgeError(err) && !lastAttempt) {
-          // 回到 queued 才能被下一次投递重新条件认领；否则会卡在 running 被跳过。
-          // 同步任务的 run 保持 running：重试仍会写同一个 syncRunId。
           await resetToQueued(config.db, row.id, error);
           throw err;
         }
@@ -225,7 +205,6 @@ export async function startKnowledgeWorker(
 
   return {
     close: async () => {
-      // 先停止领取并 abort 活跃任务，再把关闭收尾；否则会等满任务硬超时才释放进程。
       closing = true;
       for (const controller of activeJobs) controller.abort();
       await worker.close();
@@ -244,10 +223,6 @@ async function resetToQueued(db: KnowledgeDeps['db'], jobId: string, error: stri
     .where(and(eq(schema.knowledgeJobs.id, jobId), eq(schema.knowledgeJobs.status, 'running')));
 }
 
-/**
- * 所有业务终态都经过 DB 仓库的 finishJob：job CAS、sync run、source 摘要与游标
- * 由同一事务提交；这里不再分别写 job/run/source。
- */
 async function finish(
   db: KnowledgeDeps['db'],
   job: KnowledgeJobRow,

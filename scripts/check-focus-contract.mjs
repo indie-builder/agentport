@@ -1,10 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-// 焦点/边框统一规约的守卫（docs/DESIGN-SYSTEM.md §9、AGENTS.md 前端规则）：
-// A. 以边框表达焦点的输入类原语不得再叠 ring-2。
-// B. 可聚焦元素的 focus-visible:ring-2 必须同时带 focus-visible:outline-none，
-//    否则会和全局 :focus-visible 的 2px outline 叠成两层。
 const WEB_SRC = join(process.cwd(), 'packages/web/src');
 const INPUT_PRIMITIVES = new Set([
   'components/ui/input.tsx',
@@ -34,14 +30,11 @@ for (const file of walk(WEB_SRC)) {
   const text = readFileSync(file, 'utf8');
   text.split('\n').forEach((line, i) => {
     const at = `${rel}:${i + 1}`;
-    // 规则 A 只适用于 INPUT_PRIMITIVES：这些原语以边线表达焦点，
-    // 错误态保留危险边框；任何状态都不得叠 ring（含 aria-invalid 错误环）。
     if (INPUT_PRIMITIVES.has(rel) && /\bring-[23]\b/.test(line)) {
       violations.push(
         `${at}  输入类原语用边框表达焦点，不得叠 ring-2/ring-3（规则 A）`,
       );
     }
-    // 基类 outline-none 与 focus-visible:outline-none 都能压掉全局 :focus-visible 外轮廓。
     if (
       /focus-visible:ring-2/.test(line) &&
       !/outline-none/.test(line)
@@ -76,7 +69,6 @@ if (!thumbClassName) {
       violations.push(`${SLIDER}  slider 手柄 ${state} 态环出现时边框须透明（规则 C）`);
     }
   }
-  // 焦点落在内部 input：has-[:focus-visible]:ring-2 + border-transparent + 内部 outline-none。
   const focusRingTokens = [...tokens].filter(
     (t) => t.startsWith('has-[:focus-visible]:ring-') && /:ring-\d+$/.test(t),
   );

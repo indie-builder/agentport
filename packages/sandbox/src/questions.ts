@@ -7,7 +7,6 @@ import {
 } from '@agentport/shared';
 import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 
-/** runner 需要把提问请求与关闭发给宿主；事件形状由 shared 的 ChatEvent 定义。 */
 interface QuestionChannelEvents {
   requested(event: { requestId: string; toolUseId: string; questions: NativeQuestion[] }): void;
   closed(requestId: string): void;
@@ -61,7 +60,6 @@ export function createQuestionChannel(input: {
     if (entry === undefined) return false;
     pending.delete(requestId);
     entry.signal.removeEventListener('abort', entry.onAbort);
-    // 先移出 pending 再通知，重复/迟到的回答只能影响这一刻仍挂起的请求。
     if (notify.closed) input.events.closed(requestId);
     entry.resolve(result);
     return true;

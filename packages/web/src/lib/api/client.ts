@@ -320,6 +320,7 @@ export const api = {
   renameKnowledgeTag: knowledge.renameKnowledgeTag,
   deleteKnowledgeTag: knowledge.deleteKnowledgeTag,
   knowledgeDocuments: knowledge.knowledgeDocuments,
+  knowledgeImages: knowledge.knowledgeImages,
   knowledgeDocument: knowledge.knowledgeDocument,
   uploadKnowledgeDocument: knowledge.uploadKnowledgeDocument,
   createKnowledgeManualDocument: knowledge.createKnowledgeManualDocument,

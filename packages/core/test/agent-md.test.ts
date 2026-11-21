@@ -26,7 +26,6 @@ const defaults = {
   enabled: true,
   visibility: 'private',
   tags: [],
-  // agentInputSchema 对可选 effort 不做默认值，解析结果是显式 undefined。
   effort: undefined,
 };
 

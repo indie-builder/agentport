@@ -2,6 +2,7 @@ import { fail, isAppError } from '@agentport/core';
 import {
   ACTIVE_RUN_STATUSES,
   type AccessFilter,
+  FAILED_RUN_STATUSES,
   RETENTION_DEFAULTS,
   type RetentionUpdate,
 } from '@agentport/shared';
@@ -153,7 +154,6 @@ export interface ScheduleTriggerWrite {
   conversationId: string;
   messageId: string;
   prompt: string;
-  /** 本轮计划时刻 prevMillis：只允许比上次更新更晚的触发落库，重复投递自然被挡掉。 */
   triggerAt: number;
   recordedAt?: number;
 }
@@ -167,7 +167,6 @@ export async function claimScheduleTrigger(
   input: ScheduleTriggerWrite,
 ): Promise<'claimed' | 'duplicate' | 'agent_disabled' | 'budget_exceeded'> {
   return db.transaction(async (tx) => {
-    // 先读归属（不加行锁），再按 绑定锁 → 记忆锁 → 行锁 的顺序准入。
     const [owner] = await tx
       .select({ agentId: agentSchedules.agentId })
       .from(agentSchedules)
@@ -185,7 +184,6 @@ export async function claimScheduleTrigger(
         : ((await getAgentVersion(tx, owner.agentId, pre.publishedVersion))?.definition ?? null);
     await lockRunResources(tx, owner.agentId, preDefinition?.agent.subAgentIds);
 
-    // 提交前再读一次：触发可能是几分钟前投递的，期间 agent 可能被停用。
     const [agent] = await tx
       .select({
         enabled: agents.enabled,
@@ -409,11 +407,9 @@ export async function listPendingApprovals(db: Database) {
       ),
     )
     .orderBy(asc(approvalRequests.createdAt));
-  // 查询已排除空 run_id；这里收窄类型，不引入哨兵值。
   return rows.flatMap((row) => (row.runId === null ? [] : [{ ...row, runId: row.runId }]));
 }
 
-/** 近期失败的运行（用于待办列表）。 */
 export async function listRecentFailedRuns(db: Database, limit = 20) {
   return db
     .select({
@@ -425,14 +421,12 @@ export async function listRecentFailedRuns(db: Database, limit = 20) {
     })
     .from(agentRuns)
     .leftJoin(agents, eq(agents.id, agentRuns.agentId))
-    .where(inArray(agentRuns.status, ['failed', 'timeout']))
+    .where(inArray(agentRuns.status, [...FAILED_RUN_STATUSES]))
     .orderBy(desc(agentRuns.endedAt))
     .limit(limit);
 }
 
-/** 单个智能体的运行统计（含按天分布，供热力图/工龄页）。 */
 export async function agentStats(db: Database, agentId: string, since: Date) {
-  // 与 API 的 since 同一 UTC 自然日口径；分组、排序、展示必须用同一个表达式。
   const utcDay = sql`date_trunc('day', ${agentRuns.createdAt} AT TIME ZONE 'UTC')`;
   const sinceUtc = since.toISOString();
   const sinceUtcDay = sql`${agentRuns.createdAt} >= ${sinceUtc}`;
@@ -441,7 +435,7 @@ export async function agentStats(db: Database, agentId: string, since: Date) {
       .select({
         runCount: sql<number>`count(*)::int`,
         running: sql<number>`count(*) filter (where ${agentRuns.status} = 'running')::int`,
-        failed: sql<number>`count(*) filter (where ${agentRuns.status} in ('failed','timeout'))::int`,
+        failed: sql<number>`count(*) filter (where ${inArray(agentRuns.status, [...FAILED_RUN_STATUSES])})::int`,
         succeeded: sql<number>`count(*) filter (where ${agentRuns.status} = 'succeeded')::int`,
         totalCost: sql<number>`coalesce(sum(${agentRuns.costUsd}), 0)::float`,
         totalTokens: sql<number>`coalesce(sum(coalesce(${agentRuns.inputTokens},0)::bigint + coalesce(${agentRuns.outputTokens},0)::bigint), 0)::float8`,

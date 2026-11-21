@@ -66,6 +66,20 @@ export const knowledgeBaseActivityItemSchema = z.object({
 
 export type KnowledgeBaseActivityItem = z.infer<typeof knowledgeBaseActivityItemSchema>;
 
+export const knowledgeImageAssetSchema = z.object({
+  documentId: z.string(),
+  documentTitle: z.string(),
+  versionId: z.string(),
+  name: z.string(),
+  mimeType: z.string(),
+  page: z.number().int().nullable(),
+  caption: z.string().nullable(),
+  ocrText: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export type KnowledgeImageAsset = z.infer<typeof knowledgeImageAssetSchema>;
+
 export const knowledgeFolderSchema = z.object({
   id: z.string(),
   baseId: z.string(),
@@ -584,7 +598,6 @@ const chunkMutationResultSchema = z.object({
 });
 
 const basesContract = {
-  // 置顶是个人偏好，路径必须排在 `{id}` 之前：静态段优先，避免被当作 baseId。
   pins: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases/pins' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
@@ -703,6 +716,16 @@ const basesContract = {
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
     .input(z.object({ params: idParams, query: documentQuery }))
     .output(pageOf(knowledgeDocumentSchema)),
+  images: contractProcedure
+    .route({ method: 'GET', path: '/knowledge/bases/{id}/images' })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
+    .input(
+      z.object({
+        params: idParams,
+        query: pageQuery.extend({ q: z.string().max(200).optional() }),
+      }),
+    )
+    .output(pageOf(knowledgeImageAssetSchema)),
   upload: contractProcedure
     .route({ method: 'PUT', path: '/knowledge/bases/{id}/documents/upload', successStatus: 202 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })

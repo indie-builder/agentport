@@ -7,7 +7,6 @@ export const roles = pgTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    /** 四默认角色；自定义角色为 null。 */
     systemKey: text('system_key', { enum: ['admin', 'user', 'owner', 'maintainer'] }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -50,7 +49,6 @@ export const rolePermissions = pgTable(
   ],
 );
 
-/** 业务身份到角色的分配；离线身份（无 authUsers 行）仍保留。 */
 export const userRoles = pgTable(
   'user_roles',
   {

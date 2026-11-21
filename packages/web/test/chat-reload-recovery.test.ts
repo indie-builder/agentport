@@ -149,7 +149,6 @@ afterEach(() => {
 
 describe('merging older pages after recovery', () => {
   it('keeps the replayed final answer when an active run finishes before older pages load', async () => {
-    // 本 run 跨页：最新页只有助手半截回答，本轮用户消息与旧轮都在更早页。
     const latestPage: ConversationDetail = {
       ...detail([
         message('message-4', 'assistant', '旧的半截回答一', 'run-a'),
@@ -173,7 +172,6 @@ describe('merging older pages after recovery', () => {
     await until(() => Source.instances.length === 1, 'event source');
     act(() => {
       const source = Source.instances[0] as Source;
-      // 服务端完整回放：终态回答取代刷新时看到的半截内容。
       source.emit({
         type: 'assistant_text',
         text: '最终回答一',
@@ -194,7 +192,6 @@ describe('merging older pages after recovery', () => {
     if (snapshot === null) throw new Error('缺少历史快照');
     const merged = mergeOlderHistory(
       snapshot,
-      // 翻到更早页后，Query 的合并结果是最早页在前、最新页在后。
       detail([
         message('message-0', 'user', '更早问题', 'run-earlier'),
         ...olderPage.messages,
@@ -203,7 +200,6 @@ describe('merging older pages after recovery', () => {
       useChatStore.getState().items,
     );
 
-    // 旧轮补在前面；最终回答保持一份；刷新时看到的半截回答不能复活。
     expect(merged).not.toBeNull();
     expect(
       merged?.items.flatMap((item) =>
@@ -221,7 +217,6 @@ describe('merging older pages after recovery', () => {
       ...detail([message('message-6', 'assistant', '第二轮回答', 'run-2')]),
       nextCursor: 'message-6',
     };
-    // 历史查询（含缓存失效后的重取）读旧历史；断线补全读本轮消息。
     let reconciling = false;
     readConversation.mockImplementation(async (_id, options) => {
       if (options?.cursor === 'message-6') {
@@ -238,7 +233,6 @@ describe('merging older pages after recovery', () => {
     await mount();
     await until(() => visibleTexts().includes('旧回答'), 'old history');
 
-    // 第一轮走普通 SSE 完成：只有 items，没有原始消息入库到快照。
     useChatStore.getState().setInput('第一轮问题');
     await act(async () => {
       await stream.send();
@@ -250,7 +244,6 @@ describe('merging older pages after recovery', () => {
     });
     await flush();
 
-    // 第二轮断线后由服务端终态补全。
     useChatStore.getState().setInput('第二轮问题');
     await act(async () => {
       await stream.send();
@@ -273,7 +266,6 @@ describe('merging older pages after recovery', () => {
     );
 
     expect(merged).not.toBeNull();
-    // 两轮的用户与助手消息各留一份：第一轮没有原始消息，也不能被补旧挤掉。
     expect(
       merged?.items.flatMap((item) =>
         item.kind === 'user' || item.kind === 'text' ? [item.text] : [],
@@ -308,7 +300,6 @@ describe('reopening a conversation while its run state is ambiguous', () => {
     await mount();
     await until(() => vi.mocked(readRun).mock.calls.length === 1, 'run lookup');
 
-    // 服务端在这期间已完成并落库 canonical 助手消息，run 读回终态。
     lookup.resolve(run('succeeded'));
     await flush();
 
@@ -328,14 +319,11 @@ describe('reopening a conversation while its run state is ambiguous', () => {
     await until(() => visibleTexts().includes('已保存回答'), 'saved history');
     await flush();
 
-    // 历史已经保存了回答：即使运行记录被清理，也要照常显示。
     expect(visibleTexts()).toEqual(['问题', '已保存回答']);
-    // 不能再保留一个永远 detached、让页面继续等待/轮询的假运行。
     expect(useChatStore.getState().phase).toEqual({ kind: 'idle' });
   });
 
   it('rebuilds an active run from its own prompt when the loaded page starts mid-reply', async () => {
-    // 本轮消息跨页：最新页只有本轮助手尾部，本轮用户消息和旧轮都在更早页。
     const latestPage: ConversationDetail = {
       ...detail([
         message('message-4', 'assistant', '已保存的前半段', 'run-a'),
@@ -361,7 +349,6 @@ describe('reopening a conversation while its run state is ambiguous', () => {
 
     act(() => {
       const source = Source.instances[0] as Source;
-      // 服务端从头回放本轮事件；恢复时已从更早页补齐本轮用户消息与旧轮。
       source.emit({
         type: 'assistant_text',
         text: '已保存的前半段',
@@ -379,9 +366,7 @@ describe('reopening a conversation while its run state is ambiguous', () => {
     });
     await flush();
 
-    // 建立事件流时已补齐本轮用户边界与旧轮；正在被回放替换的助手尾部不在保证范围内。
     expect(whileReplaying).toEqual(expect.arrayContaining(['旧问题', '旧回答', '本轮问题']));
-    // 回放只替换本轮：旧轮、本轮用户、两段已保存助手内容与新增段各出现一次。
     expect(visibleTexts()).toEqual([
       '旧问题',
       '旧回答',

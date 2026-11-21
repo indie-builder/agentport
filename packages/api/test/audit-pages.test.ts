@@ -73,7 +73,6 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     status?: string;
   }
 
-  /** 直接落库：写入路径已在别处覆盖，这里只验证读路径与游标。 */
   async function seed(target: string, rows: SeedRow[]): Promise<void> {
     createdTargets.push(target);
     createdIds.push(...rows.map((row) => row.id));
@@ -143,7 +142,6 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
   it('keeps microsecond ordering when every ISO string collides', async () => {
     const target = unique('target');
     const prefix = unique('audit-us');
-    // 同一毫秒内的 125 个微秒：ID 顺序与时间顺序相反。
     const rows = Array.from({ length: 125 }, (_, i) => {
       const n = i + 1;
       return {
@@ -179,7 +177,6 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     const all = [...first.items, ...second.items];
     expect(all.map((row) => row.id)).toEqual(expected.map((row) => row.id));
     expect(new Set(all.map((row) => row.id)).size).toBe(125);
-    // wire 上仍是毫秒 ISO：时间戳游标无法区分这些行，记录游标必须读库内真实值。
     expect(new Set(all.map((row) => row.createdAt)).size).toBe(1);
   });
 
@@ -239,7 +236,6 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
       ['006', '003'].map((n) => `${prefix}-${n}`),
     );
 
-    // before（时间范围）与 cursor（位置）同时生效，取交集。
     const both = await page(
       `${targetQuery(target)}&before=2026-02-01T00:00:08.000Z${cursor(`${prefix}-010`)}`,
     );
@@ -247,7 +243,6 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
       ['007', '006', '005', '004', '003', '002', '001'].map((n) => `${prefix}-${n}`),
     );
 
-    // 游标可以不在当前 action 过滤内：它只是一个位置，不需要属于结果集。
     const outside = await page(
       `${targetQuery(target)}&action=audit.page.beta&limit=10${cursor(`${prefix}-012`)}`,
     );
@@ -321,7 +316,6 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
       ['005', '004', '003', '002', '001'].map((n) => `${prefix}-${n}`),
     );
 
-    // 游标之后仍超过 limit 时必须拒绝，不能把截断结果当完整导出发出。
     expectProblem(await exportAudit(`${targetQuery(target)}&limit=3${cursor(before)}`), 'CONFLICT');
   });
 });
