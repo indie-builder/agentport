@@ -211,9 +211,8 @@ export async function runAgentJob(
     .from(schema.agentRuns)
     .where(eq(schema.agentRuns.id, runId))
     .limit(1);
-  const retryingEnqueueFailure =
-    run?.status === 'failed' && run.errorKind === 'infra' && run.startedAt === null;
-  if (!isActiveRunStatus(run?.status) && !retryingEnqueueFailure) {
+  const retryingEnqueueFailure = repo.runPredicates.isNeverStartedFailure(run);
+  if (run === undefined || (!isActiveRunStatus(run.status) && !retryingEnqueueFailure)) {
     logger.info({ runId, status: run?.status }, 'run no longer pending, skipping');
     return;
   }
@@ -268,12 +267,7 @@ export async function runAgentJob(
       .for('update');
     if (
       current === undefined ||
-      (current.status !== 'queued' &&
-        !(
-          current.status === 'failed' &&
-          current.errorKind === 'infra' &&
-          current.startedAt === null
-        ))
+      (current.status !== 'queued' && !repo.runPredicates.isNeverStartedFailure(current))
     ) {
       return [];
     }
