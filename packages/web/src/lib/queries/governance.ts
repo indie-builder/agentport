@@ -12,6 +12,7 @@ import type {
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { rpc } from '../orpc.js';
 import { AGENTS_QUERY_KEY } from './agents.js';
+import { dataDomainKeys } from './data-domains.js';
 import { pluginKeys } from './plugins.js';
 import { runtimeEnvironmentKeys } from './runtime-environments.js';
 import { SERVERS_QUERY_KEY } from './servers.js';
@@ -249,7 +250,7 @@ export function useTransferHandover() {
         'governance',
         AGENTS_QUERY_KEY[0],
         'knowledge',
-        'data-domains',
+        dataDomainKeys.all[0],
         SKILLS_QUERY_KEY[0],
         SERVERS_QUERY_KEY[0],
         pluginKeys.all[0],
