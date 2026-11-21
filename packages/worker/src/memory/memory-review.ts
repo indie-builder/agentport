@@ -27,7 +27,7 @@ import {
   type SDKResultSuccess,
 } from '@anthropic-ai/claude-agent-sdk';
 import { RedisClient } from 'bun';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import { type Config, loadConfig } from '../config.js';
@@ -35,7 +35,7 @@ import { checkOutboundPolicy } from '../content-policy.js';
 import { resolveProviderUpstreams } from '../model-providers.js';
 import type { ModelProxy } from '../model-proxy.js';
 import { hermeticQueryOptions } from '../one-shot-sdk.js';
-import { enqueueRunWebhook, notifyRunOutcome } from '../runs/run-finish.js';
+import { claimRunTerminal, notifyRunOutcome } from '../runs/run-finish.js';
 import { modelProxyUpstream, sdkEnv } from '../upstream.js';
 import { version } from '../version.js';
 
@@ -246,30 +246,20 @@ async function finishRun(
   error: string | null,
   logger?: Logger,
 ): Promise<void> {
-  const finished = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(schema.agentRuns)
-      .set({
-        status,
-        endedAt: new Date(),
-        costUsd: spend?.costUsd ?? null,
-        turns: spend?.turns ?? null,
-        inputTokens: spend?.inputTokens ?? null,
-        outputTokens: spend?.outputTokens ?? null,
-        error,
-      })
-      .where(and(eq(schema.agentRuns.id, runId), eq(schema.agentRuns.status, 'running')))
-      .returning({
-        id: schema.agentRuns.id,
-        agentId: schema.agentRuns.agentId,
-        conversationId: schema.agentRuns.conversationId,
-        initiatedBy: schema.agentRuns.initiatedBy,
-      });
-    if (row === undefined) return false;
-    await enqueueRunWebhook({ db: tx, status, error }, row);
-    return true;
+  const row = await claimRunTerminal({
+    db,
+    runId,
+    status,
+    values: {
+      costUsd: spend?.costUsd ?? null,
+      turns: spend?.turns ?? null,
+      inputTokens: spend?.inputTokens ?? null,
+      outputTokens: spend?.outputTokens ?? null,
+      error,
+    },
+    error,
   });
-  if (!finished || logger === undefined) return;
+  if (row === undefined || logger === undefined) return;
   await notifyRunOutcome({ db, logger, runId, status, error });
 }
 

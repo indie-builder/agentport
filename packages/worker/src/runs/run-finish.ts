@@ -46,7 +46,7 @@ interface RunTerminalRow {
   costUsd: string | null;
 }
 
-export async function enqueueRunWebhook(
+async function enqueueRunWebhook(
   input: { db: DbHandle; status: TerminalRunStatus; error?: string | null | undefined },
   row: Pick<RunTerminalRow, 'id' | 'agentId' | 'conversationId' | 'initiatedBy'>,
 ): Promise<void> {
@@ -54,6 +54,60 @@ export async function enqueueRunWebhook(
   await repo.integrations.enqueueWebhookEvent(input.db, {
     ...buildRunWebhookEvent(input, row),
     ownerBusinessId: row.initiatedBy,
+  });
+}
+
+export async function claimRunTerminal(input: {
+  db: Db;
+  runId: string;
+  status: TerminalRunStatus;
+  fromStatus?: 'queued' | 'running' | undefined;
+  pending?: 'required' | 'absent' | undefined;
+  queuedBefore?: Date | undefined;
+  values?: RunFinishValues | undefined;
+  error?: string | null | undefined;
+}): Promise<RunTerminalRow | undefined> {
+  const pendingCondition =
+    input.fromStatus === 'queued'
+      ? undefined
+      : input.pending === 'required'
+        ? isNotNull(schema.agentRuns.pendingFinish)
+        : input.pending === 'absent'
+          ? isNull(schema.agentRuns.pendingFinish)
+          : undefined;
+  return input.db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(schema.agentRuns)
+      .set({
+        status: input.status,
+        endedAt: new Date(),
+        ...input.values,
+        ...(input.pending === 'required' ? { pendingFinish: null } : {}),
+      })
+      .where(
+        and(
+          eq(schema.agentRuns.id, input.runId),
+          eq(schema.agentRuns.status, input.fromStatus ?? 'running'),
+          ...(pendingCondition === undefined ? [] : [pendingCondition]),
+          ...(input.queuedBefore === undefined
+            ? []
+            : [lt(schema.agentRuns.createdAt, input.queuedBefore)]),
+        ),
+      )
+      .returning({
+        id: schema.agentRuns.id,
+        channelId: schema.agentRuns.channelId,
+        agentId: schema.agentRuns.agentId,
+        conversationId: schema.agentRuns.conversationId,
+        initiatedBy: schema.agentRuns.initiatedBy,
+        departmentId: schema.agentRuns.departmentId,
+        scheduleId: schema.agentRuns.scheduleId,
+        trigger: schema.agentRuns.trigger,
+        costUsd: schema.agentRuns.costUsd,
+      });
+    if (row === undefined) return undefined;
+    await enqueueRunWebhook({ db: tx, status: input.status, error: input.error }, row);
+    return row;
   });
 }
 
@@ -227,52 +281,15 @@ export async function finalizeRun(input: {
   values?: RunFinishValues;
   audit: { action: string; status: 'ok' | 'error'; dedupeKey?: string; durationMs?: number };
 }): Promise<boolean> {
-  const pendingCondition =
-    input.fromStatus === 'queued'
-      ? undefined
-      : input.pending === 'required'
-        ? isNotNull(schema.agentRuns.pendingFinish)
-        : input.pending === 'absent'
-          ? isNull(schema.agentRuns.pendingFinish)
-          : undefined;
-  const row = await input.db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(schema.agentRuns)
-      .set({
-        status: input.event.status,
-        endedAt: new Date(),
-        ...input.values,
-        ...(input.pending === 'required' ? { pendingFinish: null } : {}),
-      })
-      .where(
-        and(
-          eq(schema.agentRuns.id, input.runId),
-          eq(schema.agentRuns.status, input.fromStatus ?? 'running'),
-          ...(pendingCondition === undefined ? [] : [pendingCondition]),
-          ...(input.queuedBefore === undefined
-            ? []
-            : [lt(schema.agentRuns.createdAt, input.queuedBefore)]),
-        ),
-      )
-      .returning({
-        id: schema.agentRuns.id,
-        channelId: schema.agentRuns.channelId,
-        agentId: schema.agentRuns.agentId,
-        conversationId: schema.agentRuns.conversationId,
-        initiatedBy: schema.agentRuns.initiatedBy,
-        departmentId: schema.agentRuns.departmentId,
-        scheduleId: schema.agentRuns.scheduleId,
-        trigger: schema.agentRuns.trigger,
-        costUsd: schema.agentRuns.costUsd,
-      });
-    if (row === undefined) return undefined;
-    if (row.initiatedBy !== null) {
-      await enqueueRunWebhook(
-        { db: tx, status: input.event.status, error: input.event.error },
-        row,
-      );
-    }
-    return row;
+  const row = await claimRunTerminal({
+    db: input.db,
+    runId: input.runId,
+    status: input.event.status,
+    fromStatus: input.fromStatus,
+    pending: input.pending,
+    queuedBefore: input.queuedBefore,
+    values: input.values,
+    error: input.event.error,
   });
   if (row === undefined) return false;
   if (row.channelId !== null) {
