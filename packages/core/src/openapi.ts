@@ -1,6 +1,6 @@
 import { slugSchema } from '@agentport/shared';
 import { parse as parseYaml } from 'yaml';
-import { fail } from './errors.js';
+import { fail, invalidInput } from './errors.js';
 import { isRecord } from './record.js';
 
 export interface ImportedHttpTool {
@@ -35,10 +35,6 @@ interface Ctx {
   warnings: string[];
 }
 
-function invalid(message: string): never {
-  fail('INVALID_INPUT', message, { path: 'openapi' });
-}
-
 function parseDocument(text: string): Record<string, unknown> {
   const body = text.startsWith('﻿') ? text.slice(1) : text;
   let root: unknown;
@@ -48,10 +44,10 @@ function parseDocument(text: string): Record<string, unknown> {
     try {
       root = parseYaml(body);
     } catch {
-      invalid('无法解析 OpenAPI 文档：不是合法的 JSON 或 YAML');
+      invalidInput('无法解析 OpenAPI 文档：不是合法的 JSON 或 YAML', 'openapi');
     }
   }
-  if (!isRecord(root)) invalid('OpenAPI 文档顶层必须是对象');
+  if (!isRecord(root)) invalidInput('OpenAPI 文档顶层必须是对象', 'openapi');
   return root;
 }
 
@@ -59,7 +55,7 @@ function assertSupportedVersion(root: Record<string, unknown>): boolean {
   const openapi = root.openapi;
   if (typeof openapi === 'string' && openapi.startsWith('3.')) return true;
   if (root.swagger === '2.0') return false;
-  invalid('仅支持 OpenAPI 3.x 或 Swagger 2.0 文档');
+  invalidInput('仅支持 OpenAPI 3.x 或 Swagger 2.0 文档', 'openapi');
 }
 
 function resolvePointer(root: unknown, ref: string): unknown {
@@ -512,7 +508,7 @@ export function parseOpenApiDocument(text: string): ParsedOpenApi {
   const root = parseDocument(text);
   const openapi3 = assertSupportedVersion(root);
   const paths = root.paths;
-  if (!isRecord(paths)) invalid('OpenAPI 文档缺少 paths 对象');
+  if (!isRecord(paths)) invalidInput('OpenAPI 文档缺少 paths 对象', 'openapi');
 
   const warnings: string[] = [];
   const ctx: Ctx = { root, warnings };
