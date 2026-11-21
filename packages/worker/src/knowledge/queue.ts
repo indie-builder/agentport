@@ -1,4 +1,4 @@
-import { repo, schema } from '@agentport/db';
+import { repo, type schema } from '@agentport/db';
 import {
   KNOWLEDGE_JOB_TIMEOUT_MS,
   KNOWLEDGE_JOBS_QUEUE,
@@ -8,7 +8,6 @@ import {
 } from '@agentport/shared';
 import { createBunRedisClient, DelayedError, type Job, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
-import { and, eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { knowledgeConnectors } from './connector-adapter.js';
 import type { ImageQueryFn } from './image-processing.js';
@@ -209,7 +208,10 @@ export async function startKnowledgeWorker(
         });
       } catch (err) {
         if (closing) {
-          await resetToQueued(config.db, row.id, 'worker shutting down');
+          await repo.knowledge.requeueKnowledgeJob(config.db, row.id, {
+            error: 'worker shutting down',
+            keepStartedAt: true,
+          });
           throw err;
         }
         if (controller.signal.aborted || err instanceof KnowledgeCancelled) {
@@ -222,7 +224,10 @@ export async function startKnowledgeWorker(
         const error = describeKnowledgeError(err);
         const lastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
         if (isRetryableKnowledgeError(err) && !lastAttempt) {
-          await resetToQueued(config.db, row.id, error);
+          await repo.knowledge.requeueKnowledgeJob(config.db, row.id, {
+            error,
+            keepStartedAt: true,
+          });
           throw err;
         }
         terminal = await finish(config.db, row, { status: 'failed', error });
@@ -259,13 +264,6 @@ export async function startKnowledgeWorker(
       scanner.close();
     },
   };
-}
-
-async function resetToQueued(db: KnowledgeDeps['db'], jobId: string, error: string): Promise<void> {
-  await db
-    .update(schema.knowledgeJobs)
-    .set({ status: 'queued', step: null, error })
-    .where(and(eq(schema.knowledgeJobs.id, jobId), eq(schema.knowledgeJobs.status, 'running')));
 }
 
 async function finish(

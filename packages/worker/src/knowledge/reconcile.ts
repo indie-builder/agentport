@@ -60,14 +60,7 @@ export async function reconcileKnowledgeJobs(
         now - row.startedAt.getTime() > 2 * KNOWLEDGE_JOB_TIMEOUT_MS[row.type];
       if (!timedOut && state !== null && isActiveJobState(state)) {
         if (state === 'active') continue;
-        const requeuedRow = await db
-          .update(schema.knowledgeJobs)
-          .set({ status: 'queued', startedAt: null, step: null })
-          .where(
-            and(eq(schema.knowledgeJobs.id, row.id), eq(schema.knowledgeJobs.status, 'running')),
-          )
-          .returning({ id: schema.knowledgeJobs.id });
-        if (requeuedRow.length > 0) requeued += 1;
+        if (await repo.knowledge.requeueKnowledgeJob(db, row.id)) requeued += 1;
         continue;
       }
       const error = timedOut ? '任务超时' : KNOWLEDGE_LOST_ERROR;
