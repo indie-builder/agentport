@@ -1,5 +1,4 @@
 import { channelsContract } from '@agentport/contract/channels';
-import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { channelRunFinishedEvent, isActiveRunStatus } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -15,6 +14,7 @@ import { beginSse } from '../../http/sse.js';
 import { cancelAgentRun } from '../runs/cancel-run.js';
 import { writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
+import { forbidden, notFound } from './errors.js';
 import { publishChannelEventSafely, publishChannelMessageSafely } from './publish.js';
 
 const channelControl = repo.channelControl;
@@ -29,12 +29,6 @@ function toActiveRun(run: ControlRun) {
   };
 }
 
-function notFound(message = '频道不存在或你不是频道成员'): never {
-  return fail('NOT_FOUND', message);
-}
-function forbidden(message: string): never {
-  return fail('FORBIDDEN', message);
-}
 async function publishChannelFinished(
   context: RequestContext,
   channelId: string,
@@ -115,7 +109,7 @@ export const channelsControlRouter = {
       requireUser(context).businessId,
       input.params.id,
     );
-    if (result.kind === 'not_found') return notFound();
+    if (result.kind === 'not_found') return notFound('频道不存在或你不是频道成员');
     return { items: result.runs.map(toActiveRun) };
   }),
   stopRun: os.stopRun.handler(async ({ input, context }) => {
@@ -128,7 +122,9 @@ export const channelsControlRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return result.target === 'run' ? notFound('运行不存在或不属于该频道') : notFound();
+        return result.target === 'run'
+          ? notFound('运行不存在或不属于该频道')
+          : notFound('频道不存在或你不是频道成员');
       case 'forbidden':
         return forbidden(
           result.reason === 'run_owner'
@@ -160,7 +156,9 @@ export const channelsControlRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return result.target === 'agent' ? notFound('智能体未加入该频道') : notFound();
+        return result.target === 'agent'
+          ? notFound('智能体未加入该频道')
+          : notFound('频道不存在或你不是频道成员');
       case 'forbidden':
         return forbidden('仅频道 owner 或 admin 可以断开智能体');
       case 'ok': {
@@ -207,7 +205,7 @@ export const channelsControlRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return notFound();
+        return notFound('频道不存在或你不是频道成员');
       case 'forbidden':
         return forbidden('仅频道 owner 可以关闭频道');
       case 'ok': {
