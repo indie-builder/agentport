@@ -7,6 +7,7 @@ import type {
   DataDomainBuildJob,
   DataDomainEnrichmentJob,
   EvalRunJob,
+  KnowledgeJobQueuePayload,
   MonitoredQueueName,
   RuntimeEnvironmentBuildJob,
 } from '@agentport/shared';
@@ -50,7 +51,7 @@ function logRedisError(err: Error): void {
 
 let queue: Queue<AgentRunJob> | undefined;
 let evalQueue: Queue<EvalRunJob> | undefined;
-let knowledgeQueue: Queue<{ jobId: string }> | undefined;
+let knowledgeQueue: Queue<KnowledgeJobQueuePayload> | undefined;
 let runtimeEnvironmentBuildQueue: Queue<RuntimeEnvironmentBuildJob> | undefined;
 let dataDomainBuildQueue: Queue<DataDomainBuildJob> | undefined;
 let dataDomainEnrichmentQueue: Queue<DataDomainEnrichmentJob> | undefined;
@@ -80,9 +81,9 @@ export function getEvalQueue(): Queue<EvalRunJob> {
   return evalQueue;
 }
 
-export function getKnowledgeQueue(): Queue<{ jobId: string }> {
+export function getKnowledgeQueue(): Queue<KnowledgeJobQueuePayload> {
   if (!knowledgeQueue) {
-    knowledgeQueue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
+    knowledgeQueue = new Queue<KnowledgeJobQueuePayload>(KNOWLEDGE_JOBS_QUEUE, {
       connection: getQueueConnection(),
     });
     knowledgeQueue.on('error', logRedisError);

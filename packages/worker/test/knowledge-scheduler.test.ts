@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { createDb, newId, repo, schema } from '@agentport/db';
-import { KNOWLEDGE_JOBS_QUEUE, KNOWLEDGE_SYNC_TRIGGERS_QUEUE } from '@agentport/shared';
+import {
+  KNOWLEDGE_JOBS_QUEUE,
+  KNOWLEDGE_SYNC_TRIGGERS_QUEUE,
+  type KnowledgeJobQueuePayload,
+  type KnowledgeSyncTriggerPayload,
+} from '@agentport/shared';
 import { Queue } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
@@ -36,8 +41,8 @@ const prefix = `knowledge-sched-${randomUUID().slice(0, 8)}`;
 describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgres', () => {
   let db: ReturnType<typeof createDb>['db'];
   let client: ReturnType<typeof createDb>['client'];
-  let triggers: Queue<{ sourceId: string }>;
-  let jobs: Queue<{ jobId: string }>;
+  let triggers: Queue<KnowledgeSyncTriggerPayload>;
+  let jobs: Queue<KnowledgeJobQueuePayload>;
   let triggersRedis: ReturnType<typeof bunRedisConnection>;
   let jobsRedis: ReturnType<typeof bunRedisConnection>;
   const logger = {
@@ -90,12 +95,12 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
   beforeAll(async () => {
     ({ db, client } = createDb(process.env.DATABASE_URL ?? ''));
     triggersRedis = bunRedisConnection(redisUrl);
-    triggers = new Queue<{ sourceId: string }>(KNOWLEDGE_SYNC_TRIGGERS_QUEUE, {
+    triggers = new Queue<KnowledgeSyncTriggerPayload>(KNOWLEDGE_SYNC_TRIGGERS_QUEUE, {
       connection: triggersRedis.connection,
       prefix,
     });
     jobsRedis = bunRedisConnection(redisUrl);
-    jobs = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
+    jobs = new Queue<KnowledgeJobQueuePayload>(KNOWLEDGE_JOBS_QUEUE, {
       connection: jobsRedis.connection,
       prefix,
     });

@@ -12,6 +12,14 @@ export const KNOWLEDGE_JOBS_QUEUE = 'knowledge-jobs';
  */
 export const KNOWLEDGE_SYNC_TRIGGERS_QUEUE = 'knowledge-sync-triggers';
 
+const knowledgeJobQueuePayloadSchema = z.object({ jobId: z.string() });
+
+export type KnowledgeJobQueuePayload = z.infer<typeof knowledgeJobQueuePayloadSchema>;
+
+const knowledgeSyncTriggerPayloadSchema = z.object({ sourceId: z.string() });
+
+export type KnowledgeSyncTriggerPayload = z.infer<typeof knowledgeSyncTriggerPayloadSchema>;
+
 /** 运行中取消：API 写键，worker 每秒轮询到非空后 abort；值本身不承载信息。 */
 export const KNOWLEDGE_CANCEL_PAYLOAD = '1';
 

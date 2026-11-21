@@ -8,6 +8,7 @@ import { createDb, newId, repo, schema } from '@agentport/db';
 import {
   KNOWLEDGE_JOB_TIMEOUT_MS,
   KNOWLEDGE_JOBS_QUEUE,
+  type KnowledgeJobQueuePayload,
   knowledgeCancelKey,
   knowledgeEnqueueOptions,
 } from '@agentport/shared';
@@ -1233,7 +1234,7 @@ describe.skipIf(!process.env.DATABASE_URL)('knowledge redelivery after a stalled
   let isolated: Awaited<ReturnType<typeof createIsolatedDatabase>> = null;
   let dbHandle!: ReturnType<typeof createDb>;
   let db!: ReturnType<typeof createDb>['db'];
-  let queue!: Queue<{ jobId: string }>;
+  let queue!: Queue<KnowledgeJobQueuePayload>;
   let worker: Awaited<ReturnType<typeof startKnowledgeWorker>> | undefined;
 
   const startWorker = () =>
@@ -1284,7 +1285,7 @@ describe.skipIf(!process.env.DATABASE_URL)('knowledge redelivery after a stalled
     if (!isolated) return;
     dbHandle = createDb(isolated.url);
     db = dbHandle.db;
-    queue = new Queue<{ jobId: string }>(KNOWLEDGE_JOBS_QUEUE, {
+    queue = new Queue<KnowledgeJobQueuePayload>(KNOWLEDGE_JOBS_QUEUE, {
       connection: connection(),
       prefix: redeliveryPrefix,
     });
