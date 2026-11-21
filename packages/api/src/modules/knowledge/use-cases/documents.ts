@@ -590,6 +590,9 @@ export async function reprocessDocument(
       row.sourceType === 'manual' &&
       row.contentKind === 'document' &&
       row.currentVersionId === null;
+    if (firstManualIngest && row.status !== 'failed') {
+      throw new AppError('CONFLICT', '文档正在首次入库，请稍后重试');
+    }
     if (firstManualIngest) {
       const input = knowledgeIngestInputSnapshotSchema.safeParse({
         blobSha256: row.contentHash,

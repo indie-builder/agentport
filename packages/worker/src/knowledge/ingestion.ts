@@ -1362,6 +1362,17 @@ export async function runReindex(
         );
         continue;
       }
+      if (
+        document.sourceType === 'manual' &&
+        document.contentKind === 'document' &&
+        document.currentVersionId === null
+      ) {
+        deps.logger.warn(
+          { documentId: document.id },
+          'reindex skipped: manual document requires explicit ingest',
+        );
+        continue;
+      }
       if (!confirmOverwriteManualChunks && (await hasManualEdits(deps, document))) {
         deps.logger.warn(
           { documentId: document.id },
