@@ -6,7 +6,7 @@ import {
   externalRunStatusSchema,
   inboundWebhookPayloadSchema,
 } from '@agentport/shared';
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
 import { requireUser } from '../../http/access.js';
 import { requestBodyLimit } from '../../http/body-limit.js';
 import { type HttpEnv, requestContext } from '../../http/context.js';
@@ -17,6 +17,18 @@ import { verifyWebhookSignature } from './signature.js';
 import { submitExternalRun } from './use-cases.js';
 
 const bodyLimitHandler = requestBodyLimit(1_048_576);
+
+type ExternalRunAccepted = Awaited<ReturnType<typeof submitExternalRun>>;
+
+function acceptedRunResponse(c: Context<HttpEnv>, result: ExternalRunAccepted) {
+  const accepted = externalRunAcceptedSchema.parse({
+    runId: result.runId,
+    conversationId: result.conversationId,
+    status: result.status,
+    ...(result.replayed ? { replayed: true } : {}),
+  });
+  return c.json(accepted, result.replayed ? 200 : 202);
+}
 
 function parseJson(body: string): unknown {
   try {
@@ -90,13 +102,7 @@ export function registerIntegrationsHttp(app: Hono<HttpEnv>): void {
           },
         },
       });
-      const accepted = externalRunAcceptedSchema.parse({
-        runId: result.runId,
-        conversationId: result.conversationId,
-        status: result.status,
-        ...(result.replayed ? { replayed: true } : {}),
-      });
-      return c.json(accepted, result.replayed ? 200 : 202);
+      return acceptedRunResponse(c, result);
     },
   );
 
@@ -175,13 +181,7 @@ export function registerIntegrationsHttp(app: Hono<HttpEnv>): void {
           input: { endpointId: endpoint.id, eventId: parsed.data.eventId },
         },
       });
-      const accepted = externalRunAcceptedSchema.parse({
-        runId: result.runId,
-        conversationId: result.conversationId,
-        status: result.status,
-        ...(result.replayed ? { replayed: true } : {}),
-      });
-      return c.json(accepted, result.replayed ? 200 : 202);
+      return acceptedRunResponse(c, result);
     },
   );
 }
