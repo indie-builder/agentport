@@ -1,6 +1,6 @@
 import { repo } from '@agentport/db';
 import type { AppContext } from '../../http/context.js';
-import { publishChannelEvent } from '../../queue/producer.js';
+import { publishChannelEventSafely } from '../channels/publish.js';
 import { summarizeToolArguments } from './tool-arguments.js';
 
 export async function requestToolApproval(
@@ -87,17 +87,17 @@ export async function requestToolApproval(
         }),
     ),
   );
-  await publishChannelEvent(approval.channelId, {
-    type: 'approval.requested',
-    channelId: approval.channelId,
-    runId,
-    approvalId: approval.id,
-    toolName: approval.toolName,
-  }).catch((err: unknown) => {
-    app.log.warn(
-      { err, channelId: approval.channelId, runId, approvalId: approval.id },
-      'channel approval event publish failed',
-    );
-  });
+  await publishChannelEventSafely(
+    app.log,
+    approval.channelId,
+    {
+      type: 'approval.requested',
+      channelId: approval.channelId,
+      runId,
+      approvalId: approval.id,
+      toolName: approval.toolName,
+    },
+    { runId, approvalId: approval.id },
+  );
   return approval;
 }
