@@ -50,6 +50,10 @@ export function fail(
   throw new AppError(code, message, options);
 }
 
+export function invalidInput(message: string, path: string): never {
+  return fail('INVALID_INPUT', message, { path });
+}
+
 export const NOT_FOUND_MESSAGES = {
   agent: '智能体不存在，可能已被删除；请刷新后重试',
   conversation: '会话不存在，可能已被删除；请刷新后重试',

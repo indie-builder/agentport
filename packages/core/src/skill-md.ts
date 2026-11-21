@@ -1,5 +1,5 @@
 import { type SkillInput, skillInputSchema } from '@agentport/shared';
-import { fail } from './errors.js';
+import { invalidInput } from './errors.js';
 import { parseMarkdownFrontmatter, splitHeading } from './markdown-frontmatter.js';
 
 /** 官方 SKILL.md 的来源描述字段：解析时保留，导出时原样写回 frontmatter。 */
@@ -13,10 +13,6 @@ export type ParsedSkill = SkillInput & SkillProvenance;
 
 const PROVENANCE_KEYS = new Set(['license', 'compatibility', 'metadata']);
 
-function invalid(message: string, path = '/skillMd'): never {
-  fail('INVALID_INPUT', message, { path });
-}
-
 function plainValue(value: unknown, keyPath: string): unknown {
   if (value instanceof Map) {
     return Object.fromEntries(
@@ -28,7 +24,7 @@ function plainValue(value: unknown, keyPath: string): unknown {
   }
   // JSON.stringify 会把 NaN/Infinity 写成 null，往返后值就变了。
   if (typeof value === 'number' && !Number.isFinite(value)) {
-    invalid(`SKILL.md 的 ${keyPath} 必须是有限数字`, '/metadata');
+    invalidInput(`SKILL.md 的 ${keyPath} 必须是有限数字`, '/metadata');
   }
   return value;
 }
@@ -38,9 +34,9 @@ function provenanceOf(fields: Map<string, unknown>): SkillProvenance {
   for (const key of ['license', 'compatibility'] as const) {
     const value = fields.get(key);
     if (value === undefined) continue;
-    if (typeof value !== 'string') invalid(`SKILL.md 的 ${key} 必须是字符串`, `/${key}`);
+    if (typeof value !== 'string') invalidInput(`SKILL.md 的 ${key} 必须是字符串`, `/${key}`);
     if (value.length > 200) {
-      invalid(`SKILL.md 的 ${key} 不能超过 200 个字符`, `/${key}`);
+      invalidInput(`SKILL.md 的 ${key} 不能超过 200 个字符`, `/${key}`);
     }
     provenance[key] = value;
   }
@@ -48,7 +44,7 @@ function provenanceOf(fields: Map<string, unknown>): SkillProvenance {
   if (metadata !== undefined) {
     const plain = plainValue(metadata, 'metadata');
     if (typeof plain !== 'object' || plain === null || Array.isArray(plain)) {
-      invalid('SKILL.md 的 metadata 必须是映射', '/metadata');
+      invalidInput('SKILL.md 的 metadata 必须是映射', '/metadata');
     }
     provenance.metadata = plain as Record<string, unknown>;
   }
@@ -75,7 +71,10 @@ export function parseSkillMd(
     unknown.push(key);
   }
   if (unknown.length > 0) {
-    invalid(`不支持的 SKILL.md 前置字段：${unknown.join('、')}（可能改变运行时行为）`);
+    invalidInput(
+      `不支持的 SKILL.md 前置字段：${unknown.join('、')}（可能改变运行时行为）`,
+      '/skillMd',
+    );
   }
 
   const { body: instructions, displayName } = splitHeading(rawBody);
@@ -89,7 +88,7 @@ export function parseSkillMd(
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     const field = fieldOf(issue?.path[0]);
-    invalid(`SKILL.md 的 ${field} 无效：${issue?.message ?? '字段不合法'}`, `/${field}`);
+    invalidInput(`SKILL.md 的 ${field} 无效：${issue?.message ?? '字段不合法'}`, `/${field}`);
   }
 
   return {
