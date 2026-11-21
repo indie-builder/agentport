@@ -142,6 +142,7 @@ function chunk<T>(items: T[], size = FAQ_BATCH_SIZE): T[][] {
 
 export interface FaqDraftSummary {
   byDocumentId: Map<string, KnowledgeFaqVersion | null>;
+  missing: Set<string>;
   complete: boolean;
   errorCount: number;
   retrying: boolean;
@@ -154,30 +155,40 @@ export function summarizeFaqDrafts(
     isError: boolean;
     isFetching: boolean;
   }>,
+  chunkIds: string[][],
 ): FaqDraftSummary {
   const byDocumentId = new Map<string, KnowledgeFaqVersion | null>();
-  for (const result of results) {
+  const missing = new Set<string>();
+  results.forEach((result, index) => {
     for (const item of result.data ?? []) byDocumentId.set(item.documentId, item.draft);
-  }
+    if (result.isSuccess && result.data !== undefined) {
+      const returned = new Set(result.data.map((item) => item.documentId));
+      for (const id of chunkIds[index] ?? []) if (!returned.has(id)) missing.add(id);
+    }
+  });
   return {
     byDocumentId,
+    missing,
     complete:
-      results.length > 0 && results.every((r) => r.isSuccess && !r.isError && !r.isFetching),
+      results.length > 0 &&
+      missing.size === 0 &&
+      results.every((r) => r.isSuccess && !r.isError && !r.isFetching),
     errorCount: results.filter((r) => r.isError).length,
     retrying: results.some((r) => r.isError && r.isFetching),
   };
 }
 
 export function useKnowledgeFaqDrafts(documentIds: string[], enabled: boolean) {
-  const chunks = chunk(documentIds);
-  return useQueries({
-    queries: chunks.map((ids) => ({
+  const chunkIds = chunk(documentIds);
+  const results = useQueries({
+    queries: chunkIds.map((ids) => ({
       queryKey: ['knowledge', 'faq-drafts', ...ids],
       queryFn: () => api.knowledgeFaqDrafts(ids),
       enabled: enabled && ids.length > 0,
       staleTime: 0,
     })),
   });
+  return { chunkIds, results };
 }
 
 export interface FaqJobSummary {

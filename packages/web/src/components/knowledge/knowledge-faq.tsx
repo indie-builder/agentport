@@ -699,12 +699,12 @@ function FaqImportDialog({
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const draftQueries = useKnowledgeFaqDrafts(
+  const { chunkIds: draftChunkIds, results: draftQueries } = useKnowledgeFaqDrafts(
     existingItems.map((item) => item.id),
     existingComplete && existingItems.length > 0,
   );
-  const draftSummary = summarizeFaqDrafts(draftQueries);
-  const detailErrorCount = draftSummary.errorCount;
+  const draftSummary = summarizeFaqDrafts(draftQueries, draftChunkIds);
+  const detailErrorCount = draftSummary.errorCount + draftSummary.missing.size;
   const detailsRetrying = draftSummary.retrying;
   const recoveryReadReady = existingComplete && draftSummary.complete;
   const existingById = new Map(existingItems.map((item) => [item.id, item]));
@@ -795,10 +795,12 @@ function FaqImportDialog({
   const documentIds = jobsOk
     ? publishable.flatMap((result) => (result.documentId === undefined ? [] : [result.documentId]))
     : [];
-  const committedDraftQueries = useKnowledgeFaqDrafts(documentIds, jobsOk);
-  const committedDraftSummary = summarizeFaqDrafts(committedDraftQueries);
+  const { chunkIds: committedDraftChunkIds, results: committedDraftQueries } =
+    useKnowledgeFaqDrafts(documentIds, jobsOk);
+  const committedDraftSummary = summarizeFaqDrafts(committedDraftQueries, committedDraftChunkIds);
   const committedDetailsComplete = documentIds.length > 0 && committedDraftSummary.complete;
-  const committedDetailErrorCount = committedDraftSummary.errorCount;
+  const committedDetailErrorCount =
+    committedDraftSummary.errorCount + committedDraftSummary.missing.size;
   const committedDetailsRetrying = committedDraftSummary.retrying;
   const publishItems = publishable.flatMap((result) => {
     if (result.documentId === undefined) return [];
@@ -893,6 +895,7 @@ function FaqImportDialog({
     for (const query of draftQueries) {
       if (query.isError) void query.refetch();
     }
+    if (draftSummary.missing.size > 0) retryList();
   };
 
   const retryRecoveredJobs = (): void => {

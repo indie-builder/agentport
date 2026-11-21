@@ -609,6 +609,7 @@ export async function faqDrafts(
   const documents = await deps.db
     .select({
       id: schema.knowledgeDocuments.id,
+      baseId: schema.knowledgeBases.id,
       currentVersionId: schema.knowledgeDocuments.currentVersionId,
     })
     .from(schema.knowledgeDocuments)
@@ -650,6 +651,7 @@ export async function faqDrafts(
     const draft = latest.get(document.id);
     return {
       documentId: document.id,
+      baseId: document.baseId,
       draft: draft ? toFaqVersion(draft, false) : null,
     };
   });

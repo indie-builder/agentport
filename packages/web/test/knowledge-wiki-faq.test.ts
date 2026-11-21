@@ -467,20 +467,6 @@ describe('knowledge FAQ management', () => {
       http.post('/api/knowledge/bases/kb_1/faqs/batch', () =>
         HttpResponse.json({ results: [{ documentId: 'kdoc_new', status: 'succeeded' }] }),
       ),
-      http.get('/api/knowledge/jobs/kjob_import', () =>
-        HttpResponse.json({
-          id: 'kjob_import',
-          type: 'ingest',
-          status: 'succeeded',
-          step: null,
-          progress: 100,
-          attempts: 1,
-          error: null,
-          createdAt: '2026-01-01T00:00:00Z',
-          startedAt: '2026-01-01T00:00:00Z',
-          endedAt: '2026-01-01T00:01:00Z',
-        }),
-      ),
       http.get(
         '/api/knowledge/bases/kb_1/faqs/export',
         () => new HttpResponse('[]', { headers: { 'content-type': 'application/json' } }),

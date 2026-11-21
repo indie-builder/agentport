@@ -466,7 +466,13 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
         'knowledge_base',
         'read',
       );
-      return useCases.faqDrafts(depsOf(context), input.body.documentIds, access);
+      const drafts = await useCases.faqDrafts(depsOf(context), input.body.documentIds, access);
+      await Promise.all(
+        [...new Set(drafts.map((draft) => draft.baseId))].map((baseId) =>
+          authorizeBase(context, baseId, 'knowledge.read', 'read'),
+        ),
+      );
+      return drafts.map(({ documentId, draft }) => ({ documentId, draft }));
     }),
     remove: os.faqs.remove.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');

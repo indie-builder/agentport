@@ -836,7 +836,7 @@ describe('FAQ import batch recovery', () => {
     expect(publisher.querySelector('#faq-import-file')).toBeNull();
     await click(button('发布批次 2 条 FAQ', publisher));
     const posts = calls.filter(
-      (call) => call.method === 'POST' && call.path === '/api/knowledge/bases/kb_1/faqs/batch',
+      (call) => call.method === 'POST' && call.path !== '/api/knowledge/faqs/drafts',
     );
     expect(posts).toHaveLength(1);
     expect(posts[0]?.path).toBe('/api/knowledge/bases/kb_1/faqs/batch');
