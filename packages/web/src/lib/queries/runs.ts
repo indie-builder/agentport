@@ -17,16 +17,27 @@ import {
   withRunQuestion,
 } from './shared.js';
 
-export function useRuns(query: RunQuery = {}, enabled = true) {
-  return useCursorList<RunList>({
-    queryKey: [
+export const runKeys = {
+  all: ['runs'] as const,
+  list: (query: RunQuery = {}) =>
+    [
       'runs',
       query.agentId ?? null,
       query.status ?? null,
       query.trigger ?? null,
       query.since ?? null,
       query.limit ?? 50,
-    ],
+    ] as const,
+  detail: (runId: string) => ['run', runId] as const,
+  approvals: (runId: string | null) => ['run-approvals', runId] as const,
+  feedback: (runId: string) => ['run-feedback', runId] as const,
+  feedbackAll: ['run-feedback'] as const,
+  questions: (runId: string) => ['run-questions', runId] as const,
+};
+
+export function useRuns(query: RunQuery = {}, enabled = true) {
+  return useCursorList<RunList>({
+    queryKey: runKeys.list(query),
     queryFn: (cursor, signal) =>
       api.runs({ ...query, ...(cursor === undefined ? {} : { cursor }) }, signal),
     enabled,
@@ -42,7 +53,7 @@ export function useRuns(query: RunQuery = {}, enabled = true) {
 
 export const runQuery = (runId: string) =>
   queryOptions<RunDetail>({
-    queryKey: ['run', runId],
+    queryKey: runKeys.detail(runId),
     queryFn: ({ signal }) => api.run(runId, signal),
     staleTime: 5_000,
   });
@@ -59,7 +70,7 @@ export function useRun(runId: string, poll = true) {
 }
 
 export function useRunApprovals(runId: string | null, active = true) {
-  const queryKey = useMemo(() => ['run-approvals', runId], [runId]);
+  const queryKey = useMemo(() => runKeys.approvals(runId), [runId]);
   useRefetchWhenRunEnds(runId ?? '', active, queryKey);
   return useQuery<ApprovalRequestList>({
     queryKey,
@@ -75,7 +86,7 @@ export function useApproveRun() {
     mutationFn: (input: { runId: string; approvalId: string }) =>
       api.approveRun(input.runId, input.approvalId),
     onSuccess: (_data, input) =>
-      void client.invalidateQueries({ queryKey: ['run-approvals', input.runId] }),
+      void client.invalidateQueries({ queryKey: runKeys.approvals(input.runId) }),
   });
 }
 
@@ -85,7 +96,7 @@ export function useDenyRun() {
     mutationFn: (input: { runId: string; approvalId: string }) =>
       api.denyRun(input.runId, input.approvalId),
     onSuccess: (_data, input) =>
-      void client.invalidateQueries({ queryKey: ['run-approvals', input.runId] }),
+      void client.invalidateQueries({ queryKey: runKeys.approvals(input.runId) }),
   });
 }
 
@@ -94,15 +105,15 @@ export function useCancelRun() {
   return useMutation({
     mutationFn: (runId: string) => api.cancelRun(runId),
     onSuccess: (_data, runId) => {
-      void client.invalidateQueries({ queryKey: ['run', runId] });
-      void client.invalidateQueries({ queryKey: ['runs'] });
+      void client.invalidateQueries({ queryKey: runKeys.detail(runId) });
+      void client.invalidateQueries({ queryKey: runKeys.all });
     },
   });
 }
 
 export function useRunFeedback(runId: string) {
   return useQuery<RunFeedbackList>({
-    queryKey: ['run-feedback', runId],
+    queryKey: runKeys.feedback(runId),
     queryFn: () => api.runFeedback(runId),
     staleTime: 5_000,
   });
@@ -114,7 +125,7 @@ export function useSubmitRunFeedback() {
     mutationFn: ({ runId, ...body }: { runId: string } & SubmitRunFeedback) =>
       api.submitRunFeedback(runId, body),
     onSuccess: (_feedback, input) =>
-      void client.invalidateQueries({ queryKey: ['run-feedback', input.runId] }),
+      void client.invalidateQueries({ queryKey: runKeys.feedback(input.runId) }),
   });
 }
 
@@ -122,7 +133,7 @@ export interface RunQuestionList {
   items: PublicRunQuestion[];
 }
 
-export const runQuestionsQueryKey = (runId: string) => ['run-questions', runId];
+export const runQuestionsQueryKey = (runId: string) => runKeys.questions(runId);
 
 export function useRunQuestions(runId: string | null, active = true) {
   const client = useQueryClient();
@@ -162,6 +173,6 @@ export function useRerun() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: ChatRequest) => api.sendChat(input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['runs'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: runKeys.all }),
   });
 }

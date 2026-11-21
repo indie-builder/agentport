@@ -28,6 +28,7 @@ import { useFormBlocker } from '../../lib/form.js';
 import {
   chatKeys,
   OVERVIEW_QUERY_KEY,
+  runKeys,
   useAgents,
   useAgentsTruncated,
   useApproveRun,
@@ -344,7 +345,7 @@ function ChatWorkspace({
     onSuccess: (_data, id) => {
       void client.invalidateQueries({ queryKey: chatKeys.conversations() });
       void client.invalidateQueries({ queryKey: chatKeys.conversation(id) });
-      void client.invalidateQueries({ queryKey: ['runs'] });
+      void client.invalidateQueries({ queryKey: runKeys.all });
       void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
       if (id === conversationId) setDeletedConversation(id);
       toastSuccess('会话已删除');
