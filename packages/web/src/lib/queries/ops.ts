@@ -9,8 +9,17 @@ import {
 } from '../api.js';
 import { useCursorList } from './shared.js';
 
+export const opsKeys = {
+  healthMetrics: ['health-metrics'] as const,
+  healthLive: ['health-live'] as const,
+  healthReady: ['health-ready'] as const,
+  schedules: ['schedules'] as const,
+  scheduleRuns: (id: string) => ['schedules', id, 'runs'] as const,
+  retention: ['retention'] as const,
+};
+
 export const healthMetricsQuery = queryOptions<HealthMetrics>({
-  queryKey: ['health-metrics'],
+  queryKey: opsKeys.healthMetrics,
   // 失败时抛错而不是回退 null，React Query 才会保留上次成功读数。
   queryFn: async () => {
     const data = await api.healthMetrics();
@@ -22,14 +31,14 @@ export const healthMetricsQuery = queryOptions<HealthMetrics>({
 });
 
 export const healthLiveQuery = queryOptions<HealthProbe<HealthLive>>({
-  queryKey: ['health-live'],
+  queryKey: opsKeys.healthLive,
   queryFn: api.healthLive,
   refetchInterval: 10_000,
   staleTime: 0,
 });
 
 export const healthReadyQuery = queryOptions<HealthProbe<HealthReady>>({
-  queryKey: ['health-ready'],
+  queryKey: opsKeys.healthReady,
   queryFn: api.healthReady,
   refetchInterval: 10_000,
   staleTime: 0,
@@ -37,11 +46,9 @@ export const healthReadyQuery = queryOptions<HealthProbe<HealthReady>>({
 
 const SCHEDULES_PAGE_SIZE = 50;
 
-export const schedulesQueryKey = ['schedules'] as const;
-
 export function useSchedules() {
   return useCursorList({
-    queryKey: schedulesQueryKey,
+    queryKey: opsKeys.schedules,
     queryFn: (cursor, signal) =>
       api.schedules(
         {
@@ -55,7 +62,7 @@ export function useSchedules() {
 
 export const scheduleRunsQuery = (id: string) =>
   queryOptions<ScheduleRun[]>({
-    queryKey: ['schedules', id, 'runs'],
+    queryKey: opsKeys.scheduleRuns(id),
     queryFn: () => api.scheduleRuns(id),
     refetchInterval: (query) =>
       query.state.data?.some((run) => run.status === 'queued' || run.status === 'running')
@@ -68,7 +75,7 @@ export function useScheduleRuns(id: string, enabled = true) {
 }
 
 const retentionQuery = queryOptions<RetentionSettings>({
-  queryKey: ['retention'],
+  queryKey: opsKeys.retention,
   queryFn: api.retention,
 });
 
