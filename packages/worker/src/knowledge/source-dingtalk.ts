@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { fetchDownload } from './source-download.js';
+import { BINARY_MIME_BY_EXTENSION, declaredMime } from './source-formats.js';
 import { fetchJson, SourceItemError as ItemError, rethrowAuth } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
@@ -26,11 +27,11 @@ const BASE = 'https://api.dingtalk.com';
 const MAX_PAGES = 1000;
 const BLOCK_PAGE_SIZE = 100;
 
-const BINARY_MIME_BY_EXTENSION: Record<string, string> = {
-  pdf: 'application/pdf',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+const SUPPORTED_BINARY_MIME: Record<string, string | undefined> = {
+  pdf: BINARY_MIME_BY_EXTENSION['.pdf'],
+  docx: BINARY_MIME_BY_EXTENSION['.docx'],
+  pptx: BINARY_MIME_BY_EXTENSION['.pptx'],
+  xlsx: BINARY_MIME_BY_EXTENSION['.xlsx'],
 };
 
 const settingsSchema = z.object({
@@ -179,7 +180,7 @@ function isUploadedDocument(node: Node): boolean {
   return (
     node.type?.toUpperCase() === 'FILE' &&
     node.category?.toUpperCase() === 'DOCUMENT' &&
-    BINARY_MIME_BY_EXTENSION[node.extension?.toLowerCase() ?? ''] !== undefined
+    SUPPORTED_BINARY_MIME[node.extension?.toLowerCase() ?? ''] !== undefined
   );
 }
 
@@ -742,12 +743,9 @@ async function emitNode(
 }
 
 function binaryMime(extension: string, contentType: string | null): string {
-  const byExtension = BINARY_MIME_BY_EXTENSION[extension.toLowerCase()];
+  const byExtension = SUPPORTED_BINARY_MIME[extension.toLowerCase()];
   if (byExtension) return byExtension;
-  const declared = contentType?.split(';')[0]?.trim().toLowerCase();
-  return declared && declared !== 'application/octet-stream'
-    ? declared
-    : 'application/octet-stream';
+  return declaredMime(contentType) ?? 'application/octet-stream';
 }
 
 async function resolveRoot(

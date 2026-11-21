@@ -12,7 +12,10 @@ const TEXT_MIME_BY_EXTENSION: Record<string, string> = {
   '.yml': 'application/yaml',
 };
 
-export const BINARY_MIME_BY_EXTENSION: Record<string, string> = {
+export const BINARY_MIME_BY_EXTENSION: Record<string, string> & {
+  '.docx': string;
+  '.xlsx': string;
+} = {
   '.pdf': 'application/pdf',
   '.doc': 'application/msword',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -50,32 +53,50 @@ export function mimeOf(name: string, declared: string | undefined): string | und
   return mime && EXTENSION_BY_MIME[mime] ? mime : undefined;
 }
 
-export const EXTENSION_BY_MIME: Record<string, string> = {
-  'application/pdf': 'pdf',
-  'application/msword': 'doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-  'application/vnd.ms-powerpoint': 'ppt',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-  'application/vnd.ms-excel': 'xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-  'application/rtf': 'rtf',
-  'application/epub+zip': 'epub',
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-  'text/plain': 'txt',
-  'text/html': 'html',
-  'text/csv': 'csv',
-  'text/markdown': 'md',
-  'application/json': 'json',
-  'application/xml': 'xml',
-};
+export const EXTENSION_BY_MIME: Record<string, string> = {};
 
 export const MIME_BY_EXTENSION: Record<string, string> = {
   ...TEXT_MIME_BY_EXTENSION,
   '.rst': 'text/plain',
   '.adoc': 'text/plain',
+};
+
+export function mimeForExtension(extension: string): string | undefined {
+  return BINARY_MIME_BY_EXTENSION[extension] ?? MIME_BY_EXTENSION[extension];
+}
+
+const EXTENSION_BY_MIME_EXTENSIONS = new Set([
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.ppt',
+  '.pptx',
+  '.xls',
+  '.xlsx',
+  '.rtf',
+  '.epub',
+  '.png',
+  '.jpg',
+  '.gif',
+  '.webp',
+  '.txt',
+  '.html',
+  '.csv',
+  '.md',
+  '.json',
+  '.xml',
+]);
+
+for (const extension of EXTENSION_BY_MIME_EXTENSIONS) {
+  const mime = mimeForExtension(extension);
+  if (mime) EXTENSION_BY_MIME[mime] = extension.slice(1);
+}
+
+export const MIME_ALIASES: Record<string, string> = {
+  'text/x-markdown': 'text/markdown',
+  'application/md': 'text/markdown',
+  'application/markdown': 'text/markdown',
+  'image/jpg': 'image/jpeg',
 };
 
 export function textContentType(value: string | null): boolean {

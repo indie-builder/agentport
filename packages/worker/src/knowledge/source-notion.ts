@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { BINARY_MIME_BY_EXTENSION, declaredMime, extensionWithDot } from './source-formats.js';
+import {
+  BINARY_MIME_BY_EXTENSION,
+  declaredMime,
+  extensionWithDot,
+  MIME_BY_EXTENSION,
+  mimeForExtension,
+} from './source-formats.js';
 import {
   type FetchOptions,
   fetchChecked,
@@ -180,31 +186,20 @@ type Block = z.infer<typeof blockSchema>;
 type FileObject = z.infer<typeof fileObjectSchema>;
 type Property = z.infer<typeof propertySchema>;
 
-const TEXT_MIME_BY_EXTENSION: Record<string, string> = {
-  '.md': 'text/markdown',
-  '.markdown': 'text/markdown',
-  '.txt': 'text/plain',
-  '.html': 'text/html',
-  '.htm': 'text/html',
-  '.csv': 'text/csv',
-  '.json': 'application/json',
-  '.xml': 'application/xml',
-  '.yaml': 'application/yaml',
-  '.yml': 'application/yaml',
-};
+const UNSUPPORTED_TEXT_EXTENSIONS = new Set(['.mdx', '.rst', '.adoc']);
 
 const EXTENSION_BY_MIME: Record<string, string> = Object.fromEntries(
-  Object.entries({ ...TEXT_MIME_BY_EXTENSION, ...BINARY_MIME_BY_EXTENSION }).map(
-    ([extension, mime]) => [mime, extension],
-  ),
+  Object.entries({ ...MIME_BY_EXTENSION, ...BINARY_MIME_BY_EXTENSION })
+    .filter(([extension]) => !UNSUPPORTED_TEXT_EXTENSIONS.has(extension))
+    .map(([extension, mime]) => [mime, extension]),
 );
 
 function mimeForName(name: string, contentType: string | null): string {
-  const byExtension =
-    BINARY_MIME_BY_EXTENSION[extensionWithDot(name)] ??
-    TEXT_MIME_BY_EXTENSION[extensionWithDot(name)];
-  if (byExtension) return byExtension;
-  return declaredMime(contentType) ?? 'application/octet-stream';
+  const extension = extensionWithDot(name);
+  const byExtension = UNSUPPORTED_TEXT_EXTENSIONS.has(extension)
+    ? undefined
+    : mimeForExtension(extension);
+  return byExtension ?? declaredMime(contentType) ?? 'application/octet-stream';
 }
 
 function ensureExtension(name: string, mimeType: string): string {

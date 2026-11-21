@@ -4,6 +4,7 @@ import {
   declaredMime,
   extensionWithDot,
   MIME_BY_EXTENSION,
+  mimeForExtension,
   textContentType,
 } from './source-formats.js';
 import {
@@ -43,10 +44,11 @@ for (const [extension, mime] of Object.entries({
 }
 
 function driveFileMime(fileName: string, contentType: string | null): string {
-  const extension = extensionWithDot(fileName);
-  const byExtension = BINARY_MIME_BY_EXTENSION[extension] ?? MIME_BY_EXTENSION[extension];
-  if (byExtension) return byExtension;
-  return declaredMime(contentType) ?? 'application/octet-stream';
+  return (
+    mimeForExtension(extensionWithDot(fileName)) ??
+    declaredMime(contentType) ??
+    'application/octet-stream'
+  );
 }
 
 const textElementSchema = z
@@ -397,19 +399,19 @@ const EXPORT_MAX_POLLS = 60;
 const EXPORT_KINDS: Record<string, { extension: 'docx' | 'xlsx'; mimeType: string }> = {
   doc: {
     extension: 'docx',
-    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    mimeType: BINARY_MIME_BY_EXTENSION['.docx'],
   },
   docx: {
     extension: 'docx',
-    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    mimeType: BINARY_MIME_BY_EXTENSION['.docx'],
   },
   sheet: {
     extension: 'xlsx',
-    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    mimeType: BINARY_MIME_BY_EXTENSION['.xlsx'],
   },
   bitable: {
     extension: 'xlsx',
-    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    mimeType: BINARY_MIME_BY_EXTENSION['.xlsx'],
   },
 };
 
@@ -461,7 +463,7 @@ function dispositionFilename(disposition: string | null): string | undefined {
 type DownloadFormat = { mimeType: string; extension: string };
 
 function downloadFormat(extension: string): DownloadFormat | null {
-  const mimeType = BINARY_MIME_BY_EXTENSION[extension] ?? MIME_BY_EXTENSION[extension];
+  const mimeType = mimeForExtension(extension);
   return mimeType ? { extension: extension.slice(1), mimeType } : null;
 }
 
