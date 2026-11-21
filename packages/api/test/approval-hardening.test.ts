@@ -632,6 +632,79 @@ describe.skipIf(!ready || isolated === null)('approval hardening', () => {
     );
   });
 
+  it('does not resurrect an approved decision after the tool is disabled and re-enabled', async () => {
+    let upstreamCalls = 0;
+    using upstream = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch: () => {
+        upstreamCalls += 1;
+        return Response.json({ ok: true });
+      },
+    });
+    const server = await createServer(upstream.url.origin);
+    const tool = await createTool(server.id, { name: unique('toggle-tool'), approvalMode: 'ask' });
+    const agent = await createAgent({ serverIds: [server.id] });
+    const token = crypto.randomUUID();
+    const { runId } = await seedRun({
+      agentId: agent.id,
+      businessId: 'bootstrap-admin',
+      token,
+    });
+    const pending = toolApprovalResponseSchema.parse(
+      (
+        await approvalState({ runId, serverId: server.id, name: tool.name, token, method: 'PUT' })
+      ).json(),
+    );
+    if (pending.approvalId === null) throw new Error('approval missing');
+    const approved = await request(app, {
+      method: 'POST',
+      url: `/api/runs/${runId}/approve`,
+      headers: { cookie },
+      payload: { approvalId: pending.approvalId },
+    });
+    expect(approved.statusCode, approved.body).toBe(200);
+
+    for (const enabled of [false, true]) {
+      const patched = await request(app, {
+        method: 'PATCH',
+        url: `/api/servers/${server.id}/tools/${tool.id}`,
+        headers: { cookie },
+        payload: { enabled },
+      });
+      expect(patched.statusCode, patched.body).toBe(200);
+      if (enabled === false) {
+        expectProblem(
+          await approvalState({
+            runId,
+            serverId: server.id,
+            name: tool.name,
+            token,
+            method: 'GET',
+            approvalId: pending.approvalId,
+          }),
+          'CONFLICT',
+        );
+      }
+    }
+
+    expectProblem(
+      await approvalState({
+        runId,
+        serverId: server.id,
+        name: tool.name,
+        token,
+        method: 'GET',
+        approvalId: pending.approvalId,
+      }),
+      'CONFLICT',
+    );
+    expect((await callTool({ serverId: server.id, runId, token, name: tool.name })).isError).toBe(
+      true,
+    );
+    expect(upstreamCalls).toBe(0);
+  });
+
   it('invalidates a fixed approval when a policy change makes the call a direct allow', async () => {
     const server = await createServer('http://127.0.0.1:9');
     const tool = await createTool(server.id, { name: unique('allow-tool'), approvalMode: 'ask' });

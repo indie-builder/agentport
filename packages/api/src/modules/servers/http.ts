@@ -104,6 +104,15 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
         evaluationFailed,
       );
       if (tool === null) {
+        await context.db.transaction(async (tx) => {
+          await repo.runs.lockRunForApproval(tx, runId);
+          await repo.runs.supersedeMismatchedApprovals(tx, {
+            runId,
+            serverId,
+            toolName,
+            decisionHash: null,
+          });
+        });
         if (boundApprovalId !== undefined) fail('CONFLICT', '工具审批已失效，调用未执行');
         fail('NOT_FOUND', 'approval tool not found');
       }
