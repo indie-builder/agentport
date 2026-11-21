@@ -911,9 +911,11 @@ function FaqImportDialog({
   };
 
   const retryCommittedDetails = (): void => {
-    for (const query of committedDraftQueries) {
-      if (query.isError) void query.refetch();
-    }
+    committedDraftQueries.forEach((query, index) => {
+      const ids = committedDraftChunkIds[index] ?? [];
+      const missed = ids.some((id) => committedDraftSummary.missing.has(id));
+      if (query.isError || missed) void query.refetch();
+    });
   };
 
   const publishRecovered = (): void => {

@@ -377,7 +377,6 @@ describe('knowledge FAQ management', () => {
         HttpResponse.json({ items: [faqSummary], nextCursor: null }),
       ),
       http.get('/api/knowledge/faqs/kdoc_faq', () => HttpResponse.json(faqDetail)),
-      http.get('/api/knowledge/faqs/kdoc_new', () => HttpResponse.json(importedDetail)),
       http.post('/api/knowledge/faqs/drafts', async ({ request }) => {
         const body = (await request.json()) as { documentIds: string[] };
         return HttpResponse.json(

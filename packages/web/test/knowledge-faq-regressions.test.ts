@@ -360,9 +360,15 @@ function faqDraftsHandler(
 }
 
 function jobsListHandler(items: () => KnowledgeJob[]) {
-  return http.get('/api/knowledge/jobs', () =>
-    HttpResponse.json({ items: items(), nextCursor: null }),
-  );
+  return http.get('/api/knowledge/jobs', ({ request }) => {
+    const requested = [...new URL(request.url).searchParams].flatMap(([key, value]) =>
+      /^ids\[\d+\]$/.test(key) ? [value] : [],
+    );
+    return HttpResponse.json({
+      items: requested.length === 0 ? items() : items().filter((job) => requested.includes(job.id)),
+      nextCursor: null,
+    });
+  });
 }
 
 describe('FAQ 叶权限入口', () => {
@@ -827,6 +833,11 @@ describe('FAQ import batch recovery', () => {
     await click(button('批次发布'));
     const publisher = dialog('批次发布 FAQ');
     await waitFor(() => maybeButton('发布批次 2 条 FAQ', publisher)?.disabled === false);
+    const jobRequestIds = calls
+      .filter((call) => call.method === 'GET' && call.path.startsWith('/api/knowledge/jobs?'))
+      .flatMap((call) => [...new URL(call.path, 'http://localhost').searchParams])
+      .flatMap(([key, value]) => (/^ids\[\d+\]$/.test(key) ? [value] : []));
+    expect(jobRequestIds).toEqual(expect.arrayContaining(['kjob_a', 'kjob_b']));
     expect(publisher.textContent).toContain('继续未完成批次');
     expect(publisher.textContent).toContain('索引已完成，可整批发布');
     expect(maybeButton('预览', publisher)).toBeUndefined();
@@ -1176,6 +1187,7 @@ describe('FAQ committed import publish readiness', () => {
     let detailReads = 0;
     let detailFails = false;
     let freshDraft = false;
+    let dropDraft = false;
     const batchCalls = () =>
       calls.filter(
         (item) => item.method === 'POST' && item.path === '/api/knowledge/bases/kb_1/faqs/batch',
@@ -1186,8 +1198,9 @@ describe('FAQ committed import publish readiness', () => {
         detailReads += 1;
         if (detailFails) return HttpResponse.json({ message: 'boom' }, { status: 500 });
         const body = (await request.json()) as { documentIds: string[] };
+        const documentIds = dropDraft ? [] : body.documentIds;
         return HttpResponse.json(
-          body.documentIds.map((documentId) => ({
+          documentIds.map((documentId) => ({
             documentId,
             draft: freshDraft ? newDraft : oldDraft,
           })),
@@ -1209,7 +1222,7 @@ describe('FAQ committed import publish readiness', () => {
         });
       }),
     );
-    await mount('/knowledge/kb_1', { panel: 'faqs' });
+    const mounted = await mount('/knowledge/kb_1', { panel: 'faqs' });
     await click(button('导入'));
     const importer = dialog('导入 FAQ');
     await waitFor(() => detailReads === 1);
@@ -1232,6 +1245,20 @@ describe('FAQ committed import publish readiness', () => {
     freshDraft = true;
     await click(button('重试读取 1 条草稿版本', importer));
     await waitFor(() => maybeButton('发布本批 1 条 FAQ', importer)?.disabled === false);
+
+    const readsBeforeMissing = detailReads;
+    dropDraft = true;
+    await act(async () => {
+      await mounted.client.invalidateQueries({ queryKey: ['knowledge', 'faq-drafts'] });
+    });
+    await flush();
+    expect(importer.textContent).toContain('草稿版本读取失败');
+    expect(button('发布本批 1 条 FAQ', importer).disabled).toBe(true);
+    dropDraft = false;
+    await click(button('重试读取 1 条草稿版本', importer));
+    await waitFor(() => maybeButton('发布本批 1 条 FAQ', importer)?.disabled === false);
+    expect(detailReads).toBeGreaterThan(readsBeforeMissing);
+
     await click(button('发布本批 1 条 FAQ', importer));
     expect(batchCalls().at(-1)?.body).toEqual({
       action: 'publish',
