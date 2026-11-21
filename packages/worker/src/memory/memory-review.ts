@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { hashMcpToken } from '@agentport/core';
+import { hashMcpToken, selectReviewWindow } from '@agentport/core';
 import { logEvent } from '@agentport/core/logger';
 import { type Database, repo, schema } from '@agentport/db';
 import {
@@ -74,26 +74,13 @@ async function loadSnapshot(
       role: row.role,
       text: repo.chat.messageText(row.content) ?? '',
     }));
-    let from = 0;
-    let through = messages.length;
-    if (source.fromMessageId !== undefined) {
-      const index = messages.findIndex((message) => message.id === source.fromMessageId);
-      if (index < 0) throw new Error(`审核起点消息不在会话中: ${source.fromMessageId}`);
-      from = index;
+    const window = selectReviewWindow(messages, source);
+    if (window.kind === 'missing') {
+      throw new Error(
+        `${window.anchor === 'from' ? '审核起点消息不在会话中' : '审核终点消息不在会话中'}: ${window.messageId}`,
+      );
     }
-    if (source.throughMessageId !== undefined) {
-      const index = messages.findIndex((message) => message.id === source.throughMessageId);
-      if (index < 0) throw new Error(`审核终点消息不在会话中: ${source.throughMessageId}`);
-      through = index + 1;
-    }
-    snapshot.push(
-      ...messages
-        .slice(from, through)
-        .filter(
-          (message) =>
-            (message.role === 'user' || message.role === 'assistant') && message.text !== '',
-        ),
-    );
+    snapshot.push(...window.messages);
   }
   return snapshot;
 }
