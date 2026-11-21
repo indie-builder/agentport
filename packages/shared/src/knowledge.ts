@@ -606,6 +606,7 @@ export const knowledgeJobTypeSchema = z.enum([
   'source_probe',
   'wiki_generate',
   'summary',
+  'tag_generate',
   'cleanup',
 ]);
 
@@ -619,6 +620,7 @@ export const KNOWLEDGE_JOB_TIMEOUT_MS: Record<KnowledgeJobType, number> = {
   source_probe: 5 * 60_000,
   wiki_generate: 15 * 60_000,
   summary: 10 * 60_000,
+  tag_generate: 5 * 60_000,
   cleanup: 30 * 60_000,
 };
 
@@ -971,6 +973,11 @@ export const knowledgeJobPayloadSchema = z.discriminatedUnion('type', [
     baseId: z.string(),
     documentId: z.string(),
     versionId: z.string(),
+  }),
+  z.object({
+    type: z.literal('tag_generate'),
+    baseId: z.string(),
+    documentId: z.string(),
   }),
   z.object({ type: z.literal('cleanup'), baseId: z.string().optional() }),
 ]);

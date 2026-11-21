@@ -419,6 +419,26 @@ export async function generateDocumentSummary(deps: KnowledgeDeps, documentId: s
   return { jobId: job.id };
 }
 
+export async function generateDocumentTags(deps: KnowledgeDeps, documentId: string) {
+  const document = await repo.knowledge.getDocument(deps.db, documentId);
+  if (!document) notFound('文档');
+  if (document.status === 'disabled' || document.disabledReason !== null) {
+    throw new AppError('CONFLICT', '文档已停用，不能生成标签');
+  }
+  if (!document.currentVersionId) {
+    throw new AppError('CONFLICT', '文档还没有可用版本，不能生成标签');
+  }
+  if (!(await repo.knowledge.isDocumentReadable(deps.db, document.id))) {
+    throw new AppError('CONFLICT', '文档当前不可读，不能生成标签');
+  }
+  const job = await enqueue(
+    deps,
+    { type: 'tag_generate', baseId: document.baseId, documentId: document.id },
+    { baseId: document.baseId, documentId: document.id },
+  );
+  return { jobId: job.id };
+}
+
 type UpdateDocumentBody = {
   title?: string | undefined;
   folderId?: string | null | undefined;

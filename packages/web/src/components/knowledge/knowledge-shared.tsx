@@ -48,6 +48,7 @@ export const jobTypeLabel = {
   source_probe: '来源连接测试',
   wiki_generate: 'Wiki 生成',
   summary: '文档摘要',
+  tag_generate: '文档标签',
   cleanup: '清理',
 } as const;
 

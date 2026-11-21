@@ -907,6 +907,15 @@ const documentsContract = {
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(z.object({ params: documentParams }))
     .output(jobAcceptedSchema),
+  tagsGenerate: contractProcedure
+    .route({
+      method: 'POST',
+      path: '/knowledge/documents/{documentId}/tags/generate',
+      successStatus: 202,
+    })
+    .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
+    .input(z.object({ params: documentParams }))
+    .output(jobAcceptedSchema),
   chunks: contractProcedure
     .route({ method: 'GET', path: '/knowledge/documents/{documentId}/chunks' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })

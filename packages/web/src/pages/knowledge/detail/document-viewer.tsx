@@ -57,6 +57,7 @@ import {
   useCreateKnowledgeChunk,
   useDeleteKnowledgeChunk,
   useGenerateKnowledgeDocumentSummary,
+  useGenerateKnowledgeDocumentTags,
   useKnowledgeDocumentChunks,
   useKnowledgeDocumentDiff,
   useKnowledgeDocumentVersions,
@@ -139,6 +140,7 @@ export function DocumentViewer({
   const rollback = useRollbackKnowledgeDocument(document.baseId);
   const publish = usePublishKnowledgeDocumentVersion(document.baseId);
   const generateSummary = useGenerateKnowledgeDocumentSummary(document.baseId);
+  const generateTags = useGenerateKnowledgeDocumentTags(document.baseId);
   const toggle = useUpdateKnowledgeChunk(document.baseId, document.id, versionId);
   const remove = useDeleteKnowledgeChunk(document.baseId, document.id, versionId);
   const [mode, setMode] = useState<'read' | 'source'>('read');
@@ -344,6 +346,43 @@ export function DocumentViewer({
                   查看来源
                 </a>
               ) : null}
+
+              <PageSection title="标签">
+                {document.tags.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {document.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded-full bg-hover px-2 py-0.5 text-xs text-muted-foreground"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <InlineEmpty>还没有标签</InlineEmpty>
+                )}
+                {canManage && document.status !== 'disabled' ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={generateTags.isPending}
+                    aria-busy={generateTags.isPending}
+                    onClick={() =>
+                      generateTags.mutate(document.id, {
+                        onSuccess: () => toastSuccess('已提交标签生成'),
+                        onError: toastError,
+                      })
+                    }
+                  >
+                    {generateTags.isPending
+                      ? '生成中…'
+                      : document.tags.length > 0
+                        ? '重新生成标签'
+                        : 'AI 生成标签'}
+                  </Button>
+                ) : null}
+              </PageSection>
 
               {summaryVersion ? (
                 <PageSection title="摘要">

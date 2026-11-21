@@ -22,6 +22,7 @@ import {
 } from './ingestion.js';
 import { createParsingAdapter } from './parsing-adapter.js';
 import { runKnowledgeSummary } from './summary.js';
+import { runKnowledgeTagging } from './tagging.js';
 import { runWikiGenerate, type WikiQueryFn } from './wiki.js';
 
 type KnowledgeJobRow = typeof schema.knowledgeJobs.$inferSelect;
@@ -61,6 +62,18 @@ export async function dispatchKnowledgeJob(
         KNOWLEDGE_DIR: deps.knowledgeDir,
         KNOWLEDGE_SUMMARY_MODEL: deps.summaryModel,
         ANTHROPIC_BASE_URL: deps.anthropicBaseUrl,
+      },
+      signal: deps.signal,
+      ...(deps.queryFn === undefined ? {} : { queryFn: deps.queryFn }),
+    });
+    return;
+  }
+  if (job.type === 'tag_generate') {
+    await runKnowledgeTagging(job, {
+      db: deps.db,
+      config: {
+        KNOWLEDGE_DIR: deps.knowledgeDir,
+        KNOWLEDGE_SUMMARY_MODEL: deps.summaryModel,
       },
       signal: deps.signal,
       ...(deps.queryFn === undefined ? {} : { queryFn: deps.queryFn }),

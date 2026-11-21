@@ -1,0 +1,4 @@
+ALTER TABLE "knowledge_jobs" DROP CONSTRAINT "knowledge_jobs_type_check";--> statement-breakpoint
+ALTER TABLE "knowledge_document_tags" ADD COLUMN "origin" text DEFAULT 'manual' NOT NULL;--> statement-breakpoint
+ALTER TABLE "knowledge_document_tags" ADD CONSTRAINT "knowledge_document_tags_origin_check" CHECK ("knowledge_document_tags"."origin" in ('manual', 'auto'));--> statement-breakpoint
+ALTER TABLE "knowledge_jobs" ADD CONSTRAINT "knowledge_jobs_type_check" CHECK ("knowledge_jobs"."type" in ('ingest', 'reindex', 'sync', 'source_probe', 'wiki_generate', 'summary', 'tag_generate', 'cleanup'));

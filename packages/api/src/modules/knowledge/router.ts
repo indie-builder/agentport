@@ -293,6 +293,16 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
       );
       return useCases.generateDocumentSummary(depsOf(context), input.params.documentId);
     }),
+    tagsGenerate: os.documents.tagsGenerate.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.content.manage');
+      await authorizeDocument(
+        context,
+        input.params.documentId,
+        'knowledge.content.manage',
+        'manage',
+      );
+      return useCases.generateDocumentTags(depsOf(context), input.params.documentId);
+    }),
     chunks: os.documents.chunks.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
       await authorizeDocument(context, input.params.documentId, 'knowledge.read', 'read');

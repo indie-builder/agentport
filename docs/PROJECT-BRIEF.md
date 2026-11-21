@@ -693,7 +693,7 @@ knowledge_bases      (id, slug unique, name, description, status, server_id uniq
                       embedding_profile_id fk, rerank_profile_id fk, asr_profile_id fk nullable,
                       settings jsonb)
 knowledge_folders    (id, base_id fk, parent_id fk, name, path)          -- 物化路径 /a/b
-knowledge_tags / knowledge_document_tags                                 -- 文档标签
+knowledge_tags / knowledge_document_tags (origin manual|auto)          -- 文档标签
 knowledge_base_pins  (business_id, base_id fk on delete cascade, pinned_at) -- 按用户维度的列表置顶
 knowledge_documents  (id, base_id, folder_id, title,
                       source_type check in (upload,url,feishu_wiki,feishu_drive,gitlab,github,feed,manual,
@@ -724,7 +724,7 @@ knowledge_document_source_ranges (document_id fk, range_id fk, pk(document_id, r
 knowledge_sync_runs  (id, source_id, status, started_at, ended_at, cursor_before, cursor_after, stats, error)
 knowledge_sync_items (id, sync_run_id fk, source_id fk, range_id fk, external_id, document_id fk,
                       status failed|skipped, code, message, retryable)
-knowledge_jobs       (id, type check in (ingest,reindex,sync,source_probe,wiki_generate,summary,cleanup),
+knowledge_jobs       (id, type check in (ingest,reindex,sync,source_probe,wiki_generate,summary,tag_generate,cleanup),
                       base_id, document_id, source_id, status, step, progress, attempts,
                       error, result, payload)     -- BullMQ jobId = id
 knowledge_model_profiles (id, kind embedding|rerank|asr, name, endpoint_url, model, dimensions,

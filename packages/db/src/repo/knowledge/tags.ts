@@ -119,9 +119,51 @@ export async function setDocumentTags(
   await db.transaction(async (tx) => {
     await tx.delete(knowledgeDocumentTags).where(eq(knowledgeDocumentTags.documentId, documentId));
     if (unique.length > 0) {
-      await tx.insert(knowledgeDocumentTags).values(unique.map((tagId) => ({ documentId, tagId })));
+      await tx
+        .insert(knowledgeDocumentTags)
+        .values(unique.map((tagId) => ({ documentId, tagId, origin: 'manual' as const })));
     }
   });
+}
+
+export async function replaceAutoTags(
+  db: Database,
+  documentId: string,
+  tagIds: string[],
+): Promise<void> {
+  const unique = [...new Set(tagIds)];
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(knowledgeDocumentTags)
+      .where(
+        and(
+          eq(knowledgeDocumentTags.documentId, documentId),
+          eq(knowledgeDocumentTags.origin, 'auto'),
+        ),
+      );
+    if (unique.length > 0) {
+      await tx
+        .insert(knowledgeDocumentTags)
+        .values(unique.map((tagId) => ({ documentId, tagId, origin: 'auto' as const })))
+        .onConflictDoNothing();
+    }
+  });
+}
+
+export async function getDocumentTagRows(
+  db: Database,
+  documentId: string,
+): Promise<{ tagId: string; name: string; origin: 'manual' | 'auto' }[]> {
+  return db
+    .select({
+      tagId: knowledgeDocumentTags.tagId,
+      name: knowledgeTags.name,
+      origin: knowledgeDocumentTags.origin,
+    })
+    .from(knowledgeDocumentTags)
+    .innerJoin(knowledgeTags, eq(knowledgeTags.id, knowledgeDocumentTags.tagId))
+    .where(eq(knowledgeDocumentTags.documentId, documentId))
+    .orderBy(asc(knowledgeTags.name));
 }
 
 export async function getDocumentTagNames(

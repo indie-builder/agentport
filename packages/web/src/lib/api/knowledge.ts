@@ -446,6 +446,8 @@ export default {
     rpc.knowledge.documents.get({ params: { documentId } }, clientOptions(signal)),
   generateKnowledgeDocumentSummary: (documentId: string): Promise<{ jobId: string }> =>
     rpc.knowledge.documents.summary({ params: { documentId } }),
+  generateKnowledgeDocumentTags: (documentId: string): Promise<{ jobId: string }> =>
+    rpc.knowledge.documents.tagsGenerate({ params: { documentId } }),
   uploadKnowledgeDocument: (
     baseId: string,
     input: {
