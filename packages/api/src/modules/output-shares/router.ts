@@ -97,20 +97,25 @@ export async function resolveSharedFile(
   }
 }
 
+async function requireShareableConversation(context: RequestContext, id: string) {
+  const conversation = await repo.chat.getConversation(context.db, id);
+  if (!conversation) notFound('conversation');
+  await authorizeObject(
+    context,
+    'conversations.share',
+    {
+      objectId: conversation.id,
+      createdBy: conversation.createdBy,
+      privateContent: true,
+    },
+    CONVERSATION_MISSING,
+  );
+  return conversation;
+}
+
 export const outputSharesRouter = os.router({
   create: os.create.handler(async ({ input, context }) => {
-    const conversation = await repo.chat.getConversation(context.db, input.params.id);
-    if (!conversation) notFound('conversation');
-    await authorizeObject(
-      context,
-      'conversations.share',
-      {
-        objectId: conversation.id,
-        createdBy: conversation.createdBy,
-        privateContent: true,
-      },
-      CONVERSATION_MISSING,
-    );
+    const conversation = await requireShareableConversation(context, input.params.id);
     if (await repo.chat.isConversationDataDomainRestricted(context.db, conversation.id)) {
       fail('FORBIDDEN', '该会话读取过数据域治理数据，其成果不支持公开分享');
     }
@@ -168,18 +173,7 @@ export const outputSharesRouter = os.router({
   }),
 
   list: os.list.handler(async ({ input, context }) => {
-    const conversation = await repo.chat.getConversation(context.db, input.params.id);
-    if (!conversation) notFound('conversation');
-    await authorizeObject(
-      context,
-      'conversations.share',
-      {
-        objectId: conversation.id,
-        createdBy: conversation.createdBy,
-        privateContent: true,
-      },
-      CONVERSATION_MISSING,
-    );
+    const conversation = await requireShareableConversation(context, input.params.id);
     const rows = await repo.outputShares.listByTriple(
       context.db,
       conversation.id,
