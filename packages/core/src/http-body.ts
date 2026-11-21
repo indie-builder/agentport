@@ -1,4 +1,9 @@
-type CapOptions = { onExceeded?: () => never; checkContentLength?: boolean };
+type CapOptions = {
+  onExceeded?: () => never;
+  checkContentLength?: boolean;
+  truncate?: boolean;
+  onTruncated?: () => void;
+};
 
 export async function readCappedBytes(
   response: Response,
@@ -10,7 +15,7 @@ export async function readCappedBytes(
     if (options.onExceeded) return options.onExceeded();
     throw new Error(`${label} response exceeds ${limit} bytes`);
   };
-  if (options.checkContentLength !== false) {
+  if (options.checkContentLength !== false && options.truncate !== true) {
     const declared = Number(response.headers.get('content-length') ?? '0');
     if (declared > limit) {
       await response.body?.cancel();
@@ -21,8 +26,17 @@ export async function readCappedBytes(
   const chunks: Uint8Array[] = [];
   let total = 0;
   for await (const chunk of response.body) {
+    if (total + chunk.byteLength > limit) {
+      if (options.truncate === true) {
+        const room = limit - total;
+        if (room > 0) chunks.push(chunk.subarray(0, room));
+        total = limit;
+        options.onTruncated?.();
+        break;
+      }
+      return exceeded();
+    }
     total += chunk.byteLength;
-    if (total > limit) return exceeded();
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);

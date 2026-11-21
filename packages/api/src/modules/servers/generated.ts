@@ -1,3 +1,4 @@
+import { readCappedText } from '@agentport/core';
 import { assertServerEndpoint } from '@agentport/core/net-guard';
 import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
@@ -84,27 +85,6 @@ function fillPath(template: string, args: Record<string, unknown>): FilledPath {
   return invalid === undefined ? { ok: true, path, rest } : { ok: false, param: invalid };
 }
 
-async function readCapped(res: Response, max: number): Promise<string> {
-  const body = res.body;
-  if (!body) return '';
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let text = '';
-  let total = 0;
-  while (total <= max) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    text += decoder.decode(value, { stream: true });
-    if (text.length > max) break;
-  }
-  if (total > max || text.length > max) {
-    await reader.cancel().catch(() => undefined);
-    return `${text.slice(0, max)}\n…[truncated at ${max} chars]`;
-  }
-  return text + decoder.decode();
-}
-
 async function callUpstream(
   tool: ApiTool,
   baseUrl: string,
@@ -174,7 +154,14 @@ async function callUpstream(
         signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
       });
       const MAX_BODY = 1_048_576;
-      const text = await readCapped(res, MAX_BODY);
+      let truncated = false;
+      let text = await readCappedText(res, MAX_BODY, 'generated tool response', {
+        truncate: true,
+        onTruncated: () => {
+          truncated = true;
+        },
+      });
+      if (truncated) text = `${text}\n…[truncated at ${MAX_BODY} chars]`;
       if (!res.ok) {
         return {
           isError: true,

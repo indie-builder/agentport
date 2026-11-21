@@ -35,7 +35,7 @@
 ## 层边界
 
 - 不 import `@agentport/db`、`@agentport/api`、`@agentport/worker`；也不 import `@agentport/core` 根入口（含 `node:crypto`）。
-- 只引用 `@agentport/shared`、`@agentport/contract` 与 core 的纯函数子路径（当前为 `@agentport/core/workspace`、`/plugin-display`）。契约只提供 type 与 schema，不把服务端实现带进 bundle。新增子路径前核对 `packages/web/package.json` 依赖与 [ARCHITECTURE](../../docs/ARCHITECTURE.md) §1。
+- 只引用 `@agentport/shared`、`@agentport/contract` 与 core 的纯函数子路径（当前为 `@agentport/core/workspace`、`/plugin-display`、`/record`）。契约只提供 type 与 schema，不把服务端实现带进 bundle。新增子路径前核对 `packages/web/package.json` 依赖与 [ARCHITECTURE](../../docs/ARCHITECTURE.md) §1。
 
 ## 组件库升级
 

@@ -141,6 +141,7 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 | `KNOWLEDGE_WIKI_MODEL` | 否 | — | worker | Wiki 生成使用的模型；未设置时 wiki 任务明确失败 |
 | `KNOWLEDGE_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api、worker | 逗号分隔的精确私网主机（可含端口）；仅部署白名单端点放行，用于自建GitLab和模型服务，不是用户可配置的通用私网开关 |
 | `MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api、worker | 逗号分隔的精确 `host` 或 `host:port`，用于 API 保存、测试以及 worker 转发模型供应商请求前校验端点。默认拒绝私网与回环，开发环境允许本机回环 |
+| `GENERATED_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api | 逗号分隔的精确 `host` 或 `host:port`；仅让显式声明的企业内网 HTTP 服务被 generated 连接器访问，未命中的私网、回环与 link-local 目标仍拒绝，开发环境允许本机回环；不是用户可配置的通用私网开关 |
 | `WEBHOOK_PRIVATE_HOST_ALLOWLIST` | 否 | 空 | api、worker | 逗号分隔的精确 `host` 或 `host:port`；仅对 webhook 出站目标放行显式声明的私网地址，默认拒绝私网与回环，不是用户可配置的通用私网开关 |
 
 `.env.example` 与本表一致；schema 之外可用的变量（`PLATFORM_MCP_TOKEN`、`RATE_LIMIT_DISABLED` 等）已在上方「不在 schema 中」表中列出。

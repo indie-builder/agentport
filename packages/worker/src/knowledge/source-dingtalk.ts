@@ -1,3 +1,4 @@
+import { isRecord } from '@agentport/core/record';
 import { z } from 'zod';
 import { fetchDownload } from './source-download.js';
 import {
@@ -342,9 +343,7 @@ async function readUploadedDocument(
 type Block = Record<string, unknown>;
 
 function recordOf(value: unknown): Block | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Block)
-    : undefined;
+  return isRecord(value) ? value : undefined;
 }
 
 function levelOf(value: unknown): number {

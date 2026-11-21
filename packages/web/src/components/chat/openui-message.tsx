@@ -1,3 +1,4 @@
+import { isRecord } from '@agentport/core/record';
 import type { OpenUiAction, OpenUiToolResult } from '@agentport/shared';
 import { openUiStateEnvelopeSchema, segmentOpenUi } from '@agentport/shared';
 import { lazy, Suspense, useMemo, useState } from 'react';
@@ -80,7 +81,7 @@ export function AssistantText({
             program={segment.text}
             streaming={streaming}
             {...(onAction ? { onAction } : {})}
-            {...(isStateRecord(segmentState) ? { initialState: segmentState } : {})}
+            {...(isRecord(segmentState) ? { initialState: segmentState } : {})}
             {...(messageId === undefined ? {} : { messageId })}
             {...(conversationId === undefined ? {} : { conversationId })}
             {...(onToolCall ? { onToolCall } : {})}
@@ -94,10 +95,6 @@ export function AssistantText({
 }
 
 const HAS_ROOT = /^\s*root\s*=/m;
-
-function isStateRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function OpenUiSegment({
   program,
