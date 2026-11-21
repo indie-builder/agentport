@@ -280,8 +280,8 @@ export async function fetchJson<T>(
 }
 
 export function sourceNetworkOptions(config: {
-  allowLoopback?: boolean;
-  trustedHosts?: readonly string[];
+  allowLoopback?: boolean | undefined;
+  trustedHosts?: readonly string[] | undefined;
 }): Pick<SourceUrlOptions, 'allowLoopback' | 'trustedHosts'> {
   return {
     ...(config.allowLoopback === true ? { allowLoopback: true } : {}),

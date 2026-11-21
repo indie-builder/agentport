@@ -21,6 +21,7 @@ import {
   runKnowledgeJob,
 } from './ingestion.js';
 import { createParsingAdapter } from './parsing-adapter.js';
+import { sourceNetworkOptions } from './source-http.js';
 import { runKnowledgeSummary } from './summary.js';
 import { runKnowledgeTagging } from './tagging.js';
 import { runWikiGenerate, type WikiQueryFn } from './wiki.js';
@@ -145,8 +146,7 @@ export async function startKnowledgeWorker(
         await followups.add('knowledge', { jobId }, knowledgeEnqueueOptions(jobId));
       }
     },
-    ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
-    ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
+    ...sourceNetworkOptions(config),
     ...(config.imageQueryFn === undefined ? {} : { imageQueryFn: config.imageQueryFn }),
     anthropicBaseUrl: config.anthropicBaseUrl,
   };
