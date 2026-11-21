@@ -1,4 +1,5 @@
 import { evalDatasetSchema } from '@agentport/shared';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   CircleStop,
@@ -42,7 +43,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
-import { hasAnyGrant } from '../../lib/access.js';
+import { can, hasAnyGrant } from '../../lib/access.js';
 import {
   api,
   type EvalCase,
@@ -59,6 +60,7 @@ import {
   shortId,
 } from '../../lib/format.js';
 import {
+  meQuery,
   useAgentAccess,
   useAgentDetail,
   useCancelEvalRun,
@@ -235,6 +237,7 @@ export function EvalPage() {
     ? agents.data?.find((agent) => agent.id === agentId)
     : agents.data?.[0];
   const effectiveAgentId = selectedAgent?.id ?? null;
+  const me = useQuery(meQuery);
   const access = useAgentAccess(effectiveAgentId);
   const permissions = access.data?.permissionIds ?? [];
   const accessPending = effectiveAgentId !== null && access.isPending;
@@ -242,6 +245,7 @@ export function EvalPage() {
   const canReadEval = hasAnyGrant(permissions, 'eval.read');
   const canManageEval = hasAnyGrant(permissions, 'eval.manage');
   const canExecuteEval = hasAnyGrant(permissions, 'eval.execute');
+  const canReadRuns = can(me.data, 'runs.read');
   const canReadConfig = hasAnyGrant(permissions, 'agents.config.read');
   const agentDetail = useAgentDetail(effectiveAgentId, canReadConfig);
   const hasDraft = agentDetail.data?.hasDraft === true;
@@ -436,19 +440,20 @@ export function EvalPage() {
       <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
     </Button>
   ) : null;
-  const sampleButton = canManageEval ? (
-    <Button
-      variant="outline"
-      size="sm"
-      disabled={!effectiveAgentId}
-      onClick={(event) => {
-        dialogTriggerRef.current = event.currentTarget;
-        setSamplingAgentId(effectiveAgentId);
-      }}
-    >
-      <Shuffle data-icon="inline-start" aria-hidden="true" /> 从运行抽样
-    </Button>
-  ) : null;
+  const sampleButton =
+    canManageEval && canReadRuns ? (
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={!effectiveAgentId}
+        onClick={(event) => {
+          dialogTriggerRef.current = event.currentTarget;
+          setSamplingAgentId(effectiveAgentId);
+        }}
+      >
+        <Shuffle data-icon="inline-start" aria-hidden="true" /> 从运行抽样
+      </Button>
+    ) : null;
 
   return (
     <Page>

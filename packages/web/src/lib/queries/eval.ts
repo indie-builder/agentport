@@ -32,10 +32,14 @@ export function useCreateEvalCaseFromRun() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: EvalCaseFromRunInput) => api.createEvalCaseFromRun(input),
-    onSuccess: () => {
+    onSuccess: (created, input) => {
+      const candidatesKey = ['eval-samples', created.agentId];
+      client.setQueryData<EvalSampleCandidate[]>(candidatesKey, (old) =>
+        old?.filter((candidate) => candidate.runId !== input.runId),
+      );
+      void client.invalidateQueries({ queryKey: candidatesKey });
       void client.invalidateQueries({ queryKey: ['eval-cases'] });
       void client.invalidateQueries({ queryKey: ['run-feedback'] });
-      void client.invalidateQueries({ queryKey: ['eval-samples'] });
     },
   });
 }

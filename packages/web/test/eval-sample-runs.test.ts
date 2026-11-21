@@ -80,4 +80,14 @@ describe('SampleRunsDialog', () => {
     await mount();
     await waitFor(() => expect(document.body.textContent).toContain('近期没有可抽样的运行'));
   });
+
+  it('removes an ignored candidate from the list locally', async () => {
+    vi.spyOn(api, 'sampleEvalCandidates').mockResolvedValue([candidate]);
+    const onConvert = await mount();
+    await waitFor(() => expect(document.body.textContent).toContain('季度复盘'));
+    await act(async () => button('忽略').click());
+    expect(document.body.textContent).not.toContain('季度复盘');
+    expect(document.body.textContent).toContain('近期没有可抽样的运行');
+    expect(onConvert).not.toHaveBeenCalled();
+  });
 });

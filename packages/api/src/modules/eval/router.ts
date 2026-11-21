@@ -127,6 +127,7 @@ export const evalRouter = os.router({
       const rows = await evalRepo.sampleProductionRuns(context.db, {
         agentId: input.query.agentId,
         limit: input.query.limit,
+        access: accessFilter(context, 'runs.read'),
       });
       return rows.map((row) => ({
         runId: row.runId,

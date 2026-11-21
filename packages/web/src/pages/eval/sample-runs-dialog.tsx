@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react';
+import { type ComponentProps, useState } from 'react';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
@@ -21,6 +21,8 @@ export function SampleRunsDialog({
 }) {
   const dialog = useDialogClose(onClose);
   const candidates = useSampleEvalCandidates(agentId);
+  const [ignored, setIgnored] = useState<ReadonlySet<string>>(() => new Set());
+  const visible = candidates.data?.filter((candidate) => !ignored.has(candidate.runId)) ?? [];
 
   return (
     <Dialog
@@ -39,12 +41,12 @@ export function SampleRunsDialog({
         {candidates.isError ? (
           <ErrorState error={candidates.error} onRetry={() => void candidates.refetch()} />
         ) : null}
-        {candidates.isSuccess && candidates.data.length === 0 ? (
+        {candidates.isSuccess && visible.length === 0 ? (
           <p className="text-sm text-muted-foreground">近期没有可抽样的运行</p>
         ) : null}
-        {candidates.data && candidates.data.length > 0 ? (
+        {visible.length > 0 ? (
           <ul>
-            {candidates.data.map((candidate) => (
+            {visible.map((candidate) => (
               <li
                 key={candidate.runId}
                 className="flex items-start gap-3 border-b px-2.5 py-3 last:border-b-0"
@@ -62,14 +64,24 @@ export function SampleRunsDialog({
                     {candidate.prompt.split('\n')[0]}
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  aria-label={`转为用例：${candidate.title}`}
-                  onClick={() => onConvert(candidate)}
-                >
-                  转为用例
-                </Button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`忽略：${candidate.title}`}
+                    onClick={() => setIgnored((current) => new Set(current).add(candidate.runId))}
+                  >
+                    忽略
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`转为用例：${candidate.title}`}
+                    onClick={() => onConvert(candidate)}
+                  >
+                    转为用例
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
