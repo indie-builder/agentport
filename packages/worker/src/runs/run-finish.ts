@@ -2,6 +2,8 @@ import { type createDb, type DbHandle, repo, schema } from '@agentport/db';
 import {
   buildRunWebhookEvent,
   type ChatEvent,
+  channelMessageCreatedEvent,
+  channelRunFinishedEvent,
   type RunErrorKind,
   type TerminalRunStatus,
   utcMonthStart,
@@ -326,12 +328,7 @@ export async function finalizeRun(input: {
     if (notice !== null) {
       await publishChannelEventSafely(
         row.channelId,
-        {
-          type: 'message.created',
-          channelId: row.channelId,
-          seq: notice.seq,
-          message: repo.channels.toChannelMessage(notice),
-        },
+        channelMessageCreatedEvent(row.channelId, repo.channels.toChannelMessage(notice)),
         input.logger,
         { runId: row.id },
       );
@@ -340,13 +337,12 @@ export async function finalizeRun(input: {
   if (row.channelId !== null) {
     await publishChannelEventSafely(
       row.channelId,
-      {
-        type: 'run.finished',
+      channelRunFinishedEvent({
         channelId: row.channelId,
         runId: row.id,
         agentId: row.agentId,
         status: input.event.status,
-      },
+      }),
       input.logger,
       { runId: row.id },
     );

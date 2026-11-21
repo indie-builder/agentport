@@ -1,7 +1,7 @@
 import { channelsContract } from '@agentport/contract/channels';
 import { fail } from '@agentport/core';
 import { repo } from '@agentport/db';
-import { isActiveRunStatus } from '@agentport/shared';
+import { channelRunFinishedEvent, isActiveRunStatus } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
@@ -41,13 +41,15 @@ async function publishChannelFinished(
   run: ControlRun,
 ): Promise<void> {
   try {
-    await publishChannelEvent(channelId, {
-      type: 'run.finished',
+    await publishChannelEvent(
       channelId,
-      runId: run.id,
-      agentId: run.agentId,
-      status: 'cancelled',
-    });
+      channelRunFinishedEvent({
+        channelId,
+        runId: run.id,
+        agentId: run.agentId,
+        status: 'cancelled',
+      }),
+    );
   } catch (err) {
     context.log.warn({ err, runId: run.id }, 'channel run.finished publish failed');
   }

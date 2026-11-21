@@ -11,6 +11,7 @@ import {
   type ChannelMember,
   type ChannelMessage,
   channelEventsQuerySchema,
+  channelMessageCreatedEvent,
   idParams,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -599,16 +600,7 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
           }
           const message = repo.channels.toChannelMessage(row);
           cursor = message.seq;
-          await writeEvent(
-            stream,
-            {
-              type: 'message.created',
-              channelId: id,
-              seq: message.seq,
-              message,
-            },
-            String(message.seq),
-          );
+          await writeEvent(stream, channelMessageCreatedEvent(id, message), String(message.seq));
         }
       };
       const catchUp = async (): Promise<void> => {

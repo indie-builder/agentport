@@ -16,6 +16,7 @@ import {
   type AgentDefinition,
   type AgentDefinitionServer,
   agentRunJobSchema,
+  channelMessageCreatedEvent,
   effortSchema,
   errorText,
   isActiveRunStatus,
@@ -969,12 +970,10 @@ export async function runAgentJob(
       });
       await publishChannelEventSafely(
         projectedChannelMessage.channelId,
-        {
-          type: 'message.created',
-          channelId: projectedChannelMessage.channelId,
-          seq: projectedChannelMessage.seq,
-          message: repo.channels.toChannelMessage(projectedChannelMessage),
-        },
+        channelMessageCreatedEvent(
+          projectedChannelMessage.channelId,
+          repo.channels.toChannelMessage(projectedChannelMessage),
+        ),
         runLog,
         { runId },
       );
