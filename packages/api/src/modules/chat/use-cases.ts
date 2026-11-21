@@ -188,7 +188,7 @@ export async function startRun(
       });
       return replayed(run);
     }
-    if (run.status === 'failed' && run.errorKind === 'infra' && run.startedAt === null) {
+    if (repo.runPredicates.isNeverStartedFailure(run)) {
       const storedText = await chatRepo.getRunUserMessageText(deps.db, run.id);
       if (storedText !== null) {
         const policyDecision = await enforceContentPolicy({
@@ -249,11 +249,7 @@ export async function startRun(
           });
           return replayed(latest);
         }
-        if (
-          latest.status === 'failed' &&
-          latest.errorKind === 'infra' &&
-          latest.startedAt === null
-        ) {
+        if (repo.runPredicates.isNeverStartedFailure(latest)) {
           fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
         }
         return replayed(latest);

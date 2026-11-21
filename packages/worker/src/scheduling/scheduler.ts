@@ -185,8 +185,7 @@ export async function processScheduleTrigger(
   }
 
   const existing = data.runId === undefined ? null : await repo.chat.getRun(input.db, data.runId);
-  const retryingFailed =
-    existing?.status === 'failed' && existing.errorKind === 'infra' && existing.startedAt === null;
+  const retryingFailed = repo.runPredicates.isNeverStartedFailure(existing);
   if (existing !== null && existing.status !== 'queued' && !retryingFailed) return 'duplicate';
 
   const missed = Date.now() - triggerAt > TRIGGER_MISSED_GRACE_MS;

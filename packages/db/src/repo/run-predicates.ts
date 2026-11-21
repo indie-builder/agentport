@@ -8,3 +8,9 @@ export function neverStartedFailureFilter() {
     isNull(agentRuns.startedAt),
   );
 }
+
+export function isNeverStartedFailure(
+  run: { status: string; errorKind: string | null; startedAt: Date | null } | null | undefined,
+): boolean {
+  return run?.status === 'failed' && run.errorKind === 'infra' && run.startedAt === null;
+}

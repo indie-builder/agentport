@@ -365,9 +365,7 @@ async function replayReviewRun(
   run: repo.chat.AgentRun,
   input: { scope: 'own' | undefined; sources: MemoryReviewSource[]; target: MemoryReviewTarget },
 ): Promise<void> {
-  const replayable =
-    run.status === 'queued' ||
-    (run.status === 'failed' && run.errorKind === 'infra' && run.startedAt === null);
+  const replayable = run.status === 'queued' || repo.runPredicates.isNeverStartedFailure(run);
   if (!replayable) return;
   await authorizeReviewInput(context, input);
   if (run.status === 'queued') {
@@ -384,7 +382,7 @@ async function replayReviewRun(
     await enqueueReviewRun(context, latest);
     return;
   }
-  if (latest.status === 'failed' && latest.errorKind === 'infra' && latest.startedAt === null) {
+  if (repo.runPredicates.isNeverStartedFailure(latest)) {
     fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试');
   }
 }
