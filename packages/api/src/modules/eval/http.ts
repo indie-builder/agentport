@@ -1,5 +1,5 @@
 import { evalCaseExportQuerySchema } from '@agentport/contract/eval';
-import { fail } from '@agentport/core';
+import { AGENT_SELECTION_MISSING_MESSAGE, fail } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import { evalRunExportSchema } from '@agentport/shared';
 import { asc, eq } from 'drizzle-orm';
@@ -8,7 +8,7 @@ import { authorizeObject } from '../../http/access.js';
 import { attachmentResponse } from '../../http/attachment.js';
 import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
-import { agentNotFound, toEvalRun } from './use-cases.js';
+import { toEvalRun } from './use-cases.js';
 
 const EXPORT_CASE_LIMIT = 500;
 const EXPORT_RESULT_LIMIT = 500;
@@ -27,7 +27,7 @@ export function registerEvalHttp(app: Hono<HttpEnv>): void {
       if (!parsed.success)
         fail('INVALID_INPUT', parsed.error.issues[0]?.message ?? 'invalid request');
       const { agentId } = parsed.data;
-      await authorizeObject(context, 'eval.read', { agentId }, agentNotFound);
+      await authorizeObject(context, 'eval.read', { agentId }, AGENT_SELECTION_MISSING_MESSAGE);
 
       const cases = await context.db
         .select({
@@ -79,7 +79,7 @@ export function registerEvalHttp(app: Hono<HttpEnv>): void {
         context,
         'eval.read',
         { agentId: detail.evalRun.agentId },
-        agentNotFound,
+        AGENT_SELECTION_MISSING_MESSAGE,
       );
       if (detail.evalRun.status === 'running') {
         fail('EVAL_RUN_IN_PROGRESS', '评估运行尚未结束，无法导出结果');

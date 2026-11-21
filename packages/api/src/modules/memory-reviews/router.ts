@@ -1,5 +1,12 @@
 import { memoryReviewsContract } from '@agentport/contract/memory-reviews';
-import { fail, isAppError, notFound, selectReviewWindow, sha256Hex } from '@agentport/core';
+import {
+  AGENT_SELECTION_MISSING_MESSAGE,
+  fail,
+  isAppError,
+  notFound,
+  selectReviewWindow,
+  sha256Hex,
+} from '@agentport/core';
 import { type Database, idSuffix, repo } from '@agentport/db';
 import {
   DEFAULT_MEMORY_POLICY,
@@ -236,19 +243,18 @@ async function authorizeReviewTarget(
     );
     return;
   }
-  const missing = '智能体不存在，可能已被删除；请刷新后重新选择';
   if (target.kind === 'agent_memory') {
     await authorizeObject(
       context,
       'agents.memory.read',
       { objectId: target.agentId, agentId: target.agentId },
-      missing,
+      AGENT_SELECTION_MISSING_MESSAGE,
     );
     await authorizeObject(
       context,
       'agents.memory.write',
       { objectId: target.agentId, agentId: target.agentId },
-      missing,
+      AGENT_SELECTION_MISSING_MESSAGE,
     );
     return;
   }
@@ -256,13 +262,13 @@ async function authorizeReviewTarget(
     context,
     'agents.rules.read',
     { objectId: target.agentId, agentId: target.agentId },
-    missing,
+    AGENT_SELECTION_MISSING_MESSAGE,
   );
   await authorizeObject(
     context,
     'agents.rules.write',
     { objectId: target.agentId, agentId: target.agentId },
-    missing,
+    AGENT_SELECTION_MISSING_MESSAGE,
   );
 }
 
@@ -425,7 +431,7 @@ export const memoryReviewsRouter = os.router({
       context,
       'agents.use',
       { agentId: input.body.modelAgentId },
-      '智能体不存在，可能已被删除；请刷新后重新选择',
+      AGENT_SELECTION_MISSING_MESSAGE,
     );
     const authorized = await authorizeReviewInput(context, {
       scope: input.query.scope,

@@ -1,5 +1,5 @@
 import { memoryContract } from '@agentport/contract/memory';
-import { fail } from '@agentport/core';
+import { AGENT_SELECTION_MISSING_MESSAGE, fail } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import { INDEX_FILE_NAME, memoryReviewTargetSchema } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -13,8 +13,6 @@ import { buildMemoryAssembly, buildMemoryOverview, countMemoryTopics } from './o
 import { listPersonalMemoryVersions, readPersonalMemory, writePersonalMemory } from './personal.js';
 
 const os = implement(memoryContract).$context<RequestContext>();
-
-const MISSING_AGENT = '智能体不存在，可能已被删除；请刷新后重新选择';
 
 export const memoryRouter = os.router({
   readPersonal: os.readPersonal.handler(async ({ context }) => {
@@ -45,7 +43,7 @@ export const memoryRouter = os.router({
       context,
       'agents.memory.read',
       { agentId: input.params.id },
-      '智能体不存在，可能已被删除；请刷新后重新选择',
+      AGENT_SELECTION_MISSING_MESSAGE,
     );
     await requireAgentSlug(context.db, input.params.id);
     const limit = input.query.limit;
@@ -69,7 +67,7 @@ export const memoryRouter = os.router({
       context,
       'agents.rules.read',
       { agentId: input.params.id },
-      '智能体不存在，可能已被删除；请刷新后重新选择',
+      AGENT_SELECTION_MISSING_MESSAGE,
     );
     await requireAgentSlug(context.db, input.params.id);
     const limit = input.query.limit;
@@ -92,7 +90,7 @@ export const memoryRouter = os.router({
       context,
       'agents.memory.read',
       { agentId: input.params.id },
-      MISSING_AGENT,
+      AGENT_SELECTION_MISSING_MESSAGE,
     );
     return buildMemoryOverview({
       db: context.db,
@@ -107,7 +105,7 @@ export const memoryRouter = os.router({
       context,
       'agents.memory.read',
       { agentId: input.params.id },
-      MISSING_AGENT,
+      AGENT_SELECTION_MISSING_MESSAGE,
     );
     return buildMemoryAssembly({
       db: context.db,
@@ -122,10 +120,10 @@ export const memoryRouter = os.router({
       context,
       'agents.memory.write',
       { agentId: input.params.id },
-      MISSING_AGENT,
+      AGENT_SELECTION_MISSING_MESSAGE,
     );
     const current = await repo.agents.getAgentMemoryPolicy(context.db, input.params.id);
-    if (current === null) fail('NOT_FOUND', MISSING_AGENT);
+    if (current === null) fail('NOT_FOUND', AGENT_SELECTION_MISSING_MESSAGE);
     const slug = await requireAgentSlug(context.db, input.params.id);
     const topics = await countMemoryTopics(context.config.WORKSPACES_DIR, slug);
     if (input.body.policy.topicLimit < topics) {
@@ -146,7 +144,7 @@ export const memoryRouter = os.router({
         return true;
       }),
     );
-    if (!updated) fail('NOT_FOUND', MISSING_AGENT);
+    if (!updated) fail('NOT_FOUND', AGENT_SELECTION_MISSING_MESSAGE);
     await repo.audit.writeAudit(context.db, context.log, {
       actor: requireUser(context).businessId,
       action: 'agent.memory.policy.updated',
@@ -192,14 +190,14 @@ export const memoryRouter = os.router({
         context,
         'agents.memory.write',
         { agentId: target.data.agentId },
-        '智能体不存在，可能已被删除；请刷新后重新选择',
+        AGENT_SELECTION_MISSING_MESSAGE,
       );
     } else {
       await authorizeObject(
         context,
         'agents.rules.write',
         { agentId: target.data.agentId },
-        '智能体不存在，可能已被删除；请刷新后重新选择',
+        AGENT_SELECTION_MISSING_MESSAGE,
       );
     }
     const reverse = await writeMemoryTarget(context.db, {
