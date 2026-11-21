@@ -101,10 +101,12 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
         evaluationFailed,
       );
       if (tool === null) fail('NOT_FOUND', 'approval tool not found');
+      const boundApprovalId = c.req.method === 'GET' ? c.req.query('approvalId') : undefined;
       const decision = await createApprovalEvaluator({ db: context.db, runId, serverId })(
         tool,
+        undefined,
+        boundApprovalId,
       ).catch(evaluationFailed);
-      const boundApprovalId = c.req.method === 'GET' ? c.req.query('approvalId') : undefined;
       if (boundApprovalId !== undefined) {
         if (decision.effectiveMode === 'deny') {
           await auditToolPolicyDenial(context, {

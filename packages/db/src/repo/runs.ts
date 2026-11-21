@@ -554,12 +554,14 @@ export async function getRunApprovalSubject(db: DbHandle, runId: string) {
       serviceId: agentRuns.serviceId,
       channelId: agentRuns.channelId,
       conversationId: agentRuns.conversationId,
+      trigger: agentRuns.trigger,
     })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId))
     .limit(1);
   if (!run) return null;
-  const { agentId, subjectKind, initiatedBy, serviceId, channelId, conversationId } = run;
+  const { agentId, subjectKind, initiatedBy, serviceId, channelId, conversationId, trigger } = run;
+  if (trigger === 'channel' && channelId === null) return null;
   if (subjectKind === 'service') {
     return serviceId === 'system' || serviceId === 'mcp'
       ? { agentId, subjectKind, roles: [`service:${serviceId}`] }
@@ -723,6 +725,25 @@ export async function getCurrentApproval(db: DbHandle, input: RunToolApproval) {
     .select()
     .from(approvalRequests)
     .where(and(runToolApprovalScope(input), eq(approvalRequests.decisionHash, input.decisionHash)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getApprovalById(
+  db: DbHandle,
+  input: Omit<RunToolApproval, 'decisionHash'> & { approvalId: string },
+) {
+  const [row] = await db
+    .select()
+    .from(approvalRequests)
+    .where(
+      and(
+        eq(approvalRequests.id, input.approvalId),
+        eq(approvalRequests.runId, input.runId),
+        eq(approvalRequests.serverId, input.serverId),
+        eq(approvalRequests.toolName, input.toolName),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }

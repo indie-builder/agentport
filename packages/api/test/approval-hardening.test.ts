@@ -346,6 +346,142 @@ describe.skipIf(!ready || isolated === null)('approval hardening', () => {
     expect(upstreamCalls).toBe(1);
   });
 
+  it('stops a channel run after the channel is archived or its binding is disabled', async () => {
+    let upstreamCalls = 0;
+    using upstream = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch: () => {
+        upstreamCalls += 1;
+        return Response.json({ ok: true });
+      },
+    });
+    const server = await createServer(upstream.url.origin);
+    const tool = await createTool(server.id, { name: unique('guard-tool'), approvalMode: 'allow' });
+    const agent = await createAgent({ serverIds: [server.id] });
+    const member = await createTestAccount(app, cookie, { systemKeys: ['user'] });
+
+    const archivedChannel = await createChannel();
+    await addMember(archivedChannel.id, member, 'member');
+    const archivedToken = crypto.randomUUID();
+    const archivedRun = await seedRun({
+      agentId: agent.id,
+      businessId: member.businessId,
+      token: archivedToken,
+      channelId: archivedChannel.id,
+    });
+    expect(
+      (
+        await callTool({
+          serverId: server.id,
+          runId: archivedRun.runId,
+          token: archivedToken,
+          name: tool.name,
+        })
+      ).isError,
+    ).toBeFalsy();
+    expect(upstreamCalls).toBe(1);
+    await app.client.unsafe('update channels set archived_at = now() where id = $1', [
+      archivedChannel.id,
+    ]);
+    expect(
+      (
+        await callTool({
+          serverId: server.id,
+          runId: archivedRun.runId,
+          token: archivedToken,
+          name: tool.name,
+        })
+      ).isError,
+    ).toBe(true);
+    expect(upstreamCalls).toBe(1);
+
+    const disabledChannel = await createChannel();
+    await addMember(disabledChannel.id, member, 'member');
+    const disabledToken = crypto.randomUUID();
+    const disabledRun = await seedRun({
+      agentId: agent.id,
+      businessId: member.businessId,
+      token: disabledToken,
+      channelId: disabledChannel.id,
+    });
+    await app.client.unsafe(
+      "update channel_agent_bindings set status = 'disconnected' where channel_id = $1",
+      [disabledChannel.id],
+    );
+    expect(
+      (
+        await callTool({
+          serverId: server.id,
+          runId: disabledRun.runId,
+          token: disabledToken,
+          name: tool.name,
+        })
+      ).isError,
+    ).toBe(true);
+    expect(upstreamCalls).toBe(1);
+
+    const orphanToken = crypto.randomUUID();
+    const orphanRun = await seedRun({
+      agentId: agent.id,
+      businessId: member.businessId,
+      token: orphanToken,
+    });
+    await app.client.unsafe("update agent_runs set trigger = 'channel' where id = $1", [
+      orphanRun.runId,
+    ]);
+    expect(
+      (
+        await callTool({
+          serverId: server.id,
+          runId: orphanRun.runId,
+          token: orphanToken,
+          name: tool.name,
+        })
+      ).isError,
+    ).toBe(true);
+    expect(upstreamCalls).toBe(1);
+  });
+
+  it('keeps the original deny when one of two children sharing a server republishes', async () => {
+    let upstreamCalls = 0;
+    using upstream = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch: () => {
+        upstreamCalls += 1;
+        return Response.json({ ok: true });
+      },
+    });
+    const server = await createServer(upstream.url.origin);
+    const tool = await createTool(server.id, { name: unique('shared-tool'), approvalMode: 'deny' });
+    const first = await createAgent({ serverIds: [server.id] });
+    await publish(first.id);
+    const second = await createAgent({ serverIds: [server.id] });
+    await publish(second.id);
+    const root = await createAgent({ subAgentIds: [first.id, second.id] });
+    const token = crypto.randomUUID();
+    const { runId } = await seedRun({
+      agentId: root.id,
+      businessId: 'bootstrap-admin',
+      token,
+    });
+
+    const relaxed = await request(app, {
+      method: 'PATCH',
+      url: `/api/servers/${server.id}/tools/${tool.id}`,
+      headers: { cookie },
+      payload: { approvalMode: 'allow' },
+    });
+    expect(relaxed.statusCode, relaxed.body).toBe(200);
+    await publish(first.id);
+    const denied = await callTool({ serverId: server.id, runId, token, name: tool.name }).catch(
+      () => null,
+    );
+    expect(denied?.isError ?? true).toBe(true);
+    expect(upstreamCalls).toBe(0);
+  });
+
   it('invalidates a fixed approval when the outbound base URL changes', async () => {
     let firstCalls = 0;
     let secondCalls = 0;

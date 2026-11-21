@@ -26,7 +26,7 @@ export function createApprovalEvaluator({
   runId: string;
   serverId: string;
 }) {
-  return async (tool: Omit<ApprovalTool, 'baseUrl'>, baseUrl?: string) => {
+  return async (tool: Omit<ApprovalTool, 'baseUrl'>, baseUrl?: string, approvalId?: string) => {
     const decision = await db.transaction(async (tx) => {
       const run = await repo.runs.lockRunForApproval(tx, runId);
       if (run === null || !isActiveRunStatus(run.status)) return null;
@@ -40,7 +40,7 @@ export function createApprovalEvaluator({
         });
         return null;
       }
-      const current = await evaluateLockedApproval(tx, runId, serverId, currentTool);
+      const current = await evaluateLockedApproval(tx, runId, serverId, currentTool, approvalId);
       return currentTool.id === tool.id &&
         currentTool.method === tool.method &&
         currentTool.pathTemplate === tool.pathTemplate &&
@@ -58,6 +58,7 @@ export async function evaluateLockedApproval(
   runId: string,
   serverId: string,
   tool: ApprovalTool,
+  approvalId?: string,
 ) {
   const scope = { runId, serverId, toolName: tool.name };
   const subject = (await repo.runs.isRunBoundToServer(tx, runId, serverId))
@@ -84,7 +85,19 @@ export async function evaluateLockedApproval(
   const key = { ...scope, decisionHash: decision.decisionHash };
   await repo.runs.supersedeMismatchedApprovals(tx, key);
   const approval =
-    decision.effectiveMode === 'ask' ? await repo.runs.getCurrentApproval(tx, key) : null;
+    decision.effectiveMode !== 'ask'
+      ? null
+      : approvalId === undefined
+        ? await repo.runs.getCurrentApproval(tx, key)
+        : await repo.runs
+            .getApprovalById(tx, { ...scope, approvalId })
+            .then((row) =>
+              row !== null &&
+              row.supersededAt === null &&
+              row.decisionHash === decision.decisionHash
+                ? row
+                : null,
+            );
   return {
     ...decision,
     matchedRuleIds: decision.matchedRules.map((rule) => rule.id),
