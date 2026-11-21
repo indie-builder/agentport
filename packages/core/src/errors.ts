@@ -70,6 +70,8 @@ export const NOT_FOUND_MESSAGES = {
 } as const;
 export type NotFoundResource = keyof typeof NOT_FOUND_MESSAGES;
 
+export const AGENT_SELECTION_MISSING_MESSAGE = '智能体不存在，可能已被删除；请刷新后重新选择';
+
 export function notFound(resource: NotFoundResource, message?: string, resourceId?: string): never {
   throw new AppError('NOT_FOUND', message ?? NOT_FOUND_MESSAGES[resource], {
     resource,

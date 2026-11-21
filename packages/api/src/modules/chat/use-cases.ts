@@ -1,6 +1,7 @@
 import { rm } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import {
+  AGENT_SELECTION_MISSING_MESSAGE,
   canonicalJson,
   conversationInputsDir,
   decodeAttachmentInput,
@@ -148,7 +149,7 @@ export async function startRun(
   if (!(await chatRepo.agentEnabled(deps.db, agentId))) {
     return fail('AGENT_DISABLED', '该智能体已停用，无法发起新对话；请到智能体页面启用后再试');
   }
-  await deps.authorize('agents.use', { agentId }, '智能体不存在，可能已被删除；请刷新后重新选择');
+  await deps.authorize('agents.use', { agentId }, AGENT_SELECTION_MISSING_MESSAGE);
   if (body.conversationId === undefined) {
     await deps.authorize('conversations.create', {
       createdBy: principal.businessId,
@@ -481,7 +482,7 @@ export async function regenerateLastRun(
   if (!(await chatRepo.agentEnabled(deps.db, agentId))) {
     return fail('AGENT_DISABLED', '该智能体已停用，无法重新生成；请到智能体页面启用后再试');
   }
-  await deps.authorize('agents.use', { agentId }, '智能体不存在，可能已被删除；请刷新后重新选择');
+  await deps.authorize('agents.use', { agentId }, AGENT_SELECTION_MISSING_MESSAGE);
   await deps.authorize(
     'conversations.update',
     { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },

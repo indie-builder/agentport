@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { integrationsContract } from '@agentport/contract';
-import { encryptSecrets, fail, sha256Hex } from '@agentport/core';
+import { AGENT_SELECTION_MISSING_MESSAGE, encryptSecrets, fail, sha256Hex } from '@agentport/core';
 import { assertServerEndpoint } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
 import type { ApiToken, WebhookEndpoint } from '@agentport/shared';
@@ -117,12 +117,7 @@ export const integrationsRouter = os.router({
       const { name, direction, agentId, url, events } = input.body;
       if (direction === 'inbound') {
         if (agentId === undefined) fail('INVALID_INPUT', '入站端点必须选择专家');
-        await authorizeObject(
-          context,
-          'agents.use',
-          { agentId },
-          '智能体不存在，可能已被删除；请刷新后重新选择',
-        );
+        await authorizeObject(context, 'agents.use', { agentId }, AGENT_SELECTION_MISSING_MESSAGE);
       } else if (direction === 'outbound' && url) {
         await assertServerEndpoint(url, {
           nodeEnv: context.config.NODE_ENV,

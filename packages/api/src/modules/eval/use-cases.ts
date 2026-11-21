@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { AGENT_SELECTION_MISSING_MESSAGE, fail } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import {
   DEFAULT_JOB_RETENTION,
@@ -10,8 +10,6 @@ import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { z } from 'zod';
 import { isPgCode } from '../../http/errors.js';
 import { getEvalQueue, getQueue } from '../../queue/producer.js';
-
-export const agentNotFound = '智能体不存在，可能已被删除；请刷新后重新选择';
 
 export function toEvalRun(row: repo.evalRepo.EvalRunSummary) {
   return {
@@ -42,7 +40,7 @@ export async function importEvalCases(
       .from(schema.agents)
       .where(eq(schema.agents.id, agentId))
       .for('update');
-    if (!agent) fail('NOT_FOUND', agentNotFound);
+    if (!agent) fail('NOT_FOUND', AGENT_SELECTION_MISSING_MESSAGE);
 
     const existing = await tx
       .select({ name: schema.evalCases.name })
@@ -97,7 +95,7 @@ export async function startEvalRun(
         .from(schema.agents)
         .where(eq(schema.agents.id, agentId))
         .for('update');
-      if (!lockedAgent) fail('NOT_FOUND', agentNotFound);
+      if (!lockedAgent) fail('NOT_FOUND', AGENT_SELECTION_MISSING_MESSAGE);
       const cases = await tx
         .select({
           id: schema.evalCases.id,

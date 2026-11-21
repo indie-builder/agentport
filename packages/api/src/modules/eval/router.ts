@@ -1,5 +1,5 @@
 import { evalContract } from '@agentport/contract/eval';
-import { fail, notFound } from '@agentport/core';
+import { AGENT_SELECTION_MISSING_MESSAGE, fail, notFound } from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
@@ -8,7 +8,7 @@ import type { RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { writeCrossUserAudit } from '../../plugins/audit.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from '../runs/access.js';
-import { agentNotFound, importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
+import { importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
 
 const os = implement(evalContract).$context<RequestContext>();
 const evalRepo = repo.evalRepo;
@@ -34,7 +34,7 @@ async function authorizeEvalAgent(
   permissionIds: ReadonlyArray<'eval.read' | 'eval.manage' | 'eval.execute' | 'agents.use'>,
 ): Promise<void> {
   for (const permissionId of permissionIds) {
-    await authorizeObject(context, permissionId, { agentId }, agentNotFound);
+    await authorizeObject(context, permissionId, { agentId }, AGENT_SELECTION_MISSING_MESSAGE);
   }
 }
 
