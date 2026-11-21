@@ -16,7 +16,7 @@ import {
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
-import { toApi } from './api.js';
+import { pluginFiles, toApi } from './api.js';
 import { runNativePluginAction } from './native.js';
 import { adoptNativePlugin, reusedPlugin } from './use-cases.js';
 
@@ -154,16 +154,12 @@ export const pluginsRouter = os.router({
     return { status: body.reused ? 200 : 201, body };
   }),
   get: os.get.handler(async ({ context, input: routeInput }) => {
-    const row = await requirePlugin(context, routeInput.params.id, 'plugins.read', 'read');
-    const files = await repo.listPluginFiles(context.db, row.id);
-    return toApi(
-      row,
-      files.map((file) => ({
-        path: file.path,
-        content: file.content,
-        executable: file.executable,
-      })),
-    );
+    const { id } = routeInput.params;
+    await requirePlugin(context, id, 'plugins.read', 'read');
+    const row = await repo.getPluginWithAgentCount(context.db, id);
+    if (row === null) return notFound();
+    const files = await pluginFiles(context.db, row.id);
+    return { ...toApi(row, files), agentCount: row.agentCount };
   }),
   update: os.update.handler(async ({ context, input: routeInput }) => {
     await requirePlugin(context, routeInput.params.id, 'plugins.update', 'manage');

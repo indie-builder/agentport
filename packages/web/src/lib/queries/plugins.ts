@@ -2,7 +2,6 @@ import type {
   ConnectorCatalogItem,
   NativePluginImportInput,
   NativePluginInstallInput,
-  Plugin,
   PluginInput,
   PluginWithAgentCount,
 } from '@agentport/shared';
@@ -21,7 +20,7 @@ const nativePluginsQuery = queryOptions<NativePlugins>({
 });
 
 export const pluginQuery = (id: string) =>
-  queryOptions<Plugin>({
+  queryOptions<PluginWithAgentCount>({
     queryKey: ['plugins', id],
     queryFn: () => api.plugin(id),
   });
