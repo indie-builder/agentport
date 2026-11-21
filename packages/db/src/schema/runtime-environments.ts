@@ -1,4 +1,8 @@
-import { DEFAULT_RUNTIME_DOCKERFILE } from '@agentport/shared';
+import type { RuntimeEnvironmentVersionStatus } from '@agentport/shared';
+import {
+  DEFAULT_RUNTIME_DOCKERFILE,
+  runtimeEnvironmentVersionStatusSchema,
+} from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -22,7 +26,12 @@ export const runtimeEnvironmentVersions = pgTable(
       .references((): AnyPgColumn => runtimeEnvironments.id, { onDelete: 'restrict' }),
     dockerfile: text('dockerfile').notNull(),
     baseImageId: text('base_image_id').notNull(),
-    status: text('status', { enum: ['queued', 'building', 'ready', 'failed'] })
+    status: text('status', {
+      enum: runtimeEnvironmentVersionStatusSchema.options as [
+        RuntimeEnvironmentVersionStatus,
+        ...RuntimeEnvironmentVersionStatus[],
+      ],
+    })
       .notNull()
       .default('queued'),
     imageTag: text('image_tag'),
@@ -43,7 +52,7 @@ export const runtimeEnvironmentVersions = pgTable(
     ),
     check(
       'runtime_environment_versions_status_check',
-      sql`${t.status} in ('queued', 'building', 'ready', 'failed')`,
+      sql`${t.status} in (${sql.raw(runtimeEnvironmentVersionStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'runtime_environment_versions_ready_image_check',
