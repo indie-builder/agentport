@@ -210,6 +210,24 @@ export function useKnowledgeDocuments(
   });
 }
 
+export function useKnowledgeImages(baseId: string, filter: { q: string }) {
+  return useInfiniteQuery({
+    queryKey: knowledgeKeys.images(baseId, filter.q),
+    queryFn: ({ pageParam, signal }) =>
+      api.knowledgeImages(
+        baseId,
+        {
+          ...(filter.q === '' ? {} : { q: filter.q }),
+          limit: KNOWLEDGE_PAGE_SIZE,
+          ...(pageParam === null ? {} : { cursor: pageParam }),
+        },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
 export function useKnowledgeDocument(documentId: string | null, enabled = true) {
   return useQuery({
     queryKey: knowledgeKeys.document(documentId),
