@@ -64,8 +64,5 @@ export const agentDefinitionSchema = z.object({
 });
 
 export type AgentDefinitionServer = z.infer<typeof agentDefinitionServerSchema>;
-export type AgentDefinitionSkill = z.infer<typeof agentDefinitionSkillSchema>;
-export type AgentDefinitionPlugin = z.infer<typeof agentDefinitionPluginSchema>;
-export type AgentDefinitionSubAgent = z.infer<typeof agentDefinitionSubAgentSchema>;
 export type AgentDefinition = z.infer<typeof agentDefinitionSchema>;
 export type AgentResourceVersions = z.infer<typeof agentResourceVersionsSchema>;

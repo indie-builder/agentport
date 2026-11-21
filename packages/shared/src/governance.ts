@@ -7,7 +7,6 @@ export const departmentMemberSchema = z.object({
   accountActive: z.boolean(),
   isManager: z.boolean(),
 });
-export type DepartmentMember = z.infer<typeof departmentMemberSchema>;
 
 export const governanceIdentitySchema = z.object({
   businessId: businessIdSchema,
@@ -105,12 +104,10 @@ export const governanceResourceSchema = z.object({
 export type GovernanceResource = z.infer<typeof governanceResourceSchema>;
 
 export const handoverItemSchema = z.object({ id: z.string(), name: z.string() });
-export type HandoverItem = z.infer<typeof handoverItemSchema>;
 export const handoverScheduleItemSchema = handoverItemSchema.extend({
   agentName: z.string(),
   agentId: z.string(),
 });
-export type HandoverScheduleItem = z.infer<typeof handoverScheduleItemSchema>;
 
 export const handoverChecklistSchema = z.object({
   businessId: businessIdSchema,
@@ -150,9 +147,7 @@ export const handoverResourceKindSchema = z.enum([
   'plugin',
   'runtime_environment',
 ]);
-export type HandoverResourceKind = z.infer<typeof handoverResourceKindSchema>;
 export const handoverTransferInputSchema = z.object({ toBusinessId: businessIdSchema }).strict();
-export type HandoverTransferInput = z.infer<typeof handoverTransferInputSchema>;
 export const handoverTransferResultSchema = z.object({
   transferred: z.array(
     z.object({ resourceKind: handoverResourceKindSchema, count: z.number().int().nonnegative() }),

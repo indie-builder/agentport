@@ -31,7 +31,6 @@ export const notificationListQuerySchema = z.object({
     .default('false')
     .transform((value) => value === 'true'),
 });
-export type NotificationListQuery = z.infer<typeof notificationListQuerySchema>;
 
 export const notificationListSchema = z.object({
   items: z.array(notificationSchema),

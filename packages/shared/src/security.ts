@@ -146,7 +146,6 @@ export const toolApprovalRoleSchema = z
   .regex(
     /^(platform:[A-Za-z0-9_]+|agent:(owner|maintainer|user)|channel:(owner|admin|member|viewer)|service:(system|mcp))$/,
   );
-export type ToolApprovalRole = z.infer<typeof toolApprovalRoleSchema>;
 
 export const toolApprovalMethodSchema = z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 export type ToolApprovalMethod = z.infer<typeof toolApprovalMethodSchema>;

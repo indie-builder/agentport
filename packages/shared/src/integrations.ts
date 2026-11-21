@@ -133,7 +133,6 @@ export const externalRunInputSchema = z
     conversationId: z.string().min(1).optional(),
   })
   .strict();
-export type ExternalRunInput = z.infer<typeof externalRunInputSchema>;
 
 export const externalRunAcceptedSchema = z.object({
   runId: z.string(),
@@ -157,7 +156,6 @@ export const externalRunStatusSchema = z.object({
   inputTokens: z.number().nullable(),
   outputTokens: z.number().nullable(),
 });
-export type ExternalRunStatus = z.infer<typeof externalRunStatusSchema>;
 
 export const inboundWebhookPayloadSchema = z
   .object({
@@ -166,4 +164,3 @@ export const inboundWebhookPayloadSchema = z
     conversationId: z.string().min(1).optional(),
   })
   .strict();
-export type InboundWebhookPayload = z.infer<typeof inboundWebhookPayloadSchema>;
