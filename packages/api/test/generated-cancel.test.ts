@@ -167,6 +167,29 @@ it('rechecks approval immediately before fetch and refuses a revoked decision', 
   expect(fetchSpy).not.toHaveBeenCalled();
 });
 
+it('cancels before fetch when the run is cancelled during the approval recheck', async () => {
+  const fetchSpy = mock(async () => {
+    throw new Error('upstream must not be called after the run was cancelled');
+  });
+  stubGlobal('fetch', fetchSpy);
+  let cancelled = false;
+  let evaluations = 0;
+
+  buildGeneratedServer({
+    ...baseInput,
+    evaluateApproval: async (candidate) => {
+      evaluations += 1;
+      if (evaluations === 2) cancelled = true;
+      return evaluation(candidate, true);
+    },
+    isRunActive: async () => !cancelled,
+  });
+
+  expectCancelled(await callTool(new AbortController().signal));
+  expect(evaluations).toBe(2);
+  expect(fetchSpy).not.toHaveBeenCalled();
+});
+
 it('still calls upstream for an active run with approval', async () => {
   const fetchSpy = mock(async () => new Response('ok'));
   stubGlobal('fetch', fetchSpy);
