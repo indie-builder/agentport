@@ -2,11 +2,7 @@ import { type Database, repo, schema } from '@agentport/db';
 import { buildRunWebhookEvent } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 
-export async function failQueuedRunEnqueue(
-  db: Database,
-  runId: string,
-  options?: { deleteMemoryReview?: boolean },
-): Promise<boolean> {
+export async function failQueuedRunEnqueue(db: Database, runId: string): Promise<boolean> {
   return db.transaction(async (tx) => {
     const [failed] = await tx
       .update(schema.agentRuns)
@@ -23,6 +19,7 @@ export async function failQueuedRunEnqueue(
         conversationId: schema.agentRuns.conversationId,
         initiatedBy: schema.agentRuns.initiatedBy,
         channelId: schema.agentRuns.channelId,
+        trigger: schema.agentRuns.trigger,
       });
     if (failed === undefined) return false;
     if (failed.channelId !== null) {
@@ -37,9 +34,7 @@ export async function failQueuedRunEnqueue(
         ownerBusinessId: failed.initiatedBy,
       });
     }
-    if (options?.deleteMemoryReview === true) {
-      await repo.memoryReviews.deleteByRunId(tx, runId);
-    }
+    if (failed.trigger === 'review') await repo.memoryReviews.deleteByRunId(tx, runId);
     return true;
   });
 }

@@ -6,13 +6,13 @@ import { implement } from '@orpc/server';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
-import { toIso } from '../../lib/iso.js';
 import {
   agentSlug,
   listWorkspaceOutputs,
   previewText,
   readWorkspaceOutput,
 } from '../../lib/outputs.js';
+import { toRunDetail } from '../runs/events.js';
 import { answerRunQuestion } from '../runs/questions.js';
 
 const runsRepo = repo.runs;
@@ -83,15 +83,7 @@ export const channelsRunsRouter = {
     const { id, runId } = input.params;
     await memberRun(context, id, runId);
     const detail = await runConversation(context, runId);
-    return {
-      run: {
-        ...detail.run,
-        startedAt: toIso(detail.run.startedAt),
-        endedAt: toIso(detail.run.endedAt),
-      },
-      steps: detail.steps,
-      conversation: detail.conversation,
-    };
+    return toRunDetail(detail);
   }),
   runQuestions: os.runQuestions.handler(async ({ input, context }) => {
     const { id, runId } = input.params;
