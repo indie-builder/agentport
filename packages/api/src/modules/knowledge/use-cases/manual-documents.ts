@@ -1,6 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
-import { AppError, fail, isAppError, knowledgeVersionMarkdownPath } from '@agentport/core';
+import {
+  AppError,
+  fail,
+  isAppError,
+  knowledgeVersionMarkdownPath,
+  readCappedBytes,
+} from '@agentport/core';
 import { assertSafeUrl } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
 import { requireCursorPage } from '../../../http/pagination.js';
@@ -81,23 +87,9 @@ async function fetchSource(rawUrl: string): Promise<{
       `不支持的类型 ${mimeType || '(未声明)'}；仅支持网页、PDF 与纯文本类文件`,
     );
   }
-  const declared = Number(response.headers.get('content-length') ?? '0');
-  if (declared > MAX_URL_BYTES) {
-    await response.body?.cancel();
-    fail('PAYLOAD_TOO_LARGE', '目标文件超过 32MiB 上限');
-  }
-  const chunks: Buffer[] = [];
-  let total = 0;
-  if (response.body) {
-    for await (const chunk of response.body) {
-      total += chunk.length;
-      if (total > MAX_URL_BYTES) {
-        fail('PAYLOAD_TOO_LARGE', '目标文件超过 32MiB 上限');
-      }
-      chunks.push(Buffer.from(chunk));
-    }
-  }
-  const data = Buffer.concat(chunks);
+  const data = await readCappedBytes(response, MAX_URL_BYTES, '目标文件', {
+    onExceeded: () => fail('PAYLOAD_TOO_LARGE', '目标文件超过 32MiB 上限'),
+  });
   if (data.length === 0) fail('UPSTREAM_FAILED', '目标地址返回空内容');
   const path = new URL(rawUrl).pathname;
   const rawName = basename(path);

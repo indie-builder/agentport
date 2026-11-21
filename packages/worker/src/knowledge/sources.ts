@@ -16,6 +16,7 @@ import {
   fetchBytes,
   fetchChecked,
   fetchJson,
+  fetchText,
   readCapped,
   SourceAuthError,
   sourceNetworkOptions,
@@ -38,10 +39,6 @@ import {
 import { probeYuque, readYuque } from './source-yuque.js';
 
 export { SourceAuthError, validateSourceUrl } from './source-http.js';
-
-async function fetchText(url: string, options: FetchOptions, label: string): Promise<string> {
-  return readCapped(await fetchChecked(url, options), label);
-}
 
 function contentHash(...parts: string[]): string {
   return createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 16);
