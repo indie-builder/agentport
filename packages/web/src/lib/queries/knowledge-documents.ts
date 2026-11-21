@@ -427,6 +427,25 @@ export function useReprocessKnowledgeDocument(baseId: string) {
   });
 }
 
+export function useKnowledgeDocumentDiff(
+  documentId: string,
+  params: { fromVersionId: string; toVersionId: string },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: knowledgeKeys.documentDiff(documentId, params.fromVersionId, params.toVersionId),
+    queryFn: ({ signal }) => api.knowledgeDocumentDiff(documentId, params, signal),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useDownloadKnowledgeDocuments(baseId: string) {
+  return useMutation({
+    mutationFn: (documentIds: string[]) => api.downloadKnowledgeDocuments(baseId, documentIds),
+  });
+}
+
 /** 文档版本是完整历史：对话框内一次取完，切版与回退都读同一列表。 */
 export function useKnowledgeDocumentVersions(documentId: string | null) {
   const query = useInfiniteQuery({

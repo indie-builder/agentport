@@ -2,6 +2,7 @@ import { KNOWLEDGE_DOCUMENT_MAX_BYTES, type KnowledgeDocument } from '@agentport
 import { Toolbar, ToolbarButton } from '@ui-sdk/react/toolbar';
 import {
   ChevronDown,
+  Download,
   FileText,
   Folder,
   FolderOpen,
@@ -49,7 +50,7 @@ import {
   TableRow,
 } from '../../../components/ui/table.js';
 import type { KnowledgeFolder } from '../../../lib/api.js';
-import { readFileBase64 } from '../../../lib/browser-files.js';
+import { downloadBlob, readFileBase64 } from '../../../lib/browser-files.js';
 import { cn } from '../../../lib/cn.js';
 import { useFormBlocker } from '../../../lib/form.js';
 import { formatDateTime, formatRelative } from '../../../lib/format.js';
@@ -57,6 +58,7 @@ import {
   knowledgeShouldPoll,
   useDeleteKnowledgeDocument,
   useDeleteKnowledgeFolder,
+  useDownloadKnowledgeDocuments,
   useKnowledgeDocument,
   useKnowledgeDocuments,
   useKnowledgeFolders,
@@ -73,6 +75,7 @@ import type { KnowledgeCaps } from './shared.js';
 
 export function DocumentsTab({
   baseId,
+  baseSlug,
   caps,
   asrEnabled,
   folderId,
@@ -82,6 +85,7 @@ export function DocumentsTab({
   onViewJobs,
 }: {
   baseId: string;
+  baseSlug: string | undefined;
   caps: KnowledgeCaps;
   asrEnabled: boolean;
   folderId: string | undefined;
@@ -99,6 +103,7 @@ export function DocumentsTab({
     if (value !== undefined) setStatus(value);
   };
   const [tag, setTag] = useState('all');
+  const [sort, setSort] = useState<'updated' | 'created' | 'title' | undefined>(undefined);
   const folders = useKnowledgeFolders(baseId);
   const tags = useKnowledgeTags(baseId);
   const deleteFolder = useDeleteKnowledgeFolder(baseId);
@@ -107,11 +112,13 @@ export function DocumentsTab({
     ...(status === 'all' ? {} : { status }),
     ...(tag === 'all' ? {} : { tag }),
     ...(settledQuery === '' ? {} : { q: settledQuery }),
+    ...(sort === undefined ? {} : { sort, order: sort === 'title' ? 'asc' : 'desc' }),
   });
   const documentItems = documents.data?.pages.flatMap((page) => page.items) ?? [];
   const upload = useUploadKnowledgeDocument(baseId);
   const removeDocument = useDeleteKnowledgeDocument(baseId);
   const reprocessDocument = useReprocessKnowledgeDocument(baseId);
+  const downloadDocuments = useDownloadKnowledgeDocuments(baseId);
   const uploadInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const [actionTrigger, setActionTrigger] = useState<HTMLElement | null>(null);
@@ -358,6 +365,19 @@ export function DocumentsTab({
                 className="w-36"
               />
             ) : null}
+            <FilterSelect
+              label="按排序展示文档"
+              value={sort ?? 'created'}
+              onValueChange={(next) =>
+                setSort(next === 'updated' || next === 'title' ? next : 'created')
+              }
+              options={[
+                { value: 'updated', label: '最近更新' },
+                { value: 'created', label: '最近创建' },
+                { value: 'title', label: '名称' },
+              ]}
+              className="w-32"
+            />
             {tags.isError ? (
               <Button variant="link" size="xs" onClick={() => void tags.refetch()}>
                 标签没有加载出来，重试
@@ -491,6 +511,27 @@ export function DocumentsTab({
                 重新解析
               </ToolbarButton>
             ) : null}
+            <ToolbarButton
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              disabled={downloadDocuments.isPending || selectedDocuments.length > 200}
+              aria-busy={downloadDocuments.isPending}
+              title={selectedDocuments.length > 200 ? '一次最多下载 200 个文档' : undefined}
+              onClick={async () => {
+                try {
+                  const blob = await downloadDocuments.mutateAsync(
+                    selectedDocuments.map((item) => item.id),
+                  );
+                  downloadBlob(blob, baseSlug ? `${baseSlug}-documents.zip` : 'documents.zip');
+                  toastSuccess('已开始下载文档 ZIP');
+                  setSelectedIds(new Set());
+                } catch (err) {
+                  toastError(err);
+                }
+              }}
+            >
+              <Download data-icon="inline-start" aria-hidden="true" />
+              {downloadDocuments.isPending ? '下载中…' : '下载'}
+            </ToolbarButton>
             {caps.content ? (
               <ToolbarButton
                 className={buttonVariants({ variant: 'destructive', size: 'sm' })}

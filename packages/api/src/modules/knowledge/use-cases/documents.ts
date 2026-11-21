@@ -1,12 +1,19 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { AppError, inspectKnowledgeAudio, segmentForSearch, sha256Hex } from '@agentport/core';
+import {
+  AppError,
+  diffLinesOrdered,
+  inspectKnowledgeAudio,
+  segmentForSearch,
+  sha256Hex,
+} from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import { KNOWLEDGE_DOCUMENT_MAX_BYTES, knowledgeImageChunkMetadataSchema } from '@agentport/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Config } from '../../../config.js';
 import { isPgCode } from '../../../http/errors.js';
 import { createJob, documentWire, enqueueKnowledgeJob, storeBlob } from '../service.js';
+import { getVersionMarkdown } from './binary.js';
 import {
   assertBodyBytes,
   collectChunks,
@@ -232,9 +239,11 @@ export async function listDocuments(
     tag?: string | undefined;
     status?: 'pending' | 'processing' | 'ready' | 'failed' | 'disabled' | undefined;
     q?: string | undefined;
+    sort?: 'updated' | 'created' | 'title' | undefined;
+    order?: 'asc' | 'desc' | undefined;
   },
 ) {
-  const { folderId, tag, status, q, ...rest } = query;
+  const { folderId, tag, status, q, sort, order, ...rest } = query;
   const page = await repo.knowledge.listDocuments(deps.db, {
     ...pageOptions(rest),
     baseId: id,
@@ -243,6 +252,8 @@ export async function listDocuments(
     ...(tag === undefined ? {} : { tag }),
     ...(status === undefined ? {} : { status }),
     ...(q === undefined ? {} : { q }),
+    ...(sort === undefined ? {} : { sort }),
+    ...(order === undefined ? {} : { order }),
   });
   const tags = await repo.knowledge.getDocumentTagNames(
     deps.db,
@@ -729,6 +740,38 @@ export async function listVersions(deps: KnowledgeDeps, documentId: string, quer
   return {
     items: page.items.map((row) => toDocumentVersion(row, document.currentVersionId)),
     nextCursor: page.nextCursor,
+  };
+}
+
+export async function documentDiff(
+  deps: KnowledgeDeps,
+  documentId: string,
+  query: { fromVersionId: string; toVersionId: string },
+) {
+  const [document, from, to] = await Promise.all([
+    repo.knowledge.getDocument(deps.db, documentId),
+    repo.knowledge.getVersion(deps.db, query.fromVersionId),
+    repo.knowledge.getVersion(deps.db, query.toVersionId),
+  ]);
+  if (!document || document.status === 'disabled' || document.disabledReason !== null) {
+    notFound('文档');
+  }
+  if (!from || !to || from.documentId !== documentId || to.documentId !== documentId) {
+    notFound('版本');
+  }
+  if (from.parseStatus === 'parse_failed' || to.parseStatus === 'parse_failed') {
+    throw new AppError('INVALID_INPUT', '该版本正文不可用，无法对比');
+  }
+  const [fromMarkdown, toMarkdown] = await Promise.all([
+    getVersionMarkdown(deps, from.id),
+    getVersionMarkdown(deps, to.id),
+  ]);
+  const { added, removed } = diffLinesOrdered(fromMarkdown.markdown, toMarkdown.markdown);
+  return {
+    fromVersionId: from.id,
+    toVersionId: to.id,
+    addedLines: added,
+    removedLines: removed,
   };
 }
 

@@ -181,6 +181,7 @@ export function KnowledgeDetailPage() {
               <TabsContent value="documents">
                 <DocumentsTab
                   baseId={baseId}
+                  baseSlug={base.data.slug}
                   caps={caps}
                   asrEnabled={base.data?.asrProfileId != null}
                   folderId={search.folder}

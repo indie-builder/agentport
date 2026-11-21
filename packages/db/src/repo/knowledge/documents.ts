@@ -1,8 +1,8 @@
-import { and, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeDocuments, knowledgeDocumentTags, knowledgeTags } from '../../schema.js';
-import { keysetBefore, paginate } from '../keyset.js';
+import { keysetBound, paginate } from '../keyset.js';
 import {
   disableDocumentsBySourceTx,
   escapeLike,
@@ -65,6 +65,8 @@ export interface ListDocumentsFilter extends PageOptions {
   contentKind?: KnowledgeDocumentRow['contentKind'];
   /** 标题模糊匹配（大小写不敏感）。 */
   q?: string;
+  sort?: 'updated' | 'created' | 'title';
+  order?: 'asc' | 'desc';
 }
 
 export async function listDocuments(
@@ -97,14 +99,22 @@ export async function listDocuments(
       where dt.document_id = ${knowledgeDocuments.id} and t.name = ${filter.tag}
     )`);
   }
+  const sortColumn =
+    filter.sort === 'updated'
+      ? knowledgeDocuments.updatedAt
+      : filter.sort === 'title'
+        ? knowledgeDocuments.title
+        : knowledgeDocuments.createdAt;
+  const direction = filter.order ?? (filter.sort === 'title' ? 'asc' : 'desc');
   if (filter.cursor) {
-    filters.push(keysetBefore(knowledgeDocuments, filter.cursor));
+    filters.push(keysetBound(knowledgeDocuments, filter.cursor, sortColumn, direction));
   }
+  const orderBy = direction === 'asc' ? asc : desc;
   const rows = await db
     .select()
     .from(knowledgeDocuments)
     .where(and(...filters))
-    .orderBy(desc(knowledgeDocuments.createdAt), desc(knowledgeDocuments.id))
+    .orderBy(orderBy(sortColumn), orderBy(knowledgeDocuments.id))
     .limit(limit + 1);
   return paginate(rows, limit);
 }

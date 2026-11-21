@@ -297,6 +297,11 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
       await authorizeDocument(context, input.params.documentId, 'knowledge.read', 'read');
       return useCases.listVersions(depsOf(context), input.params.documentId, input.query);
     }),
+    diff: os.documents.diff.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      await authorizeDocument(context, input.params.documentId, 'knowledge.read', 'read');
+      return useCases.documentDiff(depsOf(context), input.params.documentId, input.query);
+    }),
     rollback: os.documents.rollback.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.publish');
       await authorizeDocument(context, input.params.documentId, 'knowledge.publish', 'manage');

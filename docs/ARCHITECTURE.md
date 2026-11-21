@@ -673,7 +673,7 @@ PATCH 范围或来源状态走 `replaceSourceScope`：同一事务缩小范围�
 - 凭证（飞书 appSecret、GitLab/GitHub token、模型 apiKey）沿用 `encryptSecrets` 加密入库，API 只回 `hasSecret`。
 - GitHub 连接器目前只在本地 fixture 验证；真实 GitHub 授权、限流与私有仓库内容尚未验收。
 
-知识库当前是共享资源：所有 REST 路由挂 `requireAuth`，并按 `knowledge.*` 功能叶声明动作授权；专家在编辑器里选中某个知识库、写入 `agent_servers` 后才获得该连接。仍不引入组织多租户，也不按知识库对象做跨用户范围授权。
+知识库按 `knowledge.*` 功能叶声明动作授权，并经 `authorizeResourceAccess` 以 `kind: 'knowledge_base'` 连同 `ownerBusinessId` 与访问级别做对象级校验（`packages/api/src/modules/knowledge/access.ts` 的 `authorizeBase/Document/Version/Chunk/Folder/Tag/Source/WikiPage/Job` 统一走这条路径），因此知识库与其他资源一样受对象范围（全部/本人/被指定）约束；专家在编辑器里选中某个知识库、写入 `agent_servers` 后才获得该连接。仍不引入组织多租户。
 
 ### 6.4 任务、调度与恢复
 

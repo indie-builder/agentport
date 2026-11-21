@@ -1,5 +1,9 @@
-import { type KnowledgeDocument, knowledgeAudioMetadataSchema } from '@agentport/shared';
-import { PanelLeftDashed, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  type KnowledgeDocument,
+  type KnowledgeDocumentVersion,
+  knowledgeAudioMetadataSchema,
+} from '@agentport/shared';
+import { GitCompare, PanelLeftDashed, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { CodeBlock } from '../../../components/code-block.js';
@@ -28,13 +32,22 @@ import { ErrorState, InlineEmpty, LoadingState } from '../../../components/state
 import { StatusBadge } from '../../../components/status-badge.js';
 import { Button } from '../../../components/ui/button.js';
 import { Dialog } from '../../../components/ui/dialog.js';
-import { Field, FieldError, FieldLabel } from '../../../components/ui/field.js';
+import { Field, FieldError, FieldGroup, FieldLabel } from '../../../components/ui/field.js';
 import { Input } from '../../../components/ui/input.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select.js';
 import { Textarea } from '../../../components/ui/textarea.js';
 import {
   api,
   errorMessage,
   type KnowledgeChunk,
+  type KnowledgeDocumentDiff,
   type KnowledgeVersionImage,
 } from '../../../lib/api.js';
 import { cn } from '../../../lib/cn.js';
@@ -44,6 +57,7 @@ import {
   useCreateKnowledgeChunk,
   useDeleteKnowledgeChunk,
   useKnowledgeDocumentChunks,
+  useKnowledgeDocumentDiff,
   useKnowledgeDocumentVersions,
   useKnowledgeMarkdown,
   useKnowledgeVersionDetails,
@@ -135,6 +149,8 @@ export function DocumentViewer({
   const [addingChunk, setAddingChunk] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [confirmRollback, setConfirmRollback] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [diffTrigger, setDiffTrigger] = useState<HTMLElement | null>(null);
   const chunkItems = chunks.data?.pages.flatMap((page) => page.items) ?? [];
   const identity = document.sourcePath ?? details.data?.originalFilename ?? document.title;
   const isDraft = selectedVersion?.metadata.publication === 'draft';
@@ -252,6 +268,18 @@ export function DocumentViewer({
                           selectedVersionId={versionId}
                           onSelect={setSelectedVersionId}
                         />
+                        {versions.length > 1 ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(event) => {
+                              setDiffTrigger(event.currentTarget);
+                              setDiffOpen(true);
+                            }}
+                          >
+                            <GitCompare data-icon="inline-start" aria-hidden="true" /> 对比版本
+                          </Button>
+                        ) : null}
                         {manual && canManage ? (
                           <Button variant="outline" size="sm" onClick={() => setManualOpen(true)}>
                             编辑正文
@@ -505,6 +533,15 @@ export function DocumentViewer({
           onClose={() => setManualOpen(false)}
         />
       ) : null}
+      {diffOpen ? (
+        <DocumentDiffDialog
+          documentId={document.id}
+          versions={versions}
+          selectedVersionId={versionId}
+          finalFocus={() => (diffTrigger?.isConnected ? diffTrigger : null)}
+          onClose={() => setDiffOpen(false)}
+        />
+      ) : null}
       <ConfirmDialog
         open={confirmRollback}
         title="设为当前版本"
@@ -541,6 +578,141 @@ export function DocumentViewer({
         />
       ) : null}
     </>
+  );
+}
+
+function DocumentDiffDialog({
+  documentId,
+  versions,
+  selectedVersionId,
+  finalFocus,
+  onClose: onClosed,
+}: {
+  documentId: string;
+  versions: KnowledgeDocumentVersion[];
+  selectedVersionId: string | null;
+  finalFocus: () => HTMLElement | null;
+  onClose: () => void;
+}) {
+  const dialog = useDialogClose(onClosed);
+  const onClose = dialog.close;
+  const selectedIndex = versions.findIndex((version) => version.id === selectedVersionId);
+  const index = Math.max(selectedIndex, 0);
+  const [fromVersionId, setFromVersionId] = useState(
+    versions[index + 1]?.id ?? versions[index - 1]?.id ?? versions[0]?.id ?? '',
+  );
+  const [toVersionId, setToVersionId] = useState(versions[index]?.id ?? '');
+  const ready = fromVersionId !== '' && toVersionId !== '' && fromVersionId !== toVersionId;
+  const diff = useKnowledgeDocumentDiff(documentId, { fromVersionId, toVersionId }, ready);
+  const options = versions.map((version) => ({
+    value: version.id,
+    label: `${versionLabel(version)}${version.isCurrent ? ' · 当前' : ''}`,
+  }));
+
+  return (
+    <Dialog
+      open={dialog.open}
+      onOpenChangeComplete={dialog.onOpenChangeComplete}
+      onOpenChange={(next) => (next ? undefined : onClose())}
+    >
+      <DialogShell title="对比版本" className="max-w-215 sm:max-w-215" finalFocus={finalFocus}>
+        <div className="flex min-w-0 flex-col gap-4">
+          <FieldGroup className="grid gap-3 sm:grid-cols-2">
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="knowledge-diff-from">对比基准</FieldLabel>
+              <Select
+                value={fromVersionId}
+                onValueChange={(next) => {
+                  if (next !== null) setFromVersionId(next);
+                }}
+                items={options}
+              >
+                <SelectTrigger id="knowledge-diff-from" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {options.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="knowledge-diff-to">目标</FieldLabel>
+              <Select
+                value={toVersionId}
+                onValueChange={(next) => {
+                  if (next !== null) setToVersionId(next);
+                }}
+                items={options}
+              >
+                <SelectTrigger id="knowledge-diff-to" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {options.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+          </FieldGroup>
+          {!ready ? <InlineEmpty>请选择两个不同的版本</InlineEmpty> : null}
+          {ready && diff.isPending ? <LoadingState rows={3} /> : null}
+          {ready && diff.isError ? (
+            <ErrorState error={diff.error} onRetry={() => void diff.refetch()} />
+          ) : null}
+          {ready && diff.data ? <DocumentDiffBody diff={diff.data} /> : null}
+        </div>
+      </DialogShell>
+    </Dialog>
+  );
+}
+
+function DocumentDiffBody({ diff }: { diff: KnowledgeDocumentDiff }) {
+  const empty = diff.addedLines.length === 0 && diff.removedLines.length === 0;
+  if (empty) return <InlineEmpty>两个版本没有差异</InlineEmpty>;
+  return (
+    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="text-xs font-medium text-success">新增 {diff.addedLines.length} 行</span>
+        {diff.addedLines.length === 0 ? (
+          <span className="text-xs text-muted-foreground">无</span>
+        ) : (
+          <ul className="flex flex-col gap-0.5 font-mono text-2xs">
+            {diff.addedLines.map((line, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 差异行按原顺序展示
+              <li key={`added-${index}`} className="whitespace-pre-wrap break-words text-success">
+                + {line}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="text-xs font-medium text-danger">删除 {diff.removedLines.length} 行</span>
+        {diff.removedLines.length === 0 ? (
+          <span className="text-xs text-muted-foreground">无</span>
+        ) : (
+          <ul className="flex flex-col gap-0.5 font-mono text-2xs">
+            {diff.removedLines.map((line, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 差异行按原顺序展示
+              <li key={`removed-${index}`} className="whitespace-pre-wrap break-words text-danger">
+                − {line}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }
 

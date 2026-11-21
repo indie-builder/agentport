@@ -1,4 +1,4 @@
-import { AppError } from '@agentport/core';
+import { AppError, diffLines } from '@agentport/core';
 import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
@@ -438,27 +438,7 @@ export async function getWikiVersionDiff(
   const from = versions.find((version) => version.id === fromVersionId);
   const to = versions.find((version) => version.id === toVersionId);
   if (!from || !to) return null;
-  const counts = (lines: string[]): Map<string, number> => {
-    const result = new Map<string, number>();
-    for (const line of lines) result.set(line, (result.get(line) ?? 0) + 1);
-    return result;
-  };
-  const fromLines = from.markdown.split('\n');
-  const toLines = to.markdown.split('\n');
-  const remainingFrom = counts(fromLines);
-  const addedLines: string[] = [];
-  for (const line of toLines) {
-    const count = remainingFrom.get(line) ?? 0;
-    if (count > 0) remainingFrom.set(line, count - 1);
-    else addedLines.push(line);
-  }
-  const remainingTo = counts(toLines);
-  const removedLines: string[] = [];
-  for (const line of fromLines) {
-    const count = remainingTo.get(line) ?? 0;
-    if (count > 0) remainingTo.set(line, count - 1);
-    else removedLines.push(line);
-  }
+  const { added: addedLines, removed: removedLines } = diffLines(from.markdown, to.markdown);
   const fromSources = new Set(from.sourceChunkIds);
   const toSources = new Set(to.sourceChunkIds);
   return {
