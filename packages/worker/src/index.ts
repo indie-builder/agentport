@@ -9,7 +9,7 @@ import {
   RunFailure,
   renderPlugin,
 } from '@agentport/core';
-import { createServiceLogger, logEvent } from '@agentport/core/logger';
+import { logEvent } from '@agentport/core/logger';
 import { createDb, idSuffix, plugins as pluginsTable, repo, schema } from '@agentport/db';
 import {
   ACTIVE_RUN_STATUSES,
@@ -47,6 +47,7 @@ import { startWebhookDeliveryReconciler } from './integrations/deliver.js';
 import { startKnowledgeWorker } from './knowledge/queue.js';
 import { startKnowledgeReconciler } from './knowledge/reconcile.js';
 import { startKnowledgeScheduler } from './knowledge/scheduler.js';
+import { createWorkerLogger } from './logger.js';
 import { startMaintenanceWorker } from './maintenance.js';
 import { resolveProviderUpstreams } from './model-providers.js';
 import { type ModelProxy, startModelProxy } from './model-proxy.js';
@@ -73,15 +74,9 @@ import { startScheduleScheduler } from './scheduling/scheduler.js';
 import { isRunWorkspaceName, runWorkspaceDir } from './session-workspace.js';
 import { runShutdown } from './shutdown.js';
 import { modelProxyUpstream } from './upstream.js';
-import { version } from './version.js';
 
 const config = loadConfig();
-const logger = createServiceLogger({
-  service: 'worker',
-  env: config.NODE_ENV,
-  version,
-  level: config.LOG_LEVEL,
-});
+const logger = createWorkerLogger(config);
 
 configureRunnerClient(config.REDIS_URL, logger);
 
