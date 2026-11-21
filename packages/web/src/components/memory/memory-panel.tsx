@@ -742,7 +742,7 @@ export function RulesPanel({
   const [confirming, setConfirming] = useState<RuleAction | null>(null);
 
   const invalidate = (): void =>
-    void client.invalidateQueries({ queryKey: ['agent-rules', agentId] });
+    void client.invalidateQueries({ queryKey: agentRulesQuery(agentId).queryKey });
   const current = rules.data?.find((r) => r.slug === selected) ?? null;
   const dirty = creating
     ? slug.trim() !== '' || draft !== '' || globs !== ''
@@ -1037,7 +1037,7 @@ export function OutputStylesPanel({
   const [confirming, setConfirming] = useState<StyleAction | null>(null);
 
   const invalidate = (): void =>
-    void client.invalidateQueries({ queryKey: ['agent-output-styles', agentId] });
+    void client.invalidateQueries({ queryKey: agentOutputStylesQuery(agentId).queryKey });
   const current = styles.data?.find((style) => style.slug === selected) ?? null;
   const dirty = creating
     ? slug.trim() !== '' || description !== '' || keepCodingInstructions || body !== ''

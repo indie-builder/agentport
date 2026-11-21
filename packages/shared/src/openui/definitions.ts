@@ -60,16 +60,20 @@ export function createOpenUiDefinitions<C>(
   kit: OpenUiKit<C>,
   renderers: Record<string, C> = {},
 ): OpenUiDefinitions<C> {
+  const registry: OpenUiDefinedComponent<C>[] = [];
   const def = <T extends z.core.$ZodObject>(
     name: OpenUiComponentName,
     props: T,
-  ): OpenUiDefinedComponent<C, T> =>
-    kit.defineComponent({
+  ): OpenUiDefinedComponent<C, T> => {
+    const component = kit.defineComponent({
       name,
       description: OPENUI_DESCRIPTIONS[name],
       props,
       component: renderers[name] as C,
     });
+    registry.push(component);
+    return component;
+  };
 
   const Icon = def(
     'Icon',
@@ -181,7 +185,7 @@ export function createOpenUiDefinitions<C>(
     'SingleStackedBarChart',
     z.object({ labels: z.array(z.string()), values: z.array(z.number()) }),
   );
-  const Slice = def('Slice', z.object({ category: z.string(), value: z.number() }));
+  def('Slice', z.object({ category: z.string(), value: z.number() }));
   const Point = def('Point', z.object({ x: z.number(), y: z.number(), z: z.number().optional() }));
   const ScatterSeries = def(
     'ScatterSeries',
@@ -363,7 +367,7 @@ export function createOpenUiDefinitions<C>(
       defaultChecked: z.boolean().optional(),
     }),
   );
-  const SwitchGroup = def(
+  def(
     'SwitchGroup',
     z.object({
       name: z.string(),
@@ -484,7 +488,7 @@ export function createOpenUiDefinitions<C>(
         .default([]),
     }),
   );
-  const Label = def('Label', z.object({ text: z.string() }));
+  def('Label', z.object({ text: z.string() }));
 
   const inlineText = () =>
     z.object({
@@ -717,7 +721,7 @@ export function createOpenUiDefinitions<C>(
     'SectionBlock',
     z.object({ sections: z.array(SectionItem.ref), isFoldable: z.boolean().optional() }),
   );
-  const Card = def(
+  def(
     'Card',
     z.object({
       children: z.array(refUnion([...nestedContent, SectionBlock.ref, Tabs.ref, Carousel.ref])),
@@ -728,94 +732,7 @@ export function createOpenUiDefinitions<C>(
   );
 
   // 官方注册顺序是线格式的一部分：提示词、$defs 与 spec 都按它排列。
-  const byName = new Map<string, OpenUiDefinedComponent<C>>(
-    [
-      Icon,
-      Image,
-      ImageBlock,
-      ImageGallery,
-      TextContent,
-      MarkDownRenderer,
-      CardHeader,
-      Callout,
-      TextCallout,
-      CodeBlock,
-      Separator,
-      Series,
-      BarChart,
-      LineChart,
-      AreaChart,
-      RadarChart,
-      HorizontalBarChart,
-      PieChart,
-      RadialChart,
-      SingleStackedBarChart,
-      Slice,
-      Point,
-      ScatterSeries,
-      ScatterChart,
-      Col,
-      Table,
-      TagBlock,
-      Tag,
-      Button,
-      Buttons,
-      IconButton,
-      ListItem,
-      ListBlock,
-      FollowUpItem,
-      FollowUpBlock,
-      Input,
-      TextArea,
-      SelectItem,
-      Select,
-      DatePicker,
-      Slider,
-      CheckBoxItem,
-      CheckBoxGroup,
-      RadioItem,
-      RadioGroup,
-      SwitchItem,
-      SwitchGroup,
-      ChipItem,
-      Chips,
-      OptionCard,
-      OptionCards,
-      FormControl,
-      Form,
-      StepsItem,
-      Steps,
-      InlineHeader,
-      EntityList,
-      EditableTable,
-      Label,
-      Text,
-      BoldText,
-      IconText,
-      ImageText,
-      ImageTextLarge,
-      MetricIndicatorInline,
-      MetricIndicatorWithStrikethrough,
-      SnippetCardItem,
-      SnippetCardBlock,
-      OverviewCardItem,
-      OverviewCardBlock,
-      ContextCardItem,
-      ContextCardBlock,
-      CompositeCardItem,
-      CompositeCardBlock,
-      VisualCardItem,
-      VisualCardBlock,
-      AccordionItem,
-      Accordion,
-      TabItem,
-      Tabs,
-      Carousel,
-      SectionItem,
-      SectionBlock,
-      Card,
-    ].map((component) => [component.name, component]),
-  );
+  const byName = new Map(registry.map((component) => [component.name, component]));
 
   const missing = OPENUI_COMPONENT_NAMES.filter((name) => !byName.has(name));
   if (missing.length > 0) {

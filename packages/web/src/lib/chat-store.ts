@@ -1,8 +1,8 @@
-import type { OutputRef } from '@agentport/shared';
+import type { OutputRef, TerminalRunStatus } from '@agentport/shared';
 import { create } from 'zustand';
 import type { ChatItem } from './chat-state.js';
 
-export type RunOutcome = 'succeeded' | 'failed' | 'cancelled' | 'timeout';
+export type RunOutcome = TerminalRunStatus;
 
 export type ChatPhase =
   | { kind: 'idle' }

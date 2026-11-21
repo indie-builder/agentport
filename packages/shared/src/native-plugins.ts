@@ -5,7 +5,7 @@ import {
 } from './agent-package.js';
 import { slugSchema } from './params.js';
 import { pluginFileInputSchema } from './plugin.js';
-import { parseUrl } from './url.js';
+import { hasEmbeddedCredentials, parseUrl } from './url.js';
 import { utf8Bytes } from './utf8.js';
 
 /**
@@ -56,7 +56,7 @@ export const nativePluginMarketplaceSchema = z
     if (githubRepoPattern.test(value)) return true;
     if (!/^https:\/\//i.test(value)) return false;
     const url = parseUrl(value);
-    return url !== null && url.hostname !== '' && !url.username && !url.password;
+    return url !== null && url.hostname !== '' && !hasEmbeddedCredentials(url);
   }, '市场来源只接受 GitHub owner/repo 或 https URL');
 
 /** 市场里的插件名：kebab-case，不带 `@`。 */

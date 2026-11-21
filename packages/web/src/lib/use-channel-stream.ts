@@ -4,6 +4,7 @@ import {
   channelEventSchema,
   chatEventSchema,
   parseJsonAs,
+  type TerminalRunStatus,
 } from '@agentport/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -26,7 +27,7 @@ interface ChannelRunStream {
   items: ChatItem[];
 }
 
-const OUTCOME_TEXT: Record<'succeeded' | 'failed' | 'cancelled' | 'timeout', string> = {
+const OUTCOME_TEXT: Record<TerminalRunStatus, string> = {
   succeeded: '',
   failed: '运行失败，未产生回复。',
   cancelled: '运行已停止。',

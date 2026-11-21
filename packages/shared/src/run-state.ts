@@ -53,7 +53,7 @@ export const FINISHED_RUN_STATUSES = terminalRunStatusSchema.exclude(['cancelled
 export const FAILED_RUN_STATUSES = terminalRunStatusSchema.extract(['failed', 'timeout']).options;
 
 export function isActiveRunStatus(status: string | null | undefined): status is ActiveRunStatus {
-  return status === 'queued' || status === 'running';
+  return status != null && (ACTIVE_RUN_STATUSES as readonly string[]).includes(status);
 }
 
 export function isTerminalRunStatus(
