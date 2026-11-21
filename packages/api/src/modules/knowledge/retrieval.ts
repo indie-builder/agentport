@@ -21,7 +21,7 @@ import type {
   KnowledgeTarget,
 } from '@agentport/shared';
 import { knowledgeImageChunkMetadataSchema, knowledgeLocatorSchema } from '@agentport/shared';
-import { sql } from 'drizzle-orm';
+import { type SQL, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { normalizeFaqQuestion } from './faq.js';
 import { supportsImageVectors } from './service.js';
@@ -180,11 +180,12 @@ async function keywordSearch(db: Db, scope: SearchScope, segmented: string): Pro
   return z.array(searchRowSchema).parse(result);
 }
 
-async function vectorSearch(
+async function vectorSearchRows(
   db: Db,
   scope: SearchScope,
   vector: number[],
   minScore: number,
+  roleClause: SQL,
 ): Promise<SearchRow[]> {
   const literal = `[${vector.join(',')}]`;
   const result = await db.execute<SearchRow>(sql`
@@ -194,7 +195,7 @@ async function vectorSearch(
     join knowledge_document_versions v on v.id = c.version_id
     where ${scopeFilter(scope)}
       and v.embedding_profile_id = ${scope.profileId}
-      and coalesce(c.metadata ->> 'imageRole', '') <> 'vector'
+      and ${roleClause}
       and c.embedding is not null
       and 1 - (c.embedding <=> ${literal}::vector) >= ${minScore}
     order by c.embedding <=> ${literal}::vector
@@ -203,27 +204,28 @@ async function vectorSearch(
   return z.array(searchRowSchema).parse(result);
 }
 
-async function imageVectorSearch(
+function vectorSearch(
   db: Db,
   scope: SearchScope,
   vector: number[],
   minScore: number,
 ): Promise<SearchRow[]> {
-  const literal = `[${vector.join(',')}]`;
-  const result = await db.execute<SearchRow>(sql`
-    select ${selectedColumns}, 1 - (c.embedding <=> ${literal}::vector) as rank
-    from knowledge_chunks c
-    join knowledge_documents d on d.id = c.document_id
-    join knowledge_document_versions v on v.id = c.version_id
-    where ${scopeFilter(scope)}
-      and v.embedding_profile_id = ${scope.profileId}
-      and c.metadata ->> 'imageRole' = 'vector'
-      and c.embedding is not null
-      and 1 - (c.embedding <=> ${literal}::vector) >= ${minScore}
-    order by c.embedding <=> ${literal}::vector
-    limit ${PER_PATH}
-  `);
-  return z.array(searchRowSchema).parse(result);
+  return vectorSearchRows(
+    db,
+    scope,
+    vector,
+    minScore,
+    sql`coalesce(c.metadata ->> 'imageRole', '') <> 'vector'`,
+  );
+}
+
+function imageVectorSearch(
+  db: Db,
+  scope: SearchScope,
+  vector: number[],
+  minScore: number,
+): Promise<SearchRow[]> {
+  return vectorSearchRows(db, scope, vector, minScore, sql`c.metadata ->> 'imageRole' = 'vector'`);
 }
 
 function imageOf(metadata: Record<string, unknown>): KnowledgeImageRef | null {
