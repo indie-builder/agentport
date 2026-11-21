@@ -21,13 +21,13 @@ import {
   messageAttachments,
   type PermissionId,
   type Principal,
-  RUN_QUEUE_MAX_WAITING,
   runEnqueueOptions,
 } from '@agentport/shared';
 import type { SQL } from 'bun';
 import type { Logger } from 'pino';
 import type { Config } from '../../config.js';
 import { getQueue } from '../../queue/producer.js';
+import { runQueueHasCapacity } from '../runs/capacity.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
 import { canonicalJson, enforceContentPolicy } from '../security/policy-gate.js';
@@ -328,7 +328,7 @@ export async function startRun(
     const run = await chatRepo.findExternalRequestRun(deps.db, externalRequest);
     if (run !== null) return replayExternalRun(run, externalRequest);
   }
-  if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
+  if (!(await runQueueHasCapacity())) {
     return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
   }
   const agent = await repo.agents.getAgent(deps.db, agentId);
@@ -565,7 +565,7 @@ export async function regenerateLastRun(
     { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
     CONVERSATION_MISSING,
   );
-  if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
+  if (!(await runQueueHasCapacity())) {
     return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
   }
   const agent = await repo.agents.getAgent(deps.db, agentId);

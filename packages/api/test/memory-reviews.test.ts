@@ -382,7 +382,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     expect(jobs[0]).toMatchObject({
       name: 'run',
       data: { runId, agentId: agent.id, conversationId, prompt: '记忆审核' },
-      options: { jobId: runId, attempts: 1 },
+      options: { jobId: runId, attempts: 2 },
     });
     expect(messageId).toBeTruthy();
   });

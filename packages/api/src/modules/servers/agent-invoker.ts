@@ -2,16 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fail, notFound } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
-import {
-  isActiveRunStatus,
-  isTerminalRunStatus,
-  RUN_QUEUE_MAX_WAITING,
-  runEnqueueOptions,
-} from '@agentport/shared';
+import { isActiveRunStatus, isTerminalRunStatus, runEnqueueOptions } from '@agentport/shared';
 import { eq } from 'drizzle-orm';
 import type { AppContext } from '../../http/context.js';
 import { getQueue } from '../../queue/producer.js';
 import { cancelAgentRun } from '../chat/cancel-run.js';
+import { runQueueHasCapacity } from '../runs/capacity.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
 import type { AgentInvoker } from './agent-tools.js';
@@ -44,7 +40,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
         if (agent.archivedAt != null || agent.deletedAt != null) {
           fail('AGENT_DISABLED', `agent ${slug} is archived or deleted`);
         }
-        if ((await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
+        if (!(await runQueueHasCapacity())) {
           fail('SERVICE_UNAVAILABLE', 'run queue is full');
         }
         if (signal?.aborted) fail('UPSTREAM_FAILED', 'agent run cancelled');

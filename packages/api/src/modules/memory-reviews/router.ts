@@ -1,6 +1,6 @@
 import { memoryReviewsContract } from '@agentport/contract/memory-reviews';
 import { fail, isAppError, notFound, sha256Hex } from '@agentport/core';
-import { type Database, repo, schema } from '@agentport/db';
+import { type Database, repo } from '@agentport/db';
 import {
   DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
@@ -15,10 +15,10 @@ import {
   memoryReviewHasChanges,
   memoryReviewProposalSchema,
   memoryReviewTargetSchema,
+  runEnqueueOptions,
   validateMemoryContent,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
@@ -35,6 +35,7 @@ import {
   withMemoryTargetLock,
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
+import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 
 const os = implement(memoryReviewsContract).$context<RequestContext>();
 
@@ -422,10 +423,14 @@ export const memoryReviewsRouter = os.router({
           conversationId: first.conversationId,
           prompt: '记忆审核',
         },
-        { jobId: review.runId, attempts: 1, removeOnComplete: 100, removeOnFail: 200 },
+        runEnqueueOptions(review.runId),
       );
     } catch {
-      await context.db.delete(schema.agentRuns).where(eq(schema.agentRuns.id, review.runId));
+      await getQueue()
+        .getJob(review.runId)
+        .then((job) => job?.remove())
+        .catch(() => undefined);
+      await failQueuedRunEnqueue(context.db, review.runId, { deleteMemoryReview: true });
       fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试');
     }
 

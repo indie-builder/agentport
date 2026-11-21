@@ -12,7 +12,6 @@ import {
   type ChannelMessage,
   channelEventsQuerySchema,
   idParams,
-  RUN_QUEUE_MAX_WAITING,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
@@ -29,6 +28,7 @@ import {
   type RunSubscription,
   subscribeChannel,
 } from '../../queue/producer.js';
+import { runQueueHasCapacity } from '../runs/capacity.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
 import { channelsHandoffRouter } from './handoff.js';
@@ -441,7 +441,7 @@ const channelsMainRouter = {
       if (role === null) return notFound();
       if (role === 'viewer') return forbidden('viewer 不能发言');
     }
-    if (wakes && (await getQueue().getWaitingCount()) > RUN_QUEUE_MAX_WAITING) {
+    if (wakes && !(await runQueueHasCapacity())) {
       return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
     }
     const messageId = newId('channelMessage');
