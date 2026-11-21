@@ -29,6 +29,7 @@ offsetPageSchema(item)   // { items: item[], total: number }
 - `nextCursor === null` 表示没有下一页。
 - 游标无效、过期或锚点不在当前访问/筛选范围内时，服务端返回 400，不返回空页。
 - 客户端把 `cursor` 当作不透明字符串，不解析、不拼接。
+- 可变排序列的游标内嵌该行的排序值（时间列为时间戳文本，名称/标题列为原文），保证排序值变化时翻页稳定；解析或校验不通过视为无效游标，返回 400。
 
 现有例外（不改造成新信封）：
 
@@ -50,9 +51,9 @@ offsetPageSchema(item)   // { items: item[], total: number }
 | `adminPageQuerySchema` | 50 | 200 | `cursor` |
 | `offsetQuerySchema` | 50 | 100 | `offset`（默认 0） |
 
-`cursor` 是不透明字符串，输入上限统一为 `CURSOR_MAX_LENGTH = 16384`（`packages/shared/src/pagination.ts`）。该上限必须覆盖服务端自己签发的最长游标：工作区产出游标内嵌最长 1024 字符的输出路径，`JSON.stringify` 会把控制字符转义成 `\uXXXX`（每个字符最多 6 字节），即最多 1024 × 6 ≈ 6144 字节；加上 `createdAt`、`runId` 与键名约 6.3 KB；base64url 再放大 4/3 约 8.4 KB（实测 8312 字符）。`8192` 会让接口拒绝自己的 `nextCursor`，`16384` 留出余量。不为单个接口另设游标上限。
+`cursor` 是不透明字符串，输入上限统一为 `CURSOR_MAX_LENGTH = 262144`（`packages/shared/src/pagination.ts`）。该上限必须覆盖服务端自己签发的最长游标：知识库文档标题游标内嵌同步文档的标题原文，可达数千字符，`JSON.stringify` 转义与 base64url 编码后再放大。不为单个接口另设游标上限。
 
-三个专用短 ID 契约是例外，仍各自保留 200 字符的游标上限（`evalRunListQuerySchema` 见 `packages/shared/src/schemas.ts`，`personalRunListQuerySchema`、`personalShareListQuerySchema` 见 `packages/shared/src/personal.ts`）：它们只签当前页末条的 TypeID，游标长度有界，远低于 200。其余列表一律使用 `pageQuerySchema` / `adminPageQuerySchema` 的 16384。
+三个专用短 ID 契约是例外，仍各自保留 200 字符的游标上限（`evalRunListQuerySchema` 见 `packages/shared/src/schemas.ts`，`personalRunListQuerySchema`、`personalShareListQuerySchema` 见 `packages/shared/src/personal.ts`）：它们只签当前页末条的 TypeID，游标长度有界，远低于 200。其余列表一律使用 `pageQuerySchema` / `adminPageQuerySchema` 的 262144。
 
 接口专属上限仍可收窄或放宽，但必须写在契约里，例如：
 

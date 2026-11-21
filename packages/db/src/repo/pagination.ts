@@ -13,21 +13,47 @@ export function cursorValueSql(column: AnyPgColumn): SQL<string> {
   return sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 }
 
+const TIMESTAMP_CURSOR = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{6})Z$/;
+
+export function isCanonicalTimestamp(value: string): boolean {
+  const m = TIMESTAMP_CURSOR.exec(value);
+  if (m === null) return false;
+  const [y, mo, d, h, mi, s] = m.slice(1, 7).map(Number) as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
+  const date = new Date(Date.UTC(y, mo - 1, d, h, mi, s));
+  return (
+    date.getUTCFullYear() === y &&
+    date.getUTCMonth() === mo - 1 &&
+    date.getUTCDate() === d &&
+    date.getUTCHours() === h &&
+    date.getUTCMinutes() === mi &&
+    date.getUTCSeconds() === s
+  );
+}
+
 function encodeValueCursor(value: string, id: string): string {
   return Buffer.from(JSON.stringify({ v: value, id }), 'utf8').toString('base64url');
 }
 
 function decodeValueCursor(raw: string, kind: CursorKind): { v: string; id: string } | null {
+  const text = Buffer.from(raw, 'base64url').toString('utf8');
+  if (Buffer.from(text, 'utf8').toString('base64url') !== raw) return null;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    parsed = JSON.parse(text);
   } catch {
     return null;
   }
   if (typeof parsed !== 'object' || parsed === null) return null;
   const { v, id } = parsed as { v?: unknown; id?: unknown };
   if (typeof v !== 'string' || typeof id !== 'string' || v === '' || id === '') return null;
-  if (kind === 'timestamp' && Number.isNaN(new Date(v).getTime())) return null;
+  if (kind === 'timestamp' && !isCanonicalTimestamp(v)) return null;
   return { v, id };
 }
 

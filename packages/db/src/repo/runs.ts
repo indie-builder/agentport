@@ -47,7 +47,7 @@ import { getAgentsByIds, getBoundServersByAgentIds } from './agents.js';
 import { getRunChannelAccess } from './channels.js';
 import { messageText } from './chat/messages.js';
 import { markBySource } from './notifications.js';
-import { type CursorPage, keysetPage } from './pagination.js';
+import { type CursorPage, isCanonicalTimestamp, keysetPage } from './pagination.js';
 
 export interface RunListItem {
   id: string;
@@ -166,10 +166,11 @@ export async function listRuns(
 
   if (options.cursor !== undefined) {
     const parts = decodeCursor(options.cursor, 2);
-    const cursorStartedAt = parts?.[0];
-    const anchorId = parts?.[1];
+    if (parts === null || encodeCursor(parts) !== options.cursor) return null;
+    const cursorStartedAt = parts[0];
+    const anchorId = parts[1];
     if (cursorStartedAt === undefined || anchorId === undefined) return null;
-    if (cursorStartedAt !== '' && Number.isNaN(new Date(cursorStartedAt).getTime())) return null;
+    if (cursorStartedAt !== '' && !isCanonicalTimestamp(cursorStartedAt)) return null;
     const [anchor] = await db
       .select({ id: agentRuns.id })
       .from(agentRuns)

@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const PAGE_LIMIT_DEFAULT = 50;
 export const PAGE_LIMIT_MAX = 100;
 export const ADMIN_PAGE_LIMIT_MAX = 200;
-export const CURSOR_MAX_LENGTH = 16384;
+export const CURSOR_MAX_LENGTH = 262144;
 
 export function cursorQuerySchema(options?: { max?: number }) {
   return z.object({

@@ -2,7 +2,7 @@ import type { AccessFilter } from '@agentport/shared';
 import { desc, eq, isNull, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
 import type { Database } from '../../client.js';
 import { agents, conversations, messages } from '../../schema.js';
-import { keysetPage } from '../pagination.js';
+import { cursorValueSql, keysetPage } from '../pagination.js';
 import { conversationAccessWhere } from './shared.js';
 
 const SEARCH_EXCERPT_CHARS = 240;
@@ -93,7 +93,7 @@ export async function searchConversations(
     cursor: options.before,
     limit: options.limit,
     column: conversations.lastMessageAt,
-    valueCursor: (row: { cursorAt: string }) => row.cursorAt,
+    valueCursor: (row: { cursorValue: string }) => row.cursorValue,
     cursorKind: 'timestamp',
     where: [
       agentFilter,
@@ -109,7 +109,7 @@ export async function searchConversations(
           agentName: agents.name,
           title: conversations.title,
           updatedAt: conversations.lastMessageAt,
-          cursorAt: sql<string>`${conversations.lastMessageAt}::text`,
+          cursorValue: cursorValueSql(conversations.lastMessageAt),
           matchKind: sql<'id' | 'title' | 'message' | null>`case
             when ${idMatch} then 'id'
             when ${titleMatch} then 'title'
