@@ -522,8 +522,8 @@ export async function getRunServerSnapshot(
     ...serversOf(run.agentId, definition),
     ...children.flatMap(({ agentId, definition: child }) => serversOf(agentId, child)),
   ].find((entry) => entry.id === serverId);
-  if (server) return server;
   if (ambiguous) throw new AppError('FORBIDDEN', '子专家在运行开始后重新发布，无法确认工具定义');
+  if (server) return server;
   return null;
 }
 

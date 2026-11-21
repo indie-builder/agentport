@@ -597,6 +597,41 @@ describe.skipIf(!ready || isolated === null)('approval hardening', () => {
     expect(secondCalls).toBe(1);
   });
 
+  it('returns 409 for a registered approval once its tool is deleted', async () => {
+    const server = await createServer('http://127.0.0.1:9');
+    const tool = await createTool(server.id, { name: unique('gone-tool'), approvalMode: 'ask' });
+    const agent = await createAgent({ serverIds: [server.id] });
+    const token = crypto.randomUUID();
+    const { runId } = await seedRun({
+      agentId: agent.id,
+      businessId: 'bootstrap-admin',
+      token,
+    });
+    const pending = toolApprovalResponseSchema.parse(
+      (
+        await approvalState({ runId, serverId: server.id, name: tool.name, token, method: 'PUT' })
+      ).json(),
+    );
+    if (pending.approvalId === null) throw new Error('approval missing');
+    const removed = await request(app, {
+      method: 'DELETE',
+      url: `/api/servers/${server.id}/tools/${tool.id}`,
+      headers: { cookie },
+    });
+    expect(removed.statusCode, removed.body).toBe(204);
+    expectProblem(
+      await approvalState({
+        runId,
+        serverId: server.id,
+        name: tool.name,
+        token,
+        method: 'GET',
+        approvalId: pending.approvalId,
+      }),
+      'CONFLICT',
+    );
+  });
+
   it('invalidates a fixed approval when a policy change makes the call a direct allow', async () => {
     const server = await createServer('http://127.0.0.1:9');
     const tool = await createTool(server.id, { name: unique('allow-tool'), approvalMode: 'ask' });

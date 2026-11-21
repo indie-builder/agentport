@@ -93,15 +93,20 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
       ) {
         return c.json({ status: 'cancelled', approvalId: null, expiresAt: null });
       }
+      const boundApprovalId = c.req.method === 'GET' ? c.req.query('approvalId') : undefined;
       const evaluationFailed = (err: unknown) => {
         context.log.warn({ err, runId, serverId, toolName }, 'tool approval evaluation failed');
-        return fail('FORBIDDEN', '无法确认工具审批判定，调用未执行');
+        return boundApprovalId === undefined
+          ? fail('FORBIDDEN', '无法确认工具审批判定，调用未执行')
+          : fail('CONFLICT', '工具审批已失效，调用未执行');
       };
       const tool = await getRunApprovalTool(context.db, runId, serverId, toolName).catch(
         evaluationFailed,
       );
-      if (tool === null) fail('NOT_FOUND', 'approval tool not found');
-      const boundApprovalId = c.req.method === 'GET' ? c.req.query('approvalId') : undefined;
+      if (tool === null) {
+        if (boundApprovalId !== undefined) fail('CONFLICT', '工具审批已失效，调用未执行');
+        fail('NOT_FOUND', 'approval tool not found');
+      }
       const decision = await createApprovalEvaluator({ db: context.db, runId, serverId })(
         tool,
         undefined,

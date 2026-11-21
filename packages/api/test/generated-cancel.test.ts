@@ -145,6 +145,28 @@ it.each([1, 2])(
   },
 );
 
+it('rechecks approval immediately before fetch and refuses a revoked decision', async () => {
+  const fetchSpy = mock(async () => {
+    throw new Error('upstream must not be called after the decision was revoked');
+  });
+  stubGlobal('fetch', fetchSpy);
+  let evaluations = 0;
+
+  buildGeneratedServer({
+    ...baseInput,
+    evaluateApproval: async (candidate) => {
+      evaluations += 1;
+      return evaluation(candidate, evaluations === 1);
+    },
+    isRunActive: async () => true,
+  });
+
+  const result = await callTool(new AbortController().signal);
+  expect(result.isError).toBe(true);
+  expect(evaluations).toBe(2);
+  expect(fetchSpy).not.toHaveBeenCalled();
+});
+
 it('still calls upstream for an active run with approval', async () => {
   const fetchSpy = mock(async () => new Response('ok'));
   stubGlobal('fetch', fetchSpy);
