@@ -1,6 +1,6 @@
 import { readdir, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { McpJsonEntry, WorkspacePlugin } from '@agentport/core';
+import type { WorkspacePlugin } from '@agentport/core';
 import {
   decryptSecrets,
   hashMcpToken,
@@ -20,6 +20,7 @@ import {
   EVAL_RUNS_QUEUE,
   generatedMcpEntry,
   knowledgeMcpEntry,
+  type McpJsonArtifactEntry,
   previewMcpEntry,
   RUNS_QUEUE,
   SESSION_CLEANUP_TIMEOUT_MS,
@@ -139,7 +140,7 @@ function toEntry(
   secretKey: string,
   runId: string,
   runToken: string,
-): McpJsonEntry {
+): McpJsonArtifactEntry {
   if (server.kind === 'knowledge') {
     return knowledgeMcpEntry({ apiUrl, serverId: server.id, runId, runToken });
   }

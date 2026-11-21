@@ -1,5 +1,4 @@
-import { dataDomainIdentityInputSchema } from '@agentport/contract/data-domains';
-import { businessIdSchema } from '@agentport/shared';
+import { businessIdSchema, dataDomainIdentityInputSchema } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';

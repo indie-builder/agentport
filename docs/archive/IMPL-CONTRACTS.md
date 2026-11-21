@@ -150,14 +150,14 @@ GET    /api/agents/:id/files -> { mcpJson: string, claudeMd: string, agentMd: st
 export interface WorkspaceFiles { mcpJson: string; claudeMd: string; agentMd: string }
 export function renderWorkspace(input: {
   agent: { slug: string; name: string; model: string; systemPrompt: string; maxTurns: number };
-  servers: Array<{ name: string; entry: McpJsonEntry }>;
+  servers: Array<{ name: string; entry: McpJsonArtifactEntry }>;
   toolsAllow?: string[]; toolsDeny?: string[];
 }): WorkspaceFiles
 ```
 - `.mcp.json`：`{ "mcpServers": { [name]: entry } }`
 - `CLAUDE.md`：systemPrompt + 工具使用说明
 - `.claude/agents/<slug>.md`：frontmatter `name/description/model/disallowedTools/maxTurns`，正文为 systemPrompt 摘要。子智能体文件不写 `tools`（SDK 派生时 MCP 工具尚未注册，写 `mcp__<server>__*` 会被当成空集拒绝启动）；主智能体的 md 仅供预览，不落盘。
-- `McpJsonEntry` 类型定义在 `packages/core/src/tools.ts`；worker 运行时条目由 `@agentport/shared` 的 `previewMcpEntry()` 构造，knowledge 条目统一走 `knowledgeMcpEntry()`；API 预览与专家包导出各自构造脱敏条目。`.mcp.json` 导入解析是另一条路径（core `parseMcpJson()` 产出 `ServerInput`），与条目预览无关。
+- `McpJsonArtifactEntry` 类型定义在 `packages/shared/src/mcp.ts`；worker 运行时条目由 `@agentport/shared` 的 `previewMcpEntry()` 构造，knowledge 条目统一走 `knowledgeMcpEntry()`；API 预览与专家包导出各自构造脱敏条目。`.mcp.json` 导入解析是另一条路径（core `parseMcpJson()` 产出 `ServerInput`），与条目预览无关。
 
 **`features/agents/workspace.ts`**（api）：从 DB 读 agent + 绑定 servers → 解密 secrets → 调 `renderWorkspace` → **写到** `path.join(WORKSPACES_DIR, slug)`（三个文件），返回内容。若 `WORKSPACES_DIR` 未配置，用 `./data/workspaces`。
 

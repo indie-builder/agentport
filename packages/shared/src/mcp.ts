@@ -36,11 +36,42 @@ export function maskUrlCredentials(value: string): string {
   return url.toString();
 }
 
+const isStringMap = (value: unknown): value is Record<string, string> => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return false;
+  return Reflect.ownKeys(value).every((key) => {
+    if (typeof key !== 'string') return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !descriptor.enumerable) return false;
+    return 'value' in descriptor && typeof descriptor.value === 'string';
+  });
+};
+const mcpJsonArtifactHeaders = z.custom<Record<string, string>>(isStringMap);
+
+export const mcpJsonArtifactEntrySchema = z.discriminatedUnion('type', [
+  z.strictObject({
+    type: z.literal('stdio').optional(),
+    command: z.string(),
+    args: z.array(z.string()).default([]),
+    env: mcpJsonArtifactHeaders.default({}),
+  }),
+  z.strictObject({
+    type: z.enum(['http', 'streamable-http']),
+    url: z.string(),
+    headers: mcpJsonArtifactHeaders.default({}),
+    /** 仅预览用：说明运行时注入的 Authorization，不写入真实工作区文件。 */
+    _note: z.string().optional(),
+  }),
+]);
+
+export type McpJsonArtifactEntry = z.infer<typeof mcpJsonArtifactEntrySchema>;
+
 /** Build an MCP entry with values supplied by the caller (masked, empty, or runtime secrets). */
 export function previewMcpEntry(
   server: { kind: ServerKind; config: Record<string, unknown> },
   values: Record<string, string> = {},
-) {
+): McpJsonArtifactEntry {
   const config = server.config;
   if (server.kind === 'stdio') {
     return {
@@ -123,6 +154,33 @@ export const httpUrlSchema = z
     const url = parseUrl(value);
     return url !== null && !hasEmbeddedCredentials(url);
   }, 'URL不能包含账号密码，请通过加密headers配置凭证');
+
+/** 入口即拒绝 `${...}`：SDK 可能展开模板，导入的配置不能把展开时机留到运行时。 */
+const mcpJsonPlainString = z.string().refine((value) => !value.includes('${'), '不支持模板占位符');
+
+const mcpJsonStdioEntrySchema = z.strictObject({
+  type: z.literal('stdio'),
+  command: mcpJsonPlainString.min(1),
+  args: z.array(mcpJsonPlainString).default([]),
+  env: z.record(mcpJsonPlainString, mcpJsonPlainString).default({}),
+});
+
+const mcpJsonHttpEntrySchema = z.strictObject({
+  type: z.enum(['http', 'streamable-http']),
+  url: httpUrlSchema.refine((value) => !value.includes('${'), '不支持模板占位符'),
+  headers: z.record(mcpJsonPlainString, mcpJsonPlainString).default({}),
+});
+
+export const mcpJsonEntrySchema = z.preprocess(
+  (value) =>
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as { type?: unknown }).type === undefined
+      ? { ...value, type: 'stdio' as const }
+      : value,
+  z.discriminatedUnion('type', [mcpJsonStdioEntrySchema, mcpJsonHttpEntrySchema]),
+);
 
 export const httpServerSchema = z.object({
   ...baseServer,

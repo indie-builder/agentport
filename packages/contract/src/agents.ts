@@ -9,6 +9,7 @@ import {
   agentHooksSettingsInputSchema,
   agentInputSchema,
   agentMemberInputSchema,
+  agentMemberSchema,
   agentOptionsSchema,
   agentSchema,
   agentSummarySchema,
@@ -100,13 +101,6 @@ const patchSchema = z
 const importFileSchema = z.object({ agentMd: z.string().max(MARKDOWN_FILE_MAX_CODE_POINTS) });
 const hookFileBody = agentHookFileInputSchema;
 const hookFileDeleteBody = z.object({ path: agentHookFilePathSchema });
-const memberSchema = z.object({
-  businessId: z.string(),
-  name: z.string(),
-  accountActive: z.boolean(),
-  canUse: z.boolean(),
-  canMaintain: z.boolean(),
-});
 export const agentsContract = {
   list: contractProcedure
     .meta({ access: { kind: 'authenticated' } })
@@ -333,12 +327,12 @@ export const agentsContract = {
     .meta({ access: { kind: 'permission', permissionId: 'agents.members.manage' } })
     .route({ method: 'GET', path: '/agents/{id}/members', successStatus: 200 })
     .input(z.object({ params: idParams }))
-    .output(z.object({ ownerBusinessId: z.string(), members: z.array(memberSchema) })),
+    .output(z.object({ ownerBusinessId: z.string(), members: z.array(agentMemberSchema) })),
   setMember: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.members.manage' } })
     .route({ method: 'PUT', path: '/agents/{id}/members/{businessId}', successStatus: 200 })
     .input(z.object({ params: memberParams, body: agentMemberInputSchema }))
-    .output(memberSchema),
+    .output(agentMemberSchema),
   deleteMember: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.members.manage' } })
     .route({ method: 'DELETE', path: '/agents/{id}/members/{businessId}', successStatus: 200 })

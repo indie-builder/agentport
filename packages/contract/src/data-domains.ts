@@ -1,201 +1,33 @@
 import {
   businessIdSchema,
-  dataDomainQueryApprovalModeSchema,
+  dataDomainApprovalDecisionSchema,
+  dataDomainConnectionTestInputSchema,
+  dataDomainConnectionTestResultSchema,
+  dataDomainEnrichInputSchema,
+  dataDomainEnrichmentProposalDetailSchema,
+  dataDomainEnrichmentProposalSchema,
+  dataDomainIdentityInputSchema,
+  dataDomainIdentitySchema,
+  dataDomainInputSchema,
+  dataDomainListQuerySchema,
+  dataDomainListSchema,
+  dataDomainOnlineVersionInputSchema,
+  dataDomainPatchSchema,
+  dataDomainProposalDecisionResultSchema,
+  dataDomainProposalDecisionSchema,
+  dataDomainQueryApprovalListQuerySchema,
+  dataDomainQueryApprovalListSchema,
+  dataDomainQueryApprovalSchema,
+  dataDomainQueryLogListQuerySchema,
+  dataDomainQueryLogListSchema,
+  dataDomainSchema,
+  dataDomainVersionDetailSchema,
+  dataDomainVersionInputSchema,
+  dataDomainVersionSchema,
   idParams,
-  slugSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
-
-const connectionSchema = z.record(z.string().min(1).max(128), z.string().max(4096));
-
-const dataDomainSlugSchema = slugSchema.max(61);
-
-const dataDomainListQuerySchema = z.object({
-  cursor: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-});
-
-export const dataDomainInputSchema = z.object({
-  name: z.string().trim().min(1).max(64),
-  slug: dataDomainSlugSchema,
-  description: z.string().trim().max(2000).default(''),
-  datasource: z.string().trim().min(1).max(64),
-  connection: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写连接配置'),
-  queryApprovalMode: dataDomainQueryApprovalModeSchema.default('off'),
-});
-
-export const dataDomainConnectionTestInputSchema = z.object({
-  datasource: z.string().trim().min(1).max(64),
-  connection: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写连接配置'),
-});
-
-export const dataDomainConnectionTestResultSchema = z.object({
-  ok: z.boolean(),
-  error: z.string().optional(),
-});
-
-export const dataDomainPatchSchema = z
-  .object({
-    name: z.string().trim().min(1).max(64),
-    slug: dataDomainSlugSchema,
-    description: z.string().trim().max(2000),
-    datasource: z.string().trim().min(1).max(64),
-    connection: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写连接配置'),
-    queryApprovalMode: dataDomainQueryApprovalModeSchema,
-  })
-  .partial()
-  .refine((value) => Object.keys(value).length > 0, { message: '至少需要修改一项' });
-
-export const dataDomainSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  slug: z.string(),
-  description: z.string(),
-  datasource: z.string(),
-  onlineVersionId: z.string().nullable(),
-  queryApprovalMode: dataDomainQueryApprovalModeSchema,
-  createdBy: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-export const dataDomainListSchema = z.object({
-  items: z.array(dataDomainSchema),
-  nextCursor: z.string().nullable(),
-});
-
-export const dataDomainVersionSchema = z.object({
-  id: z.string(),
-  dataDomainId: z.string(),
-  status: z.enum(['queued', 'building', 'ready', 'failed']),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-export const dataDomainVersionDetailSchema = z.object({
-  id: z.string(),
-  dataDomainId: z.string(),
-  status: z.enum(['queued', 'building', 'ready', 'failed']),
-  logTail: z.string(),
-  logTruncated: z.boolean(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-export const dataDomainVersionInputSchema = z.object({
-  projectFiles: z.record(z.string().min(1).max(512), z.string()),
-});
-
-export const dataDomainOnlineVersionInputSchema = z.object({
-  versionId: z.string().min(1),
-});
-
-export const dataDomainIdentitySchema = z.object({
-  businessId: z.string(),
-  properties: connectionSchema,
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-export const dataDomainIdentityInputSchema = z.object({
-  properties: connectionSchema.refine((value) => Object.keys(value).length > 0, '请填写属性'),
-});
-
-export const dataDomainQueryLogSchema = z.object({
-  id: z.string(),
-  dataDomainId: z.string(),
-  versionId: z.string().nullable(),
-  serverId: z.string(),
-  runId: z.string(),
-  actorBusinessId: z.string().nullable(),
-  sqlSummary: z.string(),
-  rowCount: z.number().int().nullable(),
-  status: z.enum(['ok', 'error']),
-  durationMs: z.number().int(),
-  createdAt: z.string(),
-});
-
-export const dataDomainQueryLogListQuerySchema = z.object({
-  cursor: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  status: z.enum(['ok', 'error']).optional(),
-  runId: z.string().min(1).max(128).optional(),
-});
-
-export const dataDomainQueryLogListSchema = z.object({
-  items: z.array(dataDomainQueryLogSchema),
-  nextCursor: z.string().nullable(),
-});
-
-export const dataDomainQueryApprovalSchema = z.object({
-  id: z.string(),
-  dataDomainId: z.string(),
-  serverId: z.string(),
-  runId: z.string(),
-  actorBusinessId: z.string().nullable(),
-  sqlText: z.string(),
-  sqlHash: z.string(),
-  status: z.enum(['pending', 'approved', 'rejected']),
-  decisionNote: z.string(),
-  requestedAt: z.string(),
-  decidedAt: z.string().nullable(),
-  decidedByBusinessId: z.string().nullable(),
-});
-
-export const dataDomainQueryApprovalListQuerySchema = z.object({
-  cursor: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  status: z.enum(['pending', 'approved', 'rejected']).optional(),
-});
-
-export const dataDomainQueryApprovalListSchema = z.object({
-  items: z.array(dataDomainQueryApprovalSchema),
-  nextCursor: z.string().nullable(),
-});
-
-export const dataDomainApprovalDecisionSchema = z.object({
-  decision: z.enum(['approve', 'reject']),
-  note: z.string().trim().max(2000).default(''),
-});
-
-export const dataDomainEnrichmentProposalSchema = z.object({
-  id: z.string(),
-  dataDomainId: z.string(),
-  sourceVersionId: z.string(),
-  status: z.enum(['generating', 'ready', 'approved', 'rejected', 'failed']),
-  instruction: z.string(),
-  summary: z.string(),
-  error: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  decidedAt: z.string().nullable(),
-  decidedByBusinessId: z.string().nullable(),
-});
-
-export const dataDomainProposalChangeSchema = z.object({
-  path: z.string(),
-  status: z.enum(['added', 'modified', 'removed']),
-});
-
-export const dataDomainEnrichmentProposalDetailSchema = dataDomainEnrichmentProposalSchema.extend({
-  projectFiles: z.record(z.string(), z.string()),
-  changedFiles: z.array(dataDomainProposalChangeSchema),
-});
-
-export const dataDomainEnrichInputSchema = z.object({
-  sourceVersionId: z.string().min(1),
-  instruction: z.string().trim().min(1).max(4000),
-});
-
-export const dataDomainProposalDecisionSchema = z.object({
-  decision: z.enum(['approve', 'reject']),
-});
-
-export const dataDomainProposalDecisionResultSchema = z.object({
-  proposal: dataDomainEnrichmentProposalSchema,
-  version: dataDomainVersionSchema.nullable(),
-});
 
 const identityParams = idParams.extend({ businessId: businessIdSchema });
 const approvalParams = idParams.extend({ approvalId: z.string().min(1) });

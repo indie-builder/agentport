@@ -1,10 +1,11 @@
-import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
+import type { WorkspaceFiles } from '@agentport/core';
 import { renderPlugin, renderWorkspace, toOutputStyleSelection, unionById } from '@agentport/core';
 import { resolveWorkspaceMemoryPolicy, toWorkspaceInput } from '@agentport/core/workspace-input';
 import { repo, type schema } from '@agentport/db';
 import {
   generatedMcpEntry,
   knowledgeMcpEntry,
+  type McpJsonArtifactEntry,
   PREVIEW_SECRET,
   previewMcpEntry,
 } from '@agentport/shared';
@@ -23,7 +24,7 @@ function maskValues(keys: string[], omitAuthorization = false): Record<string, s
       .map((key) => [key, PREVIEW_SECRET]),
   );
 }
-function toEntry(row: ServerRow, secretKeys: string[]): McpJsonEntry {
+function toEntry(row: ServerRow, secretKeys: string[]): McpJsonArtifactEntry {
   const config = row.config;
   if (row.kind === 'knowledge' || row.kind === 'data_domain') {
     return {

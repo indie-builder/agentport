@@ -12,10 +12,10 @@ import type {
   DataDomainEnrichmentProposalDetail,
   DataDomainIdentity,
   DataDomainQueryApproval,
+  DataDomainQueryApprovalListQuery,
   DataDomainQueryApprovalPage,
-  DataDomainQueryApprovalQuery,
+  DataDomainQueryLogListQuery,
   DataDomainQueryLogPage,
-  DataDomainQueryLogQuery,
   DataDomainVersion,
   DataDomainVersionDetail,
 } from '../api.js';
@@ -207,7 +207,7 @@ export function useRemoveDataDomainIdentity() {
   });
 }
 
-export function useDataDomainQueryLogs(id: string, query: DataDomainQueryLogQuery) {
+export function useDataDomainQueryLogs(id: string, query: DataDomainQueryLogListQuery) {
   return useInfiniteQuery<DataDomainQueryLogPage>({
     queryKey: [...dataDomainKeys, id, 'query-logs', query],
     queryFn: ({ pageParam }) =>
@@ -221,7 +221,7 @@ export function useDataDomainQueryLogs(id: string, query: DataDomainQueryLogQuer
 }
 
 export function dataDomainApprovalsShouldPoll(
-  query: DataDomainQueryApprovalQuery,
+  query: DataDomainQueryApprovalListQuery,
   pages: DataDomainQueryApprovalPage[] | undefined,
 ): boolean {
   return (
@@ -230,7 +230,7 @@ export function dataDomainApprovalsShouldPoll(
   );
 }
 
-export function useDataDomainQueryApprovals(id: string, query: DataDomainQueryApprovalQuery) {
+export function useDataDomainQueryApprovals(id: string, query: DataDomainQueryApprovalListQuery) {
   return useInfiniteQuery<DataDomainQueryApprovalPage>({
     queryKey: [...dataDomainKeys, id, 'approvals', query],
     queryFn: ({ pageParam }) =>

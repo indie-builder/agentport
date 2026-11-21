@@ -5,6 +5,7 @@ import {
   DEFAULT_MEMORY_POLICY,
   disallowedToolsFor,
   displayNameSchema,
+  type McpJsonArtifactEntry,
   MEMORY_CONTAINER_DIR,
   type MemoryPolicy,
   memoryWritable,
@@ -23,7 +24,6 @@ import {
 } from './official-files.js';
 import { openuiSystemPrompt } from './openui-prompt.js';
 import type { SkillProvenance } from './skill-md.js';
-import type { McpJsonEntry } from './tools.js';
 
 export type { WorkspaceFiles };
 
@@ -57,7 +57,7 @@ export interface WorkspaceSkill extends SkillProvenance {
 
 export interface WorkspaceInput {
   agent: WorkspaceAgent;
-  servers: Array<{ name: string; entry: McpJsonEntry }>;
+  servers: Array<{ name: string; entry: McpJsonArtifactEntry }>;
   skills?: WorkspaceSkill[];
   /** 单层委派：这些子智能体渲染到 .claude/agents/，主智能体获得 Agent 工具。 */
   subAgents?: WorkspaceAgent[];
@@ -458,7 +458,7 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
  */
 export function renderSubAgentMd(input: {
   agent: WorkspaceAgent;
-  servers: Array<{ name: string; entry: McpJsonEntry }>;
+  servers: Array<{ name: string; entry: McpJsonArtifactEntry }>;
   skills?: WorkspaceSkill[];
 }): string {
   assertDisplayName(input.agent.name);
@@ -511,7 +511,7 @@ export function unionById<T extends { id: string }>(lists: readonly (readonly T[
 /** 把 DB 中的智能体定义渲染成落盘文件的内容；纯函数，不碰文件系统。 */
 export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
   assertDisplayName(input.agent.name);
-  const mcpServers: Record<string, McpJsonEntry> = {};
+  const mcpServers: Record<string, McpJsonArtifactEntry> = {};
   for (const server of input.servers) {
     mcpServers[server.name] = server.entry;
   }

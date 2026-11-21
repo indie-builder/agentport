@@ -342,17 +342,13 @@ export type ExecutionSubject =
   | { kind: 'user'; businessId: BusinessId }
   | { kind: 'service'; serviceId: 'system' | 'mcp' };
 
-export type RoleSummary = {
-  id: string;
-  name: string;
-  systemKey: 'admin' | 'user' | 'owner' | 'maintainer' | null;
-};
+export const roleSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  systemKey: z.enum(['admin', 'user', 'owner', 'maintainer']).nullable(),
+});
 
-export type Role = RoleSummary & {
-  grants: PermissionGrant[];
-  createdAt: string;
-  updatedAt: string;
-};
+export type RoleSummary = z.infer<typeof roleSummarySchema>;
 
 export type Principal =
   | {
@@ -396,40 +392,7 @@ export type AccessResource = {
   };
 };
 
-export type RoleMatrix = { revision: number; roles: Role[] };
-
-export type RoleMatrixInput = {
-  expectedRevision: number;
-  roles: { id?: string; name: string; grants: PermissionGrant[] }[];
-};
-
-export type Account = {
-  businessId: BusinessId;
-  username: string;
-  name: string;
-  status: 'active' | 'disabled';
-  roles: RoleSummary[];
-  createdAt: string;
-};
-
-export type AgentMember = {
-  businessId: BusinessId;
-  name: string;
-  accountActive: boolean;
-  canUse: boolean;
-  canMaintain: boolean;
-};
-
 export type AgentAccess = { agentId: string; permissionIds: PermissionId[] };
-
-export type AuthMe =
-  | { authenticated: false }
-  | {
-      authenticated: true;
-      user: { businessId: BusinessId; username: string; name: string };
-      roles: RoleSummary[];
-      grants: PermissionGrant[];
-    };
 
 /** 依赖同叶读取能力的写权限；矩阵保存时逐项校验。 */
 const READ_DEPENDENCIES: Partial<Record<PermissionId, PermissionId>> = {
@@ -642,10 +605,23 @@ export const permissionGrantSchema = z
     }
   });
 
-export const permissionGrantsSchema = z.array(permissionGrantSchema).superRefine((grants, ctx) => {
+const permissionGrantsSchema = z.array(permissionGrantSchema).superRefine((grants, ctx) => {
   const message = validateGrants(grants);
   if (message) ctx.addIssue({ code: 'custom', message });
 });
+
+const roleSchema = roleSummarySchema.extend({
+  grants: z.array(permissionGrantSchema),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type Role = z.infer<typeof roleSchema>;
+
+export const roleMatrixSchema = z.object({
+  revision: z.number().int(),
+  roles: z.array(roleSchema),
+});
+export type RoleMatrix = z.infer<typeof roleMatrixSchema>;
 
 const roleNameSchema = z
   .string({ error: '请输入角色名称' })
@@ -684,6 +660,8 @@ export const roleMatrixInputSchema = z
       names.add(role.name);
     }
   });
+
+export type RoleMatrixInput = z.infer<typeof roleMatrixInputSchema>;
 
 export const usernameSchema = z
   .string({ error: '请输入用户名' })
@@ -724,6 +702,25 @@ export const accountPasswordSchema = z.object({ password: passwordSchema }).stri
 export const accountRolesSchema = z.object({ roleIds: z.array(z.string().min(1)) }).strict();
 
 export const accountStatusSchema = z.enum(['active', 'disabled']);
+
+export const accountSchema = z.object({
+  businessId: z.string(),
+  username: z.string(),
+  name: z.string(),
+  status: accountStatusSchema,
+  roles: z.array(roleSummarySchema),
+  createdAt: z.iso.datetime(),
+});
+export type Account = z.infer<typeof accountSchema>;
+
+export const agentMemberSchema = z.object({
+  businessId: z.string(),
+  name: z.string(),
+  accountActive: z.boolean(),
+  canUse: z.boolean(),
+  canMaintain: z.boolean(),
+});
+export type AgentMember = z.infer<typeof agentMemberSchema>;
 
 export const changeOwnPasswordSchema = z
   .object({ currentPassword: z.string().min(1), newPassword: passwordSchema })

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { McpJsonEntry, WorkspaceSkill } from '@agentport/core';
+import type { WorkspaceSkill } from '@agentport/core';
 import {
   AppError,
   decryptSecrets,
@@ -41,6 +41,7 @@ import type {
   AgentInput,
   AgentPackageSidecar,
   ApiToolInput,
+  McpJsonArtifactEntry,
   PackageServer,
   PackageSubAgent,
   ServerInput,
@@ -173,7 +174,7 @@ function toExportedServer(
         }),
   };
 }
-function toPreviewEntry(row: ServerRow, selfUrl: string): McpJsonEntry {
+function toPreviewEntry(row: ServerRow, selfUrl: string): McpJsonArtifactEntry {
   if (row.kind === 'knowledge' || row.kind === 'data_domain')
     return managedPackageEntries(row, selfUrl).mcpEntry;
   if (row.kind === 'stdio') {

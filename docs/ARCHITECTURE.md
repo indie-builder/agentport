@@ -24,7 +24,7 @@
               └────────┘  └────────┘       │
                    ▲────────────────────────┘
 
-  web ──▶ shared、contract 与 core 的纯函数子路径（workspace / tools / plugin-display）
+  web ──▶ shared、contract 与 core 的纯函数子路径（workspace / plugin-display）
   sandbox ── 同一 workspace 的 runner；镜像内由生产依赖安装与 dist 复制自包含
 ```
 
@@ -37,7 +37,7 @@
 | `api` | `Bun.serve` + Hono 入口、oRPC 过程、鉴权、MCP 端点、SSE、入队、评估跑批 | 不启动沙盒、不渲染每轮定义；宿主文件只经既有记忆/附件/成果入口读写投影 |
 | `worker` | 消费队列、每轮渲染定义到会话工作区、管理会话沙盒（复用/空闲回收）、回传事件、维护任务 | 不承业务 REST；唯一 HTTP 监听是模型凭证代理 |
 | `sandbox` | 容器内 supervisor 常驻；每轮启动新 runner query，读任务并逐行输出 NDJSON 事件 | 不含业务代码与智能体定义 |
-| `web` | SPA；生产由 api 托管静态产物 | 不 import db/api/worker，也不 import core 根入口（根入口含 `node:crypto` 模块）；引用 `contract` 与 core 的纯函数子路径 `workspace`、`tools`、`plugin-display` |
+| `web` | SPA；生产由 api 托管静态产物 | 不 import db/api/worker，也不 import core 根入口（根入口含 `node:crypto` 模块）；引用 `contract` 与 core 的纯函数子路径 `workspace`、`plugin-display` |
 
 进程之间只通过 PostgreSQL、Redis、HTTP 通信，不共享内存对象。
 

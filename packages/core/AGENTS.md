@@ -30,7 +30,7 @@
 
 ## 浏览器子路径
 
-- 根入口包含 `node:crypto` / `node:fs` 等模块，web 不得 import `@agentport/core` 根入口；web 实际只使用 `workspace`、`tools`、`plugin-display` 三个子路径。
+- 根入口包含 `node:crypto` / `node:fs` 等模块，web 不得 import `@agentport/core` 根入口；web 实际只使用 `workspace`、`plugin-display` 两个子路径。
 - 新增浏览器可达的子路径前，先确认它与传递依赖都不含 Node 内建；不要把 fs、DB 或路由代码塞进这些子路径。
 
 ## 验证
