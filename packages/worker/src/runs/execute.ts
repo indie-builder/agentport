@@ -38,6 +38,7 @@ import {
   projectPersonalMemory,
 } from '../memory/personal-memory.js';
 import {
+  MESSAGES_NOT_SAVED_ERROR,
   type PersistedChannelMessage,
   type PersistedMessage,
   persistRunMessages,
@@ -982,7 +983,7 @@ export async function runAgentJob(
     if (!messagesWritten && !willRetry && !skippedRegeneratePersist) {
       outcome = {
         ...outcome,
-        error: `${outcome.error ?? outcome.status}；消息未保存，产出未发布：${messageSaveError ?? '消息保存被拒绝'}`,
+        error: `${outcome.error ?? outcome.status}；${MESSAGES_NOT_SAVED_ERROR}：${messageSaveError ?? '消息保存被拒绝'}`,
       };
     }
     if (outputSettlementError !== undefined && !willRetry) {

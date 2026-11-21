@@ -22,6 +22,8 @@ interface Snapshot {
   prompt: string;
   expectation: string;
   judgeMode: 'contains' | 'llm';
+  expectedTools?: string[];
+  forbiddenTools?: string[];
 }
 
 interface ResultBody {
@@ -233,6 +235,46 @@ describe.skipIf(!ready)('eval run comparison', () => {
       key: expectationChanged.key,
       status: 'changed_inputs',
     });
+  });
+
+  it('compares tool assertions as sets, ignoring order and duplicates', async () => {
+    const agent = await newAgent();
+    const kase = await newCase(agent.id, 'tool-set');
+    const base = await newRun(agent.id, { cases: [kase] });
+    const head = await newRun(agent.id, { cases: [kase] });
+    await record(base, {
+      caseId: kase.id,
+      snapshot: { ...kase, expectedTools: ['Read', 'Bash'], forbiddenTools: ['Write'] },
+      passed: false,
+    });
+    await record(head, {
+      caseId: kase.id,
+      snapshot: {
+        ...kase,
+        expectedTools: ['Bash', 'Read', 'Read'],
+        forbiddenTools: ['Write', 'Write'],
+      },
+      passed: true,
+    });
+
+    const reordered = await comparison(base, head);
+    expect(reordered.rows[0]).toMatchObject({ key: kase.id, status: 'improved' });
+
+    const otherBase = await newRun(agent.id, { cases: [kase] });
+    const otherHead = await newRun(agent.id, { cases: [kase] });
+    await record(otherBase, {
+      caseId: kase.id,
+      snapshot: { ...kase, expectedTools: ['Read', 'Bash'] },
+      passed: true,
+    });
+    await record(otherHead, {
+      caseId: kase.id,
+      snapshot: { ...kase, expectedTools: ['Read'] },
+      passed: true,
+    });
+
+    const changed = await comparison(otherBase, otherHead);
+    expect(changed.rows[0]).toMatchObject({ key: kase.id, status: 'changed_inputs' });
   });
 
   it('treats a judge-mode change as changed inputs and defaults legacy snapshots to contains', async () => {

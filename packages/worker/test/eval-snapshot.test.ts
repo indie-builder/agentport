@@ -119,6 +119,7 @@ function runWith(caseSnapshot: SnapshotCase[] | null, outputs: Record<string, st
   }));
   mocks.chat.listMessages.mockImplementation(async (_db: Database, conversationId: string) => [
     {
+      runId: `run-${conversationId}`,
       role: 'assistant',
       content: { type: 'text', text: outputsByConversation.get(conversationId) ?? '' },
     },
@@ -190,10 +191,22 @@ describe('executeEvalRun case snapshot', () => {
     ];
     runWith(snapshot, { alpha: 'answer alpha-ok' });
     mocks.chat.listMessages.mockResolvedValue([
-      { role: 'assistant', content: { type: 'text', text: 'answer alpha-ok' } },
-      { role: 'tool', content: { type: 'tool_use', id: 'tool-1', name: 'Read', input: {} } },
-      { role: 'tool', content: { type: 'tool_result', toolUseId: 'tool-1', name: 'Read' } },
-      { role: 'tool', content: { type: 'tool_use', id: 'tool-2', name: 'Bash', input: {} } },
+      { runId: 'run-alpha', role: 'assistant', content: { type: 'text', text: 'answer alpha-ok' } },
+      {
+        runId: 'run-alpha',
+        role: 'tool',
+        content: { type: 'tool_use', id: 'tool-1', name: 'Read', input: {} },
+      },
+      {
+        runId: 'run-alpha',
+        role: 'tool',
+        content: { type: 'tool_result', toolUseId: 'tool-1', name: 'Read' },
+      },
+      {
+        runId: 'run-alpha',
+        role: 'tool',
+        content: { type: 'tool_use', id: 'tool-2', name: 'Bash', input: {} },
+      },
     ]);
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });

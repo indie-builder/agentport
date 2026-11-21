@@ -15,6 +15,7 @@ import {
 } from '@agentport/shared';
 import { desc, eq } from 'drizzle-orm';
 
+import { MESSAGES_NOT_SAVED_ERROR } from '../messages.js';
 import { toHostWorkspacePath } from '../session-workspace.js';
 
 export interface RunOutputsIdentity {
@@ -116,7 +117,7 @@ export async function publishRunOutputsIfSettled(
   if (input.messagesWritten === false) {
     return {
       published: false,
-      problem: `消息未保存，产出未发布：${input.messageSaveError ?? '消息保存被拒绝，运行可能已由外部终止'}`,
+      problem: `${MESSAGES_NOT_SAVED_ERROR}：${input.messageSaveError ?? '消息保存被拒绝，运行可能已由外部终止'}`,
     };
   }
   const blocked = await outputDraftBlockedReason(storage);

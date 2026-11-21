@@ -6,6 +6,7 @@ import { inspect } from 'node:util';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { eq, inArray } from 'drizzle-orm';
 import type { Logger } from 'pino';
+import { MESSAGES_NOT_SAVED_ERROR } from '../src/messages.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const mocks = {
@@ -136,6 +137,7 @@ async function completeRun(data: { runId: string; conversationId: string; prompt
     conversationId: data.conversationId,
     role: 'assistant',
     content: { type: 'text', text: `reply:${data.prompt}` },
+    runId: data.runId,
   });
 }
 
@@ -274,6 +276,26 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     const output = detail?.results[0]?.output ?? '';
     expect(output).toBe(EVAL_FAILURE_PUBLIC_MESSAGE);
     expectNoSqlLeak(output, secret);
+  });
+
+  it('fails the case when a succeeded run reports unpersisted messages', async () => {
+    const marker = `succeeded；${MESSAGES_NOT_SAVED_ERROR}：消息保存被拒绝`;
+    const { evalRunId } = await seed([
+      { name: 'unsaved', prompt: 'prompt-unsaved', expectation: 'reply:prompt-unsaved' },
+    ]);
+    mocks.queueAdd.mockImplementationOnce(async (_name, data) => {
+      await db
+        .update(schema.agentRuns)
+        .set({ status: 'succeeded', endedAt: new Date(), error: marker })
+        .where(eq(schema.agentRuns.id, data.runId));
+      return { waitUntilFinished: mocks.waitUntilFinished };
+    });
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
+    expect(detail?.evalRun).toMatchObject({ status: 'failed', passed: 0, error: null });
+    expect(detail?.results[0]).toMatchObject({ passed: false, output: marker });
   });
 
   it('keeps an ordinary case failure readable instead of the public database message', async () => {

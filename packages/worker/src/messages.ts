@@ -131,6 +131,8 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
   return rows;
 }
 
+export const MESSAGES_NOT_SAVED_ERROR = '消息未保存，产出未发布';
+
 export interface PersistedMessage {
   id: string;
   blockIndex: number;

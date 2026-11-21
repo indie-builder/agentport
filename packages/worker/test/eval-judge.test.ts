@@ -9,6 +9,7 @@ import {
   gradeCase,
   gradeTrajectory,
   type JudgeQueryFn,
+  messagesForRun,
 } from '../src/eval-runner.js';
 
 let knowledgeDir = '';
@@ -65,6 +66,19 @@ describe('gradeTrajectory', () => {
       passed: true,
       reason: null,
     });
+  });
+});
+
+describe('messagesForRun', () => {
+  it('只保留当前 run 的消息，排除同会话后续轮次', () => {
+    const messages = [
+      { runId: 'run-a', role: 'assistant', content: { type: 'text', text: 'a' } },
+      { runId: 'run-b', role: 'assistant', content: { type: 'text', text: 'b' } },
+      { runId: 'run-a', role: 'tool', content: { type: 'tool_use', name: 'Read' } },
+      { runId: 'run-b', role: 'tool', content: { type: 'tool_use', name: 'Bash' } },
+      { runId: null, role: 'assistant', content: { type: 'text', text: 'legacy' } },
+    ];
+    expect(messagesForRun(messages, 'run-a')).toEqual([messages[0], messages[2]]);
   });
 });
 

@@ -25,6 +25,7 @@ import { Cause, Effect, Result } from 'effect';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import { checkRunPromptPolicy } from './content-policy.js';
+import { MESSAGES_NOT_SAVED_ERROR } from './messages.js';
 import { hermeticQueryOptions, runOneShotSdkQuery } from './one-shot-sdk.js';
 import { loadUserAgentAccess } from './runs/run-access.js';
 
@@ -245,6 +246,13 @@ function dbQuery<A>(run: () => Promise<A>): Effect.Effect<A, DbError> {
   });
 }
 
+export function messagesForRun<T extends { runId: string | null }>(
+  messages: T[],
+  runId: string,
+): T[] {
+  return messages.filter((message) => message.runId === runId);
+}
+
 function assistantText(messages: Awaited<ReturnType<typeof chatRepo.listMessages>>): string {
   return messages
     .filter((message) => message.role === 'assistant')
@@ -341,7 +349,13 @@ function runOneCase(
       );
     }
     if (current.status === 'succeeded') {
-      const messages = yield* dbQuery(() => chatRepo.listMessages(db, admitted.conversationId));
+      if (current.error?.includes(MESSAGES_NOT_SAVED_ERROR)) {
+        return yield* Effect.fail(new Error(current.error));
+      }
+      const messages = messagesForRun(
+        yield* dbQuery(() => chatRepo.listMessages(db, admitted.conversationId)),
+        run.id,
+      );
       return {
         output: assistantText(messages),
         prompt,

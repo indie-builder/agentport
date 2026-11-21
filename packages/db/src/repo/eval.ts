@@ -355,8 +355,8 @@ function snapshotInputs(row: StoredEvalResult): {
         prompt: row.caseSnapshot.prompt,
         expectation: row.caseSnapshot.expectation,
         judgeMode: row.caseSnapshot.judgeMode ?? 'contains',
-        expectedTools: row.caseSnapshot.expectedTools ?? [],
-        forbiddenTools: row.caseSnapshot.forbiddenTools ?? [],
+        expectedTools: [...new Set(row.caseSnapshot.expectedTools ?? [])].sort(),
+        forbiddenTools: [...new Set(row.caseSnapshot.forbiddenTools ?? [])].sort(),
       };
 }
 
