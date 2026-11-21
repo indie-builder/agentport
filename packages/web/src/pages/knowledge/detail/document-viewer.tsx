@@ -164,7 +164,7 @@ export function DocumentViewer({
     (audioMetadata?.success !== true || audioMetadata.data.segments.length === 0);
   const summaryBusy =
     document.summaryStatus === 'pending' || document.summaryStatus === 'generating';
-  const summaryVersion = versionId !== null && versionId === document.currentVersionId;
+  const summaryVersion = isCurrent && versionId !== null && versionId === document.currentVersionId;
 
   return (
     <>
@@ -366,7 +366,7 @@ export function DocumentViewer({
                     <InlineEmpty>还没有摘要</InlineEmpty>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-3">
-                    {canManage ? (
+                    {canManage && document.status !== 'disabled' ? (
                       <Button
                         variant="outline"
                         size="sm"

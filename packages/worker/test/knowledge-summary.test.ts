@@ -315,13 +315,7 @@ describe('runKnowledgeSummary', () => {
     });
     await repo.knowledge.setCurrentVersion(db, document.id, next.id);
 
-    await repo.knowledge.setDocumentSummary(db, document.id, {
-      summaryStatus: 'pending',
-      summaryVersionId: next.id,
-      summary: null,
-      summaryGeneratedAt: null,
-      summaryError: null,
-    });
+    await repo.knowledge.beginDocumentSummary(db, document.id, next.id, 'pending');
     const pending = await repo.knowledge.getDocument(db, seeded.documentId);
     if (!pending) throw new Error('document missing');
     expect(visibleDocumentSummary(pending)).toEqual({

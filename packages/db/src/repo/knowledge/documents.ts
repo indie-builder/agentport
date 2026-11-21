@@ -159,6 +159,21 @@ export async function setDocumentSummary(
   return row ?? null;
 }
 
+export async function beginDocumentSummary(
+  db: DbHandle,
+  documentId: string,
+  versionId: string,
+  status: 'pending' | 'generating',
+): Promise<KnowledgeDocumentRow | null> {
+  return setDocumentSummary(db, documentId, {
+    summaryStatus: status,
+    summaryVersionId: versionId,
+    summary: null,
+    summaryGeneratedAt: null,
+    summaryError: null,
+  });
+}
+
 export async function failDocumentSummary(
   db: DbHandle,
   documentId: string,
@@ -170,6 +185,7 @@ export async function failDocumentSummary(
     .where(eq(knowledgeDocuments.id, documentId))
     .limit(1);
   if (!document) return;
+  if (document.summaryStatus !== 'pending' && document.summaryStatus !== 'generating') return;
   await setDocumentSummary(db, documentId, {
     summaryStatus: 'failed',
     summaryVersionId: document.summaryVersionId ?? document.currentVersionId,

@@ -69,19 +69,11 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
   const model = deps.config.KNOWLEDGE_SUMMARY_MODEL;
   if (!model) return fail('摘要模型未配置(KNOWLEDGE_SUMMARY_MODEL)');
 
-  const content = await repo.knowledge.readVersionText(db, versionId, CONTENT_LIMIT);
-  if (content === '') return fail('文档当前版本没有可用正文');
-
-  await repo.knowledge.setDocumentSummary(db, document.id, {
-    summaryStatus: 'generating',
-    summaryVersionId: versionId,
-    summary: null,
-    summaryGeneratedAt: null,
-    summaryError: null,
-  });
-
   let summary: string | null = null;
   try {
+    const content = await repo.knowledge.readVersionText(db, versionId, CONTENT_LIMIT);
+    if (content === '') throw new Error('文档当前版本没有可用正文');
+    await repo.knowledge.beginDocumentSummary(db, document.id, versionId, 'generating');
     const cwd = join(deps.config.KNOWLEDGE_DIR, 'summary-sdk', job.id);
     await mkdir(cwd, { recursive: true, mode: 0o700 });
     const queryFn = deps.queryFn ?? query;

@@ -403,13 +403,7 @@ export async function generateDocumentSummary(deps: KnowledgeDeps, documentId: s
   const versionId = document.currentVersionId;
   if (!versionId) throw new AppError('CONFLICT', '文档还没有可用版本，不能生成摘要');
   const job = await deps.db.transaction(async (tx) => {
-    await repo.knowledge.setDocumentSummary(tx, document.id, {
-      summaryStatus: 'pending',
-      summaryVersionId: versionId,
-      summary: null,
-      summaryGeneratedAt: null,
-      summaryError: null,
-    });
+    await repo.knowledge.beginDocumentSummary(tx, document.id, versionId, 'pending');
     return createJob(tx, {
       baseId: document.baseId,
       documentId: document.id,
