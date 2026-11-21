@@ -8,7 +8,7 @@ import type { RequestContext } from '../../http/context.js';
 
 const os = implement(overviewContract).$context<RequestContext>();
 
-function toIso(value: unknown): string | null {
+function isoOrNull(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value.toISOString();
   const date = new Date(String(value));
@@ -150,15 +150,15 @@ export const overviewRouter = os.router({
       },
       agents: agentRows.map((row) => ({
         ...row,
-        createdAt: toIso(row.createdAt),
-        lastRunStartTime: toIso(row.lastRunStartTime),
+        createdAt: isoOrNull(row.createdAt),
+        lastRunStartTime: isoOrNull(row.lastRunStartTime),
         latencyP50: row.latencyP50 === null ? null : Math.round(Number(row.latencyP50)),
         latencyP99: row.latencyP99 === null ? null : Math.round(Number(row.latencyP99)),
       })),
       recent: recent.map((row) => ({
         ...row,
-        startedAt: toIso(row.startedAt),
-        endedAt: toIso(row.endedAt),
+        startedAt: isoOrNull(row.startedAt),
+        endedAt: isoOrNull(row.endedAt),
       })),
     };
   }),
