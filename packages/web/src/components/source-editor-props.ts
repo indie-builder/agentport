@@ -1,4 +1,4 @@
-export type SourceLanguage = 'json' | 'markdown' | 'text';
+type SourceLanguage = 'json' | 'markdown' | 'text';
 
 export type SourceEditorProps = {
   value: string;

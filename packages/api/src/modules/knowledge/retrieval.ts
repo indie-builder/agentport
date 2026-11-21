@@ -54,8 +54,6 @@ type SearchQuery = Omit<
   faqDirectAnswerThreshold?: number;
 };
 
-export type { KnowledgeSearchWarning };
-
 export type SearchKnowledgeResult = KnowledgeSearchResult;
 
 export interface SearchKnowledgeOptions {

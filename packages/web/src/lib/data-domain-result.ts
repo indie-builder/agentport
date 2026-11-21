@@ -7,7 +7,7 @@ export interface DataDomainQueryResult {
 
 export type ColumnType = 'number' | 'text';
 
-export interface ChartColumn {
+interface ChartColumn {
   index: number;
   name: string;
 }

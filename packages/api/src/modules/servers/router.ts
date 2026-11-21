@@ -54,7 +54,7 @@ async function authorizedServer(
   permissionId: PermissionId,
   level: ResourceAccessLevel,
 ): Promise<dbRepo.servers.ServerRow> {
-  const row = await repo.getServerRow(context.db, id);
+  const row = await dbRepo.servers.getServer(context.db, id);
   if (!row) return notFound('server');
   await authorizeResourceAccess(
     context,
@@ -235,7 +235,7 @@ export const serversRouter = os.router({
         row.kind === 'knowledge' ? '知识库连接由知识库设置管理' : '数据域连接由数据域设置管理',
       );
     }
-    const ok = await repo.deleteServer(context.db, input.params.id);
+    const ok = await dbRepo.servers.deleteServer(context.db, input.params.id);
     if (!ok) return notFound('server');
     await writeAudit(context.db, context.log, {
       actor: actorOf(context),
@@ -256,8 +256,8 @@ export const serversRouter = os.router({
         .map((grant) => grant.scope),
     };
     const [bound, toolCount] = await Promise.all([
-      repo.listServerBoundAgents(context.db, row.id, agentReadAccess),
-      repo.countApiTools(context.db, row.id),
+      dbRepo.agents.listServerBoundAgents(context.db, row.id, agentReadAccess),
+      dbRepo.servers.countApiTools(context.db, row.id),
     ]);
     return { ...bound, toolCount };
   }),
@@ -328,7 +328,7 @@ export const serversRouter = os.router({
       durationMs: result.durationMs,
       requestId: context.requestId,
     });
-    await repo.recordTestResult(
+    await dbRepo.servers.recordTestResult(
       context.db,
       server.id,
       result.ok,
@@ -590,7 +590,7 @@ export const serversRouter = os.router({
       if (row.kind === 'data_domain') {
         return fail('FORBIDDEN', '数据域连接不支持工具管理');
       }
-      const ok = await repo.deleteTool(context.db, id, toolId);
+      const ok = await dbRepo.servers.deleteApiTool(context.db, id, toolId);
       if (!ok) return notFound('tool');
       await writeAudit(context.db, context.log, {
         actor: actorOf(context),

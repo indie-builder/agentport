@@ -10,30 +10,22 @@ import type {
   PersonalMemory,
   WritePersonalMemoryInput,
 } from '@agentport/shared';
+import type { ApiClient } from '../orpc.js';
 import { rpc } from '../orpc.js';
+import type { ApiOutput } from './shared.js';
 import { clientOptions } from './shared.js';
 
 /** 个人偏好保存结果：多返回本次写入的变更 id，供页面提示。 */
-export interface PersonalMemoryWriteResult extends PersonalMemory {
-  changeId: string;
-}
+type PersonalMemoryWriteResult = ApiOutput<ApiClient['memory']['writePersonal']>;
 
-export interface MemoryChangeList {
-  items: MemoryChange[];
-  nextCursor: string | null;
-}
+type MemoryChangeList = ApiOutput<ApiClient['memory']['agentFileVersions']>;
 
-export interface MemoryReviewQuery {
-  agentId?: string;
-  conversationId?: string;
-  cursor?: string;
-  limit?: number;
-}
+type MemoryReviewQuery = Omit<
+  Parameters<ApiClient['memoryReviews']['list']>[0]['query'],
+  'limit'
+> & { limit?: number };
 
-export interface MemoryReviewList {
-  items: MemoryReview[];
-  nextCursor: string | null;
-}
+type MemoryReviewList = ApiOutput<ApiClient['memoryReviews']['list']>;
 
 export default {
   agentMemory: (id: string): Promise<MemoryFileList> => rpc.agents.memory({ params: { id } }),

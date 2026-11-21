@@ -16,7 +16,7 @@ import { decodeZipEntries, inspectZipEntries, type ZipReadLimits } from '../agen
 
 const FAQ_MAX_ITEMS = 500;
 export const FAQ_MAX_BYTES = 2 * 1024 * 1024;
-export const FAQ_MAX_XLSX_DECOMPRESSED_BYTES = 32 * 1024 * 1024;
+const FAQ_MAX_XLSX_DECOMPRESSED_BYTES = 32 * 1024 * 1024;
 
 const FAQ_XLSX_ZIP_LIMITS: ZipReadLimits = {
   maxEntries: 100,
@@ -27,8 +27,8 @@ const { Workbook } = ExcelJS;
 export type FaqEntry = KnowledgeFaq;
 export type FaqTransferEntry = KnowledgeFaqTransferEntry;
 export type FaqImportIssue = KnowledgeFaqImportIssue;
-export type FaqImportRowStatus = KnowledgeFaqImportResult['status'];
-export type FaqImportOperation = KnowledgeFaqImportResult['operation'];
+type FaqImportRowStatus = KnowledgeFaqImportResult['status'];
+type FaqImportOperation = KnowledgeFaqImportResult['operation'];
 
 export type FaqInput = z.infer<typeof knowledgeFaqInputSchema>;
 
@@ -69,7 +69,7 @@ export interface FaqImportPlanRow {
   issues: FaqImportIssue[];
 }
 
-export interface FaqImportDraft {
+interface FaqImportDraft {
   operation: 'add' | 'merge';
   documentId: string;
   faq: FaqEntry;

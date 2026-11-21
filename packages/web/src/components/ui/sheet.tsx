@@ -8,9 +8,9 @@ import {
   Dialog as SheetPrimitive,
   DialogTitle as SheetTitlePrimitive,
 } from '@ui-sdk/react/dialog';
-import { cn } from 'cn';
 import { XIcon } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
+import { cn } from '@/lib/cn';
 import { buttonVariants } from './button.js';
 
 const Sheet = SheetPrimitive;

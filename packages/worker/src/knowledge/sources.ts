@@ -18,7 +18,6 @@ import {
   fetchJson,
   readCapped,
   SourceAuthError,
-  type SourceUrlOptions,
   sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
@@ -39,7 +38,6 @@ import {
 import { probeYuque, readYuque } from './source-yuque.js';
 
 export { SourceAuthError, validateSourceUrl } from './source-http.js';
-export type { FetchOptions, SourceUrlOptions };
 
 async function fetchText(url: string, options: FetchOptions, label: string): Promise<string> {
   return readCapped(await fetchChecked(url, options), label);

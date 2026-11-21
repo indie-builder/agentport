@@ -7,46 +7,23 @@ import type {
   ServerInput,
   ServerTestResult,
 } from '@agentport/shared';
+import type { ApiClient } from '../orpc.js';
 import { rpc } from '../orpc.js';
+import type { ApiOutput } from './shared.js';
 import { clientOptions } from './shared.js';
 
 /** OpenAPI 解析预览：tools 为可直接创建的工具定义，warnings 不阻断导入。 */
-export interface OpenApiPreviewResult {
-  tools: ApiToolInput[];
-  warnings: string[];
-  total: number;
-}
+type OpenApiPreviewResult = ApiOutput<ApiClient['servers']['tools']['previewOpenApi']>;
 
-export interface OpenApiImportResult {
-  created: ApiTool[];
-  warnings: string[];
-}
+type OpenApiImportResult = ApiOutput<ApiClient['servers']['tools']['importOpenApi']>;
 
 /** 单工具试跑结果；ok 为 false 时 error 说明上游返回或请求失败的原因。 */
-export interface TestInvokeResult {
-  ok: boolean;
-  text?: string | undefined;
-  isError?: boolean | undefined;
-  error?: string | undefined;
-  durationMs: number;
-}
+type TestInvokeResult = ApiOutput<ApiClient['servers']['tools']['testInvoke']>;
 
 /** `.mcp.json` 导入结果；secretKeys 只有键名，值不会回显。 */
-export interface McpImportResult {
-  servers: Array<{
-    id: string;
-    name: string;
-    kind: 'stdio' | 'http' | 'generated';
-    secretKeys: string[];
-  }>;
-  warnings: string[];
-}
+type McpImportResult = ApiOutput<ApiClient['servers']['importFile']>;
 
-export interface ServerImpact {
-  agents: Array<{ id: string; name: string }>;
-  hiddenCount: number;
-  toolCount: number;
-}
+type ServerImpact = ApiOutput<ApiClient['servers']['impact']>;
 
 export default {
   servers: (cursor?: string, signal?: AbortSignal): Promise<CursorPage<Server>> =>

@@ -5,7 +5,7 @@ export const PAGE_LIMIT_MAX = 100;
 export const ADMIN_PAGE_LIMIT_MAX = 200;
 export const CURSOR_MAX_LENGTH = 16384;
 
-export function cursorQuerySchema(options?: { max?: number; default?: number }) {
+export function cursorQuerySchema(options?: { max?: number }) {
   return z.object({
     cursor: z.string().min(1).max(CURSOR_MAX_LENGTH).optional(),
     limit: z.coerce
@@ -13,21 +13,21 @@ export function cursorQuerySchema(options?: { max?: number; default?: number }) 
       .int()
       .min(1)
       .max(options?.max ?? PAGE_LIMIT_MAX)
-      .default(options?.default ?? PAGE_LIMIT_DEFAULT),
+      .default(PAGE_LIMIT_DEFAULT),
   });
 }
 
 export const pageQuerySchema = cursorQuerySchema();
 export const adminPageQuerySchema = cursorQuerySchema({ max: ADMIN_PAGE_LIMIT_MAX });
 
-export function offsetQuerySchema(options?: { max?: number; default?: number }) {
+export function offsetQuerySchema(options?: { max?: number }) {
   return z.object({
     limit: z.coerce
       .number()
       .int()
       .min(1)
       .max(options?.max ?? PAGE_LIMIT_MAX)
-      .default(options?.default ?? PAGE_LIMIT_DEFAULT),
+      .default(PAGE_LIMIT_DEFAULT),
     offset: z.coerce.number().int().min(0).default(0),
   });
 }

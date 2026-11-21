@@ -8,7 +8,6 @@ export * from './use-cases/manual-documents.js';
 export * from './use-cases/model-profiles.js';
 export * from './use-cases/retrieval-evaluation.js';
 export * from './use-cases/search.js';
-export type { KnowledgeDeps } from './use-cases/shared.js';
 export { depsOf } from './use-cases/shared.js';
 export * from './use-cases/sources.js';
 export * from './use-cases/wiki.js';

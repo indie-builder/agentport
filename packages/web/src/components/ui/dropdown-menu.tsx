@@ -9,9 +9,9 @@ import {
   MenuRadioItem,
   MenuSeparator,
 } from '@ui-sdk/react/menu';
-import { cn } from 'cn';
 import { CheckIcon } from 'lucide-react';
 import type { ComponentProps } from 'react';
+import { cn } from '@/lib/cn';
 
 function DropdownMenuContent({
   align = 'start',

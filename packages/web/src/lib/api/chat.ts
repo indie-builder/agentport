@@ -3,7 +3,6 @@ import type {
   ConversationSearchResponse,
   ConversationSummary,
   CursorPage,
-  MessageAttachment,
   OpenUiToolResult,
   OutputContent,
   OutputFile,
@@ -13,10 +12,9 @@ import type {
   ChatRequest as SharedChatRequest,
   ConversationDetail as SharedConversationDetail,
 } from '@agentport/shared';
-import { ApiError, fetchResponse, responseApiError, rpc } from '../orpc.js';
+import { type ApiClient, ApiError, fetchResponse, responseApiError, rpc } from '../orpc.js';
+import type { ApiOutput } from './shared.js';
 import { clientOptions, nativeRequest } from './shared.js';
-
-export type { ConversationBranch } from '@agentport/shared';
 
 /**
  * 公开分享只认 URL 片段里的 Bearer token，不带管理会话 cookie，也不触发登录跳转。
@@ -43,42 +41,33 @@ async function publicShareRequest<T>(
   return (responseType === 'blob' ? await res.blob() : await res.json()) as T;
 }
 
-export interface ChatAccepted {
-  runId: string;
-  conversationId: string;
-  /** 仅本次带附件发送时返回元数据；字节只上行，响应里没有 base64 与宿主路径。 */
-  attachments?: MessageAttachment[] | undefined;
-}
+export type ChatAccepted = Extract<
+  ApiOutput<ApiClient['chat']['startRun']>,
+  { status: 202 }
+>['body'];
 
 /** 附件随消息一次性提交；字节只在这里出现，落库与回放只保留元数据。 */
 export type ChatAttachmentInput = NonNullable<SharedChatRequest['attachments']>[number];
 
-export type ChatRequest = SharedChatRequest;
+type ChatRequest = SharedChatRequest;
 
 export type ConversationDetail = SharedConversationDetail;
 
 /** 会话消息分页：默认 50 条、上限 100；cursor 为上一页最早消息的 id。 */
-export interface ConversationPageOptions {
-  limit?: number;
-  cursor?: string;
-}
+type ConversationPageOptions = Omit<
+  Parameters<ApiClient['chat']['conversation']>[0]['query'],
+  'limit'
+> & { limit?: number };
 
 /** 全局历史搜索：空 q 按最近活动返回；cursor 是服务端下发的下一页游标。 */
-export interface ConversationSearchOptions {
-  q?: string;
-  agentId?: string;
-  limit?: number;
-  cursor?: string;
-}
+export type ConversationSearchOptions = Omit<
+  Parameters<ApiClient['chat']['searchConversations']>[0]['query'],
+  'limit'
+> & { limit?: number };
 
-export interface OutputShareList {
-  items: OutputShare[];
-}
+export type OutputShareList = ApiOutput<ApiClient['outputShares']['list']>;
 
-export interface PublicOutputShareContent {
-  file: PublicOutputShare['file'];
-  content: string;
-}
+type PublicOutputShareContent = ApiOutput<ApiClient['outputShares']['publicContent']>;
 
 export default {
   renameConversation: (id: string, title: string): Promise<ConversationDetail['conversation']> =>

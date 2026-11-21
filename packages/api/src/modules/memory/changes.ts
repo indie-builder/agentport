@@ -39,7 +39,7 @@ import {
   writePersonalMemoryLocked,
 } from './personal.js';
 
-export async function assertNoActiveRun(db: Database, agentId: string): Promise<void> {
+async function assertNoActiveRun(db: Database, agentId: string): Promise<void> {
   const [target] = await db
     .select({ enabled: schema.agents.enabled, parentId: schema.agents.parentId })
     .from(schema.agents)
@@ -160,7 +160,7 @@ export function withMemoryTargetLock<T>(
   );
 }
 
-export interface WriteMemoryTargetBase {
+interface WriteMemoryTargetBase {
   workspacesDir: string;
   businessId: string;
   target: MemoryReviewTarget;

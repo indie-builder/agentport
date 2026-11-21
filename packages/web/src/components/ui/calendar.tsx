@@ -11,10 +11,10 @@ import {
   CalendarWeekdays,
   CalendarWeeks,
 } from '@ui-sdk/react/calendar';
-import { cn } from 'cn';
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/cn';
 
 function CalendarPrevious({
   className,

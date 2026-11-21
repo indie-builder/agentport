@@ -11,7 +11,7 @@ import {
 import type { ConversationDetail } from './api.js';
 
 /** 用户消息上的附件：只有历史项带下载地址，刚发送的乐观项只展示元数据。 */
-export interface UserAttachment {
+interface UserAttachment {
   id?: string;
   filename: string;
   mimeType: string;

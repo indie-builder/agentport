@@ -12,12 +12,11 @@ import {
   ComboboxItem as ComboboxItemPrimitive,
   ComboboxList as ComboboxListPrimitive,
   ComboboxTrigger as ComboboxTriggerPrimitive,
-  ComboboxValue,
 } from '@ui-sdk/react/combobox';
-import { cn } from 'cn';
 import { CheckIcon, ChevronDownIcon, XIcon } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/cn';
 
 function ComboboxTrigger({
   className,
@@ -207,5 +206,4 @@ export {
   ComboboxItem,
   ComboboxList,
   ComboboxTrigger,
-  ComboboxValue,
 };

@@ -8,11 +8,11 @@ const STREAM_INTERRUPTED = '事件流中断，请刷新页面或重试';
 
 type TerminalRun = Parameters<typeof terminalRunEvent>[0];
 
-export type RelayLoadResult<TRun extends TerminalRun> =
+type RelayLoadResult<TRun extends TerminalRun> =
   | { kind: 'run'; run: TRun }
   | { kind: 'unavailable'; reason: 'missing' | 'forbidden' };
 
-export interface RunStreamDomain<TRun extends TerminalRun> {
+interface RunStreamDomain<TRun extends TerminalRun> {
   load: () => Promise<RelayLoadResult<TRun>>;
   writeUnavailable: (reason: 'missing' | 'forbidden') => Promise<void>;
   guard?: () => Promise<'ok' | 'forbidden' | 'error'>;

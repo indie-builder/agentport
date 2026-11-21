@@ -34,7 +34,7 @@ export interface TestRequest {
   query?: Record<string, string | number | boolean | undefined>;
 }
 
-export interface ResponseCookie {
+interface ResponseCookie {
   name: string;
   value: string;
   httpOnly: boolean;
@@ -466,7 +466,7 @@ export async function eventFollowerCount(redis: RedisClient, runId: string): Pro
  * 无法按文件唯一；并行时一个文件的 beforeEach/afterAll 清理会删掉另一个文件正在断言的行。
  * 因此凡是要读写管理员个人记忆或管理员署名的记忆账本的文件，都必须在整个 describe 期间持锁。
  */
-export const MEMORY_TEST_LOCK = 'agentport.memory-tests';
+const MEMORY_TEST_LOCK = 'agentport.memory-tests';
 
 export async function acquireMemoryLock(client: TestApp['client']): Promise<() => Promise<void>> {
   const reserved = await client.reserve();

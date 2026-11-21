@@ -105,9 +105,9 @@ function jsonAttachment(name: string, schema: z.ZodType) {
   } satisfies OpenAPI.ResponseObject;
 }
 
-function events(eventSchema: z.ZodType) {
+function events(eventSchema: z.ZodType, { ids = false }: { ids?: boolean } = {}) {
   return {
-    description: `SSE 文本流，只发送 data 行和保活注释，不设置 event 或 id 字段。data 为 JSON 事件，结构见 ${eventSchema === channelEventSchema ? '#/components/schemas/ChannelEvent' : '#/components/schemas/ChatEvent'}。连接起始发送 retry: 3000。`,
+    description: `SSE 文本流，发送 data 行、保活注释和连接起始的 retry: 3000，不设置 event 字段。${ids ? '消息帧以消息序号作为 SSE id。' : '不设置 id 字段。'}data 为 JSON 事件，结构见 ${eventSchema === channelEventSchema ? '#/components/schemas/ChannelEvent' : '#/components/schemas/ChatEvent'}。`,
     headers: {
       'Cache-Control': { schema: { type: 'string', enum: ['no-cache, no-transform'] } },
       'X-Accel-Buffering': { schema: { type: 'string', enum: ['no'] } },
@@ -401,10 +401,10 @@ export const nativeOpenAPIPaths: OpenAPI.PathsObject = {
     get: {
       operationId: 'channelEvents',
       description:
-        '需要登录及频道读取范围。after 为已收到的消息序号，默认 0；大于当前序号返回 400。重连由 after 恢复，不消费 Last-Event-ID。失去读取权限时发送 error 并关闭连接。',
+        '需要登录及频道读取范围。after 为已收到的消息序号，默认 0；大于当前序号返回 400。重连同时消费 Last-Event-ID（消息序号）与 after，取较大者作为游标。失去读取权限时发送 error 并关闭连接。',
       security: session,
       parameters: [...params('id'), ...query(channelEventsQuerySchema.shape)],
-      responses: { ...protectedErrors, 200: events(channelEventSchema) },
+      responses: { ...protectedErrors, 200: events(channelEventSchema, { ids: true }) },
     },
   },
   '/channels/{id}/runs/{runId}/events': {

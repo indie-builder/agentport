@@ -9,9 +9,9 @@ import {
   DialogTitle as DialogTitlePrimitive,
   DialogTrigger,
 } from '@ui-sdk/react/dialog';
-import { cn } from 'cn';
 import { XIcon } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
+import { cn } from '@/lib/cn';
 import { Button } from './button.js';
 
 type DialogOverlayProps = Omit<ComponentProps<typeof DialogBackdrop>, 'className'> & {
@@ -114,7 +114,6 @@ export {
   DialogContent,
   DialogDescription,
   DialogHeader,
-  DialogOverlay,
   DialogTitle,
   DialogTrigger,
 };

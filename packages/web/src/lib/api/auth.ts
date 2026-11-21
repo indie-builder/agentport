@@ -1,19 +1,11 @@
-import type {
-  AccessScope,
-  Account,
-  AuthMe,
-  PermissionDefinition,
-  RoleMatrix,
-  RoleMatrixInput,
-} from '@agentport/shared';
+import type { Account, AuthMe, RoleMatrix, RoleMatrixInput } from '@agentport/shared';
+import type { ApiClient } from '../orpc.js';
 import { rpc } from '../orpc.js';
+import type { ApiOutput } from './shared.js';
 import { clientOptions } from './shared.js';
 
 export type {
-  AccessScope,
   Account,
-  PermissionDefinition,
-  PermissionGrant,
   Role,
   RoleMatrix,
   RoleMatrixInput,
@@ -21,36 +13,19 @@ export type {
 
 export type Me = AuthMe;
 
-export interface AccountPage {
-  items: Account[];
-  total: number;
-}
+export type AccountPage = ApiOutput<ApiClient['auth']['accounts']['list']>;
 
-export interface IdentityCandidate {
-  businessId: string;
-  name: string;
-  accountActive: boolean;
-}
+export type IdentityPage = ApiOutput<ApiClient['agents']['identities']>;
 
-export interface IdentityPage {
-  items: IdentityCandidate[];
-  total: number;
-}
+export type PermissionCatalog = ApiOutput<ApiClient['auth']['permissions']>;
 
-export interface PermissionCatalog {
-  permissions: PermissionDefinition[];
-  scopes: { id: AccessScope; label: string }[];
-}
-
-export interface CreateAccountInput {
-  businessId: string;
-  username: string;
-  name: string;
-  password: string;
+export type CreateAccountInput = Omit<
+  Parameters<ApiClient['auth']['accounts']['create']>[0]['body'],
+  'restore'
+> & {
   /** 历史业务 ID 必须显式恢复；普通新账户传 false。 */
   restore: boolean;
-  roleIds?: string[];
-}
+};
 
 export default {
   me: (): Promise<AuthMe> => rpc.auth.me(),

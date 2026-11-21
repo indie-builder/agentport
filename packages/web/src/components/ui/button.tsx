@@ -1,7 +1,7 @@
 import { Button as ButtonPrimitive } from '@ui-sdk/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { cn } from 'cn';
 import type { ComponentProps } from 'react';
+import { cn } from '@/lib/cn';
 
 const neutralButtonStyles =
   'border-border bg-background text-foreground hover:bg-hover hover:text-foreground aria-expanded:bg-hover aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50';

@@ -2,18 +2,13 @@ import { observabilityContract } from '@agentport/contract/observability';
 import { repo } from '@agentport/db';
 import { evaluateSloStatuses, type QueueSnapshot, type SloStatus } from '@agentport/shared';
 import { implement } from '@orpc/server';
+import type { Queue } from 'bullmq';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { getQueues } from '../../queue/catalog.js';
+import { jobCounts } from '../../queue/metrics.js';
 
-const JOB_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'] as const;
 const QUEUE_CACHE_MS = 5000;
-
-interface QueueLike {
-  name: string;
-  getJobCounts: (...states: (typeof JOB_STATES)[number][]) => Promise<Record<string, number>>;
-  getWaiting: (start: number, end: number) => Promise<{ timestamp: number }[]>;
-}
 
 let queueCache: { at: number; rows: QueueSnapshot[] } | undefined;
 
@@ -30,22 +25,9 @@ async function audit(context: RequestContext, action: string, target: string, in
   });
 }
 
-async function queueSnapshot(queue: QueueLike): Promise<QueueSnapshot> {
+async function queueSnapshot(queue: Queue): Promise<QueueSnapshot> {
   try {
-    const [counts, waiting] = await Promise.all([
-      queue.getJobCounts(...JOB_STATES),
-      queue.getWaiting(0, 0).catch(() => []),
-    ]);
-    return {
-      name: queue.name,
-      waiting: counts.waiting ?? 0,
-      active: counts.active ?? 0,
-      completed: counts.completed ?? 0,
-      failed: counts.failed ?? 0,
-      delayed: counts.delayed ?? 0,
-      oldestWaitingMs:
-        waiting[0] === undefined ? null : Math.max(0, Date.now() - waiting[0].timestamp),
-    };
+    return { name: queue.name, ...(await jobCounts(queue)) };
   } catch {
     return {
       name: queue.name,
@@ -63,7 +45,7 @@ async function queueSnapshots(redisUrl: string): Promise<QueueSnapshot[]> {
   if (queueCache !== undefined && Date.now() - queueCache.at < QUEUE_CACHE_MS) {
     return queueCache.rows;
   }
-  const queues: QueueLike[] = getQueues(redisUrl);
+  const queues: Queue[] = getQueues(redisUrl);
   const rows = await Promise.all(queues.map(queueSnapshot));
   queueCache = { at: Date.now(), rows };
   return rows;

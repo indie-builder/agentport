@@ -10,9 +10,9 @@ import {
   SelectTrigger as SelectTriggerPrimitive,
   SelectValue as SelectValuePrimitive,
 } from '@ui-sdk/react/select';
-import { cn } from 'cn';
 import { Check, ChevronDown } from 'lucide-react';
 import type { ComponentProps } from 'react';
+import { cn } from '@/lib/cn';
 
 function SelectGroup({ className, ...props }: ComponentProps<typeof SelectGroupPrimitive>) {
   return (
