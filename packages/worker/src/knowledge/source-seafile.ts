@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { extensionWithDot, mimeOf } from './source-formats.js';
 import {
   type FetchOptions,
-  sourceFailure as failureOf,
   fetchChecked,
   fetchJson,
   SourceItemError as ItemError,
@@ -15,7 +14,7 @@ import {
 } from './source-http.js';
 import { trimSlash } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
-import { parseInitialCursor, snapshotOf } from './source-utils.js';
+import { failureOf, parseInitialCursor, snapshotOf } from './source-utils.js';
 
 /**
  * Seafile 11+ leaf reader.

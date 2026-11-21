@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { EXTENSION_BY_MIME, extensionWithDot, mimeOf } from './source-formats.js';
 import {
   type FetchOptions,
-  sourceFailure as failureOf,
   fetchBytes,
   fetchChecked,
   fetchJson,
@@ -15,7 +14,7 @@ import {
 } from './source-http.js';
 import { sanitizeSegment, trimSlash, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
-import { parseInitialCursor, snapshotOf } from './source-utils.js';
+import { failureOf, parseInitialCursor, snapshotOf } from './source-utils.js';
 
 const PAGE_SIZE = 250;
 const DC_PAGE_SIZE = 100;

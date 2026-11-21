@@ -300,21 +300,20 @@ export class SourceItemError extends Error {
   }
 }
 
-export function sourceFailure(externalId: string, title: string, err: unknown): SourceFailure {
-  const itemError = err instanceof SourceItemError ? err : undefined;
-  return {
-    externalId,
-    title,
-    code: itemError?.code ?? 'fetch_failed',
-    message: errorText(err).slice(0, 500),
-    retryable: itemError?.retryable ?? true,
-  };
-}
-
 export function makeSourceFailure(
   isTruncated: (err: unknown) => boolean,
-): (externalId: string, title: string, err: unknown, retryable: boolean) => SourceFailure {
-  return (externalId, title, err, retryable) => {
+): (externalId: string, title: string, err: unknown, retryable?: boolean) => SourceFailure {
+  return (externalId, title, err, retryable = true) => {
+    const itemError = err instanceof SourceItemError ? err : undefined;
+    if (itemError) {
+      return {
+        externalId,
+        title,
+        code: itemError.code,
+        message: errorText(err).slice(0, 500),
+        retryable: itemError.retryable,
+      };
+    }
     const truncated = isTruncated(err);
     return {
       externalId,

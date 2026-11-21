@@ -1,14 +1,10 @@
 import { z } from 'zod';
 import { fetchDownload } from './source-download.js';
-import {
-  sourceFailure as failureOf,
-  fetchJson,
-  SourceItemError as ItemError,
-  rethrowAuth,
-} from './source-http.js';
+import { fetchJson, SourceItemError as ItemError, rethrowAuth } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import {
+  failureOf,
   isAbort,
   parseInitialCursor,
   signalOption,
