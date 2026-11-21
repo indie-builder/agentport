@@ -9,9 +9,9 @@ import type {
 import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
-import { requireCursorPage } from '../../../http/pagination.js';
+import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
 import { ensureKnowledgeServer, supportsImageVectors } from '../service.js';
-import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
+import { type KnowledgeDeps, notFound } from './shared.js';
 
 function toBase(row: Awaited<ReturnType<typeof repo.knowledge.createBase>>) {
   return {

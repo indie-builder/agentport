@@ -3,7 +3,7 @@ import { repo } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 
 const os = implement(governanceContract).$context<RequestContext>();
 const governance = repo.governance;
@@ -91,7 +91,7 @@ export const governanceRouter = os.router({
     requireCursorPage(
       await governance.listGovernanceResources(context.db, input.query.resourceKind, {
         ...(input.query.q === undefined ? {} : { q: input.query.q }),
-        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        ...cursorOption(input.query.cursor),
         limit: input.query.limit,
       }),
     ),
@@ -100,7 +100,7 @@ export const governanceRouter = os.router({
     requireCursorPage(
       await repo.accounts.listIdentityPage(context.db, {
         ...(input.query.q === undefined ? {} : { q: input.query.q }),
-        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        ...cursorOption(input.query.cursor),
         limit: input.query.limit,
       }),
     ),

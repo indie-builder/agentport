@@ -11,7 +11,7 @@ import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 import { agentSlug, readWorkspaceOutput } from '../../lib/outputs.js';
 import { recheckRunApproval } from '../servers/approval-policy.js';
@@ -69,7 +69,7 @@ const runsMainRouter = {
         ...(status === undefined ? {} : { status }),
         ...(trigger === undefined ? {} : { trigger }),
         ...(since === undefined ? {} : { since: new Date(since) }),
-        ...(cursor === undefined ? {} : { cursor }),
+        ...cursorOption(cursor),
         limit,
         access: accessFilter(context, 'runs.read'),
       }),

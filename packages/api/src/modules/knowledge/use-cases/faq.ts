@@ -20,7 +20,7 @@ import type {
 } from '@agentport/shared';
 import { knowledgeFaqImportMetadataSchema } from '@agentport/shared';
 import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
-import { requireCursorPage } from '../../../http/pagination.js';
+import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
 import {
   FAQ_MAX_BYTES,
   type FaqExistingEntry,
@@ -46,8 +46,6 @@ import {
   folderIssue,
   type KnowledgeDeps,
   notFound,
-  type PageQuery,
-  pageOptions,
   type VersionRow,
 } from './shared.js';
 

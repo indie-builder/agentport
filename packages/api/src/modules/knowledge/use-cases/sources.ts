@@ -4,10 +4,10 @@ import type { KnowledgeSourceInput, KnowledgeSourceStatus } from '@agentport/sha
 import { knowledgeSourceInputSchema, knowledgeSourceRangeExternalIdMax } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
-import { requireCursorPage } from '../../../http/pagination.js';
+import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../../lib/cron.js';
 import { createJob, enqueueKnowledgeJobAfterCommit } from '../service.js';
-import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
+import { type KnowledgeDeps, notFound } from './shared.js';
 
 type RangeInput = KnowledgeSourceInput['ranges'][number];
 

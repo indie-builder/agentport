@@ -7,10 +7,10 @@ import {
   type ResourceAccessFilter,
 } from '@agentport/shared';
 import { and, eq, sql } from 'drizzle-orm';
-import { requireCursorPage } from '../../../http/pagination.js';
+import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
 import { publishKnowledgeCancel } from '../../../queue/producer.js';
 import { createJob, enqueueKnowledgeJobAfterCommit } from '../service.js';
-import { enqueue, type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
+import { enqueue, type KnowledgeDeps, notFound } from './shared.js';
 
 function toJob(
   row:

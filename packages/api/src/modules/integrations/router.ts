@@ -7,7 +7,7 @@ import type { ApiToken, WebhookEndpoint } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 
 const os = implement(integrationsContract).$context<RequestContext>();
 
@@ -53,7 +53,7 @@ export const integrationsRouter = os.router({
       const page = requireCursorPage(
         await repo.integrations.listApiTokens(context.db, {
           businessId,
-          ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+          ...cursorOption(input.query.cursor),
           limit: input.query.limit,
         }),
       );
@@ -106,7 +106,7 @@ export const integrationsRouter = os.router({
       const page = requireCursorPage(
         await repo.integrations.listWebhookEndpoints(context.db, {
           businessId,
-          ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+          ...cursorOption(input.query.cursor),
           limit: input.query.limit,
         }),
       );

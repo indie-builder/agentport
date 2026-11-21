@@ -27,7 +27,7 @@ import {
 import type { HttpEnv, NativeHttpDependencies, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
-import { invalidCursor, requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, invalidCursor, requireCursorPage } from '../../http/pagination.js';
 import { beginSse } from '../../http/sse.js';
 import { authorizeRun } from '../runs/access.js';
 import { cancelAgentRun } from '../runs/cancel-run.js';
@@ -351,7 +351,7 @@ const chatMainRouter = {
     const page = requireCursorPage(
       await chatRepo.listConversations(context.db, {
         ...(agentId === undefined ? {} : { agentId }),
-        ...(cursor === undefined ? {} : { cursor }),
+        ...cursorOption(cursor),
         limit,
         access: accessFilter(context, 'conversations.read'),
       }),

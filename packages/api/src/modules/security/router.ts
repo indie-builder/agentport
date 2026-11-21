@@ -11,7 +11,7 @@ import type {
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 
 const security = repo.security;
@@ -220,7 +220,7 @@ export const securityRouter = os.router({
       const page = requireCursorPage(
         await security.listPolicyEvents(context.db, {
           limit: query.limit,
-          ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+          ...cursorOption(query.cursor),
           ...(query.sourceKind === undefined ? {} : { sourceKind: query.sourceKind }),
           ...(query.action === undefined ? {} : { action: query.action }),
         }),
@@ -236,7 +236,7 @@ export const securityRouter = os.router({
         await security.listPolicyApprovals(context.db, {
           status: query.status,
           limit: query.limit,
-          ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+          ...cursorOption(query.cursor),
         }),
       );
 
@@ -280,7 +280,7 @@ export const securityRouter = os.router({
       const page = requireCursorPage(
         await security.listViolationCases(context.db, {
           limit: query.limit,
-          ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+          ...cursorOption(query.cursor),
           ...(query.status === undefined ? {} : { status: query.status }),
         }),
       );

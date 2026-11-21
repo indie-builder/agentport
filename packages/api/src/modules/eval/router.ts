@@ -5,7 +5,7 @@ import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { requireCursorPage } from '../../http/pagination.js';
+import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { writeCrossUserAudit } from '../../plugins/audit.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from '../runs/access.js';
 import { agentNotFound, importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
@@ -44,7 +44,7 @@ export const evalRouter = os.router({
       const page = requireCursorPage(
         await evalRepo.listCases(context.db, accessFilter(context, 'eval.read'), {
           ...(input.query.agentId === undefined ? {} : { agentId: input.query.agentId }),
-          ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+          ...cursorOption(input.query.cursor),
           limit: input.query.limit,
         }),
       );
@@ -212,7 +212,7 @@ export const evalRouter = os.router({
       const page = requireCursorPage(
         await evalRepo.listRuns(context.db, {
           ...(input.query.agentId === undefined ? {} : { agentId: input.query.agentId }),
-          ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+          ...cursorOption(input.query.cursor),
           limit: input.query.limit,
           access: accessFilter(context, 'eval.read'),
         }),
