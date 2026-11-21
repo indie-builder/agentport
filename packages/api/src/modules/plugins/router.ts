@@ -45,6 +45,18 @@ function nativeFailure(error: string) {
 function nameOfPluginId(pluginId: string): string {
   return pluginId.split('@')[0] ?? pluginId;
 }
+
+function adoptDeps(context: RequestContext) {
+  return {
+    context,
+    db: context.db,
+    log: context.log,
+    actor: actorOf(context),
+    ownerBusinessId: requireUser(context).businessId,
+    requestId: context.requestId,
+  };
+}
+
 const os = implement(pluginsContract).$context<RequestContext>();
 export const pluginsRouter = os.router({
   list: os.list.handler(async ({ context, input: routeInput }) => {
@@ -94,22 +106,12 @@ export const pluginsRouter = os.router({
     if (!('files' in output)) {
       return fail('UPSTREAM_FAILED', '安装器没有返回插件文件，请稍后重试');
     }
-    const body = await adoptNativePlugin(
-      {
-        context,
-        db: context.db,
-        log: context.log,
-        actor: actorOf(context),
-        ownerBusinessId: requireUser(context).businessId,
-        requestId: context.requestId,
-      },
-      {
-        slug: slug ?? nameOfPluginId(output.plugin.pluginId),
-        pluginId: output.plugin.pluginId,
-        files: output.files,
-        action: 'plugin.installed',
-      },
-    );
+    const body = await adoptNativePlugin(adoptDeps(context), {
+      slug: slug ?? nameOfPluginId(output.plugin.pluginId),
+      pluginId: output.plugin.pluginId,
+      files: output.files,
+      action: 'plugin.installed',
+    });
     return { status: body.reused ? 200 : 201, body };
   }),
   importNative: os.importNative.handler(async ({ context, input: routeInput }) => {
@@ -137,22 +139,12 @@ export const pluginsRouter = os.router({
     if (!('files' in output)) {
       return fail('UPSTREAM_FAILED', '读取器没有返回插件文件，请稍后重试');
     }
-    const body = await adoptNativePlugin(
-      {
-        context,
-        db: context.db,
-        log: context.log,
-        actor: actorOf(context),
-        ownerBusinessId: requireUser(context).businessId,
-        requestId: context.requestId,
-      },
-      {
-        slug: slug ?? nameOfPluginId(output.plugin.pluginId),
-        pluginId: output.plugin.pluginId,
-        files: output.files,
-        action: 'plugin.adopted',
-      },
-    );
+    const body = await adoptNativePlugin(adoptDeps(context), {
+      slug: slug ?? nameOfPluginId(output.plugin.pluginId),
+      pluginId: output.plugin.pluginId,
+      files: output.files,
+      action: 'plugin.adopted',
+    });
     return { status: body.reused ? 200 : 201, body };
   }),
   get: os.get.handler(async ({ context, input: routeInput }) => {
