@@ -4,6 +4,7 @@ import { repo } from '@agentport/db';
 import type { Channel, Server } from '@agentport/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { RedisClient } from 'bun';
+import { createApprovalEvaluator } from '../src/modules/servers/approval-policy.js';
 import {
   cleanup,
   createAgent,
@@ -55,7 +56,7 @@ describe.skipIf(!ready)('channel approvals', () => {
   const serverNames: string[] = [];
 
   beforeAll(async () => {
-    app = await startApp({ APPROVAL_WAIT_MS: '0' });
+    app = await startApp();
     adminCookie = await loginCookie(app);
     listener = await listen(app);
     baseUrl = listener.url;
@@ -159,12 +160,25 @@ describe.skipIf(!ready)('channel approvals', () => {
     trigger: TestAccount,
     status: 'queued' | 'running' | 'succeeded' = 'running',
   ): Promise<string> => {
-    const conversationId = unique('approval-conv');
-    const runId = unique('approval-run');
-    await app.client.unsafe(
-      'insert into conversations (id, agent_id, created_by) values ($1, $2, $3)',
-      [conversationId, agentId, trigger.businessId],
+    const [binding] = await app.client.unsafe<{ conversation_id: string | null }[]>(
+      'select conversation_id from channel_agent_bindings where channel_id = $1 and agent_id = $2',
+      [channelId, agentId],
     );
+    let conversationId = binding?.conversation_id ?? null;
+    if (conversationId === null) {
+      conversationId = unique('approval-conv');
+      await app.client.unsafe(
+        'insert into conversations (id, agent_id, created_by, channel_id) values ($1, $2, $3, $4)',
+        [conversationId, agentId, trigger.businessId, channelId],
+      );
+      await app.client.unsafe(
+        `insert into channel_agent_bindings
+           (channel_id, agent_id, conversation_id, status, added_by)
+         values ($1, $2, $3, 'active', $4)`,
+        [channelId, agentId, conversationId, trigger.businessId],
+      );
+    }
+    const runId = unique('approval-run');
     await app.client.unsafe(
       `insert into agent_runs
          (id, conversation_id, agent_id, channel_id, trigger, status, subject_kind, initiated_by)
@@ -179,12 +193,37 @@ describe.skipIf(!ready)('channel approvals', () => {
     options: { toolName?: string; expiresAt?: Date | null } = {},
   ): Promise<{ id: string; toolName: string }> => {
     const toolName = options.toolName ?? unique('tool');
-    const row = await repo.runs.requestApproval(app.db, {
-      runId,
+    const tool = await repo.servers.createApiTool(app.db, {
       serverId: server.id,
-      toolName,
-      ...(options.expiresAt === undefined ? {} : { expiresAt: options.expiresAt }),
+      name: toolName,
+      description: '',
+      method: 'GET',
+      pathTemplate: '/',
+      inputSchema: {},
+      paramsIn: 'query',
+      approvalMode: 'ask',
     });
+    const [run] = await app.client.unsafe<{ status: string }[]>(
+      'select status from agent_runs where id = $1',
+      [runId],
+    );
+    const { decisionHash } =
+      run?.status === 'running'
+        ? await createApprovalEvaluator({
+            db: app.db,
+            runId,
+            serverId: server.id,
+          })({ ...tool, method: 'GET' })
+        : { decisionHash: unique('stale-hash') };
+    const row = await app.db.transaction((tx) =>
+      repo.runs.requestApproval(tx, {
+        runId,
+        serverId: server.id,
+        toolName,
+        decisionHash,
+        ...(options.expiresAt === undefined ? {} : { expiresAt: options.expiresAt }),
+      }),
+    );
     return { id: row.id, toolName };
   };
 
@@ -307,6 +346,25 @@ describe.skipIf(!ready)('channel approvals', () => {
     expect((await approve(channel.id, active.id, owner.cookie)).statusCode).toBe(200);
     expectProblem(await approve(channel.id, active.id, channelAdmin.cookie), 'CONFLICT');
     expect(await approvedAuditCount(runningRun)).toBe(1);
+
+    const stale = await requestApproval(runningRun, { toolName: 'stale' });
+    const policy = await call('POST', '/api/security/tool-policies', adminCookie, {
+      serverId: server.id,
+      httpMethod: 'GET',
+      approvalMode: 'ask',
+    });
+    expect(policy.statusCode, policy.body).toBe(201);
+    const { id: policyId } = policy.json<{ id: string }>();
+    try {
+      expectProblem(await approve(channel.id, stale.id, owner.cookie), 'CONFLICT');
+      expectProblem(
+        await call('POST', `/api/channels/${channel.id}/approvals/${stale.id}/deny`, owner.cookie),
+        'CONFLICT',
+      );
+      expect((await approvalState(stale.id))?.approved_at).toBeNull();
+    } finally {
+      await repo.toolApprovalPolicies.delete(app.db, policyId);
+    }
   });
 
   it('returns 404 for an approval id from another channel', async () => {

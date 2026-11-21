@@ -487,7 +487,7 @@ export async function startRun(
     }
     throw err;
   }
-  const { run, conversationId, inherited } = admitted;
+  const { run, conversationId } = admitted;
   if (admitted.replayed === true) {
     return externalRequest === undefined
       ? { runId: run.id, conversationId, replayed: true as const }
@@ -523,16 +523,6 @@ export async function startRun(
     status: 'ok',
     requestId: deps.requestId,
   });
-  if (inherited.length > 0) {
-    await repo.audit.writeAudit(deps.db, deps.log, {
-      actor: principal.businessId,
-      action: 'agent.run.approvals_inherited',
-      target: run.id,
-      input: { toolNames: inherited },
-      status: 'ok',
-      requestId: deps.requestId,
-    });
-  }
   return {
     runId: run.id,
     conversationId,

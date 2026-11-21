@@ -71,7 +71,7 @@ export const runsContract = {
     .input(
       z.object({
         params: idParams,
-        body: z.object({ serverId: z.string().min(1), toolName: z.string().min(1) }),
+        body: z.object({ approvalId: z.string().min(1) }),
       }),
     )
     .output(
@@ -88,7 +88,7 @@ export const runsContract = {
     .input(
       z.object({
         params: idParams,
-        body: z.object({ serverId: z.string().min(1), toolName: z.string().min(1) }),
+        body: z.object({ approvalId: z.string().min(1) }),
       }),
     )
     .output(

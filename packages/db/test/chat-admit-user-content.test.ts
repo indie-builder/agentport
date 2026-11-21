@@ -145,11 +145,11 @@ describe.skipIf(!ready)('admitChatRun user content', () => {
     expect(rows[0]?.content).toEqual({ type: 'text', text: 'plain hello' });
   });
 
-  it('inherits approved tools in the same commit as the run and message', async () => {
+  it('does not copy prior approvals when admitting a run', async () => {
     const agentId = await newAgent();
     const serverId = await newServer();
     const conversationId = await newConversation(agentId);
-    const previous = await previousApprovedRun(conversationId, agentId, serverId, 'create-user');
+    await previousApprovedRun(conversationId, agentId, serverId, 'create-user');
 
     const admitted = await chat.admitChatRun(db, {
       agentId,
@@ -158,17 +158,15 @@ describe.skipIf(!ready)('admitChatRun user content', () => {
       subject: { kind: 'user', businessId: 'test-owner' },
     });
 
-    expect(admitted.inherited).toEqual(['create-user']);
-    const inherited = await db
+    const approvals = await db
       .select()
       .from(approvalRequests)
       .where(eq(approvalRequests.runId, admitted.run.id));
-    expect(inherited.map((row) => row.toolName)).toEqual(['create-user']);
-    expect(inherited[0]?.approvedAt).toEqual(previous.approvedAt);
+    expect(approvals).toEqual([]);
     expect(await userMessages(conversationId)).toHaveLength(1);
   });
 
-  it('rolls back the run and inherited approvals when the message write fails', async () => {
+  it('rolls back the run when the message write fails', async () => {
     const agentId = await newAgent();
     const serverId = await newServer();
     const conversationId = await newConversation(agentId);

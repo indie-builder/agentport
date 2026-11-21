@@ -43,7 +43,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
   const runIds: string[] = [];
 
   beforeAll(async () => {
-    app = await startApp({ APPROVAL_WAIT_MS: '0' });
+    app = await startApp();
     cookie = await loginCookie(app);
     // MCP client 走真实 HTTP，app.inject 无法承载 StreamableHTTP 会话，因此临时监听端口。
     listener = await listen(app);
@@ -218,23 +218,23 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       headers: { cookie },
     });
     expect(pending.statusCode).toBe(200);
-    expect(
-      pending.json<{
-        items: Array<{
-          serverId: string;
-          toolName: string;
-          approvedAt: string | null;
-          expiresAt: string | null;
-          waiting: boolean;
-        }>;
-      }>().items,
-    ).toMatchObject([
+    const pendingItems = pending.json<{
+      items: Array<{
+        id: string;
+        serverId: string;
+        toolName: string;
+        approvedAt: string | null;
+        expiresAt: string | null;
+        waiting: boolean;
+      }>;
+    }>().items;
+    expect(pendingItems).toMatchObject([
       {
         serverId: server.id,
         toolName: 'approved-user',
         approvedAt: null,
         expiresAt: expect.any(String),
-        waiting: false,
+        waiting: true,
       },
     ]);
 
@@ -250,13 +250,13 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: { cookie },
-      payload: { serverId: server.id, toolName: 'approved-user' },
+      payload: { approvalId: pendingItems[0]?.id },
     });
     expect(approve.statusCode).toBe(200);
     expect(approve.json<{ serverId: string; toolName: string; waiting: boolean }>()).toMatchObject({
       serverId: server.id,
       toolName: 'approved-user',
-      waiting: false,
+      waiting: true,
     });
 
     const allowed = await call();
@@ -446,7 +446,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
           method: 'POST',
           url: `/api/runs/${runId}/approve`,
           headers: { cookie },
-          payload: { serverId: server.id, toolName: 'suspended-user' },
+          payload: { approvalId: first.approvalId },
         });
         expect(approve.statusCode).toBe(200);
         const state = await fetch(approvalUrl, { headers });
@@ -502,7 +502,28 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       const before = upstreamCalls;
       const registered = await fetch(url, { method: 'PUT', headers, body: '{}' });
       expect(registered.status).toBe(200);
-      expect(await registered.json()).toMatchObject({ status: 'expired' });
+      const expired = (await registered.json()) as { status: string; approvalId: string };
+      expect(expired.status).toBe('expired');
+      const late = await request(waiting, {
+        method: 'POST',
+        url: `/api/runs/${runId}/approve`,
+        headers: { cookie },
+        payload: { approvalId: expired.approvalId },
+      });
+      expect(late.statusCode).toBe(409);
+      const client = new Client({ name: 'agentport-test', version: '0.0.0' });
+      try {
+        await client.connect(
+          new StreamableHTTPClientTransport(new URL(`${waitingServer.url}/mcp/${server.id}`), {
+            requestInit: { headers },
+          }),
+        );
+        expect(
+          (await client.callTool({ name: 'timeout-user', arguments: { id: 1 } })).isError,
+        ).toBe(true);
+      } finally {
+        await client.close();
+      }
       expect(await (await fetch(url, { headers })).json()).toMatchObject({ status: 'expired' });
       expect(upstreamCalls).toBe(before);
     } finally {
@@ -603,7 +624,7 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: { cookie },
-      payload: { serverId: server.id, toolName: 'approved-user' },
+      payload: { approvalId: 'unbound-approval' },
     });
     expect(approve.statusCode).toBe(404);
   });

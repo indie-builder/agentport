@@ -5,6 +5,7 @@ import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { toIso } from '../../lib/iso.js';
+import { recheckRunApproval } from '../servers/approval-policy.js';
 
 const approvalsRepo = repo.channelApprovals;
 function toItem(item: repo.channelApprovals.ChannelApprovalItem) {
@@ -23,6 +24,7 @@ function toItem(item: repo.channelApprovals.ChannelApprovalItem) {
 }
 const CONFLICT_MESSAGE = {
   decided: '该审批请求已被其他成员处理，请刷新后重试',
+  decision_changed: '工具审批判定已变更，请让智能体重新发起',
   expired: '该审批请求已过期，请让智能体重新发起',
   run_inactive: '运行已结束或尚未开始，无法批准；请刷新运行状态',
 } as const;
@@ -43,11 +45,15 @@ export const channelsApprovalsRouter = {
     return { items: result.items.map(toItem) };
   }),
   approve: os.approve.handler(async ({ input, context }) => {
-    const result = await approvalsRepo.approveChannelApproval(context.db, {
-      channelId: input.params.id,
-      approvalId: input.params.approvalId,
-      businessId: requireUser(context).businessId,
-    });
+    const result = await approvalsRepo.approveChannelApproval(
+      context.db,
+      {
+        channelId: input.params.id,
+        approvalId: input.params.approvalId,
+        businessId: requireUser(context).businessId,
+      },
+      recheckRunApproval(context.log),
+    );
     switch (result.kind) {
       case 'not_found':
         return fail('NOT_FOUND', '审批请求不存在或不属于该频道');
@@ -81,11 +87,15 @@ export const channelsApprovalsRouter = {
     }
   }),
   deny: os.deny.handler(async ({ input, context }) => {
-    const result = await approvalsRepo.denyChannelApproval(context.db, {
-      channelId: input.params.id,
-      approvalId: input.params.approvalId,
-      businessId: requireUser(context).businessId,
-    });
+    const result = await approvalsRepo.denyChannelApproval(
+      context.db,
+      {
+        channelId: input.params.id,
+        approvalId: input.params.approvalId,
+        businessId: requireUser(context).businessId,
+      },
+      recheckRunApproval(context.log),
+    );
     switch (result.kind) {
       case 'not_found':
         return fail('NOT_FOUND', '审批请求不存在或不属于该频道');

@@ -56,6 +56,8 @@ function approval(serverName: string | null, id = serverName ?? 'unknown'): Appr
     approvedAt: null,
     deniedAt: null,
     createdAt: '',
+    expiresAt: null,
+    waiting: false,
   };
 }
 function findElement(
@@ -75,7 +77,7 @@ function findElement(
 beforeEach(() => useChatStore.getState().reset());
 
 describe('approval card', () => {
-  it('disables every approval while labeling only the matching request pending', () => {
+  it('shows only the current approval action and explains when approval has expired', () => {
     const html = renderToStaticMarkup(
       createElement(
         'div',
@@ -88,13 +90,12 @@ describe('approval card', () => {
         createElement(ApprovalCard, { item: approval('B'), pending: 'A', onApprove() {} }),
       ),
     );
-    expect(html.match(/<button\b[^>]*disabled/g)).toHaveLength(2);
+    expect(html.match(/<button\b[^>]*disabled/g)).toHaveLength(1);
     expect(html.match(/批准中…/g)).toHaveLength(1);
     expect(html).toContain('aria-label="批准 A / write"');
-    expect(html).toContain('aria-label="批准 B / write"');
+    expect(html).not.toContain('aria-label="批准 B / write"');
     expect(html).toContain('调用仍在等待，批准后可继续本次调用，无需重发');
-    expect(html).toContain('本次调用已结束等待，批准仅对后续调用生效，不会恢复已结束的调用。');
-    expect(html).toContain('>批准后续调用</button>');
+    expect(html).toContain('审批已失效，请让智能体重新发起。');
   });
 });
 

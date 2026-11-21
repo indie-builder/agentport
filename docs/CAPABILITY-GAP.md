@@ -236,7 +236,7 @@
 |---|---|---|
 | 部署可移植 | ✅ | compose 去掉 `${PWD}`，改用命名卷 + `HOST_WORKSPACES_DIR`；在 `/tmp` 下 `--project-directory` 验证通过 |
 | 部署自检 | ✅ | `pnpm smoke` 覆盖健康、登录、三类列表、MCP 鉴权；实测输出 `SMOKE OK` |
-| 工具审批（最小） | ✅ | `api_tools.approval_mode`（allow/ask/deny） + `agent_runs.approvals`；ask 未批准返回明确文案，deny 直接拒绝；`POST /api/runs/:id/approve`；20 个相关测试 |
+| 工具审批（最小） | ✅ | `api_tools.approval_mode`（allow/ask/deny）加 `approval_requests`；ask 未批准不执行，deny 直接拒绝 |
 | 文档收口 | ✅ | README（概览 + 命令 + 安全要点）、ARCHITECTURE、OPERATIONS（环境变量、部署、排障、压测） |
 | 文档与代码一致性 | ✅ | 修正 15 处偏差（`SANDBOX_NETWORK`→`SANDBOX_EGRESS`、`pnpm -r typecheck` 写法、迁移非自动、`PLATFORM_MCP_TOKEN` 未文档化等） |
 | 禁用智能体拦截 | ✅ | `POST /api/chat` 返回 409 并给下一步 |
@@ -257,7 +257,7 @@
 | 能力 | 状态 | 证据 |
 |---|---|---|
 | 预览脱敏 | ✅ | 密钥值显示 `<已配置>`；generated 的 Authorization 运行时注入 |
-| 结构化工具审批 | ✅ | `approval_requests(run_id, server_id, tool_name)`；`POST /api/runs/:id/approve` 与 `POST /api/runs/:id/deny`；UI 改读 `/api/runs/:id/approvals` |
+| 结构化工具审批 | ✅ | `approval_requests` 按 run、连接器、工具和判定 hash 绑定；`POST /api/runs/:id/approve|deny` 提交 `approvalId` |
 | 日志/落库脱敏 | ✅ | `redactSecrets` 覆盖 Bearer/sk-/ghp_/`KEY=value`/长 base64url；stderr 降为 debug |
 | 输出上限 | ✅ | 沙盒单字段默认 1 MiB（上限 1 MiB）；worker 单行 8 MiB；单 run 瞬时与落库各 2000 事件/32 MiB；UI 64 KB 折叠 |
 | 导入安全 | ✅ | 导入调用 `assertSafeUrl`；同名不同 kind 拒绝复用；写 `agent.imported` 审计 |
@@ -286,7 +286,7 @@
 | Redis 健康检查修复 | ✅ | compose healthcheck 使用容器内 `REDIS_PASSWORD`，新部署不再卡在 unhealthy |
 | 取消与孤儿收敛 | ✅ | SIGTERM → SIGKILL 升级；5 分钟周期把超时仍 `running` 的 run 置 `failed` 并补发 `run_finished` |
 | URL 校验 | ✅ | 登记/修改时校验协议与私网；运行前再次校验 |
-| 审批跨 run 继承 | ✅ | 同一会话下一次 run 复制 `approval_requests`，审计记 `agent.run.approvals_inherited` |
+| run 审批决策绑定 | ✅ | 同一 run 只复用当前判定的批准；下一次 run 重新审批（D-88） |
 | 预览与运行时统一 | ✅ | 共用 `core/workspace-input.ts`；预览用占位密钥，运行用真实密钥 |
 | token 轮换 | ✅ | `POST /api/servers/:id/rotate-token`，旧 token 立即失效，明文只返回一次 |
 

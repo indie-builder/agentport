@@ -1,8 +1,9 @@
 import { ACTIVE_RUN_STATUSES, isActiveRunStatus } from '@agentport/shared';
-import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { agentRuns, approvalRequests, servers } from '../schema.js';
 import { allows, channelMemberRole } from './channels.js';
+import type { RecheckApproval } from './runs.js';
 
 export interface ChannelApprovalItem {
   id: string;
@@ -60,6 +61,8 @@ export async function listChannelApprovals(
         inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]),
         isNull(approvalRequests.approvedAt),
         isNull(approvalRequests.deniedAt),
+        isNull(approvalRequests.supersededAt),
+        isNotNull(approvalRequests.decisionHash),
         or(isNull(approvalRequests.expiresAt), gt(approvalRequests.expiresAt, new Date())),
       ),
     )
@@ -79,24 +82,25 @@ type Decision =
   | { kind: 'ok'; approval: ApprovedChannelApproval }
   | NotFound
   | { kind: 'forbidden'; reason: 'channel_role' }
-  | { kind: 'conflict'; reason: 'decided' | 'expired' | 'run_inactive' };
+  | { kind: 'conflict'; reason: 'decided' | 'expired' | 'run_inactive' | 'decision_changed' };
 
 type DenyDecision =
   | { kind: 'ok'; approval: DeniedChannelApproval }
   | NotFound
   | { kind: 'forbidden'; reason: 'channel_role' }
-  | { kind: 'conflict'; reason: 'decided' | 'expired' | 'run_inactive' };
+  | { kind: 'conflict'; reason: 'decided' | 'expired' | 'run_inactive' | 'decision_changed' };
 
 type ChannelDecision =
   | { kind: 'ok'; approval: ChannelApprovalItem; decidedByBusinessId: string }
   | NotFound
   | { kind: 'forbidden'; reason: 'channel_role' }
-  | { kind: 'conflict'; reason: 'decided' | 'expired' | 'run_inactive' };
+  | { kind: 'conflict'; reason: 'decided' | 'expired' | 'run_inactive' | 'decision_changed' };
 
 async function decideChannelApproval(
   db: Database,
   input: { channelId: string; approvalId: string; businessId: string },
   decision: 'approve' | 'deny',
+  recheck: RecheckApproval,
 ): Promise<ChannelDecision> {
   return db.transaction(async (tx) => {
     const role = await channelMemberRole(tx, input.channelId, input.businessId);
@@ -110,6 +114,8 @@ async function decideChannelApproval(
         serverName: servers.name,
         toolName: approvalRequests.toolName,
         argumentsSummary: approvalRequests.argumentsSummary,
+        decisionHash: approvalRequests.decisionHash,
+        supersededAt: approvalRequests.supersededAt,
         createdAt: approvalRequests.createdAt,
         approvedAt: approvalRequests.approvedAt,
         deniedAt: approvalRequests.deniedAt,
@@ -150,19 +156,37 @@ async function decideChannelApproval(
       return { kind: 'conflict', reason: 'expired' };
     }
 
+    if (
+      approval.decisionHash === null ||
+      approval.supersededAt !== null ||
+      (await recheck(tx, {
+        runId: approval.runId,
+        serverId: approval.serverId,
+        toolName: approval.toolName,
+      })) !== approval.decisionHash
+    ) {
+      return { kind: 'conflict', reason: 'decision_changed' };
+    }
+
     const [decided] = await tx
       .update(approvalRequests)
       .set(
         decision === 'approve'
-          ? { approvedAt: sql`now()`, approvedByBusinessId: input.businessId }
-          : { deniedAt: sql`now()`, deniedByBusinessId: input.businessId },
+          ? { approvedAt: sql`clock_timestamp()`, approvedByBusinessId: input.businessId }
+          : { deniedAt: sql`clock_timestamp()`, deniedByBusinessId: input.businessId },
       )
       .where(
         and(
           eq(approvalRequests.id, input.approvalId),
           eq(approvalRequests.channelId, input.channelId),
+          eq(approvalRequests.decisionHash, approval.decisionHash),
+          isNull(approvalRequests.supersededAt),
           isNull(approvalRequests.approvedAt),
           isNull(approvalRequests.deniedAt),
+          or(
+            isNull(approvalRequests.expiresAt),
+            gt(approvalRequests.expiresAt, sql`clock_timestamp()`),
+          ),
         ),
       )
       .returning({
@@ -200,8 +224,9 @@ async function decideChannelApproval(
 export async function approveChannelApproval(
   db: Database,
   input: { channelId: string; approvalId: string; businessId: string },
+  recheck: RecheckApproval,
 ): Promise<Decision> {
-  const result = await decideChannelApproval(db, input, 'approve');
+  const result = await decideChannelApproval(db, input, 'approve', recheck);
   if (result.kind !== 'ok') return result;
   return {
     kind: 'ok',
@@ -212,8 +237,9 @@ export async function approveChannelApproval(
 export async function denyChannelApproval(
   db: Database,
   input: { channelId: string; approvalId: string; businessId: string },
+  recheck: RecheckApproval,
 ): Promise<DenyDecision> {
-  const result = await decideChannelApproval(db, input, 'deny');
+  const result = await decideChannelApproval(db, input, 'deny', recheck);
   if (result.kind !== 'ok') return result;
   return {
     kind: 'ok',

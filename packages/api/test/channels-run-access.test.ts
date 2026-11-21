@@ -228,8 +228,7 @@ describe.skipIf(!ready)('channel run private entry points', () => {
     });
 
     const approved = await call('POST', `/api/runs/${runId}/approve`, member.cookie, {
-      serverId,
-      toolName,
+      approvalId: 'approval-missing',
     });
     expect(approved.statusCode, approved.body).toBe(404);
     expect(approved.json<{ code: string; resource: string }>()).toMatchObject({

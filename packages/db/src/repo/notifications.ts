@@ -94,7 +94,7 @@ export async function markRead(db: Database, businessId: string, id: string): Pr
 }
 
 export async function markBySource(
-  db: Database,
+  db: DbHandle,
   kind: NotificationKind,
   sourceId: string,
 ): Promise<number> {

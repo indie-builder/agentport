@@ -114,6 +114,20 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
     expect((await audit.verifyAuditChain(db)).ok).toBe(true);
   });
 
+  it('keeps null-valued details and verifies the chain', async () => {
+    const target = `audit-null-detail-${randomUUID()}`;
+    const id = `audit-detail-${randomUUID()}`;
+    const detail = { policyId: 'tap_1', from: '{"approvalMode":"ask"}', to: null };
+    await write({ dedupeKey: id, action: 'audit.detail.null', target, status: 'ok', detail });
+
+    const row = await rowById(id);
+    expect(row.detail).toEqual(detail);
+    expect((await audit.verifyAuditChain(db)).ok).toBe(true);
+
+    const entries = await audit.listAudit(db, { target });
+    expect(entries[0]?.detail).toEqual(detail);
+  });
+
   it('detects tampering with a row that has no detail', async () => {
     const target = `audit-tamper-plain-${randomUUID()}`;
     const id = `audit-plain-${randomUUID()}`;

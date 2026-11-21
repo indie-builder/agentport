@@ -85,6 +85,8 @@ const approval = (id: string, serverName: string): ApprovalRequest => ({
   approvedAt: null,
   deniedAt: null,
   createdAt: '',
+  expiresAt: '2026-12-01T00:00:00Z',
+  waiting: true,
 });
 
 const question: PublicRunQuestion = {

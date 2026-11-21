@@ -400,6 +400,8 @@ export async function listPendingApprovals(db: Database) {
     .where(
       and(
         isNotNull(approvalRequests.runId),
+        isNotNull(approvalRequests.decisionHash),
+        isNull(approvalRequests.supersededAt),
         isNull(approvalRequests.approvedAt),
         isNull(approvalRequests.deniedAt),
         sql`(${approvalRequests.expiresAt} is null or ${approvalRequests.expiresAt} > now())`,

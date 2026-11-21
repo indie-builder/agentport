@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { repo } from '@agentport/db';
 import type { Server } from '@agentport/shared';
+import { createApprovalEvaluator } from '../src/modules/servers/approval-policy.js';
 import {
   ADMIN_BUSINESS_ID,
   cleanup,
@@ -65,16 +66,34 @@ describe.skipIf(!ready)('approval lifecycle', () => {
     runIds.push(run.id);
     await repo.chat.updateRun(app.db, run.id, { status });
     const toolName = unique('tool');
-    await repo.runs.requestApproval(app.db, {
-      runId: run.id,
+    const tool = await repo.servers.createApiTool(app.db, {
       serverId: server.id,
-      toolName,
+      name: toolName,
+      description: '',
+      method: 'GET',
+      pathTemplate: '/',
+      inputSchema: {},
+      paramsIn: 'query',
+      approvalMode: 'ask',
     });
-    const [request] = await app.client
-      .unsafe<{ id: string }[]>('select id from approval_requests where run_id = $1', [run.id])
-      .then((res) => res);
-    if (!request) throw new Error('approval request was not inserted');
-    return { runId: run.id, requestId: request.id, toolName };
+    const { decisionHash } =
+      status === 'running'
+        ? await createApprovalEvaluator({
+            db: app.db,
+            runId: run.id,
+            serverId: server.id,
+          })({ ...tool, method: 'GET' })
+        : { decisionHash: unique('stale-hash') };
+    const row = await app.db.transaction((tx) =>
+      repo.runs.requestApproval(tx, {
+        runId: run.id,
+        serverId: server.id,
+        toolName,
+        decisionHash,
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+    );
+    return { runId: run.id, requestId: row.id };
   };
 
   const approve = (runId: string, payload: unknown) =>
@@ -102,8 +121,8 @@ describe.skipIf(!ready)('approval lifecycle', () => {
   };
 
   it('approves a pending request while the run is running', async () => {
-    const { runId, toolName } = await seed('running');
-    const res = await approve(runId, { serverId: server.id, toolName });
+    const { runId, requestId } = await seed('running');
+    const res = await approve(runId, { approvalId: requestId });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json<{ approvedAt: string }>().approvedAt).toEqual(expect.any(String));
     expect(await approvedAuditCount(runId)).toBe(1);
@@ -112,8 +131,8 @@ describe.skipIf(!ready)('approval lifecycle', () => {
   it.each(['queued', 'succeeded', 'failed', 'cancelled', 'timeout'] as const)(
     'rejects approval when the run is %s',
     async (status) => {
-      const { runId, requestId, toolName } = await seed(status);
-      expectProblem(await approve(runId, { serverId: server.id, toolName }), 'CONFLICT');
+      const { runId, requestId } = await seed(status);
+      expectProblem(await approve(runId, { approvalId: requestId }), 'CONFLICT');
       expect((await requestState(requestId))?.approved_at).toBeNull();
       expect(await approvedAuditCount(runId)).toBe(0);
     },
@@ -121,34 +140,30 @@ describe.skipIf(!ready)('approval lifecycle', () => {
 
   it('returns NOT_FOUND for a request that was never recorded', async () => {
     const { runId } = await seed('running');
-    expectProblem(
-      await approve(runId, { serverId: server.id, toolName: unique('absent') }),
-      'NOT_FOUND',
-      'approval',
-    );
+    expectProblem(await approve(runId, { approvalId: unique('absent') }), 'NOT_FOUND', 'approval');
   });
 
   it('returns NOT_FOUND for an unknown run', async () => {
     expectProblem(
-      await approve(unique('missing-run'), { serverId: server.id, toolName: unique('tool') }),
+      await approve(unique('missing-run'), { approvalId: unique('approval') }),
       'NOT_FOUND',
       'run',
     );
   });
 
   it('keeps repeated approvals idempotent while running', async () => {
-    const { runId, requestId, toolName } = await seed('running');
-    const first = await approve(runId, { serverId: server.id, toolName });
+    const { runId, requestId } = await seed('running');
+    const first = await approve(runId, { approvalId: requestId });
     expect(first.statusCode, first.body).toBe(200);
     const firstApprovedAt = (await requestState(requestId))?.approved_at;
 
-    const second = await approve(runId, { serverId: server.id, toolName });
+    const second = await approve(runId, { approvalId: requestId });
     expect(second.statusCode, second.body).toBe(200);
     expect((await requestState(requestId))?.approved_at).toEqual(firstApprovedAt);
   });
 
   it('waits on the run row lock before deciding approval', async () => {
-    const { runId, requestId, toolName } = await seed('running');
+    const { runId, requestId } = await seed('running');
     const locker = await app.client.reserve();
     let settled = false;
     try {
@@ -157,7 +172,7 @@ describe.skipIf(!ready)('approval lifecycle', () => {
       await locker.unsafe('begin');
       await locker.unsafe("update agent_runs set status = 'cancelled' where id = $1", [runId]);
 
-      const approval = approve(runId, { serverId: server.id, toolName }).finally(() => {
+      const approval = approve(runId, { approvalId: requestId }).finally(() => {
         settled = true;
       });
 

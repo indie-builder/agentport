@@ -7,12 +7,12 @@ import { isRunCancelRequested } from '../../queue/producer.js';
 import { buildDataDomainServer } from '../data-domains/mcp.js';
 import { buildKnowledgeServer } from '../knowledge/mcp.js';
 import { checkOutboundToolArgs } from '../security/outbound-policy.js';
+import { auditToolPolicyDenial, createApprovalEvaluator } from './approval-policy.js';
 import { requestToolApproval } from './approvals.js';
 import { bearerToken, tokenMatches } from './bearer.js';
 import { buildGeneratedServer } from './generated.js';
 import { getServerRow, listTools, str, toApiServer } from './repo.js';
 import { decryptSecrets } from './secrets.js';
-import { summarizeToolArguments } from './tool-arguments.js';
 
 export async function validRunToken(
   context: RequestContext,
@@ -31,20 +31,11 @@ export async function validRunToken(
   );
 }
 
-function handlerFor(
-  app: AppContext,
-  serverId: string,
-  trustedRunId: string | null,
-): McpHttpHandler {
+function handlerFor(app: AppContext, serverId: string, runId: string | null): McpHttpHandler {
   return createMcpHandler(
     async () => {
       const row = await getServerRow(app.db, serverId);
       if (!row) throw new Error('连接器已不存在');
-      const runId =
-        trustedRunId !== null &&
-        (await repo.runs.isRunBoundToServer(app.db, trustedRunId, serverId))
-          ? trustedRunId
-          : null;
       const snapshot =
         runId === null ? null : await repo.runs.getRunServerSnapshot(app.db, runId, serverId);
       const server = snapshot
@@ -59,16 +50,12 @@ function handlerFor(
         : toApiServer(row, app.config.APP_SECRET_KEY);
       if (server.kind !== 'generated') throw new Error('连接器不是生成式 MCP');
       const tools = snapshot?.tools ?? (await listTools(app.db, serverId));
-      const approvals = runId ? await repo.runs.getApprovedToolNames(app.db, runId, serverId) : [];
-      const denied = runId ? await repo.runs.getDeniedToolNames(app.db, runId, serverId) : [];
       const agentId = runId === null ? null : await repo.runs.getRunAgentId(app.db, runId);
       return buildGeneratedServer({
         name: server.name,
         baseUrl: server.baseUrl,
         headers: server.headers,
         tools,
-        approvals,
-        denied,
         nodeEnv: app.config.NODE_ENV,
         privateHostAllowlist: app.config.GENERATED_PRIVATE_HOST_ALLOWLIST,
         checkOutbound: (toolName, args) =>
@@ -79,30 +66,29 @@ function handlerFor(
             sourceId: `${serverId}/${toolName}`,
             args,
           }),
-        onDenied: async (toolName, args) => {
-          await repo.audit.writeAudit(app.db, app.log, {
-            action: 'mcp.tool.denied',
-            target: serverId,
-            input: { toolName, runId, args: summarizeToolArguments(args) },
-            status: 'denied',
-          });
-        },
+        onDenied: (toolName, args, matchedRuleIds) =>
+          auditToolPolicyDenial(app, {
+            runId,
+            serverId,
+            toolName,
+            args,
+            ...(matchedRuleIds && { matchedRuleIds }),
+          }),
         ...(runId === null
           ? {}
           : {
-              refreshApprovals: () => repo.runs.getApprovedToolNames(app.db, runId, serverId),
-              refreshDenied: () => repo.runs.getDeniedToolNames(app.db, runId, serverId),
+              evaluateApproval: createApprovalEvaluator({ db: app.db, runId, serverId }),
               isRunActive: async () =>
                 (await repo.runs.isRunActive(app.db, runId)) &&
                 !(await isRunCancelRequested(runId)),
-              onApprovalRequired: async (toolName, args) => {
-                await requestToolApproval(app, runId, serverId, toolName, args);
+              onApprovalRequired: async (toolName, args, decision) => {
+                await requestToolApproval(app, runId, serverId, toolName, args, decision);
               },
             }),
       });
     },
     {
-      onerror: (err) => app.log.error({ err, serverId, runId: trustedRunId }, 'mcp endpoint error'),
+      onerror: (err) => app.log.error({ err, serverId, runId }, 'mcp endpoint error'),
     },
   );
 }

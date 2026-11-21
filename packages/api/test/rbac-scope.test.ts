@@ -186,7 +186,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
         method: 'POST',
         url: `/api/runs/${runA}/approve`,
         headers: { cookie: userB.cookie },
-        payload: { serverId: 'x', toolName: 'y' },
+        payload: { approvalId: 'approval-missing' },
       }),
       'NOT_FOUND',
       'run',

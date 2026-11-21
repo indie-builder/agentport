@@ -19,3 +19,4 @@ export * from './runtime-environments.js';
 export * from './security.js';
 export * from './servers.js';
 export * from './skills.js';
+export * from './tool-approval-policies.js';

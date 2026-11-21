@@ -65,8 +65,8 @@ export function useRunApprovals(runId: string | null, active = true) {
 export function useApproveRun() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { runId: string; serverId: string; toolName: string }) =>
-      api.approveRun(input.runId, input.serverId, input.toolName),
+    mutationFn: (input: { runId: string; approvalId: string }) =>
+      api.approveRun(input.runId, input.approvalId),
     onSuccess: (_data, input) =>
       void client.invalidateQueries({ queryKey: ['run-approvals', input.runId] }),
   });
@@ -75,8 +75,8 @@ export function useApproveRun() {
 export function useDenyRun() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { runId: string; serverId: string; toolName: string }) =>
-      api.denyRun(input.runId, input.serverId, input.toolName),
+    mutationFn: (input: { runId: string; approvalId: string }) =>
+      api.denyRun(input.runId, input.approvalId),
     onSuccess: (_data, input) =>
       void client.invalidateQueries({ queryKey: ['run-approvals', input.runId] }),
   });

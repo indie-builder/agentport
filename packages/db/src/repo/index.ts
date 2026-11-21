@@ -39,5 +39,6 @@ export * as security from './security.js';
 export * as servers from './servers.js';
 export * as skillFiles from './skill-files.js';
 export * as skills from './skills.js';
+export * as toolApprovalPolicies from './tool-approval-policies.js';
 export * as userPreferences from './user-preferences.js';
 export * as workflows from './workflows.js';

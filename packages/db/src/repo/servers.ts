@@ -160,12 +160,11 @@ export async function listApiTools(db: Database, serverId: string): Promise<ApiT
     .orderBy(asc(apiTools.createdAt), asc(apiTools.id));
 }
 
-export async function listToolApprovalModes(db: Database, serverIds: string[]) {
+export async function listEnabledGeneratedToolNames(db: Database, serverIds: string[]) {
   return db
     .select({
       serverId: apiTools.serverId,
       toolName: apiTools.name,
-      approvalMode: apiTools.approvalMode,
     })
     .from(apiTools)
     .innerJoin(servers, eq(servers.id, apiTools.serverId))
@@ -178,12 +177,17 @@ export async function listToolApprovalModes(db: Database, serverIds: string[]) {
     );
 }
 
-export async function getApiToolByName(db: Database, serverId: string, toolName: string) {
+export async function getApiToolByName(db: DbHandle, serverId: string, toolName: string) {
   const [row] = await db
     .select()
     .from(apiTools)
     .where(and(eq(apiTools.serverId, serverId), eq(apiTools.name, toolName)))
     .limit(1);
+  return row ?? null;
+}
+
+export async function getApiTool(db: DbHandle, id: string) {
+  const [row] = await db.select().from(apiTools).where(eq(apiTools.id, id)).limit(1);
   return row ?? null;
 }
 

@@ -391,7 +391,7 @@ test('creates a private run approval notification through the MCP endpoint', {
     business_id: initiator.businessId,
     kind: 'approval',
     link: `/runs/${producer.runId}`,
-    source_id: `approval:${producer.runId}:${producer.serverId}:${producer.toolName}`,
+    source_id: `approval:${producer.runId}:${state.approval.id}`,
   });
 
   const list = await apiJson<{ items: { id: string; kind: string; link: string }[] }>(

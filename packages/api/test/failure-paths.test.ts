@@ -198,7 +198,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       method: 'POST',
       url: '/api/runs/run_missing/approve',
       headers: auth(),
-      payload: { serverId: 'srv_missing', toolName: 'anything' },
+      payload: { approvalId: 'approval-missing' },
     });
     expectProblem(approve, 'NOT_FOUND', 'run');
   });
@@ -315,7 +315,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: auth(),
-      payload: { serverId: server.id, toolName: 'not-a-real-tool' },
+      payload: { approvalId: 'approval-missing' },
     });
     expectProblem(unknown, 'NOT_FOUND', 'approval');
 
@@ -325,30 +325,27 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     );
     expect(unchanged[0]?.count).toBe(0);
 
+    const approvalId = unique('apr');
     await app.client.unsafe(
       'insert into approval_requests (id, run_id, server_id, tool_name) values ($1, $2, $3, $4)',
-      [unique('apr'), runId, server.id, toolName],
+      [approvalId, runId, server.id, toolName],
     );
-    const valid = await request(app, {
+    const legacy = await request(app, {
       method: 'POST',
       url: `/api/runs/${runId}/approve`,
       headers: auth(),
-      payload: { serverId: server.id, toolName },
+      payload: { approvalId },
     });
-    expect(valid.statusCode).toBe(200);
-    expect(valid.json<{ serverId: string; toolName: string }>()).toMatchObject({
-      serverId: server.id,
-      toolName,
-    });
-
-    const otherServer = await createGeneratedServer();
-    const crossServer = await request(app, {
+    expectProblem(legacy, 'CONFLICT');
+    const other = await seedRun(app, agent.id);
+    runIds.push(other.runId);
+    const crossRun = await request(app, {
       method: 'POST',
-      url: `/api/runs/${runId}/approve`,
+      url: `/api/runs/${other.runId}/approve`,
       headers: auth(),
-      payload: { serverId: otherServer.id, toolName },
+      payload: { approvalId },
     });
-    expect(crossServer.statusCode).toBe(404);
+    expectProblem(crossRun, 'NOT_FOUND', 'approval');
   });
 
   it('returns 409 for a duplicate skill slug instead of 500', async () => {

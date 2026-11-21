@@ -3,6 +3,12 @@ import type { ApiTool } from '@agentport/shared';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { runMcpExecution } from '../../plugins/concurrency.js';
+import type { createApprovalEvaluator } from './approval-policy.js';
+
+type ApprovalEvaluation = Pick<
+  Awaited<ReturnType<ReturnType<typeof createApprovalEvaluator>>>,
+  'effectiveMode' | 'baseline' | 'approved' | 'decisionHash' | 'matchedRuleIds'
+> & { approval?: { deniedAt: Date | null } | null };
 
 export interface GeneratedServerInput {
   nodeEnv?: string | undefined;
@@ -11,13 +17,18 @@ export interface GeneratedServerInput {
   baseUrl: string;
   headers: Record<string, string>;
   tools: ApiTool[];
-  approvals: string[];
-  refreshApprovals?: () => Promise<string[]>;
-  denied?: string[];
-  refreshDenied?: () => Promise<string[]>;
+  evaluateApproval?: (tool: ApiTool, baseUrl: string) => Promise<ApprovalEvaluation>;
   isRunActive?: () => Promise<boolean>;
-  onApprovalRequired?: (toolName: string, args: Record<string, unknown>) => Promise<void>;
-  onDenied?: (toolName: string, args: Record<string, unknown>) => Promise<void>;
+  onApprovalRequired?: (
+    toolName: string,
+    args: Record<string, unknown>,
+    decision: ApprovalEvaluation,
+  ) => Promise<void>;
+  onDenied?: (
+    toolName: string,
+    args: Record<string, unknown>,
+    matchedRuleIds?: readonly string[],
+  ) => Promise<void>;
   checkOutbound?: (
     toolName: string,
     args: Record<string, unknown>,
@@ -103,6 +114,7 @@ async function callUpstream(
   privateHostAllowlist: string,
   signal: AbortSignal,
   isRunActive: (() => Promise<boolean>) | undefined,
+  recheckApproval: (() => Promise<CallToolResult | null>) | undefined,
 ): Promise<CallToolResult> {
   if (tool.paramsIn === 'body' && (tool.method === 'GET' || tool.method === 'DELETE')) {
     return {
@@ -150,6 +162,11 @@ async function callUpstream(
   return runMcpExecution(async () => {
     if (signal.aborted) return cancelledResult(tool.name);
     if (isRunActive && !(await isRunActive())) return cancelledResult(tool.name);
+    if (signal.aborted) return cancelledResult(tool.name);
+    const blocked = await recheckApproval?.();
+    if (blocked) return blocked;
+    if (recheckApproval && isRunActive && !(await isRunActive())) return cancelledResult(tool.name);
+    if (signal.aborted) return cancelledResult(tool.name);
     try {
       const res = await fetch(url, {
         ...init,
@@ -195,28 +212,34 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
         const signal = ctx.mcpReq.signal;
         if (signal.aborted) return cancelledResult(tool.name);
         if (input.isRunActive && !(await input.isRunActive())) return cancelledResult(tool.name);
-        if (tool.approvalMode === 'deny') {
-          await input.onDenied?.(tool.name, args);
-          return policyDeniedResult(tool.name);
-        }
-        if (tool.approvalMode === 'ask') {
-          const approvals = input.refreshApprovals
-            ? await input.refreshApprovals()
-            : input.approvals;
-          if (!approvals.includes(tool.name)) {
-            const denied = input.refreshDenied ? await input.refreshDenied() : (input.denied ?? []);
-            if (signal.aborted) return cancelledResult(tool.name);
-            if (input.isRunActive && !(await input.isRunActive()))
-              return cancelledResult(tool.name);
-            if (signal.aborted) return cancelledResult(tool.name);
-            if (denied.includes(tool.name)) return deniedResult(tool.name);
-            await input.onApprovalRequired?.(tool.name, args);
-            return {
-              isError: true,
-              content: [{ type: 'text', text: approvalRequiredMessage(tool.name) }],
-            };
+        const approvalGate = async (decision?: ApprovalEvaluation) => {
+          switch (decision?.effectiveMode ?? tool.approvalMode) {
+            case 'deny':
+              await input.onDenied?.(tool.name, args, decision?.matchedRuleIds);
+              return policyDeniedResult(tool.name);
+            case 'ask':
+              if (decision?.approved) return null;
+              if (
+                signal.aborted ||
+                (input.isRunActive && !(await input.isRunActive())) ||
+                signal.aborted
+              )
+                return cancelledResult(tool.name);
+              if (decision?.approval?.deniedAt != null) return deniedResult(tool.name);
+              if (decision !== undefined)
+                await input.onApprovalRequired?.(tool.name, args, decision);
+              return {
+                isError: true,
+                content: [{ type: 'text' as const, text: approvalRequiredMessage(tool.name) }],
+              };
+            case 'allow':
+              return null;
           }
-        }
+        };
+        const evaluateApproval = input.evaluateApproval;
+        const decision = await evaluateApproval?.(tool, input.baseUrl);
+        const blocked = await approvalGate(decision);
+        if (blocked) return blocked;
         const checked = input.checkOutbound
           ? await input.checkOutbound(tool.name, args)
           : { blocked: false, args };
@@ -230,6 +253,18 @@ export function buildGeneratedServer(input: GeneratedServerInput): McpServer {
           input.privateHostAllowlist,
           signal,
           input.isRunActive,
+          evaluateApproval &&
+            (async () => {
+              const current = await evaluateApproval(tool, input.baseUrl);
+              if (current?.decisionHash !== decision?.decisionHash) {
+                if (current.effectiveMode === 'deny') return approvalGate(current);
+                return {
+                  isError: true,
+                  content: [{ type: 'text', text: '工具审批判定已变更，调用未执行。' }],
+                };
+              }
+              return approvalGate(current);
+            }),
         );
         if (!tool.outputSchema || result.isError) return result;
         const text = result.content?.find((item) => item.type === 'text')?.text ?? '';
