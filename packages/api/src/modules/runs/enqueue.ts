@@ -4,6 +4,14 @@ import { isActiveJobState, runEnqueueOptions } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { getQueue } from '../../queue/producer.js';
 
+export function failRunEnqueue(cause?: unknown): never {
+  return fail(
+    'SERVICE_UNAVAILABLE',
+    '运行入队失败，请稍后重试',
+    cause === undefined ? {} : { cause },
+  );
+}
+
 export async function failQueuedRunEnqueue(db: Database, runId: string): Promise<boolean> {
   return (
     (await repo.runs.failUnstartedRun(
@@ -42,7 +50,7 @@ export async function enqueueRunJob(
     existing = await queue.getJob(job.runId);
   } catch {
     await markEnqueueFailed(job.runId);
-    fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+    failRunEnqueue();
   }
   if (existing != null) {
     let state: Awaited<ReturnType<typeof existing.getState>>;
@@ -50,7 +58,7 @@ export async function enqueueRunJob(
       state = await existing.getState();
     } catch {
       await markEnqueueFailed(job.runId);
-      fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+      failRunEnqueue();
     }
     if (isActiveJobState(state)) return recoverEnqueuedRun();
     if (state === 'completed' || state === 'failed') {
@@ -62,7 +70,7 @@ export async function enqueueRunJob(
           current = await queue.getJob(job.runId);
         } catch {
           await markEnqueueFailed(job.runId);
-          fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+          failRunEnqueue();
         }
         if (current != null) {
           let currentState: Awaited<ReturnType<typeof current.getState>>;
@@ -70,11 +78,11 @@ export async function enqueueRunJob(
             currentState = await current.getState();
           } catch {
             await markEnqueueFailed(job.runId);
-            fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+            failRunEnqueue();
           }
           if (isActiveJobState(currentState)) return recoverEnqueuedRun();
           await markEnqueueFailed(job.runId);
-          fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+          failRunEnqueue();
         }
       }
     }
@@ -99,12 +107,12 @@ export async function enqueueRunJob(
     const raced = await active().catch(() => null);
     if (raced === null) {
       await markEnqueueFailed(job.runId);
-      fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+      failRunEnqueue();
     }
     if (!raced) {
       await markEnqueueFailed(job.runId);
       if (!(await active().catch(() => false))) {
-        fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
+        failRunEnqueue();
       }
     }
   }

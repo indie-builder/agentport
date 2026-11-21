@@ -8,7 +8,7 @@ import type { AppContext } from '../../http/context.js';
 import { getQueue } from '../../queue/producer.js';
 import { cancelAgentRun } from '../runs/cancel-run.js';
 import { runQueueHasCapacity } from '../runs/capacity.js';
-import { failQueuedRunEnqueue } from '../runs/enqueue.js';
+import { failQueuedRunEnqueue, failRunEnqueue } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
 import type { AgentInvoker } from './agent-tools.js';
 
@@ -109,7 +109,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
           } catch {
             app.log.warn({ runId: run.id }, 'MCP enqueue failure cleanup failed');
           }
-          fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试', { cause: err });
+          failRunEnqueue(err);
         }
         await writeAudit(app.db, app.log, {
           actor: 'mcp',
