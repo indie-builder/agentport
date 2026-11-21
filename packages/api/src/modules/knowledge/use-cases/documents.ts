@@ -207,6 +207,37 @@ async function discardUncommittedVersion(
   await rm(dir, { recursive: true, force: true }).catch(() => undefined);
 }
 
+async function commitChunkMutation(
+  deps: KnowledgeDeps,
+  input: {
+    documentId: string;
+    baseVersion: Parameters<typeof preparedVersionInput>[0];
+    expectedVersionId: string;
+    markdown: string;
+    mutation: Parameters<typeof repo.knowledge.editDocumentChunks>[1]['mutation'];
+  },
+) {
+  const versionId = newId('knowledgeVersion');
+  const dir = await prepareVersionFiles(
+    deps.config,
+    input.documentId,
+    input.baseVersion,
+    versionId,
+    input.markdown,
+  );
+  try {
+    return await repo.knowledge.editDocumentChunks(deps.db, {
+      documentId: input.documentId,
+      expectedVersionId: input.expectedVersionId,
+      mutation: input.mutation,
+      preparedVersion: preparedVersionInput(input.baseVersion, versionId, input.markdown),
+    });
+  } catch (err) {
+    await discardUncommittedVersion(deps.db, dir, versionId);
+    throw err;
+  }
+}
+
 async function enqueueChunkReindex(
   deps: KnowledgeDeps,
   baseId: string,
@@ -717,20 +748,13 @@ export async function createChunk(
     enabled: body.enabled,
   };
   const markdown = [...currentChunks.map((chunk) => chunk.content), added.content].join('\n\n');
-  const versionId = newId('knowledgeVersion');
-  const dir = await prepareVersionFiles(deps.config, row.id, current, versionId, markdown);
-  let result: Awaited<ReturnType<typeof repo.knowledge.editDocumentChunks>>;
-  try {
-    result = await repo.knowledge.editDocumentChunks(deps.db, {
-      documentId: row.id,
-      expectedVersionId: body.expectedVersionId,
-      mutation: { type: 'add', chunk: added },
-      preparedVersion: preparedVersionInput(current, versionId, markdown),
-    });
-  } catch (err) {
-    await discardUncommittedVersion(deps.db, dir, versionId);
-    throw err;
-  }
+  const result = await commitChunkMutation(deps, {
+    documentId: row.id,
+    baseVersion: current,
+    expectedVersionId: body.expectedVersionId,
+    markdown,
+    mutation: { type: 'add', chunk: added },
+  });
   const jobId = await enqueueChunkReindex(deps, row.baseId, row.id);
   return {
     document: await documentWithTags(deps, result.document),
@@ -780,26 +804,13 @@ export async function updateChunk(
       : chunk,
   );
   const markdown = nextChunks.map((chunk) => chunk.content).join('\n\n');
-  const versionId = newId('knowledgeVersion');
-  const dir = await prepareVersionFiles(
-    deps.config,
-    target.document.id,
-    target.version,
-    versionId,
+  const result = await commitChunkMutation(deps, {
+    documentId: target.document.id,
+    baseVersion: target.version,
+    expectedVersionId: body.expectedVersionId,
     markdown,
-  );
-  let result: Awaited<ReturnType<typeof repo.knowledge.editDocumentChunks>>;
-  try {
-    result = await repo.knowledge.editDocumentChunks(deps.db, {
-      documentId: target.document.id,
-      expectedVersionId: body.expectedVersionId,
-      mutation: { type: 'update', chunkId: current.id, patch },
-      preparedVersion: preparedVersionInput(target.version, versionId, markdown),
-    });
-  } catch (err) {
-    await discardUncommittedVersion(deps.db, dir, versionId);
-    throw err;
-  }
+    mutation: { type: 'update', chunkId: current.id, patch },
+  });
   const jobId = contentChanged
     ? await enqueueChunkReindex(deps, target.document.baseId, target.document.id)
     : null;
@@ -822,26 +833,13 @@ export async function deleteChunk(
     (row) => row.id !== chunk.id,
   );
   const markdown = chunks.map((row) => row.content).join('\n\n');
-  const versionId = newId('knowledgeVersion');
-  const dir = await prepareVersionFiles(
-    deps.config,
-    target.document.id,
-    target.version,
-    versionId,
+  const result = await commitChunkMutation(deps, {
+    documentId: target.document.id,
+    baseVersion: target.version,
+    expectedVersionId: body.expectedVersionId,
     markdown,
-  );
-  let result: Awaited<ReturnType<typeof repo.knowledge.editDocumentChunks>>;
-  try {
-    result = await repo.knowledge.editDocumentChunks(deps.db, {
-      documentId: target.document.id,
-      expectedVersionId: body.expectedVersionId,
-      mutation: { type: 'delete', chunkId: chunk.id },
-      preparedVersion: preparedVersionInput(target.version, versionId, markdown),
-    });
-  } catch (err) {
-    await discardUncommittedVersion(deps.db, dir, versionId);
-    throw err;
-  }
+    mutation: { type: 'delete', chunkId: chunk.id },
+  });
   return {
     document: await documentWithTags(deps, result.document),
     chunk: null,
