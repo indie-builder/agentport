@@ -29,7 +29,7 @@ offsetPageSchema(item)   // { items: item[], total: number }
 - `nextCursor === null` 表示没有下一页。
 - 游标无效、过期或锚点不在当前访问/筛选范围内时，服务端返回 400，不返回空页。
 - 客户端把 `cursor` 当作不透明字符串，不解析、不拼接。
-- 可变排序列的游标内嵌该行的排序值（时间列为时间戳文本，名称/标题列为原文），把页边界固定在签发该页时记录的值；解析或校验不通过视为无效游标，返回 400。页边界不随数据漂移：已返回的行若在签发后改变排序值并跨到边界另一侧，仍可能再次出现；未返回的行若改到边界之前则会被跳过，游标不承诺跨写入的稳定快照。
+- 本次接入值游标的 11 个列表把页边界固定在签发该页时记录的值：游标内嵌该行的排序值（时间列为时间戳文本，名称/标题列为原文），续页时不再回查锚点当前值；解析或校验不通过视为无效游标，返回 400。已返回的行若在签发后改变排序值并跨到边界另一侧，仍可能再次出现；未返回的行若改到边界之前则会被跳过，游标不承诺跨写入的稳定快照。仅这 11 处如此：知识库图片游标与 agents 的 `name` / `recent` 排序仍在续页时回查锚点当前排序值，边界仍会漂移（既有行为，不在本计划范围）。
 
 现有例外（不改造成新信封）：
 
@@ -74,7 +74,7 @@ offsetPageSchema(item)   // { items: item[], total: number }
 
 - 参数包含 `table`、`cursor`、`limit`、`column`、`direction`、`where`、`load`；可选自定义 `id` 列。
 - 默认游标只存 id。有游标时，先在同一组 `where` 条件（含 `AccessFilter` 与业务筛选）内按 id 重查锚点；找不到返回 `null`，由 API 转成 400。边界由 `keysetBound` 子查询读取锚点当前的排序值。
-- 可变排序列（时间列、名称/标题列）用值游标 `{v, id}`（base64url 编码的 JSON 对象）：锚点仍按 id 重查以校验可见性与范围，但边界直接用签发时记录的 `v`，不回查锚点当前值。`v` 与 `id` 都非空且拒绝 NUL；`timestamp` 的 `v` 还必须是规范微秒时间戳。解析或校验不通过返回 `null`。
+- 显式传入 `valueCursor` 的列表（本次接入 11 处）用值游标 `{v, id}`（base64url 编码的 JSON 对象）：锚点仍按 id 重查以校验可见性与范围，但边界直接用签发时记录的 `v`，不回查锚点当前值。`v` 与 `id` 都非空且拒绝 NUL；`timestamp` 的 `v` 还必须是规范微秒时间戳。解析或校验不通过返回 `null`。
 - 边界用 `(column, id)` 元组比较，id 是必要的并列 tie-breaker；`column` 本身是 id 时退化为 `>` / `<`。
 - 默认 `column = createdAt`、`direction = desc`；其他排序必须显式传入。
 - 查询固定取 `limit + 1` 条；`paginate` 只返回前 `limit` 条，多出的第 `limit + 1` 条决定 `nextCursor`：默认取末条 id，调用方传 `cursorOf` 时用它签发自定义游标（值游标由 `keysetPage` 自动签发）。
@@ -87,9 +87,9 @@ offsetPageSchema(item)   // { items: item[], total: number }
 
 - 多列排序、排序模式切换用 `encodeCursor(parts)` / `decodeCursor(cursor, expectedParts)`（base64url 编码的 JSON 字符串数组）。
 - `decodeCursor` 在 base64url 非规范编码、base64/JSON 损坏、部分数量不符或含非字符串时返回 `null`；调用方必须转 `invalidCursor()`。
-- 现有复合游标：runs `[startedAt, id]`（`startedAt` 为空时用空字符串）、agents `[sort, id]`、知识库文档列表非默认排序的外层 `[sort, order, cursor]`，其中 `cursor` 可能是末条 id（`created` 排序）或值游标 `{v, id}`（`updated` 为时间戳文本、`title` 为标题原文）。
+- 现有复合游标：runs `[startedAt, id]`（`startedAt` 为空时用空字符串）、agents `[sort, id]`、知识库文档列表非默认排序的外层 `[sort, order, cursor]`，其中 `cursor` 可能是末条 id（`created` 排序）或值游标 `{v, id}`（`updated` 为时间戳文本、`title` 为标题原文）。agents 复合游标只带 `sort` 与 `id`，续页边界回查锚点当前的排序值，`name` / `recent` 排序下仍会漂移（既有行为，不在本计划范围）。
 - 工作区产出游标 `{createdAt, runId, path}`（base64url 编码的 JSON 对象）：版本按 `(createdAt, runId)` 倒序，同一版本内按 `path` 升序；会话产出与频道 run 产出共用该游标。
-- 知识库图片游标 `{u: updatedAt, d: documentId, n: name}`（base64url 编码的 JSON 对象）：按 `(updatedAt, documentId, name)` 倒序，锚点在当前筛选范围内按 `documentId` 与 `name` 重查；`d` 与 `n` 非空且拒绝 NUL。
+- 知识库图片游标 `{u: updatedAt, d: documentId, n: name}`（base64url 编码的 JSON 对象）：按 `(updatedAt, documentId, name)` 倒序，锚点在当前筛选范围内按 `documentId` 与 `name` 重查；`d` 与 `n` 非空且拒绝 NUL。`u` 只做格式校验，续页边界取自锚点当前的 `updated_at`，不是游标里的 `u`，因此边界仍会漂移。
 - MCP `knowledge_list` 游标 `{updatedAt, id, kind}`（base64url 编码的 JSON 对象）：要求 base64url 规范编码、规范微秒 `updatedAt`、非空且不含 NUL 的 `id`，`kind` 仅限 `document` / `faq` / `wiki`。续页边界使用游标内的 `updatedAt`，锚点仅按 `id` 与 `kind` 做可见性校验；无效游标返回工具错误 `INVALID_INPUT`。
 - 单键列表可以直接用锚点 id 作为游标（如审计列表）；客户端仍按不透明值处理。
 

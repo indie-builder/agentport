@@ -52,6 +52,7 @@ export async function listMessages(
   }
   const filters: SQL[] = [eq(messages.conversationId, conversationId)];
   if (options.before !== undefined) {
+    if (options.before.includes('\u0000')) return null;
     const [anchor] = await db
       .select({ id: messages.id })
       .from(messages)
