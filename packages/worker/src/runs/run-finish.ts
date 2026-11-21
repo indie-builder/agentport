@@ -36,7 +36,7 @@ interface RunFinishValues {
   errorKind?: RunErrorKind | null;
 }
 
-interface RunTerminalRow {
+export interface RunTerminalRow {
   id: string;
   agentId: string;
   conversationId: string;
@@ -113,7 +113,7 @@ export async function claimRunTerminal(input: {
   });
 }
 
-async function notifyRunTerminal(
+export async function notifyRunTerminal(
   input: { db: Db; status: TerminalRunStatus; error?: string | null | undefined },
   row: RunTerminalRow,
 ): Promise<void> {
@@ -233,39 +233,6 @@ async function notifyRunTerminal(
   await repo.governance.notifyRunBudgets(input.db, {
     initiatedBy: row.initiatedBy,
     departmentId: row.departmentId,
-  });
-}
-
-export async function notifyRunOutcome(input: {
-  db: Db;
-  logger: Logger;
-  runId: string;
-  status: TerminalRunStatus;
-  error?: string | null | undefined;
-}): Promise<void> {
-  const [row] = await input.db
-    .select({
-      id: schema.agentRuns.id,
-      channelId: schema.agentRuns.channelId,
-      agentId: schema.agentRuns.agentId,
-      conversationId: schema.agentRuns.conversationId,
-      initiatedBy: schema.agentRuns.initiatedBy,
-      departmentId: schema.agentRuns.departmentId,
-      scheduleId: schema.agentRuns.scheduleId,
-      trigger: schema.agentRuns.trigger,
-      costUsd: schema.agentRuns.costUsd,
-    })
-    .from(schema.agentRuns)
-    .where(eq(schema.agentRuns.id, input.runId))
-    .limit(1);
-  if (row === undefined) return;
-  await notifyRunTerminal({ db: input.db, status: input.status, error: input.error }, row).catch(
-    (err: unknown) => {
-      input.logger.warn({ err, runId: input.runId }, 'run terminal notification failed');
-    },
-  );
-  await enqueueRunWebhook(input, row).catch((err: unknown) => {
-    input.logger.warn({ err, runId: row.id }, 'run webhook enqueue failed');
   });
 }
 
