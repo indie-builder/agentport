@@ -18,7 +18,14 @@ import { AGENTS_QUERY_KEY } from './agents.js';
 import { OVERVIEW_QUERY_KEY } from './overview.js';
 import { useCursorList, useInvalidate } from './shared.js';
 
-const SERVERS_QUERY_KEY = ['servers'] as const;
+export const SERVERS_QUERY_KEY = ['servers'] as const;
+
+export const serverKeys = {
+  all: SERVERS_QUERY_KEY,
+  tools: (id: string) => ['tools', id] as const,
+  impact: (id: string) => ['server-impact', id] as const,
+  token: (id: string) => ['server-token', id] as const,
+};
 
 type ServerPages = InfiniteData<CursorPage<Server>, string | undefined>;
 
@@ -36,7 +43,7 @@ function mapServerItems(
 
 export function useServers(enabled = true) {
   return useCursorList({
-    queryKey: SERVERS_QUERY_KEY,
+    queryKey: serverKeys.all,
     queryFn: (cursor, signal) => api.servers(cursor, signal),
     enabled,
     select: (data) => data.pages.flatMap((page) => page.items ?? []),
@@ -45,7 +52,7 @@ export function useServers(enabled = true) {
 
 export const toolsQuery = (serverId: string) =>
   queryOptions({
-    queryKey: ['tools', serverId],
+    queryKey: serverKeys.tools(serverId),
     queryFn: () => api.tools(serverId),
     staleTime: 60_000,
   });
@@ -59,7 +66,7 @@ export function useTools(serverId: string | null) {
 
 export function useServerImpact(id: string) {
   return useQuery({
-    queryKey: ['server-impact', id],
+    queryKey: serverKeys.impact(id),
     queryFn: () => api.serverImpact(id),
     staleTime: 0,
     refetchOnMount: 'always',
@@ -72,9 +79,9 @@ export function useUpdateServer() {
     mutationFn: (vars: { id: string; input: Partial<ServerInput>; expectedUpdatedAt?: string }) =>
       api.updateServer(vars.id, vars.input, vars.expectedUpdatedAt),
     onMutate: async ({ id, input }) => {
-      await client.cancelQueries({ queryKey: SERVERS_QUERY_KEY });
-      const previous = client.getQueryData<ServerPages>(SERVERS_QUERY_KEY);
-      client.setQueryData<ServerPages>(SERVERS_QUERY_KEY, (old) =>
+      await client.cancelQueries({ queryKey: serverKeys.all });
+      const previous = client.getQueryData<ServerPages>(serverKeys.all);
+      client.setQueryData<ServerPages>(serverKeys.all, (old) =>
         mapServerItems(old, (server) =>
           server.id === id ? ({ ...server, ...input } as Server) : server,
         ),
@@ -82,10 +89,10 @@ export function useUpdateServer() {
       return { previous };
     },
     onError: (_error, _vars, context) => {
-      if (context?.previous) client.setQueryData(SERVERS_QUERY_KEY, context.previous);
+      if (context?.previous) client.setQueryData(serverKeys.all, context.previous);
     },
     onSettled: () => {
-      void client.invalidateQueries({ queryKey: ['servers'] });
+      void client.invalidateQueries({ queryKey: serverKeys.all });
       void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
     },
   });
@@ -96,7 +103,7 @@ export function useCreateServer() {
   return useMutation({
     mutationFn: (input: ServerInput) => api.createServer(input),
     onSuccess: () => {
-      invalidate('servers');
+      invalidate(SERVERS_QUERY_KEY[0]);
       invalidate(OVERVIEW_QUERY_KEY[0]);
     },
   });
@@ -107,9 +114,9 @@ export function useDeleteServer() {
   return useMutation({
     mutationFn: (id: string) => api.deleteServer(id),
     onMutate: async (id) => {
-      await client.cancelQueries({ queryKey: SERVERS_QUERY_KEY });
-      const previous = client.getQueryData<ServerPages>(SERVERS_QUERY_KEY);
-      client.setQueryData<ServerPages>(SERVERS_QUERY_KEY, (old) =>
+      await client.cancelQueries({ queryKey: serverKeys.all });
+      const previous = client.getQueryData<ServerPages>(serverKeys.all);
+      client.setQueryData<ServerPages>(serverKeys.all, (old) =>
         old === undefined
           ? undefined
           : {
@@ -123,10 +130,10 @@ export function useDeleteServer() {
       return { previous };
     },
     onError: (_error, _id, context) => {
-      if (context?.previous) client.setQueryData(SERVERS_QUERY_KEY, context.previous);
+      if (context?.previous) client.setQueryData(serverKeys.all, context.previous);
     },
     onSettled: () => {
-      void client.invalidateQueries({ queryKey: ['servers'] });
+      void client.invalidateQueries({ queryKey: serverKeys.all });
       void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
     },
@@ -140,7 +147,7 @@ export function useTestServer() {
       id: string;
       runtimeEnvironmentId?: string | null;
     }): Promise<ServerTestResult> => api.testServer(vars.id, vars.runtimeEnvironmentId),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['servers'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: serverKeys.all }),
   });
 }
 
@@ -148,13 +155,13 @@ export function useImportMcpFile() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (content: string) => api.importMcpFile(content),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['servers'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: serverKeys.all }),
   });
 }
 
 export function useServerToken(serverId: string) {
   return useQuery({
-    queryKey: ['server-token', serverId],
+    queryKey: serverKeys.token(serverId),
     queryFn: () => api.serverToken(serverId),
     staleTime: 0,
   });
@@ -165,8 +172,8 @@ export function useRotateServerToken(serverId: string) {
   return useMutation({
     mutationFn: () => api.rotateServerToken(serverId),
     onSuccess: (data) => {
-      client.setQueryData(['server-token', serverId], data);
-      void client.invalidateQueries({ queryKey: ['servers'] });
+      client.setQueryData(serverKeys.token(serverId), data);
+      void client.invalidateQueries({ queryKey: serverKeys.all });
     },
   });
 }
@@ -223,10 +230,10 @@ export function useSetToolEnabled(serverId: string) {
         ...(vars.approvalMode === undefined ? {} : { approvalMode: vars.approvalMode }),
       }),
     onSuccess: (tool) => {
-      client.setQueryData<ApiTool[]>(['tools', serverId], (old) =>
+      client.setQueryData<ApiTool[]>(serverKeys.tools(serverId), (old) =>
         old?.map((item) => (item.id === tool.id ? tool : item)),
       );
-      void client.invalidateQueries({ queryKey: ['tools', serverId] });
+      void client.invalidateQueries({ queryKey: serverKeys.tools(serverId) });
     },
   });
 }
@@ -237,10 +244,10 @@ export function useUpdateTool(serverId: string) {
     mutationFn: (vars: { toolId: string; patch: Partial<ApiToolInput> & { enabled?: boolean } }) =>
       api.updateTool(serverId, vars.toolId, vars.patch),
     onSuccess: (tool) => {
-      client.setQueryData<ApiTool[]>(['tools', serverId], (old) =>
+      client.setQueryData<ApiTool[]>(serverKeys.tools(serverId), (old) =>
         old?.map((item) => (item.id === tool.id ? tool : item)),
       );
-      void client.invalidateQueries({ queryKey: ['tools', serverId] });
+      void client.invalidateQueries({ queryKey: serverKeys.tools(serverId) });
     },
   });
 }
@@ -250,18 +257,18 @@ export function useDeleteTool(serverId: string) {
   return useMutation({
     mutationFn: (toolId: string) => api.deleteTool(serverId, toolId),
     onMutate: async (toolId) => {
-      await client.cancelQueries({ queryKey: ['tools', serverId] });
-      const previous = client.getQueryData<ApiTool[]>(['tools', serverId]);
-      client.setQueryData<ApiTool[]>(['tools', serverId], (old) =>
+      await client.cancelQueries({ queryKey: serverKeys.tools(serverId) });
+      const previous = client.getQueryData<ApiTool[]>(serverKeys.tools(serverId));
+      client.setQueryData<ApiTool[]>(serverKeys.tools(serverId), (old) =>
         old?.filter((tool) => tool.id !== toolId),
       );
       return { previous };
     },
     onError: (_error, _toolId, context) => {
-      if (context?.previous) client.setQueryData(['tools', serverId], context.previous);
+      if (context?.previous) client.setQueryData(serverKeys.tools(serverId), context.previous);
     },
     onSettled: () => {
-      void client.invalidateQueries({ queryKey: ['tools', serverId] });
+      void client.invalidateQueries({ queryKey: serverKeys.tools(serverId) });
     },
   });
 }

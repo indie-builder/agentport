@@ -13,11 +13,19 @@ import { useDebouncedValue } from '../use-debounced-value.js';
 import { AGENT_OPTIONS_QUERY_KEY, AGENTS_QUERY_KEY } from './agents.js';
 import { useCursorList } from './shared.js';
 
+export const SKILLS_QUERY_KEY = ['skills'] as const;
+
+export const skillKeys = {
+  all: SKILLS_QUERY_KEY,
+  list: (status: string | undefined) => [...SKILLS_QUERY_KEY, status ?? 'all'] as const,
+  market: (view: MarketView, query: string) => ['market-skills', view, query] as const,
+};
+
 export function useSkillDraftFromRun() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (runId: string) => api.skillDraftFromRun(runId),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['skills'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: skillKeys.all }),
   });
 }
 
@@ -25,7 +33,7 @@ export function useSkills(
   options: { status?: Skill['status'] | undefined; enabled?: boolean | undefined } = {},
 ) {
   return useCursorList({
-    queryKey: ['skills', options.status ?? 'all'],
+    queryKey: skillKeys.list(options.status),
     queryFn: (cursor) =>
       api.skills({
         ...(options.status === undefined ? {} : { status: options.status }),
@@ -40,7 +48,7 @@ export function useCreateSkill() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: SkillInput) => api.createSkill(input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['skills'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: skillKeys.all }),
   });
 }
 
@@ -48,14 +56,14 @@ export function useImportSkillFile() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (content: string) => api.importSkillFile(content),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['skills'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: skillKeys.all }),
   });
 }
 
 export function useMarketSkills(view: MarketView, query: string) {
   const settled = useDebouncedValue(query.trim(), 300);
   const result = useQuery({
-    queryKey: ['market-skills', view, settled],
+    queryKey: skillKeys.market(view, settled),
     queryFn: ({ signal }) =>
       api.marketSkills({ view, ...(settled === '' ? {} : { q: settled }) }, signal),
     enabled: settled.length === 0 || settled.length >= 2,
@@ -72,7 +80,7 @@ export function useInstallMarketSkill() {
       toastSuccess(`已安装「${skill.name}」`);
       for (const warning of warnings) toast.info(warning);
       client.setQueriesData<InfiniteData<CursorPage<SkillWithAgentCount>>>(
-        { queryKey: ['skills'] },
+        { queryKey: skillKeys.all },
         (old) => {
           if (old === undefined) return old;
           const [first, ...rest] = old.pages;
@@ -83,7 +91,7 @@ export function useInstallMarketSkill() {
           };
         },
       );
-      void client.invalidateQueries({ queryKey: ['skills'] });
+      void client.invalidateQueries({ queryKey: skillKeys.all });
     },
     onError: toastError,
   });
@@ -94,10 +102,10 @@ export function useUpdateSkill() {
   return useMutation({
     mutationFn: (vars: { id: string; input: Partial<SkillInput>; expectedUpdatedAt?: string }) =>
       api.updateSkill(vars.id, vars.input, vars.expectedUpdatedAt),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['skills'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: skillKeys.all }),
     onError: (error) => {
       if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
-        void client.invalidateQueries({ queryKey: ['skills'] });
+        void client.invalidateQueries({ queryKey: skillKeys.all });
       }
     },
   });
@@ -108,7 +116,7 @@ export function useSubmitSkill() {
   return useMutation({
     mutationFn: (id: string) => api.submitSkill(id),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['skills'] });
+      void client.invalidateQueries({ queryKey: skillKeys.all });
       void client.invalidateQueries({ queryKey: AGENT_OPTIONS_QUERY_KEY });
     },
   });
@@ -119,7 +127,7 @@ export function useApproveSkill() {
   return useMutation({
     mutationFn: (id: string) => api.approveSkill(id),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['skills'] });
+      void client.invalidateQueries({ queryKey: skillKeys.all });
       void client.invalidateQueries({ queryKey: AGENT_OPTIONS_QUERY_KEY });
     },
   });
@@ -130,7 +138,7 @@ export function useRejectSkill() {
   return useMutation({
     mutationFn: (vars: { id: string; note: string }) => api.rejectSkill(vars.id, vars.note),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['skills'] });
+      void client.invalidateQueries({ queryKey: skillKeys.all });
       void client.invalidateQueries({ queryKey: AGENT_OPTIONS_QUERY_KEY });
     },
   });
@@ -141,7 +149,7 @@ export function useDeleteSkill() {
   return useMutation({
     mutationFn: (id: string) => api.deleteSkill(id),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['skills'] });
+      void client.invalidateQueries({ queryKey: skillKeys.all });
       void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
     },
   });
