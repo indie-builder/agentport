@@ -31,7 +31,6 @@ export const modelProviderHealthSchema = z.object({
   latencyMs: z.number().int().nonnegative().nullable(),
   message: z.string().nullable(),
 });
-export type ModelProviderHealth = z.infer<typeof modelProviderHealthSchema>;
 
 export const modelProviderUsageSchema = z.object({
   providerId: z.string(),

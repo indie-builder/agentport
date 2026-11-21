@@ -35,7 +35,6 @@ export const dataDomainEnrichmentOutputSchema = z.object({
   updatedFiles: z.record(z.string().min(1).max(512), z.string()),
   removedPaths: z.array(z.string().min(1).max(512)).default([]),
 });
-export type DataDomainEnrichmentOutput = z.infer<typeof dataDomainEnrichmentOutputSchema>;
 
 export const dataDomainQueryApprovalModeSchema = z.enum(['off', 'all']);
 

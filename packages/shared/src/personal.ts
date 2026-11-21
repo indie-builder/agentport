@@ -154,8 +154,6 @@ export const personalOutputListQuerySchema = z
   })
   .strict();
 
-export type PersonalOutputListQuery = z.infer<typeof personalOutputListQuerySchema>;
-
 export const personalOutputItemSchema = z.object({
   conversationId: z.string(),
   conversationTitle: z.string(),

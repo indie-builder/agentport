@@ -31,9 +31,7 @@ import type { Sandbox, SandboxCreateOptions } from './sandbox/provider.js';
 import { version } from './version.js';
 
 export interface ProbeSandboxOptions extends SandboxCreateOptions {
-  /** 覆盖镜像 ENTRYPOINT。 */
   entrypoint: string;
-  /** ENTRYPOINT 之后的参数。 */
   command: string[];
 }
 

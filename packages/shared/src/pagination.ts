@@ -41,7 +41,6 @@ export function offsetPageSchema<T extends z.ZodType>(itemSchema: T) {
 }
 
 export type CursorPage<T> = z.infer<ReturnType<typeof cursorPageSchema<z.ZodType<T>>>>;
-export type OffsetPage<T> = z.infer<ReturnType<typeof offsetPageSchema<z.ZodType<T>>>>;
 
 type WebGlobals = {
   TextEncoder: new () => { encode: (input: string) => Uint8Array };

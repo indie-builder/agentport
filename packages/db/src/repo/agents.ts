@@ -17,7 +17,6 @@ import {
 import {
   and,
   asc,
-  count,
   desc,
   eq,
   getTableColumns,
