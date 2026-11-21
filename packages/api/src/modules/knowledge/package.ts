@@ -1,9 +1,13 @@
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
   fail,
   inspectKnowledgeAudio,
   isAppError,
+  knowledgeBlobPath,
+  knowledgeVersionDir,
+  knowledgeVersionImagePath,
+  knowledgeVersionImagesDir,
+  knowledgeVersionMarkdownPath,
   segmentForSearch,
   sha256Hex,
 } from '@agentport/core';
@@ -39,7 +43,7 @@ import {
   invalid,
   type ZipReadLimits,
 } from '../agents/package-zip.js';
-import { blobPathFor, storeBlob as storeDocumentBlob, supportsImageVectors } from './service.js';
+import { storeBlob as storeDocumentBlob, supportsImageVectors } from './service.js';
 
 /**
  * 知识库数据包（`pace/knowledge@1`）：ZIP 根 manifest.json 记录库元数据、文件夹、标签、
@@ -560,7 +564,9 @@ export async function exportKnowledgePackage(
       if (!blobSha256) {
         fail('CONFLICT', `文档「${document.title}」没有待处理的原件，无法导出`);
       }
-      const original = await readFile(blobPathFor(knowledgeDir, blobSha256)).catch(() => null);
+      const original = await readFile(knowledgeBlobPath(knowledgeDir, blobSha256)).catch(
+        () => null,
+      );
       if (!original) {
         fail('CONFLICT', `文档「${document.title}」的待处理原件缺失，无法导出`);
       }
@@ -613,7 +619,7 @@ export async function exportKnowledgePackage(
     }
     const versionPackages: DocumentPackage['versions'] = [];
     for (const version of versions) {
-      const original = await readFile(blobPathFor(knowledgeDir, version.blobSha256)).catch(
+      const original = await readFile(knowledgeBlobPath(knowledgeDir, version.blobSha256)).catch(
         () => null,
       );
       if (!original) {
@@ -632,7 +638,7 @@ export async function exportKnowledgePackage(
         );
       }
       const markdown = await readFile(
-        join(knowledgeDir, 'docs', document.id, version.id, 'markdown.md'),
+        knowledgeVersionMarkdownPath(knowledgeDir, document.id, version.id),
         'utf8',
       ).catch(() => null);
       const chunks = await collectPages((options) =>
@@ -658,7 +664,7 @@ export async function exportKnowledgePackage(
         }
         imageNames.add(image.name);
         const data = await readFile(
-          join(knowledgeDir, 'docs', document.id, version.id, 'images', image.name),
+          knowledgeVersionImagePath(knowledgeDir, document.id, version.id, image.name),
         ).catch(() => null);
         if (!data) {
           fail(
@@ -1021,17 +1027,27 @@ export async function importKnowledgePackage(
       for (const version of document.versions) {
         const original = contents.get(version.originalPath)!;
         await storeBlob(knowledgeDir, version.blobSha256, original, createdBlobs);
-        const dir = join(knowledgeDir, 'docs', newDocumentId, versionId.get(version.id)!);
+        const vId = versionId.get(version.id)!;
+        const dir = knowledgeVersionDir(knowledgeDir, newDocumentId, vId);
         if (version.markdownPath !== null) {
           createdDirs.add(dir);
           await mkdir(dir, { recursive: true });
-          await writeFile(join(dir, 'markdown.md'), contents.get(version.markdownPath)!, 'utf8');
+          await writeFile(
+            knowledgeVersionMarkdownPath(knowledgeDir, newDocumentId, vId),
+            contents.get(version.markdownPath)!,
+            'utf8',
+          );
         }
         if (version.images.length > 0) {
           createdDirs.add(dir);
-          await mkdir(join(dir, 'images'), { recursive: true });
+          await mkdir(knowledgeVersionImagesDir(knowledgeDir, newDocumentId, vId), {
+            recursive: true,
+          });
           for (const image of version.images) {
-            await writeFile(join(dir, 'images', image.name), contents.get(image.path)!);
+            await writeFile(
+              knowledgeVersionImagePath(knowledgeDir, newDocumentId, vId, image.name),
+              contents.get(image.path)!,
+            );
           }
         }
       }
@@ -1305,7 +1321,7 @@ async function storeBlob(
   created: string[],
 ): Promise<void> {
   if (sha256Hex(data) !== expectedSha) invalid('原件内容与 manifest 的 sha256 不符');
-  const target = blobPathFor(knowledgeDir, expectedSha);
+  const target = knowledgeBlobPath(knowledgeDir, expectedSha);
   if (await stat(target).catch(() => null)) return;
   await storeDocumentBlob(knowledgeDir, data);
   created.push(target);

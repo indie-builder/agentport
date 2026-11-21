@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { knowledgeVersionImagePath } from '@agentport/core';
 import { type Database, repo } from '@agentport/db';
 import {
   KNOWLEDGE_IMAGE_MAX_BYTES,
@@ -111,7 +111,7 @@ export async function readKnowledgeImage(
     );
   }
   const data = await readFile(
-    join(input.knowledgeDir, 'docs', document.id, version.id, 'images', image.name),
+    knowledgeVersionImagePath(input.knowledgeDir, document.id, version.id, image.name),
   ).catch(() => null);
   if (!data) throw new KnowledgeReadImageError('IMAGE_NOT_FOUND', '图片文件缺失，请重新解析该版本');
   if (data.length > KNOWLEDGE_IMAGE_MAX_BYTES) {

@@ -60,6 +60,16 @@ export {
   segmentForSearch,
   transcribeAudio,
 } from './knowledge-models.js';
+export {
+  knowledgeBlobPath,
+  knowledgeBlobsRoot,
+  knowledgeDocsRoot,
+  knowledgeDocumentDir,
+  knowledgeVersionDir,
+  knowledgeVersionImagePath,
+  knowledgeVersionImagesDir,
+  knowledgeVersionMarkdownPath,
+} from './knowledge-paths.js';
 export { visibleDocumentSummary } from './knowledge-summary.js';
 export { parseMcpJson } from './mcp-json.js';
 export { hashMcpToken, WORKSPACE_DIR_MODE, WORKSPACE_FILE_MODE } from './mcp-token.js';

@@ -1,9 +1,11 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
   AppError,
   diffLinesOrdered,
   inspectKnowledgeAudio,
+  knowledgeVersionDir,
+  knowledgeVersionImagesDir,
+  knowledgeVersionMarkdownPath,
   segmentForSearch,
   sha256Hex,
 } from '@agentport/core';
@@ -162,13 +164,17 @@ async function prepareVersionFiles(
   versionId: string,
   markdown: string,
 ): Promise<string> {
-  const dir = join(config.KNOWLEDGE_DIR, 'docs', documentId, versionId);
+  const dir = knowledgeVersionDir(config.KNOWLEDGE_DIR, documentId, versionId);
   try {
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'markdown.md'), markdown, 'utf8');
+    await writeFile(
+      knowledgeVersionMarkdownPath(config.KNOWLEDGE_DIR, documentId, versionId),
+      markdown,
+      'utf8',
+    );
     await copyVersionImages(
-      join(config.KNOWLEDGE_DIR, 'docs', documentId, current.id, 'images'),
-      join(dir, 'images'),
+      knowledgeVersionImagesDir(config.KNOWLEDGE_DIR, documentId, current.id),
+      knowledgeVersionImagesDir(config.KNOWLEDGE_DIR, documentId, versionId),
       current.images,
     );
     return dir;

@@ -1,6 +1,13 @@
 import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { chunkDocument, markdownBlocks, segmentForSearch, sha256Hex } from '@agentport/core';
+import { dirname } from 'node:path';
+import {
+  chunkDocument,
+  knowledgeBlobPath,
+  knowledgeVersionMarkdownPath,
+  markdownBlocks,
+  segmentForSearch,
+  sha256Hex,
+} from '@agentport/core';
 import { newId, repo, schema } from '@agentport/db';
 import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
@@ -300,10 +307,10 @@ export async function seedKnowledge(ctx: SeedContext): Promise<void> {
       embeddingProfileId: base.embeddingProfileId,
     });
 
-    const blob = join(knowledgeDir, 'blobs', version.blobSha256.slice(0, 2), version.blobSha256);
+    const blob = knowledgeBlobPath(knowledgeDir, version.blobSha256);
     await mkdir(dirname(blob), { recursive: true });
     await writeExclusive(blob, data);
-    const markdownPath = join(knowledgeDir, 'docs', document.id, version.id, 'markdown.md');
+    const markdownPath = knowledgeVersionMarkdownPath(knowledgeDir, document.id, version.id);
     await mkdir(dirname(markdownPath), { recursive: true });
     await writeExclusive(markdownPath, spec.markdown);
 

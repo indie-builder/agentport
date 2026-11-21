@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
-import { AppError, fail, isAppError } from '@agentport/core';
+import { basename, extname } from 'node:path';
+import { AppError, fail, isAppError, knowledgeVersionMarkdownPath } from '@agentport/core';
 import { assertSafeUrl } from '@agentport/core/net-guard';
 import { repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
@@ -121,7 +121,7 @@ async function readVersionContent(
   versionId: string,
 ): Promise<string | null> {
   return readFile(
-    join(deps.config.KNOWLEDGE_DIR, 'docs', documentId, versionId, 'markdown.md'),
+    knowledgeVersionMarkdownPath(deps.config.KNOWLEDGE_DIR, documentId, versionId),
     'utf8',
   ).catch(() => null);
 }

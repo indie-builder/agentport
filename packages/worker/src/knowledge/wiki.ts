@@ -1,6 +1,6 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { segmentForSearch } from '@agentport/core';
+import { knowledgeVersionMarkdownPath, segmentForSearch } from '@agentport/core';
 import { type Database, repo, schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import { errorText, knowledgeJobPayloadSchema } from '@agentport/shared';
@@ -159,7 +159,7 @@ async function readDocument(
   const document = await repo.knowledge.getReadableDocument(db, baseId, documentId);
   if (!document?.currentVersionId) return null;
   const markdown = await readFile(
-    join(knowledgeDir, 'docs', document.id, document.currentVersionId, 'markdown.md'),
+    knowledgeVersionMarkdownPath(knowledgeDir, document.id, document.currentVersionId),
     'utf8',
   ).catch(() => null);
   if (markdown === null) return null;

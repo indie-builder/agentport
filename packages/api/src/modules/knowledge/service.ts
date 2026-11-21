@@ -1,6 +1,6 @@
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { sha256Hex, visibleDocumentSummary } from '@agentport/core';
+import { dirname } from 'node:path';
+import { knowledgeBlobPath, sha256Hex, visibleDocumentSummary } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import { knowledgeEnqueueOptions } from '@agentport/shared';
@@ -108,13 +108,9 @@ export async function ensureKnowledgeServer(
   return row;
 }
 
-export function blobPathFor(knowledgeDir: string, sha: string): string {
-  return join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
-}
-
 export async function storeBlob(knowledgeDir: string, data: Buffer): Promise<string> {
   const sha = sha256Hex(data);
-  const target = blobPathFor(knowledgeDir, sha);
+  const target = knowledgeBlobPath(knowledgeDir, sha);
   await mkdir(dirname(target), { recursive: true });
   const temp = `${target}.tmp-${newId('knowledgeJob')}`;
   try {
