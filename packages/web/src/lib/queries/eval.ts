@@ -9,6 +9,7 @@ import {
   type EvalSampleCandidate,
   type EvalTarget,
 } from '../api.js';
+import { runKeys } from './runs.js';
 import { useCursorList } from './shared.js';
 
 const EVAL_CASES_PAGE_SIZE = 50;
@@ -50,7 +51,7 @@ export function useCreateEvalCaseFromRun() {
       );
       void client.invalidateQueries({ queryKey: candidatesKey });
       void client.invalidateQueries({ queryKey: ['eval-cases'] });
-      void client.invalidateQueries({ queryKey: ['run-feedback'] });
+      void client.invalidateQueries({ queryKey: runKeys.feedbackAll });
     },
   });
 }

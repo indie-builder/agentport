@@ -24,6 +24,7 @@ import {
   api,
 } from '../api.js';
 import { OVERVIEW_QUERY_KEY } from './overview.js';
+import { runKeys } from './runs.js';
 import { useCursorList, useInvalidate } from './shared.js';
 
 export const AGENTS_QUERY_KEY = ['agents'] as const;
@@ -361,7 +362,7 @@ export function useTrialAgent() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; prompt: string }) => api.trialAgent(vars.id, vars.prompt),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['runs'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: runKeys.all }),
   });
 }
 
