@@ -8,23 +8,28 @@
 
 | 症状或任务类别 | 相关条目（`##` 节名） |
 |---|---|
-| UI 卡片、间距与视觉 | UI：全站减重把已选定的卡片深度一并压平；实现：对齐/间距类改动没量实际坐标就宣布完成；UI 验证：类名和采样时序不能代替真实几何与性能；实现：按截图和记忆猜参考 UI 的交互与状态 |
-| worktree 与依赖安装 | 复制到 worktree 的 `.env` 可能比刚确认的配置旧；多个 worktree 同时跑全栈 compose 会互相踩；EnterWorktree 的 name 只接受 ASCII slug；实现：新 worktree 不一定基于最新 `origin/main`；迁移：删依赖后旧 `node_modules` 残留会掩盖未迁移的测试与 E2E |
-| 检索失败 / 命令被拒 | 未加引号的 glob 让检索命令整条失败；worktree 里两类命令会被拒绝 |
-| 数据库与迁移 | 数据库：迁移账本漂移或共享库已有列时不要手改账本；迁移台账与仓库 journal 不一致，所有登录 500；数据库：新增运行触发值要同步扩展 CHECK 约束；数据库：Drizzle `sql` 模板里的 JS 数组会展开成多个占位符 |
-| 沙盒与镜像 | 测试：陈旧沙盒镜像让 strict schema 拒绝新字段；镜像：官方 CLI 的 Bash 工具需要真正的 bash/zsh，busybox sh 不够；运行：运行环境的 base image 由 API 入队冻结，API 与 worker 必须同 `SANDBOX_IMAGE`；镜像：恢复旧镜像 ID 不等于它能被当前 worker 执行 |
-| 测试与 E2E | 测试：全量并行时偶发 401，根因是登录后会话没落库；测试：全量并行时不同文件每轮随机失败，根因是跨文件共享的测试身份与信道；测试：E2E session 只保存登录，不会替你打开页面；测试：精简文案后要同步真实端到端定位器 |
+| UI 卡片、间距与视觉 | UI：全站减重把已选定的卡片深度一并压平；实现：对齐/间距类改动没量实际坐标就宣布完成；UI 验证：类名和采样时序不能代替真实几何与性能；实现：按截图和记忆猜参考 UI 的交互与状态；UI：消息项延迟布局会干扰历史分页的阅读锚点；UI：子表单卸载不会自动结算外层 pending；UI：CodeMirror 的 id 不等于可访问名称；UI：`buttonVariants` 必须经过 `cn` 合并，不能直接拼接类名；UI：ui-sdk 折叠面板的 `hidden="until-found"` 不能被作者 `content-visibility` 覆盖；UI：ui-sdk beta.8+ 保留退场期间 owner 写的 `inert`，别在 render 里按 open 写 inert；UI：`@layer ui-sdk` 的声明顺序决定谁能覆盖谁；表单：RHF reset 后 undefined 受控字段被判为脏；recharts 的 `strokeWidth` 不是图标违例；验收：visual-shots 的 minimal 种子只有频道没有消息 |
+| worktree 与依赖安装 | 复制到 worktree 的 `.env` 可能比刚确认的配置旧；多个 worktree 同时跑全栈 compose 会互相踩；EnterWorktree 的 name 只接受 ASCII slug；实现：新 worktree 不一定基于最新 `origin/main`；迁移：删依赖后旧 `node_modules` 残留会掩盖未迁移的测试与 E2E；不要把任务跟踪资料写进 `.claude/worktrees/` |
+| 检索失败 / 命令被拒 | 未加引号的 glob 让检索命令整条失败；worktree 里两类命令会被拒绝，原因不同；流程：worktree 内的 shell 守卫会拒绝拼接运行时密钥与复杂复合命令 |
+| 数据库与迁移 | 数据库：迁移账本漂移或共享库已有列时不要手改账本；迁移台账与仓库 journal 不一致，所有登录 500；数据库：新增运行触发值要同步扩展 CHECK 约束；数据库：Drizzle `sql` 模板里的 JS 数组会展开成多个占位符；数据库：单表 SELECT 的 SQL 子查询可能丢失外层列限定名；数据库：Drizzle DESC NULLS LAST 索引未必匹配默认倒序；数据库：复合外键的引用目标必须是 UNIQUE 约束，不能是 uniqueIndex；数据库：partial index 的 eq 参数会被 drizzle-kit 序列化成 $1；数据库：`userId` 改 `businessId` 必须选 rename，且 Vite 会把真实迁移错误掩成 `charCodeAt`；数据库：partial unique index 只保证「至多一个」，不保证「恰好一个」；数据库（历史背景）：ON DELETE RESTRICT 报 23001，不是 23503 |
+| 沙盒与镜像 | 测试：陈旧沙盒镜像让 strict schema 拒绝新字段；镜像：官方 CLI 的 Bash 工具需要真正的 bash/zsh，busybox sh 不够；运行：运行环境的 base image 由 API 入队冻结，API 与 worker 必须同 `SANDBOX_IMAGE`；镜像：恢复旧镜像 ID 不等于它能被当前 worker 执行；附件：目录权限与相对路径会让沙盒读不到文件；实现：被工作区与产出共用的目录刷新不能无条件保留记忆挂载根 |
+| 测试与 E2E | 测试：全量并行时偶发 401，根因是登录后会话没落库；测试：全量并行时不同文件每轮随机失败，根因是跨文件共享的测试身份与信道；测试：E2E session 只保存登录，不会替你打开页面；测试：精简文案后要同步真实端到端定位器；测试：`RATE_LIMIT_DISABLED` 在构建 app 时读取；测试：跨 worktree 登录要从实际域名提交；测试：私有队列配全表对账会互相收敛别的测试记录；测试：测试库隔离必须尊重注入地址，不能隐式改写或回落固定库；测试：用行锁编排 claim/取消竞争时，等锁对象不一定是同一个；测试：依赖真实文件系统的 spawn 就绪要用明确信号，不能数 `setImmediate` 轮数；测试：读全表的接口测试要复用项目测试 config 并预置正常加密记录；测试：组件覆盖的「豁免清单」会冒充已覆盖；测试：个人记忆相关套件共用同一行，必须用会话级 advisory 锁；测试：生产 ESM/CJS 互操作不能用测试运行结果代替；测试：macOS 的 `os.tmpdir()` 是软链路径，测试工作区要先 realpath；测试：故障删除用例持共享绑定锁等满 ACK，会拖垮同轮并行套件；测试：跨进程共享的同步写文件不是原子操作；测试：消息持久化与账号重建套件共用 worker 身份会冲突；测试：依赖安装与测试运行并发会让新 worker 丢掉旧 peer 路径；测试：给共用页面新增查询后，其他测试文件的「未配置请求」断言会集体失败；测试：清理专家时先删父专家会违反 `agents_parent_id_agents_id_fk`；压测：回滚语义夹具仍会改变计时库的物理状态 |
 | Redis 与共享实例 | 验收：临时脚本切 Redis 库号后清库仍会影响共享实例；测试：队列消费者检查要看库号和队列名，不能只看实例；运行：worker 写入预算与 Redis 保留窗口不一致会让刷新丢掉流头；运行：Redis 主动 close 也会触发 onclose，排空与释放必须分开 |
 | 日志与观测 | 验证：从 SSE 日志用宽松正则拼文本会造出「重复内容」的假象；SSE：`subscribeRun` 回放完才 resolve，await 之后启动的定时器保护不了长回放；运行：`/health` 只证明连通，不证明 schema 与当前代码匹配 |
-| 并发与恢复 | 并行：恢复改动时覆盖了同时进行的未提交差异；数据库：事务内按预读行计算写入集合会漏掉并发新增行；恢复：终态要先确认再读本轮 canonical，不能沿用首次 history |
-| 流程与沟通 | 流程：个人项目合并不自动附加 CI 等待；沟通：用户要求启动服务时，不擅自扩成发布验证；流程：用 main 的提交顺序覆盖了用户更晚的决定；实现：更换集成方案前，核对原有授权和平台原则 |
+| 并发与恢复 | 并行：恢复改动时覆盖了同时进行的未提交差异；数据库：事务内按预读行计算写入集合会漏掉并发新增行；恢复：终态要先确认再读本轮 canonical，不能沿用首次 history；外部幂等重放：jobId=run.id 不等于已有可消费 job；入队：失败 503 后迟到的成功投递会把 run 永久卡死；运行：渲染回退 live 表会让已发布运行漂移；运行：追加指令的 `delivered_at` 只代表 stdin 写入成功，不代表 runner 已消费 |
+| 流程与沟通 | 流程：个人项目合并不自动附加 CI 等待；沟通：用户要求启动服务时，不擅自扩成发布验证；流程：用 main 的提交顺序覆盖了用户更晚的决定；实现：更换集成方案前，核对原有授权和平台原则；沟通：先分清产品功能与研发工作区工具；沟通：clear 后按指代猜测要撤销什么；技能：`skills update` 报告最新，不等于本地与上游一致；流程：`gh pr merge --delete-branch` 报 main 被 worktree 占用 |
 | LSP 与编辑器诊断 | LSP：陈旧诊断不能当作真实错误 |
-| 类型检查与共享产物 | 构建：并行跑多个包的 `tsc -b` 会因共享 tsbuildinfo 产生伪错误；数据库：workspace 包导出指向 dist，只改源码不重跑 `tsc -b` 时测试仍在用旧代码；测试：真实容器测试可能加载旧 dist，产物存在不等于来自当前源码 |
-| 服务启动与端口 | 运行：`bun update` 会更新依赖，不会启动项目；运行：API 可访问，不代表用户的 Portless 地址已启动；运行：临时 PostgreSQL 的 Unix socket 就绪不等于宿主 TCP 已就绪 |
-| 前端路由与状态 | 前端：`routeTree.gen.ts` 由 Vite 插件生成，不要手改；UI：URL 成为状态唯一来源后，导航 mock 必须反映 search 更新；前端：会话绑定 ID 回填会触发 SSE 关流 |
-| 安全与权限 | 安全：记忆策略只收窄 SDK 文件工具，不收窄挂载权限；来源鉴权：派生更新回滚不代表已经撤权；MCP connector token 不能携带 run 身份；SSRF：开发机 fake-IP DNS 被误判、ipaddr.js 旧版漏判 |
-| 模型调用与供应商 | 模型客户端：响应头已到后的读流失败不能归为 `bad_response`；模型供应商预算：预算耗尽的优先供应商会挡住可用备用 |
-| 知识库与归档 | 知识库：COW 事务提交后失败清理不能删除已发布文件；知识库：Wiki 最新版本不能用 `created_at`/`now()` 排序；归档：fflate `zipSync` 会把条目复制进普通对象，`__proto__` 文件名被吞 |
+| 类型检查与共享产物 | 构建：并行跑多个包的 `tsc -b` 会因共享 tsbuildinfo 产生伪错误；数据库：workspace 包导出指向 dist，只改源码不重跑 `tsc -b` 时测试仍在用旧代码；测试：真实容器测试可能加载旧 dist，产物存在不等于来自当前源码；前端：`exactOptionalPropertyTypes` 的可选属性在调用方条件展开，不放宽类型 |
+| 服务启动与端口 | 运行：`bun update` 会更新依赖，不会启动项目；运行：API 可访问，不代表用户的 Portless 地址已启动；运行：临时 PostgreSQL 的 Unix socket 就绪不等于宿主 TCP 已就绪；运行：本地 CA 签发的 HTTPS 在 Node 中默认不受信任；运行：Bun 默认空闲超时也会断开仍在处理的请求 |
+| 前端路由与状态 | 前端：`routeTree.gen.ts` 由 Vite 插件生成，不要手改；UI：URL 成为状态唯一来源后，导航 mock 必须反映 search 更新；前端：会话绑定 ID 回填会触发 SSE 关流；UI：详情路由的 document.title 不能只按路由模板命名；前端：ui-sdk `resizable` 量不到布局时不生效，状态不能由 layout 反推；前端：ui-sdk 的禁用态是 `aria-disabled`，按钮仍可聚焦；前端：ui-sdk `createReorder` 的 Escape 会与弹层关闭抢同一个键；前端：提及列表用 `createListbox` 的虚拟焦点，焦点必须留在共享 textarea；前端：streamdown 2.8 的 sanitize 会给 id 与 fragment 加 `user-content-` 前缀 |
+| 安全与权限 | 安全：记忆策略只收窄 SDK 文件工具，不收窄挂载权限；来源鉴权：派生更新回滚不代表已经撤权；MCP connector token 不能携带 run 身份；SSRF：开发机 fake-IP DNS 被误判、ipaddr.js 旧版漏判；分享：token 放在 URL 片段，页内锚点会把它替换掉；Wren：默认 `read_only=False` 时物理表全限定名可绕过行级访问控制；内容策略：不要对 JSON.stringify 后的文本做原始正则判断 |
+| 模型调用与供应商 | 模型客户端：响应头已到后的读流失败不能归为 `bad_response`；模型供应商预算：预算耗尽的优先供应商会挡住可用备用；运行保留：按天清理 `agent_runs` 会重置当月供应商成本 |
+| 知识库与归档 | 知识库：COW 事务提交后失败清理不能删除已发布文件；知识库：Wiki 最新版本不能用 `created_at`/`now()` 排序；归档：fflate `zipSync` 会把条目复制进普通对象，`__proto__` 文件名被吞；解析：Docling pageMap 不能用整文 indexOf 反查来源；归档：ZIP 预检的 central/local 与目录身份必须同解释；知识库：`file-type` 的 AIFF 识别只认 `FORM` 头，普通文本会被误判；知识重试：只放在 worker 摄取层，不要放进共享 HTTP 客户端；导入：ZIP 库的定长输出长度不等于真实解压大小 |
+| SSE 与频道 | 频道：SSE 初始游标不能取乐观消息的 seq；频道：markRead 去掉频道行锁后必须用 greatest 防回退；频道：频道作用域复用私有组件时，内部 mutation 会绕过频道授权；频道：持久 system 行只写库不发布会与本地流锚点重复 |
+| 运行与工具 | 运行：宿主直跑 worker 时模型网关地址不能被改写成 host.docker.internal；浏览器：ego-browser 的四个高频误用；运行：超长连续文本会使正则最小量词耗尽V8栈；运行：Node 子进程的 exit 与 close 不能混用，等 close 会与后代互等 |
+| OpenUI | 实现：OpenUI 补丁合并会移除 root 不可达的语句；OpenUI：JSON Schema 不能反推等价的真实组件库 |
+| 接口与默认助手 | 接口：前后端各兜一次同一个默认值，服务端的兜底分支会变成死代码；接口：非幂等操作提交后不要返回可重试 5xx；默认助手：默认解析点必须唯一 |
+| 记忆与上下文 | 记忆：`UserPromptSubmit` 的 `additionalContext` 上限是 10,000 字符；记忆：`MEMORY.md` 只加载前 200 行或 25KB |
 
 完整条目用 `grep -n '^## ' docs/PITFALLS.md` 查看。
 
@@ -838,3 +843,9 @@
 - **现象**：知识库批量下载/打包时，某个文档原件文件名恰好是 `__proto__`，生成的 ZIP 里没有这个文件，但 `zipSync` 正常返回、不报错。
 - **原因**：即使入口用 `Object.create(null)` 建条目表，`fflate` 的 `zipSync` 内部 `fltn` 仍把条目复制进一个普通对象 `r`；`r['__proto__'] = bytes` 触发原型 setter，只改原型、不落为自有属性，条目因此消失。
 - **规避**：组装冲突名前把文件名规整为安全名（`.`/`..`→`document`，Windows 保留名加前缀，`__proto__` 改名），并按小写去重；不要只依赖空原型对象，`fflate` 内部的普通对象复制仍会丢 `__proto__`。
+
+## 流程：`gh pr merge --delete-branch` 报 main 被 worktree 占用
+
+- **现象**：30 个会话日志里 10 次 `gh pr merge <n> --squash --delete-branch` 报 `failed to run git: fatal: 'main' is already used by worktree at '/Users/xbjt/Documents/myself/agentport'`；去掉 `--delete-branch` 的同一条命令每次都成功。
+- **原因**：main 固定在主 checkout 上，gh 合并后尝试切回 main 删除本地分支，git 拒绝在已被 worktree 占用的分支上操作；此时远端通常已经合并。
+- **规避**：症状只用于识别；合并命令与核对步骤以 `docs/DEV-WORKFLOW.md` §2-6 为准。

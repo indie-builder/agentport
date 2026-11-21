@@ -8,7 +8,7 @@ compatibility: Needs the repository's test runner and a coverage tool it already
 
 本项目（Agentport / PACE）执行本技能时：
 
-- 测试执行器分两套：后端是 Bun 内置 `bun:test`（`bun run test` → `scripts/test-backend.ts`，`--isolate --parallel=2`，默认排除 web），前端是 Vitest 5.0.5（`bun run test:web`，`packages/web/vitest.config.ts`，jsdom，收集 `packages/web/test/**/*.test.ts`，不加载 `.env`）。根 `vitest.config.ts` 只注册 web project。按路径过滤用 `bun run test -- <paths>` / `bun run test:web -- <paths>`；不要使用 `pnpm test`、`pnpm vitest` 或 `--project backend`。
+- 测试执行器分两套：后端是 Bun 内置 `bun:test`（`bun run test` → `scripts/test-backend.ts`，`--isolate --parallel=2`，默认排除 web），前端是 Vitest（版本以根 `package.json` 与已安装版本为准，`bun run test:web`，`packages/web/vitest.config.ts`，jsdom，收集 `packages/web/test/**/*.test.ts`，不加载 `.env`）。根 `vitest.config.ts` 只注册 web project。按路径过滤用 `bun run test -- <paths>` / `bun run test:web -- <paths>`；不要使用 `pnpm test`、`pnpm vitest` 或 `--project backend`。
 - 后端测试由 `packages/worker/test/global-setup.ts` 每轮创建独立随机 PostgreSQL 库与临时 Redis 容器。Docker/PostgreSQL 不可用时，依赖这些设施的套件按设计跳过；**不要盲目 unskip 被跳过的用例**，先启动基础设施再跑。绝不回落到共享库或共享 Redis。相关约束见 `docs/PITFALLS.md`。
 - 覆盖率：仓库当前未安装 `@vitest/coverage-v8`；需要覆盖率证据时先核对可用工具，不为审计新增依赖。基线命令与评审命令必须完全一致，并按文件比较，不只看总量。
 - E2E 统一使用 `e2e` / `@e2e-dev/web`，不在 `bun run test` 内；本技能不审计 E2E 用例。
