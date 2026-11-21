@@ -77,10 +77,31 @@ describe.skipIf(!(ready && isolated))('eval sample candidates access', () => {
     expect(ownIds).toContain(ownRun);
     expect(ownIds).not.toContain(otherRun);
 
+    const me = await request(app, {
+      method: 'GET',
+      url: '/api/auth/me',
+      headers: { cookie: adminCookie },
+    });
+    const adminBusinessId = me.json<{ user: { businessId: string } }>().user.businessId;
+    const adminRun = await seedRun(agentId, adminBusinessId, '管理员输入');
+
     const adminRes = await sample(agentId, adminCookie);
     expect(adminRes.statusCode, adminRes.body).toBe(200);
     const adminIds = adminRes.json<Candidate[]>().map((row) => row.runId);
     expect(adminIds).toContain(ownRun);
     expect(adminIds).toContain(otherRun);
+
+    const audits = await app.client.unsafe<
+      { actor: string; subject_business_id: string | null; target: string | null }[]
+    >(
+      `select actor, subject_business_id, target from audit_log
+        where action = 'access.cross_user.runs.read' and target = any($1::text[])`,
+      [[ownRun, otherRun, adminRun]],
+    );
+    expect(audits.find((row) => row.target === otherRun)).toMatchObject({
+      actor: adminBusinessId,
+      subject_business_id: other.businessId,
+    });
+    expect(audits.some((row) => row.target === adminRun)).toBe(false);
   });
 });

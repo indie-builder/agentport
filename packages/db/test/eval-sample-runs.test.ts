@@ -15,7 +15,8 @@ const businessId = 'eval-sample-owner';
 const otherBusinessId = 'eval-sample-user-b';
 const agentId = 'eval-sample-agent';
 const otherAgentId = 'eval-sample-other';
-const eligible = ['sample-run-a', 'sample-run-b', 'sample-run-c'];
+const eligible = ['sample-run-a', 'sample-run-b', 'sample-run-c', 'sample-run-long'];
+const longPrompt = `   ${'x'.repeat(20_050)}`;
 const ownData: AccessFilter = { businessId, scopes: ['own_data'] };
 const platform: AccessFilter = { businessId, scopes: ['platform'] };
 
@@ -36,6 +37,7 @@ describe.skipIf(!ready)('sampleProductionRuns', () => {
               ('sample-conv-b', $1, '', $2),
               ('sample-conv-c', $1, '其他会话', $2),
               ('sample-conv-user-b', $1, '他人会话', $2),
+              ('sample-conv-long', $1, '长输入会话', $2),
               ('sample-conv-other', $3, '', $2)`,
       [agentId, businessId, otherAgentId],
     );
@@ -50,6 +52,7 @@ describe.skipIf(!ready)('sampleProductionRuns', () => {
       ['sample-run-a', 'sample-conv-a'],
       ['sample-run-b', 'sample-conv-b'],
       ['sample-run-c', 'sample-conv-c'],
+      ['sample-run-long', 'sample-conv-long'],
     ] as const) {
       await run(id, conversationId, `'succeeded', 'chat', 'user', now(), null, null`);
     }
@@ -120,6 +123,11 @@ describe.skipIf(!ready)('sampleProductionRuns', () => {
               ('sample-msg-other', 'sample-conv-other', 'user', '{"text":"其他专家输入"}'::jsonb, 'sample-run-other', now()),
               ('sample-msg-user-b', 'sample-conv-user-b', 'user', '{"text":"他人输入"}'::jsonb, 'sample-run-user-b', now()),
               ('sample-msg-draft', 'sample-conv-a', 'user', '{"text":"试跑输入"}'::jsonb, 'sample-run-draft', now())`,
+    );
+    await client.unsafe(
+      `insert into messages (id, conversation_id, role, content, run_id)
+       values ('sample-msg-long', 'sample-conv-long', 'user', $1::jsonb, 'sample-run-long')`,
+      [JSON.stringify({ text: longPrompt })],
     );
     await client.unsafe(
       `insert into eval_cases (id, agent_id, name, prompt, expectation, created_by, source_run_id)
@@ -200,5 +208,11 @@ describe.skipIf(!ready)('sampleProductionRuns', () => {
     const rows = await evalRepo.sampleProductionRuns(db, { agentId, limit: 2, access: ownData });
     expect(rows).toHaveLength(2);
     for (const row of rows) expect(eligible).toContain(row.runId);
+  });
+
+  it('keeps the raw prefix of a long prompt with leading whitespace', async () => {
+    const rows = await evalRepo.sampleProductionRuns(db, { agentId, limit: 50, access: ownData });
+    const long = rows.find((row) => row.runId === 'sample-run-long');
+    expect(long?.prompt).toBe(longPrompt.slice(0, 20_000));
   });
 });

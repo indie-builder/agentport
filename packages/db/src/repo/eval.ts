@@ -98,6 +98,7 @@ export interface EvalSampleCandidate {
   title: string;
   prompt: string;
   endedAt: Date;
+  initiatedBy: string | null;
 }
 
 const SAMPLE_WINDOW = 200;
@@ -131,6 +132,7 @@ export async function sampleProductionRuns(
       conversationId: agentRuns.conversationId,
       title: conversations.title,
       endedAt: agentRuns.endedAt,
+      initiatedBy: agentRuns.initiatedBy,
     })
     .from(agentRuns)
     .innerJoin(conversations, eq(conversations.id, agentRuns.conversationId))
@@ -140,7 +142,7 @@ export async function sampleProductionRuns(
   const prompts = new Map<string, string>();
   if (rows.length > 0) {
     const userMessages = await db
-      .select({ runId: messages.runId, content: messages.content })
+      .selectDistinctOn([messages.runId], { runId: messages.runId, content: messages.content })
       .from(messages)
       .where(
         and(
@@ -153,9 +155,10 @@ export async function sampleProductionRuns(
       )
       .orderBy(asc(messages.runId), asc(messages.createdAt), asc(messages.id));
     for (const message of userMessages) {
-      if (message.runId === null || prompts.has(message.runId)) continue;
-      const text = messageText(message.content)?.trim();
-      if (text !== undefined && text !== '') prompts.set(message.runId, text.slice(0, 20_000));
+      if (message.runId === null) continue;
+      const text = messageText(message.content);
+      if (text === null || text.trim() === '') continue;
+      prompts.set(message.runId, text.slice(0, 20_000));
     }
   }
   const eligible = rows.filter((row) => prompts.has(row.runId));
@@ -180,6 +183,7 @@ export async function sampleProductionRuns(
             title: row.title.trim() || `运行 ${row.runId.slice(-8)}`,
             prompt,
             endedAt,
+            initiatedBy: row.initiatedBy,
           },
         ];
   });

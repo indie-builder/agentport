@@ -5,6 +5,7 @@ import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { writeCrossUserAudit } from '../../plugins/audit.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from '../runs/access.js';
 import { agentNotFound, importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
 
@@ -124,11 +125,26 @@ export const evalRouter = os.router({
     }),
     sampleCandidates: os.cases.sampleCandidates.handler(async ({ input, context }) => {
       await authorizeEvalAgent(context, input.query.agentId, ['eval.read']);
+      const businessId = requireUser(context).businessId;
+      const access = accessFilter(context, 'runs.read');
       const rows = await evalRepo.sampleProductionRuns(context.db, {
         agentId: input.query.agentId,
         limit: input.query.limit,
-        access: accessFilter(context, 'runs.read'),
+        access,
       });
+      if (access.scopes.includes('platform')) {
+        for (const row of rows) {
+          if (row.initiatedBy !== null && row.initiatedBy !== businessId) {
+            await writeCrossUserAudit(context.db, context.log, {
+              actor: businessId,
+              permissionId: 'runs.read',
+              subjectBusinessId: row.initiatedBy,
+              target: row.runId,
+              requestId: context.requestId,
+            });
+          }
+        }
+      }
       return rows.map((row) => ({
         runId: row.runId,
         conversationId: row.conversationId,
