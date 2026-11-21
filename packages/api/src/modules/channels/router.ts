@@ -27,6 +27,7 @@ import { getQueue, type RunSubscription, subscribeChannel } from '../../queue/pr
 import { runQueueHasCapacity } from '../runs/capacity.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
+import { conflict, forbidden, notFound } from './errors.js';
 import { channelsHandoffRouter } from './handoff.js';
 import { publishChannelMessageSafely } from './publish.js';
 import { channelsRunsRouter } from './runs.js';
@@ -103,9 +104,6 @@ function toDetail(detail: repo.channels.ChannelDetail): ChannelDetail {
     agentBindings: detail.agentBindings.map(toBinding),
   };
 }
-function notFound(message = '频道不存在'): never {
-  return fail('NOT_FOUND', message);
-}
 async function auditWrite(
   context: RequestContext,
   event: {
@@ -128,12 +126,6 @@ async function auditWrite(
     status: 'ok',
     requestId: context.requestId,
   });
-}
-function forbidden(message: string): never {
-  return fail('FORBIDDEN', message);
-}
-function conflict(message: string): never {
-  return fail('CONFLICT', message);
 }
 const auditRead = async (
   context: RequestContext,

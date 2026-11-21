@@ -15,6 +15,7 @@ import type { RequestContext } from '../../http/context.js';
 import { listWorkspaceOutputs, readWorkspaceOutput } from '../../lib/outputs.js';
 import { getQueue } from '../../queue/producer.js';
 import { loadReadableConversation } from '../chat/access.js';
+import { notFound } from './errors.js';
 import { publishChannelMessageSafely } from './publish.js';
 import { dispatchChannelWakes } from './wakes.js';
 
@@ -22,10 +23,6 @@ const channelRepo = repo.channels;
 const HANDOFF_BODY_LIMIT = 32000;
 const HANDOFF_FIRST_USER_CHARS = 500;
 const HANDOFF_LAST_ASSISTANT_CHARS = 2000;
-
-function notFound(message = '频道不存在'): never {
-  return fail('NOT_FOUND', message);
-}
 
 function clip(value: string, max: number): string {
   const chars = Array.from(value);
