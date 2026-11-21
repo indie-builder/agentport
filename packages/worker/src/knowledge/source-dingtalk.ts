@@ -661,8 +661,7 @@ async function emitNode(
   }
 
   const name = sanitizeSegment(node.name?.trim() ?? '', node.nodeId);
-  if (isFolder(node)) {
-    if (folders.has(node.nodeId)) return;
+  const visitChildren = async () => {
     folders.add(node.nodeId);
     for (const child of await listChildren(auth, node.nodeId, signal)) {
       await emitNode(
@@ -678,6 +677,10 @@ async function emitNode(
         signal,
       );
     }
+  };
+  if (isFolder(node)) {
+    if (folders.has(node.nodeId)) return;
+    await visitChildren();
     return;
   }
 
@@ -723,21 +726,7 @@ async function emitNode(
   }
 
   if (node.hasChildren === true && !folders.has(node.nodeId)) {
-    folders.add(node.nodeId);
-    for (const child of await listChildren(auth, node.nodeId, signal)) {
-      await emitNode(
-        config,
-        auth,
-        child,
-        workspaceId,
-        [...prefix, name],
-        usedPaths,
-        folders,
-        items,
-        failures,
-        signal,
-      );
-    }
+    await visitChildren();
   }
 }
 
