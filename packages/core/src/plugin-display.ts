@@ -1,17 +1,12 @@
 import { errorText } from '@agentport/shared';
 import { isMap, parseDocument } from 'yaml';
+import { splitFrontmatter, stripBom } from './frontmatter-scan.js';
 
 interface PluginMarkdown {
   name: string;
   description: string;
   body: string;
   issue?: string;
-}
-
-const DELIMITER = /^---[ \t]*$/;
-
-function withoutBom(content: string): string {
-  return content.replace(/^﻿/, '');
 }
 
 function raw(content: string, fallbackName: string, issue?: string): PluginMarkdown {
@@ -33,31 +28,13 @@ function textField(value: unknown): string {
  * 畸形 frontmatter 不吞内容：正文回退为完整原文并给出 issue。
  */
 export function readPluginMarkdown(content: string, fallbackName: string): PluginMarkdown {
-  const text = withoutBom(content);
-  const openingEnd = text.indexOf('\n');
-  const opening = (openingEnd === -1 ? text : text.slice(0, openingEnd)).replace(/\r$/, '');
-  if (!DELIMITER.test(opening)) {
-    return { name: fallbackName, description: '', body: text };
-  }
-
-  let lineStart = openingEnd + 1;
-  let frontmatter: string | undefined;
-  let body = '';
-  while (lineStart <= text.length) {
-    const lineEnd = text.indexOf('\n', lineStart);
-    const end = lineEnd === -1 ? text.length : lineEnd;
-    const line = text.slice(lineStart, end).replace(/\r$/, '');
-    if (DELIMITER.test(line)) {
-      frontmatter = text.slice(openingEnd + 1, lineStart);
-      body = lineEnd === -1 ? '' : text.slice(lineEnd + 1);
-      break;
-    }
-    if (lineEnd === -1) break;
-    lineStart = lineEnd + 1;
-  }
-  if (frontmatter === undefined) {
+  const text = stripBom(content);
+  const scanned = splitFrontmatter(text);
+  if (scanned.kind === 'missingOpen') return raw(text, fallbackName);
+  if (scanned.kind === 'missingClose') {
     return raw(text, fallbackName, 'frontmatter 缺少闭合的 ---');
   }
+  const { frontmatter, body } = scanned;
 
   const doc = parseDocument(frontmatter, { schema: 'core', uniqueKeys: true });
   const yamlError = doc.errors[0];

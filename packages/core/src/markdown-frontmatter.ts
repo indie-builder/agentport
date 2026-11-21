@@ -1,6 +1,7 @@
 import { MARKDOWN_FILE_MAX_BYTES } from '@agentport/shared';
 import { isAlias, isMap, parseDocument, visit } from 'yaml';
 import { fail } from './errors.js';
+import { splitFrontmatter, stripBom } from './frontmatter-scan.js';
 
 export function splitHeading(body: string): { body: string; displayName?: string } {
   const lines = body.split('\n');
@@ -22,33 +23,15 @@ export function parseMarkdownFrontmatter(
   }
 
   const maxBytes = options?.maxBytes ?? MARKDOWN_FILE_MAX_BYTES;
-  const text = content.replace(/^﻿/, '');
+  const text = stripBom(content);
   if (Buffer.byteLength(text, 'utf8') > maxBytes) {
     invalid(`${label} 超过 ${maxBytes} 字节上限`);
   }
 
-  const openingEnd = text.indexOf('\n');
-  const opening = (openingEnd === -1 ? text : text.slice(0, openingEnd)).replace(/\r$/, '');
-  if (!/^---[ \t]*$/.test(opening)) {
-    invalid(`${label} 必须以 --- 开头`);
-  }
-
-  let lineStart = openingEnd + 1;
-  let frontmatter: string | undefined;
-  let body = '';
-  while (lineStart <= text.length) {
-    const lineEnd = text.indexOf('\n', lineStart);
-    const end = lineEnd === -1 ? text.length : lineEnd;
-    const line = text.slice(lineStart, end).replace(/\r$/, '');
-    if (/^---[ \t]*$/.test(line)) {
-      frontmatter = text.slice(openingEnd + 1, lineStart);
-      body = lineEnd === -1 ? '' : text.slice(lineEnd + 1);
-      break;
-    }
-    if (lineEnd === -1) break;
-    lineStart = lineEnd + 1;
-  }
-  if (frontmatter === undefined) invalid(`${label} 的 frontmatter 缺少闭合的 ---`);
+  const scanned = splitFrontmatter(text);
+  if (scanned.kind === 'missingOpen') invalid(`${label} 必须以 --- 开头`);
+  if (scanned.kind === 'missingClose') invalid(`${label} 的 frontmatter 缺少闭合的 ---`);
+  const { frontmatter, body } = scanned;
 
   const doc = parseDocument(frontmatter, { schema: 'core', uniqueKeys: true });
   const yamlError = doc.errors[0];
