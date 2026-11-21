@@ -2,6 +2,7 @@ import { type createDb, newId, repo, schema } from '@agentport/db';
 import {
   AGENT_RUNS_BACKLOG_LIMIT,
   type AgentRunJob,
+  buildRunWebhookEvent,
   RUNS_QUEUE,
   type RunErrorKind,
   runEnqueueOptions,
@@ -97,16 +98,8 @@ async function failScheduleRun(
     if (failed === undefined) return false;
     if (failed.initiatedBy !== null) {
       await repo.integrations.enqueueWebhookEvent(tx, {
-        eventType: 'run.failed',
-        sourceId: `run:${failed.id}:failed`,
+        ...buildRunWebhookEvent({ status: 'failed', error }, failed),
         ownerBusinessId: failed.initiatedBy,
-        payload: JSON.stringify({
-          runId: failed.id,
-          agentId: failed.agentId,
-          conversationId: failed.conversationId,
-          status: 'failed',
-          error,
-        }),
       });
     }
     return true;
@@ -144,13 +137,12 @@ async function enqueueRun(
   }
   if (await failScheduleRun(db, job.runId, '定时任务入队失败', 'infra')) {
     await repo.notifications
-      .createNotification(db, {
+      .createScheduleFailedNotification(db, {
         businessId: schedule.createdBy,
-        kind: 'schedule_failed',
+        scheduleId: schedule.id,
+        runId: job.runId,
         title: '定时任务触发失败',
         body: `定时任务「${schedule.name}」未能启动运行，请打开定时任务查看`,
-        link: '/schedules',
-        sourceId: `schedule-failed:${schedule.id}:${job.runId}`,
       })
       .catch((err: unknown) => {
         logger.warn(

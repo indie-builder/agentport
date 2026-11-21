@@ -26,6 +26,20 @@ export async function createNotification(
     .onConflictDoNothing();
 }
 
+export async function createScheduleFailedNotification(
+  db: DbHandle,
+  input: { businessId: string; scheduleId: string; runId: string; title: string; body: string },
+): Promise<void> {
+  await createNotification(db, {
+    businessId: input.businessId,
+    kind: 'schedule_failed',
+    title: input.title,
+    body: input.body,
+    link: '/schedules',
+    sourceId: `schedule-failed:${input.scheduleId}:${input.runId}`,
+  });
+}
+
 export async function listNotifications(
   db: Database,
   input: { businessId: string; unreadOnly: boolean; cursor?: string; limit: number },

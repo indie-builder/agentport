@@ -1,5 +1,9 @@
 import { fail } from '@agentport/core';
-import type { IntegrationScope, WebhookEventType } from '@agentport/shared';
+import {
+  type IntegrationScope,
+  runWebhookSourceId,
+  type WebhookEventType,
+} from '@agentport/shared';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
@@ -269,7 +273,7 @@ export async function cancelPendingRunFailedWebhooks(db: DbHandle, runId: string
       and(
         inArray(webhookDeliveries.status, ['pending']),
         eq(webhookDeliveries.eventType, 'run.failed'),
-        eq(webhookDeliveries.sourceId, `run:${runId}:failed`),
+        eq(webhookDeliveries.sourceId, runWebhookSourceId(runId, 'failed')),
       ),
     );
 }

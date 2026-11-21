@@ -1,4 +1,5 @@
 import { type Database, repo, schema } from '@agentport/db';
+import { buildRunWebhookEvent } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import { getQueue, publishRun, requestRunCancel } from '../../queue/producer.js';
 export type CancelAgentRunResult = 'queued' | 'running' | null;
@@ -27,16 +28,8 @@ export async function cancelAgentRun(
     }
     if (queued.initiatedBy !== null) {
       await repo.integrations.enqueueWebhookEvent(tx, {
-        eventType: 'run.failed',
-        sourceId: `run:${runId}:cancelled`,
+        ...buildRunWebhookEvent({ status: 'cancelled', error: null }, queued),
         ownerBusinessId: queued.initiatedBy,
-        payload: JSON.stringify({
-          runId: queued.id,
-          agentId: queued.agentId,
-          conversationId: queued.conversationId,
-          status: 'cancelled',
-          error: null,
-        }),
       });
     }
     return queued;
