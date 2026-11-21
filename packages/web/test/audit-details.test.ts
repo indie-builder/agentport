@@ -202,7 +202,7 @@ describe('audit CSV export', () => {
       durationMs: 42,
       requestId: 'req-123',
       detail: { from: 'allow', to: 'ask' },
-      detailType: 'server.tool.approval_mode.changed',
+      detailType: 'object',
     });
     const data = {
       format: 'agentport/audit@1' as const,
@@ -409,8 +409,8 @@ describe('audit row details', () => {
       page([
         entry('audit_change', {
           action: 'server.tool.approval_mode.changed',
-          detail: { toolName: 'github', toolId: 'tool_x', from: 'allow', to: 'ask' },
-          detailType: 'server.tool.approval_mode.changed',
+          detail: { to: 'ask', from: 'allow', toolName: 'github', toolId: 'tool_x', constructor: 'x' },
+          detailType: 'object',
         }),
       ]),
     );
@@ -423,6 +423,10 @@ describe('audit row details', () => {
     expect(detailValue(panel, '工具 ID')).toBe('tool_x');
     expect(detailValue(panel, '变更前')).toBe('allow');
     expect(detailValue(panel, '变更后')).toBe('ask');
+    expect(detailValue(panel, 'constructor')).toBe('x');
+    const labels = [...panel.querySelectorAll('dt')].map((node) => node.textContent);
+    expect(labels.indexOf('变更前')).toBeGreaterThanOrEqual(0);
+    expect(labels.indexOf('变更前')).toBeLessThan(labels.indexOf('变更后'));
   });
 
   it('adds no detail rows when the event has none', async () => {
@@ -433,8 +437,7 @@ describe('audit row details', () => {
     await toggleRow('audit_plain');
     const panel = panelOf('audit_plain');
     const labels = [...panel.querySelectorAll('dt')].map((node) => node.textContent);
-    expect(labels.some((label) => label === '变更前')).toBe(false);
-    expect(labels.some((label) => label === '变更明细')).toBe(false);
+    expect(labels).toEqual(['操作者', '主体类型', '事件 ID', '输入摘要']);
   });
 
   it('keeps the open row bound to its id when filtering returns different data', async () => {

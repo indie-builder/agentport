@@ -144,12 +144,19 @@ function buildAuditQuery(values: {
   };
 }
 
-const detailLabels: Record<string, string> = {
-  from: '变更前',
-  to: '变更后',
-  toolName: '工具',
-  toolId: '工具 ID',
-};
+const detailLabels = new Map<string, string>([
+  ['toolName', '工具'],
+  ['toolId', '工具 ID'],
+  ['from', '变更前'],
+  ['to', '变更后'],
+]);
+
+const detailOrder = [...detailLabels.keys()];
+
+function detailRank(key: string) {
+  const index = detailOrder.indexOf(key);
+  return index === -1 ? detailOrder.length : index;
+}
 
 function auditDetails(row: AuditEntry) {
   return (
@@ -164,12 +171,14 @@ function auditDetails(row: AuditEntry) {
       <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">
         {row.inputDigest ?? <span className="text-muted-foreground">—</span>}
       </dd>
-      {Object.entries(row.detail ?? {}).map(([key, value]) => (
-        <Fragment key={key}>
-          <dt className="text-muted-foreground">{detailLabels[key] ?? key}</dt>
-          <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">{value}</dd>
-        </Fragment>
-      ))}
+      {Object.entries(row.detail ?? {})
+        .sort(([a], [b]) => detailRank(a) - detailRank(b))
+        .map(([key, value]) => (
+          <Fragment key={key}>
+            <dt className="text-muted-foreground">{detailLabels.get(key) ?? key}</dt>
+            <dd className="min-w-0 [overflow-wrap:anywhere] font-mono text-fg">{value}</dd>
+          </Fragment>
+        ))}
     </dl>
   );
 }
