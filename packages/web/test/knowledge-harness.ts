@@ -60,6 +60,7 @@ export const doc = {
   mimeType: 'application/pdf',
   sizeBytes: 1024,
   status: 'ready',
+  disabledReason: null,
   currentVersionId: 'kdv_1',
   tags: ['流程'],
   lastSyncedAt: null,

@@ -86,7 +86,9 @@
 - `packages/api/src/modules/knowledge/use-cases/search.ts`（批量重解析入口，与单入口保持一致）
 - `packages/worker/src/knowledge/ingestion.ts`（`runReindex` 跳过错失首次入库的手写文档）
 - `packages/web/src/pages/knowledge/detail/documents-tab.tsx`（重解析入口的状态门槛提示）
+- `packages/api/src/modules/knowledge/use-cases/jobs.ts`（任务重试复用文档锁与活跃任务检查）
 - `packages/api/test/knowledge-management-routes.test.ts`（活跃任务门槛下的既有用例调整）
+- `packages/web/test/knowledge-jobs.test.ts` / `packages/web/test/knowledge-harness.ts`（既有用例适配：文档夹具补齐 `disabledReason`）
 
 **Out of scope**
 - `versions.ts:313` 的 `forbidUnpublishedDraft` 写版本守卫语义（保持“真实草稿才拒绝”）。
@@ -133,7 +135,7 @@ if ((await repo.knowledge.findActiveReprocessJobId(tx, row.id)) !== null) {
 
 无版本手写文档（`sourceType='manual'`、`contentKind='document'`、`currentVersionId === null`）只在 `status === 'failed'` 时走 `ingest + publish:'draft'` 的首次恢复分支；其余状态（`pending` / `processing` / `ready`）一律返回 409（文案「文档正在首次入库，请稍后重试」），停用状态由前置检查拦截。其他类型或已有版本的文档通过前置检查后走 `reindex`。
 
-**Verify**: `bun run --filter @agentport/api typecheck` → exit 0；`grep -rn "findActiveReprocessJobId" packages/api/src` → 1 处（重解析）；`findActiveIngestJobId` 仍只有 `manual-documents.ts` 一处调用。
+**Verify**: `bun run --filter @agentport/api typecheck` → exit 0；`grep -rn "findActiveReprocessJobId" packages/api/src` → 2 处（重解析与任务重试）；`findActiveIngestJobId` 仍只有 `manual-documents.ts` 一处调用。
 
 ### Step 3: 现有测试回归
 
@@ -151,8 +153,9 @@ if ((await repo.knowledge.findActiveReprocessJobId(tx, row.id)) !== null) {
 ## Test plan
 
 - 不新增测试；回归依赖既有 `knowledge-publishing-integration.test.ts` 与 `knowledge-management-routes.test.ts`。
-- 受影响路径是 `createManualDocument` 创建的 `sourceType='manual'` 文档（text/markdown，`publish: 'draft'`）。既有 `knowledge-publishing-integration.test.ts` 的重解析用例针对的是一条已有版本的声音上传（audio upload），不覆盖被移除的 manual 首轮失败放行路径。因此 manual 路径没有自动化回归用例，覆盖依赖 typecheck 与既有套件。
-- 既有 `knowledge-publishing-integration.test.ts` 的成功重解析与草稿拦截用例必须保持通过，证明没有放宽真实的草稿保护。
+- 受影响路径是 `createManualDocument` 创建的 `sourceType='manual'` 文档（text/markdown，`publish: 'draft'`）。`knowledge-publishing-integration.test.ts` 的 `/reprocess` 用例实际针对一条已有版本的声音上传，断言返回 202；草稿拦截与首次失败恢复均无自动化覆盖，属已知覆盖缺口。
+- 既有两个套件的既有断言必须保持通过；它们不覆盖草稿拦截与首次失败恢复，仅用于确认本次收窄没有让既有用例转为失败。
+- 任务重试入口复用同一活跃任务门槛：`retryJob` 对 `ingest` / `reindex` 在事务内锁定文档并检查活跃任务。
 
 ## Done criteria
 

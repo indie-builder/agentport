@@ -663,7 +663,10 @@ export function DocumentsTab({
                   </TableCell>
                   <TableCell>
                     {caps.content ||
-                    (caps.execute && document.currentVersionId !== null) ||
+                    (caps.execute &&
+                      document.disabledReason === null &&
+                      document.status !== 'disabled' &&
+                      document.currentVersionId !== null) ||
                     (document.status === 'failed' && document.currentVersionId === null) ? (
                       <DropdownMenu>
                         <DropdownMenuTrigger
@@ -687,6 +690,8 @@ export function DocumentsTab({
                               </DropdownMenuItem>
                             ) : null}
                             {caps.execute &&
+                            document.disabledReason === null &&
+                            document.status !== 'disabled' &&
                             (document.currentVersionId !== null || document.status === 'failed') ? (
                               <DropdownMenuItem onSelect={() => setConfirmReprocess(document)}>
                                 <RefreshCw /> 重新解析

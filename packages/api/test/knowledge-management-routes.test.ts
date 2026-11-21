@@ -1762,8 +1762,8 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     expect(kept[0]?.content_hash).toBe('published-hash');
 
     await app.client.unsafe(
-      `update knowledge_jobs set status = 'failed', ended_at = now() where id = $1`,
-      [firstJobId],
+      `update knowledge_jobs set status = 'failed', ended_at = now() where id in ($1, $2)`,
+      [firstJobId, secondJobId],
     );
     const retried = await request(app, {
       method: 'POST',

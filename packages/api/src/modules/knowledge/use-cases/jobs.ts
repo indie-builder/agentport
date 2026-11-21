@@ -1,5 +1,5 @@
 import { AppError } from '@agentport/core';
-import { repo, schema } from '@agentport/db';
+import { repo, schema, type Transaction } from '@agentport/db';
 import {
   type KnowledgeJob,
   knowledgeFaqImportMetadataSchema,
@@ -60,6 +60,28 @@ export async function listJobs(
 
 type JobRow = NonNullable<Awaited<ReturnType<typeof repo.knowledge.getJob>>>;
 
+async function assertDocumentIdle(tx: Transaction, baseId: string | null, documentId: string) {
+  if (baseId !== null) {
+    const [base] = await tx
+      .select({ id: schema.knowledgeBases.id })
+      .from(schema.knowledgeBases)
+      .where(eq(schema.knowledgeBases.id, baseId))
+      .limit(1)
+      .for('key share');
+    if (!base) notFound('文档');
+  }
+  const [document] = await tx
+    .select({ id: schema.knowledgeDocuments.id })
+    .from(schema.knowledgeDocuments)
+    .where(eq(schema.knowledgeDocuments.id, documentId))
+    .limit(1)
+    .for('update');
+  if (!document) notFound('文档');
+  if ((await repo.knowledge.findActiveReprocessJobId(tx, documentId)) !== null) {
+    throw new AppError('CONFLICT', '文档有正在进行的处理任务，请稍后重试');
+  }
+}
+
 export function getJob(row: JobRow) {
   return toJob(row);
 }
@@ -102,10 +124,13 @@ export async function retryJob(deps: KnowledgeDeps, row: JobRow) {
   }
   if (faqDraftBinding) {
     const { versionId, jobKey } = faqDraftBinding;
+    const documentId = row.documentId;
+    if (documentId === null) notFound('文档');
     const job = await deps.db.transaction(async (tx) => {
+      await assertDocumentIdle(tx, row.baseId, documentId);
       const created = await createJob(tx, {
         baseId: row.baseId,
-        documentId: row.documentId,
+        documentId,
         sourceId: row.sourceId,
         payload,
       });
@@ -128,6 +153,20 @@ export async function retryJob(deps: KnowledgeDeps, row: JobRow) {
         .returning({ id: schema.knowledgeDocumentVersions.id });
       if (!bound) throw new AppError('CONFLICT', '目标 FAQ 草稿已变化，请刷新后重试');
       return created;
+    });
+    await enqueueKnowledgeJobAfterCommit(deps.log, job);
+    return { jobId: job.id };
+  }
+  if ((payload.type === 'ingest' || payload.type === 'reindex') && row.documentId !== null) {
+    const documentId = row.documentId;
+    const job = await deps.db.transaction(async (tx) => {
+      await assertDocumentIdle(tx, row.baseId, documentId);
+      return createJob(tx, {
+        baseId: row.baseId,
+        documentId,
+        sourceId: row.sourceId,
+        payload,
+      });
     });
     await enqueueKnowledgeJobAfterCommit(deps.log, job);
     return { jobId: job.id };
