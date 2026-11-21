@@ -1,4 +1,4 @@
-import { typeid } from 'typeid-js';
+import { parseTypeId, type TypeId, typeid } from 'typeid-js';
 
 /**
  * 所有实体 ID 都是 TypeID：`<prefix>_<uuidv7 base32>`。
@@ -77,4 +77,8 @@ type Entity = keyof typeof idPrefixes;
 
 export function newId(entity: Entity): string {
   return typeid(idPrefixes[entity]).toString();
+}
+
+export function idSuffix(id: string): string {
+  return parseTypeId(id as TypeId<''>).suffix;
 }

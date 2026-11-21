@@ -1,6 +1,6 @@
 import { memoryReviewsContract } from '@agentport/contract/memory-reviews';
 import { fail, isAppError, notFound, sha256Hex } from '@agentport/core';
-import { type Database, repo } from '@agentport/db';
+import { type Database, idSuffix, repo } from '@agentport/db';
 import {
   DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
@@ -356,7 +356,7 @@ async function writeReviewCreatedAudit(
     },
     status: 'ok',
     requestId: context.requestId,
-    dedupeKey: `aud_memrev_${runId.slice(4)}`,
+    dedupeKey: `aud_memrev_${idSuffix(runId)}`,
   });
 }
 
