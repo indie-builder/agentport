@@ -2,13 +2,12 @@ import { pathToFileURL } from 'node:url';
 import { outputMessageAnchors, removeChannelInputs } from '@agentport/core';
 import { createServiceLogger } from '@agentport/core/logger';
 import { createDb, repo, schema } from '@agentport/db';
-import { evaluateSloStatuses, MAINTENANCE_QUEUE } from '@agentport/shared';
+import { evaluateSloStatuses, MAINTENANCE_QUEUE, QUEUE_REGISTRY } from '@agentport/shared';
 import { createBunRedisClient, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { loadConfig } from './config.js';
-import { WORKER_QUEUES } from './queues.js';
 import { version } from './version.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -62,7 +61,9 @@ export async function runOpsAlerts(input: {
   }> = [];
   if (settings.queueFailed.enabled || settings.queueWaiting.enabled || slo.enabled) {
     const connection = createBunRedisClient(new RedisClient(input.redisUrl));
-    const queues = WORKER_QUEUES.map((name) => new Queue(name, { connection }));
+    const queues = QUEUE_REGISTRY.map((queue) => queue.name).map(
+      (name) => new Queue(name, { connection }),
+    );
     try {
       queueCounts = await Promise.all(
         queues.map(async (queue) => {

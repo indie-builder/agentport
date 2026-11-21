@@ -10,13 +10,6 @@ export async function upsertScheduler(
   );
 }
 
-export async function removeScheduler(
-  queueLike: Pick<Queue<ScheduleTriggerJob>, 'removeJobScheduler'>,
-  scheduleId: string,
-): Promise<void> {
-  await queueLike.removeJobScheduler(scheduleId);
-}
-
 export async function schedulerNextRun(
   queueLike: Pick<Queue<ScheduleTriggerJob>, 'getJobScheduler'>,
   scheduleId: string,

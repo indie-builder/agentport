@@ -17,7 +17,7 @@ import { getQueue } from '../../queue/producer.js';
 import { getScheduleQueue } from '../../queue/schedule.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
-import { removeScheduler, schedulerNextRun, upsertScheduler } from './schedule-sync.js';
+import { schedulerNextRun, upsertScheduler } from './schedule-sync.js';
 
 const os = implement(opsContract).$context<RequestContext>();
 const opsRepo = repo.ops;
@@ -253,7 +253,7 @@ export const opsRouter = os.router({
       let nextDueAt: string | null = null;
       try {
         if (!row.enabled) {
-          await removeScheduler(queue, row.id);
+          await queue.removeJobScheduler(row.id);
         } else {
           if (
             existing.enabled === false ||
@@ -414,7 +414,7 @@ export const opsRouter = os.router({
         requestId: context.requestId,
       });
       try {
-        await removeScheduler(getScheduleQueue(context.config.REDIS_URL), input.params.id);
+        await getScheduleQueue(context.config.REDIS_URL).removeJobScheduler(input.params.id);
       } catch (err) {
         await reportScheduleSyncFailure(context, input.params.id, err);
       }
