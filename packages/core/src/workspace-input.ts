@@ -1,10 +1,10 @@
 import {
   type AgentInput,
+  type McpJsonArtifactEntry,
   type MemoryPolicy,
   type OpenUiToolDescriptor,
   resolveMemoryPolicy,
 } from '@agentport/shared';
-import type { McpJsonEntry } from './tools.js';
 import type {
   WorkspaceAgent,
   WorkspaceInput,
@@ -62,7 +62,7 @@ export function resolveWorkspaceMemoryPolicy(
 
 export function toWorkspaceInput(params: {
   agent: WorkspaceAgentRow;
-  servers: Array<{ name: string; entry: McpJsonEntry }>;
+  servers: Array<{ name: string; entry: McpJsonArtifactEntry }>;
   skills: WorkspaceSkill[];
   subAgents: WorkspaceAgentRow[];
   workflows?: Array<{ slug: string; content: string }>;

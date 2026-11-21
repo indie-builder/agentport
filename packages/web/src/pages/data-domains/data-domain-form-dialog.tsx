@@ -1,5 +1,4 @@
-import { dataDomainInputSchema } from '@agentport/contract/data-domains';
-import { dataDomainQueryApprovalModeSchema } from '@agentport/shared';
+import { dataDomainInputSchema, dataDomainQueryApprovalModeSchema } from '@agentport/shared';
 import { useEffect, useRef, useState } from 'react';
 import { useFieldArray } from 'react-hook-form';
 import { z } from 'zod';

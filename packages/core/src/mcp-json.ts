@@ -1,29 +1,11 @@
 import type { ServerInput } from '@agentport/shared';
-import { httpUrlSchema, serverInputSchema, slugSchema } from '@agentport/shared';
-import { z } from 'zod';
+import { mcpJsonEntrySchema, serverInputSchema, slugSchema } from '@agentport/shared';
+import type { z } from 'zod';
 import { fail } from './errors.js';
 import { isRecord } from './record.js';
 
 const MCP_JSON_MAX_BYTES = 1_048_576;
 const MCP_JSON_MAX_SERVERS = 100;
-
-/** 入口即拒绝 `${...}`：SDK 可能展开模板，导入的配置不能把展开时机留到运行时。 */
-const plainString = z.string().refine((value) => !value.includes('${'), '不支持模板占位符');
-
-const stdioEntrySchema = z.strictObject({
-  type: z.literal('stdio').optional(),
-  command: plainString.min(1),
-  args: z.array(plainString).default([]),
-  env: z.record(plainString, plainString).default({}),
-});
-
-const httpUrl = httpUrlSchema.refine((value) => !value.includes('${'), '不支持模板占位符');
-
-const httpEntrySchema = z.strictObject({
-  type: z.enum(['http', 'streamable-http']),
-  url: httpUrl,
-  headers: z.record(plainString, plainString).default({}),
-});
 
 const ENTRY_FIELDS = new Set(['type', 'command', 'args', 'env', 'url', 'headers']);
 
@@ -73,15 +55,11 @@ function parseEntry(name: string, entry: Record<string, unknown>): ServerInput {
   }
 
   const type = entry.type;
-  const schema =
-    type === undefined || type === 'stdio'
-      ? stdioEntrySchema
-      : type === 'http' || type === 'streamable-http'
-        ? httpEntrySchema
-        : null;
-  if (!schema) invalid('type 仅支持 http / streamable-http；stdio 条目省略 type');
+  if (type !== undefined && type !== 'stdio' && type !== 'http' && type !== 'streamable-http') {
+    invalid('type 仅支持 http / streamable-http；stdio 条目省略 type');
+  }
 
-  const parsed = schema.safeParse(entry);
+  const parsed = mcpJsonEntrySchema.safeParse(entry);
   if (!parsed.success) {
     invalid(`「${name}」配置不合法：${parsed.error.issues.map(describeIssue).join('；')}`);
   }
@@ -89,7 +67,7 @@ function parseEntry(name: string, entry: Record<string, unknown>): ServerInput {
   const input = serverInputSchema.safeParse({
     ...parsed.data,
     name,
-    kind: parsed.data.type === undefined || parsed.data.type === 'stdio' ? 'stdio' : 'http',
+    kind: parsed.data.type === 'stdio' ? 'stdio' : 'http',
     description: '',
   });
   if (!input.success) invalid(`「${name}」配置不完整`);

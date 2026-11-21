@@ -16,10 +16,6 @@
       "types": "./dist/workspace-input.d.ts",
       "default": "./dist/workspace-input.js"
     },
-    "./tools": {
-      "types": "./dist/tools.d.ts",
-      "default": "./dist/tools.js"
-    },
     "./plugin-display": {
       "types": "./dist/plugin-display.d.ts",
       "default": "./dist/plugin-display.js"

@@ -1,6 +1,10 @@
-import type { McpJsonEntry } from '@agentport/core/tools';
 import { renderWorkspace, type WorkspaceFiles } from '@agentport/core/workspace';
-import { type AgentInput, knowledgeMcpEntry, type Server } from '@agentport/shared';
+import {
+  type AgentInput,
+  knowledgeMcpEntry,
+  type McpJsonArtifactEntry,
+  type Server,
+} from '@agentport/shared';
 import { ChevronRight } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useState } from 'react';
@@ -209,7 +213,7 @@ function draftFiles(
   });
 }
 
-function previewEntry(server: Server): McpJsonEntry {
+function previewEntry(server: Server): McpJsonArtifactEntry {
   if (server.kind === 'knowledge' || server.kind === 'data_domain') {
     return knowledgeMcpEntry({
       apiUrl: '<平台>',

@@ -1,4 +1,3 @@
-import { dataDomainConnectionTestResultSchema } from '@agentport/contract/data-domains';
 import { fail } from '@agentport/core';
 import type { Database, DbHandle } from '@agentport/db';
 import { newId, repo, schema } from '@agentport/db';
@@ -6,6 +5,7 @@ import {
   DATA_DOMAIN_BUILDS_QUEUE,
   DATA_DOMAIN_ENRICHMENTS_QUEUE,
   dataDomainBuildEnqueueOptions,
+  dataDomainConnectionTestResultSchema,
   dataDomainEnrichmentEnqueueOptions,
 } from '@agentport/shared';
 import { and, eq, sql } from 'drizzle-orm';

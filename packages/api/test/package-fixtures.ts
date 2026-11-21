@@ -1,5 +1,4 @@
 import {
-  type McpJsonEntry,
   renderOutputStyleMd,
   renderRuleMd,
   renderSkillMd,
@@ -127,8 +126,7 @@ export function packageFiles(spec: PackageSpec): Record<string, string> {
     claudeMd.push('', '## 可用子智能体', '', ...childNames.map((slug) => `- ${slug}`));
   }
   files[AGENT_PACKAGE_PATHS.claudeMd] = `${claudeMd.join('\n')}\n`;
-  const mcpServers: Record<string, McpJsonEntry> = {};
-  files[AGENT_PACKAGE_PATHS.mcpJson] = `${JSON.stringify({ mcpServers }, null, 2)}\n`;
+  files[AGENT_PACKAGE_PATHS.mcpJson] = `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`;
 
   for (const rule of spec.rules ?? []) {
     files[`${AGENT_PACKAGE_PATHS.rulesDir}${rule.slug}.md`] = renderRuleMd(rule);

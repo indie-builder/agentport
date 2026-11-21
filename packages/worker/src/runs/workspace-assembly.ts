@@ -1,9 +1,10 @@
-import type { McpJsonEntry, WorkspacePlugin, WorkspaceSkill } from '@agentport/core';
+import type { WorkspacePlugin, WorkspaceSkill } from '@agentport/core';
 import { renderWorkspace, WORKSPACE_FILE_MODE } from '@agentport/core';
 import { toWorkspaceInput } from '@agentport/core/workspace-input';
 import { type createDb, repo, type schema } from '@agentport/db';
 import {
   effortSchema,
+  type McpJsonArtifactEntry,
   type MemoryPolicy,
   permissionModeSchema,
   uiFormatSchema,
@@ -19,7 +20,7 @@ export type SubAgentRow = AgentRow & { skills?: WorkspaceSkill[] };
 export type WorkspaceAssemblyInput = {
   agent: AgentRow & { serverNames: string[] };
   runId: string;
-  servers: Array<{ name: string; entry: McpJsonEntry }>;
+  servers: Array<{ name: string; entry: McpJsonArtifactEntry }>;
   skills: Array<{
     slug: string;
     name: string;

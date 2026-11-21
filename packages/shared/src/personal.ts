@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { accountNameSchema } from './access.js';
+import { accountNameSchema, permissionGrantSchema, roleSummarySchema } from './access.js';
 import { runTriggerSchema } from './ops.js';
 import { outputShareSchema } from './outputs.js';
 import { runStatusSchema } from './run-state.js';
@@ -21,6 +21,17 @@ export const personalProfileSchema = z.object({
 });
 
 export type PersonalProfile = z.infer<typeof personalProfileSchema>;
+
+export const authMeSchema = z.discriminatedUnion('authenticated', [
+  z.object({ authenticated: z.literal(false) }),
+  z.object({
+    authenticated: z.literal(true),
+    user: personalProfileSchema,
+    roles: z.array(roleSummarySchema),
+    grants: z.array(permissionGrantSchema),
+  }),
+]);
+export type AuthMe = z.infer<typeof authMeSchema>;
 
 /** 只暴露可展示的会话元数据；token、userId 等认证载体不上 wire。 */
 export const personalSessionSchema = z.object({

@@ -4,56 +4,22 @@ import {
   accountCreateSchema,
   accountPasswordSchema,
   accountRolesSchema,
+  accountSchema,
   accountStatusSchema,
   accountUpdateSchema,
+  authMeSchema,
   businessIdSchema,
   changeOwnPasswordSchema,
   listQuerySchema,
-  permissionGrantSchema,
   permissionIdSchema,
   personalProfileSchema,
   personalSessionListSchema,
   roleMatrixInputSchema,
+  roleMatrixSchema,
   updatePersonalProfileInputSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
-
-export const roleSummarySchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  systemKey: z.enum(['admin', 'user', 'owner', 'maintainer']).nullable(),
-});
-
-export const accountSchema = z.object({
-  businessId: z.string(),
-  username: z.string(),
-  name: z.string(),
-  status: accountStatusSchema,
-  roles: z.array(roleSummarySchema),
-  createdAt: z.iso.datetime(),
-});
-
-export const roleMatrixSchema = z.object({
-  revision: z.number().int(),
-  roles: z.array(
-    roleSummarySchema.extend({
-      grants: z.array(permissionGrantSchema),
-      createdAt: z.iso.datetime(),
-      updatedAt: z.iso.datetime(),
-    }),
-  ),
-});
-
-export const authMeSchema = z.discriminatedUnion('authenticated', [
-  z.object({ authenticated: z.literal(false) }),
-  z.object({
-    authenticated: z.literal(true),
-    user: personalProfileSchema,
-    roles: z.array(roleSummarySchema),
-    grants: z.array(permissionGrantSchema),
-  }),
-]);
 
 export const loginBodySchema = z.object({
   username: z

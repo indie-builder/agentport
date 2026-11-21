@@ -1,4 +1,4 @@
-import { dataDomainEnrichInputSchema } from '@agentport/contract/data-domains';
+import { dataDomainEnrichInputSchema } from '@agentport/shared';
 import { CircleAlert, CircleCheck, Eye, LoaderCircle, Sparkles, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useController } from 'react-hook-form';

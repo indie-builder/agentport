@@ -621,7 +621,7 @@
 
 **待决策**：仅当目标变为“模型/沙盒进程不能接触上游 MCP 长期凭据”时，才需要单独选择原生 stdio/HTTP 的执行与凭据边界（如上游代理、主机侧工具执行、按工具 egress 等）。这属独立决定，环境变量插值不能满足；不阻塞当前已授权的系统架构修复。
 
-**影响面**：`packages/core/src/tools.ts`、`packages/worker/src/index.ts`、`packages/sandbox/src/runner.ts`、`docs/SECURITY.md`；改变边界会触及原生 MCP 集成、凭据信任与功能语义。
+**影响面**：`packages/shared/src/mcp.ts`、`packages/worker/src/index.ts`、`packages/sandbox/src/runner.ts`、`docs/SECURITY.md`；改变边界会触及原生 MCP 集成、凭据信任与功能语义。
 
 ## D-77 ✅ 技能市场安装按钮 UX 缺口已修复；视觉令牌保留（2026-11-06，本 PR 交付）
 

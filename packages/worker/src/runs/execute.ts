@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { McpJsonEntry, WorkspacePlugin, WorkspaceSkill } from '@agentport/core';
+import type { WorkspacePlugin, WorkspaceSkill } from '@agentport/core';
 import {
   captureOutputDraft,
   hashMcpToken,
@@ -19,6 +19,7 @@ import {
   effortSchema,
   errorText,
   isActiveRunStatus,
+  type McpJsonArtifactEntry,
   type MemoryPolicy,
   messageAttachments,
   permissionModeSchema,
@@ -176,7 +177,7 @@ export async function runAgentJob(
       secretKey: string,
       runId: string,
       runToken: string,
-    ) => McpJsonEntry;
+    ) => McpJsonArtifactEntry;
     writeWorkspace: (
       input: WorkspaceAssemblyInput,
     ) => Promise<{ dir: string; hasSubAgents: boolean; hasWorkflows: boolean }>;

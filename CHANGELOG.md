@@ -112,7 +112,7 @@
 - Server 页改为表格 + 来源筛选；工具定义可原位编辑，删除前列出受影响的智能体
 - 后端：工具 PATCH 支持全字段编辑（此前只有 enabled/requiresApproval）
 - 预览与落盘共用 `@agentport/core/workspace`，删除 web 内的重复渲染实现
-- core 新增 `./workspace`、`./tools` 纯函数子路径，浏览器可直接引用
+- core 新增 `./workspace`、`./tools` 纯函数子路径，浏览器可直接引用（`./tools` 子路径后续已移除，工具策略改用 `@agentport/shared`）
 - 修复 web 引入 core 后 `node:crypto` 导致的白屏
 - 新增 `docs/UI-REDESIGN.md`；项目规则新增多智能体并行
 

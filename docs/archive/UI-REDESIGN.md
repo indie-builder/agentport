@@ -97,7 +97,7 @@ generated 的工具表是一级信息，点行开抽屉编辑，含「试调用�
 | 工具编辑用「删除+重建」绕过只读的 PATCH | 扩展后端 PATCH 为全字段编辑；一次请求，工具 id 不变 |
 | `toolPatchSchema` 用 `.partial()` | `.partial()` 不覆盖 `default()`，空对象会被填默认值致校验失效；改为显式全可选 schema |
 | web 复制了一份 workspace 渲染逻辑 | 删除副本，直接调用 `@agentport/core/workspace`；副本已与 core 漂移 |
-| 引入 core 后登录页白屏 | core 根入口含 `node:crypto`；新增 `./workspace`、`./tools` 纯函数子路径 |
+| 引入 core 后登录页白屏 | core 根入口含 `node:crypto`；新增 `./workspace`、`./tools` 纯函数子路径（`./tools` 子路径后续已移除，工具策略改用 `@agentport/shared`） |
 | 来源徽标用了信号橙 | 来源是分类信息，改用中性徽标；信号橙只表示运行中 |
 | 连接测试只显示工具数量 | 补上工具名，否则「连上了但工具没注册」看不出 |
 

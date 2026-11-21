@@ -1,55 +1,42 @@
 import type {
-  dataDomainConnectionTestResultSchema,
-  dataDomainEnrichInputSchema,
-  dataDomainEnrichmentProposalDetailSchema,
-  dataDomainEnrichmentProposalSchema,
-  dataDomainIdentitySchema,
-  dataDomainInputSchema,
-  dataDomainListSchema,
-  dataDomainPatchSchema,
-  dataDomainProposalDecisionResultSchema,
-  dataDomainQueryApprovalListSchema,
-  dataDomainQueryApprovalSchema,
-  dataDomainQueryLogListSchema,
-  dataDomainQueryLogSchema,
-  dataDomainSchema,
-  dataDomainVersionDetailSchema,
-  dataDomainVersionSchema,
-} from '@agentport/contract/data-domains';
-import type { z } from 'zod';
+  DataDomain,
+  DataDomainConnectionTestResult,
+  DataDomainEnrichInput,
+  DataDomainEnrichmentProposal,
+  DataDomainEnrichmentProposalDetail,
+  DataDomainIdentity,
+  DataDomainInput,
+  DataDomainList,
+  DataDomainPatch,
+  DataDomainProposalDecisionResult,
+  DataDomainQueryApproval,
+  DataDomainQueryApprovalList,
+  DataDomainQueryApprovalListQuery,
+  DataDomainQueryLogList,
+  DataDomainQueryLogListQuery,
+  DataDomainVersion,
+  DataDomainVersionDetail,
+} from '@agentport/shared';
 import { rpc } from '../orpc.js';
 
-export type DataDomain = z.infer<typeof dataDomainSchema>;
-export type DataDomainInput = z.infer<typeof dataDomainInputSchema>;
-export type DataDomainPatch = z.infer<typeof dataDomainPatchSchema>;
-export type DataDomainVersion = z.infer<typeof dataDomainVersionSchema>;
-export type DataDomainVersionDetail = z.infer<typeof dataDomainVersionDetailSchema>;
-export type DataDomainConnectionTestResult = z.infer<typeof dataDomainConnectionTestResultSchema>;
-export type DataDomainPage = z.infer<typeof dataDomainListSchema>;
-export type DataDomainEnrichInput = z.infer<typeof dataDomainEnrichInputSchema>;
-export type DataDomainEnrichmentProposal = z.infer<typeof dataDomainEnrichmentProposalSchema>;
-export type DataDomainEnrichmentProposalDetail = z.infer<
-  typeof dataDomainEnrichmentProposalDetailSchema
->;
-export type DataDomainProposalDecisionResult = z.infer<
-  typeof dataDomainProposalDecisionResultSchema
->;
-export type DataDomainIdentity = z.infer<typeof dataDomainIdentitySchema>;
-export type DataDomainQueryLog = z.infer<typeof dataDomainQueryLogSchema>;
-export type DataDomainQueryLogPage = z.infer<typeof dataDomainQueryLogListSchema>;
-export interface DataDomainQueryLogQuery {
-  cursor?: string;
-  limit?: number;
-  status?: 'ok' | 'error';
-  runId?: string;
-}
-export type DataDomainQueryApproval = z.infer<typeof dataDomainQueryApprovalSchema>;
-export type DataDomainQueryApprovalPage = z.infer<typeof dataDomainQueryApprovalListSchema>;
-export interface DataDomainQueryApprovalQuery {
-  cursor?: string;
-  limit?: number;
-  status?: 'pending' | 'approved' | 'rejected';
-}
+export type {
+  DataDomain,
+  DataDomainEnrichInput,
+  DataDomainEnrichmentProposal,
+  DataDomainEnrichmentProposalDetail,
+  DataDomainIdentity,
+  DataDomainInput,
+  DataDomainPatch,
+  DataDomainQueryApproval,
+  DataDomainQueryApprovalListQuery,
+  DataDomainQueryLogListQuery,
+  DataDomainVersion,
+  DataDomainVersionDetail,
+};
+
+export type DataDomainPage = DataDomainList;
+export type DataDomainQueryLogPage = DataDomainQueryLogList;
+export type DataDomainQueryApprovalPage = DataDomainQueryApprovalList;
 
 export default {
   dataDomainPage: (cursor?: string | null): Promise<DataDomainPage> =>
@@ -92,11 +79,11 @@ export default {
     rpc.dataDomains.removeIdentity({ params: { id, businessId } }),
   dataDomainQueryLogs: (
     id: string,
-    query: DataDomainQueryLogQuery,
+    query: DataDomainQueryLogListQuery,
   ): Promise<DataDomainQueryLogPage> => rpc.dataDomains.queryLogs({ params: { id }, query }),
   dataDomainQueryApprovals: (
     id: string,
-    query: DataDomainQueryApprovalQuery,
+    query: DataDomainQueryApprovalListQuery,
   ): Promise<DataDomainQueryApprovalPage> => rpc.dataDomains.approvals({ params: { id }, query }),
   decideDataDomainApproval: (
     id: string,
