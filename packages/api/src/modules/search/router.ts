@@ -1,16 +1,12 @@
 import { searchContract } from '@agentport/contract/search';
 import { repo } from '@agentport/db';
-import type { PermissionId, SearchItem } from '@agentport/shared';
+import type { SearchItem } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { accessFilter, requireUser, resourceAccessFilter } from '../../http/access.js';
+import { accessFilter, hasPermission, resourceAccessFilter } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { collectPersonalOutputs } from './outputs.js';
 
 const os = implement(searchContract).$context<RequestContext>();
-
-function hasGrant(context: RequestContext, permissionId: PermissionId): boolean {
-  return requireUser(context).grants.some((grant) => grant.permissionId === permissionId);
-}
 
 async function agentItems(
   context: RequestContext,
@@ -114,15 +110,15 @@ export const searchRouter = os.router({
   search: os.search.handler(async ({ input, context }) => {
     context.responseHeaders.set('cache-control', 'no-store');
     const { q, limit } = input.query;
-    const canReadConversations = hasGrant(context, 'conversations.read');
+    const canReadConversations = hasPermission(context, 'conversations.read');
     const [agents, conversations, knowledge, servers, skills, plugins, outputs] = await Promise.all(
       [
-        hasGrant(context, 'agents.read') ? agentItems(context, q, limit) : [],
+        hasPermission(context, 'agents.read') ? agentItems(context, q, limit) : [],
         canReadConversations ? conversationItems(context, q, limit) : [],
-        hasGrant(context, 'knowledge.read') ? knowledgeItems(context, q, limit) : [],
-        hasGrant(context, 'servers.read') ? serverItems(context, q, limit) : [],
-        hasGrant(context, 'skills.read') ? skillItems(context, q, limit) : [],
-        hasGrant(context, 'plugins.read') ? pluginItems(context, q, limit) : [],
+        hasPermission(context, 'knowledge.read') ? knowledgeItems(context, q, limit) : [],
+        hasPermission(context, 'servers.read') ? serverItems(context, q, limit) : [],
+        hasPermission(context, 'skills.read') ? skillItems(context, q, limit) : [],
+        hasPermission(context, 'plugins.read') ? pluginItems(context, q, limit) : [],
         canReadConversations
           ? collectPersonalOutputs(context, { q, limit }).then((result) =>
               result.items.map(
