@@ -1,3 +1,5 @@
+import type { NotificationKind } from '@agentport/shared';
+import { notificationKindSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigserial,
@@ -62,16 +64,7 @@ export const notifications = pgTable(
     id: text('id').primaryKey(),
     businessId: text('business_id').notNull(),
     kind: text('kind', {
-      enum: [
-        'approval',
-        'question',
-        'run_failed',
-        'schedule_failed',
-        'budget_alert',
-        'ops_alert',
-        'policy_approval',
-        'policy_violation',
-      ],
+      enum: notificationKindSchema.options as [NotificationKind, ...NotificationKind[]],
     }).notNull(),
     title: text('title').notNull(),
     body: text('body').notNull(),
@@ -86,7 +79,7 @@ export const notifications = pgTable(
     index('notifications_unread_idx').on(t.businessId, t.createdAt).where(sql`${t.readAt} is null`),
     check(
       'notifications_kind_check',
-      sql`${t.kind} in ('approval', 'question', 'run_failed', 'schedule_failed', 'budget_alert', 'ops_alert', 'policy_approval', 'policy_violation')`,
+      sql`${t.kind} in (${sql.raw(notificationKindSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );

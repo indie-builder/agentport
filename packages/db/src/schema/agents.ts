@@ -1,5 +1,5 @@
 import type { Agent, AgentDefinition, AgentInput, MemoryPolicy } from '@agentport/shared';
-import { DEFAULT_MEMORY_POLICY } from '@agentport/shared';
+import { agentVisibilitySchema, DEFAULT_MEMORY_POLICY, uiFormatSchema } from '@agentport/shared';
 import { eq, isNotNull, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -36,10 +36,21 @@ export const agents = pgTable(
       .$type<AgentInput['permissionMode']>()
       .notNull()
       .default('default'),
-    uiFormat: text('ui_format').$type<AgentInput['uiFormat']>().notNull().default('markdown'),
+    uiFormat: text('ui_format', {
+      enum: uiFormatSchema.options as [AgentInput['uiFormat'], ...AgentInput['uiFormat'][]],
+    })
+      .notNull()
+      .default('markdown'),
     effort: text('effort').$type<NonNullable<AgentInput['effort']>>(),
     enabled: boolean('enabled').notNull().default(true),
-    visibility: text('visibility').$type<AgentInput['visibility']>().notNull().default('private'),
+    visibility: text('visibility', {
+      enum: agentVisibilitySchema.options as [
+        AgentInput['visibility'],
+        ...AgentInput['visibility'][],
+      ],
+    })
+      .notNull()
+      .default('private'),
     tags: jsonb('tags').$type<string[]>().notNull().default([]),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -81,7 +92,10 @@ export const agents = pgTable(
       .where(isNotNull(t.runtimeEnvironmentId)),
     index('agents_visibility_idx').on(t.visibility),
     index('agents_archived_idx').on(t.archivedAt).where(isNotNull(t.archivedAt)),
-    check('agents_visibility_check', sql`${t.visibility} in ('private', 'organization')`),
+    check(
+      'agents_visibility_check',
+      sql`${t.visibility} in (${sql.raw(agentVisibilitySchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     check(
       'agents_tags_check',
       sql`jsonb_typeof(${t.tags}) = 'array' and not jsonb_path_exists(${t.tags}, '$[*] ? (@.type() != "string")')`,
@@ -90,7 +104,10 @@ export const agents = pgTable(
       'agents_permission_mode_check',
       sql`${t.permissionMode} in ('dontAsk', 'plan', 'default', 'acceptEdits')`,
     ),
-    check('agents_ui_format_check', sql`${t.uiFormat} in ('markdown', 'openui')`),
+    check(
+      'agents_ui_format_check',
+      sql`${t.uiFormat} in (${sql.raw(uiFormatSchema.options.map((option) => `'${option}'`).join(', '))})`,
+    ),
     check(
       'agents_allowed_tools_check',
       sql`jsonb_typeof(${t.allowedTools}) = 'array' and not jsonb_path_exists(${t.allowedTools}, '$[*] ? (@.type() != "string")')`,

@@ -1,9 +1,14 @@
 import type {
+  KnowledgeJob,
   KnowledgeSourceConfigType,
   KnowledgeSourceProbeResult,
   KnowledgeSourceRangeKind,
 } from '@agentport/shared';
-import { knowledgeSourceConfigTypeSchema, knowledgeSourceRangeKindSchema } from '@agentport/shared';
+import {
+  knowledgeJobStatusSchema,
+  knowledgeSourceConfigTypeSchema,
+  knowledgeSourceRangeKindSchema,
+} from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -118,7 +123,10 @@ export const knowledgeSyncRuns = pgTable(
       .notNull()
       .references(() => knowledgeSources.id, { onDelete: 'cascade' }),
     status: text('status', {
-      enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled'],
+      enum: knowledgeJobStatusSchema.options as [
+        KnowledgeJob['status'],
+        ...KnowledgeJob['status'][],
+      ],
     })
       .notNull()
       .default('queued'),
@@ -143,7 +151,7 @@ export const knowledgeSyncRuns = pgTable(
     index('knowledge_sync_runs_source_idx').on(t.sourceId, t.createdAt.desc()),
     check(
       'knowledge_sync_runs_status_check',
-      sql`${t.status} in ('queued', 'running', 'succeeded', 'failed', 'cancelled')`,
+      sql`${t.status} in (${sql.raw(knowledgeJobStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );
@@ -199,7 +207,10 @@ export const knowledgeJobs = pgTable(
     }),
     sourceId: text('source_id').references(() => knowledgeSources.id, { onDelete: 'cascade' }),
     status: text('status', {
-      enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled'],
+      enum: knowledgeJobStatusSchema.options as [
+        KnowledgeJob['status'],
+        ...KnowledgeJob['status'][],
+      ],
     })
       .notNull()
       .default('queued'),
@@ -223,7 +234,7 @@ export const knowledgeJobs = pgTable(
     ),
     check(
       'knowledge_jobs_status_check',
-      sql`${t.status} in ('queued', 'running', 'succeeded', 'failed', 'cancelled')`,
+      sql`${t.status} in (${sql.raw(knowledgeJobStatusSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
   ],
 );
