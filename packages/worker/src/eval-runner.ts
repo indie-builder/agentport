@@ -25,7 +25,7 @@ import { Cause, Effect, Result } from 'effect';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import { checkRunPromptPolicy } from './content-policy.js';
-import { MESSAGES_NOT_SAVED_ERROR } from './messages.js';
+import { MESSAGES_NOT_SAVED_ERROR, MESSAGES_NOT_SAVED_MARKER } from './messages.js';
 import { hermeticQueryOptions, runOneShotSdkQuery } from './one-shot-sdk.js';
 import { loadUserAgentAccess } from './runs/run-access.js';
 
@@ -349,8 +349,8 @@ function runOneCase(
       );
     }
     if (current.status === 'succeeded') {
-      if (current.error?.includes(MESSAGES_NOT_SAVED_ERROR)) {
-        return yield* Effect.fail(new Error(current.error));
+      if (current.error?.includes(MESSAGES_NOT_SAVED_MARKER)) {
+        return yield* Effect.fail(new Error(MESSAGES_NOT_SAVED_ERROR));
       }
       const messages = messagesForRun(
         yield* dbQuery(() => chatRepo.listMessages(db, admitted.conversationId)),

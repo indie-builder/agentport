@@ -429,7 +429,7 @@ docker compose start api worker
 - 会话详情接口支持limit（默认50、最大100）与cursor游标，返回按时间正序的最近一页和nextCursor；nextCursor为null表示没有更早消息。未知/其他会话游标返回400，历史被清理后应刷新重新加载；分支复制、评估与平台调用的内部历史读取仍完整，详见D-40。
 - worker持久化输出时按专家→会话→运行锁序检查running；终态先提交则不追加/替换晚到输出，已有历史保留。落库先完成则取消等待其提交；这不撤回已发出的SSE或外部请求，详见D-41。
 - 同一会话已有queued/running时，聊天提交返回409并保留既有运行；等待完成或取消后重发。会话行锁保证HTTP入场互斥，历史和用户消息同事务写入；不同会话继续并行，既有重复运行不自动清理，详见D-39。
-- 评估页可导入/导出 `agentport/eval@1` JSON，只含用例name/prompt/expectation/judgeMode和导出时间；显式选择目标专家，同名跳过并告警。单文件≤500条且≤1MiB，导入不启动评估；超限导出留在页面提示错误，不截断。导入与单条CRUD并发不承诺名称全局唯一，详见D-24。
+- 评估页可导入/导出 `agentport/eval@1` JSON，只含用例name/prompt/expectation/judgeMode和导出时间，以及可选的expectedTools/forbiddenTools（仅在该用例配置了工具断言时导出，未配置则不出现，保持旧四键形状）；显式选择目标专家，同名跳过并告警。单文件≤500条且≤1MiB，导入不启动评估；超限导出留在页面提示错误，不截断。导入与单条CRUD并发不承诺名称全局唯一，详见D-24。
 - 单个技能可在资源中心「技能 → 操作 → 导出 SKILL.md」下载；内容与专家工作区预览一致。安装到其他 Claude Code/Agent SDK 工作区时，放到 `.claude/skills/<frontmatter中的name>/SKILL.md`；这是单文件下载，不是完整工作区或支持资源目录包。
 - 专家包是官方 `.claude/` 目录的 ZIP（`application/zip`），下载名为 `<slug>.zip`；包内 `CLAUDE.md`、`.mcp.json`、`.claude/settings.json`、`.claude/agents/*.md`、`.claude/skills/**`、`.claude/rules/*.md`、`.claude/output-styles/*.md` 是定义正文的唯一来源。根 `agentport.json` 只存官方文件表达不了的平台元数据（显示名、slug、预算/超时、密钥键名、generated 连接器托管定义及子定义自有规则等），不复制正文；删掉它后目录仍可作为普通官方目录加载。旧 `agent@1`/`agent@2` JSON 不再接受。
 - 专家包导入使用同一 ZIP；没有 sidecar 时用请求参数 `slug`/`name` 补标识。限制与校验：ZIP ≤1MiB、解压总量 ≤4MiB、条目 ≤6000，先读中央目录再解压；拒绝绝对路径、`..`、反斜杠、重复成员、符号链接与未知顶层路径；连接器密钥只以键名出现，导入后需重新填写；generated 端点在目标实例按新 id 重建。导入不调用模型、不测试连接、不执行工具。

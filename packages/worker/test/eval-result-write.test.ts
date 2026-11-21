@@ -279,7 +279,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
   });
 
   it('fails the case when a succeeded run reports unpersisted messages', async () => {
-    const marker = `succeeded；${MESSAGES_NOT_SAVED_ERROR}：消息保存被拒绝`;
+    const marker = `succeeded；${MESSAGES_NOT_SAVED_ERROR}：Failed query: insert into "messages" values ($1)`;
     const { evalRunId } = await seed([
       { name: 'unsaved', prompt: 'prompt-unsaved', expectation: 'reply:prompt-unsaved' },
     ]);
@@ -295,7 +295,33 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
 
     const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
     expect(detail?.evalRun).toMatchObject({ status: 'failed', passed: 0, error: null });
-    expect(detail?.results[0]).toMatchObject({ passed: false, output: marker });
+    expect(detail?.results[0]).toMatchObject({ passed: false });
+    const output = detail?.results[0]?.output ?? '';
+    expect(output).toBe(MESSAGES_NOT_SAVED_ERROR);
+    expect(output).not.toMatch(/insert|select|\$1|Failed query/i);
+  });
+
+  it('does not fail a case when the sentence appears without the composite marker', async () => {
+    const { evalRunId } = await seed([
+      { name: 'mention', prompt: 'prompt-mention', expectation: 'reply:prompt-mention' },
+    ]);
+    mocks.queueAdd.mockImplementationOnce(async (_name, data) => {
+      await completeRun(data);
+      await db
+        .update(schema.agentRuns)
+        .set({ error: 'succeeded；some other error 消息未保存，产出未发布 mention' })
+        .where(eq(schema.agentRuns.id, data.runId));
+      return { waitUntilFinished: mocks.waitUntilFinished };
+    });
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
+    expect(detail?.evalRun).toMatchObject({ status: 'succeeded', passed: 1 });
+    expect(detail?.results[0]).toMatchObject({
+      passed: true,
+      output: 'reply:prompt-mention',
+    });
   });
 
   it('keeps an ordinary case failure readable instead of the public database message', async () => {
