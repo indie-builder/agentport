@@ -237,11 +237,16 @@ export async function startKnowledgeWorker(
       connection,
       ...(config.prefix === undefined ? {} : { prefix: config.prefix }),
       concurrency: 2,
+      autorun: false,
     },
   );
   worker.on('failed', (job, err) => {
     config.logger.warn({ jobId: job?.id, err }, 'knowledge job failed');
   });
+  await worker.waitUntilReady();
+  worker
+    .run()
+    .catch((err: unknown) => config.logger.error({ err }, 'knowledge worker loop failed'));
 
   return {
     close: async () => {

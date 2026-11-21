@@ -377,6 +377,27 @@ async function denyQueuedRun(
   if (!won) logger.info({ runId }, 'run no longer queued, access denial skipped');
 }
 
+const stopKnowledgeReconciler = await startKnowledgeReconciler({
+  db,
+  logger,
+  redisUrl: config.REDIS_URL,
+});
+
+const knowledgeWorker = await startKnowledgeWorker({
+  db,
+  logger,
+  redisUrl: config.REDIS_URL,
+  knowledgeDir: config.KNOWLEDGE_DIR,
+  wikiModel: config.KNOWLEDGE_WIKI_MODEL,
+  summaryModel: config.KNOWLEDGE_SUMMARY_MODEL,
+  anthropicBaseUrl: config.ANTHROPIC_BASE_URL,
+  decrypt: (payload) => decryptSecrets(payload, config.APP_SECRET_KEY),
+  parser: { url: config.DOCLING_URL, key: config.DOCLING_TOKEN },
+  trustedHosts: config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST.split(',')
+    .map((host) => host.trim())
+    .filter((host) => host !== ''),
+});
+
 const worker = new Worker(
   RUNS_QUEUE,
   (job) =>
@@ -541,27 +562,6 @@ const stopWebhookDeliveryReconciler = startWebhookDeliveryReconciler({
 });
 
 installProcessGuards(logger);
-
-const knowledgeWorker = await startKnowledgeWorker({
-  db,
-  logger,
-  redisUrl: config.REDIS_URL,
-  knowledgeDir: config.KNOWLEDGE_DIR,
-  wikiModel: config.KNOWLEDGE_WIKI_MODEL,
-  summaryModel: config.KNOWLEDGE_SUMMARY_MODEL,
-  anthropicBaseUrl: config.ANTHROPIC_BASE_URL,
-  decrypt: (payload) => decryptSecrets(payload, config.APP_SECRET_KEY),
-  parser: { url: config.DOCLING_URL, key: config.DOCLING_TOKEN },
-  trustedHosts: config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST.split(',')
-    .map((host) => host.trim())
-    .filter((host) => host !== ''),
-});
-
-const stopKnowledgeReconciler = startKnowledgeReconciler({
-  db,
-  logger,
-  redisUrl: config.REDIS_URL,
-});
 
 const knowledgeScheduler = startKnowledgeScheduler({
   db,

@@ -365,7 +365,7 @@ describe.skipIf(!ready)('knowledge content routes', () => {
     }
   });
 
-  it('入队失败返回 503，且不留半成品文档', async () => {
+  it('入队失败仍保留文档与 queued 任务，交由 reconcile 补投', async () => {
     const baseId = await createBase();
     const queue = getKnowledgeQueue();
     const add = spyOn(queue, 'add').mockRejectedValueOnce(new Error('redis down'));
@@ -375,11 +375,26 @@ describe.skipIf(!ready)('knowledge content routes', () => {
     } finally {
       add.mockRestore();
     }
-    expect(res.statusCode, res.body).toBe(503);
+    expect(res.statusCode, res.body).toBe(202);
+    const body = res.json<{ documentId: string; jobId: string }>();
+    expect(typeof body.documentId).toBe('string');
+    expect(typeof body.jobId).toBe('string');
+
     const rows = await app.client.unsafe<{ count: string }[]>(
       'select count(*)::text as count from knowledge_documents where base_id = $1',
       [baseId],
     );
-    expect(rows[0]?.count).toBe('0');
+    expect(rows[0]?.count).toBe('1');
+
+    const document = await getDocument(body.documentId);
+    expect(document).toMatchObject({ status: 'pending', title: '手写笔记' });
+
+    const job = await request(app, {
+      method: 'GET',
+      url: `/api/knowledge/jobs/${body.jobId}`,
+      headers: { cookie },
+    });
+    expect(job.statusCode, job.body).toBe(200);
+    expect(job.json()).toMatchObject({ type: 'ingest', status: 'queued' });
   });
 });

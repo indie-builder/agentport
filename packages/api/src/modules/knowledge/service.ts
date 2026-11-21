@@ -1,6 +1,7 @@
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { knowledgeBlobPath, sha256Hex, visibleDocumentSummary } from '@agentport/core';
+import type { createServiceLogger } from '@agentport/core/logger';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import { knowledgeEnqueueOptions } from '@agentport/shared';
@@ -8,6 +9,7 @@ import { eq } from 'drizzle-orm';
 import { getKnowledgeQueue } from '../../queue/producer.js';
 
 type Db = Database;
+type Logger = ReturnType<typeof createServiceLogger>;
 type JobDb = Parameters<typeof repo.knowledge.createJob>[0];
 
 export type KnowledgeDocumentRow = typeof schema.knowledgeDocuments.$inferSelect;
@@ -36,19 +38,33 @@ export function documentWire(row: KnowledgeDocumentRow, tags: string[]) {
   };
 }
 
-export async function enqueueKnowledgeJob(job: { id: string }): Promise<void> {
-  await getKnowledgeQueue().add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
+export async function enqueueKnowledgeJobAfterCommit(
+  log: Logger,
+  job: { id: string },
+): Promise<void> {
+  try {
+    await getKnowledgeQueue().add('knowledge', { jobId: job.id }, knowledgeEnqueueOptions(job.id));
+  } catch (err) {
+    log.warn({ err, jobId: job.id }, 'knowledge job enqueue failed; awaiting reconcile');
+  }
 }
 
-export async function enqueueKnowledgeJobs(jobs: { id: string }[]): Promise<void> {
+export async function enqueueKnowledgeJobsAfterCommit(
+  log: Logger,
+  jobs: { id: string }[],
+): Promise<void> {
   if (jobs.length === 0) return;
-  await getKnowledgeQueue().addBulk(
-    jobs.map((job) => ({
-      name: 'knowledge',
-      data: { jobId: job.id },
-      opts: knowledgeEnqueueOptions(job.id),
-    })),
-  );
+  try {
+    await getKnowledgeQueue().addBulk(
+      jobs.map((job) => ({
+        name: 'knowledge',
+        data: { jobId: job.id },
+        opts: knowledgeEnqueueOptions(job.id),
+      })),
+    );
+  } catch (err) {
+    log.warn({ err, jobCount: jobs.length }, 'knowledge jobs enqueue failed; awaiting reconcile');
+  }
 }
 
 export function createJob(

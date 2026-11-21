@@ -15,7 +15,7 @@ import { KNOWLEDGE_DOCUMENT_MAX_BYTES, knowledgeImageChunkMetadataSchema } from 
 import { and, eq, sql } from 'drizzle-orm';
 import type { Config } from '../../../config.js';
 import { isPgCode } from '../../../http/errors.js';
-import { createJob, documentWire, enqueueKnowledgeJob, storeBlob } from '../service.js';
+import { createJob, documentWire, enqueueKnowledgeJobAfterCommit, storeBlob } from '../service.js';
 import { getVersionMarkdown } from './binary.js';
 import {
   assertBodyBytes,
@@ -201,7 +201,7 @@ async function enqueueChunkReindex(
   deps: KnowledgeDeps,
   baseId: string,
   documentId: string,
-): Promise<string | null> {
+): Promise<string> {
   const job = await createJob(deps.db, {
     baseId,
     documentId,
@@ -213,14 +213,8 @@ async function enqueueChunkReindex(
       confirmOverwriteManualChunks: false,
     },
   });
-  try {
-    await enqueueKnowledgeJob(job);
-    return job.id;
-  } catch (err) {
-    await deps.db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.id, job.id));
-    deps.log.warn({ err, documentId }, 'knowledge chunk reindex enqueue failed');
-    return null;
-  }
+  await enqueueKnowledgeJobAfterCommit(deps.log, job);
+  return job.id;
 }
 
 async function sourceScopeAllowsEnable(db: Database, documentId: string): Promise<boolean> {
@@ -422,7 +416,7 @@ export async function generateDocumentSummary(deps: KnowledgeDeps, documentId: s
       },
     });
   });
-  await enqueueKnowledgeJob(job);
+  await enqueueKnowledgeJobAfterCommit(deps.log, job);
   return { jobId: job.id };
 }
 

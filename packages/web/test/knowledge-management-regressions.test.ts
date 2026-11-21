@@ -353,7 +353,12 @@ describe('知识管理真实路由回归', () => {
   it('正文初始化同时固定版本锁，后台刷新不把新锁配给旧正文', async () => {
     server.use(
       http.get('/api/knowledge/documents/kdoc_99/manual', () =>
-        HttpResponse.json({ content: '原正文', versionId: 'kdv_1', status: 'published' }),
+        HttpResponse.json({
+          content: '原正文',
+          versionId: 'kdv_1',
+          status: 'published',
+          pendingJobId: null,
+        }),
       ),
       http.put('/api/knowledge/documents/kdoc_99/manual', () =>
         HttpResponse.json(
@@ -387,6 +392,7 @@ describe('知识管理真实路由回归', () => {
         content: '他人正文',
         versionId: 'kdv_2',
         status: 'draft',
+        pendingJobId: null,
       });
     });
     await until(() => expect(document.body.textContent).toContain('未发布草稿'));
@@ -406,7 +412,12 @@ describe('知识管理真实路由回归', () => {
     const close = vi.fn();
     server.use(
       http.get('/api/knowledge/documents/kdoc_99/manual', () =>
-        HttpResponse.json({ content: '原正文', versionId: 'kdv_1', status: 'published' }),
+        HttpResponse.json({
+          content: '原正文',
+          versionId: 'kdv_1',
+          status: 'published',
+          pendingJobId: null,
+        }),
       ),
       http.put('/api/knowledge/documents/kdoc_99/manual', () =>
         HttpResponse.json({ documentId: doc.id, jobId: 'kjob_save' }, { status: 202 }),
@@ -442,7 +453,7 @@ describe('知识管理真实路由回归', () => {
     );
     await requested.promise;
     expect(close).not.toHaveBeenCalled();
-    expect(button('解析中…').disabled).toBe(true);
+    expect(button('查询中…').disabled).toBe(true);
     await act(async () => response.resolve());
     await until(() => expect(document.body.textContent).toContain('解析服务拒绝正文'));
     await until(() =>
