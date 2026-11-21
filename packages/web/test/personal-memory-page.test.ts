@@ -90,18 +90,17 @@ async function mount(
     '/personal/shares',
     '/personal/usage',
     '/personal/work',
-    '/away',
   ].map((path) =>
     createRoute({
       getParentRoute: () => shell,
       path,
-      component: () => createElement('h1', null, path === '/away' ? 'Destination' : path),
+      component: () => createElement('h1', null, path === '/chat' ? 'Destination' : path),
     }),
   );
   let history: ReturnType<typeof createBrowserHistory>;
   if (historyOptions.browser) {
     history = createBrowserHistory();
-    history.push('/away');
+    history.push('/chat');
     history.flush?.();
     history.push(url);
     history.flush?.();
@@ -733,7 +732,7 @@ describe('个人记忆页', () => {
     await startEditing();
     await fillEditor('未保存的草稿');
     await act(async () => {
-      void router.navigate({ to: '/away' });
+      void router.navigate({ to: '/chat' });
     });
     await flush();
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(

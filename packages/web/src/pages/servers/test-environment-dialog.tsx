@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '../../components/ui/select.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
+import { runtimeEnvironmentOptions } from '../../lib/format.js';
 import type { LastTest } from './shared.js';
 
 /** 试连前选环境：默认预选该 server 上次实际用的环境，避免沿用别的连接器选择。 */
@@ -38,13 +39,7 @@ export function TestEnvironmentDialog({
   onClose: () => void;
   onConfirm: (environmentId: string) => void;
 }) {
-  const defaultEnvironment = environments.find((environment) => environment.isDefault);
-  const options = [
-    { value: 'default', label: defaultEnvironment?.name ?? '平台默认环境' },
-    ...environments
-      .filter((environment) => !environment.isDefault)
-      .map((environment) => ({ value: environment.id, label: environment.name })),
-  ];
+  const options = runtimeEnvironmentOptions(environments);
   // 本次页面结果优先；刷新后回退到后端持久化的上次试连身份。
   const lastEnvironment = lastTest
     ? (lastTest.result.runtimeEnvironment ?? null)
