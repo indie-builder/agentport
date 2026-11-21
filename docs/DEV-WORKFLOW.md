@@ -120,7 +120,7 @@
 ## 5. 门禁策略（个人项目）
 
 - **不加 blocking 钩子**：不装 pre-commit 跑 typecheck/build/test。
-- **CI 在本地运行**：`bun run ci` 并行跑 lint/typecheck/build，build 通过后并行跑 `openui:check` 与 `test:sharded`，再串行跑 `test:web`；`bun run ci:e2e` 再追加 `e2e:suite`。不使用 GitHub CI（`ci.yml` 已删除），push 与 PR 不触发远端检查。
+- **CI 在本地运行**：`bun run ci` 先并行跑 lint 与 typecheck，typecheck 通过后跑 build；build 通过后并行跑 `openui:check` 与 `test:sharded`，再串行跑 `test:web`；`bun run ci:e2e` 再追加 `e2e:suite`。不使用 GitHub CI（`ci.yml` 已删除），push 与 PR 不触发远端检查。
 - **合并不等待 CI**：用户要求提交或合并时直接执行，不自动开启 PR 监控、冷却等待或远端检查门禁。只有用户明确要求时才监控 CI。
 - **本地验证按改动范围选择**：保留现有测试、类型检查和构建命令，不把全套检查固定绑定到每次修改或提交；需要完整检查时跑 `bun run ci`。发布工作流 `release.yml` 独立保留。
 - **机械检查按需跑**：`lint:focus`、`lint:contract`、`lint:lines`、`bun run lint`、`openui:audit` 这类秒级脚本交给 review 阶段顺手执行。
