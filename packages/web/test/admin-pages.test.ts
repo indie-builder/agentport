@@ -171,9 +171,10 @@ function childComponent(page: () => ReactNode, name: string) {
 }
 
 const metrics: HealthMetrics = {
-  process: { uptimeSeconds: 20, memoryRssBytes: 1024, nodeVersion: 'v24' },
+  process: { uptimeSeconds: 20, memoryRssBytes: 1024, bunVersion: '1.3.0' },
   queue: null,
-  db: { total: 1, idle: 1, waiting: 0 },
+  knowledgeQueue: null,
+  db: { connected: true, pingMs: 1, maxConnections: 10 },
   redis: { pingMs: 1 },
 };
 const run: EvalRun = {

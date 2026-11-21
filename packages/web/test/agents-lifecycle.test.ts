@@ -1173,7 +1173,7 @@ describe('expert file tool permissions', () => {
           disallowedTools: input.disallowedTools ?? store.current.disallowedTools,
           updatedAt: '2026-02-01T00:00:00Z',
         };
-        return store.current;
+        return { kind: 'detail', agent: store.current };
       });
 
       await mount();
@@ -1262,7 +1262,7 @@ describe('expert rollback lifecycle', () => {
   });
 
   it('protects a clean editor, both sheets, saves, navigation and unload during rollback', async () => {
-    const request = deferred<Agent>();
+    const request = deferred<Awaited<ReturnType<typeof api.rollbackAgent>>>();
     vi.spyOn(api, 'rollbackAgent').mockReturnValue(request.promise);
     const update = vi.spyOn(api, 'updateAgent');
     const router = await mount();
@@ -1291,7 +1291,7 @@ describe('expert rollback lifecycle', () => {
     expect(button('放弃并离开').disabled).toBe(true);
     await click(button('取消', dialog('放弃未保存的更改？')));
     vi.mocked(api.agents).mockResolvedValue({ items: [restored], nextCursor: null });
-    await act(async () => request.resolve(restored));
+    await act(async () => request.resolve({ kind: 'detail', agent: restored }));
     await flush();
     expect(field().value).toBe('Restored expert');
     expect(field().disabled).toBe(false);
@@ -1306,11 +1306,11 @@ describe('expert rollback lifecycle', () => {
   });
 
   it('preserves the dirty draft and its save baseline after rollback failure', async () => {
-    const request = deferred<Agent>();
+    const request = deferred<Awaited<ReturnType<typeof api.rollbackAgent>>>();
     vi.spyOn(api, 'rollbackAgent').mockReturnValue(request.promise);
     const update = vi
       .spyOn(api, 'updateAgent')
-      .mockResolvedValue({ ...agent, name: 'Unsaved draft' });
+      .mockResolvedValue({ kind: 'detail', agent: { ...agent, name: 'Unsaved draft' } });
     await mount();
     await openHistory(true);
     await confirmRollback();
@@ -1329,12 +1329,12 @@ describe('expert rollback lifecycle', () => {
   });
 
   it('loads a successful rollback as the baseline for the next edit', async () => {
-    vi.spyOn(api, 'rollbackAgent').mockResolvedValue(restored);
+    vi.spyOn(api, 'rollbackAgent').mockResolvedValue({ kind: 'detail', agent: restored });
     vi.mocked(api.agents).mockResolvedValueOnce({ items: [agent], nextCursor: null });
     vi.mocked(api.agents).mockResolvedValue({ items: [restored], nextCursor: null });
     const update = vi
       .spyOn(api, 'updateAgent')
-      .mockResolvedValue({ ...restored, name: 'Next draft' });
+      .mockResolvedValue({ kind: 'detail', agent: { ...restored, name: 'Next draft' } });
     await mount();
     await openHistory(true);
     await confirmRollback();
@@ -1693,7 +1693,7 @@ describe('expert review details', () => {
       definitionState: 'legacy',
       createdAt: agent.createdAt,
     });
-    vi.spyOn(api, 'rollbackAgent').mockResolvedValue(entry.target);
+    vi.spyOn(api, 'rollbackAgent').mockResolvedValue({ kind: 'detail', agent: entry.target });
     vi.mocked(api.agents).mockResolvedValue({ items: [entry.target], nextCursor: null });
     await mount();
     await openHistory(true);
@@ -1849,7 +1849,7 @@ describe('expert draft previews', () => {
       systemPrompt: '验收用提示词',
       updatedAt: '2026-03-01T00:00:00Z',
     };
-    const update = vi.spyOn(api, 'updateAgent').mockResolvedValue(saved);
+    const update = vi.spyOn(api, 'updateAgent').mockResolvedValue({ kind: 'detail', agent: saved });
     vi.mocked(api.agents).mockResolvedValueOnce({ items: [agent], nextCursor: null });
     vi.mocked(api.agents).mockResolvedValue({ items: [saved], nextCursor: null });
     await mount();

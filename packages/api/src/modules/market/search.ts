@@ -1,5 +1,6 @@
 import { fail } from '@agentport/core';
 import type { MarketSkill } from '@agentport/shared';
+import { LRUCache } from 'lru-cache';
 import { readCappedText } from './fetch-body.js';
 
 // shortcut: CLI 在用的公开搜索接口；官方 /api/v1 需 Vercel OIDC，上游收紧时再切。
@@ -8,7 +9,12 @@ const TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 200;
 
-const cache = new Map<string, { at: number; data: MarketSkill[] }>();
+const cache = new LRUCache<string, MarketSkill[]>({
+  max: CACHE_MAX_ENTRIES,
+  ttl: CACHE_TTL_MS,
+  ttlResolution: 0,
+  perf: { now: () => Date.now() },
+});
 
 function toSkill(row: unknown): MarketSkill | null {
   const value = row as {
@@ -32,8 +38,11 @@ function toSkill(row: unknown): MarketSkill | null {
 }
 
 export async function searchMarket(q: string): Promise<MarketSkill[]> {
-  const cached = cache.get(q);
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.data;
+  const cached = cache.peek(q, { allowStale: true });
+  if (cached !== undefined && cache.getRemainingTTL(q) > 0) {
+    cache.get(q, { noDeleteOnStaleGet: true });
+    return cached;
+  }
 
   try {
     const url = `${SEARCH_URL}?q=${encodeURIComponent(q)}&limit=50`;
@@ -49,20 +58,10 @@ export async function searchMarket(q: string): Promise<MarketSkill[]> {
     const body = JSON.parse(text) as { skills?: unknown };
     if (!Array.isArray(body.skills)) throw new Error('unexpected search response');
     const data = body.skills.map(toSkill).filter((skill): skill is MarketSkill => skill !== null);
-    cache.set(q, { at: Date.now(), data });
-    if (cache.size > CACHE_MAX_ENTRIES) {
-      const now = Date.now();
-      for (const [key, entry] of cache) {
-        if (now - entry.at >= CACHE_TTL_MS) cache.delete(key);
-      }
-      for (const key of cache.keys()) {
-        if (cache.size <= CACHE_MAX_ENTRIES) break;
-        cache.delete(key);
-      }
-    }
+    cache.set(q, data);
     return data;
   } catch (err) {
-    if (cached) return cached.data;
+    if (cached) return cached;
     fail('UPSTREAM_FAILED', '暂时无法搜索技能市场，请稍后重试', { cause: err, retryable: true });
   }
 }

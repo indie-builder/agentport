@@ -15,17 +15,10 @@ import { createBunRedisClient, getNextMillis, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, eq, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { z } from 'zod';
 import { checkRunPromptPolicy } from '../content-policy.js';
 import { checkUserAgentAccess } from '../runs/run-access.js';
 import { startIntervalTicker } from './interval-ticker.js';
 
-const RECONCILE_MS = z.coerce
-  .number()
-  .int()
-  .positive()
-  .default(5 * 60_000)
-  .parse(process.env.SCHEDULE_RECONCILE_MS);
 const ENQUEUE_ATTEMPTS = 3;
 const TRIGGER_MISSED_GRACE_MS = 60_000;
 
@@ -341,6 +334,7 @@ export function startScheduleScheduler(input: {
   db: Db;
   logger: Logger;
   redisUrl: string;
+  reconcileMs: number;
   /** 测试用独立 Redis 键前缀，避免对账删到同机真实的 scheduler。 */
   prefix?: string;
 }): ScheduleScheduler {
@@ -402,7 +396,7 @@ export function startScheduleScheduler(input: {
     return inFlight;
   };
 
-  const stopTicker = startIntervalTicker(() => sync(), RECONCILE_MS);
+  const stopTicker = startIntervalTicker(() => sync(), input.reconcileMs);
 
   return {
     sync,

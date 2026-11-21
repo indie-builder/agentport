@@ -340,7 +340,7 @@ run 审批的 `approval_requests.decision_hash` 绑定操作、角色、基线�
 
 API 重启只中断短请求，runner 对网络错误、5xx 和 429 按原规则退避。批准后 hook 不返回 SDK `allow`，仍走既有 `allowedTools` 与权限路径；拒绝、超时、取消或 401/403/404/409 均不执行。hook 最长等待 355 秒。generated 服务端在出站内容检查前判定、并在执行槽内发往上游前重判。解析身份或判定失败时拒绝，不降级成基线。外部 connector token、OpenUI 与管理试跑的行为留待 3a-3。
 
-边界：当前只有站内投递与页面/侧栏徽标，没有外部邮件、IM、通知偏好或免打扰；外部 webhook 见 3.9。审批恢复要求 sandbox runner 与 run 保持存活；不恢复已经发出的 MCP/upstream 调用，也不重放副作用。超过 hook/run 截止或 API 持续不可用时拒绝执行；`APPROVAL_WAIT_MS` 超过 355 秒也不会延长 hook 等待。
+边界：当前只有站内投递与页面/侧栏徽标，没有外部邮件、IM、通知偏好或免打扰；外部 webhook 见 3.9。审批恢复要求 sandbox runner 与 run 保持存活；不恢复已经发出的 MCP/upstream 调用，也不重放副作用。超过 hook/run 截止或 API 持续不可用时拒绝执行；`APPROVAL_WAIT_MS` 超过 355 秒也不会延长 hook 等待，API 启动时拒绝超过 355000 的值。
 
 ### 3.7 专家发布闭环（2026-11-18）
 

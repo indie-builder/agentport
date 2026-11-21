@@ -1,6 +1,6 @@
 import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { commonEnvSchema, parseEnv } from '@agentport/shared';
+import { commonEnvSchema, MCP_APPROVAL_WAIT_MS, parseEnv } from '@agentport/shared';
 import { z } from 'zod';
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
@@ -28,7 +28,12 @@ const envSchema = z
     ADMIN_PASSWORD: z.string().min(1).max(128),
     JWT_SECRET: z.string().min(32),
     CORS_ORIGINS: z.string().default('http://localhost:5173'),
-    APPROVAL_WAIT_MS: z.coerce.number().int().nonnegative().default(300_000),
+    APPROVAL_WAIT_MS: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .max(MCP_APPROVAL_WAIT_MS, 'APPROVAL_WAIT_MS 不能超过 355000：沙盒审批 hook 最多等待 355 秒')
+      .default(300_000),
     SANDBOX_IMAGE: z.string().min(1).default('agentport/sandbox:dev'),
     WORKSPACES_DIR: z.string().min(1).default('./data/workspaces'),
     KNOWLEDGE_DIR: z.string().min(1).default('./data/knowledge'),

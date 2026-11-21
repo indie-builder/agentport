@@ -55,6 +55,11 @@ const envSchema = z
       .positive()
       .default(RETENTION_DEFAULTS.agentVersions),
     AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
+    SCHEDULE_RECONCILE_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(5 * 60_000),
     SANDBOX_MAX_FIELD_BYTES: z.coerce
       .number()
       .int()
