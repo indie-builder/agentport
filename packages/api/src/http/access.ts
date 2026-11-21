@@ -30,12 +30,15 @@ export function requireUser(context: RequestContext): UserPrincipal {
   return principal;
 }
 
+export function hasPermission(context: RequestContext, permissionId: PermissionId): boolean {
+  return requireUser(context).grants.some((grant) => grant.permissionId === permissionId);
+}
+
 export async function requirePermission(
   context: RequestContext,
   permissionId: PermissionId,
 ): Promise<void> {
-  const principal = requireUser(context);
-  if (!principal.grants.some((grant) => grant.permissionId === permissionId)) {
+  if (!hasPermission(context, permissionId)) {
     throw new AppError('FORBIDDEN', '没有该操作的权限');
   }
 }
