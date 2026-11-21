@@ -74,6 +74,7 @@ export async function dispatchKnowledgeJob(
       config: {
         KNOWLEDGE_DIR: deps.knowledgeDir,
         KNOWLEDGE_SUMMARY_MODEL: deps.summaryModel,
+        ANTHROPIC_BASE_URL: deps.anthropicBaseUrl,
       },
       signal: deps.signal,
       ...(deps.queryFn === undefined ? {} : { queryFn: deps.queryFn }),

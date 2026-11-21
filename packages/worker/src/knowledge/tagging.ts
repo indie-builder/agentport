@@ -26,7 +26,11 @@ export type TaggingQueryFn = (params: {
 
 export interface TaggingDeps {
   db: Database;
-  config: { KNOWLEDGE_DIR: string; KNOWLEDGE_SUMMARY_MODEL?: string | undefined };
+  config: {
+    KNOWLEDGE_DIR: string;
+    KNOWLEDGE_SUMMARY_MODEL?: string | undefined;
+    ANTHROPIC_BASE_URL?: string | undefined;
+  };
   signal: AbortSignal;
   queryFn?: TaggingQueryFn;
 }
@@ -99,6 +103,7 @@ export async function runKnowledgeTagging(job: JobRow, deps: TaggingDeps): Promi
         options: hermeticQueryOptions({
           model,
           cwd,
+          anthropicBaseUrl: deps.config.ANTHROPIC_BASE_URL,
           maxTurns: 1,
           maxBudgetUsd: 0.1,
           abortController: controller,
