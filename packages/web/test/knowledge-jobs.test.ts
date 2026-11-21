@@ -79,6 +79,25 @@ function menuLabels(): string[] {
   );
 }
 
+function overviewHandlers() {
+  server.use(
+    http.get('/api/knowledge/bases/kb_1/summary', () =>
+      HttpResponse.json({
+        documents: 0,
+        faqs: 0,
+        wikiPages: 0,
+        sources: 0,
+        folders: 0,
+        tags: 0,
+        lastJob: null,
+      }),
+    ),
+    http.get('/api/knowledge/bases/kb_1/activity', () =>
+      HttpResponse.json({ items: [], nextCursor: null }),
+    ),
+  );
+}
+
 function jobRequest(): URL | undefined {
   const call = calls.find(
     (item) => item.method === 'GET' && item.path.startsWith('/api/knowledge/jobs?'),
@@ -168,9 +187,10 @@ describe('knowledge batch actions', () => {
 });
 
 describe('knowledge detail business line', () => {
-  it('orders the task tabs and exposes status, expert usage, edit and settings in the header', async () => {
+  it('orders the task tabs and exposes status, overview, edit and settings actions', async () => {
     documentList();
-    await mount('/knowledge/kb_1');
+    overviewHandlers();
+    const router = await mount('/knowledge/kb_1');
 
     const labels = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].map((item) =>
       item.textContent?.trim(),
@@ -187,14 +207,22 @@ describe('knowledge detail business line', () => {
       '处理记录',
     ]);
     expect(document.querySelector('[data-slot="page-header"]')?.textContent).toContain('启用');
-    expect(findButton('使用此库的专家')).toBeDefined();
     expect(findButton('编辑信息')).toBeDefined();
-    expect(findButton('设置')).toBeDefined();
-    expect(findButton('使用此库的专家')?.className).toContain('h-8');
+    expect(findButton('更多操作')).toBeDefined();
+    expect(findButton('使用此库的专家')).toBeUndefined();
     expect(findButton('编辑信息')?.className).toContain('h-8');
-    expect(findButton('设置')?.className).toContain('h-8');
+    expect(findButton('更多操作')?.className).toContain('size-8');
+    expect(calls.some((item) => item.path === '/api/agents')).toBe(false);
 
-    await click(button('设置'));
+    await openMenu('更多操作');
+    expect(menuLabels()).toEqual(['使用此库的专家', '设置']);
+    await chooseMenuItem('使用此库的专家');
+    await waitFor(() => router.state.location.search.panel === 'overview');
+    await waitFor(() => calls.some((item) => item.path === '/api/agents'));
+    await waitFor(() => document.body.textContent?.includes('使用此库的专家') === true);
+
+    await openMenu('更多操作');
+    await chooseMenuItem('设置');
     expect(dialogShown('知识库设置')).toBe(true);
     expect(document.getElementById('knowledge-settings-chunk-tokens')).not.toBeNull();
   });
@@ -211,6 +239,7 @@ describe('knowledge detail business line', () => {
     expect(findButton('操作 上线流程')).toBeUndefined();
     expect(findButton('编辑信息')).toBeUndefined();
     expect(findButton('设置')).toBeUndefined();
+    expect(findButton('更多操作')).toBeUndefined();
     expect(findButton('使用此库的专家')).toBeUndefined();
     expect(calls.some((item) => item.path === '/api/agents')).toBe(false);
 
@@ -242,7 +271,7 @@ describe('knowledge detail business line', () => {
     expect(menuLabels().some((label) => label.includes('移动 / 标注'))).toBe(true);
     expect(menuLabels().some((label) => label.includes('删除'))).toBe(true);
     expect(menuLabels().some((label) => label.includes('重新解析'))).toBe(false);
-    expect(findButton('设置')).toBeUndefined();
+    expect(findButton('更多操作')).toBeUndefined();
 
     await click(button('来源'));
     expect(findButton('新建来源')).toBeUndefined();
@@ -263,7 +292,7 @@ describe('knowledge detail business line', () => {
     expect(findButton('删除来源 产品仓库')).toBeDefined();
     expect(findButton('检查配置')).toBeDefined();
     expect(findButton('立即同步')).toBeUndefined();
-    expect(findButton('设置')).toBeUndefined();
+    expect(findButton('更多操作')).toBeUndefined();
     expect(findButton('上传文件')).toBeUndefined();
   });
 
@@ -293,7 +322,7 @@ describe('knowledge detail business line', () => {
     expect(dialog('重新解析文档').textContent).toContain('人工编辑过的分块会被丢弃');
     await click(button('取消'));
     expect(findButton('上传文件')).toBeUndefined();
-    expect(findButton('设置')).toBeUndefined();
+    expect(findButton('更多操作')).toBeUndefined();
 
     await click(button('检索测试'));
     const search = document.querySelector<HTMLInputElement>('input[aria-label="检索知识库"]');
@@ -379,7 +408,11 @@ describe('knowledge detail business line', () => {
     await mount('/knowledge/kb_1');
 
     expect(findButton('上传文件')).toBeUndefined();
-    await click(button('设置'));
+    expect(findButton('编辑信息')).toBeDefined();
+    expect(findButton('使用此库的专家')).toBeUndefined();
+    await openMenu('更多操作');
+    expect(menuLabels()).toEqual(['设置']);
+    await chooseMenuItem('设置');
     expect(dialogShown('知识库设置')).toBe(true);
     expect(calls.some((item) => item.path === '/api/knowledge/bases/kb_1/documents/upload')).toBe(
       false,
@@ -399,6 +432,7 @@ describe('knowledge expert usage', () => {
 
   it('reads agent summaries and reports unreadable relationships instead of empty usage', async () => {
     documentList();
+    overviewHandlers();
     server.use(
       http.get('/api/auth/me', () => HttpResponse.json(meWith(['knowledge.read', 'agents.read']))),
       http.get('/api/agents', () =>
@@ -411,7 +445,12 @@ describe('knowledge expert usage', () => {
     await mount('/knowledge/kb_1');
 
     expect(calls.some((item) => item.path === '/api/agents')).toBe(false);
-    await click(button('使用此库的专家'));
+    expect(findButton('编辑信息')).toBeUndefined();
+    await openMenu('更多操作');
+    expect(menuLabels()).toEqual(['使用此库的专家']);
+    await chooseMenuItem('使用此库的专家');
+    await waitFor(() => document.activeElement?.id === 'knowledge-expert-usage');
+    expect(document.getElementById('knowledge-expert-usage')).not.toBeNull();
     await waitFor(() => document.body.textContent?.includes('文档专家') === true);
     await waitFor(() => document.body.textContent?.includes('部分专家的使用关系无法确认') === true);
 
@@ -428,6 +467,7 @@ describe('knowledge expert usage', () => {
 
   it('offers the agents list when no expert is bound yet', async () => {
     documentList();
+    overviewHandlers();
     server.use(
       http.get('/api/auth/me', () =>
         HttpResponse.json(meWith(['knowledge.read', 'agents.read', 'agents.config.read'])),
@@ -435,7 +475,7 @@ describe('knowledge expert usage', () => {
       http.get('/api/agents', () => HttpResponse.json([])),
     );
     await mount('/knowledge/kb_1');
-    await click(button('使用此库的专家'));
+    await click(button('概览'));
     await waitFor(() => document.body.textContent?.includes('没有被任何专家使用') === true);
 
     const next = document.querySelector<HTMLAnchorElement>('a[href="/agents"]');
@@ -446,9 +486,12 @@ describe('knowledge expert usage', () => {
   it('hides the expert entry and requests no agent data without agents.read', async () => {
     server.use(http.get('/api/auth/me', () => HttpResponse.json(meWith(['knowledge.read']))));
     documentList();
+    overviewHandlers();
     await mount('/knowledge/kb_1');
 
-    expect(findButton('使用此库的专家')).toBeUndefined();
+    await click(button('概览'));
+    await flush();
+    expect(document.body.textContent).not.toContain('使用此库的专家');
     expect(calls.some((item) => item.path === '/api/agents')).toBe(false);
   });
 });

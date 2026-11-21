@@ -4,8 +4,8 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import {
   CirclePause,
   CirclePlay,
+  EllipsisVertical,
   KeyRound,
-  MoreHorizontal,
   Plus,
   SearchX,
   ShieldCheck,
@@ -477,7 +477,7 @@ function AccountRowMenu({
       <DropdownMenuTrigger
         render={
           <Button variant="ghost" size="icon-sm" aria-label={`操作 ${account.name}`}>
-            <MoreHorizontal />
+            <EllipsisVertical />
           </Button>
         }
       />

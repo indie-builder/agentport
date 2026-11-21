@@ -8,7 +8,7 @@ import {
   CircleAlert,
   CircleCheck,
   Clock,
-  Ellipsis,
+  EllipsisVertical,
   Hammer,
   LoaderCircle,
   RotateCcw,
@@ -282,7 +282,7 @@ export function RuntimeEnvironmentDetailPage() {
                           size="icon"
                           aria-label="运行环境操作"
                         >
-                          <Ellipsis />
+                          <EllipsisVertical />
                         </Button>
                       }
                     />

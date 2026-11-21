@@ -28,12 +28,16 @@ export function useDialogClose(onClose: () => void, open = true) {
 export function guardedOpenChange(
   pending: boolean,
   close: () => void,
+  onCancel?: () => void,
 ): (next: boolean, details: DialogCloseDetails) => void {
   return (next, details) => {
     if (pending) {
       details.cancel();
       return;
     }
-    if (!next) close();
+    if (!next) {
+      onCancel?.();
+      close();
+    }
   };
 }

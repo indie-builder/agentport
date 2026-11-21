@@ -4,16 +4,8 @@ import { Link } from '@tanstack/react-router';
 import { agentsQuery } from '../../lib/queries.js';
 import { ErrorState, LoadingState } from '../states.js';
 
-export function ExpertUsage({
-  base,
-  enabled,
-  showTitle = true,
-}: {
-  base: KnowledgeBase;
-  enabled: boolean;
-  showTitle?: boolean;
-}) {
-  const agents = useQuery({ ...agentsQuery, enabled });
+export function ExpertUsage({ base }: { base: KnowledgeBase }) {
+  const agents = useQuery(agentsQuery);
   const used: Array<{ id: string; name: string }> = [];
   let unknown = 0;
   for (const agent of agents.data ?? []) {
@@ -26,7 +18,6 @@ export function ExpertUsage({
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      {showTitle ? <span className="text-sm font-medium text-fg">使用此库的专家</span> : null}
       {agents.isPending ? <LoadingState rows={2} /> : null}
       {agents.isError ? (
         <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />

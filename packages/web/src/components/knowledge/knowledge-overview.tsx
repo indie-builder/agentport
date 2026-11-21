@@ -250,9 +250,11 @@ export function KnowledgeOverview({
         ) : null}
       </PageSection>
       {canReadAgents ? (
-        <PageSection title="使用此库的专家">
-          <ExpertUsage base={base} enabled showTitle={false} />
-        </PageSection>
+        <div id="knowledge-expert-usage" tabIndex={-1} className="scroll-mt-4">
+          <PageSection title="使用此库的专家">
+            <ExpertUsage base={base} />
+          </PageSection>
+        </div>
       ) : null}
       {activityBody ? <PageSection title="最近活动">{activityBody}</PageSection> : null}
       {duplicating ? (

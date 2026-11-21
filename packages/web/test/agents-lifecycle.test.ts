@@ -1029,6 +1029,8 @@ describe('expert detail navigation', () => {
     await openConfig();
     expect(host.textContent).toContain('专家记忆');
     expect(host.textContent).not.toContain('运行统计');
+    await click(button('专家管理操作'));
+    await waitFor(() => menuItem('查看运行'));
     expect(link('查看运行').getAttribute('href')).toBe('/runs?agent=expert');
   });
 });

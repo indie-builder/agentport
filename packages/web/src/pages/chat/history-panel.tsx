@@ -1,4 +1,4 @@
-import { GitBranch, LoaderCircle, MoreHorizontal, Pencil, Search } from 'lucide-react';
+import { EllipsisVertical, GitBranch, LoaderCircle, Pencil, Search } from 'lucide-react';
 import { useRef } from 'react';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { Button } from '../../components/ui/button.js';
@@ -98,7 +98,7 @@ export function HistoryPanel({
                       {branching === conversation.id ? (
                         <LoaderCircle className="size-3.5 animate-spin" />
                       ) : (
-                        <MoreHorizontal className="size-3.5" />
+                        <EllipsisVertical className="size-3.5" />
                       )}
                     </Button>
                   }

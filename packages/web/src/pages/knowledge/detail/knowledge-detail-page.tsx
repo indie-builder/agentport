@@ -1,11 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { ArrowLeft } from 'lucide-react';
-import { useState } from 'react';
+import { Link, useLocation, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { ArrowLeft, EllipsisVertical } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import type { z } from 'zod';
 import { BaseInfoDialog } from '../../../components/knowledge/knowledge-base-info.js';
 import { KnowledgeEvaluations } from '../../../components/knowledge/knowledge-evaluations.js';
-import { ExpertUsage } from '../../../components/knowledge/knowledge-expert-usage.js';
 import { FaqTab } from '../../../components/knowledge/knowledge-faq.js';
 import { ImagesTab } from '../../../components/knowledge/knowledge-images.js';
 import { KnowledgeOverview } from '../../../components/knowledge/knowledge-overview.js';
@@ -16,7 +15,13 @@ import { Page, PageBody, PageHeader, PageTopbar } from '../../../components/page
 import { ErrorState, LoadingState } from '../../../components/states.js';
 import { StatusBadge } from '../../../components/status-badge.js';
 import { Button, buttonVariants } from '../../../components/ui/button.js';
-import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../../../components/ui/dropdown-menu.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../../components/ui/tabs.js';
 import { can } from '../../../lib/access.js';
 import { knowledgeTabs as tabs } from '../../../lib/detail-tabs.js';
@@ -33,6 +38,7 @@ type DetailSearch = z.infer<typeof knowledgeDetailSearchSchema>;
 export function KnowledgeDetailPage() {
   const { baseId } = useParams({ from: '/_shell/knowledge/$baseId' });
   const search = useSearch({ from: '/_shell/knowledge/$baseId' });
+  const location = useLocation();
   const navigate = useNavigate();
   const base = useKnowledgeBase(baseId);
   const me = useQuery(meQuery);
@@ -49,11 +55,26 @@ export function KnowledgeDetailPage() {
   const canReadAgents = can(me.data, 'agents.read');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTrigger, setSettingsTrigger] = useState<HTMLElement | null>(null);
+  const moreTrigger = useRef<HTMLButtonElement>(null);
   const [editingOpen, setEditingOpen] = useState(false);
   const [editTrigger, setEditTrigger] = useState<HTMLElement | null>(null);
-  const [expertsOpen, setExpertsOpen] = useState(false);
 
-  const go = (patch: Partial<DetailSearch>, replace = false): void => {
+  useEffect(() => {
+    if (tab !== 'overview' || location.hash.replace(/^#/, '') !== 'knowledge-expert-usage') return;
+    const target = document.getElementById('knowledge-expert-usage');
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView?.({ block: 'start' });
+    void navigate({
+      to: '/knowledge/$baseId',
+      params: { baseId },
+      search: { ...search, panel: 'overview' },
+      hash: '',
+      replace: true,
+    });
+  }, [tab, location.hash, baseId, navigate, search]);
+
+  const go = (patch: Partial<DetailSearch>, replace = false, hash?: string): void => {
     const next = Object.fromEntries(
       Object.entries({ ...search, ...patch }).filter(([, value]) => value !== undefined),
     ) as DetailSearch;
@@ -62,6 +83,7 @@ export function KnowledgeDetailPage() {
       params: { baseId },
       search: next,
       replace,
+      hash: hash ?? '',
     });
   };
 
@@ -101,40 +123,56 @@ export function KnowledgeDetailPage() {
               ) : undefined
             }
             actions={
-              <>
-                {base.data && canReadAgents ? (
-                  <Popover open={expertsOpen} onOpenChange={setExpertsOpen}>
-                    <PopoverTrigger render={<Button variant="outline" />}>
-                      使用此库的专家
-                    </PopoverTrigger>
-                    <PopoverContent align="end" className="w-80" aria-label="使用此库的专家">
-                      <ExpertUsage base={base.data} enabled={expertsOpen} />
-                    </PopoverContent>
-                  </Popover>
-                ) : null}
-                {base.data && caps.update ? (
-                  <Button
-                    variant="outline"
-                    onClick={(event) => {
-                      setEditTrigger(event.currentTarget);
-                      setEditingOpen(true);
-                    }}
-                  >
-                    编辑信息
-                  </Button>
-                ) : null}
-                {base.data && caps.update ? (
-                  <Button
-                    variant="outline"
-                    onClick={(event) => {
-                      setSettingsTrigger(event.currentTarget);
-                      setSettingsOpen(true);
-                    }}
-                  >
-                    设置
-                  </Button>
-                ) : null}
-              </>
+              base.data && (caps.update || canReadAgents) ? (
+                <>
+                  {caps.update ? (
+                    <Button
+                      onClick={(event) => {
+                        setEditTrigger(event.currentTarget);
+                        setEditingOpen(true);
+                      }}
+                    >
+                      编辑信息
+                    </Button>
+                  ) : null}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button ref={moreTrigger} variant="ghost" size="icon" aria-label="更多操作">
+                          <EllipsisVertical aria-hidden="true" />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+                      <DropdownMenuGroup>
+                        {canReadAgents ? (
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              go(
+                                { panel: 'overview' },
+                                tab === 'overview',
+                                'knowledge-expert-usage',
+                              )
+                            }
+                          >
+                            使用此库的专家
+                          </DropdownMenuItem>
+                        ) : null}
+                        {caps.update ? (
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              setSettingsTrigger(moreTrigger.current);
+                              setSettingsOpen(true);
+                            }}
+                          >
+                            设置
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
+              ) : undefined
             }
             className="min-w-0"
           />

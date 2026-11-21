@@ -273,7 +273,7 @@ afterEach(async () => {
 });
 
 describe('plugin detail', () => {
-  it('opens on the overview with the README, capabilities and plugin facts', () => {
+  it('opens on the overview with the README, capabilities and plugin facts', async () => {
     mount();
     expect(body().querySelector('h1')?.textContent).toBe('演示插件');
     expect(body().querySelectorAll('h1')).toHaveLength(1);
@@ -286,7 +286,10 @@ describe('plugin detail', () => {
     expect(panel('intro').querySelector('aside')?.textContent).toContain('demo@market');
     expect(panel('intro').querySelector('aside')?.textContent).toContain('关联专家3');
     expect(panel('intro').textContent).toContain('处理 alpha 任务');
-    expect(body().querySelector('a[href="/api/plugins/plugin-1/export"]')).not.toBeNull();
+    const more = buttons().find((item) => item.getAttribute('aria-label') === '更多操作');
+    if (!more) throw new Error('Missing 更多操作');
+    await click(more);
+    expect(document.querySelector('a[href="/api/plugins/plugin-1/export"]')).not.toBeNull();
     expect(body().querySelector('a[href="/plugins"]')).not.toBeNull();
     expect(body().querySelector('[data-slot="page-topbar"]')?.textContent).toContain(
       `${plugin.slug} · ${plugin.description}`,

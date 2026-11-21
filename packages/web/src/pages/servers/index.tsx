@@ -4,9 +4,9 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import {
   CircleAlert,
   CircleCheck,
+  EllipsisVertical,
   LibraryBig,
   LoaderCircle,
-  MoreHorizontal,
   Plus,
   Upload,
 } from 'lucide-react';
@@ -513,7 +513,7 @@ export function ServersPage() {
               <DropdownMenuTrigger
                 render={
                   <Button ref={moreTriggerRef} variant="ghost" size="icon" aria-label="更多操作">
-                    <MoreHorizontal aria-hidden="true" />
+                    <EllipsisVertical aria-hidden="true" />
                   </Button>
                 }
               />

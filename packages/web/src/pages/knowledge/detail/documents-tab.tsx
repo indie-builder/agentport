@@ -3,10 +3,10 @@ import { Toolbar, ToolbarButton } from '@ui-sdk/react/toolbar';
 import {
   ChevronDown,
   Download,
+  EllipsisVertical,
   FileText,
   Folder,
   FolderOpen,
-  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
@@ -153,10 +153,13 @@ export function DocumentsTab({
     'move' | 'copy' | 'tag' | 'delete' | 'reprocess' | null
   >(null);
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
+  const [leaveCancelled, setLeaveCancelled] = useState(false);
   const uploadBlocker = useFormBlocker(false, uploading !== null);
   useEffect(() => {
-    if (uploading === null && uploadBlocker.status === 'blocked') uploadBlocker.proceed();
-  }, [uploading, uploadBlocker]);
+    if (uploading === null && uploadBlocker.status === 'blocked' && !leaveCancelled) {
+      uploadBlocker.proceed();
+    }
+  }, [uploading, uploadBlocker, leaveCancelled]);
 
   const candidateDocument = resolvedDocument ?? knownDocument;
   const viewingDocument =
@@ -299,7 +302,7 @@ export function DocumentsTab({
                           onFocus={(event) => setFolderTrigger(event.currentTarget)}
                           onClick={(event) => setFolderTrigger(event.currentTarget)}
                         >
-                          <MoreHorizontal />
+                          <EllipsisVertical />
                         </Button>
                       }
                     />
@@ -668,7 +671,7 @@ export function DocumentsTab({
                               onFocus={(event) => setActionTrigger(event.currentTarget)}
                               onClick={(event) => setActionTrigger(event.currentTarget)}
                             >
-                              <MoreHorizontal />
+                              <EllipsisVertical />
                             </Button>
                           }
                         />
@@ -852,7 +855,11 @@ export function DocumentsTab({
           description="文件正在上传；批次结束前不能切换页签或离开知识库。"
           confirmLabel="继续离开"
           confirmDisabled={uploading !== null}
-          onClose={() => uploadBlocker.reset?.()}
+          onCancel={() => setLeaveCancelled(true)}
+          onClose={() => {
+            setLeaveCancelled(false);
+            uploadBlocker.reset?.();
+          }}
           onConfirm={async () => uploadBlocker.proceed()}
         />
       </div>

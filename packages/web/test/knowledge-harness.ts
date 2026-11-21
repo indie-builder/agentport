@@ -29,7 +29,22 @@ export const base = {
   status: 'active',
   embeddingProfileId: 'profile_1',
   rerankProfileId: null,
-  settings: { chunkTokens: 800, chunkOverlap: 120, wikiAutoUpdate: false },
+  asrProfileId: null,
+  settings: {
+    chunkTokens: 800,
+    chunkOverlap: 120,
+    wikiAutoUpdate: false,
+    imageProcessing: {
+      enabled: false,
+      model: null,
+      ocrEnabled: false,
+      captionEnabled: false,
+      descriptionLanguage: 'zh-CN',
+      customInstructions: '',
+      imageVectorEnabled: false,
+      imageVectorMinScore: 0.3,
+    },
+  },
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-02T00:00:00Z',
 };
