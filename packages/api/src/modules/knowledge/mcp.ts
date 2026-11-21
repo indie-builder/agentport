@@ -1,4 +1,4 @@
-import { type Database, repo } from '@agentport/db';
+import { type Database, isCanonicalTimestamp, repo } from '@agentport/db';
 import type {
   KnowledgeListInput,
   KnowledgeListResult,
@@ -330,18 +330,26 @@ interface ListCursor {
 
 function decodeCursor(value: string | undefined): ListCursor | null {
   if (value === undefined) return null;
-  try {
-    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown;
+  const text = Buffer.from(value, 'base64url').toString('utf8');
+  const canonical = Buffer.from(text, 'utf8').toString('base64url') === value;
+  let parsed: unknown = null;
+  if (canonical) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {}
+  }
+  if (typeof parsed === 'object' && parsed !== null) {
+    const cursor = parsed as Partial<ListCursor>;
     if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      typeof (parsed as ListCursor).updatedAt === 'string' &&
-      typeof (parsed as ListCursor).id === 'string' &&
-      ['document', 'faq', 'wiki'].includes((parsed as ListCursor).kind)
-    ) {
-      return parsed as ListCursor;
-    }
-  } catch {}
+      typeof cursor.updatedAt === 'string' &&
+      isCanonicalTimestamp(cursor.updatedAt) &&
+      typeof cursor.id === 'string' &&
+      cursor.id !== '' &&
+      !cursor.id.includes('\u0000') &&
+      (cursor.kind === 'document' || cursor.kind === 'faq' || cursor.kind === 'wiki')
+    )
+      return cursor as ListCursor;
+  }
   throw new KnowledgeReadError('INVALID_INPUT', '分页游标无效，请刷新后重试');
 }
 /** 原始 SQL 的 timestamptz 在不同驱动下可能是 Date 或字符串，统一成 ISO。 */
@@ -387,9 +395,7 @@ async function listReadable(
     if (!anchor) throw new KnowledgeReadError('INVALID_INPUT', '分页游标无效，请刷新后重试');
   }
   const after = cursor
-    ? sql`where (updated_at, id, kind) < (
-        select updated_at, id, kind from items where id = ${cursor.id} and kind = ${cursor.kind}
-      )`
+    ? sql`where (updated_at, id, kind) < (${cursor.updatedAt}::timestamptz, ${cursor.id}, ${cursor.kind})`
     : sql``;
   const result = await db.execute<{
     id: string;

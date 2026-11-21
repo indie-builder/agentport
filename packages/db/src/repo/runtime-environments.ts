@@ -115,6 +115,7 @@ export async function listRuntimeEnvironmentPage(
           runtimeEnvironments.ownerBusinessId,
         );
   const filters: SQL[] = scope === undefined ? [] : [scope];
+  if (options.cursor?.includes('\u0000')) return null;
   if (options.cursor !== undefined) {
     const [anchor] = await db
       .select({

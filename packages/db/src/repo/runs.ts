@@ -47,7 +47,7 @@ import { getAgentsByIds, getBoundServersByAgentIds } from './agents.js';
 import { getRunChannelAccess } from './channels.js';
 import { messageText } from './chat/messages.js';
 import { markBySource } from './notifications.js';
-import { type CursorPage, keysetPage } from './pagination.js';
+import { type CursorPage, isCanonicalTimestamp, keysetPage } from './pagination.js';
 
 export interface RunListItem {
   id: string;
@@ -166,20 +166,23 @@ export async function listRuns(
 
   if (options.cursor !== undefined) {
     const parts = decodeCursor(options.cursor, 2);
-    const cursorStartedAt = parts?.[0];
-    const anchorId = parts?.[1];
+    if (parts === null) return null;
+    const cursorStartedAt = parts[0];
+    const anchorId = parts[1];
     if (cursorStartedAt === undefined || anchorId === undefined) return null;
+    if (anchorId === '' || anchorId.includes('\u0000')) return null;
+    if (cursorStartedAt !== '' && !isCanonicalTimestamp(cursorStartedAt)) return null;
     const [anchor] = await db
-      .select({ id: agentRuns.id, startedAt: runStartedAtCursor })
+      .select({ id: agentRuns.id })
       .from(agentRuns)
       .where(and(...filters, eq(agentRuns.id, anchorId)))
       .limit(1);
-    if (!anchor || (anchor.startedAt ?? '') !== cursorStartedAt) return null;
-    if (anchor.startedAt === null) {
+    if (!anchor) return null;
+    if (cursorStartedAt === '') {
       filters.push(sql`(${agentRuns.startedAt} is null and ${agentRuns.id} < ${anchorId})`);
     } else {
       filters.push(
-        sql`(${agentRuns.startedAt} is null or (${agentRuns.startedAt}, ${agentRuns.id}) < (${anchor.startedAt}::timestamptz, ${anchorId}))`,
+        sql`(${agentRuns.startedAt} is null or (${agentRuns.startedAt}, ${agentRuns.id}) < (${cursorStartedAt}::timestamptz, ${anchorId}))`,
       );
     }
   }

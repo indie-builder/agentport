@@ -1,6 +1,6 @@
 import { fail } from '@agentport/core';
 import type { GovernanceResource, ResourceGrantInput, ResourceKind } from '@agentport/shared';
-import { and, asc, eq, ilike } from 'drizzle-orm';
+import { and, asc, eq, ilike, type SQL } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import {
@@ -37,14 +37,17 @@ export async function listGovernanceResources(
     limit: input.limit,
     column: table.name,
     direction: 'asc',
+    valueCursor: (row: { cursorValue: string }) => row.cursorValue,
+    cursorKind: 'text',
     where: [input.q ? ilike(table.name, `%${input.q}%`) : undefined],
-    load: ({ where, limit }) =>
+    load: ({ where, limit }: { where: SQL | undefined; limit: number }) =>
       db
         .select({
           id: table.id,
           name: table.name,
           ownerBusinessId: table.ownerBusinessId,
           ownerName: authUsers.name,
+          cursorValue: table.name,
         })
         .from(table)
         .leftJoin(authUsers, eq(authUsers.businessId, table.ownerBusinessId))
@@ -54,7 +57,7 @@ export async function listGovernanceResources(
   });
   if (!page) return null;
   return {
-    items: page.items.map((row) => ({ resourceKind: kind, ...row })),
+    items: page.items.map(({ cursorValue, ...row }) => ({ resourceKind: kind, ...row })),
     nextCursor: page.nextCursor,
   };
 }

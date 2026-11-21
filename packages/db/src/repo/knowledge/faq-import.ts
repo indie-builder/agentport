@@ -16,7 +16,7 @@ import {
   knowledgeJobs,
 } from '../../schema.js';
 import { createJob } from './jobs.js';
-import type { KnowledgeDocumentRow } from './shared.js';
+import { clampDocumentTitle, type KnowledgeDocumentRow } from './shared.js';
 import {
   type CreateVersionInput,
   createVersion,
@@ -173,7 +173,7 @@ export async function saveFaqImportDrafts(
           id: draft.documentId,
           baseId: input.baseId,
           folderId: draft.folderId ?? null,
-          title: draft.title ?? draft.faq.question,
+          title: clampDocumentTitle(draft.title ?? draft.faq.question),
           sourceType: 'manual',
           sourceId: null,
           sourceUrl: null,

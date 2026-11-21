@@ -27,8 +27,13 @@ offsetPageSchema(item)   // { items: item[], total: number }
 ```
 
 - `nextCursor === null` 表示没有下一页。
-- 游标无效、过期或锚点不在当前访问/筛选范围内时，服务端返回 400，不返回空页。
+- 游标无效、过期或锚点不在当前访问/筛选范围内时，HTTP 入口返回 400，不返回空页；MCP 工具返回 `INVALID_INPUT` 工具错误。
 - 客户端把 `cursor` 当作不透明字符串，不解析、不拼接。
+- 值游标把页边界固定在签发该页时记录的值：游标内嵌该行的排序值（时间列为时间戳文本，名称/标题列为原文），续页时不再回查锚点当前值。
+  - 共 11 处 `keysetPage` 调用启用该模式，其中两处是知识库文档与 Wiki 的 repo 读取入口（校验失败返回 `null`）。
+  - runs 的 `[startedAt, id]` 与 MCP `knowledge_list` 的 `{updatedAt, id, kind}` 也用签发值固定边界。
+  - 已返回的行若在签发后改变排序值并跨到边界另一侧，仍可能再次出现；未返回的行若改到边界之前则会被跳过，游标不承诺跨写入的稳定快照。
+  - 知识库图片游标与 agents 的 `name` / `recent` 排序仍在续页时回查锚点当前排序值，边界仍会漂移（既有行为，不在本计划范围）。
 
 现有例外（不改造成新信封）：
 
@@ -50,9 +55,9 @@ offsetPageSchema(item)   // { items: item[], total: number }
 | `adminPageQuerySchema` | 50 | 200 | `cursor` |
 | `offsetQuerySchema` | 50 | 100 | `offset`（默认 0） |
 
-`cursor` 是不透明字符串，输入上限统一为 `CURSOR_MAX_LENGTH = 16384`（`packages/shared/src/pagination.ts`）。该上限必须覆盖服务端自己签发的最长游标：工作区产出游标内嵌最长 1024 字符的输出路径，`JSON.stringify` 会把控制字符转义成 `\uXXXX`（每个字符最多 6 字节），即最多 1024 × 6 ≈ 6144 字节；加上 `createdAt`、`runId` 与键名约 6.3 KB；base64url 再放大 4/3 约 8.4 KB（实测 8312 字符）。`8192` 会让接口拒绝自己的 `nextCursor`，`16384` 留出余量。不为单个接口另设游标上限。
+`cursor` 是不透明字符串。`CURSOR_MAX_LENGTH = 16384`（`packages/shared/src/pagination.ts`）只约束 `pageQuerySchema` / `adminPageQuerySchema` 系列（含在其上 `extend` 的查询）。知识库文档标题游标内嵌标题原文，但标题在写入边界统一收敛到 `KNOWLEDGE_DOCUMENT_TITLE_MAX_CHARS = 300` 个 Unicode 码点（`packages/shared/src/knowledge.ts`），编码后的最长游标仍远低于 16 KB 的 HTTP 请求行预算。
 
-三个专用短 ID 契约是例外，仍各自保留 200 字符的游标上限（`evalRunListQuerySchema` 见 `packages/shared/src/schemas.ts`，`personalRunListQuerySchema`、`personalShareListQuerySchema` 见 `packages/shared/src/personal.ts`）：它们只签当前页末条的 TypeID，游标长度有界，远低于 200。其余列表一律使用 `pageQuerySchema` / `adminPageQuerySchema` 的 16384。
+专用游标契约各自定义边界：`evalRunListQuerySchema`（`packages/shared/src/schemas.ts`）与 `personalRunListQuerySchema`、`personalShareListQuerySchema`（`packages/shared/src/personal.ts`）保留 200 字符上限，它们只签当前页末条的 TypeID；数据域列表、查询记录与审批列表（`packages/shared/src/data-domain.ts`）的 `cursor` 只要求非空。通知（`/api/notifications`）与会话搜索（`/api/conversations/search`）的游标也只要求非空，且两者都在绑定 SQL 前拒绝含 NUL 的值，按无效游标返回 400。
 
 接口专属上限仍可收窄或放宽，但必须写在契约里，例如：
 
@@ -72,10 +77,11 @@ offsetPageSchema(item)   // { items: item[], total: number }
 `keysetPage`（`packages/db/src/repo/pagination.ts`）：
 
 - 参数包含 `table`、`cursor`、`limit`、`column`、`direction`、`where`、`load`；可选自定义 `id` 列。
-- 有游标时，先在同一组 `where` 条件（含 `AccessFilter` 与业务筛选）内按 id 重查锚点；找不到返回 `null`，由 API 转成 400。
-- 边界用 `keysetBound` 生成 `(column, id)` 元组比较，id 是必要的并列 tie-breaker；`column` 本身是 id 时退化为 `>` / `<`。
+- 默认游标只存 id。有游标时，先在同一组 `where` 条件（含 `AccessFilter` 与业务筛选）内按 id 重查锚点；找不到返回 `null`，由 API 转成 400。边界由 `keysetBound` 子查询读取锚点当前的排序值。
+- 显式传入 `valueCursor` 的列表（本次接入 11 处）用值游标 `{v, id}`（base64url 编码的 JSON 对象）：锚点仍按 id 重查以校验可见性与范围，但边界直接用签发时记录的 `v`，不回查锚点当前值。`v` 与 `id` 都非空且拒绝 NUL；`timestamp` 的 `v` 还必须是规范微秒时间戳。解析或校验不通过返回 `null`。
+- 边界用 `(column, id)` 元组比较，id 是必要的并列 tie-breaker；`column` 本身是 id 时退化为 `>` / `<`。
 - 默认 `column = createdAt`、`direction = desc`；其他排序必须显式传入。
-- 查询固定取 `limit + 1` 条；`paginate` 只返回前 `limit` 条，多出的第 `limit + 1` 条决定 `nextCursor` 为该页最后一条的 id。
+- 查询固定取 `limit + 1` 条；`paginate` 只返回前 `limit` 条，多出的第 `limit + 1` 条决定 `nextCursor`：默认取末条 id，调用方传 `cursorOf` 时用它签发自定义游标（值游标由 `keysetPage` 自动签发）。
 - offset 只用于管理表格或选择器：同一筛选条件并行执行 count 与 page 查询，返回 `total`。用户滚动列表不使用 offset。
 - 频道消息的 `after` / `before` 是数值 seq 边界，直接用于 `>` / `<` 比较，不要求对应现存消息。
 - 审计验链的 `afterSeq` 与 NDJSON 导出按 `chain_seq` 校验锚点：验链找不到锚点时返回 `ok: false`、`complete: false`；导出或列表找不到锚点时转 `invalidCursor()`。
@@ -84,10 +90,11 @@ offsetPageSchema(item)   // { items: item[], total: number }
 复合游标：
 
 - 多列排序、排序模式切换用 `encodeCursor(parts)` / `decodeCursor(cursor, expectedParts)`（base64url 编码的 JSON 字符串数组）。
-- `decodeCursor` 在 base64/JSON 损坏、部分数量不符或含非字符串时返回 `null`；调用方必须转 `invalidCursor()`。
-- 现有复合游标：runs `[startedAt, id]`（`startedAt` 为空时用空字符串）、agents `[sort, id]`、知识库文档 `[sort, order, id]`（默认 `created desc` 排序仍用末条 id；其他排序切换时按复合游标校验）。
+- `decodeCursor` 在 base64url 非规范编码、base64/JSON 损坏、部分数量不符或含非字符串时返回 `null`；调用方必须转 `invalidCursor()`。
+- 现有复合游标：runs `[startedAt, id]`（`startedAt` 为空时用空字符串）、agents `[sort, id]`、知识库文档列表非默认排序的外层 `[sort, order, cursor]`，其中 `cursor` 可能是末条 id（`created` 排序）或值游标 `{v, id}`（`updated` 为时间戳文本、`title` 为标题原文）。agents 复合游标只带 `sort` 与 `id`，续页边界回查锚点当前的排序值，`name` / `recent` 排序下仍会漂移（既有行为，不在本计划范围）。
 - 工作区产出游标 `{createdAt, runId, path}`（base64url 编码的 JSON 对象）：版本按 `(createdAt, runId)` 倒序，同一版本内按 `path` 升序；会话产出与频道 run 产出共用该游标。
-- 知识库图片游标 `{u: updatedAt, d: documentId, n: name}`（base64url 编码的 JSON 对象）：按 `(updatedAt, documentId, name)` 倒序，锚点在当前筛选范围内按 `documentId` 与 `name` 重查。
+- 知识库图片游标 `{u: updatedAt, d: documentId, n: name}`（base64url 编码的 JSON 对象）：按 `(updatedAt, documentId, name)` 倒序，锚点在当前筛选范围内按 `documentId` 与 `name` 重查；`d` 与 `n` 非空且拒绝 NUL。`u` 只做格式校验，续页边界取自锚点当前的 `updated_at`，不是游标里的 `u`，因此边界仍会漂移。
+- MCP `knowledge_list` 游标 `{updatedAt, id, kind}`（base64url 编码的 JSON 对象）：要求 base64url 规范编码、规范微秒 `updatedAt`、非空且不含 NUL 的 `id`，`kind` 仅限 `document` / `faq` / `wiki`。续页边界使用游标内的 `updatedAt`，锚点仅按 `id` 与 `kind` 做可见性校验；无效游标返回工具错误 `INVALID_INPUT`。
 - 单键列表可以直接用锚点 id 作为游标（如审计列表）；客户端仍按不透明值处理。
 
 ## 5. API 规则
@@ -138,11 +145,11 @@ requireCursorPage(page)    // page 为 null 时调用 invalidCursor()
 | `GET /api/security/events`、`/approvals`、`/violations` | 50 / 100 | 安全事件与审批 |
 | `GET /api/governance/departments`、`/budgets`、`/resources`、`/identities` | 50 / 200 | 管理列表 |
 | `GET /api/integrations/tokens`、`/webhooks`、`GET /api/schedules` | 50 / 100 | 集成与定时任务 |
-| `GET /api/knowledge/*` 的标准列表 | 50 / 100 | 知识库、文档、来源、Wiki、chunk、版本、同步记录、任务；文档列表非默认排序使用复合游标 `[sort, order, id]` |
+| `GET /api/knowledge/*` 的标准列表 | 50 / 100 | 知识库、文档、来源、Wiki、chunk、版本、同步记录、任务；文档列表非默认排序的外层游标为 `[sort, order, cursor]`，`cursor` 为末条 id 或值游标 `{v, id}` |
 | `GET /api/knowledge/bases/{id}/images` | 50 / 100 | 图片资产；复合游标 `{u: updatedAt, d: documentId, n: name}` |
-| `GET /api/knowledge/bases/{id}/faqs` | 50 / 100 | FAQ 列表；按 `(updatedAt, id)` 倒序，游标为末条 id |
+| `GET /api/knowledge/bases/{id}/faqs` | 50 / 100 | FAQ 列表；按 `(updatedAt, id)` 倒序，使用值游标 `{v, id}` |
 | `GET /api/me/memory/versions`、`/api/agents/{id}/memory/{name}/versions`、`/api/agents/{id}/rules/{slug}/versions`、`GET /api/memory-reviews` | 50 / 100 | 记忆版本与审核 |
-| `GET /api/data-domains`、`/{id}/query-logs`、`/{id}/approvals` | 50 / 100 | 数据域列表与查询记录 |
+| `GET /api/data-domains`、`/{id}/query-logs`、`/{id}/approvals` | 50 / 100 | 数据域列表与查询记录；列表游标为 `createdAt\|id` 的 base64url 文本，服务端按末条 id 校验锚点；查询记录与审批游标为末条 id |
 
 ### offset 页码
 

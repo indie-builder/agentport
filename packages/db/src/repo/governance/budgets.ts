@@ -1,6 +1,6 @@
 import { fail } from '@agentport/core';
 import type { AgentDefinition, BudgetInput, BudgetScopeKind } from '@agentport/shared';
-import { and, count, desc, eq, gte, lt, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, getTableColumns, gte, lt, or, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
 import {
@@ -16,7 +16,7 @@ import {
 import { getIdentity } from '../accounts.js';
 import { enqueueWebhookEvent } from '../integrations.js';
 import { createNotification } from '../notifications.js';
-import { type CursorPage, keysetPage } from '../pagination.js';
+import { type CursorPage, cursorValueSql, keysetPage } from '../pagination.js';
 import { getDepartmentIdForBusinessId } from './departments.js';
 import { listAlertRecipientBusinessIds } from './reporting.js';
 import { resourceTables } from './resources.js';
@@ -97,10 +97,15 @@ export async function listBudgetStatuses(
     limit: input.limit,
     column: budgetLimits.updatedAt,
     direction: 'desc',
+    valueCursor: (row: { cursorValue: string }) => row.cursorValue,
+    cursorKind: 'timestamp',
     where: [],
-    load: ({ where, limit }) =>
+    load: ({ where, limit }: { where: SQL | undefined; limit: number }) =>
       db
-        .select()
+        .select({
+          ...getTableColumns(budgetLimits),
+          cursorValue: cursorValueSql(budgetLimits.updatedAt),
+        })
         .from(budgetLimits)
         .where(where)
         .orderBy(desc(budgetLimits.updatedAt), desc(budgetLimits.id))
@@ -108,7 +113,7 @@ export async function listBudgetStatuses(
   });
   if (!page) return null;
   return {
-    items: await Promise.all(page.items.map((row) => budgetStatus(db, row))),
+    items: await Promise.all(page.items.map(({ cursorValue, ...row }) => budgetStatus(db, row))),
     nextCursor: page.nextCursor,
   };
 }

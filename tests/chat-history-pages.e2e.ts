@@ -362,6 +362,56 @@ test('switching conversations in the history panel drops the old messages', {
   }
 });
 
+test('conversation list cursor stays stable when the anchor receives a newer message', {
+  session: 'admin',
+}, async ({ app, browser }) => {
+  await app.open('/chat');
+  const agent = await createAgent(browser);
+  try {
+    await Promise.all([
+      createConversation(agent.id, 3, 'cursor-page-a-'),
+      createConversation(agent.id, 3, 'cursor-page-b-'),
+      createConversation(agent.id, 3, 'cursor-page-c-'),
+    ]);
+
+    const first = await browser.evaluate(async (agentId: string) => {
+      const res = await fetch(`/api/conversations?agentId=${agentId}&limit=2`);
+      if (res.status !== 200) {
+        throw new Error(`GET /api/conversations ${res.status}: ${await res.text()}`);
+      }
+      const body = (await res.json()) as {
+        items: { id: string }[];
+        nextCursor: string | null;
+      };
+      return { ids: body.items.map((item) => item.id), nextCursor: body.nextCursor };
+    }, agent.id);
+    expect(first.ids).toHaveLength(2);
+    const anchor = first.ids[1];
+    if (anchor === undefined || first.nextCursor === null) throw new Error('首页缺少锚点或游标');
+
+    await appendMessages(anchor, 3, 1, 'cursor-anchor-');
+
+    const second = await browser.evaluate(
+      async (query: { agentId: string; cursor: string }) => {
+        const res = await fetch(
+          `/api/conversations?agentId=${query.agentId}&limit=2&cursor=${encodeURIComponent(query.cursor)}`,
+        );
+        const body = (await res.json()) as { items: { id: string }[] };
+        return { status: res.status, ids: body.items.map((item) => item.id) };
+      },
+      { agentId: agent.id, cursor: first.nextCursor },
+    );
+
+    expect(second.status).toBe(200);
+    expect(second.ids.length).toBeGreaterThan(0);
+    expect(second.ids.filter((id) => first.ids.includes(id))).toEqual([]);
+    expect(second.ids).not.toContain(anchor);
+    expect(new Set(second.ids).size).toBe(second.ids.length);
+  } finally {
+    await cleanup(agent.id);
+  }
+});
+
 test('renaming the open conversation keeps the loaded history and pages older ones', {
   session: 'admin',
 }, async ({ app, screen, browser }) => {

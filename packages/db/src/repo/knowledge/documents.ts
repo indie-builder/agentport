@@ -1,10 +1,22 @@
 import { decodeCursor, encodeCursor } from '@agentport/shared';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNotNull,
+  isNull,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeDocuments, knowledgeDocumentTags, knowledgeTags } from '../../schema.js';
-import { keysetPage } from '../pagination.js';
+import { cursorValueSql, keysetPage } from '../pagination.js';
 import {
+  clampDocumentTitle,
   disableDocumentsBySourceTx,
   escapeLike,
   type KnowledgeDocumentRow,
@@ -37,7 +49,7 @@ export async function createDocument(
 ): Promise<KnowledgeDocumentRow> {
   const [row] = await db
     .insert(knowledgeDocuments)
-    .values({ id: newId('knowledgeDocument'), ...input })
+    .values({ id: newId('knowledgeDocument'), ...input, title: clampDocumentTitle(input.title) })
     .returning();
   if (!row) throw new Error('knowledge document insert returned no row');
   return row;
@@ -147,10 +159,22 @@ export async function listDocuments(
     limit,
     column: sortColumn,
     direction,
+    ...(sort === 'updated' || sort === 'title'
+      ? {
+          valueCursor: (row: { cursorValue: string }) => row.cursorValue,
+          cursorKind: sort === 'updated' ? ('timestamp' as const) : ('text' as const),
+        }
+      : {}),
     where: filters,
-    load: ({ where, limit }) =>
+    load: ({ where, limit }: { where: SQL | undefined; limit: number }) =>
       db
-        .select()
+        .select({
+          ...getTableColumns(knowledgeDocuments),
+          cursorValue:
+            sort === 'title'
+              ? knowledgeDocuments.title
+              : cursorValueSql(knowledgeDocuments.updatedAt),
+        })
         .from(knowledgeDocuments)
         .where(where)
         .orderBy(orderBy(sortColumn), orderBy(knowledgeDocuments.id))
@@ -158,7 +182,7 @@ export async function listDocuments(
   });
   if (page === null) return null;
   return {
-    items: page.items,
+    items: page.items.map(({ cursorValue, ...row }) => row),
     nextCursor:
       page.nextCursor === null
         ? null
@@ -203,21 +227,31 @@ export async function listFaqDocuments(
       order by v.version desc limit 1
     ), 'true') = ${String(filter.isRecommended)}`);
   }
-  return keysetPage(db, {
+  const page = await keysetPage(db, {
     table: knowledgeDocuments,
     cursor: filter.cursor,
     limit: pageLimit(filter),
     column: knowledgeDocuments.updatedAt,
     direction: 'desc',
+    valueCursor: (row: { cursorValue: string }) => row.cursorValue,
+    cursorKind: 'timestamp',
     where: filters,
-    load: ({ where, limit }) =>
+    load: ({ where, limit }: { where: SQL | undefined; limit: number }) =>
       db
-        .select()
+        .select({
+          ...getTableColumns(knowledgeDocuments),
+          cursorValue: cursorValueSql(knowledgeDocuments.updatedAt),
+        })
         .from(knowledgeDocuments)
         .where(where)
         .orderBy(desc(knowledgeDocuments.updatedAt), desc(knowledgeDocuments.id))
         .limit(limit),
   });
+  if (page === null) return null;
+  return {
+    items: page.items.map(({ cursorValue, ...row }) => row),
+    nextCursor: page.nextCursor,
+  };
 }
 
 export interface DocumentPatch {
@@ -239,7 +273,11 @@ export async function updateDocument(
 ): Promise<KnowledgeDocumentRow | null> {
   const [row] = await db
     .update(knowledgeDocuments)
-    .set({ ...patch, updatedAt: new Date() })
+    .set({
+      ...patch,
+      ...(patch.title === undefined ? {} : { title: clampDocumentTitle(patch.title) }),
+      updatedAt: new Date(),
+    })
     .where(eq(knowledgeDocuments.id, id))
     .returning();
   return row ?? null;
@@ -395,20 +433,30 @@ export async function listReadableDocuments(
   ];
   const kinds = filter.kinds ?? ['document', 'faq'];
   filters.push(inArray(knowledgeDocuments.contentKind, kinds));
-  return keysetPage(db, {
+  const page = await keysetPage(db, {
     table: knowledgeDocuments,
     cursor: filter.cursor,
     limit,
     column: knowledgeDocuments.updatedAt,
+    valueCursor: (row: { cursorValue: string }) => row.cursorValue,
+    cursorKind: 'timestamp',
     where: filters,
-    load: ({ where, limit }) =>
+    load: ({ where, limit }: { where: SQL | undefined; limit: number }) =>
       db
-        .select()
+        .select({
+          ...getTableColumns(knowledgeDocuments),
+          cursorValue: cursorValueSql(knowledgeDocuments.updatedAt),
+        })
         .from(knowledgeDocuments)
         .where(where)
         .orderBy(desc(knowledgeDocuments.updatedAt), desc(knowledgeDocuments.id))
         .limit(limit),
   });
+  if (page === null) return null;
+  return {
+    items: page.items.map(({ cursorValue, ...row }) => row),
+    nextCursor: page.nextCursor,
+  };
 }
 
 /** 外部来源失权/删除：文档置 disabled，不物理删、不参与检索。

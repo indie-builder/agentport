@@ -124,6 +124,7 @@ export async function listIdentityPage(
   input: { q?: string | undefined; cursor?: string | undefined; limit: number },
 ): Promise<CursorPage<IdentitySummary> | null> {
   const filter = searchFilter(input.q);
+  if (input.cursor?.includes('\u0000')) return null;
   if (input.cursor !== undefined) {
     const [anchor] = await db.execute<{ businessId: string }>(sql`
       select ids.business_id as "businessId"

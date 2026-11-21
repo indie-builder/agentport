@@ -1,6 +1,6 @@
 import { fail } from '@agentport/core';
 import type { Department, DepartmentInput, DepartmentMembersInput } from '@agentport/shared';
-import { and, asc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, inArray, ne, type SQL } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { authUsers, departmentMembers, departments } from '../../schema.js';
@@ -54,10 +54,15 @@ export async function listDepartments(
     limit: input.limit,
     column: departments.name,
     direction: 'asc',
+    valueCursor: (row: { cursorValue: string }) => row.cursorValue,
+    cursorKind: 'text',
     where: [],
-    load: ({ where, limit }) =>
+    load: ({ where, limit }: { where: SQL | undefined; limit: number }) =>
       db
-        .select()
+        .select({
+          ...getTableColumns(departments),
+          cursorValue: departments.name,
+        })
         .from(departments)
         .where(where)
         .orderBy(asc(departments.name), asc(departments.id))
@@ -69,7 +74,7 @@ export async function listDepartments(
     page.items.map((row) => row.id),
   );
   return {
-    items: page.items.map((row) => toDepartment(row, members)),
+    items: page.items.map(({ cursorValue, ...row }) => toDepartment(row, members)),
     nextCursor: page.nextCursor,
   };
 }

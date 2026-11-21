@@ -1,3 +1,4 @@
+import { KNOWLEDGE_DOCUMENT_TITLE_MAX_CHARS } from '@agentport/shared';
 import { and, asc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../../client.js';
 import {
@@ -49,6 +50,10 @@ export type SourceDocumentPatch = Pick<
   KnowledgeDocumentRow,
   'title' | 'sourceUrl' | 'sourcePath' | 'mimeType' | 'sizeBytes' | 'metadata'
 >;
+
+export function clampDocumentTitle(title: string): string {
+  return [...title].slice(0, KNOWLEDGE_DOCUMENT_TITLE_MAX_CHARS).join('');
+}
 
 export type Page<T> = CursorPage<T>;
 
