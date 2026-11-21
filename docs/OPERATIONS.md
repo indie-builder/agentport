@@ -167,8 +167,8 @@ Compose 将同一 `workspaces` 卷以 `/workspaces` 挂给 API 与 worker，两�
 
 ### 2.1 前置
 
-- Bun 1.4.5（`packageManager` 已固定；依赖安装、脚本与 api/worker/sandbox 入口都用 Bun）
-- Node.js 24 LTS（要求 24 的最新补丁版本，当前 24.22.3；`engines` 为 `>=24.22.2 <25`，作为镜像基座，并继续承载按其 shebang 运行的第三方 CLI（`tsc`、`vite`、`vitest`、`drizzle-kit`、`openui`、`e2e` 等））
+- Bun（`packageManager` 已固定，版本见根 `package.json`；依赖安装、脚本与 api/worker/sandbox 入口都用 Bun）
+- Node.js 24 LTS（要求 24 的最新补丁版本，具体补丁版本与 `engines` 以根 `Dockerfile` 镜像与 `package.json` 为准；作为镜像基座，并继续承载按其 shebang 运行的第三方 CLI（`tsc`、`vite`、`vitest`、`drizzle-kit`、`openui`、`e2e` 等））
 - Bun 默认不执行未列入根 `package.json` `trustedDependencies` 的生命周期脚本；当前放行 `esbuild` 与 `msgpackr-extract`。`@openuidev/lang-core` 的 postinstall 只上报匿名安装遥测，因此不加白名单。新增带安装脚本的依赖时显式补决定，不让脚本静默运行。
 - Docker Engine + Compose
 - 宿主有 `pg_dump` / `psql`（可选；缺失时备份与恢复回退到 compose 的 postgres 容器）
@@ -208,8 +208,8 @@ curl -s http://localhost:3000/health/ready
 - `.env.example` 的 `REDIS_URL` 带 `agentport-dev` 密码，与 compose 的 redis 默认密码一致；若宿主导出了不同的 `REDIS_PASSWORD`，两边都要改。`bun run up` 生成 `.env` 时会同时写入匹配的 `REDIS_PASSWORD` 与 `REDIS_URL`。
 - compose 会占用 3000、5432、6379；如冲突，先停掉本机对应服务或改端口。
 - 知识库卷 `knowledgedata` 与 `workspaces` 一样由一次性 `init` 服务 `chown 1000:1000`（镜像 `USER node`，即 uid 1000），否则 api/worker 首次上传会 EACCES。卷内容随 `bun run backup` 的 `knowledge/` 归档；`docker compose down -v` 会连同知识库一起删除。
-- 复杂格式解析默认不部署：需要时 `docker compose --profile docling up -d docling`，并把 `.env` 的 `DOCLING_URL` 设为 `http://docling:5001`。不内置时指向外部 Docling 服务即可，`DOCLING_TOKEN` 通过 `X-Api-Key` 发送。当前配置 Docling Serve 1.38.2（tag/digest 见 `docker-compose.yml`，该镜像已预装解析模型，无需首次下载）。本轮已用该固定镜像在独立容器中验证真实 PDF 的文本、图片与表格解析、纯图片 PDF 的 OCR 开关、200/401/损坏文件的 failure 返回；镜像预装 rapidocr，无运行时模型下载。来源 pageMap 的两处缺陷已修复并经 Opus review 通过：真实响应回放确认表格 chunk 的 pageFrom 为 2、短 OCR 不侵入数字、CRLF 与多段 JSON 区间均回归通过，详细范围见任务记录。范围限于独立容器直连 Docling，`--profile docling` 的 compose 路径未实际拉起；Office 格式本轮未实测，不声称已验证；仅标题 OCR 文本在 chunk 丢失的缺陷已修复并在工作分支验证通过（真实响应回放 1/1），尚未合入 main，见任务记录。compose 的 `DOCLING_SERVE_MAX_SYNC_WAIT` 为 `600`，与客户端 10 分钟超时对齐。未配置 `DOCLING_URL` 时 PDF/Office/OCR 解析会明确报错，而不是假装成功。
-- 基础设施版本：Redis 8.10.3（compose 的 `redis` 服务，tag/digest 见 `docker-compose.yml` 与 CI）；是否已启动以当次 `docker compose ps` 为准，本文不代替运行状态。
+- 复杂格式解析默认不部署：需要时 `docker compose --profile docling up -d docling`，并把 `.env` 的 `DOCLING_URL` 设为 `http://docling:5001`。不内置时指向外部 Docling 服务即可，`DOCLING_TOKEN` 通过 `X-Api-Key` 发送。当前 Docling Serve 镜像的 tag/digest 见 `docker-compose.yml`（该镜像已预装解析模型，无需首次下载）。本轮已用该固定镜像在独立容器中验证真实 PDF 的文本、图片与表格解析、纯图片 PDF 的 OCR 开关、200/401/损坏文件的 failure 返回；镜像预装 rapidocr，无运行时模型下载。来源 pageMap 的两处缺陷已修复并经 Opus review 通过：真实响应回放确认表格 chunk 的 pageFrom 为 2、短 OCR 不侵入数字、CRLF 与多段 JSON 区间均回归通过，详细范围见任务记录。范围限于独立容器直连 Docling，`--profile docling` 的 compose 路径未实际拉起；Office 格式本轮未实测，不声称已验证；仅标题 OCR 文本在 chunk 丢失的缺陷已修复并在工作分支验证通过（真实响应回放 1/1），尚未合入 main，见任务记录。compose 的 `DOCLING_SERVE_MAX_SYNC_WAIT` 为 `600`，与客户端 10 分钟超时对齐。未配置 `DOCLING_URL` 时 PDF/Office/OCR 解析会明确报错，而不是假装成功。
+- 基础设施版本：Redis 8 系（compose 的 `redis` 服务，tag/digest 见 `docker-compose.yml` 与 CI）；是否已启动以当次 `docker compose ps` 为准，本文不代替运行状态。
 - worker 容器内是 `node` 用户，通过 `group_add: ${DOCKER_GID:-0}` 访问 socket。Linux 上若 docker 组 GID 不是 0，部署前 `export DOCKER_GID=$(getent group docker | cut -d: -f3)`。
 - Redis 健康检查（compose 里的 `healthcheck.test`）在容器内使用 redis 服务自身的 `REDIS_PASSWORD`；若宿主另行导出 `REDIS_PASSWORD`，compose 会用它重建 redis，与 `.env` 的 `REDIS_URL` 不一致时 api/worker 连不上。`bun run up` 不读取宿主导出的该变量，直接使用 `.env`。
 - 生产通过 `http://localhost:3000` 访问；Cookie 带 `Secure`，局域网 IP + HTTP 会无法保持登录。
@@ -418,7 +418,7 @@ docker compose start api worker
 ### 3.3 其他数据约束
 
 - 集成测试使用固定APP_SECRET_KEY，测试默认不再读写开发数据库：`bun run test`（`scripts/test-backend.ts`）先以 `.env` 的 `DATABASE_URL` 为管理连接创建随机库并完成迁移，再把返回的 `DATABASE_URL`/`REDIS_URL` 合并进环境后 spawn `bun test --isolate`；`bunfig.toml` 的 preload 在测试模块导入前设置固定 `APP_SECRET_KEY`、`RATE_LIMIT_DISABLED=1` 等变量。退出时只删除本轮创建的库。PostgreSQL 连不上时发布不可连地址，依赖数据库的套件跳过；管理账号需有 `CREATEDB` 权限，连接成功但建库或迁移失败（含无建库权限）属配置错误，直接报错而不跳过。
-- 测试 Redis 同样每轮独享：globalSetup 复用已缓存的 Redis 镜像（tag 以 `packages/worker/test/global-setup.ts` 的 `REDIS_IMAGE` 为准）启动临时容器（仅 loopback 随机端口、关闭持久化，实例内部仍用 db 9），退出时按本轮唯一容器名删除。本地需预先缓存该镜像（首次可显式 `docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537`，须与 `REDIS_IMAGE` 完整一致），镜像缺失属配置错误直接失败；只有 Docker 不可用时依赖 Redis 的套件才跳过。开发与各 worktree 的 worker 留在共享 Redis db 0，因此「队列里没有消费者」类断言不会被别人的 worker 干扰；禁止回落到共享 Redis，也不要为此停开发 worker。
+- 测试 Redis 同样每轮独享：globalSetup 复用已缓存的 Redis 镜像（tag 以 `packages/worker/test/global-setup.ts` 的 `REDIS_IMAGE` 为准）启动临时容器（仅 loopback 随机端口、关闭持久化，实例内部仍用 db 9），退出时按本轮唯一容器名删除。本地需预先缓存该镜像（首次按 `packages/worker/test/global-setup.ts` 的 `REDIS_IMAGE` 完整值执行 `docker pull`，须与之一致），镜像缺失属配置错误直接失败；只有 Docker 不可用时依赖 Redis 的套件才跳过。开发与各 worktree 的 worker 留在共享 Redis db 0，因此「队列里没有消费者」类断言不会被别人的 worker 干扰；禁止回落到共享 Redis，也不要为此停开发 worker。
 - URL中不能写username/password；新建、编辑和两类导入均拒绝。旧记录在列表/导出/预览显示掩码，测试连接会在传输前返回固定错误；数据库不自动改写。需改为无内嵌凭证的URL并在加密headers中配置认证后保存，详见D-33。
 - 连接器页「导入 .mcp.json」接受≤1MiB、1–100条HTTP/stdio配置；env/headers加密保存，响应只给密钥键名。任一重名整批409不覆盖；未知字段、未支持transport、`${VAR}`占位符及URL内嵌凭证明确拒绝。HTTP仍校验SSRF；导入不测试连接或执行命令，详见D-32。
 - 专家页「导入」同时接受专家JSON与≤128KiB的agent.md。Markdown只导入name/description/model/maxTurns/effort及完整正文（含H1），创建独立专家与初始版本；重名409不覆盖，不自动运行。权限和绑定使用平台默认值并提示，inherit及未支持的权限/Hook字段明确拒绝，详见D-30。
@@ -695,7 +695,7 @@ bun run --filter @agentport/web build
 
 ### 9.2 后端集成测试与 E2E
 
-根 `bun run test` 由 `scripts/test-backend.ts` 用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，只把其中的 `DATABASE_URL` 当作管理连接：它调用 `packages/worker/test/global-setup.ts`，每轮创建一个随机 PostgreSQL database 并完成迁移，同时启动一个独享临时 Redis 容器；随后把两者合并进环境，spawn `bun test --isolate --parallel=2 --timeout=20000` 并原样透传 CLI 参数。测试收集由 `bunfig.toml` 原生配置负责：`root = "."`，`pathIgnorePatterns` 排除 web、工具缓存与非测试目录，保留根 `tests/` 内的后端测试。`bunfig.toml` 的 preload（`packages/worker/test/setup-env.ts`）在测试模块导入前设置固定测试变量。后端用例不再读写开发库或共享 Redis。PostgreSQL 或 Docker 不可用时，globalSetup 注入明确的不可连地址，对应 describe 自动跳过；管理账号缺 `CREATEDB`、本地未缓存 `REDIS_IMAGE` 指定的 Redis 镜像（首次可 `docker pull redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537`）以及建库或迁移失败都属配置错误，直接报错。`bun run test:web` 不走这条路径（见 §9.1）。`bun run test:watch` 把 `--watch` 传给 `bun test`；globalSetup 只执行一次，会话内复用本轮创建的数据库与 Redis 容器，退出时统一清理，热重跑不会重建资源。
+根 `bun run test` 由 `scripts/test-backend.ts` 用 `process.loadEnvFile('.env')` 读取仓库根 `.env`，只把其中的 `DATABASE_URL` 当作管理连接：它调用 `packages/worker/test/global-setup.ts`，每轮创建一个随机 PostgreSQL database 并完成迁移，同时启动一个独享临时 Redis 容器；随后把两者合并进环境，spawn `bun test --isolate --parallel=2 --timeout=20000` 并原样透传 CLI 参数。测试收集由 `bunfig.toml` 原生配置负责：`root = "."`，`pathIgnorePatterns` 排除 web、工具缓存与非测试目录，保留根 `tests/` 内的后端测试。`bunfig.toml` 的 preload（`packages/worker/test/setup-env.ts`）在测试模块导入前设置固定测试变量。后端用例不再读写开发库或共享 Redis。PostgreSQL 或 Docker 不可用时，globalSetup 注入明确的不可连地址，对应 describe 自动跳过；管理账号缺 `CREATEDB`、本地未缓存 `REDIS_IMAGE` 指定的 Redis 镜像（首次按 `packages/worker/test/global-setup.ts` 中该常量的完整值执行 `docker pull`）以及建库或迁移失败都属配置错误，直接报错。`bun run test:web` 不走这条路径（见 §9.1）。`bun run test:watch` 把 `--watch` 传给 `bun test`；globalSetup 只执行一次，会话内复用本轮创建的数据库与 Redis 容器，退出时统一清理，热重跑不会重建资源。
 
 集成用例会创建真实的 run 记录，并断言它们停留在 `queued`/`cancelled` 状态。这类断言怕的是**同一个 Redis 实例上有 worker 在消费 `agent-runs`**。测试使用每轮独享的临时 Redis 容器（内部 db 9），开发 worker 留在共享实例的 db 0，默认互不可见，**不需要停 worker**；不要为了让测试通过把 `REDIS_URL` 指回共享实例。
 

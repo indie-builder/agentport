@@ -42,6 +42,7 @@
     "lint:focus": "bun scripts/check-focus-contract.mjs",
     "lint:contract": "bun scripts/check-project-contract.mjs",
     "lint:lines": "bun scripts/check-file-lines.mjs",
+    "lint:docs": "bun scripts/check-docs.mjs",
     "openui:meta": "bun scripts/generate-openui-meta.mjs",
     "openui:spec": "bun scripts/generate-openui-meta.mjs && openui generate packages/web/src/openui/library.tsx --spec --out packages/core/src/generated/openui.spec.json --no-telemetry",
     "test": "bun scripts/test-backend.ts",

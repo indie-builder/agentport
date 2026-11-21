@@ -1,7 +1,7 @@
 # UI SDK 升级手册
 
 > 目标：ui-sdk（`@ui-sdk/*`）发新版时，用最小改动、可验证的步骤完成升级，不靠记忆改代码。范式与 [OPENUI-UPGRADE.md](OPENUI-UPGRADE.md) 一致。
-> 本文件同时是「接入 + 升级」的基线：ui-sdk 已接入，版本、落点与升级步骤以本文表格与记录为准。
+> ui-sdk 已接入：版本以根 `package.json` 的 `workspaces.catalog` 与 `bun.lock` 为准（见「版本来源」），接入落点与升级步骤见本文。
 
 ## 接入方式（原生直连，不套层）
 
@@ -10,15 +10,23 @@
 - 样式只从 `packages/web/src/styles.css` 的 token 取，按 `data-slot` 与状态属性（`data-open`/`data-pressed`）选择；默认皮肤 `web.css` 不用。
 - 自定义组件用 `@ui-sdk/core` 的 `definePrimitive` 定义行为，再用 `@ui-sdk/react/primitive` 的 `createParts` 映射成 React 部件，写在本仓库；参考随包 `docs/` 与 `skills/SKILL.md`。
 
-## 版本基线
+## 版本来源（唯一真源）
 
-| 包 | 锁定版本 | 用途 |
-|---|---|---|
-| `@ui-sdk/core` | `0.1.0-beta.13` | 行为/primitive 层 |
-| `@ui-sdk/react` | `0.1.0-beta.13` | React 适配器 |
+本文不维护当前版本号（历史版本只出现在「升级记录」），避免与依赖漂移。版本只查以下两处：
 
-- 两者必须同版本：上游 changesets 配置为 `fixed: [["@ui-sdk/*"]]`，所有包强制一起发版。
-- 版本只在根 `package.json` 的 `catalog` 精确 pin（不用 `^`），`packages/web/package.json` 用 `"catalog:"` 引用；升级只改这一处再 `bun install`。
+| 内容 | 来源 |
+|---|---|
+| 锁定版本 | 根 `package.json` 的 `workspaces.catalog`（精确 pin，不用 `^`） |
+| 实际解析版本 | `bun.lock` |
+
+查可升级版本（同时给出 `Current` 列）：
+
+```bash
+bun outdated --filter '*'
+```
+
+- `@ui-sdk/core`（行为/primitive 层）与 `@ui-sdk/react`（React 适配器）必须同版本：上游 changesets 配置为 `fixed: [["@ui-sdk/*"]]`，所有包强制一起发版。
+- `packages/web/package.json` 用 `"catalog:"` 引用；升级只改根 `catalog` 这一处，再 `bun install`（`bun.lock` 随之更新）。
 
 ## 需要看的地方（按耦合度排序）
 
@@ -52,21 +60,21 @@ rg -n "@ui-sdk/" packages/web/src
 
 ## 升级步骤
 
-0. **留证据**：记下当前 `@ui-sdk/core`/`@ui-sdk/react` 版本，并备份随包文档 `node_modules/@ui-sdk/*/docs/`（该目录随版本发布；`skills/SKILL.md` 明确「读安装副本，它匹配当前版本」）。重装会覆盖它，升级前先留一份用于 diff。
+0. **留证据**：从根 `package.json` catalog / `bun.lock` 记下当前 `@ui-sdk/core`/`@ui-sdk/react` 版本，并备份随包文档 `node_modules/@ui-sdk/*/docs/`（该目录随版本发布；`skills/SKILL.md` 明确「读安装副本，它匹配当前版本」）。重装会覆盖它，升级前先留一份用于 diff。
 1. **读官方变更**：各包 `CHANGELOG.md`、GitHub releases（`vercel-labs/ui`）、https://ui-sdk.dev/docs 的变更；重点核对 `createParts`、`data-slot`/状态属性、`defaultValue`/`onValueChange`、`definePrimitive` 签名。
 2. **定范围**：`rg -n "@ui-sdk/" packages/web/src`。
-3. **改版本**：改根 `catalog` 的精确版本 → `bun install`（`bun.lock` 随之更新）。
+3. **改版本**：改根 `catalog` 的精确版本 → `bun install`（`bun.lock` 随之更新）。**回滚**：把 `catalog` 改回原版本再 `bun install`，或 `git restore package.json bun.lock` 后重装。
 4. **兜底定位破点**：`bun run --filter @agentport/web typecheck`，报错逐个对照「升级前备份的 docs / 新版 docs」修。typecheck 只能发现类型与签名变化，发现不了 `data-*` 状态属性、默认交互行为或可访问性变化；这些必须靠第 5 步的真实渲染与测试。
 5. **验证**：`bun run --filter @agentport/web build`；再跑 `bun run test:web` 与 `bun run visual:shots --full --route <受影响路由>` 对照 `packages/web/DESIGN.md`，重点核对 `data-slot`/状态属性样式没有失效、聚焦态未叠第二层框。
-6. **留痕**：更新本文「版本基线」，并在「升级记录」追加一条。
+6. **留痕**：在本文「升级记录」追加一条（日期、from → to、改动、踩坑、验证）。当前版本不写进本文，只以根 `package.json` catalog 与 `bun.lock` 为准。
 
 ## 关注点
 
 - `agent` / `observe` / `history` 是 experimental：升级时优先确认其 API 是否变动，用到它们的地方升级后重点复测。
 - 折叠面板：不要在 `motion-collapsible` 的 `render` 里按 `state.open` 手写 `inert`。beta.6 的退场清理会清除 inert，beta.8 改为保留 owner 在退场期间写入的 inert（否则恢复退场前状态）；若 render 按 `state.open` 写 inert，关闭写入的 inert 会被保留，重开时 React 移除后又被延迟的退场清理按关闭快照写回，导致重开后仍不可聚焦。`hidden="until-found"` 的 `content-visibility:hidden` 已让关闭内容不可聚焦，交给它即可（详见 PITFALLS）。
-- 隐藏表单字段：beta.8 起 Combobox/Select/Listbox 会渲染独立 `data-slot="combobox-form-input"` 的隐藏表单字段（现为 `<textarea>`，是否 `disabled` 取决于字段配置），按 `querySelector('textarea')` 找输入框会抓错，改用可访问名称（如 `textarea[aria-label="消息"]`）。
+- 隐藏表单字段：beta.8 起 Combobox/Select/Listbox 会渲染独立 `data-slot="combobox-form-input"` 的隐藏表单字段（`<textarea>`，是否 `disabled` 取决于字段配置），按 `querySelector('textarea')` 找输入框会抓错，改用可访问名称（如 `textarea[aria-label="消息"]`）。
 - 升级前必做第 0 步备份安装包 `docs/`，否则只能看粒度较粗的上游 changelog。
-- 依赖探测：`bun outdated`。
+- 依赖探测：`bun outdated --filter '*'`。
 
 ## 升级记录
 
