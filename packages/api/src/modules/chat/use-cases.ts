@@ -10,6 +10,7 @@ import {
   sha256Hex,
   writeConversationAttachments,
 } from '@agentport/core';
+import { logEvent } from '@agentport/core/logger';
 import { type Database, newId, repo } from '@agentport/db';
 import {
   type AccessResource,
@@ -22,6 +23,7 @@ import {
   messageAttachments,
   type PermissionId,
   type Principal,
+  RUNS_QUEUE,
   runEnqueueOptions,
 } from '@agentport/shared';
 import type { SQL } from 'bun';
@@ -494,7 +496,7 @@ export async function startRun(
       : replayExternalRun(run, externalRequest);
   }
   await enqueueRunJob({ runId: run.id, agentId, conversationId, prompt: messageText });
-  deps.log.info({ runId: run.id }, 'run enqueued');
+  logEvent(deps.log, 'run enqueued', { runId: run.id, queue: RUNS_QUEUE });
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: principal.businessId,
     action: 'agent.run.requested',

@@ -237,7 +237,7 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     );
 
     const both = await page(
-      `${targetQuery(target)}&before=2026-02-01T00:00:08.000Z${cursor(`${prefix}-010`)}`,
+      `${targetQuery(target)}&before=2026-02-01T00:00:10.000Z${cursor(`${prefix}-008`)}`,
     );
     expect(both.items.map((row) => row.id)).toEqual(
       ['007', '006', '005', '004', '003', '002', '001'].map((n) => `${prefix}-${n}`),
@@ -258,7 +258,8 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
       await exportAudit(`?cursor=${encodeURIComponent(unknown)}`),
     ]) {
       const body = expectProblem(res, 'INVALID_INPUT');
-      expect(body.message).toBe('分页游标无效');
+      expect(body.message).toBe('分页游标无效，请刷新后重试');
+      expect(body.path).toBe('/cursor');
       expect(body.message).not.toContain(unknown);
     }
 
@@ -292,16 +293,18 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     );
     const before = first.nextCursor ?? '';
 
-    const empty = await exportAudit(
-      `${targetQuery(target)}&action=audit.export.missing${cursor(before)}`,
-    );
-    expect(empty.statusCode, empty.body).toBe(200);
-    expect(empty.json<ExportBody>().items).toEqual([]);
+    const finished = await exportAudit(`${targetQuery(target)}${cursor(`${prefix}-001`)}`);
+    expect(finished.statusCode, finished.body).toBe(200);
+    expect(finished.json<ExportBody>().items).toEqual([]);
 
-    const emptyPage = await page(
-      `${targetQuery(target)}&action=audit.export.missing${cursor(before)}`,
-    );
-    expect(emptyPage.items).toEqual([]);
+    for (const rejected of [
+      await exportAudit(`${targetQuery(target)}&action=audit.export.missing${cursor(before)}`),
+      await list(`${targetQuery(target)}&action=audit.export.missing${cursor(before)}`),
+    ]) {
+      const problem = expectProblem(rejected, 'INVALID_INPUT');
+      expect(problem.message).toBe('分页游标无效，请刷新后重试');
+      expect(problem.path).toBe('/cursor');
+    }
 
     const res = await exportAudit(`${targetQuery(target)}${cursor(before)}`);
     expect(res.statusCode, res.body).toBe(200);

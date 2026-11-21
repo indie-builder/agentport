@@ -117,7 +117,8 @@ async function mount(sources: unknown[] = []) {
     ),
     http.get('/api/knowledge/jobs', () => HttpResponse.json({ items: [], nextCursor: null })),
     http.get('/api/knowledge/model-profiles', () => HttpResponse.json([])),
-    http.get('/api/agents', () => HttpResponse.json([])),
+    http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     http.post('/api/knowledge/bases/kb_1/sources', () =>
       HttpResponse.json(sourceFixture({ type: 'notion' })),
     ),

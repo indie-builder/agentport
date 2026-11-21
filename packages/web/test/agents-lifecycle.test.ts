@@ -183,9 +183,9 @@ async function mount() {
   return router;
 }
 function useAgentAs(current: Agent): void {
-  vi.mocked(api.agents).mockResolvedValue([current]);
+  vi.mocked(api.agents).mockResolvedValue({ items: [current], nextCursor: null });
   vi.mocked(api.agent).mockResolvedValue(current);
-  client.setQueryData(['agents'], [current]);
+  client.setQueryData(['agents'], { items: [current], truncated: false });
   client.setQueryData(['agent-detail', current.id], current);
 }
 async function mountAgentProbe(id: string) {
@@ -263,16 +263,20 @@ beforeEach(() => {
       disconnect() {}
     },
   );
-  vi.spyOn(api, 'agents').mockResolvedValue([agent]);
+  vi.spyOn(api, 'agents').mockResolvedValue({ items: [agent], nextCursor: null });
+  vi.spyOn(api, 'agentReference').mockResolvedValue({ items: [agent], truncated: false });
   vi.spyOn(api, 'agent').mockResolvedValue(agent);
   vi.spyOn(api, 'me').mockResolvedValue(allAccessMe);
   vi.spyOn(api, 'agentAccess').mockResolvedValue({
     agentId: agent.id,
     permissionIds: allAccessMe.grants.map((grant) => grant.permissionId),
   });
-  vi.spyOn(api, 'servers').mockResolvedValue([]);
-  vi.spyOn(api, 'skills').mockResolvedValue([]);
-  vi.spyOn(api, 'runtimeEnvironments').mockResolvedValue([defaultEnvironment, namedEnvironment]);
+  vi.spyOn(api, 'servers').mockResolvedValue({ items: [], nextCursor: null });
+  vi.spyOn(api, 'skills').mockResolvedValue({ items: [], nextCursor: null });
+  vi.spyOn(api, 'runtimeEnvironments').mockResolvedValue({
+    items: [defaultEnvironment, namedEnvironment],
+    nextCursor: null,
+  });
   vi.spyOn(api, 'agentVersions').mockResolvedValue(versions);
   vi.spyOn(api, 'agentStats').mockResolvedValue({
     agentId: agent.id,
@@ -319,16 +323,25 @@ beforeEach(() => {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } },
   });
-  client.setQueryData(['agents'], [agent]);
+  client.setQueryData(['agents'], { items: [agent], truncated: false });
   client.setQueryData(['me'], allAccessMe);
   client.setQueryData(['agent-detail', agent.id], agent);
   client.setQueryData(['agent-access', agent.id], {
     agentId: agent.id,
     permissionIds: allAccessMe.grants.map((grant) => grant.permissionId),
   });
-  client.setQueryData(['servers'], []);
-  client.setQueryData(['skills'], []);
-  client.setQueryData(['runtime-environments'], [defaultEnvironment, namedEnvironment]);
+  client.setQueryData(['servers'], {
+    pages: [{ items: [], nextCursor: null }],
+    pageParams: [undefined],
+  });
+  client.setQueryData(['skills', 'all'], {
+    pages: [{ items: [], nextCursor: null }],
+    pageParams: [undefined],
+  });
+  client.setQueryData(['runtime-environments'], {
+    pages: [{ items: [defaultEnvironment, namedEnvironment], nextCursor: null }],
+    pageParams: [undefined],
+  });
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => {
@@ -352,16 +365,16 @@ describe('useAgentSummary cache selection', () => {
   const other: Agent = { ...agent, id: 'other', slug: 'other', name: 'Other' };
 
   it('does not commit when another expert changes', async () => {
-    client.setQueryData(['agents'], [agent, other]);
+    client.setQueryData(['agents'], { items: [agent, other], truncated: false });
     const probe = await mountAgentProbe('expert');
     expect(probe.snapshot.data?.name).toBe('Expert');
     const commits = probe.snapshot.commits;
 
     await act(async () => {
-      client.setQueryData(
-        ['agents'],
-        [agent, { ...other, name: 'Other updated', updatedAt: '2026-03-01T00:00:00Z' }],
-      );
+      client.setQueryData(['agents'], {
+        items: [agent, { ...other, name: 'Other updated', updatedAt: '2026-03-01T00:00:00Z' }],
+        truncated: false,
+      });
     });
     await flush();
 
@@ -370,7 +383,7 @@ describe('useAgentSummary cache selection', () => {
   });
 
   it('does not commit when a refetch returns the same experts', async () => {
-    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json([agent]));
+    const fetch = vi.mocked(api.agentReference);
     const probe = await mountAgentProbe('expert');
     const commits = probe.snapshot.commits;
 
@@ -389,10 +402,10 @@ describe('useAgentSummary cache selection', () => {
     const commits = probe.snapshot.commits;
 
     await act(async () => {
-      client.setQueryData(
-        ['agents'],
-        [{ ...agent, name: 'Renamed', updatedAt: '2026-03-01T00:00:00Z' }],
-      );
+      client.setQueryData(['agents'], {
+        items: [{ ...agent, name: 'Renamed', updatedAt: '2026-03-01T00:00:00Z' }],
+        truncated: false,
+      });
     });
     await flush();
 
@@ -401,11 +414,11 @@ describe('useAgentSummary cache selection', () => {
   });
 
   it('returns null after the selected expert is removed', async () => {
-    client.setQueryData(['agents'], [agent, other]);
+    client.setQueryData(['agents'], { items: [agent, other], truncated: false });
     const probe = await mountAgentProbe('expert');
 
     await act(async () => {
-      client.setQueryData(['agents'], [other]);
+      client.setQueryData(['agents'], { items: [other], truncated: false });
     });
     await flush();
 
@@ -413,7 +426,7 @@ describe('useAgentSummary cache selection', () => {
   });
 
   it('switches to the selected expert when the id changes', async () => {
-    client.setQueryData(['agents'], [agent, other]);
+    client.setQueryData(['agents'], { items: [agent, other], truncated: false });
     const probe = await mountAgentProbe('expert');
     expect(probe.snapshot.data?.name).toBe('Expert');
 
@@ -529,7 +542,7 @@ describe('expert creation lifecycle', () => {
     const create = vi.spyOn(api, 'createAgent').mockResolvedValue(created);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json([agent, created]));
     vi.mocked(api.agent).mockImplementation(async (id) => (id === created.id ? created : agent));
-    client.setQueryData(['agents'], [agent, created]);
+    client.setQueryData(['agents'], { items: [agent, created], truncated: false });
     client.setQueryData(['agent-detail', created.id], created);
     const router = await mount();
     await click(button('新建专家'));
@@ -670,10 +683,11 @@ describe('expert creation lifecycle', () => {
 
   it('finds experts by occupation and displays a fallback for historical blank roles', async () => {
     const tester = { ...agent, id: 'tester', name: 'QA', role: '测试工程师' };
-    vi.mocked(api.agents).mockImplementation(async (params) =>
-      params?.q === undefined ? [agent, tester] : [tester],
-    );
-    client.setQueryData(['agents'], [agent, tester]);
+    vi.mocked(api.agents).mockImplementation(async (params) => ({
+      items: params.q === undefined ? [agent, tester] : [tester],
+      nextCursor: null,
+    }));
+    client.setQueryData(['agents'], { items: [agent, tester], truncated: false });
     const router = await mount();
     expect(host.querySelector('[aria-label="专家列表"]')?.textContent).toContain('通用助手');
     await act(async () => router.navigate({ to: '/agents', search: { q: '测试工程师' } }));
@@ -684,14 +698,14 @@ describe('expert creation lifecycle', () => {
   });
 
   it('filters the list by standard occupation and clears the role filter', async () => {
-    client.setQueryData(
-      ['agents'],
-      [
+    vi.mocked(api.agents).mockResolvedValue({
+      items: [
         agent,
         { ...agent, id: 'tester', name: 'QA', role: '测试工程师' },
         { ...agent, id: 'twin', name: '我的分身', role: '数字分身' },
       ],
-    );
+      nextCursor: null,
+    });
     const router = await mount();
     await act(async () => router.navigate({ to: '/agents', search: { role: '测试工程师' } }));
     await flush();
@@ -725,8 +739,8 @@ describe('expert employee badges', () => {
   };
 
   it('shows the real employee badge from list data without requesting agent details', async () => {
-    client.setQueryData(['agents'], [badgeAgent]);
-    vi.mocked(api.agents).mockResolvedValue([badgeAgent]);
+    client.setQueryData(['agents'], { items: [badgeAgent], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [badgeAgent], nextCursor: null });
     await mount();
     const trigger = await waitFor(() => button('查看 工牌专家 工牌'));
     expect(trigger.getAttribute('title')).toBe('数字员工工牌');
@@ -756,8 +770,8 @@ describe('expert employee badges', () => {
       description: '',
       createdAt: 'not-a-date',
     };
-    client.setQueryData(['agents'], [empty]);
-    vi.mocked(api.agents).mockResolvedValue([empty]);
+    client.setQueryData(['agents'], { items: [empty], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [empty], nextCursor: null });
     await mount();
     await click(await waitFor(() => button('查看 空介绍 工牌')));
     const panel = dialog('空介绍 的工牌');
@@ -773,8 +787,8 @@ describe('expert employee badges', () => {
       name: '无时间',
       createdAt: undefined,
     } as unknown as Agent;
-    client.setQueryData(['agents'], [missing]);
-    vi.mocked(api.agents).mockResolvedValue([missing]);
+    client.setQueryData(['agents'], { items: [missing], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [missing], nextCursor: null });
     await mount();
     await click(await waitFor(() => button('查看 无时间 工牌')));
     const panel = dialog('无时间 的工牌');
@@ -791,8 +805,8 @@ describe('expert employee badges', () => {
       role: '数字分身',
       enabled: false,
     };
-    client.setQueryData(['agents'], [twin]);
-    vi.mocked(api.agents).mockResolvedValue([twin]);
+    client.setQueryData(['agents'], { items: [twin], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [twin], nextCursor: null });
     const router = await mount();
     await act(async () => router.navigate({ to: '/agents', search: { status: 'all' } }));
     await flush();
@@ -803,8 +817,8 @@ describe('expert employee badges', () => {
   });
 
   it('returns focus to the badge button when closed', async () => {
-    client.setQueryData(['agents'], [badgeAgent]);
-    vi.mocked(api.agents).mockResolvedValue([badgeAgent]);
+    client.setQueryData(['agents'], { items: [badgeAgent], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [badgeAgent], nextCursor: null });
     await mount();
     const trigger = await waitFor(() => button('查看 工牌专家 工牌'));
     await click(trigger);
@@ -816,13 +830,16 @@ describe('expert employee badges', () => {
 
   it('closes without stale data when the selected expert disappears', async () => {
     const other: Agent = { ...agent, id: 'other', slug: 'other', name: 'Other' };
-    client.setQueryData(['agents'], [badgeAgent, other]);
-    vi.mocked(api.agents).mockResolvedValue([badgeAgent, other]);
+    client.setQueryData(['agents'], { items: [badgeAgent, other], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [badgeAgent, other], nextCursor: null });
     await mount();
     await click(await waitFor(() => button('查看 工牌专家 工牌')));
     expect(dialog('工牌专家 的工牌')).toBeDefined();
     await act(async () => {
-      client.setQueryData(['agents'], [other]);
+      client.setQueryData(['agents', 'list', { status: 'active' }], {
+        pages: [{ items: [other], nextCursor: null }],
+        pageParams: [undefined],
+      });
     });
     await flush();
     await waitFor(() => !document.body.textContent?.includes('工牌专家 的工牌'));
@@ -834,8 +851,8 @@ describe('expert discovery', () => {
   const disabled = { ...agent, id: 'disabled', slug: 'disabled', name: 'Disabled', enabled: false };
 
   it('shows enabled experts by default and can show all or disabled experts', async () => {
-    client.setQueryData(['agents'], [agent, disabled]);
-    vi.mocked(api.agents).mockResolvedValue([agent, disabled]);
+    client.setQueryData(['agents'], { items: [agent, disabled], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [agent, disabled], nextCursor: null });
     const router = await mount();
     let list = host.querySelector('[aria-label="专家列表"]');
     expect(list?.textContent).toContain('Expert');
@@ -855,8 +872,8 @@ describe('expert discovery', () => {
   });
 
   it('clears every filter to all experts when only disabled experts are hidden by the default', async () => {
-    client.setQueryData(['agents'], [disabled]);
-    vi.mocked(api.agents).mockResolvedValue([disabled]);
+    client.setQueryData(['agents'], { items: [disabled], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [disabled], nextCursor: null });
     const router = await mount();
     expect(host.querySelector('[aria-label="专家列表"]')?.textContent).not.toContain('Disabled');
     expect(host.textContent).toContain('没有匹配的专家');
@@ -876,8 +893,8 @@ describe('expert discovery', () => {
 
   it('restores status, sort and role filters after going back', async () => {
     const tester = { ...agent, id: 'tester', name: 'QA', role: '测试工程师' };
-    client.setQueryData(['agents'], [agent, tester, disabled]);
-    vi.mocked(api.agents).mockResolvedValue([agent, tester, disabled]);
+    client.setQueryData(['agents'], { items: [agent, tester, disabled], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [agent, tester, disabled], nextCursor: null });
     const router = await mount();
     await act(async () =>
       router.navigate({
@@ -906,8 +923,8 @@ describe('expert discovery', () => {
   });
 
   it('links names to the definition page and only starts enabled experts', async () => {
-    client.setQueryData(['agents'], [agent, disabled]);
-    vi.mocked(api.agents).mockResolvedValue([agent, disabled]);
+    client.setQueryData(['agents'], { items: [agent, disabled], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [agent, disabled], nextCursor: null });
     const router = await mount();
     await act(async () => router.navigate({ to: '/agents', search: { status: 'all' } }));
     await flush();
@@ -926,8 +943,8 @@ describe('expert discovery', () => {
   });
 
   it('offers the first creation when empty and recovers from a filter miss', async () => {
-    client.setQueryData(['agents'], []);
-    vi.mocked(api.agents).mockResolvedValue([]);
+    client.setQueryData(['agents'], { items: [], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [], nextCursor: null });
     const router = await mount();
     expect(host.textContent).not.toContain('创建第一位专家');
     const list = host.querySelector('[aria-label="专家列表"]');
@@ -941,8 +958,11 @@ describe('expert discovery', () => {
     await click(button('取消', dialog('创建数字分身')));
     await flush();
 
-    client.setQueryData(['agents'], [agent]);
-    vi.mocked(api.agents).mockResolvedValue([agent]);
+    client.setQueryData(['agents', 'list', { status: 'active' }], {
+      pages: [{ items: [agent], nextCursor: null }],
+      pageParams: [undefined],
+    });
+    vi.mocked(api.agents).mockResolvedValue({ items: [agent], nextCursor: null });
     await act(async () => router.navigate({ to: '/agents', search: { q: 'missing' } }));
     await flush();
     expect(host.textContent).toContain('没有匹配的专家');
@@ -1129,16 +1149,21 @@ describe('expert file tool permissions', () => {
           input instanceof Request ? input.url : String(input),
           'http://localhost',
         ).pathname;
-        if (path === '/api/agents') return Response.json([store.current]);
+        if (path === '/api/agents')
+          return Response.json({ items: [store.current], nextCursor: null });
+        if (path === '/api/agents/reference') {
+          return Response.json({ items: [store.current], truncated: false });
+        }
         if (path === '/api/runtime-environments') {
           return Response.json([defaultEnvironment, namedEnvironment]);
         }
         if (path?.startsWith('/api/knowledge/bases')) {
           return Response.json({ items: [], nextCursor: null });
         }
+        if (path === '/api/plugins') return Response.json({ items: [], nextCursor: null });
         return Response.json([]);
       });
-      client.setQueryData(['agents'], [store.current]);
+      client.setQueryData(['agents'], { items: [store.current], truncated: false });
       client.setQueryData(['agent-detail', store.current.id], store.current);
       vi.mocked(api.agent).mockImplementation(async () => store.current);
       const update = vi.spyOn(api, 'updateAgent').mockImplementation(async (_id, input) => {
@@ -1265,7 +1290,7 @@ describe('expert rollback lifecycle', () => {
     expect(router.state.location.pathname).toBe('/agents/expert');
     expect(button('放弃并离开').disabled).toBe(true);
     await click(button('取消', dialog('放弃未保存的更改？')));
-    vi.mocked(api.agents).mockResolvedValue([restored]);
+    vi.mocked(api.agents).mockResolvedValue({ items: [restored], nextCursor: null });
     await act(async () => request.resolve(restored));
     await flush();
     expect(field().value).toBe('Restored expert');
@@ -1305,7 +1330,8 @@ describe('expert rollback lifecycle', () => {
 
   it('loads a successful rollback as the baseline for the next edit', async () => {
     vi.spyOn(api, 'rollbackAgent').mockResolvedValue(restored);
-    vi.mocked(api.agents).mockResolvedValue([restored]);
+    vi.mocked(api.agents).mockResolvedValueOnce({ items: [agent], nextCursor: null });
+    vi.mocked(api.agents).mockResolvedValue({ items: [restored], nextCursor: null });
     const update = vi
       .spyOn(api, 'updateAgent')
       .mockResolvedValue({ ...restored, name: 'Next draft' });
@@ -1351,7 +1377,7 @@ describe('expert deletion lifecycle', () => {
     await click(button('取消', leave));
     expect(field().value).toBe('Draft kept');
 
-    vi.mocked(api.agents).mockResolvedValue([]);
+    vi.mocked(api.agents).mockResolvedValue({ items: [], nextCursor: null });
     await act(async () => request.resolve());
     await flush();
     await waitFor(() => router.state.location.pathname === '/agents');
@@ -1406,7 +1432,9 @@ describe('expert deletion lifecycle', () => {
     expect(field().value).toBe('Draft kept');
     expect(field().disabled).toBe(false);
     expect(dialog('删除专家「Expert」')).toBeDefined();
-    expect(client.getQueryData<Agent[]>(['agents'])?.map((item) => item.id)).toEqual(['expert']);
+    expect(
+      client.getQueryData<{ items: Agent[] }>(['agents'])?.items.map((item) => item.id),
+    ).toEqual(['expert']);
     await click(button('取消', dialog('删除专家「Expert」')));
     expect(field().value).toBe('Draft kept');
   });
@@ -1652,9 +1680,12 @@ describe('expert review details', () => {
       updatedAt: agent.updatedAt,
       agentCount: 1,
     };
-    vi.spyOn(api, 'plugins').mockResolvedValue([plugin]);
-    client.setQueryData(['plugins'], [plugin]);
-    client.setQueryData(['agents'], [entry.current]);
+    vi.spyOn(api, 'plugins').mockResolvedValue({ items: [plugin], nextCursor: null });
+    client.setQueryData(['plugins'], {
+      pages: [{ items: [plugin], nextCursor: null }],
+      pageParams: [undefined],
+    });
+    client.setQueryData(['agents'], { items: [entry.current], truncated: false });
     vi.spyOn(api, 'agentVersion').mockResolvedValue({
       version: 1,
       snapshot: entry.target,
@@ -1663,7 +1694,7 @@ describe('expert review details', () => {
       createdAt: agent.createdAt,
     });
     vi.spyOn(api, 'rollbackAgent').mockResolvedValue(entry.target);
-    vi.mocked(api.agents).mockResolvedValue([entry.target]);
+    vi.mocked(api.agents).mockResolvedValue({ items: [entry.target], nextCursor: null });
     await mount();
     await openHistory(true);
     await confirmRollback();
@@ -1747,7 +1778,7 @@ describe('expert review details', () => {
       reusedServers: [],
       createdSkills: [],
     });
-    vi.mocked(api.agents).mockResolvedValue([imported]);
+    vi.mocked(api.agents).mockResolvedValue({ items: [imported], nextCursor: null });
     await mount();
     await chooseFile('expert.zip');
     await selectRole('默认环境', 'agent-import-environment');
@@ -1819,7 +1850,8 @@ describe('expert draft previews', () => {
       updatedAt: '2026-03-01T00:00:00Z',
     };
     const update = vi.spyOn(api, 'updateAgent').mockResolvedValue(saved);
-    vi.mocked(api.agents).mockResolvedValue([saved]);
+    vi.mocked(api.agents).mockResolvedValueOnce({ items: [agent], nextCursor: null });
+    vi.mocked(api.agents).mockResolvedValue({ items: [saved], nextCursor: null });
     await mount();
     await openConfig();
     await editName('配置验收草稿');

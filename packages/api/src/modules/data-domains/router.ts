@@ -10,6 +10,7 @@ import {
   resourceAccessFilter,
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { invalidCursor, requireCursorPage } from '../../http/pagination.js';
 import {
   deleteDataDomainServer,
   enqueueDataDomainBuild,
@@ -159,12 +160,12 @@ function encodeCursor(row: DataDomainRow): string {
   return Buffer.from(`${row.createdAt.toISOString()}|${row.id}`).toString('base64url');
 }
 
-function decodeCursor(value: string): { createdAt: string; id: string } {
+function decodeCursor(value: string): string {
   const [raw, id, ...rest] = Buffer.from(value, 'base64url').toString('utf8').split('|');
   if (raw === undefined || id === undefined || rest.length > 0 || Number.isNaN(Date.parse(raw))) {
-    fail('INVALID_INPUT', '游标无效，请刷新后重试');
+    invalidCursor();
   }
-  return { createdAt: new Date(raw).toISOString(), id };
+  return id;
 }
 
 async function loadDomain(context: RequestContext, id: string): Promise<DataDomainRow> {
@@ -196,22 +197,17 @@ export const dataDomainsRouter = os.router({
   list: os.list.handler(async ({ input, context }) => {
     const access = await resourceAccessFilter(context, 'data_domains.read', 'data_domain', 'read');
     const { cursor, limit } = input.query;
-    const after = cursor === undefined ? null : decodeCursor(cursor);
-    const rows = await domains.listDataDomains(context.db, access);
-    const remaining =
-      after === null
-        ? rows
-        : rows.filter((row) => {
-            const createdAt = row.createdAt.toISOString();
-            return (
-              createdAt > after.createdAt || (createdAt === after.createdAt && row.id > after.id)
-            );
-          });
-    const page = remaining.slice(0, limit);
-    const last = page.at(-1);
+    const page = requireCursorPage(
+      await domains.listDataDomainPage(context.db, {
+        access,
+        limit,
+        cursor: cursor === undefined ? undefined : decodeCursor(cursor),
+      }),
+    );
+    const last = page.items.at(-1);
     return {
-      items: page.map(toDataDomain),
-      nextCursor: remaining.length > limit && last !== undefined ? encodeCursor(last) : null,
+      items: page.items.map(toDataDomain),
+      nextCursor: page.nextCursor !== null && last !== undefined ? encodeCursor(last) : null,
     };
   }),
 
@@ -363,13 +359,15 @@ export const dataDomainsRouter = os.router({
     const row = await loadDomain(context, input.params.id);
     await authorizeDomain(context, 'data_domains.read', row, 'read');
     const { cursor, limit, status, runId } = input.query;
-    const page = await domains.listDataDomainQueryLogs(context.db, {
-      dataDomainId: input.params.id,
-      limit,
-      ...(cursor === undefined ? {} : { cursor }),
-      ...(status === undefined ? {} : { status }),
-      ...(runId === undefined ? {} : { runId }),
-    });
+    const page = requireCursorPage(
+      await domains.listDataDomainQueryLogs(context.db, {
+        dataDomainId: input.params.id,
+        limit,
+        ...(cursor === undefined ? {} : { cursor }),
+        ...(status === undefined ? {} : { status }),
+        ...(runId === undefined ? {} : { runId }),
+      }),
+    );
     return { items: page.items.map(toQueryLog), nextCursor: page.nextCursor };
   }),
 
@@ -377,12 +375,14 @@ export const dataDomainsRouter = os.router({
     const row = await loadDomain(context, input.params.id);
     await authorizeDomain(context, 'data_domains.read', row, 'read');
     const { cursor, limit, status } = input.query;
-    const page = await domains.listDataDomainQueryApprovals(context.db, {
-      dataDomainId: input.params.id,
-      limit,
-      ...(cursor === undefined ? {} : { cursor }),
-      ...(status === undefined ? {} : { status }),
-    });
+    const page = requireCursorPage(
+      await domains.listDataDomainQueryApprovals(context.db, {
+        dataDomainId: input.params.id,
+        limit,
+        ...(cursor === undefined ? {} : { cursor }),
+        ...(status === undefined ? {} : { status }),
+      }),
+    );
     return { items: page.items.map(toApproval), nextCursor: page.nextCursor };
   }),
 

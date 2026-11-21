@@ -211,7 +211,8 @@ function apiHandlers() {
       HttpResponse.json({ outgoing: [], incoming: [] }),
     ),
     http.get('/api/knowledge/model-profiles', () => HttpResponse.json([])),
-    http.get('/api/agents', () => HttpResponse.json([])),
+    http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     http.put('/api/knowledge/bases/kb_1/documents/upload', () =>
       HttpResponse.json({ documentId: 'kdoc_new', jobId: 'kjob_new' }),
     ),

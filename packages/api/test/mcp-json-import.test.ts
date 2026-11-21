@@ -108,7 +108,9 @@ describe.skipIf(!ready)('mcp.json import', () => {
 
     const list = await request(app, { method: 'GET', url: '/api/servers', headers: { cookie } });
     expect(list.statusCode).toBe(200);
-    const listed = list.json<Server[]>().filter((server) => server.name === stdioName);
+    const listed = list
+      .json<{ items: Server[] }>()
+      .items.filter((server) => server.name === stdioName);
     expect(listed[0]).toMatchObject({ kind: 'stdio', env: { API_KEY: '••••' } });
     expect(list.body).not.toContain(stdioSecret);
   });

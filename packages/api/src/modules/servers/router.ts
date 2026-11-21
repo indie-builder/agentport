@@ -3,6 +3,7 @@ import { fail, isAppError, parseMcpJson, parseOpenApiDocument } from '@agentport
 import { assertSafeUrl, assertServerEndpoint } from '@agentport/core/net-guard';
 import { repo as dbRepo } from '@agentport/db';
 import {
+  type AccessFilter,
   type ApiToolInput,
   apiToolInputSchema,
   connectorCatalogSchema,
@@ -25,6 +26,7 @@ import {
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { checkOutboundToolArgs } from '../security/outbound-policy.js';
 import { connectorCatalog } from './connector-catalog-data.js';
 import { buildGeneratedServer } from './generated.js';
@@ -76,9 +78,15 @@ function rethrowConflict(err: unknown): never {
 const os = implement(serversContract).$context<RequestContext>();
 
 export const serversRouter = os.router({
-  list: os.list.handler(async ({ context }) => {
+  list: os.list.handler(async ({ input, context }) => {
     const access = await resourceAccessFilter(context, 'servers.read', 'server', 'read');
-    return repo.listServers(context.db, context.config.APP_SECRET_KEY, access);
+    return requireCursorPage(
+      await repo.listServerPage(context.db, context.config.APP_SECRET_KEY, {
+        access,
+        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        limit: input.query.limit,
+      }),
+    );
   }),
   catalog: os.catalog.handler(() => connectorCatalogSchema.parse(connectorCatalog)),
   create: os.create.handler(async ({ input: { body: input }, context }) => {
@@ -237,6 +245,21 @@ export const serversRouter = os.router({
       requestId: context.requestId,
     });
     return;
+  }),
+  impact: os.impact.handler(async ({ input, context }) => {
+    const row = await authorizedServer(context, input.params.id, 'servers.delete', 'manage');
+    const principal = requireUser(context);
+    const agentReadAccess: AccessFilter = {
+      businessId: principal.businessId,
+      scopes: principal.grants
+        .filter((grant) => grant.permissionId === 'agents.read')
+        .map((grant) => grant.scope),
+    };
+    const [bound, toolCount] = await Promise.all([
+      repo.listServerBoundAgents(context.db, row.id, agentReadAccess),
+      repo.countApiTools(context.db, row.id),
+    ]);
+    return { ...bound, toolCount };
   }),
   test: os.test.handler(async ({ input, context }) => {
     const row = await authorizedServer(context, input.params.id, 'servers.test', 'read');

@@ -1,23 +1,23 @@
-import { type ErrorCode, errorCode, problemSchema } from '@agentport/shared';
+import { ERROR_META, type ErrorCode, problemSchema } from '@agentport/shared';
 
 export { problemSchema } from '@agentport/shared';
 
 type ContractError = { status: number; data: typeof problemSchema };
 
 export const contractErrors = {
-  INVALID_INPUT: { status: errorCode.INVALID_INPUT, data: problemSchema },
-  UNAUTHORIZED: { status: errorCode.UNAUTHORIZED, data: problemSchema },
-  FORBIDDEN: { status: errorCode.FORBIDDEN, data: problemSchema },
-  NOT_FOUND: { status: errorCode.NOT_FOUND, data: problemSchema },
-  CONFLICT: { status: errorCode.CONFLICT, data: problemSchema },
-  CONFLICT_STALE: { status: errorCode.CONFLICT_STALE, data: problemSchema },
-  PAYLOAD_TOO_LARGE: { status: errorCode.PAYLOAD_TOO_LARGE, data: problemSchema },
-  UNSUPPORTED_MEDIA_TYPE: { status: errorCode.UNSUPPORTED_MEDIA_TYPE, data: problemSchema },
-  RATE_LIMITED: { status: errorCode.RATE_LIMITED, data: problemSchema },
-  INTERNAL_ERROR: { status: errorCode.INTERNAL_ERROR, data: problemSchema },
-  RESPONSE_INVALID: { status: errorCode.RESPONSE_INVALID, data: problemSchema },
-  SERVICE_UNAVAILABLE: { status: errorCode.SERVICE_UNAVAILABLE, data: problemSchema },
-  UPSTREAM_FAILED: { status: errorCode.UPSTREAM_FAILED, data: problemSchema },
+  INVALID_INPUT: { status: ERROR_META.INVALID_INPUT.status, data: problemSchema },
+  UNAUTHORIZED: { status: ERROR_META.UNAUTHORIZED.status, data: problemSchema },
+  FORBIDDEN: { status: ERROR_META.FORBIDDEN.status, data: problemSchema },
+  NOT_FOUND: { status: ERROR_META.NOT_FOUND.status, data: problemSchema },
+  CONFLICT: { status: ERROR_META.CONFLICT.status, data: problemSchema },
+  CONFLICT_STALE: { status: ERROR_META.CONFLICT_STALE.status, data: problemSchema },
+  PAYLOAD_TOO_LARGE: { status: ERROR_META.PAYLOAD_TOO_LARGE.status, data: problemSchema },
+  UNSUPPORTED_MEDIA_TYPE: { status: ERROR_META.UNSUPPORTED_MEDIA_TYPE.status, data: problemSchema },
+  RATE_LIMITED: { status: ERROR_META.RATE_LIMITED.status, data: problemSchema },
+  INTERNAL_ERROR: { status: ERROR_META.INTERNAL_ERROR.status, data: problemSchema },
+  RESPONSE_INVALID: { status: ERROR_META.RESPONSE_INVALID.status, data: problemSchema },
+  SERVICE_UNAVAILABLE: { status: ERROR_META.SERVICE_UNAVAILABLE.status, data: problemSchema },
+  UPSTREAM_FAILED: { status: ERROR_META.UPSTREAM_FAILED.status, data: problemSchema },
 } satisfies Record<string, ContractError>;
 
 type ContractErrorCode = keyof typeof contractErrors;
@@ -53,7 +53,7 @@ const defaultErrorCodes = [
   'SERVICE_UNAVAILABLE',
 ] as const satisfies readonly ErrorCode[];
 const statusCodes = new Map<number, ErrorCode>(
-  defaultErrorCodes.map((code) => [errorCode[code], code]),
+  defaultErrorCodes.map((code) => [ERROR_META[code].status, code]),
 );
 
 export function errorCodeForStatus(status: number): ErrorCode {

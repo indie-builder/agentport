@@ -21,6 +21,7 @@ export function ResourcePage({
   sort,
   onSortChange,
   count,
+  countPartial,
   status,
   filters,
   menuFilters,
@@ -35,6 +36,7 @@ export function ResourcePage({
   query: string;
   onQueryChange: (value: string) => void;
   count?: number | undefined;
+  countPartial?: boolean;
   status: 'pending' | 'error' | 'success';
   filters?: ReactNode;
   menuFilters?: ReactNode;
@@ -121,7 +123,7 @@ export function ResourcePage({
                       ? '加载中…'
                       : status === 'error'
                         ? '数量不可用'
-                        : `共 ${count} 个${label}`}
+                        : `${countPartial ? '已加载' : '共'} ${count} 个${label}`}
                   </span>
                 )}
                 {toolbarActions}

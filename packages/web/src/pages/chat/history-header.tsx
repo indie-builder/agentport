@@ -9,6 +9,7 @@ export function HistoryHeader({
   agent,
   agentId,
   agentOptions,
+  agentsTruncated,
   onSwitchAgent,
 }: {
   onNew: () => void;
@@ -16,6 +17,7 @@ export function HistoryHeader({
   agent?: AgentSummary | null;
   agentId?: string | null;
   agentOptions?: Array<{ value: string; label: string; agent?: AgentSummary }>;
+  agentsTruncated?: boolean;
   onSwitchAgent?: (id: string | null) => void;
 }) {
   return (
@@ -26,6 +28,7 @@ export function HistoryHeader({
             agent={agent?.isDefault ? null : (agent ?? null)}
             agentId={agentId ?? null}
             agentOptions={agentOptions}
+            truncated={agentsTruncated}
             onSwitchAgent={onSwitchAgent}
             placeholder="通用助手"
             triggerAriaLabel={agent && !agent.isDefault ? `切换专家：${agent.name}` : '召唤专家'}

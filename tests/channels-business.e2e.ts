@@ -219,10 +219,10 @@ async function ensureState(): Promise<State> {
       );
     }
   }
-  const visible = await nodeApi<unknown[]>(pm, 'GET', '/api/agents');
+  const visible = await nodeApi<{ items: unknown[] }>(pm, 'GET', '/api/agents');
   assert(
-    visible.status === 200 && (visible.json?.length ?? 0) >= 2,
-    `产品经理可见已授权的智能体（实际 ${visible.json?.length ?? 0}）`,
+    visible.status === 200 && (visible.json?.items.length ?? 0) >= 2,
+    `产品经理可见已授权的智能体（实际 ${visible.json?.items.length ?? 0}）`,
   );
 
   state = {
@@ -690,12 +690,12 @@ test.describe('频道真实业务回归（增长周会 2026-11）', { serial: tr
     await expect
       .poll(
         async () => {
-          const list = await apiJson<Array<{ id: string; unreadCount: number }>>(
+          const list = await apiJson<{ items: Array<{ id: string; unreadCount: number }> }>(
             browser,
             'GET',
             '/api/channels',
           );
-          return list.json?.find((item) => item.id === ctx.channelId)?.unreadCount ?? -1;
+          return list.json?.items.find((item) => item.id === ctx.channelId)?.unreadCount ?? -1;
         },
         { timeout: 60_000 },
       )

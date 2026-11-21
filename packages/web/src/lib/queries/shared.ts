@@ -1,10 +1,19 @@
 import {
   type AuthMe,
+  type CursorPage,
   KNOWLEDGE_JOB_TIMEOUT_MS,
   type KnowledgeJob,
   type PublicRunQuestion,
 } from '@agentport/shared';
-import { QueryClient, type QueryKey, queryOptions, useQueryClient } from '@tanstack/react-query';
+import {
+  type InfiniteData,
+  type Query,
+  QueryClient,
+  type QueryKey,
+  queryOptions,
+  useInfiniteQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { ApiError, api, type KnowledgeSearchOptions } from '../api.js';
 
@@ -165,6 +174,39 @@ export const knowledgeKeys = {
 };
 
 export const KNOWLEDGE_PAGE_SIZE = 50;
+
+export function useCursorList<
+  TPage extends CursorPage<unknown>,
+  TData = InfiniteData<TPage, string | undefined>,
+>(options: {
+  queryKey: readonly unknown[];
+  queryFn: (cursor: string | undefined, signal: AbortSignal) => Promise<TPage>;
+  enabled?: boolean | undefined;
+  staleTime?: number | undefined;
+  refetchInterval?:
+    | number
+    | false
+    | ((
+        query: Query<TPage, Error, InfiniteData<TPage, string | undefined>>,
+      ) => number | false | undefined)
+    | undefined;
+  refetchIntervalInBackground?: boolean | undefined;
+  select?: ((data: InfiniteData<TPage, string | undefined>) => TData) | undefined;
+}) {
+  return useInfiniteQuery({
+    queryKey: options.queryKey,
+    queryFn: ({ pageParam, signal }) => options.queryFn(pageParam, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last?.nextCursor ?? undefined,
+    ...(options.enabled === undefined ? {} : { enabled: options.enabled }),
+    ...(options.staleTime === undefined ? {} : { staleTime: options.staleTime }),
+    ...(options.refetchInterval === undefined ? {} : { refetchInterval: options.refetchInterval }),
+    ...(options.refetchIntervalInBackground === undefined
+      ? {}
+      : { refetchIntervalInBackground: options.refetchIntervalInBackground }),
+    ...(options.select === undefined ? {} : { select: options.select }),
+  });
+}
 
 export function useDrainPages(query: {
   hasNextPage: boolean;

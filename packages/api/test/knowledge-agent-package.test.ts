@@ -8,7 +8,7 @@ import {
   parseAgentPackage,
 } from '../src/modules/agents/package.js';
 import { BOOTSTRAP_ADMIN_BUSINESS_ID } from '../src/modules/auth/types.js';
-import { getServer, listServers, toApiServer } from '../src/modules/servers/repo.js';
+import { getServer, listServerPage, toApiServer } from '../src/modules/servers/repo.js';
 
 const realDns = { ...dnsModule };
 mock.module('node:dns/promises', () => ({
@@ -98,8 +98,8 @@ describe('knowledge server read shape', () => {
   });
 
   it('drops knowledge servers from the generic list', async () => {
-    const list = await listServers(handle.db, KEY);
-    expect(list.some((server) => server.id === serverId)).toBe(false);
+    const list = await listServerPage(handle.db, KEY, { limit: 100 });
+    expect(list?.items.some((server) => server.id === serverId)).toBe(false);
   });
 });
 

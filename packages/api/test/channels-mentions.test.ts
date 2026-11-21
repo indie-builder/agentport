@@ -504,7 +504,9 @@ describe.skipIf(!ready)('channel mentions', () => {
 
     const listed = await call('GET', '/api/conversations', owner.cookie);
     expect(listed.statusCode, listed.body).toBe(200);
-    expect(listed.json<Array<{ id: string }>>().some((entry) => entry.id === laneId)).toBe(false);
+    expect(
+      listed.json<{ items: Array<{ id: string }> }>().items.some((entry) => entry.id === laneId),
+    ).toBe(false);
 
     const searched = await call(
       'GET',

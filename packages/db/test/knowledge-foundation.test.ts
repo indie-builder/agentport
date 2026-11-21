@@ -1144,8 +1144,7 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       limit: 1,
       cursor: foreign,
     });
-    expect(crossed.items).toEqual([]);
-    expect(crossed.nextCursor).toBeNull();
+    expect(crossed).toBeNull();
   });
 
   it('FAQ/版本 wire 字段、同步逐项记录与可读列表/分页', async () => {

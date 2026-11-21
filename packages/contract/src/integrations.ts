@@ -2,7 +2,9 @@ import {
   apiTokenCreateInputSchema,
   apiTokenCreateResultSchema,
   apiTokenSchema,
+  cursorPageSchema,
   idParams,
+  pageQuerySchema,
   webhookEndpointCreateInputSchema,
   webhookEndpointCreateResultSchema,
   webhookEndpointSchema,
@@ -21,7 +23,8 @@ export const integrationsContract = {
   tokens: {
     list: read
       .route({ method: 'GET', path: '/integrations/tokens' })
-      .output(z.array(apiTokenSchema)),
+      .input(z.object({ query: pageQuerySchema }))
+      .output(cursorPageSchema(apiTokenSchema)),
     create: manage
       .route({ method: 'POST', path: '/integrations/tokens', successStatus: 201 })
       .input(z.object({ body: apiTokenCreateInputSchema }))
@@ -34,7 +37,8 @@ export const integrationsContract = {
   webhooks: {
     list: read
       .route({ method: 'GET', path: '/integrations/webhooks' })
-      .output(z.array(webhookEndpointSchema)),
+      .input(z.object({ query: pageQuerySchema }))
+      .output(cursorPageSchema(webhookEndpointSchema)),
     create: manage
       .route({ method: 'POST', path: '/integrations/webhooks', successStatus: 201 })
       .input(z.object({ body: webhookEndpointCreateInputSchema }))

@@ -212,13 +212,13 @@ describe('knowledge detail business line', () => {
     expect(findButton('使用此库的专家')).toBeUndefined();
     expect(findButton('编辑信息')?.className).toContain('h-8');
     expect(findButton('更多操作')?.className).toContain('size-8');
-    expect(calls.some((item) => item.path === '/api/agents')).toBe(false);
+    expect(calls.some((item) => item.path === '/api/agents/reference')).toBe(false);
 
     await openMenu('更多操作');
     expect(menuLabels()).toEqual(['使用此库的专家', '设置']);
     await chooseMenuItem('使用此库的专家');
     await waitFor(() => router.state.location.search.panel === 'overview');
-    await waitFor(() => calls.some((item) => item.path === '/api/agents'));
+    await waitFor(() => calls.some((item) => item.path === '/api/agents/reference'));
     await waitFor(() => document.body.textContent?.includes('使用此库的专家') === true);
 
     await openMenu('更多操作');
@@ -241,7 +241,7 @@ describe('knowledge detail business line', () => {
     expect(findButton('设置')).toBeUndefined();
     expect(findButton('更多操作')).toBeUndefined();
     expect(findButton('使用此库的专家')).toBeUndefined();
-    expect(calls.some((item) => item.path === '/api/agents')).toBe(false);
+    expect(calls.some((item) => item.path === '/api/agents/reference')).toBe(false);
 
     await click(button('上线流程'));
     const viewer = dialog('上线流程');
@@ -436,15 +436,27 @@ describe('knowledge expert usage', () => {
     server.use(
       http.get('/api/auth/me', () => HttpResponse.json(meWith(['knowledge.read', 'agents.read']))),
       http.get('/api/agents', () =>
-        HttpResponse.json([
-          { ...summary('agent_a', '文档专家'), serverIds: ['srv_1'] },
-          summary('agent_b', '外部专家'),
-        ]),
+        HttpResponse.json({
+          items: [
+            { ...summary('agent_a', '文档专家'), serverIds: ['srv_1'] },
+            summary('agent_b', '外部专家'),
+          ],
+          nextCursor: null,
+        }),
+      ),
+      http.get('/api/agents/reference', () =>
+        HttpResponse.json({
+          items: [
+            { ...summary('agent_a', '文档专家'), serverIds: ['srv_1'] },
+            summary('agent_b', '外部专家'),
+          ],
+          truncated: false,
+        }),
       ),
     );
     await mount('/knowledge/kb_1');
 
-    expect(calls.some((item) => item.path === '/api/agents')).toBe(false);
+    expect(calls.some((item) => item.path === '/api/agents/reference')).toBe(false);
     expect(findButton('编辑信息')).toBeUndefined();
     await openMenu('更多操作');
     expect(menuLabels()).toEqual(['使用此库的专家']);
@@ -462,7 +474,11 @@ describe('knowledge expert usage', () => {
     expect(document.querySelector<HTMLAnchorElement>('a[href="/agents"]')?.textContent).toContain(
       '选择其他专家',
     );
-    expect(calls.filter((item) => item.path.startsWith('/api/agents/'))).toEqual([]);
+    expect(
+      calls.filter(
+        (item) => item.path.startsWith('/api/agents/') && item.path !== '/api/agents/reference',
+      ),
+    ).toEqual([]);
   });
 
   it('offers the agents list when no expert is bound yet', async () => {
@@ -472,7 +488,8 @@ describe('knowledge expert usage', () => {
       http.get('/api/auth/me', () =>
         HttpResponse.json(meWith(['knowledge.read', 'agents.read', 'agents.config.read'])),
       ),
-      http.get('/api/agents', () => HttpResponse.json([])),
+      http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     );
     await mount('/knowledge/kb_1');
     await click(button('概览'));
@@ -492,7 +509,7 @@ describe('knowledge expert usage', () => {
     await click(button('概览'));
     await flush();
     expect(document.body.textContent).not.toContain('使用此库的专家');
-    expect(calls.some((item) => item.path === '/api/agents')).toBe(false);
+    expect(calls.some((item) => item.path === '/api/agents/reference')).toBe(false);
   });
 });
 
@@ -699,7 +716,7 @@ describe('knowledge jobs pagination', () => {
 
     await click(button('重试'));
     await waitFor(() => document.body.textContent?.includes('产品仓库') === true);
-    expect(document.body.textContent).toContain('已加载 3 条处理记录');
+    expect(document.body.textContent).toContain('共 3 条处理记录');
   });
 });
 

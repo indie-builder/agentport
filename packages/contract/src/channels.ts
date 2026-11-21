@@ -16,10 +16,12 @@ import {
   channelRoleSchema,
   channelSchema,
   channelUpdateSchema,
+  cursorPageSchema,
   idParams,
   outputContentSchema,
   outputListSchema,
   outputPathSchema,
+  pageQuerySchema,
   publicQuestionResponseSchema,
   publicRunQuestionSchema,
   runDetailSchema,
@@ -48,8 +50,8 @@ export const channelsContract = {
   list: contractProcedure
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'GET', path: '/channels', successStatus: 200 })
-    .input(z.object({}))
-    .output(z.array(channelListItemSchema)),
+    .input(z.object({ query: pageQuerySchema }))
+    .output(cursorPageSchema(channelListItemSchema)),
   create: contractProcedure
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'POST', path: '/channels', successStatus: 201 })
@@ -194,10 +196,7 @@ export const channelsContract = {
     .input(
       z.object({
         params: channelRunParams,
-        query: z.object({
-          limit: z.coerce.number().int().min(1).max(100).default(50),
-          cursor: z.string().min(1).optional(),
-        }),
+        query: pageQuerySchema,
       }),
     )
     .output(outputListSchema),

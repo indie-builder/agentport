@@ -428,7 +428,7 @@ async function linkWikiAfterIngest(
   let overview = await findOverview();
   if (!overview) {
     const anyPage = await repo.knowledge.listWikiPages(deps.db, base.id, { limit: 1 });
-    if (anyPage.items.length === 0) {
+    if (anyPage?.items.length === 0) {
       overview = await repo.knowledge
         .createWikiPage(deps.db, { baseId: base.id, slug: OVERVIEW_SLUG, title: OVERVIEW_TITLE })
         .catch(findOverview);
@@ -1165,12 +1165,13 @@ export async function runIngest(
 }
 
 async function listAllPages<T>(
-  fetchPage: (cursor: string | null) => Promise<{ items: T[]; nextCursor: string | null }>,
+  fetchPage: (cursor: string | null) => Promise<{ items: T[]; nextCursor: string | null } | null>,
 ): Promise<T[]> {
   const items: T[] = [];
   let cursor: string | null = null;
   do {
     const page = await fetchPage(cursor);
+    if (page === null) throw new Error('知识库分页游标已失效');
     items.push(...page.items);
     cursor = page.nextCursor;
   } while (cursor !== null);
@@ -1419,7 +1420,7 @@ async function hasUnpublishedDraft(
 ): Promise<boolean> {
   if (document.contentKind === 'document' && document.sourceType !== 'manual') return false;
   const latest = await repo.knowledge.listVersions(deps.db, document.id, { limit: 1 });
-  const version = latest.items[0];
+  const version = latest?.items[0];
   return (
     version !== undefined &&
     version.id !== document.currentVersionId &&

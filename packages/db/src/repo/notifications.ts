@@ -3,7 +3,7 @@ import { and, count, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { notifications } from '../schema.js';
-import { keysetBefore, paginate } from './keyset.js';
+import { keysetPage } from './pagination.js';
 
 export type NotificationRow = typeof notifications.$inferSelect;
 
@@ -44,24 +44,22 @@ export async function listNotifications(
   db: Database,
   input: { businessId: string; unreadOnly: boolean; cursor?: string; limit: number },
 ): Promise<{ items: NotificationRow[]; nextCursor: string | null } | null> {
-  const filters = [eq(notifications.businessId, input.businessId)];
-  if (input.cursor !== undefined) {
-    const [anchor] = await db
-      .select({ id: notifications.id })
-      .from(notifications)
-      .where(and(eq(notifications.id, input.cursor), ...filters))
-      .limit(1);
-    if (!anchor) return null;
-    filters.push(keysetBefore(notifications, input.cursor));
-  }
-  if (input.unreadOnly) filters.push(isNull(notifications.readAt));
-  const rows = await db
-    .select()
-    .from(notifications)
-    .where(and(...filters))
-    .orderBy(desc(notifications.createdAt), desc(notifications.id))
-    .limit(input.limit + 1);
-  return paginate(rows, input.limit);
+  return keysetPage(db, {
+    table: notifications,
+    cursor: input.cursor,
+    limit: input.limit,
+    where: [
+      eq(notifications.businessId, input.businessId),
+      ...(input.unreadOnly ? [isNull(notifications.readAt)] : []),
+    ],
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(notifications)
+        .where(where)
+        .orderBy(desc(notifications.createdAt), desc(notifications.id))
+        .limit(limit),
+  });
 }
 
 export async function countNotificationsByKindSince(

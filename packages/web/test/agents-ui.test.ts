@@ -84,17 +84,21 @@ const state = vi.hoisted(() => ({
   me: undefined as unknown,
 }));
 vi.mock('../src/lib/queries.js', () => ({
+  useDrainPages: () => {},
   meQuery: {
     queryKey: ['me'],
     queryFn: async () => (await import('./me-fixture.js')).allAccessMe,
   },
-  useExperts: () => ({
-    data: state.agents.filter((agent) => !agent.isDefault),
-    isPending: state.agentsPending,
-    isError: state.agentsError,
-    error: new Error('Agents unavailable'),
-    refetch: state.agentsRetry,
-  }),
+  ...(() => {
+    const experts = () => ({
+      data: state.agents.filter((agent) => !agent.isDefault),
+      isPending: state.agentsPending,
+      isError: state.agentsError,
+      error: new Error('Agents unavailable'),
+      refetch: state.agentsRetry,
+    });
+    return { useExperts: experts, useAgentsBrowse: experts };
+  })(),
   useAgentOptions: () => ({
     data: { servers: [], skills: [], plugins: [], runtimeEnvironments: [] },
     isPending: false,

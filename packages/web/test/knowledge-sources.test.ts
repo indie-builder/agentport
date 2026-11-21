@@ -622,7 +622,8 @@ describe('knowledge package export and import', () => {
     let uploaded = '';
     server.use(
       http.get('/api/knowledge/bases', () => HttpResponse.json({ items: [], nextCursor: null })),
-      http.get('/api/agents', () => HttpResponse.json([])),
+      http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
       http.post('/api/knowledge/bases/import', async ({ request }) => {
         uploaded = new TextDecoder().decode(await request.arrayBuffer());
         return HttpResponse.json(
@@ -716,7 +717,8 @@ describe('knowledge request transport', () => {
   it('turns a real network failure into the offline message', async () => {
     server.use(
       http.get('/api/knowledge/bases', () => HttpResponse.error()),
-      http.get('/api/agents', () => HttpResponse.json([])),
+      http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     );
     await mount('/knowledge');
     expect(document.body.textContent).toContain('连不上 API 服务');

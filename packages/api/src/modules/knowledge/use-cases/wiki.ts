@@ -3,6 +3,7 @@ import { type Database, repo, schema } from '@agentport/db';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { z } from 'zod';
+import { requireCursorPage } from '../../../http/pagination.js';
 import { createJob, enqueueKnowledgeJob, storeBlob } from '../service.js';
 import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
 
@@ -248,7 +249,9 @@ async function publishWithWikiIndex(
 
 export async function listWikiPages(deps: KnowledgeDeps, id: string, query: PageQuery) {
   if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
-  const page = await repo.knowledge.listWikiPages(deps.db, id, pageOptions(query));
+  const page = requireCursorPage(
+    await repo.knowledge.listWikiPages(deps.db, id, pageOptions(query)),
+  );
   return { items: page.items.map(toWikiPage), nextCursor: page.nextCursor };
 }
 
@@ -290,7 +293,9 @@ export async function createWikiPage(
 export async function getWikiPage(deps: KnowledgeDeps, pageId: string, query: PageQuery) {
   const page = await repo.knowledge.getWikiPage(deps.db, pageId);
   if (!page) notFound('Wiki 页面');
-  const versions = await repo.knowledge.listWikiVersions(deps.db, page.id, pageOptions(query));
+  const versions = requireCursorPage(
+    await repo.knowledge.listWikiVersions(deps.db, page.id, pageOptions(query)),
+  );
   return {
     ...toWikiPage(page),
     versions: versions.items.map(toWikiVersion),
@@ -365,7 +370,9 @@ export async function generateWiki(
 export async function listWikiVersions(deps: KnowledgeDeps, pageId: string, query: PageQuery) {
   const page = await repo.knowledge.getWikiPage(deps.db, pageId);
   if (!page) notFound('Wiki 页面');
-  const versions = await repo.knowledge.listWikiVersions(deps.db, page.id, pageOptions(query));
+  const versions = requireCursorPage(
+    await repo.knowledge.listWikiVersions(deps.db, page.id, pageOptions(query)),
+  );
   return { items: versions.items.map(toWikiVersion), nextCursor: versions.nextCursor };
 }
 

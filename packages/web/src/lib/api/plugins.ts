@@ -1,4 +1,5 @@
 import type {
+  CursorPage,
   NativePluginImportInput,
   NativePluginInstallInput,
   Plugin,
@@ -28,7 +29,9 @@ export interface NativePlugins {
 export type NativePluginImportResult = PluginImportResult & { reused: boolean };
 
 export default {
-  plugins: (): Promise<PluginWithAgentCount[]> => rpc.plugins.list({}),
+  plugins: (
+    query: { cursor?: string; limit?: number } = {},
+  ): Promise<CursorPage<PluginWithAgentCount>> => rpc.plugins.list({ query }),
   plugin: (id: string): Promise<PluginWithAgentCount> => rpc.plugins.get({ params: { id } }),
   updatePlugin: (
     id: string,

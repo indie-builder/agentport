@@ -1,4 +1,4 @@
-import type { RetentionSettings, RetentionUpdate, Schedule, ScheduleRun } from '@agentport/shared';
+import type { RetentionSettings, RetentionUpdate, ScheduleRun } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
@@ -7,6 +7,7 @@ import {
   type HealthProbe,
   type HealthReady,
 } from '../api.js';
+import { useCursorList } from './shared.js';
 
 export const healthMetricsQuery = queryOptions<HealthMetrics>({
   queryKey: ['health-metrics'],
@@ -34,13 +35,22 @@ export const healthReadyQuery = queryOptions<HealthProbe<HealthReady>>({
   staleTime: 0,
 });
 
-export const schedulesQuery = queryOptions<Schedule[]>({
-  queryKey: ['schedules'],
-  queryFn: api.schedules,
-});
+const SCHEDULES_PAGE_SIZE = 50;
+
+export const schedulesQueryKey = ['schedules'] as const;
 
 export function useSchedules() {
-  return useQuery(schedulesQuery);
+  return useCursorList({
+    queryKey: schedulesQueryKey,
+    queryFn: (cursor, signal) =>
+      api.schedules(
+        {
+          limit: SCHEDULES_PAGE_SIZE,
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+        signal,
+      ),
+  });
 }
 
 export const scheduleRunsQuery = (id: string) =>

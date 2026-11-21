@@ -134,8 +134,11 @@ function inspect(agent: Agent, visit: (tree: Element[], pass: number) => void) {
     defaultOptions: { queries: { retry: false, retryOnMount: false, staleTime: Infinity } },
   });
   client.setQueryData(['me'], allAccessMe);
-  client.setQueryData(['agents'], [agent]);
-  client.setQueryData(['servers'], [server]);
+  client.setQueryData(['agents'], { items: [agent], truncated: false });
+  client.setQueryData(['servers'], {
+    pages: [{ items: [server], nextCursor: null }],
+    pageParams: [undefined],
+  });
   client.setQueryData(['knowledge', 'bases'], {
     pages: [{ items: bases, nextCursor: null }],
     pageParams: [null],

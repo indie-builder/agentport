@@ -100,9 +100,11 @@ describe.skipIf(!ready)('runtime environment repo', () => {
     expect(updated?.dockerfile).toBe('FROM alpine:3.24\n');
     expect((await repo.getRuntimeEnvironment(db, environment.id))?.name).toBe(environment.name);
     expect((await repo.getRuntimeEnvironmentByName(db, environment.name))?.id).toBe(environment.id);
-    expect((await repo.listRuntimeEnvironments(db)).some((row) => row.id === environment.id)).toBe(
-      true,
-    );
+    expect(
+      (await repo.listRuntimeEnvironmentPage(db, { limit: 100 }))?.items.some(
+        (row) => row.id === environment.id,
+      ),
+    ).toBe(true);
 
     await expect(
       repo.createRuntimeEnvironment(db, {

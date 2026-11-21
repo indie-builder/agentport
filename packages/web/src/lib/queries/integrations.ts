@@ -1,35 +1,49 @@
-import type {
-  ApiToken,
-  ApiTokenCreateInput,
-  WebhookEndpoint,
-  WebhookEndpointCreateInput,
-} from '@agentport/shared';
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ApiTokenCreateInput, WebhookEndpointCreateInput } from '@agentport/shared';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { rpc } from '../orpc.js';
+import { useCursorList } from './shared.js';
+
+const INTEGRATIONS_PAGE_SIZE = 50;
 
 const integrationsKeys = {
   tokens: ['integrations', 'tokens'] as const,
   webhooks: ['integrations', 'webhooks'] as const,
 };
 
-const apiTokensQuery = queryOptions<ApiToken[]>({
-  queryKey: integrationsKeys.tokens,
-  queryFn: () => rpc.integrations.tokens.list(),
-  staleTime: 0,
-});
-
-const webhookEndpointsQuery = queryOptions<WebhookEndpoint[]>({
-  queryKey: integrationsKeys.webhooks,
-  queryFn: () => rpc.integrations.webhooks.list(),
-  staleTime: 0,
-});
-
 export function useApiTokens() {
-  return useQuery(apiTokensQuery);
+  return useCursorList({
+    queryKey: integrationsKeys.tokens,
+    queryFn: (cursor, signal) =>
+      rpc.integrations.tokens.list(
+        {
+          query: {
+            limit: INTEGRATIONS_PAGE_SIZE,
+            ...(cursor === undefined ? {} : { cursor }),
+          },
+        },
+        { signal },
+      ),
+    staleTime: 0,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
 }
 
 export function useWebhookEndpoints() {
-  return useQuery(webhookEndpointsQuery);
+  return useCursorList({
+    queryKey: integrationsKeys.webhooks,
+    queryFn: (cursor, signal) =>
+      rpc.integrations.webhooks.list(
+        {
+          query: {
+            limit: INTEGRATIONS_PAGE_SIZE,
+            ...(cursor === undefined ? {} : { cursor }),
+          },
+        },
+        { signal },
+      ),
+    staleTime: 0,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
 }
 
 export function useCreateApiToken() {

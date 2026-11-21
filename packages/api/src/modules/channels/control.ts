@@ -182,7 +182,9 @@ export const channelsControlRouter = {
             status: 'error',
             requestId: context.requestId,
           });
-          throw new AppError('SERVICE_UNAVAILABLE', '智能体已断开，但部分运行未能停止，请重试');
+          throw new AppError('SERVICE_UNAVAILABLE', '智能体已断开，但部分运行未能停止，请重试', {
+            retryable: true,
+          });
         }
         await repo.audit.writeAudit(context.db, context.log, {
           actor: actorOf(context),
@@ -223,7 +225,9 @@ export const channelsControlRouter = {
             status: 'error',
             requestId: context.requestId,
           });
-          throw new AppError('SERVICE_UNAVAILABLE', '频道已关闭，但部分运行未能停止，请重试');
+          throw new AppError('SERVICE_UNAVAILABLE', '频道已关闭，但部分运行未能停止，请重试', {
+            retryable: true,
+          });
         }
         await repo.audit.writeAudit(context.db, context.log, {
           actor: actorOf(context),

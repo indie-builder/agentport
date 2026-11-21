@@ -7,13 +7,16 @@ import type { ApiToken, WebhookEndpoint } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { requireCursorPage } from '../../http/pagination.js';
 
 const os = implement(integrationsContract).$context<RequestContext>();
 
-type ApiTokenRow = Awaited<ReturnType<typeof repo.integrations.listApiTokens>>[number];
-type WebhookEndpointRow = Awaited<
-  ReturnType<typeof repo.integrations.listWebhookEndpoints>
->[number];
+type ApiTokenRow = NonNullable<
+  Awaited<ReturnType<typeof repo.integrations.listApiTokens>>
+>['items'][number];
+type WebhookEndpointRow = NonNullable<
+  Awaited<ReturnType<typeof repo.integrations.listWebhookEndpoints>>
+>['items'][number];
 
 function toApiToken(row: ApiTokenRow): ApiToken {
   return {
@@ -45,10 +48,16 @@ function toWebhookEndpoint(row: WebhookEndpointRow): WebhookEndpoint {
 
 export const integrationsRouter = os.router({
   tokens: {
-    list: os.tokens.list.handler(async ({ context }) => {
+    list: os.tokens.list.handler(async ({ input, context }) => {
       const businessId = requireUser(context).businessId;
-      const rows = await repo.integrations.listApiTokens(context.db, businessId);
-      return rows.map(toApiToken);
+      const page = requireCursorPage(
+        await repo.integrations.listApiTokens(context.db, {
+          businessId,
+          ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+          limit: input.query.limit,
+        }),
+      );
+      return { items: page.items.map(toApiToken), nextCursor: page.nextCursor };
     }),
     create: os.tokens.create.handler(async ({ input, context }) => {
       const actor = requireUser(context);
@@ -92,10 +101,16 @@ export const integrationsRouter = os.router({
     }),
   },
   webhooks: {
-    list: os.webhooks.list.handler(async ({ context }) => {
+    list: os.webhooks.list.handler(async ({ input, context }) => {
       const businessId = requireUser(context).businessId;
-      const rows = await repo.integrations.listWebhookEndpoints(context.db, businessId);
-      return rows.map(toWebhookEndpoint);
+      const page = requireCursorPage(
+        await repo.integrations.listWebhookEndpoints(context.db, {
+          businessId,
+          ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+          limit: input.query.limit,
+        }),
+      );
+      return { items: page.items.map(toWebhookEndpoint), nextCursor: page.nextCursor };
     }),
     create: os.webhooks.create.handler(async ({ input, context }) => {
       const actor = requireUser(context);

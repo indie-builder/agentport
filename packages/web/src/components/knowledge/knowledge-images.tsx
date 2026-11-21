@@ -44,7 +44,11 @@ export function ImagesTab({
           className="w-72"
         />
         <span role="status" className="ml-auto text-xs text-muted-foreground">
-          {images.isPending ? '加载中…' : `已加载 ${items.length} 张图片`}
+          {images.isPending
+            ? '加载中…'
+            : images.hasNextPage
+              ? `已加载 ${items.length} 张图片`
+              : `共 ${items.length} 张图片`}
         </span>
       </PageToolbar>
 

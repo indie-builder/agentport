@@ -2,9 +2,12 @@ import { AppError } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
+import { requireCursorPage } from '../../../http/pagination.js';
 import { type KnowledgeDeps, notFound } from './shared.js';
 
-type FolderRow = Awaited<ReturnType<typeof repo.knowledge.listFolders>>['items'][number];
+type FolderRow = NonNullable<
+  Awaited<ReturnType<typeof repo.knowledge.listFolders>>
+>['items'][number];
 
 type TagRow = Awaited<ReturnType<typeof repo.knowledge.listTags>>[number];
 
@@ -28,10 +31,12 @@ export async function listFolders(deps: KnowledgeDeps, id: string) {
   const folders: FolderRow[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const page = await repo.knowledge.listFolders(deps.db, id, {
-      limit: 200,
-      ...(cursor === undefined ? {} : { cursor }),
-    });
+    const page = requireCursorPage(
+      await repo.knowledge.listFolders(deps.db, id, {
+        limit: 200,
+        ...(cursor === undefined ? {} : { cursor }),
+      }),
+    );
     folders.push(...page.items);
     if (page.nextCursor === null || page.nextCursor === cursor) break;
     cursor = page.nextCursor;

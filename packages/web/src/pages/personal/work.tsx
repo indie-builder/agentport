@@ -174,7 +174,9 @@ export function PersonalWorkPage() {
                   <div className="ml-auto flex items-center gap-3">
                     {conversations.data ? (
                       <p role="status" className="text-xs text-muted-foreground">
-                        共 {filteredConversations.length} 条会话
+                        {conversations.hasNextPage
+                          ? `已加载 ${filteredConversations.length} 条会话`
+                          : `共 ${filteredConversations.length} 条会话`}
                       </p>
                     ) : null}
                   </div>
@@ -279,6 +281,19 @@ export function PersonalWorkPage() {
                         </li>
                       ))}
                     </ul>
+                  ) : null}
+                  {conversations.hasNextPage ? (
+                    <div className="flex justify-center pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={conversations.isFetchingNextPage}
+                        aria-busy={conversations.isFetchingNextPage}
+                        onClick={() => void conversations.fetchNextPage()}
+                      >
+                        {conversations.isFetchingNextPage ? '加载中…' : '加载更多'}
+                      </Button>
+                    </div>
                   ) : null}
                 </>
               ) : null}

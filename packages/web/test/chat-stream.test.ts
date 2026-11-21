@@ -453,6 +453,7 @@ describe('disconnected runs', () => {
         error: null,
         sessionId: null,
         sandboxId: null,
+        runtimeEnvironment: null,
       };
       expect(typeof stream.reconcileRun).toBe('function');
       if (status === 'succeeded') {

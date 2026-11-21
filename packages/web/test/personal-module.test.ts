@@ -868,7 +868,10 @@ describe('记忆提案只读', () => {
   it('可查看详情但没有创建、采用或拒绝动作', async () => {
     const me = meWith(['personal_memory.read']);
     vi.spyOn(api, 'me').mockResolvedValue(me);
-    const agents = vi.spyOn(api, 'agents').mockResolvedValue([]);
+    const agents = vi.spyOn(api, 'agentReference').mockResolvedValue({
+      items: [],
+      truncated: false,
+    });
     const conversations = vi.spyOn(api, 'personalConversations');
     vi.spyOn(api, 'memoryReviews').mockResolvedValue({ items: [review], nextCursor: null });
     await mount({
@@ -935,10 +938,10 @@ describe('会话与成果', () => {
   it('默认显示会话单任务视图，支持按关键词与来源筛选，并可切换到成果视图', async () => {
     const me = meWith(['conversations.read']);
     vi.spyOn(api, 'me').mockResolvedValue(me);
-    vi.spyOn(api, 'personalConversations').mockResolvedValue([
-      manualConversation,
-      scheduledConversation,
-    ]);
+    vi.spyOn(api, 'personalConversations').mockResolvedValue({
+      items: [manualConversation, scheduledConversation],
+      nextCursor: null,
+    });
     vi.spyOn(api, 'personalOutputs').mockResolvedValue({
       items: [outputA, outputB],
       truncated: false,
@@ -1022,7 +1025,7 @@ describe('会话与成果', () => {
   it('无会话与无成果时均显示事实空态且不出现「还没有」', async () => {
     const me = meWith(['conversations.read']);
     vi.spyOn(api, 'me').mockResolvedValue(me);
-    vi.spyOn(api, 'personalConversations').mockResolvedValue([]);
+    vi.spyOn(api, 'personalConversations').mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(api, 'personalOutputs').mockResolvedValue({ items: [], truncated: false });
     await mount({
       path: '/personal/work',

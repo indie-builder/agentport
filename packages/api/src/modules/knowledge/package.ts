@@ -11,7 +11,7 @@ import {
   segmentForSearch,
   sha256Hex,
 } from '@agentport/core';
-import { type Database, newId, repo, schema } from '@agentport/db';
+import { type CursorPage, type Database, newId, repo, schema } from '@agentport/db';
 import {
   knowledgeAudioMetadataSchema,
   knowledgeBaseSettingsSchema,
@@ -36,6 +36,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { zipSync } from 'fflate';
 import { z } from 'zod';
 import { isPgCode } from '../../http/errors.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import {
   assertPackagePath,
   decodeZipEntries,
@@ -459,18 +460,15 @@ function parseManifest(files: Map<string, Buffer>): Manifest {
   return parsed.data;
 }
 
-interface PageLike<T> {
-  items: T[];
-  nextCursor: string | null;
-}
-
 async function collectPages<T extends { id: string }>(
-  fetchPage: (options: { cursor?: string; limit?: number }) => Promise<PageLike<T>>,
+  fetchPage: (options: { cursor?: string; limit?: number }) => Promise<CursorPage<T> | null>,
 ): Promise<T[]> {
   const items: T[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const page = await fetchPage({ limit: 200, ...(cursor === undefined ? {} : { cursor }) });
+    const page = requireCursorPage(
+      await fetchPage({ limit: 200, ...(cursor === undefined ? {} : { cursor }) }),
+    );
     items.push(...page.items);
     if (page.nextCursor === null || page.nextCursor === cursor) return items;
     cursor = page.nextCursor;
@@ -871,6 +869,11 @@ export async function importKnowledgePackage(
   validateReferences(manifest, contents);
   await validateAudioPackage(manifest, contents, 'import');
 
+  const requireEntry = <T>(value: T | undefined, key: string): T => {
+    if (value === undefined) throw new Error(`知识库包导入缺少条目：${key}`);
+    return value;
+  };
+
   const [embedding] = await db
     .select({
       id: schema.knowledgeModelProfiles.id,
@@ -1022,18 +1025,18 @@ export async function importKnowledgePackage(
   const createdDirs = new Set<string>();
   try {
     for (const document of manifest.documents) {
-      const newDocumentId = documentId.get(document.id)!;
+      const newDocumentId = requireEntry(documentId.get(document.id), document.id);
       for (const version of document.versions) {
-        const original = contents.get(version.originalPath)!;
+        const original = requireEntry(contents.get(version.originalPath), version.originalPath);
         await storeBlob(knowledgeDir, version.blobSha256, original);
-        const vId = versionId.get(version.id)!;
+        const vId = requireEntry(versionId.get(version.id), version.id);
         const dir = knowledgeVersionDir(knowledgeDir, newDocumentId, vId);
         if (version.markdownPath !== null) {
           createdDirs.add(dir);
           await mkdir(dir, { recursive: true });
           await writeFile(
             knowledgeVersionMarkdownPath(knowledgeDir, newDocumentId, vId),
-            contents.get(version.markdownPath)!,
+            requireEntry(contents.get(version.markdownPath), version.markdownPath),
             'utf8',
           );
         }
@@ -1045,7 +1048,7 @@ export async function importKnowledgePackage(
           for (const image of version.images) {
             await writeFile(
               knowledgeVersionImagePath(knowledgeDir, newDocumentId, vId, image.name),
-              contents.get(image.path)!,
+              requireEntry(contents.get(image.path), image.path),
             );
           }
         }
@@ -1054,7 +1057,7 @@ export async function importKnowledgePackage(
         await storeBlob(
           knowledgeDir,
           document.pending.blobSha256,
-          contents.get(document.pending.originalPath)!,
+          requireEntry(contents.get(document.pending.originalPath), document.pending.originalPath),
         );
       }
     }
@@ -1091,7 +1094,7 @@ export async function importKnowledgePackage(
         (a, b) => folderPath(a, manifest).length - folderPath(b, manifest).length,
       )) {
         await tx.insert(schema.knowledgeFolders).values({
-          id: folderId.get(folder.id)!,
+          id: requireEntry(folderId.get(folder.id), folder.id),
           baseId,
           parentId: folder.parentId === null ? null : folderId.get(folder.parentId),
           name: folder.name,
@@ -1101,7 +1104,7 @@ export async function importKnowledgePackage(
       if (manifest.tags.length > 0) {
         await tx.insert(schema.knowledgeTags).values(
           manifest.tags.map((tag) => ({
-            id: tagId.get(tag.id)!,
+            id: requireEntry(tagId.get(tag.id), tag.id),
             baseId,
             name: tag.name,
           })),
@@ -1110,7 +1113,7 @@ export async function importKnowledgePackage(
       const tagByName = new Map(manifest.tags.map((tag) => [tag.name, tagId.get(tag.id)]));
 
       for (const document of manifest.documents) {
-        const newDocumentId = documentId.get(document.id)!;
+        const newDocumentId = requireEntry(documentId.get(document.id), document.id);
         const currentPackage = document.versions.find(
           (version) => version.id === document.currentVersionId,
         );
@@ -1146,7 +1149,7 @@ export async function importKnowledgePackage(
           lastSyncedAt: document.lastSyncedAt === null ? null : new Date(document.lastSyncedAt),
         });
         for (const version of document.versions) {
-          const newVersionId = versionId.get(version.id)!;
+          const newVersionId = requireEntry(versionId.get(version.id), version.id);
           await tx.insert(schema.knowledgeDocumentVersions).values({
             id: newVersionId,
             documentId: newDocumentId,
@@ -1170,7 +1173,7 @@ export async function importKnowledgePackage(
             const batch = version.chunks.slice(offset, offset + INSERT_BATCH);
             await tx.insert(schema.knowledgeChunks).values(
               batch.map((chunk) => ({
-                id: chunkId.get(chunk.id)!,
+                id: requireEntry(chunkId.get(chunk.id), chunk.id),
                 baseId,
                 documentId: newDocumentId,
                 versionId: newVersionId,
@@ -1199,7 +1202,12 @@ export async function importKnowledgePackage(
           await tx
             .update(schema.knowledgeDocumentVersions)
             .set({ parentVersionId: versionId.get(version.parentVersionId) })
-            .where(eq(schema.knowledgeDocumentVersions.id, versionId.get(version.id)!));
+            .where(
+              eq(
+                schema.knowledgeDocumentVersions.id,
+                requireEntry(versionId.get(version.id), version.id),
+              ),
+            );
         }
         if (currentPackage) {
           await tx
@@ -1220,7 +1228,7 @@ export async function importKnowledgePackage(
       }
 
       for (const page of manifest.wikiPages) {
-        const newPageId = wikiPageId.get(page.id)!;
+        const newPageId = requireEntry(wikiPageId.get(page.id), page.id);
         await tx.insert(schema.knowledgeWikiPages).values({
           id: newPageId,
           baseId,
@@ -1233,12 +1241,15 @@ export async function importKnowledgePackage(
         });
         for (const version of page.versions) {
           await tx.insert(schema.knowledgeWikiVersions).values({
-            id: wikiVersionId.get(`${page.id}/${version.id}`)!,
+            id: requireEntry(
+              wikiVersionId.get(`${page.id}/${version.id}`),
+              `${page.id}/${version.id}`,
+            ),
             pageId: newPageId,
             version: version.version,
             markdown: version.markdown,
             sourceChunkIds: [
-              ...version.sourceChunkIds.map((id) => chunkId.get(id)!),
+              ...version.sourceChunkIds.map((id) => requireEntry(chunkId.get(id), id)),
               ...version.unresolvedSourceChunkIds,
             ],
             model: version.model,
@@ -1270,7 +1281,7 @@ export async function importKnowledgePackage(
         await tx
           .update(schema.knowledgeWikiPages)
           .set({ parentId: wikiPageId.get(page.parentId) })
-          .where(eq(schema.knowledgeWikiPages.id, wikiPageId.get(page.id)!));
+          .where(eq(schema.knowledgeWikiPages.id, requireEntry(wikiPageId.get(page.id), page.id)));
       }
     });
   } catch (err) {

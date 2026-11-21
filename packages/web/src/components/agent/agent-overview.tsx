@@ -271,7 +271,7 @@ export function AgentOverview({
     );
   }
 
-  const recentRuns = runs.data?.items ?? [];
+  const recentRuns = runs.data?.pages.flatMap((page) => page.items) ?? [];
 
   return (
     <div className="flex min-w-0 flex-col gap-5 cds-card-surface rounded-card bg-surface px-6 py-5">

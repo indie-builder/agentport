@@ -34,7 +34,7 @@ import { Textarea } from '../../components/ui/textarea.js';
 import { ApiError } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
-import { useFormBlocker } from '../../lib/form.js';
+import { applyProblemToForm, useFormBlocker } from '../../lib/form.js';
 import { useCreateAgent, useDuplicateAgent } from '../../lib/queries.js';
 import { slugFromName } from '../../lib/slug.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
@@ -103,7 +103,10 @@ export function CreateAgentDialog({
           toastSuccess('专家已创建');
           setCreated(agent);
         },
-        onError: (error) => toastError(error),
+        onError: (error) => {
+          applyProblemToForm(rhf, error);
+          toastError(error);
+        },
       });
     },
     (invalid) => {
@@ -415,6 +418,7 @@ export function DuplicateAgentDialog({
           setCreated(createdAgent);
         },
         onError: (error) => {
+          applyProblemToForm(rhf, error);
           if (
             error instanceof ApiError &&
             error.status === 409 &&

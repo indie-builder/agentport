@@ -97,7 +97,10 @@ beforeEach(() => {
       queries: { retry: false, retryOnMount: false, refetchOnMount: false, gcTime: Infinity },
     },
   });
-  client.setQueryData(['agents'], [{ id: 'agent-a', name: 'Expert A' }]);
+  client.setQueryData(['agents'], {
+    items: [{ id: 'agent-a', name: 'Expert A' }],
+    truncated: false,
+  });
   client.setQueryData(['agent-access', 'agent-a'], allEvalPermissions);
   host = document.createElement('div');
   document.body.append(host);
@@ -208,15 +211,18 @@ async function mountEval(): Promise<void> {
 describe('run list keeps cached rows when a refetch fails', () => {
   it('keeps the loaded table and shows the real error with a retry', async () => {
     vi.spyOn(api, 'runs')
-      .mockResolvedValueOnce({ items: [runItem('run_cached')] })
+      .mockResolvedValueOnce({ items: [runItem('run_cached')], nextCursor: null })
       .mockRejectedValueOnce(new Error('runs unavailable'))
-      .mockResolvedValueOnce({ items: [runItem('run_cached'), runItem('run_recovered')] });
+      .mockResolvedValueOnce({
+        items: [runItem('run_cached'), runItem('run_recovered')],
+        nextCursor: null,
+      });
 
     await mountRuns();
     await actWaitFor(() => expect(host.querySelector('[title="run_cached"]')).not.toBeNull());
 
     await act(async () => {
-      await client.invalidateQueries({ queryKey: ['runs', null, null, 100] });
+      await client.invalidateQueries({ queryKey: ['runs', null, null, null, null, 50] });
     });
     await actWaitFor(() => expect(host.textContent).toContain('runs unavailable'));
 
@@ -233,14 +239,14 @@ describe('run list keeps cached rows when a refetch fails', () => {
 
   it('keeps the loaded empty state instead of replacing it with an error', async () => {
     vi.spyOn(api, 'runs')
-      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({ items: [], nextCursor: null })
       .mockRejectedValueOnce(new Error('runs unavailable'));
 
     await mountRuns();
     await actWaitFor(() => expect(host.textContent).toContain('无运行记录'));
 
     await act(async () => {
-      await client.invalidateQueries({ queryKey: ['runs', null, null, 100] });
+      await client.invalidateQueries({ queryKey: ['runs', null, null, null, null, 50] });
     });
     await actWaitFor(() => expect(host.textContent).toContain('runs unavailable'));
     expect(host.textContent).toContain('无运行记录');

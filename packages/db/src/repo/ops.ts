@@ -24,6 +24,7 @@ import { getAgentServerIds } from './agents.js';
 import { notStale } from './freshness.js';
 import { assertRunBudget, getDepartmentIdForBusinessId } from './governance.js';
 import { lockRunResources } from './locks.js';
+import { keysetPage } from './pagination.js';
 import { consumePolicyApproval, linkPolicyApprovalToRun } from './security.js';
 
 export type ScheduleRow = typeof agentSchedules.$inferSelect;
@@ -52,14 +53,22 @@ export async function createSchedule(db: DbHandle, input: ScheduleWrite): Promis
 
 export async function listSchedules(
   db: Database,
-  access: AccessFilter,
-): Promise<Array<ScheduleRow & { agentName: string | null }>> {
-  return db
-    .select({ ...getTableColumns(agentSchedules), agentName: agents.name })
-    .from(agentSchedules)
-    .leftJoin(agents, eq(agents.id, agentSchedules.agentId))
-    .where(maintainedAgentScopeWhere(access, agentSchedules.agentId))
-    .orderBy(desc(agentSchedules.createdAt));
+  input: { access: AccessFilter; cursor?: string; limit: number },
+) {
+  return keysetPage(db, {
+    table: agentSchedules,
+    cursor: input.cursor,
+    limit: input.limit,
+    where: [maintainedAgentScopeWhere(input.access, agentSchedules.agentId)],
+    load: ({ where, limit }) =>
+      db
+        .select({ ...getTableColumns(agentSchedules), agentName: agents.name })
+        .from(agentSchedules)
+        .leftJoin(agents, eq(agents.id, agentSchedules.agentId))
+        .where(where)
+        .orderBy(desc(agentSchedules.createdAt), desc(agentSchedules.id))
+        .limit(limit),
+  });
 }
 
 export async function getSchedule(db: DbHandle, id: string): Promise<ScheduleRow | null> {

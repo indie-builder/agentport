@@ -15,7 +15,7 @@ vi.mock('../src/lib/api.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/api.js')>();
   return {
     ...actual,
-    api: { ...actual.api, me: vi.fn(), login: vi.fn(), agents: vi.fn() },
+    api: { ...actual.api, me: vi.fn(), login: vi.fn(), agentReference: vi.fn() },
   };
 });
 
@@ -81,7 +81,7 @@ beforeEach(() => {
   queryClient.setDefaultOptions({ queries: { retry: false, refetchOnWindowFocus: false } });
   vi.mocked(api.me).mockReset();
   vi.mocked(api.login).mockReset();
-  vi.mocked(api.agents).mockReset();
+  vi.mocked(api.agentReference).mockReset();
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -130,7 +130,7 @@ describe('login route session check', () => {
 
     vi.mocked(api.login).mockResolvedValue({ ok: true });
     vi.mocked(api.me).mockResolvedValue(allAccessMe);
-    vi.mocked(api.agents).mockResolvedValue([]);
+    vi.mocked(api.agentReference).mockResolvedValue({ items: [], truncated: false });
     await submit('secret');
 
     expect(api.login).toHaveBeenCalledWith('admin', 'secret');
@@ -154,7 +154,7 @@ describe('login route session check', () => {
     };
     vi.mocked(api.login).mockResolvedValue({ ok: true });
     vi.mocked(api.me).mockResolvedValue(nextMe);
-    vi.mocked(api.agents).mockResolvedValue([]);
+    vi.mocked(api.agentReference).mockResolvedValue({ items: [], truncated: false });
     await submit('secret');
 
     expect(api.me).toHaveBeenCalledTimes(2);
@@ -181,7 +181,7 @@ describe('login route session check', () => {
     };
     vi.mocked(api.login).mockResolvedValue({ ok: true });
     vi.mocked(api.me).mockResolvedValue(nextMe);
-    vi.mocked(api.agents).mockResolvedValue([]);
+    vi.mocked(api.agentReference).mockResolvedValue({ items: [], truncated: false });
     await submit('secret');
 
     expect(router.state.location.pathname).toBe(TARGET);
@@ -200,7 +200,7 @@ describe('login route session check', () => {
 
     vi.mocked(api.login).mockResolvedValue({ ok: true });
     vi.mocked(api.me).mockResolvedValue(allAccessMe);
-    vi.mocked(api.agents).mockResolvedValue([]);
+    vi.mocked(api.agentReference).mockResolvedValue({ items: [], truncated: false });
     await submit('secret');
 
     expect(router.state.location.pathname).toBe(TARGET);
@@ -226,7 +226,7 @@ describe('login route session check', () => {
     expect(router.state.location.pathname).toBe('/login');
     expect(form()).not.toBeNull();
 
-    vi.mocked(api.agents).mockResolvedValue([]);
+    vi.mocked(api.agentReference).mockResolvedValue({ items: [], truncated: false });
     await act(async () => settle(allAccessMe));
     await flush();
     expect(router.state.location.pathname).toBe(TARGET);

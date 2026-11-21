@@ -1,11 +1,12 @@
 import { fail, writePersonalMemoryProjection } from '@agentport/core';
-import { type Database, repo } from '@agentport/db';
+import { type CursorPage, type Database, repo } from '@agentport/db';
 import {
   type MemoryChange,
   PERSONAL_MEMORY_MAX_BYTES,
   PERSONAL_MEMORY_MAX_CHARS,
 } from '@agentport/shared';
 import type { SQL } from 'bun';
+import { requireCursorPage } from '../../http/pagination.js';
 import { recordMemoryChange } from './ledger.js';
 
 const PERSONAL_MEMORY_LIMIT_MESSAGE = `个人偏好最多 ${PERSONAL_MEMORY_MAX_CHARS} 个字符，请精简后保存`;
@@ -127,8 +128,10 @@ export async function writePersonalMemory(input: {
 export async function listPersonalMemoryVersions(
   db: Database,
   businessId: string,
-  options: { before?: Date; limit: number },
-): Promise<MemoryChange[]> {
-  const rows = await repo.memoryChanges.listPersonalByUser(db, businessId, options);
-  return rows.map((row) => repo.memoryChanges.toMemoryChange(row));
+  options: { cursor?: string; limit: number },
+): Promise<CursorPage<MemoryChange>> {
+  const page = requireCursorPage(
+    await repo.memoryChanges.listPersonalByUser(db, businessId, options),
+  );
+  return { items: page.items.map(repo.memoryChanges.toMemoryChange), nextCursor: page.nextCursor };
 }

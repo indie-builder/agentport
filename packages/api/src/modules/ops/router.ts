@@ -11,6 +11,7 @@ import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
 import { getQueue } from '../../queue/producer.js';
 import { getScheduleQueue } from '../../queue/schedule.js';
@@ -144,12 +145,21 @@ export const opsRouter = os.router({
   }),
 
   schedules: {
-    list: os.schedules.list.handler(async ({ context }) => {
-      const rows = await opsRepo.listSchedules(context.db, accessFilter(context, 'schedules.read'));
-      const queue = getScheduleQueue(context.config.REDIS_URL);
-      return Promise.all(
-        rows.map(async (row) => toSchedule(row, await schedulerNextRun(queue, row.id))),
+    list: os.schedules.list.handler(async ({ input, context }) => {
+      const page = requireCursorPage(
+        await opsRepo.listSchedules(context.db, {
+          access: accessFilter(context, 'schedules.read'),
+          ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+          limit: input.query.limit,
+        }),
       );
+      const queue = getScheduleQueue(context.config.REDIS_URL);
+      return {
+        items: await Promise.all(
+          page.items.map(async (row) => toSchedule(row, await schedulerNextRun(queue, row.id))),
+        ),
+        nextCursor: page.nextCursor,
+      };
     }),
     create: os.schedules.create.handler(async ({ input, context }) => {
       assertSchedulableCron(input.body.cron, input.body.timezone);

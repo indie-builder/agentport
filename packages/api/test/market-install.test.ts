@@ -119,7 +119,11 @@ describe.skipIf(!ready)('market install persistence', () => {
         });
         expectProblem(result, 'INVALID_INPUT');
         expect(await repo.skills.getSkillBySourceId(app.db, `acme/skills/${slug}`)).toBeNull();
-        expect((await repo.skills.listSkills(app.db)).some((row) => row.slug === slug)).toBe(false);
+        expect(
+          (await repo.skills.listSkills(app.db, { limit: 100 })).items.some(
+            (row) => row.slug === slug,
+          ),
+        ).toBe(false);
       } finally {
         unstubAllGlobals();
         await cleanup(app, { skillSlugs: [slug] });
@@ -145,7 +149,11 @@ describe.skipIf(!ready)('market install persistence', () => {
       await expect(repo.skills.createSkillWithFiles(app.db, skill, files)).rejects.toMatchObject({
         code: 'INVALID_INPUT',
       });
-      expect((await repo.skills.listSkills(app.db)).some((row) => row.slug === slug)).toBe(false);
+      expect(
+        (await repo.skills.listSkills(app.db, { limit: 100 })).items.some(
+          (row) => row.slug === slug,
+        ),
+      ).toBe(false);
     } finally {
       await cleanup(app, { skillSlugs: [slug] });
       await app.close();

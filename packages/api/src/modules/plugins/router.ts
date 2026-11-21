@@ -16,6 +16,7 @@ import {
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { pluginFiles, toApi } from './api.js';
 import { runNativePluginAction } from './native.js';
 import { adoptNativePlugin, reusedPlugin } from './use-cases.js';
@@ -49,15 +50,19 @@ function nameOfPluginId(pluginId: string): string {
 }
 const os = implement(pluginsContract).$context<RequestContext>();
 export const pluginsRouter = os.router({
-  list: os.list.handler(async ({ context }) => {
+  list: os.list.handler(async ({ context, input: routeInput }) => {
     const access = await resourceAccessFilter(context, 'plugins.read', 'plugin', 'read');
-    const rows = await repo.listPlugins(context.db, access);
-    return rows.map(
-      (row): PluginWithAgentCount => ({
-        ...toApi(row, []),
-        agentCount: row.agentCount,
-      }),
-    );
+    const { cursor, limit } = routeInput.query;
+    const page = requireCursorPage(await repo.listPlugins(context.db, { access, limit, cursor }));
+    return {
+      items: page.items.map(
+        (row): PluginWithAgentCount => ({
+          ...toApi(row, []),
+          agentCount: row.agentCount,
+        }),
+      ),
+      nextCursor: page.nextCursor,
+    };
   }),
   native: os.native.handler(async ({ context }) => {
     const output = await runNativePluginAction(context.config.REDIS_URL, context.log, {

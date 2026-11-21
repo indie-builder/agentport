@@ -1,8 +1,9 @@
+import { decodeCursor, encodeCursor } from '@agentport/shared';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeDocuments, knowledgeDocumentTags, knowledgeTags } from '../../schema.js';
-import { keysetBound, paginate } from '../keyset.js';
+import { keysetPage } from '../pagination.js';
 import {
   disableDocumentsBySourceTx,
   escapeLike,
@@ -75,7 +76,7 @@ export interface ListDocumentsFilter extends PageOptions {
 export async function listDocuments(
   db: Database,
   filter: ListDocumentsFilter,
-): Promise<Page<KnowledgeDocumentRow>> {
+): Promise<Page<KnowledgeDocumentRow> | null> {
   const limit = pageLimit(filter);
   const filters: SQL[] = [eq(knowledgeDocuments.baseId, filter.baseId)];
   if (filter.folderId !== undefined) {
@@ -102,24 +103,105 @@ export async function listDocuments(
       where dt.document_id = ${knowledgeDocuments.id} and t.name = ${filter.tag}
     )`);
   }
+  const sort = filter.sort ?? 'created';
+  const direction = filter.order ?? (sort === 'title' ? 'asc' : 'desc');
   const sortColumn =
-    filter.sort === 'updated'
+    sort === 'updated'
       ? knowledgeDocuments.updatedAt
-      : filter.sort === 'title'
+      : sort === 'title'
         ? knowledgeDocuments.title
         : knowledgeDocuments.createdAt;
-  const direction = filter.order ?? (filter.sort === 'title' ? 'asc' : 'desc');
-  if (filter.cursor) {
-    filters.push(keysetBound(knowledgeDocuments, filter.cursor, sortColumn, direction));
-  }
   const orderBy = direction === 'asc' ? asc : desc;
-  const rows = await db
-    .select()
-    .from(knowledgeDocuments)
-    .where(and(...filters))
-    .orderBy(orderBy(sortColumn), orderBy(knowledgeDocuments.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  const defaultOrder = sort === 'created' && direction === 'desc';
+  const anchor = filter.cursor == null ? null : decodeCursor(filter.cursor, 3);
+  const cursorId =
+    filter.cursor == null
+      ? undefined
+      : anchor === null
+        ? defaultOrder
+          ? filter.cursor
+          : null
+        : anchor[0] === sort && anchor[1] === direction
+          ? anchor[2]
+          : null;
+  if (cursorId === null) return null;
+  const page = await keysetPage(db, {
+    table: knowledgeDocuments,
+    cursor: cursorId,
+    limit,
+    column: sortColumn,
+    direction,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeDocuments)
+        .where(where)
+        .orderBy(orderBy(sortColumn), orderBy(knowledgeDocuments.id))
+        .limit(limit),
+  });
+  if (page === null) return null;
+  return {
+    items: page.items,
+    nextCursor:
+      page.nextCursor === null
+        ? null
+        : defaultOrder
+          ? page.nextCursor
+          : encodeCursor([sort, direction, page.nextCursor]),
+  };
+}
+
+export interface ListFaqDocumentsFilter extends PageOptions {
+  baseId: string;
+  folderId?: string | null;
+  status?: KnowledgeDocumentRow['status'];
+  q?: string;
+  isRecommended?: boolean;
+}
+
+export async function listFaqDocuments(
+  db: Database,
+  filter: ListFaqDocumentsFilter,
+): Promise<Page<KnowledgeDocumentRow> | null> {
+  const filters: SQL[] = [
+    eq(knowledgeDocuments.baseId, filter.baseId),
+    eq(knowledgeDocuments.contentKind, 'faq'),
+  ];
+  if (filter.folderId !== undefined) {
+    filters.push(
+      filter.folderId === null
+        ? isNull(knowledgeDocuments.folderId)
+        : eq(knowledgeDocuments.folderId, filter.folderId),
+    );
+  }
+  if (filter.status) filters.push(eq(knowledgeDocuments.status, filter.status));
+  if (filter.q) {
+    filters.push(sql`${knowledgeDocuments.title} ilike ${`%${escapeLike(filter.q)}%`}`);
+  }
+  if (filter.isRecommended !== undefined) {
+    filters.push(sql`coalesce((
+      select v.faq ->> 'isRecommended'
+      from knowledge_document_versions v
+      where v.document_id = ${knowledgeDocuments.id} and v.faq is not null
+      order by v.version desc limit 1
+    ), 'true') = ${String(filter.isRecommended)}`);
+  }
+  return keysetPage(db, {
+    table: knowledgeDocuments,
+    cursor: filter.cursor,
+    limit: pageLimit(filter),
+    column: knowledgeDocuments.updatedAt,
+    direction: 'desc',
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeDocuments)
+        .where(where)
+        .orderBy(desc(knowledgeDocuments.updatedAt), desc(knowledgeDocuments.id))
+        .limit(limit),
+  });
 }
 
 export interface DocumentPatch {
@@ -288,7 +370,7 @@ export async function listReadableDocuments(
   db: Database,
   baseId: string,
   filter: ListReadableDocumentsFilter = {},
-): Promise<Page<KnowledgeDocumentRow>> {
+): Promise<Page<KnowledgeDocumentRow> | null> {
   const limit = pageLimit(filter);
   const filters: SQL[] = [
     eq(knowledgeDocuments.baseId, baseId),
@@ -297,18 +379,20 @@ export async function listReadableDocuments(
   ];
   const kinds = filter.kinds ?? ['document', 'faq'];
   filters.push(inArray(knowledgeDocuments.contentKind, kinds));
-  if (filter.cursor) {
-    filters.push(sql`(${knowledgeDocuments.updatedAt}, ${knowledgeDocuments.id}) < (
-      select b.updated_at, b.id from ${knowledgeDocuments} b where b.id = ${filter.cursor}
-    )`);
-  }
-  const rows = await db
-    .select()
-    .from(knowledgeDocuments)
-    .where(and(...filters))
-    .orderBy(desc(knowledgeDocuments.updatedAt), desc(knowledgeDocuments.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeDocuments,
+    cursor: filter.cursor,
+    limit,
+    column: knowledgeDocuments.updatedAt,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeDocuments)
+        .where(where)
+        .orderBy(desc(knowledgeDocuments.updatedAt), desc(knowledgeDocuments.id))
+        .limit(limit),
+  });
 }
 
 /** 外部来源失权/删除：文档置 disabled，不物理删、不参与检索。

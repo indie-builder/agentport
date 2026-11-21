@@ -26,41 +26,49 @@ import { useRuns } from '../src/lib/queries.js';
 
 interface RunsOptions {
   queryKey: unknown[];
-  refetchInterval: (query: { state: { data?: RunList } }) => number | false;
+  refetchInterval: (query: {
+    state: { data?: { pages: RunList[]; pageParams: unknown[] } };
+  }) => number | false;
 }
 
 function capture(): RunsOptions {
-  return rq.useQuery.mock.calls.at(-1)?.[0] as RunsOptions;
+  return rq.useInfiniteQuery.mock.calls.at(-1)?.[0] as RunsOptions;
 }
 
 function useDefaultOptions(query: RunQuery = {}): RunsOptions {
-  rq.useQuery.mockReturnValue({ data: undefined });
+  rq.useInfiniteQuery.mockReturnValue({ data: undefined });
   useRuns(query);
   return capture();
 }
 
 function usePollInterval(statuses: RunStatus[]): number | false {
-  const data: RunList = {
-    items: statuses.map((status, index) => ({
-      id: `r${index}`,
-      agentId: 'a1',
-      agentName: null,
-      status,
-      startedAt: null,
-      endedAt: null,
-      costUsd: null,
-      turns: null,
-      latencyMs: null,
-      error: null,
-      inputTokens: null,
-      outputTokens: null,
-    })),
+  const data = {
+    pages: [
+      {
+        items: statuses.map((status, index) => ({
+          id: `r${index}`,
+          agentId: 'a1',
+          agentName: null,
+          status,
+          startedAt: null,
+          endedAt: null,
+          costUsd: null,
+          turns: null,
+          latencyMs: null,
+          error: null,
+          inputTokens: null,
+          outputTokens: null,
+        })),
+        nextCursor: null,
+      },
+    ],
+    pageParams: [undefined],
   };
   return useDefaultOptions({ limit: 50 }).refetchInterval({ state: { data } });
 }
 
 beforeEach(() => {
-  rq.useQuery.mockReset();
+  rq.useInfiniteQuery.mockReset();
 });
 
 test('查询键保留过滤条件', () => {
@@ -68,9 +76,11 @@ test('查询键保留过滤条件', () => {
     'runs',
     'a1',
     'failed',
+    null,
+    null,
     20,
   ]);
-  expect(useDefaultOptions({ limit: 50 }).queryKey).toEqual(['runs', null, null, 50]);
+  expect(useDefaultOptions({ limit: 50 }).queryKey).toEqual(['runs', null, null, null, null, 50]);
 });
 
 test('有 queued/running 时每 5 秒轮询，全部结束后停止', () => {

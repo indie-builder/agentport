@@ -5,10 +5,11 @@ import {
   decryptSecrets,
   hashMcpToken,
   installProcessGuards,
+  isAppError,
   RunFailure,
   renderPlugin,
 } from '@agentport/core';
-import { createServiceLogger } from '@agentport/core/logger';
+import { createServiceLogger, logEvent } from '@agentport/core/logger';
 import { createDb, plugins as pluginsTable, repo, schema } from '@agentport/db';
 import {
   ACTIVE_RUN_STATUSES,
@@ -404,17 +405,35 @@ const worker = new Worker(
 worker.on('failed', async (job, err) => {
   const parsed = job ? agentRunJobSchema.safeParse(job.data) : null;
   // BullMQ increments attemptsMade before emitting failed.
-  logger.error(
-    parsed?.success
-      ? {
-          runId: parsed.data.runId,
-          ...(parsed.data.requestId === undefined ? {} : { requestId: parsed.data.requestId }),
-          err,
-        }
-      : { jobId: job?.id, err },
-    'job failed',
-  );
-  if (!job || job.attemptsMade < (job.opts.attempts ?? 1)) return;
+  const finalAttempt = job !== undefined && job.attemptsMade >= (job.opts.attempts ?? 1);
+  if (parsed?.success && job !== undefined && finalAttempt) {
+    logEvent(
+      logger,
+      'run failed',
+      {
+        runId: parsed.data.runId,
+        attemptsMade: job.attemptsMade,
+        ...(isAppError(err) ? { code: err.code } : {}),
+      },
+      'error',
+      {
+        err,
+        ...(parsed.data.requestId === undefined ? {} : { requestId: parsed.data.requestId }),
+      },
+    );
+  } else {
+    logger.error(
+      parsed?.success
+        ? {
+            runId: parsed.data.runId,
+            ...(parsed.data.requestId === undefined ? {} : { requestId: parsed.data.requestId }),
+            err,
+          }
+        : { jobId: job?.id, err },
+      'job failed',
+    );
+  }
+  if (!finalAttempt) return;
   if (!parsed?.success) return;
   const { runId, agentId } = parsed.data;
   try {
@@ -651,9 +670,10 @@ const shutdown = async (): Promise<void> => {
       },
     },
   });
+  logEvent(logger, 'worker stopped', {});
   process.exit(code);
 };
 
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());
-logger.info('worker started');
+logEvent(logger, 'worker started', {});

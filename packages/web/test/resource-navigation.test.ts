@@ -82,6 +82,7 @@ vi.mock('../src/lib/queries.js', () => {
     }),
     useInstallMarketSkill: mutation,
     useServers: () => ({ data: [] }),
+    useDrainPages: () => {},
     useKnowledgeBases: () => ({ data: [], isPending: false, isError: false }),
     useRuntimeEnvironments: () => ({
       data: [],
@@ -524,7 +525,7 @@ describe('conflict recovery', () => {
   });
 
   it('retains server draft and requires confirmation before fetching a replacement', async () => {
-    const reload = vi.spyOn(api, 'servers').mockResolvedValue([]);
+    const reload = vi.spyOn(api, 'server').mockResolvedValue(server);
     state.mutate.mockImplementationOnce((_input, callbacks) =>
       callbacks.onError(new ApiError(409, 'Changed')),
     );

@@ -15,6 +15,7 @@ import { KNOWLEDGE_DOCUMENT_MAX_BYTES, knowledgeImageChunkMetadataSchema } from 
 import { and, eq, sql } from 'drizzle-orm';
 import type { Config } from '../../../config.js';
 import { isPgCode } from '../../../http/errors.js';
+import { invalidCursor, requireCursorPage } from '../../../http/pagination.js';
 import { createJob, documentWire, enqueueKnowledgeJob, storeBlob } from '../service.js';
 import { getVersionMarkdown } from './binary.js';
 import {
@@ -31,7 +32,9 @@ import {
   type VersionRow,
 } from './shared.js';
 
-type ChunkRow = Awaited<ReturnType<typeof repo.knowledge.listChunkSummaries>>['items'][number];
+type ChunkRow = NonNullable<
+  Awaited<ReturnType<typeof repo.knowledge.listChunkSummaries>>
+>['items'][number];
 
 export const KNOWLEDGE_UPLOAD_BODY_LIMIT = 48 * 1024 * 1024;
 
@@ -249,17 +252,19 @@ export async function listDocuments(
   },
 ) {
   const { folderId, tag, status, q, sort, order, ...rest } = query;
-  const page = await repo.knowledge.listDocuments(deps.db, {
-    ...pageOptions(rest),
-    baseId: id,
-    contentKind: 'document',
-    ...(folderId === undefined ? {} : { folderId: folderId === 'null' ? null : folderId }),
-    ...(tag === undefined ? {} : { tag }),
-    ...(status === undefined ? {} : { status }),
-    ...(q === undefined ? {} : { q }),
-    ...(sort === undefined ? {} : { sort }),
-    ...(order === undefined ? {} : { order }),
-  });
+  const page = requireCursorPage(
+    await repo.knowledge.listDocuments(deps.db, {
+      ...pageOptions(rest),
+      baseId: id,
+      contentKind: 'document',
+      ...(folderId === undefined ? {} : { folderId: folderId === 'null' ? null : folderId }),
+      ...(tag === undefined ? {} : { tag }),
+      ...(status === undefined ? {} : { status }),
+      ...(q === undefined ? {} : { q }),
+      ...(sort === undefined ? {} : { sort }),
+      ...(order === undefined ? {} : { order }),
+    }),
+  );
   const tags = await repo.knowledge.getDocumentTagNames(
     deps.db,
     page.items.map((row) => row.id),
@@ -275,10 +280,12 @@ export async function listImageAssets(
   id: string,
   query: PageQuery & { q?: string | undefined },
 ) {
-  const page = await repo.knowledge.listImageAssets(deps.db, id, {
-    ...pageOptions(query),
-    ...(query.q === undefined ? {} : { q: query.q }),
-  });
+  const page = requireCursorPage(
+    await repo.knowledge.listImageAssets(deps.db, id, {
+      ...pageOptions(query),
+      ...(query.q === undefined ? {} : { q: query.q }),
+    }),
+  );
   return {
     items: page.items.map((row) => ({
       documentId: row.documentId,
@@ -493,7 +500,9 @@ export async function updateDocument(
   }
   if (current.status === 'disabled' && patch.status === 'ready') {
     const chunks = current.currentVersionId
-      ? await repo.knowledge.listChunkSummaries(deps.db, current.currentVersionId, { limit: 1 })
+      ? requireCursorPage(
+          await repo.knowledge.listChunkSummaries(deps.db, current.currentVersionId, { limit: 1 }),
+        )
       : null;
     if (!chunks || chunks.items.length === 0) {
       throw new AppError('CONFLICT', '当前版本没有可用分块，请先重新摄取');
@@ -594,14 +603,19 @@ export async function listChunks(
   const row = await repo.knowledge.getDocument(deps.db, documentId);
   if (!row) notFound('文档');
   const versionId = query.versionId ?? row.currentVersionId;
-  if (!versionId) return { items: [], nextCursor: null };
+  if (!versionId) {
+    if (query.cursor !== undefined) invalidCursor();
+    return { items: [], nextCursor: null };
+  }
   if (versionId !== row.currentVersionId) {
     const version = await repo.knowledge.getVersion(deps.db, versionId);
     if (!version || version.documentId !== row.id) {
       throw new AppError('INVALID_INPUT', '版本不存在或不属于该文档');
     }
   }
-  const page = await repo.knowledge.listChunkSummaries(deps.db, versionId, pageOptions(query));
+  const page = requireCursorPage(
+    await repo.knowledge.listChunkSummaries(deps.db, versionId, pageOptions(query)),
+  );
   return { items: page.items.map(toChunk), nextCursor: page.nextCursor };
 }
 
@@ -797,7 +811,9 @@ export async function deleteChunk(
 export async function listVersions(deps: KnowledgeDeps, documentId: string, query: PageQuery) {
   const document = await repo.knowledge.getDocument(deps.db, documentId);
   if (!document) notFound('文档');
-  const page = await repo.knowledge.listDocumentVersions(deps.db, document.id, pageOptions(query));
+  const page = requireCursorPage(
+    await repo.knowledge.listDocumentVersions(deps.db, document.id, pageOptions(query)),
+  );
   return {
     items: page.items.map((row) => toDocumentVersion(row, document.currentVersionId)),
     nextCursor: page.nextCursor,

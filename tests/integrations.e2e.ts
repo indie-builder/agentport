@@ -140,12 +140,18 @@ async function waitFor<T>(
 }
 
 async function runCount(browser: Browser, agentId: string): Promise<number> {
-  const page = await apiJson<{ items: unknown[] }>(
-    browser,
-    'GET',
-    `/api/runs?agentId=${encodeURIComponent(agentId)}&limit=200`,
-  );
-  return page.items.length;
+  let count = 0;
+  let cursor: string | undefined;
+  do {
+    const page = await apiJson<{ items: unknown[]; nextCursor: string | null }>(
+      browser,
+      'GET',
+      `/api/runs?agentId=${encodeURIComponent(agentId)}&limit=100${cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`}`,
+    );
+    count += page.items.length;
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor !== undefined);
+  return count;
 }
 
 function sign(secret: string, timestamp: string, rawBody: string): string {
@@ -215,11 +221,9 @@ test('integrations 外部令牌触发运行并收到签名回调，重复事件�
     expect(outbound.body.secret.startsWith('whsec_')).toBe(true);
     endpointIds.push(outbound.body.id);
 
-    const webhookList = await apiJson<Array<{ id: string }>>(
-      browser,
-      'GET',
-      '/api/integrations/webhooks',
-    );
+    const webhookList = (
+      await apiJson<{ items: Array<{ id: string }> }>(browser, 'GET', '/api/integrations/webhooks')
+    ).items;
     expect(webhookList.some((endpoint) => endpoint.id === outbound.body.id)).toBe(true);
 
     const rejectedName = `E2E outbound localhost ${suffix}`;
@@ -235,11 +239,13 @@ test('integrations 外部令牌触发运行并收到签名回调，重复事件�
       },
     );
     expect(loopbackByName.status).toBe(400);
-    const webhookListAfterRejection = await apiJson<Array<{ id: string; name: string }>>(
-      browser,
-      'GET',
-      '/api/integrations/webhooks',
-    );
+    const webhookListAfterRejection = (
+      await apiJson<{ items: Array<{ id: string; name: string }> }>(
+        browser,
+        'GET',
+        '/api/integrations/webhooks',
+      )
+    ).items;
     expect(webhookListAfterRejection.length).toBe(webhookList.length);
     expect(webhookListAfterRejection.some((endpoint) => endpoint.name === rejectedName)).toBe(
       false,
@@ -255,7 +261,7 @@ test('integrations 外部令牌触发运行并收到签名回调，重复事件�
     const tokenList = await browserFetch(browser, 'GET', '/api/integrations/tokens');
     expect(tokenList.status).toBe(200);
     expect(tokenList.text).not.toContain(token.body.token);
-    const tokenEntries = JSON.parse(tokenList.text) as Array<{ id: string }>;
+    const tokenEntries = (JSON.parse(tokenList.text) as { items: Array<{ id: string }> }).items;
     expect(tokenEntries.some((entry) => entry.id === token.body.id)).toBe(true);
 
     const message = `E2E-INTEGRATIONS-${suffix}`;

@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { AppError } from '@agentport/core';
-import { errorCode } from '@agentport/shared';
 import { SQL } from 'bun';
 import { HTTPException } from 'hono/http-exception';
 import { isPgCode, toAppError } from '../src/http/errors.js';
@@ -73,7 +72,7 @@ describe('AppError contract', () => {
         payload: { username: 'admin', password: 'irrelevant-password' },
       });
       const body = expectProblem(res, 'INTERNAL_ERROR');
-      expect(body).toMatchObject({ message: 'Internal server error', retryable: true });
+      expect(body).toMatchObject({ message: 'Internal server error', retryable: false });
       expect(res.body).not.toContain('hunter2');
       expect(res.body).not.toContain('127.0.0.1:1');
     } finally {
@@ -124,7 +123,7 @@ describe('toAppError mappings', () => {
   ] as const)('maps HTTP %i to %s', (status, code) => {
     expect(toAppError(new HTTPException(status))).toMatchObject({
       code,
-      status: errorCode[code],
+      status,
     });
   });
 

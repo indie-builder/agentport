@@ -135,14 +135,19 @@ async function mount(
     defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } },
   });
   client.setQueryData(['me'], allAccessMe);
-  client.setQueryData(['servers'], servers);
-  client.setQueryData(['agents'], []);
+  client.setQueryData(['servers'], {
+    pages: [{ items: servers, nextCursor: null }],
+    pageParams: [undefined],
+  });
+  client.setQueryData(['agents'], { items: [], truncated: false });
   client.setQueryData(['connector-catalog'], catalog);
   if (cacheEnvironments) {
-    client.setQueryData(
-      ['runtime-environments'],
-      [defaultEnvironment, namedEnvironment, otherEnvironment],
-    );
+    client.setQueryData(['runtime-environments'], {
+      pages: [
+        { items: [defaultEnvironment, namedEnvironment, otherEnvironment], nextCursor: null },
+      ],
+      pageParams: [undefined],
+    });
   }
   host = document.createElement('div');
   document.body.append(host);
@@ -226,7 +231,7 @@ beforeEach(() => {
     configurable: true,
     value: () => {},
   });
-  vi.spyOn(api, 'agents').mockResolvedValue([]);
+  vi.spyOn(api, 'agentReference').mockResolvedValue({ items: [], truncated: false });
 });
 
 afterEach(async () => {
@@ -239,7 +244,7 @@ afterEach(async () => {
 
 describe('server search', () => {
   it('matches a connector by its catalog display name as well as its slug', async () => {
-    vi.spyOn(api, 'servers').mockResolvedValue([huggingFaceServer]);
+    vi.spyOn(api, 'servers').mockResolvedValue({ items: [huggingFaceServer], nextCursor: null });
     await mount([huggingFaceServer], { catalog: [huggingFaceCatalogItem] });
     const cards = () => document.querySelectorAll('ul[aria-label="连接器列表"] > li');
     expect(cards()).toHaveLength(1);
@@ -261,7 +266,7 @@ describe('server search', () => {
   });
 
   it('defaults to cards view and switches to table view when view=table is active', async () => {
-    vi.spyOn(api, 'servers').mockResolvedValue([httpServer]);
+    vi.spyOn(api, 'servers').mockResolvedValue({ items: [httpServer], nextCursor: null });
     await mount([httpServer]);
     expect(document.querySelector('ul[aria-label="连接器列表"]')).not.toBeNull();
     expect(document.querySelector('table[aria-label="连接器列表"]')).toBeNull();
@@ -275,7 +280,7 @@ describe('server search', () => {
 
 describe('server test environment identity', () => {
   it('returns focus to the server menu after cancelling or confirming the stdio test dialog', async () => {
-    vi.spyOn(api, 'servers').mockResolvedValue([stdioServer]);
+    vi.spyOn(api, 'servers').mockResolvedValue({ items: [stdioServer], nextCursor: null });
     const testServer = vi
       .spyOn(api, 'testServer')
       .mockResolvedValue({ ok: true, tools: [], durationMs: 10 });
@@ -292,7 +297,10 @@ describe('server test environment identity', () => {
   });
 
   it('does not carry a stdio environment into a later HTTP or generated retest', async () => {
-    vi.spyOn(api, 'servers').mockResolvedValue([stdioServer, httpServer, generatedServer]);
+    vi.spyOn(api, 'servers').mockResolvedValue({
+      items: [stdioServer, httpServer, generatedServer],
+      nextCursor: null,
+    });
     const testServer = vi
       .spyOn(api, 'testServer')
       .mockResolvedValueOnce({
@@ -325,7 +333,10 @@ describe('server test environment identity', () => {
   });
 
   it('keeps each stdio server on its own last environment across tests and detail retests', async () => {
-    vi.spyOn(api, 'servers').mockResolvedValue([stdioServer, secondStdioServer]);
+    vi.spyOn(api, 'servers').mockResolvedValue({
+      items: [stdioServer, secondStdioServer],
+      nextCursor: null,
+    });
     const testServer = vi
       .spyOn(api, 'testServer')
       .mockResolvedValueOnce({
@@ -377,7 +388,7 @@ describe('server test environment identity', () => {
       lastToolCount: 1,
       lastTestRuntimeEnvironment: resolvedEnvironment,
     };
-    vi.spyOn(api, 'servers').mockResolvedValue([refreshed]);
+    vi.spyOn(api, 'servers').mockResolvedValue({ items: [refreshed], nextCursor: null });
     const testServer = vi.spyOn(api, 'testServer').mockResolvedValue({
       ok: true,
       tools: [],
@@ -418,7 +429,7 @@ describe('server test environment identity', () => {
       lastToolCount: 1,
       lastTestRuntimeEnvironment: removedEnvironment,
     };
-    vi.spyOn(api, 'servers').mockResolvedValue([refreshed]);
+    vi.spyOn(api, 'servers').mockResolvedValue({ items: [refreshed], nextCursor: null });
     const testServer = vi
       .spyOn(api, 'testServer')
       .mockResolvedValue({ ok: true, tools: [], durationMs: 10 });
@@ -438,7 +449,7 @@ describe('server test environment identity', () => {
   });
 
   it('blocks starting when the cached environment list fails to refresh, and retries explicitly', async () => {
-    vi.spyOn(api, 'servers').mockResolvedValue([stdioServer]);
+    vi.spyOn(api, 'servers').mockResolvedValue({ items: [stdioServer], nextCursor: null });
     const testServer = vi
       .spyOn(api, 'testServer')
       .mockResolvedValue({ ok: true, tools: [], durationMs: 10 });
@@ -491,7 +502,7 @@ describe('server test environment identity', () => {
       return Promise.resolve(Response.json([]));
     });
     vi.stubGlobal('fetch', fetchMock);
-    vi.spyOn(api, 'servers').mockResolvedValue([stdioServer]);
+    vi.spyOn(api, 'servers').mockResolvedValue({ items: [stdioServer], nextCursor: null });
     const testServer = vi
       .spyOn(api, 'testServer')
       .mockResolvedValue({ ok: true, tools: [], durationMs: 10 });

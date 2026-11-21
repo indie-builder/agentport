@@ -8,6 +8,7 @@ import {
   agentInputSchema,
   apiToolSchema,
   DEFAULT_MEMORY_POLICY,
+  encodeCursor,
   type MemoryPolicy,
   pluginInputSchema,
   resolveMemoryPolicy,
@@ -15,6 +16,7 @@ import {
 import {
   and,
   asc,
+  count,
   desc,
   eq,
   getTableColumns,
@@ -56,6 +58,7 @@ import {
 } from './agent-versions.js';
 import { notStale, touchUpdatedAt } from './freshness.js';
 import { lockAgentBindings } from './locks.js';
+import type { CursorPage } from './pagination.js';
 import { isPgCode } from './pg-errors.js';
 import { getPluginFilesByPluginIds, listAgentPluginBindingInputs } from './plugins.js';
 import { getSkillFilesBySkillIds } from './skill-files.js';
@@ -181,23 +184,35 @@ function agentListScopeWhere(access: AccessFilter): SQL | undefined {
 export type AgentLifecycleStatus = 'active' | 'archived' | 'deleted';
 
 export interface AgentListOptions {
-  q?: string;
-  tag?: string;
-  favorite?: boolean;
-  sort?: 'name' | 'recent';
+  q?: string | undefined;
+  tag?: string | undefined;
+  favorite?: boolean | undefined;
+  sort?: 'name' | 'recent' | undefined;
   status?: AgentLifecycleStatus;
   enabled?: boolean;
   limit?: number;
 }
 
-export async function listAgents(
+type AgentListRow = AgentRow & {
+  serverIds: string[] | null;
+  isFavorite: boolean;
+  lastUsedAt: Date | null;
+};
+
+type AgentPageOptions = AgentListOptions & {
+  access: AccessFilter;
+  configAccess?: AccessFilter;
+  cursor?: string | undefined;
+  cursorSort?: string | undefined;
+  limit: number;
+};
+
+function agentListing(
   db: Database,
   access: AccessFilter,
-  configAccess?: AccessFilter,
-  options: AgentListOptions = {},
-): Promise<
-  Array<AgentRow & { serverIds: string[] | null; isFavorite: boolean; lastUsedAt: Date | null }>
-> {
+  configAccess: AccessFilter | undefined,
+  options: AgentListOptions,
+) {
   const configScope = configAccess ? agentReadScopeWhere(configAccess) : sql`false`;
   const status = options.status ?? 'active';
   const lifecycleWhere =
@@ -243,34 +258,135 @@ export async function listAgents(
       : options.sort === 'recent'
         ? [sql`${lastUsedAt} desc nulls last`, asc(agents.name), asc(agents.id)]
         : [desc(agents.createdAt), desc(agents.id)];
-  const query = db
+  const scope = and(
+    agentListScopeWhere(access),
+    lifecycleWhere,
+    lifecycleVisible,
+    enabledWhere,
+    searchWhere,
+    tagWhere,
+    favoriteFilter,
+  );
+  const fields = {
+    ...getTableColumns(agents),
+    serverIds: sql<
+      string[] | null
+    >`case when ${configScope ?? sql`true`} and not ${agents.isDefault} then
+      coalesce(array_agg(${agentServers.serverId} order by ${agentServers.serverId})
+        filter (where ${agentServers.serverId} is not null), '{}'::text[])
+      else null end`,
+    isFavorite: sql<boolean>`${favoriteWhere}`,
+    lastUsedAt,
+  };
+  const load = (limit?: number, bound?: SQL) => {
+    const query = db
+      .select(fields)
+      .from(agents)
+      .leftJoin(agentServers, eq(agentServers.agentId, agents.id))
+      .where(and(scope, bound))
+      .groupBy(agents.id)
+      .orderBy(...order);
+    return limit === undefined ? query : query.limit(limit);
+  };
+  return { scope, lastUsedAt, load };
+}
+
+export function listAgents(
+  db: Database,
+  options: AgentPageOptions,
+): Promise<CursorPage<AgentListRow> | null>;
+export function listAgents(
+  db: Database,
+  access: AccessFilter,
+  configAccess?: AccessFilter,
+  options?: AgentListOptions,
+): Promise<AgentListRow[]>;
+export async function listAgents(
+  db: Database,
+  accessOrOptions: AccessFilter | AgentPageOptions,
+  configAccess?: AccessFilter,
+  options: AgentListOptions = {},
+): Promise<AgentListRow[] | CursorPage<AgentListRow> | null> {
+  if (!('access' in accessOrOptions)) {
+    const { load } = agentListing(db, accessOrOptions, configAccess, options);
+    return load(options.limit);
+  }
+
+  const {
+    access,
+    configAccess: pageConfigAccess,
+    sort = 'createdAt',
+    cursor,
+    cursorSort,
+    limit,
+  } = accessOrOptions;
+  const { scope, lastUsedAt, load } = agentListing(db, access, pageConfigAccess, accessOrOptions);
+  let bound: SQL | undefined;
+  if (cursor !== undefined) {
+    if (cursorSort !== sort) return null;
+    const time = sort === 'recent' ? lastUsedAt : agents.createdAt;
+    const anchorTime = sql<
+      string | null
+    >`to_char(${time} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+    const [anchor] = await db
+      .select({ id: agents.id, name: agents.name, time: anchorTime })
+      .from(agents)
+      .where(and(scope, eq(agents.id, cursor)))
+      .limit(1);
+    if (!anchor) return null;
+    if (sort === 'name') {
+      bound = sql`(${agents.name}, ${agents.id}) > (${anchor.name}, ${anchor.id})`;
+    } else if (sort === 'createdAt') {
+      bound = sql`(${agents.createdAt}, ${agents.id}) < (${anchor.time}::timestamptz, ${anchor.id})`;
+    } else {
+      const afterName = sql`(${agents.name}, ${agents.id}) > (${anchor.name}, ${anchor.id})`;
+      if (anchor.time === null) {
+        bound = sql`${lastUsedAt} is null and ${afterName}`;
+      } else {
+        bound = sql`(${lastUsedAt} is null or ${lastUsedAt} < ${anchor.time}::timestamptz or (${lastUsedAt} = ${anchor.time}::timestamptz and ${afterName}))`;
+      }
+    }
+  }
+
+  const rows = await load(limit + 1, bound);
+  const items = rows.slice(0, limit);
+  const last = rows.length > limit ? items.at(-1) : undefined;
+  const nextCursor = last ? encodeCursor([sort, last.id]) : null;
+  return { items, nextCursor };
+}
+
+export async function listAgentReference(
+  db: Database,
+  access: AccessFilter,
+  configAccess: AccessFilter,
+) {
+  const rows = await listAgents(db, access, configAccess, { sort: 'name', limit: 501 });
+  return { items: rows.slice(0, 500), truncated: rows.length > 500 };
+}
+
+export async function listServerBoundAgents(
+  db: Database,
+  serverId: string,
+  access: AccessFilter,
+): Promise<{ agents: Array<{ id: string; name: string }>; hiddenCount: number }> {
+  const active = and(
+    eq(agentServers.serverId, serverId),
+    isNull(agents.archivedAt),
+    isNull(agents.deletedAt),
+  );
+  const scope = access.scopes.length === 0 ? sql`false` : agentListScopeWhere(access);
+  const rows = await db
     .select({
-      ...getTableColumns(agents),
-      serverIds: sql<
-        string[] | null
-      >`case when ${configScope ?? sql`true`} and not ${agents.isDefault} then
-        coalesce(array_agg(${agentServers.serverId} order by ${agentServers.serverId})
-          filter (where ${agentServers.serverId} is not null), '{}'::text[])
-        else null end`,
-      isFavorite: sql<boolean>`${favoriteWhere}`,
-      lastUsedAt,
+      id: agents.id,
+      name: agents.name,
+      visible: scope === undefined ? sql<boolean>`true` : sql<boolean>`coalesce((${scope}), false)`,
     })
-    .from(agents)
-    .leftJoin(agentServers, eq(agentServers.agentId, agents.id))
-    .where(
-      and(
-        agentListScopeWhere(access),
-        lifecycleWhere,
-        lifecycleVisible,
-        enabledWhere,
-        searchWhere,
-        tagWhere,
-        favoriteFilter,
-      ),
-    )
-    .groupBy(agents.id)
-    .orderBy(...order);
-  return options.limit === undefined ? query : query.limit(options.limit);
+    .from(agentServers)
+    .innerJoin(agents, eq(agents.id, agentServers.agentId))
+    .where(active)
+    .orderBy(asc(agents.name), asc(agents.id));
+  const visible = rows.filter((row) => row.visible).map(({ id, name }) => ({ id, name }));
+  return { agents: visible, hiddenCount: rows.length - visible.length };
 }
 
 export async function listAgentTags(db: Database, access: AccessFilter): Promise<string[]> {

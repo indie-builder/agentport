@@ -3,6 +3,7 @@ import { repo } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { requireCursorPage } from '../../http/pagination.js';
 
 const os = implement(governanceContract).$context<RequestContext>();
 const governance = repo.governance;
@@ -20,7 +21,9 @@ async function audit(context: RequestContext, action: string, target: string, in
 
 export const governanceRouter = os.router({
   departments: {
-    list: os.departments.list.handler(({ context }) => governance.listDepartments(context.db)),
+    list: os.departments.list.handler(async ({ context, input }) =>
+      requireCursorPage(await governance.listDepartments(context.db, input.query)),
+    ),
     create: os.departments.create.handler(async ({ context, input }) => {
       const result = await governance.createDepartment(context.db, input.body);
       await audit(context, 'department.create', result.id, input.body);
@@ -42,7 +45,9 @@ export const governanceRouter = os.router({
     }),
   },
   budgets: {
-    list: os.budgets.list.handler(({ context }) => governance.listBudgetStatuses(context.db)),
+    list: os.budgets.list.handler(async ({ context, input }) =>
+      requireCursorPage(await governance.listBudgetStatuses(context.db, input.query)),
+    ),
     upsert: os.budgets.upsert.handler(async ({ context, input }) => {
       const result = await governance.upsertBudget(context.db, input.body);
       await audit(context, 'budget.upsert', result.id, input.body);
@@ -82,17 +87,24 @@ export const governanceRouter = os.router({
       );
     }),
   },
-  resources: os.resources.handler(({ context, input }) =>
-    governance.listGovernanceResources(context.db, input.query.resourceKind, input.query.q),
+  resources: os.resources.handler(async ({ context, input }) =>
+    requireCursorPage(
+      await governance.listGovernanceResources(context.db, input.query.resourceKind, {
+        ...(input.query.q === undefined ? {} : { q: input.query.q }),
+        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        limit: input.query.limit,
+      }),
+    ),
   ),
-  identities: os.identities.handler(async ({ context, input }) => {
-    const { items } = await repo.accounts.listIdentities(context.db, {
-      ...(input.query.q ? { q: input.query.q } : {}),
-      limit: 100,
-      offset: 0,
-    });
-    return items;
-  }),
+  identities: os.identities.handler(async ({ context, input }) =>
+    requireCursorPage(
+      await repo.accounts.listIdentityPage(context.db, {
+        ...(input.query.q === undefined ? {} : { q: input.query.q }),
+        ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+        limit: input.query.limit,
+      }),
+    ),
+  ),
   handover: {
     checklist: os.handover.checklist.handler(({ context, input }) =>
       governance.handoverChecklist(context.db, input.params.businessId),

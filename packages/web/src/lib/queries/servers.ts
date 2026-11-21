@@ -1,23 +1,46 @@
 import type {
   ApiTool,
   ApiToolInput,
+  CursorPage,
   Server,
   ServerInput,
   ServerTestResult,
 } from '@agentport/shared';
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  type InfiniteData,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { api } from '../api.js';
 import { AGENTS_QUERY_KEY } from './agents.js';
 import { OVERVIEW_QUERY_KEY } from './overview.js';
-import { useInvalidate } from './shared.js';
+import { useCursorList, useInvalidate } from './shared.js';
 
-const serversQuery = queryOptions<Server[]>({
-  queryKey: ['servers'],
-  queryFn: api.servers,
-});
+const SERVERS_QUERY_KEY = ['servers'] as const;
+
+type ServerPages = InfiniteData<CursorPage<Server>, string | undefined>;
+
+function mapServerItems(
+  data: ServerPages | undefined,
+  update: (server: Server) => Server,
+): ServerPages | undefined {
+  return data === undefined
+    ? undefined
+    : {
+        ...data,
+        pages: data.pages.map((page) => ({ ...page, items: page.items.map(update) })),
+      };
+}
 
 export function useServers(enabled = true) {
-  return useQuery({ ...serversQuery, enabled });
+  return useCursorList({
+    queryKey: SERVERS_QUERY_KEY,
+    queryFn: (cursor, signal) => api.servers(cursor, signal),
+    enabled,
+    select: (data) => data.pages.flatMap((page) => page.items ?? []),
+  });
 }
 
 export const toolsQuery = (serverId: string) =>
@@ -28,7 +51,19 @@ export const toolsQuery = (serverId: string) =>
   });
 
 export function useTools(serverId: string | null) {
-  return useQuery({ ...toolsQuery(serverId ?? ''), enabled: serverId !== null });
+  return useQuery({
+    ...toolsQuery(serverId ?? ''),
+    enabled: serverId !== null,
+  });
+}
+
+export function useServerImpact(id: string) {
+  return useQuery({
+    queryKey: ['server-impact', id],
+    queryFn: () => api.serverImpact(id),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
 }
 
 export function useUpdateServer() {
@@ -37,15 +72,17 @@ export function useUpdateServer() {
     mutationFn: (vars: { id: string; input: Partial<ServerInput>; expectedUpdatedAt?: string }) =>
       api.updateServer(vars.id, vars.input, vars.expectedUpdatedAt),
     onMutate: async ({ id, input }) => {
-      await client.cancelQueries({ queryKey: ['servers'] });
-      const previous = client.getQueryData<Server[]>(['servers']);
-      client.setQueryData<Server[]>(['servers'], (old) =>
-        old?.map((server) => (server.id === id ? ({ ...server, ...input } as Server) : server)),
+      await client.cancelQueries({ queryKey: SERVERS_QUERY_KEY });
+      const previous = client.getQueryData<ServerPages>(SERVERS_QUERY_KEY);
+      client.setQueryData<ServerPages>(SERVERS_QUERY_KEY, (old) =>
+        mapServerItems(old, (server) =>
+          server.id === id ? ({ ...server, ...input } as Server) : server,
+        ),
       );
       return { previous };
     },
     onError: (_error, _vars, context) => {
-      if (context?.previous) client.setQueryData(['servers'], context.previous);
+      if (context?.previous) client.setQueryData(SERVERS_QUERY_KEY, context.previous);
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['servers'] });
@@ -70,15 +107,23 @@ export function useDeleteServer() {
   return useMutation({
     mutationFn: (id: string) => api.deleteServer(id),
     onMutate: async (id) => {
-      await client.cancelQueries({ queryKey: ['servers'] });
-      const previous = client.getQueryData<Server[]>(['servers']);
-      client.setQueryData<Server[]>(['servers'], (old) =>
-        old?.filter((server) => server.id !== id),
+      await client.cancelQueries({ queryKey: SERVERS_QUERY_KEY });
+      const previous = client.getQueryData<ServerPages>(SERVERS_QUERY_KEY);
+      client.setQueryData<ServerPages>(SERVERS_QUERY_KEY, (old) =>
+        old === undefined
+          ? undefined
+          : {
+              ...old,
+              pages: old.pages.map((page) => ({
+                ...page,
+                items: page.items.filter((server) => server.id !== id),
+              })),
+            },
       );
       return { previous };
     },
     onError: (_error, _id, context) => {
-      if (context?.previous) client.setQueryData(['servers'], context.previous);
+      if (context?.previous) client.setQueryData(SERVERS_QUERY_KEY, context.previous);
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['servers'] });

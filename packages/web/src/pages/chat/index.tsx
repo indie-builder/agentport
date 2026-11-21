@@ -29,6 +29,7 @@ import {
   chatKeys,
   OVERVIEW_QUERY_KEY,
   useAgents,
+  useAgentsTruncated,
   useApproveRun,
   useCancelRun,
   useConversation,
@@ -205,6 +206,7 @@ function ChatWorkspace({
   onAgentChange: (agentId: string | null) => void;
   onSelectSearchResult: (item: ConversationSearchItem) => void;
 }) {
+  const agentsTruncated = useAgentsTruncated().data ?? false;
   const agent = agents.find((item) => item.id === agentId) ?? null;
   const defaultAgentId = agents.find((item) => item.isDefault)?.id ?? null;
   const historyAgentId = agentId ?? defaultAgentId;
@@ -466,6 +468,9 @@ function ChatWorkspace({
       onRename={(conversation, trigger) =>
         setRenaming({ entry: conversation, trigger, draft: conversation.title })
       }
+      hasNextPage={conversations.hasNextPage}
+      loadingMore={conversations.isFetchingNextPage}
+      onLoadMore={() => void conversations.fetchNextPage()}
     />
   );
 
@@ -493,6 +498,7 @@ function ChatWorkspace({
       deleting={deleteMutation.isPending}
       agent={agent}
       agentOptions={agentOptions}
+      agentsTruncated={agentsTruncated}
       showAgentPicker={desktop ? historyCollapsed : !historyOpen}
       onSwitchAgent={switchAgent}
       historyVisible={desktop ? !historyCollapsed : historyOpen}
@@ -677,6 +683,7 @@ function ChatWorkspace({
             agent={agent}
             agentId={agentId}
             agentOptions={agentOptions}
+            agentsTruncated={agentsTruncated}
             onSwitchAgent={switchAgent}
           />
           {renderHistoryPanel(true)}
@@ -751,6 +758,7 @@ function ChatWorkspace({
                     agent={agent}
                     agentId={agentId}
                     agentOptions={agentOptions}
+                    agentsTruncated={agentsTruncated}
                     onSwitchAgent={switchAgent}
                   />
                   {renderHistoryPanel(false)}

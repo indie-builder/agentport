@@ -29,6 +29,9 @@ export function HistoryPanel({
   onBranch,
   onOpenSearch,
   onRename,
+  hasNextPage,
+  loadingMore,
+  onLoadMore,
 }: {
   history: HistoryEntry[];
   pending: boolean;
@@ -40,6 +43,9 @@ export function HistoryPanel({
   onBranch: (id: string) => void;
   onOpenSearch: (trigger: HTMLElement) => void;
   onRename: (conversation: HistoryEntry, trigger: HTMLElement) => void;
+  hasNextPage: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
 }) {
   const menuTriggerRef = useRef<HTMLElement | null>(null);
   return (
@@ -132,6 +138,19 @@ export function HistoryPanel({
             </li>
           ))}
         </ul>
+        {hasNextPage ? (
+          <div className="flex justify-center px-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={loadingMore}
+              aria-busy={loadingMore}
+              onClick={onLoadMore}
+            >
+              {loadingMore ? '加载中…' : '加载更多'}
+            </Button>
+          </div>
+        ) : null}
       </div>
     </>
   );

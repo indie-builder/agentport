@@ -1,13 +1,11 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
-import { knowledgeKeys } from './shared.js';
+import { knowledgeKeys, useCursorList } from './shared.js';
 
 export function useKnowledgeWikiPages(baseId: string) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: knowledgeKeys.wikiPages(baseId),
-    queryFn: ({ pageParam }) => api.knowledgeWikiPages(baseId, pageParam ?? undefined),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    queryFn: (cursor) => api.knowledgeWikiPages(baseId, cursor),
     select: (data) => data.pages.flatMap((page) => page.items),
   });
 }

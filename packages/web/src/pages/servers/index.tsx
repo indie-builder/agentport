@@ -37,6 +37,7 @@ import {
   connectorCatalogQuery,
   meQuery,
   useAgents,
+  useDrainPages,
   useImportMcpFile,
   useRuntimeEnvironments,
   useServers,
@@ -88,6 +89,7 @@ export function ServersPage() {
   const catalog = useQuery(connectorCatalogQuery);
   const agents = useAgents();
   const environments = useRuntimeEnvironments();
+  useDrainPages(environments);
   const test = useTestServer();
   const importMcp = useImportMcpFile();
   const search = useSearch({ from: '/_shell/servers' });
@@ -131,6 +133,7 @@ export function ServersPage() {
 
   const catalogTest = catalogServer ? tested.get(catalogServer.id) : undefined;
   const all = servers.data ?? [];
+  const fullyLoaded = servers.data !== undefined && !servers.hasNextPage;
   const environmentList = environments.data ?? [];
   const environmentsLoading = environments.isFetching && environments.data === undefined;
   const environmentsError = environments.isError ? environments.error : null;
@@ -475,7 +478,7 @@ export function ServersPage() {
       onQueryChange={(q) => setFilter({ q: q || undefined }, true)}
       sort={sort}
       onSortChange={(next) => setFilter({ sort: next === 'newest' ? undefined : next })}
-      count={filtered.length}
+      count={fullyLoaded ? filtered.length : undefined}
       status={servers.status}
       menuFilters={
         <FilterSelect
@@ -559,7 +562,7 @@ export function ServersPage() {
         <ErrorState error={agents.error} onRetry={() => void agents.refetch()} />
       ) : null}
 
-      {servers.data && all.length === 0 ? (
+      {fullyLoaded && servers.data && all.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="tools" size="compact" />}
           title="未添加连接器"
@@ -574,7 +577,7 @@ export function ServersPage() {
         />
       ) : null}
 
-      {servers.data && all.length > 0 && filtered.length === 0 ? (
+      {fullyLoaded && servers.data && all.length > 0 && filtered.length === 0 ? (
         <PageNote
           icon={<BusinessIllustration name="search" size="compact" />}
           title="没有匹配的连接器"
@@ -677,6 +680,27 @@ export function ServersPage() {
             setCatalogServer(server);
           }}
         />
+      ) : null}
+
+      {servers.isFetchNextPageError ? (
+        <div className="flex justify-center">
+          <ErrorState
+            error={servers.error}
+            title="列表没有加载完"
+            onRetry={() => void servers.fetchNextPage()}
+          />
+        </div>
+      ) : servers.hasNextPage ? (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={servers.isFetchingNextPage}
+            onClick={() => void servers.fetchNextPage()}
+          >
+            {servers.isFetchingNextPage ? '加载中…' : '加载更多'}
+          </Button>
+        </div>
       ) : null}
 
       {catalogOpen ? (

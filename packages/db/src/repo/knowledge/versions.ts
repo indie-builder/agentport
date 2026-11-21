@@ -16,7 +16,7 @@ import {
   knowledgeWikiPages,
   knowledgeWikiVersions,
 } from '../../schema.js';
-import { keysetBefore, paginate } from '../keyset.js';
+import { keysetPage } from '../pagination.js';
 import {
   type KnowledgeDocumentRow,
   type KnowledgeVersionRow,
@@ -405,26 +405,29 @@ export async function listVersions(
   db: Database,
   documentId: string,
   options: PageOptions = {},
-): Promise<Page<KnowledgeVersionRow>> {
+): Promise<Page<KnowledgeVersionRow> | null> {
   const limit = pageLimit(options);
   const filters: SQL[] = [eq(knowledgeDocumentVersions.documentId, documentId)];
-  if (options.cursor) {
-    filters.push(keysetBefore(knowledgeDocumentVersions, options.cursor));
-  }
-  const rows = await db
-    .select()
-    .from(knowledgeDocumentVersions)
-    .where(and(...filters))
-    .orderBy(desc(knowledgeDocumentVersions.createdAt), desc(knowledgeDocumentVersions.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeDocumentVersions,
+    cursor: options.cursor,
+    limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeDocumentVersions)
+        .where(where)
+        .orderBy(desc(knowledgeDocumentVersions.createdAt), desc(knowledgeDocumentVersions.id))
+        .limit(limit),
+  });
 }
 
 export async function listDocumentVersions(
   db: Database,
   documentId: string,
   options: PageOptions = {},
-): Promise<Page<KnowledgeVersionRow & { isCurrent: boolean }>> {
+): Promise<Page<KnowledgeVersionRow & { isCurrent: boolean }> | null> {
   const [document, page] = await Promise.all([
     db
       .select({ currentVersionId: knowledgeDocuments.currentVersionId })
@@ -433,6 +436,7 @@ export async function listDocumentVersions(
       .limit(1),
     listVersions(db, documentId, options),
   ]);
+  if (page === null) return null;
   const currentVersionId = document[0]?.currentVersionId ?? null;
   return {
     items: page.items.map((row) => ({ ...row, isCurrent: row.id === currentVersionId })),

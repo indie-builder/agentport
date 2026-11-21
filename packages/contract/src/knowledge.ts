@@ -1,5 +1,6 @@
 import {
   cronSchema,
+  cursorPageSchema,
   httpUrlSchema,
   idParams,
   knowledgeBaseInputSchema,
@@ -38,6 +39,7 @@ import {
   knowledgeWikiLinksResultSchema,
   knowledgeWikiPageStatusSchema,
   knowledgeWikiVersionDiffSchema,
+  pageQuerySchema,
   slugSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
@@ -52,15 +54,6 @@ const jobParams = z.object({ jobId: z.string().min(1) });
 const profileParams = z.object({ profileId: z.string().min(1) });
 const sourceParams = z.object({ sourceId: z.string().min(1) });
 const wikiPageParams = z.object({ pageId: z.string().min(1) });
-
-const pageQuery = z.object({
-  cursor: z.string().optional(),
-  limit: z.coerce.number().int().min(1).max(200).optional(),
-});
-
-function pageOf<T extends z.ZodTypeAny>(item: T) {
-  return z.object({ items: z.array(item), nextCursor: z.string().nullable() });
-}
 
 /** 知识库活动流的一条审计记录；targetKind 由服务端按真实归属判定。 */
 export const knowledgeBaseActivityItemSchema = z.object({
@@ -288,7 +281,7 @@ const folderPatchSchema = z.object({
   parentId: z.string().min(1).nullable().optional(),
 });
 
-const documentQuery = pageQuery.extend({
+const documentQuery = pageQuerySchema.extend({
   folderId: z.string().optional(),
   tag: z.string().optional(),
   status: knowledgeDocumentStatusSchema.optional(),
@@ -412,7 +405,7 @@ const batchSchema = z.object({
   confirmOverwriteManualChunks: z.boolean().default(false),
 });
 
-const faqListQuery = pageQuery.extend({
+const faqListQuery = pageQuerySchema.extend({
   q: z.string().trim().max(200).optional(),
   status: knowledgeDocumentStatusSchema.optional(),
   folderId: z.string().optional(),
@@ -514,7 +507,7 @@ const sourcePatchSchema = z.object({
 
 const sourceDeleteQuery = z.object({ documents: z.enum(['keep', 'delete']).default('keep') });
 
-const syncItemsQuery = pageQuery.extend({ status: knowledgeSyncItemStatusSchema.optional() });
+const syncItemsQuery = pageQuerySchema.extend({ status: knowledgeSyncItemStatusSchema.optional() });
 
 const wikiPageCreateSchema = z.object({
   slug: slugSchema,
@@ -554,7 +547,7 @@ const evaluationBodySchema = z.object({
   minVectorScore: z.number().min(-1).max(1).default(0.3),
 });
 
-const jobQuery = pageQuery.extend({
+const jobQuery = pageQuerySchema.extend({
   baseId: z.string().optional(),
   documentId: z.string().optional(),
   status: knowledgeJobStatusSchema.optional(),
@@ -623,8 +616,8 @@ const basesContract = {
   list: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
-    .input(z.object({ query: pageQuery }))
-    .output(pageOf(knowledgeBaseSchema)),
+    .input(z.object({ query: pageQuerySchema }))
+    .output(cursorPageSchema(knowledgeBaseSchema)),
   create: contractProcedure
     .route({ method: 'POST', path: '/knowledge/bases', successStatus: 201 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.create' } })
@@ -643,8 +636,8 @@ const basesContract = {
   activity: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases/{id}/activity' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
-    .input(z.object({ params: idParams, query: pageQuery }))
-    .output(pageOf(knowledgeBaseActivityItemSchema)),
+    .input(z.object({ params: idParams, query: pageQuerySchema }))
+    .output(cursorPageSchema(knowledgeBaseActivityItemSchema)),
   chunkPreview: contractProcedure
     .route({ method: 'POST', path: '/knowledge/bases/{id}/chunk-preview' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
@@ -727,17 +720,17 @@ const basesContract = {
     .route({ method: 'GET', path: '/knowledge/bases/{id}/documents' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
     .input(z.object({ params: idParams, query: documentQuery }))
-    .output(pageOf(knowledgeDocumentSchema)),
+    .output(cursorPageSchema(knowledgeDocumentSchema)),
   images: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases/{id}/images' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
     .input(
       z.object({
         params: idParams,
-        query: pageQuery.extend({ q: z.string().max(200).optional() }),
+        query: pageQuerySchema.extend({ q: z.string().max(200).optional() }),
       }),
     )
-    .output(pageOf(knowledgeImageAssetSchema)),
+    .output(cursorPageSchema(knowledgeImageAssetSchema)),
   upload: contractProcedure
     .route({ method: 'PUT', path: '/knowledge/bases/{id}/documents/upload', successStatus: 202 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
@@ -775,8 +768,8 @@ const basesContract = {
   sources: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases/{id}/sources' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
-    .input(z.object({ params: idParams, query: pageQuery }))
-    .output(pageOf(knowledgeSourceSchema)),
+    .input(z.object({ params: idParams, query: pageQuerySchema }))
+    .output(cursorPageSchema(knowledgeSourceSchema)),
   createSource: contractProcedure
     .route({ method: 'POST', path: '/knowledge/bases/{id}/sources', successStatus: 201 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } })
@@ -785,8 +778,8 @@ const basesContract = {
   wikiPages: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases/{id}/wiki-pages' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
-    .input(z.object({ params: idParams, query: pageQuery }))
-    .output(pageOf(knowledgeWikiPageSchema)),
+    .input(z.object({ params: idParams, query: pageQuerySchema }))
+    .output(cursorPageSchema(knowledgeWikiPageSchema)),
   createWikiPage: contractProcedure
     .route({ method: 'POST', path: '/knowledge/bases/{id}/wiki-pages', successStatus: 201 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
@@ -802,7 +795,7 @@ const basesContract = {
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
     .input(z.object({ params: idParams, query: faqListQuery }))
     .output(
-      pageOf(
+      cursorPageSchema(
         knowledgeFaqDocumentSchema.extend({
           faq: knowledgeFaqSchema.nullable(),
         }),
@@ -934,10 +927,10 @@ const documentsContract = {
     .input(
       z.object({
         params: documentParams,
-        query: pageQuery.extend({ versionId: z.string().optional() }),
+        query: pageQuerySchema.extend({ versionId: z.string().optional() }),
       }),
     )
-    .output(pageOf(knowledgeChunkSchema)),
+    .output(cursorPageSchema(knowledgeChunkSchema)),
   createChunk: contractProcedure
     .route({
       method: 'POST',
@@ -950,8 +943,8 @@ const documentsContract = {
   versions: contractProcedure
     .route({ method: 'GET', path: '/knowledge/documents/{documentId}/versions' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
-    .input(z.object({ params: documentParams, query: pageQuery }))
-    .output(pageOf(knowledgeDocumentVersionSchema)),
+    .input(z.object({ params: documentParams, query: pageQuerySchema }))
+    .output(cursorPageSchema(knowledgeDocumentVersionSchema)),
   diff: contractProcedure
     .route({ method: 'GET', path: '/knowledge/documents/{documentId}/diff' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
@@ -1045,8 +1038,8 @@ const sourcesContract = {
   runs: contractProcedure
     .route({ method: 'GET', path: '/knowledge/sources/{sourceId}/runs' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
-    .input(z.object({ params: sourceParams, query: pageQuery }))
-    .output(pageOf(knowledgeSyncRunSchema)),
+    .input(z.object({ params: sourceParams, query: pageQuerySchema }))
+    .output(cursorPageSchema(knowledgeSyncRunSchema)),
   runItems: contractProcedure
     .route({ method: 'GET', path: '/knowledge/sources/{sourceId}/runs/{syncRunId}/items' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
@@ -1056,14 +1049,14 @@ const sourcesContract = {
         query: syncItemsQuery,
       }),
     )
-    .output(pageOf(knowledgeSyncItemSchema)),
+    .output(cursorPageSchema(knowledgeSyncItemSchema)),
 };
 
 const wikiContract = {
   get: contractProcedure
     .route({ method: 'GET', path: '/knowledge/wiki-pages/{pageId}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
-    .input(z.object({ params: wikiPageParams, query: pageQuery }))
+    .input(z.object({ params: wikiPageParams, query: pageQuerySchema }))
     .output(
       knowledgeWikiPageSchema.extend({
         versions: z.array(knowledgeWikiVersionSchema),
@@ -1087,8 +1080,8 @@ const wikiContract = {
   versions: contractProcedure
     .route({ method: 'GET', path: '/knowledge/wiki-pages/{pageId}/versions' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
-    .input(z.object({ params: wikiPageParams, query: pageQuery }))
-    .output(pageOf(knowledgeWikiVersionSchema)),
+    .input(z.object({ params: wikiPageParams, query: pageQuerySchema }))
+    .output(cursorPageSchema(knowledgeWikiVersionSchema)),
   links: contractProcedure
     .route({ method: 'GET', path: '/knowledge/wiki-pages/{pageId}/links' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
@@ -1155,7 +1148,7 @@ const jobsContract = {
     .route({ method: 'GET', path: '/knowledge/jobs' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
     .input(z.object({ query: jobQuery }))
-    .output(pageOf(knowledgeJobSchema)),
+    .output(cursorPageSchema(knowledgeJobSchema)),
   get: contractProcedure
     .route({ method: 'GET', path: '/knowledge/jobs/{jobId}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })

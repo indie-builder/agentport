@@ -128,15 +128,9 @@ export function CaseDialog({
       guard.finish();
     };
     if (testCase) {
-      update.mutate(
-        { id: testCase.id, input: base },
-        { onSuccess: done, onError: toastError },
-      );
+      update.mutate({ id: testCase.id, input: base }, { onSuccess: done, onError: toastError });
     } else {
-      create.mutate(
-        { agentId: agentId ?? '', ...base },
-        { onSuccess: done, onError: toastError },
-      );
+      create.mutate({ agentId: agentId ?? '', ...base }, { onSuccess: done, onError: toastError });
     }
   });
 

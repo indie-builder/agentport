@@ -137,7 +137,7 @@ describe.skipIf(!ready)('channels', () => {
   ): Promise<ChannelListItem | undefined> => {
     const res = await call('GET', '/api/channels', cookie);
     expect(res.statusCode, res.body).toBe(200);
-    return res.json<ChannelListItem[]>().find((entry) => entry.id === channelId);
+    return res.json<{ items: ChannelListItem[] }>().items.find((entry) => entry.id === channelId);
   };
 
   it('creates a channel with the creator as owner', async () => {

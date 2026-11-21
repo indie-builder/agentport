@@ -1,11 +1,13 @@
 import {
+  cursorPageSchema,
   idParams,
+  pageQuerySchema,
   publicQuestionResponseSchema,
   publicRunQuestionSchema,
   runDetailSchema,
   runFeedbackListSchema,
   runFeedbackSchema,
-  runListSchema,
+  runListItemSchema,
   runStatusSchema,
   runTriggerSchema,
   skillSchema,
@@ -19,16 +21,15 @@ export const runsContract = {
     .route({ method: 'GET', path: '/runs', successStatus: 200 })
     .input(
       z.object({
-        query: z.object({
+        query: pageQuerySchema.extend({
           agentId: z.string().min(1).optional(),
           status: runStatusSchema.optional(),
           trigger: runTriggerSchema.optional(),
           since: z.iso.datetime().optional(),
-          limit: z.coerce.number().int().min(1).max(200).default(50),
         }),
       }),
     )
-    .output(runListSchema),
+    .output(cursorPageSchema(runListItemSchema)),
   detail: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'runs.read' } })
     .route({ method: 'GET', path: '/runs/{id}', successStatus: 200 })

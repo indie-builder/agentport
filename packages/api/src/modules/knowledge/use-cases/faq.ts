@@ -7,7 +7,7 @@ import {
   knowledgeVersionMarkdownPath,
   sha256Hex,
 } from '@agentport/core';
-import { escapeLike, newId, repo, schema } from '@agentport/db';
+import { newId, repo, schema } from '@agentport/db';
 import type {
   KnowledgeDocumentStatus,
   KnowledgeFaq,
@@ -19,6 +19,7 @@ import type {
 } from '@agentport/shared';
 import { knowledgeFaqImportMetadataSchema } from '@agentport/shared';
 import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { requireCursorPage } from '../../../http/pagination.js';
 import {
   FAQ_MAX_BYTES,
   type FaqExistingEntry,
@@ -40,6 +41,7 @@ import {
   type KnowledgeDeps,
   notFound,
   type PageQuery,
+  pageOptions,
   type VersionRow,
 } from './shared.js';
 
@@ -471,45 +473,19 @@ export async function listFaqs(
 ) {
   const base = await repo.knowledge.getBase(deps.db, id);
   if (!base) notFound('知识库');
-  const filters = [
-    eq(schema.knowledgeDocuments.baseId, base.id),
-    eq(schema.knowledgeDocuments.contentKind, 'faq'),
-  ];
-  if (query.folderId !== undefined) {
-    filters.push(
-      query.folderId === 'null'
-        ? sql`${schema.knowledgeDocuments.folderId} is null`
-        : eq(schema.knowledgeDocuments.folderId, query.folderId),
-    );
-  }
-  if (query.status) filters.push(eq(schema.knowledgeDocuments.status, query.status));
-  if (query.q) {
-    filters.push(sql`${schema.knowledgeDocuments.title} ilike ${`%${escapeLike(query.q)}%`}`);
-  }
-  if (query.isRecommended !== undefined) {
-    filters.push(sql`coalesce((
-      select v.faq ->> 'isRecommended'
-      from knowledge_document_versions v
-      where v.document_id = ${schema.knowledgeDocuments.id} and v.faq is not null
-      order by v.version desc limit 1
-    ), 'true') = ${String(query.isRecommended)}`);
-  }
-  const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
-  if (query.cursor) {
-    filters.push(
-      sql`(${schema.knowledgeDocuments.updatedAt}, ${schema.knowledgeDocuments.id}) < (
-        select b.updated_at, b.id from knowledge_documents b where b.id = ${query.cursor}
-      )`,
-    );
-  }
-  const rows = await deps.db
-    .select()
-    .from(schema.knowledgeDocuments)
-    .where(and(...filters))
-    .orderBy(desc(schema.knowledgeDocuments.updatedAt), desc(schema.knowledgeDocuments.id))
-    .limit(limit + 1);
-  const items = rows.slice(0, limit);
-  const ids = items.map((row) => row.id);
+  const page = requireCursorPage(
+    await repo.knowledge.listFaqDocuments(deps.db, {
+      ...pageOptions(query),
+      baseId: base.id,
+      ...(query.folderId === undefined
+        ? {}
+        : { folderId: query.folderId === 'null' ? null : query.folderId }),
+      ...(query.status === undefined ? {} : { status: query.status }),
+      ...(query.q === undefined ? {} : { q: query.q }),
+      ...(query.isRecommended === undefined ? {} : { isRecommended: query.isRecommended }),
+    }),
+  );
+  const ids = page.items.map((row) => row.id);
   const [tags, versions] = await Promise.all([
     repo.knowledge.getDocumentTagNames(deps.db, ids),
     ids.length === 0
@@ -530,11 +506,11 @@ export async function listFaqs(
     if (!latest.has(version.documentId)) latest.set(version.documentId, version);
   }
   return {
-    items: items.map((row) => ({
+    items: page.items.map((row) => ({
       ...toFaqDocument(row, tags.get(row.id) ?? []),
       faq: latest.get(row.id)?.faq ?? null,
     })),
-    nextCursor: rows.length > limit ? (items[limit - 1]?.id ?? null) : null,
+    nextCursor: page.nextCursor,
   };
 }
 

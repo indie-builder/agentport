@@ -22,13 +22,14 @@ export type RequestContext = AppContext & {
   request: Request;
   responseHeaders: Headers;
   remoteAddress: string;
+  startedAt: number;
   route?: string;
   limit: (max: number, bucket: string) => Promise<void>;
 };
 
 export type HttpEnv = {
   Bindings: { remoteAddress?: string };
-  Variables: { context: RequestContext; bodyLimitApplied?: boolean };
+  Variables: { context: RequestContext; bodyLimitApplied?: boolean; requestFailed?: boolean };
 };
 export type HttpContext = Context<HttpEnv>;
 

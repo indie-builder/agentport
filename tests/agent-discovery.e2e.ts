@@ -231,11 +231,11 @@ test('agent discovery 授权专家发现、归档恢复、统一搜索、个人�
     );
 
     await login(browser, user);
-    const visible = await apiJson<AgentSummary[]>(browser, 'GET', '/api/agents');
-    expect(visible.some((agent) => agent.id === agentId)).toBe(true);
-    expect(visible.some((agent) => agent.id === privateAgentId)).toBe(false);
+    const visible = await apiJson<{ items: AgentSummary[] }>(browser, 'GET', '/api/agents');
+    expect(visible.items.some((agent) => agent.id === agentId)).toBe(true);
+    expect(visible.items.some((agent) => agent.id === privateAgentId)).toBe(false);
 
-    const discovered = visible.find((agent) => agent.id === agentId);
+    const discovered = visible.items.find((agent) => agent.id === agentId);
     if (discovered === undefined) throw new Error('普通用户列表缺少可见专家');
     expect(discovered.visibility).toBe('organization');
     const userAccess = await apiJson<{ permissionIds: string[] }>(
@@ -249,16 +249,16 @@ test('agent discovery 授权专家发现、归档恢复、统一搜索、个人�
     await apiJson(browser, 'GET', `/api/agents/${privateAgentId}`, undefined, 404);
     await apiJson(browser, 'GET', `/api/agents/${privateAgentId}/access`, undefined, 404);
 
-    const tagged = await apiJson<AgentSummary[]>(
+    const tagged = await apiJson<{ items: AgentSummary[] }>(
       browser,
       'GET',
       `/api/agents?tag=${encodeURIComponent(tag)}`,
     );
-    expect(tagged.some((agent) => agent.id === agentId)).toBe(true);
+    expect(tagged.items.some((agent) => agent.id === agentId)).toBe(true);
 
     await apiJson(browser, 'PUT', `/api/agents/${agentId}/favorite`, { favorite: true }, 200);
-    const favorites = await apiJson<AgentSummary[]>(browser, 'GET', '/api/agents');
-    expect(favorites.find((agent) => agent.id === agentId)?.isFavorite).toBe(true);
+    const favorites = await apiJson<{ items: AgentSummary[] }>(browser, 'GET', '/api/agents');
+    expect(favorites.items.find((agent) => agent.id === agentId)?.isFavorite).toBe(true);
 
     const started = await apiJson<{ runId: string; conversationId: string }>(
       browser,
@@ -269,9 +269,13 @@ test('agent discovery 授权专家发现、归档恢复、统一搜索、个人�
     );
     await waitRun(browser, started.runId);
 
-    const recent = await apiJson<AgentSummary[]>(browser, 'GET', '/api/agents?sort=recent');
-    expect(recent[0]?.id).toBe(agentId);
-    expect(recent[0]?.lastUsedAt).not.toBeNull();
+    const recent = await apiJson<{ items: AgentSummary[] }>(
+      browser,
+      'GET',
+      '/api/agents?sort=recent',
+    );
+    expect(recent.items[0]?.id).toBe(agentId);
+    expect(recent.items[0]?.lastUsedAt).not.toBeNull();
 
     const outputsUrl = `/api/conversations/${started.conversationId}/outputs`;
     const outputs = await apiJson<{ items: Array<{ runId: string; path: string }> }>(
@@ -288,40 +292,56 @@ test('agent discovery 授权专家发现、归档恢复、统一搜索、个人�
     await adminLogin(browser);
     await apiJson(browser, 'POST', `/api/agents/${agentId}/archive`, undefined, 200);
     await login(browser, user);
-    const activeAfterArchive = await apiJson<AgentSummary[]>(browser, 'GET', '/api/agents');
-    expect(activeAfterArchive.some((agent) => agent.id === agentId)).toBe(false);
-    const userArchived = await apiJson<AgentSummary[]>(
+    const activeAfterArchive = await apiJson<{ items: AgentSummary[] }>(
+      browser,
+      'GET',
+      '/api/agents',
+    );
+    expect(activeAfterArchive.items.some((agent) => agent.id === agentId)).toBe(false);
+    const userArchived = await apiJson<{ items: AgentSummary[] }>(
       browser,
       'GET',
       '/api/agents?status=archived',
     );
-    expect(userArchived.some((agent) => agent.id === agentId)).toBe(false);
+    expect(userArchived.items.some((agent) => agent.id === agentId)).toBe(false);
 
     await adminLogin(browser);
-    const adminArchived = await apiJson<AgentSummary[]>(
+    const adminArchived = await apiJson<{ items: AgentSummary[] }>(
       browser,
       'GET',
       '/api/agents?status=archived',
     );
-    const archivedRow = adminArchived.find((agent) => agent.id === agentId);
+    const archivedRow = adminArchived.items.find((agent) => agent.id === agentId);
     if (archivedRow === undefined || archivedRow.archivedAt == null)
       throw new Error(`管理员归档列表缺少专家：${JSON.stringify(adminArchived)}`);
     await apiJson(browser, 'POST', `/api/agents/${agentId}/restore`, undefined, 200);
 
     await login(browser, user);
-    const activeAfterArchiveRestore = await apiJson<AgentSummary[]>(browser, 'GET', '/api/agents');
-    expect(activeAfterArchiveRestore.some((agent) => agent.id === agentId)).toBe(true);
+    const activeAfterArchiveRestore = await apiJson<{ items: AgentSummary[] }>(
+      browser,
+      'GET',
+      '/api/agents',
+    );
+    expect(activeAfterArchiveRestore.items.some((agent) => agent.id === agentId)).toBe(true);
 
     await adminLogin(browser);
     await apiJson(browser, 'DELETE', `/api/agents/${agentId}`, undefined, 204);
-    const deletedRows = await apiJson<AgentSummary[]>(browser, 'GET', '/api/agents?status=deleted');
-    const deletedRow = deletedRows.find((agent) => agent.id === agentId);
+    const deletedRows = await apiJson<{ items: AgentSummary[] }>(
+      browser,
+      'GET',
+      '/api/agents?status=deleted',
+    );
+    const deletedRow = deletedRows.items.find((agent) => agent.id === agentId);
     if (deletedRow === undefined || deletedRow.deletedAt == null)
       throw new Error(`管理员删除列表缺少专家：${JSON.stringify(deletedRows)}`);
 
     await login(browser, user);
-    const activeAfterDelete = await apiJson<AgentSummary[]>(browser, 'GET', '/api/agents');
-    expect(activeAfterDelete.some((agent) => agent.id === agentId)).toBe(false);
+    const activeAfterDelete = await apiJson<{ items: AgentSummary[] }>(
+      browser,
+      'GET',
+      '/api/agents',
+    );
+    expect(activeAfterDelete.items.some((agent) => agent.id === agentId)).toBe(false);
     const deletedOutputs = await apiJson<{ items: Array<{ runId: string; path: string }> }>(
       browser,
       'GET',
@@ -336,8 +356,12 @@ test('agent discovery 授权专家发现、归档恢复、统一搜索、个人�
     await adminLogin(browser);
     await apiJson(browser, 'POST', `/api/agents/${agentId}/restore`, undefined, 200);
     await login(browser, user);
-    const activeAfterDeleteRestore = await apiJson<AgentSummary[]>(browser, 'GET', '/api/agents');
-    expect(activeAfterDeleteRestore.some((agent) => agent.id === agentId)).toBe(true);
+    const activeAfterDeleteRestore = await apiJson<{ items: AgentSummary[] }>(
+      browser,
+      'GET',
+      '/api/agents',
+    );
+    expect(activeAfterDeleteRestore.items.some((agent) => agent.id === agentId)).toBe(true);
     const restoredOutputs = await apiJson<{ items: Array<{ runId: string; path: string }> }>(
       browser,
       'GET',
@@ -461,12 +485,14 @@ test('agent discovery 授权专家发现、归档恢复、统一搜索、个人�
     );
 
     await login(browser, user);
-    const personalConversations = await apiJson<Array<{ id: string; title: string }>>(
+    const personalConversations = await apiJson<{ items: Array<{ id: string; title: string }> }>(
       browser,
       'GET',
       '/api/me/conversations',
     );
-    expect(personalConversations.some((item) => item.id === started.conversationId)).toBe(true);
+    expect(personalConversations.items.some((item) => item.id === started.conversationId)).toBe(
+      true,
+    );
     const personalOutputs = await apiJson<{
       items: Array<{ conversationId: string; path: string }>;
     }>(browser, 'GET', '/api/me/outputs');
@@ -662,6 +688,6 @@ test('archived agent cannot be woken by channel mention', {
   );
   expect(messages.some((message) => message.body.includes(marker))).toBe(false);
 
-  const active = await apiJson<AgentSummary[]>(browser, 'GET', '/api/agents');
-  expect(active.some((row) => row.id === agent.id)).toBe(false);
+  const active = await apiJson<{ items: AgentSummary[] }>(browser, 'GET', '/api/agents');
+  expect(active.items.some((row) => row.id === agent.id)).toBe(false);
 });

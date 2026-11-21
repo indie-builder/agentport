@@ -723,13 +723,22 @@ describe.skipIf(!ready)('memory reviews', () => {
       byAgent.json<{ items: Array<{ runId: string }> }>().items.map((item) => item.runId),
     ).toContain(runId);
 
-    const old = new Date(0).toISOString();
     const empty = await request(app, {
       method: 'GET',
-      url: `/api/memory-reviews?conversationId=${encodeURIComponent(conversationId)}&cursor=${encodeURIComponent(old)}`,
+      url: `/api/memory-reviews?conversationId=${encodeURIComponent(conversationId)}&cursor=${encodeURIComponent(runId)}`,
       headers: auth(),
     });
     expect(empty.json()).toEqual({ items: [], nextCursor: null });
+
+    const stale = new Date(0).toISOString();
+    expectProblem(
+      await request(app, {
+        method: 'GET',
+        url: `/api/memory-reviews?conversationId=${encodeURIComponent(conversationId)}&cursor=${encodeURIComponent(stale)}`,
+        headers: auth(),
+      }),
+      'INVALID_INPUT',
+    );
 
     expectProblem(
       await request(app, {

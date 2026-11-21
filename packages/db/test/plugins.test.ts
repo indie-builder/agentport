@@ -53,9 +53,10 @@ describe.skipIf(!ready)('plugin repo', () => {
     expect(files.find((file) => file.path === 'scripts/run.sh')?.executable).toBe(true);
 
     expect((await pluginsRepo.getPlugin(db, pluginId))?.slug).toBe(slug);
-    expect((await pluginsRepo.listPlugins(db)).find((row) => row.id === pluginId)?.agentCount).toBe(
-      0,
-    );
+    expect(
+      (await pluginsRepo.listPlugins(db, { limit: 100 })).items.find((row) => row.id === pluginId)
+        ?.agentCount,
+    ).toBe(0);
 
     const map = await pluginsRepo.getPluginFilesByPluginIds(db, [pluginId]);
     expect(map.get(pluginId)).toHaveLength(2);
@@ -68,9 +69,10 @@ describe.skipIf(!ready)('plugin repo', () => {
     expect(await pluginsRepo.listAgentPluginBindings(db, agentId)).toEqual([
       { plugin: expect.objectContaining({ id: pluginId }), allowHooks: true, allowMcp: false },
     ]);
-    expect((await pluginsRepo.listPlugins(db)).find((row) => row.id === pluginId)?.agentCount).toBe(
-      1,
-    );
+    expect(
+      (await pluginsRepo.listPlugins(db, { limit: 100 })).items.find((row) => row.id === pluginId)
+        ?.agentCount,
+    ).toBe(1);
 
     await updateAgent(db, agentId, {}, undefined, undefined, null, undefined, undefined, []);
     expect(await pluginsRepo.listAgentPluginBindings(db, agentId)).toEqual([]);
@@ -88,9 +90,10 @@ describe.skipIf(!ready)('plugin repo', () => {
 
     expect((await pluginsRepo.getPluginBySourceId(db, sourceId))?.id).toBe(pluginId);
     expect(await pluginsRepo.getPluginBySourceId(db, `${slug}@other`)).toBeNull();
-    expect((await pluginsRepo.listPlugins(db)).find((row) => row.id === pluginId)?.sourceId).toBe(
-      sourceId,
-    );
+    expect(
+      (await pluginsRepo.listPlugins(db, { limit: 100 })).items.find((row) => row.id === pluginId)
+        ?.sourceId,
+    ).toBe(sourceId);
 
     const zip = await pluginsRepo.createPluginWithFiles(
       db,

@@ -384,8 +384,19 @@ try {
     try {
       const headers = { 'content-type': 'application/json' };
       const list = await page.fetch('/api/agents', { method: 'GET' });
-      const existing = list.ok ? JSON.parse(list.body) : [];
-      if (!Array.isArray(existing) || existing.filter((agent) => !agent.isDefault).length === 0) {
+      const existing = list.ok ? JSON.parse(list.body) : { items: [] };
+      const agents = Array.isArray(existing.items) ? [...existing.items] : [];
+      let cursor = existing.nextCursor ?? null;
+      while (cursor !== null) {
+        const next = await page.fetch('/api/agents?cursor=' + encodeURIComponent(cursor), {
+          method: 'GET',
+        });
+        if (!next.ok) break;
+        const nextPage = JSON.parse(next.body);
+        agents.push(...nextPage.items);
+        cursor = nextPage.nextCursor ?? null;
+      }
+      if (agents.filter((agent) => !agent.isDefault).length === 0) {
         const createAgent = (body) =>
           page.fetch('/api/agents', { method: 'POST', headers, body: JSON.stringify(body) });
         const created = [];

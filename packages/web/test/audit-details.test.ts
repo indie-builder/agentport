@@ -409,7 +409,13 @@ describe('audit row details', () => {
       page([
         entry('audit_change', {
           action: 'server.tool.approval_mode.changed',
-          detail: { to: 'ask', from: 'allow', toolName: 'github', toolId: 'tool_x', constructor: 'x' },
+          detail: {
+            to: 'ask',
+            from: 'allow',
+            toolName: 'github',
+            toolId: 'tool_x',
+            constructor: 'x',
+          },
           detailType: 'object',
         }),
       ]),

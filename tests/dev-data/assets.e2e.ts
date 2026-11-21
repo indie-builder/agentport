@@ -3,6 +3,7 @@ import { type Browser, test } from '@e2e-dev/web';
 import { type App, expect, type Locator, type Screen } from 'e2e';
 import {
   api,
+  apiAllPages,
   DATASET_ID,
   manifestExists,
   readManifest,
@@ -292,7 +293,7 @@ test('assets verify: read-only dataset check', { session: 'admin', tags: ['verif
     return matches[0] as T;
   };
 
-  const servers = await api<ApiServer[]>(browser, '/api/servers');
+  const servers = await apiAllPages<ApiServer>(browser, '/api/servers');
   for (const [spec, expectedOk] of [
     [usersServer, true],
     [legacyServer, false],
@@ -340,7 +341,7 @@ test('assets verify: read-only dataset check', { session: 'admin', tags: ['verif
     expect(sameSchema(tool.inputSchema, spec.schema)).toBe(true);
   }
 
-  const skillRows = await api<ApiSkill[]>(browser, '/api/skills');
+  const skillRows = await apiAllPages<ApiSkill>(browser, '/api/skills');
   for (const spec of skills) {
     const record = recordFor(
       manifest.skills,
@@ -369,7 +370,7 @@ test('assets verify: read-only dataset check', { session: 'admin', tags: ['verif
   const pluginRecord = manifest.plugin;
   if (!pluginRecord) throw new Error('插件 manifest 记录缺失');
   expect(pluginRecord.ready).toBe(true);
-  const plugins = await api<ApiPlugin[]>(browser, '/api/plugins');
+  const plugins = await apiAllPages<ApiPlugin>(browser, '/api/plugins');
   const pluginMatches = plugins.filter((plugin) => plugin.slug === PLUGIN_SLUG);
   expect(pluginMatches).toHaveLength(1);
   expect((pluginMatches[0] as ApiPlugin).id).toBe(pluginRecord.id);
@@ -411,7 +412,7 @@ interface Ctx {
 }
 
 async function readServers(ctx: Ctx): Promise<ApiServer[]> {
-  return api<ApiServer[]>(ctx.browser, '/api/servers');
+  return apiAllPages<ApiServer>(ctx.browser, '/api/servers');
 }
 
 async function readTools(ctx: Ctx, serverId: string): Promise<ApiTool[]> {
@@ -419,7 +420,7 @@ async function readTools(ctx: Ctx, serverId: string): Promise<ApiTool[]> {
 }
 
 async function readSkills(ctx: Ctx): Promise<ApiSkill[]> {
-  return api<ApiSkill[]>(ctx.browser, '/api/skills');
+  return apiAllPages<ApiSkill>(ctx.browser, '/api/skills');
 }
 
 async function readSkillFiles(ctx: Ctx, skillId: string): Promise<ApiSkillFile[]> {
@@ -427,7 +428,7 @@ async function readSkillFiles(ctx: Ctx, skillId: string): Promise<ApiSkillFile[]
 }
 
 async function readPlugins(ctx: Ctx): Promise<ApiPlugin[]> {
-  return api<ApiPlugin[]>(ctx.browser, '/api/plugins');
+  return apiAllPages<ApiPlugin>(ctx.browser, '/api/plugins');
 }
 
 async function readAccounts(ctx: Ctx, businessId?: string): Promise<ApiAccount[]> {

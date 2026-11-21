@@ -14,9 +14,9 @@ import {
   webhookEndpoints,
 } from '../schema.js';
 import { assertCanRemoveActiveAdmin, lockAdminMutation, toSummary } from './access.js';
-import { hasBusinessHistory, listIdentities } from './identities.js';
+import { hasBusinessHistory, listIdentities, listIdentityPage } from './identities.js';
 
-export { hasBusinessHistory, listIdentities };
+export { hasBusinessHistory, listIdentities, listIdentityPage };
 
 type AccountRow = typeof authUsers.$inferSelect;
 

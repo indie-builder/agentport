@@ -13,9 +13,14 @@ export interface ApiContext {
 export type ApiClient = ContractRouterClient<typeof apiContract, ApiContext>;
 
 interface ApiErrorOptions {
-  code?: string;
-  retryable?: boolean;
-  requestId?: string;
+  code?: string | undefined;
+  retryable?: boolean | undefined;
+  requestId?: string | undefined;
+  hint?: string | undefined;
+  path?: string | undefined;
+  resource?: string | undefined;
+  resourceId?: string | undefined;
+  errors?: { path: string; message: string }[] | undefined;
 }
 
 function codeForStatus(status: number): string {
@@ -26,10 +31,15 @@ function codeForStatus(status: number): string {
 
 export class ApiError extends ORPCError<string, { requestId?: string; retryable: boolean }> {
   readonly retryable: boolean;
-  readonly requestId?: string;
+  readonly requestId: string | undefined;
+  readonly hint: string | undefined;
+  readonly path: string | undefined;
+  readonly resource: string | undefined;
+  readonly resourceId: string | undefined;
+  readonly errors: { path: string; message: string }[] | undefined;
 
   constructor(status: number, message: string, options?: ApiErrorOptions) {
-    const retryable = options?.retryable ?? status >= 500;
+    const retryable = options?.retryable ?? false;
     super(options?.code ?? codeForStatus(status), {
       status,
       message,
@@ -40,11 +50,16 @@ export class ApiError extends ORPCError<string, { requestId?: string; retryable:
     });
     this.name = 'ApiError';
     this.retryable = retryable;
-    if (options?.requestId !== undefined) this.requestId = options.requestId;
+    this.hint = options?.hint;
+    this.path = options?.path;
+    this.resource = options?.resource;
+    this.resourceId = options?.resourceId;
+    this.errors = options?.errors;
+    this.requestId = options?.requestId;
   }
 }
 
-export function errorMessage(error: unknown): string {
+function errorCopy(error: unknown): string {
   if (!(error instanceof Error) || !error.message) {
     return '请求没有完成，请检查网络后重试。';
   }
@@ -63,14 +78,30 @@ export function errorMessage(error: unknown): string {
   return error.message;
 }
 
+export function describeError(error: unknown): {
+  message: string;
+  requestId?: string;
+  hint?: string;
+} {
+  const result: { message: string; requestId?: string; hint?: string } = {
+    message: errorCopy(error),
+  };
+  if (error instanceof ApiError) {
+    if (error.requestId !== undefined) result.requestId = error.requestId;
+    if (error.hint !== undefined) result.hint = error.hint;
+  }
+  return result;
+}
+
+export function errorMessage(error: unknown): string {
+  return describeError(error).message;
+}
+
 function problemToApiError(body: unknown, status?: number): ApiError | null {
   const parsed = problemSchema.safeParse(body);
   if (!parsed.success) return null;
-  return new ApiError(status ?? parsed.data.status, parsed.data.message, {
-    code: parsed.data.code,
-    retryable: parsed.data.retryable,
-    requestId: parsed.data.requestId,
-  });
+  const { code, message, status: bodyStatus, ...rest } = parsed.data;
+  return new ApiError(status ?? bodyStatus, message, { code, ...rest });
 }
 
 export async function fetchResponse(

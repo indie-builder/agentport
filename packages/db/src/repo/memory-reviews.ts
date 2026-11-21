@@ -5,12 +5,13 @@ import type {
   MemoryReviewSource,
   MemoryReviewTarget,
 } from '@agentport/shared';
-import { and, desc, eq, lt, or, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, or, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agentRuns, agents, memoryReviews } from '../schema.js';
 import { getAgentVersion } from './agent-versions.js';
 import { getDepartmentIdForBusinessId } from './governance.js';
+import { type CursorPage, keysetPage } from './pagination.js';
 
 export type MemoryReviewRow = typeof memoryReviews.$inferSelect;
 
@@ -143,7 +144,7 @@ export async function findForUser(
 
 export interface ListMemoryReviewsOptions {
   limit: number;
-  before?: Date;
+  cursor?: string;
   conversationId?: string;
   agentId?: string;
 }
@@ -152,24 +153,47 @@ export async function listForUser(
   db: Database,
   businessId: string,
   options: ListMemoryReviewsOptions,
-): Promise<MemoryReviewDetail[]> {
-  const filters: SQL[] = [eq(memoryReviews.businessId, businessId)];
-  if (options.before) filters.push(lt(memoryReviews.createdAt, options.before));
-  if (options.conversationId) filters.push(eq(agentRuns.conversationId, options.conversationId));
-  if (options.agentId) {
-    const agentFilter = or(
-      eq(agentRuns.agentId, options.agentId),
-      sql`${memoryReviews.target}->>'agentId' = ${options.agentId}`,
+): Promise<CursorPage<MemoryReviewDetail> | null> {
+  const run = db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.id, memoryReviews.runId),
+        options.conversationId === undefined
+          ? undefined
+          : eq(agentRuns.conversationId, options.conversationId),
+        options.agentId === undefined
+          ? undefined
+          : or(
+              eq(agentRuns.agentId, options.agentId),
+              sql`${memoryReviews.target}->>'agentId' = ${options.agentId}`,
+            ),
+      ),
     );
-    if (agentFilter) filters.push(agentFilter);
-  }
-  return db
-    .select({ ...reviewColumns, ...runColumns })
-    .from(memoryReviews)
-    .innerJoin(agentRuns, eq(agentRuns.id, memoryReviews.runId))
-    .where(and(...filters))
-    .orderBy(desc(memoryReviews.createdAt), desc(memoryReviews.runId))
-    .limit(options.limit);
+  const page = await keysetPage(db, {
+    table: memoryReviews,
+    id: memoryReviews.runId,
+    column: memoryReviews.createdAt,
+    cursor: options.cursor,
+    limit: options.limit,
+    where: [
+      eq(memoryReviews.businessId, businessId),
+      options.conversationId === undefined && options.agentId === undefined
+        ? undefined
+        : exists(run),
+    ],
+    load: ({ where, limit }) =>
+      db
+        .select({ id: memoryReviews.runId, ...reviewColumns, ...runColumns })
+        .from(memoryReviews)
+        .innerJoin(agentRuns, eq(agentRuns.id, memoryReviews.runId))
+        .where(where)
+        .orderBy(desc(memoryReviews.createdAt), desc(memoryReviews.runId))
+        .limit(limit),
+  });
+  if (page === null) return null;
+  return { items: page.items.map(({ id: _, ...row }) => row), nextCursor: page.nextCursor };
 }
 
 /** 只有 pending 才能迁移；并发请求抢到同一行时后者得到 null。 */

@@ -59,9 +59,13 @@ describe.skipIf(!ready)('skills', () => {
     await newAgent([shared.id]);
     await newAgent([shared.id]);
 
-    const res = await request(app, { method: 'GET', url: '/api/skills', headers: auth() });
+    const res = await request(app, {
+      method: 'GET',
+      url: '/api/skills?limit=100',
+      headers: auth(),
+    });
     expect(res.statusCode).toBe(200);
-    const body = res.json<SkillWithAgentCount[]>();
+    const body = res.json<{ items: SkillWithAgentCount[] }>().items;
 
     expect(body.find((skill) => skill.id === shared.id)?.agentCount).toBe(2);
     expect(body.find((skill) => skill.id === unused.id)?.agentCount).toBe(0);
@@ -374,8 +378,8 @@ describe.skipIf(!ready)('skills', () => {
     }
 
     const listed = (
-      await request(app, { method: 'GET', url: '/api/skills', headers: auth() })
-    ).json<Skill[]>();
+      await request(app, { method: 'GET', url: '/api/skills?limit=100', headers: auth() })
+    ).json<{ items: Skill[] }>().items;
     expect(listed.map((skill) => skill.slug)).not.toContain(tooBigSlug);
     expect(listed.map((skill) => skill.slug)).not.toContain('bad-slug');
   });

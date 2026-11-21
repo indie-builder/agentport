@@ -27,6 +27,7 @@ import {
   agentsQuery,
   memoryVersionsQuery,
   meQuery,
+  useAgentsTruncated,
   useApplyMemoryReview,
   useCancelMemoryReview,
   useCreateMemoryReview,
@@ -247,7 +248,7 @@ export function MemoryReviews({
   const creating = canCreate && createRequested && agents.data !== undefined;
   const agentOptions = [
     { value: '', label: '全部专家' },
-    ...(agents.data ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
+    ...(agents.data?.items ?? []).map((agent) => ({ value: agent.id, label: agent.name })),
   ];
 
   const visibleItems = items
@@ -408,7 +409,7 @@ export function MemoryReviews({
           ) : view === 'cards' ? (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,256px),1fr))] gap-4 pt-2">
               {visibleItems.map((review) => {
-                const target = targetDisplay(review.target, agents.data);
+                const target = targetDisplay(review.target, agents.data?.items);
                 const status = decisionDisplay(review, rolledBack(review));
                 const accessibleTarget = target.detail
                   ? `${target.label}（${target.detail}）`
@@ -478,7 +479,7 @@ export function MemoryReviews({
           ) : (
             <ul className="divide-y border-y">
               {visibleItems.map((review) => {
-                const target = targetDisplay(review.target, agents.data);
+                const target = targetDisplay(review.target, agents.data?.items);
                 const status = decisionDisplay(review, rolledBack(review));
                 const accessibleTarget = target.detail
                   ? `${target.label}（${target.detail}）`
@@ -552,7 +553,7 @@ export function MemoryReviews({
 
       {creating ? (
         <CreateMemoryReviewDialog
-          agents={agents.data ?? []}
+          agents={agents.data?.items ?? []}
           defaultAgentId={agentId}
           seed={createSeed}
           canUseAgents={canUseAgents}
@@ -582,7 +583,7 @@ export function MemoryReviews({
             {detail ? (
               <MemoryReviewDetail
                 review={detail}
-                agents={agents.data}
+                agents={agents.data?.items}
                 rolledBack={rolledBack(detail)}
                 canReview={canReview}
                 canWrite={canWrite}
@@ -760,6 +761,7 @@ function CreateMemoryReviewDialog({
     ...agentMemoryQuery(targetAgentId),
     enabled: targetKind === 'agent_memory' && targetAgentId !== '' && canReadAgentMemory,
   });
+  const agentsTruncated = useAgentsTruncated().data ?? false;
   const targetKindOptions = allTargetKindOptions.filter(
     (option) =>
       option.value === 'personal' ||
@@ -1023,6 +1025,7 @@ function CreateMemoryReviewDialog({
                     agent={enabled.find((agent) => agent.id === modelAgentId) ?? null}
                     agentId={modelAgentId}
                     agentOptions={agentOptions}
+                    truncated={agentsTruncated}
                     onSwitchAgent={(id) => {
                       setModelAgentId(id);
                       setFieldErrors((previous) => clearFieldErrors(previous, 'model', 'form'));
@@ -1083,6 +1086,7 @@ function CreateMemoryReviewDialog({
                       agent={enabled.find((agent) => agent.id === targetAgentId) ?? null}
                       agentId={targetAgentId}
                       agentOptions={agentOptions}
+                      truncated={agentsTruncated}
                       onSwitchAgent={(id) => {
                         setTargetAgentId(id);
                         setRuleChoice('__new__');

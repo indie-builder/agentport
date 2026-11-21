@@ -212,8 +212,11 @@ beforeEach(() => {
   blockedNavigations = [];
   msw.reset();
   msw.server.use(
-    http.get('/api/agents', () => HttpResponse.json([agent])),
-    http.get('/api/schedules', () => HttpResponse.json(schedules)),
+    http.get('/api/agents', () => HttpResponse.json({ items: [agent], nextCursor: null })),
+    http.get('/api/agents/reference', () =>
+      HttpResponse.json({ items: [agent], truncated: false }),
+    ),
+    http.get('/api/schedules', () => HttpResponse.json({ items: schedules, nextCursor: null })),
     http.post('/api/schedules', async ({ request }) => {
       const input = (await request.json()) as ScheduleInput;
       const next: Schedule = {
@@ -1115,7 +1118,9 @@ describe('schedule stale conflict recovery', () => {
     await click('保存更改');
     await vi.waitFor(() => expect(button('重新加载')).toBeTruthy());
 
-    msw.server.use(http.get('/api/schedules', () => HttpResponse.json([])));
+    msw.server.use(
+      http.get('/api/schedules', () => HttpResponse.json({ items: [], nextCursor: null })),
+    );
     await click('重新加载');
     await click('放弃并加载');
     await vi.waitFor(() =>

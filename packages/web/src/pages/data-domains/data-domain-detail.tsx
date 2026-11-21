@@ -59,6 +59,7 @@ import {
   useDataDomainVersion,
   useDataDomainVersions,
   useDeleteDataDomain,
+  useDrainPages,
   useGenerateDataDomainMdl,
   usePublishDataDomain,
   useServers,
@@ -120,6 +121,7 @@ export function DataDomainDetailPage() {
   const canTest = can(me.data, 'data_domains.create');
   const canReadServers = can(me.data, 'servers.read');
   const servers = useServers(canReadServers);
+  useDrainPages(servers);
   const backTo = search.backTo ?? '/data-domains';
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);

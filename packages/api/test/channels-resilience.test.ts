@@ -194,7 +194,9 @@ describe.skipIf(!ready)('channel resilience and authorization', () => {
     }
     const isolated = await call('GET', '/api/channels', adminCookie);
     expect(isolated.statusCode, isolated.body).toBe(200);
-    expect(isolated.json<Array<{ id: string }>>().map((item) => item.id)).not.toContain(value.id);
+    expect(
+      isolated.json<{ items: Array<{ id: string }> }>().items.map((item) => item.id),
+    ).not.toContain(value.id);
 
     const joined = await call('POST', `/api/channels/${value.id}/members`, owner.cookie, {
       businessId: ADMIN_BUSINESS_ID,

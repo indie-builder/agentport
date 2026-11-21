@@ -202,7 +202,9 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       headers: { cookie: owner1.cookie },
     });
     expect(own.statusCode, own.body).toBe(200);
-    const item = own.json<Array<Record<string, unknown>>>().find((entry) => entry.id === agent.id);
+    const item = own
+      .json<{ items: Array<Record<string, unknown>> }>()
+      .items.find((entry) => entry.id === agent.id);
     expect(item).toBeTruthy();
     expect(Object.keys(item ?? {}).sort()).toEqual([
       'archivedAt',
@@ -256,9 +258,11 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       headers: { cookie: viewer.cookie },
     });
     expect(strangerList.statusCode, strangerList.body).toBe(200);
-    expect(strangerList.json<Array<{ id: string }>>().some((entry) => entry.id === agent.id)).toBe(
-      false,
-    );
+    expect(
+      strangerList
+        .json<{ items: Array<{ id: string }> }>()
+        .items.some((entry) => entry.id === agent.id),
+    ).toBe(false);
 
     const strangerDetail = await request(app, {
       method: 'GET',
@@ -285,8 +289,8 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       });
       expect(summaries.statusCode, summaries.body).toBe(200);
       const summary = summaries
-        .json<Array<Record<string, unknown>>>()
-        .find((row) => row.id === agent.id);
+        .json<{ items: Array<Record<string, unknown>> }>()
+        .items.find((row) => row.id === agent.id);
       expect(summary).toBeTruthy();
       if (canMaintain) expect(summary?.serverIds).toEqual([server.id]);
       else expect(summary).not.toHaveProperty('serverIds');
@@ -307,7 +311,9 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     });
     expect(demotedList.statusCode, demotedList.body).toBe(200);
     expect(
-      demotedList.json<Array<Record<string, unknown>>>().find((row) => row.id === agent.id),
+      demotedList
+        .json<{ items: Array<Record<string, unknown>> }>()
+        .items.find((row) => row.id === agent.id),
     ).not.toHaveProperty('serverIds');
 
     const adminDetail = await request(app, {
@@ -777,13 +783,17 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       url: '/api/agents',
       headers: { cookie: owner1.cookie },
     });
-    expect(active.json<Array<{ id: string }>>().some((row) => row.id === agent.id)).toBe(false);
+    expect(
+      active.json<{ items: Array<{ id: string }> }>().items.some((row) => row.id === agent.id),
+    ).toBe(false);
     const deleted = await request(app, {
       method: 'GET',
       url: '/api/agents?status=deleted',
       headers: { cookie: owner1.cookie },
     });
-    expect(deleted.json<Array<{ id: string }>>().some((row) => row.id === agent.id)).toBe(true);
+    expect(
+      deleted.json<{ items: Array<{ id: string }> }>().items.some((row) => row.id === agent.id),
+    ).toBe(true);
   });
 
   it('allows admins to manage any agent and audits with the business id', async () => {

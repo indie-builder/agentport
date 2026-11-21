@@ -1,28 +1,35 @@
 import { fail } from '@agentport/core';
-import type { DepartmentInput, DepartmentMembersInput } from '@agentport/shared';
+import type { Department, DepartmentInput, DepartmentMembersInput } from '@agentport/shared';
 import { and, asc, eq, inArray, ne } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { authUsers, departmentMembers, departments } from '../../schema.js';
 import { hasBusinessHistory } from '../accounts.js';
+import { type CursorPage, keysetPage } from '../pagination.js';
 
-export async function listDepartments(db: DbHandle) {
-  const [rows, members] = await Promise.all([
-    db.select().from(departments).orderBy(asc(departments.name)),
-    db
-      .select({
-        departmentId: departmentMembers.departmentId,
-        businessId: departmentMembers.businessId,
-        isManager: departmentMembers.isManager,
-        name: authUsers.name,
-        userId: authUsers.id,
-        disabled: authUsers.disabled,
-      })
-      .from(departmentMembers)
-      .leftJoin(authUsers, eq(authUsers.businessId, departmentMembers.businessId))
-      .orderBy(asc(departmentMembers.businessId)),
-  ]);
-  return rows.map((row) => ({
+type DepartmentRow = typeof departments.$inferSelect;
+
+function departmentMembersFor(db: DbHandle, departmentIds: string[]) {
+  if (departmentIds.length === 0) return Promise.resolve([]);
+  return db
+    .select({
+      departmentId: departmentMembers.departmentId,
+      businessId: departmentMembers.businessId,
+      isManager: departmentMembers.isManager,
+      name: authUsers.name,
+      userId: authUsers.id,
+      disabled: authUsers.disabled,
+    })
+    .from(departmentMembers)
+    .leftJoin(authUsers, eq(authUsers.businessId, departmentMembers.businessId))
+    .where(inArray(departmentMembers.departmentId, departmentIds))
+    .orderBy(asc(departmentMembers.businessId));
+}
+
+type DepartmentMemberRow = Awaited<ReturnType<typeof departmentMembersFor>>[number];
+
+function toDepartment(row: DepartmentRow, members: DepartmentMemberRow[]): Department {
+  return {
     ...row,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -34,7 +41,43 @@ export async function listDepartments(db: DbHandle) {
         isManager: member.isManager,
         accountActive: member.userId !== null && member.disabled === false,
       })),
-  }));
+  };
+}
+
+export async function listDepartments(
+  db: DbHandle,
+  input: { cursor?: string | undefined; limit: number },
+): Promise<CursorPage<Department> | null> {
+  const page = await keysetPage(db, {
+    table: departments,
+    cursor: input.cursor,
+    limit: input.limit,
+    column: departments.name,
+    direction: 'asc',
+    where: [],
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(departments)
+        .where(where)
+        .orderBy(asc(departments.name), asc(departments.id))
+        .limit(limit),
+  });
+  if (!page) return null;
+  const members = await departmentMembersFor(
+    db,
+    page.items.map((row) => row.id),
+  );
+  return {
+    items: page.items.map((row) => toDepartment(row, members)),
+    nextCursor: page.nextCursor,
+  };
+}
+
+export async function getDepartmentById(db: DbHandle, id: string): Promise<Department | null> {
+  const [row] = await db.select().from(departments).where(eq(departments.id, id)).limit(1);
+  if (!row) return null;
+  return toDepartment(row, await departmentMembersFor(db, [id]));
 }
 
 export async function createDepartment(db: Database, input: DepartmentInput) {
@@ -46,12 +89,7 @@ export async function createDepartment(db: Database, input: DepartmentInput) {
     .onConflictDoNothing()
     .returning();
   if (!row) fail('CONFLICT', '部门名称已存在');
-  return {
-    ...row,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-    members: [],
-  };
+  return toDepartment(row, []);
 }
 
 export async function updateDepartment(db: Database, id: string, input: DepartmentInput) {
@@ -69,7 +107,7 @@ export async function updateDepartment(db: Database, id: string, input: Departme
     .where(eq(departments.id, id))
     .returning({ id: departments.id });
   if (!row) fail('NOT_FOUND', '部门不存在');
-  const department = (await listDepartments(db)).find((department) => department.id === id);
+  const department = await getDepartmentById(db, id);
   if (!department) fail('NOT_FOUND', '部门不存在');
   return department;
 }
@@ -109,7 +147,7 @@ export async function setDepartmentMembers(
     }
     await tx.update(departments).set({ updatedAt: new Date() }).where(eq(departments.id, id));
   });
-  const department = (await listDepartments(db)).find((department) => department.id === id);
+  const department = await getDepartmentById(db, id);
   if (!department) fail('NOT_FOUND', '部门不存在');
   return department;
 }

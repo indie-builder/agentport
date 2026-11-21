@@ -5,6 +5,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { agentRuns, agents, conversations, messages } from '../../schema.js';
 import { lockAgentBindings } from '../locks.js';
+import { type CursorPage, keysetPage } from '../pagination.js';
 import { conversationAccessWhere, conversationSubject } from './shared.js';
 
 export type Conversation = typeof conversations.$inferSelect;
@@ -283,59 +284,70 @@ export async function listOwnConversationsWithAgent(
 
 export async function listConversations(
   db: Database,
-  options: { agentId?: string; limit?: number; access: AccessFilter },
-): Promise<ConversationSummary[]> {
+  options: { agentId?: string; limit?: number; cursor?: string; access: AccessFilter },
+): Promise<CursorPage<ConversationSummary> | null> {
   const agentFilter =
     options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId);
-  const page = db
-    .select({
-      id: conversations.id,
-      agentId: conversations.agentId,
-      agentName: agents.name,
-      title: conversations.title,
-      createdAt: conversations.createdAt,
-    })
-    .from(conversations)
-    .innerJoin(agents, eq(agents.id, conversations.agentId))
-    .where(
-      and(agentFilter, conversationAccessWhere(options.access), isNull(conversations.channelId)),
-    )
-    .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
-    .limit(options.limit ?? 50)
-    .as('page');
+  const result = await keysetPage(db, {
+    table: conversations,
+    cursor: options.cursor,
+    limit: options.limit ?? 50,
+    column: conversations.lastMessageAt,
+    where: [agentFilter, conversationAccessWhere(options.access), isNull(conversations.channelId)],
+    load: ({ where, limit }) => {
+      const page = db
+        .select({
+          id: conversations.id,
+          agentId: conversations.agentId,
+          agentName: agents.name,
+          title: conversations.title,
+          createdAt: conversations.createdAt,
+        })
+        .from(conversations)
+        .innerJoin(agents, eq(agents.id, conversations.agentId))
+        .where(where)
+        .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
+        .limit(limit)
+        .as('page');
 
-  const last = db
-    .select({
-      role: messages.role,
-      text: sql<string | null>`left(${messages.content}->>'text', 280)`.as('text'),
-      createdAt: messages.createdAt,
-    })
-    .from(messages)
-    .where(eq(messages.conversationId, page.id))
-    .orderBy(desc(messages.createdAt), desc(messages.id))
-    .limit(1)
-    .as('last_message');
+      const last = db
+        .select({
+          role: messages.role,
+          text: sql<string | null>`left(${messages.content}->>'text', 280)`.as('text'),
+          createdAt: messages.createdAt,
+        })
+        .from(messages)
+        .where(eq(messages.conversationId, page.id))
+        .orderBy(desc(messages.createdAt), desc(messages.id))
+        .limit(1)
+        .as('last_message');
 
-  const rows = await db
-    .select({
-      id: page.id,
-      agentId: page.agentId,
-      agentName: page.agentName,
-      title: page.title,
-      createdAt: page.createdAt,
-      lastRole: last.role,
-      lastText: last.text,
-      lastCreatedAt: last.createdAt,
-    })
-    .from(page)
-    .leftJoinLateral(last, sql`true`);
+      return db
+        .select({
+          id: page.id,
+          agentId: page.agentId,
+          agentName: page.agentName,
+          title: page.title,
+          createdAt: page.createdAt,
+          lastRole: last.role,
+          lastText: last.text,
+          lastCreatedAt: last.createdAt,
+        })
+        .from(page)
+        .leftJoinLateral(last, sql`true`);
+    },
+  });
+  if (result === null) return null;
 
-  return rows.map(({ lastRole, lastText, lastCreatedAt, ...row }) => ({
-    ...row,
-    updatedAt: lastCreatedAt ?? row.createdAt,
-    lastMessage:
-      lastCreatedAt === null || lastRole === null
-        ? null
-        : { role: lastRole, text: lastText ?? '', createdAt: lastCreatedAt },
-  }));
+  return {
+    items: result.items.map(({ lastRole, lastText, lastCreatedAt, ...row }) => ({
+      ...row,
+      updatedAt: lastCreatedAt ?? row.createdAt,
+      lastMessage:
+        lastCreatedAt === null || lastRole === null
+          ? null
+          : { role: lastRole, text: lastText ?? '', createdAt: lastCreatedAt },
+    })),
+    nextCursor: result.nextCursor,
+  };
 }

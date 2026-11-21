@@ -3,6 +3,7 @@ import { type Browser, test } from '@e2e-dev/web';
 import { expect, type Screen } from 'e2e';
 import {
   api,
+  apiAllPages,
   DATASET_ID,
   DatasetApiError,
   manifestExists,
@@ -397,7 +398,7 @@ test('dev data: 青禾采购运行环境（正常版本发布 + RUN 非零失败
   }
   const origin = new URL(await browser.url()).origin;
 
-  const list = await api<RuntimeEnvironment[]>(browser, '/api/runtime-environments');
+  const list = await apiAllPages<RuntimeEnvironment>(browser, '/api/runtime-environments');
   let manifest = await loadManifest();
   if (manifest !== null) {
     if (manifest.dataset !== DATASET_ID) {

@@ -130,6 +130,47 @@ function tokenStatus(token: ApiToken): { label: string; tone: 'success' | 'warn'
   return { label: '有效', tone: 'success' };
 }
 
+function ListFooter({
+  query,
+  label,
+}: {
+  query: {
+    hasNextPage: boolean;
+    isFetchingNextPage: boolean;
+    isFetchNextPageError: boolean;
+    fetchNextPage: () => Promise<unknown>;
+  };
+  label: string;
+}) {
+  if (query.isFetchNextPageError) {
+    return (
+      <PageNote
+        tone="danger"
+        title={`更多${label}没有加载出来`}
+        action={
+          <Button variant="outline" size="sm" onClick={() => void query.fetchNextPage()}>
+            重试
+          </Button>
+        }
+      />
+    );
+  }
+  if (!query.hasNextPage) return null;
+  return (
+    <div className="flex justify-center pt-2">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={query.isFetchingNextPage}
+        aria-busy={query.isFetchingNextPage}
+        onClick={() => void query.fetchNextPage()}
+      >
+        {query.isFetchingNextPage ? '加载中…' : '加载更多'}
+      </Button>
+    </div>
+  );
+}
+
 export function IntegrationsPage() {
   const me = useQuery(meQuery);
   const canManage = can(me.data, 'integrations.manage');
@@ -143,8 +184,9 @@ export function IntegrationsPage() {
   };
   const tokens = useApiTokens();
   const endpoints = useWebhookEndpoints();
-  const currentCount =
-    tab === 'tokens' ? (tokens.data?.length ?? 0) : (endpoints.data?.length ?? 0);
+  const list = tab === 'tokens' ? tokens : endpoints;
+  const currentCount = list.data?.length ?? 0;
+  const fullyLoaded = list.data !== undefined && !list.hasNextPage;
 
   return (
     <Page>
@@ -189,7 +231,9 @@ export function IntegrationsPage() {
             {currentCount > 0 ? (
               <div className="ml-auto flex flex-wrap items-center gap-3">
                 <span role="status" className="text-xs text-muted-foreground">
-                  {tab === 'tokens' ? `共 ${currentCount} 个令牌` : `共 ${currentCount} 个端点`}
+                  {tab === 'tokens'
+                    ? `${fullyLoaded ? '共' : '已加载'} ${currentCount} 个令牌`
+                    : `${fullyLoaded ? '共' : '已加载'} ${currentCount} 个端点`}
                 </span>
                 <ViewToggle value={view} onChange={setView} />
               </div>
@@ -379,6 +423,8 @@ function ApiTokensSection({
           })}
         </ul>
       ) : null}
+
+      <ListFooter query={tokens} label="令牌" />
 
       {revoking ? (
         <ConfirmDialog
@@ -772,6 +818,8 @@ function WebhookEndpointsSection({
           ))}
         </ul>
       ) : null}
+
+      <ListFooter query={endpoints} label="端点" />
 
       <Collapsible open={inboundDocOpen} onOpenChange={setInboundDocOpen} className="border-t pt-4">
         <div className="flex items-center justify-between gap-2">

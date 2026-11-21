@@ -1,6 +1,5 @@
 import type {
   ChannelDetail,
-  ChannelListItem,
   ChannelMessage,
   ChannelRole,
   PublicQuestionResponse,
@@ -8,7 +7,6 @@ import type {
 import {
   type QueryClient,
   queryOptions,
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -24,13 +22,12 @@ import {
   type ChannelRunQuestions,
 } from '../api.js';
 import { mergeChannelMessages } from '../channel-state.js';
-import { mergeRunQuestions, useRefetchWhenRunEnds, withRunQuestion } from './shared.js';
-
-const channelsQuery = queryOptions<ChannelListItem[]>({
-  queryKey: ['channels'],
-  queryFn: ({ signal }) => api.channels(signal),
-  staleTime: 0,
-});
+import {
+  mergeRunQuestions,
+  useCursorList,
+  useRefetchWhenRunEnds,
+  withRunQuestion,
+} from './shared.js';
 
 const channelQuery = (id: string) =>
   queryOptions<ChannelDetail>({
@@ -89,7 +86,12 @@ const channelRunOutputBlobQueryKey = (channelId: string, runId: string, path: st
   ['channel-run-output-blob', channelId, runId, path] as const;
 
 export function useChannels() {
-  return useQuery(channelsQuery);
+  return useCursorList({
+    queryKey: ['channels'],
+    queryFn: (cursor, signal) => api.channels(cursor, signal),
+    staleTime: 0,
+    select: (data) => data.pages.flatMap((page) => page.items),
+  });
 }
 
 export function useChannel(id: string) {
@@ -340,17 +342,15 @@ export function useRespondToChannelQuestion(channelId: string) {
 }
 
 export function useChannelRunOutputs(channelId: string, runId: string | null) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: channelRunOutputsQueryKey(channelId, runId),
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: (cursor, signal) =>
       api.channelRunOutputs(
         channelId,
         runId ?? '',
-        { limit: 50, ...(pageParam === null ? {} : { cursor: pageParam }) },
+        { limit: 50, ...(cursor === undefined ? {} : { cursor }) },
         signal,
       ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: runId !== null,
     staleTime: 0,
     select: (data) => ({

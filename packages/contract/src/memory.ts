@@ -1,10 +1,12 @@
 import {
   agentMemoryAssemblySchema,
   agentMemoryOverviewSchema,
+  cursorPageSchema,
   idParams,
   memoryChangeSchema,
   memoryFileNamePattern,
   memoryPolicySchema,
+  pageQuerySchema,
   personalMemorySchema,
   slugSchema,
   writePersonalMemoryInputSchema,
@@ -12,19 +14,11 @@ import {
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
 
-export const memoryVersionsQuerySchema = z.object({
-  cursor: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
-});
-
 export const personalMemoryWriteResponseSchema = personalMemorySchema.extend({
   changeId: z.string(),
 });
 
-export const memoryVersionListSchema = z.object({
-  items: z.array(memoryChangeSchema),
-  nextCursor: z.string().nullable(),
-});
+export const memoryVersionListSchema = cursorPageSchema(memoryChangeSchema);
 
 export const agentMemoryVersionParams = idParams.extend({
   name: z.string().regex(memoryFileNamePattern, '记忆文件名非法：只允许 <name>.md'),
@@ -49,17 +43,17 @@ export const memoryContract = {
     .meta({ access: { kind: 'permission', permissionId: 'personal_memory.write' } }),
   personalVersions: contractProcedure
     .route({ method: 'GET', path: '/me/memory/versions' })
-    .input(z.object({ query: memoryVersionsQuerySchema }))
+    .input(z.object({ query: pageQuerySchema }))
     .output(memoryVersionListSchema)
     .meta({ access: { kind: 'permission', permissionId: 'personal_memory.read' } }),
   agentFileVersions: contractProcedure
     .route({ method: 'GET', path: '/agents/{id}/memory/{name}/versions' })
-    .input(z.object({ params: agentMemoryVersionParams, query: memoryVersionsQuerySchema }))
+    .input(z.object({ params: agentMemoryVersionParams, query: pageQuerySchema }))
     .output(memoryVersionListSchema)
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.read' } }),
   agentRuleVersions: contractProcedure
     .route({ method: 'GET', path: '/agents/{id}/rules/{slug}/versions' })
-    .input(z.object({ params: agentRuleVersionParams, query: memoryVersionsQuerySchema }))
+    .input(z.object({ params: agentRuleVersionParams, query: pageQuerySchema }))
     .output(memoryVersionListSchema)
     .meta({ access: { kind: 'permission', permissionId: 'agents.rules.read' } }),
   agentMemoryOverview: contractProcedure

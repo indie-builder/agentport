@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { AppError, fail } from '@agentport/core';
-import { type Database, newId, repo, schema } from '@agentport/db';
+import { type CursorPage, type Database, newId, repo, schema } from '@agentport/db';
 import type {
+  AccessFilter,
   ApiTool,
   ApiToolInput,
   ResolvedRuntimeEnvironment,
@@ -111,15 +112,21 @@ function randomToken(): string {
   return randomBytes(32).toString('base64url');
 }
 
-export async function listServers(
+export async function listServerPage(
   db: Db,
   key: string,
-  access?: ResourceAccessFilter,
-): Promise<Server[]> {
-  const rows = await repo.servers.listServers(db, access);
-  return rows
-    .filter((row) => row.kind !== 'knowledge')
-    .map((row) => maskServer(toApiServer(row, key)));
+  options: {
+    access?: ResourceAccessFilter | undefined;
+    cursor?: string | undefined;
+    limit: number;
+  },
+): Promise<CursorPage<Server> | null> {
+  const page = await repo.servers.listServerPage(db, options);
+  if (page === null) return null;
+  return {
+    items: page.items.map((row) => maskServer(toApiServer(row, key))),
+    nextCursor: page.nextCursor,
+  };
 }
 
 export async function getServerRow(db: Db, id: string): Promise<repo.servers.ServerRow | null> {
@@ -312,6 +319,18 @@ export async function updateServer(
 
 export async function deleteServer(db: Db, id: string): Promise<boolean> {
   return repo.servers.deleteServer(db, id);
+}
+
+export async function listServerBoundAgents(
+  db: Db,
+  serverId: string,
+  access: AccessFilter,
+): Promise<{ agents: Array<{ id: string; name: string }>; hiddenCount: number }> {
+  return repo.agents.listServerBoundAgents(db, serverId, access);
+}
+
+export async function countApiTools(db: Db, serverId: string): Promise<number> {
+  return repo.servers.countApiTools(db, serverId);
 }
 
 function toApiTool(row: repo.servers.ApiToolRow): ApiTool {

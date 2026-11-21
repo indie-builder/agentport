@@ -1,10 +1,11 @@
 import { fail } from '@agentport/core';
 import type { ChatMessageRole, ExecutionSubject } from '@agentport/shared';
-import { and, asc, desc, eq, exists, isNotNull, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, isNotNull, type SQL } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { agentRuns, conversations, messages } from '../../schema.js';
 import { cancelPendingRunFailedWebhooks } from '../integrations.js';
+import { type CursorPage, keysetBefore, keysetPage } from '../pagination.js';
 import { neverStartedFailureFilter } from '../run-predicates.js';
 import {
   consumePolicyApproval,
@@ -27,29 +28,43 @@ export interface ListMessagesOptions {
  * 不传 limit 时返回整段历史（branch 需要全部消息复制）；
  * 传 limit 时只取最新 N 条，避免把 tool 消息的大 jsonb 全量带给页面。
  */
+export function listMessages(
+  db: DbHandle,
+  conversationId: string,
+  options?: ListMessagesOptions & { before?: never },
+): Promise<Message[]>;
+export function listMessages(
+  db: DbHandle,
+  conversationId: string,
+  options: ListMessagesOptions,
+): Promise<Message[] | null>;
 export async function listMessages(
   db: DbHandle,
   conversationId: string,
   options: ListMessagesOptions = {},
-): Promise<Message[]> {
+): Promise<Message[] | null> {
+  if (options.limit !== undefined) {
+    const page = await listMessagePage(db, conversationId, {
+      limit: options.limit,
+      cursor: options.before,
+    });
+    return page?.items.reverse() ?? null;
+  }
   const filters: SQL[] = [eq(messages.conversationId, conversationId)];
   if (options.before !== undefined) {
-    filters.push(sql`(${messages.createdAt}, ${messages.id}) < (
-      select b.created_at, b.id from ${messages} b
-      where b.id = ${options.before} and b.conversation_id = ${conversationId}
-    )`);
+    const [anchor] = await db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(and(...filters, eq(messages.id, options.before)))
+      .limit(1);
+    if (anchor === undefined) return null;
+    filters.push(keysetBefore(messages, options.before));
   }
-  const query = db
+  return db
     .select()
     .from(messages)
-    .where(and(...filters));
-  if (options.limit === undefined) {
-    return query.orderBy(asc(messages.createdAt), asc(messages.id));
-  }
-  const rows = await query
-    .orderBy(desc(messages.createdAt), desc(messages.id))
-    .limit(options.limit);
-  return rows.reverse();
+    .where(and(...filters))
+    .orderBy(asc(messages.createdAt), asc(messages.id));
 }
 
 export async function getRunUserMessageText(db: DbHandle, runId: string): Promise<string | null> {
@@ -127,17 +142,24 @@ export async function getLastUserMessage(db: DbHandle, conversationId: string) {
   return row ?? null;
 }
 
-export async function messageInConversation(
-  db: Database,
+export function listMessagePage(
+  db: DbHandle,
   conversationId: string,
-  messageId: string,
-): Promise<boolean> {
-  const rows = await db
-    .select({ id: messages.id })
-    .from(messages)
-    .where(and(eq(messages.id, messageId), eq(messages.conversationId, conversationId)))
-    .limit(1);
-  return rows.length > 0;
+  options: { limit: number; cursor?: string | undefined },
+): Promise<CursorPage<Message> | null> {
+  return keysetPage(db, {
+    table: messages,
+    cursor: options.cursor,
+    limit: options.limit,
+    where: [eq(messages.conversationId, conversationId)],
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(messages)
+        .where(where)
+        .orderBy(desc(messages.createdAt), desc(messages.id))
+        .limit(limit),
+  });
 }
 
 const INSERT_CHUNK = 500;

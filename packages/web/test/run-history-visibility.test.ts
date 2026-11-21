@@ -64,10 +64,16 @@ beforeEach(() => {
     },
   });
   client.setQueryData(['me'], allAccessMe);
-  client.setQueryData(['agents'], []);
-  client.setQueryData(['servers'], []);
+  client.setQueryData(['agents'], { items: [], truncated: false });
+  client.setQueryData(['servers'], {
+    pages: [{ items: [], nextCursor: null }],
+    pageParams: [undefined],
+  });
   client.setQueryData(['health-metrics'], null);
-  client.setQueryData(['runs', null, null, 50], { items: [] });
+  client.setQueryData(['runs', null, null, null, null, 50], {
+    pages: [{ items: [], nextCursor: null }],
+    pageParams: [undefined],
+  });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -173,9 +179,15 @@ describe('overview retained run history', () => {
   });
 
   it('never fetches the list endpoints the overview already aggregates', async () => {
-    const servers = vi.spyOn(api, 'servers').mockResolvedValue([]);
-    const agents = vi.spyOn(api, 'agents').mockResolvedValue([]);
-    const runs = vi.spyOn(api, 'runs').mockResolvedValue({ items: [] });
+    const servers = vi.spyOn(api, 'servers').mockResolvedValue({
+      items: [],
+      nextCursor: null,
+    });
+    const agents = vi.spyOn(api, 'agentReference').mockResolvedValue({
+      items: [],
+      truncated: false,
+    });
+    const runs = vi.spyOn(api, 'runs').mockResolvedValue({ items: [], nextCursor: null });
     client.removeQueries({ queryKey: ['servers'] });
     client.removeQueries({ queryKey: ['agents'] });
     client.removeQueries({ queryKey: ['runs'] });
@@ -202,18 +214,18 @@ describe('overview retained run history', () => {
 
 describe('run list scope disclosure', () => {
   it.each([
-    { path: '/runs?view=table', agent: null, status: null, scope: '最近 100 条' },
+    { path: '/runs?view=table', agent: null, status: null, scope: '共 100 条运行' },
     {
       path: '/runs?status=failed&view=table',
       agent: null,
       status: 'failed',
-      scope: '符合筛选条件的最近 100 条',
+      scope: '共 100 条运行',
     },
     {
       path: '/runs?agent=deleted-agent&status=failed&view=table',
       agent: 'deleted-agent',
       status: 'failed',
-      scope: '符合筛选条件的最近 100 条',
+      scope: '共 100 条运行',
     },
   ])(
     'discloses the returned subset and sorts only its rows: $path',
@@ -223,7 +235,10 @@ describe('run list scope disclosure', () => {
         id: `run_${index}`,
         latencyMs: index + 1,
       }));
-      client.setQueryData(['runs', agent, status, 100], { items });
+      client.setQueryData(['runs', agent, status, null, null, 50], {
+        pages: [{ items, nextCursor: null }],
+        pageParams: [undefined],
+      });
       await mount(path);
       expect(host.textContent).toContain(scope);
       expect(host.textContent).toContain('排序仅作用于当前显示');

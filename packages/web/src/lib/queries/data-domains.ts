@@ -1,10 +1,4 @@
-import {
-  queryOptions,
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   DataDomain,
   DataDomainEnrichInput,
@@ -15,20 +9,18 @@ import type {
   DataDomainQueryApprovalListQuery,
   DataDomainQueryApprovalPage,
   DataDomainQueryLogListQuery,
-  DataDomainQueryLogPage,
   DataDomainVersion,
   DataDomainVersionDetail,
 } from '../api.js';
 import { api } from '../api.js';
+import { useCursorList } from './shared.js';
 
 const dataDomainKeys = ['data-domains'] as const;
 
 export function useDataDomains() {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: [...dataDomainKeys, 'list'],
-    queryFn: ({ pageParam }) => api.dataDomainPage(pageParam ?? undefined),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    queryFn: (cursor) => api.dataDomainPage(cursor),
     select: (data) => data.pages.flatMap((page) => page.items),
   });
 }
@@ -208,15 +200,13 @@ export function useRemoveDataDomainIdentity() {
 }
 
 export function useDataDomainQueryLogs(id: string, query: DataDomainQueryLogListQuery) {
-  return useInfiniteQuery<DataDomainQueryLogPage>({
+  return useCursorList({
     queryKey: [...dataDomainKeys, id, 'query-logs', query],
-    queryFn: ({ pageParam }) =>
+    queryFn: (cursor) =>
       api.dataDomainQueryLogs(id, {
         ...query,
-        ...(typeof pageParam === 'string' ? { cursor: pageParam } : {}),
+        ...(cursor === undefined ? {} : { cursor }),
       }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 }
 
@@ -231,15 +221,13 @@ export function dataDomainApprovalsShouldPoll(
 }
 
 export function useDataDomainQueryApprovals(id: string, query: DataDomainQueryApprovalListQuery) {
-  return useInfiniteQuery<DataDomainQueryApprovalPage>({
+  return useCursorList({
     queryKey: [...dataDomainKeys, id, 'approvals', query],
-    queryFn: ({ pageParam }) =>
+    queryFn: (cursor) =>
       api.dataDomainQueryApprovals(id, {
         ...query,
-        ...(typeof pageParam === 'string' ? { cursor: pageParam } : {}),
+        ...(cursor === undefined ? {} : { cursor }),
       }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     refetchInterval: ({ state }) =>
       dataDomainApprovalsShouldPoll(query, state.data?.pages) ? 8_000 : false,
   });

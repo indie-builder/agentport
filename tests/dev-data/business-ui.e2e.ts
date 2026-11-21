@@ -3,7 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from '@e2e-dev/web';
 import type { App, Screen } from 'e2e';
 import { expect } from 'e2e';
-import { api, datasetPath } from '../support/business-dataset.js';
+import { api, apiAllPages, datasetPath } from '../support/business-dataset.js';
 
 interface AgentRef {
   id: string;
@@ -65,7 +65,7 @@ test('business UI verify: sub-agent relationship and OpenUI rendering', {
   const sub = must(manifest.entities.agents.sub, 'manifest 缺少子专家');
 
   await app.open('/agents');
-  const summaries = await api<AgentSummary[]>(browser, '/api/agents');
+  const summaries = await apiAllPages<AgentSummary>(browser, '/api/agents');
   const mainSummary = must(
     summaries.find((item) => item.id === main.id),
     '列表缺少主专家',

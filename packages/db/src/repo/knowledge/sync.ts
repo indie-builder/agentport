@@ -7,7 +7,7 @@ import {
   knowledgeSyncItems,
   knowledgeSyncRuns,
 } from '../../schema.js';
-import { keysetBefore, paginate } from '../keyset.js';
+import { keysetPage } from '../pagination.js';
 import {
   type KnowledgeJobRow,
   type KnowledgeSyncItemRow,
@@ -81,19 +81,22 @@ export async function listSyncRuns(
   db: Database,
   sourceId: string,
   options: PageOptions = {},
-): Promise<Page<KnowledgeSyncRunRow>> {
+): Promise<Page<KnowledgeSyncRunRow> | null> {
   const limit = pageLimit(options);
   const filters: SQL[] = [eq(knowledgeSyncRuns.sourceId, sourceId)];
-  if (options.cursor) {
-    filters.push(keysetBefore(knowledgeSyncRuns, options.cursor));
-  }
-  const rows = await db
-    .select()
-    .from(knowledgeSyncRuns)
-    .where(and(...filters))
-    .orderBy(desc(knowledgeSyncRuns.createdAt), desc(knowledgeSyncRuns.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeSyncRuns,
+    cursor: options.cursor,
+    limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeSyncRuns)
+        .where(where)
+        .orderBy(desc(knowledgeSyncRuns.createdAt), desc(knowledgeSyncRuns.id))
+        .limit(limit),
+  });
 }
 
 export interface RecordSyncItemInput {
@@ -128,18 +131,21 @@ export async function listSyncItems(
   db: Database,
   syncRunId: string,
   filter: ListSyncItemsFilter = {},
-): Promise<Page<KnowledgeSyncItemRow>> {
+): Promise<Page<KnowledgeSyncItemRow> | null> {
   const limit = pageLimit(filter);
   const filters: SQL[] = [eq(knowledgeSyncItems.syncRunId, syncRunId)];
   if (filter.status) filters.push(eq(knowledgeSyncItems.status, filter.status));
-  if (filter.cursor) {
-    filters.push(keysetBefore(knowledgeSyncItems, filter.cursor));
-  }
-  const rows = await db
-    .select()
-    .from(knowledgeSyncItems)
-    .where(and(...filters))
-    .orderBy(desc(knowledgeSyncItems.createdAt), desc(knowledgeSyncItems.id))
-    .limit(limit + 1);
-  return paginate(rows, limit);
+  return keysetPage(db, {
+    table: knowledgeSyncItems,
+    cursor: filter.cursor,
+    limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(knowledgeSyncItems)
+        .where(where)
+        .orderBy(desc(knowledgeSyncItems.createdAt), desc(knowledgeSyncItems.id))
+        .limit(limit),
+  });
 }

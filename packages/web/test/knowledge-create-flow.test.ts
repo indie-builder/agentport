@@ -274,7 +274,8 @@ function profileCalls() {
 function listHandlers(profiles: ProfileFixture[]) {
   server.use(
     http.get('/api/knowledge/bases', () => HttpResponse.json({ items: [base], nextCursor: null })),
-    http.get('/api/agents', () => HttpResponse.json([])),
+    http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+    http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
     profilesHandler(() => profiles),
     http.post('/api/knowledge/bases', () => HttpResponse.json(createdBase)),
   );
@@ -302,7 +303,8 @@ describe('knowledge create flow', () => {
       http.get('/api/knowledge/bases', () =>
         HttpResponse.json({ items: [base], nextCursor: null }),
       ),
-      http.get('/api/agents', () => HttpResponse.json([])),
+      http.get('/api/agents', () => HttpResponse.json({ items: [], nextCursor: null })),
+      http.get('/api/agents/reference', () => HttpResponse.json({ items: [], truncated: false })),
       profilesHandler(() => profiles.promise),
     );
     await mount('/knowledge');

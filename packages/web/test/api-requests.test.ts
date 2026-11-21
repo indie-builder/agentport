@@ -23,8 +23,9 @@ describe('conversation list contract', () => {
         lastMessage: null,
       },
     ];
-    const fetch = mockFetch(Response.json(list));
-    await expect(api.conversations('agent-a')).resolves.toEqual(list);
+    const page = { items: list, nextCursor: null };
+    const fetch = mockFetch(Response.json(page));
+    await expect(api.conversations({ agentId: 'agent-a' })).resolves.toEqual(page);
     const url = new URL((fetch.mock.calls[0][0] as Request).url);
     expect(url.pathname + url.search).toBe('/api/conversations?agentId=agent-a');
   });

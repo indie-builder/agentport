@@ -87,7 +87,10 @@ async function mount(me: AuthMe, staleTime = Infinity) {
     },
   });
   client.setQueryData(['me'], me);
-  client.setQueryData(['skills'], [skill]);
+  client.setQueryData(['skills', 'all'], {
+    pages: [{ items: [skill], nextCursor: null }],
+    pageParams: [undefined],
+  });
   window.history.replaceState(null, '', '/skills');
   history = createBrowserHistory();
   const router = routerFor(history, (shell) => [

@@ -116,8 +116,8 @@ describe.skipIf(!ready)('agents', () => {
     const list = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(list.statusCode, list.body).toBe(200);
     const summary = list
-      .json<Array<Record<string, unknown>>>()
-      .find((item) => item.id === agent.id);
+      .json<{ items: Array<Record<string, unknown>> }>()
+      .items.find((item) => item.id === agent.id);
     expect(summary).toMatchObject({
       id: agent.id,
       name: 'Role agent',
@@ -330,7 +330,9 @@ describe.skipIf(!ready)('agents', () => {
 
     const list = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
     expect(list.statusCode, list.body).toBe(200);
-    const summary = list.json<Array<Record<string, unknown>>>().find((item) => item.id === id);
+    const summary = list
+      .json<{ items: Array<Record<string, unknown>> }>()
+      .items.find((item) => item.id === id);
     expect(summary).toMatchObject({ id, name: 'Legacy role agent', role, parentId: null });
 
     const renamed = await request(app, {
@@ -762,13 +764,17 @@ describe.skipIf(!ready)('agents', () => {
     });
     expect(get.statusCode).toBe(200);
     const active = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
-    expect(active.json<Array<{ id: string }>>().some((row) => row.id === agent.id)).toBe(false);
+    expect(
+      active.json<{ items: Array<{ id: string }> }>().items.some((row) => row.id === agent.id),
+    ).toBe(false);
     const deleted = await request(app, {
       method: 'GET',
       url: '/api/agents?status=deleted',
       headers: auth(),
     });
-    expect(deleted.json<Array<{ id: string }>>().some((row) => row.id === agent.id)).toBe(true);
+    expect(
+      deleted.json<{ items: Array<{ id: string }> }>().items.some((row) => row.id === agent.id),
+    ).toBe(true);
   });
 
   it('delegates to sub-agents and renders them as agent files', async () => {
@@ -778,7 +784,7 @@ describe.skipIf(!ready)('agents', () => {
     const listSummary = async (): Promise<Array<Record<string, unknown>>> => {
       const list = await request(app, { method: 'GET', url: '/api/agents', headers: auth() });
       expect(list.statusCode, list.body).toBe(200);
-      return list.json<Array<Record<string, unknown>>>();
+      return list.json<{ items: Array<Record<string, unknown>> }>().items;
     };
     expect((await listSummary()).find((entry) => entry.id === child.id)).toMatchObject({
       parentId: null,

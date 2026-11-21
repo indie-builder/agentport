@@ -1,9 +1,10 @@
 import type {
   Agent,
   AgentMemoryOverview,
+  CursorPage,
   KnowledgeBase,
   PermissionId,
-  RunList,
+  RunListItem,
 } from '@agentport/shared';
 import { agentInputSchema, PERMISSIONS } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -264,7 +265,10 @@ beforeEach(() => {
     ratio: 0.25,
     state: 'ok',
   });
-  vi.spyOn(api, 'runs').mockResolvedValue({ items: [] } satisfies RunList);
+  vi.spyOn(api, 'runs').mockResolvedValue({
+    items: [],
+    nextCursor: null,
+  } satisfies CursorPage<RunListItem>);
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, retryOnMount: false }, mutations: { retry: false } },
   });
@@ -418,7 +422,7 @@ describe('agent overview', () => {
 
     await waitFor(() => host.textContent?.includes('这个专家还没有运行记录。'));
     expect(host.textContent).not.toContain('查看全部运行');
-    expect(api.runs).toHaveBeenCalledWith({ agentId: 'expert', limit: 5 });
+    expect(api.runs).toHaveBeenCalledWith({ agentId: 'expert', limit: 5 }, expect.any(AbortSignal));
   });
 
   it('lists the latest runs and links to the filtered run list', async () => {
@@ -434,6 +438,7 @@ describe('agent overview', () => {
           error: '超时',
         },
       ],
+      nextCursor: null,
     });
     await mount({});
 

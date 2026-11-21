@@ -77,7 +77,7 @@ const knowledgeTest = test.extend<{ workspace: Workspace }>({
       });
     } finally {
       for (const slug of slugs) {
-        const list = (await (await api('/api/knowledge/bases?limit=200')).json()) as {
+        const list = (await (await api('/api/knowledge/bases?limit=100')).json()) as {
           items: KnowledgeBase[];
         };
         const base = list.items.find((item) => item.slug === slug);

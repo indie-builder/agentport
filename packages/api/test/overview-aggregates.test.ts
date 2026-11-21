@@ -253,7 +253,7 @@ describe.skipIf(!(ready && isolated))('overview aggregates', () => {
       request(app, { method: 'GET', url: '/api/servers', headers: { cookie } }),
     ]);
     expect(list.statusCode, list.body).toBe(200);
-    expect(body.counts.servers).toBe(list.json<unknown[]>().length);
+    expect(body.counts.servers).toBe(list.json<{ items: unknown[] }>().items.length);
   });
 
   it('uses UTC natural days for the window boundary', async () => {

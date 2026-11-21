@@ -891,12 +891,12 @@ test('shows unread from another member and clears it after reading', { session: 
   await expect
     .poll(
       async () => {
-        const list = await apiJson<Array<{ id: string; unreadCount: number }>>(
+        const list = await apiJson<{ items: Array<{ id: string; unreadCount: number }> }>(
           browser,
           'GET',
           '/api/channels',
         );
-        return list.json?.find((item) => item.id === channel.id)?.unreadCount ?? -1;
+        return list.json?.items.find((item) => item.id === channel.id)?.unreadCount ?? -1;
       },
       { timeout: 30_000 },
     )

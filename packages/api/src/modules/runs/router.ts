@@ -11,6 +11,7 @@ import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
 import { agentSlug, readWorkspaceOutput } from '../../lib/outputs.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from './access.js';
@@ -18,7 +19,7 @@ import { toRunDetail } from './events.js';
 import { runsQuestionsRouter } from './questions.js';
 
 const runsRepo = repo.runs;
-function toItem(run: Awaited<ReturnType<typeof runsRepo.listRuns>>[number]) {
+function toItem(run: repo.runs.RunListItem) {
   return { ...run, startedAt: toIso(run.startedAt), endedAt: toIso(run.endedAt) };
 }
 function toFeedback(row: repo.runFeedback.RunFeedbackRow) {
@@ -27,16 +28,19 @@ function toFeedback(row: repo.runFeedback.RunFeedbackRow) {
 const os = implement(runsContract).$context<RequestContext>();
 const runsMainRouter = {
   list: os.list.handler(async ({ input, context }) => {
-    const { agentId, status, trigger, since, limit } = input.query;
-    const items = await runsRepo.listRuns(context.db, {
-      ...(agentId === undefined ? {} : { agentId }),
-      ...(status === undefined ? {} : { status }),
-      ...(trigger === undefined ? {} : { trigger }),
-      ...(since === undefined ? {} : { since: new Date(since) }),
-      limit,
-      access: accessFilter(context, 'runs.read'),
-    });
-    return { items: items.map(toItem) };
+    const { agentId, status, trigger, since, cursor, limit } = input.query;
+    const page = requireCursorPage(
+      await runsRepo.listRuns(context.db, {
+        ...(agentId === undefined ? {} : { agentId }),
+        ...(status === undefined ? {} : { status }),
+        ...(trigger === undefined ? {} : { trigger }),
+        ...(since === undefined ? {} : { since: new Date(since) }),
+        ...(cursor === undefined ? {} : { cursor }),
+        limit,
+        access: accessFilter(context, 'runs.read'),
+      }),
+    );
+    return { items: page.items.map(toItem), nextCursor: page.nextCursor };
   }),
   detail: os.detail.handler(async ({ input, context }) => {
     await authorizeRun(context, input.params.id, 'runs.read');
@@ -274,22 +278,24 @@ export function registerRunExportHttp(app: Hono<HttpEnv>): void {
         }),
       );
       const { agentId, status, trigger, since, limit } = input.query;
-      const items = await runsRepo.listRuns(context.db, {
-        ...(agentId === undefined ? {} : { agentId }),
-        ...(status === undefined ? {} : { status }),
-        ...(trigger === undefined ? {} : { trigger }),
-        ...(since === undefined ? {} : { since: new Date(since) }),
-        limit: limit + 1,
-        access: accessFilter(context, 'runs.export'),
-      });
-      if (items.length > limit) {
+      const page = requireCursorPage(
+        await runsRepo.listRuns(context.db, {
+          ...(agentId === undefined ? {} : { agentId }),
+          ...(status === undefined ? {} : { status }),
+          ...(trigger === undefined ? {} : { trigger }),
+          ...(since === undefined ? {} : { since: new Date(since) }),
+          limit,
+          access: accessFilter(context, 'runs.export'),
+        }),
+      );
+      if (page.nextCursor !== null) {
         return fail('CONFLICT', `运行记录超过 ${limit} 条，请先按智能体或状态缩小范围后再导出`);
       }
       return attachmentResponse(
         JSON.stringify({
           format: 'agentport/runs@1',
           exportedAt: new Date().toISOString(),
-          items: items.map(toItem),
+          items: page.items.map(toItem),
         }),
         'runs.json',
         'application/json',

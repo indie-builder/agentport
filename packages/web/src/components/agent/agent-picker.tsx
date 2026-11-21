@@ -28,6 +28,7 @@ export function AgentPicker({
   onBlur,
   ariaInvalid,
   ariaDescribedby,
+  truncated,
 }: {
   agent: AgentDisplay | null;
   agentId?: string | null;
@@ -43,6 +44,7 @@ export function AgentPicker({
   onBlur?: FocusEventHandler<HTMLButtonElement> | undefined;
   ariaInvalid?: boolean | undefined;
   ariaDescribedby?: string | undefined;
+  truncated?: boolean | undefined;
 }) {
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const [query, setQuery] = useState('');
@@ -144,6 +146,11 @@ export function AgentPicker({
           placeholder="搜索名称、角色或 Slug…"
           className="m-1 mb-0 w-[calc(100%---spacing(2))] bg-surface"
         />
+        {truncated ? (
+          <p className="px-2 pb-1 text-xs text-muted-foreground">
+            最多加载 500 个可访问专家，更多请到找专家页浏览
+          </p>
+        ) : null}
         <ComboboxEmpty>没有匹配的专家</ComboboxEmpty>
         <ComboboxList>
           {(state) =>

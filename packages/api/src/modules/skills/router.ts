@@ -10,6 +10,7 @@ import {
   resourceAccessFilter,
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { requireCursorPage } from '../../http/pagination.js';
 import { rethrowConflict, toApi } from './api.js';
 
 const repo = skillRepo.skills;
@@ -42,8 +43,21 @@ const os = implement(skillsContract).$context<RequestContext>();
 export const skillsRouter = os.router({
   list: os.list.handler(async ({ context, input: routeInput }) => {
     const access = await resourceAccessFilter(context, 'skills.read', 'skill', 'read');
-    const rows = await repo.listSkills(context.db, access, routeInput.query.status);
-    return rows.map((row): SkillWithAgentCount => ({ ...toApi(row), agentCount: row.agentCount }));
+    const { cursor, limit, status } = routeInput.query;
+    const page = requireCursorPage(
+      await repo.listSkills(context.db, {
+        access,
+        status,
+        limit,
+        cursor,
+      }),
+    );
+    return {
+      items: page.items.map(
+        (row): SkillWithAgentCount => ({ ...toApi(row), agentCount: row.agentCount }),
+      ),
+      nextCursor: page.nextCursor,
+    };
   }),
   create: os.create.handler(async ({ context, input: routeInput }) => {
     try {

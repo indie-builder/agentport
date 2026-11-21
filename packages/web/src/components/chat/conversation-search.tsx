@@ -1,7 +1,7 @@
 'use client';
 
 import type { ConversationSearchItem } from '@agentport/shared';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Command,
   CommandEmpty,
@@ -11,9 +11,10 @@ import {
 } from '@ui-sdk/react/command';
 import { Search, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { api } from '../../lib/api.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { formatRelative } from '../../lib/format.js';
-import { searchConversationsOptions } from '../../lib/queries.js';
+import { chatKeys, useCursorList } from '../../lib/queries.js';
 import { useDebouncedValue } from '../../lib/use-debounced-value.js';
 import { ErrorState, LoadingState } from '../states.js';
 import { Button } from '../ui/button.js';
@@ -46,19 +47,29 @@ export function ConversationSearch({
   const hintsId = useId();
   const client = useQueryClient();
 
-  const options = useMemo(
-    () => searchConversationsOptions({ ...(q ? { q } : {}), limit: LIMIT }),
-    [q],
-  );
-  const previousOptions = useRef(options);
+  const queryKey = useMemo(() => chatKeys.search({ ...(q ? { q } : {}), limit: LIMIT }), [q]);
+  const previousKey = useRef(queryKey);
   useEffect(() => {
-    const previous = previousOptions.current;
-    if (previous === options) return;
-    previousOptions.current = options;
-    void client.cancelQueries({ queryKey: previous.queryKey });
-  }, [client, options]);
+    const previous = previousKey.current;
+    if (previous === queryKey) return;
+    previousKey.current = queryKey;
+    void client.cancelQueries({ queryKey: previous });
+  }, [client, queryKey]);
 
-  const search = useInfiniteQuery({ ...options, enabled: open });
+  const search = useCursorList({
+    queryKey,
+    queryFn: (cursor, signal) =>
+      api.searchConversations(
+        {
+          ...(q ? { q } : {}),
+          limit: LIMIT,
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+        signal,
+      ),
+    enabled: open,
+    staleTime: 0,
+  });
 
   const items = useMemo(
     () => search.data?.pages.flatMap((page) => page.items) ?? [],

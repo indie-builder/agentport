@@ -4,6 +4,7 @@ import type { KnowledgeSourceInput, KnowledgeSourceStatus } from '@agentport/sha
 import { knowledgeSourceInputSchema, knowledgeSourceRangeExternalIdMax } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
+import { requireCursorPage } from '../../../http/pagination.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../../lib/cron.js';
 import { createJob, enqueueKnowledgeJob } from '../service.js';
 import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
@@ -338,7 +339,7 @@ function configIssues(
 
 export async function listSources(deps: KnowledgeDeps, id: string, query: PageQuery) {
   if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
-  const page = await repo.knowledge.listSources(deps.db, id, pageOptions(query));
+  const page = requireCursorPage(await repo.knowledge.listSources(deps.db, id, pageOptions(query)));
   const rangesBySource = await repo.knowledge.listRangesBySourceIds(
     deps.db,
     page.items.map((row) => row.id),
@@ -524,7 +525,9 @@ export async function syncSource(deps: KnowledgeDeps, sourceId: string) {
 
 export async function listSourceRuns(deps: KnowledgeDeps, sourceId: string, query: PageQuery) {
   if (!(await repo.knowledge.getSource(deps.db, sourceId))) notFound('来源');
-  const page = await repo.knowledge.listSyncRuns(deps.db, sourceId, pageOptions(query));
+  const page = requireCursorPage(
+    await repo.knowledge.listSyncRuns(deps.db, sourceId, pageOptions(query)),
+  );
   return { items: page.items.map(toRun), nextCursor: page.nextCursor };
 }
 
@@ -547,10 +550,12 @@ export async function listSourceRunItems(
     )
     .limit(1);
   if (!run) throw new AppError('NOT_FOUND', '同步记录不存在或不属于该来源');
-  const page = await repo.knowledge.listSyncItems(deps.db, run.id, {
-    ...pageOptions(query),
-    ...(query.status === undefined ? {} : { status: query.status }),
-  });
+  const page = requireCursorPage(
+    await repo.knowledge.listSyncItems(deps.db, run.id, {
+      ...pageOptions(query),
+      ...(query.status === undefined ? {} : { status: query.status }),
+    }),
+  );
   return {
     items: page.items.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })),
     nextCursor: page.nextCursor,

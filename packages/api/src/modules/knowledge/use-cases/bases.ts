@@ -9,6 +9,7 @@ import type {
 import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
+import { requireCursorPage } from '../../../http/pagination.js';
 import { ensureKnowledgeServer, supportsImageVectors } from '../service.js';
 import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
 
@@ -56,7 +57,9 @@ export async function listBases(
   query: PageQuery,
   access?: ResourceAccessFilter,
 ) {
-  const page = await repo.knowledge.listBases(deps.db, pageOptions(query), access);
+  const page = requireCursorPage(
+    await repo.knowledge.listBases(deps.db, pageOptions(query), access),
+  );
   return { items: page.items.map(toBase), nextCursor: page.nextCursor };
 }
 
@@ -333,7 +336,9 @@ export async function getBaseSummary(deps: KnowledgeDeps, id: string) {
 
 export async function listBaseActivity(deps: KnowledgeDeps, id: string, query: PageQuery) {
   if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
-  const page = await repo.knowledge.listBaseActivity(deps.db, id, pageOptions(query));
+  const page = requireCursorPage(
+    await repo.knowledge.listBaseActivity(deps.db, id, pageOptions(query)),
+  );
   return {
     items: page.items.map((entry) => ({
       id: entry.id,

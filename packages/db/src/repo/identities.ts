@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { type SQL, sql } from 'drizzle-orm';
 import type { DbHandle } from '../client.js';
 import {
   agentMembers,
@@ -23,6 +23,7 @@ import {
   userPreferences,
   userRoles,
 } from '../schema.js';
+import type { CursorPage } from './pagination.js';
 
 const identityIds = sql`
   select ${authUsers.businessId} as business_id from ${authUsers}
@@ -61,10 +62,15 @@ const identityIds = sql`
     where ${departmentMembers.businessId} is not null
 `;
 
-function searchFilter(q: string | undefined) {
-  if (q === undefined || q === '') return sql``;
+function searchFilter(q: string | undefined): SQL | undefined {
+  if (q === undefined || q === '') return undefined;
   const pattern = `%${q}%`;
-  return sql`where ids.business_id ilike ${pattern} or coalesce(u.name, '') ilike ${pattern}`;
+  return sql`(ids.business_id ilike ${pattern} or coalesce(u.name, '') ilike ${pattern})`;
+}
+
+function whereClause(conditions: (SQL | undefined)[]) {
+  const active = conditions.filter((condition) => condition !== undefined);
+  return active.length === 0 ? sql`` : sql`where ${sql.join(active, sql` and `)}`;
 }
 
 /** 该 businessId 是否已有任何认证或业务历史（可离线）。 */
@@ -99,7 +105,7 @@ export async function listIdentities(
         (u.id is not null and u.disabled = false) as "accountActive"
       from (${identityIds}) ids
       left join ${authUsers} u on u.business_id = ids.business_id
-      ${filter}
+      ${whereClause([filter])}
       order by ids.business_id asc
       limit ${input.limit} offset ${input.offset}
     `),
@@ -107,8 +113,43 @@ export async function listIdentities(
       select count(*)::int as total
       from (${identityIds}) ids
       left join ${authUsers} u on u.business_id = ids.business_id
-      ${filter}
+      ${whereClause([filter])}
     `),
   ]);
   return { items: page as IdentitySummary[], total: total[0]?.total ?? 0 };
+}
+
+export async function listIdentityPage(
+  db: DbHandle,
+  input: { q?: string | undefined; cursor?: string | undefined; limit: number },
+): Promise<CursorPage<IdentitySummary> | null> {
+  const filter = searchFilter(input.q);
+  if (input.cursor !== undefined) {
+    const [anchor] = await db.execute<{ businessId: string }>(sql`
+      select ids.business_id as "businessId"
+      from (${identityIds}) ids
+      left join ${authUsers} u on u.business_id = ids.business_id
+      ${whereClause([sql`ids.business_id = ${input.cursor}`, filter])}
+      limit 1
+    `);
+    if (!anchor) return null;
+  }
+  const rows = (await db.execute<IdentitySummary & Record<string, unknown>>(sql`
+    select ids.business_id as "businessId",
+      coalesce(u.name, ids.business_id) as name,
+      (u.id is not null and u.disabled = false) as "accountActive"
+    from (${identityIds}) ids
+    left join ${authUsers} u on u.business_id = ids.business_id
+    ${whereClause([
+      input.cursor === undefined ? undefined : sql`ids.business_id > ${input.cursor}`,
+      filter,
+    ])}
+    order by ids.business_id asc
+    limit ${input.limit + 1}
+  `)) as IdentitySummary[];
+  const items = rows.slice(0, input.limit);
+  return {
+    items,
+    nextCursor: rows.length > input.limit ? (items.at(-1)?.businessId ?? null) : null,
+  };
 }

@@ -7,6 +7,7 @@ import type { Logger } from 'pino';
 import type { Config } from '../../../config.js';
 import { actorOf, requireUser } from '../../../http/access.js';
 import type { RequestContext } from '../../../http/context.js';
+import { requireCursorPage } from '../../../http/pagination.js';
 import { createJob, enqueueKnowledgeJob, type KnowledgeDocumentRow } from '../service.js';
 
 export type KnowledgeDeps = {
@@ -67,10 +68,12 @@ export async function collectChunks(db: Database, versionId: string): Promise<Fu
   const items: FullChunkRow[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const page = await repo.knowledge.listChunks(db, versionId, {
-      limit: 200,
-      ...(cursor === undefined ? {} : { cursor }),
-    });
+    const page = requireCursorPage(
+      await repo.knowledge.listChunks(db, versionId, {
+        limit: 200,
+        ...(cursor === undefined ? {} : { cursor }),
+      }),
+    );
     items.push(...page.items);
     if (page.nextCursor === null || page.nextCursor === cursor) return items;
     cursor = page.nextCursor;

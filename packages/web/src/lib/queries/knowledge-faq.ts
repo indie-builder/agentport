@@ -1,31 +1,23 @@
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type KnowledgeSearchResponse } from '../api.js';
-import { KNOWLEDGE_PAGE_SIZE, knowledgeJobQuery, knowledgeKeys } from './shared.js';
+import { KNOWLEDGE_PAGE_SIZE, knowledgeJobQuery, knowledgeKeys, useCursorList } from './shared.js';
 
 export function useKnowledgeFaqs(
   baseId: string,
   filter: NonNullable<Parameters<typeof api.knowledgeFaqs>[1]>,
 ) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: [...knowledgeKeys.faqs(baseId), filter],
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: (cursor, signal) =>
       api.knowledgeFaqs(
         baseId,
         {
           ...filter,
           limit: KNOWLEDGE_PAGE_SIZE,
-          ...(pageParam === null ? {} : { cursor: pageParam }),
+          ...(cursor === undefined ? {} : { cursor }),
         },
         signal,
       ),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 }
 

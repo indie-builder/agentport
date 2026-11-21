@@ -41,7 +41,7 @@ beforeEach(() => {
       queries: { retry: false, retryOnMount: false, refetchOnMount: false, gcTime: Infinity },
     },
   });
-  client.setQueryData(['agents'], []);
+  client.setQueryData(['agents'], { items: [], truncated: false });
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -82,14 +82,20 @@ async function mount(): Promise<void> {
 
 describe('run list initial sort', () => {
   it('shows the newest runs first and exposes that direction on the 开始 column', async () => {
-    client.setQueryData(['runs', null, null, 100], {
-      items: [
-        run('run_old', '2026-10-01T00:00:00.000Z'),
-        run('run_new', '2026-10-03T00:00:00.000Z'),
-        run('run_queued', null),
+    client.setQueryData(['runs', null, null, null, null, 50], {
+      pages: [
+        {
+          items: [
+            run('run_old', '2026-10-01T00:00:00.000Z'),
+            run('run_new', '2026-10-03T00:00:00.000Z'),
+            run('run_queued', null),
+          ],
+          nextCursor: null,
+        },
       ],
+      pageParams: [undefined],
     });
-    vi.spyOn(api, 'runs').mockResolvedValue({ items: [] });
+    vi.spyOn(api, 'runs').mockResolvedValue({ items: [], nextCursor: null });
     await mount();
 
     const table = host.querySelector('table[aria-label="运行列表"]');

@@ -1,4 +1,5 @@
 import { appendStreamEvent } from '@agentport/core';
+import { logEvent } from '@agentport/core/logger';
 import type {
   AgentRunJob,
   ChannelEvent,
@@ -32,11 +33,14 @@ import {
 } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
+import type { Logger } from 'pino';
 
 let redisUrl: string | undefined;
+let logger: Logger | undefined;
 
-export function configureQueueProducer(url: string): void {
+export function configureQueueProducer(url: string, log?: Logger): void {
   redisUrl ??= url;
+  logger ??= log;
 }
 
 function requireRedisUrl(): string {
@@ -55,8 +59,10 @@ function payloadOf(fields: string[]): string | undefined {
   return index >= 0 ? fields[index + 1] : undefined;
 }
 
-function logRedisError(err: Error): void {
-  process.stderr.write(`[queue] redis error: ${err.message}\n`);
+function logRedisError(queue: string) {
+  return (err: Error): void => {
+    if (logger !== undefined) logEvent(logger, 'queue error', { queue }, 'error', { err });
+  };
 }
 
 let queue: Queue<AgentRunJob> | undefined;
@@ -78,7 +84,7 @@ function getQueueConnection() {
 export function getQueue(): Queue<AgentRunJob> {
   if (!queue) {
     queue = new Queue<AgentRunJob>(RUNS_QUEUE, { connection: getQueueConnection() });
-    queue.on('error', logRedisError);
+    queue.on('error', logRedisError(RUNS_QUEUE));
   }
   return queue;
 }
@@ -86,7 +92,7 @@ export function getQueue(): Queue<AgentRunJob> {
 export function getEvalQueue(): Queue<EvalRunJob> {
   if (!evalQueue) {
     evalQueue = new Queue<EvalRunJob>(EVAL_RUNS_QUEUE, { connection: getQueueConnection() });
-    evalQueue.on('error', logRedisError);
+    evalQueue.on('error', logRedisError(EVAL_RUNS_QUEUE));
   }
   return evalQueue;
 }
@@ -96,7 +102,7 @@ export function getKnowledgeQueue(): Queue<KnowledgeJobQueuePayload> {
     knowledgeQueue = new Queue<KnowledgeJobQueuePayload>(KNOWLEDGE_JOBS_QUEUE, {
       connection: getQueueConnection(),
     });
-    knowledgeQueue.on('error', logRedisError);
+    knowledgeQueue.on('error', logRedisError(KNOWLEDGE_JOBS_QUEUE));
   }
   return knowledgeQueue;
 }
@@ -107,7 +113,7 @@ export function getRuntimeEnvironmentBuildQueue(): Queue<RuntimeEnvironmentBuild
       RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
       { connection: getQueueConnection() },
     );
-    runtimeEnvironmentBuildQueue.on('error', logRedisError);
+    runtimeEnvironmentBuildQueue.on('error', logRedisError(RUNTIME_ENVIRONMENT_BUILDS_QUEUE));
   }
   return runtimeEnvironmentBuildQueue;
 }
@@ -117,7 +123,7 @@ export function getDataDomainBuildQueue(): Queue<DataDomainBuildJob> {
     dataDomainBuildQueue = new Queue<DataDomainBuildJob>(DATA_DOMAIN_BUILDS_QUEUE, {
       connection: getQueueConnection(),
     });
-    dataDomainBuildQueue.on('error', logRedisError);
+    dataDomainBuildQueue.on('error', logRedisError(DATA_DOMAIN_BUILDS_QUEUE));
   }
   return dataDomainBuildQueue;
 }
@@ -127,7 +133,7 @@ export function getDataDomainEnrichmentQueue(): Queue<DataDomainEnrichmentJob> {
     dataDomainEnrichmentQueue = new Queue<DataDomainEnrichmentJob>(DATA_DOMAIN_ENRICHMENTS_QUEUE, {
       connection: getQueueConnection(),
     });
-    dataDomainEnrichmentQueue.on('error', logRedisError);
+    dataDomainEnrichmentQueue.on('error', logRedisError(DATA_DOMAIN_ENRICHMENTS_QUEUE));
   }
   return dataDomainEnrichmentQueue;
 }
@@ -139,7 +145,7 @@ export function getMonitoringQueue(name: MonitoredQueueName): Queue {
       connection: getQueueConnection(),
       skipMetasUpdate: true,
     });
-    monitored.on('error', logRedisError);
+    monitored.on('error', logRedisError(name));
     monitoringQueues.set(name, monitored);
   }
   return monitored;
@@ -148,7 +154,7 @@ export function getMonitoringQueue(name: MonitoredQueueName): Queue {
 function getClient(): RedisClient {
   if (!client) {
     client = new RedisClient(requireRedisUrl());
-    client.onclose = logRedisError;
+    client.onclose = logRedisError('redis');
   }
   return client;
 }
@@ -255,7 +261,7 @@ async function subscribeStream<T>(
   let closed = false;
   let redis = new RedisClient(requireRedisUrl());
   redis.onclose = (err) => {
-    if (!closed) logRedisError(err);
+    if (!closed) logRedisError('redis')(err);
   };
   let lastId = '0-0';
 
@@ -272,7 +278,7 @@ async function subscribeStream<T>(
   signal?.addEventListener('abort', onAbort, { once: true });
   const shutdown = () => {
     void Promise.resolve(cb(shutdownEvent)).catch((err: unknown) => {
-      logRedisError(err instanceof Error ? err : new Error(String(err)));
+      logRedisError('redis')(err instanceof Error ? err : new Error(String(err)));
     });
     release();
   };
@@ -331,12 +337,12 @@ async function subscribeStream<T>(
           if (closed) return;
           if (err instanceof Error && 'code' in err && err.code === 'ERR_REDIS_SERVER_ERROR')
             throw err;
-          logRedisError(err instanceof Error ? err : new Error(String(err)));
+          logRedisError('redis')(err instanceof Error ? err : new Error(String(err)));
           subscriptions.delete(redis);
           redis.onclose = () => undefined;
           redis.close();
           redis = new RedisClient(requireRedisUrl());
-          redis.onclose = logRedisError;
+          redis.onclose = logRedisError('redis');
           subscriptions.set(redis, shutdown);
           await new Promise((resolve) => setTimeout(resolve, 500));
           continue;
@@ -352,7 +358,7 @@ async function subscribeStream<T>(
       }
     } catch (err) {
       if (!closed) {
-        logRedisError(err instanceof Error ? err : new Error(String(err)));
+        logRedisError('redis')(err instanceof Error ? err : new Error(String(err)));
         try {
           await cb(errorEvent);
         } finally {
@@ -360,7 +366,7 @@ async function subscribeStream<T>(
         }
       }
     }
-  })().catch(logRedisError);
+  })().catch(logRedisError('redis'));
 
   return { close: release };
 }

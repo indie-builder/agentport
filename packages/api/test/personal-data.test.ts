@@ -668,14 +668,18 @@ describe.skipIf(!ready)('personal data', () => {
     expect(seen).toEqual(expected.slice(0, 3));
     expect(cursor).toBeUndefined();
 
-    expectProblem(
-      await getRuns(user.cookie, `days=90&cursor=${encodeURIComponent(foreign.runId)}`),
-      'NOT_FOUND',
-    );
-    expectProblem(
-      await getRuns(user.cookie, `days=90&cursor=${encodeURIComponent(unique('missing-run'))}`),
-      'NOT_FOUND',
-    );
+    expect(
+      expectProblem(
+        await getRuns(user.cookie, `days=90&cursor=${encodeURIComponent(foreign.runId)}`),
+        'INVALID_INPUT',
+      ).path,
+    ).toBe('/cursor');
+    expect(
+      expectProblem(
+        await getRuns(user.cookie, `days=90&cursor=${encodeURIComponent(unique('missing-run'))}`),
+        'INVALID_INPUT',
+      ).path,
+    ).toBe('/cursor');
 
     const filtered = personalRunListSchema.parse(
       (await getRuns(user.cookie, 'days=90&status=failed&trigger=review')).json(),
@@ -909,14 +913,18 @@ describe.skipIf(!ready)('personal data', () => {
       new Set([first.id, second.id]),
     );
 
-    expectProblem(
-      await getShares(user.cookie, `cursor=${encodeURIComponent(foreign.id)}`),
-      'NOT_FOUND',
-    );
-    expectProblem(
-      await getShares(user.cookie, `cursor=${encodeURIComponent(unique('missing-share'))}`),
-      'NOT_FOUND',
-    );
+    expect(
+      expectProblem(
+        await getShares(user.cookie, `cursor=${encodeURIComponent(foreign.id)}`),
+        'INVALID_INPUT',
+      ).path,
+    ).toBe('/cursor');
+    expect(
+      expectProblem(
+        await getShares(user.cookie, `cursor=${encodeURIComponent(unique('missing-share'))}`),
+        'INVALID_INPUT',
+      ).path,
+    ).toBe('/cursor');
   });
 
   it('lists only own conversations for the review source picker', async () => {
@@ -935,23 +943,25 @@ describe.skipIf(!ready)('personal data', () => {
     const res = await getConversations(user.cookie);
     expect(res.statusCode, res.body).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
-    const items = res.json<Array<{ id: string; title: string; agentId: string }>>();
-    expect(items.map((item) => item.id)).toEqual([mine]);
-    expect(items[0]).toMatchObject({ title: '我的会话', agentId });
+    const page = res.json<{ items: Array<{ id: string; title: string; agentId: string }> }>();
+    expect(page.items.map((item) => item.id)).toEqual([mine]);
+    expect(page.items[0]).toMatchObject({ title: '我的会话', agentId });
 
     const byAgent = await getConversations(
       user.cookie,
       `agentId=${encodeURIComponent(agentId)}&limit=10`,
     );
     expect(byAgent.statusCode, byAgent.body).toBe(200);
-    expect(byAgent.json<Array<{ id: string }>>().map((item) => item.id)).toEqual([mine]);
+    expect(byAgent.json<{ items: Array<{ id: string }> }>().items.map((item) => item.id)).toEqual([
+      mine,
+    ]);
     expect(
       (
         await getConversations(
           user.cookie,
           `agentId=${encodeURIComponent(unique('missing-agent'))}`,
         )
-      ).json<unknown[]>(),
+      ).json<{ items: unknown[] }>().items,
     ).toEqual([]);
   });
 

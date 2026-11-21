@@ -128,7 +128,7 @@ beforeEach(() => {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },
   });
-  client.setQueryData(['agents'], []);
+  client.setQueryData(['agents'], { items: [], truncated: false });
   client.setQueryData(['runs', 'agent-a', 'failed', 100], { items: [listItem] });
   host = document.createElement('div');
   document.body.append(host);

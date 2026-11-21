@@ -55,6 +55,7 @@ import {
   useChannelRunQuestions,
   useChannels,
   useDenyChannelApproval,
+  useDrainPages,
   useMarkChannelRead,
   useRespondToChannelQuestion,
   useStopChannelRun,
@@ -878,6 +879,7 @@ function MemberAvatars({ members }: { members: readonly ChannelMember[] }) {
 
 function ChannelSidebar({ channelId }: { channelId: string }) {
   const channels = useChannels();
+  useDrainPages(channels);
   const list = channels.data ?? [];
   return (
     <aside className="hidden w-56 shrink-0 flex-col border-r border-line lg:flex">

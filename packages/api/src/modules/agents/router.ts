@@ -4,6 +4,7 @@ import { repo as allRepo, plugins as pluginsTable, schema } from '@agentport/db'
 import {
   AGENT_HOOK_FILE_LIMIT,
   type AgentDefinition,
+  decodeCursor,
   runEnqueueOptions,
   utcMonthStart,
 } from '@agentport/shared';
@@ -19,6 +20,7 @@ import {
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { AppError } from '../../http/errors.js';
+import { invalidCursor, requireCursorPage } from '../../http/pagination.js';
 import { getQueue } from '../../queue/producer.js';
 import {
   readMemoryTarget,
@@ -140,39 +142,55 @@ function assertSlugUnchanged(current: string, next: string | undefined): string 
 }
 const repo = allRepo.agents;
 
+function listingAccess(context: RequestContext) {
+  const { businessId, grants } = requireUser(context);
+  return {
+    access: {
+      businessId,
+      scopes: grants
+        .filter((grant) => grant.permissionId === 'agents.read')
+        .map((grant) => grant.scope),
+    },
+    configAccess: {
+      businessId,
+      scopes: grants
+        .filter((grant) => grant.permissionId === 'agents.config.read')
+        .map((grant) => grant.scope),
+    },
+  };
+}
+
+function toListSummary(row: Awaited<ReturnType<typeof repo.listAgentReference>>['items'][number]) {
+  return toSummary(row, row.serverIds ?? undefined, {
+    isFavorite: row.isFavorite,
+    lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+  });
+}
+
 const os = implement(agentsContract).$context<RequestContext>();
 export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.router({
   list: os.list.handler(async ({ context, input }) => {
-    const principal = requireUser(context);
-    const { q, tag, favorite, sort, status } = input.query;
-    const rows = await repo.listAgents(
-      context.db,
-      {
-        businessId: principal.businessId,
-        scopes: principal.grants
-          .filter((grant) => grant.permissionId === 'agents.read')
-          .map((grant) => grant.scope),
-      },
-      {
-        businessId: principal.businessId,
-        scopes: principal.grants
-          .filter((grant) => grant.permissionId === 'agents.config.read')
-          .map((grant) => grant.scope),
-      },
-      {
-        status,
-        ...(q === undefined ? {} : { q }),
-        ...(tag === undefined ? {} : { tag }),
-        ...(favorite === undefined ? {} : { favorite }),
-        ...(sort === undefined ? {} : { sort }),
-      },
-    );
-    return rows.map((row) =>
-      toSummary(row, row.serverIds ?? undefined, {
-        isFavorite: row.isFavorite,
-        lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+    const { cursor } = input.query;
+    const anchor = cursor === undefined ? undefined : decodeCursor(cursor, 2);
+    if (
+      cursor !== undefined &&
+      (!anchor || anchor[1] === undefined || anchor.some((part) => part.includes('\0')))
+    ) {
+      return invalidCursor();
+    }
+    const page = requireCursorPage(
+      await repo.listAgents(context.db, {
+        ...input.query,
+        ...(anchor == null ? {} : { cursor: anchor[1], cursorSort: anchor[0] }),
+        ...listingAccess(context),
       }),
     );
+    return { items: page.items.map(toListSummary), nextCursor: page.nextCursor };
+  }),
+  reference: os.reference.handler(async ({ context }) => {
+    const { access, configAccess } = listingAccess(context);
+    const { items, truncated } = await repo.listAgentReference(context.db, access, configAccess);
+    return { items: items.map(toListSummary), truncated };
   }),
   tags: os.tags.handler(async ({ context }) => {
     const items = await repo.listAgentTags(context.db, accessFilter(context, 'agents.read'));

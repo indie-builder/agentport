@@ -27,11 +27,13 @@ import { chatSearchSchema } from '../src/routes/-search.js';
 vi.mock('../src/lib/toast.js', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
 const sha = 'a'.repeat(64);
+const adminRole = DEFAULT_ROLES.find((role) => role.systemKey === 'admin');
+if (adminRole === undefined) throw new Error('admin role is missing');
 const adminMe = {
   authenticated: true as const,
   user: { businessId: 'admin', username: 'admin', name: '管理员' },
   roles: [],
-  grants: [...DEFAULT_ROLES.find((role) => role.systemKey === 'admin')!.grants],
+  grants: [...adminRole.grants],
 };
 const agent = {
   ...agentInputSchema.parse({ slug: 'expert', name: 'Expert' }),
@@ -59,6 +61,7 @@ const terminal: RunDetail = {
     error: null,
     sessionId: null,
     sandboxId: null,
+    runtimeEnvironment: null,
   },
   conversation: { id: 'conversation-a', agentId: 'agent-a', title: 'Outputs' },
   steps: [],
@@ -289,10 +292,10 @@ beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(['me'], adminMe);
-  client.setQueryData(['agents'], [agent]);
+  client.setQueryData(['agents'], { items: [agent], truncated: false });
   objectUrlSeed = 0;
-  vi.spyOn(api, 'agents').mockResolvedValue([agent]);
-  vi.spyOn(api, 'conversations').mockResolvedValue([]);
+  vi.spyOn(api, 'agentReference').mockResolvedValue({ items: [agent], truncated: false });
+  vi.spyOn(api, 'conversations').mockResolvedValue({ items: [], nextCursor: null });
   vi.spyOn(api, 'conversation').mockResolvedValue(history);
   vi.spyOn(api, 'run').mockResolvedValue(terminal);
   vi.spyOn(api, 'runApprovals').mockResolvedValue({ items: [] });
@@ -2089,14 +2092,17 @@ describe('default expert selection', () => {
   const other = { ...agent, id: 'agent-b', slug: 'other', name: 'Other Expert' };
 
   function useTwoAgents() {
-    client.setQueryData(['agents'], [agent, other]);
-    vi.mocked(api.agents).mockResolvedValue([agent, other]);
+    client.setQueryData(['agents'], { items: [agent, other], truncated: false });
+    vi.mocked(api.agentReference).mockResolvedValue({ items: [agent, other], truncated: false });
   }
 
   it('shows the default assistant history empty state on bare /chat instead of a permanent skeleton', async () => {
     const assistant = { ...agent, id: 'assistant', name: '通用助手', isDefault: true };
-    client.setQueryData(['agents'], [assistant, agent]);
-    vi.mocked(api.agents).mockResolvedValue([assistant, agent]);
+    client.setQueryData(['agents'], { items: [assistant, agent], truncated: false });
+    vi.mocked(api.agentReference).mockResolvedValue({
+      items: [assistant, agent],
+      truncated: false,
+    });
     await mount('/chat');
     const toggle = host.querySelector<HTMLButtonElement>('button[aria-label="显示会话历史"]');
     if (!toggle) throw new Error('Missing history toggle');
@@ -2107,7 +2113,10 @@ describe('default expert selection', () => {
     if (!panel) throw new Error('Missing history panel');
     expect(panel.querySelector('[aria-busy="true"]')).toBeNull();
     expect(panel.textContent).toContain('开始对话后，记录会出现在这里。');
-    expect(api.conversations).toHaveBeenCalledWith(assistant.id, expect.any(AbortSignal));
+    expect(api.conversations).toHaveBeenCalledWith(
+      { agentId: assistant.id },
+      expect.any(AbortSignal),
+    );
 
     const picker = panel.querySelector<HTMLButtonElement>('button[aria-label="召唤专家"]');
     if (!picker) throw new Error('Missing history header expert picker');
@@ -2121,7 +2130,7 @@ describe('default expert selection', () => {
     await act(async () => choice.click());
     await flush();
 
-    expect(api.conversations).toHaveBeenCalledWith(agent.id, expect.any(AbortSignal));
+    expect(api.conversations).toHaveBeenCalledWith({ agentId: agent.id }, expect.any(AbortSignal));
     expect(panel.querySelector('[aria-busy="true"]')).toBeNull();
   });
 
@@ -2190,16 +2199,19 @@ describe('output refresh and conversation isolation', () => {
   );
 
   it('clears the output selection when opening another conversation from history', async () => {
-    vi.mocked(api.conversations).mockResolvedValue([
-      {
-        id: 'conversation-b',
-        agentId: agent.id,
-        title: 'Other conversation',
-        createdAt: '',
-        updatedAt: '',
-        lastMessage: null,
-      },
-    ]);
+    vi.mocked(api.conversations).mockResolvedValue({
+      items: [
+        {
+          id: 'conversation-b',
+          agentId: agent.id,
+          title: 'Other conversation',
+          createdAt: '',
+          updatedAt: '',
+          lastMessage: null,
+        },
+      ],
+      nextCursor: null,
+    });
     vi.mocked(api.conversation).mockImplementation(async (id: string) => ({
       ...history,
       conversation: { ...history.conversation, id },
@@ -2246,8 +2258,8 @@ describe('output refresh and conversation isolation', () => {
 
   it('clears the output selection when switching experts', async () => {
     const other = { ...agent, id: 'agent-b', slug: 'other', name: 'Other Expert' };
-    client.setQueryData(['agents'], [agent, other]);
-    vi.mocked(api.agents).mockResolvedValue([agent, other]);
+    client.setQueryData(['agents'], { items: [agent, other], truncated: false });
+    vi.mocked(api.agentReference).mockResolvedValue({ items: [agent, other], truncated: false });
     await mount(
       '/chat?agent=agent-a&conversation=conversation-a&outputRun=run-1&outputPath=report.md&outputMode=source',
     );

@@ -5,8 +5,8 @@ import { and, asc, desc, eq, gt, gte, isNotNull, like, lt, type SQL, sql } from 
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
-import { keysetBefore } from './keyset.js';
 import { escapeLike } from './knowledge/shared.js';
+import { keysetBound, keysetPage } from './pagination.js';
 
 export type AuditStatus = 'ok' | 'error' | 'denied';
 
@@ -161,11 +161,14 @@ export async function verifyAuditChain(
   const limit = Math.min(Math.max(opts.limit ?? 1000, 1), 5000);
   const afterSeq = opts.afterSeq != null && opts.afterSeq > 0 ? opts.afterSeq : 0;
   let expectedPrev: string | null = null;
+  let bound = gt(auditLog.chainSeq, afterSeq);
   if (afterSeq > 0) {
     const [cursor] = await db
-      .select({ hash: auditLog.hash })
+      .select({ id: auditLog.id, hash: auditLog.hash })
       .from(auditLog)
-      .where(eq(auditLog.chainSeq, afterSeq));
+      .where(and(eq(auditLog.chainSeq, afterSeq), isNotNull(auditLog.hash)))
+      .orderBy(asc(auditLog.id))
+      .limit(1);
     if (!cursor || cursor.hash === null) {
       return {
         ok: false,
@@ -176,6 +179,7 @@ export async function verifyAuditChain(
       };
     }
     expectedPrev = cursor.hash;
+    bound = keysetBound(auditLog, cursor.id, auditLog.chainSeq, 'asc');
   }
   const rows = await db
     .select({
@@ -197,8 +201,8 @@ export async function verifyAuditChain(
       createdAt: auditLog.createdAt,
     })
     .from(auditLog)
-    .where(and(isNotNull(auditLog.hash), gt(auditLog.chainSeq, afterSeq)))
-    .orderBy(asc(auditLog.chainSeq))
+    .where(and(isNotNull(auditLog.hash), bound))
+    .orderBy(asc(auditLog.chainSeq), asc(auditLog.id))
     .limit(limit + 1);
 
   const hasMore = rows.length > limit;
@@ -281,36 +285,66 @@ const columns = {
   hash: auditLog.hash,
 };
 
-export async function listAudit(db: Database, query: AuditQuery = {}): Promise<AuditEntry[]> {
-  const limit = Math.min(Math.max(query.limit ?? 100, 1), 1001);
+function auditFilters(query: AuditQuery): SQL[] {
   const filters: SQL[] = [];
-  if (query.action) {
-    filters.push(like(auditLog.action, `${escapeLike(query.action)}%`));
-  }
+  if (query.action) filters.push(like(auditLog.action, `${escapeLike(query.action)}%`));
   if (query.status) filters.push(eq(auditLog.status, query.status));
   if (query.target) filters.push(eq(auditLog.target, query.target));
   if (query.actor) filters.push(eq(auditLog.actor, query.actor));
   if (query.actorKind) filters.push(eq(auditLog.actorKind, query.actorKind));
   if (query.since) filters.push(gte(auditLog.createdAt, query.since));
-  if (query.before) filters.push(lt(auditLog.createdAt, query.before));
-  if (query.beforeId) {
-    filters.push(keysetBefore(auditLog, query.beforeId));
-  }
-  if (query.afterSeq != null) filters.push(gt(auditLog.chainSeq, query.afterSeq));
+  return filters;
+}
 
+export function listAuditPage(db: Database, query: AuditQuery = {}) {
+  const filters = auditFilters(query);
+  if (query.before) filters.push(lt(auditLog.createdAt, query.before));
+  return keysetPage(db, {
+    table: auditLog,
+    cursor: query.beforeId,
+    limit: Math.min(Math.max(query.limit ?? 100, 1), 1001),
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select(columns)
+        .from(auditLog)
+        .where(where)
+        .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
+        .limit(limit),
+  });
+}
+
+export async function listAudit(
+  db: Database,
+  query?: AuditQuery & { beforeId?: never; afterSeq?: never },
+): Promise<AuditEntry[]>;
+export async function listAudit(db: Database, query: AuditQuery): Promise<AuditEntry[] | null>;
+export async function listAudit(
+  db: Database,
+  query: AuditQuery = {},
+): Promise<AuditEntry[] | null> {
+  if (query.beforeId !== undefined) return (await listAuditPage(db, query))?.items ?? null;
+
+  const filters = auditFilters(query);
+  if (query.before) filters.push(lt(auditLog.createdAt, query.before));
+  if (query.afterSeq !== undefined && query.afterSeq > 0) {
+    const [anchor] = await db
+      .select({ id: auditLog.id })
+      .from(auditLog)
+      .where(and(...filters, eq(auditLog.chainSeq, query.afterSeq)))
+      .orderBy(asc(auditLog.id))
+      .limit(1);
+    if (!anchor) return null;
+    filters.push(keysetBound(auditLog, anchor.id, auditLog.chainSeq, 'asc'));
+  }
   return db
     .select(columns)
     .from(auditLog)
-    .where(filters.length > 0 ? and(...filters) : undefined)
+    .where(and(...filters))
     .orderBy(
       ...(query.order === 'asc'
-        ? [asc(auditLog.chainSeq)]
+        ? [asc(auditLog.chainSeq), asc(auditLog.id)]
         : [desc(auditLog.createdAt), desc(auditLog.id)]),
     )
-    .limit(limit);
-}
-
-export async function auditEntryExists(db: Database, id: string): Promise<boolean> {
-  const rows = await db.select({ id: auditLog.id }).from(auditLog).where(eq(auditLog.id, id));
-  return rows.length > 0;
+    .limit(Math.min(Math.max(query.limit ?? 100, 1), 1001));
 }

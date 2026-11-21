@@ -22,6 +22,7 @@
 
 - 唯一 wire 错误形状是 shared 的 `Problem`；`src/http/errors.ts` 把 zod、oRPC 与 Hono 错误统一转换，`AppError` 与 `fail()` 仍来自 `@agentport/core`。
 - 业务规则冲突在 handler 内显式抛 `AppError` 或返回 404/409；不把业务错误降级成通用 500。
+- 列表 handler 统一用 `src/http/pagination.ts` 的 `requireCursorPage` / `invalidCursor`；游标无效返回 400 `INVALID_INPUT`（`path: /cursor`），不手写切片或空页兜底。
 - 不新增平行错误信封，也不为旧响应保留 shim。
 
 ## 认证与授权

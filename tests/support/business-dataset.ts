@@ -47,6 +47,23 @@ export async function api<T>(
   return (response.text === '' ? undefined : JSON.parse(response.text)) as T;
 }
 
+export async function apiAllPages<T>(browser: Browser, requestPath: string): Promise<T[]> {
+  const items: T[] = [];
+  let cursor: string | undefined;
+  do {
+    const separator = requestPath.includes('?') ? '&' : '?';
+    const page = await api<{ items: T[]; nextCursor: string | null }>(
+      browser,
+      cursor === undefined
+        ? requestPath
+        : `${requestPath}${separator}cursor=${encodeURIComponent(cursor)}`,
+    );
+    items.push(...page.items);
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor !== undefined);
+  return items;
+}
+
 export async function manifestExists(section: string): Promise<boolean> {
   try {
     await access(datasetPath(section));

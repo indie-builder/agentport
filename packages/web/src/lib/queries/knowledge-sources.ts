@@ -1,15 +1,18 @@
 import type { KnowledgeSourceInput } from '@agentport/shared';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { api } from '../api.js';
-import { isTerminalKnowledgeJob, knowledgeKeys, knowledgeShouldPoll } from './shared.js';
+import {
+  isTerminalKnowledgeJob,
+  knowledgeKeys,
+  knowledgeShouldPoll,
+  useCursorList,
+} from './shared.js';
 
 export function useKnowledgeSources(baseId: string) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: knowledgeKeys.sources(baseId),
-    queryFn: ({ pageParam }) => api.knowledgeSources(baseId, pageParam ?? undefined),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    queryFn: (cursor) => api.knowledgeSources(baseId, cursor),
     select: (data) => data.pages.flatMap((page) => page.items),
   });
 }
@@ -61,15 +64,13 @@ export function useKnowledgeSyncItems(
   syncRunId: string | null,
   status: 'failed' | 'skipped' | undefined = undefined,
 ) {
-  return useInfiniteQuery({
+  return useCursorList({
     queryKey: knowledgeKeys.syncItems(sourceId ?? '', syncRunId ?? '', status),
-    queryFn: ({ pageParam }) =>
+    queryFn: (cursor) =>
       api.knowledgeSyncItems(sourceId ?? '', syncRunId ?? '', {
         ...(status === undefined ? {} : { status }),
-        ...(pageParam === null ? {} : { cursor: pageParam }),
+        ...(cursor === undefined ? {} : { cursor }),
       }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: sourceId !== null && syncRunId !== null,
   });
 }

@@ -154,16 +154,31 @@ function client() {
     defaultOptions: { queries: { retry: false, retryOnMount: false, staleTime: Infinity } },
   });
   result.setQueryData(['me'], allAccessMe);
-  result.setQueryData(['agents'], [agent, { ...agent, id: 'child', parentId: agent.id }]);
-  result.setQueryData(['servers'], [server]);
+  result.setQueryData(['agents'], {
+    items: [agent, { ...agent, id: 'child', parentId: agent.id }],
+    truncated: false,
+  });
+  result.setQueryData(['agents', 'list', { status: 'active' }], {
+    pages: [{ items: [agent, { ...agent, id: 'child', parentId: agent.id }], nextCursor: null }],
+    pageParams: [undefined],
+  });
+  result.setQueryData(['servers'], {
+    pages: [{ items: [server], nextCursor: null }],
+    pageParams: [undefined],
+  });
   result.setQueryData(['knowledge', 'bases'], {
     pages: [{ items: [knowledgeBase], nextCursor: null }],
     pageParams: [null],
   });
-  result.setQueryData(
-    ['skills'],
-    [{ id: 'skill', slug: 'skill', name: 'Skill', description: '', body: '' }],
-  );
+  result.setQueryData(['skills', 'all'], {
+    pages: [
+      {
+        items: [{ id: 'skill', slug: 'skill', name: 'Skill', description: '', body: '' }],
+        nextCursor: null,
+      },
+    ],
+    pageParams: [undefined],
+  });
   result.setQueryData(['tools', server.id], [tool]);
   clients.push(result);
   return result;
@@ -240,7 +255,11 @@ describe('resource async state regressions', () => {
     'blocks every competing editor entry during import (empty list: %s)',
     (empty) => {
       const queryClient = client();
-      if (empty) queryClient.setQueryData(['agents'], []);
+      if (empty)
+        queryClient.setQueryData(['agents', 'list', { status: 'active' }], {
+          pages: [{ items: [], nextCursor: null }],
+          pageParams: [undefined],
+        });
       vi.spyOn(api, 'importAgent').mockReturnValue(new Promise(() => {}));
       inspect(queryClient, AgentsPage, (tree, pass) => {
         if (pass === 0) {
@@ -407,7 +426,9 @@ describe('resource async state regressions', () => {
           retry = required(tree, (node) => node.type === ErrorState).props.onRetry as () => void;
       });
       if (retry) {
-        vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json([agent]));
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+          Response.json({ items: [agent], truncated: false }),
+        );
         retry();
         await vi.waitFor(() =>
           expect(queryClient.getQueryState(['agents'])?.status).toBe('success'),
@@ -425,8 +446,14 @@ describe('resource async state regressions', () => {
   it('tests stdio connectors in the chosen runtime environment', async () => {
     state.search = { view: 'table' };
     const queryClient = client();
-    queryClient.setQueryData(['servers'], [stdioServer]);
-    queryClient.setQueryData(['runtime-environments'], [defaultEnvironment, namedEnvironment]);
+    queryClient.setQueryData(['servers'], {
+      pages: [{ items: [stdioServer], nextCursor: null }],
+      pageParams: [undefined],
+    });
+    queryClient.setQueryData(['runtime-environments'], {
+      pages: [{ items: [defaultEnvironment, namedEnvironment], nextCursor: null }],
+      pageParams: [undefined],
+    });
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       Response.json({
         ok: true,

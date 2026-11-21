@@ -6,6 +6,7 @@ import { implement } from '@orpc/server';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
+import { invalidCursor } from '../../http/pagination.js';
 import {
   agentSlug,
   listWorkspaceOutputs,
@@ -107,22 +108,18 @@ export const channelsRunsRouter = {
     await memberRun(context, id, runId);
     const detail = await runConversation(context, runId);
     const slug = await agentSlug(context.db, detail.conversation.agentId);
-    if (slug === null) return { items: [], nextCursor: null };
     const { limit, cursor } = input.query;
-    try {
-      return await listWorkspaceOutputs(context, {
-        slug,
-        conversationId: detail.conversation.id,
-        limit,
-        ...(cursor === undefined ? {} : { before: cursor }),
-        runId,
-      });
-    } catch (err) {
-      if (cursor !== undefined && isAppError(err) && err.code === 'INVALID_INPUT') {
-        return fail('INVALID_INPUT', '游标无效，请刷新成果列表后重试');
-      }
-      throw err;
+    if (slug === null) {
+      if (cursor !== undefined) invalidCursor();
+      return { items: [], nextCursor: null };
     }
+    return listWorkspaceOutputs(context, {
+      slug,
+      conversationId: detail.conversation.id,
+      limit,
+      ...(cursor === undefined ? {} : { before: cursor }),
+      runId,
+    });
   }),
   runOutputContent: os.runOutputContent.handler(async ({ input, context }) => {
     const { id, runId } = input.params;

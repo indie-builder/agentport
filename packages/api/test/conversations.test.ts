@@ -153,11 +153,11 @@ describe.skipIf(!ready)('conversations', () => {
       url: `/api/conversations?agentId=${agent.id}`,
       headers: auth(),
     });
-    const listBody = list.json<unknown>();
-    expect(conversationSummarySchema.array().parse(listBody)).toEqual(listBody);
-    const item = (
-      listBody as Array<{ id: string; title: string; createdAt: string; lastMessage: unknown }>
-    ).find((entry) => entry.id === id);
+    const listBody = list.json<{
+      items: Array<{ id: string; title: string; createdAt: string; lastMessage: unknown }>;
+    }>();
+    expect(conversationSummarySchema.array().parse(listBody.items)).toEqual(listBody.items);
+    const item = listBody.items.find((entry) => entry.id === id);
     expect(item).toMatchObject({ title: '会议 ✨', createdAt: beforeBody.conversation.createdAt });
     expect(item?.lastMessage).toEqual({
       role: 'user',

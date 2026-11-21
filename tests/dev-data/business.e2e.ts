@@ -5,7 +5,13 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { api, DATASET_ID, datasetPath, writeManifest } from '../support/business-dataset.js';
+import {
+  api,
+  apiAllPages,
+  DATASET_ID,
+  datasetPath,
+  writeManifest,
+} from '../support/business-dataset.js';
 
 interface AgentRef {
   id: string;
@@ -467,7 +473,7 @@ async function agentCandidates(
   browser: Parameters<typeof api>[0],
   name: string,
 ): Promise<AgentDetail[]> {
-  const summaries = await api<AgentSummary[]>(browser, '/api/agents');
+  const summaries = await apiAllPages<AgentSummary>(browser, '/api/agents');
   const candidates: AgentDetail[] = [];
   for (const summary of summaries.filter((item) => item.name === name)) {
     candidates.push(await agentDetail(browser, summary.id));
@@ -626,7 +632,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   if (manifest.actor.businessId && manifest.actor.businessId !== me.user.businessId)
     throw new Error('business manifest 主体与当前账户不一致');
   manifest.actor = { businessId: me.user.businessId, username: me.user.username };
-  const interruptedSchedules = await api<ScheduleItem[]>(browser, '/api/schedules');
+  const interruptedSchedules = await apiAllPages<ScheduleItem>(browser, '/api/schedules');
   for (const record of manifest.schedules) {
     const item = interruptedSchedules.find((schedule) => schedule.id === record.id);
     if (item?.enabled) {
@@ -639,7 +645,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
         method: 'PATCH',
         body: { enabled: false },
       });
-      const current = (await api<ScheduleItem[]>(browser, '/api/schedules')).find(
+      const current = (await apiAllPages<ScheduleItem>(browser, '/api/schedules')).find(
         (schedule) => schedule.id === item.id,
       );
       if (!current || current.enabled) throw new Error('中断调度暂停未确认');
@@ -682,16 +688,19 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   }
 
   const skills = (
-    await api<Array<{ id: string; slug: string; name: string }>>(browser, '/api/skills')
+    await apiAllPages<{ id: string; slug: string; name: string }>(browser, '/api/skills')
   )
     .filter((item) => item.slug.startsWith(DATASET_ID))
     .slice(0, 2);
   const plugins = (
-    await api<Array<{ id: string; slug: string; name: string }>>(browser, '/api/plugins')
+    await apiAllPages<{ id: string; slug: string; name: string }>(browser, '/api/plugins')
   ).filter((item) => item.slug.startsWith(DATASET_ID));
-  const servers = await api<
-    Array<{ id: string; name: string; kind: string; config?: { knowledgeBaseId?: string } }>
-  >(browser, '/api/servers');
+  const servers = await apiAllPages<{
+    id: string;
+    name: string;
+    kind: string;
+    config?: { knowledgeBaseId?: string };
+  }>(browser, '/api/servers');
   const datasetServers = servers.filter((item) =>
     `${item.name} ${'slug' in item ? String((item as { slug?: string }).slug ?? '') : ''}`.includes(
       DATASET_ID,
@@ -699,17 +708,17 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   );
   const generatedServers = datasetServers.filter((item) => item.kind === 'generated');
   const knowledgeBases = (
-    await api<{ items: Array<{ id: string; slug: string; name: string; serverId: string }> }>(
+    await apiAllPages<{ id: string; slug: string; name: string; serverId: string }>(
       browser,
-      '/api/knowledge/bases?limit=200',
+      '/api/knowledge/bases',
     )
-  ).items.filter((item) => item.slug.startsWith(DATASET_ID));
+  ).filter((item) => item.slug.startsWith(DATASET_ID));
   const profiles = await api<Array<{ id: string; kind: string; enabled: boolean }>>(
     browser,
     '/api/knowledge/model-profiles',
   );
   const runtimeEnvironments = (
-    await api<Array<{ id: string; name: string; onlineVersionId: string | null }>>(
+    await apiAllPages<{ id: string; name: string; onlineVersionId: string | null }>(
       browser,
       '/api/runtime-environments',
     )
@@ -2076,7 +2085,7 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
     if (recorded?.id) {
       agent = await agentDetail(browser, recorded.id);
     } else {
-      const summaries = await api<AgentSummary[]>(browser, '/api/agents');
+      const summaries = await apiAllPages<AgentSummary>(browser, '/api/agents');
       for (const summary of summaries) {
         if (summary.name !== def.name) continue;
         const candidate = await agentDetail(browser, summary.id);
@@ -2096,7 +2105,7 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
   const sub = must(agentByKey.get('sub'), '缺离子专家');
   const openui = must(agentByKey.get('openui'), '缺少 OpenUI 专家');
 
-  const summaries = await api<AgentSummary[]>(browser, '/api/agents');
+  const summaries = await apiAllPages<AgentSummary>(browser, '/api/agents');
   const summaryOf = (id: string): AgentSummary | undefined =>
     summaries.find((item) => item.id === id);
   check(summaryOf(main.id)?.parentId === null, '主专家列表摘要 parentId 不是 null');
@@ -2417,7 +2426,7 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
   const disabledDetail = await api<{ enabled: boolean }>(browser, `/api/agents/${disabled.id}`);
   check(disabledDetail.enabled === false, '旧客服专家未停用');
 
-  const schedules = await api<ScheduleItem[]>(browser, '/api/schedules');
+  const schedules = await apiAllPages<ScheduleItem>(browser, '/api/schedules');
   check(manifest.schedules.length === 2, 'manifest 必须记录两个定时任务');
   for (let index = 0; index < 2; index += 1) {
     const marker = `[${DATASET_ID}:schedule-${index}]`;

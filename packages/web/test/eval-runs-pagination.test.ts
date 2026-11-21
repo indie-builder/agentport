@@ -62,7 +62,10 @@ async function mount(
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },
   });
-  client.setQueryData(['agents'], [{ id: 'agent-a', name: 'Expert A' }]);
+  client.setQueryData(['agents'], {
+    items: [{ id: 'agent-a', name: 'Expert A' }],
+    truncated: false,
+  });
   client.setQueryData(['agent-access', 'agent-a'], {
     agentId: 'agent-a',
     permissionIds: ['eval.read', 'eval.manage', 'eval.execute'],
@@ -195,7 +198,7 @@ describe('evaluation run pagination', () => {
     );
 
     const refreshed = cache();
-    expect(refreshed?.pageParams).toEqual([null, 'evalRun_012']);
+    expect(refreshed?.pageParams).toEqual([undefined, 'evalRun_012']);
     expect(refreshed?.pages.map((page) => page.items.length)).toEqual([50, 11]);
     expect(refreshed?.pages.flatMap((page) => page.items.map((run) => run.id))).toEqual(
       Array.from({ length: 61 }, (_, index) => `evalRun_${String(61 - index).padStart(3, '0')}`),

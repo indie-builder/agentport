@@ -20,8 +20,8 @@ import {
   violationCases,
 } from '../schema.js';
 import { listAlertRecipientBusinessIds } from './governance/reporting.js';
-import { keysetBefore, paginate } from './keyset.js';
 import { createNotification } from './notifications.js';
+import { keysetPage } from './pagination.js';
 
 export type ContentPolicyRow = typeof contentPolicies.$inferSelect;
 export type PolicyEventRow = typeof policyEvents.$inferSelect;
@@ -150,22 +150,19 @@ export async function listPolicyEvents(
     ...(input.sourceKind === undefined ? [] : [eq(policyEvents.sourceKind, input.sourceKind)]),
     ...(input.action === undefined ? [] : [eq(policyEvents.action, input.action)]),
   ];
-  if (input.cursor !== undefined) {
-    const [anchor] = await db
-      .select({ id: policyEvents.id })
-      .from(policyEvents)
-      .where(and(eq(policyEvents.id, input.cursor), ...filters))
-      .limit(1);
-    if (!anchor) return null;
-    filters.push(keysetBefore(policyEvents, input.cursor));
-  }
-  const rows = await db
-    .select()
-    .from(policyEvents)
-    .where(filters.length === 0 ? undefined : and(...filters))
-    .orderBy(desc(policyEvents.createdAt), desc(policyEvents.id))
-    .limit(input.limit + 1);
-  return paginate(rows, input.limit);
+  return keysetPage(db, {
+    table: policyEvents,
+    cursor: input.cursor,
+    limit: input.limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(policyEvents)
+        .where(where)
+        .orderBy(desc(policyEvents.createdAt), desc(policyEvents.id))
+        .limit(limit),
+  });
 }
 
 export async function listPolicyApprovals(
@@ -173,23 +170,21 @@ export async function listPolicyApprovals(
   input: { status: PolicyApprovalStatus; limit: number; cursor?: string },
 ) {
   const filters = [approvalStatusFilter(input.status)];
-  if (input.cursor !== undefined) {
-    const [anchor] = await db
-      .select({ id: policyApprovals.id })
-      .from(policyApprovals)
-      .where(and(eq(policyApprovals.id, input.cursor), ...filters))
-      .limit(1);
-    if (!anchor) return null;
-    filters.push(keysetBefore(policyApprovals, input.cursor, policyApprovals.requestedAt));
-  }
-  const rows = await db
-    .select()
-    .from(policyApprovals)
-    .where(and(...filters))
-    .orderBy(desc(policyApprovals.requestedAt), desc(policyApprovals.id))
-    .limit(input.limit + 1);
-  const page = paginate(rows, input.limit);
-  if (input.status !== 'expired') return page;
+  const page = await keysetPage(db, {
+    table: policyApprovals,
+    cursor: input.cursor,
+    limit: input.limit,
+    column: policyApprovals.requestedAt,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(policyApprovals)
+        .where(where)
+        .orderBy(desc(policyApprovals.requestedAt), desc(policyApprovals.id))
+        .limit(limit),
+  });
+  if (page === null || input.status !== 'expired') return page;
   return {
     items: page.items.map((row) => ({ ...row, status: 'expired' as const })),
     nextCursor: page.nextCursor,
@@ -382,22 +377,19 @@ export async function listViolationCases(
   input: { status?: ViolationCaseStatus; limit: number; cursor?: string },
 ) {
   const filters = input.status === undefined ? [] : [eq(violationCases.status, input.status)];
-  if (input.cursor !== undefined) {
-    const [anchor] = await db
-      .select({ id: violationCases.id })
-      .from(violationCases)
-      .where(and(eq(violationCases.id, input.cursor), ...filters))
-      .limit(1);
-    if (!anchor) return null;
-    filters.push(keysetBefore(violationCases, input.cursor));
-  }
-  const rows = await db
-    .select()
-    .from(violationCases)
-    .where(filters.length === 0 ? undefined : and(...filters))
-    .orderBy(desc(violationCases.createdAt), desc(violationCases.id))
-    .limit(input.limit + 1);
-  return paginate(rows, input.limit);
+  return keysetPage(db, {
+    table: violationCases,
+    cursor: input.cursor,
+    limit: input.limit,
+    where: filters,
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(violationCases)
+        .where(where)
+        .orderBy(desc(violationCases.createdAt), desc(violationCases.id))
+        .limit(limit),
+  });
 }
 
 export async function countViolationCasesByStatus(

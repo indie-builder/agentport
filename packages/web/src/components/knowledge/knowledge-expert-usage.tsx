@@ -8,7 +8,7 @@ export function ExpertUsage({ base }: { base: KnowledgeBase }) {
   const agents = useQuery(agentsQuery);
   const used: Array<{ id: string; name: string }> = [];
   let unknown = 0;
-  for (const agent of agents.data ?? []) {
+  for (const agent of agents.data?.items ?? []) {
     if (!agent.serverIds) {
       unknown += 1;
       continue;
