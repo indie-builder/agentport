@@ -1,17 +1,10 @@
-import { errorText } from '@agentport/shared';
 import { z } from 'zod';
+import { fetchDownload } from './source-download.js';
 import {
   sourceFailure as failureOf,
-  fetchChecked,
   fetchJson,
   SourceItemError as ItemError,
-  readBytesCapped,
-  redactUrls,
   rethrowAuth,
-  SourceAuthError,
-  safeDownloadHeaders,
-  sourceNetworkOptions,
-  validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
@@ -318,30 +311,6 @@ async function requestDownloadInfo(
   return { url, headers: info?.headers ?? {} };
 }
 
-async function downloadSigned(
-  config: SourceConfig,
-  info: { url: string; headers: Record<string, string> },
-  signal: AbortSignal | undefined,
-): Promise<{ bytes: Buffer; contentType: string | null }> {
-  try {
-    const target = await validateSourceUrl(info.url, sourceNetworkOptions(config));
-    const response = await fetchChecked(target.href, {
-      headers: safeDownloadHeaders(info.headers),
-      authOrigin: target.origin,
-      authFailure: 'item',
-      ...sourceNetworkOptions(config),
-      ...signalOption(signal),
-    });
-    return {
-      bytes: await readBytesCapped(response, 'dingtalk document'),
-      contentType: response.headers.get('content-type'),
-    };
-  } catch (err) {
-    if (err instanceof SourceAuthError || isAbort(err, signal)) throw err;
-    throw new Error(redactUrls(errorText(err)));
-  }
-}
-
 async function readUploadedDocument(
   config: SourceConfig,
   auth: Auth,
@@ -360,7 +329,7 @@ async function readUploadedDocument(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const info = await requestDownloadInfo(auth, storage, signal);
-      return await downloadSigned(config, info, signal);
+      return await fetchDownload(config, info.url, info.headers, signal, 'dingtalk document');
     } catch (err) {
       rethrowAuth(err);
       if (err instanceof ItemError || isAbort(err, signal)) throw err;
