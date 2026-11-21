@@ -155,7 +155,7 @@ if ((await repo.knowledge.findActiveReprocessJobId(tx, row.id)) !== null) {
 - 不新增测试；回归依赖既有 `knowledge-publishing-integration.test.ts` 与 `knowledge-management-routes.test.ts`。
 - 受影响路径是 `createManualDocument` 创建的 `sourceType='manual'` 文档（text/markdown，`publish: 'draft'`）。`knowledge-publishing-integration.test.ts` 的 `/reprocess` 用例实际针对一条已有版本的声音上传，断言返回 202；草稿拦截与首次失败恢复均无自动化覆盖，属已知覆盖缺口。
 - 既有两个套件的既有断言必须保持通过；它们不覆盖草稿拦截与首次失败恢复，仅用于确认本次收窄没有让既有用例转为失败。
-- 任务重试入口复用同一活跃任务门槛：`retryJob` 对 `ingest` / `reindex` 在事务内锁定文档并检查活跃任务。
+- 任务重试入口复用同一活跃任务门槛，但仅限单文档：`retryJob` 只在 `(payload.type === 'ingest' || payload.type === 'reindex') && row.documentId !== null` 时于事务内锁定文档并检查活跃任务。`row.documentId === null` 的批量重建（payload 携带 `documentIds`）仍走原 `enqueue` 路径，不做逐文档活跃检查，属已知例外。
 
 ## Done criteria
 
@@ -170,7 +170,6 @@ if ((await repo.knowledge.findActiveReprocessJobId(tx, row.id)) !== null) {
 
 - `hasUnpublishedDraft` 或 `reprocessDocument` 与「Current state」摘录不符。
 - 发现除 `reprocessDocument` 外还有用户可触发、绕过它的重解析入口。
-- 收紧语义后，`knowledge-publishing-integration.test.ts` 中某个期望 409 的用例开始 202；这说明某个合法草稿场景被误放行，先报告，不要改断言。
 
 ## Maintenance notes
 
