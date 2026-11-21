@@ -1,4 +1,4 @@
-import type { Attention, Schedule, ScheduleRun } from '@agentport/shared';
+import type { Attention } from '@agentport/shared';
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import { api, type Overview, type OverviewTimeseriesPoint } from '../api.js';
 
@@ -23,31 +23,8 @@ export const attentionQuery = queryOptions<Attention>({
   refetchInterval: 15_000,
 });
 
-export const schedulesQuery = queryOptions<Schedule[]>({
-  queryKey: ['schedules'],
-  queryFn: api.schedules,
-});
-
 export function useAttention() {
   return useQuery(attentionQuery);
-}
-
-export function useSchedules() {
-  return useQuery(schedulesQuery);
-}
-
-export const scheduleRunsQuery = (id: string) =>
-  queryOptions<ScheduleRun[]>({
-    queryKey: ['schedules', id, 'runs'],
-    queryFn: () => api.scheduleRuns(id),
-    refetchInterval: (query) =>
-      query.state.data?.some((run) => run.status === 'queued' || run.status === 'running')
-        ? 2_000
-        : 5_000,
-  });
-
-export function useScheduleRuns(id: string, enabled = true) {
-  return useQuery({ ...scheduleRunsQuery(id), enabled });
 }
 
 export function useOverview() {
