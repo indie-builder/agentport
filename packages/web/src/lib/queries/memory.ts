@@ -12,6 +12,7 @@ import type {
 } from '@agentport/shared';
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
+import { agentKeys } from './agents.js';
 import { useCursorList } from './shared.js';
 
 export const agentMemoryKeys = {
@@ -102,7 +103,7 @@ function invalidateMemoryContent(client: ReturnType<typeof useQueryClient>): voi
   void client.invalidateQueries({ queryKey: ['memory-versions'] });
   void client.invalidateQueries({ queryKey: agentMemoryKeys.list() });
   void client.invalidateQueries({ queryKey: agentMemoryKeys.file() });
-  void client.invalidateQueries({ queryKey: ['agent-rules'] });
+  void client.invalidateQueries({ queryKey: agentKeys.rulesAll });
 }
 
 export function useRollbackMemoryChange() {
