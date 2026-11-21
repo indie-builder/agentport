@@ -6,6 +6,23 @@ export const commonEnvSchema = z.object({
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
 });
 
+export const serviceEnvShape = {
+  DATABASE_URL: z.string().min(1),
+  APP_SECRET_KEY: z.string().min(32),
+  ANTHROPIC_BASE_URL: z.string().optional(),
+  WREN_RUNTIME_URL: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().url().default(''),
+  ),
+  SANDBOX_IMAGE: z.string().min(1).default('agentport/sandbox:dev'),
+  /** 与宿主机同一路径：worker 把该目录挂进沙盒，路径必须对宿主 daemon 有效。 */
+  WORKSPACES_DIR: z.string().min(1).default('./data/workspaces'),
+  KNOWLEDGE_DIR: z.string().min(1).default('./data/knowledge'),
+  KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
+  MODEL_PROVIDER_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
+  WEBHOOK_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
+};
+
 export function parseEnv<S extends z.ZodType>(
   schema: S,
   env: Record<string, string | undefined>,
