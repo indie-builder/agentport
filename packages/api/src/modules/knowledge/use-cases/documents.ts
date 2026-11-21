@@ -394,6 +394,30 @@ export async function getDocument(deps: KnowledgeDeps, documentId: string) {
   return documentWithTags(deps, row);
 }
 
+export async function generateDocumentSummary(deps: KnowledgeDeps, documentId: string) {
+  const document = await repo.knowledge.getDocument(deps.db, documentId);
+  if (!document) notFound('文档');
+  if (document.status === 'disabled' || document.disabledReason !== null) {
+    throw new AppError('CONFLICT', '文档已停用，不能生成摘要');
+  }
+  const versionId = document.currentVersionId;
+  if (!versionId) throw new AppError('CONFLICT', '文档还没有可用版本，不能生成摘要');
+  const job = await deps.db.transaction(async (tx) => {
+    await repo.knowledge.setDocumentSummary(tx, document.id, {
+      summaryStatus: 'pending',
+      summaryVersionId: versionId,
+      summaryError: null,
+    });
+    return createJob(tx, {
+      baseId: document.baseId,
+      documentId: document.id,
+      payload: { type: 'summary', baseId: document.baseId, documentId: document.id },
+    });
+  });
+  await enqueueKnowledgeJob(job);
+  return { jobId: job.id };
+}
+
 type UpdateDocumentBody = {
   title?: string | undefined;
   folderId?: string | null | undefined;

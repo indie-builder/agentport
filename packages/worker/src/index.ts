@@ -534,6 +534,7 @@ const knowledgeWorker = await startKnowledgeWorker({
   redisUrl: config.REDIS_URL,
   knowledgeDir: config.KNOWLEDGE_DIR,
   wikiModel: config.KNOWLEDGE_WIKI_MODEL,
+  summaryModel: config.KNOWLEDGE_SUMMARY_MODEL,
   decrypt: (payload) => decryptSecrets(payload, config.APP_SECRET_KEY),
   parser: { url: config.DOCLING_URL, key: config.DOCLING_TOKEN },
   trustedHosts: config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST.split(',')

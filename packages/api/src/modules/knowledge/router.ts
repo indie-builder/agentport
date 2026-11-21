@@ -282,6 +282,16 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
       await authorizeDocument(context, input.params.documentId, 'knowledge.execute', 'read');
       return useCases.reprocessDocument(depsOf(context), input.params.documentId, input.body);
     }),
+    summary: os.documents.summary.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.content.manage');
+      await authorizeDocument(
+        context,
+        input.params.documentId,
+        'knowledge.content.manage',
+        'manage',
+      );
+      return useCases.generateDocumentSummary(depsOf(context), input.params.documentId);
+    }),
     chunks: os.documents.chunks.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
       await authorizeDocument(context, input.params.documentId, 'knowledge.read', 'read');

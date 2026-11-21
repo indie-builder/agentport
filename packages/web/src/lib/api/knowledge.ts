@@ -444,6 +444,8 @@ export default {
     rpc.knowledge.bases.images({ params: { id: baseId }, query }, clientOptions(signal)),
   knowledgeDocument: (documentId: string, signal?: AbortSignal): Promise<KnowledgeDocument> =>
     rpc.knowledge.documents.get({ params: { documentId } }, clientOptions(signal)),
+  generateKnowledgeDocumentSummary: (documentId: string): Promise<{ jobId: string }> =>
+    rpc.knowledge.documents.summary({ params: { documentId } }),
   uploadKnowledgeDocument: (
     baseId: string,
     input: {

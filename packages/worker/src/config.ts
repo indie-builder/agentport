@@ -79,6 +79,7 @@ const envSchema = z
     ),
     KNOWLEDGE_DIR: z.string().min(1).default('./data/knowledge'),
     KNOWLEDGE_WIKI_MODEL: z.string().optional(),
+    KNOWLEDGE_SUMMARY_MODEL: z.string().optional(),
     DATA_DOMAIN_ENRICH_MODEL: z.string().optional(),
     KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
     WEBHOOK_PRIVATE_HOST_ALLOWLIST: z.string().default(''),

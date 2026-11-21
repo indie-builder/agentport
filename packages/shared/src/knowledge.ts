@@ -399,6 +399,14 @@ export const knowledgeFaqImportResponseSchema = z.object({
 
 export type KnowledgeFaqImportResponse = z.infer<typeof knowledgeFaqImportResponseSchema>;
 
+export const knowledgeDocumentSummaryStatusSchema = z.enum([
+  'none',
+  'pending',
+  'generating',
+  'ready',
+  'failed',
+]);
+
 export const knowledgeDocumentSchema = z.object({
   id: z.string(),
   baseId: z.string(),
@@ -416,6 +424,10 @@ export const knowledgeDocumentSchema = z.object({
   /** 外部来源连接；保留已删除的来源 ID，因此不设外键。 */
   sourceConnectionId: z.string().nullable().default(null),
   currentVersionId: z.string().nullable(),
+  summary: z.string().nullable().default(null),
+  summaryStatus: knowledgeDocumentSummaryStatusSchema.default('none'),
+  summaryGeneratedAt: z.string().nullable().default(null),
+  summaryError: z.string().nullable().default(null),
   tags: z.array(z.string()),
   lastSyncedAt: z.string().nullable(),
   createdAt: z.string(),
@@ -575,6 +587,7 @@ export const knowledgeJobTypeSchema = z.enum([
   'sync',
   'source_probe',
   'wiki_generate',
+  'summary',
   'cleanup',
 ]);
 
@@ -587,6 +600,7 @@ export const KNOWLEDGE_JOB_TIMEOUT_MS: Record<KnowledgeJobType, number> = {
   reindex: 2 * 60 * 60_000,
   source_probe: 5 * 60_000,
   wiki_generate: 15 * 60_000,
+  summary: 10 * 60_000,
   cleanup: 30 * 60_000,
 };
 
@@ -934,6 +948,7 @@ export const knowledgeJobPayloadSchema = z.discriminatedUnion('type', [
     instruction: z.string().optional(),
     sourceDocumentIds: z.array(z.string()).optional(),
   }),
+  z.object({ type: z.literal('summary'), baseId: z.string(), documentId: z.string() }),
   z.object({ type: z.literal('cleanup'), baseId: z.string().optional() }),
 ]);
 

@@ -138,6 +138,27 @@ export async function updateDocument(
   return row ?? null;
 }
 
+export interface DocumentSummaryPatch {
+  summaryStatus: KnowledgeDocumentRow['summaryStatus'];
+  summaryVersionId: string | null;
+  summary?: string | null | undefined;
+  summaryGeneratedAt?: Date | null | undefined;
+  summaryError?: string | null | undefined;
+}
+
+export async function setDocumentSummary(
+  db: DbHandle,
+  id: string,
+  patch: DocumentSummaryPatch,
+): Promise<KnowledgeDocumentRow | null> {
+  const [row] = await db
+    .update(knowledgeDocuments)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(knowledgeDocuments.id, id))
+    .returning();
+  return row ?? null;
+}
+
 export async function settleProcessingDocument(db: Database, documentId: string): Promise<void> {
   await db
     .update(knowledgeDocuments)

@@ -147,6 +147,7 @@ services:
       DOCLING_URL: ${DOCLING_URL:-}
       DOCLING_TOKEN: ${DOCLING_TOKEN:-}
       KNOWLEDGE_WIKI_MODEL: ${KNOWLEDGE_WIKI_MODEL:-}
+      KNOWLEDGE_SUMMARY_MODEL: ${KNOWLEDGE_SUMMARY_MODEL:-}
       KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: ${KNOWLEDGE_PRIVATE_HOST_ALLOWLIST:-}
       # 沙盒由宿主 daemon 启动，-v 的源路径按宿主文件系统解析，不能直接用容器内路径。
       # 命名卷在标准 rootful Docker 上的宿主目录如下（项目名固定为 agentport）；

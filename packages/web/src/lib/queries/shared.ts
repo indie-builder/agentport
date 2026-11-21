@@ -94,7 +94,9 @@ type PollableJob = {
   status: string;
   type?: string;
   createdAt: string;
+  updatedAt?: string;
   startedAt?: string | null;
+  summaryStatus?: string;
 };
 
 export function isMissingJob(error: unknown): boolean {
@@ -108,14 +110,15 @@ export function isTerminalKnowledgeJob(status: string | undefined): boolean {
 export function knowledgeShouldPoll(items: readonly PollableJob[] | undefined): boolean {
   const now = Date.now();
   return (items ?? []).some((item) => {
-    if (!['pending', 'queued', 'running', 'processing'].includes(item.status)) {
-      return false;
-    }
+    const summaryPending = item.summaryStatus === 'pending' || item.summaryStatus === 'generating';
+    const jobPending = ['pending', 'queued', 'running', 'processing'].includes(item.status);
+    if (!summaryPending && !jobPending) return false;
     const window =
       item.type !== undefined && Object.hasOwn(KNOWLEDGE_JOB_TIMEOUT_MS, item.type)
         ? KNOWLEDGE_JOB_TIMEOUT_MS[item.type as KnowledgeJob['type']]
         : KNOWLEDGE_DOCUMENT_WINDOW_MS;
-    return now - new Date(item.startedAt ?? item.createdAt).getTime() < window;
+    const reference = item.startedAt ?? item.updatedAt ?? item.createdAt;
+    return now - new Date(reference).getTime() < window;
   });
 }
 

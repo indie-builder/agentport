@@ -56,6 +56,7 @@ import { formatRelative } from '../../../lib/format.js';
 import {
   useCreateKnowledgeChunk,
   useDeleteKnowledgeChunk,
+  useGenerateKnowledgeDocumentSummary,
   useKnowledgeDocumentChunks,
   useKnowledgeDocumentDiff,
   useKnowledgeDocumentVersions,
@@ -137,6 +138,7 @@ export function DocumentViewer({
   const chunks = useKnowledgeDocumentChunks(document.id, versionId);
   const rollback = useRollbackKnowledgeDocument(document.baseId);
   const publish = usePublishKnowledgeDocumentVersion(document.baseId);
+  const generateSummary = useGenerateKnowledgeDocumentSummary(document.baseId);
   const toggle = useUpdateKnowledgeChunk(document.baseId, document.id, versionId);
   const remove = useDeleteKnowledgeChunk(document.baseId, document.id, versionId);
   const [mode, setMode] = useState<'read' | 'source'>('read');
@@ -160,6 +162,8 @@ export function DocumentViewer({
     audio &&
     selectedVersion !== undefined &&
     (audioMetadata?.success !== true || audioMetadata.data.segments.length === 0);
+  const summaryBusy =
+    document.summaryStatus === 'pending' || document.summaryStatus === 'generating';
 
   return (
     <>
@@ -338,6 +342,58 @@ export function DocumentViewer({
                 >
                   查看来源
                 </a>
+              ) : null}
+
+              {isCurrent ? (
+                <PageSection title="摘要">
+                  {document.summaryStatus === 'pending' ||
+                  document.summaryStatus === 'generating' ? (
+                    <LoadingState rows={2} />
+                  ) : null}
+                  {document.summary ? (
+                    <p className="whitespace-pre-wrap text-sm">{document.summary}</p>
+                  ) : null}
+                  {document.summaryStatus === 'failed' ? (
+                    <p role="alert" className="text-sm text-danger">
+                      {document.summaryError ?? '摘要生成失败'}
+                    </p>
+                  ) : null}
+                  {!document.summary &&
+                  document.summaryStatus !== 'pending' &&
+                  document.summaryStatus !== 'generating' &&
+                  document.summaryStatus !== 'failed' ? (
+                    <InlineEmpty>还没有摘要</InlineEmpty>
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {canManage ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={generateSummary.isPending || summaryBusy}
+                        aria-busy={generateSummary.isPending || summaryBusy}
+                        onClick={() =>
+                          generateSummary.mutate(document.id, {
+                            onSuccess: () => toastSuccess('已提交摘要生成'),
+                            onError: toastError,
+                          })
+                        }
+                      >
+                        {summaryBusy
+                          ? '生成中…'
+                          : document.summaryStatus === 'ready'
+                            ? '重新生成'
+                            : document.summaryStatus === 'failed'
+                              ? '重试'
+                              : '生成摘要'}
+                      </Button>
+                    ) : null}
+                    {document.summaryGeneratedAt ? (
+                      <span className="text-xs text-muted-foreground">
+                        生成于 {formatRelative(document.summaryGeneratedAt)}
+                      </span>
+                    ) : null}
+                  </div>
+                </PageSection>
               ) : null}
 
               <PageSection title="解析正文" divided={false}>
