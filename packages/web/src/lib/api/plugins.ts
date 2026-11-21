@@ -29,7 +29,7 @@ export type NativePluginImportResult = PluginImportResult & { reused: boolean };
 
 export default {
   plugins: (): Promise<PluginWithAgentCount[]> => rpc.plugins.list({}),
-  plugin: (id: string): Promise<Plugin> => rpc.plugins.get({ params: { id } }),
+  plugin: (id: string): Promise<PluginWithAgentCount> => rpc.plugins.get({ params: { id } }),
   updatePlugin: (
     id: string,
     input: Partial<PluginInput>,

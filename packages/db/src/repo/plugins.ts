@@ -64,6 +64,20 @@ export async function getPlugin(db: Database, id: string): Promise<PluginRow | n
   return row ?? null;
 }
 
+export async function getPluginWithAgentCount(
+  db: Database,
+  id: string,
+): Promise<PluginWithAgentCount | null> {
+  const [row] = await db
+    .select({ ...pluginColumns, agentCount: count(agentPlugins.agentId) })
+    .from(plugins)
+    .leftJoin(agentPlugins, eq(agentPlugins.pluginId, plugins.id))
+    .where(eq(plugins.id, id))
+    .groupBy(plugins.id)
+    .limit(1);
+  return row ?? null;
+}
+
 export async function getPluginBySourceId(
   db: Database,
   sourceId: string,

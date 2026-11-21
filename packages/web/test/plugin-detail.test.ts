@@ -1,4 +1,4 @@
-import type { Plugin } from '@agentport/shared';
+import type { PluginWithAgentCount } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -12,7 +12,7 @@ type Tab = 'intro' | 'content';
 type Search = { tab?: Tab; file?: string; mode?: Mode };
 
 type Query = {
-  data: Plugin | undefined;
+  data: PluginWithAgentCount | undefined;
   isPending: boolean;
   isError: boolean;
   isRefetchError: boolean;
@@ -65,7 +65,8 @@ const manifest = JSON.stringify(
   2,
 );
 
-const plugin: Plugin = {
+const plugin: PluginWithAgentCount = {
+  agentCount: 3,
   id: 'plugin-1',
   slug: 'demo',
   runtimeName: 'demo',
@@ -181,9 +182,9 @@ async function flush(): Promise<void> {
 }
 
 function tab(name: Tab): HTMLElement {
-  const label = name === 'intro' ? '简介' : '内容';
-  const found = [...body().querySelectorAll<HTMLElement>('[role="tab"]')].find(
-    (item) => item.textContent?.trim() === label,
+  const label = name === 'intro' ? /^概览$/ : /^文件 \d+$/;
+  const found = [...body().querySelectorAll<HTMLElement>('[role="tab"]')].find((item) =>
+    label.test(item.textContent?.trim() ?? ''),
   );
   if (!found) throw new Error(`Missing tab: ${name}`);
   return found;
@@ -272,7 +273,7 @@ afterEach(async () => {
 });
 
 describe('plugin detail', () => {
-  it('opens on the intro tab with only the README', () => {
+  it('opens on the overview with the README, capabilities and plugin facts', () => {
     mount();
     expect(body().querySelector('h1')?.textContent).toBe('演示插件');
     expect(body().querySelectorAll('h1')).toHaveLength(1);
@@ -282,12 +283,13 @@ describe('plugin detail', () => {
     expect(panel('content').hidden).toBe(true);
     expect(panel('intro').textContent).toContain('README-TOKEN');
     expect(panel('intro').textContent).not.toContain('title: 演示');
-    expect(panel('intro').querySelector('aside')).toBeNull();
-    expect(panel('intro').textContent).not.toContain('demo@market');
+    expect(panel('intro').querySelector('aside')?.textContent).toContain('demo@market');
+    expect(panel('intro').querySelector('aside')?.textContent).toContain('关联专家3');
+    expect(panel('intro').textContent).toContain('处理 alpha 任务');
     expect(body().querySelector('a[href="/api/plugins/plugin-1/export"]')).not.toBeNull();
     expect(body().querySelector('a[href="/plugins"]')).not.toBeNull();
-    expect(body().querySelector('[data-slot="page-topbar"]')?.textContent).not.toContain(
-      plugin.description,
+    expect(body().querySelector('[data-slot="page-topbar"]')?.textContent).toContain(
+      `${plugin.slug} · ${plugin.description}`,
     );
     const description = panel('intro').querySelector('p');
     expect(description?.textContent).toBe(plugin.description);
@@ -340,10 +342,11 @@ describe('plugin detail', () => {
     rerender();
     const intro = panel('intro');
     expect(intro.hidden).toBe(true);
-    expect(intro.hasAttribute('inert')).toBe(true);
     const content = panel('content');
     expect(content.hidden).toBe(false);
-    expect(content.hasAttribute('inert')).toBe(false);
+    const read = button('阅读', content);
+    read.focus();
+    expect(document.activeElement).toBe(read);
 
     const hiddenInteractive = intro.querySelectorAll<HTMLElement>(
       'button, a[href], input, [tabindex="0"]',
@@ -353,6 +356,14 @@ describe('plugin detail', () => {
       item.focus();
       expect(document.activeElement).not.toBe(item);
     }
+
+    await click(tab('intro'));
+    rerender();
+    expect(intro.hidden).toBe(false);
+    expect(content.hidden).toBe(true);
+    const skill = buttonContaining('处理 alpha 任务', intro);
+    skill.focus();
+    expect(document.activeElement).toBe(skill);
   });
 
   it('renders only one document before the content tab is first opened', () => {
@@ -431,7 +442,7 @@ describe('plugin detail', () => {
     mount();
     expect(scroller().textContent).not.toContain('unknownField: keep');
 
-    await click(button('源码', scroller()));
+    await click(button('源码', panel('content')));
     rerender();
     expect(state.search).toEqual({
       tab: 'content',
@@ -500,7 +511,7 @@ describe('plugin detail', () => {
     state.search = { tab: 'content', file: 'scripts/run.sh' };
     rerender();
     expect(scroller().textContent).toContain('SCRIPT-TOKEN');
-    expect(scroller().textContent).toContain('可执行');
+    expect(panel('content').textContent).toContain('可执行');
   });
 
   it('keeps empty files readable', () => {
@@ -509,7 +520,7 @@ describe('plugin detail', () => {
     expect(scroller().textContent).toContain('该文件是空的。');
   });
 
-  it('offers a keyboard action to view the content when the plugin has no README', async () => {
+  it('keeps the files tab available when the plugin has no README', async () => {
     setQuery({
       data: {
         ...plugin,
@@ -518,11 +529,10 @@ describe('plugin detail', () => {
       },
     });
     mount();
-    expect(panel('intro').textContent).toContain('未提供插件说明。');
-    expect(panel('intro').querySelector('aside')).toBeNull();
-    expect(panel('intro').textContent).not.toContain('来源');
+    expect(panel('intro').textContent).not.toContain('说明');
+    expect(panel('intro').textContent).toContain('未检测到技能、命令、代理、钩子或 MCP 服务。');
     expect(body().querySelectorAll('h1')).toHaveLength(1);
-    const next = button('查看插件内容', panel('intro'));
+    const next = tab('content');
     expect(next.tagName).toBe('BUTTON');
     await click(next);
     rerender();
@@ -530,7 +540,7 @@ describe('plugin detail', () => {
     expect(scroller().textContent).toContain('LICENSE-TOKEN');
   });
 
-  it('offers the next action when the plugin has no files', () => {
+  it('falls back to the overview when an old file link has no files', () => {
     setQuery({
       data: {
         ...plugin,
@@ -538,16 +548,17 @@ describe('plugin detail', () => {
         capabilities: { skills: [], agents: [], hasHooks: false, mcpServers: [] },
       },
     });
+    state.search = { tab: 'content', file: 'README.md' };
     mount();
-    expect(body().textContent).toContain('这个插件没有支持文件');
-    const content = body().querySelector('[data-slot="page-body"]');
+    const content = panel('intro');
     expect(content?.querySelector('p')?.textContent).toBe(plugin.description);
     expect(content?.className).toContain('overflow-y-auto');
-    expect(body().querySelector('[data-slot="page-topbar"]')?.textContent).not.toContain(
-      plugin.description,
+    expect(body().querySelector('[data-slot="page-topbar"]')?.textContent).toContain(
+      `${plugin.slug} · ${plugin.description}`,
     );
     expect(body().querySelector('a[href="/plugins"]')).not.toBeNull();
-    expect(body().querySelector('[role="tablist"]')).toBeNull();
+    expect(tab('intro').getAttribute('aria-selected')).toBe('true');
+    expect(body().querySelectorAll('[role="tab"]')).toHaveLength(1);
   });
 
   it('moves tab focus with arrows and activates on Space', async () => {
@@ -577,14 +588,16 @@ describe('plugin detail', () => {
     mount();
     const content = panel('content');
     expect(content.querySelector('[data-slot="tree-label"][title="scripts/run.sh"]')).toBeNull();
-    await click(button('文件', content));
+    const toggle = content.querySelector<HTMLButtonElement>('button[aria-label="展开文件列表"]');
+    if (!toggle) throw new Error('Missing files toggle');
+    await click(toggle);
     await expandAll(content);
     await click(fileRow('scripts/run.sh', content));
     rerender();
     expect(state.search).toEqual({ tab: 'content', file: 'scripts/run.sh' });
     expect(scroller().textContent).toContain('SCRIPT-TOKEN');
     expect(content.querySelector('[data-slot="tree-label"][title="scripts/run.sh"]')).toBeNull();
-    expect(document.activeElement).toBe(button('文件', content));
+    expect(document.activeElement).toBe(toggle);
     expect(content.querySelector('h1')).toBeNull();
   });
 
@@ -634,9 +647,10 @@ describe('plugin detail', () => {
     expect(scroller().textContent).toContain('SKILL-TOKEN-ALPHA');
 
     await click(toggle);
-    expect(document.activeElement).toBe(toggle);
+    await flush();
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(current()).toBe('skills/alpha/SKILL.md');
+    expect(document.activeElement).toBe(tree().querySelector('[aria-current="page"]'));
   });
 
   it('keeps a single copy action in source mode and copies the current file', async () => {
@@ -663,7 +677,7 @@ describe('plugin detail', () => {
     scrollerEl.scrollTop = 240;
     expect(scrollerEl.scrollTop).toBe(240);
 
-    await click(button('源码', scrollerEl));
+    await click(button('源码', panel('content')));
     rerender();
     expect(scroller()).toBe(scrollerEl);
     expect(scroller().scrollTop).toBe(240);

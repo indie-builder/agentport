@@ -1,4 +1,4 @@
-import type { Plugin } from '@agentport/shared';
+import type { PluginWithAgentCount } from '@agentport/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -11,7 +11,7 @@ import { allAccessMe } from './me-fixture.js';
 const state = vi.hoisted(() => ({
   search: {} as Record<string, string | undefined>,
   query: {} as {
-    data: Plugin | undefined;
+    data: PluginWithAgentCount | undefined;
     isPending: boolean;
     isError: boolean;
     isRefetchError: boolean;
@@ -47,7 +47,8 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => () => {},
 }));
 
-const plugin: Plugin = {
+const plugin: PluginWithAgentCount = {
+  agentCount: 3,
   id: 'plugin-1',
   slug: 'demo',
   runtimeName: 'demo',

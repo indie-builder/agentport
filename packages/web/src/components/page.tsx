@@ -36,6 +36,7 @@ export function PageHeader({
   description,
   leading,
   eyebrow,
+  subtitle,
   actions,
   className,
 }: {
@@ -43,21 +44,33 @@ export function PageHeader({
   description?: string;
   leading?: ReactNode;
   eyebrow?: ReactNode;
+  subtitle?: ReactNode;
   actions?: ReactNode;
   className?: string;
 }) {
+  const heading = (
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <h1 className="min-w-0 break-words text-lg font-medium tracking-[-0.01em] text-fg">
+        {title}
+      </h1>
+      {eyebrow ? <div className="shrink-0">{eyebrow}</div> : null}
+    </div>
+  );
+
   return (
     <div
       data-slot="page-header"
       className={cn('flex min-h-12 flex-wrap items-center gap-4', className)}
     >
       {leading ? <div className="shrink-0">{leading}</div> : null}
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <h1 className="min-w-0 break-words text-lg font-medium tracking-[-0.01em] text-fg">
-          {title}
-        </h1>
-        {eyebrow ? <div className="shrink-0">{eyebrow}</div> : null}
-      </div>
+      {subtitle == null ? (
+        heading
+      ) : (
+        <div className="grid min-w-0 flex-1 gap-1">
+          {heading}
+          <div className="min-w-0 truncate text-sm text-muted-foreground">{subtitle}</div>
+        </div>
+      )}
       {description ? (
         <p className="min-w-0 max-w-[60ch] break-words text-sm text-muted-foreground">
           {description}
@@ -85,6 +98,7 @@ export function PageToolbar({ children, className }: { children: ReactNode; clas
 
 export function PageSection({
   title,
+  titleClassName,
   description,
   actions,
   children,
@@ -92,6 +106,7 @@ export function PageSection({
   divided = true,
 }: {
   title?: string;
+  titleClassName?: string;
   description?: string;
   actions?: ReactNode;
   children: ReactNode;
@@ -106,7 +121,9 @@ export function PageSection({
       {title || actions || description ? (
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-            {title ? <h2 className="text-base font-medium text-fg">{title}</h2> : null}
+            {title ? (
+              <h2 className={cn('text-base font-medium text-fg', titleClassName)}>{title}</h2>
+            ) : null}
             {description ? (
               <p className="min-w-0 break-words text-sm text-muted-foreground">{description}</p>
             ) : null}

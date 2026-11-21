@@ -95,7 +95,6 @@ type TabsContentProps = Omit<ComponentProps<typeof TabsPanel>, 'className'> & {
 function TabsContent({ className, ...props }: TabsContentProps) {
   return (
     <TabsPanel
-      render={(partProps, state) => <div {...partProps} inert={!state.selected} />}
       className={cn(
         'flex-1 p-0 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
         className,

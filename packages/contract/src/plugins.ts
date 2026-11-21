@@ -64,7 +64,7 @@ export const pluginsContract = {
     .meta({ access: { kind: 'permission', permissionId: 'plugins.read' } })
     .route({ method: 'GET', path: '/plugins/{id}', successStatus: 200 })
     .input(z.object({ params: idParams }))
-    .output(pluginSchema),
+    .output(pluginWithAgentCountSchema),
   update: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'plugins.update' } })
     .route({ method: 'PATCH', path: '/plugins/{id}', successStatus: 200 })
