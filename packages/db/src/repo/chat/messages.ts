@@ -1,10 +1,11 @@
 import { fail } from '@agentport/core';
 import type { ExecutionSubject } from '@agentport/shared';
-import { and, asc, desc, eq, exists, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, isNotNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { agentRuns, conversations, messages } from '../../schema.js';
 import { cancelPendingRunFailedWebhooks } from '../integrations.js';
+import { neverStartedFailureFilter } from '../run-predicates.js';
 import {
   consumePolicyApproval,
   getApprovedPolicyApprovalForConversation,
@@ -70,14 +71,7 @@ export async function requeueInfraFailedRun(
     const [updated] = await tx
       .update(agentRuns)
       .set({ status: 'queued', endedAt: null, error: null, errorKind: null })
-      .where(
-        and(
-          eq(agentRuns.id, runId),
-          eq(agentRuns.status, 'failed'),
-          eq(agentRuns.errorKind, 'infra'),
-          isNull(agentRuns.startedAt),
-        ),
-      )
+      .where(and(eq(agentRuns.id, runId), neverStartedFailureFilter()))
       .returning({ conversationId: agentRuns.conversationId });
     if (updated === undefined) return false;
     if (consumePolicyApprovalId !== undefined) {
