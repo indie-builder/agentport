@@ -47,6 +47,7 @@ function entry(id: string, createdAt = '2026-01-01T00:00:00.000Z'): AuditEntry {
     id,
     actor: 'admin',
     actorKind: 'user',
+    subjectBusinessId: null,
     action: 'agent.create',
     target: null,
     status: 'ok',

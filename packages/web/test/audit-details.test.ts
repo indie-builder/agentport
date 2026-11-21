@@ -29,6 +29,7 @@ function entry(id: string, patch: Partial<AuditEntry> = {}): AuditEntry {
     id,
     actor: `actor-${id}`,
     actorKind: 'user',
+    subjectBusinessId: null,
     action: 'agent.create',
     target: null,
     status: 'ok',

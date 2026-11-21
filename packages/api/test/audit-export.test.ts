@@ -432,13 +432,19 @@ describe.skipIf(!ready || chainIsolated === null)('audit export detail type', ()
       status: 'ok',
       detail: { from: 'ask', to: 'allow' },
     });
+    await repo.audit.writeAudit(app.db, logger, {
+      action: 'audit.export.detail',
+      target,
+      status: 'ok',
+      detail: { from: 'allow', to: 'ask' },
+    });
 
     const seeded = await app.client.unsafe<{ id: string; chain_seq: string }[]>(
       'select id, chain_seq from audit_log where target = $1 order by chain_seq',
       [target],
     );
-    expect(seeded).toHaveLength(2);
-    const tampered = seeded[1]!;
+    expect(seeded).toHaveLength(3);
+    const tampered = seeded[2]!;
     await app.client.unsafe('update audit_log set detail = to_jsonb(detail::text) where id = $1', [
       tampered.id,
     ]);
@@ -447,20 +453,25 @@ describe.skipIf(!ready || chainIsolated === null)('audit export detail type', ()
       ExportedItem & { chainSeq: number; prevHash: string | null; hash: string | null }
     > = [];
     let afterSeq: number | undefined;
+    let pages = 0;
     for (;;) {
       const suffix = afterSeq === undefined ? '' : `&afterSeq=${afterSeq}`;
-      const res = await exportAudit(`?format=ndjson&limit=1000${suffix}`);
+      const res = await exportAudit(`?format=ndjson&limit=2${suffix}`);
       expect(res.statusCode, res.body).toBe(200);
+      pages += 1;
       lines.push(...parseLines(res.body));
       const next = res.headers.get('x-next-after-seq');
       if (next === null) break;
       afterSeq = Number(next);
     }
+    expect(pages).toBeGreaterThanOrEqual(2);
 
     const chainRows = lines.filter(
       (row): row is typeof row & { hash: string } => row.hash !== null,
     );
-    let expectedPrev: string | null = chainRows[0]?.prevHash ?? null;
+    expect(chainRows[0]?.prevHash).toBeNull();
+    let expectedPrev: string | null = null;
+    let offlineChecked = 0;
     let offlineBrokenSeq: number | null = null;
     for (const row of chainRows) {
       const base = [
@@ -488,22 +499,25 @@ describe.skipIf(!ready || chainIsolated === null)('audit export detail type', ()
         break;
       }
       expectedPrev = row.hash;
+      offlineChecked += 1;
     }
     expect(offlineBrokenSeq).toBe(Number(tampered.chain_seq));
+    expect(offlineChecked).toBe(
+      chainRows.findIndex((row) => row.chainSeq === Number(tampered.chain_seq)),
+    );
+    expect(offlineChecked).toBeGreaterThanOrEqual(2);
 
     const online = await repo.audit.verifyAuditChain(app.db, { limit: 5000 });
     expect(online.ok).toBe(false);
     expect(online.brokenSeq).toBe(tampered.chain_seq);
 
-    const json = (await exportAudit(`?target=${encodeURIComponent(target)}`)).json<ExportBody>();
+    const json = (await exportAudit('')).json<ExportBody>();
     const byId = new Map(json.items.map((row) => [row.id, row]));
     expect(byId.get(seeded[0]!.id)?.detailType).toBeNull();
+    expect(byId.get(seeded[1]!.id)?.detailType).toBe('object');
     expect(byId.get(tampered.id)?.detailType).toBe('string');
-    const ndjson = parseLines(
-      (await exportAudit(`?target=${encodeURIComponent(target)}&format=ndjson`)).body,
-    );
     for (const item of json.items) {
-      const line = ndjson.find((row) => row.id === item.id);
+      const line = lines.find((row) => row.id === item.id);
       expect(line?.detail).toEqual(item.detail);
       expect(line?.detailType).toBe(item.detailType);
     }
