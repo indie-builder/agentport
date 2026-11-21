@@ -29,7 +29,7 @@ export const auditLog = pgTable(
     action: text('action').notNull(),
     target: text('target'),
     inputDigest: text('input_digest'),
-    detail: jsonb('detail').$type<unknown>(),
+    detail: jsonb('detail').$type<Record<string, string> | null>(),
     status: text('status').notNull(),
     durationMs: integer('duration_ms'),
     requestId: text('request_id'),

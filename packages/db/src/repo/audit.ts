@@ -41,11 +41,13 @@ function digest(input: unknown): string | null {
   }
 }
 
-function detailValue(value: unknown): Record<string, unknown> | null {
+function detailValue(value: unknown): Record<string, string> | null {
   if (value === null || value === undefined) return null;
   const parsed: unknown = JSON.parse(JSON.stringify(value) ?? 'null');
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  return parsed as Record<string, unknown>;
+  const values = Object.values(parsed);
+  if (!values.every((entry) => typeof entry === 'string')) return null;
+  return parsed as Record<string, string>;
 }
 
 interface AuditHashMaterial {
@@ -188,6 +190,7 @@ export async function verifyAuditChain(
       target: auditLog.target,
       inputDigest: auditLog.inputDigest,
       detail: auditLog.detail,
+      detailType: sql<string | null>`jsonb_typeof(${auditLog.detail})`,
       status: auditLog.status,
       durationMs: auditLog.durationMs,
       requestId: auditLog.requestId,
@@ -202,7 +205,9 @@ export async function verifyAuditChain(
   const page = hasMore ? rows.slice(0, limit) : rows;
   let checked = 0;
   for (const row of page) {
-    if (row.prevHash !== expectedPrev || row.hash !== chainHash(row)) {
+    const detailOk = row.detailType === null || row.detailType === 'object';
+    const detail = row.detailType === 'object' ? row.detail : null;
+    if (!detailOk || row.prevHash !== expectedPrev || row.hash !== chainHash({ ...row, detail })) {
       return {
         ok: false,
         checked,
@@ -249,7 +254,7 @@ export interface AuditEntry {
   durationMs: number | null;
   requestId: string | null;
   inputDigest: string | null;
-  detail: unknown;
+  detail: Record<string, string> | null;
   createdAt: Date;
   chainSeq: number;
   prevHash: string | null;

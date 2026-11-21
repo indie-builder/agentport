@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { createDb } from '../src/client.js';
 import * as audit from '../src/repo/audit.js';
@@ -69,8 +69,6 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
         toolId: 'tool_1',
         from: 'allow',
         to: 'ask',
-        when: new Date('2026-01-02T03:04:05.678Z'),
-        nested: { b: 2, a: [3, 2, 1] },
       },
     });
     await write({ dedupeKey: tailId, action: 'audit.detail.test', target, status: 'ok' });
@@ -91,17 +89,17 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
       toolId: 'tool_1',
       from: 'allow',
       to: 'ask',
-      when: '2026-01-02T03:04:05.678Z',
-      nested: { b: 2, a: [3, 2, 1] },
     });
   });
 
-  it('treats JSON-null and non-object detail as no detail', async () => {
+  it('treats JSON-null and non-string-record detail as no detail', async () => {
     const target = `audit-invalid-detail-${randomUUID()}`;
     const cases: Array<[string, unknown]> = [
       [`audit-nan-${randomUUID()}`, Number.NaN],
       [`audit-infinity-${randomUUID()}`, Number.POSITIVE_INFINITY],
       [`audit-string-${randomUUID()}`, '123'],
+      [`audit-number-${randomUUID()}`, { from: 1 }],
+      [`audit-nested-${randomUUID()}`, { from: 'allow', nested: { to: 'ask' } }],
       [`audit-tojson-${randomUUID()}`, { toJSON: () => null }],
     ];
     for (const [id, detail] of cases) {
@@ -148,6 +146,73 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
       .update(auditLog)
       .set({ detail: { from: 'ask', to: 'allow' } })
       .where(eq(auditLog.id, id));
+    const result = await audit.verifyAuditChain(db);
+    expect(result.ok).toBe(false);
+    expect(result.brokenSeq).toBe(String(row.chainSeq));
+
+    await db.update(auditLog).set({ detail: row.detail }).where(eq(auditLog.id, id));
+    expect((await audit.verifyAuditChain(db)).ok).toBe(true);
+  });
+
+  it('rejects a JSONB string with the same content as the original object', async () => {
+    const target = `audit-tamper-type-${randomUUID()}`;
+    const id = `audit-detail-${randomUUID()}`;
+    await write({
+      dedupeKey: id,
+      action: 'audit.detail.tamper',
+      target,
+      status: 'ok',
+      detail: { from: 'allow', to: 'ask' },
+    });
+    const row = await rowById(id);
+
+    await db.execute(
+      sql`update audit_log set detail = to_jsonb(${JSON.stringify(row.detail)}::text) where id = ${id}`,
+    );
+    const result = await audit.verifyAuditChain(db);
+    expect(result.ok).toBe(false);
+    expect(result.brokenSeq).toBe(String(row.chainSeq));
+
+    await db.update(auditLog).set({ detail: row.detail }).where(eq(auditLog.id, id));
+    expect((await audit.verifyAuditChain(db)).ok).toBe(true);
+  });
+
+  it('rejects JSON null in place of SQL NULL', async () => {
+    const target = `audit-tamper-jsonnull-${randomUUID()}`;
+    const id = `audit-detail-${randomUUID()}`;
+    await write({
+      dedupeKey: id,
+      action: 'audit.detail.tamper',
+      target,
+      status: 'ok',
+      detail: { from: 'allow', to: 'ask' },
+    });
+    const row = await rowById(id);
+
+    await db.execute(sql`update audit_log set detail = 'null'::jsonb where id = ${id}`);
+    const result = await audit.verifyAuditChain(db);
+    expect(result.ok).toBe(false);
+    expect(result.brokenSeq).toBe(String(row.chainSeq));
+
+    await db.update(auditLog).set({ detail: row.detail }).where(eq(auditLog.id, id));
+    expect((await audit.verifyAuditChain(db)).ok).toBe(true);
+  });
+
+  it('rejects a numeric value tampered into a detail field', async () => {
+    const target = `audit-tamper-number-${randomUUID()}`;
+    const id = `audit-detail-${randomUUID()}`;
+    await write({
+      dedupeKey: id,
+      action: 'audit.detail.tamper',
+      target,
+      status: 'ok',
+      detail: { from: 'allow', to: 'ask' },
+    });
+    const row = await rowById(id);
+
+    await db.execute(
+      sql`update audit_log set detail = '{"from":1,"to":"ask"}'::jsonb where id = ${id}`,
+    );
     const result = await audit.verifyAuditChain(db);
     expect(result.ok).toBe(false);
     expect(result.brokenSeq).toBe(String(row.chainSeq));
