@@ -18,7 +18,7 @@ import {
   fetchJson,
   fetchText,
   readCapped,
-  SourceAuthError,
+  rethrowAuth,
   sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
@@ -343,7 +343,7 @@ async function readGitlab(
         mimeType: textMime ?? (binaryMime as string),
       });
     } catch (err) {
-      if (err instanceof SourceAuthError) throw err;
+      rethrowAuth(err);
       failures.push(failureOf(externalId, title, err, true));
     }
   }
@@ -494,7 +494,7 @@ async function readGithub(
         mimeType: textMime ?? (binaryMime as string),
       });
     } catch (err) {
-      if (err instanceof SourceAuthError) throw err;
+      rethrowAuth(err);
       failures.push(failureOf(externalId, title, err, true));
     }
   }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { type FetchOptions, fetchJson, SourceAuthError, validateSourceUrl } from './source-http.js';
+import { type FetchOptions, fetchJson, rethrowAuth, validateSourceUrl } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import {
@@ -272,7 +272,7 @@ export async function readYuque(
       }
       items.push(itemFor(ctx, summary, detail.data, usedPaths));
     } catch (err) {
-      if (err instanceof SourceAuthError) throw err;
+      rethrowAuth(err);
       if (signal?.aborted === true) throw signal.reason ?? err;
       failures.push(failureOf(externalId, title, err, true));
     }
