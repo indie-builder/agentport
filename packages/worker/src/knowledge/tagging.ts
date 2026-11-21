@@ -76,7 +76,10 @@ export async function runKnowledgeTagging(job: JobRow, deps: TaggingDeps): Promi
     throw new Error('文档已停用，不能生成标签');
   }
   if (!document.currentVersionId) throw new Error('文档还没有可用版本，不能生成标签');
-  const versionId = document.currentVersionId;
+  const versionId = payload.versionId ?? document.currentVersionId;
+  if (payload.versionId !== undefined && document.currentVersionId !== payload.versionId) {
+    throw new Error('文档版本已变化，标签未更新');
+  }
   if (!(await repo.knowledge.isDocumentReadable(db, document.id))) {
     throw new Error('文档当前不可读（来源未授权或不在范围）');
   }
@@ -85,9 +88,9 @@ export async function runKnowledgeTagging(job: JobRow, deps: TaggingDeps): Promi
   if (!model) throw new Error('标签模型未配置(KNOWLEDGE_SUMMARY_MODEL)');
 
   const content =
-    document.summary !== null && document.summaryVersionId === document.currentVersionId
+    document.summary !== null && document.summaryVersionId === versionId
       ? `${document.title}\n\n${document.summary}`
-      : await repo.knowledge.readVersionText(db, document.currentVersionId, CONTENT_LIMIT);
+      : await repo.knowledge.readVersionText(db, versionId, CONTENT_LIMIT);
   if (content.trim() === '') throw new Error('文档当前版本没有可用正文');
 
   const result: { tags: string[] | null } = { tags: null };

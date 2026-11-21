@@ -979,6 +979,8 @@ export const knowledgeJobPayloadSchema = z.discriminatedUnion('type', [
     type: z.literal('tag_generate'),
     baseId: z.string(),
     documentId: z.string(),
+    /** 自动任务绑定发布时的版本；手动任务省略，按当前版本生成。 */
+    versionId: z.string().optional(),
   }),
   z.object({ type: z.literal('cleanup'), baseId: z.string().optional() }),
 ]);

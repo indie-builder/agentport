@@ -567,8 +567,9 @@ async function requestAutoTag(
   if (base.settings.autoTag !== true) return;
   if (!deps.summaryModel || !deps.onSummaryJobs) return;
   if (!document.currentVersionId) return;
+  const versionId = document.currentVersionId;
   const pending = await deps.db
-    .select({ id: schema.knowledgeJobs.id })
+    .select({ payload: schema.knowledgeJobs.payload })
     .from(schema.knowledgeJobs)
     .where(
       and(
@@ -576,15 +577,20 @@ async function requestAutoTag(
         eq(schema.knowledgeJobs.type, 'tag_generate'),
         inArray(schema.knowledgeJobs.status, ['queued', 'running']),
       ),
-    )
-    .limit(1);
-  if (pending.length > 0) return;
+    );
+  const alreadyQueued = pending.some((row) => {
+    const parsed = knowledgeJobPayloadSchema.safeParse(row.payload);
+    return (
+      parsed.success && parsed.data.type === 'tag_generate' && parsed.data.versionId === versionId
+    );
+  });
+  if (alreadyQueued) return;
   const job = await repo.knowledge.createJob(deps.db, {
     type: 'tag_generate',
     baseId: base.id,
     documentId: document.id,
     sourceId: null,
-    payload: { type: 'tag_generate', baseId: base.id, documentId: document.id },
+    payload: { type: 'tag_generate', baseId: base.id, documentId: document.id, versionId },
   });
   try {
     await deps.onSummaryJobs({ baseId: base.id, jobIds: [job.id] });

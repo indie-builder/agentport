@@ -141,14 +141,32 @@ async function makeBase(
   };
 }
 
-async function startIngestForNewDocument(
+async function startIngest(
   baseId: string,
+  documentId: string,
   body: string,
-): Promise<{ jobId: string; documentId: string; job: Parameters<typeof runIngest>[1] }> {
+): Promise<{ jobId: string; job: Parameters<typeof runIngest>[1] }> {
   const data = Buffer.from(body, 'utf8');
   const sha = createHash('sha256').update(data).digest('hex');
   await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
   await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), data);
+  await repo.knowledge.updateDocument(db, documentId, { contentHash: sha });
+  const job = await repo.knowledge.createJob(db, {
+    type: 'ingest',
+    baseId,
+    documentId,
+    sourceId: null,
+    payload: { type: 'ingest', documentId },
+  });
+  const claimed = await repo.knowledge.claimJob(db, job.id);
+  if (!claimed) throw new Error('job not claimed');
+  return { jobId: job.id, job: claimed };
+}
+
+async function startIngestForNewDocument(
+  baseId: string,
+  body: string,
+): Promise<{ jobId: string; documentId: string; job: Parameters<typeof runIngest>[1] }> {
   const document = await repo.knowledge.createDocument(db, {
     baseId,
     folderId: null,
@@ -158,20 +176,10 @@ async function startIngestForNewDocument(
     sourceUrl: null,
     sourcePath: null,
     mimeType: 'text/markdown',
-    sizeBytes: data.length,
+    sizeBytes: Buffer.byteLength(body),
     metadata: { originalFilename: 'doc.md' },
   });
-  await repo.knowledge.updateDocument(db, document.id, { contentHash: sha });
-  const job = await repo.knowledge.createJob(db, {
-    type: 'ingest',
-    baseId,
-    documentId: document.id,
-    sourceId: null,
-    payload: { type: 'ingest', documentId: document.id },
-  });
-  const claimed = await repo.knowledge.claimJob(db, job.id);
-  if (!claimed) throw new Error('job not claimed');
-  return { jobId: job.id, documentId: document.id, job: claimed };
+  return { ...(await startIngest(baseId, document.id, body)), documentId: document.id };
 }
 
 async function tagJobs(baseId: string) {
@@ -202,6 +210,7 @@ describe('ingestion → auto tag', () => {
       type: 'tag_generate',
       baseId: fixtureBase.baseId,
       documentId: ingest.documentId,
+      versionId: document?.currentVersionId,
     });
     expect(fixtureBase.notified).toEqual([{ baseId: fixtureBase.baseId, jobIds: [jobs[0]?.id] }]);
   });
@@ -214,5 +223,33 @@ describe('ingestion → auto tag', () => {
 
     expect(await tagJobs(fixtureBase.baseId)).toHaveLength(0);
     expect(fixtureBase.notified).toHaveLength(0);
+  });
+
+  it('enqueues a tag_generate job for a new version while an older version is still pending', async () => {
+    const fixtureBase = await makeBase({ autoTag: true });
+    const first = await startIngestForNewDocument(fixtureBase.baseId, '# 认证\n\nV1 正文。');
+    await runIngest(fixtureBase.deps, first.job, new AbortController().signal);
+    const firstDocument = await repo.knowledge.getDocument(db, first.documentId);
+    expect(firstDocument?.currentVersionId).toBeString();
+
+    const second = await startIngest(fixtureBase.baseId, first.documentId, '# 认证\n\nV2 正文。');
+    await runIngest(fixtureBase.deps, second.job, new AbortController().signal);
+    const secondDocument = await repo.knowledge.getDocument(db, first.documentId);
+    expect(secondDocument?.currentVersionId).not.toBe(firstDocument?.currentVersionId);
+
+    const jobs = await tagJobs(fixtureBase.baseId);
+    expect(jobs).toHaveLength(2);
+    expect(jobs.map((job) => job.payload)).toContainEqual({
+      type: 'tag_generate',
+      baseId: fixtureBase.baseId,
+      documentId: first.documentId,
+      versionId: firstDocument?.currentVersionId,
+    });
+    expect(jobs.map((job) => job.payload)).toContainEqual({
+      type: 'tag_generate',
+      baseId: fixtureBase.baseId,
+      documentId: first.documentId,
+      versionId: secondDocument?.currentVersionId,
+    });
   });
 });
