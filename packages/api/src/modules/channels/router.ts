@@ -24,7 +24,7 @@ import { access } from '../../http/middleware.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { beginSse } from '../../http/sse.js';
 import { getQueue, type RunSubscription, subscribeChannel } from '../../queue/producer.js';
-import { runQueueHasCapacity } from '../runs/capacity.js';
+import { requireRunQueueCapacity } from '../runs/capacity.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
 import { CHANNEL_MEMBER_MISSING, conflict, forbidden, notFound } from './errors.js';
@@ -421,9 +421,7 @@ const channelsMainRouter = {
       if (role === null) return notFound();
       if (role === 'viewer') return forbidden('viewer 不能发言');
     }
-    if (wakes && !(await runQueueHasCapacity())) {
-      return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
-    }
+    if (wakes) await requireRunQueueCapacity();
     const messageId = newId('channelMessage');
     const attachments = await writeChannelAttachments({
       root: context.config.WORKSPACES_DIR,

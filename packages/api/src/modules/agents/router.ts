@@ -27,7 +27,7 @@ import {
   withMemoryTargetLock,
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
-import { runQueueHasCapacity } from '../runs/capacity.js';
+import { requireRunQueueCapacity } from '../runs/capacity.js';
 import { failQueuedRunEnqueue, failRunEnqueue } from '../runs/enqueue.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
 import { authorizeAgent, authorizedAgent } from './access.js';
@@ -633,9 +633,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
     const definition = await allRepo.agentDefinitions.loadLiveDefinition(context.db, current.id);
     if (!definition) return notFound('agent');
     await validateDefinition(context, current, definition);
-    if (!(await runQueueHasCapacity())) {
-      return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
-    }
+    await requireRunQueueCapacity();
     const { prompt: submittedPrompt } = routeInput.body;
     const policyDecision = await enforceContentPolicy({
       db: context.db,

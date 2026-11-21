@@ -30,7 +30,7 @@ import type { SQL } from 'bun';
 import type { Logger } from 'pino';
 import type { Config } from '../../config.js';
 import { getQueue } from '../../queue/producer.js';
-import { runQueueHasCapacity } from '../runs/capacity.js';
+import { requireRunQueueCapacity } from '../runs/capacity.js';
 import { enqueueRunJob, failQueuedRunEnqueue, failRunEnqueue } from '../runs/enqueue.js';
 import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
 import { enforceContentPolicy } from '../security/policy-gate.js';
@@ -262,9 +262,7 @@ export async function startRun(
     const run = await chatRepo.findExternalRequestRun(deps.db, externalRequest);
     if (run !== null) return replayExternalRun(run, externalRequest);
   }
-  if (!(await runQueueHasCapacity())) {
-    return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
-  }
+  await requireRunQueueCapacity();
   const agent = await repo.agents.getAgent(deps.db, agentId);
   if (!agent) return notFound('agent');
   const agentVersion = agent.publishedVersion;
@@ -489,9 +487,7 @@ export async function regenerateLastRun(
     { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
     CONVERSATION_MISSING,
   );
-  if (!(await runQueueHasCapacity())) {
-    return fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
-  }
+  await requireRunQueueCapacity();
   const agent = await repo.agents.getAgent(deps.db, agentId);
   if (!agent) return notFound('agent');
   const agentVersion = agent.publishedVersion;
