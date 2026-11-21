@@ -1,5 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { readCappedBytes, readCappedText } from '@agentport/core';
 import { isLoopbackAddress, isPrivateAddress } from '@agentport/core/net-guard';
 import { commonEnvSchema, errorText } from '@agentport/shared';
 import type { z } from 'zod';
@@ -233,30 +234,18 @@ export async function fetchChecked(raw: string, options: FetchOptions): Promise<
 }
 
 export async function readCapped(response: Response, label: string): Promise<string> {
-  return new TextDecoder().decode(await readBytesCapped(response, label));
+  return readCappedText(response, MAX_RESPONSE_BYTES, label);
 }
 
 export async function readBytesCapped(response: Response, label: string): Promise<Buffer> {
-  const declared = Number(response.headers.get('content-length') ?? '0');
-  if (declared > MAX_RESPONSE_BYTES) {
-    await response.body?.cancel();
-    throw new Error(`${label} response exceeds ${MAX_RESPONSE_BYTES} bytes`);
-  }
-  if (!response.body) return Buffer.alloc(0);
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for await (const chunk of response.body) {
-    total += chunk.byteLength;
-    if (total > MAX_RESPONSE_BYTES) {
-      response.body.cancel().catch(() => undefined);
-      throw new Error(`${label} response exceeds ${MAX_RESPONSE_BYTES} bytes`);
-    }
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
+  return readCappedBytes(response, MAX_RESPONSE_BYTES, label);
 }
 
-async function fetchText(url: string, options: FetchOptions, label: string): Promise<string> {
+export async function fetchText(
+  url: string,
+  options: FetchOptions,
+  label: string,
+): Promise<string> {
   return readCapped(await fetchChecked(url, options), label);
 }
 
