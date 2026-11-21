@@ -34,14 +34,7 @@ export const ACCESS_SCOPES = [
 
 export type AccessScope = (typeof ACCESS_SCOPES)[number]['id'];
 
-export const accessScopeSchema = z.enum([
-  'own_data',
-  'authorized_resources',
-  'authorized_agents',
-  'maintained_agents',
-  'owned_agents',
-  'platform',
-]);
+export const accessScopeSchema = z.enum(ACCESS_SCOPES.map((scope) => scope.id));
 
 const OP = ['own_data', 'platform'] as const;
 const OAP = ['own_data', 'authorized_resources', 'platform'] as const;
