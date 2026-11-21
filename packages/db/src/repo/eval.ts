@@ -33,6 +33,8 @@ export interface EvalCaseInput {
   prompt: string;
   expectation: string;
   judgeMode: 'contains' | 'llm';
+  expectedTools?: string[] | null | undefined;
+  forbiddenTools?: string[] | null | undefined;
   createdBy: string;
 }
 
@@ -41,6 +43,8 @@ export interface EvalCasePatch {
   prompt?: string | undefined;
   expectation?: string | undefined;
   judgeMode?: 'contains' | 'llm' | undefined;
+  expectedTools?: string[] | null | undefined;
+  forbiddenTools?: string[] | null | undefined;
 }
 
 export async function listCases(
@@ -342,6 +346,8 @@ function snapshotInputs(row: StoredEvalResult): {
   prompt: string;
   expectation: string;
   judgeMode: 'contains' | 'llm';
+  expectedTools: string[];
+  forbiddenTools: string[];
 } | null {
   return row.caseSnapshot === null
     ? null
@@ -349,6 +355,8 @@ function snapshotInputs(row: StoredEvalResult): {
         prompt: row.caseSnapshot.prompt,
         expectation: row.caseSnapshot.expectation,
         judgeMode: row.caseSnapshot.judgeMode ?? 'contains',
+        expectedTools: [...new Set(row.caseSnapshot.expectedTools ?? [])].sort(),
+        forbiddenTools: [...new Set(row.caseSnapshot.forbiddenTools ?? [])].sort(),
       };
 }
 
@@ -452,7 +460,9 @@ function comparePair(
   if (
     baseInputs.prompt !== headInputs.prompt ||
     baseInputs.expectation !== headInputs.expectation ||
-    baseInputs.judgeMode !== headInputs.judgeMode
+    baseInputs.judgeMode !== headInputs.judgeMode ||
+    baseInputs.expectedTools.join('\u0000') !== headInputs.expectedTools.join('\u0000') ||
+    baseInputs.forbiddenTools.join('\u0000') !== headInputs.forbiddenTools.join('\u0000')
   ) {
     return {
       key,

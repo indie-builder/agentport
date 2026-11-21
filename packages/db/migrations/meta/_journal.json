@@ -715,6 +715,13 @@
       "when": 1795246524628,
       "tag": "0101_conscious_fabian_cortez",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1795247834382,
+      "tag": "0102_young_jack_power",
+      "breakpoints": true
     }
   ]
 }

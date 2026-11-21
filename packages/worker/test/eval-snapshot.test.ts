@@ -68,7 +68,15 @@ const { EVAL_FAILURE_PUBLIC_MESSAGE, executeEvalRun } = await import('../src/eva
 
 const { UnrecoverableError } = await import('bullmq');
 
-type SnapshotCase = { id: string; name: string; prompt: string; expectation: string };
+type SnapshotCase = {
+  id: string;
+  name: string;
+  prompt: string;
+  expectation: string;
+  judgeMode?: 'contains' | 'llm';
+  expectedTools?: string[];
+  forbiddenTools?: string[];
+};
 
 const db = {
   select: () => ({
@@ -111,6 +119,7 @@ function runWith(caseSnapshot: SnapshotCase[] | null, outputs: Record<string, st
   }));
   mocks.chat.listMessages.mockImplementation(async (_db: Database, conversationId: string) => [
     {
+      runId: `run-${conversationId}`,
       role: 'assistant',
       content: { type: 'text', text: outputsByConversation.get(conversationId) ?? '' },
     },
@@ -167,6 +176,54 @@ describe('executeEvalRun case snapshot', () => {
         subject: { kind: 'user', businessId: evalBusinessId },
       }),
     );
+  });
+
+  it('fails a text-passing case when the trajectory used a forbidden tool', async () => {
+    const snapshot: SnapshotCase[] = [
+      {
+        id: 'evalCase-a',
+        name: 'alpha',
+        prompt: 'prompt-alpha',
+        expectation: 'alpha-ok',
+        expectedTools: ['Read'],
+        forbiddenTools: ['Bash'],
+      },
+    ];
+    runWith(snapshot, { alpha: 'answer alpha-ok' });
+    mocks.chat.listMessages.mockResolvedValue([
+      { runId: 'run-alpha', role: 'assistant', content: { type: 'text', text: 'answer alpha-ok' } },
+      {
+        runId: 'run-alpha',
+        role: 'tool',
+        content: { type: 'tool_use', id: 'tool-1', name: 'Read', input: {} },
+      },
+      {
+        runId: 'run-alpha',
+        role: 'tool',
+        content: { type: 'tool_result', toolUseId: 'tool-1', name: 'Read' },
+      },
+      {
+        runId: 'run-alpha',
+        role: 'tool',
+        content: { type: 'tool_use', id: 'tool-2', name: 'Bash', input: {} },
+      },
+    ]);
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.chat.listMessages).toHaveBeenCalledTimes(1);
+    expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
+      caseId: 'evalCase-a',
+      passed: false,
+      output: 'answer alpha-ok',
+      judgeReason: '出现禁止工具: Bash',
+      caseSnapshot: snapshot[0],
+    });
+    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+      status: 'failed',
+      passed: 0,
+      error: null,
+    });
   });
 
   it('records a snapshot case whose live row was deleted, without a live fetch', async () => {
