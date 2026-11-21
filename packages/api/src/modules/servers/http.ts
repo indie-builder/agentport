@@ -6,6 +6,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { requestBodyLimit } from '../../http/body-limit.js';
 import type { AppContext, HttpEnv } from '../../http/context.js';
+import { PAYLOAD_TOO_LARGE_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { isRunCancelRequested } from '../../queue/producer.js';
 import { createInvoker } from './agent-invoker.js';
@@ -33,7 +34,7 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
   };
   const mcpBodyLimit = bodyLimit({
     maxSize: 1_048_576,
-    onError: () => fail('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试'),
+    onError: () => fail('PAYLOAD_TOO_LARGE', PAYLOAD_TOO_LARGE_MESSAGE),
   });
   const expected = platformMcpToken(process.env);
   if (expected === null) {

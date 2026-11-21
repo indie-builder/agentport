@@ -6,6 +6,7 @@ import {
   knowledgeVersionMarkdownPath,
 } from '@agentport/core';
 import { repo } from '@agentport/db';
+import { PAYLOAD_TOO_LARGE_MESSAGE } from '../../../http/errors.js';
 import {
   exportKnowledgePackage,
   importKnowledgePackage,
@@ -100,7 +101,7 @@ export async function exportPackage(deps: KnowledgeDeps, id: string) {
 
 export async function importPackage(deps: KnowledgeDeps, archive: Buffer) {
   if (archive.length > KNOWLEDGE_PACKAGE_MAX_BYTES) {
-    throw new AppError('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试');
+    throw new AppError('PAYLOAD_TOO_LARGE', PAYLOAD_TOO_LARGE_MESSAGE);
   }
   const result = await importKnowledgePackage(
     deps.db,

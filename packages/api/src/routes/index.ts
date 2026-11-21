@@ -9,6 +9,7 @@ import type {
   NativeHttpDependencies,
   RequestContext,
 } from '../http/context.js';
+import { PAYLOAD_TOO_LARGE_MESSAGE } from '../http/errors.js';
 import { healthOpenAPIPaths } from '../http/health-openapi.js';
 import { nativeOpenAPIPaths } from '../http/native-openapi.js';
 import { createOpenAPIHandler } from '../http/orpc.js';
@@ -119,7 +120,7 @@ export function registerRoutes(
   const apiBodyLimit = bodyLimit({
     maxSize: JSON_BODY_LIMIT,
     onError: () => {
-      throw new AppError('PAYLOAD_TOO_LARGE', '请求体超出大小限制，请减少内容后重试');
+      throw new AppError('PAYLOAD_TOO_LARGE', PAYLOAD_TOO_LARGE_MESSAGE);
     },
   });
   app.use('/api/*', (c, next) =>

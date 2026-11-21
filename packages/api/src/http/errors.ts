@@ -8,6 +8,8 @@ import { z } from 'zod';
 
 export { AppError, isAppError } from '@agentport/core';
 
+export const PAYLOAD_TOO_LARGE_MESSAGE = '请求体超出大小限制，请减少内容后重试';
+
 function isErrorCode(code: string): code is ErrorCode {
   return Object.hasOwn(ERROR_META, code);
 }
