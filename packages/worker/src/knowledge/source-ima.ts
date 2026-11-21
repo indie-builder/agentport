@@ -2,7 +2,12 @@ import { createHash } from 'node:crypto';
 import { isRecord } from '@agentport/core/record';
 import { z } from 'zod';
 import { fetchDownload } from './source-download.js';
-import { declaredMime } from './source-formats.js';
+import {
+  declaredMime,
+  EXTENSION_BY_MIME,
+  MIME_ALIASES,
+  mimeForExtension,
+} from './source-formats.js';
 import {
   fetchJson,
   SourceItemError as ItemError,
@@ -76,69 +81,18 @@ const noteContentSchema = z.object({
 });
 
 /** 官方 MediaType 中可由本契约读取原文的类型。 */
-const MEDIA: Record<number, { extension: string; mime: string }> = {
-  1: { extension: 'pdf', mime: 'application/pdf' },
-  2: { extension: 'html', mime: 'text/html' },
-  3: {
-    extension: 'docx',
-    mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  },
-  4: {
-    extension: 'pptx',
-    mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  },
-  5: {
-    extension: 'xlsx',
-    mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  },
-  6: { extension: 'html', mime: 'text/html' },
-  7: { extension: 'md', mime: 'text/markdown' },
-  9: { extension: 'png', mime: 'image/png' },
-  13: { extension: 'txt', mime: 'text/plain' },
-  20: { extension: 'html', mime: 'text/html' },
-  21: { extension: 'epub', mime: 'application/epub+zip' },
-};
-
-const EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
-  'application/pdf': 'pdf',
-  'application/msword': 'doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-  'application/vnd.ms-powerpoint': 'ppt',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-  'application/vnd.ms-excel': 'xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-  'text/csv': 'csv',
-  'text/markdown': 'md',
-  'text/x-markdown': 'md',
-  'application/md': 'md',
-  'application/markdown': 'md',
-  'text/plain': 'txt',
-  'text/html': 'html',
-  'application/epub+zip': 'epub',
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/jpg': 'jpg',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-};
-
-const MIME_BY_EXTENSION: Record<string, string> = {
-  pdf: 'application/pdf',
-  doc: 'application/msword',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  ppt: 'application/vnd.ms-powerpoint',
-  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  xls: 'application/vnd.ms-excel',
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  csv: 'text/csv',
-  md: 'text/markdown',
-  txt: 'text/plain',
-  html: 'text/html',
-  epub: 'application/epub+zip',
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  gif: 'image/gif',
-  webp: 'image/webp',
+const MEDIA: Record<number, { extension: string }> = {
+  1: { extension: 'pdf' },
+  2: { extension: 'html' },
+  3: { extension: 'docx' },
+  4: { extension: 'pptx' },
+  5: { extension: 'xlsx' },
+  6: { extension: 'html' },
+  7: { extension: 'md' },
+  9: { extension: 'png' },
+  13: { extension: 'txt' },
+  20: { extension: 'html' },
+  21: { extension: 'epub' },
 };
 
 /** 官方 MediaType 允许的下载格式；同一媒体类型可能对应新旧 Office 格式或 CSV。 */
@@ -258,7 +212,7 @@ function recordOf(value: unknown): Record<string, unknown> | undefined {
 
 function extensionFromContentType(contentType: string | null): string {
   const mime = contentType?.split(';')[0]?.trim().toLowerCase() ?? '';
-  return EXTENSION_BY_CONTENT_TYPE[mime] ?? '';
+  return EXTENSION_BY_MIME[MIME_ALIASES[mime] ?? mime] ?? '';
 }
 
 function mediaExtension(mediaType: number, contentType: string | null, title: string): string {
@@ -276,9 +230,14 @@ function mediaExtension(mediaType: number, contentType: string | null, title: st
 }
 
 function mediaMime(mediaType: number, extension: string, contentType: string | null): string {
-  const byExtension = MIME_BY_EXTENSION[extension];
+  const byExtension = mimeForExtension(`.${extension}`);
   if (byExtension) return byExtension;
-  return declaredMime(contentType) ?? MEDIA[mediaType]?.mime ?? 'application/octet-stream';
+  const fallbackExtension = MEDIA[mediaType]?.extension;
+  return (
+    declaredMime(contentType) ??
+    (fallbackExtension ? mimeForExtension(`.${fallbackExtension}`) : undefined) ??
+    'application/octet-stream'
+  );
 }
 
 async function getMediaInfo(
