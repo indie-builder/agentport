@@ -27,6 +27,7 @@ export {
   AGENT_SELECTION_MISSING_MESSAGE,
   AppError,
   fail,
+  INVALID_CURSOR_MESSAGE,
   isAppError,
   NOT_FOUND_MESSAGES,
   type NotFoundResource,
