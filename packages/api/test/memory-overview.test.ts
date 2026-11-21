@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { newId } from '@agentport/db';
+import { newId, repo } from '@agentport/db';
 import type { AgentMemoryAssembly, AgentMemoryOverview } from '@agentport/shared';
 import { createAccount, createRole, grants } from './access-helpers.js';
 import {
+  ADMIN_BUSINESS_ID,
   acquireMemoryLock,
   cleanup,
   createAgent,
@@ -494,6 +495,14 @@ describe.skipIf(!ready)('agent memory overview', () => {
     expectProblem(manual, 'CONFLICT');
     expect(manual.json<{ message: string }>().message).toContain('主题数量已达上限 3');
 
+    const sourceId = newId('conversation');
+    await repo.chat.createConversation(app.db, {
+      id: sourceId,
+      agentId: limitId,
+      title: '记忆审核来源',
+      subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
+    });
+
     const proposal = await request(app, {
       method: 'POST',
       url: '/api/memory-reviews',
@@ -501,7 +510,7 @@ describe.skipIf(!ready)('agent memory overview', () => {
       payload: {
         modelAgentId: limitId,
         target: { kind: 'agent_memory', agentId: limitId, name: 'fresh.md' },
-        sources: [{ conversationId: 'conversation-not-loaded' }],
+        sources: [{ conversationId: sourceId }],
         instruction: '',
       },
     });

@@ -136,7 +136,11 @@ async function seedReadyDocument(baseId: string, profileId: string, content: str
     },
   });
   expect(document.statusCode, document.body).toBe(202);
-  const documentId = document.json<{ documentId: string }>().documentId;
+  const { documentId, jobId } = document.json<{ documentId: string; jobId: string }>();
+  await app.client.unsafe(
+    "update knowledge_jobs set status = 'succeeded', ended_at = now() where id = $1",
+    [jobId],
+  );
 
   const version = await app.client.unsafe<{ id: string }[]>(
     `insert into knowledge_document_versions
