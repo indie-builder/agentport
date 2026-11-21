@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import type {
@@ -376,42 +376,55 @@ export function ManualDraftDialog({
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
-  const job = useKnowledgeDocumentJob(baseId, documentId, jobId);
+  const settledRef = useRef<string | null>(null);
+  const fresh = manual.isSuccess && manual.isFetchedAfterMount;
+  const pendingJobId = fresh ? (manual.data?.pendingJobId ?? null) : null;
+  const trackedId = jobId ?? pendingJobId;
+  const job = useKnowledgeDocumentJob(baseId, documentId, trackedId);
   const phase = save.isPending
     ? 'saving'
-    : jobId === null
-      ? initial === null
-        ? 'loading'
-        : 'editing'
-      : job.isError
-        ? 'poll-error'
-        : isTerminalKnowledgeJob(job.data?.status)
-          ? 'editing'
-          : 'parsing';
-  const pending = phase === 'saving' || phase === 'parsing';
+    : !fresh
+      ? manual.isError
+        ? 'manual-error'
+        : 'checking'
+      : trackedId === null
+        ? initial === null
+          ? 'loading'
+          : 'editing'
+        : job.isError
+          ? 'job-error'
+          : job.data === undefined
+            ? 'checking'
+            : isTerminalKnowledgeJob(job.data.status)
+              ? 'editing'
+              : job.data.status === 'running'
+                ? 'running'
+                : 'queued';
+  const pending = phase === 'saving';
+  const canSave = phase === 'editing' && trackedId === null;
   const draft = manual.data;
   const dirty = saved !== null && content !== saved;
   const guard = useDraftGuard(dirty, pending, onClose);
 
   useEffect(() => {
-    if (initial === null && draft !== undefined) {
-      setContent(draft.content);
-      setInitial(draft);
-      setSaved(draft.content);
-    }
-  }, [draft, initial]);
+    if (!fresh || draft === undefined || initial !== null) return;
+    setContent(draft.content);
+    setInitial(draft);
+    setSaved(draft.content);
+  }, [draft, initial, fresh]);
   useEffect(() => {
-    if (!jobId || !isTerminalKnowledgeJob(job.data?.status)) return;
+    if (jobId === null || trackedId !== jobId || settledRef.current === jobId) return;
+    if (!isTerminalKnowledgeJob(job.data?.status)) return;
+    settledRef.current = jobId;
+    setJobId(null);
     if (job.data?.status === 'succeeded') {
-      setJobId(null);
       toastSuccess('草稿已解析，可在版本列表发布');
       guard.finish();
     } else {
       const reason = knowledgeJobErrorText(job.data?.error);
       setError(reason ? `草稿已保存，解析失败：${reason}` : '草稿已保存，但解析未完成，请重试');
-      setJobId(null);
     }
-  }, [jobId, job.data, guard.finish]);
+  }, [trackedId, job.data, jobId, guard.finish]);
 
   return (
     <Dialog
@@ -429,12 +442,9 @@ export function ManualDraftDialog({
             className="flex flex-col gap-4"
             onSubmit={(event) => {
               event.preventDefault();
+              if (!canSave || initial === null) return;
               setError(null);
               if (content.trim() === '') return;
-              if (initial === null) {
-                setError('正文版本尚未载入，请稍后重试。');
-                return;
-              }
               save.mutate(
                 {
                   documentId,
@@ -462,7 +472,7 @@ export function ManualDraftDialog({
                 value={content}
                 onChange={setContent}
                 language="markdown"
-                disabled={pending}
+                disabled={!canSave}
                 className="min-h-56"
               />
               <FieldError id="knowledge-manual-draft-error">{error}</FieldError>
@@ -473,15 +483,23 @@ export function ManualDraftDialog({
               </Button>
               <Button
                 type="submit"
-                disabled={pending || jobId !== null || content.trim() === ''}
+                disabled={!canSave || content.trim() === ''}
                 aria-busy={pending}
               >
-                {phase === 'parsing' ? '解析中…' : phase === 'saving' ? '保存中…' : '保存草稿'}
+                {phase === 'running'
+                  ? '解析中…'
+                  : phase === 'queued'
+                    ? '排队中…'
+                    : phase === 'checking'
+                      ? '查询中…'
+                      : phase === 'saving'
+                        ? '保存中…'
+                        : '保存草稿'}
               </Button>
             </div>
           </form>
         ) : null}
-        {phase === 'poll-error' ? (
+        {phase === 'job-error' ? (
           <ErrorState
             error={job.error}
             onRetry={() => void job.refetch()}

@@ -832,6 +832,25 @@
 
 ---
 
+## D-90 ⏳ 其余 BullMQ 队列的启动就绪与故障恢复（待决策）
+
+**现状与依据**：
+
+- BullMQ 6.7.8 会缓存首次初始化失败的 Promise，同一实例不会重试（已实测）。知识主队列与对账器已按 [ARCHITECTURE §6.4](ARCHITECTURE.md) 加就绪门槛，不在此列；其余仍未设就绪门槛的入口包括：[知识 followups Queue](../packages/worker/src/knowledge/queue.ts)、[API producer](../packages/api/src/queue/producer.ts)、[知识 scheduler](../packages/worker/src/knowledge/scheduler.ts)、[通用 run/eval 对账](../packages/worker/src/scheduling/reconcile.ts)、[通用 schedule 调度](../packages/worker/src/scheduling/scheduler.ts)，以及主 run/eval 等未设就绪门槛的 consumer。
+- 失败影响按入口不同：知识 followups 初始化失败只失去即时投递，`queued` 任务仍可由知识对账按 `jobId` 补投；自动摘要的 followup 投递失败会把该版本摘要从 `pending` 回写为 `none`（[`ingestion.ts`](../packages/worker/src/knowledge/ingestion.ts) 的补偿），任务行仍在，仍可由对账补投。API producer 持续失败时知识接口保留各端点原有的成功状态码（例如批量重解析 200、新建分块 201，其余多为 202；入队异常只记日志），任务由 worker 对账补投；API 后续入队会持续失败、健康指标对应项为 `null`，直到重启 API 实例。知识 scheduler、通用 run/eval 对账与通用 schedule 调度的连接或初始化失败可能只记日志后继续运行，Compose 看不到非零退出，不会重启，同一实例内该队列一直不可用。
+- 这些入口没有统一在启动阶段 `waitUntilReady`，知识主链路的修复不覆盖它们。
+
+**候选方案与成本**：
+
+- **统一启动门槛**：各入口启动时 `waitUntilReady`，失败直接非零退出，交给 Compose `restart: unless-stopped` 得到干净实例。与知识主链路一致，改动集中在启动处；代价是每个入口增加一次启动等待，Redis 不可用时进程不再带病运行，API 会在启动失败后反复重启。
+- **按需重建**：捕获初始化失败后丢弃该 Queue 与连接，下一次使用时重建，同实例内自愈。避免重启扩散，但需封装重建与并发去重，连接和事件监听要一并替换，容易漏；也要确认 BullMQ 对 Queue/Worker 的缓存边界。
+
+**验证方式**：用单个连接失败（错误 URL 或阻断 Redis）制造首次初始化失败，待 Redis 恢复后对照「同一实例继续使用」与「重启后新实例」两组：前者应持续失败或按方案重建成功，后者应恢复正常；同时确认失败路径不吞掉入队错误、不产生重复消费。
+
+**待确认问题**：是否接受按入口逐个加就绪门槛（而不是抽一层统一封装），并接受 API 在启动阶段因 Redis 不可用而退出重启？
+
+---
+
 ## 决策记录格式
 
 决策后请在此处标注：

@@ -1165,7 +1165,12 @@ describe('knowledge document versions and manual drafts', () => {
         }),
       ),
       http.get('/api/knowledge/documents/kdoc_1/manual', () =>
-        HttpResponse.json({ content: '已发布正文', versionId: 'kdv_1', status: 'published' }),
+        HttpResponse.json({
+          content: '已发布正文',
+          versionId: 'kdv_1',
+          status: 'published',
+          pendingJobId: null,
+        }),
       ),
       http.get('/api/knowledge/versions/kdv_1/markdown', () => markdownResponse('已发布正文')),
       http.get('/api/knowledge/documents/kdoc_1/chunks', () =>

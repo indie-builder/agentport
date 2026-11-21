@@ -173,18 +173,19 @@ export async function ensureDailyCleanup(
   }
 }
 
-export function startKnowledgeReconciler(input: {
+export async function startKnowledgeReconciler(input: {
   db: ReturnType<typeof createDb>['db'];
   logger: Logger;
   redisUrl: string;
   prefix?: string;
-}): () => Promise<void> {
+}): Promise<() => Promise<void>> {
   const connection = createBunRedisClient(new RedisClient(input.redisUrl));
   const queue = new Queue<KnowledgeJobQueuePayload>(KNOWLEDGE_JOBS_QUEUE, {
     connection,
     ...(input.prefix === undefined ? {} : { prefix: input.prefix }),
   });
   queue.on('error', () => input.logger.warn('knowledge queue connection failed'));
+  await queue.waitUntilReady();
 
   const stopTicker = startIntervalTicker(
     () =>

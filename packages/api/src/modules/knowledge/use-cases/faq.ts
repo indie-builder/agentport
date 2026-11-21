@@ -32,7 +32,12 @@ import {
   serializeFaqExport,
 } from '../faq.js';
 import { searchKnowledge } from '../retrieval.js';
-import { createJob, enqueueKnowledgeJob, enqueueKnowledgeJobs, storeBlob } from '../service.js';
+import {
+  createJob,
+  enqueueKnowledgeJobAfterCommit,
+  enqueueKnowledgeJobsAfterCommit,
+  storeBlob,
+} from '../service.js';
 import {
   assertBodyBytes,
   type DocumentRow,
@@ -297,7 +302,7 @@ async function writeFaqVersion(deps: KnowledgeDeps, input: WriteFaqVersionInput)
     });
     return { version, job };
   });
-  await enqueueKnowledgeJob(job);
+  await enqueueKnowledgeJobAfterCommit(deps.log, job);
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: input.auditAction,
@@ -830,10 +835,9 @@ export async function importFaqs(
     ),
   });
   const jobs = new Map(saved.items.map((item) => [item.documentId, item]));
-  await enqueueKnowledgeJobs(saved.items.map((item) => ({ id: item.jobId }))).catch(
-    (err: unknown) => {
-      deps.log.warn({ err }, 'faq import job enqueue failed; awaiting reconcile');
-    },
+  await enqueueKnowledgeJobsAfterCommit(
+    deps.log,
+    saved.items.map((item) => ({ id: item.jobId })),
   );
   await repo.governance.notifyKnowledgeDocumentQuota(deps.db, base.id);
   const results = plan.results.map((result) => {

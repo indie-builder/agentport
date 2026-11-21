@@ -3,7 +3,7 @@ import { type Database, repo, schema } from '@agentport/db';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { z } from 'zod';
-import { createJob, enqueueKnowledgeJob, storeBlob } from '../service.js';
+import { createJob, enqueueKnowledgeJobAfterCommit, storeBlob } from '../service.js';
 import { type KnowledgeDeps, notFound, type PageQuery, pageOptions } from './shared.js';
 
 type WikiPageRow = typeof schema.knowledgeWikiPages.$inferSelect;
@@ -236,12 +236,7 @@ async function publishWithWikiIndex(
     return { page: updated, jobId: job.id };
   });
   if (!committed) return null;
-  await enqueueKnowledgeJob({ id: committed.jobId }).catch((err: unknown) => {
-    deps.log.warn(
-      { err, jobId: committed.jobId },
-      'wiki index job enqueue failed; awaiting reconcile',
-    );
-  });
+  await enqueueKnowledgeJobAfterCommit(deps.log, { id: committed.jobId });
   await repo.governance.notifyKnowledgeDocumentQuota(deps.db, page.baseId);
   return committed.page;
 }
@@ -358,7 +353,7 @@ export async function generateWiki(
         : { sourceDocumentIds: body.sourceDocumentIds }),
     },
   });
-  await enqueueKnowledgeJob(job);
+  await enqueueKnowledgeJobAfterCommit(deps.log, job);
   return { jobId: job.id };
 }
 

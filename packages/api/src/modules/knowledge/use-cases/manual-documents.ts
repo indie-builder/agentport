@@ -2,9 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import { AppError, fail, isAppError, knowledgeVersionMarkdownPath } from '@agentport/core';
 import { assertSafeUrl } from '@agentport/core/net-guard';
-import { repo, schema } from '@agentport/db';
-import { eq } from 'drizzle-orm';
-import { createJob, documentWire, enqueueKnowledgeJob, storeBlob } from '../service.js';
+import { repo } from '@agentport/db';
+import { createJob, documentWire, enqueueKnowledgeJobAfterCommit, storeBlob } from '../service.js';
 import {
   assertBodyBytes,
   type DocumentRow,
@@ -139,19 +138,25 @@ function pendingDraftVersion(
 
 export async function getManualDocument(deps: KnowledgeDeps, documentId: string) {
   const document = await manualDocument(deps, documentId);
+  const pendingJobId = await repo.knowledge.findActiveIngestJobId(deps.db, document.id);
   const versions = await repo.knowledge.listDocumentVersions(deps.db, document.id, { limit: 200 });
   const draft = pendingDraftVersion(document, versions.items);
   if (draft) {
     const content = await readVersionContent(deps, document.id, draft.id);
     if (content === null) throw new AppError('NOT_FOUND', '草稿正文缺失，请重新保存');
-    return { content, versionId: draft.id, status: 'draft' as const };
+    return { content, versionId: draft.id, status: 'draft' as const, pendingJobId };
   }
   if (!document.currentVersionId) {
     throw new AppError('CONFLICT', '文档还没有可编辑的正文');
   }
   const content = await readVersionContent(deps, document.id, document.currentVersionId);
   if (content === null) throw new AppError('NOT_FOUND', '正文文件缺失，请重新解析该版本');
-  return { content, versionId: document.currentVersionId, status: 'published' as const };
+  return {
+    content,
+    versionId: document.currentVersionId,
+    status: 'published' as const,
+    pendingJobId,
+  };
 }
 
 export async function saveManualDraft(
@@ -191,25 +196,16 @@ export async function saveManualDraft(
       },
     }),
   );
-  try {
-    await enqueueKnowledgeJob(job);
-    await repo.audit.writeAudit(deps.db, deps.log, {
-      actor: deps.actor,
-      action: 'knowledge.document.manual_draft_saved',
-      target: document.id,
-      input: { versionId: body.expectedVersionId },
-      status: 'ok',
-      requestId: deps.requestId,
-    });
-    return { documentId: document.id, jobId: job.id };
-  } catch (err) {
-    await deps.db.delete(schema.knowledgeJobs).where(eq(schema.knowledgeJobs.id, job.id));
-    if (isAppError(err)) throw err;
-    fail('SERVICE_UNAVAILABLE', '草案任务未能提交，请稍后重试', {
-      cause: err,
-      retryable: true,
-    });
-  }
+  await enqueueKnowledgeJobAfterCommit(deps.log, job);
+  await repo.audit.writeAudit(deps.db, deps.log, {
+    actor: deps.actor,
+    action: 'knowledge.document.manual_draft_saved',
+    target: document.id,
+    input: { versionId: body.expectedVersionId },
+    status: 'ok',
+    requestId: deps.requestId,
+  });
+  return { documentId: document.id, jobId: job.id };
 }
 
 async function tagNames(deps: KnowledgeDeps, documentId: string): Promise<string[]> {
