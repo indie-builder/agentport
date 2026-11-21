@@ -253,6 +253,7 @@ const knowledgeBaseCreateSchema = knowledgeBaseInputSchema.extend({
     chunkTokens: 800,
     chunkOverlap: 120,
     wikiAutoUpdate: false,
+    autoSummary: false,
   }),
 });
 

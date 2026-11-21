@@ -154,6 +154,8 @@ export interface KnowledgeDeps {
    * 由主会话队列注入（保持单例 Redis）；不注入时只标 stale，绝不假装自动更新成功。
    */
   onWikiUpdate?: (input: WikiUpdateInput) => Promise<void>;
+  summaryModel?: string | undefined;
+  onSummaryJobs?: (input: { baseId: string; jobIds: string[] }) => Promise<void>;
   /** KNOWLEDGE_PRIVATE_HOST_ALLOWLIST 解析后的精确 `host`/`host:port`；由部署配置注入。 */
   trustedHosts?: readonly string[];
   /** 本地 fixture 仅用；sources 在 production 下仍拒绝 loopback。 */
@@ -476,6 +478,50 @@ async function linkWikiAfterIngest(
     deps.logger.warn(
       { err, baseId: base.id, jobIds },
       'wiki job enqueue failed; awaiting reconcile',
+    );
+  }
+}
+
+async function requestAutoSummary(
+  deps: KnowledgeDeps,
+  base: KnowledgeBaseRow,
+  document: KnowledgeDocumentRow,
+): Promise<void> {
+  if (document.contentKind !== 'document') return;
+  if (base.settings.autoSummary !== true) return;
+  if (!deps.summaryModel || !deps.onSummaryJobs) return;
+  const versionId = document.currentVersionId;
+  if (!versionId) return;
+  const pending = await deps.db
+    .select({ id: schema.knowledgeJobs.id })
+    .from(schema.knowledgeJobs)
+    .where(
+      and(
+        eq(schema.knowledgeJobs.documentId, document.id),
+        eq(schema.knowledgeJobs.type, 'summary'),
+        inArray(schema.knowledgeJobs.status, ['queued', 'running']),
+      ),
+    )
+    .limit(1);
+  if (pending.length > 0) return;
+  const job = await repo.knowledge.createJob(deps.db, {
+    type: 'summary',
+    baseId: base.id,
+    documentId: document.id,
+    sourceId: null,
+    payload: {
+      type: 'summary',
+      baseId: base.id,
+      documentId: document.id,
+      versionId,
+    },
+  });
+  try {
+    await deps.onSummaryJobs({ baseId: base.id, jobIds: [job.id] });
+  } catch (err) {
+    deps.logger.warn(
+      { err, baseId: base.id, jobIds: [job.id] },
+      'summary job enqueue failed; awaiting reconcile',
     );
   }
 }
@@ -937,6 +983,7 @@ async function ingestContent(
     lastSyncedAt: new Date(),
   });
   await linkWikiAfterIngest(deps, base, document);
+  await requestAutoSummary(deps, base, published);
   return version.id;
 }
 

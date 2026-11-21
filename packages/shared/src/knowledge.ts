@@ -112,6 +112,7 @@ export const knowledgeBaseSettingsSchema = z.object({
   chunkTokens: z.number().int().min(200).max(4000),
   chunkOverlap: z.number().int().min(0).max(1000),
   wikiAutoUpdate: z.boolean(),
+  autoSummary: z.boolean().optional(),
   imageProcessing: knowledgeImageProcessingSchema.default(imageProcessingDefaults),
 });
 

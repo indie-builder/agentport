@@ -159,6 +159,7 @@ type UpdateBaseBody = {
         chunkTokens?: number | undefined;
         chunkOverlap?: number | undefined;
         wikiAutoUpdate?: boolean | undefined;
+        autoSummary?: boolean | undefined;
         imageProcessing?: Partial<KnowledgeBaseSettings['imageProcessing']> | undefined;
       }
     | undefined;
@@ -168,7 +169,8 @@ function settingsChanged(current: KnowledgeBaseSettings, next: KnowledgeBaseSett
   if (
     current.chunkTokens !== next.chunkTokens ||
     current.chunkOverlap !== next.chunkOverlap ||
-    current.wikiAutoUpdate !== next.wikiAutoUpdate
+    current.wikiAutoUpdate !== next.wikiAutoUpdate ||
+    current.autoSummary !== next.autoSummary
   ) {
     return true;
   }
@@ -215,6 +217,7 @@ export async function updateBase(deps: KnowledgeDeps, id: string, body: UpdateBa
     chunkTokens: settingsPatch?.chunkTokens ?? current.settings.chunkTokens,
     chunkOverlap: settingsPatch?.chunkOverlap ?? current.settings.chunkOverlap,
     wikiAutoUpdate: settingsPatch?.wikiAutoUpdate ?? current.settings.wikiAutoUpdate,
+    autoSummary: settingsPatch?.autoSummary ?? current.settings.autoSummary,
     imageProcessing: {
       ...current.settings.imageProcessing,
       ...settingsPatch?.imageProcessing,
