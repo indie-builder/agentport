@@ -3,6 +3,10 @@ import { join, relative } from 'node:path';
 import {
   conversationInputsDir,
   personalMemoryDir,
+  sdkSessionDir,
+  sdkSessionsRoot,
+  sessionSandboxDir,
+  sessionSandboxesRoot,
   WORKSPACE_DIR_MODE,
   WORKSPACE_FILE_MODE,
 } from '@agentport/core';
@@ -44,7 +48,7 @@ export async function ensureSessionWorkspace(input: {
   subAgentMemoryDirs: Array<{ slug: string; memoryDir: string }>;
 }> {
   const agent = join(input.workspacesDir, input.slug);
-  const session = join(agent, 'session-sandboxes', input.conversationId);
+  const session = sessionSandboxDir(input.workspacesDir, input.slug, input.conversationId);
   const personalDir =
     input.businessId === undefined
       ? undefined
@@ -58,7 +62,7 @@ export async function ensureSessionWorkspace(input: {
       conversationId: input.conversationId,
     }),
     memoryDir: join(agent, 'agent-memory'),
-    sessionsDir: join(agent, 'sdk-sessions', input.conversationId),
+    sessionsDir: sdkSessionDir(input.workspacesDir, input.slug, input.conversationId),
     ...(personalDir === undefined ? {} : { personalDir }),
   };
   const subAgentMemoryDirs = [...(input.subAgentSlugs ?? [])]
@@ -66,10 +70,10 @@ export async function ensureSessionWorkspace(input: {
     .map((slug) => ({ slug, memoryDir: join(input.workspacesDir, slug, 'agent-memory') }));
   const dirs = [
     agent,
-    join(agent, 'session-sandboxes'),
+    sessionSandboxesRoot(input.workspacesDir, input.slug),
     session,
     join(agent, 'conversation-inputs'),
-    join(agent, 'sdk-sessions'),
+    sdkSessionsRoot(input.workspacesDir, input.slug),
     paths.workspaceDir,
     paths.outputsDir,
     paths.inputsDir,

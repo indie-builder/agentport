@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { prepareOutputDraft, publishOutputSnapshot } from '@agentport/core';
+import { prepareOutputDraft, publishOutputSnapshot, sdkSessionDir } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import {
   type OutputFile,
@@ -560,10 +560,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
       },
     );
     const sessionsDir = join(
-      app.config.WORKSPACES_DIR,
-      agent.slug,
-      'sdk-sessions',
-      id,
+      sdkSessionDir(app.config.WORKSPACES_DIR, agent.slug, id),
       'projects',
       'workspace',
     );

@@ -16,6 +16,7 @@ import {
   attachmentByteLimit,
   attachmentExtension,
   type ChatRequest,
+  isActiveJobState,
   isTextAttachment,
   type MessageAttachment,
   messageAttachments,
@@ -54,13 +55,6 @@ export type StartRunDependencies = {
   ) => Promise<void>;
 };
 const chatRepo = repo.chat;
-const CONSUMABLE_JOB_STATES = new Set([
-  'waiting',
-  'active',
-  'delayed',
-  'prioritized',
-  'waiting-children',
-]);
 function attachmentConversationTitle(
   message: string,
   attachments: Array<{
@@ -195,14 +189,14 @@ export async function startRun(
     const existing = await queue.getJob(job.runId);
     if (existing != null) {
       const state = await existing.getState();
-      if (CONSUMABLE_JOB_STATES.has(state)) return recoverEnqueuedRun();
+      if (isActiveJobState(state)) return recoverEnqueuedRun();
       if (state === 'completed' || state === 'failed') {
         try {
           await existing.remove();
         } catch {
           const current = await queue.getJob(job.runId);
           if (current != null) {
-            if (CONSUMABLE_JOB_STATES.has(await current.getState())) return recoverEnqueuedRun();
+            if (isActiveJobState(await current.getState())) return recoverEnqueuedRun();
             await markEnqueueFailed(job.runId);
             fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
           }
@@ -223,10 +217,10 @@ export async function startRun(
       );
     } catch {
       const raced = await queue.getJob(job.runId);
-      if (raced == null || !CONSUMABLE_JOB_STATES.has(await raced.getState())) {
+      if (raced == null || !isActiveJobState(await raced.getState())) {
         await markEnqueueFailed(job.runId);
         const late = await queue.getJob(job.runId);
-        if (late == null || !CONSUMABLE_JOB_STATES.has(await late.getState())) {
+        if (late == null || !isActiveJobState(await late.getState())) {
           fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
         }
       }

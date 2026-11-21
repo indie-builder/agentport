@@ -1,5 +1,6 @@
 import { type createDb, repo, schema } from '@agentport/db';
 import {
+  isActiveJobState,
   KNOWLEDGE_JOB_TIMEOUT_MS,
   KNOWLEDGE_JOBS_QUEUE,
   type KnowledgeJobQueuePayload,
@@ -10,7 +11,7 @@ import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import { and, eq, gte, inArray, isNull, or } from 'drizzle-orm';
 import type { Logger } from 'pino';
-import { ACTIVE_STATES, queueState } from '../runs/queue-state.js';
+import { queueState } from '../runs/queue-state.js';
 import { startIntervalTicker } from '../scheduling/interval-ticker.js';
 
 const RECONCILE_MS = 5 * 60_000;
@@ -57,7 +58,7 @@ export async function reconcileKnowledgeJobs(
       const timedOut =
         row.startedAt !== null &&
         now - row.startedAt.getTime() > 2 * KNOWLEDGE_JOB_TIMEOUT_MS[row.type];
-      if (!timedOut && state !== null && ACTIVE_STATES.has(state)) {
+      if (!timedOut && state !== null && isActiveJobState(state)) {
         if (state === 'active') continue;
         const requeuedRow = await db
           .update(schema.knowledgeJobs)
@@ -114,7 +115,7 @@ export async function reconcileKnowledgeJobs(
       continue;
     }
 
-    if (state !== null && ACTIVE_STATES.has(state)) continue;
+    if (state !== null && isActiveJobState(state)) continue;
     try {
       // 旧的 failed/completed 条目会按 jobId 去重，导致 add 变成空操作。
       if (state !== null) await queue.remove(row.id).catch(() => undefined);

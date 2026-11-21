@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { sdkSessionDir } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
 import {
@@ -70,10 +71,7 @@ describe.skipIf(!ready)('chat history pagination', () => {
     ]);
     conversationIds.push(id);
     const sessionsDir = join(
-      app.config.WORKSPACES_DIR,
-      agent.slug,
-      'sdk-sessions',
-      id,
+      sdkSessionDir(app.config.WORKSPACES_DIR, agent.slug, id),
       'projects',
       'workspace',
     );
