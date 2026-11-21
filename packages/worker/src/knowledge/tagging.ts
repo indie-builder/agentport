@@ -11,6 +11,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
 import { KnowledgeCancelled } from './ingestion.js';
+import { requireOneShotSuccess } from './one-shot-result.js';
 
 type JobRow = typeof schema.knowledgeJobs.$inferSelect;
 type TagPayload = Extract<KnowledgeJobPayload, { type: 'tag_generate' }>;
@@ -116,9 +117,7 @@ export async function runKnowledgeTagging(job: JobRow, deps: TaggingDeps): Promi
       result.tags = parseTags(message.result);
     },
   });
-  if (outcome.status === 'aborted') throw new KnowledgeCancelled();
-  if (outcome.status === 'no_result') throw new Error('SDK 没有返回结果');
-  if (outcome.status === 'failure') throw new Error(outcome.message);
+  requireOneShotSuccess(outcome);
   const names = result.tags;
   if (names === null) throw new Error('SDK 没有返回标签');
   if (names.length < 3) throw new Error('SDK 返回的有效标签少于 3 个');

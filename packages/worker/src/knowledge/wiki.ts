@@ -15,6 +15,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
 import { KnowledgeCancelled } from './ingestion.js';
+import { requireOneShotSuccess } from './one-shot-result.js';
 
 type WikiPageRow = typeof schema.knowledgeWikiPages.$inferSelect;
 type JobRow = typeof schema.knowledgeJobs.$inferSelect;
@@ -352,9 +353,7 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
           }),
         }),
     });
-    if (outcome.status === 'aborted') throw new KnowledgeCancelled();
-    if (outcome.status === 'no_result') throw new Error('SDK 没有返回结果');
-    if (outcome.status === 'failure') throw new Error(outcome.message);
+    requireOneShotSuccess(outcome);
     if (savedVersions.length === 0) throw new Error('模型没有保存任何草稿');
   } catch (err) {
     if (signal.aborted || err instanceof KnowledgeCancelled) {

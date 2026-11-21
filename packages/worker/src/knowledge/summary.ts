@@ -11,6 +11,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
 import { KnowledgeCancelled } from './ingestion.js';
+import { requireOneShotSuccess } from './one-shot-result.js';
 
 type JobRow = typeof schema.knowledgeJobs.$inferSelect;
 type SummaryPayload = Extract<KnowledgeJobPayload, { type: 'summary' }>;
@@ -113,9 +114,7 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
         if (text !== '') summary = text;
       },
     });
-    if (outcome.status === 'aborted') throw new KnowledgeCancelled();
-    if (outcome.status === 'no_result') throw new Error('SDK 没有返回结果');
-    if (outcome.status === 'failure') throw new Error(outcome.message);
+    requireOneShotSuccess(outcome);
     if (summary === null) throw new Error('SDK 没有返回摘要内容');
 
     await repo.knowledge.setDocumentSummary(
