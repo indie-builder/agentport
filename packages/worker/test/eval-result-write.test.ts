@@ -393,7 +393,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     });
 
     expect(judgeCalls).toBe(1);
-    expect(judgePrompts[0]).toContain('[REDACTED]');
+    expect(judgePrompts[0]).toContain('任务输入：\nprompt-inbound [REDACTED]');
     expect(judgePrompts[0]).not.toContain(secret);
   });
 
