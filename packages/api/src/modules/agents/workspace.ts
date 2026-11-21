@@ -1,12 +1,5 @@
 import type { McpJsonEntry, WorkspaceFiles } from '@agentport/core';
-import {
-  renderPlugin,
-  renderWorkspace,
-  toOutputStyleSelection,
-  toRuleEntries,
-  toWorkflowEntries,
-  unionById,
-} from '@agentport/core';
+import { renderPlugin, renderWorkspace, toOutputStyleSelection, unionById } from '@agentport/core';
 import { resolveWorkspaceMemoryPolicy, toWorkspaceInput } from '@agentport/core/workspace-input';
 import { repo, type schema } from '@agentport/db';
 import {
@@ -106,13 +99,9 @@ export async function renderAgentWorkspace(
     serverNames: (serversByAgent.get(row.id) ?? []).map((server) => server.name),
   }));
   const memoryPolicy = resolveWorkspaceMemoryPolicy(agent.memoryPolicy, { mode: 'preview' });
-  const rules = memoryPolicy.injectRules
-    ? toRuleEntries(await repo.rules.listRules(app.db, agent.id))
-    : [];
+  const rules = memoryPolicy.injectRules ? await repo.rules.listRules(app.db, agent.id) : [];
   const workflows =
-    agent.parentId === null
-      ? toWorkflowEntries(await repo.workflows.listWorkflows(app.db, agent.id))
-      : [];
+    agent.parentId === null ? await repo.workflows.listWorkflows(app.db, agent.id) : [];
   const hookFiles = agent.hooksEnabled
     ? (await repo.hooks.listHookFiles(app.db, agent.id)).map((file) => ({
         path: file.path,
