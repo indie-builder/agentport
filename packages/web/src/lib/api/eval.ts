@@ -12,12 +12,15 @@ export type EvalRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export type EvalTarget = 'published' | 'draft';
 
+export type EvalJudgeMode = 'contains' | 'llm';
+
 export interface EvalCase {
   id: string;
   agentId: string;
   name: string;
   prompt: string;
   expectation: string;
+  judgeMode: EvalJudgeMode;
   createdAt: string;
 }
 
@@ -26,12 +29,14 @@ export interface EvalCaseInput {
   name: string;
   prompt: string;
   expectation: string;
+  judgeMode: EvalJudgeMode;
 }
 
 export interface EvalCaseFromRunInput {
   runId: string;
   name?: string;
   expectation: string;
+  judgeMode: EvalJudgeMode;
   confirmed: true;
   feedbackId?: string;
 }
@@ -58,6 +63,7 @@ export interface EvalResult {
   expectation: string;
   passed: boolean;
   output: string;
+  judgeReason: string | null;
   runId: string | null;
 }
 

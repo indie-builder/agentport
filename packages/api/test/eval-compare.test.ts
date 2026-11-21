@@ -21,6 +21,7 @@ interface Snapshot {
   name: string;
   prompt: string;
   expectation: string;
+  judgeMode: 'contains' | 'llm';
 }
 
 interface ResultBody {
@@ -71,9 +72,10 @@ describe.skipIf(!ready)('eval run comparison', () => {
       name,
       prompt,
       expectation,
+      judgeMode: 'contains',
       createdBy: ADMIN_BUSINESS_ID,
     });
-    return { id: row.id, name, prompt, expectation };
+    return { id: row.id, name, prompt, expectation, judgeMode: 'contains' };
   }
 
   async function newRun(
@@ -133,6 +135,7 @@ describe.skipIf(!ready)('eval run comparison', () => {
     headPassed: boolean;
     headPrompt?: string;
     headExpectation?: string;
+    headJudgeMode?: 'contains' | 'llm';
   }): Promise<{ base: string; head: string; key: string }> {
     const agent = await newAgent();
     const kase = await newCase(agent.id, 'greeting');
@@ -143,6 +146,7 @@ describe.skipIf(!ready)('eval run comparison', () => {
       ...kase,
       prompt: options.headPrompt ?? kase.prompt,
       expectation: options.headExpectation ?? kase.expectation,
+      judgeMode: options.headJudgeMode ?? kase.judgeMode,
     };
     await record(head, {
       caseId: kase.id,
@@ -229,6 +233,39 @@ describe.skipIf(!ready)('eval run comparison', () => {
       key: expectationChanged.key,
       status: 'changed_inputs',
     });
+  });
+
+  it('treats a judge-mode change as changed inputs and defaults legacy snapshots to contains', async () => {
+    const switched = await pair({ basePassed: true, headPassed: true, headJudgeMode: 'llm' });
+    const switchedBody = await comparison(switched.base, switched.head);
+    expect(switchedBody.rows[0]).toMatchObject({
+      key: switched.key,
+      status: 'changed_inputs',
+    });
+
+    const agent = await newAgent();
+    const kase = await newCase(agent.id, 'legacy-judge-mode');
+    const base = await newRun(agent.id, { cases: [kase] });
+    const head = await newRun(agent.id, { cases: [kase] });
+    await app.client.unsafe(
+      'insert into eval_results (id, eval_run_id, case_snapshot, passed, output) values ($1, $2, $3, $4, $5)',
+      [
+        newId('evalResult'),
+        base,
+        JSON.stringify({
+          id: kase.id,
+          name: kase.name,
+          prompt: kase.prompt,
+          expectation: kase.expectation,
+        }),
+        true,
+        '',
+      ],
+    );
+    await record(head, { caseId: kase.id, snapshot: kase, passed: true });
+
+    const legacyBody = await comparison(base, head);
+    expect(legacyBody.rows[0]).toMatchObject({ key: kase.id, status: 'unchanged' });
   });
 
   it('aligns deleted source cases by their frozen snapshot id', async () => {

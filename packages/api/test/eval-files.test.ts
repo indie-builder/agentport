@@ -254,7 +254,12 @@ describe.skipIf(!ready)('eval dataset files', () => {
     expect(Object.keys(body).sort()).toEqual(['cases', 'exportedAt', 'format']);
     expect(body.format).toBe('agentport/eval@1');
     expect(Number.isNaN(Date.parse(body.exportedAt))).toBe(false);
-    expect(Object.keys(body.cases[0] ?? {}).sort()).toEqual(['expectation', 'name', 'prompt']);
+    expect(Object.keys(body.cases[0] ?? {}).sort()).toEqual([
+      'expectation',
+      'judgeMode',
+      'name',
+      'prompt',
+    ]);
     expect(exported.body).not.toContain('"id"');
     expect(exported.body).not.toContain(source.id);
 

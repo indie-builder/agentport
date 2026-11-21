@@ -1,4 +1,5 @@
 import type { ComponentProps } from 'react';
+import { Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { DialogShell } from '../../components/dialog-shell.js';
 import { DraftGuardDialogs, useDraftGuard } from '../../components/draft-guard.js';
@@ -13,6 +14,14 @@ import {
   FieldLabel,
 } from '../../components/ui/field.js';
 import { Input } from '../../components/ui/input.js';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select.js';
 import { Textarea } from '../../components/ui/textarea.js';
 import type { EvalCase, EvalCaseInput } from '../../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
@@ -24,7 +33,13 @@ const evalCaseFormSchema = z.object({
   name: z.string().trim().min(1, '名称需要填写。').max(128, '名称不能超过 128 字。'),
   prompt: z.string().min(1, '输入需要填写。').max(20_000, '输入不能超过 20,000 字。'),
   expectation: z.string().max(5_000, '期望不能超过 5,000 字。'),
+  judgeMode: z.enum(['contains', 'llm']),
 });
+
+const judgeOptions = [
+  { value: 'contains', label: '包含匹配' },
+  { value: 'llm', label: 'LLM 评判' },
+];
 
 export function CaseDialog({
   agentId,
@@ -41,13 +56,19 @@ export function CaseDialog({
   const onClose = dialog.close;
   const create = useCreateEvalCase();
   const update = useUpdateEvalCase();
-  const { register, handleSubmit, watch, formState } = useZodForm(evalCaseFormSchema, {
+  const { register, handleSubmit, watch, control, formState } = useZodForm(evalCaseFormSchema, {
     defaultValues: testCase
-      ? { name: testCase.name, prompt: testCase.prompt, expectation: testCase.expectation }
-      : { name: '', prompt: '', expectation: '' },
+      ? {
+          name: testCase.name,
+          prompt: testCase.prompt,
+          expectation: testCase.expectation,
+          judgeMode: testCase.judgeMode,
+        }
+      : { name: '', prompt: '', expectation: '', judgeMode: 'contains' },
   });
   const { errors, isDirty } = formState;
   const values = watch();
+  const judgeMode = values.judgeMode;
   const dirty = isDirty;
 
   const submit = handleSubmit((form) => {
@@ -64,7 +85,12 @@ export function CaseDialog({
       update.mutate(
         {
           id: testCase.id,
-          input: { name: input.name, prompt: input.prompt, expectation: input.expectation },
+          input: {
+            name: input.name,
+            prompt: input.prompt,
+            expectation: input.expectation,
+            judgeMode: input.judgeMode,
+          },
         },
         { onSuccess: done, onError: toastError },
       );
@@ -139,12 +165,44 @@ export function CaseDialog({
               />
               <FieldError id="eval-prompt-error">{errors.prompt?.message}</FieldError>
             </Field>
+            <Field className="gap-1.5" data-disabled={pending}>
+              <FieldLabel htmlFor="eval-judge-mode">判分方式</FieldLabel>
+              <Controller
+                control={control}
+                name="judgeMode"
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    onValueChange={(next) => {
+                      if (next !== null) field.onChange(next);
+                    }}
+                    items={judgeOptions}
+                    disabled={pending}
+                  >
+                    <SelectTrigger id="eval-judge-mode" ref={field.ref} onBlur={field.onBlur}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {judgeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Field>
             <Field
               className="gap-1.5"
               data-invalid={Boolean(errors.expectation)}
               data-disabled={pending}
             >
-              <FieldLabel htmlFor="eval-expectation">期望包含</FieldLabel>
+              <FieldLabel htmlFor="eval-expectation">
+                {judgeMode === 'llm' ? '评判标准' : '期望包含'}
+              </FieldLabel>
               <Textarea
                 {...register('expectation')}
                 value={values.expectation}
@@ -157,10 +215,16 @@ export function CaseDialog({
                     ? 'eval-expectation-error eval-expectation-description'
                     : 'eval-expectation-description'
                 }
-                placeholder="输出中应出现的文本（不区分大小写）；留空则只要求有文本输出"
+                placeholder={
+                  judgeMode === 'llm'
+                    ? 'LLM 判定通过的条件，例如：必须说明无法确认并拒绝编造'
+                    : '输出中应出现的文本（不区分大小写）；留空则只要求有文本输出'
+                }
               />
               <FieldDescription id="eval-expectation-description">
-                最小判定，不做语义判断；需要更严格时写更具体的片段。
+                {judgeMode === 'llm'
+                  ? '由 LLM 依据这条标准判断输出是否通过，并记录评判理由。'
+                  : '最小判定，不做语义判断；需要更严格时写更具体的片段。'}
               </FieldDescription>
               <FieldError id="eval-expectation-error">{errors.expectation?.message}</FieldError>
             </Field>

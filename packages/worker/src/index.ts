@@ -427,7 +427,19 @@ worker.on('failed', async (job, err) => {
 
 const evalWorker = new Worker(
   EVAL_RUNS_QUEUE,
-  (job) => runEvalJob({ db, logger, redisUrl: config.REDIS_URL, job }),
+  (job) =>
+    runEvalJob({
+      db,
+      logger,
+      redisUrl: config.REDIS_URL,
+      judgeConfig: {
+        knowledgeDir: config.KNOWLEDGE_DIR,
+        evalJudgeModel: config.EVAL_JUDGE_MODEL,
+        summaryModel: config.KNOWLEDGE_SUMMARY_MODEL,
+        anthropicBaseUrl: config.ANTHROPIC_BASE_URL,
+      },
+      job,
+    }),
   { connection: evalConnection, concurrency: 1 },
 );
 

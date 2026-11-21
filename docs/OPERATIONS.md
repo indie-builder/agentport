@@ -425,11 +425,11 @@ docker compose start api worker
 - 技能页「导入 SKILL.md」接受≤128KiB文件，解析官方YAML frontmatter的name/description与Markdown正文；首个H1用作显示名。重名返回409且不覆盖；license/compatibility/metadata会提示未保存，尚未接入的Hooks/工具权限/model等行为字段会明确拒绝。保留当前项目500字符描述及命名规则，超限不截断。
 - 审计列表 wire 使用`cursor`（上一页末条记录ID）与`nextCursor`：服务端按`limit+1`探测，`nextCursor`为null表示没有下一页；数据库仍按原始(created_at,id)比较，同一时间超过一页也不漏记录；`before`继续表示独立时间范围。游标记录被清理后需刷新；审计导出共用过滤，仍以1000条为上限，超限拒绝，NDJSON导出不支持`cursor`。
 - 概览窗口与专家Token总量在加法前转bigint、汇总后转JSON数字，避免int32溢出；单条25亿和累计30亿已验证，超过JavaScript安全整数上限2^53-1的累计不保证精度。
-- 运行历史展开后可「导出结果」，仅终态开放，包含已记录的用例文本、输出与通过情况；最多500条且≤1MiB，超限明确拒绝。agentport/eval-run@1标记configurationPinned=false，专家配置未冻结，文件不构成完整复现包；提示词可能包含敏感内容，分享前自行检查，详见D-38。
+- 运行历史展开后可「导出结果」，仅终态开放，包含已记录的用例文本、输出、通过情况与判分理由（judgeReason）；最多500条且≤1MiB，超限明确拒绝。agentport/eval-run@1标记configurationPinned=false，专家配置未冻结，文件不构成完整复现包；提示词可能包含敏感内容，分享前自行检查，详见D-38。
 - 会话详情接口支持limit（默认50、最大100）与cursor游标，返回按时间正序的最近一页和nextCursor；nextCursor为null表示没有更早消息。未知/其他会话游标返回400，历史被清理后应刷新重新加载；分支复制、评估与平台调用的内部历史读取仍完整，详见D-40。
 - worker持久化输出时按专家→会话→运行锁序检查running；终态先提交则不追加/替换晚到输出，已有历史保留。落库先完成则取消等待其提交；这不撤回已发出的SSE或外部请求，详见D-41。
 - 同一会话已有queued/running时，聊天提交返回409并保留既有运行；等待完成或取消后重发。会话行锁保证HTTP入场互斥，历史和用户消息同事务写入；不同会话继续并行，既有重复运行不自动清理，详见D-39。
-- 评估页可导入/导出 `agentport/eval@1` JSON，只含用例name/prompt/expectation和导出时间；显式选择目标专家，同名跳过并告警。单文件≤500条且≤1MiB，导入不启动评估；超限导出留在页面提示错误，不截断。导入与单条CRUD并发不承诺名称全局唯一，详见D-24。
+- 评估页可导入/导出 `agentport/eval@1` JSON，只含用例name/prompt/expectation/judgeMode和导出时间；显式选择目标专家，同名跳过并告警。单文件≤500条且≤1MiB，导入不启动评估；超限导出留在页面提示错误，不截断。导入与单条CRUD并发不承诺名称全局唯一，详见D-24。
 - 单个技能可在资源中心「技能 → 操作 → 导出 SKILL.md」下载；内容与专家工作区预览一致。安装到其他 Claude Code/Agent SDK 工作区时，放到 `.claude/skills/<frontmatter中的name>/SKILL.md`；这是单文件下载，不是完整工作区或支持资源目录包。
 - 专家包是官方 `.claude/` 目录的 ZIP（`application/zip`），下载名为 `<slug>.zip`；包内 `CLAUDE.md`、`.mcp.json`、`.claude/settings.json`、`.claude/agents/*.md`、`.claude/skills/**`、`.claude/rules/*.md`、`.claude/output-styles/*.md` 是定义正文的唯一来源。根 `agentport.json` 只存官方文件表达不了的平台元数据（显示名、slug、预算/超时、密钥键名、generated 连接器托管定义及子定义自有规则等），不复制正文；删掉它后目录仍可作为普通官方目录加载。旧 `agent@1`/`agent@2` JSON 不再接受。
 - 专家包导入使用同一 ZIP；没有 sidecar 时用请求参数 `slug`/`name` 补标识。限制与校验：ZIP ≤1MiB、解压总量 ≤4MiB、条目 ≤6000，先读中央目录再解压；拒绝绝对路径、`..`、反斜杠、重复成员、符号链接与未知顶层路径；连接器密钥只以键名出现，导入后需重新填写；generated 端点在目标实例按新 id 重建。导入不调用模型、不测试连接、不执行工具。
@@ -485,9 +485,10 @@ bun run --filter @agentport/worker maintenance
 
 ### 4.3 会话与运行
 
-- 评估历史「比较运行」选择同专家两个终态批次，按结果快照中的用例ID对齐；仅在两边都有快照且prompt/expectation相同时显示改善/退步。输入变更、旧记录或重复身份另标；单边无结果也可能是批次未执行完成，不代表用例增删。专家配置未固定，比较不等于完整可复现。
+- 评估历史「比较运行」选择同专家两个终态批次，按结果快照中的用例ID对齐；仅在两边都有快照且prompt/expectation/judgeMode相同时显示改善/退步。输入变更、旧记录或重复身份另标；单边无结果也可能是批次未执行完成，不代表用例增删。专家配置未固定，比较不等于完整可复现。
 - 评估页「停止后续用例」将批次置为cancelled并保留已有结果；重复请求幂等，晚到进度/完成不能覆盖。当前用例可能仍执行至完成或超时并产生费用，停止不等同于即时终止沙盒，不提供恢复。迁移0023扩展eval_runs状态约束。
 - 评估提交时冻结本次用例数组与total；worker按冻结的提示词/期望执行，结果保留原文，后续编辑或删除用例不会改写新批次历史。迁移0022新增eval_runs/eval_results的case_snapshot列；旧记录不回填，专家配置/技能/连接器仍未冻结。
+- 评测用例支持用例级判分方式：`contains`（默认，子串包含）或 `llm`（一次受治理 SDK 调用按评判标准判断并记录理由）。llm 模型取 `EVAL_JUDGE_MODEL`，未配置（含空白）时回退 `KNOWLEDGE_SUMMARY_MODEL`；两者都未配置时该用例判为不通过并记录原因。迁移 `0100` 新增 `eval_cases.judge_mode` 与 `eval_results.judge_reason`。当专家适用任一启用的出站内容策略（含平台全局策略）时，LLM 判分对该用例 fail-closed 禁用：不发送内容，并提示改用 `contains`。这是逐用例准入时点检查——检查时已存在的策略在建目录/调用前短路，查询失败也不放行；但不承诺策略在判分启动后提交时即时拦截已在途请求。判分输入取专家实际收到的提示词（已经过入站策略处理，而非原始用例快照），并在交给 SDK 前再经 `redactSecrets` 脱敏。「停止后续用例」只保证跳过已观察到的取消，当前用例仍可能完成并计费，符合既有 D-26 契约。
 - 评估批次列表 `GET /api/eval/runs?agentId=&cursor=&limit=` 返回 `{items,nextCursor}`：`limit` 默认 50、最大 100，游标取当前页末条 ID，按 `(created_at,id)` 倒序排他翻页；游标不属于当前筛选范围（不存在或跨专家）返回 400 `INVALID_INPUT`。列表 SQL 只投影摘要列；迁移 `0037` 用 `(agent_id,created_at,id)` 与 `(created_at,id)` 复合索引支持按专家或全局倒序分页，替换冗余的专家单列索引。详情仍按单批次读取，不参与列表分页。
 - `/chat?agent=<id>&conversation=<id>`保留专家和会话选择；刷新、前进后退恢复已保存历史，服务端会话归属优先于链接中的专家参数。新建会话清除conversation，首次发送获id后replace写入URL；链接本身不创建运行、不恢复SDK会话。浏览其他历史只关闭客户端事件流，不等同取消服务端运行；离开后的迟到提交响应不会把界面拉回，运行结束后会刷新会话及历史列表缓存。
 - 对话历史的操作菜单支持重命名持久化会话：标题去除首尾空白、1–128字符；只更新标题，不修改消息、归属或最近消息时间。脏草稿退出须确认，提交中不可关闭。

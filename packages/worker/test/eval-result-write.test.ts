@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { inspect } from 'node:util';
 import { createDb, newId, repo, schema } from '@agentport/db';
@@ -37,6 +38,17 @@ mock.module('bullmq', () => ({
   UnrecoverableError: class UnrecoverableError extends Error {},
 }));
 
+let judgeError = 'judge unavailable';
+let judgeCalls = 0;
+let judgePrompts: string[] = [];
+mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+  query: (params: { prompt: string }) => {
+    judgeCalls += 1;
+    judgePrompts.push(params.prompt);
+    throw new Error(judgeError);
+  },
+}));
+
 const { executeEvalRun, EVAL_FAILURE_PUBLIC_MESSAGE } = await import('../src/eval-runner.js');
 const { handleEvalJobFailed, runEvalJob } = await import('../src/eval-job.js');
 const { UnrecoverableError } = await import('bullmq');
@@ -58,7 +70,12 @@ const logger = {
 const RESULT_SECRET = `sk-live-eval-result-${randomUUID()}`;
 const FINISH_SECRET = `sk-live-eval-finish-${randomUUID()}`;
 
-type CaseInput = { name: string; prompt: string; expectation: string };
+type CaseInput = {
+  name: string;
+  prompt: string;
+  expectation: string;
+  judgeMode?: 'contains' | 'llm';
+};
 const evalBusinessId = 'eval-write-owner';
 
 async function seed(cases: CaseInput[]) {
@@ -71,7 +88,11 @@ async function seed(cases: CaseInput[]) {
     createdBy: evalBusinessId,
     ownerBusinessId: evalBusinessId,
   });
-  const snapshot = cases.map((testCase) => ({ id: newId('evalCase'), ...testCase }));
+  const snapshot = cases.map((testCase) => ({
+    id: newId('evalCase'),
+    ...testCase,
+    judgeMode: testCase.judgeMode ?? 'contains',
+  }));
   await db
     .insert(schema.evalCases)
     .values(snapshot.map((testCase) => ({ ...testCase, agentId, createdBy: evalBusinessId })));
@@ -85,6 +106,24 @@ async function seed(cases: CaseInput[]) {
     createdBy: evalBusinessId,
   });
   return { agentId, evalRunId, snapshot };
+}
+
+async function addPolicy(
+  agentId: string,
+  direction: 'inbound' | 'outbound',
+  action: 'block' | 'redact' = 'block',
+  pattern = 'nothing-matches',
+) {
+  await db.insert(schema.contentPolicies).values({
+    id: newId('contentPolicy'),
+    name: `eval-${direction}`,
+    direction,
+    action,
+    matchType: 'keyword',
+    pattern,
+    agentId,
+    createdBy: evalBusinessId,
+  });
 }
 
 async function completeRun(data: { runId: string; conversationId: string; prompt: string }) {
@@ -128,6 +167,9 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
 
   beforeEach(() => {
     logs.length = 0;
+    judgeError = 'judge unavailable';
+    judgeCalls = 0;
+    judgePrompts = [];
     mocks.queueAdd.mockReset();
     mocks.waitUntilFinished.mockReset().mockResolvedValue(undefined);
     mocks.queueAdd.mockImplementation(async (_name, data) => {
@@ -245,6 +287,114 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
     expect(detail?.evalRun).toMatchObject({ status: 'failed', passed: 0, error: null });
     expect(detail?.results[0]?.output).toBe('run queue unavailable');
+  });
+
+  it('keeps the agent output when the llm judge throws and redacts the reason', async () => {
+    const secret = `sk-live-eval-judge-${randomUUID()}`;
+    judgeError = `judge failed ${secret}`;
+    const { evalRunId } = await seed([
+      {
+        name: 'judge-fault',
+        prompt: 'prompt-judge',
+        expectation: 'reply:prompt-judge',
+        judgeMode: 'llm',
+      },
+    ]);
+
+    await executeEvalRun({
+      db,
+      logger,
+      redisUrl: 'redis://unused',
+      evalRunId,
+      judgeConfig: { knowledgeDir: tmpdir(), evalJudgeModel: 'judge-test' },
+    });
+
+    const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
+    expect(detail?.evalRun).toMatchObject({ status: 'failed', passed: 0, error: null });
+    const result = detail?.results[0];
+    expect(result?.output).toBe('reply:prompt-judge');
+    expect(result?.passed).toBe(false);
+    expect(result?.judgeReason ?? '').toContain('评判出错');
+    expect(result?.judgeReason ?? '').not.toContain(secret);
+    expect(judgeCalls).toBe(1);
+  });
+
+  it('skips the llm judge without sending anything when the expert has an outbound policy', async () => {
+    const { agentId, evalRunId } = await seed([
+      {
+        name: 'outbound-guarded',
+        prompt: 'prompt-guarded',
+        expectation: 'reply:prompt-guarded',
+        judgeMode: 'llm',
+      },
+    ]);
+    await addPolicy(agentId, 'outbound');
+
+    await executeEvalRun({
+      db,
+      logger,
+      redisUrl: 'redis://unused',
+      evalRunId,
+      judgeConfig: { knowledgeDir: tmpdir(), evalJudgeModel: 'judge-test' },
+    });
+
+    const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
+    expect(judgeCalls).toBe(0);
+    expect(detail?.results[0]).toMatchObject({
+      passed: false,
+      output: 'reply:prompt-guarded',
+      judgeReason: '该专家配置了出站内容策略，LLM 判分暂不可用，请改用 contains 判分',
+    });
+  });
+
+  it('runs the llm judge when only inbound policies are enabled', async () => {
+    const { agentId, evalRunId } = await seed([
+      {
+        name: 'inbound-only',
+        prompt: 'prompt-inbound',
+        expectation: 'reply:prompt-inbound',
+        judgeMode: 'llm',
+      },
+    ]);
+    await addPolicy(agentId, 'inbound');
+
+    await executeEvalRun({
+      db,
+      logger,
+      redisUrl: 'redis://unused',
+      evalRunId,
+      judgeConfig: { knowledgeDir: tmpdir(), evalJudgeModel: 'judge-test' },
+    });
+
+    expect(judgeCalls).toBe(1);
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.results[0]?.judgeReason).toContain(
+      '评判出错',
+    );
+  });
+
+  it('grades with the inbound-redacted prompt instead of the raw snapshot', async () => {
+    const secret = `sk-live-eval-inbound-${randomUUID()}`;
+    const { agentId, evalRunId } = await seed([
+      {
+        name: 'inbound-redacted',
+        prompt: `prompt-inbound ${secret}`,
+        expectation: 'reply:prompt-inbound',
+        judgeMode: 'llm',
+      },
+    ]);
+    await addPolicy(agentId, 'inbound', 'redact', secret);
+
+    await executeEvalRun({
+      db,
+      logger,
+      redisUrl: 'redis://unused',
+      evalRunId,
+      judgeConfig: { knowledgeDir: tmpdir(), evalJudgeModel: 'judge-test' },
+    });
+
+    expect(judgeCalls).toBe(1);
+    expect(judgePrompts[0]).toContain('任务输入：\nprompt-inbound [REDACTED]');
+    expect(judgePrompts[0]).not.toContain(secret);
   });
 
   it('waits for a delegated child memory lock before admitting the eval case run', async () => {

@@ -1,7 +1,12 @@
 import { type Database, repo } from '@agentport/db';
 import { evalRunJobSchema } from '@agentport/shared';
 import type { Logger } from 'pino';
-import { evalFailureDiagnostics, executeEvalRun, publicEvalFailureMessage } from './eval-runner.js';
+import {
+  type EvalJudgeConfig,
+  evalFailureDiagnostics,
+  executeEvalRun,
+  publicEvalFailureMessage,
+} from './eval-runner.js';
 
 const evalRepo = repo.evalRepo;
 
@@ -25,6 +30,7 @@ export async function runEvalJob(input: {
   db: Database;
   logger: Logger;
   redisUrl: string;
+  judgeConfig?: EvalJudgeConfig;
   job: { data: unknown };
 }): Promise<void> {
   const parsed = evalRunJobSchema.safeParse(input.job.data);
@@ -38,6 +44,7 @@ export async function runEvalJob(input: {
       logger: input.logger,
       redisUrl: input.redisUrl,
       evalRunId,
+      ...(input.judgeConfig === undefined ? {} : { judgeConfig: input.judgeConfig }),
     });
   } catch (error) {
     await settleFailure(input.db, input.logger, evalRunId, error);

@@ -35,6 +35,7 @@ const testCase: EvalCase = {
   name: 'Original case',
   prompt: 'Original prompt',
   expectation: '',
+  judgeMode: 'contains',
   createdAt: '2026-10-22T00:00:00Z',
 };
 
@@ -60,6 +61,7 @@ function makeResult(name: string, output = 'output'): EvalResult {
     expectation: '',
     passed: true,
     output,
+    judgeReason: null,
     runId: null,
   };
 }
@@ -339,6 +341,7 @@ describe('evaluation draft navigation', () => {
         name: 'Draft for A',
         prompt: 'Prompt for A',
         expectation: '',
+        judgeMode: 'contains',
       }),
     );
   });

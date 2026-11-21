@@ -103,6 +103,7 @@ export async function startEvalRun(
           name: schema.evalCases.name,
           prompt: schema.evalCases.prompt,
           expectation: schema.evalCases.expectation,
+          judgeMode: schema.evalCases.judgeMode,
         })
         .from(schema.evalCases)
         .where(eq(schema.evalCases.agentId, agentId))

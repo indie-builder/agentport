@@ -139,10 +139,13 @@ export const overviewTimeseriesSchema = z.array(
 
 export type OverviewTimeseriesPoint = z.infer<typeof overviewTimeseriesSchema>[number];
 
+export const evalJudgeModeSchema = z.enum(['contains', 'llm']);
+
 export const evalCaseFieldsSchema = z.object({
   name: z.string().trim().min(1).max(128),
   prompt: z.string().min(1).max(20_000),
   expectation: z.string().max(5_000).default(''),
+  judgeMode: evalJudgeModeSchema.default('contains'),
 });
 
 export const evalDatasetSchema = z.object({
@@ -196,6 +199,7 @@ export const evalResultSchema = z.object({
   expectation: z.string(),
   passed: z.boolean(),
   output: z.string(),
+  judgeReason: z.string().nullable(),
   runId: z.string().nullable(),
 });
 

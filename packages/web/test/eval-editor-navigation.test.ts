@@ -20,6 +20,7 @@ const testCase: EvalCase = {
   name: 'Case A',
   prompt: 'Prompt',
   expectation: '',
+  judgeMode: 'contains',
   createdAt: '2026-10-28T00:00:00Z',
 };
 

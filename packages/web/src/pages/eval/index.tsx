@@ -159,9 +159,12 @@ function EvalCaseRow({
   onDelete: (trigger: HTMLElement) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const expectationLabel = testCase.judgeMode === 'llm' ? '评判标准' : '期望包含';
   const expectation = testCase.expectation
-    ? `期望包含：${testCase.expectation}`
-    : '期望为空：只要求有文本输出';
+    ? `${expectationLabel}：${testCase.expectation}`
+    : testCase.judgeMode === 'llm'
+      ? '评判标准为空：仅要求有实质文本输出'
+      : '期望为空：只要求有文本输出';
   return (
     <Collapsible
       render={<li />}
