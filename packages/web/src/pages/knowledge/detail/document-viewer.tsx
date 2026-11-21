@@ -53,12 +53,16 @@ import {
 import { cn } from '../../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../../lib/dialog-guard.js';
 import { formatRelative } from '../../../lib/format.js';
+import { knowledgeJobErrorText } from '../../../lib/knowledge-errors.js';
 import {
+  isTerminalKnowledgeJob,
   useCreateKnowledgeChunk,
   useDeleteKnowledgeChunk,
   useGenerateKnowledgeDocumentSummary,
+  useGenerateKnowledgeDocumentTags,
   useKnowledgeDocumentChunks,
   useKnowledgeDocumentDiff,
+  useKnowledgeDocumentJob,
   useKnowledgeDocumentVersions,
   useKnowledgeMarkdown,
   useKnowledgeVersionDetails,
@@ -139,6 +143,11 @@ export function DocumentViewer({
   const rollback = useRollbackKnowledgeDocument(document.baseId);
   const publish = usePublishKnowledgeDocumentVersion(document.baseId);
   const generateSummary = useGenerateKnowledgeDocumentSummary(document.baseId);
+  const generateTags = useGenerateKnowledgeDocumentTags(document.baseId);
+  const [tagJobId, setTagJobId] = useState<string | null>(null);
+  const tagJob = useKnowledgeDocumentJob(document.baseId, document.id, tagJobId);
+  const tagGenerating =
+    generateTags.isPending || (tagJobId !== null && !isTerminalKnowledgeJob(tagJob.data?.status));
   const toggle = useUpdateKnowledgeChunk(document.baseId, document.id, versionId);
   const remove = useDeleteKnowledgeChunk(document.baseId, document.id, versionId);
   const [mode, setMode] = useState<'read' | 'source'>('read');
@@ -165,6 +174,15 @@ export function DocumentViewer({
   const summaryBusy =
     document.summaryStatus === 'pending' || document.summaryStatus === 'generating';
   const summaryVersion = isCurrent && versionId !== null && versionId === document.currentVersionId;
+  useEffect(() => {
+    if (tagJobId === null || !isTerminalKnowledgeJob(tagJob.data?.status)) return;
+    if (tagJob.data?.status === 'succeeded') {
+      toastSuccess('标签已生成');
+    } else {
+      toastError(new Error(knowledgeJobErrorText(tagJob.data?.error) ?? '标签生成失败'));
+    }
+    setTagJobId(null);
+  }, [tagJobId, tagJob.data?.status, tagJob.data?.error]);
 
   return (
     <>
@@ -344,6 +362,43 @@ export function DocumentViewer({
                   查看来源
                 </a>
               ) : null}
+
+              <PageSection title="标签">
+                {document.tags.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {document.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded-full bg-hover px-2 py-0.5 text-xs text-muted-foreground"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <InlineEmpty>还没有标签</InlineEmpty>
+                )}
+                {canManage && document.status !== 'disabled' ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={tagGenerating}
+                    aria-busy={tagGenerating}
+                    onClick={() =>
+                      generateTags.mutate(document.id, {
+                        onSuccess: (data) => setTagJobId(data.jobId),
+                        onError: toastError,
+                      })
+                    }
+                  >
+                    {tagGenerating
+                      ? '生成中…'
+                      : document.tags.length > 0
+                        ? '重新生成标签'
+                        : 'AI 生成标签'}
+                  </Button>
+                ) : null}
+              </PageSection>
 
               {summaryVersion ? (
                 <PageSection title="摘要">

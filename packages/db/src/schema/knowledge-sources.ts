@@ -182,7 +182,16 @@ export const knowledgeJobs = pgTable(
   {
     id: text('id').primaryKey(),
     type: text('type', {
-      enum: ['ingest', 'reindex', 'sync', 'source_probe', 'wiki_generate', 'summary', 'cleanup'],
+      enum: [
+        'ingest',
+        'reindex',
+        'sync',
+        'source_probe',
+        'wiki_generate',
+        'summary',
+        'tag_generate',
+        'cleanup',
+      ],
     }).notNull(),
     baseId: text('base_id').references(() => knowledgeBases.id, { onDelete: 'cascade' }),
     documentId: text('document_id').references(() => knowledgeDocuments.id, {
@@ -210,7 +219,7 @@ export const knowledgeJobs = pgTable(
     index('knowledge_jobs_document_idx').on(t.documentId),
     check(
       'knowledge_jobs_type_check',
-      sql`${t.type} in ('ingest', 'reindex', 'sync', 'source_probe', 'wiki_generate', 'summary', 'cleanup')`,
+      sql`${t.type} in ('ingest', 'reindex', 'sync', 'source_probe', 'wiki_generate', 'summary', 'tag_generate', 'cleanup')`,
     ),
     check(
       'knowledge_jobs_status_check',

@@ -80,6 +80,21 @@ async function tagNames(baseId: string): Promise<string[]> {
   return rows.map((row) => row.name);
 }
 
+async function seedDocument(baseId: string): Promise<string> {
+  const document = await knowledge.createDocument(db, {
+    baseId,
+    folderId: null,
+    title: 'origin.md',
+    sourceType: 'upload',
+    sourceId: null,
+    sourceUrl: null,
+    sourcePath: null,
+    mimeType: 'text/markdown',
+    sizeBytes: 3,
+  });
+  return document.id;
+}
+
 describe.skipIf(!ready)('knowledge tags batch upsert', () => {
   it('全新标签按输入顺序返回并各建一行', async () => {
     const baseId = await seedBase();
@@ -186,5 +201,47 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
     expect(second.map((row) => row.name)).toEqual(names);
     expect(new Set([...first, ...second].map((row) => row.id)).size).toBe(3);
     expect(await tagNames(baseId)).toEqual(['race-a', 'race-b', 'race-c']);
+  });
+});
+
+describe.skipIf(!ready)('knowledge document tag origin', () => {
+  it('reconcileDocumentTags 保留已有 origin，只把新增项记为 manual', async () => {
+    const baseId = await seedBase();
+    const documentId = await seedDocument(baseId);
+    const seeded = await knowledge.upsertTags(db, baseId, ['keep', 'drop', 'manual-existing']);
+    const ids = new Map(seeded.map((row) => [row.name, row.id]));
+    const keep = ids.get('keep');
+    const drop = ids.get('drop');
+    const manual = ids.get('manual-existing');
+    if (!keep || !drop || !manual) throw new Error('seed tags missing');
+    await client.unsafe(
+      `insert into knowledge_document_tags (document_id, tag_id, origin)
+       values ($1, $2, 'auto'), ($1, $3, 'auto'), ($1, $4, 'manual')`,
+      [documentId, keep, drop, manual],
+    );
+
+    await knowledge.reconcileDocumentTags(db, documentId, baseId, ['keep', 'new']);
+
+    const rows = await knowledge.getDocumentTagRows(db, documentId);
+    const byName = new Map(rows.map((row) => [row.name, row.origin]));
+    expect(byName.get('keep')).toBe('auto');
+    expect(byName.get('new')).toBe('manual');
+    expect(byName.has('drop')).toBe(false);
+    expect(byName.has('manual-existing')).toBe(false);
+  });
+
+  it('setDocumentTags 仍把全部标签写成 manual', async () => {
+    const baseId = await seedBase();
+    const documentId = await seedDocument(baseId);
+    const rows = await knowledge.upsertTags(db, baseId, ['a', 'b']);
+
+    await knowledge.setDocumentTags(
+      db,
+      documentId,
+      rows.map((row) => row.id),
+    );
+
+    const stored = await knowledge.getDocumentTagRows(db, documentId);
+    expect(stored.map((row) => row.origin)).toEqual(['manual', 'manual']);
   });
 });

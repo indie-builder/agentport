@@ -440,6 +440,20 @@ export function useGenerateKnowledgeDocumentSummary(baseId: string) {
   });
 }
 
+export function useGenerateKnowledgeDocumentTags(baseId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (documentId: string) => api.generateKnowledgeDocumentTags(documentId),
+    onSuccess: async (_data, documentId) => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: knowledgeKeys.document(documentId) }),
+        client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) }),
+        client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) }),
+      ]);
+    },
+  });
+}
+
 export function useKnowledgeDocumentDiff(
   documentId: string,
   params: { fromVersionId: string; toVersionId: string },

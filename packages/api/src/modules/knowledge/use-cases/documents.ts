@@ -419,6 +419,26 @@ export async function generateDocumentSummary(deps: KnowledgeDeps, documentId: s
   return { jobId: job.id };
 }
 
+export async function generateDocumentTags(deps: KnowledgeDeps, documentId: string) {
+  const document = await repo.knowledge.getDocument(deps.db, documentId);
+  if (!document) notFound('文档');
+  if (document.status === 'disabled' || document.disabledReason !== null) {
+    throw new AppError('CONFLICT', '文档已停用，不能生成标签');
+  }
+  if (!document.currentVersionId) {
+    throw new AppError('CONFLICT', '文档还没有可用版本，不能生成标签');
+  }
+  if (!(await repo.knowledge.isDocumentReadable(deps.db, document.id))) {
+    throw new AppError('CONFLICT', '文档当前不可读，不能生成标签');
+  }
+  const job = await enqueue(
+    deps,
+    { type: 'tag_generate', baseId: document.baseId, documentId: document.id },
+    { baseId: document.baseId, documentId: document.id },
+  );
+  return { jobId: job.id };
+}
+
 type UpdateDocumentBody = {
   title?: string | undefined;
   folderId?: string | null | undefined;
@@ -486,18 +506,8 @@ export async function updateDocument(
   if (patch.status === 'disabled' && current.status !== 'disabled') {
     await repo.knowledge.markWikiStaleByDocument(deps.db, row.id);
   }
-  if (tags !== undefined) {
-    const rows = await repo.knowledge.upsertTags(deps.db, current.baseId, tags);
-    const idByName = new Map(rows.map((tag) => [tag.name, tag.id]));
-    await repo.knowledge.setDocumentTags(
-      deps.db,
-      row.id,
-      tags.map((name) => {
-        const id = idByName.get(name);
-        if (id === undefined) throw new Error('knowledge tag upsert lost its row');
-        return id;
-      }),
-    );
+  if (tags !== undefined && fields.includes('tags')) {
+    await repo.knowledge.reconcileDocumentTags(deps.db, row.id, current.baseId, tags);
   }
   if (fields.length > 0) {
     await repo.audit.writeAudit(deps.db, deps.log, {

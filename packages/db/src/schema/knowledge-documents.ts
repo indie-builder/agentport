@@ -223,9 +223,13 @@ export const knowledgeDocumentTags = pgTable(
     tagId: text('tag_id')
       .notNull()
       .references(() => knowledgeTags.id, { onDelete: 'cascade' }),
+    origin: text('origin', { enum: ['manual', 'auto'] })
+      .notNull()
+      .default('manual'),
   },
   (t) => [
     uniqueIndex('knowledge_document_tags_pk').on(t.documentId, t.tagId),
     index('knowledge_document_tags_tag_idx').on(t.tagId),
+    check('knowledge_document_tags_origin_check', sql`${t.origin} in ('manual', 'auto')`),
   ],
 );

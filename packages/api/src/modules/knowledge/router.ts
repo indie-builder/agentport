@@ -293,6 +293,16 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
       );
       return useCases.generateDocumentSummary(depsOf(context), input.params.documentId);
     }),
+    tagsGenerate: os.documents.tagsGenerate.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.content.manage');
+      await authorizeDocument(
+        context,
+        input.params.documentId,
+        'knowledge.content.manage',
+        'manage',
+      );
+      return useCases.generateDocumentTags(depsOf(context), input.params.documentId);
+    }),
     chunks: os.documents.chunks.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.read');
       await authorizeDocument(context, input.params.documentId, 'knowledge.read', 'read');
@@ -505,10 +515,10 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
     retry: os.jobs.retry.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.execute');
       const job = await authorizeJob(context, input.params.jobId, 'knowledge.execute', 'read');
-      if (job.type === 'summary') {
+      if (job.type === 'summary' || job.type === 'tag_generate') {
         await requirePermission(context, 'knowledge.content.manage');
         if (job.documentId === null) {
-          throw new AppError('CONFLICT', '摘要任务缺少目标文档，无法重试');
+          throw new AppError('CONFLICT', '任务缺少目标文档，无法重试');
         }
         await authorizeDocument(context, job.documentId, 'knowledge.content.manage', 'manage');
       }
