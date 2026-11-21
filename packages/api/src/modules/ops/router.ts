@@ -300,6 +300,7 @@ export const opsRouter = os.router({
         log: context.log,
         requestId: context.requestId,
         actor: actorOf(context),
+        anthropicBaseUrl: context.config.ANTHROPIC_BASE_URL,
         agentId: schedule.agentId,
         origin: 'schedule',
         sourceKind: 'run_prompt',

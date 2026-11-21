@@ -258,6 +258,7 @@ export async function startRun(
           log: deps.log,
           requestId: deps.requestId,
           actor: run.initiatedBy ?? principal.businessId,
+          anthropicBaseUrl: deps.config.ANTHROPIC_BASE_URL,
           texts: [storedText],
           payload: ([text]) => ({
             data: text,
@@ -342,6 +343,7 @@ export async function startRun(
     log: deps.log,
     requestId: deps.requestId,
     actor: principal.businessId,
+    anthropicBaseUrl: deps.config.ANTHROPIC_BASE_URL,
     texts: [message ?? '', openuiAction?.message ?? '', ...uploads.map(({ text }) => text)],
     extraTexts: [
       ...uploads.map(({ attachment }) => attachment.filename),
@@ -593,6 +595,7 @@ export async function regenerateLastRun(
     log: deps.log,
     requestId: deps.requestId,
     actor: principal.businessId,
+    anthropicBaseUrl: deps.config.ANTHROPIC_BASE_URL,
     agentId,
     conversationId,
     origin: 'regenerate',

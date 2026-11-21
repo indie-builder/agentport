@@ -452,7 +452,7 @@ export async function executeMemoryReview(
         config,
         model,
         input.runId,
-        modelProxyUpstream(process.env.ANTHROPIC_BASE_URL || undefined, false),
+        modelProxyUpstream(config.ANTHROPIC_BASE_URL || undefined, false),
       );
       if (upstreams.routed && upstreams.blocked) {
         throw new Error('记忆审核无法使用模型供应商或审批目的地');
@@ -484,8 +484,11 @@ export async function executeMemoryReview(
           maxTurns,
           maxBudgetUsd,
           cwd,
+          anthropicBaseUrl: config.ANTHROPIC_BASE_URL,
           abortController: controller,
-          ...(envOverrides === undefined ? {} : { env: { ...sdkEnv(cwd), ...envOverrides } }),
+          ...(envOverrides === undefined
+            ? {}
+            : { env: { ...sdkEnv(cwd, config.ANTHROPIC_BASE_URL), ...envOverrides } }),
           outputFormat: {
             type: 'json_schema',
             schema: z.toJSONSchema(memoryReviewProposalSchema, { target: 'draft-7' }),

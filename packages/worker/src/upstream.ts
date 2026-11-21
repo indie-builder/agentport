@@ -20,7 +20,7 @@ export function modelProxyUpstream(
   );
 }
 
-export function sdkEnv(cwd: string): Record<string, string> {
+export function sdkEnv(cwd: string, anthropicBaseUrl: string | undefined): Record<string, string> {
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
     HOME: cwd,
@@ -31,8 +31,8 @@ export function sdkEnv(cwd: string): Record<string, string> {
     const value = process.env[key];
     if (value) env[key] = value;
   }
-  if (process.env.ANTHROPIC_BASE_URL) {
-    env.ANTHROPIC_BASE_URL = modelProxyUpstream(process.env.ANTHROPIC_BASE_URL);
+  if (anthropicBaseUrl) {
+    env.ANTHROPIC_BASE_URL = modelProxyUpstream(anthropicBaseUrl);
   }
   return env;
 }

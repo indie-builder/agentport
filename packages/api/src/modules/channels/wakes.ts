@@ -1,5 +1,7 @@
 import {
   copyChannelAttachmentsToConversation,
+  envProviderDestination,
+  providerRouteDestination,
   readChannelAttachment,
   sha256Hex,
 } from '@agentport/core';
@@ -40,6 +42,7 @@ type WakeContext = {
   log: Logger;
   queue: Queue<AgentRunJob>;
   workspacesDir: string;
+  anthropicBaseUrl: string | undefined;
 };
 
 type WakeMessage = NonNullable<Awaited<ReturnType<typeof channelWakeRepo.getChannelWakeMessage>>>;
@@ -247,6 +250,7 @@ async function dispatchWake(
         log: context.log,
         requestId: `channel-wake:${wake.id}`,
         actor: authorBusinessId,
+        anthropicBaseUrl: context.anthropicBaseUrl,
         agentId: wake.agentId,
         origin: 'channel',
         sourceKind: 'channel_message',
@@ -276,6 +280,9 @@ async function dispatchWake(
         channelMessageId: wake.channelMessageId,
         body: policyDecision.payload,
         createdBy: authorBusinessId,
+        fallbackDestination: providerRouteDestination(
+          envProviderDestination(context.anthropicBaseUrl),
+        ),
         wake: { id: wake.id, claimedAt: wake.claimedAt as Date },
         ...(policyDecision.approvalId === null
           ? {}
@@ -368,6 +375,7 @@ export async function dispatchChannelWakes(input: {
   log: Logger;
   queue: Queue<AgentRunJob>;
   workspacesDir: string;
+  anthropicBaseUrl: string | undefined;
   channelMessageId?: string;
   minAgeMs?: number;
   limit?: number;
@@ -411,6 +419,7 @@ export function startChannelWakeSweeper(input: {
   log: Logger;
   queue: Queue<AgentRunJob>;
   workspacesDir: string;
+  anthropicBaseUrl: string | undefined;
 }): () => Promise<void> {
   let inFlight: Promise<void> | null = null;
   let stopped = false;

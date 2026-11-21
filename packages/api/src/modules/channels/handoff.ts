@@ -244,6 +244,7 @@ export const channelsHandoffRouter = {
           log: context.log,
           queue: getQueue(),
           workspacesDir: context.config.WORKSPACES_DIR,
+          anthropicBaseUrl: context.config.ANTHROPIC_BASE_URL,
           channelMessageId: message.id,
         });
         await repo.audit.writeAudit(context.db, context.log, {

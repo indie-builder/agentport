@@ -103,7 +103,15 @@ describe('knowledge queue cancellation across attempts', () => {
       });
       events.on('error', () => undefined);
       await events.waitUntilReady();
-      const options = { db, logger: quiet, redisUrl, prefix, knowledgeDir, decrypt: () => ({}) };
+      const options = {
+        db,
+        logger: quiet,
+        redisUrl,
+        prefix,
+        knowledgeDir,
+        decrypt: () => ({}),
+        anthropicBaseUrl: undefined,
+      };
       const redisPrototype = RedisClient.prototype as unknown as {
         get: (this: RedisClient, key: string) => Promise<string | null>;
       };

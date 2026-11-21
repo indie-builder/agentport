@@ -133,6 +133,7 @@ function startKnowledgeSyncWorker(connector: KnowledgeConnector) {
     prefix,
     knowledgeDir,
     decrypt: () => ({}),
+    anthropicBaseUrl: undefined,
     connectors: { feed: connector },
   });
 }
@@ -233,6 +234,7 @@ describe('knowledge worker queue', () => {
       prefix,
       knowledgeDir,
       decrypt: () => ({}),
+      anthropicBaseUrl: undefined,
       parse: async ({ data }) => ({
         markdown: data.toString('utf8'),
         images: [],
@@ -322,6 +324,7 @@ describe('knowledge worker queue', () => {
       prefix,
       knowledgeDir,
       decrypt: () => ({}),
+      anthropicBaseUrl: undefined,
       parse: async ({ data }) => ({ markdown: data.toString('utf8'), images: [], pageMap: [] }),
       chunkMarkdown: (markdown) => [
         { kind: 'text', heading: null, content: markdown, pageFrom: null, pageTo: null },
@@ -533,6 +536,7 @@ describe('knowledge worker queue', () => {
       prefix,
       knowledgeDir,
       decrypt: () => ({}),
+      anthropicBaseUrl: undefined,
       parse: async ({ data }) => ({ markdown: data.toString('utf8'), images: [], pageMap: [] }),
       chunkMarkdown: (markdown) => [
         { kind: 'text', heading: null, content: markdown, pageFrom: null, pageTo: null },
@@ -912,6 +916,7 @@ describe('knowledge worker queue', () => {
       prefix,
       knowledgeDir,
       decrypt: () => ({}),
+      anthropicBaseUrl: undefined,
       parse: async ({ data }) => ({ markdown: data.toString('utf8'), images: [], pageMap: [] }),
       chunkMarkdown: (markdown) => [
         { kind: 'text', heading: null, content: markdown, pageFrom: null, pageTo: null },
@@ -963,6 +968,7 @@ describe('knowledge worker queue', () => {
       prefix,
       knowledgeDir,
       decrypt: () => ({}),
+      anthropicBaseUrl: undefined,
       parser: { url: undefined, key: undefined },
       chunkMarkdown: (markdown) => [
         { kind: 'text', heading: null, content: markdown, pageFrom: null, pageTo: null },
@@ -1058,6 +1064,7 @@ describe('knowledge worker queue', () => {
       prefix,
       knowledgeDir,
       decrypt: () => ({}),
+      anthropicBaseUrl: undefined,
       wikiModel: 'wiki-test-model',
       connectors: {},
       queryFn: (() => {
@@ -1168,6 +1175,7 @@ describe('knowledge worker queue', () => {
       prefix,
       knowledgeDir,
       decrypt: () => ({}),
+      anthropicBaseUrl: undefined,
       parse: async ({ data }) => ({ markdown: data.toString('utf8'), images: [], pageMap: [] }),
       chunkMarkdown: (markdown) => [
         { kind: 'text', heading: null, content: markdown, pageFrom: null, pageTo: null },
@@ -1245,6 +1253,7 @@ describe.skipIf(!process.env.DATABASE_URL)('knowledge redelivery after a stalled
       prefix: redeliveryPrefix,
       knowledgeDir,
       decrypt: () => ({}),
+      anthropicBaseUrl: undefined,
       connectors: {},
     });
 

@@ -56,7 +56,7 @@
 |---|---|---|---|---|
 | `ANTHROPIC_API_KEY` | 环境回退时二选一 | — | worker | 环境上游的 API key，仅由 worker 持有 |
 | `ANTHROPIC_AUTH_TOKEN` | 环境回退时二选一 | — | worker | 环境上游的 Bearer token，仅由 worker 持有 |
-| `ANTHROPIC_BASE_URL` | 否 | — | worker | 环境上游的自建网关地址，容器内不可达的 loopback 由 worker 改写为 `host.docker.internal` |
+| `ANTHROPIC_BASE_URL` | 否 | — | worker、api | 环境上游的自建网关地址，容器内不可达的 loopback 由 worker 改写为 `host.docker.internal`；api 读取同一地址计算审批目的地 |
 | `AGENT_TIMEOUT_MS` | 否 | `600000` | worker | 仅用于孤儿 run 对账：queued run 超过该值 + 5 分钟宽限且队列探测确认 job 消失/已终态才置 failed；running run 从 `startedAt` 按该智能体当前配置的 `timeout_ms` + 5 分钟宽限判定。两者每 5 分钟扫描，通常 15–20 分钟收敛，不是保证期限。不是执行超时，执行取 `agent.timeoutMs`（默认 `600000`）；api 也解析但不读 |
 | `AGENT_MAX_CONCURRENT` | 否 | `2` | worker | `agent-runs` 队列并发数；只限制同时执行的 run，正常完成或成功取消后的热空闲会话容器会在 `SANDBOX_IDLE_TIMEOUT_MS` 内继续占用资源 |
 

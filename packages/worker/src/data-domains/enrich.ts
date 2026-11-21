@@ -56,6 +56,7 @@ interface DataDomainEnrichmentDeps {
   enrichModel: string | undefined;
   signal: AbortSignal;
   queryFn?: EnrichQueryFn;
+  anthropicBaseUrl: string | undefined;
 }
 
 export async function runDataDomainEnrichment(
@@ -104,6 +105,7 @@ export async function runDataDomainEnrichment(
             options: hermeticQueryOptions({
               model,
               cwd,
+              anthropicBaseUrl: deps.anthropicBaseUrl,
               abortController: controller,
               maxTurns: 6,
               maxBudgetUsd: 0.5,
@@ -208,6 +210,7 @@ interface DataDomainEnrichmentWorkerConfig {
   logger: Logger;
   redisUrl: string;
   enrichModel: string | undefined;
+  anthropicBaseUrl: string | undefined;
   signal?: AbortSignal;
   queryFn?: EnrichQueryFn;
 }
@@ -231,6 +234,7 @@ export async function startDataDomainEnrichmentWorker(
           db: config.db,
           logger: config.logger,
           enrichModel: config.enrichModel,
+          anthropicBaseUrl: config.anthropicBaseUrl,
           signal: closing.signal,
           ...(config.queryFn === undefined ? {} : { queryFn: config.queryFn }),
         },

@@ -258,6 +258,7 @@ describe.skipIf(!ready)(
       chunkMarkdown: parsing.chunkMarkdown,
       connectors: knowledgeConnectors,
       decrypt: () => ({}),
+      anthropicBaseUrl: undefined,
       allowLoopback: true,
     };
 

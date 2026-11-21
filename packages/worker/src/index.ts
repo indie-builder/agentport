@@ -497,6 +497,7 @@ const dataDomainEnrichments = await startDataDomainEnrichmentWorker({
   logger,
   redisUrl: config.REDIS_URL,
   enrichModel: config.DATA_DOMAIN_ENRICH_MODEL,
+  anthropicBaseUrl: config.ANTHROPIC_BASE_URL,
 });
 const stopDataDomainBuildReconciler = startDataDomainBuildReconciler({ db, logger });
 const stopDataDomainEnrichmentReconciler = startDataDomainEnrichmentReconciler({ db, logger });
@@ -535,6 +536,7 @@ const knowledgeWorker = await startKnowledgeWorker({
   knowledgeDir: config.KNOWLEDGE_DIR,
   wikiModel: config.KNOWLEDGE_WIKI_MODEL,
   summaryModel: config.KNOWLEDGE_SUMMARY_MODEL,
+  anthropicBaseUrl: config.ANTHROPIC_BASE_URL,
   decrypt: (payload) => decryptSecrets(payload, config.APP_SECRET_KEY),
   parser: { url: config.DOCLING_URL, key: config.DOCLING_TOKEN },
   trustedHosts: config.KNOWLEDGE_PRIVATE_HOST_ALLOWLIST.split(',')

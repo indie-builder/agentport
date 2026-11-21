@@ -192,6 +192,7 @@ async function makeBase(): Promise<Fixture> {
       knowledgeDir,
       parse: async ({ data }) => ({ markdown: data.toString('utf8'), images: [], pageMap: [] }),
       chunkMarkdown: chunkStub,
+      anthropicBaseUrl: undefined,
       connectors: {},
       decrypt: () => ({ apiKey: '{{SECRET_TEST_API_KEY}}' }),
     },

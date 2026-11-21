@@ -1,4 +1,4 @@
-import { envProviderDestination, fail, providerRouteDestination } from '@agentport/core';
+import { fail, providerRouteDestination } from '@agentport/core';
 import { isActiveRunStatus } from '@agentport/shared';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
@@ -22,6 +22,7 @@ export async function createRunInstruction(
     channelMessageId: string;
     body: string;
     createdBy: string;
+    fallbackDestination: string;
     consumePolicyApprovalId?: string;
     wake: { id: string; claimedAt: Date };
   },
@@ -52,9 +53,8 @@ export async function createRunInstruction(
         if (run.servedProviderId !== null && provider === null) {
           fail('CONTENT_BLOCKED', '追加指令审批的目标与当前运行不一致');
         }
-        destination = providerRouteDestination(
-          provider ?? envProviderDestination(process.env.ANTHROPIC_BASE_URL),
-        );
+        destination =
+          provider === null ? input.fallbackDestination : providerRouteDestination(provider);
       }
       const approvedRoute = await getApprovedPolicyApprovalForRun(tx, input.runId);
       if (approvedRoute !== null && approvedRoute.destination !== destination) {

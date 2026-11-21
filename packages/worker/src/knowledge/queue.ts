@@ -48,6 +48,7 @@ export async function dispatchKnowledgeJob(
       config: {
         KNOWLEDGE_DIR: deps.knowledgeDir,
         KNOWLEDGE_WIKI_MODEL: deps.wikiModel,
+        ANTHROPIC_BASE_URL: deps.anthropicBaseUrl,
       },
       signal: deps.signal,
       ...(deps.queryFn === undefined ? {} : { queryFn: deps.queryFn }),
@@ -60,6 +61,7 @@ export async function dispatchKnowledgeJob(
       config: {
         KNOWLEDGE_DIR: deps.knowledgeDir,
         KNOWLEDGE_SUMMARY_MODEL: deps.summaryModel,
+        ANTHROPIC_BASE_URL: deps.anthropicBaseUrl,
       },
       signal: deps.signal,
       ...(deps.queryFn === undefined ? {} : { queryFn: deps.queryFn }),
@@ -79,6 +81,7 @@ interface KnowledgeWorkerConfig {
   wikiModel?: string | undefined;
   /** 文档摘要使用的模型；未配置时摘要任务会明确失败。 */
   summaryModel?: string | undefined;
+  anthropicBaseUrl: string | undefined;
   /** Docling 端点与密钥；不配置时二进制格式会明确失败而不是静默降级。 */
   parser?: { url?: string | undefined; key?: string | undefined } | undefined;
   /** KNOWLEDGE_PRIVATE_HOST_ALLOWLIST 解析后的可信私网主机。 */
@@ -126,6 +129,7 @@ export async function startKnowledgeWorker(
     ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
     ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
     ...(config.imageQueryFn === undefined ? {} : { imageQueryFn: config.imageQueryFn }),
+    anthropicBaseUrl: config.anthropicBaseUrl,
   };
   const scanner = new RedisClient(config.redisUrl);
   scanner.onclose = (err) => config.logger.warn({ err }, 'knowledge cancel watch error');

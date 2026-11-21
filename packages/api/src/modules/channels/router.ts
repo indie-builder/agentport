@@ -511,6 +511,7 @@ const channelsMainRouter = {
           log: context.log,
           queue: getQueue(),
           workspacesDir: context.config.WORKSPACES_DIR,
+          anthropicBaseUrl: context.config.ANTHROPIC_BASE_URL,
           channelMessageId: message.id,
         });
         return { status: result.duplicate ? (200 as const) : (201 as const), body: message };

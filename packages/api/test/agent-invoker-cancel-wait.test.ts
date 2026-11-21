@@ -58,6 +58,7 @@ function fakeApp(): TestApp {
   };
   return {
     db,
+    config: { ANTHROPIC_BASE_URL: undefined },
     log: { error: () => undefined, warn: () => undefined },
   } as unknown as TestApp;
 }

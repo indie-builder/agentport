@@ -70,6 +70,7 @@ async function runAction(input: {
   model: string;
   signal: AbortSignal;
   queryFn: ImageQueryFn;
+  anthropicBaseUrl: string | undefined;
 }): Promise<{ text: string | null; warning: string | null }> {
   if (input.signal.aborted) throw new Error('图片描述已取消');
   const cwd = await mkdtemp(join(tmpdir(), 'pace-knowledge-image-'));
@@ -104,6 +105,7 @@ async function runAction(input: {
         const options = hermeticQueryOptions({
           model: input.model,
           cwd,
+          anthropicBaseUrl: input.anthropicBaseUrl,
           abortController: controller,
           maxTurns: 2,
           maxBudgetUsd: 0.5,
@@ -158,7 +160,7 @@ export async function describeKnowledgeImage(
     settings: KnowledgeImageProcessing;
     signal: AbortSignal;
   },
-  deps: { queryFn?: ImageQueryFn } = {},
+  deps: { queryFn?: ImageQueryFn; anthropicBaseUrl: string | undefined },
 ): Promise<ImageDescription> {
   const { settings, signal } = input;
   if (signal.aborted) throw new Error('图片描述已取消');
@@ -181,6 +183,7 @@ export async function describeKnowledgeImage(
       model: settings.model,
       signal,
       queryFn,
+      anthropicBaseUrl: deps.anthropicBaseUrl,
     });
     result[action] = output.text;
     if (output.warning) result.warnings.push(output.warning);

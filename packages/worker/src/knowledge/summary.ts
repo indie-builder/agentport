@@ -24,7 +24,11 @@ export type SummaryQueryFn = (params: {
 
 export interface SummaryDeps {
   db: Database;
-  config: { KNOWLEDGE_DIR: string; KNOWLEDGE_SUMMARY_MODEL?: string | undefined };
+  config: {
+    KNOWLEDGE_DIR: string;
+    KNOWLEDGE_SUMMARY_MODEL?: string | undefined;
+    ANTHROPIC_BASE_URL: string | undefined;
+  };
   signal: AbortSignal;
   queryFn?: SummaryQueryFn;
 }
@@ -93,6 +97,7 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
           options: hermeticQueryOptions({
             model,
             cwd,
+            anthropicBaseUrl: deps.config.ANTHROPIC_BASE_URL,
             maxTurns: 1,
             maxBudgetUsd: 0.2,
             abortController: controller,

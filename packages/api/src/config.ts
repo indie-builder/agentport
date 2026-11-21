@@ -22,6 +22,7 @@ const envSchema = z
     DATABASE_URL: z.string().min(1),
     REDIS_URL,
     APP_SECRET_KEY: z.string().min(32),
+    ANTHROPIC_BASE_URL: z.string().optional(),
     ADMIN_USER: z.string().default('admin'),
     ALLOW_WEAK_ADMIN_PASSWORD: z.enum(['true', 'false']).optional(),
     ADMIN_PASSWORD: z.string().min(1).max(128),
