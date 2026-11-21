@@ -9,7 +9,7 @@ import {
   knowledgeDocumentVersions,
   knowledgeJobs,
 } from '../../schema.js';
-import { keysetPage } from '../pagination.js';
+import { isCanonicalTimestamp, keysetPage } from '../pagination.js';
 import {
   escapeLike,
   INSERT_CHUNK,
@@ -252,33 +252,6 @@ interface ImageAssetQueryRow {
   updated_at_cursor: string;
 }
 
-const IMAGE_CURSOR_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{6})Z$/u;
-
-function isUtcTimestamp(value: string): boolean {
-  const match = IMAGE_CURSOR_TIMESTAMP.exec(value);
-  if (!match) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const hour = Number(match[4]);
-  const minute = Number(match[5]);
-  const second = Number(match[6]);
-  const millis = Math.floor(Number(match[7]) / 1000);
-  if (year < 1) return false;
-  const date = new Date(0);
-  date.setUTCFullYear(year, month - 1, day);
-  date.setUTCHours(hour, minute, second, millis);
-  return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day &&
-    date.getUTCHours() === hour &&
-    date.getUTCMinutes() === minute &&
-    date.getUTCSeconds() === second &&
-    date.getUTCMilliseconds() === millis
-  );
-}
-
 function toPageNumber(value: string | null): number | null {
   if (value === null || !/^-?[0-9]+$/u.test(value)) return null;
   const page = Number(value);
@@ -305,7 +278,7 @@ function decodeImageCursor(raw: string): { u: string; d: string; n: string } | n
   const { u, d, n } = parsed as { u?: unknown; d?: unknown; n?: unknown };
   if (
     typeof u !== 'string' ||
-    !isUtcTimestamp(u) ||
+    !isCanonicalTimestamp(u) ||
     typeof d !== 'string' ||
     d === '' ||
     d.includes('\u0000') ||

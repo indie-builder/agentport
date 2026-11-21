@@ -13,6 +13,7 @@ import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/
 import type { RequestContext } from '../../http/context.js';
 import { requireCursorPage } from '../../http/pagination.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../lib/cron.js';
+import { toIso } from '../../lib/iso.js';
 import { getQueue } from '../../queue/producer.js';
 import { getScheduleQueue } from '../../queue/schedule.js';
 import { failQueuedRunEnqueue } from '../runs/enqueue.js';
@@ -21,11 +22,6 @@ import { schedulerNextRun, upsertScheduler } from './schedule-sync.js';
 
 const os = implement(opsContract).$context<RequestContext>();
 const opsRepo = repo.ops;
-
-function iso(value: Date | string | null): string | null {
-  if (value === null) return null;
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-}
 
 type ScheduleLike = Awaited<ReturnType<typeof opsRepo.createSchedule>> & {
   agentName?: string | null;
@@ -43,10 +39,10 @@ function toSchedule(row: ScheduleLike, nextDueAt: string | null = null) {
     description: describeScheduleCron(row.cron),
     prompt: row.prompt,
     enabled: row.enabled,
-    lastRunAt: iso(row.lastRunAt),
+    lastRunAt: toIso(row.lastRunAt),
     nextDueAt,
-    createdAt: iso(row.createdAt) ?? '',
-    updatedAt: iso(row.updatedAt) ?? '',
+    createdAt: toIso(row.createdAt) ?? '',
+    updatedAt: toIso(row.updatedAt) ?? '',
   };
 }
 
@@ -54,8 +50,8 @@ function toScheduleRun(row: NonNullable<Awaited<ReturnType<typeof opsRepo.getSch
   return {
     ...row,
     createdAt: row.createdAt.toISOString(),
-    startedAt: iso(row.startedAt),
-    endedAt: iso(row.endedAt),
+    startedAt: toIso(row.startedAt),
+    endedAt: toIso(row.endedAt),
   };
 }
 
@@ -93,8 +89,8 @@ export const opsRouter = os.router({
       agentName: a.agentName,
       serverId: a.serverId,
       toolName: a.toolName,
-      createdAt: iso(a.createdAt) ?? '',
-      expiresAt: iso(a.expiresAt),
+      createdAt: toIso(a.createdAt) ?? '',
+      expiresAt: toIso(a.expiresAt),
     }));
     const failedItems = failed.map((f) => ({
       kind: 'failed_run' as const,
@@ -102,7 +98,7 @@ export const opsRouter = os.router({
       agentId: f.agentId,
       agentName: f.agentName,
       error: f.error,
-      endedAt: iso(f.endedAt),
+      endedAt: toIso(f.endedAt),
     }));
     return {
       approvals: approvalItems,
@@ -118,7 +114,7 @@ export const opsRouter = os.router({
           runDays: row.runDays,
           messageDays: row.messageDays,
           agentVersions: row.agentVersions,
-          updatedAt: iso(row.updatedAt),
+          updatedAt: toIso(row.updatedAt),
           updatedBy: row.updatedBy,
         }
       : { ...RETENTION_DEFAULTS, updatedAt: null, updatedBy: null };
@@ -139,7 +135,7 @@ export const opsRouter = os.router({
       runDays: row.runDays,
       messageDays: row.messageDays,
       agentVersions: row.agentVersions,
-      updatedAt: iso(row.updatedAt),
+      updatedAt: toIso(row.updatedAt),
       updatedBy: row.updatedBy,
     };
   }),
@@ -443,7 +439,7 @@ export const opsRouter = os.router({
       errorRate: agg.runCount > 0 ? agg.failed / agg.runCount : 0,
       latencyP50: agg.latencyP50 === null ? null : Math.round(Number(agg.latencyP50)),
       latencyP99: agg.latencyP99 === null ? null : Math.round(Number(agg.latencyP99)),
-      lastRunStartTime: iso(agg.lastRunStartTime as Date | null),
+      lastRunStartTime: toIso(agg.lastRunStartTime),
       daily: daily.map((d) => ({ day: d.day, runs: d.runs, cost: d.cost })),
     };
   }),
