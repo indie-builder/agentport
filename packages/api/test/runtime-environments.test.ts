@@ -345,7 +345,9 @@ describe.skipIf(!ready)('runtime environments', () => {
       payload: { runtimeEnvironmentId: null },
     });
     expect(unbound.statusCode, unbound.body).toBe(200);
-    expect(unbound.json<{ runtimeEnvironmentId: string | null }>().runtimeEnvironmentId).toBeNull();
+    expect(
+      unbound.json<{ agent: { runtimeEnvironmentId: string | null } }>().agent.runtimeEnvironmentId,
+    ).toBeNull();
 
     const rebindMissing = await request(app, {
       method: 'PATCH',

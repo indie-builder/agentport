@@ -427,50 +427,6 @@ export async function getReadableDocument(
   return row ?? null;
 }
 
-export interface ListReadableDocumentsFilter extends PageOptions {
-  kinds?: Array<Extract<KnowledgeDocumentRow['contentKind'], 'document' | 'faq'>>;
-}
-
-/** knowledge_list 的文档/FAQ 分页；Wiki 由 listReadableWikiPages 单独提供。 */
-export async function listReadableDocuments(
-  db: Database,
-  baseId: string,
-  filter: ListReadableDocumentsFilter = {},
-): Promise<Page<KnowledgeDocumentRow> | null> {
-  const limit = pageLimit(filter);
-  const filters: SQL[] = [
-    eq(knowledgeDocuments.baseId, baseId),
-    sql`${knowledgeDocuments.contentKind} <> 'wiki'`,
-    readableDocumentSql('knowledge_documents'),
-  ];
-  const kinds = filter.kinds ?? ['document', 'faq'];
-  filters.push(inArray(knowledgeDocuments.contentKind, kinds));
-  const page = await keysetPage(db, {
-    table: knowledgeDocuments,
-    cursor: filter.cursor,
-    limit,
-    column: knowledgeDocuments.updatedAt,
-    valueCursor: (row: { cursorValue: string }) => row.cursorValue,
-    cursorKind: 'timestamp',
-    where: filters,
-    load: ({ where, limit }: { where: SQL | undefined; limit: number }) =>
-      db
-        .select({
-          ...getTableColumns(knowledgeDocuments),
-          cursorValue: cursorValueSql(knowledgeDocuments.updatedAt),
-        })
-        .from(knowledgeDocuments)
-        .where(where)
-        .orderBy(desc(knowledgeDocuments.updatedAt), desc(knowledgeDocuments.id))
-        .limit(limit),
-  });
-  if (page === null) return null;
-  return {
-    items: page.items.map(({ cursorValue, ...row }) => row),
-    nextCursor: page.nextCursor,
-  };
-}
-
 /** 外部来源失权/删除：文档置 disabled，不物理删、不参与检索。
  * 人工停用原因不被来源同步覆盖；归属只看 source_connection_id。
  */

@@ -1180,10 +1180,6 @@ describe.skipIf(!ready)('knowledge foundation contract A', () => {
       contentKind: 'wiki',
       chunks: [{ content: 'wiki index' }],
     });
-    const readableDocs = await knowledge.listReadableDocuments(db, baseId);
-    expect(readableDocs.items.map((document) => document.id)).toContain(faqDoc.document.id);
-    expect(readableDocs.items.map((document) => document.id)).not.toContain(wikiIndex.document.id);
-
     const faqOnly = await knowledge.listDocuments(db, { baseId, contentKind: 'faq' });
     expect(faqOnly.items.map((document) => document.id)).toEqual([faqDoc.document.id]);
     const ordinary = await knowledge.listDocuments(db, { baseId, contentKind: 'document' });
