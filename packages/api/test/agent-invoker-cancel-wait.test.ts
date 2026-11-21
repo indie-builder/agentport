@@ -51,7 +51,16 @@ function fakeApp(): TestApp {
       from: () => ({
         where: () => ({
           orderBy: async () => [],
-          limit: async () => [{ id: 'agent-1', slug: 'demo', enabled: true, timeoutMs: 30_000 }],
+          limit: async () => [
+            {
+              id: 'agent-1',
+              slug: 'demo',
+              enabled: true,
+              timeoutMs: 30_000,
+              archivedAt: null,
+              deletedAt: null,
+            },
+          ],
         }),
       }),
     }),

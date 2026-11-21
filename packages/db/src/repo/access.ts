@@ -27,6 +27,7 @@ import {
   roles,
   userRoles,
 } from '../schema.js';
+import { isAgentInactive } from './agent-lifecycle.js';
 import { hasBusinessHistory } from './identities.js';
 
 export type ResourceGrantFlags = { canUse: boolean; canManage: boolean };
@@ -213,7 +214,7 @@ export async function getAgentRelation(
       inactive: false,
     };
   }
-  const inactive = agent.archivedAt !== null || agent.deletedAt !== null;
+  const inactive = isAgentInactive(agent);
   const organizationVisible =
     agent.visibility === 'organization' &&
     agent.publishedVersion !== null &&

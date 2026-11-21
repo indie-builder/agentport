@@ -8,6 +8,7 @@ import {
   agentHooksSchema,
   agentHooksSettingsInputSchema,
   agentInputSchema,
+  agentLifecycleStatusSchema,
   agentMemberInputSchema,
   agentMemberSchema,
   agentOptionsSchema,
@@ -119,7 +120,7 @@ export const agentsContract = {
           tag: z.string().max(24).optional(),
           favorite: z.stringbool().optional(),
           sort: z.enum(['name', 'recent']).optional(),
-          status: z.enum(['active', 'archived', 'deleted']).default('active'),
+          status: agentLifecycleStatusSchema.default('active'),
         }),
       }),
     )

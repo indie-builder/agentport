@@ -19,6 +19,7 @@ import {
   externalRequestKeys,
   messages,
 } from '../../schema.js';
+import { isAgentInactive } from '../agent-lifecycle.js';
 import { getAgentVersion } from '../agent-versions.js';
 import { getAgentServerIds } from '../agents.js';
 import { channelMemberRole, lockChannelRow } from '../channels.js';
@@ -160,7 +161,7 @@ export async function admitChatRun(
       .limit(1)
       .for('key share');
     if (!owner) notFound('agent');
-    if (owner.archivedAt !== null || owner.deletedAt !== null) {
+    if (isAgentInactive(owner)) {
       fail('AGENT_DISABLED', '该智能体已归档或删除，无法发起新对话');
     }
     if (!owner.enabled && input.allowDisabled !== true) {
