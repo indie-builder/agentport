@@ -808,6 +808,30 @@
 
 ---
 
+## D-89 ⏳ 知识库 cleanup 与导入复用 blob 的已知竞态（待决策）
+
+**触发条件**（四个条件同时成立）：
+
+1. 一个孤儿 blob 已存在超过 24 小时保留期（mtime 早于 `BLOB_RETENTION_MS` 截止），且无任何版本 `blobSha256`、文档非空 `contentHash` 或在途 `queued`/`running` 任务 `payload.input.blobSha256` 引用。
+2. 之后的知识库包导入（或其它复用路径）`stat` 到同一 content-addressed blob 并直接复用，不重写、不刷新 mtime。
+3. `runCleanup` 已读取引用集合并逐项 `stat`，尚未执行 `rm`。
+4. 该窗口内导入完成并提交版本/文档引用，随后 `runCleanup` 执行 `rm`，删掉已被引用的共享 blob。
+
+**概率量级**：单次同内容重导的条件概率约 1e-5–7e-4，取决于读取引用集合到 `rm` 的窗口（约 1–60 秒）；线上实际频率未知。
+
+**候选方案与成本**：
+
+- **删除前二次校验**：仍有「校验后、`rm` 前」窗口，成本低但不封闭。
+- **复用改为重写 + rename**：重置 mtime，仍有「导入写 blob 后、提交引用前」窗口，成本中等。
+- **引用计数**：需所有写入方（API 导入、worker 摄取、包导入）遵守同一协议，跨进程事务难保证，成本高。
+- **跨进程按 sha 加锁**：可真正封闭，但需 API/worker 协调同一锁，长扫描会阻塞导入。
+
+**当前状态**：本轮已移除导入回滚直接删除共享 blob 的路径——[`package.ts`](../packages/api/src/modules/knowledge/package.ts) 的导入失败回滚只删除本次新建的版本目录，已写入的 content-addressed blob 交由 `cleanup` 回收。竞态本身未修，[`ingestion.ts`](../packages/worker/src/knowledge/ingestion.ts) 的 `runCleanup` 仍按上述引用集合与 mtime 规则回收。
+
+**待确认问题**：是否接受按 sha 加锁（API 与 worker 共同实现）；或接受导入返回 201 后极低概率原件下载 404，保留现状。
+
+---
+
 ## 决策记录格式
 
 决策后请在此处标注：

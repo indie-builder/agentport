@@ -1020,13 +1020,12 @@ export async function importKnowledgePackage(
   const baseId = newId('knowledgeBase');
   const serverId = newId('server');
   const createdDirs = new Set<string>();
-  const createdBlobs: string[] = [];
   try {
     for (const document of manifest.documents) {
       const newDocumentId = documentId.get(document.id)!;
       for (const version of document.versions) {
         const original = contents.get(version.originalPath)!;
-        await storeBlob(knowledgeDir, version.blobSha256, original, createdBlobs);
+        await storeBlob(knowledgeDir, version.blobSha256, original);
         const vId = versionId.get(version.id)!;
         const dir = knowledgeVersionDir(knowledgeDir, newDocumentId, vId);
         if (version.markdownPath !== null) {
@@ -1056,7 +1055,6 @@ export async function importKnowledgePackage(
           knowledgeDir,
           document.pending.blobSha256,
           contents.get(document.pending.originalPath)!,
-          createdBlobs,
         );
       }
     }
@@ -1276,10 +1274,7 @@ export async function importKnowledgePackage(
       }
     });
   } catch (err) {
-    await Promise.all([
-      ...[...createdDirs].map((dir) => rm(dir, { recursive: true, force: true })),
-      ...createdBlobs.map((path) => rm(path, { force: true })),
-    ]);
+    await Promise.all([...createdDirs].map((dir) => rm(dir, { recursive: true, force: true })));
     if (isPgCode(err, '23505')) {
       fail('CONFLICT', `知识库 slug「${manifest.base.slug}」或内置 server 名称已被占用`);
     }
@@ -1314,17 +1309,11 @@ function folderPath(folder: Manifest['folders'][number], manifest: Manifest): st
   return `/${segments.join('/')}`;
 }
 
-async function storeBlob(
-  knowledgeDir: string,
-  expectedSha: string,
-  data: Buffer,
-  created: string[],
-): Promise<void> {
+async function storeBlob(knowledgeDir: string, expectedSha: string, data: Buffer): Promise<void> {
   if (sha256Hex(data) !== expectedSha) invalid('原件内容与 manifest 的 sha256 不符');
   const target = knowledgeBlobPath(knowledgeDir, expectedSha);
   if (await stat(target).catch(() => null)) return;
   await storeDocumentBlob(knowledgeDir, data);
-  created.push(target);
 }
 
 function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): void {
