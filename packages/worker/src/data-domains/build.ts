@@ -6,10 +6,9 @@ import {
   type DataDomainBuildJob,
   dataDomainBuildJobSchema,
 } from '@agentport/shared';
-import { createBunRedisClient, Worker } from 'bullmq';
-import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import { z } from 'zod';
+import { startRedisWorker } from '../queue-worker.js';
 import { startIntervalTicker } from '../scheduling/interval-ticker.js';
 
 const BUILD_TIMEOUT_MS = 5 * 60_000;
@@ -254,11 +253,12 @@ interface DataDomainBuildWorkerConfig {
 export async function startDataDomainBuildWorker(
   config: DataDomainBuildWorkerConfig,
 ): Promise<{ close: () => Promise<void> }> {
-  const closing = new AbortController();
-  const connection = createBunRedisClient(new RedisClient(config.redisUrl));
-  const worker = new Worker<DataDomainBuildJob>(
-    DATA_DOMAIN_BUILDS_QUEUE,
-    (job) => {
+  return startRedisWorker<DataDomainBuildJob>({
+    queue: DATA_DOMAIN_BUILDS_QUEUE,
+    redisUrl: config.redisUrl,
+    logger: config.logger,
+    failureMessage: 'data domain build job failed',
+    processor: (signal) => (job) => {
       const parsed = dataDomainBuildJobSchema.safeParse(job.data);
       if (!parsed.success) throw new Error('invalid data domain build payload');
       return runDataDomainBuild(
@@ -267,24 +267,12 @@ export async function startDataDomainBuildWorker(
           logger: config.logger,
           wrenRuntimeUrl: config.wrenRuntimeUrl,
           secretKey: config.secretKey,
-          signal: closing.signal,
+          signal,
         },
         parsed.data,
       );
     },
-    { connection, concurrency: 1 },
-  );
-  worker.on('failed', (job) => {
-    config.logger.warn({ jobId: job?.id }, 'data domain build job failed');
   });
-
-  return {
-    close: async () => {
-      closing.abort();
-      await worker.close();
-      await connection.quit();
-    },
-  };
 }
 
 export function startDataDomainBuildReconciler(input: {

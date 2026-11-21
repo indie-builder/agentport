@@ -8,9 +8,9 @@ import {
   RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
   type RuntimeEnvironmentBuildJob,
 } from '@agentport/shared';
-import { createBunRedisClient, type Job, Worker } from 'bullmq';
-import { RedisClient } from 'bun';
+import type { Job } from 'bullmq';
 import type { Logger } from 'pino';
+import { startRedisWorker } from '../queue-worker.js';
 import { keepTail, runDocker, type SpawnFn } from './command.js';
 import { verifyRuntimeEnvironmentImage } from './verify.js';
 
@@ -380,29 +380,20 @@ interface RuntimeEnvironmentBuildWorkerConfig {
 export async function startRuntimeEnvironmentBuildWorker(
   config: RuntimeEnvironmentBuildWorkerConfig,
 ): Promise<{ close: () => Promise<void> }> {
-  const closing = new AbortController();
-  const handler = createRuntimeEnvironmentBuildHandler({
-    store: config.store,
+  return startRedisWorker<RuntimeEnvironmentBuildJob>({
+    queue: RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
+    redisUrl: config.redisUrl,
     logger: config.logger,
-    signal: closing.signal,
-    ...(config.spawn === undefined ? {} : { spawn: config.spawn }),
-    ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
-  });
-  const connection = createBunRedisClient(new RedisClient(config.redisUrl));
-  const worker = new Worker<RuntimeEnvironmentBuildJob>(RUNTIME_ENVIRONMENT_BUILDS_QUEUE, handler, {
-    connection,
+    failureMessage: 'runtime environment build job failed',
+    processor: (signal) =>
+      createRuntimeEnvironmentBuildHandler({
+        store: config.store,
+        logger: config.logger,
+        signal,
+        ...(config.spawn === undefined ? {} : { spawn: config.spawn }),
+        ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
+      }),
     ...(config.prefix === undefined ? {} : { prefix: config.prefix }),
-    concurrency: 1,
+    includeErrorInFailedLog: true,
   });
-  worker.on('failed', (job, err) => {
-    config.logger.warn({ jobId: job?.id, err }, 'runtime environment build job failed');
-  });
-
-  return {
-    close: async () => {
-      closing.abort();
-      await worker.close();
-      await connection.quit();
-    },
-  };
 }
