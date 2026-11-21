@@ -1,0 +1,2 @@
+ALTER TABLE "eval_cases" ADD COLUMN "source_run_id" text;--> statement-breakpoint
+CREATE INDEX "eval_cases_source_run_idx" ON "eval_cases" USING btree ("source_run_id") WHERE "eval_cases"."source_run_id" is not null;

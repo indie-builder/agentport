@@ -47,6 +47,14 @@ export interface EvalCaseFromRunInput {
   feedbackId?: string;
 }
 
+export interface EvalSampleCandidate {
+  runId: string;
+  conversationId: string;
+  title: string;
+  prompt: string;
+  endedAt: string;
+}
+
 export interface EvalRun {
   id: string;
   agentId: string;
@@ -87,6 +95,16 @@ export default {
     rpc.eval.cases.create({ body: input }),
   createEvalCaseFromRun: (input: EvalCaseFromRunInput): Promise<EvalCase> =>
     rpc.eval.cases.fromRun({ body: input }),
+  sampleEvalCandidates: (input: {
+    agentId: string;
+    limit?: number;
+  }): Promise<EvalSampleCandidate[]> =>
+    rpc.eval.cases.sampleCandidates({
+      query: {
+        agentId: input.agentId,
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+      },
+    }),
   updateEvalCase: (id: string, input: Partial<Omit<EvalCaseInput, 'agentId'>>): Promise<EvalCase> =>
     rpc.eval.cases.update({ params: { id }, body: input }),
   deleteEvalCase: (id: string): Promise<void> => rpc.eval.cases.remove({ params: { id } }),

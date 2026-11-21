@@ -105,11 +105,12 @@ describe.skipIf(!(ready && isolated))('eval case from run', () => {
     expect(body.expectation).toBe('应给出季度报告要点。');
     expect(body.name).toBe('季度报告总结');
 
-    const stored = await app.client.unsafe<{ n: number }[]>(
-      'select count(*)::int as n from eval_cases where id = $1 and agent_id = $2',
+    const stored = await app.client.unsafe<{ n: number; source_run_id: string | null }[]>(
+      'select count(*)::int as n, min(source_run_id) as source_run_id from eval_cases where id = $1 and agent_id = $2',
       [body.id, agentId],
     );
     expect(stored[0]?.n).toBe(1);
+    expect(stored[0]?.source_run_id).toBe(runId);
   });
 
   it('requires authentication', async () => {

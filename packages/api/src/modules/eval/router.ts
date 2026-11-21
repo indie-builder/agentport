@@ -5,6 +5,7 @@ import { implement } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { accessFilter, actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { writeCrossUserAudit } from '../../plugins/audit.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from '../runs/access.js';
 import { agentNotFound, importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
 
@@ -103,6 +104,7 @@ export const evalRouter = os.router({
           prompt: prompt.slice(0, 20_000),
           expectation: input.body.expectation,
           judgeMode: input.body.judgeMode,
+          sourceRunId: detail.run.id,
           createdBy: businessId,
         });
         if (feedbackId !== undefined) {
@@ -120,6 +122,36 @@ export const evalRouter = os.router({
         requestId: context.requestId,
       });
       return toEvalCase(row);
+    }),
+    sampleCandidates: os.cases.sampleCandidates.handler(async ({ input, context }) => {
+      await authorizeEvalAgent(context, input.query.agentId, ['eval.read']);
+      const businessId = requireUser(context).businessId;
+      const access = accessFilter(context, 'runs.read');
+      const rows = await evalRepo.sampleProductionRuns(context.db, {
+        agentId: input.query.agentId,
+        limit: input.query.limit,
+        access,
+      });
+      if (access.scopes.includes('platform')) {
+        for (const row of rows) {
+          if (row.initiatedBy !== null && row.initiatedBy !== businessId) {
+            await writeCrossUserAudit(context.db, context.log, {
+              actor: businessId,
+              permissionId: 'runs.read',
+              subjectBusinessId: row.initiatedBy,
+              target: row.runId,
+              requestId: context.requestId,
+            });
+          }
+        }
+      }
+      return rows.map((row) => ({
+        runId: row.runId,
+        conversationId: row.conversationId,
+        title: row.title,
+        prompt: row.prompt,
+        endedAt: row.endedAt.toISOString(),
+      }));
     }),
     update: os.cases.update.handler(async ({ input, context }) => {
       const existing = await evalRepo.getCase(context.db, input.params.id);

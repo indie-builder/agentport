@@ -57,6 +57,7 @@ export async function getRunUserMessageText(db: DbHandle, runId: string): Promis
     .select({ content: messages.content })
     .from(messages)
     .where(and(eq(messages.runId, runId), eq(messages.role, 'user')))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
     .limit(1);
   return messageText(row?.content);
 }

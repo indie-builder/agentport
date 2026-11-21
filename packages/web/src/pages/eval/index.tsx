@@ -1,4 +1,5 @@
 import { evalDatasetSchema } from '@agentport/shared';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   CircleStop,
@@ -8,6 +9,7 @@ import {
   Pencil,
   Play,
   Plus,
+  Shuffle,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -25,6 +27,7 @@ import {
   PageToolbar,
   PageTopbar,
 } from '../../components/page.js';
+import { EvalFromRunDialog } from '../../components/run/eval-from-run-dialog.js';
 import { ErrorState, LoadingState } from '../../components/states.js';
 import { StatusBadge } from '../../components/status-badge.js';
 import { Button, buttonVariants } from '../../components/ui/button.js';
@@ -40,8 +43,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
-import { hasAnyGrant } from '../../lib/access.js';
-import { api, type EvalCase, type EvalRun, type EvalTarget } from '../../lib/api.js';
+import { can, hasAnyGrant } from '../../lib/access.js';
+import {
+  api,
+  type EvalCase,
+  type EvalRun,
+  type EvalSampleCandidate,
+  type EvalTarget,
+} from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
 import {
   evalStatusLabel,
@@ -51,6 +60,7 @@ import {
   shortId,
 } from '../../lib/format.js';
 import {
+  meQuery,
   useAgentAccess,
   useAgentDetail,
   useCancelEvalRun,
@@ -66,6 +76,7 @@ import { CompareDialog } from './compare-dialog.js';
 import { DeleteCaseDialog } from './delete-case-dialog.js';
 import { EvalPassRateChart } from './pass-rate-chart.js';
 import { EvalRunResults } from './run-results.js';
+import { SampleRunsDialog } from './sample-runs-dialog.js';
 import type { EvalSearchPatch } from './shared.js';
 
 const runColumns: DataColumn<EvalRun>[] = [
@@ -226,6 +237,7 @@ export function EvalPage() {
     ? agents.data?.find((agent) => agent.id === agentId)
     : agents.data?.[0];
   const effectiveAgentId = selectedAgent?.id ?? null;
+  const me = useQuery(meQuery);
   const access = useAgentAccess(effectiveAgentId);
   const permissions = access.data?.permissionIds ?? [];
   const accessPending = effectiveAgentId !== null && access.isPending;
@@ -233,6 +245,7 @@ export function EvalPage() {
   const canReadEval = hasAnyGrant(permissions, 'eval.read');
   const canManageEval = hasAnyGrant(permissions, 'eval.manage');
   const canExecuteEval = hasAnyGrant(permissions, 'eval.execute');
+  const canReadRuns = can(me.data, 'runs.read');
   const canReadConfig = hasAnyGrant(permissions, 'agents.config.read');
   const agentDetail = useAgentDetail(effectiveAgentId, canReadConfig);
   const hasDraft = agentDetail.data?.hasDraft === true;
@@ -283,6 +296,8 @@ export function EvalPage() {
 
   const [exporting, setExporting] = useState(false);
   const [creatingAgentId, setCreatingAgentId] = useState<string | null>(null);
+  const [samplingAgentId, setSamplingAgentId] = useState<string | null>(null);
+  const [sampleCandidate, setSampleCandidate] = useState<EvalSampleCandidate | null>(null);
   const [editing, setEditing] = useState<EvalCase | null>(null);
   const [deleting, setDeleting] = useState<EvalCase | null>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
@@ -425,6 +440,20 @@ export function EvalPage() {
       <Plus data-icon="inline-start" aria-hidden="true" /> 新建用例
     </Button>
   ) : null;
+  const sampleButton =
+    canManageEval && canReadRuns ? (
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={!effectiveAgentId}
+        onClick={(event) => {
+          dialogTriggerRef.current = event.currentTarget;
+          setSamplingAgentId(effectiveAgentId);
+        }}
+      >
+        <Shuffle data-icon="inline-start" aria-hidden="true" /> 从运行抽样
+      </Button>
+    ) : null;
 
   return (
     <Page>
@@ -532,6 +561,7 @@ export function EvalPage() {
                   }}
                 />
                 {casesEmpty ? null : createCaseButton}
+                {effectiveAgentId ? sampleButton : null}
                 {canManageEval || canReadEval ? (
                   <DropdownMenu>
                     <DropdownMenuTrigger
@@ -761,6 +791,26 @@ export function EvalPage() {
       ) : null}
       {editing ? (
         <CaseDialog testCase={editing} finalFocus={finalFocus} onClose={() => setEditing(null)} />
+      ) : null}
+      {samplingAgentId ? (
+        <SampleRunsDialog
+          agentId={samplingAgentId}
+          finalFocus={finalFocus}
+          onConvert={(candidate) => {
+            setSamplingAgentId(null);
+            setSampleCandidate(candidate);
+          }}
+          onClose={() => setSamplingAgentId(null)}
+        />
+      ) : null}
+      {sampleCandidate ? (
+        <EvalFromRunDialog
+          runId={sampleCandidate.runId}
+          conversationTitle={sampleCandidate.title}
+          prompt={sampleCandidate.prompt}
+          finalFocus={finalFocus}
+          onClose={() => setSampleCandidate(null)}
+        />
       ) : null}
       {deleting ? (
         <DeleteCaseDialog

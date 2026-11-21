@@ -1,8 +1,18 @@
 import type { AccessFilter, AgentDefinition, AgentResourceVersions } from '@agentport/shared';
-import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
-import { type EvalCaseSnapshot, evalCases, evalResults, evalRuns } from '../schema.js';
+import {
+  agentRuns,
+  conversations,
+  type EvalCaseSnapshot,
+  evalCases,
+  evalResults,
+  evalRuns,
+  messages,
+  runFeedback,
+} from '../schema.js';
 import { maintainedAgentScopeWhere } from './access.js';
+import { messageText } from './chat/messages.js';
 import { keysetBefore, paginate } from './keyset.js';
 
 export type EvalCase = typeof evalCases.$inferSelect;
@@ -35,6 +45,7 @@ export interface EvalCaseInput {
   judgeMode: 'contains' | 'llm';
   expectedTools?: string[] | null | undefined;
   forbiddenTools?: string[] | null | undefined;
+  sourceRunId?: string | null | undefined;
   createdBy: string;
 }
 
@@ -79,6 +90,103 @@ export async function createCase(
     .returning();
   if (!row) throw new Error('eval case insert returned no row');
   return row;
+}
+
+export interface EvalSampleCandidate {
+  runId: string;
+  conversationId: string;
+  title: string;
+  prompt: string;
+  endedAt: Date;
+  initiatedBy: string | null;
+}
+
+const SAMPLE_WINDOW = 200;
+
+export async function sampleProductionRuns(
+  db: Database,
+  options: { agentId: string; limit: number; access: AccessFilter },
+): Promise<EvalSampleCandidate[]> {
+  const linkedCaseRuns = sql`select ${evalCases.sourceRunId} from ${evalCases} where ${evalCases.sourceRunId} is not null`;
+  const linkedFeedbackRuns = sql`select ${runFeedback.runId} from ${runFeedback} where ${runFeedback.evalCaseId} is not null`;
+  const filters: SQL[] = [
+    eq(agentRuns.agentId, options.agentId),
+    eq(agentRuns.status, 'succeeded'),
+    eq(agentRuns.trigger, 'chat'),
+    isNull(agentRuns.evalRunId),
+    isNull(agentRuns.channelId),
+    isNull(agentRuns.definitionSnapshot),
+    isNotNull(agentRuns.endedAt),
+    sql`${agentRuns.id} not in (${linkedCaseRuns})`,
+    sql`${agentRuns.id} not in (${linkedFeedbackRuns})`,
+  ];
+  if (options.access.scopes.includes('platform')) {
+  } else if (options.access.scopes.includes('own_data')) {
+    filters.push(eq(agentRuns.initiatedBy, options.access.businessId));
+  } else {
+    filters.push(sql`false`);
+  }
+  const rows = await db
+    .select({
+      runId: agentRuns.id,
+      conversationId: agentRuns.conversationId,
+      title: conversations.title,
+      endedAt: agentRuns.endedAt,
+      initiatedBy: agentRuns.initiatedBy,
+    })
+    .from(agentRuns)
+    .innerJoin(conversations, eq(conversations.id, agentRuns.conversationId))
+    .where(and(...filters))
+    .orderBy(desc(agentRuns.endedAt))
+    .limit(SAMPLE_WINDOW);
+  const prompts = new Map<string, string>();
+  if (rows.length > 0) {
+    const userMessages = await db
+      .selectDistinctOn([messages.runId], { runId: messages.runId, content: messages.content })
+      .from(messages)
+      .where(
+        and(
+          inArray(
+            messages.runId,
+            rows.map((row) => row.runId),
+          ),
+          eq(messages.role, 'user'),
+        ),
+      )
+      .orderBy(asc(messages.runId), asc(messages.createdAt), asc(messages.id));
+    for (const message of userMessages) {
+      if (message.runId === null) continue;
+      const text = messageText(message.content);
+      if (text === null || text.trim() === '') continue;
+      prompts.set(message.runId, text.slice(0, 20_000));
+    }
+  }
+  const eligible = rows.filter((row) => prompts.has(row.runId));
+  for (let i = eligible.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const current = eligible[i];
+    const target = eligible[j];
+    if (current !== undefined && target !== undefined) {
+      eligible[i] = target;
+      eligible[j] = current;
+    }
+  }
+  return eligible.slice(0, options.limit).flatMap((row) => {
+    const prompt = prompts.get(row.runId);
+    const { endedAt } = row;
+    return prompt === undefined || endedAt === null
+      ? []
+      : [
+          {
+            runId: row.runId,
+            conversationId: row.conversationId,
+            title: row.title.trim() || `运行 ${row.runId.slice(-8)}`,
+            prompt,
+            endedAt,
+            initiatedBy: row.initiatedBy,
+          },
+        ];
+  });
 }
 
 export async function updateCase(

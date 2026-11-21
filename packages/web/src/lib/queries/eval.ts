@@ -7,6 +7,7 @@ import {
   type EvalCaseInput,
   type EvalComparison,
   type EvalRunDetail,
+  type EvalSampleCandidate,
   type EvalTarget,
 } from '../api.js';
 
@@ -31,10 +32,25 @@ export function useCreateEvalCaseFromRun() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: EvalCaseFromRunInput) => api.createEvalCaseFromRun(input),
-    onSuccess: () => {
+    onSuccess: async (created, input) => {
+      const candidatesKey = ['eval-samples', created.agentId];
+      await client.cancelQueries({ queryKey: candidatesKey });
+      client.setQueryData<EvalSampleCandidate[]>(candidatesKey, (old) =>
+        old?.filter((candidate) => candidate.runId !== input.runId),
+      );
+      void client.invalidateQueries({ queryKey: candidatesKey });
       void client.invalidateQueries({ queryKey: ['eval-cases'] });
       void client.invalidateQueries({ queryKey: ['run-feedback'] });
     },
+  });
+}
+
+export function useSampleEvalCandidates(agentId: string) {
+  return useQuery<EvalSampleCandidate[]>({
+    queryKey: ['eval-samples', agentId],
+    queryFn: () => api.sampleEvalCandidates({ agentId }),
+    enabled: Boolean(agentId),
+    staleTime: 0,
   });
 }
 
