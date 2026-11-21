@@ -37,10 +37,11 @@ const phaseOne = await Promise.all([
     ['run', 'lint:docs'],
   ]),
   run('typecheck', [['run', 'typecheck']]),
-  run('build', [['run', 'build']]),
 ]);
 const results = [...phaseOne];
-const built = phaseOne.find((result) => result.stage === 'build')?.status === 'PASS';
+const typecheckOk = phaseOne.find((result) => result.stage === 'typecheck')?.status === 'PASS';
+results.push(...(typecheckOk ? [await run('build', [['run', 'build']])] : skipped(['build'])));
+const built = results.find((result) => result.stage === 'build')?.status === 'PASS';
 results.push(
   ...(built
     ? await Promise.all([
