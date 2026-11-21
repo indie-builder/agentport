@@ -6,7 +6,7 @@ import {
   type ChannelRole,
   type MessageAttachment,
 } from '@agentport/shared';
-import { and, asc, count, desc, eq, gt, inArray, isNull, lt, type SQL, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -19,6 +19,7 @@ import {
   channels,
   conversations,
 } from '../schema.js';
+import { activeAgentWhere } from './agent-lifecycle.js';
 import { createChannelWakes } from './channel-wakes.js';
 import { type CursorPage, cursorValueSql, keysetPage } from './pagination.js';
 
@@ -772,8 +773,7 @@ async function resolveWakeAgents(
           eq(channelAgentBindings.channelId, channelId),
           eq(channelAgentBindings.status, 'active'),
           eq(agents.enabled, true),
-          isNull(agents.archivedAt),
-          isNull(agents.deletedAt),
+          activeAgentWhere,
           inArray(channelAgentBindings.agentId, explicit),
         ),
       );
@@ -790,8 +790,7 @@ async function resolveWakeAgents(
           eq(channelAgentBindings.channelId, channelId),
           eq(channelAgentBindings.status, 'active'),
           eq(agents.enabled, true),
-          isNull(agents.archivedAt),
-          isNull(agents.deletedAt),
+          activeAgentWhere,
           eq(channelAgentBindings.autoWakeOnAll, true),
         ),
       );

@@ -92,6 +92,10 @@ export const uiFormatSchema = z.enum(['markdown', 'openui']);
 
 export const agentVisibilitySchema = z.enum(['private', 'organization']);
 
+export const agentLifecycleStatusSchema = z.enum(['active', 'archived', 'deleted']);
+
+export type AgentLifecycleStatus = z.infer<typeof agentLifecycleStatusSchema>;
+
 export const displayNameSchema = z
   .string()
   .min(1)

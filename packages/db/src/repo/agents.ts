@@ -5,6 +5,7 @@ import {
   type Agent,
   type AgentDefinition,
   type AgentDuplicateInput,
+  type AgentLifecycleStatus,
   agentInputSchema,
   apiToolSchema,
   DEFAULT_MEMORY_POLICY,
@@ -49,6 +50,7 @@ import {
   servers,
   skills,
 } from '../schema.js';
+import { activeAgentWhere, agentLifecycleWhere } from './agent-lifecycle.js';
 import {
   assertDefinitionResources,
   getAgentVersion,
@@ -151,7 +153,7 @@ export function toAgent(
   };
 }
 
-const organizationVisibleWhere = sql`(${agents.visibility} = 'organization' and ${agents.publishedVersion} is not null and ${agents.enabled} and ${agents.archivedAt} is null and ${agents.deletedAt} is null)`;
+const organizationVisibleWhere = sql`(${agents.visibility} = 'organization' and ${agents.publishedVersion} is not null and ${agents.enabled} and ${activeAgentWhere})`;
 
 /** agents.read 的列表范围谓词；范围不够时返回空结果。 */
 function agentReadScopeWhere(access: AccessFilter): SQL | undefined {
@@ -180,8 +182,6 @@ function agentListScopeWhere(access: AccessFilter): SQL | undefined {
   if (scope === undefined) return undefined;
   return or(eq(agents.isDefault, true), scope);
 }
-
-export type AgentLifecycleStatus = 'active' | 'archived' | 'deleted';
 
 export interface AgentListOptions {
   q?: string | undefined;
@@ -215,12 +215,7 @@ function agentListing(
 ) {
   const configScope = configAccess ? agentReadScopeWhere(configAccess) : sql`false`;
   const status = options.status ?? 'active';
-  const lifecycleWhere =
-    status === 'deleted'
-      ? sql`${agents.deletedAt} is not null`
-      : status === 'archived'
-        ? sql`${agents.archivedAt} is not null and ${agents.deletedAt} is null`
-        : sql`${agents.archivedAt} is null and ${agents.deletedAt} is null`;
+  const lifecycleWhere = agentLifecycleWhere(status);
   const lifecycleVisible =
     status === 'active' || access.scopes.includes('platform')
       ? undefined
@@ -369,11 +364,7 @@ export async function listServerBoundAgents(
   serverId: string,
   access: AccessFilter,
 ): Promise<{ agents: Array<{ id: string; name: string }>; hiddenCount: number }> {
-  const active = and(
-    eq(agentServers.serverId, serverId),
-    isNull(agents.archivedAt),
-    isNull(agents.deletedAt),
-  );
+  const active = and(eq(agentServers.serverId, serverId), activeAgentWhere);
   const scope = access.scopes.length === 0 ? sql`false` : agentListScopeWhere(access);
   const rows = await db
     .select({
@@ -394,7 +385,7 @@ export async function listAgentTags(db: Database, access: AccessFilter): Promise
   const rows = await db
     .selectDistinct({ tag })
     .from(agents)
-    .where(and(agentListScopeWhere(access), isNull(agents.archivedAt), isNull(agents.deletedAt)))
+    .where(and(agentListScopeWhere(access), activeAgentWhere))
     .orderBy(asc(tag));
   return rows.map((row) => row.tag);
 }

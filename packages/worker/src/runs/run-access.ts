@@ -98,7 +98,7 @@ export async function checkQueuedAgentActive(
   if (!agent) {
     return { reason: 'invalid_subject', message: '专家不存在，运行未启动' };
   }
-  if (agent.archivedAt !== null || agent.deletedAt !== null) {
+  if (repo.agentLifecycle.isAgentInactive(agent)) {
     return { reason: 'permission_denied', message: '该专家已归档或删除，运行未启动' };
   }
   return null;

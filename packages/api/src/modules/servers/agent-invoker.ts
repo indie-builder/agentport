@@ -37,7 +37,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
         const agent = rows[0];
         if (!agent) notFound('agent', `agent ${slug} not found`);
         if (!agent.enabled) fail('AGENT_DISABLED', `agent ${slug} is disabled`);
-        if (agent.archivedAt != null || agent.deletedAt != null) {
+        if (repo.agentLifecycle.isAgentInactive(agent)) {
           fail('AGENT_DISABLED', `agent ${slug} is archived or deleted`);
         }
         if (!(await runQueueHasCapacity())) {
