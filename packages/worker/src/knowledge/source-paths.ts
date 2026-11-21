@@ -14,6 +14,21 @@ export function trimSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
+export function assertCanonicalSegments(segments: readonly string[], message: string): void {
+  for (const segment of segments) {
+    if (
+      segment === '' ||
+      segment === '.' ||
+      segment === '..' ||
+      segment.includes('\\') ||
+      segment.includes('\0') ||
+      /%2f|%5c/i.test(segment)
+    ) {
+      throw new Error(message);
+    }
+  }
+}
+
 export function sanitizeSegment(value: string, fallback: string): string {
   const cleaned = value
     .replace(/[\\/:*?"<>|]+/g, '-')

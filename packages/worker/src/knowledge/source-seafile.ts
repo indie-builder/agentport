@@ -12,7 +12,7 @@ import {
   sourceNetworkOptions,
   validateSourceUrl,
 } from './source-http.js';
-import { trimSlash } from './source-paths.js';
+import { assertCanonicalSegments, trimSlash } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import { failureOf, parseInitialCursor, snapshotOf } from './source-utils.js';
 
@@ -61,18 +61,7 @@ function normalizeRelativePath(value: string): string {
   const trimmed = value.replace(/^\/+|\/+$/g, '');
   if (trimmed === '') return '';
   const segments = trimmed.split('/');
-  for (const segment of segments) {
-    if (
-      segment === '' ||
-      segment === '.' ||
-      segment === '..' ||
-      segment.includes('\\') ||
-      segment.includes('\0') ||
-      /%2f|%5c/i.test(segment)
-    ) {
-      throw new Error(`seafile path is not a canonical repo-relative path: ${value}`);
-    }
-  }
+  assertCanonicalSegments(segments, `seafile path is not a canonical repo-relative path: ${value}`);
   return segments.join('/');
 }
 
