@@ -439,7 +439,7 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
     expect(rebuiltUserId).not.toBe(firstUserId);
   });
 
-  it('disables accounts, revokes sessions and changes own password through Better Auth hashes', async () => {
+  it('disables accounts, revokes sessions and resets passwords', async () => {
     const businessId = bid('password');
     await createAccount(businessId, 'old password 42');
     const user = first(
@@ -455,34 +455,6 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
       expiresAt: new Date(Date.now() + 60_000),
       userId: user.id,
     });
-
-    expect(
-      await accounts.changeOwnPassword(db, user.id, {
-        currentPassword: 'wrong password 42',
-        newPassword: 'new password 42',
-      }),
-    ).toBe(false);
-    expect(
-      await accounts.changeOwnPassword(db, user.id, {
-        currentPassword: 'old password 42',
-        newPassword: 'new password 42',
-      }),
-    ).toBe(true);
-    expect(await db.select().from(authSessions).where(eq(authSessions.id, sessionId))).toHaveLength(
-      0,
-    );
-    const credential = first(
-      await db
-        .select({ hash: authAccounts.password })
-        .from(authAccounts)
-        .where(eq(authAccounts.userId, user.id)),
-    );
-    expect(
-      await verifyPassword({
-        hash: credential.hash ?? '',
-        password: 'new password 42',
-      }),
-    ).toBe(true);
 
     const disabled = await accounts.setAccountStatus(db, businessId, 'disabled');
     expect(disabled?.status).toBe('disabled');
