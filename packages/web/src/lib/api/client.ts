@@ -8,6 +8,7 @@ import chat from './chat.js';
 import dataDomains from './data-domains.js';
 import evalApi from './eval.js';
 import health from './health.js';
+import integrations from './integrations.js';
 import knowledge from './knowledge.js';
 import market from './market.js';
 import memory from './memory.js';
@@ -35,6 +36,7 @@ export const api = {
   ...dataDomains,
   ...evalApi,
   ...health,
+  ...integrations,
   ...knowledge,
   ...market,
   ...memory,

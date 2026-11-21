@@ -1,6 +1,6 @@
 import type { ApiTokenCreateInput, WebhookEndpointCreateInput } from '@agentport/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { rpc } from '../orpc.js';
+import { api } from '../api.js';
 import { useCursorList } from './shared.js';
 
 const INTEGRATIONS_PAGE_SIZE = 50;
@@ -14,14 +14,12 @@ export function useApiTokens() {
   return useCursorList({
     queryKey: integrationsKeys.tokens,
     queryFn: (cursor, signal) =>
-      rpc.integrations.tokens.list(
+      api.apiTokens(
         {
-          query: {
-            limit: INTEGRATIONS_PAGE_SIZE,
-            ...(cursor === undefined ? {} : { cursor }),
-          },
+          limit: INTEGRATIONS_PAGE_SIZE,
+          ...(cursor === undefined ? {} : { cursor }),
         },
-        { signal },
+        signal,
       ),
     staleTime: 0,
     select: (data) => data.pages.flatMap((page) => page.items),
@@ -32,14 +30,12 @@ export function useWebhookEndpoints() {
   return useCursorList({
     queryKey: integrationsKeys.webhooks,
     queryFn: (cursor, signal) =>
-      rpc.integrations.webhooks.list(
+      api.webhookEndpoints(
         {
-          query: {
-            limit: INTEGRATIONS_PAGE_SIZE,
-            ...(cursor === undefined ? {} : { cursor }),
-          },
+          limit: INTEGRATIONS_PAGE_SIZE,
+          ...(cursor === undefined ? {} : { cursor }),
         },
-        { signal },
+        signal,
       ),
     staleTime: 0,
     select: (data) => data.pages.flatMap((page) => page.items),
@@ -49,7 +45,7 @@ export function useWebhookEndpoints() {
 export function useCreateApiToken() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: ApiTokenCreateInput) => rpc.integrations.tokens.create({ body: input }),
+    mutationFn: (input: ApiTokenCreateInput) => api.createApiToken(input),
     gcTime: 0,
     onSuccess: () => void client.invalidateQueries({ queryKey: integrationsKeys.tokens }),
   });
@@ -58,7 +54,7 @@ export function useCreateApiToken() {
 export function useRevokeApiToken() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => rpc.integrations.tokens.revoke({ params: { id } }),
+    mutationFn: (id: string) => api.revokeApiToken(id),
     onSuccess: () => void client.invalidateQueries({ queryKey: integrationsKeys.tokens }),
   });
 }
@@ -66,8 +62,7 @@ export function useRevokeApiToken() {
 export function useCreateWebhookEndpoint() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: WebhookEndpointCreateInput) =>
-      rpc.integrations.webhooks.create({ body: input }),
+    mutationFn: (input: WebhookEndpointCreateInput) => api.createWebhookEndpoint(input),
     gcTime: 0,
     onSuccess: () => void client.invalidateQueries({ queryKey: integrationsKeys.webhooks }),
   });
@@ -76,7 +71,7 @@ export function useCreateWebhookEndpoint() {
 export function useRemoveWebhookEndpoint() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => rpc.integrations.webhooks.remove({ params: { id } }),
+    mutationFn: (id: string) => api.removeWebhookEndpoint(id),
     onSuccess: () => void client.invalidateQueries({ queryKey: integrationsKeys.webhooks }),
   });
 }
