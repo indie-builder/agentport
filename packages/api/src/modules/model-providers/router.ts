@@ -8,23 +8,14 @@ import {
   providerErrorKindForStatus,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { actorOf } from '../../http/access.js';
+import { domainAudit } from '../../http/audit.js';
 import type { RequestContext } from '../../http/context.js';
 import { toIso } from '../../lib/iso.js';
 
 const providers = repo.modelProviders;
 const os = implement(modelProvidersContract).$context<RequestContext>();
 
-async function audit(context: RequestContext, action: string, target: string, input?: unknown) {
-  await repo.audit.writeAudit(context.db, context.log, {
-    actor: actorOf(context),
-    action: `model_provider.${action}`,
-    target,
-    input,
-    status: 'ok',
-    requestId: context.requestId,
-  });
-}
+const audit = domainAudit('model_provider');
 
 function toUsage(
   row: repo.modelProviders.ModelProviderRow & { usage: repo.modelProviders.ProviderUsage },

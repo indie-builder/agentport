@@ -1,23 +1,15 @@
 import { governanceContract } from '@agentport/contract/governance';
 import { repo } from '@agentport/db';
 import { implement } from '@orpc/server';
-import { actorOf, requireUser } from '../../http/access.js';
+import { requireUser } from '../../http/access.js';
+import { domainAudit } from '../../http/audit.js';
 import type { RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 
 const os = implement(governanceContract).$context<RequestContext>();
 const governance = repo.governance;
 
-async function audit(context: RequestContext, action: string, target: string, input?: unknown) {
-  await repo.audit.writeAudit(context.db, context.log, {
-    actor: actorOf(context),
-    action: `governance.${action}`,
-    target,
-    input,
-    status: 'ok',
-    requestId: context.requestId,
-  });
-}
+const audit = domainAudit('governance');
 
 export const governanceRouter = os.router({
   departments: {

@@ -10,6 +10,7 @@ import type {
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { actorOf, requireUser } from '../../http/access.js';
+import { domainAudit } from '../../http/audit.js';
 import type { RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
@@ -18,16 +19,7 @@ const security = repo.security;
 const toolPolicies = repo.toolApprovalPolicies;
 const os = implement(securityContract).$context<RequestContext>();
 
-async function audit(context: RequestContext, action: string, target: string, input?: unknown) {
-  await repo.audit.writeAudit(context.db, context.log, {
-    actor: actorOf(context),
-    action: `security.${action}`,
-    target,
-    input,
-    status: 'ok',
-    requestId: context.requestId,
-  });
-}
+const audit = domainAudit('security');
 
 function toPolicy(row: repo.security.ContentPolicyRow): ContentPolicy {
   return {
