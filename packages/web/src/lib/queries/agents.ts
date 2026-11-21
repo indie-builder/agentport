@@ -22,6 +22,7 @@ import {
   type AgentSummary,
   type AgentVersionDetail,
   type AgentVersionSummary,
+  type AgentWriteResult,
   api,
 } from '../api.js';
 import { OVERVIEW_QUERY_KEY } from './overview.js';
@@ -175,6 +176,14 @@ function invalidateAgentLifecycle(client: QueryClient, id: string): void {
   void client.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY });
   void client.invalidateQueries({ queryKey: agentKeys.detail(id) });
   void client.invalidateQueries({ queryKey: agentKeys.access(id) });
+}
+
+function applyAgentWriteResult(client: QueryClient, result: AgentWriteResult): void {
+  if (result.kind === 'detail')
+    client.setQueryData(agentKeys.detail(result.agent.id), result.agent);
+  void client.invalidateQueries({ queryKey: agentKeys.all });
+  void client.invalidateQueries({ queryKey: agentKeys.detail(result.agent.id) });
+  void client.invalidateQueries({ queryKey: agentKeys.versions(result.agent.id) });
 }
 
 export function useArchiveAgent() {
@@ -331,13 +340,7 @@ export function usePublishAgent() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; note?: string }) => api.publishAgent(vars.id, vars.note),
-    onSuccess: (result) => {
-      if (result.kind === 'detail')
-        client.setQueryData(agentKeys.detail(result.agent.id), result.agent);
-      void client.invalidateQueries({ queryKey: agentKeys.all });
-      void client.invalidateQueries({ queryKey: agentKeys.detail(result.agent.id) });
-      void client.invalidateQueries({ queryKey: agentKeys.versions(result.agent.id) });
-    },
+    onSuccess: (result) => applyAgentWriteResult(client, result),
   });
 }
 
@@ -345,13 +348,7 @@ export function useOfflineAgent() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.offlineAgent(id),
-    onSuccess: (result) => {
-      if (result.kind === 'detail')
-        client.setQueryData(agentKeys.detail(result.agent.id), result.agent);
-      void client.invalidateQueries({ queryKey: agentKeys.all });
-      void client.invalidateQueries({ queryKey: agentKeys.detail(result.agent.id) });
-      void client.invalidateQueries({ queryKey: agentKeys.versions(result.agent.id) });
-    },
+    onSuccess: (result) => applyAgentWriteResult(client, result),
   });
 }
 
