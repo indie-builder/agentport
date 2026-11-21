@@ -11,6 +11,7 @@ import { closeHealth, registerHealthHttp } from './http/health.js';
 import { createSecurity } from './http/security.js';
 import { createAuth } from './modules/auth/better-auth.js';
 import { ensureBootstrap, ensureDefaultAssistant } from './modules/auth/bootstrap.js';
+import { configureQueueProducer } from './queue/producer.js';
 import { closeScheduleQueue } from './queue/schedule.js';
 import { registerRoutes } from './routes/index.js';
 import type { AppRuntime } from './types.js';
@@ -28,6 +29,7 @@ export async function buildApp(
     level: config.LOG_LEVEL,
     pretty: config.NODE_ENV === 'development',
   });
+  configureQueueProducer(config.REDIS_URL);
   const { db, client } = createDb(config.DATABASE_URL);
   const app = new Hono<HttpEnv>();
   const context = { db, client, config, log, auth: createAuth(config, db) };

@@ -272,6 +272,7 @@ export const serversRouter = os.router({
     const result: ServerTestResult & { stderr?: string } =
       server.kind === 'stdio'
         ? await testStdioInSandbox(server.id, context.log, {
+            redisUrl: context.config.REDIS_URL,
             ...(runtimeEnvironmentId == null ? {} : { runtimeEnvironmentId }),
           })
         : await testConnection(

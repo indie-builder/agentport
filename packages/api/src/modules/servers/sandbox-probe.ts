@@ -7,8 +7,6 @@ import {
 import { createBunRedisClient, Queue, QueueEvents } from 'bullmq';
 import { RedisClient } from 'bun';
 
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
-
 export interface ProbeLogger {
   warn: (obj: object, msg: string) => void;
 }
@@ -18,17 +16,17 @@ const TIMEOUT = Symbol('timeout');
 export interface StdioProbeOptions {
   runtimeEnvironmentId?: string | null;
   timeoutMs?: number;
-  redisUrl?: string;
+  redisUrl: string;
 }
 
 export async function testStdioInSandbox(
   serverId: string,
   logger: ProbeLogger,
-  options: StdioProbeOptions = {},
+  options: StdioProbeOptions,
 ): Promise<ServerTestResult> {
   const timeoutMs = options.timeoutMs ?? SANDBOX_PROBE_WAIT_TIMEOUT_MS;
   const startedAt = Date.now();
-  const raw = new RedisClient(options.redisUrl ?? REDIS_URL, {
+  const raw = new RedisClient(options.redisUrl, {
     autoReconnect: false,
     enableOfflineQueue: false,
     connectionTimeout: Math.min(2000, timeoutMs),

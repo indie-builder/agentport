@@ -2,10 +2,16 @@ import { afterAll, describe, expect, it } from 'bun:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { closeProducer, publishRun, subscribeRun } from '../src/queue/producer.js';
+import {
+  closeProducer,
+  configureQueueProducer,
+  publishRun,
+  subscribeRun,
+} from '../src/queue/producer.js';
 import { eventFollowerCount, infraReady, testConfig, unique, waitFor } from './helpers.js';
 
 const ready = await infraReady;
+configureQueueProducer(testConfig().REDIS_URL);
 
 describe.skipIf(!ready)('run subscribers', () => {
   afterAll(async () => {

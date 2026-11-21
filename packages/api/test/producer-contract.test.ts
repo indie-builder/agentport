@@ -8,10 +8,11 @@ import {
   runStreamKey,
 } from '@agentport/shared';
 import { RedisClient } from 'bun';
-import { closeProducer, publishRun } from '../src/queue/producer.js';
+import { closeProducer, configureQueueProducer, publishRun } from '../src/queue/producer.js';
 import { infraReady, testConfig, unique } from './helpers.js';
 
 const ready = await infraReady;
+configureQueueProducer(testConfig().REDIS_URL);
 
 describe.skipIf(!ready)('producer shared stream contract', () => {
   const redis = new RedisClient(testConfig().REDIS_URL);

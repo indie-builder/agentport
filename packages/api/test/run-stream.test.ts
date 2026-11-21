@@ -10,6 +10,7 @@ import {
 } from '../../worker/src/runner-client.js';
 import {
   closeProducer,
+  configureQueueProducer,
   publishRun,
   requestRunCancel,
   subscribeRun,
@@ -17,6 +18,7 @@ import {
 import { infraReady, testConfig, unique, waitFor } from './helpers.js';
 
 const ready = await infraReady;
+configureQueueProducer(testConfig().REDIS_URL);
 const logger = { warn: () => undefined, error: () => undefined } as unknown as Logger;
 
 describe.skipIf(!ready)('run stream contract', () => {
