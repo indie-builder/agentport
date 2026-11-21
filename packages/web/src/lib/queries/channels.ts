@@ -29,16 +29,32 @@ import {
   withRunQuestion,
 } from './shared.js';
 
+export const channelKeys = {
+  all: ['channels'] as const,
+  detail: (id: string) => ['channel', id] as const,
+  messages: (id: string) => ['channel-messages', id] as const,
+  runs: (id: string) => ['channel-runs', id] as const,
+  approvals: (id: string) => ['channel-approvals', id] as const,
+  runDetail: (channelId: string, runId: string) =>
+    ['channel-run-detail', channelId, runId] as const,
+  runQuestions: (channelId: string, runId: string) =>
+    ['channel-run-questions', channelId, runId] as const,
+  runOutputs: (channelId: string, runId: string | null) =>
+    ['channel-run-outputs', channelId, runId] as const,
+  runOutputContent: (channelId: string, runId: string, path: string | null) =>
+    ['channel-run-output-content', channelId, runId, path] as const,
+  runOutputBlob: (channelId: string, runId: string, path: string | null) =>
+    ['channel-run-output-blob', channelId, runId, path] as const,
+};
+
 const channelQuery = (id: string) =>
   queryOptions<ChannelDetail>({
-    queryKey: ['channel', id],
+    queryKey: channelKeys.detail(id),
     queryFn: ({ signal }) => api.channel(id, signal),
     staleTime: 0,
   });
 
 export const CHANNEL_MESSAGES_PAGE_SIZE = 200;
-
-export const channelMessagesKey = (id: string) => ['channel-messages', id] as const;
 
 async function fetchChannelMessages(
   id: string,
@@ -51,43 +67,28 @@ async function fetchChannelMessages(
     signal,
   );
   return mergeChannelMessages(
-    client.getQueryData<ChannelMessage[]>(channelMessagesKey(id)) ?? [],
+    client.getQueryData<ChannelMessage[]>(channelKeys.messages(id)) ?? [],
     page,
   );
 }
 
-export const channelRunsQuery = (id: string) =>
+const channelRunsQuery = (id: string) =>
   queryOptions<ChannelActiveRun[]>({
-    queryKey: ['channel-runs', id],
+    queryKey: channelKeys.runs(id),
     queryFn: async ({ signal }) => (await api.channelRuns(id, signal)).items,
     refetchInterval: 15_000,
   });
 
-export const channelApprovalsQuery = (id: string) =>
+const channelApprovalsQuery = (id: string) =>
   queryOptions<ChannelApproval[]>({
-    queryKey: ['channel-approvals', id],
+    queryKey: channelKeys.approvals(id),
     queryFn: async ({ signal }) => (await api.channelApprovals(id, signal)).items,
     refetchInterval: 15_000,
   });
 
-const channelRunDetailQueryKey = (channelId: string, runId: string) =>
-  ['channel-run-detail', channelId, runId] as const;
-
-export const channelRunQuestionsQueryKey = (channelId: string, runId: string) =>
-  ['channel-run-questions', channelId, runId] as const;
-
-export const channelRunOutputsQueryKey = (channelId: string, runId: string | null) =>
-  ['channel-run-outputs', channelId, runId] as const;
-
-const channelRunOutputContentQueryKey = (channelId: string, runId: string, path: string | null) =>
-  ['channel-run-output-content', channelId, runId, path] as const;
-
-const channelRunOutputBlobQueryKey = (channelId: string, runId: string, path: string | null) =>
-  ['channel-run-output-blob', channelId, runId, path] as const;
-
 export function useChannels() {
   return useCursorList({
-    queryKey: ['channels'],
+    queryKey: channelKeys.all,
     queryFn: (cursor, signal) => api.channels(cursor, signal),
     staleTime: 0,
     select: (data) => data.pages.flatMap((page) => page.items),
@@ -101,7 +102,7 @@ export function useChannel(id: string) {
 export function useChannelMessages(id: string) {
   const client = useQueryClient();
   return useQuery({
-    queryKey: channelMessagesKey(id),
+    queryKey: channelKeys.messages(id),
     queryFn: ({ signal }) => fetchChannelMessages(id, client, signal),
     staleTime: 0,
   });
@@ -119,7 +120,7 @@ export function useCreateChannel() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: { name: string; description?: string | null }) => api.createChannel(input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['channels'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: channelKeys.all }),
   });
 }
 
@@ -129,8 +130,8 @@ export function useUpdateChannel(id: string) {
     mutationFn: (input: { name?: string; description?: string | null }) =>
       api.updateChannel(id, input),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['channel', id] });
-      void client.invalidateQueries({ queryKey: ['channels'] });
+      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
+      void client.invalidateQueries({ queryKey: channelKeys.all });
     },
   });
 }
@@ -141,8 +142,8 @@ export function useAddChannelMember(id: string) {
     mutationFn: (input: { businessId: string; role: ChannelRole }) =>
       api.addChannelMember(id, input),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['channel', id] });
-      void client.invalidateQueries({ queryKey: ['channels'] });
+      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
+      void client.invalidateQueries({ queryKey: channelKeys.all });
     },
   });
 }
@@ -153,8 +154,8 @@ export function useUpdateChannelMember(id: string) {
     mutationFn: (vars: { businessId: string; role: ChannelRole }) =>
       api.updateChannelMember(id, vars.businessId, vars.role),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['channel', id] });
-      void client.invalidateQueries({ queryKey: ['channels'] });
+      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
+      void client.invalidateQueries({ queryKey: channelKeys.all });
     },
   });
 }
@@ -164,8 +165,8 @@ export function useRemoveChannelMember(id: string) {
   return useMutation({
     mutationFn: (businessId: string) => api.removeChannelMember(id, businessId),
     onSettled: () => {
-      void client.invalidateQueries({ queryKey: ['channel', id] });
-      void client.invalidateQueries({ queryKey: ['channels'] });
+      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
+      void client.invalidateQueries({ queryKey: channelKeys.all });
     },
   });
 }
@@ -175,8 +176,8 @@ export function useRemoveChannelAgent(id: string) {
   return useMutation({
     mutationFn: (agentId: string) => api.removeChannelAgent(id, agentId),
     onSettled: () => {
-      void client.invalidateQueries({ queryKey: ['channel', id] });
-      void client.invalidateQueries({ queryKey: ['channels'] });
+      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
+      void client.invalidateQueries({ queryKey: channelKeys.all });
     },
   });
 }
@@ -186,8 +187,8 @@ export function useDisconnectChannelAgent(id: string) {
   return useMutation({
     mutationFn: (agentId: string) => api.disconnectChannelAgent(id, agentId),
     onSettled: () => {
-      void client.invalidateQueries({ queryKey: ['channel', id] });
-      void client.invalidateQueries({ queryKey: ['channels'] });
+      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
+      void client.invalidateQueries({ queryKey: channelKeys.all });
     },
   });
 }
@@ -197,8 +198,8 @@ export function useCloseChannel(id: string) {
   return useMutation({
     mutationFn: () => api.closeChannel(id),
     onSettled: () => {
-      void client.invalidateQueries({ queryKey: ['channel', id] });
-      void client.invalidateQueries({ queryKey: ['channels'] });
+      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
+      void client.invalidateQueries({ queryKey: channelKeys.all });
     },
   });
 }
@@ -209,8 +210,8 @@ export function useBindChannelAgent(id: string) {
     mutationFn: (input: { agentId: string; autoWakeOnAll?: boolean }) =>
       api.bindChannelAgent(id, input),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['channel', id] });
-      void client.invalidateQueries({ queryKey: ['channels'] });
+      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
+      void client.invalidateQueries({ queryKey: channelKeys.all });
     },
   });
 }
@@ -221,10 +222,10 @@ export function useUpdateChannelAgent(id: string) {
     mutationFn: (vars: { agentId: string; autoWakeOnAll: boolean }) =>
       api.updateChannelAgent(id, vars.agentId, { autoWakeOnAll: vars.autoWakeOnAll }),
     onMutate: async (vars) => {
-      await client.cancelQueries({ queryKey: ['channel', id] });
-      const prev = client.getQueryData<ChannelDetail>(['channel', id]);
+      await client.cancelQueries({ queryKey: channelKeys.detail(id) });
+      const prev = client.getQueryData<ChannelDetail>(channelKeys.detail(id));
       if (prev) {
-        client.setQueryData<ChannelDetail>(['channel', id], (old) =>
+        client.setQueryData<ChannelDetail>(channelKeys.detail(id), (old) =>
           old
             ? {
                 ...old,
@@ -239,13 +240,13 @@ export function useUpdateChannelAgent(id: string) {
     },
     onError: (_error, _vars, ctx) => {
       if (ctx?.prev !== undefined) {
-        client.setQueryData<ChannelDetail>(['channel', id], ctx.prev);
+        client.setQueryData<ChannelDetail>(channelKeys.detail(id), ctx.prev);
       }
-      void client.invalidateQueries({ queryKey: ['channel', id] });
+      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
     },
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['channel', id] });
-      void client.invalidateQueries({ queryKey: ['channels'] });
+      void client.invalidateQueries({ queryKey: channelKeys.detail(id) });
+      void client.invalidateQueries({ queryKey: channelKeys.all });
     },
   });
 }
@@ -255,8 +256,8 @@ export function useChannelHandoff(id: string) {
   return useMutation({
     mutationFn: (input: ChannelHandoffInput) => api.handoffChannel(id, input),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['channels'] });
-      void client.invalidateQueries({ queryKey: channelMessagesKey(id) });
+      void client.invalidateQueries({ queryKey: channelKeys.all });
+      void client.invalidateQueries({ queryKey: channelKeys.messages(id) });
     },
   });
 }
@@ -265,7 +266,7 @@ export function useStopChannelRun(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (runId: string) => api.stopChannelRun(id, runId),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['channel-runs', id] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: channelKeys.runs(id) }),
   });
 }
 
@@ -273,7 +274,7 @@ export function useApproveChannelApproval(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (approvalId: string) => api.approveChannelApproval(id, approvalId),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['channel-approvals', id] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: channelKeys.approvals(id) }),
   });
 }
 
@@ -281,7 +282,7 @@ export function useDenyChannelApproval(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (approvalId: string) => api.denyChannelApproval(id, approvalId),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['channel-approvals', id] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: channelKeys.approvals(id) }),
   });
 }
 
@@ -289,13 +290,13 @@ export function useMarkChannelRead(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (seq: number) => api.markChannelRead(id, seq),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['channels'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: channelKeys.all }),
   });
 }
 
 export function useChannelRunDetail(channelId: string, runId: string) {
   return useQuery<ChannelRunDetail>({
-    queryKey: channelRunDetailQueryKey(channelId, runId),
+    queryKey: channelKeys.runDetail(channelId, runId),
     queryFn: ({ signal }) => api.channelRunDetail(channelId, runId, signal),
     staleTime: 5_000,
     refetchInterval: (query) => {
@@ -307,12 +308,12 @@ export function useChannelRunDetail(channelId: string, runId: string) {
 
 export function useChannelRunQuestions(channelId: string, runId: string, active: boolean) {
   const client = useQueryClient();
-  const queryKey = useMemo(() => channelRunQuestionsQueryKey(channelId, runId), [channelId, runId]);
+  const queryKey = useMemo(() => channelKeys.runQuestions(channelId, runId), [channelId, runId]);
   useRefetchWhenRunEnds(`${channelId}/${runId}`, active, queryKey);
   return useQuery<ChannelRunQuestions>({
-    queryKey: channelRunQuestionsQueryKey(channelId, runId),
+    queryKey: channelKeys.runQuestions(channelId, runId),
     queryFn: async () => {
-      const key = channelRunQuestionsQueryKey(channelId, runId);
+      const key = channelKeys.runQuestions(channelId, runId);
       const fetched = await api.channelRunQuestions(channelId, runId);
       return {
         items: mergeRunQuestions(
@@ -332,7 +333,7 @@ export function useRespondToChannelQuestion(channelId: string) {
     mutationFn: (input: { runId: string; requestId: string; response: PublicQuestionResponse }) =>
       api.respondToChannelQuestion(channelId, input.runId, input.requestId, input.response),
     onSuccess: async (question) => {
-      const queryKey = channelRunQuestionsQueryKey(channelId, question.runId);
+      const queryKey = channelKeys.runQuestions(channelId, question.runId);
       await client.cancelQueries({ queryKey });
       client.setQueryData<ChannelRunQuestions>(queryKey, (previous) => ({
         items: withRunQuestion(previous?.items, question),
@@ -343,7 +344,7 @@ export function useRespondToChannelQuestion(channelId: string) {
 
 export function useChannelRunOutputs(channelId: string, runId: string | null) {
   return useCursorList({
-    queryKey: channelRunOutputsQueryKey(channelId, runId),
+    queryKey: channelKeys.runOutputs(channelId, runId),
     queryFn: (cursor, signal) =>
       api.channelRunOutputs(
         channelId,
@@ -362,7 +363,7 @@ export function useChannelRunOutputs(channelId: string, runId: string | null) {
 
 export function useChannelRunOutputContent(channelId: string, runId: string, path: string | null) {
   return useQuery<ChannelRunOutputContent>({
-    queryKey: channelRunOutputContentQueryKey(channelId, runId, path),
+    queryKey: channelKeys.runOutputContent(channelId, runId, path),
     queryFn: ({ signal }) => api.channelRunOutputContent(channelId, runId, path ?? '', signal),
     enabled: path !== null,
     staleTime: 5 * 60_000,
@@ -376,7 +377,7 @@ export function useChannelRunOutputBlob(
   enabled: boolean,
 ) {
   return useQuery<Blob>({
-    queryKey: channelRunOutputBlobQueryKey(channelId, runId, path),
+    queryKey: channelKeys.runOutputBlob(channelId, runId, path),
     queryFn: ({ signal }) => api.channelRunOutputBlob(channelId, runId, path ?? '', signal),
     enabled: path !== null && enabled,
     staleTime: 5 * 60_000,

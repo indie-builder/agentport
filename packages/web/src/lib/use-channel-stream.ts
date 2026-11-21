@@ -10,14 +10,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { mergeChannelMessages } from './channel-state.js';
 import { applyEvent, type ChatItem } from './chat-state.js';
-import {
-  channelApprovalsQuery,
-  channelMessagesKey,
-  channelRunQuestionsQueryKey,
-  channelRunsQuery,
-  useChannelMessages,
-  useChannelRuns,
-} from './queries.js';
+import { channelKeys, useChannelMessages, useChannelRuns } from './queries.js';
 
 interface ChannelRunStream {
   runId: string;
@@ -77,8 +70,8 @@ export function useChannelStream(channelId: string) {
       `/api/channels/${encodeURIComponent(channelId)}/events?after=${cursorRef.current.after}`,
     );
     const refreshLifecycle = (): void => {
-      void client.invalidateQueries({ queryKey: channelRunsQuery(channelId).queryKey });
-      void client.invalidateQueries({ queryKey: channelApprovalsQuery(channelId).queryKey });
+      void client.invalidateQueries({ queryKey: channelKeys.runs(channelId) });
+      void client.invalidateQueries({ queryKey: channelKeys.approvals(channelId) });
     };
     source.onopen = refreshLifecycle;
     source.onmessage = (message) => {
@@ -86,13 +79,13 @@ export function useChannelStream(channelId: string) {
       if (event === null) return;
       if (event.type === 'message.created') {
         cursorRef.current.after = Math.max(cursorRef.current.after, event.seq);
-        client.setQueryData<ChannelMessage[]>(channelMessagesKey(channelId), (previous) =>
+        client.setQueryData<ChannelMessage[]>(channelKeys.messages(channelId), (previous) =>
           mergeChannelMessages(previous ?? [], [event.message]),
         );
         if (event.message.runId) {
           dropStream(event.message.runId);
         }
-        void client.invalidateQueries({ queryKey: ['channels'] });
+        void client.invalidateQueries({ queryKey: channelKeys.all });
         return;
       }
       if (event.type === 'run.finished') {
@@ -164,7 +157,7 @@ export function useChannelStream(channelId: string) {
           event.type === 'question_closed'
         ) {
           void client.invalidateQueries({
-            queryKey: channelRunQuestionsQueryKey(channelId, run.runId),
+            queryKey: channelKeys.runQuestions(channelId, run.runId),
           });
           return;
         }
@@ -200,8 +193,8 @@ export function useChannelStream(channelId: string) {
         if (event.type === 'run_finished') {
           source.close();
           runSources.current.delete(run.runId);
-          void client.invalidateQueries({ queryKey: channelRunsQuery(channelId).queryKey });
-          void client.invalidateQueries({ queryKey: channelApprovalsQuery(channelId).queryKey });
+          void client.invalidateQueries({ queryKey: channelKeys.runs(channelId) });
+          void client.invalidateQueries({ queryKey: channelKeys.approvals(channelId) });
         }
       };
     }

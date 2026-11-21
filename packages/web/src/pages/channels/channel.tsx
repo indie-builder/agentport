@@ -46,7 +46,7 @@ import { cn } from '../../lib/cn.js';
 import { shortId } from '../../lib/format.js';
 import {
   CHANNEL_MESSAGES_PAGE_SIZE,
-  channelMessagesKey,
+  channelKeys,
   meQuery,
   useAgents,
   useApproveChannelApproval,
@@ -351,7 +351,7 @@ function ChannelWorkspace({
   );
 
   const setMessages = (update: (previous: readonly ChannelMessage[]) => ChannelMessage[]): void => {
-    client.setQueryData<ChannelMessage[]>(channelMessagesKey(channel.id), (previous) =>
+    client.setQueryData<ChannelMessage[]>(channelKeys.messages(channel.id), (previous) =>
       update(previous ?? []),
     );
   };
@@ -371,7 +371,7 @@ function ChannelWorkspace({
         before: first.seq,
         limit: CHANNEL_MESSAGES_PAGE_SIZE,
       });
-      client.setQueryData<ChannelMessage[]>(channelMessagesKey(channel.id), (previous) =>
+      client.setQueryData<ChannelMessage[]>(channelKeys.messages(channel.id), (previous) =>
         mergeChannelMessages(previous ?? [], page),
       );
       if (page.length < CHANNEL_MESSAGES_PAGE_SIZE) setOlderExhausted(true);
@@ -452,7 +452,7 @@ function ChannelWorkspace({
       if (files.length > 0 && useChatStore.getState().pendingAttachments === files) {
         useChatStore.getState().setPendingAttachments([]);
       }
-      void client.invalidateQueries({ queryKey: ['channels'] });
+      void client.invalidateQueries({ queryKey: channelKeys.all });
     } catch (error) {
       setMessages((previous) => previous.filter((item) => item.id !== optimistic.id));
       if (inputRef.current === '') {
