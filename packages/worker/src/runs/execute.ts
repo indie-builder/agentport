@@ -58,6 +58,7 @@ import {
   runWorkspaceDir,
   toHostWorkspacePath,
 } from '../session-workspace.js';
+import { collectApprovalTools } from './approval-tools.js';
 import { promptWithAttachments } from './attachments.js';
 import { readForkUuidMap } from './fork-uuids.js';
 import { promptWithOpenUiAction } from './openui-action.js';
@@ -578,19 +579,18 @@ export async function runAgentJob(
         liveApprovalServerIds.length === 0
           ? []
           : await repo.servers.listToolApprovalModes(db, liveApprovalServerIds);
-      const mcpApprovalTools = [
-        ...serverRows.flatMap((server) =>
-          (server.tools ?? [])
-            .filter((tool) => tool.enabled && tool.approvalMode === 'ask')
-            .map((tool) => ({ server: server.name, tool: tool.name })),
-        ),
-        ...approvalModes.flatMap((tool) => {
-          const server = serverNamesById.get(tool.serverId);
-          return tool.approvalMode === 'ask' && server !== undefined
-            ? [{ server, tool: tool.toolName }]
-            : [];
-        }),
-      ];
+      const mcpApprovalTools = collectApprovalTools(
+        serverRows,
+        approvalModes,
+        serverNamesById,
+        'ask',
+      );
+      const mcpDeniedToolNames = collectApprovalTools(
+        serverRows,
+        approvalModes,
+        serverNamesById,
+        'deny',
+      ).map((tool) => `mcp__${tool.server}__${tool.tool}`);
 
       const liveSkillRowsByAgent: Map<
         string,
@@ -738,7 +738,9 @@ export async function runAgentJob(
         skills: skillsWithFiles.map((skill) => skill.slug),
         hasWorkflows,
         extraAllowedTools: effectiveAgent.allowedTools,
-        extraDisallowedTools: effectiveAgent.disallowedTools,
+        extraDisallowedTools: [
+          ...new Set([...effectiveAgent.disallowedTools, ...mcpDeniedToolNames]),
+        ],
         ...(effectiveAgent.effort === null
           ? {}
           : { effort: effortSchema.parse(effectiveAgent.effort) }),
