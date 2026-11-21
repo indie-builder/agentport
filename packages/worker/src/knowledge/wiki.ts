@@ -41,7 +41,11 @@ export type WikiQueryFn = (params: {
 
 export interface WikiGenerateDeps {
   db: Database;
-  config: { KNOWLEDGE_DIR: string; KNOWLEDGE_WIKI_MODEL?: string | undefined };
+  config: {
+    KNOWLEDGE_DIR: string;
+    KNOWLEDGE_WIKI_MODEL?: string | undefined;
+    ANTHROPIC_BASE_URL: string | undefined;
+  };
   signal: AbortSignal;
   /** 替换真实 SDK query；测试注入假实现，不 mock 模块。 */
   queryFn?: WikiQueryFn;
@@ -339,6 +343,7 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
           options: hermeticQueryOptions({
             model,
             cwd,
+            anthropicBaseUrl: deps.config.ANTHROPIC_BASE_URL,
             mcpServers: { knowledge: server },
             allowedTools: WIKI_ALLOWED_TOOLS,
             abortController: controller,

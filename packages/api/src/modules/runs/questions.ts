@@ -39,6 +39,7 @@ export async function answerRunQuestion(
         log: context.log,
         requestId: context.requestId,
         actor: actorOf(context),
+        anthropicBaseUrl: context.config.ANTHROPIC_BASE_URL,
         agentId: run.agentId,
         runId,
         origin: 'question',

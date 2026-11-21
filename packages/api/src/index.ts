@@ -18,6 +18,7 @@ const stopChannelWakeSweeper = startChannelWakeSweeper({
   log: runtime.log,
   queue: getQueue(),
   workspacesDir: config.WORKSPACES_DIR,
+  anthropicBaseUrl: config.ANTHROPIC_BASE_URL,
 });
 const { app } = runtime;
 const webDist = process.env.WEB_DIST ? resolve(process.env.WEB_DIST) : undefined;

@@ -174,7 +174,11 @@ async function startSummaryJob(documentId: string, payloadVersionId?: string) {
 function deps(queryFn?: SummaryQueryFn) {
   return {
     db,
-    config: { KNOWLEDGE_DIR: knowledgeDir, KNOWLEDGE_SUMMARY_MODEL: 'summary-test-model' },
+    config: {
+      KNOWLEDGE_DIR: knowledgeDir,
+      KNOWLEDGE_SUMMARY_MODEL: 'summary-test-model',
+      ANTHROPIC_BASE_URL: undefined,
+    },
     signal: new AbortController().signal,
     ...(queryFn === undefined ? {} : { queryFn }),
   };
@@ -244,7 +248,7 @@ describe('runKnowledgeSummary', () => {
     await expect(
       runKnowledgeSummary(await startSummaryJob(seeded.documentId), {
         db,
-        config: { KNOWLEDGE_DIR: knowledgeDir },
+        config: { KNOWLEDGE_DIR: knowledgeDir, ANTHROPIC_BASE_URL: undefined },
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow('摘要模型未配置');

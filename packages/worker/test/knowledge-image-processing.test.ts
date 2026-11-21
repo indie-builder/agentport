@@ -92,7 +92,10 @@ describe('describeKnowledgeImage', () => {
         settings: settings(),
         signal: new AbortController().signal,
       },
-      { queryFn: fakeQuery([{ text: '发票号码 123' }, { text: '一张发票照片' }], captured) },
+      {
+        queryFn: fakeQuery([{ text: '发票号码 123' }, { text: '一张发票照片' }], captured),
+        anthropicBaseUrl: undefined,
+      },
     );
 
     expect(result).toEqual({
@@ -145,6 +148,7 @@ describe('describeKnowledgeImage', () => {
       },
       {
         queryFn: fakeQuery([{ error: 'overloaded' }, { text: '一只猫坐在窗台上' }], []),
+        anthropicBaseUrl: undefined,
       },
     );
     expect(result.ocr).toBeNull();
@@ -160,7 +164,10 @@ describe('describeKnowledgeImage', () => {
         settings: settings(),
         signal: new AbortController().signal,
       },
-      { queryFn: fakeQuery([{ error: 'boom' }, { error: 'boom' }], []) },
+      {
+        queryFn: fakeQuery([{ error: 'boom' }, { error: 'boom' }], []),
+        anthropicBaseUrl: undefined,
+      },
     );
     expect(result.ocr).toBeNull();
     expect(result.caption).toBeNull();
@@ -174,7 +181,7 @@ describe('describeKnowledgeImage', () => {
         settings: settings({ ocrEnabled: true, captionEnabled: false }),
         signal: new AbortController().signal,
       },
-      { queryFn: fakeQuery([{ text: '   ' }], []) },
+      { queryFn: fakeQuery([{ text: '   ' }], []), anthropicBaseUrl: undefined },
     );
     expect(result.ocr).toBeNull();
     expect(result.warnings).toEqual([expect.stringContaining('ocr')]);
@@ -188,7 +195,7 @@ describe('describeKnowledgeImage', () => {
         settings: settings({ ocrEnabled: false }),
         signal: new AbortController().signal,
       },
-      { queryFn: fakeQuery([{ text: '描述' }], captured) },
+      { queryFn: fakeQuery([{ text: '描述' }], captured), anthropicBaseUrl: undefined },
     );
     expect(captured).toHaveLength(1);
     expect(result).toEqual({ ocr: null, caption: '描述', warnings: [] });
@@ -202,7 +209,7 @@ describe('describeKnowledgeImage', () => {
           settings: settings(),
           signal: new AbortController().signal,
         },
-        { queryFn: fakeQuery([], []) },
+        { queryFn: fakeQuery([], []), anthropicBaseUrl: undefined },
       ),
     ).rejects.toThrow(/不支持的图片/);
   });
@@ -216,7 +223,7 @@ describe('describeKnowledgeImage', () => {
       await expect(
         describeKnowledgeImage(
           { image, settings: settings(), signal: new AbortController().signal },
-          { queryFn: fakeQuery([], captured) },
+          { queryFn: fakeQuery([], captured), anthropicBaseUrl: undefined },
         ),
       ).rejects.toThrow(/无法解码/);
     }
@@ -234,7 +241,7 @@ describe('describeKnowledgeImage', () => {
           settings: settings(),
           signal: new AbortController().signal,
         },
-        { queryFn: fakeQuery([], captured) },
+        { queryFn: fakeQuery([], captured), anthropicBaseUrl: undefined },
       ),
     ).rejects.toThrow(/5MiB/);
     expect(captured).toHaveLength(0);
@@ -264,7 +271,7 @@ describe('describeKnowledgeImage', () => {
         settings: settings({ captionEnabled: false }),
         signal: controller.signal,
       },
-      { queryFn },
+      { queryFn, anthropicBaseUrl: undefined },
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
     controller.abort();

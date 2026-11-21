@@ -140,6 +140,7 @@ async function makeBase(settings: { wikiAutoUpdate: boolean }): Promise<Fixture>
       knowledgeDir,
       parse: async ({ data }) => ({ markdown: data.toString('utf8'), images: [], pageMap: [] }),
       chunkMarkdown: chunkStub,
+      anthropicBaseUrl: undefined,
       connectors: {},
       decrypt: () => ({ apiKey: 'test-key' }),
       onWikiUpdate: async (input) => {

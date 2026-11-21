@@ -267,6 +267,7 @@ async function makeBase(
       parse: async ({ data }) => ({ markdown: data.toString('utf8'), images: [], pageMap: [] }),
       chunkMarkdown: chunkStub,
       connectors: connectors as KnowledgeDeps['connectors'],
+      anthropicBaseUrl: undefined,
       decrypt: () => ({ apiKey: 'test-key' }),
     },
   };

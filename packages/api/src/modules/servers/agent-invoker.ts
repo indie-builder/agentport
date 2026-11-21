@@ -55,6 +55,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
           log: app.log,
           requestId,
           actor: 'mcp',
+          anthropicBaseUrl: app.config.ANTHROPIC_BASE_URL,
           agentId: agent.id,
           origin: 'mcp',
           sourceKind: 'run_prompt',

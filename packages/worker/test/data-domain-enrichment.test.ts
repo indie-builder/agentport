@@ -109,6 +109,7 @@ describe.skipIf(!ready)('runDataDomainEnrichment', () => {
         logger,
         enrichModel: 'enrich-model',
         signal: new AbortController().signal,
+        anthropicBaseUrl: undefined,
         queryFn: reply(
           [
             resultMessage({
@@ -169,6 +170,7 @@ describe.skipIf(!ready)('runDataDomainEnrichment', () => {
         logger,
         enrichModel: 'enrich-model',
         signal: new AbortController().signal,
+        anthropicBaseUrl: undefined,
         queryFn: reply([resultMessage({ summary: '', updatedFiles: 'nope' })], []),
       },
       seeded,
@@ -187,6 +189,7 @@ describe.skipIf(!ready)('runDataDomainEnrichment', () => {
         logger,
         enrichModel: 'enrich-model',
         signal: new AbortController().signal,
+        anthropicBaseUrl: undefined,
         queryFn: reply(
           [
             resultMessage({
@@ -215,6 +218,7 @@ describe.skipIf(!ready)('runDataDomainEnrichment', () => {
         logger,
         enrichModel: undefined,
         signal: new AbortController().signal,
+        anthropicBaseUrl: undefined,
         queryFn: () => {
           called = true;
           return (async function* () {})();

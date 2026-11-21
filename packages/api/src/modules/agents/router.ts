@@ -617,6 +617,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       log: context.log,
       requestId: context.requestId,
       actor: principal.businessId,
+      anthropicBaseUrl: context.config.ANTHROPIC_BASE_URL,
       agentId: current.id,
       origin: 'trial',
       sourceKind: 'run_prompt',

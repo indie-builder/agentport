@@ -80,7 +80,11 @@ async function mustGetJob(id: string) {
 
 const deps = (overrides: Partial<WikiGenerateDeps> = {}): WikiGenerateDeps => ({
   db,
-  config: { KNOWLEDGE_DIR: knowledgeDir, KNOWLEDGE_WIKI_MODEL: 'wiki-test-model' },
+  config: {
+    KNOWLEDGE_DIR: knowledgeDir,
+    KNOWLEDGE_WIKI_MODEL: 'wiki-test-model',
+    ANTHROPIC_BASE_URL: undefined,
+  },
   signal: new AbortController().signal,
   ...overrides,
 });
@@ -675,7 +679,7 @@ describe('runWikiGenerate', () => {
       runWikiGenerate(
         await mustGetJob(jobId),
         deps({
-          config: { KNOWLEDGE_DIR: knowledgeDir },
+          config: { KNOWLEDGE_DIR: knowledgeDir, ANTHROPIC_BASE_URL: undefined },
           queryFn: fakeQuery(async () => undefined),
         }),
       ),

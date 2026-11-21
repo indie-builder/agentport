@@ -162,6 +162,7 @@ export interface KnowledgeDeps {
   allowLoopback?: boolean;
   /** 图片 OCR/描述走官方 query；worker 真实运行默认 query，测试注入替身。 */
   imageQueryFn?: ImageQueryFn;
+  anthropicBaseUrl: string | undefined;
 }
 
 const EMBED_BATCH = 32;
@@ -584,7 +585,10 @@ async function imageDrafts(
         settings,
         signal: taskSignal,
       },
-      deps.imageQueryFn ? { queryFn: deps.imageQueryFn } : {},
+      {
+        ...(deps.imageQueryFn === undefined ? {} : { queryFn: deps.imageQueryFn }),
+        anthropicBaseUrl: deps.anthropicBaseUrl,
+      },
     );
     checkAborted(taskSignal);
     const own = [...described.warnings];

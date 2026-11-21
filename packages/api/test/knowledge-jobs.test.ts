@@ -494,6 +494,7 @@ describe.skipIf(!raceReady)('queued cancel loses to a claimed sync job', () => {
       prefix,
       knowledgeDir,
       decrypt: () => ({}),
+      anthropicBaseUrl: undefined,
       connectors: { feed: connector },
     });
     const connection = createBunRedisClient(new RedisClient(redisUrl));

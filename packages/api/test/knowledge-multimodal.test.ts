@@ -1449,6 +1449,7 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         parse: createParsingAdapter().parse,
         chunkMarkdown: createParsingAdapter().chunkMarkdown,
         connectors: {},
+        anthropicBaseUrl: undefined,
         decrypt: () => {
           throw new Error('chunksOnly 不应解密凭证');
         },

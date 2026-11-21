@@ -30,6 +30,7 @@ export async function enforceContentPolicy<T>(input: {
   extraTexts?: string[];
   payload: (texts: [string, ...string[]]) => { data: T; binding: unknown };
   agentId: string;
+  anthropicBaseUrl: string | undefined;
   origin?:
     | 'chat'
     | 'regenerate'
@@ -104,7 +105,7 @@ export async function enforceContentPolicy<T>(input: {
     const provider =
       providerId === null ? null : await repo.modelProviders.getModelProvider(input.db, providerId);
     destination = providerRouteDestination(
-      provider ?? envProviderDestination(process.env.ANTHROPIC_BASE_URL),
+      provider ?? envProviderDestination(input.anthropicBaseUrl),
     );
   }
   const createEvent = async (db: DbHandle, eventAction = action) => {

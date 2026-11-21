@@ -16,11 +16,12 @@ type HermeticQueryOverrides = Pick<
 
 export function hermeticQueryOptions({
   cwd,
+  anthropicBaseUrl,
   ...overrides
-}: { cwd: string } & HermeticQueryOverrides): Options {
+}: { cwd: string; anthropicBaseUrl: string | undefined } & HermeticQueryOverrides): Options {
   return {
     cwd,
-    env: sdkEnv(cwd),
+    env: sdkEnv(cwd, anthropicBaseUrl),
     tools: [],
     mcpServers: {},
     strictMcpConfig: true,
