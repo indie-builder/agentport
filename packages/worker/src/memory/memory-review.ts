@@ -35,7 +35,7 @@ import { checkOutboundPolicy } from '../content-policy.js';
 import { resolveProviderUpstreams } from '../model-providers.js';
 import type { ModelProxy } from '../model-proxy.js';
 import { hermeticQueryOptions } from '../one-shot-sdk.js';
-import { claimRunTerminal, notifyRunOutcome } from '../runs/run-finish.js';
+import { claimRunTerminal, notifyRunTerminal } from '../runs/run-finish.js';
 import { modelProxyUpstream, sdkEnv } from '../upstream.js';
 import { version } from '../version.js';
 
@@ -260,7 +260,9 @@ async function finishRun(
     error,
   });
   if (row === undefined || logger === undefined) return;
-  await notifyRunOutcome({ db, logger, runId, status, error });
+  await notifyRunTerminal({ db, status, error }, row).catch((err: unknown) => {
+    logger.warn({ err, runId: row.id }, 'run terminal notification failed');
+  });
 }
 
 async function watchCancel(
