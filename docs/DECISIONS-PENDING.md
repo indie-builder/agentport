@@ -768,6 +768,46 @@
 
 ---
 
+## D-88 ⏳ 工具审批可配置策略与可读审计（待决策）
+
+**用户故事**：安全运营人员希望让同一专家的查询工具直通，让普通成员的写操作先审批，并能在审计中看到谁把哪条规则从什么改成了什么。
+
+**现状与依据**：
+
+- generated 工具已有 `api_tools.approval_mode`（`allow`、`ask`、`deny`）。[`generated.ts`](../packages/api/src/modules/servers/generated.ts) 在调用上游前先做审批门禁：活动状态检查后，`deny` 返回 `policyDeniedResult`，MCP 入口记录 `mcp.tool.denied`；`ask` 在服务端复核批准。已有 run 定义快照时，[MCP 入口](../packages/api/src/modules/servers/mcp-endpoint.ts)与[审批入口](../packages/api/src/modules/servers/http.ts)按快照取工具；外部连接器调用走当前定义。
+- worker 把父级和启用子级的连接器名到 ID 映射、`ask` 工具清单交给 runner。[`approval-hook.ts`](../packages/sandbox/src/approval-hook.ts) 用 `PreToolUse` 从 `.mcp.json` 取 run 凭证，`PUT /tool-approvals/{runId}/{serverId}/{toolName}` 登记，再 `GET` 轮询。`approval_requests` 的等待截止由 `APPROVAL_WAIT_MS` 写入（默认 300 秒，hook 最多等 355 秒）。[私有 run](../packages/api/src/modules/runs/router.ts)与[频道](../packages/api/src/modules/channels/approvals.ts)的批准、拒绝写 `agent.run.approved`、`agent.run.denied`。[#614](https://github.com/indie-builder/agentport/pull/614) 每 5 分钟随 `ops-alerts` 核对已到期且未决策的记录，写 `expired_at`，尝试追加 `agent.run.approval.expired` 和清理未读审批通知。等待按 `expires_at` 截止，不等扫描；私有 run 的迟到批准仍可用于后续调用，不能恢复已经超时的调用。
+- [`renderWorkspace()`](../packages/core/src/workspace.ts) 把绑定连接器写入 `.mcp.json`，把 `env`、已选 `outputStyle` 和用户 hooks 写入 `.claude/settings.json`，目前不生成 `permissions`。[`runner.ts`](../packages/sandbox/src/runner.ts) 用 `settingSources: ['project']` 加载文件，另在 SDK 选项传 `allowedTools`、`disallowedTools`，其中按连接器生成的 allow 规则用于自动批准，不是工具白名单。已装 SDK 0.3.329 的 `sdk.d.ts` 有 `canUseTool` 和 `PreToolUse`；项目的 `canUseTool` 只处理原生澄清提问，`dontAsk` 不安装。工具审批走 hook；按[官方权限顺序](https://code.claude.com/docs/en/agent-sdk/permissions)，自动批准的调用也会跑 hook，但不一定会跑 `canUseTool`。
+- [`audit_log`](../packages/db/src/schema/ops.ts) 保留明文 `target` 和事件元数据，`input` 只以 `input_digest` 入链。[审计 repo](../packages/db/src/repo/audit.ts) 无法从摘要还原 `old → new`。现有 `server.tool.updated` 只把补丁交给摘要计算，因此改审计文案或导出不能补出历史改动值。
+
+**问题与目标**：单个工具目前只有一个审批模式，不能区分哪个专家在用、谁发起、要执行哪种 HTTP 操作。扩展后，同一调用在 hook 和 generated 服务端应得到一致的判定，策略修改须能在审计页和导出中读到变更前后的值。
+
+**范围**：首期只对平台 generated MCP 落地可配置策略，复用现有审批、待办和审计入口。不重做审批界面、审批人规则或跨 runner 重启恢复，不做通用策略语言，也不把策略当作 Bash、网络或第三方 MCP 的隔离边界。[#602](https://github.com/indie-builder/agentport/pull/602) 已关闭且未合入：把扁平 `mcp__<server>__<tool>` 加入 `disallowedTools` 时，server 名含 `__` 会使身份有歧义，知识、HTTP、stdio、plugin 的运行时目录又不能在渲染时穷举，可能误藏合法工具。不以「从模型列表消失」为验收。
+
+**推荐决策**：
+
+- **(a) 规则模型。** 保留工具的 `approvalMode` 作为基线，新增专用策略表存平台治理规则，不把同一条跨工具规则复制到每个 `api_tools`，也不复用匹配内容正文的 `content_policies`。选择器用专家 ID（run 的根专家，含其委派）、连接器 ID、工具 ID、发起者角色和 HTTP 方法，可选精确 `pathTemplate`。已填项必须同时命中，未填项表示不限。方法和路径模板取 generated 工具的服务端定义，不从工具参数或名称猜测。API 在写入时校验选择器归属和组合，管理权限建议用平台 `security.manage`。先保留对象和工具启用检查，再对基线及全部命中规则取最严格结果 `deny > ask > allow`，无命中沿用基线；窄规则不能放宽宽规则，不按录入顺序决胜。例：连接器默认规则为 POST `ask`，同时命中「普通成员禁止写入」时取 `deny`，GET 仍按工具基线。
+- **(b) 发起者上下文与执行门禁。** runner 继续传已绑定连接器的短期 run token 和工具标识。API 从 `agent_runs` 的 `subject_kind`、`initiated_by` 或 `service_id` 及 `agent_id`、`channel_id` 解析发起者。平台角色按稳定 role ID 匹配；[`access.ts`](../packages/shared/src/access.ts) 的 `platform`、`own_data`、`maintained_agents` 是权限范围，不是角色。专家关系取负责人及 `agent_members.can_maintain` 等现有关系；频道另读 `channel_members.role`（owner、admin、member、viewer）。定时按 run 的实际执行身份，服务主体单独匹配。审批人不改变发起者，prompt、工具参数或裸 run header 都不能声明身份。频道追加指令仍归当前 run；同一 run 内 API 无法可靠识别直接 MCP 请求出自哪个子级，首期只匹配根专家。
+  - **run MCP。** API 在 `/tool-approvals` 和 generated 执行门禁使用同一判定。hook 不再只看旧 `ask` 清单，`allow` 或批准后也不返回 SDK `allow`。工具定义仍按 run 快照，上游发送前重查当前角色、规则与有效批准。身份失效、受管工具身份不明、判定失败均不执行。新策略的 `ask` 绑定不可复用的请求 ID 和判定版本（涵盖操作、有效角色和命中规则版本）；决定入口须同时匹配两者。判定变化或待决请求到达 `expires_at` 时，决定入口立即拒绝旧请求，不等巡检，也不接受迟到批准。后续仍为 `ask` 时用新 ID 登记，不复用旧的 `(runId, serverId, toolName)` 行或跨 run 批准。拒绝、过期、取消或无合资格审批人均不执行。私有审批保留 `runs.approve` 与对象范围校验；频道保留 owner/admin 可决策、member 只可决策本人发起的 run、viewer 不可决策。
+  - **其他 generated 入口。** 外部 connector token 不具备 run 或人类角色，只匹配无这些身份条件的规则，结果为 `ask` 时不执行。[OpenUI](../packages/api/src/modules/chat/openui-tools.ts) 用已认证的点击者和会话专家判定，不用消息原 run 的身份。仅基线 `ask` 仍走现有会话审批；新增规则要求 `ask` 时，在有支持判定版本的审批前不执行。[管理试跑](../packages/api/src/modules/servers/router.ts) 用已认证的操作者和管理授权判定，不匹配依赖 run、专家或频道的条件。保留试跑对基线 `ask` 的显式例外，但不跳过新增规则的 `ask`、任何 `deny` 或 SSRF 校验。
+- **(c) 官方文件投影。** 首期只接通运行时 hook 与服务端门禁，不从 HITL 规则合成 `disallowedTools`、`permissions.ask` 或额外 allow：静态 ask 会进入 SDK 提问路径，不等同于平台审批。以后只把整轮内不变、不依赖角色、名称和作用范围无歧义的原生规则投影到 `.claude/settings.json` 的 `permissions`。沿用 `renderWorkspace()`；当前[专家包导出另生成 settings、导入不接受 `permissions`](../packages/api/src/modules/agents/package.ts)，须先对齐预览、导入导出和 SDK 加载，再开放这部分配置。动态规则及运行时发现的目录走 `PreToolUse`，不靠扁平名拆分或补全清单。SDK 的 `PreToolUseHookInput.mcp_server` 是可选来源信息，须用真实 SDK 验证其能与受信绑定唯一对应。无法确认身份的来源不开放策略配置。平台规则和发起者上下文不写进专家包，导入文件也不能覆盖平台门禁。
+- **(d) 可读审计。** 建议给 `audit_log` 加可空结构化 `detail`，不另开 `security_events`。策略新增、编辑、删除以及工具基线变更记录规则标识和白名单 `from`、`to`，新增或删除时缺的一侧显式为 `null`。用 `writeAuditInTx` 与配置变更同事务，审计失败就不保存变更。明细只存稳定 ID、模式、启用状态和经审查的操作选择器；不存工具参数、凭证、完整 URL、自由文本或人员姓名，含个人信息的路径模板只记操作 ID。
+  - **入链与保留。** 无明细行继续按原材料验链；有明细行用 `[2, …原有固定顺序字段, detail]` 作 SHA-256 输入，按 [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) 生成规范 JSON 的 UTF-8 字节。`detail = null` 表示无明细，不可用空对象代替；新明细事件必须带结构化对象。既有行不重算。审计页和 JSON、NDJSON 导出沿用 `audit.read`。离线连续验链使用无筛选 NDJSON，从链首或可信检查点顺序续页；筛选导出只供查询，不能证明中间没有缺行。明细随审计行保留，当前 `audit_log` 不参加每日清理；如需限期保留，先定可信检查点与分段策略，不单独抹除已入链明细。哈希链可发现普通改写，不能单独发现链尾截断或有权限者重算整条链。
+- **(e) 分阶段交付。**
+  - **Stage 1：定契约。** 负责人确认以下决策点。评审采用固定样例，列出重叠规则、不同角色、身份缺失、规则变更后的等待和管理试跑各自的预期判定。
+  - **Stage 2：先补可读审计。** 先覆盖 generated 工具基线变更。隔离库验证 `allow → ask` 在页面和两种导出一致；无 `audit.read` 者不能读取，审计失败时配置不变。用混合新旧记录核验连续 NDJSON 可离线验链、筛选导出不声称连续，改写明细后验链失败。
+  - **Stage 3：接通 generated 策略。** 用隔离上游和真实 sandbox 验证同一 POST 对两种角色判定不同，未命中的 GET 沿用基线。等待中撤权、规则变动或请求到期后，旧请求不能批准；仍需审批时，新请求获批才执行。对 run MCP（含直接请求）、外部 token、OpenUI 和试跑逐一确认拒绝时上游请求为零。
+  - **Stage 4：核验投影和运行时目录，再决定扩展。** 用实际 SDK 加载 `.claude/settings.json`，验证原生规则往返，包含 `__` 的命名及 knowledge、HTTP、stdio、plugin 合法工具仍可发现与调用。仅对可识别且确有审批需求的运行时来源启用 hook 策略，无法证明身份的来源维持现有行为。
+
+**边界与风险**：现有批准可按会话继承，且以工具名为粒度，不能当成对每次参数的批准。新规则若需要逐次核准参数，另定调用级审批；本项不承诺撤销已发出的上游请求。管理 `testInvoke` 目前放行 `ask`、保留 `deny` 和 SSRF 校验，不能把这条例外悄悄扩大成动态规则的绕行入口。
+
+**待确认决策点**：
+
+1. 是否接受新规则只收紧、平台 `security.manage` 集中写入，首期以根专家为匹配范围？
+2. 是否接受按当前角色和规则在执行前重判、旧批准不继承，以及将管理试跑和外部连接器调用限制在无须 run 审批的场景？
+3. 是否采用 `audit_log.detail` 随链保留和授权导出，而不是使用独立安全事件表来换取独立留存周期？
+
+---
+
 ## 决策记录格式
 
 决策后请在此处标注：
