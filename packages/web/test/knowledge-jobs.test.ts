@@ -178,6 +178,7 @@ describe('knowledge detail business line', () => {
     expect(labels).toEqual([
       '概览',
       '文档',
+      '图片',
       '来源',
       '检索测试',
       '离线评估',

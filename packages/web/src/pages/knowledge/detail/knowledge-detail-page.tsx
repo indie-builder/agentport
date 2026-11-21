@@ -7,6 +7,7 @@ import { BaseInfoDialog } from '../../../components/knowledge/knowledge-base-inf
 import { KnowledgeEvaluations } from '../../../components/knowledge/knowledge-evaluations.js';
 import { ExpertUsage } from '../../../components/knowledge/knowledge-expert-usage.js';
 import { FaqTab } from '../../../components/knowledge/knowledge-faq.js';
+import { ImagesTab } from '../../../components/knowledge/knowledge-images.js';
 import { KnowledgeOverview } from '../../../components/knowledge/knowledge-overview.js';
 import { SearchTab } from '../../../components/knowledge/knowledge-search.js';
 import { KnowledgeSettingsDialog } from '../../../components/knowledge/knowledge-settings.js';
@@ -189,6 +190,22 @@ export function KnowledgeDetailPage() {
                   documentId={search.document}
                   onDocumentChange={(document) => go({ document }, true)}
                   onViewJobs={(documentId) => go({ panel: 'jobs', document: documentId })}
+                />
+              </TabsContent>
+              <TabsContent value="images">
+                <ImagesTab
+                  baseId={baseId}
+                  onOpenDocument={(documentId) =>
+                    go(
+                      {
+                        panel: 'documents',
+                        source: undefined,
+                        folder: undefined,
+                        document: documentId,
+                      },
+                      true,
+                    )
+                  }
                 />
               </TabsContent>
               <TabsContent value="sources">

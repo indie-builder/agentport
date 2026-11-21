@@ -263,6 +263,31 @@ export async function listDocuments(
   };
 }
 
+export async function listImageAssets(
+  deps: KnowledgeDeps,
+  id: string,
+  query: PageQuery & { q?: string | undefined },
+) {
+  const page = await repo.knowledge.listImageAssets(deps.db, id, {
+    ...pageOptions(query),
+    ...(query.q === undefined ? {} : { q: query.q }),
+  });
+  return {
+    items: page.items.map((row) => ({
+      documentId: row.documentId,
+      documentTitle: row.documentTitle,
+      versionId: row.versionId,
+      name: row.name,
+      mimeType: row.mimeType,
+      page: row.page,
+      caption: row.caption,
+      ocrText: row.ocrText,
+      createdAt: row.createdAt.toISOString(),
+    })),
+    nextCursor: page.nextCursor,
+  };
+}
+
 async function documentWithTags(deps: KnowledgeDeps, row: DocumentRow) {
   const tags = await repo.knowledge.getDocumentTagNames(deps.db, [row.id]);
   return documentWire(row, tags.get(row.id) ?? []);

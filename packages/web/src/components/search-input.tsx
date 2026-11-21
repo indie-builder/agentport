@@ -13,6 +13,7 @@ export function SearchInput({
   label,
   className,
   inputId,
+  maxLength,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -20,6 +21,7 @@ export function SearchInput({
   label: string;
   className?: string;
   inputId?: string;
+  maxLength?: number;
 }) {
   return (
     <InputGroup className={className}>
@@ -29,6 +31,7 @@ export function SearchInput({
         aria-label={label}
         value={value}
         placeholder={placeholder}
+        maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
         className="[&::-webkit-search-cancel-button]:hidden"
       />

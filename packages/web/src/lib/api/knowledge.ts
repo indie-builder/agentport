@@ -1,4 +1,4 @@
-import type { KnowledgeBaseActivityItem } from '@agentport/contract/knowledge';
+import type { KnowledgeBaseActivityItem, KnowledgeImageAsset } from '@agentport/contract/knowledge';
 import type {
   KnowledgeBase,
   KnowledgeBaseSettings,
@@ -436,6 +436,12 @@ export default {
     signal?: AbortSignal,
   ): Promise<KnowledgePage<KnowledgeDocument>> =>
     rpc.knowledge.bases.documents({ params: { id: baseId }, query }, clientOptions(signal)),
+  knowledgeImages: (
+    baseId: string,
+    query: Parameters<ApiClient['knowledge']['bases']['images']>[0]['query'] = {},
+    signal?: AbortSignal,
+  ): Promise<KnowledgePage<KnowledgeImageAsset>> =>
+    rpc.knowledge.bases.images({ params: { id: baseId }, query }, clientOptions(signal)),
   knowledgeDocument: (documentId: string, signal?: AbortSignal): Promise<KnowledgeDocument> =>
     rpc.knowledge.documents.get({ params: { documentId } }, clientOptions(signal)),
   uploadKnowledgeDocument: (

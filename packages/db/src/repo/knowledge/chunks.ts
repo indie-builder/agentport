@@ -11,12 +11,14 @@ import {
 } from '../../schema.js';
 import { paginate } from '../keyset.js';
 import {
+  escapeLike,
   INSERT_CHUNK,
   type KnowledgeChunkRow,
   type KnowledgeDocumentRow,
   type Page,
   type PageOptions,
   pageLimit,
+  readableDocumentSql,
 } from './shared.js';
 import { type CreateVersionInput, createVersion } from './versions.js';
 import { markWikiStaleByDocument } from './wiki.js';
@@ -198,6 +200,194 @@ export async function listChunkSummaries(
   return paginate(rows, limit);
 }
 
+export interface ImageAssetRow {
+  documentId: string;
+  documentTitle: string;
+  versionId: string;
+  name: string;
+  mimeType: string;
+  page: number | null;
+  caption: string | null;
+  ocrText: string | null;
+  createdAt: Date;
+}
+
+export interface ListImageAssetsFilter extends PageOptions {
+  q?: string;
+}
+
+interface ImageAssetQueryRow {
+  document_id: string;
+  document_title: string;
+  version_id: string;
+  name: string;
+  mime_type: string;
+  page: string | null;
+  caption: string | null;
+  ocr_text: string | null;
+  updated_at: Date | string;
+  updated_at_cursor: string;
+}
+
+const IMAGE_CURSOR_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{6})Z$/u;
+
+function isUtcTimestamp(value: string): boolean {
+  const match = IMAGE_CURSOR_TIMESTAMP.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const millis = Math.floor(Number(match[7]) / 1000);
+  if (year < 1) return false;
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(hour, minute, second, millis);
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day &&
+    date.getUTCHours() === hour &&
+    date.getUTCMinutes() === minute &&
+    date.getUTCSeconds() === second &&
+    date.getUTCMilliseconds() === millis
+  );
+}
+
+function toPageNumber(value: string | null): number | null {
+  if (value === null || !/^-?[0-9]+$/u.test(value)) return null;
+  const page = Number(value);
+  return Number.isSafeInteger(page) ? page : null;
+}
+
+function encodeImageCursor(row: ImageAssetQueryRow): string {
+  return Buffer.from(
+    JSON.stringify({ u: row.updated_at_cursor, d: row.document_id, n: row.name }),
+    'utf8',
+  ).toString('base64url');
+}
+
+function decodeImageCursor(raw: string): { u: string; d: string; n: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+  } catch {
+    throw new AppError('INVALID_INPUT', '分页游标无效');
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new AppError('INVALID_INPUT', '分页游标无效');
+  }
+  const { u, d, n } = parsed as { u?: unknown; d?: unknown; n?: unknown };
+  if (
+    typeof u !== 'string' ||
+    !isUtcTimestamp(u) ||
+    typeof d !== 'string' ||
+    d === '' ||
+    typeof n !== 'string' ||
+    n === ''
+  ) {
+    throw new AppError('INVALID_INPUT', '分页游标无效');
+  }
+  return { u, d, n };
+}
+
+export async function listImageAssets(
+  db: Database,
+  baseId: string,
+  filter: ListImageAssetsFilter = {},
+): Promise<Page<ImageAssetRow>> {
+  const limit = pageLimit(filter);
+  const cursor = filter.cursor ? decodeImageCursor(filter.cursor) : null;
+  const cursorFilter = cursor
+    ? sql`and (d.updated_at, d.id, img->>'name') < (
+        ${cursor.u}::timestamptz, ${cursor.d}::text, ${cursor.n}::text
+      )`
+    : sql``;
+  const qFilter = filter.q
+    ? sql`where (
+        x.name ilike ${`%${escapeLike(filter.q)}%`}
+        or x.caption ilike ${`%${escapeLike(filter.q)}%`}
+        or x.ocr_text ilike ${`%${escapeLike(filter.q)}%`}
+      )`
+    : sql``;
+  const rows = (await db.execute(sql`
+    select
+      x.document_id,
+      x.document_title,
+      x.version_id,
+      x.name,
+      x.mime_type,
+      x.page,
+      x.caption,
+      x.ocr_text,
+      x.updated_at,
+      x.updated_at_cursor
+    from (
+      select
+        d.id as document_id,
+        d.title as document_title,
+        v.id as version_id,
+        img->>'name' as name,
+        img->>'mimeType' as mime_type,
+        img->>'page' as page,
+        (
+          select string_agg(c.content, E'\\n' order by c.ordinal)
+          from knowledge_chunks c
+          where c.version_id = v.id
+            and c.kind = 'image'
+            and c.enabled
+            and c.metadata->'image'->>'name' = img->>'name'
+            and c.metadata->>'imageRole' = 'caption'
+        ) as caption,
+        (
+          select string_agg(c.content, E'\\n' order by c.ordinal)
+          from knowledge_chunks c
+          where c.version_id = v.id
+            and c.kind = 'image'
+            and c.enabled
+            and c.metadata->'image'->>'name' = img->>'name'
+            and c.metadata->>'imageRole' = 'ocr'
+        ) as ocr_text,
+        d.updated_at as updated_at,
+        to_char(
+          d.updated_at at time zone 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        ) as updated_at_cursor
+      from knowledge_documents d
+      join knowledge_document_versions v
+        on v.id = d.current_version_id and v.document_id = d.id
+      cross join lateral jsonb_array_elements(v.images) as img
+      where d.base_id = ${baseId}
+        and d.content_kind = 'document'
+        and ${readableDocumentSql('d')}
+        ${cursorFilter}
+    ) x
+    ${qFilter}
+    order by x.updated_at desc, x.document_id desc, x.name desc
+    limit ${limit + 1}
+  `)) as ImageAssetQueryRow[];
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const last = page.at(-1);
+  return {
+    items: page.map((row) => ({
+      documentId: row.document_id,
+      documentTitle: row.document_title,
+      versionId: row.version_id,
+      name: row.name,
+      mimeType: row.mime_type,
+      page: toPageNumber(row.page),
+      caption: row.caption,
+      ocrText: row.ocr_text,
+      createdAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    })),
+    nextCursor: hasMore && last ? encodeImageCursor(last) : null,
+  };
+}
+
+/** 人工编辑总数取整版聚合，不能靠分页首页推断（>200 条时会漏）。 */
 export async function countEditedChunks(db: Database, versionId: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })

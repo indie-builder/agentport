@@ -126,6 +126,7 @@ export const knowledgeKeys = {
   summary: (id: string) => ['knowledge', 'base-summary', id] as const,
   activity: (id: string) => ['knowledge', 'base-activity', id] as const,
   documents: (baseId: string) => ['knowledge', 'documents', baseId] as const,
+  images: (baseId: string, q: string) => ['knowledge', 'images', baseId, q] as const,
   document: (documentId: string | null) => ['knowledge', 'document', documentId] as const,
   documentVersions: (documentId: string) => ['knowledge', 'document-versions', documentId] as const,
   documentDiff: (documentId: string, fromVersionId: string, toVersionId: string) =>

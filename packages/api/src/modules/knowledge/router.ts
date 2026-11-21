@@ -106,6 +106,11 @@ export const knowledgeRouter: Router<KnowledgeContract, RequestContext> = os.rou
       await authorizeBase(context, input.params.id, 'knowledge.read', 'read');
       return useCases.listDocuments(depsOf(context), input.params.id, input.query);
     }),
+    images: os.bases.images.handler(async ({ input, context }) => {
+      await requirePermission(context, 'knowledge.read');
+      await authorizeBase(context, input.params.id, 'knowledge.read', 'read');
+      return useCases.listImageAssets(depsOf(context), input.params.id, input.query);
+    }),
     upload: os.bases.upload.handler(async ({ input, context }) => {
       await requirePermission(context, 'knowledge.content.manage');
       await authorizeBase(context, input.params.id, 'knowledge.content.manage', 'manage');
