@@ -201,6 +201,8 @@ describe('audit CSV export', () => {
       actorKind: 'service',
       durationMs: 42,
       requestId: 'req-123',
+      detail: { from: 'allow', to: 'ask' },
+      detailType: 'server.tool.approval_mode.changed',
     });
     const data = {
       format: 'agentport/audit@1' as const,
@@ -229,7 +231,7 @@ describe('audit CSV export', () => {
     expect(filename).toBe('audit.csv');
     expect(blob.type).toBe('text/csv;charset=utf-8');
     expect(await blob.text()).toContain(
-      `时间,动作,目标,状态,操作者,主体类型,耗时ms,请求ID\n${formatDateTime(row.createdAt)},agent.update,agent:123,拒绝,alice,服务,42,req-123`,
+      `时间,动作,目标,状态,操作者,主体类型,耗时ms,请求ID,变更明细\n${formatDateTime(row.createdAt)},agent.update,agent:123,拒绝,alice,服务,42,req-123,from=allow; to=ask`,
     );
     expect(new Uint8Array(await blob.arrayBuffer()).slice(0, 3)).toEqual(
       new Uint8Array([0xef, 0xbb, 0xbf]),
@@ -400,6 +402,39 @@ describe('audit row details', () => {
     expect(detailValue(panel, '操作者')).toBe('actor-audit_login');
     expect(detailValue(panel, '输入摘要')).toBe('—');
     expect(panel.textContent).not.toMatch(/[0-9a-f]{32}/);
+  });
+
+  it('shows the recorded change detail with readable labels', async () => {
+    vi.spyOn(api, 'audit').mockResolvedValue(
+      page([
+        entry('audit_change', {
+          action: 'server.tool.approval_mode.changed',
+          detail: { toolName: 'github', toolId: 'tool_x', from: 'allow', to: 'ask' },
+          detailType: 'server.tool.approval_mode.changed',
+        }),
+      ]),
+    );
+    await mount();
+    await waitFor(() => expect(toggle('audit_change')).not.toBeUndefined());
+
+    await toggleRow('audit_change');
+    const panel = panelOf('audit_change');
+    expect(detailValue(panel, '工具')).toBe('github');
+    expect(detailValue(panel, '工具 ID')).toBe('tool_x');
+    expect(detailValue(panel, '变更前')).toBe('allow');
+    expect(detailValue(panel, '变更后')).toBe('ask');
+  });
+
+  it('adds no detail rows when the event has none', async () => {
+    vi.spyOn(api, 'audit').mockResolvedValue(page([entry('audit_plain', { detail: null })]));
+    await mount();
+    await waitFor(() => expect(toggle('audit_plain')).not.toBeUndefined());
+
+    await toggleRow('audit_plain');
+    const panel = panelOf('audit_plain');
+    const labels = [...panel.querySelectorAll('dt')].map((node) => node.textContent);
+    expect(labels.some((label) => label === '变更前')).toBe(false);
+    expect(labels.some((label) => label === '变更明细')).toBe(false);
   });
 
   it('keeps the open row bound to its id when filtering returns different data', async () => {
