@@ -338,10 +338,18 @@ async function selectRunResults(
   return limit === undefined ? query : query.limit(limit);
 }
 
-function snapshotInputs(row: StoredEvalResult): { prompt: string; expectation: string } | null {
+function snapshotInputs(row: StoredEvalResult): {
+  prompt: string;
+  expectation: string;
+  judgeMode: 'contains' | 'llm';
+} | null {
   return row.caseSnapshot === null
     ? null
-    : { prompt: row.caseSnapshot.prompt, expectation: row.caseSnapshot.expectation };
+    : {
+        prompt: row.caseSnapshot.prompt,
+        expectation: row.caseSnapshot.expectation,
+        judgeMode: row.caseSnapshot.judgeMode ?? 'contains',
+      };
 }
 
 function compareResults(
@@ -443,7 +451,8 @@ function comparePair(
   }
   if (
     baseInputs.prompt !== headInputs.prompt ||
-    baseInputs.expectation !== headInputs.expectation
+    baseInputs.expectation !== headInputs.expectation ||
+    baseInputs.judgeMode !== headInputs.judgeMode
   ) {
     return {
       key,

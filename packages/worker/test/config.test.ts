@@ -20,6 +20,15 @@ describe('DOCLING_URL', () => {
   });
 });
 
+describe('EVAL_JUDGE_MODEL / KNOWLEDGE_SUMMARY_MODEL', () => {
+  it('treats blank values as unset so the judge model falls back', () => {
+    const config = loadConfig({ ...base, EVAL_JUDGE_MODEL: '  ', KNOWLEDGE_SUMMARY_MODEL: '' });
+    expect(config.EVAL_JUDGE_MODEL).toBeUndefined();
+    expect(config.KNOWLEDGE_SUMMARY_MODEL).toBeUndefined();
+    expect(loadConfig({ ...base, EVAL_JUDGE_MODEL: ' judge ' }).EVAL_JUDGE_MODEL).toBe('judge');
+  });
+});
+
 describe('SANDBOX_MAX_FIELD_BYTES', () => {
   it('defaults to 1MiB', () => {
     expect(loadConfig(base).SANDBOX_MAX_FIELD_BYTES).toBe(1024 * 1024);

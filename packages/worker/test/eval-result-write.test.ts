@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { inspect } from 'node:util';
 import { createDb, newId, repo, schema } from '@agentport/db';
@@ -37,6 +38,13 @@ mock.module('bullmq', () => ({
   UnrecoverableError: class UnrecoverableError extends Error {},
 }));
 
+let judgeError = 'judge unavailable';
+mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+  query: () => {
+    throw new Error(judgeError);
+  },
+}));
+
 const { executeEvalRun, EVAL_FAILURE_PUBLIC_MESSAGE } = await import('../src/eval-runner.js');
 const { handleEvalJobFailed, runEvalJob } = await import('../src/eval-job.js');
 const { UnrecoverableError } = await import('bullmq');
@@ -58,7 +66,12 @@ const logger = {
 const RESULT_SECRET = `sk-live-eval-result-${randomUUID()}`;
 const FINISH_SECRET = `sk-live-eval-finish-${randomUUID()}`;
 
-type CaseInput = { name: string; prompt: string; expectation: string };
+type CaseInput = {
+  name: string;
+  prompt: string;
+  expectation: string;
+  judgeMode?: 'contains' | 'llm';
+};
 const evalBusinessId = 'eval-write-owner';
 
 async function seed(cases: CaseInput[]) {
@@ -128,6 +141,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
 
   beforeEach(() => {
     logs.length = 0;
+    judgeError = 'judge unavailable';
     mocks.queueAdd.mockReset();
     mocks.waitUntilFinished.mockReset().mockResolvedValue(undefined);
     mocks.queueAdd.mockImplementation(async (_name, data) => {
@@ -245,6 +259,35 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
     expect(detail?.evalRun).toMatchObject({ status: 'failed', passed: 0, error: null });
     expect(detail?.results[0]?.output).toBe('run queue unavailable');
+  });
+
+  it('keeps the agent output when the llm judge throws and redacts the reason', async () => {
+    const secret = `sk-live-eval-judge-${randomUUID()}`;
+    judgeError = `judge failed ${secret}`;
+    const { evalRunId } = await seed([
+      {
+        name: 'judge-fault',
+        prompt: 'prompt-judge',
+        expectation: 'reply:prompt-judge',
+        judgeMode: 'llm',
+      },
+    ]);
+
+    await executeEvalRun({
+      db,
+      logger,
+      redisUrl: 'redis://unused',
+      evalRunId,
+      judgeConfig: { knowledgeDir: tmpdir(), evalJudgeModel: 'judge-test' },
+    });
+
+    const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
+    expect(detail?.evalRun).toMatchObject({ status: 'failed', passed: 0, error: null });
+    const result = detail?.results[0];
+    expect(result?.output).toBe('reply:prompt-judge');
+    expect(result?.passed).toBe(false);
+    expect(result?.judgeReason ?? '').toContain('评判出错');
+    expect(result?.judgeReason ?? '').not.toContain(secret);
   });
 
   it('waits for a delegated child memory lock before admitting the eval case run', async () => {

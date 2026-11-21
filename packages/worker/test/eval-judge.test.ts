@@ -78,4 +78,50 @@ describe('gradeCase', () => {
     expect(result.passed).toBe(false);
     expect(result.reason?.length ?? 0).toBeGreaterThan(0);
   });
+
+  it('出站策略拦截时不发送判分请求', async () => {
+    let called = false;
+    const queryFn: JudgeQueryFn = (params) => {
+      called = true;
+      return replyQuery('{"pass":true,"reason":"ok"}')(params);
+    };
+    const result = await gradeCase(
+      { ...deps(queryFn), sanitizeOutbound: async () => ({ blocked: true, text: '' }) },
+      {
+        prompt: 'prompt',
+        output: 'answer',
+        expectation: '通过条件',
+        judgeMode: 'llm',
+      },
+    );
+    expect(result).toEqual({ passed: false, reason: '评判内容被出站安全策略拦截' });
+    expect(called).toBe(false);
+  });
+
+  it('llm 判分发送出站清洗后的文本', async () => {
+    let received = '';
+    let sent = '';
+    const queryFn: JudgeQueryFn = (params) => {
+      sent = params.prompt;
+      return replyQuery('{"pass":true,"reason":"ok"}')(params);
+    };
+    const result = await gradeCase(
+      {
+        ...deps(queryFn),
+        sanitizeOutbound: async (text) => {
+          received = text;
+          return { blocked: false, text: 'SANITIZED' };
+        },
+      },
+      {
+        prompt: 'prompt',
+        output: 'answer',
+        expectation: '通过条件',
+        judgeMode: 'llm',
+      },
+    );
+    expect(result).toEqual({ passed: true, reason: 'ok' });
+    expect(received).toContain('answer');
+    expect(sent).toBe('SANITIZED');
+  });
 });

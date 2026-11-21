@@ -11,6 +11,14 @@ function fromRepoRoot(path: string): string {
 
 const { NODE_ENV, LOG_LEVEL, REDIS_URL } = commonEnvSchema.shape;
 
+const optionalModelEnv = z
+  .string()
+  .optional()
+  .transform((value) => {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : undefined;
+  });
+
 const envSchema = z
   .object({
     NODE_ENV,
@@ -79,8 +87,8 @@ const envSchema = z
     ),
     KNOWLEDGE_DIR: z.string().min(1).default('./data/knowledge'),
     KNOWLEDGE_WIKI_MODEL: z.string().optional(),
-    KNOWLEDGE_SUMMARY_MODEL: z.string().optional(),
-    EVAL_JUDGE_MODEL: z.string().optional(),
+    KNOWLEDGE_SUMMARY_MODEL: optionalModelEnv,
+    EVAL_JUDGE_MODEL: optionalModelEnv,
     DATA_DOMAIN_ENRICH_MODEL: z.string().optional(),
     KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
     WEBHOOK_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
