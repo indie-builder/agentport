@@ -13,11 +13,10 @@ import {
   redactSecrets,
 } from '@agentport/shared';
 import { type Options, query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { createBunRedisClient, Worker } from 'bullmq';
-import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
+import { startRedisWorker } from '../queue-worker.js';
 import { startIntervalTicker } from '../scheduling/interval-ticker.js';
 
 const ENRICH_TIMEOUT_MS = 5 * 60_000;
@@ -218,15 +217,12 @@ interface DataDomainEnrichmentWorkerConfig {
 export async function startDataDomainEnrichmentWorker(
   config: DataDomainEnrichmentWorkerConfig,
 ): Promise<{ close: () => Promise<void> }> {
-  const closing = new AbortController();
-  const external = config.signal;
-  const onExternalAbort = () => closing.abort();
-  external?.addEventListener('abort', onExternalAbort, { once: true });
-  if (external?.aborted) closing.abort();
-  const connection = createBunRedisClient(new RedisClient(config.redisUrl));
-  const worker = new Worker<DataDomainEnrichmentJob>(
-    DATA_DOMAIN_ENRICHMENTS_QUEUE,
-    (job) => {
+  return startRedisWorker<DataDomainEnrichmentJob>({
+    queue: DATA_DOMAIN_ENRICHMENTS_QUEUE,
+    redisUrl: config.redisUrl,
+    logger: config.logger,
+    failureMessage: 'data domain enrichment job failed',
+    processor: (signal) => (job) => {
       const parsed = dataDomainEnrichmentJobSchema.safeParse(job.data);
       if (!parsed.success) throw new Error('invalid data domain enrichment payload');
       return runDataDomainEnrichment(
@@ -235,24 +231,12 @@ export async function startDataDomainEnrichmentWorker(
           logger: config.logger,
           enrichModel: config.enrichModel,
           anthropicBaseUrl: config.anthropicBaseUrl,
-          signal: closing.signal,
+          signal,
           ...(config.queryFn === undefined ? {} : { queryFn: config.queryFn }),
         },
         parsed.data,
       );
     },
-    { connection, concurrency: 1 },
-  );
-  worker.on('failed', (job) => {
-    config.logger.warn({ jobId: job?.id }, 'data domain enrichment job failed');
+    ...(config.signal === undefined ? {} : { externalSignal: config.signal }),
   });
-
-  return {
-    close: async () => {
-      closing.abort();
-      external?.removeEventListener('abort', onExternalAbort);
-      await worker.close();
-      await connection.quit();
-    },
-  };
 }
