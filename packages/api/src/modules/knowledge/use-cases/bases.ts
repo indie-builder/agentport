@@ -1,6 +1,10 @@
 import { AppError, chunkBlocks, markdownBlocks } from '@agentport/core';
 import { repo } from '@agentport/db';
-import type { KnowledgeBaseSettings, ResourceAccessFilter } from '@agentport/shared';
+import type {
+  KnowledgeBaseSettings,
+  KnowledgeImageProcessingPatch,
+  ResourceAccessFilter,
+} from '@agentport/shared';
 import { knowledgeBaseSettingsSchema } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
@@ -159,7 +163,8 @@ type UpdateBaseBody = {
         chunkTokens?: number | undefined;
         chunkOverlap?: number | undefined;
         wikiAutoUpdate?: boolean | undefined;
-        imageProcessing?: Partial<KnowledgeBaseSettings['imageProcessing']> | undefined;
+        autoSummary?: boolean | undefined;
+        imageProcessing?: KnowledgeImageProcessingPatch | undefined;
       }
     | undefined;
 };
@@ -168,7 +173,8 @@ function settingsChanged(current: KnowledgeBaseSettings, next: KnowledgeBaseSett
   if (
     current.chunkTokens !== next.chunkTokens ||
     current.chunkOverlap !== next.chunkOverlap ||
-    current.wikiAutoUpdate !== next.wikiAutoUpdate
+    current.wikiAutoUpdate !== next.wikiAutoUpdate ||
+    current.autoSummary !== next.autoSummary
   ) {
     return true;
   }
@@ -215,6 +221,7 @@ export async function updateBase(deps: KnowledgeDeps, id: string, body: UpdateBa
     chunkTokens: settingsPatch?.chunkTokens ?? current.settings.chunkTokens,
     chunkOverlap: settingsPatch?.chunkOverlap ?? current.settings.chunkOverlap,
     wikiAutoUpdate: settingsPatch?.wikiAutoUpdate ?? current.settings.wikiAutoUpdate,
+    autoSummary: settingsPatch?.autoSummary ?? current.settings.autoSummary,
     imageProcessing: {
       ...current.settings.imageProcessing,
       ...settingsPatch?.imageProcessing,

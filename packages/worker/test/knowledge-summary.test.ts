@@ -279,7 +279,7 @@ describe('runKnowledgeSummary', () => {
     expect(captured).toHaveLength(0);
   });
 
-  it('fails instead of writing onto the new version when the payload version is stale', async () => {
+  it('keeps the new version pending when the payload version is stale', async () => {
     const seeded = await makeDocument('旧版本正文。');
     const document = await repo.knowledge.getDocument(db, seeded.documentId);
     if (!document) throw new Error('document missing');
@@ -297,6 +297,7 @@ describe('runKnowledgeSummary', () => {
       embeddingProfileId: seeded.profileId,
     });
     await repo.knowledge.setCurrentVersion(db, document.id, next.id);
+    await repo.knowledge.beginDocumentSummary(db, document.id, next.id, 'pending');
     const captured: Captured[] = [];
 
     await expect(
@@ -309,17 +310,59 @@ describe('runKnowledgeSummary', () => {
     const row = await repo.knowledge.getDocument(db, seeded.documentId);
     if (!row) throw new Error('document missing');
     expect(row.currentVersionId).toBe(next.id);
-    expect(row.summaryVersionId).toBe(seeded.versionId);
-    expect(row.summaryStatus).toBe('failed');
+    expect(row.summaryVersionId).toBe(next.id);
+    expect(row.summaryStatus).toBe('pending');
     expect(row.summary).toBeNull();
-    expect(row.summaryError).toContain('文档版本已变化');
+    expect(row.summaryError).toBeNull();
     expect(visibleDocumentSummary(row)).toEqual({
       summary: null,
-      summaryStatus: 'none',
+      summaryStatus: 'pending',
       summaryGeneratedAt: null,
       summaryError: null,
     });
     expect(captured).toHaveLength(0);
+  });
+
+  it('does not overwrite a newer pending summary when the version changes during generation', async () => {
+    const seeded = await makeDocument('旧版本正文。');
+    const switched = Promise.withResolvers<string>();
+    const queryFn: SummaryQueryFn = () =>
+      (async function* (): AsyncGenerator<SDKMessage, void> {
+        const document = await repo.knowledge.getDocument(db, seeded.documentId);
+        if (!document) throw new Error('document missing');
+        const next = await repo.knowledge.createVersion(db, {
+          documentId: document.id,
+          blobSha256: '3'.repeat(64),
+          markdownSha256: '4'.repeat(64),
+          originalFilename: 'summary.md',
+          mimeType: 'text/markdown',
+          sizeBytes: 6,
+          sourceRevision: null,
+          parseStatus: 'parsed',
+          pageMap: [],
+          images: [],
+          embeddingProfileId: seeded.profileId,
+        });
+        await repo.knowledge.setCurrentVersion(db, document.id, next.id);
+        await repo.knowledge.beginDocumentSummary(db, document.id, next.id, 'pending');
+        switched.resolve(next.id);
+        yield {
+          type: 'result',
+          subtype: 'success',
+          is_error: false,
+          result: '旧版本摘要',
+        } as unknown as SDKMessage;
+      })();
+
+    await runKnowledgeSummary(await startSummaryJob(seeded.documentId), deps(queryFn));
+
+    const nextVersionId = await switched.promise;
+    const row = await repo.knowledge.getDocument(db, seeded.documentId);
+    if (!row) throw new Error('document missing');
+    expect(row.currentVersionId).toBe(nextVersionId);
+    expect(row.summaryVersionId).toBe(nextVersionId);
+    expect(row.summaryStatus).toBe('pending');
+    expect(row.summary).toBeNull();
   });
 
   it('does not expose the previous version summary after the current version changes', async () => {

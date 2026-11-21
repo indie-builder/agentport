@@ -494,6 +494,18 @@ export function KnowledgeSettingsDialog({
                 文档更新后自动刷新 Wiki
               </FieldLabel>
             </Field>
+            <Field orientation="horizontal" className="items-center gap-2">
+              <Checkbox
+                id="knowledge-settings-auto-summary"
+                checked={settings.autoSummary ?? false}
+                disabled={pending}
+                onCheckedChange={(checked) => setSettings({ ...settings, autoSummary: checked })}
+              />
+              <FieldLabel htmlFor="knowledge-settings-auto-summary">摄取后自动生成摘要</FieldLabel>
+            </Field>
+            <FieldDescription className="-mt-2">
+              需 worker 配置摘要模型（KNOWLEDGE_SUMMARY_MODEL）后生效。
+            </FieldDescription>
             <div className="flex flex-col gap-3 border-t border-line pt-4">
               <div className="flex items-center gap-2">
                 <Switch

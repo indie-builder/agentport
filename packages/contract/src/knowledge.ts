@@ -16,6 +16,7 @@ import {
   knowledgeFaqImportResultSchema,
   knowledgeFaqInputSchema,
   knowledgeFaqSchema,
+  knowledgeImageProcessingPatchSchema,
   knowledgeJobSchema,
   knowledgeJobStatusSchema,
   knowledgeModelProfileSelectionSchema,
@@ -253,6 +254,7 @@ const knowledgeBaseCreateSchema = knowledgeBaseInputSchema.extend({
     chunkTokens: 800,
     chunkOverlap: 120,
     wikiAutoUpdate: false,
+    autoSummary: false,
   }),
 });
 
@@ -263,7 +265,10 @@ const knowledgeBasePatchSchema = z.object({
   embeddingProfileId: z.string().min(1).optional(),
   rerankProfileId: z.string().min(1).nullable().optional(),
   asrProfileId: z.string().min(1).nullable().optional(),
-  settings: knowledgeBaseSettingsSchema.partial().optional(),
+  settings: knowledgeBaseSettingsSchema
+    .partial()
+    .extend({ imageProcessing: knowledgeImageProcessingPatchSchema.optional() })
+    .optional(),
 });
 
 const folderCreateSchema = z.object({

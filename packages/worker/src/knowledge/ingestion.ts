@@ -154,6 +154,8 @@ export interface KnowledgeDeps {
    * 由主会话队列注入（保持单例 Redis）；不注入时只标 stale，绝不假装自动更新成功。
    */
   onWikiUpdate?: (input: WikiUpdateInput) => Promise<void>;
+  summaryModel?: string | undefined;
+  onSummaryJobs?: (input: { baseId: string; jobIds: string[] }) => Promise<void>;
   /** KNOWLEDGE_PRIVATE_HOST_ALLOWLIST 解析后的精确 `host`/`host:port`；由部署配置注入。 */
   trustedHosts?: readonly string[];
   /** 本地 fixture 仅用；sources 在 production 下仍拒绝 loopback。 */
@@ -476,6 +478,81 @@ async function linkWikiAfterIngest(
     deps.logger.warn(
       { err, baseId: base.id, jobIds },
       'wiki job enqueue failed; awaiting reconcile',
+    );
+  }
+}
+
+async function requestAutoSummary(
+  deps: KnowledgeDeps,
+  base: KnowledgeBaseRow,
+  document: KnowledgeDocumentRow,
+): Promise<void> {
+  if (document.contentKind !== 'document') return;
+  if (base.settings.autoSummary !== true) return;
+  if (!deps.summaryModel || !deps.onSummaryJobs) return;
+  const versionId = document.currentVersionId;
+  if (!versionId) return;
+  const pending = await deps.db
+    .select({ payload: schema.knowledgeJobs.payload })
+    .from(schema.knowledgeJobs)
+    .where(
+      and(
+        eq(schema.knowledgeJobs.documentId, document.id),
+        eq(schema.knowledgeJobs.type, 'summary'),
+        inArray(schema.knowledgeJobs.status, ['queued', 'running']),
+      ),
+    );
+  const alreadyQueued = pending.some((row) => {
+    const parsed = knowledgeJobPayloadSchema.safeParse(row.payload);
+    return parsed.success && parsed.data.type === 'summary' && parsed.data.versionId === versionId;
+  });
+  if (alreadyQueued) return;
+  const job = await deps.db.transaction(async (tx) => {
+    const begun = await repo.knowledge.beginDocumentSummary(
+      tx,
+      document.id,
+      versionId,
+      'pending',
+      versionId,
+    );
+    if (!begun) return null;
+    return repo.knowledge.createJob(tx, {
+      type: 'summary',
+      baseId: base.id,
+      documentId: document.id,
+      sourceId: null,
+      payload: {
+        type: 'summary',
+        baseId: base.id,
+        documentId: document.id,
+        versionId,
+      },
+    });
+  });
+  if (!job) return;
+  try {
+    await deps.onSummaryJobs({ baseId: base.id, jobIds: [job.id] });
+  } catch (err) {
+    const current = await repo.knowledge.getDocument(deps.db, document.id);
+    if (current?.summaryStatus === 'pending' && current.summaryVersionId === versionId) {
+      await repo.knowledge
+        .setDocumentSummary(
+          deps.db,
+          document.id,
+          {
+            summaryStatus: 'none',
+            summaryVersionId: versionId,
+            summary: null,
+            summaryGeneratedAt: null,
+            summaryError: null,
+          },
+          versionId,
+        )
+        .catch(() => undefined);
+    }
+    deps.logger.warn(
+      { err, baseId: base.id, jobIds: [job.id] },
+      'summary job enqueue failed; awaiting reconcile',
     );
   }
 }
@@ -937,6 +1014,7 @@ async function ingestContent(
     lastSyncedAt: new Date(),
   });
   await linkWikiAfterIngest(deps, base, document);
+  await requestAutoSummary(deps, base, published);
   return version.id;
 }
 

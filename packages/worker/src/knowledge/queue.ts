@@ -32,7 +32,6 @@ const REDELIVERY_DELAY_MS = 60_000;
 interface DispatchDeps extends KnowledgeDeps {
   knowledgeDir: string;
   wikiModel?: string | undefined;
-  summaryModel?: string | undefined;
   signal: AbortSignal;
   /** 测试替换 SDK；生产走官方 query。 */
   queryFn?: WikiQueryFn;
@@ -123,6 +122,12 @@ export async function startKnowledgeWorker(
         await followups.add('knowledge', { jobId }, knowledgeEnqueueOptions(jobId));
       }
     },
+    summaryModel: config.summaryModel,
+    onSummaryJobs: async ({ jobIds }) => {
+      for (const jobId of jobIds) {
+        await followups.add('knowledge', { jobId }, knowledgeEnqueueOptions(jobId));
+      }
+    },
     ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
     ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
     ...(config.imageQueryFn === undefined ? {} : { imageQueryFn: config.imageQueryFn }),
@@ -136,7 +141,6 @@ export async function startKnowledgeWorker(
     ...deps,
     knowledgeDir: config.knowledgeDir,
     wikiModel: config.wikiModel,
-    summaryModel: config.summaryModel,
     ...(config.queryFn === undefined ? {} : { queryFn: config.queryFn }),
   };
 
