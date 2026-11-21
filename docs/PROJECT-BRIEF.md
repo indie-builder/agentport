@@ -682,7 +682,7 @@ tool_approval_policies(
   role text nullable check (null 或 platform:<role id>|agent:owner|agent:maintainer
     |agent:user|channel:owner|channel:admin|channel:member|channel:viewer
     |service:system|service:mcp),
-  http_method text nullable check in ('GET','POST','PUT','PATCH','DELETE'),
+  http_method text nullable,
   path_template text nullable,
   approval_mode text not null check in ('allow','ask','deny'),
   enabled boolean not null default true, version int not null default 1,

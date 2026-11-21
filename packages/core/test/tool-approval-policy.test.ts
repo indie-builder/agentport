@@ -59,6 +59,11 @@ describe('evaluateToolApproval', () => {
     expect(decision.effectiveMode).toBe('ask');
   });
 
+  it('does not let an allow rule relax a deny baseline', () => {
+    const decision = evaluateToolApproval('deny', [rule({ approvalMode: 'allow' })], ctx);
+    expect(decision.effectiveMode).toBe('deny');
+  });
+
   it('is deterministic regardless of rule order', () => {
     const rules = [
       rule({ id: 'tap_b', approvalMode: 'ask' }),

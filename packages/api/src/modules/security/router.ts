@@ -295,7 +295,7 @@ export const securityRouter = os.router({
     create: os.toolPolicies.create.handler(async ({ input, context }) => {
       const actor = requireUser(context).businessId;
       await validateToolPolicySelectors(context, input.body);
-      const row = await toolPolicies.createToolApprovalPolicy(context.db, input.body, actor);
+      const row = await toolPolicies.create(context.db, input.body, actor);
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'security.tool_policy.created',
@@ -308,20 +308,20 @@ export const securityRouter = os.router({
     }),
     update: os.toolPolicies.update.handler(async ({ input, context }) => {
       const actor = requireUser(context).businessId;
-      const current = await toolPolicies.getToolApprovalPolicy(context.db, input.params.id);
-      if (current === null) fail('NOT_FOUND', '审批策略不存在');
       const patch = input.body;
-      await validateToolPolicySelectors(context, {
-        serverId: patch.serverId !== undefined ? patch.serverId : current.serverId,
-        toolId: patch.toolId !== undefined ? patch.toolId : current.toolId,
-        agentId: patch.agentId !== undefined ? patch.agentId : current.agentId,
-        role: patch.role !== undefined ? patch.role : current.role,
-      });
-      const result = await toolPolicies.updateToolApprovalPolicy(
+      const result = await toolPolicies.update(
         context.db,
         input.params.id,
         patch,
         actor,
+        async (current) => {
+          await validateToolPolicySelectors(context, {
+            serverId: patch.serverId !== undefined ? patch.serverId : current.serverId,
+            toolId: patch.toolId !== undefined ? patch.toolId : current.toolId,
+            agentId: patch.agentId !== undefined ? patch.agentId : current.agentId,
+            role: patch.role !== undefined ? patch.role : current.role,
+          });
+        },
       );
       if (result === null) fail('NOT_FOUND', '审批策略不存在');
       await repo.audit.writeAudit(context.db, context.log, {
@@ -339,7 +339,7 @@ export const securityRouter = os.router({
       return toToolPolicy(result.updated);
     }),
     remove: os.toolPolicies.remove.handler(async ({ input, context }) => {
-      const row = await toolPolicies.deleteToolApprovalPolicy(context.db, input.params.id);
+      const row = await toolPolicies.delete(context.db, input.params.id);
       if (row === null) fail('NOT_FOUND', '审批策略不存在');
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),

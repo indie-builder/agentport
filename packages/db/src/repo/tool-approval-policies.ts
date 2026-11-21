@@ -56,7 +56,7 @@ export async function listEnabledForTool(db: Database, input: ToolLookup) {
     .orderBy(asc(toolApprovalPolicies.id));
 }
 
-export async function getToolApprovalPolicy(db: DbHandle, id: string) {
+export async function getById(db: DbHandle, id: string) {
   const [row] = await db
     .select()
     .from(toolApprovalPolicies)
@@ -65,11 +65,7 @@ export async function getToolApprovalPolicy(db: DbHandle, id: string) {
   return row ?? null;
 }
 
-export async function createToolApprovalPolicy(
-  db: Database,
-  input: ToolApprovalPolicyCreate,
-  actor: string,
-) {
+export async function create(db: Database, input: ToolApprovalPolicyCreate, actor: string) {
   const [row] = await db
     .insert(toolApprovalPolicies)
     .values({
@@ -83,11 +79,12 @@ export async function createToolApprovalPolicy(
   return row;
 }
 
-export async function updateToolApprovalPolicy(
+export async function update(
   db: Database,
   id: string,
   patch: ToolApprovalPolicyUpdate,
   actor: string,
+  validate?: (current: ToolApprovalPolicyRow) => Promise<void>,
 ) {
   return db.transaction(async (tx) => {
     const [previous] = await tx
@@ -96,6 +93,7 @@ export async function updateToolApprovalPolicy(
       .where(eq(toolApprovalPolicies.id, id))
       .for('update');
     if (previous === undefined) return null;
+    await validate?.(previous);
     const [updated] = await tx
       .update(toolApprovalPolicies)
       .set({
@@ -117,3 +115,5 @@ export async function deleteToolApprovalPolicy(db: Database, id: string) {
     .returning();
   return row ?? null;
 }
+
+export { deleteToolApprovalPolicy as delete };
