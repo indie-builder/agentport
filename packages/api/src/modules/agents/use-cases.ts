@@ -5,7 +5,7 @@ import { AGENT_ROLES, maskUrlCredentials } from '@agentport/shared';
 import type { Logger } from 'pino';
 import { authorizeResourceAccess } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { isPgCode } from '../../http/errors.js';
+import { rethrowConflict } from '../../http/errors.js';
 import { importAgentPackage, type parseAgentPackage } from './package.js';
 import { toAgentConfigValues } from './write.js';
 
@@ -66,12 +66,11 @@ export async function authorizeBoundResources(
   }
 }
 
-export function rethrowConflict(err: unknown): never {
-  if (isPgCode(err, '23505')) fail('CONFLICT', '该 slug 已被其他智能体占用，请换一个');
-  if (isPgCode(err, '23503'))
-    fail('INVALID_REFERENCE', '引用的 MCP Server、技能或插件不存在，请刷新后重新选择');
-  throw err;
-}
+export const agentSlugConflictMessage = '该 slug 已被其他智能体占用，请换一个';
+export const agentReferenceConflict = {
+  code: 'INVALID_REFERENCE',
+  message: '引用的 MCP Server、技能或插件不存在，请刷新后重新选择',
+} as const;
 export function toWrite(
   input: Omit<AgentInput, 'serverIds' | 'skillIds' | 'subAgentIds' | 'pluginBindings'>,
   ownerBusinessId: string,
@@ -167,7 +166,7 @@ export async function createAgent(deps: AgentWriteDependencies, input: AgentInpu
     });
     return repo.toAgent(row, serverIds, skillIds, subAgentIds, pluginBindings);
   } catch (error) {
-    rethrowConflict(error);
+    rethrowConflict(error, agentSlugConflictMessage, agentReferenceConflict);
   }
 }
 export async function agentDetail(db: Database, row: allRepo.agents.AgentRow): Promise<Agent> {
@@ -334,6 +333,6 @@ export async function restoreAgentVersion(
     });
     return row;
   } catch (err) {
-    rethrowConflict(err);
+    rethrowConflict(err, agentSlugConflictMessage, agentReferenceConflict);
   }
 }

@@ -4,8 +4,9 @@ import { repo as allRepo } from '@agentport/db';
 import { implement } from '@orpc/server';
 import { actorOf } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { rethrowConflict } from '../../http/errors.js';
 import { authorizedAgent } from '../agents/access.js';
-import { rethrowConflict, toApi, toWorkflowWrite } from './api.js';
+import { toApi, toWorkflowWrite } from './api.js';
 
 const repo = allRepo.workflows;
 function notFound() {
@@ -46,7 +47,7 @@ export const workflowsRouter = os.router({
       });
       return toApi(row);
     } catch (err) {
-      rethrowConflict(err);
+      rethrowConflict(err, '该 slug 已被其他工作流占用，请换一个');
     }
   }),
   update: os.update.handler(async ({ context, input: routeInput }) => {

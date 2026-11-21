@@ -19,7 +19,7 @@ import {
   resourceAccessFilter,
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { AppError } from '../../http/errors.js';
+import { AppError, rethrowConflict } from '../../http/errors.js';
 import { invalidCursor, requireCursorPage } from '../../http/pagination.js';
 import { getQueue } from '../../queue/producer.js';
 import {
@@ -34,10 +34,11 @@ import { authorizeAgent, authorizedAgent } from './access.js';
 import { listMemoryFiles, readMemoryFile } from './memory-files.js';
 import {
   agentDetail,
+  agentReferenceConflict,
+  agentSlugConflictMessage,
   authorizeBoundResources,
   createAgent,
   restoreAgentVersion,
-  rethrowConflict,
   toVersionDefinition,
   toWrite,
   transferAgent,
@@ -304,7 +305,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       });
       return row;
     } catch (err) {
-      rethrowConflict(err);
+      rethrowConflict(err, agentSlugConflictMessage, agentReferenceConflict);
     }
   }),
   importFile: os.importFile.handler(async ({ context, input: routeInput }) => {
@@ -340,7 +341,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
         warnings,
       };
     } catch (err) {
-      rethrowConflict(err);
+      rethrowConflict(err, agentSlugConflictMessage, agentReferenceConflict);
     }
   }),
   options: os.options.handler(async ({ context }) => {
@@ -575,7 +576,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
         ? { kind: 'detail' as const, agent: await agentDetail(context.db, row) }
         : { kind: 'summary' as const, agent: toSummary(row) };
     } catch (err) {
-      rethrowConflict(err);
+      rethrowConflict(err, agentSlugConflictMessage, agentReferenceConflict);
     }
   }),
   publish: os.publish.handler(async ({ context, input: routeInput }) => {
@@ -833,7 +834,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
           target.definition,
           `rollback to v${target.version}`,
         )
-        .catch(rethrowConflict);
+        .catch((err) => rethrowConflict(err, agentSlugConflictMessage, agentReferenceConflict));
       if (!row) return notFound('agent');
       await allRepo.audit.writeAudit(context.db, context.log, {
         actor: principal.businessId,
