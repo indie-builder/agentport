@@ -46,7 +46,7 @@ export async function getJob(db: Database, id: string): Promise<KnowledgeJobRow 
 }
 
 export async function findActiveIngestJobId(
-  db: Database,
+  db: DbHandle,
   documentId: string,
 ): Promise<string | null> {
   const [row] = await db

@@ -410,7 +410,7 @@ export async function listImageAssets(
 }
 
 /** 人工编辑总数取整版聚合，不能靠分页首页推断（>200 条时会漏）。 */
-export async function countEditedChunks(db: Database, versionId: string): Promise<number> {
+export async function countEditedChunks(db: DbHandle, versionId: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(knowledgeChunks)

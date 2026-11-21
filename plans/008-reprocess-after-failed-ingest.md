@@ -2,7 +2,7 @@
 
 > **Executor instructions**: 严格按步骤执行；每步先跑验证命令并确认预期结果，再进入下一步。遇到「STOP conditions」立即停止并报告。完成后更新 `plans/README.md` 中本计划的 Status 行（除非派发者声明由他维护索引）。
 >
-> **Drift check（先跑）**: `git diff --stat 90a0ad2c..HEAD -- packages/db/src/repo/knowledge/versions.ts packages/api/src/modules/knowledge/use-cases/documents.ts packages/db/src/repo/knowledge/jobs.ts tests/knowledge.e2e.ts`
+> **Drift check（先跑）**: `git diff --stat 90a0ad2c..HEAD -- packages/db/src/repo/knowledge/versions.ts packages/api/src/modules/knowledge/use-cases/documents.ts packages/db/src/repo/knowledge/jobs.ts`
 > 若有变化，先对照「Current state」；对不上按 STOP 处理。
 
 ## Status
@@ -132,8 +132,16 @@ if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
 - `bun run test -- packages/api/test/knowledge-publishing-integration.test.ts` → 全绿，尤其是 `:1494` 附近的成功重解析用例。
 - `bun run test -- packages/api/test/knowledge-management-routes.test.ts` → 全绿。
 
+### Step 4: 覆盖缺口（原 e2e 计划作废）
+
+原计划的 e2e 用例已作废，本轮不新增系统级用例：
+
+- 上传入口走 `sourceType='upload'`，修复前后都返回 202，无法作为本修复的回归证据。
+- manual 路径（`importDocument`）当前没有 e2e 覆盖；本轮不补。
+
 ## Test plan
 
+- 不新增测试；回归依赖既有 `knowledge-publishing-integration.test.ts` 与 `knowledge-management-routes.test.ts`。
 - 受影响路径是 `createManualDocument` 创建的 `sourceType='manual'` 文档（text/markdown，`publish: 'draft'`）。既有 `knowledge-publishing-integration.test.ts` 的重解析用例针对的是一条已有版本的声音上传（audio upload），不覆盖被移除的 manual 首轮失败放行路径。因此 manual 路径没有自动化回归用例，覆盖依赖 typecheck 与既有套件。
 - 既有 `knowledge-publishing-integration.test.ts` 的成功重解析与草稿拦截用例必须保持通过，证明没有放宽真实的草稿保护。
 
@@ -154,6 +162,7 @@ if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
 
 ## Maintenance notes
 
+- 重解析的检查与建任务在同一事务内并对文档行 `FOR UPDATE`，防止并发重复入队。
 - `hasUnpublishedDraft` 现在严格对应名字：只回答“是否存在未发布草稿”。活跃任务属于调用方判断。
 - 批量重解析复用 `reprocessDocument`，未来新增入口也必须走它。
 - 审查重点：`forbidUnpublishedDraft`（worker 写版本守卫）必须是“真实草稿才拒绝”，否则 ingest 会自锁。

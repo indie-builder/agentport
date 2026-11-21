@@ -11,7 +11,11 @@ import {
 } from '@agentport/core';
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeDocumentStatus } from '@agentport/shared';
-import { KNOWLEDGE_DOCUMENT_MAX_BYTES, knowledgeImageChunkMetadataSchema } from '@agentport/shared';
+import {
+  KNOWLEDGE_DOCUMENT_MAX_BYTES,
+  knowledgeImageChunkMetadataSchema,
+  knowledgeIngestInputSnapshotSchema,
+} from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import type { Config } from '../../../config.js';
 import { isPgCode } from '../../../http/errors.js';
@@ -543,60 +547,70 @@ export async function reprocessDocument(
   documentId: string,
   body: { confirmOverwriteManualChunks: boolean },
 ) {
-  const row = await repo.knowledge.getDocument(deps.db, documentId);
-  if (!row) notFound('文档');
-  if (row.status === 'disabled' || row.disabledReason !== null) {
-    throw new AppError('CONFLICT', '文档已停用，不能通过重解析恢复；请先完成来源同步或显式启用');
-  }
-  if (await repo.knowledge.hasUnpublishedDraft(deps.db, row)) {
-    throw new AppError('CONFLICT', '文档存在未发布的草稿，请先发布或放弃草稿后再重解析');
-  }
-  if ((await repo.knowledge.findActiveIngestJobId(deps.db, row.id)) !== null) {
-    throw new AppError('CONFLICT', '文档有正在进行的入库任务，请稍后重试');
-  }
-  if (row.currentVersionId) {
-    const manualChunkCount = await repo.knowledge.countEditedChunks(deps.db, row.currentVersionId);
-    if (manualChunkCount > 0 && !body.confirmOverwriteManualChunks) {
-      throw new AppError(
-        'CONFLICT',
-        `存在 ${manualChunkCount} 个人工编辑的分块，重解析会丢弃这些修改；请确认后重试`,
-      );
+  const job = await deps.db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(schema.knowledgeDocuments)
+      .where(eq(schema.knowledgeDocuments.id, documentId))
+      .limit(1)
+      .for('update');
+    if (!row) notFound('文档');
+    if (row.status === 'disabled' || row.disabledReason !== null) {
+      throw new AppError('CONFLICT', '文档已停用，不能通过重解析恢复；请先完成来源同步或显式启用');
     }
-  }
-  const firstManualIngest =
-    row.sourceType === 'manual' && row.contentKind === 'document' && row.currentVersionId === null;
-  let payload: Parameters<typeof enqueue>[1];
-  if (firstManualIngest) {
-    const filename = row.metadata.originalFilename;
-    if (row.contentHash === null || typeof filename !== 'string') {
-      throw new AppError('CONFLICT', '文档缺少原始内容，无法重解析；请删除后重新上传');
+    if (await repo.knowledge.hasUnpublishedDraft(tx, row)) {
+      throw new AppError('CONFLICT', '文档存在未发布的草稿，请先发布或放弃草稿后再重解析');
     }
-    payload = {
-      type: 'ingest',
-      documentId: row.id,
-      publish: 'draft',
-      input: {
+    if ((await repo.knowledge.findActiveIngestJobId(tx, row.id)) !== null) {
+      throw new AppError('CONFLICT', '文档有正在进行的入库任务，请稍后重试');
+    }
+    if (row.currentVersionId) {
+      const manualChunkCount = await repo.knowledge.countEditedChunks(tx, row.currentVersionId);
+      if (manualChunkCount > 0 && !body.confirmOverwriteManualChunks) {
+        throw new AppError(
+          'CONFLICT',
+          `存在 ${manualChunkCount} 个人工编辑的分块，重解析会丢弃这些修改；请确认后重试`,
+        );
+      }
+    }
+    const firstManualIngest =
+      row.sourceType === 'manual' &&
+      row.contentKind === 'document' &&
+      row.currentVersionId === null;
+    if (firstManualIngest) {
+      const input = knowledgeIngestInputSnapshotSchema.safeParse({
         blobSha256: row.contentHash,
-        filename,
+        filename: row.metadata.originalFilename,
         mimeType: row.mimeType,
         expectedCurrentVersionId: null,
-      },
-    };
-  } else {
-    payload = {
-      type: 'reindex',
+      });
+      if (!input.success) {
+        throw new AppError('CONFLICT', '文档缺少原始内容，无法重解析；请删除后重新上传');
+      }
+      return createJob(tx, {
+        baseId: row.baseId,
+        documentId: row.id,
+        payload: { type: 'ingest', documentId: row.id, publish: 'draft', input: input.data },
+      });
+    }
+    return createJob(tx, {
       baseId: row.baseId,
-      documentIds: [row.id],
-      chunksOnly: false,
-      confirmOverwriteManualChunks: body.confirmOverwriteManualChunks,
-    };
-  }
-  const job = await enqueue(deps, payload, { baseId: row.baseId, documentId: row.id });
+      documentId: row.id,
+      payload: {
+        type: 'reindex',
+        baseId: row.baseId,
+        documentIds: [row.id],
+        chunksOnly: false,
+        confirmOverwriteManualChunks: body.confirmOverwriteManualChunks,
+      },
+    });
+  });
+  await enqueueKnowledgeJobAfterCommit(deps.log, job);
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: deps.actor,
     action: 'knowledge.document.reprocessed',
-    target: row.id,
-    input: { baseId: row.baseId },
+    target: documentId,
+    input: { baseId: job.baseId },
     status: 'ok',
     requestId: deps.requestId,
   });
