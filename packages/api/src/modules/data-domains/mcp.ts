@@ -10,6 +10,7 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { Effect } from 'effect';
 import type { Logger } from 'pino';
 import { z } from 'zod';
+import { toolError } from '../../lib/mcp.js';
 
 export interface DataDomainServerInput {
   db: Database;
@@ -37,10 +38,6 @@ const queryResponseSchema = z.discriminatedUnion('ok', [
   }),
   z.object({ ok: z.literal(false) }),
 ]);
-
-function toolError(code: string, message: string): CallToolResult {
-  return { isError: true, content: [{ type: 'text', text: `${code}: ${message}` }] };
-}
 
 export function buildDataDomainServer(input: DataDomainServerInput): McpHttpHandler {
   const loadOnline = async (signal: AbortSignal) => {

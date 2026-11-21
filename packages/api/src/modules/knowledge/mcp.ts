@@ -18,6 +18,7 @@ import type { CallToolResult, JsonSchemaType, McpHttpHandler } from '@modelconte
 import { createMcpHandler, fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { toolError } from '../../lib/mcp.js';
 import {
   KnowledgeReadImageError,
   type KnowledgeServerInput,
@@ -52,10 +53,6 @@ function jsonResult(value: SearchKnowledgeResult | KnowledgeReadResult | Knowled
   content: Array<{ type: 'text'; text: string }>;
 } {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
-}
-
-function toolError(code: string, message: string): CallToolResult {
-  return { isError: true, content: [{ type: 'text', text: `${code}: ${message}` }] };
 }
 
 function currentVersionOf(target: KnowledgeTarget, current: string | null): string {
