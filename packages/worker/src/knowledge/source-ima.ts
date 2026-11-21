@@ -1,19 +1,14 @@
 import { createHash } from 'node:crypto';
-import { errorText } from '@agentport/shared';
 import { z } from 'zod';
+import { fetchDownload } from './source-download.js';
 import { declaredMime } from './source-formats.js';
 import {
   sourceFailure as failureOf,
-  fetchChecked,
   fetchJson,
   SourceItemError as ItemError,
-  readBytesCapped,
   redactUrls,
   rethrowAuth,
   SourceAuthError,
-  safeDownloadHeaders,
-  sourceNetworkOptions,
-  validateSourceUrl,
 } from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
@@ -287,36 +282,6 @@ function mediaMime(mediaType: number, extension: string, contentType: string | n
   return declaredMime(contentType) ?? MEDIA[mediaType]?.mime ?? 'application/octet-stream';
 }
 
-function sanitizeDownloadError(err: unknown): Error {
-  const message = errorText(err);
-  return new Error(redactUrls(message));
-}
-
-async function downloadMedia(
-  config: SourceConfig,
-  url: string,
-  headers: Record<string, string>,
-  signal: AbortSignal | undefined,
-): Promise<{ bytes: Buffer; contentType: string | null }> {
-  try {
-    const target = await validateSourceUrl(url, sourceNetworkOptions(config));
-    const response = await fetchChecked(target.href, {
-      headers: safeDownloadHeaders(headers),
-      authOrigin: target.origin,
-      authFailure: 'item',
-      ...sourceNetworkOptions(config),
-      ...signalOption(signal),
-    });
-    return {
-      bytes: await readBytesCapped(response, 'ima media'),
-      contentType: response.headers.get('content-type'),
-    };
-  } catch (err) {
-    if (err instanceof SourceAuthError || isAbort(err, signal)) throw err;
-    throw sanitizeDownloadError(err);
-  }
-}
-
 async function getMediaInfo(
   auth: Auth,
   mediaId: string,
@@ -425,11 +390,12 @@ async function readMedia(
       // 官方允许 code=0 但无 url_info；没有公开原文能力，不能生成标题空文。
       throw new ItemError('ima media has no downloadable URL', 'content_unavailable', false);
     }
-    const { bytes, contentType } = await downloadMedia(
+    const { bytes, contentType } = await fetchDownload(
       config,
       url,
       info.url_info?.headers ?? {},
       signal,
+      'ima media',
     );
     if (bytes.length === 0) {
       throw new ItemError('ima media download was empty', 'empty_content', false);
