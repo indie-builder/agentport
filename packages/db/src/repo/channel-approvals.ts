@@ -2,7 +2,7 @@ import { ACTIVE_RUN_STATUSES, isActiveRunStatus } from '@agentport/shared';
 import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import { agentRuns, approvalRequests, servers } from '../schema.js';
-import { channelMemberRole } from './channels.js';
+import { allows, channelMemberRole } from './channels.js';
 
 export interface ChannelApprovalItem {
   id: string;
@@ -101,7 +101,7 @@ async function decideChannelApproval(
   return db.transaction(async (tx) => {
     const role = await channelMemberRole(tx, input.channelId, input.businessId);
     if (role === null) return { kind: 'not_found' };
-    if (role === 'viewer') return { kind: 'forbidden', reason: 'channel_role' };
+    if (!allows(role, 'post')) return { kind: 'forbidden', reason: 'channel_role' };
 
     const [approval] = await tx
       .select({

@@ -1,4 +1,5 @@
-import { and, eq, gte, isNull, lt, or, sql } from 'drizzle-orm';
+import { TERMINAL_RUN_STATUSES } from '@agentport/shared';
+import { and, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import {
@@ -330,7 +331,7 @@ export async function pruneProviderRequestLogs(db: Database, before: Date): Prom
           sql`exists (
             select 1 from ${agentRuns}
             where ${agentRuns.id} = ${providerRequestLogs.runId}
-              and ${agentRuns.status} in ('succeeded', 'failed', 'cancelled', 'timeout')
+              and ${inArray(agentRuns.status, [...TERMINAL_RUN_STATUSES])}
               and coalesce(${agentRuns.endedAt}, ${agentRuns.startedAt}) < ${before}
           )`,
         ),

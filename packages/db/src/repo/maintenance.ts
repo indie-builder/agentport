@@ -1,4 +1,5 @@
 import { fail } from '@agentport/core';
+import { ACTIVE_RUN_STATUSES, TERMINAL_RUN_STATUSES } from '@agentport/shared';
 import { sql } from 'drizzle-orm';
 import type { Database } from '../client.js';
 import {
@@ -9,6 +10,15 @@ import {
   evalRuns,
   messages,
 } from '../schema.js';
+
+const ACTIVE_STATUSES = sql.join(
+  ACTIVE_RUN_STATUSES.map((status) => sql`${status}`),
+  sql`, `,
+);
+const TERMINAL_STATUSES = sql.join(
+  TERMINAL_RUN_STATUSES.map((status) => sql`${status}`),
+  sql`, `,
+);
 
 export interface PruneRunsResult {
   runs: number;
@@ -51,7 +61,7 @@ export async function pruneAgentVersions(db: Database, keepPerAgent: number): Pr
         select 1 from ${agentRuns} r
         where r.agent_id = ${agentVersions.agentId}
           and r.agent_version = ${agentVersions.version}
-          and r.status in ('queued', 'running')
+          and r.status in (${ACTIVE_STATUSES})
       )
       and not exists (
         select 1
@@ -66,7 +76,7 @@ export async function pruneAgentVersions(db: Database, keepPerAgent: number): Pr
       )
       and not exists (
         select 1 from ${agentRuns} r
-        where r.status in ('queued', 'running')
+        where r.status in (${ACTIVE_STATUSES})
           and r.definition_snapshot->'resources'->'subAgents' @> jsonb_build_array(
             jsonb_build_object(
               'id', ${agentVersions.agentId},
@@ -79,7 +89,7 @@ export async function pruneAgentVersions(db: Database, keepPerAgent: number): Pr
         from ${agentRuns} r
         join ${agentVersions} parent
           on parent.agent_id = r.agent_id and parent.version = r.agent_version
-        where r.status in ('queued', 'running')
+        where r.status in (${ACTIVE_STATUSES})
           and parent.definition->'resources'->'subAgents' @> jsonb_build_array(
             jsonb_build_object(
               'id', ${agentVersions.agentId},
@@ -114,7 +124,7 @@ export async function pruneRuns(
     with doomed as (
       select ${agentRuns.id} as id
       from ${agentRuns}
-      where ${agentRuns.status} in ('succeeded', 'failed', 'cancelled', 'timeout')
+      where ${agentRuns.status} in (${TERMINAL_STATUSES})
         and (
           ${agentRuns.startedAt} is null
           or ${agentRuns.startedAt} < date_trunc('month', now(), 'UTC')

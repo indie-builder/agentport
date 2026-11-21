@@ -1,5 +1,5 @@
 import type { AlertSettings, CostGroupBy, SloSettings } from '@agentport/shared';
-import { utcWindowStart } from '@agentport/shared';
+import { FAILED_RUN_STATUSES, utcWindowStart } from '@agentport/shared';
 import { and, count, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import {
@@ -142,6 +142,6 @@ export async function countRecentFailedRuns(db: DbHandle, since: Date) {
   const [row] = await db
     .select({ total: count() })
     .from(agentRuns)
-    .where(and(inArray(agentRuns.status, ['failed', 'timeout']), gte(agentRuns.endedAt, since)));
+    .where(and(inArray(agentRuns.status, [...FAILED_RUN_STATUSES]), gte(agentRuns.endedAt, since)));
   return row?.total ?? 0;
 }

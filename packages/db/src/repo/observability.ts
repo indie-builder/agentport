@@ -1,4 +1,5 @@
-import { count, gte, sql } from 'drizzle-orm';
+import { FINISHED_RUN_STATUSES } from '@agentport/shared';
+import { count, gte, inArray, sql } from 'drizzle-orm';
 import type { DbHandle } from '../client.js';
 import { agentRuns, providerRequestLogs } from '../schema.js';
 import { providerUsageByPeriod } from './model-providers.js';
@@ -31,7 +32,7 @@ export async function runWindowStats(db: DbHandle, since: Date): Promise<RunWind
   const [row] = await db
     .select({
       total: sql<number>`count(*)::int`,
-      finished: sql<number>`count(*) filter (where ${agentRuns.status} in ('succeeded','failed','timeout'))::int`,
+      finished: sql<number>`count(*) filter (where ${inArray(agentRuns.status, [...FINISHED_RUN_STATUSES])})::int`,
       succeeded: sql<number>`count(*) filter (where ${agentRuns.status} = 'succeeded')::int`,
       failed: sql<number>`count(*) filter (where ${agentRuns.status} = 'failed')::int`,
       timeout: sql<number>`count(*) filter (where ${agentRuns.status} = 'timeout')::int`,
@@ -39,14 +40,14 @@ export async function runWindowStats(db: DbHandle, since: Date): Promise<RunWind
       running: sql<number>`count(*) filter (where ${agentRuns.status} = 'running')::int`,
       p50LatencyMs: sql<
         number | null
-      >`percentile_cont(0.5) within group (order by ${agentRuns.latencyMs}) filter (where ${agentRuns.status} in ('succeeded','failed','timeout'))`,
+      >`percentile_cont(0.5) within group (order by ${agentRuns.latencyMs}) filter (where ${inArray(agentRuns.status, [...FINISHED_RUN_STATUSES])})`,
       p95LatencyMs: sql<
         number | null
-      >`percentile_cont(0.95) within group (order by ${agentRuns.latencyMs}) filter (where ${agentRuns.status} in ('succeeded','failed','timeout'))`,
+      >`percentile_cont(0.95) within group (order by ${agentRuns.latencyMs}) filter (where ${inArray(agentRuns.status, [...FINISHED_RUN_STATUSES])})`,
       p99LatencyMs: sql<
         number | null
-      >`percentile_cont(0.99) within group (order by ${agentRuns.latencyMs}) filter (where ${agentRuns.status} in ('succeeded','failed','timeout'))`,
-      latencySamples: sql<number>`count(${agentRuns.latencyMs}) filter (where ${agentRuns.status} in ('succeeded','failed','timeout'))::int`,
+      >`percentile_cont(0.99) within group (order by ${agentRuns.latencyMs}) filter (where ${inArray(agentRuns.status, [...FINISHED_RUN_STATUSES])})`,
+      latencySamples: sql<number>`count(${agentRuns.latencyMs}) filter (where ${inArray(agentRuns.status, [...FINISHED_RUN_STATUSES])})::int`,
       costUsd: sql<number>`coalesce(sum(${agentRuns.costUsd}), 0)::float`,
       inputTokens: sql<number>`coalesce(sum(${agentRuns.inputTokens}), 0)::float`,
       outputTokens: sql<number>`coalesce(sum(${agentRuns.outputTokens}), 0)::float`,
