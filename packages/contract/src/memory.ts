@@ -13,6 +13,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 export const personalMemoryWriteResponseSchema = personalMemorySchema.extend({
   changeId: z.string(),
@@ -37,6 +38,7 @@ export const memoryContract = {
     .output(personalMemorySchema)
     .meta({ access: { kind: 'permission', permissionId: 'personal_memory.read' } }),
   writePersonal: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PUT', path: '/me/memory' })
     .input(z.object({ body: writePersonalMemoryInputSchema }))
     .output(personalMemoryWriteResponseSchema)
@@ -67,11 +69,13 @@ export const memoryContract = {
     .output(agentMemoryAssemblySchema)
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.read' } }),
   updateAgentMemoryPolicy: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PUT', path: '/agents/{id}/memory/policy' })
     .input(z.object({ params: idParams, body: agentMemoryPolicyBodySchema }))
     .output(agentMemoryPolicyResponseSchema)
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.write' } }),
   rollback: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .route({ method: 'POST', path: '/memory/changes/{id}/rollback' })
     .input(z.object({ params: idParams }))
     .output(memoryChangeSchema)

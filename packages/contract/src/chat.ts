@@ -19,8 +19,19 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
+
 export const chatContract = {
   startRun: contractProcedure
+    .errors(
+      domainErrors(
+        'AGENT_DISABLED',
+        'BUDGET_EXCEEDED',
+        'CONTENT_BLOCKED',
+        'CONTENT_APPROVAL_REQUIRED',
+        'CONFLICT',
+      ),
+    )
     .meta({ access: { kind: 'permission', permissionId: 'conversations.create' }, rateLimit: 20 })
     .route({ method: 'POST', path: '/chat', successStatus: 202, outputStructure: 'detailed' })
     .input(z.object({ body: chatRequestSchema }))
@@ -38,6 +49,15 @@ export const chatContract = {
       ]),
     ),
   regenerate: contractProcedure
+    .errors(
+      domainErrors(
+        'AGENT_DISABLED',
+        'BUDGET_EXCEEDED',
+        'CONTENT_BLOCKED',
+        'CONTENT_APPROVAL_REQUIRED',
+        'CONFLICT',
+      ),
+    )
     .meta({ access: { kind: 'permission', permissionId: 'conversations.update' }, rateLimit: 20 })
     .route({
       method: 'POST',
@@ -73,6 +93,7 @@ export const chatContract = {
     .input(z.object({ params: idParams, body: conversationRenameSchema }))
     .output(publicConversationSchema),
   deleteConversation: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'conversations.delete' } })
     .route({ method: 'DELETE', path: '/conversations/{id}', successStatus: 204 })
     .input(z.object({ params: idParams }))
@@ -83,6 +104,7 @@ export const chatContract = {
     .input(z.object({ params: z.object({ runId: z.string().min(1) }) }))
     .output(z.object({ ok: z.literal(true) })),
   branchConversation: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'conversations.create' } })
     .route({ method: 'POST', path: '/conversations/{id}/branch', successStatus: 201 })
     .input(
@@ -151,6 +173,7 @@ export const chatContract = {
       ]),
     ),
   approveOpenuiTool: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'runs.approve' } })
     .route({
       method: 'POST',

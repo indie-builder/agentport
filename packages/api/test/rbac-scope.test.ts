@@ -276,7 +276,8 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       url: `/api/agents/${agentId}/members/${encodeURIComponent(userA.businessId)}`,
       headers: { cookie: admin },
     });
-    expect(removed.statusCode, removed.body).toBe(200);
+    expect(removed.statusCode, removed.body).toBe(204);
+    expect(removed.body).toBe('');
     expectProblem(
       await request(app, {
         method: 'POST',
@@ -317,7 +318,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       headers: { cookie: maintainer.cookie },
     });
     expect(ownCases.statusCode, ownCases.body).toBe(200);
-    expect(ownCases.json<Array<{ agentId: string }>>()).toHaveLength(1);
+    expect(ownCases.json<{ items: Array<{ agentId: string }> }>().items).toHaveLength(1);
 
     const otherCases = await request(app, {
       method: 'GET',
@@ -325,7 +326,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       headers: { cookie: otherMaintainer.cookie },
     });
     expect(otherCases.statusCode, otherCases.body).toBe(200);
-    expect(otherCases.json<Array<{ agentId: string }>>()).toHaveLength(0);
+    expect(otherCases.json<{ items: Array<{ agentId: string }> }>().items).toHaveLength(0);
 
     expectProblem(
       await request(app, {
@@ -336,7 +337,7 @@ describe.skipIf(!ready)('账户与对象范围权限（API 入口）', () => {
       'FORBIDDEN',
     );
 
-    const cases = ownCases.json<Array<{ id: string }>>();
+    const cases = ownCases.json<{ items: Array<{ id: string }> }>().items;
     const target = cases[0];
     expect(target).toBeDefined();
     expectProblem(

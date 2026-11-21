@@ -14,7 +14,6 @@ import type { AgentVersionSummary } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { formatDateTime } from '../../lib/format.js';
 import {
-  isAgentDetail,
   useAgentVersion,
   useAgentVersions,
   useRollbackAgent,
@@ -203,9 +202,10 @@ export function VersionHistory({
           if (!pending || rollbackDisabled) return;
           onPendingChange?.(true);
           try {
-            const agent = await rollback.mutateAsync({ id: agentId, version: pending.version });
-            if (isAgentDetail(agent)) onRolledBack(agent);
-            const publishedVersion = 'publishedVersion' in agent ? agent.publishedVersion : null;
+            const result = await rollback.mutateAsync({ id: agentId, version: pending.version });
+            if (result.kind === 'detail') onRolledBack(result.agent);
+            const publishedVersion =
+              result.kind === 'detail' ? result.agent.publishedVersion : null;
             toastSuccess(`已恢复并发布 v${publishedVersion ?? pending.version}`);
           } finally {
             onPendingChange?.(false);

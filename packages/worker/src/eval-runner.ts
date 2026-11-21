@@ -462,7 +462,7 @@ export async function executeEvalRun(input: {
 
     const cases =
       evalRun.caseSnapshot ??
-      (yield* dbQuery(() => evalRepo.listCases(db, accessFilter, evalRun.agentId)));
+      (yield* dbQuery(() => evalRepo.listAllCases(db, accessFilter, evalRun.agentId)));
     let passed = 0;
     let crashed: string | null = null;
 

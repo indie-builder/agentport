@@ -255,22 +255,66 @@ export async function runAgentJob(
   });
   // 只认领 queued 或入队失败且从未启动的 infra 行：BullMQ 在 Redis 抖动后会重投递仍在 running 的任务，
   // 若这里也接受 running，同一 run 会被两个 worker 各跑一遍（重复计费、消息互相覆盖）。
-  const claimed = await db
-    .update(schema.agentRuns)
-    .set({
-      status: 'running',
-      startedAt: new Date(),
-      endedAt: null,
-      error: null,
-      errorKind: null,
-    })
-    .where(
-      and(
-        eq(schema.agentRuns.id, runId),
-        or(eq(schema.agentRuns.status, 'queued'), repo.runPredicates.neverStartedFailureFilter()),
-      ),
-    )
-    .returning({ id: schema.agentRuns.id });
+  const claimed = await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({
+        status: schema.agentRuns.status,
+        errorKind: schema.agentRuns.errorKind,
+        startedAt: schema.agentRuns.startedAt,
+      })
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, runId))
+      .limit(1)
+      .for('update');
+    if (
+      current === undefined ||
+      (current.status !== 'queued' &&
+        !(
+          current.status === 'failed' &&
+          current.errorKind === 'infra' &&
+          current.startedAt === null
+        ))
+    ) {
+      return [];
+    }
+    if (run.trigger === 'review') {
+      const [review] = await tx
+        .select({ decision: schema.memoryReviews.decision })
+        .from(schema.memoryReviews)
+        .where(eq(schema.memoryReviews.runId, runId))
+        .limit(1)
+        .for('update');
+      if (review?.decision !== 'pending') return null;
+    }
+    if (current.status === 'failed') {
+      await repo.integrations.cancelPendingRunFailedWebhooks(tx, runId);
+    }
+    return tx
+      .update(schema.agentRuns)
+      .set({
+        status: 'running',
+        startedAt: new Date(),
+        endedAt: null,
+        error: null,
+        errorKind: null,
+      })
+      .where(
+        and(
+          eq(schema.agentRuns.id, runId),
+          or(eq(schema.agentRuns.status, 'queued'), repo.runPredicates.neverStartedFailureFilter()),
+        ),
+      )
+      .returning({ id: schema.agentRuns.id });
+  });
+  if (claimed === null) {
+    if (run.status === 'queued') {
+      await denyQueuedRun(db, logger, runId, {
+        reason: 'permission_denied',
+        message: '审核已拒绝，未执行',
+      });
+    }
+    return;
+  }
   if (claimed.length === 0) {
     runLog.info('run externally terminated before claim, skipping');
     return;

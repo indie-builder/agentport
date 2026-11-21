@@ -151,7 +151,6 @@ vi.mock('../src/lib/queries.js', () => ({
     error: new Error('Version unavailable'),
     refetch: state.retry,
   }),
-  isAgentDetail: (agent: Record<string, unknown>) => 'systemPrompt' in agent,
   useRollbackAgent: () => ({ mutateAsync: state.rollback }),
   usePublishAgent: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useOfflineAgent: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
@@ -212,10 +211,17 @@ const parent = {
   allowedTools: [],
   disallowedTools: [],
   permissionMode: 'dontAsk',
+  uiFormat: 'markdown',
   maxTurns: 20,
   maxBudgetUsd: 2,
+  monthlyBudgetUsd: null,
+  budgetAlertRatio: 0.8,
   timeoutMs: 600_000,
   enabled: true,
+  visibility: 'private',
+  tags: [],
+  createdBy: 'parent',
+  ownerBusinessId: 'parent',
   isDefault: false,
   parentId: null,
   runtimeEnvironmentId: null,
@@ -1410,7 +1416,7 @@ describe('expert editor regressions', () => {
         definitionState: 'legacy',
       },
     };
-    state.rollback.mockResolvedValue(parent);
+    state.rollback.mockResolvedValue({ kind: 'detail', agent: parent });
     const restored = vi.fn();
     let request: Promise<void> | undefined;
     await inspect(

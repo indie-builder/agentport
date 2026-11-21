@@ -78,13 +78,11 @@ export default {
     idempotencyKey: string,
     scope?: 'own',
   ): Promise<{ runId: string }> =>
-    rpc.memoryReviews.create(
-      {
-        query: { ...(scope === undefined ? {} : { scope }) },
-        body: input,
-      },
-      { context: { idempotencyKey } },
-    ),
+    rpc.memoryReviews.create({
+      headers: { 'idempotency-key': idempotencyKey },
+      query: { ...(scope === undefined ? {} : { scope }) },
+      body: input,
+    }),
   memoryReview: (runId: string, signal?: AbortSignal): Promise<MemoryReview> =>
     rpc.memoryReviews.detail({ params: { runId } }, clientOptions(signal)),
   applyMemoryReview: (runId: string): Promise<MemoryChange> =>

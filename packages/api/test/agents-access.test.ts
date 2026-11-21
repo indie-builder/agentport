@@ -612,8 +612,8 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
       url: `/api/agents/${agent.id}/members/${maintainer.businessId}`,
       headers: { cookie: owner1.cookie },
     });
-    expect(removed.statusCode, removed.body).toBe(200);
-    expect(removed.json()).toEqual({ ok: true });
+    expect(removed.statusCode, removed.body).toBe(204);
+    expect(removed.body).toBe('');
 
     const toViewer = await request(app, {
       method: 'POST',

@@ -111,10 +111,6 @@ export async function find(db: Database, runId: string): Promise<MemoryReviewRow
   return row ?? null;
 }
 
-export async function deleteByRunId(db: DbHandle, runId: string): Promise<void> {
-  await db.delete(memoryReviews).where(eq(memoryReviews.runId, runId));
-}
-
 export async function findByRequest(
   db: Database,
   businessId: string,
@@ -194,6 +190,42 @@ export async function listForUser(
   });
   if (page === null) return null;
   return { items: page.items.map(({ id: _, ...row }) => row), nextCursor: page.nextCursor };
+}
+
+export type RejectReviewOutcome =
+  | 'rejected'
+  | 'already_rejected'
+  | 'applied'
+  | 'run_active'
+  | 'missing';
+
+export async function rejectIfRunNotActive(
+  db: Database,
+  runId: string,
+): Promise<RejectReviewOutcome> {
+  return db.transaction(async (tx) => {
+    const [run] = await tx
+      .select({ status: agentRuns.status })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId))
+      .limit(1)
+      .for('update');
+    const [review] = await tx
+      .select({ decision: memoryReviews.decision })
+      .from(memoryReviews)
+      .where(eq(memoryReviews.runId, runId))
+      .limit(1)
+      .for('update');
+    if (!review) return 'missing';
+    if (review.decision === 'applied') return 'applied';
+    if (review.decision === 'rejected') return 'already_rejected';
+    if (run?.status === 'queued' || run?.status === 'running') return 'run_active';
+    await tx
+      .update(memoryReviews)
+      .set({ decision: 'rejected' })
+      .where(eq(memoryReviews.runId, runId));
+    return 'rejected';
+  });
 }
 
 /** 只有 pending 才能迁移；并发请求抢到同一行时后者得到 null。 */

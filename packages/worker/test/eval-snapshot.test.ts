@@ -10,7 +10,7 @@ const mocks = (() => {
     evalRepo: {
       getEvalRun: mock(),
       claimEvalRun: mock(),
-      listCases: mock(),
+      listAllCases: mock(),
       addResult: mock(),
       updateProgress: mock(),
       finishEvalRun: mock(),
@@ -103,8 +103,8 @@ function runWith(caseSnapshot: SnapshotCase[] | null, outputs: Record<string, st
     grants: [{ permissionId: 'eval.read', scope: 'owned_agents' }],
   });
   mocks.evalRepo.claimEvalRun.mockResolvedValue(true);
-  mocks.evalRepo.listCases.mockImplementation(() => {
-    throw new Error('listCases must not run when a snapshot exists');
+  mocks.evalRepo.listAllCases.mockImplementation(() => {
+    throw new Error('listAllCases must not run when a snapshot exists');
   });
   for (const [name, text] of Object.entries(outputs)) outputsByConversation.set(name, text);
   mocks.chat.admitChatRun.mockImplementation(
@@ -146,7 +146,7 @@ describe('executeEvalRun case snapshot', () => {
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.listCases).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.listAllCases).not.toHaveBeenCalled();
     expect(mocks.queueAdd.mock.calls.map((call) => call[1].prompt)).toEqual([
       'prompt-alpha',
       'prompt-beta',
@@ -234,7 +234,7 @@ describe('executeEvalRun case snapshot', () => {
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.listCases).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.listAllCases).not.toHaveBeenCalled();
     expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(1);
     expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
       caseId: 'evalCase-deleted',
@@ -253,7 +253,7 @@ describe('executeEvalRun case snapshot', () => {
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.listCases).not.toHaveBeenCalled();
+    expect(mocks.evalRepo.listAllCases).not.toHaveBeenCalled();
     expect(mocks.queueAdd).not.toHaveBeenCalled();
     expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
     expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
@@ -328,16 +328,16 @@ describe('executeEvalRun case snapshot', () => {
     expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
   });
 
-  it('falls back to listCases only when the run has no snapshot', async () => {
+  it('falls back to listAllCases only when the run has no snapshot', async () => {
     const live: SnapshotCase[] = [
       { id: 'evalCase-live', name: 'live', prompt: 'prompt-live', expectation: 'live-ok' },
     ];
     runWith(null, { live: 'answer live-ok' });
-    mocks.evalRepo.listCases.mockResolvedValue(live);
+    mocks.evalRepo.listAllCases.mockResolvedValue(live);
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.listCases).toHaveBeenCalledWith(
+    expect(mocks.evalRepo.listAllCases).toHaveBeenCalledWith(
       db,
       { businessId: evalBusinessId, scopes: ['owned_agents'] },
       agentId,

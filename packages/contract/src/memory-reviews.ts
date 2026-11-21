@@ -7,6 +7,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 const runParams = z.object({ runId: z.string().min(1) });
 
@@ -25,9 +26,11 @@ export const memoryReviewDecisionSchema = z.object({ decision: z.literal('reject
 
 export const memoryReviewsContract = {
   create: contractProcedure
+    .errors(domainErrors('AGENT_DISABLED', 'BUDGET_EXCEEDED', 'CONFLICT'))
     .route({ method: 'POST', path: '/memory-reviews', successStatus: 202 })
     .input(
       z.object({
+        headers: z.object({ 'idempotency-key': z.uuid() }),
         query: memoryReviewCreateQuerySchema,
         body: createMemoryReviewInputSchema,
       }),
@@ -45,11 +48,13 @@ export const memoryReviewsContract = {
     .output(memoryReviewSchema)
     .meta({ access: { kind: 'permission', permissionId: 'personal_memory.read' } }),
   apply: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .route({ method: 'POST', path: '/memory-reviews/{runId}/apply' })
     .input(z.object({ params: runParams }))
     .output(memoryChangeSchema)
     .meta({ access: { kind: 'permission', permissionId: 'personal_memory.write' } }),
   decide: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PATCH', path: '/memory-reviews/{runId}' })
     .input(z.object({ params: runParams, body: memoryReviewDecisionSchema }))
     .output(memoryReviewSchema)

@@ -13,6 +13,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 export const opsDaysQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).default(30),
@@ -48,6 +49,7 @@ export const opsContract = {
       .output(scheduleSchema)
       .meta({ access: { kind: 'permission', permissionId: 'schedules.manage' } }),
     update: contractProcedure
+      .errors(domainErrors('CONFLICT_STALE'))
       .route({ method: 'PATCH', path: '/schedules/{id}' })
       .input(z.object({ params: idParams, body: schedulePatchSchema }))
       .output(scheduleSchema)
@@ -58,6 +60,7 @@ export const opsContract = {
       .output(z.array(scheduleRunSchema))
       .meta({ access: { kind: 'permission', permissionId: 'schedules.read' } }),
     retry: contractProcedure
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'POST', path: '/schedules/{id}/runs/{runId}/retry', successStatus: 201 })
       .input(z.object({ params: idParams.extend({ runId: z.string().min(1) }) }))
       .output(scheduleRunSchema)

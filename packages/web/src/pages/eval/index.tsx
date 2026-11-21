@@ -45,6 +45,7 @@ import {
 } from '../../components/ui/dropdown-menu.js';
 import { can, hasAnyGrant } from '../../lib/access.js';
 import {
+  ApiError,
   api,
   type EvalCase,
   type EvalRun,
@@ -286,7 +287,8 @@ export function EvalPage() {
   const closeRun = (): void => setSearch({ run: undefined, failedOnly: undefined });
 
   const cases = useEvalCases(effectiveAgentId);
-  const casesEmpty = cases.isSuccess && cases.data.length === 0;
+  const caseItems = cases.data?.pages.flatMap((page) => page.items) ?? [];
+  const casesEmpty = cases.isSuccess && caseItems.length === 0;
   const runs = useEvalRuns(effectiveAgentId);
   const runItems = runs.data?.pages.flatMap((page) => page.items) ?? [];
   const start = useStartEvalRun();
@@ -415,7 +417,7 @@ export function EvalPage() {
                       ? '当前账户没有执行该专家评估的权限'
                       : cases.isPending
                         ? '用例加载中，稍后再试'
-                        : cases.isError
+                        : cases.isError && !cases.isFetchNextPageError
                           ? '用例加载失败，请重试'
                           : casesEmpty
                             ? '先新建至少一个用例'
@@ -590,12 +592,7 @@ export function EvalPage() {
                         ) : null}
                         {canReadEval ? (
                           <DropdownMenuItem
-                            disabled={
-                              !effectiveAgentId ||
-                              exporting ||
-                              !cases.data ||
-                              cases.data.length === 0
-                            }
+                            disabled={!effectiveAgentId || exporting || caseItems.length === 0}
                             title={casesEmpty ? '至少新建一条用例后可导出' : undefined}
                             onSelect={() => void exportJson()}
                           >
@@ -637,7 +634,7 @@ export function EvalPage() {
               />
             ) : null}
             {cases.isPending && effectiveAgentId ? <LoadingState rows={3} /> : null}
-            {effectiveAgentId && cases.isError ? (
+            {effectiveAgentId && cases.isError && !cases.isFetchNextPageError ? (
               <ErrorState error={cases.error} onRetry={() => void cases.refetch()} />
             ) : null}
             {effectiveAgentId && casesEmpty ? (
@@ -648,24 +645,51 @@ export function EvalPage() {
                 action={createCaseButton}
               />
             ) : null}
-            {effectiveAgentId && cases.data && cases.data.length > 0 ? (
-              <ul>
-                {cases.data.map((testCase) => (
-                  <EvalCaseRow
-                    key={testCase.id}
-                    testCase={testCase}
-                    canManage={canManageEval}
-                    onEdit={(trigger) => {
-                      dialogTriggerRef.current = trigger;
-                      setEditing(testCase);
-                    }}
-                    onDelete={(trigger) => {
-                      dialogTriggerRef.current = trigger;
-                      setDeleting(testCase);
-                    }}
+            {effectiveAgentId && caseItems.length > 0 ? (
+              <>
+                <ul>
+                  {caseItems.map((testCase) => (
+                    <EvalCaseRow
+                      key={testCase.id}
+                      testCase={testCase}
+                      canManage={canManageEval}
+                      onEdit={(trigger) => {
+                        dialogTriggerRef.current = trigger;
+                        setEditing(testCase);
+                      }}
+                      onDelete={(trigger) => {
+                        dialogTriggerRef.current = trigger;
+                        setDeleting(testCase);
+                      }}
+                    />
+                  ))}
+                </ul>
+                {cases.isFetchNextPageError ? (
+                  <ErrorState
+                    error={cases.error}
+                    onRetry={() =>
+                      void (cases.error instanceof ApiError &&
+                      cases.error.code === 'INVALID_INPUT' &&
+                      cases.error.path === '/cursor'
+                        ? cases.refetch()
+                        : cases.fetchNextPage())
+                    }
+                    title="下一页加载失败，保留已加载的用例"
                   />
-                ))}
-              </ul>
+                ) : cases.hasNextPage ? (
+                  <div className="flex justify-center">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={cases.isFetchingNextPage}
+                      aria-busy={cases.isFetchingNextPage}
+                      onClick={() => void cases.fetchNextPage()}
+                    >
+                      {cases.isFetchingNextPage ? '加载中…' : '加载更多'}
+                    </Button>
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </PageSection>
 

@@ -38,6 +38,8 @@ export type AgentListParams = Parameters<ApiClient['agents']['list']>[0]['query'
 
 export type AgentSummary = ApiOutput<ApiClient['agents']['list']>['items'][number];
 
+export type AgentWriteResult = ApiOutput<ApiClient['agents']['update']>;
+
 export interface AgentMemberList {
   ownerBusinessId: string;
   members: AgentMember[];
@@ -65,10 +67,8 @@ export default {
   agentTags: (): Promise<{ items: string[] }> => rpc.agents.tags({}),
   setAgentFavorite: (id: string, favorite: boolean): Promise<{ favorite: boolean }> =>
     rpc.agents.favorite({ params: { id }, body: { favorite } }),
-  archiveAgent: (id: string): Promise<Agent | AgentSummary> =>
-    rpc.agents.archive({ params: { id } }),
-  restoreAgent: (id: string): Promise<Agent | AgentSummary> =>
-    rpc.agents.restore({ params: { id } }),
+  archiveAgent: (id: string): Promise<AgentSummary> => rpc.agents.archive({ params: { id } }),
+  restoreAgent: (id: string): Promise<AgentSummary> => rpc.agents.restore({ params: { id } }),
   agent: (id: string, signal?: AbortSignal): Promise<Agent> =>
     rpc.agents.get({ params: { id } }, clientOptions(signal)),
   agentBudget: (id: string): Promise<AgentBudgetStatus> => rpc.agents.budget({ params: { id } }),
@@ -81,7 +81,7 @@ export default {
     businessId: string,
     input: { canUse: boolean; canMaintain: boolean },
   ): Promise<AgentMember> => rpc.agents.setMember({ params: { id, businessId }, body: input }),
-  deleteAgentMember: (id: string, businessId: string): Promise<{ ok: boolean }> =>
+  deleteAgentMember: (id: string, businessId: string): Promise<void> =>
     rpc.agents.deleteMember({ params: { id, businessId } }),
   transferAgent: (id: string, ownerBusinessId: string): Promise<Agent> =>
     rpc.agents.transfer({ params: { id }, body: { ownerBusinessId } }),
@@ -89,7 +89,7 @@ export default {
     id: string,
     input: AgentPatch,
     expectedUpdatedAt?: string,
-  ): Promise<Agent | AgentSummary> =>
+  ): Promise<AgentWriteResult> =>
     rpc.agents.update({
       params: { id },
       body: {
@@ -132,18 +132,17 @@ export default {
     input: { path: string; content: string; executable: boolean },
   ): Promise<AgentHookFile> => rpc.agents.writeHookFile({ params: { id }, body: input }),
   deleteAgentHookFile: (id: string, path: string): Promise<void> =>
-    rpc.agents.deleteHookFile({ params: { id }, body: { path } }),
+    rpc.agents.deleteHookFile({ params: { id }, query: { path } }),
   agentVersion: (id: string, version: number): Promise<AgentVersionDetail> =>
     rpc.agents.version({ params: { id, version } }),
-  rollbackAgent: (id: string, version: number): Promise<Agent | AgentSummary> =>
+  rollbackAgent: (id: string, version: number): Promise<AgentWriteResult> =>
     rpc.agents.rollback({ params: { id }, body: { version } }),
-  publishAgent: (id: string, note?: string): Promise<Agent | AgentSummary> =>
+  publishAgent: (id: string, note?: string): Promise<AgentWriteResult> =>
     rpc.agents.publish({
       params: { id },
       body: note === undefined || note === '' ? {} : { note },
     }),
-  offlineAgent: (id: string): Promise<Agent | AgentSummary> =>
-    rpc.agents.offline({ params: { id } }),
+  offlineAgent: (id: string): Promise<AgentWriteResult> => rpc.agents.offline({ params: { id } }),
   trialAgent: (id: string, prompt: string): Promise<{ runId: string; conversationId: string }> =>
     rpc.agents.trial({ params: { id }, body: { prompt } }),
   /** 官方目录包的 ZIP；错误仍是 Problem JSON。 */

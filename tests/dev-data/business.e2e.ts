@@ -331,7 +331,7 @@ async function findMemoryVersion(
 ): Promise<MemoryVersion | null> {
   let cursor: string | null = null;
   for (;;) {
-    const page = await api<{ items: MemoryVersion[]; nextCursor: string | null }>(
+    const page: { items: MemoryVersion[]; nextCursor: string | null } = await api(
       browser,
       `/api/me/memory/versions?limit=200${
         cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`
@@ -1642,7 +1642,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   const evalPassPrompt = '只回复这六个字：青禾采购评估通过。';
   const evalFailPrompt = '只回复这六个字：青禾采购评估通过。';
   const evalFailExpectation = '青禾演示-永不出现在输出中的哨兵-9F3A';
-  const cases = await api<EvalCaseItem[]>(browser, `/api/eval/cases?agentId=${main.id}`);
+  const cases = await apiAllPages<EvalCaseItem>(browser, `/api/eval/cases?agentId=${main.id}`);
   const ensureCaseUi = async (name: string, prompt: string, expectation: string): Promise<void> => {
     const existing = cases.filter((item) => item.name === name);
     if (
@@ -1659,19 +1659,21 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     await screen.getByRole('button', '保存', { exact: true }).tap();
     await expect(screen.getByText(name, { exact: true })).toBeVisible({ timeout: 30_000 });
     cases.push(
-      ...(await api<EvalCaseItem[]>(browser, `/api/eval/cases?agentId=${main.id}`)).filter(
+      ...(await apiAllPages<EvalCaseItem>(browser, `/api/eval/cases?agentId=${main.id}`)).filter(
         (item) => item.name === name,
       ),
     );
   };
   await ensureCaseUi(evalPassName, evalPassPrompt, '青禾采购评估通过');
   await ensureCaseUi(evalFailName, evalFailPrompt, evalFailExpectation);
-  manifest.eval.caseIds = (await api<EvalCaseItem[]>(browser, `/api/eval/cases?agentId=${main.id}`))
+  manifest.eval.caseIds = (
+    await apiAllPages<EvalCaseItem>(browser, `/api/eval/cases?agentId=${main.id}`)
+  )
     .filter((item) => item.name === evalPassName || item.name === evalFailName)
     .map((item) => item.id);
   save();
 
-  const exactCases = await api<EvalCaseItem[]>(browser, `/api/eval/cases?agentId=${main.id}`);
+  const exactCases = await apiAllPages<EvalCaseItem>(browser, `/api/eval/cases?agentId=${main.id}`);
   if (
     exactCases.length !== 2 ||
     manifest.eval.caseIds.length !== 2 ||
@@ -1705,7 +1707,10 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
       await app.open(`/eval?agent=${encodeURIComponent(main.id)}`);
       const runButton = screen.getByRole('button', '运行评估');
       await expect(runButton).toBeEnabled({ timeout: 30_000 });
-      const latestCases = await api<EvalCaseItem[]>(browser, `/api/eval/cases?agentId=${main.id}`);
+      const latestCases = await apiAllPages<EvalCaseItem>(
+        browser,
+        `/api/eval/cases?agentId=${main.id}`,
+      );
       if (JSON.stringify(latestCases) !== JSON.stringify(exactCases))
         conflict('发起前评估用例已变化');
       manifest.eval.status = 'starting';

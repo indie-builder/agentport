@@ -77,7 +77,7 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
 
     const res = await patch(agent.id, { effort: null });
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json<Agent>()).not.toHaveProperty('effort');
+    expect(res.json<{ agent: Agent }>().agent).not.toHaveProperty('effort');
 
     expect(await stored(agent.id)).toEqual({ effort: null });
     const snapshot = await latestSnapshot(agent.id);
@@ -89,7 +89,11 @@ describe.skipIf(!ready)('agent reasoning defaults', () => {
     const agent = await create({ effort: 'high' });
     const res = await patch(agent.id, { name: 'Renamed', enabled: false, description: '' });
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json<Agent>()).toMatchObject({ effort: 'high', enabled: false, description: '' });
+    expect(res.json<{ agent: Agent }>().agent).toMatchObject({
+      effort: 'high',
+      enabled: false,
+      description: '',
+    });
     expect(await stored(agent.id)).toEqual({ effort: 'high' });
   });
 

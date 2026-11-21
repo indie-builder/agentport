@@ -17,7 +17,6 @@ import {
   attachmentByteLimit,
   attachmentExtension,
   type ChatRequest,
-  isActiveJobState,
   isTextAttachment,
   type MessageAttachment,
   messageAttachments,
@@ -31,7 +30,7 @@ import type { Logger } from 'pino';
 import type { Config } from '../../config.js';
 import { getQueue } from '../../queue/producer.js';
 import { runQueueHasCapacity } from '../runs/capacity.js';
-import { failQueuedRunEnqueue } from '../runs/enqueue.js';
+import { enqueueRunJob, failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
 import { canonicalJson, enforceContentPolicy } from '../security/policy-gate.js';
 import { CONVERSATION_MISSING } from './access.js';
@@ -171,64 +170,6 @@ export async function startRun(
     );
   }
   const externalRequest = options?.externalRequest;
-  const enqueueRunJob = async (job: {
-    runId: string;
-    agentId: string;
-    conversationId: string;
-    prompt: string;
-  }) => {
-    const markEnqueueFailed = async (runId: string) => {
-      try {
-        await failQueuedRunEnqueue(deps.db, runId);
-      } catch {
-        deps.log.warn({ runId }, 'chat enqueue failure cleanup failed');
-      }
-    };
-    const recoverEnqueuedRun = async () => {
-      await chatRepo.requeueInfraFailedRun(deps.db, job.runId);
-    };
-    const queue = getQueue();
-    const existing = await queue.getJob(job.runId);
-    if (existing != null) {
-      const state = await existing.getState();
-      if (isActiveJobState(state)) return recoverEnqueuedRun();
-      if (state === 'completed' || state === 'failed') {
-        try {
-          await existing.remove();
-        } catch {
-          const current = await queue.getJob(job.runId);
-          if (current != null) {
-            if (isActiveJobState(await current.getState())) return recoverEnqueuedRun();
-            await markEnqueueFailed(job.runId);
-            fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
-          }
-        }
-      }
-    }
-    try {
-      await queue.add(
-        'run',
-        {
-          runId: job.runId,
-          agentId: job.agentId,
-          conversationId: job.conversationId,
-          prompt: job.prompt,
-          requestId: deps.requestId,
-        },
-        runEnqueueOptions(job.runId),
-      );
-    } catch {
-      const raced = await queue.getJob(job.runId);
-      if (raced == null || !isActiveJobState(await raced.getState())) {
-        await markEnqueueFailed(job.runId);
-        const late = await queue.getJob(job.runId);
-        if (late == null || !isActiveJobState(await late.getState())) {
-          fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
-        }
-      }
-    }
-    await recoverEnqueuedRun();
-  };
   const replayExternalRun = async (run: repo.chat.AgentRun, request: repo.chat.ExternalRequest) => {
     const replayed = (current: repo.chat.AgentRun) => ({
       runId: current.id,
@@ -238,7 +179,7 @@ export async function startRun(
     if (run.status === 'queued') {
       const prompt = await chatRepo.getRunUserMessageText(deps.db, run.id);
       if (prompt === null) fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
-      await enqueueRunJob({
+      await enqueueRunJob(deps, {
         runId: run.id,
         agentId: run.agentId,
         conversationId: run.conversationId,
@@ -288,7 +229,7 @@ export async function startRun(
             policyDecision.approvalId ?? undefined,
           )
         ) {
-          await enqueueRunJob({
+          await enqueueRunJob(deps, {
             runId: run.id,
             agentId: run.agentId,
             conversationId: run.conversationId,
@@ -299,7 +240,7 @@ export async function startRun(
         const latest = await chatRepo.getRun(deps.db, run.id);
         if (latest === null) fail('SERVICE_UNAVAILABLE', '运行入队失败，请稍后重试');
         if (latest.status === 'queued') {
-          await enqueueRunJob({
+          await enqueueRunJob(deps, {
             runId: latest.id,
             agentId: latest.agentId,
             conversationId: latest.conversationId,
@@ -495,7 +436,7 @@ export async function startRun(
       ? { runId: run.id, conversationId, replayed: true as const }
       : replayExternalRun(run, externalRequest);
   }
-  await enqueueRunJob({ runId: run.id, agentId, conversationId, prompt: messageText });
+  await enqueueRunJob(deps, { runId: run.id, agentId, conversationId, prompt: messageText });
   logEvent(deps.log, 'run enqueued', { runId: run.id, queue: RUNS_QUEUE });
   await repo.audit.writeAudit(deps.db, deps.log, {
     actor: principal.businessId,

@@ -583,7 +583,8 @@ describe.skipIf(!ready)('openui tools', () => {
       url: `/api/agents/${agent.id}/members/${encodeURIComponent(viewer.businessId)}`,
       headers: auth(),
     });
-    expect(removed.statusCode, removed.body).toBe(200);
+    expect(removed.statusCode, removed.body).toBe(204);
+    expect(removed.body).toBe('');
 
     expectProblem(await call(), 'NOT_FOUND');
   });

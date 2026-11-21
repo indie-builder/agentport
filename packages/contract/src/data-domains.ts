@@ -28,13 +28,16 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
+
+const dataDomainsProcedure = contractProcedure.errors(domainErrors('BUDGET_EXCEEDED'));
 
 const identityParams = idParams.extend({ businessId: businessIdSchema });
 const approvalParams = idParams.extend({ approvalId: z.string().min(1) });
 const versionParams = idParams.extend({ versionId: z.string().min(1) });
 const proposalParams = idParams.extend({ proposalId: z.string().min(1) });
 
-const read = contractProcedure.meta({
+const read = dataDomainsProcedure.meta({
   access: { kind: 'permission', permissionId: 'data_domains.read' },
 });
 
@@ -43,12 +46,13 @@ export const dataDomainsContract = {
     .route({ method: 'GET', path: '/data-domains' })
     .input(z.object({ query: dataDomainListQuerySchema }))
     .output(dataDomainListSchema),
-  create: contractProcedure
+  create: dataDomainsProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/data-domains', successStatus: 201 })
     .input(z.object({ body: dataDomainInputSchema }))
     .output(dataDomainSchema)
     .meta({ access: { kind: 'permission', permissionId: 'data_domains.create' } }),
-  testConnection: contractProcedure
+  testConnection: dataDomainsProcedure
     .route({ method: 'POST', path: '/data-domains/test-connection' })
     .input(z.object({ body: dataDomainConnectionTestInputSchema }))
     .output(dataDomainConnectionTestResultSchema)
@@ -57,12 +61,14 @@ export const dataDomainsContract = {
     .route({ method: 'GET', path: '/data-domains/{id}' })
     .input(z.object({ params: idParams }))
     .output(dataDomainSchema),
-  update: contractProcedure
+  update: dataDomainsProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PATCH', path: '/data-domains/{id}' })
     .input(z.object({ params: idParams, body: dataDomainPatchSchema }))
     .output(dataDomainSchema)
     .meta({ access: { kind: 'permission', permissionId: 'data_domains.update' } }),
-  remove: contractProcedure
+  remove: dataDomainsProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'DELETE', path: '/data-domains/{id}', successStatus: 204 })
     .input(z.object({ params: idParams }))
     .output(z.void())
@@ -75,17 +81,18 @@ export const dataDomainsContract = {
     .route({ method: 'GET', path: '/data-domains/{id}/versions/{versionId}' })
     .input(z.object({ params: versionParams }))
     .output(dataDomainVersionDetailSchema),
-  createVersion: contractProcedure
+  createVersion: dataDomainsProcedure
     .route({ method: 'POST', path: '/data-domains/{id}/versions', successStatus: 202 })
     .input(z.object({ params: idParams, body: dataDomainVersionInputSchema }))
     .output(dataDomainVersionSchema)
     .meta({ access: { kind: 'permission', permissionId: 'data_domains.build' } }),
-  generateMdl: contractProcedure
+  generateMdl: dataDomainsProcedure
     .route({ method: 'POST', path: '/data-domains/{id}/generate-mdl', successStatus: 202 })
     .input(z.object({ params: idParams }))
     .output(dataDomainVersionSchema)
     .meta({ access: { kind: 'permission', permissionId: 'data_domains.build' } }),
-  publish: contractProcedure
+  publish: dataDomainsProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PUT', path: '/data-domains/{id}/online-version' })
     .input(z.object({ params: idParams, body: dataDomainOnlineVersionInputSchema }))
     .output(dataDomainSchema)
@@ -102,17 +109,18 @@ export const dataDomainsContract = {
     .route({ method: 'GET', path: '/data-domains/{id}/approvals' })
     .input(z.object({ params: idParams, query: dataDomainQueryApprovalListQuerySchema }))
     .output(dataDomainQueryApprovalListSchema),
-  decideApproval: contractProcedure
+  decideApproval: dataDomainsProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/data-domains/{id}/approvals/{approvalId}/decision' })
     .input(z.object({ params: approvalParams, body: dataDomainApprovalDecisionSchema }))
     .output(dataDomainQueryApprovalSchema)
     .meta({ access: { kind: 'permission', permissionId: 'data_domains.update' } }),
-  upsertIdentity: contractProcedure
+  upsertIdentity: dataDomainsProcedure
     .route({ method: 'PUT', path: '/data-domains/{id}/identities/{businessId}' })
     .input(z.object({ params: identityParams, body: dataDomainIdentityInputSchema }))
     .output(dataDomainIdentitySchema)
     .meta({ access: { kind: 'permission', permissionId: 'data_domains.update' } }),
-  removeIdentity: contractProcedure
+  removeIdentity: dataDomainsProcedure
     .route({
       method: 'DELETE',
       path: '/data-domains/{id}/identities/{businessId}',
@@ -121,7 +129,7 @@ export const dataDomainsContract = {
     .input(z.object({ params: identityParams }))
     .output(z.void())
     .meta({ access: { kind: 'permission', permissionId: 'data_domains.update' } }),
-  enrich: contractProcedure
+  enrich: dataDomainsProcedure
     .route({ method: 'POST', path: '/data-domains/{id}/enrich', successStatus: 202 })
     .input(z.object({ params: idParams, body: dataDomainEnrichInputSchema }))
     .output(dataDomainEnrichmentProposalSchema)
@@ -134,7 +142,8 @@ export const dataDomainsContract = {
     .route({ method: 'GET', path: '/data-domains/{id}/proposals/{proposalId}' })
     .input(z.object({ params: proposalParams }))
     .output(dataDomainEnrichmentProposalDetailSchema),
-  decideProposal: contractProcedure
+  decideProposal: dataDomainsProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({
       method: 'POST',
       path: '/data-domains/{id}/proposals/{proposalId}/decision',

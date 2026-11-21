@@ -1,4 +1,5 @@
 import {
+  cursorPageSchema,
   evalCaseFieldsSchema,
   evalComparisonSchema,
   evalDatasetSchema,
@@ -8,9 +9,11 @@ import {
   evalRunPageSchema,
   evalToolNamesSchema,
   idParams,
+  pageQuerySchema,
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 export const evalCaseSchema = z.object({
   id: z.string(),
@@ -38,7 +41,9 @@ export const evalDatasetImportResultSchema = z.object({
   warnings: z.array(z.string()),
 });
 
-export const evalCaseListQuerySchema = z.object({ agentId: z.string().min(1).optional() });
+export const evalCaseListQuerySchema = pageQuerySchema.extend({
+  agentId: z.string().min(1).optional(),
+});
 
 export const evalCaseExportQuerySchema = z.object({ agentId: z.string().min(1) });
 
@@ -52,7 +57,7 @@ export const evalContract = {
     list: contractProcedure
       .route({ method: 'GET', path: '/eval/cases' })
       .input(z.object({ query: evalCaseListQuerySchema }))
-      .output(z.array(evalCaseSchema))
+      .output(cursorPageSchema(evalCaseSchema))
       .meta({ access: { kind: 'permission', permissionId: 'eval.read' } }),
     create: contractProcedure
       .route({ method: 'POST', path: '/eval/cases', successStatus: 201 })
@@ -75,6 +80,7 @@ export const evalContract = {
       .output(evalDatasetImportResultSchema)
       .meta({ access: { kind: 'permission', permissionId: 'eval.manage' } }),
     fromRun: contractProcedure
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'POST', path: '/eval/cases/from-run', successStatus: 201 })
       .input(
         z.object({
@@ -121,6 +127,7 @@ export const evalContract = {
       .meta({ access: { kind: 'permission', permissionId: 'eval.read' } }),
     create: contractProcedure
       .route({ method: 'POST', path: '/eval/runs', successStatus: 202 })
+      .errors(domainErrors('EVAL_RUN_IN_PROGRESS'))
       .input(
         z.object({
           body: z.object({
@@ -141,6 +148,7 @@ export const evalContract = {
       .meta({ access: { kind: 'permission', permissionId: 'eval.manage' } }),
     compare: contractProcedure
       .route({ method: 'GET', path: '/eval/runs/{id}/compare' })
+      .errors(domainErrors('EVAL_RUN_IN_PROGRESS'))
       .input(z.object({ params: idParams, query: z.object({ head: z.string().min(1) }) }))
       .output(evalComparisonSchema)
       .meta({ access: { kind: 'permission', permissionId: 'eval.read' } }),

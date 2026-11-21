@@ -79,14 +79,24 @@ describe.skipIf(!ready)('eval dataset files', () => {
       payload: { agentId },
     });
 
-  const listCases = async (agentId: string): Promise<EvalCaseRow[]> =>
-    (
-      await request(app, {
-        method: 'GET',
-        url: `/api/eval/cases?agentId=${encodeURIComponent(agentId)}`,
-        headers: { cookie },
-      })
-    ).json<EvalCaseRow[]>();
+  const listCases = async (agentId: string): Promise<EvalCaseRow[]> => {
+    const rows: EvalCaseRow[] = [];
+    let cursor: string | undefined;
+    for (;;) {
+      const page = (
+        await request(app, {
+          method: 'GET',
+          url: `/api/eval/cases?agentId=${encodeURIComponent(agentId)}&limit=100${
+            cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`
+          }`,
+          headers: { cookie },
+        })
+      ).json<{ items: EvalCaseRow[]; nextCursor: string | null }>();
+      rows.push(...page.items);
+      if (page.nextCursor === null) return rows;
+      cursor = page.nextCursor;
+    }
+  };
 
   const countCases = async (agentId: string): Promise<number> => {
     const res = await app.client.unsafe<{ n: number }[]>(

@@ -138,7 +138,7 @@ describe.skipIf(!ready)('agents', () => {
       payload: { role: '数据分析师' },
     });
     expect(changed.statusCode, changed.body).toBe(200);
-    expect(changed.json<Agent>().role).toBe('数据分析师');
+    expect(changed.json<{ agent: Agent }>().agent.role).toBe('数据分析师');
 
     const renamed = await request(app, {
       method: 'PATCH',
@@ -147,7 +147,7 @@ describe.skipIf(!ready)('agents', () => {
       payload: { name: 'Renamed role agent' },
     });
     expect(renamed.statusCode, renamed.body).toBe(200);
-    expect(renamed.json<Agent>()).toMatchObject({
+    expect(renamed.json<{ agent: Agent }>().agent).toMatchObject({
       name: 'Renamed role agent',
       role: '数据分析师',
     });
@@ -170,7 +170,10 @@ describe.skipIf(!ready)('agents', () => {
       payload: { version: 1 },
     });
     expect(rolledBack.statusCode, rolledBack.body).toBe(200);
-    expect(rolledBack.json<Agent>()).toMatchObject({ name: 'Role agent', role: '前端工程师' });
+    expect(rolledBack.json<{ agent: Agent }>().agent).toMatchObject({
+      name: 'Role agent',
+      role: '前端工程师',
+    });
   });
 
   it.each(['POST', 'PATCH'] as const)(
@@ -216,7 +219,10 @@ describe.skipIf(!ready)('agents', () => {
       payload: { version: 1 },
     });
     expect(rolledBack.statusCode, rolledBack.body).toBe(200);
-    expect(rolledBack.json<Agent>()).toMatchObject({ name: agent.name, role: '数据分析师' });
+    expect(rolledBack.json<{ agent: Agent }>().agent).toMatchObject({
+      name: agent.name,
+      role: '数据分析师',
+    });
   });
 
   it('restores the runtime environment recorded in a snapshot', async () => {
@@ -245,7 +251,7 @@ describe.skipIf(!ready)('agents', () => {
       payload: { runtimeEnvironmentId: null },
     });
     expect(patched.statusCode, patched.body).toBe(200);
-    expect(patched.json<Agent>().runtimeEnvironmentId).toBeNull();
+    expect(patched.json<{ agent: Agent }>().agent.runtimeEnvironmentId).toBeNull();
 
     const rolledBack = await request(app, {
       method: 'POST',
@@ -254,7 +260,7 @@ describe.skipIf(!ready)('agents', () => {
       payload: { version: 1 },
     });
     expect(rolledBack.statusCode, rolledBack.body).toBe(200);
-    expect(rolledBack.json<Agent>().runtimeEnvironmentId).toBe(environment.id);
+    expect(rolledBack.json<{ agent: Agent }>().agent.runtimeEnvironmentId).toBe(environment.id);
   });
 
   it('refuses to roll back to a snapshot whose runtime environment was deleted', async () => {
@@ -342,7 +348,10 @@ describe.skipIf(!ready)('agents', () => {
       payload: { name: 'Renamed legacy agent' },
     });
     expect(renamed.statusCode, renamed.body).toBe(200);
-    expect(renamed.json<Agent>()).toMatchObject({ name: 'Renamed legacy agent', role });
+    expect(renamed.json<{ agent: Agent }>().agent).toMatchObject({
+      name: 'Renamed legacy agent',
+      role,
+    });
     const stored = await app.client.unsafe<{ role: string }[]>(
       'select role from agents where id = $1',
       [id],
@@ -366,7 +375,7 @@ describe.skipIf(!ready)('agents', () => {
       payload: { uiFormat: 'openui' },
     });
     expect(enabled.statusCode, enabled.body).toBe(200);
-    expect(enabled.json<Agent>().uiFormat).toBe('openui');
+    expect(enabled.json<{ agent: Agent }>().agent.uiFormat).toBe('openui');
 
     const invalid = await request(app, {
       method: 'PATCH',
@@ -388,7 +397,7 @@ describe.skipIf(!ready)('agents', () => {
       payload: { name: 'Renamed', systemPrompt: 'new prompt', maxTurns: 7 },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json<Agent>()).toMatchObject({
+    expect(res.json<{ agent: Agent }>().agent).toMatchObject({
       name: 'Renamed',
       systemPrompt: 'new prompt',
       maxTurns: 7,
@@ -470,7 +479,7 @@ describe.skipIf(!ready)('agents', () => {
       payload: { name: 'Renamed plain', description: 'plain description', enabled: false },
     });
     expect(changed.statusCode, changed.body).toBe(200);
-    expect(changed.json<Agent>()).toMatchObject({
+    expect(changed.json<{ agent: Agent }>().agent).toMatchObject({
       name: 'Renamed plain',
       description: 'plain description',
       enabled: false,
@@ -493,7 +502,7 @@ describe.skipIf(!ready)('agents', () => {
     expect(unchanged.json<Agent>()).toMatchObject({
       name: 'Renamed plain',
       effort: 'high',
-      updatedAt: changed.json<Agent>().updatedAt,
+      updatedAt: changed.json<{ agent: Agent }>().agent.updatedAt,
     });
 
     const cleared = await request(app, {
@@ -503,7 +512,7 @@ describe.skipIf(!ready)('agents', () => {
       payload: { effort: null },
     });
     expect(cleared.statusCode, cleared.body).toBe(200);
-    expect(cleared.json<Agent>().effort).toBeUndefined();
+    expect(cleared.json<{ agent: Agent }>().agent.effort).toBeUndefined();
 
     const stored = await app.client.unsafe<{ effort: string | null }[]>(
       'select effort from agents where id = $1',
@@ -637,7 +646,7 @@ describe.skipIf(!ready)('agents', () => {
       payload: { allowedTools: ['Bash(npm:*)'], disallowedTools: ['Bash'] },
     });
     expect(patched.statusCode, patched.body).toBe(200);
-    expect(patched.json<Agent>()).toMatchObject({
+    expect(patched.json<{ agent: Agent }>().agent).toMatchObject({
       allowedTools: ['Bash(npm:*)'],
       disallowedTools: ['Bash'],
     });

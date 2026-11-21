@@ -83,7 +83,10 @@ type MountOptions = {
 
 async function mount(editing = false, options: MountOptions = {}) {
   const currentCase = options.testCase ?? testCase;
-  vi.spyOn(api, 'evalCases').mockResolvedValue(editing ? [currentCase] : []);
+  vi.spyOn(api, 'evalCases').mockResolvedValue({
+    items: editing ? [currentCase] : [],
+    nextCursor: null,
+  });
   const evalRuns = vi.spyOn(api, 'evalRuns');
   if (typeof options.runs === 'function') {
     evalRuns.mockImplementation(
@@ -96,7 +99,10 @@ async function mount(editing = false, options: MountOptions = {}) {
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },
   });
   for (const agent of ['agent-a', 'agent-b']) {
-    client.setQueryData(['eval-cases', agent], editing ? [currentCase] : []);
+    client.setQueryData(['eval-cases', agent, 50], {
+      pages: [{ items: editing ? [currentCase] : [], nextCursor: null }],
+      pageParams: [undefined],
+    });
   }
   client.setQueryData(['agents'], {
     items: [

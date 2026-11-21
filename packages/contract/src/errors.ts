@@ -1,27 +1,31 @@
 import { ERROR_META, type ErrorCode, problemSchema } from '@agentport/shared';
+import { z } from 'zod';
 
 export { problemSchema } from '@agentport/shared';
 
-type ContractError = { status: number; data: typeof problemSchema };
+const errorFor = <const T extends ErrorCode>(code: T) => ({
+  status: ERROR_META[code].status,
+  data: problemSchema.extend({ code: z.literal(code) }),
+});
+
+type ContractError = ReturnType<typeof errorFor>;
 
 export const contractErrors = {
-  INVALID_INPUT: { status: ERROR_META.INVALID_INPUT.status, data: problemSchema },
-  UNAUTHORIZED: { status: ERROR_META.UNAUTHORIZED.status, data: problemSchema },
-  FORBIDDEN: { status: ERROR_META.FORBIDDEN.status, data: problemSchema },
-  NOT_FOUND: { status: ERROR_META.NOT_FOUND.status, data: problemSchema },
-  CONFLICT: { status: ERROR_META.CONFLICT.status, data: problemSchema },
-  CONFLICT_STALE: { status: ERROR_META.CONFLICT_STALE.status, data: problemSchema },
-  PAYLOAD_TOO_LARGE: { status: ERROR_META.PAYLOAD_TOO_LARGE.status, data: problemSchema },
-  UNSUPPORTED_MEDIA_TYPE: { status: ERROR_META.UNSUPPORTED_MEDIA_TYPE.status, data: problemSchema },
-  RATE_LIMITED: { status: ERROR_META.RATE_LIMITED.status, data: problemSchema },
-  INTERNAL_ERROR: { status: ERROR_META.INTERNAL_ERROR.status, data: problemSchema },
-  RESPONSE_INVALID: { status: ERROR_META.RESPONSE_INVALID.status, data: problemSchema },
-  SERVICE_UNAVAILABLE: { status: ERROR_META.SERVICE_UNAVAILABLE.status, data: problemSchema },
-  UPSTREAM_FAILED: { status: ERROR_META.UPSTREAM_FAILED.status, data: problemSchema },
+  INVALID_INPUT: errorFor('INVALID_INPUT'),
+  UNAUTHORIZED: errorFor('UNAUTHORIZED'),
+  FORBIDDEN: errorFor('FORBIDDEN'),
+  NOT_FOUND: errorFor('NOT_FOUND'),
+  PAYLOAD_TOO_LARGE: errorFor('PAYLOAD_TOO_LARGE'),
+  UNSUPPORTED_MEDIA_TYPE: errorFor('UNSUPPORTED_MEDIA_TYPE'),
+  RATE_LIMITED: errorFor('RATE_LIMITED'),
+  INTERNAL_ERROR: errorFor('INTERNAL_ERROR'),
+  RESPONSE_INVALID: errorFor('RESPONSE_INVALID'),
+  SERVICE_UNAVAILABLE: errorFor('SERVICE_UNAVAILABLE'),
+  UPSTREAM_FAILED: errorFor('UPSTREAM_FAILED'),
 } satisfies Record<string, ContractError>;
 
 type ContractErrorCode = keyof typeof contractErrors;
-type DomainErrorCode =
+export type DomainErrorCode =
   | 'INVALID_URL'
   | 'INVALID_REFERENCE'
   | 'AGENT_DISABLED'
@@ -34,10 +38,18 @@ type DomainErrorCode =
   | 'BASE_DISABLED'
   | 'DOCUMENT_NOT_FOUND'
   | 'WIKI_NOT_FOUND'
-  | 'VERSION_NOT_CURRENT';
+  | 'VERSION_NOT_CURRENT'
+  | 'CONFLICT'
+  | 'CONFLICT_STALE';
 type MissingErrorCodes = Exclude<ErrorCode, ContractErrorCode | DomainErrorCode>;
 type AssertNoMissingErrorCodes<T extends never> = T;
 type _ErrorsCoverage = AssertNoMissingErrorCodes<MissingErrorCodes>;
+
+export function domainErrors<T extends readonly ErrorCode[]>(...codes: T) {
+  return Object.fromEntries(codes.map((code) => [code, errorFor(code)])) as {
+    [K in T[number]]: ContractError;
+  };
+}
 
 const defaultErrorCodes = [
   'INVALID_INPUT',

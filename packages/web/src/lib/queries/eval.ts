@@ -2,7 +2,6 @@ import type { EvalDataset } from '@agentport/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
-  type EvalCase,
   type EvalCaseFromRunInput,
   type EvalCaseInput,
   type EvalComparison,
@@ -12,10 +11,20 @@ import {
 } from '../api.js';
 import { useCursorList } from './shared.js';
 
+const EVAL_CASES_PAGE_SIZE = 50;
+
 export function useEvalCases(agentId: string | null) {
-  return useQuery<EvalCase[]>({
-    queryKey: ['eval-cases', agentId],
-    queryFn: () => api.evalCases(agentId ?? undefined),
+  return useCursorList({
+    queryKey: ['eval-cases', agentId, EVAL_CASES_PAGE_SIZE],
+    queryFn: (cursor, signal) =>
+      api.evalCases(
+        {
+          ...(agentId === null ? {} : { agentId }),
+          limit: EVAL_CASES_PAGE_SIZE,
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+        signal,
+      ),
     enabled: agentId !== null,
     staleTime: 0,
   });

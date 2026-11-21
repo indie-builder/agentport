@@ -13,6 +13,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 const skillFileParams = z.object({
   id: z.string().min(1),
@@ -39,11 +40,13 @@ export const skillsContract = {
     .input(z.object({ query: skillListQuery }))
     .output(cursorPageSchema(skillWithAgentCountSchema)),
   create: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'skills.create' } })
     .route({ method: 'POST', path: '/skills', successStatus: 201 })
     .input(z.object({ body: skillInputSchema }))
     .output(skillSchema),
   importFile: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'skills.import' } })
     .route({ method: 'POST', path: '/skills/import', successStatus: 201 })
     .input(z.object({ body: importSchema }))
@@ -54,6 +57,7 @@ export const skillsContract = {
     .input(z.object({ params: idParams }))
     .output(skillSchema),
   update: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .meta({ access: { kind: 'permission', permissionId: 'skills.update' } })
     .route({ method: 'PATCH', path: '/skills/{id}', successStatus: 200 })
     .input(z.object({ params: idParams, body: patchSchema }))
@@ -81,16 +85,19 @@ export const skillsContract = {
     .input(z.object({ params: skillFileParams }))
     .output(z.void()),
   submit: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'skills.update' } })
     .route({ method: 'POST', path: '/skills/{id}/submit', successStatus: 200 })
     .input(z.object({ params: idParams }))
     .output(skillSchema),
   approve: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'skills.review' } })
     .route({ method: 'POST', path: '/skills/{id}/approve', successStatus: 200 })
     .input(z.object({ params: idParams }))
     .output(skillSchema),
   reject: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'skills.review' } })
     .route({ method: 'POST', path: '/skills/{id}/reject', successStatus: 200 })
     .input(

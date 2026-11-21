@@ -299,7 +299,7 @@ describe('overview trend keeps cached data when a refetch fails', () => {
 
 describe('eval agent access states', () => {
   it('shows that permissions are still being checked instead of claiming none', async () => {
-    vi.spyOn(api, 'evalCases').mockResolvedValue([]);
+    vi.spyOn(api, 'evalCases').mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(api, 'agentAccess').mockReturnValue(new Promise(() => {}));
     client.removeQueries({ queryKey: ['agent-access', 'agent-a'] });
@@ -314,7 +314,7 @@ describe('eval agent access states', () => {
   });
 
   it('reports a real access error instead of claiming the account has no permission, then restores actions on retry', async () => {
-    vi.spyOn(api, 'evalCases').mockResolvedValue([]);
+    vi.spyOn(api, 'evalCases').mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [], nextCursor: null });
     const access = vi
       .spyOn(api, 'agentAccess')
@@ -344,7 +344,7 @@ describe('eval agent access states', () => {
       agentId: 'agent-a',
       permissionIds: ['eval.read', 'eval.execute'],
     } satisfies AgentAccess);
-    vi.spyOn(api, 'evalCases').mockResolvedValue([]);
+    vi.spyOn(api, 'evalCases').mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [], nextCursor: null });
 
     await mountEval();
@@ -365,7 +365,7 @@ describe('eval agent access states', () => {
 
   it('keeps an open draft when a background access refresh fails', async () => {
     vi.spyOn(api, 'agentAccess').mockRejectedValue(new Error('access refresh failed'));
-    vi.spyOn(api, 'evalCases').mockResolvedValue([]);
+    vi.spyOn(api, 'evalCases').mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(api, 'evalRuns').mockResolvedValue({ items: [], nextCursor: null });
 
     await mountEval();
@@ -386,7 +386,7 @@ describe('eval agent access states', () => {
   });
 
   it('explains that comparison needs two finished runs', async () => {
-    vi.spyOn(api, 'evalCases').mockResolvedValue([]);
+    vi.spyOn(api, 'evalCases').mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(api, 'evalRuns').mockResolvedValue({
       items: [evalRun('evalRun_only1')],
       nextCursor: null,

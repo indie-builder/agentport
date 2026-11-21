@@ -41,12 +41,14 @@ async function authorizeEvalAgent(
 export const evalRouter = os.router({
   cases: {
     list: os.cases.list.handler(async ({ input, context }) => {
-      const rows = await evalRepo.listCases(
-        context.db,
-        accessFilter(context, 'eval.read'),
-        input.query.agentId,
+      const page = requireCursorPage(
+        await evalRepo.listCases(context.db, accessFilter(context, 'eval.read'), {
+          ...(input.query.agentId === undefined ? {} : { agentId: input.query.agentId }),
+          ...(input.query.cursor === undefined ? {} : { cursor: input.query.cursor }),
+          limit: input.query.limit,
+        }),
       );
-      return rows.map(toEvalCase);
+      return { items: page.items.map(toEvalCase), nextCursor: page.nextCursor };
     }),
     create: os.cases.create.handler(async ({ input, context }) => {
       const businessId = requireUser(context).businessId;

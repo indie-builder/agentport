@@ -11,6 +11,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 const patchSchema = z.object({
   name: z.string().min(1).max(128).optional(),
@@ -43,6 +44,7 @@ export const pluginsContract = {
       }),
     ),
   install: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'plugins.install' } })
     .route({
       method: 'POST',
@@ -53,6 +55,7 @@ export const pluginsContract = {
     .input(z.object({ body: nativePluginInstallInputSchema }))
     .output(nativeResultSchema),
   importNative: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'plugins.import' } })
     .route({
       method: 'POST',
@@ -68,6 +71,7 @@ export const pluginsContract = {
     .input(z.object({ params: idParams }))
     .output(pluginWithAgentCountSchema),
   update: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .meta({ access: { kind: 'permission', permissionId: 'plugins.update' } })
     .route({ method: 'PATCH', path: '/plugins/{id}', successStatus: 200 })
     .input(z.object({ params: idParams, body: patchSchema }))
