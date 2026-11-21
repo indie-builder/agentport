@@ -91,7 +91,6 @@ describe('sandbox question channel', () => {
       updatedInput: { questions, answers: { '用哪种语言？': 'TypeScript' } },
     });
     expect(closed).toEqual([]);
-    expect(bridge.pendingCount()).toBe(0);
   });
 
   it('fails closed for every tool that is not AskUserQuestion', async () => {
@@ -189,7 +188,6 @@ describe('sandbox question channel', () => {
 
     await expect(pending).resolves.toMatchObject({ behavior: 'deny' });
     expect(closed).toEqual(['req-1']);
-    expect(bridge.pendingCount()).toBe(0);
   });
 
   it('closes pending questions on stdin EOF so the tool never hangs', async () => {

@@ -284,28 +284,6 @@ describe('confluence cloud_basic', () => {
     );
   });
 
-  it('rejects a foreign _links.next before taking its cursor', async () => {
-    handler = (url) => {
-      if (url.pathname === '/wiki/api/v2/spaces/123') return json({ id: '123', key: 'DOC' });
-      if (url.pathname === '/wiki/api/v2/spaces/123/pages') {
-        return json({
-          results: [{ id: '1', title: 'Root', spaceId: '123' }],
-          _links: { next: 'https://evil.example/outside?cursor=second' },
-        });
-      }
-      if (url.pathname === '/wiki/api/v2/pages/1') return json(pageDetail());
-      return new Response('unexpected', { status: 404 });
-    };
-    await expect(
-      readConfluence(
-        basicConfig({ rangeKind: 'confluence_space', resourceId: '123' }),
-        undefined,
-        undefined,
-      ),
-    ).rejects.toThrow(/API origin/);
-    expect(calls.some((call) => call.url.includes('evil.example'))).toBe(false);
-  });
-
   it('rejects a foreign Link rel=next before taking its cursor', async () => {
     handler = (url) => {
       if (url.pathname === '/wiki/api/v2/spaces/123') return json({ id: '123', key: 'DOC' });

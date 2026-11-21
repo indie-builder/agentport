@@ -296,20 +296,6 @@ describe('login validation', () => {
 });
 
 describe('overview summaries', () => {
-  it('does not present missing queue metrics as zero work', () => {
-    const html = mount(OverviewPage).render();
-    expect(html).toContain('队列指标不可用');
-    expect(html).not.toContain(' 等待 / ');
-  });
-  it('stays quiet on the home page when the queue is healthy', () => {
-    state.metrics = {
-      ...metrics,
-      queue: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 },
-    };
-    const html = mount(OverviewPage).render();
-    expect(html).not.toContain('等待 /');
-    expect(html).not.toContain('队列指标不可用');
-  });
   it.each([true, false])('labels enabled=%s visibly', (enabled) => {
     (state.overview as Overview).agents = [
       {

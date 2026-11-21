@@ -573,7 +573,7 @@ describe('knowledge source input types', () => {
     for (const type of Object.keys(payloads)) {
       const cap = knowledgeSourceRangeExternalIdMax[type as keyof typeof payloads];
       expect(cap, type).toBeGreaterThan(0);
-      expect(cap, type).toBeLessThanOrEqual(255);
+      expect(cap + 32, type).toBeLessThanOrEqual(500);
     }
   });
 

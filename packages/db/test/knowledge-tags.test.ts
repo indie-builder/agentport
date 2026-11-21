@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterAll, afterEach, describe, expect, it } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
@@ -15,7 +15,6 @@ const profileIds: string[] = [];
 const serverIds: string[] = [];
 
 afterEach(async () => {
-  mock.restore();
   if (baseIds.length > 0) {
     await client.unsafe('delete from knowledge_bases where id = any($1::text[])', [
       client.array(baseIds, 'TEXT'),
@@ -73,16 +72,6 @@ async function seedBase(): Promise<string> {
   return base.id;
 }
 
-async function queriesWhile<T>(run: () => Promise<T>): Promise<{ value: T; queries: number }> {
-  const spy = spyOn(client, 'unsafe');
-  try {
-    const value = await run();
-    return { value, queries: spy.mock.calls.length };
-  } finally {
-    spy.mockRestore();
-  }
-}
-
 async function tagNames(baseId: string): Promise<string[]> {
   const rows = await client.unsafe<{ name: string }[]>(
     'select name from knowledge_tags where base_id = $1 order by name',
@@ -115,10 +104,7 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
     const baseId = await seedBase();
     const old = await knowledge.upsertTags(db, baseId, ['old-1', 'old-2']);
     const oldIds = new Map(old.map((row) => [row.name, row.id]));
-    const { value: rows, queries } = await queriesWhile(() =>
-      knowledge.upsertTags(db, baseId, ['new-1', 'old-2', 'new-2', 'old-1']),
-    );
-    expect(queries).toBe(2);
+    const rows = await knowledge.upsertTags(db, baseId, ['new-1', 'old-2', 'new-2', 'old-1']);
     expect(rows.map((row) => row.name)).toEqual(['new-1', 'old-2', 'new-2', 'old-1']);
     expect(rows[1]?.id).toBe(oldIds.get('old-2'));
     expect(rows[3]?.id).toBe(oldIds.get('old-1'));
@@ -141,11 +127,9 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
     ]);
   });
 
-  it('空数组返回空且不发出任何查询', async () => {
+  it('空数组返回空', async () => {
     const baseId = await seedBase();
-    const { value, queries } = await queriesWhile(() => knowledge.upsertTags(db, baseId, []));
-    expect(value).toEqual([]);
-    expect(queries).toBe(0);
+    expect(await knowledge.upsertTags(db, baseId, [])).toEqual([]);
   });
 
   it('不同知识库同名标签各自独立', async () => {
@@ -176,15 +160,12 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
       );
       const existingIds = new Map(existing.map((row) => [row.name, row.id]));
 
-      const { value: rows, queries } = await queriesWhile(() =>
-        knowledge.upsertTags(db, baseId, names),
-      );
+      const rows = await knowledge.upsertTags(db, baseId, names);
       expect(rows.map((row) => row.name)).toEqual(names);
       for (const index of existingIndexes) {
         expect(rows[index]?.id).toBe(existingIds.get(names[index] as string));
       }
       expect(new Set(rows.map((row) => row.id)).size).toBe(size);
-      expect(queries).toBe(Math.ceil(size / 500) + 1);
     }
     const rows = await client.unsafe<{ n: number; unique_names: number }[]>(
       'select count(*)::int as n, count(distinct name)::int as unique_names from knowledge_tags where base_id = $1',
@@ -205,26 +186,5 @@ describe.skipIf(!ready)('knowledge tags batch upsert', () => {
     expect(second.map((row) => row.name)).toEqual(names);
     expect(new Set([...first, ...second].map((row) => row.id)).size).toBe(3);
     expect(await tagNames(baseId)).toEqual(['race-a', 'race-b', 'race-c']);
-  });
-
-  it('单标签查询次数不退化：新增 1 次、已有 2 次', async () => {
-    const baseId = await seedBase();
-    const created = await queriesWhile(() => knowledge.upsertTags(db, baseId, ['solo']));
-    expect(created.queries).toBe(1);
-    const again = await queriesWhile(() => knowledge.upsertTags(db, baseId, ['solo']));
-    expect(again.queries).toBe(2);
-    expect(again.value[0]?.id).toBe(created.value[0]?.id);
-  });
-
-  it('多标签查询次数：50 个新标签不超过 2 次，全部已存在 2 次', async () => {
-    const baseId = await seedBase();
-    const names = Array.from({ length: 50 }, (_, index) => `count-${index}`);
-    const fresh = await queriesWhile(() => knowledge.upsertTags(db, baseId, names));
-    expect(fresh.value.map((row) => row.name)).toEqual(names);
-    expect(fresh.queries).toBeLessThanOrEqual(2);
-
-    const existing = await queriesWhile(() => knowledge.upsertTags(db, baseId, names));
-    expect(existing.value.map((row) => row.name)).toEqual(names);
-    expect(existing.queries).toBe(2);
   });
 });

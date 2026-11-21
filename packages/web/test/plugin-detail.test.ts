@@ -295,6 +295,24 @@ describe('plugin detail', () => {
     expect(panel('intro').className).toContain('overflow-y-auto');
   });
 
+  it('keeps the paragraph structure of a multi-line long description in the scrollable intro', () => {
+    const paragraphs = [
+      '第一段：这个插件集中了接口审查与风险评估的常用步骤，帮助团队在合并前发现契约漂移。',
+      '第二段：它会读取仓库里的规则文件，逐条对照当前改动，输出可执行的修正建议；这一段故意写得更长，用来覆盖单行放不下的正文，并确认段落按原文保留换行而不是被压成一行。',
+      '第三段：supersupersupersupersupersupersupersupersupersupersupersupersupersuperlongtoken',
+    ];
+    const description = paragraphs.join('\n\n');
+    setQuery({ data: { ...plugin, description } });
+
+    mount();
+
+    const rendered = panel('intro').querySelector('p');
+    expect(rendered?.textContent?.split('\n\n')).toEqual(paragraphs);
+    expect(rendered?.className).toContain('whitespace-pre-wrap');
+    expect(rendered?.className).toContain('break-words');
+    expect(panel('intro').className).toContain('overflow-y-auto');
+  });
+
   it('never opens a Sheet or dialog for content, even with a file in the URL', () => {
     state.search = { tab: 'content', file: 'README.md' };
     mount();

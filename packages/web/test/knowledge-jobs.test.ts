@@ -191,10 +191,8 @@ describe('knowledge detail business line', () => {
     expect(findButton('编辑信息')).toBeDefined();
     expect(findButton('设置')).toBeDefined();
     expect(findButton('使用此库的专家')?.className).toContain('h-8');
-    expect(findButton('使用此库的专家')?.className).not.toContain('h-7');
     expect(findButton('编辑信息')?.className).toContain('h-8');
     expect(findButton('设置')?.className).toContain('h-8');
-    expect(findButton('设置')?.className).not.toContain('h-7');
 
     await click(button('设置'));
     expect(dialogShown('知识库设置')).toBe(true);

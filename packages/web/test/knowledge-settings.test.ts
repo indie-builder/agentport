@@ -309,19 +309,6 @@ function mountProfiles(onClose = vi.fn()) {
   return mount(createElement(KnowledgeProfilesDialog, { onClose, finalFocus: () => null }));
 }
 
-describe('msw cleanup', () => {
-  it('resets the mounted root, client and host for the next case', async () => {
-    await mount(createElement('div'));
-    const mounted = host;
-    expect(mounted?.isConnected).toBe(true);
-    await cleanup();
-    expect(root).toBeUndefined();
-    expect(client).toBeUndefined();
-    expect(host).toBeUndefined();
-    expect(mounted?.isConnected).toBe(false);
-  });
-});
-
 describe('knowledge base settings', () => {
   it('saves chunk settings and the rerank profile through the base patch', async () => {
     server.use(

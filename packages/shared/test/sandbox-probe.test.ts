@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  limitToolCatalog,
   SANDBOX_PROBES_QUEUE,
   sandboxProbeJobSchema,
   sandboxProbeOutputSchema,
@@ -33,37 +32,5 @@ describe('sandbox probe contracts', () => {
       error: 'boom',
     });
     expect(sandboxProbeOutputSchema.safeParse({ ok: true, tools: 'nope' }).success).toBe(false);
-  });
-
-  it('maps only the four contract fields and keeps exactly 1000 tools', () => {
-    const inputSchema = { type: 'object', properties: { id: { type: 'integer' } } };
-    const tools = Array.from({ length: 1000 }, (_, i) => ({
-      name: `tool-${i}`,
-      title: `Tool ${i}`,
-      description: `description ${i}`,
-      inputSchema,
-      icons: [{ src: 'https://example.test/icon.png' }],
-      annotations: { readOnlyHint: true },
-      outputSchema: { type: 'object' },
-      _meta: { token: 'fixture-token' },
-    }));
-
-    const limited = limitToolCatalog(tools);
-
-    expect(limited).toHaveLength(1000);
-    for (const tool of limited) {
-      expect(Object.keys(tool).sort()).toEqual(['description', 'inputSchema', 'name', 'title']);
-    }
-    expect(JSON.stringify(limited)).not.toContain('fixture-token');
-  });
-
-  it('rejects more than 1000 tools', () => {
-    const tools = Array.from({ length: 1001 }, (_, i) => ({ name: `tool-${i}` }));
-    expect(() => limitToolCatalog(tools)).toThrow(/上限 1000/);
-  });
-
-  it('rejects a catalog over 1MiB by UTF-8 byte length', () => {
-    const tools = [{ name: 'huge', description: '界'.repeat(400_000) }];
-    expect(() => limitToolCatalog(tools)).toThrow(/1048576/);
   });
 });

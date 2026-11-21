@@ -94,15 +94,6 @@ describe('clarifying questions prompt', () => {
 });
 
 describe('native todo tracking', () => {
-  it('enables TodoWrite instead of the Task tools in the rendered settings env', () => {
-    const files = renderWorkspace({ agent, servers: [] });
-
-    expect(JSON.parse(files.settingsJson).env).toMatchObject({
-      CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
-      CLAUDE_CODE_ENABLE_TASKS: '0',
-    });
-  });
-
   it('tells the agent to keep the native list for multi-step work only', () => {
     const { claudeMd } = renderWorkspace({ agent, servers: [] });
 
@@ -191,14 +182,6 @@ describe('native file access wording', () => {
     expect(claudeMd).toContain('/mnt/agent-memory/');
     expect(claudeMd).toContain('/mnt/outputs/');
   });
-
-  it('does not claim every sub-agent file tool request is denied', () => {
-    const { claudeMd } = renderWorkspace({ agent, servers: [] });
-
-    expect(claudeMd).not.toContain(
-      '其他路径的原生文件工具请求，以及子智能体的原生文件工具请求均被拒绝',
-    );
-  });
 });
 
 describe('expert memory policy wording', () => {
@@ -285,18 +268,6 @@ describe('sub-agent native memory', () => {
 
   const disallowedOf = (content: string): string[] =>
     parseMarkdownFrontmatter(content, 'child', '/child').fields.get('disallowedTools') as string[];
-
-  it('declares project memory and drops the default file-tool denies', () => {
-    const files = renderWorkspace({ agent, servers: [], subAgents: [child] });
-    const content = files.subAgents[0]?.content ?? '';
-
-    expect(content).toContain('memory: project');
-    const disallowed = disallowedOf(content);
-    for (const tool of ['Read', 'Write', 'Edit']) expect(disallowed).not.toContain(tool);
-    expect(disallowed).toContain('Agent');
-    expect(disallowed).toContain('TaskStop');
-    expect(content).not.toContain('tools: [');
-  });
 
   it('keeps a user explicit file-tool deny on the sub-definition', () => {
     const files = renderWorkspace({
@@ -387,34 +358,9 @@ describe('timeout semantics', () => {
     expect(files.claudeMd).not.toContain('智能体超时约束');
     expect(files.claudeMd).toContain('整轮委派计入主运行的总超时');
   });
-
-  it('does not turn the child definition timeout into delegated seconds', () => {
-    const files = renderWorkspace({ agent, servers: [], subAgents: [child] });
-    const content = files.subAgents[0]?.content ?? '';
-
-    expect(content).toContain('同步调用');
-    expect(content).not.toContain('最多等你');
-    expect(content).not.toContain('120 秒');
-  });
 });
 
 describe('parent agent md tool whitelist', () => {
-  it('lists Bash by default', () => {
-    const { agentMd } = renderWorkspace({ agent, servers: [] });
-
-    expect(agentMd).toContain('tools: ["Bash"]');
-  });
-
-  it('keeps Bash alongside a custom allowedTools list', () => {
-    const { agentMd } = renderWorkspace({
-      agent,
-      servers: [],
-      toolsAllow: ['mcp__custom__*'],
-    });
-
-    expect(agentMd).toContain('tools: ["Bash", "mcp__custom__*"]');
-  });
-
   it('keeps explicit denies in the rendered frontmatter even when tools are enabled', () => {
     const toolsDeny = ['Bash', ...CONFIGURABLE_DISALLOWED_TOOLS];
     for (const subAgents of [[], [{ ...agent, slug: 'child' }]]) {

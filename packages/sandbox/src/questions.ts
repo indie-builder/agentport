@@ -17,7 +17,6 @@ interface QuestionChannel {
   canUseTool: CanUseTool;
   /** 运行结束/EOF：未决问题按拒绝收尾，并停止接受新提问。 */
   close(): void;
-  pendingCount(): number;
 }
 
 interface PendingQuestion {
@@ -181,5 +180,5 @@ export function createQuestionChannel(input: {
     });
   };
 
-  return { canUseTool, close, pendingCount: () => pending.size };
+  return { canUseTool, close };
 }

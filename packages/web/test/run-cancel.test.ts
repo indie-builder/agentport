@@ -1,54 +1,93 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { api, type RunDetail, type RunStatus } from '../src/lib/api.js';
+import { useCancelRun, useRun, useRuns } from '../src/lib/queries.js';
 
-const mocks = vi.hoisted(() => {
-  const invalidateQueries = vi.fn();
+const at = '2026-10-28T00:00:00Z';
+
+function detail(status: RunStatus): RunDetail {
   return {
-    invalidateQueries,
-    cancelRun: vi.fn(),
-    useQuery: vi.fn(),
-    useMutation: vi.fn(),
-    useInfiniteQuery: vi.fn(),
-    useQueryClient: vi.fn(() => ({ invalidateQueries })),
-  };
-});
-
-vi.mock('@tanstack/react-query', () => ({
-  QueryClient: class {},
-  queryOptions: (options: unknown) => options,
-  useQuery: mocks.useQuery,
-  useMutation: mocks.useMutation,
-  useInfiniteQuery: mocks.useInfiniteQuery,
-  useQueryClient: mocks.useQueryClient,
-}));
-
-vi.mock('../src/lib/api.js', () => ({ api: { cancelRun: mocks.cancelRun } }));
-
-import { useCancelRun } from '../src/lib/queries.js';
-
-function useCancelOptions() {
-  mocks.useMutation.mockReturnValue({});
-  useCancelRun();
-  return mocks.useMutation.mock.calls.at(-1)?.[0] as {
-    mutationFn: (runId: string) => Promise<void>;
-    onSuccess: (data: undefined, runId: string) => void;
+    run: {
+      id: 'r1',
+      agentId: 'agent-1',
+      agentName: '专家',
+      status,
+      startedAt: at,
+      endedAt: status === 'running' ? null : at,
+      latencyMs: 1000,
+      turns: 1,
+      inputTokens: null,
+      outputTokens: null,
+      costUsd: null,
+      error: null,
+      conversationId: 'c1',
+      initiatedBy: null,
+      sessionId: null,
+      sandboxId: null,
+      runtimeEnvironment: null,
+    },
+    steps: [],
+    conversation: { id: 'c1', agentId: 'agent-1', title: '会话' },
   };
 }
 
-beforeEach(() => {
-  mocks.useMutation.mockReset();
-  mocks.cancelRun.mockReset();
-  mocks.invalidateQueries.mockReset();
+let client: QueryClient;
+let host: HTMLDivElement;
+let root: Root;
+let cancel: ReturnType<typeof useCancelRun>;
+
+function Probe() {
+  useRun('r1');
+  useRuns();
+  cancel = useCancelRun();
+  return null;
+}
+
+async function flush() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+beforeEach(async () => {
+  vi.spyOn(api, 'cancelRun').mockResolvedValue(undefined);
+  vi.spyOn(api, 'run')
+    .mockResolvedValueOnce(detail('running'))
+    .mockResolvedValue(detail('succeeded'));
+  vi.spyOn(api, 'runs').mockResolvedValue({ items: [] });
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => {
+    root.render(createElement(QueryClientProvider, { client }, createElement(Probe)));
+  });
+  await flush();
 });
 
-test('mutationFn 用 run id 调用 api.cancelRun', async () => {
-  const options = useCancelOptions();
-  mocks.cancelRun.mockResolvedValue(undefined);
-  await options.mutationFn('r1');
-  expect(mocks.cancelRun).toHaveBeenCalledWith('r1');
+afterEach(async () => {
+  await act(async () => root.unmount());
+  client.clear();
+  host.remove();
+  vi.restoreAllMocks();
 });
 
-test('成功后失效该 run 明细与 runs 列表', () => {
-  useCancelOptions().onSuccess(undefined, 'r1');
-  expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['run', 'r1'] });
-  expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['runs'] });
+test('取消运行后刷新该运行详情与运行列表', async () => {
+  expect(api.run).toHaveBeenCalledTimes(1);
+  expect(api.runs).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    await cancel.mutateAsync('r1');
+  });
+
+  expect(api.cancelRun).toHaveBeenCalledWith('r1');
+  await vi.waitFor(() => expect(api.run).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(api.runs).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() =>
+    expect(client.getQueryData<RunDetail>(['run', 'r1'])?.run.status).toBe('succeeded'),
+  );
 });

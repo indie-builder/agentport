@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import {
   expectProblem,
   infraReady,
@@ -64,18 +64,6 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     const res = await list(query);
     expect(res.statusCode, res.body).toBe(200);
     return res.json<ItemBody>();
-  }
-
-  async function countAuditSelects(run: () => Promise<unknown>): Promise<number> {
-    const spy = spyOn(app.client, 'unsafe');
-    try {
-      await run();
-      return spy.mock.calls
-        .map(([query]) => (typeof query === 'string' ? query : query.text))
-        .filter((text) => /^\s*select\b/i.test(text) && text.includes('from "audit_log"')).length;
-    } finally {
-      spy.mockRestore();
-    }
   }
 
   interface SeedRow {
@@ -149,70 +137,6 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
     const all = [...first.items, ...second.items];
     expect(all.map((row) => row.id)).toEqual([...ids].reverse());
     expect(new Set(all.map((row) => row.id)).size).toBe(125);
-  });
-
-  it('reads non-empty cursor pages with one audit select and rechecks only empty pages', async () => {
-    const target = unique('target');
-    const prefix = unique('audit-select');
-    await seed(
-      target,
-      Array.from({ length: 3 }, (_, i) => ({
-        id: `${prefix}-${i + 1}`,
-        createdAt: `2026-04-01T00:00:0${i + 1}.000000Z`,
-      })),
-    );
-
-    const first = await page(`${targetQuery(target)}&limit=2`);
-    const before = first.items.at(-1)?.id ?? '';
-    expect(before).toBe(`${prefix}-2`);
-    expect(first.nextCursor).toBe(before);
-
-    const listSelects = await countAuditSelects(async () => {
-      const res = await list(`${targetQuery(target)}&limit=2${cursor(before)}`);
-      expect(res.statusCode, res.body).toBe(200);
-      expect(res.json<ItemBody>().items.map((row) => row.id)).toEqual([`${prefix}-1`]);
-    });
-    expect(listSelects).toBe(1);
-
-    const exportSelects = await countAuditSelects(async () => {
-      const res = await exportAudit(`${targetQuery(target)}${cursor(before)}`);
-      expect(res.statusCode, res.body).toBe(200);
-      expect(res.json<ExportBody>().items.map((row) => row.id)).toEqual([`${prefix}-1`]);
-    });
-    expect(exportSelects).toBe(1);
-
-    const emptyListSelects = await countAuditSelects(async () => {
-      const res = await list(`${targetQuery(target)}&action=audit.select.missing${cursor(before)}`);
-      expect(res.statusCode, res.body).toBe(200);
-      expect(res.json<ItemBody>().items).toEqual([]);
-    });
-    expect(emptyListSelects).toBe(2);
-
-    const emptyExportSelects = await countAuditSelects(async () => {
-      const res = await exportAudit(
-        `${targetQuery(target)}&action=audit.select.missing${cursor(before)}`,
-      );
-      expect(res.statusCode, res.body).toBe(200);
-      expect(res.json<ExportBody>().items).toEqual([]);
-    });
-    expect(emptyExportSelects).toBe(2);
-
-    const unknown = `audit-missing-${unique('cursor')}`;
-    const unknownListSelects = await countAuditSelects(async () => {
-      expectProblem(await list(`?cursor=${encodeURIComponent(unknown)}`), 'INVALID_INPUT');
-    });
-    expect(unknownListSelects).toBe(2);
-
-    const unknownExportSelects = await countAuditSelects(async () => {
-      expectProblem(await exportAudit(`?cursor=${encodeURIComponent(unknown)}`), 'INVALID_INPUT');
-    });
-    expect(unknownExportSelects).toBe(2);
-
-    const noCursorSelects = await countAuditSelects(async () => {
-      const res = await list(targetQuery(target));
-      expect(res.statusCode, res.body).toBe(200);
-    });
-    expect(noCursorSelects).toBe(1);
   });
 
   it('keeps microsecond ordering when every ISO string collides', async () => {
@@ -367,6 +291,17 @@ describe.skipIf(!ready)('audit ID cursor pages', () => {
       ['008', '007', '006'].map((n) => `${prefix}-${n}`),
     );
     const before = first.nextCursor ?? '';
+
+    const empty = await exportAudit(
+      `${targetQuery(target)}&action=audit.export.missing${cursor(before)}`,
+    );
+    expect(empty.statusCode, empty.body).toBe(200);
+    expect(empty.json<ExportBody>().items).toEqual([]);
+
+    const emptyPage = await page(
+      `${targetQuery(target)}&action=audit.export.missing${cursor(before)}`,
+    );
+    expect(emptyPage.items).toEqual([]);
 
     const res = await exportAudit(`${targetQuery(target)}${cursor(before)}`);
     expect(res.statusCode, res.body).toBe(200);

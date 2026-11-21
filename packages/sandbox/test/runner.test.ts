@@ -1,7 +1,6 @@
 import { describe, expect, it, mock, spyOn } from 'bun:test';
 import * as fsActual from 'node:fs/promises';
 import type { Options } from '@anthropic-ai/claude-agent-sdk';
-import { renderWorkspace } from '../../core/src/workspace.js';
 
 const io = (() => {
   const stdin: string[] = [];
@@ -265,14 +264,13 @@ describe('runner task wiring', () => {
     );
   });
 
-  it('passes effort without a fixed thinking budget', async () => {
+  it('passes the requested effort to the SDK', async () => {
     await run({ effort: 'high' });
     expect(io.options?.effort).toBe('high');
-    expect(io.options).not.toHaveProperty('thinking');
   });
 
-  it('rejects a legacy fixed thinking budget before calling the SDK', async () => {
-    await expect(run({ maxThinkingTokens: 2048 })).rejects.toThrow();
+  it('rejects an unknown task field before calling the SDK', async () => {
+    await expect(run({ unexpectedField: true })).rejects.toThrow();
     expect(io.options).toBeUndefined();
   });
 
@@ -451,26 +449,6 @@ describe('runner task wiring', () => {
       outputTokens: 7,
     });
     expect(io.closed).toBe(true);
-  });
-
-  it('renders child project memory without the platform file-tool deny', () => {
-    const child = { slug: 'child', name: 'Child', model: 'm', systemPrompt: 'p', maxTurns: 5 };
-    const files = renderWorkspace({
-      agent: { ...child, slug: 'parent' },
-      servers: [],
-      subAgents: [child],
-    });
-    const content = files.subAgents[0]?.content ?? '';
-    expect(content).toContain('memory: project');
-    for (const tool of ['Read', 'Write', 'Edit']) {
-      expect(content).not.toMatch(new RegExp(`disallowedTools: \\[[^\\]]*"${tool}"`));
-    }
-    const denied = renderWorkspace({
-      agent: { ...child, slug: 'parent' },
-      servers: [],
-      subAgents: [{ ...child, disallowedTools: ['Write'] }],
-    });
-    expect(denied.subAgents[0]?.content).toMatch(/disallowedTools: \[[^\]]*"Write"/);
   });
 
   it('allows native file tools on the rw outputs mount without SDK additionalDirectories', async () => {

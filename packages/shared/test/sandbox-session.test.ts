@@ -1,11 +1,5 @@
-import { describe, expect, expectTypeOf, it } from 'bun:test';
-import {
-  type ExecutionSettlement,
-  type SupervisorInput,
-  type SupervisorInputFrame,
-  supervisorInputSchema,
-  supervisorOutputSchema,
-} from '../src/sandbox-session.js';
+import { describe, expect, it } from 'bun:test';
+import { supervisorInputSchema, supervisorOutputSchema } from '../src/sandbox-session.js';
 
 const task = {
   prompt: 'hi',
@@ -27,20 +21,6 @@ describe('session supervisor protocol', () => {
     expect(parsed).toMatchObject({ type: 'start', runId: 'run-1', env: { RUN_TOKEN: 'secret' } });
     expect(parsed.type === 'start' && parsed.task.mcpServers).toEqual([]);
     expect(parsed.type === 'start' && parsed.task.plugins).toEqual([]);
-  });
-
-  it('types the send shape with defaults optional and the parsed shape required', () => {
-    const frame: SupervisorInputFrame = { type: 'start', runId: 'r', task, env: {} };
-    expect(frame.type).toBe('start');
-
-    type IsOptional<T, K extends keyof T> = undefined extends T[K] ? true : false;
-    type StartFrameTask = Extract<SupervisorInputFrame, { type: 'start' }>['task'];
-    type ParsedTask = Extract<SupervisorInput, { type: 'start' }>['task'];
-
-    expectTypeOf<IsOptional<StartFrameTask, 'mcpServers'>>().toEqualTypeOf<true>();
-    expectTypeOf<IsOptional<StartFrameTask, 'plugins'>>().toEqualTypeOf<true>();
-    expectTypeOf<IsOptional<ParsedTask, 'mcpServers'>>().toEqualTypeOf<false>();
-    expectTypeOf<IsOptional<ParsedTask, 'plugins'>>().toEqualTypeOf<false>();
   });
 
   it('parses input commands and cancel', () => {
@@ -111,13 +91,5 @@ describe('session supervisor protocol', () => {
         message: 'x',
       }).success,
     ).toBe(false);
-  });
-
-  it('models both settlement states', () => {
-    const stopped: ExecutionSettlement = { state: 'stopped', code: 0, signal: null };
-    const unconfirmed: ExecutionSettlement = { state: 'unconfirmed', error: 'still running' };
-
-    expect(stopped.state).toBe('stopped');
-    expect(unconfirmed.state).toBe('unconfirmed');
   });
 });

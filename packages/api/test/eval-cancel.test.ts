@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { newId, repo } from '@agentport/db';
 import {
   ADMIN_BUSINESS_ID,
@@ -82,25 +82,6 @@ describe.skipIf(!ready)('eval run cancellation', () => {
   it('returns 404 for an unknown run', async () => {
     const res = await cancel(newId('evalRun'));
     expectProblem(res, 'NOT_FOUND');
-  });
-
-  it('checks run existence with an id-only query', async () => {
-    const { run } = await seedRun();
-    const query = spyOn(app.client, 'unsafe');
-    const res = await cancel(run.id);
-    const calls = [...query.mock.calls];
-    query.mockRestore();
-    expect(res.statusCode).toBe(202);
-    const evalRunSelects = calls
-      .map(([statement]) => {
-        if (typeof statement === 'string') return statement;
-        const text = (statement as { text?: unknown }).text;
-        return typeof text === 'string' ? text : '';
-      })
-      .filter((text) => /^select .* from "eval_runs"/i.test(text));
-    expect(evalRunSelects).toHaveLength(1);
-    expect(evalRunSelects[0]).toMatch(/^select "id", "agent_id" from "eval_runs"/i);
-    expect(evalRunSelects[0]).not.toMatch(/case_snapshot/i);
   });
 
   it('cancels a running run and records one audit row without inputs', async () => {

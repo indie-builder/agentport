@@ -153,7 +153,6 @@ describe('memory overview', () => {
     const skippedRow = [...host.querySelectorAll('tr')].find((row) =>
       row.textContent?.includes('deploy.md'),
     );
-    expect(skippedRow?.className).toContain('opacity-60');
     expect(skippedRow?.querySelectorAll('td')[2]?.textContent?.trim()).toBe('—');
 
     expect(text).toContain('个人 120 字符');

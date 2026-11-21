@@ -6,7 +6,6 @@ import type { z } from 'zod';
 import type { SourceFailure } from './source-types.js';
 
 export type SourceUrlOptions = {
-  allowedOrigins?: string[];
   allowLoopback?: boolean;
   /** Exactly-matched `host` / `host:port` entries that may resolve to private addresses. */
   trustedHosts?: readonly string[];
@@ -37,24 +36,6 @@ export async function validateSourceUrl(raw: string, options: SourceUrlOptions =
   }
   if (url.username || url.password) {
     throw new Error('source URL must not contain credentials; put them in credentials');
-  }
-
-  if (options.allowedOrigins) {
-    const origins = options.allowedOrigins.map((origin) => {
-      let parsed: URL;
-      try {
-        parsed = new URL(origin);
-      } catch {
-        throw new Error(`allowedOrigins entry is not a URL: ${origin}`);
-      }
-      if (parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.username) {
-        throw new Error(`allowedOrigins entries must be exact origins: ${origin}`);
-      }
-      return parsed.origin;
-    });
-    if (!origins.includes(url.origin)) {
-      throw new Error(`source URL origin is not allowed: ${url.origin}`);
-    }
   }
 
   const host = stripBrackets(url.hostname);

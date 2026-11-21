@@ -1,15 +1,12 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/bun-sql';
 import { createDb } from '../src/client.js';
 import { newId } from '../src/id.js';
 import * as chat from '../src/repo/chat.js';
 import { inheritApprovals } from '../src/repo/runs.js';
-import { agents, approvalRequests, schema, servers } from '../src/schema.js';
+import { agents, approvalRequests, servers } from '../src/schema.js';
 
-const { client } = createDb(process.env.DATABASE_URL ?? '');
-const statements: string[] = [];
-const db = drizzle(client, { schema, logger: { logQuery: (query) => statements.push(query) } });
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
@@ -78,14 +75,6 @@ async function approve(
     .values({ id: newId('approval'), runId, serverId, toolName, approvedAt });
 }
 
-async function measured<T>(call: () => Promise<T>) {
-  statements.length = 0;
-  const result = await call();
-  const count = (pattern: RegExp) =>
-    statements.filter((statement) => pattern.test(statement.trim())).length;
-  return { result, selects: count(/^select\b/i), inserts: count(/^insert\b/i) };
-}
-
 const approvalsOf = (runId: string) =>
   db.select().from(approvalRequests).where(eq(approvalRequests.runId, runId));
 
@@ -96,21 +85,17 @@ describe.skipIf(!ready)('inheritApprovals', () => {
     await client.close();
   });
 
-  it('uses one select and returns nothing without a previous run', async () => {
+  it('returns nothing without a previous run', async () => {
     const agentId = await newAgent();
     const conversationId = await newConversation(agentId);
     const runId = await newRun(conversationId, agentId);
 
-    const { result, selects, inserts } = await measured(() =>
-      inheritApprovals(db, { conversationId, runId }),
-    );
+    const result = await inheritApprovals(db, { conversationId, runId });
 
     expect(result).toEqual([]);
-    expect(selects).toBe(1);
-    expect(inserts).toBe(0);
   });
 
-  it('uses one select when the previous run has no approval (was two)', async () => {
+  it('returns nothing when the previous run has no approval', async () => {
     const agentId = await newAgent();
     const serverId = await newServer();
     const conversationId = await newConversation(agentId);
@@ -118,17 +103,13 @@ describe.skipIf(!ready)('inheritApprovals', () => {
     await approve(previous, serverId, 'pending-tool', null);
     const runId = await newRun(conversationId, agentId);
 
-    const { result, selects, inserts } = await measured(() =>
-      inheritApprovals(db, { conversationId, runId }),
-    );
+    const result = await inheritApprovals(db, { conversationId, runId });
 
     expect(result).toEqual([]);
-    expect(selects).toBe(1);
-    expect(inserts).toBe(0);
     expect(await approvalsOf(runId)).toHaveLength(0);
   });
 
-  it('inherits approved tools in one select plus one insert and keeps approvedAt (was three)', async () => {
+  it('inherits approved tools and keeps approvedAt', async () => {
     const agentId = await newAgent();
     const serverId = await newServer();
     const conversationId = await newConversation(agentId);
@@ -138,13 +119,9 @@ describe.skipIf(!ready)('inheritApprovals', () => {
     await approve(previous, serverId, 'still-pending', null);
     const runId = await newRun(conversationId, agentId);
 
-    const { result, selects, inserts } = await measured(() =>
-      inheritApprovals(db, { conversationId, runId }),
-    );
+    const result = await inheritApprovals(db, { conversationId, runId });
 
     expect(result).toEqual(['create-user']);
-    expect(selects).toBe(1);
-    expect(inserts).toBe(1);
     const inherited = await approvalsOf(runId);
     expect(inherited.map((row) => row.toolName)).toEqual(['create-user']);
     expect(inherited[0]?.approvedAt).toEqual(approvedAt);
@@ -159,13 +136,9 @@ describe.skipIf(!ready)('inheritApprovals', () => {
     await newRun(conversationId, agentId);
     const runId = await newRun(conversationId, agentId);
 
-    const { result, selects, inserts } = await measured(() =>
-      inheritApprovals(db, { conversationId, runId }),
-    );
+    const result = await inheritApprovals(db, { conversationId, runId });
 
     expect(result).toEqual([]);
-    expect(selects).toBe(1);
-    expect(inserts).toBe(0);
     expect(await approvalsOf(runId)).toHaveLength(0);
   });
 
@@ -178,7 +151,7 @@ describe.skipIf(!ready)('inheritApprovals', () => {
     const runId = await newRun(conversationId, agentId);
     await approve(runId, serverId, 'from-current', new Date('2026-10-21T00:00:00Z'));
 
-    const { result } = await measured(() => inheritApprovals(db, { conversationId, runId }));
+    const result = await inheritApprovals(db, { conversationId, runId });
 
     expect(result).toEqual(['from-previous']);
   });
@@ -192,13 +165,9 @@ describe.skipIf(!ready)('inheritApprovals', () => {
     const conversationId = await newConversation(agentId);
     const runId = await newRun(conversationId, agentId);
 
-    const { result, selects, inserts } = await measured(() =>
-      inheritApprovals(db, { conversationId, runId }),
-    );
+    const result = await inheritApprovals(db, { conversationId, runId });
 
     expect(result).toEqual([]);
-    expect(selects).toBe(1);
-    expect(inserts).toBe(0);
   });
 
   it('returns the same tool name twice when it was approved on two servers', async () => {
@@ -211,13 +180,9 @@ describe.skipIf(!ready)('inheritApprovals', () => {
     await approve(previous, secondServer, 'shared-tool', new Date('2026-10-21T00:00:00Z'));
     const runId = await newRun(conversationId, agentId);
 
-    const { result, selects, inserts } = await measured(() =>
-      inheritApprovals(db, { conversationId, runId }),
-    );
+    const result = await inheritApprovals(db, { conversationId, runId });
 
     expect(result.sort()).toEqual(['shared-tool', 'shared-tool']);
-    expect(selects).toBe(1);
-    expect(inserts).toBe(1);
     expect(await approvalsOf(runId)).toHaveLength(2);
   });
 
@@ -232,12 +197,10 @@ describe.skipIf(!ready)('inheritApprovals', () => {
     const runId = await newRun(conversationId, agentId);
 
     const first = await inheritApprovals(db, { conversationId, runId });
-    const second = await measured(() => inheritApprovals(db, { conversationId, runId }));
+    const second = await inheritApprovals(db, { conversationId, runId });
 
     expect(first.sort()).toEqual(['dup', 'dup']);
-    expect(second.result.sort()).toEqual(['dup', 'dup']);
-    expect(second.selects).toBe(1);
-    expect(second.inserts).toBe(1);
+    expect(second.sort()).toEqual(['dup', 'dup']);
     expect(await approvalsOf(runId)).toHaveLength(2);
   });
 

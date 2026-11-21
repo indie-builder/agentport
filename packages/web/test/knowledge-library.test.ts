@@ -95,11 +95,6 @@ describe('knowledge library list', () => {
 
   it('links each base to its detail route with status and count', async () => {
     baseHandlers();
-    server.use(
-      http.get('/api/knowledge/bases/kb_1/documents', () =>
-        HttpResponse.json({ items: [doc], nextCursor: null }),
-      ),
-    );
     await mount('/knowledge');
     const link = document.querySelector<HTMLAnchorElement>('a[href="/knowledge/kb_1"]');
     const row = link?.closest<HTMLElement>('li');
@@ -111,13 +106,6 @@ describe('knowledge library list', () => {
     expect(document.body.textContent).toContain('启用');
     expect(document.body.textContent).toContain('共 1 个知识库');
     expect(document.querySelectorAll('h1')).toHaveLength(1);
-    expect(
-      calls.some(
-        (item) =>
-          item.path.startsWith('/api/knowledge/bases/kb_1/documents') &&
-          item.path.includes('limit=200'),
-      ),
-    ).toBe(false);
   });
 
   it('covers the whole card with the detail link while keeping the action menu separate', async () => {

@@ -983,10 +983,9 @@ describe('knowledge document upload', () => {
     await flush();
     const body = calls.find(
       (item) => item.method === 'PUT' && item.path === '/api/knowledge/bases/kb_1/documents/upload',
-    )?.body as { filename: string; relativePath?: string; title?: string } | undefined;
+    )?.body as { filename: string; relativePath?: string } | undefined;
     expect(body?.filename).toBe('docs/spec.txt');
     expect(body?.relativePath).toBe('docs/spec.txt');
-    expect(body?.title).toBeUndefined();
   });
 });
 

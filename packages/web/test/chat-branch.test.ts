@@ -41,19 +41,8 @@ function pane(items: ReturnType<typeof historyToItems>) {
   );
 }
 
-test('历史用户消息带上原始 id，可用于分支', () => {
-  expect(historyToItems([message('m1')])).toEqual([
-    { id: 'm1:0', kind: 'user', text: 'm1', messageId: 'm1' },
-  ]);
-});
-
-test('运行步骤重建的消息没有真实会话，不带分支锚点', () => {
-  expect(historyToItems([message('run:0', '')])).toEqual([
-    { id: 'run:0:0', kind: 'user', text: 'run:0' },
-  ]);
-});
-
 test('只有能拿到原始 id 的用户轮显示分支按钮', () => {
   expect(pane(historyToItems([message('m1')]))).toContain('aria-label="从这条消息分支"');
   expect(pane([{ kind: 'user', text: '新消息' }])).not.toContain('aria-label="从这条消息分支"');
+  expect(pane(historyToItems([message('run:0', '')]))).not.toContain('aria-label="从这条消息分支"');
 });

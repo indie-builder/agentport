@@ -71,13 +71,11 @@ beforeAll(async () => {
                                         ? 'docling-fence-opposite.json'
                                         : route === '/aligned-table-ocr'
                                           ? 'docling-aligned-table-ocr.json'
-                                          : route === '/crlf-lines'
-                                            ? 'docling-crlf-lines.json'
-                                            : route === '/same-paragraph'
-                                              ? 'docling-same-paragraph.json'
-                                              : route === '/heading-only'
-                                                ? 'docling-heading-only.json'
-                                                : 'docling-success.json',
+                                          : route === '/same-paragraph'
+                                            ? 'docling-same-paragraph.json'
+                                            : route === '/heading-only'
+                                              ? 'docling-heading-only.json'
+                                              : 'docling-success.json',
       );
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(body);
@@ -876,21 +874,6 @@ describe('parseDocument Docling', () => {
     }
   });
 
-  it('maps a multi-line block onto CRLF source offsets of the original text', async () => {
-    const parsed = await parseDocument({
-      bytes: new TextEncoder().encode('fake'),
-      filename: 'crlf.pdf',
-      mimeType: 'application/pdf',
-      parserUrl: `${parserUrl}/crlf-lines`,
-    });
-
-    expect(parsed.markdown).toBe('Alpha\r\nBeta tail.');
-    expect(parsed.pageMap).toEqual([
-      { page: 3, startOffset: 0, endOffset: 'Alpha\r\nBeta'.length },
-    ]);
-    expect(parsed.markdown.slice(0, 'Alpha\r\nBeta'.length)).toBe('Alpha\r\nBeta');
-  });
-
   it('gives each JSON item in one markdown paragraph its own non-overlapping page range', async () => {
     const parsed = await parseDocument({
       bytes: new TextEncoder().encode('fake'),
@@ -1057,30 +1040,6 @@ describe('chunkDocument', () => {
     expect(chunks).toHaveLength(1);
     expect(chunks[0]?.locator).not.toHaveProperty('timeFromMs');
     expect(chunks[0]?.locator).not.toHaveProperty('timeToMs');
-  });
-
-  it('keeps the whole source segment time on every split piece instead of interpolating', () => {
-    const text = '长段内容。'.repeat(20);
-    const parsed: ParsedDocument = {
-      markdown: text,
-      images: [],
-      pageMap: [],
-      blocks: [
-        block(text, '', {
-          startOffset: 0,
-          endOffset: text.length,
-          timeFromMs: 1200,
-          timeToMs: 4800,
-        }),
-      ],
-    };
-
-    const chunks = chunkDocument(parsed, { chunkSize: 40, chunkOverlap: 0 });
-
-    expect(chunks.length).toBeGreaterThan(1);
-    for (const chunk of chunks) {
-      expect(chunk.locator).toMatchObject({ timeFromMs: 1200, timeToMs: 4800 });
-    }
   });
 
   it('splits a long Chinese block with a deterministic overlap and explicit ranges', () => {

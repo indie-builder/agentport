@@ -227,7 +227,7 @@ describe('overview trend accessibility', () => {
     }
 
     const scroller = table?.closest('.overflow-y-auto');
-    expect(scroller?.className).toContain('max-h-');
+    expect(scroller?.classList.contains('max-h-64')).toBe(true);
     expect(scroller?.getAttribute('tabindex')).toBe('0');
 
     await click(trigger());

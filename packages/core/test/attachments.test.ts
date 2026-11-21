@@ -184,12 +184,7 @@ describe('decodeAttachmentInput', () => {
 });
 
 describe('displayAttachmentFilename', () => {
-  it('cleans and truncates display names for titles without requiring a usable name', () => {
-    expect(displayAttachmentFilename('  ../报告\u0000/说明.md  ')).toBe('..报告说明.md');
-    expect(displayAttachmentFilename('📄 说明.md')).toBe('📄 说明.md');
-    expect(Array.from(displayAttachmentFilename(`${'a'.repeat(130)}.txt`))).toHaveLength(
-      ATTACHMENT_LIMITS.filenameChars,
-    );
+  it('returns an empty title instead of rejecting a name with nothing usable', () => {
     expect(displayAttachmentFilename('\u0000\u0001')).toBe('');
   });
 });

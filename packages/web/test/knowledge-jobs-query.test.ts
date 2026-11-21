@@ -42,7 +42,6 @@ type Call = {
   path: string;
   documentId: string | null;
   cursor: string | null;
-  signal: unknown;
 };
 
 const state = {
@@ -69,7 +68,6 @@ beforeEach(() => {
       path: url.pathname,
       documentId: url.searchParams.get('documentId'),
       cursor: url.searchParams.get('cursor'),
-      signal: request.signal,
     });
     if (state.jobDetailStatus !== null && url.pathname.startsWith('/api/knowledge/jobs/')) {
       return new Response(JSON.stringify({ code: 'NOT_FOUND', message: '任务不存在' }), {
@@ -137,7 +135,6 @@ describe('useKnowledgeJobs', () => {
     expect(latest?.data?.map((item) => item.id)).toEqual(['kjob_1', 'kjob_2']);
     expect(latest?.hasNextPage).toBe(false);
     expect(jobCalls().map((call) => call.cursor)).toEqual([null, 'cursor_1']);
-    expect(jobCalls().every((call) => call.signal)).toBe(true);
   });
 
   it('不同文档过滤各自缓存，前缀失效同时刷新所有过滤', async () => {

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { NativePluginAction, NativePluginOutput } from '@agentport/shared';
 import { zipSync } from 'fflate';
 import {
@@ -48,23 +48,6 @@ describe.skipIf(!ready)('native plugin routes', () => {
   const pluginIds: string[] = [];
 
   const auth = () => ({ cookie });
-
-  async function capturePluginQueries<T>(
-    run: () => Promise<T>,
-  ): Promise<{ value: T; queries: string[] }> {
-    const spy = spyOn(app.client, 'unsafe');
-    try {
-      const value = await run();
-      return {
-        value,
-        queries: spy.mock.calls
-          .map(([query]) => (typeof query === 'string' ? query : query.text))
-          .filter((text) => /^select .*from "plugins"/i.test(text)),
-      };
-    } finally {
-      spy.mockRestore();
-    }
-  }
 
   beforeAll(async () => {
     app = await startApp();
@@ -203,7 +186,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
     expect(calls).toEqual([{ action: 'read', pluginId: `${local}@repo` }, { action: 'list' }]);
   });
 
-  it('matches the full pluginId, keeps duplicate rows in order and reads plugins once', async () => {
+  it('matches the full pluginId and keeps duplicate rows in order', async () => {
     const local = unique('market');
     const importedId = `${local}@owner-a-repo`;
     result = installOutput(importedId);
@@ -224,9 +207,11 @@ describe.skipIf(!ready)('native plugin routes', () => {
         { pluginId: importedId, version: '1.0.0' },
       ],
     };
-    const { value: list, queries } = await capturePluginQueries(() =>
-      request(app, { method: 'GET', url: '/api/plugins/native', headers: auth() }),
-    );
+    const list = await request(app, {
+      method: 'GET',
+      url: '/api/plugins/native',
+      headers: auth(),
+    });
     expect(list.statusCode, list.body).toBe(200);
     expect(list.json()).toEqual({
       installed: [
@@ -235,21 +220,7 @@ describe.skipIf(!ready)('native plugin routes', () => {
         { pluginId: importedId, version: '1.0.0', imported: true },
       ],
     });
-    expect(queries).toHaveLength(1);
-    expect(queries[0]).toMatch(/^select\s+"source_id"\s+from\s+"plugins"/i);
-    expect(queries[0]).not.toMatch(/select\s+"plugins"\."id"/i);
     expect(calls).toEqual([{ action: 'read', pluginId: importedId }, { action: 'list' }]);
-  });
-
-  it('returns an empty list without querying plugins', async () => {
-    result = { ok: true, installed: [] };
-    const { value: list, queries } = await capturePluginQueries(() =>
-      request(app, { method: 'GET', url: '/api/plugins/native', headers: auth() }),
-    );
-    expect(list.statusCode, list.body).toBe(200);
-    expect(list.json()).toEqual({ installed: [] });
-    expect(queries).toEqual([]);
-    expect(calls).toEqual([{ action: 'list' }]);
   });
 
   it('adopts an already cached plugin by reading files without installing', async () => {

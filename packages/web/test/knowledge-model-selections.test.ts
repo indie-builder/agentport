@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { HttpResponse, http } from 'msw';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   useCreateKnowledgeModelProfile,
   useKnowledgeModelProfileSelections,
@@ -10,7 +10,7 @@ import {
 } from '../src/lib/queries.js';
 import { createMsw, runCleanup } from './msw.js';
 
-const { server, calls, listen, reset, waitForRequests, assertClean, close } = createMsw();
+const { server, listen, reset, waitForRequests, assertClean, close } = createMsw();
 
 const selection = {
   id: 'profile_1',
@@ -67,10 +67,6 @@ async function flush() {
   await waitForRequests();
 }
 
-function profileCalls() {
-  return calls.filter((item) => item.path.startsWith('/api/knowledge/model-profiles'));
-}
-
 function Probe() {
   const selections = useKnowledgeModelProfileSelections();
   const profiles = useKnowledgeModelProfiles();
@@ -120,27 +116,21 @@ async function mount() {
 }
 
 describe('knowledge model profile selections', () => {
-  it('loads the five-field selection projection from the explicit view', async () => {
+  it('refreshes the selection list after creating a profile', async () => {
     await mount();
-    expect(document.getElementById('selection')?.textContent).toBe(JSON.stringify([selection]));
-    expect(document.getElementById('managed')?.textContent).toBe(JSON.stringify([managed]));
-    expect(profileCalls().map((item) => item.path)).toContain(
-      '/api/knowledge/model-profiles?view=selection',
-    );
-    expect(profileCalls().map((item) => item.path)).toContain('/api/knowledge/model-profiles');
-  });
+    expect(document.getElementById('selection')?.textContent).toContain('embed-v4.0');
 
-  it('invalidates the selection cache through the existing profile mutation prefix', async () => {
-    await mount();
-    const before = profileCalls().filter(
-      (item) => item.path === '/api/knowledge/model-profiles?view=selection',
-    ).length;
+    server.use(
+      http.get('/api/knowledge/model-profiles', ({ request }) =>
+        new URL(request.url).searchParams.get('view') === 'selection'
+          ? HttpResponse.json([{ ...selection, name: 'bge-m3-new' }])
+          : HttpResponse.json([managed]),
+      ),
+    );
+
     await act(async () => (document.querySelector('button') as HTMLButtonElement).click());
-    await flush();
-    const after = profileCalls().filter(
-      (item) => item.path === '/api/knowledge/model-profiles?view=selection',
-    ).length;
-    expect(after).toBeGreaterThan(before);
-    expect(calls.some((item) => item.method === 'POST')).toBe(true);
+    await vi.waitFor(() =>
+      expect(document.getElementById('selection')?.textContent).toContain('bge-m3-new'),
+    );
   });
 });

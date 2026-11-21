@@ -238,8 +238,9 @@ describe('yuque repo range', () => {
 
     await probeYuque(config(), undefined);
 
-    expect(calls.map(pathOf)).toEqual(['/api/v2/user', `/api/v2/repos/${REPO}/docs`]);
-    expect(calls[1] ? new URL(calls[1].url).searchParams.get('limit') : null).toBe('1');
+    expect(calls.map(pathOf).sort()).toEqual([`/api/v2/repos/${REPO}/docs`, '/api/v2/user']);
+    const listCall = calls.find((call) => pathOf(call) === `/api/v2/repos/${REPO}/docs`);
+    expect(listCall ? new URL(listCall.url).searchParams.get('limit') : null).toBe('1');
     expect(calls.some((call) => /\/docs\/\d+$/.test(pathOf(call)))).toBe(false);
   });
 
@@ -288,7 +289,7 @@ describe('yuque body formats', () => {
         return json(load('docs-single.json'));
       }
       if (call.method === 'GET' && path === `/api/v2/repos/${REPO}/docs/101`) {
-        return json(detail('html', { body: '<h1>中文</h1>', body_html: '<h1>中文</h1>' }));
+        return json(detail('html', { body: '<h1>中文</h1>', body_html: '<p>ignored</p>' }));
       }
       throw new Error(`unexpected request ${call.method} ${call.url}`);
     });

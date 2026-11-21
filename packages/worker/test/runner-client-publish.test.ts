@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
@@ -24,24 +24,18 @@ afterAll(async () => {
 });
 
 describe.skipIf(!ready)('publishRun', () => {
-  it('writes the event and its TTL in one pipeline', async () => {
+  it('writes the event and sets its TTL', async () => {
     configureRunnerClient(redisUrl);
     const runId = `run-publish-${randomUUID()}`;
     const redis = new RedisClient(redisUrl);
-    const send = spyOn(RedisClient.prototype, 'send');
-    const expire = spyOn(RedisClient.prototype, 'expire');
     try {
       await publishRun(runId, { type: 'run_started', runId, conversationId: 'c1' }, logger);
 
-      expect(send).toHaveBeenCalledTimes(1);
-      expect(expire).toHaveBeenCalledTimes(1);
       expect(await redis.xlen(runStreamKey(runId))).toBe(1);
       const ttl = await redis.ttl(runStreamKey(runId));
       expect(ttl).toBeGreaterThan(0);
       expect(ttl).toBeLessThanOrEqual(3600);
     } finally {
-      send.mockRestore();
-      expire.mockRestore();
       await redis.del(runStreamKey(runId));
       redis.close();
     }

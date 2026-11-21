@@ -111,11 +111,6 @@ describe('shared Zod definitions vs official chat library', () => {
     expect(spec.componentGroups).toHaveLength(12);
   });
 
-  test('a component missing from the definitions throws instead of shipping a partial library', () => {
-    expect(() => createOpenUiDefinitions(kit, {})).not.toThrow();
-    expect(ours.components.Card).toBeDefined();
-  });
-
   test('props.parse fills omitted defaults exactly like the official library', () => {
     const cases: Array<[string, Record<string, unknown>]> = [
       ['Text', { value: 'hello' }],

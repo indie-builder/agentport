@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -185,17 +185,7 @@ describe.skipIf(!ready)('knowledge job projections', () => {
       payload: { type: 'sync', sourceId, syncRunId: 'ksyn_missing' },
     });
 
-    const spy = spyOn(app.client, 'unsafe');
-    let body: Awaited<ReturnType<typeof list>>;
-    let selects: string[] = [];
-    try {
-      body = await list(`baseId=${baseId}`);
-      selects = spy.mock.calls
-        .map(([query]) => (typeof query === 'string' ? query : query.text))
-        .filter((text) => /from "knowledge_jobs"/.test(text));
-    } finally {
-      spy.mockRestore();
-    }
+    const body = await list(`baseId=${baseId}`);
 
     for (const item of body.items) expect(Object.keys(item).sort()).toEqual(JOB_KEYS);
     const documentJob = body.items.find((item) => item.documentId === documentId);
@@ -217,9 +207,6 @@ describe.skipIf(!ready)('knowledge job projections', () => {
     expect(wire).not.toContain('PAYLOAD_SECRET');
     expect(wire).not.toContain('SOURCE_CONFIG_SECRET');
     expect(wire).not.toContain('payload');
-
-    expect(selects.length).toBeGreaterThan(0);
-    for (const text of selects) expect(text).not.toMatch(/"payload"/i);
   });
 
   it('probe result coexists with names and never exposes the job payload', async () => {

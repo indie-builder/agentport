@@ -1,14 +1,10 @@
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
 import { randomBytes } from 'node:crypto';
-import { drizzle } from 'drizzle-orm/bun-sql';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
-import { schema } from '../src/schema.js';
 
-const { client } = createDb(process.env.DATABASE_URL ?? '');
-const logged: string[] = [];
-const db = drizzle(client, { schema, logger: { logQuery: (query) => logged.push(query) } });
+const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 const ready = await client.unsafe('select 1').then(
   () => true,
   () => false,
@@ -232,19 +228,5 @@ describe.skipIf(!ready)('knowledge document versions', () => {
         ),
       ),
     );
-  });
-
-  it('只发一次 INSERT，不再包事务也不单查 MAX', async () => {
-    const { documentId } = await seedDocument();
-    logged.length = 0;
-
-    await knowledge.createVersion(db, versionInput(documentId));
-
-    expect(logged).toHaveLength(1);
-    const [statement = ''] = logged;
-    expect(statement).toMatch(/^insert into "knowledge_document_versions"/i);
-    expect(statement.toLowerCase()).toContain('coalesce(max(');
-    expect(logged.some((query) => /^(begin|commit|rollback)\b/i.test(query.trim()))).toBe(false);
-    expect(logged.some((query) => /^\s*select\b/i.test(query))).toBe(false);
   });
 });

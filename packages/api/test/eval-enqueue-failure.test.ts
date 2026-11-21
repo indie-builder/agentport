@@ -106,7 +106,6 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
     const agent = await newAgentWithCase();
     const queue = getEvalQueue();
     const add = spyOn(queue, 'add').mockRejectedValueOnce(new Error(DOWN));
-    const getJob = spyOn(queue, 'getJob');
     let res: Awaited<ReturnType<typeof startRun>>;
     try {
       res = await startRun(agent.id);
@@ -119,8 +118,6 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
     expect(loggedErrors.length).toBeGreaterThan(0);
     expect(inspect(loggedErrors, { depth: null })).not.toContain('hunter2');
     expect(inspect(loggedErrors, { depth: null })).not.toContain('redis://');
-    expect(getJob).toHaveBeenCalledTimes(1);
-    getJob.mockRestore();
 
     const [runId] = await runsOf(agent.id);
     if (!runId) throw new Error('eval run was not created');
@@ -142,11 +139,12 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
   it('leaves a run the worker already claimed untouched', async () => {
     const agent = await newAgentWithCase();
     const queue = getEvalQueue();
-    const add = spyOn(queue, 'add').mockImplementationOnce(async (_name, data) => {
+    const enqueue = queue.add.bind(queue);
+    const add = spyOn(queue, 'add').mockImplementationOnce(async (name, data, opts) => {
       expect(await repo.evalRepo.claimEvalRun(app.db, data.evalRunId)).toBe(true);
+      await enqueue(name, data, opts);
       throw new Error(DOWN);
     });
-    const getJob = spyOn(queue, 'getJob');
     let res: Awaited<ReturnType<typeof startRun>>;
     try {
       res = await startRun(agent.id);
@@ -154,16 +152,19 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
       add.mockRestore();
     }
     expectProblem(res, 'SERVICE_UNAVAILABLE');
-    expect(getJob).not.toHaveBeenCalled();
-    getJob.mockRestore();
 
     const [runId] = await runsOf(agent.id);
     if (!runId) throw new Error('eval run was not created');
-    const row = await repo.evalRepo.getEvalRun(app.db, runId);
-    expect(row?.status).toBe('running');
-    expect(row?.claimedAt).not.toBeNull();
-    expect(row?.finishedAt).toBeNull();
-    expect(row?.error).toBeNull();
+    try {
+      const row = await repo.evalRepo.getEvalRun(app.db, runId);
+      expect(row?.status).toBe('running');
+      expect(row?.claimedAt).not.toBeNull();
+      expect(row?.finishedAt).toBeNull();
+      expect(row?.error).toBeNull();
+      expect((await queue.getJob(runId))?.id).toBe(runId);
+    } finally {
+      await (await queue.getJob(runId))?.remove();
+    }
   });
 
   it.each(['succeeded', 'cancelled'] as const)(
@@ -186,14 +187,11 @@ describe.skipIf(!ready)('eval enqueue failure', () => {
         );
         throw new Error(DOWN);
       });
-      const getJob = spyOn(queue, 'getJob');
       try {
         const res = await startRun(agent.id);
         expectProblem(res, 'SERVICE_UNAVAILABLE');
-        expect(getJob).not.toHaveBeenCalled();
       } finally {
         add.mockRestore();
-        getJob.mockRestore();
       }
 
       const [runId] = await runsOf(agent.id);

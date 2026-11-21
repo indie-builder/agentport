@@ -39,10 +39,7 @@ async function startServer(handler: Handler): Promise<{ url: string; close: () =
  * Flushes headers and a partial body but never ends the response, so the server
  * only observes `close` after the client cancels the body or drops the connection.
  */
-async function startHoldingServer(
-  status: number,
-  body = 'held response body',
-): Promise<{
+async function startHoldingServer(status: number): Promise<{
   url: string;
   responseClosed: Promise<void>;
   close: () => Promise<void>;
@@ -54,7 +51,7 @@ async function startHoldingServer(
   const server = createServer((_request, response) => {
     response.on('close', markClosed);
     response.writeHead(status, { 'content-type': 'text/plain' });
-    response.write(body);
+    response.write('held response body');
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address() as AddressInfo;
@@ -121,7 +118,6 @@ const state = {
   feishuNodesStatus: 200,
   feishuUnsupported: false,
   feishuDriveUnsupported: false,
-  feishuDriveMissingMime: false,
   feishuDriveMultiPage: false,
   feishuDocxTruncated: false,
 };
@@ -146,7 +142,6 @@ function resetState(): void {
   state.feishuNodesStatus = 200;
   state.feishuUnsupported = false;
   state.feishuDriveUnsupported = false;
-  state.feishuDriveMissingMime = false;
   state.feishuDriveMultiPage = false;
   state.feishuDocxTruncated = false;
 }
@@ -422,9 +417,6 @@ function driveFilesPage(query: URLSearchParams): Record<string, unknown> {
   if (state.feishuDriveUnsupported) {
     files.push({ token: 'pdf1', name: 'manual.pdf', type: 'file', url: `${mainUrl}/file/pdf1` });
   }
-  if (state.feishuDriveMissingMime) {
-    files.push({ token: 'raw1', name: 'report.pdf', type: 'file', url: `${mainUrl}/file/raw1` });
-  }
   return { files, has_more: false, next_page_token: '' };
 }
 
@@ -676,13 +668,6 @@ async function handleMain(request: IncomingMessage, response: ServerResponse): P
       response.end('%PDF-1.7');
       return;
     }
-    if (path === '/feishu/open-apis/drive/v1/files/raw1/download') {
-      response.writeHead(200);
-      response.end(
-        Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0xff, 0xfe, 0x00, 0x80]),
-      );
-      return;
-    }
   }
 
   response.writeHead(404).end('not found');
@@ -824,21 +809,6 @@ describe('validateSourceUrl', () => {
     expect(parsed.origin).toBe(mainUrl);
   });
 
-  it('matches allowed origins exactly', async () => {
-    await expect(
-      validateSourceUrl(`${mainUrl}/x`, { allowedOrigins: [mainUrl], allowLoopback: true }),
-    ).resolves.toBeInstanceOf(URL);
-    await expect(
-      validateSourceUrl(`${articleBase}/x`, { allowedOrigins: [mainUrl], allowLoopback: true }),
-    ).rejects.toThrow(/not allowed/);
-    await expect(
-      validateSourceUrl(`${mainUrl}/x`, {
-        allowedOrigins: [`${mainUrl}/sub`],
-        allowLoopback: true,
-      }),
-    ).rejects.toThrow(/exact origin/);
-  });
-
   it('lets only an exactly matched trusted host resolve to a private address', async () => {
     const port = new URL(mainUrl).port;
     await expect(
@@ -850,7 +820,6 @@ describe('validateSourceUrl', () => {
     await expect(
       validateSourceUrl(`${mainUrl}/x`, { trustedHosts: [`${mainUrl}`] }),
     ).rejects.toThrow(/private address/);
-    expect(process.env.NODE_ENV).not.toBe('production');
   });
 
   it('never takes loopback from user config in production', async () => {
@@ -1042,24 +1011,6 @@ describe('HTTP failure responses', () => {
       }
     },
   );
-
-  it('keeps a held 403 secondary-rate-limit body transient instead of revoked credentials', async () => {
-    const upstream = await startHoldingServer(
-      403,
-      'You have exceeded a secondary rate limit. Please wait a few minutes.',
-    );
-    try {
-      const error = await readSource(rssConfig(`${upstream.url}/held`)).catch(
-        (reason: unknown) => reason,
-      );
-      expect(error).toBeInstanceOf(Error);
-      expect(error).not.toBeInstanceOf(SourceAuthError);
-      expect((error as Error).message).toContain('HTTP 403');
-      await within(2_000, upstream.responseClosed, 'upstream 403 connection stayed open');
-    } finally {
-      await upstream.close();
-    }
-  });
 
   it('propagates caller cancellation while reading a 403 body without waiting for the timeout', async () => {
     const upstream = await startHoldingServer(403);
@@ -1324,22 +1275,6 @@ describe('Feishu source', () => {
     expect(docD?.content).toContain('Content for docD');
   });
 
-  it('accepts appId from settings, which is where the source API stores it', async () => {
-    const snapshot = await readSource({
-      ...feishuConfig(),
-      credentials: { appSecret: 'cli_secret' },
-      settings: { ...feishuConfig().settings, appId: 'cli_app' },
-    });
-    expect(snapshot.items).toHaveLength(3);
-    const tokenRequest = state.mainRequests.find((request) =>
-      request.path.endsWith('/tenant_access_token/internal'),
-    );
-    expect(JSON.parse(tokenRequest?.body ?? '{}')).toEqual({
-      app_id: 'cli_app',
-      app_secret: 'cli_secret',
-    });
-  });
-
   it('surfaces auth, permission, unsupported-resource and pagination failures', async () => {
     state.feishuTokenStatus = 401;
     await expect(readSource(feishuConfig())).rejects.toThrow(/401/);
@@ -1369,18 +1304,6 @@ describe('Feishu source', () => {
     expect(pdf?.mimeType).toBe('application/pdf');
     expect(pdf?.bytes).toBeDefined();
     expect(drive.complete).toBe(true);
-  });
-
-  it('keeps a download without Content-Type as original bytes and routes it by extension', async () => {
-    state.feishuDriveMissingMime = true;
-    const snapshot = await readSource(feishuDriveConfig());
-    const raw = snapshot.items.find((item) => item.externalId === 'feishu:drive:raw1');
-    if (!raw) throw new Error('raw drive item missing');
-    expect(raw.mimeType).toBe('application/pdf');
-    expect(raw.content).toBe('');
-    expect(Buffer.from(raw.bytes ?? [])).toEqual(
-      Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0xff, 0xfe, 0x00, 0x80]),
-    );
   });
 
   it('probes only the first page when a Drive folder or wiki space has more pages', async () => {

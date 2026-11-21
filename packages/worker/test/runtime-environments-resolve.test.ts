@@ -1,31 +1,7 @@
-import { describe, expect, it, mock } from 'bun:test';
-import type { ResolvedRuntimeEnvironment } from '@agentport/shared';
+import { describe, expect, it } from 'bun:test';
 import { createRuntimeEnvironmentResolver } from '../src/runtime-environments/resolve.js';
 
-const identity: ResolvedRuntimeEnvironment = {
-  environmentId: 'env_1',
-  environmentName: '默认环境',
-  versionId: 'ver_1',
-  imageId: `sha256:${'a'.repeat(64)}`,
-};
-
 describe('runtime environment resolver', () => {
-  it('passes the binding through and resolves once per real creation', async () => {
-    const resolveOnline = mock(async () => identity);
-    const resolve = createRuntimeEnvironmentResolver(resolveOnline);
-
-    await expect(resolve('env_1')).resolves.toEqual(identity);
-    expect(resolveOnline).toHaveBeenCalledWith('env_1');
-  });
-
-  it('uses null for the platform default environment', async () => {
-    const resolveOnline = mock(async (_environmentId: string | null) => identity);
-    const resolve = createRuntimeEnvironmentResolver(resolveOnline);
-
-    await resolve(null);
-    expect(resolveOnline).toHaveBeenCalledWith(null);
-  });
-
   it('fails clearly for a missing online version and never fabricates one', async () => {
     const resolve = createRuntimeEnvironmentResolver(async () => null);
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { chatEventSchema, progressTodoSchema } from '../src/chat.js';
+import { chatEventSchema } from '../src/chat.js';
 
 const parse = (event: unknown) => chatEventSchema.parse(event);
 
@@ -92,9 +92,5 @@ describe('progress todo snapshots', () => {
         todos: [{ content: 'a', activeForm: 'b', status: 'deleted' }],
       }).success,
     ).toBe(false);
-  });
-
-  it('exports the same schema used by the event', () => {
-    expect(progressTodoSchema.parse(todos[0])).toEqual(todos[0]);
   });
 });

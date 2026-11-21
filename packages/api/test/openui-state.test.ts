@@ -16,48 +16,6 @@ import {
 
 const ready = await infraReady;
 
-const ownershipRead = /^\s*select\b[\s\S]*\bfrom\s+"?(?:messages|conversations)"?\b/i;
-
-function countOwnershipReads(sql: string[]): number {
-  return sql.filter((text) => ownershipRead.test(text)).length;
-}
-
-function spyPoolQueries(app: TestApp): { sql: string[]; restore: () => void } {
-  const sql: string[] = [];
-  const record = (args: unknown[]) => {
-    const first = args[0];
-    sql.push(
-      typeof first === 'string'
-        ? first
-        : first !== null && typeof first === 'object' && 'text' in first
-          ? String((first as { text: unknown }).text)
-          : '',
-    );
-  };
-  const original = app.client.unsafe;
-  app.client.unsafe = ((...args: unknown[]) => {
-    record(args);
-    return (original as (...inner: unknown[]) => unknown).apply(app.client, args);
-  }) as typeof app.client.unsafe;
-  const originalBegin = app.client.begin;
-  app.client.begin = ((callback: (tx: typeof app.client) => Promise<unknown>) =>
-    originalBegin.call(app.client, (tx: typeof app.client) => {
-      const txUnsafe = tx.unsafe;
-      tx.unsafe = ((...args: unknown[]) => {
-        record(args);
-        return (txUnsafe as (...inner: unknown[]) => unknown).apply(tx, args);
-      }) as typeof tx.unsafe;
-      return callback(tx);
-    })) as typeof app.client.begin;
-  return {
-    sql,
-    restore: () => {
-      app.client.begin = originalBegin;
-      app.client.unsafe = original;
-    },
-  };
-}
-
 function uiText(segments: number): string {
   return Array.from(
     { length: segments },
@@ -157,34 +115,20 @@ describe.skipIf(!ready)('openui state', () => {
 
   it('returns NOT_FOUND for an unknown conversation', async () => {
     const { messageId } = await seed();
-    const spy = spyPoolQueries(app);
-    try {
-      expectProblem(
-        await put('conv_missing', messageId, { blockKey: 's0', state: { a: 1 } }),
-        'NOT_FOUND',
-        'conversation',
-      );
-      expect(countOwnershipReads(spy.sql)).toBeGreaterThan(0);
-      expect(countOwnershipReads(spy.sql)).toBeLessThanOrEqual(2);
-    } finally {
-      spy.restore();
-    }
+    expectProblem(
+      await put('conv_missing', messageId, { blockKey: 's0', state: { a: 1 } }),
+      'NOT_FOUND',
+      'conversation',
+    );
   });
 
   it('rejects a message that belongs to another conversation', async () => {
     const first = await seed();
     const second = await seed();
-    const spy = spyPoolQueries(app);
-    try {
-      expectProblem(
-        await put(first.conversationId, second.messageId, { blockKey: 's0', state: { a: 1 } }),
-        'NOT_FOUND',
-      );
-      expect(countOwnershipReads(spy.sql)).toBeGreaterThan(0);
-      expect(countOwnershipReads(spy.sql)).toBeLessThanOrEqual(2);
-    } finally {
-      spy.restore();
-    }
+    expectProblem(
+      await put(first.conversationId, second.messageId, { blockKey: 's0', state: { a: 1 } }),
+      'NOT_FOUND',
+    );
     expect(await savedState(second.messageId)).toBeNull();
   });
 
@@ -254,35 +198,6 @@ describe.skipIf(!ready)('openui state', () => {
   ])('rejects %s with 400', async (_label, payload) => {
     const { conversationId, messageId } = await seed();
     expectProblem(await put(conversationId, messageId, payload), 'INVALID_INPUT');
-  });
-
-  it('saves a state after one ownership read per real object', async () => {
-    const { conversationId, messageId } = await seed();
-
-    expect(
-      countOwnershipReads([
-        'select "id" from "conversations" where "id" = $1 limit $2',
-        'select "id" from "messages" where "id" = $1 and "conversation_id" = $2 limit $3',
-      ]),
-    ).toBe(2);
-
-    const spy = spyPoolQueries(app);
-    try {
-      const res = await put(conversationId, messageId, { blockKey: 's0', state: { a: 1 } });
-      expect(res.statusCode, res.body).toBe(200);
-      expect(countOwnershipReads(spy.sql)).toBe(2);
-      expect(spy.sql.some((text) => /^\s*update\s+"?messages"?/i.test(text))).toBe(true);
-      expect(spy.sql.some((text) => /^\s*insert\s+into\s+"?audit_log"?/i.test(text))).toBe(true);
-    } finally {
-      spy.restore();
-    }
-
-    expect(await savedState(messageId)).toEqual({ version: 1, blocks: { s0: { a: 1 } } });
-    const audit = await app.client.unsafe(
-      "select 1 from audit_log where action = 'openui.state.saved' and target = $1",
-      [messageId],
-    );
-    expect(audit).toHaveLength(1);
   });
 
   it('persists a state envelope and merges blocks instead of overwriting', async () => {

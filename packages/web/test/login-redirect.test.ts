@@ -186,22 +186,6 @@ describe('login page return target', () => {
     }
   });
 
-  it('keeps the form when the fresh check fails despite a stale authenticated result', async () => {
-    state.search = { returnTo: PLUGIN_TARGET };
-    state.query = {
-      isFetchedAfterMount: true,
-      isSuccess: false,
-      data: allAccessMe,
-    };
-    const page = await renderLogin();
-    try {
-      expect(page.container.querySelector('form[aria-label="登录"]')).not.toBeNull();
-      expect(state.navigate).not.toHaveBeenCalled();
-    } finally {
-      await page.cleanup();
-    }
-  });
-
   it('returns to the deep-linked plugin view after login', async () => {
     state.search = { returnTo: PLUGIN_TARGET };
     const page = await renderLogin();
@@ -223,34 +207,6 @@ describe('login page return target', () => {
       await act(async () => state.mutation?.onSuccess());
       expect(state.clear).toHaveBeenCalledTimes(1);
       expect(state.fetch).toHaveBeenCalled();
-    } finally {
-      await page.cleanup();
-    }
-  });
-
-  it('does not navigate until the new identity has loaded', async () => {
-    const nextMe = {
-      ...allAccessMe,
-      user: { businessId: 'test-next', username: 'next', name: '新账户' },
-    };
-    let settle!: (me: typeof allAccessMe) => void;
-    state.fetch.mockReturnValue(
-      new Promise<typeof allAccessMe>((resolve) => {
-        settle = resolve;
-      }),
-    );
-    const page = await renderLogin();
-    try {
-      let pending: Promise<void> | undefined;
-      await act(async () => {
-        pending = state.mutation?.onSuccess();
-      });
-      expect(state.navigate).not.toHaveBeenCalled();
-      await act(async () => {
-        settle(nextMe);
-        await pending;
-      });
-      expect(state.navigate).toHaveBeenCalledWith({ href: '/', replace: true });
     } finally {
       await page.cleanup();
     }

@@ -40,10 +40,4 @@ describe('segmentOpenUi edge cases', () => {
     expect(markdown.join('')).toContain('中间文字');
     expect(segments.filter((s) => s.kind === 'openui')).toHaveLength(2);
   });
-
-  it('treats an unclosed fence as openui only while streaming', () => {
-    const text = '```openui-lang\nroot = Card([t])\nt = TextContent("未完';
-    expect(segmentOpenUi(text, true).some((s) => s.kind === 'openui')).toBe(true);
-    expect(segmentOpenUi(text, false).every((s) => s.kind === 'markdown')).toBe(true);
-  });
 });

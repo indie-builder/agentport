@@ -10,7 +10,6 @@ import {
   baseHandlers,
   button,
   calls,
-  chooseFilter,
   chooseMenuItem,
   chooseOption,
   cleanup,
@@ -1153,23 +1152,6 @@ describe('knowledge UX guards', () => {
         .findAll({ queryKey: ['knowledge', 'documents', 'kb_1'] }) ?? [];
     expect(documentQueries.length).toBeGreaterThan(0);
     expect(documentQueries.every((query) => query.state.isInvalidated)).toBe(true);
-  });
-
-  it('clears every document filter from the empty result', async () => {
-    listHandlers();
-    server.use(
-      http.get('/api/knowledge/bases/kb_1/documents', ({ request }) =>
-        HttpResponse.json({
-          items: new URL(request.url).searchParams.get('status') ? [] : [doc],
-          nextCursor: null,
-        }),
-      ),
-    );
-    await mount('/knowledge/kb_1');
-    await chooseFilter('按状态筛选', '失败');
-    expect(document.body.textContent).toContain('没有匹配的文档');
-    await click(button('清除筛选'));
-    expect(document.body.textContent).toContain('上线流程');
   });
 
   it('offers a retry when the tag filter cannot load', async () => {

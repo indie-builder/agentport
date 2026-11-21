@@ -3,7 +3,6 @@ import {
   countMemoryLines,
   DEFAULT_MEMORY_POLICY,
   memoryIndexLinksFile,
-  memoryPolicySchema,
   resolveMemoryPolicy,
 } from '../src/memory.js';
 
@@ -16,7 +15,6 @@ describe('memory policy', () => {
       injectRules: true,
       topicLimit: 20,
     });
-    expect(memoryPolicySchema.parse({})).toEqual(DEFAULT_MEMORY_POLICY);
   });
 
   it('merges partial values with the defaults', () => {

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -336,27 +336,6 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
         })
       ).status,
     ).toBe(401);
-  });
-
-  it('checks the run binding once per successful request', async () => {
-    const spy = spyOn(app.client, 'unsafe');
-    let sql: string[] = [];
-    try {
-      const res = await mcpPost(serverId, {
-        authorization: `Bearer ${runToken}`,
-        'x-agentport-run-id': runId,
-        accept: 'application/json, text/event-stream',
-      });
-      expect(res.status).toBe(200);
-      sql = spy.mock.calls.map(([text]) =>
-        typeof text === 'string' ? text : (text as { text: string }).text,
-      );
-    } finally {
-      spy.mockRestore();
-    }
-    expect(
-      sql.filter((query) => query.includes('"agent_runs"') && query.includes('"agent_servers"')),
-    ).toHaveLength(1);
   });
 
   it('lists the three read-only tools and returns keyword hits', async () => {

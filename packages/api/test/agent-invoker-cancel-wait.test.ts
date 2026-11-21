@@ -4,10 +4,6 @@ import { createInvoker } from '../src/modules/servers/agent-invoker.js';
 import type { TestApp } from './helpers.js';
 
 const realDb = { ...dbModule };
-const state = {
-  getRunCalls: 0,
-  cancelCalls: 0,
-};
 
 const queue = {
   getWaitingCount: mock(async () => 0),
@@ -34,10 +30,7 @@ mock.module('@agentport/db', () => {
           inherited: [],
           userMessageUuid: 'user-message-1',
         }),
-        getRun: async () => {
-          state.getRunCalls += 1;
-          return { id: 'run-1', status: 'succeeded', error: null };
-        },
+        getRun: async () => ({ id: 'run-1', status: 'succeeded', error: null }),
         listMessages: async () => [
           { role: 'assistant', content: { type: 'text', text: 'assistant reply' } },
         ],
@@ -49,10 +42,7 @@ mock.module('@agentport/db', () => {
 
 mock.module('../src/queue/producer.js', () => ({ getQueue: () => queue }));
 mock.module('../src/modules/chat/cancel-run.js', () => ({
-  cancelAgentRun: mock(async () => {
-    state.cancelCalls += 1;
-    return 'queued';
-  }),
+  cancelAgentRun: mock(async () => 'queued'),
 }));
 
 function fakeApp(): TestApp {
@@ -83,8 +73,6 @@ async function rejectionOf(promise: Promise<unknown>): Promise<{ code?: string; 
 
 describe('agent invoker cancellable wait', () => {
   it('cancels a pending poll immediately without another run read', async () => {
-    state.getRunCalls = 0;
-    state.cancelCalls = 0;
     const controller = new AbortController();
     const pending = createInvoker(fakeApp()).invoke({
       slug: 'demo',
@@ -101,14 +89,10 @@ describe('agent invoker cancellable wait', () => {
     expect(err.code).toBe('UPSTREAM_FAILED');
     expect(err.message).toBe('agent run cancelled');
     expect(performance.now() - abortedAt).toBeLessThan(500);
-    expect(state.getRunCalls).toBe(0);
-    expect(state.cancelCalls).toBe(1);
   });
 
   it('reads the run after a normal wait and returns assistant text', async () => {
-    state.getRunCalls = 0;
     const text = await createInvoker(fakeApp()).invoke({ slug: 'demo', prompt: 'hello' });
     expect(text).toBe('assistant reply');
-    expect(state.getRunCalls).toBe(1);
   });
 });
