@@ -19,7 +19,9 @@ const securityKeys = {
   policies: ['security', 'policies'] as const,
   events: (filters: Pick<SecurityEventQuery, 'sourceKind' | 'action'>) =>
     ['security', 'events', filters] as const,
+  approvalsAll: ['security', 'approvals'] as const,
   approvals: (status: PolicyApprovalStatus) => ['security', 'approvals', status] as const,
+  violationsAll: ['security', 'violations'] as const,
   violations: (status: ViolationCaseStatus | 'all') => ['security', 'violations', status] as const,
 };
 
@@ -105,7 +107,7 @@ export function useDecideSecurityApproval() {
   return useMutation({
     mutationFn: (vars: { id: string; input: PolicyApprovalDecision }) =>
       api.decideSecurityApproval(vars.id, vars.input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['security', 'approvals'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: securityKeys.approvalsAll }),
   });
 }
 
@@ -114,6 +116,6 @@ export function useUpdateSecurityViolation() {
   return useMutation({
     mutationFn: (vars: { id: string; input: ViolationCaseUpdate }) =>
       api.updateSecurityViolation(vars.id, vars.input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['security', 'violations'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: securityKeys.violationsAll }),
   });
 }
