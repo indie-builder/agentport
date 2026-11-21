@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { type FetchOptions, fetchJson, rethrowAuth, validateSourceUrl } from './source-http.js';
+import {
+  type FetchOptions,
+  fetchJson,
+  rethrowAuth,
+  sourceNetworkOptions,
+  validateSourceUrl,
+} from './source-http.js';
 import { sanitizeSegment, uniquePath } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import {
@@ -79,8 +85,7 @@ function fetchOptions(
   return {
     headers: { 'x-auth-token': token },
     authOrigin: new URL(base).origin,
-    ...(config.allowLoopback === true ? { allowLoopback: true } : {}),
-    ...(config.trustedHosts?.length ? { trustedHosts: config.trustedHosts } : {}),
+    ...sourceNetworkOptions(config),
     ...(signal === undefined ? {} : { signal }),
   };
 }

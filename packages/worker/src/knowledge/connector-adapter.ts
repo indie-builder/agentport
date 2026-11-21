@@ -1,4 +1,5 @@
 import type { ConnectorNetwork, KnowledgeConnector, SourceItem } from './ingestion.js';
+import { sourceNetworkOptions } from './source-http.js';
 import type { SourceItem as LeafSourceItem, SourceConfig } from './source-types.js';
 import { probeSource, readSource } from './sources.js';
 
@@ -28,8 +29,7 @@ function toSourceConfig(
   const credentials = secrets;
   const base = {
     credentials,
-    ...(network.trustedHosts?.length ? { trustedHosts: network.trustedHosts } : {}),
-    ...(network.allowLoopback === true ? { allowLoopback: true } : {}),
+    ...sourceNetworkOptions(network),
   };
   switch (type) {
     case 'feed': {

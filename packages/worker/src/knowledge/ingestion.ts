@@ -33,6 +33,7 @@ import pLimit from 'p-limit';
 import type { Logger } from 'pino';
 import { describeKnowledgeImage, type ImageQueryFn } from './image-processing.js';
 import { KnowledgeParseError, type ParsedDocument, type ParsedImage } from './parsing.js';
+import { sourceNetworkOptions } from './source-http.js';
 import { SourceAuthError } from './sources.js';
 
 type KnowledgeDocumentRow = typeof schema.knowledgeDocuments.$inferSelect;
@@ -1650,10 +1651,7 @@ export async function runSync(
   const secrets = snapshot.secretsEncrypted ? deps.decrypt(snapshot.secretsEncrypted) : {};
   const network: ConnectorNetwork | undefined =
     deps.trustedHosts?.length || deps.allowLoopback === true
-      ? {
-          ...(deps.trustedHosts?.length ? { trustedHosts: deps.trustedHosts } : {}),
-          ...(deps.allowLoopback === true ? { allowLoopback: true } : {}),
-        }
+      ? sourceNetworkOptions(deps)
       : undefined;
   const stats = { listed: 0, created: 0, updated: 0, disabled: 0, failed: 0 };
   const seen = new Set<string>();
@@ -1832,10 +1830,7 @@ export async function runSourceProbe(
   const secrets = snapshot.secretsEncrypted ? deps.decrypt(snapshot.secretsEncrypted) : {};
   const network: ConnectorNetwork | undefined =
     deps.trustedHosts?.length || deps.allowLoopback === true
-      ? {
-          ...(deps.trustedHosts?.length ? { trustedHosts: deps.trustedHosts } : {}),
-          ...(deps.allowLoopback === true ? { allowLoopback: true } : {}),
-        }
+      ? sourceNetworkOptions(deps)
       : undefined;
 
   const checks: KnowledgeSourceProbeResult['checks'] = [];
