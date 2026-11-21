@@ -862,9 +862,9 @@
 
 ---
 
-## D-91 ⏳ 草稿发布授权与恢复（待决策）
+## D-91 ⏳ 知识库数据包恢复未发布草稿（待决策）
 
-现状：单篇 reprocess 与整库重建在 `confirmOverwriteManualChunks: true` 时可把未发布草稿重新解析并发布，绕过 `knowledge.publish`；ZIP 导入恢复的零版本手写文档保留原件与 contentHash，网页编辑器无法读取正文，批量 reprocess 会拒绝，但单篇 reprocess 仍可入队并由 worker 自动发布，缺少「恢复为草稿」的入口；ZIP 清单可把未发布草稿直接设为当前版本。候选：把发布权限校验落到共享发布路径；把被取代草稿标为历史，保证可发布可放弃；零版本手写导入时创建 `publish: 'draft'` 摄取任务；导入拒绝草稿指针或要求 `knowledge.publish`。验证：单篇/批量/重建/导入四条路径的越权与恢复探针。
+现状：已生成版本的草稿导入后引用旧库 indexingJobId，无法在本库发布；停用的零版本手写文档导入后只落文档与原件，没有恢复入口；清单的当前指针可指向 draft/superseded，Wiki 指针可绕过 `knowledge.publish`。候选：导入时重建版本并绑定本库索引任务；拒绝 draft/superseded 作为当前指针；恢复线上指针要求 `knowledge.publish` 权限。
 
 ---
 

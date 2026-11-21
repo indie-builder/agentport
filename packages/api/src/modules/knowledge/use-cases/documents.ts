@@ -539,6 +539,9 @@ export async function reprocessDocument(
   if (row.status === 'disabled' || row.disabledReason !== null) {
     throw new AppError('CONFLICT', '文档已停用，不能通过重解析恢复；请先完成来源同步或显式启用');
   }
+  if (await repo.knowledge.hasUnpublishedDraft(deps.db, row)) {
+    throw new AppError('CONFLICT', '文档存在未发布的草稿，请先发布或放弃草稿后再重解析');
+  }
   if (row.currentVersionId) {
     const manualChunkCount = await repo.knowledge.countEditedChunks(deps.db, row.currentVersionId);
     if (manualChunkCount > 0 && !body.confirmOverwriteManualChunks) {

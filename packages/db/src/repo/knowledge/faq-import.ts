@@ -17,7 +17,12 @@ import {
 } from '../../schema.js';
 import { createJob } from './jobs.js';
 import type { KnowledgeDocumentRow } from './shared.js';
-import { type CreateVersionInput, createVersion } from './versions.js';
+import {
+  type CreateVersionInput,
+  createVersion,
+  latestUnpublishedDraft,
+  supersedeDraftVersionsTx,
+} from './versions.js';
 
 const FAQ_IMPORT_MAX_ITEMS = 500;
 
@@ -365,6 +370,10 @@ export async function publishFaqImport(
       if (latestBatchDraft?.id !== version.id) {
         throw new AppError('CONFLICT_STALE', 'FAQ 批次存在更新的草稿，请刷新后重试');
       }
+      const latestDraft = await latestUnpublishedDraft(tx, document);
+      if (latestDraft?.id !== version.id) {
+        throw new AppError('CONFLICT_STALE', 'FAQ 草稿已被更新的草稿取代，请刷新后重试');
+      }
       metadataByDocument.set(item.documentId, metadata);
     }
 
@@ -425,6 +434,9 @@ export async function publishFaqImport(
           sql`${knowledgeDocumentVersions.metadata} ->> 'publication' = 'draft'`,
         ),
       );
+    for (const item of input.items) {
+      await supersedeDraftVersionsTx(tx, item.documentId, item.versionId);
+    }
     const published: KnowledgeDocumentRow[] = [];
     for (const item of input.items) {
       const metadata = metadataByDocument.get(item.documentId);
