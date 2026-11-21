@@ -1,7 +1,10 @@
 import { createReadStream } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { lstat, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+
+const FORK_TRANSCRIPT_MAX_BYTES = 64 * 1024 * 1024;
+const FORK_TRANSCRIPT_MAX_ENTRIES = 100_000;
 
 export async function readForkUuidMap(
   sessionsRoot: string,
@@ -10,6 +13,10 @@ export async function readForkUuidMap(
 ): Promise<Array<{ from: string; to: string }>> {
   const file = await findSessionFile(sessionsRoot, newSessionId);
   if (file === null) return [];
+  const info = await lstat(file).catch(() => null);
+  if (info === null || info.isSymbolicLink() || !info.isFile() || info.nlink !== 1)
+    throw new Error('fork 转写文件不是普通文件');
+  if (info.size > FORK_TRANSCRIPT_MAX_BYTES) throw new Error('fork 转写文件超过上限');
   const map: Array<{ from: string; to: string }> = [];
   const rl = createInterface({ input: createReadStream(file), crlfDelay: Infinity });
   try {
@@ -28,6 +35,7 @@ export async function readForkUuidMap(
       const from = (forkedFrom as { messageUuid?: unknown }).messageUuid;
       if (typeof from === 'string' && wanted.has(from) && from !== uuid)
         map.push({ from, to: uuid });
+      if (map.length > FORK_TRANSCRIPT_MAX_ENTRIES) throw new Error('fork 转写映射条数超过上限');
     }
   } finally {
     rl.close();

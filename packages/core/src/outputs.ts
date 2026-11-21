@@ -22,6 +22,11 @@ const RUNS = 'runs';
 const FILES = 'files';
 const MANIFEST = 'manifest.json';
 
+const CAPTURE_MAX_FILES = 2_000;
+const CAPTURE_MAX_FILE_BYTES = 32 * 1024 * 1024;
+const CAPTURE_MAX_TOTAL_BYTES = 256 * 1024 * 1024;
+const CAPTURE_MAX_DEPTH = 16;
+
 const mediaTypes = new Map<string, string>([
   ['md', 'text/markdown'],
   ['markdown', 'text/markdown'],
@@ -215,6 +220,7 @@ async function readRegularFile(
   identity: ConversationIdentity,
   full: string,
   path: string,
+  maxBytes?: number,
 ): Promise<Buffer> {
   await trustedPath(identity, relative(resolve(identity.root), full).split(sep), path);
   const info = await lstat(full).catch((error: unknown) => {
@@ -225,14 +231,24 @@ async function readRegularFile(
     fail('INVALID_INPUT', '产出文件不是普通文件', { path: `/${path}` });
   }
   if (info.nlink !== 1) fail('INVALID_INPUT', '产出文件不允许硬链接', { path: `/${path}` });
+  if (maxBytes !== undefined && info.size > maxBytes)
+    fail('INVALID_INPUT', '产出文件超过单文件上限', { path: `/${path}` });
   return readFile(full);
+}
+
+interface CaptureBudget {
+  files: number;
+  bytes: number;
 }
 
 async function draftEntries(
   identity: ConversationIdentity,
   dir: string,
+  budget: CaptureBudget,
   prefix = '',
+  depth = 0,
 ): Promise<Array<{ path: string; data: Buffer }>> {
+  if (depth > CAPTURE_MAX_DEPTH) fail('INVALID_INPUT', '产出目录层级过深', { path: `/${prefix}` });
   await trustedPath(identity, relative(resolve(identity.root), dir).split(sep), 'draft');
   const entries = await readdir(dir, { withFileTypes: true });
   const files: Array<{ path: string; data: Buffer }> = [];
@@ -240,11 +256,18 @@ async function draftEntries(
     const path = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await draftEntries(identity, full, path)));
+      files.push(...(await draftEntries(identity, full, budget, path, depth + 1)));
       continue;
     }
     const safe = safePath(path);
-    files.push({ path: safe, data: await readRegularFile(identity, full, safe) });
+    budget.files += 1;
+    if (budget.files > CAPTURE_MAX_FILES)
+      fail('INVALID_INPUT', '产出文件数超过上限', { path: `/${safe}` });
+    const data = await readRegularFile(identity, full, safe, CAPTURE_MAX_FILE_BYTES);
+    budget.bytes += data.length;
+    if (budget.bytes > CAPTURE_MAX_TOTAL_BYTES)
+      fail('INVALID_INPUT', '产出总字节超过上限', { path: `/${safe}` });
+    files.push({ path: safe, data });
   }
   return files.sort((a, b) => compareText(a.path, b.path));
 }
@@ -425,7 +448,7 @@ export async function captureOutputDraft(input: {
     fail('INVALID_INPUT', '产出挂载目录非法', { path: '/sourceDir' });
   }
 
-  const files = await draftEntries(input, sourceDir);
+  const files = await draftEntries(input, sourceDir, { files: 0, bytes: 0 });
 
   const staging = join(conversationRoot, DRAFTS, `.tmp-${runId}-${randomUUID()}`);
   await mkdir(staging, { recursive: true });
@@ -517,7 +540,7 @@ export async function publishOutputSnapshot(input: PublishOutputSnapshotInput): 
     .toString('utf8')
     .trim();
   const base = baseRunId === '' ? null : await loadManifest(input, baseRunId);
-  const files = await draftEntries(input, draftDir);
+  const files = await draftEntries(input, draftDir, { files: 0, bytes: 0 });
   if (files.length === 0 && (base === null || base.files.length === 0)) {
     await discardDraft(conversationRoot, runId);
     return;

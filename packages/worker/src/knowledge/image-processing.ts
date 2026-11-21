@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   errorText,
   KNOWLEDGE_IMAGE_MAX_BYTES,
+  KNOWLEDGE_IMAGE_MAX_PIXELS,
   type KnowledgeImageProcessing,
 } from '@agentport/shared';
 import {
@@ -37,9 +38,16 @@ export async function assertUsableImage(input: {
   if (input.data.length > KNOWLEDGE_IMAGE_MAX_BYTES) {
     throw new Error('图片超过 5MiB，不能供视觉模型直接读取');
   }
+  const meta = await sharp(input.data).metadata();
+  const frames = meta.pages ?? 1;
+  const frameHeight = meta.pageHeight ?? meta.height ?? 0;
+  const totalPixels = (meta.width ?? 0) * frameHeight * frames;
+  if (totalPixels === 0 || totalPixels > KNOWLEDGE_IMAGE_MAX_PIXELS) {
+    throw new Error('图片像素超过上限，不能供视觉模型直接读取');
+  }
   try {
     // raw() 才会真正解码像素；metadata() 只读文件头，截断图能蒙混过关。
-    await sharp(input.data, { limitInputPixels: 268402689 }).raw().toBuffer();
+    await sharp(input.data, { limitInputPixels: KNOWLEDGE_IMAGE_MAX_PIXELS }).raw().toBuffer();
   } catch (err) {
     const message = errorText(err);
     throw new Error(`图片无法解码：${message}`);
