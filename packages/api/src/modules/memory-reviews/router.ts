@@ -1,5 +1,5 @@
 import { memoryReviewsContract } from '@agentport/contract/memory-reviews';
-import { fail, isAppError, notFound, sha256Hex } from '@agentport/core';
+import { fail, isAppError, notFound, selectReviewWindow, sha256Hex } from '@agentport/core';
 import { type Database, idSuffix, repo } from '@agentport/db';
 import {
   DEFAULT_MEMORY_POLICY,
@@ -69,22 +69,15 @@ async function messagesInSource(
     role: row.role,
     text: repo.chat.messageText(row.content) ?? '',
   }));
-  let from = 0;
-  let through = messages.length;
-  if (source.fromMessageId !== undefined) {
-    const index = messages.findIndex((message) => message.id === source.fromMessageId);
-    if (index < 0) fail('INVALID_INPUT', '审核起点消息不在会话中');
-    from = index;
+  const window = selectReviewWindow(messages, source);
+  if (window.kind === 'missing') {
+    fail(
+      'INVALID_INPUT',
+      window.anchor === 'from' ? '审核起点消息不在会话中' : '审核终点消息不在会话中',
+    );
   }
-  if (source.throughMessageId !== undefined) {
-    const index = messages.findIndex((message) => message.id === source.throughMessageId);
-    if (index < 0) fail('INVALID_INPUT', '审核终点消息不在会话中');
-    through = index + 1;
-  }
-  if (from > through) fail('INVALID_INPUT', '审核起止消息顺序颠倒');
-  return messages
-    .slice(from, through)
-    .filter((message) => (message.role === 'user' || message.role === 'assistant') && message.text);
+  if (window.from > window.through) fail('INVALID_INPUT', '审核起止消息顺序颠倒');
+  return window.messages;
 }
 
 async function sourceSummaries(
