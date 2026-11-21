@@ -86,7 +86,7 @@ function detail(status: EvalRun['status'], results: EvalResult[]): EvalRunDetail
 }
 
 async function mount() {
-  vi.spyOn(api, 'evalCases').mockResolvedValue([testCase]);
+  vi.spyOn(api, 'evalCases').mockResolvedValue({ items: [testCase], nextCursor: null });
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnMount: false } },
   });

@@ -1,6 +1,8 @@
 import {
   cronSchema,
   cursorPageSchema,
+  ERROR_META,
+  type ErrorCode,
   httpUrlSchema,
   idParams,
   knowledgeBaseInputSchema,
@@ -44,7 +46,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
-import { contractErrors, problemSchema } from './errors.js';
+import { contractErrors, domainErrors, problemSchema } from './errors.js';
 
 const folderParams = z.object({ folderId: z.string().min(1) });
 const documentParams = z.object({ documentId: z.string().min(1) });
@@ -54,6 +56,7 @@ const jobParams = z.object({ jobId: z.string().min(1) });
 const profileParams = z.object({ profileId: z.string().min(1) });
 const sourceParams = z.object({ sourceId: z.string().min(1) });
 const wikiPageParams = z.object({ pageId: z.string().min(1) });
+const staleProcedure = contractProcedure.errors(domainErrors('CONFLICT_STALE'));
 
 /** 知识库活动流的一条审计记录；targetKind 由服务端按真实归属判定。 */
 export const knowledgeBaseActivityItemSchema = z.object({
@@ -577,15 +580,17 @@ export const knowledgeFaqBatchProblemSchema = problemSchema.extend({
   results: z.array(knowledgeFaqImportResultSchema).optional(),
 });
 
-const faqBatchErrors = Object.fromEntries(
-  Object.entries(contractErrors).map(([code, error]) => [
-    code,
-    { ...error, data: knowledgeFaqBatchProblemSchema },
-  ]),
-) as {
-  [Code in keyof typeof contractErrors]: Omit<(typeof contractErrors)[Code], 'data'> & {
-    data: typeof knowledgeFaqBatchProblemSchema;
-  };
+const faqBatchError = <const Code extends ErrorCode>(code: Code) => ({
+  status: ERROR_META[code].status,
+  data: knowledgeFaqBatchProblemSchema.extend({ code: z.literal(code) }),
+});
+
+const faqBatchErrors = {
+  ...(Object.fromEntries(
+    Object.keys(contractErrors).map((code) => [code, faqBatchError(code as ErrorCode)]),
+  ) as { [Code in keyof typeof contractErrors]: ReturnType<typeof faqBatchError> }),
+  CONFLICT: faqBatchError('CONFLICT'),
+  CONFLICT_STALE: faqBatchError('CONFLICT_STALE'),
 };
 
 const jobAcceptedSchema = z.object({ jobId: z.string() });
@@ -619,6 +624,7 @@ const basesContract = {
     .input(z.object({ query: pageQuerySchema }))
     .output(cursorPageSchema(knowledgeBaseSchema)),
   create: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/bases', successStatus: 201 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.create' } })
     .input(z.object({ body: knowledgeBaseCreateSchema }))
@@ -671,6 +677,7 @@ const basesContract = {
       }),
     ),
   update: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PATCH', path: '/knowledge/bases/{id}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.update' } })
     .input(z.object({ params: idParams, body: knowledgeBasePatchSchema }))
@@ -681,6 +688,7 @@ const basesContract = {
     .input(z.object({ params: idParams }))
     .output(z.void()),
   duplicate: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/bases/{id}/duplicate', successStatus: 201 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.create' } })
     .input(
@@ -700,6 +708,7 @@ const basesContract = {
     .input(z.object({ params: idParams }))
     .output(z.array(knowledgeFolderSchema)),
   createFolder: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/bases/{id}/folders', successStatus: 201 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(z.object({ params: idParams, body: folderCreateSchema }))
@@ -732,11 +741,13 @@ const basesContract = {
     )
     .output(cursorPageSchema(knowledgeImageAssetSchema)),
   upload: contractProcedure
+    .errors(domainErrors('BUDGET_EXCEEDED', 'CONFLICT'))
     .route({ method: 'PUT', path: '/knowledge/bases/{id}/documents/upload', successStatus: 202 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(z.object({ params: idParams, body: uploadSchema }))
     .output(documentJobAcceptedSchema),
   createManual: contractProcedure
+    .errors(domainErrors('BUDGET_EXCEEDED', 'CONFLICT'))
     .route({
       method: 'POST',
       path: '/knowledge/bases/{id}/documents/manual',
@@ -746,16 +757,19 @@ const basesContract = {
     .input(z.object({ params: idParams, body: manualCreateSchema }))
     .output(documentJobAcceptedSchema),
   createUrl: contractProcedure
+    .errors(domainErrors('INVALID_URL', 'BUDGET_EXCEEDED', 'CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/bases/{id}/documents/url', successStatus: 202 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(z.object({ params: idParams, body: urlSchema }))
     .output(documentJobAcceptedSchema),
   search: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'GET', path: '/knowledge/bases/{id}/search' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.execute' } })
     .input(z.object({ params: idParams, query: searchQuerySchema }))
     .output(knowledgeSearchResultSchema),
   rebuild: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/bases/{id}/rebuild', successStatus: 202 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.execute' } })
     .input(z.object({ params: idParams, body: rebuildSchema }))
@@ -771,6 +785,7 @@ const basesContract = {
     .input(z.object({ params: idParams, query: pageQuerySchema }))
     .output(cursorPageSchema(knowledgeSourceSchema)),
   createSource: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/bases/{id}/sources', successStatus: 201 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } })
     .input(z.object({ params: idParams, body: knowledgeSourceInputSchema }))
@@ -802,6 +817,7 @@ const basesContract = {
       ),
     ),
   createFaq: contractProcedure
+    .errors(domainErrors('BUDGET_EXCEEDED', 'CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/bases/{id}/faqs', successStatus: 202 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(z.object({ params: idParams, body: faqCreateSchema }))
@@ -822,6 +838,7 @@ const basesContract = {
       }),
     ),
   importFaqs: contractProcedure
+    .errors(domainErrors('BUDGET_EXCEEDED', 'CONFLICT', 'CONFLICT_STALE'))
     .route({
       method: 'POST',
       path: '/knowledge/bases/{id}/faqs/import',
@@ -836,11 +853,13 @@ const basesContract = {
       ]),
     ),
   testFaqs: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/bases/{id}/faqs/test' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.execute' } })
     .input(z.object({ params: idParams, body: faqTestSchema }))
     .output(knowledgeSearchResultSchema),
   evaluate: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/bases/{id}/retrieval-evaluations' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.execute' } })
     .input(z.object({ params: idParams, body: evaluationBodySchema }))
@@ -854,6 +873,7 @@ const foldersContract = {
     .input(z.object({ params: folderParams }))
     .output(z.void()),
   update: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PATCH', path: '/knowledge/folders/{folderId}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(z.object({ params: folderParams, body: folderPatchSchema }))
@@ -862,6 +882,7 @@ const foldersContract = {
 
 const tagsContract = {
   update: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PATCH', path: '/knowledge/tags/{tagId}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(
@@ -885,6 +906,7 @@ const documentsContract = {
     .input(z.object({ params: documentParams }))
     .output(knowledgeDocumentSchema),
   update: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PATCH', path: '/knowledge/documents/{documentId}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(z.object({ params: documentParams, body: documentPatchSchema }))
@@ -895,6 +917,7 @@ const documentsContract = {
     .input(z.object({ params: documentParams }))
     .output(z.object({ wikiPagesMarkedStale: z.number().int() })),
   reprocess: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({
       method: 'POST',
       path: '/knowledge/documents/{documentId}/reprocess',
@@ -904,6 +927,7 @@ const documentsContract = {
     .input(z.object({ params: documentParams, body: reprocessSchema }))
     .output(jobAcceptedSchema),
   summary: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({
       method: 'POST',
       path: '/knowledge/documents/{documentId}/summary',
@@ -913,6 +937,7 @@ const documentsContract = {
     .input(z.object({ params: documentParams }))
     .output(jobAcceptedSchema),
   tagsGenerate: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({
       method: 'POST',
       path: '/knowledge/documents/{documentId}/tags/generate',
@@ -932,6 +957,7 @@ const documentsContract = {
     )
     .output(cursorPageSchema(knowledgeChunkSchema)),
   createChunk: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .route({
       method: 'POST',
       path: '/knowledge/documents/{documentId}/chunks',
@@ -958,11 +984,13 @@ const documentsContract = {
       }),
     ),
   rollback: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .route({ method: 'POST', path: '/knowledge/documents/{documentId}/rollback' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.publish' } })
     .input(z.object({ params: documentParams, body: rollbackSchema }))
     .output(knowledgeDocumentSchema),
   manual: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'GET', path: '/knowledge/documents/{documentId}/manual' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })
     .input(z.object({ params: documentParams }))
@@ -974,7 +1002,7 @@ const documentsContract = {
         pendingJobId: z.string().nullable(),
       }),
     ),
-  saveManual: contractProcedure
+  saveManual: staleProcedure
     .route({
       method: 'PUT',
       path: '/knowledge/documents/{documentId}/manual',
@@ -984,6 +1012,7 @@ const documentsContract = {
     .input(z.object({ params: documentParams, body: manualDraftSchema }))
     .output(documentJobAcceptedSchema),
   publish: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .route({ method: 'POST', path: '/knowledge/documents/{documentId}/publish' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.publish' } })
     .input(z.object({ params: documentParams, body: documentPublishSchema }))
@@ -992,11 +1021,13 @@ const documentsContract = {
 
 const chunksContract = {
   update: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .route({ method: 'PATCH', path: '/knowledge/chunks/{chunkId}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(z.object({ params: chunkParams, body: chunkPatchSchema }))
     .output(chunkMutationResultSchema),
   remove: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .route({ method: 'DELETE', path: '/knowledge/chunks/{chunkId}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(z.object({ params: chunkParams, body: chunkDeleteSchema }))
@@ -1013,6 +1044,7 @@ const versionsContract = {
 
 const sourcesContract = {
   update: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PATCH', path: '/knowledge/sources/{sourceId}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.sources.manage' } })
     .input(z.object({ params: sourceParams, body: sourcePatchSchema }))
@@ -1032,6 +1064,7 @@ const sourcesContract = {
     .input(z.object({ params: sourceParams }))
     .output(jobAcceptedSchema),
   sync: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/sources/{sourceId}/sync', successStatus: 202 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.execute' } })
     .input(z.object({ params: sourceParams }))
@@ -1064,7 +1097,7 @@ const wikiContract = {
         nextCursor: z.string().nullable(),
       }),
     ),
-  update: contractProcedure
+  update: staleProcedure
     .route({ method: 'PATCH', path: '/knowledge/wiki-pages/{pageId}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.publish' } })
     .input(z.object({ params: wikiPageParams, body: wikiPagePatchSchema }))
@@ -1094,11 +1127,13 @@ const wikiContract = {
     .input(z.object({ params: wikiPageParams, query: wikiDiffQuery }))
     .output(knowledgeWikiVersionDiffSchema),
   publish: contractProcedure
+    .errors(domainErrors('BUDGET_EXCEEDED', 'CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/wiki-pages/{pageId}/publish' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.publish' } })
     .input(z.object({ params: wikiPageParams, body: wikiVersionBodySchema }))
     .output(knowledgeWikiPageSchema),
   rollback: contractProcedure
+    .errors(domainErrors('BUDGET_EXCEEDED', 'CONFLICT'))
     .route({
       method: 'POST',
       path: '/knowledge/wiki-pages/{pageId}/rollback',
@@ -1128,11 +1163,13 @@ const faqsContract = {
       }),
     ),
   update: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .route({ method: 'PUT', path: '/knowledge/faqs/{documentId}', successStatus: 202 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.content.manage' } })
     .input(z.object({ params: documentParams, body: faqUpdateSchema }))
     .output(faqJobAcceptedSchema),
   publish: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .route({ method: 'POST', path: '/knowledge/faqs/{documentId}/publish' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.publish' } })
     .input(z.object({ params: documentParams, body: faqPublishSchema }))
@@ -1156,11 +1193,13 @@ const jobsContract = {
     .input(z.object({ params: jobParams }))
     .output(knowledgeJobSchema),
   retry: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/jobs/{jobId}/retry', successStatus: 202 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.execute' } })
     .input(z.object({ params: jobParams }))
     .output(jobAcceptedSchema),
   cancel: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/jobs/{jobId}/cancel' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.execute' } })
     .input(z.object({ params: jobParams }))
@@ -1169,6 +1208,7 @@ const jobsContract = {
 
 const modelProfilesContract = {
   remove: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'DELETE', path: '/knowledge/model-profiles/{profileId}', successStatus: 204 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.models.manage' } })
     .input(z.object({ params: profileParams }))
@@ -1184,16 +1224,19 @@ const modelProfilesContract = {
       ]),
     ),
   create: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/model-profiles', successStatus: 201 })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.models.manage' } })
     .input(z.object({ body: profileCreateSchema }))
     .output(knowledgeModelProfileSchema),
   update: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PATCH', path: '/knowledge/model-profiles/{profileId}' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.models.manage' } })
     .input(z.object({ params: profileParams, body: profilePatchSchema }))
     .output(knowledgeModelProfileSchema),
   test: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/knowledge/model-profiles/{profileId}/test' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.models.manage' } })
     .input(z.object({ params: profileParams }))

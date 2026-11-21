@@ -6,6 +6,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 const listQuerySchema = z.object({
   view: marketViewSchema.optional(),
@@ -18,6 +19,7 @@ export const marketContract = {
     .input(z.object({ query: listQuerySchema }))
     .output(z.array(marketSkillSchema)),
   install: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'market.install' } })
     .route({ method: 'POST', path: '/market/skills/install', successStatus: 201 })
     .input(z.object({ body: marketInstallInputSchema }))

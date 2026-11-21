@@ -203,14 +203,15 @@ test('publishes, trials, rolls back and takes an agent offline through real runs
       skillIds: [skillId],
     });
 
-    const patched = await apiJson<AgentDetail>(
+    const patched = await apiJson<{ kind: 'detail'; agent: AgentDetail }>(
       browser,
       'PATCH',
       `/api/agents/${agentId}`,
       { systemPrompt: `E2E-SYSTEM-ECHO:draft-${suffix}` },
       200,
     );
-    expect(patched.hasDraft).toBe(true);
+    expect(patched.kind).toBe('detail');
+    expect(patched.agent.hasDraft).toBe(true);
 
     await apiJson(browser, 'PUT', `/api/agents/${agentId}/rules/rule-draft`, {
       content: `rule-v1-${suffix}`,
@@ -298,16 +299,17 @@ test('publishes, trials, rolls back and takes an agent offline through real runs
     expect(live).toContain(`[SYSTEM:live-${suffix}]`);
     expect(live).not.toContain(`draft-${suffix}`);
 
-    const published = await apiJson<AgentDetail>(
+    const published = await apiJson<{ kind: 'detail'; agent: AgentDetail }>(
       browser,
       'POST',
       `/api/agents/${agentId}/publish`,
       { note: 'e2e publish' },
       200,
     );
-    expect(published.hasDraft).toBe(false);
-    expect(typeof published.publishedVersion).toBe('number');
-    const publishedVersion = published.publishedVersion;
+    expect(published.kind).toBe('detail');
+    expect(published.agent.hasDraft).toBe(false);
+    expect(typeof published.agent.publishedVersion).toBe('number');
+    const publishedVersion = published.agent.publishedVersion;
     if (typeof publishedVersion !== 'number') throw new Error('发布后缺少 publishedVersion');
     expect(publishedVersion).toBeGreaterThan(1);
 
@@ -567,14 +569,15 @@ test('publishes, trials, rolls back and takes an agent offline through real runs
     await publishDialog.getByRole('button', { name: '发布', exact: true }).tap();
     await expect(screen.getByText(/已发布 v\d+/).first()).toBeVisible({ timeout: 30_000 });
 
-    const offline = await apiJson<AgentDetail>(
+    const offline = await apiJson<{ kind: 'detail'; agent: AgentDetail }>(
       browser,
       'POST',
       `/api/agents/${agentId}/offline`,
       undefined,
       200,
     );
-    expect(offline.enabled).toBe(false);
+    expect(offline.kind).toBe('detail');
+    expect(offline.agent.enabled).toBe(false);
     const blocked = await browserFetch(browser, 'POST', '/api/chat', {
       agentId,
       message: `offline-${suffix}`,

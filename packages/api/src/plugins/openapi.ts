@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { ERROR_META, problemSchema } from '@agentport/shared';
-import type { AnyContractRouter } from '@orpc/contract';
+import type { AnyContractRouter, OpenAPI } from '@orpc/contract';
 import {
   OpenAPIGenerator,
   type OpenAPIGeneratorGenerateOptions,
@@ -29,6 +29,24 @@ const DOCS_CSP = [
   "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
   "connect-src 'self' https://cdn.jsdelivr.net",
 ].join('; ');
+
+const BODYLESS_RESPONSE_STATUSES = new Set(['204', '205', '304']);
+
+function omitBodylessResponseContent(document: OpenAPI.Document): OpenAPI.Document {
+  for (const pathItem of Object.values(document.paths ?? {})) {
+    for (const operation of Object.values(pathItem ?? {})) {
+      if (typeof operation !== 'object' || operation === null || !('responses' in operation)) {
+        continue;
+      }
+      for (const [status, response] of Object.entries(operation.responses ?? {})) {
+        if (BODYLESS_RESPONSE_STATUSES.has(status) && typeof response === 'object' && response) {
+          delete (response as { content?: unknown }).content;
+        }
+      }
+    }
+  }
+  return document;
+}
 
 export function registerOpenApi(
   app: Hono<HttpEnv>,
@@ -93,6 +111,7 @@ export function registerOpenApi(
               ? errorSchema
               : { ...errorSchema, anyOf: errors.map(([, , , schema]) => schema) },
         })
+        .then(omitBodylessResponseContent)
         .catch((error) => {
           document = undefined;
           throw error;

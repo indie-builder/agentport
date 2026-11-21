@@ -1,4 +1,4 @@
-import type { Agent, AgentSummary, PermissionId } from '@agentport/shared';
+import type { AgentSummary, PermissionId } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
 import {
   Link,
@@ -427,6 +427,10 @@ export function AgentDetailPage() {
   );
 }
 
+type RestrictedAgentSummary = Pick<AgentSummary, 'description' | 'enabled' | 'parentId'> & {
+  updatedAt?: string | undefined;
+};
+
 function RestrictedAgentTabs({
   agentId,
   agent,
@@ -437,7 +441,7 @@ function RestrictedAgentTabs({
   settleNavigationRef,
 }: {
   agentId: string;
-  agent: Agent | AgentSummary;
+  agent: RestrictedAgentSummary;
   canViewRuns: boolean;
   permissions: readonly PermissionId[];
   onPendingChange: (pending: boolean) => void;

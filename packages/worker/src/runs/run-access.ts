@@ -244,12 +244,16 @@ export async function checkQueuedRunAccess(
         .select({
           businessId: schema.memoryReviews.businessId,
           modelAgentId: schema.memoryReviews.modelAgentId,
+          decision: schema.memoryReviews.decision,
         })
         .from(schema.memoryReviews)
         .where(eq(schema.memoryReviews.runId, run.runId))
         .limit(1);
       if (!review || review.businessId !== run.businessId || review.modelAgentId !== run.agentId) {
         return { reason: 'invalid_subject', message: QUEUED_SOURCE_MISMATCH };
+      }
+      if (review.decision !== 'pending') {
+        return { reason: 'permission_denied', message: '审核已拒绝，未执行' };
       }
       if (
         !objectPermissionAllows(

@@ -91,7 +91,8 @@ describe.skipIf(!ready || isolated === null)('approval hardening', () => {
       payload: {},
     });
     expect(res.statusCode, res.body).toBe(200);
-    const published = res.json<{ publishedVersion: number | null }>().publishedVersion;
+    const published = res.json<{ agent: { publishedVersion: number | null } }>().agent
+      .publishedVersion;
     if (published === null) throw new Error('publish did not set a version');
     return published;
   };

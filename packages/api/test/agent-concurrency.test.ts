@@ -133,7 +133,7 @@ describe.skipIf(!ready)('agent update concurrency', () => {
       const loser = a.statusCode === 200 ? b : a;
       expectProblem(loser, 'CONFLICT_STALE');
 
-      const winnerName = winner.json<Agent>().name;
+      const winnerName = winner.json<{ agent: Agent }>().agent.name;
       const final = await get(agent.id);
       expect(final.name).toBe(winnerName);
 
@@ -214,7 +214,7 @@ describe.skipIf(!ready)('agent update concurrency', () => {
     for (let i = 0; i < 5; i += 1) {
       const res = await patch(agent.id, { name: `Round ${i}`, expectedUpdatedAt: expected });
       expect(res.statusCode, res.body).toBe(200);
-      const next = res.json<Agent>().updatedAt;
+      const next = res.json<{ agent: Agent }>().agent.updatedAt;
       expect(Date.parse(next) - Date.parse(expected)).toBe(1);
       expected = next;
     }

@@ -15,6 +15,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 export const runsContract = {
   list: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'runs.read' } })
@@ -41,6 +42,7 @@ export const runsContract = {
     .input(z.object({ params: idParams }))
     .output(runFeedbackListSchema),
   submitFeedback: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'runs.feedback' } })
     .route({ method: 'POST', path: '/runs/{id}/feedback', successStatus: 201 })
     .input(z.object({ params: idParams, body: submitRunFeedbackSchema }))
@@ -67,6 +69,7 @@ export const runsContract = {
       }),
     ),
   approve: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'runs.approve' } })
     .route({ method: 'POST', path: '/runs/{id}/approve', successStatus: 200 })
     .input(
@@ -84,6 +87,7 @@ export const runsContract = {
       }),
     ),
   deny: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'runs.approve' } })
     .route({ method: 'POST', path: '/runs/{id}/deny', successStatus: 200 })
     .input(
@@ -101,6 +105,7 @@ export const runsContract = {
       }),
     ),
   skillDraft: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'skills.create' } })
     .route({ method: 'POST', path: '/runs/{id}/skill-draft', successStatus: 201 })
     .input(z.object({ params: idParams }))
@@ -111,6 +116,7 @@ export const runsContract = {
     .input(z.object({ params: idParams }))
     .output(z.object({ items: z.array(publicRunQuestionSchema) })),
   respondToQuestion: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'runs.questions.answer' } })
     .route({
       method: 'POST',

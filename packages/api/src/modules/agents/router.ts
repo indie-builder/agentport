@@ -571,7 +571,9 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
         status: 'ok',
         requestId: context.requestId,
       });
-      return canReadConfig ? agentDetail(context.db, row) : toSummary(row);
+      return canReadConfig
+        ? { kind: 'detail' as const, agent: await agentDetail(context.db, row) }
+        : { kind: 'summary' as const, agent: toSummary(row) };
     } catch (err) {
       rethrowConflict(err);
     }
@@ -599,7 +601,9 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       status: 'ok',
       requestId: context.requestId,
     });
-    return canReadConfig ? agentDetail(context.db, row) : toSummary(row);
+    return canReadConfig
+      ? { kind: 'detail' as const, agent: await agentDetail(context.db, row) }
+      : { kind: 'summary' as const, agent: toSummary(row) };
   }),
   offline: os.offline.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
@@ -616,7 +620,9 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       status: 'ok',
       requestId: context.requestId,
     });
-    return canReadConfig ? agentDetail(context.db, row) : toSummary(row);
+    return canReadConfig
+      ? { kind: 'detail' as const, agent: await agentDetail(context.db, row) }
+      : { kind: 'summary' as const, agent: toSummary(row) };
   }),
   trial: os.trial.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);
@@ -837,7 +843,9 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
         status: 'ok',
         requestId: context.requestId,
       });
-      return canReadConfig ? agentDetail(context.db, row) : toSummary(row);
+      return canReadConfig
+        ? { kind: 'detail' as const, agent: await agentDetail(context.db, row) }
+        : { kind: 'summary' as const, agent: toSummary(row) };
     }
     const snapshot = target.snapshot;
     await authorizeBoundResources(context, {
@@ -872,7 +880,9 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       current,
       target,
     );
-    return canReadConfig ? agentDetail(context.db, row) : toSummary(row);
+    return canReadConfig
+      ? { kind: 'detail' as const, agent: await agentDetail(context.db, row) }
+      : { kind: 'summary' as const, agent: toSummary(row) };
   }),
   memory: os.memory.handler(async ({ context, input: routeInput }) => {
     const row = await authorizedAgent(context, routeInput.params.id, 'agents.memory.read');
@@ -1230,7 +1240,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
     const agent = await authorizedAgent(context, routeInput.params.id, 'agents.hooks.write');
     const removed = await allRepo.agentVersions.retryOnVersionConflict(() =>
       context.db.transaction(async (tx) => {
-        const deleted = await allRepo.hooks.deleteHookFile(tx, agent.id, routeInput.body.path);
+        const deleted = await allRepo.hooks.deleteHookFile(tx, agent.id, routeInput.query.path);
         if (!deleted) return false;
         await allRepo.agentDefinitions.recordDraftVersionTx(tx, agent.id, null);
         return true;
@@ -1243,7 +1253,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       actor: principal.businessId,
       action: 'agent.hook.file.deleted',
       target: agent.id,
-      input: { path: routeInput.body.path },
+      input: { path: routeInput.query.path },
       status: 'ok',
       requestId: context.requestId,
     });
@@ -1295,7 +1305,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       status: 'ok',
       requestId: context.requestId,
     });
-    return { ok: true };
+    return undefined;
   }),
   transfer: os.transfer.handler(async ({ context, input: routeInput }) => {
     const principal = requireUser(context);

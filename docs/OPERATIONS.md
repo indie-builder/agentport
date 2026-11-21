@@ -584,7 +584,7 @@ docker ps --filter 'name=^(pace-session-|agentport-)'
 - **会话列表**：`/api/conversations` 的 `lastMessage` 只返回截断到 280 字的 `text`，不再回传整块 jsonb；`limit` 默认 50、上限 100（契约 `pageQuerySchema`）。
 - **概览页**：`/api/overview` 已含 servers/agents 计数，前端不再额外请求 `/api/servers`、`/api/agents`；`/api/overview` 返回 404 时才回退到列表接口。
 - **本机基线（迁移前 Node/Fastify 环境，历史数据）**（20 次 curl，改前 → 改后，p50/p95）：`/api/overview` 8.0/9.7 → 6.9/8.8 ms；`/api/runs` 3.1/4.9 → 3.1/4.0 ms；`/api/conversations` 3.4/5.3 → 3.0/5.1 ms（响应 8009 → 6820 B）。数据量很小时数据库耗时不占主导，收益主要来自索引在数据增长后避免全表扫描 + 排序。
-- **已分页**：`/api/agents`、`/api/skills` 与评估批次 `/api/eval/runs` 已使用游标分页（默认 50、上限 100）；评估用例 `/api/eval/cases` 仍按 agent/访问范围返回完整配置数组。MCP 端点每次请求重查 server + tools，属于配置即时生效的取舍，不在本次范围。
+- **已分页**：`/api/agents`、`/api/skills`、评估批次 `/api/eval/runs` 与评估用例 `/api/eval/cases` 已使用游标分页（默认 50、上限 100）。MCP 端点每次请求重查 server + tools，属于配置即时生效的取舍，不在本次范围。
 
 ## 8. 压力测试结果
 

@@ -13,7 +13,7 @@ import {
 } from '../schema.js';
 import { maintainedAgentScopeWhere } from './access.js';
 import { messageText } from './chat/messages.js';
-import { keysetPage } from './pagination.js';
+import { type CursorPage, keysetPage } from './pagination.js';
 
 export type EvalCase = typeof evalCases.$inferSelect;
 export type EvalRun = typeof evalRuns.$inferSelect;
@@ -58,19 +58,43 @@ export interface EvalCasePatch {
   forbiddenTools?: string[] | null | undefined;
 }
 
-export async function listCases(
-  db: Database,
-  access: AccessFilter,
-  agentId?: string,
-): Promise<EvalCase[]> {
+function caseFilters(access: AccessFilter, agentId?: string): SQL[] {
   const filters: SQL[] = [];
   const accessWhere = maintainedAgentScopeWhere(access, evalCases.agentId);
   if (accessWhere) filters.push(accessWhere);
   if (agentId !== undefined) filters.push(eq(evalCases.agentId, agentId));
+  return filters;
+}
+
+export async function listCases(
+  db: Database,
+  access: AccessFilter,
+  options: { agentId?: string | undefined; cursor?: string | undefined; limit: number },
+): Promise<CursorPage<EvalCase> | null> {
+  return keysetPage(db, {
+    table: evalCases,
+    cursor: options.cursor,
+    limit: options.limit,
+    where: caseFilters(access, options.agentId),
+    load: ({ where, limit }) =>
+      db
+        .select()
+        .from(evalCases)
+        .where(where)
+        .orderBy(desc(evalCases.createdAt), desc(evalCases.id))
+        .limit(limit),
+  });
+}
+
+export async function listAllCases(
+  db: Database,
+  access: AccessFilter,
+  agentId?: string,
+): Promise<EvalCase[]> {
   return db
     .select()
     .from(evalCases)
-    .where(and(...filters))
+    .where(and(...caseFilters(access, agentId)))
     .orderBy(desc(evalCases.createdAt), desc(evalCases.id));
 }
 

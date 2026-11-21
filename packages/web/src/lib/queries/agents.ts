@@ -294,16 +294,12 @@ export function useAgentVersion(agentId: string, version: number, enabled: boole
   });
 }
 
-export function isAgentDetail(agent: Agent | AgentSummary): agent is Agent {
-  return 'systemPrompt' in agent;
-}
-
 export function useRollbackAgent() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; version: number }) => api.rollbackAgent(vars.id, vars.version),
-    onSuccess: (agent, { id }) => {
-      if (isAgentDetail(agent)) client.setQueryData(['agent-detail', id], agent);
+    onSuccess: (result, { id }) => {
+      if (result.kind === 'detail') client.setQueryData(['agent-detail', id], result.agent);
       void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: ['agent-versions', id] });
       void client.invalidateQueries({ queryKey: ['agent-files'] });
@@ -317,11 +313,12 @@ export function usePublishAgent() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; note?: string }) => api.publishAgent(vars.id, vars.note),
-    onSuccess: (agent) => {
-      if (isAgentDetail(agent)) client.setQueryData(['agent-detail', agent.id], agent);
+    onSuccess: (result) => {
+      if (result.kind === 'detail')
+        client.setQueryData(['agent-detail', result.agent.id], result.agent);
       void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
-      void client.invalidateQueries({ queryKey: ['agent-detail', agent.id] });
-      void client.invalidateQueries({ queryKey: ['agent-versions', agent.id] });
+      void client.invalidateQueries({ queryKey: ['agent-detail', result.agent.id] });
+      void client.invalidateQueries({ queryKey: ['agent-versions', result.agent.id] });
     },
   });
 }
@@ -330,11 +327,12 @@ export function useOfflineAgent() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.offlineAgent(id),
-    onSuccess: (agent) => {
-      if (isAgentDetail(agent)) client.setQueryData(['agent-detail', agent.id], agent);
+    onSuccess: (result) => {
+      if (result.kind === 'detail')
+        client.setQueryData(['agent-detail', result.agent.id], result.agent);
       void client.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
-      void client.invalidateQueries({ queryKey: ['agent-detail', agent.id] });
-      void client.invalidateQueries({ queryKey: ['agent-versions', agent.id] });
+      void client.invalidateQueries({ queryKey: ['agent-detail', result.agent.id] });
+      void client.invalidateQueries({ queryKey: ['agent-versions', result.agent.id] });
     },
   });
 }

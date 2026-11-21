@@ -1426,7 +1426,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       payload: { version: 1 },
     });
     expect(back.statusCode, back.body).toBe(200);
-    expect(back.json<Agent>().uiFormat).toBe('markdown');
+    expect(back.json<{ agent: Agent }>().agent.uiFormat).toBe('markdown');
 
     const again = await request(app, {
       method: 'PATCH',
@@ -1454,7 +1454,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       payload: { version: 2 },
     });
     expect(restored.statusCode, restored.body).toBe(200);
-    expect(restored.json<Agent>().uiFormat).toBe('openui');
+    expect(restored.json<{ agent: Agent }>().agent.uiFormat).toBe('openui');
     expect((await exportFiles(agent.id)).get('CLAUDE.md')).toContain('## 生成式 UI');
   });
 

@@ -15,6 +15,9 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
+
+const serversProcedure = contractProcedure.errors(domainErrors('AGENT_DISABLED'));
 
 const toolParams = idParams.extend({ toolId: z.string().min(1) });
 const serverPatchSchema = z.object({
@@ -54,10 +57,10 @@ const importedServerSummarySchema = z.object({
   kind: z.enum(['stdio', 'http', 'generated']),
   secretKeys: z.array(z.string()),
 });
-const readServers = contractProcedure.meta({
+const readServers = serversProcedure.meta({
   access: { kind: 'permission', permissionId: 'servers.read' },
 });
-const manageTools = contractProcedure.meta({
+const manageTools = serversProcedure.meta({
   access: { kind: 'permission', permissionId: 'servers.tools.manage' },
 });
 
@@ -69,12 +72,14 @@ export const serversContract = {
   catalog: readServers
     .route({ method: 'GET', path: '/connector-catalog' })
     .output(connectorCatalogSchema),
-  create: contractProcedure
+  create: serversProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'servers.create' } })
     .route({ method: 'POST', path: '/servers', successStatus: 201 })
     .input(z.object({ body: serverInputSchema }))
     .output(serverSchema),
-  importFile: contractProcedure
+  importFile: serversProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'servers.import' } })
     .route({ method: 'POST', path: '/servers/import-file', successStatus: 201 })
     .input(z.object({ body: z.object({ mcpJson: z.string().max(1_048_576) }) }))
@@ -85,27 +90,28 @@ export const serversContract = {
     .route({ method: 'GET', path: '/servers/{id}' })
     .input(z.object({ params: idParams }))
     .output(serverSchema),
-  token: contractProcedure
+  token: serversProcedure
     .meta({ access: { kind: 'permission', permissionId: 'servers.tokens.read' } })
     .route({ method: 'GET', path: '/servers/{id}/token' })
     .input(z.object({ params: idParams }))
     .output(z.object({ maskedToken: z.string(), endpoint: z.string() })),
-  rotateToken: contractProcedure
+  rotateToken: serversProcedure
     .meta({ access: { kind: 'permission', permissionId: 'servers.tokens.rotate' } })
     .route({ method: 'POST', path: '/servers/{id}/rotate-token' })
     .input(z.object({ params: idParams }))
     .output(z.object({ token: z.string(), endpoint: z.string() })),
-  update: contractProcedure
+  update: serversProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .meta({ access: { kind: 'permission', permissionId: 'servers.update' } })
     .route({ method: 'PATCH', path: '/servers/{id}' })
     .input(z.object({ params: idParams, body: serverPatchSchema }))
     .output(serverSchema),
-  delete: contractProcedure
+  delete: serversProcedure
     .meta({ access: { kind: 'permission', permissionId: 'servers.delete' } })
     .route({ method: 'DELETE', path: '/servers/{id}', successStatus: 204 })
     .input(z.object({ params: idParams }))
     .output(z.void()),
-  impact: contractProcedure
+  impact: serversProcedure
     .meta({ access: { kind: 'permission', permissionId: 'servers.delete' } })
     .route({ method: 'GET', path: '/servers/{id}/impact' })
     .input(z.object({ params: idParams }))
@@ -116,7 +122,7 @@ export const serversContract = {
         toolCount: z.number().int().nonnegative(),
       }),
     ),
-  test: contractProcedure
+  test: serversProcedure
     .meta({ access: { kind: 'permission', permissionId: 'servers.test' }, rateLimit: 20 })
     .route({ method: 'POST', path: '/servers/{id}/test' })
     .input(z.object({ params: idParams, body: serverTestBodySchema }))
@@ -127,6 +133,7 @@ export const serversContract = {
       .input(z.object({ params: idParams }))
       .output(z.array(apiToolSchema)),
     create: manageTools
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'POST', path: '/servers/{id}/tools', successStatus: 201 })
       .input(z.object({ params: idParams, body: apiToolInputSchema }))
       .output(apiToolSchema),
@@ -143,6 +150,7 @@ export const serversContract = {
         }),
       ),
     importOpenApi: manageTools
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'POST', path: '/servers/{id}/tools/import-openapi', successStatus: 201 })
       .input(
         z.object({
@@ -185,6 +193,7 @@ export const serversContract = {
         }),
       ),
     update: manageTools
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'PATCH', path: '/servers/{id}/tools/{toolId}' })
       .input(z.object({ params: toolParams, body: toolPatchSchema }))
       .output(apiToolSchema),

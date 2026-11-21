@@ -106,7 +106,7 @@ describe.skipIf(!ready)('agent plugin bindings', () => {
       payload: { pluginBindings: [] },
     });
     expect(unbound.statusCode, unbound.body).toBe(200);
-    expect(unbound.json<Agent>().pluginBindings).toEqual([]);
+    expect(unbound.json<{ agent: Agent }>().agent.pluginBindings).toEqual([]);
     const latestVersion = (
       await request(app, {
         method: 'GET',

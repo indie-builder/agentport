@@ -21,6 +21,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 export const loginBodySchema = z.object({
   username: z
@@ -81,6 +82,7 @@ export const authContract = {
     .route({ method: 'GET', path: '/me/sessions' })
     .output(personalSessionListSchema),
   revokeSession: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'DELETE', path: '/me/sessions/{id}', successStatus: 204 })
     .input(z.object({ params: sessionParams }))
@@ -91,10 +93,12 @@ export const authContract = {
       .input(z.object({ query: listQuerySchema }))
       .output(offsetPageSchema(accountSchema)),
     create: manageAccounts
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'POST', path: '/accounts', successStatus: 201 })
       .input(z.object({ body: accountCreateSchema }))
       .output(accountSchema),
     status: manageAccounts
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'PATCH', path: '/accounts/{businessId}/status' })
       .input(
         z.object({
@@ -104,6 +108,7 @@ export const authContract = {
       )
       .output(accountSchema),
     update: manageAccounts
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'PATCH', path: '/accounts/{businessId}' })
       .input(z.object({ params: accountParams, body: accountUpdateSchema }))
       .output(accountSchema),
@@ -112,10 +117,12 @@ export const authContract = {
       .input(z.object({ params: accountParams, body: accountPasswordSchema }))
       .output(okSchema),
     delete: manageAccounts
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'DELETE', path: '/accounts/{businessId}' })
       .input(z.object({ params: accountParams }))
       .output(okSchema),
     roles: manageRoles
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'PUT', path: '/accounts/{businessId}/roles' })
       .input(z.object({ params: accountParams, body: accountRolesSchema }))
       .output(okSchema),
@@ -123,6 +130,7 @@ export const authContract = {
   roles: {
     list: readRoles.route({ method: 'GET', path: '/roles' }).output(roleMatrixSchema),
     replace: manageRoles
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'PUT', path: '/roles' })
       .input(z.object({ body: roleMatrixInputSchema }))
       .output(roleMatrixSchema),

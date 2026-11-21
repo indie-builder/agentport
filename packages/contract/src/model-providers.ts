@@ -8,11 +8,14 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
-const read = contractProcedure.meta({
+const modelProvidersProcedure = contractProcedure.errors(domainErrors('INVALID_URL'));
+
+const read = modelProvidersProcedure.meta({
   access: { kind: 'permission', permissionId: 'models.read' },
 });
-const manage = contractProcedure.meta({
+const manage = modelProvidersProcedure.meta({
   access: { kind: 'permission', permissionId: 'models.manage' },
 });
 
@@ -32,6 +35,7 @@ export const modelProvidersContract = {
     .input(z.object({ params: idParams, body: modelProviderUpdateSchema }))
     .output(modelProviderSchema),
   remove: manage
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'DELETE', path: '/model-providers/{id}', successStatus: 204 })
     .input(z.object({ params: idParams }))
     .output(z.void()),

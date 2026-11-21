@@ -20,6 +20,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 const read = contractProcedure.meta({
   access: { kind: 'permission', permissionId: 'security.read' },
@@ -71,6 +72,7 @@ export const securityContract = {
       .input(z.object({ query: approvalListQuery }))
       .output(cursorPageSchema(policyApprovalSchema)),
     decide: manage
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'POST', path: '/security/approvals/{id}/decision' })
       .input(z.object({ params: idParams, body: policyApprovalDecisionSchema }))
       .output(policyApprovalSchema),

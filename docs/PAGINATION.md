@@ -133,6 +133,7 @@ requireCursorPage(page)    // page 为 null 时调用 invalidCursor()
 | `GET /api/me/output-shares` | 50 / 100 | 本人未撤销分享 |
 | `GET /api/notifications` | 30 / 100 | 另返回 `unreadCount` |
 | `GET /api/eval/runs` | 50 / 100 | 评估批次 |
+| `GET /api/eval/cases` | 50 / 100 | 评估用例；按 `(createdAt, id)` 倒序，支持 `agentId` 过滤 |
 | `GET /api/servers`、`GET /api/skills`、`GET /api/plugins`、`GET /api/runtime-environments` | 50 / 100 | 配置列表 |
 | `GET /api/security/events`、`/approvals`、`/violations` | 50 / 100 | 安全事件与审批 |
 | `GET /api/governance/departments`、`/budgets`、`/resources`、`/identities` | 50 / 200 | 管理列表 |
@@ -171,7 +172,6 @@ requireCursorPage(page)    // page 为 null 时调用 invalidCursor()
 | `GET /api/channels/{id}/approvals` | 待处理项 | 只返回活跃 run 中未决、未过期的审批 |
 | `GET /api/channels/{id}/runs?status=active` | 活跃项 | 只返回 `ACTIVE_RUN_STATUSES` |
 | `GET /api/conversations/{id}/output-shares` | 单成果范围 | 按 `(conversationId, runId, path)` 返回，无硬上限 |
-| `GET /api/eval/cases` | 单专家/访问范围 | 按 agent 与访问范围返回完整配置，无硬上限 |
 | `GET /api/market/skills` | 50 | 榜单最多 50 行；上游搜索请求 `limit=50` |
 | `GET /api/search` | 每类 20，默认 5 | 命令面板 top-K；每类独立截断 |
 | `GET /api/me/outputs` | 1..100，默认 50 | `truncated` 只表示 `limit` 或单会话 100 文件上限发生截断；只扫描最近 50 个会话，更早会话被排除且不标记 |

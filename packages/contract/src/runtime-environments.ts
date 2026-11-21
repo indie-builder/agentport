@@ -11,6 +11,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 const versionParams = z.object({
   id: z.string().min(1),
@@ -24,6 +25,7 @@ export const runtimeEnvironmentsContract = {
     .output(cursorPageSchema(runtimeEnvironmentSchema))
     .meta({ access: { kind: 'permission', permissionId: 'runtime_environments.read' } }),
   create: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/runtime-environments', successStatus: 201 })
     .input(z.object({ body: runtimeEnvironmentInputSchema }))
     .output(runtimeEnvironmentSchema)
@@ -34,11 +36,13 @@ export const runtimeEnvironmentsContract = {
     .output(runtimeEnvironmentSchema)
     .meta({ access: { kind: 'permission', permissionId: 'runtime_environments.read' } }),
   update: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PATCH', path: '/runtime-environments/{id}' })
     .input(z.object({ params: idParams, body: runtimeEnvironmentPatchSchema }))
     .output(runtimeEnvironmentSchema)
     .meta({ access: { kind: 'permission', permissionId: 'runtime_environments.update' } }),
   remove: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'DELETE', path: '/runtime-environments/{id}', successStatus: 204 })
     .input(z.object({ params: idParams }))
     .output(z.void())
@@ -59,6 +63,7 @@ export const runtimeEnvironmentsContract = {
     .output(runtimeEnvironmentVersionSchema)
     .meta({ access: { kind: 'permission', permissionId: 'runtime_environments.read' } }),
   publish: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'PUT', path: '/runtime-environments/{id}/online-version' })
     .input(z.object({ params: idParams, body: runtimeEnvironmentOnlineVersionInputSchema }))
     .output(runtimeEnvironmentSchema)

@@ -15,17 +15,14 @@ import {
   memoryReviewHasChanges,
   memoryReviewProposalSchema,
   memoryReviewTargetSchema,
-  runEnqueueOptions,
   validateMemoryContent,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
-import { z } from 'zod';
 import { actorOf, authorizeObject, requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { isPgCode } from '../../http/errors.js';
 import { requireCursorPage } from '../../http/pagination.js';
 import { requireAgentSlug } from '../../lib/outputs.js';
-import { getQueue } from '../../queue/producer.js';
 import { listMemoryFiles } from '../agents/memory-files.js';
 import {
   assertNoPendingReviewWrite,
@@ -36,7 +33,7 @@ import {
   withMemoryTargetLock,
   writeMemoryTargetLocked,
 } from '../memory/changes.js';
-import { failQueuedRunEnqueue } from '../runs/enqueue.js';
+import { enqueueRunJob } from '../runs/enqueue.js';
 
 const os = implement(memoryReviewsContract).$context<RequestContext>();
 
@@ -276,6 +273,35 @@ async function authorizeReviewTarget(
   );
 }
 
+async function authorizeReviewInput(
+  context: RequestContext,
+  input: { scope: 'own' | undefined; sources: MemoryReviewSource[]; target: MemoryReviewTarget },
+): Promise<Array<{ source: MemoryReviewSource; conversation: repo.chat.Conversation }>> {
+  const businessId = requireUser(context).businessId;
+  const authorized: Array<{ source: MemoryReviewSource; conversation: repo.chat.Conversation }> =
+    [];
+  for (const source of input.sources) {
+    const conversation = await repo.chat.getConversation(context.db, source.conversationId);
+    if (!conversation) notFound('conversation');
+    if (input.scope === 'own' && conversation.createdBy !== businessId) {
+      fail('NOT_FOUND', '会话不存在，可能已被删除');
+    }
+    await authorizeObject(
+      context,
+      'conversations.read',
+      {
+        objectId: conversation.id,
+        createdBy: conversation.createdBy,
+        privateContent: true,
+      },
+      '会话不存在，可能已被删除',
+    );
+    authorized.push({ source, conversation });
+  }
+  await authorizeReviewTarget(context, input.target, 'personal_memory.review');
+  return authorized;
+}
+
 async function assertProposalAllowed(
   context: RequestContext,
   target: MemoryReviewTarget,
@@ -292,18 +318,103 @@ async function assertProposalAllowed(
   await assertTopicCapacity(context.db, context.config.WORKSPACES_DIR, slug, target.agentId);
 }
 
+const MEMORY_REVIEW_PROMPT = '记忆审核';
+
+async function enqueueReviewRun(
+  context: RequestContext,
+  run: { id: string; agentId: string; conversationId: string },
+): Promise<void> {
+  try {
+    await enqueueRunJob(
+      { db: context.db, log: context.log, requestId: context.requestId },
+      {
+        runId: run.id,
+        agentId: run.agentId,
+        conversationId: run.conversationId,
+        prompt: MEMORY_REVIEW_PROMPT,
+      },
+    );
+  } catch (error) {
+    if (isAppError(error)) throw error;
+    fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试', { cause: error });
+  }
+}
+
+async function writeReviewCreatedAudit(
+  context: RequestContext,
+  runId: string,
+  body: { modelAgentId: string; target: MemoryReviewTarget; sources: MemoryReviewSource[] },
+): Promise<void> {
+  await repo.audit.writeAudit(context.db, context.log, {
+    actor: actorOf(context),
+    action: 'review.created',
+    target: runId,
+    input: {
+      modelAgentId: body.modelAgentId,
+      target: body.target,
+      sourceCount: body.sources.length,
+    },
+    status: 'ok',
+    requestId: context.requestId,
+    dedupeKey: `aud_memrev_${runId.slice(4)}`,
+  });
+}
+
+async function replayReviewRun(
+  context: RequestContext,
+  run: repo.chat.AgentRun,
+  input: { scope: 'own' | undefined; sources: MemoryReviewSource[]; target: MemoryReviewTarget },
+): Promise<void> {
+  const replayable =
+    run.status === 'queued' ||
+    (run.status === 'failed' && run.errorKind === 'infra' && run.startedAt === null);
+  if (!replayable) return;
+  await authorizeReviewInput(context, input);
+  if (run.status === 'queued') {
+    await enqueueReviewRun(context, run);
+    return;
+  }
+  if (await repo.chat.requeueInfraFailedRun(context.db, run.id)) {
+    await enqueueReviewRun(context, run);
+    return;
+  }
+  const latest = await repo.chat.getRun(context.db, run.id);
+  if (latest === null) fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试');
+  if (latest.status === 'queued') {
+    await enqueueReviewRun(context, latest);
+    return;
+  }
+  if (latest.status === 'failed' && latest.errorKind === 'infra' && latest.startedAt === null) {
+    fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试');
+  }
+}
+
+async function replayReview(
+  context: RequestContext,
+  review: repo.memoryReviews.MemoryReviewRow,
+  hash: string,
+  body: { modelAgentId: string; target: MemoryReviewTarget; sources: MemoryReviewSource[] },
+  scope: 'own' | undefined,
+): Promise<{ runId: string }> {
+  if (review.requestHash !== hash) {
+    fail('CONFLICT', '幂等键已用于不同的审核请求');
+  }
+  await writeReviewCreatedAudit(context, review.runId, body);
+  if (review.decision !== 'pending') return { runId: review.runId };
+  const run = await repo.chat.getRun(context.db, review.runId);
+  if (run === null) fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试');
+  await replayReviewRun(context, run, {
+    scope,
+    sources: body.sources,
+    target: body.target,
+  });
+  return { runId: review.runId };
+}
+
 export const memoryReviewsRouter = os.router({
   create: os.create.handler(async ({ input, context }) => {
     const businessId = requireUser(context).businessId;
-    const parsedKey = z
-      .uuid()
-      .safeParse(context.request.headers.get('idempotency-key') ?? undefined);
-    if (!parsedKey.success) {
-      fail('INVALID_INPUT', parsedKey.error.issues[0]?.message ?? 'idempotency-key 无效', {
-        path: '/idempotency-key',
-      });
-    }
-    const key = parsedKey.data;
+    const key = input.headers['idempotency-key'];
     const hash = requestHash(input.body);
 
     if (input.query.scope === 'own') {
@@ -316,12 +427,7 @@ export const memoryReviewsRouter = os.router({
     }
 
     const existing = await repo.memoryReviews.findByRequest(context.db, businessId, key);
-    if (existing) {
-      if (existing.requestHash !== hash) {
-        fail('CONFLICT', '幂等键已用于不同的审核请求');
-      }
-      return { runId: existing.runId };
-    }
+    if (existing) return replayReview(context, existing, hash, input.body, input.query.scope);
 
     const modelAgent = await resolveModelAgent(context.db, input.body.modelAgentId, businessId);
     await authorizeObject(
@@ -330,23 +436,15 @@ export const memoryReviewsRouter = os.router({
       { agentId: input.body.modelAgentId },
       '智能体不存在，可能已被删除；请刷新后重新选择',
     );
-    await authorizeReviewTarget(context, input.body.target, 'personal_memory.review');
+    const authorized = await authorizeReviewInput(context, {
+      scope: input.query.scope,
+      sources: input.body.sources,
+      target: input.body.target,
+    });
     await assertProposalAllowed(context, input.body.target);
 
     const loaded: Array<{ source: MemoryReviewSource; messages: SnapshotMessage[] }> = [];
-    for (const source of input.body.sources) {
-      const conversation = await repo.chat.getConversation(context.db, source.conversationId);
-      if (!conversation) notFound('conversation');
-      await authorizeObject(
-        context,
-        'conversations.read',
-        {
-          objectId: conversation.id,
-          createdBy: conversation.createdBy,
-          privateContent: true,
-        },
-        '会话不存在，可能已被删除',
-      );
+    for (const { source, conversation } of authorized) {
       if (
         input.body.target.kind !== 'personal' &&
         conversation.agentId !== input.body.target.agentId
@@ -407,46 +505,18 @@ export const memoryReviewsRouter = os.router({
       if (!isPgCode(error, '23505')) throw error;
       const raced = await repo.memoryReviews.findByRequest(context.db, businessId, key);
       if (!raced) throw error;
-      if (raced.requestHash !== hash) {
-        fail('CONFLICT', '幂等键已用于不同的审核请求');
-      }
-      return { runId: raced.runId };
+      return replayReview(context, raced, hash, input.body, input.query.scope);
     }
 
-    try {
-      const first = sources[0];
-      if (!first) throw new Error('memory review needs at least one source');
-      await getQueue().add(
-        'run',
-        {
-          runId: review.runId,
-          agentId: input.body.modelAgentId,
-          conversationId: first.conversationId,
-          prompt: '记忆审核',
-        },
-        runEnqueueOptions(review.runId),
-      );
-    } catch {
-      await getQueue()
-        .getJob(review.runId)
-        .then((job) => job?.remove())
-        .catch(() => undefined);
-      await failQueuedRunEnqueue(context.db, review.runId);
-      fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试');
-    }
-
-    await repo.audit.writeAudit(context.db, context.log, {
-      actor: actorOf(context),
-      action: 'review.created',
-      target: review.runId,
-      input: {
-        modelAgentId: input.body.modelAgentId,
-        target: input.body.target,
-        sourceCount: sources.length,
-      },
-      status: 'ok',
-      requestId: context.requestId,
+    const first = sources[0];
+    if (!first) throw new Error('memory review needs at least one source');
+    await enqueueReviewRun(context, {
+      id: review.runId,
+      agentId: input.body.modelAgentId,
+      conversationId: first.conversationId,
     });
+
+    await writeReviewCreatedAudit(context, review.runId, input.body);
 
     return { runId: review.runId };
   }),
@@ -544,30 +614,18 @@ export const memoryReviewsRouter = os.router({
       await authorizeReviewTarget(context, parsedTarget.data, 'personal_memory.review');
     }
     const rejectReview = async () => {
-      const detail = await repo.memoryReviews.findForUser(
-        context.db,
-        businessId,
-        input.params.runId,
-      );
-      if (!detail) fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
-      if (detail.decision === 'applied') fail('CONFLICT', '已采纳的审核不能改为拒绝');
-      if (detail.decision === 'pending') {
-        const run = await repo.chat.getRun(context.db, detail.runId);
-        if (run?.status === 'queued' || run?.status === 'running') {
-          fail('CONFLICT', '审核尚未完成，暂时不能拒绝，请稍候');
-        }
-        if (parsedTarget.success) {
-          await assertNoPendingReviewWrite(context.db, context.config.WORKSPACES_DIR, {
-            runId: detail.runId,
-            target: parsedTarget.data,
-            businessId,
-          });
-        }
-        await repo.memoryReviews.updateDecisionIfPending(
-          context.db,
-          input.params.runId,
-          'rejected',
-        );
+      if (initial.decision === 'pending' && parsedTarget.success) {
+        await assertNoPendingReviewWrite(context.db, context.config.WORKSPACES_DIR, {
+          runId: initial.runId,
+          target: parsedTarget.data,
+          businessId,
+        });
+      }
+      const outcome = await repo.memoryReviews.rejectIfRunNotActive(context.db, initial.runId);
+      if (outcome === 'missing') fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
+      if (outcome === 'applied') fail('CONFLICT', '已采纳的审核不能改为拒绝');
+      if (outcome === 'run_active') {
+        fail('CONFLICT', '审核尚未完成，暂时不能拒绝，请稍候');
       }
       return readReview(context.db, businessId, input.params.runId);
     };

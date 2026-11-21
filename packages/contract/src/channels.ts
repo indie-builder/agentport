@@ -29,6 +29,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 const channelApprovalSchema = z.object({
   id: z.string(),
@@ -68,11 +69,13 @@ export const channelsContract = {
     .input(z.object({ params: idParams, body: channelUpdateSchema }))
     .output(channelSchema),
   addMember: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'POST', path: '/channels/{id}/members', successStatus: 201 })
     .input(z.object({ params: idParams, body: channelMemberInputSchema }))
     .output(channelMemberSchema),
   updateMember: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'PATCH', path: '/channels/{id}/members/{businessId}', successStatus: 200 })
     .input(
@@ -83,11 +86,13 @@ export const channelsContract = {
     )
     .output(channelMemberSchema),
   removeMember: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'DELETE', path: '/channels/{id}/members/{businessId}', successStatus: 204 })
     .input(z.object({ params: z.object({ id: z.string().min(1), businessId: z.string().min(1) }) }))
     .output(z.undefined()),
   addAgent: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'POST', path: '/channels/{id}/agents', successStatus: 201 })
     .input(z.object({ params: idParams, body: channelAgentInputSchema }))
@@ -113,6 +118,7 @@ export const channelsContract = {
     .input(z.object({ params: idParams, query: channelMessagesQuerySchema }))
     .output(z.array(channelMessageSchema)),
   postMessage: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'authenticated' } })
     .route({
       method: 'POST',
@@ -133,6 +139,7 @@ export const channelsContract = {
     .input(z.object({ params: idParams, body: channelReadInputSchema }))
     .output(channelReadStateSchema),
   handoff: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'POST', path: '/channels/{id}/handoffs', successStatus: 201 })
     .input(z.object({ params: idParams, body: channelHandoffInputSchema }))
@@ -177,6 +184,7 @@ export const channelsContract = {
     .input(z.object({ params: channelRunParams }))
     .output(z.object({ items: z.array(publicRunQuestionSchema) })),
   respondToRunQuestion: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'authenticated' } })
     .route({
       method: 'POST',
@@ -229,6 +237,7 @@ export const channelsContract = {
     .input(z.object({ params: idParams }))
     .output(z.object({ items: z.array(channelApprovalSchema) })),
   approve: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'authenticated' } })
     .route({
       method: 'POST',
@@ -238,6 +247,7 @@ export const channelsContract = {
     .input(z.object({ params: z.object({ id: z.string().min(1), approvalId: z.string().min(1) }) }))
     .output(channelApprovalSchema),
   deny: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'authenticated' } })
     .route({
       method: 'POST',

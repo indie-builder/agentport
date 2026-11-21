@@ -560,14 +560,14 @@ test('agent discovery 授权专家发现、归档恢复、统一搜索、个人�
       200,
     );
     expect(approved.status).toBe('published');
-    const bound = await apiJson<AgentSummary>(
+    const bound = await apiJson<{ kind: 'detail' | 'summary'; agent: AgentSummary }>(
       browser,
       'PATCH',
       `/api/agents/${agentId}`,
       { skillIds: [draftSkillId] },
       200,
     );
-    expect(bound.skillIds ?? []).toContain(draftSkillId);
+    expect(bound.agent.skillIds ?? []).toContain(draftSkillId);
     expect((await app.screenshot('agent-discovery-search')).length).toBeGreaterThan(0);
   } finally {
     await bestEffort('管理员重新登录', () => adminLogin(browser));

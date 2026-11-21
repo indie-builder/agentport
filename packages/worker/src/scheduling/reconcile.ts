@@ -272,7 +272,7 @@ function reconcileQueued(
         event: LOST_RUN_EVENT,
         fromStatus: 'queued',
         queuedBefore: cutoff,
-        values: { error: LOST_RUN_ERROR, errorKind: null },
+        values: { error: LOST_RUN_ERROR, errorKind: 'infra' },
         audit: { action: 'agent.run.reconciled', status: 'error' },
       }),
     );

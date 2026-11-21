@@ -6,6 +6,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 const workflowParams = z.object({
   id: z.string().min(1),
@@ -24,16 +25,19 @@ export const workflowsContract = {
     .input(z.object({ params: idParams }))
     .output(z.array(agentWorkflowSchema)),
   create: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.workflows.write' } })
     .route({ method: 'POST', path: '/agents/{id}/workflows', successStatus: 201 })
     .input(z.object({ params: idParams, body: createBody }))
     .output(agentWorkflowSchema),
   update: contractProcedure
+    .errors(domainErrors('CONFLICT', 'CONFLICT_STALE'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.workflows.write' } })
     .route({ method: 'PATCH', path: '/agents/{id}/workflows/{workflowId}', successStatus: 200 })
     .input(z.object({ params: workflowParams, body: updateBody }))
     .output(agentWorkflowSchema),
   delete: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.workflows.write' } })
     .route({ method: 'DELETE', path: '/agents/{id}/workflows/{workflowId}', successStatus: 204 })
     .input(z.object({ params: workflowParams }))

@@ -29,6 +29,13 @@
 - 规则文件改以 `AGENTS.md` 为真源：根与 `packages/*` 的 `CLAUDE.md` 改为指向同级 `AGENTS.md` 的相对软链接。中立格式持有正文，Claude 系 Harness 经链接读取，Codex、Cursor 等直接读 `AGENTS.md`，不产生第二份副本。
 - `.gitignore` 忽略 `.workbuddy/`：本地智能体工作记忆属会话产物，只在本机有效，不入库。
 
+### 接口契约一致性
+
+- `POST /api/memory-reviews` 的 `Idempotency-Key` 改为契约声明的 headers 输入；同键同 payload 重放时，只有审核仍为 `pending`，且 run 仍处于 `queued` 或 `failed(infra)` 从未启动时，才会重新入队并返回原 runId；其余终态只返回原 runId、不重新执行；公共 run 入队逻辑抽到 `runs/enqueue.ts` 供聊天与记忆审核共用。
+- 领域错误码按域声明进契约（`AGENT_DISABLED`、`CONTENT_BLOCKED`、`CONTENT_APPROVAL_REQUIRED`、`BUDGET_EXCEEDED`、`INVALID_URL`、`EVAL_RUN_IN_PROGRESS` 等），OpenAPI 与类型客户端可见；通用 `Problem` 形状不变。
+- 专家写接口 `PATCH /agents/{id}`、`publish`、`offline`、`rollback` 返回显式判别联合 `{ kind: 'detail' | 'summary', agent }`；`archive`/`restore` 固定返回 summary；`DELETE /agents/{id}/members/{businessId}` 改为 204 空响应；`DELETE /agents/{id}/hooks/files` 的文件路径改为 query 参数。
+- `GET /api/eval/cases` 改为游标分页（默认 50、上限 100，返回 `{ items, nextCursor }`），评估页用例列表按页加载、支持加载更多。
+
 ## [0.14.0] - 2026-10-25
 
 ### 技术栈升级与重复机制收敛

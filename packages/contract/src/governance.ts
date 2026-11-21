@@ -22,6 +22,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 const read = contractProcedure.meta({
   access: { kind: 'permission', permissionId: 'governance.read' },
@@ -39,10 +40,12 @@ export const governanceContract = {
       .input(z.object({ query: adminPageQuerySchema }))
       .output(cursorPageSchema(departmentSchema)),
     create: manage
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'POST', path: '/governance/departments', successStatus: 201 })
       .input(z.object({ body: departmentInputSchema }))
       .output(departmentSchema),
     update: manage
+      .errors(domainErrors('CONFLICT'))
       .route({ method: 'PATCH', path: '/governance/departments/{id}' })
       .input(z.object({ params: idParams, body: departmentInputSchema }))
       .output(departmentSchema),

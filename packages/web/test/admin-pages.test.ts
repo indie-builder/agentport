@@ -97,7 +97,13 @@ vi.mock('../src/lib/queries.js', () => ({
     data: [{ id: 'agent', name: 'Expert', isDefault: false }],
     isSuccess: true,
   }),
-  useEvalCases: () => ({ data: [], isSuccess: true }),
+  useEvalCases: () => ({
+    data: { pages: [{ items: [], nextCursor: null }] },
+    isSuccess: true,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  }),
   useEvalRuns: () => ({
     data: { pages: [{ items: state.runs, nextCursor: null }] },
     isSuccess: true,

@@ -6,11 +6,7 @@ import type { ContractRouterClient } from '@orpc/contract';
 import { OpenAPILink } from '@orpc/openapi-client/fetch';
 import { loginPath } from './auth-redirect.js';
 
-export interface ApiContext {
-  idempotencyKey?: string;
-}
-
-export type ApiClient = ContractRouterClient<typeof apiContract, ApiContext>;
+export type ApiClient = ContractRouterClient<typeof apiContract>;
 
 interface ApiErrorOptions {
   code?: string | undefined;
@@ -183,10 +179,6 @@ function toApiError(error: unknown): unknown {
 
 const link = new OpenAPILink(apiContract, {
   url: `${globalThis.location.origin}/api`,
-  headers: (options) =>
-    options.context.idempotencyKey !== undefined
-      ? { 'idempotency-key': options.context.idempotencyKey }
-      : {},
   fetch: authenticatedFetch,
   customErrorResponseBodyDecoder: (body) => problemToApiError(body),
   interceptors: [

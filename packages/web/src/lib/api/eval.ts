@@ -1,4 +1,5 @@
 import type {
+  CursorPage,
   EvalDataset,
   EvalDatasetImportResult,
   EvalRunExport,
@@ -27,6 +28,8 @@ export interface EvalCase {
   forbiddenTools: string[] | null;
   createdAt: string;
 }
+
+export type EvalCasePage = CursorPage<EvalCase>;
 
 export interface EvalCaseInput {
   agentId: string;
@@ -89,8 +92,10 @@ export interface EvalRunDetail {
 export type EvalComparison = SharedEvalComparison;
 
 export default {
-  evalCases: (agentId?: string): Promise<EvalCase[]> =>
-    rpc.eval.cases.list({ query: agentId === undefined ? {} : { agentId } }),
+  evalCases: (
+    query: { agentId?: string; cursor?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<EvalCasePage> => rpc.eval.cases.list({ query }, clientOptions(signal)),
   createEvalCase: (input: EvalCaseInput): Promise<EvalCase> =>
     rpc.eval.cases.create({ body: input }),
   createEvalCaseFromRun: (input: EvalCaseFromRunInput): Promise<EvalCase> =>

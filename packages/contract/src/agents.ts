@@ -33,6 +33,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 const versionParams = z.object({
   id: z.string().min(1),
@@ -102,7 +103,11 @@ const patchSchema = z
   .strict();
 const importFileSchema = z.object({ agentMd: z.string().max(MARKDOWN_FILE_MAX_CODE_POINTS) });
 const hookFileBody = agentHookFileInputSchema;
-const hookFileDeleteBody = z.object({ path: agentHookFilePathSchema });
+const hookFileDeleteQuery = z.object({ path: agentHookFilePathSchema });
+export const agentWriteResultSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('detail'), agent: agentSchema }),
+  z.object({ kind: z.literal('summary'), agent: agentSummarySchema }),
+]);
 export const agentsContract = {
   list: contractProcedure
     .meta({ access: { kind: 'authenticated' } })
@@ -138,23 +143,26 @@ export const agentsContract = {
     .meta({ access: { kind: 'permission', permissionId: 'agents.delete' } })
     .route({ method: 'POST', path: '/agents/{id}/archive', successStatus: 200 })
     .input(z.object({ params: idParams }))
-    .output(z.union([agentSchema, agentSummarySchema])),
+    .output(agentSummarySchema),
   restore: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.delete' } })
     .route({ method: 'POST', path: '/agents/{id}/restore', successStatus: 200 })
     .input(z.object({ params: idParams }))
-    .output(z.union([agentSchema, agentSummarySchema])),
+    .output(agentSummarySchema),
   create: contractProcedure
+    .errors(domainErrors('INVALID_REFERENCE', 'CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.create' } })
     .route({ method: 'POST', path: '/agents', successStatus: 201 })
     .input(z.object({ body: createSchema }))
     .output(agentSchema),
   duplicate: contractProcedure
+    .errors(domainErrors('INVALID_REFERENCE', 'CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.clone' } })
     .route({ method: 'POST', path: '/agents/{id}/duplicate', successStatus: 201 })
     .input(z.object({ params: idParams, body: agentDuplicateInputSchema }))
     .output(agentSchema),
   importFile: contractProcedure
+    .errors(domainErrors('INVALID_REFERENCE', 'CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.import' } })
     .route({ method: 'POST', path: '/agents/import-file', successStatus: 201 })
     .input(z.object({ body: importFileSchema }))
@@ -180,21 +188,32 @@ export const agentsContract = {
     .input(z.object({ params: idParams }))
     .output(z.object({ agentId: z.string(), permissionIds: z.array(permissionIdSchema) })),
   update: contractProcedure
+    .errors(domainErrors('INVALID_REFERENCE', 'CONFLICT', 'CONFLICT_STALE'))
     .meta({ access: { kind: 'authenticated' } })
     .route({ method: 'PATCH', path: '/agents/{id}', successStatus: 200 })
     .input(z.object({ params: idParams, body: patchSchema }))
-    .output(z.union([agentSchema, agentSummarySchema])),
+    .output(agentWriteResultSchema),
   publish: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.publish' } })
     .route({ method: 'POST', path: '/agents/{id}/publish', successStatus: 200 })
     .input(z.object({ params: idParams, body: z.object({ note: z.string().max(200).optional() }) }))
-    .output(z.union([agentSchema, agentSummarySchema])),
+    .output(agentWriteResultSchema),
   offline: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.enable' } })
     .route({ method: 'POST', path: '/agents/{id}/offline', successStatus: 200 })
     .input(z.object({ params: idParams }))
-    .output(z.union([agentSchema, agentSummarySchema])),
+    .output(agentWriteResultSchema),
   trial: contractProcedure
+    .errors(
+      domainErrors(
+        'AGENT_DISABLED',
+        'BUDGET_EXCEEDED',
+        'CONTENT_BLOCKED',
+        'CONTENT_APPROVAL_REQUIRED',
+      ),
+    )
     .meta({
       access: { kind: 'permission', permissionId: 'agents.config.update' },
       rateLimit: 10,
@@ -247,10 +266,11 @@ export const agentsContract = {
       }),
     ),
   rollback: contractProcedure
+    .errors(domainErrors('INVALID_REFERENCE', 'CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.versions.restore' } })
     .route({ method: 'POST', path: '/agents/{id}/rollback', successStatus: 200 })
     .input(z.object({ params: idParams, body: rollbackBody }))
-    .output(z.union([agentSchema, agentSummarySchema])),
+    .output(agentWriteResultSchema),
   memory: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.read' } })
     .route({ method: 'GET', path: '/agents/{id}/memory', successStatus: 200 })
@@ -262,11 +282,13 @@ export const agentsContract = {
     .input(z.object({ params: memoryFileParams }))
     .output(memoryFileContentSchema),
   writeMemory: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.write' } })
     .route({ method: 'PUT', path: '/agents/{id}/memory/{name}', successStatus: 200 })
     .input(z.object({ params: memoryFileParams, body: memoryWriteBody }))
     .output(memoryFileContentSchema),
   deleteMemory: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.memory.write' } })
     .route({ method: 'DELETE', path: '/agents/{id}/memory/{name}', successStatus: 204 })
     .input(z.object({ params: memoryFileParams }))
@@ -277,11 +299,13 @@ export const agentsContract = {
     .input(z.object({ params: idParams }))
     .output(z.array(ruleSchema)),
   writeRule: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.rules.write' } })
     .route({ method: 'PUT', path: '/agents/{id}/rules/{slug}', successStatus: 200 })
     .input(z.object({ params: ruleParams, body: ruleBody }))
     .output(ruleSchema),
   deleteRule: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.rules.write' } })
     .route({ method: 'DELETE', path: '/agents/{id}/rules/{slug}', successStatus: 204 })
     .input(z.object({ params: ruleParams }))
@@ -292,11 +316,13 @@ export const agentsContract = {
     .input(z.object({ params: idParams }))
     .output(z.array(outputStyleSchema)),
   writeOutputStyle: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.styles.write' } })
     .route({ method: 'PUT', path: '/agents/{id}/output-styles/{slug}', successStatus: 200 })
     .input(z.object({ params: outputStyleParams, body: outputStyleWriteBody }))
     .output(outputStyleSchema),
   unselectOutputStyle: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.styles.write' } })
     .route({
       method: 'POST',
@@ -306,6 +332,7 @@ export const agentsContract = {
     .input(z.object({ params: outputStyleParams }))
     .output(z.void()),
   deleteOutputStyle: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.styles.write' } })
     .route({ method: 'DELETE', path: '/agents/{id}/output-styles/{slug}', successStatus: 204 })
     .input(z.object({ params: outputStyleParams }))
@@ -316,19 +343,22 @@ export const agentsContract = {
     .input(z.object({ params: idParams }))
     .output(agentHooksSchema),
   writeHooksSettings: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.hooks.write' } })
     .route({ method: 'PUT', path: '/agents/{id}/hooks/settings', successStatus: 200 })
     .input(z.object({ params: idParams, body: agentHooksSettingsInputSchema }))
     .output(agentHooksSchema),
   writeHookFile: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.hooks.write' } })
     .route({ method: 'PUT', path: '/agents/{id}/hooks/files', successStatus: 200 })
     .input(z.object({ params: idParams, body: hookFileBody }))
     .output(agentHookFileSchema),
   deleteHookFile: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .meta({ access: { kind: 'permission', permissionId: 'agents.hooks.write' } })
     .route({ method: 'DELETE', path: '/agents/{id}/hooks/files', successStatus: 204 })
-    .input(z.object({ params: idParams, body: hookFileDeleteBody }))
+    .input(z.object({ params: idParams, query: hookFileDeleteQuery }))
     .output(z.void()),
   members: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.members.manage' } })
@@ -342,9 +372,9 @@ export const agentsContract = {
     .output(agentMemberSchema),
   deleteMember: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.members.manage' } })
-    .route({ method: 'DELETE', path: '/agents/{id}/members/{businessId}', successStatus: 200 })
+    .route({ method: 'DELETE', path: '/agents/{id}/members/{businessId}', successStatus: 204 })
     .input(z.object({ params: memberParams }))
-    .output(z.object({ ok: z.boolean() })),
+    .output(z.void()),
   transfer: contractProcedure
     .meta({ access: { kind: 'permission', permissionId: 'agents.transfer' } })
     .route({ method: 'POST', path: '/agents/{id}/transfer', successStatus: 200 })

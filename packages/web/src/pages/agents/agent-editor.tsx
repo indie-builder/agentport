@@ -762,7 +762,7 @@ export function AgentEditor({
         },
         {
           onSuccess: (saved) => {
-            if ('systemPrompt' in saved) loadDraft(saved);
+            if (saved.kind === 'detail') loadDraft(saved.agent);
             toastSuccess('草稿已保存');
           },
           onError: (error) => {
@@ -2471,8 +2471,8 @@ export function AgentEditor({
             id: agent.id,
             ...(publishNote.trim() === '' ? {} : { note: publishNote.trim() }),
           });
-          if ('systemPrompt' in saved) loadDraft(saved);
-          const publishedVersion = 'publishedVersion' in saved ? saved.publishedVersion : null;
+          if (saved.kind === 'detail') loadDraft(saved.agent);
+          const publishedVersion = saved.kind === 'detail' ? saved.agent.publishedVersion : null;
           toastSuccess(publishedVersion ? `已发布 v${publishedVersion}` : '已发布');
         }}
       >
@@ -2501,7 +2501,7 @@ export function AgentEditor({
         onConfirm={async () => {
           if (offline.isPending) return;
           const saved = await offline.mutateAsync(agent.id);
-          if ('systemPrompt' in saved) loadDraft(saved);
+          if (saved.kind === 'detail') loadDraft(saved.agent);
           toastSuccess('专家已下线，再次发布即可恢复');
         }}
       />

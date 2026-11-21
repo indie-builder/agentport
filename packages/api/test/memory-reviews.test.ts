@@ -96,6 +96,9 @@ describe.skipIf(!ready)('memory reviews', () => {
       data: JobRecord['data'],
       options: JobRecord['options'],
     ) => {
+      if (jobs.some((job) => job.options.jobId === options?.jobId)) {
+        return { id: data.runId };
+      }
       jobs.push({ name, data, options });
       return { id: data.runId };
     }) as never);

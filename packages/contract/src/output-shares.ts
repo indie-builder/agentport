@@ -7,6 +7,7 @@ import {
 } from '@agentport/shared';
 import { z } from 'zod';
 import { contractProcedure } from './base.js';
+import { domainErrors } from './errors.js';
 
 const ownerParams = z.object({ id: outputOwnerIdSchema });
 const shareParams = z.object({ id: z.string().min(1).max(200) });
@@ -27,6 +28,7 @@ const shareAccess = {
 
 export const outputSharesContract = {
   create: contractProcedure
+    .errors(domainErrors('CONFLICT'))
     .route({ method: 'POST', path: '/conversations/{id}/output-shares', successStatus: 201 })
     .input(z.object({ params: ownerParams, body: createOutputShareInputSchema }))
     .output(outputShareSchema)
