@@ -20,7 +20,6 @@ import {
   waitFor,
 } from './helpers.js';
 
-// 有真实消费者时 job 会被领走，超时/取消边界就测不到了。
 const ready = (await infraReady) && (await queueIdle);
 
 interface OwnAgent {
@@ -45,7 +44,6 @@ async function rejectionOf(promise: Promise<unknown>): Promise<{ code?: string; 
   throw new Error('expected promise to reject');
 }
 
-/** 所有挂起都有界；测试自身的 20s 超时不算可读的失败原因。 */
 function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`did not settle within ${ms}ms`)), ms);
@@ -90,7 +88,6 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
   });
 
   afterAll(async () => {
-    // 断言失败也要清干净：按本文件的 agent 反查所有 run，含旧实现泄漏的 queued run。
     const discovered =
       agentIds.length === 0
         ? []
@@ -204,7 +201,6 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
       const agent = await newAgent(`enqueue-${claimed}`);
       const queue = getQueue();
       const spy = spyOn(queue, 'add').mockImplementationOnce(async (_name, data) => {
-        // 模拟 worker 在 add 返回前就领取/完成：失败收口只能动仍为 queued 的 run。
         await repo.chat.updateRun(app.db, data.runId, {
           status: claimed,
           startedAt: new Date(),
@@ -305,9 +301,7 @@ describe.skipIf(!ready)('agent invoker lifecycle', () => {
       expect(received).toBe(RUN_CANCEL_PAYLOAD);
       // 订阅连接处于 pub/sub 模式，读键必须用独立连接。
       expect(await redis.get(channel)).toBe(RUN_CANCEL_PAYLOAD);
-      // 终态由 worker 停止容器、写完消息与产出后落库；这里没有 worker，状态仍是 running。
       expect((await runsOf(agent.id))[0]?.status).toBe('running');
-      // running 的 job 由 worker 负责清理，取消只发信号。
       expect(await getQueue().getJob(run.id)).toBeDefined();
     } finally {
       subscriber.close();

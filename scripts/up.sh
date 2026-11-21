@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# 一条命令部署：生成 .env → 启动依赖 → 迁移 → 构建镜像 → 冒烟。
-# 用法：bun run up [--rebuild]
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,7 +13,6 @@ for arg in "$@"; do
 done
 
 BASE_URL="${BASE_URL:-http://localhost:3000}"
-# 沙盒镜像由 compose/worker 读取 SANDBOX_IMAGE；默认是本地构建的 dev 标签。
 SANDBOX_IMAGE="${SANDBOX_IMAGE:-agentport/sandbox:dev}"
 
 fail() {
@@ -78,7 +75,6 @@ docker compose up -d --wait --wait-timeout 120 postgres redis || {
 }
 echo "依赖就绪"
 
-# 远程镜像（发布产物）由 worker 启动沙盒时按需 pull，本地不构建。
 is_remote_image() {
   case "$SANDBOX_IMAGE" in ghcr.io/*|docker.io/*|*.*/*) return 0 ;; *) return 1 ;; esac
 }

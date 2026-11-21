@@ -2,15 +2,10 @@ import { lazy, Suspense } from 'react';
 import { cn } from '../lib/cn.js';
 import type { SourceEditorProps } from './source-editor-props.js';
 
-// CodeMirror 只在真正渲染编辑器时才加载；其余页面不为它付首屏体积。
 const LazySourceEditor = lazy(() =>
   import('./source-editor-inner.js').then((module) => ({ default: module.SourceEditorInner })),
 );
 
-/**
- * 源码编辑器：对外是受控的字符串字段，内部按需加载 CodeMirror。
- * 加载期间用同样的外壳渲染一个可用的 textarea，外观与可访问名称保持一致。
- */
 export function SourceEditor({
   value,
   onChange,
@@ -31,7 +26,6 @@ export function SourceEditor({
       data-invalid={ariaInvalid || undefined}
       className={cn(
         'flex w-full overflow-hidden rounded-lg border border-input bg-transparent font-mono text-sm transition-colors',
-        // 输入类控件只留一层焦点信号：边框换色，不叠光环。
         disabled
           ? 'cursor-not-allowed bg-control-boundary/50 opacity-50'
           : ariaInvalid

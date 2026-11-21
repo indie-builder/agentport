@@ -21,7 +21,6 @@ describe('connector catalog seed', () => {
     for (const item of connectorCatalog) {
       if (item.kind === 'http') expect(item.url, item.slug).toMatch(/^https?:\/\//);
       if (item.kind === 'stdio') expect(item.command, item.slug).toBeTruthy();
-      // envKeys are names only — the schema has no field for values at all.
       expect(JSON.stringify(item)).not.toMatch(/"(token|secret|password|apikey|api_key)":/i);
     }
   });

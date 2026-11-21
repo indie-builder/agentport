@@ -82,7 +82,6 @@ async function mount() {
   window.history.replaceState(null, '', '/plugins/');
   history = createBrowserHistory();
   blocked = captureBlockedNavigations(history);
-  // 建立上一页条目，让保存中的 back() 是真实 POP，而不是同页刷新。
   history.replace('/plugins/other');
   await new Promise((resolve) => setTimeout(resolve, 0));
   history.push('/plugins/');
@@ -135,7 +134,6 @@ describe('plugin editor blocked navigation', () => {
     await click(button('保存'));
     expect(update).toHaveBeenCalledOnce();
 
-    // 保存请求未完成时用户按浏览器后退。
     await act(async () => {
       window.history.back();
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -153,7 +151,6 @@ describe('plugin editor blocked navigation', () => {
     expect(document.body.textContent).not.toContain('放弃未保存的更改？');
     expect(history.location.pathname).toBe('/plugins/');
 
-    // 结算后普通导航不再被遗留拦截挡住。
     await act(async () => {
       await router.navigate({ to: '/plugins/other' });
     });

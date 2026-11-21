@@ -584,7 +584,6 @@ const chunkMutationResultSchema = z.object({
 });
 
 const basesContract = {
-  // 置顶是个人偏好，路径必须排在 `{id}` 之前：静态段优先，避免被当作 baseId。
   pins: contractProcedure
     .route({ method: 'GET', path: '/knowledge/bases/pins' })
     .meta({ access: { kind: 'permission', permissionId: 'knowledge.read' } })

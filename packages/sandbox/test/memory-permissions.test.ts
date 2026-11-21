@@ -215,7 +215,6 @@ describe('skill reference read-only boundary', () => {
   });
 
   it('denies Write/Edit even inside references, and denies non-.md or non-reference paths', async () => {
-    // 大写 slug 文件真实存在，确保拒绝来自 slug 正则而非文件不存在。
     await mkdir(join(skills, 'Demo', 'references'), { recursive: true });
     await writeFile(join(skills, 'Demo', 'references', 'api.md'), '# api');
     for (const [tool, path] of [
@@ -235,7 +234,6 @@ describe('run outputs boundary', () => {
   let outputs: string;
   let outputHook: ReturnType<typeof createFileBoundaryHook>;
 
-  /** 记忆目录与产出目录是两个独立挂载，hook 按各自根判断。 */
   const call = (tool: string, file_path: string, agentId?: string) =>
     outputHook(
       {
@@ -297,7 +295,6 @@ describe('run outputs boundary', () => {
         `${outputs}/../outside.md`,
         `${outputs}/reports/../../outside.md`,
         join(dir, 'outside.md'),
-        // 前缀相同但不是同一目录。
         join(dir, 'outputs-other', 'secret.csv'),
         outputs,
         'data.csv',
@@ -396,7 +393,6 @@ describe('subagent project memory boundary', () => {
         `${tool} sibling`,
       ).toMatchObject(decision('deny'));
     }
-    // 缺失的父目录允许 Write 创建，Read/Edit 仍要目标已存在。
     expect(
       await call('Write', join(projectMemory, 'child', 'topics', 'deep', 'new.md')),
     ).toMatchObject(decision('allow'));
@@ -486,7 +482,6 @@ describe('subagent project memory boundary', () => {
           { signal: new AbortController().signal },
         );
 
-    // 只读策略：读仍放行，写先被 hook 拒绝并给出可读理由，而不是撞 EROFS。
     const readOnly = callWith(readOnlyHook);
     const existing = join(projectMemory, 'child', 'MEMORY.md');
     expect(await readOnly('Read', existing)).toMatchObject(decision('allow'));
@@ -497,14 +492,12 @@ describe('subagent project memory boundary', () => {
         '当前策略不允许运行期写入子智能体记忆',
       );
     }
-    // 兄弟目录仍按原有边界拒绝，理由不变。
     const sibling = await readOnly('Write', join(projectMemory, 'sibling', 'MEMORY.md'));
     expect(sibling).toMatchObject(decision('deny'));
     expect(sibling.hookSpecificOutput?.permissionDecisionReason).not.toContain(
       '当前策略不允许运行期写入子智能体记忆',
     );
 
-    // native_auto：子智能体恢复可写。
     const writable = callWith(childHook);
     for (const tool of ['Read', 'Write', 'Edit']) {
       expect(await writable(tool, existing), tool).toMatchObject(decision('allow'));

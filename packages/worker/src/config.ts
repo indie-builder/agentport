@@ -24,15 +24,7 @@ const envSchema = z
      * 而 docker -v 的源路径由宿主 daemon 解析，必须换成该卷的宿主目录。默认与 WORKSPACES_DIR 相同。
      */
     HOST_WORKSPACES_DIR: z.string().min(1).optional(),
-    /**
-     * 平台 runner 基座镜像。worker 首次启动用它的本地实际 ID 登记默认运行环境的首个线上版本；
-     * 之后发布/回退只改 DB 指针，不再随这个变量推进。构建运行环境时也用它作为固定基座。
-     */
     SANDBOX_IMAGE: z.string().min(1).default('agentport/sandbox:dev'),
-    /**
-     * open=bridge 直连（不隔离出站）；none=断网；proxy=仍用 bridge，由 HTTPS_PROXY 指向宿主代理。
-     * 默认 open 是为了不阻塞本地开发；production 要出站管控时显式设 proxy 并配代理。
-     */
     SANDBOX_EGRESS: z.enum(['open', 'none', 'proxy']).default('open'),
     HTTPS_PROXY: z.string().optional(),
     HTTP_PROXY: z.string().optional(),
@@ -44,19 +36,9 @@ const envSchema = z
       .default('1g'),
     SANDBOX_CPUS: z.coerce.number().positive().default(1),
     SANDBOX_PIDS: z.coerce.number().int().positive().default(128),
-    /**
-     * 会话沙盒在无执行任务后的保留时间（毫秒），忙或等待用户回答时不算空闲。
-     * 与智能体的 timeoutMs 执行超时独立；AGENT_TIMEOUT_MS 只用于孤儿 run 对账，不是执行超时。
-     * 不支持 0/-1 无限保活。
-     */
     SANDBOX_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
-    /** 同时存活的会话沙盒容器上限；达到上限时回收最久未用的空闲容器。 */
     SANDBOX_MAX_ACTIVE: z.coerce.number().int().positive().default(6),
     AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(2),
-    /**
-     * 数据保留首启种子：仅当 platform_settings 无行时写入一次；之后改这里不再生效，
-     * 请在运维「概况」页「数据保留」调整，缺行时作为维护兜底。0 不合法。
-     */
     RETAIN_RUN_DAYS: z.coerce.number().int().positive().default(RETENTION_DEFAULTS.runDays),
     RETAIN_MESSAGE_DAYS: z.coerce.number().int().positive().default(RETENTION_DEFAULTS.messageDays),
     RETAIN_AGENT_VERSIONS: z.coerce
@@ -65,11 +47,6 @@ const envSchema = z
       .positive()
       .default(RETENTION_DEFAULTS.agentVersions),
     AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
-    /**
-     * 沙盒单块文本/工具负载上限（字节）。超限只截断该块并标记 truncated，默认 1MiB。
-     * 最坏 JSON 转义约为原值的 6 倍：1MiB 对应约 6MiB，仍在宿主 8MiB 单行上限内；
-     * 因此这里封顶 1MiB，避免调到会产生「整块被宿主静默丢弃」的值。
-     */
     SANDBOX_MAX_FIELD_BYTES: z.coerce
       .number()
       .int()
@@ -80,7 +57,6 @@ const envSchema = z
       )
       .default(1024 * 1024),
     SANDBOX_API_URL: z.string().min(1).default('http://host.docker.internal:3000'),
-    /** 与 API 相同的密钥派生源：用来解密 server 的 env/headers 并注入工作区。 */
     APP_SECRET_KEY: z.string().min(32),
     ANTHROPIC_API_KEY: z.string().optional(),
     ANTHROPIC_AUTH_TOKEN: z.string().optional(),
@@ -101,16 +77,13 @@ const envSchema = z
       (value) => (value === '' ? undefined : value),
       z.string().url().default(''),
     ),
-    /** 原件与解析产物卷；api/worker 共用同一挂载点。 */
     KNOWLEDGE_DIR: z.string().min(1).default('./data/knowledge'),
     KNOWLEDGE_WIKI_MODEL: z.string().optional(),
     DATA_DOMAIN_ENRICH_MODEL: z.string().optional(),
-    /** 逗号分隔的私网主机名（可含端口）；知识出站只在这些主机上放行内网地址。 */
     KNOWLEDGE_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
     WEBHOOK_PRIVATE_HOST_ALLOWLIST: z.string().default(''),
   })
   .superRefine((env, ctx) => {
-    // fail-closed：proxy 没配代理时宁可不启动，也不静默降级成不隔离出站的 open。
     if (env.SANDBOX_EGRESS === 'proxy' && !env.HTTPS_PROXY && !env.HTTP_PROXY) {
       ctx.addIssue({
         code: 'custom',

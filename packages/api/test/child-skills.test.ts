@@ -97,9 +97,7 @@ describe.skipIf(!ready)('child skills in the rendered workspace', () => {
     expect(slugs).toContain(rootSkill.slug);
     expect(slugs).toContain(childSkill.slug);
     expect(slugs).toContain(sharedSkill.slug);
-    // 停用子智能体的技能不落盘。
     expect(slugs).not.toContain(disabledSkill.slug);
-    // 根智能体自己的技能排在前面。
     expect(slugs[0]).toBe(rootSkill.slug);
   });
 
@@ -123,7 +121,6 @@ describe.skipIf(!ready)('child skills in the rendered workspace', () => {
     );
     expect(rendered.content).not.toContain(rootSkill.slug);
     expect(rendered.content).not.toContain(disabledSkill.slug);
-    // 停用子智能体不渲染文件。
     expect(files.subAgents.map((subAgent) => subAgent.slug)).not.toContain(disabledChild.slug);
   });
 

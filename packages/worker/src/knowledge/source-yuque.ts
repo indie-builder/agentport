@@ -121,7 +121,6 @@ function sourceUrlOf(ctx: YuqueContext, detail: Detail, summary: Summary): strin
   return `${ctx.base}/${encodePathSegments(namespace)}/${encodeURIComponent(slug)}`;
 }
 
-/** 列表必须读到真实终页；重复 ID、越界、total 未到齐都失败，不能拿 offset 递增当完整证明。 */
 async function listDocuments(ctx: YuqueContext): Promise<Summary[]> {
   const docs: Summary[] = [];
   const ids = new Set<number>();
@@ -291,7 +290,6 @@ export async function readYuque(
   return snapshotOf(items, failures, previous);
 }
 
-/** 只核 token 与选定 repo 的可读性；不拉详情、不推进游标。 */
 export async function probeYuque(
   config: SourceConfig,
   signal: AbortSignal | undefined,

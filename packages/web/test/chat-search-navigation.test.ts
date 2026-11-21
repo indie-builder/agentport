@@ -202,7 +202,6 @@ describe('cross-expert conversation search', () => {
       agent: 'agent-b',
       conversation: 'conversation-b',
     });
-    // 合成 click 与显式 Enter 只能合成一次导航。
     expect(router.history.length).toBe(2);
   });
 });

@@ -20,7 +20,6 @@ describe.skipIf(!ready)('plugin repo', () => {
   let pluginId = '';
 
   afterAll(async () => {
-    // 删插件级联清掉文件与绑定；删 agent 兜底。
     if (pluginId) await db.delete(plugins).where(eq(plugins.id, pluginId));
     await db.delete(agents).where(eq(agents.id, agentId));
     await client.close();
@@ -63,7 +62,6 @@ describe.skipIf(!ready)('plugin repo', () => {
   });
 
   it('binds through the real write path and counts bindings', async () => {
-    // 绑定只走 updateAgent 这类公开写入口，不另设一份可绕过锁顺序的写入口。
     await updateAgent(db, agentId, {}, undefined, undefined, null, undefined, undefined, [
       { pluginId, allowHooks: true, allowMcp: false },
     ]);
@@ -94,7 +92,6 @@ describe.skipIf(!ready)('plugin repo', () => {
       sourceId,
     );
 
-    // ZIP 插件 sourceId 为 null，多个 null 不冲突。
     const zip = await pluginsRepo.createPluginWithFiles(
       db,
       { slug: `${slug}-zip`, runtimeName: `${slug}-zip`, name: 'ZIP plugin' },

@@ -20,7 +20,6 @@ const ready = await dbHandle.client.unsafe('select 1').then(
   () => false,
 );
 
-/** 每个用例在自己的事务里跑并回滚：其他测试文件会并发断言全局计数。 */
 class Rollback extends Error {}
 async function isolated(fn: (tx: Db) => Promise<void>): Promise<void> {
   await db
@@ -38,10 +37,6 @@ interface EvalFixture {
   agentId: string;
 }
 
-/**
- * eval_runs 上同一 agent 只允许一个 running，夹具必须每个跑批独立建 agent。
- * claimedAt 默认为老时间：认领过不影响孤儿判定。
- */
 async function seedEval(
   tx: Db,
   options: { ageMs?: number; status?: 'running' | 'succeeded' | 'cancelled' } = {},
@@ -68,7 +63,6 @@ async function seedEval(
   return { evalRunId, agentId };
 }
 
-/** 只 mock BullMQ 的 getJob 边界；null 代表队列里没有这个 job。 */
 function fakeQueue(behavior: (evalRunId: string) => string | null | Error): {
   queue: Pick<Queue, 'getJob'>;
   getJob: ReturnType<typeof mock>;
@@ -199,7 +193,6 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns queue probe', () => {
       const probing = new Promise<void>((resolve) => {
         started = resolve;
       });
-      // 只有目标行第一次探测挂起；其余候选与下一轮探测都走默认 waiting。
       let hanging = true;
       getJob.mockImplementation(async (evalRunId: string) => {
         if (evalRunId !== fixture.evalRunId || !hanging) {
@@ -289,7 +282,6 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns queue probe', () => {
   it('does not probe evals younger than one hour', async () => {
     await isolated(async (tx) => {
       const fixture = await seedEval(tx, { ageMs: FRESH_MS });
-      // 全局扫描会看到其他陈旧候选；它们才该被探测（job 仍在队列里所以计数为 0），新行不该。
       const foreign = await seedEval(tx);
       ownedEvalIds.delete(foreign.evalRunId);
       const { queue, getJob } = fakeQueue(() => 'waiting');

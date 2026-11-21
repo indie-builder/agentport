@@ -79,7 +79,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
     expect(childBash?.parentToolUseId).toBe(agent?.id);
     expect(childBash?.result).toContain('CHILD-RAN');
     expect(readIfExists(childFile)).toBe('CHILD-RAN\n');
-    // 子智能体的最终文本带父侧 Agent 的 tool_use id，证明确实由该委派产生。
     expect(
       result.events.some(
         (event) => event.type === 'assistant_text' && event.parentToolUseId === agent?.id,
@@ -166,8 +165,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
 
   it('persists subagent project memory across runs and containers', async () => {
     const { fake } = suite;
-    // 子挂载集合增删/换目录而重建容器已由 session-sandboxes.test.ts 的
-    // 「bindings start, stop, or move」覆盖；这里只验证真实挂载生命周期，避免重复起容器。
     const spec = getSpec('memory');
     const hostDir = subAgentHost('memory', 'mem-child');
     const memoryPath = `${SUBAGENT_MEMORY_ROOT}/mem-child/MEMORY.md`;
@@ -231,7 +228,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       );
       expect(finishedEvent(run1.events)?.status).toBe('succeeded');
 
-      // 第一轮就落盘到宿主子智能体记忆目录，Edit 后的字节与宿主文件一致。
       expect(readFileSync(join(hostDir, 'MEMORY.md'), 'utf8')).toBe(editedMemory);
       expect(readFileSync(join(hostDir, 'topics', 'one.md'), 'utf8')).toBe(firstTopic);
       const firstAgent = toolCalls(run1.events).find((call) => call.name === 'Agent');
@@ -269,7 +265,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
         },
       ];
 
-      // 同一容器、同一宿主挂载，第二轮必须能读到第一轮写下的内容。
       const lease2 = await sessions.acquire(
         spec,
         new AbortController().signal,
@@ -327,7 +322,6 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
         },
       ];
 
-      // 整个容器销毁后，新 session 重新挂载同一宿主目录仍加载同一份记忆。
       provider2 = createProvider();
       sessions2 = sessionsFor(provider2);
       const lease3 = await sessions2.acquire(

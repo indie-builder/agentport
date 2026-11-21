@@ -6,10 +6,6 @@ import {
   OUTPUTS_CONTAINER_DIR,
 } from '@agentport/shared';
 
-/**
- * 本轮附件清单：只在有附件时追加，文件名按 JSON 字符串转义。
- * 路径与挂载目录一致，历史轮次的同目录路径在后续 run 仍有效。
- */
 export function promptWithAttachments(
   prompt: string,
   attachments: readonly MessageAttachment[],

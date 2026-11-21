@@ -76,7 +76,6 @@ describe('shared Zod definitions vs official chat library', () => {
   test('Input.value is a reactive binding, not a plain string', () => {
     expect(ours.prompt()).toContain('Input(name: string, placeholder?: string');
     expect(ours.prompt()).toContain('value?: $binding<string>');
-    // 普通字符串字段不应带 $binding。
     expect(ours.prompt()).not.toContain('placeholder?: $binding');
   });
 
@@ -113,14 +112,11 @@ describe('shared Zod definitions vs official chat library', () => {
   });
 
   test('a component missing from the definitions throws instead of shipping a partial library', () => {
-    // 顺序与集合都由 meta.ts 控制；删掉一个名字必须显式失败。
     expect(() => createOpenUiDefinitions(kit, {})).not.toThrow();
     expect(ours.components.Card).toBeDefined();
   });
 
   test('props.parse fills omitted defaults exactly like the official library', () => {
-    // JSON Schema 里 default 只是元数据；这里真正执行 Zod parse，确认省略字段
-    // 被填成什么值。两边默认值不同（或本地把 default 删成 optional）都会红。
     const cases: Array<[string, Record<string, unknown>]> = [
       ['Text', { value: 'hello' }],
       ['BoldText', { value: 'hi', variant: 'number' }],
@@ -146,7 +142,6 @@ describe('shared Zod definitions vs official chat library', () => {
         openuiChatLibrary.components[name]?.props.parse(input),
       );
     }
-    // 锁住代表性默认值本身，避免两边同时丢了 default 时对照仍然通过。
     expect(ours.components.Text?.props.parse({ value: 'x' })).toMatchObject({
       variant: 'text',
       subtextVariant: 'text',

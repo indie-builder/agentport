@@ -111,7 +111,6 @@ function RunDetailProbe({ runId }: { runId: string }) {
   return null;
 }
 
-/** 与聊天页一样：恢复后一旦有活动 run，就让 useRun 接管轮询。 */
 function RestoreProbe() {
   const id = useChatStore((state) => state.conversationId);
   const detail = useConversation(id);
@@ -221,7 +220,6 @@ describe('history restoration', () => {
   });
 
   it('restores through the shared run cache so useRun does not request the same run again', async () => {
-    // 测试 client 默认 staleTime 为 0；恢复写入的缓存靠 runQuery 自带的 5s freshness 供 useRun 复用。
     client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } });
     useChatStore.getState().resetConversation('conversation-a');
     await mount(RestoreProbe);
@@ -522,7 +520,6 @@ describe('approval final refresh', () => {
         error: 'Stopped by server',
       });
     });
-    // 下一次发送清空 lastRun 后，恢复的旧轮仍从这份缓存读到结果与原因。
     const detail = client.getQueryData<{ pages: ConversationDetail[] }>([
       'conversation',
       'conversation-a',

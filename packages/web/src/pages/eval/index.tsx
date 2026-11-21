@@ -217,7 +217,6 @@ function EvalCaseRow({
 export function EvalPage() {
   const agents = useExperts();
   const navigate = useNavigate();
-  // 专家、选中的运行和比较两侧都放在 URL 里：刷新、分享、前进后退都保留。
   const search = useSearch({ from: '/_shell/eval' });
   const agentId = search.agent ?? '';
   const selectedAgent = agentId
@@ -250,7 +249,6 @@ export function EvalPage() {
     });
   };
   const setAgentId = (next: string): void => {
-    // 切专家时丢掉旧的运行/比较上下文，避免把别的专家的批次带过来。
     setSearch({
       agent: next || undefined,
       run: undefined,
@@ -303,7 +301,6 @@ export function EvalPage() {
     );
   };
 
-  /** 只停止后续用例：不撤销已在执行的 run，也不打断模型调用。 */
   const runningRun = effectiveAgentId
     ? runItems.find((run) => run.status === 'running')
     : undefined;
@@ -375,7 +372,6 @@ export function EvalPage() {
   const compareBase = terminalRuns[1];
   const openCompare = (): void => {
     if (!compareBase || !compareHead) return;
-    // runs 按创建时间倒序：默认比较前一次与最新一次。
     setSearch({ base: compareBase.id, head: compareHead.id });
   };
   const closeCompare = (): void => setSearch({ base: undefined, head: undefined });
@@ -527,7 +523,6 @@ export function EvalPage() {
                     // 先清空 value，同一个文件重试时才会再次触发 change。
                     event.target.value = '';
                     if (!file || !effectiveAgentId || !selectedAgent) return;
-                    // 目标专家在选文件时确定：解析期间切换筛选不会把用例导到别人名下。
                     const targetId = effectiveAgentId;
                     const targetName = selectedAgent.name;
                     void importJson(targetId, targetName, file);

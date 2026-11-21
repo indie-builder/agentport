@@ -22,7 +22,6 @@ const baseInfoSchema = z.object({
 
 type BaseInfoForm = z.infer<typeof baseInfoSchema>;
 
-/** 只编辑用户可见的名称与描述；模型、分块等设置留在设置弹层。 */
 export function BaseInfoDialog({
   base,
   onClose: onClosed,

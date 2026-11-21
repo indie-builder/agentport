@@ -42,7 +42,6 @@ export function PageHeader({
   title: string;
   description?: string;
   leading?: ReactNode;
-  /** 标题旁的小标签，如角色名、状态；单行、弱色。 */
   eyebrow?: ReactNode;
   actions?: ReactNode;
   className?: string;
@@ -97,7 +96,6 @@ export function PageSection({
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
-  /** 顶层区块默认带上分隔线；嵌套区块不需要。 */
   divided?: boolean;
 }) {
   return (
@@ -121,7 +119,6 @@ export function PageSection({
   );
 }
 
-/** 行内状态：空、加载失败或说明。放在线上，不装进卡片。 */
 export function PageNote({
   title,
   description,

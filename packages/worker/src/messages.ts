@@ -10,7 +10,6 @@ import {
 } from '@agentport/shared';
 import { and, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 
-/** 工具入参在事件里是 JSON 字符串；落库时还原成对象，前端与 trace 都按对象渲染。 */
 function parseToolInput(raw: string | undefined): unknown {
   if (raw === undefined) return {};
   try {
@@ -27,17 +26,13 @@ interface MessageRow {
   streamBlockId?: string;
 }
 
-/** 事件流 → 消息行：assistant 文本按块存，工具调用存成 tool 消息（use + result 各一行）。 */
 export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
   const rows: MessageRow[] = [];
   const toolNames = new Map<string, string>();
   const toolInputs = new Map<string, string>();
   const toolParents = new Map<string, string>();
   const toolUuids = new Map<string, string>();
-  /** 每个提问工具调用的最新快照；按 toolUseId 附到工具历史，刷新后仍能还原卡片。 */
   const questions = new Map<string, PublicRunQuestion>();
-  // 先收集全部快照：收尾时才写入的 answered/closed 排在 tool_result 之后，
-  // 单遍处理会把旧的 pending 快照留在历史里。
   for (const event of events) {
     if (event.type === 'question_updated') {
       questions.set(event.question.toolUseId, event.question);
@@ -53,7 +48,6 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
         content: {
           type: 'text',
           text: redactSecrets(event.text),
-          // 块身份随内容落库：读路径原样带出，前端才能按块重建而不是拼成一整段。
           ...(event.blockIndex === undefined ? {} : { blockIndex: event.blockIndex }),
           ...(event.parentToolUseId === undefined
             ? {}
@@ -74,13 +68,10 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
     } else if (event.type === 'tool_result') {
       answeredToolIds.add(event.toolUseId);
       const question = questions.get(event.toolUseId);
-      // 子智能体内部的调用：标出它属于哪个父侧 Agent 调用，前端据此缩进。
       const parentToolUseId = event.parentToolUseId ?? toolParents.get(event.toolUseId);
       const parent = parentToolUseId === undefined ? {} : { parentToolUseId };
-      // 工具调用的两半属于同一条 SDK 消息；fork 时按这个 uuid 重映射。
       const sdkMessageUuid = event.sdkUuid ?? toolUuids.get(event.toolUseId);
       const sdk = sdkMessageUuid === undefined ? {} : { sdkMessageUuid };
-      // tool_use 也要落库：否则刷新后前端无法重建工具卡片（只有 result 没有卡片）。
       rows.push({
         role: 'tool',
         content: {
@@ -100,7 +91,6 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
           toolUseId: event.toolUseId,
           name: toolNames.get(event.toolUseId) ?? null,
           content: redactSecrets(event.content),
-          // 清单与工具结果同一条消息落库；模型生成的可见文本同样要脱敏。
           ...(event.todos === undefined
             ? {}
             : {
@@ -118,8 +108,6 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
     }
   }
 
-  // 取消/超时/崩溃没有原生 tool_result：已开始的工具（含提问卡片）仍要保留，
-  // 否则实时界面看到的工具调用刷新后凭空消失。
   const startedToolIds = new Set<string>([...toolNames.keys(), ...questions.keys()]);
   for (const toolUseId of startedToolIds) {
     if (answeredToolIds.has(toolUseId)) continue;
@@ -143,7 +131,6 @@ export function buildMessageRows(events: ChatEvent[]): MessageRow[] {
   return rows;
 }
 
-/** 落库后的助手块；前端用它把流式项对齐到真实消息，运行内字段不落库。 */
 export interface PersistedMessage {
   id: string;
   blockIndex: number;
@@ -156,7 +143,6 @@ export interface PersistedMessage {
 
 export type PersistedChannelMessage = typeof schema.channelMessages.$inferSelect;
 
-/** 频道时间线只放主助手正文：子智能体内部文本不投影，多块按空行拼接。 */
 function channelReplyOf(
   messages: Array<{ id: string; row: MessageRow }>,
 ): { body: string; sourceMessageId: string } | null {
@@ -172,7 +158,6 @@ function channelReplyOf(
   };
 }
 
-/** 该会话上一条主助手（非子智能体）已合并的完整程序：跨轮补丁的基线。 */
 async function previousUiProgram(
   tx: Parameters<Parameters<Database['transaction']>[0]>[0],
   conversationId: string,
@@ -186,7 +171,6 @@ async function previousUiProgram(
         eq(schema.messages.conversationId, conversationId),
         eq(schema.messages.role, 'assistant'),
         isNotNull(schema.messages.uiProgram),
-        // 重试重放时本 run 的旧输出不是上一轮，不能拿它当基线。
         ...excludedRunIds.map((id) => sql`${schema.messages.runId} is distinct from ${id}`),
         sql`${schema.messages.content}->>'parentToolUseId' is null`,
       ),
@@ -196,7 +180,6 @@ async function previousUiProgram(
   return row?.uiProgram ?? '';
 }
 
-/** 按输出顺序合并 UI 段：纯文字保留上一条基线，子智能体与截断块不参与。 */
 function canonicalPrograms(
   rows: MessageRow[],
   baseline: string,
@@ -217,7 +200,6 @@ function canonicalPrograms(
       content.truncated !== true &&
       typeof content.text === 'string';
     const hasUi = eligible && hasOpenUiSegment(content.text as string);
-    // 纯文本消息不写程序，也不更新基线：下一轮补丁仍以最近一次真实 UI 为起点。
     if (!eligible || !hasUi) {
       programs.set(index, null);
       return;
@@ -233,7 +215,6 @@ function canonicalPrograms(
   return programs;
 }
 
-/** 按专家、会话、运行的顺序持锁，防止终态后追加输出或与删除形成反向锁等待。 */
 export async function persistRunMessages(
   db: Database,
   input: {
@@ -270,7 +251,6 @@ export async function persistRunMessages(
       .for('key share');
     if (!agent) return { written: false, messages: [] };
 
-    // 频道行锁必须早于会话锁：准入与发消息先锁频道再锁会话，先读会话只为确定锁哪行频道，反向会死锁。
     const [lane] = await tx
       .select({ channelId: schema.conversations.channelId })
       .from(schema.conversations)
@@ -329,7 +309,6 @@ export async function persistRunMessages(
       .for('update');
     if (!run) return { written: false, messages: [] };
 
-    // 基线必须在本 run 的输出删除之前读：先删会把上一轮也删掉，跨轮补丁就丢了。
     const baseline = await previousUiProgram(
       tx,
       input.conversationId,
@@ -354,7 +333,6 @@ export async function persistRunMessages(
         );
     }
     const programs = canonicalPrograms(rows, baseline, uiFormat);
-    // 先分配 id 并回传给宿主：前端要用它把流式消息与落库消息对应起来。
     const withIds = rows.map((row, index) => ({
       row,
       index,
@@ -372,12 +350,10 @@ export async function persistRunMessages(
         role: row.role,
         content: row.content,
         runId: input.runId,
-        // 只标记助手输出：tool 行不是可渲染的回复，用户消息的格式由准入时决定。
         ...(row.role === 'assistant' ? { uiFormat, uiProgram: programs.get(index) ?? null } : {}),
         ...(row.sdkMessageUuid === undefined ? {} : { sdkMessageUuid: row.sdkMessageUuid }),
       })),
     );
-    // 频道 lane 的助手正文与 messages 同事务投影；重放复用同一行，seq 不变。
     let channelMessage: PersistedChannelMessage | undefined;
     if (lane.channelId !== null && (input.projectChannelReply ?? true)) {
       const reply = channelReplyOf(withIds);
@@ -426,8 +402,6 @@ export async function persistRunMessages(
         .set({ updatedAt: new Date() })
         .where(eq(schema.channels.id, lane.channelId));
     }
-    // 会话的 SDK 状态必须与输出同事务：先落消息再单独存 session，
-    // 失败时会出现「页面有历史、transcript 缺一截」的静默错位。
     if (input.sdkSessionId !== undefined) {
       await repo.chat.saveSdkState(tx, {
         conversationId: input.conversationId,
@@ -435,7 +409,6 @@ export async function persistRunMessages(
         ...(input.uuidMap === undefined ? {} : { uuidMap: input.uuidMap }),
       });
     }
-    // SDK 合成错误也会产生助手文本，须按真实执行证据随结果原子消费上下文。
     if (
       lane.channelId !== null &&
       run.channelTriggerMessageId !== null &&
@@ -452,7 +425,6 @@ export async function persistRunMessages(
     if (input.replacesRunId !== undefined) {
       await tx.delete(schema.agentRuns).where(eq(schema.agentRuns.id, input.replacesRunId));
     }
-    // 只回传可渲染的助手文本块，前端据此回填 messageId。
     return {
       written: true,
       messages: withIds

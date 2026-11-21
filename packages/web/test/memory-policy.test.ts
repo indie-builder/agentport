@@ -51,9 +51,7 @@ async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 查询或表单还没落地，继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();

@@ -16,12 +16,10 @@ export const auditLog = pgTable(
   'audit_log',
   {
     id: text('id').primaryKey(),
-    /** actor 为已认证 businessId；anonymous 时可在 metadata 记录脱敏用户名。 */
     actor: text('actor').notNull().default('system'),
     actorKind: text('actor_kind', { enum: ['user', 'service', 'anonymous', 'agent'] })
       .notNull()
       .default('service'),
-    /** 跨用户读取的目标业务身份。 */
     subjectBusinessId: text('subject_business_id'),
     action: text('action').notNull(),
     target: text('target'),
@@ -47,12 +45,10 @@ export const auditLog = pgTable(
   ],
 );
 
-/** 平台首次初始化标记与角色矩阵 revision；只有一行。 */
 export const platformBootstrap = pgTable(
   'platform_bootstrap',
   {
     id: text('id').primaryKey(),
-    /** 首次初始化使用的业务身份；值不连 authUsers，账户可删除后重建。 */
     adminBusinessId: text('admin_business_id'),
     rolesRevision: integer('roles_revision').notNull().default(0),
     initializedAt: timestamp('initialized_at', { withTimezone: true }).notNull().defaultNow(),

@@ -47,15 +47,13 @@ describe('Markdown', () => {
   it('inherits parent size and color instead of forcing body typography', () => {
     const html = render({ text: '小字说明\n\n## 小节\n\n### 小节三', presentation: 'inherit' });
     expect(html).not.toContain('text-base text-fg');
-    expect(html).toContain('text-lg'); // H2 视觉档位不小于正文
+    expect(html).toContain('text-lg');
     expect(html).toContain('mt-3.5 mb-1.5 text-base font-semibold');
   });
 
   it('never lets sub-headings fall below a larger inherited body size', () => {
-    // TextContent large 的正文是 16px；H3–H6 固定 14px 会倒挂。
     const html = render({ text: '### 小节\n\n#### 小节四', presentation: 'inherit' });
     expect(html.match(/font-size:max\(1em, var\(--text-base\)\)/g)).toHaveLength(2);
-    // 默认正文下 1em 仍是 14px，视觉档位不变。
     expect(render({ text: '### 小节' })).toContain('font-size:max(1em, var(--text-base))');
   });
 

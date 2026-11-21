@@ -44,19 +44,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 export interface DataColumn<T> {
   id: string;
   header: string;
-  /** 单元格渲染；默认取 row[id]。 */
   cell?: (row: T) => ReactNode;
-  /** 数字列：右对齐、等宽。 */
   numeric?: boolean;
-  /** 整列按右缘对齐，用于右缘动作列，不套用数字列的等宽样式。 */
   align?: 'end';
-  /** 参与排序时提供取值；不提供则该列不可排序。 */
   sortValue?: (row: T) => string | number | null;
-  /** 列宽，例如 '180px' 或 '1fr'。用于 grid 模板。 */
   width?: string;
-  /** 默认隐藏，用户可在列设置里打开。 */
   hiddenByDefault?: boolean;
-  /** 不可在列设置里关闭。 */
   locked?: boolean;
 }
 
@@ -64,16 +57,12 @@ interface DataTableProps<T> {
   rows: T[];
   columns: DataColumn<T>[];
   rowKey: (row: T) => string;
-  /** 行操作按钮的业务名称；缺省用主键。主键仍负责 React key、展开状态与面板 id。 */
   rowLabel?: (row: T) => string;
-  /** 表格的无障碍名称。 */
   label: string;
   loading?: boolean;
   empty?: ReactNode;
-  /** 行内展开内容；返回 null 表示该行不可展开。 */
   renderExpanded?: (row: T) => ReactNode | null;
   storageKey?: string;
-  /** 首屏排序方向；只在挂载时生效，之后仍由用户点击调整。 */
   initialSorting?: SortingState;
   onRowClick?: (row: T, trigger: HTMLElement) => void;
   rowInteractive?: (row: T) => boolean;
@@ -99,7 +88,6 @@ function asIds(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : [];
 }
 
-/** 只读当前格式 { hidden, order }；其他形状（含旧版裸数组）一律回默认。 */
 function readPrefs(
   storageKey: string | undefined,
   columns: { id: string; locked?: boolean; hiddenByDefault?: boolean }[],
@@ -116,13 +104,10 @@ function readPrefs(
         hidden = Array.isArray(prefs.hidden) ? asIds(prefs.hidden) : hidden;
         order = Array.isArray(prefs.order) ? asIds(prefs.order) : order;
       }
-    } catch {
-      // 损坏的偏好（或 SSR 没有 localStorage）直接丢弃，回到默认。
-    }
+    } catch {}
   }
 
   return {
-    // 锁定列永远可见，旧偏好里记录了也忽略。
     visibility: Object.fromEntries(hidden.filter((id) => !locked.has(id)).map((id) => [id, false])),
     order,
   };
@@ -325,9 +310,7 @@ export function DataTable<T extends RowData>({
       .map(([id]) => id);
     try {
       localStorage.setItem(storageKey, JSON.stringify({ hidden, order: prefs.order }));
-    } catch {
-      // 隐私模式下 localStorage 不可写，忽略。
-    }
+    } catch {}
   }, [storageKey, prefs]);
 
   const orderedColumns = table
@@ -346,14 +329,11 @@ export function DataTable<T extends RowData>({
     table.setColumnOrder(reorderColumns(orderedColumns, from, to));
   };
 
-  // 尾部固定 32px 操作列承载列设置入口。
   const template = [
     ...visible.map((column) => sourceById.get(column.id)?.width ?? 'minmax(120px,1fr)'),
     '32px',
   ].join(' ');
 
-  // 窄屏保底宽度，让容器横向滚动而不是把文字截成省略号。
-  // 额外 44px 是尾部操作列 32px 加上它和前一列的 12px 间距。
   const minWidth =
     visible.reduce((sum, column) => {
       const match = sourceById.get(column.id)?.width?.match(/^(minmax\()?(\d+)px/);
@@ -363,7 +343,6 @@ export function DataTable<T extends RowData>({
     32 +
     44;
 
-  // 行用方向键上下移动；Enter/Space 由原生 button 激活，不重复处理。
   const onRowKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     event.preventDefault();
@@ -528,7 +507,6 @@ export function DataTable<T extends RowData>({
               };
               return (
                 <Fragment key={key}>
-                  {/* Row clicks supplement the keyboard-accessible action button in the first cell. */}
                   <TableRow
                     role="row"
                     onClick={

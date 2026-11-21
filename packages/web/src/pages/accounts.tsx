@@ -111,7 +111,6 @@ export function AccountsPage() {
     });
   };
   const roles = useRoleMatrix(canManageRoles);
-  // 角色目录的加载与失败要原样交给弹窗处理，不能在这里抹成空数组。
   const roleDirectory: RoleDirectory = {
     roles: roles.data?.roles,
     loading: roles.isPending,

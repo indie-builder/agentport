@@ -2,13 +2,6 @@ import { spawn } from 'node:child_process';
 import { CONFIG_CONTAINER_DIR, errorText } from '@agentport/shared';
 import { runDocker, type SpawnFn } from './command.js';
 
-/**
- * 运行环境镜像的启动冒烟校验。build.ts 只负责构建与用户检查，这里独占
- * 「镜像声明卷」与「入口真的能启动」两件事，供构建成功前调用。
- *
- * 容器条件与 DockerSandboxProvider 保持一致：uid 1000:1000、/app、只读根、
- * 无 capability、no-new-privileges、无网络，tmpfs 只给 /tmp 与 SDK 配置目录。
- */
 const VERIFY_SCRIPT = `
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -18,11 +11,9 @@ function fail(message) {
   process.exit(1);
 }
 function tail(text) {
-  // 子进程输出可能多行；压成一行，宿主才能按最后一行取到完整原因。
   const value = String(text || '').replace(/\\s+/g, ' ').trim();
   return value.length > 600 ? '…' + value.slice(-600) : value;
 }
-// 入口必须读到空 stdin 后按各自协议收尾；这里不调用模型，也不需要网络。
 function run(command, args) {
   return spawnSync(command, args, { encoding: 'utf8', input: '', timeout: 20000 });
 }
@@ -74,7 +65,6 @@ if (
   fail('native-plugins entry failed before reaching its protocol: ' + tail(native.stdout + native.stderr));
 }
 
-// runner 的 SDK 依赖在静态 import 阶段加载；空 stdin 能走到任务解析就证明依赖完整。
 const runner = run(process.execPath, ['/app/dist/runner.js']);
 const runnerOutput = runner.stdout + runner.stderr;
 if (runnerOutput.indexOf('stdin closed before task JSON arrived') === -1) {

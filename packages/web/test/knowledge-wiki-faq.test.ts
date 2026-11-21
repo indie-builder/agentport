@@ -39,8 +39,6 @@ vi.mock('../src/lib/toast.js', () => ({
 
 registerKnowledgeHarness();
 
-// ---- K-U1..U3：批量、版本/草稿、FAQ、Wiki 组织与检索诊断 -----------------
-
 const faqPublishedVersion = {
   id: 'kdv_faq_pub',
   documentId: 'kdoc_faq',
@@ -114,7 +112,6 @@ describe('knowledge wiki versions', () => {
         HttpResponse.json({
           ...wikiPage,
           currentVersionId: 'kwv_old',
-          // 第一页不含当前发布版本：不能把它当成空白首版。
           versions: [wikiPage.versions[0]],
           nextCursor: 'kwv_cursor_old',
         }),
@@ -128,14 +125,12 @@ describe('knowledge wiki versions', () => {
     );
     await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
 
-    // 当前发布版本不在第一页时自动取更早的版本页，读到正文后才允许编辑。
     await waitFor(() => document.body.textContent?.includes('第二页正文。') === true);
     expect(findButton('重新生成')).toBeDefined();
     expect(findButton('生成草稿')).toBeUndefined();
     expect(button('编辑正文').disabled).toBe(false);
     await click(button('编辑正文'));
     const editor = dialog('编辑 Wiki 正文');
-    // 草稿从最新版本续写；当前发布版本只用于展示。
     expect(editor.querySelector<HTMLTextAreaElement>('#knowledge-wiki-markdown')?.value).toBe(
       '## 当前\n\n第二步。',
     );
@@ -214,7 +209,6 @@ describe('knowledge wiki versions', () => {
     const editor = dialog('编辑 Wiki 正文');
     await fill('knowledge-wiki-markdown', '## 我的草稿');
 
-    // 另一个窗口发布了 v3：后台刷新把页面当前版本推进到 v3。
     currentVersionId = 'kwv_3';
     await act(async () => {
       await mountState.client?.invalidateQueries({ queryKey: ['knowledge', 'wiki-page', 'kwp_1'] });
@@ -266,7 +260,6 @@ describe('knowledge wiki versions', () => {
         return HttpResponse.json({ jobId: 'kjob_gen' });
       }),
     );
-    // 其他页面或其他来源的终态任务留在列表里，但不显示在这一页。
     jobs = [wikiJob('succeeded', 'kjob_other')];
     await mount('/knowledge/kb_1', { panel: 'wiki', page: 'kwp_1' });
     expect(document.body.textContent).not.toContain('生成任务');
@@ -278,13 +271,10 @@ describe('knowledge wiki versions', () => {
     const listBefore = listCalls;
     await click(button('重新生成'));
     await flush();
-    // 提交后由产品自己刷新任务列表即可看到新任务，不靠测试手动刷新。
     expect(document.body.textContent).toContain('生成任务 排队中');
-    // 任务仍在跑时只刷新任务列表，不重复拉当前页面与页面列表。
     expect(pageCalls).toBe(pageBefore);
     expect(listCalls).toBe(listBefore);
 
-    // 任务终态刷新页面失败时保留页面数据与编辑草稿，只做局部报错。
     server.use(
       http.get('/api/knowledge/wiki-pages/kwp_1', () =>
         HttpResponse.json({ code: 'INTERNAL', message: '页面刷新失败' }, { status: 500 }),
@@ -317,7 +307,6 @@ describe('knowledge wiki versions', () => {
     expect(document.body.textContent).not.toContain('Wiki 页面没有刷新成功');
     expect(document.body.textContent).toContain('第二步。');
 
-    // 终态后的轮询即使继续刷新任务列表，也不再重复失效页面与列表。
     const settledPage = pageCalls;
     const settledList = listCalls;
     await act(async () => {
@@ -785,7 +774,6 @@ describe('knowledge wiki organization and contributions', () => {
     await waitFor(() => document.body.textContent?.includes('链接') === true);
     expect(document.body.textContent).toContain('备份指南');
     expect(document.body.textContent).toContain('链接');
-    // 回退后的历史版本不等于草稿；没有 publication 标记时只说明未设为当前。
     expect(document.body.textContent).toContain('未设为当前版本');
     expect(document.body.textContent).not.toContain('有未发布草稿');
 

@@ -128,7 +128,6 @@ async function mount(
   if (url.startsWith('/personal/reviews')) {
     await vi.waitFor(() => expect(host.textContent).toContain('生成记忆提案'));
   } else {
-    // 面板在个人记忆查询结束后才渲染；等它出现，后续断言才有稳定的阅读态。
     await vi.waitFor(() =>
       expect(host.querySelector('section[aria-label="个人记忆"]')).toBeTruthy(),
     );
@@ -172,7 +171,6 @@ function mainNavHrefs(): string[] {
     : [];
 }
 
-/** 底部账号入口与「个人资料」导航同名，用 nav 边界区分，避免误取侧栏条目。 */
 function accountEntry(): HTMLAnchorElement {
   const match = [...host.querySelectorAll<HTMLAnchorElement>('a[aria-label="个人资料"]')].find(
     (item) => item.closest('nav') === null,
@@ -292,15 +290,12 @@ describe('个人记忆页', () => {
     await mount();
     expect(host.querySelectorAll('h1')).toHaveLength(1);
     expect(host.querySelector('h1')?.textContent).toBe('个人记忆');
-    // 标题与意义说明只出现一次，不再在内容区重复一个同名 h2。
     expect([...host.querySelectorAll('h2')].some((item) => item.textContent === '个人记忆')).toBe(
       false,
     );
     expect(host.textContent?.split('每轮对话会带入这些长期信息。')).toHaveLength(2);
-    // 底部账号入口指向个人资料，不在本页标为当前，避免与侧栏当前项重复播报。
     expect(mainNavLink('个人记忆').getAttribute('aria-current')).toBe('page');
     expect(accountEntry().getAttribute('aria-current')).toBeNull();
-    // 导航分组与顺序由导航单元维护；这里只确认六个个人目的地都可达。
     expect(new Set(mainNavHrefs())).toEqual(new Set(PERSONAL_HREFS));
     for (const href of [
       '/agents',
@@ -315,7 +310,6 @@ describe('个人记忆页', () => {
     ]) {
       expect(mainNavHrefs()).not.toContain(href);
     }
-    // 内容区旧横导航删除后，个人导航只保留在 AppShell 侧栏。
     expect(host.querySelector('nav[aria-label="个人导航"]')).toBeNull();
   });
 
@@ -332,7 +326,6 @@ describe('个人记忆页', () => {
   it('默认以 Markdown 阅读已有内容，编辑后才出现源码编辑器', async () => {
     await mount();
     await vi.waitFor(() => expect(host.textContent).toContain('旧偏好'));
-    // 阅读态正文在说明之前，说明只出现一次。
     const section = host.querySelector('section[aria-label="个人记忆"]');
     const sectionText = section?.textContent ?? '';
     expect(sectionText.indexOf('旧偏好')).toBeLessThan(
@@ -343,7 +336,6 @@ describe('个人记忆页', () => {
     expect(button('编辑')).toBeTruthy();
     expect(link('去对话').getAttribute('href')).toBe('/chat');
     expect(link('从对话整理').getAttribute('href')).toBe('/personal/reviews?create=true');
-    // 有内容时阅读态动作只在顶部出现一次。
     expect(
       [...host.querySelectorAll('a')].filter((item) => item.textContent?.trim() === '从对话整理'),
     ).toHaveLength(1);
@@ -352,7 +344,6 @@ describe('个人记忆页', () => {
     expect(editorValue()).toBe('旧偏好');
     await click(button('取消'));
     await vi.waitFor(() => expect(document.getElementById('personal-memory-content')).toBeNull());
-    // 从编辑返回阅读态，说明仍然只有一处。
     expect(host.textContent?.split('每轮对话会带入这些长期信息。')).toHaveLength(2);
   });
 
@@ -392,13 +383,11 @@ describe('个人记忆页', () => {
     });
     await mount();
     expect(host.textContent).toContain('个人记忆为空');
-    // 空态不显示阅读态的「每轮会带入」说明，只保留空态标题与两个动作。
     expect(host.textContent).not.toContain('每轮对话会带入这些长期信息。');
     expect(
       [...host.querySelectorAll('a')].filter((item) => item.textContent?.trim() === '从对话整理'),
     ).toHaveLength(1);
     expect(link('从对话整理').getAttribute('href')).toBe('/personal/reviews?create=true');
-    // 空态没有可编辑或可下载的内容，顶部动作不重复出现。
     expect([...host.querySelectorAll('button')].some((item) => item.textContent === '编辑')).toBe(
       false,
     );
@@ -422,7 +411,6 @@ describe('个人记忆页', () => {
     await fillEditor('新偏好');
     expect(host.textContent).toContain('未保存');
 
-    // 保存后服务端重读返回新内容，失效产生的重取要拿到它。
     vi.mocked(api.personalMemory).mockResolvedValue({
       content: '新偏好',
       revision: 3,
@@ -626,7 +614,6 @@ describe('个人记忆页', () => {
     await startEditing();
     await fillEditor('本地草稿');
 
-    // 外部编辑让查询缓存刷新到新 revision，但这次保存仍应以编辑开始时的 2 为基线。
     await act(async () => {
       client.setQueryData(['personal-memory'], {
         content: '服务器上的新内容',

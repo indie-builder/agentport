@@ -9,10 +9,6 @@ import {
 } from '@openuidev/lang-core';
 import { openuiChatLibrary } from '@openuidev/react-ui/genui-lib';
 
-/**
- * 行为对照：同一段程序，用本地真实 Zod 定义解析与官方库解析必须得到同一棵树。
- * 这比「schema 文本相同」更强——它覆盖默认值填补、联合类型判定与绑定保留。
- */
 const reactive = <T extends object>(schema: T): T => {
   markReactive(schema);
   return schema;

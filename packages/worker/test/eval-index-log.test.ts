@@ -10,13 +10,11 @@ import { waitFor } from './fixtures/native-test.js';
 type FailedHandler = (job: { id?: string; data?: unknown } | undefined, error: unknown) => void;
 
 const mocks = (() => ({
-  /** 关闭事件回调的 logger 参数，用来验证生产日志载荷。 */
   errors: [] as unknown[][],
   failedHandlers: new Map<string, FailedHandler>(),
   handleEvalJobFailed: mock(),
 }))();
 
-// 真实 index.ts 用 pino 建 logger；这里只捕获 error 载荷，不改变任何模块行为。
 mock.module('pino', () => {
   const logger = {
     error: (...args: unknown[]) => {
@@ -32,11 +30,9 @@ mock.module('pino', () => {
 
 const coreActual = await import('@agentport/core');
 mock.module('@agentport/core', () => {
-  // 进程级守卫会把测试里的未处理异常变成 process.exit；这里只验证日志载荷。
   return { ...coreActual, installProcessGuards: () => undefined };
 });
 
-// 只保留真实 index 的 failed 回调注册；不消费队列、不连接 Redis。
 const bullmqActual = await import('bullmq');
 mock.module('bullmq', () => {
   class Worker {
@@ -54,7 +50,6 @@ mock.module('bullmq', () => {
   return { ...bullmqActual, Worker };
 });
 
-// 收口 handler 是外部 DB 边界；本用例只验证 index 如何记录它抛出的错误。
 mock.module('../src/eval-job.js', () => ({
   runEvalJob: async () => undefined,
   handleEvalJobFailed: mocks.handleEvalJobFailed,
@@ -166,7 +161,6 @@ describe('eval failure logs in the real worker entry', () => {
     const sigterm = new Set(process.listeners('SIGTERM'));
     const sigint = new Set(process.listeners('SIGINT'));
     await import('../src/index.js');
-    // 测试进程不接管真实关停信号。
     for (const listener of process.listeners('SIGTERM')) {
       if (!sigterm.has(listener)) process.off('SIGTERM', listener);
     }
@@ -206,7 +200,6 @@ describe('eval failure logs in the real worker entry', () => {
       errorCode: '42P01',
     });
 
-    // 收口边界仍拿到原始错误，只有日志被脱敏。
     expect(mocks.handleEvalJobFailed).toHaveBeenCalledWith(
       expect.objectContaining({ job, error: failedError }),
     );

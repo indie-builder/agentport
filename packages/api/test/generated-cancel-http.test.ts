@@ -21,10 +21,6 @@ import { listen, type TestServer } from './server.js';
 
 const ready = await infraReady;
 
-/**
- * 真实 HTTP 下的取消：不 mock MCP 与 SSRF，用未改动的外部上游验证
- * 「run 取消后，挂起中的工具调用不再打上游」。
- */
 describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
   let app: TestApp;
   let listener: TestServer;
@@ -43,7 +39,6 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
     listener = await listen(app);
     baseUrl = listener.url;
 
-    // 本机上游：调用计数就是「取消后是否真打了上游」的唯一证据。
     const upstreamServer = createServer((_req, res) => {
       upstreamCalls.count += 1;
       res.writeHead(200, { 'content-type': 'text/plain' });
@@ -115,7 +110,6 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
       const refused = await client.callTool({ name: 'blocked-user', arguments: {} });
       expect(refused.isError).toBe(true);
 
-      // 等挂起请求落库并带未来截止时间，再取消；顺序固定，不靠 sleep 猜时序。
       const seeded = await waitFor(async () => {
         const res = await request(app, {
           method: 'GET',
@@ -136,7 +130,6 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
       const result = await client.callTool({ name: 'blocked-user', arguments: {} });
       const text = JSON.stringify(result.content);
       expect(result.isError).toBe(true);
-      // 取消在 1000ms 截止之前发生，文案不能是「已等待 N 秒」的超时。
       expect(text).toMatch(/cancel|取消|结束/i);
       expect(text).not.toContain('已等待');
       expect(upstreamCalls.count).toBe(0);

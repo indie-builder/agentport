@@ -26,7 +26,6 @@ describe('schedule trigger queue contract', () => {
       removeOnComplete: 100,
       removeOnFail: 200,
     });
-    // 自定义 jobId 会让同一 trigger 的每次触发互相覆盖。
     expect(template.opts).not.toHaveProperty('jobId');
   });
 

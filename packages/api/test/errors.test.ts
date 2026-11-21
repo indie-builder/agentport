@@ -6,10 +6,6 @@ import { HTTPException } from 'hono/http-exception';
 import { isPgCode, toAppError } from '../src/http/errors.js';
 import { expectProblem, loginCookie, request, startApp, type TestApp } from './helpers.js';
 
-/**
- * 错误契约的边界测试：每个出口都必须给出同一形状。
- * 业务路径的断言在各自 feature 的测试里，这里只验证「形状与安全」。
- */
 describe('problem responses', () => {
   let app: TestApp;
   let cookie: string;
@@ -69,7 +65,6 @@ describe('problem responses', () => {
 
 describe('AppError contract', () => {
   it('never leaks internal details on a real 500', async () => {
-    // better-auth 的登录要读用户表；数据库不可达时登录本身就是一次真实的 500。
     const broken = await startApp({ DATABASE_URL: 'postgres://u:hunter2@127.0.0.1:1/nope' });
     try {
       const res = await request(broken, {
@@ -146,7 +141,6 @@ describe('toAppError mappings', () => {
   });
 
   it('does not treat a generic AbortError as a Redis outage', () => {
-    // 外部 HTTP 超时（AbortSignal.timeout）同样抛 AbortError，不能映射成可重试 503。
     const aborted = Object.assign(new Error('The operation was aborted due to timeout'), {
       name: 'AbortError',
     });

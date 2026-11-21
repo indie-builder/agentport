@@ -4,8 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-// 这些用例只用临时目录 + stub 的 pg_dump/pg_restore/bun，不触真实数据库或工作区卷。
-// 唯一例外是配置损坏的哨兵用例：它只在本轮隔离随机库里读写一张自建表，不碰开发库。
 const run = promisify(execFile);
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const SCRIPTS = join(ROOT, 'scripts');
@@ -55,7 +53,6 @@ const tools = [
 export function createBackupScriptSuite() {
   let env: Env;
 
-  /** 只放行真实系统工具的白名单 PATH：compose/docker 看不到，脚本走宿主分支。 */
   async function makeEnv(): Promise<Env> {
     const dir = await mkdtemp(join(tmpdir(), 'backup-script-'));
     const bin = join(dir, 'bin');
@@ -66,7 +63,6 @@ export function createBackupScriptSuite() {
     await mkdir(join(workspaces, 'demo-agent', 'agent-memory'), { recursive: true });
     await mkdir(join(workspaces, 'demo-agent', 'run_01abc'), { recursive: true });
     await mkdir(join(workspaces, 'demo-agent', 'sessions'), { recursive: true });
-    // 试连只用一个空目录当挂载点，不是持久数据。
     await mkdir(join(workspaces, 'sandbox-probes'), { recursive: true });
     await writeFile(join(workspaces, 'demo-agent', 'agent-memory', 'MEMORY.md'), '# memory\n');
     await writeFile(join(workspaces, 'demo-agent', 'run_01abc', 'workspace.txt'), 'derived\n');
@@ -106,10 +102,6 @@ export function createBackupScriptSuite() {
     if (!existing) await symlink(path, link);
   }
 
-  /**
-   * docker/compose 替身：把容器内 /knowledge、/workspaces 与 -v 的 /in 映射到临时目录，
-   * 模拟卷在宿主不可见时由容器 tar/sh 进出数据。STUB_DOCKER_FAIL=1 让知识卷读写失败。
-   */
   async function stubDocker() {
     const code = `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -235,7 +227,6 @@ process.exit(0);
 
   async function defaultStubs() {
     await stub('psql', 'cat </dev/null; printf 0');
-    // pg_dump / pg_restore 只记录自己收到的连接串，不读归档内容。
     await stub(
       'pg_dump',
       'printf "PGDUMP %s\\n" "$*" >>"$STUB_LOG"; for a in "$@"; do case "$a" in postgres*) printf "dump-of:%s" "$a";; esac; done',
@@ -256,10 +247,6 @@ process.exit(0);
     return (await readFile(env.log, 'utf8').catch(() => '')).split('\n').filter(Boolean);
   }
 
-  /**
-   * compose 部署场景：不设 KNOWLEDGE_DIR（那份宿主配置指向 ./data/knowledge），
-   * 卷挂载点在宿主不可读，数据只在“容器”里可见。
-   */
   function composeEnv(extra: Record<string, string> = {}) {
     const { KNOWLEDGE_DIR: _ignored, ...base } = scriptEnv(extra);
     return {
@@ -278,7 +265,6 @@ process.exit(0);
     return run('bash', [join(SCRIPTS, 'restore.sh'), ...args], { env: composeEnv(extra) });
   }
 
-  /** 知识库目录：原件 blob + 解析产物。 */
   async function seedKnowledge() {
     await mkdir(join(env.knowledge, 'blobs', 'ab'), { recursive: true });
     await mkdir(join(env.knowledge, 'docs', 'doc-1', 'ver-1'), { recursive: true });
@@ -291,7 +277,6 @@ process.exit(0);
     return stdout.trim().split('\n').at(-1)?.replace('BACKUP OK ', '') ?? '';
   }
 
-  /** 重打包：在解压目录里改东西后再压回 tar.gz。 */
   async function repack(archive: string, mutate: (dir: string) => Promise<void>, name: string) {
     const unpacked = await mkdtemp(join(env.dir, 'unpacked-'));
     await run('tar', ['-xzf', archive, '-C', unpacked]);
@@ -302,7 +287,6 @@ process.exit(0);
   }
 
   async function restoreTargets(): Promise<string[]> {
-    // 只看真正回放归档的调用（带 --dbname=），跳过 --version / --list 探测。
     return (await stubLog())
       .filter((line) => line.startsWith('PGRESTORE ') && line.includes('--dbname='))
       .map((line) => line.split('--dbname=')[1]?.split(' ')[0] ?? '');

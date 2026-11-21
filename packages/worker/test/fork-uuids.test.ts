@@ -6,7 +6,6 @@ import { readForkUuidMap } from '../src/runs/fork-uuids.js';
 
 const roots: string[] = [];
 
-/** 写一份最小 transcript：只有 uuid 与 forkedFrom 参与映射。 */
 async function transcript(lines: Array<{ uuid: string; from?: string }>): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'fork-uuids-'));
   roots.push(root);
@@ -30,7 +29,6 @@ afterEach(() => {
 
 describe('readForkUuidMap', () => {
   it('uses forkedFrom rather than position, so reordered transcripts still map correctly', async () => {
-    // 压缩后的会话顺序与来源不同：不能用下标对齐。
     const root = await transcript([
       { uuid: 'new-b', from: 'old-b' },
       { uuid: 'new-a', from: 'old-a' },

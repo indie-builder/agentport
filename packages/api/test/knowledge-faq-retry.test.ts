@@ -139,7 +139,6 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
     return job.payload;
   }
 
-  /** 用真实终态入口收尾：先认领再按给定的合法终态结束，不直接改状态列。 */
   async function settleJob(jobId: string, status: 'failed' | 'succeeded') {
     const claimed = await repo.knowledge.claimJob(app.db, jobId);
     if (!claimed) throw new Error(`job ${jobId} is not queued`);
@@ -147,7 +146,6 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
     if (!finished) throw new Error(`job ${jobId} finish was refused`);
   }
 
-  /** 模拟 worker 合法完成：写入索引块后把重试任务标成功。 */
   async function completeJob(jobId: string, documentId: string, versionId: string) {
     const claimed = await repo.knowledge.claimJob(app.db, jobId);
     if (!claimed) throw new Error(`job ${jobId} is not queued`);
@@ -210,7 +208,6 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
       retryMarker: 'keep',
     });
 
-    // 新任务还没成功时仍拒绝发布，不能因为换绑就放行。
     expect((await publish(documentId, versionId, null)).statusCode).toBe(409);
 
     await completeJob(retryJobId, documentId, versionId);
@@ -323,7 +320,6 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
     const importPayload = await jobPayload(failedEntry.jobId);
     expect(importPayload).toMatchObject({ type: 'ingest', versionId: failedVersionId });
 
-    // 其它 metadata 不能被重试覆盖。
     await app.client.unsafe(
       `update knowledge_document_versions
          set metadata = metadata || '{"retryMarker":"keep"}'::jsonb
@@ -347,10 +343,8 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
     const cancelledRetryJobId = cancelledRetry.json<{ jobId: string }>().jobId;
     expect(failedRetryJobId).not.toBe(failedEntry.jobId);
     expect(cancelledRetryJobId).not.toBe(cancelledEntry.jobId);
-    // 重试只换任务 ID 与草稿绑定，原 payload/version/input 原样复用。
     expect(await jobPayload(failedRetryJobId)).toEqual(importPayload);
 
-    // 关闭再打开时组件只读详情；新 jobId 必须已持久化在草稿 metadata。
     const failedAfter = (await detail(failedEntry.documentId)).draftVersion;
     expect(failedAfter?.metadata).toMatchObject({
       publication: 'draft',
@@ -391,14 +385,12 @@ describe.skipIf(!ready)('knowledge FAQ job retry', () => {
         payload: batchPayload,
       });
 
-    // 新任务还没成功时整批发布仍拒绝，不能因为换绑就放行。
     const refused = await publishBatch();
     expect(refused.statusCode, refused.body).toBe(409);
 
     await completeJob(failedRetryJobId, failedEntry.documentId, failedVersionId);
     await completeJob(cancelledRetryJobId, cancelledEntry.documentId, cancelledVersionId);
 
-    // 成功后再读详情，仍是持久化的重试任务 ID。
     expect((await detail(failedEntry.documentId)).draftVersion?.metadata.faqImportJobId).toBe(
       failedRetryJobId,
     );

@@ -20,7 +20,6 @@ describe.skipIf(!ready)('db repo guards', () => {
   const conversationId = newId('conversation');
 
   afterAll(async () => {
-    // 删 agent 级联清掉会话、消息、评估数据。
     await db.delete(agents).where(eq(agents.id, agentId));
     await client.close();
   });
@@ -77,7 +76,6 @@ describe.skipIf(!ready)('db repo guards', () => {
     expect(row?.status).toBe('failed');
     expect(row?.passed).toBe(0);
 
-    // 新外键要求 run 真实存在：造一条属于本测试的 run。
     const realRunId = newId('run');
     await chat.createRun(db, {
       id: realRunId,

@@ -62,7 +62,6 @@ function renderHealth({
   client.setQueryData(overviewQuery.queryKey, overview());
   if (!pending) {
     const query = client.getQueryCache().build(client, healthMetricsQuery);
-    // 端点不可达在 queryFn 里抛错：首次失败没有旧读数，刷新失败才保留上次成功值。
     if (loaded) query.setData(value);
     if (error) query.setState({ status: 'error', error: new Error('Offline') });
   }

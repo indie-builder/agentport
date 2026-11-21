@@ -14,12 +14,10 @@ import type { Logger } from 'pino';
 import { keepTail, runDocker, type SpawnFn } from './command.js';
 import { verifyRuntimeEnvironmentImage } from './verify.js';
 
-/** BullMQ 任务名；jobId 与载荷都由 shared 契约固定。 */
 export const RUNTIME_ENVIRONMENT_BUILD_JOB = 'build';
 
 export const RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS = 30 * 60_000;
 
-/** 流式落库的批量窗口；日志总长由 DB 按同一常量保留尾部。 */
 const BUILD_LOG_FLUSH_BYTES = 16 * 1024;
 const BUILD_LOG_FLUSH_MS = 1_000;
 const IMAGE_ID = /^sha256:[0-9a-f]{64}$/;
@@ -40,7 +38,6 @@ function detail(stderr: string): string {
 }
 
 function imageTagFor(sandboxImage: string, versionId: string): string {
-  // 去掉已有 tag/digest，保留 registry 与仓库路径；tag 只用来定位构建产物。
   const slash = sandboxImage.lastIndexOf('/');
   const colon = sandboxImage.lastIndexOf(':');
   const repository = colon > slash ? sandboxImage.slice(0, colon) : sandboxImage;
@@ -119,10 +116,6 @@ function failure(
   return { ok: false, aborted, error, buildLog: log.text(), logTruncated: log.truncated() };
 }
 
-/**
- * 独立空上下文里只放冻结的 Dockerfile，不发送仓库、工作区或 env。
- * 基座解析为 image ID 后通过 ARG 传入，重复构建默认复用 BuildKit 层缓存。
- */
 export async function executeRuntimeEnvironmentBuild(
   input: RuntimeEnvironmentBuildInput,
 ): Promise<RuntimeEnvironmentBuildResult> {
@@ -215,7 +208,6 @@ export async function executeRuntimeEnvironmentBuild(
       );
     }
 
-    // 入口启动、卷声明与 uid/可写性由 verify 独占；build 只负责构建与镜像用户检查。
     const verified = await verifyRuntimeEnvironmentImage({
       imageId,
       spawn: spawnFn,
@@ -246,7 +238,6 @@ export interface RuntimeEnvironmentBuildClaim {
   baseImageId: string;
 }
 
-/** 与 db repo 的 runtimeEnvironments 方法一一对应，接线时只做薄映射。 */
 export interface RuntimeEnvironmentBuildStore {
   /** 只认领 queued 版本并置为 building；重复投递或已终态返回 null。 */
   claimBuild(versionId: string): Promise<RuntimeEnvironmentBuildClaim | null>;
@@ -275,7 +266,6 @@ interface BuildLogStream {
   close: () => void;
 }
 
-/** 增量输出按字节窗口或时间窗口批量落库；同一时刻只有一个落库循环。 */
 function createBuildLogStream(
   store: RuntimeEnvironmentBuildStore,
   versionId: string,
@@ -285,10 +275,8 @@ function createBuildLogStream(
   let appendError: unknown;
   let draining: Promise<void> | null = null;
   const drain = (): Promise<void> => {
-    // 空闲刷新不创建 drain：否则定时器每次空刷新都会留下一个已完成的 Promise。
     if (draining !== null) return draining;
     if (pending === '') return Promise.resolve();
-    // 主体放进下一个微任务：store 同步抛错时 finally 不会抢在 draining 赋值前清空。
     const owned = Promise.resolve()
       .then(async () => {
         while (pending !== '') {
@@ -298,7 +286,6 @@ function createBuildLogStream(
         }
       })
       .catch((err) => {
-        // 落库失败不能吞掉：最终 flush 会抛出，构建按失败收尾而不是假 ready。
         if (appendError === undefined) {
           appendError = err;
           logger.warn({ err, versionId }, 'runtime environment build log append failed');
@@ -321,7 +308,6 @@ function createBuildLogStream(
   return {
     append,
     flush: async () => {
-      // drain 结束与尾部到达可能交替，循环到 pending 真正清空。
       while (draining !== null || pending !== '') await drain();
       if (appendError !== undefined) throw appendError;
     },
@@ -329,7 +315,6 @@ function createBuildLogStream(
   };
 }
 
-/** 队列 handler 与测试共用的执行入口。 */
 export function createRuntimeEnvironmentBuildHandler(
   deps: RuntimeEnvironmentBuildDeps,
 ): (job: Job<RuntimeEnvironmentBuildJob>) => Promise<void> {
@@ -356,7 +341,6 @@ export function createRuntimeEnvironmentBuildHandler(
         ...(deps.spawn === undefined ? {} : { spawn: deps.spawn }),
         signal,
       });
-      // 先等流式日志收尾，失败尾部与终态同批可见。
       let logError: unknown;
       try {
         await logStream.flush();
@@ -364,7 +348,6 @@ export function createRuntimeEnvironmentBuildHandler(
         logError = err;
         deps.logger.warn({ err, versionId }, 'runtime environment build log flush failed');
       }
-      // 日志没落库就不算成功：否则 ready 版本会没有任何构建记录。
       if (result.ok && logError === undefined) {
         await deps.store.completeBuild(versionId, {
           imageTag: result.imageTag,
@@ -394,7 +377,6 @@ interface RuntimeEnvironmentBuildWorkerConfig {
   prefix?: string | undefined;
 }
 
-/** 独立队列、并发 1；成功只写版本，不推进线上指针。 */
 export async function startRuntimeEnvironmentBuildWorker(
   config: RuntimeEnvironmentBuildWorkerConfig,
 ): Promise<{ close: () => Promise<void> }> {

@@ -46,7 +46,6 @@ const blankToolForm: ToolFormValues = {
   approvalMode: 'allow',
 };
 
-/** validateToolInput 只读 form 的标量字段，schema 文本单独传入。 */
 function toolPayload(values: ToolFormValues): ApiToolInput {
   return {
     name: values.name,
@@ -114,7 +113,6 @@ export function ToolForm({
   const { errors, isDirty } = formState;
   const watched = watch();
 
-  // 只有这个表单自己的保存会改变可关闭状态；行内开关不算。
   const formPending = create.isPending || update.isPending;
   const pending = disabled || formPending;
   const dirty = isDirty;
@@ -123,7 +121,6 @@ export function ToolForm({
   useEffect(() => {
     blockerRef.current = blocker;
   }, [blocker]);
-  // 父级关闭弹层会卸载表单并摘掉 blocker：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
   const settle = (): void => {
     blockerRef.current.reset?.();
   };
@@ -133,7 +130,6 @@ export function ToolForm({
   useEffect(() => {
     onPendingChange(formPending);
   }, [formPending, onPendingChange]);
-  // 提交成功后父级会卸载本表单；卸载时清掉父级的脏/请求中状态。
   useEffect(
     () => () => {
       onDirtyChange(false);
@@ -141,7 +137,6 @@ export function ToolForm({
     },
     [onDirtyChange, onPendingChange],
   );
-  // 父级切换工具或放弃编辑也会直接卸载表单：卸载时结算被拦下的导航，避免 resolver 挂起。
   useEffect(() => () => blockerRef.current.reset?.(), []);
 
   const submit = handleSubmit((values) => {
@@ -162,7 +157,6 @@ export function ToolForm({
       return;
     }
 
-    // 一次 PATCH 完成：工具 id 不变，运行中的审批与外键引用不会断。
     update.mutate(
       { toolId: tool.id, patch: payload },
       {

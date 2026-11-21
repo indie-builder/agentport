@@ -32,7 +32,6 @@ export function RangeRows({
   type: SourceType;
   ranges: RangeDraft[];
   disabled: boolean;
-  /** 提交后按行显示缺外部 ID / Ref / Seafile 目录根；未提交时不制造噪音。 */
   errors: Array<{ externalId: string | null; ref: string | null; paths: string | null }>;
   onChange: (ranges: RangeDraft[]) => void;
 }) {

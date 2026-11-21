@@ -26,8 +26,6 @@ import {
 import { mergeChannelMessages } from '../channel-state.js';
 import { mergeRunQuestions, useRefetchWhenRunEnds, withRunQuestion } from './shared.js';
 
-// ---- 频道 ----------------------------------------------------------------
-
 const channelsQuery = queryOptions<ChannelListItem[]>({
   queryKey: ['channels'],
   queryFn: ({ signal }) => api.channels(signal),
@@ -45,7 +43,6 @@ export const CHANNEL_MESSAGES_PAGE_SIZE = 200;
 
 export const channelMessagesKey = (id: string) => ['channel-messages', id] as const;
 
-/** 取最新一页；更早消息由频道页按 before 游标补齐，重取只能并入不能替换。 */
 async function fetchChannelMessages(
   id: string,
   client: QueryClient,
@@ -66,7 +63,6 @@ export const channelRunsQuery = (id: string) =>
   queryOptions<ChannelActiveRun[]>({
     queryKey: ['channel-runs', id],
     queryFn: async ({ signal }) => (await api.channelRuns(id, signal)).items,
-    // 事件流负责实时；低频轮询兜底漏发的 run 生命周期事件。
     refetchInterval: 15_000,
   });
 
@@ -104,7 +100,6 @@ export function useChannelMessages(id: string) {
   const client = useQueryClient();
   return useQuery({
     queryKey: channelMessagesKey(id),
-    // 缓存可能已补入更早消息与 SSE 消息，重取最新页只能并入，否则更早区间永久丢失。
     queryFn: ({ signal }) => fetchChannelMessages(id, client, signal),
     staleTime: 0,
   });

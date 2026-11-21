@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# 部署自检：健康检查 → 登录 → 核心读接口 → MCP 鉴权。
-# 用法：BASE_URL=http://localhost:3000 ADMIN_USER=admin ADMIN_PASSWORD=... bash scripts/smoke.sh
-# 可选：PLATFORM_MCP_TOKEN 有值时额外验证 /mcp 的 tools/list。
 set -uo pipefail
 
 BASE_URL="${BASE_URL:-http://localhost:3000}"
@@ -16,7 +13,6 @@ fail() {
   exit 1
 }
 
-# 发请求并校验状态码；expected 可空格分隔多个，响应体留在 $BODY_FILE。
 check() {
   local method="$1" path="$2" expected="$3"
   shift 3
@@ -51,7 +47,6 @@ COOKIE="$(sed -n 's/^[Ss]et-[Cc]ookie: *\([^;]*\).*/\1/p' "$HEADER_FILE")"
 [ -n "$COOKIE" ] || fail "登录响应没有 Set-Cookie"
 echo "ok  POST /api/auth/login"
 
-# 指标含队列/连接池内部信息，匿名必须 401；登录后必须 200。
 check GET /health/metrics 401
 check GET /health/metrics 200 -H "Cookie: $COOKIE"
 
@@ -59,7 +54,6 @@ for path in /api/servers /api/agents '/api/runs?limit=1'; do
   check GET "$path" 200 -H "Cookie: $COOKIE"
 done
 
-# 未配置 PLATFORM_MCP_TOKEN 时没有该路由（404）；配置了则无 token 必须 401。
 MCP_STATUS="$(curl -sS -o "$BODY_FILE" -w '%{http_code}' -X POST "$BASE_URL/mcp" \
   -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')" ||

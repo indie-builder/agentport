@@ -8,7 +8,6 @@ import { Dialog } from '../../components/ui/dialog.js';
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { connectorCatalogQuery } from '../../lib/queries.js';
 
-/** 只读策划目录；选中只预填创建表单，不创建、不执行任何命令。 */
 export function ConnectorCatalogDialog({
   onClose: onClosed,
   onPick,

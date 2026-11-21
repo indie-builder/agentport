@@ -29,14 +29,12 @@ import { readTask } from './stdin-task.js';
  */
 
 const CACHE_ROOT = PLUGIN_CACHE_CONTAINER_DIR;
-/** CLI 单次输出上限；文本快照另有 shared 的条目与字节上限。 */
 const CLI_MAX_BUFFER = 8 * 1024 * 1024;
 const MAX_FILE_CHARS = 200_000;
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
 
-/** 带阶段名的失败：回传给宿主的是「哪一步失败」，不是堆栈。 */
 class ActionFailure extends Error {
   constructor(
     readonly phase: string,
@@ -72,17 +70,13 @@ export function resolveNativeCli(): string {
   for (const name of names) {
     try {
       return fromSdk.resolve(`${name}/claude${exe}`);
-    } catch {
-      // 换下一个 libc 变体。
-    }
+    } catch {}
   }
   return fail('启动', `沙盒缺少 ${process.platform}-${process.arch} 的官方 CLI 依赖`);
 }
 
 interface NativePluginRunnerOptions {
-  /** 测试注入本地 fixture CLI；生产从 SDK 可选依赖解析。 */
   cliPath?: string;
-  /** 测试用临时缓存根；容器内固定 /mnt/plugin-cache。 */
   cacheRoot?: string;
 }
 
@@ -107,7 +101,6 @@ interface CliResult {
   stderr: string;
 }
 
-/** 只给 CLI 最小环境：没有任何模型/业务凭据，HOME 与 TMPDIR 都在容器临时目录。 */
 function cliEnv(configDir: string, pluginCacheDir: string): NodeJS.ProcessEnv {
   return {
     PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
@@ -225,7 +218,6 @@ function parseInstallLine(stdout: string, code: number): string {
   return pluginId;
 }
 
-/** 插件目录必须真实位于缓存根内：既挡符号链接，也挡 CLI 返回的任意宿主路径。 */
 async function resolveInsideCache(pluginCacheDir: string, installPath: string): Promise<string> {
   let root: string;
   try {
@@ -262,10 +254,6 @@ function decodeText(buffer: Buffer, path: string): string {
   }
 }
 
-/**
- * 递归读取插件目录并保留可执行位。符号链接、特殊文件、node_modules、二进制
- * 都明确失败：静默跳过会让用户以为插件是完整的。
- */
 async function snapshotPlugin(
   pluginCacheDir: string,
   installPath: string,
@@ -379,7 +367,6 @@ export async function installPlugin(
   });
 }
 
-/** 所有动作统一把带阶段的失败折成结果行；宿主不需要区分异常与控制流。 */
 async function guard(run: () => Promise<NativePluginOutput>): Promise<NativePluginOutput> {
   try {
     return await run();
@@ -414,7 +401,6 @@ async function main(): Promise<void> {
   } catch (err) {
     output = { ok: false, error: `任务失败：${sanitize(errorText(err))}` };
   }
-  // 父进程只看 stdout；进程退出码不携带原因。
   process.stdout.write(`${JSON.stringify(output)}\n`);
 }
 

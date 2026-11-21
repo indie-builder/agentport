@@ -14,7 +14,6 @@ const questions = [
   },
 ];
 
-/** 可控的 stdin 行队列：push 供测试写入，eof 模拟宿主关闭管道。 */
 function stdin() {
   const lines: string[] = [];
   const waiters: Array<(line: string | null) => void> = [];
@@ -91,7 +90,6 @@ describe('sandbox question channel', () => {
       behavior: 'allow',
       updatedInput: { questions, answers: { '用哪种语言？': 'TypeScript' } },
     });
-    // 已回答不是关闭：界面据 question_updated 更新，不需要关闭事件。
     expect(closed).toEqual([]);
     expect(bridge.pendingCount()).toBe(0);
   });
@@ -157,7 +155,6 @@ describe('sandbox question channel', () => {
     });
     await first;
 
-    // 迟到 / 重复：请求已结束，不能再触发事件或影响下一次提问。
     input.push({
       type: 'question_response',
       requestId: 'req-1',
@@ -211,7 +208,6 @@ describe('sandbox question channel', () => {
 
     await expect(pending).resolves.toMatchObject({ behavior: 'deny' });
     expect(closed).toEqual(['req-1']);
-    // 关闭后不再接受新提问。
     await expect(
       ask(bridge.canUseTool, 'AskUserQuestion', { questions }, { requestId: 'req-2' }),
     ).resolves.toMatchObject({ behavior: 'deny' });

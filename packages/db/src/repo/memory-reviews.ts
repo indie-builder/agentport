@@ -26,7 +26,6 @@ export interface InsertMemoryReviewInput {
   before: MemoryContentSnapshot;
 }
 
-/** 审核详情需要的运行字段；审核运行不写消息、不挂沙盒。 */
 const runColumns = {
   status: agentRuns.status,
   error: agentRuns.error,
@@ -68,7 +67,6 @@ export async function insert(
   return row;
 }
 
-/** run 与审核行同事务落库；sources 至少一条，首条会话承载运行归属。 */
 export async function createWithRun(
   db: Database,
   input: Omit<InsertMemoryReviewInput, 'runId'> & { agentVersion: number | null },
@@ -155,7 +153,6 @@ export async function listForUser(
   if (options.before) filters.push(lt(memoryReviews.createdAt, options.before));
   if (options.conversationId) filters.push(eq(agentRuns.conversationId, options.conversationId));
   if (options.agentId) {
-    // 既覆盖「谁执行审核」，也覆盖「审核哪个专家的记忆」。
     const agentFilter = or(
       eq(agentRuns.agentId, options.agentId),
       sql`${memoryReviews.target}->>'agentId' = ${options.agentId}`,

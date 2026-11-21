@@ -334,7 +334,6 @@ function HealthLine() {
   }
   const queue = judgeQueue(data.queue);
   const redisIssue = data.redis === null;
-  // 历史 failed 是队列保留计数，不是当前可用性；首页只提示需要处理的当前问题。
   const queueIssue = queue.condition !== 'ok' && queue.condition !== 'failed';
   if (!queueIssue && !redisIssue && !isError) return null;
   return (
@@ -372,7 +371,6 @@ export function RunTrendCard({ days }: { days: number }) {
   const [open, setOpen] = useState(false);
   const points = data ?? [];
   const hasRuns = points.some((point) => point.runs > 0);
-  // 只有从没拿到过数据时才整块报错；后台刷新失败要保留已加载的图表与数据表。
   const firstLoadFailed = isError && data === undefined;
 
   return (
@@ -401,7 +399,6 @@ export function RunTrendCard({ days }: { days: number }) {
             ) : null}
             {hasRuns ? (
               <div className="flex min-w-0 flex-col gap-2">
-                {/* 图表仅视觉展示，读屏改走下方同源数据表。 */}
                 <div aria-hidden="true" className="min-w-0 overflow-hidden">
                   <Suspense fallback={<div className="h-56 w-full" />}>
                     <RunTrendChart points={points} />
@@ -415,7 +412,6 @@ export function RunTrendCard({ days }: { days: number }) {
                     {open ? '收起趋势数据' : '查看趋势数据'}
                   </CollapsibleTrigger>
                   <CollapsibleContent animated className="pt-2">
-                    {/* 滚动区可聚焦，键盘用户才能浏览超出一屏的趋势行。 */}
                     <section
                       // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
                       tabIndex={0}

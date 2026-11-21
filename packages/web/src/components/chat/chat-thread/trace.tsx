@@ -30,7 +30,6 @@ function toolRunning(item: ToolItem): boolean {
   return item.result === undefined && item.startedAt !== undefined && item.endedAt === undefined;
 }
 
-/** 待批、原生提问、失败与缺失结果不能藏进执行过程；有这类子调用时整个父组留在折叠外。 */
 function toolNeedsAttention(
   item: ToolItem,
   kids: ToolItem[],
@@ -43,7 +42,6 @@ function toolNeedsAttention(
   return kids.some((kid) => toolNeedsAttention(kid, NO_KIDS, approvalHosts, questionsByToolUseId));
 }
 
-/** 本轮可收进「执行过程」的顶层调用：自身与全部子调用都不需要用户处理。 */
 export function foldableToolRoots(
   items: ChatItem[],
   structure: ReturnType<typeof buildStructure>,
@@ -63,7 +61,6 @@ export function foldableToolRoots(
   );
 }
 
-/** 本轮唯一的「执行过程」：运行中自动展开，结束后收起，用户仍可手动开合。 */
 export const TurnTrace = memo(function TurnTrace({
   roots,
   kids,
@@ -87,7 +84,6 @@ export const TurnTrace = memo(function TurnTrace({
     (root) => toolRunning(root) || (kids.get(root.toolUseId) ?? NO_KIDS).some(toolRunning),
   );
   const [open, setOpen] = useState(live || anyRunning);
-  // 整轮运行期间保持展开，避免两个工具之间短暂无运行项时反复开合；结束后收起。
   useEffect(() => setOpen(live || anyRunning), [live, anyRunning]);
   return (
     <Trace>
@@ -130,11 +126,6 @@ export const TurnTrace = memo(function TurnTrace({
   );
 });
 
-/**
- * 一行顶层调用：父行 + 子调用 + 审批。memo 的入参全部在流式期间保持身份：
- * tool/kids 来自按 tools 缓存的树，approvalItems 在 ChatColumn 里按 query 数据缓存，
- * onApprove 由 useCallback 固定。文本增量因此不会渲染任何工具行。
- */
 export const ToolGroup = memo(function ToolGroup({
   tool,
   kids,
@@ -198,17 +189,12 @@ export const ToolGroup = memo(function ToolGroup({
   );
 });
 
-/** 审批与工具调用是否同名同 server；放置、折叠和兜底共用这一条匹配规则。 */
 function approvalMatchesTool(item: ToolItem, approval: ApprovalRequest): boolean {
   return approval.serverName
     ? item.name === `mcp__${approval.serverName}__${approval.toolName}`
     : item.name === approval.toolName || item.name.endsWith(`__${approval.toolName}`);
 }
 
-/**
- * 每个审批只落到一个工具位：唯一候选直接用；多个同名时只认唯一未结束的调用。
- * 无法唯一匹配就不放置，交给末尾兜底卡，避免历史成功调用把同一审批复制到每一行。
- */
 export function assignApprovals(
   turnTools: ToolItem[],
   approvalItems: ApprovalRequest[],
@@ -231,7 +217,6 @@ export function isTool(item: ChatItem): item is ToolItem {
   return item.kind === 'tool';
 }
 
-/** 文本增量不改工具对象；整表逐项比对后可复用旧数组，保住下游 memo。 */
 export function stableTools(items: ChatItem[], previous: ToolItem[]): ToolItem[] {
   const tools = items.filter(isTool);
   if (tools.length !== previous.length) return tools;
@@ -241,10 +226,6 @@ export function stableTools(items: ChatItem[], previous: ToolItem[]): ToolItem[]
   return previous;
 }
 
-/**
- * 子调用挂到最上层父 Agent 下；只保留一层，grandchildren 平铺到同一层。
- * 只依赖 tools：文本增量不改它，树与各行的 children 数组因此保持身份。
- */
 export function buildStructure(tools: ToolItem[]): {
   root: Map<string, string>;
   kids: Map<string, ToolItem[]>;
@@ -289,14 +270,12 @@ const ToolRow = memo(function ToolRow({
     item.result === undefined && item.startedAt !== undefined && item.endedAt === undefined;
   const missing = !running && item.result === undefined;
   const failed = toolFailed(item.result);
-  // 有结构化引用时在收起状态也提示来源数量，否则用户不会知道要展开 trace。
   const cited = knowledgeHitsFromTool(item.name, item.result)?.length ?? 0;
   const dataDomainResult = dataDomainResultFromTool(item.name, item.result);
   const status = running ? '运行中' : missing ? '未收到结果' : failed ? '失败' : '完成';
   const lineStatus = running ? 'running' : missing ? 'pending' : failed ? 'error' : undefined;
   const [open, setOpen] = useState(running);
 
-  // 跑着的自动展开，结束后收起；用户仍可手动再展开。
   useEffect(() => {
     setOpen(running);
   }, [running]);
@@ -354,7 +333,6 @@ const ToolRow = memo(function ToolRow({
             dataDomainResult === null ? (
               <>
                 <JsonBlock value={item.result} maxHeight="20rem" />
-                {/* 知识库检索结果另给可点开的来源；原文在查看器里读，不执行来源页脚本。 */}
                 <div className="mt-2">
                   <KnowledgeCitations name={item.name} result={item.result} />
                 </div>

@@ -58,7 +58,6 @@ export async function startXreadGate(redisUrl: string): Promise<XreadGate> {
     sockets.add(upstream);
 
     let pending = Buffer.alloc(0);
-    // 只扣住这条连接：Queue 的连接还要继续跑 isFinished 等回查命令。
     let holding = false;
     let heldChunks: Buffer[] = [];
 
@@ -77,14 +76,12 @@ export async function startXreadGate(redisUrl: string): Promise<XreadGate> {
       pending = Buffer.concat([pending, chunk]);
       for (;;) {
         if (holding) {
-          // XREAD 之后同一连接的字节必须保持顺序，一并等到放行。
           heldChunks.push(pending);
           pending = Buffer.alloc(0);
           return;
         }
         const command = parseCommand(pending);
         if (!command) {
-          // 非 RESP 数组不该出现在队列客户端连接上；原样转发避免卡死。
           if (pending.length > 0 && pending[0] !== 0x2a) {
             upstream.write(pending);
             pending = Buffer.alloc(0);

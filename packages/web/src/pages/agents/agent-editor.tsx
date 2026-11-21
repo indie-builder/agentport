@@ -187,13 +187,11 @@ export function AgentEditor({
   const offline = useOfflineAgent();
   const trial = useTrialAgent();
   const me = useQuery(meQuery);
-  // 资源目录是全局能力：没有对应读取叶的人不发这些请求，改用 /agents/options 摘要。
   const canServers = can(me.data, 'servers.read');
   const canSkills = can(me.data, 'skills.read');
   const canPlugins = can(me.data, 'plugins.read');
   const canKnowledge = can(me.data, 'knowledge.read');
   const canRuntimeEnvironments = can(me.data, 'runtime_environments.read');
-  // options 自身要求 bindings.manage；没有该叶时保存也不会提交绑定字段。
   const options = useAgentOptions(canBindings);
   const servers = useServers(canServers);
   const knowledgeBases = useKnowledgeBases(canKnowledge);
@@ -202,7 +200,6 @@ export function AgentEditor({
   const agents = useExperts();
   const runtimeEnvironments = useRuntimeEnvironments(canRuntimeEnvironments);
   const optionServers = options.data?.servers ?? [];
-  // 连接器目录只取摘要；完整 Server（含密钥/命令）仍只来自全局 servers 查询。
   const connectorCatalog = useMemo(
     () =>
       canServers
@@ -265,13 +262,11 @@ export function AgentEditor({
           })),
     [canRuntimeEnvironments, runtimeEnvironments.data, options.data],
   );
-  // 回退到 options 时，进度与错误也跟 options 走；被禁用的全局查询不应显示加载中。
   const serversState = canServers ? servers : options;
   const skillsState = canSkills ? skills : options;
   const pluginsState = canPlugins ? plugins : options;
   const knowledgeState = canKnowledge ? knowledgeBases : options;
   const runtimeState = canRuntimeEnvironments ? runtimeEnvironments : options;
-  // 插件能力（hooks / MCP）只在拿到全局插件目录时可见；摘要目录不猜测能力。
   const pluginCapabilities = new Map(
     (plugins.data ?? []).map((plugin) => [plugin.id, plugin.capabilities]),
   );
@@ -309,7 +304,6 @@ export function AgentEditor({
   );
   const duplicateTriggerRef = useRef<HTMLButtonElement>(null);
   const sectionFromUrl = search.section ?? 'identity';
-  // 任务只认 URL：确认放行后才换 URL，子面板才会卸载，草稿不会提前丢。
   const tab = activeAgentTab(search.tab, permissions);
   const instruction = activeInstruction(
     asInstruction(search.tab) ?? search.instruction,
@@ -319,7 +313,6 @@ export function AgentEditor({
   const [activeSection, setActiveSectionState] = useState<SectionId>(sectionFromUrl);
   const activeFile = search.file ?? '.mcp.json';
   useEffect(() => setActiveSectionState(sectionFromUrl), [sectionFromUrl]);
-  // 旧书签 tab=rules|styles 改写为 instructions + instruction，replace 不堆历史。
   useEffect(() => {
     const legacy = asInstruction(search.tab);
     if (!legacy) return;
@@ -330,7 +323,6 @@ export function AgentEditor({
       replace: true,
     });
   }, [search.tab, navigate, agent.id]);
-  // 任务、分区、指令分段与文件都进 URL：刷新或分享后回到同一视图。
   const navigateSearch = (next: {
     tab?: TabId | undefined;
     instruction?: AgentInstruction | undefined;
@@ -342,7 +334,6 @@ export function AgentEditor({
     void navigate({
       to: '/agents/$agentId',
       params: { agentId: agent.id },
-      // 以 router 最新 search 为基底，连续两次更新不会互相覆盖。
       search: (current) => ({ ...current, ...next }),
       replace: true,
     });
@@ -359,9 +350,7 @@ export function AgentEditor({
   const resolvedId = resolvedEntry?.id;
   const fileGroups = [...new Set(fileEntries.map((entry) => entry.group))];
   const [exporting, setExporting] = useState(false);
-  // RHF 是唯一数据源：多行工具保留原始文本，提交时才解析。
   const rhf = useZodForm(agentFormSchema, { defaultValues: draftFromInput(toInput(agent)) });
-  // defaultValues 覆盖全部字段；把 schema 输入的可选类型收敛回完整草稿。
   const control = rhf.control as unknown as Control<AgentDraft, unknown, AgentDraft>;
   const errors = rhf.formState.errors;
   const allowedInvalid = Boolean(errors.allowedTools);
@@ -387,14 +376,12 @@ export function AgentEditor({
   const enabledField = useController({ control, name: 'enabled' }).field;
   const runtimeEnvironmentField = useController({ control, name: 'runtimeEnvironmentId' }).field;
   const defaultEnvironment = runtimeCatalog.find((environment) => environment.isDefault);
-  // null 与真实默认环境的 ID 都显示为同一项；保存时保留原始绑定，不把显式 ID 静默改成 null。
   const runtimeEnvironmentValue =
     runtimeEnvironmentField.value === null ||
     runtimeEnvironmentField.value === defaultEnvironment?.id
       ? 'default'
       : runtimeEnvironmentField.value;
   const runtimeEnvironmentItems = runtimeEnvironmentOptions(runtimeCatalog);
-  // 只有工具文本参与派生状态；其余输入走非受控 register 或各自控件，不再整表订阅。
   const allowedToolsDraft = useWatch({ control, name: 'allowedTools' });
   const disallowedToolsDraft = useWatch({ control, name: 'disallowedTools' });
 
@@ -408,7 +395,6 @@ export function AgentEditor({
   const download = async (): Promise<void> => {
     setExporting(true);
     try {
-      // 导出就是官方 `.claude/` 目录的 ZIP，浏览器直接落盘。
       downloadBlob(
         await api.exportAgent(agent.id, undefined, (warnings) => {
           for (const warning of warnings) toast.warning(warning);
@@ -440,17 +426,14 @@ export function AgentEditor({
   };
   const dirty = rhf.formState.isDirty;
 
-  // 子面板（记忆 / 规则 / 输出风格）的草稿也要算进离开和任务切换保护。
   const [childDirty, setChildDirty] = useState(false);
   const [childPending, setChildPending] = useState(false);
   const guarded = dirty || childDirty;
   const locked = pending || childPending;
-  // 子面板已确认放弃草稿的切换，路由 blocker 不再重复确认。
   const confirmedChildSwitch = useRef<{
     instruction: AgentInstruction | undefined;
     view: MemoryView | undefined;
   } | null>(null);
-  // 配置字段按 config.update 锁定；绑定与启停各自按叶锁定，互不连坐。
   const configDisabled = pending || !canUpdateConfig;
   const bindingsDisabled = pending || !canBindings;
 
@@ -459,19 +442,16 @@ export function AgentEditor({
       if (current.pathname === next.pathname) {
         const currentTab = 'tab' in current.search ? (current.search.tab ?? 'config') : 'config';
         const nextTab = 'tab' in next.search ? (next.search.tab ?? 'config') : 'config';
-        // 分区、文件等不卸载面板的变化直接放行。
         if (currentTab === nextTab) {
           const ci = 'instruction' in current.search ? current.search.instruction : undefined;
           const ni = 'instruction' in next.search ? next.search.instruction : undefined;
           const cv = 'view' in current.search ? current.search.view : undefined;
           const nv = 'view' in next.search ? next.search.view : undefined;
-          // instruction/view 变化会卸载子面板，草稿随之丢失。
           if (ci === ni && cv === nv) return false;
           const confirmed = confirmedChildSwitch.current;
           if (confirmed && confirmed.instruction === ni && confirmed.view === nv) return false;
           return childDirty || locked;
         }
-        // 主配置草稿随编辑器常驻；只有子面板草稿或在途请求会因切任务丢失。
         return childDirty || locked;
       }
       return guarded || locked;
@@ -482,7 +462,6 @@ export function AgentEditor({
   useEffect(() => {
     confirmedChildSwitch.current = null;
   }, [instruction, search.view]);
-  // 保存、删除或子面板请求在途时，已打开的离开确认也不能继续。
   const proceedLeave = (): void => {
     if (!locked) blocker.proceed?.();
   };
@@ -499,27 +478,17 @@ export function AgentEditor({
     return () => onPendingChange(false);
   }, [locked, onPendingChange]);
 
-  /**
-   * 主配置随 AgentEditor 常驻，切任务不丢草稿；子面板卸载会丢，有草稿时统一交给
-   * 路由 blocker 确认（含浏览器前进后退），确认前不换 URL，面板不会提前卸载。
-   */
   const changeTab = (next: TabId): void => {
     if (next === tab || locked) return;
     setTab(next);
   };
 
-  // 进入「文件与版本」时滚回该栏顶部，避免停在上一份长文件的中段。
   useEffect(() => {
     if (tab !== 'files') return;
     const el = document.getElementById('agent-files-detail');
     el?.scrollIntoView({ block: 'start' });
   }, [tab]);
 
-  /**
-   * 知识库的 server 不出现在通用连接器列表（生命周期由知识库页管理），
-   * 这里按知识库自带的 serverId 反向补齐，才能在这里完成绑定/解绑。
-   * 已停用的库不可新增绑定，但既有绑定仍显示、仍随保存原样提交。
-   */
   const knowledgeOptions = useMemo(() => {
     if (canKnowledge) {
       return (knowledgeBases.data ?? []).map((base) => ({
@@ -531,8 +500,6 @@ export function AgentEditor({
         updatedAt: base.updatedAt,
       }));
     }
-    // 没有 knowledge.read 时只用 /agents/options 里的知识 server 摘要；
-    // 拿不到停用状态，已有绑定仍按原值显示并原样提交。
     return optionServers
       .filter((server) => server.kind === 'knowledge')
       .map((server) => ({
@@ -545,7 +512,6 @@ export function AgentEditor({
       }));
   }, [canKnowledge, knowledgeBases.data, optionServers]);
 
-  // 知识库连接的运行条目与真实 server 行同形，草稿预览才与落盘/运行时一致。
   const knowledgeServers = useMemo<Server[]>(
     () =>
       knowledgeOptions
@@ -612,7 +578,6 @@ export function AgentEditor({
         }),
     [agents.data, subAgentIdsField.value, skillCatalog, subAgentById],
   );
-  // 下载入口只能指向已落盘的配置，不能跟着未保存的草稿走。
   const savedSubAgents = useMemo(
     () => (agents.data ?? []).filter((item) => item.enabled && agent.subAgentIds.includes(item.id)),
     [agents.data, agent.subAgentIds],
@@ -637,7 +602,6 @@ export function AgentEditor({
     hint: plugin.hint,
   }));
 
-  /** 勾选插件即绑定；hooks / MCP 仍取该插件上次的授权状态（新的默认关闭）。 */
   const setPluginSelection = (pickedIds: string[]): void => {
     const previous = new Map(
       pluginBindingsField.value.map((binding) => [binding.pluginId, binding]),
@@ -663,14 +627,12 @@ export function AgentEditor({
     );
   };
 
-  // 保留当前绑定的子智能体，允许解绑；其他父级的子智能体不可选。
   const subAgentOptions = (agents.data ?? [])
     .filter(
       (item) => item.id !== agent.id && (item.parentId === null || item.parentId === agent.id),
     )
     .map((item) => ({ id: item.id, label: item.name, hint: item.slug }));
 
-  // generated server 的工具表可数；stdio/http 的工具只有连接后才确定。
   const generatedIds = boundServers
     .filter((server) => server.kind === 'generated')
     .map((server) => server.id);
@@ -693,28 +655,23 @@ export function AgentEditor({
               unknownServerCount > 0 ? ` · 另 ${unknownServerCount} 个 server 连接后确定` : ''
             }`;
 
-  // 只订阅参与工具状态推导的字段，供渲染与点击时的快照共用同一形状。
   const toolDraft = {
     subAgentIds: subAgentIdsField.value,
     allowedTools: allowedToolsDraft,
     disallowedTools: disallowedToolsDraft,
   };
   const hasSubAgents = toolDraft.subAgentIds.length > 0;
-  /** 实际生效的内置工具状态：默认状态由 DEFAULT_DISALLOWED_TOOLS 决定，显式禁用优先，allowedTools 显式放行。 */
   const builtinEnabled = (
     draft: Pick<AgentDraft, 'subAgentIds' | 'allowedTools' | 'disallowedTools'>,
     tool: string,
   ): boolean => {
-    // runner 只要 allowSubAgents 为真就放行 Agent/TaskStop，显式禁用拦不住。
     if ((tool === 'Agent' || tool === 'TaskStop') && draft.subAgentIds.length > 0) return true;
     if (draft.disallowedTools.includes(tool)) return false;
     return !DEFAULT_DISALLOWED_TOOLS.includes(tool) || toolLines(draft.allowedTools).includes(tool);
   };
 
   const toggleBuiltin = (tool: string): void => {
-    // Agent/TaskStop 由子智能体绑定决定，开关不生效，避免写出误导性的 disallowedTools。
     if (tool === 'Agent' || tool === 'TaskStop') return;
-    // 点击时用完整快照推导，不依赖上一次渲染的值。
     const current = rhf.getValues() as AgentDraft;
     const enabled = builtinEnabled(current, tool);
     const currentTools = toolLines(current.allowedTools);
@@ -730,10 +687,6 @@ export function AgentEditor({
     );
   };
 
-  /**
-   * 原生文件工具默认启用：关闭只加裸 deny，恢复只删裸 allow/deny，回到平台默认范围；
-   * 父子和路径规则共用同一逻辑，其它工具的规则一律保留。
-   */
   const toggleFileTool = (tool: string): void => {
     const current = rhf.getValues() as AgentDraft;
     const enabled = !current.disallowedTools.includes(tool);
@@ -751,11 +704,9 @@ export function AgentEditor({
     );
   };
 
-  // 自定义工具格式也由 zod 校验；保存被拦下时，按钮上的提示要指向所在分区。
   const invalidField = allowedInvalid ? ('permissions' as const) : null;
   const saveHint = invalidField === 'permissions' ? '「权限」里的自定义工具格式无效' : null;
 
-  /** 错误字段所在分区可能不是当前选中项：先切过去，下一帧再聚焦真正出错的控件。 */
   const revealInvalidField = (): void => {
     focusSection('permissions', 'agent-allowed-tools');
   };
@@ -771,7 +722,6 @@ export function AgentEditor({
     });
   };
 
-  // 配置、绑定与启停各自独立授权：保存只提交当前用户有权的字段。
   const dirtyKeys = Object.keys(rhf.formState.dirtyFields) as Array<keyof AgentDraft>;
   const dirtyConfig = dirtyKeys.some((key) => configKeys.includes(key));
   const dirtyBindings = dirtyKeys.some((key) => bindingKeys.includes(key));
@@ -786,13 +736,11 @@ export function AgentEditor({
     (draft) => {
       if (pending || !canSave) return;
       const full = inputFromDraft(draft);
-      // 只提交真正改过的字段：未变字段保留服务端原值，避免整表 PATCH 覆盖他人并发修改。
       const input: AgentPatch = {};
       for (const key of dirtyKeys) {
         if (key === 'effort') input.effort = full.effort ?? null;
         else (input as Record<keyof AgentPatch, unknown>)[key] = full[key];
       }
-      // 组合 PATCH 不夹带未授权字段：配置、绑定、启停各按自己的叶裁剪。
       if (!canUpdateConfig) {
         for (const key of configKeys) delete input[key as keyof AgentPatch];
       }
@@ -823,7 +771,6 @@ export function AgentEditor({
       );
     },
     (invalid) => {
-      // 错误可能不在当前分区：切到第一个出错的分区，下一帧聚焦该字段。
       const section = (Object.keys(invalid) as Array<keyof AgentInput>)
         .map((key) => errorSections[key])
         .find((item): item is SectionId => item !== undefined);
@@ -839,7 +786,6 @@ export function AgentEditor({
         : 'text-muted-foreground hover:bg-hover',
     );
 
-  /** 分区详情只挂载当前选中项：出错时先切分区，下一帧再聚焦字段。 */
   const focusSection = (section: SectionId, fieldId?: string): void => {
     if (tab !== 'config') setTab('config');
     if (activeSection !== section) setActiveSection(section);
@@ -1142,7 +1088,6 @@ export function AgentEditor({
                 noValidate
                 onSubmit={(event) => {
                   event.preventDefault();
-                  // 返回 promise 让调用方（含测试）能等这次校验与保存走完。
                   if (dirty && !pending) return save();
                 }}
               >
@@ -1287,7 +1232,6 @@ export function AgentEditor({
                           <Input
                             id="agent-slug"
                             value={agent.slug}
-                            // Keep monospace technical identifiers instead of the base sans-serif input.
                             className="font-mono"
                             disabled
                             aria-describedby="agent-slug-hint"
@@ -1312,7 +1256,6 @@ export function AgentEditor({
                             disabled={configDisabled}
                             id="agent-model"
                             list="agent-models"
-                            // Keep monospace technical identifiers instead of the base sans-serif input.
                             className="w-64 font-mono"
                           />
                           <datalist id="agent-models">
@@ -1364,7 +1307,6 @@ export function AgentEditor({
                           disabled={configDisabled}
                           id="agent-prompt"
                           rows={16}
-                          // Keep monospace code text instead of the base prose typography.
                           className="font-mono leading-relaxed"
                           placeholder="描述角色、边界与工作方式"
                         />
@@ -2004,7 +1946,6 @@ export function AgentEditor({
                             disabled={configDisabled}
                             id="agent-allowed-tools"
                             rows={3}
-                            // Keep monospace code text instead of the base prose typography.
                             className="font-mono leading-relaxed"
                             placeholder={'mcp__jsonplaceholder__get_user\nmcp__crm__*'}
                             aria-invalid={allowedInvalid}
@@ -2666,12 +2607,10 @@ export function AgentEditor({
           side="right"
           showCloseButton={false}
           aria-describedby={undefined}
-          // Keep the project shadow.
           className="w-full max-w-120! gap-0 p-0 shadow-overlay sm:max-w-120!"
         >
           <div className="flex items-start justify-between gap-4 border-b px-5 py-3.5">
             <div className="min-w-0">
-              {/* Keep the larger, heavier history title instead of the base title typography. */}
               <SheetTitle className="text-md font-semibold">版本历史</SheetTitle>
               <SheetDescription className="mt-1 text-sm">
                 每次保存生成一份快照。回滚会恢复完整定义、生成新版本并设为线上。

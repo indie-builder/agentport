@@ -1,11 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 
-// 一次性库：导出是整表读，不能把共享测试库里的其他用例数据卷进来。
 const isolated = await createIsolatedDatabase('api_runs_export', process.env.DATABASE_URL ?? '');
 if (isolated) process.env.DATABASE_URL = isolated.url;
 
-// helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
 const helpers = await import('./helpers.js');
 const { ADMIN_BUSINESS_ID, expectProblem, request, loginCookie, startApp, unique } = helpers;
 

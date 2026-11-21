@@ -23,7 +23,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// 故障注入只影响投影写入；其他 fs 操作继续走真实实现。
 const fsFaults = { failRename: false, failWriteFile: false };
 const realFs = { ...fsModule };
 mock.module('node:fs/promises', () => {
@@ -50,7 +49,6 @@ describe.skipIf(!ready)('personal memory', () => {
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), 'personal-memory-'));
     app = await buildApp(testConfig({ WORKSPACES_DIR: root }));
-    // 独立账号：并行测试文件也会以管理员身份写记忆，按 business_id 筛全表会串数据。
     const account = await createTestAccount(app, await loginCookie(app), { systemKeys: ['user'] });
     cookie = account.cookie;
     businessId = account.businessId;
@@ -176,7 +174,6 @@ describe.skipIf(!ready)('personal memory', () => {
     );
     expect(await readFile(personalMemoryPath(root, businessId), 'utf8')).toBe(atLimit);
 
-    // 代理对字符按一个码点计，不按 UTF-16 code unit 计。
     const emoji = '😀'.repeat(PERSONAL_MEMORY_MAX_CHARS);
     expect((await put({ content: emoji, expectedRevision: 1 })).statusCode).toBe(200);
   });
@@ -263,7 +260,6 @@ describe.skipIf(!ready)('personal memory', () => {
 
   it('lists only personal versions and never lets agent changes occupy a page', async () => {
     await put({ content: 'one', expectedRevision: 0 });
-    // 同一用户采纳专家记忆/规则也写在同一 business_id 下，但不属于个人版本。
     await repo.memoryChanges.insert(app.db, {
       businessId: businessId,
       agentId: null,
@@ -325,7 +321,6 @@ describe.skipIf(!ready)('personal memory', () => {
         before: { content: '', globs: null, index: null },
         after: { content, globs: null, index: null },
       });
-      // 显式时间戳：分页断言不依赖保存顺序或执行速度。
       await app.client.unsafe('update memory_changes set created_at = $2 where id = $1', [
         row.id,
         createdAt.toISOString(),
@@ -358,7 +353,6 @@ describe.skipIf(!ready)('personal memory', () => {
       nextCursor: at(4).toISOString(),
     });
 
-    // 旧实现先取最新一页再内存过滤，第二页会永远为空；专家记忆也不能占用这一页。
     const second = await page(at(4).toISOString());
     expect(second.json()).toMatchObject({
       items: [{ id: two, after: { content: 'two' } }],
@@ -416,7 +410,6 @@ describe.skipIf(!ready)('personal memory', () => {
       content: 'two',
       revision: 2,
     });
-    // 文件仍是旧投影；下一轮运行前 worker 会按数据库重建。
     expect(await readFile(personalMemoryPath(root, businessId), 'utf8')).toBe('one');
     const changes = await app.client.unsafe<{ after: { content: string } }[]>(
       'select after from memory_changes where business_id = $1 order by created_at',

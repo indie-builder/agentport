@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { hasOpenUiSegment, segmentOpenUi } from '@agentport/shared';
 
-/**
- * shared 分段器是浏览器与服务端共用的唯一实现。
- * 它必须做到：只认 openui 围栏、给出稳定 blockKey（只数 UI 段）、
- * 以及足够重建完整文本的偏移量。
- */
 const kinds = (text: string, streaming = false) =>
   segmentOpenUi(text, streaming).map((segment) => segment.kind);
 
@@ -50,7 +45,6 @@ describe('segmentOpenUi', () => {
       's0',
       's1',
     ]);
-    // 多段之间插入多少 Markdown 都不改变 UI 段身份。
     expect(
       segmentOpenUi(text.replace('中间', '中间\n\n多一行')).filter((s) => s.kind === 'openui'),
     ).toHaveLength(2);
@@ -110,7 +104,6 @@ describe('segmentOpenUi', () => {
   it('treats an unclosed fence as a live program only while streaming', () => {
     const text = '生成中\n```openui-lang\nroot = Card([';
     expect(kinds(text, true)).toEqual(['markdown', 'openui']);
-    // 流结束后仍没有闭合围栏：还原成 Markdown，让用户看到原文而不是空白。
     expect(kinds(text, false)).toEqual(['markdown']);
   });
 });

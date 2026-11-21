@@ -7,22 +7,6 @@ import { type Browser, test } from '@e2e-dev/web';
 import { type App, expect, type Screen } from 'e2e';
 import { api, DATASET_ID, datasetPath, writeManifest } from '../support/business-dataset.js';
 
-/**
- * 青禾数据集的知识域：真实 UI 创建知识库、手写文档、上传文件、编辑并发布 Wiki；
- * 其余重复项与轮询走同一浏览器、同源的业务 API。不直连数据库、不伪造摄取或检索结果。
- *
- * 固定对象（名称不随机）：
- * - 知识库「【青禾演示】」，slug 即数据集命名空间；
- * - 4 篇正常文档（2 手写 + 2 上传，实际摄取 3 ready + 1 disabled）；
- * - 1 篇真实摄取失败样本（损坏 PNG，由 worker 真实解析失败，不是入口拒绝）；
- * - 2 个 Wiki 页面（人工发布 1、真实生成草稿 1 且必须带引用）；
- * - 1 个 feed 来源 + 1 个范围，syncCron 为空，同步一次后最终暂停。
- *
- * 重跑语义：按固定名称精确查找，已有对象只复用不重建；manifest 记录了任务 ID 后不再重发，
- * 失败不自动重试；固定名称被不同内容占用时报冲突，不覆盖开发者修改。
- * E2E_DEV_DATA_VERIFY=1 时只做 GET 读取，不触发 embedding/模型/profile 测试/同步。
- */
-
 const BUILD_FLAG_REASON = '专用数据构建用例：仅 E2E_DEV_DATA=1 时运行，普通回归不执行';
 const VERIFY_FLAG_REASON =
   '专用数据只读验收：仅 E2E_DEV_DATA_VERIFY=1 时运行；不触发 embedding/模型/同步';
@@ -1001,10 +985,6 @@ async function latestIngestJob(
   return jobs.find((job) => job.type === 'ingest') ?? null;
 }
 
-/**
- * 文档状态会在首次失败时先写 failed，队列仍可能按退避重试；必须等 ingest 任务到终态，
- * 否则会把「还在重试」误判成最终失败。
- */
 async function waitIngestOutcome(
   browser: Browser,
   baseId: string,
@@ -1405,7 +1385,6 @@ async function ensureGeneratedWiki(input: {
     return;
   }
 
-  // 成本任务先记录场景身份，再触发；拿到 jobId 立刻落 manifest，重跑不重发。
   const requested: WikiGenerateTask = {
     pageId: page.id,
     pageTitle: page.title,
@@ -1654,7 +1633,6 @@ async function assertDataset(
   if (base.rerankProfileId !== null && base.rerankProfileId.trim() === '') {
     verification('知识库 rerank profile 为空字符串');
   }
-  // 只读列出配置，不调用 profile 测试或 embedding；证明绑定仍指向启用的 embedding。
   const profiles = await api<ModelProfile[]>(browser, '/api/knowledge/model-profiles');
   const embedding = profiles.find((profile) => profile.id === base.embeddingProfileId);
   if (embedding === undefined || embedding.kind !== 'embedding' || !embedding.enabled) {
@@ -1732,7 +1710,6 @@ async function assertDataset(
     }
   }
 
-  // 生成草稿的引用必须落在任意 ready 文档的当前、启用分块上（包含 feed 导入的文档）。
   for (const document of documents) {
     if (document.status !== 'ready') continue;
     for (const chunk of await fetchChunks(browser, document.id)) {
@@ -1911,7 +1888,6 @@ test('dev data: 青禾知识库（摄取、失败样本、Wiki 发布/生成、R
     throw new Error(`unexpected ${dialog.type} dialog: ${dialog.message}`);
   });
 
-  // api() 通过 browser.evaluate 同源请求，必须先打开页面。
   await app.open('/knowledge');
   const origin = new URL(app.baseUrl ?? (await browser.url())).origin;
   let manifest = await loadManifest();

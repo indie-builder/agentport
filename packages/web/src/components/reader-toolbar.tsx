@@ -11,10 +11,6 @@ const MODES: ReadonlyArray<{ value: ReaderMode; label: string }> = [
   { value: 'source', label: '源码' },
 ];
 
-/**
- * 文件阅读的统一工具条：左侧是当前文件的身份与元信息，右侧是查看方式、复制、下载与调用方已有的业务操作。
- * 它只接收展示内容和动作，不持有选择、请求版本或草稿状态。
- */
 export function ReaderToolbar({
   identity,
   meta,

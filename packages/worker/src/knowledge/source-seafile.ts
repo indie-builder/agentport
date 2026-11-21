@@ -304,7 +304,6 @@ async function walk(
     entries = await listDirectory(auth, relative, signal, !isRoot);
   } catch (err) {
     rethrowAuth(err);
-    // A selected root that is missing or forbidden is not an empty repository.
     if (isRoot) throw err;
     failures.push(
       failureOf(directoryExternalId(auth.repoId, relative), relative === '' ? '/' : relative, err),
@@ -357,7 +356,6 @@ async function walk(
   }
 }
 
-/** Failure identity for entries that never became a document. */
 function pathSeed(repoId: string, relative: string): string {
   return `seafile:entry:${repoId}:${pathHash(relative)}`;
 }
@@ -377,7 +375,6 @@ export async function readSeafile(
   const visited = new Set<string>();
   const roots = auth.paths.length === 0 ? [''] : [...new Set(auth.paths)];
   for (const root of roots) {
-    // A missing/forbidden selected root is a range failure, not an empty repo.
     await walk(auth, root, items, failures, seen, visited, signal, true);
   }
 
@@ -393,7 +390,6 @@ export async function probeSeafile(
   const ping = await fetchChecked(`${auth.apiBase}/auth/ping/`, authOptions(auth, signal));
   await readBytesCapped(ping, 'seafile ping');
   for (const root of auth.paths.length === 0 ? [''] : [...new Set(auth.paths)]) {
-    // Validate the repo and each selected directory without enumerating its tree.
     await listDirectory(auth, root, signal);
     signal?.throwIfAborted();
   }

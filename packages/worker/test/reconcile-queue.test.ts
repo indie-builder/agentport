@@ -11,7 +11,6 @@ const { agentOwnership, conversationSubject, runSubjectFields } = testAccess(imp
 
 const publishRun = mock<() => Promise<void>>().mockResolvedValue(undefined);
 
-// 事件通道是外部边界：单测只断言补发内容，避免往真实 Redis stream 写数据。
 const runnerClientActual = await import('../src/runner-client.js');
 mock.module('../src/runner-client.js', () => ({ ...runnerClientActual, publishRun }));
 
@@ -19,13 +18,10 @@ const { LOST_RUN_ERROR, reconcileOrphanedRuns } = await import('../src/schedulin
 
 const AGENT_TIMEOUT_MS = 10_000;
 const GRACE_MS = 5 * 60_000;
-/** 超过 timeout + 5 分钟宽限期，必定被当成孤儿。 */
 const STALE_MS = 20 * 60_000;
-/** 已超出短超时 agent 的截止线，但仍在长超时 agent 的截止线内。 */
 const BETWEEN_CUTOFFS_MS = AGENT_TIMEOUT_MS + GRACE_MS + 60_000;
 const LONG_TIMEOUT_MS = 60 * 60_000;
 
-// 对账函数扫描整张运行表：独享随机库，避免扫到同轮其他套件提交的记录。
 const isolatedDb = await createIsolatedDatabase('worker_reconcile_queue_probe');
 const dbHandle = createDb(isolatedDb?.url ?? '');
 const { db, client } = dbHandle;
@@ -41,10 +37,6 @@ if (!ready) {
   await isolatedDb?.close();
 }
 
-/**
- * 每个用例在自己的事务里跑并回滚：对账会扫描整张运行表，
- * 留下夹具会让后续用例把上一轮的记录也算进收敛数。
- */
 class Rollback extends Error {}
 async function isolated(
   fn: (tx: Db, fixture: Fixture) => Promise<void>,
@@ -66,7 +58,6 @@ async function isolated(
         .insert(schema.conversations)
         .values({ id: conversationId, agentId, ...conversationSubject });
       await fn(tx as unknown as Db, { agentId, conversationId });
-      // 用例自己的断言失败会先抛出，不会被这里的回滚吞掉。
       throw new Rollback();
     })
     .catch((err: unknown) => {
@@ -79,7 +70,6 @@ interface Fixture {
   conversationId: string;
 }
 
-/** 只 mock BullMQ 的 getJob 边界；返回 null 代表队列里没有这个 job。 */
 function fakeQueue(behavior: (runId: string) => string | null | Error): {
   queue: Pick<Queue, 'getJob'>;
   getJob: ReturnType<typeof mock>;
@@ -237,7 +227,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
 
   it('keeps queued runs whose jobs are still owned by the queue', async () => {
     await isolated(async (tx, fixture) => {
-      // 未识别的状态（如 'wait'）也保守保留。
       const states = [
         'waiting',
         'delayed',
@@ -325,7 +314,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
     await isolated(async (tx, fixture) => {
       const runId = await seedQueued(tx, fixture);
       const { queue, getJob } = fakeQueue(() => null);
-      // 探测返回「job 不存在」，但同一时刻 job 已被认领：必须靠条件更新保住 running。
       getJob.mockImplementationOnce(async () => {
         await tx
           .update(schema.agentRuns)
@@ -436,7 +424,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
   it('keeps a running run started within its own agent timeout', async () => {
     await isolated(
       async (tx, fixture) => {
-        // 超过全局 10s + 宽限，但远未到该 agent 的 1 小时。
         const runId = await seedRunning(tx, fixture, BETWEEN_CUTOFFS_MS);
         const { queue } = fakeQueue(() => null);
 
@@ -457,7 +444,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
 
         expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
 
-        // timeout 被改短也不能把仍在执行的 job 提前判死。
         expect(await statusOf(tx, runId)).toMatchObject({
           status: 'running',
           error: null,
@@ -472,7 +458,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
 
   it('finalizes a pending finish after cleanup and publishes the original event once', async () => {
     await isolated(async (tx, fixture) => {
-      // pendingFinish 不等 timeout：刚写完也进入候选。
       const runId = await seedPending(tx, fixture, { ageMs: 0 });
       const { queue } = fakeQueue(() => 'completed');
 
@@ -584,7 +569,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
 
         expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
 
-        // 条件更新只允许没有 pendingFinish 的孤儿进入 failed，接管留给下一轮。
         expect(await statusOf(tx, runId)).toMatchObject({
           status: 'running',
           pendingFinish: PENDING_EVENT,
@@ -598,7 +582,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
 
   it('does not clean up a container another run took over while the candidate was probed', async () => {
     await isolated(async (tx, fixture) => {
-      // A 是探测开始时的候选；探测期间 A 正常完成，B 在同一会话复用了同一个容器。
       const runId = await seedPending(tx, fixture, {
         ageMs: 0,
         sandboxId: 'sandbox-shared',
@@ -627,7 +610,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
 
       expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
 
-      // 主键重读看到 A 已非 running：既不清理 B 正在用的容器，也不覆盖 A 的终态。
       expect(cleanup).not.toHaveBeenCalled();
       expect(await statusOf(tx, runId)).toMatchObject({
         status: 'succeeded',
@@ -652,7 +634,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
 
         expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
 
-        // 候选快照没有 sandbox，当前行却有：留到下一轮重新取快照，不能按缺省清理收敛。
         expect(cleanup).not.toHaveBeenCalled();
         expect(await statusOf(tx, runId)).toMatchObject({
           status: 'running',
@@ -679,7 +660,6 @@ describe.skipIf(!ready)('reconcileOrphanedRuns queue probe', () => {
 
         expect(await reconcileOrphanedRuns(tx, logger, AGENT_TIMEOUT_MS, queue, cleanup)).toBe(0);
 
-        // 同一 run 换了容器：旧快照的 sandbox 已不是当前容器，既不能清理也不能写终态。
         expect(cleanup).not.toHaveBeenCalled();
         expect(await statusOf(tx, runId)).toMatchObject({
           status: 'running',

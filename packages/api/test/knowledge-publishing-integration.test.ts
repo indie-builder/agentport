@@ -139,7 +139,6 @@ const importReplaceItems: KnowledgeFaqTransferEntry[] = [
   },
 ];
 
-/** 现 core 单测已认作的合法 WAV 原件；整链只上传这一份真实字节。 */
 const TONE_WAV = await readFile(
   new URL('../../core/test/fixtures/audio/tone.wav', import.meta.url),
 );
@@ -147,7 +146,6 @@ const TONE_WAV_SHA256 = createHash('sha256').update(TONE_WAV).digest('hex');
 
 const AUDIO_SEGMENTED_MARKDOWN = '你好，世界。\n\n重复句\n\n重复句 😀\n\naudiomarker 收尾。';
 const AUDIO_TEXT_ONLY = 'textonlymarker 只有正文，没有段级时码。';
-/** 重复句按拼接位置各算一次偏移；空白段不产块，emoji 占两个 UTF-16 单元。 */
 const AUDIO_SEGMENTS = [
   { startOffset: 0, endOffset: 6, timeFromMs: 0, timeToMs: 1250 },
   { startOffset: 8, endOffset: 11, timeFromMs: 1250, timeToMs: 2500 },
@@ -161,10 +159,6 @@ const AUDIO_CHUNK_LOCATOR = {
   timeToMs: 6000,
 };
 
-/**
- * 极简 multipart 解析只服务本地 fixture 响应：实际请求由 core 原生 FormData 生成，
- * 这里读回 boundary、字段与文件字节，证明链路没被替身绕过。
- */
 function parseMultipart(
   body: Buffer,
   contentType: string,
@@ -207,9 +201,7 @@ function parseMultipart(
   return parts;
 }
 
-/** 附件 fixture：embedding/rerank 与 RSS 全文都走真实本地 HTTP。 */
 function vectorFor(text: string): number[] {
-  // 每个场景标记占一维，互不相似的文本向量正交；基线维避免零向量。
   const markers = [
     'wikimarker',
     'revokemarker',
@@ -260,7 +252,6 @@ describe.skipIf(!ready)(
     const profileIds: string[] = [];
 
     const parsing = createParsingAdapter();
-    /** worker 依赖；解密在测试里只服务无密钥 profile。 */
     const workerDeps: Omit<KnowledgeDeps, 'db' | 'logger'> = {
       knowledgeDir: '',
       parse: parsing.parse,
@@ -270,7 +261,6 @@ describe.skipIf(!ready)(
       allowLoopback: true,
     };
 
-    /** 让转录请求停在响应前，测试可在真实请求进行中改绑定。 */
     function armAsrLatch(): AsrLatch {
       let markReached!: () => void;
       let release!: () => void;
@@ -351,7 +341,6 @@ describe.skipIf(!ready)(
           latch.markReached();
           await latch.gate;
         }
-        // 文件名决定返回形态：真实文件字节始终是同一份 tone.wav。
         if (filename.includes('textonly')) {
           respond(200, { text: AUDIO_TEXT_ONLY, duration: 3.2 });
           return;
@@ -487,10 +476,6 @@ describe.skipIf(!ready)(
       return base;
     }
 
-    /**
-     * API 创建的 job 仍留在测试独享 Redis 里（没有知识 worker 消费）；
-     * 这里用真实 repo 认领并从 worker 真实入口执行，终态也用真实 finishJob 写入。
-     */
     async function runJob(jobId: string, parse = workerDeps.parse): Promise<void> {
       const claimed = await repo.knowledge.claimJob(app.db, jobId);
       if (!claimed) throw new Error(`job ${jobId} is not queued`);
@@ -550,10 +535,6 @@ describe.skipIf(!ready)(
       return res.json<{ hits: SearchHit[] }>();
     }
 
-    /**
-     * 直接调用 MCP handler 的 fetch 入口：现代协议头表明请求版本与工具，
-     * 不经过 HTTP 授权路由，但 tools/call 走与线上完全相同的 handler 实现。
-     */
     async function mcpCall(
       baseId: string,
       serverId: string,
@@ -611,9 +592,7 @@ describe.skipIf(!ready)(
       let json: unknown = null;
       try {
         json = JSON.parse(text);
-      } catch {
-        // 错误结果不是 JSON；保留原始文本给调用方断言。
-      }
+      } catch {}
       return { isError: result.isError === true, text, json };
     }
 
@@ -657,7 +636,6 @@ describe.skipIf(!ready)(
       return res.json<{ id: string; status: string; currentVersionId: string | null }>();
     }
 
-    /** 真实 base64 上传入口；音频字节固定为现 core 已认作合法的 tone.wav。 */
     async function uploadAudio(baseId: string, filename: string) {
       const res = await request(app, {
         method: 'PUT',
@@ -825,7 +803,6 @@ describe.skipIf(!ready)(
       const draft = await manualDetail(first.documentId);
       expect(draft).toMatchObject({ status: 'draft' });
       expect(draft.content).toContain('betamarker');
-      // 新草稿未发布：旧版本仍可检索/读取，新内容不可见。
       expect(
         (await search(base.id, 'alphamarker', ['document'])).hits.map((hit) => hit.documentId),
       ).toContain(first.documentId);
@@ -974,7 +951,6 @@ describe.skipIf(!ready)(
       expect(appendPublished.statusCode, appendPublished.body).toBe(200);
       expect((await faqSearch(base.id, 'importappendone marker question')).hits).toHaveLength(1);
 
-      // replace 校验失败：整批零写入，旧 FAQ 仍是线上可读集合。
       const conflicting = JSON.stringify({
         items: [
           { ...importAppendItems[0], answers: ['first replacement answer'] },
@@ -1188,7 +1164,6 @@ describe.skipIf(!ready)(
       expect(before.length).toBeGreaterThan(0);
       const index = before[0];
       if (!index) throw new Error('wiki search hit missing');
-      // 文档级 metadata 可先被后续发布更新，重建只能继承当前索引版本的不可变身份。
       const document = await repo.knowledge.getDocument(app.db, index.documentId);
       await repo.knowledge.updateDocument(app.db, index.documentId, {
         metadata: { ...document?.metadata, wikiVersionId: 'kwv_mutable_metadata_must_not_be_used' },
@@ -1252,7 +1227,6 @@ describe.skipIf(!ready)(
         payload: { versionId: wikiVersionId },
       });
       expect(publish.statusCode, publish.body).toBe(200);
-      // 发布只切线上指针；索引任务还没跑，搜索暂时不应召回旧内容。
       expect((await search(base.id, 'wikimarker', ['wiki'])).hits).toHaveLength(0);
 
       await runJob(await wikiIndexJobId(base.id, pageId));
@@ -1272,7 +1246,6 @@ describe.skipIf(!ready)(
         ),
       ).toContain(pageId);
 
-      // 负例：固定库授权不能被参数改写。
       const crossBase = await mcpCall(base.id, base.serverId, 'knowledge_search', {
         q: 'wikimarker',
         baseId: 'kb_other',
@@ -1280,7 +1253,6 @@ describe.skipIf(!ready)(
       expect(crossBase.isError).toBe(true);
       expect(crossBase.text).toContain('BASE_MISMATCH');
 
-      // 真实来源 + 真实同步：从 RSS/HTML fixture 摄取文档，再让 Wiki 版本引用真实 chunk。
       const source = await request(app, {
         method: 'POST',
         url: `/api/knowledge/bases/${base.id}/sources`,
@@ -1404,7 +1376,6 @@ describe.skipIf(!ready)(
       expect(await jobPayload(jobId)).toMatchObject({ type: 'ingest', publish: 'automatic' });
       await runJob(jobId);
 
-      // 真实转录请求只发一次，文件字节与字段都来自 core 的原生 multipart 客户端。
       expect(asrCalls - asrBefore).toBe(1);
       expect(lastAsr).toMatchObject({
         model: 'fixture-whisper',
@@ -1437,7 +1408,6 @@ describe.skipIf(!ready)(
         segments: AUDIO_SEGMENTS,
       });
 
-      // 检索命中带真实时码；重复句与 emoji 不破坏定位。
       const hit = (await search(base.id, 'audiomarker', ['document'])).hits.find(
         (entry) => entry.documentId === documentId,
       );
@@ -1445,7 +1415,6 @@ describe.skipIf(!ready)(
       expect(hit?.targetVersionId).toBe(version.id);
       expect(hit?.locator).toEqual(AUDIO_CHUNK_LOCATOR);
 
-      // MCP 读引用同一版本与时码，正文与解析产物一致。
       const read = await mcpCall(base.id, base.serverId, 'knowledge_read', {
         target: { kind: 'document', id: documentId },
       });
@@ -1461,7 +1430,6 @@ describe.skipIf(!ready)(
       expect(readJson.citations[0]?.versionId).toBe(version.id);
       expect(readJson.citations[0]?.locator).toEqual(AUDIO_CHUNK_LOCATOR);
 
-      // 原件下载必须是上传的同一份字节，且只对应这个精确发布版本。
       const download = await request(app, {
         method: 'GET',
         url: `/api/knowledge/versions/${version.id}/content`,
@@ -1531,7 +1499,6 @@ describe.skipIf(!ready)(
       expect(reprocess.statusCode, reprocess.body).toBe(202);
       const reprocessJobId = reprocess.json<{ jobId: string }>().jobId;
 
-      // 转录请求已到达 fixture 但尚未返回：此时关闭库的 ASR 绑定。
       const latch = armAsrLatch();
       const processed = runJob(reprocessJobId).then(
         () => null,
@@ -1549,12 +1516,10 @@ describe.skipIf(!ready)(
 
       const failure = await processed;
       expect(failure).toBeInstanceOf(Error);
-      // reindex 对单个文档失败按聚合失败收尾，旧版本照旧保留。
       expect((failure as Error).message).toContain('1 个文档重建失败，旧版本保留');
       expect(asrCalls - asrBeforeReprocess).toBe(1);
       expect((await repo.knowledge.getJob(app.db, reprocessJobId))?.status).toBe('failed');
 
-      // 旧发布版本、正文与时码全部保持不变，也没有多出版本行。
       const retained = await documentVersions(uploaded.documentId);
       expect(retained.items.map((item) => item.id)).toEqual([currentVersionId]);
       expect(retained.items[0]?.metadata.audio).toMatchObject({ segments: AUDIO_SEGMENTS });
@@ -1565,7 +1530,6 @@ describe.skipIf(!ready)(
       expect(retainedHit?.versionId).toBe(currentVersionId);
       expect(retainedHit?.locator).toEqual(AUDIO_CHUNK_LOCATOR);
 
-      // 重新绑定后只补向量：不重新解析/转录，也不新建版本。
       const rebound = await request(app, {
         method: 'PATCH',
         url: `/api/knowledge/bases/${base.id}`,

@@ -19,10 +19,6 @@ import supportBot from '../../assets/agents/support-bot.jpg';
 import uiDesigner from '../../assets/agents/ui-designer.jpg';
 import { cn } from '../../lib/cn.js';
 
-/**
- * 专家没有存头像字段，按角色关键词匹配一组固定插画头像；未命中时稳定散列到同一组图，
- * 保证同一个 slug 每次渲染都是同一个头像，不新增 schema。
- */
 const avatars = [
   frontendEngineer,
   backendEngineer,
@@ -37,7 +33,6 @@ const avatars = [
   opsEngineer,
 ];
 
-// 从具体到宽泛排列，先命中先返回（如「前端工程师」先于「工程师」）。
 const roleAvatars: ReadonlyArray<readonly [RegExp, string]> = [
   [/前端|frontend|react|ui\s*工程/i, frontendEngineer],
   [/后端|backend|server\s*端|api\s*开发/i, backendEngineer],
@@ -51,7 +46,6 @@ const roleAvatars: ReadonlyArray<readonly [RegExp, string]> = [
   [/客服|答疑|support|助手|助理/i, supportBot],
 ];
 
-/** 「新建」卡展开用的六张插画，顺序决定叠放的左右次序。 */
 export const createShowcaseAvatars: readonly string[] = [
   createFrontend,
   createQa,
@@ -97,7 +91,6 @@ export function agentAvatar(agent: AgentDisplay): string {
   return avatars[hash(slug) % avatars.length] ?? frontendEngineer;
 }
 
-/** 圆形插画头像；尺寸由外部用 size-* 决定，默认 40px。 */
 export function AgentAvatar({ agent, className }: { agent: AgentDisplay; className?: string }) {
   return (
     <img

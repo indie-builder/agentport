@@ -97,7 +97,6 @@ describe.skipIf(!ready)('mcp.json import', () => {
     const stdio = await stored(stdioName);
     const http = await stored(httpName);
     if (!stdio?.secrets_encrypted || !http?.secrets_encrypted) throw new Error('missing secrets');
-    // 落库的是密文：明文既不进配置也不进加密列。
     expect(stdio.config).not.toContain(stdioSecret);
     expect(stdio.secrets_encrypted).not.toContain(stdioSecret);
     expect(http.config).not.toContain(httpSecret);
@@ -178,7 +177,6 @@ describe.skipIf(!ready)('mcp.json import', () => {
   it('accepts a body envelope over 1 MiB as long as the parser byte cap holds', async () => {
     const name = unique('import-envelope');
     created.push(name);
-    // 每个 `"` 在文件文本里转义成 2 字节、在请求体 JSON 字符串里再翻倍；信封超过默认 1 MiB。
     const value = '"'.repeat(500_000);
     const text = doc({ [name]: { command: 'npx', env: { TOKEN: value } } });
     expect(Buffer.byteLength(text)).toBeLessThan(1_048_576);
@@ -194,7 +192,6 @@ describe.skipIf(!ready)('mcp.json import', () => {
     const res = await post(doc({ [name]: { command: 'npx' } }));
     expect(res.statusCode, res.body).toBe(201);
 
-    // 批次没有单一目标对象：审计行只保留摘要，target 为空。
     const audit = await app.client.unsafe<{ target: string | null; input_digest: string | null }[]>(
       `select target, input_digest from audit_log
        where action = 'server.imported' order by created_at desc limit 1`,

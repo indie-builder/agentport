@@ -52,10 +52,6 @@ function mean(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-/**
- * 逐条调用同一 searchKnowledge；Recall 按去重后的期望 target 计算，
- * MRR 取第一条命中 target 的排名。没有期望 chunk 时不报 chunkRecallAtK。
- */
 export async function evaluateRetrieval(input: {
   cases: RetrievalEvaluationCase[];
   limit: number;

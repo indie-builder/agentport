@@ -27,7 +27,6 @@ import {
 
 const ready = await infraReady;
 
-// 三个记忆测试文件共用同一把会话级 advisory 锁（见 helpers.acquireMemoryLock）。
 interface AgentRef {
   id: string;
   slug: string;
@@ -185,7 +184,6 @@ describe.skipIf(!ready)('memory changes', () => {
     const original = await repo.memoryChanges.find(app.db, secondChangeId);
     expect(original).toMatchObject({ state: 'applied', after: { content: 'two', globs: null } });
 
-    // 回滚后目标已离开该版本，再回滚同一条历史应冲突。
     expectProblem(await rollback(secondChangeId), 'CONFLICT');
   });
 
@@ -226,7 +224,6 @@ describe.skipIf(!ready)('memory changes', () => {
       reversesChangeId: changeId,
     });
 
-    // 反向变更的 after 是「文件不存在」；回滚它会重建文件。
     const restored = await rollback(reverseId);
     expect(restored.statusCode, restored.body).toBe(200);
     expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe('v1');
@@ -280,7 +277,6 @@ describe.skipIf(!ready)('memory changes', () => {
     );
     expect(rule[0]).toEqual({ content: 'v1', globs: 'src/**' });
 
-    // 手工删除规则后，历史 after 已不存在，不能再回滚。
     await repo.rules.deleteRule(app.db, agent.id, 'style');
     expectProblem(await rollback(changeId), 'CONFLICT_STALE');
   });
@@ -348,7 +344,6 @@ describe.skipIf(!ready)('memory changes', () => {
 
   it('records a manual same-content save when the file has no matching change', async () => {
     const agent = await newAgent();
-    // 文件被平台外的手工改动写过，账本里没有对应记录。
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', '外部内容');
     const put = () =>
       request(app, {
@@ -366,7 +361,6 @@ describe.skipIf(!ready)('memory changes', () => {
     );
     expect(rows).toEqual([{ before_content: '外部内容', after_content: '外部内容' }]);
 
-    // 最近一次已应用变更的 after 与当前一致时不再重复记账。
     const second = await put();
     expect(second.statusCode, second.body).toBe(200);
     const again = await app.client.unsafe<{ count: number }[]>(
@@ -380,7 +374,6 @@ describe.skipIf(!ready)('memory changes', () => {
     const agent = await newAgent();
     const failedId = newId('memoryChange');
     const indexBefore = '# 索引\n';
-    // A 主题创建在账本提交前失败：A 文件已恢复删除，但索引恢复失败，留下 mixed manual 日志。
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', '- [A.md](A.md)\n');
     await writeMemoryJournal(root, agent.slug, {
       operation: 'manual',
@@ -411,7 +404,6 @@ describe.skipIf(!ready)('memory changes', () => {
     });
     expect(written.statusCode, written.body).toBe(200);
     expect(await readMemoryFile(root, agent.slug, 'A.md')).toBeNull();
-    // 恢复后的索引不能再被恢复前的旧 after 写回 A 链接。
     expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe(
       '# 索引\n- [B.md](B.md)\n',
     );
@@ -442,7 +434,6 @@ describe.skipIf(!ready)('memory changes', () => {
       )[0]?.count ?? -1;
     const before = await count();
 
-    // 最近一条记录是主题变更，其 after.index.content 正是当前 MEMORY.md 正文。
     const saved = await put('MEMORY.md', index);
     expect(saved.statusCode, saved.body).toBe(200);
     expect(await count()).toBe(before);
@@ -550,7 +541,6 @@ describe.skipIf(!ready)('memory changes', () => {
       },
     ]);
 
-    // 手工写入也进入版本账本，可以回滚。
     const firstItem = memoryItems[0];
     if (!firstItem) throw new Error('manual memory write did not record a version');
     const reversed = await rollback(firstItem.id);
@@ -589,7 +579,6 @@ describe.skipIf(!ready)('memory changes', () => {
       },
     ]);
 
-    // 第二个主题后，版本列表仍按文件名在 LIMIT 前收窄，MEMORY.md 能看到伴随索引变更。
     expect((await put('ops.md', '运维')).statusCode).toBe(200);
     const themeVersions = await request(app, {
       method: 'GET',
@@ -733,13 +722,11 @@ describe.skipIf(!ready)('memory changes', () => {
       [agent.id],
     );
     if (!second) throw new Error('theme update did not record a change');
-    // 该版本只改主题正文，索引在前后的快照相同。
     await put('ops.md', '运维');
 
     const reversed = await rollback(second.id);
     expect(reversed.statusCode, reversed.body).toBe(200);
     expect((await readMemoryFile(root, agent.slug, 'deploy.md'))?.content).toBe('v1');
-    // 后续新增的索引链接保留，不被主题回滚抹掉。
     expect((await readMemoryFile(root, agent.slug, 'MEMORY.md'))?.content).toBe(
       '- [deploy.md](deploy.md)\n- [ops.md](ops.md)\n',
     );
@@ -771,7 +758,6 @@ describe.skipIf(!ready)('memory changes', () => {
       ).statusCode,
     ).toBe(200);
 
-    // 删除一个主题留下可回滚的版本，再用新主题把数量补回上限。
     expect(
       (
         await request(app, {
@@ -835,8 +821,6 @@ describe.skipIf(!ready)('memory changes', () => {
       'UNAUTHORIZED',
     );
 
-    // 有 agents.memory.read 功能权限、但不是该专家成员的账户被对象范围拒绝；
-    // 范围不符统一按对象不存在返回，避免泄露其他用户的对象。
     const maintainer = await createTestAccount(app, cookie, { systemKeys: ['maintainer'] });
     expectProblem(
       await request(app, {
@@ -846,7 +830,6 @@ describe.skipIf(!ready)('memory changes', () => {
       }),
       'NOT_FOUND',
     );
-    // 授予维护范围后，同一对象下载放行。
     await setAgentMember(app, cookie, agent.id, maintainer.businessId, {
       canUse: false,
       canMaintain: true,
@@ -874,7 +857,6 @@ describe.skipIf(!ready)('memory changes', () => {
     expect(files.get('MEMORY.md')).toBe('# 索引\n- [deploy.md](deploy.md)\n');
     expect(files.get('deploy.md')).toBe('# 部署\n使用蓝绿发布。');
 
-    // 真实解包后走公开 PUT 回导另一位专家，正文与相对链接不依赖原 agentId/slug。
     const copy = await newAgent();
     for (const [name, content] of files) {
       const imported = await put(copy.id, name, content);
@@ -921,7 +903,6 @@ describe.skipIf(!ready)('memory changes', () => {
     );
     await rm(join(dir, 'topic.md'));
 
-    // 每个文件都在单文件上限内，但合计超过专家包 4 MiB 的解压上限。
     for (let index = 0; index < 21; index += 1) {
       await writeMemoryFile(root, agent.slug, `big-${index}.md`, 'x'.repeat(200_000));
     }
@@ -987,7 +968,6 @@ describe.skipIf(!ready)('memory changes', () => {
     expect(reversed.statusCode, reversed.body).toBe(200);
     const reverseId = reversed.json<{ id: string }>().id;
 
-    // 账本已提交、日志删除失败：重试同一回滚只返回既有反向变更。
     await writeMemoryJournal(root, agent.slug, {
       operation: 'rollback',
       operationId: change.id,
@@ -1020,7 +1000,6 @@ describe.skipIf(!ready)('memory changes', () => {
   it('recovers an uncommitted manual write with its preallocated change id', async () => {
     const agent = await newAgent();
     const operationId = newId('memoryChange');
-    // 文件已全部落盘，但账本事务还没提交：日志的身份必须先于写入分配。
     await writeMemoryFile(root, agent.slug, 'MEMORY.md', '# 手工\n');
     await writeMemoryJournal(root, agent.slug, {
       operation: 'manual',
@@ -1078,7 +1057,6 @@ describe.skipIf(!ready)('memory changes', () => {
     );
     if (!change) throw new Error('theme write did not record a change');
 
-    // 账本已提交但清日志失败：残留日志与已提交行使用同一稳定身份。
     await writeMemoryJournal(root, agent.slug, {
       operation: 'manual',
       operationId: change.id,
@@ -1099,7 +1077,6 @@ describe.skipIf(!ready)('memory changes', () => {
         },
       ],
     });
-    // SDK 随后只改了索引；残留日志不能再据此补记或复制原来那条变更。
     await writeMemoryFile(
       root,
       agent.slug,

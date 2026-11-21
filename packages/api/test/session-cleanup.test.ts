@@ -126,7 +126,6 @@ describe('closeSessionSandboxes', () => {
 
       expect(error).toMatchObject({ code: 'SERVICE_UNAVAILABLE', retryable: true });
       expect(disconnects).toHaveBeenCalledTimes(2);
-      // 迟到 ACK 不能把已失败的删除变成成功；完成后仍不留下连接。
       await new Promise((resolve) => setTimeout(resolve, 300));
       expect(disconnects).toHaveBeenCalledTimes(2);
     } finally {
@@ -152,7 +151,6 @@ describe('closeSessionSandboxes', () => {
       });
 
       expect(error).toMatchObject({ code: 'SERVICE_UNAVAILABLE', retryable: true });
-      // 连接自身的 2s connectTimeout 不能成为删除预算。
       expect(Date.now() - started).toBeLessThan(1_500);
       expect(disconnects).toHaveBeenCalledTimes(2);
     } finally {

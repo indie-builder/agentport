@@ -34,7 +34,6 @@ describe('promptWithAttachments', () => {
     expect(prompt).toContain(
       `"report \\"final\\".csv"：/mnt/inputs/22222222-2222-4222-8222-222222222222.csv（text/csv，7 bytes）`,
     );
-    // 顺序与消息里的附件一致。
     expect(prompt.indexOf('11111111')).toBeLessThan(prompt.indexOf('22222222'));
     expect(prompt).toContain('先 Read 相关资料再分析；读取失败要明确说明');
     expect(prompt).toContain('输入只读，交付写 /mnt/outputs');

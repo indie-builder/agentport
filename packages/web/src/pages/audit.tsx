@@ -144,7 +144,6 @@ function buildAuditQuery(values: {
   };
 }
 
-/** 只展示接口已有的字段；输入原文本就不落库，摘要为空时如实给「—」。 */
 function auditDetails(row: AuditEntry) {
   return (
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
@@ -210,7 +209,6 @@ export function AuditPage() {
   const exportAudit = async (): Promise<void> => {
     setExporting(true);
     try {
-      // 与表格使用同一份已生效的筛选值，避免刚输入就导出时导出旧条件。
       const data = await api.exportAudit(query);
       downloadJson(data, 'audit.json');
     } catch (error) {

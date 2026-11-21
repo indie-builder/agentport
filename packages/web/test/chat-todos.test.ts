@@ -76,7 +76,6 @@ describe('live todo snapshots', () => {
     const first = fold([], toolEvents('t1', [todo('读代码', 'in_progress')]));
     expect(latestTopLevelTodos(first)).toEqual([todo('读代码', 'in_progress')]);
 
-    // 省略 todos 的 tool_result（普通工具）不改上一条清单。
     const unchanged = fold(first, [{ type: 'tool_result', toolUseId: 't1', content: 'again' }]);
     expect(latestTopLevelTodos(unchanged)).toEqual([todo('读代码', 'in_progress')]);
 
@@ -92,7 +91,6 @@ describe('live todo snapshots', () => {
       todo('读代码', 'completed'),
       todo('改代码', 'in_progress'),
     ]);
-    // 同一轮消息随实时快照更新渲染。
     expect(pane(updated)).toContain('改代码中');
   });
 
@@ -183,7 +181,6 @@ describe('history todo snapshots', () => {
 });
 
 describe('snapshot confirmation order', () => {
-  // trace 位置来自 tool_start，早开始的调用可能晚确认；选择必须按结果到达顺序。
   const reversedLive = [
     { type: 'tool_start', toolUseId: 'a', name: 'TodoWrite' },
     { type: 'tool_start', toolUseId: 'b', name: 'TodoWrite' },
@@ -317,7 +314,6 @@ describe('turn checklist rendering', () => {
     expect(html).toContain('整理资料');
     expect(html).not.toContain('旧步骤');
     expect(html.match(/aria-label="任务清单"/g)).toHaveLength(1);
-    // 字号沿用既有 token：计数 12px（xs），步骤正文 14px（base），不另造小字号。
     expect(html).toContain('font-mono text-xs tabular-nums');
     expect(html).toContain('flex items-start gap-1.5 text-base');
     expect(html).not.toContain('text-2xs');

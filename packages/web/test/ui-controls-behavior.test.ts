@@ -8,11 +8,6 @@ import { Field, FieldLabel } from '../src/components/ui/field.js';
 import { RadioGroup, RadioGroupItem } from '../src/components/ui/radio-group.js';
 import { Switch } from '../src/components/ui/switch.js';
 
-/**
- * 焦点外观由浏览器 computed style 验收；这里只证明控件本身的键盘与标签行为，
- * 避免用类名断言冒充视觉结论。
- */
-
 let host: HTMLDivElement;
 let root: Root;
 
@@ -201,14 +196,12 @@ describe('shared choice controls keep real keyboard and label behaviour', () => 
     expect(fast.getAttribute('aria-checked')).toBe('true');
     expect(document.activeElement).toBe(fast);
 
-    // 停用项对点击无反应，也不会成为选中项。
     const stopped = control('radio', '停用');
     expect(stopped.getAttribute('aria-disabled')).toBe('true');
     await click(stopped);
     expect(stopped.getAttribute('aria-checked')).toBe('false');
     expect(fast.getAttribute('aria-checked')).toBe('true');
 
-    // 方向键越过停用项，循环回到第一项而不是停在不可选项上。
     await act(async () => {
       fast.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }),

@@ -39,7 +39,6 @@ export const AGENT_PACKAGE_PATHS = {
   sidecar: AGENT_PACKAGE_SIDECAR,
 } as const;
 
-/** 与导入端逐项限制共享，避免导出产出自己无法导入的包。 */
 export const AGENT_PACKAGE_LIMITS = {
   subAgents: 20,
   resources: 100,

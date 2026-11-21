@@ -14,7 +14,6 @@ const skillsQuery = queryOptions<SkillWithAgentCount[]>({
   queryFn: () => api.skills(),
 });
 
-/** 「录制学习」：把一次运行沉淀为技能草稿，成功后刷新技能列表。 */
 export function useSkillDraftFromRun() {
   const client = useQueryClient();
   return useMutation({
@@ -43,9 +42,7 @@ export function useImportSkillFile() {
   });
 }
 
-/** 市场搜索要求至少 2 个字符；空查询走 skills.sh 榜单。 */
 export function useMarketSkills(view: MarketView, query: string) {
-  // 每个字符都打一次 skills.sh 会把外部榜单打爆：停 300ms 再换 queryKey。
   const settled = useDebouncedValue(query.trim(), 300);
   const result = useQuery({
     queryKey: ['market-skills', view, settled],
@@ -54,7 +51,6 @@ export function useMarketSkills(view: MarketView, query: string) {
     enabled: settled.length === 0 || settled.length >= 2,
     staleTime: 5 * 60_000,
   });
-  // 防抖窗口里页面要显示加载态，不能继续展示上一个词的结果。
   return { ...result, isDebouncing: settled !== query.trim() };
 }
 
@@ -65,7 +61,6 @@ export function useInstallMarketSkill() {
     onSuccess: ({ skill, warnings }) => {
       toastSuccess(`已安装「${skill.name}」`);
       for (const warning of warnings) toast.info(warning);
-      // 安装总是新建，安装接口不返回 agentCount：先插一条 0，再由服务端结果校正。
       client.setQueryData<SkillWithAgentCount[]>(['skills'], (old) =>
         old ? [{ ...skill, agentCount: 0 }, ...old] : old,
       );
@@ -81,7 +76,6 @@ export function useUpdateSkill() {
     mutationFn: (vars: { id: string; input: Partial<SkillInput>; expectedUpdatedAt?: string }) =>
       api.updateSkill(vars.id, vars.input, vars.expectedUpdatedAt),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['skills'] }),
-    // 冲突说明列表里是旧版本：重取一次，关闭重开后拿到最新数据。
     onError: (error) => {
       if (error instanceof ApiError && error.code === 'CONFLICT_STALE') {
         void client.invalidateQueries({ queryKey: ['skills'] });

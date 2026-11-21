@@ -174,7 +174,6 @@ describe('run detail keeps its tree across a failed refresh', () => {
     expect(host.textContent).toContain('刷新失败，内容仍是上次结果');
     expect(host.textContent).toContain('network down');
     expect(button('重试')).not.toBeUndefined();
-    // 同一个详情树：trace、检查器、URL 选择与展开状态都不重置。
     expect(host.querySelectorAll('ol button')).toHaveLength(2);
     expect(router.state.location.search).toMatchObject({ step: 1 });
     expect(stepButtons()[1]?.getAttribute('aria-current')).toBe('step');
@@ -183,7 +182,6 @@ describe('run detail keeps its tree across a failed refresh', () => {
     expect((host.querySelector('pre')?.textContent ?? '').length).toBeGreaterThan(64 * 1024);
 
     await act(async () => button('重试')?.click());
-    // 重试进行中内容仍保留，提示不提前消失；成功后提示消失、内容更新。
     expect(host.textContent).toContain('刷新失败，内容仍是上次结果');
     expect((host.querySelector('pre')?.textContent ?? '').length).toBeGreaterThan(64 * 1024);
     await act(async () =>

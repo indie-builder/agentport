@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# 完整备份：一致性 pg_dump + 持久工作区（agent-memory / SDK transcript）+ 必要 .env →
-# backups/<timestamp>.tar.gz（0600）。可选 RESTIC_REPOSITORY 在本地成功后推送整包。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,7 +10,6 @@ if [ ! -f "$ENV_SOURCE" ]; then
   die "env file not found: $ENV_SOURCE (set BACKUP_ENV_FILE)"
 fi
 
-# 只读取 DATABASE_URL，不 source 整个文件：.env 里的值可能带空格或注释。
 if [ -z "${DATABASE_URL:-}" ]; then
   DATABASE_URL="$(database_url_from_env_file "$ENV_SOURCE")"
 fi
@@ -42,7 +39,6 @@ case "$WS_MODE" in
 esac
 
 # 1) 一致性数据库导出。pg_dump 自带快照，运行中的 api/worker 不会造成半截数据。
-# 服务器上只留本脚本的连接，避免清点行数时混入应用连接。
 OTHERS="$(pg_client_backends)" || die "cannot query database; check DATABASE_URL and the postgres service"
 if [ "${OTHERS:-0}" != 0 ]; then
   log "warning: $OTHERS other database client(s) connected (api/worker). The dump is still consistent, but files and database may differ slightly. Stop api/worker for a fully aligned backup."
@@ -52,10 +48,8 @@ if ! pg_run pg_dump --format=custom --no-owner --no-privileges "$DATABASE_URL" >
 fi
 chmod 600 "$STAGE/database.dump"
 
-# 2) 配置：整份 .env（含密钥），归档与解包后都是 0600，脚本不打印内容。
 install -m 600 "$ENV_SOURCE" "$STAGE/env"
 
-# 3) 持久工作区。run_* 是每次运行重建的派生物，agent-memory/ 与 SDK transcript 才需要保留。
 mkdir -p "$STAGE/workspaces"
 if ! ws_tar_out | tar -xf - -C "$STAGE/workspaces"; then
   die "workspace archive failed; no backup published"
@@ -66,15 +60,12 @@ find "$STAGE/workspaces" -type d -exec chmod 700 {} \;
 find "$STAGE/workspaces" -type f -exec chmod 600 {} \;
 
 WS_FILES="$(find "$STAGE/workspaces" -type f | wc -l | tr -d ' ')"
-# 0 个文件几乎一定是工作区定位错了（空目录/别的 checkout）；不能当完整备份发布。
 if [ "$WS_FILES" -eq 0 ] && [ "${BACKUP_ALLOW_EMPTY_WORKSPACES:-0}" != 1 ]; then
   die "workspace resolved to an empty directory (mode=$WS_MODE path=$WS_PATH); set BACKUP_WORKSPACES_DIR or BACKUP_ALLOW_EMPTY_WORKSPACES=1"
 fi
 WS_BYTES="$(find "$STAGE/workspaces" -type f -exec cat {} + 2>/dev/null | wc -c | tr -d ' ')"
 DB_BYTES="$(file_bytes "$STAGE/database.dump")"
 
-# 4) 知识库（原件 blob + 解析产物）。可选：还没启用知识库时归档里就没有 knowledge/。
-# 已配置却读不到（卷在宿主不可见、容器不可用）必须失败，不能伪装成「没有数据」。
 resolve_knowledge
 KN_DIR=''
 case "$KN_MODE" in
@@ -98,7 +89,6 @@ fi
 
 write_manifest "$STAGE/manifest.json" "$STAGE/database.dump" "$STAGE/env" "$STAGE/workspaces" '' "$KN_DIR"
 
-# 5) 先临时后发布：同一目录内 rename，半截文件不会出现在备份名里。
 TS="$(now_ts)"
 OUT="$BACKUP_DIR/$TS.tar.gz"
 TMP_ARCHIVE="$BACKUP_DIR/.tmp-$TS.tar.gz"
@@ -108,8 +98,6 @@ fi
 if ! gzip -t "$TMP_ARCHIVE"; then
   die "archive integrity check failed; no backup published"
 fi
-# 用恢复端同一套校验先自检：链接、越界路径或清单不符在发布前就失败，
-# 不会留下一个 restore 会拒收的「备份」。
 if ! validate_archive "$TMP_ARCHIVE"; then
   die "fresh backup failed validation; no backup published"
 fi
@@ -118,11 +106,9 @@ mv "$TMP_ARCHIVE" "$OUT"
 TMP_ARCHIVE=''
 log "backup written: $OUT ($(file_bytes "$OUT") bytes, database $DB_BYTES bytes, workspaces $WS_FILES files / $WS_BYTES bytes${KN_DIR:+, knowledge $(workspace_file_count "$KN_DIR") files})"
 
-# 只清理本脚本产出的 .tar.gz；restore.sh 的 pre-restore-* 安全副本不参与保留数量。
 ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null | grep -v '/pre-restore-' | tail -n +"$((BACKUP_KEEP + 1))" |
   while IFS= read -r old; do rm -f "$old"; done || true
 
-# 6) 可选：restic 把整个包推到远端（加密由 restic 完成，本脚本不自造协议）。
 if [ -n "${RESTIC_REPOSITORY:-}" ]; then
   command -v restic >/dev/null 2>&1 || die "RESTIC_REPOSITORY is set but restic is not installed; local backup kept at $OUT"
   log "restic: backing up $OUT"

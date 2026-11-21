@@ -59,7 +59,6 @@ const MAX_WIKI_PAGES = 1_000;
 const INSERT_BATCH = 500;
 const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
-/** 导入与导出共用同一组 ZIP 结构/容量上限。 */
 const ZIP_READ_LIMITS: ZipReadLimits = {
   maxEntries: MAX_ENTRIES,
   maxUncompressedBytes: MAX_EXPANDED_BYTES,
@@ -238,20 +237,17 @@ const manifestSchema = z.object({
     .array(
       z.object({ path: z.string(), sha256: sha256Schema, size: z.number().int().nonnegative() }),
     )
-    // 只含 Wiki 页、没有文档的库也要能导出/导入。
     .default([]),
 });
 
 type Manifest = z.infer<typeof manifestSchema>;
 type DocumentPackage = z.infer<typeof documentSchema>;
 
-/** faqImport/faqImportJobId 是运行态批次身份；导出与导入都不带它，避免冒充新库的进行中批次。 */
 function withoutRuntimeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
   const { faqImport: _batch, faqImportJobId: _job, ...rest } = metadata;
   return rest;
 }
 
-/** 包内路径只允许规范相对 POSIX 路径；导入端从不按这些名字落盘。 */
 function assertEntryPath(path: string): void {
   assertPackagePath(path);
   if (path.endsWith('/')) invalid('包内路径不能包含空段、. 或 ..', path);
@@ -276,7 +272,6 @@ function readZip(data: Buffer): Map<string, Buffer> {
   }
 }
 
-/** 导出前用与导入相同的条目数/单条/总量限制预检，不产出自身无法导入的包。 */
 export function assertPackageCapacity(
   entries: Record<string, Uint8Array>,
   limits: ZipReadLimits = ZIP_READ_LIMITS,
@@ -301,7 +296,6 @@ export function assertPackageCapacity(
   }
 }
 
-/** 校验 manifest 的 sha256 清单，返回只有清单登记且哈希一致的条目。 */
 function verifiedFiles(files: Map<string, Buffer>, manifest: Manifest): Map<string, Buffer> {
   const listed = new Map<string, { sha256: string; size: number }>();
   for (const file of manifest.files) {
@@ -326,10 +320,6 @@ function verifiedFiles(files: Map<string, Buffer>, manifest: Manifest): Map<stri
   return verified;
 }
 
-/**
- * 音频原件只能按真实字节判定：不信任 manifest 的扩展名/MIME/size。
- * 导入失败是输入问题；导出失败是既有数据无法保证可导回，统一 409。
- */
 async function validateAudioPackage(
   manifest: Manifest,
   contents: Map<string, Buffer>,
@@ -416,9 +406,7 @@ async function validateAudioPackage(
   }
 }
 
-/** 图片名要能直接作为 `images/` 下的单段文件名；导出与导入共用。 */ function imageNameProblem(
-  name: string,
-): string | null {
+function imageNameProblem(name: string): string | null {
   if (name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
     return '图片名不能包含路径分隔符';
   }
@@ -428,18 +416,15 @@ async function validateAudioPackage(
   return null;
 }
 
-/** vector chunk 只做图片向量检索，导入时同样不进关键词索引。 */
 function isVectorRole(metadata: Record<string, unknown>): boolean {
   const parsed = knowledgeImageChunkMetadataSchema.safeParse(metadata);
   return parsed.success && parsed.data.imageRole === 'vector';
 }
 
-/** 包内图片路径白名单：只允许版本目录下的 `images/<name>`。 */
 function imagePathFor(versionDir: string, name: string): string {
   return `${versionDir}/images/${name}`;
 }
 
-/** 版本目录由原件路径推出（`<dir>/original`）。 */
 function versionDirOf(originalPath: string): string {
   return originalPath.slice(0, originalPath.lastIndexOf('/'));
 }
@@ -465,15 +450,11 @@ function parseManifest(files: Map<string, Buffer>): Manifest {
   return parsed.data;
 }
 
-// ---------------------------------------------------------------------------
-// 导出
-
 interface PageLike<T> {
   items: T[];
   nextCursor: string | null;
 }
 
-/** 仓库列表单页上限 200；导出必须循环到游标耗尽，否则会静默截断。 */
 async function collectPages<T extends { id: string }>(
   fetchPage: (options: { cursor?: string; limit?: number }) => Promise<PageLike<T>>,
 ): Promise<T[]> {
@@ -538,7 +519,6 @@ export async function exportKnowledgePackage(
             ),
           );
 
-  // 与 manifestSchema/readZip 同一组上限：超限直接 409，不生成截断或无法导回的包。
   if (folders.length > MAX_FOLDERS) {
     fail('CONFLICT', `文件夹数量超过 ${MAX_FOLDERS} 个，请拆分知识库后重试`);
   }
@@ -565,12 +545,9 @@ export async function exportKnowledgePackage(
     const versions = await collectPages((options) =>
       repo.knowledge.listVersions(db, document.id, options),
     );
-    // 来源归属（knowledgeSourceId）属于本机同步状态，不随包迁移。
     const { knowledgeSourceId: _source, ...documentMetadata } = document.metadata;
     if (versions.length === 0) {
-      // Wiki 内部索引是派生态：索引任务尚未产出时没有版本，跳过它不丢 Wiki 页本身。
       if (document.contentKind === 'wiki') continue;
-      // 用户输入已写入 blob、但摄取任务还在排队或失败：保存原件与待处理状态，不伪造版本。
       if (document.currentVersionId !== null) {
         fail('CONFLICT', `文档「${document.title}」的当前版本缺失，无法导出`);
       }
@@ -653,7 +630,6 @@ export async function exportKnowledgePackage(
         join(knowledgeDir, 'docs', document.id, version.id, 'markdown.md'),
         'utf8',
       ).catch(() => null);
-      // embedding 不属于包内容；vector chunk 保留身份与描述，靠导入后的 chunksOnly 按原图补向量。
       const chunks = await collectPages((options) =>
         repo.knowledge.listChunkSummaries(db, version.id, options),
       );
@@ -744,7 +720,6 @@ export async function exportKnowledgePackage(
         })),
       });
     }
-    // 来源归属（knowledgeSourceId）属于本机同步状态，不随包迁移。
     documentPackages.push({
       id: document.id,
       folderId: document.folderId,
@@ -785,7 +760,6 @@ export async function exportKnowledgePackage(
         version: version.version,
         markdown: version.markdown,
         sourceChunkIds: version.sourceChunkIds.filter((id) => exportedChunkIds.has(id)),
-        // 已删除的 chunk/文档：历史引用不删，但明确标成失效，导入后不会冒充有效引用。
         unresolvedSourceChunkIds: version.sourceChunkIds.filter((id) => !exportedChunkIds.has(id)),
         model: version.model,
         generatedBy: version.generatedBy,
@@ -832,7 +806,6 @@ export async function exportKnowledgePackage(
     wikiPages: wikiPagePackages,
     files,
   };
-  // 用导入端的 schema 与引用校验预检：导出成功即代表同一份文件能被导入。
   const checked = manifestSchema.safeParse(manifest);
   if (!checked.success) {
     const first = checked.error.issues[0];
@@ -851,7 +824,6 @@ export async function exportKnowledgePackage(
     fail('CONFLICT', `知识包压缩后超过 ${KNOWLEDGE_PACKAGE_MAX_BYTES} 字节，请拆分知识库后重试`);
   }
   try {
-    // 用导入端同一解析器复核产物的条目数/单条/总量与路径，保证导出成功即可导回。
     inspectZipEntries(body, ZIP_READ_LIMITS);
   } catch (err) {
     if (isAppError(err)) fail('CONFLICT', `导出的知识包不符合导入约束：${err.message}`);
@@ -859,9 +831,6 @@ export async function exportKnowledgePackage(
   }
   return { filename: `${base.slug}.knowledge.zip`, body };
 }
-
-// ---------------------------------------------------------------------------
-// 导入
 
 export interface KnowledgePackageImportResult {
   baseId: string;
@@ -876,11 +845,6 @@ export interface KnowledgePackageImportResult {
   };
 }
 
-/**
- * 导入会创建全新的库与内置 server。所有校验、profile 匹配、sha256 与文件写入
- * 都在事务之前完成；元数据在一个事务里落库，失败时删掉本次新建的文件，
- * 不会留下半库，也不会碰任何已有知识库。
- */
 export async function importKnowledgePackage(
   db: Db,
   knowledgeDir: string,
@@ -918,7 +882,6 @@ export async function importKnowledgePackage(
       `缺少 embedding 模型 profile「${manifest.base.embeddingProfileName}」；请先创建同名 profile 再导入`,
     );
   }
-  // 导入方的 profile 才决定图片能力：包里有图片语义或启用了图片向量时不能伪装 ready。
   const hasImageChunks = manifest.documents.some((document) =>
     document.versions.some((version) => version.chunks.some((chunk) => chunk.kind === 'image')),
   );
@@ -996,7 +959,6 @@ export async function importKnowledgePackage(
     fail('CONFLICT', `知识库 slug「${manifest.base.slug}」已被占用；请先删除同名知识库再导入`);
   }
 
-  // 新 ID 分配：文件夹/文档/版本/chunk/Wiki 全部换新，旧 ID 只在包内用于引用。
   const folderId = new Map(manifest.folders.map((folder) => [folder.id, newId('knowledgeFolder')]));
   const tagId = new Map(manifest.tags.map((tag) => [tag.id, newId('knowledgeTag')]));
   const documentId = new Map(
@@ -1023,7 +985,6 @@ export async function importKnowledgePackage(
     }
   }
 
-  /** 包内 ID 只在包内有效；内部 Wiki 索引的引用必须指向本次导入的新页/新版本。 */
   const remapMetadata = (
     metadata: Record<string, unknown>,
     maps: Record<string, Map<string, string>>,
@@ -1039,7 +1000,6 @@ export async function importKnowledgePackage(
     return next;
   };
 
-  /** 批次是运行态：job 与旧集合快照不随包迁移，导回后不能再冒充进行中的批次。 */
   const importedVersionMetadata = (metadata: Record<string, unknown>): Record<string, unknown> =>
     remapMetadata(withoutRuntimeMetadata(metadata), {
       wikiPageId,
@@ -1173,12 +1133,10 @@ export async function importKnowledgePackage(
             documentId: newDocumentId,
             version: version.version,
             origin: version.origin,
-            // 父版本可能晚于子版本出现，先全部插入再回填指针。
             parentVersionId: null,
             metadata: importedVersionMetadata(version.metadata),
             faq: version.faq,
             blobSha256: version.blobSha256,
-            // 没有解析正文时写入空文件的哈希，不冒充原件摘要。
             markdownSha256: version.markdownSha256 ?? EMPTY_SHA256,
             originalFilename: version.originalFilename,
             mimeType: version.mimeType,
@@ -1186,7 +1144,6 @@ export async function importKnowledgePackage(
             sourceRevision: version.sourceRevision,
             parseStatus: version.parseStatus,
             pageMap: version.pageMap,
-            // 包内的 path 只用于随包归档，库里仍存原件目录下的文件名。
             images: version.images.map(({ path: _path, ...image }) => image),
             embeddingProfileId: embedding.id,
           });
@@ -1205,9 +1162,7 @@ export async function importKnowledgePackage(
                 kind: chunk.kind,
                 heading: chunk.heading,
                 content: chunk.content,
-                // vector chunk 与生成时一致：空 searchText，不进关键词索引。
                 searchText: isVectorRole(chunk.metadata) ? '' : segmentForSearch(chunk.content),
-                // 不导入向量，也不在这里调用付费模型；vector 的 embedding 由 chunksOnly 按原图补。
                 embedding: null,
                 enabled: chunk.enabled,
                 editedByUser: chunk.editedByUser,
@@ -1263,7 +1218,6 @@ export async function importKnowledgePackage(
             pageId: newPageId,
             version: version.version,
             markdown: version.markdown,
-            // 失效引用原样保留原 ID：它们本就不在包内，不会与任何新 chunk 混淆。
             sourceChunkIds: [
               ...version.sourceChunkIds.map((id) => chunkId.get(id)!),
               ...version.unresolvedSourceChunkIds,
@@ -1292,7 +1246,6 @@ export async function importKnowledgePackage(
           );
         }
       }
-      // 父页可能晚于子页出现，先全部建行再回填目录关系。
       for (const page of manifest.wikiPages) {
         if (page.parentId === null) continue;
         await tx
@@ -1326,7 +1279,6 @@ export async function importKnowledgePackage(
   };
 }
 
-/** 文件夹路径由父链重算，包里的 path 仅作说明，避免导入自相矛盾的层级。 */
 function folderPath(folder: Manifest['folders'][number], manifest: Manifest): string {
   const byId = new Map(manifest.folders.map((entry) => [entry.id, entry]));
   const segments: string[] = [];
@@ -1354,7 +1306,6 @@ async function storeBlob(
   created.push(target);
 }
 
-/** 包内引用必须是自洽的：路径存在性在 verifiedFiles 里已验证，这里只查 ID 关系。 */
 function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): void {
   const folderIds = new Set<string>();
   for (const folder of manifest.folders) {
@@ -1474,7 +1425,6 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
           invalid(`版本「${version.id}」的分块序号 ${chunk.ordinal} 重复`);
         }
         ordinals.add(chunk.ordinal);
-        // 图片定位只认本版本清单里的单段文件名，不接受越界路径或伪造 MIME。
         const hasImage = 'image' in chunk.metadata;
         const hasRole = 'imageRole' in chunk.metadata;
         if (!hasImage && !hasRole) continue;
@@ -1484,8 +1434,6 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
             `版本「${version.id}」的分块图片定位不合法：${parsed.error.issues[0]?.message ?? ''}`,
           );
         }
-        // 任一保留键都要求完整、自洽的图片身份：只有 image 没有角色、或角色没有图，
-        // 都会让检索/读图对不上号，直接拒绝。
         if (chunk.kind !== 'image') {
           invalid(
             `版本「${version.id}」的分块 ${chunk.ordinal} 带图片 metadata 但 kind 不是 image`,
@@ -1510,7 +1458,6 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
       const current = document.versions.find((version) => version.id === document.currentVersionId);
       if (!current) invalid(`文档「${document.title}」的当前版本不在包内`);
     }
-    // FAQ 的问答数据挂在版本上；没有 faq 的 faq 文档无法重建可检索内容。
     if (
       document.contentKind === 'faq' &&
       document.pending === null &&
@@ -1535,7 +1482,6 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
         if (!chunkIds.has(id)) invalid(`Wiki 页面「${page.slug}」引用了包内不存在的分块`);
       }
       for (const id of version.unresolvedSourceChunkIds) {
-        // 已声明的失效引用只能指向包外；包内存在却标失效，说明清单自相矛盾。
         if (chunkIds.has(id)) {
           invalid(`Wiki 页面「${page.slug}」的失效引用「${id}」仍在包内`);
         }
@@ -1564,7 +1510,6 @@ function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): 
     }
   }
 
-  // 目录关系必须同包且无环；导入后再由页面行外键兜底。
   const parentById = new Map(manifest.wikiPages.map((page) => [page.id, page.parentId]));
   for (const page of manifest.wikiPages) {
     if (page.parentId !== null && !wikiPageIds.has(page.parentId)) {

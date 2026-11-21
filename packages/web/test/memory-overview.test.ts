@@ -95,9 +95,7 @@ async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 查询还没落地，继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -138,7 +136,6 @@ describe('memory overview', () => {
     expect(text).toContain('42 行');
     expect(text).toContain('占上限 21%');
     expect(text).toContain('上限 200 行 / 25 KB');
-    // 项目规则的规模只在「指令」页呈现，不在记忆概览里重复。
     expect(text).not.toContain('项目规则');
     expect(text).toContain('当前个人记忆');
     expect(text).toContain('120 字符');
@@ -157,7 +154,6 @@ describe('memory overview', () => {
       row.textContent?.includes('deploy.md'),
     );
     expect(skippedRow?.className).toContain('opacity-60');
-    // 已跳过的块不能带大小，否则会被读成已加载 800 字节。
     expect(skippedRow?.querySelectorAll('td')[2]?.textContent?.trim()).toBe('—');
 
     expect(text).toContain('个人 120 字符');

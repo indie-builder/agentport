@@ -473,7 +473,6 @@ describe('server test environment identity', () => {
   it('waits for the environment list and retries it before allowing a test', async () => {
     let rejectFirst: ((error: Error) => void) | undefined;
     let environmentAttempts = 0;
-    // 页面同时请求连接器目录，试连成功后还会刷新连接器列表；按 URL 区分，不能依赖调用顺序。
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.includes('/connector-catalog')) return Promise.resolve(Response.json([]));

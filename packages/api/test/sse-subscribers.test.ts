@@ -7,7 +7,6 @@ import { eventFollowerCount, infraReady, testConfig, unique, waitFor } from './h
 
 const ready = await infraReady;
 
-/** 直接走 producer，不经过 HTTP：一个 run 的推送不能因为其他观众关闭而中断。 */
 describe.skipIf(!ready)('run subscribers', () => {
   afterAll(async () => {
     await closeProducer();
@@ -90,7 +89,6 @@ describe.skipIf(!ready)('run subscribers', () => {
     const redis = new RedisClient(testConfig().REDIS_URL);
     let sub: Awaited<ReturnType<typeof subscribeRun>> | undefined;
     try {
-      // 三条 3MiB，合计 9MiB：旧实现从新往旧只能装下两条并补 bytes 标记。
       const big = 'x'.repeat(3 * 1024 * 1024);
       for (let i = 0; i < 3; i += 1) {
         await redis.xadd(
@@ -121,7 +119,6 @@ describe.skipIf(!ready)('run subscribers', () => {
 
     try {
       const stale = await subscribeRun(runId, () => undefined);
-      // 模拟进程内重建 producer（热重载 / 测试多次 buildApp）后旧订阅仍存活。
       await closeProducer();
       const live = await subscribeRun(runId, (event) => types.push(event.type));
 
@@ -145,7 +142,6 @@ describe.skipIf(!ready)('run subscribers', () => {
     try {
       expect(await waitFor(async () => (await eventFollowerCount(probe, runId)) === 1)).toBe(true);
 
-      // 先写再等：BLOCK 从最后真实 ID 继续，不会因为订阅已建立就漏掉。
       await publishRun(runId, { type: 'text_delta', text: 'a' });
       await publishRun(runId, { type: 'text_delta', text: 'b' });
       expect(await waitFor(() => types.length === 2)).toBe(true);
@@ -166,7 +162,6 @@ describe.skipIf(!ready)('run subscribers', () => {
       await publishRun(runId, { type: 'text_delta', text: 'before' });
       expect(await waitFor(() => texts.includes('before'))).toBe(true);
 
-      // 模拟网络闪断：服务端断开阻塞中的跟随连接，客户端会带着同一个 lastId 重订阅。
       expect(await waitFor(async () => (await eventFollowerCount(probe, runId)) === 1)).toBe(true);
       const list = await probe.client('LIST');
       const line = list.split('\n').find((entry) => entry.includes(`name=run-events:${runId}`));
@@ -176,7 +171,6 @@ describe.skipIf(!ready)('run subscribers', () => {
 
       await publishRun(runId, { type: 'text_delta', text: 'after' });
       expect(await waitFor(() => texts.includes('after'))).toBe(true);
-      // 不重放已确认的事件，也不丢断线期间写入的事件。
       expect(texts).toEqual(['before', 'after']);
     } finally {
       sub.close();

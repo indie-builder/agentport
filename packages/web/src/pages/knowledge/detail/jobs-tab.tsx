@@ -27,7 +27,6 @@ import {
 } from '../../../lib/queries.js';
 import { toastError, toastSuccess } from '../../../lib/toast.js';
 
-/** 文档名优先，其次来源名，再退到 ID；两列都为空的是整库任务。 */
 function jobTargetLabel(job: KnowledgeJob): string {
   return job.documentTitle ?? job.sourceName ?? job.documentId ?? job.sourceId ?? '整库';
 }

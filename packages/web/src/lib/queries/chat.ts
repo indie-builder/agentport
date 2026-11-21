@@ -44,7 +44,6 @@ export function useConversations(agentId: string | null) {
   });
 }
 
-/** 全局历史搜索的 Query options；空 q 返回最近会话，nextCursor 作为下一页游标。 */
 export const searchConversationsOptions = (options: ConversationSearchOptions) =>
   infiniteQueryOptions({
     queryKey: chatKeys.search(options),
@@ -60,7 +59,6 @@ export const searchConversationsOptions = (options: ConversationSearchOptions) =
 
 const CONVERSATION_PAGE_SIZE = 50;
 
-/** 分页返回最新一页，select 再把「新→旧」的页面翻平成时间正序，调用方拿到的仍是 ConversationDetail。 */
 export function useConversation(conversationId: string | null) {
   return useInfiniteQuery({
     queryKey: chatKeys.conversation(conversationId),
@@ -91,10 +89,6 @@ export function useConversation(conversationId: string | null) {
   });
 }
 
-/**
- * 会话成果按发布版本倒序；同一路径由页面分组。
- * 旧版可能落在后续页，按 `nextCursor` 继续翻页，不静默丢弃。
- */
 export function useConversationOutputs(conversationId: string | null, runId: string | null = null) {
   return useInfiniteQuery({
     queryKey:
@@ -122,7 +116,6 @@ export function useConversationOutputs(conversationId: string | null, runId: str
   });
 }
 
-/** 选中成果的文本正文；非文本或超过预览上限时由后端拒绝，页面改为下载。 */
 export function useOutputContent(
   conversationId: string | null,
   runId: string | null,
@@ -137,7 +130,6 @@ export function useOutputContent(
   });
 }
 
-/** 列表里没有该版本时用它拿真实 mediaType；只有缺列表元信息才启用。 */
 export function useOutputFile(
   conversationId: string | null,
   runId: string | null,
@@ -152,7 +144,6 @@ export function useOutputFile(
   });
 }
 
-/** 图片与 PDF 字节走鉴权下载端点；key 与选中三元组一致，切换选择即换请求。 */
 export function useOutputBlob(
   conversationId: string | null,
   runId: string | null,
@@ -187,7 +178,6 @@ export function useOutputShares(
   });
 }
 
-/** 创建后先写回缓存，列表刷新失败也能立刻看到可用链接。 */
 export function useCreateOutputShare() {
   const client = useQueryClient();
   return useMutation({

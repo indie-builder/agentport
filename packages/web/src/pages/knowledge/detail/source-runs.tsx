@@ -16,7 +16,6 @@ import {
   useKnowledgeSyncItems,
 } from '../../../lib/queries.js';
 
-/** 每个展开的来源各自取同步记录；收起动画期间仍显示自己的数据。 */
 export function SourceProbeStatus({ jobId }: { jobId: string }) {
   const job = useKnowledgeJobDetail(jobId);
   if (job.isPending) {
@@ -152,7 +151,6 @@ export function SourceRuns({
                 </span>
                 {run.error ? <span className="text-danger">{run.error}</span> : null}
               </div>
-              {/* 统计没有 skipped 字段，也始终给出逐项入口：仅有跳过项时同样能展开。 */}
               <Collapsible className="pl-2">
                 <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1 text-left text-muted-foreground">
                   <ChevronRight

@@ -1,7 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 
-/** useCancelRun 的接线测试：mutation 指向 api.cancelRun，成功后只失效该 run 与列表。 */
-
 const mocks = vi.hoisted(() => {
   const invalidateQueries = vi.fn();
   return {

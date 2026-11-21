@@ -16,13 +16,10 @@ import {
   unique,
 } from './helpers.js';
 
-// fixture 直接写 repo / messages 表：不产生 queued run，不需要空闲 worker。
 const ready = await infraReady;
 
-/** 所有消息共用同一个 created_at，(created_at, id) 的次级排序决定顺序。 */
 const TIES = new Date('2026-10-22T00:00:00.000Z');
 
-/** 固定格式的合法 uuid：SDK 会话与分叉点都要求可解析的消息 id。 */
 function sessionUuid(index: number): string {
   return `00000000-0000-4000-8000-${index.toString().padStart(12, '0')}`;
 }
@@ -67,13 +64,11 @@ describe.skipIf(!ready)('chat history pagination', () => {
       title: '分页',
       subject: { kind: 'user', businessId: ADMIN_BUSINESS_ID },
     });
-    // 分支需要 SDK 会话与每条消息的 uuid；分页本身不读它们。
     await app.client.unsafe('update conversations set sdk_session_id = $2 where id = $1', [
       id,
       sessionUuid(0),
     ]);
     conversationIds.push(id);
-    // 分支会复制来源 transcript 目录；fixture 落一个真实文件，断言复制与清理。
     const sessionsDir = join(
       app.config.WORKSPACES_DIR,
       agent.slug,
@@ -84,7 +79,6 @@ describe.skipIf(!ready)('chat history pagination', () => {
     );
     await mkdir(sessionsDir, { recursive: true });
     await writeFile(join(sessionsDir, `${sessionUuid(0)}.jsonl`), '');
-    // id 带会话前缀：全局唯一，且同一会话内按序号字典序排列。
     const ids = Array.from(
       { length: count },
       (_, index) => `${id}_m${index.toString().padStart(3, '0')}`,
@@ -149,7 +143,6 @@ describe.skipIf(!ready)('chat history pagination', () => {
       expect(res.statusCode, res.body).toBe(200);
       const body = res.json<HistoryBody>();
       expect(body.messages.length).toBeLessThanOrEqual(50);
-      // 每页按正序返回；更早的页要拼在前面。
       collected.unshift(...body.messages.map((message) => message.id));
       cursor = body.nextCursor;
       pages += 1;
@@ -207,7 +200,6 @@ describe.skipIf(!ready)('chat history pagination', () => {
       expect(res.json()).not.toHaveProperty('messages');
     }
 
-    // 两条消息属于不同会话：用另一会话的 id 不能当游标。
     const swapped = await getPage(other.id, `cursor=${encodeURIComponent(mine.ids[0] ?? '')}`);
     expectProblem(swapped, 'INVALID_INPUT');
   });
@@ -242,7 +234,6 @@ describe.skipIf(!ready)('chat history pagination', () => {
     const branchId = res.json<{ id: string }>().id;
     conversationIds.push(branchId);
 
-    // 分支在自己的目录里拿到来源 transcript，首轮运行才能 fork。
     const agent = await app.client.unsafe<{ slug: string }[]>(
       'select a.slug from agents a join conversations c on c.agent_id = a.id where c.id = $1',
       [branchId],
@@ -263,7 +254,6 @@ describe.skipIf(!ready)('chat history pagination', () => {
     expect(copied).toHaveLength(125);
     const original = await repo.chat.listMessages(app.db, id);
     expect(original).toHaveLength(125);
-    // 分支复制保留内容与时间；db 层不传 limit 时仍是整段历史。
     expect(copied.map(({ role, content, createdAt }) => ({ role, content, createdAt }))).toEqual(
       original.map(({ role, content, createdAt }) => ({ role, content, createdAt })),
     );

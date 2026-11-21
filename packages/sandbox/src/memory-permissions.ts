@@ -116,18 +116,15 @@ export function createFileBoundaryHook({
       permissionDecisionReason:
         'File tools are limited to native memory, this run’s outputs, and skill reference Markdown.',
     };
-    // 特定拒绝理由要能直接读给模型听，不能只留下笼统的边界文案。
     const deny = (reason?: string): { hookSpecificOutput: PreToolUseHookSpecificOutput } => {
       if (reason !== undefined) output.permissionDecisionReason = reason;
       return { hookSpecificOutput: output };
     };
     const allow = (): { hookSpecificOutput: PreToolUseHookSpecificOutput } => {
       output.permissionDecision = 'allow';
-      // 允许分支不带拒绝文案，避免日志与排障误判。
       const { permissionDecisionReason: _reason, ...rest } = output;
       return { hookSpecificOutput: rest };
     };
-    // Glob/Grep/NotebookEdit 与所有非文件工具一样不在放行范围。
     if (!MEMORY_TOOLS.has(input.tool_name)) return deny();
     const args = input.tool_input;
     if (typeof args !== 'object' || args === null || !('file_path' in args)) return deny();
@@ -141,9 +138,6 @@ export function createFileBoundaryHook({
       return deny();
 
     const hasMarkdown = path.endsWith('.md');
-    // 记忆目录与产出目录：主会话可读写（记忆仅 .md，产出交付文件不限类型）。
-    // 本轮附件：只读，扩展名不限；技能参考与插件资源：只读 .md，且必须落在各自目录约定里。
-    // 子智能体：只能在自己的 project 记忆 Markdown 内活动，可写性跟随父专家的运行期策略。
     let base: string;
     let writable: boolean;
     if (input.agent_id !== undefined) {
@@ -151,8 +145,6 @@ export function createFileBoundaryHook({
       if (!knownSubAgents.has(slug) || !hasMarkdown) return deny();
       base = join(projectMemoryDir, slug);
       if (!inside(relative(base, path))) return deny();
-      // 只读策略下子智能体记忆目录同样是 ro 挂载；先在 hook 层说清原因，
-      // 否则写入会被放行后撞上 EROFS，模型只看到文件系统错误。
       if (!memoryWritable && input.tool_name !== 'Read') {
         return deny('当前策略不允许运行期写入子智能体记忆，请把建议写进最终回复。');
       }
@@ -167,8 +159,6 @@ export function createFileBoundaryHook({
         writable = false;
       } else if (inside(memoryLocal)) {
         if (!hasMarkdown) return deny();
-        // proposal_only（或未启用专家记忆）下读仍放行，Write/Edit 在 hook 层直接拒绝；
-        // allowedTools 里同时移除了 Edit 预批准，两层共同约束原生文件工具。
         if (!memoryWritable && input.tool_name !== 'Read') return deny();
         base = memoryDir;
         writable = memoryWritable;
@@ -200,7 +190,6 @@ export function createFileBoundaryHook({
     if (!inside(local)) return deny();
 
     try {
-      // Recheck every call: neither a symlink nor a hard link may alias another agent's files.
       const root = await lstat(base);
       if (!root.isDirectory() || root.isSymbolicLink() || (await realpath(base)) !== base)
         return deny();
@@ -218,7 +207,6 @@ export function createFileBoundaryHook({
             !writable
           )
             return deny();
-          // Write creates missing parents; all existing ancestors have already passed the boundary.
           return allow();
         }
         if (entry.isSymbolicLink() || (await realpath(current)) !== current) return deny();

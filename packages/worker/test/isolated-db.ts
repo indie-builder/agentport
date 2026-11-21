@@ -14,11 +14,6 @@ export interface BackendInfra {
   readonly REDIS_URL: string;
 }
 
-/**
- * 全表对账/共享库写入的套件每次独享一个随机库，用完只删自己创建的那个。
- * 连不上服务返回 null 交给调用方跳过；连上后的建库、迁移或身份不符必须抛出。
- * 不修改 process.env：调用方显式使用返回的 url。
- */
 export async function createIsolatedDatabase(
   prefix: string,
   adminUrl = process.env.DATABASE_URL ?? '',
@@ -36,7 +31,6 @@ export async function createIsolatedDatabase(
     } catch {
       return null;
     }
-    // 随机库名撞名说明有缺陷，直接抛出，不接管别人的库。
     await admin.client.unsafe(`create database "${name}"`);
   } finally {
     await admin.client.close();

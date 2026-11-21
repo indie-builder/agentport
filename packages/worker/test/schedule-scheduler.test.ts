@@ -29,7 +29,6 @@ async function probeInfra(): Promise<boolean> {
   const { client } = createDb(databaseUrl);
   try {
     await client.unsafe('select 1');
-    // 不需要检查消费者：本套件全程使用独立 prefix（见下方 `prefix`），真实 worker 看不到。
     return await probeBunRedis(redisUrl);
   } catch {
     return false;
@@ -40,10 +39,7 @@ async function probeInfra(): Promise<boolean> {
 
 const ready = await probeInfra();
 const redisUrl = process.env.REDIS_URL ?? '';
-// 独立的键前缀：对账会删「库里不存在」的 scheduler，绝不能落到同机真实队列上。
 const prefix = `sched-test-${randomUUID().slice(0, 8)}`;
-// 套件写的 schedule 是 enabled 的，共享库上真实 worker 的 sync 会把它同步到生产队列并真的触发；
-// 独享随机库后，生产 worker 看不到这些行。
 const isolated = ready ? await createIsolatedDatabase('worker_sched_test') : null;
 if (isolated) process.env.DATABASE_URL = isolated.url;
 else if (ready) console.warn('schedule-scheduler: 无法建独立库，使用本轮测试库');
@@ -288,20 +284,16 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
   describe('planned trigger time', () => {
     it('records the planned time of this round, not when the job was created', async () => {
       const scheduleId = await insertSchedule({ cron: '*/5 * * * *' });
-      // 先在任何 worker 消费前注册计划 job 并固定本轮预期：worker 一取到 job 就会把
-      // scheduler.next 推进到下一轮，之后再读可能已换成下一轮。
       const plannedJob = await schedulerQueue.upsertJobScheduler(
         ...scheduleTriggerArgs(scheduleId, '*/5 * * * *', 'Asia/Shanghai'),
       );
       const plannedAt = plannedJob.opts.prevMillis;
       if (plannedAt === undefined) throw new Error('planned job is missing prevMillis');
       expect((await schedulerQueue.getJobScheduler(scheduleId))?.next).toBe(plannedAt);
-      // 预期已固定，promote 只影响消费时机，不影响本轮计划时刻。
       await plannedJob.promote();
 
       const scheduler = startScheduleScheduler({ db, logger, redisUrl, prefix });
       try {
-        // 同 cron 已存在，启动对账不能重置刚 promote 的这一轮。
         await scheduler.sync();
 
         await waitFor(
@@ -392,7 +384,6 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       const fake = fakeRunsQueue();
       const job = fakeJob({ scheduleId });
       await processScheduleTrigger({ db, logger, runsQueue: fake }, job);
-      // 模拟「事务已提交、入队前崩溃」：用同一份已落盘的 data 重投。
       await processScheduleTrigger({ db, logger, runsQueue: fake }, job);
       expect(await runsOf(agentId)).toHaveLength(1);
       expect(fake.added).toHaveLength(2);

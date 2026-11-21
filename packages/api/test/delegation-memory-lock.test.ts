@@ -37,10 +37,7 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     // macOS 的 tmpdir 是符号链接；记忆文件写入会拒绝符号链接路径。
     workspaces = await mkdtemp(join(await realpath(tmpdir()), 'delegation-memory-'));
     app = await startApp({ WORKSPACES_DIR: workspaces });
-    // 有 worker 消费时排队 run 会被真实执行，chat 准入断言失去意义。
     expect(await queueIdle, 'worker must be stopped before admission tests').toBe(true);
-    // 与 memory-changes / memory-reviews / memory-overview 共用同一把会话级锁：这几个文件
-    // 都以管理员身份写 memory_changes 或管理员个人记忆并按 businessId 清理，并行会互相删行。
     releaseLock = await acquireMemoryLock(app.client);
     cookie = await loginCookie(app);
   }, 60_000);
@@ -58,7 +55,6 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
       ]);
       scheduleIds.length = 0;
     }
-    // 每次清理本用例产生的运行，避免下一条用例看到残留占用。
     await app.client.unsafe('delete from agent_runs where agent_id = any($1::text[])', [
       app.client.array(agentIds, 'TEXT'),
     ]);
@@ -136,7 +132,6 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     return pid;
   };
 
-  /** 等待图里的明确信号：某后端确实卡在 holder 的锁上，且卡的是指定语句。 */
   const blockedOn = async (holder: number, pattern: RegExp): Promise<boolean> => {
     const rows = await app.client.unsafe<{ query: string }[]>(
       `select a.query from pg_stat_activity a
@@ -158,7 +153,6 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     expectProblem(await putMemory(child.id), 'CONFLICT');
     expect((await putMemory(unrelated.id)).statusCode).toBe(200);
 
-    // 普通字段保存、无关专家、以及不改变集合的同一绑定都保持可用。
     expect((await patch(parent.id, { description: 'during-run' })).statusCode).toBe(200);
     expect((await patch(parent.id, { subAgentIds: [child.id] })).statusCode).toBe(200);
     expect((await patch(unrelated.id, { name: 'renamed-during-run' })).statusCode).toBe(200);
@@ -202,7 +196,6 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
 
     expectProblem(await putMemory(child.id), 'CONFLICT');
     expect((await putMemory(parent.id)).statusCode).toBe(200);
-    // 普通字段保存不改变活动集合，运行中仍然允许。
     expect((await patch(child.id, { name: 'child-renamed' })).statusCode).toBe(200);
     expectProblem(await patch(child.id, { enabled: false }), 'CONFLICT');
     expect(
@@ -256,7 +249,6 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
 
     expectProblem(await putMemory(parent.id), 'CONFLICT');
     expectProblem(await putMemory(enabledChild.id), 'CONFLICT');
-    // 停用的子级不在本次运行的资源集合内。
     expect((await putMemory(disabledChild.id)).statusCode).toBe(200);
   });
 
@@ -341,7 +333,6 @@ describe.skipIf(!ready)('delegation memory occupancy', () => {
     runIds.push(runId);
     await app.client.unsafe("update agent_runs set trigger = 'review' where id = $1", [runId]);
 
-    // 审核 run 不挂可写目录，不占记忆，也不阻止改变委派集合。
     expect((await putMemory(child.id)).statusCode).toBe(200);
     expect((await patch(parent.id, { subAgentIds: [] })).statusCode).toBe(200);
     const after = await request(app, {

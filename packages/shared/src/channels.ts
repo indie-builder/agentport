@@ -132,14 +132,12 @@ export const channelAgentWakeInputSchema = z
 
 export const channelMessageInputSchema = z
   .object({
-    // 保留用户正文首尾空白，只用 trim 判定是否为空白消息。
     body: z
       .string()
       .min(1)
       .max(32000)
       .refine((body) => body.trim().length > 0, '消息不能为空')
       .optional(),
-    // 幂等标识不 trim：' a' 与 'a' 是不同客户端的 key。
     clientMessageId: z.string().min(1).max(160).optional(),
     /** 显式 @ 的 agentId；只唤醒频道内 active 且 enabled 的绑定。 */
     mentions: z.array(z.string().min(1)).max(CHANNEL_MAX_WAKE_AGENTS).optional(),

@@ -11,10 +11,6 @@ export type RuntimeEnvironmentResolver = (
   versionId?: string | null,
 ) => Promise<ResolvedRuntimeEnvironment>;
 
-/**
- * 只在真实创建容器时调用：复用存活容器不读线上版本，发布/回退不会替换它。
- * 没有线上版本时明确失败，不回落其他环境或镜像。
- */
 export function createRuntimeEnvironmentResolver(
   resolveOnline: ResolveOnlineRuntimeEnvironment,
 ): RuntimeEnvironmentResolver {

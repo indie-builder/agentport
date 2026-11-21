@@ -87,7 +87,6 @@ export function createSubAgentBoundaryHook(boundary: SubAgentBoundary): HookCall
 
     const subAgent =
       input.agent_id === undefined ? null : boundary.subAgents.get(input.agent_type ?? '');
-    // 未登记的调用方（例如内置 general-purpose）不改变原有授权，交给权限规则处理。
     if (input.agent_id !== undefined && subAgent === undefined) return {};
 
     if (input.tool_name === 'Skill') {

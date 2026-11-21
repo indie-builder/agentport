@@ -5,10 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { verifyRuntimeEnvironmentImage } from '../src/runtime-environments/verify.js';
 
-/**
- * 真实 Docker 冒烟：默认用补齐 Bash 的基座 tag；镜像不在本机时整组跳过。
- * 负例都在本机已有基座上派生一层，不联网、不覆盖基座。
- */
 const IMAGE =
   process.env.RUNTIME_ENV_VERIFY_IMAGE ?? process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 

@@ -9,8 +9,6 @@ import { Button } from '../src/components/ui/button.js';
 import { SkillsPage } from '../src/pages/skills.js';
 import { allAccessMe } from './me-fixture.js';
 
-/** 技能列表的空态、市场就绪门槛与搜索防抖反馈，按页面真实渲染的组件树验证。 */
-
 const state = vi.hoisted(() => ({
   search: {} as Record<string, string | undefined>,
   lastReplace: undefined as boolean | undefined,
@@ -96,7 +94,6 @@ function required(tree: Element[], predicate: (node: Element) => boolean) {
   if (!node) throw new Error('Missing expected element');
   return node;
 }
-// 市场页是 SkillsPage 的子组件，直接调用不会展开；按页面返回的 props 再挂一次。
 async function inspectMarket(visit: (tree: Element[]) => void) {
   let market: Element | undefined;
   await inspect(SkillsPage, (tree) => {
@@ -253,7 +250,6 @@ describe('market readiness', () => {
       isPending: true,
     };
     await inspect(SkillsPage, (tree) => {
-      // 安装生命周期由常驻的 SkillsPage 持有并下传，市场页卸载后仍在。
       const market = required(
         tree,
         (node) => typeof node.type === 'function' && node.type.name === 'MarketSkillsPage',

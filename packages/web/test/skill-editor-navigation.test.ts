@@ -54,9 +54,7 @@ async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 懒加载的编辑器还没挂上，继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -217,7 +215,6 @@ describe('skill editor blocked navigation', () => {
     );
     await flush();
 
-    // 弹层仍保留，用户还有未清理的编辑上下文：不替用户取消这次被拦下的导航。
     expect(await settled(pending as Promise<boolean>)).toBe('timeout');
     expect(document.body.textContent).toContain('编辑技能');
     expect(document.body.textContent).toContain('放弃未保存的更改？');

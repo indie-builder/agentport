@@ -100,7 +100,6 @@ describe('source HTTP helper', () => {
     ]);
     expect(headersOf(calls[0]?.init ?? {}).get('authorization')).toBe('Bearer api-token');
     expect(headersOf(calls[1]?.init ?? {}).get('authorization')).toBeNull();
-    // A -> B -> A：回到原 origin 也不能重新带上敏感头。
     expect(headersOf(calls[2]?.init ?? {}).get('authorization')).toBeNull();
   });
 

@@ -6,14 +6,12 @@ import { createInvoker } from '../src/modules/servers/agent-invoker.js';
 import { buildAgentServer } from '../src/modules/servers/agent-tools.js';
 import type { TestApp } from './helpers.js';
 
-// 每次运行建独立库：只验证 invoke 的取消路径，也能并跑多条回归。
 const isolated = await createIsolatedDatabase(
   'api_agent_tools_cancel',
   process.env.DATABASE_URL ?? '',
 );
 if (isolated) process.env.DATABASE_URL = isolated.url;
 
-// helpers 在模块求值时读取 DATABASE_URL，必须等库准备好再加载。
 const helpers = await import('./helpers.js');
 const { cleanup, createAgent, loginCookie, startApp, unique, waitFor } = helpers;
 const ready = await helpers.infraReady;

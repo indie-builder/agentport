@@ -37,7 +37,6 @@ class KnowledgeReadError extends Error {
   }
 }
 
-/** 工具结果统一走 §5 wire：JSON 文本，前端与对话引用共用同一解析器。 */
 function jsonResult(value: SearchKnowledgeResult | KnowledgeReadResult | KnowledgeListResult): {
   content: Array<{ type: 'text'; text: string }>;
 } {
@@ -48,7 +47,6 @@ function toolError(code: string, message: string): CallToolResult {
   return { isError: true, content: [{ type: 'text', text: `${code}: ${message}` }] };
 }
 
-/** read 只认当前有效发布版：显式 versionId 必须等于它，不能用旧版本绕过撤权。 */
 function currentVersionOf(target: KnowledgeTarget, current: string | null): string {
   if (current === null) {
     throw new KnowledgeReadError(
@@ -75,7 +73,6 @@ interface ChunkRange {
   end: number;
 }
 
-/** 正文来自当前启用 leaf 的阅读顺序；父块与禁用块不进入正文。 */
 async function loadDocumentBody(
   db: Database,
   versionId: string,
@@ -151,7 +148,6 @@ function citationOf(
     locator: chunk.locator,
     parentContent: null,
     sourceUrl: input.sourceUrl,
-    // 直接读取不是检索排序，不编造相关性分数。
     score: 0,
     scoreKind: 'rrf',
     scores: { keyword: null, vector: null, rrf: 0, rerank: null },
@@ -316,7 +312,6 @@ export async function readKnowledgeTarget(
 }
 
 interface ListCursor {
-  /** DB 微秒精度时间文本，只作分页键；对外展示另用 ISO。 */
   updatedAt: string;
   id: string;
   kind: KnowledgeTarget['kind'];
@@ -335,9 +330,7 @@ function decodeCursor(value: string | undefined): ListCursor | null {
     ) {
       return parsed as ListCursor;
     }
-  } catch {
-    // 落到统一的 INVALID_INPUT，不把解析细节暴露给模型。
-  }
+  } catch {}
   throw new KnowledgeReadError('INVALID_INPUT', 'cursor 不合法');
 }
 /** 原始 SQL 的 timestamptz 在不同驱动下可能是 Date 或字符串，统一成 ISO。 */
@@ -345,10 +338,6 @@ function timestampOf(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-/**
- * 分页键取数据库的微秒精度文本：Date.toISOString 只保留毫秒，
- * 同一事务内共享微秒的多个对象会被游标比较整段跳过。
- */
 function cursorTimeSql(alias: string): ReturnType<typeof sql> {
   return sql`to_char(${sql.raw(alias)}.updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 }
@@ -432,16 +421,13 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
   return createMcpHandler(async () => {
     const server = new McpServer({ name: `kb-${input.baseId}`, version: '1.0.0' });
     const base = await repo.knowledge.getBase(input.db, input.baseId);
-    // 每次连接只读一次状态：handler 是每请求重建的，禁用后下一次调用即生效。
     const baseActive = base?.status === 'active';
-    // 图片处理关闭时不暴露读图工具；普通检索/读取不受影响。
     const imageProcessingEnabled = base?.settings.imageProcessing?.enabled === true;
 
     const guard = (args: unknown): CallToolResult | null => {
       if (!baseActive) return toolError('BASE_DISABLED', '知识库已禁用');
       const parsed = baseIdArg.safeParse(args);
       const requested = parsed.success ? parsed.data.baseId : undefined;
-      // 显式换库是越权意图，不能静默改回绑定库；工具不开放任意 base。
       if (requested !== undefined && requested !== input.baseId) {
         return toolError('BASE_MISMATCH', '只能访问当前绑定的知识库');
       }
@@ -522,14 +508,12 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
       async (args, ctx) => {
         const denied = guard(args);
         if (denied) return denied;
-        // wire schema 自带默认值；diagnostics 只属于管理 REST，MCP 强制关闭。
         const parsed = knowledgeSearchQuerySchema.safeParse({ ...args, diagnostics: false });
         if (!parsed.success) return toolError('INVALID_INPUT', '检索参数不合法');
         const result = await searchKnowledge(input.db, input.baseId, parsed.data, {
           secretKey: input.secretKey,
           signal: input.signal ?? ctx.mcpReq.signal,
         });
-        // 不返回候选诊断与内部配置，但 degraded/warnings/directAnswer 必须完整保留。
         return jsonResult({
           hits: result.hits,
           degraded: result.degraded,
@@ -670,7 +654,6 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
               { ...input, signal: input.signal ?? ctx.mcpReq.signal },
               parsed.data,
             );
-            // 每次保留 JSON text：历史 trace 与 Web 引用按同一 wire 解析；图片作为额外块追加。
             const content: CallToolResult['content'] = [
               { type: 'text', text: JSON.stringify(result) },
               ...(image

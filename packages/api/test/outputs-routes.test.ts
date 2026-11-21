@@ -27,9 +27,7 @@ import {
 } from './helpers.js';
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
-// POST /api/chat 会入队；没有 worker 消费才能断言用户消息的持久化内容。
 const ready = (await infraReady) && (await queueIdle);
-// 删除套件在共享库持绑定锁等 ACK 最长 10s；独享库避免聊天准入被同轮锁等待拖到 20s 超时。
 const isolated = ready ? await createIsolatedDatabase('outputs_routes') : null;
 
 const MAX_PREVIEW = 1024 * 1024;
@@ -91,7 +89,6 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
     return id;
   };
 
-  /** 用真实存储接口发布一版快照，测试只验证 HTTP 层。 */
   const publish = async (
     slug: string,
     conversationId: string,
@@ -388,7 +385,6 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
       await get(`/api/conversations/${id}/outputs/run_pdf/download?path=report.pdf`, {}),
       'UNAUTHORIZED',
     );
-    // 另一会话的同名版本不存在：跨会话读取不能命中这次发布的字节。
     expectProblem(
       await get(`/api/conversations/${otherId}/outputs/run_pdf/download?path=report.pdf`),
       'NOT_FOUND',
@@ -432,7 +428,6 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
       output: { runId: 'run_pub', path: 'report.md' },
     });
 
-    // 同一轮既选成果又回传生成式 UI 动作：文本段保留动作字段，并追加所选成果。
     const actionConversation = await newConversation(agent.id);
     await publish(agent.slug, actionConversation, 'run_action', { 'form.md': '# 表单\n' });
     const withAction = await request(app, {
@@ -564,7 +559,6 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
         afterMessageId: future.id,
       },
     );
-    // 分支会复制来源 transcript 目录；必须存在，否则首轮无从 fork。
     const sessionsDir = join(
       app.config.WORKSPACES_DIR,
       agent.slug,

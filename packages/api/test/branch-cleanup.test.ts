@@ -27,7 +27,6 @@ const ready = await infraReady;
 const isolated = ready ? await startRedisContainer() : null;
 const REDIS_URL = isolated?.url ?? 'redis://127.0.0.1:1/9';
 
-/** 在关闭确认阶段观察分支会话 id，并可选注入关闭失败；仅本文件独享信道会调用它。 */
 class ProbeCloser extends FakeSessionCloser {
   probe: ((conversationId: string) => Promise<void>) | null = null;
   reject = false;
@@ -100,7 +99,6 @@ describe.skipIf(!isolated)('branch rollback cleanup', () => {
       .then(() => true)
       .catch(() => false);
 
-  /** 分支创建后、回滚前会复制的三类 runtime 目录；关闭阶段按真实目标 id 落盘。 */
   const seedBranchFiles = async (slug: string, conversationId: string): Promise<void> => {
     const dirs = branchDirs(slug, conversationId);
     await mkdir(dirs.transcript, { recursive: true });
@@ -111,7 +109,6 @@ describe.skipIf(!isolated)('branch rollback cleanup', () => {
     await writeFile(join(dirs.inputs, 'attachment.txt'), 'x');
   };
 
-  /** 制造准入前就成立的输入复制失败：分支行已写入，transcript 已复制，附件源目录缺失。 */
   const brokenSource = async (): Promise<{ agent: Agent; conversationId: string }> => {
     const agent = await newAgent();
     const created = await post({
@@ -165,7 +162,6 @@ describe.skipIf(!isolated)('branch rollback cleanup', () => {
       await seedBranchFiles(agent.slug, id);
     };
 
-    // 复制失败仍是用户看到的原始原因，不能被补偿失败的 503 覆盖。
     expectProblem(await branch(conversationId), 'CONFLICT');
 
     expect(branchId).toBeDefined();
@@ -181,7 +177,6 @@ describe.skipIf(!isolated)('branch rollback cleanup', () => {
     closer.probe = async (id) => {
       branchId = id;
       await seedBranchFiles(agent.slug, id);
-      // 关闭确认期间新入队的运行让 tx B 的活动检查失败，删除不能提交。
       await repo.chat.createRun(app.db, {
         id: newId('run'),
         conversationId: id,

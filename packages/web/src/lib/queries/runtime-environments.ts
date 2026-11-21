@@ -18,7 +18,6 @@ function runtimeEnvironmentQuery(id: string) {
   });
 }
 
-/** 只在使用中版本离开终态后继续轮询；全部结束就停止。 */
 export function buildShouldPoll(
   versions: Array<Pick<RuntimeEnvironmentVersionSummary, 'status'>> | undefined,
 ): boolean {

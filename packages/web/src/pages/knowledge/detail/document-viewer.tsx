@@ -68,7 +68,6 @@ import {
 import { toastError, toastSuccess } from '../../../lib/toast.js';
 import { useZodForm } from '../../../lib/use-zod-form.js';
 
-/** 图片 chunk 的角色来自 metadata.imageRole；普通 chunk 没有。 */
 function imageRoleLabel(chunk: KnowledgeChunk): string | null {
   const role = chunk.metadata?.imageRole;
   if (role === 'ocr') return 'OCR';
@@ -77,7 +76,6 @@ function imageRoleLabel(chunk: KnowledgeChunk): string | null {
   return null;
 }
 
-/** 分块定位优先用解析器 locator（含音视频时码）；旧数据没有 locator 时退回页码。 */
 function chunkLocatorLabel(chunk: KnowledgeChunk): string | null {
   const locator = locatorLabel(chunk.locator);
   if (locator !== null) return locator;
@@ -86,7 +84,6 @@ function chunkLocatorLabel(chunk: KnowledgeChunk): string | null {
   return `第 ${chunk.pageFrom}${range} 页`;
 }
 
-/** 版本图片与引用图共用同一套鉴权加载与 401/403/404 错误说明。 */
 function VersionImage({ versionId, image }: { versionId: string; image: KnowledgeVersionImage }) {
   return (
     <KnowledgeImage
@@ -733,7 +730,6 @@ function ChunkDialog({
   baseId: string;
   documentId: string;
   versionId: string | null;
-  /** 缺省为新增分块；只能操作当前版本。 */
   chunk?: KnowledgeChunk;
   onClose: () => void;
   onReload: () => Promise<void>;
@@ -743,7 +739,6 @@ function ChunkDialog({
   const update = useUpdateKnowledgeChunk(baseId, documentId, versionId);
   const create = useCreateKnowledgeChunk(baseId, documentId, versionId);
   const creating = chunk === undefined;
-  // 基线取打开时的正文：父级分块查询刷新不能覆盖用户正在改的草稿。
   const { register, handleSubmit, watch, formState } = useZodForm(chunkFormSchema, {
     defaultValues: { heading: chunk?.heading ?? '', content: chunk?.content ?? '' },
   });
@@ -769,7 +764,6 @@ function ChunkDialog({
       setReloading(false);
     }
   };
-  // 图片向量是真实图 embedding；改正文会让它和图片脱节，只允许在列表里启停。
   const vectorChunk = chunk?.metadata?.imageRole === 'vector';
 
   if (vectorChunk) {

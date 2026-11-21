@@ -8,7 +8,6 @@ export function useFormBlocker(
 ) {
   const blocker = useBlocker({
     shouldBlockFn: (args) => {
-      // 只改同页 search（筛选、展开日志）不算离开，不能因此丢掉草稿。
       if (options?.ignoreSamePath && args && args.current.pathname === args.next.pathname) {
         return false;
       }
@@ -25,10 +24,6 @@ export function useFormBlocker(
   };
 }
 
-/**
- * 把 zod 的英文默认文案换成可执行的中文：说明哪里不对，以及该怎么改。
- * 每个字段只保留第一条错误，避免同一输入下面堆一串提示。
- */
 export function fieldErrors(issues: z.ZodIssue[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const issue of issues) {

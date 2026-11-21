@@ -4,16 +4,12 @@ import { newId } from '../../id.js';
 import { knowledgeModelProfiles } from '../../schema.js';
 import type { KnowledgeModelProfileRow } from './shared.js';
 
-// ---------------------------------------------------------------------------
-// 模型 profile
-
 export interface CreateModelProfileInput {
   kind: KnowledgeModelProfileRow['kind'];
   name: string;
   endpointUrl: string;
   model: string;
   dimensions: number | null;
-  /** 缺省交给列默认值：openai / false。 */
   embeddingProtocol?: KnowledgeModelProfileRow['embeddingProtocol'];
   imageInputEnabled?: boolean;
   secretsEncrypted: string | null;

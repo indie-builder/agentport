@@ -50,7 +50,6 @@ type RunRow = {
 const cancelState = { failFor: new Set<string>() };
 const realProducer = { ...producerModule };
 
-// 取消信号是控制面唯一无法用 DB 行模拟的失败点：让指定 run 的 NX 写入抛错，其余走真实实现。
 mock.module('../src/queue/producer.js', () => ({
   ...realProducer,
   requestRunCancel: (runId: string) =>
@@ -61,7 +60,6 @@ mock.module('../src/queue/producer.js', () => ({
 
 const ready = await infraReady;
 
-/** M3 控制面：活动 run 列表、run 事件流、stop / disconnect / close 与真实操作人审计。 */
 describe.skipIf(!ready)('channel control', () => {
   let app: TestApp;
   let server: TestServer;
@@ -181,7 +179,6 @@ describe.skipIf(!ready)('channel control', () => {
     expect(res.statusCode, res.body).toBe(201);
   };
 
-  /** 每个用例独立频道，避免成员/绑定状态在用例间串味。 */
   const setup = async (agentCount = 1) => {
     const channel = await createChannel();
     await addMember(channel.id, member, 'member');
@@ -327,7 +324,6 @@ describe.skipIf(!ready)('channel control', () => {
       subscription.close();
     }
 
-    // 重复停止幂等：不再发信号，也不再写第二条审计。
     const repeat = await call(
       'POST',
       `/api/channels/${channel.id}/runs/${runId}/stop`,
@@ -414,7 +410,6 @@ describe.skipIf(!ready)('channel control', () => {
     if (!agentId) throw new Error('expected an agent');
     expect((await mention(channel.id, member.cookie, [agentId])).statusCode).toBe(201);
     const runId = await runIdFor(channel.id, agentId);
-    // worker 已领取 run：DB 是 running，但控制面读到的是领取前的 queued 快照。
     await setRunStatus(runId, 'running');
     const stop = spyOn(repo.channelControl, 'stopRun').mockResolvedValue({
       kind: 'ok',
@@ -434,7 +429,6 @@ describe.skipIf(!ready)('channel control', () => {
       );
       expect(stopped.statusCode, stopped.body).toBe(202);
 
-      // 本次只发出了 running 信号，不能依据陈旧快照补发频道终态。
       const [run] = await channelRuns(channel.id);
       expect(run?.status).toBe('running');
       expect(await redis.exists(runCancelKey(runId))).toBe(true);
@@ -459,7 +453,6 @@ describe.skipIf(!ready)('channel control', () => {
     expect((await mention(channel.id, member.cookie, [agentId])).statusCode).toBe(201);
     await runIdFor(channel.id, agentId);
 
-    // 断开是频道级管理动作：member 即使有自己触发的活动 run 也不能断开，只能停自己的 run。
     for (const cookie of [member.cookie, viewer.cookie]) {
       const denied = await call(
         'POST',
@@ -564,7 +557,6 @@ describe.skipIf(!ready)('channel control', () => {
         retryable: true,
       });
 
-      // 关闭已提交，不回滚；只有第二个 run 收到了取消信号。
       const stored = await app.client.unsafe<{ archived_at: Date | null }[]>(
         'select archived_at from channels where id = $1',
         [channel.id],
@@ -578,7 +570,6 @@ describe.skipIf(!ready)('channel control', () => {
       );
       expect(failedAudit.map((row) => row.status)).toContain('error');
 
-      // 调用者用同一个 close 重试，补停剩余 run。
       cancelState.failFor.clear();
       const retried = await call('POST', `/api/channels/${channel.id}/close`, owner.cookie);
       expect(retried.statusCode, retried.body).toBe(200);
@@ -595,7 +586,6 @@ describe.skipIf(!ready)('channel control', () => {
     const runs = await channelRuns(channel.id);
     const [first, second] = runs;
     if (!first || !second) throw new Error('expected two channel runs');
-    // 正常准入会因 lane 忙碌拒绝第二条；把两条 run 收拢到同一 lane 以覆盖批量取消。
     await app.client.unsafe(
       'update agent_runs set agent_id = $2, channel_trigger_message_id = null where id = $1',
       [second.id, first.agent_id],
@@ -734,7 +724,6 @@ describe.skipIf(!ready)('channel control', () => {
       await stream.close();
     }
 
-    // 重连到已结束的 run：只订阅未来事件会漏终态，必须从 DB 回放。
     const replay = await openRunEvents(channel.id, runId, member.cookie);
     const replayFinished = await replay.next((event) => event.type === 'run_finished');
     expect(replayFinished).toMatchObject({ type: 'run_finished', status: 'succeeded' });
@@ -786,7 +775,6 @@ describe.skipIf(!ready)('channel control', () => {
     });
     let checks = 0;
     const original = repo.channelControl.getChannelRunForMember;
-    // 第 1 次是 hijack 前的预检；第 2 次是回放首个事件的逐事件核验，先卡在这里。
     const spy = spyOn(repo.channelControl, 'getChannelRunForMember').mockImplementation(
       async (...args) => {
         checks += 1;
@@ -812,7 +800,6 @@ describe.skipIf(!ready)('channel control', () => {
 
       const lost = await stream.next((event) => event.type === 'run_unavailable');
       expect(lost).toMatchObject({ type: 'run_unavailable' });
-      // 撤权后的剩余回放 token 一条都不能送给已非成员的连接。
       expect(stream.events.filter((event) => event.type === 'text_delta')).toHaveLength(0);
     } finally {
       releaseGate();
@@ -834,7 +821,6 @@ describe.skipIf(!ready)('channel control', () => {
 
     let checks = 0;
     const original = repo.channelControl.getChannelRunForMember;
-    // 第 1 次是 hijack 前的预检；第 2 次（首条回放事件）抛错，之后恢复正常查询。
     const spy = spyOn(repo.channelControl, 'getChannelRunForMember').mockImplementation(
       async (...args) => {
         checks += 1;
@@ -852,7 +838,6 @@ describe.skipIf(!ready)('channel control', () => {
       await stream?.close();
     }
 
-    // 数据库失败时不能继续回放：只发一条固定 error，后续 token 与 run_finished 都被丢弃。
     expect(stream?.events).toEqual([{ type: 'error', message: '事件流中断，请刷新页面或重试' }]);
   });
 

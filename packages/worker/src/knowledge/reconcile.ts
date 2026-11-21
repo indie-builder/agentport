@@ -13,10 +13,6 @@ import { startIntervalTicker } from '../scheduling/interval-ticker.js';
 
 const RECONCILE_MS = 5 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
-/**
- * 刚认领的 running 行先放过一轮：探测与认领并发时状态仍有瞬时窗口。
- * queued 不加宽限：DB 有行而队列没有 job 本身就是确定的丢失，补投按 jobId 去重也无副作用。
- */
 const RUNNING_GRACE_MS = 5 * 60_000;
 
 export const KNOWLEDGE_LOST_ERROR = 'knowledge worker lost track of this job';
@@ -32,15 +28,6 @@ export interface KnowledgeQueueLike {
   ) => Promise<unknown>;
 }
 
-/**
- * 崩溃恢复：DB 的 running/queued 与 Redis 实际状态对账。
- *
- * - running + active：保留（长任务不能被误杀）。
- * - running + waiting/delayed：worker 在认领后崩溃，BullMQ 已把 job 放回重试；
- *   把行退回 queued，重试才有机会重新认领（认领只接受 queued）。
- * - running + 消失/终态，或超过 2 倍超时：置 failed。
- * - queued + 队列中不存在：重新入队，避免 Redis 丢数据后永远排队。
- */
 export async function reconcileKnowledgeJobs(
   db: ReturnType<typeof createDb>['db'],
   logger: Logger,
@@ -62,7 +49,7 @@ export async function reconcileKnowledgeJobs(
       continue;
     }
     const state = await queueState(queue, row.id).catch(() => undefined);
-    if (state === undefined) continue; // Redis 不可用：本轮不动任何行，留给下一轮。
+    if (state === undefined) continue;
 
     if (row.status === 'running') {
       const timedOut =
@@ -70,7 +57,6 @@ export async function reconcileKnowledgeJobs(
         now - row.startedAt.getTime() > 2 * KNOWLEDGE_JOB_TIMEOUT_MS[row.type];
       if (!timedOut && state !== null && ACTIVE_STATES.has(state)) {
         if (state === 'active') continue;
-        // waiting/delayed：重试中的 job 需要行回到 queued 才能被认领。
         const requeuedRow = await db
           .update(schema.knowledgeJobs)
           .set({ status: 'queued', startedAt: null, step: null })
@@ -103,13 +89,11 @@ export async function reconcileKnowledgeJobs(
           logger.warn({ jobId: row.id, error }, 'knowledge job reconciled as failed');
         }
       } catch (err) {
-        // 关联行缺失/错配时事务整体回滚；保留 running 交下一轮或人工处理。
         logger.warn({ err, jobId: row.id }, 'knowledge job reconcile finish failed');
       }
       continue;
     }
 
-    // queued：job 仍在队列里就不动；Redis 丢数据才会得到 null/终态。
     if (state !== null && ACTIVE_STATES.has(state)) continue;
     try {
       // 旧的 failed/completed 条目会按 jobId 去重，导致 add 变成空操作。
@@ -168,10 +152,6 @@ export async function ensureDailyCleanup(
   }
 }
 
-/**
- * 启动先跑一次，之后每 5 分钟一次；用 setInterval 而非 BullMQ，少一个队列。
- * 返回的 stop 等本轮结束再关队列，避免关闭时和正在写的操作撞车。
- */
 export function startKnowledgeReconciler(input: {
   db: ReturnType<typeof createDb>['db'];
   logger: Logger;

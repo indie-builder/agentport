@@ -31,7 +31,6 @@ import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useZodForm } from '../../lib/use-zod-form.js';
 import { type Kind, kindMeta } from './shared.js';
 
-/** 用户可创建的类型；knowledge 由知识库生命周期生成，不在连接器页出现。 */
 const creatableKinds = ['stdio', 'http', 'generated'] as const;
 
 function formatPairs(pairs: Record<string, string>): string {
@@ -62,7 +61,6 @@ const emptyForm: ServerFormValues = {
   pairs: '',
 };
 
-/** 校验与 payload 构造共用同一份扁平表单值，先解析 KEY=value 再交给共享 schema。 */
 function buildServerInput(values: ServerFormValues, pairs: Record<string, string>): ServerInput {
   const common = { name: values.name, description: values.description };
   if (values.kind === 'stdio') {
@@ -77,7 +75,6 @@ function buildServerInput(values: ServerFormValues, pairs: Record<string, string
       env: pairs,
     };
   }
-  // http 与 generated 的地址属于不同字段：PATCH 与表单都按 kind 取用，不能互相顶替。
   if (values.kind === 'http') {
     return { ...common, kind: 'http', url: values.url, headers: pairs };
   }
@@ -120,7 +117,6 @@ const serverFormSchema = z
   });
 
 function serverToForm(server: Server): ServerFormValues {
-  // 平台托管连接没有对应表单。
   if (server.kind === 'knowledge' || server.kind === 'data_domain') return emptyForm;
   const common = { kind: server.kind, name: server.name, description: server.description };
   switch (server.kind) {
@@ -155,7 +151,6 @@ function serverToForm(server: Server): ServerFormValues {
 }
 
 function catalogToForm(item: ConnectorCatalogItem): ServerFormValues {
-  // 名称用 slug：目录里的展示名可能含大写或括号，过不了 name 的 slug 校验。
   const common = { kind: item.kind, name: item.slug, description: item.description };
   if (item.kind === 'stdio') {
     return {
@@ -186,7 +181,6 @@ export function ServerFormDialog({
   const dialog = useDialogClose(onClosed);
   const onClose = dialog.close;
   const creating = server === null;
-  // 只读只限制既有定义的修改；新建仍由 servers.create 放行。
   const viewOnly = readOnly && !creating;
   const prefill = creating && initial ? catalogToForm(initial) : null;
   const create = useCreateServer();
@@ -212,7 +206,6 @@ export function ServerFormDialog({
   useEffect(() => {
     blockerRef.current = blocker;
   }, [blocker]);
-  // 成功后由父级关闭弹层：先取消期间被拦下的离开，否则它的 resolver 一直挂着。
   const settle = (): void => {
     blockerRef.current.reset?.();
   };
@@ -235,7 +228,6 @@ export function ServerFormDialog({
       setReloading(false);
     }
   };
-  // 半填的配置不能因为 Esc / 点遮罩就消失：脏时先确认；请求中一律不能关闭。
   const close = (): void => {
     if (pending) return;
     if (dirty) {
@@ -482,7 +474,6 @@ export function ServerFormDialog({
                       readOnly={viewOnly}
                       id="server-args"
                       rows={2}
-                      // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
                       placeholder={'-y\n@modelcontextprotocol/server-filesystem\n/tmp'}
                     />
@@ -502,7 +493,6 @@ export function ServerFormDialog({
                       aria-invalid={Boolean(errors.pairs)}
                       aria-describedby={errors.pairs ? 'server-env-error' : 'server-env-hint'}
                       rows={2}
-                      // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
                       placeholder="TOKEN=…"
                     />
@@ -566,7 +556,6 @@ export function ServerFormDialog({
                         errors.pairs ? 'server-headers-error' : 'server-headers-hint'
                       }
                       rows={2}
-                      // Keep configuration values compact and monospaced for literal editing.
                       className="font-mono text-xs"
                       placeholder="Authorization=Bearer …"
                     />

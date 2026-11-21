@@ -3,11 +3,6 @@ import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { fixture as runFixture } from './support/fixture.js';
 
-/**
- * 会话历史分页的真实浏览器验收：真实页面、真实 API、数据库直写 fixture，
- * 不经过队列或模型。E2E_DATABASE_URL 必须显式给出，并且与页面背后的 API 指向同一个库。
- */
-
 async function createAgent(browser: Browser): Promise<{ id: string }> {
   const slug = `e2e-chat-history-${randomUUID().slice(0, 8)}`;
   return browser.evaluate(async (value: string) => {
@@ -25,7 +20,6 @@ async function createConversation(agentId: string, count: number, prefix: string
   return runFixture('chat-history-pages', 'createConversation', agentId, count, prefix);
 }
 
-/** 直写更晚的消息，模拟另一个标签页落库；不经过模型或队列。 */
 async function appendMessages(
   conversationId: string,
   firstIndex: number,
@@ -42,18 +36,15 @@ async function appendMessages(
   );
 }
 
-/** 只删自己建的专家：会话与消息随 agent 级联删除；重命名审计行按会话 id 另删。 */
 async function cleanup(agentId: string, conversationId?: string): Promise<void> {
   return runFixture('chat-history-pages', 'cleanup', agentId, conversationId);
 }
 
 interface ViewportMeasure {
   scrollTop: number;
-  /** 距滚动区域底部的像素数；到底部时接近 0。 */
   distanceFromBottom: number;
 }
 
-/** 滚动几何用 DOM evaluate 读取，不经过任何接口。 */
 function measure(browser: Browser): Promise<ViewportMeasure> {
   return browser.evaluate(() => {
     const viewport = document.querySelector('[data-slot="message-scroller-viewport"]');
@@ -65,7 +56,6 @@ function measure(browser: Browser): Promise<ViewportMeasure> {
   });
 }
 
-/** 390px 窄屏没有可点的滚轮目标，直接改滚动位置；这里只验证分页可用。 */
 async function scrollChatToTop(browser: Browser): Promise<void> {
   const scrolled = await browser.evaluate(() => {
     const viewport = document.querySelector('[data-slot="message-scroller-viewport"]');
@@ -77,17 +67,13 @@ async function scrollChatToTop(browser: Browser): Promise<void> {
 }
 
 interface MessageGeometry {
-  /** 消息所在轮次项的稳定 id；补旧重新解析后必须不变。 */
   id: string | null;
-  /** 消息项顶部相对滚动视口顶部的像素，用于判断阅读位置是否保持。 */
   top: number;
   visible: boolean;
-  /** 距滚动区域底部的像素数；到底部时接近 0。 */
   distanceFromBottom: number;
   scrollTop: number;
 }
 
-/** 按正文前缀定位到消息项，读取稳定 id 与相对视口位置；不经过任何接口。 */
 function messageGeometry(browser: Browser, text: string): Promise<MessageGeometry> {
   return browser.evaluate((value: string) => {
     const viewport = document.querySelector('[data-slot="message-scroller-viewport"]');
@@ -125,7 +111,6 @@ function messageGeometry(browser: Browser, text: string): Promise<MessageGeometr
   }, text);
 }
 
-/** 每条消息只渲染一个叶子文本节点；总数等于唯一数才说明没有重复拼接。 */
 function leafTexts(browser: Browser, prefix: string): Promise<{ total: number; unique: number }> {
   return browser.evaluate((value: string) => {
     const viewport = document.querySelector('[data-slot="message-scroller-viewport"]');
@@ -196,7 +181,6 @@ test('chat history pages older messages without losing the visible position', {
   session: 'admin',
 }, async ({ app, screen, browser }) => {
   await browser.setViewport({ width: 1440, height: 900 });
-  // 先进入应用，fixture 的 same-origin fetch 才能带上会话 cookie。
   await app.open('/chat');
   const agent = await createAgent(browser);
   try {
@@ -207,7 +191,6 @@ test('chat history pages older messages without losing the visible position', {
     );
     await openConversation(app, agent.id, conversation);
 
-    // 首屏只有最新 50 条：075–124；更早的 074、000 不在 DOM 里。
     await expect(screen.getByText('history-message-124', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('history-message-075', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('history-message-074', { exact: true })).toHaveCount(0);
@@ -221,7 +204,6 @@ test('chat history pages older messages without losing the visible position', {
     const older = screen.getByRole('button', '加载更早消息');
     await expect(older).toBeVisible();
     await expect(screen.getByText('history-message-075', { exact: true })).toBeVisible();
-    // 点击前固定阅读锚点：075 所在轮次项的稳定 id 与相对视口顶部的位置。
     const anchorBefore = await messageGeometry(browser, 'history-message-075');
     expect(anchorBefore.id).not.toBeNull();
     expect(anchorBefore.visible).toBe(true);
@@ -235,18 +217,15 @@ test('chat history pages older messages without losing the visible position', {
       messages: { id: string }[];
       nextCursor: string | null;
     }>();
-    // 游标是已加载历史里最老的一条（075）；第二页返回 025–074，nextCursor 指向 025。
     expect(firstBody.messages.at(-1)?.id).toBe(messageIds[74]);
     const pageTwoCursor = messageIds[25];
     if (pageTwoCursor === undefined) throw new Error('fixture 缺少第二页游标');
     expect(firstBody.nextCursor).toBe(pageTwoCursor);
 
-    // 第二页 025–074 拼在已加载历史之前，000 仍未加载。
     await expect(screen.getByText('history-message-025', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('history-message-024', { exact: true })).toHaveCount(0);
     expect(await leafTexts(browser, 'history-message-')).toEqual({ total: 100, unique: 100 });
 
-    // 补旧消息保持阅读位置：075 仍是同一个轮次项，相对视口顶部不移动，且远离底部。
     await expect
       .poll(
         async () => {
@@ -274,7 +253,6 @@ test('chat history pages older messages without losing the visible position', {
     expect(Math.abs(anchorAfter.top - anchorBefore.top)).toBeLessThanOrEqual(4);
     expect(anchorAfter.distanceFromBottom).toBeGreaterThan(700);
 
-    // 再向上滚到最后一页入口，记录点击前 025 的相对位置。
     await wheelChatToTop(browser);
     await waitForWheelScrollEnd(browser);
     const last = screen.getByRole('button', '加载更早消息');
@@ -297,7 +275,6 @@ test('chat history pages older messages without losing the visible position', {
     expect(lastBody.messages[0]?.id).toBe(messageIds[0]);
     expect(lastBody.nextCursor).toBeNull();
 
-    // 三页拼完：000–124 各出现一次，入口消失；025 的相对位置仍保持不变。
     await expect(screen.getByText('history-message-000', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('history-message-124', { exact: true })).toHaveCount(1);
     expect(await leafTexts(browser, 'history-message-')).toEqual({ total: 125, unique: 125 });
@@ -340,7 +317,6 @@ test('chat history pagination works at a 390px viewport', { session: 'admin' }, 
     const { id: conversation } = await createConversation(agent.id, 60, 'mobile-history-');
     await openConversation(app, agent.id, conversation);
 
-    // 首屏 010–059；000 与 009 尚未加载。
     await expect(screen.getByText('mobile-history-059', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('mobile-history-010', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('mobile-history-009', { exact: true })).toHaveCount(0);
@@ -371,14 +347,12 @@ test('switching conversations in the history panel drops the old messages', {
     await expect(screen.getByText('switch-a-000', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('switch-b-000', { exact: true })).toHaveCount(0);
 
-    // 历史默认折叠：先从头部显式展开，再用真实列表行切换会话。
     await screen.getByRole('button', '显示会话历史').tap();
     await screen.getByText('E2E switch-b-', { exact: true }).first().tap();
     await expect(browser).toHaveURL(new RegExp(`conversation=${second}`));
     await expect(screen.getByText('switch-b-000', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('switch-a-000', { exact: true })).toHaveCount(0);
 
-    // 切换会话后历史面板保持展开，直接点另一条。
     await screen.getByText('E2E switch-a-', { exact: true }).first().tap();
     await expect(browser).toHaveURL(new RegExp(`conversation=${first}`));
     await expect(screen.getByText('switch-a-000', { exact: true })).toHaveCount(1);
@@ -402,12 +376,9 @@ test('renaming the open conversation keeps the loaded history and pages older on
     await expect(screen.getByText('refresh-010', { exact: true })).toHaveCount(1);
     expect(await leafTexts(browser, 'refresh-')).toEqual({ total: 50, unique: 50 });
 
-    // 另一个标签页写进两条更晚的消息，本页没有任何流式事件知道它们。
     await appendMessages(conversation, 60, 2, 'refresh-');
 
-    // 历史默认折叠：重命名入口在历史行菜单里，先显式展开列表。
     await screen.getByRole('button', '显示会话历史').tap();
-    // 真实 UI 触发会话详情重新拉取：历史菜单里的重命名只做这个副作用。
     const trigger = screen.getByRole('button', `操作「E2E refresh-」`);
     await trigger.hover();
     await trigger.tap();
@@ -420,13 +391,11 @@ test('renaming the open conversation keeps the loaded history and pages older on
     expect((await refetched).status).toBe(200);
     await expect(screen.getByRole('heading', '重命名会话')).toHaveCount(0);
 
-    // 重新拉取拿到的是 012–061 的窗口：已加载的 010、011 不能被丢掉。
     await expect(screen.getByText('refresh-010', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('refresh-011', { exact: true })).toHaveCount(1);
     await expect(screen.getByText('refresh-059', { exact: true })).toHaveCount(1);
     expect(await leafTexts(browser, 'refresh-')).toEqual({ total: 50, unique: 50 });
 
-    // 更早的 000–009 仍可补，总数正好是原来的 60 条，没有重复。
     await wheelChatToTop(browser);
     const olderResponse = browser.waitForResponse(
       new RegExp(`/api/conversations/${conversation}\\?limit=50&cursor=`),

@@ -24,7 +24,6 @@ export async function create(db: DbHandle, input: CreateOutputShareInput): Promi
   return row;
 }
 
-/** 撤销后的分享对公开访问一律不可见，查询默认只看未撤销行。 */
 const active = isNull(outputShares.revokedAt);
 
 export async function findActiveById(db: Database, id: string): Promise<OutputShareRow | null> {
@@ -36,7 +35,6 @@ export async function findActiveById(db: Database, id: string): Promise<OutputSh
   return row ?? null;
 }
 
-/** 同一文件已有有效分享时复用，避免重复生成 token。 */
 export async function findByTriple(
   db: DbHandle,
   conversationId: string,
@@ -87,7 +85,6 @@ export async function revoke(db: Database, id: string): Promise<OutputShareRow |
   return row ?? null;
 }
 
-/** 「我的分享」列表项：归属由来源会话本人判定，分享表自身没有创建者。 */
 export interface PersonalOutputShareRow {
   id: string;
   conversationId: string;
@@ -175,7 +172,6 @@ export async function findOwnedById(
   return row ?? null;
 }
 
-/** owner 条件写进同一条 UPDATE：不能把全局 revoke 当作个人撤销。 */
 export async function revokeOwned(
   db: Database,
   businessId: string,

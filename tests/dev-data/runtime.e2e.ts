@@ -10,20 +10,6 @@ import {
   writeManifest,
 } from '../support/business-dataset.js';
 
-/**
- * 青禾数据集的运行环境域：真实 UI 创建/保存/构建/发布，业务 API 只做查重与轮询。
- *
- * 固定对象（名称不随机）：
- * - 环境「【青禾演示】采购运行环境」，不作为平台默认环境；
- * - 正常版本：官方 SANDBOX_IMAGE 基座 + 原生 runner，构建成功并设为线上；
- * - 失败版本：同一基座上显式 `RUN ... && exit 1`，保留真实失败日志。
- *
- * 重跑语义：manifest 记录了版本 ID 后不再重新构建；queued/building 只轮询，
- * failed 默认不重试；仅 E2E_DEV_DATA_RETRY_RUNTIME_VERSION=失败版本ID 时显式重建正常版本并保留历史。
- * ID 不在（被删除/改名）或 Dockerfile 被外部修改时报冲突而不是覆盖。
- * E2E_DEV_DATA_VERIFY=1 时严格只读：不发任何写请求、不写 manifest。
- */
-
 const ENVIRONMENT_NAME = '【青禾演示】采购运行环境';
 const NORMAL_SCENARIO = 'normal-dockerfile';
 const FAILURE_SCENARIO = 'run-exit-1';
@@ -473,7 +459,6 @@ test('dev data: 青禾采购运行环境（正常版本发布 + RUN 非零失败
   manifest.runtimeEnvironmentId = environment.id;
   await writeManifest('runtime', manifest);
 
-  // 只有显式指定当前失败版本才能重建；旧版本和真实错误先落历史，绝不重试新产生的失败。
   const success = manifest.versions.success;
   let successVersion =
     success === null ? null : await pollVersion(browser, environment.id, success.id, '成功');

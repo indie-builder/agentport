@@ -4,7 +4,6 @@ import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { infraReady, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
 const ready = await infraReady;
-// 链校验扫全表，共享库会被同轮其它套件插入/删除的行误判为破链。
 const isolated = ready ? await createIsolatedDatabase('audit_chain') : null;
 
 const logger = { warn: () => undefined };

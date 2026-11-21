@@ -19,7 +19,6 @@ export function CopyButton({
 }) {
   const [copiedValue, setCopiedValue] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
-  // 用值本身而不是布尔标记判断反馈：正文换成另一份时立刻回到「复制」，不会闪回上一份的「已复制」。
   const copied = copiedValue === value;
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {

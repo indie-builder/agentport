@@ -27,7 +27,6 @@ describe('backup.sh', () => {
     ]) {
       expect(entries).toContain(member);
     }
-    // run_* 是派生的工作区，sandbox-probes 是试连挂载点，都不该进备份。
     expect(entries.some((entry) => entry.includes('/run_'))).toBe(false);
     expect(entries.some((entry) => entry.includes('sandbox-probes'))).toBe(false);
 
@@ -39,7 +38,6 @@ describe('backup.sh', () => {
       version: 2,
       workspaces: { files: 2, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) },
     });
-    // DATABASE_URL 只出现在调用 pg_dump 的参数里，不写进清单。
     expect((await suite.readArchiveFile(file, './manifest.json')).toString('utf8')).not.toContain(
       'secret',
     );
@@ -164,7 +162,6 @@ describe('backup.sh (compose volume)', () => {
     await suite.defaultStubs();
     await suite.stubDocker();
     await suite.seedKnowledge();
-    // 卷在容器里也不可读：find 失败不能被 wc 的 0 吞成「没有知识库」。
     const { stderr } = await suite.backupError({
       ...suite.composeEnv({
         STUB_VOLUME_MOUNT: '/nonexistent/docker-volume',
@@ -179,7 +176,6 @@ describe('backup.sh (compose volume)', () => {
   it('fails when the container find itself errors', async () => {
     await suite.defaultStubs();
     await suite.stubDocker();
-    // 目录存在但容器内 find 失败（权限错误）：不能靠 wc 的 0 当成「没有知识库」。
     const blocked = join(suite.env.dir, 'blocked-volume');
     await mkdir(join(blocked, 'blobs'), { recursive: true });
     await writeFile(join(blocked, 'blobs', 'x'), 'x');
@@ -202,7 +198,6 @@ describe('backup.sh (compose volume)', () => {
     await suite.defaultStubs();
     await suite.stubDocker();
     await suite.seedKnowledge();
-    // 宿主路径存在却读不了：不能当成空知识库，要改走容器读同一卷。
     const blocked = join(suite.env.dir, 'blocked-knowledge');
     await mkdir(blocked);
     await suite.run('chmod', ['000', blocked]);

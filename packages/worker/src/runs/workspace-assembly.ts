@@ -14,7 +14,6 @@ import { materializeWorkspace } from '../workspace-files.js';
 
 type Db = ReturnType<typeof createDb>['db'];
 type AgentRow = typeof schema.agents.$inferSelect;
-/** 子智能体行带上自己的技能；根智能体的技能单独传，避免混进根配置。 */
 export type SubAgentRow = AgentRow & { skills?: WorkspaceSkill[] };
 
 export type WorkspaceAssemblyInput = {
@@ -64,7 +63,6 @@ export function createWorkspaceAssembly(deps: { db: Db; workspacesDir: string; l
       plugins,
       memoryPolicy,
     } = input;
-    // 生成式 UI 的工具目录与提示词、执行桥同源：这里查一次，渲染时写进 CLAUDE.md。
     const openuiTools =
       agent.uiFormat === 'openui' ? await repo.openui.listOpenUiTools(deps.db, agent.id) : [];
     const files = renderWorkspace(
@@ -95,7 +93,6 @@ export function createWorkspaceAssembly(deps: { db: Db; workspacesDir: string; l
       }),
     );
 
-    // 按 run 隔离：同一智能体并发运行时不能互相覆盖 .mcp.json / 技能 / 子智能体。
     const dir = runWorkspaceDir(deps.workspacesDir, agent.slug, runId);
     await materializeWorkspace(dir, files);
     deps.logger.debug(

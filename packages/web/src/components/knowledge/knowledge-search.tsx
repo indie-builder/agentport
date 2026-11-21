@@ -46,7 +46,6 @@ export interface FaqRetrievalOptions {
   faqDirectAnswerThreshold?: number | undefined;
 }
 
-/** FAQ 专用检索开关；管理检索写 URL，FAQ 命中测试用本地状态，两者共用同一语义。 */
 export function FaqRetrievalControls({
   idPrefix,
   value,
@@ -417,7 +416,6 @@ function Diagnostics({ result }: { result: KnowledgeSearchResponse }) {
   );
 }
 
-/** 管理检索与 FAQ 命中测试共用同一结果渲染；不把两类分数当成同一量纲。 */
 export function KnowledgeSearchResults({
   result,
   emptyTitle,
@@ -533,7 +531,6 @@ export function SearchTab({
         onSubmit={(event) => {
           event.preventDefault();
           const next = draft.trim();
-          // 同 state 重复点检索不会改 URL，query key 不变；显式 refetch 才真的重新请求。
           if (next === terms) {
             if (next !== '') void result.refetch();
             return;

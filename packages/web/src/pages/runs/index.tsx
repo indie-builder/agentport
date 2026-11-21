@@ -68,7 +68,6 @@ function ExpandableError({ error }: { error: string }) {
       <span
         className={cn(
           'min-w-0 text-danger',
-          // DataTable 会把 .truncate 还原成换行；这里显式单行省略，展开后只在单元格内换行。
           open
             ? 'break-words whitespace-normal'
             : 'overflow-hidden text-ellipsis whitespace-nowrap',
@@ -257,7 +256,6 @@ export function RunsPage() {
   const me = useQuery(meQuery);
   const canExport = can(me.data, 'runs.export');
   const agents = useAgents();
-  // 筛选放在 URL 里：刷新、分享、前进后退都保留条件。
   const search = useSearch({ from: '/_shell/runs/' });
   const agentId = search.agent ?? '';
   const status = search.status ?? '';

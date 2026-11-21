@@ -3,13 +3,6 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
-/**
- * fork 后的 transcript 里，每条被复制的消息都带 `forkedFrom: { sessionId, messageUuid }`。
- * 用这个来源标记建映射：不能按两侧下标对齐，会话压缩后顺序会不同。
- *
- * 在宿主侧读，因为容器只发一个 `session_forked` 事件；映射可能上千条，
- * 放进事件会撞上事件大小与条数上限。
- */
 export async function readForkUuidMap(
   sessionsRoot: string,
   newSessionId: string,
@@ -42,7 +35,6 @@ export async function readForkUuidMap(
   return map;
 }
 
-/** transcript 文件名是 `<sessionId>.jsonl`；cwd 编码变化时可能出现在别的 project 目录。 */
 async function findSessionFile(sessionsRoot: string, sessionId: string): Promise<string | null> {
   let entries: string[];
   try {

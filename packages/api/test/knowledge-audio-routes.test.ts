@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expectProblem, loginCookie, request, startApp, type TestApp, unique } from './helpers.js';
 
-/** 只证明容器头成立的合成音频；负载是否可解码由转录端决定。 */
 const AUDIO_FIXTURES = {
   mp3: {
     filename: 'clip.mp3',
@@ -308,7 +307,6 @@ describe('knowledge base ASR binding', () => {
     expect(rebound.statusCode, rebound.body).toBe(200);
     expect(rebound.json<{ asrProfileId: string | null }>().asrProfileId).toBe(asr.id);
 
-    // 未传时保持原绑定，不会被默认值重置。
     const renamed = await request(app, {
       method: 'PATCH',
       url: `/api/knowledge/bases/${base.id}`,
@@ -463,7 +461,6 @@ describe('audio upload entry', () => {
   it('格式伪装、声明矛盾与超限在 blob/job 之前拒绝', async () => {
     const asr = await createProfile('asr');
     const base = await createBase(asr.id);
-    // 同目录下其他用例已写入基准音频；这里用独立字节证明失败路径没有落 blob。
     const uniqueAudio = Buffer.concat([
       Buffer.from('fffb9064', 'hex'),
       Buffer.from(`failure-${unique('blob')}`),
@@ -477,7 +474,6 @@ describe('audio upload entry', () => {
     expect(fake.statusCode, fake.body).toBe(415);
     expectProblem(fake, 'UNSUPPORTED_MEDIA_TYPE');
 
-    // 合法但不支持的 AIFF 仍按不支持的音频拒绝。
     const aiff = await upload(base.id, {
       filename: 'clip.aiff',
       mimeType: 'audio/aiff',
@@ -499,7 +495,6 @@ describe('audio upload entry', () => {
     expect(mismatch.statusCode, mismatch.body).toBe(400);
     expectProblem(mismatch, 'INVALID_INPUT');
 
-    // 实际音频伪装成文本：仍按真实字节识别并拒绝后缀矛盾。
     const disguised = await upload(base.id, {
       filename: 'notes.txt',
       mimeType: 'text/plain',

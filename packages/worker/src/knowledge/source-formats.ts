@@ -42,7 +42,6 @@ export function declaredMime(contentType: string | null | undefined): string | u
   return mime && mime !== 'application/octet-stream' ? mime : undefined;
 }
 
-/** 扩展名优先于上传声明；声明只接受已知 MIME，octet-stream 不算。 */
 export function mimeOf(name: string, declared: string | undefined): string | undefined {
   const extension = extensionWithDot(name);
   const byExtension = BINARY_MIME_BY_EXTENSION[extension] ?? TEXT_MIME_BY_EXTENSION[extension];

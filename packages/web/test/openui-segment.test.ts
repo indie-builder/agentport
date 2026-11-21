@@ -1,7 +1,6 @@
 import { segmentOpenUi } from '@agentport/shared';
 import { describe, expect, it } from 'vitest';
 
-/** web 直接消费 shared 分段器；这里守住「浏览器拿到的段号与文本」。 */
 const parts = (text: string, streaming = false) =>
   segmentOpenUi(text, streaming).map(({ kind, text: value, blockKey }) => ({
     kind,
@@ -65,7 +64,6 @@ describe('segmentOpenUi', () => {
       { kind: 'markdown', text: '生成中\n' },
       { kind: 'openui', text: 'root = Card([', blockKey: 's0' },
     ]);
-    // 流结束后仍没有闭合围栏：还原成 Markdown，让用户看到原文而不是空白。
     expect(kinds(text, false)).toEqual(['markdown']);
   });
 

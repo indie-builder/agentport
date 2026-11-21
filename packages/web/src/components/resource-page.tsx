@@ -34,7 +34,6 @@ export function ResourcePage({
   section: keyof typeof RESOURCE_SECTIONS;
   query: string;
   onQueryChange: (value: string) => void;
-  /** 省略时不展示数量（例如搜索词太短，结果数没有意义）。 */
   count?: number | undefined;
   status: 'pending' | 'error' | 'success';
   filters?: ReactNode;

@@ -30,7 +30,6 @@ describe.skipIf(!ready)('knowledge base pins', () => {
 
   afterEach(async () => {
     if (baseIds.length > 0) {
-      // 置顶随 base 级联删除；先清 pin 再删库，避免噪声依赖 FK 顺序。
       await app.client.unsafe('delete from knowledge_base_pins where base_id = any($1::text[])', [
         app.client.array(baseIds, 'TEXT'),
       ]);
@@ -120,7 +119,6 @@ describe.skipIf(!ready)('knowledge base pins', () => {
 
     const empty = await listPins(cookie);
     expect(empty.statusCode, empty.body).toBe(200);
-    // 路径不能被 `/knowledge/bases/{id}` 抢走：返回的必须是置顶列表本身。
     expect(empty.json()).toEqual({ baseIds: [] });
 
     const pinned = await setPin(baseId, true);
@@ -130,7 +128,6 @@ describe.skipIf(!ready)('knowledge base pins', () => {
     const afterPin = await listPins(cookie);
     expect(afterPin.json()).toEqual({ baseIds: [baseId] });
 
-    // 重复置顶幂等：不新增第二行，也不会让请求失败。
     const again = await setPin(baseId, true);
     expect(again.statusCode, again.body).toBe(200);
     expect((await listPins(cookie)).json()).toEqual({ baseIds: [baseId] });
@@ -140,7 +137,6 @@ describe.skipIf(!ready)('knowledge base pins', () => {
     expect(unpinned.json()).toEqual({ pinned: false });
     expect((await listPins(cookie)).json()).toEqual({ baseIds: [] });
 
-    // 取消一个本来就没置顶的库同样成功。
     expect((await setPin(baseId, false)).statusCode).toBe(200);
   });
 
@@ -159,7 +155,6 @@ describe.skipIf(!ready)('knowledge base pins', () => {
     expect((await listPins(cookie)).json()).toEqual({ baseIds: [adminBase] });
     expect((await listPins(reader)).json()).toEqual({ baseIds: [readerBase] });
 
-    // 取消自己的置顶不影响另一个账号。
     expect((await setPin(readerBase, false, reader)).statusCode).toBe(200);
     expect((await listPins(reader)).json()).toEqual({ baseIds: [] });
     expect((await listPins(cookie)).json()).toEqual({ baseIds: [adminBase] });

@@ -1,16 +1,4 @@
 #!/usr/bin/env bun
-/**
- * OpenUI 覆盖缺口报告。只读，不跑测试、不改文件。
- *
- * 契约真相是 core 提交的 openui.spec.json；证据登记在
- * packages/web/test/openui-coverage-registry.json，与 openui-component-coverage.test.ts 共用。
- * 只有「契约与登记对不上」才 exit 1；缺口（render/missing）只是报告，exit 0。
- *
- * nestedInteractive 的语义：嵌套且有交互、尚无行为证据。父组件已有行为测试覆盖的
- * 交互组件留在 nestedOnly，不重复登记在 nestedInteractive；纯结构/纯数据组件两者都不进。
- *
- * 用法：bun run openui:audit
- */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

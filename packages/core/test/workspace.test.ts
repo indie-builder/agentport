@@ -117,10 +117,8 @@ describe('delivered outputs section', () => {
 
     expect(claudeMd).toContain('/mnt/outputs/');
     expect(claudeMd).toContain('同一路径');
-    // 回复里统一叫「会话成果」，指向对话右上角的按钮。
     expect(claudeMd).toContain('会话成果');
     expect(claudeMd).not.toContain('输出文件区');
-    // 记忆仍是 Markdown、范围仍是记忆目录：交付目录不是第二份记忆。
     expect(claudeMd).toContain('/mnt/agent-memory/');
     expect(claudeMd).toMatch(/原生记忆[^。]*Markdown/);
   });
@@ -190,7 +188,6 @@ describe('native file access wording', () => {
 
     expect(claudeMd).toContain('已登记的子智能体只允许读写自己的 project 记忆');
     expect(claudeMd).toContain('.claude/agent-memory/<slug>/');
-    // 主会话自身边界保持原样。
     expect(claudeMd).toContain('/mnt/agent-memory/');
     expect(claudeMd).toContain('/mnt/outputs/');
   });
@@ -231,7 +228,6 @@ describe('expert memory policy wording', () => {
     expect(claudeMd).toContain('只能用 `Read` 访问 `/mnt/agent-memory/`');
     expect(claudeMd).toContain('本轮只读');
     expect(claudeMd).toContain('记忆提案');
-    // 不能再宣称可写，否则模型会照文案写只读目录并收到 EROFS。
     expect(claudeMd).not.toContain('`Write`、`Edit` 访问 `/mnt/agent-memory/`');
   });
 
@@ -245,7 +241,6 @@ describe('expert memory policy wording', () => {
     expect(claudeMd).toContain('专家记忆已停用');
     expect(claudeMd).not.toContain('`Write`、`Edit` 访问 `/mnt/agent-memory/`');
     expect(claudeMd).not.toContain('只能用 `Read` 访问 `/mnt/agent-memory/`');
-    // 记忆目录未挂载：不再有任何“可用 Read 访问”的宣称。
     expect(claudeMd).not.toMatch(/可用 `Read` 访问 `\/mnt\/agent-memory\//);
   });
 
@@ -298,7 +293,6 @@ describe('sub-agent native memory', () => {
     expect(content).toContain('memory: project');
     const disallowed = disallowedOf(content);
     for (const tool of ['Read', 'Write', 'Edit']) expect(disallowed).not.toContain(tool);
-    // 单层委派仍由定义兜底，MCP 派生仍靠省略 tools。
     expect(disallowed).toContain('Agent');
     expect(disallowed).toContain('TaskStop');
     expect(content).not.toContain('tools: [');

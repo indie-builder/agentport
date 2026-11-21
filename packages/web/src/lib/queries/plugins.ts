@@ -19,7 +19,6 @@ const nativePluginsQuery = queryOptions<NativePlugins>({
   queryFn: api.nativePlugins,
 });
 
-/** 详情挂在 `['plugins']` 前缀下，列表与详情的失效一次覆盖。 */
 export const pluginQuery = (id: string) =>
   queryOptions<Plugin>({
     queryKey: ['plugins', id],
@@ -41,7 +40,6 @@ export function usePlugin(id: string) {
 }
 
 export function useNativePlugins(enabled = true) {
-  // 列表要起一次沙盒，只在「已安装」页签可见时请求。
   return useQuery({ ...nativePluginsQuery, enabled });
 }
 
@@ -62,7 +60,6 @@ export function useImportPlugin() {
   });
 }
 
-/** 安装与纳入都不要草稿缓存，只让两份列表失效。 */
 export function useInstallNativePlugin() {
   const client = useQueryClient();
   return useMutation({

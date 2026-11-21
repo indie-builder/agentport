@@ -33,7 +33,6 @@ describe('waitClose', () => {
     await advanceTimersByTimeAsync(5);
     await expect(waiting).resolves.toBe(false);
     expect(finished).toBe(false);
-    // 只剩后台任务自己的计时器：waitClose 的截止计时器已到点且未拦截后续释放。
     expect(jest.getTimerCount()).toBe(1);
     await advanceTimersByTimeAsync(30);
     expect(finished).toBe(true);

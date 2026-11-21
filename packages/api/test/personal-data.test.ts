@@ -349,7 +349,6 @@ describe.skipIf(!ready)('personal data', () => {
       expect(res.statusCode, res.body).toBe(200);
       const page = personalRunListSchema.parse(res.json());
       const ids = page.items.map((item) => item.id);
-      // 其他套件并行写入管理员运行，管理员这里只证明「含本人、不含他人」。
       expect(ids).toContain(expected.get(label));
       for (const [otherLabel, otherRunId] of expected) {
         if (otherLabel !== label) expect(ids).not.toContain(otherRunId);
@@ -367,32 +366,27 @@ describe.skipIf(!ready)('personal data', () => {
     const adminAgentId = adminAgent.json<{ id: string }>().id;
     const userAgentId = await seedAgent(user.businessId);
 
-    // 本人使用别人创建的专家：计入。
     const foreignExpert = await seedRun({
       agentId: adminAgentId,
       businessId: user.businessId,
       createdAt: new Date(),
     });
-    // 别人使用本人的专家：不计入。
     await seedRun({
       agentId: userAgentId,
       businessId: other.businessId,
       createdAt: new Date(),
     });
-    // 服务运行：不计入。
     await seedRun({
       agentId: userAgentId,
       serviceId: 'system',
       createdAt: new Date(),
     });
-    // 本人发起，但来源会话属于别人：返回 conversationId=null。
     const foreignConversation = await seedRun({
       agentId: adminAgentId,
       businessId: user.businessId,
       conversationOwner: other.businessId,
       createdAt: new Date(),
     });
-    // 本人发起且会话属于本人：返回真实 conversationId。
     const ownConversation = await seedRun({
       agentId: adminAgentId,
       businessId: user.businessId,
@@ -443,7 +437,6 @@ describe.skipIf(!ready)('personal data', () => {
         [channelId, ADMIN_BUSINESS_ID, author.businessId],
       );
 
-      // 同作者：私聊 run 与频道 run 都由本人发起，频道 run 带不能外泄的错误正文。
       const privateRun = await seedRun({
         agentId,
         businessId: author.businessId,
@@ -459,7 +452,6 @@ describe.skipIf(!ready)('personal data', () => {
         error: sensitiveError,
       });
 
-      // 先确认成员关系真实存在，再移除；不是只给 run 挂一个假 channelId。
       const membership = await app.client.unsafe<{ role: string }[]>(
         'select role from channel_members where channel_id = $1 and business_id = $2',
         [channelId, author.businessId],

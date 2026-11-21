@@ -4,9 +4,6 @@ import { Link } from '@tanstack/react-router';
 import { agentsQuery } from '../../lib/queries.js';
 import { ErrorState, LoadingState } from '../states.js';
 
-/**
- * `showTitle=false` 用于外层已用 PageSection 标题表达同一语义的分区，避免重复标签。
- */
 export function ExpertUsage({
   base,
   enabled,

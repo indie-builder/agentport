@@ -1,22 +1,4 @@
 #!/usr/bin/env bun
-/**
- * OpenUI 升级自检。只读 + 临时目录，不改仓库文件。
- *
- * 四件事，缺一不可：
- * 1. **可重生成**：用官方 CLI 从真实的浏览器库（packages/web/src/openui/library.tsx）
- *    现场生成一份临时 spec，与提交的 core/src/generated/openui.spec.json 逐项比对；
- *    不一致说明忘了 `bun run openui:spec`。
- * 2. **与官方一致**：把提交的 spec 与已安装 `@openuidev/react-ui` 的真实元数据
- *    （组件签名、描述、分组、JSON Schema、提示词样例）逐项比对。官方升级后，
- *    这里会精确指出哪个组件漂了。
- * 3. **行为对照**：跑 core 的定向契约测试，真正执行 shared 的 Zod 与 reactive 绑定
- *    （默认值、refine、Query 重跑）。JSON Schema 反映不出 reactive 标记，
- *    所以第 1、2 项都替代不了这一条。
- * 4. **兼容范围**：只校验 `react-ui` 声明的 peer 范围覆盖实装 `react-lang`；
- *    不要求两个包的版本号相等——那是上游的发布策略，不是我们的约束。
- *
- * 用法：bun run openui:check
- */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -40,13 +22,11 @@ function installedPackage(name) {
     try {
       return readJson(resolve(root, base, 'node_modules', name, 'package.json'));
     } catch {
-      // 下一个位置。
     }
   }
   return null;
 }
 
-/** 只处理本仓库实际出现的 `>=x <y` 形式；其他范围宁可报不通过，也不假装兼容。 */
 function satisfiesRange(version, range) {
   const match = /^>=\s*([\d.]+)\s+<\s*([\d.]+)$/.exec((range ?? '').trim());
   if (!match || !version) return false;
@@ -63,9 +43,6 @@ function satisfiesRange(version, range) {
   return atLeast(version, match[1]) && belowMax(version, match[2]);
 }
 
-// ── 0. 产物新鲜度 ────────────────────────────────────────────────────────────
-// 后面每一步（spec 重生成、行为测试）都通过包入口读 dist；旧产物会让自检
-// 验的是上一次构建，所以这里先失败退出，且绝不把「检查本身报错」当成最新。
 const tsc = resolve(root, 'node_modules/typescript/bin/tsc');
 let dry = '';
 try {
@@ -91,7 +68,6 @@ if (dry.includes('would build')) {
 }
 check('shared/core 构建产物是当前源码', '最新', true);
 
-// ── 1. 现场重生成 ────────────────────────────────────────────────────────────
 const committed = readJson(committedSpecPath);
 let regenerated = null;
 const scratch = mkdtempSync(join(tmpdir(), 'openui-check-'));
@@ -131,7 +107,6 @@ if (regenerated) {
   );
 }
 
-// ── 2. 与已安装官方库逐项比对 ────────────────────────────────────────────────
 const official = await import(
   pathToFileURL(resolve(root, 'node_modules/@openuidev/react-ui/dist/genui-lib/index.mjs')).href
 );
@@ -191,9 +166,6 @@ check(
   promptOk,
 );
 
-// ── 3. 行为对照 ──────────────────────────────────────────────────────────────
-// 只跑定向契约测试，不手写第二套验证器；默认值被改、refine 失效、reactive 丢失都会红。
-// 测试通过包入口读 dist，新鲜度已在上一步保证，旧产物不会走到这里。
 const behaviorTests = [
   'packages/core/test/openui-library.test.ts',
   'packages/core/test/openui-reactive-query.test.ts',
@@ -220,7 +192,6 @@ try {
   );
 }
 
-// ── 4. 兼容范围 ──────────────────────────────────────────────────────────────
 const reactUi = installedPackage('@openuidev/react-ui');
 const reactLang = installedPackage('@openuidev/react-lang');
 const langCore = installedPackage('@openuidev/lang-core');

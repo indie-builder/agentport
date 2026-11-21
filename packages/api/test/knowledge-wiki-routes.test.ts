@@ -81,7 +81,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     return documentId;
   }
 
-  /** 追加文档版本并切为当前版本，等价于摄取成功后的版本切换。 */
   async function addSourceVersion(
     documentId: string,
     version: number,
@@ -127,7 +126,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
   }
 
-  /** 内部索引正文按内容寻址写在这里；预先占成目录可稳定注入写文件失败。 */
   function blobPathFor(markdown: string) {
     const sha = createHash('sha256').update(markdown, 'utf8').digest('hex');
     return join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
@@ -243,7 +241,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       payload: { markdown: '# 第一版' },
     });
     expect(first.statusCode, first.body).toBe(200);
-    // 保存草稿不隐式发布：线上指针仍为空。
     expect(first.json()).toMatchObject({ status: 'draft', currentVersionId: null });
 
     const second = await request(app, {
@@ -281,7 +278,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       status: 'published',
       currentVersionId: secondVersionId,
     });
-    // 发布只切指针，历史版本正文不变。
     const after = await request(app, {
       method: 'GET',
       url: `/api/knowledge/wiki-pages/${page.id}`,
@@ -393,7 +389,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       model: 'wiki-model',
       generatedBy: 'sdk',
     });
-    // 保存草稿不写来源账本，也不切线上指针。
     expect(await repo.knowledge.getWikiPage(app.db, page.id)).toMatchObject({
       status: 'draft',
       currentVersionId: null,
@@ -472,7 +467,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     }>();
     expect(body.versions).toHaveLength(3);
     expect(body.currentVersionId).toBe(created.id);
-    // 历史版本仍在，且原始目标版本内容未被改写。
     expect(body.versions.find((row) => row.id === targetId)?.markdown).toBe('# 稳定版');
   });
 
@@ -513,7 +507,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(indexRows).toHaveLength(1);
     const index = firstRow(indexRows);
     expect(index.metadata.wikiVersionId).toBe(first?.id);
-    // 索引文档的 contentHash 是线上指纹，发布不再用准备内容覆盖它。
     expect(index.content_hash).toBeNull();
 
     const firstJobs = await indexJobs(index.id);
@@ -552,7 +545,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
        where base_id = $1 and content_kind = 'wiki' and metadata ->> 'wikiPageId' = $2`,
       [baseId, page.id],
     );
-    // 每页只保留一个内部索引文档，回退复用同一身份并更新版本 metadata。
     expect(updated).toHaveLength(1);
     expect(updated[0]?.id).toBe(index.id);
     const rolledBackVersionId = rollback.json<{ id: string }>().id;
@@ -562,7 +554,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       first?.id,
       rolledBackVersionId,
     ]);
-    // 每个任务消费自己的 blob，旧任务不被后续发布改写。
     expect(await blobForJob(firstRow(jobs))).toBe('# 索引第一版');
     const rollbackJob = firstRow(jobs.slice(1));
     expect(rollbackJob.payload.input.expectedCurrentVersionId).toBeNull();
@@ -648,7 +639,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(jobs.map((job) => job.payload.versionMetadata.wikiVersionId).sort()).toEqual(
       [first?.id, second?.id].sort(),
     );
-    // 每个任务消费自己的任务输入快照，不依赖后来被改写的文档指纹。
     expect((await Promise.all(jobs.map(blobForJob))).sort()).toEqual([
       '# 并发索引 A',
       '# 并发索引 B',
@@ -682,7 +672,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     expect(queuedBefore).toHaveLength(1);
     expect(queuedBefore[0]?.status).toBe('queued');
 
-    // w2 引用已停用来源：准备会写出 w2 blob，但发布事务在来源校验处 409。
     const documentId = await seedSourceDocument();
     const source = await addSourceVersion(documentId, 1);
     await app.client.unsafe(
@@ -703,7 +692,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(failed.statusCode, failed.body).toBe(409);
 
-    // 页面、索引文档与任务输入都没有被失败发布改动。
     expect(await repo.knowledge.getWikiPage(app.db, page.id)).toMatchObject({
       status: 'published',
       currentVersionId: w1?.id,
@@ -721,7 +709,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const queuedAfter = await indexJobs(index.id);
     expect(queuedAfter).toHaveLength(1);
     expect(queuedAfter[0]?.payload).toEqual(queuedBefore[0]?.payload);
-    // worker 只按任务输入快照的 blob 摄取，失败发布不会把它的输入挤成 w2。
     expect(await blobForJob(firstRow(queuedAfter))).toBe('# w1 正文');
   });
 
@@ -749,7 +736,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     }
     expect(publish.statusCode, publish.body).toBe(500);
 
-    // 事务回滚：不切指针、不建索引文档、不留任务。
     expect(await repo.knowledge.getWikiPage(app.db, page.id)).toMatchObject({
       status: 'draft',
       currentVersionId: null,
@@ -829,7 +815,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     });
     expect(second.statusCode, second.body).toBe(200);
 
-    // 回退会复制目标版本正文；同一内容地址预先占成目录让准备阶段失败。
     const blobPath = blobPathFor(targetMarkdown);
     await rm(blobPath, { force: true });
     await mkdir(blobPath, { recursive: true });
@@ -850,7 +835,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       status: 'published',
       currentVersionId: current?.id,
     });
-    // 准备失败不改索引指针、不追加任务。
     const indexRows = await app.client.unsafe<
       { id: string; metadata: { wikiVersionId?: string } }[]
     >(
@@ -860,7 +844,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     );
     expect(indexRows).toHaveLength(1);
     expect(indexRows[0]?.metadata.wikiVersionId).toBe(current?.id);
-    // 前两次发布各留一个任务；失败的回退不再追加。
     expect(await indexJobs(firstRow(indexRows).id)).toHaveLength(2);
   });
 
@@ -963,7 +946,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       url: `/api/knowledge/wiki-pages/${page.id}`,
       headers: { cookie },
     });
-    // 已发布页面：草稿追加进列表，但不改 currentVersionId，也不把状态降成 draft。
     expect(afterDraft.json()).toMatchObject({
       status: 'published',
       currentVersionId: publishedVersionId,
@@ -982,7 +964,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       expect.arrayContaining([expect.objectContaining({ generatedBy: 'sdk' })]),
     );
 
-    // 模型失败：只有 job 失败、没有新版本，已发布指针必须原地不动。
     const failedJobId = `kjob_wiki${Math.random().toString(36).slice(2, 10)}`;
     await app.client.unsafe(
       `insert into knowledge_jobs (id, type, base_id, status, error, payload, ended_at)
@@ -1086,7 +1067,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       title: string;
       versions: Array<{ markdown: string }>;
     }>();
-    // 冲突发生在结构写入前：标题不能先落库，正文也不得新增版本。
     expect(body.title).toBe('原标题');
     expect(body.versions.map((row) => row.markdown).sort()).toEqual(['# 第一版', '# 第二版']);
   });
@@ -1191,7 +1171,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       currentVersionId: null,
     });
 
-    // 来源更新与 stale 标记只影响已发布页；草稿页没有线上版本可受影响。
     await addSourceVersion(documentId, 2);
     await repo.knowledge.markWikiStaleByDocument(app.db, documentId);
     expect(await repo.knowledge.getWikiPage(app.db, page.id)).toMatchObject({
@@ -1236,7 +1215,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
       generatedBy: 'sdk',
     });
     const afterDraft = await repo.knowledge.getWikiPage(app.db, page.id);
-    // 已发布指针不动；draft 的追加不能把 stale 抹成 published。
     expect(afterDraft).toMatchObject({
       status: stalePage?.status,
       currentVersionId: candidate?.id,
@@ -1270,7 +1248,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
     const after = await repo.knowledge.getWikiPage(app.db, page.id);
     expect(after).toMatchObject({ status: 'draft', currentVersionId: null });
 
-    // 用当前版本的 chunk 重新生成后可以正常发布。
     const fresh = await saveDraft(page.id, {
       markdown: '# 引用 v2 的草稿',
       documentId,
@@ -1343,7 +1320,6 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
           generatedBy,
         });
         expect(draft).not.toBeNull();
-        // 保存草稿永远只追加：线上指针为空，来源账本暂不写。
         expect(await repo.knowledge.getWikiPage(app.db, page.id)).toMatchObject({
           status: 'draft',
           currentVersionId: null,

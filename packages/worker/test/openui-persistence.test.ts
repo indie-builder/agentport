@@ -7,10 +7,6 @@ import { testAccess } from './fixtures/access.js';
 
 const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta.url);
 
-/**
- * 跨轮 UI 编辑的落库语义：基线必须在本 run 输出删除之前取，纯文本/子智能体/截断不能伪造完整程序，
- * 多段各有自己的命名空间（blockKey s0/s1）。
- */
 const { db, client } = createDb(process.env.DATABASE_URL ?? '');
 const ready = await client.unsafe('select 1').then(
   () => true,
@@ -76,7 +72,6 @@ async function seedRun(fixture: Fixture): Promise<string> {
   return runId;
 }
 
-/** 上一轮已合并的主助手消息；跨轮补丁要拿它当基线。 */
 async function seedPreviousTurn(
   fixture: Fixture,
   uiProgram: string | null = BASE_CANONICAL,
@@ -128,7 +123,6 @@ describe.skipIf(!ready)('persistRunMessages OpenUI programs', () => {
     expect(result.written).toBe(true);
     const [row] = await assistantRows(runId);
     expect(row?.uiProgram).toContain('新计划');
-    // 上一轮未变：先删本 run 不能把基线一起删掉。
     expect(row?.uiProgram).toContain('title = TextContent("行程")');
     expect(row?.uiProgram).not.toContain('原计划');
     expect(result.messages[0]).toMatchObject({
@@ -186,7 +180,6 @@ describe.skipIf(!ready)('persistRunMessages OpenUI programs', () => {
       true,
       false,
     ]);
-    // 子智能体与截断块不推进基线：主回答仍基于上一轮合并。
     expect(result.messages[2]?.uiProgram).toContain('title = TextContent("行程")');
     expect(result.messages[2]?.uiProgram).toContain('最终');
     expect(result.messages[2]?.uiProgram).not.toContain('子任务');
@@ -212,7 +205,6 @@ describe.skipIf(!ready)('persistRunMessages OpenUI programs', () => {
     const programs = result.messages.map((message) => message.uiProgram);
     expect(programs[0]).toContain('新标题');
     expect(programs[1]).toBeNull();
-    // 第三块基于第二块之前的合并结果，两处改动都在。
     expect(programs[2]).toContain('新标题');
     expect(programs[2]).toContain('新正文');
   });
@@ -236,7 +228,6 @@ describe.skipIf(!ready)('persistRunMessages OpenUI programs', () => {
     });
 
     expect(result.messages[0]).toMatchObject({ blockIndex: 0, streamBlockId: 'b0' });
-    // streamBlockId 是运行内身份，不写进消息内容。
     const [row] = await assistantRows(runId);
     expect(row?.content).toEqual({ type: 'text', text: 'hello', blockIndex: 0 });
   });

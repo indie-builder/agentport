@@ -39,7 +39,6 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
 
   const auth = () => ({ cookie });
 
-  /** 旧数据：加密改造前写入的 URL 直接落在 config 里，只能绕过 schema 直接落库。 */
   async function seedLegacy(
     kind: 'http' | 'generated',
     config: Record<string, unknown>,
@@ -124,7 +123,6 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
     const raw = [...entries.values()].join('\n');
     expect(raw).not.toContain(RAW_USER);
     expect(raw).not.toContain(RAW_PASS);
-    // 导出直接去掉内嵌凭据：带 •••• 的 URL 不是合法地址，导入不回来。
     const entry = sidecarOf(entries).servers[0];
     expect(entry?.kind === 'http' ? entry.url : undefined).toBe('https://legacy.example.com/mcp');
     expect(JSON.parse(entries.get('.mcp.json') ?? '{}').mcpServers).toBeDefined();
@@ -210,7 +208,6 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
     agentSlugs.push(slug);
     serverNames.push(serverName);
 
-    // 侧车 schema 直接拒绝带账号密码的 URL：包无法构造出合法形状。
     const files = packageFiles({ agent: { slug, name: `Imported ${slug}` } });
     const sidecar = sidecarOf(new Map(Object.entries(files)));
     const zip = zipSyncForTest({
@@ -237,7 +234,6 @@ describe.skipIf(!ready)('URL embedded credentials', () => {
   });
 });
 
-/** 侧车校验失败发生在打包前，这里绕开包构造器直接生成原始 ZIP。 */
 function zipSyncForTest(files: Record<string, string>): Buffer {
   const entries: Record<string, Uint8Array> = {};
   for (const [name, content] of Object.entries(files)) {

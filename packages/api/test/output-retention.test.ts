@@ -24,7 +24,6 @@ import {
 } from './helpers.js';
 import { FakeSessionCloser, startSessionCleanupResponder } from './session-cleanup-responder.js';
 
-// 维护会删除全库旧记录，必须与其它 API 套件分库。
 const isolated = (await infraReady)
   ? await createIsolatedDatabase('output_retention', process.env.DATABASE_URL)
   : null;
@@ -172,7 +171,6 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
         ).sort(),
       ).toEqual([source.userMessageId, source.afterMessageId].sort());
       const summary = await runMaintenance(app.db, app.log, { ...days, agentVersions: 1 }, root);
-      // 用真实 HTTP fork，不能用手造 messageIds 掩盖数据库锚点消失。
       const attachment = await app.client.unsafe('select run_id from messages where id = $1', [
         source.attachmentId,
       ]);
@@ -183,7 +181,6 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       );
       expect(anchors).toHaveLength(2);
       expect(anchors.every((row) => row.run_id === null)).toBe(true);
-      // 消息 run_id 被清空后，成果列表仍用 manifest 锚点指回这两条边界消息。
       const sourceList = await request(app, {
         method: 'GET',
         url: `/api/conversations/${source.conversationId}/outputs`,
@@ -275,7 +272,6 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
       (await app.client.unsafe('select id from agent_runs where id = $1', [source.runId])).count,
     ).toBe(0);
 
-    // 分享锚定已发布快照而不是 run 行：run 被清掉后公开下载仍返回原始字节。
     const download = await request(app, {
       method: 'GET',
       url: `/api/public/output-shares/${share.id}/download`,
@@ -284,7 +280,6 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
     expect(download.statusCode, download.body).toBe(200);
     expect(download.rawPayload).toEqual(source.bytes);
 
-    // 成果锚点消息在清理后仍能分支，分支侧也能按同一 runId/path 读到成果。
     const fork = await request(app, {
       method: 'POST',
       url: `/api/conversations/${source.conversationId}/branch`,

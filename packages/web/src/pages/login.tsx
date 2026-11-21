@@ -20,23 +20,18 @@ const loginSchema = z.object({
 export function LoginPage() {
   const navigate = useNavigate();
   const { returnTo, reason } = useSearch({ from: '/login' });
-  // 只接受站内路径；外部地址与登录页自身都回到首页。
   const target = resolveReturnTo(returnTo);
-  // 非阻塞复用 /me 缓存：表单立即可用，只有这次挂载后的检查确认已登录才回跳。
   const me = useQuery({ ...meQuery, staleTime: 0 });
   const checkedSession = useRef(false);
   const authenticated = me.isSuccess && me.data.authenticated;
   useEffect(() => {
     if (checkedSession.current || !me.isFetchedAfterMount) return;
     checkedSession.current = true;
-    // 旧缓存里的 authenticated 不算数；检查失败就留在表单，避免登录页与目标页来回弹。
     if (authenticated) void navigate({ href: target, replace: true });
   }, [authenticated, me.isFetchedAfterMount, navigate, target]);
-  // 过期原因只在 401 跳转时出现；冻结成一次提示，随后的地址清理不再重复显示。
   const [expired] = useState(reason === 'expired');
   useEffect(() => {
     if (reason !== 'expired') return;
-    // 清掉 reason，刷新或再次打开登录页时不再重复提示，同时保留 returnTo。
     void navigate({ to: '/login', search: { returnTo }, replace: true });
   }, [reason, returnTo, navigate]);
   useEffect(() => {
@@ -58,7 +53,6 @@ export function LoginPage() {
     mutationFn: ({ username, password }: z.infer<typeof loginSchema>) =>
       api.login(username, password),
     onSuccess: async () => {
-      // 换账户后不能复用前一个人的列表与正文；先清空再取当前身份。
       clearSessionQueries();
       // refetchQueries 只刷新缓存里已有的查询，清空后不会发请求；必须显式 fetch 并等它完成，
       // 否则会带着空的 /me 缓存导航，AppShell 再把新会话弹回登录页。
@@ -66,7 +60,6 @@ export function LoginPage() {
       try {
         identity = await queryClient.fetchQuery({ ...meQuery, staleTime: 0 });
       } catch (cause) {
-        // 登录已成功但身份没取到：留在表单让用户重试，不带着空缓存导航。
         setError(errorMessage(cause));
         return;
       }

@@ -13,10 +13,6 @@ import {
   OptionCardsRenderer,
 } from '../src/openui/components/forms.js';
 
-/**
- * 只注册本组用例用得上的组件，schema 用真 Zod，
- * 这样不依赖正在别处变更的完整库契约。
- */
 const rules = z
   .object({
     required: z.boolean().optional(),
@@ -165,7 +161,6 @@ async function render(
 }
 
 function buttonByText(text: string): HTMLButtonElement {
-  // OptionCards 的按钮文本会拼上副标题，这里用包含匹配。
   const found = [...host.querySelectorAll('button')].find((element) =>
     element.textContent?.includes(text),
   );
@@ -199,7 +194,6 @@ describe('Chips / OptionCards single selection', () => {
       'c2 = ChipItem("camp", "露营")',
     ]);
 
-    // 默认值仍然生效。
     expect(buttonByText('酒店').getAttribute('aria-pressed')).toBe('true');
     expect(buttonByText('露营').getAttribute('aria-pressed')).toBe('false');
 
@@ -210,7 +204,6 @@ describe('Chips / OptionCards single selection', () => {
     expect(buttonByText('露营').getAttribute('aria-pressed')).toBe('true');
     expect(buttonByText('酒店').getAttribute('aria-pressed')).toBe('false');
 
-    // 再次取消，不能被默认值重新选上。
     await click('露营');
     expect(buttonByText('露营').getAttribute('aria-pressed')).toBe('false');
   });
@@ -247,7 +240,6 @@ describe('Chips / OptionCards defaults and required', () => {
     expect(buttonByText('酒店').getAttribute('aria-pressed')).toBe('true');
     expect(buttonByText('露营').getAttribute('aria-pressed')).toBe('false');
 
-    // 默认值满足 required，提交直接通过。
     await click('保存');
     expect(host.querySelector('[role="alert"]')).toBeNull();
 

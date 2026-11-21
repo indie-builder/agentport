@@ -5,11 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HealthMetrics } from '../src/lib/api.js';
 import { StatusPage } from '../src/pages/status.js';
 
-/**
- * 全程走真实 api 适配器：fetch 受控，但 healthMetrics 的 null 语义与
- * probeHealth 的 catch 都真实执行，避免 mock 返回值掩盖「失败被当成成功 null」。
- */
-
 const metrics: HealthMetrics = {
   process: { uptimeSeconds: 120, memoryRssBytes: 1024, bunVersion: '1.4.3' },
   queue: { waiting: 3, active: 1, completed: 0, failed: 0, delayed: 0 },
@@ -115,7 +110,6 @@ describe('status metrics failure feedback', () => {
     const unknowns = [...container.querySelectorAll('[data-slot="badge"], span')].filter(
       (element) => element.textContent === '未知',
     );
-    // 四个指标区块各自有一个「未知」状态徽章 + 一块未知说明。
     expect(unknowns.length).toBeGreaterThanOrEqual(4);
     expect(container.textContent).not.toContain('等待 0');
     expect(container.textContent).not.toContain('总数 0');
@@ -130,13 +124,11 @@ describe('status metrics failure feedback', () => {
     metricsFetches = [async () => json(metrics)];
     await mount();
     await waitFor(() => expect(container.textContent).toContain('1.4.3'));
-    // 同一页面重复刷新即可验证三种事实，无需重挂载。
     for (const [queue, message] of cases) {
       metricsFetches = [async () => json({ ...metrics, queue: { ...queueCounts, ...queue } })];
       await click('刷新');
       await waitFor(() => expect(container.textContent).toContain(message));
       expect(container.textContent).toContain('注意');
-      // 历史失败与等待都只是 warn，不应使用失败色的原因块。
       const reason = [...container.querySelectorAll('div.border-t')].find((element) =>
         element.textContent?.startsWith(message),
       );
@@ -203,7 +195,6 @@ describe('status metrics failure feedback', () => {
     expect(button('重试').disabled).toBe(false);
 
     await click('重试');
-    // 重试在途：旧读数与失败提示都保留，按钮禁用防重复提交。
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });

@@ -23,7 +23,6 @@ interface ChannelRunStream {
   agentId: string;
   initiatedBy: string | null;
   status: 'running' | 'done';
-  /** 本 run 的流式块；落库回复到达后整条流被移除。 */
   items: ChatItem[];
 }
 
@@ -39,10 +38,6 @@ function runErrorMessage(event: Extract<ChatEvent, { type: 'run_finished' }>): s
   return OUTCOME_TEXT[event.status];
 }
 
-/**
- * 频道工作区的事件层：频道级 SSE 只补消息与生命周期，单条 run 的 SSE 负责流式 token。
- * 消息写进 Query 缓存；流式块留在本地状态，落库回复到达后丢弃，避免两套正文并存。
- */
 export function useChannelStream(channelId: string) {
   const client = useQueryClient();
   const messages = useChannelMessages(channelId);
@@ -51,7 +46,6 @@ export function useChannelStream(channelId: string) {
   const cursorRef = useRef<{ channelId: string; after: number }>({ channelId: '', after: -1 });
   const runSources = useRef(new Map<string, EventSource>());
 
-  // 切频道立即丢掉上一条频道的流与游标，别让晚到事件写进新频道。
   // biome-ignore lint/correctness/useExhaustiveDependencies: channelId 只作为重置触发器。
   useEffect(() => {
     setStreams({});
@@ -69,7 +63,6 @@ export function useChannelStream(channelId: string) {
     });
   };
 
-  // 频道流：先等首屏消息落地，再从已加载尾部订阅。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在首屏成功后开流；后续消息由 SSE 自己写入缓存，重跑会反复重连。
   useEffect(() => {
     if (!messages.isSuccess) return;
@@ -95,7 +88,6 @@ export function useChannelStream(channelId: string) {
         client.setQueryData<ChannelMessage[]>(channelMessagesKey(channelId), (previous) =>
           mergeChannelMessages(previous ?? [], [event.message]),
         );
-        // 落库消息到达：本地流锚点让位给持久消息。
         if (event.message.runId) {
           dropStream(event.message.runId);
         }
@@ -119,14 +111,12 @@ export function useChannelStream(channelId: string) {
         return;
       }
       if (event.type === 'error' && event.code === 'FORBIDDEN') {
-        // 撤权后重连只会不断 404；停止重试，页面继续显示已加载的消息。
         source.close();
       }
     };
     return () => source.close();
   }, [channelId, client, messages.isSuccess]);
 
-  // 单 run 流：活动 run 出现即订阅；服务端会从 Redis 回放本 run 已发生的事件。
   useEffect(() => {
     const active = runs.data ?? [];
     const live = new Set(active.map((run) => run.runId));

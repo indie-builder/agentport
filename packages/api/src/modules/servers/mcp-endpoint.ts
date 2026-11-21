@@ -92,8 +92,6 @@ function handlerFor(
           : {
               refreshApprovals: () => repo.runs.getApprovedToolNames(app.db, runId, serverId),
               refreshDenied: () => repo.runs.getDeniedToolNames(app.db, runId, serverId),
-              // run 结束后挂起的调用要立刻停下，不能等批准或把请求发到上游。
-              // running 的取消只发 Redis 信号，终态由 worker 收尾；等待方据此提前停止。
               isRunActive: async () =>
                 (await repo.runs.isRunActive(app.db, runId)) &&
                 !(await isRunCancelRequested(runId)),

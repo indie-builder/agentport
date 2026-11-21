@@ -12,7 +12,6 @@ const ready = await client.unsafe('select 1').then(
   () => false,
 );
 const observer = createDb(process.env.DATABASE_URL ?? '');
-// 同轮其它 db 套件也使用生产绑定键；本文件用独立键验证 helper 本身的语义。
 const testKey = `runtimeB-locks-${randomUUID()}`;
 
 afterAll(async () => {
@@ -49,10 +48,6 @@ interface BlockingProxy {
   close(): Promise<void>;
 }
 
-/**
- * 真实 TCP 代理：匹配到指定 SQL 后，要么丢掉服务端响应（query 已执行），
- * 要么丢掉请求本身（服务端未执行），用来验证客户端截止而不是依赖服务端 timeout。
- */
 async function startBlockingProxy(
   connectionString: string,
   marker: string,
@@ -91,7 +86,6 @@ async function startBlockingProxy(
       upstream.write(chunk);
     });
     upstream.on('data', (chunk: Buffer) => {
-      // 触发后不再把服务端响应交给客户端；连接保持打开，模拟网络黑洞。
       if (!triggered) downstream.write(chunk);
     });
   });
@@ -133,7 +127,6 @@ interface Fault {
   result?: unknown;
 }
 
-/** 真实 PG 上只替换一条语句的结果，用来触发难自然出现的 unlock/reset/acquire 分支。 */
 function faultyClient(
   real: DatabaseClient,
   fault: (text: string, values: unknown[] | undefined) => Fault | undefined,
@@ -365,7 +358,6 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       expect(elapsed).toBeLessThan(8_000);
       expect(releases).toEqual([true]);
       expect(ran).toBe(false);
-      // 服务端已执行取锁；销毁 TCP 连接必须让后端退出并释放 session lock。
       expect(await lockReleased(key)).toBe(true);
     } finally {
       await real.close();
@@ -426,7 +418,6 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       expect(elapsed).toBeLessThan(8_000);
       expect(releases).toEqual([true]);
       expect(ran).toBe(true);
-      // 服务端没收到 unlock，仍持有 session lock；销毁连接后必须可再次取得。
       expect(await lockReleased(key)).toBe(true);
     } finally {
       await real.close();

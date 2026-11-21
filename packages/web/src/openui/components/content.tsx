@@ -6,7 +6,6 @@ import { Skeleton } from '../../components/ui/skeleton.js';
 import { cn } from '../../lib/cn.js';
 import { type RenderProps, ValueText } from './shared.js';
 
-/** TextContent 的字号与行高：small 13/20、default 14/22、large 16/24。 */
 const CONTENT_SIZES = {
   small: 'text-sm text-muted-foreground',
   default: 'text-base text-fg',
@@ -20,7 +19,6 @@ export function TextContentRenderer({ props }: RenderProps<{ text: string; size?
   const size = (props.size ?? 'default') as keyof typeof CONTENT_SIZES;
   return (
     <div className={cn('min-w-0', CONTENT_SIZES[size] ?? CONTENT_SIZES.default)}>
-      {/* 字号与颜色由上面的容器决定，Markdown 不再覆盖成正文档。 */}
       <Markdown text={String(props.text ?? '')} streaming={streaming} presentation="inherit" />
     </div>
   );
@@ -119,7 +117,6 @@ export function CodeBlock({ props }: RenderProps<{ language: string; codeString:
   const streaming = useIsStreaming();
   const code = String(props.codeString ?? '');
   const fence = fenceFor(code);
-  // 交给消息同一套 Streamdown，沿用灰度 Shiki 主题、复制按钮与代码块圆角；
   // 语言名只保留字母数字，避免注入额外围栏元数据。
   const language = String(props.language ?? '').replace(/[^\w+#.-]/g, '');
   return <Markdown text={`${fence}${language}\n${code}\n${fence}`} streaming={streaming} />;
@@ -131,7 +128,6 @@ export function CodeBlock({ props }: RenderProps<{ language: string; codeString:
  * 用 contain 完整容纳原图，不为了填满 3:2 裁掉主体。
  */
 function ReservedImage({ src, alt }: { src: string; alt: string }) {
-  // src 在流式生成中会变化；key 让加载/失败状态随地址重置，A→B→A 时重新请求而不是复用旧的失败结果。
   return <ReservedImageState key={src} src={src} alt={alt} />;
 }
 
@@ -160,7 +156,6 @@ function ReservedImageState({ src, alt }: { src: string; alt: string }) {
   );
 }
 
-/** 没有真实 URL 的图片不渲染：占位块只会让人以为图挂了。 */
 export function ImageRenderer({ props }: RenderProps<{ alt: string; src?: string }>) {
   if (!props.src) return null;
   return <ReservedImage src={props.src} alt={props.alt ?? ''} />;
@@ -172,7 +167,6 @@ export function ImageRenderer({ props }: RenderProps<{ alt: string; src?: string
  */
 export function ImageBlock({ props }: RenderProps<{ src: string; alt?: string }>) {
   if (!props.src) return null;
-  // 同上：按 src 重置状态，换地址（含切回旧地址）都会重新加载。
   return <ImageBlockImage key={props.src} src={props.src} alt={props.alt ?? ''} />;
 }
 
@@ -245,7 +239,6 @@ export function ImageText({
 }>) {
   if (!props.src) return null;
   const vertical = props.layout === 'vertical';
-  // 项目小缩略图默认 40px，竖排仍按缩略图呈现；显式 imageSize 优先。
   const size = props.imageSize ?? 40;
   return (
     <div className={cn('flex min-w-0 gap-3', vertical ? 'flex-col items-start' : 'items-center')}>

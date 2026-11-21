@@ -22,7 +22,6 @@ interface ConfirmDialogProps {
   finalFocus?: ComponentProps<typeof DialogShell>['finalFocus'];
 }
 
-/** 破坏性操作的统一二次确认；确认按钮在请求完成前保持 pending。 */
 export function ConfirmDialog({
   open,
   onClose,

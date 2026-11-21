@@ -46,7 +46,6 @@ export function CompareDialog({
     options.some((option) => option.value === selectedId)
       ? options
       : [{ value: selectedId, label: `${shortId(selectedId)} · 不在当前列表` }, ...options];
-  // 两侧都排除对方已选中的运行，从源头上避免自己和自己比较。
   const baseOptions = withSelected(
     runs.filter((run) => run.id !== headId).map((run) => ({ value: run.id, label: runLabel(run) })),
     baseId,

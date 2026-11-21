@@ -82,7 +82,6 @@ function buildChannelContext(rows: ChannelContextMessage[], truncated: boolean):
   return `${CHANNEL_CONTEXT_HEADER}${CHANNEL_CONTEXT_OMITTED}${included.reverse().join('')}${CHANNEL_CONTEXT_CURRENT}`;
 }
 
-/** 先锁会话再检查活动运行，让后续入场看到前一个事务的提交。 */
 export async function admitChatRun(
   db: Database,
   input: {
@@ -117,7 +116,6 @@ export async function admitChatRun(
   run: AgentRun;
   conversationId: string;
   inherited: string[];
-  /** 本轮用户消息的 SDK uuid；runner 用它发送首条用户消息。 */
   userMessageUuid: string;
   regenerate?: { replacesRunId: string; forkFromMessageUuid?: string; prompt: string };
   replayed?: true;
@@ -146,15 +144,12 @@ export async function admitChatRun(
       }
     }
 
-    // 与记忆写入共用「发起专家 + 子智能体」的记忆锁：集合在运行期间固定，
-    // 入队前先锁住整个集合，新 run 不会在写入中途落地。
     const definition =
       input.definitionSnapshot ??
       (input.agentVersion === undefined
         ? null
         : ((await getAgentVersion(tx, input.agentId, input.agentVersion))?.definition ?? null));
     await lockRunResources(tx, input.agentId, definition?.agent.subAgentIds);
-    // 锁序：先 agents 再 conversations；反向会和 agent_runs 的外键检查形成删除死锁。
     const [owner] = await tx
       .select({
         id: agents.id,
@@ -171,7 +166,6 @@ export async function admitChatRun(
     if (owner.archivedAt !== null || owner.deletedAt !== null) {
       fail('AGENT_DISABLED', '该智能体已归档或删除，无法发起新对话');
     }
-    // 入口的 enabled 预检在锁外；停用若在等锁期间提交，只有锁内重读才能拦住这次入队。
     if (!owner.enabled && input.allowDisabled !== true) {
       fail('AGENT_DISABLED', '该智能体已停用，无法发起新对话；请到智能体页面启用后再试');
     }
@@ -194,7 +188,6 @@ export async function admitChatRun(
       if (input.subject.kind !== 'user') {
         fail('INVALID_INPUT', '频道触发必须由自然人发起');
       }
-      // 频道行锁把同一频道的准入与发消息串行化，lane 的取建不靠裸查再插。
       const channel = await lockChannelRow(tx, channelId);
       if (!channel) fail('NOT_FOUND', '频道不存在，可能已被删除');
       if (channel.archivedAt !== null) fail('CONFLICT', '频道已归档，无法触发智能体');
@@ -235,7 +228,6 @@ export async function admitChatRun(
       if (binding.status !== 'active') {
         fail('CONFLICT', '该智能体在频道内已断开，无法触发');
       }
-      // 只补注入上次游标之后、触发消息之前的新消息；limit+1 用来判断是否还有更早的。
       const contextRows = await tx
         .select({
           kind: channelMessages.kind,
@@ -264,7 +256,6 @@ export async function admitChatRun(
         contextRows.length > CHANNEL_CONTEXT_MESSAGE_LIMIT,
       );
       if (binding.conversationId === null) {
-        // 解绑再加回时旧 lane 仍在；频道行锁内先复用，避免撞 partial unique。
         const [existing] = await tx
           .select({ id: conversations.id })
           .from(conversations)
@@ -454,7 +445,6 @@ export async function admitChatRun(
     if (input.policyEventId !== undefined) {
       await linkPolicyEventToRun(tx, input.policyEventId, run.id);
     }
-    // 频道 lane 由多位成员共享，单次运行批准不能跨触发者继承。
     const inherited =
       input.channel === undefined
         ? await inheritApprovals(tx, { conversationId, runId: run.id })
@@ -463,7 +453,6 @@ export async function admitChatRun(
     if (regenerated !== undefined) {
       userMessageUuid = regeneratedUserMessageUuid;
     } else {
-      // 页面消息的 SDK 身份由平台生成：runner 用它发首条用户消息，后续按点 fork 依赖它。
       userMessageUuid = randomUUID();
       await appendMessage(tx, {
         id: newId('message'),

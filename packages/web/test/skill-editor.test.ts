@@ -71,9 +71,7 @@ async function waitFor<T>(probe: () => T, tries = 60): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 懒加载的编辑器还没挂上，继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();
@@ -177,7 +175,6 @@ describe('skill body editor', () => {
     expect(document.getElementById('skill-body')?.getAttribute('aria-label')).toBe('步骤');
     expect(document.body.textContent).toContain('支持 Markdown。');
 
-    // 未编辑时关闭不需要放弃确认。
     await click(button('取消'));
     expect(onClose).toHaveBeenCalledOnce();
     expect(document.body.textContent).not.toContain('放弃未保存的更改？');
@@ -252,7 +249,6 @@ describe('skill support file editor', () => {
       'scripts/draft.sh',
     );
 
-    // 版本基线已更新，第二次保存不会带旧版本号触发冲突。
     await click(button('保存'));
     expect(state.update).toHaveBeenCalledTimes(2);
     expect(state.update.mock.calls[1]?.[0].expectedUpdatedAt).toBe('v2');
@@ -352,7 +348,6 @@ describe('skill support file editor', () => {
 
     await click(button('保存文件'));
     await waitFor(() => api.writeSkillFile.mock.calls.length > 0);
-    // 写入已完成，但列表刷新还没回来：仍锁住编辑，避免重选到旧内容。
     expect((document.getElementById('skill-file-path') as HTMLInputElement).disabled).toBe(true);
     expect(button('处理中…').disabled).toBe(true);
     expect(vi.mocked(toastSuccess)).not.toHaveBeenCalled();
@@ -378,7 +373,6 @@ describe('skill support file editor', () => {
     expect(vi.mocked(toastSuccess)).not.toHaveBeenCalled();
     expect((document.getElementById('skill-file-path') as HTMLInputElement).disabled).toBe(false);
     expect(editorView('skill-file-content').state.doc.toString()).toBe('new body');
-    // 刷新失败时缓存仍是旧内容，重选会载入旧稿覆盖刚写入的版本。
     expect(byLabel('编辑支持文件 scripts/run.sh').disabled).toBe(true);
 
     vi.mocked(api.skillFiles).mockResolvedValueOnce([supportFile('scripts/run.sh', 'new body')]);

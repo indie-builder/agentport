@@ -9,7 +9,6 @@ import { RedisClient } from 'bun';
 let queue: Queue<ScheduleTriggerJob> | undefined;
 let connection: ReturnType<typeof createBunRedisClient> | undefined;
 
-/** API 侧共享一条 scheduler 队列连接：CRUD 提交后同步，读取时展示真实的 next。 */
 export function getScheduleQueue(redisUrl: string): Queue<ScheduleTriggerJob> {
   if (!queue) {
     connection = createBunRedisClient(new RedisClient(redisUrl));
@@ -39,7 +38,6 @@ export async function removeScheduler(
   await queueLike.removeJobScheduler(scheduleId);
 }
 
-/** 展示用：nextDueAt 只读 BullMQ scheduler，不再在库里自算。 */
 export async function schedulerNextRun(
   queueLike: Pick<Queue<ScheduleTriggerJob>, 'getJobScheduler'>,
   scheduleId: string,

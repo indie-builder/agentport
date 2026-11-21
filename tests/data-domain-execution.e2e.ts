@@ -13,13 +13,6 @@ import {
   requireExecutionStack,
 } from './support/execution-stack.js';
 
-/**
- * M4 真实执行栈验收：同一专家、同一数据域、同一条 SQL，两个真实登录用户的 run
- * 在 Docker 沙盒里真实调用 data_domain 的 run_sql；API 从 run 发起人身份注入
- * session properties，真实 WrenEngine 的 RLAC/CLAC 让两人得到不同行与列。
- *
- * 入口：E2E_WREN_RUNTIME_PYTHON=<venv python> bun run e2e:channel:execution
- */
 const contract = await requireExecutionStack();
 const appReady = contract.wrenRuntimeUrl !== undefined && contract.duckdbDir !== undefined;
 const SHOT_DIR = '/tmp/agentport-e2e-data-domain-charts';
@@ -281,7 +274,6 @@ async function runOnce(
   message: string,
   conversationId?: string,
 ): Promise<{ runId: string; conversationId: string; events: RunEvent[]; detail: RunDetail }> {
-  // 202 的 HTTP 响应体就是 oRPC detailed 输出里的 body。
   const started = await api<{ runId: string; conversationId: string }>(
     cookie,
     'POST',
@@ -293,7 +285,6 @@ async function runOnce(
     },
   );
   const runId = started.runId;
-  // 立刻订阅实时事件，避免跑完后只剩终态回放。
   const events = collectRunEvents(cookie, runId);
   const detail = await waitFor('run 到达终态', 240_000, async () => {
     const current = await api<RunDetail>(cookie, 'GET', `/api/runs/${runId}`);
@@ -987,7 +978,6 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
     );
   }
 
-  // 历史重载直接读取真实 run 的持久化工具结果，用 M2c 表格/图表呈现。
   await app.open(`/chat?conversation=${outcomeA.conversationId}`);
   await expect(screen.getByText('执行过程').first()).toBeVisible({ timeout: 60_000 });
   await screen.getByText('执行过程').first().tap();
@@ -1028,7 +1018,6 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
       })()`,
     )) as { caption: string; rows: Array<{ label: string; value: string }> } | null;
 
-  // 默认建议：文本维度 department 不是有序时间序列，建议柱状。
   await chooseOption(dimensionSelect, 'department');
   await expect(typeSelect).toHaveText('柱状图', { timeout: 30_000 });
   await browser.locator('.recharts-bar-rectangle path').first().waitFor();
@@ -1037,7 +1026,6 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
     throw new Error(`不聚合时应为每行一个柱（${expectedA.length} 个），实际 ${rawBars} 个`);
   }
 
-  // 聚合可访问性：sr-only 表格精确表示当前绘制数据，HR 组为 Alice+Bob 的 salary 之和。
   await chooseOption(aggregationSelect, '求和');
   await expect(screen.getByText('按 department 求和。')).toBeVisible({ timeout: 30_000 });
   const aggregatedBars = await countOf('.recharts-bar-rectangle path');
@@ -1054,7 +1042,6 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
     throw new Error(`HR 组求和应为 170000，实际：${JSON.stringify(sumTable.rows)}`);
   }
 
-  // 两个不同的数值列建议散点；聚合在此模式下不可用。
   await chooseOption(dimensionSelect, 'bonus');
   await expect(typeSelect).toHaveText('散点图', { timeout: 30_000 });
   await expect(screen.getByText('X：bonus，Y：salary。')).toBeVisible();
@@ -1086,13 +1073,11 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
     throw new Error(`散点 X/Y 数据不符：${JSON.stringify(scatterTable.rows)}`);
   }
 
-  // 切回文本维度，建议恢复柱状；不聚合时每行一个点，折线才有两点可连。
   await chooseOption(dimensionSelect, 'department');
   await expect(typeSelect).toHaveText('柱状图', { timeout: 30_000 });
   await chooseOption(aggregationSelect, '不聚合');
   await expect(screen.getByText('不聚合：每行一个数据点。')).toBeVisible({ timeout: 30_000 });
 
-  // 键盘链：从聚合控件 Tab 到图表类型，方向键切换、Enter 确认、Escape 关闭。
   await aggregationSelect.focus();
   await browser.keyboard.press('Tab');
   if ((await focusedLabel()) !== '图表类型') {
@@ -1140,7 +1125,6 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
   const wideShot = await fullPageShot(1280, 'data-domain-chart-full-1280');
   const narrowShot = await fullPageShot(1024, 'data-domain-chart-full-1024');
 
-  // 聚合 Select 也走一次键盘选择：不聚合 → 求和 → 平均。
   await aggregationSelect.focus();
   await browser.keyboard.press('ArrowDown');
   await expect(aggregationSelect).toHaveAttribute('aria-expanded', 'true');

@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
-// 真实 CLI 的启动开销小，15s 足以覆盖冷启动。
 const TIMEOUT = 15_000;
 
 const require = createRequire(import.meta.url);
@@ -38,10 +37,6 @@ const RUNTIME_NAME = 'probe-plugin';
 const SKILL_DIR = 'probe-skill';
 const SKILL_NAME = 'probe-skill-name';
 
-/**
- * 只做初始化，不产生模型请求：prompt 永不 yield，initializationResult() 走 CLI 的
- * control initialize，读到的是真实加载结果。
- */
 async function load(withPlugin = true): Promise<{
   version: string | undefined;
   commands: { name: string; aliases?: string[] }[];
@@ -152,7 +147,6 @@ describe('real CLI plugin loading', () => {
 
       expect(version).toMatch(/^\d+\.\d+\.\d+/);
       expect(skill?.name).toBe(`${RUNTIME_NAME}:${SKILL_NAME}`);
-      // 目录名以 `<plugin>:<dir>` 形式保留为别名，也是 `skills` 过滤按后缀匹配的名字。
       expect(skill?.aliases).toContain(`${RUNTIME_NAME}:${SKILL_DIR}`);
       expect(agents).toContain(`${RUNTIME_NAME}:helper`);
       expect(pluginsApplied).toBe(true);

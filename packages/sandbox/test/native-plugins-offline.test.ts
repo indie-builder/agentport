@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { listNativePlugins, readPlugin, resolveNativeCli } from '../src/native-plugins.js';
 
-// 真实 CLI 的启动开销小，30s 足够覆盖冷启动。
 const TIMEOUT = 30_000;
 
 /**
@@ -63,7 +62,6 @@ describe.skipIf(!canDenyNetwork)('offline reads', () => {
           env,
           encoding: 'utf8',
         });
-        // 市场来源已删除，任何联网刷新都不可能成功；能 list/read 就证明走的是缓存。
         await rm(market, { recursive: true, force: true });
 
         const offlineCli = join(root, 'offline-cli.sh');

@@ -7,10 +7,6 @@ import { conversationAccessWhere } from './shared.js';
 
 const SEARCH_EXCERPT_CHARS = 240;
 
-/**
- * 搜索只看真正的正文：对象 `{ type:'text', text }` 或数组中的 text 块。
- * tool 角色、附件元数据与 openui_action 的 params/context/formState 因此天然被排除。
- */
 function messageTextSql(): SQL<string | null> {
   return sql<string | null>`case
     when jsonb_typeof(${messages.content}) = 'object'
@@ -25,12 +21,10 @@ function messageTextSql(): SQL<string | null> {
   end`;
 }
 
-/** 搜索统一规则：NBSP 视作普通空格，连续空白压成一个空格；比较时再 lower。 */
 function normalizeWhitespaceSql(value: SQLWrapper): SQL<string> {
   return sql<string>`regexp_replace(replace(${value}, chr(160), ' '), '\\s+', ' ', 'g')`;
 }
 
-/** 搜索与摘录共用同一份规范化文本，命中位置和截取坐标才对得上。 */
 function normalizedMessageTextSql(): SQL<string | null> {
   return normalizeWhitespaceSql(messageTextSql());
 }
@@ -67,7 +61,6 @@ export interface ConversationSearchOptions {
   q: string;
   agentId?: string | undefined;
   limit: number;
-  /** 上一页最后一项的不透明游标（活动时间 + 会话 id）。 */
   before?: string | undefined;
   access: AccessFilter;
 }
@@ -92,9 +85,7 @@ interface SearchRow {
   agentName: string;
   title: string;
   updatedAt: Date;
-  /** last_message_at 的数据库原串，供游标保留微秒精度。 */
   cursorAt: string;
-  /** 由 SQL 按与过滤相同的规则判定，避免 JS 与 PostgreSQL 的 lower 规则分叉。 */
   matchKind?: 'id' | 'title' | 'message';
   excerpt?: string | null;
 }
@@ -115,10 +106,8 @@ export async function searchConversations(
   const agentFilter =
     options.agentId === undefined ? undefined : eq(conversations.agentId, options.agentId);
   const accessFilter = conversationAccessWhere(options.access);
-  // 频道 lane 只从频道页访问，私有搜索不返回别人的 lane。
   const privateOnly = isNull(conversations.channelId);
   const take = options.limit + 1;
-  // 查询、正文、id 与 title 全部走同一份 SQL 规范化；JS 的 lower 与 PG 不一致，不参与比较。
   const needle =
     options.q === ''
       ? null
@@ -145,13 +134,11 @@ export async function searchConversations(
     const text = normalizedMessageTextSql();
     const idMatch = sql`strpos(lower(${normalizeWhitespaceSql(conversations.id)}), ${needle}) > 0`;
     const titleMatch = sql`strpos(lower(${normalizeWhitespaceSql(conversations.title)}), ${needle}) > 0`;
-    // match.kind 与过滤用同一批表达式算出来，结果不可能互相矛盾。
     const matchKind = sql<'id' | 'title' | 'message'>`case
       when ${idMatch} then 'id'
       when ${titleMatch} then 'title'
       else 'message'
     end`;
-    // 先在整库范围判断命中，再排序分页；摘录只为当前页的会话补取。
     rows = await db
       .select({
         id: conversations.id,
@@ -169,7 +156,6 @@ export async function searchConversations(
           agentFilter,
           accessFilter,
           privateOnly,
-          // 字面子串：strpos 不解释 % / _；lower 让匹配大小写不敏感。
           sql`(
             ${idMatch}
             or ${titleMatch}
@@ -193,8 +179,6 @@ export async function searchConversations(
   const excerptById = new Map<string, string | null>();
   if (needle !== null && page.length > 0) {
     const text = normalizedMessageTextSql();
-    // 以命中位置为中心取 240 字窗口：起点最多回退 (240 - needle 长度) 的一半，
-    // 且 needle 最长 200 字，命中词必然完整落在窗口内。
     const result = await db.execute<{ conversationId: string; excerpt: string | null }>(sql`
       select distinct on (${messages.conversationId})
         ${messages.conversationId} as "conversationId",

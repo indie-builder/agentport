@@ -32,7 +32,6 @@ import { useCreateKnowledgeManualDocument, useImportKnowledgeUrl } from '../../.
 import { toastError, toastSuccess } from '../../../lib/toast.js';
 import { useZodForm } from '../../../lib/use-zod-form.js';
 
-/** 手写正文 / 网址导入共用文件夹选择；默认落在当前浏览的文件夹。 */
 function ImportFolderField({
   id,
   value,
@@ -235,7 +234,6 @@ export function UrlImportDialog({
   });
   const { isDirty } = formState;
   const urlValue = watch('url');
-  // 后端 httpUrlSchema 只收 http(s)；这里只做按钮可用性判断，最终由入口校验。
   const validUrl = /^https?:\/\/\S+$/i.test(urlValue.trim());
   const invalidUrl = urlValue.trim() !== '' && !validUrl;
   const dirty = isDirty;

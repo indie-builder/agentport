@@ -11,7 +11,6 @@ export const SANDBOX_PROBE_CONNECT_TIMEOUT_MS = 5_000;
 export const SANDBOX_PROBE_STARTUP_TIMEOUT_MS = 10_000;
 /** API 等待整个试连的上限，必须大于启动余量 + 结果预算。 */
 export const SANDBOX_PROBE_WAIT_TIMEOUT_MS = 25_000;
-/** 容器 stderr 只留尾部：失败时这是「为什么起不来」的唯一证据。 */
 export const SANDBOX_PROBE_STDERR_MAX_BYTES = 8 * 1024;
 
 /** job 只带 serverId 与可选运行环境：配置与密钥由 worker 从库里读并解密，不经队列。 */

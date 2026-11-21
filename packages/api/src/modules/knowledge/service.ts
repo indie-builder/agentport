@@ -8,12 +8,10 @@ import { eq } from 'drizzle-orm';
 import { getKnowledgeQueue } from '../../queue/producer.js';
 
 type Db = Database;
-/** 任务行可以与业务写入同事务落库；仓储接口本身已接受事务连接。 */
 type JobDb = Parameters<typeof repo.knowledge.createJob>[0];
 
 export type KnowledgeDocumentRow = typeof schema.knowledgeDocuments.$inferSelect;
 
-/** 文档 wire 的唯一投影：管理列表、详情与发布响应共用，避免字段漂移。 */
 export function documentWire(row: KnowledgeDocumentRow, tags: string[]) {
   return {
     id: row.id,
@@ -70,11 +68,6 @@ export function createJob(
   });
 }
 
-/**
- * 内置 server（kind='knowledge'）没有长期 token，config 只由平台写 `{ knowledgeBaseId }`。
- * base.server_id 是非空外键，所以创建库必须分两步：先 ensureKnowledgeServer({ slug })
- * 拿到 serverId，建完 base 后再调一次把 knowledgeBaseId 写进 config。
- */
 export async function ensureKnowledgeServer(
   db: Db,
   base: { slug: string; id?: string; serverId?: string; ownerBusinessId?: string },

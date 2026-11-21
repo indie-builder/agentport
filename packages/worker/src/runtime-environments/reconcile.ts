@@ -11,9 +11,7 @@ import {
 } from './build.js';
 
 const RECONCILE_MS = 5 * 60_000;
-/** 刚认领的 building 行先放过一轮：探测与认领并发时状态仍有瞬时窗口。 */
 const BUILDING_GRACE_MS = 5 * 60_000;
-/** queued 行陈旧阈值：job 已入队却长期未被消费（队列卡住/worker 不消费）时判 failed，避免永久排队中。 */
 const QUEUED_STALE_MS = 2 * RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS;
 
 export const RUNTIME_ENVIRONMENT_BUILD_LOST_ERROR =
@@ -42,12 +40,6 @@ export interface RuntimeEnvironmentBuildQueueLike {
   ) => Promise<unknown>;
 }
 
-/**
- * 崩溃恢复：DB 的 queued/building 与 Redis 实际状态对账。
- * - building + active：保留（构建不能被误杀）。
- * - building + 消失/终态/等待重投/超过 2 倍超时：置 failed，不留下假 building。
- * - queued + 队列不存在：重新入队。
- */
 export async function reconcileRuntimeEnvironmentBuilds(
   store: RuntimeEnvironmentBuildReconcileStore,
   logger: Logger,
@@ -66,13 +58,12 @@ export async function reconcileRuntimeEnvironmentBuilds(
       continue;
     }
     const state = await queueState(queue, row.id).catch(() => undefined);
-    if (state === undefined) continue; // Redis 不可用：本轮不动任何行。
+    if (state === undefined) continue;
 
     if (row.status === 'building') {
       const timedOut =
         row.startedAt !== null &&
         now - row.startedAt.getTime() > 2 * RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS;
-      // 只有仍在执行的行可以保留；等待重投的 job 因 attempts=1 不会再认领 building 行。
       if (!timedOut && state === 'active') continue;
       const error = timedOut ? '构建超时' : RUNTIME_ENVIRONMENT_BUILD_LOST_ERROR;
       await store.failBuild(row.id, error);
@@ -81,7 +72,6 @@ export async function reconcileRuntimeEnvironmentBuilds(
       continue;
     }
 
-    // queued：正在被认领则放过；job 存在但长期未被消费则判陈旧失败；job 丢失/终态则重入队。
     if (state === 'active') continue;
     if (state !== null && ACTIVE_STATES.has(state)) {
       if (now - row.createdAt.getTime() > QUEUED_STALE_MS) {
@@ -111,9 +101,6 @@ export async function reconcileRuntimeEnvironmentBuilds(
   return { failed, requeued };
 }
 
-/**
- * 启动先跑一次，之后每 5 分钟一次；返回的 stop 等本轮结束再关队列。
- */
 export function startRuntimeEnvironmentBuildReconciler(input: {
   store: RuntimeEnvironmentBuildReconcileStore;
   logger: Logger;

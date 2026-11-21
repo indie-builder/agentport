@@ -37,10 +37,6 @@ const CONVERSATION_SOURCE_OPTIONS = [
   { value: 'scheduled', label: '定时任务' },
 ] as const;
 
-/**
- * 后端 ConversationSummary 暂未单独返回 source 字段；
- * 按定时任务建会话时的统一标题前缀「定时: 」（兼容全角冒号）区分手动对话与定时任务。
- */
 const SCHEDULED_TITLE_PREFIX = /^定时[:：]\s*/;
 
 function isScheduledConversation(conversation: ConversationSummary): boolean {

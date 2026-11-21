@@ -3,11 +3,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenUiBlock } from '../src/openui/renderer.js';
 
-/**
- * OpenUI 文本组件与消息共用同一棵 Streamdown：
- * 字号必须由外层 TextContent/Callout 决定，流式状态必须来自渲染器自己的 isStreaming。
- */
-
 let host: HTMLDivElement;
 let root: Root;
 

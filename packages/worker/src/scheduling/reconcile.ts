@@ -17,7 +17,6 @@ export const LOST_RUN_ERROR = 'worker lost track of this run';
 export const EVAL_LOST_ERROR = 'eval run lost';
 const EVAL_STALE_MS = 60 * 60 * 1000;
 
-/** 收敛是幂等的 UPDATE；瞬时数据库故障重试三次比等下一轮五分钟划算。 */
 const DB_RETRY = Schedule.min([Schedule.exponential('200 millis'), Schedule.recurs(3)]);
 
 function withDb<A>(run: () => Promise<A>): Effect.Effect<A, DbError> {
@@ -27,11 +26,6 @@ function withDb<A>(run: () => Promise<A>): Effect.Effect<A, DbError> {
   }).pipe(Effect.retry(DB_RETRY));
 }
 
-/**
- * 探测在 Redis 上可能很慢；抽出来才能让调用方以并发 4 逐个排队。
- * 返回 true 表示 job 已消失或已到终态，调用方再做条件更新。
- * Redis 报错里可能带连接串：只允许调用方记固定文案和 id，候选留给下一轮。
- */
 function probeJobGone(
   queue: Pick<Queue, 'getJob'>,
   id: string,
@@ -51,7 +45,6 @@ function probeJobGone(
       yield* onError;
       return false;
     }
-    // null 表示 job 已消失；其余状态交给 jobGone 判断。
     return probe.success === null || jobGone(probe.success);
   });
 }
@@ -59,7 +52,6 @@ function probeJobGone(
 type EvalRef = { id: string };
 const EVAL_REF = { id: schema.evalRuns.id };
 
-/** 评估候选：条件更新保证探测期间被取消或完成的跑批不被覆盖。 */
 function reconcileQueuedEval(
   db: Db,
   logger: Logger,
@@ -95,10 +87,6 @@ function reconcileQueuedEval(
   });
 }
 
-/**
- * 评估跑批的 job 也可能在 API/worker 重启后丢失：
- * 对停在 running 且超过 1 小时的跑批逐个问队列，job 消失或已到终态才收敛为 failed。
- */
 export async function reconcileOrphanedEvalRuns(
   db: Db,
   logger: Logger,
@@ -156,7 +144,6 @@ interface ReconcileCleanupInput {
   sandboxId: string;
 }
 
-/** 必传：有 sandboxId 时必须真正等到销毁结果，缺省不能被当成清理成功。 */
 type ReconcileCleanup = (input: ReconcileCleanupInput) => Promise<void>;
 
 type RunningCandidate = RunRef & {
@@ -172,10 +159,6 @@ const RUNNING_REF = {
   pendingFinish: schema.agentRuns.pendingFinish,
 };
 
-/**
- * running 候选有两类：已暂存终态（每轮都看，不等 timeout），
- * 或超过该 agent 自己 timeout + 宽限的普通运行。两者都还要过队列探测。
- */
 function runningCandidates(db: Db): Promise<RunningCandidate[]> {
   return db
     .select(RUNNING_REF)
@@ -195,12 +178,6 @@ function runningCandidates(db: Db): Promise<RunningCandidate[]> {
     );
 }
 
-/**
- * running 的终态只在自己确认 job 已结束、容器已销毁后写入：
- * - 有 pendingFinish：接管原事件，CAS 胜者发布并审计；
- * - 无 pendingFinish：真孤儿按 LOST_RUN_ERROR 收尾。
- * 清理失败或 job 仍在就保持 running，业务占用不释放。
- */
 function reconcileRunning(
   db: Db,
   logger: Logger,
@@ -218,8 +195,6 @@ function reconcileRunning(
     );
     if (!gone) return false;
 
-    // 探测期间候选可能已完成、被重试或换了容器：按主键重读当前行再决定。
-    // 旧快照直接清理会误杀已完成 run A 之后复用同一容器的 run B。
     const [current] = yield* withDb(() =>
       db
         .select(RUNNING_REF)
@@ -228,7 +203,6 @@ function reconcileRunning(
         .limit(1),
     );
     if (current === undefined || current.status !== 'running') return false;
-    // sandboxId 或 pendingFinish 的有无变了说明快照已过期，留到下一轮重新取快照。
     if (
       current.sandboxId !== candidate.sandboxId ||
       (current.pendingFinish === null) !== (candidate.pendingFinish === null)
@@ -274,7 +248,6 @@ function reconcileRunning(
   });
 }
 
-/** 排队孤儿：job 消失/终态才 failed；探测期间被认领的由条件更新保住。 */
 function reconcileQueued(
   db: Db,
   logger: Logger,
@@ -287,7 +260,6 @@ function reconcileQueued(
       queue,
       candidate.id,
       Effect.sync(() => {
-        // Redis 报错里可能带连接串；只记固定文案和 runId，候选留给下一轮。
         logger.warn({ runId: candidate.id }, 'run queue probe failed, keeping queued run');
       }),
     );
@@ -307,12 +279,6 @@ function reconcileQueued(
   });
 }
 
-/**
- * worker 崩溃/重启后，DB 里会残留 running 或 queued 的 run。
- * queued 超过全局上限后问队列；running 只在超过该 agent 自己的 timeout + 宽限、
- * 或已有 pendingFinish 时成为候选，并且必须先探测到 job 已结束才可能收敛。
- * 有 sandboxId 时必须等 cleanup 成功；失败或 job 未结束都保持 running，下一轮再试。
- */
 export async function reconcileOrphanedRuns(
   db: ReturnType<typeof createDb>['db'],
   logger: Logger,
@@ -361,10 +327,6 @@ export async function reconcileOrphanedRuns(
   return count;
 }
 
-/**
- * 启动时先跑一次，之后每 5 分钟一次；用 setInterval 而非 BullMQ，少一个队列和 worker。
- * 返回的 stop 会等在跑的 tick 结束再关队列：否则关闭进程时可能和正在写的事件撞车。
- */
 export function startReconciler(input: {
   db: ReturnType<typeof createDb>['db'];
   logger: Logger;

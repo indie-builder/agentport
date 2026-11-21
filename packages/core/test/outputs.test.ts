@@ -18,7 +18,6 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { AppError } from '../src/errors.js';
 
-/** 只在用例显式打开时注入一次 rename 失败；其余测试走真实实现。 */
 const actualRename = fsActual.rename;
 const renameFault = {
   match: null as null | ((from: string, to: string) => boolean),
@@ -82,7 +81,6 @@ async function writeFiles(dir: string, files: Record<string, string | Buffer>): 
   }
 }
 
-/** 复用容器时 /mnt/outputs 的稳定宿主目录；这里放在产出根内，与 worker 配置一致。 */
 function sessionOutputsDir(conversation = conversationId): string {
   return join(root, slug, 'session-outputs', conversation);
 }
@@ -246,7 +244,6 @@ describe('draft lineage', () => {
       afterMessageId: 'msg-a2',
     });
 
-    // 旧版不可写：草稿改动只进新版本。
     const old = await readOutputFile({
       root,
       slug,
@@ -295,7 +292,6 @@ describe('draft lineage', () => {
       sourceRunId: 'run_1',
       sourcePath: 'b.md',
     });
-    // 未选中的文件保持最新版，只有 b 回到所选版本。
     expect(await readFile(join(draft, 'a.md'), 'utf8')).toBe('a2');
     expect(await readFile(join(draft, 'b.md'), 'utf8')).toBe('b1');
     expect(await readFile(`${draft}.base`, 'utf8')).toBe('run_2');
@@ -314,7 +310,6 @@ describe('draft lineage', () => {
 
     const v3 = await readOutputFile({ root, slug, conversationId, runId: 'run_3', path: 'b.md' });
     expect(v3.data.toString()).toBe('b1');
-    // changed 相对最新基线（run_2），a 的编辑和 b 的旧版覆盖都是真实变化。
     const { items } = await listOutputFiles({ root, slug, conversationId, limit: 50 });
     expect(items.filter((item) => item.runId === 'run_3').map((item) => item.path)).toEqual([
       'a.md',
@@ -351,7 +346,6 @@ describe('capture settled outputs mount', () => {
     expect(await readFile(join(draft, 'nested/b.md'), 'utf8')).toBe('new');
     expect(await readFile(`${draft}.base`, 'utf8')).toBe('run_1');
     expect(await outputDraftBlockedReason(storage)).toBe('still settling');
-    // 稳定挂载目录本身仍在：捕获只复制，不搬走或删除源目录。
     expect(await readFile(join(source, 'nested/b.md'), 'utf8')).toBe('new');
   });
 
@@ -380,7 +374,6 @@ describe('capture settled outputs mount', () => {
     expect(items.find((item) => item.runId === 'run_2' && item.path === 'a.md')?.status).toBe(
       'cancelled',
     );
-    // 已发布旧快照与捕获到的内容各自独立。
     const old = await readOutputFile({ root, slug, conversationId, runId: 'run_1', path: 'a.md' });
     expect(old.data.toString()).toBe('first');
     const captured = await readOutputFile({
@@ -438,20 +431,17 @@ describe('capture settled outputs mount', () => {
     await setOutputDraftBlocked(storage, 'still settling');
     const draftsDir = join(root, slug, 'conversation-outputs', conversationId, 'drafts');
 
-    // 只让首次「staging → 草稿」改名失败；备份改名与随后的恢复改名都走真实实现。
     renameFault.match = (from, to) => to === draft && basename(from).startsWith('.tmp-run_2-');
     await expect(captureOutputDraft({ ...storage, sourceDir: source })).rejects.toThrow(
       'injected rename failure',
     );
     expect(renameFault.injected).toBe(1);
 
-    // 原草稿、基线标记、blocked 标记都还在，源挂载也没有被搬走。
     expect(await readFile(join(draft, 'a.md'), 'utf8')).toBe('baseline');
     expect(await readFile(`${draft}.base`, 'utf8')).toBe('run_1');
     expect(await outputDraftBlockedReason(storage)).toBe('still settling');
     expect(await readFile(join(source, 'a.md'), 'utf8')).toBe('from-mount');
     expect(await readFile(join(source, 'nested/b.md'), 'utf8')).toBe('new');
-    // 失败的 staging 与恢复后的备份目录都不残留。
     expect((await readdir(draftsDir)).sort()).toEqual(['run_2', 'run_2.base', 'run_2.blocked']);
   });
 });
@@ -608,7 +598,6 @@ describe('trust boundary', () => {
         afterMessageId: 'msg-a2',
       }),
     ).rejects.toBeInstanceOf(AppError);
-    // 失败时草稿保留，外部内容没有被当成自己的字节发布。
     expect(await readFile(join(draft, 'dir/a.md'), 'utf8')).toBe('secret');
     await expect(
       readFile(
@@ -729,7 +718,6 @@ describe('empty baseline and empty draft', () => {
       afterMessageId: 'msg-a2',
     });
 
-    // 空快照本身可读：files 为空、没有复活任何旧文件。
     const manifest = JSON.parse(
       await readFile(
         join(root, slug, 'conversation-outputs', conversationId, 'runs', 'run_2', 'manifest.json'),
@@ -738,7 +726,6 @@ describe('empty baseline and empty draft', () => {
     ) as { files: unknown[] };
     expect(manifest.files).toEqual([]);
 
-    // 下一轮以空快照为基线，旧文件不会复活。
     const next = await prepareOutputDraft({ root, slug, conversationId, runId: 'run_3' });
     expect(await readdir(next)).toEqual([]);
   });
@@ -896,7 +883,6 @@ describe('fork copy and removal', () => {
     expect(manifest.userMessageId).toBe('msg-u1-new');
     expect(manifest.afterMessageId).toBe('msg-a1-new');
 
-    // 源删除后分支独立可读。
     await removeConversationOutputs({ root, slug, conversationId });
     const branch = await readOutputFile({
       root,

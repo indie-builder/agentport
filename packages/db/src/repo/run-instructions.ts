@@ -15,7 +15,6 @@ import {
 
 export type RunInstructionRow = typeof runInstructions.$inferSelect;
 
-/** 唤醒重试会重复调用；唯一键保证同一 run 只追加一次同一条频道消息。 */
 export async function createRunInstruction(
   db: Database,
   input: {
@@ -131,7 +130,6 @@ export async function listPendingRunInstructions(
     .orderBy(asc(runInstructions.createdAt), asc(runInstructions.id));
 }
 
-/** 只在首次送达时落时间；重复调用保持原值。 */
 export async function markRunInstructionDelivered(db: Database, id: string): Promise<void> {
   await db
     .update(runInstructions)

@@ -22,7 +22,6 @@ const cache = new LRUCache<MarketView, MarketSkill[]>({
   perf: { now: () => Date.now() },
 });
 
-/** 4.0M / 60.7K / 1,234 → 整数；解析不出返回 null。 */
 function parseInstalls(raw: string): number | null {
   const match = /^([\d.,]+)\s*([kmb])?$/i.exec(raw.trim());
   if (!match?.[1]) return null;
@@ -33,7 +32,6 @@ function parseInstalls(raw: string): number | null {
   return Math.round(value * scale);
 }
 
-/** 从榜单 HTML 提取行；顺序即页面顺序，重复 id 只保留首次出现。 */
 // shortcut: 绑定 skills.sh 榜单 HTML；站点改版会取不到行，届时改用官方 v1（需 Vercel OIDC）。
 export function parseLeaderboard(html: string): MarketSkill[] {
   const seen = new Set<string>();

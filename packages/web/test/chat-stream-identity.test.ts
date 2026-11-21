@@ -2,7 +2,6 @@ import type { ChatEvent } from '@agentport/shared';
 import { describe, expect, it } from 'vitest';
 import { applyEvent, type ChatItem } from '../src/lib/chat-state.js';
 
-/** worker 为每次块边界补发运行内稳定 id；前端必须按它对齐而不是按会被重用的 blockIndex。 */
 function run(events: ChatEvent[]): ChatItem[] {
   return events.reduce<ChatItem[]>((items, event) => applyEvent(items, event), []);
 }
@@ -73,7 +72,6 @@ describe('streamBlockId identity', () => {
 
 describe('completed assistant_text', () => {
   it('shows sub-agent text that only ever arrived as a complete block', () => {
-    // 子智能体没有 delta：只忽略 assistant_text 会让它的输出完全不可见。
     const items = run([
       {
         type: 'assistant_text',
@@ -105,7 +103,6 @@ describe('completed assistant_text', () => {
         streamBlockId: 'b0',
         sdkUuid: 'msg-1',
       } as ChatEvent,
-      // 完整块之后的异常 delta 不能重开这一段，也不能再追加。
       { type: 'text_delta', text: '!', blockIndex: 0, streamBlockId: 'b0' } as ChatEvent,
     ]);
 
@@ -129,7 +126,6 @@ describe('completed assistant_text', () => {
         streamBlockId: 'b1',
         parentToolUseId: 'toolu_1',
       } as ChatEvent,
-      // 父级续写：同一 id 的段在列表中间，不能只查末尾。
       { type: 'text_delta', text: '二', blockIndex: 0, streamBlockId: 'b0' } as ChatEvent,
       {
         type: 'assistant_text',
@@ -148,7 +144,6 @@ describe('completed assistant_text', () => {
   });
 
   it('does not merge into the previous run that reused the same ids', () => {
-    // 上一轮已结束的段与新一轮的 b0 同号；用户气泡是运行边界。
     const previous: ChatItem[] = [
       { kind: 'user', text: '第一轮' },
       { kind: 'text', text: '旧回答', blockIndex: 0, streamBlockId: 'b0', closed: true },

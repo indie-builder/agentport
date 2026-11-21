@@ -52,7 +52,6 @@ export interface ChatAccepted {
 /** 附件随消息一次性提交；字节只在这里出现，落库与回放只保留元数据。 */
 export type ChatAttachmentInput = NonNullable<SharedChatRequest['attachments']>[number];
 
-/** 发送契约来自 shared；本地别名让 Web 调用方只依赖 api 模块。 */
 export type ChatRequest = SharedChatRequest;
 
 export type Conversation = ConversationSummary;

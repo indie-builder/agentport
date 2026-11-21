@@ -117,7 +117,6 @@ describe.skipIf(!ready)('session acquire cancellation', () => {
           started();
           return new Promise<SessionSandboxLease>((_resolve, reject) => {
             const abort = (): void => {
-              // provider 契约：abort 后先清理完容器再 reject，调用方要等收尾才返回 cancelled。
               cleanedUp = true;
               const err = new Error('acquire aborted');
               err.name = 'AbortError';

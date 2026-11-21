@@ -30,13 +30,12 @@ async function probeInfra(): Promise<boolean> {
 }
 
 const ready = await probeInfra();
-const redisUrl = process.env.REDIS_URL ?? ''; // 独立前缀：对账会删「库里不存在」的 scheduler，绝不能落到真实知识调度上。
+const redisUrl = process.env.REDIS_URL ?? '';
 const prefix = `knowledge-sched-${randomUUID().slice(0, 8)}`;
 
 describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgres', () => {
   let db: ReturnType<typeof createDb>['db'];
   let client: ReturnType<typeof createDb>['client'];
-  /** 触发队列与 jobs 队列都用测试前缀：真实 worker 不会消费。 */
   let triggers: Queue<{ sourceId: string }>;
   let jobs: Queue<{ jobId: string }>;
   let triggersRedis: ReturnType<typeof bunRedisConnection>;
@@ -406,7 +405,6 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
       const sourceId = await insertSource({});
       const queue = fakeJobsQueue({
         add: async (_name, data) => {
-          // 第一次入队失败前，worker 抢先认领；scheduler 的 queued CAS 必须无操作。
           await repo.knowledge.claimJob(db, data.jobId);
           throw new Error('redis down');
         },
@@ -437,7 +435,6 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
         repo.knowledge.createSyncJob(db, sourceId),
       ]);
       const fired = outcomes.slice(0, 2).filter((outcome) => outcome === 'fired').length;
-      // 谁先拿到锁谁建 pair；其余入口只能看到 duplicate/in_progress，不能各建一条。
       expect(fired).toBeLessThanOrEqual(1);
       expect(added).toHaveLength(fired);
       expect(

@@ -46,7 +46,6 @@ describe('toWorkspaceInput', () => {
       }),
     );
 
-    // 密钥只影响 .mcp.json，不能影响 agent md / CLAUDE.md。
     expect(runtime.agentMd).toBe(preview.agentMd);
     expect(runtime.claudeMd).toBe(preview.claudeMd);
     expect(preview.mcpJson).not.toContain('sk-real-secret');
@@ -127,14 +126,11 @@ describe('toWorkspaceInput', () => {
         subAgents: [agentRow({ slug: 'researcher', description: '查资料' })],
       }),
     );
-    // 后台执行由运行时 env 禁用，不再要求模型逐次传 run_in_background。
     expect(files.claudeMd).toContain('后台执行已被运行时禁用');
     expect(files.claudeMd).toContain('| `researcher` | 查资料 | 20 |');
-    // 章节顺序：规则在前，清单在后，否则「读上面的规则」是错的。
     expect(files.claudeMd.indexOf('## 等待规则')).toBeLessThan(
       files.claudeMd.indexOf('## 可用子智能体'),
     );
-    // 没有子智能体时不应出现等待章节。
     const noSub = renderWorkspace(
       toWorkspaceInput({
         agent: agentRow(),
@@ -157,13 +153,10 @@ describe('toWorkspaceInput', () => {
         subAgents: [],
       }),
     );
-    // Read 在默认禁用列表里，指向 .claude/skills 的路径指令会变成死路。
     expect(files.claudeMd).toContain('`Skill` 工具');
     expect(files.claudeMd).toContain('`release-notes`');
     expect(files.claudeMd).not.toContain('读取 `.claude/skills/');
-    // 技能文件内容不变：渲染只影响说明文字。
     expect(files.skills[0]?.content).toContain('步骤');
-    // 没有 MCP server 但有技能时，不能声称「没有可调用的工具」。
     const noMcp = renderWorkspace(
       toWorkspaceInput({
         agent: agentRow(),
@@ -189,7 +182,6 @@ describe('toWorkspaceInput', () => {
     );
     const child = files.subAgents[0]?.content ?? '';
     expect(child).toContain('同步调用');
-    // 被委派时只有主运行总超时；子配置的独立运行超时不写进子定义。
     expect(child).not.toContain('最多等你');
   });
 
@@ -211,12 +203,10 @@ describe('toWorkspaceInput', () => {
       }),
     );
     expect(files.skills.map((s) => s.slug)).toEqual(['root-skill', 'shared-skill', 'child-skill']);
-    // 父智能体的说明只列自己的技能；子技能仍落盘供子智能体使用。
     expect(files.claudeMd).toContain('`root-skill`');
     expect(files.claudeMd).toContain('`shared-skill`');
     expect(files.claudeMd).not.toContain('child-skill');
     expect(files.agentMd).not.toContain('child-skill');
-    // 子智能体 md 只声明自己的技能，供 SDK 原生 Skill 加载。
     expect(files.subAgents[0]?.content).toContain('skills: ["shared-skill", "child-skill"]');
     expect(files.subAgents[0]?.content).not.toContain('root-skill');
   });
@@ -284,7 +274,6 @@ describe('toWorkspaceInput', () => {
         subAgents: [agentRow({ slug: 'researcher', serverNames: ['child-srv'] })],
       }),
     );
-    // 根 md 只列自己的 server；child-srv 必须显式拒绝，不能隐式放行。
     expect(files.agentMd).toContain('mcp__root-srv__*');
     expect(files.agentMd).not.toContain('mcp__child-srv__*');
     expect(files.agentMd).toContain('"mcp__child-srv"');
@@ -307,14 +296,12 @@ describe('toWorkspaceInput', () => {
     expect(content).toContain('disallowedTools: [');
     expect(content).toMatch(/disallowedTools: \[[^\]]*"Agent"/);
     expect(content).toMatch(/disallowedTools: \[[^\]]*"TaskStop"/);
-    // 主智能体有子智能体时仍可委派。
     expect(files.agentMd).not.toMatch(/disallowedTools: \[[^\]]*"Agent"/);
   });
 });
 
 describe('unionById', () => {
   it('dedupes across owner groups and orders the union by id', () => {
-    // 父绑定 b、子绑定 a：分组顺序是 [b, a]，并集必须按 id 稳定成 [a, b]。
     const a = { id: 'srv_a' };
     const b = { id: 'srv_b' };
     expect(unionById([[b], [a, b]])).toEqual([a, b]);

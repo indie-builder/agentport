@@ -3,11 +3,6 @@ import { act, createElement, useReducer } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-/**
- * 审计筛选的真实防抖：每个字符都改 URL，但只有停顿 300ms 后才换查询键。
- * useDeferredValue 只让渲染降级，不会减少请求，因此这里直接数 api.audit 的调用。
- */
-
 const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
   exportAudit: vi.fn(),
@@ -166,7 +161,6 @@ describe('audit filter debounce', () => {
     if (!clear) throw new Error('missing clear button');
     await act(async () => clear.click());
 
-    // URL 与输入框立即清空，但查询还要等防抖落定；导出入口用可见文字说明为什么不可点。
     expect(input('按动作前缀过滤').value).toBe('');
     expect(router.search.action).toBeUndefined();
     await openMoreMenu();
@@ -212,7 +206,6 @@ describe('audit filter debounce', () => {
       await vi.advanceTimersByTimeAsync(300);
     });
     await flush();
-    // 新条件从第一页重新取，不复用旧游标。
     expect(mocks.audit).toHaveBeenLastCalledWith(
       { action: 'agent.', limit: 100 },
       expect.anything(),

@@ -58,7 +58,6 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       expect(await second.execution.done).toMatchObject({ state: 'stopped' });
       expect(succeeded(second.events, secondPrompt)).toBe(true);
 
-      // /tmp 是容器 tmpfs：计数从 1 走到 2，且第一轮文件仍在，才证明复用了同一容器。
       expect(inContainer(firstLease.sandboxId, ['cat', '/tmp/session-fixture/count'])?.trim()).toBe(
         '2',
       );
@@ -96,7 +95,6 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       expect(succeeded(leftRun.events, leftPrompt)).toBe(true);
       expect(succeeded(rightRun.events, rightPrompt)).toBe(true);
 
-      // sessionsDir 按会话挂到 /home/node/.claude：各自的宿主目录只能看到自己的 run。
       const leftState = await readFile(join(left.spec.sessionsDir, 'session-fixture.json'), 'utf8');
       const rightState = await readFile(
         join(right.spec.sessionsDir, 'session-fixture.json'),
@@ -136,7 +134,6 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       run.execution.cancel();
       expect(await run.execution.done).toMatchObject({ state: 'stopped' });
 
-      // 有界静默窗口只证明取消后没有继续写，不用等待某个固定时长来猜。
       const afterCancel = inContainer(lease.sandboxId, ['cat', '/tmp/session-fixture/progress']);
       expect(afterCancel).not.toBeNull();
       await delay(500);
@@ -188,12 +185,9 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
         20_000,
       );
 
-      // 容器删除完成即视为回收完成：下一轮必须能直接 acquire，不能靠重试掩盖
-      // destroy 尚未收口时抛 busy 的竞态。
       const fresh = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
       current.ids.push(fresh.sandboxId);
       expect(fresh.sandboxId).not.toBe(lease.sandboxId);
-      // 新容器仍挂到同一会话目录：上一轮的持久文件还在，runner 无需重建状态。
       expect(
         inContainer(fresh.sandboxId, ['cat', '/home/node/.claude/session-fixture.json']),
       ).toContain(firstPrompt);

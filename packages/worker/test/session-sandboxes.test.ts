@@ -108,7 +108,6 @@ class FakeProvider implements SandboxProvider {
     const child = new FakeChild();
     const sandbox: FakeSandbox = { id: `sandbox-${count}`, child };
     this.sandboxes.push(sandbox);
-    // acquire 会在 create 返回后挂 stdout 监听，ready 放到下一轮宏任务。
     if (!this.holdReady) setTimeout(() => child.stdout.write(line({ type: 'ready' })), 0);
     return sandbox;
   }
@@ -234,10 +233,6 @@ async function startRun(
   return starting;
 }
 
-/**
- * 在旧容器 destroy 确认后、等待中的 acquire 恢复续体前插入第二个 acquire：
- * provider.destroy 的续体先跑完，竞争者的微任务才开始，正好落在交接空档。
- */
 function acquireDuringHandoff(
   provider: FakeProvider,
   sessions: Awaited<ReturnType<typeof createManager>>,
@@ -381,7 +376,6 @@ describe('session sandboxes', () => {
   it('omits the expert memory mount when the memory policy is disabled', async () => {
     const provider = new FakeProvider();
     const sessions = await createManager(provider);
-    // 关闭策略时 worker 不传 memoryDir / memoryWritable；夹具默认带这两个键，这里按同样方式删掉。
     expect(memoryMountFor(resolveMemoryPolicy({ enabled: false }), '/host/memory')).toEqual({});
     const target: SessionSandboxSpec = {
       ...spec({ subAgentMemoryDirs: [{ slug: 'child', memoryDir: '/host/child' }] }),
@@ -392,7 +386,6 @@ describe('session sandboxes', () => {
     const lease = await acquire(sessions, target);
     const mounts = provider.creates[0]?.extraMounts ?? [];
     expect(mounts.some((mount) => mount.containerPath === '/mnt/agent-memory')).toBe(false);
-    // 关闭专家记忆不改子智能体记忆的挂载集合；父策略不允许运行期写入时它是只读的。
     expect(mounts).toContainEqual({
       hostPath: '/host/child',
       containerPath: '/workspace/.claude/agent-memory/child',
@@ -482,7 +475,6 @@ describe('session sandboxes', () => {
     expect(provider.destroyed).toEqual(['sandbox-1']);
     await started.release({ reuse: true });
 
-    // 绑定不变时空闲容器按原规格复用。
     const reused = await acquire(sessions, withChild('/host/child'));
     expect(reused.sandboxId).toBe('sandbox-2');
     expect(provider.creates).toHaveLength(2);
@@ -557,7 +549,6 @@ describe('session sandboxes', () => {
     expect(provider.creates[0]?.image).toBe(imageId('1'));
     await first.release({ reuse: true });
 
-    // 发布新版本：存活容器不重建，lease 仍报告实际旧版本。
     online.versionId = 'version_2';
     online.imageId = imageId('2');
     const second = await acquire(sessions, spec());
@@ -566,7 +557,6 @@ describe('session sandboxes', () => {
     expect(second.runtimeEnvironment).toEqual(runtime('version_1', imageId('1')));
     expect(calls).toEqual([null]);
 
-    // 回退到旧版本后容器消亡：下一次真实创建采用当时的线上版本。
     online.versionId = 'version_1';
     online.imageId = imageId('1');
     await second.release({ reuse: false });
@@ -590,7 +580,6 @@ describe('session sandboxes', () => {
     provider.childOf(first.sandboxId).emit('close', 1, null);
     await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
 
-    // 容器已经消亡：下一次 acquire 是真实创建，必须读当时的线上版本。
     online.versionId = 'version_2';
     online.imageId = imageId('2');
     const second = await acquire(sessions, spec());
@@ -690,7 +679,6 @@ describe('session sandboxes', () => {
     expect(events).toEqual([{ type: 'error', message: 'a' }]);
     expect(stderr).toEqual(['warn\n']);
 
-    // 上一轮的迟到帧不能进入下一轮回调。
     await lease.release({ reuse: true });
     const next = await acquire(sessions, spec());
     const nextEvents: ChatEvent[] = [];
@@ -914,7 +902,6 @@ describe('session sandboxes', () => {
     provider.childOf('sandbox-1').emit('close', 1, null);
 
     await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
-    // 等 idle-exit 的失败销毁收口；acquire 与仍在收口的 destroy 并发时只 join 那一轮。
     await new Promise((resolve) => setTimeout(resolve, 0));
     await expect(acquire(sessions, spec())).rejects.toThrow(/cleanup failed for sandbox-1/);
     expect(provider.creates).toHaveLength(1);
@@ -974,8 +961,6 @@ describe('session sandboxes', () => {
     provider.holdReady = true;
     const sessions = await createManager(provider);
 
-    // 先挂断言再等容器出现：调用方 20ms 超时可能早于 waitFor 的首次检查，
-    // 延迟挂载会让已拒绝的 acquire 短暂成为 unhandled rejection。
     const acquiring = expect(
       acquire(sessions, spec(), AbortSignal.timeout(20)),
     ).rejects.toMatchObject({ name: 'AbortError' });
@@ -1049,7 +1034,6 @@ describe('session sandboxes', () => {
     provider.failing.delete(lease.sandboxId);
     const next = await acquire(sessions, spec());
 
-    // 先销毁旧容器再创建新环境，不并发写同一批宿主目录。
     expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1']);
     expect(provider.creates).toHaveLength(2);
     expect(next.sandboxId).toBe('sandbox-2');
@@ -1067,7 +1051,6 @@ describe('session sandboxes', () => {
     await expect(lease.release({ reuse: false })).rejects.toThrow(
       `cleanup failed for ${sandboxId}`,
     );
-    // release 缓存了第一次失败的 Promise，重复调用不会重新尝试。
     await expect(lease.release({ reuse: false })).rejects.toThrow(
       `cleanup failed for ${sandboxId}`,
     );
@@ -1081,7 +1064,6 @@ describe('session sandboxes', () => {
     provider.releaseDestroy();
     await expect(first).resolves.toBeUndefined();
     await expect(second).resolves.toBeUndefined();
-    // 两次并发 cleanup 共用同一轮销毁，没有重复删除。
     expect(provider.destroyed).toEqual([sandboxId, sandboxId]);
 
     provider.holdDestroy = false;
@@ -1098,12 +1080,10 @@ describe('session sandboxes', () => {
     const lease = await acquire(oldManager, spec());
     const sandboxId = lease.sandboxId;
 
-    // 模拟 worker 重启：新 manager 没有该会话条目，只能按容器名删除。
     const restarted = await createManager(provider);
     await expect(restarted.cleanup('conv_1', sandboxId, 'run_1')).resolves.toBeUndefined();
     expect(provider.destroyed).toEqual([sandboxId]);
 
-    // 没有条目也不能把删除失败当成已清理。
     provider.failing.add(sandboxId);
     await expect(restarted.cleanup('conv_1', sandboxId, 'run_1')).rejects.toThrow(
       `cleanup failed for ${sandboxId}`,
@@ -1126,7 +1106,6 @@ describe('session sandboxes', () => {
 
     const second = await acquire(sessions, spec(), undefined, 'run_2');
     expect(second.sandboxId).toBe(sandboxId);
-    // 新 lease 已独占容器但还没 start：旧 run 的清理不得销毁它。
     await expect(sessions.cleanup('conv_1', sandboxId, 'run_1')).rejects.toThrow(/run_2/);
     expect(provider.destroyed).toEqual([]);
 
@@ -1206,7 +1185,6 @@ describe('session sandboxes', () => {
     );
     expect(failure).toBeInstanceOf(SandboxCleanupError);
     expect((failure as SandboxCleanupError).sandboxId).toBe('sandbox-1');
-    // 二次失败仍保留 provider 的原始错误，上层可按 id 继续清理。
     expect(((failure as SandboxCleanupError).cause as Error).message).toBe(
       'cleanup failed for sandbox-1',
     );
@@ -1227,7 +1205,6 @@ describe('session sandboxes', () => {
     await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
 
     const acquiring = acquire(sessions, spec(), undefined, 'run_2');
-    // 等待中的 acquire 占住 entry，第三个请求仍按 busy 拒绝，不带别的 run 的错误 id。
     await expect(acquire(sessions, spec(), undefined, 'run_3')).rejects.toThrow(/busy/i);
 
     provider.rejectDestroy(new Error('destroy failed while held'));
@@ -1261,7 +1238,6 @@ describe('session sandboxes', () => {
     await sessions.cleanup('conv_1', oldId, 'run_1');
     expect(provider.destroyed).toEqual([oldId, oldId]);
 
-    // 当前条目仍被跟踪：释放后复用的还是新容器，没有被旧 id 的清理误杀。
     await current.release({ reuse: true });
     const reused = await acquire(sessions, spec());
     expect(reused.sandboxId).toBe(currentId);
@@ -1282,7 +1258,6 @@ describe('session sandboxes', () => {
     expect(provider.creates).toHaveLength(1);
     expect(provider.sandboxes).toHaveLength(1);
 
-    // 失败记录保留；每次 acquire 只重试一轮，不无限循环。
     await expect(acquire(sessions, spec())).rejects.toThrow(/cleanup failed for sandbox-1/);
     expect(provider.destroyed).toEqual(['sandbox-1', 'sandbox-1', 'sandbox-1']);
     expect(provider.creates).toHaveLength(1);
@@ -1569,7 +1544,6 @@ describe('session sandboxes', () => {
     await sessions.closeIdle('conv_missing', ['sandbox-old', 'sandbox-old']);
     expect(provider.destroyed).toEqual(['sandbox-old']);
 
-    // 没有条目也没有持久化 id 才是空操作。
     await sessions.closeIdle('conv_missing', []);
     expect(provider.destroyed).toEqual(['sandbox-old']);
     await sessions.close();
@@ -1689,7 +1663,6 @@ describe('session sandbox active cap', () => {
     expect(provider.creates).toHaveLength(3);
     expect(third.sandboxId).toBe('sandbox-3');
 
-    // 未被回收的 conv_2 仍复用原容器；复用不触发回收。
     const reused = await acquire(sessions, spec({ conversationId: 'conv_2' }));
     expect(reused.sandboxId).toBe('sandbox-2');
     expect(provider.destroyed).toEqual(['sandbox-1']);

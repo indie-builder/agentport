@@ -87,7 +87,6 @@ describe('agent package transfer', () => {
     );
     await expect(api.exportAgent('agent-1')).rejects.toMatchObject({ status: 401 });
     expect(assign).toHaveBeenCalledWith('/login?returnTo=%2F&reason=expired');
-    // 401 只负责跳转；草稿要等同账户重新登录后继续可用。
     expect(sessionStorage.getItem('pace.chat.drafts')).toBe(JSON.stringify({ '': 'unsent' }));
     sessionStorage.removeItem('pace.chat.drafts');
   });

@@ -16,14 +16,11 @@ export interface PruneRunsResult {
 }
 
 export interface PruneOptions {
-  /** 已发布成果 manifest 引用的消息；detach 与 delete 都显式排除。 */
   retainedMessageIds?: string[];
 }
 
-// 0 或负数会让截止时间落在未来，必须挡住；维护任务只在配置合法时运行。
 function positive(value: number, name: string): number {
   if (!Number.isInteger(value) || value < 1) {
-    // 配置错误属于启动期输入问题：尽早失败，比运行期把负数当 0 用安全。
     fail('INVALID_INPUT', `${name} must be a positive integer, got ${value}`);
   }
   return value;

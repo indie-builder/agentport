@@ -10,7 +10,6 @@ import { useDialogClose } from '../../lib/dialog-guard.js';
 import { formatDateTime, formatDuration, shortId } from '../../lib/format.js';
 import type { LastTest } from './shared.js';
 
-/** 只读最近试连返回的目录与脱敏错误摘要；打开时不发请求。 */
 export function ToolCatalogDialog({
   server,
   lastTest,
@@ -34,7 +33,6 @@ export function ToolCatalogDialog({
   const onClose = dialog.close;
   const result = lastTest?.result ?? null;
   const tools = result?.ok ? result.tools : [];
-  // 本次页面的结果优先；刷新后回退到后端持久化的上次试连身份。
   const environment = result
     ? (result.runtimeEnvironment ?? null)
     : (server.lastTestRuntimeEnvironment ?? null);
@@ -92,7 +90,6 @@ export function ToolCatalogDialog({
           {result && !result.ok ? (
             <Field className="gap-1.5">
               <span className="text-xs font-medium text-muted-foreground">失败原因</span>
-              {/* 原文展示，不截断也不解析：这条文本是定位连不上问题的唯一线索。 */}
               <p className="break-words rounded-item bg-danger-soft p-3 font-mono text-xs leading-relaxed text-danger">
                 {result.error ?? '服务没有返回原因。'}
               </p>

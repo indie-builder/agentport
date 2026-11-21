@@ -201,7 +201,6 @@ interface MaintenanceSummary extends Retention {
   durationMs: number;
 }
 
-/** 审计表与 eval_results 不在清理范围内：前者要长期保留，后者用于历史对比。 */
 export async function runMaintenance(
   db: ReturnType<typeof createDb>['db'],
   logger: Logger,
@@ -223,7 +222,6 @@ export async function runMaintenance(
     db,
     new Date(Date.now() - effective.runDays * DAY_MS),
   );
-  // 已发布成果的锚点先完整读齐再删消息；任一 manifest 读取失败都中止本轮，不留不可 fork 的成果。
   const conversations = await db
     .select({ slug: schema.agents.slug, conversationId: schema.conversations.id })
     .from(schema.conversations)
@@ -289,7 +287,6 @@ export async function runMaintenance(
   return summary;
 }
 
-/** 注册每日重复任务；同一 scheduler id 重复注册只会更新，不会叠加。 */
 export async function startMaintenanceWorker(input: {
   db: ReturnType<typeof createDb>['db'];
   logger: Logger;
@@ -327,7 +324,6 @@ export async function startMaintenanceWorker(input: {
   return worker;
 }
 
-// 手动触发：bun run --filter @agentport/worker maintenance
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const config = loadConfig();
   const logger = createServiceLogger({

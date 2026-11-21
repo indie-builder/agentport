@@ -60,14 +60,12 @@ const passwordFormSchema = z
     }
   });
 
-// 与个人资料一致：短字段 448px，横向标签列 96px。
 const FIELD_VALUE = 'flex w-full min-w-0 max-w-112 flex-1 flex-col gap-1.5';
 
 function isFreshnessError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 403;
 }
 
-/** 当前会话固定在最前作为比对锚点，其余按最近活动倒序。 */
 function byActivity(a: PersonalSession, b: PersonalSession): number {
   if (a.current !== b.current) return a.current ? -1 : 1;
   return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
@@ -88,7 +86,6 @@ export function PersonalSecurityPage() {
   const blocker = useFormBlocker(formState.isDirty, change.isPending, { ignoreSamePath: true });
 
   const relogin = async (): Promise<void> => {
-    // 这是用户主动选择重新登录，不是 403 自动踢出；先结束当前会话再进登录页。
     await logoutAccount();
     await navigate({
       to: '/login',
@@ -123,7 +120,6 @@ export function PersonalSecurityPage() {
       <Collapsible
         open={passwordOpen}
         onOpenChange={(next) => {
-          // 改密请求进行中不允许收起，避免表单连同错误一起消失。
           if (change.isPending) return;
           setPasswordOpen(next);
         }}
@@ -315,7 +311,6 @@ function SessionSection({
   const revoke = useRevokePersonalSession();
   const [target, setTarget] = useState<PersonalSession | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
-  // 查询或撤销任一处 403 都表示登录不够新。撤销错误仍留在弹层里，不能因本分支卸载确认框。
   const freshness = isFreshnessError(sessions.error) || isFreshnessError(revoke.error);
 
   let body: ReactNode;

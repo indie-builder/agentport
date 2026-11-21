@@ -1,7 +1,3 @@
-/**
- * 各来源共用的文件名/路径辅助函数。独立成叶模块，避免 `sources.ts` 与 `source-*` 之间形成
- * 只为这些函数的循环依赖。
- */
 export function uniquePath(path: string, used: Set<string>, token: string): string {
   if (!used.has(path)) {
     used.add(path);

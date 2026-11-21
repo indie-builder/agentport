@@ -20,16 +20,12 @@ export const servers = pgTable(
       enum: ['stdio', 'http', 'generated', 'knowledge', 'data_domain'],
     }).notNull(),
     description: text('description').notNull().default(''),
-    // command / args / url / headers 等非敏感字段
     config: jsonb('config').$type<Record<string, unknown>>().notNull(),
-    // AES-256-GCM 加密后的 env / headers
     secretsEncrypted: text('secrets_encrypted'),
     ownerBusinessId: text('owner_business_id'),
-    /** 最近一次「测试连接」的结果快照；刷新后仍能显示连接健康度。 */
     lastTestedAt: timestamp('last_tested_at', { withTimezone: true }),
     lastTestOk: boolean('last_test_ok'),
     lastToolCount: integer('last_tool_count'),
-    /** 最近一次试连实际解析到的环境版本身份；不能把一次成功当成其他环境也成功。 */
     lastTestRuntimeEnvironment: jsonb(
       'last_test_runtime_environment',
     ).$type<ResolvedRuntimeEnvironment>(),
@@ -57,7 +53,6 @@ export const apiTools = pgTable(
     method: text('method').notNull(),
     pathTemplate: text('path_template').notNull(),
     inputSchema: jsonb('input_schema').$type<Record<string, unknown>>().notNull(),
-    /** MCP outputSchema；导入时来自 OpenAPI 响应结构，未声明为 null。 */
     outputSchema: jsonb('output_schema').$type<Record<string, unknown>>(),
     paramsIn: text('params_in', { enum: ['query', 'body'] })
       .notNull()

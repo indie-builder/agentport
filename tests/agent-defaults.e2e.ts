@@ -3,10 +3,6 @@ import { type Browser, test } from '@e2e-dev/web';
 import { expect, type Screen } from 'e2e';
 import { fixture as runFixture } from './support/fixture.js';
 
-/**
- * 专家推理默认值的真实浏览器验收：真实页面、真实 API、数据库直写 fixture。
- * E2E_DATABASE_URL 必须显式给出，且与页面背后的 API 指向同一个库。
- */
 interface Fixture {
   id: string;
   slug: string;
@@ -77,7 +73,6 @@ test('setting and clearing effort on the page survives save and reload', {
   const fixture = await seed(null);
   await openEditor(app, screen, fixture);
 
-  // 默认夹具：effort 未配置，固定思考预算控件已移除。
   await screen.getByRole('button', '行为', { exact: false }).tap();
   await expect(screen.getByRole('combobox', '推理强度')).toHaveText('默认');
   await screen.getByRole('button', '运行限制', { exact: false }).tap();
@@ -93,7 +88,6 @@ test('setting and clearing effort on the page survives save and reload', {
   });
   expect(await stored(fixture.id)).toEqual({ effort: 'high' });
 
-  // 回到默认：选择「默认」，保存必须显式发 null。
   await chooseEffort(screen, '默认');
   const cleared = agentResponse(browser, fixture.id);
   await screen.getByRole('button', '保存草稿').tap();
@@ -102,7 +96,6 @@ test('setting and clearing effort on the page survives save and reload', {
   expect(await clearedResponse.json<Record<string, unknown>>()).not.toHaveProperty('effort');
   expect(await stored(fixture.id)).toEqual({ effort: null });
 
-  // 不相关字段的全量保存不能把清空后的值带回来。
   const renamed = `E2E 默认值改名 ${randomUUID().slice(0, 8)}`;
   await screen.getByRole('button', '身份', { exact: false }).tap();
   await browser.locator('#agent-name').fill(renamed);
@@ -237,11 +230,9 @@ test('expert cards and employee badge', { session: 'admin' }, async ({ app, scre
     enabled: false,
   });
 
-  // 默认只列已启用；显式 all 才能同时验停用卡的工牌入口。
   await app.open(`/agents?q=${encodeURIComponent(token)}&status=all`);
   await expect(screen.getByRole('button', `查看 ${full.name} 工牌`)).toBeVisible();
 
-  // 用户可见几何：读真实卡面矩形，不用类名推断。
   const measured = await browser.evaluate((fullName: string) => {
     const list = document.querySelector('[aria-label="专家列表"]');
     if (!(list instanceof HTMLElement)) return null;
@@ -272,7 +263,6 @@ test('expert cards and employee badge', { session: 'admin' }, async ({ app, scre
 
   expect(measured).not.toBeNull();
   if (!measured) throw new Error('专家列表未渲染');
-  // 两张创建入口卡 + 本次三位员工卡，过滤后恰好 5 张。
   expect(measured.cards).toHaveLength(5);
   for (const card of measured.cards) expect(card.height).toBeCloseTo(176, 0);
   for (const card of measured.cards) expect(card.width).toBeCloseTo(measured.cards[0].width, 0);
@@ -293,7 +283,6 @@ test('expert cards and employee badge', { session: 'admin' }, async ({ app, scre
   expect(measured.dataAvatar).toBeCloseTo(40, 0);
   expect(measured.twinAvatar).toBeCloseTo(64, 0);
 
-  // 完整工牌：只读摘要字段，关闭后焦点回到实际触发器。
   const badge = screen.getByRole('button', `查看 ${full.name} 工牌`);
   await badge.tap();
   const dialog = browser.locator('[role="dialog"]');
@@ -313,14 +302,12 @@ test('expert cards and employee badge', { session: 'admin' }, async ({ app, scre
   await expect(dialog).toBeHidden();
   await expect(badge).toBeFocused();
 
-  // 空介绍显示明确占位，不伪造资料。
   await screen.getByRole('button', `查看 ${empty.name} 工牌`).tap();
   const emptyDialog = browser.locator('[role="dialog"]');
   await expect(emptyDialog).toContainText('未填写介绍');
   await emptyDialog.getByRole('button', '关闭').tap();
   await expect(emptyDialog).toBeHidden();
 
-  // 停用卡没有可执行对话，但已有工牌仍可查看。
   const disabledCard = browser
     .locator('[aria-label="专家列表"] li')
     .filter({ hasText: disabled.name })

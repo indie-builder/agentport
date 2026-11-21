@@ -336,8 +336,6 @@ function configIssues(
   return issues;
 }
 
-// ---- sources --------------------------------------------------------------
-
 export async function listSources(deps: KnowledgeDeps, id: string, query: PageQuery) {
   if (!(await repo.knowledge.getBase(deps.db, id))) notFound('知识库');
   const page = await repo.knowledge.listSources(deps.db, id, pageOptions(query));

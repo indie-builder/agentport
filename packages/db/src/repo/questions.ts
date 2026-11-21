@@ -185,7 +185,6 @@ export async function respondToQuestion(
         .update(runQuestions)
         .set({ status: 'expired', closeReason: '超时未回答', resolvedAt: new Date() })
         .where(and(eq(runQuestions.id, row.id), eq(runQuestions.status, 'pending')));
-      // 固化过期后再报 409，不能在同一事务里抛错回滚掉这条写入。
       return { expired: true };
     }
 

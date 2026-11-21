@@ -117,9 +117,7 @@ async function waitFor<T>(probe: () => T, tries = 50): Promise<T> {
     try {
       const value = probe();
       if (value) return value;
-    } catch {
-      // 页面切换过程中继续等。
-    }
+    } catch {}
     await flush();
   }
   return probe();

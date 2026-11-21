@@ -79,7 +79,6 @@ export function RunDetailPage() {
   const [exporting, setExporting] = useState(false);
   const [evalOpen, setEvalOpen] = useState(false);
   const navigate = useNavigate();
-  // 状态尚未读取或仍在排队时也轮询，终态转换负责最后刷新。
   const status = run.data?.run.status;
   const approvals = useRunApprovals(params.runId, !status || isActiveRunStatus(status));
   const questions = useRunQuestions(params.runId, !status || isActiveRunStatus(status));
@@ -96,7 +95,6 @@ export function RunDetailPage() {
   const approveMutation = useApproveRun();
   const denyMutation = useDenyRun();
   const approvalInFlight = useRef(false);
-  // 来源页把进入前的 URL 带在 backTo 里；直接打开详情就回到运行列表。
   const backTo = search.backTo ?? '/runs';
   const selected = search.step ?? null;
 
@@ -125,7 +123,6 @@ export function RunDetailPage() {
           void navigate({
             to: '/runs/$runId',
             params: { runId: accepted.runId },
-            // 新运行没有步骤选中，来源仍沿用当前页带来的 backTo。
             search: search.backTo ? { backTo: search.backTo } : {},
           }),
         onError: (error) => toastError(error),
@@ -282,7 +279,6 @@ export function RunDetailPage() {
     );
   }
 
-  // 只有从没拿到过数据时才整页报错；后台刷新失败要保留已加载的详情。
   if (run.data === undefined) {
     return (
       <Page>
@@ -298,7 +294,6 @@ export function RunDetailPage() {
   const liveQuestions = new Map(
     (questions.data?.items ?? []).map((question) => [question.toolUseId, question]),
   );
-  // 运行步骤可能只留下用户消息或还没写入工具事件；未被任何步骤引用的提问仍要给回答入口。
   const attached = new Set<string>();
   for (const step of steps) {
     if (step.kind !== 'tool') continue;
@@ -401,7 +396,6 @@ export function RunDetailPage() {
             <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-2">
               {detail.status === 'running'
                 ? pending.map((item) => {
-                    // mutation 是全局状态：按当前 mutation 的变量判断是哪一条在决定。
                     const deciding = approveMutation.isPending || denyMutation.isPending;
                     const approving =
                       approveMutation.isPending &&

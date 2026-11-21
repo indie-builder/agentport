@@ -8,14 +8,8 @@ import {
 import type { SQL } from 'bun';
 import { recordMemoryChange } from './ledger.js';
 
-/**
- * 个人偏好正文上限由 shared 统一维护：9000 个 Unicode 字符（按码点计，不是 UTF-8 字节）。
- * 官方 UserPromptSubmit additionalContext 单次上限为 10,000 字符，这里留出余量。
- * 平台不是依赖官方用户级 CLAUDE.md 自动发现，而是把本文件只读挂载进沙盒后每轮经官方 hook 注入。
- */
 const PERSONAL_MEMORY_LIMIT_MESSAGE = `个人偏好最多 ${PERSONAL_MEMORY_MAX_CHARS} 个字符，请精简后保存`;
 
-/** 入口与审核采纳共用：超限直接拒绝，不静默截断。 */
 function assertPersonalMemoryLimit(content: string): void {
   if (
     [...content].length > PERSONAL_MEMORY_MAX_CHARS ||
@@ -35,12 +29,10 @@ export interface PersonalMemoryWriteResult extends PersonalMemory {
   changeId: string;
 }
 
-/** 文件投影失败只影响日志，不影响已提交的 DB 写入。 */
 export interface MemoryWriteLogger {
   warn(obj: unknown, msg?: string): void;
 }
 
-/** 行不存在等价于空白记忆；updatedAt 只表示真实写入过的时刻。 */
 export async function readPersonalMemory(
   db: Database,
   businessId: string,
@@ -55,22 +47,14 @@ export async function readPersonalMemory(
       };
 }
 
-/**
- * 锁内保存：条件更新与变更账本在同一事务提交，DB 是成功依据；
- * 文件只是投影，写失败只记录日志，下一次 worker 运行前会按 DB 重建。
- * 调用方必须已持有该用户的会话锁。
- */
 export async function writePersonalMemoryLocked(input: {
   db: Database;
   workspacesDir: string;
   businessId: string;
   content: string;
   expectedRevision: number;
-  /** 采纳/回滚要求目标仍是审核时的内容；手工保存不传。 */
   expectedContent?: string;
-  /** 采纳审核提案时记录来源运行；手工保存不传。 */
   sourceReviewRunId?: string;
-  /** 回滚时指向被撤销的变更；普通保存不传。 */
   reversesChangeId?: string;
   logger?: MemoryWriteLogger;
 }): Promise<PersonalMemoryWriteResult | null> {
@@ -124,7 +108,6 @@ export async function writePersonalMemoryLocked(input: {
   };
 }
 
-/** 手工保存入口：整段操作持有 user:<id> 会话锁，避免与 worker 投影交错。 */
 export async function writePersonalMemory(input: {
   db: Database;
   client: SQL;
@@ -141,7 +124,6 @@ export async function writePersonalMemory(input: {
   );
 }
 
-/** 版本列表只读，不做任何补偿或投影写入。 */
 export async function listPersonalMemoryVersions(
   db: Database,
   businessId: string,

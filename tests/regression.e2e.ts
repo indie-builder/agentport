@@ -42,7 +42,6 @@ test('runs status filter selects and resets', { session: 'admin' }, async ({
 test('audit page shows recorded actions', { session: 'admin' }, async ({ app, screen }) => {
   await app.open('/audit');
   await expect(screen.getByRole('heading', '审计')).toBeVisible();
-  // 登录本身就会写一条 auth.login.succeeded。
   await expect(screen.getByText('auth.login.succeeded').first()).toBeVisible();
 });
 
@@ -111,7 +110,6 @@ test('resource tabs preserve navigation and searchable URL state', { session: 'a
   screen,
   browser,
 }) => {
-  // 资源中心只剩技能/连接器/插件/知识库；专家独立为业务入口，不再混在资源页签里。
   await app.open('/servers');
   const slug = `e2e-resource-tabs-${Date.now().toString(36)}`;
   const created = await browserFetch(browser, 'POST', '/api/skills', {
@@ -167,7 +165,6 @@ test('all workspaces render the shared page shell', { session: 'admin' }, async 
   screen,
   browser,
 }) => {
-  // 业务导航：找专家是入口，运维收在底部独立入口，进入后使用独立导航。
   await app.open('/agents');
   for (const label of ['找专家', '对话', '定时任务', '资源', '评估']) {
     await expect(screen.getByRole('link', label, { exact: true })).toBeVisible();
@@ -194,7 +191,6 @@ test('all workspaces render the shared page shell', { session: 'admin' }, async 
   ] as const;
   for (const [path, title] of routes) {
     await app.open(path);
-    // 默认入口 / 重定向到找专家。
     if (path === '/') await expect(browser).toHaveURL(/\/agents$/);
     await expect(screen.getByRole('heading', title, { exact: true })).toBeVisible();
     await expect(browser.locator('[data-slot="page"]')).toBeVisible();
@@ -214,7 +210,6 @@ test('personal module opens as profile and exposes direct subpages', { session: 
 }) => {
   await app.open('/personal/profile');
   await expect(screen.getByRole('heading', '个人资料', { exact: true })).toHaveCount(1);
-  // 个人上下文把七页放进主侧栏；用导航边界精确限定，避免与同名底部账号入口混淆。
   const personalNav = browser.locator('nav[aria-label="主导航"]');
   const personalLinks = [
     '个人记忆',
@@ -247,9 +242,7 @@ test('personal module opens as profile and exposes direct subpages', { session: 
     'aria-current',
     'page',
   );
-  // 查询完成前既非空态也非阅读态，先等面板落定再分支。
   await expect(screen.getByRole('region', { name: '个人记忆' })).toBeVisible();
-  // 阅读态正文之后说明会随每轮对话带入；空态只展示标题与两个入口。
   const memoryEmpty = await screen.getByText('个人记忆为空', { exact: true }).isVisible();
   if (memoryEmpty) {
     expect(await screen.getByText('每轮对话会带入这些长期信息。').isVisible()).toBe(false);

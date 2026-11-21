@@ -1,15 +1,3 @@
-/**
- * 青禾采购与售后协作演示数据集（业务分片）。
- *
- * - 只由本文件负责：5 个专家、专家绑定/规则/风格/记忆/工作流/hooks/成员、个人记忆、
- *   聊天/审批/停止/成果/分享、评估、定时任务、记忆审核。资产、知识库、运行环境由其他
- *   分片构建，这里按固定 dataset 身份从 API 定位，不依赖未定的分片键。
- * - build：E2E_DEV_DATA=1 且 E2E_DEV_DATA_VERIFY!=1，真实 UI/业务 API 产生数据；固定 slug 与
- *   场景标记保证重跑复用，已发起的有成本运行不重发。
- * - verify：E2E_DEV_DATA=1 且 E2E_DEV_DATA_VERIFY=1，严格只读，不调模型、不启动评估、不同步调度、
- *   不测试连接。发现缺口直接失败，不用 catch 把缺口变成全绿。
- */
-
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -25,7 +13,6 @@ interface AgentRef {
   name: string;
 }
 
-/** `/api/agents` 列表摘要含身份与委派关系；不含提示词、绑定、限制或密钥。 */
 interface AgentSummary {
   id: string;
   name: string;
@@ -472,12 +459,10 @@ async function waitFor<T>(
   );
 }
 
-/** 列表摘要含身份与 parentId；提示词、绑定等配置仍只在详情里。 */
 function agentDetail(browser: Parameters<typeof api>[0], id: string): Promise<AgentDetail> {
   return api<AgentDetail>(browser, `/api/agents/${id}`);
 }
 
-/** 只返回精确同名候选；调用方仍需逐个核对详情后才能认领，不盲接管。 */
 async function agentCandidates(
   browser: Parameters<typeof api>[0],
   name: string,
@@ -514,7 +499,6 @@ async function findConversationByMarker(
     `/api/conversations/search?q=${encodeURIComponent(marker)}&agentId=${encodeURIComponent(agentId)}&limit=50`,
   );
   for (const item of search.items) {
-    // 历史默认只取最近 50 条；标记是首条用户消息，长会话必须按 cursor 回溯。
     let cursor: string | undefined;
     for (;;) {
       const detail = await api<ConversationDetail>(
@@ -679,7 +663,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   };
   await restoreTimeout();
 
-  // 模型必须来自真实网关 /v1/models，不猜。
   const gateway = await fetchModels();
   manifest.models.gatewayVerified =
     gateway.ok &&
@@ -698,7 +681,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     throw new Error(`模型网关核对失败，未发起任何有成本运行：${[...gaps].join('；')}`);
   }
 
-  // 定位其他分片构建的资产：按 dataset 身份过滤，不依赖未定分片键。
   const skills = (
     await api<Array<{ id: string; slug: string; name: string }>>(browser, '/api/skills')
   )
@@ -801,7 +783,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   if (missingAssets.length)
     throw new Error(`业务前置资产缺失，未初始化专家：${missingAssets.join('；')}`);
 
-  // 主专家代表性链路必须先走 UI：创建。
   const conflict = (message: string): never => {
     throw new Error(`业务数据冲突（未覆盖）：${message}`);
   };
@@ -813,7 +794,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     detail.model === MAIN_MODEL &&
     detail.systemPrompt === AGENT_DEFS.main.prompt &&
     detail.enabled;
-  // manifest 已有 ID 时以详情身份核对；没有 ID 时只认精确名称候选 + 详情，不盲接管。
   let mainAgent: AgentRef | null = null;
   if (manifest.entities.agents.main?.id) {
     const recorded = await agentDetail(browser, manifest.entities.agents.main.id);
@@ -851,7 +831,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     await browser.locator('#new-agent-model').fill(MAIN_MODEL);
     await browser.locator('#new-agent-slug').fill(AGENT_DEFS.main.slug);
     await screen.getByRole('button', '创建', { exact: true }).tap();
-    // 创建成功会跳转 /agents/<id>；从真实 URL 取 ID 并立刻登记，不按列表字段猜。
     const pathname = await waitFor(
       () => browser.evaluate<string>('new URL(location.href).pathname'),
       (value) => /^\/agents\/[^/]+$/.test(value),
@@ -874,7 +853,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   manifest.entities.agents.main = main;
   save();
 
-  // 其余专家是显式 fixture，走同一个鉴权业务 API；固定 slug 保证重跑复用。
   const ensureApiAgent = async (key: AgentKey): Promise<AgentRef> => {
     const def = AGENT_DEFS[key];
     const recordedId = manifest.entities.agents[key]?.id ?? manifest.initialization[key]?.id;
@@ -944,7 +922,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   manifest.entities.agents = { main, sub, openui, disabled, fault };
   save();
 
-  // 主专家绑定：代表性链路走 UI，包含子专家、技能、插件、连接器、知识库、运行环境。
   const initializingMain =
     manifest.initialization.main?.status === 'configuring' &&
     manifest.initialization.main.id === main.id;
@@ -1016,7 +993,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     ) {
       await pickComboboxOption('插件', plugins[0].name);
     }
-    // 子智能体选择器依赖列表摘要里的 parentId；控件不渲染即真实缺陷，直接失败。
     const subCombobox = screen.getByRole('combobox', '子智能体');
     await subCombobox.waitFor();
     if (!preBindings.subAgentIds.includes(sub.id)) {
@@ -1046,7 +1022,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     }
   }
 
-  // 仅自己未完成的初始化允许补齐文件；完成后只核对。
   const existingRules = await api<Array<{ slug: string; content: string }>>(
     browser,
     `/api/agents/${main.id}/rules`,
@@ -1253,7 +1228,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   };
   save();
 
-  // 完整文件预览走 UI。
   await app.open(`/agents/${main.id}`);
   await screen.getByRole('tab', '文件与版本', { exact: true }).tap();
   const files = await api<{
@@ -1292,7 +1266,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     ).toBeVisible();
   }
 
-  // 知识链路缺口只记录不断链；其余缺失会让代表链路失真，先失败且不发起有成本运行。
   const blockingGaps = [...gaps].filter((gap) => !gap.includes('知识'));
   if (blockingGaps.length > 0) {
     manifest.status = 'partial';
@@ -1301,7 +1274,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     throw new Error(`业务数据集前置资产不完整，未发起有成本运行：\n- ${blockingGaps.join('\n- ')}`);
   }
 
-  // 场景执行器：先查 manifest，再从业务边界（会话标记）恢复，最后才发新请求。
   const scenario = (key: ScenarioKey): ScenarioState => {
     const next = manifest.scenarios[key] ?? { status: 'pending', marker: `[${DATASET_ID}:${key}]` };
     manifest.scenarios[key] = next;
@@ -1371,7 +1343,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
       (item) => item.approvedAt === null,
     );
 
-  /** 等到出现待批工具调用或运行终态；可选批准在终态时直接放行。 */
   const waitApprovalOrTerminal = async (
     runId: string,
     timeoutMs = 8 * 60_000,
@@ -1443,7 +1414,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
 
     const resolved = must(detail, `场景 ${input.key} 缺少运行详情`);
     if (input.interaction && !isTerminal(resolved.run.status)) {
-      // 续跑或 API 发起时页面尚未打开；统一回到该会话再操作审批/停止。
       if (state.conversationId) {
         await app.open(`/chat?conversation=${encodeURIComponent(state.conversationId)}`);
       }
@@ -1459,7 +1429,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
           await expect(screen.getByRole('button', '停止运行')).toBeVisible({ timeout: 30_000 });
           await screen.getByRole('button', '停止运行').tap();
         } else if (outcome.kind === 'approval') {
-          // 代表链路：审批在真实页面点击，不走 API。
           const button = browser.locator('[aria-label^="批准 "]').first();
           await expect(button).toBeVisible({ timeout: 30_000 });
           await button.click();
@@ -1497,7 +1466,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     '缺少审批 GET 工具',
   );
 
-  // 采购成功：真实读取附件、调用只读工具、产出 Markdown 成果。
   const purchase = await ensureScenario({
     key: 'purchase-success',
     agent: main,
@@ -1510,7 +1478,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     interaction: 'approve-optional',
   });
 
-  // 采购成果必须真实发布后才可分享。
   const purchaseConversationId = must(purchase.conversationId, '采购成功场景缺少会话 ID');
   const purchaseRunId = must(purchase.runId, '采购成功场景缺少运行 ID');
   const purchaseOutputs = await waitFor(
@@ -1545,7 +1512,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   };
   save();
 
-  // 看板成功：OpenUI 回复由前端渲染。
   await ensureScenario({
     key: 'openui-board',
     agent: openui,
@@ -1555,7 +1521,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     mode: 'ui',
   });
 
-  // 审批批准 1：连接器工具 approvalMode='ask'，批准后运行继续成功。
   if (approvalConnector) {
     await ensureScenario({
       key: 'approval-approved',
@@ -1571,7 +1536,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     save();
   }
 
-  // 工具审批后取消：出现审批卡片后直接停止，审批不再等待。
   if (approvalConnector) {
     await ensureScenario({
       key: 'approval-cancel',
@@ -1586,7 +1550,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     scenario('approval-cancel').detail = '缺少需要审批的工具';
   }
 
-  // 停止：运行开始后立刻在输入框发送位点击停止。
   await ensureScenario({
     key: 'stop',
     agent: main,
@@ -1597,7 +1560,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     interaction: 'stop-after-start',
   });
 
-  // 临时修改先记录原值；异常退出后下一轮也只恢复自己留下的 1ms。
   if (scenario('timeout').status === 'pending') {
     const before = await api<{ timeoutMs: number }>(browser, `/api/agents/${main.id}`);
     if (before.timeoutMs === 1) conflict('主专家 timeoutMs 已是 1，不能认领开发者配置');
@@ -1625,7 +1587,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     });
   }
 
-  // 故障 failed：无效模型由网关真实返回失败。
   await ensureScenario({
     key: 'failed',
     agent: fault,
@@ -1634,7 +1595,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     mode: 'api',
   });
 
-  // 成果分享：最终保留 1 个有效、1 个已撤销；全部在会话成果面板里操作。
   const shareUrl = `/chat?conversation=${purchaseConversationId}&outputRun=${purchaseRunId}&outputPath=${encodeURIComponent(purchaseOutput.path)}&outputMode=read`;
   const listShares = async (): Promise<ShareItem[]> =>
     (
@@ -1668,7 +1628,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     await screen.getByRole('button', '关闭', { exact: true }).tap();
   }
 
-  // 评估：两个用例，一过一不过；两条底层运行成功，评估批次最终 failed。
   const evalPassName = '【青禾演示】评估通过-短语';
   const evalFailName = '【青禾演示】评估失败-哨兵';
   const evalPassPrompt = '只回复这六个字：青禾采购评估通过。';
@@ -1791,7 +1750,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     );
   }
 
-  // 创建时暂停；每个任务按自己的消息标记恢复、触发并记录运行。
   const scheduleNames = ['【青禾演示】采购状态巡检', '【青禾演示】供应商交期提醒'];
   const schedulePrompts = [
     '用一句话汇报采购单 QH-PO-2026-001 当前状态。',
@@ -1814,7 +1772,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
       await browser.locator('#schedule-frequency').click();
       await browser.locator('[role="option"]').filter({ hasText: '自定义' }).first().click();
       await browser.locator('#schedule-cron').fill('* * * * *');
-      // 开关默认开启；用键盘切换，避免吸顶标题栏拦截指针事件。
       await browser.locator('#schedule-enabled').focus();
       await browser.keyboard.press('Space');
       await expect(screen.getByRole('switch', '启用')).toBeChecked({ checked: false });
@@ -1848,7 +1805,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
       }
       if (!record.runId) {
         if (schedule.lastRunAt) conflict(`定时任务 ${name} 已触发但标记无法恢复，未重发`);
-        // 守护独立于测试进程，触发后/75秒/父进程退出均暂停并回读确认。
         const cookies = await browser.cookies();
         const cookie = cookies
           .filter((item) => {
@@ -1919,7 +1875,6 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
     }
   }
 
-  // 记忆审核：真实模型审核 + 采纳 1 次。
   const reviewTarget = {
     kind: 'agent_memory' as const,
     agentId: main.id,
@@ -2093,7 +2048,6 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
   timeout: 10 * 60_000,
 }, async ({ app, browser }) => {
   test.skip(process.env.E2E_DEV_DATA !== '1', '专用数据验收：设置 E2E_DEV_DATA=1 才运行');
-  // 本用例由 `bun run dev:data:verify` 的标题筛选单独选中；无论是否设置 E2E_DEV_DATA_VERIFY 都只读。
 
   const manifest = must(readManifest(), `缺少 ${datasetPath('business')}；先运行构建`);
   const problems: string[] = [...manifest.gaps];
@@ -2114,7 +2068,6 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
   check(me.authenticated, '管理员会话未生效');
   check(me.user?.businessId === manifest.actor.businessId, 'manifest 主体与当前账户不一致');
 
-  // 专家与固定身份。列表摘要带 slug/role/model 与 parentId，仍按 manifest ID 回详情核对正文。
   const agentByKey = new Map<AgentKey, AgentDetail>();
   for (const key of Object.keys(AGENT_DEFS) as AgentKey[]) {
     const def = AGENT_DEFS[key];
@@ -2143,7 +2096,6 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
   const sub = must(agentByKey.get('sub'), '缺离子专家');
   const openui = must(agentByKey.get('openui'), '缺少 OpenUI 专家');
 
-  // 列表摘要缺 parentId 时前端子专家选择器不会渲染；这里固定真实契约。
   const summaries = await api<AgentSummary[]>(browser, '/api/agents');
   const summaryOf = (id: string): AgentSummary | undefined =>
     summaries.find((item) => item.id === id);
@@ -2230,7 +2182,6 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
   check(!manifest.timeoutOverride?.dirty, 'timeout 临时修改尚未恢复');
   check(openui.uiFormat === 'openui', 'OpenUI 专家 uiFormat 不是 openui');
 
-  // 规则、风格、记忆各 1。
   const rules = await api<Array<{ slug: string }>>(browser, `/api/agents/${main.id}/rules`);
   check(
     rules.some((item) => item.slug === 'procurement-guard'),
@@ -2323,7 +2274,6 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
     '主专家成员缺失或身份不一致',
   );
 
-  // 完整文件真实可渲染，且包含绑定与新增文件。
   const files = await api<{
     mcpJson: string;
     subAgents: Array<{ slug: string }>;
@@ -2367,7 +2317,6 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
     '完整文件缺少 hooks 脚本',
   );
 
-  // 场景运行与业务边界交叉核对。
   const runOf = async (key: ScenarioKey): Promise<RunDetail | null> => {
     const state = manifest.scenarios[key];
     if (!state?.runId) {
@@ -2468,7 +2417,6 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
   const disabledDetail = await api<{ enabled: boolean }>(browser, `/api/agents/${disabled.id}`);
   check(disabledDetail.enabled === false, '旧客服专家未停用');
 
-  // 两个任务各自的标记、运行和终态必须一致，其他 schedule 运行不计数。
   const schedules = await api<ScheduleItem[]>(browser, '/api/schedules');
   check(manifest.schedules.length === 2, 'manifest 必须记录两个定时任务');
   for (let index = 0; index < 2; index += 1) {
@@ -2500,7 +2448,6 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
     }
   }
 
-  // 评估：批次 failed，两用例一过一不过，两条底层运行都成功。
   const evalId = must(manifest.eval.runId, '缺少评估批次 ID');
   const evalDetail = await api<EvalRunDetail>(browser, `/api/eval/runs/${evalId}`);
   check(
@@ -2526,7 +2473,6 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
     );
   }
 
-  // 分享：1 有效 + 1 已撤销，有效链接可公开读取。
   const shareConversation = manifest.shares.conversationId;
   const shareRun = manifest.shares.runId;
   const sharePath = manifest.shares.path;
@@ -2560,7 +2506,6 @@ test('business dataset verify: read-only checks for experts, scenarios, eval, sc
     }
   }
 
-  // 记忆审核：已采纳。
   const review = must(manifest.memoryReview, '缺少记忆审核记录');
   const reviewDetail = await api<MemoryReviewDetail>(
     browser,

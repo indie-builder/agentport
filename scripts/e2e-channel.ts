@@ -1,11 +1,4 @@
 #!/usr/bin/env bun
-/**
- * 频道模式真实链路验证：HTTP → BullMQ → worker → Docker 沙盒 → Claude Agent SDK
- * → 事件回流 → 频道时间线。只有 Anthropic 模型端点是本地假 SSE，其余全部是真实进程与容器。
- *
- * 用法：bun run e2e:channel
- * 可选环境变量：SANDBOX_IMAGE（默认 agentport/sandbox:dev）、E2E_CHANNEL_FAKE_PORT（默认 4318）。
- */
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -48,19 +41,13 @@ const APPROVAL_TOOL_MARKER = 'E2E-APPROVAL-TOOL';
 const FEEDBACK_INITIAL_TEXT = '初版结果：39';
 const FEEDBACK_CORRECTED_TEXT = '修正结果：42';
 const FEEDBACK_OUTPUT_PATH = '/mnt/outputs/feedback-report.md';
-/** 慢响应标记：正文含它时假模型先吐半句、延迟后再收尾，供停止/刷新恢复用例观察。 */
 const SLOW_MARKER = 'E2E-CHANNEL-SLOW';
 const SLOW_PARTIAL = 'E2E-CHANNEL-SLOW-PARTIAL';
-/** 附件标记：先对提示里列出的 /mnt/inputs 路径发 Read，读回后再把内容带回回复。 */
 const ATTACH_MARKER = 'E2E-CHANNEL-ATTACH';
 const SLOW_DELAY_MS = Number(process.env.E2E_CHANNEL_FAKE_SLOW_MS ?? 15_000);
-/** 失败标记：正文含它时假模型返回 500，供真实失败运行与重试用例。 */
 const FAIL_MARKER = 'E2E-CHANNEL-FAIL';
-/** assert = 原有 HTTP 全链路；stack = 起栈常驻；ui = 起栈后跑浏览器 E2E 再清理。 */
 const MODE = process.env.E2E_CHANNEL_MODE ?? 'assert';
-/** `bun run e2e:channel:ui -- --grep "second @"` 里 `--` 之后的参数原样转给 `e2e run`。 */
 const E2E_RUN_ARGS = process.argv.slice(2);
-// bun run 把分隔符 `--` 也原样带进来，而 e2e 会把它当成后面的 flag 是文件名。
 if (E2E_RUN_ARGS[0] === '--') E2E_RUN_ARGS.shift();
 const UI_PORT = Number(process.env.E2E_CHANNEL_UI_PORT ?? 3310);
 const EXECUTION_MODE = MODE === 'execution';
@@ -180,7 +167,6 @@ function captureOutput(child: ChildProcess): {
   let output = '';
   const append = (chunk: Buffer | string): void => {
     output += chunk.toString();
-    // 只保留尾部，避免长时间运行把内存吃满。
     if (output.length > 400_000) output = output.slice(-200_000);
   };
   child.stdout?.on('data', append);
@@ -211,7 +197,6 @@ async function stopChild(child: ChildProcess | undefined, label: string): Promis
   await childExit(child);
 }
 
-/** 浏览器模式需要 api 托管生产构建；每次从当前源码重建（约 1s），绝不复用陈旧产物。 */
 async function ensureWebBuild(): Promise<void> {
   const index = join(WEB_DIST, 'index.html');
   logStep('构建 web 静态产物');
@@ -222,10 +207,6 @@ async function ensureWebBuild(): Promise<void> {
   if (!existsSync(index)) fail(`web 构建完成但缺少 ${index}`);
 }
 
-/**
- * execution 模式可选的真实 Wren 语义层：用调用方提供的 Python（已装 wrenai）起查询服务，
- * 并在本轮临时目录里建 DuckDB 样例库。未提供 Python 时契约里没有这两个字段。
- */
 async function startWrenRuntime(python: string): Promise<string> {
   const wrenDir = join(runRoot, 'wren');
   const dbDir = join(wrenDir, 'db');
@@ -286,7 +267,6 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/** 浏览器 E2E 子进程：继承终端输出，失败码带回给调用方。 */
 function runBrowserE2e(env: Record<string, string>): Promise<number> {
   executionAbort.signal.throwIfAborted();
   return new Promise((resolve, reject) => {
@@ -346,7 +326,6 @@ function runBrowserE2e(env: Record<string, string>): Promise<number> {
   });
 }
 
-/** 打印可直接 source 的环境；stack 模式阻塞到 Ctrl-C，ui 模式跑完用例后返回。 */
 async function runStackMode(databaseUrl: string, redisUrl: string, baseUrl: string): Promise<void> {
   const env = {
     E2E_APP_URL: baseUrl,
@@ -445,7 +424,6 @@ function lastUserText(body: unknown): string {
 
 const CHANNEL_CURRENT_MARKER = '【当前消息】\n';
 
-/** 频道触发的 prompt 是「频道上下文 + 【当前消息】 + 正文」；非频道请求只有正文。 */
 function channelCurrentBody(prompt: string): string {
   const index = prompt.lastIndexOf(CHANNEL_CURRENT_MARKER);
   return (index < 0 ? prompt : prompt.slice(index + CHANNEL_CURRENT_MARKER.length)).trim();
@@ -623,10 +601,6 @@ function nextApprovalToolCall(
   return { name: 'ToolSearch', input: { query: `select:${promptToolName}` } };
 }
 
-/**
- * 附件标记轮：从频道提示里取第一条 /mnt/inputs 路径，发 Read；工具结果回来后
- * 把读取内容带进最终文本，证明是沙盒真实读取而不是模型编造。
- */
 function attachmentReadState(body: unknown): { path: string; content?: string } | null {
   const messages = historyMessages(body);
   const promptIndex = messages.findLastIndex((message) => {
@@ -848,7 +822,6 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
       const runSqlDone = historyToolUses(body).some(
         (use) => use.name.endsWith('__run_sql') && completedResults.has(use.id),
       );
-      // 模型确实拿到了工具列表却推进不了 run_sql：显式给出可诊断的文本，而不是静默退回普通回复。
       const missingTool = marked && !runSqlDone && toolCall === null && toolsOf(body).length > 0;
       const echoToken =
         slow || toolCall !== null
@@ -925,7 +898,6 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
       });
       const canWrite = (): boolean => !res.destroyed && !res.writableEnded;
       if (slow) {
-        // 先写固定前半句，让浏览器在延迟窗口里能看到流式内容。
         writeSse(res, 'content_block_delta', {
           type: 'content_block_delta',
           index: 0,
@@ -1032,9 +1004,7 @@ function openEventStream(url: string, cookie: string, signal: AbortSignal): Even
           if (!line.startsWith('data: ')) continue;
           try {
             events.push(JSON.parse(line.slice(6)) as ChannelEvent);
-          } catch {
-            // 非 JSON 的 data 行不是频道事件，忽略。
-          }
+          } catch {}
         }
         boundary = buffer.indexOf('\n\n');
       }
@@ -1138,7 +1108,6 @@ let wrenTail = (): string => '';
 let runRoot = '';
 let sseAbort: AbortController | undefined;
 let client: ReturnType<typeof createDb>['client'] | undefined;
-/** 浏览器用例失败时保留退出码；失败现场诊断在清理前按它触发。 */
 let browserE2eExitCode: number | null = null;
 
 async function stopExecutionProcess(child: ChildProcess | undefined, label: string): Promise<void> {
@@ -1226,7 +1195,6 @@ async function cleanup(): Promise<void> {
   await stopChild(apiProcess, 'api');
   await stopChild(wrenRuntimeProcess, 'wren runtime');
   if (workerProcess?.pid !== undefined) {
-    // 正常关停会自己停容器；这里只兜底清理本轮 worker 可能遗留的容器。
     const listed = await run('docker', [
       'ps',
       '-a',
@@ -1273,14 +1241,12 @@ async function cleanup(): Promise<void> {
 const MAX_DIAGNOSTIC_ROWS = 50;
 const MAX_DIAGNOSTIC_TEXT = 160;
 
-/** 诊断只放摘要：压掉换行并截断，避免把整段正文或日志刷屏。 */
 function summarize(value: unknown, max = MAX_DIAGNOSTIC_TEXT): string {
   const text = typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value));
   const flat = text.replaceAll(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
-/** 日志与正文里的凭证不落进诊断输出。 */
 function redact(text: string): string {
   return text
     .replace(/agentport_token=[^;\s"',]+/g, 'agentport_token=<redacted>')
@@ -1325,7 +1291,6 @@ interface DiagnosticLaneMessageRow {
   created_at: Date;
 }
 
-/** 失败时在清理临时库/容器之前打印现场：run 状态、消息落库、假模型请求、进程日志。 */
 async function printFailureDiagnostics(): Promise<void> {
   console.log('\n========== 失败现场诊断（清理前） ==========');
   if (database !== null) console.log(`临时库：${database.name}`);
@@ -1442,7 +1407,6 @@ async function main(): Promise<void> {
 
   let imageId: string | null = null;
   if (!SUITE_MODE) {
-    // 旧镜像可能存在但不含当前 worker 需要的 supervisor；按必需产物判断，避免假通过。
     const requiredEntry = 'dist/session-supervisor.js';
     const inspectImage = async (): Promise<string | null> => {
       const inspected = await run('docker', ['image', 'inspect', IMAGE, '--format', '{{.Id}}'], {
@@ -1531,7 +1495,6 @@ async function main(): Promise<void> {
   const baseUrl = `http://127.0.0.1:${apiPort}`;
   const appSecret = randomBytes(32).toString('base64url');
 
-  // 子进程只继承运行所需的宿主环境，不把 .env 里的真实模型凭证带进去。
   const baseEnv: NodeJS.ProcessEnv = {
     PATH: process.env.PATH ?? '',
     HOME: process.env.HOME ?? '',
@@ -1610,7 +1573,6 @@ async function main(): Promise<void> {
           }
         : {
             ANTHROPIC_BASE_URL: `http://127.0.0.1:${FAKE_PORT}`,
-            // 非空凭证让 worker 启用模型代理；真实值永远不会离开宿主进程。
             ANTHROPIC_AUTH_TOKEN: 'e2e-channel-fake-token',
             ANTHROPIC_API_KEY: '',
           }),
@@ -1697,7 +1659,6 @@ async function main(): Promise<void> {
     );
   }
 
-  // 浏览器模式到此栈已可用于真实页面；原有无浏览器断言继续走 assert 模式。
   if (MODE !== 'assert') {
     await runStackMode(database.url, redis.url, baseUrl);
     return;
