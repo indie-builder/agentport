@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { businessIdSchema } from './access.js';
 import { chatAttachmentInputsSchema, messageAttachmentSchema } from './attachments.js';
 import { errorCodeSchema } from './errors.js';
-import { terminalRunStatusSchema } from './run-state.js';
+import { type TerminalRunStatus, terminalRunStatusSchema } from './run-state.js';
 
 export const channelRoleSchema = z.enum(['owner', 'admin', 'member', 'viewer']);
 export type ChannelRole = z.infer<typeof channelRoleSchema>;
@@ -218,6 +218,23 @@ export const channelEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('error'), code: errorCodeSchema.optional(), message: z.string() }),
 ]);
 export type ChannelEvent = z.infer<typeof channelEventSchema>;
+
+export function channelMessageCreatedEvent(
+  channelId: string,
+  message: ChannelMessage,
+): ChannelEvent {
+  return { type: 'message.created', channelId, seq: message.seq, message };
+}
+
+export function channelRunFinishedEvent(input: {
+  channelId: string;
+  runId: string;
+  agentId: string;
+  status: TerminalRunStatus;
+}): ChannelEvent {
+  const { channelId, runId, agentId, status } = input;
+  return { type: 'run.finished', channelId, runId, agentId, status };
+}
 
 /** 频道事件 Redis Stream，api 生产、SSE 消费共用这一处。 */
 export function channelStreamKey(channelId: string): string {

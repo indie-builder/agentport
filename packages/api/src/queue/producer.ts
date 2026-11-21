@@ -14,6 +14,7 @@ import type {
 import {
   channelEventSchema,
   channelEventsConnectionName,
+  channelMessageCreatedEvent,
   channelStreamKey,
   chatEventSchema,
   DATA_DOMAIN_BUILDS_QUEUE,
@@ -193,12 +194,7 @@ export async function publishChannelMessage(
   channelId: string,
   message: ChannelMessage,
 ): Promise<void> {
-  return publishChannelEvent(channelId, {
-    type: 'message.created',
-    channelId,
-    seq: message.seq,
-    message,
-  });
+  return publishChannelEvent(channelId, channelMessageCreatedEvent(channelId, message));
 }
 
 export async function requestRunCancel(runId: string): Promise<boolean> {
