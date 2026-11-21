@@ -15,6 +15,7 @@ import {
 import { useDialogClose } from '../../lib/dialog-guard.js';
 import { fetchResponse, responseApiError } from '../../lib/orpc.js';
 import {
+  knowledgeKeys,
   useKnowledgeFaq,
   useKnowledgeMarkdown,
   useKnowledgeVersionDetails,
@@ -547,7 +548,7 @@ function DocumentCitationBody({ citation }: { citation: KnowledgeCitation }) {
   const details = useKnowledgeVersionDetails(versionId);
   const isPdf = details.data?.mimeType === 'application/pdf';
   const original = useQuery({
-    queryKey: ['knowledge', 'original', versionId],
+    queryKey: knowledgeKeys.original(versionId),
     queryFn: ({ signal }) => api.knowledgeOriginalBlob(versionId, signal),
     enabled: isPdf,
     staleTime: 60_000,
@@ -609,7 +610,7 @@ function FaqCitationBody({ documentId, versionId }: { documentId: string; versio
           (version) => version?.id === versionId,
         );
   const exact = useQuery({
-    queryKey: ['knowledge', 'faq-citation-version', documentId, versionId],
+    queryKey: knowledgeKeys.faqCitationVersion(documentId, versionId),
     queryFn: ({ signal }): Promise<KnowledgeDocumentVersion | null> =>
       findPagedVersion(
         (cursor) => api.knowledgeDocumentVersions(documentId, cursor, signal),
@@ -651,7 +652,7 @@ function FaqCitationBody({ documentId, versionId }: { documentId: string; versio
 
 function WikiCitationBody({ pageId, versionId }: { pageId: string; versionId: string }) {
   const exact = useQuery({
-    queryKey: ['knowledge', 'wiki-citation-version', pageId, versionId],
+    queryKey: knowledgeKeys.wikiCitationVersion(pageId, versionId),
     queryFn: () =>
       findPagedVersion((cursor) => api.knowledgeWikiVersions(pageId, cursor), versionId),
     staleTime: 60_000,

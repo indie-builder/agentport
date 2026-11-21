@@ -134,6 +134,7 @@ export function knowledgeShouldPoll(items: readonly PollableJob[] | undefined): 
 }
 
 export const knowledgeKeys = {
+  all: ['knowledge'] as const,
   bases: ['knowledge', 'bases'] as const,
   pins: ['knowledge', 'base-pins'] as const,
   base: (id: string) => ['knowledge', 'base', id] as const,
@@ -147,15 +148,23 @@ export const knowledgeKeys = {
     ['knowledge', 'document-diff', documentId, fromVersionId, toVersionId] as const,
   manual: (documentId: string) => ['knowledge', 'manual', documentId] as const,
   faqs: (baseId: string) => ['knowledge', 'faqs', baseId] as const,
+  faqAll: ['knowledge', 'faq'] as const,
   faq: (documentId: string) => ['knowledge', 'faq', documentId] as const,
+  faqDrafts: ['knowledge', 'faq-drafts'] as const,
+  faqDraftList: (ids: string[]) => ['knowledge', 'faq-drafts', ...ids] as const,
+  faqCitationVersion: (documentId: string, versionId: string) =>
+    ['knowledge', 'faq-citation-version', documentId, versionId] as const,
   chunks: (documentId: string, versionId: string) =>
     ['knowledge', 'chunks', documentId, versionId] as const,
   chunksOfDocument: (documentId: string) => ['knowledge', 'chunks', documentId] as const,
   markdown: (versionId: string) => ['knowledge', 'markdown', versionId] as const,
+  original: (versionId: string) => ['knowledge', 'original', versionId] as const,
   versionDetails: (versionId: string) => ['knowledge', 'version-details', versionId] as const,
   search: (baseId: string, options: KnowledgeSearchOptions) =>
     ['knowledge', 'search', baseId, options] as const,
   jobs: (baseId: string) => ['knowledge', 'jobs', baseId] as const,
+  batchJobs: (baseId: string, ids: string[]) =>
+    ['knowledge', 'jobs', 'batch', baseId, ...ids] as const,
   job: (jobId: string) => ['knowledge', 'job', jobId] as const,
   folders: (baseId: string) => ['knowledge', 'folders', baseId] as const,
   tags: (baseId: string) => ['knowledge', 'tags', baseId] as const,
@@ -163,12 +172,16 @@ export const knowledgeKeys = {
   sourceRuns: (sourceId: string) => ['knowledge', 'source-runs', sourceId] as const,
   syncItems: (sourceId: string, syncRunId: string, status?: string) =>
     ['knowledge', 'sync-items', sourceId, syncRunId, status ?? 'all'] as const,
+  syncItemsAll: (sourceId: string, syncRunId: string) =>
+    ['knowledge', 'sync-items', sourceId, syncRunId] as const,
   wikiPages: (baseId: string) => ['knowledge', 'wiki-pages', baseId] as const,
   wikiPage: (pageId: string) => ['knowledge', 'wiki-page', pageId] as const,
   wikiLinks: (pageId: string) => ['knowledge', 'wiki-links', pageId] as const,
   wikiGraph: (baseId: string) => ['knowledge', 'wiki-graph', baseId] as const,
   wikiDiff: (pageId: string, fromVersionId: string, toVersionId: string) =>
     ['knowledge', 'wiki-diff', pageId, fromVersionId, toVersionId] as const,
+  wikiCitationVersion: (pageId: string, versionId: string) =>
+    ['knowledge', 'wiki-citation-version', pageId, versionId] as const,
   profiles: ['knowledge', 'model-profiles'] as const,
   profileSelections: ['knowledge', 'model-profiles', 'selection'] as const,
 };

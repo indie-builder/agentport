@@ -101,7 +101,9 @@ export function useKnowledgeSourceRuns(sourceId: string | null) {
     for (const run of query.data ?? []) {
       if (!isTerminalKnowledgeJob(run.status) || settled.current.has(run.id)) continue;
       settled.current.add(run.id);
-      void client.invalidateQueries({ queryKey: ['knowledge', 'sync-items', sourceId, run.id] });
+      void client.invalidateQueries({
+        queryKey: knowledgeKeys.syncItemsAll(sourceId ?? '', run.id),
+      });
     }
   }, [client, sourceId, query.data]);
   return query;
