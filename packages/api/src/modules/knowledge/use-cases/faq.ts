@@ -149,22 +149,20 @@ function cleanFaqInput(input: FaqInput): {
   };
 }
 
-async function loadExistingFaqEntries(
-  deps: KnowledgeDeps,
-  baseId: string,
-): Promise<FaqExistingEntry[]> {
-  const documents = await deps.db
-    .select()
-    .from(schema.knowledgeDocuments)
-    .where(
-      and(
-        eq(schema.knowledgeDocuments.baseId, baseId),
-        eq(schema.knowledgeDocuments.contentKind, 'faq'),
-      ),
-    )
-    .orderBy(schema.knowledgeDocuments.id);
-  if (documents.length === 0) return [];
-  const versions = await deps.db
+async function loadFaqVersionState(
+  db: KnowledgeDeps['db'],
+  documents: DocumentRow[],
+): Promise<{
+  versionById: Map<string, VersionRow>;
+  draftByDocument: Map<string, VersionRow>;
+}> {
+  if (documents.length === 0) {
+    return {
+      versionById: new Map(),
+      draftByDocument: new Map(),
+    };
+  }
+  const versions = await db
     .select()
     .from(schema.knowledgeDocumentVersions)
     .where(
@@ -186,6 +184,25 @@ async function loadExistingFaqEntries(
     if (!document || version.id === document.currentVersionId) continue;
     if (!draftByDocument.has(version.documentId)) draftByDocument.set(version.documentId, version);
   }
+  return { versionById, draftByDocument };
+}
+
+async function loadExistingFaqEntries(
+  deps: KnowledgeDeps,
+  baseId: string,
+): Promise<FaqExistingEntry[]> {
+  const documents = await deps.db
+    .select()
+    .from(schema.knowledgeDocuments)
+    .where(
+      and(
+        eq(schema.knowledgeDocuments.baseId, baseId),
+        eq(schema.knowledgeDocuments.contentKind, 'faq'),
+      ),
+    )
+    .orderBy(schema.knowledgeDocuments.id);
+  if (documents.length === 0) return [];
+  const { versionById, draftByDocument } = await loadFaqVersionState(deps.db, documents);
   return documents.flatMap((document) => {
     const draft = draftByDocument.get(document.id) ?? null;
     const published = document.currentVersionId
@@ -980,29 +997,7 @@ export async function exportFaqs(
   if (documents.length > 500) {
     throw new AppError('CONFLICT', 'FAQ 超过 500 条，无法一次导出');
   }
-  const ids = documents.map((document) => document.id);
-  const versions =
-    ids.length === 0
-      ? []
-      : await deps.db
-          .select()
-          .from(schema.knowledgeDocumentVersions)
-          .where(
-            and(
-              inArray(schema.knowledgeDocumentVersions.documentId, ids),
-              isNotNull(schema.knowledgeDocumentVersions.faq),
-            ),
-          )
-          .orderBy(desc(schema.knowledgeDocumentVersions.version));
-  const versionById = new Map(versions.map((version) => [version.id, version]));
-  const documentById = new Map(documents.map((document) => [document.id, document]));
-  const draftByDocument = new Map<string, VersionRow>();
-  for (const version of versions) {
-    if (version.metadata.publication !== 'draft') continue;
-    const document = documentById.get(version.documentId);
-    if (!document || version.id === document.currentVersionId) continue;
-    if (!draftByDocument.has(version.documentId)) draftByDocument.set(version.documentId, version);
-  }
+  const { versionById, draftByDocument } = await loadFaqVersionState(deps.db, documents);
   const items = documents.flatMap((document) => {
     const published = document.currentVersionId
       ? versionById.get(document.currentVersionId)
