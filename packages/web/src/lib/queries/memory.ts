@@ -22,6 +22,16 @@ export const agentMemoryKeys = {
   assembly: (id: string) => ['agent-memory', id, 'assembly'] as const,
 };
 
+export const memoryKeys = {
+  personal: ['personal-memory'] as const,
+  versions: (target: MemoryReviewTarget) => ['memory-versions', target] as const,
+  versionsAll: ['memory-versions'] as const,
+  reviews: (agentId: string | null) => ['memory-reviews', agentId] as const,
+  reviewsAll: ['memory-reviews'] as const,
+  review: (runId: string) => ['memory-review', runId] as const,
+  reviewAll: ['memory-review'] as const,
+};
+
 export const agentMemoryQuery = (id: string) =>
   queryOptions<MemoryFileList>({
     queryKey: agentMemoryKeys.list(id),
@@ -59,14 +69,14 @@ export const agentMemoryFileQuery = (id: string, name: string) =>
   });
 
 const personalMemoryQuery = queryOptions<PersonalMemory>({
-  queryKey: ['personal-memory'],
+  queryKey: memoryKeys.personal,
   queryFn: () => api.personalMemory(),
   staleTime: 0,
 });
 
 export const memoryVersionsQuery = (target: MemoryReviewTarget, enabled = true) =>
   queryOptions<{ items: MemoryChange[]; nextCursor: string | null }>({
-    queryKey: ['memory-versions', target],
+    queryKey: memoryKeys.versions(target),
     queryFn: ({ signal }) => {
       if (target.kind === 'personal') return api.personalMemoryVersions({}, signal);
       if (target.kind === 'agent_memory')
@@ -93,14 +103,14 @@ export function useSavePersonalMemory() {
     onSuccess: (saved) => {
       client.setQueryData(personalMemoryQuery.queryKey, saved);
       void client.invalidateQueries({ queryKey: personalMemoryQuery.queryKey });
-      void client.invalidateQueries({ queryKey: ['memory-versions'] });
+      void client.invalidateQueries({ queryKey: memoryKeys.versionsAll });
     },
   });
 }
 
 function invalidateMemoryContent(client: ReturnType<typeof useQueryClient>): void {
   void client.invalidateQueries({ queryKey: personalMemoryQuery.queryKey });
-  void client.invalidateQueries({ queryKey: ['memory-versions'] });
+  void client.invalidateQueries({ queryKey: memoryKeys.versionsAll });
   void client.invalidateQueries({ queryKey: agentMemoryKeys.list() });
   void client.invalidateQueries({ queryKey: agentMemoryKeys.file() });
   void client.invalidateQueries({ queryKey: agentKeys.rulesAll });
@@ -117,8 +127,6 @@ export function useRollbackMemoryChange() {
   });
 }
 
-const memoryReviewKey = (agentId: string | null) => ['memory-reviews', agentId] as const;
-
 function memoryReviewActive(review: MemoryReview): boolean {
   return review.status === 'queued' || review.status === 'running';
 }
@@ -127,7 +135,7 @@ const MEMORY_REVIEWS_PAGE_SIZE = 50;
 
 export function useMemoryReviews(agentId: string | null) {
   return useCursorList({
-    queryKey: memoryReviewKey(agentId),
+    queryKey: memoryKeys.reviews(agentId),
     queryFn: (cursor, signal) =>
       api.memoryReviews(
         {
@@ -144,13 +152,13 @@ export function useMemoryReviews(agentId: string | null) {
 }
 
 function invalidateMemoryReviews(client: ReturnType<typeof useQueryClient>): void {
-  void client.invalidateQueries({ queryKey: ['memory-reviews'] });
-  void client.invalidateQueries({ queryKey: ['memory-review'] });
+  void client.invalidateQueries({ queryKey: memoryKeys.reviewsAll });
+  void client.invalidateQueries({ queryKey: memoryKeys.reviewAll });
 }
 
 export const memoryReviewQuery = (runId: string) =>
   queryOptions<MemoryReview>({
-    queryKey: ['memory-review', runId],
+    queryKey: memoryKeys.review(runId),
     queryFn: ({ signal }) => api.memoryReview(runId, signal),
     staleTime: 0,
     refetchInterval: (query) =>

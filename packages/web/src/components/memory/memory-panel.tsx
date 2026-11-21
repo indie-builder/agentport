@@ -13,6 +13,7 @@ import {
   agentMemoryQuery,
   agentOutputStylesQuery,
   agentRulesQuery,
+  memoryKeys,
   memoryVersionsQuery,
   useRollbackMemoryChange,
 } from '../../lib/queries.js';
@@ -52,8 +53,8 @@ function invalidateAgentMemoryQueries(
 ): void {
   void client.invalidateQueries({ queryKey: agentMemoryKeys.list(agentId) });
   void client.invalidateQueries({ queryKey: agentMemoryKeys.file(agentId) });
-  void client.invalidateQueries({ queryKey: ['memory-versions'] });
-  void client.invalidateQueries({ queryKey: ['memory-reviews'] });
+  void client.invalidateQueries({ queryKey: memoryKeys.versionsAll });
+  void client.invalidateQueries({ queryKey: memoryKeys.reviewsAll });
 }
 
 function changeAfterContent(change: MemoryChange, name: string): string | null {
