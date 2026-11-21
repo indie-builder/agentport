@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, fail } from '@agentport/core';
 import type { Account, RoleSummary } from '@agentport/shared';
-import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import { and, asc, count, eq, ilike, inArray, isNull, ne, or, type SQL } from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../client.js';
 import {
@@ -285,38 +284,6 @@ export async function setAccountStatus(
       await tx.delete(authSessions).where(eq(authSessions.userId, row.id));
     }
     return accountFromRow(tx, updated);
-  });
-}
-
-export async function changeOwnPassword(
-  db: DbHandle,
-  authUserId: string,
-  input: { currentPassword: string; newPassword: string },
-): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    const [user] = await tx
-      .select({ id: authUsers.id })
-      .from(authUsers)
-      .where(eq(authUsers.id, authUserId))
-      .limit(1);
-    if (!user) return false;
-    const [account] = await tx
-      .select({ id: authAccounts.id, hash: authAccounts.password })
-      .from(authAccounts)
-      .where(and(eq(authAccounts.userId, authUserId), eq(authAccounts.providerId, 'credential')))
-      .limit(1);
-    if (!account?.hash) return false;
-    if (!(await verifyPassword({ hash: account.hash, password: input.currentPassword }))) {
-      return false;
-    }
-    const nextHash = await hashPassword(input.newPassword);
-    await tx
-      .update(authAccounts)
-      .set({ password: nextHash, updatedAt: new Date() })
-      .where(eq(authAccounts.id, account.id));
-    await tx.update(authUsers).set({ updatedAt: new Date() }).where(eq(authUsers.id, authUserId));
-    await tx.delete(authSessions).where(eq(authSessions.userId, authUserId));
-    return true;
   });
 }
 
