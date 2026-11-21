@@ -625,16 +625,7 @@ async function writeAgentMemoryTarget(
   };
   await writeMemoryJournal(input.workspacesDir, slug, entry);
 
-  try {
-    for (const name of ordered) {
-      const content = fileContent(target, after, name);
-      if (content === null) {
-        await deleteMemoryFile(input.workspacesDir, slug, name);
-      } else {
-        await writeMemoryFile(input.workspacesDir, slug, name, content);
-      }
-    }
-  } catch (error) {
+  const rollbackWrite = async (error: unknown): Promise<never> => {
     try {
       await restoreJournalFiles(input.workspacesDir, slug, entry);
       await discardJournalQuietly(input.workspacesDir, slug, operationId, input.logger);
@@ -645,6 +636,19 @@ async function writeAgentMemoryTarget(
       );
     }
     throw error;
+  };
+
+  try {
+    for (const name of ordered) {
+      const content = fileContent(target, after, name);
+      if (content === null) {
+        await deleteMemoryFile(input.workspacesDir, slug, name);
+      } else {
+        await writeMemoryFile(input.workspacesDir, slug, name, content);
+      }
+    }
+  } catch (error) {
+    return rollbackWrite(error);
   }
 
   try {
@@ -660,16 +664,7 @@ async function writeAgentMemoryTarget(
     await discardJournalQuietly(input.workspacesDir, slug, operationId, input.logger);
     return change;
   } catch (error) {
-    try {
-      await restoreJournalFiles(input.workspacesDir, slug, entry);
-      await discardJournalQuietly(input.workspacesDir, slug, operationId, input.logger);
-    } catch (restoreError) {
-      throw new AggregateError(
-        [error, restoreError],
-        'memory write failed and the original files could not be restored; journal kept',
-      );
-    }
-    throw error;
+    return rollbackWrite(error);
   }
 }
 
