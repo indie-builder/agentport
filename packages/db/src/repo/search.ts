@@ -11,99 +11,85 @@ function containsAny(columns: SQLWrapper[], needle: string): SQL {
   )})`;
 }
 
-export async function searchKnowledgeBases(
+type SearchableTable = typeof knowledgeBases | typeof servers | typeof skills | typeof plugins;
+
+type SearchResult = {
+  id: string;
+  name: string;
+  description: string;
+  updatedAt: Date;
+};
+
+async function searchTable(
   db: Database,
   access: ResourceAccessFilter,
   q: string,
   limit: number,
-) {
+  table: SearchableTable,
+  columns: SQLWrapper[],
+  extra?: SQL,
+): Promise<SearchResult[]> {
   return db
     .select({
-      id: knowledgeBases.id,
-      name: knowledgeBases.name,
-      description: knowledgeBases.description,
-      updatedAt: knowledgeBases.updatedAt,
+      id: table.id,
+      name: table.name,
+      description: table.description,
+      updatedAt: table.updatedAt,
     })
-    .from(knowledgeBases)
+    .from(table)
     .where(
       and(
-        resourceScopeWhere(access, knowledgeBases.id, knowledgeBases.ownerBusinessId),
-        containsAny([knowledgeBases.name, knowledgeBases.description], q),
+        resourceScopeWhere(access, table.id, table.ownerBusinessId),
+        extra,
+        containsAny(columns, q),
       ),
     )
-    .orderBy(desc(knowledgeBases.updatedAt), asc(knowledgeBases.id))
+    .orderBy(desc(table.updatedAt), asc(table.id))
     .limit(limit);
 }
 
-export async function searchServers(
+export function searchKnowledgeBases(
   db: Database,
   access: ResourceAccessFilter,
   q: string,
   limit: number,
 ) {
-  return db
-    .select({
-      id: servers.id,
-      name: servers.name,
-      description: servers.description,
-      updatedAt: servers.updatedAt,
-    })
-    .from(servers)
-    .where(
-      and(
-        resourceScopeWhere(access, servers.id, servers.ownerBusinessId),
-        containsAny([servers.name, servers.description], q),
-      ),
-    )
-    .orderBy(desc(servers.updatedAt), asc(servers.id))
-    .limit(limit);
+  return searchTable(db, access, q, limit, knowledgeBases, [
+    knowledgeBases.name,
+    knowledgeBases.description,
+  ]);
 }
 
-export async function searchSkills(
+export function searchServers(
   db: Database,
   access: ResourceAccessFilter,
   q: string,
   limit: number,
 ) {
-  return db
-    .select({
-      id: skills.id,
-      name: skills.name,
-      description: skills.description,
-      updatedAt: skills.updatedAt,
-    })
-    .from(skills)
-    .where(
-      and(
-        resourceScopeWhere(access, skills.id, skills.ownerBusinessId),
-        eq(skills.status, 'published'),
-        containsAny([skills.name, skills.slug, skills.description], q),
-      ),
-    )
-    .orderBy(desc(skills.updatedAt), asc(skills.id))
-    .limit(limit);
+  return searchTable(db, access, q, limit, servers, [servers.name, servers.description]);
 }
 
-export async function searchPlugins(
+export function searchSkills(db: Database, access: ResourceAccessFilter, q: string, limit: number) {
+  return searchTable(
+    db,
+    access,
+    q,
+    limit,
+    skills,
+    [skills.name, skills.slug, skills.description],
+    eq(skills.status, 'published'),
+  );
+}
+
+export function searchPlugins(
   db: Database,
   access: ResourceAccessFilter,
   q: string,
   limit: number,
 ) {
-  return db
-    .select({
-      id: plugins.id,
-      name: plugins.name,
-      description: plugins.description,
-      updatedAt: plugins.updatedAt,
-    })
-    .from(plugins)
-    .where(
-      and(
-        resourceScopeWhere(access, plugins.id, plugins.ownerBusinessId),
-        containsAny([plugins.name, plugins.slug, plugins.description], q),
-      ),
-    )
-    .orderBy(desc(plugins.updatedAt), asc(plugins.id))
-    .limit(limit);
+  return searchTable(db, access, q, limit, plugins, [
+    plugins.name,
+    plugins.slug,
+    plugins.description,
+  ]);
 }
