@@ -3,6 +3,7 @@ import { lstat, opendir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fail } from '@agentport/core';
+import { hasErrorCode } from '@agentport/shared';
 
 const FORK_TRANSCRIPT_MAX_BYTES = 64 * 1024 * 1024;
 const FORK_TRANSCRIPT_MAX_ENTRIES = 100_000;
@@ -51,7 +52,10 @@ export async function readForkUuidMap(
 
 async function findSessionFile(sessionsRoot: string, sessionId: string): Promise<string | null> {
   const projects = join(sessionsRoot, 'projects');
-  const projectsInfo = await lstat(projects).catch(() => null);
+  const projectsInfo = await lstat(projects).catch((error: unknown) => {
+    if (hasErrorCode(error, 'ENOENT')) return null;
+    throw error;
+  });
   if (projectsInfo === null) return null;
   if (projectsInfo.isSymbolicLink() || !projectsInfo.isDirectory())
     fail('INVALID_INPUT', 'fork 转写目录不是普通目录');
@@ -64,11 +68,17 @@ async function findSessionFile(sessionsRoot: string, sessionId: string): Promise
         fail('INVALID_INPUT', 'fork 转写项目目录超过上限');
       if (!entry.isDirectory()) continue;
       const projectDir = join(projects, entry.name);
-      const projectInfo = await lstat(projectDir).catch(() => null);
+      const projectInfo = await lstat(projectDir).catch((error: unknown) => {
+        if (hasErrorCode(error, 'ENOENT')) return null;
+        throw error;
+      });
       if (projectInfo === null || projectInfo.isSymbolicLink() || !projectInfo.isDirectory())
         fail('INVALID_INPUT', 'fork 转写目录不是普通目录');
       const candidate = join(projectDir, `${sessionId}.jsonl`);
-      const fileInfo = await lstat(candidate).catch(() => null);
+      const fileInfo = await lstat(candidate).catch((error: unknown) => {
+        if (hasErrorCode(error, 'ENOENT')) return null;
+        throw error;
+      });
       if (
         fileInfo !== null &&
         !fileInfo.isSymbolicLink() &&
@@ -78,7 +88,9 @@ async function findSessionFile(sessionsRoot: string, sessionId: string): Promise
         return candidate;
     }
   } finally {
-    await reader.close().catch(() => undefined);
+    await reader.close().catch((error: unknown) => {
+      if (!hasErrorCode(error, 'ERR_DIR_CLOSED')) throw error;
+    });
   }
   return null;
 }

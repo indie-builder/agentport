@@ -292,7 +292,9 @@ async function draftEntries(
       files.push({ path: safe, data });
     }
   } finally {
-    await reader.close().catch(() => undefined);
+    await reader.close().catch((error: unknown) => {
+      if (!hasErrorCode(error, 'ERR_DIR_CLOSED')) throw error;
+    });
   }
   return files.sort((a, b) => compareText(a.path, b.path));
 }
