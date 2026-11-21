@@ -64,6 +64,26 @@ export async function getDocument(db: Database, id: string): Promise<KnowledgeDo
   return row ?? null;
 }
 
+export async function findSourceDocument(
+  db: Database,
+  baseId: string,
+  sourceType: KnowledgeDocumentRow['sourceType'],
+  sourceId: string,
+): Promise<KnowledgeDocumentRow | null> {
+  const [row] = await db
+    .select()
+    .from(knowledgeDocuments)
+    .where(
+      and(
+        eq(knowledgeDocuments.baseId, baseId),
+        eq(knowledgeDocuments.sourceType, sourceType),
+        eq(knowledgeDocuments.sourceId, sourceId),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
 export async function getDocumentsByIds(
   db: Database,
   ids: string[],
