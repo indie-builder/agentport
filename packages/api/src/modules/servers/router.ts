@@ -25,7 +25,7 @@ import {
   resourceAccessFilter,
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { isPgCode } from '../../http/errors.js';
+import { isPgCode, rethrowConflict } from '../../http/errors.js';
 import { requireCursorPage } from '../../http/pagination.js';
 import { checkOutboundToolArgs } from '../security/outbound-policy.js';
 import { connectorCatalog } from './connector-catalog-data.js';
@@ -40,6 +40,7 @@ const writeAudit = dbRepo.audit.writeAudit;
 const IMPORT_WARNINGS = ['仅导入连接配置；未测试连接或执行命令，请检查后再使用。'];
 
 const serverNotFoundMessage = 'MCP Server 不存在，可能已被删除；请刷新后重试';
+const serverNameConflictMessage = '该名称已被其他 MCP Server 占用，请换一个';
 
 function notFound(what: 'server' | 'tool'): never {
   fail(
@@ -68,11 +69,6 @@ async function authorizedServer(
     serverNotFoundMessage,
   );
   return row;
-}
-
-function rethrowConflict(err: unknown): never {
-  if (isPgCode(err, '23505')) fail('CONFLICT', '该名称已被其他 MCP Server 占用，请换一个');
-  throw err;
 }
 
 const os = implement(serversContract).$context<RequestContext>();
@@ -116,7 +112,7 @@ export const serversRouter = os.router({
       });
       return created;
     } catch (err) {
-      rethrowConflict(err);
+      rethrowConflict(err, serverNameConflictMessage);
     }
   }),
   importFile: os.importFile.handler(async ({ input, context }) => {
@@ -147,7 +143,7 @@ export const serversRouter = os.router({
       });
       return { servers, warnings: IMPORT_WARNINGS };
     } catch (err) {
-      rethrowConflict(err);
+      rethrowConflict(err, serverNameConflictMessage);
     }
   }),
   get: os.get.handler(async ({ input, context }) => {
@@ -224,7 +220,7 @@ export const serversRouter = os.router({
       });
       return updated;
     } catch (err) {
-      rethrowConflict(err);
+      rethrowConflict(err, serverNameConflictMessage);
     }
   }),
   delete: os.delete.handler(async ({ input, context }) => {
@@ -382,7 +378,7 @@ export const serversRouter = os.router({
         });
         return tool;
       } catch (err) {
-        rethrowConflict(err);
+        rethrowConflict(err, serverNameConflictMessage);
       }
     }),
     previewOpenApi: os.tools.previewOpenApi.handler(async ({ input, context }) => {

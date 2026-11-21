@@ -1,5 +1,6 @@
 import { errorCodeForStatus } from '@agentport/contract/errors';
-import { AppError, isAppError } from '@agentport/core';
+import { AppError, fail, isAppError } from '@agentport/core';
+import { isPgCode } from '@agentport/db';
 import { ERROR_META, type ErrorCode, type Problem } from '@agentport/shared';
 import { ORPCError, ValidationError } from '@orpc/contract';
 import { HTTPException } from 'hono/http-exception';
@@ -9,6 +10,16 @@ export { AppError, isAppError } from '@agentport/core';
 
 function isErrorCode(code: string): code is ErrorCode {
   return Object.hasOwn(ERROR_META, code);
+}
+
+export function rethrowConflict(
+  err: unknown,
+  uniqueMessage: string,
+  reference?: { code: 'INVALID_INPUT' | 'INVALID_REFERENCE'; message: string },
+): never {
+  if (isPgCode(err, '23505')) fail('CONFLICT', uniqueMessage);
+  if (reference !== undefined && isPgCode(err, '23503')) fail(reference.code, reference.message);
+  throw err;
 }
 
 export function toAppError(error: unknown): AppError {
@@ -107,4 +118,4 @@ export function errorProblem(requestId: string, error: unknown): Problem {
   );
 }
 
-export { isPgCode } from '@agentport/db';
+export { isPgCode };

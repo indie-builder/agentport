@@ -5,13 +5,13 @@ import { ACCESS_SCOPES, PERMISSIONS } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { hashPassword } from 'better-auth/crypto';
 import type { RequestContext } from '../../http/context.js';
-import { isPgCode } from '../../http/errors.js';
+import { rethrowConflict } from '../../http/errors.js';
 
-function rethrowConflict(error: unknown): never {
-  if (isPgCode(error, '23505')) throw new AppError('CONFLICT', '业务 ID 或用户名已存在');
-  if (isPgCode(error, '23503')) throw new AppError('INVALID_INPUT', 'roleIds 必须引用存在的角色');
-  throw error;
-}
+const accountIdentityConflictMessage = '业务 ID 或用户名已存在';
+const accountRoleReference = {
+  code: 'INVALID_INPUT',
+  message: 'roleIds 必须引用存在的角色',
+} as const;
 
 const os = implement(authContract).$context<RequestContext>();
 
@@ -34,7 +34,7 @@ export const accountRouter = {
         ...(body.roleIds === undefined ? {} : { roleIds: body.roleIds }),
       });
     } catch (error) {
-      rethrowConflict(error);
+      rethrowConflict(error, accountIdentityConflictMessage, accountRoleReference);
     }
   }),
   status: os.accounts.status.handler(async ({ input, context }) => {
@@ -89,7 +89,7 @@ export const roleRouter = {
         })),
       });
     } catch (error) {
-      rethrowConflict(error);
+      rethrowConflict(error, accountIdentityConflictMessage, accountRoleReference);
     }
   }),
 };

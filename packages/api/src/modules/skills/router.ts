@@ -10,11 +10,13 @@ import {
   resourceAccessFilter,
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { rethrowConflict } from '../../http/errors.js';
 import { requireCursorPage } from '../../http/pagination.js';
-import { rethrowConflict, toApi } from './api.js';
+import { toApi } from './api.js';
 
 const repo = skillRepo.skills;
 const filesRepo = skillRepo.skillFiles;
+const skillSlugConflictMessage = '该 slug 已被其他技能占用，请换一个';
 type SkillWrite = Parameters<typeof repo.createSkill>[1];
 function notFound() {
   return fail('NOT_FOUND', '技能不存在，可能已被删除；请刷新后重试');
@@ -75,7 +77,7 @@ export const skillsRouter = os.router({
       });
       return toApi(row);
     } catch (err) {
-      rethrowConflict(err);
+      rethrowConflict(err, skillSlugConflictMessage);
     }
   }),
   importFile: os.importFile.handler(async ({ context, input: routeInput }) => {
@@ -95,7 +97,7 @@ export const skillsRouter = os.router({
       });
       return { skill: toApi(row), warnings };
     } catch (err) {
-      rethrowConflict(err);
+      rethrowConflict(err, skillSlugConflictMessage);
     }
   }),
   get: os.get.handler(async ({ context, input: routeInput }) => {
@@ -131,7 +133,7 @@ export const skillsRouter = os.router({
       });
       return toApi(row);
     } catch (err) {
-      rethrowConflict(err);
+      rethrowConflict(err, skillSlugConflictMessage);
     }
   }),
   delete: os.delete.handler(async ({ context, input: routeInput }) => {
