@@ -878,7 +878,7 @@ function FaqImportDialog({
         await retryJob.mutateAsync(target.jobId);
         setRetryingFrom((current) => ({ ...current, [target.documentId]: target.jobId }));
         void client.invalidateQueries({ queryKey: knowledgeKeys.faq(target.documentId) });
-        void client.invalidateQueries({ queryKey: ['knowledge', 'faq-drafts'] });
+        void client.invalidateQueries({ queryKey: knowledgeKeys.faqDrafts });
       } catch (reason) {
         setError(errorMessage(reason));
         return;

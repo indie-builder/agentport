@@ -12,6 +12,7 @@ import { can } from '../../lib/access.js';
 import { api, errorMessage, type KnowledgeModelProfile } from '../../lib/api.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
 import {
+  knowledgeKeys,
   meQuery,
   useCreateKnowledgeModelProfile,
   useKnowledgeModelProfileSelections,
@@ -720,7 +721,7 @@ export function KnowledgeSettingsDialog({
                 chunksOnly: false,
                 confirmOverwriteManualChunks: true,
               });
-              void client.invalidateQueries({ queryKey: ['knowledge'] });
+              void client.invalidateQueries({ queryKey: knowledgeKeys.all });
               toastSuccess('已开始重建全部索引');
             } finally {
               setRebuilding(false);
@@ -761,7 +762,7 @@ export function KnowledgeProfilesDialog({
   };
 
   const refresh = (): void => {
-    void client.invalidateQueries({ queryKey: ['knowledge'] });
+    void client.invalidateQueries({ queryKey: knowledgeKeys.all });
   };
 
   const test = async (profile: KnowledgeModelProfile): Promise<void> => {

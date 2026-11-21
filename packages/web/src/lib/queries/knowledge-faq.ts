@@ -123,8 +123,8 @@ export function usePublishKnowledgeFaqBatch(baseId: string) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: knowledgeKeys.faqs(baseId) });
       void client.invalidateQueries({ queryKey: knowledgeKeys.jobs(baseId) });
-      void client.invalidateQueries({ queryKey: ['knowledge', 'faq'] });
-      void client.invalidateQueries({ queryKey: ['knowledge', 'faq-drafts'] });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.faqAll });
+      void client.invalidateQueries({ queryKey: knowledgeKeys.faqDrafts });
       void client.invalidateQueries({ queryKey: knowledgeKeys.documents(baseId) });
     },
   });
@@ -182,7 +182,7 @@ export function useKnowledgeFaqDrafts(documentIds: string[], enabled: boolean) {
   const chunkIds = chunk(documentIds);
   const results = useQueries({
     queries: chunkIds.map((ids) => ({
-      queryKey: ['knowledge', 'faq-drafts', ...ids],
+      queryKey: knowledgeKeys.faqDraftList(ids),
       queryFn: () => api.knowledgeFaqDrafts(ids),
       enabled: enabled && ids.length > 0,
       staleTime: 0,
@@ -235,7 +235,7 @@ export function useKnowledgeFaqImportJobs(baseId: string, jobIds: string[]) {
   const chunkIds = chunk(jobIds);
   const results = useQueries({
     queries: chunkIds.map((ids) => ({
-      queryKey: ['knowledge', 'jobs', 'batch', baseId, ...ids],
+      queryKey: knowledgeKeys.batchJobs(baseId, ids),
       queryFn: () => api.knowledgeJobs(baseId, { ids, limit: ids.length }),
       enabled: ids.length > 0,
       retry: (failureCount: number, error: unknown) => !isMissingJob(error) && failureCount < 1,
