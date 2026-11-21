@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { sha256Hex } from '@agentport/core';
+import { canonicalJson, sha256Hex } from '@agentport/core';
 import type { AuditActorKind } from '@agentport/shared';
 import { and, asc, desc, eq, gt, gte, isNotNull, like, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
@@ -64,21 +64,6 @@ interface AuditHashMaterial {
   requestId: string | null;
   createdAt: Date;
   detail?: unknown;
-}
-
-function canonicalJson(value: unknown): string {
-  const normalize = (v: unknown): unknown => {
-    if (Array.isArray(v)) return v.map(normalize);
-    if (v !== null && typeof v === 'object') {
-      return Object.fromEntries(
-        Object.keys(v)
-          .sort()
-          .map((key) => [key, normalize((v as Record<string, unknown>)[key])]),
-      );
-    }
-    return v;
-  };
-  return JSON.stringify(normalize(JSON.parse(JSON.stringify(value) ?? 'null')));
 }
 
 function chainHash(row: AuditHashMaterial): string {

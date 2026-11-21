@@ -1,6 +1,7 @@
 import { rm } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import {
+  canonicalJson,
   conversationInputsDir,
   decodeAttachmentInput,
   displayAttachmentFilename,
@@ -32,7 +33,7 @@ import { getQueue } from '../../queue/producer.js';
 import { runQueueHasCapacity } from '../runs/capacity.js';
 import { enqueueRunJob, failQueuedRunEnqueue } from '../runs/enqueue.js';
 import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
-import { canonicalJson, enforceContentPolicy } from '../security/policy-gate.js';
+import { enforceContentPolicy } from '../security/policy-gate.js';
 import { CONVERSATION_MISSING } from './access.js';
 import {
   checkOpenUiActionSource,
