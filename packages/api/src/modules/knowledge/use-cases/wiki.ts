@@ -7,6 +7,8 @@ import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pa
 import { createJob, enqueueKnowledgeJobAfterCommit, storeBlob } from '../service.js';
 import { type KnowledgeDeps, notFound } from './shared.js';
 
+const VERSION_NOT_IN_PAGE = '版本不存在或不属于该页面';
+
 type WikiPageRow = typeof schema.knowledgeWikiPages.$inferSelect;
 
 function toWikiPage(row: WikiPageRow) {
@@ -426,7 +428,7 @@ export async function wikiDiff(
     query.fromVersionId,
     query.toVersionId,
   );
-  if (!diff) throw new AppError('NOT_FOUND', '版本不存在或不属于该页面');
+  if (!diff) throw new AppError('NOT_FOUND', VERSION_NOT_IN_PAGE);
   return diff;
 }
 
@@ -434,9 +436,9 @@ export async function publishWiki(deps: KnowledgeDeps, pageId: string, versionId
   const page = await repo.knowledge.getWikiPage(deps.db, pageId);
   if (!page) notFound('Wiki 页面');
   const prepared = await prepareWikiIndex(deps, page, versionId);
-  if (!prepared) throw new AppError('NOT_FOUND', '版本不存在或不属于该页面');
+  if (!prepared) throw new AppError('NOT_FOUND', VERSION_NOT_IN_PAGE);
   const updated = await publishWithWikiIndex(deps, page, prepared);
-  if (!updated) throw new AppError('NOT_FOUND', '版本不存在或不属于该页面');
+  if (!updated) throw new AppError('NOT_FOUND', VERSION_NOT_IN_PAGE);
   return toWikiPage(updated);
 }
 
@@ -453,7 +455,7 @@ export async function rollbackWiki(deps: KnowledgeDeps, pageId: string, versionI
       ),
     )
     .limit(1);
-  if (!source) throw new AppError('NOT_FOUND', '版本不存在或不属于该页面');
+  if (!source) throw new AppError('NOT_FOUND', VERSION_NOT_IN_PAGE);
   const draft = await repo.knowledge.saveWikiDraft(deps.db, page.id, {
     markdown: source.markdown,
     sourceChunkIds: source.sourceChunkIds,
@@ -462,7 +464,7 @@ export async function rollbackWiki(deps: KnowledgeDeps, pageId: string, versionI
   });
   if (!draft) notFound('Wiki 页面');
   const prepared = await prepareWikiIndex(deps, page, draft.id);
-  if (!prepared) throw new AppError('NOT_FOUND', '版本不存在或不属于该页面');
+  if (!prepared) throw new AppError('NOT_FOUND', VERSION_NOT_IN_PAGE);
   const published = await publishWithWikiIndex(deps, page, prepared);
   if (!published) notFound('Wiki 页面');
   return toWikiVersion(draft);
