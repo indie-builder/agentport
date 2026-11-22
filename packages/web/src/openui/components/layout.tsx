@@ -267,7 +267,11 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
       }}
       className="min-w-0"
     >
-      <TabsList variant="line" className="w-full justify-start gap-1 overflow-x-auto px-[3px]">
+      <TabsList
+        variant="line"
+        aria-label="标签页"
+        className="w-full justify-start gap-1 overflow-x-auto px-[3px] [&_[role=tab]]:after:bottom-[-4.5px]"
+      >
         {items.map((item, index) => (
           <TabsTrigger
             key={values[index] ?? index}
