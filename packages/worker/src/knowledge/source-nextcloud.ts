@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { z } from 'zod';
 import { EXTENSION_BY_MIME, extensionWithDot, mimeOf } from './source-formats.js';
@@ -624,7 +623,7 @@ async function walk(
 }
 
 function createPathDigest(value: string): string {
-  return createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 16);
+  return new Bun.CryptoHasher('sha256').update(value, 'utf8').digest('hex').slice(0, 16);
 }
 
 export async function readNextcloud(

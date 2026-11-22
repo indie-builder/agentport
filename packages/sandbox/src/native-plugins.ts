@@ -3,7 +3,6 @@ import { lstat, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promise
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import {
   AGENT_PACKAGE_MAX_ENTRIES,
@@ -19,6 +18,7 @@ import {
   type PluginFileInput,
   pluginFileInputSchema,
 } from '@agentport/shared';
+import * as Bun from 'bun';
 import { readTask } from './stdin-task.js';
 
 const CACHE_ROOT = PLUGIN_CACHE_CONTAINER_DIR;
@@ -394,6 +394,6 @@ async function main(): Promise<void> {
   process.stdout.write(`${JSON.stringify(output)}\n`);
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] !== undefined && import.meta.url === Bun.pathToFileURL(process.argv[1]).href) {
   await main();
 }

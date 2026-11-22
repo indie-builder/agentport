@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { decryptSecrets, isAppError } from '@agentport/core';
 import { type Database, repo } from '@agentport/db';
 import type {
@@ -190,7 +189,7 @@ export function buildDataDomainServer(input: DataDomainServerInput): McpHttpHand
           input.dataDomainId,
         );
         if (domainForApproval?.queryApprovalMode === 'all') {
-          const sqlHash = createHash('sha256').update(args.sql.trim()).digest('hex');
+          const sqlHash = new Bun.CryptoHasher('sha256').update(args.sql.trim()).digest('hex');
           const latest = await repo.dataDomains.getLatestDataDomainQueryApproval(input.db, {
             dataDomainId: input.dataDomainId,
             runId: input.runId,

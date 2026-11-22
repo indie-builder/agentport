@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { chmod, lstat, open, readdir, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -120,7 +119,7 @@ export async function writeMemoryJournal(
   const name = journalName(entry.operationId);
   await withMemoryJournalDir(workspacesDir, slug, true, async (dir) => {
     await chmod(dir, 0o700);
-    const temp = join(dir, `.${name}.${randomUUID()}.tmp`);
+    const temp = join(dir, `.${name}.${crypto.randomUUID()}.tmp`);
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
       handle = await open(

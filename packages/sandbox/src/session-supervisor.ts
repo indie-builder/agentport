@@ -3,7 +3,6 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
 import {
   chatEventSchema,
   type ExecutionSettlement,
@@ -14,6 +13,7 @@ import {
   type SupervisorOutput,
   supervisorInputSchema,
 } from '@agentport/shared';
+import * as Bun from 'bun';
 
 interface SupervisorOptions {
   stdin: Readable;
@@ -178,7 +178,8 @@ class Supervisor {
 
   constructor(options: SupervisorOptions) {
     this.stdout = options.stdout;
-    this.runnerPath = options.runnerPath ?? fileURLToPath(new URL('./runner.js', import.meta.url));
+    this.runnerPath =
+      options.runnerPath ?? Bun.fileURLToPath(new URL('./runner.js', import.meta.url));
     this.graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
     this.reader = new NdjsonReader(options.stdin, SUPERVISOR_INPUT_MAX_BYTES, {
       signal: options.signal,
@@ -587,7 +588,7 @@ export function runSupervisor(options: SupervisorOptions): Promise<void> {
 function isEntryPoint(): boolean {
   const entry = process.argv[1];
   if (entry === undefined) return false;
-  return resolve(entry) === fileURLToPath(import.meta.url);
+  return resolve(entry) === Bun.fileURLToPath(import.meta.url);
 }
 
 if (isEntryPoint()) {

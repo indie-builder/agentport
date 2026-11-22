@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { knowledgeBlobPath } from './knowledge-paths.js';
@@ -10,7 +9,7 @@ export async function writeKnowledgeBlob(
 ): Promise<void> {
   const target = knowledgeBlobPath(knowledgeDir, sha);
   await mkdir(dirname(target), { recursive: true });
-  const temp = `${target}.tmp-${randomUUID()}`;
+  const temp = `${target}.tmp-${crypto.randomUUID()}`;
   try {
     await writeFile(temp, data);
     await rename(temp, target);

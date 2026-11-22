@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { AppError } from '@agentport/core';
 import {
   errorText,
@@ -41,7 +40,7 @@ export async function closeSessionSandboxes(input: CloseSessionSandboxesInput): 
   if (targets.length === 0) return;
 
   const timeoutMs = input.timeoutMs ?? SESSION_CLEANUP_TIMEOUT_MS;
-  const requestId = randomUUID();
+  const requestId = crypto.randomUUID();
   const deadline = Date.now() + timeoutMs;
   const request: SessionCleanupRequest = { requestId, deadline, targets };
   const channel = sessionCleanupAckChannel(requestId);

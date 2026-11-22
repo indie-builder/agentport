@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { fail, isAppError, sha256Hex } from '@agentport/core';
 import type {
   KnowledgeFaq,
@@ -716,7 +715,7 @@ export function planFaqImport(input: {
 }
 
 export function newFaqImportBatchId(): string {
-  return `kfib_${randomUUID()}`;
+  return `kfib_${crypto.randomUUID()}`;
 }
 
 function csvCell(value: string): string {

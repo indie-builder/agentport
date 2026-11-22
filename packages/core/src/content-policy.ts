@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import type { ContentPolicy, ContentPolicyDirection } from '@agentport/shared';
+import * as Bun from 'bun';
 
 type ContentPolicyRule = Pick<
   ContentPolicy,
@@ -116,7 +116,7 @@ function applySpans(text: string, spans: Span[]): string {
 
 function digestOf(spans: Span[], text: string): string {
   const matched = spans.map((span) => text.slice(span.start, span.end)).sort();
-  return createHash('sha256').update(matched.join('\n')).digest('hex').slice(0, 32);
+  return new Bun.CryptoHasher('sha256').update(matched.join('\n')).digest('hex').slice(0, 32);
 }
 
 type ProviderRoute = { id: string; baseUrl: string };
@@ -128,7 +128,7 @@ export function envProviderDestination(baseUrl?: string) {
 }
 
 export function providerRouteDestination(provider: ProviderRoute): string {
-  const digest = createHash('sha256').update(provider.baseUrl).digest('hex').slice(0, 16);
+  const digest = new Bun.CryptoHasher('sha256').update(provider.baseUrl).digest('hex').slice(0, 16);
   return `provider:${provider.id}:${digest}`;
 }
 

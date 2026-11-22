@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { WorkspacePlugin, WorkspaceSkill } from '@agentport/core';
@@ -572,7 +572,7 @@ export async function runAgentJob(
         promptWithSelectedOutput(promptWithOpenUiAction(openuiContent, prompt), chosenOutput),
         messageAttachments(userMessage.content),
       );
-      const userMessageUuid = userMessage.sdkMessageUuid ?? randomUUID();
+      const userMessageUuid = userMessage.sdkMessageUuid ?? crypto.randomUUID();
       if (userMessage.sdkMessageUuid === null) {
         await db
           .update(schema.messages)

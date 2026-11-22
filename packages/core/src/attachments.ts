@@ -1,4 +1,3 @@
-import { createHash, randomUUID } from 'node:crypto';
 import {
   chmod,
   lstat,
@@ -24,6 +23,7 @@ import {
   segmentIdPattern,
   slugSchema,
 } from '@agentport/shared';
+import * as Bun from 'bun';
 import { AGENT_DIR_SLUG_INVALID_MESSAGE, fail } from './errors.js';
 import { pathSegmentsProblem } from './path-segments.js';
 
@@ -179,11 +179,11 @@ export function decodeAttachmentInput(input: ChatAttachmentInput): DecodedConver
     fail('INVALID_INPUT', `${filename} ${problem}`, { path: '/dataBase64' });
   }
   return {
-    id: randomUUID(),
+    id: crypto.randomUUID(),
     filename,
     mimeType,
     size: data.length,
-    sha256: createHash('sha256').update(data).digest('hex'),
+    sha256: new Bun.CryptoHasher('sha256').update(data).digest('hex'),
     extension: attachmentExtension(mimeType),
     data,
   };
@@ -263,7 +263,7 @@ async function writeFiles(
   try {
     for (const file of files) {
       const destination = join(dir, file.name);
-      const temp = join(dir, `.tmp-${randomUUID()}`);
+      const temp = join(dir, `.tmp-${crypto.randomUUID()}`);
       temps.push(temp);
       await writeFile(temp, file.data, { flag: 'wx', mode: 0o600 });
       await rename(temp, destination);
