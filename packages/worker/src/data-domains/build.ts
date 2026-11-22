@@ -1,4 +1,9 @@
-import { decryptSecrets } from '@agentport/core';
+import {
+  BUILD_ABORTED_MESSAGE,
+  BUILD_LOG_WRITE_FAILED_MESSAGE,
+  BUILD_TIMEOUT_MESSAGE,
+  decryptSecrets,
+} from '@agentport/core';
 import type { Database } from '@agentport/db';
 import { repo } from '@agentport/db';
 import {
@@ -202,7 +207,11 @@ async function runDataDomainBuild(
     body = await response.json();
   } catch {
     await failBuild(
-      timedOut ? '构建超时' : deps.signal.aborted ? '构建已中断' : 'wren runtime 请求失败',
+      timedOut
+        ? BUILD_TIMEOUT_MESSAGE
+        : deps.signal.aborted
+          ? BUILD_ABORTED_MESSAGE
+          : 'wren runtime 请求失败',
     );
     return;
   } finally {
@@ -228,7 +237,7 @@ async function runDataDomainBuild(
       parsed.data.logTruncated,
     );
   } catch {
-    await failBuild('构建日志写入失败');
+    await failBuild(BUILD_LOG_WRITE_FAILED_MESSAGE);
     return;
   }
   try {
