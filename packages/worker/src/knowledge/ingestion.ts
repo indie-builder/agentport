@@ -6,6 +6,8 @@ import {
   embedImages,
   embedTexts,
   ensureKnowledgeBlob,
+  KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE,
+  KNOWLEDGE_SOURCE_NOT_FOUND_MESSAGE,
   KnowledgeModelError,
   knowledgeBlobPath,
   knowledgeBlobsRoot,
@@ -1118,7 +1120,7 @@ export async function runIngest(
   const payload = requirePayload(job);
   if (payload.type !== 'ingest') throw new Error('job 类型不是 ingest');
   const document = await repo.knowledge.getDocument(deps.db, payload.documentId);
-  if (!document) throw new Error('文档不存在，可能已被删除');
+  if (!document) throw new Error(KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE);
   if (document.contentKind === 'faq') {
     try {
       if (!payload.versionId) throw new Error('FAQ ingest job 缺少 versionId');
@@ -1615,7 +1617,7 @@ export async function runSync(
   const payload = requirePayload(job);
   if (payload.type !== 'sync') throw new Error('job 类型不是 sync');
   const read = await repo.knowledge.getSourceReadSnapshot(deps.db, payload.sourceId);
-  if (!read) throw new Error('来源不存在，可能已被删除');
+  if (!read) throw new Error(KNOWLEDGE_SOURCE_NOT_FOUND_MESSAGE);
   const { source, snapshot } = read;
   if (!SYNCABLE.has(source.status)) {
     throw new KnowledgeCancelled();
@@ -1790,7 +1792,7 @@ export async function runSourceProbe(
   const payload = requirePayload(job);
   if (payload.type !== 'source_probe') throw new Error('job 类型不是 source_probe');
   const read = await repo.knowledge.getSourceReadSnapshot(deps.db, payload.sourceId);
-  if (!read) throw new Error('来源不存在，可能已被删除');
+  if (!read) throw new Error(KNOWLEDGE_SOURCE_NOT_FOUND_MESSAGE);
   const { source, snapshot } = read;
   const connector = deps.connectors[source.type];
   if (!connector?.probe) throw new Error(`不支持的来源类型 ${source.type}`);

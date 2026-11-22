@@ -1,4 +1,4 @@
-import { AppError } from '@agentport/core';
+import { AppError, KNOWLEDGE_BASE_NOT_FOUND_MESSAGE } from '@agentport/core';
 import {
   type KnowledgeFaq,
   type KnowledgeFaqImportMetadata,
@@ -111,7 +111,7 @@ export async function saveFaqImportDrafts(
       .from(knowledgeBases)
       .where(eq(knowledgeBases.id, input.baseId))
       .limit(1);
-    if (!base) throw new AppError('NOT_FOUND', '知识库不存在，可能已被删除');
+    if (!base) throw new AppError('NOT_FOUND', KNOWLEDGE_BASE_NOT_FOUND_MESSAGE);
     if (input.drafts.length === 0) {
       throw new AppError('INVALID_INPUT', '导入批次没有可写入的 FAQ');
     }
@@ -259,7 +259,7 @@ export async function publishFaqImport(
       .from(knowledgeBases)
       .where(eq(knowledgeBases.id, input.baseId))
       .limit(1);
-    if (!base) throw new AppError('NOT_FOUND', '知识库不存在，可能已被删除');
+    if (!base) throw new AppError('NOT_FOUND', KNOWLEDGE_BASE_NOT_FOUND_MESSAGE);
     if (base.status !== 'active') {
       throw new AppError('CONFLICT', '知识库已停用，不能发布 FAQ 批次');
     }

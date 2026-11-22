@@ -1,4 +1,8 @@
-import { AppError, DOCUMENT_VERSION_STALE_MESSAGE } from '@agentport/core';
+import {
+  AppError,
+  DOCUMENT_VERSION_STALE_MESSAGE,
+  KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE,
+} from '@agentport/core';
 import type { KnowledgeLocator } from '@agentport/shared';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
@@ -537,7 +541,7 @@ export async function editDocumentChunks(
       .from(knowledgeDocuments)
       .where(eq(knowledgeDocuments.id, input.documentId))
       .for('update');
-    if (!document) throw new AppError('NOT_FOUND', '文档不存在，可能已被删除');
+    if (!document) throw new AppError('NOT_FOUND', KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE);
     if (!document.currentVersionId || document.currentVersionId !== input.expectedVersionId) {
       throw new AppError('CONFLICT_STALE', DOCUMENT_VERSION_STALE_MESSAGE);
     }
