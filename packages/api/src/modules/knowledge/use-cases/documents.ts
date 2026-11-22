@@ -43,6 +43,7 @@ import {
   fileTitle,
   type KnowledgeDeps,
   notFound,
+  VERSION_NOT_IN_DOCUMENT_MESSAGE,
   type VersionRow,
 } from './shared.js';
 
@@ -683,7 +684,7 @@ export async function listChunks(
   if (versionId !== row.currentVersionId) {
     const version = await repo.knowledge.getVersion(deps.db, versionId);
     if (!version || version.documentId !== row.id) {
-      throw new AppError('INVALID_INPUT', '版本不存在或不属于该文档');
+      throw new AppError('INVALID_INPUT', VERSION_NOT_IN_DOCUMENT_MESSAGE);
     }
   }
   const page = requireCursorPage(
@@ -901,7 +902,7 @@ export async function rollbackDocument(
   if (!document) notFound('文档');
   const version = await repo.knowledge.getVersion(deps.db, body.versionId);
   if (!version || version.documentId !== document.id) {
-    throw new AppError('NOT_FOUND', '版本不存在或不属于该文档');
+    throw new AppError('NOT_FOUND', VERSION_NOT_IN_DOCUMENT_MESSAGE);
   }
   const base = await repo.knowledge.getBase(deps.db, document.baseId);
   if (!base) notFound('知识库');

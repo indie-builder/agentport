@@ -15,6 +15,8 @@ import {
   type KnowledgeDocumentRow,
 } from '../service.js';
 
+export const VERSION_NOT_IN_DOCUMENT_MESSAGE = '版本不存在或不属于该文档';
+
 export type KnowledgeDeps = {
   db: Database;
   config: Config;

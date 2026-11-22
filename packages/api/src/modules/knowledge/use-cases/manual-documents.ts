@@ -19,6 +19,7 @@ import {
   fileTitle,
   type KnowledgeDeps,
   notFound,
+  VERSION_NOT_IN_DOCUMENT_MESSAGE,
 } from './shared.js';
 
 const URL_FETCH_TIMEOUT_MS = 20_000;
@@ -217,7 +218,7 @@ export async function publishManualDocument(
   const document = await manualDocument(deps, documentId);
   const version = await repo.knowledge.getVersion(deps.db, body.versionId);
   if (!version || version.documentId !== document.id) {
-    throw new AppError('NOT_FOUND', '版本不存在或不属于该文档');
+    throw new AppError('NOT_FOUND', VERSION_NOT_IN_DOCUMENT_MESSAGE);
   }
   const row = await repo.knowledge.activateDocumentVersion(deps.db, {
     documentId: document.id,
