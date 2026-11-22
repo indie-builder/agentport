@@ -318,6 +318,7 @@ async function assertProposalAllowed(
 }
 
 const MEMORY_REVIEW_PROMPT = '记忆审核';
+const REVIEW_ENQUEUE_FAILED_MESSAGE = '记忆审核入队失败，请稍后重试';
 
 async function enqueueReviewRun(
   context: RequestContext,
@@ -335,7 +336,7 @@ async function enqueueReviewRun(
     );
   } catch (error) {
     if (isAppError(error)) throw error;
-    fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试', { cause: error });
+    fail('SERVICE_UNAVAILABLE', REVIEW_ENQUEUE_FAILED_MESSAGE, { cause: error });
   }
 }
 
@@ -376,13 +377,13 @@ async function replayReviewRun(
     return;
   }
   const latest = await repo.chat.getRun(context.db, run.id);
-  if (latest === null) fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试');
+  if (latest === null) fail('SERVICE_UNAVAILABLE', REVIEW_ENQUEUE_FAILED_MESSAGE);
   if (latest.status === 'queued') {
     await enqueueReviewRun(context, latest);
     return;
   }
   if (repo.runPredicates.isNeverStartedFailure(latest)) {
-    fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试');
+    fail('SERVICE_UNAVAILABLE', REVIEW_ENQUEUE_FAILED_MESSAGE);
   }
 }
 
@@ -399,7 +400,7 @@ async function replayReview(
   await writeReviewCreatedAudit(context, review.runId, body);
   if (review.decision !== 'pending') return { runId: review.runId };
   const run = await repo.chat.getRun(context.db, review.runId);
-  if (run === null) fail('SERVICE_UNAVAILABLE', '记忆审核入队失败，请稍后重试');
+  if (run === null) fail('SERVICE_UNAVAILABLE', REVIEW_ENQUEUE_FAILED_MESSAGE);
   await replayReviewRun(context, run, {
     scope,
     sources: body.sources,
