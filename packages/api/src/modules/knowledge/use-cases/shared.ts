@@ -114,6 +114,17 @@ export async function enqueue(
   return job;
 }
 
+export async function enqueueSourceSync(deps: KnowledgeDeps, sourceId: string) {
+  const created = await repo.knowledge.createSyncJob(deps.db, sourceId);
+  if (created.status === 'not_found') notFound('来源');
+  if (created.status === 'not_active') throw new AppError('CONFLICT', '来源未启用，无法同步');
+  if (created.status === 'in_progress') {
+    throw new AppError('CONFLICT', '该来源已有同步任务在进行中');
+  }
+  await enqueueKnowledgeJobAfterCommit(deps.log, created.job);
+  return created;
+}
+
 async function folderIssue(deps: KnowledgeDeps, baseId: string, folderId: string | null) {
   if (!folderId) return false;
   const folder = await repo.knowledge.getFolder(deps.db, folderId);
