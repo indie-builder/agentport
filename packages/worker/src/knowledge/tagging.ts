@@ -4,6 +4,8 @@ import { KNOWLEDGE_DOCUMENT_MISSING_MESSAGE } from '@agentport/core';
 import { type Database, repo, type schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import {
+  DOCUMENT_NO_CONTENT_MESSAGE,
+  DOCUMENT_UNREADABLE_MESSAGE,
   knowledgeJobPayloadSchema,
   TAGGING_DOCUMENT_DISABLED_MESSAGE,
   TAGGING_DOCUMENT_NO_VERSION_MESSAGE,
@@ -87,7 +89,7 @@ export async function runKnowledgeTagging(job: JobRow, deps: TaggingDeps): Promi
     throw new Error('文档版本已变化，标签未更新');
   }
   if (!(await repo.knowledge.isDocumentReadable(db, document.id))) {
-    throw new Error('文档当前不可读（来源未授权或不在范围）');
+    throw new Error(DOCUMENT_UNREADABLE_MESSAGE);
   }
 
   const model = deps.config.KNOWLEDGE_SUMMARY_MODEL;
@@ -97,7 +99,7 @@ export async function runKnowledgeTagging(job: JobRow, deps: TaggingDeps): Promi
     document.summary !== null && document.summaryVersionId === versionId
       ? `${document.title}\n\n${document.summary}`
       : await repo.knowledge.readVersionText(db, versionId, CONTENT_LIMIT);
-  if (content.trim() === '') throw new Error('文档当前版本没有可用正文');
+  if (content.trim() === '') throw new Error(DOCUMENT_NO_CONTENT_MESSAGE);
 
   const result: { tags: string[] | null } = { tags: null };
   const cwd = join(deps.config.KNOWLEDGE_DIR, 'tagging-sdk', job.id);

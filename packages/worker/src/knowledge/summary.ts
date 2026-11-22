@@ -4,6 +4,8 @@ import { KNOWLEDGE_DOCUMENT_MISSING_MESSAGE } from '@agentport/core';
 import { type Database, repo, type schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import {
+  DOCUMENT_NO_CONTENT_MESSAGE,
+  DOCUMENT_UNREADABLE_MESSAGE,
   errorText,
   knowledgeJobPayloadSchema,
   SUMMARY_CANCELLED_MESSAGE,
@@ -84,7 +86,7 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
   };
 
   if (!(await repo.knowledge.isDocumentReadable(db, document.id))) {
-    return fail('文档当前不可读（来源未授权或不在范围）');
+    return fail(DOCUMENT_UNREADABLE_MESSAGE);
   }
   if (document.currentVersionId !== payload.versionId) {
     return fail('文档版本已变化，请重新生成');
@@ -96,7 +98,7 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
   let summary: string | null = null;
   try {
     const content = await repo.knowledge.readVersionText(db, versionId, CONTENT_LIMIT);
-    if (content === '') throw new Error('文档当前版本没有可用正文');
+    if (content === '') throw new Error(DOCUMENT_NO_CONTENT_MESSAGE);
     await repo.knowledge.beginDocumentSummary(db, document.id, versionId, 'generating', versionId);
     const cwd = join(deps.config.KNOWLEDGE_DIR, 'summary-sdk', job.id);
     await mkdir(cwd, { recursive: true, mode: 0o700 });
