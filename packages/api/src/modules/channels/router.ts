@@ -28,7 +28,13 @@ import { getQueue, type RunSubscription, subscribeChannel } from '../../queue/pr
 import { requireRunQueueCapacity } from '../runs/capacity.js';
 import { channelsApprovalsRouter } from './approvals.js';
 import { cancelRunBatch, channelsControlRouter } from './control.js';
-import { CHANNEL_MEMBER_MISSING, conflict, forbidden, notFound } from './errors.js';
+import {
+  AGENT_BINDING_FORBIDDEN,
+  CHANNEL_MEMBER_MISSING,
+  conflict,
+  forbidden,
+  notFound,
+} from './errors.js';
 import { channelsHandoffRouter } from './handoff.js';
 import { publishChannelMessageSafely } from './publish.js';
 import { channelsRunsRouter } from './runs.js';
@@ -311,7 +317,7 @@ const channelsMainRouter = {
     );
     if (access.kind === 'not_found') return notFound();
     if (access.kind === 'forbidden') {
-      return forbidden('当前频道角色无权管理智能体绑定');
+      return forbidden(AGENT_BINDING_FORBIDDEN);
     }
     await authorizeObject(context, 'agents.use', { agentId }, '智能体不存在，可能已被删除');
     const result = await channelRepo.addAgentBinding(
@@ -324,7 +330,7 @@ const channelsMainRouter = {
       case 'not_found':
         return result.target === 'agent' ? notFound('智能体不存在，可能已被删除') : notFound();
       case 'forbidden':
-        return forbidden('当前频道角色无权管理智能体绑定');
+        return forbidden(AGENT_BINDING_FORBIDDEN);
       case 'conflict':
         return conflict('该智能体已绑定此频道');
       case 'ok':
@@ -344,7 +350,7 @@ const channelsMainRouter = {
     );
     if (access.kind === 'not_found') return notFound();
     if (access.kind === 'forbidden') {
-      return forbidden('当前频道角色无权管理智能体绑定');
+      return forbidden(AGENT_BINDING_FORBIDDEN);
     }
     const result = await channelRepo.updateAgentBinding(
       context.db,
@@ -357,7 +363,7 @@ const channelsMainRouter = {
       case 'not_found':
         return result.target === 'agent' ? notFound('智能体绑定不存在') : notFound();
       case 'forbidden':
-        return forbidden('当前频道角色无权管理智能体绑定');
+        return forbidden(AGENT_BINDING_FORBIDDEN);
       case 'ok':
         await auditWrite(context, {
           action: 'channel.agent.updated',
@@ -378,7 +384,7 @@ const channelsMainRouter = {
       case 'not_found':
         return result.target === 'agent' ? notFound('智能体绑定不存在') : notFound();
       case 'forbidden':
-        return forbidden('当前频道角色无权管理智能体绑定');
+        return forbidden(AGENT_BINDING_FORBIDDEN);
       case 'ok': {
         const cancel = await cancelRunBatch(context, input.params.id, result.runs);
         if (cancel.failedRunIds.length > 0) {
