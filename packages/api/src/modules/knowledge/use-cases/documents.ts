@@ -1,6 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import {
   AppError,
+  DOCUMENT_VERSION_STALE_MESSAGE,
   diffLinesOrdered,
   inspectKnowledgeAudio,
   knowledgeVersionDir,
@@ -732,7 +733,7 @@ export async function createChunk(
   editableChunkDocument(row);
   if (!row.currentVersionId) throw new AppError('CONFLICT', '文档还没有可用版本');
   if (body.expectedVersionId !== row.currentVersionId) {
-    throw new AppError('CONFLICT_STALE', '文档版本已变化，请刷新后重试');
+    throw new AppError('CONFLICT_STALE', DOCUMENT_VERSION_STALE_MESSAGE);
   }
   const current = await repo.knowledge.getVersion(deps.db, row.currentVersionId);
   if (!current) throw new AppError('CONFLICT', '文档当前版本已失效');
