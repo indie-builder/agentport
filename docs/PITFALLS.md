@@ -12,7 +12,7 @@
 | worktree 与依赖安装 | 复制到 worktree 的 `.env` 可能比刚确认的配置旧；多个 worktree 同时跑全栈 compose 会互相踩；EnterWorktree 的 name 只接受 ASCII slug；实现：新 worktree 不一定基于最新 `origin/main`；迁移：删依赖后旧 `node_modules` 残留会掩盖未迁移的测试与 E2E；不要把任务跟踪资料写进 `.claude/worktrees/` |
 | 检索失败 / 命令被拒 | 未加引号的 glob 让检索命令整条失败；worktree 里两类命令会被拒绝，原因不同；流程：worktree 内的 shell 守卫会拒绝拼接运行时密钥与复杂复合命令 |
 | 数据库与迁移 | 数据库：迁移账本漂移或共享库已有列时不要手改账本；迁移台账与仓库 journal 不一致，所有登录 500；数据库：新增运行触发值要同步扩展 CHECK 约束；数据库：Drizzle `sql` 模板里的 JS 数组会展开成多个占位符；数据库：单表 SELECT 的 SQL 子查询可能丢失外层列限定名；数据库：Drizzle DESC NULLS LAST 索引未必匹配默认倒序；数据库：复合外键的引用目标必须是 UNIQUE 约束，不能是 uniqueIndex；数据库：partial index 的 eq 参数会被 drizzle-kit 序列化成 $1；数据库：`userId` 改 `businessId` 必须选 rename，且 Vite 会把真实迁移错误掩成 `charCodeAt`；数据库：partial unique index 只保证「至多一个」，不保证「恰好一个」；数据库（历史背景）：ON DELETE RESTRICT 报 23001，不是 23503 |
-| 沙盒与镜像 | 测试：陈旧沙盒镜像让 strict schema 拒绝新字段；镜像：官方 CLI 的 Bash 工具需要真正的 bash/zsh，busybox sh 不够；运行：运行环境的 base image 由 API 入队冻结，API 与 worker 必须同 `SANDBOX_IMAGE`；镜像：恢复旧镜像 ID 不等于它能被当前 worker 执行；附件：目录权限与相对路径会让沙盒读不到文件；实现：被工作区与产出共用的目录刷新不能无条件保留记忆挂载根 |
+| 沙盒与镜像 | 测试：陈旧沙盒镜像让 strict schema 拒绝新字段；镜像：官方 CLI 的 Bash 工具需要真正的 bash/zsh，busybox sh 不够；运行：运行环境的 base image 由 API 入队冻结，API 与 worker 必须同 `SANDBOX_IMAGE`；镜像：恢复旧镜像 ID 不等于它能被当前 worker 执行；附件：目录权限与相对路径会让沙盒读不到文件；实现：被工作区与产出共用的目录刷新不能无条件保留记忆挂载根；运行：默认助手跟随平台默认环境的线上版本，不能固定旧版本 |
 | 测试与 E2E | 测试：全量并行时偶发 401，根因是登录后会话没落库；测试：全量并行时不同文件每轮随机失败，根因是跨文件共享的测试身份与信道；测试：E2E session 只保存登录，不会替你打开页面；测试：精简文案后要同步真实端到端定位器；测试：`RATE_LIMIT_DISABLED` 在构建 app 时读取；测试：跨 worktree 登录要从实际域名提交；测试：私有队列配全表对账会互相收敛别的测试记录；测试：测试库隔离必须尊重注入地址，不能隐式改写或回落固定库；测试：用行锁编排 claim/取消竞争时，等锁对象不一定是同一个；测试：依赖真实文件系统的 spawn 就绪要用明确信号，不能数 `setImmediate` 轮数；测试：读全表的接口测试要复用项目测试 config 并预置正常加密记录；测试：组件覆盖的「豁免清单」会冒充已覆盖；测试：个人记忆相关套件共用同一行，必须用会话级 advisory 锁；测试：生产 ESM/CJS 互操作不能用测试运行结果代替；测试：macOS 的 `os.tmpdir()` 是软链路径，测试工作区要先 realpath；测试：故障删除用例持共享绑定锁等满 ACK，会拖垮同轮并行套件；测试：跨进程共享的同步写文件不是原子操作；测试：消息持久化与账号重建套件共用 worker 身份会冲突；测试：依赖安装与测试运行并发会让新 worker 丢掉旧 peer 路径；测试：给共用页面新增查询后，其他测试文件的「未配置请求」断言会集体失败；测试：清理专家时先删父专家会违反 `agents_parent_id_agents_id_fk`；压测：回滚语义夹具仍会改变计时库的物理状态 |
 | Redis 与共享实例 | 验收：临时脚本切 Redis 库号后清库仍会影响共享实例；测试：队列消费者检查要看库号和队列名，不能只看实例；运行：worker 写入预算与 Redis 保留窗口不一致会让刷新丢掉流头；运行：Redis 主动 close 也会触发 onclose，排空与释放必须分开 |
 | 日志与观测 | 验证：从 SSE 日志用宽松正则拼文本会造出「重复内容」的假象；SSE：`subscribeRun` 回放完才 resolve，await 之后启动的定时器保护不了长回放；运行：`/health` 只证明连通，不证明 schema 与当前代码匹配 |
@@ -849,3 +849,9 @@
 - **现象**：30 个会话日志里 10 次 `gh pr merge <n> --squash --delete-branch` 报 `failed to run git: fatal: 'main' is already used by worktree at '/Users/xbjt/Documents/myself/agentport'`；去掉 `--delete-branch` 的同一条命令每次都成功。
 - **原因**：main 固定在主 checkout 上，gh 合并后尝试切回 main 删除本地分支，git 拒绝在已被 worktree 占用的分支上操作；此时远端通常已经合并。
 - **规避**：症状只用于识别；合并命令与核对步骤以 `docs/DEV-WORKFLOW.md` §2-6 为准。
+
+## 运行：默认助手跟随平台默认环境的线上版本，不能固定旧版本
+
+- **现象**：运行环境重建并发布新版本后，平台默认助手「通用助手」的对话失败，worker 日志为 `session supervisor exited with code 127` / `tini exec bun failed`；正常发布的专家不受影响。
+- **原因**：默认助手不能被编辑或重新发布（`agentPermissionAllows` 只给它 `agents.read` / `agents.use`），其版本快照永久固定旧环境 `versionId`；旧版本的镜像过期或缺少 `bun` 时，容器无法启动。
+- **规避**：默认助手始终按所选环境的**线上**版本解析镜像，worker 不为它传 `runtimeEnvironmentVersionId`；普通已发布专家保持固定版本，环境版本变化后必须重新发布才会切换镜像。
