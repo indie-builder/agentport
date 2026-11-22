@@ -146,4 +146,4 @@
 | OpenUI 生成物 `openui.spec.json` 与组件库保持同步 | CI | `scripts/check-openui.mjs`（`bun run openui:check`） |
 | 文档链接/锚点/行内路径有效、禁 `pnpm`/`npm` 命令、`PITFALLS` 索引一致 | Lint + CI | `scripts/check-docs.mjs`（`bun run lint:docs`） |
 | 禁止显式 `any`、格式与 import 排序、全仓类型检查 | 类型 + Lint + CI | `biome.json`（`bun run lint`）+ `tsconfig.base.json`（`bun run typecheck`）+ `scripts/ci.ts`（`bun run ci`） |
-| Agent Run 生命周期并发/重放/pendingFinish 状态机不变量 | 形式化模型 + CI | `formal/agent-run-lifecycle/AgentRunLifecycle.tla`（`bun run verify:formal`，已接入 `scripts/ci.ts`） |
+| 并发/重放状态机不变量（Agent Run 生命周期、调度器 sync 单飞） | 形式化模型 + CI | `formal/agent-run-lifecycle/AgentRunLifecycle.tla`、`formal/scheduler-sync/SchedulerSync.tla`（`bun run verify:formal`，已接入 `scripts/ci.ts`） |
