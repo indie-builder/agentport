@@ -42,6 +42,8 @@ import {
   decodeZipEntries,
   inspectZipEntries,
   invalid,
+  PACKAGE_PATH_SEGMENT_MESSAGE,
+  ZIP_CORRUPT_MESSAGE,
   type ZipReadLimits,
 } from '../agents/package-zip.js';
 import { storeBlob as storeDocumentBlob, supportsImageVectors } from './service.js';
@@ -260,7 +262,7 @@ function withoutRuntimeMetadata(metadata: Record<string, unknown>): Record<strin
 
 function assertEntryPath(path: string): void {
   assertPackagePath(path);
-  if (path.endsWith('/')) invalid('包内路径不能包含空段、. 或 ..', path);
+  if (path.endsWith('/')) invalid(PACKAGE_PATH_SEGMENT_MESSAGE, path);
 }
 
 /**
@@ -278,7 +280,7 @@ function readZip(data: Buffer): Map<string, Buffer> {
     );
   } catch (err) {
     if (isAppError(err)) throw err;
-    invalid('ZIP 内容损坏，无法解压');
+    invalid(ZIP_CORRUPT_MESSAGE);
   }
 }
 
