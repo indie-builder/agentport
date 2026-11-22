@@ -17,6 +17,9 @@ export function providerErrorKindForStatus(status: number): ProviderErrorKind {
   return 'upstream';
 }
 
+export const PROVIDER_TIMEOUT_MESSAGE = '请求超时';
+export const PROVIDER_NETWORK_MESSAGE = '网络错误';
+
 export const modelProviderProtocolSchema = z.literal('anthropic');
 
 const modelProviderCredentialSchema = z

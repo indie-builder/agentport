@@ -3,7 +3,12 @@ import { pipeline } from 'node:stream/promises';
 
 import { CONTENT_BLOCKED_MESSAGE } from '@agentport/core';
 import type { repo } from '@agentport/db';
-import { type ProviderErrorKind, providerErrorKindForStatus } from '@agentport/shared';
+import {
+  PROVIDER_NETWORK_MESSAGE,
+  PROVIDER_TIMEOUT_MESSAGE,
+  type ProviderErrorKind,
+  providerErrorKindForStatus,
+} from '@agentport/shared';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 
@@ -304,7 +309,10 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
           if (abort.signal.aborted) return;
           const timedOut = startAbort.signal.aborted;
           lastError = timedOut ? 'timeout' : 'network';
-          await recordAttempt({ errorKind: lastError, error: timedOut ? '请求超时' : '网络错误' });
+          await recordAttempt({
+            errorKind: lastError,
+            error: timedOut ? PROVIDER_TIMEOUT_MESSAGE : PROVIDER_NETWORK_MESSAGE,
+          });
           failoverFrom = providerId;
           continue;
         }
@@ -408,7 +416,11 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
               statusCode,
               upstreamRequestId,
               errorKind: lastError,
-              error: timedOut ? '请求超时' : readFailed ? '上游响应中断' : '上游未能开始流式响应',
+              error: timedOut
+                ? PROVIDER_TIMEOUT_MESSAGE
+                : readFailed
+                  ? '上游响应中断'
+                  : '上游未能开始流式响应',
             });
             failoverFrom = providerId;
             continue;
