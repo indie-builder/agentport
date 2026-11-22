@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { parseFeed, parseJsonFeed } from 'feedsmith';
 import TurndownService from 'turndown';
 import { z } from 'zod';
@@ -41,7 +40,7 @@ import { probeYuque, readYuque } from './source-yuque.js';
 export { SourceAuthError, validateSourceUrl } from './source-http.js';
 
 function contentHash(...parts: string[]): string {
-  return createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 16);
+  return new Bun.CryptoHasher('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 16);
 }
 
 type FeedEntry = { id: string; title: string; link: string; html: string; summary: string };

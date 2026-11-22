@@ -1,4 +1,3 @@
-import { pathToFileURL } from 'node:url';
 import { outputMessageAnchors, removeChannelInputs } from '@agentport/core';
 import { createDb, repo, schema } from '@agentport/db';
 import {
@@ -356,7 +355,7 @@ export async function startMaintenanceWorker(input: {
   return worker;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === Bun.pathToFileURL(process.argv[1]).href) {
   const config = loadConfig();
   const logger = createWorkerLogger(config);
   const { db, client } = createDb(config.DATABASE_URL);

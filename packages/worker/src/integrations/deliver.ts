@@ -1,4 +1,3 @@
-import { createHmac } from 'node:crypto';
 import { decryptSecrets, isAppError } from '@agentport/core';
 import { assertServerEndpoint } from '@agentport/core/net-guard';
 import { type Database, repo } from '@agentport/db';
@@ -21,7 +20,7 @@ interface DeliveryDeps {
 }
 
 function sign(secret: string, timestamp: number, payload: string): string {
-  return `sha256=${createHmac('sha256', secret).update(`${timestamp}.${payload}`).digest('hex')}`;
+  return `sha256=${new Bun.CryptoHasher('sha256', secret).update(`${timestamp}.${payload}`).digest('hex')}`;
 }
 
 function retryDelayMs(attempts: number): number {

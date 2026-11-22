@@ -1,9 +1,8 @@
 import { isAbsolute, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { commonEnvSchema, parseEnv, RETENTION_DEFAULTS, serviceEnvShape } from '@agentport/shared';
 import { z } from 'zod';
 
-const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+const repoRoot = Bun.fileURLToPath(new URL('../../../', import.meta.url));
 
 function fromRepoRoot(path: string): string {
   return isAbsolute(path) ? path : resolve(repoRoot, path);

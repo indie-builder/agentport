@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { isRecord } from '@agentport/core/record';
 import { z } from 'zod';
 import { fetchDownload } from './source-download.js';
@@ -370,7 +369,10 @@ async function readMedia(
 function unknownFailureId(auth: Auth, raw: unknown): string {
   const mediaId = textOf(recordOf(raw)?.media_id).trim();
   if (mediaId) return `ima:media:${auth.knowledgeBaseId}:${mediaId}`;
-  const digest = createHash('sha256').update(JSON.stringify(raw)).digest('hex').slice(0, 16);
+  const digest = new Bun.CryptoHasher('sha256')
+    .update(JSON.stringify(raw))
+    .digest('hex')
+    .slice(0, 16);
   return `ima:unknown:${auth.knowledgeBaseId}:${digest}`;
 }
 

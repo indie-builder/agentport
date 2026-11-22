@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { canonicalJson, sha256Hex } from '@agentport/core';
 import type { AuditActorKind, AuditStatus } from '@agentport/shared';
 import { and, asc, desc, eq, gt, gte, isNotNull, lt, type SQL, sql } from 'drizzle-orm';
@@ -29,7 +28,7 @@ interface WarnLogger {
 function digest(input: unknown): string | null {
   if (input === undefined || input === null) return null;
   try {
-    return createHash('sha256').update(JSON.stringify(input)).digest('hex').slice(0, 32);
+    return new Bun.CryptoHasher('sha256').update(JSON.stringify(input)).digest('hex').slice(0, 32);
   } catch {
     return null;
   }

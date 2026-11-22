@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { type FileHandle, lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
 import { join, parse, resolve, sep } from 'node:path';
@@ -222,7 +221,7 @@ async function writeMemoryFileData(
   return withMemoryDir(workspacesDir, slug, true, async (dir) => {
     const target = join(dir, name);
     await regularFile(target);
-    const temporary = join(dir, `.memory-${randomUUID()}.tmp`);
+    const temporary = join(dir, `.memory-${crypto.randomUUID()}.tmp`);
     const handle = await open(
       temporary,
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,

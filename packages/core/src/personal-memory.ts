@@ -1,14 +1,15 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PERSONAL_MEMORY_FILENAME } from '@agentport/shared';
+import * as Bun from 'bun';
 import { WORKSPACE_DIR_MODE, WORKSPACE_FILE_MODE } from './mcp-token.js';
 
 export function personalMemoryDir(workspacesDir: string, businessId: string): string {
   return join(
     workspacesDir,
     '_users',
-    createHash('sha256').update(businessId, 'utf8').digest('hex'),
+    new Bun.CryptoHasher('sha256').update(businessId, 'utf8').digest('hex'),
   );
 }
 

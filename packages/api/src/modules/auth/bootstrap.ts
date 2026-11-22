@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   authAccounts,
   authUsers,
@@ -112,7 +111,7 @@ export async function ensureBootstrap(db: Database, config: Config): Promise<voi
     if (!existingAdmin) {
       const adminRoleId = await seedDefaultRoles(tx);
       const now = new Date();
-      const authUserId = randomUUID();
+      const authUserId = crypto.randomUUID();
       const password = await hashPassword(config.ADMIN_PASSWORD);
 
       await tx.insert(authUsers).values({
@@ -127,7 +126,7 @@ export async function ensureBootstrap(db: Database, config: Config): Promise<voi
         updatedAt: now,
       });
       await tx.insert(authAccounts).values({
-        id: randomUUID(),
+        id: crypto.randomUUID(),
         accountId: authUserId,
         providerId: 'credential',
         userId: authUserId,

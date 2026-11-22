@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fail, notFound } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
@@ -43,7 +42,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
         await requireRunQueueCapacity('run queue is full');
         if (signal?.aborted) fail('UPSTREAM_FAILED', 'agent run cancelled');
 
-        const requestId = randomUUID();
+        const requestId = crypto.randomUUID();
         const policyDecision = await enforceContentPolicy({
           db: app.db,
           log: app.log,

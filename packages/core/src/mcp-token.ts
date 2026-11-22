@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import * as Bun from 'bun';
 
 /**
  * 工作区里唯一的密钥文件是 `.mcp.json`（generated server 的短期 token）。
@@ -9,5 +9,5 @@ export const WORKSPACE_FILE_MODE = 0o600;
 export const WORKSPACE_DIR_MODE = 0o700;
 
 export function hashMcpToken(token: string): string {
-  return createHash('sha256').update(token).digest('base64url');
+  return new Bun.CryptoHasher('sha256').update(token).digest('base64url');
 }

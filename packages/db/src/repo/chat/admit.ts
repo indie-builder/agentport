@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { fail, notFound } from '@agentport/core';
 import type {
   AgentDefinition,
@@ -450,7 +449,7 @@ export async function admitChatRun(
     if (regenerated !== undefined) {
       userMessageUuid = regeneratedUserMessageUuid;
     } else {
-      userMessageUuid = randomUUID();
+      userMessageUuid = crypto.randomUUID();
       await appendMessage(tx, {
         id: newId('message'),
         conversationId,

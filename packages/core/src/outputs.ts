@@ -1,4 +1,3 @@
-import { createHash, randomUUID } from 'node:crypto';
 import {
   lstat,
   mkdir,
@@ -23,6 +22,7 @@ import {
   outputPathSchema,
   slugSchema,
 } from '@agentport/shared';
+import * as Bun from 'bun';
 import { z } from 'zod';
 import { AGENT_DIR_SLUG_INVALID_MESSAGE, fail, INVALID_CURSOR_MESSAGE } from './errors.js';
 import { pathSegmentsProblem } from './path-segments.js';
@@ -145,7 +145,7 @@ function baseFileOf(conversationRoot: string, runId: string): string {
 }
 
 export function sha256Hex(data: Buffer | string): string {
-  return createHash('sha256').update(data).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(data).digest('hex');
 }
 
 function compareText(a: string, b: string): number {
@@ -451,7 +451,7 @@ export async function prepareOutputDraft(input: PrepareOutputDraftInput): Promis
     fail('NOT_FOUND', '所选产出快照不存在', { path: `/${input.sourceRunId}` });
   }
 
-  const staging = join(conversationRoot, DRAFTS, `.tmp-${runId}-${randomUUID()}`);
+  const staging = join(conversationRoot, DRAFTS, `.tmp-${runId}-${crypto.randomUUID()}`);
   await mkdir(staging, { recursive: true });
   try {
     if (initial !== null) await copySnapshot(input, initial, staging);
@@ -502,7 +502,7 @@ export async function captureOutputDraft(input: {
 
   const files = await draftEntries(input, sourceDir, { files: 0, entries: 0, bytes: 0 });
 
-  const staging = join(conversationRoot, DRAFTS, `.tmp-${runId}-${randomUUID()}`);
+  const staging = join(conversationRoot, DRAFTS, `.tmp-${runId}-${crypto.randomUUID()}`);
   await mkdir(staging, { recursive: true });
   let previous: string | null = null;
   try {
@@ -520,7 +520,7 @@ export async function captureOutputDraft(input: {
       if (existing.isSymbolicLink() || !existing.isDirectory()) {
         fail('INVALID_INPUT', '产出草稿目录非法', { path: `/${runId}` });
       }
-      previous = join(conversationRoot, DRAFTS, `.tmp-${runId}-${randomUUID()}`);
+      previous = join(conversationRoot, DRAFTS, `.tmp-${runId}-${crypto.randomUUID()}`);
       await rename(draftDir, previous);
     }
     try {
@@ -629,7 +629,7 @@ export async function publishOutputSnapshot(input: PublishOutputSnapshotInput): 
   });
 
   await mkdir(join(conversationRoot, RUNS), { recursive: true });
-  const staging = join(conversationRoot, RUNS, `.tmp-${runId}-${randomUUID()}`);
+  const staging = join(conversationRoot, RUNS, `.tmp-${runId}-${crypto.randomUUID()}`);
   try {
     await mkdir(join(staging, FILES), { recursive: true });
     for (const file of files) {
@@ -800,7 +800,7 @@ export async function copyConversationOutputs(input: CopyConversationOutputsInpu
       afterMessageId,
     });
     await mkdir(join(targetRoot, RUNS), { recursive: true });
-    const staging = join(targetRoot, RUNS, `.tmp-${runId}-${randomUUID()}`);
+    const staging = join(targetRoot, RUNS, `.tmp-${runId}-${crypto.randomUUID()}`);
     try {
       await mkdir(join(staging, FILES), { recursive: true });
       await copySnapshot(sourceIdentity, manifest, join(staging, FILES));

@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -111,7 +110,7 @@ export async function gradeCase(
   }
   const model = deps.model;
   const judgePrompt = buildJudgePrompt(input);
-  const cwd = join(deps.knowledgeDir, 'eval-judge-sdk', randomUUID());
+  const cwd = join(deps.knowledgeDir, 'eval-judge-sdk', crypto.randomUUID());
   await mkdir(cwd, { recursive: true, mode: 0o700 });
   const captured: { reply: string | null } = { reply: null };
   const queryFn = deps.queryFn ?? query;

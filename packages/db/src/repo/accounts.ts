@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { AppError, fail } from '@agentport/core';
 import type { Account, RoleSummary } from '@agentport/shared';
 import { and, asc, count, eq, inArray, isNull, ne, or, type SQL } from 'drizzle-orm';
@@ -188,7 +187,7 @@ export async function createAccount(
     }
 
     const now = new Date();
-    const userId = randomUUID();
+    const userId = crypto.randomUUID();
     await tx.insert(authUsers).values({
       id: userId,
       name: input.name,
@@ -201,7 +200,7 @@ export async function createAccount(
       updatedAt: now,
     });
     await tx.insert(authAccounts).values({
-      id: randomUUID(),
+      id: crypto.randomUUID(),
       accountId: userId,
       providerId: 'credential',
       userId,
