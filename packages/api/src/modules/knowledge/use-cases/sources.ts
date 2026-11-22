@@ -131,6 +131,14 @@ const POSITIVE_ID = /^[1-9][0-9]*$/;
 
 const ENCODED_PATH_BREAK = /%(25)*(2f|5c|00)/i;
 
+function missingCredential(key: string): string {
+  return `缺少凭证 ${key}`;
+}
+
+function missingConfig(key: string): string {
+  return `缺少 config.${key}`;
+}
+
 function safeRelativePath(value: string): boolean {
   if (value.length === 0 || value.startsWith('/') || value.endsWith('/')) return false;
   if (/[\\\0?#]/.test(value) || ENCODED_PATH_BREAK.test(value)) return false;
@@ -139,7 +147,7 @@ function safeRelativePath(value: string): boolean {
 
 function siteUrlIssue(value: unknown): string | null {
   const raw = typeof value === 'string' ? value.trim() : '';
-  if (!raw) return '缺少 config.baseUrl';
+  if (!raw) return missingConfig('baseUrl');
   let url: URL;
   try {
     url = new URL(raw);
@@ -231,20 +239,20 @@ function configIssues(
   }
 
   if (type === 'feishu_wiki' || type === 'feishu_drive') {
-    if (!text('appId')) issues.push('缺少 config.appId');
-    if (!secrets?.appSecret) issues.push('缺少凭证 appSecret');
+    if (!text('appId')) issues.push(missingConfig('appId'));
+    if (!secrets?.appSecret) issues.push(missingCredential('appSecret'));
     if (text('baseUrl') && !validUrl('baseUrl')) issues.push(BASE_URL_INVALID_MESSAGE);
   }
   if (type === 'gitlab') {
     if (!validUrl('baseUrl')) issues.push(BASE_URL_INVALID_MESSAGE);
-    if (!text('projectId')) issues.push('缺少 config.projectId');
-    if (!text('ref')) issues.push('缺少 config.ref');
-    if (!secrets?.token) issues.push('缺少凭证 token');
+    if (!text('projectId')) issues.push(missingConfig('projectId'));
+    if (!text('ref')) issues.push(missingConfig('ref'));
+    if (!secrets?.token) issues.push(missingCredential('token'));
   }
   if (type === 'github') {
     if (text('baseUrl') && !validUrl('baseUrl')) issues.push(BASE_URL_INVALID_MESSAGE);
-    if (!text('projectId')) issues.push('缺少 config.projectId');
-    if (!secrets?.token) issues.push('缺少凭证 token');
+    if (!text('projectId')) issues.push(missingConfig('projectId'));
+    if (!secrets?.token) issues.push(missingCredential('token'));
     for (const range of ranges) {
       if (!range.enabled) continue;
       if (range.kind !== 'github_repo') {
@@ -256,8 +264,8 @@ function configIssues(
     }
   }
   if (type === 'lark_wiki' || type === 'lark_drive') {
-    if (!text('appId')) issues.push('缺少 config.appId');
-    if (!secrets?.appSecret) issues.push('缺少凭证 appSecret');
+    if (!text('appId')) issues.push(missingConfig('appId'));
+    if (!secrets?.appSecret) issues.push(missingCredential('appSecret'));
     for (const range of ranges) {
       if (!range.enabled) continue;
       if (!SAFE_TOKEN.test(range.externalId)) {
@@ -266,7 +274,7 @@ function configIssues(
     }
   }
   if (type === 'notion') {
-    if (!secrets?.apiKey) issues.push('缺少凭证 apiKey');
+    if (!secrets?.apiKey) issues.push(missingCredential('apiKey'));
     for (const range of ranges) {
       if (range.enabled && !UUID.test(range.externalId)) {
         issues.push(`范围 ${range.externalId} 不是合法的 Notion UUID`);
@@ -281,13 +289,13 @@ function configIssues(
     const urlIssue = siteUrlIssue(config.baseUrl);
     if (urlIssue) issues.push(urlIssue);
     if (authMode === 'cloud_basic' || authMode === 'cloud_scoped') {
-      if (!text('email')) issues.push('缺少 config.email');
-      if (!secrets?.apiToken) issues.push('缺少凭证 apiToken');
+      if (!text('email')) issues.push(missingConfig('email'));
+      if (!secrets?.apiToken) issues.push(missingCredential('apiToken'));
       if (secrets?.pat) issues.push('凭证 pat 仅用于 dc_pat 模式');
-      if (authMode === 'cloud_scoped' && !text('cloudId')) issues.push('缺少 config.cloudId');
+      if (authMode === 'cloud_scoped' && !text('cloudId')) issues.push(missingConfig('cloudId'));
     }
     if (authMode === 'dc_pat') {
-      if (!secrets?.pat) issues.push('缺少凭证 pat');
+      if (!secrets?.pat) issues.push(missingCredential('pat'));
       if (secrets?.apiToken) issues.push('凭证 apiToken 仅用于 Cloud 模式');
     }
     for (const range of ranges) {
@@ -297,7 +305,7 @@ function configIssues(
     }
   }
   if (type === 'yuque') {
-    if (!secrets?.apiToken) issues.push('缺少凭证 apiToken');
+    if (!secrets?.apiToken) issues.push(missingCredential('apiToken'));
     for (const range of ranges) {
       if (!range.enabled) continue;
       if (!POSITIVE_ID.test(range.externalId) || !Number.isSafeInteger(Number(range.externalId))) {
@@ -306,18 +314,18 @@ function configIssues(
     }
   }
   if (type === 'dingtalk') {
-    if (!text('clientId')) issues.push('缺少 config.clientId');
-    if (!text('operatorUnionId')) issues.push('缺少 config.operatorUnionId');
-    if (!secrets?.clientSecret) issues.push('缺少凭证 clientSecret');
+    if (!text('clientId')) issues.push(missingConfig('clientId'));
+    if (!text('operatorUnionId')) issues.push(missingConfig('operatorUnionId'));
+    if (!secrets?.clientSecret) issues.push(missingCredential('clientSecret'));
   }
   if (type === 'ima') {
-    if (!text('clientId')) issues.push('缺少 config.clientId');
-    if (!secrets?.apiKey) issues.push('缺少凭证 apiKey');
+    if (!text('clientId')) issues.push(missingConfig('clientId'));
+    if (!secrets?.apiKey) issues.push(missingCredential('apiKey'));
   }
   if (type === 'seafile') {
     const urlIssue = siteUrlIssue(config.baseUrl);
     if (urlIssue) issues.push(urlIssue);
-    if (!secrets?.apiToken) issues.push('缺少凭证 apiToken');
+    if (!secrets?.apiToken) issues.push(missingCredential('apiToken'));
     for (const range of ranges) {
       if (range.enabled && !UUID.test(range.externalId)) {
         issues.push(`范围 ${range.externalId} 必须是 Seafile 库 UUID`);
@@ -327,8 +335,8 @@ function configIssues(
   if (type === 'nextcloud') {
     const urlIssue = siteUrlIssue(config.baseUrl);
     if (urlIssue) issues.push(urlIssue);
-    if (!text('username')) issues.push('缺少 config.username');
-    if (!secrets?.appPassword) issues.push('缺少凭证 appPassword');
+    if (!text('username')) issues.push(missingConfig('username'));
+    if (!secrets?.appPassword) issues.push(missingCredential('appPassword'));
     for (const range of ranges) {
       if (!range.enabled) continue;
       const path = range.externalId;
