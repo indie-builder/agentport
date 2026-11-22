@@ -29,6 +29,7 @@ type ImageDescription = {
 };
 
 const SDK_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const IMAGE_DESCRIPTION_CANCELLED = '图片描述已取消';
 
 /** IEND 块固定为 12 字节：长度 0（前 4 字节）+ 名称 + 固定 CRC；只看尾部 8 字节。 */
 const PNG_IEND_TAIL = 'IEND\xaeB\x60\x82';
@@ -90,7 +91,7 @@ async function runAction(input: {
   queryFn: ImageQueryFn;
   anthropicBaseUrl: string | undefined;
 }): Promise<{ text: string | null; warning: string | null }> {
-  if (input.signal.aborted) throw new Error('图片描述已取消');
+  if (input.signal.aborted) throw new Error(IMAGE_DESCRIPTION_CANCELLED);
   const cwd = await mkdtemp(join(tmpdir(), 'pace-knowledge-image-'));
 
   const prompt = async function* (): AsyncGenerator<SDKUserMessage, void> {
@@ -145,7 +146,7 @@ async function runAction(input: {
         if (text !== '') value = text;
       },
     });
-    if (outcome.status === 'aborted') throw new Error('图片描述已取消');
+    if (outcome.status === 'aborted') throw new Error(IMAGE_DESCRIPTION_CANCELLED);
     if (outcome.status === 'no_result') {
       return { text: null, warning: `${input.action}: ${ONE_SHOT_NO_RESULT_MESSAGE}` };
     }
@@ -155,7 +156,7 @@ async function runAction(input: {
     if (value === null) return { text: null, warning: `${input.action}: 输出为空` };
     return { text: value, warning: null };
   } catch (err) {
-    if (input.signal.aborted) throw new Error('图片描述已取消');
+    if (input.signal.aborted) throw new Error(IMAGE_DESCRIPTION_CANCELLED);
     const message = errorText(err);
     return { text: null, warning: `${input.action}: ${message}`.slice(0, 300) };
   }
@@ -181,7 +182,7 @@ export async function describeKnowledgeImage(
   deps: { queryFn?: ImageQueryFn; anthropicBaseUrl: string | undefined },
 ): Promise<ImageDescription> {
   const { settings, signal } = input;
-  if (signal.aborted) throw new Error('图片描述已取消');
+  if (signal.aborted) throw new Error(IMAGE_DESCRIPTION_CANCELLED);
   await assertUsableImage(input.image);
   if (!settings.enabled) throw new Error('图片处理未启用');
   if (!settings.model) throw new Error('图片处理缺少视觉模型');
@@ -192,7 +193,7 @@ export async function describeKnowledgeImage(
   for (const action of ['ocr', 'caption'] as const) {
     const enabled = action === 'ocr' ? settings.ocrEnabled : settings.captionEnabled;
     if (!enabled) continue;
-    if (signal.aborted) throw new Error('图片描述已取消');
+    if (signal.aborted) throw new Error(IMAGE_DESCRIPTION_CANCELLED);
     const output = await runAction({
       action,
       instruction: instruction(action, settings),
