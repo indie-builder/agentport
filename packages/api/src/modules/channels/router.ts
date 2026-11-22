@@ -12,6 +12,7 @@ import {
   channelEventsQuerySchema,
   channelMessageCreatedEvent,
   idParams,
+  SERVER_SHUTDOWN_MESSAGE,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import type { Hono } from 'hono';
@@ -654,7 +655,7 @@ export function registerChannelEventsHttp(app: Hono<HttpEnv>, deps: NativeHttpDe
           async (event) => {
             if (closed) return;
             if (event.type === 'error') {
-              if (event.message === 'Server shutting down') {
+              if (event.message === SERVER_SHUTDOWN_MESSAGE) {
                 finish();
                 return;
               }

@@ -29,6 +29,8 @@ import {
   runCancelKey,
   runEventsConnectionName,
   runStreamKey,
+  SERVER_SHUTDOWN_MESSAGE,
+  STREAM_INTERRUPTED_MESSAGE,
   STREAM_TTL_SECONDS,
 } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
@@ -223,8 +225,8 @@ export async function subscribeRun(
     runStreamKey(runId),
     runEventsConnectionName(runId),
     parseChatEvent,
-    { type: 'error', message: 'Server shutting down' },
-    { type: 'error', message: '事件流中断，请刷新页面或重试' },
+    { type: 'error', message: SERVER_SHUTDOWN_MESSAGE },
+    { type: 'error', message: STREAM_INTERRUPTED_MESSAGE },
     cb,
     signal,
   );
@@ -239,8 +241,8 @@ export async function subscribeChannel(
     channelStreamKey(channelId),
     channelEventsConnectionName(channelId),
     parseChannelEvent,
-    { type: 'error', message: 'Server shutting down' },
-    { type: 'error', message: '事件流中断，请刷新页面或重试' },
+    { type: 'error', message: SERVER_SHUTDOWN_MESSAGE },
+    { type: 'error', message: STREAM_INTERRUPTED_MESSAGE },
     cb,
     signal,
     getChannelClient(),
