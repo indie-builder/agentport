@@ -10,6 +10,7 @@ import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { z } from 'zod';
 import { isPgCode } from '../../http/errors.js';
 import { getEvalQueue, getQueue } from '../../queue/producer.js';
+import { RUN_QUEUE_FULL_MESSAGE } from '../runs/capacity.js';
 
 export function toEvalRun(row: repo.evalRepo.EvalRunSummary) {
   return {
@@ -84,7 +85,7 @@ export async function startEvalRun(
     getEvalQueue().getWaitingCount(),
   ]);
   if (waitingRuns > RUN_QUEUE_MAX_WAITING || waitingEvals > RUN_QUEUE_MAX_WAITING) {
-    fail('SERVICE_UNAVAILABLE', '运行队列已满，请稍后重试');
+    fail('SERVICE_UNAVAILABLE', RUN_QUEUE_FULL_MESSAGE);
   }
 
   let evalRun: typeof schema.evalRuns.$inferSelect | undefined;
