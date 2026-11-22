@@ -617,10 +617,11 @@ export async function exportKnowledgePackage(
           `文档「${document.title}」的原件超过 ${MAX_ORIGINAL_BYTES} 字节（版本 ${version.version}），无法导出`,
         );
       }
-      const markdown = await readFile(
+      const markdown = await Bun.file(
         knowledgeVersionMarkdownPath(knowledgeDir, document.id, version.id),
-        'utf8',
-      ).catch(() => null);
+      )
+        .text()
+        .catch(() => null);
       const chunks = await collectPages((options) =>
         repo.knowledge.listChunkSummaries(db, version.id, options),
       );

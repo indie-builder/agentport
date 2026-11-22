@@ -1,5 +1,5 @@
 import type { Stats } from 'node:fs';
-import { lstat, readFile, realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import {
   errorText,
@@ -49,7 +49,7 @@ export function createPersonalMemoryHook(
     }
     let content: string;
     try {
-      content = await readFile(file, 'utf8');
+      content = await Bun.file(file).text();
     } catch (error) {
       return fail(`个人记忆读取失败：${errorText(error)}`);
     }

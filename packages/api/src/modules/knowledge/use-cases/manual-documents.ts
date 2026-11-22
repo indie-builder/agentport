@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import {
   AppError,
@@ -113,10 +112,9 @@ async function readVersionContent(
   documentId: string,
   versionId: string,
 ): Promise<string | null> {
-  return readFile(
-    knowledgeVersionMarkdownPath(deps.config.KNOWLEDGE_DIR, documentId, versionId),
-    'utf8',
-  ).catch(() => null);
+  return Bun.file(knowledgeVersionMarkdownPath(deps.config.KNOWLEDGE_DIR, documentId, versionId))
+    .text()
+    .catch(() => null);
 }
 
 function pendingDraftVersion(

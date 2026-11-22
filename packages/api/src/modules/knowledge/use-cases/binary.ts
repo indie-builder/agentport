@@ -47,10 +47,11 @@ export async function getVersionMarkdown(deps: KnowledgeDeps, versionId: string)
   if (!version) notFound('版本');
   const [document, markdown] = await Promise.all([
     repo.knowledge.getDocument(deps.db, version.documentId),
-    readFile(
+    Bun.file(
       knowledgeVersionMarkdownPath(deps.config.KNOWLEDGE_DIR, version.documentId, version.id),
-      'utf8',
-    ).catch(() => null),
+    )
+      .text()
+      .catch(() => null),
   ]);
   if (markdown === null) notFound('解析正文');
   return { markdown, status: document?.status ?? 'unknown' };
