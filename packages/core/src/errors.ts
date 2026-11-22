@@ -60,6 +60,8 @@ export const AGENT_DIR_SLUG_INVALID_MESSAGE = '智能体目录名非法';
 
 export const KNOWLEDGE_DOCUMENT_MISSING_MESSAGE = '文档不存在或不属于该知识库';
 
+export const DOCUMENT_VERSION_STALE_MESSAGE = '文档版本已变化，请刷新后重试';
+
 export const NOT_FOUND_MESSAGES = {
   agent: '智能体不存在，可能已被删除；请刷新后重试',
   conversation: '会话不存在，可能已被删除；请刷新后重试',

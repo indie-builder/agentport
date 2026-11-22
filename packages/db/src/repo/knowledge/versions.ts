@@ -1,4 +1,4 @@
-import { AppError } from '@agentport/core';
+import { AppError, DOCUMENT_VERSION_STALE_MESSAGE } from '@agentport/core';
 import {
   type KnowledgeFaq,
   knowledgeBaseSettingsSchema,
@@ -421,7 +421,7 @@ export async function activateDocumentVersion(
       .for('update');
     if (!document) throw new AppError('NOT_FOUND', '文档不存在，可能已被删除');
     if (document.currentVersionId !== input.expectedVersionId) {
-      throw new AppError('CONFLICT_STALE', '文档版本已变化，请刷新后重试');
+      throw new AppError('CONFLICT_STALE', DOCUMENT_VERSION_STALE_MESSAGE);
     }
     const [version] = await tx
       .select({
