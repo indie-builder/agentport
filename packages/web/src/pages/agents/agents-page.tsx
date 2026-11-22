@@ -493,26 +493,32 @@ export function AgentsPage() {
                   </button>
                 </li>
                 <li className="min-w-0">
-                  <Card className="h-full min-h-44">
-                    <CardContent className="flex flex-1 flex-col items-center justify-center gap-4">
+                  <button
+                    type="button"
+                    aria-label="创建数字分身"
+                    disabled={importing}
+                    onClick={(event) => {
+                      editorTriggerRef.current = event.currentTarget;
+                      setCreateRole('数字分身');
+                      setCreating(true);
+                    }}
+                    className="agent-create-fan h-full min-h-44 w-full disabled:pointer-events-none disabled:opacity-60"
+                  >
+                    <span
+                      className="agent-create-fan__art flex items-center justify-center"
+                      aria-hidden="true"
+                    >
                       <img
                         src={digitalTwinPortrait}
                         alt=""
-                        className="size-16 rounded-full object-cover"
+                        className="agent-create-fan__portrait size-16 rounded-full object-cover"
                       />
-                      <Button
-                        variant="outline"
-                        disabled={importing}
-                        onClick={(event) => {
-                          editorTriggerRef.current = event.currentTarget;
-                          setCreateRole('数字分身');
-                          setCreating(true);
-                        }}
-                      >
-                        <Plus data-icon="inline-start" /> 创建数字分身
-                      </Button>
-                    </CardContent>
-                  </Card>
+                    </span>
+                    <span className="agent-create-fan__label">
+                      <Plus aria-hidden="true" />
+                      <span>创建数字分身</span>
+                    </span>
+                  </button>
                 </li>
               </>
             ) : null}

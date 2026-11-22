@@ -449,6 +449,13 @@
   .agent-create-fan:focus-visible .agent-create-fan__chip:nth-child(6) {
     transform: translate(calc(-50% + 80px), calc(-50% + 16px)) rotate(18deg);
   }
+  .agent-create-fan__portrait {
+    transition: transform 200ms var(--ease-out-soft);
+  }
+  .agent-create-fan:hover .agent-create-fan__portrait,
+  .agent-create-fan:focus-visible .agent-create-fan__portrait {
+    transform: scale(1.04);
+  }
 
   @media (prefers-reduced-motion: reduce) {
     *,
