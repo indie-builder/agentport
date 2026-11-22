@@ -19,7 +19,6 @@
     "csv-parse": "7.0.3",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
-    "fast-xml-parser": "5.12.1",
     "feedsmith": "3.1.0",
     "mdast-util-from-markdown": "2.1.0",
     "p-limit": "7.3.3",

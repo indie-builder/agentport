@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import {
   AppError,
   isAppError,
@@ -161,10 +161,9 @@ async function copyDocument(deps: KnowledgeDeps, document: DocumentRow): Promise
   await mkdir(targetDir, { recursive: true });
   try {
     const markdown =
-      (await readFile(
-        knowledgeVersionMarkdownPath(knowledgeDir, document.id, version.id),
-        'utf8',
-      ).catch(() => null)) ?? chunks.map((chunk) => chunk.content).join('\n\n');
+      (await Bun.file(knowledgeVersionMarkdownPath(knowledgeDir, document.id, version.id))
+        .text()
+        .catch(() => null)) ?? chunks.map((chunk) => chunk.content).join('\n\n');
     await writeFile(
       knowledgeVersionMarkdownPath(knowledgeDir, newDocumentId, newVersionId),
       markdown,

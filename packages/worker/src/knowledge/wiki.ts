@@ -1,4 +1,4 @@
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   KNOWLEDGE_BASE_NOT_FOUND_MESSAGE,
@@ -158,10 +158,11 @@ async function readDocument(
 ) {
   const document = await repo.knowledge.getReadableDocument(db, baseId, documentId);
   if (!document?.currentVersionId) return null;
-  const markdown = await readFile(
+  const markdown = await Bun.file(
     knowledgeVersionMarkdownPath(knowledgeDir, document.id, document.currentVersionId),
-    'utf8',
-  ).catch(() => null);
+  )
+    .text()
+    .catch(() => null);
   if (markdown === null) return null;
   const truncated = markdown.length > READ_LIMIT;
   return {

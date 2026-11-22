@@ -1,4 +1,4 @@
-import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { errorText } from '@agentport/shared';
 import { z } from 'zod';
 import { EXTENSION_BY_MIME, extensionWithDot, mimeOf } from './source-formats.js';
 import {
@@ -25,14 +25,6 @@ const PROPFIND_BODY =
 const settingsSchema = z.object({
   username: z.string().trim().min(1),
   path: z.string().trim().min(1),
-});
-
-const parser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: '@_',
-  removeNSPrefix: false,
-  parseTagValue: false,
-  parseAttributeValue: false,
 });
 
 type Network = { allowLoopback?: boolean; trustedHosts?: readonly string[] };
@@ -191,9 +183,9 @@ type XmlElement = {
 function scopedNamespaces(record: Record<string, unknown>, parent: Namespaces): Namespaces {
   let scoped: Map<string, string> | undefined;
   for (const [key, value] of Object.entries(record)) {
-    if (key !== '@_xmlns' && !key.startsWith('@_xmlns:')) continue;
+    if (key !== '@xmlns' && !key.startsWith('@xmlns:')) continue;
     scoped ??= new Map(parent);
-    scoped.set(key === '@_xmlns' ? '' : key.slice('@_xmlns:'.length), textOf(value) ?? '');
+    scoped.set(key === '@xmlns' ? '' : key.slice('@xmlns:'.length), textOf(value) ?? '');
   }
   return scoped ?? parent;
 }
@@ -201,7 +193,7 @@ function scopedNamespaces(record: Record<string, unknown>, parent: Namespaces): 
 function childrenOf(value: unknown, parent: Namespaces): XmlElement[] {
   const elements: XmlElement[] = [];
   for (const [key, raw] of Object.entries(asRecord(value))) {
-    if (key.startsWith('@_') || key.startsWith('?') || key === '#text') continue;
+    if (key.startsWith('@') || key.startsWith('?') || key === '#text') continue;
     const colon = key.indexOf(':');
     const prefix = colon < 0 ? '' : key.slice(0, colon);
     const local = colon < 0 ? key : key.slice(colon + 1);
@@ -309,9 +301,13 @@ function parseMultistatus(raw: string): DavResult[] {
   if (/<!DOCTYPE|<!ENTITY/i.test(raw)) {
     throw new Error('nextcloud DAV response must not contain a DTD or entity declaration');
   }
-  const valid = XMLValidator.validate(raw);
-  if (valid !== true) throw new Error(`invalid nextcloud DAV XML: ${valid.err.msg}`);
-  const topLevel = childrenOf(parser.parse(raw), NO_NAMESPACES);
+  let document: unknown;
+  try {
+    document = Bun.XML.parse(raw);
+  } catch (error) {
+    throw new Error(`invalid nextcloud DAV XML: ${errorText(error)}`);
+  }
+  const topLevel = childrenOf(document, NO_NAMESPACES);
   const multistatus = topLevel.find(
     (element) => element.uri === DAV_URI && element.local === 'multistatus',
   );

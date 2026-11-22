@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -187,7 +187,7 @@ export async function executeRuntimeEnvironmentBuild(
       );
     }
 
-    const imageId = (await readFile(iidFile, 'utf8')).trim();
+    const imageId = (await Bun.file(iidFile).text()).trim();
     if (!IMAGE_ID.test(imageId)) return failure(log, '构建未产出有效的镜像 ID', false);
 
     const user = await runDocker(

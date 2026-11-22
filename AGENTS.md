@@ -53,7 +53,7 @@
 
 选型还要过成本与替换检查：默认只用进程内库或开发依赖，不新增独立部署服务、容器、托管 SaaS 或外部账号，既有业务基础设施不受影响；综合直接与传递依赖、生产 bundle、内存、启动、构建与升级维护开销，总收益必须大于成本。引入即替代，删除无人使用的旧实现，同一职责只留一处，并保留原有行为、权限、错误处理与无障碍。性能候选先做有代表性的基准再决定；不新增理论防护（按「决策标准」执行）。
 
-- **Bun 原生 API 优先。** Bun 有等价原生能力时用 Bun：`Bun.fileURLToPath` / `Bun.pathToFileURL` 替代 `node:url`，`Bun.CryptoHasher`（sha256/HMAC）替代 `createHash()` / `createHmac()`，Web 标准 `crypto.randomUUID()` / `crypto.getRandomValues()` 替代 `node:crypto` 的 `randomUUID` / `randomBytes`，`Bun.deepEquals(a, b, true)` 替代 `isDeepStrictEqual`。Bun 无等价或语义不同（AbortSignal sleep、`flag:'wx'`/`mode`、raw inflate（`maxOutputLength`）、无 Bun 等价的 cipher/HKDF/timingSafeEqual）时保留 `node:*`。
+- **Bun 原生 API 优先。** 只要 Bun 能实现同等功能就用 Bun，只有 Bun 无法实现该功能、或会突破真实安全/数据边界时保留 `node:*`：已换 `Bun.fileURLToPath` / `Bun.pathToFileURL`（替代 `node:url`）、`Bun.CryptoHasher`（替代 `createHash()` / `createHmac()`）、`crypto.randomUUID()` / `crypto.getRandomValues()`（替代 `node:crypto` 对应项）、`Bun.deepEquals`（替代 `isDeepStrictEqual`）、`Bun.XML.parse`（替代 `fast-xml-parser`）；保留 zlib maxOutputLength、sharp 帧数/像素上限、无 Bun 等价的 cipher/HKDF/timingSafeEqual。
 
 > 依据：用户明确要求——功能探索时先看现有项目有没有、有就整合或按最佳实践改造；没有再看原生能力、以最小代价实现；最后才考虑引入开源或自研。
 

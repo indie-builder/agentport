@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
@@ -39,7 +38,7 @@ export function createApprovalHook(
       AbortSignal.timeout(MCP_APPROVAL_WAIT_MS),
     ]);
     if (signal.aborted) return decision('deny', '运行已取消，工具调用未执行。');
-    const config: unknown = JSON.parse(await readFile(join(workspaceDir, '.mcp.json'), 'utf8'));
+    const config: unknown = JSON.parse(await Bun.file(join(workspaceDir, '.mcp.json')).text());
     if (
       typeof config !== 'object' ||
       config === null ||
