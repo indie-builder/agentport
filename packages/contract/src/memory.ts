@@ -4,7 +4,7 @@ import {
   cursorPageSchema,
   idParams,
   memoryChangeSchema,
-  memoryFileNamePattern,
+  memoryFileNameSchema,
   memoryPolicySchema,
   pageQuerySchema,
   personalMemorySchema,
@@ -22,7 +22,7 @@ export const personalMemoryWriteResponseSchema = personalMemorySchema.extend({
 export const memoryVersionListSchema = cursorPageSchema(memoryChangeSchema);
 
 export const agentMemoryVersionParams = idParams.extend({
-  name: z.string().regex(memoryFileNamePattern, '记忆文件名非法：只允许 <name>.md'),
+  name: memoryFileNameSchema,
 });
 
 export const agentRuleVersionParams = idParams.extend({ slug: slugSchema });
