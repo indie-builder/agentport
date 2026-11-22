@@ -40,6 +40,8 @@ export const CHAT_AGENT_DISABLED_MESSAGE =
 
 export const CONVERSATION_NOT_IN_AGENT_MESSAGE = '会话不存在或不属于该智能体；请从会话列表重新打开';
 
+export const REGENERATE_MISSING_MESSAGE = '该会话没有可重新生成的回复';
+
 export const chatRequestSchema = z
   .object({
     agentId: z.string().optional(),

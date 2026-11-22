@@ -10,6 +10,7 @@ import {
   ACTIVE_RUN_STATUSES,
   CHAT_AGENT_DISABLED_MESSAGE,
   CONVERSATION_NOT_IN_AGENT_MESSAGE,
+  REGENERATE_MISSING_MESSAGE,
 } from '@agentport/shared';
 import { and, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Database } from '../../client.js';
@@ -343,7 +344,7 @@ export async function admitChatRun(
         fail('INVALID_INPUT', '重新生成需要指定会话');
       }
       const u = await getLastUserMessage(tx, conversationId);
-      if (u === null || u.runId === null) fail('CONFLICT', '该会话没有可重新生成的回复');
+      if (u === null || u.runId === null) fail('CONFLICT', REGENERATE_MISSING_MESSAGE);
       if (input.regeneratePrompt !== undefined && input.regeneratePrompt.messageId !== u.id) {
         fail('CONFLICT', '会话最新消息已变化，请重新生成');
       }

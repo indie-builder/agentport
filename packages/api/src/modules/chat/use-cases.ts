@@ -26,6 +26,7 @@ import {
   messageAttachments,
   type PermissionId,
   type Principal,
+  REGENERATE_MISSING_MESSAGE,
   RUNS_QUEUE,
   runEnqueueOptions,
 } from '@agentport/shared';
@@ -491,7 +492,7 @@ export async function regenerateLastRun(
   if (!agent) return notFound('agent');
   const agentVersion = agent.publishedVersion;
   const last = await chatRepo.getLastUserMessage(deps.db, conversationId);
-  if (last === null || last.runId === null) return fail('CONFLICT', '该会话没有可重新生成的回复');
+  if (last === null || last.runId === null) return fail('CONFLICT', REGENERATE_MISSING_MESSAGE);
   const originalText = chatRepo.messageText(last.content) ?? '';
   const parsedParts = openUiActionContentSchema.safeParse(last.content);
   const originalParts = parsedParts.success ? parsedParts.data : undefined;
@@ -559,7 +560,7 @@ export async function regenerateLastRun(
     ...(policyDecision.eventId === null ? {} : { policyEventId: policyDecision.eventId }),
   });
   const { run, regenerate } = admitted;
-  if (regenerate === undefined) return fail('CONFLICT', '该会话没有可重新生成的回复');
+  if (regenerate === undefined) return fail('CONFLICT', REGENERATE_MISSING_MESSAGE);
   try {
     await getQueue().add(
       'run',
