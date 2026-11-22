@@ -6,6 +6,7 @@ import { implement } from '@orpc/server';
 import { APIError } from 'better-auth/api';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { FORBIDDEN_MESSAGE } from '../../http/errors.js';
 import { forwardSetCookie, normalizeSession } from './session.js';
 
 function rethrowAuthError(error: unknown): never {
@@ -14,7 +15,7 @@ function rethrowAuthError(error: unknown): never {
     if (error.statusCode === 403)
       throw new AppError(
         'FORBIDDEN',
-        code === 'SESSION_NOT_FRESH' ? '请重新登录后管理登录会话' : '没有该操作的权限',
+        code === 'SESSION_NOT_FRESH' ? '请重新登录后管理登录会话' : FORBIDDEN_MESSAGE,
       );
     if (error.statusCode === 401) throw new AppError('UNAUTHORIZED', 'not logged in');
     if (error.statusCode === 400) throw new AppError('INVALID_INPUT', '请求无效');

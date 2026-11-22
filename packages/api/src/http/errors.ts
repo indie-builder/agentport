@@ -9,6 +9,8 @@ import { z } from 'zod';
 export { AppError, isAppError } from '@agentport/core';
 
 export const PAYLOAD_TOO_LARGE_MESSAGE = '请求体超出大小限制，请减少内容后重试';
+export const FORBIDDEN_MESSAGE = '没有该操作的权限';
+export const OBJECT_MISSING_MESSAGE = '对象不存在';
 
 function isErrorCode(code: string): code is ErrorCode {
   return Object.hasOwn(ERROR_META, code);

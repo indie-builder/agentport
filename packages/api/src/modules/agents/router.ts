@@ -20,7 +20,7 @@ import {
   resourceAccessFilter,
 } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { AppError, rethrowConflict } from '../../http/errors.js';
+import { AppError, OBJECT_MISSING_MESSAGE, rethrowConflict } from '../../http/errors.js';
 import { invalidCursor, requireCursorPage } from '../../http/pagination.js';
 import { getQueue } from '../../queue/producer.js';
 import {
@@ -720,7 +720,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
         context,
         'agents.hooks.read',
         { agentId: current.id, createdBy: current.createdBy },
-        '对象不存在',
+        OBJECT_MISSING_MESSAGE,
       );
     }
     const childIds = (await repo.listSubAgents(context.db, current.id))
