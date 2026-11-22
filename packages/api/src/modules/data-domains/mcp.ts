@@ -278,7 +278,10 @@ export function buildDataDomainServer(input: DataDomainServerInput): McpHttpHand
                   )) ?? {})
                 : {};
               signal.throwIfAborted();
-              const connection = decryptSecrets(online.domain.connectionEncrypted, input.secretKey);
+              const connection = await decryptSecrets(
+                online.domain.connectionEncrypted,
+                input.secretKey,
+              );
               const response = await fetch(`${input.wrenRuntimeUrl.replace(/\/+$/, '')}/query`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },

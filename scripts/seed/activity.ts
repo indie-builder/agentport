@@ -114,7 +114,7 @@ async function publishReviewOutputs(
     path: REPORT_PATH,
     sha256: sha256Hex(published.data),
     tokenHash: sha256Hex(token),
-    tokenEncrypted: encryptSecrets({ token }, secretKey),
+    tokenEncrypted: await encryptSecrets({ token }, secretKey),
   });
   ctx.log(`成果分享已就绪：/s/${share.id}`);
 }

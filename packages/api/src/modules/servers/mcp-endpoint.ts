@@ -45,10 +45,10 @@ function handlerFor(app: AppContext, serverId: string, runId: string | null): Mc
             name: snapshot.name,
             baseUrl: str(snapshot.config.baseUrl),
             headers: snapshot.secretsEncrypted
-              ? decryptSecrets(snapshot.secretsEncrypted, app.config.APP_SECRET_KEY)
+              ? await decryptSecrets(snapshot.secretsEncrypted, app.config.APP_SECRET_KEY)
               : {},
           }
-        : toApiServer(row, app.config.APP_SECRET_KEY);
+        : await toApiServer(row, app.config.APP_SECRET_KEY);
       if (server.kind !== 'generated') throw new Error('连接器不是生成式 MCP');
       const tools = snapshot?.tools ?? (await listTools(app.db, serverId));
       const agentId = runId === null ? null : await repo.runs.getRunAgentId(app.db, runId);

@@ -150,7 +150,7 @@ export const serversRouter = os.router({
   }),
   get: os.get.handler(async ({ input, context }) => {
     const row = await authorizedServer(context, input.params.id, 'servers.read', 'read');
-    return maskServer(toApiServer(row, context.config.APP_SECRET_KEY));
+    return maskServer(await toApiServer(row, context.config.APP_SECRET_KEY));
   }),
   token: os.token.handler(async ({ input, context }) => {
     const row = await authorizedServer(context, input.params.id, 'servers.tokens.read', 'manage');
@@ -261,7 +261,7 @@ export const serversRouter = os.router({
   }),
   test: os.test.handler(async ({ input, context }) => {
     const row = await authorizedServer(context, input.params.id, 'servers.test', 'read');
-    const server = toApiServer(row, context.config.APP_SECRET_KEY);
+    const server = await toApiServer(row, context.config.APP_SECRET_KEY);
     if (server.kind === 'data_domain') {
       return fail('FORBIDDEN', '数据域连接由数据域设置管理，不能直接测试连接');
     }
@@ -461,7 +461,7 @@ export const serversRouter = os.router({
     testInvoke: os.tools.testInvoke.handler(async ({ input, context }) => {
       const { id, toolId } = input.params;
       const row = await authorizedServer(context, id, 'servers.tools.manage', 'manage');
-      const server = toApiServer(row, context.config.APP_SECRET_KEY);
+      const server = await toApiServer(row, context.config.APP_SECRET_KEY);
       if (server.kind !== 'generated') {
         return fail('INVALID_INPUT', '仅 generated 连接器支持工具测试');
       }

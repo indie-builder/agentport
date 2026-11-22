@@ -137,7 +137,7 @@ export interface KnowledgeDeps {
     blocks?: IngestionDocument['blocks'],
   ) => ChunkDraft[];
   connectors: Partial<Record<KnowledgeSourceRow['type'], KnowledgeConnector>>;
-  decrypt: (payload: string) => Record<string, string>;
+  decrypt: (payload: string) => Record<string, string> | Promise<Record<string, string>>;
   onWikiUpdate?: (input: WikiUpdateInput) => Promise<void>;
   summaryModel?: string | undefined;
   onSummaryJobs?: (input: { baseId: string; jobIds: string[] }) => Promise<void>;
@@ -312,7 +312,7 @@ async function embeddingClient(deps: KnowledgeDeps, profileId: string): Promise<
     throw new Error('embedding profile 不可用');
   }
   const apiKey = profile.secretsEncrypted
-    ? deps.decrypt(profile.secretsEncrypted).apiKey
+    ? (await deps.decrypt(profile.secretsEncrypted)).apiKey
     : undefined;
   const settings = {
     endpointUrl: profile.endpointUrl,
@@ -846,7 +846,7 @@ async function resolveAsrProfile(
   const profile = await repo.knowledge.getModelProfileWithSecret(deps.db, base.asrProfileId);
   if (profile?.kind !== 'asr' || !profile.enabled) return undefined;
   const apiKey = profile.secretsEncrypted
-    ? deps.decrypt(profile.secretsEncrypted).apiKey
+    ? (await deps.decrypt(profile.secretsEncrypted)).apiKey
     : undefined;
   return {
     profile: {
@@ -1614,7 +1614,7 @@ export async function runSync(
   const ranges = snapshot.ranges.filter((range) => range.enabled);
   if (ranges.length === 0) throw new Error('来源没有启用的范围');
 
-  const secrets = snapshot.secretsEncrypted ? deps.decrypt(snapshot.secretsEncrypted) : {};
+  const secrets = snapshot.secretsEncrypted ? await deps.decrypt(snapshot.secretsEncrypted) : {};
   const network: ConnectorNetwork | undefined =
     deps.trustedHosts?.length || deps.allowLoopback === true
       ? sourceNetworkOptions(deps)
@@ -1785,7 +1785,7 @@ export async function runSourceProbe(
   if (!connector?.probe) throw new Error(`不支持的来源类型 ${source.type}`);
   const ranges = snapshot.ranges.filter((range) => range.enabled);
   if (ranges.length === 0) throw new Error('来源没有启用的范围，无法探测');
-  const secrets = snapshot.secretsEncrypted ? deps.decrypt(snapshot.secretsEncrypted) : {};
+  const secrets = snapshot.secretsEncrypted ? await deps.decrypt(snapshot.secretsEncrypted) : {};
   const network: ConnectorNetwork | undefined =
     deps.trustedHosts?.length || deps.allowLoopback === true
       ? sourceNetworkOptions(deps)

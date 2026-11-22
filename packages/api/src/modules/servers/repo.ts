@@ -20,8 +20,8 @@ function strArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
-export function toApiServer(row: repo.servers.ServerRow, keyB64url: string): Server {
-  const secrets = row.secretsEncrypted ? decryptSecrets(row.secretsEncrypted, keyB64url) : {};
+export async function toApiServer(row: repo.servers.ServerRow, keyB64url: string): Promise<Server> {
+  const secrets = row.secretsEncrypted ? await decryptSecrets(row.secretsEncrypted, keyB64url) : {};
   const config = row.config;
   const base = {
     id: row.id,
@@ -67,29 +67,33 @@ export function toApiServer(row: repo.servers.ServerRow, keyB64url: string): Ser
   return { ...base, kind: 'generated', baseUrl: url, headers: secrets };
 }
 
-function splitInput(
+async function splitInput(
   input: ServerInput,
   keyB64url: string,
   mcpToken?: string,
-): { config: Record<string, unknown>; secretsEncrypted: string | null } {
+): Promise<{ config: Record<string, unknown>; secretsEncrypted: string | null }> {
   switch (input.kind) {
     case 'stdio':
       return {
         config: { command: input.command, args: input.args },
         secretsEncrypted:
-          Object.keys(input.env).length > 0 ? encryptSecrets(input.env, keyB64url) : null,
+          Object.keys(input.env).length > 0 ? await encryptSecrets(input.env, keyB64url) : null,
       };
     case 'http':
       return {
         config: { url: input.url },
         secretsEncrypted:
-          Object.keys(input.headers).length > 0 ? encryptSecrets(input.headers, keyB64url) : null,
+          Object.keys(input.headers).length > 0
+            ? await encryptSecrets(input.headers, keyB64url)
+            : null,
       };
     case 'generated':
       return {
         config: { baseUrl: input.baseUrl, mcpToken: mcpToken ?? randomToken() },
         secretsEncrypted:
-          Object.keys(input.headers).length > 0 ? encryptSecrets(input.headers, keyB64url) : null,
+          Object.keys(input.headers).length > 0
+            ? await encryptSecrets(input.headers, keyB64url)
+            : null,
       };
   }
 }
@@ -112,14 +116,16 @@ export async function listServerPage(
   const page = await repo.servers.listServerPage(db, options);
   if (page === null) return null;
   return {
-    items: page.items.map((row) => maskServer(toApiServer(row, key))),
+    items: await Promise.all(
+      page.items.map(async (row) => maskServer(await toApiServer(row, key))),
+    ),
     nextCursor: page.nextCursor,
   };
 }
 
 export async function getServer(db: Db, id: string, key: string): Promise<Server | null> {
   const row = await repo.servers.getServer(db, id);
-  return row ? maskServer(toApiServer(row, key)) : null;
+  return row ? maskServer(await toApiServer(row, key)) : null;
 }
 
 export async function getServerWithSecrets(
@@ -128,7 +134,7 @@ export async function getServerWithSecrets(
   key: string,
 ): Promise<Server | null> {
   const row = await repo.servers.getServer(db, id);
-  return row ? toApiServer(row, key) : null;
+  return row ? await toApiServer(row, key) : null;
 }
 
 export async function createServer(
@@ -137,7 +143,7 @@ export async function createServer(
   key: string,
   ownerBusinessId: string,
 ): Promise<Server> {
-  const split = splitInput(input, key);
+  const split = await splitInput(input, key);
   const row = await repo.servers.createServer(
     db,
     {
@@ -149,7 +155,7 @@ export async function createServer(
     },
     ownerBusinessId,
   );
-  return maskServer(toApiServer(row, key));
+  return maskServer(await toApiServer(row, key));
 }
 
 export interface ImportedServerSummary {
@@ -173,27 +179,29 @@ export async function createServers(
       .where(inArray(schema.servers.name, names));
     if (existing.length > 0) fail('CONFLICT', '已有同名连接器，未导入任何配置');
 
-    const rows = inputs.map((input) => {
-      const id = newId('server');
-      const split = splitInput(input, key);
-      return {
-        values: {
-          id,
-          name: input.name,
-          kind: input.kind,
-          description: input.description,
-          config: split.config,
-          secretsEncrypted: split.secretsEncrypted,
-          ownerBusinessId,
-        },
-        summary: {
-          id,
-          name: input.name,
-          kind: input.kind,
-          secretKeys: Object.keys(input.kind === 'stdio' ? input.env : input.headers),
-        } satisfies ImportedServerSummary,
-      };
-    });
+    const rows = await Promise.all(
+      inputs.map(async (input) => {
+        const id = newId('server');
+        const split = await splitInput(input, key);
+        return {
+          values: {
+            id,
+            name: input.name,
+            kind: input.kind,
+            description: input.description,
+            config: split.config,
+            secretsEncrypted: split.secretsEncrypted,
+            ownerBusinessId,
+          },
+          summary: {
+            id,
+            name: input.name,
+            kind: input.kind,
+            secretKeys: Object.keys(input.kind === 'stdio' ? input.env : input.headers),
+          } satisfies ImportedServerSummary,
+        };
+      }),
+    );
     await tx.insert(schema.servers).values(rows.map((row) => row.values));
     return rows.map((row) => row.summary);
   });
@@ -227,7 +235,7 @@ export async function updateServer(
     ) {
       throw new AppError('CONFLICT_STALE', CONFIG_STALE_MESSAGE);
     }
-    const current = toApiServer(row, key);
+    const current = await toApiServer(row, key);
     if (patch.kind !== undefined && patch.kind !== current.kind) {
       fail('INVALID_INPUT', 'Server 类型创建后不能修改；需要其他类型请新建一个 Server');
     }
@@ -272,7 +280,7 @@ export async function updateServer(
       fail('FORBIDDEN', '平台托管连接由所属设置管理');
     }
 
-    const split = splitInput(
+    const split = await splitInput(
       next,
       key,
       typeof row.config.mcpToken === 'string' ? row.config.mcpToken : undefined,
@@ -293,7 +301,7 @@ export async function updateServer(
       },
       expectedUpdatedAt,
     );
-    return updated ? maskServer(toApiServer(updated, key)) : null;
+    return updated ? maskServer(await toApiServer(updated, key)) : null;
   });
 }
 

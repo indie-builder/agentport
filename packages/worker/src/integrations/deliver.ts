@@ -56,7 +56,7 @@ async function deliverOne(deps: DeliveryDeps, row: DeliveryClaim): Promise<void>
   }
   let secret: string;
   try {
-    secret = decryptSecrets(row.secretEncrypted, deps.secretKey).secret ?? '';
+    secret = (await decryptSecrets(row.secretEncrypted, deps.secretKey)).secret ?? '';
   } catch {
     secret = '';
   }

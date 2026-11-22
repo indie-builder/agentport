@@ -358,13 +358,13 @@ export async function listSources(deps: KnowledgeDeps, id: string, query: PageQu
   return { items, nextCursor: page.nextCursor };
 }
 
-function encryptIfAny(
+async function encryptIfAny(
   deps: KnowledgeDeps,
   secrets: Record<string, string> | undefined,
-): string | null | undefined {
+): Promise<string | null | undefined> {
   if (secrets === undefined) return undefined;
   return Object.keys(secrets).length > 0
-    ? encryptSecrets(secrets, deps.config.APP_SECRET_KEY)
+    ? await encryptSecrets(secrets, deps.config.APP_SECRET_KEY)
     : null;
 }
 
@@ -392,14 +392,14 @@ export async function createSource(
     type: input.type,
     name: input.name,
     config: input.config,
-    secretsEncrypted: encryptIfAny(deps, input.secrets) ?? null,
+    secretsEncrypted: (await encryptIfAny(deps, input.secrets)) ?? null,
     syncCron: input.syncCron,
     ranges: input.ranges,
   });
   return toSource(source, ranges);
 }
 
-function parsePatchInput(
+async function parsePatchInput(
   deps: KnowledgeDeps,
   source: KnowledgeSourceRow,
   ranges: RangeRow[],
@@ -408,15 +408,14 @@ function parsePatchInput(
   if (body.config === undefined && body.secrets === undefined && body.ranges === undefined) {
     return null;
   }
-  const storedSecrets = source.secretsEncrypted
-    ? (() => {
-        try {
-          return decryptSecrets(source.secretsEncrypted, deps.config.APP_SECRET_KEY);
-        } catch {
-          return null;
-        }
-      })()
-    : null;
+  let storedSecrets: Record<string, string> | null = null;
+  if (source.secretsEncrypted) {
+    try {
+      storedSecrets = await decryptSecrets(source.secretsEncrypted, deps.config.APP_SECRET_KEY);
+    } catch {
+      storedSecrets = null;
+    }
+  }
   const parsed = knowledgeSourceInputSchema.safeParse({
     type: source.type,
     name: body.name ?? source.name,
@@ -450,7 +449,7 @@ export async function updateSource(deps: KnowledgeDeps, sourceId: string, body: 
     const issues = identityIssues(source.type, source.config, body.config);
     if (issues.length > 0) throw new AppError('INVALID_INPUT', issues.join('；'));
   }
-  const parsed = parsePatchInput(deps, source, ranges, body);
+  const parsed = await parsePatchInput(deps, source, ranges, body);
   if (parsed !== null) {
     const issues = configIssues(source.type, parsed.config, parsed.secrets, parsed.ranges);
     if (issues.length > 0) throw new AppError('INVALID_INPUT', issues.join('；'));
@@ -461,7 +460,7 @@ export async function updateSource(deps: KnowledgeDeps, sourceId: string, body: 
       ? (parsed.secrets as Record<string, string>)
       : undefined;
   const nextRanges = parsed !== null && body.ranges !== undefined ? parsed.ranges : undefined;
-  const encrypted = encryptIfAny(deps, nextSecrets);
+  const encrypted = await encryptIfAny(deps, nextSecrets);
   try {
     const result = await repo.knowledge.replaceSourceScope(deps.db, source.id, {
       ...(body.name === undefined ? {} : { name: body.name }),
@@ -499,7 +498,7 @@ export async function testSource(deps: KnowledgeDeps, sourceId: string) {
   let secrets: Record<string, string> | null = null;
   if (source.secretsEncrypted) {
     try {
-      secrets = decryptSecrets(source.secretsEncrypted, deps.config.APP_SECRET_KEY);
+      secrets = await decryptSecrets(source.secretsEncrypted, deps.config.APP_SECRET_KEY);
     } catch {
       issues.push('已保存的凭证无法解密，请重新填写');
     }

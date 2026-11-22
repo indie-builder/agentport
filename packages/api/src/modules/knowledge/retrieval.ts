@@ -533,7 +533,9 @@ export async function searchKnowledge(
       embeddingProtocol: profile.embeddingProtocol,
       imageInputEnabled: profile.imageInputEnabled,
       ...(profile.secretsEncrypted
-        ? { apiKey: decryptSecrets(profile.secretsEncrypted, options.secretKey).apiKey }
+        ? {
+            apiKey: (await decryptSecrets(profile.secretsEncrypted, options.secretKey)).apiKey,
+          }
         : {}),
     };
     try {
@@ -615,7 +617,7 @@ export async function searchKnowledge(
       if (rerankProfile?.enabled && rerankProfile.kind === 'rerank') {
         try {
           const apiKey = rerankProfile.secretsEncrypted
-            ? decryptSecrets(rerankProfile.secretsEncrypted, options.secretKey).apiKey
+            ? (await decryptSecrets(rerankProfile.secretsEncrypted, options.secretKey)).apiKey
             : undefined;
           const scores = await rerankDocuments(
             {

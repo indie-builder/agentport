@@ -118,19 +118,19 @@ function managedPackageEntries(
     },
   };
 }
-function toExportedServer(
+async function toExportedServer(
   row: ServerRow,
   key: string,
   tools: ToolRow[] | undefined,
   selfUrl: string,
-): PackageServer {
+): Promise<PackageServer> {
   if (row.kind === 'knowledge' || row.kind === 'data_domain')
     return managedPackageEntries(row, selfUrl).server;
   const base = {
     name: row.name,
     description: row.description,
     secretKeys: row.secretsEncrypted
-      ? Object.keys(decryptSecrets(row.secretsEncrypted, key)).sort()
+      ? Object.keys(await decryptSecrets(row.secretsEncrypted, key)).sort()
       : [],
   };
   if (row.kind === 'stdio') {
@@ -533,12 +533,14 @@ export async function buildAgentPackage(
       skillSlugs: rootSkills.map((skill) => skill.slug),
       ...(runtimeEnvironment === null ? {} : { runtimeEnvironmentName: runtimeEnvironment.name }),
     },
-    servers: allServers.map((server) =>
-      toExportedServer(
-        server,
-        key,
-        server.kind === 'generated' ? (toolsByServerId.get(server.id) ?? []) : undefined,
-        selfUrl,
+    servers: await Promise.all(
+      allServers.map((server) =>
+        toExportedServer(
+          server,
+          key,
+          server.kind === 'generated' ? (toolsByServerId.get(server.id) ?? []) : undefined,
+          selfUrl,
+        ),
       ),
     ),
     subAgents: children.map((child) => ({

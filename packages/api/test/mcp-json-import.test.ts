@@ -101,8 +101,8 @@ describe.skipIf(!ready)('mcp.json import', () => {
     expect(stdio.secrets_encrypted).not.toContain(stdioSecret);
     expect(http.config).not.toContain(httpSecret);
     expect(http.secrets_encrypted).not.toContain(httpSecret);
-    expect(decryptSecrets(stdio.secrets_encrypted, key)).toEqual({ API_KEY: stdioSecret });
-    expect(decryptSecrets(http.secrets_encrypted, key)).toEqual({
+    expect(await decryptSecrets(stdio.secrets_encrypted, key)).toEqual({ API_KEY: stdioSecret });
+    expect(await decryptSecrets(http.secrets_encrypted, key)).toEqual({
       Authorization: `Bearer ${httpSecret}`,
     });
 

@@ -78,7 +78,9 @@ export async function runSandboxProbe(
   const row = await repo.servers.getServer(deps.db, serverId);
   if (!row) return failure(NOT_FOUND_MESSAGES.server);
   if (row.kind !== 'stdio') return failure('只支持 stdio 类型的连接测试');
-  const secrets = row.secretsEncrypted ? decryptSecrets(row.secretsEncrypted, deps.secretKey) : {};
+  const secrets = row.secretsEncrypted
+    ? await decryptSecrets(row.secretsEncrypted, deps.secretKey)
+    : {};
   const task = sandboxProbeTaskSchema.safeParse({
     kind: 'stdio',
     command: row.config.command,

@@ -56,7 +56,7 @@ async function seedStdio(env: Record<string, string>): Promise<string> {
     name: `probe-${id}`,
     kind: 'stdio',
     config: { command: 'node', args: ['-y', 'demo'] },
-    secretsEncrypted: encryptSecrets(env, SECRET_KEY),
+    secretsEncrypted: await encryptSecrets(env, SECRET_KEY),
   });
   return id;
 }

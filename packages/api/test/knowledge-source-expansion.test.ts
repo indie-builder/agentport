@@ -260,7 +260,9 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       [lark.id],
     );
     expect(stored[0]?.secrets_encrypted ?? '').not.toContain('rotated-lark-secret');
-    expect(decryptSecrets(stored[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY)).toEqual({
+    expect(
+      await decryptSecrets(stored[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY),
+    ).toEqual({
       appSecret: 'rotated-lark-secret',
     });
     const clear = await request(app, {
@@ -275,9 +277,9 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       'select secrets_encrypted from knowledge_sources where id = $1',
       [lark.id],
     );
-    expect(decryptSecrets(retained[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY)).toEqual(
-      { appSecret: 'rotated-lark-secret' },
-    );
+    expect(
+      await decryptSecrets(retained[0]?.secrets_encrypted ?? '', app.config.APP_SECRET_KEY),
+    ).toEqual({ appSecret: 'rotated-lark-secret' });
   });
 
   it('rejects wrong range kinds, unsafe paths, and mode/secret mismatches', async () => {

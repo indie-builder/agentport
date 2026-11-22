@@ -26,13 +26,13 @@ const os = implement(outputSharesContract).$context<RequestContext>();
 
 type OutputShareRow = repo.outputShares.OutputShareRow;
 
-export function toOutputShare(
+export async function toOutputShare(
   row: Pick<
     OutputShareRow,
     'id' | 'runId' | 'path' | 'sha256' | 'createdAt' | 'revokedAt' | 'tokenEncrypted'
   >,
   context: RequestContext,
-): OutputShare {
+): Promise<OutputShare> {
   return {
     id: row.id,
     runId: row.runId,
@@ -40,7 +40,7 @@ export function toOutputShare(
     sha256: row.sha256,
     createdAt: row.createdAt.toISOString(),
     revokedAt: row.revokedAt?.toISOString() ?? null,
-    urlPath: `/s/${row.id}#${decryptSecrets(row.tokenEncrypted, context.config.APP_SECRET_KEY).token}`,
+    urlPath: `/s/${row.id}#${(await decryptSecrets(row.tokenEncrypted, context.config.APP_SECRET_KEY)).token}`,
   };
 }
 
@@ -151,7 +151,7 @@ export const outputSharesRouter = os.router({
       input.body.path,
     );
     if (existing !== null && existing.sha256 === file.sha256) {
-      return toOutputShare(existing, context);
+      return await toOutputShare(existing, context);
     }
 
     const token = crypto
@@ -163,7 +163,7 @@ export const outputSharesRouter = os.router({
       path: input.body.path,
       sha256: file.sha256,
       tokenHash: sha256Hex(token),
-      tokenEncrypted: encryptSecrets({ token }, context.config.APP_SECRET_KEY),
+      tokenEncrypted: await encryptSecrets({ token }, context.config.APP_SECRET_KEY),
     });
     await repo.audit.writeAudit(context.db, context.log, {
       actor: actorOf(context),
@@ -173,7 +173,7 @@ export const outputSharesRouter = os.router({
       status: 'ok',
       requestId: context.requestId,
     });
-    return toOutputShare(row, context);
+    return await toOutputShare(row, context);
   }),
 
   list: os.list.handler(async ({ input, context }) => {
@@ -184,7 +184,9 @@ export const outputSharesRouter = os.router({
       input.query.runId,
       input.query.path,
     );
-    return { items: rows.map((row) => toOutputShare(row, context)) };
+    return {
+      items: await Promise.all(rows.map(async (row) => toOutputShare(row, context))),
+    };
   }),
 
   revoke: os.revoke.handler(async ({ input, context }) => {

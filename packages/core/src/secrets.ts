@@ -1,28 +1,61 @@
-import { createCipheriv, createDecipheriv, hkdfSync } from 'node:crypto';
-
 const IV_LEN = 12;
 const TAG_LEN = 16;
+const INFO = new TextEncoder().encode('agentport:secrets:v1');
 
-function deriveKey(keyB64url: string): Buffer {
-  return Buffer.from(
-    hkdfSync('sha256', Buffer.from(keyB64url, 'utf8'), Buffer.alloc(0), 'agentport:secrets:v1', 32),
+async function deriveKey(keyB64url: string): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(keyB64url),
+    'HKDF',
+    false,
+    ['deriveKey'],
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: INFO },
+    base,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
   );
 }
 
-export function encryptSecrets(obj: Record<string, string>, keyB64url: string): string {
+export async function encryptSecrets(
+  obj: Record<string, string>,
+  keyB64url: string,
+): Promise<string> {
+  const key = await deriveKey(keyB64url);
   const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
-  const cipher = createCipheriv('aes-256-gcm', deriveKey(keyB64url), iv);
-  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(obj), 'utf8'), cipher.final()]);
-  return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString('base64url');
+  const encrypted = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv, tagLength: 128 },
+      key,
+      new TextEncoder().encode(JSON.stringify(obj)),
+    ),
+  );
+  const ciphertext = encrypted.subarray(0, encrypted.length - TAG_LEN);
+  const tag = encrypted.subarray(encrypted.length - TAG_LEN);
+  const out = new Uint8Array(IV_LEN + TAG_LEN + ciphertext.length);
+  out.set(iv, 0);
+  out.set(tag, IV_LEN);
+  out.set(ciphertext, IV_LEN + TAG_LEN);
+  return Buffer.from(out).toString('base64url');
 }
 
-export function decryptSecrets(payload: string, keyB64url: string): Record<string, string> {
+export async function decryptSecrets(
+  payload: string,
+  keyB64url: string,
+): Promise<Record<string, string>> {
   const buf = Buffer.from(payload, 'base64url');
   if (buf.length <= IV_LEN + TAG_LEN) throw new Error('secrets payload too short');
-  const decipher = createDecipheriv('aes-256-gcm', deriveKey(keyB64url), buf.subarray(0, IV_LEN));
-  decipher.setAuthTag(buf.subarray(IV_LEN, IV_LEN + TAG_LEN));
-  const plain = Buffer.concat([decipher.update(buf.subarray(IV_LEN + TAG_LEN)), decipher.final()]);
-  const parsed: unknown = JSON.parse(plain.toString('utf8'));
+  const key = await deriveKey(keyB64url);
+  const iv = buf.subarray(0, IV_LEN);
+  const tag = buf.subarray(IV_LEN, IV_LEN + TAG_LEN);
+  const ciphertext = buf.subarray(IV_LEN + TAG_LEN);
+  const data = new Uint8Array(ciphertext.length + TAG_LEN);
+  data.set(ciphertext, 0);
+  data.set(tag, ciphertext.length);
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv, tagLength: 128 }, key, data);
+  const parsed: unknown = JSON.parse(new TextDecoder().decode(plain));
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('secrets payload is not an object');
   }

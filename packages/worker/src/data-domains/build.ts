@@ -172,7 +172,7 @@ async function runDataDomainBuild(
 
   let connection: Record<string, string>;
   try {
-    connection = decryptSecrets(domain.connectionEncrypted, deps.secretKey);
+    connection = await decryptSecrets(domain.connectionEncrypted, deps.secretKey);
   } catch {
     await failBuild('连接配置无法解密，请重新保存连接');
     return;

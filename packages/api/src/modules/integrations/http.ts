@@ -144,7 +144,8 @@ export function registerIntegrationsHttp(app: Hono<HttpEnv>): void {
       }
       const rawBody = await c.req.text();
       const secret =
-        decryptSecrets(endpoint.secretEncrypted, context.config.APP_SECRET_KEY).secret ?? '';
+        (await decryptSecrets(endpoint.secretEncrypted, context.config.APP_SECRET_KEY)).secret ??
+        '';
       if (
         !verifyWebhookSignature(
           secret,
