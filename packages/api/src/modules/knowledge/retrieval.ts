@@ -3,6 +3,7 @@ import {
   AppError,
   decryptSecrets,
   embedTexts,
+  KNOWLEDGE_BASE_DISABLED_MESSAGE,
   KNOWLEDGE_BASE_NOT_FOUND_MESSAGE,
   rerankDocuments,
   segmentForSearch,
@@ -502,7 +503,7 @@ export async function searchKnowledge(
   const startedAt = Date.now();
   const base = await repo.knowledge.getBase(db, baseId);
   if (!base) throw new AppError('NOT_FOUND', KNOWLEDGE_BASE_NOT_FOUND_MESSAGE);
-  if (base.status !== 'active') throw new AppError('CONFLICT', '知识库已禁用');
+  if (base.status !== 'active') throw new AppError('CONFLICT', KNOWLEDGE_BASE_DISABLED_MESSAGE);
 
   const imageProcessing = base.settings.imageProcessing;
   const scope: SearchScope = {
