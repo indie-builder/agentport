@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { decryptSecrets } from '@agentport/core';
+import { decryptSecrets, NOT_FOUND_MESSAGES } from '@agentport/core';
 import { createDb, repo } from '@agentport/db';
 import {
   errorText,
@@ -81,7 +81,7 @@ export async function runSandboxProbe(
   });
 
   const row = await repo.servers.getServer(deps.db, serverId);
-  if (!row) return failure('MCP Server 不存在，可能已被删除；请刷新后重试');
+  if (!row) return failure(NOT_FOUND_MESSAGES.server);
   if (row.kind !== 'stdio') return failure('只支持 stdio 类型的连接测试');
   const secrets = row.secretsEncrypted ? decryptSecrets(row.secretsEncrypted, deps.secretKey) : {};
   const task = sandboxProbeTaskSchema.safeParse({

@@ -1,4 +1,4 @@
-import { fail, notFound } from '@agentport/core';
+import { fail, NOT_FOUND_MESSAGES, notFound } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import {
   AGENT_PACKAGE_MAX_BYTES,
@@ -149,19 +149,14 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
         'agents.workflows.read',
         'agents.memory.read',
       ] as const) {
-        await authorizeObject(
-          context,
-          permissionId,
-          { agentId: row.id },
-          '智能体不存在，可能已被删除；请刷新后重试',
-        );
+        await authorizeObject(context, permissionId, { agentId: row.id }, NOT_FOUND_MESSAGES.agent);
       }
       if (row.hooksEnabled || (await repo.hooks.listHookFiles(context.db, row.id)).length > 0) {
         await authorizeObject(
           context,
           'agents.hooks.read',
           { agentId: row.id },
-          '智能体不存在，可能已被删除；请刷新后重试',
+          NOT_FOUND_MESSAGES.agent,
         );
       }
       const pkg = await buildAgentPackage(
