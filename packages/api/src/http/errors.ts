@@ -11,6 +11,8 @@ export { AppError, isAppError } from '@agentport/core';
 export const PAYLOAD_TOO_LARGE_MESSAGE = '请求体超出大小限制，请减少内容后重试';
 export const FORBIDDEN_MESSAGE = '没有该操作的权限';
 export const OBJECT_MISSING_MESSAGE = '对象不存在';
+export const INVALID_REQUEST_MESSAGE = '请求无效';
+export const SERVICE_UNAVAILABLE_MESSAGE = '服务暂时不可用，请稍后重试';
 
 function isErrorCode(code: string): code is ErrorCode {
   return Object.hasOwn(ERROR_META, code);
@@ -30,7 +32,7 @@ export function toAppError(error: unknown): AppError {
   if (isAppError(error)) return error;
   if (error instanceof z.ZodError) {
     const first = error.issues[0];
-    return new AppError('INVALID_INPUT', first?.message ?? '请求无效', {
+    return new AppError('INVALID_INPUT', first?.message ?? INVALID_REQUEST_MESSAGE, {
       ...(first === undefined ? {} : { path: issuePath(first.path) }),
       cause: error,
     });
@@ -46,7 +48,7 @@ export function toAppError(error: unknown): AppError {
     const first = error.cause instanceof ValidationError ? error.cause.issues[0] : undefined;
     return new AppError(
       code,
-      first?.message ?? (code === 'INVALID_INPUT' ? '请求无效' : error.message),
+      first?.message ?? (code === 'INVALID_INPUT' ? INVALID_REQUEST_MESSAGE : error.message),
       {
         ...(first?.path === undefined
           ? {}
@@ -71,7 +73,7 @@ export function toAppError(error: unknown): AppError {
     typeof error.code === 'string' &&
     error.code.startsWith('ERR_REDIS_CONNECTION_')
   ) {
-    return new AppError('SERVICE_UNAVAILABLE', '服务暂时不可用，请稍后重试', {
+    return new AppError('SERVICE_UNAVAILABLE', SERVICE_UNAVAILABLE_MESSAGE, {
       cause: error,
       retryable: true,
     });
