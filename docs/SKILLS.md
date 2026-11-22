@@ -10,6 +10,7 @@
 项目自有技能放在 `.claude/skills/` 的真实目录，不写入 `.agents/skills/`，也不登记 `skills-lock.json`；它们不是上游 vendored，升级或重装上游技能时不得覆盖、删除。
 
 - `visual-check`：开发完成后的 UI 视觉抽查。`bun run visual:shots`（`scripts/visual-shots.mjs`）默认起隔离临时 PG 库、独享 Redis 容器与 API/Web，登录后按多个桌面视口截图并打开，结束停本工具启动的进程、删本次 Redis 容器与临时库；`--base-url` 复用已有栈且不创建/销毁服务，`--keep` 保留环境并打印手动清理命令。截图产物在 `.visual/`（已 gitignore）。
+- `agent-run-lifecycle-formal`：Agent Run 生命周期并发、重放、`pendingFinish` 与对账状态机的形式化验证技能（位于 `.claude/skills/agent-run-lifecycle-formal/SKILL.md`，TLA+ 模型目录 `formal/agent-run-lifecycle/`）。通过 `bun run verify:formal`（已接入 `scripts/ci.ts`）验证 6 条门禁不变量、3 个历史 Bug 回归变体与 2 条开放 Finding（`D-93`、`D-94`）；改动 run 入队、认领、执行、终态结算、对账或取消逻辑后使用。
 
 ## 范围
 
