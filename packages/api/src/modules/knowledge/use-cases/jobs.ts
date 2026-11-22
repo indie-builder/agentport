@@ -12,7 +12,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
 import { publishKnowledgeCancel } from '../../../queue/producer.js';
 import { createJob, enqueueKnowledgeJobAfterCommit } from '../service.js';
-import { enqueue, type KnowledgeDeps, notFound } from './shared.js';
+import { enqueue, enqueueSourceSync, type KnowledgeDeps, notFound } from './shared.js';
 
 function toJob(
   row:
@@ -96,13 +96,7 @@ export async function retryJob(deps: KnowledgeDeps, row: JobRow) {
   }
   const payload = knowledgeJobPayloadSchema.parse(row.payload);
   if (payload.type === 'sync') {
-    const created = await repo.knowledge.createSyncJob(deps.db, payload.sourceId);
-    if (created.status === 'not_found') notFound('来源');
-    if (created.status === 'not_active') throw new AppError('CONFLICT', '来源未启用，无法同步');
-    if (created.status === 'in_progress') {
-      throw new AppError('CONFLICT', '该来源已有同步任务在进行中');
-    }
-    await enqueueKnowledgeJobAfterCommit(deps.log, created.job);
+    const created = await enqueueSourceSync(deps, payload.sourceId);
     return { jobId: created.job.id };
   }
   let faqDraftBinding: {

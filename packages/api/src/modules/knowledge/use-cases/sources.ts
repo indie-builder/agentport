@@ -7,7 +7,7 @@ import { isPgCode } from '../../../http/errors.js';
 import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
 import { INVALID_CRON_MESSAGE, isSchedulableCron } from '../../../lib/cron.js';
 import { createJob, enqueueKnowledgeJobAfterCommit } from '../service.js';
-import { type KnowledgeDeps, notFound } from './shared.js';
+import { enqueueSourceSync, type KnowledgeDeps, notFound } from './shared.js';
 
 type RangeInput = KnowledgeSourceInput['ranges'][number];
 
@@ -507,13 +507,7 @@ export async function testSource(deps: KnowledgeDeps, sourceId: string) {
 }
 
 export async function syncSource(deps: KnowledgeDeps, sourceId: string) {
-  const created = await repo.knowledge.createSyncJob(deps.db, sourceId);
-  if (created.status === 'not_found') notFound('来源');
-  if (created.status === 'not_active') throw new AppError('CONFLICT', '来源未启用，无法同步');
-  if (created.status === 'in_progress') {
-    throw new AppError('CONFLICT', '该来源已有同步任务在进行中');
-  }
-  await enqueueKnowledgeJobAfterCommit(deps.log, created.job);
+  const created = await enqueueSourceSync(deps, sourceId);
   return { jobId: created.job.id, syncRunId: created.run.id };
 }
 
