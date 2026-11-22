@@ -1,4 +1,4 @@
-import { AppError } from '@agentport/core';
+import { AppError, CONFIG_STALE_MESSAGE } from '@agentport/core';
 import {
   ACTIVE_RUN_STATUSES,
   type AccessFilter,
@@ -977,7 +977,7 @@ export async function updateAgentTx(
     .returning();
   if (!row) {
     if (expectedUpdatedAt !== undefined && (await getAgent(tx, id))) {
-      throw new AppError('CONFLICT_STALE', '配置已被修改，请刷新');
+      throw new AppError('CONFLICT_STALE', CONFIG_STALE_MESSAGE);
     }
     return null;
   }

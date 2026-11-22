@@ -62,6 +62,8 @@ export const KNOWLEDGE_DOCUMENT_MISSING_MESSAGE = '文档不存在或不属于�
 
 export const DOCUMENT_VERSION_STALE_MESSAGE = '文档版本已变化，请刷新后重试';
 
+export const CONFIG_STALE_MESSAGE = '配置已被修改，请刷新';
+
 export const NOT_FOUND_MESSAGES = {
   agent: '智能体不存在，可能已被删除；请刷新后重试',
   conversation: '会话不存在，可能已被删除；请刷新后重试',

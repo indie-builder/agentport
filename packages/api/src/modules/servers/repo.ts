@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { AppError, fail } from '@agentport/core';
+import { AppError, CONFIG_STALE_MESSAGE, fail } from '@agentport/core';
 import { type CursorPage, type Database, newId, repo, schema } from '@agentport/db';
 import type {
   ApiTool,
@@ -211,10 +211,6 @@ export interface ServerPatch {
   headers?: Record<string, string> | undefined;
 }
 
-function stale(): AppError {
-  return new AppError('CONFLICT_STALE', '配置已被修改，请刷新');
-}
-
 export async function updateServer(
   db: Db,
   id: string,
@@ -229,7 +225,7 @@ export async function updateServer(
       expectedUpdatedAt !== undefined &&
       row.updatedAt.getTime() !== expectedUpdatedAt.getTime()
     ) {
-      throw stale();
+      throw new AppError('CONFLICT_STALE', CONFIG_STALE_MESSAGE);
     }
     const current = toApiServer(row, key);
     if (patch.kind !== undefined && patch.kind !== current.kind) {
