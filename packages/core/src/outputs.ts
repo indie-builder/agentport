@@ -118,21 +118,26 @@ interface ConversationIdentity {
   conversationId: string;
 }
 
-async function trustedPath(
-  identity: ConversationIdentity,
-  segments: string[],
-  label: string,
-): Promise<string> {
-  const logicalRoot = resolve(identity.root);
-  const physicalRoot = await realpath(logicalRoot).catch((error: unknown) => {
+async function rootPhysicalPath(identity: ConversationIdentity, label: string): Promise<string> {
+  return realpath(resolve(identity.root)).catch((error: unknown) => {
     if (hasErrorCode(error, 'ENOENT'))
       return fail('NOT_FOUND', '产出根目录不存在', { path: `/${label}` });
     throw error;
   });
-  if ((await pathSegmentsProblem(physicalRoot, segments)) !== null) {
+}
+
+async function trustedPath(
+  identity: ConversationIdentity,
+  segments: string[],
+  label: string,
+  physicalRoot?: string,
+): Promise<string> {
+  const logicalRoot = resolve(identity.root);
+  const root = physicalRoot ?? (await rootPhysicalPath(identity, label));
+  if ((await pathSegmentsProblem(root, segments)) !== null) {
     fail('INVALID_INPUT', '产出路径不能经过符号链接', { path: `/${label}` });
   }
-  return join(logicalRoot, ...segments);
+  return join(physicalRoot ?? logicalRoot, ...segments);
 }
 
 function baseFileOf(conversationRoot: string, runId: string): string {
@@ -165,18 +170,30 @@ function fileOf(manifest: OutputManifest, file: OutputManifest['files'][number])
 async function loadManifest(
   identity: ConversationIdentity,
   runId: string,
+  physicalRoot?: string,
 ): Promise<OutputManifest | null> {
   const full = await trustedPath(
     identity,
     [...conversationSegments(identity), RUNS, runIdOf(runId), MANIFEST],
     MANIFEST,
+    physicalRoot,
   );
   const info = await lstat(full).catch((error: unknown) => {
     if (hasErrorCode(error, 'ENOENT')) return null;
     throw error;
   });
   if (info === null) return null;
-  const raw = (await readRegularFile(identity, full, MANIFEST)).toString('utf8');
+  if (info.isSymbolicLink() || !info.isFile()) {
+    fail('INVALID_INPUT', '产出文件不是普通文件', { path: `/${MANIFEST}` });
+  }
+  if (info.nlink !== 1) fail('INVALID_INPUT', '产出文件不允许硬链接', { path: `/${MANIFEST}` });
+  const raw = (
+    await readFile(full).catch((error: unknown) => {
+      if (hasErrorCode(error, 'ENOENT'))
+        fail('NOT_FOUND', '产出文件不存在', { path: `/${MANIFEST}` });
+      throw error;
+    })
+  ).toString('utf8');
   let json: unknown;
   try {
     json = JSON.parse(raw);
@@ -193,7 +210,9 @@ async function loadManifest(
 async function publishedVersions(
   identity: ConversationIdentity,
 ): Promise<Array<{ runId: string; manifest: OutputManifest }>> {
-  const runsDir = await trustedPath(identity, [...conversationSegments(identity), RUNS], RUNS);
+  const segments = [...conversationSegments(identity), RUNS];
+  const physicalRoot = await rootPhysicalPath(identity, RUNS);
+  const runsDir = await trustedPath(identity, segments, RUNS, physicalRoot);
   const entries = await readdir(runsDir, { withFileTypes: true }).catch((error: unknown) => {
     if (hasErrorCode(error, 'ENOENT')) return [];
     throw error;
@@ -205,7 +224,7 @@ async function publishedVersions(
       fail('INVALID_INPUT', '产出路径不能经过符号链接', { path: `/${entry.name}` });
     }
     if (!entry.isDirectory()) continue;
-    const manifest = await loadManifest(identity, entry.name);
+    const manifest = await loadManifest(identity, entry.name, physicalRoot);
     if (manifest !== null) versions.push({ runId: entry.name, manifest });
   }
   versions.sort(
