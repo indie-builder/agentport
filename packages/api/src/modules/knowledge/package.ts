@@ -47,6 +47,7 @@ import {
   type ZipReadLimits,
 } from '../agents/package-zip.js';
 import { storeBlob as storeDocumentBlob, supportsImageVectors } from './service.js';
+import { CHUNK_OVERLAP_INVALID_MESSAGE } from './use-cases/shared.js';
 
 /**
  * 知识库数据包（`pace/knowledge@1`）：ZIP 根 manifest.json 记录库元数据、文件夹、标签、
@@ -863,7 +864,7 @@ export async function importKnowledgePackage(
   const files = readZip(archive);
   const manifest = parseManifest(files);
   if (manifest.base.settings.chunkOverlap >= manifest.base.settings.chunkTokens) {
-    fail('INVALID_INPUT', '分块重叠必须小于分块长度');
+    fail('INVALID_INPUT', CHUNK_OVERLAP_INVALID_MESSAGE);
   }
   const contents = verifiedFiles(files, manifest);
   validateReferences(manifest, contents);

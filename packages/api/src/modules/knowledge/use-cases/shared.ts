@@ -16,6 +16,7 @@ import {
 } from '../service.js';
 
 export const VERSION_NOT_IN_DOCUMENT_MESSAGE = '版本不存在或不属于该文档';
+export const CHUNK_OVERLAP_INVALID_MESSAGE = '分块重叠必须小于分块长度';
 
 export type KnowledgeDeps = {
   db: Database;
