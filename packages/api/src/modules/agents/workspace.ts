@@ -80,12 +80,14 @@ export async function renderAgentWorkspace(
     rootServers,
     ...enabledChildren.map((row) => serversByAgent.get(row.id) ?? []),
   ]);
-  const servers = serverRows.map((row) => {
-    const secretKeys = row.secretsEncrypted
-      ? Object.keys(decryptSecrets(row.secretsEncrypted, app.config.APP_SECRET_KEY))
-      : [];
-    return { name: row.name, entry: toEntry(row, secretKeys) };
-  });
+  const servers = await Promise.all(
+    serverRows.map(async (row) => {
+      const secretKeys = row.secretsEncrypted
+        ? Object.keys(await decryptSecrets(row.secretsEncrypted, app.config.APP_SECRET_KEY))
+        : [];
+      return { name: row.name, entry: toEntry(row, secretKeys) };
+    }),
+  );
   const skillFiles = await repo.skillFiles.getSkillFilesBySkillIds(app.db, [
     ...new Set([...skills, ...[...childSkills.values()].flat()].map((s) => s.id)),
   ]);

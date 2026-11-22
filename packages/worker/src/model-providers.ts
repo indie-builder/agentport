@@ -68,9 +68,8 @@ export async function resolveProviderUpstreams(
           baseUrl.password
         )
           return null;
-        const credential = decryptSecrets(
-          provider.credentialEncrypted,
-          config.APP_SECRET_KEY,
+        const credential = (
+          await decryptSecrets(provider.credentialEncrypted, config.APP_SECRET_KEY)
         ).credential;
         return credential ? { providerId: provider.id, baseUrl, credential } : null;
       } catch {

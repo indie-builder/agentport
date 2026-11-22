@@ -21,20 +21,22 @@ import type { RunAccessDenial } from './runs/run-access.js';
 import { finalizeRun } from './runs/run-finish.js';
 import { SandboxCleanupError } from './sandbox/provider.js';
 
-export function toEntry(
+export async function toEntry(
   server: AgentDefinitionServer,
   apiUrl: string,
   secretKey: string,
   runId: string,
   runToken: string,
-): McpJsonArtifactEntry {
+): Promise<McpJsonArtifactEntry> {
   if (server.kind === 'knowledge') {
     return knowledgeMcpEntry({ apiUrl, serverId: server.id, runId, runToken });
   }
   if (server.kind === 'data_domain') {
     return knowledgeMcpEntry({ apiUrl, serverId: server.id, runId, runToken });
   }
-  const secrets = server.secretsEncrypted ? decryptSecrets(server.secretsEncrypted, secretKey) : {};
+  const secrets = server.secretsEncrypted
+    ? await decryptSecrets(server.secretsEncrypted, secretKey)
+    : {};
   const input = serverInputSchema.parse({
     ...server.config,
     name: server.name,

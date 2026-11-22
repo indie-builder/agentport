@@ -203,7 +203,7 @@ async function makeSource(
     config: { ...input.config },
     secretsEncrypted:
       Object.keys(input.secrets).length > 0
-        ? encryptSecrets({ ...input.secrets }, SECRET_KEY)
+        ? await encryptSecrets({ ...input.secrets }, SECRET_KEY)
         : null,
     syncCron: input.syncCron,
     ranges: input.ranges.map((range) => ({

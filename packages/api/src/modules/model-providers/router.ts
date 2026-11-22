@@ -130,7 +130,7 @@ export const modelProvidersRouter = os.router({
       name: body.name,
       protocol: body.protocol,
       baseUrl: body.baseUrl,
-      credentialEncrypted: encryptSecrets(
+      credentialEncrypted: await encryptSecrets(
         { credential: body.credential },
         context.config.APP_SECRET_KEY,
       ),
@@ -172,7 +172,12 @@ export const modelProvidersRouter = os.router({
       ...(patch.alertRatio === undefined ? {} : { alertRatio: patch.alertRatio }),
       ...(credential === undefined
         ? {}
-        : { credentialEncrypted: encryptSecrets({ credential }, context.config.APP_SECRET_KEY) }),
+        : {
+            credentialEncrypted: await encryptSecrets(
+              { credential },
+              context.config.APP_SECRET_KEY,
+            ),
+          }),
     });
     if (row === null) fail('NOT_FOUND', PROVIDER_NOT_FOUND_MESSAGE);
     await audit(context, 'updated', row.id, patch);
@@ -193,9 +198,8 @@ export const modelProvidersRouter = os.router({
   }),
   test: os.test.handler(async ({ input, context }) => {
     const row = await requireProvider(context, input.params.id);
-    const credential = decryptSecrets(
-      row.credentialEncrypted,
-      context.config.APP_SECRET_KEY,
+    const credential = (
+      await decryptSecrets(row.credentialEncrypted, context.config.APP_SECRET_KEY)
     ).credential;
     if (credential === undefined) fail('SERVICE_UNAVAILABLE', '模型供应商凭证不可用');
     const target = await assertProviderBaseUrl(context, row.baseUrl);

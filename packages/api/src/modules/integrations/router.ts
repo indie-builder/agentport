@@ -135,7 +135,7 @@ export const integrationsRouter = os.router({
         agentId: direction === 'inbound' ? (agentId ?? null) : null,
         url: direction === 'outbound' ? (url ?? null) : null,
         events: direction === 'outbound' ? (events ?? []) : [],
-        secretEncrypted: encryptSecrets({ secret }, context.config.APP_SECRET_KEY),
+        secretEncrypted: await encryptSecrets({ secret }, context.config.APP_SECRET_KEY),
         authUserId: actor.authUserId,
         ownerBusinessId: actor.businessId,
       });

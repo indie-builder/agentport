@@ -85,7 +85,7 @@ describe('knowledge server read shape', () => {
       kind: 'knowledge',
       config: { knowledgeBaseId: baseId },
     });
-    expect(toApiServer(row, KEY)).toMatchObject({
+    expect(await toApiServer(row, KEY)).toMatchObject({
       kind: 'knowledge',
       config: { knowledgeBaseId: baseId },
     });

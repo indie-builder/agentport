@@ -189,7 +189,7 @@ describe.skipIf(!ready)('personal data', () => {
         path,
         sha256(`content-${id}`),
         sha256(token),
-        encryptSecrets({ token }, app.config.APP_SECRET_KEY),
+        await encryptSecrets({ token }, app.config.APP_SECRET_KEY),
       ],
     );
     return { id, token, conversationId, runId, path };
@@ -858,7 +858,7 @@ describe.skipIf(!ready)('personal data', () => {
         runId,
         sha256(content),
         sha256(token),
-        encryptSecrets({ token }, app.config.APP_SECRET_KEY),
+        await encryptSecrets({ token }, app.config.APP_SECRET_KEY),
       ],
     );
 

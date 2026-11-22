@@ -205,7 +205,7 @@ export const dataDomainsRouter = os.router({
     const row = await context.db.transaction(async (tx) => {
       const created = await domains.createDataDomain(tx, {
         ...rest,
-        connectionEncrypted: encryptSecrets(connection, context.config.APP_SECRET_KEY),
+        connectionEncrypted: await encryptSecrets(connection, context.config.APP_SECRET_KEY),
         createdBy: ownerBusinessId,
         ownerBusinessId,
       });
@@ -247,7 +247,9 @@ export const dataDomainsRouter = os.router({
         ...(queryApprovalMode === undefined ? {} : { queryApprovalMode }),
         ...(connection === undefined
           ? {}
-          : { connectionEncrypted: encryptSecrets(connection, context.config.APP_SECRET_KEY) }),
+          : {
+              connectionEncrypted: await encryptSecrets(connection, context.config.APP_SECRET_KEY),
+            }),
       });
       if (!updated) return null;
       await ensureDataDomainServer(tx, {
@@ -306,7 +308,7 @@ export const dataDomainsRouter = os.router({
   generateMdl: os.generateMdl.handler(async ({ input, context }) => {
     const row = await loadDomain(context, input.params.id);
     await authorizeDomain(context, 'data_domains.build', row, 'manage');
-    const connection = decryptSecrets(row.connectionEncrypted, context.config.APP_SECRET_KEY);
+    const connection = await decryptSecrets(row.connectionEncrypted, context.config.APP_SECRET_KEY);
     const result = await generateDataDomainMdl(
       context.config.WREN_RUNTIME_URL,
       row.datasource,

@@ -26,12 +26,14 @@ export const personalRouter = os.router({
 
     context.responseHeaders.set('cache-control', 'no-store');
     return {
-      items: page.items.map((row) => ({
-        ...toOutputShare({ ...row, revokedAt: null }, context),
-        conversationId: row.conversationId,
-        conversationTitle: row.conversationTitle,
-        agentId: row.agentId,
-      })),
+      items: await Promise.all(
+        page.items.map(async (row) => ({
+          ...(await toOutputShare({ ...row, revokedAt: null }, context)),
+          conversationId: row.conversationId,
+          conversationTitle: row.conversationTitle,
+          agentId: row.agentId,
+        })),
+      ),
       nextCursor: page.nextCursor,
     };
   }),

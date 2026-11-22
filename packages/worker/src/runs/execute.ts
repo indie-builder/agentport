@@ -178,7 +178,7 @@ export async function runAgentJob(
       secretKey: string,
       runId: string,
       runToken: string,
-    ) => McpJsonArtifactEntry;
+    ) => Promise<McpJsonArtifactEntry>;
     writeWorkspace: (
       input: WorkspaceAssemblyInput,
     ) => Promise<{ dir: string; hasSubAgents: boolean; hasWorkflows: boolean }>;
@@ -722,10 +722,12 @@ export async function runAgentJob(
       } = await writeWorkspace({
         agent: { ...effectiveAgent, serverNames: parentServerNames },
         runId,
-        servers: serverRows.map((server) => ({
-          name: server.name,
-          entry: toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY, runId, runToken),
-        })),
+        servers: await Promise.all(
+          serverRows.map(async (server) => ({
+            name: server.name,
+            entry: await toEntry(server, sandboxApiUrl, config.APP_SECRET_KEY, runId, runToken),
+          })),
+        ),
         skills: skillsWithFiles,
         subAgents,
         rules,

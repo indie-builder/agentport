@@ -184,7 +184,7 @@ describe.skipIf(!ready || isolated === null)('output shares', () => {
     expect(row?.token_hash).toBe(sha256(token));
     expect(row?.token_hash).not.toBe(token);
     expect(row?.token_encrypted).not.toContain(token);
-    expect(decryptSecrets(row?.token_encrypted ?? '', app.config.APP_SECRET_KEY)).toEqual({
+    expect(await decryptSecrets(row?.token_encrypted ?? '', app.config.APP_SECRET_KEY)).toEqual({
       token,
     });
 

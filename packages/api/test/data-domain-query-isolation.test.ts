@@ -197,7 +197,7 @@ describe.skipIf(!ready)('data domain query isolation over MCP', () => {
           domainId,
           unique('dd'),
           unique('dd-slug'),
-          encryptSecrets({ url: dbDir, format: 'duckdb' }, app.config.APP_SECRET_KEY),
+          await encryptSecrets({ url: dbDir, format: 'duckdb' }, app.config.APP_SECRET_KEY),
           ADMIN_BUSINESS_ID,
         ],
       );

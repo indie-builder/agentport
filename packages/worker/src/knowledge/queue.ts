@@ -88,7 +88,7 @@ interface KnowledgeWorkerConfig {
   logger: Logger;
   redisUrl: string;
   knowledgeDir: string;
-  decrypt: (payload: string) => Record<string, string>;
+  decrypt: (payload: string) => Record<string, string> | Promise<Record<string, string>>;
   wikiModel?: string | undefined;
   summaryModel?: string | undefined;
   anthropicBaseUrl: string | undefined;

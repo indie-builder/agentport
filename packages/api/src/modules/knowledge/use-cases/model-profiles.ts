@@ -117,7 +117,7 @@ export async function createModelProfile(
       imageInputEnabled: input.imageInputEnabled,
       dimensions: input.kind === 'embedding' ? 1024 : null,
       secretsEncrypted: input.apiKey
-        ? encryptSecrets({ apiKey: input.apiKey }, deps.config.APP_SECRET_KEY)
+        ? await encryptSecrets({ apiKey: input.apiKey }, deps.config.APP_SECRET_KEY)
         : null,
       enabled: input.enabled,
     });
@@ -188,7 +188,7 @@ export async function updateModelProfile(
       ? {}
       : {
           secretsEncrypted:
-            apiKey === null ? null : encryptSecrets({ apiKey }, deps.config.APP_SECRET_KEY),
+            apiKey === null ? null : await encryptSecrets({ apiKey }, deps.config.APP_SECRET_KEY),
         }),
   });
   if (!row) notFound('模型 profile');
@@ -220,7 +220,7 @@ export async function testModelProfile(
   }
   await assertKnowledgeEndpoint(row.endpointUrl, deps.config);
   const apiKey = row.secretsEncrypted
-    ? decryptSecrets(row.secretsEncrypted, deps.config.APP_SECRET_KEY).apiKey
+    ? (await decryptSecrets(row.secretsEncrypted, deps.config.APP_SECRET_KEY)).apiKey
     : undefined;
   try {
     if (row.kind === 'embedding') {
