@@ -5,6 +5,7 @@ import type { Hono } from 'hono';
 import { z } from 'zod';
 import { attachmentResponse } from '../../http/attachment.js';
 import { type HttpEnv, requestContext } from '../../http/context.js';
+import { INVALID_REQUEST_FALLBACK_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { invalidCursor, requireCursorPage } from '../../http/pagination.js';
 import { auditOptions, toItem } from './router.js';
@@ -26,7 +27,7 @@ export function registerAuditHttp(app: Hono<HttpEnv>): void {
         Object.fromEntries(new URL(context.request.url).searchParams),
       );
       if (!parsed.success)
-        fail('INVALID_INPUT', parsed.error.issues[0]?.message ?? 'invalid request');
+        fail('INVALID_INPUT', parsed.error.issues[0]?.message ?? INVALID_REQUEST_FALLBACK_MESSAGE);
       const query = parsed.data;
 
       if (query.format === 'ndjson') {

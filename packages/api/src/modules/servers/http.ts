@@ -6,7 +6,11 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { requestBodyLimit } from '../../http/body-limit.js';
 import type { AppContext, HttpEnv } from '../../http/context.js';
-import { INVALID_JSON_BODY_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from '../../http/errors.js';
+import {
+  INVALID_BEARER_TOKEN_MESSAGE,
+  INVALID_JSON_BODY_MESSAGE,
+  PAYLOAD_TOO_LARGE_MESSAGE,
+} from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { isRunCancelRequested } from '../../queue/producer.js';
 import { createInvoker } from './agent-invoker.js';
@@ -55,7 +59,7 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
         const context = c.get('context');
         if (!tokenMatches(expected, bearerToken(c.req.header('authorization')))) {
           context.responseHeaders.set('WWW-Authenticate', 'Bearer realm="agentport-platform"');
-          fail('UNAUTHORIZED', 'invalid bearer token');
+          fail('UNAUTHORIZED', INVALID_BEARER_TOKEN_MESSAGE);
         }
         const rows = await context.db
           .select({
@@ -89,7 +93,7 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
         c.req.header('x-agentport-run-id') !== runId ||
         !(await validRunToken(context, runId, serverId, bearerToken(c.req.header('authorization'))))
       )
-        fail('UNAUTHORIZED', 'invalid bearer token');
+        fail('UNAUTHORIZED', INVALID_BEARER_TOKEN_MESSAGE);
       if (
         !(await repo.runs.isRunActive(context.db, runId)) ||
         (await isRunCancelRequested(runId))

@@ -5,7 +5,7 @@ import { type OutputFile, outputContentSchema, publicRunQuestion } from '@agentp
 import { implement } from '@orpc/server';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
-import { isAppError } from '../../http/errors.js';
+import { isAppError, RUN_NOT_FOUND_MESSAGE } from '../../http/errors.js';
 import { invalidCursor } from '../../http/pagination.js';
 import { agentSlug } from '../../lib/agent-slug.js';
 import {
@@ -16,7 +16,7 @@ import {
 } from '../../lib/outputs.js';
 import { toRunDetail } from '../runs/events.js';
 import { answerRunQuestion } from '../runs/questions.js';
-import { ANSWER_FORBIDDEN, RUN_MISSING, RUN_NOT_IN_CHANNEL } from './errors.js';
+import { ANSWER_FORBIDDEN, RUN_NOT_IN_CHANNEL } from './errors.js';
 
 const runsRepo = repo.runs;
 const questionsRepo = repo.questions;
@@ -35,7 +35,7 @@ async function memberRun(context: RequestContext, channelId: string, runId: stri
 
 async function runConversation(context: RequestContext, runId: string) {
   const detail = await runsRepo.getRunDetail(context.db, runId);
-  if (!detail) return fail('NOT_FOUND', RUN_MISSING);
+  if (!detail) return fail('NOT_FOUND', RUN_NOT_FOUND_MESSAGE);
   return detail;
 }
 

@@ -65,7 +65,7 @@ import {
   slugSchema,
 } from '@agentport/shared';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import { isPgCode } from '../../http/errors.js';
+import { isPgCode, MCP_JSON_INVALID_MESSAGE } from '../../http/errors.js';
 import { decodePackage, encodePackageEntries } from './package-zip.js';
 import { unsupportedAllowedTool } from './validation.js';
 import { toAgentConfigValues } from './write.js';
@@ -747,7 +747,7 @@ function declaresMcpServers(mcpJson: string | undefined): boolean {
     ).mcpServers;
     return typeof servers === 'object' && servers !== null && Object.keys(servers).length > 0;
   } catch {
-    fail('INVALID_INPUT', '.mcp.json 不是合法 JSON', { path: AGENT_PACKAGE_PATHS.mcpJson });
+    fail('INVALID_INPUT', MCP_JSON_INVALID_MESSAGE, { path: AGENT_PACKAGE_PATHS.mcpJson });
   }
 }
 function parseSidecar(raw: unknown): AgentPackageSidecar {

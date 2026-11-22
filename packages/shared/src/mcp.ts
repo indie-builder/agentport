@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HTTP_URL_ONLY_MESSAGE, URL_CREDENTIALS_MESSAGE } from './errors.js';
 import { slugSchema } from './params.js';
 import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
 import { hasEmbeddedCredentials, parseUrl } from './url.js';
@@ -157,11 +158,11 @@ export const stdioServerSchema = z.object({
 
 export const httpUrlSchema = z
   .url()
-  .refine((value) => /^https?:\/\//i.test(value), '仅支持 http/https 地址')
+  .refine((value) => /^https?:\/\//i.test(value), HTTP_URL_ONLY_MESSAGE)
   .refine((value) => {
     const url = parseUrl(value);
     return url !== null && !hasEmbeddedCredentials(url);
-  }, 'URL不能包含账号密码，请通过加密headers配置凭证');
+  }, URL_CREDENTIALS_MESSAGE);
 
 /** 入口即拒绝 `${...}`：SDK 可能展开模板，导入的配置不能把展开时机留到运行时。 */
 const mcpJsonPlainString = z.string().refine((value) => !value.includes('${'), '不支持模板占位符');

@@ -9,7 +9,7 @@ import { accessFilter, actorOf, requireUser } from '../../http/access.js';
 import { attachmentResponse } from '../../http/attachment.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
-import { isPgCode } from '../../http/errors.js';
+import { isPgCode, RUN_NOT_FOUND_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { agentSlug } from '../../lib/agent-slug.js';
@@ -200,7 +200,7 @@ const runsMainRouter = {
   skillDraft: os.skillDraft.handler(async ({ input, context }) => {
     await authorizeRun(context, input.params.id, 'runs.read');
     const detail = await runsRepo.getRunDetail(context.db, input.params.id);
-    if (!detail) return fail('NOT_FOUND', '运行不存在，可能已被删除');
+    if (!detail) return fail('NOT_FOUND', RUN_NOT_FOUND_MESSAGE);
     const steps = detail.steps.map((s) =>
       s.kind === 'tool' ? { kind: 'tool' as const, name: s.name } : { kind: s.kind, text: s.text },
     );

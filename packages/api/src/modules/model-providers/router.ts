@@ -3,6 +3,7 @@ import { decryptSecrets, encryptSecrets, fail } from '@agentport/core';
 import { assertServerEndpoint } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
 import {
+  HTTP_URL_ONLY_MESSAGE,
   type ModelProvider,
   type ModelProviderUsage,
   PROVIDER_NETWORK_MESSAGE,
@@ -87,7 +88,7 @@ async function assertProviderBaseUrl(context: RequestContext, baseUrl: string) {
   });
   const url = new URL(baseUrl);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    fail('INVALID_URL', '仅支持 http/https 地址');
+    fail('INVALID_URL', HTTP_URL_ONLY_MESSAGE);
   }
   if (url.username.length > 0 || url.password.length > 0) {
     fail('INVALID_URL', '模型端点不能包含用户名或密码');

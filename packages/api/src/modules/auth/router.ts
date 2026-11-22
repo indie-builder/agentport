@@ -5,6 +5,7 @@ import { implement } from '@orpc/server';
 import { APIError } from 'better-auth/api';
 import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
+import { NOT_LOGGED_IN_MESSAGE } from '../../http/errors.js';
 import { accountRouter, permissions, roleRouter } from './accounts.js';
 import { personalAuthRouter } from './personal.js';
 import { clearAuthCookie, principalOf, readSession, revokeUserSessions } from './session.js';
@@ -41,7 +42,7 @@ export const authRouter = os.router({
     } catch (error) {
       if (error instanceof APIError) {
         if (error.statusCode === 400) throw new AppError('INVALID_INPUT', '当前密码不正确');
-        if (error.statusCode === 401) throw new AppError('UNAUTHORIZED', 'not logged in');
+        if (error.statusCode === 401) throw new AppError('UNAUTHORIZED', NOT_LOGGED_IN_MESSAGE);
       }
       throw error;
     }

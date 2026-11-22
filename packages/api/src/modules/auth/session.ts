@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { generateCookie } from 'hono/cookie';
 import { z } from 'zod';
 import type { RequestContext } from '../../http/context.js';
+import { ACCOUNT_DISABLED_MESSAGE, NOT_LOGGED_IN_MESSAGE } from '../../http/errors.js';
 import type { Auth } from './better-auth.js';
 
 const sessionViewSchema = z.object({
@@ -86,10 +87,10 @@ export async function revokeUserSessions(
 export async function authenticate(context: RequestContext): Promise<void> {
   if (context.principal !== null) return;
   const session = await readSession(context);
-  if (!session) throw new AppError('UNAUTHORIZED', 'not logged in');
+  if (!session) throw new AppError('UNAUTHORIZED', NOT_LOGGED_IN_MESSAGE);
   if (session.user.disabled) {
     await revokeUserSessions(context, session.user.id);
-    throw new AppError('UNAUTHORIZED', 'account disabled');
+    throw new AppError('UNAUTHORIZED', ACCOUNT_DISABLED_MESSAGE);
   }
   context.principal = await principalOf(context, session.user);
 }

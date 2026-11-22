@@ -1,5 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { HTTP_URL_ONLY_MESSAGE, URL_CREDENTIALS_MESSAGE } from '@agentport/shared';
 import ipaddr from 'ipaddr.js';
 import { fail } from './errors.js';
 
@@ -55,10 +56,10 @@ async function assertSafeUrlInternal(
     fail('INVALID_URL', '地址格式不合法');
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    fail('INVALID_URL', '仅支持 http/https 地址');
+    fail('INVALID_URL', HTTP_URL_ONLY_MESSAGE);
   }
   if (url.username || url.password) {
-    fail('INVALID_URL', 'URL不能包含账号密码，请通过加密headers配置凭证');
+    fail('INVALID_URL', URL_CREDENTIALS_MESSAGE);
   }
   const host = url.hostname.replace(/^\[|\]$/g, '');
   if (isDevLocal(host, nodeEnv, allowDevLocal)) return;

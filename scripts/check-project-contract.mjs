@@ -1,8 +1,11 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, extname, join, relative } from 'node:path';
+import { parse } from '@babel/parser';
+import traverse from '@babel/traverse';
 
 const ROOT = process.cwd();
 const problems = [];
+const report = (rule, message) => problems.push(`[${rule}] ${message}`);
 
 /** @param {string} dir @param {RegExp} ext */
 function walk(dir, ext) {
@@ -92,6 +95,11 @@ function stripComments(src) {
   while (i < src.length) {
     const ch = src[i];
     const next = src[i + 1];
+    if (ch === '\\' && next === '/') {
+      out += ch + next;
+      i += 2;
+      continue;
+    }
     if (ch === '/' && next === '/') {
       while (i < src.length && src[i] !== '\n') {
         out += ' ';
@@ -161,9 +169,48 @@ function extractModuleImports(code) {
 
 const matchesPackage = (spec, pkg) => spec === pkg || spec.startsWith(`${pkg}/`);
 
+function isMember(node, name) {
+  return (
+    (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') &&
+    (node.computed
+      ? node.property.type === 'StringLiteral' && node.property.value === name
+      : node.property.type === 'Identifier' && node.property.name === name)
+  );
+}
+
+function ruleIds(source) {
+  const ids = new Set();
+  traverse(parse(source, { sourceType: 'module' }), {
+    'CallExpression|OptionalCallExpression'(path) {
+      const { callee, arguments: [id], loc } = path.node;
+      if (callee.type === 'Identifier' && callee.name === 'report') {
+        if (id?.type !== 'StringLiteral') {
+          throw new Error(`report 缺少静态规则 ID（第 ${loc.start.line} 行）`);
+        }
+        ids.add(id.value);
+      }
+      if (
+        isMember(callee, 'push') &&
+        callee.object.type === 'Identifier' &&
+        callee.object.name === 'problems' &&
+        path.scope.getProgramParent().getBinding('report')?.path.node.init?.body !== path.node
+      ) {
+        throw new Error(`请通过 report 添加诊断（第 ${loc.start.line} 行）`);
+      }
+    },
+  });
+  return [...ids].sort();
+}
+
+if (process.argv[2] === '--rule-ids') {
+  console.log(JSON.stringify(ruleIds(read(import.meta.path))));
+  process.exit(0);
+}
+
 const webFiles = walk(join(ROOT, 'packages/web/src'), /\.(ts|tsx)$/);
 const apiFiles = walk(join(ROOT, 'packages/api/src'), /\.(ts|tsx)$/);
 const workerFiles = walk(join(ROOT, 'packages/worker/src'), /\.(ts|tsx)$/);
+const coreFiles = walk(join(ROOT, 'packages/core/src'), /\.ts$/);
 const sharedFiles = walk(join(ROOT, 'packages/shared/src'), /\.ts$/);
 const contractFiles = walk(join(ROOT, 'packages/contract/src'), /\.ts$/);
 const dbFiles = walk(join(ROOT, 'packages/db/src'), /\.ts$/);
@@ -180,7 +227,8 @@ for (const file of webFiles) {
   const code = stripComments(read(file));
   for (const imp of extractModuleImports(code)) {
     if (matchesPackage(imp.specifier, '@radix-ui') || matchesPackage(imp.specifier, '@base-ui')) {
-      problems.push(
+      report(
+        'web-banned-primitive',
         `${rel(file)}:${imp.line}: 引入 ${imp.specifier}（改用 @ui-sdk/react 或 packages/web/src/components/ui/）`,
       );
     }
@@ -188,7 +236,8 @@ for (const file of webFiles) {
       forbiddenWebPackages.some((pkg) => matchesPackage(imp.specifier, pkg)) ||
       (matchesPackage(imp.specifier, '@agentport/core') && !allowedWebCoreImports.has(imp.specifier))
     ) {
-      problems.push(
+      report(
+        'web-server-import',
         `${rel(file)}:${imp.line}: web 禁止引入 ${imp.specifier}（只允许 @agentport/core/workspace、@agentport/core/plugin-display、@agentport/core/record、@agentport/shared 与 @agentport/contract）`,
       );
     }
@@ -204,7 +253,8 @@ for (const file of sharedFiles) {
       matchesPackage(imp.specifier, 'react-dom') ||
       imp.specifier.startsWith('@agentport/')
     ) {
-      problems.push(
+      report(
+        'shared-import',
         `${rel(file)}:${imp.line}: shared 禁止引入 ${imp.specifier}（packages/shared 只允许依赖 zod 与包内相对路径）`,
       );
     }
@@ -221,7 +271,8 @@ for (const file of contractFiles) {
   const code = stripComments(read(file));
   for (const imp of extractModuleImports(code)) {
     if (forbiddenContractPackages.some((pkg) => matchesPackage(imp.specifier, pkg))) {
-      problems.push(
+      report(
+        'contract-import',
         `${rel(file)}:${imp.line}: contract 禁止引入 ${imp.specifier}（packages/contract 只允许依赖 @agentport/shared、zod 与 @orpc/contract）`,
       );
     }
@@ -233,7 +284,8 @@ for (const file of dbFiles) {
   const code = stripComments(read(file));
   for (const imp of extractModuleImports(code)) {
     if (forbiddenDbPackages.some((pkg) => matchesPackage(imp.specifier, pkg))) {
-      problems.push(
+      report(
+        'db-import',
         `${rel(file)}:${imp.line}: db 禁止引入 ${imp.specifier}（db 模块边界只使用 drizzle-orm/bun-sql，不引入路由、队列或 pg）`,
       );
     }
@@ -246,7 +298,8 @@ for (const file of apiFiles) {
   if (!routerRe.test(rel(file))) continue;
   const code = stripComments(read(file));
   for (const m of code.matchAll(routerSafeParseRe)) {
-    problems.push(
+    report(
+      'router-safe-parse',
       `${rel(file)}:${lineAt(code, m.index)}: router 内对 input.${m[1]} 使用 safeParse（校验只在 @agentport/contract 的 input schema 完成，不在 router.ts 重复 safeParse）`,
     );
   }
@@ -257,16 +310,269 @@ for (const file of [...apiFiles, ...workerFiles]) {
   const code = stripComments(read(file));
   for (const imp of extractModuleImports(code)) {
     if (matchesPackage(imp.specifier, 'pino') && !imp.isTypeOnly) {
-      problems.push(
+      report(
+        'pino-static',
         `${rel(file)}:${imp.line}: 直接引入 pino 值（改用 @agentport/core/logger 的 createServiceLogger / requestScopedLogger / runScopedLogger）`,
       );
     }
   }
   for (const m of code.matchAll(dynamicPinoRe)) {
-    problems.push(
+    report(
+      'pino-dynamic',
       `${rel(file)}:${lineAt(code, m.index)}: 动态引入 pino（改用 @agentport/core/logger 的 createServiceLogger / requestScopedLogger / runScopedLogger）`,
     );
   }
+}
+
+const errorFiles = [
+  ...apiFiles,
+  ...workerFiles,
+  ...coreFiles,
+  ...sharedFiles,
+  ...contractFiles,
+].filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'));
+const modules = new Map();
+
+function readModule(file) {
+  if (!modules.has(file)) {
+    const ast = parse(read(file), {
+      sourceFilename: file,
+      sourceType: 'module',
+      plugins: ['typescript'],
+    });
+    traverse(ast, {
+      Program(path) {
+        modules.set(file, { ast, program: path });
+        path.stop();
+      },
+    });
+  }
+  return modules.get(file);
+}
+
+function resolveModule(file, specifier) {
+  const workspace = /^@agentport\/([^/]+)(?:\/(.+))?$/.exec(specifier);
+  if (workspace) {
+    const target = join(ROOT, 'packages', workspace[1], 'src', `${workspace[2] ?? 'index'}.ts`);
+    return existsSync(target) ? target : undefined;
+  }
+  if (!specifier.startsWith('./') && !specifier.startsWith('../')) return;
+  const target = join(dirname(file), specifier);
+  const extension = extname(target);
+  const candidates =
+    extension === '.js'
+      ? [`${target.slice(0, -3)}.ts`]
+      : extension === '.ts'
+        ? [target]
+        : [`${target}.ts`, join(target, 'index.ts')];
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
+const nameOf = (node) => (node.type === 'Identifier' ? node.name : node.value);
+
+function importedBinding(binding) {
+  const path = binding?.path;
+  if (!path?.isImportSpecifier() || path.node.importKind === 'type') return;
+  const declaration = path.parent;
+  if (declaration.importKind === 'type') return;
+  return { source: declaration.source.value, name: nameOf(path.node.imported) };
+}
+
+function resolveExports(file, name, active = new Set()) {
+  if (!file) return [null];
+  const key = `${file}:${name}`;
+  if (active.has(key)) return [];
+  const next = new Set(active).add(key);
+  const { program } = readModule(file);
+  const binding = program.scope.getOwnBinding(name);
+  const stars = [];
+  for (const statement of program.node.body) {
+    if (statement.exportKind === 'type') continue;
+    if (statement.type === 'ExportAllDeclaration') {
+      stars.push(statement.source.value);
+      continue;
+    }
+    if (statement.type !== 'ExportNamedDeclaration') continue;
+    if (statement.declaration && binding?.path.findParent((path) => path.node === statement)) {
+      return [binding];
+    }
+    const specifier = statement.specifiers.find(
+      (entry) => entry.exportKind !== 'type' && nameOf(entry.exported) === name,
+    );
+    if (!specifier) continue;
+    if (specifier.type !== 'ExportSpecifier') return [specifier];
+    const local = nameOf(specifier.local);
+    if (statement.source) {
+      return resolveExports(resolveModule(file, statement.source.value), local, next);
+    }
+    const localBinding = program.scope.getOwnBinding(local);
+    const imported = importedBinding(localBinding);
+    if (imported) {
+      return resolveExports(resolveModule(file, imported.source), imported.name, next);
+    }
+    return localBinding ? [localBinding] : [];
+  }
+  const declarations = stars.flatMap((source) => resolveExports(resolveModule(file, source), name, next));
+  return [...new Set(declarations)];
+}
+
+function unwrapExpression(node) {
+  while (
+    node?.type === 'TSAsExpression' ||
+    node?.type === 'TSSatisfiesExpression' ||
+    node?.type === 'TSNonNullExpression' ||
+    node?.type === 'ParenthesizedExpression'
+  ) {
+    node = node.expression;
+  }
+  return node;
+}
+
+function stringLiteral(node) {
+  node = unwrapExpression(node);
+  if (node?.type === 'StringLiteral') return node.value;
+  if (node?.type === 'TemplateLiteral' && node.expressions.length === 0) {
+    return node.quasis[0].value.cooked;
+  }
+}
+
+function isZodExpression(path, seen = new Set()) {
+  if (path.isCallExpression() || path.isOptionalCallExpression()) {
+    return isZodExpression(path.get('callee'), seen);
+  }
+  if (path.isMemberExpression() || path.isOptionalMemberExpression()) {
+    return isZodExpression(path.get('object'), seen);
+  }
+  if (!path.isIdentifier()) return false;
+  const binding = path.scope.getBinding(path.node.name);
+  if (!binding) return false;
+  const imported = importedBinding(binding);
+  if (imported?.source === 'zod' && imported.name === 'z') return true;
+  const declaration = binding.path;
+  if (!binding.constant || !declaration.isVariableDeclarator() || !declaration.get('id').isIdentifier()) {
+    return false;
+  }
+  if (seen.has(binding)) return false;
+  seen.add(binding);
+  return isZodExpression(declaration.get('init'), seen);
+}
+
+const callsByMessage = new Map();
+const errorFunctions = new Set(['fail', 'notFound']);
+const coreErrors = join(ROOT, 'packages/core/src/errors.ts');
+const mcpErrors = join(ROOT, 'packages/api/src/lib/mcp.ts');
+for (const file of errorFiles) {
+  const displayPath = rel(file);
+  const scheduler =
+    displayPath.startsWith('packages/worker/src/') &&
+    (displayPath.endsWith('scheduler.ts') ||
+      displayPath.endsWith('reconcile.ts') ||
+      displayPath === 'packages/worker/src/data-domains/build.ts' ||
+      displayPath === 'packages/worker/src/data-domains/enrich.ts');
+  traverse(readModule(file).ast, {
+    'CallExpression|OptionalCallExpression|NewExpression'(path) {
+      const { callee, arguments: args, loc } = path.node;
+      const line = loc.start.line;
+      const identifier = callee.type === 'Identifier' ? callee.name : undefined;
+      if (
+        scheduler &&
+        ((identifier === 'setInterval' && !path.scope.getBinding(identifier)) ||
+          (isMember(callee, 'setInterval') &&
+            callee.object.type === 'Identifier' &&
+            callee.object.name === 'globalThis' &&
+            !path.scope.getBinding('globalThis')))
+      ) {
+        report(
+          'worker-scheduler-setinterval',
+          `${displayPath}:${line}: 调度器直接调用 setInterval（改用 packages/worker/src/scheduling/interval-ticker.ts 的 startIntervalTicker：单飞 + close 等待；#436 曾因手写 setInterval 无并发保护导致启动与周期对账并发覆盖）`,
+        );
+      }
+
+      let message = unwrapExpression(args[1]);
+      if (!message) return;
+      const binding = identifier ? path.scope.getBinding(identifier) : undefined;
+      const imported = importedBinding(binding);
+      if (path.isNewExpression()) {
+        if (!imported) {
+          if (
+            file !== coreErrors ||
+            !binding?.scope.path.isProgram() ||
+            !binding.path.isClassDeclaration() ||
+            identifier !== 'AppError'
+          ) return;
+        } else if (imported.source !== '@agentport/core' || imported.name !== 'AppError') {
+          const declarations = resolveExports(resolveModule(file, imported.source), imported.name);
+          const declaration = declarations.length === 1 ? declarations[0]?.path : undefined;
+          if (
+            !declaration?.isClassDeclaration() ||
+            declaration.node.id?.name !== 'AppError' ||
+            declaration.node.loc.filename !== coreErrors
+          ) return;
+        }
+      } else if (identifier) {
+        if (imported?.name === 'toolError') {
+          if (resolveModule(file, imported.source) !== mcpErrors) return;
+          const declarations = resolveExports(mcpErrors, imported.name);
+          const declaration = declarations.length === 1 ? declarations[0]?.path : undefined;
+          if (
+            !declaration?.isFunctionDeclaration() ||
+            declaration.node.id?.name !== 'toolError' ||
+            declaration.node.loc.filename !== mcpErrors
+          ) return;
+        } else if (imported) {
+          if (!errorFunctions.has(imported.name)) return;
+          if (
+            imported.source !== '@agentport/core' &&
+            !(displayPath.startsWith('packages/core/src/') &&
+              resolveModule(file, imported.source) === coreErrors)
+          ) return;
+        } else if (
+          !errorFunctions.has(identifier) ||
+          file !== coreErrors ||
+          !binding?.scope.path.isProgram() ||
+          !binding.path.isFunctionDeclaration()
+        ) return;
+      } else if (!isMember(callee, 'refine') || !isZodExpression(path.get('callee.object'))) {
+        return;
+      }
+
+      while (message.type === 'LogicalExpression' && (message.operator === '??' || message.operator === '||')) {
+        message = unwrapExpression(message.right);
+      }
+      let constant;
+      if (message.type === 'Identifier') {
+        let binding = path.scope.getBinding(message.name);
+        const imported = importedBinding(binding);
+        if (imported) {
+          const declarations = resolveExports(resolveModule(file, imported.source), imported.name);
+          binding = declarations.length === 1 ? declarations[0] : undefined;
+        }
+        if (
+          binding?.constant &&
+          binding.path.isVariableDeclarator() &&
+          binding.path.node.id.type === 'Identifier' &&
+          (!imported || binding.kind === 'const')
+        ) {
+          constant = binding.path.node;
+        }
+      }
+      const value = stringLiteral(constant ? constant.init : message);
+      if (value == null) return;
+      const calls = callsByMessage.get(value) ?? [];
+      calls.push({ constant, path: displayPath, line });
+      callsByMessage.set(value, calls);
+    },
+  });
+}
+for (const [value, calls] of callsByMessage) {
+  if (new Set(calls.map(({ path }) => path)).size < 2) continue;
+  const constant = calls[0].constant;
+  if (constant && calls.every((call) => call.constant === constant)) continue;
+  const locations = [...new Set(calls.map(({ path, line }) => `${path}:${line}`))].sort();
+  report(
+    'error-message-duplicate',
+    `错误文案 ${JSON.stringify(value)} 在多个文件重复出现（${locations.join('、')}）；提取到 packages/core/src/errors.ts 或 packages/shared 的命名常量后再引用，API 内部可用 packages/api/src/http/errors.ts`,
+  );
 }
 
 const iconRe = /import\s*\{([^}]*)\}\s*from\s*['"]lucide-react['"]/;
@@ -283,7 +589,7 @@ for (const file of webFiles) {
     const tag = new RegExp(`<${name}\\b[^>]*>`, 'g');
     for (const t of src.matchAll(tag)) {
       if (/\b(strokeWidth|size)=/.test(t[0])) {
-        problems.push(`${rel(file)}:${lineAt(src, t.index)}: lucide 图标 ${name} 逐个传 strokeWidth/size`);
+        report('lucide-icon-size', `${rel(file)}:${lineAt(src, t.index)}: lucide 图标 ${name} 逐个传 strokeWidth/size`);
       }
     }
   }
@@ -294,7 +600,7 @@ for (const file of webFiles) {
   if (file.includes('/components/ui/')) continue;
   const src = read(file);
   for (const m of src.matchAll(hexRe)) {
-    problems.push(`${rel(file)}:${lineAt(src, m.index)}: 硬编码色值 ${m[0]}（用 @theme token）`);
+    report('web-hardcoded-hex', `${rel(file)}:${lineAt(src, m.index)}: 硬编码色值 ${m[0]}（用 @theme token）`);
   }
 }
 
@@ -355,7 +661,7 @@ function findButtonVariantsConcatViolations(code) {
 for (const file of webFiles) {
   const code = stripComments(read(file));
   for (const line of findButtonVariantsConcatViolations(code)) {
-    problems.push(`${rel(file)}:${line}: 拼接 buttonVariants 类名（${buttonVariantsFix}）`);
+    report('button-variants-concat', `${rel(file)}:${line}: 拼接 buttonVariants 类名（${buttonVariantsFix}）`);
   }
 }
 
@@ -381,12 +687,13 @@ for (const file of dbFiles) {
   if (rel(file) === 'packages/db/src/repo/like.ts') continue;
   const src = read(file);
   for (const m of src.matchAll(likeCallRe)) {
-    problems.push(
+    report(
+      'db-like-call',
       `${rel(file)}:${lineAt(src, m.index)}: 直接调用 ${m[0].replace(/\($/, '')}（${likeFix}）`,
     );
   }
   for (const line of findSqlLikeViolations(src)) {
-    problems.push(`${rel(file)}:${line}: sql 模板中未转义的 LIKE/ILIKE（${likeFix}）`);
+    report('db-like-sql', `${rel(file)}:${line}: sql 模板中未转义的 LIKE/ILIKE（${likeFix}）`);
   }
 }
 
@@ -413,7 +720,8 @@ for (const file of dbSchemaFiles) {
     if (hasHardcodedInList || !derivesFromOptions) {
       const key = `${rel(file)}:${checkName}`;
       if (!DB_ENUM_CHECK_ALLOWLIST.has(key)) {
-        problems.push(
+        report(
+          'db-enum-check',
           `${rel(file)}:${lineAt(code, m.index)}: DB check '${checkName}' 未从 @agentport/shared 的 *.options 派生（改用 ${'${schema}.options'} 派生枚举，或确认属 DB 内部约束后加入 DB_ENUM_CHECK_ALLOWLIST）`,
         );
       }
@@ -426,7 +734,8 @@ for (const file of webFiles) {
   if (rel(file) === 'packages/web/src/lib/storage.ts') continue;
   const src = read(file);
   for (const m of src.matchAll(storageRe)) {
-    problems.push(
+    report(
+      'web-localstorage',
       `${rel(file)}:${lineAt(src, m.index)}: 直接访问 localStorage（改用 packages/web/src/lib/storage.ts 的 readStorage / writeStorage）`,
     );
   }
@@ -441,13 +750,14 @@ for (const entry of coreBrowserEntrypoints) {
   const code = stripComments(read(join(ROOT, entry)));
   for (const imp of extractModuleImports(code)) {
     if (imp.specifier.startsWith('node:')) {
-      problems.push(
+      report(
+        'core-browser-node',
         `${entry}:${imp.line}: 浏览器可达子路径禁引 Node 内建或 Buffer（${imp.specifier}）`,
       );
     }
   }
   for (const m of code.matchAll(/\bBuffer\b/g)) {
-    problems.push(`${entry}:${lineAt(code, m.index)}: 浏览器可达子路径禁引 Node 内建或 Buffer`);
+    report('core-browser-node', `${entry}:${lineAt(code, m.index)}: 浏览器可达子路径禁引 Node 内建或 Buffer`);
   }
 }
 
@@ -483,10 +793,10 @@ function stripCssComments(src) {
 const stylesCode = stripCssComments(read(join(ROOT, 'packages/web/src/styles.css')));
 
 if (!stylesCode.includes('@custom-variant dark (&:where(.dark, .dark *));')) {
-  problems.push('packages/web/src/styles.css: 缺少 @custom-variant dark (&:where(.dark, .dark *));');
+  report('styles-dark-variant', 'packages/web/src/styles.css: 缺少 @custom-variant dark (&:where(.dark, .dark *));');
 }
 for (const m of stylesCode.matchAll(/\.dark(?![\w-])[^;{}]*\{/g)) {
-  problems.push(`packages/web/src/styles.css:${lineAt(stylesCode, m.index)}: 禁止定义 .dark 主题块`);
+  report('styles-dark-block', `packages/web/src/styles.css:${lineAt(stylesCode, m.index)}: 禁止定义 .dark 主题块`);
 }
 const readCssToken = (css, name) => {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -494,20 +804,23 @@ const readCssToken = (css, name) => {
   return match ? { value: match[1].trim(), line: lineAt(css, match.index) } : null;
 };
 for (const m of stylesCode.matchAll(/--color-muted\s*:\s*var\(\s*--color-muted-foreground\s*\)\s*;/g)) {
-  problems.push(
+  report(
+    'styles-muted-token',
     `packages/web/src/styles.css:${lineAt(stylesCode, m.index)}: --color-muted 不得等于 var(--color-muted-foreground)`,
   );
 }
 const radius4xl = readCssToken(stylesCode, '--radius-4xl');
 if (!radius4xl || radius4xl.value !== 'var(--radius-tag)') {
-  problems.push(
+  report(
+    'styles-radius-4xl',
     `packages/web/src/styles.css:${radius4xl?.line ?? 1}: --radius-4xl 必须等于 var(--radius-tag)`,
   );
 }
 for (const shadowVar of ['--shadow-md', '--shadow-lg']) {
   const token = readCssToken(stylesCode, shadowVar);
   if (!token || token.value !== 'var(--shadow-overlay)') {
-    problems.push(
+    report(
+      'styles-shadow',
       `packages/web/src/styles.css:${token?.line ?? 1}: ${shadowVar} 必须等于 var(--shadow-overlay)`,
     );
   }
@@ -520,7 +833,8 @@ for (const file of walk(join(ROOT, 'packages/web/src'), /\.css$/)) {
     const blockEnd = skipBalancedBraces(css, blockStart);
     const blockBody = css.slice(blockStart, blockEnd);
     if (/\bcontent-visibility\s*:/.test(blockBody)) {
-      problems.push(
+      report(
+        'collapsible-content-visibility',
         `${rel(file)}:${lineAt(css, m.index)}: 禁止在 collapsible-content 上设置 content-visibility`,
       );
     }
