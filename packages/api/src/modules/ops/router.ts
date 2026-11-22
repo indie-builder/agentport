@@ -77,6 +77,7 @@ async function reportScheduleSyncFailure(
 }
 
 const SCHEDULE_NOT_FOUND = '定时任务不存在';
+const SCHEDULE_AGENT_MISSING = '智能体不存在，无法创建定时任务';
 
 async function requireSchedule(context: RequestContext, id: string, manage: boolean) {
   const schedule = await opsRepo.getSchedule(context.db, id);
@@ -186,18 +187,18 @@ export const opsRouter = os.router({
         .from(schema.agents)
         .where(eq(schema.agents.id, input.body.agentId))
         .limit(1);
-      if (!agent) notFound('agent', '智能体不存在，无法创建定时任务');
+      if (!agent) notFound('agent', SCHEDULE_AGENT_MISSING);
       await authorizeObject(
         context,
         'schedules.read',
         { agentId: agent.id },
-        '智能体不存在，无法创建定时任务',
+        SCHEDULE_AGENT_MISSING,
       );
       await authorizeObject(
         context,
         'schedules.manage',
         { agentId: agent.id },
-        '智能体不存在，无法创建定时任务',
+        SCHEDULE_AGENT_MISSING,
       );
       const businessId = requireUser(context).businessId;
       const row = await opsRepo.createSchedule(context.db, {
