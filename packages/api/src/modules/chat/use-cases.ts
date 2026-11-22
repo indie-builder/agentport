@@ -18,7 +18,9 @@ import {
   type AccessResource,
   attachmentByteLimit,
   attachmentExtension,
+  CHAT_AGENT_DISABLED_MESSAGE,
   type ChatRequest,
+  CONVERSATION_NOT_IN_AGENT_MESSAGE,
   isTextAttachment,
   type MessageAttachment,
   messageAttachments,
@@ -147,7 +149,7 @@ export async function startRun(
   }
   if (!(await chatRepo.agentExists(deps.db, agentId))) notFound('agent');
   if (!(await chatRepo.agentEnabled(deps.db, agentId))) {
-    return fail('AGENT_DISABLED', '该智能体已停用，无法发起新对话；请到智能体页面启用后再试');
+    return fail('AGENT_DISABLED', CHAT_AGENT_DISABLED_MESSAGE);
   }
   await deps.authorize('agents.use', { agentId }, AGENT_SELECTION_MISSING_MESSAGE);
   if (body.conversationId === undefined) {
@@ -164,7 +166,7 @@ export async function startRun(
   } else {
     const conversation = await chatRepo.getConversation(deps.db, body.conversationId);
     if (!conversation || conversation.agentId !== agentId)
-      notFound('conversation', '会话不存在或不属于该智能体；请从会话列表重新打开');
+      notFound('conversation', CONVERSATION_NOT_IN_AGENT_MESSAGE);
     await deps.authorize(
       'conversations.update',
       { objectId: conversation.id, createdBy: conversation.createdBy, privateContent: true },
@@ -349,7 +351,7 @@ export async function startRun(
     } else {
       const conversation = await chatRepo.getConversation(deps.db, requestedConversationId);
       if (!conversation || conversation.agentId !== agentId)
-        notFound('conversation', '会话不存在或不属于该智能体；请从会话列表重新打开');
+        notFound('conversation', CONVERSATION_NOT_IN_AGENT_MESSAGE);
     }
     const agentSlug = await repo.agents.findAgentSlug(deps.db, agentId);
     if (agentSlug === null) {
