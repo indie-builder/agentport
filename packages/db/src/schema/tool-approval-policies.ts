@@ -31,7 +31,7 @@ export const toolApprovalPolicies = pgTable(
     index('tool_approval_policies_lookup_idx').on(t.enabled, t.serverId, t.agentId),
     check(
       'tool_approval_policies_approval_mode_check',
-      sql`${t.approvalMode} in ('allow', 'ask', 'deny')`,
+      sql`${t.approvalMode} in (${sql.raw(apiToolApprovalModeSchema.options.map((option) => `'${option}'`).join(', '))})`,
     ),
     check(
       'tool_approval_policies_role_check',
