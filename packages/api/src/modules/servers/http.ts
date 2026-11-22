@@ -21,6 +21,8 @@ import { requestToolApproval } from './approvals.js';
 import { bearerToken, tokenMatches } from './bearer.js';
 import { serverMcpResponse, validRunToken } from './mcp-endpoint.js';
 
+const APPROVAL_STALE_MESSAGE = '工具审批已失效，调用未执行';
+
 export type ServersHttpDependencies = AppContext & {
   invoker?: AgentInvoker;
 };
@@ -99,7 +101,7 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
         context.log.warn({ err, runId, serverId, toolName }, 'tool approval evaluation failed');
         return boundApprovalId === undefined
           ? fail('FORBIDDEN', '无法确认工具审批判定，调用未执行')
-          : fail('CONFLICT', '工具审批已失效，调用未执行');
+          : fail('CONFLICT', APPROVAL_STALE_MESSAGE);
       };
       const tool = await getRunApprovalTool(context.db, runId, serverId, toolName).catch(
         evaluationFailed,
@@ -114,7 +116,7 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
             decisionHash: null,
           });
         });
-        if (boundApprovalId !== undefined) fail('CONFLICT', '工具审批已失效，调用未执行');
+        if (boundApprovalId !== undefined) fail('CONFLICT', APPROVAL_STALE_MESSAGE);
         fail('NOT_FOUND', 'approval tool not found');
       }
       const decision = await createApprovalEvaluator({ db: context.db, runId, serverId })(
@@ -133,7 +135,7 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
         }
         const bound = decision.approval ?? null;
         if (bound === null || decision.effectiveMode !== 'ask' || bound.id !== boundApprovalId)
-          fail('CONFLICT', '工具审批已失效，调用未执行');
+          fail('CONFLICT', APPROVAL_STALE_MESSAGE);
         return c.json({
           status:
             bound.deniedAt !== null
