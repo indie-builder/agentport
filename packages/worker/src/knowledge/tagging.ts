@@ -3,7 +3,11 @@ import { join } from 'node:path';
 import { KNOWLEDGE_DOCUMENT_MISSING_MESSAGE } from '@agentport/core';
 import { type Database, repo, type schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
-import { knowledgeJobPayloadSchema } from '@agentport/shared';
+import {
+  knowledgeJobPayloadSchema,
+  TAGGING_DOCUMENT_DISABLED_MESSAGE,
+  TAGGING_DOCUMENT_NO_VERSION_MESSAGE,
+} from '@agentport/shared';
 import {
   type Options,
   query,
@@ -75,9 +79,9 @@ export async function runKnowledgeTagging(job: JobRow, deps: TaggingDeps): Promi
     throw new Error(KNOWLEDGE_DOCUMENT_MISSING_MESSAGE);
   }
   if (document.status === 'disabled' || document.disabledReason !== null) {
-    throw new Error('文档已停用，不能生成标签');
+    throw new Error(TAGGING_DOCUMENT_DISABLED_MESSAGE);
   }
-  if (!document.currentVersionId) throw new Error('文档还没有可用版本，不能生成标签');
+  if (!document.currentVersionId) throw new Error(TAGGING_DOCUMENT_NO_VERSION_MESSAGE);
   const versionId = payload.versionId ?? document.currentVersionId;
   if (payload.versionId !== undefined && document.currentVersionId !== payload.versionId) {
     throw new Error('文档版本已变化，标签未更新');

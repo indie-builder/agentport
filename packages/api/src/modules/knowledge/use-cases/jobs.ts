@@ -1,10 +1,12 @@
 import { AppError } from '@agentport/core';
 import { repo, schema, type Transaction } from '@agentport/db';
 import {
+  DOCUMENT_JOB_IN_PROGRESS_MESSAGE,
   type KnowledgeJob,
   knowledgeFaqImportMetadataSchema,
   knowledgeJobPayloadSchema,
   type ResourceAccessFilter,
+  SUMMARY_CANCELLED_MESSAGE,
 } from '@agentport/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
@@ -80,7 +82,7 @@ async function assertDocumentIdle(tx: Transaction, baseId: string | null, docume
     .for('update');
   if (!document) notFound('文档');
   if ((await repo.knowledge.findActiveReprocessJobId(tx, documentId)) !== null) {
-    throw new AppError('CONFLICT', '文档有正在进行的处理任务，请稍后重试');
+    throw new AppError('CONFLICT', DOCUMENT_JOB_IN_PROGRESS_MESSAGE);
   }
 }
 
@@ -194,7 +196,7 @@ export async function cancelJob(deps: KnowledgeDeps, row: JobRow) {
         await repo.knowledge.failDocumentSummary(
           deps.db,
           cancelled.documentId,
-          '摘要生成已取消',
+          SUMMARY_CANCELLED_MESSAGE,
           payload.success && payload.data.type === 'summary' ? payload.data.versionId : undefined,
         );
       }
