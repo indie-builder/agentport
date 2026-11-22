@@ -125,6 +125,8 @@ const SAFE_TOKEN = /^[A-Za-z0-9._-]+$/;
 
 const UUID = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
 
+const BASE_URL_INVALID_MESSAGE = 'config.baseUrl 不是合法 URL';
+
 const POSITIVE_ID = /^[1-9][0-9]*$/;
 
 const ENCODED_PATH_BREAK = /%(25)*(2f|5c|00)/i;
@@ -142,7 +144,7 @@ function siteUrlIssue(value: unknown): string | null {
   try {
     url = new URL(raw);
   } catch {
-    return 'config.baseUrl 不是合法 URL';
+    return BASE_URL_INVALID_MESSAGE;
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     return 'config.baseUrl 只支持 http/https';
@@ -231,16 +233,16 @@ function configIssues(
   if (type === 'feishu_wiki' || type === 'feishu_drive') {
     if (!text('appId')) issues.push('缺少 config.appId');
     if (!secrets?.appSecret) issues.push('缺少凭证 appSecret');
-    if (text('baseUrl') && !validUrl('baseUrl')) issues.push('config.baseUrl 不是合法 URL');
+    if (text('baseUrl') && !validUrl('baseUrl')) issues.push(BASE_URL_INVALID_MESSAGE);
   }
   if (type === 'gitlab') {
-    if (!validUrl('baseUrl')) issues.push('config.baseUrl 不是合法 URL');
+    if (!validUrl('baseUrl')) issues.push(BASE_URL_INVALID_MESSAGE);
     if (!text('projectId')) issues.push('缺少 config.projectId');
     if (!text('ref')) issues.push('缺少 config.ref');
     if (!secrets?.token) issues.push('缺少凭证 token');
   }
   if (type === 'github') {
-    if (text('baseUrl') && !validUrl('baseUrl')) issues.push('config.baseUrl 不是合法 URL');
+    if (text('baseUrl') && !validUrl('baseUrl')) issues.push(BASE_URL_INVALID_MESSAGE);
     if (!text('projectId')) issues.push('缺少 config.projectId');
     if (!secrets?.token) issues.push('缺少凭证 token');
     for (const range of ranges) {
