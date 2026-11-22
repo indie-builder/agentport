@@ -31,6 +31,7 @@ export {
   fail,
   INVALID_CURSOR_MESSAGE,
   isAppError,
+  KNOWLEDGE_DOCUMENT_MISSING_MESSAGE,
   NOT_FOUND_MESSAGES,
   type NotFoundResource,
   notFound,

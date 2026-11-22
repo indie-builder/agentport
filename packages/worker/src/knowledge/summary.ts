@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { KNOWLEDGE_DOCUMENT_MISSING_MESSAGE } from '@agentport/core';
 import { type Database, repo, type schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import { errorText, knowledgeJobPayloadSchema } from '@agentport/shared';
@@ -52,7 +53,7 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
 
   const document = await repo.knowledge.getDocument(db, payload.documentId);
   if (!document || document.baseId !== payload.baseId) {
-    throw new Error('文档不存在或不属于该知识库');
+    throw new Error(KNOWLEDGE_DOCUMENT_MISSING_MESSAGE);
   }
   if (document.status === 'disabled' || document.disabledReason !== null) {
     throw new Error('文档已停用，不能生成摘要');

@@ -58,6 +58,8 @@ export const INVALID_CURSOR_MESSAGE = '分页游标无效，请刷新后重试';
 
 export const AGENT_DIR_SLUG_INVALID_MESSAGE = '智能体目录名非法';
 
+export const KNOWLEDGE_DOCUMENT_MISSING_MESSAGE = '文档不存在或不属于该知识库';
+
 export const NOT_FOUND_MESSAGES = {
   agent: '智能体不存在，可能已被删除；请刷新后重试',
   conversation: '会话不存在，可能已被删除；请刷新后重试',

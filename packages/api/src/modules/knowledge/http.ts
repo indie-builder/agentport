@@ -1,4 +1,4 @@
-import { AppError } from '@agentport/core';
+import { AppError, KNOWLEDGE_DOCUMENT_MISSING_MESSAGE } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { zipSync } from 'fflate';
 import type { Hono } from 'hono';
@@ -156,7 +156,7 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
       for (const documentId of parsed.data.documentIds) {
         const document = documents.get(documentId);
         if (!document || document.baseId !== id) {
-          throw new AppError('NOT_FOUND', '文档不存在或不属于该知识库');
+          throw new AppError('NOT_FOUND', KNOWLEDGE_DOCUMENT_MISSING_MESSAGE);
         }
         if (!document.currentVersionId) continue;
         if (document.status === 'disabled' || document.disabledReason !== null) continue;
