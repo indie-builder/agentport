@@ -75,8 +75,7 @@ export function AssistantText({
         const segmentState = stateBlocks[blockKey];
         return (
           <OpenUiSegment
-            // biome-ignore lint/suspicious/noArrayIndexKey: 分段按出现顺序生成
-            key={`oui-${index}`}
+            key={blockKey}
             blockKey={blockKey}
             program={segment.text}
             streaming={streaming}

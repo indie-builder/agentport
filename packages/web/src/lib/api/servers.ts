@@ -12,15 +12,12 @@ import { rpc } from '../orpc.js';
 import type { ApiOutput } from './shared.js';
 import { clientOptions } from './shared.js';
 
-/** OpenAPI 解析预览：tools 为可直接创建的工具定义，warnings 不阻断导入。 */
 type OpenApiPreviewResult = ApiOutput<ApiClient['servers']['tools']['previewOpenApi']>;
 
 type OpenApiImportResult = ApiOutput<ApiClient['servers']['tools']['importOpenApi']>;
 
-/** 单工具试跑结果；ok 为 false 时 error 说明上游返回或请求失败的原因。 */
 type TestInvokeResult = ApiOutput<ApiClient['servers']['tools']['testInvoke']>;
 
-/** `.mcp.json` 导入结果；secretKeys 只有键名，值不会回显。 */
 type McpImportResult = ApiOutput<ApiClient['servers']['importFile']>;
 
 type ServerImpact = ApiOutput<ApiClient['servers']['impact']>;
@@ -54,10 +51,6 @@ export default {
     }),
   importMcpFile: (content: string): Promise<McpImportResult> =>
     rpc.servers.importFile({ body: { mcpJson: content } }),
-  /**
-   * wire 上掩码字段叫 maskedToken（rotate 的 token 是明文，两者不能同名）。
-   * 这里映射回 `token`，页面把「掩码」和「刚轮换的明文」放进同一处渲染。
-   */
   serverToken: async (id: string): Promise<{ token: string; endpoint: string }> => {
     const { maskedToken, endpoint } = await rpc.servers.token({ params: { id } });
     return { token: maskedToken, endpoint };
@@ -70,7 +63,6 @@ export default {
     rpc.servers.tools.create({ params: { id: serverId }, body: input }),
   deleteTool: (serverId: string, toolId: string): Promise<void> =>
     rpc.servers.tools.delete({ params: { id: serverId, toolId } }),
-  /** 与 createTool 同字段，全部可选：编辑只提交改动的字段。 */
   updateTool: (
     serverId: string,
     toolId: string,

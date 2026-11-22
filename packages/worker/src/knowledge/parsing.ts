@@ -553,7 +553,6 @@ function normalizeEmbeddedImages(
   const byPayload = new Map(images.map(({ image, payload }) => [payload, image.name]));
   return markdown.replace(MARKDOWN_DATA_IMAGE, (_whole, payload: string) => {
     const name = byPayload.get(payload.replace(/\s+/g, ''));
-    // shortcut: 没有落盘对应图的 data URI 用 Docling 自身的占位符替换；需要保留这类图时再单独抽取。
     return name ? `![${name}](images/${name})` : '<!-- image -->';
   });
 }

@@ -4,10 +4,6 @@ import { LoadingState } from '../states.js';
 
 type DecodeState = 'loading' | 'ready' | 'error';
 
-/**
- * Blob 图片只在浏览器真正 decode 成功后显示，避免把损坏字节当成可看图。
- * 对象 URL 与当前 blob 绑定并在卸载/换图时释放；它只是展示用的临时地址，不承担缓存。
- */
 export function BlobImage({
   blob,
   alt,

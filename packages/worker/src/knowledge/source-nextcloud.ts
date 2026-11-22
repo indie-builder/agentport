@@ -15,16 +15,6 @@ import { assertCanonicalSegments, trimSlash } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import { failureOf, parseInitialCursor, snapshotOf } from './source-utils.js';
 
-/**
- * Nextcloud WebDAV leaf reader.
- *
- * A range is an absolute directory inside the account's files root. File
- * identity is the globally namespaced `oc:id`, never the path or `oc:fileid`;
- * renames keep the identity and only change sourcePath. PROPFIND stays
- * PROPFIND (never silently a GET), and every 207 response is inspected per
- * response/propstat because 207 only means the multistatus container worked.
- */
-
 const DAV_URI = 'DAV:';
 const OC_URI = 'http://owncloud.org/ns';
 const PROPFIND_BODY =

@@ -95,7 +95,6 @@ export interface BasePatch {
   status?: 'active' | 'disabled' | undefined;
   embeddingProfileId?: string | undefined;
   rerankProfileId?: string | null | undefined;
-  /** undefined 保持，null 关闭，非空 ID 必须是启用的 ASR profile。 */
   asrProfileId?: string | null | undefined;
   settings?: KnowledgeBaseSettings | undefined;
 }
@@ -133,7 +132,6 @@ export async function listPinnedBaseIds(db: Database, businessId: string): Promi
   return rows.map((row) => row.baseId);
 }
 
-/** 置顶幂等：重复置顶由联合唯一索引吃掉，不刷新首次置顶时间；取消时不存在即成功。 */
 export async function setBasePin(
   db: Database,
   businessId: string,
@@ -174,12 +172,6 @@ export interface BaseSummaryCounts {
   } | null;
 }
 
-/**
- * 概览计数走单条 SQL：每类实体一次子查询，最近任务用 lateral 只取一条。
- * wiki 页数以 knowledge_wiki_pages 为准（docs 里 content_kind='wiki' 只是它的检索索引），
- * 所以 documents 只统计 content_kind='document'，三类互不重叠。
- * knowledge_jobs 没有 updated_at，lastJob.updatedAt 取 ended_at/started_at/created_at 的最近值。
- */
 export async function getBaseSummary(
   db: Database,
   baseId: string,
@@ -261,12 +253,6 @@ export interface BaseActivityEntry {
   createdAt: Date;
 }
 
-/**
- * 知识库活动流：同时取库自身、库内文档与库内标签的审计行。
- * 文档与标签的审计 target 是自身 id，用 exists 子查询回连库归属，避免先取 id 列表再拼 in；
- * targetKind 也在 SQL 里判定，调用方不再逐条回查。
- * 只读聚合：不写审计、不改任何行。已删除文档的删除事件因目标行已不存在而不在流内。
- */
 export async function listBaseActivity(
   db: Database,
   baseId: string,

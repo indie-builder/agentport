@@ -1,7 +1,6 @@
 import { type ApiToolInput, apiToolInputSchema } from '@agentport/shared';
 import { fieldErrors } from './form.js';
 
-/** 一行一个 `KEY=value`，值里允许出现 `=`。 */
 export function parsePairs(text: string, kind: 'env' | 'headers'): Record<string, string> {
   const entries: [string, string][] = [];
   const seen = new Map<string, number>();

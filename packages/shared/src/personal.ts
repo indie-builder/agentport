@@ -6,7 +6,6 @@ import { PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX } from './pagination.js';
 import { runStatusSchema } from './run-state.js';
 import { runListItemSchema } from './schemas.js';
 
-/** 个人资料：只允许改显示姓名；身份字段只读。 */
 export const updatePersonalProfileInputSchema = z
   .object({ name: accountNameSchema })
   .strict()
@@ -34,7 +33,6 @@ export const authMeSchema = z.discriminatedUnion('authenticated', [
 ]);
 export type AuthMe = z.infer<typeof authMeSchema>;
 
-/** 只暴露可展示的会话元数据；token、userId 等认证载体不上 wire。 */
 export const personalSessionSchema = z.object({
   id: z.string(),
   createdAt: z.iso.datetime(),
@@ -51,7 +49,6 @@ export const personalSessionListSchema = z.object({ items: z.array(personalSessi
 
 export type PersonalSessionList = z.infer<typeof personalSessionListSchema>;
 
-/** 我的会话分享：归属来自来源会话本人，列表里 revokedAt 恒为 null。 */
 export const personalOutputShareSchema = outputShareSchema.extend({
   conversationId: z.string(),
   conversationTitle: z.string(),

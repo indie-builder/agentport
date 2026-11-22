@@ -280,7 +280,6 @@ function assertValidGrants(grants: readonly PermissionGrant[]) {
   if (message) fail('INVALID_INPUT', message);
 }
 
-/** 账户存在时必须至少有一个未停用账户持有系统 admin。 */
 async function assertActiveAdminRemains(tx: Transaction) {
   const [accounts] = await tx.select({ total: count() }).from(authUsers);
   if ((accounts?.total ?? 0) === 0) return;

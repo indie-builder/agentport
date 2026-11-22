@@ -2,26 +2,20 @@ import { z } from 'zod';
 import { type McpToolSummary, serverTestResultSchema } from './mcp.js';
 import { utf8Bytes } from './utf8.js';
 
-/** stdio 试连独立队列：与 agent run 分开，试连不会占住运行并发。 */
 export const SANDBOX_PROBES_QUEUE = 'sandbox-probes';
 
-/** 容器内 MCP client 的 connect / listTools 上限；试连只验证可用性，不等长任务。 */
 export const SANDBOX_PROBE_CONNECT_TIMEOUT_MS = 5_000;
-/** Docker 启动余量（拉镜像、docker run）；容器起来后另有同长的结果预算。 */
 export const SANDBOX_PROBE_STARTUP_TIMEOUT_MS = 10_000;
-/** API 等待整个试连的上限，必须大于启动余量 + 结果预算。 */
-export const SANDBOX_PROBE_WAIT_TIMEOUT_MS = 25_000;
+export const SANDBOX_PROBE_WAIT_TIMEOUT_MS =
+  SANDBOX_PROBE_STARTUP_TIMEOUT_MS + SANDBOX_PROBE_CONNECT_TIMEOUT_MS * 2 + 5_000;
 export const SANDBOX_PROBE_STDERR_MAX_BYTES = 8 * 1024;
 
-/** job 只带 serverId 与可选运行环境：配置与密钥由 worker 从库里读并解密，不经队列。 */
 export const sandboxProbeJobSchema = z.object({
   serverId: z.string().min(1),
-  /** 缺省/null 表示平台默认环境；只影响这次试连实际使用的容器镜像。 */
   runtimeEnvironmentId: z.string().min(1).nullable().optional(),
 });
 export type SandboxProbeJob = z.infer<typeof sandboxProbeJobSchema>;
 
-/** 容器 stdin 的唯一任务形状；kind 固定，因为 http/generated 仍走 API 现路径。 */
 export const sandboxProbeTaskSchema = z.object({
   kind: z.literal('stdio'),
   command: z.string().min(1),
@@ -29,7 +23,6 @@ export const sandboxProbeTaskSchema = z.object({
   env: z.record(z.string(), z.string()).default({}),
 });
 
-/** 容器 stdout 的单行结果；durationMs/stderr 由宿主侧补，避免进程内自计时。 */
 export const sandboxProbeOutputSchema = serverTestResultSchema.pick({
   ok: true,
   serverInfo: true,
@@ -41,10 +34,6 @@ export type SandboxProbeOutput = z.infer<typeof sandboxProbeOutputSchema>;
 const MAX_TOOLS = 1000;
 const MAX_TOOLS_BYTES = 1_048_576;
 
-/**
- * 工具目录是唯一由上游控制的变长部分。超限时明确失败，不做静默截断，
- * 否则用户会以为工具真的只有这些；只保留契约里的四个字段。
- */
 export function limitToolCatalog(
   tools: ReadonlyArray<{
     name: string;

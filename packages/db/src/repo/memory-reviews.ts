@@ -228,9 +228,8 @@ export async function rejectIfRunNotActive(
   });
 }
 
-/** 只有 pending 才能迁移；并发请求抢到同一行时后者得到 null。 */
 export async function updateDecisionIfPending(
-  db: Database,
+  db: DbHandle,
   runId: string,
   decision: Exclude<MemoryReviewDecision, 'pending'>,
   appliedChangeId?: string | null,

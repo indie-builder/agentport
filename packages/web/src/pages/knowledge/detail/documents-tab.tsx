@@ -95,7 +95,6 @@ export function DocumentsTab({
   onViewJobs: (documentId: string) => void;
 }) {
   const [query, setQuery] = useState('');
-  // 每个字符都换无限查询键会把列表打爆：输入即时回显，停 300ms 再订阅。
   const settledQuery = useDebouncedValue(query.trim(), 300);
   const [status, setStatus] = useState<'all' | KnowledgeDocument['status']>('all');
   const applyStatus = (next: string): void => {
@@ -446,8 +445,7 @@ export function DocumentsTab({
                   ref={folderInput}
                   type="file"
                   multiple
-                  // React 的类型里还没有这个非标准属性；浏览器原生支持目录选择。
-                  {...({ webkitdirectory: '' } as Record<string, string>)}
+                  webkitdirectory=""
                   className="hidden"
                   aria-label="选择要上传的文件夹"
                   onChange={(event) => {

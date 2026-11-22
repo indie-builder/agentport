@@ -165,7 +165,6 @@ export function startKnowledgeScheduler(input: {
   db: Db;
   logger: Logger;
   redisUrl: string;
-  /** 测试用独立键前缀，避免对账删到同机真实 scheduler。 */
   prefix?: string;
 }): KnowledgeScheduler {
   const connection = createBunRedisClient(new RedisClient(input.redisUrl));

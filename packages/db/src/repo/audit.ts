@@ -19,10 +19,6 @@ export interface AuditEvent {
   status: AuditStatus;
   durationMs?: number;
   requestId?: string;
-  /**
-   * 幂等键：同一业务事件被重试时应写入同一行。
-   * 省略时每次生成新的 TypeID（普通请求的默认行为）。
-   */
   dedupeKey?: string;
 }
 
@@ -113,10 +109,6 @@ export async function writeAuditInTx(tx: Transaction, event: AuditEvent): Promis
     : tx.insert(auditLog).values(values));
 }
 
-/**
- * 审计写入失败不能影响主流程：业务已经成功，丢一条审计比返回 500 更好。
- * 失败只记日志。API 与 worker 共用这一处，ID 统一走 TypeID。
- */
 export async function writeAudit(
   db: DbHandle,
   logger: WarnLogger,

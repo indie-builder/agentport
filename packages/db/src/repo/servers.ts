@@ -76,11 +76,6 @@ export function listServerPage(
   });
 }
 
-/**
- * 记录一次「测试连接」结果，供列表展示连接健康度；不影响配置本身。
- * 单条 UPDATE 只写 last-test 四列，不与并发 PATCH 的读改写互相覆盖；
- * 不推进 updatedAt（试连不是配置修改）。
- */
 export async function recordTestResult(
   db: Database,
   id: string,
@@ -116,10 +111,6 @@ export async function getServerAccessRow(
   return row ?? null;
 }
 
-/**
- * 读取并锁住行，供「读 → 合并 → 写」跨请求串行化。
- * 必须在事务内调用；FOR UPDATE 之后的读取拿到的是锁释放后的最新值。
- */
 export async function lockServer(tx: Transaction, id: string): Promise<ServerRow | null> {
   const [row] = await tx.select().from(servers).where(eq(servers.id, id)).limit(1).for('update');
   return row ?? null;

@@ -37,10 +37,6 @@ interface ConnectResult {
   tools: ServerTestResult['tools'];
 }
 
-/**
- * 连接生命周期由 Scope 保证：无论 connect/listTools 成功、失败还是超时，
- * close 都执行一次——这正是手写 finally 在超时路径上保证不了的部分。
- */
 function connectAndList(
   server: Server,
   self?: SelfMcp,

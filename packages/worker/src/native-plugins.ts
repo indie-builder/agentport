@@ -30,15 +30,11 @@ const CACHE_DIR = 'plugin-cache';
 
 export interface NativePluginsDeps {
   provider: SandboxProvider;
-  /** 插件市场动作固定用平台默认环境（null）；只在真实创建容器时解析线上版本。 */
   resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
-  /** 容器侧路径；与 hostWorkspacesDir 指向同一目录。 */
   workspacesDir: string;
-  /** 宿主视角目录：docker -v 的源路径由宿主 daemon 解析。 */
   hostWorkspacesDir: string;
   logger: Logger;
   timeoutMs?: number;
-  /** close 时 abort：丢弃正在创建/安装的容器，让任务尽快结束。 */
   closing?: AbortSignal;
 }
 

@@ -59,10 +59,6 @@ export async function listRunMetrics(db: Database, runIds: string[]): Promise<Ru
     .where(inArray(agentRuns.id, runIds));
 }
 
-/**
- * 续聊状态：worker 只拿到 job 里的 id，靠这里决定空会话 / resume / 先 fork。
- * 分支会话在首轮运行前 sdkSessionId 仍指向来源会话，fork 完成后由运行收尾改写。
- */
 export async function getConversationSdkState(
   db: DbHandle,
   conversationId: string,
@@ -167,7 +163,6 @@ export async function updateRun(
   return row ?? null;
 }
 
-/** 已结束的 run 不能被取消覆盖。 */
 export async function cancelRun(db: Database, runId: string): Promise<AgentRun | null> {
   const [row] = await db
     .update(agentRuns)

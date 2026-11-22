@@ -40,10 +40,6 @@ function mcpServerNamesOf(
   return [...names];
 }
 
-/**
- * 把插件目录树裁剪成运行时形态：未授权的 hooks / MCP 从文件树和 manifest 里一并移除，
- * 否则 SDK 只按 manifest 加载，删文件不够。
- */
 export function renderPlugin(params: {
   slug: string;
   runtimeName: string;

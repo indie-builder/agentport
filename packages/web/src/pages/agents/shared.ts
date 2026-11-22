@@ -105,7 +105,6 @@ export function toInput(agent: Agent): AgentInput {
 const positiveIntMessage = '必须大于 0，请调整后再保存';
 const invalidNumberMessage = '请填写有效内容';
 
-/** 原生文件工具：父按平台路径范围使用，子仅能访问自身记忆目录；两者都可显式关闭。 */
 const FILE_TOOLS = ['Read', 'Write', 'Edit'] as const;
 
 export function isFileTool(tool: string): tool is (typeof FILE_TOOLS)[number] {

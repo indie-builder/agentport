@@ -16,19 +16,6 @@ import { assertCanonicalSegments, trimSlash } from './source-paths.js';
 import type { SourceConfig, SourceFailure, SourceItem, SourceSnapshot } from './source-types.js';
 import { failureOf, parseInitialCursor, snapshotOf } from './source-utils.js';
 
-/**
- * Seafile 11+ leaf reader.
- *
- * Identity is `<repo uuid>:sha256(canonical absolute path)` because this API has
- * no permanent cross-rename file ID; a rename is a new document and the old path
- * merely stops being visible. Directory roots are stored relative to the repo
- * root (empty paths means `/`), while API calls use the absolute path. The
- * download URL returned by the API is followed without the long-lived token,
- * even when the file server shares the API origin. The link response's `oid`
- * header is checked against the listing before the download starts, so a link
- * that resolves to a newer revision cannot pass as the listed one.
- */
-
 const settingsSchema = z.object({
   repoId: z.string().trim().min(1),
   paths: z.array(z.string()).default([]),

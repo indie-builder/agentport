@@ -425,10 +425,6 @@ type LoadedImage =
   | { status: 'ready'; url: string }
   | { status: 'error'; message: string };
 
-/**
- * 版本原图：先带鉴权取 Blob，再以对象 URL 展示；卸载或换图时释放对象 URL。
- * 401/403/404 各自给出合同要求的说明，不做无限重试。
- */
 export function KnowledgeImage({
   versionId,
   name,

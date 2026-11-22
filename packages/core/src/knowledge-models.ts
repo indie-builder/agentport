@@ -35,7 +35,6 @@ interface AudioSegment {
 export interface AudioTranscript {
   text: string;
   durationMs: number | null;
-  /** 上游没有段级时码时为空数组。 */
   segments: AudioSegment[];
 }
 
@@ -52,7 +51,6 @@ export class KnowledgeModelError extends Error {
 }
 
 const REQUEST_TIMEOUT_MS = 30_000;
-/** 与 WeKnora 默认一致；只用于转录，不放长 embedding/rerank 的全局超时。 */
 const ASR_TIMEOUT_MS = 300_000;
 
 function classifyStatus(status: number): KnowledgeModelFailureKind {
@@ -272,7 +270,6 @@ export async function embedTexts(
   return vectors;
 }
 
-/** 同空间图片向量：只有 cohere_v2 且显式开启图片输入的 profile 才能调用。 */
 export async function embedImages(
   profile: EmbeddingProfile,
   images: { mimeType: string; dataBase64: string }[],

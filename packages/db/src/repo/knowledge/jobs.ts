@@ -235,10 +235,6 @@ export interface FinishJobInput {
   probeResult?: KnowledgeSourceProbeResult | null;
 }
 
-/**
- * 一个 job 的原子终态提交：job CAS、sync run 终态、source 摘要与成功游标一次提交。
- * 任何后续写入失败都回滚 job，让重投/对账仍能看到活动行。
- */
 export async function finishJob(
   db: Database,
   id: string,

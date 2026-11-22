@@ -16,10 +16,6 @@ import { type ApiClient, ApiError, fetchResponse, responseApiError, rpc } from '
 import type { ApiOutput } from './shared.js';
 import { clientOptions, nativeRequest } from './shared.js';
 
-/**
- * 公开分享只认 URL 片段里的 Bearer token，不带管理会话 cookie，也不触发登录跳转。
- * 无效、撤销与源文件删除都由服务端统一 404，这里原样交给页面显示单一无效状态。
- */
 async function publicShareRequest<T>(
   id: string,
   token: string,
@@ -46,20 +42,17 @@ export type ChatAccepted = Extract<
   { status: 202 }
 >['body'];
 
-/** 附件随消息一次性提交；字节只在这里出现，落库与回放只保留元数据。 */
 export type ChatAttachmentInput = NonNullable<SharedChatRequest['attachments']>[number];
 
 type ChatRequest = SharedChatRequest;
 
 export type ConversationDetail = SharedConversationDetail;
 
-/** 会话消息分页：默认 50 条、上限 100；cursor 为上一页最早消息的 id。 */
 type ConversationPageOptions = Omit<
   Parameters<ApiClient['chat']['conversation']>[0]['query'],
   'limit'
 > & { limit?: number };
 
-/** 全局历史搜索：空 q 按最近活动返回；cursor 是服务端下发的下一页游标。 */
 export type ConversationSearchOptions = Omit<
   Parameters<ApiClient['chat']['searchConversations']>[0]['query'],
   'limit'
@@ -90,14 +83,12 @@ export default {
     signal?: AbortSignal,
   ): Promise<ConversationDetail> =>
     rpc.chat.conversation({ params: { id }, query: options }, clientOptions(signal)),
-  /** 会话成果按版本倒序分页；同一路径的多版由调用方分组，后端不做合并。 */
   outputs: (
     conversationId: string,
     options: { limit?: number; cursor?: string; runId?: string } = {},
     signal?: AbortSignal,
   ): Promise<OutputList> =>
     rpc.chat.listOutputs({ params: { id: conversationId }, query: options }, clientOptions(signal)),
-  /** 文本预览只读已发布快照；超过后端上限时返回明确错误，由页面改为下载。 */
   outputContent: (
     conversationId: string,
     runId: string,
@@ -108,7 +99,6 @@ export default {
       `/conversations/${conversationId}/outputs/${encodeURIComponent(runId)}/content?path=${encodeURIComponent(path)}`,
       { signal },
     ),
-  /** 列表未覆盖的旧版先取真实元信息，再决定按文本还是图片预览，不猜类型。 */
   outputFile: (
     conversationId: string,
     runId: string,
@@ -119,7 +109,6 @@ export default {
       { params: { id: conversationId, runId }, query: { path } },
       clientOptions(signal),
     ),
-  /** 图片与 PDF 预览复用下载端点，保留统一 cookie 会话、401 跳转与 Problem 错误。 */
   outputBlob: (
     conversationId: string,
     runId: string,
@@ -132,7 +121,6 @@ export default {
     ),
   outputDownloadUrl: (conversationId: string, runId: string, path: string): string =>
     `/api/conversations/${conversationId}/outputs/${encodeURIComponent(runId)}/download?path=${encodeURIComponent(path)}`,
-  /** 同一三元组的分享记录，含已撤销状态。 */
   outputShares: (
     conversationId: string,
     input: { runId: string; path: string },
@@ -160,7 +148,6 @@ export default {
     const result = await rpc.chat.regenerate({ params: { conversationId } });
     return result.body;
   },
-  /** 生成式 UI 的 Query/Mutation：工具目录由服务端授权，未授权会 403。 */
   callOpenUiTool: async (
     conversationId: string,
     toolName: string,
@@ -172,7 +159,6 @@ export default {
         body: input,
       })
     ).body,
-  /** 会话级审批：202 返回的 approvalId 在这里批准；同一工具调用重试即执行。 */
   approveOpenUiTool: (
     conversationId: string,
     approvalId: string,
@@ -183,7 +169,6 @@ export default {
     if (result.status === 202) return result.body;
     throw new ApiError(204, '该操作已在本地完成，不需要发起运行。');
   },
-  /** 生成式 UI 的表单/绑定快照；按 block 合并，不覆盖同消息其他段。 */
   saveOpenUiState: (
     conversationId: string,
     messageId: string,

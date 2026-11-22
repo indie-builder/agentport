@@ -249,10 +249,6 @@ export async function createEvalRun(
   return row;
 }
 
-/**
- * 原子认领：只有把 claimed_at 从 NULL 改成有值的调用方拿到 true。
- * BullMQ 在 Redis 抖动后会重复投递同一个 job，没有认领就会跑两遍（双倍模型花费）。
- */
 export async function claimEvalRun(db: Database, id: string): Promise<boolean> {
   const rows = await db
     .update(evalRuns)
@@ -278,7 +274,6 @@ export async function finishEvalRun(
     .where(and(eq(evalRuns.id, id), eq(evalRuns.status, 'running')));
 }
 
-/** 只有 running 能转 cancelled；返回 false 表示跑批已收口，调用方据此跳过重复审计。 */
 export async function cancelEvalRun(db: Database, id: string): Promise<boolean> {
   const rows = await db
     .update(evalRuns)
@@ -288,10 +283,6 @@ export async function cancelEvalRun(db: Database, id: string): Promise<boolean> 
   return rows.length > 0;
 }
 
-/**
- * 中断/执行失败收口：只允许 running → failed，且不写 passed。
- * 已成功、已取消或已被收口的批次保持原状；重复投递的 processor 与 failed 事件可先后调用。
- */
 export async function failEvalRun(db: Database, id: string, error: string): Promise<boolean> {
   const rows = await db
     .update(evalRuns)

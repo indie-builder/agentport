@@ -1,7 +1,7 @@
-import { type Database, repo } from '@agentport/db';
+import { type DbHandle, repo } from '@agentport/db';
 
 export async function recordMemoryChange(
-  db: Database,
+  db: DbHandle,
   insert: Parameters<typeof repo.memoryChanges.insert>[1],
 ): Promise<repo.memoryChanges.MemoryChangeRow> {
   const change = await repo.memoryChanges.insert(db, insert);

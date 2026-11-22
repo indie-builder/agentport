@@ -27,7 +27,6 @@ export function diffLinesOrdered(from: string, to: string): { added: string[]; r
   const fromLines = from.split('\n');
   const toLines = to.split('\n');
   if (fromLines.length * toLines.length > 4_000_000) {
-    // shortcut: very large docs (>~2000 lines each) fall back to unordered multiset diff; upgrade to Myers if it matters
     return diffLines(from, to);
   }
   const rows = fromLines.length;

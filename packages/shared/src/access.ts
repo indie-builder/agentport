@@ -1,14 +1,8 @@
 import { z } from 'zod';
 import { offsetQuerySchema } from './pagination.js';
 
-/**
- * 账户与 RBAC 的唯一共享契约。
- * 业务人员关联只保存 businessId；authUsers 的技术 ID 只在认证边界内使用。
- */
-
 export type BusinessId = string;
 
-/** businessId 由管理员录入：1..160 个 Unicode 字符，不含任何空白或控制字符。 */
 export function isValidBusinessId(value: string): boolean {
   const chars = [...value];
   return (
@@ -385,7 +379,6 @@ export type ResourceAccessFilter = {
 };
 
 export type AccessResource = {
-  /** 已加载对象的实际主键（run、conversation 等）；跨用户审计优先用它做 target。 */
   objectId?: string;
   agentId?: string;
   createdBy?: BusinessId | null;
@@ -399,7 +392,6 @@ export type AccessResource = {
 
 export type AgentAccess = { agentId: string; permissionIds: PermissionId[] };
 
-/** 依赖同叶读取能力的写权限；矩阵保存时逐项校验。 */
 const READ_DEPENDENCIES: Partial<Record<PermissionId, PermissionId>> = {
   'agents.config.update': 'agents.config.read',
   'agents.rules.write': 'agents.rules.read',
@@ -467,7 +459,6 @@ const READ_DEPENDENCIES: Partial<Record<PermissionId, PermissionId>> = {
   'roles.manage': 'roles.read',
 };
 
-/** 完整文件与导出必须能看到所含配置、规则、样式和记忆。 */
 const EXPORT_DEPENDENCIES: PermissionId[] = [
   'agents.config.read',
   'agents.rules.read',
@@ -484,12 +475,6 @@ export function grantDependencies(permissionId: PermissionId): readonly Permissi
   return read ? [read] : [];
 }
 
-/**
- * 读取依赖的对象范围覆盖（candidate 覆盖 required）：
- * 负责人同时具备被授权与维护关系，因此 A 和 M 都覆盖 W，但 A/M 互不包含；
- * own_data 只覆盖自身，platform 覆盖全部，其余反向均不成立。
- * 写权限不能靠更窄的读取范围"看似有读取"而放大对象范围。
- */
 const SCOPE_COVERAGE: Record<AccessScope, readonly AccessScope[]> = {
   own_data: ['own_data'],
   authorized_resources: ['authorized_resources'],
@@ -520,10 +505,6 @@ export type AgentRelation = {
   inactive?: boolean;
 };
 
-/**
- * 与目录一致的单个 grant 范围判定：同一条授权必须同时匹配权限叶和对象范围，
- * 多角色结果不能拼接。平台范围也只对真实存在的对象生效。
- */
 export function agentPermissionAllows(
   grants: readonly PermissionGrant[],
   permissionId: PermissionGrant['permissionId'],
@@ -565,7 +546,6 @@ export function agentScopeAllows(
   }
 }
 
-/** 校验一组 grants 的目录值、允许 scope、重复项与读取依赖；返回第一条问题的中文说明。 */
 export function validateGrants(grants: readonly PermissionGrant[]): string | null {
   const seen = new Set<string>();
   const scopesByPermission = new Map<PermissionId, Set<AccessScope>>();

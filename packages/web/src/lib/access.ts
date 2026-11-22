@@ -270,7 +270,6 @@ const HOME_ORDER: readonly MenuItem[] = [
   ...PLATFORM_MENU,
 ];
 
-/** 登录后与「返回工作区」的落点；没有任何权限时返回 null。 */
 export function homePath(me: AuthMe | undefined): string | null {
   return HOME_ORDER.find((item) => canAny(me, item.permissionIds))?.to ?? null;
 }
@@ -323,17 +322,12 @@ type PermissionTreeLeaf = PermissionDefinition;
 
 export type PermissionTreeGroup = {
   key: string;
-  /** 树的完整路径；用于展开状态与测试定位。 */
   path: readonly string[];
   label: string;
   children: PermissionTreeGroup[];
   leaves: PermissionTreeLeaf[];
 };
 
-/**
- * 由 shared 目录的 treePath 构建任意深度树。父节点只做展示和批量勾选，
- * 不进入 grants；叶子动作才是可保存的权限。
- */
 export function buildPermissionTree(
   permissions: readonly PermissionDefinition[],
 ): PermissionTreeGroup[] {
@@ -363,7 +357,6 @@ export function groupLeafIds(group: PermissionTreeGroup): PermissionId[] {
   return [...group.leaves.map((leaf) => leaf.id), ...group.children.flatMap(groupLeafIds)];
 }
 
-/** 矩阵搜索：命中叶标签或 permissionId；父链只要含命中叶就保留。 */
 export function filterPermissionTree(
   groups: readonly PermissionTreeGroup[],
   query: string,

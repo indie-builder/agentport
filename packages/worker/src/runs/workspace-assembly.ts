@@ -41,7 +41,6 @@ export type WorkspaceAssemblyInput = {
   hooks: Record<string, unknown> | null;
   hookFiles: Array<{ path: string; content: string; executable: boolean }>;
   plugins: WorkspacePlugin[];
-  /** 本轮已解析的专家记忆策略：CLAUDE.md 的记忆文案必须与记忆挂载权限同源。 */
   memoryPolicy: MemoryPolicy;
 };
 

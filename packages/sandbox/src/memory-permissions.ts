@@ -17,21 +17,13 @@ import type { HookCallback, PreToolUseHookSpecificOutput } from '@anthropic-ai/c
 const MEMORY_TOOLS = new Set(['Read', 'Write', 'Edit']);
 const OTHER_FILE_TOOLS = new Set(['Glob', 'Grep', 'NotebookEdit']);
 
-/** 工作区技能与插件资源根；文件工具对它们只读。 */
 const SKILLS_DIR = `${WORKSPACE_CONTAINER_DIR}/.claude/skills`;
 const PLUGINS_DIR = `${WORKSPACE_CONTAINER_DIR}/.claude/plugins`;
 
-/** 个人记忆由宿主只读挂载到 /mnt/user；每轮用户提交前注入，恢复会话也读最新文件。 */
 export const PERSONAL_MEMORY_FILE = `${USER_CONTAINER_DIR}/${PERSONAL_MEMORY_FILENAME}`;
 
 const PERSONAL_MEMORY_LIMIT_MESSAGE = `个人偏好最多 ${PERSONAL_MEMORY_MAX_CHARS} 个字符，本轮未启动`;
 
-/**
- * UserPromptSubmit hook：读取个人记忆文件并作为 additionalContext 注入本轮。
- * 缺失或空白返回空；符号链接、非普通文件、超过 9000 字符或 36 KiB 时拒绝本轮并报告原因。
- * 个人记忆不是官方用户级 CLAUDE.md 自动发现：宿主只读挂载到 /mnt/user，由本 hook 每轮注入；
- * 只读固定挂载路径，不读取宿主 .claude，也不加载开发者设置。
- */
 export function createPersonalMemoryHook(
   file = PERSONAL_MEMORY_FILE,
   onError: (message: string) => void = () => {},
@@ -75,15 +67,6 @@ function inside(local: string): boolean {
   return local.length > 0 && local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local);
 }
 
-/**
- * 文件工具边界：
- * - 主会话可写记忆目录内的普通 .md，也可在本轮产出目录内读写交付文件；
- *   只读可及本轮附件（任意普通文件）、技能参考文件（`.claude/skills/<slug>/references/`）
- *   与插件技能资源（`.claude/plugins/<slug>/skills/<name>/`）。
- * - 子智能体只可读写自己的 project 记忆目录（`.claude/agent-memory/<slug>/` 内的 .md），
- *   可写性跟随父专家的运行期策略；未登记的调用方、兄弟目录、父级记忆/产出/附件一律拒绝。
- * 其余文件工具请求一律拒绝。
- */
 export function createFileBoundaryHook({
   memoryDir,
   skillsDir = SKILLS_DIR,
@@ -99,11 +82,8 @@ export function createFileBoundaryHook({
   pluginsDir?: string;
   outputsDir?: string;
   inputsDir?: string;
-  /** 子智能体 project 记忆根；缺省为容器内官方目录。 */
   projectMemoryDir?: string;
-  /** 本次加载的已知子智能体 slug；未登记的子智能体不放行任何文件。 */
   subAgentSlugs?: ReadonlySet<string>;
-  /** 主会话与已登记子智能体是否可写记忆目录；proposal_only 或未启用记忆时为 false，只保留读。 */
   memoryWritable?: boolean;
 }): HookCallback {
   return async (input) => {
@@ -166,7 +146,6 @@ export function createFileBoundaryHook({
         base = outputsDir;
         writable = true;
       } else {
-        // 插件技能资源：Read 打开技能正文或它的 references 时，CLI 给的是真实路径。
         const [pluginSlug, skillsSegment, skillName] = relative(pluginsDir, path).split(sep);
         const insidePluginSkill =
           input.tool_name === 'Read' &&

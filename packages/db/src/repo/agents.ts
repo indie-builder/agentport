@@ -158,7 +158,6 @@ export function toAgent(
 
 const organizationVisibleWhere = sql`(${agents.visibility} = 'organization' and ${agents.publishedVersion} is not null and ${agents.enabled} and ${activeAgentWhere})`;
 
-/** agents.read 的列表范围谓词；范围不够时返回空结果。 */
 function agentReadScopeWhere(access: AccessFilter): SQL | undefined {
   const scopes = new Set(access.scopes);
   if (scopes.has('platform')) return undefined;
@@ -540,7 +539,6 @@ export async function publishDefaultAgentIfNeeded(db: Database): Promise<void> {
   });
 }
 
-/** 只读记忆策略：行不存在返回 null；已落库 JSON 非法时按默认策略运行。 */
 export async function getAgentMemoryPolicy(
   db: DbHandle,
   agentId: string,
@@ -566,11 +564,6 @@ export async function updateAgentMemoryPolicy(
   return rows.length > 0;
 }
 
-/**
- * 绑定变更串行化：路由里的预检是快路径，并发下两个请求可能都通过，
- * 所以写事务再拿同一把 advisory 锁并复查。只保护绑定，不阻塞普通字段更新。
- * 调用方若会顺带拿行锁，必须先调 lockAgentBindings。
- */
 export async function lockSubAgentBindings(
   tx: Transaction,
   selfId: string | null,
@@ -675,10 +668,6 @@ export async function hasActiveRunUsingAgents(db: DbHandle, agentIds: string[]):
   return active !== undefined;
 }
 
-/**
- * 改变委派活动集合前，确认真实活动 run 已结束。审核 run 不挂可写目录、也不占委派资源，
- * 因此不算活动运行；queued 取消会直接进入终态，running 取消等 worker 收尾后才解除保护。
- */
 export async function assertAgentsIdle(db: DbHandle, agentIds: string[]): Promise<void> {
   if (await hasActiveRunUsingAgents(db, agentIds)) {
     throw new AppError('CONFLICT', '智能体或其委派关系中仍有运行未结束，请等待完成或取消后再修改');
@@ -744,10 +733,6 @@ export async function createAgent(
   return row;
 }
 
-/**
- * 复制智能体配置：绑定、规则、输出风格一并复制，子智能体不复制（只支持一层，且源对象不变）。
- * repeatable read + FOR SHARE 保证读到一致的源配置；版本从 v1 重新开始。
- */
 export async function duplicateAgent(
   db: Database,
   sourceId: string,
@@ -1018,11 +1003,6 @@ export async function updateAgentTx(
   return row;
 }
 
-/**
- * 专家与插件的绑定随专家一起写。子智能体不允许绑定：复查 parentId，
- * 这样「解绑后立刻被收为子智能体」和「已解绑后又想恢复旧绑定」都过不了。
- * 本函数是私有写 helper，不加锁：调用方在有绑定时必须先 lockAgentBindings，且在碰任何行锁之前。
- */
 async function writeAgentPluginBindings(
   tx: Transaction,
   agentId: string,
@@ -1073,7 +1053,6 @@ export async function getAgentSkillIds(db: DbHandle, agentId: string): Promise<s
   return rows.map((row) => row.skillId);
 }
 
-/** 某 agent 的直接子智能体（含已停用的，供预览/管理）。 */
 export async function listSubAgents(db: Database, agentId: string): Promise<AgentRow[]> {
   return db.select().from(agents).where(eq(agents.parentId, agentId)).orderBy(asc(agents.id));
 }

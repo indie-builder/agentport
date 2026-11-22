@@ -14,7 +14,6 @@ export type ChannelMessageKind = z.infer<typeof channelMessageKindSchema>;
 export const channelAgentStatusSchema = z.enum(['active', 'disconnected']);
 export type ChannelAgentStatus = z.infer<typeof channelAgentStatusSchema>;
 
-/** seq / lastReadSeq 走 bigint(mode: number)，wire 上限定非负安全整数。 */
 const seqSchema = z.number().int().nonnegative().safe();
 const cursorSchema = z.coerce.number().int().nonnegative().safe().default(0);
 
@@ -71,7 +70,6 @@ const channelLastMessageSchema = z.object({
   id: z.string(),
   seq: seqSchema,
   kind: channelMessageKindSchema,
-  /** 摘要，最多 200 字符；完整正文走消息列表。 */
   body: z.string().max(200),
   authorBusinessId: z.string().nullable(),
   agentId: z.string().nullable(),
@@ -79,7 +77,6 @@ const channelLastMessageSchema = z.object({
 });
 
 export const channelListItemSchema = channelSchema.extend({
-  /** 平台管理员但非频道成员时为 null。 */
   role: channelRoleSchema.nullable(),
   lastReadSeq: seqSchema,
   unreadCount: z.number().int().nonnegative().safe(),
@@ -141,9 +138,7 @@ export const channelMessageInputSchema = z
       .refine((body) => body.trim().length > 0, '消息不能为空')
       .optional(),
     clientMessageId: z.string().min(1).max(160).optional(),
-    /** 显式 @ 的 agentId；只唤醒频道内 active 且 enabled 的绑定。 */
     mentions: z.array(z.string().min(1)).max(CHANNEL_MAX_WAKE_AGENTS).optional(),
-    /** @all：只唤醒绑定上 autoWakeOnAll=true 的 active agent。 */
     mentionAll: z.boolean().optional(),
     attachments: chatAttachmentInputsSchema.optional(),
   })
@@ -187,7 +182,6 @@ export const channelReadStateSchema = z.object({
   lastReadSeq: seqSchema,
 });
 
-/** SSE 事件：先按 seq 回放，再订阅 Redis 频道流。 */
 export const channelEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('message.created'),
@@ -236,12 +230,10 @@ export function channelRunFinishedEvent(input: {
   return { type: 'run.finished', channelId, runId, agentId, status };
 }
 
-/** 频道事件 Redis Stream，api 生产、SSE 消费共用这一处。 */
 export function channelStreamKey(channelId: string): string {
   return `channel:${channelId}:events`;
 }
 
-/** Redis 连接名，用于识别并清理同一频道的订阅者。 */
 export function channelEventsConnectionName(channelId: string): string {
   return `channel-events:${channelId}`;
 }

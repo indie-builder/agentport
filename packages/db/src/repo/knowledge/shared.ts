@@ -66,10 +66,6 @@ export function pageLimit(options: PageOptions): number {
   return Math.min(Math.max(options.limit ?? 50, 1), 200);
 }
 
-/**
- * 外部文档可读的 SQL 判定：来源存在且 active/paused，且至少一条启用范围覆盖条目路径。
- * 检索、单条读取与列表共用这一处，避免各自实现一套授权。alias 是调用方 SQL 中的文档别名。
- */
 export function readableDocumentSql(alias: string): SQL {
   const d = sql.raw(alias);
   return sql`${d}.status = 'ready'
@@ -127,10 +123,6 @@ export async function sourceScopeAllowsDocument(
   `);
   return result[0]?.ok === true;
 }
-/**
- * 快照仍与线上来源一致：在 source 共享锁下比较 type/baseId/config/密文与全部范围。
- * config 用 jsonb 相等（忽略键顺序）；范围按 id 与字段逐一比较，忽略时间戳。
- */
 export async function sourceSnapshotMatchesTx(
   tx: Transaction,
   snapshot: SourceReadSnapshot,
@@ -193,10 +185,6 @@ export async function disableDocumentsBySourceTx(
 }
 /** 单条 INSERT 的绑定参数上限是 65535；按 500 行分段，远低于该上限。 */
 export const INSERT_CHUNK = 500;
-/**
- * 来源必须仍可读且是文档当前版本：chunk 未禁用、文档 ready 且来源/范围授权仍有效、
- * chunk.versionId 等于文档 currentVersionId（旧版本 chunk 不能再当证据）。
- */
 export async function usableSourceChunks(
   tx: DbHandle,
   page: KnowledgeWikiPageRow,

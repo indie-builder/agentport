@@ -43,14 +43,10 @@ export interface SandboxProbeDeps {
   db: ReturnType<typeof createDb>['db'];
   logger: Logger;
   provider: ProbeProvider;
-  /** 只在真实创建容器时调用；缺省/null 环境由 resolver 解析默认环境。 */
   resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
-  /** 容器侧路径：试连不写工作区，只挂一个空目录满足 -v。 */
   workspacesDir: string;
-  /** 宿主视角的同一目录；docker -v 的源路径由宿主 daemon 解析。 */
   hostWorkspacesDir: string;
   secretKey: string;
-  /** close 时 abort：取消这次试连的镜像拉取/创建。 */
   closing?: AbortSignal;
 }
 

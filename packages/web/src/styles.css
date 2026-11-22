@@ -8,10 +8,6 @@
 @source "../node_modules/streamdown/dist/*.js";
 @source "../node_modules/@streamdown/code/dist/*.js";
 
-/*
- * 项目只有亮色主题。Tailwind 4 默认的 dark: 跟随系统偏好，
- * 会让深色 OS 的用户看到组件里的 dark:bg-* 生效；显式绑定到 .dark 类即彻底关闭。
- */
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
@@ -39,10 +35,6 @@
   --color-line-strong: rgba(0, 0, 0, 0.20);
   --color-fg: #202b2e;
   --color-link: var(--color-fg);
-  /*
-   * base-nova 把 muted 当「表面色」（bg-muted = 浅灰底），
-   * 文字色走 muted-foreground。两者不能共用同一个变量。
-   */
   --color-muted: var(--color-sunken);
   --color-subtle: #898781;
   --color-control-boundary: rgba(0, 0, 0, 0.35);
@@ -87,7 +79,6 @@
   --radius-dialog: 16px;
   --radius-popover: 10px;
 
-  /* base-nova 语义圆角映射；Badge 的 4xl 保留项目的小标签圆角。 */
   /*
    * --radius 是 shadcn 的基础变量，保留供底座组件与 Tailwind 圆角工具映射使用。
    */
@@ -96,7 +87,6 @@
   --radius-md: var(--radius-icon);
   --radius-lg: var(--radius-item);
   --radius-xl: var(--radius-card);
-  /* 底座 Badge 用 rounded-4xl；项目里它是最小的标签圆角，不是最大。 */
   --radius-4xl: var(--radius-tag);
 
   --sidebar-width: 224px;
@@ -163,10 +153,6 @@
   --shadow-panel: inset 0 0 0 var(--hairline) var(--color-line), var(--shadow-sm);
   --shadow-panel-hover: inset 0 0 0 var(--hairline) var(--color-line-strong), 0 4px 16px -2px rgba(0, 0, 0, 0.09);
 
-  /*
-   * 底座浮层用 shadow-md / shadow-lg。项目只有一种浮层阴影语言，
-   * 在这里统一覆盖，避免两套阴影同时出现在屏幕上。
-   */
   --shadow-md: var(--shadow-overlay);
   --shadow-lg: var(--shadow-overlay);
 }

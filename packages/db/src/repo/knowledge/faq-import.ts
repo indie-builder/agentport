@@ -97,10 +97,6 @@ export interface SaveFaqImportDraftsResult {
   items: Array<{ documentId: string; expectedVersionId: string | null; jobId: string }>;
 }
 
-/**
- * 真实导入的原子落库：同一事务建立全部新增/合并 FAQ 草稿与 ingest job。
- * 不调用文件、模型或队列；F 在调用前已把文件写完整，之后自行投递返回的 jobId。
- */
 export async function saveFaqImportDrafts(
   db: Database,
   input: SaveFaqImportDraftsInput,
@@ -238,10 +234,6 @@ export interface PublishFaqImportInput {
   items: Array<{ documentId: string; versionId: string; expectedVersionId: string | null }>;
 }
 
-/**
- * 显式整批发布：核本批 job/索引/旧集合，再同事务切新集合。
- * replace 只在全部校验通过后删除快照中的旧 FAQ；任何失败回滚且旧集合不变。
- */
 export async function publishFaqImport(
   db: Database,
   input: PublishFaqImportInput,

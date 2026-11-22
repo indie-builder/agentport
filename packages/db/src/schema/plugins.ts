@@ -1,10 +1,5 @@
 import { boolean, index, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
-/**
- * 插件：官方 `.claude-plugin/plugin.json` + 组件目录的完整快照（一个专家包里的插件根）。
- * `runtimeName` 是 SDK 看到的插件名（插件命名空间 `plugin:skill` 的前缀）；
- * 同一插件被多个智能体引用时只存一份，绑定走 `agent_plugins`。
- */
 export const plugins = pgTable(
   'plugins',
   {

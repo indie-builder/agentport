@@ -45,7 +45,6 @@ export interface ScheduleWrite {
   executeAsBusinessId: string;
 }
 
-/** 创建定时任务；下次触发时间由 BullMQ 原生 scheduler 展示，不在库里自算。 */
 export async function createSchedule(db: DbHandle, input: ScheduleWrite): Promise<ScheduleRow> {
   const [row] = await db
     .insert(agentSchedules)
@@ -80,7 +79,6 @@ export async function getSchedule(db: DbHandle, id: string): Promise<ScheduleRow
   return row ?? null;
 }
 
-/** 更新：带乐观锁；调度同步由调用方在提交后完成。 */
 export async function updateSchedule(
   db: Database,
   id: string,
@@ -171,10 +169,6 @@ export interface ScheduleTriggerWrite {
   recordedAt?: number;
 }
 
-/**
- * 原子地认领一次定时触发：条件更新 last_run_at 后建会话/运行/消息。
- * 未命中说明同一触发已落地或任务刚被禁用，返回 duplicate，调用方不再补跑。
- */
 export async function claimScheduleTrigger(
   db: Database,
   input: ScheduleTriggerWrite,
@@ -395,7 +389,6 @@ export async function claimScheduleRetry(
   });
 }
 
-/** 需要人处理的待批工具调用：未批准且未过期。生成式 UI 的会话级审批不在运行待办里。 */
 export async function listPendingApprovals(db: Database) {
   const rows = await db
     .select({

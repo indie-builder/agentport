@@ -215,7 +215,7 @@ export function OpenUiBlock({
             ? previous
             : [...previous, { approvalId: result.approvalId, toolName }],
         );
-        throw new Error(`需要批准：${toolName}`);
+        throw new Error(`${APPROVAL_REQUIRED}${toolName}`);
       }
       throw new Error(result.error);
     },

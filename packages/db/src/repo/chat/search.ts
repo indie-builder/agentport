@@ -51,10 +51,6 @@ export interface ConversationSearchRow {
   match: ConversationSearchMatch | null;
 }
 
-/**
- * 全库匹配后再分页：先按 q 过滤会话，再按活动时间与 id 倒序取一页。
- * 每个会话最多一项，匹配优先级 id → title → message；空查询退化为最近会话。
- */
 export function searchConversations(
   db: Database,
   options: ConversationSearchOptions & { before?: never },

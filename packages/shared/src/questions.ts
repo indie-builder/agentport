@@ -1,11 +1,5 @@
 import { z } from 'zod';
 
-/**
- * 原生 AskUserQuestion 的输入/回答契约。
- *
- * 官方工具输入保持原样落库：这里只做边界校验，不 trim、不改写问题文本。
- * 答案以问题文本为键，所以问题文本重复时无法区分回答，入口直接拒绝。
- */
 export const QUESTION_LIMITS = {
   questions: 4,
   options: 4,
@@ -14,7 +8,6 @@ export const QUESTION_LIMITS = {
   optionLabel: 200,
   optionDescription: 1_000,
   answer: 2_000,
-  /** 单次回答的载荷上限；超过说明模型或客户端在灌数据。 */
   responseBytes: 8 * 1_024,
 } as const;
 
@@ -62,7 +55,6 @@ export const nativeQuestionsSchema = z
 
 export type NativeQuestions = z.infer<typeof nativeQuestionsSchema>;
 
-/** 官方工具输入的完整形状：questions 1–4，每题 2–4 个选项。 */
 export const nativeQuestionInputSchema = z.object({ questions: nativeQuestionsSchema });
 
 const answersSchema = z
@@ -74,7 +66,6 @@ const answersSchema = z
     message: '回答内容超出大小限制',
   });
 
-/** 回答要么给出答案，要么明确暂不回答；两者互斥。 */
 export const questionResponseSchema = z.union([
   z.object({ answers: answersSchema }).strict(),
   z.object({ decline: z.literal(true) }).strict(),
@@ -83,7 +74,6 @@ export const questionResponseSchema = z.union([
 export type QuestionResponse = z.infer<typeof questionResponseSchema>;
 
 const questionIndexSchema = z.string().regex(new RegExp(`^[0-${QUESTION_LIMITS.questions - 1}]$`));
-/** HTTP 表单只传自由文本和稳定选项序号；SDK stdin 仍用 QuestionResponse。 */
 export const publicQuestionResponseSchema = z.union([
   z
     .object({
@@ -120,7 +110,6 @@ export function questionPhase(
   return question.expiresAt.getTime() <= now.getTime() ? 'expired' : 'pending';
 }
 
-/** 一次提问的运行记录；answers 为 null 表示尚未回答。 */
 export const runQuestionSchema = z.object({
   requestId: z.string().min(1).max(256),
   runId: z.string().min(1),
@@ -138,7 +127,6 @@ export const runQuestionSchema = z.object({
 
 export type RunQuestion = z.infer<typeof runQuestionSchema>;
 
-/** 脱敏展示投影：题序号为答案键，选项 value 为原数组序号。 */
 export const publicRunQuestionSchema = runQuestionSchema.extend({
   questions: z.array(
     z.object({
@@ -158,7 +146,6 @@ export const publicRunQuestionSchema = runQuestionSchema.extend({
 });
 export type PublicRunQuestion = z.infer<typeof publicRunQuestionSchema>;
 
-/** runner stdin 命令：回答问题，或把运行中追加的用户指令送入同一轮。 */
 export const sandboxInputCommandSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('question_response'),

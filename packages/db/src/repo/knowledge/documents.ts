@@ -417,7 +417,6 @@ export async function settleProcessingDocument(db: Database, documentId: string)
     );
 }
 
-/** 用户显式删除：级联版本、分块与标签关联，返回是否真的删除了一行。 */
 export async function deleteDocument(db: Database, id: string): Promise<boolean> {
   const rows = await db
     .delete(knowledgeDocuments)
@@ -426,7 +425,6 @@ export async function deleteDocument(db: Database, id: string): Promise<boolean>
   return rows.length > 0;
 }
 
-/** 管理端/MCP 直接读取：必须同库、非 Wiki 内部索引，且来源/范围仍授权。 */
 export async function getReadableDocument(
   db: Database,
   baseId: string,
@@ -447,9 +445,6 @@ export async function getReadableDocument(
   return row ?? null;
 }
 
-/** 外部来源失权/删除：文档置 disabled，不物理删、不参与检索。
- * 人工停用原因不被来源同步覆盖；归属只看 source_connection_id。
- */
 export async function disableDocumentsBySource(
   db: Database,
   sourceId: string,

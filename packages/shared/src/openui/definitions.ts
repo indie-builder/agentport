@@ -24,7 +24,6 @@ import {
 
 type AnySchema = z.core.$ZodType;
 
-/** 子组件联合：z.union 至少要两个成员。 */
 function refUnion(options: AnySchema[]): AnySchema {
   const [first, second, ...rest] = options;
   if (first === undefined || second === undefined) {
@@ -55,7 +54,6 @@ const entityRow = z.object({
   rightVariant: z.enum(['text', 'number']).default('text'),
 });
 
-/** 构建整份定义；`C` 是渲染器类型，web 传 react-lang 的 ComponentRenderer。 */
 export function createOpenUiDefinitions<C>(
   kit: OpenUiKit<C>,
   renderers: Record<string, C> = {},
@@ -249,7 +247,6 @@ export function createOpenUiDefinitions<C>(
     }),
   );
 
-  // ── 列表与后续建议（卡片体里会引用，必须先声明） ────────────────────────────
   const ListItem = def(
     'ListItem',
     z.object({
@@ -648,7 +645,6 @@ export function createOpenUiDefinitions<C>(
   );
   const VisualCardBlock = def('VisualCardBlock', cardBlock(z.array(VisualCardItem.ref).min(2)));
 
-  // 嵌套内容联合：不含 SectionBlock（它自身不能嵌套），但含列表与后续建议。
   const nestedContent = [
     TextContent.ref,
     MarkDownRenderer.ref,

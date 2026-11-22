@@ -119,10 +119,6 @@ const LOST_RUN_EVENT: RunFinishedEvent = {
   error: LOST_RUN_ERROR,
 };
 
-/**
- * 队列里仍有工作（waiting/delayed/active/prioritized/waiting-children）就保留；
- * job 消失或已到终态才算孤儿。未列出的状态保守保留。
- */
 function jobGone(state: string): boolean {
   switch (state) {
     case 'completed':

@@ -23,7 +23,6 @@ const CHANNEL_FINISH_NOTICE: Record<Exclude<RunFinishedEvent['status'], 'succeed
 
 type Db = ReturnType<typeof createDb>['db'];
 
-/** 终态写入时可一并保存的运行读数；省略的列保持原值。 */
 interface RunFinishValues {
   sandboxId?: string;
   latencyMs?: number | null;
@@ -241,11 +240,8 @@ export async function finalizeRun(input: {
   logger: Logger;
   runId: string;
   event: RunFinishedEvent;
-  /** 默认从 queued 认领的 running；queued 只用于排队孤儿。 */
   fromStatus?: 'queued' | 'running';
-  /** running 终态的并发条件：pendingFinish 必须存在（接管）或不存在（真孤儿）。 */
   pending?: 'required' | 'absent';
-  /** queued 收敛沿用入队时间条件，避免把探测期间重新入队的重试提前收敛。 */
   queuedBefore?: Date;
   values?: RunFinishValues;
   audit: { action: string; status: 'ok' | 'error'; dedupeKey?: string; durationMs?: number };

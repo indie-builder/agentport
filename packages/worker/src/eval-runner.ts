@@ -480,7 +480,6 @@ export async function executeEvalRun(input: {
             reason: null,
           };
           const runContext: { runId: string | null } = { runId: null };
-          // Effect v4 的 result 对应 v3 的 either，保留每条成功或失败。
           const runResult = yield* Effect.result(
             runOneCase(
               db,

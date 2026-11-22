@@ -19,16 +19,10 @@ import { conversationSubject } from './shared.js';
 export type Message = typeof messages.$inferSelect;
 
 export interface ListMessagesOptions {
-  /** 只取最新 N 条（按 created_at, id 倒序取，仍按正序返回）。 */
   limit?: number;
-  /** 游标：只取这条消息之前的历史，配合 limit 做向前分页。 */
   before?: string;
 }
 
-/**
- * 不传 limit 时返回整段历史（branch 需要全部消息复制）；
- * 传 limit 时只取最新 N 条，避免把 tool 消息的大 jsonb 全量带给页面。
- */
 export function listMessages(
   db: DbHandle,
   conversationId: string,
@@ -203,11 +197,6 @@ export async function listConversationMessageUuids(
   return rows.flatMap((row) => (row.uuid === null ? [] : [row.uuid]));
 }
 
-/**
- * 从原会话复制消息到新会话，并把新会话指向来源 SDK 会话与分叉点：
- * 首次运行时先 fork 到该点，再继续对话。fromMessageId 为空时复制全部；
- * 原会话、分支点或 SDK 会话缺失时抛业务错误（没有文本历史回退）。
- */
 export async function branchConversation(
   db: Database,
   input: {
@@ -220,7 +209,6 @@ export async function branchConversation(
 ): Promise<{
   conversation: Conversation;
   copied: number;
-  /** 来源消息 id → 分支新消息 id；调用方据此复制历史边界内的文件快照。 */
   messageIds: Record<string, string>;
 } | null> {
   return db.transaction(async (tx) => {

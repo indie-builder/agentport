@@ -18,7 +18,6 @@ export function createParsingAdapter(
     mimeType: string;
     data: Buffer;
     signal?: AbortSignal;
-    /** 仅 runtime 注入；音频分支优先于 Docling，普通文档忽略。 */
     asr?: AsrProfile;
     asrProfileName?: string;
   }) => Promise<ParsedDocument>;

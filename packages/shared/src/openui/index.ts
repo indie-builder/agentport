@@ -7,7 +7,6 @@ export * from './meta.js';
 export * from './protocol.js';
 export * from './segment.js';
 
-/** 本平台追加的规则；官方规则保持不变。 */
 export function openUiPromptOptions(
   input: { tools?: OpenUiToolDescriptor[]; extraRules?: string[] } = {},
 ): {

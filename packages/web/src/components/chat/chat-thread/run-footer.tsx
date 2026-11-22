@@ -36,7 +36,6 @@ export function RunReconciliation({
   phase: ActiveChatPhase;
   reconcileRun: ReturnType<typeof useChatStream>['reconcileRun'];
 }) {
-  // 健康事件流会自己补终态；只在连接未开/断开时靠详情回读，恢复后自动停。
   const runQuery = useRun(phase.runId, phase.kind !== 'streaming');
   useEffect(() => {
     if (runQuery.data && (phase.kind !== 'streaming' || runQuery.data.run.status === 'cancelled')) {
@@ -48,7 +47,6 @@ export function RunReconciliation({
   ) : null;
 }
 
-/** 运行中的临时读数：跟着本轮回复走，与完成后的读数行同一位置、同一行高。 */
 export function RunFooter({
   phase,
   items,
@@ -58,7 +56,6 @@ export function RunFooter({
   items: ChatItem[];
   onRetry: () => void;
 }) {
-  // 计时只在运行期间刷新；每秒一次，状态行以外的消息不跟着重渲染。
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     setNow(Date.now());

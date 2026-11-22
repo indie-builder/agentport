@@ -38,7 +38,6 @@ interface ConversationInputsIdentity {
   conversationId: string;
 }
 
-/** worker 换算容器内挂载路径用；只拼逻辑路径，不做存在性/软链校验。 */
 export function conversationInputsDir(input: ConversationInputsIdentity): string {
   return join(resolve(input.root), input.slug, INPUTS_DIR, input.conversationId);
 }
@@ -87,7 +86,6 @@ function truncateFilename(value: string): string {
   return Array.from(value).slice(0, ATTACHMENT_LIMITS.filenameChars).join('');
 }
 
-/** 标题等展示场景的宽松清理：清不出可用名字时返回空串，由调用方兜底。 */
 export function displayAttachmentFilename(raw: string): string {
   return truncateFilename(cleanFilename(raw));
 }
@@ -323,7 +321,6 @@ type WriteConversationAttachmentsInput = ConversationInputsIdentity &
     | { attachments: readonly DecodedConversationAttachment[] }
   );
 
-/** 全部先校验再落盘；失败清理本次写入的文件，不留半套附件。 */
 export async function writeConversationAttachments(
   input: WriteConversationAttachmentsInput,
 ): Promise<MessageAttachment[]> {
@@ -369,7 +366,6 @@ interface ReadConversationAttachmentInput extends ConversationInputsIdentity {
   attachment: MessageAttachment;
 }
 
-/** 只按元数据 uuid + 规范扩展名读取；软链、硬链与非普通文件一律拒绝。 */
 export async function readConversationAttachment(
   input: ReadConversationAttachmentInput,
 ): Promise<{ data: Buffer; filename: string; mimeType: AttachmentMimeType }> {
@@ -384,7 +380,6 @@ interface CopyConversationInputsInput {
   attachmentIds: readonly string[];
 }
 
-/** 分支时按消息引用的 id 复制字节（不用硬链接）；缺任一 id 直接失败。 */
 export async function copyConversationInputs(input: CopyConversationInputsInput): Promise<void> {
   const ids = [...new Set(input.attachmentIds)];
   if (ids.length === 0) return;
@@ -440,7 +435,6 @@ export async function copyConversationInputs(input: CopyConversationInputsInput)
   await writeFiles(dir, files);
 }
 
-/** 删除且只删除该会话的输入目录；重复调用或目录不存在都无副作用。 */
 export async function removeConversationInputs(input: ConversationInputsIdentity): Promise<void> {
   if (!slugSchema.safeParse(input.slug).success || !segmentIdPattern.test(input.conversationId))
     return;

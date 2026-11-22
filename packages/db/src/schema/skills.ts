@@ -42,10 +42,6 @@ export const skills = pgTable(
   ],
 );
 
-/**
- * 技能的支持资源文件（官方 SKILL.md 目录里的 scripts/、references/ 等）。
- * 每个文件落到工作区 `.claude/skills/<slug>/<path>`；path 是相对技能目录的安全相对路径。
- */
 export const skillFiles = pgTable(
   'skill_files',
   {

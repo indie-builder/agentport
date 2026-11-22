@@ -21,7 +21,6 @@ export type { AgentAccess } from '@agentport/shared';
 
 export type AgentFiles = WorkspaceFiles;
 
-/** 导入官方目录包后新建/复用的资源；正文在文件里，这里只回名称供提示。 */
 interface AgentImportResult {
   agent: Agent;
   createdServers: string[];
@@ -130,7 +129,6 @@ export default {
   offlineAgent: (id: string): Promise<AgentWriteResult> => rpc.agents.offline({ params: { id } }),
   trialAgent: (id: string, prompt: string): Promise<{ runId: string; conversationId: string }> =>
     rpc.agents.trial({ params: { id }, body: { prompt } }),
-  /** 官方目录包的 ZIP；错误仍是 Problem JSON。 */
   exportAgent: (
     id: string,
     signal?: AbortSignal,
@@ -149,7 +147,6 @@ export default {
         } catch {}
       },
     }),
-  /** 显式传环境 id 时覆盖包内名称映射；省略则按包中名称匹配。 */
   importAgent: (
     file: Blob,
     signal?: AbortSignal,

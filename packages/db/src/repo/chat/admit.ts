@@ -98,12 +98,9 @@ export async function admitChatRun(
     evalRunId?: string;
     agentVersion?: number;
     definitionSnapshot?: AgentDefinition | null;
-    /** 新会话标题；缺省取消息前 80 字。非浏览器入口用它标明来源。 */
     title?: string;
-    /** 用户消息的完整 content；缺省等价于 `{ type: 'text', text: input.message }`。 */
     userContent?: unknown;
     subject: ExecutionSubject;
-    /** 频道触发：准入自行取建该 agent 的 lane，并从 DB 复核频道成员与绑定。 */
     channel?: {
       channelId: string;
       channelMessageId: string;

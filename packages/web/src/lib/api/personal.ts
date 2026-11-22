@@ -35,7 +35,6 @@ export default {
   ): Promise<PersonalRunList> => rpc.personal.runs({ query }, clientOptions(signal)),
   personalExportRuns: (query: PersonalRunExportQuery): Promise<PersonalRunExport> =>
     rpc.personal.exportRuns({ query }),
-  /** 回顾来源固定本人；只带专家筛选，不传全局会话列表。 */
   personalConversations: (
     query: { agentId?: string; limit?: number; cursor?: string } = {},
     signal?: AbortSignal,

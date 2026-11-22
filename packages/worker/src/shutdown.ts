@@ -18,19 +18,14 @@ interface ShutdownWaits {
 export interface ShutdownOptions {
   abort: () => void;
   logError: (label: string, err: unknown) => void;
-  /** run worker：先等排空，超时不再等待。 */
   workers: ShutdownStep[];
-  /** run 宽限期后无条件强杀沙盒，不排在其余队列后面等它们排空。 */
   provider: ShutdownStep;
-  /** 与 provider 强杀并发的其余关闭。 */
   steps: ShutdownStep[];
-  /** 其余关闭之后按序执行的收尾，每步有界。 */
   finalSteps: ShutdownStep[];
   database: ShutdownStep;
   waits?: ShutdownWaits;
 }
 
-/** 返回进程退出码：任一清理失败为 1。 */
 export async function runShutdown(options: ShutdownOptions): Promise<number> {
   const waits = options.waits ?? {
     shutdownMs: SHUTDOWN_WAIT_MS,

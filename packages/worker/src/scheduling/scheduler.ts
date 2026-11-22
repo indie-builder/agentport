@@ -317,7 +317,6 @@ export function startScheduleScheduler(input: {
   logger: Logger;
   redisUrl: string;
   reconcileMs: number;
-  /** 测试用独立 Redis 键前缀，避免对账删到同机真实的 scheduler。 */
   prefix?: string;
 }): ScheduleScheduler {
   const connection = createBunRedisClient(new RedisClient(input.redisUrl));

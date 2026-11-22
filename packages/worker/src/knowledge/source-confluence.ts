@@ -39,7 +39,6 @@ type Network = {
 type Auth = {
   settings: Settings;
   site: URL;
-  /** REST API root: `<site>/wiki`/`/rest/api`, or the scoped gateway. */
   apiRoot: URL;
   apiOrigin: string;
   authorization: string;

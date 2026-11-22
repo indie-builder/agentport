@@ -9,13 +9,6 @@ import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { readTask } from './stdin-task.js';
 
-/**
- * 容器内入口：从 stdin 读一行 stdio 配置，连一次并 listTools，向 stdout 写一行结果。
- * stdout 只放结果行；日志一律写 stderr。这里没有模型凭证，也不加载 Agent SDK。
- *
- * 进程级兜底：任何未捕获异常都要先写一行失败结果再退出，
- * 否则父进程只能看到「容器退出但没有结果」。
- */
 interface ProbeResult {
   ok: boolean;
   serverInfo?: { name: string; version: string };
@@ -61,9 +54,6 @@ async function probe(task: { command: string; args: string[]; env: Record<string
     };
   } finally {
     await client.close().catch(() => undefined);
-    // StdioClientTransport 兜底：connect 失败时 client.close 也会走 transport.close，
-    // 但显式再关一次保证宿主机侧不留子进程。
-    await transport.close().catch(() => undefined);
   }
 }
 

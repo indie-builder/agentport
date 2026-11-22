@@ -206,7 +206,6 @@ export async function listRuns(
 export interface PersonalRunRow extends RunListItem {
   trigger: RunTrigger;
   createdAt: Date;
-  /** 仅来源会话确属本人时返回；他人的会话不提供给个人页跳转。 */
   conversationId: string | null;
 }
 
@@ -260,7 +259,6 @@ function personalRunRows(
     .limit(options.limit);
 }
 
-/** 「我的运行」按 (createdAt, id) 倒序翻页；游标锚点必须落在同一本人窗口与筛选内。 */
 export async function listPersonalRuns(
   db: Database,
   options: {
@@ -332,7 +330,6 @@ export async function personalUsageSummary(
       running: sql<number>`count(*) filter (where ${agentRuns.status} = 'running')::int`,
       inputTokens: sql<number>`coalesce(sum(${agentRuns.inputTokens}), 0)::int`,
       outputTokens: sql<number>`coalesce(sum(${agentRuns.outputTokens}), 0)::int`,
-      // numeric 在浏览器求和不精确：数据库求和后按原文返回，null 表示一条都没记录。
       costUsd: sql<string | null>`sum(${agentRuns.costUsd})::text`,
       costRecordedRuns: sql<number>`count(*) filter (where ${agentRuns.costUsd} is not null)::int`,
     })
@@ -413,7 +410,6 @@ export function toStep(message: {
   return null;
 }
 
-/** run 是否还能执行：queued 尚未开始，running 进行中；其余均为终态。 */
 export async function isRunActive(db: Database, runId: string): Promise<boolean> {
   const [row] = await db
     .select({ status: agentRuns.status })
@@ -423,10 +419,6 @@ export async function isRunActive(db: Database, runId: string): Promise<boolean>
   return isActiveRunStatus(row?.status);
 }
 
-/**
- * run 的沙盒只挂载两类 server：所属智能体自己绑定的，以及它启用的直接子智能体绑定的。
- * 外部传入的 run header 不可信，不满足时按「没有 run」处理，审批不会跨 agent/server 复用。
- */
 function runMayUseServer(): SQL {
   return sql`${agentServers.agentId} = ${agentRuns.agentId} or exists (
     select 1 from ${agents} child
@@ -457,10 +449,6 @@ function toDefinitionServer(row: typeof servers.$inferSelect): AgentDefinitionSe
   };
 }
 
-/**
- * 还原 worker 为本 run 选择的 server 定义：根与子级快照优先，未固定的子级用当前定义。
- * 审批与执行必须和 worker 看到同一份定义，任一层无法唯一确定都按不存在处理。
- */
 export async function getRunServerSnapshot(
   db: DbHandle,
   runId: string,
@@ -760,10 +748,6 @@ export async function findRunByModelToken(
   return row ? { runId: row.id, conversationId: row.conversationId, agentId: row.agentId } : null;
 }
 
-/**
- * run 仍持有的短期 token（父或其启用子级绑定该 server 时返回）。
- * 行存在但 hash 为空表示 run 已结束，token 立即失效。
- */
 export async function getRunToken(
   db: Database,
   runId: string,

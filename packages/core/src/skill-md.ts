@@ -2,7 +2,6 @@ import { type SkillInput, skillInputSchema } from '@agentport/shared';
 import { invalidInput } from './errors.js';
 import { parseMarkdownFrontmatter, splitHeading } from './markdown-frontmatter.js';
 
-/** 官方 SKILL.md 的来源描述字段：解析时保留，导出时原样写回 frontmatter。 */
 export interface SkillProvenance {
   license?: string;
   compatibility?: string;
@@ -56,10 +55,6 @@ function fieldOf(path: PropertyKey | undefined): string {
   return field === 'slug' ? 'name' : field;
 }
 
-/**
- * 解析官方 SKILL.md（YAML frontmatter + markdown 正文）。
- * 纯函数：不执行脚本、不落盘，也不接受会改变运行时行为的未声明字段。
- */
 export function parseSkillMd(
   content: string,
   options?: { slug?: string },

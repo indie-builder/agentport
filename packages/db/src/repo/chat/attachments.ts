@@ -3,10 +3,6 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../../client.js';
 import { messages } from '../../schema.js';
 
-/**
- * 下载入口的唯一成员校验：附件 id 必须被本会话的某条消息引用。
- * JSONB containment 先缩小到候选行，再用共享 schema 校验出精确元数据。
- */
 export async function findConversationAttachment(
   db: Database,
   conversationId: string,

@@ -31,6 +31,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/pop
 import { type ListView, ViewToggle } from '../../components/view-toggle.js';
 import { can } from '../../lib/access.js';
 import { cn } from '../../lib/cn.js';
+import { onFilePick } from '../../lib/file-pick.js';
 import { formatDateTime, formatRelative, shortId } from '../../lib/format.js';
 import { errorMessage } from '../../lib/orpc.js';
 import {
@@ -499,12 +500,10 @@ export function ServersPage() {
             type="file"
             accept="application/json,.json"
             className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              // 先清空 value，同一个文件重试时才会再次触发 change。
-              event.target.value = '';
+            onChange={onFilePick((files) => {
+              const file = files[0];
               if (file) void importFile(file);
-            }}
+            })}
           />
           {canCreate && !(servers.data && all.length === 0) ? (
             <Button ref={createButtonRef} onClick={(event) => openCreate(event.currentTarget)}>

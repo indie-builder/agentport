@@ -22,11 +22,6 @@ function textField(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-/**
- * 只读展示用解析：frontmatter 只取字符串 name / description，未知字段原样保留。
- * 与 `parseMarkdownFrontmatter` 不同，这里不校验导入规则，也不使用 Buffer，可在浏览器执行。
- * 畸形 frontmatter 不吞内容：正文回退为完整原文并给出 issue。
- */
 export function readPluginMarkdown(content: string, fallbackName: string): PluginMarkdown {
   const text = stripBom(content);
   const scanned = splitFrontmatter(text);

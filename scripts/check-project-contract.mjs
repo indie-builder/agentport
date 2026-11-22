@@ -432,6 +432,101 @@ for (const file of webFiles) {
   }
 }
 
+const coreBrowserEntrypoints = [
+  'packages/core/src/workspace.ts',
+  'packages/core/src/plugin-display.ts',
+  'packages/core/src/record.ts',
+];
+for (const entry of coreBrowserEntrypoints) {
+  const code = stripComments(read(join(ROOT, entry)));
+  for (const imp of extractModuleImports(code)) {
+    if (imp.specifier.startsWith('node:')) {
+      problems.push(
+        `${entry}:${imp.line}: 浏览器可达子路径禁引 Node 内建或 Buffer（${imp.specifier}）`,
+      );
+    }
+  }
+  for (const m of code.matchAll(/\bBuffer\b/g)) {
+    problems.push(`${entry}:${lineAt(code, m.index)}: 浏览器可达子路径禁引 Node 内建或 Buffer`);
+  }
+}
+
+function stripCssComments(src) {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === "'" || ch === '"') {
+      const end = skipQuoted(src, i, ch);
+      out += src.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (ch === '/' && src[i + 1] === '*') {
+      out += '  ';
+      i += 2;
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
+        out += src[i] === '\n' ? '\n' : ' ';
+        i += 1;
+      }
+      if (i < src.length) {
+        out += '  ';
+        i += 2;
+      }
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+const stylesCode = stripCssComments(read(join(ROOT, 'packages/web/src/styles.css')));
+
+if (!stylesCode.includes('@custom-variant dark (&:where(.dark, .dark *));')) {
+  problems.push('packages/web/src/styles.css: 缺少 @custom-variant dark (&:where(.dark, .dark *));');
+}
+for (const m of stylesCode.matchAll(/\.dark(?![\w-])[^;{}]*\{/g)) {
+  problems.push(`packages/web/src/styles.css:${lineAt(stylesCode, m.index)}: 禁止定义 .dark 主题块`);
+}
+const readCssToken = (css, name) => {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = css.match(new RegExp(`${escaped}\\s*:\\s*([^;]+);`));
+  return match ? { value: match[1].trim(), line: lineAt(css, match.index) } : null;
+};
+for (const m of stylesCode.matchAll(/--color-muted\s*:\s*var\(\s*--color-muted-foreground\s*\)\s*;/g)) {
+  problems.push(
+    `packages/web/src/styles.css:${lineAt(stylesCode, m.index)}: --color-muted 不得等于 var(--color-muted-foreground)`,
+  );
+}
+const radius4xl = readCssToken(stylesCode, '--radius-4xl');
+if (!radius4xl || radius4xl.value !== 'var(--radius-tag)') {
+  problems.push(
+    `packages/web/src/styles.css:${radius4xl?.line ?? 1}: --radius-4xl 必须等于 var(--radius-tag)`,
+  );
+}
+for (const shadowVar of ['--shadow-md', '--shadow-lg']) {
+  const token = readCssToken(stylesCode, shadowVar);
+  if (!token || token.value !== 'var(--shadow-overlay)') {
+    problems.push(
+      `packages/web/src/styles.css:${token?.line ?? 1}: ${shadowVar} 必须等于 var(--shadow-overlay)`,
+    );
+  }
+}
+
+for (const file of walk(join(ROOT, 'packages/web/src'), /\.css$/)) {
+  const css = stripCssComments(read(file));
+  for (const m of css.matchAll(/[^{};]*collapsible-content[^{};]*\{/g)) {
+    const blockStart = m.index + m[0].length;
+    const blockEnd = skipBalancedBraces(css, blockStart);
+    const blockBody = css.slice(blockStart, blockEnd);
+    if (/\bcontent-visibility\s*:/.test(blockBody)) {
+      problems.push(
+        `${rel(file)}:${lineAt(css, m.index)}: 禁止在 collapsible-content 上设置 content-visibility`,
+      );
+    }
+  }
+}
+
 if (problems.length) {
   console.error(problems.join('\n'));
   process.exit(1);

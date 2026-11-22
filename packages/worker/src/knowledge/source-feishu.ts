@@ -208,7 +208,6 @@ const driveFilesSchema = z.object({
   msg: z.string().optional(),
   data: z.object({
     files: z.array(driveFileSchema),
-    // 与 wiki 一致：has_more 必须在响应里明确给出。
     has_more: z.boolean(),
     next_page_token: z.string().optional(),
   }),
@@ -225,9 +224,7 @@ const feishuSettingsSchema = z.object({
   spaceId: z.string().optional(),
   nodeToken: z.string().optional(),
   folderToken: z.string().optional(),
-  /** 由 bridge 固定：Lark 应用与飞书应用互相独立，不能换域名混用 token。 */
   region: z.enum(['feishu', 'lark']).optional(),
-  /** Lark 默认把在线文档导出为 docx/xlsx 原件；飞书保持既有 blocks 渲染。 */
   exportFiles: z.boolean().optional(),
 });
 
@@ -723,7 +720,6 @@ async function listDriveFiles(
   throw new Error('feishu drive pagination exceeded 1000 pages');
 }
 
-/** Human-facing Feishu/Lark web base for reference links (API base is a different host). */
 function wikiWebBase(apiBase: string): { wiki: string; docx: string } {
   const lark = new URL(apiBase).hostname.endsWith('larksuite.com');
   return lark

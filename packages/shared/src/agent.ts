@@ -5,7 +5,6 @@ import { utf8Bytes } from './utf8.js';
 /** 平台支持的权限模式；SDK 的 auto 依赖模型分类器，平台不开放。 */
 export const permissionModeSchema = z.enum(['default', 'acceptEdits', 'plan', 'dontAsk']);
 
-/** 内置工具列表，前端用来渲染「允许/禁止」开关。 */
 export const BUILTIN_TOOLS = [
   'Bash',
   'Read',
@@ -89,10 +88,8 @@ export const agentRoleSchema = z
   .transform((role): string => role)
   .default(AGENT_ROLES[0]);
 
-/** 推理强度；不填则用 SDK 默认。DB 存 text，写入运行配置前用它收窄。 */
 export const effortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 
-/** 助手回复的渲染格式：Markdown（默认）或生成式 UI（围栏内的 OpenUI Lang）。 */
 export const uiFormatSchema = z.enum(['markdown', 'openui']);
 
 export const agentVisibilitySchema = z.enum(['private', 'organization']);
@@ -110,7 +107,6 @@ export const displayNameSchema = z
 export const agentInputSchema = z.object({
   slug: slugSchema,
   name: displayNameSchema,
-  /** 角色/岗位的展示名（如「前端工程师」），仅用于展示与头像匹配。 */
   role: agentRoleSchema,
   description: z.string().max(300).default(''),
   model: z.string().default('claude-sonnet-5-5'),
@@ -130,23 +126,17 @@ export const agentInputSchema = z.object({
       }),
     )
     .default([]),
-  /** 可委派的子智能体（最多一层，子智能体不能再委派）。 */
   subAgentIds: z.array(z.string()).default([]),
-  /** 绑定的命名运行环境；null 表示平台默认环境。 */
   runtimeEnvironmentId: z.string().nullable().default(null),
-  /** 允许的 MCP 工具模式；留空表示「所有已绑定 server 的全部工具」。 */
   allowedTools: z.array(z.string()).default([]),
-  /** 额外禁用的工具；内置工具默认禁用，Bash 默认在沙箱容器内放行，这里是补充项。 */
   disallowedTools: z.array(z.string()).default([]),
   permissionMode: permissionModeSchema.default('default'),
-  /** 助手回复格式；openui 时系统提示词追加 OpenUI Lang 约定，前端按生成式 UI 渲染。 */
   uiFormat: uiFormatSchema.default('markdown'),
   maxTurns: z.number().int().positive().default(20),
   maxBudgetUsd: z.number().positive().default(2),
   monthlyBudgetUsd: z.number().min(0.01).nullable().default(null),
   budgetAlertRatio: z.number().min(0.001).lte(1).default(0.8),
   timeoutMs: z.number().int().positive().default(600_000),
-  /** 推理强度；不填则用 SDK 默认。 */
   effort: effortSchema.optional(),
   enabled: z.boolean().default(true),
   visibility: agentVisibilitySchema.default('private'),
@@ -161,11 +151,8 @@ export type AgentPatch = Omit<Partial<AgentInput>, 'effort'> & {
 export const agentSchema = agentInputSchema.extend({ role: z.string().default('通用助手') }).and(
   z.object({
     id: z.string(),
-    /** 创建时的业务身份；不随转交改变。 */
     createdBy: z.string(),
-    /** 当前负责人；决定 W 范围与成员管理权。 */
     ownerBusinessId: z.string(),
-    /** 单层委派：非空表示自己是某个主智能体的子智能体。 */
     parentId: z.string().nullable(),
     isDefault: z.boolean(),
     publishedVersion: z.number().nullable().optional(),
@@ -193,7 +180,6 @@ export const agentBudgetStatusSchema = z.object({
 
 export type AgentBudgetStatus = z.infer<typeof agentBudgetStatusSchema>;
 
-/** 列表摘要：只含成员可见的业务字段；其余为服务端附带的可选元数据，不作为授权依据。 */
 export const agentSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -222,7 +208,6 @@ export const agentSummarySchema = z.object({
 
 export type AgentSummary = z.infer<typeof agentSummarySchema>;
 
-/** 绑定选择器只拿摘要；不含资源配置、密钥或正文。 */
 export const agentOptionsSchema = z.object({
   servers: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string() })),
   skills: z.array(
@@ -242,13 +227,11 @@ export const agentDuplicateInputSchema = z.object({
 });
 export type AgentDuplicateInput = z.infer<typeof agentDuplicateInputSchema>;
 
-/** 技能：可复用的操作流程，渲染为 .claude/skills/<slug>/SKILL.md。 */
 export const skillInputSchema = z.object({
   slug: slugSchema,
   name: displayNameSchema,
   description: z.string().min(1).max(500),
   body: z.string().default(''),
-  /** SKILL.md frontmatter 的来源描述字段，导入/安装时原样保留。 */
   license: z.string().max(200).optional(),
   compatibility: z.string().max(200).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
@@ -261,7 +244,6 @@ export const skillStatusSchema = z.enum(['draft', 'pending', 'published', 'rejec
 export const skillSchema = skillInputSchema.and(
   z.object({
     id: z.string(),
-    /** skills.sh 来源 `owner/repo/skill`；内部自建为 null。 */
     sourceId: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
@@ -275,12 +257,10 @@ export const skillSchema = skillInputSchema.and(
 
 export type Skill = z.infer<typeof skillSchema>;
 
-/** 工作流脚本字符上限；API 保存与 core 解析器共用。 */
 export const AGENT_WORKFLOW_CONTENT_MAX = 131_072;
 const AGENT_WORKFLOW_NAME_MAX = 200;
 export const AGENT_WORKFLOW_DESCRIPTION_MAX = 2_000;
 
-/** 工作流：官方 `.claude/workflows/<slug>.js`；name/description 来自脚本内 `meta`。 */
 export const agentWorkflowInputSchema = z.object({
   slug: slugSchema,
   name: z
@@ -361,7 +341,6 @@ export interface SkillResourcePathConflict {
   conflictingPath: string;
 }
 
-/** 不解析单路径；在入口校验后检查整组路径能否与生成的 SKILL.md 一起落盘。 */
 export function findSkillResourcePathConflict(
   paths: readonly string[],
 ): SkillResourcePathConflict | undefined {
@@ -382,7 +361,6 @@ export function findSkillResourcePathConflict(
   return undefined;
 }
 
-/** 技能支持资源文件：相对技能目录的规范路径；根级 SKILL.md 留给生成的定义。 */
 export const skillFileInputSchema = z.object({
   path: z
     .string()
@@ -405,7 +383,6 @@ export const skillFileSchema = skillFileInputSchema.and(
 
 export type SkillFile = z.infer<typeof skillFileSchema>;
 
-/** 项目规则：渲染为 `.claude/rules/<slug>.md`；globs 为空表示对全部文件生效。 */
 export const ruleInputSchema = z.object({
   slug: slugSchema,
   content: z.string().max(100_000).default(''),
@@ -423,7 +400,6 @@ export const ruleSchema = ruleInputSchema.and(
 
 export type Rule = z.infer<typeof ruleSchema>;
 
-/** 自定义输出风格：`.claude/output-styles/<slug>.md`，选中者经 settings.outputStyle 激活。 */
 export const outputStyleInputSchema = z.object({
   slug: slugSchema,
   description: z.string().max(500).default(''),
@@ -443,18 +419,15 @@ export const outputStyleSchema = outputStyleInputSchema.and(
 
 export type OutputStyle = z.infer<typeof outputStyleSchema>;
 
-/** 技能列表项：附带引用它的智能体数量，用于「被 N 个智能体使用」。 */
 export const skillWithAgentCountSchema = skillSchema.and(
   z.object({ agentCount: z.number().int().nonnegative() }),
 );
 
 export type SkillWithAgentCount = z.infer<typeof skillWithAgentCountSchema>;
 
-/** skills.sh 市场榜单视图。 */
 export const marketViewSchema = z.enum(['all-time', 'trending', 'hot']);
 export type MarketView = z.infer<typeof marketViewSchema>;
 
-/** skills.sh 市场条目；id 为 `owner/repo/skill`，name 是 CLI `--skill` 匹配用的显示名。 */
 export const marketSkillSchema = z.object({
   id: z.string().min(1),
   source: z.string().min(1),
@@ -476,7 +449,6 @@ export const marketInstallInputSchema = z.object({
 
 export type MarketInstallInput = z.infer<typeof marketInstallInputSchema>;
 
-/** 工作区文件预览：前端「完整文件」视图用；字段与 renderWorkspace 输出一致。 */
 export const workspaceFilesSchema = z.object({
   mcpJson: z.string(),
   claudeMd: z.string(),
@@ -498,7 +470,6 @@ export const workspaceFilesSchema = z.object({
     .array(z.object({ path: z.string(), content: z.string(), executable: z.boolean() }))
     .default([]),
   selectedOutputStyle: z.string().nullable().default(null),
-  /** 渲染到 `.claude/plugins/<slug>/` 的插件目录树；与运行时同一份裁剪结果。 */
   plugins: z
     .array(
       z.object({

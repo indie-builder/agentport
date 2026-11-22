@@ -31,7 +31,6 @@ export interface CreateQuestionInput {
   expiresAt: Date;
 }
 
-/** runner 可能重发同一 requestId；重复创建返回已有行，不新增。 */
 export async function createQuestion(
   db: Database,
   input: CreateQuestionInput,
@@ -61,7 +60,6 @@ export async function listQuestions(db: Database, runId: string): Promise<RunQue
   return rows.map(toRunQuestion);
 }
 
-/** 把已越过时限的 pending 提问固化为 expired，让轮到下一次轮询的宿主能回写 decline。 */
 export async function expireStaleQuestions(
   db: Database,
   input: { runId: string; now?: Date },
@@ -94,11 +92,6 @@ function sameAnswers(
   );
 }
 
-/**
- * 返回要落库的答案。题键必须恰好覆盖本次问题。
- * 映射回原问题文本后必须再按 SDK stdin 的同一 schema 校验整体载荷：
- * 逐题合法不代表原问题键与全部答案合起来能通过 responseBytes。
- */
 export function buildQuestionAnswers(
   questions: NativeQuestions,
   response: Extract<PublicQuestionResponse, { answers: Record<string, string> }>,
@@ -141,10 +134,6 @@ export function buildQuestionAnswers(
   return answers;
 }
 
-/**
- * 回答入口依次锁 run 与问题行：与取消/结束、问题关闭串行，关闭不得被旧读取覆盖。
- * 已回答/已拒答时同一内容幂等返回，不同内容与已关闭一律 409；找不到提问返回 null。
- */
 export async function respondToQuestion(
   db: Database,
   runId: string,
@@ -206,7 +195,6 @@ export async function respondToQuestion(
   return result.question;
 }
 
-/** 只关闭仍 pending 的问题；已回答/已拒答的记录不可覆盖。过期项记为 expired。 */
 export async function closeQuestions(
   db: Database,
   runId: string,

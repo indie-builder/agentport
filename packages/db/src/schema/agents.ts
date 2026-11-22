@@ -177,10 +177,6 @@ export const agentPlugins = pgTable(
   ],
 );
 
-/**
- * 智能体项目规则。渲染到工作区 `.claude/rules/<slug>.md`，由 Claude Code
- * project source 随会话加载；`globs` 写入 frontmatter 的 `paths` 做路径作用域。
- */
 export const agentRules = pgTable(
   'agent_rules',
   {
@@ -200,10 +196,6 @@ export const agentRules = pgTable(
   ],
 );
 
-/**
- * 智能体自定义输出风格（官方 `.claude/output-styles/*.md`）。至多一个 isSelected，
- * 选中者写进 `.claude/settings.json` 的 `outputStyle`，由 project source 激活。
- */
 export const agentOutputStyles = pgTable(
   'agent_output_styles',
   {
@@ -225,10 +217,6 @@ export const agentOutputStyles = pgTable(
   ],
 );
 
-/**
- * 智能体工作流（官方 `.claude/workflows/<slug>.js`）。
- * content 是完整脚本，name/description 由保存时解析的 meta 填充。
- */
 export const agentWorkflows = pgTable(
   'agent_workflows',
   {

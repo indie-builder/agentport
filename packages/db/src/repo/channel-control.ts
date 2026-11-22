@@ -81,10 +81,6 @@ export async function stopRun(
   });
 }
 
-/**
- * 断开 agent lane 并取回它的活动 run。
- * 断开是频道级管理动作，只允许 owner/admin；member 只能停自己触发的 run（见 stopRun）。
- */
 export async function disconnectAgent(
   db: Database,
   businessId: string,
@@ -124,7 +120,6 @@ export async function disconnectAgent(
   });
 }
 
-/** 关闭只允许 owner；重复关闭幂等返回同一 archivedAt。 */
 export async function closeChannel(
   db: Database,
   businessId: string,

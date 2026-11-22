@@ -1,16 +1,5 @@
 import { z } from 'zod';
 
-/**
- * 错误契约（RFC 9457 Problem Details 的最小扩展）。
- *
- * 为什么不是 `{ error: string }`：客户端要能按 `code` 分支、按 `retryable`
- * 决定是否重试、按 `requestId` 关联日志。HTTP 状态码只表达类别，不表达原因。
- *
- * 哪些字段进 wire、哪些只进日志：
- * - 进 wire：code / message / status / requestId / retryable / path / resource / resourceId / hint / errors
- * - 不进 wire：堆栈、SQL、上游响应体、内部标识。500 一律换成固定文案。
- */
-
 export function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -19,10 +8,6 @@ export function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code;
 }
 
-/**
- * 稳定错误码。加新码是兼容变更；改语义或删除是破坏性变更——
- * 前端与外部 MCP 客户端都可能依赖它。
- */
 export const ERROR_META = {
   INVALID_INPUT: { status: 400, retryable: false, hint: '根据出错字段和校验明细修正请求。' },
   INVALID_URL: {
@@ -144,22 +129,16 @@ export type ErrorCode = keyof typeof ERROR_META;
 
 export const errorCodeSchema = z.enum(Object.keys(ERROR_META) as ErrorCode[]);
 
-/** wire 形状；前端 `ApiError` 与 MCP 客户端都按它解析。 */
 export const problemSchema = z.object({
   code: errorCodeSchema,
   message: z.string(),
   status: z.number().int(),
   requestId: z.string(),
   retryable: z.boolean(),
-  /** 出错字段的 JSON Pointer，例如 `/name`。只有校验类错误才有。 */
   path: z.string().optional(),
-  /** `NOT_FOUND` 的具体资源类别，例如 `agent`、`conversation`。 */
   resource: z.string().optional(),
-  /** 出错资源的标识；仅在调用方持有且适合外发时带上。 */
   resourceId: z.string().optional(),
-  /** 面向智能体/运维的排查建议（不面向终端用户）；按 code 若能给出默认值则填充。 */
   hint: z.string().optional(),
-  /** 字段级明细；批量导入等场景一次返回多条。 */
   errors: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
 });
 

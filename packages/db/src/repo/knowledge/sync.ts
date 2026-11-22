@@ -23,10 +23,6 @@ export type CreateSyncJobResult =
   | { status: 'not_active' }
   | { status: 'in_progress' };
 
-/**
- * 手动、重试与定时触发共用的一次创建事务：来源级 advisory lock + 在途检查后，
- * queued sync run 与 queued job 全有或全无；Redis add 必须等本事务提交后再做。
- */
 export async function createSyncJob(db: Database, sourceId: string): Promise<CreateSyncJobResult> {
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${sourceId}))`);

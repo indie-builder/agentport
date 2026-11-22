@@ -20,7 +20,6 @@ export async function listOutputStyles(db: Database, agentId: string): Promise<O
     .orderBy(asc(agentOutputStyles.slug));
 }
 
-/** 写入并选中指定风格；同一事务里先把该 agent 的其它风格取消选中。 */
 export async function upsertOutputStyle(
   db: DbHandle,
   agentId: string,
@@ -55,7 +54,6 @@ export async function upsertOutputStyle(
   });
 }
 
-/** 取消某个风格的选中（回到默认输出）。 */
 export async function unselectOutputStyle(
   db: DbHandle,
   agentId: string,

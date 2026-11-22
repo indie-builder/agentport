@@ -20,7 +20,6 @@ export const runListItemSchema = z.object({
   error: z.string().nullable(),
   trigger: runTriggerSchema.optional(),
   scheduleId: z.string().nullable().optional(),
-  /** 入队时的智能体配置版本（provenance；执行使用当前配置，不做快照回放）。 */
   agentVersion: z.number().nullable().optional(),
 });
 
@@ -45,10 +44,8 @@ export const runStepSchema = z.discriminatedUnion('kind', [
     name: z.string().nullable(),
     toolUseId: z.string().nullable(),
     content: z.unknown(),
-    /** 调用结果；与 content（参数）分开。 */
     result: z.unknown().optional(),
     parentToolUseId: z.string().nullable(),
-    /** 原生提问工具的最终展示快照；只有提问工具行才带。 */
     question: publicRunQuestionSchema.optional(),
   }),
 ]);
@@ -61,7 +58,6 @@ export const runDetailSchema = z.object({
     initiatedBy: z.string().nullable(),
     sessionId: z.string().nullable(),
     sandboxId: z.string().nullable(),
-    /** 容器实际使用的身份；尚未创建容器（queued）时为 null。 */
     runtimeEnvironment: resolvedRuntimeEnvironmentSchema.nullable(),
     errorKind: runErrorKindSchema.nullable().optional(),
   }),
@@ -71,7 +67,6 @@ export const runDetailSchema = z.object({
 
 export type RunDetail = z.infer<typeof runDetailSchema>;
 
-/** /api/overview 的 recent：没有 tokens 两列。 */
 export const recentRunSchema = z.object({
   id: z.string(),
   agentId: z.string(),
@@ -122,7 +117,6 @@ export type Overview = z.infer<typeof overviewSchema>;
 
 export type OverviewAgentRow = z.infer<typeof overviewSchema>['agents'][number];
 
-/** /api/overview/timeseries：按天分桶，空白天由 SQL 补 0；date 为 YYYY-MM-DD。 */
 export const overviewTimeseriesSchema = z.array(
   z.object({
     date: z.string(),
@@ -165,7 +159,6 @@ export interface EvalDatasetImportResult {
   warnings: string[];
 }
 
-/** 评估运行：worker 崩溃时把原因写进 error；前端据此说明失败原因。 */
 export const evalRunSchema = z.object({
   id: z.string(),
   agentId: z.string(),
@@ -181,7 +174,6 @@ export const evalRunSchema = z.object({
 
 export type EvalRun = z.infer<typeof evalRunSchema>;
 
-/** 列表只回摘要列；游标是当前页最后一条的 id，按 (created_at, id) 倒序翻页。 */
 export const evalRunPageSchema = z.object({
   items: z.array(evalRunSchema),
   nextCursor: z.string().nullable(),
@@ -196,7 +188,6 @@ export const evalRunListQuerySchema = z.object({
 });
 
 export const evalResultSchema = z.object({
-  // 用例或运行被清理后，结果仍保留：引用置空而不是级联删除历史。
   caseId: z.string().nullable(),
   name: z.string(),
   prompt: z.string(),

@@ -66,16 +66,14 @@ export async function writePersonalMemoryLocked(input: {
   }
 
   const saved = await input.db.transaction(async (tx) => {
-    // drizzle 的事务类型不带 $client；repo 统一接收 Database，运行时接口一致。
-    const db = tx as unknown as Database;
     const row = await repo.userPreferences.upsertWithRevision(
-      db,
+      tx,
       input.businessId,
       input.content,
       input.expectedRevision,
     );
     if (row === null) return null;
-    const change = await recordMemoryChange(db, {
+    const change = await recordMemoryChange(tx, {
       businessId: input.businessId,
       target: { kind: 'personal' },
       before: { content: before?.content ?? '', globs: null, index: null },

@@ -2,10 +2,6 @@ import { type AgentInput, agentInputSchema, effortSchema, slugSchema } from '@ag
 import { fail } from './errors.js';
 import { parseMarkdownFrontmatter, splitHeading } from './markdown-frontmatter.js';
 
-/**
- * 平台生成后缀的边界：独占行、成对、结束标记必须位于文件末尾。
- * 用户正文里的同名标记或完整示例都位于渲染器追加的开始标记之前，不参与切分。
- */
 export const GENERATED_SUFFIX_START = '<!-- agentport:generated:start -->';
 export const GENERATED_SUFFIX_END = '<!-- agentport:generated:end -->';
 
@@ -52,10 +48,6 @@ function terminalGeneratedSuffix(text: string): { start: number; end: number } |
   return null;
 }
 
-/**
- * 根智能体的显示名与系统提示都来自 CLAUDE.md；其后的生成后缀是渲染产物。
- * 只认终端有效生成区，不用普通标题或自然语言截断；手写文件整篇当提示词。
- */
 export function parseClaudeMd(content: string): { name: string; systemPrompt: string } {
   const text = content.replace(/^﻿/, '').replace(/\r\n/g, '\n');
   const firstLine = text.split('\n', 1)[0] ?? '';
@@ -80,7 +72,6 @@ interface ParsedChildAgent {
   maxTurns: number;
   effort?: NonNullable<AgentInput['effort']>;
   skills: string[];
-  /** 子定义自己的 MCP 绑定：官方 frontmatter 的 mcpServers（按名字引用根 .mcp.json）。 */
   mcpServers: string[];
   disallowedTools: string[];
   systemPrompt: string;
@@ -98,11 +89,6 @@ export const CHILD_AGENT_FRONTMATTER_KEYS: ReadonlySet<string> = new Set([
   'memory',
 ]);
 
-/**
- * 官方子智能体 memory 只接 project：平台的挂载点与定义导出契约只覆盖
- * `.claude/agent-memory/<slug>/`；user 与 local（含工作区内的 `agent-memory-local/`）
- * 未纳入这套契约，导入后无法保证可用，明确拒绝而不是静默降级。
- */
 export function assertProjectMemory(value: unknown, label: string, path: string): void {
   if (value === undefined || value === 'project') return;
   fail(
@@ -122,10 +108,6 @@ function stringList(value: unknown, field: string, path: string): string[] {
   return value as string[];
 }
 
-/**
- * `.claude/agents/<slug>.md`：frontmatter 是 SDK 读取的字段，
- * 正文由显示名、描述、系统提示与固定的等待说明组成。
- */
 export function parseChildAgentMd(content: string, path: string): ParsedChildAgent {
   const { fields, body } = parseMarkdownFrontmatter(content, '子智能体文件', path, {
     maxBytes: 200_000,
@@ -185,7 +167,6 @@ export function parseChildAgentMd(content: string, path: string): ParsedChildAge
   };
 }
 
-/** `.claude/rules/<slug>.md`：`paths` frontmatter 存 globs，其余是规则正文。 */
 export function parseRuleMd(
   content: string,
   slug: string,

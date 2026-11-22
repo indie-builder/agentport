@@ -12,11 +12,9 @@ export type AuditStatus = z.infer<typeof auditStatusSchema>;
 export const scheduleMissedPolicySchema = z.enum(['skip', 'run_once']);
 export type ScheduleMissedPolicy = z.infer<typeof scheduleMissedPolicySchema>;
 
-/** 运行来源：对话 / 外部 MCP / 定时 / 事件 / 记忆审核 / 频道。 */
 export const runTriggerSchema = z.enum(['chat', 'mcp', 'schedule', 'event', 'review', 'channel']);
 export type RunTrigger = z.infer<typeof runTriggerSchema>;
 
-/** 5 段 cron 结构校验（分 时 日 月 周，按任务时区解析）；实际可调度性由 API schema 用 BullMQ 解析。 */
 export const cronSchema = z
   .string()
   .trim()
@@ -86,10 +84,6 @@ export const scheduleRunSchema = z.object({
 
 export type ScheduleRun = z.infer<typeof scheduleRunSchema>;
 
-/**
- * 长期记忆用 Claude Code 原生 auto-memory：目录是 MEMORY.md + 主题文件。
- * 平台只做浏览/编辑，不定义新的记忆结构。
- */
 export const memoryFileSchema = z.object({
   name: z.string(),
   size: z.number(),
@@ -100,7 +94,6 @@ export type MemoryFile = z.infer<typeof memoryFileSchema>;
 
 export const memoryFileListSchema = z.object({
   files: z.array(memoryFileSchema),
-  /** 记忆目录是否已初始化（有 MEMORY.md）。 */
   initialized: z.boolean(),
 });
 
@@ -114,7 +107,6 @@ export const memoryFileContentSchema = z.object({
 
 export type MemoryFileContent = z.infer<typeof memoryFileContentSchema>;
 
-/** 需要人处理的一条：待批工具调用或失败的运行。 */
 export const attentionItemSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('approval'),
@@ -146,10 +138,6 @@ export type Attention = z.infer<typeof attentionSchema>;
 
 const DAY_MS = 86_400_000;
 
-/**
- * 统计窗口的唯一口径：最近 days 个 UTC 自然日，起点是 days-1 天前的 UTC 零点。
- * API 的 since、数据库分组和前端补天都从这里推导，避免滚动 24h 跨出 31 个日期。
- */
 export function utcWindowStart(days: number, now = new Date()): Date {
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   return new Date(today - (days - 1) * DAY_MS);
@@ -159,7 +147,6 @@ export function utcMonthStart(now = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 }
 
-/** 窗口内每个 UTC 自然日（YYYY-MM-DD），升序。 */
 export function recentUtcDays(days: number, now = new Date()): string[] {
   const start = utcWindowStart(days, now).getTime();
   return Array.from({ length: days }, (_, index) =>
@@ -186,7 +173,6 @@ export const retentionUpdateSchema = z.object({
 export type RetentionSettings = z.infer<typeof retentionSettingsSchema>;
 export type RetentionUpdate = z.infer<typeof retentionUpdateSchema>;
 
-/** 单个智能体的运行统计（/api/agents/:id/stats 与概览页共用形状）。 */
 export const agentStatsSchema = z.object({
   agentId: z.string(),
   runCount: z.number(),
@@ -199,6 +185,5 @@ export const agentStatsSchema = z.object({
   latencyP50: z.number().nullable(),
   latencyP99: z.number().nullable(),
   lastRunStartTime: z.string().nullable(),
-  /** 按天统计的运行量，供活跃度热力图使用。 */
   daily: z.array(z.object({ day: z.string(), runs: z.number(), cost: z.number() })),
 });

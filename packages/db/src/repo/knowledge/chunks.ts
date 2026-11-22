@@ -75,7 +75,6 @@ export async function insertChunks(
   return inserted;
 }
 
-/** 仅重建未发布草稿；与发布共用文档锁，取消或任一批写入失败时保留原分块。 */
 export async function replaceChunks(
   db: Database,
   input: Parameters<typeof insertChunks>[1] & {
@@ -388,7 +387,6 @@ export async function listImageAssets(
   };
 }
 
-/** 人工编辑总数取整版聚合，不能靠分页首页推断（>200 条时会漏）。 */
 export async function countEditedChunks(db: DbHandle, versionId: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -463,10 +461,6 @@ export interface EditDocumentChunksInput {
   documentId: string;
   expectedVersionId: string;
   mutation: DocumentChunkMutation;
-  /**
-   * API 已按该 ID 把正文文件写完整，再交给事务 INSERT/COW/切指针；
-   * 仓储不生成 ID，避免指针先于文件存在。
-   */
   preparedVersion: Omit<CreateVersionInput, 'documentId' | 'origin' | 'parentVersionId'> & {
     id: string;
   };
@@ -527,10 +521,6 @@ function manualChangeMetadata(
   return { ...metadata, manualChanges: changes };
 }
 
-/**
- * 人工新增/修改/删除分块：事务内克隆当前版全部 chunks 成新版本并切指针。
- * 旧版本内容保持不可变；纯 enabled 修改保留原定位，正文/标题修改清空原件定位。
- */
 export async function editDocumentChunks(
   db: Database,
   input: EditDocumentChunksInput,

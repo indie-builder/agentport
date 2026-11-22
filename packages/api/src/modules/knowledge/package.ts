@@ -49,12 +49,6 @@ import {
 import { storeBlob as storeDocumentBlob, supportsImageVectors } from './service.js';
 import { CHUNK_OVERLAP_INVALID_MESSAGE } from './use-cases/shared.js';
 
-/**
- * 知识库数据包（`pace/knowledge@1`）：ZIP 根 manifest.json 记录库元数据、文件夹、标签、
- * 文档版本、无版本的待处理原件、人工 chunk、Wiki 版本与引用，以及每个文件的 sha256。
- * 不含向量、密钥、同步游标与任务记录；导入只读文件与 JSON，不执行包内任何内容。
- */
-
 type Db = Database;
 
 const KNOWLEDGE_PACKAGE_FORMAT = 'pace/knowledge@1';
@@ -126,19 +120,13 @@ const versionSchema = z.object({
       sha256: sha256Schema,
       mimeType: z.string().min(1).max(255),
       page: z.number().int(),
-      /** 单个动作失败/向量降级；旧包没有该字段时按空数组读取。 */
       warnings: z.array(z.string().max(500)).default([]),
-      /** 包内路径，必须是同名版本 `documents/<文档>/<版本>/images/<name>`。 */
       path: z.string(),
     }),
   ),
   chunks: z.array(chunkSchema),
 });
 
-/**
- * 还没有版本的用户输入（manual 任务排队/失败）：只保存原件与待处理状态，
- * 不伪造解析正文、chunk 或 ready 版本。
- */
 const pendingInputSchema = z.object({
   originalPath: z.string(),
   originalFilename: z.string().min(1).max(255),
@@ -182,7 +170,6 @@ const wikiPageSchema = z.object({
       version: z.number().int().positive(),
       markdown: z.string(),
       sourceChunkIds: z.array(z.string().min(1)),
-      /** 导出时已不存在的历史引用：包内没有对应 chunk，身份原样保留但明确标记失效。 */
       unresolvedSourceChunkIds: z.array(z.string().min(1)).default([]),
       model: z.string().min(1).max(200),
       generatedBy: knowledgeWikiGeneratedBySchema,
@@ -211,13 +198,11 @@ const manifestSchema = z.object({
       settings: knowledgeBaseSettingsSchema,
       embeddingProfileName: z.string().min(1).max(120),
       rerankProfileName: z.string().min(1).max(120).nullable(),
-      /** 导入端据此判断本机 profile 是否具备导出时的图片能力。 */
       embeddingProfile: z.object({
         model: z.string().min(1).max(200),
         embeddingProtocol: knowledgeEmbeddingProtocolSchema,
         imageInputEnabled: z.boolean(),
       }),
-      /** 音频转录绑定只含可移植身份；endpoint/key/profileId 一律不出包。 */
       asrProfileName: z.string().min(1).max(120).nullable().default(null),
       asrProfile: z
         .object({
@@ -266,10 +251,6 @@ function assertEntryPath(path: string): void {
   if (path.endsWith('/')) invalid(PACKAGE_PATH_SEGMENT_MESSAGE, path);
 }
 
-/**
- * 用专家包同一套中央目录/EOCD 校验和 Node 原生 inflate 上限解压：
- * 声明大小低报时会抛错，而不是返回被截断的内容。
- */
 function readZip(data: Buffer): Map<string, Buffer> {
   if (data.length === 0) invalid('知识包是空的');
   if (data.length > KNOWLEDGE_PACKAGE_MAX_BYTES) {

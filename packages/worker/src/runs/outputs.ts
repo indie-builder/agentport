@@ -76,14 +76,10 @@ export function outputPublishProblem(input: {
 interface PublishRunOutputsInput {
   status: TerminalRunStatus;
   userMessageId: string;
-  /** 本轮最后一条真实消息；只有工具调用的轮次也要取到，不能依赖助手文本。 */
   afterMessageId: string | (() => Promise<string>);
-  /** 生产 worker 显式传入消息事务结果；内部独立发布调用可直接提供已保存边界。 */
   messagesWritten?: boolean;
   messageSaveError?: string;
-  /** 本轮还会被 BullMQ 重试：草稿留着给下一次尝试。 */
   retrying: boolean;
-  /** runner-client 的容器清理失败；容器可能还在写文件。 */
   cleanupError?: string;
 }
 

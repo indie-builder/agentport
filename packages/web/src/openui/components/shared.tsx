@@ -10,10 +10,6 @@ import {
 } from '../../components/ui/carousel.js';
 import { cn } from '../../lib/cn.js';
 
-/**
- * 组件渲染上下文的最小契约：与 `@openuidev/react-lang` 的 ComponentRenderProps 一致，
- * 这里再声明一份只是为了避免每个组件都从库里引类型。
- */
 export interface RenderProps<P> {
   props: P;
   renderNode: (value: unknown) => ReactNode;
