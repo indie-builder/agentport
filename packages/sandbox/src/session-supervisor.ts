@@ -1,7 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
-import { setTimeout as delay } from 'node:timers/promises';
 import {
   chatEventSchema,
   type ExecutionSettlement,
@@ -357,7 +356,7 @@ class Supervisor {
 
   private async finalize(run: ActiveRun, failStart: (error: string) => void): Promise<void> {
     const exit = await run.rootExit;
-    await Promise.race([run.startDecision, delay(START_DECISION_MS)]);
+    await Promise.race([run.startDecision, Bun.sleep(START_DECISION_MS)]);
     failStart(run.startError ?? 'runner exited before accepting the task');
     if (!run.started) {
       run.outputReader?.close();
@@ -376,7 +375,7 @@ class Supervisor {
     let settlement = await settleRun(run.proc.pid, this.graceMs, exit);
     const drained = await Promise.race([
       run.pumpDone.then(() => true),
-      delay(this.graceMs).then(() => false),
+      Bun.sleep(this.graceMs).then(() => false),
     ]);
     if (!drained) {
       run.outputReader?.close();
@@ -476,7 +475,7 @@ class Supervisor {
       try {
         run.proc.kill('SIGTERM');
       } catch {}
-      await Promise.race([run.rootExit, delay(this.graceMs)]);
+      await Promise.race([run.rootExit, Bun.sleep(this.graceMs)]);
       if (!run.exited) signalGroup(run.proc.pid, 'SIGKILL');
       await run.rootExit;
     }
@@ -547,7 +546,7 @@ async function settleRun(
     signalStop(rootPid, live, 'SIGTERM');
     const deadline = Date.now() + graceMs;
     while (Date.now() < deadline) {
-      await delay(POLL_MS);
+      await Bun.sleep(POLL_MS);
       live = liveProcesses(rootPid);
       if (live.length === 0) break;
     }

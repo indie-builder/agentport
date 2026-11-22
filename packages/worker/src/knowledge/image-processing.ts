@@ -1,5 +1,4 @@
 import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fail } from '@agentport/core';
 import {
@@ -21,6 +20,8 @@ import {
   ONE_SHOT_NO_RESULT_MESSAGE,
   runOneShotSdkQuery,
 } from '../one-shot-sdk.js';
+
+const tmpdir = () => (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
 
 type ImageDescription = {
   ocr: string | null;

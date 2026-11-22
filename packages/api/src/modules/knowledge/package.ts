@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import {
   fail,
   inspectKnowledgeAudio,
@@ -290,7 +290,10 @@ export function assertPackageCapacity(
   }
 }
 
-function verifiedFiles(files: Map<string, Buffer>, manifest: Manifest): Map<string, Buffer> {
+function verifiedFiles(
+  files: Map<string, Uint8Array>,
+  manifest: Manifest,
+): Map<string, Uint8Array> {
   const listed = new Map<string, { sha256: string; size: number }>();
   for (const file of manifest.files) {
     assertEntryPath(file.path);
@@ -305,7 +308,7 @@ function verifiedFiles(files: Map<string, Buffer>, manifest: Manifest): Map<stri
     if (entry.size !== data.length) invalid(`「${path}」大小与 manifest 不符`, path);
     if (entry.sha256 !== sha256Hex(data)) invalid(`「${path}」内容与 sha256 不符`, path);
   }
-  const verified = new Map<string, Buffer>();
+  const verified = new Map<string, Uint8Array>();
   for (const path of listed.keys()) {
     const data = files.get(path);
     if (data === undefined) invalid(`知识包缺少文件「${path}」`, path);
@@ -316,7 +319,7 @@ function verifiedFiles(files: Map<string, Buffer>, manifest: Manifest): Map<stri
 
 async function validateAudioPackage(
   manifest: Manifest,
-  contents: Map<string, Buffer>,
+  contents: Map<string, Uint8Array>,
   mode: 'export' | 'import',
 ): Promise<void> {
   const problem = (message: string, path: string): never => {
@@ -324,7 +327,7 @@ async function validateAudioPackage(
     invalid(message, path);
   };
   const checkOriginal = async (
-    data: Buffer,
+    data: Uint8Array,
     filename: string,
     mimeType: string,
     path: string,
@@ -362,10 +365,12 @@ async function validateAudioPackage(
         );
       }
       if (parsed.data.segments.length === 0) continue;
+      const markdownBytes =
+        version.markdownPath === null ? undefined : contents.get(version.markdownPath);
       const markdown =
-        version.markdownPath === null
+        markdownBytes === undefined
           ? null
-          : (contents.get(version.markdownPath)?.toString('utf8') ?? null);
+          : new TextDecoder('utf-8', { ignoreBOM: true }).decode(markdownBytes);
       if (markdown === null) {
         return problem(`版本「${version.id}」有时码段但缺少解析正文`, version.originalPath);
       }
@@ -521,9 +526,9 @@ export async function exportKnowledgePackage(
     fail('CONFLICT', `Wiki 页面数量超过 ${MAX_WIKI_PAGES} 个，请拆分知识库后重试`);
   }
 
-  const entries: Record<string, Buffer> = {};
+  const entries: Record<string, Uint8Array> = {};
   const files: Manifest['files'] = [];
-  const addFile = (path: string, data: Buffer) => {
+  const addFile = (path: string, data: Uint8Array) => {
     entries[path] = data;
     files.push({ path, sha256: sha256Hex(data), size: data.length });
   };
@@ -544,9 +549,9 @@ export async function exportKnowledgePackage(
       if (!blobSha256) {
         fail('CONFLICT', `文档「${document.title}」没有待处理的原件，无法导出`);
       }
-      const original = await readFile(knowledgeBlobPath(knowledgeDir, blobSha256)).catch(
-        () => null,
-      );
+      const original = await Bun.file(knowledgeBlobPath(knowledgeDir, blobSha256))
+        .bytes()
+        .catch(() => null);
       if (!original) {
         fail('CONFLICT', `文档「${document.title}」的待处理原件缺失，无法导出`);
       }
@@ -599,9 +604,9 @@ export async function exportKnowledgePackage(
     }
     const versionPackages: DocumentPackage['versions'] = [];
     for (const version of versions) {
-      const original = await readFile(knowledgeBlobPath(knowledgeDir, version.blobSha256)).catch(
-        () => null,
-      );
+      const original = await Bun.file(knowledgeBlobPath(knowledgeDir, version.blobSha256))
+        .bytes()
+        .catch(() => null);
       if (!original) {
         fail(
           'CONFLICT',
@@ -644,9 +649,11 @@ export async function exportKnowledgePackage(
           fail('CONFLICT', `文档「${document.title}」的图片「${image.name}」重复，无法导出`);
         }
         imageNames.add(image.name);
-        const data = await readFile(
+        const data = await Bun.file(
           knowledgeVersionImagePath(knowledgeDir, document.id, version.id, image.name),
-        ).catch(() => null);
+        )
+          .bytes()
+          .catch(() => null);
         if (!data) {
           fail(
             'CONFLICT',
@@ -1303,14 +1310,18 @@ function folderPath(folder: Manifest['folders'][number], manifest: Manifest): st
   return `/${segments.join('/')}`;
 }
 
-async function storeBlob(knowledgeDir: string, expectedSha: string, data: Buffer): Promise<void> {
+async function storeBlob(
+  knowledgeDir: string,
+  expectedSha: string,
+  data: Uint8Array,
+): Promise<void> {
   if (sha256Hex(data) !== expectedSha) invalid('原件内容与 manifest 的 sha256 不符');
   const target = knowledgeBlobPath(knowledgeDir, expectedSha);
   if (await stat(target).catch(() => null)) return;
   await storeDocumentBlob(knowledgeDir, data);
 }
 
-function validateReferences(manifest: Manifest, contents: Map<string, Buffer>): void {
+function validateReferences(manifest: Manifest, contents: Map<string, Uint8Array>): void {
   const folderIds = new Set<string>();
   for (const folder of manifest.folders) {
     if (folderIds.has(folder.id)) invalid(`文件夹「${folder.name}」ID 重复`);

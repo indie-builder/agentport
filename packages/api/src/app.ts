@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module';
 import { createServiceLogger, logEvent, requestScopedLogger } from '@agentport/core/logger';
 import { createDb } from '@agentport/db';
 import { Hono } from 'hono';
@@ -16,7 +15,9 @@ import { closeScheduleQueue, configureScheduleLogger } from './queue/schedule.js
 import { registerRoutes } from './routes/index.js';
 import type { AppRuntime } from './types.js';
 
-const { version }: { version: string } = createRequire(import.meta.url)('../../../package.json');
+const { version }: { version: string } = await Bun.file(
+  new URL('../../../package.json', import.meta.url),
+).json();
 
 export async function buildApp(
   config: Config,

@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module';
 import { ERROR_META, problemSchema } from '@agentport/shared';
 import type { AnyContractRouter, OpenAPI } from '@orpc/contract';
 import {
@@ -15,7 +14,9 @@ import { access } from '../http/middleware.js';
 import { nativeOpenAPISchemas } from '../http/native-openapi.js';
 import { AUTH_COOKIE } from '../modules/auth/types.js';
 
-const { version }: { version: string } = createRequire(import.meta.url)('../../../../package.json');
+const { version }: { version: string } = await Bun.file(
+  new URL('../../../../package.json', import.meta.url),
+).json();
 
 const DOCS_CSP = [
   "default-src 'self'",

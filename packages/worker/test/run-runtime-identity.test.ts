@@ -32,12 +32,10 @@ const mocks = (() => ({
   checkAccess: mock(),
 }))();
 
-mock.module('node:readline', () => ({
-  createInterface: () => ({
+mock.module('../../sandbox/src/stdin-lines.js', () => ({
+  createStdinLines: () => ({
+    next: async () => mocks.stdinLines.shift() ?? null,
     close() {},
-    async *[Symbol.asyncIterator]() {
-      yield* mocks.stdinLines;
-    },
   }),
 }));
 

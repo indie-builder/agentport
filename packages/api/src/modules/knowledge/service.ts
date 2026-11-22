@@ -122,7 +122,7 @@ export async function ensureKnowledgeServer(
   return row;
 }
 
-export async function storeBlob(knowledgeDir: string, data: Buffer): Promise<string> {
+export async function storeBlob(knowledgeDir: string, data: Uint8Array): Promise<string> {
   const sha = sha256Hex(data);
   await writeKnowledgeBlob(knowledgeDir, sha, data);
   return sha;

@@ -1,5 +1,4 @@
 import { join } from 'node:path';
-import { setTimeout as sleep } from 'node:timers/promises';
 import {
   httpServerSchema,
   MCP_APPROVAL_WAIT_MS,
@@ -133,8 +132,21 @@ export function createApprovalHook(
       if (Date.now() >= expiresAt) return decision('deny', '工具审批已过期，调用未执行。');
       if (!signal.aborted && transportFailures >= 3)
         return decision('deny', '工具审批服务不可达，调用未执行。');
-      await sleep(Math.min(delay, Math.max(0, expiresAt - Date.now())), undefined, {
-        signal,
+      await new Promise<void>((resolve, reject) => {
+        const abortError = () => new DOMException('Aborted', 'AbortError');
+        if (signal.aborted) {
+          reject(abortError());
+          return;
+        }
+        const onAbort = (): void => {
+          signal.removeEventListener('abort', onAbort);
+          reject(abortError());
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        void Bun.sleep(Math.min(delay, Math.max(0, expiresAt - Date.now()))).then(() => {
+          signal.removeEventListener('abort', onAbort);
+          resolve();
+        });
       }).catch(() => undefined);
     }
     return decision('deny', '工具审批等待已取消或超时，调用未执行。');

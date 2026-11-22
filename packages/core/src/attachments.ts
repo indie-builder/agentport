@@ -256,7 +256,7 @@ async function prepareDirectory(input: ConversationInputsIdentity, label: string
 
 async function writeFiles(
   dir: string,
-  files: ReadonlyArray<{ name: string; data: Buffer }>,
+  files: ReadonlyArray<{ name: string; data: Uint8Array }>,
 ): Promise<void> {
   const written: string[] = [];
   const temps: string[] = [];
@@ -409,7 +409,7 @@ export async function copyConversationInputs(input: CopyConversationInputsInput)
     if (dot > 0) byId.set(entry.name.slice(0, dot), entry.name);
   }
 
-  const files: Array<{ name: string; data: Buffer }> = [];
+  const files: Array<{ name: string; data: Uint8Array }> = [];
   for (const id of ids) {
     const name = byId.get(id);
     if (name === undefined) {
@@ -423,7 +423,7 @@ export async function copyConversationInputs(input: CopyConversationInputsInput)
     if (info.nlink !== 1) {
       fail('INVALID_INPUT', '附件文件不允许硬链接', { path: '/attachmentIds' });
     }
-    files.push({ name, data: await readFile(full) });
+    files.push({ name, data: await Bun.file(full).bytes() });
   }
 
   const target: ConversationInputsIdentity = {

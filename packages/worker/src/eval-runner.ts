@@ -1,5 +1,4 @@
 import { mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DbError, runProgram } from '@agentport/core';
 import { logEvent } from '@agentport/core/logger';
@@ -28,6 +27,8 @@ import { checkRunPromptPolicy } from './content-policy.js';
 import { MESSAGES_NOT_SAVED_ERROR, MESSAGES_NOT_SAVED_MARKER } from './messages.js';
 import { hermeticQueryOptions, runOneShotSdkQuery } from './one-shot-sdk.js';
 import { loadUserAgentAccess } from './runs/run-access.js';
+
+const tmpdir = () => (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
 
 const evalRepo = repo.evalRepo;
 const chatRepo = repo.chat;

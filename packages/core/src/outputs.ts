@@ -144,7 +144,7 @@ function baseFileOf(conversationRoot: string, runId: string): string {
   return join(conversationRoot, DRAFTS, `${runId}.base`);
 }
 
-export function sha256Hex(data: Buffer | string): string {
+export function sha256Hex(data: Uint8Array | string): string {
   return new Bun.CryptoHasher('sha256').update(data).digest('hex');
 }
 
@@ -187,13 +187,15 @@ async function loadManifest(
     fail('INVALID_INPUT', '产出文件不是普通文件', { path: `/${MANIFEST}` });
   }
   if (info.nlink !== 1) fail('INVALID_INPUT', '产出文件不允许硬链接', { path: `/${MANIFEST}` });
-  const raw = (
-    await readFile(full).catch((error: unknown) => {
-      if (hasErrorCode(error, 'ENOENT'))
-        fail('NOT_FOUND', '产出文件不存在', { path: `/${MANIFEST}` });
-      throw error;
-    })
-  ).toString('utf8');
+  const raw = new TextDecoder('utf-8', { ignoreBOM: true }).decode(
+    await Bun.file(full)
+      .bytes()
+      .catch((error: unknown) => {
+        if (hasErrorCode(error, 'ENOENT'))
+          fail('NOT_FOUND', '产出文件不存在', { path: `/${MANIFEST}` });
+        throw error;
+      }),
+  );
   let json: unknown;
   try {
     json = JSON.parse(raw);

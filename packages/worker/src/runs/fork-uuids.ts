@@ -1,7 +1,5 @@
-import { createReadStream } from 'node:fs';
 import { lstat, opendir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createInterface } from 'node:readline';
 import { fail } from '@agentport/core';
 import { hasErrorCode } from '@agentport/shared';
 
@@ -21,34 +19,47 @@ export async function readForkUuidMap(
     fail('INVALID_INPUT', 'fork 转写文件不是普通文件');
   if (info.size > FORK_TRANSCRIPT_MAX_BYTES) fail('INVALID_INPUT', 'fork 转写文件超过上限');
   const map: Array<{ from: string; to: string }> = [];
-  const stream = createReadStream(file, { end: FORK_TRANSCRIPT_MAX_BYTES });
-  const rl = createInterface({
-    input: stream,
-    crlfDelay: Infinity,
-  });
-  try {
-    for await (const line of rl) {
-      let entry: unknown;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (typeof entry !== 'object' || entry === null) continue;
-      const { uuid, forkedFrom } = entry as { uuid?: unknown; forkedFrom?: unknown };
-      if (typeof uuid !== 'string' || typeof forkedFrom !== 'object' || forkedFrom === null) {
-        continue;
-      }
-      const from = (forkedFrom as { messageUuid?: unknown }).messageUuid;
-      if (typeof from === 'string' && wanted.has(from) && from !== uuid)
-        map.push({ from, to: uuid });
-      if (map.length > FORK_TRANSCRIPT_MAX_ENTRIES)
-        fail('INVALID_INPUT', 'fork 转写映射条数超过上限');
+  const handleLine = (line: string) => {
+    let entry: unknown;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      return;
     }
+    if (typeof entry !== 'object' || entry === null) return;
+    const { uuid, forkedFrom } = entry as { uuid?: unknown; forkedFrom?: unknown };
+    if (typeof uuid !== 'string' || typeof forkedFrom !== 'object' || forkedFrom === null) {
+      return;
+    }
+    const from = (forkedFrom as { messageUuid?: unknown }).messageUuid;
+    if (typeof from === 'string' && wanted.has(from) && from !== uuid) map.push({ from, to: uuid });
+    if (map.length > FORK_TRANSCRIPT_MAX_ENTRIES)
+      fail('INVALID_INPUT', 'fork 转写映射条数超过上限');
+  };
+  const reader = Bun.file(file).stream().getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let pending = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > FORK_TRANSCRIPT_MAX_BYTES) fail('INVALID_INPUT', 'fork 转写文件超过上限');
+      pending += decoder.decode(value, { stream: true });
+      let index = pending.indexOf('\n');
+      while (index !== -1) {
+        handleLine(pending.slice(0, index).replace(/\r$/, ''));
+        pending = pending.slice(index + 1);
+        index = pending.indexOf('\n');
+      }
+    }
+    pending += decoder.decode();
+    if (pending !== '') handleLine(pending.replace(/\r$/, ''));
   } finally {
-    rl.close();
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
-  if (stream.bytesRead > FORK_TRANSCRIPT_MAX_BYTES) fail('INVALID_INPUT', 'fork 转写文件超过上限');
   return map;
 }
 
