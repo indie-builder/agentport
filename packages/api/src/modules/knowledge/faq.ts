@@ -7,6 +7,7 @@ import type {
   KnowledgeFaqTransferEntry,
   knowledgeFaqInputSchema,
 } from '@agentport/shared';
+import { FAQ_ANSWER_REQUIRED_MESSAGE } from '@agentport/shared';
 import { parse as parseCsv } from 'csv-parse/sync';
 import type { Workbook as ExcelWorkbook } from 'exceljs';
 import ExcelJS from 'exceljs';
@@ -196,7 +197,7 @@ export function normalizeFaqEntry(input: unknown): {
     arrays[field] = parsed.map((value) => value.trim()).filter((value) => value.length > 0);
   }
   if (arrays.answers.length === 0) {
-    issues.push(issue('answers', 'ANSWER_REQUIRED', '至少需要一条非空答案'));
+    issues.push(issue('answers', 'ANSWER_REQUIRED', FAQ_ANSWER_REQUIRED_MESSAGE));
   }
 
   const strategyRaw = raw.answerStrategy;
@@ -290,7 +291,7 @@ export function normalizeFaqEntry(input: unknown): {
     answers.push(value);
   }
   if (answers.length === 0 && !issues.some((entry) => entry.field === 'answers')) {
-    issues.push(issue('answers', 'ANSWER_REQUIRED', '至少需要一条非空答案'));
+    issues.push(issue('answers', 'ANSWER_REQUIRED', FAQ_ANSWER_REQUIRED_MESSAGE));
   }
 
   if (
