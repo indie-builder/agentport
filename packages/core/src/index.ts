@@ -83,7 +83,11 @@ export {
 export { visibleDocumentSummary } from './knowledge-summary.js';
 export { parseMcpJson } from './mcp-json.js';
 export { hashMcpToken, WORKSPACE_DIR_MODE, WORKSPACE_FILE_MODE } from './mcp-token.js';
-export { type ReviewWindow, selectReviewWindow } from './memory-review-window.js';
+export {
+  type ReviewWindow,
+  reviewAnchorMissingMessage,
+  selectReviewWindow,
+} from './memory-review-window.js';
 export {
   parseChildAgentMd,
   parseClaudeMd,

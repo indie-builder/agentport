@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { hashMcpToken, selectReviewWindow } from '@agentport/core';
+import { hashMcpToken, reviewAnchorMissingMessage, selectReviewWindow } from '@agentport/core';
 import { logEvent } from '@agentport/core/logger';
 import { type Database, repo, schema } from '@agentport/db';
 import {
@@ -76,9 +76,7 @@ async function loadSnapshot(
     }));
     const window = selectReviewWindow(messages, source);
     if (window.kind === 'missing') {
-      throw new Error(
-        `${window.anchor === 'from' ? '审核起点消息不在会话中' : '审核终点消息不在会话中'}: ${window.messageId}`,
-      );
+      throw new Error(`${reviewAnchorMissingMessage(window.anchor)}: ${window.messageId}`);
     }
     snapshot.push(...window.messages);
   }

@@ -4,6 +4,7 @@ import {
   fail,
   isAppError,
   notFound,
+  reviewAnchorMissingMessage,
   selectReviewWindow,
   sha256Hex,
 } from '@agentport/core';
@@ -78,10 +79,7 @@ async function messagesInSource(
   }));
   const window = selectReviewWindow(messages, source);
   if (window.kind === 'missing') {
-    fail(
-      'INVALID_INPUT',
-      window.anchor === 'from' ? '审核起点消息不在会话中' : '审核终点消息不在会话中',
-    );
+    fail('INVALID_INPUT', reviewAnchorMissingMessage(window.anchor));
   }
   if (window.from > window.through) fail('INVALID_INPUT', '审核起止消息顺序颠倒');
   return window.messages;
