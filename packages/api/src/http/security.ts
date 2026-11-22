@@ -7,6 +7,7 @@ import { secureHeaders } from 'hono/secure-headers';
 import { RedisStore, rateLimiter } from 'hono-rate-limiter';
 import { getTrustedOrigins, isTrustedOrigin } from '../config.js';
 import type { AppContext, HttpContext, HttpEnv } from './context.js';
+import { SERVICE_UNAVAILABLE_MESSAGE } from './errors.js';
 
 export function createSecurity(context: AppContext) {
   const disabled = process.env.RATE_LIMIT_DISABLED === '1';
@@ -53,7 +54,7 @@ export function createSecurity(context: AppContext) {
       await limiter(c, async () => undefined);
     } catch (error) {
       if (error instanceof AppError) throw error;
-      throw new AppError('SERVICE_UNAVAILABLE', '服务暂时不可用，请稍后重试', {
+      throw new AppError('SERVICE_UNAVAILABLE', SERVICE_UNAVAILABLE_MESSAGE, {
         cause: error,
         retryable: true,
       });
