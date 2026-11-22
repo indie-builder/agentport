@@ -1,5 +1,5 @@
 import { authContract } from '@agentport/contract/auth';
-import { AppError } from '@agentport/core';
+import { ACCOUNT_NOT_FOUND_MESSAGE, AppError } from '@agentport/core';
 import { repo } from '@agentport/db';
 import { ACCESS_SCOPES, PERMISSIONS } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -43,7 +43,7 @@ export const accountRouter = {
       input.params.businessId,
       input.body.status,
     );
-    if (!account) throw new AppError('NOT_FOUND', '账户不存在');
+    if (!account) throw new AppError('NOT_FOUND', ACCOUNT_NOT_FOUND_MESSAGE);
     return account;
   }),
   update: os.accounts.update.handler(async ({ input, context }) => {
@@ -51,7 +51,7 @@ export const accountRouter = {
       ...(input.body.username === undefined ? {} : { username: input.body.username }),
       ...(input.body.name === undefined ? {} : { name: input.body.name }),
     });
-    if (!account) throw new AppError('NOT_FOUND', '账户不存在');
+    if (!account) throw new AppError('NOT_FOUND', ACCOUNT_NOT_FOUND_MESSAGE);
     return account;
   }),
   password: os.accounts.password.handler(async ({ input, context }) => {
@@ -60,12 +60,12 @@ export const accountRouter = {
       input.params.businessId,
       await hashPassword(input.body.password),
     );
-    if (!ok) throw new AppError('NOT_FOUND', '账户不存在');
+    if (!ok) throw new AppError('NOT_FOUND', ACCOUNT_NOT_FOUND_MESSAGE);
     return { ok: true };
   }),
   delete: os.accounts.delete.handler(async ({ input, context }) => {
     if (!(await repo.accounts.deleteAccount(context.db, input.params.businessId)))
-      throw new AppError('NOT_FOUND', '账户不存在');
+      throw new AppError('NOT_FOUND', ACCOUNT_NOT_FOUND_MESSAGE);
     return { ok: true };
   }),
   roles: os.accounts.roles.handler(async ({ input, context }) => {

@@ -1,5 +1,10 @@
 import { channelsContract } from '@agentport/contract/channels';
-import { fail, removeChannelInputs, writeChannelAttachments } from '@agentport/core';
+import {
+  ACCOUNT_NOT_FOUND_MESSAGE,
+  fail,
+  removeChannelInputs,
+  writeChannelAttachments,
+} from '@agentport/core';
 import { idSuffix, newId, repo } from '@agentport/db';
 import {
   CHANNEL_MAX_WAKE_AGENTS,
@@ -230,7 +235,7 @@ const channelsMainRouter = {
     );
     switch (result.kind) {
       case 'not_found':
-        return result.target === 'account' ? notFound('账户不存在') : notFound();
+        return result.target === 'account' ? notFound(ACCOUNT_NOT_FOUND_MESSAGE) : notFound();
       case 'forbidden':
         if (result.reason === 'account_disabled') return conflict('账户已停用');
         if (result.reason === 'owner_only') return forbidden('仅频道 owner 可以授予 owner');
