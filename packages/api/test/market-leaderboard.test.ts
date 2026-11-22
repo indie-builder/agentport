@@ -23,8 +23,8 @@ const fixture = `<!doctype html><html><body>
 </body></html>`;
 
 describe('parseLeaderboard', () => {
-  it('extracts skills in page order with parsed install counts', () => {
-    expect(parseLeaderboard(fixture)).toEqual([
+  it('extracts skills in page order with parsed install counts', async () => {
+    expect(await parseLeaderboard(fixture)).toEqual([
       {
         id: 'vercel-labs/skills/find-skills',
         source: 'vercel-labs/skills',
@@ -42,9 +42,9 @@ describe('parseLeaderboard', () => {
     ]);
   });
 
-  it('drops duplicate ids and rows without a parseable install count', () => {
+  it('drops duplicate ids and rows without a parseable install count', async () => {
     const html = `${row(1, 'a', 'b', 'c', '1,234')}${row(2, 'a', 'b', 'c', '99')}${row(3, 'x', 'y', 'z', '?')}`;
-    expect(parseLeaderboard(html)).toEqual([
+    expect(await parseLeaderboard(html)).toEqual([
       { id: 'a/b/c', source: 'a/b', slug: 'c', name: 'c', installs: 1_234 },
     ]);
   });
