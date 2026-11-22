@@ -17,12 +17,10 @@ interface SessionCleanupChannelOptions {
   redisUrl: string;
   logger: Logger;
   sessions: Pick<SessionSandboxes, 'closeIdle'>;
-  /** 默认是部署内唯一信道；测试用独立后缀隔离共享 Redis 上的并行进程。 */
   requestChannel?: string;
 }
 
 export interface SessionCleanupChannel {
-  /** 停止接收新请求并有界等待在途关闭；超时则 reject，连接始终释放。 */
   close(timeoutMs?: number): Promise<void>;
 }
 

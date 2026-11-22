@@ -22,7 +22,6 @@ const QUEUED_STALE_MS = 2 * RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS;
 export const RUNTIME_ENVIRONMENT_BUILD_LOST_ERROR =
   'runtime environment build worker lost track of this build';
 
-/** 对账只读这些列；字段名与 DB 行保持一致。 */
 export interface RuntimeEnvironmentBuildPending {
   id: string;
   status: 'queued' | 'building';

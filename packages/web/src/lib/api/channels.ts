@@ -22,7 +22,6 @@ type ChannelMessageInput = z.input<typeof channelMessageInputSchema>;
 
 export type ChannelHandoffInput = z.input<typeof channelHandoffInputSchema>;
 
-/** 频道活动 run：只有 queued/running；状态来自 DB，不是 SSE 快照。 */
 export type ChannelActiveRun = ApiOutput<ApiClient['channels']['activeRuns']>['items'][number];
 
 export type ChannelApproval = ApiOutput<ApiClient['channels']['approve']>;

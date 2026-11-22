@@ -28,28 +28,15 @@ import { SandboxCleanupError } from './provider.js';
 export interface SessionSandboxSpec {
   agentId: string;
   conversationId: string;
-  /** null 表示平台默认环境；只在新建容器时解析线上版本。 */
   runtimeEnvironmentId: string | null;
   runtimeEnvironmentVersionId?: string | null;
-  /** 以下目录都是宿主 daemon 视角的绝对路径。 */
   workspaceDir: string;
   outputsDir: string;
   inputsDir: string;
-  /** 专家记忆目录，挂载到 /mnt/agent-memory；策略关闭时省略，不挂该路径。 */
   memoryDir?: string;
-  /**
-   * 记忆挂载是否可写，专家记忆与子智能体记忆共用；缺省 false，即只读。
-   * 由 `memoryMountFor` 按记忆策略派生：只有 `native_auto` 允许容器内写入。
-   */
   memoryWritable?: boolean;
   sessionsDir: string;
-  /** 个人记忆目录，只读挂载到 /mnt/user；未接入时省略。 */
   personalDir?: string;
-  /**
-   * 子智能体项目记忆宿主目录，按 slug 排序后逐个挂载到
-   * `/workspace/.claude/agent-memory/<slug>`；缺省表示本次没有子智能体记忆。
-   * 可写性跟随 `memoryWritable`（父专家策略不允许运行期写入时只读）。
-   */
   subAgentMemoryDirs?: Array<{ slug: string; memoryDir: string }>;
 }
 
@@ -61,7 +48,6 @@ export interface SandboxExecution {
 
 export interface SessionSandboxLease {
   sandboxId: string;
-  /** 该容器实际创建时的环境身份；复用旧容器时仍是旧版本，不读当前线上。 */
   runtimeEnvironment: ResolvedRuntimeEnvironment;
   start(input: {
     runId: string;
@@ -76,10 +62,8 @@ export interface SessionSandboxLease {
 interface SessionSandboxesOptions {
   provider: SandboxProvider;
   idleTimeoutMs: number;
-  /** 同时存活的容器软上限；达到上限时先回收最久未用的空闲容器。 */
   maxActive: number;
   logger: Logger;
-  /** 只在真实创建容器时调用；复用存活容器不读线上版本。 */
   resolveRuntimeEnvironment: RuntimeEnvironmentResolver;
 }
 

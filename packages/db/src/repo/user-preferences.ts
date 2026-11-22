@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { userPreferences } from '../schema.js';
 
 export type UserPreferenceRow = typeof userPreferences.$inferSelect;
@@ -13,12 +13,8 @@ export async function get(db: Database, businessId: string): Promise<UserPrefere
   return row ?? null;
 }
 
-/**
- * 期望版本号匹配才写入，并把 revision 加一；不匹配返回 null（调用方据此报 409）。
- * expectedRevision=0 时行还不存在，条件更新落空后插入初始行。
- */
 export async function upsertWithRevision(
-  db: Database,
+  db: DbHandle,
   businessId: string,
   content: string,
   expectedRevision: number,

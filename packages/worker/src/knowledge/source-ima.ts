@@ -28,16 +28,6 @@ import {
   titleWithExtension,
 } from './source-utils.js';
 
-/**
- * IMA knowledge-base leaf reader.
- *
- * Only the explicitly configured knowledge base is enumerated. Media identity
- * is `media_id`; same-name items are never merged, and a replaced media ID is a
- * new document. The public listing has no reliable revision, so every run
- * re-reads the listing and media info and leaves change detection to the
- * ingestion content hash.
- */
-
 const BASE = 'https://ima.qq.com';
 const WIKI_PATH = '/openapi/wiki/v1';
 const NOTE_PATH = '/openapi/note/v1';
@@ -80,7 +70,6 @@ const noteContentSchema = z.object({
   content: z.string().optional(),
 });
 
-/** 官方 MediaType 中可由本契约读取原文的类型。 */
 const MEDIA: Record<number, { extension: string }> = {
   1: { extension: 'pdf' },
   2: { extension: 'html' },
@@ -95,7 +84,6 @@ const MEDIA: Record<number, { extension: string }> = {
   21: { extension: 'epub' },
 };
 
-/** 官方 MediaType 允许的下载格式；同一媒体类型可能对应新旧 Office 格式或 CSV。 */
 const EXTENSIONS_BY_MEDIA_TYPE: Record<number, readonly string[]> = {
   1: ['pdf'],
   2: ['html'],

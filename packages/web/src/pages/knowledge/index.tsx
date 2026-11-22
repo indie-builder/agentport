@@ -74,6 +74,7 @@ import { errorMessage } from '../../lib/api.js';
 import { downloadBlob } from '../../lib/browser-files.js';
 import { cn } from '../../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../../lib/dialog-guard.js';
+import { onFilePick } from '../../lib/file-pick.js';
 import { formatDateTime, formatRelative } from '../../lib/format.js';
 import {
   meQuery,
@@ -541,12 +542,10 @@ export function KnowledgePage() {
             accept="application/zip,.zip"
             className="hidden"
             aria-label="选择知识包 ZIP"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              // 清空后允许再次选同一个文件；失败时文件仍在用户手里，可修正后重选。
-              event.target.value = '';
+            onChange={onFilePick((files) => {
+              const file = files[0];
               if (file) onImportFile(file);
-            }}
+            })}
           />
           {canCreate && (bases.isPending || bases.isError || baseItems.length > 0) ? (
             <Button ref={createButtonRef} onClick={() => setCreating(true)}>

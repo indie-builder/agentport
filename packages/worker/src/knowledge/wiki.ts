@@ -52,7 +52,6 @@ export interface WikiGenerateDeps {
     ANTHROPIC_BASE_URL: string | undefined;
   };
   signal: AbortSignal;
-  /** 替换真实 SDK query；测试注入假实现，不 mock 模块。 */
   queryFn?: WikiQueryFn;
 }
 
@@ -105,10 +104,6 @@ interface SearchRow extends Record<string, unknown> {
   rank: number;
 }
 
-/**
- * shortcut: 关键词单路检索（无向量/rerank）；Wiki 草稿的取证够用，
- * 需要与聊天检索完全同分时改为调用 API 侧 searchKnowledge。
- */
 async function searchBase(
   db: Database,
   baseId: string,

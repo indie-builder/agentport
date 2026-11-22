@@ -4,7 +4,6 @@ import { cn } from '../lib/cn.js';
 import { CollapsibleContent as BaseCollapsibleContent } from './ui/collapsible.js';
 
 type CollapsibleContentProps = ComponentProps<typeof BaseCollapsibleContent> & {
-  /** ui-sdk 的 height 变量做开合过渡；已有 Motion 管高度的调用方保持默认 false。 */
   animated?: boolean;
 };
 
@@ -13,15 +12,6 @@ type CollapsibleContentProps = ComponentProps<typeof BaseCollapsibleContent> & {
 const ANIMATED_PANEL =
   'h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-150 ease-out-soft data-starting-style:h-0 data-starting-style:opacity-0 data-ending-style:h-0 data-ending-style:opacity-0';
 
-/**
- * Registry Collapsible unmounts collapsed content, which cuts the Motion exit animation.
- * keepMounted keeps the panel; hiddenUntilFound hides it with ui-sdk's native
- * hidden="until-found" (UA content-visibility), so never override content-visibility
- * or the closed panel keeps laying out its content; that UA rule also keeps closed content
- * out of the focus order, so no manual inert, which ui-sdk keeps after the exit animation and
- * would then stick on reopen.
- * animated uses ui-sdk's own height variable instead of Motion.
- */
 function CollapsibleContent({
   keepMounted,
   animated = false,

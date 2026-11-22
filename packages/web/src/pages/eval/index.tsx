@@ -53,6 +53,7 @@ import {
   type EvalTarget,
 } from '../../lib/api.js';
 import { downloadJson } from '../../lib/browser-files.js';
+import { onFilePick } from '../../lib/file-pick.js';
 import {
   evalStatusLabel,
   evalStatusVariant,
@@ -552,15 +553,13 @@ export function EvalPage() {
                   type="file"
                   accept=".json,application/json"
                   className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    // 先清空 value，同一个文件重试时才会再次触发 change。
-                    event.target.value = '';
+                  onChange={onFilePick((files) => {
+                    const file = files[0];
                     if (!file || !effectiveAgentId || !selectedAgent) return;
                     const targetId = effectiveAgentId;
                     const targetName = selectedAgent.name;
                     void importJson(targetId, targetName, file);
-                  }}
+                  })}
                 />
                 {casesEmpty ? null : createCaseButton}
                 {effectiveAgentId ? sampleButton : null}

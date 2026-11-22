@@ -234,7 +234,6 @@ async function publishedVersions(
   return versions;
 }
 
-/** 维护删消息前读取：包含空快照的两个锚点；沿用发布版本校验，读取失败必须中止清理。 */
 export async function outputMessageAnchors(identity: ConversationIdentity): Promise<string[]> {
   const ids = new Set<string>();
   for (const { manifest } of await publishedVersions(identity)) {
@@ -417,15 +416,10 @@ interface PrepareOutputDraftInput {
   slug: string;
   conversationId: string;
   runId: string;
-  /** 用户选定的历史版本；缺省复制当前最新版。 */
   sourceRunId?: string;
   sourcePath?: string;
 }
 
-/**
- * 为本轮准备可写草稿，返回草稿的宿主绝对路径（worker 据此挂载）。
- * 已有草稿直接复用：重试不重放、不覆盖已写文件。
- */
 export async function prepareOutputDraft(input: PrepareOutputDraftInput): Promise<string> {
   if (input.sourcePath !== undefined && input.sourceRunId === undefined) {
     fail('INVALID_INPUT', '选择产出文件必须提供 sourceRunId', { path: '/sourceRunId' });
@@ -482,20 +476,11 @@ export async function prepareOutputDraft(input: PrepareOutputDraftInput): Promis
   return draftDir;
 }
 
-/**
- * 把已停止写入的稳定 outputs 挂载目录捕获回本轮草稿。
- *
- * 复用容器时 `/mnt/outputs` 不再按 run 挂载，发布后也不能删除这个稳定目录；
- * 这里只复制内容，源目录、`drafts/<runId>.base`、`.blocked` 与已发布快照都保持原样。
- * 先完整读取到 staging（逐文件沿用草稿的路径/普通文件/软硬链接校验），
- * 成功后才替换未挂载的草稿；任何失败都保留原草稿。
- */
 export async function captureOutputDraft(input: {
   root: string;
   slug: string;
   conversationId: string;
   runId: string;
-  /** 内部配置的稳定挂载目录（须位于 root 内）；目录可信，内容仍按沙盒可写数据校验。 */
   sourceDir: string;
 }): Promise<void> {
   const conversationRoot = await trustedPath(input, conversationSegments(input), 'conversationId');
@@ -561,10 +546,6 @@ interface PublishOutputSnapshotInput {
   afterMessageId: string;
 }
 
-/**
- * 把本轮草稿发布为完整不可变快照。
- * 无基线且没写文件、或与基线逐字节一致时不新增版本；发布成功清草稿，失败保留。
- */
 export async function publishOutputSnapshot(input: PublishOutputSnapshotInput): Promise<void> {
   const conversationRoot = await trustedPath(input, conversationSegments(input), 'conversationId');
   const runId = runIdOf(input.runId);
@@ -694,9 +675,7 @@ function decodeCursor(value: string): Cursor {
       JSON.parse(Buffer.from(value, 'base64url').toString('utf8')),
     );
     if (parsed.success) return parsed.data;
-  } catch {
-    // 落到统一的游标错误。
-  }
+  } catch {}
   fail('INVALID_INPUT', INVALID_CURSOR_MESSAGE, { path: '/cursor' });
 }
 
@@ -706,10 +685,6 @@ function afterCursor(item: OutputFile, cursor: Cursor): boolean {
   return compareText(item.path, cursor.path) > 0;
 }
 
-/**
- * 倒序列出各版本本轮变化的文件（manifest 的 changed 项）。
- * 版本按 createdAt/runId 倒序，版本内按路径升序；游标包含版本与路径。
- */
 export async function listOutputFiles(input: ListOutputFilesInput): Promise<OutputList> {
   if (!Number.isInteger(input.limit) || input.limit < 1) {
     fail('INVALID_INPUT', 'limit 必须是正整数', { path: '/limit' });
@@ -757,7 +732,6 @@ interface ReadOutputFileInput {
   path: string;
 }
 
-/** 只读 manifest 成员；返回原始字节，二进制与文本共用同一路径。 */
 export async function readOutputFile(
   input: ReadOutputFileInput,
 ): Promise<{ file: OutputFile; data: Buffer }> {
@@ -778,14 +752,9 @@ interface CopyConversationOutputsInput {
   slug: string;
   sourceConversationId: string;
   targetConversationId: string;
-  /** 旧消息 id → 分支消息 id；两个锚点都在其中才属于 fork 历史边界。 */
   messageIds: Record<string, string>;
 }
 
-/**
- * fork 时复制历史边界内的快照：两个锚点都被映射的版本才复制，
- * 并重写为分支的消息 id；runId 原样保留作为来源记录。
- */
 export async function copyConversationOutputs(input: CopyConversationOutputsInput): Promise<void> {
   const sourceIdentity = {
     root: input.root,
@@ -850,7 +819,6 @@ interface RemoveConversationOutputsInput {
   conversationId: string;
 }
 
-/** 会话/专家删除时清理全部草稿与快照；重复调用无副作用。 */
 export async function removeConversationOutputs(
   input: RemoveConversationOutputsInput,
 ): Promise<void> {

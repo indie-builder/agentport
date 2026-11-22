@@ -104,10 +104,6 @@ export interface PersonalOutputSharePage {
 
 const ownedBy = (businessId: string): SQL => eq(conversations.createdBy, businessId);
 
-/**
- * 只列本人来源会话下未撤销的分享；按 (createdAt, id) 倒序翻页。
- * 游标必须落在同一 owner + 未撤销范围内，越界游标按找不到返回 null。
- */
 export async function listActiveOwnedBy(
   db: Database,
   options: { businessId: string; cursor?: string; limit: number },
@@ -142,7 +138,6 @@ export async function listActiveOwnedBy(
   });
 }
 
-/** 本人来源会话下的分享，含已撤销行；用于区分「已撤销」与「不存在/他人」。 */
 export async function findOwnedById(
   db: Database,
   businessId: string,

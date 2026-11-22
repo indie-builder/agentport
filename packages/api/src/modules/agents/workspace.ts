@@ -5,8 +5,8 @@ import { repo, type schema } from '@agentport/db';
 import {
   generatedMcpEntry,
   knowledgeMcpEntry,
-  type McpJsonArtifactEntry,
   PREVIEW_SECRET,
+  type PreviewMcpJsonArtifactEntry,
   previewMcpEntry,
 } from '@agentport/shared';
 import type { AppContext } from '../../http/context.js';
@@ -24,7 +24,7 @@ function maskValues(keys: string[], omitAuthorization = false): Record<string, s
       .map((key) => [key, PREVIEW_SECRET]),
   );
 }
-function toEntry(row: ServerRow, secretKeys: string[]): McpJsonArtifactEntry {
+function toEntry(row: ServerRow, secretKeys: string[]): PreviewMcpJsonArtifactEntry {
   const config = row.config;
   if (row.kind === 'knowledge' || row.kind === 'data_domain') {
     return {

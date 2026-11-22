@@ -2,21 +2,6 @@ import { errorText, segmentOpenUi } from '@agentport/shared';
 import { createParser, mergeStatements, type ParseResult } from '@openuidev/lang-core';
 import librarySpec from './generated/openui.spec.json' with { type: 'json' };
 
-/**
- * 跨轮 editMode 的合并：把本轮回复里的每个 UI 段与上一轮同序号段的完整程序合并，
- * 返回「Markdown + 每段完整程序」的混合文本，作为这条消息的 `ui_program`。
- *
- * 返回值是这条消息的**完整快照**（worker 直接落库）：
- * - 本轮 Markdown 与 UI 段保持原顺序；
- * - 本轮没提到的上一轮 UI 段追加到末尾，各自带完整程序（原独立 root），不重复旧 Markdown；
- * - 只有显式写出空围栏才算删除该段，静默消失不算。
- *
- * 规则（不能猜）：
- * - 本轮某段本身是完整、可独立解析的程序（有 root 且无解析错误）→ 它是新程序，不合并；
- * - 否则若上一轮有同序号段 → 用官方 mergeStatements 合并；合并后仍不可解析则保留原文；
- * - 上一轮没有同序号基线 → 保留原文并产生诊断，不把半截补丁当完整界面。
- */
-
 const parser = createParser(librarySpec.schema, librarySpec.root);
 
 function parsesComplete(program: string): boolean {
@@ -40,7 +25,6 @@ interface OpenUiDiagnostic {
 }
 
 interface OpenUiResolution {
-  /** 完整混合文本：本轮 Markdown 与每段完整程序，未提段追加在末尾。 */
   text: string;
   diagnostics: OpenUiDiagnostic[];
 }

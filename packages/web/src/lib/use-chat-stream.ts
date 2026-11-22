@@ -81,7 +81,6 @@ async function loadRunMessages(
     }
     all = [...detail.messages, ...all];
     const oldest = detail.messages[0];
-    // 本 run 从它自己的用户消息开始；遇到别的 run 或用户消息即已完整。
     const complete = oldest === undefined || oldest.runId !== runId || oldest.role === 'user';
     if (!complete && detail.nextCursor != null) {
       cursor = detail.nextCursor;

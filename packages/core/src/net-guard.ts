@@ -36,10 +36,6 @@ function isDevLocal(host: string, nodeEnv: string | undefined, allowDevLocal: bo
   return allowDevLocal && nodeEnv === 'development' && LOCAL_HOSTS.has(host.toLowerCase());
 }
 
-/**
- * 只允许 http/https 且解析结果不得为私网地址。
- * 注意：DNS 重绑定无法在解析与 fetch 之间彻底消除，出站仍应配合网络层 allowlist。
- */
 export async function assertSafeUrl(
   raw: string,
   nodeEnv: string | undefined = process.env.NODE_ENV,
@@ -117,7 +113,6 @@ function parseAllowlistEntry(raw: string): AllowlistEntry {
   return { host: raw.toLowerCase(), port: null };
 }
 
-/** 显式配置的私网主机按主机名与有效端口匹配后放行；其余目标仍走 assertSafeUrl。 */
 export async function assertServerEndpoint(
   raw: string,
   opts: { nodeEnv: string | undefined; allowlist: string; allowDevLocal?: boolean },

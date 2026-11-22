@@ -683,7 +683,6 @@ async function emitAttachment(
     pageUrl: string;
     pathPrefix: string[];
     file: FileObject;
-    /** 签名 URL 或 ACL 失效时重取拥有者 metadata；只允许一次。 */
     refresh?: () => Promise<FileObject>;
   },
 ): Promise<void> {

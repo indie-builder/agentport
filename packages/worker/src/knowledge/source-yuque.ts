@@ -16,10 +16,6 @@ import {
   snapshotOf,
 } from './source-utils.js';
 
-/**
- * 语雀来源：数字 ID 才是身份；列表按 offset 读全，正文优先 body（Markdown），
- * 只有 body_html 时按 HTML bytes 交既有 parser，绝不把 body_lake 当 Markdown。
- */
 const YUQUE_API = 'https://www.yuque.com';
 const PAGE_SIZE = 100;
 const MAX_PAGES = 1000;

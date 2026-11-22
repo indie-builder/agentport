@@ -13,14 +13,11 @@ interface QuestionChannelEvents {
 }
 
 interface QuestionChannel {
-  /** 只放行原生 AskUserQuestion；其余工具一律 fail closed。 */
   canUseTool: CanUseTool;
-  /** 运行结束/EOF：未决问题按拒绝收尾，并停止接受新提问。 */
   close(): void;
 }
 
 interface PendingQuestion {
-  /** SDK 传入的原始 questions，回答时原样带回。 */
   rawQuestions: unknown;
   questions: NativeQuestion[];
   resolve(result: PermissionResult): void;
@@ -35,13 +32,7 @@ const DENY_DECLINED = '用户暂不回答这个问题。';
 const DENY_MISMATCH = '回答与问题不匹配，问题已关闭。';
 const DENY_ABORTED = '运行已取消，问题已关闭。';
 
-/**
- * 官方 AskUserQuestion 的宿主持久化桥：SDK 回调里挂起，等 stdin 上的
- * `question_response` 再以原始 questions + answers 继续同一次运行。
- * 任何无法确认的输入都拒绝，绝不放宽成副作用授权。
- */
 export function createQuestionChannel(input: {
-  /** 读取任务行之后的下一条 stdin 命令；EOF 返回 null。 */
   readLine: () => Promise<string | null>;
   events: QuestionChannelEvents;
   log?: (message: string) => void;

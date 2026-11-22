@@ -51,7 +51,6 @@ const OVERVIEW_INSTRUCTION =
 
 export interface WikiUpdateInput {
   baseId: string;
-  /** 已落库、待投递到独立 knowledge 队列的 wiki_generate 任务。 */
   jobIds: string[];
 }
 
@@ -63,16 +62,11 @@ export interface ChunkDraft {
   content: string;
   pageFrom: number | null;
   pageTo: number | null;
-  /** 同版本父块序号；父块只作上下文，不参加排名。 */
   parentOrdinal?: number | null;
   indexRole?: 'leaf' | 'parent';
-  /** 解析器真实定位；人工编辑后不得沿用原页/坐标。 */
   locator?: KnowledgeLocator | null;
-  /** 图片子块（ocr/caption/vector）的定位；普通块为空。 */
   metadata?: Record<string, unknown>;
-  /** 仅 imageRole=vector：该 chunk 只做图片向量检索，不进关键词索引。 */
   searchText?: string;
-  /** 图片向量已在生成阶段算好；其余 draft 由文字 embedding 统一填充。null = 留待 chunksOnly 补。 */
   embedding?: number[] | null;
 }
 
@@ -84,35 +78,23 @@ export interface SourceItem {
   mimeType: string;
   revision: string;
   content: Buffer | { markdown: string };
-  /** Remote item is gone; only trusted from a connector whose listing was complete. */
   deleted?: boolean;
-  /** feed 全文抓取失败时只有摘要；不能把已有的 full 正文降级覆盖。 */
   completeness?: 'full' | 'summary';
-  /** 该条目实际命中的来源范围；同一条目出现在多个范围时各次同步都会带上自己的范围。 */
   rangeId?: string;
-  /** 单项失败：继续其它条目，但不计入完整枚举。 */
   failure?: { code: string; message: string; retryable: boolean };
 }
 
-/**
- * 一次检查点：其中 `complete` 表示到此刻为止的枚举已证明「没返回的都删除了」。
- * RSS 这类滚动窗口的读取永不 complete。
- */
 export interface SourceCheckpoint {
   complete: boolean;
 }
 
-/** 连接器的出站网络策略；只能由部署配置提供，来源 config 无法设置。 */
 export interface ConnectorNetwork {
-  /** KNOWLEDGE_PRIVATE_HOST_ALLOWLIST 解析后的精确 `host`/`host:port`。 */
   trustedHosts?: readonly string[];
-  /** 本地 fixture 仅用；sources 在 production 下仍拒绝 loopback。 */
   allowLoopback?: boolean;
 }
 
 export interface KnowledgeConnector {
   sync(input: {
-    /** 来源连接 ID：外部条目 ID 必须 scope 到它，两个连接读到同一外部 ID 才不会互撞。 */
     connectionId: string;
     config: Record<string, unknown>;
     secrets: Record<string, string>;
@@ -128,7 +110,6 @@ export interface KnowledgeConnector {
     network?: ConnectorNetwork;
     onCheckpoint(cursor: Record<string, unknown>, checkpoint: SourceCheckpoint): Promise<void>;
   }): AsyncIterable<SourceItem>;
-  /** 只读远程凭证与范围首项；不导入条目，不推进游标。 */
   probe?(input: {
     config: Record<string, unknown>;
     secrets: Record<string, string>;
@@ -147,7 +128,6 @@ export interface KnowledgeDeps {
     mimeType: string;
     data: Buffer;
     signal?: AbortSignal;
-    /** 仅音频摄取注入；普通文档不依赖 ASR 可用性。 */
     asr?: AsrProfile;
     asrProfileName?: string;
   }) => Promise<IngestionDocument>;
@@ -158,20 +138,12 @@ export interface KnowledgeDeps {
     blocks?: IngestionDocument['blocks'],
   ) => ChunkDraft[];
   connectors: Partial<Record<KnowledgeSourceRow['type'], KnowledgeConnector>>;
-  /** 解密来源/模型凭证；与 API 共用 APP_SECRET_KEY。 */
   decrypt: (payload: string) => Record<string, string>;
-  /**
-   * wikiAutoUpdate 开启时，版本切换成功后为关联页面投递 wiki_generate 草稿任务。
-   * 由主会话队列注入（保持单例 Redis）；不注入时只标 stale，绝不假装自动更新成功。
-   */
   onWikiUpdate?: (input: WikiUpdateInput) => Promise<void>;
   summaryModel?: string | undefined;
   onSummaryJobs?: (input: { baseId: string; jobIds: string[] }) => Promise<void>;
-  /** KNOWLEDGE_PRIVATE_HOST_ALLOWLIST 解析后的精确 `host`/`host:port`；由部署配置注入。 */
   trustedHosts?: readonly string[];
-  /** 本地 fixture 仅用；sources 在 production 下仍拒绝 loopback。 */
   allowLoopback?: boolean;
-  /** 图片 OCR/描述走官方 query；worker 真实运行默认 query，测试注入替身。 */
   imageQueryFn?: ImageQueryFn;
   anthropicBaseUrl: string | undefined;
 }

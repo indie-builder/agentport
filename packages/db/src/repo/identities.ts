@@ -73,7 +73,6 @@ function whereClause(conditions: (SQL | undefined)[]) {
   return active.length === 0 ? sql`` : sql`where ${sql.join(active, sql` and `)}`;
 }
 
-/** 该 businessId 是否已有任何认证或业务历史（可离线）。 */
 export async function hasBusinessHistory(db: DbHandle, businessId: string): Promise<boolean> {
   const result = await db.execute<{ exists: boolean }>(sql`
     select exists(select 1 from (${identityIds}) ids where ids.business_id = ${businessId}) as "exists"
@@ -92,7 +91,6 @@ export interface IdentityList {
   total: number;
 }
 
-/** 负责人授权成员时的候选身份；只返回业务摘要，不暴露账户凭据或角色。 */
 export async function listIdentities(
   db: DbHandle,
   input: { q?: string; limit: number; offset: number },

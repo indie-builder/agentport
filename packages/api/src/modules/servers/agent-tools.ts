@@ -18,7 +18,6 @@ export interface AgentInvoker {
 }
 
 function toolName(slug: string): string {
-  // MCP 工具名只保留安全字符，且要稳定可预测。
   return `run_${slug.replace(/[^a-z0-9_-]/gi, '_').toLowerCase()}`;
 }
 

@@ -35,7 +35,6 @@ import {
   usableSourceChunks,
 } from './shared.js';
 
-/** 草稿只能由同文档、同库、已成功的 draft ingest 任务发布，且任务输入必须就是该版本。 */
 async function draftIndexJobAllowsVersionTx(
   tx: Transaction,
   document: Pick<KnowledgeDocumentRow, 'id' | 'baseId'>,
@@ -149,8 +148,6 @@ export async function supersedeDraftVersionsTx(
     );
 }
 
-/** 版本号在 INSERT 内用按文档过滤的 coalesce(max)+1 子查询算出，单次往返即可。
- * 同文档并发没有行锁兜底，仍可能撞唯一索引；冲突原样抛出，不自动重试。 */
 export async function createVersion(
   db: DbHandle,
   input: CreateVersionInput,
@@ -200,12 +197,6 @@ export interface PublishGuard {
   isAborted?: (() => boolean) | undefined;
 }
 
-/**
- * 版本切换：current_version_id 与 ready 状态同事务写入，旧版本继续保留可回滚。
- * 所有调用（带不带 guard）都核版本归属、人工停用与来源/范围授权；
- * 带 guard 时再核任务仍 running、库仍 active、profile 与配置未变、当前指针未变。
- * 返回 null 表示守卫拒绝（任务已收尾/abort、库停用、配置/指针变化或来源失权），不区分原因。
- */
 export async function setCurrentVersion(
   db: DbHandle,
   documentId: string,
@@ -399,7 +390,6 @@ export async function setCurrentVersion(
   });
 }
 
-/** 管理端显式回退：只切当前指针，不改变停用状态；版本必须属于本文档。 */
 export async function activateDocumentVersion(
   db: Database,
   input: { documentId: string; versionId: string; expectedVersionId: string | null },

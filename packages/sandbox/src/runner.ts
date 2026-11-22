@@ -36,11 +36,6 @@ import { memoryRuntimeSettings } from './memory-runtime.js';
 import { createQuestionChannel } from './questions.js';
 import { createSubAgentBoundaryHook } from './sub-agent-permissions.js';
 
-/**
- * 容器内入口：在只读挂载的 /workspace 上运行 Agent SDK。
- * 从 stdin 读一行 JSON 任务，向 stdout 逐行写 NDJSON 事件。
- * stdout 只放协议数据；日志一律写 stderr。
- */
 interface RunnerEvent {
   type:
     | 'text_delta'
@@ -59,24 +54,17 @@ interface RunnerEvent {
   text?: string;
   message?: string;
   toolUseId?: string;
-  /** question_requested：宿主据此落库；回答只经 stdin 回到这个工具。 */
   requestId?: string;
   questions?: NativeQuestion[];
-  /** SDK 消息 uuid；落库后用于按历史点 fork。 */
   sdkUuid?: string;
   sessionId?: string;
-  /** 子智能体产生的消息：指向父侧 Agent 的 tool_use id；顶层消息不写。 */
   parentToolUseId?: string;
-  /** 助手消息内的内容块序号；text_delta / assistant_text 用它区分不同文本块。 */
   blockIndex?: number;
-  /** assistant_block_start：该块的类型；其他事件不带。 */
   kind?: 'text' | 'tool_use';
-  /** assistant_text：单块超过上限，text 只是保留的前缀。 */
   truncated?: boolean;
   name?: string;
   json?: string;
   content?: string;
-  /** 顶层 TodoWrite 成功确认后的完整清单快照；省略表示本事件不改清单。 */
   todos?: ProgressTodo[];
   status?: Exclude<TerminalRunStatus, 'timeout'>;
   costUsd?: number;
@@ -84,7 +72,6 @@ interface RunnerEvent {
   inputTokens?: number;
   outputTokens?: number;
   error?: string;
-  /** 失败分类；只在 status !== 'succeeded' 时出现。 */
   failureKind?: WireFailureKind;
 }
 
@@ -138,7 +125,6 @@ async function openTaskInput(): Promise<{
   return { task: sandboxTaskSchema.parse(JSON.parse(first)), readLine, close: () => rl.close() };
 }
 
-/** 汇总所有模型的 token 用量；modelUsage 是权威口径。 */
 function tokenUsage(
   modelUsage: Record<string, { inputTokens?: number; outputTokens?: number }> | undefined,
 ): { inputTokens?: number; outputTokens?: number } {
@@ -308,7 +294,6 @@ const disallowedTools = [
 let emittedTerminal = false;
 let initSessionId: string | undefined;
 const assistantUsage = new Map<string, { inputTokens: number; outputTokens: number }>();
-// run_finished 只能有一条：宿主按它落库并结束 SSE。
 function emit(event: RunnerEvent): void {
   if (event.type === 'run_finished') emittedTerminal = true;
   process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -413,10 +398,6 @@ function createInstructionQueue(): {
 const instructionQueue = createInstructionQueue();
 process.stdin.once('end', () => instructionQueue.close());
 
-/**
- * 原生澄清提问：dontAsk 下 SDK 根本不会调用 canUseTool，问题会被直接拒绝，
- * 因此不安装回调，也不把该模式暗映射成可提问。其他模式下只放行 AskUserQuestion。
- */
 const questionChannel = createQuestionChannel({
   readLine,
   events: {
@@ -431,13 +412,6 @@ abortController.signal.addEventListener('abort', () => {
   instructionQueue.close();
 });
 
-/**
- * 解析本次运行的 SDK session：
- * - 空会话：不 resume，让 CLI 新建；
- * - 续聊：resume 已有 session；
- * - 分支：先在已有 session 里 fork 到历史点（官方 forkSession，稳定的非 alpha 助手），再 resume 新 id。
- * transcript 缺失一律按 infra 失败，不回退成文本历史。
- */
 async function resolveSession(input: SandboxTask): Promise<{
   resume?: string;
   fork?: { sessionId: string };
@@ -475,13 +449,11 @@ if (session.error !== undefined) {
   }
   log(`starting query (model=${task.model})`);
 
-  /** 只发一条用户消息：uuid 由宿主生成并落库，后续按历史点 fork 依赖它。 */
   async function* userPrompt(): AsyncGenerator<SDKUserMessage> {
     yield {
       type: 'user',
       message: { role: 'user', content: task.prompt },
       parent_tool_use_id: null,
-      // 宿主已按 uuid 校验过；SDK 的 UUID 是模板字面量类型，这里按契约收窄。
       uuid: task.userMessageUuid as NonNullable<SDKUserMessage['uuid']>,
       client_composed: true,
     };

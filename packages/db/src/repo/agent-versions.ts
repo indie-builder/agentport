@@ -42,7 +42,6 @@ function isVersionConflict(err: unknown): boolean {
   return isPgConstraint(err, ['23505'], 'agent_versions_agent_version_idx');
 }
 
-/** 并发下两个事务可能读到同一个 max；唯一约束冲突时整段事务重试一次。 */
 export async function retryOnVersionConflict<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run();
@@ -74,7 +73,6 @@ export async function listAgentVersions(
   return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
 }
 
-/** 最新快照版本号；智能体尚无快照时返回 null。 */
 export async function latestAgentVersion(db: DbHandle, agentId: string): Promise<number | null> {
   const [row] = await db
     .select({ max: sql<number | null>`max(${agentVersions.version})` })

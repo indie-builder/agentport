@@ -15,15 +15,6 @@ import {
   titleWithExtension,
 } from './source-utils.js';
 
-/**
- * DingTalk wiki (知识库) leaf reader.
- *
- * A wiki node ID is not a document key: native ALIDOC documents are read
- * through `/v2.0/doc/items?url=` → `dentry.docKey`, and uploaded files through
- * the storage space/dentry pair. Identity stays the wiki node ID so a renamed
- * or moved node keeps the same document.
- */
-
 const BASE = 'https://api.dingtalk.com';
 const MAX_PAGES = 1000;
 const BLOCK_PAGE_SIZE = 100;

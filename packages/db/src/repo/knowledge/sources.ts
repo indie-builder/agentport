@@ -24,7 +24,6 @@ import {
   sourceSnapshotMatchesTx,
 } from './shared.js';
 
-/** 读来源授权快照：source FOR SHARE 后再读全部范围，调用方只消费这一份一致视图。 */
 export async function getSourceReadSnapshot(
   db: Database,
   sourceId: string,
@@ -264,10 +263,6 @@ async function replaceRangesTx(
   return rows;
 }
 
-/**
- * 按 (sourceId, kind, externalId, ref) 保留范围 ID 更新；删除失效项并按新 paths 重核条目归属。
- * 范围收缩的撤权由 replaceSourceScope 统一完成。
- */
 export async function replaceRanges(
   db: Database,
   sourceId: string,
@@ -323,11 +318,6 @@ export interface SourceScopeResult {
   disabledDocumentIds: string[];
 }
 
-/**
- * 同一事务内改来源配置/范围并立即撤权：
- * 移除失效归属，停用所有已无有效范围覆盖的文档（含 pending/processing/failed），
- * 并让引用它们的 Wiki 页显式 stale。锁序 source -> document（文档 ID 排序）。
- */
 export async function replaceSourceScope(
   db: Database,
   sourceId: string,
@@ -410,10 +400,6 @@ export async function replaceSourceScope(
   });
 }
 
-/**
- * 外部条目读取成功后的授权写入：快照、patch、实际范围归属与停用恢复同事务。
- * 锁序 source FOR SHARE -> document FOR UPDATE；快照已失效时零写返回 null。
- */
 export async function setDocumentSourceRanges(
   db: Database,
   documentId: string,

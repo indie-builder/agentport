@@ -11,7 +11,6 @@ export type RunAccessDenial = {
   message: string;
 };
 
-/** run 行里的主体字段 → 公共主体；用户与服务各只保留一种，非法组合不猜。 */
 export function runExecutionSubject(row: {
   subjectKind: string;
   initiatedBy: string | null;

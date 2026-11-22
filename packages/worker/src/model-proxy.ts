@@ -36,9 +36,7 @@ type ProviderAttemptRecord = repo.modelProviders.ProviderRequestRecord;
 
 interface ModelProxyOptions {
   logger: Logger;
-  /** 上游基址，例如 https://api.anthropic.com；未配置时不做代理。 */
   upstreamBaseUrl: string;
-  /** 真实凭证；优先 apiKey，其次 authToken。 */
   apiKey?: string;
   authToken?: string;
   /**
@@ -46,10 +44,6 @@ interface ModelProxyOptions {
    * 0 只适合宿主机直跑的 worker（沙盒与 worker 同网络栈）。
    */
   port?: number;
-  /**
-   * 回调：按 token 解析出 run，并确认该 run 仍然有效。
-   * token 即 runId（TypeID 含时间戳但不可预测），DB 里存的是它的 sha256。
-   */
   resolveRun: (token: string) => Promise<{
     runId: string;
     conversationId?: string;
@@ -70,12 +64,9 @@ interface ModelProxyOptions {
 }
 
 export interface ModelProxy {
-  /** 沙盒应使用的基址。 */
   url: string;
   localUrl: string;
-  /** 为一次 run 签发短期 token。 */
   issueToken: (runId: string) => string;
-  /** run 结束时吊销。 */
   revokeToken: (runId: string) => void;
   close: () => Promise<void>;
 }
@@ -110,10 +101,6 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-/**
- * 启动代理。未配置上游或凭证时返回 null，调用方回退到直接注入凭证
- * （旧部署可继续跑，但启动日志会警告）。
- */
 export async function startModelProxy(options: ModelProxyOptions): Promise<ModelProxy | null> {
   const { logger, upstreamBaseUrl } = options;
   const upstreamCredential = options.apiKey ?? options.authToken;

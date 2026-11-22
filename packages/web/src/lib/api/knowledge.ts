@@ -31,7 +31,6 @@ import { ApiError, rpc } from '../orpc.js';
 import type { ApiOutput } from './shared.js';
 import { clientOptions, nativeRequest } from './shared.js';
 
-/** 后端只回 content/heading/enabled 可写；正文改动会清空向量并标记人工编辑。 */
 export type {
   KnowledgeChunk,
   KnowledgeDocumentVersion,
@@ -64,9 +63,7 @@ export interface KnowledgeBaseInput {
   description: string;
   embeddingProfileId: string;
   rerankProfileId: string | null;
-  /** 音频转录模型；null 表示不启用 ASR。 */
   asrProfileId: string | null;
-  /** 建库时后端补默认值；设置弹层保存时以完整 settings 提交。 */
   settings: Omit<KnowledgeBaseSettings, 'imageProcessing'> & {
     imageProcessing?: KnowledgeBaseSettings['imageProcessing'];
   };
@@ -117,15 +114,11 @@ export interface KnowledgeSearchOptions {
   rerank?: boolean;
   minVectorScore?: number;
   diagnostics?: boolean;
-  /** 只筛 FAQ；文档与 Wiki 不受影响。 */
   onlyRecommended?: boolean;
-  /** FAQ 组排到普通结果前。 */
   faqPriority?: boolean;
-  /** directAnswer 的原始问题 cosine 门槛。 */
   faqDirectAnswerThreshold?: number;
 }
 
-/** FAQ wire 是文档投影：列表只回 title/status/tags，详情另带两个版本。 */
 type KnowledgeFaqDocument = Omit<
   Pick<
     KnowledgeDocument,
@@ -247,7 +240,6 @@ export interface KnowledgeDocumentDiff {
   removedLines: string[];
 }
 
-/** 连接来源类型直接从 shared 输入契约派生，新增 provider 不再手改 wire 枚举。 */
 type KnowledgeSourceType = Exclude<KnowledgeSourceInput['type'], 'upload' | 'url' | 'manual'>;
 
 type KnowledgeSourceRangeKind = KnowledgeSourceInput['ranges'][number]['kind'];
@@ -310,7 +302,6 @@ export interface KnowledgeVersionImage {
   warnings?: string[] | undefined;
 }
 
-/** 版本详情：只含 UI 展示所需元数据，不含 blob 地址与磁盘路径。 */
 interface KnowledgeVersionDetails {
   id: string;
   documentId: string;
@@ -349,7 +340,6 @@ export interface KnowledgeModelProfile {
   dimensions: number | null;
   enabled: boolean;
   hasSecret: boolean;
-  /** 只有 Cohere v2 协议 + embed-v4.0 才能接收图片。 */
   embeddingProtocol: KnowledgeEmbeddingProtocol;
   imageInputEnabled: boolean;
   createdAt: string;
@@ -377,7 +367,6 @@ export default {
     rpc.knowledge.bases.list({ query }, clientOptions(signal)),
   knowledgeBase: (id: string): Promise<KnowledgeBase> =>
     rpc.knowledge.bases.get({ params: { id } }),
-  /** 置顶是当前账号的个人偏好，只返回 ID，列表排序在客户端完成。 */
   knowledgeBasePins: (signal?: AbortSignal): Promise<{ baseIds: string[] }> =>
     rpc.knowledge.bases.pins({}, clientOptions(signal)),
   setKnowledgeBasePin: (baseId: string, pinned: boolean): Promise<{ pinned: boolean }> =>
@@ -456,7 +445,6 @@ export default {
       mimeType: string;
       dataBase64: string;
       folderId: string | null;
-      /** 目录上传时保留浏览器提供的相对路径；后端按真实目录建树。 */
       relativePath?: string;
     },
   ): Promise<{ documentId: string; jobId: string }> =>
@@ -568,7 +556,6 @@ export default {
     expectedVersionId: string,
   ): Promise<KnowledgeChunkWriteResult> =>
     rpc.knowledge.chunks.remove({ params: { chunkId }, body: { expectedVersionId } }),
-  /** 解析正文是 text/markdown，不是 JSON；原件走 content 端点直接下载。 */
   knowledgeMarkdown: (versionId: string, signal?: AbortSignal): Promise<string> =>
     nativeRequest(`/knowledge/versions/${versionId}/markdown`, { signal, responseType: 'text' }),
   knowledgeOriginalUrl: (versionId: string): string =>
@@ -580,7 +567,6 @@ export default {
     signal?: AbortSignal,
   ): Promise<KnowledgeVersionDetails> =>
     rpc.knowledge.versions.details({ params: { versionId } }, clientOptions(signal)),
-  /** 图片按版本元数据白名单读取，直接走鉴权端点，不代理也不抓远程。 */
   knowledgeVersionImageUrl: (versionId: string, name: string): string =>
     `/api/knowledge/versions/${encodeURIComponent(versionId)}/images/${encodeURIComponent(name)}`,
   knowledgeSearch: (
@@ -649,7 +635,6 @@ export default {
     patch: {
       name?: string;
       config?: Record<string, unknown>;
-      /** 省略表示沿用已存凭证；绝不发空字符串，避免把密钥清空。 */
       secrets?: Record<string, string>;
       status?: Exclude<KnowledgeSourceStatus, 'auth_error'>;
       syncCron?: string | null;
@@ -663,7 +648,6 @@ export default {
   ): Promise<void> => {
     await rpc.knowledge.sources.remove({ params: { sourceId }, query: { documents } });
   },
-  /** 只读远程 probe：202 返回 jobId，结果从 GET jobs/:id 的 result 读取。 */
   testKnowledgeSource: (sourceId: string): Promise<{ jobId: string }> =>
     rpc.knowledge.sources.test({ params: { sourceId } }),
   syncKnowledgeSource: (sourceId: string): Promise<{ jobId: string; syncRunId: string }> =>

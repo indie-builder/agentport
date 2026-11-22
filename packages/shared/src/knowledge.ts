@@ -3,7 +3,6 @@ import { cronSchema } from './ops.js';
 import { slugSchema } from './params.js';
 import { DEFAULT_JOB_RETENTION } from './run-stream.js';
 
-/** 知识库任务队列；jobId 即 knowledge_jobs.id，重复投递由 BullMQ 去重。 */
 export const KNOWLEDGE_JOBS_QUEUE = 'knowledge-jobs';
 
 /**
@@ -21,7 +20,6 @@ const knowledgeSyncTriggerPayloadSchema = z.object({ sourceId: z.string() });
 
 export type KnowledgeSyncTriggerPayload = z.infer<typeof knowledgeSyncTriggerPayloadSchema>;
 
-/** 运行中取消：API 写键，worker 每秒轮询到非空后 abort；值本身不承载信息。 */
 export const KNOWLEDGE_CANCEL_PAYLOAD = '1';
 
 export function knowledgeCancelKey(jobId: string): string {
@@ -39,14 +37,12 @@ export function knowledgeEnqueueOptions(jobId: string) {
 
 export const KNOWLEDGE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
-/** 视觉模型会缩放输入，25 MP 足以覆盖文档扫描；该值限制解码内存。 */
 export const KNOWLEDGE_IMAGE_MAX_PIXELS = 25_000_000;
 
 export const KNOWLEDGE_DOCUMENT_MAX_BYTES = 32 * 1024 * 1024;
 
 export const KNOWLEDGE_DOCUMENT_TITLE_MAX_CHARS = 300;
 
-/** 图片名必须是版本清单里的单段文件名；任何路径分隔符或 `..` 都不接受。 */
 const knowledgeImageNameSchema = z
   .string()
   .min(1)
@@ -83,7 +79,6 @@ const imageProcessingDefaults = {
 export const knowledgeImageProcessingSchema = z
   .object({
     enabled: z.boolean().default(imageProcessingDefaults.enabled),
-    /** 现有 Anthropic 网关接受的视觉模型 ID；关闭时为 null。 */
     model: z.string().trim().min(1).max(200).nullable().default(imageProcessingDefaults.model),
     ocrEnabled: z.boolean().default(imageProcessingDefaults.ocrEnabled),
     captionEnabled: z.boolean().default(imageProcessingDefaults.captionEnabled),
@@ -155,7 +150,6 @@ export const knowledgeBaseSchema = knowledgeBaseInputSchema.extend({
   status: knowledgeBaseStatusSchema,
   embeddingProfileId: z.string(),
   rerankProfileId: z.string().nullable(),
-  /** 音频转录模型；null 表示未启用 ASR。 */
   asrProfileId: z.string().nullable(),
   settings: knowledgeBaseSettingsSchema,
   createdAt: z.string(),
@@ -168,7 +162,6 @@ export type KnowledgeBaseSettings = z.infer<typeof knowledgeBaseSettingsSchema>;
 export const knowledgeModelProfileKindSchema = z.enum(['embedding', 'rerank', 'asr']);
 export type KnowledgeModelProfileKind = z.infer<typeof knowledgeModelProfileKindSchema>;
 
-/** 无管理权限的创建/设置页只需选择项：不含端点、模型与任何密钥线索。 */
 export const knowledgeModelProfileSelectionSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -234,7 +227,6 @@ export const knowledgeDocumentStatusSchema = z.enum([
 ]);
 export type KnowledgeDocumentStatus = z.infer<typeof knowledgeDocumentStatusSchema>;
 
-/** 语料角色：普通文档、FAQ 与 Wiki 索引文档共用同一套版本与分块。 */
 export const knowledgeContentKindSchema = z.enum(['document', 'faq', 'wiki']);
 
 export const knowledgeDisabledReasonSchema = z.enum(['manual', 'source', 'range', 'remote']);
@@ -249,28 +241,19 @@ export const DOCUMENT_NO_CONTENT_MESSAGE = '文档当前版本没有可用正文
 export const DOCUMENT_JOB_IN_PROGRESS_MESSAGE = '文档有正在进行的处理任务，请稍后重试';
 export const FAQ_ANSWER_REQUIRED_MESSAGE = '至少需要一条非空答案';
 
-/** 解析器给出的定位；不支持的维度缺省，不编造坐标。 */
 export const knowledgeLocatorSchema = z
   .object({
-    /** 页码从 1 起。 */
     pageFrom: z.number().int().positive().optional(),
     pageTo: z.number().int().positive().optional(),
-    /** UTF-16 下标，与现有正文偏移一致。 */
     startOffset: z.number().int().nonnegative().optional(),
     endOffset: z.number().int().nonnegative().optional(),
-    /** 行号从 1 起。 */
     lineFrom: z.number().int().positive().optional(),
     lineTo: z.number().int().positive().optional(),
     headingPath: z.array(z.string()).optional(),
     sheet: z.string().optional(),
     cellRange: z.string().optional(),
-    /**
-     * 相对原始音频起点的毫秒；范围是来源段，不声称逐字精度。
-     * 两个字段同时存在或同时缺省；0 是合法时码。
-     */
     timeFromMs: z.number().int().nonnegative().safe().optional(),
     timeToMs: z.number().int().nonnegative().safe().optional(),
-    /** 解析器原坐标，不声称通用像素。 */
     bbox: z
       .object({
         left: z.number(),
@@ -297,7 +280,6 @@ export const knowledgeLocatorSchema = z
 
 export type KnowledgeLocator = z.infer<typeof knowledgeLocatorSchema>;
 
-/** 版本 metadata.audio 的段级映射；偏移是最终转录 markdown 的 UTF-16 半开区间。 */
 export const knowledgeAudioSegmentSchema = z
   .object({
     startOffset: z.number().int().nonnegative().safe(),
@@ -316,12 +298,9 @@ export const knowledgeAudioSegmentSchema = z
 
 export const knowledgeAudioMetadataSchema = z.object({
   protocol: z.literal('openai_transcriptions'),
-  /** 执行时快照，不是外键，不含 endpoint/key。 */
   profileName: z.string().min(1),
   model: z.string().min(1),
-  /** 仅上游真实 duration；绝不用于制造定位。 */
   durationMs: z.number().int().nonnegative().safe().nullable(),
-  /** 无时码时为 []；正文从 markdown 按区间取。 */
   segments: z.array(knowledgeAudioSegmentSchema),
 });
 
@@ -339,7 +318,6 @@ export const knowledgeFaqSchema = z.object({
     .refine((answers) => answers.some((answer) => answer.trim().length > 0), {
       message: FAQ_ANSWER_REQUIRED_MESSAGE,
     }),
-  /** 命中时返回全部答案或随机选一条；默认全部。 */
   answerStrategy: knowledgeFaqAnswerStrategySchema.default('all'),
   isRecommended: z.boolean().default(true),
 });
@@ -355,7 +333,6 @@ export const knowledgeFaqInputSchema = z.object({
   isRecommended: z.boolean().optional(),
 });
 
-/** 导入/导出条目：FAQ 内容 + 启用标记；运营标记不参与内容哈希。 */
 export const knowledgeFaqTransferEntrySchema = knowledgeFaqSchema.extend({
   enabled: z.boolean().default(true),
 });
@@ -373,7 +350,6 @@ export type KnowledgeFaqImportMode = z.infer<typeof knowledgeFaqImportModeSchema
 
 export const knowledgeFaqImportInputSchema = z.object({
   format: knowledgeFaqImportFormatSchema,
-  /** xlsx 为 base64，其余为原始文本；字节上限由入口校验。 */
   content: z.string().min(1),
   mode: knowledgeFaqImportModeSchema.default('append'),
   dryRun: z.boolean().default(false),
@@ -381,7 +357,6 @@ export const knowledgeFaqImportInputSchema = z.object({
 
 export type KnowledgeFaqImportInput = z.infer<typeof knowledgeFaqImportInputSchema>;
 
-/** 规划时读取的文档两版指针快照；导入事务与批发布都用它检测期间变化。 */
 export const knowledgeFaqImportStateSchema = z.object({
   documentId: z.string(),
   currentVersionId: z.string().nullable(),
@@ -391,12 +366,10 @@ export const knowledgeFaqImportStateSchema = z.object({
 
 export type KnowledgeFaqImportState = z.infer<typeof knowledgeFaqImportStateSchema>;
 
-/** 版本 metadata.faqImport；replaceTargets 是待替换旧 FAQ 的同形快照。 */
 export const knowledgeFaqImportMetadataSchema = z.object({
   batchId: z.string(),
   mode: knowledgeFaqImportModeSchema,
   enabled: z.boolean(),
-  /** 保存草稿时锁定的线上版本；发布必须同时匹配它与当前指针。 */
   expectedVersionId: z.string().nullable(),
   replaceTargets: z.array(knowledgeFaqImportStateSchema).optional(),
 });
@@ -467,9 +440,7 @@ export const knowledgeDocumentSchema = z.object({
   sizeBytes: z.number().int(),
   status: knowledgeDocumentStatusSchema,
   contentKind: knowledgeContentKindSchema.default('document'),
-  /** 来源失权/范围失效/远程认证失败/人工停用；null 表示可读。 */
   disabledReason: knowledgeDisabledReasonSchema.nullable().default(null),
-  /** 外部来源连接；保留已删除的来源 ID，因此不设外键。 */
   sourceConnectionId: z.string().nullable().default(null),
   currentVersionId: z.string().nullable(),
   summary: z.string().nullable().default(null),
@@ -489,7 +460,6 @@ export const knowledgeVersionOriginSchema = z.enum(['source', 'manual', 'faq', '
 export const knowledgeParseStatusSchema = z.enum(['parsed', 'parse_failed']);
 export type KnowledgeParseStatus = z.infer<typeof knowledgeParseStatusSchema>;
 
-/** 版本列表 wire：不返回 hash 路径与存储细节。 */
 export const knowledgeDocumentVersionSchema = z.object({
   id: z.string(),
   documentId: z.string(),
@@ -518,7 +488,6 @@ export const knowledgeChunkSchema = z.object({
   documentId: z.string(),
   versionId: z.string(),
   ordinal: z.number().int(),
-  /** 同版本父块序号；父块只作上下文，不参加排名。 */
   parentOrdinal: z.number().int().nullable().default(null),
   indexRole: knowledgeChunkIndexRoleSchema.default('leaf'),
   kind: knowledgeChunkKindSchema,
@@ -529,7 +498,6 @@ export const knowledgeChunkSchema = z.object({
   pageFrom: z.number().int().nullable(),
   pageTo: z.number().int().nullable(),
   locator: knowledgeLocatorSchema.nullable().default(null),
-  /** 图片 chunk 的定位信息；普通 chunk 为空对象。 */
   metadata: z.record(z.string(), z.unknown()).default({}),
 });
 
@@ -582,12 +550,10 @@ export const knowledgeSearchQuerySchema = z.object({
     .boolean()
     .default(false)
     .describe('Include retrieval diagnostics; management REST only.'),
-  /** 只筛选 FAQ，不排除可推荐条目；文档/Wiki 不受影响。 */
   onlyRecommended: z
     .boolean()
     .default(false)
     .describe('Keep only recommended FAQ entries; documents and wiki pages are unaffected.'),
-  /** FAQ 组排到普通结果前；默认不改变既有混合排序。 */
   faqPriority: z
     .boolean()
     .default(false)
@@ -606,7 +572,6 @@ export const knowledgeSearchQuerySchema = z.object({
 
 export type KnowledgeSearchQuery = z.infer<typeof knowledgeSearchQuerySchema>;
 
-/** FAQ 命中的策略与命中问题；其他 kind 的 hit.faq 为 null。 */
 export const knowledgeFaqHitSchema = z.object({
   answers: z.array(z.string()).min(1),
   answerStrategy: knowledgeFaqAnswerStrategySchema,
@@ -619,7 +584,6 @@ export type KnowledgeFaqHit = z.infer<typeof knowledgeFaqHitSchema>;
 
 export const knowledgeSearchHitSchema = z.object({
   chunkId: z.string(),
-  /** Wiki 命中时指内部索引文档/版本；对外的源对象看 target/targetVersionId。 */
   documentId: z.string(),
   versionId: z.string(),
   target: knowledgeTargetSchema,
@@ -630,16 +594,12 @@ export const knowledgeSearchHitSchema = z.object({
   pageFrom: z.number().int().nullable(),
   pageTo: z.number().int().nullable(),
   locator: knowledgeLocatorSchema.nullable().default(null),
-  /** 子块命中时同一父块的上下文正文。 */
   parentContent: z.string().nullable().default(null),
   sourceUrl: z.string().nullable(),
   score: z.number(),
-  /** 明示 score 的单位，两张量纲不能直接比较。 */
   scoreKind: z.enum(['rrf', 'rerank']).default('rrf'),
   scores: knowledgeSearchScoresSchema,
-  /** 普通命中为 null；旧 wire / 历史 trace 没有该字段时按 null 读取。 */
   image: knowledgeImageRefSchema.nullable().default(null),
-  /** FAQ 命中带答案策略与命中问题；其他 kind 为 null。 */
   faq: knowledgeFaqHitSchema.nullable().default(null),
 });
 
@@ -680,7 +640,6 @@ export const knowledgeJobTypeSchema = z.enum([
 
 export type KnowledgeJobType = z.infer<typeof knowledgeJobTypeSchema>;
 
-/** 各任务类型的硬超时；超时按失败收尾，保留游标与旧版本。 */
 export const KNOWLEDGE_JOB_TIMEOUT_MS: Record<KnowledgeJobType, number> = {
   ingest: 30 * 60_000,
   sync: 30 * 60_000,
@@ -700,7 +659,6 @@ export const knowledgeJobStatusSchema = z.enum([
   'cancelled',
 ]);
 
-/** 知识库概览：各实体计数与最近一条任务；lastJob 只带列表可读字段，不含 payload。 */
 export const knowledgeBaseSummarySchema = z.object({
   documents: z.number().int().nonnegative(),
   faqs: z.number().int().nonnegative(),
@@ -743,9 +701,7 @@ export const knowledgeJobSchema = z.object({
   progress: z.number().int(),
   attempts: z.number().int(),
   error: z.string().nullable(),
-  /** source_probe 等任务的可见结果；普通任务为 null。 */
   result: knowledgeSourceProbeResultSchema.nullable().default(null),
-  /** 归属对象；列表左连名字，单任务读取不带名字时为 null。 */
   documentId: z.string().nullable(),
   sourceId: z.string().nullable(),
   documentTitle: z.string().nullable(),
@@ -759,7 +715,6 @@ export type KnowledgeJob = z.infer<typeof knowledgeJobSchema>;
 
 export const knowledgeSyncItemStatusSchema = z.enum(['failed', 'skipped']);
 
-/** 逐项同步失败/跳过记录；只存状态与错误，不存凭证或正文。 */
 export const knowledgeSyncItemSchema = z.object({
   id: z.string(),
   syncRunId: z.string(),
@@ -823,7 +778,6 @@ const feishuConfig = z.object({
   ...sourceSyncOptions,
 });
 
-/** Lark 应用与飞书独立，API origin 固定，不接受自定义 baseUrl。 */
 const larkConfig = z.object({
   appId: z.string().min(1),
   ...sourceSyncOptions,
@@ -880,10 +834,8 @@ export const knowledgeSourceInputSchema = z.discriminatedUnion('type', [
     ...sourceBase,
     type: z.literal('github'),
     config: z.object({
-      // 缺省是 https://api.github.com；GitHub Enterprise 填 API 根（如 https://ghe.example.com/api/v3）。
       baseUrl: z.string().url().optional(),
       projectId: z.string().trim().min(1),
-      // 可空：worker 回落到仓库 default_branch。
       ref: z.string().min(1).optional(),
       ...sourceSyncOptions,
     }),
@@ -892,7 +844,6 @@ export const knowledgeSourceInputSchema = z.discriminatedUnion('type', [
   z.object({
     ...sourceBase,
     type: z.literal('feed'),
-    // url 可选：订阅地址也可由 range 的 externalId 指定（每个订阅源一条范围）。
     config: z.object({ url: z.string().url().optional(), ...sourceSyncOptions }),
     secrets: z.object({}),
   }),
@@ -918,7 +869,6 @@ export const knowledgeSourceInputSchema = z.discriminatedUnion('type', [
     ...sourceBase,
     type: z.literal('confluence'),
     config: confluenceConfig,
-    // Cloud 用 apiToken，DC 用 pat；具体与 authMode 的对应由入口统一校验。
     secrets: z.union([
       z.object({ apiToken: z.string().min(1) }),
       z.object({ pat: z.string().min(1) }),
@@ -973,7 +923,6 @@ export const knowledgeWikiGeneratedBySchema = z.enum(['sdk', 'manual']);
 export type KnowledgeWikiGeneratedBy = z.infer<typeof knowledgeWikiGeneratedBySchema>;
 
 export const knowledgeWikiLinkSchema = z.object({
-  /** null 表示目标页不存在：管理端据此标记坏链接，不伪造页面 ID。 */
   targetPageId: z.string().nullable(),
   anchor: z.string().nullable(),
 });
@@ -1020,7 +969,6 @@ export const knowledgeWikiVersionDiffSchema = z.object({
 
 export type KnowledgeWikiVersionDiff = z.infer<typeof knowledgeWikiVersionDiffSchema>;
 
-/** 手动/上传摄取的不可变输入快照；任务重试只能复用该快照，不重新读取线上状态。 */
 export const knowledgeIngestInputSnapshotSchema = z.object({
   blobSha256: z.string().min(1),
   filename: z.string().min(1),
@@ -1032,13 +980,9 @@ export const knowledgeJobPayloadSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('ingest'),
     documentId: z.string(),
-    /** 手写/FAQ/Wiki 草稿先存草稿；默认沿用自动原子发布。 */
     publish: z.enum(['draft', 'automatic']).default('automatic'),
-    /** 预分配草稿版本；FAQ 等调用方要求任务必须索引指定版本，不能回落到“最新”。 */
     versionId: z.string().min(1).optional(),
-    /** 建版本时合入的不可变 metadata（如 publication/faqImport/wiki 引用）。 */
     versionMetadata: z.record(z.string(), z.unknown()).optional(),
-    /** 摄取输入快照：重试与并发切换都按它核对，不再读取运行时最新状态。 */
     input: knowledgeIngestInputSnapshotSchema.optional(),
   }),
   z.object({
@@ -1046,7 +990,6 @@ export const knowledgeJobPayloadSchema = z.discriminatedUnion('type', [
     baseId: z.string(),
     documentIds: z.array(z.string()).optional(),
     chunksOnly: z.boolean().default(false),
-    /** 覆盖解析文本前必须显式确认人工分块；重试时随 payload 保留。 */
     confirmOverwriteManualChunks: z.boolean().default(false),
   }),
   z.object({ type: z.literal('sync'), sourceId: z.string(), syncRunId: z.string() }),
@@ -1069,7 +1012,6 @@ export const knowledgeJobPayloadSchema = z.discriminatedUnion('type', [
     type: z.literal('tag_generate'),
     baseId: z.string(),
     documentId: z.string(),
-    /** 自动任务绑定发布时的版本；手动任务省略，按当前版本生成。 */
     versionId: z.string().optional(),
   }),
   z.object({ type: z.literal('cleanup'), baseId: z.string().optional() }),
@@ -1093,7 +1035,6 @@ export const knowledgeReadImageResultSchema = z.object({
 export type KnowledgeReadImageInput = z.infer<typeof knowledgeReadImageInputSchema>;
 export type KnowledgeReadImageResult = z.infer<typeof knowledgeReadImageResultSchema>;
 
-/** faqPriority 命中且原始 cosine 达阈值时的直接答案；只取 cosine 最高者。 */
 export const knowledgeSearchDirectAnswerSchema = z.object({
   target: knowledgeTargetSchema,
   versionId: z.string(),
@@ -1103,14 +1044,11 @@ export const knowledgeSearchDirectAnswerSchema = z.object({
 
 export type KnowledgeSearchDirectAnswer = z.infer<typeof knowledgeSearchDirectAnswerSchema>;
 
-/** MCP 工具结果的 wire 形状：服务端生成、前端解析共用。 */
 export const knowledgeSearchResultSchema = z.object({
   hits: z.array(knowledgeSearchHitSchema),
   degraded: z.boolean().default(false),
   warnings: z.array(knowledgeSearchWarningSchema).default([]),
-  /** 仅管理端 REST 请求可开启；MCP 不返回候选正文与内部配置。 */
   diagnostics: knowledgeSearchDiagnosticsSchema.optional(),
-  /** 只有 faqPriority 且 FAQ 原始 cosine 达阈值时非空。 */
   directAnswer: knowledgeSearchDirectAnswerSchema.nullable().default(null),
 });
 
@@ -1124,7 +1062,6 @@ export const knowledgeReadInputSchema = z.object({
     .describe(
       'Must equal the current effective version, otherwise VERSION_NOT_CURRENT is returned; omit to read the current effective version.',
     ),
-  /** Unicode code point 下标。 */
   offset: z
     .number()
     .int()

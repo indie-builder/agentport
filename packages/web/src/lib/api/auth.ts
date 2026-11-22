@@ -21,13 +21,11 @@ export type CreateAccountInput = Omit<
   Parameters<ApiClient['auth']['accounts']['create']>[0]['body'],
   'restore'
 > & {
-  /** 历史业务 ID 必须显式恢复；普通新账户传 false。 */
   restore: boolean;
 };
 
 export default {
   me: (): Promise<AuthMe> => rpc.auth.me(),
-  /** 改密成功后服务端撤销全部会话，调用方必须重新登录。 */
   changePassword: (currentPassword: string, newPassword: string): Promise<{ ok: true }> =>
     rpc.auth.changePassword({ body: { currentPassword, newPassword } }),
   login: (username: string, password: string): Promise<{ ok: boolean }> =>

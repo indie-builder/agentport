@@ -32,7 +32,6 @@ export type ModelProfileListRow = Omit<KnowledgeModelProfileRow, 'secretsEncrypt
   hasSecret: boolean;
 };
 
-/** 列表不带密文，只回 hasSecret；API 可直接返回。 */
 export async function listModelProfiles(db: Database): Promise<ModelProfileListRow[]> {
   const rows = await db
     .select({
@@ -54,7 +53,6 @@ export async function listModelProfiles(db: Database): Promise<ModelProfileListR
   return rows;
 }
 
-/** worker/API 内部解密用；永不直接回传。 */
 export async function getModelProfileWithSecret(
   db: Database,
   id: string,

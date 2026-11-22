@@ -34,7 +34,6 @@ interface DispatchDeps extends KnowledgeDeps {
   knowledgeDir: string;
   wikiModel?: string | undefined;
   signal: AbortSignal;
-  /** 测试替换 SDK；生产走官方 query。 */
   queryFn?: WikiQueryFn;
 }
 
@@ -90,24 +89,15 @@ interface KnowledgeWorkerConfig {
   redisUrl: string;
   knowledgeDir: string;
   decrypt: (payload: string) => Record<string, string>;
-  /** Wiki 生成使用的模型；未配置时 wiki 任务会明确失败。 */
   wikiModel?: string | undefined;
-  /** 文档摘要使用的模型；未配置时摘要任务会明确失败。 */
   summaryModel?: string | undefined;
   anthropicBaseUrl: string | undefined;
-  /** Docling 端点与密钥；不配置时二进制格式会明确失败而不是静默降级。 */
   parser?: { url?: string | undefined; key?: string | undefined } | undefined;
-  /** KNOWLEDGE_PRIVATE_HOST_ALLOWLIST 解析后的可信私网主机。 */
   trustedHosts?: readonly string[] | undefined;
-  /** 本地 fixture 仅用；production 仍拒绝 loopback。 */
   allowLoopback?: boolean | undefined;
-  /** 测试替换 SDK query；不改变生产调用路径。 */
   queryFn?: WikiQueryFn | undefined;
-  /** 图片 OCR/描述同样走官方 query；真实运行不传，默认使用 query。 */
   imageQueryFn?: ImageQueryFn | undefined;
-  /** 测试用独立键前缀，避免消费同机真实知识队列。 */
   prefix?: string | undefined;
-  /** 覆盖自动装配的解析/来源适配（既有测试仍用注入）。 */
   parse?: KnowledgeDeps['parse'] | undefined;
   chunkMarkdown?: KnowledgeDeps['chunkMarkdown'] | undefined;
   connectors?: KnowledgeDeps['connectors'] | undefined;

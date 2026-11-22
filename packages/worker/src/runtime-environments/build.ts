@@ -9,6 +9,7 @@ import {
 } from '@agentport/core';
 import {
   errorText,
+  RUNTIME_ENVIRONMENT_BUILD_CONCURRENCY,
   RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT,
   RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
   type RuntimeEnvironmentBuildJob,
@@ -68,7 +69,6 @@ interface RuntimeEnvironmentBuildSuccess {
 
 interface RuntimeEnvironmentBuildFailure {
   ok: false;
-  /** aborted 表示被关闭信号或超时打断；终态由 handler 按原因写入。 */
   aborted: boolean;
   error: string;
   buildLog: string;
@@ -81,11 +81,8 @@ type RuntimeEnvironmentBuildResult =
 
 interface RuntimeEnvironmentBuildInput {
   versionId: string;
-  /** 版本创建时冻结的 Dockerfile 快照。 */
   dockerfile: string;
-  /** 版本入队时冻结的基座引用；构建只认它，不读 worker 当前 SANDBOX_IMAGE。 */
   baseImageId: string;
-  /** 构建输出增量回调；用于构建中分批落库。 */
   onOutput?: ((chunk: string) => void) | undefined;
   spawn?: SpawnFn | undefined;
   signal?: AbortSignal | undefined;
@@ -150,7 +147,6 @@ export async function executeRuntimeEnvironmentBuild(
         false,
       );
     }
-    // 先把基座固定到由 ID 派生的 tag：tag 不可变，BuildKit 也能从本地解析。
     const baseTag = immutableBaseTagFor(input.baseImageId, baseImageId);
     const tagged = await runDocker(spawnFn, ['tag', baseImageId, baseTag], signal, emit);
     if (tagged.aborted) return failure(log, BUILD_ABORTED_MESSAGE, true);
@@ -239,16 +235,12 @@ export async function executeRuntimeEnvironmentBuild(
 export interface RuntimeEnvironmentBuildClaim {
   versionId: string;
   dockerfile: string;
-  /** 入队时冻结的基座引用；构建只认这个值。 */
   baseImageId: string;
 }
 
 export interface RuntimeEnvironmentBuildStore {
-  /** 只认领 queued 版本并置为 building；重复投递或已终态返回 null。 */
   claimBuild(versionId: string): Promise<RuntimeEnvironmentBuildClaim | null>;
-  /** 构建中分批追加；长度截断由 DB 按同一限长保留尾部。 */
   appendBuildLog(versionId: string, chunk: string): Promise<void>;
-  /** 只改版本行，不推进线上指针；同时保存实际消费的基座 image ID。 */
   completeBuild(
     versionId: string,
     image: { imageTag: string; imageId: string; baseImageId: string },
@@ -259,7 +251,6 @@ export interface RuntimeEnvironmentBuildStore {
 interface RuntimeEnvironmentBuildDeps {
   store: RuntimeEnvironmentBuildStore;
   logger: Logger;
-  /** worker 关闭信号：abort 后当前构建按失败收尾，不留下 building。 */
   signal?: AbortSignal | undefined;
   spawn?: SpawnFn | undefined;
   timeoutMs?: number | undefined;
@@ -382,7 +373,6 @@ interface RuntimeEnvironmentBuildWorkerConfig {
   redisUrl: string;
   spawn?: SpawnFn | undefined;
   timeoutMs?: number | undefined;
-  /** 测试用独立键前缀，避免消费真实队列。 */
   prefix?: string | undefined;
 }
 
@@ -394,6 +384,7 @@ export async function startRuntimeEnvironmentBuildWorker(
     redisUrl: config.redisUrl,
     logger: config.logger,
     failureMessage: 'runtime environment build job failed',
+    concurrency: RUNTIME_ENVIRONMENT_BUILD_CONCURRENCY,
     processor: (signal) =>
       createRuntimeEnvironmentBuildHandler({
         store: config.store,

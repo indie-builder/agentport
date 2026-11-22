@@ -168,10 +168,6 @@ export async function replacePluginWithFiles(
   });
 }
 
-/**
- * 乐观锁必须写进 SQL：先读再比再无条件更新，两个并发 PATCH 会都通过比较。
- * 返回 null 表示行不存在；抛 CONFLICT_STALE 表示 token 不匹配。
- */
 export async function updatePluginMeta(
   db: Database,
   id: string,

@@ -88,7 +88,6 @@ export async function isConversationDataDomainRestricted(
   return row?.restricted ?? false;
 }
 
-/** 私有入口：频道 lane 不在这里暴露，访问统一走频道成员校验。 */
 export async function getConversation(
   db: DbHandle,
   conversationId: string,
@@ -119,7 +118,6 @@ export interface ConversationDeletionSnapshot {
   targets: ConversationSandboxTarget[];
 }
 
-/** 短 tx A：按删除范围重查主体与全部目标，提交后由调用方在事务外等待关闭。 */
 export async function prepareConversationDeletion(
   db: Database,
   input: ConversationDeletionInput,
@@ -127,7 +125,6 @@ export async function prepareConversationDeletion(
   return db.transaction((tx) => readConversationDeletionSnapshot(tx, input));
 }
 
-/** 短 tx B：重读完整快照并与 A 精确比较，匹配才删除；任何变化回滚。 */
 export async function deleteConversation(
   db: Database,
   input: ConversationDeletionInput & { expected: ConversationDeletionSnapshot },

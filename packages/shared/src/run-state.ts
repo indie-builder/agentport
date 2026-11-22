@@ -11,7 +11,6 @@ export const runStatusSchema = z.enum([
 
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
-/** 与聊天流一致的终态集合；queued/running 不是 run.finished。 */
 export const terminalRunStatusSchema = runStatusSchema.extract([
   'succeeded',
   'failed',
@@ -62,7 +61,6 @@ export function isTerminalRunStatus(
   return status != null && (TERMINAL_RUN_STATUSES as readonly string[]).includes(status);
 }
 
-/** 失败分类：infra=平台/沙箱基础设施，agent=模型或工具，sandbox=容器异常退出。 */
 export const runErrorKindSchema = z.enum(['cancelled', 'timeout', 'sandbox', 'agent', 'infra']);
 
 export type RunErrorKind = z.infer<typeof runErrorKindSchema>;

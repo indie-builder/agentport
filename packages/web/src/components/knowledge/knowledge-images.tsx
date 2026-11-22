@@ -160,7 +160,6 @@ function imageAlt(asset: KnowledgeImageAsset): string {
   return `${asset.documentTitle}${imagePageLabel(asset)} · ${asset.name}`;
 }
 
-// shortcut: gallery serves the stored image resized by the browser (no server-side thumbnail); add a thumbnail endpoint if stored images are large.
 function LazyKnowledgeImage({
   versionId,
   name,

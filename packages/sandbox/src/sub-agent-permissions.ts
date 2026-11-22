@@ -9,10 +9,6 @@ export interface SubAgentBoundary {
   /** 主会话自己绑定的 server；工作区 .mcp.json 是父 + 启用子级的并集。 */
   servers: Set<string>;
   skills: Set<string>;
-  /**
-   * 本次加载的插件技能全名（`<plugin>:<skill>`）。插件是会话级能力，v1 不做子级绑定：
-   * 主会话可用，子智能体一律拒绝。
-   */
   pluginSkills?: Set<string>;
   subAgents: Map<string, SubAgentBinding>;
 }
@@ -32,7 +28,6 @@ function serverOf(toolName: string, known: Set<string>): string | null {
   return match;
 }
 
-/** `Skill` 的入参是 `{ skill, args }`；允许 `/name` 与 `plugin:name` 的前缀写法。 */
 function skillOf(toolInput: unknown): string | null {
   if (typeof toolInput !== 'object' || toolInput === null) return null;
   const value = (toolInput as { skill?: unknown }).skill;
@@ -47,10 +42,6 @@ function allowedSkill(skill: string, allowed: Set<string>): boolean {
   return colon > 0 && allowed.has(skill.slice(0, colon));
 }
 
-/**
- * 插件技能带插件命名空间（`<plugin>:<skill>`，技能段是目录名或 frontmatter name）。
- * 这类名字只归主会话：子智能体没有插件绑定，v1 也不做下放。
- */
 function isPluginSkill(skill: string, pluginSkills: Set<string> | undefined): boolean {
   if (pluginSkills === undefined) return false;
   const colon = skill.indexOf(':');
@@ -62,13 +53,6 @@ function isPluginSkill(skill: string, pluginSkills: Set<string> | undefined): bo
   return false;
 }
 
-/**
- * 运行时工具边界：
- * - 子智能体只能调用自己绑定的 MCP server 与技能；父级绑定不隐式下放；
- * - 主会话不能调用只属于子智能体的 server；
- * - 用 `mcp__*` / 整个 server 的 disallowedTools 会把所有 MCP 工具一起否掉，
- *   所以子级边界不写在 frontmatter，而在每次调用前按调用方判断。
- */
 export function createSubAgentBoundaryHook(boundary: SubAgentBoundary): HookCallback {
   return async (input) => {
     if (input.hook_event_name !== 'PreToolUse') return {};

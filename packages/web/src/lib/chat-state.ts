@@ -10,7 +10,6 @@ import {
 } from '@agentport/shared';
 import type { ConversationDetail } from './api.js';
 
-/** 用户消息上的附件：只有历史项带下载地址，刚发送的乐观项只展示元数据。 */
 interface UserAttachment {
   id?: string;
   filename: string;
@@ -26,7 +25,6 @@ export type ChatItem =
       text: string;
       attachments?: UserAttachment[];
       messageId?: string;
-      /** 产生这一轮运行的 id；没有助手输出时，终态读数由这条用户消息承载。 */
       runId?: string;
       authorBusinessId?: string;
       self?: boolean;
@@ -38,26 +36,18 @@ export type ChatItem =
       runId?: string;
       /** 助手消息内的块序号；同一消息的不同块不能合并，但会被 SDK 的后续消息重用。 */
       blockIndex?: number;
-      /** run 内稳定的块身份；有它时按它对齐，不再用 blockIndex 判等。 */
       streamBlockId?: string;
-      /** 产生该块的 SDK 消息 uuid；同一条消息的所有块共享。 */
       sdkUuid?: string;
-      /** 子智能体产生的文本：父侧 Agent 的 tool_use id。 */
       parentToolUseId?: string;
-      /** 超过单块上限被截断：text 只是保留的前缀。 */
       truncated?: boolean;
-      /** 该块已结束；重用的块序号不能并进这一段。 */
       closed?: boolean;
-      /** 落库后的消息 id：run_finished 回填，历史重建时直接给。 */
       messageId?: string;
       /**
        * 生成该消息时智能体的回复格式。历史按消息自身渲染：
        * 智能体之后把 `uiFormat` 改回 markdown，也不能把已存的 UI 显示成源码。
        */
       uiFormat?: 'markdown' | 'openui';
-      /** editMode 合并后的完整程序；流式期间没有，只有原文。 */
       uiProgram?: string;
-      /** 该消息 UI 段的表单/绑定快照，键是 blockKey。 */
       uiState?: unknown;
     }
   | {
@@ -69,13 +59,10 @@ export type ChatItem =
       result?: string;
       /** 落库的 tool_result 消息 id：run_id 被分支/维护清空后，成果仍靠它定位。 */
       resultMessageId?: string;
-      /** 子智能体内部的调用：父侧 Agent 的 tool_use id。 */
       parentToolUseId?: string;
-      /** 前端收到的时刻，用于显示耗时；历史消息没有。 */
       startedAt?: number;
       endedAt?: number;
       runId?: string;
-      /** 最近一次确认的任务清单快照；空数组表示已清空。 */
       todos?: ProgressTodo[];
       /** 原生提问的落库快照；取消/失败没有 tool_result 时也靠它展示问题。 */
       question?: PublicRunQuestion;
@@ -87,10 +74,6 @@ export type ChatItem =
     }
   | { id?: string; kind: 'notice'; text: string; tone: 'ok' | 'error' | 'warning' | 'muted' };
 
-/**
- * 事件流没有 isError 字段，沙盒只丢了文本。已知错误文案只能按前缀识别。
- * shortcut: 工具错误靠前缀判断，后端补 isError 后改这里。
- */
 export function toolFailed(result: string | undefined): boolean {
   if (result === undefined) return false;
   const text = result.trimStart();

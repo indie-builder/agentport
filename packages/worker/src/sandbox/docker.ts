@@ -8,13 +8,11 @@ import {
   type SandboxProvider,
 } from './provider.js';
 
-/** 与 worker config 对应的容器资源上限；默认值见 config.ts。 */
 export interface DockerSandboxOptions {
   memory: string;
   cpus: number;
   pids: number;
   egress: 'open' | 'none' | 'proxy';
-  /** 关停信号：abort 后拒绝新建容器，并取消进行中的镜像拉取。 */
   closing?: AbortSignal;
 }
 
@@ -324,11 +322,6 @@ export class DockerSandboxProvider implements SandboxProvider {
     });
   }
 
-  /**
-   * 删除容器并确认真实结果：`--rm` 自动删除与 `rm -f` 并发时，daemon 会拒绝
-   * "removal ... already in progress"；此时用 inspect 有界轮询等它删完，
-   * 既不当成成功吞掉，也不提前当成 missing 或失败。
-   */
   private async removeContainer(id: string): Promise<void> {
     const removed = await runDockerCommand(['rm', '-f', id], CLEANUP_TIMEOUT_MS);
     if (removed.ok || removed.missing) return;

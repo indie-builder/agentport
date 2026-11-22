@@ -20,11 +20,6 @@ function toToolSpec(tool: OpenUiToolDescriptor): ToolSpec {
   };
 }
 
-/**
- * 生成式 UI 的系统提示词段。组件定义来自官方 spec，
- * inlineMode 让模型只在需要结构化输出时才放 `openui-lang` 围栏，普通提问仍用纯文本。
- * tools 必须与执行桥用同一份描述：提示词里没有的工具，前端调用会被拒绝。
- */
 export function openuiSystemPrompt(tools: OpenUiToolDescriptor[] = []): string {
   const key = tools
     .map(

@@ -110,7 +110,6 @@ export async function reconcileKnowledgeJobs(
 
     if (state !== null && isActiveJobState(state)) continue;
     try {
-      // 旧的 failed/completed 条目会按 jobId 去重，导致 add 变成空操作。
       if (state !== null) await queue.remove(row.id).catch(() => undefined);
       await queue.add('knowledge', { jobId: row.id }, knowledgeEnqueueOptions(row.id));
       requeued += 1;
@@ -123,12 +122,6 @@ export async function reconcileKnowledgeJobs(
   return { failed, requeued };
 }
 
-/**
- * 每天一条全局 cleanup：blob 回收按引用判断，不属于某个库。
- * 同一天已有记录、或上一次 cleanup 还没跑完（queued/running），都不再新建；
- * 入队失败只留 queued 行，交给下一轮 reconcile 按 jobId 补投。
- * shortcut: 多 worker 并发时可能各建一条，部署是单 worker，扩容时改为部分唯一索引。
- */
 export async function ensureDailyCleanup(
   db: ReturnType<typeof createDb>['db'],
   logger: Logger,

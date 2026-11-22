@@ -1,6 +1,5 @@
 import type { Logger } from 'pino';
 
-/** 默认环境登记只需这两个 DB 能力；与 repo 的方法一一对应。 */
 interface DefaultEnvironmentStore {
   getDefault: () => Promise<{ id: string } | null>;
   register: (image: { imageTag: string; imageId: string }) => Promise<unknown>;
@@ -9,7 +8,6 @@ interface DefaultEnvironmentStore {
 export interface DefaultEnvironmentDeps {
   store: DefaultEnvironmentStore;
   ensureDefaultAgentPublished: () => Promise<void>;
-  /** 复用 DockerSandboxProvider.ensureImage：缺失时拉取，不另造一套。 */
   ensureImage: (image: string, signal: AbortSignal) => Promise<void>;
   resolveImageId: (image: string) => Promise<string | null>;
   sandboxImage: string;

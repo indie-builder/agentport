@@ -59,7 +59,6 @@ const sourceParams = z.object({ sourceId: z.string().min(1) });
 const wikiPageParams = z.object({ pageId: z.string().min(1) });
 const staleProcedure = contractProcedure.errors(domainErrors('CONFLICT_STALE'));
 
-/** 知识库活动流的一条审计记录；targetKind 由服务端按真实归属判定。 */
 export const knowledgeBaseActivityItemSchema = z.object({
   id: z.string(),
   action: z.string(),

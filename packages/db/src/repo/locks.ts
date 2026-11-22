@@ -1,43 +1,31 @@
 import { AppError } from '@agentport/core';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/bun-sql';
-import type { Database, DatabaseClient } from '../client.js';
+import type { Database, DatabaseClient, Transaction } from '../client.js';
 import { agents, schema } from '../schema.js';
 
-type LockDb = Pick<Database, 'execute' | 'select'>;
-
-/** 委派、准入、记忆与删除共用的绑定锁键；API 复用同一字符串，不另造键。 */
 export const AGENT_BINDINGS_LOCK_KEY = 'agentport.subagent-bindings';
 
 const CONTROL_QUERY_TIMEOUT = '5s';
 
 const CONTROL_QUERY_TIMEOUT_MS = 5_000;
 
-/**
- * 委派关系、运行准入与记忆写入共用的绑定锁。凡是会读「发起专家 + enabled 子级」
- * 或改变这层关系的写事务，都必须先拿它；拿锁顺序固定为 绑定锁 → 记忆锁 → 行锁。
- */
-export async function lockAgentBindings(db: LockDb): Promise<void> {
-  await db.execute(sql`select pg_advisory_xact_lock(hashtext(${AGENT_BINDINGS_LOCK_KEY}))`);
+export async function lockAgentBindings(tx: Transaction): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${AGENT_BINDINGS_LOCK_KEY}))`);
 }
 
-async function lockMemoryKey(db: LockDb, key: string): Promise<void> {
-  await db.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`);
+async function lockMemoryKey(tx: Transaction, key: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`);
 }
 
-/**
- * 一次运行占用的资源集合 = 发起专家 + 发布快照的子智能体（缺省为 live enabled 直接子智能体）。
- * 集合在运行期间固定：先拿绑定锁再读子级，然后按 agentId 排序取记忆锁。
- * 调用方必须在插入 queued 运行的同一事务里调用。
- */
 export async function lockRunResources(
-  db: LockDb,
+  tx: Transaction,
   agentId: string,
   subAgentIds?: string[],
 ): Promise<void> {
-  await lockAgentBindings(db);
+  await lockAgentBindings(tx);
   const children = (
-    await db
+    await tx
       .select({ id: agents.id })
       .from(agents)
       .where(
@@ -51,13 +39,9 @@ export async function lockRunResources(
       .orderBy(asc(agents.id))
   ).map((row) => row.id);
   const ids = [...new Set([agentId, ...children])].sort();
-  for (const id of ids) await lockMemoryKey(db, agentMemoryLockKey(id));
+  for (const id of ids) await lockMemoryKey(tx, agentMemoryLockKey(id));
 }
 
-/**
- * 记忆写入的统一目标锁：个人记忆按用户，专家记忆与规则共用该专家一把锁。
- * 同一专家只取一个锁，避免多个写入口交叉持锁。
- */
 export function memoryTargetLockKey(
   target: { kind: 'personal' } | { kind: 'agent_memory' | 'agent_rule'; agentId: string },
   userId: string,
@@ -77,17 +61,6 @@ function connectionError(reason: unknown): Error {
   return reason instanceof Error ? reason : new Error(String(reason));
 }
 
-/**
- * 会话级 advisory lock 覆盖整个操作：DB 事务提交/回滚由 fn 自己完成，
- * 锁一直持有到 fn 返回，文件投影与数据库写入之间不再留空窗。
- *
- * helper 在同一 checked-out client 上创建 Drizzle 并交给 fn；绝不替回调换连接。
- * 所有控制查询（读设置、取锁、解锁、恢复）都有 5s 客户端截止，超时立即销毁连接，
- * 不再在失效连接上等 finally 清理。连接错误、解锁/恢复失败或取锁结果未知时同样销毁，
- * 保证锁不会随连接归池泄漏。
- * `holdTimeoutMs` 只给删除这类跨网络确认的操作使用，从确认拿锁时起计时，覆盖其后
- * 的设置恢复、tx A/B 与 unlock；超时即销毁原 client 并拒绝，迟到回调不能换连接继续写入。
- */
 export async function withAdvisoryLock<T>(
   databaseClient: DatabaseClient,
   key: string,

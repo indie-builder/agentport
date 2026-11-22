@@ -15,7 +15,6 @@ import { rpc } from '../orpc.js';
 import type { ApiOutput } from './shared.js';
 import { clientOptions } from './shared.js';
 
-/** 个人偏好保存结果：多返回本次写入的变更 id，供页面提示。 */
 type PersonalMemoryWriteResult = ApiOutput<ApiClient['memory']['writePersonal']>;
 
 type MemoryChangeList = ApiOutput<ApiClient['memory']['agentFileVersions']>;
@@ -29,7 +28,6 @@ type MemoryReviewList = ApiOutput<ApiClient['memoryReviews']['list']>;
 
 export default {
   agentMemory: (id: string): Promise<MemoryFileList> => rpc.agents.memory({ params: { id } }),
-  /** 原生记忆目录 ZIP；只含 MEMORY.md 与主题 Markdown。 */
   agentMemoryDownloadUrl: (id: string): string => `/api/agents/${id}/memory/download`,
   agentMemoryVersions: (
     id: string,
@@ -45,7 +43,6 @@ export default {
     rpc.memory.agentMemoryOverview({ params: { id } }),
   agentMemoryAssembly: (id: string): Promise<AgentMemoryAssembly> =>
     rpc.memory.agentMemoryAssembly({ params: { id } }),
-  /** 整份策略替换：不提供局部 patch。 */
   updateAgentMemoryPolicy: (id: string, policy: MemoryPolicy): Promise<{ policy: MemoryPolicy }> =>
     rpc.memory.updateAgentMemoryPolicy({ params: { id }, body: { policy } }),
   writeAgentMemoryFile: (id: string, name: string, content: string): Promise<MemoryFileContent> =>
@@ -64,7 +61,6 @@ export default {
     rpc.memory.rollback({ params: { id } }),
   memoryReviews: (query: MemoryReviewQuery = {}, signal?: AbortSignal): Promise<MemoryReviewList> =>
     rpc.memoryReviews.list({ query }, clientOptions(signal)),
-  /** 幂等键随请求头提交；同一键重复提交返回同一个 runId。scope=own 约束来源会话必须是本人。 */
   createMemoryReview: (
     input: CreateMemoryReviewInput,
     idempotencyKey: string,

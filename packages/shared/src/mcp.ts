@@ -3,7 +3,6 @@ import { slugSchema } from './params.js';
 import { resolvedRuntimeEnvironmentSchema } from './runtime-environment.js';
 import { hasEmbeddedCredentials, parseUrl } from './url.js';
 
-/** 用户配置的 MCP Server；密钥字段在 API 层加密，返回时脱敏。 */
 export const serverKindSchema = z.enum(['stdio', 'http', 'generated', 'knowledge', 'data_domain']);
 export type ServerKind = z.infer<typeof serverKindSchema>;
 
@@ -21,12 +20,10 @@ export function toolApprovalPath(serverId: string, runId: string, tool: string):
 export const SECRET_MASK = '••••';
 export const PREVIEW_SECRET = SECRET_MASK;
 
-/** 空值保留为空；已配置密钥不泄露长度或前缀。 */
 export function maskSecret(value: string | null | undefined): string {
   return value ? SECRET_MASK : '';
 }
 
-/** 仅用于展示：隐藏 URL 内嵌凭证；无 userinfo 时原样返回，不规范化。 */
 export function maskUrlCredentials(value: string): string {
   const url = parseUrl(value);
   if (!url) return '[无效URL]';
@@ -49,25 +46,38 @@ const isStringMap = (value: unknown): value is Record<string, string> => {
 };
 const mcpJsonArtifactHeaders = z.custom<Record<string, string>>(isStringMap);
 
+const mcpJsonArtifactStdioEntrySchema = z.strictObject({
+  type: z.literal('stdio').optional(),
+  command: z.string(),
+  args: z.array(z.string()).default([]),
+  env: mcpJsonArtifactHeaders.default({}),
+});
+
+const mcpJsonArtifactHttpBase = {
+  type: z.enum(['http', 'streamable-http']),
+  url: z.string(),
+  headers: mcpJsonArtifactHeaders.default({}),
+};
+
 export const mcpJsonArtifactEntrySchema = z.discriminatedUnion('type', [
+  mcpJsonArtifactStdioEntrySchema,
+  z.strictObject(mcpJsonArtifactHttpBase),
+]);
+
+export type McpJsonArtifactEntry = z.infer<typeof mcpJsonArtifactEntrySchema> & {
+  readonly _note?: never;
+};
+
+export const previewMcpJsonArtifactEntrySchema = z.discriminatedUnion('type', [
+  mcpJsonArtifactStdioEntrySchema,
   z.strictObject({
-    type: z.literal('stdio').optional(),
-    command: z.string(),
-    args: z.array(z.string()).default([]),
-    env: mcpJsonArtifactHeaders.default({}),
-  }),
-  z.strictObject({
-    type: z.enum(['http', 'streamable-http']),
-    url: z.string(),
-    headers: mcpJsonArtifactHeaders.default({}),
-    /** 仅预览用：说明运行时注入的 Authorization，不写入真实工作区文件。 */
+    ...mcpJsonArtifactHttpBase,
     _note: z.string().optional(),
   }),
 ]);
 
-export type McpJsonArtifactEntry = z.infer<typeof mcpJsonArtifactEntrySchema>;
+export type PreviewMcpJsonArtifactEntry = z.infer<typeof previewMcpJsonArtifactEntrySchema>;
 
-/** Build an MCP entry with values supplied by the caller (masked, empty, or runtime secrets). */
 export function previewMcpEntry(
   server: { kind: ServerKind; config: Record<string, unknown> },
   values: Record<string, string> = {},
@@ -101,7 +111,6 @@ export function knowledgeTokenEnv(serverName: string): string {
   return `KNOWLEDGE_${serverName.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_TOKEN`;
 }
 
-/** 知识库连接器在 `.mcp.json` 里的唯一构造点：预览与运行时共用，避免两处漂移。 */
 export function knowledgeMcpEntry(input: {
   apiUrl: string;
   serverId: string;
@@ -146,7 +155,6 @@ export const stdioServerSchema = z.object({
   env: z.record(z.string(), z.string()).default({}),
 });
 
-/** 只允许 http/https，且禁止内嵌账号密码；ftp/file/javascript 等在 schema 层就被拦下。 */
 export const httpUrlSchema = z
   .url()
   .refine((value) => /^https?:\/\//i.test(value), '仅支持 http/https 地址')
@@ -189,7 +197,6 @@ export const httpServerSchema = z.object({
   headers: z.record(z.string(), z.string()).default({}),
 });
 
-/** 由平台自身把上游 HTTP API 包装成 MCP 的 server。 */
 export const generatedServerSchema = z.object({
   ...baseServer,
   kind: z.literal('generated'),
@@ -197,7 +204,6 @@ export const generatedServerSchema = z.object({
   headers: z.record(z.string(), z.string()).default({}),
 });
 
-/** 平台为每个知识库自动生成的内置 server；只接受 run 短期 token，不走用户 CRUD。 */
 export const knowledgeServerSchema = z.object({
   kind: z.literal('knowledge'),
   name: slugSchema,
@@ -224,11 +230,9 @@ const serverIdFields = {
   id: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
-  /** 最近一次测试连接的结果；从未测试为 null。 */
   lastTestedAt: z.string().nullable().optional(),
   lastTestOk: z.boolean().nullable().optional(),
   lastToolCount: z.number().int().nullable().optional(),
-  /** 最近一次测试实际使用的环境身份；非 stdio 或环境解析前失败为 null。 */
   lastTestRuntimeEnvironment: resolvedRuntimeEnvironmentSchema.nullable().optional(),
 };
 
@@ -236,10 +240,6 @@ const maskedHttpUrlSchema = z
   .url({ protocol: /^https?$/ })
   .refine((value) => maskUrlCredentials(value) === value, 'URL凭证必须脱敏');
 
-/**
- * 读形状包含平台内置的 `knowledge`；写形状（serverInputSchema）不含它，
- * 用户无法通过创建/导入伪造内置知识连接。`knowledge` 的 config 由平台写入。
- */
 export const serverSchema = z.discriminatedUnion('kind', [
   stdioServerSchema.extend(serverIdFields),
   httpServerSchema.extend({ ...serverIdFields, url: maskedHttpUrlSchema }),
@@ -256,20 +256,14 @@ export type ApiToolParamsIn = z.infer<typeof apiToolParamsInSchema>;
 export const apiToolApprovalModeSchema = z.enum(['allow', 'ask', 'deny']);
 export type ApiToolApprovalMode = z.infer<typeof apiToolApprovalModeSchema>;
 
-/** generated server 下的单个 HTTP 工具。 */
 export const apiToolInputSchema = z.object({
   name: slugSchema,
   description: z.string().max(1000).default(''),
   method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
-  /** 相对 baseUrl 的路径模板，如 `/users/{id}` */
   pathTemplate: z.string().min(1),
-  /** JSON Schema，用于生成 MCP tool 的 inputSchema */
   inputSchema: z.record(z.string(), z.unknown()).default({ type: 'object', properties: {} }),
-  /** MCP tool outputSchema（JSON Schema），来自 OpenAPI 响应结构；可为空 */
   outputSchema: z.record(z.string(), z.unknown()).nullable().optional(),
-  /** 参数放在 query 还是 body */
   paramsIn: apiToolParamsInSchema.default('query'),
-  /** allow 直接执行；ask 调用前需在运行页批准；deny 直接拒绝。 */
   approvalMode: apiToolApprovalModeSchema.default('allow'),
 });
 
@@ -301,13 +295,11 @@ export const mcpToolSummarySchema = z.object({
 
 export type McpToolSummary = z.infer<typeof mcpToolSummarySchema>;
 
-/** 测试连接的结果，回显到页面。 */
 export const serverTestResultSchema = z.object({
   ok: z.boolean(),
   serverInfo: z.object({ name: z.string(), version: z.string() }).optional(),
   tools: z.array(mcpToolSummarySchema).default([]),
   error: z.string().optional(),
-  /** stdio 试连实际使用的环境身份；http/generated 不创建沙盒，没有这一项。 */
   runtimeEnvironment: resolvedRuntimeEnvironmentSchema.optional(),
   durationMs: z.number(),
 });

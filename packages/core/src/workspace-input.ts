@@ -3,6 +3,7 @@ import {
   type McpJsonArtifactEntry,
   type MemoryPolicy,
   type OpenUiToolDescriptor,
+  type PreviewMcpJsonArtifactEntry,
   resolveMemoryPolicy,
 } from '@agentport/shared';
 import type {
@@ -12,7 +13,6 @@ import type {
   WorkspaceSkill,
 } from './workspace.js';
 
-/** 渲染工作区所需的最小 agent 行；API 预览与 worker 落盘共用这一份映射。 */
 export interface WorkspaceAgentRow {
   slug: string;
   name: string;
@@ -26,9 +26,7 @@ export interface WorkspaceAgentRow {
   allowedTools: string[];
   disallowedTools: string[];
   enabled: boolean;
-  /** 子智能体自带技能；可选，由 DB 调用方补充子行时提供。 */
   skills?: WorkspaceSkill[];
-  /** 该智能体自己绑定的 MCP server 名；决定 .mcp.json 里哪些名字对它可见。 */
   serverNames?: string[];
 }
 
@@ -60,9 +58,11 @@ export function resolveWorkspaceMemoryPolicy(
     : policy;
 }
 
-export function toWorkspaceInput(params: {
+export function toWorkspaceInput<
+  TEntry extends McpJsonArtifactEntry | PreviewMcpJsonArtifactEntry = McpJsonArtifactEntry,
+>(params: {
   agent: WorkspaceAgentRow;
-  servers: Array<{ name: string; entry: McpJsonArtifactEntry }>;
+  servers: Array<{ name: string; entry: TEntry }>;
   skills: WorkspaceSkill[];
   subAgents: WorkspaceAgentRow[];
   workflows?: Array<{ slug: string; content: string }>;
@@ -76,13 +76,10 @@ export function toWorkspaceInput(params: {
   selectedOutputStyle?: string | null;
   hooks?: Record<string, unknown> | null;
   hookFiles?: Array<{ path: string; content: string; executable: boolean }>;
-  /** 生成式 UI 工具目录；与提示词同源，调用方查一次后两侧共用。 */
   openuiTools?: OpenUiToolDescriptor[];
-  /** 已按绑定授权过滤的插件；预览与运行共用同一份。 */
   plugins?: WorkspacePlugin[];
-  /** 专家记忆策略；worker 传已解析的策略，未传时按默认（可读可写）渲染。 */
   memoryPolicy?: MemoryPolicy;
-}): WorkspaceInput {
+}): WorkspaceInput<TEntry> {
   const { agent, memoryPolicy } = params;
   return {
     agent: toWorkspaceAgent(agent),

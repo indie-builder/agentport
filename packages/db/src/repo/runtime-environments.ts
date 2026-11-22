@@ -74,7 +74,6 @@ export function toRuntimeEnvironmentVersionSummary(
   };
 }
 
-/** 名称冲突统一成 409；其他错误原样抛出。 */
 function rethrowNameConflict(err: unknown): never {
   if (isPgCode(err, '23505')) {
     throw new AppError('CONFLICT', '运行环境名称已被占用，请换一个');
@@ -253,11 +252,6 @@ async function hasFixedEnvironmentReferences(db: DbHandle, id: string): Promise<
   return result[0]?.blocked === true;
 }
 
-/**
- * 删除环境连同其全部版本。默认环境、仍被智能体绑定、仍被已发布定义或活动任务引用、仍在构建时拒绝；
- * 并在同一事务里先清空线上指针再删版本，避免复合外键互相阻塞。
- * 并发绑定的窗口由 agents 上的 RESTRICT 外键兜底。
- */
 export async function deleteRuntimeEnvironment(db: Database, id: string): Promise<boolean> {
   try {
     return await db.transaction(async (tx) => {
@@ -316,10 +310,6 @@ export async function deleteRuntimeEnvironment(db: Database, id: string): Promis
   }
 }
 
-/**
- * worker 首次启动登记平台基座默认环境。默认环境已存在时原样返回：
- * 不因 SANDBOX_IMAGE 变化推进线上指针，也不覆盖用户发布/回退过的版本。
- */
 export async function ensureDefaultRuntimeEnvironment(
   db: Database,
   input: { imageTag: string; imageId: string },
@@ -379,7 +369,6 @@ export async function listRuntimeEnvironmentVersions(
   return rows.map(toRuntimeEnvironmentVersionSummary);
 }
 
-/** 详情（含冻结 Dockerfile 与完整构建日志）；版本必须属于该环境。 */
 export async function getRuntimeEnvironmentVersion(
   db: Database,
   environmentId: string,
@@ -405,7 +394,6 @@ export interface PendingRuntimeEnvironmentBuild {
   startedAt: Date | null;
 }
 
-/** 对账入口：只返回 queued/building 版本，避免全量加载版本行。 */
 export async function listPendingRuntimeEnvironmentBuilds(
   db: Database,
 ): Promise<PendingRuntimeEnvironmentBuild[]> {
@@ -426,7 +414,6 @@ export async function listPendingRuntimeEnvironmentBuilds(
   );
 }
 
-/** 用环境当前 Dockerfile 入队一次新构建；环境不存在返回 null。 */
 export async function enqueueRuntimeEnvironmentBuild(
   db: Database,
   environmentId: string,
@@ -533,7 +520,6 @@ export async function failRuntimeEnvironmentBuild(
   return row === undefined ? null : toRuntimeEnvironmentVersion(row);
 }
 
-/** 发布/回退：只接受本环境的 ready 版本，只改线上指针。 */
 export async function publishRuntimeEnvironmentVersion(
   db: Database,
   environmentId: string,
@@ -572,11 +558,6 @@ export async function publishRuntimeEnvironmentVersion(
   });
 }
 
-/**
- * 创建容器时解析真实镜像。environmentId 为 null 表示默认环境。
- * 无线上版本、版本未就绪或镜像 ID 缺失时返回 null，由调用方明确报错；
- * 这里绝不回落到其他环境或基座镜像。
- */
 export async function resolveOnlineRuntimeEnvironment(
   db: Database,
   environmentId: string | null,

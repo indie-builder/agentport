@@ -1,16 +1,10 @@
 import { z } from 'zod';
 import { DEFAULT_JOB_RETENTION } from './run-stream.js';
 
-/** BullMQ 原生 Job Scheduler 的队列：只负责按 cron 投递触发信号，不直接跑运行。 */
 export const SCHEDULE_TRIGGERS_QUEUE = 'schedule-triggers';
 
-/** 运行队列待处理超过这个数就不再新增定时运行，避免积压时雪上加霜。 */
 export const AGENT_RUNS_BACKLOG_LIMIT = 100;
 
-/**
- * scheduler id、payload.scheduleId 与 data 的三个 id 都用 agent_schedules.id。
- * worker 先落盘再补 runId/conversationId/messageId，让重投递能识别已创建的运行。
- */
 export const scheduleTriggerJobSchema = z.object({
   scheduleId: z.string().min(1),
   runId: z.string().optional(),
@@ -32,7 +26,6 @@ export interface ScheduleTriggerTemplate {
   };
 }
 
-/** scheduler id / repeat / job template 的三元组：API、worker 与测试共用同一契约。 */
 export function scheduleTriggerArgs(
   scheduleId: string,
   cron: string,

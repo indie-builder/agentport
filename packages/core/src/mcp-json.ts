@@ -74,10 +74,6 @@ function parseEntry(name: string, entry: Record<string, unknown>): ServerInput {
   return input.data;
 }
 
-/**
- * 解析 Claude Code `.mcp.json`，只接受平台能安全落盘的子集。
- * 值一律不进错误消息：文件里包含密钥，报错会进日志与响应。
- */
 export function parseMcpJson(text: string): ServerInput[] {
   if (Buffer.byteLength(text, 'utf8') > MCP_JSON_MAX_BYTES) {
     invalidInput('文件超过 1 MiB 上限', 'mcpJson');

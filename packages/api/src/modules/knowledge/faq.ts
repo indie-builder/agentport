@@ -409,7 +409,6 @@ function parseJsonRows(content: string): RawRow[] {
 
 function csvHeader(content: string): string[] {
   try {
-    // header 用同一解析器单独读一行，引号/换行才按 CSV 规范处理。
     const [first] = parseCsv(content, {
       bom: true,
       to_line: 1,

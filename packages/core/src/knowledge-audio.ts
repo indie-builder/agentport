@@ -93,10 +93,6 @@ export function knowledgeAudioFromMime(mimeType: string): KnowledgeAudioInspecti
   return { format, mimeType: FORMATS[format].mimeType };
 }
 
-/**
- * 普通非音频返回 null；声称是音频但字节不成立、或声明与实际格式冲突则抛 AppError。
- * 通过识别只证明容器头成立，截断/损坏的负载仍可能被转录端拒绝。
- */
 export async function inspectKnowledgeAudio(input: {
   data: Uint8Array;
   filename: string;

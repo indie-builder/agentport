@@ -12,7 +12,6 @@ export interface HealthReady {
   redis: 'ok' | 'error';
 }
 
-/** 健康端点在 /api 之外，且 503 也是有效结果；reachable 表示拿到了可解析的响应。 */
 export interface HealthProbe<T> {
   reachable: boolean;
   httpStatus: number | null;
@@ -36,7 +35,6 @@ async function probeHealth<T>(path: string): Promise<HealthProbe<T>> {
 }
 
 export default {
-  /** 指标端点不在 /api 下；不可用时返回 null，页面显示「不可用」。 */
   healthMetrics: async (): Promise<HealthMetrics | null> => {
     const probe = await probeHealth<HealthMetrics>('/health/metrics');
     return probe.reachable && probe.httpStatus === 200 ? probe.body : null;

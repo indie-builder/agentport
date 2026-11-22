@@ -11,6 +11,7 @@ import {
   memoryWritable,
   type OpenUiToolDescriptor,
   OUTPUTS_CONTAINER_DIR,
+  type PreviewMcpJsonArtifactEntry,
   SANDBOX_RUNTIME_ENV,
   slugSchema,
   type WorkspaceFiles,
@@ -35,14 +36,11 @@ export interface WorkspaceAgent {
   systemPrompt: string;
   maxTurns: number;
   permissionMode?: AgentInput['permissionMode'];
-  /** 'openui' 时系统提示词追加生成式 UI 段；缺省按 markdown。 */
   uiFormat?: AgentInput['uiFormat'];
   effort?: AgentInput['effort'] | null;
   allowedTools?: string[];
   disallowedTools?: string[];
-  /** 该智能体自己绑定的 MCP server 名；缺省视为全部（预览等单一视角）。 */
   serverNames?: string[];
-  /** 子智能体的技能；父智能体只声明自己的，子技能仅供子智能体原生加载。 */
   skills?: WorkspaceSkill[];
 }
 
@@ -51,17 +49,16 @@ export interface WorkspaceSkill extends SkillProvenance {
   name: string;
   description: string;
   body: string;
-  /** 官方 SKILL.md 目录的支持资源文件，相对技能目录的路径。 */
   files?: Array<{ path: string; content: string }>;
 }
 
-export interface WorkspaceInput {
+export interface WorkspaceInput<
+  TEntry extends McpJsonArtifactEntry | PreviewMcpJsonArtifactEntry = McpJsonArtifactEntry,
+> {
   agent: WorkspaceAgent;
-  servers: Array<{ name: string; entry: McpJsonArtifactEntry }>;
+  servers: Array<{ name: string; entry: TEntry }>;
   skills?: WorkspaceSkill[];
-  /** 单层委派：这些子智能体渲染到 .claude/agents/，主智能体获得 Agent 工具。 */
   subAgents?: WorkspaceAgent[];
-  /** 工作流：{ slug, content }；content 是完整官方脚本，原样落盘。 */
   workflows?: Array<{ slug: string; content: string }>;
   rules?: Array<{ slug: string; content: string; globs?: string }>;
   outputStyles?: Array<{
@@ -70,31 +67,20 @@ export interface WorkspaceInput {
     keepCodingInstructions: boolean;
     body: string;
   }>;
-  /** 选中的输出风格名；undefined/null 表示默认。 */
   selectedOutputStyle?: string | null;
   hooks?: Record<string, unknown> | null;
   hookFiles?: Array<{ path: string; content: string; executable: boolean }>;
-  /** 本次运行要加载的插件；调用方已按绑定授权过滤完 hooks/MCP。 */
   plugins?: WorkspacePlugin[];
   toolsAllow?: string[];
   toolsDeny?: string[];
-  /** 生成式 UI 可调用的工具；必须与执行桥的工具目录同源，提示词里没有的调用一律拒绝。 */
   openuiTools?: OpenUiToolDescriptor[];
-  /**
-   * 专家记忆策略：决定 CLAUDE.md 里主会话记忆的可读/可写说明，必须与 worker 的挂载权限同源。
-   * 缺省按默认策略（可读可写），未解析策略的预览等调用方保持既有文案。
-   */
   memoryPolicy?: MemoryPolicy;
 }
 
-/** 插件的已授权形态：文件树已按授权裁剪，manifest 未授权组件不会再出现在里面。 */
 export interface WorkspacePlugin {
   slug: string;
-  /** SDK 看到的插件名，技能命名空间 `plugin:<runtimeName>`。 */
   runtimeName: string;
-  /** 插件技能在本插件内的目录名（不含 `plugin:` 前缀）。 */
   skillNames: string[];
-  /** 已授权 MCP server 的原始名（不含 `plugin:<plugin>:` 前缀）。 */
   mcpServerNames: string[];
   hasAgents: boolean;
   files: Array<{ path: string; content: string; executable: boolean }>;
@@ -187,13 +173,16 @@ function yamlList(values: string[]): string {
   return `[${values.map(yamlString).join(', ')}]`;
 }
 
-/** 根会话绑定的 server；undefined 保持单视角默认（全部），显式 [] 表示根无绑定。 */
-function rootServers(input: WorkspaceInput): WorkspaceInput['servers'] {
+function rootServers<TEntry extends McpJsonArtifactEntry | PreviewMcpJsonArtifactEntry>(
+  input: WorkspaceInput<TEntry>,
+): WorkspaceInput<TEntry>['servers'] {
   const bound = input.agent.serverNames;
   return bound === undefined ? input.servers : input.servers.filter((s) => bound.includes(s.name));
 }
 
-function delegationWaitSection(input: WorkspaceInput): string[] {
+function delegationWaitSection<TEntry extends McpJsonArtifactEntry | PreviewMcpJsonArtifactEntry>(
+  input: WorkspaceInput<TEntry>,
+): string[] {
   const subAgents = input.subAgents ?? [];
   const lines: string[] = [];
 
@@ -225,7 +214,6 @@ function delegationWaitSection(input: WorkspaceInput): string[] {
   return lines;
 }
 
-/** 技能参考文件对所有策略都只读可用，与记忆策略无关。 */
 const SKILL_REFERENCE_CLAUSE =
   '只读可用 `Read` 打开 `.claude/skills/<slug>/references/` 下的 Markdown。';
 
@@ -245,12 +233,13 @@ function memoryAccessLine(policy: MemoryPolicy): string {
   return `${main}${SKILL_REFERENCE_CLAUSE}${subAgentMemoryClause(policy)}`;
 }
 
-function renderClaudeMd(input: WorkspaceInput): string {
+function renderClaudeMd<TEntry extends McpJsonArtifactEntry | PreviewMcpJsonArtifactEntry>(
+  input: WorkspaceInput<TEntry>,
+): string {
   const { agent, skills = [] } = input;
   const servers = rootServers(input);
   const toolsDeny = input.toolsDeny ?? [];
   const bashDenied = toolsDeny.includes('Bash');
-  // 命令级 deny（如 `Bash(rm:*)`）只限制具体命令，Bash 本身仍可用。
   const bashCapability = bashDenied
     ? null
     : toolsDeny.some((tool) => tool.startsWith('Bash('))
@@ -352,7 +341,10 @@ function renderClaudeMd(input: WorkspaceInput): string {
   ].join('\n');
 }
 
-function renderAgentMd(input: WorkspaceInput, standalone = false): string {
+function renderAgentMd<TEntry extends McpJsonArtifactEntry | PreviewMcpJsonArtifactEntry>(
+  input: WorkspaceInput<TEntry>,
+  standalone = false,
+): string {
   const { agent, servers, skills = [] } = input;
   const bound = agent.serverNames;
   const ownNames = bound ?? servers.map((s) => s.name);
@@ -450,15 +442,9 @@ function renderAgentMd(input: WorkspaceInput, standalone = false): string {
   ].join('\n');
 }
 
-/**
- * 子智能体文件（`.claude/agents/<slug>.md`）。导出专家包时停用的子定义也要落文件，
- * 因此不能只依赖 renderWorkspace 的启用过滤。
- * 子级 allowedTools 不作为 `tools:` 白名单：SDK 在派生时解析不到 MCP 名字会直接拒绝；
- * 它仍用于显式放行 ListAgents/SendMessage 与生成 disallowedTools 的差集。
- */
 export function renderSubAgentMd(input: {
   agent: WorkspaceAgent;
-  servers: Array<{ name: string; entry: McpJsonArtifactEntry }>;
+  servers: Array<{ name: string; entry: McpJsonArtifactEntry | PreviewMcpJsonArtifactEntry }>;
   skills?: WorkspaceSkill[];
 }): string {
   assertDisplayName(input.agent.name);
@@ -498,20 +484,17 @@ export function renderSkillMd(skill: WorkspaceSkill): string {
   ].join('\n');
 }
 
-/**
- * 绑定并集：按 id 去重后全局排序。预览、导出与运行各自拿到分组顺序，
- * 不在这里统一就会写出不同顺序的 .mcp.json；三者共用这一处。
- */
 export function unionById<T extends { id: string }>(lists: readonly (readonly T[])[]): T[] {
   const out = new Map<string, T>();
   for (const list of lists) for (const item of list) if (!out.has(item.id)) out.set(item.id, item);
   return [...out.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-/** 把 DB 中的智能体定义渲染成落盘文件的内容；纯函数，不碰文件系统。 */
-export function renderWorkspace(input: WorkspaceInput): WorkspaceFiles {
+export function renderWorkspace<
+  TEntry extends McpJsonArtifactEntry | PreviewMcpJsonArtifactEntry = McpJsonArtifactEntry,
+>(input: WorkspaceInput<TEntry>): WorkspaceFiles {
   assertDisplayName(input.agent.name);
-  const mcpServers: Record<string, McpJsonArtifactEntry> = {};
+  const mcpServers: Record<string, TEntry> = {};
   for (const server of input.servers) {
     mcpServers[server.name] = server.entry;
   }

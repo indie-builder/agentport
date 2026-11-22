@@ -23,7 +23,6 @@ import { activeAgentWhere } from './agent-lifecycle.js';
 import { createChannelWakes } from './channel-wakes.js';
 import { type CursorPage, cursorValueSql, keysetPage } from './pagination.js';
 
-/** 频道权限只来自真实成员关系；平台范围不能替代成员身份。 */
 export type ChannelSubject = { businessId: string };
 
 export type ChannelRow = typeof channels.$inferSelect;
@@ -101,7 +100,6 @@ export async function channelMemberRole(
   return row?.role ?? null;
 }
 
-/** 频道 run 的执行授权条件：成员角色、频道归档、绑定状态与会话归属必须同时成立。 */
 export async function getRunChannelAccess(
   db: DbHandle,
   input: { channelId: string; agentId: string; conversationId: string; businessId: string },
@@ -755,7 +753,6 @@ export async function getMessageForMember(
   return row ?? null;
 }
 
-/** 显式 @ 任一无效返回 null 拒绝整条消息；@all 只补 autoWakeOnAll 且 agent 启用的绑定，结果去重。 */
 async function resolveWakeAgents(
   tx: DbHandle,
   channelId: string,
@@ -890,7 +887,6 @@ export async function postMessage(
   });
 }
 
-/** 忙碌提示等系统消息：与频道时间线共用 seq 并推进排序时间；默认频道已关闭返回 null（allowArchived 可显式写入），传 runId 时按 (channelId, runId, kind='system') 幂等。 */
 export async function postSystemMessage(
   db: DbHandle,
   input: {
@@ -939,7 +935,6 @@ export async function postSystemMessage(
   });
 }
 
-/** seq 夹到当前已提交的 max，避免伪造未来游标跳过后续消息。 */
 export async function markRead(
   db: Database,
   subject: ChannelSubject,

@@ -60,7 +60,6 @@ export interface EvalRun {
   status: EvalRunStatus;
   total: number;
   passed: number;
-  /** worker 崩溃时的原因；正常完成为 null。 */
   error: string | null;
   createdAt: string;
   finishedAt: string | null;

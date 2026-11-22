@@ -1,6 +1,5 @@
 import type { ResolvedRuntimeEnvironment } from '@agentport/shared';
 
-/** `environmentId` 为 null 时查平台默认环境的线上版本。 */
 type ResolveOnlineRuntimeEnvironment = (
   environmentId: string | null,
   versionId?: string | null,

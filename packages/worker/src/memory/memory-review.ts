@@ -43,7 +43,6 @@ import {
 import { claimRunTerminal, notifyRunTerminal } from '../runs/run-finish.js';
 import { modelProxyUpstream, sdkEnv } from '../upstream.js';
 
-/** 测试可替换 query；真实运行时直接用官方实现。 */
 export type MemoryReviewQueryFn = (params: {
   prompt: string;
   options: Options;

@@ -83,10 +83,6 @@ async function latestWikiVersionId(db: DbHandle, pageId: string): Promise<string
   return row?.id ?? null;
 }
 
-/**
- * 保存草稿：只追加版本，不改线上 currentVersionId 与发布状态。
- * sdk/manual 一视同仁；publish/rollback 才切指针并核来源。
- */
 export async function saveWikiDraft(
   db: Database,
   pageId: string,
@@ -125,10 +121,6 @@ export async function saveWikiDraft(
   });
 }
 
-/**
- * 发布指定版本：只切指针，不复制内容。来源必须仍可检索，
- * 否则 409——草稿不能绕过来源撤权。
- */
 export async function publishWikiVersionTx(
   tx: Transaction,
   pageId: string,
@@ -206,10 +198,6 @@ export async function listWikiVersions(
   });
 }
 
-/**
- * 已发布 Wiki 的读取边界：同库、status=published，且每个来源快照都仍能在当前可读文档版本中找到。
- * 检索与直接读取共用；索引是否追上线上指针由检索侧另加条件。
- */
 export function readableWikiPageSql(alias: string, baseId: string): SQL {
   const p = sql.raw(alias);
   return sql`${p}.base_id = ${baseId}
@@ -317,7 +305,6 @@ export interface WikiPageStructurePatch {
   expectedVersionId?: string | null;
 }
 
-/** 结构/标题变更的唯一写入口；调用方负责先锁页面并完成 expectedVersion 校验。 */
 async function applyWikiStructureTx(
   tx: Transaction,
   page: KnowledgeWikiPageRow,
@@ -385,7 +372,6 @@ export async function updateWikiPageStructure(
   });
 }
 
-/** 版本贡献差异：按行多重集合保留重复计数；来源差异按集合。 */
 export async function getWikiVersionDiff(
   db: Database,
   pageId: string,
@@ -427,11 +413,6 @@ async function markWikiStaleByDocumentTx(tx: Transaction, documentId: string): P
   return markWikiStaleByDocumentsTx(tx, [documentId]);
 }
 
-/**
- * 文档删除/禁用/更新后，引用它的 Wiki 页来源标 stale，供人工确认后重生成。
- * 只有已发布（含已 stale）页面改 status：从未发布的草稿保持 draft，
- * 否则「是否发布过」会与新鲜度混成一个状态而被误判。
- */
 export async function markWikiStaleByDocument(db: Database, documentId: string): Promise<number> {
   return db.transaction((tx) => markWikiStaleByDocumentTx(tx, documentId));
 }

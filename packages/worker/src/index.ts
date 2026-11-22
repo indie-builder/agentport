@@ -83,7 +83,6 @@ configureRunnerClient(config.REDIS_URL, logger);
 const workspacesDir = resolve(config.WORKSPACES_DIR);
 const hostWorkspacesDir = resolve(config.HOST_WORKSPACES_DIR ?? config.WORKSPACES_DIR);
 
-// 沙盒在 bridge 网络里访问宿主 API；compose 部署时用服务名或宿主网关覆盖。
 const sandboxApiUrl = config.SANDBOX_API_URL;
 
 if (config.SANDBOX_EGRESS === 'none') {

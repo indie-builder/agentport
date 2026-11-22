@@ -27,14 +27,11 @@ export function toHostWorkspacePath(
   return join(input.hostWorkspacesDir, relative(input.workspacesDir, dir));
 }
 
-/** 只预建目录，不改内容；刷新必须由调用方持有会话 lease。 */
 export async function ensureSessionWorkspace(input: {
   workspacesDir: string;
   slug: string;
   conversationId: string;
-  /** 用户运行必传；服务主体省略，不挂任何个人记忆。 */
   businessId?: string;
-  /** 本次加载的子智能体；它们各自的项目记忆宿主与沙盒挂载点都要预先建好。 */
   subAgentSlugs?: string[];
 }): Promise<{
   workspaceDir: string;
@@ -42,9 +39,7 @@ export async function ensureSessionWorkspace(input: {
   inputsDir: string;
   memoryDir: string;
   sessionsDir: string;
-  /** 用户个人记忆宿主目录，只读挂载到沙盒 /mnt/user；服务主体为 undefined。 */
   personalDir?: string;
-  /** 子智能体项目记忆宿主目录，按 slug 排序后挂载到沙盒项目记忆根；可写性跟随父专家策略。 */
   subAgentMemoryDirs: Array<{ slug: string; memoryDir: string }>;
 }> {
   const agent = join(input.workspacesDir, input.slug);

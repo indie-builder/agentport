@@ -176,7 +176,6 @@ export function registerKnowledgeHttp(app: Hono<HttpEnv>): void {
         throw new AppError('PAYLOAD_TOO_LARGE', '所选文档原件合计超过 64MiB 上限');
       }
 
-      // shortcut: ZIP 仍同步在内存中构建（与知识库包导出一致）；单批体积增长时改用流式。
       const deps = depsOf(context);
       const entries: Record<string, Uint8Array> = Object.create(null);
       const usedLower = new Set<string>();

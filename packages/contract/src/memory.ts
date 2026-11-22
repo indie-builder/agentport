@@ -27,7 +27,6 @@ export const agentMemoryVersionParams = idParams.extend({
 
 export const agentRuleVersionParams = idParams.extend({ slug: slugSchema });
 
-/** 记忆策略写入体：整份策略替换，不提供局部 patch。 */
 export const agentMemoryPolicyBodySchema = z.object({ policy: memoryPolicySchema }).strict();
 
 export const agentMemoryPolicyResponseSchema = z.object({ policy: memoryPolicySchema }).strict();

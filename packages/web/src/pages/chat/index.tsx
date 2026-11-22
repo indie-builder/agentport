@@ -41,7 +41,7 @@ import {
 import { readStorage, writeStorage } from '../../lib/storage.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useChatStream } from '../../lib/use-chat-stream.js';
-import { useMediaQuery } from '../../lib/use-media-query.js';
+import { MEDIA_LG, MEDIA_XL, useMediaQuery } from '../../lib/use-media-query.js';
 import { ChatColumn } from './chat-column.js';
 import { ChatTopBar } from './chat-top-bar.js';
 import { HistoryHeader } from './history-header.js';
@@ -162,10 +162,6 @@ const WORKSPACE = {
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
 
-/** 与 Tailwind 的 lg 断点一致：只有这一侧需要可拖拽分栏。 */
-const DESKTOP = '(min-width: 64rem)';
-/** 与 Tailwind 的 xl 断点一致：更窄时右侧工作区改走抽屉，不挤压对话。 */
-const WIDE = '(min-width: 80rem)';
 const HISTORY_WIDTH_KEY = 'agentport:chat-history-width';
 
 function storedHistorySize(): ResizableSize {
@@ -230,8 +226,8 @@ function ChatWorkspace({
     trigger: HTMLElement;
   } | null>(null);
   const [deletedConversation, setDeletedConversation] = useState<string | null>(null);
-  const desktop = useMediaQuery(DESKTOP);
-  const wide = useMediaQuery(WIDE);
+  const desktop = useMediaQuery(MEDIA_LG);
+  const wide = useMediaQuery(MEDIA_XL);
 
   const conversations = useConversations(historyAgentId);
   const detail = useConversation(conversationId);
@@ -650,7 +646,6 @@ function ChatWorkspace({
 
   return (
     <div className="flex h-full min-h-0 min-w-0">
-      {/* 窄屏抽屉由 ui-sdk 管理焦点、Escape 与滚动锁。 */}
       <Sheet open={historyOpen && !desktop} onOpenChange={setHistoryOpen}>
         <SheetContent
           side="left"

@@ -14,18 +14,12 @@ export interface OpenUiToolRow {
   approvalMode: 'allow' | 'ask' | 'deny';
 }
 
-/** 与 SDK 的 MCP 工具名匹配一致：精确名、server 通配 `mcp__srv__*`、整个 server。 */
 function matchesToolPattern(pattern: string, toolName: string, serverName: string): boolean {
   if (pattern === toolName) return true;
   if (pattern === `mcp__${serverName}`) return true;
   return pattern === `mcp__${serverName}__*`;
 }
 
-/**
- * 智能体在生成式 UI 里能调用的工具：已绑定的 http / generated server。
- * stdio 由用户提供任意命令，只在沙盒里可见，不进 UI 工具目录。
- * 过滤规则与工作区渲染一致：disallowedTools 始终排除；allowedTools 非空时作为白名单。
- */
 export async function listOpenUiTools(db: Database, agentId: string): Promise<OpenUiToolRow[]> {
   const [agent] = await db
     .select({ allowedTools: agents.allowedTools, disallowedTools: agents.disallowedTools })
@@ -173,11 +167,6 @@ export async function getMessageInConversation(
   return row ?? null;
 }
 
-/**
- * 合并写入一个 blockKey。读当前值与写入是同一条 UPDATE：
- * 并发写不同 block 时后到的语句看到前一条的结果，不会用旧快照覆盖。
- * 已存值不是合法 envelope（旧版本/手工写入）时整体换成空 envelope，不把脏形状带给前端。
- */
 export async function patchMessageUiState(
   db: Database,
   conversationId: string,
@@ -219,10 +208,6 @@ export interface OpenUiApproval {
   authorizationExpiresAt: Date | null;
 }
 
-/**
- * 会话级审批：同一 (conversation, server, tool) 只保留一行，重复调用不新增。
- * 与 run 级审批并存；run 级仍由 approval_requests.run_id 表达。
- */
 export async function requestOpenUiApproval(
   db: Database,
   input: {
@@ -283,11 +268,6 @@ export async function requestOpenUiApproval(
   return existing;
 }
 
-/**
- * 只批准本会话里待批（approvedAt 为空）的那一条；跨会话/未知 id 返回 null。
- * 已有效的批准重复请求原样返回、不延长有效期；过期记录不在这里复活，
- * 必须先由 requestOpenUiApproval 重置为待批，才能再次批准。
- */
 export async function approveOpenUiApproval(
   db: Database,
   conversationId: string,
@@ -344,7 +324,6 @@ export async function approveOpenUiApproval(
   );
 }
 
-/** 某会话某工具的批准状态；未批准、已过期或不存在返回 null。 */
 export async function getOpenUiApproval(
   db: Database,
   conversationId: string,

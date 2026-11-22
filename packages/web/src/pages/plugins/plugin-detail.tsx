@@ -57,13 +57,11 @@ import { ApiError, errorMessage } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { formatDate } from '../../lib/format.js';
 import { meQuery, usePlugin } from '../../lib/queries.js';
-import { useMediaQuery } from '../../lib/use-media-query.js';
+import { MEDIA_LG, useMediaQuery } from '../../lib/use-media-query.js';
 
 type Mode = 'read' | 'source';
 type Tab = 'intro' | 'content';
 
-/** 与 Tailwind 的 lg 断点一致：宽屏分栏，窄屏堆叠。 */
-const WIDE = '(min-width: 64rem)';
 const DETAIL_COLUMN = 'mx-auto w-full max-w-[960px]';
 const FILES_PANEL_ID = 'plugin-detail-files-panel';
 
@@ -531,7 +529,7 @@ function PluginContent({
   onSelectFile: (path: string) => void;
   onSelectMode: (mode: Mode) => void;
 }) {
-  const wide = useMediaQuery(WIDE);
+  const wide = useMediaQuery(MEDIA_LG);
   const [filesOpen, setFilesOpen] = useState(false);
   const [filesOpenWide, setFilesOpenWide] = useState(true);
   const open = wide ? filesOpenWide : filesOpen;

@@ -34,11 +34,7 @@ import type {
   SessionSandboxSpec,
 } from './sandbox/sessions.js';
 
-/** 原生澄清提问的宿主存储；由 index 绑定到 DB repo。 */
 export interface SandboxQuestionCallbacks {
-  /**
-   * `expiresAt` 由 runner 在容器实际开始执行时给出：创建耗时不能挤占问答期限。
-   */
   request(
     event: {
       requestId: string;
@@ -60,14 +56,11 @@ export interface SandboxInstructionCallbacks {
 interface SandboxRunInput {
   runId: string;
   timeoutMs: number;
-  /** 原样发给 runner 的任务对象；schema 由 shared 定义，runner 直接校验。 */
   task: SandboxTaskInput;
-  /** lease 覆盖目录刷新到消息与成果发布的整个独占期。 */
   lease: SessionSandboxLease;
   env: Record<string, string>;
   signal?: AbortSignal;
   logger: Logger;
-  /** 缺省时不支持提问：runner 的提问会被本地拒绝，不会假装已落库。 */
   questions?: SandboxQuestionCallbacks;
   instructions?: SandboxInstructionCallbacks;
 }
@@ -85,7 +78,6 @@ export interface SandboxRunOutcome {
   status: TerminalRunStatus;
   sandboxId: string;
   settlement: ExecutionSettlement;
-  /** release 已被调用（结果已缓存）；不代表销毁成功，是否停稳只看 settlement。 */
   leaseReleased?: true;
   costUsd?: number;
   turns?: number;
@@ -93,11 +85,8 @@ export interface SandboxRunOutcome {
   inputTokens?: number;
   outputTokens?: number;
   error?: string;
-  /** 失败分类；只有 infra 会交给 BullMQ 重试。 */
   failure?: RunFailure;
-  /** 容器清理失败：容器可能还在写文件，调用方不能发布产出快照。 */
   cleanupError?: string;
-  /** 本次 run 产生的完整事件，供调用方落库。 */
   events: ChatEvent[];
 }
 
@@ -161,14 +150,12 @@ export function createStreamBlockIds(): (event: ChatEvent) => ChatEvent {
 
 interface StderrTap {
   text: string;
-  /** 超出上限被丢弃的字符数；非 0 时取出的片段要带截断标记。 */
   dropped: number;
 }
 
 interface QuestionHandle {
   settle?: (reason: string) => Promise<void>;
   error?: () => string | undefined;
-  /** settle 追加的问题快照也占用落库额度，成功改判失败要等它结束。 */
   persistOverflowed?: () => boolean;
 }
 
@@ -179,7 +166,6 @@ function createQuestionRuntime(input: {
   callbacks: SandboxQuestionCallbacks | undefined;
   logger: Logger;
   record: (event: ChatEvent) => void;
-  /** 轮询不可用时终止整个 run：不能让 SDK 等满整体超时。 */
   abort: (message: string) => void;
 }): {
   handle(event: ChatEvent): boolean;
@@ -441,7 +427,6 @@ function stderrExcerpt(tap: StderrTap, max: number): string {
 let redisUrl = 'redis://localhost:6379';
 let serviceLogger: Logger | undefined;
 
-/** 由 worker 入口在启动时注入校验过的 REDIS_URL。 */
 export function configureRunnerClient(url: string, logger?: Logger): void {
   redisUrl = url;
   if (logger !== undefined) serviceLogger = logger;
@@ -488,7 +473,6 @@ function getCancelSubscriber(logger: Logger): RedisClient {
   return cancelSubscriber;
 }
 
-/** 事件写 Redis Stream（与 API 的订阅端一致），可从流头回放；BLOCK 订阅者由 XADD 直接唤醒。 */
 export async function publishRun(runId: string, event: ChatEvent, logger: Logger): Promise<void> {
   await appendStreamEvent(getPublisher(logger), runStreamKey(runId), event);
 }
@@ -508,7 +492,6 @@ function withPublishTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-/** 与 API 的频道订阅共用同一条 Redis Stream；写入失败由调用方决定是否降级。 */
 export async function publishChannelEvent(
   channelId: string,
   event: ChannelEvent,
@@ -533,7 +516,6 @@ export async function closeRunnerClient(): Promise<void> {
 
 const ACQUIRE_BUDGET_MS = 30_000;
 
-/** 订阅先于 acquire，拉取镜像与 supervisor ready 同样可取消且有界。 */
 export async function acquireSessionSandbox(input: {
   runId: string;
   manager: Pick<SessionSandboxes, 'acquire'>;

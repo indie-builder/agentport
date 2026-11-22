@@ -21,14 +21,6 @@ import {
 } from '@agentport/shared';
 import { readTask } from './stdin-task.js';
 
-/**
- * 容器内入口：在一次性沙盒里调用官方 Claude Code CLI 安装/枚举/读取市场插件，
- * 结果只以文本快照回传。stdout 只写一行结果 JSON，日志一律进 stderr。
- *
- * 安装与下载由官方 CLI 独占管理：缓存挂载在 /mnt/plugin-cache，CLI 配置与下载目录
- * 都独立于宿主 ~/.claude；读取以 `plugin list --json` 的 installPath 为准。
- */
-
 const CACHE_ROOT = PLUGIN_CACHE_CONTAINER_DIR;
 const CLI_MAX_BUFFER = 8 * 1024 * 1024;
 
@@ -156,7 +148,6 @@ async function runCli(
   }
 }
 
-/** 官方目录里的一行 `plugin list --json`；installPath 只在本沙盒内使用。 */
 interface ListedPlugin extends NativeInstalledPlugin {
   installPath: string;
 }
@@ -238,7 +229,6 @@ async function resolveInsideCache(pluginCacheDir: string, installPath: string): 
   return target;
 }
 
-/** 官方缓存里的内部标记可以忽略；其余文件一个都不丢。 */
 function isInternalMarker(name: string): boolean {
   return name === '.git' || name === '.orphaned_at';
 }

@@ -5,7 +5,7 @@ import {
   type MemoryReviewTarget,
 } from '@agentport/shared';
 import { and, desc, eq, or, type SQL, sql } from 'drizzle-orm';
-import type { Database } from '../client.js';
+import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { memoryChanges } from '../schema.js';
 import { type CursorPage, keysetPage } from './pagination.js';
@@ -24,7 +24,7 @@ export interface InsertMemoryChangeInput {
 }
 
 export async function insert(
-  db: Database,
+  db: DbHandle,
   input: InsertMemoryChangeInput,
 ): Promise<MemoryChangeRow> {
   const { id = newId('memoryChange'), ...values } = input;

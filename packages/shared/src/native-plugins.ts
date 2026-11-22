@@ -8,17 +8,10 @@ import { pluginFileInputSchema } from './plugin.js';
 import { hasEmbeddedCredentials, parseUrl } from './url.js';
 import { utf8Bytes } from './utf8.js';
 
-/**
- * 原生插件安装：官方 CLI 在一次性沙盒里安装/读取市场插件，再把文本快照交回平台。
- * 这里只定义队列、动作与沙盒输出的信任边界，宿主路径不出沙盒。
- */
-
 export const NATIVE_PLUGINS_QUEUE = 'native-plugins';
 
-/** 沙盒容器内 CLI 安装 + 读取的总预算。 */
 export const NATIVE_PLUGIN_TIMEOUT_MS = 120_000;
-/** API 等待整个队列任务的上限，必须大于容器预算。 */
-export const NATIVE_PLUGIN_WAIT_TIMEOUT_MS = 150_000;
+export const NATIVE_PLUGIN_WAIT_TIMEOUT_MS = NATIVE_PLUGIN_TIMEOUT_MS + 30_000;
 
 const pluginNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const githubRepoPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -45,7 +38,6 @@ function hasWhitespaceOrControl(value: string): boolean {
   return false;
 }
 
-/** 市场来源只接受 GitHub owner/repo 与 https Git/marketplace URL；不开放本地路径或命令。 */
 export const nativePluginMarketplaceSchema = z
   .string()
   .min(1)
@@ -59,14 +51,12 @@ export const nativePluginMarketplaceSchema = z
     return url !== null && url.hostname !== '' && !hasEmbeddedCredentials(url);
   }, '市场来源只接受 GitHub owner/repo 或 https URL');
 
-/** 市场里的插件名：kebab-case，不带 `@`。 */
 export const nativePluginNameSchema = z
   .string()
   .min(1)
   .max(64)
   .regex(pluginNamePattern, '插件名只允许小写字母、数字和 -');
 
-/** 官方目录里的插件标识 `name@marketplace`。 */
 export const nativePluginIdSchema = z
   .string()
   .min(3)
@@ -83,7 +73,6 @@ export const nativeInstalledPluginSchema = z.object({
 
 export type NativeInstalledPlugin = z.infer<typeof nativeInstalledPluginSchema>;
 
-/** 沙盒 stdin 的动作；只此三种，不接受任意命令或参数。 */
 export const nativePluginActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('list') }),
   z.object({
@@ -96,7 +85,6 @@ export const nativePluginActionSchema = z.discriminatedUnion('action', [
 
 export type NativePluginAction = z.infer<typeof nativePluginActionSchema>;
 
-/** 快照沿用 ZIP 导入的上限：条目数同包，单文件字符数由 pluginFileInputSchema 限制。 */
 const nativePluginFilesSchema = z
   .array(pluginFileInputSchema)
   .max(AGENT_PACKAGE_MAX_ENTRIES, `插件文件数超过 ${AGENT_PACKAGE_MAX_ENTRIES} 个`)

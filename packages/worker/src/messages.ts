@@ -1,5 +1,5 @@
 import { resolveOpenUiResponse } from '@agentport/core';
-import { type Database, newId, repo, schema } from '@agentport/db';
+import { type Database, type DbHandle, newId, repo, schema } from '@agentport/db';
 import {
   type ChatEvent,
   type ChatMessageRole,
@@ -141,7 +141,6 @@ export interface PersistedMessage {
   streamBlockId?: string;
   parentToolUseId?: string;
   uiFormat: 'markdown' | 'openui';
-  /** 本消息的 canonical 完整混合文本；纯文本、子智能体与截断块为 null。 */
   uiProgram: string | null;
 }
 
@@ -219,6 +218,12 @@ function canonicalPrograms(
   return programs;
 }
 
+async function deleteRunOutputMessages(tx: DbHandle, runId: string): Promise<void> {
+  await tx
+    .delete(schema.messages)
+    .where(and(eq(schema.messages.runId, runId), ne(schema.messages.role, 'user')));
+}
+
 export async function persistRunMessages(
   db: Database,
   input: {
@@ -226,13 +231,9 @@ export async function persistRunMessages(
     conversationId: string;
     runId: string;
     events: ChatEvent[];
-    /** 本次运行后的 SDK session；与消息同事务写入，避免只存一半。 */
     sdkSessionId?: string;
-    /** 调用方以成功结果或正 token 用量确认模型已执行；初始化 session 与文本都不能独立证明消费。 */
     modelExecuted?: boolean;
-    /** fork 造成的 uuid 重映射（旧 → 新），更新页面已保存的历史消息。 */
     uuidMap?: Array<{ from: string; to: string }>;
-    /** 本轮智能体的回复格式；历史渲染按消息快照，不跟随之后的开关切换。 */
     uiFormat?: 'markdown' | 'openui';
     /** 重试中间轮不投影频道：同一 run 覆盖同一 seq 行会让已订阅者漏掉最终正文。 */
     projectChannelReply?: boolean;
@@ -318,17 +319,9 @@ export async function persistRunMessages(
       input.conversationId,
       input.replacesRunId === undefined ? [input.runId] : [input.runId, input.replacesRunId],
     );
-    // BullMQ 重试会重放同一 run：先删本 run 已落库的输出再写，避免重复消息。
-    // 用户消息也带 run_id，但由 API 写入，重试时不能删。
-    await tx
-      .delete(schema.messages)
-      .where(and(eq(schema.messages.runId, input.runId), ne(schema.messages.role, 'user')));
+    await deleteRunOutputMessages(tx, input.runId);
     if (input.replacesRunId !== undefined) {
-      await tx
-        .delete(schema.messages)
-        .where(
-          and(eq(schema.messages.runId, input.replacesRunId), ne(schema.messages.role, 'user')),
-        );
+      await deleteRunOutputMessages(tx, input.replacesRunId);
       await tx
         .update(schema.messages)
         .set({ runId: input.runId })

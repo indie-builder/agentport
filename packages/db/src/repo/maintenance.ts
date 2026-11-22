@@ -111,7 +111,6 @@ export async function pruneAgentVersions(db: Database, keepPerAgent: number): Pr
   return (result as typeof result & { count: number }).count;
 }
 
-/** 删除超过 N 天已结束的 run，以及按 run_id 关联的 messages；单语句保证原子。 */
 export async function pruneRuns(
   db: Database,
   olderThanDays: number,
@@ -181,10 +180,6 @@ export async function pruneRuns(
   return { runs: Number(row?.runs ?? 0), messages: Number(row?.messages ?? 0) };
 }
 
-/**
- * 没有 run_id 的旧消息；分支副本归会话保留，父会话删除后仍受保护。
- * 附件是用户显式交给会话的输入，没有运行也会在历史里继续引用，永不按孤儿清理。
- */
 export async function pruneOrphanMessages(
   db: Database,
   olderThanDays: number,

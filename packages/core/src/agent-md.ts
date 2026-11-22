@@ -14,7 +14,6 @@ function fieldOf(path: PropertyKey | undefined): string {
   return field;
 }
 
-/** 解析官方智能体定义（frontmatter + 正文）；纯函数，拒绝会改变运行时行为的未声明字段。 */
 export function parseAgentMd(content: string): { agent: AgentInput; warnings: string[] } {
   const { fields, body: rawBody } = parseMarkdownFrontmatter(content, '智能体文件', '/agentMd');
 

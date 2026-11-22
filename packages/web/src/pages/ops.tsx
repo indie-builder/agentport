@@ -133,7 +133,6 @@ function timeFromCronParts(minutesPart: string, hoursPart: string): string | nul
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
-/** 每天的 m h * * *；每周的 m h * * 升序日（周日为 0）。 */
 function serializeCron(
   frequency: Exclude<ScheduleFrequency, 'custom'>,
   time: string,

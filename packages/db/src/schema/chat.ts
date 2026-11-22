@@ -62,10 +62,6 @@ export const conversations = pgTable(
     }),
     branchOfMessageId: text('branch_of_message_id'),
     sdkSessionId: text('sdk_session_id'),
-    /**
-     * 待执行的按点分叉：非空表示下次运行要先在 sdkSessionId 里 fork 到该消息 uuid。
-     * 分支创建时写入，fork 成功后清空。
-     */
     forkFromSdkMessageUuid: text('fork_from_sdk_message_uuid'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),

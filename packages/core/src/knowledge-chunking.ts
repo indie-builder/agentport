@@ -20,7 +20,6 @@ export type ParsedDocument = {
   blocks: ParsedBlock[];
   images: ParsedImage[];
   pageMap: PageRange[];
-  /** 仅音频转录取值；段级偏移与真实时码存放在版本 metadata。 */
   audio?: KnowledgeAudioMetadata;
 };
 
@@ -79,7 +78,6 @@ function isAtomicBlock(content: string): boolean {
   return isTableBlock(content) || isFenceStart(content);
 }
 
-/** Splits CRLF/CR/LF keeping each line's original offset so page ranges stay exact. */
 export function splitLines(markdown: string): { lines: string[]; offsets: number[] } {
   const lines: string[] = [];
   const offsets: number[] = [];
@@ -107,12 +105,6 @@ export function lineAtOffset(lineStarts: number[], offset: number): number {
   return low + 1;
 }
 
-/**
- * Line-based Markdown splitter: fenced code and tables stay whole, headings only set the
- * breadcrumb, blank lines separate paragraphs. Not full CommonMark.
- *
- * 没有正文承接的标题（连续同级标题、文末标题）落成自己的内容块，OCR 纯标题页才不会被丢掉。
- */
 export function markdownBlocks(
   markdown: string,
   locator: (line: number, offset?: number, endOffset?: number) => Record<string, unknown>,
@@ -198,7 +190,6 @@ export function markdownBlocks(
       });
       continue;
     }
-    // A GFM table starts with a pipe row followed by a delimiter row; outer pipes are optional.
     if (line.includes('|') && isTableDelimiterLine(lines[index + 1] ?? '')) {
       commitPending();
       flush();
@@ -357,7 +348,6 @@ function withoutTextRange(block: ParsedBlock): ParsedBlock {
   return { ...block, locator };
 }
 
-// shortcut: 单行超过预算时不拆行，那个 chunk 会超预算；模型窗口真的卡住时再按单元格拆。
 function splitFramedLines(
   block: ParsedBlock,
   maxChars: number,
@@ -413,10 +403,6 @@ function clampChunk(block: ParsedBlock, maxChars: number): ParsedBlock[] {
   return [block];
 }
 
-/**
- * 摄取与预览共用的分块入口：clamp（超长块二次切分）→ 原子分组（表格/代码独立成块）
- * → 结构感知合并。两边必须走同一条路径，否则同一段 Markdown 会给出不同的块数。
- */
 export function chunkBlocks(
   blocks: ParsedBlock[],
   markdown: string,

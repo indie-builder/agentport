@@ -8,7 +8,6 @@ import type { SourceFailure } from './source-types.js';
 
 export type SourceUrlOptions = {
   allowLoopback?: boolean;
-  /** Exactly-matched `host` / `host:port` entries that may resolve to private addresses. */
   trustedHosts?: readonly string[];
 };
 
@@ -86,12 +85,7 @@ export type FetchOptions = {
   method?: 'GET' | 'POST' | 'PROPFIND';
   body?: string;
   headers?: Record<string, string>;
-  /** Headers are only sent to this origin, never across a redirect to another host. */
   authOrigin?: string;
-  /**
-   * `source` (default) treats 401/403 as revoked credentials; `item` keeps them as a
-   * per-item failure because signed download URLs expire and file ACLs differ.
-   */
   authFailure?: 'source' | 'item';
   allowLoopback?: boolean;
   trustedHosts?: readonly string[];

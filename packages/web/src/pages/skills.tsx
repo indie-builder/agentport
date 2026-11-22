@@ -62,6 +62,7 @@ import { can } from '../lib/access.js';
 import { ApiError, api, errorMessage } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
 import { guardedOpenChange, useDialogClose } from '../lib/dialog-guard.js';
+import { onFilePick } from '../lib/file-pick.js';
 import { formatTokens } from '../lib/format.js';
 import {
   meQuery,
@@ -301,12 +302,10 @@ export function SkillsPage() {
             type="file"
             accept=".md,text/markdown,text/plain"
             className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              // 先清空 value，同一个文件重试时才会再次触发 change。
-              event.target.value = '';
+            onChange={onFilePick((files) => {
+              const file = files[0];
               if (file) void importSkillMd(file);
-            }}
+            })}
           />
           {canCreateSkill ? (
             <Button
@@ -1080,7 +1079,6 @@ export function SkillDialog({
   );
 }
 
-/** 官方 SKILL.md 目录的支持资源文件（scripts/、references/ 等），随技能铺到工作区。 */
 function SkillFilesEditor({
   skillId,
   canRead,
