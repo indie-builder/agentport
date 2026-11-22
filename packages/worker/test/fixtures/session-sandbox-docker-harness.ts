@@ -1,17 +1,15 @@
 import { spawnSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import { DockerSandboxProvider } from '../../src/sandbox/docker.js';
 import type { Sandbox, SandboxCreateOptions, SandboxProvider } from '../../src/sandbox/provider.js';
 import { SessionSandboxes, type SessionSandboxSpec } from '../../src/sandbox/sessions.js';
 
 const BASE_IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
-const REPO_ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
+const REPO_ROOT = Bun.fileURLToPath(new URL('../../../..', import.meta.url));
 const FIXTURE = join(REPO_ROOT, 'packages/worker/test/fixtures/session-task.mjs');
 const ORPHAN_META = '/tmp/session-fixture/orphan.json';
 const ORPHAN_PROGRESS = '/tmp/session-fixture/orphan-progress';
@@ -138,13 +136,13 @@ function taskInput(prompt: string) {
     model: 'fixture',
     maxTurns: 1,
     maxBudgetUsd: 0.01,
-    userMessageUuid: randomUUID(),
+    userMessageUuid: crypto.randomUUID(),
   };
 }
 
 type Lease = Awaited<ReturnType<SessionSandboxes['acquire']>>;
 
-async function startRun(lease: Lease, prompt: string, runId = `run-${randomUUID()}`) {
+async function startRun(lease: Lease, prompt: string, runId = `run-${crypto.randomUUID()}`) {
   const events: RecordedEvent[] = [];
   const stderr: string[] = [];
   const execution = await lease.start({
@@ -184,7 +182,7 @@ function filesUnder(dir: string): string[] {
 }
 
 function sourceDigest(dir: string): string {
-  const hash = createHash('sha256');
+  const hash = new Bun.CryptoHasher('sha256');
   for (const name of filesUnder(dir)) {
     hash
       .update(name)
@@ -202,7 +200,7 @@ function newestSourceMtime(dir: string): number {
 function artifact(path: string) {
   return {
     path,
-    sha256: createHash('sha256').update(readFileSync(path)).digest('hex'),
+    sha256: new Bun.CryptoHasher('sha256').update(readFileSync(path)).digest('hex'),
     builtAt: new Date(statSync(path).mtimeMs).toISOString(),
   };
 }
@@ -331,7 +329,7 @@ async function buildTestImage(
 
 export function createSessionSandboxDockerSuite() {
   const dockerReady = docker(['info', '--format', '{{.ServerVersion}}']).status === 0;
-  const suiteId = randomUUID().slice(0, 8);
+  const suiteId = crypto.randomUUID().slice(0, 8);
   const imageTag = `session-sandbox-lifecycle-test-${suiteId}`;
   const evidenceFile = `/tmp/session-docker-process-cleanup-${suiteId}.json`;
   const sourceEvidenceFile = `/tmp/session-docker-current-source-${suiteId}.json`;
@@ -368,8 +366,8 @@ export function createSessionSandboxDockerSuite() {
       sessions,
       ids: [],
       spec: {
-        agentId: `agent-${randomUUID()}`,
-        conversationId: randomUUID(),
+        agentId: `agent-${crypto.randomUUID()}`,
+        conversationId: crypto.randomUUID(),
         runtimeEnvironmentId: null,
         memoryWritable: true,
         ...dirs,

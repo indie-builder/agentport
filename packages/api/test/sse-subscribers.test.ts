@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { setTimeout as delay } from 'node:timers/promises';
 import { runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import {
@@ -25,7 +24,7 @@ describe.skipIf(!ready)('run subscribers', () => {
     const second = await subscribeRun(runId, (event) => types.push(event.type));
 
     first.close();
-    await delay(100);
+    await Bun.sleep(100);
     await publishRun(runId, { type: 'text_delta', text: 'still here' });
 
     expect(await waitFor(() => types.length > 0)).toBe(true);
@@ -47,7 +46,7 @@ describe.skipIf(!ready)('run subscribers', () => {
       ),
     );
     await waitFor(() => texts.length === 50);
-    await delay(200);
+    await Bun.sleep(200);
 
     expect(texts).toHaveLength(50);
     expect(new Set(texts).size).toBe(50);
@@ -129,7 +128,7 @@ describe.skipIf(!ready)('run subscribers', () => {
       const live = await subscribeRun(runId, (event) => types.push(event.type));
 
       stale.close();
-      await delay(100);
+      await Bun.sleep(100);
       await publishRun(runId, { type: 'text_delta', text: 'still here' });
       expect(await waitFor(() => types.length > 0)).toBe(true);
 
@@ -192,7 +191,7 @@ describe.skipIf(!ready)('run subscribers', () => {
     const sub = await subscribeRun(runId, async (event) => {
       active += 1;
       if (active > 1) overlap = true;
-      await delay(20);
+      await Bun.sleep(20);
       if (event.type === 'text_delta') seen.push(event.text);
       active -= 1;
     });

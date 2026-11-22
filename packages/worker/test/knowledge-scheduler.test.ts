@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import {
   KNOWLEDGE_JOBS_QUEUE,
@@ -36,7 +35,7 @@ async function probeInfra(): Promise<boolean> {
 
 const ready = await probeInfra();
 const redisUrl = process.env.REDIS_URL ?? '';
-const prefix = `knowledge-sched-${randomUUID().slice(0, 8)}`;
+const prefix = `knowledge-sched-${crypto.randomUUID().slice(0, 8)}`;
 
 describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgres', () => {
   let db: ReturnType<typeof createDb>['db'];
@@ -461,7 +460,7 @@ describe.skipIf(!ready)('knowledge sync scheduler against live redis and postgre
 
     it('leaves no sync run when the job insert is rejected', async () => {
       const sourceId = await insertSource({});
-      const suffix = randomUUID().replaceAll('-', '').slice(0, 8);
+      const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 8);
       const fn = `fail_sync_job_insert_${suffix}`;
       await db.execute(
         sql.raw(

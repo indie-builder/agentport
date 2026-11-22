@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { hashMcpToken } from '../../../packages/core/src/index.js';
 import { newId } from '../../../packages/db/src/index.js';
 import { client as sql } from './database.js';
@@ -38,13 +37,13 @@ export interface ProducerNotification {
 }
 
 export async function seed(input: ApprovalProducerSeed): Promise<ApprovalProducer> {
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const serverId = newId('server');
   const toolId = newId('tool');
   const agentId = newId('agent');
   const conversationId = newId('conversation');
   const runId = newId('run');
-  const runToken = randomUUID().replaceAll('-', '');
+  const runToken = crypto.randomUUID().replaceAll('-', '');
 
   await sql.begin(async (tx) => {
     await tx`insert into servers (id, name, kind, config)

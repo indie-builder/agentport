@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
@@ -26,7 +25,7 @@ afterAll(async () => {
 describe.skipIf(!ready)('publishRun', () => {
   it('writes the event and sets its TTL', async () => {
     configureRunnerClient(redisUrl);
-    const runId = `run-publish-${randomUUID()}`;
+    const runId = `run-publish-${crypto.randomUUID()}`;
     const redis = new RedisClient(redisUrl);
     try {
       await publishRun(runId, { type: 'run_started', runId, conversationId: 'c1' }, logger);
@@ -43,7 +42,7 @@ describe.skipIf(!ready)('publishRun', () => {
 
   it('keeps every accepted event beyond the old 1000-entry cap', async () => {
     configureRunnerClient(redisUrl);
-    const runId = `run-publish-${randomUUID()}`;
+    const runId = `run-publish-${crypto.randomUUID()}`;
     const redis = new RedisClient(redisUrl);
     try {
       for (let index = 0; index < 1_200; index += 1) {
@@ -58,7 +57,7 @@ describe.skipIf(!ready)('publishRun', () => {
 
   it('rejects when a pipelined command fails instead of dropping the error', async () => {
     configureRunnerClient(redisUrl);
-    const runId = `run-publish-${randomUUID()}`;
+    const runId = `run-publish-${crypto.randomUUID()}`;
     const key = runStreamKey(runId);
     const redis = new RedisClient(redisUrl);
     try {

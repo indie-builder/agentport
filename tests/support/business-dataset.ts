@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -84,7 +83,7 @@ export async function readManifest<T>(section: string, fallback: T): Promise<T> 
 
 export function writeManifest(section: string, value: unknown): void {
   const file = datasetPath(section);
-  const temp = `${file}.tmp-${randomUUID()}`;
+  const temp = `${file}.tmp-${crypto.randomUUID()}`;
   mkdirSync(path.dirname(file), { recursive: true });
   try {
     writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, 'utf8');

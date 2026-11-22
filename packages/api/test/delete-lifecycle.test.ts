@@ -1,8 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { createDb, newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
 import { startRedisContainer, stopRedisContainer } from '../../worker/test/global-setup.js';
@@ -168,7 +166,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
   }
 
   function hash(value: string): string {
-    return createHash('sha256').update(value, 'utf8').digest('hex');
+    return new Bun.CryptoHasher('sha256').update(value, 'utf8').digest('hex');
   }
 
   const exists = (path: string) => stat(path).catch(() => null);
@@ -251,7 +249,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
       conversationId,
       sandboxIds: ['sandbox-delete'],
     });
-    await delay(100);
+    await Bun.sleep(100);
     expect(settled).toBe(false);
     expect(await exists(targetDir)).not.toBeNull();
 
@@ -382,7 +380,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
       admissionSettled = true;
       return response;
     });
-    await delay(150);
+    await Bun.sleep(150);
     expect(admissionSettled).toBe(false);
     expect(await deletingBackendPid()).toBe(pid);
 
@@ -448,7 +446,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
       admissionSettled = true;
       return response;
     });
-    await delay(100);
+    await Bun.sleep(100);
     expect(admissionSettled).toBe(false);
 
     release();
@@ -476,7 +474,7 @@ describe.skipIf(!isolated)('delete lifecycle over HTTP', () => {
     const pid = await deletingBackendPid();
     if (pid === null) throw new Error('deleting backend did not hold the session lock');
     expect(await terminateBackend(pid)).toBe(true);
-    await delay(50);
+    await Bun.sleep(50);
     release();
 
     const problem = expectProblem(await deletion, 'SERVICE_UNAVAILABLE');

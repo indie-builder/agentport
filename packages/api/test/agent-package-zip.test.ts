@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomBytes } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseChildAgentMd, parseClaudeMd } from '@agentport/core';
@@ -29,6 +28,14 @@ import {
 } from './package-fixtures.js';
 
 const ready = await infraReady;
+
+function randomBase64(length: number) {
+  const bytes = new Uint8Array(length);
+  for (let offset = 0; offset < length; offset += 65_536) {
+    crypto.getRandomValues(bytes.subarray(offset, offset + 65_536));
+  }
+  return bytes.toBase64();
+}
 
 const GENERATED_BASE_URL = 'https://jsonplaceholder.typicode.com';
 
@@ -308,7 +315,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
         slug: skillSlug,
         name: 'Big skill',
         description: 'big',
-        body: randomBytes(500_000).toString('base64'),
+        body: randomBase64(500_000),
       },
     });
     expect(skill.statusCode, skill.body).toBe(201);
@@ -317,7 +324,7 @@ describe.skipIf(!ready)('agent package (official .claude directory ZIP)', () => 
       url: `/api/agents/${created.json<{ id: string }>().id}`,
       headers: { cookie },
       payload: {
-        systemPrompt: randomBytes(600_000).toString('base64'),
+        systemPrompt: randomBase64(600_000),
         skillIds: [skill.json<{ id: string }>().id],
       },
     });

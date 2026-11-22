@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   AGENT_ROLES,
   agentInputSchema,
@@ -15,7 +14,7 @@ import { z } from 'zod';
 import { loadConfig as workerConfig } from '../../worker/src/config.js';
 import { loadConfig as apiConfig } from '../src/config.js';
 
-const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+const repoRoot = Bun.fileURLToPath(new URL('../../../', import.meta.url));
 
 const base = {
   DATABASE_URL: 'postgres://u:p@localhost:5432/db',

@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
@@ -1900,7 +1899,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   const reusable = existingReviews.items.find(
     (item) => JSON.stringify(item.target) === JSON.stringify(reviewTarget),
   );
-  manifest.memoryReview ??= { key: randomUUID(), runId: null, appliedChangeId: null };
+  manifest.memoryReview ??= { key: crypto.randomUUID(), runId: null, appliedChangeId: null };
   save();
   const reviewKey = manifest.memoryReview.key;
   let reviewRunId = manifest.memoryReview.runId ?? reusable?.runId ?? null;
@@ -1995,7 +1994,7 @@ test('business dataset build: five experts, chat/approval/stop/share, eval, sche
   }
   manifest.personalMemory ??= {
     changeId: null,
-    reviewKey: randomUUID(),
+    reviewKey: crypto.randomUUID(),
     reviewRunId: null,
   };
   manifest.personalMemory.changeId = personalChangeId;

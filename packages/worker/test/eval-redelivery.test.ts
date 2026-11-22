@@ -1,9 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { type ChildProcess, spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { setTimeout as delay } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
 import { inspect } from 'node:util';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { RUNS_QUEUE } from '@agentport/shared';
@@ -83,18 +80,18 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
   async function seed(
     cases: CaseInput[],
   ): Promise<{ agentId: string; evalRunId: string; businessId: string }> {
-    const seedBusinessId = `eval-redelivery-${randomUUID().slice(0, 12)}`;
-    const authId = `auth_redelivery_${randomUUID().slice(0, 8)}`;
-    const roleId = `role_redelivery_${randomUUID().slice(0, 8)}`;
+    const seedBusinessId = `eval-redelivery-${crypto.randomUUID().slice(0, 12)}`;
+    const authId = `auth_redelivery_${crypto.randomUUID().slice(0, 8)}`;
+    const roleId = `role_redelivery_${crypto.randomUUID().slice(0, 8)}`;
     await db.insert(schema.authUsers).values({
       id: authId,
       name: 'eval-redelivery',
-      email: `eval-redelivery-${randomUUID().slice(0, 8)}@example.test`,
+      email: `eval-redelivery-${crypto.randomUUID().slice(0, 8)}@example.test`,
       businessId: seedBusinessId,
     });
     await db
       .insert(schema.roles)
-      .values({ id: roleId, name: `redelivery-${randomUUID().slice(0, 8)}` });
+      .values({ id: roleId, name: `redelivery-${crypto.randomUUID().slice(0, 8)}` });
     await db.insert(schema.userRoles).values({ businessId: seedBusinessId, roleId });
     await db.insert(schema.rolePermissions).values([
       { roleId, permissionId: 'agents.use', scope: 'owned_agents' },
@@ -105,7 +102,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     const agentId = newId('agent');
     await db.insert(schema.agents).values({
       id: agentId,
-      slug: `eval-redelivery-${randomUUID().slice(0, 8)}`,
+      slug: `eval-redelivery-${crypto.randomUUID().slice(0, 8)}`,
       name: 'eval-redelivery',
       model: 'test',
       createdBy: seedBusinessId,
@@ -138,14 +135,16 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (await check()) return;
-      await delay(100);
+      await Bun.sleep(100);
     }
     throw new Error('condition not met before timeout');
   }
 
   function startChild(evalRunId: string, queueName: string): Child {
-    const fixture = fileURLToPath(new URL('./fixtures/eval-worker-process.ts', import.meta.url));
-    const cwd = fileURLToPath(new URL('../', import.meta.url));
+    const fixture = Bun.fileURLToPath(
+      new URL('./fixtures/eval-worker-process.ts', import.meta.url),
+    );
+    const cwd = Bun.fileURLToPath(new URL('../', import.meta.url));
     return spawn(process.execPath, [fixture], {
       cwd,
       env: {
@@ -208,7 +207,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
       { name: 'first', prompt: 'first', expectation: 'first-ok' },
       { name: 'second', prompt: 'second', expectation: 'second-ok' },
     ]);
-    const queueName = `eval-redelivery-${randomUUID()}`;
+    const queueName = `eval-redelivery-${crypto.randomUUID()}`;
     const evalRedis = bunRedisConnection(redisUrl);
     const evalQueue = new Queue(queueName, {
       connection: evalRedis.connection,
@@ -249,7 +248,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
     });
 
     await completed;
-    await delay(200);
+    await Bun.sleep(200);
 
     expect(failedErrors).toEqual([]);
     const after = await runState(evalRunId);
@@ -289,7 +288,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
       { name: 'first', prompt: 'first', expectation: 'first-ok' },
       { name: 'second', prompt: 'second', expectation: 'second-ok' },
     ]);
-    const queueName = `eval-stalled-${randomUUID()}`;
+    const queueName = `eval-stalled-${crypto.randomUUID()}`;
     const evalRedis = bunRedisConnection(redisUrl);
     const evalQueue = new Queue(queueName, {
       connection: evalRedis.connection,
@@ -391,9 +390,9 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
       await runRedis.close();
     });
 
-    const finishSecret = `sk-live-eval-finish-${randomUUID()}`;
-    const settleSecret = `sk-live-eval-settle-${randomUUID()}`;
-    const functionName = `eval_settle_fault_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
+    const finishSecret = `sk-live-eval-finish-${crypto.randomUUID()}`;
+    const settleSecret = `sk-live-eval-settle-${crypto.randomUUID()}`;
+    const functionName = `eval_settle_fault_${crypto.randomUUID().replaceAll('-', '').slice(0, 8)}`;
     await dbHandle.client.unsafe(`
       create or replace function ${functionName}() returns trigger language plpgsql as $fn$
       begin
@@ -414,7 +413,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
       for each row execute function ${functionName}()
     `);
 
-    const queueName = `eval-settle-${randomUUID()}`;
+    const queueName = `eval-settle-${crypto.randomUUID()}`;
     const evalRedis = bunRedisConnection(redisUrl);
     const evalQueue = new Queue(queueName, {
       connection: evalRedis.connection,
@@ -455,7 +454,7 @@ describe.skipIf(!ready)('eval failure lifecycle on a live queue', () => {
         });
       });
       await failed;
-      await delay(200);
+      await Bun.sleep(200);
     } finally {
       process.off('unhandledRejection', onUnhandled);
       await dbHandle.client.unsafe(`drop trigger if exists ${functionName} on eval_runs`);

@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -142,7 +141,7 @@ async function makeBase(
 }
 
 async function writeBlob(data: Buffer): Promise<string> {
-  const sha = createHash('sha256').update(data).digest('hex');
+  const sha = new Bun.CryptoHasher('sha256').update(data).digest('hex');
   await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
   await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), data);
   return sha;

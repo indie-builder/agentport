@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -42,9 +41,13 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
     try {
       current = await incident(120);
       const signal = new AbortController().signal;
-      const longPrompt = `fixture:long-${randomUUID()}`;
+      const longPrompt = `fixture:long-${crypto.randomUUID()}`;
 
-      const lease = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
+      const lease = await current.sessions.acquire(
+        current.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
       current.ids.push(lease.sandboxId);
       const run = await startRun(lease, longPrompt);
       let settled = false;
@@ -73,13 +76,21 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
     const right = await incident();
     try {
       const signal = new AbortController().signal;
-      const leftLease = await left.sessions.acquire(left.spec, signal, `run-${randomUUID()}`);
-      const rightLease = await right.sessions.acquire(right.spec, signal, `run-${randomUUID()}`);
+      const leftLease = await left.sessions.acquire(
+        left.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
+      const rightLease = await right.sessions.acquire(
+        right.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
       left.ids.push(leftLease.sandboxId);
       right.ids.push(rightLease.sandboxId);
       const [leftRun, rightRun] = await Promise.all([
-        startRun(leftLease, `close-left-${randomUUID()}`),
-        startRun(rightLease, `close-right-${randomUUID()}`),
+        startRun(leftLease, `close-left-${crypto.randomUUID()}`),
+        startRun(rightLease, `close-right-${crypto.randomUUID()}`),
       ]);
       await leftRun.execution.done;
       await rightRun.execution.done;
@@ -106,9 +117,13 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
     try {
       current = await incident();
       const signal = new AbortController().signal;
-      const prompt = `fixture:orphan-${randomUUID()}`;
+      const prompt = `fixture:orphan-${crypto.randomUUID()}`;
 
-      const lease = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
+      const lease = await current.sessions.acquire(
+        current.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
       current.ids.push(lease.sandboxId);
       const run = await startRun(lease, prompt);
 
@@ -140,10 +155,14 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       expect(inContainer(lease.sandboxId, ['cat', GROUP_PROGRESS])).toBe(groupAtSettle);
 
       await lease.release({ reuse: true });
-      const again = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
+      const again = await current.sessions.acquire(
+        current.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
       current.ids.push(again.sandboxId);
       expect(again.sandboxId).toBe(lease.sandboxId);
-      const nextPrompt = `after-orphan-${randomUUID()}`;
+      const nextPrompt = `after-orphan-${crypto.randomUUID()}`;
       const next = await startRun(again, nextPrompt);
       expect(await next.execution.done).toMatchObject({ state: 'stopped' });
       expect(succeeded(next.events, nextPrompt)).toBe(true);
@@ -176,9 +195,13 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       current = await incident(60_000, recording);
       const signal = new AbortController().signal;
       const busyFile = join(current.spec.outputsDir, BUSY_OUTPUT);
-      const prompt = `fixture:busy-${randomUUID()}`;
+      const prompt = `fixture:busy-${crypto.randomUUID()}`;
 
-      const lease = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
+      const lease = await current.sessions.acquire(
+        current.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
       current.ids.push(lease.sandboxId);
       const run = await startRun(lease, prompt);
 
@@ -234,9 +257,9 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       current = await incident(60_000, recording);
       const signal = new AbortController().signal;
       const busyFile = join(current.spec.outputsDir, BUSY_OUTPUT);
-      const prompt = `fixture:busy-cleanup-${randomUUID()}`;
+      const prompt = `fixture:busy-cleanup-${crypto.randomUUID()}`;
 
-      const runId = `run-${randomUUID()}`;
+      const runId = `run-${crypto.randomUUID()}`;
       const lease = await current.sessions.acquire(current.spec, signal, runId);
       current.ids.push(lease.sandboxId);
       const run = await startRun(lease, prompt, runId);

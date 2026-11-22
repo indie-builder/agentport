@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,7 +35,7 @@ const TIME_LOCATORS = [
 ];
 
 function sha256(data: Buffer): string {
-  return createHash('sha256').update(data).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(data).digest('hex');
 }
 
 interface ManifestVersion {
@@ -208,7 +207,7 @@ async function seedAudioLibrary(): Promise<string> {
   expect(upload.statusCode, upload.body).toBe(202);
   const documentId = upload.json<{ documentId: string }>().documentId;
 
-  const versionId = `kdv_${randomUUID().replace(/-/g, '')}`;
+  const versionId = `kdv_${crypto.randomUUID().replace(/-/g, '')}`;
   const versionDir = join(knowledgeDir, 'docs', documentId, versionId);
   await mkdir(versionDir, { recursive: true });
   await writeFile(join(versionDir, 'markdown.md'), MARKDOWN, 'utf8');
@@ -234,7 +233,7 @@ async function seedAudioLibrary(): Promise<string> {
           enabled, edited_by_user, page_from, page_to, locator, token_count, metadata)
        values ($1, $2, $3, $4, $5, 'text', null, $6, $7, true, false, null, null, $8, 4, '{}')`,
       [
-        `kchk_${randomUUID().replace(/-/g, '')}`,
+        `kchk_${crypto.randomUUID().replace(/-/g, '')}`,
         baseId,
         documentId,
         versionId,
@@ -372,7 +371,7 @@ describe.skipIf(!ready)('knowledge package audio roundtrip', () => {
     expect(upload.statusCode, upload.body).toBe(202);
     const documentId = upload.json<{ documentId: string }>().documentId;
 
-    const versionId = `kdv_${randomUUID().replace(/-/g, '')}`;
+    const versionId = `kdv_${crypto.randomUUID().replace(/-/g, '')}`;
     const versionDir = join(knowledgeDir, 'docs', documentId, versionId);
     await mkdir(versionDir, { recursive: true });
     await writeFile(join(versionDir, 'markdown.md'), markdown, 'utf8');

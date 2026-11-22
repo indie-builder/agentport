@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -704,7 +703,7 @@ describe.skipIf(isolated === null)('run runtime environment identity persistence
     const acquireInput = mocks.acquire.mock.calls[0]?.[0] as
       | { spec: { personalDir?: string } }
       | undefined;
-    const digest = createHash('sha256').update(TEST_BUSINESS_ID, 'utf8').digest('hex');
+    const digest = new Bun.CryptoHasher('sha256').update(TEST_BUSINESS_ID, 'utf8').digest('hex');
     expect(acquireInput?.spec.personalDir).toBe(join(workdir, '_users', digest));
   });
 

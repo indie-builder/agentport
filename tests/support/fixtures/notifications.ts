@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { newId } from '../../../packages/db/src/index.js';
 import type { NotificationKind } from '../../../packages/shared/src/notifications.js';
 import { client as sql } from './database.js';
@@ -16,7 +15,7 @@ export async function seed(
   businessId: string,
   items: readonly SeededNotification[],
 ): Promise<string[]> {
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const createdAt = Date.now();
   const rows = items.map((item, index) => ({
     item,

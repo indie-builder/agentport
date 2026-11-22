@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,7 +21,7 @@ const ready = await infraReady;
 const SIGNATURE_EOCD = 0x06054b50;
 
 function sha256(data: Buffer): string {
-  return createHash('sha256').update(data).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(data).digest('hex');
 }
 
 function eocdOffset(archive: Buffer): number {

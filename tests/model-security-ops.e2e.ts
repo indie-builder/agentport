@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -84,7 +83,7 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function uniqueSuffix(): string {
-  return `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`;
+  return `${Date.now().toString(36)}${crypto.randomUUID().slice(0, 4)}`;
 }
 
 function sleep(ms: number): Promise<void> {

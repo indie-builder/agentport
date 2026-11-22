@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,7 +24,7 @@ const { startKnowledgeWorker } = await import('../src/knowledge/queue.js');
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
 const redisUrl = process.env.REDIS_URL ?? '';
-const prefix = `knowledge-queue-cancel-${randomUUID().slice(0, 8)}`;
+const prefix = `knowledge-queue-cancel-${crypto.randomUUID().slice(0, 8)}`;
 const quiet = {
   info: () => undefined,
   warn: () => undefined,
@@ -66,7 +65,7 @@ describe('knowledge queue cancellation across attempts', () => {
         dimensions: 1024,
       });
       const base = await repo.knowledge.createBase(db, {
-        slug: `cancel-${randomUUID().slice(0, 8)}`,
+        slug: `cancel-${crypto.randomUUID().slice(0, 8)}`,
         name: mode,
         description: '',
         serverId,

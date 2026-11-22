@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -1052,10 +1051,10 @@ describe.skipIf(!ready)('knowledge multimodal API', () => {
         sizeBytes: 1,
       });
       const original = Buffer.from('# 图册\n');
-      const sha = createHash('sha256').update(original).digest('hex');
+      const sha = new Bun.CryptoHasher('sha256').update(original).digest('hex');
       await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
       await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), original);
-      const imageSha = createHash('sha256').update(PNG).digest('hex');
+      const imageSha = new Bun.CryptoHasher('sha256').update(PNG).digest('hex');
       const version = await repo.knowledge.createVersion(app.db, {
         documentId: document.id,
         blobSha256: sha,

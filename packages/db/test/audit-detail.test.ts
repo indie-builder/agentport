@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { createHash, randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { createDb } from '../src/client.js';
@@ -17,7 +16,7 @@ if (!(ready && isolated)) await isolated?.close();
 type AuditRow = typeof auditLog.$inferSelect;
 
 function legacyHash(row: AuditRow): string {
-  return createHash('sha256')
+  return new Bun.CryptoHasher('sha256')
     .update(
       JSON.stringify([
         row.prevHash,
@@ -54,10 +53,10 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
   });
 
   it('chains mixed detail rows and keeps the legacy hash for rows without detail', async () => {
-    const target = `audit-detail-${randomUUID()}`;
-    const plainId = `audit-plain-${randomUUID()}`;
-    const detailId = `audit-detail-${randomUUID()}`;
-    const tailId = `audit-tail-${randomUUID()}`;
+    const target = `audit-detail-${crypto.randomUUID()}`;
+    const plainId = `audit-plain-${crypto.randomUUID()}`;
+    const detailId = `audit-detail-${crypto.randomUUID()}`;
+    const tailId = `audit-tail-${crypto.randomUUID()}`;
 
     await write({ dedupeKey: plainId, action: 'audit.detail.test', target, status: 'ok' });
     await write({
@@ -93,14 +92,14 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
   });
 
   it('treats JSON-null and non-string-record detail as no detail', async () => {
-    const target = `audit-invalid-detail-${randomUUID()}`;
+    const target = `audit-invalid-detail-${crypto.randomUUID()}`;
     const cases: Array<[string, unknown]> = [
-      [`audit-nan-${randomUUID()}`, Number.NaN],
-      [`audit-infinity-${randomUUID()}`, Number.POSITIVE_INFINITY],
-      [`audit-string-${randomUUID()}`, '123'],
-      [`audit-number-${randomUUID()}`, { from: 1 }],
-      [`audit-nested-${randomUUID()}`, { from: 'allow', nested: { to: 'ask' } }],
-      [`audit-tojson-${randomUUID()}`, { toJSON: () => null }],
+      [`audit-nan-${crypto.randomUUID()}`, Number.NaN],
+      [`audit-infinity-${crypto.randomUUID()}`, Number.POSITIVE_INFINITY],
+      [`audit-string-${crypto.randomUUID()}`, '123'],
+      [`audit-number-${crypto.randomUUID()}`, { from: 1 }],
+      [`audit-nested-${crypto.randomUUID()}`, { from: 'allow', nested: { to: 'ask' } }],
+      [`audit-tojson-${crypto.randomUUID()}`, { toJSON: () => null }],
     ];
     for (const [id, detail] of cases) {
       await write({ dedupeKey: id, action: 'audit.detail.invalid', target, status: 'ok', detail });
@@ -115,8 +114,8 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
   });
 
   it('keeps null-valued details and verifies the chain', async () => {
-    const target = `audit-null-detail-${randomUUID()}`;
-    const id = `audit-detail-${randomUUID()}`;
+    const target = `audit-null-detail-${crypto.randomUUID()}`;
+    const id = `audit-detail-${crypto.randomUUID()}`;
     const detail = { policyId: 'tap_1', from: '{"approvalMode":"ask"}', to: null };
     await write({ dedupeKey: id, action: 'audit.detail.null', target, status: 'ok', detail });
 
@@ -129,8 +128,8 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
   });
 
   it('detects tampering with a row that has no detail', async () => {
-    const target = `audit-tamper-plain-${randomUUID()}`;
-    const id = `audit-plain-${randomUUID()}`;
+    const target = `audit-tamper-plain-${crypto.randomUUID()}`;
+    const id = `audit-plain-${crypto.randomUUID()}`;
     await write({ dedupeKey: id, action: 'audit.detail.tamper', target, status: 'ok' });
     const row = await rowById(id);
     expect(row.hash).toBe(legacyHash(row));
@@ -145,8 +144,8 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
   });
 
   it('detects tampering with readable detail', async () => {
-    const target = `audit-tamper-detail-${randomUUID()}`;
-    const id = `audit-detail-${randomUUID()}`;
+    const target = `audit-tamper-detail-${crypto.randomUUID()}`;
+    const id = `audit-detail-${crypto.randomUUID()}`;
     await write({
       dedupeKey: id,
       action: 'audit.detail.tamper',
@@ -169,8 +168,8 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
   });
 
   it('rejects a JSONB string with the same content as the original object', async () => {
-    const target = `audit-tamper-type-${randomUUID()}`;
-    const id = `audit-detail-${randomUUID()}`;
+    const target = `audit-tamper-type-${crypto.randomUUID()}`;
+    const id = `audit-detail-${crypto.randomUUID()}`;
     await write({
       dedupeKey: id,
       action: 'audit.detail.tamper',
@@ -192,8 +191,8 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
   });
 
   it('rejects JSON null in place of SQL NULL', async () => {
-    const target = `audit-tamper-jsonnull-${randomUUID()}`;
-    const id = `audit-detail-${randomUUID()}`;
+    const target = `audit-tamper-jsonnull-${crypto.randomUUID()}`;
+    const id = `audit-detail-${crypto.randomUUID()}`;
     await write({ dedupeKey: id, action: 'audit.detail.tamper', target, status: 'ok' });
     const row = await rowById(id);
     expect(row.detail).toBeNull();
@@ -209,8 +208,8 @@ describe.skipIf(!(ready && isolated))('audit detail chain', () => {
   });
 
   it('rejects a numeric value tampered into a detail field', async () => {
-    const target = `audit-tamper-number-${randomUUID()}`;
-    const id = `audit-detail-${randomUUID()}`;
+    const target = `audit-tamper-number-${crypto.randomUUID()}`;
+    const id = `audit-detail-${crypto.randomUUID()}`;
     await write({
       dedupeKey: id,
       action: 'audit.detail.tamper',

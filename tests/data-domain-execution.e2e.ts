@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -360,7 +360,7 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
   );
   await app.open('/');
   const duckdbDir = contract.duckdbDir ?? '';
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
 
   const domain = await apiJson<{ id: string; slug: string }>(browser, 'POST', '/api/data-domains', {
     name: `E2E 数据域 ${suffix}`,
@@ -408,7 +408,7 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
   if (server === undefined) throw new Error(`找不到数据域托管 MCP：dd-${domain.slug}`);
   const toolName = `mcp__dd-${domain.slug}__run_sql`;
 
-  const accountSuffix = randomUUID().slice(0, 8);
+  const accountSuffix = crypto.randomUUID().slice(0, 8);
   const userA = {
     businessId: `e2e-dd-hr-${accountSuffix}`,
     username: `e2e_dd_hr_${accountSuffix}`,
@@ -1106,7 +1106,7 @@ test('the same SQL yields identity-scoped rows and columns for two real users', 
   await expect(typeSelect).toHaveAttribute('aria-expanded', 'false');
   await expect(typeSelect).toHaveText('折线图');
 
-  const shotDir = join(SHOT_DIR, randomUUID().slice(0, 8));
+  const shotDir = join(SHOT_DIR, crypto.randomUUID().slice(0, 8));
   const fullPageShot = async (width: number, label: string) => {
     await browser.setViewport({ width, height: 900 });
     await delay(200);

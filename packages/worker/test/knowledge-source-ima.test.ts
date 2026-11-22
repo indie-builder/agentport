@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { SourceAuthError } from '../src/knowledge/source-http.js';
 import { probeIma, readIma } from '../src/knowledge/source-ima.js';
@@ -213,10 +212,8 @@ describe('readIma', () => {
     expect(pdfItem?.mimeType).toBe('application/pdf');
     expect(pdfItem?.sourceUrl).toBe('');
     expect(
-      createHash('sha256')
-        .update(pdfItem?.bytes ?? Buffer.alloc(0))
-        .digest('hex'),
-    ).toBe(createHash('sha256').update(pdf).digest('hex'));
+      new Bun.CryptoHasher('sha256').update(pdfItem?.bytes ?? Buffer.alloc(0)).digest('hex'),
+    ).toBe(new Bun.CryptoHasher('sha256').update(pdf).digest('hex'));
 
     const duplicate = snapshot.items.find((item) => item.externalId === 'ima:media:kb1:m-dup');
     expect(duplicate?.title).toBe('Manual.pdf');

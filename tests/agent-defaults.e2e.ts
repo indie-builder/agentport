@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect, type Screen } from 'e2e';
 import { fixture as runFixture } from './support/fixture.js';
@@ -96,7 +95,7 @@ test('setting and clearing effort on the page survives save and reload', {
   expect(await clearedResponse.json<Record<string, unknown>>()).not.toHaveProperty('effort');
   expect(await stored(fixture.id)).toEqual({ effort: null });
 
-  const renamed = `E2E 默认值改名 ${randomUUID().slice(0, 8)}`;
+  const renamed = `E2E 默认值改名 ${crypto.randomUUID().slice(0, 8)}`;
   await screen.getByRole('button', '身份', { exact: false }).tap();
   await browser.locator('#agent-name').fill(renamed);
   const saved = agentResponse(browser, fixture.id);
@@ -199,7 +198,7 @@ test('removed fixed thinking budget is rejected without writing', {
       );
       return { patchValues, createStatuses };
     },
-    { id: fixture.id, slug: `e2e-thinking-${randomUUID().slice(0, 8)}` },
+    { id: fixture.id, slug: `e2e-thinking-${crypto.randomUUID().slice(0, 8)}` },
   );
   expect(result.patchValues).toEqual([400, 400]);
   expect(result.createStatuses).toEqual([400, 400]);
@@ -208,7 +207,7 @@ test('removed fixed thinking budget is rejected without writing', {
 });
 
 test('expert cards and employee badge', { session: 'admin' }, async ({ app, screen, browser }) => {
-  const token = randomUUID().slice(0, 8);
+  const token = crypto.randomUUID().slice(0, 8);
   const full = await seed(null, {
     name: `E2E 员工工牌 ${token} 完整`,
     role: '数据分析师',

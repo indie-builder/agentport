@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { agentRuns, agents, conversations, newId } from '../../../packages/db/src/index.js';
 import { RUN_CANCEL_PAYLOAD, runCancelKey } from '../../../packages/shared/src/run-stream.js';
 import { db as database, redis, client as sql } from './database.js';
@@ -11,7 +10,7 @@ interface Fixture {
 
 export async function seedRun(status: 'queued' | 'running' | 'succeeded'): Promise<Fixture> {
   const client = database;
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const fixture: Fixture = {
     agentId: newId('agent'),
     conversationId: newId('conversation'),

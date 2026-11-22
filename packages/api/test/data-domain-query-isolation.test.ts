@@ -1,11 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { type AddressInfo, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { encryptSecrets, hashMcpToken } from '@agentport/core';
 import { newId, schema } from '@agentport/db';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -92,8 +90,12 @@ describe.skipIf(!ready)('data domain query isolation over MCP', () => {
   const agentId = newId('agent');
   const bizA = unique('biz-hr');
   const bizB = unique('biz-sales');
-  const tokenA = randomBytes(32).toString('base64url');
-  const tokenB = randomBytes(32).toString('base64url');
+  const tokenA = crypto
+    .getRandomValues(new Uint8Array(32))
+    .toBase64({ alphabet: 'base64url', omitPadding: true });
+  const tokenB = crypto
+    .getRandomValues(new Uint8Array(32))
+    .toBase64({ alphabet: 'base64url', omitPadding: true });
   let runIdA = '';
   let runIdB = '';
   let conversationIdA = '';
@@ -183,7 +185,7 @@ describe.skipIf(!ready)('data domain query isolation over MCP', () => {
         if (Date.now() > deadline) {
           throw new Error(`wren runtime did not become healthy: ${runtimeLogs}`);
         }
-        await delay(100);
+        await Bun.sleep(100);
       }
 
       app = await startApp({ WREN_RUNTIME_URL: runtimeUrl });
@@ -278,7 +280,7 @@ describe.skipIf(!ready)('data domain query isolation over MCP', () => {
       if (server) await server.close();
       if (app) await app.close();
       runtime?.kill('SIGKILL');
-      if (runtimeExit) await Promise.race([runtimeExit, delay(3000)]);
+      if (runtimeExit) await Promise.race([runtimeExit, Bun.sleep(3000)]);
       await rm(rootDir, { recursive: true, force: true });
     }
   });

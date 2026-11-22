@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Browser } from '@e2e-dev/web';
@@ -90,7 +89,7 @@ test('schedule lifecycle: timezone firing, catch-up, failure notification and re
   timeout: 900_000,
 }, async ({ app, screen, browser }) => {
   const testStartedAt = new Date().toISOString();
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const shots = join(SHOT_DIR, suffix);
   const shot = async (label: string): Promise<string> => {
     mkdirSync(shots, { recursive: true });

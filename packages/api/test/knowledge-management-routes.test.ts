@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -91,7 +90,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
   }
 
   async function writeBlob(data: Buffer): Promise<string> {
-    const sha = createHash('sha256').update(data).digest('hex');
+    const sha = new Bun.CryptoHasher('sha256').update(data).digest('hex');
     const target = join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, data);
@@ -1045,7 +1044,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const faqVersion = await repo.knowledge.createVersion(app.db, {
       documentId: faqDocument.id,
       blobSha256: blobSha,
-      markdownSha256: createHash('sha256').update(original).digest('hex'),
+      markdownSha256: new Bun.CryptoHasher('sha256').update(original).digest('hex'),
       originalFilename: 'faq.md',
       mimeType: 'text/markdown',
       sizeBytes: original.length,
@@ -1478,7 +1477,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const indexVersion = await repo.knowledge.createVersion(app.db, {
       documentId: indexDocument.id,
       blobSha256: indexBlobSha,
-      markdownSha256: createHash('sha256').update(indexContent).digest('hex'),
+      markdownSha256: new Bun.CryptoHasher('sha256').update(indexContent).digest('hex'),
       originalFilename: 'wiki.md',
       mimeType: 'text/markdown',
       sizeBytes: indexContent.length,
@@ -1527,7 +1526,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
     const faqVersion = await repo.knowledge.createVersion(app.db, {
       documentId: faqDocument.id,
       blobSha256: faqBlobSha,
-      markdownSha256: createHash('sha256').update(faqContent).digest('hex'),
+      markdownSha256: new Bun.CryptoHasher('sha256').update(faqContent).digest('hex'),
       originalFilename: 'faq.md',
       mimeType: 'text/markdown',
       sizeBytes: faqContent.length,
@@ -1713,7 +1712,7 @@ describe.skipIf(!ready)('knowledge management routes', () => {
       'published-hash',
       documentId,
     ]);
-    const sha = (content: string) => createHash('sha256').update(content).digest('hex');
+    const sha = (content: string) => new Bun.CryptoHasher('sha256').update(content).digest('hex');
 
     async function payloadOf(jobId: string): Promise<Record<string, unknown>> {
       const rows = await app.client.unsafe<{ payload: Record<string, unknown> }[]>(

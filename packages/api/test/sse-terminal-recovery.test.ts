@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { setTimeout as delay } from 'node:timers/promises';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import { publishRun } from '../src/queue/producer.js';
@@ -109,7 +108,7 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
         for (;;) {
           const left = deadline - Date.now();
           if (left <= 0) return { text, closed: false };
-          const chunk = await Promise.race([reader.read(), delay(left).then(() => null)]);
+          const chunk = await Promise.race([reader.read(), Bun.sleep(left).then(() => null)]);
           if (chunk === null) return { text, closed: false };
           if (chunk.done) return { text, closed: true };
           text += decoder.decode(chunk.value, { stream: true });
@@ -215,7 +214,7 @@ describe.skipIf(!ready)('sse terminal recovery', () => {
 
     await sse.abort();
     expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 0)).toBe(true);
-    await delay(2_200);
+    await Bun.sleep(2_200);
     expect(await eventFollowerCount(redis, runId)).toBe(0);
 
     const health = await request(app, { method: 'GET', url: '/health/live' });

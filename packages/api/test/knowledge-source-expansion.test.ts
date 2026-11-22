@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,7 +18,7 @@ const ready = await infraReady;
 const UUID = '01234567-89ab-cdef-0123-456789abcdef';
 
 function sha256(data: Buffer): string {
-  return createHash('sha256').update(data).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(data).digest('hex');
 }
 
 const SOURCE_TYPES = [
@@ -580,10 +579,10 @@ describe.skipIf(!ready)('knowledge source expansion', () => {
       });
       expect(upload.statusCode, upload.body).toBe(202);
       const documentId = upload.json<{ documentId: string }>().documentId;
-      const versionId = `kdv_${randomUUID().replace(/-/g, '')}`;
+      const versionId = `kdv_${crypto.randomUUID().replace(/-/g, '')}`;
       const chunkIds: [string, string] = [
-        `kchk_${randomUUID().replace(/-/g, '')}`,
-        `kchk_${randomUUID().replace(/-/g, '')}`,
+        `kchk_${crypto.randomUUID().replace(/-/g, '')}`,
+        `kchk_${crypto.randomUUID().replace(/-/g, '')}`,
       ];
       const blobSha256 = sha256(original);
       const markdownSha256 = sha256(markdown);

@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { PassThrough, Writable } from 'node:stream';
-import { fileURLToPath } from 'node:url';
 import type { SupervisorInput, SupervisorOutput } from '@agentport/shared';
 import { runSupervisor } from '../src/session-supervisor.js';
 
-const fixture = fileURLToPath(new URL('./fixtures/session-child.mjs', import.meta.url));
+const fixture = Bun.fileURLToPath(new URL('./fixtures/session-child.mjs', import.meta.url));
 const USER_UUID = '11111111-2222-4333-8444-555555555555';
 const GRACE_MS = 100;
 

@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import {
   access,
   link,
@@ -82,7 +81,7 @@ describe('decodeAttachmentInput', () => {
       extension: '.md',
     });
     expect(decoded.data.toString('utf8')).toBe(text);
-    expect(decoded.sha256).toBe(createHash('sha256').update(text).digest('hex'));
+    expect(decoded.sha256).toBe(new Bun.CryptoHasher('sha256').update(text).digest('hex'));
     expect(decoded.id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
@@ -211,7 +210,7 @@ describe('writeConversationAttachments / readConversationAttachment', () => {
         attachment: meta,
       });
       expect(read.data.toString('utf8')).toBe(text);
-      expect(createHash('sha256').update(read.data).digest('hex')).toBe(meta.sha256);
+      expect(new Bun.CryptoHasher('sha256').update(read.data).digest('hex')).toBe(meta.sha256);
 
       await rm(missingRoot, { recursive: true, force: true });
       await expect(
@@ -257,7 +256,7 @@ describe('writeConversationAttachments / readConversationAttachment', () => {
     expect(read.filename).toBe('报告.md');
     expect(read.mimeType).toBe('text/markdown');
     expect(read.data.toString('utf8')).toBe(text);
-    expect(createHash('sha256').update(read.data).digest('hex')).toBe(md.sha256);
+    expect(new Bun.CryptoHasher('sha256').update(read.data).digest('hex')).toBe(md.sha256);
   });
 
   it('returns nothing for an empty selection', async () => {

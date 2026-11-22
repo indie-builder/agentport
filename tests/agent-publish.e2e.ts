@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -150,7 +149,7 @@ test('publishes, trials, rolls back and takes an agent offline through real runs
 }, async ({ app, screen, browser }) => {
   await requireExecutionStack();
   await app.open('/');
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   let agentId: string | undefined;
   let skillId: string | undefined;
   let serverId: string | undefined;

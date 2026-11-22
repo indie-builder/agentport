@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,7 +21,7 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function uniqueSuffix(): string {
-  return `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`;
+  return `${Date.now().toString(36)}${crypto.randomUUID().slice(0, 4)}`;
 }
 
 function escapeRegExp(value: string): string {

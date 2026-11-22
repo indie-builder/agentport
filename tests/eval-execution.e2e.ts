@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -43,7 +42,7 @@ test('runs an evaluation from the page through worker, sandbox and the stub mode
   const contract = await requireExecutionStack();
   await app.open('/');
   expect(await browser.evaluate(() => location.origin)).toBe(contract.appUrl);
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const agent = await apiJson<{ id: string }>(browser, 'POST', '/api/agents', {
     slug: `e2e-eval-exec-${suffix}`,
     name: `E2E 评估执行 ${suffix}`,

@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -147,7 +146,7 @@ test('missing terminal event is recovered from the persisted run without XADD ru
   session: 'admin',
   timeout: 120_000,
 }, async ({ app, screen, browser }) => {
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const prompt = `E2E 缺终态提问 ${suffix}`;
   const partial = `流式尾部 ${suffix} `;
   const saved = '数据库补齐的完整回答';
@@ -211,7 +210,7 @@ test('a vanished run row ends the stream with a fixed notice and frees the compo
   session: 'admin',
   timeout: 120_000,
 }, async ({ app, screen, browser }) => {
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const prompt = `E2E 运行记录消失提问 ${suffix}`;
   const partial = `消失前的尾部 ${suffix} `;
   const unavailable = '运行记录已不存在，已停止接收。';
@@ -272,7 +271,7 @@ test('truncated SSE replay restores the persisted answer without duplicating the
   session: 'admin',
   timeout: 120_000,
 }, async ({ app, screen, browser }) => {
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const prompt = `E2E 截断回放提问 ${suffix}`;
   const historyUser = `历史问题 ${suffix}`;
   const historyAnswer = `历史回答 ${suffix}`;

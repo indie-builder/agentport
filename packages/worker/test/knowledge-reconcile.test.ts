@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import {
   KNOWLEDGE_JOB_TIMEOUT_MS,
@@ -35,7 +34,7 @@ async function probeInfra(): Promise<boolean> {
 
 const ready = await probeInfra();
 const redisUrl = process.env.REDIS_URL ?? '';
-const prefix = `knowledge-reconcile-${randomUUID().slice(0, 8)}`;
+const prefix = `knowledge-reconcile-${crypto.randomUUID().slice(0, 8)}`;
 
 describe.skipIf(!ready)('reconcileKnowledgeJobs against a live queue', () => {
   let db: ReturnType<typeof createDb>['db'];

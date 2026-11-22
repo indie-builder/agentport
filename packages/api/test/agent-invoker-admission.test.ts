@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomBytes } from 'node:crypto';
 import { createInvoker } from '../src/modules/servers/agent-invoker.js';
 import {
   cleanup,
@@ -54,7 +53,7 @@ describe.skipIf(!ready)('agent invoker admission', () => {
 
   it('persists MCP title, trigger, agent version and audit through the shared admission', async () => {
     const agent = await newAgent('mcp-admission');
-    const prompt = `mcp admission ${randomBytes(6).toString('hex')} ${'x'.repeat(80)}`;
+    const prompt = `mcp admission ${crypto.getRandomValues(new Uint8Array(6)).toHex()} ${'x'.repeat(80)}`;
 
     const err = await rejectionOf(
       createInvoker(app).invoke({ slug: agent.slug, prompt, timeoutMs: 50 }),
@@ -101,8 +100,8 @@ describe.skipIf(!ready)('agent invoker admission', () => {
 
   it('rolls back the conversation, run and message when admission fails mid-transaction', async () => {
     const agent = await newAgent('mcp-rollback');
-    const marker = `rollback-${randomBytes(8).toString('hex')}`;
-    const fn = `test_mcp_rollback_${randomBytes(4).toString('hex')}`;
+    const marker = `rollback-${crypto.getRandomValues(new Uint8Array(8)).toHex()}`;
+    const fn = `test_mcp_rollback_${crypto.getRandomValues(new Uint8Array(4)).toHex()}`;
 
     await app.client.unsafe(`
       create function ${fn}() returns trigger language plpgsql as $$

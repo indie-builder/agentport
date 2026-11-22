@@ -3,10 +3,9 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = new URL('../../../', import.meta.url);
-const rootPath = fileURLToPath(root);
+const rootPath = Bun.fileURLToPath(root);
 const read = (path: string) => readFileSync(new URL(path, root), 'utf8');
 
 describe('build context and sandbox image', () => {
@@ -44,7 +43,7 @@ describe('build context and sandbox image', () => {
           dereference: true,
         });
 
-        const deployed = await import(pathToFileURL(join(packed, 'dist/index.js')).href);
+        const deployed = await import(Bun.pathToFileURL(join(packed, 'dist/index.js')).href);
         expect(deployed.agentDuplicateInputSchema.safeParse({}).success).toBe(false);
         expect(deployed.agentDuplicateInputSchema.safeParse({ slug: 'x', name: 'x' }).success).toBe(
           true,

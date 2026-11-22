@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import {
   containerExists,
   createSessionSdkSuite,
@@ -28,7 +27,7 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const firstLease = await sessions.acquire(
         getSpec('idle'),
         new AbortController().signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       const firstSandboxId = firstLease.sandboxId;
       const first = await startRun(firstLease, '回收前：请记住暗号 BLUE-442');
@@ -46,7 +45,7 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const secondLease = await sessions.acquire(
         getSpec('idle'),
         new AbortController().signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       expect(secondLease.sandboxId).not.toBe(firstSandboxId);
       const second = await startRun(secondLease, '回收后：继续', sessionId);
@@ -77,7 +76,7 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const firstLease = await sessions.acquire(
         getSpec('cancel'),
         new AbortController().signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       const sandboxId = firstLease.sandboxId;
       const first = await startRun(firstLease, '取消前：请记住暗号 GREEN-913');
@@ -108,7 +107,7 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const resumedLease = await sessions.acquire(
         getSpec('cancel'),
         new AbortController().signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       expect(resumedLease.sandboxId).toBe(sandboxId);
       const resumed = await startRun(resumedLease, '取消后：继续 GREEN-913', sessionId);

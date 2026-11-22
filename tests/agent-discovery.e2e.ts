@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -114,7 +113,7 @@ test('agent discovery 授权专家发现、归档恢复、统一搜索、个人�
 }, async ({ app, browser, screen }) => {
   await app.open('/');
   await browser.setViewport({ width: 1440, height: 900 });
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const tag = `E2E-${suffix}`;
   const message = `${OUTPUT_WRITE_MARKER} E2E 发现与搜索 ${suffix}`;
   const agents: string[] = [];
@@ -625,7 +624,7 @@ test('archived agent cannot be woken by channel mention', {
 }, async ({ app, browser }) => {
   await app.open('/');
   await adminLogin(browser);
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const agent = await apiJson<AgentSummary>(
     browser,
     'POST',

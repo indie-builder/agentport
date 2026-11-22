@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 
 interface Service {
   environment?: Record<string, string>;
@@ -17,7 +16,7 @@ const config = JSON.parse(
     [
       'compose',
       '--project-directory',
-      fileURLToPath(new URL('../../../', import.meta.url)),
+      Bun.fileURLToPath(new URL('../../../', import.meta.url)),
       'config',
       '--no-env-resolution',
       '--no-interpolate',

@@ -1,7 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { setTimeout as delay } from 'node:timers/promises';
 import { inspect } from 'node:util';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { eq, inArray } from 'drizzle-orm';
@@ -68,8 +66,8 @@ const logger = {
   debug: () => undefined,
 } as unknown as Logger;
 
-const RESULT_SECRET = `sk-live-eval-result-${randomUUID()}`;
-const FINISH_SECRET = `sk-live-eval-finish-${randomUUID()}`;
+const RESULT_SECRET = `sk-live-eval-result-${crypto.randomUUID()}`;
+const FINISH_SECRET = `sk-live-eval-finish-${crypto.randomUUID()}`;
 
 type CaseInput = {
   name: string;
@@ -83,7 +81,7 @@ async function seed(cases: CaseInput[]) {
   const agentId = newId('agent');
   await db.insert(schema.agents).values({
     id: agentId,
-    slug: `eval-write-${randomUUID().slice(0, 8)}`,
+    slug: `eval-write-${crypto.randomUUID().slice(0, 8)}`,
     name: 'eval-write',
     model: 'test',
     createdBy: evalBusinessId,
@@ -241,12 +239,12 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
   });
 
   it('redacts a case-level messages insert failure from the persisted result output', async () => {
-    const secret = `sk-live-eval-message-${randomUUID()}`;
+    const secret = `sk-live-eval-message-${crypto.randomUUID()}`;
     const prompt = `prompt-message-${secret}`;
     const { evalRunId } = await seed([
       { name: 'message-fault', prompt, expectation: 'reply:never' },
     ]);
-    const functionName = `eval_message_fault_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
+    const functionName = `eval_message_fault_${crypto.randomUUID().replaceAll('-', '').slice(0, 8)}`;
     await dbHandle.client.unsafe(`
       create or replace function ${functionName}() returns trigger language plpgsql as $fn$
       begin
@@ -338,7 +336,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
   });
 
   it('keeps the agent output when the llm judge throws and redacts the reason', async () => {
-    const secret = `sk-live-eval-judge-${randomUUID()}`;
+    const secret = `sk-live-eval-judge-${crypto.randomUUID()}`;
     judgeError = `judge failed ${secret}`;
     const { evalRunId } = await seed([
       {
@@ -421,7 +419,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
   });
 
   it('grades with the inbound-redacted prompt instead of the raw snapshot', async () => {
-    const secret = `sk-live-eval-inbound-${randomUUID()}`;
+    const secret = `sk-live-eval-inbound-${crypto.randomUUID()}`;
     const { agentId, evalRunId } = await seed([
       {
         name: 'inbound-redacted',
@@ -452,7 +450,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
     const childId = newId('agent');
     await db.insert(schema.agents).values({
       id: childId,
-      slug: `eval-child-${randomUUID().slice(0, 8)}`,
+      slug: `eval-child-${crypto.randomUUID().slice(0, 8)}`,
       name: 'eval-child',
       model: 'test',
       parentId: agentId,
@@ -470,7 +468,7 @@ describe.skipIf(isolated === null)('eval result persistence against a real datab
           settled = true;
         },
       );
-      await delay(200);
+      await Bun.sleep(200);
       expect(settled, 'eval admission did not wait for the child memory lock').toBe(false);
       await client.unsafe('commit');
       await pending;

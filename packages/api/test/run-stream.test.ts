@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { setTimeout as delay } from 'node:timers/promises';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
@@ -170,7 +169,7 @@ describe.skipIf(!ready)('run stream contract', () => {
 
       subscription = await subscribing;
       expect(await waitFor(() => seen.length === 4)).toBe(true);
-      await delay(100);
+      await Bun.sleep(100);
       expect(seen).toEqual(['e0', 'e1', 'e2', 'e3']);
     } finally {
       releaseGate();

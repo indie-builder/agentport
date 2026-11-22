@@ -1,13 +1,11 @@
 import { expect } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { ChatEvent, SandboxTaskInput } from '@agentport/shared';
 import type { Logger } from 'pino';
 
@@ -28,7 +26,7 @@ const SDK_VERSION = (
   }
 ).dependencies['@anthropic-ai/claude-agent-sdk'];
 export const SUBAGENT_MEMORY_ROOT = '/workspace/.claude/agent-memory';
-const REPO_ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
+const REPO_ROOT = Bun.fileURLToPath(new URL('../../../..', import.meta.url));
 
 const quiet = {
   info: () => undefined,
@@ -96,7 +94,7 @@ function filesUnder(dir: string): string[] {
 }
 
 function sourceDigest(dir: string): string {
-  const hash = createHash('sha256');
+  const hash = new Bun.CryptoHasher('sha256');
   for (const name of filesUnder(dir)) {
     hash
       .update(name)
@@ -114,7 +112,7 @@ function newestSourceMtime(dir: string): number {
 function artifact(path: string) {
   return {
     path,
-    sha256: createHash('sha256').update(readFileSync(path)).digest('hex'),
+    sha256: new Bun.CryptoHasher('sha256').update(readFileSync(path)).digest('hex'),
     builtAt: new Date(statSync(path).mtimeMs).toISOString(),
   };
 }
@@ -239,7 +237,7 @@ function taskInput(prompt: string, resumeSessionId?: string): SandboxTaskInput {
     model: MODEL,
     maxTurns: 4,
     maxBudgetUsd: 0.01,
-    userMessageUuid: randomUUID(),
+    userMessageUuid: crypto.randomUUID(),
     ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
   };
 }
@@ -800,7 +798,7 @@ export function createSessionSdkSuite() {
     const events: ChatEvent[] = [];
     const stderr: string[] = [];
     const execution = await lease.start({
-      runId: `run-${randomUUID()}`,
+      runId: `run-${crypto.randomUUID()}`,
       task: { ...taskInput(prompt, resumeSessionId), ...overrides },
       env: sandboxEnv(fake.baseUrl),
       onEvent: (event) => events.push(event),
@@ -843,7 +841,7 @@ export function createSessionSdkSuite() {
       const lease = await sessions.acquire(
         spec,
         new AbortController().signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       const run = await startRun(lease, prompt, undefined, overrides);
       const settlement = await withTimeout(run.execution.done, timeoutMs, 'bash behavior run');

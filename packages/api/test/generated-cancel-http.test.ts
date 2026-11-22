@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { hashMcpToken } from '@agentport/core';
@@ -92,7 +91,9 @@ describe.skipIf(!ready)('generated MCP cancellation over real HTTP', () => {
         track: createdAgents,
       })
     ).json<{ id: string }>();
-    const runToken = randomBytes(32).toString('base64url');
+    const runToken = crypto
+      .getRandomValues(new Uint8Array(32))
+      .toBase64({ alphabet: 'base64url', omitPadding: true });
     const { runId } = await seedRun(app, agent.id, {
       runId: unique('cancel-run'),
       mcpTokenHash: hashMcpToken(runToken),

@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { newId } from '@agentport/db';
 import {
   AGENT_HOOK_CONTENT_MAX,
@@ -105,9 +104,9 @@ describe.skipIf(!ready)('agent file hooks', () => {
   };
 
   const createUser = async (roleId: string): Promise<{ cookie: string; businessId: string }> => {
-    const businessId = `biz-hooks-${randomUUID().slice(0, 8)}`;
+    const businessId = `biz-hooks-${crypto.randomUUID().slice(0, 8)}`;
     const username = unique('hooks-user');
-    const authUserId = randomUUID();
+    const authUserId = crypto.randomUUID();
     await app.client.unsafe(
       `insert into "user" (id, name, email, email_verified, username, business_id, disabled, created_at, updated_at)
        values ($1, $2, $3, true, $4, $5, false, now(), now())`,
@@ -116,7 +115,7 @@ describe.skipIf(!ready)('agent file hooks', () => {
     await app.client.unsafe(
       `insert into account (id, account_id, provider_id, user_id, password, created_at, updated_at)
        values ($1, $2, 'credential', $3, $4, now(), now())`,
-      [randomUUID(), authUserId, authUserId, await hashPassword(PASSWORD)],
+      [crypto.randomUUID(), authUserId, authUserId, await hashPassword(PASSWORD)],
     );
     await app.client.unsafe('insert into user_roles (business_id, role_id) values ($1, $2)', [
       businessId,

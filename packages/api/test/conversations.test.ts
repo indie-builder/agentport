@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { newId, repo } from '@agentport/db';
@@ -177,7 +176,7 @@ describe.skipIf(!ready)('conversations', () => {
     );
     expect(audit).toHaveLength(1);
     expect(audit[0]?.input_digest).toBe(
-      createHash('sha256')
+      new Bun.CryptoHasher('sha256')
         .update(JSON.stringify({ fields: ['title'] }))
         .digest('hex')
         .slice(0, 32),

@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { hashMcpToken } from '@agentport/core';
@@ -183,7 +182,9 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       })
     ).json<{ id: string }>();
 
-    const runToken = randomBytes(32).toString('base64url');
+    const runToken = crypto
+      .getRandomValues(new Uint8Array(32))
+      .toBase64({ alphabet: 'base64url', omitPadding: true });
     const { runId } = await seedRun(app, agent.id, {
       runId: unique('run'),
       mcpTokenHash: hashMcpToken(runToken),
@@ -404,7 +405,9 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
           track: createdAgents,
         })
       ).json<{ id: string }>();
-      const runToken = randomBytes(32).toString('base64url');
+      const runToken = crypto
+        .getRandomValues(new Uint8Array(32))
+        .toBase64({ alphabet: 'base64url', omitPadding: true });
       const { runId } = await seedRun(waiting, agent.id, { mcpTokenHash: hashMcpToken(runToken) });
       runIds.push(runId);
       const approvalUrl = `${waitingServer.url}/tool-approvals/${runId}/${server.id}/suspended-user`;
@@ -490,7 +493,9 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
           track: createdAgents,
         })
       ).json<{ id: string }>();
-      const runToken = randomBytes(32).toString('base64url');
+      const runToken = crypto
+        .getRandomValues(new Uint8Array(32))
+        .toBase64({ alphabet: 'base64url', omitPadding: true });
       const { runId } = await seedRun(waiting, agent.id, { mcpTokenHash: hashMcpToken(runToken) });
       runIds.push(runId);
       const url = `${waitingServer.url}/tool-approvals/${runId}/${server.id}/timeout-user`;
@@ -541,7 +546,9 @@ describe.skipIf(!ready)('generated MCP endpoint', () => {
       })
     ).json<{ id: string }>();
 
-    const runToken = randomBytes(32).toString('base64url');
+    const runToken = crypto
+      .getRandomValues(new Uint8Array(32))
+      .toBase64({ alphabet: 'base64url', omitPadding: true });
     const { runId } = await seedRun(app, agent.id, {
       runId: unique('run-token'),
       mcpTokenHash: hashMcpToken(runToken),

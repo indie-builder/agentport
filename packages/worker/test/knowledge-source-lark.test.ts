@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { knowledgeConnectors } from '../src/knowledge/connector-adapter.js';
 import { parseDocument } from '../src/knowledge/parsing.js';
@@ -50,7 +49,7 @@ function bytes(base64: string): Response {
 }
 
 function sha256(value: Uint8Array): string {
-  return createHash('sha256').update(value).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(value).digest('hex');
 }
 
 function mockFetch(): void {

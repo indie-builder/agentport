@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdtemp, rm, stat, utimes } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -25,7 +24,8 @@ import { createParsingAdapter } from '../src/knowledge/parsing-adapter.js';
 import { SourceAuthError } from '../src/knowledge/sources.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
-const sha256Of = (data: Buffer): string => createHash('sha256').update(data).digest('hex');
+const sha256Of = (data: Buffer): string =>
+  new Bun.CryptoHasher('sha256').update(data).digest('hex');
 
 const isolated = await createIsolatedDatabase('worker_knowledge_ingestion');
 const ready = isolated !== null;
@@ -280,7 +280,7 @@ async function makeUploadedDocument(
   meta: { title?: string; mimeType?: string; originalFilename?: string } = {},
 ): Promise<{ documentId: string; jobId: string }> {
   const data = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf8');
-  const sha = createHash('sha256').update(data).digest('hex');
+  const sha = new Bun.CryptoHasher('sha256').update(data).digest('hex');
   const documentId = newId('knowledgeDocument');
   await db.insert(schema.knowledgeDocuments).values({
     id: documentId,
@@ -396,7 +396,7 @@ describe.skipIf(!ready)('runIngest', () => {
 
     const { mkdir, writeFile } = await import('node:fs/promises');
     const data = Buffer.from('# 新标题\n\n取消发生在切版之前。', 'utf8');
-    const sha = createHash('sha256').update(data).digest('hex');
+    const sha = new Bun.CryptoHasher('sha256').update(data).digest('hex');
     await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
     await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), data);
     await repo.knowledge.updateDocument(db, first.documentId, { contentHash: sha });
@@ -442,7 +442,7 @@ describe.skipIf(!ready)('runIngest', () => {
 
     const { mkdir, writeFile } = await import('node:fs/promises');
     const data = Buffer.from('# 新标题\n\n新的正文。', 'utf8');
-    const sha = createHash('sha256').update(data).digest('hex');
+    const sha = new Bun.CryptoHasher('sha256').update(data).digest('hex');
     await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
     await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), data);
     await repo.knowledge.updateDocument(db, first.documentId, { contentHash: sha });
@@ -546,7 +546,7 @@ describe.skipIf(!ready)('runIngest', () => {
 
     const { mkdir, writeFile } = await import('node:fs/promises');
     const data = Buffer.from('# 再一版\n\n取消发生在守卫读库期间。', 'utf8');
-    const sha = createHash('sha256').update(data).digest('hex');
+    const sha = new Bun.CryptoHasher('sha256').update(data).digest('hex');
     await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
     await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), data);
     await repo.knowledge.updateDocument(db, first.documentId, { contentHash: sha });
@@ -681,7 +681,7 @@ async function makeImageDocument(
   filename: string,
 ): Promise<{ documentId: string; jobId: string }> {
   const base = await makeUploadedDocument(fixtureBase, 'placeholder');
-  const sha = createHash('sha256').update(data).digest('hex');
+  const sha = new Bun.CryptoHasher('sha256').update(data).digest('hex');
   const { mkdir, writeFile } = await import('node:fs/promises');
   await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
   await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), data);
@@ -1476,7 +1476,7 @@ describe.skipIf(!ready)('runReindex pagination', () => {
   it('rebuilds documents beyond the first page', async () => {
     const fixtureBase = await makeBase();
     const data = Buffer.from('# 标题\n\n第一段内容。', 'utf8');
-    const sha = createHash('sha256').update(data).digest('hex');
+    const sha = new Bun.CryptoHasher('sha256').update(data).digest('hex');
     const { mkdir, writeFile } = await import('node:fs/promises');
     await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
     await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), data);
@@ -2287,7 +2287,7 @@ describe.skipIf(!ready)('runCleanup', () => {
     const { mkdir, writeFile } = await import('node:fs/promises');
     const old = Date.now() / 1000 - 48 * 60 * 60;
     const makeBlob = async (content: string, mtime: number): Promise<string> => {
-      const sha = createHash('sha256').update(content).digest('hex');
+      const sha = new Bun.CryptoHasher('sha256').update(content).digest('hex');
       const path = join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
       await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
       await writeFile(path, content);

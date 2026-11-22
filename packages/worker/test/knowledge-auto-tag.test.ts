@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -147,7 +146,7 @@ async function startIngest(
   body: string,
 ): Promise<{ jobId: string; job: Parameters<typeof runIngest>[1] }> {
   const data = Buffer.from(body, 'utf8');
-  const sha = createHash('sha256').update(data).digest('hex');
+  const sha = new Bun.CryptoHasher('sha256').update(data).digest('hex');
   await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
   await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), data);
   await repo.knowledge.updateDocument(db, documentId, { contentHash: sha });

@@ -1,5 +1,4 @@
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
-import { randomBytes } from 'node:crypto';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
@@ -43,7 +42,7 @@ afterAll(async () => {
 let profileId = '';
 
 async function seedBase(): Promise<string> {
-  const suffix = randomBytes(4).toString('hex');
+  const suffix = crypto.getRandomValues(new Uint8Array(4)).toHex();
   if (!profileId) {
     const profile = await knowledge.createModelProfile(db, {
       kind: 'embedding',
@@ -113,8 +112,8 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
   it('按 sourceConnectionId 过滤，并保留 base/status 与无过滤全量', async () => {
     const baseId = await seedBase();
     const otherBaseId = await seedBase();
-    const sourceA = `ksrc_${randomBytes(6).toString('hex')}`;
-    const sourceB = `ksrc_${randomBytes(6).toString('hex')}`;
+    const sourceA = `ksrc_${crypto.getRandomValues(new Uint8Array(6)).toHex()}`;
+    const sourceB = `ksrc_${crypto.getRandomValues(new Uint8Array(6)).toHex()}`;
 
     const aReady1 = await seedDocument(baseId, {
       sourceId: 'a:1',
@@ -164,7 +163,7 @@ describe.skipIf(!ready)('listDocuments 来源过滤', () => {
 
   it('过滤后的分页顺序与游标和一次性读取完全一致', async () => {
     const baseId = await seedBase();
-    const source = `ksrc_${randomBytes(6).toString('hex')}`;
+    const source = `ksrc_${crypto.getRandomValues(new Uint8Array(6)).toHex()}`;
     const ownIds: string[] = [];
     for (let index = 0; index < 7; index += 1) {
       ownIds.push(

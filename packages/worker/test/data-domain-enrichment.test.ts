@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -34,7 +33,7 @@ const ready = isolated !== null && (await probeDatabase());
 const domainIds: string[] = [];
 
 async function seedProposal(sourceFiles: Record<string, string> = SOURCE) {
-  const slug = `dd-${randomUUID().slice(0, 8)}`;
+  const slug = `dd-${crypto.randomUUID().slice(0, 8)}`;
   const domain = await repo.dataDomains.createDataDomain(db, {
     name: slug,
     slug,

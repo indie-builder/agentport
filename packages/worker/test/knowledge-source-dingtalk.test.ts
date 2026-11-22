@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { probeDingtalk, readDingtalk } from '../src/knowledge/source-dingtalk.js';
 import { SourceAuthError } from '../src/knowledge/source-http.js';
@@ -233,10 +232,8 @@ describe('readDingtalk', () => {
     );
     expect(upload?.revision).toBe('1700000001000');
     expect(
-      createHash('sha256')
-        .update(upload?.bytes ?? Buffer.alloc(0))
-        .digest('hex'),
-    ).toBe(createHash('sha256').update(docx).digest('hex'));
+      new Bun.CryptoHasher('sha256').update(upload?.bytes ?? Buffer.alloc(0)).digest('hex'),
+    ).toBe(new Bun.CryptoHasher('sha256').update(docx).digest('hex'));
   });
 
   it('reads descendants of a file node that reports hasChildren', async () => {

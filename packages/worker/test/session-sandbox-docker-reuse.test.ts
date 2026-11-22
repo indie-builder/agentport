@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -33,13 +32,13 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
     try {
       current = await incident();
       const signal = new AbortController().signal;
-      const firstPrompt = `first-${randomUUID()}`;
-      const secondPrompt = `second-${randomUUID()}`;
+      const firstPrompt = `first-${crypto.randomUUID()}`;
+      const secondPrompt = `second-${crypto.randomUUID()}`;
 
       const firstLease = await current.sessions.acquire(
         current.spec,
         signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       current.ids.push(firstLease.sandboxId);
       const first = await startRun(firstLease, firstPrompt);
@@ -50,7 +49,7 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       const secondLease = await current.sessions.acquire(
         current.spec,
         signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       current.ids.push(secondLease.sandboxId);
       expect(secondLease.sandboxId).toBe(firstLease.sandboxId);
@@ -78,10 +77,18 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
     const right = await incident();
     try {
       const signal = new AbortController().signal;
-      const leftPrompt = `left-${randomUUID()}`;
-      const rightPrompt = `right-${randomUUID()}`;
-      const leftLease = await left.sessions.acquire(left.spec, signal, `run-${randomUUID()}`);
-      const rightLease = await right.sessions.acquire(right.spec, signal, `run-${randomUUID()}`);
+      const leftPrompt = `left-${crypto.randomUUID()}`;
+      const rightPrompt = `right-${crypto.randomUUID()}`;
+      const leftLease = await left.sessions.acquire(
+        left.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
+      const rightLease = await right.sessions.acquire(
+        right.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
       left.ids.push(leftLease.sandboxId);
       right.ids.push(rightLease.sandboxId);
       expect(leftLease.sandboxId).not.toBe(rightLease.sandboxId);
@@ -120,10 +127,14 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
     try {
       current = await incident();
       const signal = new AbortController().signal;
-      const longPrompt = `fixture:long-${randomUUID()}`;
-      const thirdPrompt = `third-${randomUUID()}`;
+      const longPrompt = `fixture:long-${crypto.randomUUID()}`;
+      const thirdPrompt = `third-${crypto.randomUUID()}`;
 
-      const lease = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
+      const lease = await current.sessions.acquire(
+        current.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
       current.ids.push(lease.sandboxId);
       const run = await startRun(lease, longPrompt);
 
@@ -146,7 +157,11 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       expect(containerRunning(lease.sandboxId)).toBe(true);
       await lease.release({ reuse: true });
 
-      const again = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
+      const again = await current.sessions.acquire(
+        current.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
       current.ids.push(again.sandboxId);
       expect(again.sandboxId).toBe(lease.sandboxId);
       const third = await startRun(again, thirdPrompt);
@@ -168,9 +183,13 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
     try {
       current = await incident(150);
       const signal = new AbortController().signal;
-      const firstPrompt = `persist-${randomUUID()}`;
+      const firstPrompt = `persist-${crypto.randomUUID()}`;
 
-      const lease = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
+      const lease = await current.sessions.acquire(
+        current.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
       current.ids.push(lease.sandboxId);
       const first = await startRun(lease, firstPrompt);
       expect(await first.execution.done).toMatchObject({ state: 'stopped' });
@@ -185,13 +204,17 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
         20_000,
       );
 
-      const fresh = await current.sessions.acquire(current.spec, signal, `run-${randomUUID()}`);
+      const fresh = await current.sessions.acquire(
+        current.spec,
+        signal,
+        `run-${crypto.randomUUID()}`,
+      );
       current.ids.push(fresh.sandboxId);
       expect(fresh.sandboxId).not.toBe(lease.sandboxId);
       expect(
         inContainer(fresh.sandboxId, ['cat', '/home/node/.claude/session-fixture.json']),
       ).toContain(firstPrompt);
-      const nextPrompt = `after-${randomUUID()}`;
+      const nextPrompt = `after-${crypto.randomUUID()}`;
       const next = await startRun(fresh, nextPrompt);
       expect(await next.execution.done).toMatchObject({ state: 'stopped' });
       expect(succeeded(next.events, nextPrompt)).toBe(true);

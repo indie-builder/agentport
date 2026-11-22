@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,7 +25,7 @@ const IMAGE_NAME = 'fig-1.png';
 const IMAGE_PAGE = 2;
 
 function sha256(data: Buffer): string {
-  return createHash('sha256').update(data).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(data).digest('hex');
 }
 
 interface Manifest {
@@ -220,7 +219,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     });
     expect(patch.statusCode, patch.body).toBe(200);
 
-    versionId = `kdv_${randomUUID().replace(/-/g, '')}`;
+    versionId = `kdv_${crypto.randomUUID().replace(/-/g, '')}`;
     const markdown = '# 访问令牌\n\n访问令牌需要定期轮换。\n';
     await mkdir(join(knowledgeDir, 'docs', documentId, versionId, 'images'), { recursive: true });
     await writeFile(join(knowledgeDir, 'docs', documentId, versionId, 'markdown.md'), markdown);
@@ -247,7 +246,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     );
 
     for (let index = 0; index < 250; index += 1) {
-      const id = `kchk_${randomUUID().replace(/-/g, '')}`;
+      const id = `kchk_${crypto.randomUUID().replace(/-/g, '')}`;
       if (index === 0) chunkId = id;
       await app.client.unsafe(
         `insert into knowledge_chunks
@@ -645,9 +644,9 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       const version = document.versions[0]!;
       document.versions.push({
         ...version,
-        id: randomUUID(),
+        id: crypto.randomUUID(),
         version: version.version + 1,
-        chunks: version.chunks.map((chunk) => ({ ...chunk, id: randomUUID() })),
+        chunks: version.chunks.map((chunk) => ({ ...chunk, id: crypto.randomUUID() })),
       });
     });
     const res = await requestZip(app, 'POST', '/api/knowledge/bases/import', cookie, mutated);
@@ -665,7 +664,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     {
       label: '标签名',
       mutate: (manifest) => {
-        manifest.tags.push({ id: randomUUID(), name: manifest.tags[0]!.name });
+        manifest.tags.push({ id: crypto.randomUUID(), name: manifest.tags[0]!.name });
       },
       message: (manifest) => `标签「${manifest.tags[0]!.name}」重复`,
     },
@@ -673,7 +672,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       label: '文档版本号',
       mutate: (manifest) => {
         const document = manifest.documents[0]!;
-        document.versions.push({ ...document.versions[0]!, id: randomUUID() });
+        document.versions.push({ ...document.versions[0]!, id: crypto.randomUUID() });
       },
       message: (manifest) => `文档「${manifest.documents[0]!.title}」版本号重复`,
     },
@@ -681,7 +680,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       label: '分块序号',
       mutate: (manifest) => {
         const version = manifest.documents[0]!.versions[0]!;
-        version.chunks.push({ ...version.chunks[0]!, id: randomUUID() });
+        version.chunks.push({ ...version.chunks[0]!, id: crypto.randomUUID() });
       },
       message: (manifest) => {
         const version = manifest.documents[0]!.versions[0]!;
@@ -692,7 +691,7 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
       label: 'Wiki 版本号',
       mutate: (manifest) => {
         const page = manifest.wikiPages[0]!;
-        page.versions.push({ ...page.versions[0]!, id: randomUUID() });
+        page.versions.push({ ...page.versions[0]!, id: crypto.randomUUID() });
       },
       message: (manifest) => `Wiki 页面「${manifest.wikiPages[0]!.slug}」版本号重复`,
     },
@@ -767,8 +766,8 @@ describe.skipIf(!ready)('knowledge package import/export', () => {
     expect(upload.statusCode, upload.body).toBe(202);
     const newDocumentId = upload.json<{ documentId: string }>().documentId;
 
-    const newVersionId = `kdv_${randomUUID().replace(/-/g, '')}`;
-    const newChunkId = `kchk_${randomUUID().replace(/-/g, '')}`;
+    const newVersionId = `kdv_${crypto.randomUUID().replace(/-/g, '')}`;
+    const newChunkId = `kchk_${crypto.randomUUID().replace(/-/g, '')}`;
     await app.client.unsafe(
       `insert into knowledge_document_versions
          (id, document_id, version, blob_sha256, markdown_sha256, original_filename, mime_type,

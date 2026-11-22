@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -184,7 +183,9 @@ describe.skipIf(!ready)('knowledge content routes', () => {
 
     const row = await documentRow(body.documentId);
     expect(row?.source_type).toBe('manual');
-    const expectedSha = createHash('sha256').update('手写正文，令牌需要轮换。').digest('hex');
+    const expectedSha = new Bun.CryptoHasher('sha256')
+      .update('手写正文，令牌需要轮换。')
+      .digest('hex');
     expect(row?.content_hash).toBe(expectedSha);
     const blob = await readFile(
       join(knowledgeDir, 'blobs', expectedSha.slice(0, 2), expectedSha),
@@ -314,7 +315,7 @@ describe.skipIf(!ready)('knowledge content routes', () => {
     });
 
     const row = await documentRow(body.documentId);
-    const expectedSha = createHash('sha256').update(HTML).digest('hex');
+    const expectedSha = new Bun.CryptoHasher('sha256').update(HTML).digest('hex');
     expect(row?.content_hash).toBe(expectedSha);
     const blob = await readFile(
       join(knowledgeDir, 'blobs', expectedSha.slice(0, 2), expectedSha),

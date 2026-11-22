@@ -1,5 +1,4 @@
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
-import { randomBytes } from 'node:crypto';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
@@ -40,7 +39,7 @@ afterAll(async () => {
 });
 
 async function seedBase(): Promise<string> {
-  const suffix = randomBytes(4).toString('hex');
+  const suffix = crypto.getRandomValues(new Uint8Array(4)).toHex();
   const profile = await knowledge.createModelProfile(db, {
     kind: 'embedding',
     name: `tags-batch-${suffix}`,

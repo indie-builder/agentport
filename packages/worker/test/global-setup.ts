@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { connect } from 'node:net';
 import { type BackendInfra, createIsolatedDatabase } from './isolated-db.js';
 
@@ -95,7 +94,7 @@ function waitForPort(port: number): Promise<boolean> {
 }
 
 export async function startRedisContainer(): Promise<IsolatedRedis | null> {
-  const name = `${CONTAINER_PREFIX}_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
+  const name = `${CONTAINER_PREFIX}_${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`;
   // create 与 start 分开：run 非零退出时容器可能已创建，唯一名字保证失败也只清本轮容器。
   const created = await docker([
     'create',
