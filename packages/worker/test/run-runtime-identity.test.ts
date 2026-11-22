@@ -5,12 +5,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { personalMemoryDir, personalMemoryPath, RunFailure } from '@agentport/core';
 import { createDb, newId, repo, schema } from '@agentport/db';
-import { chatEventSchema, RUNS_QUEUE } from '@agentport/shared';
+import { chatEventSchema } from '@agentport/shared';
 import type { UserPromptSubmitHookInput } from '@anthropic-ai/claude-agent-sdk';
+import type { Job } from 'bullmq';
 import { and, eq } from 'drizzle-orm';
+import pino from 'pino';
 import { createPersonalMemoryHook } from '../../sandbox/src/memory-permissions.js';
 import { SandboxCleanupError } from '../src/sandbox/provider.js';
+import type { SessionSandboxes } from '../src/sandbox/sessions.js';
 import { testAccess } from './fixtures/access.js';
+import { createIsolatedDatabase } from './isolated-db.js';
 
 const { TEST_BUSINESS_ID } = testAccess(import.meta.url);
 let caseSequence = 0;
@@ -25,10 +29,7 @@ const mocks = (() => ({
   release: mock(),
   publishRun: mock(async () => undefined),
   publishChannelEvent: mock(async () => undefined),
-  isRetryable: mock(() => false),
   checkAccess: mock(),
-  processors: new Map<string, (job: unknown) => Promise<void>>(),
-  dbHandles: [] as Array<{ client: { close(): Promise<void> } }>,
 }))();
 
 mock.module('node:readline', () => ({
@@ -68,153 +69,39 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
     ),
 }));
 
-const channelEventsActual = await import('../src/channels/channel-events.js');
-mock.module('../src/channels/channel-events.js', () => ({
-  ...channelEventsActual,
-  publishChannelEventSafely: mocks.publishChannelEvent,
-}));
-
 const runAccessActual = await import('../src/runs/run-access.js');
 mock.module('../src/runs/run-access.js', () => ({
   ...runAccessActual,
   checkQueuedRunAccess: mocks.checkAccess,
 }));
 
-const dbActual = await import('@agentport/db');
-const actualCreateDb = dbActual.createDb;
-mock.module('@agentport/db', () => ({
-  ...dbActual,
-  createDb: (...args: Parameters<typeof dbActual.createDb>) => {
-    const handle = actualCreateDb(...args);
-    mocks.dbHandles.push(handle);
-    return handle;
-  },
-}));
-
-const coreActual = await import('@agentport/core');
-mock.module('@agentport/core', () => ({ ...coreActual, installProcessGuards: () => undefined }));
-
-const bullmqActual = await import('bullmq');
-mock.module('bullmq', () => {
-  class Worker {
-    constructor(name: string, processor: (job: unknown) => Promise<void>) {
-      mocks.processors.set(name, processor);
-    }
-    on(): this {
-      return this;
-    }
-    async close(): Promise<void> {}
-  }
-  return { ...bullmqActual, Worker };
-});
-
-const sessionCleanupActual = await import('../src/sandbox/session-cleanup.js');
-mock.module('../src/sandbox/session-cleanup.js', () => ({
-  ...sessionCleanupActual,
-  startSessionCleanupChannel: async () => ({ close: async () => undefined }),
-}));
-
-const dockerActual = await import('../src/sandbox/docker.js');
-mock.module('../src/sandbox/docker.js', () => ({
-  ...dockerActual,
-  DockerSandboxProvider: class {
-    async destroyAll(): Promise<void> {}
-    async ensureImage(): Promise<void> {}
-  },
-  resolveLocalImageId: async () => `sha256:${'a'.repeat(64)}`,
-}));
-
-const sessionsActual = await import('../src/sandbox/sessions.js');
-mock.module('../src/sandbox/sessions.js', () => ({
-  ...sessionsActual,
-  SessionSandboxes: class {
-    async cleanup(): Promise<void> {}
-    async close(): Promise<void> {}
-  },
-}));
-
 const runnerClientActual = await import('../src/runner-client.js');
 const actualRunnerClient = { ...runnerClientActual };
-mock.module('../src/runner-client.js', () => {
-  mocks.isRetryable.mockImplementation(actualRunnerClient.isRetryable);
-  return {
-    ...runnerClientActual,
-    configureRunnerClient: mock(),
-    closeRunnerClient: mock(),
-    clearRunCancel: mock(async () => undefined),
-    acquireSessionSandbox: mocks.acquire,
-    runInSandbox: mocks.run,
-    publishRun: mocks.publishRun,
-    isRetryable: mocks.isRetryable,
-  };
-});
-
-mock.module('../src/runtime-environments/default.js', () => ({
-  ensureDefaultEnvironment: async () => undefined,
-  startDefaultEnvironmentRetry: () => async () => undefined,
+mock.module('../src/runner-client.js', () => ({
+  ...runnerClientActual,
+  configureRunnerClient: mock(),
+  closeRunnerClient: mock(),
+  clearRunCancel: mock(async () => undefined),
+  acquireSessionSandbox: mocks.acquire,
+  runInSandbox: mocks.run,
+  publishRun: mocks.publishRun,
+  publishChannelEvent: mocks.publishChannelEvent,
 }));
 
-mock.module('../src/runtime-environments/build.js', () => ({
-  startRuntimeEnvironmentBuildWorker: async () => ({ close: async () => undefined }),
-}));
+const { loadConfig } = await import('../src/config.js');
+const {
+  cleanupSandboxIdOf,
+  createLoadAgentPlugins,
+  createSandboxEnvFactory,
+  denyQueuedRun,
+  toEntry,
+} = await import('../src/handlers.js');
+const { runAgentJob } = await import('../src/runs/execute.js');
+const { createWorkspaceAssembly } = await import('../src/runs/workspace-assembly.js');
 
-mock.module('../src/runtime-environments/reconcile.js', () => ({
-  startRuntimeEnvironmentBuildReconciler: () => () => undefined,
-}));
-
-const reconcileActual = await import('../src/scheduling/reconcile.js');
-mock.module('../src/scheduling/reconcile.js', () => ({
-  ...reconcileActual,
-  startReconciler: () => () => undefined,
-}));
-
-mock.module('../src/knowledge/queue.js', () => ({
-  startKnowledgeWorker: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/knowledge/reconcile.js', () => ({
-  startKnowledgeReconciler: () => () => undefined,
-}));
-
-mock.module('../src/knowledge/scheduler.js', () => ({
-  startKnowledgeScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
-}));
-
-mock.module('../src/scheduling/scheduler.js', () => ({
-  startScheduleScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
-}));
-
-mock.module('../src/maintenance.js', () => ({
-  startMaintenanceWorker: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/sandbox-probe.js', () => ({
-  registerSandboxProbe: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/native-plugins.js', () => ({
-  registerNativePlugins: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/eval-runner.js', () => ({
-  executeEvalRun: async () => undefined,
-  closeEvalRunQueue: async () => undefined,
-  evalFailureDiagnostics: () => ({}),
-  publicEvalFailureMessage: () => '',
-}));
-
-mock.module('../src/model-proxy.js', () => ({
-  startModelProxy: async () => null,
-}));
-
-const dbHandle = createDb(process.env.DATABASE_URL ?? '');
+const isolated = await createIsolatedDatabase('worker_runtime_identity');
+const dbHandle = createDb(isolated?.url ?? '');
 const { db } = dbHandle;
-
-const cleanupRuns: string[] = [];
-const cleanupConversations: string[] = [];
-const cleanupAgents: string[] = [];
-const cleanupChannels: string[] = [];
-const cleanupPreferences: string[] = [];
 
 async function createRunFixture(
   label: string,
@@ -230,11 +117,7 @@ async function createRunFixture(
   const fixtureAgentId = newId('agent');
   const fixtureConversationId = newId('conversation');
   const fixtureRunId = newId('run');
-  cleanupAgents.push(fixtureAgentId);
-  cleanupConversations.push(fixtureConversationId);
-  cleanupRuns.push(fixtureRunId);
   if (channelId !== undefined) {
-    cleanupChannels.push(channelId);
     await db.insert(schema.channels).values({
       id: channelId,
       name: `retry-${channelId.slice(4)}`,
@@ -306,27 +189,58 @@ function sandboxLease(sandboxId: string) {
   };
 }
 
-describe('run runtime environment identity persistence', () => {
+describe.skipIf(isolated === null)('run runtime environment identity persistence', () => {
   let workdir = '';
   let agentId = '';
   let conversationId = '';
   let runId = '';
   let triggerName = '';
   let functionName = '';
+  let config!: ReturnType<typeof loadConfig>;
+  let loadAgentPlugins!: ReturnType<typeof createLoadAgentPlugins>;
+  let writeWorkspace!: ReturnType<typeof createWorkspaceAssembly>;
+  let sandboxEnv!: ReturnType<typeof createSandboxEnvFactory>;
+  const logger = pino({ level: 'silent' });
+  const sandboxClosing = new AbortController();
+  const sessionSandboxes = {} as SessionSandboxes;
+
+  async function runJob(job: {
+    data: { runId: string; agentId: string; conversationId: string; prompt: string };
+    attemptsMade: number;
+    opts: { attempts: number };
+  }) {
+    await runAgentJob(job as Job, {
+      db,
+      client: dbHandle.client,
+      config,
+      logger,
+      workspacesDir: workdir,
+      hostWorkspacesDir: workdir,
+      sandboxApiUrl: config.SANDBOX_API_URL,
+      sandboxClosing,
+      sessionSandboxes,
+      modelProxy: null,
+      denyQueuedRun,
+      loadAgentPlugins,
+      writeWorkspace,
+      toEntry,
+      sandboxEnv,
+      cleanupSandboxIdOf,
+    });
+  }
 
   beforeAll(async () => {
     workdir = await mkdtemp(join(tmpdir(), 'worker-runtime-identity-'));
-    process.env.WORKSPACES_DIR = workdir;
-    process.env.HOST_WORKSPACES_DIR = workdir;
-    const sigterm = new Set(process.listeners('SIGTERM'));
-    const sigint = new Set(process.listeners('SIGINT'));
-    await import('../src/index.js');
-    for (const listener of process.listeners('SIGTERM')) {
-      if (!sigterm.has(listener)) process.off('SIGTERM', listener);
-    }
-    for (const listener of process.listeners('SIGINT')) {
-      if (!sigint.has(listener)) process.off('SIGINT', listener);
-    }
+    config = loadConfig({
+      DATABASE_URL: isolated?.url ?? 'postgres://u:p@localhost:5432/db',
+      APP_SECRET_KEY: 'a'.repeat(32),
+      WORKSPACES_DIR: workdir,
+      HOST_WORKSPACES_DIR: workdir,
+      LOG_LEVEL: 'error',
+    });
+    loadAgentPlugins = createLoadAgentPlugins(db, logger);
+    writeWorkspace = createWorkspaceAssembly({ db, workspacesDir: workdir, logger });
+    sandboxEnv = createSandboxEnvFactory(config, null);
   });
 
   beforeEach(() => {
@@ -350,24 +264,11 @@ describe('run runtime environment identity persistence', () => {
     if (functionName !== '') {
       await dbHandle.client.unsafe(`drop function if exists "${functionName}"()`);
     }
-    for (const id of cleanupRuns) {
-      await db.delete(schema.agentRuns).where(eq(schema.agentRuns.id, id));
-      await db.delete(schema.auditLog).where(eq(schema.auditLog.target, id));
+    if (workdir !== '') {
+      await rm(workdir, { recursive: true, force: true });
     }
-    for (const id of cleanupConversations) {
-      await db.delete(schema.conversations).where(eq(schema.conversations.id, id));
-    }
-    for (const id of cleanupAgents) {
-      await db.delete(schema.agents).where(eq(schema.agents.id, id));
-    }
-    for (const id of cleanupChannels) {
-      await db.delete(schema.channels).where(eq(schema.channels.id, id));
-    }
-    for (const id of cleanupPreferences) {
-      await db.delete(schema.userPreferences).where(eq(schema.userPreferences.businessId, id));
-    }
-    await rm(workdir, { recursive: true, force: true });
-    for (const handle of mocks.dbHandles) await handle.client.close();
+    await dbHandle.client.close();
+    await isolated?.close();
   });
 
   it('does not start the run and releases the lease when identity persistence fails', async () => {
@@ -388,9 +289,6 @@ describe('run runtime environment identity persistence', () => {
     agentId = newId('agent');
     conversationId = newId('conversation');
     runId = newId('run');
-    cleanupAgents.push(agentId);
-    cleanupConversations.push(conversationId);
-    cleanupRuns.push(runId);
     await db.insert(schema.agents).values({
       id: agentId,
       slug: `identity-${agentId.slice(4)}`,
@@ -440,9 +338,7 @@ describe('run runtime environment identity persistence', () => {
       execute function "${functionName}"();
     `);
 
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
-    await processor?.({
+    await runJob({
       data: { runId, agentId, conversationId, prompt: 'ask' },
       attemptsMade: 0,
       opts: { attempts: 1 },
@@ -481,11 +377,9 @@ describe('run runtime environment identity persistence', () => {
     mocks.publishRun.mockRejectedValueOnce(new Error('redis unavailable'));
 
     const fixture = await createRunFixture('publish');
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
 
     await expect(
-      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
+      runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
     ).rejects.toThrow('redis unavailable');
     let [run] = await db
       .select()
@@ -495,7 +389,7 @@ describe('run runtime environment identity persistence', () => {
     expect(run).toMatchObject({ status: 'queued', startedAt: null });
     expect(mocks.run).not.toHaveBeenCalled();
 
-    await processor?.({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
+    await runJob({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
     [run] = await db
       .select()
       .from(schema.agentRuns)
@@ -518,11 +412,9 @@ describe('run runtime environment identity persistence', () => {
     });
 
     const fixture = await createRunFixture('sdk-empty');
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
 
     await expect(
-      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
+      runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
     ).rejects.toThrow('retryable sandbox failure');
     const [conversation] = await db
       .select()
@@ -558,11 +450,8 @@ describe('run runtime environment identity persistence', () => {
       .set({ sdkSessionId: 'sdk-before', forkFromSdkMessageUuid: 'uuid-before' })
       .where(eq(schema.conversations.id, fixture.conversationId));
 
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
-
     await expect(
-      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
+      runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
     ).rejects.toThrow('retryable sandbox failure');
     let [conversation] = await db
       .select()
@@ -574,7 +463,7 @@ describe('run runtime environment identity persistence', () => {
       forkFromSdkMessageUuid: 'uuid-before',
     });
 
-    await processor?.({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
+    await runJob({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
     const retryTask = (
       mocks.run.mock.calls[1]?.[0] as
         | { task: { resumeSessionId?: string; forkFromMessageUuid?: string } }
@@ -608,11 +497,9 @@ describe('run runtime environment identity persistence', () => {
     });
 
     const fixture = await createRunFixture('prelease-retry');
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
 
     await expect(
-      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
+      runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
     ).rejects.toThrow('retryable sandbox failure');
     let [run] = await db
       .select()
@@ -621,7 +508,7 @@ describe('run runtime environment identity persistence', () => {
       .limit(1);
     expect(run).toMatchObject({ status: 'queued', startedAt: null, pendingFinish: null });
 
-    await processor?.({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
+    await runJob({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
     [run] = await db
       .select()
       .from(schema.agentRuns)
@@ -641,11 +528,9 @@ describe('run runtime environment identity persistence', () => {
     );
 
     const fixture = await createRunFixture('prelease-cancel');
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
 
     await expect(
-      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 3 } }),
+      runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 3 } }),
     ).resolves.toBeUndefined();
     const [run] = await db
       .select()
@@ -676,11 +561,9 @@ describe('run runtime environment identity persistence', () => {
     );
 
     const fixture = await createRunFixture('typed-cleanup');
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
 
     await expect(
-      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 3 } }),
+      runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 3 } }),
     ).resolves.toBeUndefined();
     const [run] = await db
       .select()
@@ -719,10 +602,8 @@ describe('run runtime environment identity persistence', () => {
     });
 
     const fixture = await createRunFixture('pending');
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
 
-    await processor?.({
+    await runJob({
       ...fixture.job,
       attemptsMade: 0,
       opts: { attempts: 3 },
@@ -770,9 +651,7 @@ describe('run runtime environment identity persistence', () => {
       message: '账户已停用或不存在，运行未启动',
     });
 
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
-    await processor?.({
+    await runJob({
       ...fixture.job,
       attemptsMade: 0,
       opts: { attempts: 1 },
@@ -822,9 +701,7 @@ describe('run runtime environment identity persistence', () => {
     });
 
     const fixture = await createRunFixture('user-mount');
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
-    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+    await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
 
     const acquireInput = mocks.acquire.mock.calls[0]?.[0] as
       | { spec: { personalDir?: string } }
@@ -839,10 +716,6 @@ describe('run runtime environment identity persistence', () => {
     const laneConversationId = newId('conversation');
     const userA = 'channel-lane-user-a';
     const userB = 'channel-lane-user-b';
-    cleanupChannels.push(channelId);
-    cleanupAgents.push(laneAgentId);
-    cleanupConversations.push(laneConversationId);
-    cleanupPreferences.push(userA, userB);
     await db.insert(schema.channels).values({
       id: channelId,
       name: 'privacy lane',
@@ -870,7 +743,6 @@ describe('run runtime environment identity persistence', () => {
 
     const laneJob = async (businessId: string) => {
       const laneRunId = newId('run');
-      cleanupRuns.push(laneRunId);
       await db.insert(schema.agentRuns).values({
         id: laneRunId,
         conversationId: laneConversationId,
@@ -906,10 +778,8 @@ describe('run runtime environment identity persistence', () => {
       events: [],
       sessionId: 'sdk-channel-lane',
     });
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
     for (const businessId of [userA, userB]) {
-      await processor?.({
+      await runJob({
         data: (await laneJob(businessId)).data,
         attemptsMade: 0,
         opts: { attempts: 1 },
@@ -949,7 +819,7 @@ describe('run runtime environment identity persistence', () => {
       kind: 'user',
       businessId: userA,
     });
-    await processor?.({ ...privateRun.job, attemptsMade: 0, opts: { attempts: 1 } });
+    await runJob({ ...privateRun.job, attemptsMade: 0, opts: { attempts: 1 } });
     const privateAcquire = mocks.acquire.mock.calls[2]?.[0] as
       | { spec: { personalDir?: string } }
       | undefined;
@@ -971,8 +841,7 @@ describe('run runtime environment identity persistence', () => {
       message: '当前账户没有该操作的权限，运行未启动',
     });
 
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+    await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
 
     expect(mocks.checkAccess).toHaveBeenCalledWith(expect.anything(), {
       runId: fixture.runId,
@@ -1000,8 +869,7 @@ describe('run runtime environment identity persistence', () => {
       .set({ status: 'running', startedAt: new Date() })
       .where(eq(schema.agentRuns.id, fixture.runId));
 
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+    await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
 
     expect(mocks.checkAccess).not.toHaveBeenCalled();
     expect(mocks.acquire).not.toHaveBeenCalled();
@@ -1025,9 +893,7 @@ describe('run runtime environment identity persistence', () => {
     });
 
     const fixture = await createRunFixture('service', { kind: 'service', serviceId: 'system' });
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
-    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+    await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
 
     expect(mocks.checkAccess).not.toHaveBeenCalled();
     const acquireInput = mocks.acquire.mock.calls[0]?.[0] as
@@ -1056,11 +922,9 @@ describe('run runtime environment identity persistence', () => {
       });
 
     const fixture = await createRunFixture('channel-retry', undefined, 'channel', channelId);
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
 
     await expect(
-      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
+      runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
     ).rejects.toThrow('retryable sandbox failure');
     expect(
       await db
@@ -1072,7 +936,7 @@ describe('run runtime environment identity persistence', () => {
       mocks.publishChannelEvent.mock.calls.filter(([, event]) => event.type === 'message.created'),
     ).toHaveLength(0);
 
-    await processor?.({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
+    await runJob({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
 
     const [projection] = await db
       .select()
@@ -1122,13 +986,11 @@ describe('run runtime environment identity persistence', () => {
       });
 
     const fixture = await createRunFixture('channel-empty', undefined, 'channel', channelId);
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
 
     await expect(
-      processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
+      runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 2 } }),
     ).rejects.toThrow('retryable sandbox failure');
-    await processor?.({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
+    await runJob({ ...fixture.job, attemptsMade: 1, opts: { attempts: 2 } });
 
     expect(
       await db
@@ -1266,9 +1128,7 @@ describe('run runtime environment identity persistence', () => {
         });
       }
 
-      const processor = mocks.processors.get(RUNS_QUEUE);
-      expect(processor).toBeDefined();
-      await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+      await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
 
       if ('sdk' in scenario) {
         expect(await mocks.run.mock.results[0]?.value).toMatchObject({
@@ -1319,7 +1179,6 @@ describe('run runtime environment identity persistence', () => {
         subject: { kind: 'user', businessId: TEST_BUSINESS_ID },
         channel: { channelId, channelMessageId: nextTrigger.id },
       });
-      cleanupRuns.push(admitted.run.id);
       const [user] = await db
         .select({ content: schema.messages.content })
         .from(schema.messages)
@@ -1372,7 +1231,10 @@ describe('run runtime environment identity persistence', () => {
   async function admitNextChannelRun(
     fixture: { channelId: string; agentId: string; conversationId: string },
     prompt: string,
-  ): Promise<{ runId: string; job: { data: Record<string, string> } }> {
+  ): Promise<{
+    runId: string;
+    job: { data: { runId: string; agentId: string; conversationId: string; prompt: string } };
+  }> {
     const [trigger] = await db
       .insert(schema.channelMessages)
       .values({
@@ -1390,7 +1252,6 @@ describe('run runtime environment identity persistence', () => {
       subject: { kind: 'user', businessId: TEST_BUSINESS_ID },
       channel: { channelId: fixture.channelId, channelMessageId: trigger.id },
     });
-    cleanupRuns.push(admitted.run.id);
     return {
       runId: admitted.run.id,
       job: {
@@ -1433,9 +1294,7 @@ describe('run runtime environment identity persistence', () => {
       error: 'API Error: model failed before producing output',
     });
 
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
-    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+    await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
 
     expect(await conversationSession(fixture.conversationId)).toBeNull();
 
@@ -1447,7 +1306,7 @@ describe('run runtime environment identity persistence', () => {
       events: [{ type: 'assistant_text', text: 'after retry', blockIndex: 0 }],
       sessionId: 'sdk-next-executed',
     });
-    await processor?.({ ...next.job, attemptsMade: 0, opts: { attempts: 1 } });
+    await runJob({ ...next.job, attemptsMade: 0, opts: { attempts: 1 } });
 
     const task = taskOfCall(1);
     expect(task?.resumeSessionId).toBeUndefined();
@@ -1467,9 +1326,7 @@ describe('run runtime environment identity persistence', () => {
       sessionId: 'sdk-executed',
     });
 
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
-    await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+    await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
 
     expect(await conversationSession(fixture.conversationId)).toBe('sdk-executed');
 
@@ -1482,7 +1339,7 @@ describe('run runtime environment identity persistence', () => {
       inputTokens: 9,
       sessionId: 'sdk-executed',
     });
-    await processor?.({ ...next.job, attemptsMade: 0, opts: { attempts: 1 } });
+    await runJob({ ...next.job, attemptsMade: 0, opts: { attempts: 1 } });
 
     const task = taskOfCall(1);
     expect(task?.resumeSessionId).toBe('sdk-executed');
@@ -1504,9 +1361,7 @@ describe('run runtime environment identity persistence', () => {
         ...(status === 'failed' ? { error: 'model failed without output' } : {}),
       });
 
-      const processor = mocks.processors.get(RUNS_QUEUE);
-      expect(processor).toBeDefined();
-      await processor?.({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
+      await runJob({ ...fixture.job, attemptsMade: 0, opts: { attempts: 1 } });
 
       expect(await conversationSession(fixture.conversationId)).toBe(`sdk-private-${status}`);
     },

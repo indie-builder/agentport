@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
@@ -6,11 +6,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { createDb, newId, repo, schema } from '@agentport/db';
-import { type AgentRunJob, RUNS_QUEUE, runCancelKey, runStreamKey } from '@agentport/shared';
-import { Queue } from 'bullmq';
+import { type AgentRunJob, runCancelKey, runStreamKey } from '@agentport/shared';
+import { type Job, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
-import type { Logger } from 'pino';
+import pino from 'pino';
 import {
   createTestAccount,
   expectProblem,
@@ -19,10 +19,30 @@ import {
   startApp,
   type TestApp,
 } from '../../api/test/helpers.js';
+import { loadConfig } from '../src/config.js';
+import {
+  cleanupSandboxIdOf,
+  createLoadAgentPlugins,
+  createSandboxEnvFactory,
+  denyQueuedRun,
+  toEntry,
+} from '../src/handlers.js';
+import { closeRunnerClient, configureRunnerClient } from '../src/runner-client.js';
+import { runAgentJob } from '../src/runs/execute.js';
+import { createWorkspaceAssembly } from '../src/runs/workspace-assembly.js';
+import type { Sandbox, SandboxCreateOptions, SandboxProvider } from '../src/sandbox/provider.js';
+import { SessionSandboxes } from '../src/sandbox/sessions.js';
+import { reconcileOrphanedRuns } from '../src/scheduling/reconcile.js';
 import { testAccess } from './fixtures/access.js';
-import { bunRedisConnection } from './fixtures/bun-redis.js';
+import { bunRedisConnection, probeBunRedis } from './fixtures/bun-redis.js';
+import { createIsolatedDatabase } from './isolated-db.js';
 
 const { agentOwnership, TEST_BUSINESS_ID, userSubject } = testAccess(import.meta.url);
+
+const isolated = await createIsolatedDatabase('worker_pending_finish');
+const redisUrl = process.env.REDIS_URL ?? '';
+const ready = isolated !== null && (await probeBunRedis(redisUrl));
+if (!ready && isolated) await isolated.close();
 
 interface SupervisorChild extends EventEmitter {
   stdin: PassThrough;
@@ -30,354 +50,238 @@ interface SupervisorChild extends EventEmitter {
   stderr: PassThrough;
 }
 
-interface SessionManager {
-  cleanup(conversationId: string, sandboxId: string, expectedRunId: string): Promise<void>;
-  close(): Promise<void>;
-}
-
-const mocks = (() => ({
-  publishRun: mock(async () => undefined),
-  processors: new Map<string, (job: unknown) => Promise<void>>(),
-  dbHandles: [] as Array<{ client: { close(): Promise<void> } }>,
-  managers: [] as SessionManager[],
+const sandboxState = {
   destroyFailures: 0,
   destroyed: [] as string[],
   child: null as SupervisorChild | null,
   onStarted: null as (() => void) | null,
   startedRuns: [] as string[],
   cancelFrames: 0,
-}))();
-
-const dbActual = await import('@agentport/db');
-const actualCreateDb = dbActual.createDb;
-mock.module('@agentport/db', () => ({
-  ...dbActual,
-  createDb: (...args: Parameters<typeof dbActual.createDb>) => {
-    const handle = actualCreateDb(...args);
-    mocks.dbHandles.push(handle);
-    return handle;
-  },
-}));
-
-const runAccessActual = await import('../src/runs/run-access.js');
-mock.module('../src/runs/run-access.js', () => ({
-  ...runAccessActual,
-  checkUserAgentAccess: async () => null,
-}));
-
-const coreActual = await import('@agentport/core');
-mock.module('@agentport/core', () => ({ ...coreActual, installProcessGuards: () => undefined }));
-
-const bullmqActual = await import('bullmq');
-mock.module('bullmq', () => {
-  class Worker {
-    constructor(name: string, processor: (job: unknown) => Promise<void>) {
-      mocks.processors.set(name, processor);
-    }
-    on(): this {
-      return this;
-    }
-    async close(): Promise<void> {}
-  }
-  return { ...bullmqActual, Worker };
-});
-
-mock.module('../src/sandbox/docker.js', () => ({
-  DockerSandboxProvider: class {
-    async ensureImage(): Promise<void> {}
-    async destroyAll(): Promise<void> {}
-    async create(options: { name?: string }) {
-      const child = new (class extends EventEmitter {
-        readonly stdin = new PassThrough();
-        readonly stdout = new PassThrough();
-        readonly stderr = new PassThrough();
-      })();
-      mocks.child = child;
-      let buffer = '';
-      child.stdin.on('data', (chunk: Buffer) => {
-        buffer += String(chunk);
-        let newline = buffer.indexOf('\n');
-        while (newline !== -1) {
-          const line = buffer.slice(0, newline);
-          buffer = buffer.slice(newline + 1);
-          const frame = JSON.parse(line) as { type: string; runId?: string };
-          if (frame.type === 'start' && frame.runId !== undefined) {
-            mocks.startedRuns.push(frame.runId);
-            child.stdout.write(`${JSON.stringify({ type: 'started', runId: frame.runId })}\n`);
-            setTimeout(() => {
-              child.stdout.write(
-                `${JSON.stringify({
-                  type: 'event',
-                  runId: frame.runId,
-                  event: {
-                    type: 'assistant_text',
-                    text: 'pending reply',
-                    blockIndex: 0,
-                    sdkUuid: 'msg-pending',
-                  },
-                })}\n`,
-              );
-              child.stdout.write(
-                `${JSON.stringify({
-                  type: 'event',
-                  runId: frame.runId,
-                  event: {
-                    type: 'run_finished',
-                    status: 'cancelled',
-                    failureKind: 'cancelled',
-                    costUsd: 0.25,
-                    turns: 2,
-                    sessionId: 'sdk-pending',
-                    inputTokens: 5,
-                    outputTokens: 7,
-                  },
-                })}\n`,
-              );
-              mocks.onStarted?.();
-            }, 10);
-          }
-          if (frame.type === 'cancel') mocks.cancelFrames += 1;
-          newline = buffer.indexOf('\n');
-        }
-      });
-      setTimeout(() => child.stdout.write(`${JSON.stringify({ type: 'ready' })}\n`), 0);
-      return { id: options.name ?? 'fake-sandbox', child };
-    }
-    async destroy(sandbox: { id: string }): Promise<void> {
-      mocks.destroyed.push(sandbox.id);
-      if (mocks.destroyFailures > 0) {
-        mocks.destroyFailures -= 1;
-        throw new Error('docker rm -f failed');
-      }
-    }
-    async destroyById(id: string): Promise<void> {
-      mocks.destroyed.push(id);
-      if (mocks.destroyFailures > 0) {
-        mocks.destroyFailures -= 1;
-        throw new Error('docker rm -f failed');
-      }
-    }
-  },
-  resolveLocalImageId: async () => `sha256:${'a'.repeat(64)}`,
-}));
-
-const sessionsActual = await import('../src/sandbox/sessions.js');
-const ActualSessionSandboxes = sessionsActual.SessionSandboxes;
-mock.module('../src/sandbox/sessions.js', () => {
-  class RecordingSessionSandboxes extends ActualSessionSandboxes {
-    constructor(options: ConstructorParameters<typeof ActualSessionSandboxes>[0]) {
-      super(options);
-      mocks.managers.push(this);
-    }
-  }
-  return { ...sessionsActual, SessionSandboxes: RecordingSessionSandboxes };
-});
-
-mock.module('../src/runtime-environments/resolve.js', () => ({
-  createRuntimeEnvironmentResolver: () => async () => ({
-    environmentId: 'rte_pending',
-    environmentName: 'pending environment',
-    versionId: 'rtv_pending',
-    imageId: `sha256:${'b'.repeat(64)}`,
-  }),
-}));
-
-mock.module('../src/runtime-environments/default.js', () => ({
-  ensureDefaultEnvironment: async () => undefined,
-  startDefaultEnvironmentRetry: () => async () => undefined,
-}));
-
-mock.module('../src/runtime-environments/build.js', () => ({
-  startRuntimeEnvironmentBuildWorker: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/runtime-environments/reconcile.js', () => ({
-  startRuntimeEnvironmentBuildReconciler: () => () => undefined,
-}));
-
-const reconcileActual = await import('../src/scheduling/reconcile.js');
-mock.module('../src/scheduling/reconcile.js', () => ({
-  ...reconcileActual,
-  startReconciler: () => () => undefined,
-}));
-
-mock.module('../src/knowledge/queue.js', () => ({
-  startKnowledgeWorker: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/knowledge/reconcile.js', () => ({
-  startKnowledgeReconciler: () => () => undefined,
-}));
-
-mock.module('../src/knowledge/scheduler.js', () => ({
-  startKnowledgeScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
-}));
-
-mock.module('../src/scheduling/scheduler.js', () => ({
-  startScheduleScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
-}));
-
-mock.module('../src/maintenance.js', () => ({
-  startMaintenanceWorker: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/sandbox-probe.js', () => ({
-  registerSandboxProbe: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/native-plugins.js', () => ({
-  registerNativePlugins: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/eval-runner.js', () => ({
-  executeEvalRun: async () => undefined,
-  closeEvalRunQueue: async () => undefined,
-  evalFailureDiagnostics: () => ({}),
-  publicEvalFailureMessage: () => '',
-}));
-
-mock.module('../src/model-proxy.js', () => ({
-  startModelProxy: async () => null,
-}));
-
-const dbHandle = createDb(process.env.DATABASE_URL ?? '');
-const { db } = dbHandle;
-const { reconcileOrphanedRuns } = await import('../src/scheduling/reconcile.js');
-
-const redisUrl = process.env.REDIS_URL ?? '';
-const logger = {
-  info: () => undefined,
-  warn: () => undefined,
-  error: () => undefined,
-  debug: () => undefined,
-  child: () => logger,
-} as unknown as Logger;
-
-const cleanupIds: { agents: string[]; conversations: string[]; runs: string[] } = {
-  agents: [],
-  conversations: [],
-  runs: [],
 };
 
-let app: TestApp;
-let cookie = '';
+class FakeSandboxProvider implements SandboxProvider {
+  async create(options: SandboxCreateOptions): Promise<Sandbox> {
+    const child = new (class extends EventEmitter {
+      readonly stdin = new PassThrough();
+      readonly stdout = new PassThrough();
+      readonly stderr = new PassThrough();
+    })();
+    sandboxState.child = child;
+    let buffer = '';
+    child.stdin.on('data', (chunk: Buffer) => {
+      buffer += String(chunk);
+      let newline = buffer.indexOf('\n');
+      while (newline !== -1) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        const frame = JSON.parse(line) as { type: string; runId?: string };
+        if (frame.type === 'start' && frame.runId !== undefined) {
+          sandboxState.startedRuns.push(frame.runId);
+          child.stdout.write(`${JSON.stringify({ type: 'started', runId: frame.runId })}\n`);
+          setTimeout(() => {
+            child.stdout.write(
+              `${JSON.stringify({
+                type: 'event',
+                runId: frame.runId,
+                event: {
+                  type: 'assistant_text',
+                  text: 'pending reply',
+                  blockIndex: 0,
+                  sdkUuid: 'msg-pending',
+                },
+              })}\n`,
+            );
+            child.stdout.write(
+              `${JSON.stringify({
+                type: 'event',
+                runId: frame.runId,
+                event: {
+                  type: 'run_finished',
+                  status: 'cancelled',
+                  failureKind: 'cancelled',
+                  costUsd: 0.25,
+                  turns: 2,
+                  sessionId: 'sdk-pending',
+                  inputTokens: 5,
+                  outputTokens: 7,
+                },
+              })}\n`,
+            );
+            sandboxState.onStarted?.();
+          }, 10);
+        }
+        if (frame.type === 'cancel') sandboxState.cancelFrames += 1;
+        newline = buffer.indexOf('\n');
+      }
+    });
+    setTimeout(() => child.stdout.write(`${JSON.stringify({ type: 'ready' })}\n`), 0);
+    return {
+      id: options.name ?? 'fake-sandbox',
+      child: child as unknown as Sandbox['child'],
+    };
+  }
 
-const putMemory = (agentId: string, content = 'note') =>
-  request(app, {
-    method: 'PUT',
-    url: `/api/agents/${agentId}/memory/MEMORY.md`,
-    headers: { cookie },
-    payload: { content },
-  });
+  async destroy(sandbox: Sandbox): Promise<void> {
+    await this.destroyById(sandbox.id);
+  }
 
-const patchAgent = (agentId: string, payload: Record<string, unknown>) =>
-  request(app, {
-    method: 'PATCH',
-    url: `/api/agents/${agentId}`,
-    headers: { cookie },
-    payload,
-  });
-
-async function createFixture(label: string) {
-  const agentId = newId('agent');
-  const childId = newId('agent');
-  const conversationId = newId('conversation');
-  const runId = newId('run');
-  cleanupIds.agents.push(childId, agentId);
-  cleanupIds.conversations.push(conversationId);
-  cleanupIds.runs.push(runId);
-  await db.insert(schema.agents).values([
-    {
-      id: agentId,
-      slug: `pending-${agentId.slice(4)}`,
-      name: label,
-      model: 'test',
-      ...agentOwnership,
-    },
-    {
-      id: childId,
-      slug: `pending-child-${childId.slice(4)}`,
-      name: `${label} child`,
-      model: 'test',
-      ...agentOwnership,
-    },
-  ]);
-  const bound = await patchAgent(agentId, { subAgentIds: [childId] });
-  expect(bound.statusCode, bound.body).toBe(200);
-  await repo.chat.createConversation(db, {
-    id: conversationId,
-    agentId,
-    title: label,
-    subject: userSubject,
-  });
-  await repo.chat.createRun(db, { id: runId, conversationId, agentId, subject: userSubject });
-  await repo.chat.appendMessage(db, {
-    id: newId('message'),
-    conversationId,
-    role: 'user',
-    content: { type: 'text', text: 'ask' },
-    runId,
-    senderBusinessId: TEST_BUSINESS_ID,
-  });
-  return {
-    runId,
-    agentId,
-    childId,
-    job: {
-      data: { runId, agentId, conversationId, prompt: 'ask' },
-      attemptsMade: 0,
-      opts: { attempts: 3 },
-    },
-  };
-}
-
-async function requestCancel(runId: string): Promise<void> {
-  const redis = new RedisClient(redisUrl);
-  try {
-    await redis.set(runCancelKey(runId), '1', 'EX', 60);
-    await redis.publish(runCancelKey(runId), '1');
-  } finally {
-    redis.close();
+  async destroyById(id: string): Promise<void> {
+    sandboxState.destroyed.push(id);
+    if (sandboxState.destroyFailures > 0) {
+      sandboxState.destroyFailures -= 1;
+      throw new Error('docker rm -f failed');
+    }
   }
 }
 
-async function readStream(runId: string): Promise<Array<{ type?: string }>> {
-  const redis = new RedisClient(redisUrl);
-  try {
-    const entries = await redis.xrange(runStreamKey(runId), '-', '+');
-    return entries.map(([, fields]) => JSON.parse(fields[1] ?? '{}'));
-  } finally {
-    redis.close();
-  }
-}
-
-async function runRow(runId: string) {
-  const [row] = await db
-    .select()
-    .from(schema.agentRuns)
-    .where(eq(schema.agentRuns.id, runId))
-    .limit(1);
-  return row;
-}
-
-describe('unconfirmed stop handoff', () => {
+describe.skipIf(!ready)('unconfirmed stop handoff', () => {
+  const logger = pino({ level: 'silent' });
+  let dbHandle: ReturnType<typeof createDb>;
+  let db: ReturnType<typeof createDb>['db'];
   let workdir = '';
+  let app: TestApp;
+  let cookie = '';
+  let sessionSandboxes: SessionSandboxes;
+  let runDeps: Parameters<typeof runAgentJob>[1];
+
+  const putMemory = (agentId: string, content = 'note') =>
+    request(app, {
+      method: 'PUT',
+      url: `/api/agents/${agentId}/memory/MEMORY.md`,
+      headers: { cookie },
+      payload: { content },
+    });
+
+  const patchAgent = (agentId: string, payload: Record<string, unknown>) =>
+    request(app, {
+      method: 'PATCH',
+      url: `/api/agents/${agentId}`,
+      headers: { cookie },
+      payload,
+    });
+
+  async function createFixture(label: string) {
+    const agentId = newId('agent');
+    const childId = newId('agent');
+    const conversationId = newId('conversation');
+    const runId = newId('run');
+    await db.insert(schema.agents).values([
+      {
+        id: agentId,
+        slug: `pending-${agentId.slice(4)}`,
+        name: label,
+        model: 'test',
+        ...agentOwnership,
+      },
+      {
+        id: childId,
+        slug: `pending-child-${childId.slice(4)}`,
+        name: `${label} child`,
+        model: 'test',
+        ...agentOwnership,
+      },
+    ]);
+    const bound = await patchAgent(agentId, { subAgentIds: [childId] });
+    expect(bound.statusCode, bound.body).toBe(200);
+    await repo.chat.createConversation(db, {
+      id: conversationId,
+      agentId,
+      title: label,
+      subject: userSubject,
+    });
+    await repo.chat.createRun(db, { id: runId, conversationId, agentId, subject: userSubject });
+    await repo.chat.appendMessage(db, {
+      id: newId('message'),
+      conversationId,
+      role: 'user',
+      content: { type: 'text', text: 'ask' },
+      runId,
+      senderBusinessId: TEST_BUSINESS_ID,
+    });
+    return {
+      runId,
+      agentId,
+      childId,
+      job: {
+        data: { runId, agentId, conversationId, prompt: 'ask' },
+        attemptsMade: 0,
+        opts: { attempts: 3 },
+      } as unknown as Job,
+    };
+  }
+
+  async function requestCancel(runId: string): Promise<void> {
+    const redis = new RedisClient(redisUrl);
+    try {
+      await redis.set(runCancelKey(runId), '1', 'EX', 60);
+      await redis.publish(runCancelKey(runId), '1');
+    } finally {
+      redis.close();
+    }
+  }
+
+  async function readStream(runId: string): Promise<Array<{ type?: string }>> {
+    const redis = new RedisClient(redisUrl);
+    try {
+      const entries = await redis.xrange(runStreamKey(runId), '-', '+');
+      return entries.map(([, fields]) => JSON.parse(fields[1] ?? '{}'));
+    } finally {
+      redis.close();
+    }
+  }
+
+  async function runRow(runId: string) {
+    const [row] = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, runId))
+      .limit(1);
+    return row;
+  }
 
   beforeAll(async () => {
-    // macOS 的 tmpdir 是符号链接；记忆目录会逐层拒绝符号链接路径。
+    const databaseUrl = isolated?.url ?? '';
+    dbHandle = createDb(databaseUrl);
+    db = dbHandle.db;
     workdir = await mkdtemp(join(await realpath(tmpdir()), 'worker-pending-finish-'));
-    process.env.WORKSPACES_DIR = workdir;
-    process.env.HOST_WORKSPACES_DIR = workdir;
-    const sigterm = new Set(process.listeners('SIGTERM'));
-    const sigint = new Set(process.listeners('SIGINT'));
-    await import('../src/index.js');
-    for (const listener of process.listeners('SIGTERM')) {
-      if (!sigterm.has(listener)) process.off('SIGTERM', listener);
-    }
-    for (const listener of process.listeners('SIGINT')) {
-      if (!sigint.has(listener)) process.off('SIGINT', listener);
-    }
-    app = await startApp({ WORKSPACES_DIR: workdir });
+    const config = loadConfig({
+      ...process.env,
+      DATABASE_URL: databaseUrl,
+      WORKSPACES_DIR: workdir,
+      HOST_WORKSPACES_DIR: workdir,
+    });
+    configureRunnerClient(redisUrl, logger);
+    sessionSandboxes = new SessionSandboxes({
+      provider: new FakeSandboxProvider(),
+      idleTimeoutMs: config.SANDBOX_IDLE_TIMEOUT_MS,
+      maxActive: config.SANDBOX_MAX_ACTIVE,
+      logger,
+      resolveRuntimeEnvironment: async () => ({
+        environmentId: 'rte_pending',
+        environmentName: 'pending environment',
+        versionId: 'rtv_pending',
+        imageId: `sha256:${'b'.repeat(64)}`,
+      }),
+    });
+    runDeps = {
+      db,
+      client: dbHandle.client,
+      config,
+      logger,
+      workspacesDir: workdir,
+      hostWorkspacesDir: workdir,
+      sandboxApiUrl: config.SANDBOX_API_URL,
+      sandboxClosing: new AbortController(),
+      sessionSandboxes,
+      modelProxy: null,
+      denyQueuedRun,
+      loadAgentPlugins: createLoadAgentPlugins(db, logger),
+      writeWorkspace: createWorkspaceAssembly({ db, workspacesDir: workdir, logger }),
+      toEntry,
+      sandboxEnv: createSandboxEnvFactory(config, null),
+      cleanupSandboxIdOf,
+    };
+    app = await startApp({ WORKSPACES_DIR: workdir, DATABASE_URL: databaseUrl });
     cookie = await loginCookie(app);
     await createTestAccount(app, cookie, {
       businessId: TEST_BUSINESS_ID,
@@ -386,37 +290,22 @@ describe('unconfirmed stop handoff', () => {
   });
 
   afterAll(async () => {
-    for (const manager of mocks.managers) {
-      mocks.destroyFailures = 0;
-      await manager.close().catch(() => undefined);
-    }
-    for (const id of cleanupIds.runs) {
-      await db.delete(schema.auditLog).where(eq(schema.auditLog.target, id));
-      await db.delete(schema.agentRuns).where(eq(schema.agentRuns.id, id));
-    }
-    for (const id of cleanupIds.conversations) {
-      await db.delete(schema.conversations).where(eq(schema.conversations.id, id));
-    }
-    for (const id of cleanupIds.agents) {
-      await db.delete(schema.auditLog).where(eq(schema.auditLog.target, id));
-      await db.delete(schema.agents).where(eq(schema.agents.id, id));
-    }
-    await db.delete(schema.userRoles).where(eq(schema.userRoles.businessId, TEST_BUSINESS_ID));
-    await db.delete(schema.authUsers).where(eq(schema.authUsers.businessId, TEST_BUSINESS_ID));
+    sandboxState.destroyFailures = 0;
+    await sessionSandboxes?.close().catch(() => undefined);
+    await closeRunnerClient();
     if (app) await app.close();
     await rm(workdir, { recursive: true, force: true });
-    for (const handle of mocks.dbHandles) await handle.client.close().catch(() => undefined);
+    await dbHandle?.client.close().catch(() => undefined);
+    await isolated?.close();
   });
 
   it('publishes the database terminal result when the producer loses its final CAS', async () => {
-    mocks.destroyFailures = 0;
+    sandboxState.destroyFailures = 0;
     const fixture = await createFixture('lost-cas');
     const started = new Promise<void>((resolve) => {
-      mocks.onStarted = resolve;
+      sandboxState.onStarted = resolve;
     });
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
-    const processing = processor?.(fixture.job);
+    const processing = runAgentJob(fixture.job, runDeps);
     await started;
     await db
       .update(schema.agentRuns)
@@ -429,7 +318,7 @@ describe('unconfirmed stop handoff', () => {
         turns: 9,
       })
       .where(eq(schema.agentRuns.id, fixture.runId));
-    mocks.child?.stdout.write(
+    sandboxState.child?.stdout.write(
       `${JSON.stringify({
         type: 'settled',
         runId: fixture.runId,
@@ -467,21 +356,18 @@ describe('unconfirmed stop handoff', () => {
   });
 
   it('keeps the run and its memory occupancy until reconcile confirms cleanup', async () => {
-    mocks.destroyFailures = 2;
+    sandboxState.destroyFailures = 2;
     const fixture = await createFixture('pending');
 
     const started = new Promise<void>((resolve) => {
-      mocks.onStarted = resolve;
+      sandboxState.onStarted = resolve;
     });
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
-
-    const processing = processor?.(fixture.job);
+    const processing = runAgentJob(fixture.job, runDeps);
     await started;
     await requestCancel(fixture.runId);
     await expect(processing).resolves.toBeUndefined();
-    expect(mocks.cancelFrames).toBe(1);
-    expect(mocks.destroyed).toHaveLength(1);
+    expect(sandboxState.cancelFrames).toBe(1);
+    expect(sandboxState.destroyed).toHaveLength(1);
 
     const pending = await runRow(fixture.runId);
     const pendingSnapshot = structuredClone(pending);
@@ -517,20 +403,17 @@ describe('unconfirmed stop handoff', () => {
     expectProblem(await patchAgent(fixture.agentId, { subAgentIds: [] }), 'CONFLICT');
     expect((await patchAgent(fixture.agentId, { timeoutMs: 120_000 })).statusCode).toBe(200);
 
-    const manager = mocks.managers[0];
-    expect(manager).toBeDefined();
     const cleanup = (input: { runId: string; conversationId: string; sandboxId: string }) =>
-      manager?.cleanup(input.conversationId, input.sandboxId, input.runId) ??
-      Promise.reject(new Error('no manager'));
+      sessionSandboxes.cleanup(input.conversationId, input.sandboxId, input.runId);
     const queueRedis = bunRedisConnection(redisUrl);
     const queue = new Queue<AgentRunJob>(`pending-${randomUUID()}`, {
       connection: queueRedis.connection,
     });
 
     try {
-      mocks.destroyFailures = 1;
+      sandboxState.destroyFailures = 1;
       expect(
-        await reconcileOrphanedRuns(db, logger, 10_000, queue, async (input) =>
+        await reconcileOrphanedRuns(db, logger, 10_000, queue, (input) =>
           cleanup({
             runId: input.runId,
             conversationId: input.conversationId,
@@ -550,7 +433,7 @@ describe('unconfirmed stop handoff', () => {
       expectProblem(await patchAgent(fixture.agentId, { subAgentIds: [] }), 'CONFLICT');
 
       expect(
-        await reconcileOrphanedRuns(db, logger, 10_000, queue, async (input) =>
+        await reconcileOrphanedRuns(db, logger, 10_000, queue, (input) =>
           cleanup({
             runId: input.runId,
             conversationId: input.conversationId,
@@ -568,7 +451,7 @@ describe('unconfirmed stop handoff', () => {
         inputTokens: 5,
         outputTokens: 7,
       });
-      expect(mocks.destroyed.at(-1)).toBe(pendingSnapshot?.sandboxId);
+      expect(sandboxState.destroyed.at(-1)).toBe(pendingSnapshot?.sandboxId);
 
       const finished = (await readStream(fixture.runId)).filter(
         (event) => event.type === 'run_finished',
