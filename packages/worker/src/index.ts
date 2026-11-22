@@ -1,36 +1,18 @@
 import { readdir, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { WorkspacePlugin } from '@agentport/core';
-import {
-  decryptSecrets,
-  hashMcpToken,
-  installProcessGuards,
-  isAppError,
-  RunFailure,
-  renderPlugin,
-} from '@agentport/core';
+import { decryptSecrets, hashMcpToken, installProcessGuards, isAppError } from '@agentport/core';
 import { logEvent } from '@agentport/core/logger';
-import { createDb, idSuffix, plugins as pluginsTable, repo, schema } from '@agentport/db';
+import { createDb, repo, schema } from '@agentport/db';
 import {
   ACTIVE_RUN_STATUSES,
-  type Agent,
-  type AgentDefinition,
-  type AgentDefinitionServer,
   agentRunJobSchema,
-  CONFIG_CONTAINER_DIR,
   EVAL_RUNS_QUEUE,
-  generatedMcpEntry,
-  knowledgeMcpEntry,
-  type McpJsonArtifactEntry,
-  previewMcpEntry,
   RUNS_QUEUE,
   SESSION_CLEANUP_TIMEOUT_MS,
-  serverInputSchema,
 } from '@agentport/shared';
 import { createBunRedisClient, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import { inArray } from 'drizzle-orm';
-import type { Logger } from 'pino';
 import { loadConfig } from './config.js';
 import { checkOutboundPolicy } from './content-policy.js';
 import {
@@ -41,8 +23,16 @@ import {
   startDataDomainEnrichmentReconciler,
   startDataDomainEnrichmentWorker,
 } from './data-domains/enrich.js';
-import { handleEvalJobFailed, runEvalJob } from './eval-job.js';
-import { closeEvalRunQueue, evalFailureDiagnostics } from './eval-runner.js';
+import { runEvalJob } from './eval-job.js';
+import { closeEvalRunQueue } from './eval-runner.js';
+import {
+  cleanupSandboxIdOf,
+  createEvalFailedHandler,
+  createLoadAgentPlugins,
+  createSandboxEnvFactory,
+  denyQueuedRun,
+  toEntry,
+} from './handlers.js';
 import { startWebhookDeliveryReconciler } from './integrations/deliver.js';
 import { startKnowledgeWorker } from './knowledge/queue.js';
 import { startKnowledgeReconciler } from './knowledge/reconcile.js';
@@ -50,12 +40,10 @@ import { startKnowledgeScheduler } from './knowledge/scheduler.js';
 import { createWorkerLogger } from './logger.js';
 import { startMaintenanceWorker } from './maintenance.js';
 import { resolveProviderUpstreams } from './model-providers.js';
-import { type ModelProxy, startModelProxy } from './model-proxy.js';
+import { startModelProxy } from './model-proxy.js';
 import { registerNativePlugins } from './native-plugins.js';
 import { closeRunnerClient, configureRunnerClient } from './runner-client.js';
 import { runAgentJob } from './runs/execute.js';
-import type { RunAccessDenial } from './runs/run-access.js';
-import { finalizeRun } from './runs/run-finish.js';
 import { createWorkspaceAssembly } from './runs/workspace-assembly.js';
 import { startRuntimeEnvironmentBuildWorker } from './runtime-environments/build.js';
 import {
@@ -65,7 +53,6 @@ import {
 import { startRuntimeEnvironmentBuildReconciler } from './runtime-environments/reconcile.js';
 import { createRuntimeEnvironmentResolver } from './runtime-environments/resolve.js';
 import { DockerSandboxProvider, resolveLocalImageId } from './sandbox/docker.js';
-import { SandboxCleanupError } from './sandbox/provider.js';
 import { closeSessionRuntime, startSessionCleanupChannel } from './sandbox/session-cleanup.js';
 import { SessionSandboxes } from './sandbox/sessions.js';
 import { registerSandboxProbe } from './sandbox-probe.js';
@@ -99,7 +86,6 @@ await repo.ops.ensureRetentionDefaults(db, {
 });
 const runConnection = createBunRedisClient(new RedisClient(config.REDIS_URL));
 const evalConnection = createBunRedisClient(new RedisClient(config.REDIS_URL));
-type Db = typeof db;
 const resolveRuntimeEnvironment = createRuntimeEnvironmentResolver((environmentId, versionId) =>
   repo.runtimeEnvironments.resolveOnlineRuntimeEnvironment(db, environmentId, versionId),
 );
@@ -126,125 +112,8 @@ const sessionCleanup = await startSessionCleanupChannel({
   sessions: sessionSandboxes,
 });
 
-type ServerRow = AgentDefinitionServer;
-type AgentRow = typeof schema.agents.$inferSelect;
-
-function toEntry(
-  server: ServerRow,
-  apiUrl: string,
-  secretKey: string,
-  runId: string,
-  runToken: string,
-): McpJsonArtifactEntry {
-  if (server.kind === 'knowledge') {
-    return knowledgeMcpEntry({ apiUrl, serverId: server.id, runId, runToken });
-  }
-  if (server.kind === 'data_domain') {
-    return knowledgeMcpEntry({ apiUrl, serverId: server.id, runId, runToken });
-  }
-  const secrets = server.secretsEncrypted ? decryptSecrets(server.secretsEncrypted, secretKey) : {};
-  const input = serverInputSchema.parse({
-    ...server.config,
-    name: server.name,
-    kind: server.kind,
-  });
-  if (input.kind === 'generated') {
-    return generatedMcpEntry({ apiUrl, serverId: server.id, runId, runToken }, input.headers);
-  }
-  return previewMcpEntry(
-    { kind: input.kind, config: input },
-    { ...(input.kind === 'stdio' ? input.env : input.headers), ...secrets },
-  );
-}
-
-async function loadAgentPlugins(
-  agent: AgentRow,
-  bindings: Agent['pluginBindings'],
-  snapshotPlugins: AgentDefinition['resources']['plugins'] | null,
-): Promise<WorkspacePlugin[]> {
-  if (agent.parentId !== null) {
-    logger.warn({ agentId: agent.id }, 'sub-agent cannot bind plugins; ignoring bindings');
-    return [];
-  }
-  if (bindings.length === 0) return [];
-  const pluginIds = bindings.map((binding) => binding.pluginId);
-  const [pluginRows, filesByPlugin] =
-    snapshotPlugins === null
-      ? await Promise.all([
-          db
-            .select({
-              id: pluginsTable.id,
-              slug: pluginsTable.slug,
-              runtimeName: pluginsTable.runtimeName,
-            })
-            .from(pluginsTable)
-            .where(inArray(pluginsTable.id, pluginIds)),
-          repo.plugins.getPluginFilesByPluginIds(db, pluginIds),
-        ])
-      : [snapshotPlugins, new Map(snapshotPlugins.map((plugin) => [plugin.id, plugin.files]))];
-  const pluginsById = new Map(pluginRows.map((plugin) => [plugin.id, plugin]));
-  const plugins = bindings.flatMap(({ pluginId, allowHooks, allowMcp }) => {
-    const plugin = pluginsById.get(pluginId);
-    if (plugin === undefined) return [];
-    return [
-      renderPlugin({
-        slug: plugin.slug,
-        runtimeName: plugin.runtimeName,
-        allowHooks,
-        allowMcp,
-        files: (filesByPlugin.get(plugin.id) ?? []).map((file) => ({
-          path: file.path,
-          content: file.content,
-          executable: file.executable,
-        })),
-      }),
-    ];
-  });
-  return plugins.filter((plugin) => {
-    if (plugin.files.length > 0) return true;
-    logger.warn({ agentId: agent.id, slug: plugin.slug }, 'plugin has nothing authorized; skipped');
-    return false;
-  });
-}
-
+const loadAgentPlugins = createLoadAgentPlugins(db, logger);
 const writeWorkspace = createWorkspaceAssembly({ db, workspacesDir, logger });
-
-function toHostUrl(value: string): string {
-  return value.replace(
-    /\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)(?=[:/]|$)/,
-    '//host.docker.internal',
-  );
-}
-
-function makeSandboxEnv(modelProxy: ModelProxy | null) {
-  return (apiUrl: string, runId: string): Record<string, string> => {
-    const env: Record<string, string> = {
-      SANDBOX_API_URL: apiUrl,
-      CLAUDE_CONFIG_DIR: CONFIG_CONTAINER_DIR,
-    };
-    if (modelProxy) {
-      env.ANTHROPIC_BASE_URL = modelProxy.url;
-      env.ANTHROPIC_AUTH_TOKEN = modelProxy.issueToken(runId);
-      env.ANTHROPIC_API_KEY = '';
-    } else {
-      for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const) {
-        const value = config[key];
-        if (value) env[key] = value;
-      }
-      if (config.ANTHROPIC_BASE_URL) env.ANTHROPIC_BASE_URL = toHostUrl(config.ANTHROPIC_BASE_URL);
-    }
-
-    if (config.SANDBOX_EGRESS === 'proxy') {
-      for (const key of ['HTTPS_PROXY', 'HTTP_PROXY'] as const) {
-        const value = config[key];
-        if (value) env[key] = toHostUrl(value);
-      }
-      const noProxy = config.NO_PROXY ?? config.no_proxy;
-      if (noProxy) env.NO_PROXY = noProxy;
-    }
-    return env;
-  };
-}
 
 const envUpstream = config.ANTHROPIC_BASE_URL || undefined;
 const modelProxy = await startModelProxy({
@@ -288,7 +157,7 @@ const modelProxy = await startModelProxy({
     repo.modelProviders.markRunServedProvider(db, runId, providerId),
   recordProviderResult: (result) => repo.modelProviders.recordProviderRequest(db, result),
 });
-const sandboxEnv = makeSandboxEnv(modelProxy);
+const sandboxEnv = createSandboxEnvFactory(config, modelProxy);
 if (modelProxy) {
   logger.info('model credentials stay in the worker; sandbox gets a per-run proxy token');
 } else {
@@ -350,36 +219,6 @@ try {
     'default runtime environment registration failed; sandbox creation will fail until it succeeds; retrying',
   );
   stopDefaultEnvironmentRetry = startDefaultEnvironmentRetry(defaultEnvironmentDeps);
-}
-
-function cleanupSandboxIdOf(err: unknown): string | undefined {
-  if (err instanceof SandboxCleanupError) return err.sandboxId;
-  if (err instanceof RunFailure && err.cause instanceof SandboxCleanupError) {
-    return err.cause.sandboxId;
-  }
-  return undefined;
-}
-
-async function denyQueuedRun(
-  db: Db,
-  logger: Logger,
-  runId: string,
-  denial: RunAccessDenial,
-): Promise<void> {
-  const won = await finalizeRun({
-    db,
-    logger,
-    runId,
-    fromStatus: 'queued',
-    event: { type: 'run_finished', status: 'failed', error: denial.message },
-    values: { error: denial.message, errorKind: 'agent' },
-    audit: {
-      action: 'agent.run.denied',
-      status: 'error',
-      dedupeKey: `aud_denied_${idSuffix(runId)}`,
-    },
-  });
-  if (!won) logger.info({ runId }, 'run no longer queued, access denial skipped');
 }
 
 const stopKnowledgeReconciler = await startKnowledgeReconciler({
@@ -488,16 +327,7 @@ const evalWorker = new Worker(
   { connection: evalConnection, concurrency: 1 },
 );
 
-evalWorker.on('failed', (job, err) => {
-  logger.error({ jobId: job?.id, ...evalFailureDiagnostics(err) }, 'eval job failed');
-  // processor 前就终止的 deferred stalled failure 也在这里条件收口；事件回调不能留 unhandled rejection。
-  handleEvalJobFailed({ db, logger, job, error: err }).catch((settleError: unknown) => {
-    logger.error(
-      { jobId: job?.id, ...evalFailureDiagnostics(settleError) },
-      'eval job failure settlement failed',
-    );
-  });
-});
+evalWorker.on('failed', createEvalFailedHandler({ db, logger }));
 
 const maintenanceWorker = await startMaintenanceWorker({
   db,

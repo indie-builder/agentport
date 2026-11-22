@@ -8,152 +8,34 @@ import {
   AGENT_MEMORY_MAX_LINES,
   MEMORY_FILE_MAX_BYTES,
   type MemoryContentSnapshot,
-  RUNS_QUEUE,
   runCancelKey,
 } from '@agentport/shared';
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { Job } from 'bullmq';
 import { RedisClient } from 'bun';
 import { eq } from 'drizzle-orm';
+import { type Config, loadConfig } from '../src/config.js';
+import {
+  cleanupSandboxIdOf,
+  createLoadAgentPlugins,
+  createSandboxEnvFactory,
+  denyQueuedRun,
+  toEntry,
+} from '../src/handlers.js';
+import { createWorkerLogger } from '../src/logger.js';
 import { executeMemoryReview, type MemoryReviewQueryFn } from '../src/memory/memory-review.js';
+import { closeRunnerClient, configureRunnerClient } from '../src/runner-client.js';
+import { runAgentJob } from '../src/runs/execute.js';
+import { createWorkspaceAssembly } from '../src/runs/workspace-assembly.js';
+import { SessionSandboxes } from '../src/sandbox/sessions.js';
 import { probeBunRedis } from './fixtures/bun-redis.js';
 import { createIsolatedDatabase } from './isolated-db.js';
 
-const mocks = (() => ({
-  acquire: mock(),
-  run: mock(),
-  query: mock(),
-  processors: new Map<string, (job: unknown) => Promise<void>>(),
-  dbHandles: [] as Array<{ client: { close(): Promise<void> } }>,
-}))();
-
-const runAccessActual = await import('../src/runs/run-access.js');
-mock.module('../src/runs/run-access.js', () => ({
-  ...runAccessActual,
-  checkUserAgentAccess: async () => null,
-}));
-
-const dbActual = await import('@agentport/db');
-const actualCreateDb = dbActual.createDb;
-mock.module('@agentport/db', () => ({
-  ...dbActual,
-  createDb: (...args: Parameters<typeof dbActual.createDb>) => {
-    const handle = actualCreateDb(...args);
-    mocks.dbHandles.push(handle);
-    return handle;
-  },
-}));
-
-const coreActual = await import('@agentport/core');
-mock.module('@agentport/core', () => ({ ...coreActual, installProcessGuards: () => undefined }));
-
+const queryMock = mock();
 const sdkActual = await import('@anthropic-ai/claude-agent-sdk');
-mock.module('@anthropic-ai/claude-agent-sdk', () => ({ ...sdkActual, query: mocks.query }));
-
-const bullmqActual = await import('bullmq');
-mock.module('bullmq', () => {
-  class Worker {
-    constructor(_name: string, processor: (job: unknown) => Promise<void>) {
-      mocks.processors.set(_name, processor);
-    }
-    on(): this {
-      return this;
-    }
-    async close(): Promise<void> {}
-  }
-  return { ...bullmqActual, Worker };
-});
-
-const sessionCleanupActual = await import('../src/sandbox/session-cleanup.js');
-mock.module('../src/sandbox/session-cleanup.js', () => ({
-  ...sessionCleanupActual,
-  startSessionCleanupChannel: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/sandbox/docker.js', () => ({
-  DockerSandboxProvider: class {
-    async destroyAll(): Promise<void> {}
-    async ensureImage(): Promise<void> {}
-  },
-  resolveLocalImageId: async () => `sha256:${'a'.repeat(64)}`,
-}));
-
-mock.module('../src/sandbox/sessions.js', () => ({
-  SessionSandboxes: class {
-    async close(): Promise<void> {}
-  },
-  memoryMountFor: (policy: { enabled: boolean; writeMode: string }, memoryDir: string) =>
-    policy.enabled ? { memoryDir, memoryWritable: policy.writeMode === 'native_auto' } : {},
-}));
-
-const runnerClientActual = await import('../src/runner-client.js');
-mock.module('../src/runner-client.js', () => ({
-  ...runnerClientActual,
-  configureRunnerClient: mock(),
-  closeRunnerClient: mock(),
-  acquireSessionSandbox: mocks.acquire,
-  runInSandbox: mocks.run,
-  publishRun: mock(async () => undefined),
-  isRetryable: () => false,
-}));
-
-mock.module('../src/runtime-environments/default.js', () => ({
-  ensureDefaultEnvironment: async () => undefined,
-  startDefaultEnvironmentRetry: () => async () => undefined,
-}));
-
-mock.module('../src/runtime-environments/build.js', () => ({
-  startRuntimeEnvironmentBuildWorker: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/runtime-environments/reconcile.js', () => ({
-  startRuntimeEnvironmentBuildReconciler: () => () => undefined,
-}));
-
-mock.module('../src/scheduling/reconcile.js', () => ({
-  startReconciler: () => () => undefined,
-}));
-
-mock.module('../src/knowledge/queue.js', () => ({
-  startKnowledgeWorker: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/knowledge/reconcile.js', () => ({
-  startKnowledgeReconciler: () => () => undefined,
-}));
-
-mock.module('../src/knowledge/scheduler.js', () => ({
-  startKnowledgeScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
-}));
-
-mock.module('../src/scheduling/scheduler.js', () => ({
-  startScheduleScheduler: () => ({ sync: async () => undefined, close: async () => undefined }),
-}));
-
-mock.module('../src/maintenance.js', () => ({
-  startMaintenanceWorker: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/sandbox-probe.js', () => ({
-  registerSandboxProbe: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/native-plugins.js', () => ({
-  registerNativePlugins: async () => ({ close: async () => undefined }),
-}));
-
-mock.module('../src/eval-runner.js', () => ({
-  executeEvalRun: async () => undefined,
-  closeEvalRunQueue: async () => undefined,
-  evalFailureDiagnostics: () => ({}),
-  publicEvalFailureMessage: () => '',
-}));
-
-mock.module('../src/model-proxy.js', () => ({
-  startModelProxy: async () => null,
-}));
+mock.module('@anthropic-ai/claude-agent-sdk', () => ({ ...sdkActual, query: queryMock }));
 
 const isolated = await createIsolatedDatabase('worker_memory_review');
-if (isolated !== null) process.env.DATABASE_URL = isolated.url;
 const dbHandle = createDb(isolated?.url ?? '');
 const { db } = dbHandle;
 
@@ -342,7 +224,7 @@ afterAll(async () => {
     await db.delete(schema.userRoles).where(eq(schema.userRoles.businessId, businessId));
     await db.delete(schema.roles).where(eq(schema.roles.id, roleId));
   }
-  for (const handle of mocks.dbHandles) await handle.client.close().catch(() => undefined);
+  await dbHandle.client.close().catch(() => undefined);
   await isolated?.close();
 });
 
@@ -1236,36 +1118,74 @@ describe.skipIf(!ready)('executeMemoryReview', () => {
 });
 
 describe.skipIf(!ready)('worker trigger routing', () => {
+  const createSandbox = mock();
   let workdir = '';
+  let config!: Config;
+  let logger!: ReturnType<typeof createWorkerLogger>;
+  let sessionSandboxes!: SessionSandboxes;
+
+  const jobDeps = () => ({
+    db,
+    client: dbHandle.client,
+    config,
+    logger,
+    workspacesDir: workdir,
+    hostWorkspacesDir: workdir,
+    sandboxApiUrl: config.SANDBOX_API_URL,
+    sandboxClosing: new AbortController(),
+    sessionSandboxes,
+    modelProxy: null,
+    denyQueuedRun,
+    loadAgentPlugins: createLoadAgentPlugins(db, logger),
+    writeWorkspace: createWorkspaceAssembly({ db, workspacesDir: workdir, logger }),
+    toEntry,
+    sandboxEnv: createSandboxEnvFactory(config, null),
+    cleanupSandboxIdOf,
+  });
 
   beforeAll(async () => {
     workdir = await mkdtemp(join(tmpdir(), 'worker-memory-review-'));
-    process.env.WORKSPACES_DIR = workdir;
-    process.env.HOST_WORKSPACES_DIR = workdir;
-    const sigterm = new Set(process.listeners('SIGTERM'));
-    const sigint = new Set(process.listeners('SIGINT'));
-    await import('../src/index.js');
-    for (const listener of process.listeners('SIGTERM')) {
-      if (!sigterm.has(listener)) process.off('SIGTERM', listener);
-    }
-    for (const listener of process.listeners('SIGINT')) {
-      if (!sigint.has(listener)) process.off('SIGINT', listener);
-    }
+    config = loadConfig({
+      ...process.env,
+      DATABASE_URL: isolated?.url ?? process.env.DATABASE_URL,
+      REDIS_URL: redisUrl,
+      WORKSPACES_DIR: workdir,
+      HOST_WORKSPACES_DIR: workdir,
+    });
+    logger = createWorkerLogger(config);
+    configureRunnerClient(config.REDIS_URL, logger);
+    sessionSandboxes = new SessionSandboxes({
+      provider: {
+        create: createSandbox,
+        destroy: async () => undefined,
+        destroyById: async () => undefined,
+      },
+      idleTimeoutMs: config.SANDBOX_IDLE_TIMEOUT_MS,
+      maxActive: config.SANDBOX_MAX_ACTIVE,
+      logger,
+      resolveRuntimeEnvironment: async () => ({
+        environmentId: 'env_test',
+        environmentName: 'default',
+        versionId: 'ver_test',
+        imageId: 'sha256:test',
+      }),
+    });
   });
 
   afterAll(async () => {
+    await sessionSandboxes?.close();
+    await closeRunnerClient();
     await rm(workdir, { recursive: true, force: true });
   });
 
   it('routes a review run straight to executeMemoryReview without touching the sandbox', async () => {
-    mocks.acquire.mockReset();
-    mocks.run.mockReset();
-    mocks.query.mockReset();
+    createSandbox.mockReset();
+    queryMock.mockReset();
     const seeded = await seed(
       { messages: [{ role: 'user', text: '以后请始终用中文回答。' }] },
       { status: 'queued' },
     );
-    mocks.query.mockImplementation(() =>
+    queryMock.mockImplementation(() =>
       (async function* () {
         yield resultMessage({
           structured_output: {
@@ -1277,31 +1197,30 @@ describe.skipIf(!ready)('worker trigger routing', () => {
       })(),
     );
 
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    expect(processor).toBeDefined();
-    await processor?.({
-      data: {
-        runId: seeded.runId,
-        agentId,
-        conversationId: seeded.conversationId,
-        prompt: '队列里的 prompt 不能被当作审核内容',
-      },
-      attemptsMade: 0,
-      opts: { attempts: 1 },
-    });
+    await runAgentJob(
+      {
+        data: {
+          runId: seeded.runId,
+          agentId,
+          conversationId: seeded.conversationId,
+          prompt: '队列里的 prompt 不能被当作审核内容',
+        },
+        attemptsMade: 0,
+        opts: { attempts: 1 },
+      } as Job,
+      jobDeps(),
+    );
 
     expect(await runOf(seeded.runId)).toMatchObject({ status: 'succeeded' });
     expect((await repo.memoryReviews.find(db, seeded.runId))?.proposal).not.toBeNull();
-    expect(mocks.acquire).not.toHaveBeenCalled();
-    expect(mocks.run).not.toHaveBeenCalled();
+    expect(createSandbox).not.toHaveBeenCalled();
     expect(await messagesOf(seeded.runId)).toHaveLength(0);
     expect(existsSync(join(workdir, agentSlug, seeded.runId))).toBe(false);
   });
 
   it('leaves ordinary chat runs on the sandbox path', async () => {
-    mocks.acquire.mockReset();
-    mocks.run.mockReset();
-    mocks.query.mockReset();
+    createSandbox.mockReset();
+    queryMock.mockReset();
     const conversationId = newId('conversation');
     const runId = newId('run');
     await repo.chat.createConversation(db, {
@@ -1316,17 +1235,21 @@ describe.skipIf(!ready)('worker trigger routing', () => {
       agentId,
       subject: { kind: 'user', businessId },
     });
-    mocks.acquire.mockRejectedValue(new Error('stop after routing'));
+    createSandbox.mockRejectedValue(new Error('stop after routing'));
 
-    const processor = mocks.processors.get(RUNS_QUEUE);
-    await processor?.({
-      data: { runId, agentId, conversationId, prompt: 'hello' },
-      attemptsMade: 0,
-      opts: { attempts: 1 },
-    });
+    await expect(
+      runAgentJob(
+        {
+          data: { runId, agentId, conversationId, prompt: 'hello' },
+          attemptsMade: 0,
+          opts: { attempts: 1 },
+        } as Job,
+        jobDeps(),
+      ),
+    ).rejects.toThrow('stop after routing');
 
-    expect(mocks.acquire).toHaveBeenCalledTimes(1);
-    expect(mocks.query).not.toHaveBeenCalled();
-    expect(mocks.run).not.toHaveBeenCalled();
+    expect(createSandbox).toHaveBeenCalledTimes(1);
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(await runOf(runId)).toMatchObject({ status: 'failed', sandboxId: null });
   });
 });

@@ -1,53 +1,17 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
-import type { Database } from '@agentport/db';
+import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { randomUUID } from 'node:crypto';
+import { inspect } from 'node:util';
+import { createDb, newId, repo, schema } from '@agentport/db';
+import type { EvalCaseSnapshot } from '@agentport/db/schema';
+import { and, asc, eq } from 'drizzle-orm';
+import type { Logger } from 'pino';
+import { createIsolatedDatabase } from './isolated-db.js';
 
-const mocks = (() => {
-  const noop = () => undefined;
-  return {
-    queueAdd: mock(),
-    waitUntilReady: mock(async () => undefined),
-    waitUntilFinished: mock(async () => undefined),
-    evalRepo: {
-      getEvalRun: mock(),
-      claimEvalRun: mock(),
-      listAllCases: mock(),
-      addResult: mock(),
-      updateProgress: mock(),
-      finishEvalRun: mock(),
-      failEvalRun: mock(),
-    },
-    chat: {
-      admitChatRun: mock(),
-      getRun: mock(),
-      listMessages: mock(),
-      messageText: (content: { text?: string } | null | undefined) => content?.text ?? null,
-    },
-    checkAccess: mock(),
-    auditWrite: mock(async () => undefined),
-    logger: { info: noop, warn: noop, error: noop, debug: noop, child: noop },
-  };
-})();
-
-const runAccessActual = await import('../src/runs/run-access.js');
-mock.module('../src/runs/run-access.js', () => ({
-  ...runAccessActual,
-  loadUserAgentAccess: mocks.checkAccess,
-}));
-
-const dbActual = await import('@agentport/db');
-mock.module('@agentport/db', () => ({
-  ...dbActual,
-  repo: {
-    ...dbActual.repo,
-    agentVersions: {
-      ...dbActual.repo.agentVersions,
-      latestAgentVersion: mock().mockResolvedValue(null),
-    },
-    evalRepo: mocks.evalRepo,
-    chat: mocks.chat,
-    audit: { ...dbActual.repo.audit, writeAudit: mocks.auditWrite },
-  },
-}));
+const mocks = {
+  queueAdd: mock(),
+  waitUntilReady: mock(async () => undefined),
+  waitUntilFinished: mock(async () => undefined),
+};
 
 mock.module('bullmq', () => ({
   createBunRedisClient: () => ({ quit: async () => undefined }),
@@ -63,13 +27,26 @@ mock.module('bullmq', () => ({
   UnrecoverableError: class UnrecoverableError extends Error {},
 }));
 
-const { handleEvalJobFailed, runEvalJob } = await import('../src/eval-job.js');
 const { EVAL_FAILURE_PUBLIC_MESSAGE, executeEvalRun } = await import('../src/eval-runner.js');
-
+const { handleEvalJobFailed, runEvalJob } = await import('../src/eval-job.js');
 const { UnrecoverableError } = await import('bullmq');
 
-type SnapshotCase = {
-  id: string;
+const isolated = await createIsolatedDatabase('worker_eval_snapshot');
+const dbHandle = createDb(isolated?.url ?? '');
+const { db } = dbHandle;
+
+const logs: string[] = [];
+const logger = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: (...args: unknown[]) => {
+    logs.push(inspect(args, { depth: 6 }));
+  },
+  debug: () => undefined,
+} as unknown as Logger;
+
+type CaseSeed = {
+  id?: string;
   name: string;
   prompt: string;
   expectation: string;
@@ -78,185 +55,298 @@ type SnapshotCase = {
   forbiddenTools?: string[];
 };
 
-const db = {
-  select: () => ({
-    from: () => ({
-      where: () => ({ limit: async () => [{ timeoutMs: 5_000 }], orderBy: async () => [] }),
-    }),
-  }),
-} as unknown as Database;
-const logger = mocks.logger as unknown as Parameters<typeof executeEvalRun>[0]['logger'];
-const agentId = 'agent-1';
-const evalRunId = 'evalRun-1';
-const evalBusinessId = 'eval-owner';
-const outputsByConversation = new Map<string, string>();
+type RunJobPayload = {
+  runId: string;
+  conversationId: string;
+  prompt: string;
+};
 
-function runWith(caseSnapshot: SnapshotCase[] | null, outputs: Record<string, string>): void {
-  mocks.evalRepo.getEvalRun.mockResolvedValue({
-    status: 'running',
-    agentId,
-    createdBy: evalBusinessId,
-    caseSnapshot,
-  });
-  mocks.checkAccess.mockResolvedValue({
-    denial: null,
-    grants: [{ permissionId: 'eval.read', scope: 'owned_agents' }],
-  });
-  mocks.evalRepo.claimEvalRun.mockResolvedValue(true);
-  mocks.evalRepo.listAllCases.mockImplementation(() => {
-    throw new Error('listAllCases must not run when a snapshot exists');
-  });
-  for (const [name, text] of Object.entries(outputs)) outputsByConversation.set(name, text);
-  mocks.chat.admitChatRun.mockImplementation(
-    async (_db: Database, input: { title: string; agentId: string }) => {
-      const conversationId = input.title.replace('eval: ', '');
-      return { run: { id: `run-${conversationId}` }, conversationId };
-    },
-  );
-  mocks.chat.getRun.mockImplementation(async (_db: Database, id: string) => ({
-    id,
-    status: 'succeeded',
+function toSnapshot(cases: CaseSeed[]): EvalCaseSnapshot[] {
+  return cases.map((testCase) => ({
+    id: testCase.id ?? newId('evalCase'),
+    name: testCase.name,
+    prompt: testCase.prompt,
+    expectation: testCase.expectation,
+    judgeMode: testCase.judgeMode ?? 'contains',
+    ...(testCase.expectedTools === undefined ? {} : { expectedTools: testCase.expectedTools }),
+    ...(testCase.forbiddenTools === undefined ? {} : { forbiddenTools: testCase.forbiddenTools }),
   }));
-  mocks.chat.listMessages.mockImplementation(async (_db: Database, conversationId: string) => [
-    {
-      runId: `run-${conversationId}`,
-      role: 'assistant',
-      content: { type: 'text', text: outputsByConversation.get(conversationId) ?? '' },
-    },
-  ]);
-  mocks.queueAdd.mockResolvedValue({ waitUntilFinished: mocks.waitUntilFinished });
-  mocks.evalRepo.addResult.mockResolvedValue(undefined);
-  mocks.evalRepo.finishEvalRun.mockResolvedValue(undefined);
-  mocks.evalRepo.failEvalRun.mockResolvedValue(true);
-  mocks.auditWrite.mockResolvedValue(undefined);
 }
 
-beforeEach(() => {
-  mock.clearAllMocks();
-  outputsByConversation.clear();
-});
+async function seed(options: {
+  snapshot?: CaseSeed[] | null;
+  liveCases?: CaseSeed[];
+  status?: 'running' | 'succeeded' | 'cancelled';
+  claimedAt?: Date;
+  finishedAt?: Date;
+  timeoutMs?: number;
+}) {
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+  const businessId = `eval-snap-${suffix}`;
+  const roleId = newId('role');
+  await db.insert(schema.authUsers).values({
+    id: `auth_snap_${suffix}`,
+    name: 'eval-snapshot',
+    email: `eval-snap-${suffix}@example.test`,
+    businessId,
+  });
+  await db.insert(schema.roles).values({ id: roleId, name: `eval-snap-${suffix}` });
+  await db.insert(schema.userRoles).values({ businessId, roleId });
+  await db.insert(schema.rolePermissions).values([
+    { roleId, permissionId: 'agents.use', scope: 'owned_agents' },
+    { roleId, permissionId: 'eval.execute', scope: 'owned_agents' },
+    { roleId, permissionId: 'eval.read', scope: 'owned_agents' },
+  ]);
 
-describe('executeEvalRun case snapshot', () => {
+  const agentId = newId('agent');
+  await db.insert(schema.agents).values({
+    id: agentId,
+    slug: `eval-snap-${suffix}`,
+    name: 'eval-snapshot',
+    model: 'test',
+    timeoutMs: options.timeoutMs ?? 5_000,
+    createdBy: businessId,
+    ownerBusinessId: businessId,
+  });
+
+  const snapshot =
+    options.snapshot === undefined
+      ? toSnapshot(options.liveCases ?? [])
+      : options.snapshot === null
+        ? null
+        : toSnapshot(options.snapshot);
+  const liveRows =
+    options.liveCases !== undefined ? toSnapshot(options.liveCases) : (snapshot ?? []);
+  if (liveRows.length > 0) {
+    await db
+      .insert(schema.evalCases)
+      .values(liveRows.map((testCase) => ({ ...testCase, agentId, createdBy: businessId })));
+  }
+
+  const evalRunId = newId('evalRun');
+  await db.insert(schema.evalRuns).values({
+    id: evalRunId,
+    agentId,
+    status: options.status ?? 'running',
+    total: snapshot ? snapshot.length : liveRows.length,
+    caseSnapshot: snapshot,
+    ...(options.claimedAt === undefined ? {} : { claimedAt: options.claimedAt }),
+    ...(options.finishedAt === undefined ? {} : { finishedAt: options.finishedAt }),
+    createdBy: businessId,
+  });
+
+  return { agentId, businessId, roleId, evalRunId, snapshot, liveRows };
+}
+
+async function completeRun(
+  data: RunJobPayload,
+  text: string,
+  extraMessages: Array<{ role: 'tool'; content: unknown }> = [],
+) {
+  await db
+    .update(schema.agentRuns)
+    .set({ status: 'succeeded', startedAt: new Date(), endedAt: new Date() })
+    .where(eq(schema.agentRuns.id, data.runId));
+  await db.insert(schema.messages).values([
+    {
+      id: newId('message'),
+      conversationId: data.conversationId,
+      role: 'assistant',
+      content: { type: 'text', text },
+      runId: data.runId,
+    },
+    ...extraMessages.map((msg) => ({
+      id: newId('message'),
+      conversationId: data.conversationId,
+      role: msg.role,
+      content: msg.content,
+      runId: data.runId,
+    })),
+  ]);
+}
+
+async function withTrigger(
+  table: string,
+  timing: string,
+  bodySql: string,
+  run: () => Promise<void>,
+): Promise<void> {
+  const fnName = `eval_snap_trig_${randomUUID().replaceAll('-', '').slice(0, 10)}`;
+  await dbHandle.client.unsafe(`
+    create or replace function ${fnName}() returns trigger language plpgsql as $fn$
+    begin
+      ${bodySql}
+      return new;
+    end;
+    $fn$
+  `);
+  await dbHandle.client.unsafe(`
+    create trigger ${fnName}
+    ${timing} on ${table}
+    for each row execute function ${fnName}()
+  `);
+  try {
+    await run();
+  } finally {
+    await dbHandle.client.unsafe(`drop trigger if exists ${fnName} on ${table}`);
+    await dbHandle.client.unsafe(`drop function if exists ${fnName}()`);
+  }
+}
+
+async function persistedResults(evalRunId: string) {
+  return db
+    .select()
+    .from(schema.evalResults)
+    .where(eq(schema.evalResults.evalRunId, evalRunId))
+    .orderBy(asc(schema.evalResults.createdAt), asc(schema.evalResults.id));
+}
+
+async function childRuns(evalRunId: string) {
+  return db
+    .select()
+    .from(schema.agentRuns)
+    .where(eq(schema.agentRuns.evalRunId, evalRunId))
+    .orderBy(asc(schema.agentRuns.createdAt), asc(schema.agentRuns.id));
+}
+
+describe.skipIf(isolated === null)('executeEvalRun case snapshot against real Postgres', () => {
+  beforeEach(() => {
+    logs.length = 0;
+    mocks.queueAdd.mockReset();
+    mocks.waitUntilReady.mockReset().mockResolvedValue(undefined);
+    mocks.waitUntilFinished.mockReset().mockResolvedValue(undefined);
+    mocks.queueAdd.mockImplementation(async (_name, data: RunJobPayload) => {
+      await completeRun(data, `answer ${data.prompt.replace('prompt-', '')}-ok`);
+      return { waitUntilFinished: mocks.waitUntilFinished };
+    });
+  });
+
+  afterAll(async () => {
+    await dbHandle.client.close();
+    await isolated?.close();
+  });
+
   it('runs and judges snapshot cases without reading the live case table', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-      { id: 'evalCase-b', name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
-    ];
-    runWith(snapshot, { alpha: 'answer alpha-ok', beta: 'answer beta-ok' });
+    const sharedIdA = newId('evalCase');
+    const sharedIdB = newId('evalCase');
+    const { businessId, evalRunId, snapshot } = await seed({
+      liveCases: [
+        { id: sharedIdA, name: 'alpha-live', prompt: 'live-changed-a', expectation: 'never-a' },
+        { id: sharedIdB, name: 'beta-live', prompt: 'live-changed-b', expectation: 'never-b' },
+      ],
+      snapshot: [
+        { id: sharedIdA, name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+        { id: sharedIdB, name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
+      ],
+    });
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.listAllCases).not.toHaveBeenCalled();
     expect(mocks.queueAdd.mock.calls.map((call) => call[1].prompt)).toEqual([
       'prompt-alpha',
       'prompt-beta',
     ]);
-    expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(2);
-    expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
-      evalRunId,
-      caseId: 'evalCase-a',
-      passed: true,
-      caseSnapshot: snapshot[0],
-    });
-    expect(mocks.evalRepo.addResult.mock.calls[1]?.[1]).toMatchObject({
-      evalRunId,
-      caseId: 'evalCase-b',
-      passed: true,
-      caseSnapshot: snapshot[1],
-    });
-    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
-      status: 'succeeded',
-      passed: 2,
-      error: null,
-    });
     expect(mocks.waitUntilFinished).toHaveBeenCalledWith(expect.anything(), 5_000);
-    expect(mocks.chat.admitChatRun).toHaveBeenCalledWith(
-      db,
-      expect.objectContaining({
-        subject: { kind: 'user', businessId: evalBusinessId },
-      }),
-    );
+
+    const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
+    expect(detail?.evalRun).toMatchObject({ status: 'succeeded', passed: 2, error: null });
+
+    const rows = await persistedResults(evalRunId);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      evalRunId,
+      caseId: sharedIdA,
+      passed: true,
+      caseSnapshot: snapshot?.[0],
+    });
+    expect(rows[1]).toMatchObject({
+      evalRunId,
+      caseId: sharedIdB,
+      passed: true,
+      caseSnapshot: snapshot?.[1],
+    });
+
+    const runs = await childRuns(evalRunId);
+    expect(runs).toHaveLength(2);
+    for (const run of runs) {
+      expect(run.subjectKind).toBe('user');
+      expect(run.initiatedBy).toBe(businessId);
+      expect(run.serviceId).toBeNull();
+    }
   });
 
   it('fails a text-passing case when the trajectory used a forbidden tool', async () => {
-    const snapshot: SnapshotCase[] = [
-      {
-        id: 'evalCase-a',
-        name: 'alpha',
-        prompt: 'prompt-alpha',
-        expectation: 'alpha-ok',
-        expectedTools: ['Read'],
-        forbiddenTools: ['Bash'],
-      },
-    ];
-    runWith(snapshot, { alpha: 'answer alpha-ok' });
-    mocks.chat.listMessages.mockResolvedValue([
-      { runId: 'run-alpha', role: 'assistant', content: { type: 'text', text: 'answer alpha-ok' } },
-      {
-        runId: 'run-alpha',
-        role: 'tool',
-        content: { type: 'tool_use', id: 'tool-1', name: 'Read', input: {} },
-      },
-      {
-        runId: 'run-alpha',
-        role: 'tool',
-        content: { type: 'tool_result', toolUseId: 'tool-1', name: 'Read' },
-      },
-      {
-        runId: 'run-alpha',
-        role: 'tool',
-        content: { type: 'tool_use', id: 'tool-2', name: 'Bash', input: {} },
-      },
-    ]);
+    const { evalRunId, snapshot } = await seed({
+      snapshot: [
+        {
+          name: 'alpha',
+          prompt: 'prompt-alpha',
+          expectation: 'alpha-ok',
+          expectedTools: ['Read'],
+          forbiddenTools: ['Bash'],
+        },
+      ],
+    });
+    mocks.queueAdd.mockImplementationOnce(async (_name, data: RunJobPayload) => {
+      await completeRun(data, 'answer alpha-ok', [
+        { role: 'tool', content: { type: 'tool_use', id: 'tool-1', name: 'Read', input: {} } },
+        { role: 'tool', content: { type: 'tool_result', toolUseId: 'tool-1', name: 'Read' } },
+        { role: 'tool', content: { type: 'tool_use', id: 'tool-2', name: 'Bash', input: {} } },
+      ]);
+      return { waitUntilFinished: mocks.waitUntilFinished };
+    });
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.chat.listMessages).toHaveBeenCalledTimes(1);
-    expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
-      caseId: 'evalCase-a',
+    const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
+    expect(detail?.evalRun).toMatchObject({ status: 'failed', passed: 0, error: null });
+    const rows = await persistedResults(evalRunId);
+    expect(rows[0]).toMatchObject({
+      caseId: snapshot?.[0]?.id,
       passed: false,
       output: 'answer alpha-ok',
       judgeReason: '出现禁止工具: Bash',
-      caseSnapshot: snapshot[0],
-    });
-    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
-      status: 'failed',
-      passed: 0,
-      error: null,
+      caseSnapshot: snapshot?.[0],
     });
   });
 
   it('records a snapshot case whose live row was deleted, without a live fetch', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-deleted', name: 'gone', prompt: 'prompt-gone', expectation: 'gone-ok' },
-    ];
-    runWith(snapshot, { gone: 'answer gone-ok' });
+    const { agentId, evalRunId, snapshot } = await seed({
+      snapshot: [{ name: 'gone', prompt: 'prompt-gone', expectation: 'gone-ok' }],
+      liveCases: [{ name: 'gone', prompt: 'prompt-gone', expectation: 'gone-ok' }],
+    });
+    await db.delete(schema.evalCases).where(eq(schema.evalCases.agentId, agentId));
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.listAllCases).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(1);
-    expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
-      caseId: 'evalCase-deleted',
-      caseSnapshot: snapshot[0],
+    const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
+    expect(detail?.evalRun).toMatchObject({ status: 'succeeded', passed: 1, error: null });
+    expect(detail?.results[0]).toMatchObject({
+      caseId: null,
+      name: 'gone',
+      prompt: 'prompt-gone',
+      expectation: 'gone-ok',
       passed: true,
     });
-    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
-      status: 'succeeded',
-      passed: 1,
-      error: null,
+    const rows = await persistedResults(evalRunId);
+    expect(rows[0]).toMatchObject({
+      caseId: null,
+      caseSnapshot: snapshot?.[0],
+      passed: true,
     });
   });
 
   it('treats an empty snapshot as zero cases instead of re-reading them', async () => {
-    runWith([], {});
+    const { evalRunId } = await seed({
+      liveCases: [{ name: 'live', prompt: 'prompt-live', expectation: 'live-ok' }],
+      snapshot: [],
+    });
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.listAllCases).not.toHaveBeenCalled();
     expect(mocks.queueAdd).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+    expect(await persistedResults(evalRunId)).toHaveLength(0);
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
       status: 'succeeded',
       passed: 0,
       error: null,
@@ -264,91 +354,72 @@ describe('executeEvalRun case snapshot', () => {
   });
 
   it('stops after the already-running case when cancelled between cases', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-      { id: 'evalCase-b', name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
-    ];
-    runWith(snapshot, { alpha: 'answer alpha-ok', beta: 'answer beta-ok' });
-    const running = {
-      status: 'running',
-      agentId,
-      createdBy: evalBusinessId,
-      caseSnapshot: snapshot,
-    };
-    const cancelled = {
-      status: 'cancelled',
-      agentId,
-      createdBy: evalBusinessId,
-      caseSnapshot: snapshot,
-    };
-    mocks.evalRepo.getEvalRun
-      .mockResolvedValueOnce(running)
-      .mockResolvedValueOnce(running)
-      .mockResolvedValueOnce(running)
-      .mockResolvedValueOnce(running)
-      .mockResolvedValueOnce(running)
-      .mockResolvedValueOnce(cancelled)
-      .mockResolvedValueOnce(cancelled);
+    const { evalRunId } = await seed({
+      snapshot: [
+        { name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+        { name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
+      ],
+    });
 
-    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+    await withTrigger(
+      'eval_results',
+      'after insert',
+      `if new.eval_run_id = '${evalRunId}' then
+         update eval_runs set status = 'cancelled', finished_at = now() where id = new.eval_run_id;
+       end if;`,
+      async () => {
+        await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+      },
+    );
 
     expect(mocks.queueAdd).toHaveBeenCalledTimes(1);
-    expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(1);
-    expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
+    const detail = await repo.evalRepo.getRunDetail(db, evalRunId);
+    expect(detail?.evalRun).toMatchObject({ status: 'cancelled', passed: 1 });
+    expect(detail?.results).toHaveLength(1);
+    expect(detail?.results[0]).toMatchObject({ name: 'alpha', passed: true });
   });
 
   it('discards the output of a case cancelled in flight', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-    ];
-    runWith(snapshot, { alpha: 'answer alpha-ok' });
-    const running = {
-      status: 'running',
-      agentId,
-      createdBy: evalBusinessId,
-      caseSnapshot: snapshot,
-    };
-    const cancelled = {
-      status: 'cancelled',
-      agentId,
-      createdBy: evalBusinessId,
-      caseSnapshot: snapshot,
-    };
-    mocks.evalRepo.getEvalRun
-      .mockResolvedValueOnce(running)
-      .mockResolvedValueOnce(running)
-      .mockResolvedValueOnce(running)
-      .mockResolvedValueOnce(cancelled)
-      .mockResolvedValueOnce(cancelled);
+    const { evalRunId } = await seed({
+      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
+    });
+    mocks.waitUntilFinished.mockImplementationOnce(async () => {
+      await db
+        .update(schema.evalRuns)
+        .set({ status: 'cancelled', finishedAt: new Date() })
+        .where(eq(schema.evalRuns.id, evalRunId));
+    });
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.updateProgress).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
+    expect(await persistedResults(evalRunId)).toHaveLength(0);
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
+      status: 'cancelled',
+      passed: 0,
+      error: null,
+    });
   });
 
   it('falls back to listAllCases only when the run has no snapshot', async () => {
-    const live: SnapshotCase[] = [
-      { id: 'evalCase-live', name: 'live', prompt: 'prompt-live', expectation: 'live-ok' },
-    ];
-    runWith(null, { live: 'answer live-ok' });
-    mocks.evalRepo.listAllCases.mockResolvedValue(live);
+    const { evalRunId, liveRows } = await seed({
+      liveCases: [{ name: 'live', prompt: 'prompt-live', expectation: 'live-ok' }],
+      snapshot: null,
+    });
+    await seed({
+      liveCases: [{ name: 'other', prompt: 'prompt-other', expectation: 'other-ok' }],
+    });
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.listAllCases).toHaveBeenCalledWith(
-      db,
-      { businessId: evalBusinessId, scopes: ['owned_agents'] },
-      agentId,
-    );
     expect(mocks.queueAdd.mock.calls.map((call) => call[1].prompt)).toEqual(['prompt-live']);
-    expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
-      caseId: 'evalCase-live',
+    const rows = await persistedResults(evalRunId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      caseId: liveRows[0]?.id,
       passed: true,
-      caseSnapshot: live[0],
+      caseSnapshot: liveRows[0],
     });
-    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
       status: 'succeeded',
       passed: 1,
       error: null,
@@ -356,27 +427,39 @@ describe('executeEvalRun case snapshot', () => {
   });
 
   it('records a judged-failure case and continues with the next case', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-      { id: 'evalCase-b', name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
-    ];
-    runWith(snapshot, { alpha: 'wrong answer', beta: 'answer beta-ok' });
+    const { evalRunId, snapshot } = await seed({
+      snapshot: [
+        { name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+        { name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
+      ],
+    });
+    mocks.queueAdd
+      .mockImplementationOnce(async (_name, data: RunJobPayload) => {
+        await completeRun(data, 'wrong answer');
+        return { waitUntilFinished: mocks.waitUntilFinished };
+      })
+      .mockImplementationOnce(async (_name, data: RunJobPayload) => {
+        await completeRun(data, 'answer beta-ok');
+        return { waitUntilFinished: mocks.waitUntilFinished };
+      });
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(2);
-    expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
-      caseId: 'evalCase-a',
-      runId: 'run-alpha',
+    const runs = await childRuns(evalRunId);
+    const rows = await persistedResults(evalRunId);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      caseId: snapshot?.[0]?.id,
+      runId: runs[0]?.id,
       passed: false,
       output: 'wrong answer',
     });
-    expect(mocks.evalRepo.addResult.mock.calls[1]?.[1]).toMatchObject({
-      caseId: 'evalCase-b',
-      runId: 'run-beta',
+    expect(rows[1]).toMatchObject({
+      caseId: snapshot?.[1]?.id,
+      runId: runs[1]?.id,
       passed: true,
     });
-    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
       status: 'failed',
       passed: 1,
       error: null,
@@ -386,30 +469,42 @@ describe('executeEvalRun case snapshot', () => {
   it.each(['failed', 'cancelled', 'timeout'] as const)(
     'records the child run id when the run ends in %s',
     async (status) => {
-      const snapshot: SnapshotCase[] = [
-        { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-        { id: 'evalCase-b', name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
-      ];
-      runWith(snapshot, { alpha: 'ignored', beta: 'answer beta-ok' });
-      mocks.chat.getRun.mockImplementation(async (_db: Database, id: string) =>
-        id === 'run-alpha' ? { id, status, error: 'boom' } : { id, status: 'succeeded' },
-      );
+      const { evalRunId, snapshot } = await seed({
+        snapshot: [
+          { name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+          { name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
+        ],
+      });
+      mocks.queueAdd
+        .mockImplementationOnce(async (_name, data: RunJobPayload) => {
+          await db
+            .update(schema.agentRuns)
+            .set({ status, error: 'boom', endedAt: new Date() })
+            .where(eq(schema.agentRuns.id, data.runId));
+          return { waitUntilFinished: mocks.waitUntilFinished };
+        })
+        .mockImplementationOnce(async (_name, data: RunJobPayload) => {
+          await completeRun(data, 'answer beta-ok');
+          return { waitUntilFinished: mocks.waitUntilFinished };
+        });
 
       await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-      expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(2);
-      expect(mocks.evalRepo.addResult.mock.calls[0]?.[1]).toMatchObject({
-        caseId: 'evalCase-a',
-        runId: 'run-alpha',
+      const runs = await childRuns(evalRunId);
+      const rows = await persistedResults(evalRunId);
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatchObject({
+        caseId: snapshot?.[0]?.id,
+        runId: runs[0]?.id,
         passed: false,
         output: `run ended with ${status}: boom`,
       });
-      expect(mocks.evalRepo.addResult.mock.calls[1]?.[1]).toMatchObject({
-        caseId: 'evalCase-b',
-        runId: 'run-beta',
+      expect(rows[1]).toMatchObject({
+        caseId: snapshot?.[1]?.id,
+        runId: runs[1]?.id,
         passed: true,
       });
-      expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+      expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
         status: 'failed',
         passed: 1,
         error: null,
@@ -418,26 +513,30 @@ describe('executeEvalRun case snapshot', () => {
   );
 
   it('records the child run id when waiting for the queue fails', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-    ];
-    runWith(snapshot, {});
-    mocks.chat.getRun.mockResolvedValue({ id: 'run-alpha', status: 'running' });
+    const { evalRunId, snapshot } = await seed({
+      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
+    });
+    mocks.queueAdd.mockImplementationOnce(async (_name, data: RunJobPayload) => {
+      await db
+        .update(schema.agentRuns)
+        .set({ status: 'running', startedAt: new Date() })
+        .where(eq(schema.agentRuns.id, data.runId));
+      return { waitUntilFinished: mocks.waitUntilFinished };
+    });
     mocks.waitUntilFinished.mockRejectedValueOnce(new Error('queue wait failed'));
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.addResult).toHaveBeenCalledWith(
-      db,
-      expect.objectContaining({
-        caseId: 'evalCase-a',
-        runId: 'run-alpha',
-        passed: false,
-        output: 'queue wait failed',
-      }),
-      { recordProgress: true },
-    );
-    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+    const runs = await childRuns(evalRunId);
+    const rows = await persistedResults(evalRunId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      caseId: snapshot?.[0]?.id,
+      runId: runs[0]?.id,
+      passed: false,
+      output: 'queue wait failed',
+    });
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
       status: 'failed',
       passed: 0,
       error: null,
@@ -445,26 +544,32 @@ describe('executeEvalRun case snapshot', () => {
   });
 
   it('keeps the run id null when the child run was never created', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-    ];
-    runWith(snapshot, {});
-    mocks.chat.admitChatRun.mockRejectedValueOnce(new Error('db down'));
+    const { evalRunId, snapshot } = await seed({
+      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
+    });
 
-    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+    await withTrigger(
+      'agent_runs',
+      'before insert',
+      `if new.eval_run_id = '${evalRunId}' then
+         raise exception 'forced agent_runs failure';
+       end if;`,
+      async () => {
+        await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+      },
+    );
 
     expect(mocks.queueAdd).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.addResult).toHaveBeenCalledWith(
-      db,
-      expect.objectContaining({
-        caseId: 'evalCase-a',
-        runId: null,
-        passed: false,
-        output: EVAL_FAILURE_PUBLIC_MESSAGE,
-      }),
-      { recordProgress: true },
-    );
-    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+    expect(await childRuns(evalRunId)).toHaveLength(0);
+    const rows = await persistedResults(evalRunId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      caseId: snapshot?.[0]?.id,
+      runId: null,
+      passed: false,
+      output: EVAL_FAILURE_PUBLIC_MESSAGE,
+    });
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
       status: 'failed',
       passed: 0,
       error: null,
@@ -472,25 +577,28 @@ describe('executeEvalRun case snapshot', () => {
   });
 
   it('fails the batch without counting a pass when the result write fails', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-      { id: 'evalCase-b', name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
-      { id: 'evalCase-c', name: 'gamma', prompt: 'prompt-gamma', expectation: 'gamma-ok' },
-    ];
-    runWith(snapshot, {
-      alpha: 'answer alpha-ok',
-      beta: 'answer beta-ok',
-      gamma: 'answer gamma-ok',
+    const { evalRunId } = await seed({
+      snapshot: [
+        { name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
+        { name: 'beta', prompt: 'prompt-beta', expectation: 'beta-ok' },
+        { name: 'gamma', prompt: 'prompt-gamma', expectation: 'gamma-ok' },
+      ],
     });
-    mocks.evalRepo.addResult
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('result write failed'));
 
-    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+    await withTrigger(
+      'eval_results',
+      'before insert',
+      `if new.eval_run_id = '${evalRunId}' and new.case_snapshot->>'name' = 'beta' then
+         raise exception 'result write failed';
+       end if;`,
+      async () => {
+        await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+      },
+    );
 
     expect(mocks.queueAdd).toHaveBeenCalledTimes(2);
-    expect(mocks.evalRepo.addResult).toHaveBeenCalledTimes(2);
-    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+    expect(await persistedResults(evalRunId)).toHaveLength(1);
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
       status: 'failed',
       passed: 1,
       error: EVAL_FAILURE_PUBLIC_MESSAGE,
@@ -498,111 +606,103 @@ describe('executeEvalRun case snapshot', () => {
   });
 
   it('skips a duplicate delivery of an already finished batch', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-    ];
-    runWith(snapshot, { alpha: 'answer alpha-ok' });
-    mocks.evalRepo.claimEvalRun.mockResolvedValueOnce(false);
-    mocks.evalRepo.getEvalRun
-      .mockResolvedValueOnce({
-        status: 'running',
-        agentId,
-        createdBy: evalBusinessId,
-        caseSnapshot: snapshot,
-      })
-      .mockResolvedValueOnce({
-        status: 'cancelled',
-        agentId,
-        createdBy: evalBusinessId,
-        caseSnapshot: snapshot,
-        claimedAt: new Date(),
-      });
-
-    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
-
-    expect(mocks.queueAdd).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
-  });
-
-  it('skips a redelivery of an already claimed batch so it is not rerun', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-    ];
-    runWith(snapshot, { alpha: 'answer alpha-ok' });
-    mocks.evalRepo.claimEvalRun.mockResolvedValueOnce(false);
-    mocks.evalRepo.getEvalRun
-      .mockResolvedValueOnce({
-        status: 'running',
-        agentId,
-        createdBy: evalBusinessId,
-        caseSnapshot: snapshot,
-      })
-      .mockResolvedValueOnce({
-        status: 'running',
-        agentId,
-        createdBy: evalBusinessId,
-        caseSnapshot: snapshot,
-        claimedAt: new Date(),
-      });
-
-    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
-
-    expect(mocks.queueAdd).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.addResult).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
-  });
-
-  it('does not touch a batch that was already terminal when the job arrived', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-    ];
-    runWith(snapshot, { alpha: 'answer alpha-ok' });
-    mocks.evalRepo.getEvalRun.mockResolvedValueOnce({
-      status: 'succeeded',
-      agentId,
-      createdBy: evalBusinessId,
-      caseSnapshot: snapshot,
+    const { evalRunId } = await seed({
+      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
+      status: 'cancelled',
+      claimedAt: new Date(),
+      finishedAt: new Date(),
     });
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.evalRepo.claimEvalRun).not.toHaveBeenCalled();
     expect(mocks.queueAdd).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.finishEvalRun).not.toHaveBeenCalled();
+    expect(await persistedResults(evalRunId)).toHaveLength(0);
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun.status).toBe('cancelled');
+  });
+
+  it('skips a redelivery of an already claimed batch so it is not rerun', async () => {
+    const { evalRunId } = await seed({
+      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
+      status: 'running',
+      claimedAt: new Date(),
+    });
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+    expect(await persistedResults(evalRunId)).toHaveLength(0);
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
+      status: 'running',
+      finishedAt: null,
+    });
+  });
+
+  it('does not touch a batch that was already terminal when the job arrived', async () => {
+    const finishedAt = new Date('2026-01-01T00:00:00.000Z');
+    const { evalRunId } = await seed({
+      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
+      status: 'succeeded',
+      finishedAt,
+    });
+
+    await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
+
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+    const evalRun = (await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun;
+    expect(evalRun?.status).toBe('succeeded');
+    expect(evalRun?.claimedAt).toBeNull();
+    expect(evalRun?.finishedAt?.toISOString()).toBe(finishedAt.toISOString());
   });
 
   it('propagates a final finish failure instead of logging it away', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-    ];
-    runWith(snapshot, { alpha: 'answer alpha-ok' });
-    mocks.evalRepo.finishEvalRun.mockRejectedValueOnce(new Error('finish failed'));
+    const { evalRunId } = await seed({
+      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
+    });
 
-    await expect(
-      executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId }),
-    ).rejects.toThrow('finish failed');
-  });
-
-  it('settles the batch through the production handler before rethrowing', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-    ];
-    runWith(snapshot, { alpha: 'answer alpha-ok' });
-    mocks.evalRepo.finishEvalRun.mockRejectedValueOnce(new Error('finish failed'));
-
-    await expect(
-      runEvalJob({ db, logger, redisUrl: 'redis://unused', job: { data: { evalRunId } } }),
-    ).rejects.toThrow('finish failed');
-
-    expect(mocks.evalRepo.failEvalRun).toHaveBeenCalledWith(
-      db,
-      evalRunId,
-      EVAL_FAILURE_PUBLIC_MESSAGE,
+    await withTrigger(
+      'eval_runs',
+      'before update',
+      `if new.id = '${evalRunId}' and new.status = 'succeeded' then
+         raise exception 'finish failed';
+       end if;`,
+      async () => {
+        await expect(
+          executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId }),
+        ).rejects.toThrow('Failed query');
+      },
     );
   });
 
+  it('settles the batch through the production handler before rethrowing', async () => {
+    const { evalRunId } = await seed({
+      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
+    });
+
+    await withTrigger(
+      'eval_runs',
+      'before update',
+      `if new.id = '${evalRunId}' and new.status = 'succeeded' then
+         raise exception 'finish failed';
+       end if;`,
+      async () => {
+        await expect(
+          runEvalJob({ db, logger, redisUrl: 'redis://unused', job: { data: { evalRunId } } }),
+        ).rejects.toThrow('Failed query');
+      },
+    );
+
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
+      status: 'failed',
+      passed: 1,
+      error: EVAL_FAILURE_PUBLIC_MESSAGE,
+    });
+  });
+
   it('settles a batch from the failed event when the processor never ran', async () => {
+    const { evalRunId } = await seed({
+      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
+    });
+
     await handleEvalJobFailed({
       db,
       logger,
@@ -610,50 +710,53 @@ describe('executeEvalRun case snapshot', () => {
       error: new UnrecoverableError('job stalled more than allowable limit'),
     });
 
-    expect(mocks.evalRepo.failEvalRun).toHaveBeenCalledWith(
-      db,
-      evalRunId,
-      'job stalled more than allowable limit',
-    );
+    const evalRun = (await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun;
+    expect(evalRun).toMatchObject({
+      status: 'failed',
+      error: 'job stalled more than allowable limit',
+    });
+    expect(evalRun?.finishedAt).not.toBeNull();
   });
 
   it('ignores a failed event whose payload cannot name a batch', async () => {
+    const { evalRunId } = await seed({
+      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
+    });
+
     await handleEvalJobFailed({ db, logger, job: { data: {} }, error: new Error('boom') });
 
-    expect(mocks.evalRepo.failEvalRun).not.toHaveBeenCalled();
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
+      status: 'running',
+      finishedAt: null,
+    });
   });
 
   it('fails the batch without running cases when the executor lost access', async () => {
-    const snapshot: SnapshotCase[] = [
-      { id: 'evalCase-a', name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' },
-    ];
-    runWith(snapshot, { alpha: 'answer alpha-ok' });
-    mocks.checkAccess.mockResolvedValue({
-      denial: {
-        reason: 'permission_denied',
-        message: '当前账户没有该操作的专家权限，运行未启动',
-      },
-      grants: [],
+    const { evalRunId, roleId } = await seed({
+      snapshot: [{ name: 'alpha', prompt: 'prompt-alpha', expectation: 'alpha-ok' }],
     });
+    await db.delete(schema.rolePermissions).where(eq(schema.rolePermissions.roleId, roleId));
 
     await executeEvalRun({ db, logger, redisUrl: 'redis://unused', evalRunId });
 
-    expect(mocks.checkAccess).toHaveBeenCalledWith(expect.anything(), {
-      businessId: evalBusinessId,
-      agentId,
-      permissions: ['agents.use', 'eval.execute'],
-    });
     expect(mocks.queueAdd).not.toHaveBeenCalled();
-    expect(mocks.chat.admitChatRun).not.toHaveBeenCalled();
-    expect(mocks.evalRepo.finishEvalRun).toHaveBeenCalledWith(db, evalRunId, {
+    expect(await childRuns(evalRunId)).toHaveLength(0);
+    expect((await repo.evalRepo.getRunDetail(db, evalRunId))?.evalRun).toMatchObject({
       status: 'failed',
       passed: 0,
       error: '当前账户没有该操作的专家权限，运行未启动',
     });
-    expect(mocks.auditWrite).toHaveBeenCalledWith(
-      expect.anything(),
-      logger,
-      expect.objectContaining({ action: 'eval.denied', target: evalRunId, status: 'denied' }),
-    );
+    const [audit] = await db
+      .select()
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.target, evalRunId), eq(schema.auditLog.action, 'eval.denied')))
+      .limit(1);
+    expect(audit).toMatchObject({
+      actor: 'worker',
+      actorKind: 'service',
+      action: 'eval.denied',
+      target: evalRunId,
+      status: 'denied',
+    });
   });
 });

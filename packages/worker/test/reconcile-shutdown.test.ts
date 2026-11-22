@@ -1,115 +1,115 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { newId, schema } from '@agentport/db';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { createDb, newId, schema } from '@agentport/db';
+import { runStreamKey } from '@agentport/shared';
+import { RedisClient } from 'bun';
+import { eq } from 'drizzle-orm';
 import type { Logger } from 'pino';
+import { closeRunnerClient, configureRunnerClient } from '../src/runner-client.js';
+import { LOST_RUN_ERROR, startReconciler } from '../src/scheduling/reconcile.js';
+import { testAccess } from './fixtures/access.js';
+import { probeBunRedis } from './fixtures/bun-redis.js';
+import { createIsolatedDatabase } from './isolated-db.js';
 
-const { publishRun, queueClose } = (() => {
-  let failed!: () => void;
-  const failedPromise = new Promise<void>((resolve) => {
-    failed = resolve;
-  });
-  return {
-    publishRun: {
-      failed: failedPromise,
-      signal: failed,
-      fn: mock(async () => {
-        failed();
-        throw new Error('publish failed');
-      }),
-    },
-    queueClose: mock(async () => undefined),
-  };
-})();
+const { agentOwnership, conversationSubject, runSubjectFields } = testAccess(import.meta.url);
 
-const runnerClientActual = await import('../src/runner-client.js');
-mock.module('../src/runner-client.js', () => ({
-  ...runnerClientActual,
-  publishRun: publishRun.fn,
-  clearRunCancel: async () => undefined,
-}));
-mock.module('bullmq', () => ({
-  createBunRedisClient: () => ({ quit: async () => undefined }),
-  Queue: class {
-    on(): void {}
-    getJob = async (): Promise<undefined> => undefined;
-    close = queueClose;
-  },
-}));
+async function probeInfra(): Promise<boolean> {
+  const databaseUrl = process.env.DATABASE_URL;
+  const redisUrl = process.env.REDIS_URL;
+  if (!databaseUrl || !redisUrl) return false;
+  const { client } = createDb(databaseUrl);
+  try {
+    await client.unsafe('select 1');
+    return await probeBunRedis(redisUrl);
+  } catch {
+    return false;
+  } finally {
+    await client.close().catch(() => undefined);
+  }
+}
 
-const { startReconciler } = await import('../src/scheduling/reconcile.js');
+const isolated = await createIsolatedDatabase('worker_reconcile_shutdown');
+if (isolated) process.env.DATABASE_URL = isolated.url;
+const ready = isolated !== null && (await probeInfra());
+if (!ready && isolated) await isolated.close();
 
-const logger = {
-  info: () => undefined,
-  warn: () => undefined,
-  debug: () => undefined,
-  error: mock(),
-} as unknown as Logger;
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 30));
 
-const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+describe.skipIf(!ready)('startReconciler shutdown', () => {
+  const redisUrl = process.env.REDIS_URL ?? '';
+  let dbHandle: ReturnType<typeof createDb>;
+  let db: ReturnType<typeof createDb>['db'];
+  const agentId = newId('agent');
+  const conversationId = newId('conversation');
+  const runId = newId('run');
+  const logger = {
+    info: () => undefined,
+    warn: () => undefined,
+    debug: () => undefined,
+    error: () => undefined,
+  } as unknown as Logger;
 
-describe('startReconciler shutdown', () => {
-  afterEach(() => {
-    mock.clearAllMocks();
-  });
+  beforeAll(async () => {
+    dbHandle = createDb(isolated?.url ?? '');
+    db = dbHandle.db;
+    configureRunnerClient(redisUrl, logger);
 
-  it('waits for both reconcile branches before stop closes the queues', async () => {
-    let releaseEval!: (rows: unknown[]) => void;
-    const evalRows = new Promise<unknown[]>((resolve) => {
-      releaseEval = resolve;
+    await db.insert(schema.agents).values({
+      id: agentId,
+      slug: `reconcile-shutdown-${agentId.slice(4, 12)}`,
+      name: 'reconcile-shutdown',
+      model: 'test',
+      timeoutMs: 1_000,
+      ...agentOwnership,
     });
-    const runningRow = {
-      id: newId('run'),
-      conversationId: newId('conversation'),
+    await db
+      .insert(schema.conversations)
+      .values({ id: conversationId, agentId, ...conversationSubject });
+    await db.insert(schema.agentRuns).values({
+      id: runId,
+      conversationId,
+      agentId,
       status: 'running',
-      sandboxId: null,
-      pendingFinish: null,
-    };
-    // where() 既可能被直接 await，也可能在 running 重查时继续 .limit(1)。
-    const rows = (value: unknown[] | Promise<unknown[]>) =>
-      Object.assign(Promise.resolve(value), { limit: async () => value });
-    const terminalRow = {
-      id: runningRow.id,
-      channelId: null,
-      agentId: newId('agent'),
-      conversationId: runningRow.conversationId,
-      initiatedBy: null,
-      departmentId: null,
-      scheduleId: null,
-      trigger: 'chat',
-      costUsd: null,
-    };
-    const db = {
-      transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
-        fn({
-          update: () => ({
-            set: () => ({
-              where: () => ({ returning: async () => [terminalRow] }),
-            }),
-          }),
-        }),
-      select: (fields: { id: unknown; status?: unknown }) => ({
-        from: () => ({
-          where: () =>
-            fields.id === schema.evalRuns.id
-              ? evalRows
-              : fields.status !== undefined
-                ? rows([runningRow])
-                : rows([]),
-          innerJoin: () => ({
-            where: () => rows([runningRow]),
-          }),
-        }),
-      }),
-    };
+      sandboxId: `sbx-${runId}`,
+      startedAt: new Date(Date.now() - 15 * 60_000),
+      ...runSubjectFields,
+    });
+  });
+
+  afterAll(async () => {
+    const redis = new RedisClient(redisUrl);
+    await redis.del(runStreamKey(runId)).catch(() => undefined);
+    redis.close();
+    await closeRunnerClient();
+    await db.delete(schema.auditLog).where(eq(schema.auditLog.target, runId));
+    await db.delete(schema.agentRuns).where(eq(schema.agentRuns.id, runId));
+    await db.delete(schema.conversations).where(eq(schema.conversations.id, conversationId));
+    await db.delete(schema.agents).where(eq(schema.agents.id, agentId));
+    await dbHandle.client.close();
+    await isolated?.close();
+  });
+
+  it('waits for in-flight reconcile cleanup and finalizes the orphaned run before stop resolves', async () => {
+    let markCleanupEntered!: () => void;
+    const cleanupEntered = new Promise<void>((resolve) => {
+      markCleanupEntered = resolve;
+    });
+    let releaseCleanup!: () => void;
+    const cleanupGate = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
 
     const stop = startReconciler({
-      db: db as never,
+      db,
       logger,
       agentTimeoutMs: 1_000,
-      redisUrl: 'redis://unused',
-      cleanup: async () => undefined,
+      redisUrl,
+      cleanup: async () => {
+        markCleanupEntered();
+        await cleanupGate;
+      },
     });
 
-    await publishRun.failed;
+    await cleanupEntered;
 
     let stopped = false;
     const stopping = stop().then(() => {
@@ -118,13 +118,26 @@ describe('startReconciler shutdown', () => {
     await flush();
 
     expect(stopped).toBe(false);
-    expect(queueClose).not.toHaveBeenCalled();
 
-    releaseEval([]);
+    releaseCleanup();
     await stopping;
 
     expect(stopped).toBe(true);
-    expect(queueClose).toHaveBeenCalledTimes(2);
-    expect(logger.error).toHaveBeenCalledWith('reconcile failed');
+
+    const [row] = await db
+      .select({
+        status: schema.agentRuns.status,
+        error: schema.agentRuns.error,
+        endedAt: schema.agentRuns.endedAt,
+      })
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.id, runId))
+      .limit(1);
+
+    expect(row).toMatchObject({
+      status: 'failed',
+      error: LOST_RUN_ERROR,
+    });
+    expect(row?.endedAt).not.toBeNull();
   });
 });
