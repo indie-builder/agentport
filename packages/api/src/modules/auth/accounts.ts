@@ -1,7 +1,7 @@
 import { authContract } from '@agentport/contract/auth';
 import { ACCOUNT_NOT_FOUND_MESSAGE, AppError } from '@agentport/core';
 import { repo } from '@agentport/db';
-import { ACCESS_SCOPES, PERMISSIONS } from '@agentport/shared';
+import { ACCESS_SCOPES, PERMISSIONS, ROLE_IDS_MISSING_MESSAGE } from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { hashPassword } from 'better-auth/crypto';
 import type { RequestContext } from '../../http/context.js';
@@ -10,7 +10,7 @@ import { rethrowConflict } from '../../http/errors.js';
 const accountIdentityConflictMessage = '业务 ID 或用户名已存在';
 const accountRoleReference = {
   code: 'INVALID_INPUT',
-  message: 'roleIds 必须引用存在的角色',
+  message: ROLE_IDS_MISSING_MESSAGE,
 } as const;
 
 const os = implement(authContract).$context<RequestContext>();
