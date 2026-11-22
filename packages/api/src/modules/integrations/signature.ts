@@ -1,9 +1,11 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 
 const WINDOW_MS = 300_000;
 
 function signWebhook(secret: string, timestamp: string, rawBody: string): string {
-  const digest = createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex');
+  const digest = new Bun.CryptoHasher('sha256', secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest('hex');
   return `sha256=${digest}`;
 }
 

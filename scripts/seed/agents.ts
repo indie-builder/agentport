@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { agents, repo, servers } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import { DEMO_AGENTS, DEMO_CONNECTOR } from './constants';
@@ -43,7 +42,9 @@ export async function seedAgents(ctx: SeedContext, catalog: DemoCatalog): Promis
         description: '演示用订单查询连接器，指向 JSONPlaceholder，不联网调用',
         config: {
           baseUrl: DEMO_CONNECTOR.baseUrl,
-          mcpToken: randomBytes(32).toString('base64url'),
+          mcpToken: crypto
+            .getRandomValues(new Uint8Array(32))
+            .toBase64({ alphabet: 'base64url', omitPadding: true }),
         },
         secretsEncrypted: null,
       },

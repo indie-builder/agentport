@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import {
   AppError,
   isAppError,
@@ -164,10 +164,9 @@ async function copyDocument(deps: KnowledgeDeps, document: DocumentRow): Promise
       (await Bun.file(knowledgeVersionMarkdownPath(knowledgeDir, document.id, version.id))
         .text()
         .catch(() => null)) ?? chunks.map((chunk) => chunk.content).join('\n\n');
-    await writeFile(
+    await Bun.write(
       knowledgeVersionMarkdownPath(knowledgeDir, newDocumentId, newVersionId),
       markdown,
-      'utf8',
     );
     await copyVersionImages(
       knowledgeVersionImagesDir(knowledgeDir, document.id, version.id),

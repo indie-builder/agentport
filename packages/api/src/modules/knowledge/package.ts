@@ -1,4 +1,4 @@
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, rm, stat } from 'node:fs/promises';
 import {
   fail,
   inspectKnowledgeAudio,
@@ -1027,10 +1027,9 @@ export async function importKnowledgePackage(
         if (version.markdownPath !== null) {
           createdDirs.add(dir);
           await mkdir(dir, { recursive: true });
-          await writeFile(
+          await Bun.write(
             knowledgeVersionMarkdownPath(knowledgeDir, newDocumentId, vId),
             requireEntry(contents.get(version.markdownPath), version.markdownPath),
-            'utf8',
           );
         }
         if (version.images.length > 0) {
@@ -1039,7 +1038,7 @@ export async function importKnowledgePackage(
             recursive: true,
           });
           for (const image of version.images) {
-            await writeFile(
+            await Bun.write(
               knowledgeVersionImagePath(knowledgeDir, newDocumentId, vId, image.name),
               requireEntry(contents.get(image.path), image.path),
             );

@@ -1,9 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
-const testBackend = fileURLToPath(new URL('./test-backend.ts', import.meta.url));
+const root = Bun.fileURLToPath(new URL('..', import.meta.url));
+const testBackend = Bun.fileURLToPath(new URL('./test-backend.ts', import.meta.url));
 const tmpDir = join(root, 'tmp');
 const timingsPath = join(tmpDir, 'ci-test-timings.json');
 const filterPattern = /(?:^|\/)(?:[^/]+\.(?:test|spec)\.[cm]?[jt]sx?|[^/]+_test\.[cm]?[jt]sx?)$/;

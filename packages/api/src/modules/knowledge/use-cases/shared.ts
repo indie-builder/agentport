@@ -1,4 +1,4 @@
-import { copyFile, mkdir } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { AppError } from '@agentport/core';
 import { type Database, repo, type schema } from '@agentport/db';
@@ -88,7 +88,7 @@ export async function copyVersionImages(
   await mkdir(targetDir, { recursive: true });
   for (const image of images) {
     try {
-      await copyFile(join(sourceDir, image.name), join(targetDir, image.name));
+      await Bun.write(join(targetDir, image.name), Bun.file(join(sourceDir, image.name)));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new AppError('CONFLICT', `版本图片文件缺失：${image.name}`);

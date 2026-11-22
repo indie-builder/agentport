@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import {
   AppError,
   DOCUMENT_VERSION_STALE_MESSAGE,
@@ -185,10 +185,9 @@ async function prepareVersionFiles(
   const dir = knowledgeVersionDir(config.KNOWLEDGE_DIR, documentId, versionId);
   try {
     await mkdir(dir, { recursive: true });
-    await writeFile(
+    await Bun.write(
       knowledgeVersionMarkdownPath(config.KNOWLEDGE_DIR, documentId, versionId),
       markdown,
-      'utf8',
     );
     await copyVersionImages(
       knowledgeVersionImagesDir(config.KNOWLEDGE_DIR, documentId, current.id),

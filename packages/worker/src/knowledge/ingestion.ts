@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   type AsrProfile,
@@ -280,16 +280,15 @@ async function writeParsed(
 ): Promise<void> {
   const dir = knowledgeVersionDir(knowledgeDir, documentId, versionId);
   await mkdir(dir, { recursive: true });
-  await writeFile(
+  await Bun.write(
     knowledgeVersionMarkdownPath(knowledgeDir, documentId, versionId),
     parsed.markdown,
-    'utf8',
   );
   if (parsed.images.length === 0) return;
   const imageDir = knowledgeVersionImagesDir(knowledgeDir, documentId, versionId);
   await mkdir(imageDir, { recursive: true });
   for (const image of parsed.images) {
-    await writeFile(
+    await Bun.write(
       knowledgeVersionImagePath(knowledgeDir, documentId, versionId, image.name),
       image.data,
     );

@@ -1,5 +1,4 @@
-import { randomBytes } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   encryptSecrets,
@@ -84,8 +83,8 @@ async function publishReviewOutputs(
   await mkdir(root, { recursive: true });
   const draft = await prepareOutputDraft({ root, slug, conversationId, runId });
   const report = Buffer.from(REPORT_MARKDOWN, 'utf8');
-  await writeFile(join(draft, REPORT_PATH), report);
-  await writeFile(join(draft, DATA_PATH), Buffer.from(DATA_CSV, 'utf8'));
+  await Bun.write(join(draft, REPORT_PATH), report);
+  await Bun.write(join(draft, DATA_PATH), Buffer.from(DATA_CSV, 'utf8'));
   await publishOutputSnapshot({
     root,
     slug,
@@ -107,7 +106,9 @@ async function publishReviewOutputs(
     return;
   }
 
-  const token = randomBytes(32).toString('base64url');
+  const token = crypto
+    .getRandomValues(new Uint8Array(32))
+    .toBase64({ alphabet: 'base64url', omitPadding: true });
   const share = await repo.outputShares.create(ctx.db, {
     conversationId,
     runId,

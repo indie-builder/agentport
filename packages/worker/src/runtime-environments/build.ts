@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   BUILD_ABORTED_MESSAGE,
@@ -156,7 +156,7 @@ export async function executeRuntimeEnvironmentBuild(
 
     tempDir = await mkdtemp(join(tmpdir(), 'runtime-env-build-'));
     const iidFile = join(tempDir, 'image.iid');
-    await writeFile(join(tempDir, 'Dockerfile'), input.dockerfile, 'utf8');
+    await Bun.write(join(tempDir, 'Dockerfile'), input.dockerfile);
     const imageTag = imageTagFor(input.baseImageId, input.versionId);
 
     const built = await runDocker(

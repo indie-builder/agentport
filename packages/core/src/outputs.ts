@@ -8,7 +8,6 @@ import {
   realpath,
   rename,
   rm,
-  writeFile,
 } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import {
@@ -360,7 +359,7 @@ async function copySnapshot(
       file.path,
     );
     await mkdir(dirname(destination), { recursive: true });
-    await writeFile(destination, data);
+    await Bun.write(destination, data);
   }
 }
 
@@ -399,7 +398,7 @@ export async function setOutputDraftBlocked(
       throw error;
     });
     if (existing !== null) await readRegularFile(input, path, 'blocked');
-    await writeFile(path, problem);
+    await Bun.write(path, problem);
   }
 }
 
@@ -461,14 +460,14 @@ export async function prepareOutputDraft(input: PrepareOutputDraftInput): Promis
       const selected = await readOutputFile({ ...input, runId: source.runId, path: sourcePath });
       const destination = join(staging, ...sourcePath.split('/'));
       await mkdir(dirname(destination), { recursive: true });
-      await writeFile(destination, selected.data);
+      await Bun.write(destination, selected.data);
     }
     const baseFile = await trustedPath(
       input,
       [...conversationSegments(input), DRAFTS, `${runId}.base`],
       runId,
     );
-    await writeFile(baseFile, baseline?.runId ?? '');
+    await Bun.write(baseFile, baseline?.runId ?? '');
     await rename(staging, draftDir);
   } catch (error) {
     await removeQuietly(staging);
@@ -511,7 +510,7 @@ export async function captureOutputDraft(input: {
     for (const file of files) {
       const destination = join(staging, ...file.path.split('/'));
       await mkdir(dirname(destination), { recursive: true });
-      await writeFile(destination, file.data);
+      await Bun.write(destination, file.data);
     }
 
     const existing = await lstat(draftDir).catch((error: unknown) => {
@@ -637,9 +636,9 @@ export async function publishOutputSnapshot(input: PublishOutputSnapshotInput): 
     for (const file of files) {
       const destination = join(staging, FILES, ...file.path.split('/'));
       await mkdir(dirname(destination), { recursive: true });
-      await writeFile(destination, file.data);
+      await Bun.write(destination, file.data);
     }
-    await writeFile(join(staging, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
+    await Bun.write(join(staging, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
     await rename(staging, snapshotDir);
   } catch (error) {
     await removeQuietly(staging);
@@ -806,7 +805,7 @@ export async function copyConversationOutputs(input: CopyConversationOutputsInpu
     try {
       await mkdir(join(staging, FILES), { recursive: true });
       await copySnapshot(sourceIdentity, manifest, join(staging, FILES));
-      await writeFile(join(staging, MANIFEST), `${JSON.stringify(remapped, null, 2)}\n`);
+      await Bun.write(join(staging, MANIFEST), `${JSON.stringify(remapped, null, 2)}\n`);
       await rename(staging, targetRun);
     } catch (error) {
       await removeQuietly(staging);
