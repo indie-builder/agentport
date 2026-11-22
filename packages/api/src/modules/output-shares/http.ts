@@ -3,7 +3,7 @@ import type { Hono } from 'hono';
 import { attachmentResponse } from '../../http/attachment.js';
 import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
-import { safeMediaType } from '../../lib/outputs.js';
+import { SHARE_MISSING_MESSAGE, safeMediaType } from '../../lib/outputs.js';
 import { resolveSharedFile } from './router.js';
 
 export function registerOutputSharesHttp(app: Hono<HttpEnv>): void {
@@ -17,7 +17,7 @@ export function registerOutputSharesHttp(app: Hono<HttpEnv>): void {
     async (c) => {
       const context = requestContext(c);
       const shared = await resolveSharedFile(context, c.req.param('id'));
-      if (shared === null) fail('NOT_FOUND', '分享不存在或已失效');
+      if (shared === null) fail('NOT_FOUND', SHARE_MISSING_MESSAGE);
       return attachmentResponse(
         new Uint8Array(shared.data),
         shared.file.path,

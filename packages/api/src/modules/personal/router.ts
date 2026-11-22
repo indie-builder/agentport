@@ -7,12 +7,11 @@ import { requireUser } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { toIso } from '../../lib/iso.js';
+import { SHARE_MISSING_MESSAGE } from '../../lib/outputs.js';
 import { auditShareRevoked, toOutputShare } from '../output-shares/router.js';
 import { collectPersonalOutputs } from '../search/outputs.js';
 
 const os = implement(personalContract).$context<RequestContext>();
-
-const SHARE_MISSING = '分享不存在或已失效';
 
 export const personalRouter = os.router({
   outputShares: os.outputShares.handler(async ({ input, context }) => {
@@ -40,7 +39,7 @@ export const personalRouter = os.router({
   revokeOutputShare: os.revokeOutputShare.handler(async ({ input, context }) => {
     const businessId = requireUser(context).businessId;
     const owned = await repo.outputShares.findOwnedById(context.db, businessId, input.params.id);
-    if (owned === null) fail('NOT_FOUND', SHARE_MISSING);
+    if (owned === null) fail('NOT_FOUND', SHARE_MISSING_MESSAGE);
 
     if (owned.revokedAt === null) {
       const row = await repo.outputShares.revokeOwned(context.db, businessId, input.params.id);

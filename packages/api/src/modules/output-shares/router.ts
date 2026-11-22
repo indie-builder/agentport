@@ -14,15 +14,18 @@ import { implement } from '@orpc/server';
 import { actorOf, authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 import { agentSlug } from '../../lib/agent-slug.js';
-import { OUTPUT_MISSING_MESSAGE, previewText, readWorkspaceOutput } from '../../lib/outputs.js';
+import {
+  OUTPUT_MISSING_MESSAGE,
+  previewText,
+  readWorkspaceOutput,
+  SHARE_MISSING_MESSAGE,
+} from '../../lib/outputs.js';
 import { CONVERSATION_MISSING } from '../chat/access.js';
 import { bearerToken, tokenMatches } from '../servers/bearer.js';
 
 const os = implement(outputSharesContract).$context<RequestContext>();
 
 type OutputShareRow = repo.outputShares.OutputShareRow;
-
-const SHARE_MISSING = '分享不存在或已失效';
 
 export function toOutputShare(
   row: Pick<
@@ -187,7 +190,7 @@ export const outputSharesRouter = os.router({
     const active = await repo.outputShares.findActiveById(context.db, input.params.id);
     if (active !== null) {
       const conversation = await repo.chat.getConversation(context.db, active.conversationId);
-      if (!conversation) fail('NOT_FOUND', SHARE_MISSING);
+      if (!conversation) fail('NOT_FOUND', SHARE_MISSING_MESSAGE);
       await authorizeObject(
         context,
         'conversations.share',
@@ -196,7 +199,7 @@ export const outputSharesRouter = os.router({
           createdBy: conversation.createdBy,
           privateContent: true,
         },
-        SHARE_MISSING,
+        SHARE_MISSING_MESSAGE,
       );
     }
     const row = await repo.outputShares.revoke(context.db, input.params.id);
@@ -209,14 +212,14 @@ export const outputSharesRouter = os.router({
   publicMetadata: os.publicMetadata.handler(async ({ input, context }) => {
     context.responseHeaders.set('cache-control', 'no-store');
     const shared = await resolveSharedFile(context, input.params.id);
-    if (shared === null) fail('NOT_FOUND', SHARE_MISSING);
+    if (shared === null) fail('NOT_FOUND', SHARE_MISSING_MESSAGE);
     return { file: publicFile(shared.file, shared.row.sha256) };
   }),
 
   publicContent: os.publicContent.handler(async ({ input, context }) => {
     context.responseHeaders.set('cache-control', 'no-store');
     const shared = await resolveSharedFile(context, input.params.id);
-    if (shared === null) fail('NOT_FOUND', SHARE_MISSING);
+    if (shared === null) fail('NOT_FOUND', SHARE_MISSING_MESSAGE);
     const preview = previewText(shared.data, shared.file.mediaType);
     if (!preview.ok) fail(preview.code, preview.message);
     return { file: publicFile(shared.file, shared.row.sha256), content: preview.content };
