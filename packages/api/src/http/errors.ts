@@ -12,6 +12,7 @@ export const PAYLOAD_TOO_LARGE_MESSAGE = '请求体超出大小限制，请减�
 export const FORBIDDEN_MESSAGE = '没有该操作的权限';
 export const OBJECT_MISSING_MESSAGE = '对象不存在';
 export const INVALID_REQUEST_MESSAGE = '请求无效';
+export const INVALID_JSON_BODY_MESSAGE = '请求体必须是有效 JSON';
 export const SERVICE_UNAVAILABLE_MESSAGE = '服务暂时不可用，请稍后重试';
 
 function isErrorCode(code: string): code is ErrorCode {

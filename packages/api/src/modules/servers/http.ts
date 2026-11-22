@@ -6,7 +6,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { requestBodyLimit } from '../../http/body-limit.js';
 import type { AppContext, HttpEnv } from '../../http/context.js';
-import { PAYLOAD_TOO_LARGE_MESSAGE } from '../../http/errors.js';
+import { INVALID_JSON_BODY_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { isRunCancelRequested } from '../../queue/producer.js';
 import { createInvoker } from './agent-invoker.js';
@@ -169,7 +169,7 @@ export function registerServersHttp(app: Hono<HttpEnv>, deps: ServersHttpDepende
               z
                 .record(z.string(), z.unknown())
                 .parse(
-                  await c.req.json().catch(() => fail('INVALID_INPUT', '请求体必须是有效 JSON')),
+                  await c.req.json().catch(() => fail('INVALID_INPUT', INVALID_JSON_BODY_MESSAGE)),
                 ),
               decision,
             )

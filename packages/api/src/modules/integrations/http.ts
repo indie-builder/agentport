@@ -10,6 +10,7 @@ import type { Context, Hono } from 'hono';
 import { requireUser } from '../../http/access.js';
 import { requestBodyLimit } from '../../http/body-limit.js';
 import { type HttpEnv, requestContext } from '../../http/context.js';
+import { INVALID_JSON_BODY_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { authorizeRun } from '../runs/access.js';
 import { authenticateApiToken, principalForBusinessId } from './auth.js';
@@ -34,7 +35,7 @@ function parseJson(body: string): unknown {
   try {
     return JSON.parse(body);
   } catch {
-    fail('INVALID_INPUT', '请求体必须是有效 JSON');
+    fail('INVALID_INPUT', INVALID_JSON_BODY_MESSAGE);
   }
 }
 
@@ -77,7 +78,7 @@ export function registerIntegrationsHttp(app: Hono<HttpEnv>): void {
         fail('INVALID_INPUT', 'Idempotency-Key 长度必须在 1 到 200 之间');
       }
       const parsed = externalRunInputSchema.safeParse(
-        parseJson(await c.req.text().catch(() => fail('INVALID_INPUT', '请求体必须是有效 JSON'))),
+        parseJson(await c.req.text().catch(() => fail('INVALID_INPUT', INVALID_JSON_BODY_MESSAGE))),
       );
       if (!parsed.success) {
         fail('INVALID_INPUT', parsed.error.issues[0]?.message ?? '请求体格式不正确');
