@@ -1,10 +1,10 @@
+import { STREAM_INTERRUPTED_MESSAGE } from '@agentport/shared';
 import type { SSEStreamingApi } from 'hono/streaming';
 import type { Logger } from 'pino';
 import { subscribeRun } from '../../queue/producer.js';
 import { terminalRunEvent, writeChatEvent } from './events.js';
 
 const TERMINAL_RECHECK_MS = 2000;
-const STREAM_INTERRUPTED = '事件流中断，请刷新页面或重试';
 
 type TerminalRun = Parameters<typeof terminalRunEvent>[0];
 
@@ -120,7 +120,7 @@ export async function relayRunEvents<TRun extends TerminalRun>(
             finishing = true;
             log.error({ runId }, domain.labels.guardFailed ?? domain.labels.subscribeFailed);
             try {
-              await writeChatEvent(stream, { type: 'error', message: STREAM_INTERRUPTED });
+              await writeChatEvent(stream, { type: 'error', message: STREAM_INTERRUPTED_MESSAGE });
             } catch (writeErr) {
               log.error({ err: writeErr, runId }, domain.labels.writeFailed);
             }
@@ -154,7 +154,7 @@ export async function relayRunEvents<TRun extends TerminalRun>(
   } catch (err) {
     log.error({ err, runId }, domain.labels.subscribeFailed);
     try {
-      await writeChatEvent(stream, { type: 'error', message: STREAM_INTERRUPTED });
+      await writeChatEvent(stream, { type: 'error', message: STREAM_INTERRUPTED_MESSAGE });
     } catch {}
     finish();
     return;

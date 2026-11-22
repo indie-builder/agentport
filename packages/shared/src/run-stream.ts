@@ -19,6 +19,10 @@ export function isActiveJobState(state: string): boolean {
 
 export const STREAM_TTL_SECONDS = 3600;
 
+export const STREAM_INTERRUPTED_MESSAGE = '事件流中断，请刷新页面或重试';
+
+export const SERVER_SHUTDOWN_MESSAGE = 'Server shutting down';
+
 export const RUN_QUEUE_MAX_WAITING = 100;
 
 export const DEFAULT_JOB_RETENTION = { removeOnComplete: 100, removeOnFail: 200 } as const;
