@@ -2,6 +2,10 @@ export type ReviewWindow<T> =
   | { kind: 'ok'; from: number; through: number; messages: T[] }
   | { kind: 'missing'; anchor: 'from' | 'through'; messageId: string };
 
+export function reviewAnchorMissingMessage(anchor: 'from' | 'through'): string {
+  return anchor === 'from' ? '审核起点消息不在会话中' : '审核终点消息不在会话中';
+}
+
 export function selectReviewWindow<T extends { id: string; role: string; text: string }>(
   messages: T[],
   anchors: { fromMessageId?: string | undefined; throughMessageId?: string | undefined },
