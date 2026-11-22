@@ -5,6 +5,8 @@ import { repo } from '@agentport/db';
 import {
   type ModelProvider,
   type ModelProviderUsage,
+  PROVIDER_NETWORK_MESSAGE,
+  PROVIDER_TIMEOUT_MESSAGE,
   providerErrorKindForStatus,
 } from '@agentport/shared';
 import { implement } from '@orpc/server';
@@ -250,7 +252,7 @@ export const modelProvidersRouter = os.router({
         providerId: row.id,
         errorKind: timedOut ? 'timeout' : 'network',
         durationMs: latencyMs,
-        error: timedOut ? '请求超时' : '网络错误',
+        error: timedOut ? PROVIDER_TIMEOUT_MESSAGE : PROVIDER_NETWORK_MESSAGE,
       });
       await audit(context, 'tested', row.id, {
         ok: false,
