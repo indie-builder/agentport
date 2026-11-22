@@ -5,6 +5,7 @@ import { authorizeObject } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
 
 export const CONVERSATION_MISSING = '会话不存在，可能已被删除；请从会话列表重新打开';
+export const ATTACHMENT_MISSING_MESSAGE = '附件不存在，可能已被清理';
 
 async function loadConversationFor(
   context: RequestContext,

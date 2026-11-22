@@ -11,6 +11,7 @@ import { parseRequest, requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { safeMediaType } from '../../lib/outputs.js';
+import { ATTACHMENT_MISSING_MESSAGE } from '../chat/access.js';
 import { registerChannelRunEventsHttp } from './control.js';
 import { registerChannelEventsHttp } from './router.js';
 import { readChannelRunOutput } from './runs.js';
@@ -65,7 +66,7 @@ function registerChannelAttachmentsHttp(app: Hono<HttpEnv>): void {
       const attachment = message?.attachments?.find(
         (item) => item.id === input.params.attachmentId,
       );
-      if (attachment === undefined) return fail('NOT_FOUND', '附件不存在，可能已被清理');
+      if (attachment === undefined) return fail('NOT_FOUND', ATTACHMENT_MISSING_MESSAGE);
       let file: Awaited<ReturnType<typeof readChannelAttachment>>;
       try {
         file = await readChannelAttachment({
@@ -76,7 +77,7 @@ function registerChannelAttachmentsHttp(app: Hono<HttpEnv>): void {
         });
       } catch (err) {
         if (isAppError(err) && err.code === 'NOT_FOUND') {
-          return fail('NOT_FOUND', '附件不存在，可能已被清理');
+          return fail('NOT_FOUND', ATTACHMENT_MISSING_MESSAGE);
         }
         throw err;
       }
