@@ -24,7 +24,7 @@ import {
   segmentIdPattern,
   slugSchema,
 } from '@agentport/shared';
-import { fail } from './errors.js';
+import { AGENT_DIR_SLUG_INVALID_MESSAGE, fail } from './errors.js';
 import { pathSegmentsProblem } from './path-segments.js';
 
 const INPUTS_DIR = 'conversation-inputs';
@@ -55,7 +55,7 @@ interface DecodedConversationAttachment {
 
 function conversationSegments(input: ConversationInputsIdentity): string[] {
   if (!slugSchema.safeParse(input.slug).success) {
-    fail('INVALID_INPUT', '智能体目录名非法', { path: '/slug' });
+    fail('INVALID_INPUT', AGENT_DIR_SLUG_INVALID_MESSAGE, { path: '/slug' });
   }
   if (!segmentIdPattern.test(input.conversationId)) {
     fail('INVALID_INPUT', '会话 id 不能用作目录名', { path: '/conversationId' });

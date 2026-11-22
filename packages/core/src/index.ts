@@ -25,6 +25,7 @@ export {
 } from './content-policy.js';
 export { DbError, isRetryableFailure, RunFailure, runProgram } from './effect-runtime.js';
 export {
+  AGENT_DIR_SLUG_INVALID_MESSAGE,
   AGENT_SELECTION_MISSING_MESSAGE,
   AppError,
   fail,

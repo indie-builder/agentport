@@ -1145,10 +1145,13 @@ async function uniqueSlug(tx: Transaction, base: string): Promise<string> {
     return rows.length > 0;
   };
   if (!(await taken(base))) return base;
-  const prefix = base.slice(0, 60);
+  const candidate = (n: number) => {
+    const suffix = `-${n}`;
+    return `${base.slice(0, Math.min(60, 64 - suffix.length))}${suffix}`;
+  };
   let n = 2;
-  while (await taken(`${prefix}-${n}`)) n += 1;
-  return `${prefix}-${n}`;
+  while (await taken(candidate(n))) n += 1;
+  return candidate(n);
 }
 async function insertAgentFiles(
   tx: Transaction,
