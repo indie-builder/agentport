@@ -4,12 +4,17 @@ import {
   DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
+  MEMORY_REVIEW_NOT_FOUND_MESSAGE,
+  MEMORY_REVIEW_REJECTED_MESSAGE,
+  MEMORY_ROLLBACK_STALE_MESSAGE,
+  MEMORY_VERSION_NOT_FOUND_MESSAGE,
   type MemoryContentSnapshot,
   type MemoryReviewTarget,
   memoryContentSnapshotSchema,
   memoryReviewAfter,
   memoryReviewProposalSchema,
   memoryReviewTargetSchema,
+  PERSONAL_MEMORY_STALE_MESSAGE,
   validateMemoryContent,
 } from '@agentport/shared';
 import type { SQL } from 'bun';
@@ -311,7 +316,7 @@ async function finalizeJournalEntry(
 ): Promise<repo.memoryChanges.MemoryChangeRow> {
   if (entry.operation === 'review') {
     const review = await repo.memoryReviews.find(db, entry.operationId);
-    if (!review) fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
+    if (!review) fail('NOT_FOUND', MEMORY_REVIEW_NOT_FOUND_MESSAGE);
     const target = memoryReviewTargetSchema.safeParse(review.target);
     const before = memoryContentSnapshotSchema.safeParse(review.before);
     const proposal = memoryReviewProposalSchema.safeParse(review.proposal);
@@ -325,7 +330,7 @@ async function finalizeJournalEntry(
     if (!journalMatchesTarget(entry, agentTarget)) {
       throw new Error('memory write journal target does not match the review');
     }
-    if (review.decision === 'rejected') fail('CONFLICT', '该审核已被拒绝，不能采纳');
+    if (review.decision === 'rejected') fail('CONFLICT', MEMORY_REVIEW_REJECTED_MESSAGE);
     if (review.decision === 'applied') {
       const existing = review.appliedChangeId
         ? await repo.memoryChanges.find(db, review.appliedChangeId)
@@ -357,7 +362,7 @@ async function finalizeJournalEntry(
     const existing = await repo.memoryChanges.findByReverses(db, entry.operationId);
     if (existing) return existing;
     const change = await repo.memoryChanges.find(db, entry.operationId);
-    if (!change) fail('NOT_FOUND', '记忆版本不存在，可能已被清理');
+    if (!change) fail('NOT_FOUND', MEMORY_VERSION_NOT_FOUND_MESSAGE);
     const target = memoryReviewTargetSchema.safeParse(change.target);
     if (!target.success) fail('INVALID_INPUT', '记忆版本的目标非法，无法恢复');
     const agentTarget = target.data;
@@ -689,7 +694,7 @@ export async function writeMemoryTargetLocked(
       ...(input.reversesChangeId ? { reversesChangeId: input.reversesChangeId } : {}),
       ...(input.logger ? { logger: input.logger } : {}),
     });
-    if (saved === null) fail('CONFLICT', '个人记忆已被其他编辑更新，请刷新后重试');
+    if (saved === null) fail('CONFLICT', PERSONAL_MEMORY_STALE_MESSAGE);
     const change = await repo.memoryChanges.find(db, saved.changeId);
     if (!change) throw new Error('personal memory change disappeared after save');
     return change;
@@ -740,7 +745,7 @@ export async function writeMemoryTargetLocked(
         for (const name of changed) {
           const expected = fileContent(target, input.before, name);
           const actual = fileContent(target, current, name);
-          if (expected !== actual) fail('CONFLICT', '目标内容已变化，无法回滚');
+          if (expected !== actual) fail('CONFLICT', MEMORY_ROLLBACK_STALE_MESSAGE);
         }
       } else if (!sameSnapshot(current, input.before)) {
         fail('CONFLICT_STALE', '目标内容在审核后已被修改，请重新生成');

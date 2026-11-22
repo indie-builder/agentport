@@ -1,7 +1,13 @@
 import { memoryContract } from '@agentport/contract/memory';
 import { AGENT_SELECTION_MISSING_MESSAGE, fail } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
-import { INDEX_FILE_NAME, memoryReviewTargetSchema } from '@agentport/shared';
+import {
+  INDEX_FILE_NAME,
+  MEMORY_ROLLBACK_STALE_MESSAGE,
+  MEMORY_VERSION_NOT_FOUND_MESSAGE,
+  memoryReviewTargetSchema,
+  PERSONAL_MEMORY_STALE_MESSAGE,
+} from '@agentport/shared';
 import { implement } from '@orpc/server';
 import { and, eq } from 'drizzle-orm';
 import { authorizeObject, requireUser } from '../../http/access.js';
@@ -28,7 +34,7 @@ export const memoryRouter = os.router({
       expectedRevision: input.body.expectedRevision,
       logger: context.log,
     });
-    if (saved === null) fail('CONFLICT', '个人记忆已被其他编辑更新，请刷新后重试');
+    if (saved === null) fail('CONFLICT', PERSONAL_MEMORY_STALE_MESSAGE);
     return saved;
   }),
   personalVersions: os.personalVersions.handler(async ({ input, context }) => {
@@ -171,7 +177,7 @@ export const memoryRouter = os.router({
         ),
       )
       .limit(1);
-    if (!change) fail('NOT_FOUND', '记忆版本不存在，可能已被清理');
+    if (!change) fail('NOT_FOUND', MEMORY_VERSION_NOT_FOUND_MESSAGE);
     const target = memoryReviewTargetSchema.safeParse(change.target);
     if (!target.success) fail('INVALID_INPUT', '记忆版本的目标非法，无法回滚');
     if (target.data.kind === 'personal') {
@@ -183,7 +189,7 @@ export const memoryRouter = os.router({
           createdBy: change.businessId,
           privateContent: true,
         },
-        '记忆版本不存在，可能已被清理',
+        MEMORY_VERSION_NOT_FOUND_MESSAGE,
       );
     } else if (target.data.kind === 'agent_memory') {
       await authorizeObject(
@@ -209,7 +215,7 @@ export const memoryRouter = os.router({
       after: change.before,
       reversesChangeId: change.id,
     });
-    if (!reverse) fail('CONFLICT', '目标内容已变化，无法回滚');
+    if (!reverse) fail('CONFLICT', MEMORY_ROLLBACK_STALE_MESSAGE);
     return repo.memoryChanges.toMemoryChange(reverse);
   }),
 });

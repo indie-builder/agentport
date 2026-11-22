@@ -13,6 +13,8 @@ import {
   DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
+  MEMORY_REVIEW_NOT_FOUND_MESSAGE,
+  MEMORY_REVIEW_REJECTED_MESSAGE,
   type MemoryContentSnapshot,
   type MemoryReview,
   type MemoryReviewProposal,
@@ -129,7 +131,7 @@ function toReview(
 
 async function readReview(db: Database, businessId: string, runId: string): Promise<MemoryReview> {
   const detail = await repo.memoryReviews.findForUser(db, businessId, runId);
-  if (!detail) fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
+  if (!detail) fail('NOT_FOUND', MEMORY_REVIEW_NOT_FOUND_MESSAGE);
   return toReview(detail, await sourceSummaries(db, detail.sources));
 }
 
@@ -237,7 +239,7 @@ async function authorizeReviewTarget(
         createdBy: businessId,
         privateContent: true,
       },
-      '记忆审核不存在，可能已被清理',
+      MEMORY_REVIEW_NOT_FOUND_MESSAGE,
     );
     return;
   }
@@ -543,7 +545,7 @@ export const memoryReviewsRouter = os.router({
     const businessId = requireUser(context).businessId;
     const initial = await repo.memoryReviews.find(context.db, input.params.runId);
     if (!initial || initial.businessId !== businessId) {
-      fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
+      fail('NOT_FOUND', MEMORY_REVIEW_NOT_FOUND_MESSAGE);
     }
     const parsedTarget = memoryReviewTargetSchema.safeParse(initial.target);
     if (!parsedTarget.success) fail('INVALID_INPUT', '记忆审核目标非法，无法采纳');
@@ -552,7 +554,7 @@ export const memoryReviewsRouter = os.router({
 
     return withMemoryTargetLock(context.client, target, initial.businessId, async () => {
       const review = await repo.memoryReviews.find(context.db, input.params.runId);
-      if (!review) fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
+      if (!review) fail('NOT_FOUND', MEMORY_REVIEW_NOT_FOUND_MESSAGE);
 
       if (review.decision === 'applied') {
         const existing = review.appliedChangeId
@@ -568,7 +570,7 @@ export const memoryReviewsRouter = os.router({
         return repo.memoryChanges.toMemoryChange(existing);
       }
       if (review.decision === 'rejected') {
-        fail('CONFLICT', '该审核已被拒绝，不能采纳');
+        fail('CONFLICT', MEMORY_REVIEW_REJECTED_MESSAGE);
       }
 
       const run = await repo.chat.getRun(context.db, review.runId);
@@ -602,7 +604,7 @@ export const memoryReviewsRouter = os.router({
     const businessId = requireUser(context).businessId;
     const initial = await repo.memoryReviews.find(context.db, input.params.runId);
     if (!initial || initial.businessId !== businessId) {
-      fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
+      fail('NOT_FOUND', MEMORY_REVIEW_NOT_FOUND_MESSAGE);
     }
     const parsedTarget = memoryReviewTargetSchema.safeParse(initial.target);
     if (parsedTarget.success) {
@@ -617,7 +619,7 @@ export const memoryReviewsRouter = os.router({
         });
       }
       const outcome = await repo.memoryReviews.rejectIfRunNotActive(context.db, initial.runId);
-      if (outcome === 'missing') fail('NOT_FOUND', '记忆审核不存在，可能已被清理');
+      if (outcome === 'missing') fail('NOT_FOUND', MEMORY_REVIEW_NOT_FOUND_MESSAGE);
       if (outcome === 'applied') fail('CONFLICT', '已采纳的审核不能改为拒绝');
       if (outcome === 'run_active') {
         fail('CONFLICT', '审核尚未完成，暂时不能拒绝，请稍候');

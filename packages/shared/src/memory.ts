@@ -12,6 +12,11 @@ import { utf8Bytes } from './utf8.js';
 /** 记忆目录内的扁平 Markdown 文件名；API 参数、提案目标、journal 与 web 表单共用这一份。 */
 export const memoryFileNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.md$/;
 export const MEMORY_FILE_NAME_INVALID_MESSAGE = '记忆文件名非法：只允许 <name>.md';
+export const MEMORY_REVIEW_NOT_FOUND_MESSAGE = '记忆审核不存在，可能已被清理';
+export const MEMORY_REVIEW_REJECTED_MESSAGE = '该审核已被拒绝，不能采纳';
+export const MEMORY_VERSION_NOT_FOUND_MESSAGE = '记忆版本不存在，可能已被清理';
+export const PERSONAL_MEMORY_STALE_MESSAGE = '个人记忆已被其他编辑更新，请刷新后重试';
+export const MEMORY_ROLLBACK_STALE_MESSAGE = '目标内容已变化，无法回滚';
 export const memoryFileNameSchema = z
   .string()
   .regex(memoryFileNamePattern, MEMORY_FILE_NAME_INVALID_MESSAGE);
