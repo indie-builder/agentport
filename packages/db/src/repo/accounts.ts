@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, fail } from '@agentport/core';
-import type { Account, RoleSummary } from '@agentport/shared';
+import { type Account, ROLE_IDS_MISSING_MESSAGE, type RoleSummary } from '@agentport/shared';
 import { and, asc, count, eq, ilike, inArray, isNull, ne, or, type SQL } from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../client.js';
 import {
@@ -150,7 +150,7 @@ async function assertRoleIds(db: DbHandle, roleIds: readonly string[]) {
   if (unique.length === 0) return unique;
   const rows = await db.select({ id: roles.id }).from(roles).where(inArray(roles.id, unique));
   if (rows.length !== unique.length) {
-    fail('INVALID_INPUT', 'roleIds 必须引用存在的角色');
+    fail('INVALID_INPUT', ROLE_IDS_MISSING_MESSAGE);
   }
   return unique;
 }

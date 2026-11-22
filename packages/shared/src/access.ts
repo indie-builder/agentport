@@ -23,6 +23,8 @@ export const businessIdSchema = z
   .string({ error: '请输入业务 ID' })
   .refine(isValidBusinessId, '业务 ID 须为 1..160 个字符，且不能包含空白或控制字符');
 
+export const ROLE_IDS_MISSING_MESSAGE = 'roleIds 必须引用存在的角色';
+
 export const ACCESS_SCOPES = [
   { id: 'own_data', label: '本人数据' },
   { id: 'authorized_resources', label: '被授权资源' },

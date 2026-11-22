@@ -8,6 +8,7 @@ import {
   type ResourceAccessFilter,
   type ResourceAccessLevel,
   type ResourceKind,
+  ROLE_IDS_MISSING_MESSAGE,
   type Role,
   type RoleMatrix,
   type RoleMatrixInput,
@@ -432,7 +433,7 @@ export async function setUserRoles(
         ? []
         : await tx.select({ id: roles.id }).from(roles).where(inArray(roles.id, unique));
     if (rows.length !== unique.length) {
-      fail('INVALID_INPUT', 'roleIds 必须引用存在的角色');
+      fail('INVALID_INPUT', ROLE_IDS_MISSING_MESSAGE);
     }
 
     const [admin] = await tx
