@@ -1,7 +1,12 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 const dns = { lookup: mock() };
-mock.module('node:dns/promises', () => ({ lookup: dns.lookup }));
+const originalLookup = Bun.dns.lookup;
+Bun.dns.lookup = dns.lookup;
+
+afterAll(() => {
+  Bun.dns.lookup = originalLookup;
+});
 
 import { assertSafeUrl } from '@agentport/core/net-guard';
 
@@ -254,7 +259,7 @@ describe('DNS resolution', () => {
       { address: '2001:4860:4860::8888', family: 6 },
     ]);
     await expectAllowed('http://public.example/');
-    expect(dns.lookup).toHaveBeenCalledWith('public.example', { all: true });
+    expect(dns.lookup).toHaveBeenCalledWith('public.example', { backend: 'system' });
   });
 
   it('rejects a host when any resolved IPv4 address is private', async () => {

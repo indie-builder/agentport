@@ -1,6 +1,6 @@
-import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { HTTP_URL_ONLY_MESSAGE, URL_CREDENTIALS_MESSAGE } from '@agentport/shared';
+import * as Bun from 'bun';
 import ipaddr from 'ipaddr.js';
 import { fail } from './errors.js';
 
@@ -69,7 +69,7 @@ async function assertSafeUrlInternal(
     addresses = [host];
   } else {
     try {
-      addresses = (await lookup(host, { all: true })).map((a) => a.address);
+      addresses = (await Bun.dns.lookup(host, { backend: 'system' })).map((a) => a.address);
     } catch (err) {
       fail('INVALID_URL', `无法解析地址 ${host}`, { retryable: true, cause: err });
     }

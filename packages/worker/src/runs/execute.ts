@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { WorkspacePlugin, WorkspaceSkill } from '@agentport/core';
@@ -600,7 +599,9 @@ export async function runAgentJob(
         ]),
       );
       const { serverNamesByAgent, serverRows } = loadRunServerBindings(bindingsByAgent);
-      const runToken = randomBytes(32).toString('base64url');
+      const runToken = crypto
+        .getRandomValues(new Uint8Array(32))
+        .toBase64({ alphabet: 'base64url', omitPadding: true });
       await repo.runs.setRunMcpToken(
         db,
         runId,

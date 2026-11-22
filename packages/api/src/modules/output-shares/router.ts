@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { outputSharesContract } from '@agentport/contract/output-shares';
 import {
   decryptSecrets,
@@ -155,7 +154,9 @@ export const outputSharesRouter = os.router({
       return toOutputShare(existing, context);
     }
 
-    const token = randomBytes(32).toString('base64url');
+    const token = crypto
+      .getRandomValues(new Uint8Array(32))
+      .toBase64({ alphabet: 'base64url', omitPadding: true });
     const row = await repo.outputShares.create(context.db, {
       conversationId: conversation.id,
       runId: input.body.runId,

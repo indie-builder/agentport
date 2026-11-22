@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { decryptSecrets, NOT_FOUND_MESSAGES } from '@agentport/core';
@@ -109,7 +108,7 @@ export async function runSandboxProbe(
         image: resolved.imageId,
         workspaceDir,
         env: { HOME: '/tmp' },
-        name: `agentport-probe-${randomBytes(4).toString('hex')}`,
+        name: `agentport-probe-${crypto.getRandomValues(new Uint8Array(4)).toHex()}`,
         entrypoint: 'bun',
         command: ['dist/probe.js'],
       },

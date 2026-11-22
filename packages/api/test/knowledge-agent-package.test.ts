@@ -1,5 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
-import * as dnsModule from 'node:dns/promises';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import { AGENT_PACKAGE_SIDECAR, knowledgeTokenEnv } from '@agentport/shared';
 import {
@@ -10,16 +9,11 @@ import {
 import { BOOTSTRAP_ADMIN_BUSINESS_ID } from '../src/modules/auth/types.js';
 import { getServer, listServerPage, toApiServer } from '../src/modules/servers/repo.js';
 
-const realDns = { ...dnsModule };
-mock.module('node:dns/promises', () => ({
-  ...realDns,
-  lookup: mock(async (host: string, options?: { all?: boolean }) => {
-    if (host === 'pace.example.com') {
-      return options?.all ? [{ address: '8.8.8.8', family: 4 }] : { address: '8.8.8.8', family: 4 };
-    }
-    return realDns.lookup(host, options as never);
-  }),
-}));
+const realLookup = Bun.dns.lookup;
+Bun.dns.lookup = async (host, options) =>
+  host === 'pace.example.com'
+    ? [{ address: '8.8.8.8', family: 4, ttl: 0 }]
+    : realLookup(host, options);
 
 const KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY';
 const handle = createDb(
@@ -66,6 +60,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  Bun.dns.lookup = realLookup;
   await handle.client.unsafe('delete from agent_servers where server_id = $1', [serverId]);
   await handle.client.unsafe('delete from agents where id = any($1::text[])', [
     handle.client.array(createdAgents, 'TEXT'),

@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PERSONAL_MEMORY_FILENAME } from '@agentport/shared';
@@ -53,7 +52,10 @@ export async function writePersonalMemoryProjection(
   await ensurePersonalDir(dir);
   const file = personalMemoryPath(workspacesDir, businessId);
   await assertReplaceableFile(file);
-  const temp = join(dir, `.${PERSONAL_MEMORY_FILENAME}.${randomBytes(8).toString('hex')}.tmp`);
+  const temp = join(
+    dir,
+    `.${PERSONAL_MEMORY_FILENAME}.${crypto.getRandomValues(new Uint8Array(8)).toHex()}.tmp`,
+  );
   try {
     await writeFile(temp, content, { mode: WORKSPACE_FILE_MODE, flag: 'wx' });
     await chmod(temp, WORKSPACE_FILE_MODE);

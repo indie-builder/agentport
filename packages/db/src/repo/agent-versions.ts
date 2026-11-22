@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from 'node:util';
 import { AppError } from '@agentport/core';
 import type { Agent, AgentDefinition } from '@agentport/shared';
 import { and, desc, eq, sql } from 'drizzle-orm';
@@ -168,7 +167,7 @@ export async function assertDefinitionResources(
       }
       serverNames.set(server.name, server.id);
       const previous = servers.get(server.id);
-      if (previous && !isDeepStrictEqual(snapshot(previous), snapshot(server))) {
+      if (previous && !Bun.deepEquals(snapshot(previous), snapshot(server), true)) {
         throw new AppError(
           'INVALID_INPUT',
           `父子专家共享的 MCP Server「${server.name}」快照内容不一致；请重新发布相关专家后再发布`,
@@ -200,7 +199,7 @@ export async function assertDefinitionResources(
           .sort((a, b) => a.path.localeCompare(b.path)),
       });
       const previous = skills.get(skill.slug);
-      if (previous && !isDeepStrictEqual(snapshot(previous), snapshot(skill))) {
+      if (previous && !Bun.deepEquals(snapshot(previous), snapshot(skill), true)) {
         throw new AppError(
           'INVALID_INPUT',
           `父子专家共享的技能「${skill.slug}」内容不一致；请重新发布相关专家后再发布`,

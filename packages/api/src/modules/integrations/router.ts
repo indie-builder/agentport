@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { integrationsContract } from '@agentport/contract';
 import { AGENT_SELECTION_MISSING_MESSAGE, encryptSecrets, fail, sha256Hex } from '@agentport/core';
 import { assertServerEndpoint } from '@agentport/core/net-guard';
@@ -61,7 +60,9 @@ export const integrationsRouter = os.router({
     }),
     create: os.tokens.create.handler(async ({ input, context }) => {
       const actor = requireUser(context);
-      const token = `atk_${randomBytes(32).toString('base64url')}`;
+      const token = `atk_${crypto
+        .getRandomValues(new Uint8Array(32))
+        .toBase64({ alphabet: 'base64url', omitPadding: true })}`;
       const row = await repo.integrations.createApiToken(context.db, {
         name: input.body.name,
         tokenHash: sha256Hex(token),
@@ -125,7 +126,9 @@ export const integrationsRouter = os.router({
           allowDevLocal: false,
         });
       }
-      const secret = `whsec_${randomBytes(32).toString('base64url')}`;
+      const secret = `whsec_${crypto
+        .getRandomValues(new Uint8Array(32))
+        .toBase64({ alphabet: 'base64url', omitPadding: true })}`;
       const row = await repo.integrations.createWebhookEndpoint(context.db, {
         name,
         direction,

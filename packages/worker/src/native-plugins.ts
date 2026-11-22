@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WORKSPACE_DIR_MODE } from '@agentport/core';
@@ -85,7 +84,7 @@ export async function runNativePluginAction(
     image: runtimeEnvironmentImageId,
     workspaceDir,
     env: { HOME: '/tmp', TMPDIR: '/tmp' },
-    name: `agentport-native-plugin-${randomBytes(4).toString('hex')}`,
+    name: `agentport-native-plugin-${crypto.getRandomValues(new Uint8Array(4)).toHex()}`,
     entrypoint: 'bun',
     command: ['dist/native-plugins.js'],
     extraMounts: [

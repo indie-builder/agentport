@@ -1,13 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { SourceConfig } from '../src/knowledge/source-types.js';
 import { SourceAuthError } from '../src/knowledge/sources.js';
 import { restoreFetch, stubFetch } from './fixtures/fetch.js';
 
-mock.module('node:dns/promises', () => ({
-  lookup: async () => [{ address: '93.184.216.34', family: 4 }],
-}));
+const originalLookup = Bun.dns.lookup;
+Bun.dns.lookup = async () => [{ address: '93.184.216.34', family: 4, ttl: 0 }];
+
+afterAll(() => {
+  Bun.dns.lookup = originalLookup;
+});
 
 const { probeConfluence, readConfluence } = await import('../src/knowledge/source-confluence.js');
 

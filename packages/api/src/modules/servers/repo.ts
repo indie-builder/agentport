@@ -1,5 +1,3 @@
-import { randomBytes } from 'node:crypto';
-import { isDeepStrictEqual } from 'node:util';
 import { AppError, CONFIG_STALE_MESSAGE, fail } from '@agentport/core';
 import { type CursorPage, type Database, newId, repo, schema } from '@agentport/db';
 import type {
@@ -97,7 +95,9 @@ function splitInput(
 }
 
 function randomToken(): string {
-  return randomBytes(32).toString('base64url');
+  return crypto
+    .getRandomValues(new Uint8Array(32))
+    .toBase64({ alphabet: 'base64url', omitPadding: true });
 }
 
 export async function listServerPage(
@@ -279,9 +279,9 @@ export async function updateServer(
     );
     const secretsUnchanged =
       next.kind === 'stdio'
-        ? current.kind === 'stdio' && isDeepStrictEqual(next.env, current.env)
+        ? current.kind === 'stdio' && Bun.deepEquals(next.env, current.env, true)
         : (current.kind === 'http' || current.kind === 'generated') &&
-          isDeepStrictEqual(next.headers, current.headers);
+          Bun.deepEquals(next.headers, current.headers, true);
     const updated = await repo.servers.updateServer(
       tx,
       id,
