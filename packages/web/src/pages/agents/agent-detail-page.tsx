@@ -296,17 +296,20 @@ export function AgentDetailPage() {
                   <DropdownMenuContent align="end" className="w-44">
                     <DropdownMenuGroup>
                       {canViewRuns ? (
-                        <DropdownMenuItem render={<Link to="/runs" search={{ agent: agentId }} />}>
+                        <DropdownMenuItem
+                          inset={canDelete}
+                          render={<Link to="/runs" search={{ agent: agentId }} />}
+                        >
                           查看运行
                         </DropdownMenuItem>
                       ) : null}
                       {canManageMembers ? (
-                        <DropdownMenuItem onSelect={() => setMembersOpen(true)}>
+                        <DropdownMenuItem inset={canDelete} onSelect={() => setMembersOpen(true)}>
                           管理成员
                         </DropdownMenuItem>
                       ) : null}
                       {canTransfer ? (
-                        <DropdownMenuItem onSelect={() => setTransferOpen(true)}>
+                        <DropdownMenuItem inset={canDelete} onSelect={() => setTransferOpen(true)}>
                           转交负责人
                         </DropdownMenuItem>
                       ) : null}
@@ -557,7 +560,7 @@ function RestrictedAgentTabs({
           </TabsList>
         </Tabs>
       </PageTopbar>
-      <PageBody className="gap-5 pt-2">
+      <PageBody className="-mx-4 gap-5 px-4 pt-2">
         {tab === 'overview' ? (
           <AgentOverview
             agentId={agentId}
@@ -660,7 +663,7 @@ function ReadonlyAgentFiles({
   }
   return (
     <div className="grid min-w-0 items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
-      <nav aria-label="文件与版本" className="min-w-0">
+      <nav aria-label="文件与版本" className="-mx-2 min-w-0">
         {[...new Set(entries.map((entry) => entry.group))].map((group) => (
           <div key={group} className="mb-3 flex flex-col gap-0.5">
             <div className="px-2 py-1 text-xs text-muted-foreground">{group}</div>

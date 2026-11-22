@@ -78,7 +78,9 @@ export function PageHeader({
       ) : null}
       <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-3">
         {actions ? (
-          <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>
+          <div className="flex min-w-0 flex-wrap items-center gap-2 [&>:last-child[data-variant=ghost][data-size=icon]]:-mr-2">
+            {actions}
+          </div>
         ) : null}
       </div>
     </div>

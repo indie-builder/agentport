@@ -257,7 +257,7 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
       }}
       className="min-w-0"
     >
-      <TabsList variant="line" className="w-full justify-start overflow-x-auto">
+      <TabsList variant="line" className="w-full justify-start gap-1 overflow-x-auto px-[3px]">
         {items.map((item, index) => (
           <TabsTrigger
             key={values[index] ?? index}

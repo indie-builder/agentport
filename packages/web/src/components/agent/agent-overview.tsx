@@ -37,6 +37,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/colla
 import { Skeleton } from '../ui/skeleton.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip.js';
+import { SegmentedToggle } from '../view-toggle.js';
 
 type OverviewSummary = Pick<AgentSummary, 'description' | 'enabled'> & {
   updatedAt?: string | undefined;
@@ -80,11 +81,7 @@ function worstHealth(items: readonly MemoryHealth[]): MemoryHealth['level'] | nu
 
 function PendingRow({ label }: { label: string }) {
   return (
-    <div
-      className="flex items-center gap-3 px-2 py-2.5"
-      role="status"
-      aria-label={`${label}加载中`}
-    >
+    <div className="flex items-center gap-3 py-2.5" role="status" aria-label={`${label}加载中`}>
       <span className="w-20 shrink-0 text-sm text-fg">{label}</span>
       <Skeleton className="h-4 w-40" />
     </div>
@@ -101,7 +98,7 @@ function FailedRow({
   onRetry: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-2.5 text-sm">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2.5 text-sm">
       <CircleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <span className="text-danger">{label}没有加载出来</span>
       <span className="min-w-0 break-words text-muted-foreground">{errorMessage(error)}</span>
@@ -127,7 +124,7 @@ function LinkRow({
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full items-center gap-3 rounded-item px-2 py-2.5 text-left transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-3 rounded-item px-2 py-2.5 text-left transition-colors duration-150 ease-out-soft hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="w-20 shrink-0 text-sm text-fg">{label}</span>
       <span className="min-w-0 flex-1 break-words text-sm tabular-nums text-muted-foreground">
@@ -406,22 +403,20 @@ export function AgentOverview({
         <PageSection
           title="用量趋势"
           actions={
-            <fieldset className="flex gap-1" aria-label="用量统计窗口">
-              {([7, 30, 90] as const).map((window) => (
-                <Button
-                  key={window}
-                  variant={days === window ? 'secondary' : 'ghost'}
-                  size="sm"
-                  aria-pressed={days === window}
-                  onClick={() => {
-                    setDays(window);
-                    onNavigate({ usageDays: window });
-                  }}
-                >
-                  近 {window} 天
-                </Button>
-              ))}
-            </fieldset>
+            <SegmentedToggle
+              label="用量统计窗口"
+              value={String(days)}
+              options={[
+                { value: '7', label: '近 7 天' },
+                { value: '30', label: '近 30 天' },
+                { value: '90', label: '近 90 天' },
+              ]}
+              onChange={(next) => {
+                const window = Number(next) as 7 | 30 | 90;
+                setDays(window);
+                onNavigate({ usageDays: window });
+              }}
+            />
           }
         >
           {stats.isPending ? <LoadingState rows={3} /> : null}

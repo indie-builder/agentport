@@ -67,6 +67,8 @@ function Button({
         : dataSlot === undefined || dataSlot === 'button'
           ? {}
           : { render: <button type={props.type ?? 'button'} data-slot={dataSlot} /> })}
+      data-variant={variant}
+      data-size={size}
       className={buttonVariants({ variant, size, className })}
       {...props}
     />

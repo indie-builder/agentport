@@ -14,7 +14,9 @@ import {
   EllipsisVertical,
   IdCard,
   Plus,
+  SlidersHorizontal,
   Star,
+  Trash2,
   Upload,
 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
@@ -582,7 +584,7 @@ export function AgentsPage() {
                           </div>
                         ) : null}
                       </div>
-                      <CardAction className="flex items-center gap-1">
+                      <CardAction className="-mr-2 flex items-center gap-1">
                         <Button
                           variant="ghost"
                           size="icon-sm"
@@ -631,7 +633,7 @@ export function AgentsPage() {
                                     })
                                   }
                                 >
-                                  配置
+                                  <SlidersHorizontal className="size-4" /> 配置
                                 </DropdownMenuItem>
                               ) : null}
                               {canDelete && (isArchived || isDeleted) ? (
@@ -665,7 +667,7 @@ export function AgentsPage() {
                                   variant="destructive"
                                   onSelect={() => setDeleting(agent)}
                                 >
-                                  删除
+                                  <Trash2 className="size-4" /> 删除
                                 </DropdownMenuItem>
                               ) : null}
                             </DropdownMenuGroup>
@@ -691,7 +693,7 @@ export function AgentsPage() {
                         <p className="text-xs text-muted-foreground">最近使用 {lastUsedAt}</p>
                       ) : null}
                     </CardContent>
-                    <CardContent className="flex items-center justify-between gap-2">
+                    <CardContent className="flex items-center justify-between gap-2 [&>:last-child[data-variant=ghost]]:-mr-2.5">
                       {lifecycle === 'active' && agent.enabled && canUse ? (
                         <Link
                           to="/chat"

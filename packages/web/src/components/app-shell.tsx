@@ -455,7 +455,7 @@ export function AppShell() {
     ) : null;
     const accountClass = iconOnly
       ? 'size-8 rounded-full p-0'
-      : 'h-8 min-w-0 flex-1 justify-start gap-2 rounded-item px-2';
+      : 'h-8 min-w-0 flex-1 justify-start gap-2 rounded-item border-0 pl-1.5 pr-2';
     const onNavigate = (): void => {
       if (drawer) setMobileOpen(false);
       else setPreviewing(false);
@@ -624,7 +624,7 @@ export function AppShell() {
               aria-label="退出登录"
               onClick={() => void logout()}
               className={cn(
-                'h-8 text-sm text-fg hover:bg-sidebar-hover',
+                'h-8 border-0 text-sm text-fg hover:bg-sidebar-hover',
                 iconOnly ? 'w-8 rounded-tag p-0' : 'justify-start gap-2.5 rounded-item px-2',
               )}
             >
