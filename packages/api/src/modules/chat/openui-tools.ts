@@ -1,5 +1,5 @@
 import { chatContract } from '@agentport/contract/chat';
-import { AppError, fail, notFound } from '@agentport/core';
+import { AppError, CONTENT_BLOCKED_MESSAGE, fail, notFound } from '@agentport/core';
 import { assertSafeUrl } from '@agentport/core/net-guard';
 import { repo } from '@agentport/db';
 import type { OpenUiToolResult } from '@agentport/shared';
@@ -100,7 +100,7 @@ async function callTool(
     args,
   });
   if (checked.blocked) {
-    throw new AppError('CONTENT_BLOCKED', '内容命中安全策略，已阻止外发');
+    throw new AppError('CONTENT_BLOCKED', CONTENT_BLOCKED_MESSAGE);
   }
   const client = new Client({ name: 'agentport-openui', version: '0.1.0' });
   const transport = new StreamableHTTPClientTransport(new URL(server.url), {

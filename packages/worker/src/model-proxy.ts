@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { pipeline } from 'node:stream/promises';
 
+import { CONTENT_BLOCKED_MESSAGE } from '@agentport/core';
 import type { repo } from '@agentport/db';
 import { type ProviderErrorKind, providerErrorKindForStatus } from '@agentport/shared';
 import type { Logger } from 'pino';
@@ -202,7 +203,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
         res.writeHead(403, { 'content-type': 'application/json' });
         res.end(
           JSON.stringify({
-            error: { type: 'content_blocked', message: '内容命中安全策略，已阻止外发' },
+            error: { type: 'content_blocked', message: CONTENT_BLOCKED_MESSAGE },
           }),
         );
         return;
