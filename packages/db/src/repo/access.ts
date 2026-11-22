@@ -420,6 +420,17 @@ export async function assertCanRemoveActiveAdmin(
   }
 }
 
+export async function assertRoleIdsExist(
+  db: DbHandle,
+  roleIds: readonly string[],
+): Promise<string[]> {
+  const unique = [...new Set(roleIds)];
+  if (unique.length === 0) return unique;
+  const rows = await db.select({ id: roles.id }).from(roles).where(inArray(roles.id, unique));
+  if (rows.length !== unique.length) fail('INVALID_INPUT', ROLE_IDS_MISSING_MESSAGE);
+  return unique;
+}
+
 export async function setUserRoles(
   db: DbHandle,
   businessId: string,
@@ -427,14 +438,7 @@ export async function setUserRoles(
 ): Promise<void> {
   return db.transaction(async (tx) => {
     await lockAdminMutation(tx);
-    const unique = [...new Set(roleIds)];
-    const rows =
-      unique.length === 0
-        ? []
-        : await tx.select({ id: roles.id }).from(roles).where(inArray(roles.id, unique));
-    if (rows.length !== unique.length) {
-      fail('INVALID_INPUT', ROLE_IDS_MISSING_MESSAGE);
-    }
+    const unique = await assertRoleIdsExist(tx, roleIds);
 
     const [admin] = await tx
       .select({ id: roles.id })
