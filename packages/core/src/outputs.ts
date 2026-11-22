@@ -24,7 +24,7 @@ import {
   slugSchema,
 } from '@agentport/shared';
 import { z } from 'zod';
-import { fail, INVALID_CURSOR_MESSAGE } from './errors.js';
+import { AGENT_DIR_SLUG_INVALID_MESSAGE, fail, INVALID_CURSOR_MESSAGE } from './errors.js';
 import { pathSegmentsProblem } from './path-segments.js';
 
 const CONVERSATION_OUTPUTS = 'conversation-outputs';
@@ -91,7 +91,7 @@ function ownerId(value: string, field: string): string {
 
 function conversationSegments(input: { slug: string; conversationId: string }): string[] {
   if (!slugSchema.safeParse(input.slug).success) {
-    fail('INVALID_INPUT', '智能体目录名非法', { path: '/slug' });
+    fail('INVALID_INPUT', AGENT_DIR_SLUG_INVALID_MESSAGE, { path: '/slug' });
   }
   ownerId(input.conversationId, 'conversationId');
   return [input.slug, CONVERSATION_OUTPUTS, input.conversationId];

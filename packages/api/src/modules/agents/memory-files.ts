@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { type FileHandle, lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
 import { join, parse, resolve, sep } from 'node:path';
-import { fail } from '@agentport/core';
+import { AGENT_DIR_SLUG_INVALID_MESSAGE, fail } from '@agentport/core';
 import {
   hasErrorCode,
   INDEX_FILE_NAME,
@@ -11,13 +11,14 @@ import {
   type MemoryFileContent,
   type MemoryFileList,
   memoryFileNamePattern,
+  slugSchema,
 } from '@agentport/shared';
 
 const MEMORY_FILE_MODE = 0o600;
 const MEMORY_DIR_MODE = 0o700;
 
 function workspaceSubdir(workspacesDir: string, slug: string, leaf: string): string {
-  if (!/^[a-z0-9][a-z0-9_-]*$/.test(slug)) fail('INVALID_INPUT', '智能体目录名非法');
+  if (!slugSchema.safeParse(slug).success) fail('INVALID_INPUT', AGENT_DIR_SLUG_INVALID_MESSAGE);
   return resolve(workspacesDir, slug, leaf);
 }
 
