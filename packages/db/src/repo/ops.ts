@@ -25,7 +25,11 @@ import { notStale } from './freshness.js';
 import { assertRunBudget, getDepartmentIdForBusinessId } from './governance.js';
 import { lockRunResources } from './locks.js';
 import { keysetPage } from './pagination.js';
-import { consumePolicyApproval, linkPolicyApprovalToRun } from './security.js';
+import {
+  consumePolicyApproval,
+  linkPolicyApprovalToRun,
+  POLICY_APPROVAL_STALE_MESSAGE,
+} from './security.js';
 
 export type ScheduleRow = typeof agentSchedules.$inferSelect;
 
@@ -376,7 +380,7 @@ export async function claimScheduleRetry(
     }
     if (input.consumePolicyApprovalId !== undefined) {
       const consumed = await consumePolicyApproval(tx, input.consumePolicyApprovalId);
-      if (consumed === null) fail('CONTENT_APPROVAL_REQUIRED', '审批已失效，请重新发起');
+      if (consumed === null) fail('CONTENT_APPROVAL_REQUIRED', POLICY_APPROVAL_STALE_MESSAGE);
       await linkPolicyApprovalToRun(tx, input.consumePolicyApprovalId, input.runId);
     }
     await tx.insert(messages).values({

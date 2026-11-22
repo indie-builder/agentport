@@ -304,6 +304,8 @@ export async function findOrCreatePolicyApproval(
   return { approval, created: true };
 }
 
+export const POLICY_APPROVAL_STALE_MESSAGE = '审批已失效，请重新发起';
+
 export async function consumePolicyApproval(
   db: DbHandle,
   id: string,
