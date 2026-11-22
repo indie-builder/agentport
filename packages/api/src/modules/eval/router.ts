@@ -8,7 +8,7 @@ import type { RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { writeCrossUserAudit } from '../../plugins/audit.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from '../runs/access.js';
-import { EVAL_RUN_MISSING } from './errors.js';
+import { EVAL_CASE_MISSING, EVAL_RUN_MISSING } from './errors.js';
 import { importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
 
 const os = implement(evalContract).$context<RequestContext>();
@@ -159,10 +159,10 @@ export const evalRouter = os.router({
     }),
     update: os.cases.update.handler(async ({ input, context }) => {
       const existing = await evalRepo.getCase(context.db, input.params.id);
-      if (!existing) fail('NOT_FOUND', '用例不存在，可能已被删除；请刷新后重试');
+      if (!existing) fail('NOT_FOUND', EVAL_CASE_MISSING);
       await authorizeEvalAgent(context, existing.agentId, ['eval.read', 'eval.manage']);
       const row = await evalRepo.updateCase(context.db, input.params.id, input.body);
-      if (!row) fail('NOT_FOUND', '用例不存在，可能已被删除；请刷新后重试');
+      if (!row) fail('NOT_FOUND', EVAL_CASE_MISSING);
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'eval.case.updated',
@@ -175,10 +175,10 @@ export const evalRouter = os.router({
     }),
     remove: os.cases.remove.handler(async ({ input, context }) => {
       const existing = await evalRepo.getCase(context.db, input.params.id);
-      if (!existing) fail('NOT_FOUND', '用例不存在，可能已被删除；请刷新后重试');
+      if (!existing) fail('NOT_FOUND', EVAL_CASE_MISSING);
       await authorizeEvalAgent(context, existing.agentId, ['eval.read', 'eval.manage']);
       const deleted = await evalRepo.deleteCase(context.db, input.params.id);
-      if (!deleted) fail('NOT_FOUND', '用例不存在，可能已被删除；请刷新后重试');
+      if (!deleted) fail('NOT_FOUND', EVAL_CASE_MISSING);
       await repo.audit.writeAudit(context.db, context.log, {
         actor: actorOf(context),
         action: 'eval.case.deleted',
