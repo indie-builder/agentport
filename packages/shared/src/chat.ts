@@ -35,6 +35,11 @@ export const SANDBOX_RUNTIME_ENV = {
   ...PORTABLE_TODO_ENV,
 } as const;
 
+export const CHAT_AGENT_DISABLED_MESSAGE =
+  '该智能体已停用，无法发起新对话；请到智能体页面启用后再试';
+
+export const CONVERSATION_NOT_IN_AGENT_MESSAGE = '会话不存在或不属于该智能体；请从会话列表重新打开';
+
 export const chatRequestSchema = z
   .object({
     agentId: z.string().optional(),

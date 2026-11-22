@@ -6,7 +6,11 @@ import type {
   MessageAttachment,
   RunTrigger,
 } from '@agentport/shared';
-import { ACTIVE_RUN_STATUSES } from '@agentport/shared';
+import {
+  ACTIVE_RUN_STATUSES,
+  CHAT_AGENT_DISABLED_MESSAGE,
+  CONVERSATION_NOT_IN_AGENT_MESSAGE,
+} from '@agentport/shared';
 import { and, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Database } from '../../client.js';
 import { newId } from '../../id.js';
@@ -166,7 +170,7 @@ export async function admitChatRun(
       fail('AGENT_DISABLED', '该智能体已归档或删除，无法发起新对话');
     }
     if (!owner.enabled && input.allowDisabled !== true) {
-      fail('AGENT_DISABLED', '该智能体已停用，无法发起新对话；请到智能体页面启用后再试');
+      fail('AGENT_DISABLED', CHAT_AGENT_DISABLED_MESSAGE);
     }
     if (input.channel === undefined && input.trigger === 'channel') {
       fail('INVALID_INPUT', '频道触发必须带频道与来源消息');
@@ -313,7 +317,7 @@ export async function admitChatRun(
         .limit(1)
         .for('update');
       if (!conversation || conversation.agentId !== input.agentId) {
-        notFound('conversation', '会话不存在或不属于该智能体；请从会话列表重新打开');
+        notFound('conversation', CONVERSATION_NOT_IN_AGENT_MESSAGE);
       }
       conversationSdkSessionId = conversation.sdkSessionId;
     }
