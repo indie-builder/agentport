@@ -247,6 +247,7 @@ export const TAGGING_DOCUMENT_NO_VERSION_MESSAGE = '文档还没有可用版本�
 export const DOCUMENT_UNREADABLE_MESSAGE = '文档当前不可读（来源未授权或不在范围）';
 export const DOCUMENT_NO_CONTENT_MESSAGE = '文档当前版本没有可用正文';
 export const DOCUMENT_JOB_IN_PROGRESS_MESSAGE = '文档有正在进行的处理任务，请稍后重试';
+export const FAQ_ANSWER_REQUIRED_MESSAGE = '至少需要一条非空答案';
 
 /** 解析器给出的定位；不支持的维度缺省，不编造坐标。 */
 export const knowledgeLocatorSchema = z
@@ -336,7 +337,7 @@ export const knowledgeFaqSchema = z.object({
     .array(z.string().max(20_000))
     .min(1)
     .refine((answers) => answers.some((answer) => answer.trim().length > 0), {
-      message: '至少需要一条非空答案',
+      message: FAQ_ANSWER_REQUIRED_MESSAGE,
     }),
   /** 命中时返回全部答案或随机选一条；默认全部。 */
   answerStrategy: knowledgeFaqAnswerStrategySchema.default('all'),
