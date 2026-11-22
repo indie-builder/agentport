@@ -1,6 +1,5 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import {
   type AsrProfile,
   embedImages,
@@ -173,6 +172,26 @@ export function isRetryableKnowledgeError(err: unknown): boolean {
   return false;
 }
 
+async function delay(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  if (!signal) {
+    await Bun.sleep(ms);
+    return;
+  }
+  signal.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  try {
+    await Promise.race([
+      Bun.sleep(ms),
+      new Promise<never>((_, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener('abort', onAbort, { once: true });
+      }),
+    ]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
+
 async function withModelRetry<T>(
   call: () => Promise<T>,
   signal: AbortSignal | undefined,
@@ -182,11 +201,7 @@ async function withModelRetry<T>(
       return await call();
     } catch (err) {
       if (attempt + 1 >= MODEL_RETRY_ATTEMPTS || !isRetryableKnowledgeError(err)) throw err;
-      await delay(
-        MODEL_RETRY_BASE_DELAY_MS * 2 ** attempt + Math.random() * 100,
-        undefined,
-        signal ? { signal } : undefined,
-      );
+      await delay(MODEL_RETRY_BASE_DELAY_MS * 2 ** attempt + Math.random() * 100, signal);
     }
   }
 }

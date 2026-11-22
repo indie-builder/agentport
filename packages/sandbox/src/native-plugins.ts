@@ -1,6 +1,5 @@
-import { lstat, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
+import { lstat, mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import {
   AGENT_PACKAGE_MAX_ENTRIES,
@@ -20,6 +19,7 @@ import * as Bun from 'bun';
 import { readTask } from './stdin-task.js';
 
 const CACHE_ROOT = PLUGIN_CACHE_CONTAINER_DIR;
+const TMP_DIR = (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
 const CLI_MAX_BUFFER = 8 * 1024 * 1024;
 
 const require = createRequire(import.meta.url);
@@ -119,7 +119,7 @@ async function runCli(
   pluginCacheDir: string,
   args: string[],
 ): Promise<CliResult> {
-  const cwd = await mkdtemp(join(tmpdir(), 'native-plugin-run-'));
+  const cwd = await mkdtemp(join(TMP_DIR, 'native-plugin-run-'));
   try {
     let proc: Bun.Subprocess<'ignore', 'pipe', 'pipe'>;
     try {
@@ -238,7 +238,7 @@ function isInternalMarker(name: string): boolean {
   return name === '.git' || name === '.orphaned_at';
 }
 
-function decodeText(buffer: Buffer, path: string): string {
+function decodeText(buffer: Uint8Array, path: string): string {
   try {
     const content = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
     if (content.includes('\0')) return fail('读取', `插件文件是二进制：${path}`);
@@ -278,7 +278,7 @@ async function snapshotPlugin(
       if (files.length >= AGENT_PACKAGE_MAX_ENTRIES) {
         return fail('读取', `插件文件数超过 ${AGENT_PACKAGE_MAX_ENTRIES} 个`);
       }
-      const buffer = await readFile(abs);
+      const buffer = await Bun.file(abs).bytes();
       totalBytes += buffer.byteLength;
       if (totalBytes > AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES) {
         return fail('读取', `插件文件总大小超过 ${AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES} 字节`);

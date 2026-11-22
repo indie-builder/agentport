@@ -1,5 +1,4 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   BUILD_ABORTED_MESSAGE,
@@ -18,6 +17,8 @@ import type { Logger } from 'pino';
 import { startRedisWorker } from '../queue-worker.js';
 import { keepTail, runDocker, type SpawnFn, spawnDocker } from './command.js';
 import { verifyRuntimeEnvironmentImage } from './verify.js';
+
+const tmpdir = () => (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
 
 export const RUNTIME_ENVIRONMENT_BUILD_JOB = 'build';
 

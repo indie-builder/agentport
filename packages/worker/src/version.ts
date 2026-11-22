@@ -1,5 +1,5 @@
-import { createRequire } from 'node:module';
-
-const { version }: { version: string } = createRequire(import.meta.url)('../../../package.json');
+const { version }: { version: string } = await Bun.file(
+  new URL('../../../package.json', import.meta.url),
+).json();
 
 export { version };

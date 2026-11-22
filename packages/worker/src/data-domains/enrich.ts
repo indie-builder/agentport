@@ -1,5 +1,4 @@
 import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validateWrenProjectFiles } from '@agentport/core';
 import type { Database } from '@agentport/db';
@@ -23,6 +22,8 @@ import {
 } from '../one-shot-sdk.js';
 import { startRedisWorker } from '../queue-worker.js';
 import { startIntervalTicker } from '../scheduling/interval-ticker.js';
+
+const tmpdir = () => (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
 
 const ENRICH_TIMEOUT_MS = 5 * 60_000;
 const STALE_GENERATING_MS = 15 * 60_000;

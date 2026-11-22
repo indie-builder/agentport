@@ -52,15 +52,10 @@ const io = (() => {
   };
 })();
 
-mock.module('node:readline', () => ({
-  createInterface: () => ({
+mock.module('../src/stdin-lines.js', () => ({
+  createStdinLines: () => ({
+    next: () => io.readLine(),
     close() {},
-    [Symbol.asyncIterator]: () => ({
-      next: async () => {
-        const line = await io.readLine();
-        return line === null ? { value: undefined, done: true } : { value: line, done: false };
-      },
-    }),
   }),
 }));
 

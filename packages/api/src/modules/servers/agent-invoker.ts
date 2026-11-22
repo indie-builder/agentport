@@ -1,4 +1,3 @@
-import { setTimeout as sleep } from 'node:timers/promises';
 import { fail, notFound } from '@agentport/core';
 import { repo, schema } from '@agentport/db';
 import { isActiveRunStatus, isTerminalRunStatus, runEnqueueOptions } from '@agentport/shared';
@@ -16,6 +15,19 @@ const writeAudit = repo.audit.writeAudit;
 const POLL_MS = 2_000;
 const MAX_CONCURRENT_INVOKES = 4;
 let activeInvokes = 0;
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal === undefined) return Bun.sleep(ms);
+  if (signal.aborted) return Promise.reject(signal.reason);
+  let onAbort = (): void => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  return Promise.race([Bun.sleep(ms), aborted]).finally(() => {
+    signal.removeEventListener('abort', onAbort);
+  });
+}
 
 export function createInvoker(app: AppContext): AgentInvoker {
   return {
@@ -122,9 +134,7 @@ export function createInvoker(app: AppContext): AgentInvoker {
         while (Date.now() < deadline) {
           if (signal?.aborted) await cancelled();
           try {
-            await sleep(Math.min(POLL_MS, Math.max(0, deadline - Date.now())), undefined, {
-              signal,
-            });
+            await sleep(Math.min(POLL_MS, Math.max(0, deadline - Date.now())), signal);
           } catch (err) {
             if (signal?.aborted) await cancelled();
             throw err;

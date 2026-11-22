@@ -1,6 +1,5 @@
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createInterface } from 'node:readline';
 import {
   CONFIG_CONTAINER_DIR,
   disallowedToolsFor,
@@ -34,6 +33,7 @@ import {
 } from './memory-permissions.js';
 import { memoryRuntimeSettings } from './memory-runtime.js';
 import { createQuestionChannel } from './questions.js';
+import { createStdinLines } from './stdin-lines.js';
 import { createSubAgentBoundaryHook } from './sub-agent-permissions.js';
 
 interface RunnerEvent {
@@ -107,22 +107,20 @@ async function openTaskInput(): Promise<{
   readLine: () => Promise<string | null>;
   close: () => void;
 }> {
-  const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
-  const lines = rl[Symbol.asyncIterator]();
+  const stdin = createStdinLines();
   const readLine = async (): Promise<string | null> => {
     for (;;) {
-      const { value, done } = await lines.next();
-      if (done === true) return null;
-      const trimmed = String(value).trim();
+      const line = await stdin.next();
+      if (line === null) return null;
+      const trimmed = line.trim();
       if (trimmed.length > 0) return trimmed;
     }
   };
   const first = await readLine();
   if (first === null) {
-    rl.close();
     throw new Error('stdin closed before task JSON arrived');
   }
-  return { task: sandboxTaskSchema.parse(JSON.parse(first)), readLine, close: () => rl.close() };
+  return { task: sandboxTaskSchema.parse(JSON.parse(first)), readLine, close: () => stdin.close() };
 }
 
 function tokenUsage(
@@ -396,10 +394,13 @@ function createInstructionQueue(): {
 }
 
 const instructionQueue = createInstructionQueue();
-process.stdin.once('end', () => instructionQueue.close());
 
 const questionChannel = createQuestionChannel({
-  readLine,
+  readLine: async () => {
+    const line = await readLine();
+    if (line === null) instructionQueue.close();
+    return line;
+  },
   events: {
     requested: (event) => emit({ type: 'question_requested', ...event }),
     closed: (requestId) => emit({ type: 'question_closed', requestId }),

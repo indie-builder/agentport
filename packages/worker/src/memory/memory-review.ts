@@ -1,5 +1,4 @@
 import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hashMcpToken, reviewAnchorMissingMessage, selectReviewWindow } from '@agentport/core';
 import { logEvent } from '@agentport/core/logger';
@@ -42,6 +41,8 @@ import {
 } from '../one-shot-sdk.js';
 import { claimRunTerminal, notifyRunTerminal } from '../runs/run-finish.js';
 import { modelProxyUpstream, sdkEnv } from '../upstream.js';
+
+const tmpdir = () => (Bun.env.TMPDIR || '/tmp').replace(/\/+$/, '');
 
 export type MemoryReviewQueryFn = (params: {
   prompt: string;

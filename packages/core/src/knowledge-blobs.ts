@@ -5,7 +5,7 @@ import { knowledgeBlobPath } from './knowledge-paths.js';
 export async function writeKnowledgeBlob(
   knowledgeDir: string,
   sha: string,
-  data: Buffer,
+  data: Uint8Array,
 ): Promise<void> {
   const target = knowledgeBlobPath(knowledgeDir, sha);
   await mkdir(dirname(target), { recursive: true });
@@ -22,7 +22,7 @@ export async function writeKnowledgeBlob(
 export async function ensureKnowledgeBlob(
   knowledgeDir: string,
   sha: string,
-  data: Buffer,
+  data: Uint8Array,
 ): Promise<void> {
   if (await stat(knowledgeBlobPath(knowledgeDir, sha)).catch(() => null)) return;
   await writeKnowledgeBlob(knowledgeDir, sha, data);

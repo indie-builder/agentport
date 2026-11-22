@@ -36,13 +36,18 @@ mock.module('@modelcontextprotocol/client/stdio', () => ({
   },
 }));
 
-mock.module('node:readline', () => ({
-  createInterface: () => ({
-    close() {},
-    async *[Symbol.asyncIterator]() {
-      yield io.line;
-    },
-  }),
+mock.module('../src/stdin-lines.js', () => ({
+  createStdinLines: () => {
+    let used = false;
+    return {
+      next: async () => {
+        if (used) return null;
+        used = true;
+        return io.line;
+      },
+      close() {},
+    };
+  },
 }));
 
 let caseSequence = 0;
