@@ -12,7 +12,7 @@ export async function materializeWorkspace(rootDir: string, files: WorkspaceFile
     encoding: 'utf8',
     mode: WORKSPACE_FILE_MODE,
   });
-  await writeFile(join(rootDir, 'CLAUDE.md'), files.claudeMd, 'utf8');
+  await Bun.write(join(rootDir, 'CLAUDE.md'), files.claudeMd);
   for (const subAgent of files.subAgents) {
     await writeFile(join(agentsDir, `${subAgent.slug}.md`), subAgent.content, {
       encoding: 'utf8',

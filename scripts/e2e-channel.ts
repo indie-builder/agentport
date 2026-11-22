@@ -1,15 +1,12 @@
 #!/usr/bin/env bun
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
 
 import { createDb } from '../packages/db/src/client.js';
 import {
@@ -33,7 +30,7 @@ import {
   runtimeBuildTag,
 } from '../tests/support/execution-stack.js';
 
-const REPO = fileURLToPath(new URL('..', import.meta.url));
+const REPO = Bun.fileURLToPath(new URL('..', import.meta.url));
 let IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
 let FAKE_PORT = Number(process.env.E2E_CHANNEL_FAKE_PORT ?? 4318);
 const REPLY_PREFIX = 'E2E-CHANNEL-REPLY';
@@ -55,7 +52,7 @@ const SUITE_MODE = MODE === 'suite';
 const WITH_WORKER = process.env.E2E_CHANNEL_WITH_WORKER === '1';
 const REAL_MODEL = SUITE_MODE && process.env.E2E_CHANNEL_REAL_MODEL === '1';
 const NEED_FAKE_MODEL = !SUITE_MODE || (WITH_WORKER && !REAL_MODEL);
-const executionToken = randomBytes(32).toString('hex');
+const executionToken = crypto.getRandomValues(new Uint8Array(32)).toHex();
 const executionOutput = join(REPO, '.e2e', `execution-${executionToken.slice(0, 24)}`);
 let executionContract: ReturnType<typeof parseExecutionContract> | undefined;
 const executionTags = new Set<string>();
@@ -153,7 +150,7 @@ async function pollUntil<T>(
     } catch (error) {
       lastError = error;
     }
-    await delay(100);
+    await Bun.sleep(100);
   }
   throw new Error(
     `等待超时（${timeoutMs}ms）：${label}${lastError ? `；最后错误：${String(lastError)}` : ''}`,
@@ -189,7 +186,7 @@ async function stopChild(child: ChildProcess | undefined, label: string): Promis
   child.kill('SIGTERM');
   const exited = await Promise.race([
     childExit(child).then(() => true),
-    delay(20_000).then(() => false),
+    Bun.sleep(20_000).then(() => false),
   ]);
   if (exited) return;
   console.error(`${label} 未在 20s 内退出，发送 SIGKILL`);
@@ -212,7 +209,7 @@ async function startWrenRuntime(python: string): Promise<string> {
   const dbDir = join(wrenDir, 'db');
   await mkdir(dbDir, { recursive: true });
   const seedScript = join(wrenDir, 'seed.py');
-  await writeFile(
+  await Bun.write(
     seedScript,
     [
       'import duckdb, sys',
@@ -903,7 +900,7 @@ async function startFakeAnthropic(port: number): Promise<FakeAnthropic> {
           index: 0,
           delta: { type: 'text_delta', text: SLOW_PARTIAL },
         });
-        await delay(SLOW_DELAY_MS);
+        await Bun.sleep(SLOW_DELAY_MS);
         if (!canWrite()) return;
         writeSse(res, 'content_block_delta', {
           type: 'content_block_delta',
@@ -1126,7 +1123,7 @@ async function stopExecutionProcess(child: ChildProcess | undefined, label: stri
   if (alive()) {
     process.kill(-pid, 'SIGTERM');
     const deadline = Date.now() + 10_000;
-    while (alive() && Date.now() < deadline) await delay(100);
+    while (alive() && Date.now() < deadline) await Bun.sleep(100);
     if (alive()) process.kill(-pid, 'SIGKILL');
     await pollUntil(`${label}进程组退出`, 10_000, async () => !alive());
   }
@@ -1446,7 +1443,7 @@ async function main(): Promise<void> {
     assert(await probeEntry(), `镜像包含当前 supervisor：${requiredEntry}`);
     info(`image id: ${imageId}`);
     if (EXECUTION_MODE) {
-      IMAGE = `agentport/e2e-${randomBytes(12).toString('hex')}:base`;
+      IMAGE = `agentport/e2e-${crypto.getRandomValues(new Uint8Array(12)).toHex()}:base`;
       const tagged = await run('docker', ['tag', imageId ?? fail('缺少基座 image ID'), IMAGE]);
       if (tagged.code !== 0) fail(tagged.stderr);
       executionTags.add(IMAGE);
@@ -1493,7 +1490,9 @@ async function main(): Promise<void> {
   const apiPort = MODE === 'assert' || EXECUTION_MODE ? await freePort() : UI_PORT;
   const modelProxyPort = await freePort();
   const baseUrl = `http://127.0.0.1:${apiPort}`;
-  const appSecret = randomBytes(32).toString('base64url');
+  const appSecret = crypto
+    .getRandomValues(new Uint8Array(32))
+    .toBase64({ alphabet: 'base64url', omitPadding: true });
 
   const baseEnv: NodeJS.ProcessEnv = {
     PATH: process.env.PATH ?? '',
@@ -1517,7 +1516,9 @@ async function main(): Promise<void> {
     DATABASE_URL: database.url,
     REDIS_URL: redis.url,
     APP_SECRET_KEY: appSecret,
-    JWT_SECRET: randomBytes(32).toString('base64url'),
+    JWT_SECRET: crypto
+      .getRandomValues(new Uint8Array(32))
+      .toBase64({ alphabet: 'base64url', omitPadding: true }),
     ADMIN_USER,
     ADMIN_PASSWORD,
     RATE_LIMIT_DISABLED: '1',
@@ -1679,7 +1680,7 @@ async function main(): Promise<void> {
     .join('; ');
   assert(cookie.includes('agentport_token='), '登录返回 agentport_token cookie');
 
-  const stamp = `${Date.now().toString(36)}-${randomBytes(2).toString('hex')}`;
+  const stamp = `${Date.now().toString(36)}-${crypto.getRandomValues(new Uint8Array(2)).toHex()}`;
   const agentResult = await apiCall(baseUrl, 'POST', '/api/agents', cookie, {
     slug: `e2e-channel-${stamp}`,
     name: `E2E 频道智能体 ${stamp}`,

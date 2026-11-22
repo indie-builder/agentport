@@ -1,4 +1,4 @@
-import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { knowledgeBlobPath } from './knowledge-paths.js';
 
@@ -11,7 +11,7 @@ export async function writeKnowledgeBlob(
   await mkdir(dirname(target), { recursive: true });
   const temp = `${target}.tmp-${crypto.randomUUID()}`;
   try {
-    await writeFile(temp, data);
+    await Bun.write(temp, data);
     await rename(temp, target);
   } catch (err) {
     await rm(temp, { force: true }).catch(() => {});

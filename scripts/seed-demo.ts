@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { createDb, platformBootstrap, repo } from '@agentport/db';
 import { eq } from 'drizzle-orm';
 import { seedActivity } from './seed/activity';
@@ -9,7 +8,7 @@ import { seedKnowledge } from './seed/knowledge';
 import { seedOps } from './seed/ops';
 import type { DemoCatalog, SeedContext } from './seed/types';
 
-const envPath = fileURLToPath(new URL('../.env', import.meta.url));
+const envPath = Bun.fileURLToPath(new URL('../.env', import.meta.url));
 if (existsSync(envPath)) process.loadEnvFile(envPath);
 
 const databaseUrl = process.env.DATABASE_URL;

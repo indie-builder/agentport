@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import {
   AppError,
@@ -275,7 +275,7 @@ async function writeVersionFiles(
   );
   await storeBlob(deps.config.KNOWLEDGE_DIR, Buffer.from(faqJson, 'utf8'));
   await mkdir(dirname(markdownPath), { recursive: true });
-  await writeFile(markdownPath, markdown);
+  await Bun.write(markdownPath, markdown);
 }
 
 async function writeFaqVersion(deps: KnowledgeDeps, input: WriteFaqVersionInput) {
