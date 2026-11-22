@@ -11,9 +11,10 @@ import { utf8Bytes } from './utf8.js';
 
 /** 记忆目录内的扁平 Markdown 文件名；API 参数、提案目标、journal 与 web 表单共用这一份。 */
 export const memoryFileNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.md$/;
+export const MEMORY_FILE_NAME_INVALID_MESSAGE = '记忆文件名非法：只允许 <name>.md';
 export const memoryFileNameSchema = z
   .string()
-  .regex(memoryFileNamePattern, '记忆文件名非法：只允许 <name>.md');
+  .regex(memoryFileNamePattern, MEMORY_FILE_NAME_INVALID_MESSAGE);
 
 /** 官方启动只读 MEMORY.md 的前 200 行或 25KB，先到者为准；超限拒绝而非截断。 */
 export const AGENT_MEMORY_MAX_LINES = 200;

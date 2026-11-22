@@ -7,6 +7,7 @@ import {
   hasErrorCode,
   INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
+  MEMORY_FILE_NAME_INVALID_MESSAGE,
   type MemoryFile,
   type MemoryFileContent,
   type MemoryFileList,
@@ -23,7 +24,7 @@ function workspaceSubdir(workspacesDir: string, slug: string, leaf: string): str
 }
 
 function safeName(name: string): string {
-  if (!memoryFileNamePattern.test(name)) fail('INVALID_INPUT', '记忆文件名非法：只允许 <name>.md');
+  if (!memoryFileNamePattern.test(name)) fail('INVALID_INPUT', MEMORY_FILE_NAME_INVALID_MESSAGE);
   return name;
 }
 
