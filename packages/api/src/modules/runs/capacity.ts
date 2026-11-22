@@ -6,6 +6,8 @@ async function runQueueHasCapacity(): Promise<boolean> {
   return (await getQueue().getWaitingCount()) <= RUN_QUEUE_MAX_WAITING;
 }
 
-export async function requireRunQueueCapacity(message = '运行队列已满，请稍后重试'): Promise<void> {
+export const RUN_QUEUE_FULL_MESSAGE = '运行队列已满，请稍后重试';
+
+export async function requireRunQueueCapacity(message = RUN_QUEUE_FULL_MESSAGE): Promise<void> {
   if (!(await runQueueHasCapacity())) fail('SERVICE_UNAVAILABLE', message);
 }
