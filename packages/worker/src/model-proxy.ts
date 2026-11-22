@@ -1,6 +1,3 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { pipeline } from 'node:stream/promises';
-
 import { CONTENT_BLOCKED_MESSAGE } from '@agentport/core';
 import type { repo } from '@agentport/db';
 import {
@@ -89,14 +86,27 @@ function modelOf(body: Buffer): string | undefined {
   }
 }
 
-async function readBody(req: IncomingMessage): Promise<Buffer> {
-  const chunks: Buffer[] = [];
+function errorResponse(status: number, type: string, message: string): Response {
+  return new Response(JSON.stringify({ error: { type, message } }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+async function readBody(request: Request): Promise<Buffer> {
+  if (!request.body) return Buffer.alloc(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const chunk of req) {
-    const buf = chunk as Buffer;
-    size += buf.length;
-    if (size > MAX_BODY_BYTES) throw new Error('request body too large');
-    chunks.push(buf);
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_BODY_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error('request body too large');
+    }
+    chunks.push(value);
   }
   return Buffer.concat(chunks);
 }
@@ -109,46 +119,37 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
   const activeRuns = new Set<string>();
   const upstream = new URL(upstreamBaseUrl);
 
-  const server = createServer((req, res) => {
-    const ctx: ProxyRequestContext = {};
-    void handle(req, res, ctx).catch((err: unknown) => {
-      logger.error({ err, ...ctx }, 'model proxy request failed');
-      if (res.destroyed || res.writableEnded) return;
-      if (!res.headersSent) {
-        res.writeHead(500, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: { type: 'proxy_error', message: 'proxy failed' } }));
-      } else {
-        res.end();
-      }
-    });
+  const server = Bun.serve({
+    port: options.port ?? 0,
+    hostname: '0.0.0.0',
+    idleTimeout: 0,
+    fetch(request) {
+      const ctx: ProxyRequestContext = {};
+      return handle(request, ctx).catch((err: unknown) => {
+        logger.error({ err, ...ctx }, 'model proxy request failed');
+        return errorResponse(500, 'proxy_error', 'proxy failed');
+      });
+    },
   });
 
-  async function handle(
-    req: IncomingMessage,
-    res: ServerResponse,
-    ctx: ProxyRequestContext,
-  ): Promise<void> {
+  async function handle(request: Request, ctx: ProxyRequestContext): Promise<Response> {
     const startedAt = Date.now();
-    const url = new URL(req.url ?? '/', 'http://proxy.local');
+    const url = new URL(request.url);
     const messageRequest = MESSAGE_PATHS.has(url.pathname);
-    const generates = req.method === 'POST' && url.pathname === MESSAGE_PATH;
+    const generates = request.method === 'POST' && url.pathname === MESSAGE_PATH;
     if (
       !messageRequest &&
       url.pathname !== MODELS_PATH &&
       !url.pathname.startsWith(`${MODELS_PATH}/`)
     ) {
       logger.warn({ path: url.pathname, status: 404 }, 'model proxy rejected path');
-      res.writeHead(404, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: { type: 'not_found', message: 'path not proxied' } }));
-      return;
+      return errorResponse(404, 'not_found', 'path not proxied');
     }
 
-    const token = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
+    const token = /^Bearer\s+(.+)$/i.exec(request.headers.get('authorization') ?? '')?.[1];
     if (!token) {
       logger.warn({ path: url.pathname, status: 401 }, 'model proxy rejected token: missing');
-      res.writeHead(401, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: { type: 'unauthorized', message: 'missing token' } }));
-      return;
+      return errorResponse(401, 'unauthorized', 'missing token');
     }
 
     const run = await options.resolveRun(token);
@@ -157,32 +158,22 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
         { path: url.pathname, status: 401, ...(run ? { runId: run.runId } : {}) },
         'model proxy rejected token: invalid or revoked',
       );
-      res.writeHead(401, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: { type: 'unauthorized', message: 'invalid token' } }));
-      return;
+      return errorResponse(401, 'unauthorized', 'invalid token');
     }
     ctx.runId = run.runId;
 
     let body: Buffer;
     try {
-      body = await readBody(req);
+      body = await readBody(request);
     } catch {
-      res.writeHead(413, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: { type: 'payload_too_large', message: 'body too large' } }));
-      return;
+      return errorResponse(413, 'payload_too_large', 'body too large');
     }
 
     ctx.startedAt = startedAt;
     const validatesModel = messageRequest && (options.resolveProviders || options.checkOutbound);
     ctx.model = validatesModel ? modelOf(body) : undefined;
     if (validatesModel && ctx.model === undefined) {
-      res.writeHead(400, { 'content-type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          error: { type: 'invalid_request_error', message: 'missing or invalid model' },
-        }),
-      );
-      return;
+      return errorResponse(400, 'invalid_request_error', 'missing or invalid model');
     }
     if (messageRequest && options.checkOutbound) {
       const checked = await options.checkOutbound({
@@ -192,13 +183,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
         body,
       });
       if (checked.blocked || (!checked.body.equals(body) && modelOf(checked.body) !== ctx.model)) {
-        res.writeHead(403, { 'content-type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            error: { type: 'content_blocked', message: CONTENT_BLOCKED_MESSAGE },
-          }),
-        );
-        return;
+        return errorResponse(403, 'content_blocked', CONTENT_BLOCKED_MESSAGE);
       }
       body = checked.body;
     }
@@ -219,17 +204,12 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
         { runId: ctx.runId, model: ctx.model, status: 502, blocked },
         'model proxy has no upstream provider',
       );
-      res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: { type: 'proxy_error', message } }));
-      return;
+      return errorResponse(502, 'proxy_error', message);
     }
 
-    if (res.destroyed) return;
     const abort = new AbortController();
-    const abortIfUnfinished = () => {
-      if (!res.writableFinished) abort.abort();
-    };
-    res.once('close', abortIfUnfinished);
+    request.signal.addEventListener('abort', () => abort.abort());
+    if (request.signal.aborted) return new Response(null, { status: 499 });
 
     const record = async (input: ProviderAttemptRecord): Promise<void> => {
       try {
@@ -245,22 +225,21 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
 
     try {
       for (const attempt of attempts) {
-        if (abort.signal.aborted) return;
+        if (abort.signal.aborted) return new Response(null, { status: 499 });
         const { providerId } = attempt;
         const target = new URL(attempt.baseUrl);
         target.pathname = target.pathname.replace(/\/+$/, '') + url.pathname;
         target.search = url.search;
         target.hash = '';
         const headers: Record<string, string> = {
-          'content-type': req.headers['content-type'] ?? 'application/json',
-          accept: req.headers.accept ?? 'application/json',
+          'content-type': request.headers.get('content-type') ?? 'application/json',
+          accept: request.headers.get('accept') ?? 'application/json',
           'x-api-key': attempt.credential,
           authorization: `Bearer ${attempt.credential}`,
-          'anthropic-version': String(req.headers['anthropic-version'] ?? '2023-06-01'),
+          'anthropic-version': request.headers.get('anthropic-version') ?? '2023-06-01',
         };
-        if (typeof req.headers['anthropic-beta'] === 'string') {
-          headers['anthropic-beta'] = req.headers['anthropic-beta'];
-        }
+        const beta = request.headers.get('anthropic-beta');
+        if (beta !== null) headers['anthropic-beta'] = beta;
         const attemptStarted = Date.now();
         const recordAttempt = async (
           result: Pick<
@@ -285,15 +264,17 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
         let upstreamRes: Response;
         try {
           upstreamRes = await fetch(target, {
-            method: req.method ?? 'POST',
+            method: request.method,
             headers,
             redirect: 'manual',
             signal: AbortSignal.any([abort.signal, startAbort.signal]),
-            ...(body.length > 0 && req.method !== 'GET' && req.method !== 'HEAD' ? { body } : {}),
+            ...(body.length > 0 && request.method !== 'GET' && request.method !== 'HEAD'
+              ? { body }
+              : {}),
           });
         } catch {
           clearTimeout(startTimer);
-          if (abort.signal.aborted) return;
+          if (abort.signal.aborted) return new Response(null, { status: 499 });
           const timedOut = startAbort.signal.aborted;
           lastError = timedOut ? 'timeout' : 'network';
           await recordAttempt({
@@ -393,7 +374,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
             }
           }
           clearTimeout(startTimer);
-          if (abort.signal.aborted) return;
+          if (abort.signal.aborted) return new Response(null, { status: 499 });
           if (firstEvent === undefined || firstEvent === 'error') {
             const timedOut = startAbort.signal.aborted;
             lastStatus = statusCode;
@@ -432,38 +413,64 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
               errorKind: 'upstream',
               error: '供应商归属写回失败',
             });
-            if (abort.signal.aborted) return;
-            res.writeHead(502, { 'content-type': 'application/json' });
-            res.end(
-              JSON.stringify({
-                error: { type: 'proxy_error', message: 'provider attribution unavailable' },
-              }),
-            );
-            return;
+            if (abort.signal.aborted) return new Response(null, { status: 499 });
+            return errorResponse(502, 'proxy_error', 'provider attribution unavailable');
           }
-          if (abort.signal.aborted) return;
+          if (abort.signal.aborted) return new Response(null, { status: 499 });
         }
-        res.writeHead(statusCode, {
+        const responseHeaders: Record<string, string> = {
           'content-type': contentType,
           ...(upstreamRequestId ? { 'request-id': upstreamRequestId } : {}),
-        });
-        if (upstreamBody) {
-          let upstreamFailed = false;
-          try {
-            await pipeline(async function* () {
-              try {
-                yield* prefix;
-                for await (const chunk of upstreamBody) {
-                  if (sse) inspectChunk(chunk);
-                  yield chunk;
+        };
+        const finalize = async (): Promise<void> => {
+          const incompleteStream = sse && (streamError || !messageStopped);
+          await recordAttempt({
+            statusCode,
+            upstreamRequestId,
+            errorKind:
+              upstreamRes.ok && !incompleteStream ? null : providerErrorKindForStatus(statusCode),
+            ...(incompleteStream ? { error: '上游未完成流式响应' } : {}),
+          });
+          logger.info(
+            {
+              runId: ctx.runId,
+              model: ctx.model,
+              providerId,
+              status: statusCode,
+              durationMs: Date.now() - startedAt,
+              upstreamRequestId,
+            },
+            'model proxy request',
+          );
+        };
+        if (!upstreamBody) {
+          await finalize();
+          return new Response(null, { status: statusCode, headers: responseHeaders });
+        }
+        const reader = upstreamBody.getReader();
+        let downstreamCancelled = false;
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            for (const chunk of prefix) controller.enqueue(chunk);
+          },
+          async pull(controller) {
+            try {
+              const { done, value } = await reader.read();
+              if (done) {
+                if (!downstreamCancelled) {
+                  await finalize();
+                  controller.close();
                 }
-              } catch (err) {
-                upstreamFailed = !abort.signal.aborted;
-                throw err;
+                return;
               }
-            }, res);
-          } catch (err) {
-            if (upstreamFailed) {
+              if (sse) inspectChunk(value);
+              if (!downstreamCancelled) controller.enqueue(value);
+            } catch (err) {
+              if (downstreamCancelled) return;
+              if (abort.signal.aborted) {
+                controller.close();
+                return;
+              }
               await recordAttempt({
                 statusCode,
                 upstreamRequestId,
@@ -474,56 +481,30 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
                 { err, ...ctx, providerId, status: statusCode },
                 'model upstream response interrupted',
               );
-            } else if (!abort.signal.aborted) {
-              throw err;
+              controller.error(err);
             }
-            return;
-          }
-        } else {
-          res.end();
-        }
-        const incompleteStream = sse && (streamError || !messageStopped);
-        await recordAttempt({
-          statusCode,
-          upstreamRequestId,
-          errorKind:
-            upstreamRes.ok && !incompleteStream ? null : providerErrorKindForStatus(statusCode),
-          ...(incompleteStream ? { error: '上游未完成流式响应' } : {}),
-        });
-        logger.info(
-          {
-            runId: ctx.runId,
-            model: ctx.model,
-            providerId,
-            status: statusCode,
-            durationMs: Date.now() - startedAt,
-            upstreamRequestId,
           },
-          'model proxy request',
-        );
-        return;
+          cancel() {
+            downstreamCancelled = true;
+            abort.abort();
+            void reader.cancel().catch(() => undefined);
+          },
+        });
+        return new Response(stream, { status: statusCode, headers: responseHeaders });
       }
       logger.warn(
         { runId: ctx.runId, status: 502, lastStatus, lastError },
         'model proxy all providers failed',
       );
-      res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: { type: 'proxy_error', message: 'proxy failed' } }));
+      return errorResponse(502, 'proxy_error', 'proxy failed');
     } catch (err) {
       if (!abort.signal.aborted) throw err;
-    } finally {
-      res.off('close', abortIfUnfinished);
+      return new Response(null, { status: 499 });
     }
   }
 
-  await new Promise<void>((resolvePromise, rejectPromise) => {
-    server.once('error', rejectPromise);
-    server.listen(options.port ?? 0, '0.0.0.0', () => resolvePromise());
-  });
-  const address = server.address();
-  const port = typeof address === 'object' && address ? address.port : 0;
-  const url = `http://host.docker.internal:${port}`;
-  const localUrl = `http://127.0.0.1:${port}`;
+  const url = `http://host.docker.internal:${server.port}`;
+  const localUrl = `http://127.0.0.1:${server.port}`;
   logger.info({ url, upstream: upstream.origin }, 'model proxy listening');
 
   return {
@@ -538,9 +519,7 @@ export async function startModelProxy(options: ModelProxyOptions): Promise<Model
     },
     async close(): Promise<void> {
       activeRuns.clear();
-      await new Promise<void>((resolvePromise) => {
-        server.close(() => resolvePromise());
-      });
+      await server.stop();
     },
   };
 }
