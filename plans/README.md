@@ -17,6 +17,7 @@
 | 014 | 频道 wake 通知按 CAS 结果发布，消除重复系统消息 | P2 | S | MED | — | DONE |
 | 015 | 收敛 readCapped 语义、isRecord 副本与环境变量文档 | P2 | S | LOW | — | DONE |
 | 016 | 删除零引用的 repo 导出与 Me 类型别名 | P3 | S | MED | — | DONE |
+| 017 | 消除产出扫描中重复的路径校验 | P2 | M | MED | 012 | DONE |
 
 实施偏差记录：
 
