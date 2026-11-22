@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HTTP_URL_ONLY_MESSAGE } from '../errors.js';
 import { parseUrl } from '../url.js';
 
 export function isSafeOpenUrl(url: string): boolean {
@@ -24,7 +25,7 @@ export const openUiActionSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('open_url'),
     ...actionPayload,
-    params: z.object({ url: z.string().refine(isSafeOpenUrl, '仅支持 http/https 地址') }),
+    params: z.object({ url: z.string().refine(isSafeOpenUrl, HTTP_URL_ONLY_MESSAGE) }),
   }),
 ]);
 export type OpenUiAction = z.infer<typeof openUiActionSchema>;

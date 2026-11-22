@@ -3,6 +3,7 @@ import { repo } from '@agentport/db';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { AppContext, RequestContext } from '../../http/context.js';
+import { INVALID_BEARER_TOKEN_MESSAGE } from '../../http/errors.js';
 import { isRunCancelRequested } from '../../queue/producer.js';
 import { buildDataDomainServer } from '../data-domains/mcp.js';
 import { buildKnowledgeServer } from '../knowledge/mcp.js';
@@ -104,7 +105,7 @@ export async function serverMcpResponse(
   if (row?.kind === 'knowledge') {
     if (runId === null || !(await validRunToken(context, runId, serverId, token))) {
       context.responseHeaders.set('WWW-Authenticate', 'Bearer realm="agentport-mcp"');
-      fail('UNAUTHORIZED', 'invalid bearer token');
+      fail('UNAUTHORIZED', INVALID_BEARER_TOKEN_MESSAGE);
     }
     const baseId = row.config.knowledgeBaseId;
     if (typeof baseId !== 'string') fail('NOT_FOUND', 'knowledge server unbound');
@@ -120,7 +121,7 @@ export async function serverMcpResponse(
   if (row?.kind === 'data_domain') {
     if (runId === null || !(await validRunToken(context, runId, serverId, token))) {
       context.responseHeaders.set('WWW-Authenticate', 'Bearer realm="agentport-mcp"');
-      fail('UNAUTHORIZED', 'invalid bearer token');
+      fail('UNAUTHORIZED', INVALID_BEARER_TOKEN_MESSAGE);
     }
     const dataDomainId = row.config.dataDomainId;
     if (typeof dataDomainId !== 'string') fail('NOT_FOUND', 'data domain server unbound');
@@ -138,7 +139,7 @@ export async function serverMcpResponse(
   const hasRunToken = await validRunToken(context, runId, serverId, token);
   if (!hasRunToken && !tokenMatches(row.config.mcpToken, token)) {
     context.responseHeaders.set('WWW-Authenticate', 'Bearer realm="agentport-mcp"');
-    fail('UNAUTHORIZED', 'invalid bearer token');
+    fail('UNAUTHORIZED', INVALID_BEARER_TOKEN_MESSAGE);
   }
   return handlerFor(context, serverId, hasRunToken ? runId : null).fetch(request);
 }

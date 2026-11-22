@@ -2,6 +2,7 @@ import { fail } from '@agentport/core';
 import type { PluginFileInput } from '@agentport/shared';
 import { pluginFilePathSchema, pluginInputSchema } from '@agentport/shared';
 import type { z } from 'zod';
+import { MCP_JSON_INVALID_MESSAGE } from '../../http/errors.js';
 
 const UNSUPPORTED_TOP_LEVEL: Record<string, string> = {
   '.lsp.json': 'LSP server 暂不支持',
@@ -141,7 +142,7 @@ function detectMcpServers(files: PluginFileInput[], manifest: ManifestShape): st
   try {
     parsed = JSON.parse(mcpFile.content);
   } catch {
-    return fail('INVALID_INPUT', '.mcp.json 不是合法 JSON', { path: mcpFile.path });
+    return fail('INVALID_INPUT', MCP_JSON_INVALID_MESSAGE, { path: mcpFile.path });
   }
   if (typeof parsed !== 'object' || parsed === null) {
     return fail('INVALID_INPUT', '.mcp.json 必须是 JSON 对象', { path: mcpFile.path });

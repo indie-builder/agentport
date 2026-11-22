@@ -22,6 +22,7 @@ import { attachmentResponse } from '../../http/attachment.js';
 import { requestBodyLimit } from '../../http/body-limit.js';
 import type { HttpEnv, RequestContext } from '../../http/context.js';
 import { requestContext } from '../../http/context.js';
+import { ZIP_CONTENT_TYPE_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { requireTrustedOrigin } from '../auth/origin.js';
 import { withMemoryTargetLock } from '../memory/changes.js';
@@ -72,7 +73,7 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
       const context = requestContext(c);
       requireTrustedOrigin(context);
       if (c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/zip')
-        fail('UNSUPPORTED_MEDIA_TYPE', '不支持的 Content-Type，请使用 application/zip');
+        fail('UNSUPPORTED_MEDIA_TYPE', ZIP_CONTENT_TYPE_MESSAGE);
       const query = agentImportQuerySchema.parse(c.req.query());
       let entries: Map<string, PackageEntry>;
       try {

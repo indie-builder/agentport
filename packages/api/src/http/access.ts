@@ -17,14 +17,14 @@ import {
 } from '@agentport/shared';
 import { writeCrossUserAudit } from '../plugins/audit.js';
 import type { RequestContext } from './context.js';
-import { FORBIDDEN_MESSAGE, OBJECT_MISSING_MESSAGE } from './errors.js';
+import { FORBIDDEN_MESSAGE, NOT_LOGGED_IN_MESSAGE, OBJECT_MISSING_MESSAGE } from './errors.js';
 
 type UserPrincipal = Extract<Principal, { kind: 'user' }>;
 type AgentRelation = Awaited<ReturnType<typeof repo.access.getAgentRelation>>;
 
 export function requireUser(context: RequestContext): UserPrincipal {
   const principal = context.principal;
-  if (principal === null) throw new AppError('UNAUTHORIZED', 'not logged in');
+  if (principal === null) throw new AppError('UNAUTHORIZED', NOT_LOGGED_IN_MESSAGE);
   if (principal.kind !== 'user') {
     throw new AppError('FORBIDDEN', 'service principal cannot use user routes');
   }

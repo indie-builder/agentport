@@ -34,6 +34,7 @@ const phaseOne = await Promise.all([
     ['run', 'lint'],
     ['run', 'lint:focus'],
     ['run', 'lint:contract'],
+    ['run', 'lint:contract:test'],
     ['run', 'lint:lines'],
     ['run', 'lint:docs'],
   ]),

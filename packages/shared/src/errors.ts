@@ -8,6 +8,9 @@ export function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code;
 }
 
+export const HTTP_URL_ONLY_MESSAGE = '仅支持 http/https 地址';
+export const URL_CREDENTIALS_MESSAGE = 'URL不能包含账号密码，请通过加密headers配置凭证';
+
 export const ERROR_META = {
   INVALID_INPUT: { status: 400, retryable: false, hint: '根据出错字段和校验明细修正请求。' },
   INVALID_URL: {

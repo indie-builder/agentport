@@ -4,6 +4,7 @@ import { repo } from '@agentport/db';
 import type { Hono } from 'hono';
 import { requestBodyLimit } from '../../http/body-limit.js';
 import type { HttpEnv } from '../../http/context.js';
+import { ACCOUNT_DISABLED_MESSAGE } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
 import { requireTrustedOrigin } from './origin.js';
 import {
@@ -89,7 +90,7 @@ export function registerAuthRoutes(app: Hono<HttpEnv>, bootstrap: () => Promise<
         status: 'denied',
         requestId: context.requestId,
       });
-      throw new AppError('UNAUTHORIZED', 'account disabled');
+      throw new AppError('UNAUTHORIZED', ACCOUNT_DISABLED_MESSAGE);
     }
     forwardSetCookie(result.headers, context);
     await repo.audit.writeAudit(context.db, context.log, {
