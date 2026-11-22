@@ -233,24 +233,34 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
   const items = (props.items ?? []).filter((item) => childProps(item) !== undefined);
   const values = items.map((item, index) => String(childProps(item)?.value ?? index));
   const streaming = useIsStreaming();
-  const [active, setActive] = useState<string | undefined>(undefined);
+  const [active, setActive] = useState('');
   const touched = useRef(false);
-  const previousCount = useRef(0);
+  const previousSizes = useRef<Record<string, number> | null>(null);
 
   useEffect(() => {
-    if (items.length === 0) return;
-    const grew = items.length > previousCount.current;
-    previousCount.current = items.length;
+    if (items.length > 0 && !active) setActive(values[0] ?? '');
+  }, [items.length, active, values]);
+
+  useEffect(() => {
     if (touched.current) return;
-    if (active === undefined || (streaming && grew)) setActive(values[values.length - 1]);
-  }, [items.length, active, streaming, values]);
+    const baseline = previousSizes.current;
+    let candidate: string | null = null;
+    const nextSizes: Record<string, number> = {};
+    for (const [index, item] of items.entries()) {
+      const value = String(childProps(item)?.value ?? index);
+      const size = JSON.stringify(childProps(item)?.content).length;
+      nextSizes[value] = size;
+      if (size > (baseline?.[value] ?? 0)) candidate = value;
+    }
+    previousSizes.current = nextSizes;
+    if (baseline && streaming && candidate && candidate !== active) setActive(candidate);
+  });
 
   if (items.length === 0) return null;
-  const current = active !== undefined && values.includes(active) ? active : values[0];
 
   return (
     <Tabs
-      value={current}
+      value={active}
       onValueChange={(value) => {
         touched.current = true;
         setActive(String(value));
@@ -283,21 +293,21 @@ export function TabsRenderer({ props, renderNode }: RenderProps<{ items: unknown
 
 export function AccordionRenderer({ props, renderNode }: RenderProps<{ items: unknown[] }>) {
   const items = (props.items ?? []).filter((item) => childProps(item) !== undefined);
-  const streaming = useIsStreaming();
   const [open, setOpen] = useState<string[]>([]);
   const touched = useRef(false);
-  const previousCount = useRef(0);
+  const previousCount = useRef<number | null>(null);
+  const autoOpenIndex = useRef(-1);
 
-  useEffect(() => {
-    if (items.length === 0) return;
-    const grew = items.length > previousCount.current;
-    previousCount.current = items.length;
-    if (touched.current) return;
-    if (open.length === 0 || (streaming && grew)) {
-      const newest = childProps(items[items.length - 1])?.value;
-      if (newest !== undefined) setOpen([String(newest)]);
+  if (!touched.current) {
+    if (previousCount.current === null) {
+      if (items.length > 0) autoOpenIndex.current = 0;
+    } else if (items.length > previousCount.current) {
+      autoOpenIndex.current = items.length - 1;
     }
-  }, [items, open.length, streaming]);
+    const autoOpenValue = childProps<{ value?: string }>(items[autoOpenIndex.current])?.value;
+    if (autoOpenValue && autoOpenValue !== open[0]) setOpen([autoOpenValue]);
+  }
+  previousCount.current = items.length;
 
   if (items.length === 0) return null;
   return (
