@@ -17,6 +17,7 @@ import {
 } from '@agentport/shared';
 import { writeCrossUserAudit } from '../plugins/audit.js';
 import type { RequestContext } from './context.js';
+import { FORBIDDEN_MESSAGE, OBJECT_MISSING_MESSAGE } from './errors.js';
 
 type UserPrincipal = Extract<Principal, { kind: 'user' }>;
 type AgentRelation = Awaited<ReturnType<typeof repo.access.getAgentRelation>>;
@@ -39,7 +40,7 @@ export async function requirePermission(
   permissionId: PermissionId,
 ): Promise<void> {
   if (!hasPermission(context, permissionId)) {
-    throw new AppError('FORBIDDEN', '没有该操作的权限');
+    throw new AppError('FORBIDDEN', FORBIDDEN_MESSAGE);
   }
 }
 
@@ -50,7 +51,7 @@ async function relationFor(
   cached: { value?: AgentRelation },
 ): Promise<AgentRelation> {
   cached.value ??= await repo.access.getAgentRelation(context.db, agentId, principal.businessId);
-  if (!cached.value.exists) throw new AppError('NOT_FOUND', '对象不存在');
+  if (!cached.value.exists) throw new AppError('NOT_FOUND', OBJECT_MISSING_MESSAGE);
   return cached.value;
 }
 
@@ -65,19 +66,19 @@ export async function authorize(
   if (resource?.agentId !== undefined && resource.privateContent !== true) {
     const relation = await relationFor(context, principal, resource.agentId, cached);
     if (relation.inactive && permissionId === 'agents.use') {
-      throw new AppError('NOT_FOUND', '对象不存在');
+      throw new AppError('NOT_FOUND', OBJECT_MISSING_MESSAGE);
     }
     if (relation.isDefault) {
       if (agentPermissionAllows(grants, permissionId, relation, principal.businessId)) return;
-      throw new AppError('NOT_FOUND', '对象不存在');
+      throw new AppError('NOT_FOUND', OBJECT_MISSING_MESSAGE);
     }
   }
-  if (grants.length === 0) throw new AppError('FORBIDDEN', '没有该操作的权限');
+  if (grants.length === 0) throw new AppError('FORBIDDEN', FORBIDDEN_MESSAGE);
   if (resource === undefined) {
     if (grants.some((grant) => grant.scope === 'platform' || grant.scope === 'own_data')) {
       return;
     }
-    throw new AppError('FORBIDDEN', '没有该操作的权限');
+    throw new AppError('FORBIDDEN', FORBIDDEN_MESSAGE);
   }
 
   if (resource.resource !== undefined) {
@@ -101,7 +102,7 @@ export async function authorize(
         grant !== null &&
         (object.level === 'manage' ? grant.canManage : grant.canUse || grant.canManage);
     }
-    if (!allowed) throw new AppError('NOT_FOUND', '对象不存在');
+    if (!allowed) throw new AppError('NOT_FOUND', OBJECT_MISSING_MESSAGE);
     if (
       platform &&
       object.ownerBusinessId !== null &&
@@ -145,7 +146,7 @@ export async function authorize(
       break;
     }
   }
-  if (matched === undefined) throw new AppError('NOT_FOUND', '对象不存在');
+  if (matched === undefined) throw new AppError('NOT_FOUND', OBJECT_MISSING_MESSAGE);
 
   if (matched.scope === 'platform') {
     let owner = resource.createdBy ?? null;
@@ -201,7 +202,7 @@ function grantedScopes(context: RequestContext, permissionId: PermissionId): Acc
   for (const grant of requireUser(context).grants) {
     if (grant.permissionId === permissionId) scopes.add(grant.scope);
   }
-  if (scopes.size === 0) throw new AppError('FORBIDDEN', '没有该操作的权限');
+  if (scopes.size === 0) throw new AppError('FORBIDDEN', FORBIDDEN_MESSAGE);
   return [...scopes];
 }
 
