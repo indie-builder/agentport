@@ -8,6 +8,7 @@ import {
   INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
   MEMORY_FILE_NAME_INVALID_MESSAGE,
+  MEMORY_FILE_TOO_LARGE_MESSAGE,
   type MemoryFile,
   type MemoryFileContent,
   type MemoryFileList,
@@ -169,7 +170,7 @@ async function readMemoryFileData(
         const info = await handle.stat();
         if (!info.isFile()) fail('INVALID_INPUT', '记忆文件必须是普通 Markdown 文件');
         if (info.size > MEMORY_FILE_MAX_BYTES)
-          fail('PAYLOAD_TOO_LARGE', '记忆文件不能超过 200000 字节');
+          fail('PAYLOAD_TOO_LARGE', MEMORY_FILE_TOO_LARGE_MESSAGE);
         const buffer = Buffer.alloc(MEMORY_FILE_MAX_BYTES + 1);
         let size = 0;
         while (size < buffer.length) {
@@ -177,7 +178,7 @@ async function readMemoryFileData(
           if (!bytesRead) break;
           size += bytesRead;
         }
-        if (size > MEMORY_FILE_MAX_BYTES) fail('PAYLOAD_TOO_LARGE', '记忆文件不能超过 200000 字节');
+        if (size > MEMORY_FILE_MAX_BYTES) fail('PAYLOAD_TOO_LARGE', MEMORY_FILE_TOO_LARGE_MESSAGE);
         return { data: buffer.subarray(0, size), updatedAt: info.mtime.toISOString() };
       } finally {
         await handle.close();
@@ -217,7 +218,7 @@ async function writeMemoryFileData(
 ): Promise<string> {
   safeName(name);
   if (Buffer.byteLength(data) > MEMORY_FILE_MAX_BYTES)
-    fail('PAYLOAD_TOO_LARGE', '记忆文件不能超过 200000 字节');
+    fail('PAYLOAD_TOO_LARGE', MEMORY_FILE_TOO_LARGE_MESSAGE);
   return withMemoryDir(workspacesDir, slug, true, async (dir) => {
     const target = join(dir, name);
     await regularFile(target);

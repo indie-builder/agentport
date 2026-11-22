@@ -13,6 +13,7 @@ import {
   DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
+  MEMORY_FILE_TOO_LARGE_MESSAGE,
   MEMORY_REVIEW_NOT_FOUND_MESSAGE,
   MEMORY_REVIEW_REJECTED_MESSAGE,
   type MemoryContentSnapshot,
@@ -209,7 +210,7 @@ async function validatedProposal(
 
 function validateProposalAfter(target: MemoryReviewTarget, after: MemoryContentSnapshot): void {
   if (after.content !== null && Buffer.byteLength(after.content, 'utf8') > MEMORY_FILE_MAX_BYTES) {
-    fail('PAYLOAD_TOO_LARGE', `记忆文件不能超过 ${MEMORY_FILE_MAX_BYTES} 字节`);
+    fail('PAYLOAD_TOO_LARGE', MEMORY_FILE_TOO_LARGE_MESSAGE);
   }
   if (after.content !== null) {
     const problem = validateMemoryContent(

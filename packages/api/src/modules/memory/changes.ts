@@ -4,6 +4,7 @@ import {
   DEFAULT_MEMORY_POLICY,
   INDEX_FILE_NAME,
   MEMORY_FILE_MAX_BYTES,
+  MEMORY_FILE_TOO_LARGE_MESSAGE,
   MEMORY_REVIEW_NOT_FOUND_MESSAGE,
   MEMORY_REVIEW_REJECTED_MESSAGE,
   MEMORY_ROLLBACK_STALE_MESSAGE,
@@ -564,7 +565,7 @@ function assertCandidateLimits(
   changed: string[],
 ): void {
   if (after.content !== null && Buffer.byteLength(after.content, 'utf8') > MEMORY_FILE_MAX_BYTES) {
-    fail('PAYLOAD_TOO_LARGE', `记忆文件不能超过 ${MEMORY_FILE_MAX_BYTES} 字节`);
+    fail('PAYLOAD_TOO_LARGE', MEMORY_FILE_TOO_LARGE_MESSAGE);
   }
   if (target.name === INDEX_FILE_NAME && after.content !== null) {
     const problem = validateMemoryContent(INDEX_FILE_NAME, after.content);
