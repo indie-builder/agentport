@@ -36,7 +36,7 @@ import { getQueue } from '../../queue/producer.js';
 import { requireRunQueueCapacity } from '../runs/capacity.js';
 import { enqueueRunJob, failQueuedRunEnqueue, failRunEnqueue } from '../runs/enqueue.js';
 import { deleteConversationWithSandboxes } from '../runtime/runtime-deletion.js';
-import { enforceContentPolicy } from '../security/policy-gate.js';
+import { enforceContentPolicy, failContentApprovalRequired } from '../security/policy-gate.js';
 import { CONVERSATION_MISSING } from './access.js';
 import {
   checkOpenUiActionSource,
@@ -217,11 +217,7 @@ export async function startRun(
             policyDecision.approvalId,
           );
           if (approval?.status !== 'approved') {
-            fail('CONTENT_APPROVAL_REQUIRED', '敏感内容外发需要审批', {
-              resource: 'policy_approval',
-              resourceId: policyDecision.approvalId,
-              hint: '审批后重试同一请求',
-            });
+            failContentApprovalRequired(policyDecision.approvalId, '审批后重试同一请求');
           }
         }
         const prompt = policyDecision.payload;

@@ -192,13 +192,7 @@ export async function enforceContentPolicy<T>(input: {
   if (approval.status === 'approved') {
     return { payload, approvalId: approval.id, eventId, filterChannelContext };
   }
-  const approvalRequired = () =>
-    fail('CONTENT_APPROVAL_REQUIRED', '敏感内容外发需要审批', {
-      resource: 'policy_approval',
-      resourceId: approval.id,
-      hint: '审批后重试同一消息',
-    });
-  if (eventId === null) return approvalRequired();
+  if (eventId === null) return failContentApprovalRequired(approval.id, '审批后重试同一消息');
 
   const recipients = await repo.governance.listAlertRecipientBusinessIds(input.db);
   await Promise.all(
@@ -213,5 +207,13 @@ export async function enforceContentPolicy<T>(input: {
       }),
     ),
   );
-  return approvalRequired();
+  return failContentApprovalRequired(approval.id, '审批后重试同一消息');
+}
+
+export function failContentApprovalRequired(approvalId: string, hint: string): never {
+  return fail('CONTENT_APPROVAL_REQUIRED', '敏感内容外发需要审批', {
+    resource: 'policy_approval',
+    resourceId: approvalId,
+    hint,
+  });
 }
