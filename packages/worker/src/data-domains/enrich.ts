@@ -15,7 +15,12 @@ import {
 import { type Options, query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Logger } from 'pino';
 import { z } from 'zod';
-import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
+import {
+  hermeticQueryOptions,
+  ONE_SHOT_NO_RESULT_MESSAGE,
+  ONE_SHOT_NO_STRUCTURED_OUTPUT_MESSAGE,
+  runOneShotSdkQuery,
+} from '../one-shot-sdk.js';
 import { startRedisWorker } from '../queue-worker.js';
 import { startIntervalTicker } from '../scheduling/interval-ticker.js';
 
@@ -130,7 +135,7 @@ export async function runDataDomainEnrichment(
       return;
     }
     if (outcome.status === 'no_result') {
-      await failProposal('SDK 没有返回结果');
+      await failProposal(ONE_SHOT_NO_RESULT_MESSAGE);
       return;
     }
     if (outcome.status === 'failure') {
@@ -138,7 +143,7 @@ export async function runDataDomainEnrichment(
       return;
     }
     if (structured === undefined || structured === null) {
-      await failProposal('模型没有返回结构化结果');
+      await failProposal(ONE_SHOT_NO_STRUCTURED_OUTPUT_MESSAGE);
       return;
     }
     const parsed = dataDomainEnrichmentOutputSchema.safeParse(structured);

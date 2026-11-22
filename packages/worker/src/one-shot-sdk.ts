@@ -39,6 +39,9 @@ export type OneShotSdkOutcome =
   | { status: 'failure'; message: string }
   | { status: 'success' };
 
+export const ONE_SHOT_NO_RESULT_MESSAGE = 'SDK 没有返回结果';
+export const ONE_SHOT_NO_STRUCTURED_OUTPUT_MESSAGE = '模型没有返回结构化结果';
+
 export async function runOneShotSdkQuery(opts: {
   signal: AbortSignal;
   cwd: string;
