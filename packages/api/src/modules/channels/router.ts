@@ -38,6 +38,7 @@ import {
   CHANNEL_MEMBER_MISSING,
   conflict,
   forbidden,
+  MEMBER_FORBIDDEN,
   notFound,
 } from './errors.js';
 import { channelsHandoffRouter } from './handoff.js';
@@ -239,7 +240,7 @@ const channelsMainRouter = {
       case 'forbidden':
         if (result.reason === 'account_disabled') return conflict('账户已停用');
         if (result.reason === 'owner_only') return forbidden('仅频道 owner 可以授予 owner');
-        return forbidden('当前频道角色无权管理成员');
+        return forbidden(MEMBER_FORBIDDEN);
       case 'conflict':
         return conflict('该账户已是频道成员');
       case 'ok':
@@ -266,7 +267,7 @@ const channelsMainRouter = {
       case 'forbidden':
         return result.reason === 'owner_only'
           ? forbidden('仅频道 owner 可以授予或修改 owner')
-          : forbidden('当前频道角色无权管理成员');
+          : forbidden(MEMBER_FORBIDDEN);
       case 'conflict':
         return conflict('最后一个 owner 不能降级');
       case 'ok':
@@ -292,7 +293,7 @@ const channelsMainRouter = {
       case 'forbidden':
         return result.reason === 'owner_only'
           ? forbidden('仅频道 owner 可以移除 owner')
-          : forbidden('当前频道角色无权管理成员');
+          : forbidden(MEMBER_FORBIDDEN);
       case 'conflict':
         return conflict('最后一个 owner 不能移除');
       case 'ok': {
