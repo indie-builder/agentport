@@ -1,5 +1,6 @@
 import {
   ACTION_RANK,
+  CONTENT_BLOCKED_MESSAGE,
   canonicalJson,
   envProviderDestination,
   evaluateContentPolicy,
@@ -150,7 +151,7 @@ export async function enforceContentPolicy<T>(input: {
       await recordViolation(tx, eventId);
       await writeAuditIn(tx, 'policy.blocked', eventId);
     });
-    fail('CONTENT_BLOCKED', '内容命中安全策略，已阻止外发');
+    fail('CONTENT_BLOCKED', CONTENT_BLOCKED_MESSAGE);
   }
 
   const { data: payload, binding } = input.payload(texts);

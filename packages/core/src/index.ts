@@ -16,6 +16,7 @@ export { canonicalJson } from './canonical-json.js';
 export {
   ACTION_RANK,
   ANTHROPIC_DEFAULT_BASE_URL,
+  CONTENT_BLOCKED_MESSAGE,
   type ContentPolicyDecision,
   envProviderDestination,
   evaluateContentPolicy,
