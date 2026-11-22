@@ -26,6 +26,7 @@ export const AGENT_MEMORY_MAX_LINES = 200;
 export const AGENT_MEMORY_MAX_BYTES = 25 * 1024;
 /** 任何记忆文件的底层大小上限。 */
 export const MEMORY_FILE_MAX_BYTES = 200_000;
+export const MEMORY_FILE_TOO_LARGE_MESSAGE = `记忆文件不能超过 ${MEMORY_FILE_MAX_BYTES} 字节`;
 /** 主题文件超过该天数没有更新即视为陈旧，只提示、不自动删除。 */
 export const MEMORY_TOPIC_STALE_DAYS = 60;
 
