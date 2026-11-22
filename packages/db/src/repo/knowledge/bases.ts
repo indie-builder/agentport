@@ -1,4 +1,4 @@
-import { AppError } from '@agentport/core';
+import { AppError, ASR_PROFILE_INVALID_MESSAGE } from '@agentport/core';
 import type { KnowledgeBaseSettings, ResourceAccessFilter } from '@agentport/shared';
 import { and, desc, eq, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
@@ -42,7 +42,7 @@ async function assertUsableAsrProfile(db: DbHandle, profileId: string): Promise<
     .where(eq(knowledgeModelProfiles.id, profileId))
     .limit(1);
   if (profile?.kind !== 'asr' || !profile.enabled) {
-    throw new AppError('INVALID_INPUT', 'ASR profile 不存在、类型不符或已禁用');
+    throw new AppError('INVALID_INPUT', ASR_PROFILE_INVALID_MESSAGE);
   }
 }
 

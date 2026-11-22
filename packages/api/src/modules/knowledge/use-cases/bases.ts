@@ -1,4 +1,9 @@
-import { AppError, chunkBlocks, markdownBlocks } from '@agentport/core';
+import {
+  AppError,
+  ASR_PROFILE_INVALID_MESSAGE,
+  chunkBlocks,
+  markdownBlocks,
+} from '@agentport/core';
 import { repo } from '@agentport/db';
 import type {
   KnowledgeBaseSettings,
@@ -104,7 +109,7 @@ export async function createBase(
     throw new AppError('INVALID_INPUT', 'rerank profile 不存在、类型不符或已禁用');
   }
   if (input.asrProfileId && (asr?.kind !== 'asr' || !asr.enabled)) {
-    throw new AppError('INVALID_INPUT', 'ASR profile 不存在、类型不符或已禁用');
+    throw new AppError('INVALID_INPUT', ASR_PROFILE_INVALID_MESSAGE);
   }
   if (input.settings.chunkOverlap >= input.settings.chunkTokens) {
     throw new AppError('INVALID_INPUT', '分块重叠必须小于分块长度');
@@ -267,7 +272,7 @@ export async function updateBase(deps: KnowledgeDeps, id: string, body: UpdateBa
   }
   if (nextAsrProfileId !== current.asrProfileId) {
     if (nextAsrProfileId && (asr?.kind !== 'asr' || !asr.enabled)) {
-      throw new AppError('INVALID_INPUT', 'ASR profile 不存在、类型不符或已禁用');
+      throw new AppError('INVALID_INPUT', ASR_PROFILE_INVALID_MESSAGE);
     }
   } else if (nextAsrProfileId && !asr) {
     throw new AppError('INVALID_INPUT', 'ASR profile 不存在，可能已被删除');

@@ -68,6 +68,8 @@ export const KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE = '文档不存在，可能已
 
 export const KNOWLEDGE_SOURCE_NOT_FOUND_MESSAGE = '来源不存在，可能已被删除';
 
+export const ASR_PROFILE_INVALID_MESSAGE = 'ASR profile 不存在、类型不符或已禁用';
+
 export const DOCUMENT_VERSION_STALE_MESSAGE = '文档版本已变化，请刷新后重试';
 
 export const CONFIG_STALE_MESSAGE = '配置已被修改，请刷新';
