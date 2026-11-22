@@ -38,6 +38,11 @@ export const DEFAULT_DISALLOWED_TOOLS: readonly string[] = [
   'SendUserMessage',
 ];
 
+export const SUB_AGENT_DUPLICATE_MESSAGE = '同一个智能体被重复选为子智能体，请去掉重复项';
+export const SUB_AGENT_SELF_MESSAGE = '智能体不能把自己设为子智能体';
+export const SUB_AGENT_MISSING_MESSAGE = '选中的子智能体已被删除，请刷新后重新选择';
+export const SUB_AGENT_PLUGIN_BINDING_MESSAGE = '子智能体不能绑定插件；插件在会话级加载';
+
 export const CONFIGURABLE_DISALLOWED_TOOLS: readonly string[] = [
   'Agent',
   'TaskStop',

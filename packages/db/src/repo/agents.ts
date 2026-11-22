@@ -13,6 +13,10 @@ import {
   type MemoryPolicy,
   pluginInputSchema,
   resolveMemoryPolicy,
+  SUB_AGENT_DUPLICATE_MESSAGE,
+  SUB_AGENT_MISSING_MESSAGE,
+  SUB_AGENT_PLUGIN_BINDING_MESSAGE,
+  SUB_AGENT_SELF_MESSAGE,
 } from '@agentport/shared';
 import {
   and,
@@ -574,10 +578,10 @@ export async function lockSubAgentBindings(
 ): Promise<void> {
   await lockAgentBindings(tx);
   if (new Set(subAgentIds).size !== subAgentIds.length) {
-    throw new AppError('INVALID_INPUT', '同一个智能体被重复选为子智能体，请去掉重复项');
+    throw new AppError('INVALID_INPUT', SUB_AGENT_DUPLICATE_MESSAGE);
   }
   if (selfId !== null && subAgentIds.includes(selfId)) {
-    throw new AppError('INVALID_INPUT', '智能体不能把自己设为子智能体');
+    throw new AppError('INVALID_INPUT', SUB_AGENT_SELF_MESSAGE);
   }
   if (selfId !== null) {
     const self = await getAgent(tx, selfId);
@@ -591,7 +595,7 @@ export async function lockSubAgentBindings(
     .from(agents)
     .where(inArray(agents.id, subAgentIds));
   if (rows.length !== subAgentIds.length) {
-    throw new AppError('INVALID_INPUT', '选中的子智能体已被删除，请刷新后重新选择');
+    throw new AppError('INVALID_INPUT', SUB_AGENT_MISSING_MESSAGE);
   }
   for (const row of rows) {
     if (row.parentId !== null && row.parentId !== selfId) {
@@ -715,7 +719,7 @@ export async function createAgent(
           .where(inArray(agents.id, subAgentIds))
           .returning({ id: agents.id });
         if (claimed.length !== subAgentIds.length) {
-          throw new AppError('INVALID_INPUT', '选中的子智能体已被删除，请刷新后重新选择');
+          throw new AppError('INVALID_INPUT', SUB_AGENT_MISSING_MESSAGE);
         }
       }
       if (serverIds.length > 0) {
@@ -989,7 +993,7 @@ export async function updateAgentTx(
         .where(inArray(agents.id, subAgentIds))
         .returning({ id: agents.id });
       if (claimed.length !== subAgentIds.length) {
-        throw new AppError('INVALID_INPUT', '选中的子智能体已被删除，请刷新后重新选择');
+        throw new AppError('INVALID_INPUT', SUB_AGENT_MISSING_MESSAGE);
       }
     }
   }
@@ -1027,7 +1031,7 @@ async function writeAgentPluginBindings(
   if (bindings.length > 0) {
     const self = await getAgent(tx, agentId);
     if (self !== null && self.parentId !== null) {
-      throw new AppError('INVALID_INPUT', '子智能体不能绑定插件；插件在会话级加载');
+      throw new AppError('INVALID_INPUT', SUB_AGENT_PLUGIN_BINDING_MESSAGE);
     }
   }
   await tx.delete(agentPlugins).where(eq(agentPlugins.agentId, agentId));
