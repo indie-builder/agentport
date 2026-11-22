@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { fail, ORIGINAL_RUN_UNAVAILABLE_MESSAGE } from '@agentport/core';
 import { and, eq } from 'drizzle-orm';
 import type { DbHandle } from '../../client.js';
 import { agentRuns, externalRequestKeys } from '../../schema.js';
@@ -32,6 +32,6 @@ export async function findExternalRequestRun(db: DbHandle, request: ExternalRequ
   if (existing.runId === null) {
     fail('CONFLICT', '同一幂等键的请求仍在处理中，请稍后重试');
   }
-  if (existing.run === null) fail('CONFLICT', '原始运行记录已不可用');
+  if (existing.run === null) fail('CONFLICT', ORIGINAL_RUN_UNAVAILABLE_MESSAGE);
   return existing.run;
 }

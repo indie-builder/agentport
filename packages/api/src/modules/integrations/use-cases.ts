@@ -1,4 +1,4 @@
-import { fail, sha256Hex } from '@agentport/core';
+import { fail, ORIGINAL_RUN_UNAVAILABLE_MESSAGE, sha256Hex } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { ChatRequest, IntegrationSourceKind, Principal, RunStatus } from '@agentport/shared';
 import { authorize, authorizeObject } from '../../http/access.js';
@@ -64,7 +64,7 @@ export async function submitExternalRun(
   if (result === null) fail('INTERNAL_ERROR', '运行创建失败');
   if ('replayed' in result && result.replayed === true) {
     const run = await repo.chat.getRun(context.db, result.runId);
-    if (run === null) fail('INTERNAL_ERROR', '原始运行记录已不可用');
+    if (run === null) fail('INTERNAL_ERROR', ORIGINAL_RUN_UNAVAILABLE_MESSAGE);
     return {
       replayed: true,
       runId: result.runId,

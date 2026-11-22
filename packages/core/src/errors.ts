@@ -72,6 +72,8 @@ export const DOCUMENT_VERSION_STALE_MESSAGE = '文档版本已变化，请刷新
 
 export const CONFIG_STALE_MESSAGE = '配置已被修改，请刷新';
 
+export const ORIGINAL_RUN_UNAVAILABLE_MESSAGE = '原始运行记录已不可用';
+
 export const BUILD_ENQUEUE_FAILED_MESSAGE = '构建任务入队失败，请稍后重试';
 
 export const BUILD_ABORTED_MESSAGE = '构建已中断';
