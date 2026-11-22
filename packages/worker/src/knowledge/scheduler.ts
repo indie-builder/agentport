@@ -11,6 +11,7 @@ import { createBunRedisClient, Queue, Worker } from 'bullmq';
 import { RedisClient } from 'bun';
 import type { Logger } from 'pino';
 import { startIntervalTicker } from '../scheduling/interval-ticker.js';
+import { startSingleFlight } from '../scheduling/single-flight.js';
 
 const SCHEDULER_ID_PREFIX = 'knowledge-sync:';
 const RECONCILE_MS = 5 * 60_000;
@@ -196,25 +197,18 @@ export function startKnowledgeScheduler(input: {
     });
   }
 
-  let inFlight: Promise<void> | null = null;
-  const sync = (): Promise<void> => {
-    if (inFlight) return inFlight;
-    inFlight = syncOnce()
-      .catch((err: unknown) => {
-        input.logger.error({ err }, 'knowledge scheduler sync failed');
-      })
-      .finally(() => {
-        inFlight = null;
-      });
-    return inFlight;
-  };
-
-  const stopTicker = startIntervalTicker(() => sync(), RECONCILE_MS);
+  const syncTask = startSingleFlight(() =>
+    syncOnce().catch((err: unknown) => {
+      input.logger.error({ err }, 'knowledge scheduler sync failed');
+    }),
+  );
+  const stopTicker = startIntervalTicker(syncTask.run, RECONCILE_MS);
 
   return {
-    sync,
+    sync: syncTask.run,
     close: async () => {
       await stopTicker();
+      await syncTask.idle();
       await worker.close();
       await jobsQueue.close();
       await queue.close();

@@ -170,11 +170,13 @@ function extractModuleImports(code) {
 const matchesPackage = (spec, pkg) => spec === pkg || spec.startsWith(`${pkg}/`);
 
 function isMember(node, name) {
+  if (node.type !== 'MemberExpression' && node.type !== 'OptionalMemberExpression') return false;
+  if (!node.computed) return node.property.type === 'Identifier' && node.property.name === name;
+  if (node.property.type === 'StringLiteral') return node.property.value === name;
   return (
-    (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') &&
-    (node.computed
-      ? node.property.type === 'StringLiteral' && node.property.value === name
-      : node.property.type === 'Identifier' && node.property.name === name)
+    node.property.type === 'TemplateLiteral' &&
+    node.property.expressions.length === 0 &&
+    node.property.quasis[0].value.cooked === name
   );
 }
 
@@ -436,6 +438,38 @@ function stringLiteral(node) {
   }
 }
 
+function isPromiseShaped(node) {
+  const type = unwrapExpression(node)?.type;
+  return (
+    type === 'CallExpression' || type === 'OptionalCallExpression' || type === 'NewExpression'
+  );
+}
+
+function staticMemberName(node) {
+  if (!node.computed) return node.property.type === 'Identifier' ? node.property.name : undefined;
+  if (node.property.type === 'StringLiteral') return node.property.value;
+  if (node.property.type === 'TemplateLiteral' && node.property.expressions.length === 0) {
+    return node.property.quasis[0].value.cooked;
+  }
+  return undefined;
+}
+
+function receiverIdentity(path) {
+  const segments = [];
+  let node = unwrapExpression(path.node);
+  while (node?.type === 'MemberExpression' || node?.type === 'OptionalMemberExpression') {
+    const name = staticMemberName(node);
+    if (name === undefined) return { root: `expr:${path.toString()}`, pathKey: '' };
+    segments.unshift(name);
+    node = unwrapExpression(node.object);
+  }
+  if (node?.type !== 'Identifier') return { root: `expr:${path.toString()}`, pathKey: '' };
+  return {
+    root: path.scope.getBinding(node.name) ?? `id:${node.name}`,
+    pathKey: JSON.stringify(segments),
+  };
+}
+
 function isZodExpression(path, seen = new Set()) {
   if (path.isCallExpression() || path.isOptionalCallExpression()) {
     return isZodExpression(path.get('callee'), seen);
@@ -469,7 +503,43 @@ for (const file of errorFiles) {
       displayPath.endsWith('reconcile.ts') ||
       displayPath === 'packages/worker/src/data-domains/build.ts' ||
       displayPath === 'packages/worker/src/data-domains/enrich.ts');
+  const inFlightAssignments = new Map();
+  const noteInFlight = (root, pathKey, rhs, line) => {
+    const byPath = inFlightAssignments.get(root) ?? new Map();
+    const entry = byPath.get(pathKey) ?? { hasNull: false, nonNullLine: undefined };
+    if (unwrapExpression(rhs)?.type === 'NullLiteral') entry.hasNull = true;
+    else if (isPromiseShaped(rhs)) {
+      entry.nonNullLine =
+        entry.nonNullLine === undefined ? line : Math.min(entry.nonNullLine, line);
+    }
+    byPath.set(pathKey, entry);
+    inFlightAssignments.set(root, byPath);
+  };
   traverse(readModule(file).ast, {
+    'VariableDeclarator|AssignmentExpression'(path) {
+      if (!scheduler) return;
+      if (path.isVariableDeclarator()) {
+        const id = path.node.id;
+        if (id.type !== 'Identifier' || id.name !== 'inFlight') return;
+        const binding = path.scope.getBinding('inFlight');
+        if (!binding) return;
+        if (path.node.init) noteInFlight(binding, '', path.node.init, id.loc.start.line);
+        for (const violation of binding.constantViolations) {
+          if (
+            violation.isAssignmentExpression() &&
+            violation.node.left.type === 'Identifier' &&
+            violation.node.left.name === 'inFlight'
+          ) {
+            noteInFlight(binding, '', violation.node.right, violation.node.left.loc.start.line);
+          }
+        }
+        return;
+      }
+      const target = path.node.left;
+      if (!isMember(target, 'inFlight')) return;
+      const { root, pathKey } = receiverIdentity(path.get('left.object'));
+      noteInFlight(root, pathKey, path.node.right, target.loc.start.line);
+    },
     'CallExpression|OptionalCallExpression|NewExpression'(path) {
       const { callee, arguments: args, loc } = path.node;
       const line = loc.start.line;
@@ -484,7 +554,7 @@ for (const file of errorFiles) {
       ) {
         report(
           'worker-scheduler-setinterval',
-          `${displayPath}:${line}: 调度器直接调用 setInterval（改用 packages/worker/src/scheduling/interval-ticker.ts 的 startIntervalTicker：单飞 + close 等待；#436 曾因手写 setInterval 无并发保护导致启动与周期对账并发覆盖）`,
+          `${displayPath}:${line}: 调度器直接调用 setInterval（改用 packages/worker/src/scheduling/interval-ticker.ts 的 startIntervalTicker 管理定时与关停，双入口 sync 通过 packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight 共用单飞守卫）`,
         );
       }
 
@@ -563,6 +633,15 @@ for (const file of errorFiles) {
       callsByMessage.set(value, calls);
     },
   });
+  for (const byPath of inFlightAssignments.values()) {
+    for (const { hasNull, nonNullLine } of byPath.values()) {
+      if (!hasNull || nonNullLine === undefined) continue;
+      report(
+        'worker-handrolled-single-flight',
+        `${displayPath}:${nonNullLine}: 调度器手写 inFlight（改用 packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight，对应 formal/scheduler-sync/SchedulerSync.tla 的单飞守卫 InFlight = {}）`,
+      );
+    }
+  }
 }
 for (const [value, calls] of callsByMessage) {
   if (new Set(calls.map(({ path }) => path)).size < 2) continue;

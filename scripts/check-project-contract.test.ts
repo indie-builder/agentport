@@ -296,8 +296,117 @@ const fixtures = [
     files: {
       [`packages/worker/src/${file}`]: `${file.startsWith('data-domains/') ? 'import { startIntervalTicker } from "../scheduling/interval-ticker";\n' : ''}tick();\nconst timer = setInterval(tick, RECONCILE_MS);\ntimer.unref();\n`,
     },
-    expected: ['改用 packages/worker/src/scheduling/interval-ticker.ts 的 startIntervalTicker'],
+    expected: [
+      '改用 packages/worker/src/scheduling/interval-ticker.ts 的 startIntervalTicker',
+      'packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight',
+    ],
   })),
+  {
+    name: '调度器手写 inFlight 单飞状态',
+    rule: 'worker-handrolled-single-flight',
+    files: {
+      'packages/worker/src/scheduling/scheduler.ts':
+        'let inFlight: Promise<void> | null = null;\ninFlight = sync();',
+      'packages/worker/src/knowledge/scheduler.ts': 'var inFlight = sync();\ninFlight = null;',
+      'packages/worker/src/runtime-environments/reconcile.ts':
+        'let inFlight = sync();\ninFlight = null;',
+      'packages/worker/src/data-domains/build.ts': 'let inFlight = null;\ninFlight = sync();',
+      'packages/worker/src/data-domains/enrich.ts': 'let inFlight = null;\ninFlight ??= sync();',
+    },
+    expected: [
+      'packages/worker/src/scheduling/scheduler.ts:2',
+      'packages/worker/src/knowledge/scheduler.ts:1',
+      'packages/worker/src/runtime-environments/reconcile.ts:1',
+      'packages/worker/src/data-domains/build.ts:2',
+      'packages/worker/src/data-domains/enrich.ts:2',
+      'packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight',
+      'SchedulerSync.tla',
+      'InFlight = {}',
+    ],
+  },
+  {
+    name: '调度器通过属性保存、共享或清空 inFlight 单飞状态',
+    rule: 'worker-handrolled-single-flight',
+    files: {
+      'packages/worker/src/scheduling/scheduler.ts':
+        "const state = { inFlight: null };\nstate.inFlight = sync();\nstate['inFlight'] = sync();\nstate.inFlight = null;",
+    },
+    expected: [
+      'packages/worker/src/scheduling/scheduler.ts:2',
+      'packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight',
+      'SchedulerSync.tla',
+      'InFlight = {}',
+    ],
+  },
+  {
+    name: '调度器通过无插值模板键读写 inFlight 单飞状态',
+    rule: 'worker-handrolled-single-flight',
+    files: {
+      'packages/worker/src/scheduling/scheduler.ts':
+        'const state = { inFlight: null };\nstate[`inFlight`] = sync();\nstate.inFlight = null;',
+    },
+    expected: [
+      'packages/worker/src/scheduling/scheduler.ts:2',
+      'packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight',
+      'SchedulerSync.tla',
+      'InFlight = {}',
+    ],
+  },
+  {
+    name: '调度器在 finally 回调内清空外层 inFlight 绑定',
+    rule: 'worker-handrolled-single-flight',
+    files: {
+      'packages/worker/src/scheduling/scheduler.ts': `let inFlight: Promise<void> | null = null;
+const sync = () => {
+  if (inFlight) return inFlight;
+  inFlight = syncOnce()
+    .catch(() => {})
+    .finally(() => {
+      inFlight = null;
+    });
+  return inFlight;
+};`,
+    },
+    expected: [
+      'packages/worker/src/scheduling/scheduler.ts:4',
+      'packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight',
+      'SchedulerSync.tla',
+      'InFlight = {}',
+    ],
+  },
+  {
+    name: '调度器仅靠 finally 回调内清空未初始化声明的 inFlight',
+    rule: 'worker-handrolled-single-flight',
+    files: {
+      'packages/worker/src/scheduling/scheduler.ts': `let inFlight: Promise<void> | null;
+const sync = () => {
+  inFlight = syncOnce().finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+};`,
+    },
+    expected: [
+      'packages/worker/src/scheduling/scheduler.ts:3',
+      'packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight',
+      'SchedulerSync.tla',
+      'InFlight = {}',
+    ],
+  },
+  {
+    name: '调度器同一绑定下点号与字符串键读写 inFlight 合并识别',
+    rule: 'worker-handrolled-single-flight',
+    files: {
+      'packages/worker/src/scheduling/scheduler.ts':
+        'function run(ctx) {\n  ctx.state.inFlight = sync();\n  ctx["state"].inFlight = null;\n}',
+    },
+    expected: [
+      'packages/worker/src/scheduling/scheduler.ts:2',
+      'packages/worker/src/scheduling/single-flight.ts 的 startSingleFlight',
+      'SchedulerSync.tla',
+      'InFlight = {}',
+    ],
+  },
   ...[
     ['build', 'Build', 'reconcileStaleDataDomainBuilds'],
     ['enrich', 'Enrichment', 'reconcileStaleDataDomainEnrichmentProposals'],
@@ -473,6 +582,21 @@ for (const { name, rule, files, expected } of fixtures) {
   });
 }
 
+test('手写 inFlight 每个接收者只报一次并锚定首个 Promise 赋值', () => {
+  const { code, output } = runContract(
+    makeRepo({
+      'packages/worker/src/scheduling/scheduler.ts':
+        'const state = { inFlight: null };\nstate.inFlight = sync();\nstate.inFlight = sync();\nstate.inFlight = null;',
+    }),
+  );
+  const diagnostics = output
+    .split('\n')
+    .filter((line) => line.startsWith('[worker-handrolled-single-flight] '));
+  expect(diagnostics).toHaveLength(1);
+  expect(diagnostics[0]).toContain('packages/worker/src/scheduling/scheduler.ts:2');
+  expect(code).toBe(1);
+});
+
 test.each([
   {
     name: 'setInterval 字符串、模板正文、注释与 ticker 实现',
@@ -480,6 +604,44 @@ test.each([
       'packages/worker/src/knowledge/reconcile.ts':
         'const text = "setInterval()";\nconst template = `setInterval()`;\n// setInterval(tick, 1000);',
       'packages/worker/src/scheduling/interval-ticker.ts': 'const timer = setInterval(tick, 1000);',
+    },
+  },
+  {
+    name: '单飞和 ticker 实现、非调度路径、字符串与普通读取中的 inFlight',
+    files: {
+      'packages/worker/src/scheduling/interval-ticker.ts': 'let inFlight; inFlight = tick();',
+      'packages/worker/src/scheduling/single-flight.ts': 'let inFlight; inFlight = sync();',
+      'packages/worker/src/job/queue.ts': 'let inFlight; inFlight = work();',
+      'packages/worker/src/knowledge/reconcile.ts':
+        'const text = "let inFlight"; inFlight === null;',
+    },
+  },
+  {
+    name: '调度器中只读的 inFlight 声明',
+    files: {
+      'packages/worker/src/scheduling/scheduler.ts':
+        'async function tick() {\n  const inFlight = await queue.getActiveCount();\n  return inFlight;\n}',
+    },
+  },
+  {
+    name: '调度器中 inFlight 计数器自增与普通状态写入',
+    files: {
+      'packages/worker/src/scheduling/scheduler.ts':
+        'let inFlight = 0;\ninFlight++;\nconst status = { inFlight: 0 };\nstatus.inFlight = await queue.getActiveCount();',
+    },
+  },
+  {
+    name: '调度器中可空计数在关闭时置 null',
+    files: {
+      'packages/worker/src/scheduling/scheduler.ts':
+        'const status = { inFlight: null };\nstatus.inFlight = await queue.getActiveCount();\nstatus.inFlight = null;\nlet inFlight = null;\ninFlight = await queue.getActiveCount();\ninFlight = null;',
+    },
+  },
+  {
+    name: '调度器中不同函数各自的 ctx.state.inFlight 不合并',
+    files: {
+      'packages/worker/src/scheduling/scheduler.ts':
+        'function a(ctx) {\n  ctx.state.inFlight = sync();\n}\nfunction b(ctx) {\n  ctx.state.inFlight = null;\n}',
     },
   },
   {
