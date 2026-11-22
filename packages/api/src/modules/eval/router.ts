@@ -8,6 +8,7 @@ import type { RequestContext } from '../../http/context.js';
 import { cursorOption, requireCursorPage } from '../../http/pagination.js';
 import { writeCrossUserAudit } from '../../plugins/audit.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from '../runs/access.js';
+import { EVAL_RUN_MISSING } from './errors.js';
 import { importEvalCases, startEvalRun, toEvalRun } from './use-cases.js';
 
 const os = implement(evalContract).$context<RequestContext>();
@@ -249,7 +250,7 @@ export const evalRouter = os.router({
         .from(schema.evalRuns)
         .where(eq(schema.evalRuns.id, input.params.id))
         .limit(1);
-      if (!run) fail('NOT_FOUND', '评估运行不存在，可能已被清理；请刷新列表');
+      if (!run) fail('NOT_FOUND', EVAL_RUN_MISSING);
       await authorizeEvalAgent(context, run.agentId, ['eval.read', 'eval.manage']);
       if (await evalRepo.cancelEvalRun(context.db, input.params.id)) {
         await repo.audit.writeAudit(context.db, context.log, {
@@ -267,7 +268,7 @@ export const evalRouter = os.router({
       const { head } = input.query;
       if (id === head) fail('INVALID_INPUT', '不能把评估运行与自身对比');
       const comparison = await evalRepo.getComparison(context.db, id, head);
-      if (!comparison) fail('NOT_FOUND', '评估运行不存在，可能已被清理；请刷新列表');
+      if (!comparison) fail('NOT_FOUND', EVAL_RUN_MISSING);
       await authorizeEvalAgent(context, comparison.baseRun.agentId, ['eval.read']);
       await authorizeEvalAgent(context, comparison.headRun.agentId, ['eval.read']);
       if (comparison.baseRun.agentId !== comparison.headRun.agentId) {
@@ -285,7 +286,7 @@ export const evalRouter = os.router({
     }),
     detail: os.runs.detail.handler(async ({ input, context }) => {
       const detail = await evalRepo.getRunDetail(context.db, input.params.id);
-      if (!detail) fail('NOT_FOUND', '评估运行不存在，可能已被清理；请刷新列表');
+      if (!detail) fail('NOT_FOUND', EVAL_RUN_MISSING);
       await authorizeEvalAgent(context, detail.evalRun.agentId, ['eval.read']);
       return { ...detail, evalRun: toEvalRun(detail.evalRun) };
     }),
