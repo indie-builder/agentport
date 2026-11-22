@@ -4,6 +4,7 @@ import type { OutputFile } from '@agentport/shared';
 const PREVIEW_MAX_BYTES = 1024 * 1024;
 
 export const OUTPUT_MISSING_MESSAGE = '成果文件不存在，可能已被清理';
+export const SHARE_MISSING_MESSAGE = '分享不存在或已失效';
 
 type WorkspaceContext = { config: { WORKSPACES_DIR: string } };
 
