@@ -1,4 +1,4 @@
-import { notFound } from '@agentport/core';
+import { NOT_FOUND_MESSAGES, notFound } from '@agentport/core';
 import { repo } from '@agentport/db';
 import type { PermissionId } from '@agentport/shared';
 import { authorizeObject } from '../../http/access.js';
@@ -37,5 +37,5 @@ export function loadOpenuiConversation(
   id: string,
   permissionId: PermissionId,
 ) {
-  return loadConversationFor(context, id, permissionId, '会话不存在，可能已被删除；请刷新后重试');
+  return loadConversationFor(context, id, permissionId, NOT_FOUND_MESSAGES.conversation);
 }
