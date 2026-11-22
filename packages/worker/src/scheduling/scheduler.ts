@@ -17,6 +17,7 @@ import type { Logger } from 'pino';
 import { checkRunPromptPolicy } from '../content-policy.js';
 import { checkUserAgentAccess } from '../runs/run-access.js';
 import { startIntervalTicker } from './interval-ticker.js';
+import { startSingleFlight } from './single-flight.js';
 
 const ENQUEUE_ATTEMPTS = 3;
 const TRIGGER_MISSED_GRACE_MS = 60_000;
@@ -364,25 +365,18 @@ export function startScheduleScheduler(input: {
     }
   }
 
-  let inFlight: Promise<void> | null = null;
-  const sync = (): Promise<void> => {
-    if (inFlight) return inFlight;
-    inFlight = syncOnce()
-      .catch((err: unknown) => {
-        input.logger.error({ err }, 'schedule reconcile failed');
-      })
-      .finally(() => {
-        inFlight = null;
-      });
-    return inFlight;
-  };
-
-  const stopTicker = startIntervalTicker(() => sync(), input.reconcileMs);
+  const syncTask = startSingleFlight(() =>
+    syncOnce().catch((err: unknown) => {
+      input.logger.error({ err }, 'schedule reconcile failed');
+    }),
+  );
+  const stopTicker = startIntervalTicker(syncTask.run, input.reconcileMs);
 
   return {
-    sync,
+    sync: syncTask.run,
     close: async () => {
       await stopTicker();
+      await syncTask.idle();
       await worker.close();
       await runsQueue.close();
       await queue.close();
