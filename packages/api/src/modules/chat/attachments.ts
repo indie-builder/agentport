@@ -8,9 +8,9 @@ import type { HttpEnv } from '../../http/context.js';
 import { parseRequest, requestContext } from '../../http/context.js';
 import { isAppError } from '../../http/errors.js';
 import { access } from '../../http/middleware.js';
-import { loadReadableConversation } from './access.js';
+import { ATTACHMENT_MISSING_MESSAGE, loadReadableConversation } from './access.js';
 
-const notFound = () => fail('NOT_FOUND', '附件不存在，可能已被清理');
+const notFound = () => fail('NOT_FOUND', ATTACHMENT_MISSING_MESSAGE);
 export function registerChatAttachmentsHttp(app: Hono<HttpEnv>): void {
   app.get(
     '/api/conversations/:id/attachments/:attachmentId/download',
