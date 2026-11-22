@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, fail } from '@agentport/core';
-import { type Account, ROLE_IDS_MISSING_MESSAGE, type RoleSummary } from '@agentport/shared';
+import type { Account, RoleSummary } from '@agentport/shared';
 import { and, asc, count, eq, ilike, inArray, isNull, ne, or, type SQL } from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../client.js';
 import {
@@ -12,7 +12,12 @@ import {
   userRoles,
   webhookEndpoints,
 } from '../schema.js';
-import { assertCanRemoveActiveAdmin, lockAdminMutation, toSummary } from './access.js';
+import {
+  assertCanRemoveActiveAdmin,
+  assertRoleIdsExist,
+  lockAdminMutation,
+  toSummary,
+} from './access.js';
 import { hasBusinessHistory, listIdentities, listIdentityPage } from './identities.js';
 
 export { hasBusinessHistory, listIdentities, listIdentityPage };
@@ -145,18 +150,8 @@ export async function getIdentity(
   return { businessId, name: businessId, accountActive: false };
 }
 
-async function assertRoleIds(db: DbHandle, roleIds: readonly string[]) {
-  const unique = [...new Set(roleIds)];
-  if (unique.length === 0) return unique;
-  const rows = await db.select({ id: roles.id }).from(roles).where(inArray(roles.id, unique));
-  if (rows.length !== unique.length) {
-    fail('INVALID_INPUT', ROLE_IDS_MISSING_MESSAGE);
-  }
-  return unique;
-}
-
 async function assignRoles(tx: Transaction, businessId: string, roleIds: readonly string[]) {
-  const unique = await assertRoleIds(tx, roleIds);
+  const unique = await assertRoleIdsExist(tx, roleIds);
   await tx.delete(userRoles).where(eq(userRoles.businessId, businessId));
   if (unique.length > 0) {
     await tx.insert(userRoles).values(unique.map((roleId) => ({ businessId, roleId })));
