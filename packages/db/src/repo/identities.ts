@@ -23,6 +23,7 @@ import {
   userPreferences,
   userRoles,
 } from '../schema.js';
+import { containsPattern } from './like.js';
 import type { CursorPage } from './pagination.js';
 
 const identityIds = sql`
@@ -64,8 +65,7 @@ const identityIds = sql`
 
 function searchFilter(q: string | undefined): SQL | undefined {
   if (q === undefined || q === '') return undefined;
-  const pattern = `%${q}%`;
-  return sql`(ids.business_id ilike ${pattern} or coalesce(u.name, '') ilike ${pattern})`;
+  return sql`(ids.business_id ilike ${containsPattern(q)} or coalesce(u.name, '') ilike ${containsPattern(q)})`;
 }
 
 function whereClause(conditions: (SQL | undefined)[]) {

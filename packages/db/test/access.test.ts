@@ -17,6 +17,7 @@ import { newId } from '../src/id.js';
 import * as access from '../src/repo/access.js';
 import * as accounts from '../src/repo/accounts.js';
 import * as agentRepo from '../src/repo/agents.js';
+import { listGovernanceResources } from '../src/repo/governance/resources.js';
 import {
   agentMembers,
   agentRuns,
@@ -30,6 +31,7 @@ import {
   messages,
   rolePermissions,
   roles,
+  skills,
   userPreferences,
   userRoles,
 } from '../src/schema.js';
@@ -706,5 +708,62 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
       `occupied-a-renamed-${suffix}`,
     );
     expect(renamed.roles.find((role) => role.id === occupied.id)?.name).toBe(occupiedName);
+  });
+
+  it('escapes % and _ wildcards in accounts, governance resources, and identities search', async () => {
+    const pctId = bid('like-a%b');
+    const underId = bid('like-a_b');
+    const plainId = bid('like-axb');
+    await createAccount(pctId);
+    await createAccount(underId);
+    await createAccount(plainId);
+
+    const accountsPct = await accounts.listAccounts(db, { q: '%', limit: 20, offset: 0 });
+    expect(accountsPct.items.map((item) => item.businessId)).toEqual([pctId]);
+    const accountsUnder = await accounts.listAccounts(db, { q: '_', limit: 20, offset: 0 });
+    expect(accountsUnder.items.map((item) => item.businessId)).toEqual([underId]);
+    const accountsLiteralPct = await accounts.listAccounts(db, {
+      q: 'like-a%b',
+      limit: 20,
+      offset: 0,
+    });
+    expect(accountsLiteralPct.items.map((item) => item.businessId)).toEqual([pctId]);
+    const accountsLiteralUnder = await accounts.listAccounts(db, {
+      q: 'like-a_b',
+      limit: 20,
+      offset: 0,
+    });
+    expect(accountsLiteralUnder.items.map((item) => item.businessId)).toEqual([underId]);
+
+    const identitiesPct = await accounts.listIdentities(db, { q: '%', limit: 20, offset: 0 });
+    expect(identitiesPct.items.map((item) => item.businessId)).toEqual([pctId]);
+    expect(identitiesPct.total).toBe(1);
+    const identitiesUnder = await accounts.listIdentities(db, { q: '_', limit: 20, offset: 0 });
+    expect(identitiesUnder.items.map((item) => item.businessId)).toEqual([underId]);
+    expect(identitiesUnder.total).toBe(1);
+
+    const skillPctName = `skill-${suffix}-50%off`;
+    const skillUnderName = `skill-${suffix}-50_off`;
+    const skillPlainName = `skill-${suffix}-50xoff`;
+    await db.insert(skills).values([
+      { id: newId('skill'), slug: `slug-${suffix}-pct`, name: skillPctName },
+      { id: newId('skill'), slug: `slug-${suffix}-under`, name: skillUnderName },
+      { id: newId('skill'), slug: `slug-${suffix}-plain`, name: skillPlainName },
+    ]);
+
+    const resourcesPct = await listGovernanceResources(db, 'skill', { q: '%', limit: 20 });
+    expect(resourcesPct?.items.map((item) => item.name)).toEqual([skillPctName]);
+    const resourcesUnder = await listGovernanceResources(db, 'skill', { q: '_', limit: 20 });
+    expect(resourcesUnder?.items.map((item) => item.name)).toEqual([skillUnderName]);
+    const resourcesLiteralPct = await listGovernanceResources(db, 'skill', {
+      q: '50%off',
+      limit: 20,
+    });
+    expect(resourcesLiteralPct?.items.map((item) => item.name)).toEqual([skillPctName]);
+    const resourcesLiteralUnder = await listGovernanceResources(db, 'skill', {
+      q: '50_off',
+      limit: 20,
+    });
+    expect(resourcesLiteralUnder?.items.map((item) => item.name)).toEqual([skillUnderName]);
   });
 });

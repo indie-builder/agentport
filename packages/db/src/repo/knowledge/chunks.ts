@@ -13,9 +13,9 @@ import {
   knowledgeDocumentVersions,
   knowledgeJobs,
 } from '../../schema.js';
+import { containsPattern } from '../like.js';
 import { isCanonicalTimestamp, keysetPage } from '../pagination.js';
 import {
-  escapeLike,
   INSERT_CHUNK,
   type KnowledgeChunkRow,
   type KnowledgeDocumentRow,
@@ -305,9 +305,9 @@ export async function listImageAssets(
   if (filter.cursor != null && cursor === null) return null;
   const qFilter = filter.q
     ? sql`and (
-        x.name ilike ${`%${escapeLike(filter.q)}%`}
-        or x.caption ilike ${`%${escapeLike(filter.q)}%`}
-        or x.ocr_text ilike ${`%${escapeLike(filter.q)}%`}
+        x.name ilike ${containsPattern(filter.q)}
+        or x.caption ilike ${containsPattern(filter.q)}
+        or x.ocr_text ilike ${containsPattern(filter.q)}
       )`
     : sql``;
   const images = sql`(
