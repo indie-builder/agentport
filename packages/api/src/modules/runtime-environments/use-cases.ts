@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { BUILD_ENQUEUE_FAILED_MESSAGE, fail } from '@agentport/core';
 import type { Database } from '@agentport/db';
 import { repo } from '@agentport/db';
 import {
@@ -30,13 +30,13 @@ export async function requestRuntimeEnvironmentBuild(
     );
   } catch {
     await repo.runtimeEnvironments
-      .failRuntimeEnvironmentBuild(db, version.id, '构建任务入队失败，请稍后重试')
+      .failRuntimeEnvironmentBuild(db, version.id, BUILD_ENQUEUE_FAILED_MESSAGE)
       .catch(() => null);
     log.warn(
       { environmentId, versionId: version.id },
       `runtime environment build enqueue failed (queue ${RUNTIME_ENVIRONMENT_BUILDS_QUEUE})`,
     );
-    fail('SERVICE_UNAVAILABLE', '构建任务入队失败，请稍后重试');
+    fail('SERVICE_UNAVAILABLE', BUILD_ENQUEUE_FAILED_MESSAGE);
   }
   return version;
 }
