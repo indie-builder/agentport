@@ -17,7 +17,7 @@ import type { AppContext, RequestContext } from '../../http/context.js';
 import { checkOutboundToolArgs } from '../security/outbound-policy.js';
 import { buildGeneratedServer } from '../servers/generated.js';
 import { getServerWithSecrets, listTools } from '../servers/repo.js';
-import { loadOpenuiConversation } from './access.js';
+import { loadOpenuiConversation, MESSAGE_NOT_IN_CONVERSATION_MESSAGE } from './access.js';
 import { hasOpenUiBlock } from './openui-actions.js';
 
 const CLIENT_TIMEOUT_MS = 35000;
@@ -160,7 +160,7 @@ export const chatToolsRouter = {
       messageId,
     );
     if (!message) {
-      return fail('NOT_FOUND', '消息不属于该会话，可能已被删除；请刷新后重试');
+      return fail('NOT_FOUND', MESSAGE_NOT_IN_CONVERSATION_MESSAGE);
     }
     if (message.role !== 'assistant' || message.uiFormat !== 'openui') {
       return fail('INVALID_INPUT', '该消息不是生成式 UI，无法执行其中的界面动作');
