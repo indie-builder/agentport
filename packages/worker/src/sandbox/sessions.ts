@@ -571,7 +571,11 @@ export class SessionSandboxes {
     if (this.closed.signal.aborted) throw abortError();
     if (entry.active !== null) throw new Error(`session sandbox busy: ${entry.conversationId}`);
     if (!entry.alive) throw new Error(`session supervisor is not running: ${entry.conversationId}`);
-    if (entry.sandbox === null || entry.sandbox.child.stdin.destroyed) {
+    if (
+      entry.sandbox === null ||
+      entry.sandbox.child.exitCode !== null ||
+      entry.sandbox.child.signalCode !== null
+    ) {
       throw new Error(`session supervisor is not writable: ${entry.conversationId}`);
     }
 
@@ -786,8 +790,7 @@ export class SessionSandboxes {
 
     let pending = '';
     let discarding = false;
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
+    const consume = (chunk: string): void => {
       let start = 0;
       while (start < chunk.length) {
         const newline = chunk.indexOf('\n', start);
@@ -823,27 +826,38 @@ export class SessionSandboxes {
         }
         if (line.trim().length > 0) this.onLine(entry, line);
       }
-    });
-
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => {
-      const active = entry.active;
-      if (active !== null) active.onStderr(chunk);
-      else this.logger.debug({ conversationId: entry.conversationId }, redactSecrets(chunk));
-    });
-    child.stdin.on('error', (err) => {
-      this.logger.warn(
-        { err, conversationId: entry.conversationId, phase: sessionPhase(entry) },
-        'session supervisor stdin error',
-      );
-    });
-    child.once('error', (err) => {
+    };
+    const decoder = new TextDecoder();
+    const stdoutDone = (async () => {
+      for await (const chunk of child.stdout) consume(decoder.decode(chunk, { stream: true }));
+      const rest = decoder.decode();
+      if (rest !== '') consume(rest);
+    })().catch((err) => {
       this.handleExit(entry, `session supervisor error: ${errorText(err)}`);
     });
-    child.once('close', (code, signal) => {
+
+    const stderrDecoder = new TextDecoder();
+    const stderrDone = (async () => {
+      for await (const chunk of child.stderr) {
+        const text = stderrDecoder.decode(chunk, { stream: true });
+        if (text !== '') {
+          const active = entry.active;
+          if (active !== null) active.onStderr(text);
+          else this.logger.debug({ conversationId: entry.conversationId }, redactSecrets(text));
+        }
+      }
+      const rest = stderrDecoder.decode();
+      if (rest !== '') {
+        const active = entry.active;
+        if (active !== null) active.onStderr(rest);
+        else this.logger.debug({ conversationId: entry.conversationId }, redactSecrets(rest));
+      }
+    })().catch(() => undefined);
+    void Promise.all([stdoutDone, stderrDone, child.exited]).then(([, , exitCode]) => {
+      const code = child.signalCode === null ? exitCode : null;
       this.handleExit(
         entry,
-        `session supervisor exited with code ${String(code)}${signal === null ? '' : ` (${signal})`}`,
+        `session supervisor exited with code ${String(code)}${child.signalCode === null ? '' : ` (${child.signalCode})`}`,
       );
     });
   }
@@ -1006,14 +1020,23 @@ export class SessionSandboxes {
 
   private write(entry: SessionEntry, frame: SupervisorInputFrame): boolean {
     const child = entry.sandbox?.child;
-    if (child === undefined || child.stdin.destroyed) {
+    if (child === undefined || child.exitCode !== null || child.signalCode !== null) {
       this.logger.warn(
         { conversationId: entry.conversationId, phase: sessionPhase(entry) },
         'session supervisor stdin is not writable',
       );
       return false;
     }
-    child.stdin.write(`${JSON.stringify(frame)}\n`);
+    const written = child.stdin.write(`${JSON.stringify(frame)}\n`);
+    if (!written) return false;
+    if (written instanceof Promise) {
+      void written.catch((err: unknown) => {
+        this.logger.warn(
+          { err, conversationId: entry.conversationId, phase: sessionPhase(entry) },
+          'session supervisor stdin error',
+        );
+      });
+    }
     return true;
   }
 

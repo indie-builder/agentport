@@ -1,11 +1,18 @@
-import type { ChildProcess } from 'node:child_process';
 import { RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT } from '@agentport/shared';
 
-export type SpawnFn = (
-  command: string,
-  args: readonly string[],
-  options: { stdio: ['ignore', 'pipe', 'pipe'] },
-) => ChildProcess;
+export interface DockerProcess {
+  stdout: ReadableStream<Uint8Array>;
+  stderr: ReadableStream<Uint8Array>;
+  exited: Promise<number>;
+  signalCode: NodeJS.Signals | number | null;
+  kill(signal?: NodeJS.Signals | number): void;
+}
+
+export type SpawnFn = (command: string, args: readonly string[]) => DockerProcess;
+
+export function spawnDocker(command: string, args: readonly string[]): DockerProcess {
+  return Bun.spawn([command, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+}
 
 interface CommandResult {
   code: number | null;
@@ -20,6 +27,19 @@ export function keepTail(text: string): string {
     : text;
 }
 
+async function readChunks(
+  stream: ReadableStream<Uint8Array>,
+  onChunk: (chunk: string) => void,
+): Promise<void> {
+  const decoder = new TextDecoder();
+  for await (const chunk of stream) {
+    const text = decoder.decode(chunk, { stream: true });
+    if (text !== '') onChunk(text);
+  }
+  const rest = decoder.decode();
+  if (rest !== '') onChunk(rest);
+}
+
 export function runDocker(
   spawnFn: SpawnFn,
   args: string[],
@@ -30,31 +50,38 @@ export function runDocker(
     let stdout = '';
     let stderr = '';
     let aborted = false;
-    const child = spawnFn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.setEncoding('utf8');
-    child.stderr?.setEncoding('utf8');
-    child.stdout?.on('data', (chunk: string) => {
-      stdout = keepTail(stdout + chunk);
-      onOutput?.(chunk);
-    });
-    child.stderr?.on('data', (chunk: string) => {
-      stderr = keepTail(stderr + chunk);
-      onOutput?.(chunk);
-    });
+    const child = spawnFn('docker', args);
     const onAbort = (): void => {
       aborted = true;
       child.kill('SIGTERM');
     };
     signal?.addEventListener('abort', onAbort, { once: true });
     const finish = (): void => signal?.removeEventListener('abort', onAbort);
-    child.once('error', (err) => {
-      finish();
-      reject(err);
-    });
-    child.once('close', (code) => {
-      finish();
-      resolveCommand({ code, aborted, stdout, stderr });
-    });
     if (signal?.aborted) onAbort();
+    Promise.all([
+      readChunks(child.stdout, (chunk) => {
+        stdout = keepTail(stdout + chunk);
+        onOutput?.(chunk);
+      }),
+      readChunks(child.stderr, (chunk) => {
+        stderr = keepTail(stderr + chunk);
+        onOutput?.(chunk);
+      }),
+      child.exited,
+    ]).then(
+      ([, , exitCode]) => {
+        finish();
+        resolveCommand({
+          code: child.signalCode === null ? exitCode : null,
+          aborted,
+          stdout,
+          stderr,
+        });
+      },
+      (err) => {
+        finish();
+        reject(err);
+      },
+    );
   });
 }

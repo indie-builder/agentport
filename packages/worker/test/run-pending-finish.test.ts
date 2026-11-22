@@ -48,6 +48,10 @@ interface SupervisorChild extends EventEmitter {
   stdin: PassThrough;
   stdout: PassThrough;
   stderr: PassThrough;
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | null;
+  exited: Promise<number>;
+  finish(code: number): void;
 }
 
 const sandboxState = {
@@ -65,6 +69,27 @@ class FakeSandboxProvider implements SandboxProvider {
       readonly stdin = new PassThrough();
       readonly stdout = new PassThrough();
       readonly stderr = new PassThrough();
+      exitCode: number | null = null;
+      signalCode: NodeJS.Signals | null = null;
+      readonly exited: Promise<number>;
+      private settleExited!: (code: number) => void;
+      private exitedOnce = false;
+
+      constructor() {
+        super();
+        this.exited = new Promise<number>((resolve) => {
+          this.settleExited = resolve;
+        });
+      }
+
+      finish(code: number): void {
+        if (this.exitedOnce) return;
+        this.exitedOnce = true;
+        this.exitCode = code;
+        this.stdout.end();
+        this.stderr.end();
+        this.settleExited(code);
+      }
     })();
     sandboxState.child = child;
     let buffer = '';
@@ -127,6 +152,7 @@ class FakeSandboxProvider implements SandboxProvider {
 
   async destroyById(id: string): Promise<void> {
     sandboxState.destroyed.push(id);
+    sandboxState.child?.finish(0);
     if (sandboxState.destroyFailures > 0) {
       sandboxState.destroyFailures -= 1;
       throw new Error('docker rm -f failed');

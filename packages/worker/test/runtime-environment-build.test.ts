@@ -1,9 +1,6 @@
 import { describe, expect, it, jest } from 'bun:test';
-import type { ChildProcess } from 'node:child_process';
-import { EventEmitter } from 'node:events';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PassThrough } from 'node:stream';
 import {
   RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT,
   type RuntimeEnvironmentBuildJob,
@@ -16,7 +13,7 @@ import {
   type RuntimeEnvironmentBuildClaim,
   type RuntimeEnvironmentBuildStore,
 } from '../src/runtime-environments/build.js';
-import type { SpawnFn } from '../src/runtime-environments/command.js';
+import type { DockerProcess, SpawnFn } from '../src/runtime-environments/command.js';
 import { advanceTimersByTimeAsync } from './fixtures/native-test.js';
 
 const SANDBOX_IMAGE = 'repo/sandbox:dev';
@@ -40,41 +37,83 @@ interface Reply {
   onStart?: () => void;
 }
 
-type FakeChild = EventEmitter & {
-  stdout: PassThrough;
-  stderr: PassThrough;
-  kill: (signal?: NodeJS.Signals) => boolean;
-};
+interface FakeProcess extends DockerProcess {
+  writeStdout(chunk: string): void;
+  writeStderr(chunk: string): void;
+  finish(code: number): void;
+}
+
+function fakeProcess(): FakeProcess {
+  const encoder = new TextEncoder();
+  let stdoutController!: ReadableStreamDefaultController<Uint8Array>;
+  let stderrController!: ReadableStreamDefaultController<Uint8Array>;
+  const stdout = new ReadableStream<Uint8Array>({
+    start(controller) {
+      stdoutController = controller;
+    },
+  });
+  const stderr = new ReadableStream<Uint8Array>({
+    start(controller) {
+      stderrController = controller;
+    },
+  });
+  let settle!: (code: number) => void;
+  const exited = new Promise<number>((resolve) => {
+    settle = resolve;
+  });
+  let done = false;
+  let signalCode: NodeJS.Signals | number | null = null;
+  const finish = (code: number): void => {
+    if (done) return;
+    done = true;
+    stdoutController.close();
+    stderrController.close();
+    settle(code);
+  };
+  return {
+    stdout,
+    stderr,
+    exited,
+    get signalCode() {
+      return signalCode;
+    },
+    kill: (signal) => {
+      signalCode = signal ?? 'SIGKILL';
+      finish(signal === 'SIGKILL' ? 137 : 143);
+    },
+    writeStdout: (chunk) => {
+      stdoutController.enqueue(encoder.encode(chunk));
+    },
+    writeStderr: (chunk) => {
+      stderrController.enqueue(encoder.encode(chunk));
+    },
+    finish,
+  };
+}
 
 function fakeDocker(respond: (args: string[]) => Reply): {
   spawn: SpawnFn;
   commands: string[][];
-  buildxStarted: Promise<FakeChild>;
+  buildxStarted: Promise<FakeProcess>;
 } {
   const commands: string[][] = [];
-  let resolveBuildx!: (child: FakeChild) => void;
-  const buildxStarted = new Promise<FakeChild>((resolve) => {
+  let resolveBuildx!: (child: FakeProcess) => void;
+  const buildxStarted = new Promise<FakeProcess>((resolve) => {
     resolveBuildx = resolve;
   });
   const spawnFn: SpawnFn = (_command, args) => {
     commands.push([...args]);
-    const child = new EventEmitter() as FakeChild;
-    child.stdout = new PassThrough();
-    child.stderr = new PassThrough();
-    child.kill = () => {
-      queueMicrotask(() => child.emit('close', 137, null));
-      return true;
-    };
+    const child = fakeProcess();
     queueMicrotask(() => {
       const reply = respond([...args]);
       reply.onStart?.();
-      if (reply.stdout !== undefined) child.stdout.write(reply.stdout);
-      if (reply.stderr !== undefined) child.stderr.write(reply.stderr);
+      if (reply.stdout !== undefined) child.writeStdout(reply.stdout);
+      if (reply.stderr !== undefined) child.writeStderr(reply.stderr);
       if (args[0] === 'buildx') resolveBuildx(child);
       if (reply.holdOpen === true) return;
-      queueMicrotask(() => child.emit('close', reply.code ?? 0, null));
+      child.finish(reply.code ?? 0);
     });
-    return child as unknown as ChildProcess;
+    return child;
   };
   return { spawn: spawnFn, commands, buildxStarted };
 }
@@ -366,17 +405,17 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
         }),
       ]);
 
-      buildChild.stdout.write('first-step\n');
+      buildChild.writeStdout('first-step\n');
       await new Promise((resolve) => setImmediate(resolve));
       await advanceTimersByTimeAsync(1_000);
-      buildChild.stdout.write('late-step\n');
+      buildChild.writeStdout('late-step\n');
       await new Promise((resolve) => setImmediate(resolve));
       await advanceTimersByTimeAsync(1_000);
 
       expect(attempts).toBe(2);
       expect(calls.logs.map((entry) => entry.chunk).join('')).toContain('late-step');
 
-      buildChild.emit('close', 0, null);
+      buildChild.finish(0);
       await running;
     } finally {
       jest.useRealTimers();
@@ -450,13 +489,13 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
 
       await advanceTimersByTimeAsync(1_000);
       await advanceTimersByTimeAsync(1_000);
-      buildChild.stdout.write('late-step\n');
+      buildChild.writeStdout('late-step\n');
       await new Promise((resolve) => setImmediate(resolve));
       await advanceTimersByTimeAsync(1_000);
 
       expect(calls.logs.map((entry) => entry.chunk).join('')).toContain('late-step');
 
-      buildChild.emit('close', 0, null);
+      buildChild.finish(0);
       await running;
 
       expect(calls.complete).toHaveLength(1);

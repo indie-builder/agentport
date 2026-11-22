@@ -35,12 +35,18 @@ class FakeChild extends EventEmitter {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
+  readonly exited: Promise<number>;
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
   input = '';
+  private settleExited!: (code: number) => void;
+  private exitedOnce = false;
 
   constructor() {
     super();
+    this.exited = new Promise<number>((resolve) => {
+      this.settleExited = resolve;
+    });
     this.stdin.setEncoding('utf8');
     this.stdin.on('data', (chunk: string) => {
       this.input += chunk;
@@ -48,9 +54,18 @@ class FakeChild extends EventEmitter {
     this.stdin.on('error', () => undefined);
   }
 
-  kill(signal: NodeJS.Signals = 'SIGKILL'): boolean {
+  finish(code: number | null, signal: NodeJS.Signals | null = null): void {
+    if (this.exitedOnce) return;
+    this.exitedOnce = true;
+    this.exitCode = signal === null ? code : null;
     this.signalCode = signal;
-    this.emit('close', null, signal);
+    this.stdout.end();
+    this.stderr.end();
+    this.settleExited(signal === null ? (code ?? 0) : 137);
+  }
+
+  kill(signal: NodeJS.Signals = 'SIGKILL'): boolean {
+    this.finish(null, signal);
     return true;
   }
 }
@@ -114,7 +129,7 @@ class FakeProvider implements SandboxProvider {
 
   async destroy(sandbox: Sandbox): Promise<void> {
     await this.destroyById(sandbox.id);
-    (sandbox as FakeSandbox).child.emit('close', 0, 'SIGTERM');
+    (sandbox as FakeSandbox).child.finish(0, 'SIGTERM');
   }
 
   async destroyById(id: string): Promise<void> {
@@ -577,7 +592,7 @@ describe('session sandboxes', () => {
 
     const first = await acquire(sessions, spec());
     await first.release({ reuse: true });
-    provider.childOf(first.sandboxId).emit('close', 1, null);
+    provider.childOf(first.sandboxId).finish(1);
     await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
 
     online.versionId = 'version_2';
@@ -621,13 +636,14 @@ describe('session sandboxes', () => {
     const provider = new FakeProvider();
     const sessions = await createManager(provider, 1_000);
     const lease = await acquire(sessions, spec());
-    await startRun(lease, provider, 'run_1');
+    const execution = await startRun(lease, provider, 'run_1');
 
     jest.useFakeTimers();
     await advanceTimersByTimeAsync(10_000);
     expect(provider.destroyed).toEqual([]);
 
     settle(provider.childOf(lease.sandboxId), 'run_1');
+    await execution.done;
     await lease.release({ reuse: true });
     await advanceTimersByTimeAsync(999);
     expect(provider.destroyed).toEqual([]);
@@ -767,7 +783,7 @@ describe('session sandboxes', () => {
     const lease = await acquire(sessions, spec());
     const execution = await startRun(lease, provider, 'run_1');
 
-    provider.childOf(lease.sandboxId).emit('close', 1, null);
+    provider.childOf(lease.sandboxId).finish(1);
 
     await expect(execution.done).resolves.toMatchObject({
       state: 'unconfirmed',
@@ -868,7 +884,7 @@ describe('session sandboxes', () => {
     await lease.release({ reuse: true });
     provider.holdDestroy = true;
 
-    provider.childOf('sandbox-1').emit('close', 0, null);
+    provider.childOf('sandbox-1').finish(0);
     await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
 
     const acquiring = acquire(sessions, spec());
@@ -899,7 +915,7 @@ describe('session sandboxes', () => {
     await lease.release({ reuse: true });
 
     provider.failing.add('sandbox-1');
-    provider.childOf('sandbox-1').emit('close', 1, null);
+    provider.childOf('sandbox-1').finish(1);
 
     await waitFor(() => expect(provider.destroyed).toEqual(['sandbox-1']));
     await new Promise((resolve) => setTimeout(resolve, 0));

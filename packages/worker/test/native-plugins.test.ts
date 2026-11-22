@@ -1,9 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { EventEmitter } from 'node:events';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PassThrough } from 'node:stream';
 import {
   NATIVE_PLUGINS_QUEUE,
   type NativePluginAction,
@@ -38,13 +36,58 @@ const { registerNativePlugins, runNativePluginAction } = await import('../src/na
 
 let workspacesDir = '';
 
-class FakeChild extends EventEmitter {
-  readonly stdin = new PassThrough();
-  readonly stdout = new PassThrough();
-  readonly stderr = new PassThrough();
+class FakeChild {
+  readonly stdin: { write: (chunk: string) => number; end: () => number };
+  readonly stdout: ReadableStream<Uint8Array>;
+  readonly stderr: ReadableStream<Uint8Array>;
   readonly signals: NodeJS.Signals[] = [];
+  readonly exited: Promise<number>;
+  signalCode: NodeJS.Signals | number | null = null;
+  exitCode: number | null = null;
+  private readonly encoder = new TextEncoder();
+  private readonly stdoutController!: ReadableStreamDefaultController<Uint8Array>;
+  private readonly stderrController!: ReadableStreamDefaultController<Uint8Array>;
+  private readonly settle!: (code: number) => void;
+  private done = false;
+
+  constructor() {
+    this.stdin = { write: () => 0, end: () => 0 };
+    this.stdout = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        this.stdoutController = controller;
+      },
+    });
+    this.stderr = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        this.stderrController = controller;
+      },
+    });
+    this.exited = new Promise<number>((resolve) => {
+      this.settle = resolve;
+    });
+  }
+
+  writeStdout(chunk: string): void {
+    this.stdoutController.enqueue(this.encoder.encode(chunk));
+  }
+
+  writeStderr(chunk: string): void {
+    this.stderrController.enqueue(this.encoder.encode(chunk));
+  }
+
+  finish(code: number): void {
+    if (this.done) return;
+    this.done = true;
+    this.exitCode = code;
+    this.stdoutController.close();
+    this.stderrController.close();
+    this.settle(code);
+  }
+
   kill(signal: NodeJS.Signals): boolean {
     this.signals.push(signal);
+    this.signalCode = signal;
+    this.finish(137);
     return true;
   }
 }
@@ -102,17 +145,17 @@ function deps(provider: FakeProvider['provider'], timeoutMs?: number): NativePlu
 function respondingChild(line: unknown, stderr = ''): FakeChild {
   const child = new FakeChild();
   child.stdin.write = (() => {
-    if (stderr) child.stderr.write(stderr);
-    child.stdout.write(`${JSON.stringify(line)}\n`);
-    child.emit('close', 0, null);
-    return true;
+    if (stderr) child.writeStderr(stderr);
+    child.writeStdout(`${JSON.stringify(line)}\n`);
+    child.finish(0);
+    return 0;
   }) as typeof child.stdin.write;
   return child;
 }
 
 function hangingChild(): FakeChild {
   const child = new FakeChild();
-  child.stdin.write = (() => true) as typeof child.stdin.write;
+  child.stdin.write = (() => 0) as typeof child.stdin.write;
   return child;
 }
 
@@ -249,11 +292,11 @@ describe('runNativePluginAction', () => {
     const child = new FakeChild();
     child.stdin.write = ((chunk: string) => {
       task = chunk;
-      child.stdout.write(
+      child.writeStdout(
         `${JSON.stringify({ ok: true, plugin: { pluginId: 'demo@fixture-market', version: '1' }, files: [] })}\n`,
       );
-      child.emit('close', 0, null);
-      return true;
+      child.finish(0);
+      return 0;
     }) as typeof child.stdin.write;
     const fake = fakeProvider(() => child);
 
@@ -399,8 +442,8 @@ describe('runNativePluginAction', () => {
   it('rejects output over the byte limit', async () => {
     const child = new FakeChild();
     child.stdin.write = (() => {
-      child.stdout.write(`${'x'.repeat(9 * 1024 * 1024)}\n`);
-      return true;
+      child.writeStdout(`${'x'.repeat(9 * 1024 * 1024)}\n`);
+      return 0;
     }) as typeof child.stdin.write;
     const fake = fakeProvider(() => child);
 
@@ -432,13 +475,13 @@ describe('registerNativePlugins close', () => {
         }) as unknown as Sandbox,
     );
     let jobFinished = false;
-    child.once('close', () => {
+    void child.exited.then(() => {
       jobFinished = true;
     });
     const finishedAtDestroy: boolean[] = [];
     docker.destroyAll.mockImplementation(async () => {
       finishedAtDestroy.push(jobFinished);
-      child.emit('close', 137, 'SIGKILL');
+      child.finish(137);
     });
     const queue = await enqueueInstall();
     const handle = await registerNativePlugins(config(), async () => RUNTIME);
