@@ -16,7 +16,11 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import sharp, { type Metadata } from 'sharp';
 import { z } from 'zod';
-import { hermeticQueryOptions, runOneShotSdkQuery } from '../one-shot-sdk.js';
+import {
+  hermeticQueryOptions,
+  ONE_SHOT_NO_RESULT_MESSAGE,
+  runOneShotSdkQuery,
+} from '../one-shot-sdk.js';
 
 type ImageDescription = {
   ocr: string | null;
@@ -143,7 +147,7 @@ async function runAction(input: {
     });
     if (outcome.status === 'aborted') throw new Error('图片描述已取消');
     if (outcome.status === 'no_result') {
-      return { text: null, warning: `${input.action}: SDK 没有返回结果` };
+      return { text: null, warning: `${input.action}: ${ONE_SHOT_NO_RESULT_MESSAGE}` };
     }
     if (outcome.status === 'failure') {
       return { text: null, warning: `${input.action}: ${outcome.message}` };

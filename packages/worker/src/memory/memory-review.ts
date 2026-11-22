@@ -35,7 +35,11 @@ import { checkOutboundPolicy } from '../content-policy.js';
 import { createWorkerLogger } from '../logger.js';
 import { resolveProviderUpstreams } from '../model-providers.js';
 import type { ModelProxy } from '../model-proxy.js';
-import { hermeticQueryOptions } from '../one-shot-sdk.js';
+import {
+  hermeticQueryOptions,
+  ONE_SHOT_NO_RESULT_MESSAGE,
+  ONE_SHOT_NO_STRUCTURED_OUTPUT_MESSAGE,
+} from '../one-shot-sdk.js';
 import { claimRunTerminal, notifyRunTerminal } from '../runs/run-finish.js';
 import { modelProxyUpstream, sdkEnv } from '../upstream.js';
 
@@ -489,11 +493,11 @@ export async function executeMemoryReview(
         }
       }
       if (controller.signal.aborted) throw new MemoryReviewCancelled();
-      if (!sawResult) throw new Error('SDK 没有返回结果');
+      if (!sawResult) throw new Error(ONE_SHOT_NO_RESULT_MESSAGE);
       if (failure !== null) throw new Error(failure);
       if (success === undefined) throw new Error('SDK 没有返回成功结果');
       if (success.structured_output === undefined || success.structured_output === null) {
-        throw new Error('模型没有返回结构化结果');
+        throw new Error(ONE_SHOT_NO_STRUCTURED_OUTPUT_MESSAGE);
       }
       const parsed = memoryReviewProposalSchema.safeParse(success.structured_output);
       if (!parsed.success) {
