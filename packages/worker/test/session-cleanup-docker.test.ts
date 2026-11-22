@@ -1,10 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import {
   SESSION_CLEANUP_REQUEST_CHANNEL,
@@ -25,8 +23,8 @@ import { type IsolatedRedis, startRedisContainer, stopRedisContainer } from './g
 import { createIsolatedDatabase } from './isolated-db.js';
 
 const BASE_IMAGE = process.env.SANDBOX_IMAGE ?? 'agentport/sandbox:dev';
-const IMAGE_TAG = `session-cleanup-lifecycle-test-${randomUUID().slice(0, 8)}`;
-const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
+const IMAGE_TAG = `session-cleanup-lifecycle-test-${crypto.randomUUID().slice(0, 8)}`;
+const REPO_ROOT = Bun.fileURLToPath(new URL('../../..', import.meta.url));
 let REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:1/9';
 let isolatedRedis: IsolatedRedis | null = null;
 const REQUEST_CHANNEL = SESSION_CLEANUP_REQUEST_CHANNEL;
@@ -74,7 +72,7 @@ class FlakyProvider implements SandboxProvider {
 }
 
 async function requestClose(targets: SessionCleanupTarget[]): Promise<void> {
-  const requestId = randomUUID();
+  const requestId = crypto.randomUUID();
   const channel = sessionCleanupAckChannel(requestId);
   const subscriber = new RedisClient(REDIS_URL);
   const publisher = new RedisClient(REDIS_URL);
@@ -225,7 +223,7 @@ async function setup(failDestroy = false): Promise<Incident> {
       ...dirs,
     },
     new AbortController().signal,
-    `run-${randomUUID()}`,
+    `run-${crypto.randomUUID()}`,
   );
   await lease.release({ reuse: true });
   const sandboxId = lease.sandboxId;

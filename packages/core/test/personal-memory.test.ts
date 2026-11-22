@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { createHash } from 'node:crypto';
 import * as fsActual from 'node:fs/promises';
 import {
   link,
@@ -42,7 +41,11 @@ afterEach(async () => {
 });
 
 function expectedDir(businessId: string): string {
-  return join(root, '_users', createHash('sha256').update(businessId, 'utf8').digest('hex'));
+  return join(
+    root,
+    '_users',
+    new Bun.CryptoHasher('sha256').update(businessId, 'utf8').digest('hex'),
+  );
 }
 
 describe('personal memory projection', () => {

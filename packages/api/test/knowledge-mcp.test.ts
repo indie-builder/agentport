@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -85,7 +84,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
     content: string,
     markdown = content,
   ) {
-    const documentId = `kdoc_${randomBytes(6).toString('hex')}`;
+    const documentId = `kdoc_${crypto.getRandomValues(new Uint8Array(6)).toHex()}`;
     const versionId = `kdv_${documentId.slice(5)}`;
     await app.client.unsafe(
       `insert into knowledge_documents
@@ -113,7 +112,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   }
 
   async function seedWikiPage(input: { published: boolean; markdown?: string }) {
-    const pageId = `kwp_${randomBytes(6).toString('hex')}`;
+    const pageId = `kwp_${crypto.getRandomValues(new Uint8Array(6)).toHex()}`;
     const versionId = `kwv_${pageId.slice(4)}`;
     const markdown = input.markdown ?? '线上 Wiki 正文';
     await app.client.unsafe(
@@ -204,7 +203,9 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
       });
       await app.db.insert(schema.agentServers).values({ agentId: childId, serverId });
     }
-    const token = randomBytes(32).toString('base64url');
+    const token = crypto
+      .getRandomValues(new Uint8Array(32))
+      .toBase64({ alphabet: 'base64url', omitPadding: true });
     const { runId: id } = await seedRun(app, agentId, { mcpTokenHash: hashMcpToken(token) });
     runIds.push(id);
     return { token, runId: id };
@@ -231,7 +232,9 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
       })
     ).json<{ id: string }>();
 
-    runToken = randomBytes(32).toString('base64url');
+    runToken = crypto
+      .getRandomValues(new Uint8Array(32))
+      .toBase64({ alphabet: 'base64url', omitPadding: true });
     const seeded = await seedRun(app, agent.id, {
       runId: unique('kb-run'),
       mcpTokenHash: hashMcpToken(runToken),
@@ -478,7 +481,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   });
 
   it('reads all FAQ answers from the published version', async () => {
-    const documentId = `kdoc_${randomBytes(6).toString('hex')}`;
+    const documentId = `kdoc_${crypto.getRandomValues(new Uint8Array(6)).toHex()}`;
     const versionId = `kdv_${documentId.slice(5)}`;
     await app.client.unsafe(
       `insert into knowledge_documents
@@ -521,7 +524,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   });
 
   it('accepts FAQ policy args and returns faq/directAnswer on the search wire', async () => {
-    const documentId = `kdoc_${randomBytes(6).toString('hex')}`;
+    const documentId = `kdoc_${crypto.getRandomValues(new Uint8Array(6)).toHex()}`;
     const versionId = `kdv_${documentId.slice(5)}`;
     await app.client.unsafe(
       `insert into knowledge_documents
@@ -603,7 +606,7 @@ describe.skipIf(!ready)('knowledge MCP endpoint', () => {
   });
 
   it('reads every FAQ answer across code-point pages without splitting emoji', async () => {
-    const documentId = `kdoc_${randomBytes(6).toString('hex')}`;
+    const documentId = `kdoc_${crypto.getRandomValues(new Uint8Array(6)).toHex()}`;
     const versionId = `kdv_${documentId.slice(5)}`;
     const question = '表情问答';
     const answers = [`${'😀'.repeat(6_000)}甲`, `${'😀'.repeat(6_000)}乙`];

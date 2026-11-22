@@ -1,5 +1,4 @@
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
-import { randomBytes } from 'node:crypto';
 import { createDb } from '../src/client.js';
 import * as knowledge from '../src/repo/knowledge.js';
 import * as servers from '../src/repo/servers.js';
@@ -31,7 +30,7 @@ afterAll(async () => {
 async function seedVersion() {
   const profile = await knowledge.createModelProfile(db, {
     kind: 'embedding',
-    name: `chunk-summary-${randomBytes(4).toString('hex')}`,
+    name: `chunk-summary-${crypto.getRandomValues(new Uint8Array(4)).toHex()}`,
     endpointUrl: 'http://127.0.0.1:1',
     model: 'test',
     dimensions: 1024,
@@ -40,7 +39,7 @@ async function seedVersion() {
   });
   profileId = profile.id;
   const server = await servers.createServer(db, {
-    name: `chunk-summary-${randomBytes(4).toString('hex')}`,
+    name: `chunk-summary-${crypto.getRandomValues(new Uint8Array(4)).toHex()}`,
     kind: 'knowledge' as never,
     description: '',
     config: {},
@@ -48,7 +47,7 @@ async function seedVersion() {
   });
   serverId = server.id;
   const base = await knowledge.createBase(db, {
-    slug: `chunk-summary-${randomBytes(4).toString('hex')}`,
+    slug: `chunk-summary-${crypto.getRandomValues(new Uint8Array(4)).toHex()}`,
     name: 'Chunk summary',
     description: '',
     serverId: server.id,
@@ -167,7 +166,7 @@ describe.skipIf(!ready)('knowledge chunk summaries', () => {
 
   it('listChunkSummaries 只投影展示字段，列级权限下也能读', async () => {
     const { chunk, versionId } = await seedChunk('令牌 轮换');
-    const role = `kchk_reader_${randomBytes(4).toString('hex')}`;
+    const role = `kchk_reader_${crypto.getRandomValues(new Uint8Array(4)).toHex()}`;
     const readerPassword = 'test-reader-password';
     await client.unsafe(`create role ${role} login password '${readerPassword}'`);
     await client.unsafe(

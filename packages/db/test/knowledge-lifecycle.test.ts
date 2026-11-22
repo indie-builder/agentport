@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { createDb } from '../src/client.js';
@@ -18,7 +17,7 @@ const ready = await client.unsafe('select 1').then(
   () => false,
 );
 
-const suffix = (): string => randomUUID().replaceAll('-', '').slice(0, 8);
+const suffix = (): string => crypto.randomUUID().replaceAll('-', '').slice(0, 8);
 
 let serverId = '';
 let profileId = '';

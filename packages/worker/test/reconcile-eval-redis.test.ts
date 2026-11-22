@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it, mock } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { createDb, newId, schema } from '@agentport/db';
 import type { EvalRunJob } from '@agentport/shared';
 import { Queue, Worker } from 'bullmq';
@@ -60,7 +59,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
 
   function makeQueue(): { queue: Queue<EvalRunJob>; jobIds: string[] } {
     const redis = bunRedisConnection(redisUrl);
-    const queue = new Queue<EvalRunJob>(`reconcile-eval-${randomUUID()}`, {
+    const queue = new Queue<EvalRunJob>(`reconcile-eval-${crypto.randomUUID()}`, {
       connection: redis.connection,
     });
     const handle = { queue, jobIds: [] as string[], close: redis.close };
@@ -73,7 +72,7 @@ describe.skipIf(!ready)('reconcileOrphanedEvalRuns against a live eval queue', (
     const evalRunId = newId('evalRun');
     await db.insert(schema.agents).values({
       id: agentId,
-      slug: `reconcile-eval-redis-${randomUUID().slice(0, 8)}`,
+      slug: `reconcile-eval-redis-${crypto.randomUUID().slice(0, 8)}`,
       name: 'reconcile-eval-redis',
       model: 'test',
       createdBy: 'reconcile-eval-user',

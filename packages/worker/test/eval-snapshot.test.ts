@@ -1,5 +1,4 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { inspect } from 'node:util';
 import { createDb, newId, repo, schema } from '@agentport/db';
 import type { EvalCaseSnapshot } from '@agentport/db/schema';
@@ -81,7 +80,7 @@ async function seed(options: {
   finishedAt?: Date;
   timeoutMs?: number;
 }) {
-  const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+  const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 12);
   const businessId = `eval-snap-${suffix}`;
   const roleId = newId('role');
   await db.insert(schema.authUsers).values({
@@ -171,7 +170,7 @@ async function withTrigger(
   bodySql: string,
   run: () => Promise<void>,
 ): Promise<void> {
-  const fnName = `eval_snap_trig_${randomUUID().replaceAll('-', '').slice(0, 10)}`;
+  const fnName = `eval_snap_trig_${crypto.randomUUID().replaceAll('-', '').slice(0, 10)}`;
   await dbHandle.client.unsafe(`
     create or replace function ${fnName}() returns trigger language plpgsql as $fn$
     begin

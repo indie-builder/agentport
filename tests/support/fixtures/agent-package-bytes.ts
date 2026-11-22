@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { newId } from '../../../packages/db/src/index.js';
 import { client as sql } from './database.js';
 
@@ -10,7 +9,7 @@ interface Fixture {
 }
 
 export async function seed(prompt: string): Promise<Fixture> {
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const fixture: Fixture = {
     id: newId('agent'),
     slug: `e2e-pkg-${suffix}`,

@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { decryptSecrets, prepareOutputDraft, publishOutputSnapshot } from '@agentport/core';
@@ -24,7 +23,8 @@ import { FakeSessionCloser, startSessionCleanupResponder } from './session-clean
 const ready = await infraReady;
 const isolated = ready ? await createIsolatedDatabase('output_shares') : null;
 
-const sha256 = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
+const sha256 = (value: string | Buffer): string =>
+  new Bun.CryptoHasher('sha256').update(value).digest('hex');
 
 describe.skipIf(!ready || isolated === null)('output shares', () => {
   let app: TestApp;
@@ -293,7 +293,9 @@ describe.skipIf(!ready || isolated === null)('output shares', () => {
     const token = tokenOf(share);
     const base = `/api/public/output-shares/${idOf(share)}`;
 
-    const wrongToken = randomBytes(32).toString('base64url');
+    const wrongToken = crypto
+      .getRandomValues(new Uint8Array(32))
+      .toBase64({ alphabet: 'base64url', omitPadding: true });
     expectProblem(await publicGet(base, wrongToken), 'NOT_FOUND');
     expectProblem(await publicGet(`${base}/content`, wrongToken), 'NOT_FOUND');
     expectProblem(await publicGet(`${base}/download`, wrongToken), 'NOT_FOUND');

@@ -1,10 +1,9 @@
-import { randomUUID } from 'node:crypto';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { fixture as runFixture } from './support/fixture.js';
 
 async function createAgent(browser: Browser): Promise<{ id: string }> {
-  const slug = `e2e-chat-history-${randomUUID().slice(0, 8)}`;
+  const slug = `e2e-chat-history-${crypto.randomUUID().slice(0, 8)}`;
   return browser.evaluate(async (value: string) => {
     const res = await fetch('/api/agents', {
       method: 'POST',

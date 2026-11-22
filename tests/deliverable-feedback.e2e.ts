@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Browser } from '@e2e-dev/web';
@@ -20,7 +19,7 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function uniqueSuffix(): string {
-  return `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`;
+  return `${Date.now().toString(36)}${crypto.randomUUID().slice(0, 4)}`;
 }
 
 async function apiJson<T>(

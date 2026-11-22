@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { RunFailure } from '@agentport/core';
@@ -216,7 +215,7 @@ describe('isRetryable', () => {
 
 describe.skipIf(!ready)('runInSandbox event budgets', () => {
   it('keeps complete messages after transient deltas exhaust the display budget', async () => {
-    const runId = `run-limits-${randomUUID()}`;
+    const runId = `run-limits-${crypto.randomUUID()}`;
     const lines: ChatEvent[] = [];
     for (let index = 0; index < 2_050; index += 1) {
       lines.push({ type: 'text_delta', text: 'x', blockIndex: 0 });
@@ -257,7 +256,7 @@ describe.skipIf(!ready)('runInSandbox event budgets', () => {
   });
 
   it('fails a succeeded run when the persisted event count overflows', async () => {
-    const runId = `run-limits-${randomUUID()}`;
+    const runId = `run-limits-${crypto.randomUUID()}`;
     const lines: ChatEvent[] = [];
     for (let index = 0; index < 2_050; index += 1) {
       lines.push({ type: 'assistant_text', text: 'x', blockIndex: 0 });
@@ -311,7 +310,7 @@ describe.skipIf(!ready)('runInSandbox event budgets', () => {
   });
 
   it('fails a succeeded run when the persisted bytes overflow below the event count limit', async () => {
-    const runId = `run-limits-${randomUUID()}`;
+    const runId = `run-limits-${crypto.randomUUID()}`;
     const chunk = 'x'.repeat(7_000_000);
     const lines: ChatEvent[] = [];
     for (let index = 0; index < 5; index += 1) {
@@ -344,7 +343,7 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
 
   it('keeps a succeeded run complete without releasing its lease', async () => {
     const { logger, warnings } = recordingLogger();
-    const runId = `run-cleanup-${randomUUID()}`;
+    const runId = `run-cleanup-${crypto.randomUUID()}`;
     const lines: ChatEvent[] = [
       { type: 'assistant_text', text: '完成', blockIndex: 0, sdkUuid: 'msg-1' },
       {
@@ -383,7 +382,7 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
   });
 
   it('reports no cleanupError when the sandbox stopped cleanly', async () => {
-    const runId = `run-cleanup-${randomUUID()}`;
+    const runId = `run-cleanup-${crypto.randomUUID()}`;
     const { outcome } = await runWith([{ type: 'run_finished', status: 'succeeded' }], runId);
 
     expect(outcome.cleanupError).toBeUndefined();
@@ -395,7 +394,7 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
   });
 
   it('keeps an agent failure, its error and budget when cleanup fails', async () => {
-    const runId = `run-cleanup-${randomUUID()}`;
+    const runId = `run-cleanup-${crypto.randomUUID()}`;
     const lines: ChatEvent[] = [
       {
         type: 'run_finished',
@@ -422,7 +421,7 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
   });
 
   it('keeps a timeout and its error when cleanup fails', async () => {
-    const runId = `run-cleanup-${randomUUID()}`;
+    const runId = `run-cleanup-${crypto.randomUUID()}`;
     const { outcome } = await runWith([], runId, {
       destroy: failingDestroy,
       timeoutMs: 20,
@@ -440,7 +439,7 @@ describe.skipIf(!ready)('runInSandbox cleanup failures', () => {
   });
 
   it('does not retry an uncertain execution when cleanup fails', async () => {
-    const runId = `run-cleanup-${randomUUID()}`;
+    const runId = `run-cleanup-${crypto.randomUUID()}`;
     const { outcome } = await runWith([], runId, {
       destroy: failingDestroy,
       finish: (child) => child.emit('error', new Error('docker run failed')),

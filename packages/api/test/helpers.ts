@@ -1,9 +1,7 @@
 import { expect } from 'bun:test';
-import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { createDb } from '@agentport/db';
 import {
   type Account,
@@ -142,7 +140,7 @@ export function requestZip(
 /** 默认管理员账户的稳定业务 ID；直接落库的测试夹具用工位一致的主体。 */
 export const ADMIN_BUSINESS_ID = BOOTSTRAP_ADMIN_BUSINESS_ID;
 
-const SUFFIX = randomBytes(4).toString('hex');
+const SUFFIX = crypto.getRandomValues(new Uint8Array(4)).toHex();
 let counter = 0;
 
 /** 合法 slug/name：小写字母、数字、- 和 _。 */
@@ -448,7 +446,7 @@ export async function waitFor(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return true;
-    await delay(25);
+    await Bun.sleep(25);
   }
   return false;
 }

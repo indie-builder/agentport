@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Browser } from '@e2e-dev/web';
@@ -181,7 +181,7 @@ test('integrations 外部令牌触发运行并收到签名回调，重复事件�
   await app.open('/');
   expect(await browser.evaluate(() => location.origin)).toBe(contract.appUrl);
 
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const agent = await apiCall<{ id: string }>(browser, 'POST', '/api/agents', {
     slug: `e2e-integrations-${suffix}`,
     name: `E2E 集成 ${suffix}`,
@@ -265,7 +265,7 @@ test('integrations 外部令牌触发运行并收到签名回调，重复事件�
     expect(tokenEntries.some((entry) => entry.id === token.body.id)).toBe(true);
 
     const message = `E2E-INTEGRATIONS-${suffix}`;
-    const idempotencyKey = randomUUID();
+    const idempotencyKey = crypto.randomUUID();
     const first = await externalCall(
       'POST',
       '/api/v1/runs',
@@ -351,7 +351,7 @@ test('integrations 外部令牌触发运行并收到签名回调，重复事件�
     expect(inbound.body.secret.startsWith('whsec_')).toBe(true);
     endpointIds.push(inbound.body.id);
 
-    const eventId = `evt-${randomUUID()}`;
+    const eventId = `evt-${crypto.randomUUID()}`;
     const inboundBody = JSON.stringify({ eventId, message: `E2E-INBOUND-${suffix}` });
     const inboundTimestamp = Date.now().toString();
     const inboundHeaders = {
@@ -382,7 +382,7 @@ test('integrations 外部令牌触发运行并收到签名回调，重复事件�
     expect(inboundReplayed.runId).toBe(inboundAccepted.runId);
     expect(await runCount(browser, agentId)).toBe(runsAfterFirstInbound);
 
-    const mismatchEventId = `evt-${randomUUID()}`;
+    const mismatchEventId = `evt-${crypto.randomUUID()}`;
     const mismatchBody = JSON.stringify({
       eventId: mismatchEventId,
       message: `E2E-INBOUND-MISMATCH-${suffix}`,
@@ -395,13 +395,13 @@ test('integrations 外部令牌触发运行并收到签名回调，重复事件�
         'content-type': 'application/json',
         'x-agentport-timestamp': mismatchTimestamp,
         'x-agentport-signature': sign(inbound.body.secret, mismatchTimestamp, mismatchBody),
-        'x-idempotency-key': randomUUID(),
+        'x-idempotency-key': crypto.randomUUID(),
       },
       mismatchBody,
     );
     expect(mismatchedKey.status).toBe(400);
 
-    const conflictEventId = `evt-${randomUUID()}`;
+    const conflictEventId = `evt-${crypto.randomUUID()}`;
     const conflictFirstBody = JSON.stringify({
       eventId: conflictEventId,
       message: `E2E-INBOUND-CONFLICT-A-${suffix}`,
@@ -447,7 +447,7 @@ test('integrations 外部令牌触发运行并收到签名回调，重复事件�
     expect(await runCount(browser, agentId)).toBe(runsAfterConflictFirst);
 
     const wrongTimestamp = Date.now().toString();
-    const wrongBody = JSON.stringify({ eventId: `evt-${randomUUID()}`, message });
+    const wrongBody = JSON.stringify({ eventId: `evt-${crypto.randomUUID()}`, message });
     const wrongSignature = await externalCall(
       'POST',
       `/api/webhooks/inbound/${inbound.body.id}`,
@@ -472,7 +472,7 @@ test('integrations 外部令牌触发运行并收到签名回调，重复事件�
       {
         authorization: `Bearer ${readOnly.body.token}`,
         'content-type': 'application/json',
-        'idempotency-key': randomUUID(),
+        'idempotency-key': crypto.randomUUID(),
       },
       JSON.stringify({ agentId, message }),
     );
@@ -481,7 +481,7 @@ test('integrations 外部令牌触发运行并收到签名回调，重复事件�
     const anonymous = await externalCall(
       'POST',
       '/api/v1/runs',
-      { 'content-type': 'application/json', 'idempotency-key': randomUUID() },
+      { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() },
       JSON.stringify({ agentId, message }),
     );
     expect(anonymous.status).toBe(401);

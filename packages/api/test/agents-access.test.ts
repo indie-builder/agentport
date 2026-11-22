@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,9 +51,9 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     roles: string[];
     disabled?: boolean;
   }): Promise<SeededAccount> => {
-    const businessId = `biz-${input.label}-${randomUUID().slice(0, 8)}`;
-    const username = `user-${input.label}-${randomUUID().slice(0, 8)}`;
-    const authUserId = randomUUID();
+    const businessId = `biz-${input.label}-${crypto.randomUUID().slice(0, 8)}`;
+    const username = `user-${input.label}-${crypto.randomUUID().slice(0, 8)}`;
+    const authUserId = crypto.randomUUID();
     await app.client.unsafe(
       `insert into "user" (id, name, email, email_verified, username, business_id, disabled, created_at, updated_at)
        values ($1, $2, $3, true, $4, $5, $6, now(), now())`,
@@ -70,7 +69,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
     await app.client.unsafe(
       `insert into account (id, account_id, provider_id, user_id, password, created_at, updated_at)
        values ($1, $2, 'credential', $3, $4, now(), now())`,
-      [randomUUID(), authUserId, authUserId, await hash(PASSWORD)],
+      [crypto.randomUUID(), authUserId, authUserId, await hash(PASSWORD)],
     );
     for (const roleId of input.roles) {
       await app.client.unsafe('insert into user_roles (business_id, role_id) values ($1, $2)', [
@@ -465,7 +464,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
 
     const cantRead = await makeMaintainer(
       'cant-read',
-      await createRole(`cant-read-${randomUUID().slice(0, 6)}`, [
+      await createRole(`cant-read-${crypto.randomUUID().slice(0, 6)}`, [
         { permissionId: 'agents.read', scope: 'maintained_agents' },
         { permissionId: 'agents.config.update', scope: 'maintained_agents' },
         { permissionId: 'agents.config.read', scope: 'authorized_agents' },
@@ -481,7 +480,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
 
     const cantWrite = await makeMaintainer(
       'cant-write',
-      await createRole(`cant-write-${randomUUID().slice(0, 6)}`, [
+      await createRole(`cant-write-${crypto.randomUUID().slice(0, 6)}`, [
         { permissionId: 'agents.read', scope: 'maintained_agents' },
         { permissionId: 'agents.config.read', scope: 'maintained_agents' },
         { permissionId: 'agents.config.update', scope: 'authorized_agents' },
@@ -521,7 +520,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
 
     const matched = await makeMaintainer(
       'matched',
-      await createRole(`matched-${randomUUID().slice(0, 6)}`, [
+      await createRole(`matched-${crypto.randomUUID().slice(0, 6)}`, [
         { permissionId: 'agents.read', scope: 'maintained_agents' },
         { permissionId: 'agents.config.read', scope: 'maintained_agents' },
         { permissionId: 'agents.config.update', scope: 'maintained_agents' },
@@ -543,7 +542,7 @@ describe.skipIf(!ready || isolated === null)('agents access control', () => {
   });
 
   it('requires both the declared leaf and the binding leaf on a combined patch', async () => {
-    const updateRole = await createRole(`update-only-${randomUUID().slice(0, 6)}`, [
+    const updateRole = await createRole(`update-only-${crypto.randomUUID().slice(0, 6)}`, [
       { permissionId: 'agents.read', scope: 'maintained_agents' },
       { permissionId: 'agents.config.read', scope: 'maintained_agents' },
       { permissionId: 'agents.config.update', scope: 'maintained_agents' },

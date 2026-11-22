@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -72,7 +71,7 @@ async function publishedSnapshot(runId: string, files: Record<string, string>): 
       files: Object.entries(files).map(([path, content]) => ({
         path,
         size: Buffer.byteLength(content),
-        sha256: createHash('sha256').update(content).digest('hex'),
+        sha256: new Bun.CryptoHasher('sha256').update(content).digest('hex'),
         mediaType: 'text/markdown',
         changed: true,
       })),

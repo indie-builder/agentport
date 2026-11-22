@@ -1,10 +1,9 @@
-import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 import { fixture as runFixture } from './support/fixture.js';
 
-const targetOf = (label: string): string => `e2e-audit-${label}-${randomUUID()}`;
+const targetOf = (label: string): string => `e2e-audit-${label}-${crypto.randomUUID()}`;
 
 async function seedAudit(
   target: string,

@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,7 +49,7 @@ const AUDIO_FIXTURES = {
 } as const;
 
 function sha256(data: Buffer): string {
-  return createHash('sha256').update(data).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(data).digest('hex');
 }
 
 let app: TestApp;

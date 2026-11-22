@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { newId } from '../../../packages/db/src/index.js';
 import { client as sql } from './database.js';
 
@@ -59,7 +58,7 @@ export async function seedSpentRun(
   businessId: string,
   costUsd: string,
 ): Promise<{ conversationId: string; runId: string }> {
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const conversationId = newId('conversation');
   const runId = newId('run');
   const now = new Date();

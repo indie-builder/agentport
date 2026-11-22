@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -89,7 +88,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
         role: index === 0 ? ('user' as const) : ('assistant' as const),
         content: { type: 'text', text: `旧消息 ${index}` },
         createdAt: new Date(old.getTime() + index),
-        sdkMessageUuid: randomUUID(),
+        sdkMessageUuid: crypto.randomUUID(),
       })),
       {
         id: attachmentId,
@@ -98,7 +97,7 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
         role: 'user',
         createdAt: old,
         content: { type: 'text', text: '附件仍保留', attachments },
-        sdkMessageUuid: randomUUID(),
+        sdkMessageUuid: crypto.randomUUID(),
       },
       {
         id: newId('message'),
@@ -106,17 +105,17 @@ describe.skipIf(!isolated)('output retention through maintenance and HTTP fork',
         role: 'assistant',
         createdAt: old,
         content: { type: 'text', text: '无引用孤儿' },
-        sdkMessageUuid: randomUUID(),
+        sdkMessageUuid: crypto.randomUUID(),
       },
       {
         id: boundaryId,
         conversationId,
         role: 'user',
         content: { type: 'text', text: '较新续聊' },
-        sdkMessageUuid: randomUUID(),
+        sdkMessageUuid: crypto.randomUUID(),
       },
     ]);
-    const sessionId = randomUUID();
+    const sessionId = crypto.randomUUID();
     await app.client.unsafe('update conversations set sdk_session_id = $2 where id = $1', [
       conversationId,
       sessionId,

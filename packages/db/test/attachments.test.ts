@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { createIsolatedDatabase } from '../../worker/test/isolated-db.js';
 import { createDb } from '../src/client.js';
@@ -34,7 +33,7 @@ async function newAgent(): Promise<string> {
 }
 
 const attachment = (filename = 'notes.md') => ({
-  id: randomUUID(),
+  id: crypto.randomUUID(),
   filename,
   mimeType: 'text/markdown' as const,
   size: 5,
@@ -76,7 +75,7 @@ describe.skipIf(!(ready && isolated))('conversation attachment queries', () => {
 
     expect(await chat.findConversationAttachment(db, source, metadata.id)).toEqual(metadata);
     expect(await chat.findConversationAttachment(db, other, metadata.id)).toBeNull();
-    expect(await chat.findConversationAttachment(db, source, randomUUID())).toBeNull();
+    expect(await chat.findConversationAttachment(db, source, crypto.randomUUID())).toBeNull();
   });
 
   it('dedupes attachment ids across messages and ignores malformed metadata', async () => {

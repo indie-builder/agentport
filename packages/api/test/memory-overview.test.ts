@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -506,7 +505,7 @@ describe.skipIf(!ready)('agent memory overview', () => {
     const proposal = await request(app, {
       method: 'POST',
       url: '/api/memory-reviews',
-      headers: { cookie, 'idempotency-key': randomUUID() },
+      headers: { cookie, 'idempotency-key': crypto.randomUUID() },
       payload: {
         modelAgentId: limitId,
         target: { kind: 'agent_memory', agentId: limitId, name: 'fresh.md' },

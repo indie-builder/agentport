@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { type NativeQuestion, type RunQuestion, runStreamKey } from '@agentport/shared';
@@ -215,7 +214,7 @@ interface NativeSecretsRun {
 }
 
 async function runWithNativeSecrets(): Promise<NativeSecretsRun> {
-  const runId = `run-native-${randomUUID()}`;
+  const runId = `run-native-${crypto.randomUUID()}`;
   const store = questionStore(runId);
   const secret = 'sk-abcdefghijklmnop';
   const originalQuestion = `用 ${secret} 还是 A？`;
@@ -286,7 +285,7 @@ async function runWithNativeSecrets(): Promise<NativeSecretsRun> {
 
 describe('runInSandbox question flow', () => {
   it('persists the question, publishes its snapshot and writes the answer back once', async () => {
-    const runId = `run-question-${randomUUID()}`;
+    const runId = `run-question-${crypto.randomUUID()}`;
     const store = questionStore(runId);
     const requestId = 'req-1';
     let answered = false;
@@ -356,7 +355,7 @@ describe('runInSandbox question flow', () => {
   });
 
   it('keeps secrets in SDK stdin while SSE and history share the indexed projection', async () => {
-    const runId = `run-question-${randomUUID()}`;
+    const runId = `run-question-${crypto.randomUUID()}`;
     const store = questionStore(runId);
     const secret = ['sk-', 'test', 'A1b2C3d4E5f6G7h8'].join('');
     const originalQuestion = `选择 ${secret}？`;
@@ -503,7 +502,7 @@ describe('runInSandbox question flow', () => {
   });
 
   it('anchors the question deadline at sandbox start, not before creation', async () => {
-    const runId = `run-question-${randomUUID()}`;
+    const runId = `run-question-${crypto.randomUUID()}`;
     const store = questionStore(runId);
     const timeoutMs = 600;
 
@@ -525,7 +524,7 @@ describe('runInSandbox question flow', () => {
   });
 
   it('denies every pending question and fails promptly when polling rejects', async () => {
-    const runId = `run-question-${randomUUID()}`;
+    const runId = `run-question-${crypto.randomUUID()}`;
     const store = questionStore(runId);
     store.callbacks.list = async () => {
       throw new Error('db down');
@@ -554,7 +553,7 @@ describe('runInSandbox question flow', () => {
   });
 
   it('fails closed and surfaces the error when the question cannot be persisted', async () => {
-    const runId = `run-question-${randomUUID()}`;
+    const runId = `run-question-${crypto.randomUUID()}`;
     const requestId = 'req-1';
     const store = questionStore(runId);
     store.callbacks.request = async () => {
@@ -581,7 +580,7 @@ describe('runInSandbox question flow', () => {
   });
 
   it('closes pending questions on timeout without replaying any answer', async () => {
-    const runId = `run-question-${randomUUID()}`;
+    const runId = `run-question-${crypto.randomUUID()}`;
     const store = questionStore(runId);
     const requestId = 'req-1';
 
@@ -606,7 +605,7 @@ describe('runInSandbox question flow', () => {
   });
 
   it('does not let run_finished overtake an unfinished question write', async () => {
-    const runId = `run-question-${randomUUID()}`;
+    const runId = `run-question-${crypto.randomUUID()}`;
     const store = questionStore(runId);
     const requestId = 'req-1';
     const originalRequest = store.callbacks.request;
@@ -647,7 +646,7 @@ describe('runInSandbox question flow', () => {
   });
 
   it('refuses a question when the host has no store', async () => {
-    const runId = `run-question-${randomUUID()}`;
+    const runId = `run-question-${crypto.randomUUID()}`;
     const requestId = 'req-1';
 
     const { outcome, child } = await run(runId, (sandbox) => {
@@ -665,7 +664,7 @@ describe('runInSandbox question flow', () => {
   });
 
   it('counts question snapshots toward the persisted budget and fails after settle overflow', async () => {
-    const runId = `run-question-${randomUUID()}`;
+    const runId = `run-question-${crypto.randomUUID()}`;
     const store = questionStore(runId);
     const requestId = 'req-budget';
 

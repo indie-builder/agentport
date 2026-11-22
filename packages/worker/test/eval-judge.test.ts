@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -148,7 +147,7 @@ describe('gradeCase', () => {
   });
 
   it('llm 模式发送前对判分提示词脱敏', async () => {
-    const secret = `sk-live-eval-judge-${randomUUID()}`;
+    const secret = `sk-live-eval-judge-${crypto.randomUUID()}`;
     let sent = '';
     const queryFn: JudgeQueryFn = (params) => {
       sent = params.prompt;

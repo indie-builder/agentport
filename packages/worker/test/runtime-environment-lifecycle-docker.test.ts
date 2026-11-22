@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -217,7 +216,7 @@ function observe(
 
 function specFor(conversationId: string, root: string): SessionSandboxSpec {
   return {
-    agentId: `agent-${randomUUID()}`,
+    agentId: `agent-${crypto.randomUUID()}`,
     conversationId,
     runtimeEnvironmentId: environmentId,
     workspaceDir: join(root, 'workspace'),
@@ -239,14 +238,14 @@ describe.skipIf(!dockerReady || !baseImageReady || !dbReady)(
         ),
       );
 
-      environmentName = `lifecycle-${randomUUID().slice(0, 8)}`;
+      environmentName = `lifecycle-${crypto.randomUUID().slice(0, 8)}`;
       const environment = await repo.runtimeEnvironments.createRuntimeEnvironment(db, {
         name: environmentName,
         dockerfile: dockerfileFor('placeholder'),
       });
       environmentId = environment.id;
 
-      builtVersions.push(await buildVersion(`runtime-env-A-${randomUUID()}`));
+      builtVersions.push(await buildVersion(`runtime-env-A-${crypto.randomUUID()}`));
       await publish(builtVersions[0] as BuiltVersion);
 
       provider = new DockerSandboxProvider({
@@ -319,27 +318,27 @@ describe.skipIf(!dockerReady || !baseImageReady || !dbReady)(
     }, async () => {
       if (sessions === null) throw new Error('session manager was not initialized');
       const versionA = builtVersions[0] as BuiltVersion;
-      const versionB = await buildVersion(`runtime-env-B-${randomUUID()}`);
+      const versionB = await buildVersion(`runtime-env-B-${crypto.randomUUID()}`);
       builtVersions.push(versionB);
 
       const signal = new AbortController().signal;
-      const conversationId = randomUUID();
+      const conversationId = crypto.randomUUID();
       const spec = specFor(conversationId, environmentRoot);
 
-      const first = await sessions.acquire(spec, signal, `run-${randomUUID()}`);
+      const first = await sessions.acquire(spec, signal, `run-${crypto.randomUUID()}`);
       const firstEvidence = observe('create-with-A', conversationId, first, versionA);
       await first.release({ reuse: true });
 
       await publish(versionB);
-      const reused = await sessions.acquire(spec, signal, `run-${randomUUID()}`);
+      const reused = await sessions.acquire(spec, signal, `run-${crypto.randomUUID()}`);
       const reusedEvidence = observe('reuse-after-publish-B', conversationId, reused, versionA);
       expect(reused.sandboxId).toBe(first.sandboxId);
       expect(reusedEvidence.containerId).toBe(firstEvidence.containerId);
       await reused.release({ reuse: true });
 
-      const otherConversationId = randomUUID();
+      const otherConversationId = crypto.randomUUID();
       const otherSpec = specFor(otherConversationId, environmentRoot);
-      const second = await sessions.acquire(otherSpec, signal, `run-${randomUUID()}`);
+      const second = await sessions.acquire(otherSpec, signal, `run-${crypto.randomUUID()}`);
       const secondEvidence = observe(
         'new-conversation-with-B',
         otherConversationId,
@@ -353,22 +352,22 @@ describe.skipIf(!dockerReady || !baseImageReady || !dbReady)(
 
       await waitForGone(first.sandboxId, IDLE_TIMEOUT_MS + 20_000);
       expect(containerExists(first.sandboxId)).toBe(false);
-      const rebuilt = await sessions.acquire(spec, signal, `run-${randomUUID()}`);
+      const rebuilt = await sessions.acquire(spec, signal, `run-${crypto.randomUUID()}`);
       const rebuiltEvidence = observe('idle-rebuild-with-B', conversationId, rebuilt, versionB);
       expect(rebuilt.sandboxId).not.toBe(first.sandboxId);
       expect(rebuiltEvidence.containerId).not.toBe(firstEvidence.containerId);
       await rebuilt.release({ reuse: true });
 
       await publish(versionA);
-      const kept = await sessions.acquire(spec, signal, `run-${randomUUID()}`);
+      const kept = await sessions.acquire(spec, signal, `run-${crypto.randomUUID()}`);
       const keptEvidence = observe('survives-rollback-to-A', conversationId, kept, versionB);
       expect(kept.sandboxId).toBe(rebuilt.sandboxId);
       expect(keptEvidence.containerId).toBe(rebuiltEvidence.containerId);
       await kept.release({ reuse: true });
 
-      const thirdConversationId = randomUUID();
+      const thirdConversationId = crypto.randomUUID();
       const thirdSpec = specFor(thirdConversationId, environmentRoot);
-      const third = await sessions.acquire(thirdSpec, signal, `run-${randomUUID()}`);
+      const third = await sessions.acquire(thirdSpec, signal, `run-${crypto.randomUUID()}`);
       const thirdEvidence = observe(
         'new-conversation-after-rollback-A',
         thirdConversationId,

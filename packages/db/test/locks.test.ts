@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { connect, createServer, type Socket } from 'node:net';
 import { sql } from 'drizzle-orm';
 import type { DatabaseClient, DbHandle } from '../src/client.js';
@@ -12,7 +11,7 @@ const ready = await client.unsafe('select 1').then(
   () => false,
 );
 const observer = createDb(process.env.DATABASE_URL ?? '');
-const testKey = `runtimeB-locks-${randomUUID()}`;
+const testKey = `runtimeB-locks-${crypto.randomUUID()}`;
 
 afterAll(async () => {
   await observer.client.close();
@@ -298,7 +297,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
   });
 
   it('still supports memory callbacks that ignore the delivered connection', async () => {
-    const memoryKey = `user:runtimeB-${randomUUID()}`;
+    const memoryKey = `user:runtimeB-${crypto.randomUUID()}`;
     const value = await withAdvisoryLock(client, memoryKey, async () => {
       const result = await client.unsafe('select 1 as value');
       return (result as unknown as Array<{ value: number }>)[0]?.value;
@@ -314,7 +313,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       'response',
     );
     const { client: proxied, real, releases } = proxiedClient(proxy.url);
-    const key = `${testKey}-${randomUUID()}`;
+    const key = `${testKey}-${crypto.randomUUID()}`;
     let ran = false;
     try {
       const started = Date.now();
@@ -343,7 +342,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       'response',
     );
     const { client: proxied, real, releases } = proxiedClient(proxy.url);
-    const key = `${testKey}-${randomUUID()}`;
+    const key = `${testKey}-${crypto.randomUUID()}`;
     let ran = false;
     try {
       const started = Date.now();
@@ -373,7 +372,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       3,
     );
     const { client: proxied, real, releases } = proxiedClient(proxy.url);
-    const key = `${testKey}-${randomUUID()}`;
+    const key = `${testKey}-${crypto.randomUUID()}`;
     let ran = false;
     try {
       const started = Date.now();
@@ -402,7 +401,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       'request',
     );
     const { client: proxied, real, releases } = proxiedClient(proxy.url);
-    const key = `${testKey}-${randomUUID()}`;
+    const key = `${testKey}-${crypto.randomUUID()}`;
     let ran = false;
     try {
       const started = Date.now();
@@ -433,7 +432,7 @@ describe.skipIf(!ready)('withAdvisoryLock', () => {
       3,
     );
     const { client: proxied, real, releases } = proxiedClient(proxy.url);
-    const key = `${testKey}-${randomUUID()}`;
+    const key = `${testKey}-${crypto.randomUUID()}`;
     let ran = false;
     try {
       const started = Date.now();

@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { createDb, newId, schema } from '@agentport/db';
 import type { AgentRunJob, ScheduleTriggerJob } from '@agentport/shared';
 import { RUNS_QUEUE, SCHEDULE_TRIGGERS_QUEUE, scheduleTriggerArgs } from '@agentport/shared';
@@ -39,7 +38,7 @@ async function probeInfra(): Promise<boolean> {
 
 const ready = await probeInfra();
 const redisUrl = process.env.REDIS_URL ?? '';
-const prefix = `sched-test-${randomUUID().slice(0, 8)}`;
+const prefix = `sched-test-${crypto.randomUUID().slice(0, 8)}`;
 const isolated = ready ? await createIsolatedDatabase('worker_sched_test') : null;
 if (isolated) process.env.DATABASE_URL = isolated.url;
 else if (ready) console.warn('schedule-scheduler: 无法建独立库，使用本轮测试库');
@@ -181,7 +180,7 @@ describe.skipIf(!ready)('schedule scheduler against live redis and postgres', ()
       },
     ]);
     runsRedis = bunRedisConnection(redisUrl);
-    runsQueue = new Queue<AgentRunJob>(`${RUNS_QUEUE}-sched-test-${randomUUID()}`, {
+    runsQueue = new Queue<AgentRunJob>(`${RUNS_QUEUE}-sched-test-${crypto.randomUUID()}`, {
       connection: runsRedis.connection,
     });
   });

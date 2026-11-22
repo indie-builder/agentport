@@ -9,8 +9,6 @@ import {
   mock,
   spyOn,
 } from 'bun:test';
-import { randomUUID } from 'node:crypto';
-import { setTimeout as delay } from 'node:timers/promises';
 import { SCHEDULE_TRIGGERS_QUEUE, type ScheduleTriggerJob } from '@agentport/shared';
 import { createBunRedisClient, Queue } from 'bullmq';
 import { RedisClient } from 'bun';
@@ -35,7 +33,7 @@ import type { TestApp } from './helpers.js';
 
 const ready = await infraReady;
 const REDIS_URL = process.env.REDIS_URL ?? '';
-const PREFIX = `schedule-routes-test-${randomUUID().slice(0, 8)}`;
+const PREFIX = `schedule-routes-test-${crypto.randomUUID().slice(0, 8)}`;
 
 interface ScheduleBody {
   id: string;
@@ -172,7 +170,7 @@ describe.skipIf(!ready)('schedule routes', () => {
     const [pending] = await queue.getDelayed();
     expect(pending?.id).toBe(`repeat:${created.id}:${before?.next}`);
 
-    await delay(1_700);
+    await Bun.sleep(1_700);
     nextFromStrategy = () => Date.now() + 3_600_000;
 
     const body = await patchSchedule(created.id, {

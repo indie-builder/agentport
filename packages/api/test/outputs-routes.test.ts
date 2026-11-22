@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prepareOutputDraft, publishOutputSnapshot, sdkSessionDir } from '@agentport/core';
@@ -222,7 +221,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
       runId: 'run_meta_1',
       path: 'report.md',
       size: Buffer.byteLength('# v1\n'),
-      sha256: createHash('sha256').update('# v1\n').digest('hex'),
+      sha256: new Bun.CryptoHasher('sha256').update('# v1\n').digest('hex'),
       mediaType: 'text/markdown',
       createdAt: expect.any(String),
       status: 'succeeded',
@@ -238,7 +237,7 @@ describe.skipIf(!ready || isolated === null)('conversation outputs', () => {
       path: 'chart.png',
       mediaType: 'image/png',
       size: png.length,
-      sha256: createHash('sha256').update(png).digest('hex'),
+      sha256: new Bun.CryptoHasher('sha256').update(png).digest('hex'),
     });
   });
 

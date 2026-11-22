@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { type Browser, test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -16,7 +15,7 @@ async function apiPost<T extends object>(
 }
 
 async function createAgent(browser: Browser): Promise<{ id: string; name: string }> {
-  const slug = `e2e-eval-export-${randomUUID().slice(0, 8)}`;
+  const slug = `e2e-eval-export-${crypto.randomUUID().slice(0, 8)}`;
   return apiPost(browser, '/api/agents', { slug, name: `E2E 评估导出 ${slug}` });
 }
 

@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { createDb, newId, schema } from '@agentport/db';
 import type { AgentRunJob } from '@agentport/shared';
@@ -71,7 +70,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     dbHandle = createDb(isolated?.url ?? '');
     db = dbHandle.db;
     queueRedis = bunRedisConnection(process.env.REDIS_URL ?? '');
-    queue = new Queue<AgentRunJob>(`reconcile-${randomUUID()}`, {
+    queue = new Queue<AgentRunJob>(`reconcile-${crypto.randomUUID()}`, {
       connection: queueRedis.connection,
     });
     await db.insert(schema.agents).values({
@@ -173,7 +172,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
       listener.close((error) => (error ? reject(error) : resolve())),
     );
     const offlineRedis = bunRedisConnection(`redis://127.0.0.1:${address.port}`);
-    const offline = new Queue(`offline-${randomUUID()}`, {
+    const offline = new Queue(`offline-${crypto.randomUUID()}`, {
       connection: offlineRedis.connection,
     });
     offline.on('error', () => undefined);
@@ -335,7 +334,7 @@ describe.skipIf(!ready)('reconcileOrphanedRuns against a live queue', () => {
     });
 
     const activeRedis = bunRedisConnection(process.env.REDIS_URL ?? '');
-    const activeQueue = new Queue<AgentRunJob>(`reconcile-active-${randomUUID()}`, {
+    const activeQueue = new Queue<AgentRunJob>(`reconcile-active-${crypto.randomUUID()}`, {
       connection: activeRedis.connection,
     });
     let active!: () => void;

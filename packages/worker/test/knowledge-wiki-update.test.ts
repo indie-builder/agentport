@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -151,7 +150,7 @@ async function makeBase(settings: { wikiAutoUpdate: boolean }): Promise<Fixture>
 }
 
 async function writeBlob(data: Buffer): Promise<string> {
-  const sha = createHash('sha256').update(data).digest('hex');
+  const sha = new Bun.CryptoHasher('sha256').update(data).digest('hex');
   await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
   await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), data);
   return sha;
@@ -174,7 +173,7 @@ async function seedReadyDocument(
   const version = await repo.knowledge.createVersion(db, {
     documentId,
     blobSha256: await writeBlob(Buffer.from(markdown, 'utf8')),
-    markdownSha256: createHash('sha256').update(markdown).digest('hex'),
+    markdownSha256: new Bun.CryptoHasher('sha256').update(markdown).digest('hex'),
     originalFilename: 'auth.md',
     mimeType: 'text/markdown',
     sizeBytes: markdown.length,

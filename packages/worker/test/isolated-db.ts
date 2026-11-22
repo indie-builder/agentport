@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { createDb } from '@agentport/db';
 import { migrate } from 'drizzle-orm/bun-sql/migrator';
 
@@ -19,7 +17,7 @@ export async function createIsolatedDatabase(
   adminUrl = process.env.DATABASE_URL ?? '',
 ): Promise<IsolatedDatabase | null> {
   if (!adminUrl) return null;
-  const name = `${prefix}_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
+  const name = `${prefix}_${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`;
   const url = new URL(adminUrl);
   url.pathname = `/${name}`;
   const isolatedUrl = url.toString();
@@ -39,7 +37,7 @@ export async function createIsolatedDatabase(
   const target = createDb(isolatedUrl);
   try {
     await migrate(target.db, {
-      migrationsFolder: fileURLToPath(new URL('../../db/migrations', import.meta.url)),
+      migrationsFolder: Bun.fileURLToPath(new URL('../../db/migrations', import.meta.url)),
     });
     const identity = await target.client.unsafe<{ name: string }[]>(
       'select current_database() as name',

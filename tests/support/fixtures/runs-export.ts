@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { newId } from '../../../packages/db/src/index.js';
 import { client as sql } from './database.js';
 
@@ -12,7 +11,7 @@ interface Fixture {
 }
 
 export async function seed(): Promise<Fixture> {
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const fixture: Fixture = {
     ownAgentId: newId('agent'),
     foreignAgentId: newId('agent'),

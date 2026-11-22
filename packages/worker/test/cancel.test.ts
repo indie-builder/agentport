@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import type { ExecutionSettlement } from '@agentport/shared';
 import { runCancelKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
@@ -66,7 +65,7 @@ describe.skipIf(!ready)('runInSandbox task payload', () => {
     configureRunnerClient(redisUrl);
     let received: unknown;
     const outcome = await runInSandbox(
-      input(`run-payload-${randomUUID()}`, {
+      input(`run-payload-${crypto.randomUUID()}`, {
         sandboxId: 'fake',
         start: async (options) => {
           received = options.task;
@@ -90,7 +89,7 @@ describe.skipIf(!ready)('runInSandbox task payload', () => {
 describe.skipIf(!ready)('session acquire cancellation', () => {
   it('aborts a pending acquire when the user cancels through Redis', async () => {
     configureRunnerClient(redisUrl);
-    const runId = `acquire-cancel-${randomUUID()}`;
+    const runId = `acquire-cancel-${crypto.randomUUID()}`;
     let started: () => void = () => undefined;
     const reached = new Promise<void>((resolve) => {
       started = resolve;
@@ -142,7 +141,7 @@ describe.skipIf(!ready)('runInSandbox cancellation', () => {
     'waits for cancel ACK, preserves metadata and reports cleanup failure=%s',
     async (cleanupFails) => {
       configureRunnerClient(redisUrl);
-      const runId = `run-cancel-${randomUUID()}`;
+      const runId = `run-cancel-${crypto.randomUUID()}`;
       let started: () => void = () => undefined;
       const starting = new Promise<void>((resolve) => {
         started = resolve;

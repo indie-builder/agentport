@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -142,7 +141,7 @@ const importReplaceItems: KnowledgeFaqTransferEntry[] = [
 const TONE_WAV = await readFile(
   new URL('../../core/test/fixtures/audio/tone.wav', import.meta.url),
 );
-const TONE_WAV_SHA256 = createHash('sha256').update(TONE_WAV).digest('hex');
+const TONE_WAV_SHA256 = new Bun.CryptoHasher('sha256').update(TONE_WAV).digest('hex');
 
 const AUDIO_SEGMENTED_MARKDOWN = '你好，世界。\n\n重复句\n\n重复句 😀\n\naudiomarker 收尾。';
 const AUDIO_TEXT_ONLY = 'textonlymarker 只有正文，没有段级时码。';
@@ -332,7 +331,7 @@ describe.skipIf(!ready)(
           responseFormat: fieldOf('response_format'),
           granularities: fieldOf('timestamp_granularities[]'),
           filename,
-          fileSha256: createHash('sha256')
+          fileSha256: new Bun.CryptoHasher('sha256')
             .update(filePart?.body ?? Buffer.alloc(0))
             .digest('hex'),
         };
@@ -1438,7 +1437,9 @@ describe.skipIf(!ready)(
       });
       expect(download.statusCode, download.body).toBe(200);
       expect(download.headers.get('content-type')).toBe('audio/wav');
-      expect(createHash('sha256').update(download.rawPayload).digest('hex')).toBe(TONE_WAV_SHA256);
+      expect(new Bun.CryptoHasher('sha256').update(download.rawPayload).digest('hex')).toBe(
+        TONE_WAV_SHA256,
+      );
     });
 
     it('text-only ASR response never fabricates time in version, search, or MCP read', async () => {

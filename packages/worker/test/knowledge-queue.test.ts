@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -24,7 +23,7 @@ import { createIsolatedDatabase } from './isolated-db.js';
 const dbHandle = createDb(process.env.DATABASE_URL ?? '');
 const { db } = dbHandle;
 const redisUrl = process.env.REDIS_URL ?? '';
-const prefix = `knowledge-queue-test-${randomUUID().slice(0, 8)}`;
+const prefix = `knowledge-queue-test-${crypto.randomUUID().slice(0, 8)}`;
 const quiet = {
   info: () => undefined,
   warn: () => undefined,
@@ -112,7 +111,7 @@ async function seedSyncPair() {
   const { source } = await repo.knowledge.createSource(db, {
     baseId,
     type: 'feed',
-    name: `sync-terminal-${randomUUID().slice(0, 8)}`,
+    name: `sync-terminal-${crypto.randomUUID().slice(0, 8)}`,
     config: { syncDeletions: false },
     secretsEncrypted: null,
     syncCron: null,
@@ -214,9 +213,8 @@ describe('knowledge worker queue', () => {
     const document = await repo.knowledge.getDocument(db, documentId);
     const { writeFile, mkdir } = await import('node:fs/promises');
     await mkdir(join(knowledgeDir, 'blobs'), { recursive: true });
-    const { createHash } = await import('node:crypto');
     const body = Buffer.from('hello world', 'utf8');
-    const sha = createHash('sha256').update(body).digest('hex');
+    const sha = new Bun.CryptoHasher('sha256').update(body).digest('hex');
     await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
     await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), body);
     await repo.knowledge.updateDocument(db, documentId, { contentHash: sha });
@@ -309,10 +307,9 @@ describe('knowledge worker queue', () => {
       .set({ endpointUrl: `http://127.0.0.1:${address.port}` })
       .where(eq(schema.knowledgeModelProfiles.id, base.embeddingProfileId));
 
-    const { createHash } = await import('node:crypto');
     const { mkdir, writeFile } = await import('node:fs/promises');
     const body = Buffer.from('retry me', 'utf8');
-    const sha = createHash('sha256').update(body).digest('hex');
+    const sha = new Bun.CryptoHasher('sha256').update(body).digest('hex');
     await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
     await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), body);
     await repo.knowledge.updateDocument(db, documentId, { contentHash: sha });
@@ -902,9 +899,8 @@ describe('knowledge worker queue', () => {
       .set({ endpointUrl: `http://127.0.0.1:${address.port}` })
       .where(eq(schema.knowledgeModelProfiles.id, base?.embeddingProfileId ?? ''));
     const { writeFile, mkdir } = await import('node:fs/promises');
-    const { createHash } = await import('node:crypto');
     const body = Buffer.from('hello world', 'utf8');
-    const sha = createHash('sha256').update(body).digest('hex');
+    const sha = new Bun.CryptoHasher('sha256').update(body).digest('hex');
     await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
     await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), body);
     await repo.knowledge.updateDocument(db, documentId, { contentHash: sha });
@@ -949,9 +945,8 @@ describe('knowledge worker queue', () => {
     const seedPdf = async () => {
       const seeded = await seedJob();
       const body = Buffer.from(`%PDF-1.7 ${seeded.documentId}`, 'utf8');
-      const { createHash } = await import('node:crypto');
       const { mkdir, writeFile } = await import('node:fs/promises');
-      const sha = createHash('sha256').update(body).digest('hex');
+      const sha = new Bun.CryptoHasher('sha256').update(body).digest('hex');
       await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
       await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), body);
       await repo.knowledge.updateDocument(db, seeded.documentId, {
@@ -1161,9 +1156,8 @@ describe('knowledge worker queue', () => {
       .where(eq(schema.knowledgeModelProfiles.id, base?.embeddingProfileId ?? ''));
 
     const { writeFile, mkdir } = await import('node:fs/promises');
-    const { createHash } = await import('node:crypto');
     const body = Buffer.from('shutdown job', 'utf8');
-    const sha = createHash('sha256').update(body).digest('hex');
+    const sha = new Bun.CryptoHasher('sha256').update(body).digest('hex');
     await mkdir(join(knowledgeDir, 'blobs', sha.slice(0, 2)), { recursive: true });
     await writeFile(join(knowledgeDir, 'blobs', sha.slice(0, 2), sha), body);
     await repo.knowledge.updateDocument(db, documentId, { contentHash: sha });
@@ -1238,7 +1232,7 @@ describe('knowledge worker queue', () => {
 });
 
 describe.skipIf(!process.env.DATABASE_URL)('knowledge redelivery after a stalled job', () => {
-  const redeliveryPrefix = `knowledge-redelivery-${randomUUID().slice(0, 8)}`;
+  const redeliveryPrefix = `knowledge-redelivery-${crypto.randomUUID().slice(0, 8)}`;
   let isolated: Awaited<ReturnType<typeof createIsolatedDatabase>> = null;
   let dbHandle!: ReturnType<typeof createDb>;
   let db!: ReturnType<typeof createDb>['db'];

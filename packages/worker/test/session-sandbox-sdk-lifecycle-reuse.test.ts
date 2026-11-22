@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import {
   createSessionSdkSuite,
   finishedEvent,
@@ -24,7 +23,7 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const lease = await sessions.acquire(
         getSpec('single'),
         new AbortController().signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       const run = await startRun(lease, '单轮：请回复 SPIKE-ONE');
       const settlement = await withTimeout(run.execution.done, 30_000, 'single run');
@@ -62,7 +61,7 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const firstLease = await sessions.acquire(
         getSpec('reuse'),
         new AbortController().signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       const firstSandboxId = firstLease.sandboxId;
       const first = await startRun(firstLease, '第一轮：请记住暗号 ORANGE-731');
@@ -78,7 +77,7 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const secondLease = await sessions.acquire(
         getSpec('reuse'),
         new AbortController().signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       expect(secondLease.sandboxId).toBe(firstSandboxId);
       const second = await startRun(secondLease, '第二轮：暗号是什么？', sessionId);

@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
@@ -49,7 +48,7 @@ test('builds and publishes a runtime environment through worker and Docker', {
   const contract = await requireExecutionStack();
   await app.open('/');
   expect(await browser.evaluate(() => location.origin)).toBe(contract.appUrl);
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const name = `E2E 运行环境 ${suffix}`;
   const dockerfile = `# syntax=docker/dockerfile:1
 ARG RUNTIME_BASE_IMAGE=agentport/sandbox:dev

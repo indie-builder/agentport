@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -109,7 +108,7 @@ describe.skipIf(!ready)('knowledge maintenance routes', () => {
     parseStatus?: 'parsed' | 'parse_failed';
     version?: number;
   }): Promise<string> {
-    const sha = createHash('sha256').update(options.data).digest('hex');
+    const sha = new Bun.CryptoHasher('sha256').update(options.data).digest('hex');
     const versionId = `kdv_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
     const blobPath = join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
     await mkdir(dirname(blobPath), { recursive: true });

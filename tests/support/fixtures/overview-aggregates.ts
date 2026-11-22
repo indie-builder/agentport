@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { newId } from '../../../packages/db/src/index.js';
 import { client as sql } from './database.js';
 
@@ -16,7 +15,7 @@ interface RunSeed {
 }
 
 export async function seed(): Promise<Fixture> {
-  const suffix = randomUUID().slice(0, 8);
+  const suffix = crypto.randomUUID().slice(0, 8);
   const agentId = newId('agent');
   const conversationId = newId('conversation');
   const newest = Date.now() - 2 * 3_600_000;

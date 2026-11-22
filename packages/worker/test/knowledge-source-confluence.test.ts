@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { SourceConfig } from '../src/knowledge/source-types.js';
 import { SourceAuthError } from '../src/knowledge/sources.js';
@@ -188,11 +187,9 @@ describe('confluence cloud_basic', () => {
     expect(attachment?.title).toBe('diagram.png');
     expect(attachment?.mimeType).toBe('image/png');
     expect(Buffer.from(attachment?.bytes ?? [])).toEqual(PNG);
-    expect(
-      createHash('sha256')
-        .update(attachment?.bytes ?? [])
-        .digest('hex'),
-    ).toBe(createHash('sha256').update(fixtureFile('attachment.bin')).digest('hex'));
+    expect(new Bun.CryptoHasher('sha256').update(attachment?.bytes ?? []).digest('hex')).toBe(
+      new Bun.CryptoHasher('sha256').update(fixtureFile('attachment.bin')).digest('hex'),
+    );
     expect(attachment?.revision).toBe('2');
 
     const gateway = calls.find((call) =>

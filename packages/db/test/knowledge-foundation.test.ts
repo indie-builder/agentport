@@ -1,5 +1,4 @@
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
-import { randomBytes } from 'node:crypto';
 import {
   type KnowledgeFaq,
   type KnowledgeLocator,
@@ -49,7 +48,7 @@ afterAll(async () => {
   await client.close();
 });
 
-const suffix = () => randomBytes(6).toString('hex');
+const suffix = () => crypto.getRandomValues(new Uint8Array(6)).toHex();
 
 function pgCode(error: unknown): string | undefined {
   const direct = error as { code?: string; errno?: string };

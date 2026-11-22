@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { Browser } from '@e2e-dev/web';
 import { test } from '@e2e-dev/web';
 import { expect, type Screen } from 'e2e';
@@ -16,7 +15,7 @@ function logStep(message: string): void {
 }
 
 function uniqueSuffix(): string {
-  return `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`;
+  return `${Date.now().toString(36)}${crypto.randomUUID().slice(0, 4)}`;
 }
 
 function escapeRegExp(value: string): string {

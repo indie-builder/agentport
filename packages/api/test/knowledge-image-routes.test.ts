@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,7 +79,7 @@ describe.skipIf(!ready)('knowledge image routes', () => {
     const images = [
       {
         name: 'image-1.png',
-        sha256: createHash('sha256').update(PNG).digest('hex'),
+        sha256: new Bun.CryptoHasher('sha256').update(PNG).digest('hex'),
         mimeType: 'image/png',
         page: 1,
       },

@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { DbError } from '@agentport/core';
 import { newId, repo } from '@agentport/db';
 import type { Agent } from '@agentport/shared';
@@ -62,7 +61,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
 
   it('serves a fixed public message after a real PG failure with a secret parameter', async () => {
     const agent = await newAgent();
-    const secret = `sk-live-eval-wire-${randomUUID()}`;
+    const secret = `sk-live-eval-wire-${crypto.randomUUID()}`;
     const testCase = await repo.evalRepo.createCase(app.db, newId('evalCase'), {
       agentId: agent.id,
       name: 'wire-secret',
@@ -84,7 +83,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
       createdBy: ADMIN_BUSINESS_ID,
     });
 
-    const functionName = `eval_result_secret_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
+    const functionName = `eval_result_secret_${crypto.randomUUID().replaceAll('-', '').slice(0, 8)}`;
     await app.client.unsafe(`
       create or replace function ${functionName}() returns trigger language plpgsql as $fn$
       begin
@@ -180,7 +179,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
 
   it('redacts a case-level messages insert failure from results, compare and export', async () => {
     const agent = await newAgent();
-    const secret = `sk-live-eval-case-${randomUUID()}`;
+    const secret = `sk-live-eval-case-${crypto.randomUUID()}`;
     const prompt = `prompt-case-${secret}`;
     const testCase = await repo.evalRepo.createCase(app.db, newId('evalCase'), {
       agentId: agent.id,
@@ -212,7 +211,7 @@ describe.skipIf(!ready)('eval error redaction', () => {
       ],
     });
 
-    const functionName = `eval_message_secret_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
+    const functionName = `eval_message_secret_${crypto.randomUUID().replaceAll('-', '').slice(0, 8)}`;
     await app.client.unsafe(`
       create or replace function ${functionName}() returns trigger language plpgsql as $fn$
       begin

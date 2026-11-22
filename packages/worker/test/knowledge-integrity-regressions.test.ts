@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
@@ -278,7 +277,7 @@ async function currentChunks(documentId: string) {
 }
 
 async function writeBlob(content: Buffer): Promise<string> {
-  const sha = createHash('sha256').update(content).digest('hex');
+  const sha = new Bun.CryptoHasher('sha256').update(content).digest('hex');
   const target = join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, content);
@@ -359,7 +358,7 @@ async function seedFaqDocument(
     id: versionId,
     documentId: document.id,
     blobSha256: blob,
-    markdownSha256: createHash('sha256').update(faq.question).digest('hex'),
+    markdownSha256: new Bun.CryptoHasher('sha256').update(faq.question).digest('hex'),
     originalFilename,
     mimeType: 'application/json',
     sizeBytes: faqJson.length,

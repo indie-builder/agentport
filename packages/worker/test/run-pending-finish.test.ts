@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -432,7 +431,7 @@ describe.skipIf(!ready)('unconfirmed stop handoff', () => {
     const cleanup = (input: { runId: string; conversationId: string; sandboxId: string }) =>
       sessionSandboxes.cleanup(input.conversationId, input.sandboxId, input.runId);
     const queueRedis = bunRedisConnection(redisUrl);
-    const queue = new Queue<AgentRunJob>(`pending-${randomUUID()}`, {
+    const queue = new Queue<AgentRunJob>(`pending-${crypto.randomUUID()}`, {
       connection: queueRedis.connection,
     });
 

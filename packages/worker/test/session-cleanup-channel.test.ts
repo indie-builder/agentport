@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import {
   SESSION_CLEANUP_REQUEST_CHANNEL,
   type SessionCleanupAck,
@@ -46,7 +45,7 @@ afterEach(async () => {
 });
 
 async function startChannel(sessions: FakeSessions): Promise<SessionCleanupChannel> {
-  currentChannel = `${SESSION_CLEANUP_REQUEST_CHANNEL}:${randomUUID()}`;
+  currentChannel = `${SESSION_CLEANUP_REQUEST_CHANNEL}:${crypto.randomUUID()}`;
   const channel = await startSessionCleanupChannel({
     redisUrl: REDIS_URL,
     logger: pino({ level: 'silent' }),
@@ -59,7 +58,7 @@ async function startChannel(sessions: FakeSessions): Promise<SessionCleanupChann
 
 function request(overrides: Partial<SessionCleanupRequest> = {}): SessionCleanupRequest {
   return {
-    requestId: randomUUID(),
+    requestId: crypto.randomUUID(),
     deadline: Date.now() + 5_000,
     targets: [{ conversationId: 'conv_1', sandboxIds: ['sandbox-1'] }],
     ...overrides,
@@ -73,7 +72,7 @@ async function send(
   const requestId =
     typeof payload === 'object' && payload !== null && 'requestId' in payload
       ? String((payload as { requestId: unknown }).requestId)
-      : randomUUID();
+      : crypto.randomUUID();
   const subscriber = new RedisClient(REDIS_URL);
   const publisher = new RedisClient(REDIS_URL);
   connections.push(subscriber, publisher);

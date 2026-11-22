@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { encryptSecrets, prepareOutputDraft, publishOutputSnapshot } from '@agentport/core';
@@ -54,7 +53,8 @@ interface SeedRunInput {
   error?: string;
 }
 
-const sha256 = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
+const sha256 = (value: string | Buffer): string =>
+  new Bun.CryptoHasher('sha256').update(value).digest('hex');
 
 describe.skipIf(!ready)('personal data', () => {
   let app: TestApp;

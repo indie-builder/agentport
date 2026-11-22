@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import * as fsModule from 'node:fs/promises';
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -199,7 +198,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     };
   }
 
-  function postReview(body: unknown, key: string | null = randomUUID()) {
+  function postReview(body: unknown, key: string | null = crypto.randomUUID()) {
     return request(app, {
       method: 'POST',
       url: '/api/memory-reviews',
@@ -320,7 +319,7 @@ describe.skipIf(!ready)('memory reviews', () => {
       await request(app, {
         method: 'POST',
         url: '/api/memory-reviews',
-        headers: { 'idempotency-key': randomUUID() },
+        headers: { 'idempotency-key': crypto.randomUUID() },
         payload: {
           modelAgentId: 'missing',
           target: { kind: 'personal' },
@@ -355,7 +354,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const agent = await newAgent();
     const conversationId = await newConversation(agent.id);
     const messageId = await seedMessage(conversationId, 'user', '回答先给结论');
-    const key = randomUUID();
+    const key = crypto.randomUUID();
     const body = reviewBody({
       modelAgentId: agent.id,
       target: { kind: 'agent_memory', agentId: agent.id, name: 'MEMORY.md' },
@@ -402,14 +401,14 @@ describe.skipIf(!ready)('memory reviews', () => {
       subject: { kind: 'user', businessId: other.businessId },
     });
     await seedMessage(otherConversation.id, 'user', '别人偏好');
-    const key = randomUUID();
+    const key = crypto.randomUUID();
     const body = reviewBody({
       modelAgentId: agent.id,
       target: { kind: 'personal' },
       sources: [{ conversationId: ownConversation }, { conversationId: otherConversation.id }],
     });
 
-    const scoped = (scope: string, payload: unknown, idempotencyKey = randomUUID()) =>
+    const scoped = (scope: string, payload: unknown, idempotencyKey = crypto.randomUUID()) =>
       request(app, {
         method: 'POST',
         url: `/api/memory-reviews?scope=${encodeURIComponent(scope)}`,
@@ -426,7 +425,7 @@ describe.skipIf(!ready)('memory reviews', () => {
       target: { kind: 'personal' },
       sources: [{ conversationId: ownConversation }],
     });
-    const ownKey = randomUUID();
+    const ownKey = crypto.randomUUID();
     const created = await scoped('own', ownBody, ownKey);
     expect(created.statusCode, created.body).toBe(202);
     const runId = created.json<{ runId: string }>().runId;
@@ -2063,7 +2062,7 @@ describe.skipIf(!ready)('memory reviews', () => {
     const target = await newAgent();
     const conversationId = await newConversation(target.id);
     await seedMessage(conversationId, 'user', '记住约定');
-    const key = randomUUID();
+    const key = crypto.randomUUID();
     const first = await postReview(
       reviewBody({
         modelAgentId: model.id,

@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { setTimeout as delay } from 'node:timers/promises';
 import type { Agent, Server } from '@agentport/shared';
 import { runCancelKey, runStreamKey } from '@agentport/shared';
 import { RedisClient } from 'bun';
@@ -118,7 +117,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
         await reader.cancel().catch(() => undefined);
       },
       next: async () => {
-        const chunk = await Promise.race([reader.read(), delay(5_000).then(() => null)]);
+        const chunk = await Promise.race([reader.read(), Bun.sleep(5_000).then(() => null)]);
         return chunk && !chunk.done ? decoder.decode(chunk.value) : '';
       },
       // 保持读取循环：某些 Node 版本会在无消费者时回收 fetch body，
@@ -144,10 +143,10 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
           signal: controller.signal,
         });
         expect(res.status).toBe(200);
-        if (abortAfterMs > 0) await delay(abortAfterMs);
+        if (abortAfterMs > 0) await Bun.sleep(abortAfterMs);
         controller.abort();
         await res.body?.cancel().catch(() => undefined);
-        await delay(20);
+        await Bun.sleep(20);
       }
     }
 
@@ -166,7 +165,7 @@ describe.skipIf(!(ready && idle))('failure paths', () => {
     expect(await waitFor(async () => (await eventFollowerCount(redis, runId)) === 2)).toBe(true);
 
     await first.abort();
-    await delay(300);
+    await Bun.sleep(300);
     expect(await eventFollowerCount(redis, runId)).toBe(1);
 
     await publishRun(runId, { type: 'text_delta', text: 'still-here' });

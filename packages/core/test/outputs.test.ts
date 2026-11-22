@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
-import { createHash } from 'node:crypto';
 import * as fsActual from 'node:fs/promises';
 import {
   access,
@@ -58,7 +57,7 @@ const conversationId = 'conv_1';
 
 let root = '';
 
-const sha256 = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
+const sha256 = (data: Buffer | string) => new Bun.CryptoHasher('sha256').update(data).digest('hex');
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'outputs-test-'));

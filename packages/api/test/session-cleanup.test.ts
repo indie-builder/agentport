@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:net';
 import {
   SESSION_CLEANUP_REQUEST_CHANNEL,
@@ -27,7 +26,7 @@ afterEach(async () => {
 async function worker(
   handler: (request: SessionCleanupRequest, publisher: RedisClient) => Promise<void>,
 ): Promise<string> {
-  const requestChannel = `${SESSION_CLEANUP_REQUEST_CHANNEL}:${randomUUID()}`;
+  const requestChannel = `${SESSION_CLEANUP_REQUEST_CHANNEL}:${crypto.randomUUID()}`;
   const subscriber = new RedisClient(REDIS_URL);
   const publisher = new RedisClient(REDIS_URL);
   connections.push(subscriber, publisher);
@@ -97,7 +96,7 @@ describe('closeSessionSandboxes', () => {
     const error = await close({
       redisUrl: REDIS_URL,
       timeoutMs: 200,
-      requestChannel: `${SESSION_CLEANUP_REQUEST_CHANNEL}:${randomUUID()}`,
+      requestChannel: `${SESSION_CLEANUP_REQUEST_CHANNEL}:${crypto.randomUUID()}`,
       targets: [{ conversationId: 'conv_1', sandboxIds: ['sandbox-1'] }],
     });
     expect(error).toMatchObject({
@@ -185,7 +184,7 @@ describe('closeSessionSandboxes', () => {
     const requestChannel = await worker(async (request, publisher) => {
       await publisher.publish(
         sessionCleanupAckChannel(request.requestId),
-        JSON.stringify({ requestId: randomUUID(), ok: true }),
+        JSON.stringify({ requestId: crypto.randomUUID(), ok: true }),
       );
       await publisher.publish(
         sessionCleanupAckChannel(request.requestId),

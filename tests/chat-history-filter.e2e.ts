@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { test } from '@e2e-dev/web';
 import { expect, type Locator, type Screen } from 'e2e';
 import { fixture as runFixture } from './support/fixture.js';
@@ -81,7 +80,9 @@ test('history search with no match shows the empty text and no conversation rows
     await showHistory(screen);
 
     const dialog = await openSearch(screen);
-    await dialog.getByRole('combobox', '搜索会话').fill(`不存在-${randomUUID().slice(0, 8)}`);
+    await dialog
+      .getByRole('combobox', '搜索会话')
+      .fill(`不存在-${crypto.randomUUID().slice(0, 8)}`);
     await expect(dialog.getByText('没有匹配的会话', { exact: true })).toBeVisible();
     await expect(dialog.getByText(fixture.titles.alpha, { exact: true })).toHaveCount(0);
     await expect(dialog.getByText(fixture.titles.gamma, { exact: true })).toHaveCount(0);
@@ -101,7 +102,7 @@ test('opening a cross-expert result keeps the unsent draft on its original conve
   try {
     fixture = await seed();
     const [agentA, agentB] = fixture.agents;
-    const draft = `未发送草稿 ${randomUUID().slice(0, 8)}`;
+    const draft = `未发送草稿 ${crypto.randomUUID().slice(0, 8)}`;
     await app.open(`/chat?agent=${agentA}&conversation=${fixture.conversations.alpha}`);
     await screen.getByRole('textbox', '消息').fill(draft);
 

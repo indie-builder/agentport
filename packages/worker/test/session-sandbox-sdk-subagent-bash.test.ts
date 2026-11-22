@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DockerSandboxProvider } from '../src/sandbox/docker.js';
@@ -214,7 +213,7 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const lease1 = await sessions.acquire(
         spec,
         new AbortController().signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       const firstSandboxId = lease1.sandboxId;
       const run1 = await startRun(
@@ -268,7 +267,7 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const lease2 = await sessions.acquire(
         spec,
         new AbortController().signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       expect(lease2.sandboxId).toBe(firstSandboxId);
       const run2 = await startRun(
@@ -327,7 +326,7 @@ describe.skipIf(!hasDocker)('session sandbox with the real SDK native CLI', () =
       const lease3 = await sessions2.acquire(
         spec,
         new AbortController().signal,
-        `run-${randomUUID()}`,
+        `run-${crypto.randomUUID()}`,
       );
       expect(lease3.sandboxId).not.toBe(firstSandboxId);
       const run3 = await startRun(

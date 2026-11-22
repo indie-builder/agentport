@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { test } from '@e2e-dev/web';
 import { expect } from 'e2e';
 
@@ -39,7 +38,7 @@ const knowledgeTest = test.extend<{ workspace: Workspace }>({
       return response;
     };
 
-    const suffix = randomUUID().slice(0, 8);
+    const suffix = crypto.randomUUID().slice(0, 8);
     const profiles = (await (await api('/api/knowledge/model-profiles')).json()) as Array<{
       id: string;
       name: string;

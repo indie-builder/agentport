@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -127,7 +126,7 @@ describe.skipIf(!ready)('knowledge wiki routes', () => {
   }
 
   function blobPathFor(markdown: string) {
-    const sha = createHash('sha256').update(markdown, 'utf8').digest('hex');
+    const sha = new Bun.CryptoHasher('sha256').update(markdown, 'utf8').digest('hex');
     return join(knowledgeDir, 'blobs', sha.slice(0, 2), sha);
   }
 

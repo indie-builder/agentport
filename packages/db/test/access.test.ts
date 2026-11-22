@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import {
   type AccessScope,
   businessIdSchema,
@@ -48,7 +47,7 @@ const ready =
   ));
 if (!ready) await client.close();
 
-const suffix = randomUUID().slice(0, 8);
+const suffix = crypto.randomUUID().slice(0, 8);
 const bid = (label: string) => `rbac-${suffix}-${label}`;
 const createdBusinessIds: string[] = [];
 
@@ -354,7 +353,7 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
       canMaintain: false,
     });
     await db.insert(userPreferences).values({ businessId, content: 'private memory', revision: 1 });
-    const sessionId = randomUUID();
+    const sessionId = crypto.randomUUID();
     await db.insert(authSessions).values({
       id: sessionId,
       token: `token-${sessionId}`,
@@ -450,7 +449,7 @@ describe.skipIf(!ready)('account lifecycle and RBAC repositories', () => {
         .from(authUsers)
         .where(eq(authUsers.businessId, businessId)),
     );
-    const sessionId = randomUUID();
+    const sessionId = crypto.randomUUID();
     await db.insert(authSessions).values({
       id: sessionId,
       token: `token-${sessionId}`,

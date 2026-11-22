@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { probeNextcloud, readNextcloud } from '../src/knowledge/source-nextcloud.js';
 import type { SourceConfig } from '../src/knowledge/source-types.js';
@@ -151,15 +150,11 @@ describe('nextcloud', () => {
     expect(snapshot.items[0]?.mimeType).toBe('text/markdown');
     expect(Buffer.from(snapshot.items[0]?.bytes ?? []).toString('utf8')).toBe('abc');
     expect(
-      createHash('sha256')
-        .update(snapshot.items[0]?.bytes ?? [])
-        .digest('hex'),
-    ).toBe(createHash('sha256').update(A_MD).digest('hex'));
+      new Bun.CryptoHasher('sha256').update(snapshot.items[0]?.bytes ?? []).digest('hex'),
+    ).toBe(new Bun.CryptoHasher('sha256').update(A_MD).digest('hex'));
     expect(
-      createHash('sha256')
-        .update(snapshot.items[1]?.bytes ?? [])
-        .digest('hex'),
-    ).toBe(createHash('sha256').update(B_PDF).digest('hex'));
+      new Bun.CryptoHasher('sha256').update(snapshot.items[1]?.bytes ?? []).digest('hex'),
+    ).toBe(new Bun.CryptoHasher('sha256').update(B_PDF).digest('hex'));
     expect(snapshot.items[0]?.revision).toBe('"v1"');
     expect(snapshot.items[0]?.externalId).not.toContain('77');
     expect(snapshot.items[1]?.revision).toBe('W/"weak"');

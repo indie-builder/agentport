@@ -1,9 +1,8 @@
-import { fileURLToPath } from 'node:url';
 import type { ExecutionSubject } from '@agentport/shared';
 
 export function testAccess(fileUrl: string) {
   const fileName =
-    fileURLToPath(fileUrl)
+    Bun.fileURLToPath(fileUrl)
       .split('/')
       .pop()
       ?.replace(/\.test\.ts$/, '') ?? 'unknown';
