@@ -21,6 +21,7 @@ const read = (p) => readFileSync(p, 'utf8');
 
 const webFiles = walk(join(ROOT, 'packages/web/src'), /\.(ts|tsx)$/);
 const apiFiles = walk(join(ROOT, 'packages/api/src'), /\.(ts|tsx)$/);
+const dbFiles = walk(join(ROOT, 'packages/db/src'), /\.ts$/);
 
 for (const file of webFiles) {
   if (/from ['"]@radix-ui\//.test(read(file))) {
@@ -65,6 +66,112 @@ for (const file of webFiles) {
   for (const m of src.matchAll(hexRe)) {
     const line = src.slice(0, m.index).split('\n').length;
     problems.push(`${rel(file)}:${line}: 硬编码色值 ${m[0]}（用 @theme token）`);
+  }
+}
+
+function findSqlLikeViolations(src) {
+  const lines = [];
+  const startRe = /(?<![\w$.])sql\s*`/g;
+  for (const m of src.matchAll(startRe)) {
+    let i = m.index + m[0].length;
+    let staticText = '';
+    let exprText = '';
+    let hasInterpolation = false;
+    while (i < src.length) {
+      const ch = src[i];
+      if (ch === '\\') {
+        staticText += src.slice(i, i + 2);
+        i += 2;
+        continue;
+      }
+      if (ch === '`') break;
+      if (ch === '$' && src[i + 1] === '{') {
+        hasInterpolation = true;
+        i += 2;
+        let depth = 1;
+        const exprStart = i;
+        while (i < src.length && depth > 0) {
+          const c = src[i];
+          if (c === '\\') {
+            i += 2;
+            continue;
+          }
+          if (c === "'" || c === '"' || c === '`') {
+            const quote = c;
+            i += 1;
+            while (i < src.length) {
+              if (src[i] === '\\') {
+                i += 2;
+                continue;
+              }
+              if (quote === '`' && src[i] === '$' && src[i + 1] === '{') {
+                i += 2;
+                let inner = 1;
+                while (i < src.length && inner > 0) {
+                  if (src[i] === '\\') i += 2;
+                  else if (src[i] === '{') {
+                    inner += 1;
+                    i += 1;
+                  } else if (src[i] === '}') {
+                    inner -= 1;
+                    i += 1;
+                  } else i += 1;
+                }
+                continue;
+              }
+              if (src[i] === quote) {
+                i += 1;
+                break;
+              }
+              i += 1;
+            }
+            continue;
+          }
+          if (c === '{') depth += 1;
+          else if (c === '}') depth -= 1;
+          i += 1;
+        }
+        exprText += ` ${src.slice(exprStart, i - 1)} `;
+        staticText += ' ';
+        continue;
+      }
+      staticText += ch;
+      i += 1;
+    }
+    if (
+      hasInterpolation &&
+      /\b(?:i?like)\b/i.test(staticText) &&
+      !/\b(?:containsPattern|prefixPattern|escapeLike)\b/.test(exprText)
+    ) {
+      lines.push(src.slice(0, m.index).split('\n').length);
+    }
+  }
+  return lines;
+}
+
+const likeFix = '改用 packages/db/src/repo/like.ts 的 ilikeContains / likePrefix / containsPattern';
+const likeCallRe = /\b(?:i?like)\s*\(/g;
+for (const file of dbFiles) {
+  if (rel(file) === 'packages/db/src/repo/like.ts') continue;
+  const src = read(file);
+  for (const m of src.matchAll(likeCallRe)) {
+    const line = src.slice(0, m.index).split('\n').length;
+    problems.push(`${rel(file)}:${line}: 直接调用 ${m[0].replace(/\($/, '')}（${likeFix}）`);
+  }
+  for (const line of findSqlLikeViolations(src)) {
+    problems.push(`${rel(file)}:${line}: sql 模板中未转义的 LIKE/ILIKE（${likeFix}）`);
+  }
+}
+
+const storageRe = /\bwindow\.localStorage\b|\blocalStorage\./g;
+for (const file of webFiles) {
+  if (rel(file) === 'packages/web/src/lib/storage.ts') continue;
+  const src = read(file);
+  for (const m of src.matchAll(storageRe)) {
+    const line = src.slice(0, m.index).split('\n').length;
+    problems.push(
+      `${rel(file)}:${line}: 直接访问 localStorage（改用 packages/web/src/lib/storage.ts 的 readStorage / writeStorage）`,
+    );
   }
 }
 

@@ -3,14 +3,9 @@ import { asc, eq, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeFolders } from '../../schema.js';
+import { prefixPattern } from '../like.js';
 import { keysetPage } from '../pagination.js';
-import {
-  escapeLike,
-  type KnowledgeFolderRow,
-  type Page,
-  type PageOptions,
-  pageLimit,
-} from './shared.js';
+import { type KnowledgeFolderRow, type Page, type PageOptions, pageLimit } from './shared.js';
 
 export async function createFolder(
   db: Database,
@@ -84,7 +79,7 @@ async function rewriteFolderPath(
   await tx.execute(sql`
     update ${knowledgeFolders}
     set path = ${nextPath} || substr(path, char_length(${folder.path}::text) + 1)
-    where base_id = ${folder.baseId} and path like ${`${escapeLike(folder.path)}/%`}
+    where base_id = ${folder.baseId} and path like ${prefixPattern(`${folder.path}/`)}
   `);
   return row;
 }

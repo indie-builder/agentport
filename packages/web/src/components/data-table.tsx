@@ -33,6 +33,7 @@ import {
   useState,
 } from 'react';
 import { cn } from '../lib/cn.js';
+import { readStorage, writeStorage } from '../lib/storage.js';
 import { Collapsible, CollapsibleContent } from './motion-collapsible.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
@@ -98,7 +99,7 @@ function readPrefs(
 
   if (storageKey) {
     try {
-      const parsed: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
+      const parsed: unknown = JSON.parse(readStorage(storageKey) ?? 'null');
       if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
         const prefs = parsed as Partial<ColumnPrefs>;
         hidden = Array.isArray(prefs.hidden) ? asIds(prefs.hidden) : hidden;
@@ -308,9 +309,7 @@ export function DataTable<T extends RowData>({
     const hidden = Object.entries(prefs.visibility)
       .filter(([, visible]) => !visible)
       .map(([id]) => id);
-    try {
-      localStorage.setItem(storageKey, JSON.stringify({ hidden, order: prefs.order }));
-    } catch {}
+    writeStorage(storageKey, JSON.stringify({ hidden, order: prefs.order }));
   }, [storageKey, prefs]);
 
   const orderedColumns = table

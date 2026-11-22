@@ -38,6 +38,7 @@ import {
   useRunApprovals,
   useRunQuestions,
 } from '../../lib/queries.js';
+import { readStorage, writeStorage } from '../../lib/storage.js';
 import { toastError, toastSuccess } from '../../lib/toast.js';
 import { useChatStream } from '../../lib/use-chat-stream.js';
 import { useMediaQuery } from '../../lib/use-media-query.js';
@@ -168,20 +169,8 @@ const WIDE = '(min-width: 80rem)';
 const HISTORY_WIDTH_KEY = 'agentport:chat-history-width';
 
 function storedHistorySize(): ResizableSize {
-  try {
-    const stored = Number(localStorage.getItem(HISTORY_WIDTH_KEY));
-    return Number.isFinite(stored) && stored > 0 && stored <= 100 ? `${stored}%` : '240px';
-  } catch {
-    return '240px';
-  }
-}
-
-function saveHistorySize(width: number): void {
-  try {
-    localStorage.setItem(HISTORY_WIDTH_KEY, String(width));
-  } catch {
-    return;
-  }
+  const stored = Number(readStorage(HISTORY_WIDTH_KEY));
+  return Number.isFinite(stored) && stored > 0 && stored <= 100 ? `${stored}%` : '240px';
 }
 
 function ChatWorkspace({
@@ -725,7 +714,7 @@ function ChatWorkspace({
             onLayoutCommit={(next, details) => {
               if (details.reason !== 'drag' && details.reason !== 'step-key') return;
               const width = next[0];
-              if (width !== undefined && width > 0) saveHistorySize(width);
+              if (width !== undefined && width > 0) writeStorage(HISTORY_WIDTH_KEY, String(width));
             }}
             onLayoutChange={(next) => {
               const width = next[0];

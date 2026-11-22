@@ -1,6 +1,6 @@
 import { fail } from '@agentport/core';
 import type { GovernanceResource, ResourceGrantInput, ResourceKind } from '@agentport/shared';
-import { and, asc, eq, ilike, type SQL } from 'drizzle-orm';
+import { and, asc, eq, type SQL } from 'drizzle-orm';
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import {
@@ -14,6 +14,7 @@ import {
   skills,
 } from '../../schema.js';
 import { hasBusinessHistory } from '../accounts.js';
+import { ilikeContains } from '../like.js';
 import { type CursorPage, keysetPage } from '../pagination.js';
 
 export const resourceTables = {
@@ -39,7 +40,7 @@ export async function listGovernanceResources(
     direction: 'asc',
     valueCursor: (row: { cursorValue: string }) => row.cursorValue,
     cursorKind: 'text',
-    where: [input.q ? ilike(table.name, `%${input.q}%`) : undefined],
+    where: [input.q ? ilikeContains(table.name, input.q) : undefined],
     load: ({ where, limit }: { where: SQL | undefined; limit: number }) =>
       db
         .select({

@@ -62,11 +62,6 @@ export interface PageOptions {
   limit?: number;
 }
 
-/** LIKE 默认转义符是反斜杠；路径里的 % _ \ 必须转义后才能当字面前缀匹配。 */
-export function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&');
-}
-
 export function pageLimit(options: PageOptions): number {
   return Math.min(Math.max(options.limit ?? 50, 1), 200);
 }

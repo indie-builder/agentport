@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, fail } from '@agentport/core';
 import type { Account, RoleSummary } from '@agentport/shared';
-import { and, asc, count, eq, ilike, inArray, isNull, ne, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, ne, or, type SQL } from 'drizzle-orm';
 import type { DbHandle, Transaction } from '../client.js';
 import {
   apiTokens,
@@ -19,6 +19,7 @@ import {
   toSummary,
 } from './access.js';
 import { hasBusinessHistory, listIdentities, listIdentityPage } from './identities.js';
+import { ilikeContains } from './like.js';
 
 export { hasBusinessHistory, listIdentities, listIdentityPage };
 
@@ -101,11 +102,10 @@ export async function listAccounts(
 ): Promise<{ items: Account[]; total: number }> {
   const filters: SQL[] = [];
   if (input.q !== undefined && input.q !== '') {
-    const pattern = `%${input.q}%`;
     const search = or(
-      ilike(authUsers.businessId, pattern),
-      ilike(authUsers.username, pattern),
-      ilike(authUsers.name, pattern),
+      ilikeContains(authUsers.businessId, input.q),
+      ilikeContains(authUsers.username, input.q),
+      ilikeContains(authUsers.name, input.q),
     );
     if (search) filters.push(search);
   }

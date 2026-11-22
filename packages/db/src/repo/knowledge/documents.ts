@@ -14,11 +14,11 @@ import {
 import type { Database, DbHandle } from '../../client.js';
 import { newId } from '../../id.js';
 import { knowledgeDocuments, knowledgeDocumentTags, knowledgeTags } from '../../schema.js';
+import { containsPattern } from '../like.js';
 import { cursorValueSql, keysetPage } from '../pagination.js';
 import {
   clampDocumentTitle,
   disableDocumentsBySourceTx,
-  escapeLike,
   type KnowledgeDocumentRow,
   markWikiStaleByDocumentsTx,
   type Page,
@@ -154,7 +154,7 @@ export async function listDocuments(
     filters.push(eq(knowledgeDocuments.contentKind, filter.contentKind));
   }
   if (filter.q) {
-    filters.push(sql`${knowledgeDocuments.title} ilike ${`%${escapeLike(filter.q)}%`}`);
+    filters.push(sql`${knowledgeDocuments.title} ilike ${containsPattern(filter.q)}`);
   }
   if (filter.tag) {
     filters.push(sql`exists (
@@ -249,7 +249,7 @@ export async function listFaqDocuments(
   }
   if (filter.status) filters.push(eq(knowledgeDocuments.status, filter.status));
   if (filter.q) {
-    filters.push(sql`${knowledgeDocuments.title} ilike ${`%${escapeLike(filter.q)}%`}`);
+    filters.push(sql`${knowledgeDocuments.title} ilike ${containsPattern(filter.q)}`);
   }
   if (filter.isRecommended !== undefined) {
     filters.push(sql`coalesce((

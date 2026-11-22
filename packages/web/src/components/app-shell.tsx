@@ -29,6 +29,7 @@ import {
 } from '../lib/access.js';
 import { cn } from '../lib/cn.js';
 import { logoutAccount, meQuery, useUnreadNotificationCount } from '../lib/queries.js';
+import { readStorage, writeStorage } from '../lib/storage.js';
 import { animateBrand, Brand } from './brand.js';
 import { CommandPalette, CommandPaletteTrigger } from './command-palette.js';
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog.js';
@@ -278,13 +279,9 @@ export function AppShell() {
         : null;
   const allowed =
     meta !== undefined && (meta.permissionIds.length === 0 || canAny(me.data, meta.permissionIds));
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() => {
-    try {
-      const stored = localStorage.getItem(COLLAPSE_KEY);
-      if (stored === 'expanded') return stored;
-    } catch {}
-    return 'rail';
-  });
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() =>
+    readStorage(COLLAPSE_KEY) === 'expanded' ? 'expanded' : 'rail',
+  );
   const [previewing, setPreviewing] = useState(false);
   const preview = sidebarMode === 'rail' && previewing;
   const sidebarWidth = {
@@ -418,9 +415,7 @@ export function AppShell() {
       mode !== 'rail' && document.activeElement === sidebarToggle.current;
     setPreviewing(false);
     setSidebarMode(mode);
-    try {
-      localStorage.setItem(COLLAPSE_KEY, mode);
-    } catch {}
+    writeStorage(COLLAPSE_KEY, mode);
   };
   const sidebar = (drawer: boolean) => {
     const iconOnly = !drawer && sidebarMode === 'rail' && !preview;

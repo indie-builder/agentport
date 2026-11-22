@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson, sha256Hex } from '@agentport/core';
 import type { AuditActorKind, AuditStatus } from '@agentport/shared';
-import { and, asc, desc, eq, gt, gte, isNotNull, like, lt, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNotNull, lt, type SQL, sql } from 'drizzle-orm';
 import type { Database, DbHandle, Transaction } from '../client.js';
 import { newId } from '../id.js';
 import { auditLog } from '../schema.js';
-import { escapeLike } from './knowledge/shared.js';
+import { likePrefix } from './like.js';
 import { keysetBound, keysetPage } from './pagination.js';
 
 export interface AuditEvent {
@@ -270,7 +270,7 @@ const columns = {
 
 function auditFilters(query: AuditQuery): SQL[] {
   const filters: SQL[] = [];
-  if (query.action) filters.push(like(auditLog.action, `${escapeLike(query.action)}%`));
+  if (query.action) filters.push(likePrefix(auditLog.action, query.action));
   if (query.status) filters.push(eq(auditLog.status, query.status));
   if (query.target) filters.push(eq(auditLog.target, query.target));
   if (query.actor) filters.push(eq(auditLog.actor, query.actor));
