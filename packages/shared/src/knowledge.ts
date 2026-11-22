@@ -239,6 +239,13 @@ export const knowledgeContentKindSchema = z.enum(['document', 'faq', 'wiki']);
 
 export const knowledgeDisabledReasonSchema = z.enum(['manual', 'source', 'range', 'remote']);
 
+export const SUMMARY_DOCUMENT_DISABLED_MESSAGE = '文档已停用，不能生成摘要';
+export const SUMMARY_DOCUMENT_NO_VERSION_MESSAGE = '文档还没有可用版本，不能生成摘要';
+export const SUMMARY_CANCELLED_MESSAGE = '摘要生成已取消';
+export const TAGGING_DOCUMENT_DISABLED_MESSAGE = '文档已停用，不能生成标签';
+export const TAGGING_DOCUMENT_NO_VERSION_MESSAGE = '文档还没有可用版本，不能生成标签';
+export const DOCUMENT_JOB_IN_PROGRESS_MESSAGE = '文档有正在进行的处理任务，请稍后重试';
+
 /** 解析器给出的定位；不支持的维度缺省，不编造坐标。 */
 export const knowledgeLocatorSchema = z
   .object({

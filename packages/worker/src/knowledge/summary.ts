@@ -3,7 +3,13 @@ import { join } from 'node:path';
 import { KNOWLEDGE_DOCUMENT_MISSING_MESSAGE } from '@agentport/core';
 import { type Database, repo, type schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
-import { errorText, knowledgeJobPayloadSchema } from '@agentport/shared';
+import {
+  errorText,
+  knowledgeJobPayloadSchema,
+  SUMMARY_CANCELLED_MESSAGE,
+  SUMMARY_DOCUMENT_DISABLED_MESSAGE,
+  SUMMARY_DOCUMENT_NO_VERSION_MESSAGE,
+} from '@agentport/shared';
 import {
   type Options,
   query,
@@ -56,9 +62,9 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
     throw new Error(KNOWLEDGE_DOCUMENT_MISSING_MESSAGE);
   }
   if (document.status === 'disabled' || document.disabledReason !== null) {
-    throw new Error('文档已停用，不能生成摘要');
+    throw new Error(SUMMARY_DOCUMENT_DISABLED_MESSAGE);
   }
-  if (!document.currentVersionId) throw new Error('文档还没有可用版本，不能生成摘要');
+  if (!document.currentVersionId) throw new Error(SUMMARY_DOCUMENT_NO_VERSION_MESSAGE);
   const versionId = payload.versionId;
 
   const fail = async (message: string): Promise<never> => {
@@ -141,7 +147,7 @@ export async function runKnowledgeSummary(job: JobRow, deps: SummaryDeps): Promi
             summaryVersionId: versionId,
             summary: null,
             summaryGeneratedAt: null,
-            summaryError: '摘要生成已取消',
+            summaryError: SUMMARY_CANCELLED_MESSAGE,
           },
           versionId,
         )

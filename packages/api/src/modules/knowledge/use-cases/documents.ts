@@ -12,9 +12,14 @@ import {
 import { type Database, newId, repo, schema } from '@agentport/db';
 import type { KnowledgeDocumentStatus } from '@agentport/shared';
 import {
+  DOCUMENT_JOB_IN_PROGRESS_MESSAGE,
   KNOWLEDGE_DOCUMENT_MAX_BYTES,
   knowledgeImageChunkMetadataSchema,
   knowledgeIngestInputSnapshotSchema,
+  SUMMARY_DOCUMENT_DISABLED_MESSAGE,
+  SUMMARY_DOCUMENT_NO_VERSION_MESSAGE,
+  TAGGING_DOCUMENT_DISABLED_MESSAGE,
+  TAGGING_DOCUMENT_NO_VERSION_MESSAGE,
 } from '@agentport/shared';
 import { and, eq } from 'drizzle-orm';
 import type { Config } from '../../../config.js';
@@ -429,10 +434,10 @@ export async function generateDocumentSummary(deps: KnowledgeDeps, documentId: s
   const document = await repo.knowledge.getDocument(deps.db, documentId);
   if (!document) notFound('文档');
   if (document.status === 'disabled' || document.disabledReason !== null) {
-    throw new AppError('CONFLICT', '文档已停用，不能生成摘要');
+    throw new AppError('CONFLICT', SUMMARY_DOCUMENT_DISABLED_MESSAGE);
   }
   const versionId = document.currentVersionId;
-  if (!versionId) throw new AppError('CONFLICT', '文档还没有可用版本，不能生成摘要');
+  if (!versionId) throw new AppError('CONFLICT', SUMMARY_DOCUMENT_NO_VERSION_MESSAGE);
   const job = await deps.db.transaction(async (tx) => {
     await repo.knowledge.beginDocumentSummary(tx, document.id, versionId, 'pending');
     return createJob(tx, {
@@ -454,10 +459,10 @@ export async function generateDocumentTags(deps: KnowledgeDeps, documentId: stri
   const document = await repo.knowledge.getDocument(deps.db, documentId);
   if (!document) notFound('文档');
   if (document.status === 'disabled' || document.disabledReason !== null) {
-    throw new AppError('CONFLICT', '文档已停用，不能生成标签');
+    throw new AppError('CONFLICT', TAGGING_DOCUMENT_DISABLED_MESSAGE);
   }
   if (!document.currentVersionId) {
-    throw new AppError('CONFLICT', '文档还没有可用版本，不能生成标签');
+    throw new AppError('CONFLICT', TAGGING_DOCUMENT_NO_VERSION_MESSAGE);
   }
   if (!(await repo.knowledge.isDocumentReadable(deps.db, document.id))) {
     throw new AppError('CONFLICT', '文档当前不可读，不能生成标签');
@@ -604,7 +609,7 @@ export async function reprocessDocument(
       throw new AppError('CONFLICT', '文档存在未发布的草稿，请先发布或放弃草稿后再重解析');
     }
     if ((await repo.knowledge.findActiveReprocessJobId(tx, row.id)) !== null) {
-      throw new AppError('CONFLICT', '文档有正在进行的处理任务，请稍后重试');
+      throw new AppError('CONFLICT', DOCUMENT_JOB_IN_PROGRESS_MESSAGE);
     }
     if (row.currentVersionId) {
       const manualChunkCount = await repo.knowledge.countEditedChunks(tx, row.currentVersionId);
