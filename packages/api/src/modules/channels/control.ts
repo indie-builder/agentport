@@ -14,7 +14,7 @@ import { beginSse } from '../../http/sse.js';
 import { cancelAgentRun } from '../runs/cancel-run.js';
 import { writeChatEvent } from '../runs/events.js';
 import { relayRunEvents } from '../runs/stream.js';
-import { CHANNEL_MEMBER_MISSING, forbidden, notFound } from './errors.js';
+import { CHANNEL_MEMBER_MISSING, forbidden, notFound, RUN_NOT_IN_CHANNEL } from './errors.js';
 import { publishChannelEventSafely, publishChannelMessageSafely } from './publish.js';
 
 const channelControl = repo.channelControl;
@@ -123,7 +123,7 @@ export const channelsControlRouter = {
     switch (result.kind) {
       case 'not_found':
         return result.target === 'run'
-          ? notFound('运行不存在或不属于该频道')
+          ? notFound(RUN_NOT_IN_CHANNEL)
           : notFound(CHANNEL_MEMBER_MISSING);
       case 'forbidden':
         return forbidden(
@@ -253,7 +253,7 @@ export function registerChannelRunEventsHttp(
     const { id, runId } = input.params;
     const businessId = requireUser(context).businessId;
     const access = await channelControl.getChannelRunForMember(context.db, businessId, id, runId);
-    if (!access) return notFound('运行不存在或不属于该频道');
+    if (!access) return notFound(RUN_NOT_IN_CHANNEL);
     const run = access.run;
     beginSse(c, deps.timeout);
     return streamSSE(c, async (stream) => {

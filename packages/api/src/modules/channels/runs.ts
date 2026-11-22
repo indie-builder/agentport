@@ -16,13 +16,11 @@ import {
 } from '../../lib/outputs.js';
 import { toRunDetail } from '../runs/events.js';
 import { answerRunQuestion } from '../runs/questions.js';
+import { ANSWER_FORBIDDEN, RUN_MISSING, RUN_NOT_IN_CHANNEL } from './errors.js';
 
 const runsRepo = repo.runs;
 const questionsRepo = repo.questions;
 const channelControl = repo.channelControl;
-const RUN_MISSING = '运行不存在，可能已被删除';
-const RUN_NOT_IN_CHANNEL = '运行不存在或不属于该频道';
-const ANSWER_FORBIDDEN = '当前频道角色无权回答该提问';
 
 async function memberRun(context: RequestContext, channelId: string, runId: string) {
   const access = await channelControl.getChannelRunForMember(

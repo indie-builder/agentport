@@ -15,7 +15,7 @@ import type { RequestContext } from '../../http/context.js';
 import { listWorkspaceOutputs, readWorkspaceOutput } from '../../lib/outputs.js';
 import { getQueue } from '../../queue/producer.js';
 import { loadReadableConversation } from '../chat/access.js';
-import { notFound } from './errors.js';
+import { notFound, SOURCE_RUN_MISSING } from './errors.js';
 import { publishChannelMessageSafely } from './publish.js';
 import { dispatchChannelWakes } from './wakes.js';
 
@@ -56,7 +56,7 @@ export const channelsHandoffRouter = {
     }
 
     const source = await repo.runs.getRunDetail(context.db, input.body.sourceRunId);
-    if (!source) return notFound('来源运行不存在，可能已被删除');
+    if (!source) return notFound(SOURCE_RUN_MISSING);
     if (source.run.channelId !== null) {
       const access = await repo.channelControl.getChannelRunForMember(
         context.db,
@@ -64,7 +64,7 @@ export const channelsHandoffRouter = {
         source.run.channelId,
         source.run.id,
       );
-      if (!access) return notFound('来源运行不存在，可能已被删除');
+      if (!access) return notFound(SOURCE_RUN_MISSING);
     } else {
       await loadReadableConversation(context, source.run.conversationId);
     }
