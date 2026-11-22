@@ -356,7 +356,7 @@ export const agentRuns = pgTable(
     check('agent_runs_provider_failovers_check', sql`${t.providerFailovers} >= 0`),
     check(
       'agent_runs_subject_check',
-      sql`(${t.subjectKind} = 'user' and ${t.initiatedBy} is not null and ${t.serviceId} is null) or (${t.subjectKind} = 'service' and ${t.initiatedBy} is null and ${t.serviceId} in ('system', 'mcp'))`,
+      sql`(${t.subjectKind} = 'user' and ${t.initiatedBy} is not null and ${t.serviceId} is null) or (${t.subjectKind} = 'service' and ${t.initiatedBy} is null and ${t.serviceId} in (${sql.raw(serviceIdSchema.options.map((option) => `'${option}'`).join(', '))}))`,
     ),
     index('agent_runs_initiated_by_idx').on(t.initiatedBy),
     index('agent_runs_trigger_idx').on(t.trigger),

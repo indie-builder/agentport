@@ -120,8 +120,29 @@
 
 ## 交付
 
-- 开发任务的提交、推送、PR 与合并授权，以及交付完成判据，唯一来源见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md) §2-6/§2-7。CI 为本地验证 `bun run ci`（lint 与 typecheck 并行，typecheck 通过后 build；build 通过后 `openui:check` 与 `test:sharded` 并行，再串行 `test:web`；`bun run ci:e2e` 追加 e2e），不使用 GitHub CI；发布工作流 `release.yml` 独立保留。按改动范围本地验证，不固定跑全套。用户要求提交/合并时不等待 CI、不自动开启 PR 监控或冷却等待；仅在用户明确要求时监控。
+- 开发任务的提交、推送、PR 与合并授权，以及交付完成判据，唯一来源见 [docs/DEV-WORKFLOW.md](docs/DEV-WORKFLOW.md) §2-6/§2-7。CI 为本地验证 `bun run ci`（流水线定义见 `scripts/ci.ts`，追加 E2E 用 `bun run ci:e2e`），不使用 GitHub CI；发布工作流 `release.yml` 独立保留。按改动范围本地验证，不固定跑全套。用户要求提交/合并时不等待 CI、不自动开启 PR 监控或冷却等待；仅在用户明确要求时监控。
 - 每个能力都要有可执行的验证命令与真实结果，不以「应该能跑」代替。
 - UI 改动按 [packages/web/AGENTS.md](packages/web/AGENTS.md) 的「UI 验收」执行：真实渲染 + 多视口截图，不以 typecheck/build 代替。
 - 并发/安全相关改动必须附测试或实测记录。
 - 文档与现有代码存在冲突时，遵循代码的实际实现并修正文档；在最终回复中列出本任务发现的所有冲突点。待决策项记录在 `docs/DECISIONS-PENDING.md`。
+
+## 规则与执行手段
+
+按「先架构、再类型、再 Lint/CI、再测试、最后文档」维护下表；每次纠偏后补齐机械执行入口，已由结构彻底消除的规则可精简散文。
+
+| 规则 / 错误类别 | 执行层级 | 唯一执行入口 |
+|---|---|---|
+| UI 原语只用 `@ui-sdk/react` + shadcn/ui，禁 `@radix-ui` / `@base-ui` | 架构 + Lint + CI | `packages/web/src/components/ui/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 禁硬编码 hex、禁逐个传 `strokeWidth`/`size`、禁直接拼接 `buttonVariants` | 架构 + Lint + CI | `packages/web/src/styles.css`、`packages/web/src/App.tsx`、`packages/web/src/components/ui/button.tsx` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 前端本地存储走统一封装，禁直接访问 `localStorage` | 架构 + Lint + CI | `packages/web/src/lib/storage.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 焦点与边框单层契约（禁叠环、`outline-none`、slider 焦点态） | Lint + CI | `scripts/check-focus-contract.mjs`（`bun run lint:focus`） |
+| 跨包分层边界（web 不引服务端包与 `@agentport/core` 根入口等） | 架构 + Lint + CI | `packages/web/package.json` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 请求校验只在 oRPC 契约完成，handler/router 禁 `safeParse` | 架构 + Lint + CI | `packages/api/src/http/orpc.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 每条 oRPC 过程必须声明 `access` 元数据并经统一鉴权 | 架构 + 运行时 | `packages/api/src/http/orpc.ts`（`traverseContractProcedures`）+ `packages/api/src/http/middleware.ts`（`enforceAccess`） |
+| DB `LIKE`/`ILIKE` 必须转义通配符 | 架构 + Lint + CI | `packages/db/src/repo/like.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| DB 枚举列与 `CHECK` 约束从 `@agentport/shared` schema `.options` 派生 | 架构 + 类型 + Lint + CI | `packages/db/src/schema/` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 业务日志统一走 `@agentport/core/logger`，禁直接值导入 `pino` | 架构 + Lint + CI | `packages/core/src/logger.ts` + `scripts/check-project-contract.mjs`（`bun run lint:contract`） |
+| 单文件物理行数上限 3000 行 | Lint + CI | `scripts/check-file-lines.mjs`（`bun run lint:lines`，已接入 `scripts/ci.ts`） |
+| OpenUI 生成物 `openui.spec.json` 与组件库保持同步 | CI | `scripts/check-openui.mjs`（`bun run openui:check`） |
+| 文档链接/锚点/行内路径有效、禁 `pnpm`/`npm` 命令、`PITFALLS` 索引一致 | Lint + CI | `scripts/check-docs.mjs`（`bun run lint:docs`） |
+| 禁止显式 `any`、格式与 import 排序、全仓类型检查 | 类型 + Lint + CI | `biome.json`（`bun run lint`）+ `tsconfig.base.json`（`bun run typecheck`）+ `scripts/ci.ts`（`bun run ci`） |
