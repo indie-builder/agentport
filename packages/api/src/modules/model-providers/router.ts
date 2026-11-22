@@ -18,6 +18,7 @@ const providers = repo.modelProviders;
 const os = implement(modelProvidersContract).$context<RequestContext>();
 
 const audit = domainAudit('model_provider');
+const PROVIDER_NOT_FOUND_MESSAGE = '模型供应商不存在';
 
 function toUsage(
   row: repo.modelProviders.ModelProviderRow & { usage: repo.modelProviders.ProviderUsage },
@@ -96,7 +97,7 @@ async function assertProviderBaseUrl(context: RequestContext, baseUrl: string) {
 
 async function requireProvider(context: RequestContext, id: string) {
   const row = await providers.getModelProvider(context.db, id);
-  if (row === null) fail('NOT_FOUND', '模型供应商不存在');
+  if (row === null) fail('NOT_FOUND', PROVIDER_NOT_FOUND_MESSAGE);
   return row;
 }
 
@@ -172,7 +173,7 @@ export const modelProvidersRouter = os.router({
         ? {}
         : { credentialEncrypted: encryptSecrets({ credential }, context.config.APP_SECRET_KEY) }),
     });
-    if (row === null) fail('NOT_FOUND', '模型供应商不存在');
+    if (row === null) fail('NOT_FOUND', PROVIDER_NOT_FOUND_MESSAGE);
     await audit(context, 'updated', row.id, patch);
     const [withUsage] = (await providers.listModelProviders(context.db)).filter(
       (provider) => provider.id === row.id,
@@ -183,7 +184,7 @@ export const modelProvidersRouter = os.router({
   }),
   remove: os.remove.handler(async ({ input, context }) => {
     const result = await providers.deleteModelProvider(context.db, input.params.id);
-    if (result === 'not_found') fail('NOT_FOUND', '模型供应商不存在');
+    if (result === 'not_found') fail('NOT_FOUND', PROVIDER_NOT_FOUND_MESSAGE);
     if (result === 'in_use') {
       fail('CONFLICT', '供应商已有历史请求、运行或审批引用，请改为停用');
     }
