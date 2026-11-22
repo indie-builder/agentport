@@ -43,6 +43,9 @@ export function invalid(message: string, path?: string): never {
   fail('INVALID_INPUT', message, path === undefined ? undefined : { path });
 }
 
+export const PACKAGE_PATH_SEGMENT_MESSAGE = '包内路径不能包含空段、. 或 ..';
+export const ZIP_CORRUPT_MESSAGE = 'ZIP 内容损坏，无法解压';
+
 export function assertPackagePath(path: string): void {
   if (path.length === 0 || path.length > MAX_PATH_LENGTH) {
     invalid(`包内路径长度必须在 1-${MAX_PATH_LENGTH} 之间`, path);
@@ -52,7 +55,7 @@ export function assertPackagePath(path: string): void {
   if (hasControlCharacter(path)) invalid('包内路径不能包含控制字符', path);
   const segments = path.replace(/\/$/, '').split('/');
   if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
-    invalid('包内路径不能包含空段、. 或 ..', path);
+    invalid(PACKAGE_PATH_SEGMENT_MESSAGE, path);
   }
 }
 
@@ -366,7 +369,7 @@ function readEntryData(data: Buffer, entry: CentralEntry, centralOffset: number)
     if ((error as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE') {
       invalid(`ZIP 条目「${entry.name}」实际大小与中央目录不符`, entry.name);
     }
-    invalid('ZIP 内容损坏，无法解压');
+    invalid(ZIP_CORRUPT_MESSAGE);
   }
 }
 
