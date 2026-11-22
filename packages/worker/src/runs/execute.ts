@@ -486,7 +486,7 @@ export async function runAgentJob(
           conversationId,
           runtimeEnvironmentId:
             definition?.resources.runtimeEnvironment?.id ?? effectiveAgent.runtimeEnvironmentId,
-          ...(definition === null
+          ...(definition === null || agent.isDefault
             ? {}
             : {
                 runtimeEnvironmentVersionId:
