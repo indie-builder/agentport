@@ -1,4 +1,4 @@
-import { fail } from '@agentport/core';
+import { BUILD_ENQUEUE_FAILED_MESSAGE, fail } from '@agentport/core';
 import type { Database, DbHandle } from '@agentport/db';
 import { newId, repo, schema } from '@agentport/db';
 import {
@@ -103,7 +103,7 @@ export async function enqueueDataDomainBuild(
       { dataDomainId, versionId },
       `data domain build enqueue failed (queue ${DATA_DOMAIN_BUILDS_QUEUE})`,
     );
-    fail('SERVICE_UNAVAILABLE', '构建任务入队失败，请稍后重试');
+    fail('SERVICE_UNAVAILABLE', BUILD_ENQUEUE_FAILED_MESSAGE);
   }
 }
 

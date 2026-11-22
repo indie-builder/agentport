@@ -64,6 +64,8 @@ export const DOCUMENT_VERSION_STALE_MESSAGE = '文档版本已变化，请刷新
 
 export const CONFIG_STALE_MESSAGE = '配置已被修改，请刷新';
 
+export const BUILD_ENQUEUE_FAILED_MESSAGE = '构建任务入队失败，请稍后重试';
+
 export const NOT_FOUND_MESSAGES = {
   agent: '智能体不存在，可能已被删除；请刷新后重试',
   conversation: '会话不存在，可能已被删除；请刷新后重试',
