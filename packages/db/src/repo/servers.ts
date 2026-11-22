@@ -1,4 +1,4 @@
-import { AppError } from '@agentport/core';
+import { AppError, CONFIG_STALE_MESSAGE } from '@agentport/core';
 import type {
   ApiToolInput,
   ResolvedRuntimeEnvironment,
@@ -157,7 +157,7 @@ export async function updateServer(
     .where(where)
     .returning();
   if (!row && expectedUpdatedAt !== undefined && (await getServer(db, id))) {
-    throw new AppError('CONFLICT_STALE', '配置已被修改，请刷新');
+    throw new AppError('CONFLICT_STALE', CONFIG_STALE_MESSAGE);
   }
   return row ?? null;
 }
