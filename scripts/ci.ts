@@ -38,6 +38,7 @@ const phaseOne = await Promise.all([
     ['run', 'lint:docs'],
   ]),
   run('typecheck', [['run', 'typecheck']]),
+  run('formal', [['run', 'verify:formal']]),
 ]);
 const results = [...phaseOne];
 const typecheckOk = phaseOne.find((result) => result.stage === 'typecheck')?.status === 'PASS';

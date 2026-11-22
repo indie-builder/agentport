@@ -2,7 +2,7 @@
 
 > 50轮能力续执行：能依据现有约束决定时直接采用推荐方案，并在本文件记录原因；确实待用户选择时列出选项、建议、影响及依赖，暂停的仅是依赖该决定的工作，其余循环继续。未经授权的发布、清库、生产操作不自动执行。
 > 实现过程中需要拍板的点，先按**最保守/最小**的方案执行并记录在此。
-> 当前状态以各 D- 条目标题标记为准：✅ 已决定 = 已按表中方案实现；⏳ 待决策 = 需要用户或部署形态才能确定；⛔ = 已撤回。仍待决策的为 D-21、D-76、D-78、D-88 至 D-92；D-81 已撤回。D-64 已被 D-65 取代；D-73 仍是有效的边界说明。
+> 当前状态以各 D- 条目标题标记为准：✅ 已决定 = 已按表中方案实现；⏳ 待决策 = 需要用户或部署形态才能确定；⛔ = 已撤回。仍待决策的为 D-21、D-76、D-78、D-88 至 D-94；D-81 已撤回。D-64 已被 D-65 取代；D-73 仍是有效的边界说明。
 > D-1 至 D-16 均已有决定（2026-10-20）；D-17 至 D-20 已按建议方案落地（2026-10-20）。D-21 的「暂不对外」仍是当前执行口径，条目保持 ⏳ 以便对外化前重新评估。
 > D-16 按「先自用、后续再扩展」执行，触发升级的条件写在 D-16 末尾，届时按 B/C/D 重新评估。
 
@@ -873,6 +873,44 @@
 ## D-92 ⏳ 知识库变更审计的原子性与必达（待决策）
 
 现状：`writeAudit` 写失败只 warn，知识库文档变更（移动、标签、删除、重解析）与发布均可能成功但无审计；复制已改为事务内写审计，手写显式发布没有独立审计事件。候选：把必须留痕的变更与 `writeAuditInTx` 放进同一事务；发布补审计事件；明确「审计失败是否回滚业务」。验证：注入审计写入失败，逐个端点核对返回值与审计行。
+
+---
+
+## D-93 ⏳ Agent Run 入队异常路径复查与并发重投递回滚卡死（NoStuckEnqueueFailure，待决策）
+
+**可复现配置与源码位置**：
+
+- 形式化复现：`bun run verify:formal`（[`FindingNoStuckEnqueueFailure.cfg`](../formal/agent-run-lifecycle/FindingNoStuckEnqueueFailure.cfg)，不变量 `NoStuckEnqueueFailure`，[`AgentRunLifecycle.tla`](../formal/agent-run-lifecycle/AgentRunLifecycle.tla) 第 815–822 行，15 步反例）。
+- 相关源码：[`enqueueRunJob` / `failQueuedRunEnqueue`](../packages/api/src/modules/runs/enqueue.ts)、[`failUnstartedRun`](../packages/db/src/repo/runs.ts)、[`requeueInfraFailedRun`](../packages/db/src/repo/chat/messages.ts)、[`runAgentJob`](../packages/worker/src/runs/execute.ts)（认领事务、`publishRun` 失败回退 `queued`）。
+
+**通俗说明（三要素）**：
+
+1. **到底会出什么问题**：同一条任务出现并发入队重放或 BullMQ 锁过期重投递（stall）时，可能发生「队列里显示已完成，但数据库里被标成“入队失败（infra）”且没人再跑」的卡死状态。典型 15 步路径：生产者 `P1` 正常入队并退出成功 → `P2` 并发重放时在 `queue.getJob` 报错，正准备执行 `failQueuedRunEnqueue` → `W2` 领到任务并完成初读（看到 `queued`）后发生 BullMQ stall 锁过期 → `W1` 接手并把数据库改写为 `running` → 晚到的 `W2` 在认领事务里看到已是 `running`，放弃认领并让 BullMQ 把这个 job 标记为 `completed` → 此时 `W1` 的 `publishRun(run_started)` 失败，把数据库改回 `queued`（`startedAt = null`），但 BullMQ 的 job 已经是 `completed` 不会再投递 → 最后滞后的 `P2` 执行 `failQueuedRunEnqueue`（条件正好是 `status = 'queued'`），把数据库写成 `failed / infra / startedAt = null`，任务彻底卡死。
+2. **有多大概率发生**：极低（需要「并发入队重放或 `getJob` 抖动」+「BullMQ worker stall」+「`publishRun` Redis 失败回滚」三重故障在毫秒到秒级窗口内重叠）；平时单发请求几乎不会撞上，但一旦 Redis 抖动就可能把本来已经交接出去的任务打成假死。
+3. **多加代码/修复的复杂度与候选方案**：
+   - **方案 A（只收口入队异常清理 + 跳过分支不标 `completed`，中等复杂度）**：Worker 认领发现已是 `running` 时抛专门错误或延迟让锁自然交还，不在 `W2` 正常返回把 BullMQ job 标为 `completed`；`publishRun` 失败时若不能确保队列仍可重新投递，不再简单退回 `queued` 等无人认领；`failQueuedRunEnqueue` 在标 `failed` 前校验不是刚被回滚的已投递任务或把队列检查放到同一条件里。需要核对 BullMQ stall 锁语义。
+   - **方案 B（接受现状、依赖人工重试，零代码复杂度）**：保持当前保护，依赖用户在界面对 `failed (infra)` 消息点重新发送。
+
+**待确认问题**：是否接受只为这个极低概率的三重并发窗口修改 Worker 认领跳过返回值与 `publishRun` 失败回滚语义（方案 A），还是维持现状交由用户重发（方案 B）？
+
+---
+
+## D-94 ⏳ BullMQ 同 jobId 终态保留期间并发 enqueueRunJob 命中去重静默返回（EnqueueOkImpliesJobWasActive，待决策）
+
+**可复现配置与源码位置**：
+
+- 形式化复现：`bun run verify:formal`（[`FindingEnqueueOkImpliesJobWasActive.cfg`](../formal/agent-run-lifecycle/FindingEnqueueOkImpliesJobWasActive.cfg)，不变量 `EnqueueOkImpliesJobWasActive`，[`AgentRunLifecycle.tla`](../formal/agent-run-lifecycle/AgentRunLifecycle.tla) 第 824–826 行，17 步反例）。
+- 相关源码：[`enqueueRunJob`](../packages/api/src/modules/runs/enqueue.ts)（第 48–119 行）、[`runEnqueueOptions`](../packages/shared/src/run-stream.ts)（`DEFAULT_JOB_RETENTION = { removeOnComplete: 100, removeOnFail: 200 }`）、[`runAgentJob`](../packages/worker/src/runs/execute.ts)（`publishRun` 失败回退 `queued`）。
+
+**通俗说明（三要素）**：
+
+1. **到底会出什么问题**：BullMQ 为同一 `jobId`（`runId`）保留最近 100 个已完成和 200 个已失败的 job 记录；当两个并发 `enqueueRunJob` 先后都通过了开头的 `getJob`（都没看到旧任务），第一个刚把任务放进队列并很快被 Worker 结束为 `completed`（比如前置校验跳过或并发 stall 后另一个 Worker 跳过返回完成，同时伴随 `publishRun` 失败把 DB 退回 `queued`），第二个后到的 `queue.add(..., { jobId })` 会被 BullMQ 当成“重复 jobId”而**静默成功返回**——既不报错，也不真的把新任务放进等待队列。结果 `enqueueRunJob` 正常返回成功并调用 `requeueInfraFailedRun`，实际上队列里根本没有待执行的任务，DB 却停在 `queued`。
+2. **有多大概率发生**：低（需要两个并发的 `enqueueRunJob` 请求跨越完整个任务快速结束或 stall 跳过窗口，主要出现在网络超时重试、并发重放或 `removeOnComplete` 保留期间重复触发入队）。
+3. **多加代码/修复的复杂度与候选方案**：
+   - **方案 A（`queue.add` 后复查返回值 / 状态 + `enqueue` 单飞互斥，低到中等复杂度）**：在 `queue.add` 返回后检查返回的 job 状态（或再 `getJob` / `getState` 一次），若发现处于 `completed`/`failed` 且 DB 仍为 `queued` 或 `isNeverStartedFailure`，则清理后重投或按失败报错；或按 `runId` 加短时 Redis 分布式锁串行化同 `runId` 的 `enqueueRunJob`。
+   - **方案 B（等待 5 分钟对账器兜底，零代码复杂度）**：不改入队路径，依赖 `reconcileQueued` 在 `timeout + GRACE_MS` 后把卡在 `queued` 且队列已 `completed` 的 run 标为 `failed (infra)`，由用户手动重试。
+
+**待确认问题**：是否在 `enqueueRunJob` 中增加 `queue.add` 后状态复查或同 `runId` 互斥锁来消除 BullMQ 终态去重静默吞单（方案 A），还是保留现有实现交由超时对账兜底（方案 B）？
 
 ---
 
