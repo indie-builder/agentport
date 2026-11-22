@@ -398,7 +398,7 @@ describe.skipIf(!ready)('agent file hooks', () => {
         [`${AGENT_PACKAGE_PATHS.hooksDir}share.sh`]: 'echo shared\n',
       },
     });
-    const files = [...decodePackageEntries(base)].map(([path, entry]) => ({
+    const files = [...(await decodePackageEntries(base))].map(([path, entry]) => ({
       path,
       content: entry.content,
       executable: path === `${AGENT_PACKAGE_PATHS.hooksDir}run`,
@@ -422,7 +422,7 @@ describe.skipIf(!ready)('agent file hooks', () => {
 
     const exported = await requestZip(app, 'GET', `/api/export/agents/${agent.id}`, cookie);
     expect(exported.statusCode, exported.body).toBe(200);
-    const exportedEntries = decodePackageEntries(exported.rawPayload);
+    const exportedEntries = await decodePackageEntries(exported.rawPayload);
     expect(exportedEntries.get(`${AGENT_PACKAGE_PATHS.hooksDir}run`)?.executable).toBe(true);
     expect(exportedEntries.get(`${AGENT_PACKAGE_PATHS.hooksDir}share.sh`)?.executable).toBe(false);
 

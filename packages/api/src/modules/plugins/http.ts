@@ -36,7 +36,7 @@ export function registerPluginsHttp(app: Hono<HttpEnv>): void {
       const query = pluginImportQuerySchema.parse(c.req.query());
       let entries: Map<string, PackageEntry>;
       try {
-        entries = decodePackageEntries(Buffer.from(await c.req.arrayBuffer()));
+        entries = await decodePackageEntries(Buffer.from(await c.req.arrayBuffer()));
       } catch (error) {
         fail('INVALID_INPUT', error instanceof Error ? error.message : '插件包无法解析');
       }

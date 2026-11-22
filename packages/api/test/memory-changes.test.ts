@@ -852,7 +852,7 @@ describe.skipIf(!ready)('memory changes', () => {
       `attachment; filename="${agent.slug}-memory.zip"; filename*=UTF-8''${agent.slug}-memory.zip`,
     );
     expect(download.headers.get('cache-control')).toBe('no-store');
-    const files = decodePackage(download.rawPayload);
+    const files = await decodePackage(download.rawPayload);
     expect([...files.keys()].sort()).toEqual(['MEMORY.md', 'deploy.md']);
     expect(files.get('MEMORY.md')).toBe('# 索引\n- [deploy.md](deploy.md)\n');
     expect(files.get('deploy.md')).toBe('# 部署\n使用蓝绿发布。');
@@ -873,7 +873,7 @@ describe.skipIf(!ready)('memory changes', () => {
       url: `/api/agents/${copy.id}/memory/download`,
       headers: auth(),
     });
-    expect([...decodePackage(again.rawPayload).entries()].sort()).toEqual(
+    expect([...(await decodePackage(again.rawPayload)).entries()].sort()).toEqual(
       [...files.entries()].sort(),
     );
 

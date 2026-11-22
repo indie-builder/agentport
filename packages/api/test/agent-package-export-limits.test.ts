@@ -23,9 +23,9 @@ const ready = await infraReady;
 const pack = (files: Record<string, string>) =>
   packAgentPackage({ files, slug: 'limit', warnings: [] });
 
-const conflictOf = (run: () => unknown): AppError => {
+const conflictOf = async (run: () => unknown): Promise<AppError> => {
   try {
-    run();
+    await run();
   } catch (error) {
     if (!(error instanceof AppError)) throw error;
     return error;
@@ -34,38 +34,38 @@ const conflictOf = (run: () => unknown): AppError => {
 };
 
 describe('agent package packing limits', () => {
-  it('packs exactly at the uncompressed limit and rejects one byte more', () => {
+  it('packs exactly at the uncompressed limit and rejects one byte more', async () => {
     const exact = { 'CLAUDE.md': 'a'.repeat(AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES) };
-    const packed = pack(exact);
+    const packed = await pack(exact);
     expect(packed.byteLength).toBeLessThanOrEqual(AGENT_PACKAGE_MAX_BYTES);
-    expect(decodePackage(packed).get('CLAUDE.md')).toHaveLength(
+    expect((await decodePackage(packed)).get('CLAUDE.md')).toHaveLength(
       AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES,
     );
 
-    const error = conflictOf(() =>
+    const error = await conflictOf(() =>
       pack({ 'CLAUDE.md': 'a'.repeat(AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES + 1) }),
     );
     expect(error.code).toBe('CONFLICT');
     expect(error.message).toContain('4 MiB');
   });
 
-  it('counts UTF-8 bytes, not characters, across every file', () => {
+  it('counts UTF-8 bytes, not characters, across every file', async () => {
     const chinese = '中'.repeat(1_398_000);
-    const packed = pack({ 'CLAUDE.md': chinese, '.claude/rules/guide.md': 'a'.repeat(304) });
+    const packed = await pack({ 'CLAUDE.md': chinese, '.claude/rules/guide.md': 'a'.repeat(304) });
     expect(packed.byteLength).toBeLessThanOrEqual(AGENT_PACKAGE_MAX_BYTES);
-    expect(decodePackage(packed).get('CLAUDE.md')).toBe(chinese);
+    expect((await decodePackage(packed)).get('CLAUDE.md')).toBe(chinese);
 
     const over = { 'CLAUDE.md': chinese, '.claude/rules/guide.md': 'a'.repeat(305) };
     expect(encodePackage(over).byteLength).toBeLessThan(AGENT_PACKAGE_MAX_BYTES);
-    expect(conflictOf(() => pack(over)).code).toBe('CONFLICT');
+    expect((await conflictOf(() => pack(over))).code).toBe('CONFLICT');
   });
 
-  it('rejects a package whose ZIP entry overhead would exceed the import limit', () => {
+  it('rejects a package whose ZIP entry overhead would exceed the import limit', async () => {
     const files = {
       'CLAUDE.md': 'a'.repeat(AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES - 1),
       '.claude/rules/guide.md': 'x',
     };
-    const error = conflictOf(() => pack(files));
+    const error = await conflictOf(() => pack(files));
     expect(error.code).toBe('CONFLICT');
     expect(error.message).toContain('解压后总大小');
 
@@ -73,7 +73,7 @@ describe('agent package packing limits', () => {
       'CLAUDE.md': 'a'.repeat(AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES - 4),
       '.claude/rules/guide.md': 'x',
     };
-    expect(decodePackage(pack(under)).get('CLAUDE.md')).toHaveLength(
+    expect((await decodePackage(await pack(under))).get('CLAUDE.md')).toHaveLength(
       AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES - 4,
     );
   });

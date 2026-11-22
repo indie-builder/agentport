@@ -77,7 +77,7 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
       const query = agentImportQuerySchema.parse(c.req.query());
       let entries: Map<string, PackageEntry>;
       try {
-        entries = decodePackageEntries(Buffer.from(await c.req.arrayBuffer()));
+        entries = await decodePackageEntries(Buffer.from(await c.req.arrayBuffer()));
       } catch (error) {
         fail('INVALID_INPUT', error instanceof Error ? error.message : '专家包无法解析');
       }
@@ -170,7 +170,7 @@ export function registerAgentsHttp(app: Hono<HttpEnv>): void {
         },
       );
       const response = attachmentResponse(
-        new Uint8Array(packAgentPackage(pkg)),
+        new Uint8Array(await packAgentPackage(pkg)),
         `${pkg.slug}.zip`,
         'application/zip',
       );

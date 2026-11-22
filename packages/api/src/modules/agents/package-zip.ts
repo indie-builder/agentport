@@ -1,4 +1,3 @@
-import { inflateRawSync } from 'node:zlib';
 import { fail } from '@agentport/core';
 import { AGENT_PACKAGE_MAX_ENTRIES, AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES } from '@agentport/shared';
 import { zipSync } from 'fflate';
@@ -132,11 +131,37 @@ function assertLocalEntry(
   return { dataStart, dataEnd };
 }
 
-function assertEmptyDirectory(
+async function inflateRawCapped(data: Uint8Array, maxBytes: number): Promise<Uint8Array> {
+  const output = new Uint8Array(maxBytes);
+  const reader = new Blob([data])
+    .stream()
+    .pipeThrough(new DecompressionStream('deflate-raw'))
+    .getReader();
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (total + value.byteLength > maxBytes) {
+        throw Object.assign(new Error('inflated size exceeds limit'), {
+          code: 'ERR_BUFFER_TOO_LARGE',
+        });
+      }
+      output.set(value, total);
+      total += value.byteLength;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  return output.subarray(0, total);
+}
+
+async function assertEmptyDirectory(
   data: Buffer,
   entry: { name: string; originalSize: number; compressedSize: number; compression: number },
   layout: LocalEntryLayout,
-): void {
+): Promise<void> {
   if (entry.originalSize !== 0) {
     invalid(`ZIP 目录「${entry.name}」不能包含文件数据`, entry.name);
   }
@@ -150,9 +175,7 @@ function assertEmptyDirectory(
   try {
     // 上限 1 字节：真实空目录（fflate 会写 2 字节的 deflate 空流）解出 0 字节，带内容则失败。
     empty =
-      inflateRawSync(data.subarray(layout.dataStart, layout.dataEnd), {
-        maxOutputLength: 1,
-      }).length === 0;
+      (await inflateRawCapped(data.subarray(layout.dataStart, layout.dataEnd), 1)).length === 0;
   } catch {}
   if (!empty) invalid(`ZIP 目录「${entry.name}」不能包含文件数据`, entry.name);
 }
@@ -186,10 +209,10 @@ function isEocdCandidate(data: Buffer, offset: number): boolean {
   return cursor === directoryEnd;
 }
 
-function readCentralDirectory(
+async function readCentralDirectory(
   data: Buffer,
   limits: ZipReadLimits = AGENT_PACKAGE_LIMITS,
-): CentralDirectory {
+): Promise<CentralDirectory> {
   if (data.length < 22) invalid('不是有效的 ZIP 包');
 
   let eocd = -1;
@@ -337,7 +360,7 @@ function readCentralDirectory(
   for (const entry of parsed) {
     const layout = assertLocalEntry(data, entry, offset);
     ranges.push({ start: entry.localOffset, end: layout.dataEnd, name: entry.name });
-    if (entry.directory) assertEmptyDirectory(data, entry, layout);
+    if (entry.directory) await assertEmptyDirectory(data, entry, layout);
   }
   ranges.sort((left, right) => left.start - right.start);
   for (let index = 1; index < ranges.length; index += 1) {
@@ -350,7 +373,11 @@ function readCentralDirectory(
   return { entries: result, centralOffset: offset };
 }
 
-function readEntryData(data: Buffer, entry: CentralEntry, centralOffset: number): Uint8Array {
+async function readEntryData(
+  data: Buffer,
+  entry: CentralEntry,
+  centralOffset: number,
+): Promise<Uint8Array> {
   const { localOffset } = entry;
   if (localOffset + 30 > centralOffset || u32(data, localOffset) !== SIGNATURE_LOCAL) {
     invalid(`ZIP 条目「${entry.name}」的本地文件头损坏`, entry.name);
@@ -364,7 +391,7 @@ function readEntryData(data: Buffer, entry: CentralEntry, centralOffset: number)
   if (entry.compression === 0) return compressed;
   try {
     // 声明值同时作为输出上限：低报会抛 ERR_BUFFER_TOO_LARGE，而不是静默截断。
-    return inflateRawSync(compressed, { maxOutputLength: Math.max(entry.originalSize, 1) });
+    return await inflateRawCapped(compressed, Math.max(entry.originalSize, 1));
   } catch (error) {
     if ((error as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE') {
       invalid(`ZIP 条目「${entry.name}」实际大小与中央目录不符`, entry.name);
@@ -413,11 +440,11 @@ export interface ZipEntryInfo {
   executable: boolean;
 }
 
-export function inspectZipEntries(
+export async function inspectZipEntries(
   data: Buffer,
   limits: ZipReadLimits = AGENT_PACKAGE_LIMITS,
-): ZipEntryInfo[] {
-  return readCentralDirectory(data, limits).entries.map(
+): Promise<ZipEntryInfo[]> {
+  return (await readCentralDirectory(data, limits)).entries.map(
     ({ name, originalSize, compressedSize, executable }) => ({
       name,
       originalSize,
@@ -432,15 +459,15 @@ export interface ZipFileEntry {
   executable: boolean;
 }
 
-export function decodeZipEntries(
+export async function decodeZipEntries(
   data: Buffer,
   limits: ZipReadLimits = AGENT_PACKAGE_LIMITS,
-): Map<string, ZipFileEntry> {
-  const { entries, centralOffset } = readCentralDirectory(data, limits);
+): Promise<Map<string, ZipFileEntry>> {
+  const { entries, centralOffset } = await readCentralDirectory(data, limits);
   const files = new Map<string, ZipFileEntry>();
   let total = 0;
   for (const entry of entries) {
-    const bytes = readEntryData(data, entry, centralOffset);
+    const bytes = await readEntryData(data, entry, centralOffset);
     if (bytes.length !== entry.originalSize) {
       invalid(`ZIP 条目「${entry.name}」实际大小与中央目录不符`, entry.name);
     }
@@ -453,9 +480,9 @@ export function decodeZipEntries(
   return files;
 }
 
-export function decodePackageEntries(data: Buffer): Map<string, PackageEntry> {
+export async function decodePackageEntries(data: Buffer): Promise<Map<string, PackageEntry>> {
   const files = new Map<string, PackageEntry>();
-  for (const [path, entry] of decodeZipEntries(data)) {
+  for (const [path, entry] of await decodeZipEntries(data)) {
     try {
       files.set(path, { content: strictUtf8.decode(entry.data), executable: entry.executable });
     } catch {
@@ -465,6 +492,8 @@ export function decodePackageEntries(data: Buffer): Map<string, PackageEntry> {
   return files;
 }
 
-export function decodePackage(data: Buffer): Map<string, string> {
-  return new Map([...decodePackageEntries(data)].map(([path, entry]) => [path, entry.content]));
+export async function decodePackage(data: Buffer): Promise<Map<string, string>> {
+  return new Map(
+    [...(await decodePackageEntries(data))].map(([path, entry]) => [path, entry.content]),
+  );
 }
