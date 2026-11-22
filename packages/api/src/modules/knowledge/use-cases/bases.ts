@@ -16,7 +16,7 @@ import { sql } from 'drizzle-orm';
 import { isPgCode } from '../../../http/errors.js';
 import { type PageQuery, pageOptions, requireCursorPage } from '../../../http/pagination.js';
 import { ensureKnowledgeServer, supportsImageVectors } from '../service.js';
-import { type KnowledgeDeps, notFound } from './shared.js';
+import { CHUNK_OVERLAP_INVALID_MESSAGE, type KnowledgeDeps, notFound } from './shared.js';
 
 function toBase(row: Awaited<ReturnType<typeof repo.knowledge.createBase>>) {
   return {
@@ -112,7 +112,7 @@ export async function createBase(
     throw new AppError('INVALID_INPUT', ASR_PROFILE_INVALID_MESSAGE);
   }
   if (input.settings.chunkOverlap >= input.settings.chunkTokens) {
-    throw new AppError('INVALID_INPUT', '分块重叠必须小于分块长度');
+    throw new AppError('INVALID_INPUT', CHUNK_OVERLAP_INVALID_MESSAGE);
   }
   const settingsProblem = await imageSettingsProblem(input.settings, embedding);
   if (settingsProblem !== null) throw new AppError('CONFLICT', settingsProblem);
@@ -244,7 +244,7 @@ export async function updateBase(deps: KnowledgeDeps, id: string, body: UpdateBa
   }
   const settings: KnowledgeBaseSettings = merged.data;
   if (settings.chunkOverlap >= settings.chunkTokens) {
-    throw new AppError('INVALID_INPUT', '分块重叠必须小于分块长度');
+    throw new AppError('INVALID_INPUT', CHUNK_OVERLAP_INVALID_MESSAGE);
   }
   const nextEmbeddingProfileId = body.embeddingProfileId ?? current.embeddingProfileId;
   const nextRerankProfileId =
@@ -369,7 +369,7 @@ export async function previewChunks(
   const chunkTokens = body.chunkTokens ?? row.settings.chunkTokens;
   const chunkOverlap = body.chunkOverlap ?? row.settings.chunkOverlap;
   if (chunkOverlap >= chunkTokens) {
-    throw new AppError('INVALID_INPUT', '分块重叠必须小于分块长度');
+    throw new AppError('INVALID_INPUT', CHUNK_OVERLAP_INVALID_MESSAGE);
   }
   const blocks = markdownBlocks(body.sample, (line, offset = 0, endOffset = offset) => ({
     page: 'unknown',
