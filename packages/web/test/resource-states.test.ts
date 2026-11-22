@@ -293,7 +293,7 @@ describe('resource async state regressions', () => {
             node.props.to === '/chat' ||
             node.props['aria-label'] === '新建专家' ||
             (Array.isArray(node.props.children) && node.props.children.includes(' 新建专家')) ||
-            (Array.isArray(node.props.children) && node.props.children.includes(' 创建数字分身')),
+            node.props['aria-label'] === '创建数字分身',
         );
         expect(entries.length).toBeGreaterThan(0);
         expect(entries.every((node) => node.props.disabled === true)).toBe(true);
