@@ -11,6 +11,7 @@ import {
   getApprovedPolicyApprovalForConversation,
   getApprovedPolicyApprovalForRun,
   linkPolicyApprovalToRun,
+  POLICY_APPROVAL_STALE_MESSAGE,
 } from './security.js';
 
 export async function createRunInstruction(
@@ -60,7 +61,7 @@ export async function createRunInstruction(
       }
       const consumed = await consumePolicyApproval(tx, input.consumePolicyApprovalId, destination);
       if (consumed === null || consumed.runId !== input.runId) {
-        fail('CONTENT_APPROVAL_REQUIRED', '审批已失效，请重新发起');
+        fail('CONTENT_APPROVAL_REQUIRED', POLICY_APPROVAL_STALE_MESSAGE);
       }
       await linkPolicyApprovalToRun(tx, input.consumePolicyApprovalId, input.runId);
     }

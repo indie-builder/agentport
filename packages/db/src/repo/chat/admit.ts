@@ -31,6 +31,7 @@ import {
   getApprovedPolicyApprovalForConversation,
   linkPolicyApprovalToRun,
   linkPolicyEventToRun,
+  POLICY_APPROVAL_STALE_MESSAGE,
 } from '../security.js';
 import { CHANNEL_CONTEXT_CHAR_LIMIT, CHANNEL_CONTEXT_MESSAGE_LIMIT } from './channel-context.js';
 import { createConversation } from './conversations.js';
@@ -404,7 +405,7 @@ export async function admitChatRun(
         input.consumePolicyApprovalId,
         lockedRoute?.destination ?? undefined,
       );
-      if (consumed === null) fail('CONTENT_APPROVAL_REQUIRED', '审批已失效，请重新发起');
+      if (consumed === null) fail('CONTENT_APPROVAL_REQUIRED', POLICY_APPROVAL_STALE_MESSAGE);
     }
     const model = definition?.agent.model ?? owner.model;
     const run = await createRun(tx, {

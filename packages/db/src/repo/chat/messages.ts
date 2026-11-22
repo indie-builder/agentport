@@ -11,6 +11,7 @@ import {
   consumePolicyApproval,
   getApprovedPolicyApprovalForConversation,
   linkPolicyApprovalToRun,
+  POLICY_APPROVAL_STALE_MESSAGE,
 } from '../security.js';
 import { type Conversation, getConversation } from './conversations.js';
 import { conversationSubject } from './shared.js';
@@ -102,7 +103,7 @@ export async function requeueInfraFailedRun(
         lockedRoute?.destination ?? undefined,
       );
       if (consumed === null || (consumed.runId !== null && consumed.runId !== runId)) {
-        fail('CONTENT_APPROVAL_REQUIRED', '审批已失效，请重新发起');
+        fail('CONTENT_APPROVAL_REQUIRED', POLICY_APPROVAL_STALE_MESSAGE);
       }
       await linkPolicyApprovalToRun(tx, consumePolicyApprovalId, runId);
     }
