@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { ChildProcess } from 'node:child_process';
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
-import type { SpawnFn } from '../src/runtime-environments/command.js';
+import type { DockerProcess, SpawnFn } from '../src/runtime-environments/command.js';
 import { verifyRuntimeEnvironmentImage } from '../src/runtime-environments/verify.js';
 
 const IMAGE_ID = `sha256:${'c'.repeat(64)}`;
@@ -15,6 +12,60 @@ interface Reply {
   onStart?: () => void;
 }
 
+interface FakeProcess extends DockerProcess {
+  writeStdout(chunk: string): void;
+  writeStderr(chunk: string): void;
+  finish(code: number): void;
+}
+
+function fakeProcess(): FakeProcess {
+  const encoder = new TextEncoder();
+  let stdoutController!: ReadableStreamDefaultController<Uint8Array>;
+  let stderrController!: ReadableStreamDefaultController<Uint8Array>;
+  const stdout = new ReadableStream<Uint8Array>({
+    start(controller) {
+      stdoutController = controller;
+    },
+  });
+  const stderr = new ReadableStream<Uint8Array>({
+    start(controller) {
+      stderrController = controller;
+    },
+  });
+  let settle!: (code: number) => void;
+  const exited = new Promise<number>((resolve) => {
+    settle = resolve;
+  });
+  let done = false;
+  let signalCode: NodeJS.Signals | number | null = null;
+  const finish = (code: number): void => {
+    if (done) return;
+    done = true;
+    stdoutController.close();
+    stderrController.close();
+    settle(code);
+  };
+  return {
+    stdout,
+    stderr,
+    exited,
+    get signalCode() {
+      return signalCode;
+    },
+    kill: (signal) => {
+      signalCode = signal ?? 'SIGKILL';
+      finish(signal === 'SIGKILL' ? 137 : 143);
+    },
+    writeStdout: (chunk) => {
+      stdoutController.enqueue(encoder.encode(chunk));
+    },
+    writeStderr: (chunk) => {
+      stderrController.enqueue(encoder.encode(chunk));
+    },
+    finish,
+  };
+}
+
 function fakeDocker(respond: (args: string[]) => Reply): {
   spawn: SpawnFn;
   commands: string[][];
@@ -22,25 +73,15 @@ function fakeDocker(respond: (args: string[]) => Reply): {
   const commands: string[][] = [];
   const spawnFn: SpawnFn = (_command, args) => {
     commands.push([...args]);
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: PassThrough;
-      stderr: PassThrough;
-      kill: () => boolean;
-    };
-    child.stdout = new PassThrough();
-    child.stderr = new PassThrough();
-    child.kill = () => {
-      queueMicrotask(() => child.emit('close', 143, null));
-      return true;
-    };
+    const child = fakeProcess();
     queueMicrotask(() => {
       const reply = respond([...args]);
       reply.onStart?.();
-      if (reply.stdout !== undefined) child.stdout.write(reply.stdout);
-      if (reply.stderr !== undefined) child.stderr.write(reply.stderr);
-      if (!reply.holdOpen) child.emit('close', reply.code ?? 0, null);
+      if (reply.stdout !== undefined) child.writeStdout(reply.stdout);
+      if (reply.stderr !== undefined) child.writeStderr(reply.stderr);
+      if (!reply.holdOpen) child.finish(reply.code ?? 0);
     });
-    return child as unknown as ChildProcess;
+    return child;
   };
   return { spawn: spawnFn, commands };
 }

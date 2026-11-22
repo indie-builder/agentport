@@ -123,8 +123,7 @@ export async function runSandboxTask<TOutput, TResult>(
     const { child } = created;
     let pending = '';
     let outputTooLarge = false;
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
+    const consume = (chunk: string): void => {
       if (outputTooLarge) return;
       if (Buffer.byteLength(pending) + Buffer.byteLength(chunk) > SANDBOX_TASK_OUTPUT_MAX_BYTES) {
         outputTooLarge = true;
@@ -140,15 +139,32 @@ export async function runSandboxTask<TOutput, TResult>(
         const result = opts.parseLine(line);
         if (result) finish({ result });
       }
+    };
+    const decoder = new TextDecoder();
+    const stdoutDone = (async () => {
+      for await (const chunk of child.stdout) consume(decoder.decode(chunk, { stream: true }));
+      const rest = decoder.decode();
+      if (rest !== '') consume(rest);
+    })().catch((err) => {
+      finish({ exited: errorText(err) });
     });
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', collectStderr);
-    child.stdin.on('error', () => undefined);
-    child.once('error', (err) => finish({ exited: errorText(err) }));
-    child.once('close', (code, signal) => {
-      finish({ exited: `退出码 ${String(code)}${signal ? ` (${signal})` : ''}` });
+    const stderrDecoder = new TextDecoder();
+    const stderrDone = (async () => {
+      for await (const chunk of child.stderr) {
+        const text = stderrDecoder.decode(chunk, { stream: true });
+        if (text !== '') collectStderr(text);
+      }
+      const rest = stderrDecoder.decode();
+      if (rest !== '') collectStderr(rest);
+    })().catch(() => undefined);
+    void Promise.all([stdoutDone, stderrDone, child.exited]).then(([, , exitCode]) => {
+      const code = child.signalCode === null ? exitCode : null;
+      finish({
+        exited: `退出码 ${String(code)}${child.signalCode === null ? '' : ` (${child.signalCode})`}`,
+      });
     });
-    child.stdin.write(`${JSON.stringify(opts.payload)}\n`);
+    const written = child.stdin.write(`${JSON.stringify(opts.payload)}\n`);
+    if (written instanceof Promise) void written.catch(() => undefined);
 
     const outcome = await done;
     if (outcome.exited === '__timeout__' || outcome.exited === '__closing__') {

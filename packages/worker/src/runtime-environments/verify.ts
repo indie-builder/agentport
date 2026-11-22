@@ -1,6 +1,5 @@
-import { spawn } from 'node:child_process';
 import { CONFIG_CONTAINER_DIR, errorText } from '@agentport/shared';
-import { runDocker, type SpawnFn } from './command.js';
+import { runDocker, type SpawnFn, spawnDocker } from './command.js';
 
 const VERIFY_SCRIPT = `
 const { spawnSync } = require('node:child_process');
@@ -155,7 +154,7 @@ async function verifyNoVolumes(
 export async function verifyRuntimeEnvironmentImage(
   input: RuntimeEnvironmentImageVerifyInput,
 ): Promise<RuntimeEnvironmentImageVerifyResult> {
-  const spawnFn = input.spawn ?? spawn;
+  const spawnFn = input.spawn ?? spawnDocker;
   const { signal } = input;
   if (signal?.aborted) return { ok: false, aborted: true, error: '校验已中断' };
 

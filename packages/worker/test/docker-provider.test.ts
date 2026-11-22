@@ -1,6 +1,4 @@
-import { afterEach, describe, expect, it, jest, mock, spyOn } from 'bun:test';
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
+import { afterAll, afterEach, describe, expect, it, jest, spyOn } from 'bun:test';
 import { advanceTimersByTimeAsync, waitFor } from './fixtures/native-test.js';
 
 interface Reply {
@@ -10,75 +8,107 @@ interface Reply {
   holdOpen?: boolean;
 }
 
+interface FakeChild {
+  stdout: ReadableStream<Uint8Array>;
+  stderr: ReadableStream<Uint8Array>;
+  stdin: { write(chunk: string): number; end(): number };
+  exited: Promise<number>;
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | number | null;
+  kill(signal?: NodeJS.Signals | number): void;
+  writeStdout(chunk: string): void;
+  writeStderr(chunk: string): void;
+  finish(code: number): void;
+}
+
+function fakeChild(): FakeChild {
+  const encoder = new TextEncoder();
+  let stdoutController!: ReadableStreamDefaultController<Uint8Array>;
+  let stderrController!: ReadableStreamDefaultController<Uint8Array>;
+  const stdout = new ReadableStream<Uint8Array>({
+    start(controller) {
+      stdoutController = controller;
+    },
+  });
+  const stderr = new ReadableStream<Uint8Array>({
+    start(controller) {
+      stderrController = controller;
+    },
+  });
+  let settle!: (code: number) => void;
+  const exited = new Promise<number>((resolve) => {
+    settle = resolve;
+  });
+  let done = false;
+  const child: FakeChild = {
+    stdout,
+    stderr,
+    stdin: { write: () => 0, end: () => 0 },
+    exited,
+    exitCode: null,
+    signalCode: null,
+    kill(signal) {
+      child.signalCode = signal ?? 'SIGKILL';
+      child.finish(137);
+    },
+    writeStdout(chunk) {
+      stdoutController.enqueue(encoder.encode(chunk));
+    },
+    writeStderr(chunk) {
+      stderrController.enqueue(encoder.encode(chunk));
+    },
+    finish(code) {
+      if (done) return;
+      done = true;
+      child.exitCode = code;
+      stdoutController.close();
+      stderrController.close();
+      settle(code);
+    },
+  };
+  return child;
+}
+
 const state = (() => ({
   commands: [] as string[][],
   kills: [] as string[][],
   startError: false,
-  children: {} as Record<
-    string,
-    Array<
-      EventEmitter & {
-        stdin: PassThrough;
-        stdout: PassThrough;
-        stderr: PassThrough;
-        exitCode: number | null;
-        signalCode: NodeJS.Signals | null;
-        kill(signal?: NodeJS.Signals): boolean;
-      }
-    >
-  >,
+  children: {} as Record<string, FakeChild[]>,
   reply: (_args: string[]): Reply => ({ exitCode: 0 }),
 }))();
 
-const childProcessActual = await import('node:child_process');
-mock.module('node:child_process', () => {
-  return {
-    ...childProcessActual,
-    spawn: (command: string, args: string[]) => {
-      state.commands.push([command, ...args]);
-      const child = new EventEmitter() as EventEmitter & {
-        stdin: PassThrough;
-        stdout: PassThrough;
-        stderr: PassThrough;
-        kill: (signal?: NodeJS.Signals) => boolean;
-        exitCode: number | null;
-        signalCode: NodeJS.Signals | null;
-      };
-      child.stdin = new PassThrough();
-      child.stdout = new PassThrough();
-      child.stderr = new PassThrough();
-      child.kill = (signal) => {
-        state.kills.push([command, ...args]);
-        child.signalCode = signal ?? 'SIGKILL';
-        queueMicrotask(() => child.emit('close', 137, signal ?? 'SIGKILL'));
-        return true;
-      };
-      // 真实 ChildProcess 在退出前 exitCode/signalCode 都是 null。
-      child.exitCode = null;
-      child.signalCode = null;
-      const key = args[0] === 'image' ? 'image inspect' : String(args[0]);
-      const children = state.children[key] ?? [];
-      children.push(child);
-      state.children[key] = children;
-      queueMicrotask(() => {
-        if (args[0] === 'start' && state.startError) {
-          child.emit('error', new Error('spawn docker failed'));
-          return;
-        }
-        child.emit('spawn');
-      });
-      // start -ai 是前台附着进程；其余命令按 reply 结束。
-      if (args[0] === 'start') return child;
-      const reply = state.reply(args);
-      if (reply.holdOpen === true) return child;
-      queueMicrotask(() => {
-        if (reply.stdout !== undefined) child.stdout.write(reply.stdout);
-        if (reply.stderr !== undefined) child.stderr.write(reply.stderr);
-        child.emit('close', reply.exitCode, null);
-      });
-      return child;
-    },
+const originalSpawn = Bun.spawn;
+Bun.spawn = ((command: string[]) => {
+  const args = command.slice(1);
+  state.commands.push([...command]);
+  if (args[0] === 'start' && state.startError) {
+    throw new Error('spawn docker failed');
+  }
+  const child = fakeChild();
+  child.kill = (signal) => {
+    state.kills.push([...command]);
+    child.signalCode = signal ?? 'SIGKILL';
+    child.finish(137);
   };
+  const key = args[0] === 'image' ? 'image inspect' : String(args[0]);
+  const children = state.children[key] ?? [];
+  children.push(child);
+  state.children[key] = children;
+  // start -ai 是前台附着进程；其余命令按 reply 结束。
+  if (args[0] !== 'start') {
+    const reply = state.reply(args);
+    queueMicrotask(() => {
+      if (reply.stdout !== undefined) child.writeStdout(reply.stdout);
+      if (reply.stderr !== undefined) child.writeStderr(reply.stderr);
+      if (reply.holdOpen === true) return;
+      child.finish(reply.exitCode);
+    });
+  }
+  return child as unknown as ReturnType<typeof originalSpawn>;
+}) as typeof Bun.spawn;
+
+afterAll(() => {
+  Bun.spawn = originalSpawn;
 });
 
 afterEach(() => {
@@ -278,7 +308,7 @@ describe('docker sandbox provider', () => {
     controller.abort();
     // create 请求已交给 daemon：不能杀掉客户端冒充清理。
     expect(state.kills.some((command) => command[1] === 'create')).toBe(false);
-    state.children.create?.[0]?.emit('close', 0, null);
+    state.children.create?.[0]?.finish(0);
     await expect(creating).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(state.commands.some((command) => command[1] === 'start')).toBe(false);
@@ -310,7 +340,7 @@ describe('docker sandbox provider', () => {
     expect(settled).toBeUndefined();
 
     controller.abort();
-    state.children.create?.[0]?.emit('close', 0, null);
+    state.children.create?.[0]?.finish(0);
     await creating;
 
     expect(settled?.status).toBe('rejected');
@@ -517,7 +547,7 @@ describe('docker sandbox provider', () => {
     await waitFor(() => expect(state.children.create?.length).toBe(1));
 
     controller.abort();
-    state.children.create?.[0]?.emit('close', 0, null);
+    state.children.create?.[0]?.finish(0);
     await expect(creating).rejects.toMatchObject({
       name: 'SandboxCleanupError',
       sandboxId: 'pace-abort-rm',

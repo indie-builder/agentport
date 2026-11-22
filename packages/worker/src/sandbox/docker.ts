@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { CONFIG_CONTAINER_DIR, WORKSPACE_CONTAINER_DIR } from '@agentport/shared';
 import {
@@ -50,19 +49,28 @@ interface CommandResult {
   stderr: string;
 }
 
+const OUTPUT_TAIL = 4_000;
+
+function readChunks(
+  stream: ReadableStream<Uint8Array>,
+  onChunk: (chunk: string) => void,
+): Promise<void> {
+  const decoder = new TextDecoder();
+  return (async () => {
+    for await (const chunk of stream) {
+      const text = decoder.decode(chunk, { stream: true });
+      if (text !== '') onChunk(text);
+    }
+    const rest = decoder.decode();
+    if (rest !== '') onChunk(rest);
+  })();
+}
+
 function runDockerCommand(args: string[], timeoutMs?: number): Promise<CommandResult> {
   return new Promise<CommandResult>((resolveCommand, reject) => {
-    const proc = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = Bun.spawn(['docker', ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
-    proc.stdout?.setEncoding('utf8');
-    proc.stdout?.on('data', (chunk: string) => {
-      stdout = (stdout + chunk).slice(-4_000);
-    });
-    proc.stderr?.setEncoding('utf8');
-    proc.stderr?.on('data', (chunk: string) => {
-      stderr = (stderr + chunk).slice(-4_000);
-    });
     const timer =
       timeoutMs === undefined
         ? undefined
@@ -73,21 +81,32 @@ function runDockerCommand(args: string[], timeoutMs?: number): Promise<CommandRe
     const clear = (): void => {
       if (timer !== undefined) clearTimeout(timer);
     };
-    proc.once('error', (err) => {
-      clear();
-      reject(err);
-    });
-    proc.once('close', (code) => {
-      clear();
-      const ok = code === 0;
-      // Docker CLI 对不存在的容器/对象/镜像固定报 "No such ..."；其他非 0 不能当成已清理。
-      resolveCommand({
-        ok,
-        missing: !ok && /no such (container|object|image)/i.test(stderr),
-        stdout,
-        stderr,
-      });
-    });
+    Promise.all([
+      readChunks(proc.stdout, (chunk) => {
+        stdout = (stdout + chunk).slice(-OUTPUT_TAIL);
+      }),
+      readChunks(proc.stderr, (chunk) => {
+        stderr = (stderr + chunk).slice(-OUTPUT_TAIL);
+      }),
+      proc.exited,
+    ]).then(
+      ([, , exitCode]) => {
+        clear();
+        const code = proc.signalCode === null ? exitCode : null;
+        const ok = code === 0;
+        // Docker CLI 对不存在的容器/对象/镜像固定报 "No such ..."；其他非 0 不能当成已清理。
+        resolveCommand({
+          ok,
+          missing: !ok && /no such (container|object|image)/i.test(stderr),
+          stdout,
+          stderr,
+        });
+      },
+      (err) => {
+        clear();
+        reject(err);
+      },
+    );
   });
 }
 
@@ -224,14 +243,9 @@ export class DockerSandboxProvider implements SandboxProvider {
       throw abortError();
     }
 
-    const child = spawn('docker', ['start', '-ai', name], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    let child: Sandbox['child'];
     try {
-      await new Promise<void>((resolveReady, reject) => {
-        child.once('spawn', resolveReady);
-        child.once('error', reject);
-      });
+      child = Bun.spawn(['docker', 'start', '-ai', name], { stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (err) {
       try {
         await this.removeContainer(name);
@@ -297,12 +311,14 @@ export class DockerSandboxProvider implements SandboxProvider {
 
   private pullImage(image: string, signal: AbortSignal): Promise<void> {
     return new Promise<void>((resolvePull, reject) => {
-      const proc = spawn('docker', ['pull', image], { stdio: ['ignore', 'ignore', 'pipe'] });
+      let proc: Bun.Subprocess<'ignore', 'ignore', 'pipe'>;
+      try {
+        proc = Bun.spawn(['docker', 'pull', image], { stdio: ['ignore', 'ignore', 'pipe'] });
+      } catch (err) {
+        reject(signal.aborted ? abortError() : err);
+        return;
+      }
       let stderr = '';
-      proc.stderr?.setEncoding('utf8');
-      proc.stderr?.on('data', (chunk: string) => {
-        stderr = (stderr + chunk).slice(-4_000);
-      });
       const onAbort = (): void => {
         proc.kill('SIGTERM');
       };
@@ -312,12 +328,19 @@ export class DockerSandboxProvider implements SandboxProvider {
         if (error === undefined) resolvePull();
         else reject(error);
       };
-      proc.once('error', (err) => finish(signal.aborted ? abortError() : err));
-      proc.once('close', (code) => {
-        if (signal.aborted) return finish(abortError());
-        if (code === 0) return finish();
-        finish(new Error(`docker pull ${image} failed${errorDetail(stderr)}`));
-      });
+      Promise.all([
+        readChunks(proc.stderr, (chunk) => {
+          stderr = (stderr + chunk).slice(-OUTPUT_TAIL);
+        }),
+        proc.exited,
+      ]).then(
+        ([, code]) => {
+          if (signal.aborted) return finish(abortError());
+          if (code === 0) return finish();
+          finish(new Error(`docker pull ${image} failed${errorDetail(stderr)}`));
+        },
+        (err) => finish(signal.aborted ? abortError() : err),
+      );
       if (signal.aborted) onAbort();
     });
   }

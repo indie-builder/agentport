@@ -191,8 +191,8 @@ describe.skipIf(!dockerReady)('session sandbox real docker lifecycle', () => {
       expect(recording.children).toHaveLength(1);
       const child = recording.children[0];
       if (child === undefined) throw new Error('provider did not record the sandbox child');
-      expect(child.stdin.destroyed).toBe(false);
-      child.stdin.end();
+      expect(child.exitCode).toBeNull();
+      void child.stdin.end();
 
       await waitFor(
         () => !containerExists(lease.sandboxId),

@@ -66,8 +66,32 @@ class FakeChild extends EventEmitter {
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
   readonly signals: NodeJS.Signals[] = [];
+  readonly exited: Promise<number>;
+  exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
+  private settleExited!: (code: number) => void;
+  private exitedOnce = false;
+
+  constructor() {
+    super();
+    this.exited = new Promise<number>((resolve) => {
+      this.settleExited = resolve;
+    });
+  }
+
+  finish(code: number | null, signal: NodeJS.Signals | null = null): void {
+    if (this.exitedOnce) return;
+    this.exitedOnce = true;
+    this.exitCode = signal === null ? code : null;
+    this.signalCode = signal;
+    this.stdout.end();
+    this.stderr.end();
+    this.settleExited(signal === null ? (code ?? 0) : 137);
+  }
+
   kill(signal: NodeJS.Signals): boolean {
     this.signals.push(signal);
+    this.finish(null, signal);
     return true;
   }
 }
@@ -128,7 +152,7 @@ function respondingChild(line: unknown, stderr = ''): FakeChild {
   child.stdin.write = (() => {
     if (stderr) child.stderr.write(stderr);
     child.stdout.write(`${JSON.stringify(line)}\n`);
-    child.emit('close', 0, null);
+    child.finish(0);
     return true;
   }) as typeof child.stdin.write;
   return child;
@@ -227,7 +251,7 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     child.stdin.write = ((chunk: string) => {
       task = chunk;
       child.stdout.write(`${JSON.stringify({ ok: true, tools: [] })}\n`);
-      child.emit('close', 0, null);
+      child.finish(0);
       return true;
     }) as typeof child.stdin.write;
     const fake = fakeProvider(() => child);
@@ -262,7 +286,7 @@ describe.skipIf(!ready)('runSandboxProbe', () => {
     const child = new FakeChild();
     child.stdin.write = (() => {
       child.stderr.write('Error: cannot find module demo\n');
-      child.emit('close', 1, null);
+      child.finish(1);
       return true;
     }) as typeof child.stdin.write;
     const fake = fakeProvider(() => child);

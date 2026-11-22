@@ -1,9 +1,7 @@
-import { execFile } from 'node:child_process';
 import { lstat, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
-import { promisify } from 'node:util';
 import {
   AGENT_PACKAGE_MAX_ENTRIES,
   AGENT_PACKAGE_MAX_UNCOMPRESSED_BYTES,
@@ -24,7 +22,6 @@ import { readTask } from './stdin-task.js';
 const CACHE_ROOT = PLUGIN_CACHE_CONTAINER_DIR;
 const CLI_MAX_BUFFER = 8 * 1024 * 1024;
 
-const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
 
 class ActionFailure extends Error {
@@ -124,28 +121,36 @@ async function runCli(
 ): Promise<CliResult> {
   const cwd = await mkdtemp(join(tmpdir(), 'native-plugin-run-'));
   try {
-    return await execFileAsync(cliPath, args, {
-      cwd,
-      env: cliEnv(configDir, pluginCacheDir),
-      encoding: 'utf8',
-      maxBuffer: CLI_MAX_BUFFER,
-    }).then(
-      ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
-      (err: unknown) => {
-        const shape = err as { code?: unknown; stdout?: unknown; stderr?: unknown };
-        if (typeof shape.stdout !== 'string' || typeof shape.stderr !== 'string') {
-          fail('执行 CLI', errorText(err));
-        }
-        return {
-          code: typeof shape.code === 'number' ? shape.code : 1,
-          stdout: shape.stdout,
-          stderr: shape.stderr,
-        };
-      },
-    );
+    let proc: Bun.Subprocess<'ignore', 'pipe', 'pipe'>;
+    try {
+      proc = Bun.spawn([cliPath, ...args], {
+        cwd,
+        env: cliEnv(configDir, pluginCacheDir),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        maxBuffer: CLI_MAX_BUFFER,
+      });
+    } catch (error) {
+      return fail('执行 CLI', errorText(error));
+    }
+    const [stdout, stderr, exitCode] = await Promise.all([
+      readStream(proc.stdout),
+      readStream(proc.stderr),
+      proc.exited,
+    ]);
+    return { code: proc.signalCode === null ? exitCode : 1, stdout, stderr };
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+}
+
+async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = '';
+  try {
+    for await (const chunk of stream) text += decoder.decode(chunk, { stream: true });
+    text += decoder.decode();
+  } catch {}
+  return text;
 }
 
 interface ListedPlugin extends NativeInstalledPlugin {

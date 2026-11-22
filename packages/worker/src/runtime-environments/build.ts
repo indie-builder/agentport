@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,7 +16,7 @@ import {
 import type { Job } from 'bullmq';
 import type { Logger } from 'pino';
 import { startRedisWorker } from '../queue-worker.js';
-import { keepTail, runDocker, type SpawnFn } from './command.js';
+import { keepTail, runDocker, type SpawnFn, spawnDocker } from './command.js';
 import { verifyRuntimeEnvironmentImage } from './verify.js';
 
 export const RUNTIME_ENVIRONMENT_BUILD_JOB = 'build';
@@ -122,7 +121,7 @@ export async function executeRuntimeEnvironmentBuild(
   input: RuntimeEnvironmentBuildInput,
 ): Promise<RuntimeEnvironmentBuildResult> {
   const log = createLog();
-  const spawnFn = input.spawn ?? spawn;
+  const spawnFn = input.spawn ?? spawnDocker;
   const { signal } = input;
   const emit = (chunk: string): void => {
     log.append(chunk);

@@ -1,4 +1,3 @@
-import { type ChildProcess, spawn } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
@@ -34,7 +33,7 @@ interface RunExit {
 
 interface ActiveRun {
   runId: string;
-  child: ChildProcess;
+  proc: Bun.PipedSubprocess;
   started: boolean;
   startSettled: boolean;
   startError?: string;
@@ -46,6 +45,7 @@ interface ActiveRun {
   finish: Promise<void>;
   outputReader?: NdjsonReader;
   outputError?: string;
+  cancelStderr: () => void;
 }
 
 interface ProcInfo {
@@ -61,6 +61,7 @@ type StartInput = Extract<SupervisorInput, { type: 'start' }>;
 interface NdjsonReaderOptions {
   signal?: AbortSignal | undefined;
   onOverflow?: ((maxBytes: number) => void) | undefined;
+  cancel?: (() => void) | undefined;
 }
 
 class NdjsonReader {
@@ -73,20 +74,34 @@ class NdjsonReader {
   private waiter: (() => void) | undefined;
   private readonly maxBytes: number;
   private readonly onOverflow: ((maxBytes: number) => void) | undefined;
+  private readonly cancel: (() => void) | undefined;
 
-  constructor(input: Readable, maxBytes: number, options: NdjsonReaderOptions = {}) {
+  constructor(
+    input: AsyncIterable<Uint8Array | string>,
+    maxBytes: number,
+    options: NdjsonReaderOptions = {},
+  ) {
     this.maxBytes = maxBytes;
     this.onOverflow = options.onOverflow;
-    input.setEncoding('utf8');
-    input.on('data', (chunk: string) => this.push(chunk));
-    input.on('end', () => this.finish());
-    input.on('close', () => this.finish());
-    input.on('error', () => this.finish());
+    this.cancel = options.cancel;
+    void this.pump(input);
     const signal = options.signal;
     if (signal !== undefined) {
       if (signal.aborted) this.close();
       else signal.addEventListener('abort', () => this.close(), { once: true });
     }
+  }
+
+  private async pump(input: AsyncIterable<Uint8Array | string>): Promise<void> {
+    const decoder = new TextDecoder();
+    try {
+      for await (const chunk of input) {
+        if (this.closed) continue;
+        this.push(typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true }));
+      }
+      if (!this.closed) this.push(decoder.decode());
+    } catch {}
+    this.finish();
   }
 
   async next(): Promise<string | null> {
@@ -101,10 +116,12 @@ class NdjsonReader {
   }
 
   close(): void {
+    if (this.closed) return;
     this.closed = true;
     this.lines.length = 0;
     this.pending = '';
     this.pendingBytes = 0;
+    this.cancel?.();
     this.finish();
   }
 
@@ -247,11 +264,15 @@ class Supervisor {
       this.reject(input.runId, 'BUSY', `run ${this.active.runId} is still active`);
       return;
     }
-    this.active = this.spawnRun(input);
+    try {
+      this.active = this.spawnRun(input);
+    } catch (error) {
+      this.reject(input.runId, 'SPAWN_FAILED', errorText(error));
+    }
   }
 
   private spawnRun(input: StartInput): ActiveRun {
-    const child = spawn(process.execPath, [this.runnerPath], {
+    const proc = Bun.spawn([process.execPath, this.runnerPath], {
       detached: true,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...input.env },
@@ -265,10 +286,11 @@ class Supervisor {
     const startDecision = new Promise<void>((resolveStartPromise) => {
       resolveStart = resolveStartPromise;
     });
-
+    const output = chunkSource(proc.stdout);
+    const errors = chunkSource(proc.stderr);
     const run: ActiveRun = {
       runId: input.runId,
-      child,
+      proc,
       started: false,
       startSettled: false,
       cancelling: false,
@@ -277,81 +299,89 @@ class Supervisor {
       startDecision,
       pumpDone: Promise.resolve(),
       finish: Promise.resolve(),
+      cancelStderr: errors.cancel,
     };
-    const decideStart = (error?: string): void => {
+    const failStart = (error: string): void => {
       if (run.startSettled) return;
       run.startSettled = true;
-      if (error === undefined) {
-        run.started = true;
-        this.emit({ type: 'started', runId: run.runId });
-      } else {
-        run.startError = error;
-      }
+      run.startError = error;
+      resolveStart();
+    };
+    const acceptStart = (): void => {
+      if (run.startSettled) return;
+      run.startSettled = true;
+      run.started = true;
+      this.emit({ type: 'started', runId: run.runId });
       resolveStart();
     };
 
-    const stdout = child.stdout;
-    if (stdout === null) {
-      decideStart('runner stdout is unavailable');
-    } else {
-      run.outputReader = new NdjsonReader(stdout, SUPERVISOR_INPUT_MAX_BYTES, {
-        onOverflow: () => this.outputOverflow(run),
-      });
-      run.pumpDone = this.pump(run, run.outputReader);
-    }
-    child.stderr?.setEncoding('utf8');
-    child.stderr?.on('data', (text: string) => {
-      this.emit({ type: 'stderr', runId: run.runId, text });
+    run.outputReader = new NdjsonReader(output.chunks, SUPERVISOR_INPUT_MAX_BYTES, {
+      onOverflow: () => this.outputOverflow(run),
+      cancel: output.cancel,
     });
-    child.once('error', (error) => {
-      decideStart(error.message);
-      resolveExit({ code: null, signal: null });
-    });
-    // 用 exit 而不是 close：后代继承 stdout/stderr 时 close 要等它们退出，不能作为收尾起点。
-    child.once('exit', (code, signal) => {
+    const stderrPump = this.pumpStderr(run, errors.chunks);
+    const outputPump = this.pump(run, run.outputReader);
+    run.pumpDone = Promise.all([outputPump, stderrPump]).then(() => undefined);
+
+    void proc.exited.then((code) => {
       run.exited = true;
-      resolveExit({ code, signal });
+      resolveExit({
+        code: proc.signalCode === null ? code : null,
+        signal: typeof proc.signalCode === 'string' ? proc.signalCode : null,
+      });
     });
 
-    const stdin = child.stdin;
-    if (stdin === null) {
-      decideStart('runner stdin is unavailable');
-    } else {
-      stdin.on('error', () => undefined);
-      stdin.write(`${JSON.stringify(input.task)}\n`, (error) => {
-        decideStart(error === null || error === undefined ? undefined : error.message);
-      });
-    }
+    void writeLine(proc.stdin, `${JSON.stringify(input.task)}\n`).then(
+      () => acceptStart(),
+      (error: unknown) => failStart(errorText(error)),
+    );
 
-    run.finish = this.finalize(run, decideStart);
+    run.finish = this.finalize(run, failStart);
     return run;
   }
 
-  private async finalize(run: ActiveRun, decideStart: (error?: string) => void): Promise<void> {
+  private async pumpStderr(run: ActiveRun, chunks: AsyncIterable<Uint8Array>): Promise<void> {
+    const decoder = new TextDecoder();
+    try {
+      for await (const chunk of chunks) {
+        this.emit({
+          type: 'stderr',
+          runId: run.runId,
+          text: decoder.decode(chunk, { stream: true }),
+        });
+      }
+      const rest = decoder.decode();
+      if (rest.length > 0) this.emit({ type: 'stderr', runId: run.runId, text: rest });
+    } catch {}
+  }
+
+  private async finalize(run: ActiveRun, failStart: (error: string) => void): Promise<void> {
     const exit = await run.rootExit;
     await Promise.race([run.startDecision, delay(START_DECISION_MS)]);
-    decideStart(run.startError ?? 'runner exited before accepting the task');
+    failStart(run.startError ?? 'runner exited before accepting the task');
     if (!run.started) {
       run.outputReader?.close();
+      run.cancelStderr();
       if (!run.exited) {
         try {
-          run.child.kill('SIGTERM');
+          run.proc.kill('SIGTERM');
         } catch {}
       }
+      await run.pumpDone;
       this.reject(run.runId, 'SPAWN_FAILED', run.startError ?? 'runner failed to start');
       this.clear(run);
       return;
     }
 
-    let settlement = await settleRun(run.child.pid, this.graceMs, exit);
+    let settlement = await settleRun(run.proc.pid, this.graceMs, exit);
     const drained = await Promise.race([
       run.pumpDone.then(() => true),
       delay(this.graceMs).then(() => false),
     ]);
     if (!drained) {
       run.outputReader?.close();
-      run.child.stdout?.destroy();
-      run.child.stderr?.destroy();
+      run.cancelStderr();
+      await run.pumpDone;
       if (settlement.state === 'stopped') {
         settlement = {
           state: 'unconfirmed',
@@ -389,10 +419,10 @@ class Supervisor {
     run.outputError = `runner output line exceeds ${SUPERVISOR_INPUT_MAX_BYTES} bytes`;
     run.outputReader?.close();
     try {
-      run.child.kill('SIGTERM');
+      run.proc.kill('SIGTERM');
     } catch {}
     setTimeout(() => {
-      if (!run.exited) signalGroup(run.child.pid, 'SIGKILL');
+      if (!run.exited) signalGroup(run.proc.pid, 'SIGKILL');
     }, this.graceMs).unref();
   }
 
@@ -424,20 +454,17 @@ class Supervisor {
     if (run.cancelling || run.exited) return;
     run.cancelling = true;
     try {
-      run.child.kill('SIGTERM');
+      run.proc.kill('SIGTERM');
     } catch {}
   }
 
   private forward(run: ActiveRun, command: SandboxInputCommand): void {
-    const stdin = run.child.stdin;
-    if (run.exited || stdin === null || stdin.destroyed || !stdin.writable) {
+    if (run.exited || run.proc.exitCode !== null) {
       this.reject(run.runId, 'NOT_ACTIVE', `run ${run.runId} is no longer accepting input`);
       return;
     }
-    stdin.write(`${JSON.stringify(command)}\n`, (error) => {
-      if (error !== null && error !== undefined) {
-        this.reject(run.runId, 'NOT_ACTIVE', `failed to forward input: ${error.message}`);
-      }
+    void writeLine(run.proc.stdin, `${JSON.stringify(command)}\n`).then(undefined, (error) => {
+      this.reject(run.runId, 'NOT_ACTIVE', `failed to forward input: ${errorText(error)}`);
     });
   }
 
@@ -447,16 +474,17 @@ class Supervisor {
     if (!run.exited) {
       run.cancelling = true;
       try {
-        run.child.kill('SIGTERM');
+        run.proc.kill('SIGTERM');
       } catch {}
       await Promise.race([run.rootExit, delay(this.graceMs)]);
-      if (!run.exited) signalGroup(run.child.pid, 'SIGKILL');
+      if (!run.exited) signalGroup(run.proc.pid, 'SIGKILL');
       await run.rootExit;
     }
     await run.finish;
   }
 
   private clear(run: ActiveRun): void {
+    endSink(run.proc.stdin);
     if (this.active === run) this.active = undefined;
   }
 }
@@ -465,6 +493,47 @@ function runIdOf(raw: unknown): string {
   if (typeof raw !== 'object' || raw === null) return '';
   const runId = (raw as { runId?: unknown }).runId;
   return typeof runId === 'string' ? runId : '';
+}
+
+interface ChunkSource {
+  chunks: AsyncIterable<Uint8Array>;
+  cancel: () => void;
+}
+
+function chunkSource(stream: ReadableStream<Uint8Array>): ChunkSource {
+  const reader = stream.getReader();
+  let released = false;
+  return {
+    cancel: () => {
+      if (released) return;
+      void reader.cancel().catch(() => undefined);
+    },
+    chunks: {
+      async *[Symbol.asyncIterator]() {
+        try {
+          for (;;) {
+            const next = await reader.read();
+            if (next.done) return;
+            yield next.value;
+          }
+        } finally {
+          released = true;
+          reader.releaseLock();
+        }
+      },
+    },
+  };
+}
+
+async function writeLine(sink: Bun.FileSink, text: string): Promise<void> {
+  await sink.write(text);
+  await sink.flush();
+}
+
+function endSink(sink: Bun.FileSink): void {
+  try {
+    void Promise.resolve(sink.end()).catch(() => undefined);
+  } catch {}
 }
 
 async function settleRun(

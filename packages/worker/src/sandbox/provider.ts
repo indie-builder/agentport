@@ -1,5 +1,3 @@
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-
 export interface SandboxCreateOptions {
   image: string;
   workspaceDir: string;
@@ -14,7 +12,7 @@ export interface SandboxCreateOptions {
 
 export interface Sandbox {
   id: string;
-  child: ChildProcessWithoutNullStreams;
+  child: Bun.Subprocess<'pipe', 'pipe', 'pipe'>;
 }
 
 export class SandboxCleanupError extends Error {
