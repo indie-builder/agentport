@@ -16,6 +16,7 @@ import { agentSlug } from '../../lib/agent-slug.js';
 import { toIso } from '../../lib/iso.js';
 import { readWorkspaceOutput } from '../../lib/outputs.js';
 import { recheckRunApproval } from '../servers/approval-policy.js';
+import { toApi as toApiSkill } from '../skills/api.js';
 import { authorizeRun, authorizeRunFeedback, RUN_MISSING } from './access.js';
 import { toRunDetail } from './events.js';
 import { runsQuestionsRouter } from './questions.js';
@@ -222,21 +223,7 @@ const runsMainRouter = {
         status: 'ok',
         requestId: context.requestId,
       });
-      return {
-        id: row.id,
-        slug: row.slug,
-        name: row.name,
-        description: row.description,
-        body: row.body,
-        sourceId: row.sourceId,
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-        status: row.status,
-        submittedAt: toIso(row.submittedAt),
-        reviewedAt: toIso(row.reviewedAt),
-        reviewedBy: row.reviewedBy,
-        reviewNote: row.reviewNote,
-      };
+      return toApiSkill(row);
     } catch (err) {
       if (isPgCode(err, '23505')) return fail('CONFLICT', '同名技能已存在，请先重命名或删除后重试');
       throw err;
