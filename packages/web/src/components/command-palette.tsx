@@ -164,7 +164,7 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
                               ? [debouncedQuery]
                               : [item.subtitle, debouncedQuery]
                           }
-                          className="flex cursor-default items-center gap-2.5 rounded-item px-2.5 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
+                          className="flex cursor-default items-center gap-2.5 rounded-item px-2 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
                         >
                           <CommandItemIcon className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                             <group.icon aria-hidden="true" />
@@ -188,7 +188,7 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
                   value={`/search?${new URLSearchParams({ q: debouncedQuery }).toString()}`}
                   label="查看全部搜索结果"
                   keywords={[debouncedQuery]}
-                  className="flex cursor-default items-center gap-2.5 rounded-item px-2.5 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
+                  className="flex cursor-default items-center gap-2.5 rounded-item px-2 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
                 >
                   <CommandItemIcon className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                     <Search aria-hidden="true" />
@@ -207,7 +207,7 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
                     key={item.to}
                     value={item.to}
                     label={item.label}
-                    className="flex cursor-default items-center gap-2.5 rounded-item px-2.5 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
+                    className="flex cursor-default items-center gap-2.5 rounded-item px-2 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
                   >
                     <CommandItemIcon className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                       <item.icon aria-hidden="true" />
@@ -255,7 +255,7 @@ export function CommandPaletteTrigger() {
       aria-label={`搜索（${hint.text}）`}
       aria-keyshortcuts={hint.ariaKeyshortcuts}
       onClick={openCommandPalette}
-      className="h-8 w-full justify-start gap-2.5 rounded-item px-2 text-sm text-fg hover:bg-sidebar-hover"
+      className="h-8 w-full justify-start gap-2.5 rounded-item border-0 px-2 text-sm text-fg hover:bg-sidebar-hover"
     >
       <Search aria-hidden="true" className="shrink-0" />
       <span className="truncate">搜索…</span>

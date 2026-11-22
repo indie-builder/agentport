@@ -914,7 +914,7 @@ export function AgentEditor({
               <label
                 data-disabled={pending}
                 htmlFor="agent-enabled"
-                className="inline-flex items-center gap-2 rounded-item p-1 text-sm text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-hover hover:text-fg"
+                className="-ml-1 inline-flex items-center gap-2 rounded-item p-1 text-sm text-muted-foreground transition-colors duration-150 ease-out-soft hover:bg-hover hover:text-fg"
               >
                 <Switch
                   disabled={pending || !canEnable}
@@ -926,7 +926,7 @@ export function AgentEditor({
                 />
                 {enabledField.value ? '已启用' : '已停用'}
               </label>
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 [&>:last-child[data-variant=ghost][data-size=icon]]:-mr-2">
                 {dirty ? (
                   <span className="mr-1 inline-flex items-center gap-1.5 text-xs text-warning">
                     <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
@@ -1058,7 +1058,7 @@ export function AgentEditor({
           ) : null}
         </div>
       </PageTopbar>
-      <PageBody className="gap-5 pt-2">
+      <PageBody className="-mx-4 gap-5 px-4 pt-2">
         {tab === 'overview' ? (
           <AgentOverview
             agentId={agent.id}
@@ -1074,7 +1074,7 @@ export function AgentEditor({
         {tab === 'config' ? (
           <div className="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
             <nav aria-label="配置分区" className="min-w-0">
-              <ul className="flex flex-wrap gap-1 md:flex-col md:flex-nowrap md:gap-0.5">
+              <ul className="flex flex-wrap gap-1 md:-mx-2 md:flex-col md:flex-nowrap md:gap-0.5">
                 {sectionItems.map((item) => (
                   <li key={item.id} className="min-w-0">
                     <button
@@ -2319,7 +2319,7 @@ export function AgentEditor({
               ) : null}
             </div>
             <div className="grid items-start gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
-              <nav aria-label="工作区文件" className="hidden min-w-0 md:block">
+              <nav aria-label="工作区文件" className="-mx-2 hidden min-w-0 md:block">
                 <ul className="flex flex-col gap-0.5">
                   {fileGroups.map((group) => (
                     <Fragment key={group}>
@@ -2625,7 +2625,9 @@ export function AgentEditor({
             </div>
             <SheetClose
               disabled={pending}
-              render={<Button variant="ghost" size="icon-sm" aria-label="关闭" className="-mr-1" />}
+              render={
+                <Button variant="ghost" size="icon-sm" aria-label="关闭" className="-mr-2 -mt-1" />
+              }
             >
               <X className="size-3" aria-hidden="true" />
             </SheetClose>

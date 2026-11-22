@@ -57,7 +57,9 @@ export function DialogShell({
         </div>
         <DialogClose
           disabled={closeDisabled}
-          render={<Button variant="ghost" size="icon-sm" aria-label="关闭" />}
+          render={
+            <Button variant="ghost" size="icon-sm" aria-label="关闭" className="-mr-2 -mt-1" />
+          }
         >
           <X className="size-3" aria-hidden="true" />
         </DialogClose>
