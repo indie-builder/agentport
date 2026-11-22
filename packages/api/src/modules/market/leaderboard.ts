@@ -1,7 +1,6 @@
 import { fail } from '@agentport/core';
 import type { MarketSkill, MarketView } from '@agentport/shared';
 import { LRUCache } from 'lru-cache';
-import { parse } from 'node-html-parser';
 import { readCappedText } from './fetch-body.js';
 
 const BASE_URL = 'https://www.skills.sh';
@@ -32,28 +31,79 @@ function parseInstalls(raw: string): number | null {
   return Math.round(value * scale);
 }
 
+const ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: '\u00a0',
+};
+
+function decodeEntities(input: string): string {
+  return input.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (raw, body: string) => {
+    if (body[0] === '#') {
+      const code =
+        body[1]?.toLowerCase() === 'x'
+          ? Number.parseInt(body.slice(2), 16)
+          : Number.parseInt(body.slice(1), 10);
+      return Number.isInteger(code) && code >= 0 && code <= 0x10ffff
+        ? String.fromCodePoint(code)
+        : raw;
+    }
+    return ENTITIES[body.toLowerCase()] ?? raw;
+  });
+}
+
 // shortcut: 绑定 skills.sh 榜单 HTML；站点改版会取不到行，届时改用官方 v1（需 Vercel OIDC）。
-export function parseLeaderboard(html: string): MarketSkill[] {
+export async function parseLeaderboard(html: string): Promise<MarketSkill[]> {
   const seen = new Set<string>();
   const rows: MarketSkill[] = [];
-  for (const link of parse(html).querySelectorAll('a')) {
-    const match = /^\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(link.getAttribute('href') ?? '');
-    if (!match) continue;
-    const [, owner, repo, skill] = match;
-    if (!owner || !repo || !skill) continue;
-    const h3 = link.querySelector('h3');
-    const installsSpan = link.querySelectorAll('span.font-mono.text-sm.text-foreground').at(-1);
-    if (!h3 || !installsSpan) continue;
-    const name = h3.text.trim();
-    if (!name) continue;
-    const installs = parseInstalls(installsSpan.text);
-    if (installs === null) continue;
+  type Row = { owner: string; repo: string; skill: string; name: string; installs: string };
+  let cur: Row | null = null;
+
+  const settle = () => {
+    if (!cur) return;
+    const { owner, repo, skill } = cur;
+    const name = decodeEntities(cur.name).trim();
+    const installs = parseInstalls(cur.installs);
+    cur = null;
+    if (!name || installs === null) return;
     const id = `${owner}/${repo}/${skill}`;
-    if (seen.has(id)) continue;
+    if (seen.has(id) || rows.length >= MAX_ROWS) return;
     seen.add(id);
     rows.push({ id, source: `${owner}/${repo}`, slug: skill, name, installs });
-    if (rows.length === MAX_ROWS) break;
-  }
+  };
+
+  await new HTMLRewriter()
+    .on('a', {
+      element(el) {
+        const match = /^\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(el.getAttribute('href') ?? '');
+        const [, owner, repo, skill] = match ?? [];
+        if (!owner || !repo || !skill) return;
+        cur = { owner, repo, skill, name: '', installs: '' };
+        el.onEndTag(settle);
+      },
+    })
+    .on('a h3', {
+      element() {
+        if (cur) cur.name = '';
+      },
+      text(chunk) {
+        if (cur) cur.name += chunk.text;
+      },
+    })
+    .on('a span.font-mono.text-sm.text-foreground', {
+      element() {
+        if (cur) cur.installs = '';
+      },
+      text(chunk) {
+        if (cur) cur.installs += chunk.text;
+      },
+    })
+    .transform(new Response(html))
+    .text();
+
   return rows;
 }
 
@@ -70,7 +120,9 @@ export async function fetchLeaderboard(view: MarketView): Promise<MarketSkill[]>
       await response.body?.cancel();
       throw new Error(`skills.sh responded ${response.status}`);
     }
-    const data = parseLeaderboard(await readCappedText(response, '技能市场榜单响应超过大小限制'));
+    const data = await parseLeaderboard(
+      await readCappedText(response, '技能市场榜单响应超过大小限制'),
+    );
     cache.set(view, data);
     return data;
   } catch (err) {

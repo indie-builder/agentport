@@ -204,7 +204,7 @@ MCP 生态只有三个角色，**用户只需要配置其中两个**：
 | ID | typeid-js | — |
 | 副作用运行时 | effect | — |
 | 进程内缓存 | lru-cache | — |
-| HTML 解析 | node-html-parser | — |
+| HTML 解析 | Bun HTMLRewriter | — |
 
 **为什么从 SQLite 改为 PostgreSQL**：上一轮建议 SQLite 是按「单机学习项目」判断的。引入 BullMQ worker 后，API 进程与 worker 进程会并发写同一份数据，SQLite 的单写者限制会成为真实瓶颈，而且队列本身又要求 Redis，基础设施复杂度已经上去了。PostgreSQL 18 与 Redis 8 都通过 compose 起，运维成本相当。Drizzle 的 schema 写法在两者间基本一致，但迁移文件不通用，越早切换成本越低。
 
