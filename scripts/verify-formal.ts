@@ -3,27 +3,29 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dir, '..');
-const FORMAL_DIR = join(ROOT, 'formal', 'agent-run-lifecycle');
+const FORMAL_DIR = join(ROOT, 'formal');
 const CACHE_DIR = join(ROOT, '.cache');
 const JAR_PATH = join(CACHE_DIR, 'tla2tools-1.7.4.jar');
 const JAR_URL = 'https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar';
 const JAR_SHA256 = '936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88';
 
-type CheckSpec =
-  | { kind: 'pass'; name: string; tla: string; cfg: string }
-  | { kind: 'expect-fail'; name: string; tla: string; cfg: string; invariant: string }
-  | { kind: 'finding'; name: string; tla: string; cfg: string; invariant: string };
+type CheckSpec = { name: string; dir: string; tla: string; cfg: string } & (
+  | { kind: 'pass' }
+  | { kind: 'expect-fail' | 'finding'; invariant: string }
+);
 
 const CHECKS: CheckSpec[] = [
   {
     kind: 'pass',
     name: 'AgentRunLifecycle',
+    dir: 'agent-run-lifecycle',
     tla: 'AgentRunLifecycle.tla',
     cfg: 'AgentRunLifecycle.cfg',
   },
   {
     kind: 'expect-fail',
     name: 'BugWorkerClaimRunning',
+    dir: 'agent-run-lifecycle',
     tla: 'BugWorkerClaimRunning.tla',
     cfg: 'BugWorkerClaimRunning.cfg',
     invariant: 'NoDoubleExecution',
@@ -31,6 +33,7 @@ const CHECKS: CheckSpec[] = [
   {
     kind: 'expect-fail',
     name: 'BugPendingFinishOverwrite',
+    dir: 'agent-run-lifecycle',
     tla: 'BugPendingFinishOverwrite.tla',
     cfg: 'BugPendingFinishOverwrite.cfg',
     invariant: 'NoPendingFinishOverwrite',
@@ -38,6 +41,7 @@ const CHECKS: CheckSpec[] = [
   {
     kind: 'expect-fail',
     name: 'BugDoubleTerminalClaim',
+    dir: 'agent-run-lifecycle',
     tla: 'BugDoubleTerminalClaim.tla',
     cfg: 'BugDoubleTerminalClaim.cfg',
     invariant: 'AtMostOneTerminalWinner',
@@ -45,6 +49,7 @@ const CHECKS: CheckSpec[] = [
   {
     kind: 'finding',
     name: 'FindingNoStuckEnqueueFailure',
+    dir: 'agent-run-lifecycle',
     tla: 'AgentRunLifecycle.tla',
     cfg: 'FindingNoStuckEnqueueFailure.cfg',
     invariant: 'NoStuckEnqueueFailure',
@@ -52,9 +57,25 @@ const CHECKS: CheckSpec[] = [
   {
     kind: 'finding',
     name: 'FindingEnqueueOkImpliesJobWasActive',
+    dir: 'agent-run-lifecycle',
     tla: 'AgentRunLifecycle.tla',
     cfg: 'FindingEnqueueOkImpliesJobWasActive.cfg',
     invariant: 'EnqueueOkImpliesJobWasActive',
+  },
+  {
+    kind: 'pass',
+    name: 'SchedulerSync',
+    dir: 'scheduler-sync',
+    tla: 'SchedulerSync.tla',
+    cfg: 'SchedulerSync.cfg',
+  },
+  {
+    kind: 'expect-fail',
+    name: 'BugConcurrentSync',
+    dir: 'scheduler-sync',
+    tla: 'BugConcurrentSync.tla',
+    cfg: 'BugConcurrentSync.cfg',
+    invariant: 'NoStaleOverwrite',
   },
 ];
 
@@ -152,8 +173,8 @@ async function runTlc(javaBin: string, jarPath: string, check: CheckSpec) {
         '-metadir',
         metaDir,
         '-config',
-        join(FORMAL_DIR, check.cfg),
-        join(FORMAL_DIR, check.tla),
+        join(FORMAL_DIR, check.dir, check.cfg),
+        join(FORMAL_DIR, check.dir, check.tla),
       ],
       { stdout: 'pipe', stderr: 'pipe' },
     );
