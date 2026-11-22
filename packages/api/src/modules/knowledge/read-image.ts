@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { knowledgeVersionImagePath } from '@agentport/core';
+import { KNOWLEDGE_BASE_DISABLED_MESSAGE, knowledgeVersionImagePath } from '@agentport/core';
 import { type Database, repo } from '@agentport/db';
 import {
   KNOWLEDGE_IMAGE_MAX_BYTES,
@@ -41,7 +41,7 @@ export async function readKnowledgeImage(
 }> {
   const base = await repo.knowledge.getBase(input.db, input.baseId);
   if (base?.status !== 'active') {
-    throw new KnowledgeReadImageError('BASE_DISABLED', '知识库已禁用');
+    throw new KnowledgeReadImageError('BASE_DISABLED', KNOWLEDGE_BASE_DISABLED_MESSAGE);
   }
   if (base.settings.imageProcessing?.enabled !== true) {
     throw new KnowledgeReadImageError('IMAGE_PROCESSING_DISABLED', '该知识库未启用图片处理');

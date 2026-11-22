@@ -62,6 +62,8 @@ export const KNOWLEDGE_DOCUMENT_MISSING_MESSAGE = '文档不存在或不属于�
 
 export const KNOWLEDGE_BASE_NOT_FOUND_MESSAGE = '知识库不存在，可能已被删除';
 
+export const KNOWLEDGE_BASE_DISABLED_MESSAGE = '知识库已禁用';
+
 export const KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE = '文档不存在，可能已被删除';
 
 export const KNOWLEDGE_SOURCE_NOT_FOUND_MESSAGE = '来源不存在，可能已被删除';

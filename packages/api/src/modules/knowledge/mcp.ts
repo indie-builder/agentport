@@ -1,4 +1,4 @@
-import { INVALID_CURSOR_MESSAGE } from '@agentport/core';
+import { INVALID_CURSOR_MESSAGE, KNOWLEDGE_BASE_DISABLED_MESSAGE } from '@agentport/core';
 import { type Database, isCanonicalTimestamp, repo } from '@agentport/db';
 import type {
   KnowledgeListInput,
@@ -448,7 +448,7 @@ export function buildKnowledgeServer(input: KnowledgeServerInput): McpHttpHandle
     const imageProcessingEnabled = base?.settings.imageProcessing?.enabled === true;
 
     const guard = (args: unknown): CallToolResult | null => {
-      if (!baseActive) return toolError('BASE_DISABLED', '知识库已禁用');
+      if (!baseActive) return toolError('BASE_DISABLED', KNOWLEDGE_BASE_DISABLED_MESSAGE);
       const parsed = baseIdArg.safeParse(args);
       const requested = parsed.success ? parsed.data.baseId : undefined;
       if (requested !== undefined && requested !== input.baseId) {
