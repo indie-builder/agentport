@@ -1,4 +1,4 @@
-import { AppError } from '@agentport/core';
+import { AppError, KNOWLEDGE_SOURCE_NOT_FOUND_MESSAGE } from '@agentport/core';
 import { asc, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database, Transaction } from '../../client.js';
 import { newId } from '../../id.js';
@@ -279,7 +279,7 @@ export async function replaceRanges(
       .from(knowledgeSources)
       .where(eq(knowledgeSources.id, sourceId))
       .for('update');
-    if (!source) throw new AppError('NOT_FOUND', '来源不存在，可能已被删除');
+    if (!source) throw new AppError('NOT_FOUND', KNOWLEDGE_SOURCE_NOT_FOUND_MESSAGE);
     return replaceRangesTx(tx, sourceId, ranges);
   });
 }
@@ -339,7 +339,7 @@ export async function replaceSourceScope(
       .from(knowledgeSources)
       .where(eq(knowledgeSources.id, sourceId))
       .for('update');
-    if (!current) throw new AppError('NOT_FOUND', '来源不存在，可能已被删除');
+    if (!current) throw new AppError('NOT_FOUND', KNOWLEDGE_SOURCE_NOT_FOUND_MESSAGE);
 
     const fields: Partial<KnowledgeSourceRow> = { updatedAt: new Date() };
     if (patch.name !== undefined) fields.name = patch.name;

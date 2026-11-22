@@ -1,4 +1,8 @@
-import { AppError, DOCUMENT_VERSION_STALE_MESSAGE } from '@agentport/core';
+import {
+  AppError,
+  DOCUMENT_VERSION_STALE_MESSAGE,
+  KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE,
+} from '@agentport/core';
 import {
   type KnowledgeFaq,
   knowledgeBaseSettingsSchema,
@@ -406,7 +410,7 @@ export async function activateDocumentVersion(
       .from(knowledgeDocuments)
       .where(eq(knowledgeDocuments.id, input.documentId))
       .limit(1);
-    if (!preview) throw new AppError('NOT_FOUND', '文档不存在，可能已被删除');
+    if (!preview) throw new AppError('NOT_FOUND', KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE);
     if (preview.sourceConnectionId) {
       await tx
         .select({ id: knowledgeSources.id })
@@ -419,7 +423,7 @@ export async function activateDocumentVersion(
       .from(knowledgeDocuments)
       .where(eq(knowledgeDocuments.id, input.documentId))
       .for('update');
-    if (!document) throw new AppError('NOT_FOUND', '文档不存在，可能已被删除');
+    if (!document) throw new AppError('NOT_FOUND', KNOWLEDGE_DOCUMENT_NOT_FOUND_MESSAGE);
     if (document.currentVersionId !== input.expectedVersionId) {
       throw new AppError('CONFLICT_STALE', DOCUMENT_VERSION_STALE_MESSAGE);
     }

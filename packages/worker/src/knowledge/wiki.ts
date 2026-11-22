@@ -1,6 +1,10 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { knowledgeVersionMarkdownPath, segmentForSearch } from '@agentport/core';
+import {
+  KNOWLEDGE_BASE_NOT_FOUND_MESSAGE,
+  knowledgeVersionMarkdownPath,
+  segmentForSearch,
+} from '@agentport/core';
 import { type Database, repo, schema } from '@agentport/db';
 import type { KnowledgeJobPayload } from '@agentport/shared';
 import { errorText, knowledgeJobPayloadSchema } from '@agentport/shared';
@@ -240,7 +244,7 @@ export async function runWikiGenerate(job: JobRow, deps: WikiGenerateDeps): Prom
   if (payload.type !== 'wiki_generate') throw new Error('只有 wiki_generate 任务可以生成 Wiki');
 
   const base = await repo.knowledge.getBase(db, payload.baseId);
-  if (!base) throw new Error('知识库不存在，可能已被删除');
+  if (!base) throw new Error(KNOWLEDGE_BASE_NOT_FOUND_MESSAGE);
   const model = deps.config.KNOWLEDGE_WIKI_MODEL;
   if (!model) throw new Error('KNOWLEDGE_WIKI_MODEL 未配置，无法生成 Wiki');
 

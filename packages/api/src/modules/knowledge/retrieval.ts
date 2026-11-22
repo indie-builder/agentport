@@ -3,6 +3,7 @@ import {
   AppError,
   decryptSecrets,
   embedTexts,
+  KNOWLEDGE_BASE_NOT_FOUND_MESSAGE,
   rerankDocuments,
   segmentForSearch,
 } from '@agentport/core';
@@ -500,7 +501,7 @@ export async function searchKnowledge(
 ): Promise<SearchKnowledgeResult> {
   const startedAt = Date.now();
   const base = await repo.knowledge.getBase(db, baseId);
-  if (!base) throw new AppError('NOT_FOUND', '知识库不存在，可能已被删除');
+  if (!base) throw new AppError('NOT_FOUND', KNOWLEDGE_BASE_NOT_FOUND_MESSAGE);
   if (base.status !== 'active') throw new AppError('CONFLICT', '知识库已禁用');
 
   const imageProcessing = base.settings.imageProcessing;
