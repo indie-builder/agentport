@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import type { WorkspaceSkill } from '@agentport/core';
 import {
   AppError,
@@ -1098,7 +1097,12 @@ function serverConfig(input: ServerInput): Record<string, unknown> {
     case 'http':
       return { url: input.url };
     case 'generated':
-      return { baseUrl: input.baseUrl, mcpToken: randomBytes(32).toString('base64url') };
+      return {
+        baseUrl: input.baseUrl,
+        mcpToken: crypto
+          .getRandomValues(new Uint8Array(32))
+          .toBase64({ alphabet: 'base64url', omitPadding: true }),
+      };
   }
 }
 function nonSecretConfig(input: ServerInput): Record<string, unknown> {

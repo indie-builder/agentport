@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, hkdfSync } from 'node:crypto';
 
 const IV_LEN = 12;
 const TAG_LEN = 16;
@@ -10,7 +10,7 @@ function deriveKey(keyB64url: string): Buffer {
 }
 
 export function encryptSecrets(obj: Record<string, string>, keyB64url: string): string {
-  const iv = randomBytes(IV_LEN);
+  const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
   const cipher = createCipheriv('aes-256-gcm', deriveKey(keyB64url), iv);
   const ciphertext = Buffer.concat([cipher.update(JSON.stringify(obj), 'utf8'), cipher.final()]);
   return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString('base64url');

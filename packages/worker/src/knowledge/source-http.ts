@@ -1,4 +1,3 @@
-import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { readCappedBytes, readCappedText } from '@agentport/core';
 import { isLoopbackAddress, isPrivateAddress } from '@agentport/core/net-guard';
@@ -49,7 +48,7 @@ export async function validateSourceUrl(raw: string, options: SourceUrlOptions =
     addresses = [host];
   } else {
     try {
-      addresses = (await lookup(host, { all: true })).map((entry) => entry.address);
+      addresses = (await Bun.dns.lookup(host, { backend: 'system' })).map((entry) => entry.address);
     } catch {
       throw new Error(`cannot resolve source host: ${host}`);
     }

@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import {
   type ChatEvent,
   CONFIG_CONTAINER_DIR,
@@ -478,7 +477,7 @@ export class SessionSandboxes {
         image: runtimeEnvironment.imageId,
         workspaceDir: spec.workspaceDir,
         env: {},
-        name: `pace-session-${randomBytes(6).toString('hex')}`,
+        name: `pace-session-${crypto.getRandomValues(new Uint8Array(6)).toHex()}`,
         entrypoint: 'bun',
         command: ['dist/session-supervisor.js'],
         init: true,
