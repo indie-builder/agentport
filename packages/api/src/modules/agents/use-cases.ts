@@ -1,7 +1,13 @@
 import { fail, notFound } from '@agentport/core';
 import { repo as allRepo, type Database } from '@agentport/db';
 import type { Agent, AgentDefinition, AgentInput } from '@agentport/shared';
-import { AGENT_ROLES, maskUrlCredentials } from '@agentport/shared';
+import {
+  AGENT_ROLES,
+  maskUrlCredentials,
+  SUB_AGENT_DUPLICATE_MESSAGE,
+  SUB_AGENT_MISSING_MESSAGE,
+  SUB_AGENT_SELF_MESSAGE,
+} from '@agentport/shared';
 import type { Logger } from 'pino';
 import { authorizeResourceAccess } from '../../http/access.js';
 import type { RequestContext } from '../../http/context.js';
@@ -88,11 +94,11 @@ export async function validateSubAgents(
   subAgentIds: string[],
 ): Promise<string | undefined> {
   if (new Set(subAgentIds).size !== subAgentIds.length) {
-    return '同一个智能体被重复选为子智能体，请去掉重复项';
+    return SUB_AGENT_DUPLICATE_MESSAGE;
   }
-  if (selfId !== null && subAgentIds.includes(selfId)) return '智能体不能把自己设为子智能体';
+  if (selfId !== null && subAgentIds.includes(selfId)) return SUB_AGENT_SELF_MESSAGE;
   const rows = await repo.getAgentsByIds(db, subAgentIds);
-  if (rows.length !== subAgentIds.length) return '选中的子智能体已被删除，请刷新后重新选择';
+  if (rows.length !== subAgentIds.length) return SUB_AGENT_MISSING_MESSAGE;
   for (const row of rows) {
     if (row.parentId !== null && row.parentId !== selfId) {
       return `「${row.name}」已经是其他智能体的子智能体；只支持一层委派`;

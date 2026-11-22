@@ -6,6 +6,7 @@ import {
   type AgentDefinition,
   decodeCursor,
   runEnqueueOptions,
+  SUB_AGENT_PLUGIN_BINDING_MESSAGE,
   utcMonthStart,
 } from '@agentport/shared';
 import { implement, type Router } from '@orpc/server';
@@ -545,7 +546,7 @@ export const agentsRouter: Router<typeof agentsContract, RequestContext> = os.ro
       await authorizeSubAgentBindings(context, input.subAgentIds);
     }
     if (current.parentId !== null && (input.pluginBindings?.length ?? 0) > 0) {
-      return invalid('子智能体不能绑定插件；插件在会话级加载');
+      return invalid(SUB_AGENT_PLUGIN_BINDING_MESSAGE);
     }
     const patch = toAgentPatch(input);
     try {
