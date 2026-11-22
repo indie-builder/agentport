@@ -45,6 +45,7 @@ export {
   NOT_FOUND_MESSAGES,
   type NotFoundResource,
   notFound,
+  ORIGINAL_RUN_UNAVAILABLE_MESSAGE,
 } from './errors.js';
 export { readCappedBytes, readCappedText } from './http-body.js';
 export { inspectKnowledgeAudio } from './knowledge-audio.js';
