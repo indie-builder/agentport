@@ -251,14 +251,17 @@ function assertEntryPath(path: string): void {
   if (path.endsWith('/')) invalid(PACKAGE_PATH_SEGMENT_MESSAGE, path);
 }
 
-function readZip(data: Buffer): Map<string, Buffer> {
+async function readZip(data: Buffer): Promise<Map<string, Buffer>> {
   if (data.length === 0) invalid('知识包是空的');
   if (data.length > KNOWLEDGE_PACKAGE_MAX_BYTES) {
     fail('PAYLOAD_TOO_LARGE', `知识包超过 ${KNOWLEDGE_PACKAGE_MAX_BYTES} 字节`);
   }
   try {
     return new Map(
-      [...decodeZipEntries(data, ZIP_READ_LIMITS)].map(([path, entry]) => [path, entry.data]),
+      [...(await decodeZipEntries(data, ZIP_READ_LIMITS))].map(([path, entry]) => [
+        path,
+        entry.data,
+      ]),
     );
   } catch (err) {
     if (isAppError(err)) throw err;
@@ -823,7 +826,7 @@ export async function exportKnowledgePackage(
     fail('CONFLICT', `知识包压缩后超过 ${KNOWLEDGE_PACKAGE_MAX_BYTES} 字节，请拆分知识库后重试`);
   }
   try {
-    inspectZipEntries(body, ZIP_READ_LIMITS);
+    await inspectZipEntries(body, ZIP_READ_LIMITS);
   } catch (err) {
     if (isAppError(err)) fail('CONFLICT', `导出的知识包不符合导入约束：${err.message}`);
     throw err;
@@ -850,7 +853,7 @@ export async function importKnowledgePackage(
   archive: Buffer,
   ownerBusinessId?: string,
 ): Promise<KnowledgePackageImportResult> {
-  const files = readZip(archive);
+  const files = await readZip(archive);
   const manifest = parseManifest(files);
   if (manifest.base.settings.chunkOverlap >= manifest.base.settings.chunkTokens) {
     fail('INVALID_INPUT', CHUNK_OVERLAP_INVALID_MESSAGE);

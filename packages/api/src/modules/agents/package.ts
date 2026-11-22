@@ -583,7 +583,7 @@ export async function buildAgentPackage(
         ];
   return { files, slug: row.slug, warnings, executablePaths };
 }
-export function packAgentPackage(pkg: AgentPackageFiles): Buffer {
+export async function packAgentPackage(pkg: AgentPackageFiles): Promise<Buffer> {
   const uncompressedBytes = Object.values(pkg.files).reduce(
     (total, content) => total + Buffer.byteLength(content, 'utf8'),
     0,
@@ -605,7 +605,7 @@ export function packAgentPackage(pkg: AgentPackageFiles): Buffer {
     fail('CONFLICT', '专家包超过 1 MiB，请减少提示词、技能或工具定义后重试');
   }
   try {
-    decodePackage(body);
+    await decodePackage(body);
   } catch (error) {
     if (!(error instanceof AppError)) throw error;
     fail('CONFLICT', `专家包无法通过导入校验：${error.message}`, { cause: error });

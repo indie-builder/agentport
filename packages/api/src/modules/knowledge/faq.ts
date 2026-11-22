@@ -441,10 +441,10 @@ function parseCsvRows(content: string): RawRow[] {
   return records.map((record, index) => ({ row: index + 1, value: record }));
 }
 
-function assertXlsxArchive(data: Buffer): void {
+async function assertXlsxArchive(data: Buffer): Promise<void> {
   try {
-    inspectZipEntries(data, FAQ_XLSX_ZIP_LIMITS);
-    decodeZipEntries(data, FAQ_XLSX_ZIP_LIMITS);
+    await inspectZipEntries(data, FAQ_XLSX_ZIP_LIMITS);
+    await decodeZipEntries(data, FAQ_XLSX_ZIP_LIMITS);
   } catch (err) {
     if (isAppError(err)) {
       if (err.message.includes('解压后总大小')) {
@@ -486,7 +486,7 @@ function cellText(cell: {
 
 async function parseXlsxRows(content: string): Promise<RawRow[]> {
   const data = decodeXlsxBase64(content);
-  assertXlsxArchive(data);
+  await assertXlsxArchive(data);
 
   const workbook = new Workbook();
   // ExcelJS 的类型自带旧版 Buffer 定义，与仓库 Node 类型的泛型 Buffer 不兼容；运行时都是字节。

@@ -30,9 +30,9 @@ const localOffset = (archive: Buffer): number => archive.readUInt32LE(centralOff
 const localHeaderNameLength = (archive: Buffer, local: number): number =>
   archive.readUInt16LE(local + 26);
 
-const rejectionOf = (archive: Buffer): AppError => {
+const rejectionOf = async (archive: Buffer): Promise<AppError> => {
   try {
-    decodePackage(archive);
+    await decodePackage(archive);
   } catch (error) {
     if (error instanceof AppError) return error;
     throw error;
@@ -41,50 +41,50 @@ const rejectionOf = (archive: Buffer): AppError => {
 };
 
 describe('agent package ZIP structure', () => {
-  it('rejects an archive whose per-disk entry count is higher than the total', () => {
+  it('rejects an archive whose per-disk entry count is higher than the total', async () => {
     const archive = makeZip({ 'CLAUDE.md': 'root', 'extra.txt': 'not checked' });
     const eocd = eocdOffset(archive);
     archive.writeUInt16LE(2, eocd + 8);
     archive.writeUInt16LE(1, eocd + 10);
 
-    const error = rejectionOf(archive);
+    const error = await rejectionOf(archive);
     expect(error.code).toBe('INVALID_INPUT');
     expect(error.message).toContain('条目数');
   });
 
-  it('rejects an archive whose per-disk entry count is lower than the total', () => {
+  it('rejects an archive whose per-disk entry count is lower than the total', async () => {
     const archive = makeZip({ 'CLAUDE.md': 'root', 'extra.txt': 'never extracted' });
     const eocd = eocdOffset(archive);
     archive.writeUInt16LE(1, eocd + 8);
     archive.writeUInt16LE(2, eocd + 10);
 
-    const error = rejectionOf(archive);
+    const error = await rejectionOf(archive);
     expect(error.code).toBe('INVALID_INPUT');
     expect(error.message).toContain('条目数');
   });
 
-  it('rejects a central directory size that does not cover its entries', () => {
+  it('rejects a central directory size that does not cover its entries', async () => {
     const archive = makeZip({ 'CLAUDE.md': 'root', 'extra.txt': 'outside' });
     const eocd = eocdOffset(archive);
     const declared = archive.readUInt32LE(eocd + 12);
     archive.writeUInt32LE(declared - 10, eocd + 12);
 
-    const error = rejectionOf(archive);
+    const error = await rejectionOf(archive);
     expect(error.code).toBe('INVALID_INPUT');
     expect(error.message).toContain('中央目录');
   });
 
-  it('rejects a central directory that runs past the EOCD', () => {
+  it('rejects a central directory that runs past the EOCD', async () => {
     const archive = makeZip({ 'CLAUDE.md': 'root' });
     const eocd = eocdOffset(archive);
     archive.writeUInt32LE(archive.length - centralOffset(archive), eocd + 12);
 
-    const error = rejectionOf(archive);
+    const error = await rejectionOf(archive);
     expect(error.code).toBe('INVALID_INPUT');
     expect(error.message).toContain('中央目录');
   });
 
-  it('rejects multi-disk archives', () => {
+  it('rejects multi-disk archives', async () => {
     for (const [label, field] of [
       ['disk number', 4],
       ['central directory disk', 6],
@@ -92,35 +92,35 @@ describe('agent package ZIP structure', () => {
       const archive = makeZip({ 'CLAUDE.md': 'root' });
       archive.writeUInt16LE(1, eocdOffset(archive) + field);
 
-      const error = rejectionOf(archive);
+      const error = await rejectionOf(archive);
       expect(error.code, label).toBe('INVALID_INPUT');
       expect(error.message, label).toContain('分卷');
     }
   });
 
-  it('rejects a ZIP64 locator even when the EOCD fields look normal', () => {
+  it('rejects a ZIP64 locator even when the EOCD fields look normal', async () => {
     const base = makeZip({ 'CLAUDE.md': 'root' });
     const eocd = eocdOffset(base);
     const archive = Buffer.concat([base.subarray(0, eocd), Buffer.alloc(20), base.subarray(eocd)]);
     // ZIP64 EOCD locator 紧邻 EOCD；fflate 见到它就会改读 ZIP64 的条目数/偏移。
     archive.writeUInt32LE(0x07064b50, eocd);
 
-    const error = rejectionOf(archive);
+    const error = await rejectionOf(archive);
     expect(error.code).toBe('INVALID_INPUT');
     expect(error.message).toContain('ZIP64');
   });
 
-  it('rejects an entry whose decompressed size differs from the central directory', () => {
+  it('rejects an entry whose decompressed size differs from the central directory', async () => {
     const archive = makeZip({ 'CLAUDE.md': 'hello' });
     // 中央目录写 3 字节，实际 store 数据是 5 字节；fflate 按压缩后大小读取。
     archive.writeUInt32LE(3, centralOffset(archive) + 24);
 
-    const error = rejectionOf(archive);
+    const error = await rejectionOf(archive);
     expect(error.code).toBe('INVALID_INPUT');
     expect(error.message).toContain('大小');
   });
 
-  it('rejects a deflate entry whose decompressed size is understated', () => {
+  it('rejects a deflate entry whose decompressed size is understated', async () => {
     // fflate 用中央目录的原大小分配输出缓冲；低报时它会静默截断，事后比对长度无法发现。
     const cases = [
       { label: '5 MiB', content: 'x'.repeat(5 * 1024 * 1024), declared: 1 },
@@ -129,14 +129,15 @@ describe('agent package ZIP structure', () => {
     for (const { label, content, declared } of cases) {
       const archive = makeZip({ 'CLAUDE.md': content }, 6);
       archive.writeUInt32LE(declared, centralOriginalSize(archive));
+      archive.writeUInt32LE(declared, localOffset(archive) + 22);
 
-      const error = rejectionOf(archive);
+      const error = await rejectionOf(archive);
       expect(error.code, label).toBe('INVALID_INPUT');
       expect(error.message, label).toContain('大小');
     }
   });
 
-  it('decodes a bit-11-clear entry name as Latin-1 instead of losing its data', () => {
+  it('decodes a bit-11-clear entry name as Latin-1 instead of losing its data', async () => {
     const archive = makeZip({ x: 'hello' });
     const central = centralOffset(archive);
     const local = localOffset(archive);
@@ -146,35 +147,35 @@ describe('agent package ZIP structure', () => {
     archive[central + 46] = 0xe9;
     archive[local + 30] = 0xe9;
 
-    expect([...decodePackage(archive)]).toEqual([['é', 'hello']]);
+    expect([...(await decodePackage(archive))]).toEqual([['é', 'hello']]);
   });
 
-  it('decodes a bit-11 UTF-8 name and rejects invalid UTF-8 bytes', () => {
+  it('decodes a bit-11 UTF-8 name and rejects invalid UTF-8 bytes', async () => {
     const archive = makeZip({ '中文.md': '内容' });
     const central = centralOffset(archive);
     const local = localOffset(archive);
     archive.writeUInt16LE(archive.readUInt16LE(central + 8) | 0x800, central + 8);
     archive.writeUInt16LE(archive.readUInt16LE(local + 6) | 0x800, local + 6);
-    expect(decodePackage(archive).get('中文.md')).toBe('内容');
+    expect((await decodePackage(archive)).get('中文.md')).toBe('内容');
 
     const invalid = Buffer.from(archive);
     invalid[central + 46] = 0xff;
-    const error = rejectionOf(invalid);
+    const error = await rejectionOf(invalid);
     expect(error.code).toBe('INVALID_INPUT');
     expect(error.message).toContain('UTF-8');
   });
 
-  it('finds the real EOCD when a valid comment starts with a false signature', () => {
+  it('finds the real EOCD when a valid comment starts with a false signature', async () => {
     const base = makeZip({ 'CLAUDE.md': 'hello' });
     const eocd = eocdOffset(base);
     const comment = Buffer.concat([Buffer.from([0x50, 0x4b, 0x05, 0x06]), Buffer.alloc(20)]);
     base.writeUInt16LE(comment.length, eocd + 20);
 
-    const files = decodePackage(Buffer.concat([base, comment]));
+    const files = await decodePackage(Buffer.concat([base, comment]));
     expect(files.get('CLAUDE.md')).toBe('hello');
   });
 
-  it('finds the real EOCD when the comment is exactly a false signature', () => {
+  it('finds the real EOCD when the comment is exactly a false signature', async () => {
     const base = makeZip({ 'CLAUDE.md': 'hello' });
     const eocd = eocdOffset(base);
     // 22 字节注释正好放下一整个伪 EOCD，其注释长度字段为 0，倒搜第一站就是它。
@@ -182,11 +183,11 @@ describe('agent package ZIP structure', () => {
     comment.writeUInt32LE(SIGNATURE_EOCD, 0);
     base.writeUInt16LE(comment.length, eocd + 20);
 
-    const files = decodePackage(Buffer.concat([base, comment]));
+    const files = await decodePackage(Buffer.concat([base, comment]));
     expect(files.get('CLAUDE.md')).toBe('hello');
   });
 
-  it('finds the real EOCD when a false candidate declares entries with a bogus directory', () => {
+  it('finds the real EOCD when a false candidate declares entries with a bogus directory', async () => {
     const base = makeZip({ 'CLAUDE.md': 'hello' });
     const eocd = eocdOffset(base);
     // 伪 EOCD 在注释末尾：声明 1 个条目，但目录偏移指向本地文件头。
@@ -199,24 +200,24 @@ describe('agent package ZIP structure', () => {
     comment.writeUInt32LE(0, fake + 16);
     base.writeUInt16LE(comment.length, eocd + 20);
 
-    const files = decodePackage(Buffer.concat([base, comment]));
+    const files = await decodePackage(Buffer.concat([base, comment]));
     expect(files.get('CLAUDE.md')).toBe('hello');
   });
 
-  it('rejects a directory-named central entry whose local header is a file', () => {
+  it('rejects a directory-named central entry whose local header is a file', async () => {
     const archive = makeZip({ 'sheet1.xm/': 'hidden' });
     const local = localOffset(archive);
     const nameLength = localHeaderNameLength(archive, local);
     archive[local + 30 + nameLength - 1] = 'l'.charCodeAt(0);
 
-    const error = rejectionOf(archive);
+    const error = await rejectionOf(archive);
     expect(error.code).toBe('INVALID_INPUT');
     expect(error.message).toContain('本地');
   });
 
-  it('rejects directory entries that carry file data', () => {
+  it('rejects directory entries that carry file data', async () => {
     const declared = makeZip({ 'data/': 'hidden' });
-    const declaredError = rejectionOf(declared);
+    const declaredError = await rejectionOf(declared);
     expect(declaredError.code).toBe('INVALID_INPUT');
     expect(declaredError.message).toContain('目录');
 
@@ -224,33 +225,33 @@ describe('agent package ZIP structure', () => {
     hidden.writeUInt32LE(0, centralOffset(hidden) + 24);
     hidden.writeUInt32LE(0, localOffset(hidden) + 22);
 
-    const hiddenError = rejectionOf(hidden);
+    const hiddenError = await rejectionOf(hidden);
     expect(hiddenError.code).toBe('INVALID_INPUT');
     expect(hiddenError.message).toContain('目录');
   });
 
-  it('accepts a real empty directory entry', () => {
+  it('accepts a real empty directory entry', async () => {
     const archive = makeZip({ 'dir/': '', 'CLAUDE.md': 'hello' });
-    expect([...decodePackage(archive)]).toEqual([['CLAUDE.md', 'hello']]);
+    expect([...(await decodePackage(archive))]).toEqual([['CLAUDE.md', 'hello']]);
   });
 
-  it('rejects a local header whose flags or compression disagree with the central directory', () => {
+  it('rejects a local header whose flags or compression disagree with the central directory', async () => {
     const flags = makeZip({ 'CLAUDE.md': 'hello' });
     const flagsLocal = localOffset(flags);
     flags.writeUInt16LE(flags.readUInt16LE(flagsLocal + 6) | 0x800, flagsLocal + 6);
-    const flagsError = rejectionOf(flags);
+    const flagsError = await rejectionOf(flags);
     expect(flagsError.code).toBe('INVALID_INPUT');
     expect(flagsError.message).toContain('标志');
 
     const compression = makeZip({ 'CLAUDE.md': 'hello' });
     const compressionLocal = localOffset(compression);
     compression.writeUInt16LE(8, compressionLocal + 8);
-    const compressionError = rejectionOf(compression);
+    const compressionError = await rejectionOf(compression);
     expect(compressionError.code).toBe('INVALID_INPUT');
     expect(compressionError.message).toContain('压缩');
   });
 
-  it('accepts a bit-3 entry whose local sizes are zero', () => {
+  it('accepts a bit-3 entry whose local sizes are zero', async () => {
     const archive = makeZip({ 'CLAUDE.md': 'hello' });
     const central = centralOffset(archive);
     const local = localOffset(archive);
@@ -259,6 +260,6 @@ describe('agent package ZIP structure', () => {
     archive.writeUInt32LE(0, local + 18);
     archive.writeUInt32LE(0, local + 22);
 
-    expect([...decodePackage(archive)]).toEqual([['CLAUDE.md', 'hello']]);
+    expect([...(await decodePackage(archive))]).toEqual([['CLAUDE.md', 'hello']]);
   });
 });
