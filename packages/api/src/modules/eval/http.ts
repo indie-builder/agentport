@@ -8,6 +8,7 @@ import { authorizeObject } from '../../http/access.js';
 import { attachmentResponse } from '../../http/attachment.js';
 import { type HttpEnv, requestContext } from '../../http/context.js';
 import { access } from '../../http/middleware.js';
+import { EVAL_RUN_MISSING } from './errors.js';
 import { toEvalRun } from './use-cases.js';
 
 const EXPORT_CASE_LIMIT = 500;
@@ -74,7 +75,7 @@ export function registerEvalHttp(app: Hono<HttpEnv>): void {
 
       const id = c.req.param('id');
       const detail = await repo.evalRepo.getRunDetail(context.db, id, EXPORT_RESULT_LIMIT + 1);
-      if (!detail) fail('NOT_FOUND', '评估运行不存在，可能已被清理；请刷新列表');
+      if (!detail) fail('NOT_FOUND', EVAL_RUN_MISSING);
       await authorizeObject(
         context,
         'eval.read',
