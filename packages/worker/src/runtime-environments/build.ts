@@ -3,6 +3,11 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  BUILD_ABORTED_MESSAGE,
+  BUILD_LOG_WRITE_FAILED_MESSAGE,
+  BUILD_TIMEOUT_MESSAGE,
+} from '@agentport/core';
+import {
   errorText,
   RUNTIME_ENVIRONMENT_BUILD_LOG_LIMIT,
   RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
@@ -126,7 +131,7 @@ export async function executeRuntimeEnvironmentBuild(
     log.append(chunk);
     input.onOutput?.(chunk);
   };
-  if (signal?.aborted) return failure(log, '构建已中断', true);
+  if (signal?.aborted) return failure(log, BUILD_ABORTED_MESSAGE, true);
 
   let tempDir: string | undefined;
   try {
@@ -136,7 +141,7 @@ export async function executeRuntimeEnvironmentBuild(
       signal,
       emit,
     );
-    if (inspected.aborted) return failure(log, '构建已中断', true);
+    if (inspected.aborted) return failure(log, BUILD_ABORTED_MESSAGE, true);
     const baseImageId = inspected.stdout.trim();
     if (inspected.code !== 0 || !IMAGE_ID.test(baseImageId)) {
       return failure(
@@ -148,7 +153,7 @@ export async function executeRuntimeEnvironmentBuild(
     // 先把基座固定到由 ID 派生的 tag：tag 不可变，BuildKit 也能从本地解析。
     const baseTag = immutableBaseTagFor(input.baseImageId, baseImageId);
     const tagged = await runDocker(spawnFn, ['tag', baseImageId, baseTag], signal, emit);
-    if (tagged.aborted) return failure(log, '构建已中断', true);
+    if (tagged.aborted) return failure(log, BUILD_ABORTED_MESSAGE, true);
     if (tagged.code !== 0) {
       return failure(log, `固定基座镜像失败${detail(tagged.stderr)}`, false);
     }
@@ -177,7 +182,7 @@ export async function executeRuntimeEnvironmentBuild(
       signal,
       emit,
     );
-    if (built.aborted) return failure(log, '构建已中断', true);
+    if (built.aborted) return failure(log, BUILD_ABORTED_MESSAGE, true);
     if (built.code !== 0) {
       return failure(
         log,
@@ -195,7 +200,7 @@ export async function executeRuntimeEnvironmentBuild(
       signal,
       emit,
     );
-    if (user.aborted) return failure(log, '构建已中断', true);
+    if (user.aborted) return failure(log, BUILD_ABORTED_MESSAGE, true);
     const configuredUser = user.stdout.trim();
     if (user.code !== 0) {
       return failure(log, `无法检查镜像用户${detail(user.stderr)}`, false);
@@ -358,7 +363,11 @@ export function createRuntimeEnvironmentBuildHandler(
       }
       await deps.store.failBuild(
         versionId,
-        result.ok ? '构建日志写入失败' : timedOut ? '构建超时' : result.error,
+        result.ok
+          ? BUILD_LOG_WRITE_FAILED_MESSAGE
+          : timedOut
+            ? BUILD_TIMEOUT_MESSAGE
+            : result.error,
       );
     } finally {
       clearTimeout(timer);

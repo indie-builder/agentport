@@ -1,3 +1,4 @@
+import { BUILD_TIMEOUT_MESSAGE } from '@agentport/core';
 import {
   isActiveJobState,
   RUNTIME_ENVIRONMENT_BUILDS_QUEUE,
@@ -69,7 +70,7 @@ export async function reconcileRuntimeEnvironmentBuilds(
         row.startedAt !== null &&
         now - row.startedAt.getTime() > 2 * RUNTIME_ENVIRONMENT_BUILD_TIMEOUT_MS;
       if (!timedOut && state === 'active') continue;
-      const error = timedOut ? '构建超时' : RUNTIME_ENVIRONMENT_BUILD_LOST_ERROR;
+      const error = timedOut ? BUILD_TIMEOUT_MESSAGE : RUNTIME_ENVIRONMENT_BUILD_LOST_ERROR;
       await store.failBuild(row.id, error);
       failed += 1;
       logger.warn({ versionId: row.id, error }, 'runtime environment build reconciled as failed');
