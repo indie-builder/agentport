@@ -244,6 +244,8 @@ export const SUMMARY_DOCUMENT_NO_VERSION_MESSAGE = '文档还没有可用版本�
 export const SUMMARY_CANCELLED_MESSAGE = '摘要生成已取消';
 export const TAGGING_DOCUMENT_DISABLED_MESSAGE = '文档已停用，不能生成标签';
 export const TAGGING_DOCUMENT_NO_VERSION_MESSAGE = '文档还没有可用版本，不能生成标签';
+export const DOCUMENT_UNREADABLE_MESSAGE = '文档当前不可读（来源未授权或不在范围）';
+export const DOCUMENT_NO_CONTENT_MESSAGE = '文档当前版本没有可用正文';
 export const DOCUMENT_JOB_IN_PROGRESS_MESSAGE = '文档有正在进行的处理任务，请稍后重试';
 
 /** 解析器给出的定位；不支持的维度缺省，不编造坐标。 */
