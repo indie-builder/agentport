@@ -14,7 +14,7 @@
     "@agentport/core": "workspace:*",
     "@agentport/db": "workspace:*",
     "@agentport/shared": "workspace:*",
-    "@anthropic-ai/claude-agent-sdk": "0.3.330",
+    "@anthropic-ai/claude-agent-sdk": "0.3.332",
     "bullmq": "catalog:",
     "csv-parse": "7.0.3",
     "drizzle-orm": "catalog:",
