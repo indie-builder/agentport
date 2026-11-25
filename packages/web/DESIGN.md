@@ -27,9 +27,9 @@ colors:
   secondary-foreground: "#202B2E"
   line: "rgba(0, 0, 0, 0.10)"
   line-strong: "rgba(0, 0, 0, 0.20)"
-  control-boundary: "rgba(0, 0, 0, 0.35)"
+  control-boundary: "rgba(0, 0, 0, 0.48)"
   input: "rgba(0, 0, 0, 0.10)"
-  input-focus: "#BDBDBD"
+  input-focus: "#898781"
   link: "#202B2E"
   fg: "#202B2E"
   muted-foreground: "#505F63"
@@ -244,7 +244,7 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 - 平铺外壳：`canvas #FBFBFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、无外边距、无外层描边。
 - 中性动作按钮：`default` / `solid` 为白底、细 `line` 边线与 `fg` 深色文字，hover 用 `hover #F0F0F0`，保留轻阴影与按压反馈。
 - 中性灰状态层：hover `#F0F0F0`，selected / accent `#E6E6E6`，chip `#F2F2F2`；主侧栏底面为中性 `sidebar #FAFAFA`，非选中 hover 用 `sidebar-hover rgba(0,0,0,.05)`，当前项为 `sidebar-selected rgba(0,0,0,.10)` 的平面灰色胶囊，无表面与投影。
-- 输入默认发丝边 `rgba(0,0,0,.10)`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`.cds-focus-glow`：`--color-subtle #898781`，对白 3.59:1，无光晕），仅 SourceEditor 与 CodeMirror 搜索用 `input-focus #BDBDBD`，composer 聚焦用 `shadow-composer-focus`；checkbox/radio 强边界 `rgba(0,0,0,.35)`，见 Known Gaps。
+- 输入默认发丝边 `rgba(0,0,0,.10)`；输入族（Input / Textarea / Select / Combobox / InputGroup）聚焦用中性暖灰 1px 边（`.cds-focus-glow`：`--color-subtle #898781`，对白 3.59:1，无光晕），SourceEditor 与 CodeMirror 搜索同步使用 `input-focus`（映射 `subtle #898781`，对白 3.59:1），composer 聚焦用 `shadow-composer-focus`；checkbox/radio 强边界 `control-boundary` 为 `rgba(0,0,0,.48)`（对白 3.67:1、对 `#E6E6E6` 3.05:1，满足 WCAG 2.2 SC 1.4.11 3:1）。
 - 正文链接与 `link` 变体用中性 `fg #202B2E`，保留下划线区分；卡片常态用 `--shadow-panel`，hover 分 `static` / `shadow` / `lift` 三态：`static` 无变化，`shadow` 只换 `--shadow-panel-hover`，`lift` 换投影并上浮 1.5px（仅整卡可点），过渡为 200ms `--ease-out-soft`。
 - 数据蓝 `#2A78D6` 只用于图表首系列，不参与任何 UI 动作；按钮键盘焦点环为中性 `fg #202B2E`，输入框聚焦为中性暖灰。
 - AnthropicSans → Inter → 中文回退的 13/20 界面档与 14/22 对话阅读档；CDS 弹簧、入场与呼吸动效按本页当前值。
@@ -276,9 +276,9 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 - **分隔线（Hairline）** (`rgba(0, 0, 0, 0.10)`)：卡片与弹层的 1px ring、表格与分组分隔、页签当前项边框、侧栏右缘边框。只做分组；输入默认边线借用同值 `input`，但分隔本身不表达可编辑。
 - **输入默认边线（Input Boundary）** (`rgba(0, 0, 0, 0.10)`)：Input、Textarea、Select 触发器、Combobox、InputGroup、CodeMirror 搜索输入的默认 1px 发丝边，等同 `line`；不新增 hover 加深。对白约 1.25:1，是已接受的已知限制。
 - **输入聚焦（Focus Boundary）** (`#898781`)：输入族（Input / Textarea / Select / Combobox / InputGroup）真实 `:focus-visible` 时把边线换成中性暖灰 `subtle`，无光晕；对白约 3.59:1，满足非文字 3:1。
-- **输入聚焦线（Input Focus）** (#BDBDBD)：仅 SourceEditor 与 CodeMirror 搜索普通聚焦时替换默认边线；对白约 1.88:1，低于 3:1。
+- **输入聚焦线（Input Focus）** (`#898781`)：SourceEditor 与 CodeMirror 搜索普通聚焦时替换默认边线，映射到 `subtle #898781`，对白约 3.59:1，与输入族聚焦边统一并满足非文字 3:1。
 - **Composer 聚焦（Composer Focus）**：composer 文本控制器真实聚焦时，InputGroup 外框保持 `input` 边线并换 `shadow-composer-focus`（1px 内环 + 外阴影），不叠加 2px 光环。
-- **强边界（Strong Boundary）** (`rgba(0, 0, 0, 0.35)`)：`control-boundary` 用于未选中 checkbox/radio 与 off 开关轨道；对白约 2.44:1、对 `selected` 约 2.38:1，低于 3:1，是 CDS 已接受的限制。`line-strong` (`rgba(0, 0, 0, 0.20)`) 只作较强分隔。
+- **强边界（Strong Boundary）** (`rgba(0, 0, 0, 0.48)`)：`control-boundary` 用于未选中 checkbox/radio 与 off 开关轨道；对白约 3.67:1、对 `selected` `#E6E6E6` 约 3.05:1，满足 WCAG 2.2 SC 1.4.11 非文字 3:1。`line-strong` (`rgba(0, 0, 0, 0.20)`) 只作较强分隔。
 - **正文墨（Text Ink）** (#202B2E)：正文、标题、选中项前景与普通图标。
 - **辅助石灰（Helper Gray）** (#505F63)：placeholder、描述、元信息、注释、表头次要信息；承载可读文字。
 - **装饰灰（Decorative Gray）** (#898781)：只用于装饰图标与禁用例外，不承载需要阅读的信息。
@@ -328,7 +328,7 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 
 ## Layout
 
-桌面端布局，窗口窄于 `lg` 时侧栏沿用现有 Sheet 抽屉，仍按桌面密度，不为触摸新增尺寸。应用外壳平铺全幅：根容器铺 `canvas` `#FBFBFB`，主侧栏用 `sidebar` 不透明中性底并带 1px 右缘发丝边，主内容区贴边铺 `surface` `#FFFFFF`；没有外层圆角、外边距、渐变或其它描边。侧栏两态：完整展开 224px 推开正文、窄边 48px 图标栏（内边距 `16px 8px`）；窄边悬停或聚焦时浮出 224px 预览浮层覆盖正文、不推开。完整展开与窄边顶部最左侧都是品牌字标之前的 32×32 折叠按钮（`PanelLeftClose`，展开时 aria-label 为「收起为窄边」，窄边时 aria-label 为「展开侧栏」、不显示品牌字标、绝对位置对齐到 left 8px / top 16px）。两态均无外壳阴影，仅悬停预览带 `shadow-overlay`。折叠按钮在展开与窄边之间切换并持久化偏好，默认窄边。两态与悬停预览契约见 [DESIGN-SYSTEM §7](../../docs/DESIGN-SYSTEM.md#7-侧栏)。分区靠底色差异、发丝边和留白表达。
+桌面端布局，窗口窄于 `lg` 时侧栏沿用现有 Sheet 抽屉，仍按桌面密度，不为触摸新增尺寸。应用外壳平铺全幅：根容器铺 `canvas` `#FBFBFB`，主侧栏用 `sidebar` 不透明中性底并带 1px 右缘发丝边，主内容区贴边铺 `surface` `#FFFFFF`；没有外层圆角、外边距、渐变或其它描边。侧栏两态：完整展开 224px 推开正文、窄边 48px 图标栏（内边距 `16px 8px`）；窄边悬停或聚焦时浮出 224px 预览浮层覆盖正文、不推开。完整展开与窄边顶部最左侧都是品牌字标之前的 32×32 折叠按钮（`PanelLeftClose`，展开时 aria-label 为「收起为窄边」，窄边时 aria-label 为「展开侧栏」、不显示品牌字标、绝对位置对齐到 left 8px / top 16px）。两态均无外壳阴影，仅悬停预览带 `shadow-overlay`。折叠按钮在展开与窄边之间切换并持久化偏好，无本地偏好时默认展开 224px。两态与悬停预览契约见 [DESIGN-SYSTEM §7](../../docs/DESIGN-SYSTEM.md#7-侧栏)。分区靠底色差异、发丝边和留白表达。
 
 非 chat 内容区水平、底部各 24px（`px-6 pb-6`）；AppShell 的 main 不承担普通页面的整页滚动。`Page` 是有界纵向 flex 工作面（根 gap 16px），`PageTopbar` 将页头、资源导航、任务页签和页面全局搜索筛选组成常驻顶部组（内部 gap 12px），`PageBody` 滚动正文；详情完整只读描述放入可滚动内容，不占常驻顶部：专家各权限分支随任务正文滚动，插件在概览滚动区显示、无文件时仍在正文显示；描述保留换行且不截断，长描述不得挤占正文可用高度。聊天与频道对话、角色矩阵、文件阅读器保留自身滚动容器，公开 login/share 页面保持自然文档滚动。`PageBody` 内部区块间距仍为 24px，`PageHeader` 单行最小高 48px、不另加顶部或横向 padding，`PageSection` 内部间距 16px、默认顶部 20px。`PageHeader` 与 `PageToolbar` 自身不使用 sticky，排版不变；`PageToolbar` 自身 `gap-2`（8px），控件内部 8px 由组内组合决定；搜索桌面 224px 且可收缩，筛选 144px，排序 128px。窗口收窄时允许换行、内部滚动与容器伸缩，但表格只在自身容器内横向滚动，页面不出现横向溢出。卡片网格与 `PageBody` 只保留纵向 `pt-2` 为投影留出绘制空间，不加横向 `p-2` / `px-*`；卡片左右缘与页头标题共用外壳 24px 内容轴线。
 
@@ -444,13 +444,13 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 ### Inputs / Fields
 
 - **Style:** 白底、1px `input` `rgba(0,0,0,.10)` 发丝边、8px 圆角、高 32px、13/20；placeholder `#505F63`。Input、Textarea、SourceEditor、Select 可编辑触发器、Combobox、InputGroup 与 CodeMirror 搜索输入共用同一默认边线与尺寸；不新增 hover 加深。共享 Input / Textarea 保持 13/20；对话 composer 文本区例外使用 14/22（`base`）。桌面窗口收窄（含 767px）时仍固定 13/20，不再切换 16px 移动端字号。Input、Textarea、Select、Combobox 与 InputGroup 不响应 hover 抬升，聚焦沿用既有边界与焦点契约。
-- **Focus:** Input / Textarea / Select 触发器 / Combobox / InputGroup 把既有 1px 发丝边换成中性暖灰 `subtle` `#898781`（`.cds-focus-glow`，无光晕，对白约 3.59:1）；仅 SourceEditor 与 CodeMirror 搜索把边线换成 `input-focus` `#BDBDBD`；composer 文本控制器聚焦时外框保持 `input` 边线并换 `shadow-composer-focus`（1px 内环 + 外阴影），均不叠加 2px 光环；InputGroup 由外框承担焦点，内部输入不再画第二层。
+- **Focus:** Input / Textarea / Select 触发器 / Combobox / InputGroup 把既有 1px 发丝边换成中性暖灰 `subtle` `#898781`（`.cds-focus-glow`，无光晕，对白约 3.59:1）；SourceEditor 与 CodeMirror 搜索把边线换成 `input-focus`（映射 `subtle #898781`，对白约 3.59:1）；composer 文本控制器聚焦时外框保持 `input` 边线并换 `shadow-composer-focus`（1px 内环 + 外阴影），均不叠加 2px 光环；InputGroup 由外框承担焦点，内部输入不再画第二层。
 - **Invalid / Disabled:** invalid 用 `danger` 单条边框；Input / Textarea / Select 静止与聚焦都只保留这条边框，不叠加 outline/ring 第二层边界。只有真实禁用的 Input / Textarea / InputGroup 才使用 `sunken #F7F7F7` 禁用底：Input / Textarea 保留既有 `opacity 0.35`，InputGroup 由外框承载禁用底、内部输入保持透明并沿用各自禁用透明度；既有边线、阴影与错误态不变。可编辑的空输入框不使用禁用底，空内容只禁用发送按钮。未选中 checkbox/radio 用 `control-boundary`，checked/on 用 `primary` + 白色勾/点/thumb；off 开关轨道用 `control-boundary` 与白 thumb；Toggle 选中态是 `selected` + `fg`，不是深色实底。选中的 checkbox / radio / switch 聚焦时用单层 2px `outline` + 2px offset，不叠加 ring；未选中沿用各原语既有的单层焦点信号；普通字段标签由控件自身表达焦点，卡片式字段标签统一用外圈。真实浏览器已实测选中 Checkbox/Switch/Radio（`outline solid 2px`、`offset 2px`，无可见 ring）、普通标签、卡片标签、独立 invalid 控件，以及卡片 invalid 组合（3 个控件 border `rgb(180,35,24)`，内部 outline none / ring 0，外层 label 单层 2px ring）；forced-colors 系统轮廓保留。
 
 ### Menus / Popovers / Overlays
 
 - **Menu / Select / Combobox / Popover:** 白浮层、1px `line` ring、双环 overlay 阴影；菜单与浮层 10px 圆角（`--radius-popover`），菜单项 8px 圆角、`4px 6px` 内边距。浮层经 `.cds-overlay-enter` 以 `opacity` + `scale(.96)` → `1` 弹入（200ms）。普通文字 `fg`、描述 `muted-foreground`；hover 与键盘高亮用 `accent` `#E6E6E6` + `accent-foreground` `#202B2E`；危险项用 `danger`，不被普通 hover 覆盖。菜单项键盘高亮即时，不强制 150ms 过渡。浮层与菜单容器不响应 hover 上浮，只使用各自表面深度。
-- **Dialog / AlertDialog / Sheet:** 基础 Dialog 白表面、16px 圆角（`--radius-dialog`）、1px `line` ring、overlay 阴影、16px 内边距；`DialogShell` 改为 `p-0`，头部 `px-5 py-3.5`、内容区 `px-5 py-4`。Modal 遮罩 `scrim`。基础 Dialog 标题 14/21 500（`leading-normal`），描述 13/20 `muted-foreground`。标准页脚按钮高 32px、间距 8px，取消 outline 在前，确认 default 白底中性按钮在后，危险确认保持 destructive；不加多余分隔线，真正固定的长表单页脚可用 1px 线分隔正文。Sheet 贴边展示，不设圆角。
+- **Dialog / AlertDialog / Sheet:** 基础 Dialog 白表面、16px 圆角（`--radius-dialog`）、1px `line` ring、overlay 阴影、16px 内边距；`DialogShell` 改为 `p-0`，头部 `px-5 py-3.5`、内容区 `px-5 py-4`。Modal 遮罩 `scrim`。基础 Dialog 标题 14/21 500（`leading-normal`），描述 13/20 `muted-foreground`。标准页脚按钮高 32px、间距 8px，取消 `ghost` 在前（与白底主操作拉开层级），确认 default 白底中性按钮在后，危险确认保持 destructive；不加多余分隔线，真正固定的长表单页脚可用 1px 线分隔正文。Sheet 贴边展示，不设圆角。
 - **Tooltip / Toast:** Tooltip 保留既有反色（`fg` 底、白字），不做成白浮层；Toast 白底、1px `line`、overlay 阴影，操作按钮用显式 outline，关闭按钮白底中性 hover。Toast、操作按钮与关闭按钮的焦点都用单层 2px `ring` outline、offset 2；操作按钮只用该 outline，不叠加按钮基类 ring 与焦点阴影，视觉上不出现第二圈光环。
 
 ### Cards / Tables / Lists
@@ -492,7 +492,7 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 
 - **Do** 保持外壳平铺全幅：`canvas #FBFBFB` 画布 + 贴边 `surface #FFFFFF` 主区，无渐变、外边距、外框圆角或描边。
 - **Do** 用白底、细 `line` 边线、`fg` 深色文字与中性 hover 承载 `default` 与 `solid`，保留轻阴影。
-- **Do** 用 `input` `rgba(0,0,0,.10)` 画输入默认发丝边，用 `line`（同值）只做分组与分隔；checkbox/radio 强边界用 `control-boundary` `rgba(0,0,0,.35)`。
+- **Do** 用 `input` `rgba(0,0,0,.10)` 画输入默认发丝边，用 `line`（同值）只做分组与分隔；checkbox/radio 强边界用 `control-boundary` `rgba(0,0,0,.48)`。
 - **Do** 适合卡片的内容共用纯白 `surface` 与常态 `shadow-panel`；hover 按三态契约（`shadow` / `lift` 换 `shadow-panel-hover`），卡片绘制空间不得被滚动容器裁切。主侧栏当前项是平面灰色胶囊（`sidebar-selected`），保留深色前景和原有几何，不套卡片深度。页内导航、选中页签、菜单高亮与用户消息继续用 `selected` / `accent` `#E6E6E6`。
 - **Do** 每个控件只留一层常驻焦点信号：Input / Textarea、Select / Combobox / InputGroup 用 `.cds-focus-glow`（1px 中性暖灰边 `subtle`，无光晕），仅 SourceEditor / CodeMirror 搜索换 `input-focus`，composer 换 `shadow-composer-focus`，按钮类用 2px 中性 ring（Toast 使用 outline）；`default` / `solid` 按钮外加 2px 背景色间隔；Input / Textarea / Select 错误态只保留单条危险边框，按钮与选中控件错误态可另用既有 2px ring/outline 补焦点。
 - **Do** 保持 13/20 界面档与 14/22 对话阅读档、16px 图标 / 1.75 线宽与 CDS 动效；全局 15/26 令牌保留给运行详情等原用途，几何按本页 Layout 当前值。
@@ -514,7 +514,7 @@ PACE 的世界是一张安静的中性工作台。根容器铺 `canvas #FBFBFB`�
 
 ## Known Gaps
 
-- 输入默认发丝边 `rgba(0,0,0,.10)` 对白约 1.25:1、`input-focus #BDBDBD` 对白约 1.88:1、`control-boundary` 对白约 2.44:1，均低于 WCAG 2.2 非文字 3:1；中性暖灰聚焦边 `subtle #898781` 对白约 3.59:1，满足 3:1；白底中性主按钮 `fg` 字对白约 14.52:1，超过普通文字 4.5:1；`ring` 对白、画布、选中底和侧栏选中底均超过非文字 3:1。这不消除输入边界的既有缺口，不得宣称整页 WCAG AA 达标。
+- 输入默认发丝边 `rgba(0,0,0,.10)` 对白约 1.25:1，仍低于 WCAG 2.2 非文字 3:1；`control-boundary rgba(0,0,0,.48)` 对白约 3.67:1、对 `#E6E6E6` 约 3.05:1，`input-focus` 与中性暖灰聚焦边 `subtle #898781` 对白约 3.59:1，均已满足 WCAG 2.2 SC 1.4.11 非文字 3:1；白底中性主按钮 `fg` 字对白约 14.52:1，超过普通文字 4.5:1；`ring` 对白、画布、选中底和侧栏选中底均超过非文字 3:1。这不消除输入默认边线的既有缺口，不得宣称整页 WCAG AA 达标。
 - Input / Textarea、Select 触发器、Combobox、InputGroup 聚焦用中性暖灰边（`.cds-focus-glow`，无光晕）；仅 SourceEditor 与 CodeMirror 搜索用 `input-focus`；composer 实际焦点由 `shadow-composer-focus` 表达。Select 关闭键盘态未独立取证，采用同一中性聚焦边适配。
 - CDS 输入 hover、invalid、disabled 与 Select 关闭键盘焦点尚未逐项取得浏览器参考；本轮只修实际焦点缺陷，保留现有错误与禁用语义。
 - 个人模块基础实现已随 PR #146 合入 main（基线 624dc3b）。上一轮个人中心重设计的 ship 结论被用户在实际屏幕否定，随后按 1024px 单轴与 448/96 字段尺度重做；本轮独立终审提出 7 条 must-fix，均已修复并定点复核为 resolved，旧结论不再作为当前实现证据。最终实现已复核：六页各一个 h1、无 document 横向溢出，1492 与 1024 两宽均从 x248 开始、右缘分别为 1272 / 986；使用记录表头、数据行与展开详情同 x=288；分享四列首行对齐，1024 下表格 clientWidth 与 scrollWidth 一致；账号安全分组标题为 h2；提案「无需变更」不渲染对比网格，失败原因显示「记忆提案生成超时」。前端全量 142 文件 1712 条、定向 156 条通过，web `typecheck` / `build`、`lint:focus`、`lint:contract` 与 Impeccable detect（返回 `[]`）通过；worker memory-review 26/26 为已记录结果（本次文档复核复跑时 PostgreSQL 不可用，套件跳过，未重新执行）。仍未验证：真实 403/409 未触发；无 `overview.read` 但有 `runs.read` 的分支未用相应账号实测；改密、撤销会话 / 分享、采纳 / 回滚提案与个人记忆投影等真实模型写链未在真实数据执行，不能宣称这些链路或整页验收全部通过。上一轮曾发生一次非预期真实提案运行（成功、无需变更，costUsd 0.0152，未采纳、未写入个人记忆），该事实保留。实现与验证入口见 任务记录。

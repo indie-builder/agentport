@@ -10,13 +10,19 @@ const STILL = { duration: 0 } as const;
 export const ApprovalCard = memo(function ApprovalCard({
   item,
   pending,
+  denying = null,
   onApprove,
+  onDeny,
 }: {
   item: ApprovalRequest;
   pending: string | null;
+  denying?: string | null;
   onApprove: (item: ApprovalRequest) => void;
+  onDeny?: (item: ApprovalRequest) => void;
 }) {
   const busy = pending === item.id;
+  const denyingThis = denying === item.id;
+  const deciding = pending !== null || denying !== null;
   const isPending = item.waiting && item.approvedAt === null && item.deniedAt === null;
   const reduce = useReducedMotion();
   return (
@@ -45,16 +51,31 @@ export const ApprovalCard = memo(function ApprovalCard({
         ) : null}
       </div>
       {isPending ? (
-        <Button
-          size="sm"
-          className="h-auto min-h-7 max-w-full whitespace-normal py-1"
-          disabled={pending !== null}
-          aria-busy={busy}
-          aria-label={`批准 ${item.serverName ?? item.serverId} / ${item.toolName}`}
-          onClick={() => onApprove(item)}
-        >
-          {busy ? '批准中…' : '批准本次调用'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {onDeny ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto min-h-7 max-w-full whitespace-normal py-1"
+              disabled={deciding}
+              aria-busy={denyingThis}
+              aria-label={`拒绝 ${item.serverName ?? item.serverId} / ${item.toolName}`}
+              onClick={() => onDeny(item)}
+            >
+              {denyingThis ? '拒绝中…' : '拒绝'}
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            className="h-auto min-h-7 max-w-full whitespace-normal py-1"
+            disabled={deciding}
+            aria-busy={busy}
+            aria-label={`批准 ${item.serverName ?? item.serverId} / ${item.toolName}`}
+            onClick={() => onApprove(item)}
+          >
+            {busy ? '批准中…' : '批准本次调用'}
+          </Button>
+        </div>
       ) : null}
     </motion.div>
   );

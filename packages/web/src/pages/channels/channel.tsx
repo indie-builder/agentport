@@ -755,7 +755,6 @@ function ChannelWorkspace({
           agent={null}
           send={send}
           textareaRef={textareaRef}
-          lastRunId={null}
           welcome={false}
           historyReady={!stream.messagesQuery.isPending}
           enabled={canPost}

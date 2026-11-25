@@ -131,11 +131,17 @@ describe('CDS light theme token contract', () => {
     }
   });
 
-  it('records the accepted low-contrast CDS boundary limits', () => {
+  it('keeps control boundaries and input focus at 3:1 contrast', () => {
+    expect(token('--color-control-boundary')).toEqual(parse('rgba(0, 0, 0, 0.48)'));
+    expect(token('--color-input-focus')).toEqual(token('--color-subtle'));
+    expect(ratio('--color-control-boundary', '--color-surface')).toBeGreaterThanOrEqual(3);
+    expect(ratio('--color-control-boundary', '--color-selected')).toBeGreaterThanOrEqual(3);
+    expect(ratio('--color-input-focus', '--color-surface')).toBeGreaterThanOrEqual(3);
+  });
+
+  it('records the accepted low-contrast CDS hairline limit', () => {
     expect(token('--color-input')).toEqual(token('--color-line'));
     expect(ratio('--color-input', '--color-surface')).toBeCloseTo(1.254, 2);
     expect(ratio('--color-input', '--color-surface')).toBeLessThan(3);
-    expect(ratio('--color-control-boundary', '--color-surface')).toBeCloseTo(2.442, 2);
-    expect(ratio('--color-control-boundary', '--color-surface')).toBeLessThan(3);
   });
 });

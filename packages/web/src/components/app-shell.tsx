@@ -280,7 +280,7 @@ export function AppShell() {
   const allowed =
     meta !== undefined && (meta.permissionIds.length === 0 || canAny(me.data, meta.permissionIds));
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() =>
-    readStorage(COLLAPSE_KEY) === 'expanded' ? 'expanded' : 'rail',
+    readStorage(COLLAPSE_KEY) === 'rail' ? 'rail' : 'expanded',
   );
   const [previewing, setPreviewing] = useState(false);
   const preview = sidebarMode === 'rail' && previewing;
@@ -429,12 +429,15 @@ export function AppShell() {
     const roleNames = user.roles.map((role) => role.name).join('、');
     const accountSecondary = roleNames || user.user.username;
     const unreadCount = unreadNotifications.data?.unreadCount ?? 0;
+    const notificationsActive =
+      meta?.to === '/notifications' || /^\/notifications(?:\/|$)/.test(pathname);
+    const notificationsLabel = unreadCount > 0 ? `通知（${unreadCount} 条未读）` : '通知';
     const accountCurrent =
       pathname === '/personal/profile' || pathname === '/personal' ? 'page' : undefined;
     const accountAvatar = (
       <span
         className={cn(
-          'flex shrink-0 items-center justify-center rounded-full text-[11px] font-medium text-surface',
+          'flex shrink-0 items-center justify-center rounded-full text-2xs font-medium text-surface',
           iconOnly ? 'size-8' : 'size-5',
           avatarTone,
         )}
@@ -583,36 +586,49 @@ export function AppShell() {
               onNavigate={onNavigate}
             />
           ) : null}
-          <Link
-            to="/notifications"
-            aria-label={unreadCount > 0 ? `通知（${unreadCount} 条未读）` : '通知'}
-            onClick={onNavigate}
-            className={cn(
-              'flex h-8 items-center text-sm text-fg transition-colors duration-150 ease-out-soft hover:bg-sidebar-hover',
-              iconOnly
-                ? 'relative w-8 justify-center rounded-tag p-0'
-                : 'gap-2.5 rounded-item px-2',
-            )}
-          >
-            <Bell aria-hidden="true" className="shrink-0" />
-            {!iconOnly ? <span className="truncate">通知</span> : null}
-            {unreadCount > 0 && !iconOnly ? (
-              <span
-                aria-hidden="true"
-                className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-fg px-1.5 text-xs font-medium leading-none text-surface tabular-nums"
-              >
-                {unreadCount > 99 ? '99+' : unreadCount}
-              </span>
-            ) : null}
-            {unreadCount > 0 && iconOnly ? (
-              <span
-                aria-hidden="true"
-                className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-fg px-1 text-xs font-medium leading-none text-surface tabular-nums"
-              >
-                {unreadCount > 99 ? '99+' : unreadCount}
-              </span>
-            ) : null}
-          </Link>
+          <Tooltip disabled={!iconOnly} delay={400}>
+            <TooltipTrigger
+              render={
+                <Link
+                  to="/notifications"
+                  aria-label={notificationsLabel}
+                  aria-current={notificationsActive ? 'page' : undefined}
+                  onClick={onNavigate}
+                  className={cn(
+                    'flex h-8 items-center text-sm transition-colors duration-150 ease-out-soft',
+                    iconOnly
+                      ? 'relative w-8 justify-center rounded-tag p-0'
+                      : 'gap-2.5 rounded-item px-2',
+                    notificationsActive
+                      ? 'bg-sidebar-selected text-selected-foreground'
+                      : 'text-fg hover:bg-sidebar-hover',
+                  )}
+                >
+                  <Bell aria-hidden="true" className="shrink-0" />
+                  {!iconOnly ? <span className="truncate">通知</span> : null}
+                  {unreadCount > 0 && !iconOnly ? (
+                    <span
+                      aria-hidden="true"
+                      className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-fg px-1.5 text-xs font-medium leading-none text-surface tabular-nums"
+                    >
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  ) : null}
+                  {unreadCount > 0 && iconOnly ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-fg px-1 text-xs font-medium leading-none text-surface tabular-nums"
+                    >
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  ) : null}
+                </Link>
+              }
+            />
+            <TooltipContent side="right" sideOffset={8}>
+              {notificationsLabel}
+            </TooltipContent>
+          </Tooltip>
           {personalContext ? (
             <Button
               variant="ghost"

@@ -142,8 +142,26 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
             </span>
           </div>
           <CommandEmpty>
-            <div className="py-12 text-center text-sm text-muted-foreground">没有匹配的结果</div>
+            {debouncedQuery !== '' && (search.isFetching || search.isError) ? null : (
+              <div className="py-12 text-center text-sm text-muted-foreground">没有匹配的结果</div>
+            )}
           </CommandEmpty>
+          {debouncedQuery !== '' && search.isFetching ? (
+            <div role="status" className="shrink-0 px-4 py-2 text-xs text-muted-foreground">
+              搜索中…
+            </div>
+          ) : null}
+          {debouncedQuery !== '' && !search.isFetching && search.isError ? (
+            <div
+              role="alert"
+              className="flex shrink-0 items-center justify-between gap-2 px-4 py-2 text-xs text-danger"
+            >
+              <span>搜索暂时不可用</span>
+              <Button type="button" variant="ghost" size="xs" onClick={() => void search.refetch()}>
+                重试
+              </Button>
+            </div>
+          ) : null}
           <CommandList className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
             {debouncedQuery === ''
               ? null
@@ -164,7 +182,7 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
                               ? [debouncedQuery]
                               : [item.subtitle, debouncedQuery]
                           }
-                          className="flex cursor-default items-center gap-2.5 rounded-item px-2 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
+                          className="flex cursor-default items-center gap-2.5 rounded-item px-2 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                         >
                           <CommandItemIcon className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                             <group.icon aria-hidden="true" />
@@ -188,7 +206,7 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
                   value={`/search?${new URLSearchParams({ q: debouncedQuery }).toString()}`}
                   label="查看全部搜索结果"
                   keywords={[debouncedQuery]}
-                  className="flex cursor-default items-center gap-2.5 rounded-item px-2 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
+                  className="flex cursor-default items-center gap-2.5 rounded-item px-2 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                 >
                   <CommandItemIcon className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                     <Search aria-hidden="true" />
@@ -207,7 +225,7 @@ export function CommandPalette({ me }: { me: AuthMe | undefined }) {
                     key={item.to}
                     value={item.to}
                     label={item.label}
-                    className="flex cursor-default items-center gap-2.5 rounded-item px-2 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-hover"
+                    className="flex cursor-default items-center gap-2.5 rounded-item px-2 py-2 text-sm text-fg outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                   >
                     <CommandItemIcon className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                       <item.icon aria-hidden="true" />

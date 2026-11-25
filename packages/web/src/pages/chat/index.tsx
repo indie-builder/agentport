@@ -35,6 +35,7 @@ import {
   useCancelRun,
   useConversation,
   useConversations,
+  useDenyRun,
   useRunApprovals,
   useRunQuestions,
 } from '../../lib/queries.js';
@@ -49,6 +50,7 @@ import { type HistoryEntry, HistoryPanel } from './history-panel.js';
 import { RenameDialog, useRenameBlocker } from './rename-dialog.js';
 
 const EMPTY_AGENTS: AgentSummary[] = [];
+const GENERAL_AGENT_VALUE = '__general__';
 
 export function ChatPage() {
   const search = useSearch({ from: '/_shell/chat' });
@@ -196,13 +198,18 @@ function ChatWorkspace({
   const agent = agents.find((item) => item.id === agentId) ?? null;
   const defaultAgentId = agents.find((item) => item.isDefault)?.id ?? null;
   const historyAgentId = agentId ?? defaultAgentId;
-  const agentOptions = agents
+  const specializedOptions = agents
     .filter((item) => item.enabled && !item.isDefault)
     .map((item) => ({
       value: item.id,
       label: item.name,
       agent: item,
     }));
+  const agentOptions =
+    specializedOptions.length > 0 || (agent !== null && !agent.isDefault)
+      ? [{ value: GENERAL_AGENT_VALUE, label: '通用助手' }, ...specializedOptions]
+      : [];
+  const pickerAgentId = agent && !agent.isDefault ? agent.id : GENERAL_AGENT_VALUE;
   const items = useChatStore((state) => state.items);
   const phase = useChatStore((state) => state.phase);
   const runId = isActivePhase(phase) ? phase.runId : null;
@@ -289,6 +296,7 @@ function ChatWorkspace({
 
   const approvalInFlight = useRef(false);
   const approveMutation = useApproveRun();
+  const denyMutation = useDenyRun();
 
   const branchMutation = useMutation({
     mutationFn: ({
@@ -372,6 +380,30 @@ function ChatWorkspace({
     [runId, lastRunId, approveMutation.mutate],
   );
 
+  const deny = useCallback(
+    (item: ApprovalRequest): void => {
+      const activeRunId = runId || lastRunId;
+      if (!activeRunId || approvalInFlight.current) return;
+      approvalInFlight.current = true;
+      denyMutation.mutate(
+        { runId: activeRunId, approvalId: item.id },
+        {
+          onSettled: () => {
+            approvalInFlight.current = false;
+          },
+          onSuccess: (data) =>
+            toastSuccess(
+              data.waiting
+                ? `已拒绝 ${item.toolName}；等待中的调用会立即收到拒绝`
+                : '已拒绝工具；本次调用不会执行。',
+            ),
+          onError: (error) => toastError(error),
+        },
+      );
+    },
+    [runId, lastRunId, denyMutation.mutate],
+  );
+
   const openConversation = (id: string): void => {
     if (id !== conversationId) onConversationChange(id);
     setHistoryOpen(false);
@@ -428,9 +460,10 @@ function ChatWorkspace({
   }, [detail.hasNextPage, detail.isFetching, detail.fetchNextPage, running]);
 
   const switchAgent = (id: string | null): void => {
-    if (id === agentId) return;
+    const nextId = id === GENERAL_AGENT_VALUE ? null : id;
+    if (nextId === agentId) return;
     stream.resetWorkspace(null, true);
-    onAgentChange(id);
+    onAgentChange(nextId);
   };
 
   const showWelcome =
@@ -483,6 +516,7 @@ function ChatWorkspace({
       conversationId={conversationId}
       deleting={deleteMutation.isPending}
       agent={agent}
+      agentId={pickerAgentId}
       agentOptions={agentOptions}
       agentsTruncated={agentsTruncated}
       showAgentPicker={desktop ? historyCollapsed : !historyOpen}
@@ -543,6 +577,7 @@ function ChatWorkspace({
       lastRun={lastRun}
       lastRunId={lastRunId}
       approving={approveMutation.isPending ? (approveMutation.variables?.approvalId ?? null) : null}
+      denying={denyMutation.isPending ? (denyMutation.variables?.approvalId ?? null) : null}
       cancelling={cancelMutation.isPending}
       approvalItems={approvalData}
       questionsByToolUseId={questionsByToolUseId}
@@ -550,6 +585,7 @@ function ChatWorkspace({
       onRetryQuestions={() => void runQuestions.refetch()}
       liveRunId={runId}
       onApprove={approve}
+      onDeny={deny}
       onCancel={cancel}
       onPickSuggestion={(text) => {
         setInput(text);
@@ -658,7 +694,7 @@ function ChatWorkspace({
             onNew={newConversation}
             onClose={() => setHistoryOpen(false)}
             agent={agent}
-            agentId={agentId}
+            agentId={pickerAgentId}
             agentOptions={agentOptions}
             agentsTruncated={agentsTruncated}
             onSwitchAgent={switchAgent}
@@ -733,7 +769,7 @@ function ChatWorkspace({
                   <HistoryHeader
                     onNew={newConversation}
                     agent={agent}
-                    agentId={agentId}
+                    agentId={pickerAgentId}
                     agentOptions={agentOptions}
                     agentsTruncated={agentsTruncated}
                     onSwitchAgent={switchAgent}

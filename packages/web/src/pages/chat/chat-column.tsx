@@ -45,6 +45,7 @@ export function ChatColumn({
   lastRun,
   lastRunId,
   approving,
+  denying,
   cancelling,
   approvalItems,
   questionsByToolUseId,
@@ -52,6 +53,7 @@ export function ChatColumn({
   onRetryQuestions,
   liveRunId,
   onApprove,
+  onDeny,
   onCancel,
   onPickSuggestion,
   onBranchMessage,
@@ -82,6 +84,7 @@ export function ChatColumn({
   lastRun: RunMetrics | null;
   lastRunId: string | null;
   approving: string | null;
+  denying: string | null;
   cancelling: boolean;
   approvalItems: ApprovalRequest[];
   questionsByToolUseId: ReadonlyMap<string, PublicRunQuestion>;
@@ -89,6 +92,7 @@ export function ChatColumn({
   onRetryQuestions: () => void;
   liveRunId: string | null;
   onApprove: (item: ApprovalRequest) => void;
+  onDeny: (item: ApprovalRequest) => void;
   onCancel: () => void;
   onPickSuggestion: (text: string) => void;
   onBranchMessage: (conversationId: string, messageId: string) => void;
@@ -144,7 +148,6 @@ export function ChatColumn({
       enabled={agentId === null || agent !== null}
       send={send}
       textareaRef={composerRef}
-      lastRunId={lastRunId}
       welcome={showWelcome}
       historyReady={historyReady}
       cancelling={cancelling}
@@ -156,7 +159,10 @@ export function ChatColumn({
     () => approvalItems.filter((item) => item.approvedAt === null && item.deniedAt === null),
     [approvalItems],
   );
-  const approvals = useMemo(() => ({ pending: approving, onApprove }), [approving, onApprove]);
+  const approvals = useMemo(
+    () => ({ pending: approving, denying, onApprove, onDeny }),
+    [approving, denying, onApprove, onDeny],
+  );
   const runFooter =
     phase.kind !== 'idle' ? (
       <RunFooter phase={phase} items={items} onRetry={onRetryStream} />

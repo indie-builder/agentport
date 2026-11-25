@@ -38,17 +38,6 @@ export function HistoryHeader({
       ) : (
         <div className="flex-1" />
       )}
-      {agent && !agent.isDefault && onSwitchAgent ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="移除专家，回到通用助手"
-          title="移除专家"
-          onClick={() => onSwitchAgent(null)}
-        >
-          <X />
-        </Button>
-      ) : null}
       <Button
         variant="ghost"
         size="icon"

@@ -1,7 +1,6 @@
 import type { AgentSummary } from '@agentport/shared';
 import { ATTACHMENT_LIMITS, attachmentMimeForFilename } from '@agentport/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useLocation } from '@tanstack/react-router';
 import { ArrowUp, CircleStop, FileText, Image, LoaderCircle, Paperclip, X } from 'lucide-react';
 import { type KeyboardEvent as ReactKeyboardEvent, type RefObject, useRef, useState } from 'react';
 import { can } from '../../../lib/access.js';
@@ -59,7 +58,6 @@ export function Composer({
   agent,
   send,
   textareaRef,
-  lastRunId,
   welcome,
   historyReady = true,
   cancelling = false,
@@ -77,7 +75,6 @@ export function Composer({
   agent: AgentSummary | null;
   send: ReturnType<typeof useChatStream>['send'];
   textareaRef: RefObject<HTMLTextAreaElement | null>;
-  lastRunId: string | null;
   welcome: boolean;
   historyReady?: boolean;
   cancelling?: boolean;
@@ -93,7 +90,6 @@ export function Composer({
   placeholder?: string;
 }) {
   const me = useQuery(meQuery);
-  const location = useLocation();
   const canSend = canSendProp ?? can(me.data, 'conversations.create');
   const canCancelRun = can(me.data, 'runs.cancel');
   const storeInput = useChatStore((state) => state.input);
@@ -213,16 +209,6 @@ export function Composer({
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs font-normal text-muted-foreground">
               {canAttach ? <AttachmentPicker disabled={attachmentsLocked} /> : null}
               <span>Enter 发送 · Shift+Enter 换行</span>
-              {lastRunId ? (
-                <Link
-                  to="/runs/$runId"
-                  params={{ runId: lastRunId }}
-                  search={{ backTo: location.href }}
-                  className="inline-flex items-center text-link underline underline-offset-2 hover:text-link/80"
-                >
-                  查看本次运行
-                </Link>
-              ) : null}
             </div>
             {runId && onCancel ? (
               canCancelRun ? (
