@@ -27,6 +27,7 @@ export function ChatTopBar({
   conversationId,
   deleting,
   agent,
+  agentId,
   agentOptions,
   agentsTruncated,
   showAgentPicker,
@@ -47,6 +48,7 @@ export function ChatTopBar({
   conversationId: string | null;
   deleting: boolean;
   agent: AgentSummary | null;
+  agentId?: string | null;
   agentOptions: Array<{ value: string; label: string; agent?: AgentSummary }>;
   agentsTruncated: boolean;
   showAgentPicker: boolean;
@@ -98,7 +100,7 @@ export function ChatTopBar({
         <div className="min-w-0 shrink basis-44">
           <AgentPicker
             agent={agent?.isDefault ? null : agent}
-            agentId={agent?.id ?? null}
+            agentId={agentId ?? agent?.id ?? null}
             agentOptions={agentOptions}
             truncated={agentsTruncated}
             onSwitchAgent={onSwitchAgent}
@@ -107,15 +109,6 @@ export function ChatTopBar({
             disabled={agentOptions.length === 0}
           />
         </div>
-      ) : null}
-      {showAgentPicker && agent && !agent.isDefault ? (
-        <Button
-          variant="ghost"
-          aria-label="移除专家，回到通用助手"
-          onClick={() => onSwitchAgent(null)}
-        >
-          移除专家
-        </Button>
       ) : null}
       <div className="flex min-w-0 flex-1 items-center gap-1">
         <h1
@@ -155,7 +148,7 @@ export function ChatTopBar({
               ) : null}
               {canCreate ? (
                 <DropdownMenuItem disabled={deleting} onSelect={onFork}>
-                  <GitBranch /> Fork 会话
+                  <GitBranch /> 分支会话
                 </DropdownMenuItem>
               ) : null}
               {canDelete ? (

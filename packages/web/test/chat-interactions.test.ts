@@ -192,7 +192,6 @@ describe('composer keyboard handling', () => {
       agent: sampleAgent,
       send,
       textareaRef: { current: null },
-      lastRunId: null,
       welcome: false,
       historyReady: false,
     });
@@ -219,7 +218,6 @@ describe('composer keyboard handling', () => {
       agent: sampleAgent,
       send,
       textareaRef: { current: null },
-      lastRunId: null,
       welcome: false,
     });
 
@@ -240,7 +238,6 @@ describe('composer keyboard handling', () => {
       agent: sampleAgent,
       send,
       textareaRef: { current: null },
-      lastRunId: null,
       welcome: false,
     });
 

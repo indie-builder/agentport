@@ -871,24 +871,27 @@ describe('expert discovery', () => {
     expect(list?.textContent).toContain('Disabled');
   });
 
-  it('clears every filter to all experts when only disabled experts are hidden by the default', async () => {
-    client.setQueryData(['agents'], { items: [disabled], truncated: false });
-    vi.mocked(api.agents).mockResolvedValue({ items: [disabled], nextCursor: null });
+  it('clears every filter back to the default enabled state', async () => {
+    client.setQueryData(['agents'], { items: [agent, disabled], truncated: false });
+    vi.mocked(api.agents).mockResolvedValue({ items: [agent, disabled], nextCursor: null });
     const router = await mount();
-    expect(host.querySelector('[aria-label="专家列表"]')?.textContent).not.toContain('Disabled');
-    expect(host.textContent).toContain('没有匹配的专家');
 
     await act(async () =>
-      router.navigate({ to: '/agents', search: { q: 'missing', role: '数字分身' } }),
+      router.navigate({
+        to: '/agents',
+        search: { q: 'missing', role: '数字分身', status: 'disabled' },
+      }),
     );
     await flush();
+    expect(host.textContent).toContain('没有匹配的专家');
     await click(button('清除筛选'));
     await flush();
 
-    expect(router.state.location.search).toMatchObject({ status: 'all' });
+    expect(router.state.location.search.status).toBeUndefined();
     expect(router.state.location.search.q).toBeUndefined();
     expect(router.state.location.search.role).toBeUndefined();
-    expect(host.querySelector('[aria-label="专家列表"]')?.textContent).toContain('Disabled');
+    expect(host.querySelector('[aria-label="专家列表"]')?.textContent).toContain('Expert');
+    expect(host.querySelector('[aria-label="专家列表"]')?.textContent).not.toContain('Disabled');
   });
 
   it('restores status, sort and role filters after going back', async () => {

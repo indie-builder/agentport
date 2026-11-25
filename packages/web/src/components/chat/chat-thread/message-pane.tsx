@@ -92,7 +92,9 @@ export function MessagePane({
   welcome: ReactNode;
   approvals?: {
     pending: string | null;
+    denying?: string | null;
     onApprove: (item: ApprovalRequest) => void;
+    onDeny?: (item: ApprovalRequest) => void;
   };
   approvalItems: ApprovalRequest[];
   questionsByToolUseId?: ReadonlyMap<string, PublicRunQuestion>;
@@ -216,6 +218,7 @@ export function MessagePane({
                         variant="ghost"
                         size="icon-sm"
                         aria-label="重新生成回复"
+                        title="重新生成回复"
                         disabled={running || Boolean(regenerating)}
                         onClick={() => onRegenerate()}
                         className="shrink-0"
@@ -284,7 +287,9 @@ export function MessagePane({
                                         kids={structure.kids}
                                         approvalHosts={approvalHosts}
                                         pending={approvals?.pending ?? null}
+                                        denying={approvals?.denying ?? null}
                                         onApprove={approvals?.onApprove}
+                                        onDeny={approvals?.onDeny}
                                         questionsByToolUseId={questionsByToolUseId}
                                         liveRunId={liveRunId ?? null}
                                         live={latest && running}
@@ -298,7 +303,9 @@ export function MessagePane({
                                       kids={structure.kids.get(item.toolUseId) ?? NO_KIDS}
                                       approvalHosts={approvalHosts}
                                       pending={approvals?.pending ?? null}
+                                      denying={approvals?.denying ?? null}
                                       onApprove={approvals?.onApprove}
+                                      onDeny={approvals?.onDeny}
                                       questionsByToolUseId={questionsByToolUseId}
                                       liveRunId={liveRunId ?? null}
                                     />
@@ -367,8 +374,12 @@ export function MessagePane({
                                         <ApprovalCard
                                           key={item.id}
                                           item={item}
-                                          pending={approvals?.pending ?? null}
-                                          onApprove={approvals?.onApprove}
+                                          pending={approvals.pending}
+                                          denying={approvals.denying ?? null}
+                                          onApprove={approvals.onApprove}
+                                          {...(approvals.onDeny
+                                            ? { onDeny: approvals.onDeny }
+                                            : {})}
                                         />
                                       ))
                                   : null}
@@ -420,8 +431,13 @@ export function MessagePane({
                               variant="ghost"
                               size="icon-sm"
                               aria-label="从这条消息分支"
+                              title="从这条消息分支"
                               disabled={branchingMessageId !== null || running}
                               onClick={() => onBranchMessage(messageId)}
+                              className={cn(
+                                'opacity-0 transition-opacity duration-150 ease-out-soft group-hover/turn:opacity-100 group-focus-within/turn:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none',
+                                branchingMessageId === messageId && 'opacity-100',
+                              )}
                             >
                               {branchingMessageId === messageId ? (
                                 <LoaderCircle className="animate-spin" aria-hidden="true" />

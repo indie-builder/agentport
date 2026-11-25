@@ -255,14 +255,14 @@ const runColumns: DataColumn<RecentRun>[] = [
   {
     id: 'status',
     header: '状态',
-    width: '96px',
+    width: 'minmax(140px,1.2fr)',
     sortValue: (run) => run.status,
     cell: (run) => (
-      <div className="flex items-center gap-1">
+      <div className="flex min-w-0 items-center gap-2">
         <RunStatusBadge status={run.status} />
         {run.error ? (
-          <span title={run.error}>
-            <StatusBadge tone="danger">错误</StatusBadge>
+          <span className="min-w-0 line-clamp-1 text-xs text-danger" title={run.error}>
+            {run.error}
           </span>
         ) : null}
       </div>
@@ -374,7 +374,7 @@ export function RunTrendCard({ days }: { days: number }) {
   const firstLoadFailed = isError && data === undefined;
 
   return (
-    <Card className="min-w-0">
+    <Card hover="static" className="min-w-0">
       <CardHeader>
         <CardTitle>运行趋势</CardTitle>
       </CardHeader>
@@ -717,11 +717,11 @@ export function OverviewPage() {
           <PageNote
             icon={<Bot className="size-4" aria-hidden="true" />}
             title="开始配置"
-            description="三步开始：接入一个 MCP Server → 创建专家并绑定它 → 在对话里使用。"
+            description="三步开始：接入一个连接器 → 创建专家并绑定它 → 在对话里使用。"
             action={
               canReadServers ? (
                 <Link to="/servers" className={cn(buttonVariants({ size: 'sm' }))}>
-                  <Plus className="size-3.5" /> 接入 MCP Server
+                  <Plus className="size-3.5" /> 接入连接器
                 </Link>
               ) : undefined
             }

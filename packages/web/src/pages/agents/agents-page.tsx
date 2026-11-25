@@ -121,6 +121,7 @@ export function AgentsPage() {
   const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null);
   const [importing, setImporting] = useState(false);
   const [pendingImport, setPendingImport] = useState<File | null>(null);
+  const [pendingFavoriteIds, setPendingFavoriteIds] = useState<Set<string>>(() => new Set());
   const [badgeId, setBadgeId] = useState<string | null>(null);
   const badgeTriggerRef = useRef<HTMLElement | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -448,7 +449,7 @@ export function AgentsPage() {
                         favorite: undefined,
                         lifecycle: undefined,
                         order: undefined,
-                        status: 'all',
+                        status: undefined,
                       },
                     })
                   }
@@ -529,6 +530,9 @@ export function AgentsPage() {
                 (agent.ownerBusinessId === currentBusinessId || can(me.data, 'agents.transfer'));
               const isArchived = agent.archivedAt != null;
               const isDeleted = agent.deletedAt != null;
+              const tags = agent.tags ?? [];
+              const visibleTags = tags.slice(0, 3);
+              const overflowTags = tags.slice(3);
               const lastUsedAt = formatLastUsed(agent.lastUsedAt);
               const unavailableTitle = isDeleted
                 ? '专家已删除，恢复后才能开始对话'
@@ -556,7 +560,7 @@ export function AgentsPage() {
                                 search={{ backTo: location.href }}
                                 title={agent.name}
                                 disabled={importing}
-                                className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                className="block min-w-0 truncate rounded-item text-base font-medium text-fg transition-colors hover:text-primary hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               >
                                 {agent.name}
                               </Link>
@@ -577,9 +581,9 @@ export function AgentsPage() {
                             <StatusBadge className="shrink-0">已删除</StatusBadge>
                           ) : null}
                         </div>
-                        {(agent.tags ?? []).length > 0 ? (
+                        {visibleTags.length > 0 ? (
                           <div className="flex flex-wrap gap-1">
-                            {(agent.tags ?? []).map((item) => (
+                            {visibleTags.map((item) => (
                               <span
                                 key={item}
                                 className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground"
@@ -587,6 +591,14 @@ export function AgentsPage() {
                                 {item}
                               </span>
                             ))}
+                            {overflowTags.length > 0 ? (
+                              <span
+                                title={overflowTags.join('、')}
+                                className="rounded-tag bg-chip px-1.5 py-0.5 text-2xs text-muted-foreground"
+                              >
+                                +{overflowTags.length}
+                              </span>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
@@ -598,13 +610,25 @@ export function AgentsPage() {
                             agent.isFavorite ? `取消收藏 ${agent.name}` : `收藏 ${agent.name}`
                           }
                           aria-pressed={agent.isFavorite}
-                          disabled={favorite.isPending || isArchived || isDeleted}
-                          onClick={() =>
-                            favorite.mutate(
-                              { id: agent.id, favorite: !agent.isFavorite },
-                              { onError: toastError },
-                            )
-                          }
+                          disabled={pendingFavoriteIds.has(agent.id) || isArchived || isDeleted}
+                          onClick={() => {
+                            if (pendingFavoriteIds.has(agent.id)) return;
+                            setPendingFavoriteIds((prev) => {
+                              const next = new Set(prev);
+                              next.add(agent.id);
+                              return next;
+                            });
+                            void favorite
+                              .mutateAsync({ id: agent.id, favorite: !agent.isFavorite })
+                              .catch(toastError)
+                              .finally(() => {
+                                setPendingFavoriteIds((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(agent.id);
+                                  return next;
+                                });
+                              });
+                          }}
                         >
                           <Star className={agent.isFavorite ? 'fill-current' : undefined} />
                         </Button>
@@ -786,22 +810,17 @@ export function AgentsPage() {
           <DialogClose
             render={
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="pointer-events-auto absolute right-4 top-4 z-20"
+                className="pointer-events-auto absolute right-4 top-4 z-20 bg-surface"
               />
             }
           >
             关闭
           </DialogClose>
-          <section
-            // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
-            tabIndex={0}
-            aria-label="工牌内容"
-            className="pointer-events-none flex min-h-0 w-full flex-1 flex-col items-center overscroll-contain"
-          >
+          <div className="pointer-events-none flex min-h-0 w-full flex-1 flex-col items-center overscroll-contain">
             {badgeAgent ? <AgentEmployeeBadge agent={badgeAgent} /> : null}
-          </section>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -987,7 +1006,12 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
           <path d="M25 28 H39" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
         </svg>
       </div>
-      <div className="pointer-events-auto flex min-h-0 w-full flex-1 items-start justify-center overflow-y-auto overscroll-contain px-6 pt-1.5 pb-8">
+      <section
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动容器必须进入键盘序列才能滚动
+        tabIndex={0}
+        aria-label="工牌内容"
+        className="pointer-events-auto flex min-h-0 w-full flex-1 items-start justify-center overflow-y-auto overscroll-contain px-6 pt-1.5 pb-8"
+      >
         <div className="relative z-0 flex min-h-[480px] w-full max-w-[360px] flex-col gap-5 rounded-[24px] border border-line bg-surface p-6 shadow-sm">
           <div
             aria-hidden="true"
@@ -1085,7 +1109,7 @@ function AgentEmployeeBadge({ agent }: { agent: AgentSummary }) {
             <span className="font-mono text-2xs break-all text-muted-foreground">{agent.id}</span>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

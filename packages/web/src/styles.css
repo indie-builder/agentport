@@ -37,7 +37,7 @@
   --color-link: var(--color-fg);
   --color-muted: var(--color-sunken);
   --color-subtle: #898781;
-  --color-control-boundary: rgba(0, 0, 0, 0.35);
+  --color-control-boundary: rgba(0, 0, 0, 0.48);
 
   --color-chart-runs: #2a78d6;
   --color-chart-failed: var(--color-danger);
@@ -141,7 +141,7 @@
   --color-destructive-foreground: #ffffff;
   --color-border: var(--color-line);
   --color-input: var(--color-line);
-  --color-input-focus: #bdbdbd;
+  --color-input-focus: var(--color-subtle);
   --color-ring: var(--color-fg);
 
   --shadow-overlay: 0 0 0 var(--hairline) rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
@@ -472,12 +472,6 @@
 
   .saved-check-decay {
     animation: saved-check-decay .35s var(--ease-out) 2.2s forwards;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .saved-check-decay {
-      animation: none;
-    }
   }
 
   .cds-btn-squish {

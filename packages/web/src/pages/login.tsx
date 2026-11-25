@@ -79,8 +79,8 @@ export function LoginPage() {
 
   return (
     <main className="min-h-dvh min-w-0 bg-surface">
-      <div className="grid min-h-dvh grid-cols-2">
-        <aside className="relative flex flex-col justify-between overflow-hidden border-r border-line bg-sidebar p-12">
+      <div className="grid min-h-dvh grid-cols-1 lg:grid-cols-2">
+        <aside className="relative hidden flex-col justify-between overflow-hidden border-r border-line bg-sidebar p-12 lg:flex">
           <Button
             type="button"
             variant="plain"
@@ -103,7 +103,18 @@ export function LoginPage() {
         </aside>
         <section className="flex min-h-dvh min-w-0 items-center justify-center px-6 py-12">
           <div className="w-full min-w-0 max-w-sm">
-            <h1 className="text-2xl font-semibold tracking-tight text-fg">登录 PACE</h1>
+            <div className="mb-8 lg:hidden">
+              <Button
+                type="button"
+                variant="plain"
+                aria-label="切换 PACE Logo"
+                className="h-auto p-0"
+                onClick={animateBrand}
+              >
+                <Brand className="h-8" />
+              </Button>
+            </div>
+            <h1 className="text-2xl font-medium tracking-[-0.02em] text-fg">登录 PACE</h1>
             <p className="mt-2 text-sm text-muted-foreground">使用账号登录，继续你的智能体工作。</p>
             <form
               className="mt-8"
@@ -134,7 +145,7 @@ export function LoginPage() {
                     disabled={login.isPending}
                     aria-invalid={Boolean(errors.username)}
                     aria-describedby={errors.username ? 'username-error' : undefined}
-                    {...register('username')}
+                    {...register('username', { onChange: () => setError(null) })}
                   />
                   <FieldError id="username-error">{errors.username?.message}</FieldError>
                 </Field>
@@ -153,7 +164,7 @@ export function LoginPage() {
                         aria-describedby={errors.password ? 'password-error' : undefined}
                         onKeyDown={(event) => setCapsLock(event.getModifierState('CapsLock'))}
                         onKeyUp={(event) => setCapsLock(event.getModifierState('CapsLock'))}
-                        {...register('password')}
+                        {...register('password', { onChange: () => setError(null) })}
                       />
                       <Button
                         type="button"
@@ -169,7 +180,13 @@ export function LoginPage() {
                       </Button>
                     </div>
                     {capsLock ? (
-                      <p className="mt-1.5 text-xs text-muted-foreground">大写锁定已开启</p>
+                      <p
+                        role="status"
+                        aria-live="polite"
+                        className="mt-1.5 text-xs text-muted-foreground"
+                      >
+                        大写锁定已开启
+                      </p>
                     ) : null}
                   </div>
                   <FieldError id="password-error">{errors.password?.message}</FieldError>
@@ -180,7 +197,7 @@ export function LoginPage() {
                 <Button
                   type="submit"
                   variant="solid"
-                  className="h-11 w-full"
+                  className="h-11 w-full border-line-strong"
                   disabled={login.isPending}
                   aria-busy={login.isPending}
                 >

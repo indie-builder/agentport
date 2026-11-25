@@ -81,7 +81,7 @@ export function ConfirmDialog({
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button
-            variant="outline"
+            variant="ghost"
             onClick={() => {
               onCancel?.();
               dialog.close();

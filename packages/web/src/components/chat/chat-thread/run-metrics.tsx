@@ -1,6 +1,9 @@
+import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation } from '@tanstack/react-router';
+import { can } from '../../../lib/access.js';
 import type { RunMetrics, RunOutcome } from '../../../lib/chat-store.js';
 import { formatCost, formatDuration, formatTokens, shortId } from '../../../lib/format.js';
+import { meQuery } from '../../../lib/queries.js';
 
 const outcomeLabel: Record<RunOutcome, string> = {
   succeeded: '完成',
@@ -11,6 +14,8 @@ const outcomeLabel: Record<RunOutcome, string> = {
 
 export function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string }) {
   const location = useLocation();
+  const me = useQuery(meQuery);
+  const canReadRuns = can(me.data, 'runs.read');
   const tone =
     run.status === 'succeeded'
       ? 'text-success'
@@ -45,16 +50,20 @@ export function RunMetricsLine({ run, title }: { run: RunMetrics; title?: string
             <span>{formatCost(run.costUsd)}</span>
           </>
         ) : null}
-        <span aria-hidden="true">·</span>
-        <Link
-          to="/runs/$runId"
-          params={{ runId: run.runId }}
-          search={{ backTo: location.href }}
-          aria-label={`查看详情：运行 ${shortId(run.runId)}`}
-          className="text-link underline underline-offset-2 hover:text-link/80"
-        >
-          查看详情
-        </Link>
+        {canReadRuns ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <Link
+              to="/runs/$runId"
+              params={{ runId: run.runId }}
+              search={{ backTo: location.href }}
+              aria-label={`查看详情：运行 ${shortId(run.runId)}`}
+              className="text-link underline underline-offset-2 hover:text-link/80"
+            >
+              查看详情
+            </Link>
+          </>
+        ) : null}
       </div>
       {run.error ? <p className="break-words text-sm text-danger">{run.error}</p> : null}
     </div>

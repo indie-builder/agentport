@@ -139,9 +139,6 @@ function message() {
   if (!input) throw new Error('Missing message input');
   return input;
 }
-function runLink() {
-  return [...host.querySelectorAll('a')].find((link) => link.textContent === '查看本次运行');
-}
 async function type(text: string) {
   await act(async () => {
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
@@ -612,8 +609,11 @@ describe('confirmed chat UX defects', () => {
     for (const serverId of ['server-a', 'server-b']) {
       const card = cards.find((item) => item.textContent?.includes(serverId));
       expect(card, `approval identity for ${serverId}`).toBeDefined();
-      expect(card?.querySelector('button')?.getAttribute('aria-label')).toBe(
+      expect(card?.querySelector('button[aria-label^="批准 "]')?.getAttribute('aria-label')).toBe(
         `批准 ${serverId} / write`,
+      );
+      expect(card?.querySelector('button[aria-label^="拒绝 "]')?.getAttribute('aria-label')).toBe(
+        `拒绝 ${serverId} / write`,
       );
     }
     const second = host.querySelector<HTMLButtonElement>(
@@ -624,7 +624,7 @@ describe('confirmed chat UX defects', () => {
   });
 
   it.each(['reject', 'accept'] as const)(
-    'clears the old run link before follow-up %s',
+    'clears the old run id before follow-up %s',
     async (outcome) => {
       let resolve!: (accepted: ChatAccepted) => void;
       let reject!: (error: Error) => void;
@@ -635,22 +635,22 @@ describe('confirmed chat UX defects', () => {
         }),
       );
       await mount('/chat?agent=agent-a&conversation=conversation-a');
-      expect(runLink()?.getAttribute('href')).toMatch(/^\/runs\/run-old\?backTo=/);
+      expect(useChatStore.getState().lastRunId).toBe('run-old');
       await type('follow-up');
       await act(async () =>
         host.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')?.click(),
       );
-      expect(runLink()).toBeUndefined();
+      expect(useChatStore.getState().lastRunId).toBeNull();
       await act(async () => {
         if (outcome === 'reject') reject(new Error('Send rejected'));
         else resolve({ runId: 'run-new', conversationId: 'conversation-a' });
       });
       await flush();
       if (outcome === 'reject') {
-        expect(runLink()).toBeUndefined();
+        expect(useChatStore.getState().lastRunId).toBeNull();
         expect(message().value).toBe('follow-up');
         expect(host.textContent).toContain('Send rejected');
-      } else expect(runLink()?.getAttribute('href')).toMatch(/^\/runs\/run-new\?backTo=/);
+      } else expect(useChatStore.getState().lastRunId).toBe('run-new');
     },
   );
 });
@@ -721,7 +721,7 @@ describe('live terminal outcomes across a follow-up send', () => {
     expect(oldTurn?.textContent).toContain('first prompt');
     expect(oldTurn?.textContent).not.toContain('second prompt');
     expect(oldLink?.closest('[class*="transition-opacity"]')?.className).toContain('opacity-100');
-    expect(runLink()?.getAttribute('href')).toMatch(/^\/runs\/run-b\?backTo=/);
+    expect(useChatStore.getState().lastRunId).toBe('run-b');
 
     await emit({ type: 'text_delta', text: 'second reply', blockIndex: 0 }, 1);
     await emit(
@@ -746,7 +746,7 @@ describe('live terminal outcomes across a follow-up send', () => {
     expect(replyTurn?.querySelectorAll('a[href^="/runs/run-b"]')).toHaveLength(1);
     expect(replyTurn?.textContent).toContain('完成');
     expect(host.querySelectorAll('a[href^="/runs/run-a"]')).toHaveLength(1);
-    expect(host.querySelectorAll('a[href^="/runs/run-b"]')).toHaveLength(2);
+    expect(host.querySelectorAll('a[href^="/runs/run-b"]')).toHaveLength(1);
   });
 
   it('keeps a cancelled turn without output after the next send', async () => {
@@ -765,7 +765,7 @@ describe('live terminal outcomes across a follow-up send', () => {
     expect(oldTurn?.textContent).toContain('first prompt');
     expect(oldTurn?.textContent).toContain('已停止');
     expect(oldTurn?.textContent).not.toContain('second prompt');
-    expect(runLink()?.getAttribute('href')).toMatch(/^\/runs\/run-b\?backTo=/);
+    expect(useChatStore.getState().lastRunId).toBe('run-b');
   });
 
   it('keeps a completed reply and its readout after the next send', async () => {
@@ -1223,15 +1223,22 @@ describe('chat shell layout', () => {
       expect.any(AbortSignal),
     );
     expect(message().value).toBe('unfinished draft');
-    await act(async () =>
-      host.querySelector<HTMLButtonElement>('[aria-label="移除专家，回到通用助手"]')?.click(),
+    const nextPicker = host.querySelector<HTMLButtonElement>(
+      '[aria-label="切换专家：Other Expert"]',
     );
+    if (!nextPicker) throw new Error('Missing expert picker');
+    await act(async () => nextPicker.click());
+    await flush();
+    const generalOption = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (item) => item.textContent?.includes('通用助手'),
+    );
+    if (!generalOption) throw new Error('Missing general assistant option');
+    await act(async () => generalOption.click());
     await flush();
     expect(router.state.location.search).toEqual({});
     expect(useChatStore.getState().items).toEqual([]);
     expect(message().value).toBe('unfinished draft');
     expect(host.querySelector('[aria-label="召唤专家"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label="移除专家，回到通用助手"]')).toBeNull();
     expect(remove).not.toHaveBeenCalled();
   });
 
@@ -1566,7 +1573,7 @@ describe('conversation header menu', () => {
     await mount('/chat?agent=agent-a&conversation=conversation-a');
     await openMenu();
     expect(menuItem('重命名')).toBeDefined();
-    expect(menuItem('Fork 会话')).toBeDefined();
+    expect(menuItem('分支会话')).toBeDefined();
     expect(menuItem('删除会话')).toBeDefined();
   });
 

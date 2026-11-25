@@ -163,9 +163,11 @@ export function AgentPicker({
                 )}
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="min-w-0 break-words text-sm text-fg">{label}</span>
-                  <span className="min-w-0 break-words text-xs text-muted-foreground">
-                    {option.agent?.role?.trim() || '通用助手'}
-                  </span>
+                  {option.agent ? (
+                    <span className="min-w-0 break-words text-xs text-muted-foreground">
+                      {option.agent.role?.trim() || '通用助手'}
+                    </span>
+                  ) : null}
                 </span>
               </ComboboxItem>
             ))

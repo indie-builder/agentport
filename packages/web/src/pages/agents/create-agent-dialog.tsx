@@ -127,7 +127,7 @@ export function CreateAgentDialog({
         finalFocus={finalFocus}
         footer={
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={close} disabled={create.isPending}>
+            <Button variant="ghost" onClick={close} disabled={create.isPending}>
               取消
             </Button>
             <Button
@@ -281,7 +281,8 @@ export function CreateAgentDialog({
               disabled={create.isPending}
               id="new-agent-prompt"
               rows={6}
-              className="font-mono text-xs"
+              placeholder="描述这位专家的职责范围、回答风格与注意事项…"
+              className="text-sm"
             />
           </Field>
           <Collapsible
@@ -447,7 +448,7 @@ export function DuplicateAgentDialog({
         finalFocus={getReturnFocus}
         footer={
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={close} disabled={duplicate.isPending}>
+            <Button variant="ghost" onClick={close} disabled={duplicate.isPending}>
               取消
             </Button>
             <Button
@@ -496,7 +497,7 @@ export function DuplicateAgentDialog({
               data-invalid={Boolean(errors.slug)}
             >
               <FieldLabel htmlFor="duplicate-agent-slug">
-                Slug
+                标识
                 <RequiredMark />
               </FieldLabel>
               <Input

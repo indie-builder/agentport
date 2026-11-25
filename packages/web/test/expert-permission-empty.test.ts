@@ -275,6 +275,6 @@ describe('agent list empty state follows agent permissions', () => {
     if (!clear) throw new Error('Missing clear filters button');
     await click(clear);
     await waitFor(() => router.state.location.search.q === undefined);
-    expect(router.state.location.search.status).toBe('all');
+    expect(router.state.location.search.status).toBeUndefined();
   });
 });

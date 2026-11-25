@@ -66,7 +66,9 @@ export const TurnTrace = memo(function TurnTrace({
   kids,
   approvalHosts,
   pending,
+  denying,
   onApprove,
+  onDeny,
   questionsByToolUseId,
   liveRunId,
   live,
@@ -75,7 +77,9 @@ export const TurnTrace = memo(function TurnTrace({
   kids: ReadonlyMap<string, ToolItem[]>;
   approvalHosts: ReadonlyMap<string, ApprovalRequest>;
   pending: string | null;
+  denying?: string | null;
   onApprove: ((item: ApprovalRequest) => void) | undefined;
+  onDeny?: ((item: ApprovalRequest) => void) | undefined;
   questionsByToolUseId?: ReadonlyMap<string, PublicRunQuestion> | undefined;
   liveRunId: string | null;
   live: boolean;
@@ -114,7 +118,9 @@ export const TurnTrace = memo(function TurnTrace({
                 kids={kids.get(root.toolUseId) ?? NO_KIDS}
                 approvalHosts={approvalHosts}
                 pending={pending}
+                denying={denying ?? null}
                 onApprove={onApprove}
+                onDeny={onDeny}
                 questionsByToolUseId={questionsByToolUseId}
                 liveRunId={liveRunId}
               />
@@ -131,7 +137,9 @@ export const ToolGroup = memo(function ToolGroup({
   kids,
   approvalHosts,
   pending,
+  denying,
   onApprove,
+  onDeny,
   questionsByToolUseId,
   liveRunId,
 }: {
@@ -139,7 +147,9 @@ export const ToolGroup = memo(function ToolGroup({
   kids: ToolItem[];
   approvalHosts: ReadonlyMap<string, ApprovalRequest>;
   pending: string | null;
+  denying?: string | null;
   onApprove: ((item: ApprovalRequest) => void) | undefined;
+  onDeny?: ((item: ApprovalRequest) => void) | undefined;
   questionsByToolUseId?: ReadonlyMap<string, PublicRunQuestion> | undefined;
   liveRunId: string | null;
 }) {
@@ -162,7 +172,13 @@ export const ToolGroup = memo(function ToolGroup({
           />
         )}
         {approval && onApprove ? (
-          <ApprovalCard item={approval} pending={pending} onApprove={onApprove} />
+          <ApprovalCard
+            item={approval}
+            pending={pending}
+            denying={denying ?? null}
+            onApprove={onApprove}
+            {...(onDeny ? { onDeny } : {})}
+          />
         ) : null}
       </div>
       {kids.map((child) => {
@@ -180,7 +196,13 @@ export const ToolGroup = memo(function ToolGroup({
               <ToolRow item={child} nested={true} childCount={0} />
             )}
             {childApproval && onApprove ? (
-              <ApprovalCard item={childApproval} pending={pending} onApprove={onApprove} />
+              <ApprovalCard
+                item={childApproval}
+                pending={pending}
+                denying={denying ?? null}
+                onApprove={onApprove}
+                {...(onDeny ? { onDeny } : {})}
+              />
             ) : null}
           </div>
         );
