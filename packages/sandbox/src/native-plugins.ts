@@ -165,9 +165,12 @@ function parseList(stdout: string): ListedPlugin[] {
     return fail('列表', 'CLI 返回的插件目录不是合法 JSON');
   }
   if (!Array.isArray(raw)) return fail('列表', 'CLI 插件目录格式无效');
-  return raw.map((entry: unknown) => {
+  return raw.flatMap((entry: unknown) => {
     if (typeof entry !== 'object' || entry === null) return fail('列表', '插件条目格式无效');
     const { id, version, installPath } = entry as Record<string, unknown>;
+    if (typeof id === 'string' && id.endsWith('@builtin') && installPath === undefined) {
+      return [];
+    }
     if (typeof id !== 'string' || typeof installPath !== 'string') {
       return fail('列表', '插件条目缺少 id 或 installPath');
     }
@@ -176,7 +179,7 @@ function parseList(stdout: string): ListedPlugin[] {
       version: typeof version === 'string' ? version : '',
     });
     if (!parsed.success) return fail('列表', `插件标识无效：${id}`);
-    return { ...parsed.data, installPath };
+    return [{ ...parsed.data, installPath }];
   });
 }
 

@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@agentport/shared": "workspace:*",
-    "@openuidev/lang-core": "1.1.1",
+    "@openuidev/lang-core": "1.2.0",
     "acorn": "8.19.0",
     "effect": "catalog:",
     "file-type": "22.3.0",
