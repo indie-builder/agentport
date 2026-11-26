@@ -1,5 +1,4 @@
 import type { AgentSummary, OpenUiAction, OutputFile, PublicRunQuestion } from '@agentport/shared';
-import { Check, MessageSquare, Pencil, Wrench } from 'lucide-react';
 import { type ReactNode, type RefObject, useCallback, useMemo, useRef } from 'react';
 import {
   Composer,
@@ -26,7 +25,7 @@ import type {
   OpenUiStateSaveInput,
   OpenUiToolCallInput,
 } from '../../openui/renderer.js';
-import { WelcomeState } from './welcome-state.js';
+import { WelcomeState, welcomeSuggestionsFor } from './welcome-state.js';
 
 export function ChatColumn({
   header,
@@ -248,7 +247,11 @@ export function ChatColumn({
           streaming={phase.kind !== 'idle'}
           onAction={openUiAction}
           openUiSnapshot={openUiSnapshot}
-          welcome={showWelcome ? <WelcomeState /> : null}
+          welcome={
+            showWelcome && (agentId === null || agent !== null) ? (
+              <WelcomeState agent={agent} />
+            ) : null
+          }
         />
 
         <div aria-live="polite" role="status" className="sr-only">
@@ -277,7 +280,7 @@ export function ChatColumn({
 
         {showWelcome && (agentId === null || agent !== null) ? (
           <div className="mx-auto flex w-full max-w-220 shrink-0 flex-wrap gap-2 px-6 pb-2">
-            {welcomeSuggestions.map(({ label, icon: Icon, prompt }) => (
+            {welcomeSuggestionsFor(agent).map(({ label, icon: Icon, prompt }) => (
               <Button
                 key={label}
                 variant="outline"
@@ -296,22 +299,3 @@ export function ChatColumn({
     </Page>
   );
 }
-
-const welcomeSuggestions = [
-  {
-    label: '梳理思路',
-    icon: MessageSquare,
-    prompt: '帮我梳理一个想法，先通过提问了解我的目标，再整理出重点。',
-  },
-  {
-    label: '制定计划',
-    icon: Check,
-    prompt: '帮我把一个目标拆成可执行的步骤，先询问我需要完成什么。',
-  },
-  {
-    label: '整理内容',
-    icon: Pencil,
-    prompt: '帮我整理一段内容，先询问我需要整理的材料和期望的输出。',
-  },
-  { label: '分析问题', icon: Wrench, prompt: '帮我分析一个问题，先了解背景、现象和已有尝试。' },
-] as const;
