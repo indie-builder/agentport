@@ -12,7 +12,21 @@ import {
   type RuntimeEnvironmentVersion,
   type RuntimeEnvironmentVersionSummary,
 } from '@agentport/shared';
-import { and, asc, desc, eq, gt, inArray, isNotNull, ne, or, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  ne,
+  notExists,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { Database, DbHandle } from '../client.js';
 import { newId } from '../id.js';
 import { agents, runtimeEnvironments, runtimeEnvironmentVersions } from '../schema.js';
@@ -599,4 +613,98 @@ export async function resolveOnlineRuntimeEnvironment(
     versionId: row.versionId,
     imageId: row.imageId,
   };
+}
+
+export interface StaleOnlineRuntimeEnvironment {
+  environmentId: string;
+  environmentName: string;
+  onlineVersionId: string;
+  onlineBaseImageId: string;
+}
+
+export async function listStaleOnlineRuntimeEnvironments(
+  db: Database,
+  currentBaseImageId: string,
+  sandboxImage: string,
+): Promise<StaleOnlineRuntimeEnvironment[]> {
+  const online = alias(runtimeEnvironmentVersions, 'online_version');
+  const attempted = alias(runtimeEnvironmentVersions, 'attempted_version');
+  const baseCandidates =
+    currentBaseImageId === sandboxImage ? [currentBaseImageId] : [currentBaseImageId, sandboxImage];
+  const blockingAttempt = db
+    .select({ id: attempted.id })
+    .from(attempted)
+    .where(
+      and(
+        eq(attempted.environmentId, runtimeEnvironments.id),
+        or(
+          and(
+            inArray(attempted.baseImageId, baseCandidates),
+            inArray(attempted.status, ['queued', 'building']),
+          ),
+          and(
+            eq(attempted.baseImageId, currentBaseImageId),
+            eq(attempted.status, 'failed'),
+            eq(attempted.dockerfile, runtimeEnvironments.dockerfile),
+          ),
+        ),
+      ),
+    );
+  return db
+    .select({
+      environmentId: runtimeEnvironments.id,
+      environmentName: runtimeEnvironments.name,
+      onlineVersionId: online.id,
+      onlineBaseImageId: online.baseImageId,
+    })
+    .from(runtimeEnvironments)
+    .innerJoin(
+      online,
+      and(
+        eq(online.id, runtimeEnvironments.onlineVersionId),
+        eq(online.environmentId, runtimeEnvironments.id),
+      ),
+    )
+    .where(
+      and(
+        eq(online.status, 'ready'),
+        ne(online.baseImageId, currentBaseImageId),
+        notExists(blockingAttempt),
+      ),
+    )
+    .orderBy(asc(runtimeEnvironments.createdAt), asc(runtimeEnvironments.id));
+}
+
+export async function publishRuntimeEnvironmentVersionIfOnlineMatches(
+  db: Database,
+  environmentId: string,
+  versionId: string,
+  expectedOnlineVersionId: string,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({ onlineVersionId: runtimeEnvironments.onlineVersionId })
+      .from(runtimeEnvironments)
+      .where(eq(runtimeEnvironments.id, environmentId))
+      .limit(1)
+      .for('update');
+    if (!locked || locked.onlineVersionId !== expectedOnlineVersionId) return false;
+    const [version] = await tx
+      .select({ status: runtimeEnvironmentVersions.status })
+      .from(runtimeEnvironmentVersions)
+      .where(
+        and(
+          eq(runtimeEnvironmentVersions.id, versionId),
+          eq(runtimeEnvironmentVersions.environmentId, environmentId),
+        ),
+      )
+      .limit(1);
+    if (version?.status !== 'ready') return false;
+    const updated = await tx
+      .update(runtimeEnvironments)
+      .set({ onlineVersionId: versionId, updatedAt: new Date() })
+      .where(eq(runtimeEnvironments.id, environmentId))
+      .returning({ id: runtimeEnvironments.id });
+    return updated.length > 0;
+  });
 }

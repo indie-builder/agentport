@@ -169,6 +169,7 @@ async function waitFor(check: () => boolean, timeoutMs = 2_000): Promise<void> {
 
 function fakeStore(
   claim: RuntimeEnvironmentBuildClaim | null = {
+    environmentId: 'env_test',
     versionId: 'ver_test',
     dockerfile: DOCKERFILE,
     baseImageId: SANDBOX_IMAGE,
@@ -509,6 +510,7 @@ describe('createRuntimeEnvironmentBuildHandler', () => {
     const frozenBase = 'frozen/sandbox:old';
     const fake = fakeDocker(dockerResponder({ baseImage: frozenBase }));
     const { store, calls } = fakeStore({
+      environmentId: 'env_test',
       versionId: 'ver_test',
       dockerfile: DOCKERFILE,
       baseImageId: frozenBase,
